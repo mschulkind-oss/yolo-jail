@@ -25,6 +25,7 @@ run-path path *args:
         -v ${HOME}/.config/gcloud:/home/agent/.config/gcloud \
         -v ${HOME}/.gemini:/home/agent/.gemini \
         -v ${HOME}/.dotfiles/gemini/settings.json:/home/agent/.gemini/settings.json \
+        --tmpfs /tmp \
         -e HOME=/home/agent \
         -e XDG_CONFIG_HOME=/home/agent/.config \
         -e MISE_DATA_DIR=/mise \
