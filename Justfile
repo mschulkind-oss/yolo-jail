@@ -20,10 +20,11 @@ run-path path:
         -v {{path}}:/workspace \
         -v $(pwd)/.home:/home/agent \
         -v $(pwd)/.mise-cache:/mise \
-        -v ${HOME}/.config/gh:/home/agent/.config/gh:ro \
-        -v ${HOME}/.config/gemini-cli:/home/agent/.config/gemini-cli:ro \
-        -v ${HOME}/.config/gcloud:/home/agent/.config/gcloud:ro \
+        -v ${HOME}/.config/gh:/home/agent/.config/gh \
+        -v ${HOME}/.config/gemini-cli:/home/agent/.config/gemini-cli \
+        -v ${HOME}/.config/gcloud:/home/agent/.config/gcloud \
         -e HOME=/home/agent \
+        -e XDG_CONFIG_HOME=/home/agent/.config \
         -e MISE_DATA_DIR=/mise \
         -e MISE_CONFIG_DIR=/workspace \
         -e MISE_TRUST=1 \
