@@ -37,10 +37,15 @@
             pkgs.fd
             pkgs.curl
             pkgs.cacert
-            pkgs.mise      # Tool manager (Python, Node, etc.)
-            pkgs.nodejs    # Required for gemini-cli / copilot
+            pkgs.mise      # Tool manager
+            pkgs.nodejs_22 # Use a specific stable version
+            pkgs.python3   # Bootstrap for mise plugins
             pkgs.gh        # GitHub CLI
-            # We explicitly exclude findutils, gnugrep, and prevent package managers
+            pkgs.bashInteractive
+            pkgs.coreutils-full
+            pkgs.gnused
+            pkgs.gnugrep   # We will shim these later, but we need the originals for some scripts
+            pkgs.findutils
           ];
 
           config = {

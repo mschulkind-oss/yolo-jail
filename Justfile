@@ -22,6 +22,8 @@ run:
         -e HOME=/home/agent \
         -e MISE_DATA_DIR=/mise \
         -e MISE_CONFIG_DIR=/workspace \
+        -e MISE_TRUSTED_CONFIG_REALS=/workspace/mise.toml \
+        -e MISE_YES=1 \
         -e PATH=/mise/shims:/bin:/usr/bin \
         --user $(id -u):$(id -g) \
         --workdir /workspace \

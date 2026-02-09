@@ -1,8 +1,4 @@
 [tools]
-node = "lts"
-python = "3.12"
+node = "system"
+python = "system"
 "npm:@google/gemini-cli" = "0.27.3"
-
-[settings]
-# This makes shims available immediately
-shims_dir = "/mise/shims"
