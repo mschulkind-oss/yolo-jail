@@ -41,6 +41,6 @@ This project uses **Mise** to manage project-specific tools.
 ## Security & Safety
 
 - **Isolation**: Docker prevents the agent from touching your host filesystem.
-- **Read-Only Auth**: Your `~/.config/gh` and `~/.config/gemini-cli` are mounted as **Read-Only**.
+- **Isolated Auth**: The jail has its own separate authentication state stored in `.home/`. It does **not** share credentials with your host machine. You will need to run `gh auth login` and `gemini login` once inside the jail.
 - **Fail Loudly**: Legacy tools like `grep` and `find` are shimmed to redirect you to faster, modern alternatives (`rg`, `fd`).
 - **User Mapping**: Files created in the jail are owned by your host user (matching UID/GID).
