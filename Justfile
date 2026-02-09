@@ -9,10 +9,14 @@ build:
 load: build
     docker load < result
 
-# Run the jail, mounting the current directory to /workspace with user mapping
+# Run the jail with current user mapping and persistent mise cache
 run:
+    @mkdir -p .mise-cache
     docker run --rm -it \
         -v $(pwd):/workspace \
+        -v $(pwd)/.mise-cache:/mise \
+        -e MISE_DATA_DIR=/mise \
+        -e MISE_CONFIG_DIR=/workspace \
         --user $(id -u):$(id -g) \
         yolo-jail
 
