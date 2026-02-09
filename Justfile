@@ -9,7 +9,7 @@ build:
 load: build
     docker load < result
 
-# Run the jail with shared auth and persistent state
+# Run the jail with shared auth, OAuth tokens, and persistent tools
 run:
     @mkdir -p .home .mise-cache
     docker run --rm -it \
@@ -17,13 +17,16 @@ run:
         -v $(pwd)/.home:/home/agent \
         -v $(pwd)/.mise-cache:/mise \
         -v ${HOME}/.config/gh:/home/agent/.config/gh:ro \
+        -v ${HOME}/.config/gemini-cli:/home/agent/.config/gemini-cli:ro \
+        -v ${HOME}/.config/gcloud:/home/agent/.config/gcloud:ro \
         -e HOME=/home/agent \
         -e MISE_DATA_DIR=/mise \
         -e MISE_CONFIG_DIR=/workspace \
-        -e GOOGLE_API_KEY=${GOOGLE_API_KEY} \
+        -e PATH=/mise/shims:/bin:/usr/bin \
         --user $(id -u):$(id -g) \
         --workdir /workspace \
-        yolo-jail
+        yolo-jail \
+        bash -c "mise install && bash"
 
 # Run the jail on a specific target path
 run-repo path:
