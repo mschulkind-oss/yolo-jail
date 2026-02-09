@@ -1,4 +1,4 @@
 [tools]
 node = "system"
 python = "system"
-"npm:@google/gemini-cli" = "0.27.3"
+"npm:@google/gemini-cli" = "latest"
