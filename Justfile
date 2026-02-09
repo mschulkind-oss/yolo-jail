@@ -9,11 +9,15 @@ build:
 load: build
     docker load < result
 
-# Run the jail with shared auth, OAuth tokens, and persistent tools
+# Run the jail on the current directory
 run:
+    @just run-path $(pwd)
+
+# Run the jail on a specific target path
+run-path path:
     @mkdir -p .home .mise-cache
     docker run --rm -it \
-        -v $(pwd):/workspace \
+        -v {{path}}:/workspace \
         -v $(pwd)/.home:/home/agent \
         -v $(pwd)/.mise-cache:/mise \
         -v ${HOME}/.config/gh:/home/agent/.config/gh:ro \
@@ -28,11 +32,7 @@ run:
         --user $(id -u):$(id -g) \
         --workdir /workspace \
         yolo-jail \
-        bash -c "mise install && bash"
-
-# Run the jail on a specific target path
-run-repo path:
-    docker run --rm -it -v {{path}}:/workspace yolo-jail
+        bash -c "[[ -f mise.toml ]] && mise install; bash"
 
 # Clean up build artifacts
 clean:
