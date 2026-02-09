@@ -14,7 +14,7 @@ run:
     @just run-path $(pwd)
 
 # Run the jail on a specific target path
-run-path path:
+run-path path *args:
     @mkdir -p .home .mise-cache
     docker run --rm -it \
         -v {{path}}:/workspace \
@@ -23,6 +23,8 @@ run-path path:
         -v ${HOME}/.config/gh:/home/agent/.config/gh \
         -v ${HOME}/.config/gemini-cli:/home/agent/.config/gemini-cli \
         -v ${HOME}/.config/gcloud:/home/agent/.config/gcloud \
+        -v ${HOME}/.gemini:/home/agent/.gemini \
+        -v ${HOME}/.dotfiles/gemini/settings.json:/home/agent/.gemini/settings.json \
         -e HOME=/home/agent \
         -e XDG_CONFIG_HOME=/home/agent/.config \
         -e MISE_DATA_DIR=/mise \
@@ -33,7 +35,7 @@ run-path path:
         --user $(id -u):$(id -g) \
         --workdir /workspace \
         yolo-jail \
-        bash -c "[[ -f mise.toml ]] && (mise trust && mise install && mise upgrade); bash"
+        bash -c "[[ -f mise.toml ]] && (mise trust && mise install && mise upgrade); {{ if args == "" { "bash" } else { args } }}"
 
 # Clean up build artifacts
 clean:
