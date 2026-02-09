@@ -9,15 +9,20 @@ build:
 load: build
     docker load < result
 
-# Run the jail with current user mapping and persistent mise cache
+# Run the jail with shared auth and persistent state
 run:
-    @mkdir -p .mise-cache
+    @mkdir -p .home .mise-cache
     docker run --rm -it \
         -v $(pwd):/workspace \
+        -v $(pwd)/.home:/home/agent \
         -v $(pwd)/.mise-cache:/mise \
+        -v ${HOME}/.config/gh:/home/agent/.config/gh:ro \
+        -e HOME=/home/agent \
         -e MISE_DATA_DIR=/mise \
         -e MISE_CONFIG_DIR=/workspace \
+        -e GOOGLE_API_KEY=${GOOGLE_API_KEY} \
         --user $(id -u):$(id -g) \
+        --workdir /workspace \
         yolo-jail
 
 # Run the jail on a specific target path
