@@ -3,6 +3,7 @@
 
 # 1. Create a writable directory for dynamic shims
 SHIM_DIR="$HOME/.yolo-shims"
+rm -rf "$SHIM_DIR"
 mkdir -p "$SHIM_DIR"
 
 # 2. Default blocked tools

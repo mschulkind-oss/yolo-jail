@@ -69,3 +69,24 @@ def test_yolo_init(tmp_path):
     subprocess.run([str(YOLO_CMD), "init"], cwd=str(project_dir), check=True)
     
     assert (project_dir / "yolo-jail.jsonc").exists()
+
+def test_shim_persistence(tmp_path):
+    """Test that shims don't persist after being removed from config."""
+    project_dir = tmp_path / "persistence_test"
+    project_dir.mkdir()
+    
+    # 1. Block curl
+    config = {"security": {"blocked_tools": ["curl"]}}
+    with open(project_dir / "yolo-jail.jsonc", "w") as f:
+        json.dump(config, f)
+    
+    result = run_yolo(project_dir, "curl --version")
+    assert result.returncode == 127
+    
+    # 2. Unblock curl
+    config = {"security": {"blocked_tools": []}}
+    with open(project_dir / "yolo-jail.jsonc", "w") as f:
+        json.dump(config, f)
+        
+    result = run_yolo(project_dir, "curl --version")
+    assert result.returncode == 0
