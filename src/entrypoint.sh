@@ -88,7 +88,31 @@ AGENT_HOME="${JAIL_HOME:-/home/agent}"
 export NPM_CONFIG_PREFIX="$AGENT_HOME/.npm-global"
 export PATH="$NPM_CONFIG_PREFIX/bin:$AGENT_HOME/go/bin:$PATH"
 
-# Global Mise Config (to provide defaults if project has no mise.toml)
+# Create a bootstrap script that will run AFTER mise is ready
+BOOTSTRAP_SCRIPT="$AGENT_HOME/.yolo-bootstrap.sh"
+cat <<'EOF' > "$BOOTSTRAP_SCRIPT"
+#!/bin/bash
+export NPM_CONFIG_PREFIX="$HOME/.npm-global"
+export PATH="$NPM_CONFIG_PREFIX/bin:$HOME/go/bin:$PATH"
+
+# Install binaries if missing.
+if ! command -v chrome-devtools-mcp >/dev/null; then
+    echo "Installing MCP tools via npm..."
+    YOLO_BYPASS_SHIMS=1 npm install -g chrome-devtools-mcp @modelcontextprotocol/server-sequential-thinking pyright typescript-language-server typescript
+fi
+
+if ! command -v mcp-language-server >/dev/null; then
+    if command -v go >/dev/null; then
+        echo "Installing mcp-language-server via go..."
+        YOLO_BYPASS_SHIMS=1 go install github.com/isaacphi/mcp-language-server@latest
+    else
+        echo "Warning: go not found, skipping mcp-language-server install"
+    fi
+fi
+EOF
+chmod +x "$BOOTSTRAP_SCRIPT"
+
+# Global Mise Config
 MISE_CONFIG_DIR="$AGENT_HOME/.config/mise"
 if [ ! -f "$MISE_CONFIG_DIR/config.toml" ]; then
     mkdir -p "$MISE_CONFIG_DIR"
@@ -100,19 +124,6 @@ go = "latest"
 "npm:@google/gemini-cli" = "latest"
 "npm:@github/copilot" = "latest"
 EOF
-fi
-
-# Ensure essential tools are installed globally in the jail
-if [ -z "$YOLO_SKIP_BOOTSTRAP" ]; then
-    mkdir -p "$NPM_CONFIG_PREFIX"
-    # Install binaries if missing. We use 'npm install -g' to ensure they are in the PATH properly.
-    if ! command -v chrome-devtools-mcp >/dev/null; then
-        YOLO_BYPASS_SHIMS=1 npm install -g chrome-devtools-mcp @modelcontextprotocol/server-sequential-thinking pyright typescript-language-server typescript
-    fi
-    if ! command -v mcp-language-server >/dev/null; then
-        # Go tools need to be installed if missing
-        YOLO_BYPASS_SHIMS=1 go install github.com/isaacphi/mcp-language-server@latest
-    fi
 fi
 
 # Copilot Config
