@@ -188,6 +188,10 @@ def run(
 
     target_cmd = "bash"
     if full_command:
+        # If calling gemini or copilot, inject --yolo
+        if full_command[0] in ["gemini", "copilot"]:
+            if "--yolo" not in full_command and "-y" not in full_command:
+                full_command.insert(1, "--yolo")
         target_cmd = " ".join(full_command)
     
     # If mise.toml exists in workspace, install/upgrade those. 

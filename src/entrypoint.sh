@@ -77,6 +77,8 @@ export PS1="\n${JAIL_BANNER} ${HOST_INFO}\n${GREEN}jail${NC}:${BLUE}\w${NC}\$ "
 alias ls='ls --color=auto'
 alias ll='ls -alF'
 alias grep='grep --color=auto'
+alias gemini='gemini --yolo'
+alias copilot='copilot --yolo'
 EOF
 
 # 6. Bootstrap Default Agent Configs (YOLO Mode)
