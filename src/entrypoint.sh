@@ -160,7 +160,7 @@ import json, os
 # Write MCP Config
 mcp_path = os.path.join('$COPILOT_CONFIG_DIR', 'mcp-config.json')
 mcp_config = {
-    'servers': {
+    'mcpServers': {
         'chrome-devtools': {
             'command': '/home/agent/.npm-global/bin/chrome-devtools-mcp',
             'args': ['--headless', '--no-sandbox']
