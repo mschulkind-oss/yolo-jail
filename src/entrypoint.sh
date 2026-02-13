@@ -1,8 +1,8 @@
 #!/bin/bash
 # YOLO Jail Entrypoint Script
 
-# 1. Create a writable directory for dynamic shims
-SHIM_DIR="${JAIL_HOME:-/home/agent}/.yolo-shims"
+# 1. Create a writable directory for dynamic shims in the persistent store
+SHIM_DIR="$HOME/.yolo-shims"
 rm -rf "$SHIM_DIR"
 mkdir -p "$SHIM_DIR"
 
@@ -55,8 +55,8 @@ except Exception as e:
 "
 fi
 
-# 5. Set up a colorful prompt in .bashrc
-BASHRC="${JAIL_HOME:-/home/agent}/.bashrc"
+# 5. Set up a colorful prompt in the persistent store
+BASHRC="$HOME/.bashrc"
 cat <<'EOF' > "$BASHRC"
 # YOLO Jail Prompt
 YELLOW='\[\033[1;33m\]'
