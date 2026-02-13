@@ -16,9 +16,9 @@ Navigate to any directory you want the agent to work in and type:
 # To open an interactive shell:
 yolo
 
-# To run a command directly and exit:
-yolo gemini prompt "What is this repo?"
-yolo copilot
+# To run a command directly and exit (requires -- delimiter):
+yolo -- gemini prompt "What is this repo?"
+yolo -- copilot --resume
 ```
 The jail will launch, mounting your current directory to `/workspace`. It will share your global `gh` and `gemini-cli` authentication, and tools will be persistent across sessions.
 

@@ -107,13 +107,13 @@ def test_agent_tools_available(temp_project):
     assert result.returncode == 0
 
 def test_yolo_direct_command(tmp_path):
-    """Test running a direct command like 'yolo ls'."""
+    """Test running a direct command like 'yolo -- ls'."""
     project_dir = tmp_path / "direct_cmd_test"
     project_dir.mkdir()
     
-    # Run yolo without explicitly saying 'run', just the command
+    # Run yolo with the explicit -- delimiter
     result = subprocess.run(
-        [str(YOLO_CMD), "ls", "-d", "/workspace"],
+        [str(YOLO_CMD), "--", "ls", "-d", "/workspace"],
         cwd=str(project_dir),
         capture_output=True,
         text=True,

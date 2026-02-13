@@ -12,13 +12,22 @@ done
 REPO_ROOT=$( cd -P "$( dirname "$SOURCE" )" >/dev/null 2>&1 && pwd )
 
 # Run the CLI using uv, pointing to the jail project while staying in the user's current directory
-if [ "$1" == "init" ] || [ "$1" == "run" ] || [ "$1" == "--help" ]; then
+if [ -z "$1" ]; then
+    # No arguments: start an interactive shell
+    exec uv run --project "$REPO_ROOT" "$REPO_ROOT/src/cli.py" run
+elif [ "$1" == "init" ] || [ "$1" == "run" ] || [ "$1" == "--help" ] || [ "$1" == "-h" ]; then
+    # Explicit subcommands or help
     exec uv run --project "$REPO_ROOT" "$REPO_ROOT/src/cli.py" "$@"
 elif [ "$1" == "--" ]; then
-    # If the first arg is --, treat everything after as the jail command
+    # Treat everything after -- as the command to run in the jail
     shift
     exec uv run --project "$REPO_ROOT" "$REPO_ROOT/src/cli.py" run -- "$@"
 else
-    # Fallback: treat all args as jail command
-    exec uv run --project "$REPO_ROOT" "$REPO_ROOT/src/cli.py" run "$@"
+    # Rejection of the "old way" (implicit command execution)
+    echo "Error: Unknown argument '$1'. " >&2
+    echo "Usage:" >&2
+    echo "  yolo              # Open interactive shell" >&2
+    echo "  yolo init         # Initialize configuration" >&2
+    echo "  yolo -- <command> # Run command directly" >&2
+    exit 1
 fi
