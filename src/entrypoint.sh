@@ -73,6 +73,13 @@ HOST_INFO="${CYAN}(host: ${YOLO_HOST_DIR:-unknown})${NC}"
 
 export PS1="\n${JAIL_BANNER} ${HOST_INFO}\n${GREEN}jail${NC}:${BLUE}\w${NC}\$ "
 
+# Agent-friendly defaults (no pagers, no line numbers)
+export PAGER=cat
+export BAT_PAGER=""
+export BAT_STYLE="plain"
+export GIT_PAGER=cat
+export EDITOR=nvim
+
 # Aliases
 alias ls='ls --color=auto'
 alias ll='ls -alF'
@@ -81,7 +88,7 @@ alias gemini='gemini --yolo'
 alias copilot='copilot --yolo'
 alias vi='nvim'
 alias vim='nvim'
-export EDITOR=nvim
+alias bat='bat --style=plain --paging=never'
 EOF
 
 # 6. Bootstrap Default Agent Configs (YOLO Mode)
@@ -114,6 +121,12 @@ if [ ! -f "$GOBIN/mcp-language-server" ]; then
     else
         echo "Warning: go not found, skipping mcp-language-server install"
     fi
+fi
+
+# Install showboat
+if ! command -v showboat >/dev/null; then
+    echo "Installing showboat..."
+    YOLO_BYPASS_SHIMS=1 pip install showboat
 fi
 EOF
 chmod +x "$BOOTSTRAP_SCRIPT"

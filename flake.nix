@@ -46,6 +46,9 @@
             ln -s ${pkgs.stdenv.cc.cc.lib}/lib/libstdc++.so.6 $dir/libstdc++.so.6
             ln -s ${pkgs.zlib}/lib/libz.so.1 $dir/libz.so.1
           done
+          
+          # Link Playwright browsers
+          ln -s ${pkgs.playwright-driver.browsers} $out/usr/lib/playwright
         '';
 
         # Derivation for the entrypoint
@@ -81,6 +84,7 @@
             pkgs.binutils
             pkgs.zlib
             pkgs.chromium   # For chrome-devtools-mcp
+            pkgs.playwright-driver.browsers # For showboat/playwright
             pkgs.procps     # ps, pgrep, pkill
             pkgs.net-tools  # netstat
             pkgs.iproute2   # ss, ip
