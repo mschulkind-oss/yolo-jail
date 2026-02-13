@@ -90,8 +90,15 @@ if [ ! -f "$MISE_CONFIG_DIR/config.toml" ]; then
 [tools]
 node = "system"
 python = "system"
+go = "latest"
 "npm:@google/gemini-cli" = "latest"
 "npm:@github/copilot" = "latest"
+"npm:chrome-devtools-mcp" = "latest"
+"npm:@modelcontextprotocol/server-sequential-thinking" = "latest"
+"npm:pyright" = "latest"
+"npm:typescript-language-server" = "latest"
+"npm:typescript" = "latest"
+"npm:mcp-language-server" = "latest"
 EOF
 fi
 
@@ -102,12 +109,72 @@ if [ ! -f "$COPILOT_CONFIG_DIR/config.json" ]; then
     echo '{"yolo": true}' > "$COPILOT_CONFIG_DIR/config.json"
 fi
 
-# Gemini Config
+# Gemini Config with MCP Servers
 GEMINI_CONFIG_DIR="$AGENT_HOME/.gemini"
-if [ ! -f "$GEMINI_CONFIG_DIR/settings.json" ]; then
-    mkdir -p "$GEMINI_CONFIG_DIR"
-    echo '{"security": {"approvalMode": "yolo", "enablePermanentToolApproval": true}}' > "$GEMINI_CONFIG_DIR/settings.json"
-fi
+# We overwrite or create settings.json to ensure MCPs are configured. 
+# We use Python to merge configuration safely.
+mkdir -p "$GEMINI_CONFIG_DIR"
+python3 -c "
+import json, os, sys
+
+config_path = '$GEMINI_CONFIG_DIR/settings.json'
+default_config = {
+    'security': {'approvalMode': 'yolo', 'enablePermanentToolApproval': True},
+    'mcpServers': {
+        'chrome-devtools': {
+            'command': 'npx',
+            'args': ['-y', 'chrome-devtools-mcp', '--headless']
+        },
+        'sequential-thinking': {
+            'command': 'npx',
+            'args': ['-y', '@modelcontextprotocol/server-sequential-thinking']
+        },
+        'python-lsp': {
+            'command': 'npx',
+            'args': ['-y', 'mcp-language-server', '--mode', 'stdio', '--', 'pyright-langserver', '--stdio']
+        },
+        'typescript-lsp': {
+            'command': 'npx',
+            'args': ['-y', 'mcp-language-server', '--mode', 'stdio', '--', 'typescript-language-server', '--stdio']
+        }
+    }
+}
+
+try:
+    if os.path.exists(config_path):
+        with open(config_path, 'r') as f:
+            try:
+                current = json.load(f)
+            except json.JSONDecodeError:
+                current = {}
+        
+        # Helper for deep merge could go here, but shallow merge of top keys is safer for now
+        # We specifically want to ensure mcpServers are added
+        if 'mcpServers' not in current:
+            current['mcpServers'] = {}
+        
+        current['mcpServers'].update(default_config['mcpServers'])
+        
+        if 'security' not in current:
+            current['security'] = {}
+        
+        # Only set security defaults if not present? No, we want to enforce defaults for new installs.
+        # But if user changed them, we respect?
+        # Let's enforce the critical keys if they are missing.
+        if 'approvalMode' not in current['security']:
+            current['security']['approvalMode'] = 'yolo'
+        if 'enablePermanentToolApproval' not in current['security']:
+            current['security']['enablePermanentToolApproval'] = True
+            
+        final_config = current
+    else:
+        final_config = default_config
+
+    with open(config_path, 'w') as f:
+        json.dump(final_config, f, indent=2)
+except Exception as e:
+    sys.stderr.write(f'Error configuring Gemini MCP: {e}\\n')
+"
 
 # 7. Place shims first in PATH
 export PATH="$SHIM_DIR:$PATH"

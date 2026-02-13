@@ -76,6 +76,7 @@
             pkgs.gnumake
             pkgs.binutils
             pkgs.zlib
+            pkgs.chromium   # For chrome-devtools-mcp
           ];
 
           config = {

@@ -1,5 +1,6 @@
 [tools]
 node = "system"
 python = "system"
+go = "latest"
 "npm:@google/gemini-cli" = "latest"
 "npm:@github/copilot" = "latest"
