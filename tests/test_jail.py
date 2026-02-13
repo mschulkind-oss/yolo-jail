@@ -90,3 +90,18 @@ def test_shim_persistence(tmp_path):
         
     result = run_yolo(project_dir, "curl --version")
     assert result.returncode == 0
+
+def test_agent_tools_available(temp_project):
+    """Test that gemini and copilot are available."""
+    # We can't rely on them being installed in the temp_project context unless we force it
+    # But yolo-jail should provide them if they are in the MAIN project's mise.toml
+    # Wait, the jail uses the mise.toml from the TARGET directory.
+    
+    # So we need to add them to the temp_project's mise.toml
+    with open(temp_project / "mise.toml", "w") as f:
+        f.write('[tools]\nnode = "system"\npython = "system"\n"npm:@google/gemini-cli" = "latest"\n"npm:@github/copilot" = "latest"\n')
+        
+    # We expect mise to install them (mocked/cached ideally, but here real)
+    # This might be slow for a test, but it verifies the end-to-end flow.
+    result = run_yolo(temp_project, "gemini --version && copilot --version")
+    assert result.returncode == 0
