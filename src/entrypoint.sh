@@ -174,7 +174,7 @@ config_dir = '$COPILOT_CONFIG_DIR'
 mcp_path = os.path.join(config_dir, 'mcp-config.json')
 mcp_config = {
     'mcpServers': {
-        'jail-devtools': {
+        'chrome-devtools': {
             'command': 'node',
             'args': [
                 '/home/agent/.npm-global/bin/chrome-devtools-mcp', 
