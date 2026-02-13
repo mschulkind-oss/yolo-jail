@@ -9,38 +9,46 @@ mkdir -p "$SHIM_DIR"
 DEFAULT_BLOCKED="grep find"
 BLOCKED_TOOLS="$DEFAULT_BLOCKED"
 
-# 3. Read project-specific blocked tools from yolo-jail.toml if it exists
-if [ -f "/workspace/yolo-jail.toml" ]; then
-    # Simple extraction of blocked_tools array using sed (avoiding extra deps)
-    PROJECT_BLOCKED=$(sed -n '/blocked_tools *= *\[/,/\]/p' /workspace/yolo-jail.toml | tr -d '[]", ' | grep -v "blocked_tools=")
-    BLOCKED_TOOLS="$BLOCKED_TOOLS $PROJECT_BLOCKED"
-fi
-
-# 4. Generate shims
-for tool in $BLOCKED_TOOLS; do
-    SHIM_PATH="$SHIM_DIR/$tool"
-    
-    # Skip if we already have a specialized shim or if the tool is essential for startup
-    if [ "$tool" == "grep" ] || [ "$tool" == "find" ]; then
-        # Use our "smart" shims that allow script usage but block interactive use
-        cat <<EOF > "$SHIM_PATH"
+# 3. Read blocked tools from environment variable (injected by Python CLI)
+if [ -n "$YOLO_BLOCK_CONFIG" ]; then
+    # Use python to parse the JSON and output bash-friendly arrays
+    # Output format: name|message|suggestion
+    python3 -c "
+import json, os, sys
+try:
+    config = json.loads(os.environ['YOLO_BLOCK_CONFIG'])
+    for tool in config:
+        name = tool.get('name')
+        if not name: continue
+        msg = tool.get('message', f'Error: tool {name} is blocked in this project.')
+        sug = tool.get('suggestion', '')
+        print(f'{name}|{msg}|{sug}')
+except Exception:
+    pass
+" | while IFS='|' read -r tool message suggestion; do
+        SHIM_PATH="$SHIM_DIR/$tool"
+        
+        if [ "$tool" == "grep" ] || [ "$tool" == "find" ]; then
+             cat <<EOF > "$SHIM_PATH"
 #!/bin/sh
 if [ -t 1 ] && [ -z "\$YOLO_BYPASS_SHIMS" ]; then
-  echo "Error: '\$0' is disabled for direct use. Use modern alternatives (rg, fd) instead." >&2
+  echo "$message" >&2
+  [ -n "$suggestion" ] && echo "Suggestion: $suggestion" >&2
   exit 127
 fi
 exec /bin/$tool "\$@"
 EOF
-    else
-        # Hard block for other tools
-        cat <<EOF > "$SHIM_PATH"
+        else
+             cat <<EOF > "$SHIM_PATH"
 #!/bin/sh
-echo "Error: tool '$tool' is explicitly blocked in this project's yolo-jail.toml." >&2
+echo "$message" >&2
+[ -n "$suggestion" ] && echo "Suggestion: $suggestion" >&2
 exit 127
 EOF
-    fi
-    chmod +x "$SHIM_PATH"
-done
+        fi
+        chmod +x "$SHIM_PATH"
+    done
+fi
 
 # 5. Place shims first in PATH
 export PATH="$SHIM_DIR:$PATH"

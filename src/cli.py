@@ -1,9 +1,12 @@
 import os
 import subprocess
 import sys
+import json
 from pathlib import Path
-from typing import Optional, List
+from typing import Optional, List, Dict, Any, Union
 import typer
+import pyjson5
+
 try:
     import tomli as toml
 except ImportError:
@@ -20,38 +23,65 @@ def ensure_global_storage():
     GLOBAL_HOME.mkdir(parents=True, exist_ok=True)
     GLOBAL_MISE.mkdir(parents=True, exist_ok=True)
 
-def load_config() -> dict:
-    config_path = Path.cwd() / "yolo-jail.toml"
-    if not config_path.exists():
-        return {}
-    try:
-        with open(config_path, "rb") as f:
-            return toml.load(f)
-    except Exception as e:
-        typer.echo(f"Warning: Failed to parse yolo-jail.toml: {e}", err=True)
-        return {}
+def load_config() -> Dict[str, Any]:
+    # Try JSON first
+    json_path = Path.cwd() / "yolo-jail.json"
+    if json_path.exists():
+        try:
+            with open(json_path, "r") as f:
+                return pyjson5.load(f)
+        except Exception as e:
+            typer.echo(f"Warning: Failed to parse yolo-jail.json: {e}", err=True)
+            return {}
+            
+    # Fallback to TOML
+    toml_path = Path.cwd() / "yolo-jail.toml"
+    if toml_path.exists():
+        try:
+            with open(toml_path, "rb") as f:
+                return toml.load(f)
+        except Exception as e:
+            typer.echo(f"Warning: Failed to parse yolo-jail.toml: {e}", err=True)
+            return {}
+    
+    return {}
 
 @app.command()
 def init():
-    """Initialize a yolo-jail.toml configuration file in the current directory."""
-    config_path = Path.cwd() / "yolo-jail.toml"
+    """Initialize a yolo-jail.json configuration file in the current directory."""
+    config_path = Path.cwd() / "yolo-jail.json"
     if config_path.exists():
-        typer.echo("yolo-jail.toml already exists.")
+        typer.echo("yolo-jail.json already exists.")
         return
 
-    content = """[security]
-# Tools to strictly block inside the jail
-blocked_tools = ["curl", "wget", "grep", "find"]
-
-[network]
-# Networking mode: "bridge" (default, isolated IP) or "host" (shares host IP/ports)
-# mode = "bridge" 
-# Ports to publish (only for bridge mode)
-# ports = ["8000:8000"]
+    content = """{
+  "security": {
+    // Tools to block. Can be a simple string or an object with custom messages.
+    "blocked_tools": [
+      "curl", 
+      "wget",
+      {
+        "name": "grep",
+        "message": "Use 'rg' (ripgrep) for faster searching.",
+        "suggestion": "rg <pattern>"
+      },
+      {
+        "name": "find",
+        "message": "Use 'fd' for faster file finding."
+      }
+    ]
+  },
+  "network": {
+    // "bridge" (default) or "host"
+    "mode": "bridge",
+    // Ports to publish in bridge mode ["Host:Container"]
+    // "ports": ["8000:8000"]
+  }
+}
 """
     with open(config_path, "w") as f:
         f.write(content)
-    typer.echo("Created yolo-jail.toml")
+    typer.echo("Created yolo-jail.json")
 
 @app.command()
 def run(
@@ -63,7 +93,6 @@ def run(
     config = load_config()
     
     # Determine Network Mode
-    # CLI arg overrides config, config overrides default
     net_mode = network
     if config.get("network", {}).get("mode"):
         net_mode = config["network"]["mode"]
@@ -73,6 +102,18 @@ def run(
     if net_mode == "bridge" and config.get("network", {}).get("ports"):
         for p in config["network"]["ports"]:
             publish_args.extend(["-p", p])
+
+    # Process Blocked Tools for the Container
+    raw_blocked = config.get("security", {}).get("blocked_tools", ["grep", "find"])
+    normalized_blocked = []
+    
+    for tool in raw_blocked:
+        if isinstance(tool, str):
+            normalized_blocked.append({"name": tool})
+        elif isinstance(tool, dict) and "name" in tool:
+            normalized_blocked.append(tool)
+            
+    blocked_config_json = json.dumps(normalized_blocked)
 
     # Construct Docker Command
     docker_cmd = [
@@ -89,6 +130,7 @@ def run(
         "-e", "MISE_YES=1",
         "-e", "LD_LIBRARY_PATH=/lib:/usr/lib",
         "-e", "PATH=/mise/shims:/bin:/usr/bin",
+        "-e", f"YOLO_BLOCK_CONFIG={blocked_config_json}",
         "-u", f"{os.getuid()}:{os.getgid()}",
         "--workdir", "/workspace",
         f"--net={net_mode}",
@@ -96,37 +138,23 @@ def run(
     
     docker_cmd.extend(publish_args)
 
-    # Filter host environment variables to prevent leakage, but pass TERM
-    # Justfile approach: --env-file <(env | grep -v ...)
-    # In python, we explicitly don't pass --env-file, so docker starts clean.
-    # We only pass what we explicitly set above.
-    # EXCEPT: We probably want TERM for colors.
     if "TERM" in os.environ:
         docker_cmd.extend(["-e", f"TERM={os.environ['TERM']}"])
 
     docker_cmd.append(JAIL_IMAGE)
     docker_cmd.append("yolo-entrypoint")
 
-    # Construct the internal shell command
-    # This logic handles the auto-install of tools via mise
-    
-    # If command is provided, run it. If not, run bash.
+    # Command construction
     target_cmd = "bash"
     if command:
-        target_cmd = " ".join(command) # This is a bit simplistic, might need better quoting if complex
-        # Actually, yolo-entrypoint executes bash -c "$@", so we pass the string.
+        target_cmd = " ".join(command)
     
-    # The setup script that runs before the user command
     setup_script = "[[ -f mise.toml ]] && (mise trust && YOLO_BYPASS_SHIMS=1 mise install && YOLO_BYPASS_SHIMS=1 mise upgrade)"
-    
-    # Combine them
     final_internal_cmd = f"{setup_script}; {target_cmd}"
     
     docker_cmd.append(final_internal_cmd)
 
     try:
-        # We use os.execvp to replace the python process with docker
-        # This keeps TTY handling correct
         os.execvp("docker", docker_cmd)
     except FileNotFoundError:
         typer.echo("Error: docker command not found.", err=True)
