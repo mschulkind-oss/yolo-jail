@@ -178,11 +178,11 @@ default_config = {
         },
         'python-lsp': {
             'command': 'mcp-language-server',
-            'args': ['--mode', 'stdio', '--', 'pyright-langserver', '--stdio']
+            'args': ['-lsp', 'pyright-langserver', '-workspace', '/workspace', '--', '--stdio']
         },
         'typescript-lsp': {
             'command': 'mcp-language-server',
-            'args': ['--mode', 'stdio', '--', 'typescript-language-server', '--stdio']
+            'args': ['-lsp', 'typescript-language-server', '-workspace', '/workspace', '--', '--stdio']
         }
     }
 }
