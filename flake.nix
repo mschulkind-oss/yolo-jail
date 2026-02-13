@@ -37,6 +37,7 @@
           ln -s ${pkgs.chromium}/bin/chromium $out/usr/bin/chrome
           
           # Link the dynamic linker for x86_64
+          # Dummy change for status check
           ln -s ${pkgs.stdenv.cc.bintools.dynamicLinker} $out/lib64/ld-linux-x86-64.so.2
           
           # Link standard libraries to both /lib and /usr/lib

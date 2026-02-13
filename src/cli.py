@@ -64,12 +64,15 @@ def auto_load_image(repo_root: Path):
                         for line in iter(process.stdout.readline, ""):
                             clean_line = line.strip()
                             if clean_line:
-                                status.update(f"[bold cyan]Loading into Docker: [dim]{clean_line}[/dim]")
+                                # Show the last line of docker load (e.g. "Loaded image: ...")
+                                status.update(f"[bold cyan]Loading: [dim]{clean_line}[/dim]")
+                                last_line = clean_line
                 
                 process.wait()
                 if process.returncode != 0:
                     console.print("[bold red]Error loading docker image.[/bold red]")
                 else:
+                    console.print(f"[bold green]Successfully {last_line.lower() if 'last_line' in locals() else 'loaded image'}[/bold green]")
                     sentinel.write_text(str(current_path))
         except Exception as e:
             console.print(f"[bold red]Error loading docker image: {e}[/bold red]")
