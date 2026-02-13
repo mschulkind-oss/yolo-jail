@@ -71,7 +71,7 @@ NC='\[\033[0m\]' # No Color
 JAIL_BANNER="${RED}🔒 YOLO-JAIL${NC}"
 HOST_INFO="${CYAN}(host: ${YOLO_HOST_DIR:-unknown})${NC}"
 
-export PS1="\n${JAIL_BANNER} ${HOST_INFO}\n${GREEN}\u@jail${NC}:${BLUE}\w${NC}\$ "
+export PS1="\n${JAIL_BANNER} ${HOST_INFO}\n${GREEN}jail${NC}:${BLUE}\w${NC}\$ "
 
 # Aliases
 alias ls='ls --color=auto'
