@@ -221,9 +221,9 @@ def run(
         # Use shlex.join to properly quote arguments for the shell
         target_cmd = shlex.join(full_command)
     
-    # If mise.toml exists in workspace, install/upgrade those. 
-    # Otherwise, ensure global tools are ready.
-    setup_script = "(if [ -f mise.toml ]; then mise trust && mise install && mise upgrade; else mise install -g && mise upgrade -g; fi) && ~/.yolo-bootstrap.sh"
+    # If mise.toml exists in workspace, trust it. 
+    # Then ensure all tools (global + local) are ready.
+    setup_script = "(if [ -f mise.toml ]; then mise trust; fi) && mise install && mise upgrade && ~/.yolo-bootstrap.sh"
     final_internal_cmd = f"{setup_script} >/dev/null 2>&1; {target_cmd}"
     
     docker_cmd.append(final_internal_cmd)
