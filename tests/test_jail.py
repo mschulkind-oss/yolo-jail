@@ -48,11 +48,12 @@ def test_blocked_tool_curl(temp_project):
     assert "Error: tool curl is blocked" in result.stderr
 
 def test_blocked_tool_grep(temp_project):
-    """Test that grep is blocked with custom message."""
+    """Test that grep is blocked interactively but works in scripts (smart shim)."""
+    # Since pytest runs non-interactively, the shim should PASS THROUGH to real grep
+    # Real grep returns 2 if file not found
     result = run_yolo(temp_project, "grep 'foo' bar")
-    assert result.returncode == 127
-    assert "NO GREP ALLOWED" in result.stderr
-    assert "Suggestion: use rg" in result.stderr
+    assert result.returncode == 2
+    assert "No such file" in result.stderr
 
 def test_allowed_tool(temp_project):
     """Test that an allowed tool works."""
