@@ -77,6 +77,7 @@
             pkgs.binutils
             pkgs.zlib
             pkgs.chromium   # For both MCP and Playwright
+            pkgs.glibc.bin  # For ldd
             pkgs.procps     # ps, pgrep, pkill
             pkgs.net-tools  # netstat
             pkgs.iproute2   # ss, ip
