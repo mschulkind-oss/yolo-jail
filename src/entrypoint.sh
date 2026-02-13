@@ -159,7 +159,7 @@ for d in config_dirs:
     
     # Write MCP Config
     mcp_path = os.path.join(d, 'mcp-config.json')
-    # Rename to jail-devtools to avoid built-in collision
+    # Rename to jail-devtools to avoid built-in collision in Copilot
     mcp_config = {
         'mcpServers': {
             'jail-devtools': {

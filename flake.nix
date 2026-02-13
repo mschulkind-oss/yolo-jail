@@ -77,14 +77,18 @@
             pkgs.gnused
             pkgs.gnugrep
             pkgs.gawk
-            pkgs.patch
+            pkgs.gnupatch
             pkgs.diffutils
             pkgs.gzip
             pkgs.bzip2
             pkgs.xz
-            pkgs.tar
+            pkgs.gnutar
             pkgs.unzip
             pkgs.zip
+            pkgs.openssh
+            pkgs.strace
+            pkgs.lsof
+            pkgs.file
             pkgs.gcc
             pkgs.gnumake
             pkgs.binutils
