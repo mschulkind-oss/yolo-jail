@@ -84,6 +84,16 @@
             pkgs.procps     # ps, pgrep, pkill
             pkgs.net-tools  # netstat
             pkgs.iproute2   # ss, ip
+            pkgs.htop
+            pkgs.neovim
+            pkgs.hivemind
+            pkgs.overmind
+            pkgs.tmux
+            pkgs.jq
+            pkgs.bat
+            pkgs.eza
+            pkgs.git-delta
+            pkgs.fzf
           ];
 
           config = {

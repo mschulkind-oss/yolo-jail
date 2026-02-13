@@ -79,6 +79,9 @@ alias ll='ls -alF'
 alias grep='grep --color=auto'
 alias gemini='gemini --yolo'
 alias copilot='copilot --yolo'
+alias vi='nvim'
+alias vim='nvim'
+export EDITOR=nvim
 EOF
 
 # 6. Bootstrap Default Agent Configs (YOLO Mode)
