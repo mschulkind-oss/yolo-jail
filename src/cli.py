@@ -104,7 +104,6 @@ def init():
 @app.command(context_settings={"allow_extra_args": True, "ignore_unknown_options": True})
 def run(
     ctx: typer.Context,
-    command: Optional[List[str]] = typer.Argument(None, help="Command to run inside the jail (default: bash)"),
     network: str = typer.Option("bridge", help="Docker network mode (bridge/host)"),
 ):
     """Run the YOLO jail in the current directory."""
@@ -180,11 +179,7 @@ def run(
     docker_cmd.append("yolo-entrypoint")
 
     # Command construction
-    full_command = []
-    if command:
-        full_command.extend(command)
-    if ctx.args:
-        full_command.extend(ctx.args)
+    full_command = ctx.args
 
     target_cmd = "bash"
     if full_command:
@@ -198,6 +193,14 @@ def run(
     # Otherwise, ensure global tools are ready.
     setup_script = "(if [ -f mise.toml ]; then mise trust && mise install && mise upgrade; else mise install -g && mise upgrade -g; fi)"
     final_internal_cmd = f"{setup_script} >/dev/null 2>&1; {target_cmd}"
+    
+    docker_cmd.append(final_internal_cmd)
+
+    try:
+        os.execvp("docker", docker_cmd)
+    except FileNotFoundError:
+        typer.echo("Error: docker command not found.", err=True)
+        sys.exit(1)
     
     docker_cmd.append(final_internal_cmd)
 
