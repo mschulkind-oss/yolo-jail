@@ -127,6 +127,7 @@ def run(
         "-e", "LD_LIBRARY_PATH=/lib:/usr/lib",
         "-e", "PATH=/mise/shims:/bin:/usr/bin",
         "-e", f"YOLO_BLOCK_CONFIG={blocked_config_json}",
+        "-e", f"YOLO_HOST_DIR={Path.cwd()}",
         "-u", f"{os.getuid()}:{os.getgid()}",
         "--workdir", "/workspace",
         f"--net={net_mode}",

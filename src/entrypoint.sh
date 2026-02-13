@@ -55,8 +55,32 @@ except Exception as e:
 "
 fi
 
-# 5. Place shims first in PATH
+# 5. Set up a colorful prompt in .bashrc
+BASHRC="$HOME/.bashrc"
+cat <<'EOF' > "$BASHRC"
+# YOLO Jail Prompt
+YELLOW='\[\033[1;33m\]'
+RED='\[\033[1;31m\]'
+GREEN='\[\033[1;32m\]'
+BLUE='\[\033[1;34m\]'
+MAGENTA='\[\033[1;35m\]'
+CYAN='\[\033[1;36m\]'
+NC='\[\033[0m\]' # No Color
+
+# Big colorful warning
+JAIL_BANNER="${RED}🔒 YOLO-JAIL${NC}"
+HOST_INFO="${CYAN}(host: ${YOLO_HOST_DIR:-unknown})${NC}"
+
+export PS1="\n${JAIL_BANNER} ${HOST_INFO}\n${GREEN}\u@jail${NC}:${BLUE}\w${NC}\$ "
+
+# Aliases
+alias ls='ls --color=auto'
+alias ll='ls -alF'
+alias grep='grep --color=auto'
+EOF
+
+# 6. Place shims first in PATH
 export PATH="$SHIM_DIR:$PATH"
 
-# 6. Run the startup command passed from Justfile
-exec bash -c "$@"
+# 7. Run the startup command passed from Justfile
+exec bash --rcfile "$BASHRC" -c "$@"
