@@ -124,6 +124,7 @@ def run(
         "-e", "MISE_DATA_DIR=/mise",
         "-e", "MISE_TRUST=1",
         "-e", "MISE_YES=1",
+        "-e", "COPILOT_ALLOW_ALL=true",
         "-e", "LD_LIBRARY_PATH=/lib:/usr/lib",
         "-e", "PATH=/mise/shims:/bin:/usr/bin",
         "-e", f"YOLO_BLOCK_CONFIG={blocked_config_json}",

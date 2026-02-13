@@ -116,23 +116,16 @@ python3 -c "
 import json, os
 
 config_path = '$COPILOT_ROOT_DIR/mcp-config.json'
+# We only put non-LSP tools in Copilot's MCP config
 mcp_config = {
     'mcpServers': {
         'chrome-devtools': {
-            'command': 'npx',
-            'args': ['-y', 'chrome-devtools-mcp', '--headless']
+            'command': 'chrome-devtools-mcp',
+            'args': ['--headless']
         },
         'sequential-thinking': {
-            'command': 'npx',
-            'args': ['-y', '@modelcontextprotocol/server-sequential-thinking']
-        },
-        'python-lsp': {
-            'command': 'npx',
-            'args': ['-y', 'mcp-language-server', '--mode', 'stdio', '--', 'pyright-langserver', '--stdio']
-        },
-        'typescript-lsp': {
-            'command': 'npx',
-            'args': ['-y', 'mcp-language-server', '--mode', 'stdio', '--', 'typescript-language-server', '--stdio']
+            'command': 'mcp-server-sequential-thinking',
+            'args': []
         }
     }
 }
@@ -143,8 +136,6 @@ with open(config_path, 'w') as f:
 
 # Gemini Config with MCP Servers
 GEMINI_CONFIG_DIR="$AGENT_HOME/.gemini"
-# We overwrite or create settings.json to ensure MCPs are configured. 
-# We use Python to merge configuration safely.
 mkdir -p "$GEMINI_CONFIG_DIR"
 python3 -c "
 import json, os, sys
@@ -154,20 +145,20 @@ default_config = {
     'security': {'approvalMode': 'yolo', 'enablePermanentToolApproval': True},
     'mcpServers': {
         'chrome-devtools': {
-            'command': 'npx',
-            'args': ['-y', 'chrome-devtools-mcp', '--headless']
+            'command': 'chrome-devtools-mcp',
+            'args': ['--headless']
         },
         'sequential-thinking': {
-            'command': 'npx',
-            'args': ['-y', '@modelcontextprotocol/server-sequential-thinking']
+            'command': 'mcp-server-sequential-thinking',
+            'args': []
         },
         'python-lsp': {
-            'command': 'npx',
-            'args': ['-y', 'mcp-language-server', '--mode', 'stdio', '--', 'pyright-langserver', '--stdio']
+            'command': 'mcp-language-server',
+            'args': ['--mode', 'stdio', '--', 'pyright-langserver', '--stdio']
         },
         'typescript-lsp': {
-            'command': 'npx',
-            'args': ['-y', 'mcp-language-server', '--mode', 'stdio', '--', 'typescript-language-server', '--stdio']
+            'command': 'mcp-language-server',
+            'args': ['--mode', 'stdio', '--', 'typescript-language-server', '--stdio']
         }
     }
 }
