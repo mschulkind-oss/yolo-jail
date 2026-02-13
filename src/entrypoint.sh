@@ -142,10 +142,10 @@ mkdir -p "$COPILOT_ROOT_DIR"
 python3 -c "
 import json, os
 
-config_path = '$COPILOT_ROOT_DIR/mcp-config.json'
-# We only put non-LSP tools in Copilot's MCP config
+mcp_path = '$COPILOT_ROOT_DIR/mcp-config.json'
+# Copilot uses 'servers' top-level key
 mcp_config = {
-    'mcpServers': {
+    'servers': {
         'chrome-devtools': {
             'command': '/home/agent/.npm-global/bin/chrome-devtools-mcp',
             'args': ['--headless', '--no-sandbox']
@@ -157,8 +157,25 @@ mcp_config = {
     }
 }
 
-with open(config_path, 'w') as f:
+with open(mcp_path, 'w') as f:
     json.dump(mcp_config, f, indent=2)
+
+lsp_path = '$COPILOT_ROOT_DIR/lsp-config.json'
+lsp_config = {
+    'lspServers': {
+        'python': {
+            'command': '/home/agent/.npm-global/bin/pyright-langserver',
+            'args': ['--stdio']
+        },
+        'typescript': {
+            'command': '/home/agent/.npm-global/bin/typescript-language-server',
+            'args': ['--stdio']
+        }
+    }
+}
+
+with open(lsp_path, 'w') as f:
+    json.dump(lsp_config, f, indent=2)
 "
 
 # Gemini Config with MCP Servers
