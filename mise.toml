@@ -1,3 +1,5 @@
 [tools]
 node = "system"
 python = "system"
+"npm:@google/gemini-cli" = "latest"
+"npm:@github/copilot" = "latest"
