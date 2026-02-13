@@ -93,12 +93,22 @@ BOOTSTRAP_SCRIPT="$AGENT_HOME/.yolo-bootstrap.sh"
 cat <<'EOF' > "$BOOTSTRAP_SCRIPT"
 #!/bin/bash
 export NPM_CONFIG_PREFIX="$HOME/.npm-global"
-export PATH="$NPM_CONFIG_PREFIX/bin:$HOME/go/bin:$PATH"
+export GOPATH="$HOME/go"
+export PATH="$NPM_CONFIG_PREFIX/bin:$GOPATH/bin:$PATH"
 
 # Install binaries if missing.
 if ! command -v chrome-devtools-mcp >/dev/null; then
     echo "Installing MCP tools via npm..."
-    YOLO_BYPASS_SHIMS=1 npm install -g chrome-devtools-mcp @modelcontextprotocol/server-sequential-thinking pyright typescript-language-server typescript mcp-language-server
+    YOLO_BYPASS_SHIMS=1 npm install -g chrome-devtools-mcp @modelcontextprotocol/server-sequential-thinking pyright typescript-language-server typescript
+fi
+
+if [ ! -f "$GOPATH/bin/mcp-language-server" ]; then
+    if command -v go >/dev/null; then
+        echo "Installing mcp-language-server via go..."
+        YOLO_BYPASS_SHIMS=1 go install github.com/isaacphi/mcp-language-server@latest
+    else
+        echo "Warning: go not found, skipping mcp-language-server install"
+    fi
 fi
 EOF
 chmod +x "$BOOTSTRAP_SCRIPT"
@@ -168,11 +178,11 @@ default_config = {
             'args': []
         },
         'python-lsp': {
-            'command': '/home/agent/.npm-global/bin/mcp-language-server',
+            'command': '/home/agent/go/bin/mcp-language-server',
             'args': ['-lsp', 'pyright-langserver', '-workspace', '/workspace', '--', '--stdio']
         },
         'typescript-lsp': {
-            'command': '/home/agent/.npm-global/bin/mcp-language-server',
+            'command': '/home/agent/go/bin/mcp-language-server',
             'args': ['-lsp', 'typescript-language-server', '-workspace', '/workspace', '--', '--stdio']
         }
     }
