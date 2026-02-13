@@ -15,11 +15,11 @@ run:
 
 # Run the jail on a specific target path
 run-path path *args:
-    @mkdir -p .home .mise-cache
+    @mkdir -p ${HOME}/.local/share/yolo-jail/home ${HOME}/.local/share/yolo-jail/mise
     docker run --rm -it \
         -v {{path}}:/workspace \
-        -v $(pwd)/.home:/home/agent \
-        -v $(pwd)/.mise-cache:/mise \
+        -v ${HOME}/.local/share/yolo-jail/home:/home/agent \
+        -v ${HOME}/.local/share/yolo-jail/mise:/mise \
         --tmpfs /tmp \
         -e HOME=/home/agent \
         -e XDG_CONFIG_HOME=/home/agent/.config \

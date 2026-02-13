@@ -1,6 +1,4 @@
 result
 .direnv/
 .venv/
-.home/
-.mise-cache/
 trash/
