@@ -84,6 +84,10 @@ EOF
 # 6. Bootstrap Default Agent Configs (YOLO Mode)
 AGENT_HOME="${JAIL_HOME:-/home/agent}"
 
+# Ensure npm global bin is in PATH
+export NPM_CONFIG_PREFIX="$AGENT_HOME/.npm-global"
+export PATH="$NPM_CONFIG_PREFIX/bin:$AGENT_HOME/go/bin:$PATH"
+
 # Global Mise Config (to provide defaults if project has no mise.toml)
 MISE_CONFIG_DIR="$AGENT_HOME/.config/mise"
 if [ ! -f "$MISE_CONFIG_DIR/config.toml" ]; then
@@ -95,13 +99,20 @@ python = "system"
 go = "latest"
 "npm:@google/gemini-cli" = "latest"
 "npm:@github/copilot" = "latest"
-"npm:chrome-devtools-mcp" = "latest"
-"npm:@modelcontextprotocol/server-sequential-thinking" = "latest"
-"npm:pyright" = "latest"
-"npm:typescript-language-server" = "latest"
-"npm:typescript" = "latest"
-"npm:mcp-language-server" = "latest"
 EOF
+fi
+
+# Ensure essential tools are installed globally in the jail
+if [ -z "$YOLO_SKIP_BOOTSTRAP" ]; then
+    mkdir -p "$NPM_CONFIG_PREFIX"
+    # Install binaries if missing. We use 'npm install -g' to ensure they are in the PATH properly.
+    if ! command -v chrome-devtools-mcp >/dev/null; then
+        YOLO_BYPASS_SHIMS=1 npm install -g chrome-devtools-mcp @modelcontextprotocol/server-sequential-thinking pyright typescript-language-server typescript
+    fi
+    if ! command -v mcp-language-server >/dev/null; then
+        # Go tools need to be installed if missing
+        YOLO_BYPASS_SHIMS=1 go install github.com/isaacphi/mcp-language-server@latest
+    fi
 fi
 
 # Copilot Config
@@ -184,8 +195,6 @@ try:
             current['security'] = {}
         
         # Only set security defaults if not present? No, we want to enforce defaults for new installs.
-        # But if user changed them, we respect?
-        # Let's enforce the critical keys if they are missing.
         if 'approvalMode' not in current['security']:
             current['security']['approvalMode'] = 'yolo'
         if 'enablePermanentToolApproval' not in current['security']:
