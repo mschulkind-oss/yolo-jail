@@ -137,8 +137,8 @@ if [ ! -f "$MISE_CONFIG_DIR/config.toml" ]; then
     mkdir -p "$MISE_CONFIG_DIR"
     cat <<EOF > "$MISE_CONFIG_DIR/config.toml"
 [tools]
-node = "system"
-python = "system"
+node = "22"
+python = "3.13"
 go = "latest"
 "npm:@google/gemini-cli" = "latest"
 "npm:@github/copilot" = "latest"
