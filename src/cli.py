@@ -247,7 +247,7 @@ def run(
     
     # If mise.toml exists in workspace, trust it. 
     # Then ensure all tools (global + local) are ready.
-    setup_script = "(if [ -f mise.toml ]; then mise trust; fi) && mise install && mise upgrade && ~/.yolo-bootstrap.sh"
+    setup_script = "YOLO_BYPASS_SHIMS=1 sh -c '(if [ -f mise.toml ]; then mise trust; fi) && mise install && mise upgrade && ~/.yolo-bootstrap.sh'"
     final_internal_cmd = f"{setup_script} >/dev/null 2>&1; {target_cmd}"
     
     docker_cmd.append(final_internal_cmd)

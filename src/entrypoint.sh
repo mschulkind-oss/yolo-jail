@@ -12,7 +12,7 @@ BLOCKED_TOOLS="$DEFAULT_BLOCKED"
 
 # 3. Read blocked tools from environment variable (injected by Python CLI)
 if [ -n "$YOLO_BLOCK_CONFIG" ]; then
-    SHIM_DIR="$SHIM_DIR" python3 -c "
+    SHIM_DIR="$SHIM_DIR" python3 <<'PYSHIMS'
 import json, os, sys, stat
 
 shim_dir = os.environ.get('SHIM_DIR')
@@ -27,21 +27,25 @@ try:
         
         shim_path = os.path.join(shim_dir, name)
         
-        content = ''
-        if name in ['grep', 'find']:
+        # Determine the real binary path for tools that have one
+        real_bin = f'/bin/{name}' if name in ['grep', 'find'] else None
+        
+        if real_bin:
             content = f'''#!/bin/sh
-if [ -t 1 ] && [ -z \"\$YOLO_BYPASS_SHIMS\" ]; then
-  echo \"{msg}\" >&2
-  [ -n \"{sug}\" ] && echo \"Suggestion: {sug}\" >&2
+if [ -z "$YOLO_BYPASS_SHIMS" ]; then
+  echo "{msg}" >&2
+  [ -n "{sug}" ] && echo "Suggestion: {sug}" >&2
   exit 127
 fi
-exec /bin/{name} \"\$@\"
+exec {real_bin} "$@"
 '''
         else:
             content = f'''#!/bin/sh
-echo \"{msg}\" >&2
-[ -n \"{sug}\" ] && echo \"Suggestion: {sug}\" >&2
-exit 127
+if [ -z "$YOLO_BYPASS_SHIMS" ]; then
+  echo "{msg}" >&2
+  [ -n "{sug}" ] && echo "Suggestion: {sug}" >&2
+  exit 127
+fi
 '''
         
         with open(shim_path, 'w') as f:
@@ -51,8 +55,8 @@ exit 127
         os.chmod(shim_path, st.st_mode | stat.S_IEXEC)
         
 except Exception as e:
-    sys.stderr.write(f'Error generating shims: {e}\\n')
-"
+    sys.stderr.write(f'Error generating shims: {e}\n')
+PYSHIMS
 fi
 
 # 5. Set up a colorful prompt in the persistent store
@@ -404,5 +408,4 @@ with open(agents_path, 'w') as f:
 "
 
 # 9. Run the startup command passed from Justfile
-# We bypass shims for mise and startup tasks
-YOLO_BYPASS_SHIMS=1 exec bash --rcfile "$BASHRC" -c "$@"
+exec bash --rcfile "$BASHRC" -c "$@"
