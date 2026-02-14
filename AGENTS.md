@@ -29,6 +29,7 @@ This project provides a secure, isolated Docker environment for AI agents (Gemin
 - **Auto-YOLO**: The CLI automatically injects `--yolo` for `gemini` and `copilot` commands.
 - **Quoting**: Use `shlex.join` in Python to pass quoted arguments correctly to the container's `bash -c`.
 - **Self-Updating Build**: The CLI runs `nix build --impure` on every start but only executes `docker load` if the resulting image hash differs from `.last-load`. The `--impure` flag allows reading the `YOLO_EXTRA_PACKAGES` env var for per-project package customization.
+- **AGENTS Injection**: Runtime AGENTS context is written to `~/.copilot/AGENTS.md` and `~/.gemini/AGENTS.md` inside the jail. `/workspace/AGENTS.md` is not modified.
 
 ## Developer Runbook
 

@@ -52,6 +52,7 @@ YOLO Jail is pre-configured with:
 - **Modern CLI**: `rg`, `fd`, `bat`, `eza`, `jq`, `delta`, `fzf`.
 - **Debugging**: `strace`, `lsof`, `file`, `htop`, `ping`, `dig`.
 - **Agent Hygiene**: Pagers are disabled (`PAGER=cat`), and `bat` is aliased for non-interactive output.
+- **Agent Context**: Jail context is written to `~/.copilot/AGENTS.md` and `~/.gemini/AGENTS.md` (workspace `AGENTS.md` remains untouched).
 
 ## Tool Management (Mise)
 

@@ -91,6 +91,14 @@ Edit the generated `yolo-jail.jsonc`:
 
 YOLO Jail uses **Mise** to manage runtimes (Node, Python, etc.). If your project has a `mise.toml`, the jail will automatically install those tools when you enter.
 
+## AGENTS Context Injection
+
+YOLO Jail writes runtime environment context to:
+- `~/.copilot/AGENTS.md`
+- `~/.gemini/AGENTS.md`
+
+It does **not** modify your repository's `/workspace/AGENTS.md`, so you can edit project AGENTS files normally from inside the jail.
+
 ## Security Features
 
 1.  **Filesystem Isolation**: The agent only sees the project folder (`/workspace`) and a private home directory.

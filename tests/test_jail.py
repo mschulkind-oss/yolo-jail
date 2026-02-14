@@ -124,3 +124,16 @@ def test_jail_configs_present(temp_project):
     # We check if the files we just created in the global storage are visible inside
     result = run_yolo(temp_project, "ls /home/agent/.copilot/config.json && ls /home/agent/.gemini/settings.json")
     assert result.returncode == 0
+
+def test_workspace_agents_untouched_and_home_agents_present(temp_project):
+    """Workspace AGENTS.md should remain untouched; AGENTS context should be in app home dirs."""
+    workspace_agents = temp_project / "AGENTS.md"
+    original = "project-owned agents file\n"
+    workspace_agents.write_text(original)
+
+    result = run_yolo(
+        temp_project,
+        "ls /home/agent/.copilot/AGENTS.md && ls /home/agent/.gemini/AGENTS.md",
+    )
+    assert result.returncode == 0
+    assert workspace_agents.read_text() == original

@@ -310,16 +310,17 @@ except Exception as e:
 # 7. Place shims first in PATH
 export PATH="$SHIM_DIR:$PATH"
 
-# 8. Generate dynamic AGENTS.md in workspace (prepend jail info, preserve project content)
-JAIL_AGENTS="/workspace/AGENTS.md"
+# 8. Generate jail AGENTS context in app home dirs (do not modify /workspace/AGENTS.md)
 HOST_IP=$(ip route | awk '/default/ {print $3}' 2>/dev/null || echo "unknown")
-python3 -c "
+export YOLO_HOST_IP="$HOST_IP"
+python3 <<'PYAGENTS'
 import json, os
 
 host_dir = os.environ.get('YOLO_HOST_DIR', 'unknown')
-host_ip = '$HOST_IP'
+host_ip = os.environ.get('YOLO_HOST_IP', 'unknown')
 block_config = os.environ.get('YOLO_BLOCK_CONFIG', '[]')
 mounts_json = os.environ.get('YOLO_MOUNTS', '[]')
+agent_home = os.environ.get('HOME', '/home/agent')
 
 try:
     blocked = json.loads(block_config)
@@ -331,29 +332,16 @@ try:
 except Exception:
     mounts = []
 
-# Preserve existing project AGENTS.md content (skip any previous jail section)
-MARKER = '<!-- YOLO-JAIL-END -->'
-project_content = ''
-agents_path = '$JAIL_AGENTS'
-if os.path.exists(agents_path):
-    with open(agents_path, 'r') as f:
-        existing = f.read()
-    if MARKER in existing:
-        project_content = existing.split(MARKER, 1)[1].strip()
-    else:
-        project_content = existing.strip()
-
 lines = []
-lines.append('<!-- YOLO-JAIL-START (auto-generated, do not edit above YOLO-JAIL-END) -->')
 lines.append('# YOLO Jail Environment')
 lines.append('')
 lines.append('You are running inside a YOLO Jail — a sandboxed Docker container.')
 lines.append('')
 lines.append('## Environment')
 lines.append('')
-lines.append(f'- **Workspace**: \`/workspace\` (mounted from host \`{host_dir}\`)')
-lines.append(f'- **Host IP** (from container): \`{host_ip}\`')
-lines.append(f'- **Home Directory**: \`/home/agent\` (persistent across sessions)')
+lines.append(f'- **Workspace**: `/workspace` (mounted from host `{host_dir}`)')
+lines.append(f'- **Host IP** (from container): `{host_ip}`')
+lines.append(f'- **Home Directory**: `{agent_home}` (persistent across sessions)')
 lines.append('- **OS**: NixOS-based minimal container (no systemd, no sudo)')
 lines.append('- **Network**: Bridge mode by default. Use host IP above to reach host services.')
 lines.append('')
@@ -373,11 +361,11 @@ if blocked:
         name = tool.get('name', str(tool))
         msg = tool.get('message', '')
         sug = tool.get('suggestion', '')
-        entry = f'- \`{name}\`'
+        entry = f'- `{name}`'
         if msg:
             entry += f': {msg}'
         if sug:
-            entry += f' Use \`{sug}\` instead.'
+            entry += f' Use `{sug}` instead.'
         lines.append(entry)
     lines.append('')
 
@@ -386,26 +374,27 @@ if mounts:
     lines.append('')
     for m in mounts:
         host_path, container_path = m.split(':', 1) if ':' in m else (m, m)
-        lines.append(f'- \`{container_path}\` (from host \`{host_path}\`)')
+        lines.append(f'- `{container_path}` (from host `{host_path}`)')
     lines.append('')
 
 lines.append('## Limitations')
 lines.append('')
 lines.append('- **No internet restrictions** but no host credentials (no ~/.ssh, no ~/.gitconfig).')
 lines.append('- **No pagers**: PAGER=cat, GIT_PAGER=cat. Do not pipe to less/more.')
-lines.append('- **Read-only mounts**: Context mounts under \`/ctx/\` are read-only.')
+lines.append('- **Read-only mounts**: Context mounts under `/ctx/` are read-only.')
 lines.append('- **No sudo/root**: You run as a mapped host user with no privilege escalation.')
-lines.append('- Authenticate with \`gh auth login\` if you need GitHub access.')
+lines.append('- Authenticate with `gh auth login` if you need GitHub access.')
 lines.append('')
-lines.append(MARKER)
 
-if project_content:
-    lines.append('')
-    lines.append(project_content)
-
-with open(agents_path, 'w') as f:
-    f.write('\n'.join(lines) + '\n')
-"
+content = '\n'.join(lines) + '\n'
+for path in (
+    os.path.join(agent_home, '.copilot', 'AGENTS.md'),
+    os.path.join(agent_home, '.gemini', 'AGENTS.md'),
+):
+    os.makedirs(os.path.dirname(path), exist_ok=True)
+    with open(path, 'w') as f:
+        f.write(content)
+PYAGENTS
 
 # 9. Run the startup command passed from Justfile
 exec bash --rcfile "$BASHRC" -c "$@"
