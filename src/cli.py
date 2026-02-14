@@ -138,7 +138,7 @@ def init():
   // Each entry is a host path (mounted at /ctx/<basename>) or "host:container".
   // "mounts": [
   //   "~/code/other-repo",
-  //   "/home/matt/code/shared-lib:/ctx/shared-lib"
+  //   "~/code/shared-lib:/ctx/shared-lib"
   // ]
 }
 """

@@ -125,5 +125,5 @@ def test_yolo_direct_command(tmp_path):
 def test_jail_configs_present(temp_project):
     """Test that the persistent jail configs (YOLO mode) are visible."""
     # We check if the files we just created in the global storage are visible inside
-    result = run_yolo(temp_project, "ls /home/agent/.config/.copilot/config.json && ls /home/agent/.gemini/settings.json")
+    result = run_yolo(temp_project, "ls /home/agent/.copilot/config.json && ls /home/agent/.gemini/settings.json")
     assert result.returncode == 0

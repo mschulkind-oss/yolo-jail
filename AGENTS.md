@@ -1,37 +1,6 @@
 <!-- YOLO-JAIL-START (auto-generated, do not edit above YOLO-JAIL-END) -->
-# YOLO Jail Environment
-
-You are running inside a YOLO Jail — a sandboxed Docker container.
-
-## Environment
-
-- **Workspace**: `/workspace` (mounted from host `/home/matt/code/yolo_jail`)
-- **Host IP** (from container): `172.17.0.1`
-- **Home Directory**: `/home/agent` (persistent across sessions)
-- **OS**: NixOS-based minimal container (no systemd, no sudo)
-- **Network**: Bridge mode by default. Use host IP above to reach host services.
-
-## Available Tools
-
-Standard CLI tools: git, rg (ripgrep), fd, bat, jq, nvim, curl, wget, strace, gh
-Runtimes: Node.js 22, Python 3.13, Go (managed by mise)
-MCP Servers: chrome-devtools (headless Chromium), sequential-thinking
-
-## Blocked Tools
-
-The following tools are blocked or shimmed in this project:
-
-- `grep`
-- `find`
-
-## Limitations
-
-- **No internet restrictions** but no host credentials (no ~/.ssh, no ~/.gitconfig).
-- **No pagers**: PAGER=cat, GIT_PAGER=cat. Do not pipe to less/more.
-- **Read-only mounts**: Context mounts under `/ctx/` are read-only.
-- **No sudo/root**: You run as a mapped host user with no privilege escalation.
-- Authenticate with `gh auth login` if you need GitHub access.
-
+<!-- This section is dynamically generated inside the jail at runtime. -->
+<!-- See src/entrypoint.sh for the generation logic. -->
 <!-- YOLO-JAIL-END -->
 
 # YOLO Jail: Agent Developer Guide
