@@ -304,6 +304,103 @@ except Exception as e:
 # 7. Place shims first in PATH
 export PATH="$SHIM_DIR:$PATH"
 
-# 8. Run the startup command passed from Justfile
+# 8. Generate dynamic AGENTS.md in workspace (prepend jail info, preserve project content)
+JAIL_AGENTS="/workspace/AGENTS.md"
+HOST_IP=$(ip route | awk '/default/ {print $3}' 2>/dev/null || echo "unknown")
+python3 -c "
+import json, os
+
+host_dir = os.environ.get('YOLO_HOST_DIR', 'unknown')
+host_ip = '$HOST_IP'
+block_config = os.environ.get('YOLO_BLOCK_CONFIG', '[]')
+mounts_json = os.environ.get('YOLO_MOUNTS', '[]')
+
+try:
+    blocked = json.loads(block_config)
+except Exception:
+    blocked = []
+
+try:
+    mounts = json.loads(mounts_json)
+except Exception:
+    mounts = []
+
+# Preserve existing project AGENTS.md content (skip any previous jail section)
+MARKER = '<!-- YOLO-JAIL-END -->'
+project_content = ''
+agents_path = '$JAIL_AGENTS'
+if os.path.exists(agents_path):
+    with open(agents_path, 'r') as f:
+        existing = f.read()
+    if MARKER in existing:
+        project_content = existing.split(MARKER, 1)[1].strip()
+    else:
+        project_content = existing.strip()
+
+lines = []
+lines.append('<!-- YOLO-JAIL-START (auto-generated, do not edit above YOLO-JAIL-END) -->')
+lines.append('# YOLO Jail Environment')
+lines.append('')
+lines.append('You are running inside a YOLO Jail — a sandboxed Docker container.')
+lines.append('')
+lines.append('## Environment')
+lines.append('')
+lines.append(f'- **Workspace**: \`/workspace\` (mounted from host \`{host_dir}\`)')
+lines.append(f'- **Host IP** (from container): \`{host_ip}\`')
+lines.append(f'- **Home Directory**: \`/home/agent\` (persistent across sessions)')
+lines.append('- **OS**: NixOS-based minimal container (no systemd, no sudo)')
+lines.append('- **Network**: Bridge mode by default. Use host IP above to reach host services.')
+lines.append('')
+lines.append('## Available Tools')
+lines.append('')
+lines.append('Standard CLI tools: git, rg (ripgrep), fd, bat, jq, nvim, curl, wget, strace, gh')
+lines.append('Runtimes: Node.js 22, Python 3.13, Go (managed by mise)')
+lines.append('MCP Servers: chrome-devtools (headless Chromium), sequential-thinking')
+lines.append('')
+
+if blocked:
+    lines.append('## Blocked Tools')
+    lines.append('')
+    lines.append('The following tools are blocked or shimmed in this project:')
+    lines.append('')
+    for tool in blocked:
+        name = tool.get('name', str(tool))
+        msg = tool.get('message', '')
+        sug = tool.get('suggestion', '')
+        entry = f'- \`{name}\`'
+        if msg:
+            entry += f': {msg}'
+        if sug:
+            entry += f' Use \`{sug}\` instead.'
+        lines.append(entry)
+    lines.append('')
+
+if mounts:
+    lines.append('## Additional Context Mounts (read-only)')
+    lines.append('')
+    for m in mounts:
+        host_path, container_path = m.split(':', 1) if ':' in m else (m, m)
+        lines.append(f'- \`{container_path}\` (from host \`{host_path}\`)')
+    lines.append('')
+
+lines.append('## Limitations')
+lines.append('')
+lines.append('- **No internet restrictions** but no host credentials (no ~/.ssh, no ~/.gitconfig).')
+lines.append('- **No pagers**: PAGER=cat, GIT_PAGER=cat. Do not pipe to less/more.')
+lines.append('- **Read-only mounts**: Context mounts under \`/ctx/\` are read-only.')
+lines.append('- **No sudo/root**: You run as a mapped host user with no privilege escalation.')
+lines.append('- Authenticate with \`gh auth login\` if you need GitHub access.')
+lines.append('')
+lines.append(MARKER)
+
+if project_content:
+    lines.append('')
+    lines.append(project_content)
+
+with open(agents_path, 'w') as f:
+    f.write('\n'.join(lines) + '\n')
+"
+
+# 9. Run the startup command passed from Justfile
 # We bypass shims for mise and startup tasks
 YOLO_BYPASS_SHIMS=1 exec bash --rcfile "$BASHRC" -c "$@"

@@ -10,6 +10,7 @@ This project provides a secure, isolated Docker environment for AI agents (Gemin
 - **Dynamic Shims**: Blocked tools (grep, find, etc.) are generated dynamically based on this config. 
 - **Smart Shims**: `grep` and `find` shims allow background scripts but block interactive TTY usage to prevent agents from wasting tokens on huge recursive searches.
 - **Extra Mounts**: The `mounts` array brings additional host paths into the jail read-only at `/ctx/<basename>` (or a custom container path via `"host:container"` syntax).
+- **Dynamic AGENTS.md**: On every jail start, the entrypoint generates/updates `/workspace/AGENTS.md` with jail environment info (host IP, blocked tools, mounts, limitations). Existing project AGENTS.md content is preserved below a `<!-- YOLO-JAIL-END -->` marker.
 
 ### 2. Isolation & Identity
 - **Strict Isolation**: The jail MUST NOT access host `~/.ssh/`, `~/.gitconfig`, or any cloud credentials.

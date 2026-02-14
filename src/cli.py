@@ -182,12 +182,11 @@ def run(
 
     # Process Extra Mounts
     mount_args = []
+    mount_descriptions = []
     for mount in config.get("mounts", []):
         if ":" in mount and not mount.startswith("~") and not mount.startswith("/"):
-            # Explicit host:container mapping
             host_path, container_path = mount.split(":", 1)
         else:
-            # Auto-map to /ctx/<basename>
             host_path = mount
             container_path = f"/ctx/{Path(host_path).expanduser().resolve().name}"
         host_path = str(Path(host_path).expanduser().resolve())
@@ -195,6 +194,7 @@ def run(
             console.print(f"[yellow]Warning: mount path does not exist, skipping: {host_path}[/yellow]")
             continue
         mount_args.extend(["-v", f"{host_path}:{container_path}:ro"])
+        mount_descriptions.append(f"{host_path}:{container_path}")
 
     # Construct Docker Command
     docker_flags = ["--rm", "-i"]
@@ -216,10 +216,9 @@ def run(
         "-e", "COPILOT_ALLOW_ALL=true",
         "-e", "LD_LIBRARY_PATH=/lib:/usr/lib",
         "-e", "PATH=/home/agent/.npm-global/bin:/home/agent/go/bin:/mise/shims:/bin:/usr/bin",
-        "-e", "PLAYWRIGHT_SKIP_VALIDATE_HOST_REQUIREMENTS=true",
-        "-e", "BROWSER_EXECUTABLE_PATH=/usr/bin/chromium",
         "-e", f"YOLO_BLOCK_CONFIG={blocked_config_json}",
         "-e", f"YOLO_HOST_DIR={Path.cwd()}",
+        "-e", f"YOLO_MOUNTS={json.dumps(mount_descriptions)}",
         "-u", f"{os.getuid()}:{os.getgid()}",
         "--workdir", "/workspace",
         f"--net={net_mode}",
