@@ -211,7 +211,8 @@ mcp_path = os.path.join(config_dir, 'mcp-config.json')
 mcp_config = {
     'mcpServers': {
         'chrome-devtools': {
-            'command': '/home/agent/.local/bin/chrome-devtools-mcp-wrapper'
+            'command': '/home/agent/.local/bin/chrome-devtools-mcp-wrapper',
+            'args': []
         },
         'sequential-thinking': {
             'command': 'node',
@@ -253,7 +254,8 @@ default_config = {
     'security': {'approvalMode': 'yolo', 'enablePermanentToolApproval': True},
     'mcpServers': {
         'chrome-devtools': {
-            'command': '/home/agent/.local/bin/chrome-devtools-mcp-wrapper'
+            'command': '/home/agent/.local/bin/chrome-devtools-mcp-wrapper',
+            'args': []
         },
         'sequential-thinking': {
             'command': 'node',
