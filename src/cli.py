@@ -14,6 +14,7 @@ JAIL_IMAGE = "yolo-jail:latest"
 GLOBAL_STORAGE = Path.home() / ".local/share/yolo-jail"
 GLOBAL_HOME = GLOBAL_STORAGE / "home"
 GLOBAL_MISE = GLOBAL_STORAGE / "mise"
+USER_CONFIG_PATH = Path.home() / ".config" / "yolo-jail" / "config.jsonc"
 
 from rich.console import Console
 from rich.status import Status
@@ -85,18 +86,42 @@ def auto_load_image(repo_root: Path, extra_packages: List[str] = None):
     # Cleanup temp link
     (repo_root / ".run-result").unlink(missing_ok=True)
 
+def _load_jsonc_file(path: Path, label: str) -> Dict[str, Any]:
+    if not path.exists():
+        return {}
+    try:
+        with open(path, "r") as f:
+            parsed = pyjson5.load(f)
+        return parsed if isinstance(parsed, dict) else {}
+    except Exception as e:
+        typer.echo(f"Warning: Failed to parse {label}: {e}", err=True)
+        return {}
+
+def _merge_lists(base: List[Any], override: List[Any]) -> List[Any]:
+    merged = list(base)
+    seen = {json.dumps(item, sort_keys=True, default=str) for item in merged}
+    for item in override:
+        key = json.dumps(item, sort_keys=True, default=str)
+        if key not in seen:
+            merged.append(item)
+            seen.add(key)
+    return merged
+
+def merge_config(base: Dict[str, Any], override: Dict[str, Any]) -> Dict[str, Any]:
+    result = dict(base)
+    for key, value in override.items():
+        if key in result and isinstance(result[key], dict) and isinstance(value, dict):
+            result[key] = merge_config(result[key], value)
+        elif key in result and isinstance(result[key], list) and isinstance(value, list):
+            result[key] = _merge_lists(result[key], value)
+        else:
+            result[key] = value
+    return result
+
 def load_config() -> Dict[str, Any]:
-    # Only support JSONC
-    jsonc_path = Path.cwd() / "yolo-jail.jsonc"
-    if jsonc_path.exists():
-        try:
-            with open(jsonc_path, "r") as f:
-                return pyjson5.load(f)
-        except Exception as e:
-            typer.echo(f"Warning: Failed to parse yolo-jail.jsonc: {e}", err=True)
-            return {}
-    
-    return {}
+    user_config = _load_jsonc_file(USER_CONFIG_PATH, str(USER_CONFIG_PATH))
+    workspace_config = _load_jsonc_file(Path.cwd() / "yolo-jail.jsonc", "yolo-jail.jsonc")
+    return merge_config(user_config, workspace_config)
 
 @app.command()
 def init():
@@ -145,6 +170,27 @@ def init():
     with open(config_path, "w") as f:
         f.write(content)
     typer.echo("Created yolo-jail.jsonc")
+
+@app.command("init-user-config")
+def init_user_config():
+    """Initialize a user-level config at ~/.config/yolo-jail/config.jsonc."""
+    USER_CONFIG_PATH.parent.mkdir(parents=True, exist_ok=True)
+    if USER_CONFIG_PATH.exists():
+        typer.echo(f"{USER_CONFIG_PATH} already exists.")
+        return
+    content = """{
+  // User-level defaults merged into every project config.
+  // Lists are merged (deduplicated), scalars are overridden by workspace config.
+  // "packages": ["sqlite", "postgresql"],
+  // "mounts": ["~/code/shared-lib:/ctx/shared-lib"],
+  // "security": {
+  //   "blocked_tools": ["wget"]
+  // }
+}
+"""
+    with open(USER_CONFIG_PATH, "w") as f:
+        f.write(content)
+    typer.echo(f"Created {USER_CONFIG_PATH}")
 
 @app.command(context_settings={"allow_extra_args": True, "ignore_unknown_options": True})
 def run(

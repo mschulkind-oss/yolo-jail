@@ -12,6 +12,8 @@ This project provides a secure, isolated Docker environment for AI agents (Gemin
 ### 1. Configuration (`yolo-jail.jsonc`)
 - **Format**: JSON with comments (JSONC). **TOML is deprecated**.
 - **Location**: Project root.
+- **User Defaults**: Optional global config at `~/.config/yolo-jail/config.jsonc` (create with `yolo init-user-config`).
+- **Merge Rules**: Workspace config is merged over user config. Lists are merged+deduped; scalar/object values in workspace override user defaults.
 - **Dynamic Shims**: Blocked tools are generated dynamically based on this config. All blocked tools are unconditionally blocked unless `YOLO_BYPASS_SHIMS=1` is set.
 - **Custom Packages**: The `packages` array specifies additional nix packages to bake into the jail image. Names must match nixpkgs attribute names. The image only rebuilds when this list changes. Uses `--impure` nix build with `builtins.getEnv`.
 

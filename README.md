@@ -21,6 +21,14 @@ Run this once to create a `yolo` command in your path:
 sudo ln -s $(pwd)/yolo-enter.sh /usr/local/bin/yolo
 ```
 
+### 1.5 Optional: User-Level Defaults
+Set defaults applied to all projects:
+```bash
+yolo init-user-config
+# edits: ~/.config/yolo-jail/config.jsonc
+```
+Workspace `yolo-jail.jsonc` is merged on top of this user config (lists merge+dedupe, scalar values override).
+
 ### 2. Enter any Project
 Navigate to any repository and type:
 ```bash

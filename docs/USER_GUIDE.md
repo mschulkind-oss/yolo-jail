@@ -40,6 +40,15 @@ Run this in your project root to generate a default configuration:
 yolo init
 ```
 
+### User-Level Defaults (`~/.config/yolo-jail/config.jsonc`)
+To define defaults for all projects:
+```bash
+yolo init-user-config
+```
+Merge behavior:
+- Lists (`packages`, `mounts`, `security.blocked_tools`) are merged and deduplicated.
+- Scalar/object values from the workspace config override user-level defaults.
+
 ### 2. Configuration Options
 Edit the generated `yolo-jail.jsonc`:
 ```jsonc

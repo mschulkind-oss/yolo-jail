@@ -15,7 +15,7 @@ REPO_ROOT=$( cd -P "$( dirname "$SOURCE" )" >/dev/null 2>&1 && pwd )
 if [ -z "$1" ]; then
     # No arguments: start an interactive shell
     exec uv run --project "$REPO_ROOT" "$REPO_ROOT/src/cli.py" run
-elif [ "$1" == "init" ] || [ "$1" == "run" ] || [ "$1" == "--help" ] || [ "$1" == "-h" ]; then
+elif [ "$1" == "init" ] || [ "$1" == "init-user-config" ] || [ "$1" == "run" ] || [ "$1" == "--help" ] || [ "$1" == "-h" ]; then
     # Explicit subcommands or help
     exec uv run --project "$REPO_ROOT" "$REPO_ROOT/src/cli.py" "$@"
 elif [ "$1" == "--" ]; then
@@ -28,6 +28,7 @@ else
     echo "Usage:" >&2
     echo "  yolo              # Open interactive shell" >&2
     echo "  yolo init         # Initialize configuration" >&2
+    echo "  yolo init-user-config # Initialize user-level defaults" >&2
     echo "  yolo -- <command> # Run command directly" >&2
     exit 1
 fi
