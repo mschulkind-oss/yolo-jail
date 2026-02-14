@@ -30,10 +30,9 @@ def temp_project(tmp_path):
     return project_dir
 
 def run_yolo(project_dir, command):
-    """Run a command inside the jail."""
-    # We use subprocess.run directly on the shell script
+    """Run a shell command inside the jail."""
     result = subprocess.run(
-        [str(YOLO_CMD), "run", command],
+        [str(YOLO_CMD), "--", "bash", "-lc", command],
         cwd=str(project_dir),
         capture_output=True,
         text=True,
@@ -48,12 +47,10 @@ def test_blocked_tool_curl(temp_project):
     assert "Error: tool curl is blocked" in result.stderr
 
 def test_blocked_tool_grep(temp_project):
-    """Test that grep is blocked interactively but works in scripts (smart shim)."""
-    # Since pytest runs non-interactively, the shim should PASS THROUGH to real grep
-    # Real grep returns 2 if file not found
+    """Test that grep is blocked."""
     result = run_yolo(temp_project, "grep 'foo' bar")
-    assert result.returncode == 2
-    assert "No such file" in result.stderr
+    assert result.returncode == 127
+    assert "NO GREP ALLOWED" in result.stderr
 
 def test_allowed_tool(temp_project):
     """Test that an allowed tool works."""

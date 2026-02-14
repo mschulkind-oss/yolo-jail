@@ -8,9 +8,7 @@ A restricted, secure Docker environment designed for AI agents (like VS Code Cop
 - **Optimized:** Pre-installed with modern, fast tools:
     - `rg` (ripgrep)
     - `fd`
-- **Restricted:** Dangerous or slow legacy tools are blocked or shimmed:
-    - `grep` -> Redirects to `rg`
-    - `find` -> Redirects to `fd`
+- **Restricted:** Tools in `security.blocked_tools` are blocked by default (unless explicitly bypassed for installer/bootstrap steps).
 - **Reproducible:** Defined entirely via Nix Flakes.
 
 ## Global Usage
@@ -33,10 +31,10 @@ yolo
 yolo -- gemini prompt "Explain this code"
 yolo -- copilot
 ```
-The jail will launch, mounting your current directory to `/workspace`. It will share your global `gh` and `gemini-cli` authentication, and tools will be persistent across sessions.
+The jail will launch, mounting your current directory to `/workspace`. Auth and global tool state are persisted in `~/.local/share/yolo-jail/` and isolated from host credentials.
 
 ### 3. Automatic Updates
-The `yolo` command is self-updating. If you modify `flake.nix` or the jail configuration, it will automatically rebuild and reload the Docker image on the next run.
+The `yolo` command is self-updating. If you modify `flake.nix` or project-level jail config (including `packages`), it will automatically rebuild and reload the Docker image on the next run when the image hash changes.
 
 ## Agent Capabilities
 
@@ -57,5 +55,5 @@ This project uses **Mise** to manage project-specific tools.
 
 - **Isolation**: Docker prevents the agent from touching your host filesystem.
 - **Isolated Auth**: The jail has its own separate authentication state stored globally in `~/.local/share/yolo-jail/home/`. It does **not** share credentials with your host machine. You will need to run `gh auth login` and `gemini login` once inside the jail.
-- **Fail Loudly**: Legacy tools like `grep` and `find` are shimmed to redirect you to faster, modern alternatives (`rg`, `fd`).
+- **Fail Loudly**: Blocked tools return a clear error message with optional suggestions (for example, suggesting `rg` instead of `grep`).
 - **User Mapping**: Files created in the jail are owned by your host user (matching UID/GID).
