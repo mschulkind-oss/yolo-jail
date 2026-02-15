@@ -80,6 +80,11 @@ export PS1="\n${JAIL_BANNER} ${HOST_INFO}\n${GREEN}jail${NC}:${BLUE}\w${NC}\$ "
 # Initialize font cache for Chromium
 fc-cache -f >/dev/null 2>&1
 
+# Set terminal/tmux title to "JAIL <dirname>" via escape sequence
+# This works through Docker's PTY and updates tmux window names automatically
+_JAIL_DIR="$(basename "${YOLO_HOST_DIR:-/workspace}")"
+printf '\033]0;JAIL %s\033\\' "$_JAIL_DIR"
+
 # Agent-friendly defaults (no pagers, no line numbers)
 export PAGER=cat
 export BAT_PAGER=""

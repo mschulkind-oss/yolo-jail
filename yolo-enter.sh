@@ -11,17 +11,44 @@ while [ -L "$SOURCE" ]; do
 done
 REPO_ROOT=$( cd -P "$( dirname "$SOURCE" )" >/dev/null 2>&1 && pwd )
 
+# If inside tmux, set pane border to red and restore on exit
+if [ -n "$TMUX" ]; then
+    _JAIL_DIR="$(basename "$PWD")"
+    _OLD_BORDER=$(tmux show-option -pqv pane-border-style 2>/dev/null)
+    _OLD_ACTIVE=$(tmux show-option -pqv pane-active-border-style 2>/dev/null)
+    _OLD_WINNAME=$(tmux display-message -p '#W' 2>/dev/null)
+    tmux rename-window "JAIL $_JAIL_DIR" >/dev/null 2>&1
+    tmux set-option -p pane-border-style "fg=red,bold" >/dev/null 2>&1
+    tmux set-option -p pane-active-border-style "fg=red,bold" >/dev/null 2>&1
+    _restore_border() {
+        if [ -n "$_OLD_BORDER" ]; then
+            tmux set-option -p pane-border-style "$_OLD_BORDER" >/dev/null 2>&1
+        else
+            tmux set-option -pu pane-border-style >/dev/null 2>&1
+        fi
+        if [ -n "$_OLD_ACTIVE" ]; then
+            tmux set-option -p pane-active-border-style "$_OLD_ACTIVE" >/dev/null 2>&1
+        else
+            tmux set-option -pu pane-active-border-style >/dev/null 2>&1
+        fi
+        tmux rename-window "$_OLD_WINNAME" >/dev/null 2>&1
+    }
+    trap _restore_border EXIT
+fi
+
 # Run the CLI using uv, pointing to the jail project while staying in the user's current directory
+_run_jail() { uv run --project "$REPO_ROOT" "$REPO_ROOT/src/cli.py" "$@"; }
+
 if [ -z "$1" ]; then
     # No arguments: start an interactive shell
-    exec -a JAIL uv run --project "$REPO_ROOT" "$REPO_ROOT/src/cli.py" run
+    _run_jail run
 elif [ "$1" == "init" ] || [ "$1" == "init-user-config" ] || [ "$1" == "run" ] || [ "$1" == "--help" ] || [ "$1" == "-h" ]; then
     # Explicit subcommands or help
-    exec -a JAIL uv run --project "$REPO_ROOT" "$REPO_ROOT/src/cli.py" "$@"
+    _run_jail "$@"
 elif [ "$1" == "--" ]; then
     # Treat everything after -- as the command to run in the jail
     shift
-    exec -a JAIL uv run --project "$REPO_ROOT" "$REPO_ROOT/src/cli.py" run -- "$@"
+    _run_jail run -- "$@"
 else
     # Rejection of the "old way" (implicit command execution)
     echo "Error: Unknown argument '$1'. " >&2
