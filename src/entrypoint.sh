@@ -106,9 +106,8 @@ EOF
 # 6. Bootstrap Default Agent Configs (YOLO Mode)
 AGENT_HOME="${JAIL_HOME:-/home/agent}"
 
-# Ensure npm global bin is in PATH
+# Let npm use default global prefix in home
 export NPM_CONFIG_PREFIX="$AGENT_HOME/.npm-global"
-export PATH="$NPM_CONFIG_PREFIX/bin:$AGENT_HOME/go/bin:$PATH"
 
 # Create a bootstrap script that will run AFTER mise is ready
 BOOTSTRAP_SCRIPT="$AGENT_HOME/.yolo-bootstrap.sh"
@@ -117,7 +116,10 @@ cat <<'EOF' > "$BOOTSTRAP_SCRIPT"
 export NPM_CONFIG_PREFIX="$HOME/.npm-global"
 export GOPATH="$HOME/go"
 export GOBIN="$GOPATH/bin"
-export PATH="$NPM_CONFIG_PREFIX/bin:$GOBIN:$PATH"
+
+# Compute npm global bin dir from npm config (respects user overrides)
+NPM_BIN="$(npm config get prefix)/bin"
+export PATH="$NPM_BIN:$GOBIN:$PATH"
 
 # Install binaries if missing.
 if ! command -v chrome-devtools-mcp >/dev/null; then
@@ -158,12 +160,17 @@ EOF
 fi
 
 # Chrome Wrapper Script for MCP (avoids pipe-mode fd conflicts when spawned by agents)
+# This runs at startup before bootstrap, so we need to embed the npm prefix discovery
 CHROME_WRAPPER="$AGENT_HOME/.local/bin/chrome-devtools-mcp-wrapper"
 mkdir -p "$(dirname "$CHROME_WRAPPER")"
-cat <<'WRAPPER' > "$CHROME_WRAPPER"
+cat >"$CHROME_WRAPPER" <<'WRAPPER'
 #!/bin/bash
 CHROME_PORT=9222
 CHROME_URL="http://127.0.0.1:$CHROME_PORT"
+
+# Compute npm global bin dir (respects user overrides)
+NPM_BIN="$(npm config get prefix)/bin"
+MCP_WRAPPERS_BIN="$HOME/.local/bin/mcp-wrappers"
 
 # Start Chromium if not already running
 if ! curl -s "$CHROME_URL/json/version" >/dev/null 2>&1; then
@@ -187,7 +194,7 @@ if ! curl -s "$CHROME_URL/json/version" >/dev/null 2>&1; then
     done
 fi
 
-exec /home/agent/.local/bin/mcp-wrappers/node /home/agent/.npm-global/bin/chrome-devtools-mcp \
+exec "$MCP_WRAPPERS_BIN/node" "$NPM_BIN/chrome-devtools-mcp" \
     --browser-url "$CHROME_URL" \
     "$@"
 WRAPPER
@@ -234,21 +241,30 @@ if [ ! -f "$COPILOT_CONFIG_DIR/config.json" ]; then
 fi
 
 python3 -c "
-import json, os
+import json, os, subprocess
 
 config_dir = '$COPILOT_CONFIG_DIR'
+
+# Compute npm global bin dir (respects user overrides)
+try:
+    npm_prefix = subprocess.check_output(['npm', 'config', 'get', 'prefix'], text=True).strip()
+    npm_bin = os.path.join(npm_prefix, 'bin')
+except:
+    npm_bin = os.path.expanduser('~/.npm-global/bin')
+
+mcp_wrappers_bin = os.path.expanduser('~/.local/bin/mcp-wrappers')
 
 # Write MCP Config
 mcp_path = os.path.join(config_dir, 'mcp-config.json')
 mcp_config = {
     'mcpServers': {
         'chrome-devtools': {
-            'command': '/home/agent/.local/bin/chrome-devtools-mcp-wrapper',
+            'command': os.path.expanduser('~/.local/bin/chrome-devtools-mcp-wrapper'),
             'args': []
         },
         'sequential-thinking': {
-            'command': '/home/agent/.local/bin/mcp-wrappers/node',
-            'args': ['/home/agent/.npm-global/bin/mcp-server-sequential-thinking']
+            'command': os.path.join(mcp_wrappers_bin, 'node'),
+            'args': [os.path.join(npm_bin, 'mcp-server-sequential-thinking')]
         }
     }
 }
@@ -260,12 +276,12 @@ lsp_path = os.path.join(config_dir, 'lsp-config.json')
 lsp_config = {
     'lspServers': {
         'python': {
-            'command': '/home/agent/.npm-global/bin/pyright-langserver',
+            'command': os.path.join(npm_bin, 'pyright-langserver'),
             'args': ['--stdio'],
             'fileExtensions': ['py']
         },
         'typescript': {
-            'command': '/home/agent/.npm-global/bin/typescript-language-server',
+            'command': os.path.join(npm_bin, 'typescript-language-server'),
             'args': ['--stdio'],
             'fileExtensions': ['ts', 'tsx', 'js', 'jsx']
         }
@@ -279,26 +295,37 @@ with open(lsp_path, 'w') as f:
 GEMINI_CONFIG_DIR="$AGENT_HOME/.gemini"
 mkdir -p "$GEMINI_CONFIG_DIR"
 python3 -c "
-import json, os, sys
+import json, os, sys, subprocess
 
 config_path = '$GEMINI_CONFIG_DIR/settings.json'
+
+# Compute npm global bin dir (respects user overrides)
+try:
+    npm_prefix = subprocess.check_output(['npm', 'config', 'get', 'prefix'], text=True).strip()
+    npm_bin = os.path.join(npm_prefix, 'bin')
+except:
+    npm_bin = os.path.expanduser('~/.npm-global/bin')
+
+go_bin = os.path.expanduser('~/go/bin')
+mcp_wrappers_bin = os.path.expanduser('~/.local/bin/mcp-wrappers')
+
 default_config = {
     'security': {'approvalMode': 'yolo', 'enablePermanentToolApproval': True},
     'mcpServers': {
         'chrome-devtools': {
-            'command': '/home/agent/.local/bin/chrome-devtools-mcp-wrapper',
+            'command': os.path.expanduser('~/.local/bin/chrome-devtools-mcp-wrapper'),
             'args': []
         },
         'sequential-thinking': {
-            'command': '/home/agent/.local/bin/mcp-wrappers/node',
-            'args': ['/home/agent/.npm-global/bin/mcp-server-sequential-thinking']
+            'command': os.path.join(mcp_wrappers_bin, 'node'),
+            'args': [os.path.join(npm_bin, 'mcp-server-sequential-thinking')]
         },
         'python-lsp': {
-            'command': '/home/agent/go/bin/mcp-language-server',
+            'command': os.path.join(go_bin, 'mcp-language-server'),
             'args': ['-lsp', 'pyright-langserver', '-workspace', '/workspace', '--', '--stdio']
         },
         'typescript-lsp': {
-            'command': '/home/agent/go/bin/mcp-language-server',
+            'command': os.path.join(go_bin, 'mcp-language-server'),
             'args': ['-lsp', 'typescript-language-server', '-workspace', '/workspace', '--', '--stdio']
         }
     }
