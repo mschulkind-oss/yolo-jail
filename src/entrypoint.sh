@@ -309,12 +309,20 @@ lsp_config = {
         'python': {
             'command': os.path.join(npm_bin, 'pyright-langserver'),
             'args': ['--stdio'],
-            'fileExtensions': ['py']
+            'fileExtensions': {
+                '.py': 'python',
+                '.pyi': 'python'
+            }
         },
         'typescript': {
             'command': os.path.join(npm_bin, 'typescript-language-server'),
             'args': ['--stdio'],
-            'fileExtensions': ['ts', 'tsx', 'js', 'jsx']
+            'fileExtensions': {
+                '.ts': 'typescript',
+                '.tsx': 'typescriptreact',
+                '.js': 'javascript',
+                '.jsx': 'javascriptreact'
+            }
         }
     }
 }
