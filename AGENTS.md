@@ -106,6 +106,7 @@ This project provides a secure, isolated Docker environment for AI agents (Gemin
 - **Terminal**: `TERM=xterm-256color` should be passed to maintain color support for agent parsing.
 - **Permissions**: Map host UID/GID to the container user to ensure file ownership on the host is preserved.
 - **No LD_LIBRARY_PATH Stripping**: `LD_LIBRARY_PATH=/lib:/usr/lib` is baked into the Docker image Env to survive agent environment sanitization.
+- **Tmux Window Title**: `PROMPT_COMMAND` is set to continuously update the tmux window title to `JAIL <dirname>`. This overrides tmux's `automatic-rename` feature which would otherwise show the current process name (e.g., "node", "python"). The title updates on every prompt, ensuring it stays as "JAIL <dirname>" even when running long-running processes.
 
 ## Workflow for Modification
 1. **Change Image**: Edit `flake.nix` (e.g., add `pkgs.strace`).
