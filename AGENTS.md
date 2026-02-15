@@ -75,9 +75,12 @@ This project provides a secure, isolated Docker environment for AI agents (Gemin
     - **Required Chrome Flags**: `--no-sandbox`, `--disable-setuid-sandbox`, `--disable-dev-shm-usage`, `--disable-gpu`, `--disable-software-rasterizer`.
     - **Docker**: Use `--shm-size=2g` in the Docker run command for adequate shared memory.
     - **Binary Discovery**: Always use absolute paths (e.g., `/usr/bin/chromium`) in MCP configs.
-- **LSP Schemas**:
-    - **Copilot**: Requires `mcpServers` (plural) key in `~/.copilot/mcp-config.json` and a separate `lsp-config.json` with `fileExtensions`.
-    - **Gemini**: Uses `mcpServers` key in `settings.json`.
+- **LSP Config Format**:
+    - **Copilot**: Uses `~/.copilot/lsp-config.json` with `lspServers` (plural) key.
+    - **Gemini**: Uses `lspServers` key in `~/.gemini/settings.json`.
+    - **Format**: `fileExtensions` must be an object mapping extensions to language IDs, e.g., `{".py": "python", ".pyi": "python"}`, not an array.
+    - **Lazy Loading**: LSP servers are spawned on-demand when Copilot/Gemini analyze code files, not as persistent background services.
+    - **Testing**: To verify LSP works, ask the agent to analyze a file with type errors: `@file.py check for type errors`.
 - **Node Wrappers**: `~/.local/bin/mcp-wrappers/node` and `npx` are wrapper scripts that set `LD_LIBRARY_PATH` before calling the mise-installed binary. MCP configs use absolute paths to these wrappers. Required because agents may sanitize the environment when spawning MCP child processes, stripping `LD_LIBRARY_PATH` which mise-installed node needs to find `libstdc++.so.6`.
 - **Self-Contained Wrappers**: All MCP wrapper scripts (chrome-devtools, node, npx) set their own `LD_LIBRARY_PATH` and use `$HOME`-relative paths instead of calling `npm config` at runtime. This ensures they work even when agents sanitize the environment. Never use `subprocess` or `npm config get` in wrapper scripts.
 
