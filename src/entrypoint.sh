@@ -177,12 +177,14 @@ MCP_WRAPPERS_BIN="$HOME/.local/bin/mcp-wrappers"
 # Start Chromium if not already running
 if ! curl -s "$CHROME_URL/json/version" >/dev/null 2>&1; then
     /usr/bin/chromium \
-        --headless \
+        --headless=new \
         --no-sandbox \
         --disable-dev-shm-usage \
         --disable-gpu \
         --disable-software-rasterizer \
         --disable-setuid-sandbox \
+        --disable-blink-features=AutomationControlled \
+        --user-agent="Mozilla/5.0 (X11; Linux x86_64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/144.0.0.0 Safari/537.36" \
         --remote-debugging-address=$CHROME_ADDR \
         --remote-debugging-port=$CHROME_PORT \
         &>/dev/null &
