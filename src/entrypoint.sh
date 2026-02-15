@@ -187,11 +187,34 @@ if ! curl -s "$CHROME_URL/json/version" >/dev/null 2>&1; then
     done
 fi
 
-exec node /home/agent/.npm-global/bin/chrome-devtools-mcp \
+exec /home/agent/.local/bin/mcp-wrappers/node /home/agent/.npm-global/bin/chrome-devtools-mcp \
     --browser-url "$CHROME_URL" \
     "$@"
 WRAPPER
 chmod +x "$CHROME_WRAPPER"
+
+# Node/npx wrappers that set LD_LIBRARY_PATH for mise-installed binaries
+# Agents (Copilot) may sanitize the environment when spawning MCP servers,
+# stripping LD_LIBRARY_PATH. These wrappers ensure shared libs are found.
+# Placed in .local/bin/mcp-wrappers/ to avoid conflicting with mise shims.
+MCP_BIN="$AGENT_HOME/.local/bin/mcp-wrappers"
+mkdir -p "$MCP_BIN"
+
+NODE_WRAPPER="$MCP_BIN/node"
+cat <<'NODEW' > "$NODE_WRAPPER"
+#!/bin/bash
+export LD_LIBRARY_PATH="/lib:/usr/lib${LD_LIBRARY_PATH:+:$LD_LIBRARY_PATH}"
+exec /mise/shims/node "$@"
+NODEW
+chmod +x "$NODE_WRAPPER"
+
+NPX_WRAPPER="$MCP_BIN/npx"
+cat <<'NPXW' > "$NPX_WRAPPER"
+#!/bin/bash
+export LD_LIBRARY_PATH="/lib:/usr/lib${LD_LIBRARY_PATH:+:$LD_LIBRARY_PATH}"
+exec /mise/shims/npx "$@"
+NPXW
+chmod +x "$NPX_WRAPPER"
 
 # Copilot Config — use ~/.copilot directly (no XDG indirection)
 COPILOT_CONFIG_DIR="$AGENT_HOME/.copilot"
@@ -224,7 +247,7 @@ mcp_config = {
             'args': []
         },
         'sequential-thinking': {
-            'command': 'node',
+            'command': '/home/agent/.local/bin/mcp-wrappers/node',
             'args': ['/home/agent/.npm-global/bin/mcp-server-sequential-thinking']
         }
     }
@@ -267,7 +290,7 @@ default_config = {
             'args': []
         },
         'sequential-thinking': {
-            'command': 'node',
+            'command': '/home/agent/.local/bin/mcp-wrappers/node',
             'args': ['/home/agent/.npm-global/bin/mcp-server-sequential-thinking']
         },
         'python-lsp': {

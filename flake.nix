@@ -128,6 +128,7 @@
             Env = [ 
               "PATH=${shims}/bin:/bin:/usr/bin" 
               "SSL_CERT_FILE=${pkgs.cacert}/etc/ssl/certs/ca-bundle.crt"
+              "LD_LIBRARY_PATH=/lib:/usr/lib"
             ];
             WorkingDir = "/workspace";
           };

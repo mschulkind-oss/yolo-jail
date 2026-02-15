@@ -52,6 +52,7 @@ This project provides a secure, isolated Docker environment for AI agents (Gemin
     - NPM Globals: `/home/agent/.npm-global/bin/`
     - Go Binaries: `/home/agent/go/bin/`
 - **PATH Order**: `${SHIM_DIR}:/home/agent/.npm-global/bin:/home/agent/go/bin:/mise/shims:/bin:/usr/bin`.
+- **Node Wrappers**: `~/.local/bin/mcp-wrappers/node` and `npx` are wrapper scripts that set `LD_LIBRARY_PATH` before calling the mise-installed binary. MCP configs use absolute paths to these wrappers. This is required because agents (Copilot) may sanitize the environment when spawning MCP child processes, stripping `LD_LIBRARY_PATH` which mise-installed node needs to find `libstdc++.so.6`.
 
 ### Environment Hygiene
 - **No Pagers**: Agents cannot handle interactive pagers.
@@ -67,3 +68,8 @@ This project provides a secure, isolated Docker environment for AI agents (Gemin
 4. **Manual Test**: Run `yolo -- bash -c "my-new-tool --version"`.
 5. **Enforce YOLO**: Always ensure `YOLO_BYPASS_SHIMS=1` is set when running installers inside the jail.
 6. **Commit & Push**: Always commit and push after every change. The Nix image is built from the working tree, and other users need the latest code.
+
+## Testing Guidelines
+- **Model**: When testing Copilot interactively or in scripts, always use the `gpt-4.1` model (e.g., `copilot --model gpt-4.1`). Do not use expensive models for testing.
+- **No Agent Tests**: Automated tests (`uv run pytest`) must NOT run `copilot` or `gemini` interactively. Tests may check that they are installed (`--version`) but must never start interactive sessions or make API calls.
+- **Workspace MCP Shadowing**: The CLI shadows any workspace `.vscode/mcp.json` with `/dev/null` inside the jail so agents only use the jail's MCP config. Host MCP configs designed for VS Code won't interfere.

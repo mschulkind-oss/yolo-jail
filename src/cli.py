@@ -284,6 +284,11 @@ def run(
     docker_cmd.extend(publish_args)
     docker_cmd.extend(mount_args)
 
+    # Shadow workspace .vscode/mcp.json so agents use only our jail MCP config
+    vscode_mcp = Path.cwd() / ".vscode" / "mcp.json"
+    if vscode_mcp.exists():
+        docker_cmd.extend(["-v", "/dev/null:/workspace/.vscode/mcp.json:ro"])
+
     if "TERM" in os.environ:
         docker_cmd.extend(["-e", f"TERM={os.environ['TERM']}"])
 
