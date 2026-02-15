@@ -30,7 +30,28 @@ This project provides a secure, isolated Docker environment for AI agents (Gemin
 ## Developer Runbook
 
 ### Debugging MCP & LSP
-- **Logs**: Copilot logs are in `~/.copilot/logs/`. Gemini logs are in `~/.cache/gemini-cli/logs/`.
+- **Logs**: 
+  - **Copilot**: Inside jail: `~/.copilot/logs/`. On host: `~/.local/share/yolo-jail/home/.copilot/logs/`.
+  - **Gemini**: Inside jail: `~/.cache/gemini-cli/logs/`. On host: `~/.local/share/yolo-jail/home/.cache/gemini-cli/logs/`.
+- **Viewing Logs from Inside Jail**:
+  ```bash
+  # List recent logs
+  yolo -- bash -lc 'ls -lt ~/.copilot/logs/ | head -5'
+  
+  # View latest log
+  yolo -- bash -lc 'tail -100 ~/.copilot/logs/$(ls -1t ~/.copilot/logs | head -1)'
+  
+  # Watch logs in real-time (open in one tmux pane, run copilot in another)
+  yolo -- bash -lc 'tail -f ~/.copilot/logs/$(ls -1t ~/.copilot/logs | head -1)'
+  
+  # Search for MCP errors
+  yolo -- bash -lc 'grep -i "MCP\|Failed\|Error" ~/.copilot/logs/$(ls -1t ~/.copilot/logs | head -1)'
+  ```
+- **Common MCP Errors**:
+  - `libstdc++.so.6: cannot open shared object file`: Node wrapper not used or `LD_LIBRARY_PATH` stripped. Check MCP config uses `/home/agent/.local/bin/mcp-wrappers/node`.
+  - `Protocol error (Target.setDiscoverTargets): Target closed`: Chrome DevTools MCP failed to connect to Chromium. Check Chromium is running, port 9222 is accessible, and wrapper flags are correct.
+  - `Connection closed`: MCP server crashed or failed to start. Check server binary is installed (`npm list -g` inside jail).
+  - `argument list too long`: Shim conflict or PATH issue. Check `.local/bin/` is not in PATH (should only be used by absolute MCP paths).
 - **Config Locations**:
   - **Copilot**: `~/.copilot/config.json` (main), `~/.copilot/mcp-config.json` (MCP servers), `~/.copilot/lsp-config.json` (LSP servers).
   - **Gemini**: `~/.gemini/settings.json` (all config including MCP/LSP).
