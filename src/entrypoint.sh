@@ -92,6 +92,12 @@ export BAT_STYLE="plain"
 export GIT_PAGER=cat
 export EDITOR=nvim
 
+# Setup PATH with npm-global and go binaries (from docker env variables)
+export NPM_CONFIG_PREFIX="${NPM_CONFIG_PREFIX:-$HOME/.npm-global}"
+export GOPATH="${GOPATH:-$HOME/go}"
+SHIM_DIR="${HOME}/.yolo-shims"
+export PATH="$SHIM_DIR:$NPM_CONFIG_PREFIX/bin:$GOPATH/bin:/mise/shims:/bin:/usr/bin"
+
 # Aliases
 alias ls='ls --color=auto'
 alias ll='ls -alF'
@@ -364,8 +370,8 @@ except Exception as e:
     sys.stderr.write(f'Error configuring Gemini MCP: {e}\\n')
 "
 
-# 7. Place shims first in PATH
-export PATH="$SHIM_DIR:$PATH"
+# 7. Ensure PATH has shims, npm-global, go bins (already set by bashrc, but also here for safety)
+export PATH="$SHIM_DIR:$NPM_CONFIG_PREFIX/bin:$GOPATH/bin:/mise/shims:/bin:/usr/bin"
 
 # 8. Generate jail AGENTS context in app home dirs (do not modify /workspace/AGENTS.md)
 HOST_IP=$(ip route | awk '/default/ {print $3}' 2>/dev/null || echo "unknown")
