@@ -52,6 +52,12 @@
             ln -s ${pkgs.glibc}/lib/* $dir/
             ln -s ${pkgs.stdenv.cc.cc.lib}/lib/libstdc++.so.6 $dir/libstdc++.so.6
             ln -s ${pkgs.zlib}/lib/libz.so.1 $dir/libz.so.1
+            # GPU libraries
+            ln -s ${pkgs.mesa}/lib/libEGL*.so* $dir/ 2>/dev/null || true
+            ln -s ${pkgs.mesa}/lib/libGL*.so* $dir/ 2>/dev/null || true
+            ln -s ${pkgs.mesa}/lib/libgbm*.so* $dir/ 2>/dev/null || true
+            ln -s ${pkgs.libdrm}/lib/libdrm*.so* $dir/ 2>/dev/null || true
+            ln -s ${pkgs.vulkan-loader}/lib/libvulkan*.so* $dir/ 2>/dev/null || true
           done
         '';
 
@@ -120,6 +126,11 @@
             pkgs.eza
             pkgs.delta
             pkgs.fzf
+            # GPU acceleration libraries
+            pkgs.mesa
+            pkgs.libdrm
+            pkgs.vulkan-loader
+            pkgs.vulkan-headers
           ] ++ extraPackages;
 
           config = {

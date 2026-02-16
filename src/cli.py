@@ -415,6 +415,9 @@ def run(
     docker_flags = ["--rm", "-i", "--init", "--name", cname]
     if sys.stdout.isatty():
         docker_flags.append("-t")
+    
+    # Add GPU support
+    docker_flags.extend(["--gpus", "all"])
 
     docker_cmd = [
         "docker", "run", *docker_flags,
@@ -434,6 +437,8 @@ def run(
         "-e", "HOME=/home/agent",
         "-e", f"YOLO_BLOCK_CONFIG={blocked_config_json}",
         "-e", f"YOLO_HOST_DIR={workspace}",
+        "-e", "NVIDIA_VISIBLE_DEVICES=all",
+        "-e", "NVIDIA_DRIVER_CAPABILITIES=graphics,utility,compute",
         "-u", f"{os.getuid()}:{os.getgid()}",
         "--workdir", "/workspace",
         f"--net={net_mode}",
