@@ -1,6 +1,6 @@
 # YOLO Jail: Agent Developer Guide
 
-This project provides a secure, isolated Docker environment for AI agents (Gemini CLI, Copilot) to execute commands on local repositories without compromising host security or identity.
+This project provides a secure, isolated container environment for AI agents (Gemini CLI, Copilot) to execute commands on local repositories without compromising host security or identity. Supports both Docker and Podman runtimes.
 
 ## Architectural Specs
 
@@ -12,6 +12,7 @@ This project provides a secure, isolated Docker environment for AI agents (Gemin
 - **Dynamic Shims**: Blocked tools are generated dynamically based on this config. All blocked tools are unconditionally blocked unless `YOLO_BYPASS_SHIMS=1` is set.
 - **Custom Packages**: The `packages` array specifies additional nix packages to bake into the jail image. Names must match nixpkgs attribute names. The image only rebuilds when this list changes. Uses `--impure` nix build with `builtins.getEnv`.
 - **Extra Mounts**: The `mounts` array brings additional host paths into the jail read-only at `/ctx/<basename>` (or a custom container path via `"host:container"` syntax).
+- **Runtime Selection**: The `"runtime"` key selects the container runtime (`"podman"` or `"docker"`). Can also be set via `YOLO_RUNTIME` env var. Priority: env var > workspace config > user config > auto-detect (prefers podman).
 
 ### 2. Isolation & Identity
 - **Strict Isolation**: The jail MUST NOT access host `~/.ssh/`, `~/.gitconfig`, or any cloud credentials.
@@ -23,9 +24,10 @@ This project provides a secure, isolated Docker environment for AI agents (Gemin
 ### 3. Execution Engine (`src/cli.py` & `src/entrypoint.sh`)
 - **Direct Execution**: Commands are run via `yolo -- <command>`. 
 - **Auto-YOLO**: The CLI automatically injects `--yolo` for `gemini` and `copilot` commands.
-- **Container Reuse**: By default, running `yolo` in the same workspace reuses the existing container via `docker exec` instead of creating a new one. Containers are named deterministically (`yolo-<hash>`) based on the workspace path. Use `yolo --new -- <command>` to force a new container. Use `yolo ps` to list active jails with their workspace mappings. Tracking files are stored in `~/.local/share/yolo-jail/containers/`.
+- **Container Reuse**: By default, running `yolo` in the same workspace reuses the existing container via `exec` instead of creating a new one. Containers are named deterministically (`yolo-<hash>`) based on the workspace path. Use `yolo --new -- <command>` to force a new container. Use `yolo ps` to list active jails with their workspace mappings. Tracking files are stored in `~/.local/share/yolo-jail/containers/`.
 - **Quoting**: Use `shlex.join` in Python to pass quoted arguments correctly to the container's `bash -c`.
-- **Self-Updating Build**: The CLI runs `nix build --impure` on every start but only executes `docker load` if the resulting image hash differs from `.last-load`. The `--impure` flag allows reading the `YOLO_EXTRA_PACKAGES` env var for per-project package customization.
+- **Self-Updating Build**: The CLI runs `nix build --impure` on every start but only executes `<runtime> load` if the resulting image hash differs from `.last-load`. The `--impure` flag allows reading the `YOLO_EXTRA_PACKAGES` env var for per-project package customization.
+- **Runtime Differences**: Docker uses `-u UID:GID` and `--net=bridge` explicitly. Podman rootless omits both (rootless UID mapping handles ownership, pasta networking avoids nftables).
 - **AGENTS Injection**: Per-workspace AGENTS.md is generated host-side by `cli.py` and stored at `~/.local/share/yolo-jail/agents/<container-name>/AGENTS.md`. It is mounted read-only over `~/.copilot/AGENTS.md` and `~/.gemini/AGENTS.md` inside the container using nested Docker volume mounts. This ensures each workspace jail gets its own context without stomping the shared home directory, and outside-jail agents never see jail-specific instructions.
 - **Skills Auto-Mount**: Host user-level skills from `~/.gemini/skills/` (which `~/.copilot/skills` typically symlinks to) are automatically mounted and synced into the jail at `/home/agent/.copilot/skills/`. If a workspace has `.copilot/skills/`, those skills are also synced and take precedence. Symlinks in skill directories are followed automatically.
 

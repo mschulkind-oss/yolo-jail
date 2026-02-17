@@ -3,6 +3,7 @@ import subprocess
 import sys
 import json
 import shlex
+import shutil
 import hashlib
 from pathlib import Path
 from typing import Optional, List, Dict, Any, Union
@@ -31,16 +32,32 @@ def ensure_global_storage():
     AGENTS_DIR.mkdir(parents=True, exist_ok=True)
 
 
+def _runtime(config: Dict[str, Any] = None) -> str:
+    """Return container runtime: 'podman' or 'docker'."""
+    env = os.environ.get("YOLO_RUNTIME")
+    if env and env in ("podman", "docker"):
+        return env
+    if config:
+        cfg = config.get("runtime")
+        if cfg and cfg in ("podman", "docker"):
+            return cfg
+    for rt in ("podman", "docker"):
+        if shutil.which(rt):
+            return rt
+    console.print("[bold red]No container runtime found. Install podman or docker.[/bold red]")
+    sys.exit(1)
+
+
 def container_name_for_workspace(workspace: Path) -> str:
     """Deterministic container name from workspace path."""
     h = hashlib.sha256(str(workspace.resolve()).encode()).hexdigest()[:12]
     return f"yolo-{h}"
 
 
-def find_running_container(name: str) -> Optional[str]:
+def find_running_container(name: str, runtime: str = "docker") -> Optional[str]:
     """Return container ID if a container with this name is running, else None."""
     result = subprocess.run(
-        ["docker", "ps", "-q", "--filter", f"name=^/{name}$"],
+        [runtime, "ps", "-q", "--filter", f"name=^/{name}$"],
         capture_output=True, text=True,
     )
     cid = result.stdout.strip()
@@ -144,8 +161,8 @@ def generate_agents_md(
 
     return agents_dir
 
-def auto_load_image(repo_root: Path, extra_packages: List[str] = None):
-    """Cheaply check if the nix image needs to be reloaded into docker."""
+def auto_load_image(repo_root: Path, extra_packages: List[str] = None, runtime: str = "docker"):
+    """Cheaply check if the nix image needs to be reloaded into the container runtime."""
     sentinel = repo_root / ".last-load"
     
     # 1. Build the image (cheap if no changes)
@@ -177,14 +194,14 @@ def auto_load_image(repo_root: Path, extra_packages: List[str] = None):
             with open(repo_root / ".run-result", "rb") as image_file:
                 # Use Popen to stream output line by line for the fancy status
                 process = subprocess.Popen(
-                    ["docker", "load"],
+                    [runtime, "load"],
                     stdin=image_file,
                     stdout=subprocess.PIPE,
                     stderr=subprocess.STDOUT,
                     text=True
                 )
                 
-                with console.status("[bold cyan]Loading into Docker...", spinner="bouncingBar") as status:
+                with console.status(f"[bold cyan]Loading into {runtime}...", spinner="bouncingBar") as status:
                     if process.stdout:
                         for line in iter(process.stdout.readline, ""):
                             clean_line = line.strip()
@@ -195,12 +212,12 @@ def auto_load_image(repo_root: Path, extra_packages: List[str] = None):
                 
                 process.wait()
                 if process.returncode != 0:
-                    console.print("[bold red]Error loading docker image.[/bold red]")
+                    console.print(f"[bold red]Error loading {runtime} image.[/bold red]")
                 else:
                     console.print(f"[bold green]Successfully {last_line.lower() if 'last_line' in locals() else 'loaded image'}[/bold green]")
                     sentinel.write_text(str(current_path))
         except Exception as e:
-            console.print(f"[bold red]Error loading docker image: {e}[/bold red]")
+            console.print(f"[bold red]Error loading {runtime} image: {e}[/bold red]")
     
     # Cleanup temp link
     (repo_root / ".run-result").unlink(missing_ok=True)
@@ -251,6 +268,9 @@ def init():
         return
 
     content = """{
+  // Container runtime: "podman" or "docker" (also settable via YOLO_RUNTIME env var)
+  // "runtime": "podman",
+
   // Extra nix packages to include in the jail image.
   // Names must match nixpkgs attribute names (search at https://search.nixos.org/packages).
   // The image rebuilds only when this list changes.
@@ -300,6 +320,8 @@ def init_user_config():
     content = """{
   // User-level defaults merged into every project config.
   // Lists are merged (deduplicated), scalars are overridden by workspace config.
+  // Container runtime: "podman" or "docker" (also settable via YOLO_RUNTIME env var)
+  // "runtime": "podman",
   // "packages": ["sqlite", "postgresql"],
   // "mounts": ["~/code/shared-lib:/ctx/shared-lib"],
   // "security": {
@@ -314,7 +336,7 @@ def init_user_config():
 @app.command(context_settings={"allow_extra_args": True, "ignore_unknown_options": True})
 def run(
     ctx: typer.Context,
-    network: str = typer.Option("bridge", help="Docker network mode (bridge/host)"),
+    network: str = typer.Option("bridge", help="Container network mode (bridge/host)"),
     new: bool = typer.Option(False, "--new", help="Force a new container even if one already exists for this workspace"),
 ):
     """Run the YOLO jail in the current directory."""
@@ -324,10 +346,11 @@ def run(
     
     ensure_global_storage()
     config = load_config()
+    runtime = _runtime(config)
     
     # Build image with any extra packages from config
     extra_packages = config.get("packages", [])
-    auto_load_image(repo_root, extra_packages=extra_packages or None)
+    auto_load_image(repo_root, extra_packages=extra_packages or None, runtime=runtime)
     
     # Command construction (needed for both exec and run paths)
     full_command = list(ctx.args)
@@ -342,7 +365,7 @@ def run(
 
     # Check for existing container for this workspace
     cname = container_name_for_workspace(workspace)
-    existing_cid = None if new else find_running_container(cname)
+    existing_cid = None if new else find_running_container(cname, runtime=runtime)
 
     if existing_cid:
         # Exec into the existing container
@@ -351,14 +374,14 @@ def run(
         if sys.stdout.isatty():
             exec_flags.append("-t")
         docker_cmd = [
-            "docker", "exec", *exec_flags,
+            runtime, "exec", *exec_flags,
             cname,
             "yolo-entrypoint", target_cmd,
         ]
         try:
-            os.execvp("docker", docker_cmd)
+            os.execvp(runtime, docker_cmd)
         except FileNotFoundError:
-            typer.echo("Error: docker command not found.", err=True)
+            typer.echo(f"Error: {runtime} command not found.", err=True)
             sys.exit(1)
         return
 
@@ -432,7 +455,7 @@ def run(
         docker_flags.append("-t")
 
     docker_cmd = [
-        "docker", "run", *docker_flags,
+        runtime, "run", *docker_flags,
         "-v", f"{workspace}:/workspace",
         "-v", f"{GLOBAL_HOME}:/home/agent",
         "-v", f"{GLOBAL_MISE}:/mise",
@@ -449,10 +472,17 @@ def run(
         "-e", "HOME=/home/agent",
         "-e", f"YOLO_BLOCK_CONFIG={blocked_config_json}",
         "-e", f"YOLO_HOST_DIR={workspace}",
-        "-u", f"{os.getuid()}:{os.getgid()}",
         "--workdir", "/workspace",
-        f"--net={net_mode}",
     ]
+
+    # Docker needs explicit UID mapping; podman rootless maps container root to host user
+    if runtime == "docker":
+        docker_cmd.extend(["-u", f"{os.getuid()}:{os.getgid()}"])
+
+    # Podman rootless uses pasta networking by default (no nftables needed).
+    # Only pass --net explicitly for non-default modes like "host".
+    if net_mode != "bridge" or runtime == "docker":
+        docker_cmd.append(f"--net={net_mode}")
     
     # Pass git name/email from host for clean commits inside jail
     # (We don't mount ~/.gitconfig to avoid exposing credentials/tokens)
@@ -525,17 +555,18 @@ def run(
     write_container_tracking(cname, workspace)
 
     try:
-        os.execvp("docker", docker_cmd)
+        os.execvp(runtime, docker_cmd)
     except FileNotFoundError:
-        typer.echo("Error: docker command not found.", err=True)
+        typer.echo(f"Error: {runtime} command not found.", err=True)
         sys.exit(1)
 
 
 @app.command()
 def ps():
     """List running YOLO jail containers."""
+    runtime = _runtime()
     result = subprocess.run(
-        ["docker", "ps", "--filter", "name=^yolo-", "--format", "table {{.Names}}\t{{.Status}}\t{{.RunningFor}}"],
+        [runtime, "ps", "--filter", "name=^yolo-", "--format", "table {{.Names}}\t{{.Status}}\t{{.RunningFor}}"],
         capture_output=True, text=True,
     )
     if result.stdout.strip():
