@@ -490,6 +490,18 @@ def run(
             "--cap-add", "SYS_ADMIN", "--cap-add", "MKNOD",
         ])
 
+    # Mount host nix daemon socket + store so nix builds work inside the jail.
+    # NIX_REMOTE=daemon forces nix to use the host daemon (which has nixbld users)
+    # instead of trying local store access (which fails on UID mapping/permissions).
+    nix_socket = Path("/nix/var/nix/daemon-socket")
+    nix_store = Path("/nix/store")
+    if nix_socket.exists() and nix_store.exists():
+        docker_cmd.extend([
+            "-v", f"{nix_socket}:{nix_socket}",
+            "-v", f"{nix_store}:{nix_store}:ro",
+            "-e", "NIX_REMOTE=daemon",
+        ])
+
     # Podman rootless uses pasta networking by default (no nftables needed).
     # Only pass --net explicitly for non-default modes like "host".
     if net_mode != "bridge" or runtime == "docker":
