@@ -14,7 +14,7 @@ app = typer.Typer()
 
 JAIL_IMAGE = "yolo-jail:latest"
 GLOBAL_STORAGE = Path.home() / ".local/share/yolo-jail"
-GLOBAL_TOOLS = GLOBAL_STORAGE / "tools"
+GLOBAL_HOME = GLOBAL_STORAGE / "home"
 GLOBAL_MISE = GLOBAL_STORAGE / "mise"
 CONTAINER_DIR = GLOBAL_STORAGE / "containers"
 AGENTS_DIR = GLOBAL_STORAGE / "agents"
@@ -26,30 +26,29 @@ from rich.status import Status
 console = Console()
 
 def ensure_global_storage():
-    GLOBAL_TOOLS.mkdir(parents=True, exist_ok=True)
+    GLOBAL_HOME.mkdir(parents=True, exist_ok=True)
     GLOBAL_MISE.mkdir(parents=True, exist_ok=True)
-    # Shared tool subdirectories
-    (GLOBAL_TOOLS / "npm-global").mkdir(exist_ok=True)
-    (GLOBAL_TOOLS / "go").mkdir(exist_ok=True)
-    (GLOBAL_TOOLS / "mcp-wrappers").mkdir(exist_ok=True)
     CONTAINER_DIR.mkdir(parents=True, exist_ok=True)
     AGENTS_DIR.mkdir(parents=True, exist_ok=True)
 
-    # Migrate from old shared home layout to new per-workspace layout
-    old_home = GLOBAL_STORAGE / "home"
-    if old_home.exists() and not (GLOBAL_TOOLS / "npm-global" / "bin").exists():
-        for subdir in [".npm-global", "go"]:
-            src = old_home / subdir
-            dst = GLOBAL_TOOLS / subdir.lstrip(".")
-            if src.exists() and not any(dst.iterdir()):
-                for item in src.iterdir():
-                    shutil.move(str(item), str(dst / item.name))
-        # Migrate mcp-wrappers
-        src = old_home / ".local" / "bin" / "mcp-wrappers"
-        dst = GLOBAL_TOOLS / "mcp-wrappers"
-        if src.exists() and not any(dst.iterdir()):
-            for item in src.iterdir():
-                shutil.move(str(item), str(dst / item.name))
+    # Migrate from tools-split layout back to global home
+    old_tools = GLOBAL_STORAGE / "tools"
+    if old_tools.exists():
+        for src_name, dst_name in [("npm-global", ".npm-global"), ("go", "go"), ("mcp-wrappers", ".local/bin/mcp-wrappers")]:
+            src = old_tools / src_name
+            dst = GLOBAL_HOME / dst_name
+            if src.exists() and any(src.iterdir()):
+                dst.parent.mkdir(parents=True, exist_ok=True)
+                if not dst.exists():
+                    shutil.move(str(src), str(dst))
+                elif not any(dst.iterdir()):
+                    shutil.rmtree(str(dst))
+                    shutil.move(str(src), str(dst))
+        # Clean up tools dir if empty
+        try:
+            old_tools.rmdir()
+        except OSError:
+            pass
 
 
 def _runtime(config: Dict[str, Any] = None) -> str:
@@ -486,18 +485,20 @@ def run(
     if sys.stdout.isatty():
         docker_flags.append("-t")
 
-    # Per-workspace home directory (isolated state: history, configs, sessions)
-    workspace_home = workspace / ".yolo" / "home"
-    workspace_home.mkdir(parents=True, exist_ok=True)
+    # Per-workspace overlays for workspace-specific state
+    ws_state = workspace / ".yolo" / "home"
+    ws_state.mkdir(parents=True, exist_ok=True)
+    (ws_state / "copilot-sessions").mkdir(exist_ok=True)
+    (ws_state / "bash_history").touch()
 
     docker_cmd = [
         runtime, "run", *docker_flags,
         "-v", f"{workspace}:/workspace",
-        "-v", f"{workspace_home}:/home/agent",
-        # Shared tool directories overlaid into per-workspace home
-        "-v", f"{GLOBAL_TOOLS / 'npm-global'}:/home/agent/.npm-global",
-        "-v", f"{GLOBAL_TOOLS / 'go'}:/home/agent/go",
-        "-v", f"{GLOBAL_TOOLS / 'mcp-wrappers'}:/home/agent/.local/bin/mcp-wrappers",
+        # Global home as base (has auth, tools, configs)
+        "-v", f"{GLOBAL_HOME}:/home/agent",
+        # Per-workspace overlays for state that should not leak across workspaces
+        "-v", f"{ws_state / 'copilot-sessions'}:/home/agent/.copilot/session-state",
+        "-v", f"{ws_state / 'bash_history'}:/home/agent/.bash_history",
         "-v", f"{GLOBAL_MISE}:/mise",
         "--tmpfs", "/tmp",
         "--shm-size=2g",
