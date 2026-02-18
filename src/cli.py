@@ -784,12 +784,20 @@ def ps():
     )
     if result.stdout.strip():
         typer.echo(result.stdout.strip())
-        # Show workspace mappings from tracking files
+        # Show workspace mappings, clean up stale tracking files
         for tracking_file in sorted(CONTAINER_DIR.iterdir()) if CONTAINER_DIR.exists() else []:
-            workspace_path = tracking_file.read_text().strip()
-            typer.echo(f"  {tracking_file.name} → {workspace_path}")
+            name = tracking_file.name
+            if find_running_container(name, runtime=runtime):
+                workspace_path = tracking_file.read_text().strip()
+                typer.echo(f"  {name} → {workspace_path}")
+            else:
+                cleanup_container_tracking(name)
     else:
         typer.echo("No running jails.")
+        # Clean up all stale tracking files
+        if CONTAINER_DIR.exists():
+            for tracking_file in CONTAINER_DIR.iterdir():
+                cleanup_container_tracking(tracking_file.name)
 
 def main():
     """Entry point for the `yolo` console script.
