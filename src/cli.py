@@ -199,6 +199,16 @@ def auto_load_image(repo_root: Path, extra_packages: List[str] = None, runtime: 
             )
         except subprocess.CalledProcessError as e:
             console.print(f"[yellow]Warning: Automatic nix build failed: {e.stderr.decode()}[/yellow]")
+            # If the image already exists in the runtime (e.g. pre-loaded inside a jail),
+            # we can still proceed — just skip the load step.
+            check = subprocess.run(
+                [runtime, "image", "inspect", JAIL_IMAGE],
+                capture_output=True,
+            )
+            if check.returncode == 0:
+                console.print(f"[yellow]Using existing {JAIL_IMAGE} image.[/yellow]")
+                return
+            console.print(f"[bold red]No existing {JAIL_IMAGE} image found. Cannot start jail.[/bold red]")
             return
 
     # 2. Check if the store path has changed
