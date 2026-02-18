@@ -142,17 +142,20 @@ def test_workspace_agents_untouched_and_home_agents_present(temp_project):
 
 def test_venv_symlinks_resolve(temp_project):
     """Test that host .venv python symlinks resolve inside the jail."""
-    import sysconfig
-    host_mise = os.environ.get("MISE_DATA_DIR", str(Path.home() / ".local/share/mise"))
+    # Always use /mise as the base if available: it's mounted in all jails (inner and outer).
+    # On the host, fall back to MISE_DATA_DIR or the default mise data dir.
+    if Path("/mise/installs/python").exists():
+        mise_base = Path("/mise")
+    else:
+        mise_base = Path(os.environ.get("MISE_DATA_DIR", str(Path.home() / ".local/share/mise")))
 
-    # Find any existing python install in the host mise
-    installs = Path(host_mise) / "installs" / "python"
+    installs = mise_base / "installs" / "python"
     if not installs.exists():
-        pytest.skip("No host mise python installs found")
+        pytest.skip("No mise python installs found")
 
     versions = [d for d in installs.iterdir() if d.is_dir() and (d / "bin").exists()]
     if not versions:
-        pytest.skip("No host mise python installs found")
+        pytest.skip("No mise python installs found")
 
     # Pick the first version and create a fake .venv symlink pointing to it
     version_dir = versions[0]

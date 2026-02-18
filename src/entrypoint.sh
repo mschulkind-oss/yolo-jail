@@ -95,6 +95,10 @@ export PATH="$SHIM_DIR:$NPM_CONFIG_PREFIX/bin:$GOPATH/bin:/bin:/usr/bin"
 
 # Activate mise with shell hooks so it can manage venvs, env vars, etc.
 eval "$(mise activate bash)"
+# Trust workspace mise.toml automatically (jail is a sandboxed environment)
+if [ -f /workspace/mise.toml ]; then
+    mise trust /workspace/mise.toml >/dev/null 2>&1 || true
+fi
 
 # Aliases
 alias ls='ls --color=auto'
@@ -438,6 +442,15 @@ except Exception as e:
 # 7. Ensure PATH has shims, npm-global, go bins (already set by bashrc, but also here for safety)
 export PATH="$SHIM_DIR:$NPM_CONFIG_PREFIX/bin:$GOPATH/bin:/bin:/usr/bin"
 eval "$(mise activate bash)"
+
+# Auto-trust workspace mise.toml so its env/venv directives fire immediately.
+# (We're in a sandboxed jail — the user controls the workspace.)
+if [ -f /workspace/mise.toml ]; then
+    mise trust /workspace/mise.toml >/dev/null 2>&1 || true
+fi
+# Apply the current directory's mise environment now (for non-interactive -c shells
+# where PROMPT_COMMAND never fires).
+eval "$(mise hook-env -s bash 2>/dev/null || true)"
 
 # 8. AGENTS.md is generated host-side by cli.py and mounted per-workspace
 #    (no longer generated here — avoids shared-home conflicts between jails)
