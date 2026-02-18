@@ -157,8 +157,17 @@ def test_venv_symlinks_resolve(temp_project):
     if not versions:
         pytest.skip("No mise python installs found")
 
-    # Pick the first concrete version dir (not a symlink like "3" → "3.13.12")
-    version_dir = versions[0]
+    # Pick the version matching the running Python — guaranteed to exist in all jails.
+    import sys
+    running_ver = f"{sys.version_info.major}.{sys.version_info.minor}.{sys.version_info.micro}"
+    version_dir = None
+    for v in versions:
+        if v.name == running_ver:
+            version_dir = v
+            break
+    if version_dir is None:
+        # Fall back to last concrete version if exact match not found
+        version_dir = sorted(versions)[-1]
     # Find a real python interpreter (not python*-config)
     python_bin = None
     for candidate in sorted(version_dir.glob("bin/python3.*")):
@@ -172,11 +181,9 @@ def test_venv_symlinks_resolve(temp_project):
     venv_dir.mkdir(parents=True)
     (venv_dir / "python").symlink_to(python_bin)
 
-    # Debug: check what the inner jail sees
-    diag = run_yolo(temp_project, f"readlink /workspace/.venv/bin/python && ls -la {python_bin} && file {python_bin}")
-
     result = run_yolo(temp_project, "/workspace/.venv/bin/python --version")
-    assert result.returncode == 0, f"symlink target: {python_bin}, diag stdout: {diag.stdout}, diag stderr: {diag.stderr}, stderr: {result.stderr}, stdout: {result.stdout}"
+    assert result.returncode == 0, f"symlink target: {python_bin}, stderr: {result.stderr}"
+    assert "Python" in result.stdout
     assert "Python" in result.stdout
 
 
