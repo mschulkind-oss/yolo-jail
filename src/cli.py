@@ -39,25 +39,6 @@ def ensure_global_storage():
     CONTAINER_DIR.mkdir(parents=True, exist_ok=True)
     AGENTS_DIR.mkdir(parents=True, exist_ok=True)
 
-    # Migrate from tools-split layout back to global home
-    old_tools = GLOBAL_STORAGE / "tools"
-    if old_tools.exists():
-        for src_name, dst_name in [("npm-global", ".npm-global"), ("go", "go"), ("mcp-wrappers", ".local/bin/mcp-wrappers")]:
-            src = old_tools / src_name
-            dst = GLOBAL_HOME / dst_name
-            if src.exists() and any(src.iterdir()):
-                dst.parent.mkdir(parents=True, exist_ok=True)
-                if not dst.exists():
-                    shutil.move(str(src), str(dst))
-                elif not any(dst.iterdir()):
-                    shutil.rmtree(str(dst))
-                    shutil.move(str(src), str(dst))
-        # Clean up tools dir if empty
-        try:
-            old_tools.rmdir()
-        except OSError:
-            pass
-
 
 def _tmux_rename_window(name: str):
     """Rename the current tmux window. No-op if not in tmux."""

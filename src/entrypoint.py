@@ -343,13 +343,6 @@ def _chrome_devtools_args() -> list:
 
 def configure_copilot():
     """Set up Copilot directory, MCP config, and LSP config."""
-    # Migrate legacy XDG layout
-    if COPILOT_DIR.is_symlink():
-        COPILOT_DIR.unlink()
-    legacy = HOME / ".config" / ".copilot"
-    if legacy.is_dir() and not COPILOT_DIR.is_dir():
-        shutil.move(str(legacy), str(COPILOT_DIR))
-
     COPILOT_DIR.mkdir(parents=True, exist_ok=True)
 
     config_json = COPILOT_DIR / "config.json"

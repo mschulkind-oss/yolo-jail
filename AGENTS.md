@@ -5,7 +5,7 @@ This project provides a secure, isolated container environment for AI agents (Ge
 ## Architectural Specs
 
 ### 1. Configuration (`yolo-jail.jsonc`)
-- **Format**: JSON with comments (JSONC). **TOML is deprecated**.
+- **Format**: JSON with comments (JSONC).
 - **Location**: Project root.
 - **User Defaults**: Optional global config at `~/.config/yolo-jail/config.jsonc` (create with `yolo init-user-config`).
 - **Merge Rules**: Workspace config is merged over user config. Lists are merged+deduped; scalar/object values in workspace override user defaults.
@@ -29,8 +29,6 @@ All logic is **pure Python** — no bash scripts with embedded heredocs. The onl
 - **Architecture**: `cli.py` runs on the host (typer CLI). `entrypoint.py` runs inside the container at startup (stdlib-only Python, no pip deps).
 - **Self-Bootstrapping**: The jail is developed from inside itself. Changes to source files are immediately visible (bind-mounted workspace). Changes to `flake.nix` or `entrypoint.py` require a nix rebuild on the next `yolo` invocation from the host.
 - **Direct Execution**: Commands are run via `yolo -- <command>`.
-- **Entry Point**: `yolo-enter.sh` is a thin bash wrapper (symlink target) that delegates to `uv run python src/cli.py`. All tmux decoration, arg routing, and jail logic is in Python.
-- **Direct Execution**: Commands are run via `yolo -- <command>`. 
 - **Auto-YOLO**: The CLI automatically injects `--yolo` for `gemini` and `copilot` commands.
 - **Container Reuse**: By default, running `yolo` in the same workspace reuses the existing container via `exec` instead of creating a new one. Containers are named deterministically (`yolo-<hash>`) based on the workspace path. Use `yolo --new -- <command>` to force a new container. Use `yolo ps` to list active jails with their workspace mappings. Tracking files are stored in `~/.local/share/yolo-jail/containers/`.
 - **Quoting**: Use `shlex.join` in Python to pass quoted arguments correctly to the container's `bash -c`.

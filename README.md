@@ -1,36 +1,31 @@
 # YOLO Jail
 
-A restricted, secure Docker environment designed for AI agents (like VS Code Copilot and Gemini) to safely modify codebases.
+A secure, isolated container environment for AI agents (Copilot, Gemini CLI) to safely modify codebases without compromising host security or identity. Supports both Docker and Podman runtimes.
 
 ## Features
 
-- **Isolated:** Runs in a minimal Docker container.
-- **Optimized:** Pre-installed with modern, fast tools:
-    - `rg` (ripgrep)
-    - `fd`
-- **Restricted:** Tools in `security.blocked_tools` are blocked by default (unless explicitly bypassed for installer/bootstrap steps).
+- **Isolated:** Runs in a Docker/Podman container with no access to host credentials.
+- **Optimized:** Pre-installed with modern, fast tools (`rg`, `fd`, `bat`, `eza`, `jq`, `delta`, `fzf`).
+- **Restricted:** Blocked tools return clear errors with suggestions (e.g., `rg` instead of `grep`).
 - **Reproducible:** Defined entirely via Nix Flakes.
+- **Agent-Ready:** Pre-configured MCP servers (Chrome DevTools, Sequential Thinking) and LSP servers (Pyright, TypeScript).
 
-## Global Usage
+## Installation
 
-You can use YOLO Jail as a secure environment for any project on your machine.
-
-### 1. "Install" the Global Command
-Run this once to create a `yolo` command in your path:
+Symlink the entry point to your PATH:
 ```bash
 sudo ln -s $(pwd)/yolo-enter.sh /usr/local/bin/yolo
 ```
 
-### 1.5 Optional: User-Level Defaults
-Set defaults applied to all projects:
+Optionally set user-level defaults:
 ```bash
 yolo init-user-config
 # edits: ~/.config/yolo-jail/config.jsonc
 ```
-Workspace `yolo-jail.jsonc` is merged on top of this user config (lists merge+dedupe, scalar values override).
 
-### 2. Enter any Project
-Navigate to any repository and type:
+## Usage
+
+Navigate to any repository and run:
 ```bash
 # Start an interactive shell
 yolo
@@ -38,31 +33,39 @@ yolo
 # Run a command directly
 yolo -- gemini prompt "Explain this code"
 yolo -- copilot
+
+# Force a new container (instead of reusing existing)
+yolo --new -- bash
 ```
-The jail will launch, mounting your current directory to `/workspace`. Auth and global tool state are persisted in `~/.local/share/yolo-jail/` and isolated from host credentials.
 
-### 3. Automatic Updates
-The `yolo` command is self-updating. If you modify `flake.nix` or project-level jail config (including `packages`), it will automatically rebuild and reload the Docker image on the next run when the image hash changes.
+The jail mounts your current directory to `/workspace`. Auth and tool state are persisted in `~/.local/share/yolo-jail/` and isolated from host credentials.
 
-## Agent Capabilities
+## Configuration
 
-YOLO Jail is pre-configured with:
-- **MCP Servers**: Chrome DevTools, Sequential Thinking.
-- **LSP Servers**: Python (Pyright), TypeScript.
-- **Modern CLI**: `rg`, `fd`, `bat`, `eza`, `jq`, `delta`, `fzf`.
-- **Debugging**: `strace`, `lsof`, `file`, `htop`, `ping`, `dig`.
-- **Agent Hygiene**: Pagers are disabled (`PAGER=cat`), and `bat` is aliased for non-interactive output.
-- **Agent Context**: Jail context is written to `~/.copilot/AGENTS.md` and `~/.gemini/AGENTS.md` (workspace `AGENTS.md` remains untouched).
+Per-project config in `yolo-jail.jsonc`:
+```jsonc
+{
+  "runtime": "podman",              // or "docker"
+  "packages": ["strace", "htop"],   // extra nix packages
+  "mounts": ["/path/to/ref-repo"],  // extra read-only mounts
+  "security": {
+    "blocked_tools": ["curl", "wget"]
+  }
+}
+```
 
-## Tool Management (Mise)
+Workspace config merges over user defaults (`~/.config/yolo-jail/config.jsonc`). Lists merge+dedupe, scalars override.
 
-This project uses **Mise** to manage project-specific tools.
-- To add a tool to a project, create or edit `mise.toml` in that project's root.
-- `gemini-cli@0.27.3` is pinned in this repository's `mise.toml`.
+## How It Works
 
-## Security & Safety
+1. **Build**: `nix build` produces a layered Docker image with all tools.
+2. **Load**: Image is loaded into Docker/Podman (only when hash changes).
+3. **Run**: Container starts with workspace bind-mounted, persistent home, and tool provisioning.
+4. **Reuse**: Subsequent `yolo` invocations in the same workspace reuse the running container.
 
-- **Isolation**: Docker prevents the agent from touching your host filesystem.
-- **Isolated Auth**: The jail has its own separate authentication state stored globally in `~/.local/share/yolo-jail/home/`. It does **not** share credentials with your host machine. You will need to run `gh auth login` and `gemini login` once inside the jail.
-- **Fail Loudly**: Blocked tools return a clear error message with optional suggestions (for example, suggesting `rg` instead of `grep`).
+## Security
+
+- **Strict Isolation**: No access to host `~/.ssh/`, `~/.gitconfig`, or cloud credentials.
+- **Separate Auth**: Run `gh auth login` and `gemini login` inside the jail once.
 - **User Mapping**: Files created in the jail are owned by your host user (matching UID/GID).
+- **Blocked Tools**: Configurable list of tools that return clear error messages.

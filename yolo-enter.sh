@@ -1,9 +1,9 @@
 #!/bin/bash
-# YOLO Jail Global Entrypoint (thin wrapper — all logic is in src/cli.py)
+# YOLO Jail — Global Entry Point
 #
-# This script resolves the repo root then delegates to the Python CLI.
-# Users may symlink ~/.local/bin/yolo → this file.
-# The Python CLI handles tmux decoration, arg routing, and everything else.
+# Symlink this to your PATH (e.g., /usr/local/bin/yolo) to use
+# `yolo` from any project directory. Resolves the repo root via
+# symlink then delegates to the Python CLI.
 
 SOURCE=${BASH_SOURCE[0]}
 while [ -L "$SOURCE" ]; do
@@ -13,7 +13,6 @@ while [ -L "$SOURCE" ]; do
 done
 REPO_ROOT=$( cd -P "$( dirname "$SOURCE" )" >/dev/null 2>&1 && pwd )
 
-# Route arguments: bare `yolo` → `run`, `yolo -- cmd` → `run -- cmd`
 if [ -z "$1" ]; then
     exec uv run --project "$REPO_ROOT" python "$REPO_ROOT/src/cli.py" run
 elif [ "$1" == "--" ]; then

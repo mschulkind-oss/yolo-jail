@@ -4,6 +4,5 @@ result
 .last-load-*
 .direnv/
 .venv/
-trash/
 __pycache__/
 .yolo/
