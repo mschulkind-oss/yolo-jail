@@ -31,11 +31,30 @@ def temp_project(tmp_path):
 
 
 def run_yolo(project_dir, command):
-    """Run a shell command inside the jail."""
+    """Run a shell command inside the jail via login shell (bash -lc)."""
     result = subprocess.run(
         ["uv", "run", "--project", str(REPO_ROOT),
          "python", str(REPO_ROOT / "src" / "cli.py"), "run",
          "--", "bash", "-lc", command],
+        cwd=str(project_dir),
+        capture_output=True,
+        text=True,
+        env={**os.environ, "TERM": "dumb"}
+    )
+    return result
+
+
+def run_yolo_direct(project_dir, *args):
+    """Run a command directly via `yolo -- <cmd>`, matching real-world usage.
+
+    This mirrors `yolo -- copilot --version` exactly — the command is NOT
+    wrapped in bash -lc, so it exercises the non-login PATH setup in the
+    entrypoint (the path that caused `copilot: command not found`).
+    """
+    result = subprocess.run(
+        ["uv", "run", "--project", str(REPO_ROOT),
+         "python", str(REPO_ROOT / "src" / "cli.py"), "run",
+         "--", *args],
         cwd=str(project_dir),
         capture_output=True,
         text=True,
@@ -97,6 +116,19 @@ def test_agent_tools_available(tmp_path):
     project_dir.mkdir()
     result = run_yolo(project_dir, "gemini --version && copilot --version")
     assert result.returncode == 0
+
+
+def test_agent_tools_available_direct(tmp_path):
+    """Test that copilot/gemini work when invoked directly (not via bash -lc).
+
+    This is the exact path taken by `yolo -- copilot`, which previously
+    failed with 'copilot: command not found' because /mise/shims was absent
+    from the non-login-shell PATH.
+    """
+    project_dir = tmp_path / "direct_agent_test"
+    project_dir.mkdir()
+    result = run_yolo_direct(project_dir, "copilot", "--version")
+    assert result.returncode == 0, f"copilot --version failed:\nstdout: {result.stdout}\nstderr: {result.stderr}"
 
 def test_yolo_direct_command(tmp_path):
     """Test running a direct command like 'yolo -- ls'."""
