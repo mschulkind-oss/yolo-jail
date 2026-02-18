@@ -20,7 +20,7 @@ This project provides a secure, isolated container environment for AI agents (Ge
 - **Persistent Global State**: All jail-specific state (auth tokens, bash history, global tool cache) is stored in `~/.local/share/yolo-jail/`.
     - Host `~/.local/share/yolo-jail/home` → Container `/home/agent` (auth, tools, configs — shared across all workspaces)
     - Host `~/.local/share/yolo-jail/mise` → Container `/mise`
-    - Per-workspace overlays: `<workspace>/.yolo/home/copilot-sessions` → `/home/agent/.copilot/session-state`, `<workspace>/.yolo/home/bash_history` → `/home/agent/.bash_history`
+    - Per-workspace overlays: `<workspace>/.yolo/home/copilot-sessions` → `/home/agent/.copilot/session-state`, `<workspace>/.yolo/home/copilot-command-history` → `/home/agent/.copilot/command-history-state.json`, `<workspace>/.yolo/home/bash_history` → `/home/agent/.bash_history`, `<workspace>/.yolo/home/gemini-history` → `/home/agent/.gemini/history`
 
 ### 3. Execution Engine (`src/cli.py` & `src/entrypoint.sh`)
 - **Direct Execution**: Commands are run via `yolo -- <command>`. 

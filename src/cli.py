@@ -499,7 +499,9 @@ def run(
     ws_state = workspace / ".yolo" / "home"
     ws_state.mkdir(parents=True, exist_ok=True)
     (ws_state / "copilot-sessions").mkdir(exist_ok=True)
+    (ws_state / "copilot-command-history").touch()
     (ws_state / "bash_history").touch()
+    (ws_state / "gemini-history").mkdir(exist_ok=True)
 
     docker_cmd = [
         runtime, "run", *docker_flags,
@@ -508,7 +510,9 @@ def run(
         "-v", f"{GLOBAL_HOME}:/home/agent",
         # Per-workspace overlays for state that should not leak across workspaces
         "-v", f"{ws_state / 'copilot-sessions'}:/home/agent/.copilot/session-state",
+        "-v", f"{ws_state / 'copilot-command-history'}:/home/agent/.copilot/command-history-state.json",
         "-v", f"{ws_state / 'bash_history'}:/home/agent/.bash_history",
+        "-v", f"{ws_state / 'gemini-history'}:/home/agent/.gemini/history",
         "-v", f"{GLOBAL_MISE}:/mise",
         "--tmpfs", "/tmp",
         "--shm-size=2g",
