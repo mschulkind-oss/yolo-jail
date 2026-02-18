@@ -1,7 +1,7 @@
 [project]
 name = "yolo-jail"
 version = "0.1.0"
-description = "Add your description here"
+description = "Secure container jail for AI agents"
 readme = "README.md"
 requires-python = ">=3.13"
 dependencies = [
@@ -10,3 +10,6 @@ dependencies = [
     "rich>=14.3.2",
     "typer>=0.23.1",
 ]
+
+[project.scripts]
+yolo = "src.cli:main"

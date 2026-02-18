@@ -10,7 +10,15 @@ from typing import Optional, List, Dict, Any, Union
 import typer
 import pyjson5
 
-app = typer.Typer()
+app = typer.Typer(invoke_without_command=True)
+
+
+@app.callback()
+def _default(ctx: typer.Context):
+    """YOLO Jail: Secure container for AI agents."""
+    if ctx.invoked_subcommand is None:
+        # No subcommand → default to `run` (interactive shell)
+        ctx.invoke(run)
 
 JAIL_IMAGE = "yolo-jail:latest"
 GLOBAL_STORAGE = Path.home() / ".local/share/yolo-jail"
@@ -59,6 +67,101 @@ def _tmux_rename_window(name: str):
                            stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
         except Exception:
             pass
+
+
+def _tmux_setup_jail_pane():
+    """Set tmux pane border indicators for the jail. Returns cleanup function."""
+    if not os.environ.get("TMUX") or not sys.stdin.isatty():
+        return None
+
+    pane = os.environ.get("TMUX_PANE", "")
+    jail_dir = Path.cwd().name
+
+    def _tmux_opt(opt):
+        try:
+            r = subprocess.run(
+                ["tmux", "show-option", "-pt", pane, opt],
+                capture_output=True, text=True,
+            )
+            return r.stdout.strip() if r.returncode == 0 else None
+        except Exception:
+            return None
+
+    def _tmux_set(opt, val):
+        try:
+            subprocess.run(
+                ["tmux", "set-option", "-pt", pane, opt, val],
+                stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL,
+            )
+        except Exception:
+            pass
+
+    def _tmux_unset(opt):
+        try:
+            subprocess.run(
+                ["tmux", "set-option", "-put", pane, opt],
+                stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL,
+            )
+        except Exception:
+            pass
+
+    # Save old state
+    old = {opt: _tmux_opt(opt) for opt in [
+        "pane-border-style", "pane-active-border-style",
+        "pane-border-status", "pane-border-format",
+    ]}
+    old_window = None
+    old_auto_rename = None
+    try:
+        r = subprocess.run(["tmux", "display-message", "-p", "#{window_name}"],
+                           capture_output=True, text=True)
+        old_window = r.stdout.strip() if r.returncode == 0 else None
+        r = subprocess.run(["tmux", "show-window-option", "-v", "automatic-rename"],
+                           capture_output=True, text=True)
+        old_auto_rename = r.stdout.strip() if r.returncode == 0 else None
+    except Exception:
+        pass
+
+    # Set jail indicators
+    _tmux_set("pane-border-style", "fg=red,bold")
+    _tmux_set("pane-active-border-style", "fg=red,bold")
+    _tmux_set("pane-border-status", "bottom")
+    _tmux_set("pane-border-format", f" 🔒 JAIL {jail_dir} ")
+    try:
+        subprocess.run(["tmux", "set-window-option", "automatic-rename", "off"],
+                       stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
+        subprocess.run(["tmux", "rename-window", f"JAIL {jail_dir}"],
+                       stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
+    except Exception:
+        pass
+
+    def restore():
+        for opt, val in old.items():
+            if val:
+                # val is like "pane-border-style fg=red,bold" — use eval-style restore
+                try:
+                    subprocess.run(
+                        ["tmux", f"set-option", "-pt", pane, opt, val.split()[-1]],
+                        stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL,
+                    )
+                except Exception:
+                    _tmux_unset(opt)
+            else:
+                _tmux_unset(opt)
+        if old_window:
+            try:
+                subprocess.run(["tmux", "rename-window", old_window],
+                               stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
+            except Exception:
+                pass
+        if old_auto_rename == "on":
+            try:
+                subprocess.run(["tmux", "set-window-option", "automatic-rename", "on"],
+                               stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
+            except Exception:
+                pass
+
+    return restore
 
 
 def _runtime(config: Dict[str, Any] = None) -> str:
@@ -708,5 +811,19 @@ def ps():
     else:
         typer.echo("No running jails.")
 
-if __name__ == "__main__":
+def main():
+    """Entry point for the `yolo` console script.
+
+    Handles tmux pane decoration and routes to the typer CLI.
+    """
+    import atexit
+
+    restore = _tmux_setup_jail_pane()
+    if restore:
+        atexit.register(restore)
+
     app()
+
+
+if __name__ == "__main__":
+    main()

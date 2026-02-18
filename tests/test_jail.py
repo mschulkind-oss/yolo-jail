@@ -6,14 +6,14 @@ from pathlib import Path
 import pytest
 
 REPO_ROOT = Path(__file__).parent.parent.resolve()
-YOLO_CMD = REPO_ROOT / "yolo-enter.sh"
+
 
 @pytest.fixture
 def temp_project(tmp_path):
     """Create a temporary project directory with a yolo-jail.jsonc."""
     project_dir = tmp_path / "test_project"
     project_dir.mkdir()
-    
+
     config = {
         "security": {
             "blocked_tools": [
@@ -23,20 +23,23 @@ def temp_project(tmp_path):
         },
         "network": {"mode": "bridge"}
     }
-    
+
     with open(project_dir / "yolo-jail.jsonc", "w") as f:
         json.dump(config, f)
-        
+
     return project_dir
+
 
 def run_yolo(project_dir, command):
     """Run a shell command inside the jail."""
     result = subprocess.run(
-        [str(YOLO_CMD), "--", "bash", "-lc", command],
+        ["uv", "run", "--project", str(REPO_ROOT),
+         "python", str(REPO_ROOT / "src" / "cli.py"), "run",
+         "--", "bash", "-lc", command],
         cwd=str(project_dir),
         capture_output=True,
         text=True,
-        env={**os.environ, "TERM": "dumb"} # Avoid color codes in output if possible
+        env={**os.environ, "TERM": "dumb"}
     )
     return result
 
@@ -63,7 +66,7 @@ def test_yolo_init(tmp_path):
     project_dir = tmp_path / "init_test"
     project_dir.mkdir()
     
-    subprocess.run([str(YOLO_CMD), "init"], cwd=str(project_dir), check=True)
+    subprocess.run(["uv", "run", "--project", str(REPO_ROOT), "python", str(REPO_ROOT / "src" / "cli.py")] + ["init"], cwd=str(project_dir), check=True)
     
     assert (project_dir / "yolo-jail.jsonc").exists()
 
@@ -102,7 +105,7 @@ def test_yolo_direct_command(tmp_path):
     
     # Run yolo with the explicit -- delimiter
     result = subprocess.run(
-        [str(YOLO_CMD), "--", "ls", "-d", "/workspace"],
+        ["uv", "run", "--project", str(REPO_ROOT), "python", str(REPO_ROOT / "src" / "cli.py")] + ["run", "--", "ls", "-d", "/workspace"],
         cwd=str(project_dir),
         capture_output=True,
         text=True,

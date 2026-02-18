@@ -88,8 +88,15 @@
           REGISTRIES
         '';
 
-        # Derivation for the entrypoint
-        entrypoint = pkgs.writeShellScriptBin "yolo-entrypoint" (builtins.readFile ./src/entrypoint.sh);
+        # Derivation for the Python entrypoint
+        entrypointScript = pkgs.writeTextFile {
+          name = "yolo-entrypoint-py";
+          text = builtins.readFile ./src/entrypoint.py;
+          destination = "/lib/yolo-entrypoint.py";
+        };
+        entrypoint = pkgs.writeShellScriptBin "yolo-entrypoint" ''
+          exec ${pkgs.python313}/bin/python3 ${entrypointScript}/lib/yolo-entrypoint.py "$@"
+        '';
 
         # The Docker Image
         dockerImage = pkgs.dockerTools.buildLayeredImage {

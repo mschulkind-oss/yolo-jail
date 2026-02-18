@@ -5,5 +5,5 @@ result
 .direnv/
 .venv/
 trash/
-tests/__pycache__/
+__pycache__/
 .yolo/

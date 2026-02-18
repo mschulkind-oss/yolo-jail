@@ -9,7 +9,6 @@ from unittest.mock import patch
 import pytest
 
 REPO_ROOT = Path(__file__).parent.parent.resolve()
-YOLO_CMD = REPO_ROOT / "yolo-enter.sh"
 
 sys.path.insert(0, str(REPO_ROOT / "src"))
 from cli import _runtime
@@ -71,7 +70,9 @@ def run_yolo_with_runtime(project_dir, command, runtime):
     """Run a shell command inside the jail with a specific runtime."""
     env = {**os.environ, "TERM": "dumb", "YOLO_RUNTIME": runtime}
     result = subprocess.run(
-        [str(YOLO_CMD), "--", "bash", "-lc", command],
+        ["uv", "run", "--project", str(REPO_ROOT),
+         "python", str(REPO_ROOT / "src" / "cli.py"), "run",
+         "--", "bash", "-lc", command],
         cwd=str(project_dir),
         capture_output=True,
         text=True,
