@@ -254,6 +254,10 @@ if command -v git &>/dev/null; then
     if [ -n "$YOLO_GIT_EMAIL" ]; then
         git config --global user.email "$YOLO_GIT_EMAIL"
     fi
+    # Propagate host global gitignore (mounted read-only by cli.py)
+    if [ -n "$YOLO_GLOBAL_GITIGNORE" ] && [ -f "$YOLO_GLOBAL_GITIGNORE" ]; then
+        git config --global core.excludesFile "$YOLO_GLOBAL_GITIGNORE"
+    fi
 fi
 
 # Copilot Config — use ~/.copilot directly (no XDG indirection)

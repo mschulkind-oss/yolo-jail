@@ -51,6 +51,16 @@ def ensure_global_storage():
             pass
 
 
+def _tmux_rename_window(name: str):
+    """Rename the current tmux window. No-op if not in tmux."""
+    if os.environ.get("TMUX"):
+        try:
+            subprocess.run(["tmux", "rename-window", name],
+                           stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
+        except Exception:
+            pass
+
+
 def _runtime(config: Dict[str, Any] = None) -> str:
     """Return container runtime: 'podman' or 'docker'."""
     env = os.environ.get("YOLO_RUNTIME")
@@ -411,6 +421,7 @@ def run(
     if existing_cid:
         # Exec into the existing container
         console.print(f"[bold cyan]Attaching to existing jail [dim]({cname})[/dim]...[/bold cyan]")
+        _tmux_rename_window("JAIL")
         exec_flags = ["-i"]
         if sys.stdout.isatty():
             exec_flags.append("-t")
@@ -527,6 +538,7 @@ def run(
         "-e", "HOME=/home/agent",
         "-e", f"YOLO_BLOCK_CONFIG={blocked_config_json}",
         "-e", f"YOLO_HOST_DIR={workspace}",
+        "-e", "OVERMIND_SOCKET=/tmp/overmind.sock",
         "--workdir", "/workspace",
     ]
 
@@ -602,6 +614,24 @@ def run(
             docker_cmd.extend(["-e", f"YOLO_GIT_EMAIL={git_email}"])
     except Exception:
         pass
+
+    # Propagate host global gitignore into the jail
+    # (We don't mount ~/.gitconfig to avoid credential leaks, but gitignore is safe)
+    try:
+        import subprocess
+        excludes_file = subprocess.check_output(
+            ["git", "config", "--global", "--get", "core.excludesFile"],
+            stderr=subprocess.DEVNULL
+        ).decode().strip()
+        if excludes_file:
+            excludes_path = Path(excludes_file).expanduser()
+        else:
+            excludes_path = Path.home() / ".config" / "git" / "ignore"
+    except Exception:
+        excludes_path = Path.home() / ".config" / "git" / "ignore"
+    if excludes_path.is_file():
+        docker_cmd.extend(["-v", f"{excludes_path}:/home/agent/.config/git/ignore:ro"])
+        docker_cmd.extend(["-e", "YOLO_GLOBAL_GITIGNORE=/home/agent/.config/git/ignore"])
     
     docker_cmd.extend(publish_args)
     docker_cmd.extend(mount_args)
@@ -652,6 +682,7 @@ def run(
 
     # Write tracking file before exec (since execvp replaces our process)
     write_container_tracking(cname, workspace)
+    _tmux_rename_window("JAIL")
 
     try:
         os.execvp(runtime, docker_cmd)
