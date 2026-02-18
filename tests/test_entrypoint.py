@@ -120,6 +120,12 @@ class TestBashrcGeneration:
         assert "PAGER=cat" in content
         assert "GIT_PAGER=cat" in content
 
+    def test_mise_shims_in_path(self, jail_home, monkeypatch):
+        monkeypatch.setenv("YOLO_HOST_DIR", "test")
+        entrypoint.generate_bashrc()
+        content = entrypoint.BASHRC_PATH.read_text()
+        assert "/mise/shims" in content or "MISE_DATA_DIR" in content
+
 
 # -- Copilot config --
 

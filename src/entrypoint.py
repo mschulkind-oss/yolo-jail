@@ -24,6 +24,7 @@ NPM_PREFIX = Path(os.environ.get("NPM_CONFIG_PREFIX", HOME / ".npm-global"))
 GOPATH = Path(os.environ.get("GOPATH", HOME / "go"))
 NPM_BIN = NPM_PREFIX / "bin"
 GO_BIN = GOPATH / "bin"
+MISE_SHIMS = Path(os.environ.get("MISE_DATA_DIR", "/mise")) / "shims"
 MCP_WRAPPERS_BIN = HOME / ".local" / "bin" / "mcp-wrappers"
 BASHRC_PATH = HOME / ".bashrc"
 COPILOT_DIR = HOME / ".copilot"
@@ -114,7 +115,7 @@ export EDITOR=nvim
 export NPM_CONFIG_PREFIX="${NPM_CONFIG_PREFIX:-$HOME/.npm-global}"
 export GOPATH="${GOPATH:-$HOME/go}"
 SHIM_DIR="${HOME}/.yolo-shims"
-export PATH="$SHIM_DIR:$NPM_CONFIG_PREFIX/bin:$GOPATH/bin:/bin:/usr/bin"
+export PATH="$SHIM_DIR:$NPM_CONFIG_PREFIX/bin:$GOPATH/bin:${MISE_DATA_DIR:-/mise}/shims:/bin:/usr/bin"
 
 # Activate mise with shell hooks
 eval "$(mise activate bash)"
@@ -438,12 +439,9 @@ def configure_gemini():
 
 def exec_bash(command: str):
     """Set up final PATH, activate mise, and exec bash with the given command."""
-    env = os.environ.copy()
-    env["PATH"] = f"{SHIM_DIR}:{NPM_BIN}:{GO_BIN}:/bin:/usr/bin"
+    path = f"{SHIM_DIR}:{NPM_BIN}:{GO_BIN}:{MISE_SHIMS}:/bin:/usr/bin"
+    os.environ["PATH"] = path
 
-    # Build a wrapper that activates mise then runs the command.
-    # We exec bash --rcfile (for interactive prompt) -c (to run the command).
-    # For the non-interactive -c path, we need mise activated in the command itself.
     os.execvp("bash", [
         "bash", "--rcfile", str(BASHRC_PATH), "-c", command,
     ])
@@ -466,8 +464,8 @@ def main():
     configure_copilot()
     configure_gemini()
 
-    # Set PATH for mise activation in the exec'd bash
-    os.environ["PATH"] = f"{SHIM_DIR}:{NPM_BIN}:{GO_BIN}:/bin:/usr/bin"
+    # Set PATH including mise shims so tools like copilot/gemini are found
+    os.environ["PATH"] = f"{SHIM_DIR}:{NPM_BIN}:{GO_BIN}:{MISE_SHIMS}:/bin:/usr/bin"
 
     # Activate mise for the current process so hook-env works
     try:
