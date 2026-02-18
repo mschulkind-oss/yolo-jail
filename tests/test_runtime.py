@@ -57,7 +57,27 @@ def test_sentinel_is_per_runtime(tmp_path):
     assert not sentinel_podman.exists()
 
 
-# --- Parametrized integration tests ---
+def test_skip_image_load_when_container_running(tmp_path, monkeypatch):
+    """auto_load_image must NOT be called when a container is already running."""
+    import sys
+    sys.path.insert(0, str(REPO_ROOT / "src"))
+    import cli
+    from unittest.mock import patch
+
+    monkeypatch.chdir(tmp_path)
+    image_load_called = []
+
+    with patch.object(cli, "auto_load_image", side_effect=lambda *a, **k: image_load_called.append(True)), \
+         patch.object(cli, "find_running_container", return_value="abc123def456"), \
+         patch.object(cli, "load_config", return_value={}), \
+         patch.object(cli, "ensure_global_storage"), \
+         patch.object(cli, "_runtime", return_value="docker"), \
+         patch.object(cli, "_tmux_rename_window"), \
+         patch("os.execvp", side_effect=SystemExit(0)):
+        from typer.testing import CliRunner
+        CliRunner().invoke(cli.app, ["run"])
+
+    assert not image_load_called, "auto_load_image must not be called when a container is already running"
 
 AVAILABLE_RUNTIMES = []
 if shutil.which("docker"):

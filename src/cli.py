@@ -482,11 +482,7 @@ def run(
     ensure_global_storage()
     config = load_config()
     runtime = _runtime(config)
-    
-    # Build image with any extra packages from config
-    extra_packages = config.get("packages", [])
-    auto_load_image(repo_root, extra_packages=extra_packages or None, runtime=runtime)
-    
+
     # Command construction (needed for both exec and run paths)
     full_command = list(ctx.args)
 
@@ -498,7 +494,8 @@ def run(
                 full_command.insert(1, "--yolo")
         target_cmd = shlex.join(full_command)
 
-    # Check for existing container for this workspace
+    # Check for existing container BEFORE touching the image.
+    # If one is already running we just exec into it — no rebuild needed.
     cname = container_name_for_workspace(workspace)
     existing_cid = None if new else find_running_container(cname, runtime=runtime)
 
@@ -521,7 +518,9 @@ def run(
             sys.exit(1)
         return
 
-    # --- New container path ---
+    # No existing container — build/load the image then start a new one.
+    extra_packages = config.get("packages", [])
+    auto_load_image(repo_root, extra_packages=extra_packages or None, runtime=runtime)
 
     # Determine Network Mode
     net_mode = network
