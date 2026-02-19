@@ -111,7 +111,7 @@ def _tmux_setup_jail_pane():
     try:
         subprocess.run(["tmux", "set-window-option", "automatic-rename", "off"],
                        stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
-        subprocess.run(["tmux", "rename-window", f"JAIL {jail_dir}"],
+        subprocess.run(["tmux", "rename-window", "JAIL"],
                        stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
     except Exception:
         pass
