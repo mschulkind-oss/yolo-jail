@@ -403,8 +403,6 @@ def init():
   "security": {
     // Tools to block. Can be a simple string or an object with custom messages.
     "blocked_tools": [
-      "curl", 
-      "wget",
       {
         "name": "grep",
         "message": "Use 'rg' (ripgrep) for faster searching.",
