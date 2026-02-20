@@ -48,6 +48,10 @@ Per-project config in `yolo-jail.jsonc`:
   "runtime": "podman",              // or "docker"
   "packages": ["strace", "htop"],   // extra nix packages
   "mounts": ["/path/to/ref-repo"],  // extra read-only mounts
+  "network": {
+    "mode": "bridge"                // or "host" for host networking
+    // "ports": ["8000:8000"]        // publish ports in bridge mode
+  },
   "security": {
     "blocked_tools": ["curl", "wget"]
   }

@@ -13,6 +13,7 @@ This project provides a secure, isolated container environment for AI agents (Ge
 - **Custom Packages**: The `packages` array specifies additional nix packages to bake into the jail image. Names must match nixpkgs attribute names. The image only rebuilds when this list changes. Uses `--impure` nix build with `builtins.getEnv`.
 - **Extra Mounts**: The `mounts` array brings additional host paths into the jail read-only at `/ctx/<basename>` (or a custom container path via `"host:container"` syntax).
 - **Runtime Selection**: The `"runtime"` key selects the container runtime (`"podman"` or `"docker"`). Can also be set via `YOLO_RUNTIME` env var. Priority: env var > workspace config > user config > auto-detect (prefers podman).
+- **Network Mode**: The `network.mode` key selects network isolation (`"bridge"` default or `"host"`). Bridge mode isolates the container network; host mode shares the host network stack. When using bridge mode, `network.ports` (e.g., `["8000:8000"]`) publishes container ports to the host.
 
 ### 2. Isolation & Identity
 - **Strict Isolation**: The jail MUST NOT access host `~/.ssh/`, `~/.gitconfig`, or any cloud credentials.
