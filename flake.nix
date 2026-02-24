@@ -153,11 +153,11 @@
         '';
 
         # The Docker Image
-        dockerImage = pkgs.dockerTools.buildLayeredImage {
+        dockerImage = pkgs.dockerTools.streamLayeredImage {
           name = "yolo-jail";
           tag = "latest";
           created = "now";
-          maxLayers = 100; # Optimize for faster loading by merging layers
+          maxLayers = 100;
           
           contents = [
             binPathLinks

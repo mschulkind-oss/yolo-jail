@@ -437,36 +437,60 @@ def auto_load_image(repo_root: Path, extra_packages: List[str] = None, runtime: 
         last_path = sentinel.read_text().strip()
 
     if str(current_path) != last_path:
-        console.print("[bold green]Detected changes in jail config. Loading new image...[/bold green]")
+        console.print("[bold green]Image changed. Streaming to {runtime}...[/bold green]".format(runtime=runtime))
         
         try:
-            with open(repo_root / ".run-result", "rb") as image_file:
-                # Use Popen to stream output line by line for the fancy status
-                process = subprocess.Popen(
-                    [runtime, "load"],
-                    stdin=image_file,
-                    stdout=subprocess.PIPE,
-                    stderr=subprocess.STDOUT,
-                    text=True
-                )
-                
-                with console.status(f"[bold cyan]Loading into {runtime}...", spinner="bouncingBar") as status:
-                    if process.stdout:
-                        for line in iter(process.stdout.readline, ""):
-                            clean_line = line.strip()
-                            if clean_line:
-                                # Show the last line of docker load (e.g. "Loaded image: ...")
-                                status.update(f"[bold cyan]Loading: [dim]{clean_line}[/dim]")
-                                last_line = clean_line
-                
-                process.wait()
-                if process.returncode != 0:
-                    console.print(f"[bold red]Error loading {runtime} image.[/bold red]")
-                else:
-                    console.print(f"[bold green]Successfully {last_line.lower() if 'last_line' in locals() else 'loaded image'}[/bold green]")
-                    sentinel.write_text(str(current_path))
+            # streamLayeredImage produces a script that outputs the image tar to stdout.
+            # Pipe it directly to `runtime load` — generation and loading run in parallel.
+            stream_script = str(current_path)
+            stream_proc = subprocess.Popen(
+                [stream_script],
+                stdout=subprocess.PIPE,
+            )
+            load_proc = subprocess.Popen(
+                [runtime, "load"],
+                stdin=subprocess.PIPE,
+                stdout=subprocess.PIPE,
+                stderr=subprocess.STDOUT,
+                text=False,
+            )
+            
+            total_bytes = 0
+            chunk_size = 1024 * 1024  # 1 MB
+            with console.status(f"[bold cyan]Streaming to {runtime}... 0 MB", spinner="bouncingBar") as status:
+                while True:
+                    chunk = stream_proc.stdout.read(chunk_size)
+                    if not chunk:
+                        break
+                    load_proc.stdin.write(chunk)
+                    total_bytes += len(chunk)
+                    mb = total_bytes / (1024 * 1024)
+                    if mb >= 1024:
+                        status.update(f"[bold cyan]Streaming to {runtime}... {mb/1024:.1f} GB")
+                    else:
+                        status.update(f"[bold cyan]Streaming to {runtime}... {mb:.0f} MB")
+                load_proc.stdin.close()
+            
+            stream_proc.wait()
+            load_proc.wait()
+            
+            # Read load output (e.g. "Loaded image: ...")
+            load_output = ""
+            if load_proc.stdout:
+                load_output = load_proc.stdout.read().decode(errors="replace").strip()
+            
+            if stream_proc.returncode != 0 or load_proc.returncode != 0:
+                console.print(f"[bold red]Error loading image into {runtime}.[/bold red]")
+                if load_output:
+                    console.print(f"[dim]{load_output}[/dim]")
+            else:
+                mb = total_bytes / (1024 * 1024)
+                size_str = f"{mb/1024:.1f} GB" if mb >= 1024 else f"{mb:.0f} MB"
+                msg = load_output if load_output else f"loaded image ({size_str})"
+                console.print(f"[bold green]Done: {msg}[/bold green]")
+                sentinel.write_text(str(current_path))
         except Exception as e:
-            console.print(f"[bold red]Error loading {runtime} image: {e}[/bold red]")
+            console.print(f"[bold red]Error streaming image: {e}[/bold red]")
     
     # Cleanup temp link
     (repo_root / ".run-result").unlink(missing_ok=True)
