@@ -81,7 +81,10 @@
 
           # Font directories: symlink into /usr/share/fonts so fontconfig finds them
           # (fontconfig's default fonts.conf includes <dir>/usr/share/fonts</dir>)
-          for fontPkg in ${pkgs.freefont_ttf} ${pkgs.noto-fonts-color-emoji}; do
+          # Note: do NOT symlink freefont_ttf — its fonts lack fontconfig classification
+          # and 49-sansserif.conf misclassifies FreeMono as sans-serif, beating DejaVu.
+          # dejavu-fonts-minimal (transitive dep) handles base fonts correctly.
+          for fontPkg in ${pkgs.noto-fonts-color-emoji}; do
             if [ -d "$fontPkg/share/fonts" ]; then
               for d in "$fontPkg"/share/fonts/*; do
                 [ -d "$d" ] && ln -s "$d" "$out/usr/share/fonts/$(basename "$d")" 2>/dev/null || true
@@ -193,7 +196,6 @@
             pkgs.zlib
             pkgs.chromium   # For both MCP and Playwright
             pkgs.fontconfig
-            pkgs.freefont_ttf
             pkgs.noto-fonts-color-emoji  # Emoji font for Chromium rendering
             pkgs.glibc.bin  # For ldd
             pkgs.procps     # ps, pgrep, pkill
