@@ -32,7 +32,7 @@
 
         # Derivation to provide /usr/bin/env and other standard paths
         binPathLinks = pkgs.runCommand "bin-path-links" {} ''
-          mkdir -p $out/usr/bin $out/bin $out/lib64 $out/lib $out/usr/lib $out/etc
+          mkdir -p $out/usr/bin $out/bin $out/lib64 $out/lib $out/usr/lib $out/etc $out/usr/share/fonts
           ln -s ${pkgs.coreutils}/bin/env $out/usr/bin/env
           ln -s ${pkgs.bashInteractive}/bin/bash $out/bin/bash
           ln -s ${pkgs.bashInteractive}/bin/sh $out/bin/sh
@@ -48,11 +48,45 @@
           ln -s ${pkgs.stdenv.cc.bintools.dynamicLinker} $out/lib64/ld-linux-x86-64.so.2
           ln -s ${pkgs.fontconfig.out}/etc/fonts $out/etc/fonts
           
-          # Link standard libraries to both /lib and /usr/lib
+          # Link shared libraries to /lib and /usr/lib for LD_LIBRARY_PATH discovery.
+          # Iterates over all packages with lib outputs, including split-output packages
+          # (e.g., fontconfig.lib has .so files separate from fontconfig.out which has etc/).
+          # Non-nix binaries (node, npm/pip packages) rely on LD_LIBRARY_PATH=/lib:/usr/lib
+          # since they lack RPATH entries pointing into the nix store.
           for dir in $out/lib $out/usr/lib; do
-            ln -s ${pkgs.glibc}/lib/* $dir/
-            ln -s ${pkgs.stdenv.cc.cc.lib}/lib/libstdc++.so.6 $dir/libstdc++.so.6
-            ln -s ${pkgs.zlib}/lib/libz.so.1 $dir/libz.so.1
+            for pkg in ${pkgs.glibc} \
+                       ${pkgs.stdenv.cc.cc.lib} \
+                       ${pkgs.zlib} \
+                       ${pkgs.fontconfig.lib} \
+                       ${pkgs.glib} \
+                       ${pkgs.pango} \
+                       ${pkgs.cairo} \
+                       ${pkgs.harfbuzz} \
+                       ${pkgs.freetype} \
+                       ${pkgs.fribidi} \
+                       ${pkgs.pixman} \
+                       ${pkgs.libpng} \
+                       ${pkgs.expat} \
+                       ${pkgs.pcre2} \
+                       ${pkgs.libffi}; do
+              if [ -d "$pkg/lib" ]; then
+                for f in "$pkg"/lib/lib*.so*; do
+                  [ -f "$f" ] || [ -L "$f" ] || continue
+                  name=$(basename "$f")
+                  [ ! -e "$dir/$name" ] && ln -s "$f" "$dir/$name" 2>/dev/null || true
+                done
+              fi
+            done
+          done
+
+          # Font directories: symlink into /usr/share/fonts so fontconfig finds them
+          # (fontconfig's default fonts.conf includes <dir>/usr/share/fonts</dir>)
+          for fontPkg in ${pkgs.freefont_ttf} ${pkgs.noto-fonts-color-emoji}; do
+            if [ -d "$fontPkg/share/fonts" ]; then
+              for d in "$fontPkg"/share/fonts/*; do
+                [ -d "$d" ] && ln -s "$d" "$out/usr/share/fonts/$(basename "$d")" 2>/dev/null || true
+              done
+            fi
           done
 
           # Podman nested container support
@@ -160,6 +194,7 @@
             pkgs.chromium   # For both MCP and Playwright
             pkgs.fontconfig
             pkgs.freefont_ttf
+            pkgs.noto-fonts-color-emoji  # Emoji font for Chromium rendering
             pkgs.glibc.bin  # For ldd
             pkgs.procps     # ps, pgrep, pkill
             pkgs.net-tools  # netstat
