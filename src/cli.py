@@ -1,3 +1,4 @@
+import difflib
 import os
 import subprocess
 import sys
@@ -10,12 +11,62 @@ from typing import Optional, List, Dict, Any, Union
 import typer
 import pyjson5
 
-app = typer.Typer(invoke_without_command=True)
+app = typer.Typer(
+    invoke_without_command=True,
+    rich_markup_mode="rich",
+    no_args_is_help=False,
+)
 
 
 @app.callback()
 def _default(ctx: typer.Context):
-    """YOLO Jail: Secure container for AI agents."""
+    """[bold]YOLO Jail[/bold] — Secure container environment for AI agents.
+
+    Runs AI agents (Copilot, Gemini CLI) in isolated Docker/Podman containers
+    with no access to host credentials (~/.ssh, ~/.gitconfig, cloud tokens).
+    Tool state persists across restarts.
+
+    [bold cyan]Quick Start[/bold cyan]
+
+        yolo                      Interactive jail shell
+        yolo -- copilot           Run Copilot in jail (--yolo auto-injected)
+        yolo -- gemini            Run Gemini in jail (--yolo auto-injected)
+        yolo --new -- bash        Force new container (ignore running one)
+        yolo ps                   List running jails
+        yolo config-ref           Full configuration reference
+
+    [bold cyan]Configuration[/bold cyan]
+
+    Place [bold]yolo-jail.jsonc[/bold] in your project root (JSON with comments):
+
+        {
+          "runtime": "podman",              // or "docker"
+          "packages": ["strace", "htop"],   // extra nix packages
+          "mounts": ["/path/to/repo"],      // read-only at /ctx/<name>
+          "network": {"mode": "bridge", "ports": ["8000:8000"]},
+          "security": {"blocked_tools": ["curl", "wget"]}
+        }
+
+    User defaults: ~/.config/yolo-jail/config.jsonc (merged under workspace).
+    Run [bold]yolo config-ref[/bold] for the complete field reference.
+
+    [bold cyan]Environment Variables[/bold cyan]
+
+        YOLO_RUNTIME          Override runtime (podman/docker)
+        YOLO_BYPASS_SHIMS     Set to 1 to bypass blocked tool shims
+
+    [bold cyan]Config Safety[/bold cyan]
+
+    When yolo-jail.jsonc changes between runs, the CLI shows a diff and asks
+    for human confirmation before starting. This prevents agents from silently
+    modifying the config without the operator noticing.
+
+    [bold cyan]Agent Package Workflow[/bold cyan]
+
+    Agents inside the jail can edit yolo-jail.jsonc to add packages, then ask
+    the human to restart. The human sees the diff and approves at next startup.
+    See [bold]yolo config-ref[/bold] for details.
+    """
     if ctx.invoked_subcommand is None:
         # No subcommand → default to `run` (interactive shell)
         ctx.invoke(run)
@@ -267,6 +318,24 @@ def generate_agents_md(
         "- **No sudo/root**: You run as a mapped host user with no privilege escalation.",
         "- **No git push/pull**: No GitHub credentials are available. Do not attempt `gh auth login` or SSH-based git operations.",
         "",
+        "## Adding Packages",
+        "",
+        "If you need a tool that is not installed, you can request it:",
+        "",
+        "1. Edit `/workspace/yolo-jail.jsonc` and add the package name to the `packages` array",
+        "2. Tell the human user: \"Please restart the jail so the new package becomes available\"",
+        "3. The human will see a config diff and confirm the change at next startup",
+        "4. After restart, the package will be available",
+        "",
+        "Example — to add PostgreSQL tools:",
+        "```json",
+        '  "packages": ["postgresql"]',
+        "```",
+        "",
+        "Package names must match nixpkgs attributes (https://search.nixos.org/packages).",
+        "Do NOT install packages via apt, nix-env, or other package managers.",
+        "Run `yolo config-ref` for the full configuration reference.",
+        "",
     ])
 
     jail_content = "\n".join(lines) + "\n"
@@ -475,6 +544,186 @@ def init_user_config():
         f.write(content)
     typer.echo(f"Created {USER_CONFIG_PATH}")
 
+@app.command("config-ref")
+def config_ref():
+    """Show the full YOLO Jail configuration reference."""
+    console.print("""[bold]YOLO Jail Configuration Reference[/bold]
+
+[bold cyan]CONFIG FILE: yolo-jail.jsonc[/bold cyan]
+
+  Location: Project root (per-workspace)
+  Format:   JSON with comments (JSONC)
+  User defaults: ~/.config/yolo-jail/config.jsonc
+
+  Workspace config merges over user defaults.
+  Lists are merged and deduplicated. Scalars override.
+
+[bold cyan]FIELDS[/bold cyan]
+
+  [bold]runtime[/bold] (string): Container runtime.
+    Values: "podman" (preferred) or "docker"
+    Override: YOLO_RUNTIME env var takes priority.
+    Auto-detect: prefers podman, falls back to docker.
+
+  [bold]packages[/bold] (array of strings): Extra nix packages baked into the image.
+    Names must match nixpkgs attributes (https://search.nixos.org/packages).
+    Image rebuilds only when this list changes.
+    Example: ["postgresql", "redis", "awscli2", "htop"]
+
+  [bold]mounts[/bold] (array of strings): Extra host paths mounted read-only.
+    Simple path → mounted at /ctx/<basename>
+    "host:container" → custom container path
+    Example: ["/path/to/repo", "~/lib:/ctx/lib"]
+
+  [bold]network.mode[/bold] (string): Network isolation mode.
+    "bridge" (default): Isolated. Use network.ports for access.
+    "host": Share host network stack (localhost works directly).
+
+  [bold]network.ports[/bold] (array of strings): Port mappings in bridge mode.
+    Format: "host_port:container_port"
+    Example: ["8000:8000", "3000:3000"]
+
+  [bold]security.blocked_tools[/bold] (array): Tools to block inside the jail.
+    Simple: ["curl", "wget"]
+    Detailed: [{"name": "grep", "message": "Use rg", "suggestion": "rg <pattern>"}]
+    Default: grep and find are blocked (rg/fd suggested instead).
+    Bypass: Set YOLO_BYPASS_SHIMS=1 in scripts that need blocked tools.
+
+[bold cyan]EXAMPLE CONFIG[/bold cyan]
+
+  {
+    "runtime": "podman",
+    "packages": ["strace", "htop"],
+    "mounts": ["/path/to/ref-repo"],
+    "network": {
+      "mode": "bridge",
+      "ports": ["8000:8000"]
+    },
+    "security": {
+      "blocked_tools": [
+        {"name": "grep", "message": "Use rg", "suggestion": "rg <pattern>"},
+        "wget"
+      ]
+    }
+  }
+
+[bold cyan]ENVIRONMENT VARIABLES[/bold cyan]
+
+  YOLO_RUNTIME          Override container runtime (podman/docker)
+  YOLO_BYPASS_SHIMS     Set to 1 to bypass blocked tool shims
+  YOLO_EXTRA_PACKAGES   JSON array of extra nix packages (internal)
+
+[bold cyan]CONFIG CHANGE SAFETY[/bold cyan]
+
+  When yolo-jail.jsonc changes between jail startups, the CLI shows a
+  diff of the normalized config and asks for y/N confirmation. This
+  prevents agents from silently adding packages or mounts without the
+  human operator noticing.
+
+  - First run: config is accepted and a snapshot saved.
+  - Subsequent runs: changes require explicit y/N approval.
+  - Non-interactive (piped input): accepted with a warning.
+
+  Snapshot location: <workspace>/.yolo/config-snapshot.json
+
+[bold cyan]AGENT PACKAGE WORKFLOW[/bold cyan]
+
+  Agents inside the jail can request new packages:
+
+  1. Agent edits /workspace/yolo-jail.jsonc, adds to "packages" array
+  2. Agent tells the human: "Please restart the jail for new packages"
+  3. On next startup, human sees the config diff and approves (y/N)
+  4. Image rebuilds with the new package
+  5. Agent can use the package after restart
+
+  This keeps the human in the loop for all environment changes.
+  Do NOT install packages via apt, nix-env, or other package managers.
+
+[bold cyan]COMMANDS[/bold cyan]
+
+  yolo                      Start interactive jail shell
+  yolo -- <command>         Run a command inside the jail
+  yolo --new -- <command>   Force a new container
+  yolo ps                   List running jail containers
+  yolo init                 Create yolo-jail.jsonc in current directory
+  yolo init-user-config     Create user-level defaults config
+  yolo config-ref           Show this reference
+
+[bold cyan]INSIDE THE JAIL[/bold cyan]
+
+  The yolo command is available inside jails for:
+  - Reading this help: yolo --help, yolo config-ref
+  - Nested jailing (advanced): yolo -- <command>
+
+  Workspace: /workspace (bind-mounted from host)
+  Home: /home/agent (persistent across restarts)
+  Runtimes: Node.js 22, Python 3.13, Go (via mise)
+  Tools: rg, fd, bat, jq, git, gh, nvim, curl, strace
+""")
+
+
+def _config_snapshot_path(workspace: Path) -> Path:
+    """Path to the normalized config snapshot for change detection."""
+    return workspace / ".yolo" / "config-snapshot.json"
+
+
+def _check_config_changes(workspace: Path, config: Dict[str, Any]) -> bool:
+    """Compare config with last-seen snapshot. Returns True to proceed, False to abort."""
+    snapshot_path = _config_snapshot_path(workspace)
+    current_json = json.dumps(config, indent=2, sort_keys=True)
+
+    # First run or no snapshot — accept and save
+    if not snapshot_path.exists():
+        snapshot_path.parent.mkdir(parents=True, exist_ok=True)
+        snapshot_path.write_text(current_json + "\n")
+        return True
+
+    old_json = snapshot_path.read_text().rstrip()
+    if old_json == current_json:
+        return True
+
+    # Show diff
+    diff_lines = list(difflib.unified_diff(
+        old_json.splitlines(),
+        current_json.splitlines(),
+        fromfile="previous config",
+        tofile="current config",
+        lineterm="",
+    ))
+
+    console.print("\n[bold yellow]⚠  Jail config changed since last run:[/bold yellow]\n")
+    for line in diff_lines:
+        if line.startswith("+++") or line.startswith("---"):
+            console.print(f"[dim]{line}[/dim]")
+        elif line.startswith("+"):
+            console.print(f"[green]{line}[/green]")
+        elif line.startswith("-"):
+            console.print(f"[red]{line}[/red]")
+        elif line.startswith("@@"):
+            console.print(f"[cyan]{line}[/cyan]")
+        else:
+            console.print(line)
+
+    if not sys.stdin.isatty():
+        console.print("\n[yellow]Non-interactive mode: accepting config changes automatically.[/yellow]")
+        snapshot_path.write_text(current_json + "\n")
+        return True
+
+    console.print()
+    try:
+        response = input("Accept these config changes? [y/N] ").strip().lower()
+    except (EOFError, KeyboardInterrupt):
+        console.print("\n[red]Aborted.[/red]")
+        return False
+
+    if response in ("y", "yes"):
+        snapshot_path.write_text(current_json + "\n")
+        return True
+
+    console.print("[red]Config changes rejected. Exiting.[/red]")
+    return False
+
+
 @app.command(context_settings={"allow_extra_args": True, "ignore_unknown_options": True})
 def run(
     ctx: typer.Context,
@@ -482,8 +731,8 @@ def run(
     new: bool = typer.Option(False, "--new", help="Force a new container even if one already exists for this workspace"),
 ):
     """Run the YOLO jail in the current directory."""
-    # Find repo root to locate sentinel file
-    repo_root = Path(__file__).parent.parent.resolve()
+    # Find repo root — use YOLO_REPO_ROOT env var inside jails, otherwise resolve from source
+    repo_root = Path(os.environ.get("YOLO_REPO_ROOT", Path(__file__).parent.parent)).resolve()
     workspace = Path.cwd()
     
     ensure_global_storage()
@@ -523,6 +772,10 @@ def run(
         sys.exit(result.returncode)
 
     # No existing container — build/load the image then start a new one.
+    # Check for config changes and get human confirmation
+    if not _check_config_changes(workspace, config):
+        sys.exit(1)
+
     extra_packages = config.get("packages", [])
     auto_load_image(repo_root, extra_packages=extra_packages or None, runtime=runtime)
 
@@ -626,7 +879,10 @@ def run(
         "-e", f"YOLO_BLOCK_CONFIG={blocked_config_json}",
         "-e", f"YOLO_HOST_DIR={workspace}",
         "-e", "OVERMIND_SOCKET=/tmp/overmind.sock",
+        "-e", "YOLO_REPO_ROOT=/opt/yolo-jail",
         "--workdir", "/workspace",
+        # Mount yolo-jail repo for in-jail CLI (yolo --help, nested jailing)
+        "-v", f"{repo_root}:/opt/yolo-jail:ro",
     ]
 
     # Docker needs explicit UID mapping; podman rootless maps container root to host user

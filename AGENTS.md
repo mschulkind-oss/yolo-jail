@@ -14,6 +14,8 @@ This project provides a secure, isolated container environment for AI agents (Ge
 - **Extra Mounts**: The `mounts` array brings additional host paths into the jail read-only at `/ctx/<basename>` (or a custom container path via `"host:container"` syntax).
 - **Runtime Selection**: The `"runtime"` key selects the container runtime (`"podman"` or `"docker"`). Can also be set via `YOLO_RUNTIME` env var. Priority: env var > workspace config > user config > auto-detect (prefers podman).
 - **Network Mode**: The `network.mode` key selects network isolation (`"bridge"` default or `"host"`). Bridge mode isolates the container network; host mode shares the host network stack. When using bridge mode, `network.ports` (e.g., `["8000:8000"]`) publishes container ports to the host.
+- **Config Change Safety**: When the config changes between jail startups, the CLI shows a normalized diff and asks the human for y/N confirmation. This prevents agents from silently adding packages or mounts. See `docs/config-safety.md` for the full user/agent workflow.
+- **In-Jail CLI**: The `yolo` command is available inside all jails (mounted from `/opt/yolo-jail`). Agents can run `yolo --help` or `yolo config-ref` for full documentation. The CLI can also be used for nested jailing.
 
 ### 2. Isolation & Identity
 - **Strict Isolation**: The jail MUST NOT access host `~/.ssh/`, `~/.gitconfig`, or any cloud credentials.

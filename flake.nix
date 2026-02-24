@@ -98,6 +98,21 @@
           exec ${pkgs.python313}/bin/python3 ${entrypointScript}/lib/yolo-entrypoint.py "$@"
         '';
 
+        # In-jail yolo CLI wrapper — delegates to the mounted repo via uv
+        yoloCli = pkgs.writeShellScriptBin "yolo" ''
+          # Use the mounted repo with uv (deps are cached in persistent ~/.cache/uv)
+          if [ -d /opt/yolo-jail/src ]; then
+            export PYTHONPATH="/opt/yolo-jail''${PYTHONPATH:+:$PYTHONPATH}"
+            exec ${pkgs.uv}/bin/uv run \
+              --no-project \
+              --with typer --with rich --with "pyjson5>=2.0.0" \
+              -- ${pkgs.python313}/bin/python3 -c "from src.cli import main; main()" "$@"
+          fi
+          echo "YOLO Jail CLI: source not mounted at /opt/yolo-jail"
+          echo "The yolo-jail repo is normally mounted automatically."
+          exit 1
+        '';
+
         # The Docker Image
         dockerImage = pkgs.dockerTools.buildLayeredImage {
           name = "yolo-jail";
@@ -109,6 +124,7 @@
             binPathLinks
             shims
             entrypoint
+            yoloCli
             pkgs.bashInteractive
             pkgs.coreutils-full
             pkgs.git

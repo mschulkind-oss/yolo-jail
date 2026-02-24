@@ -36,6 +36,9 @@ yolo -- copilot
 
 # Force a new container (instead of reusing existing)
 yolo --new -- bash
+
+# Show full configuration reference
+yolo config-ref
 ```
 
 The jail mounts your current directory to `/workspace`. Auth and tool state are persisted in `~/.local/share/yolo-jail/` and isolated from host credentials.
@@ -73,3 +76,4 @@ Workspace config merges over user defaults (`~/.config/yolo-jail/config.jsonc`).
 - **Separate Auth**: Run `gh auth login` and `gemini login` inside the jail once.
 - **User Mapping**: Files created in the jail are owned by your host user (matching UID/GID).
 - **Blocked Tools**: Configurable list of tools that return clear error messages.
+- **Config Safety**: Changes to `yolo-jail.jsonc` require human confirmation at next startup. This prevents agents from silently modifying the jail environment. See `docs/config-safety.md`.
