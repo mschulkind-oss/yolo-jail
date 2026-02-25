@@ -491,9 +491,8 @@ def auto_load_image(repo_root: Path, extra_packages: List[str] = None, runtime: 
                 load_proc = subprocess.Popen(
                     [runtime, "load"],
                     stdin=subprocess.PIPE,
-                    stdout=subprocess.PIPE,
-                    stderr=subprocess.STDOUT,
-                    text=False,
+                    stdout=subprocess.DEVNULL,
+                    stderr=subprocess.DEVNULL,
                 )
                 
                 total_bytes = 0
@@ -511,20 +510,12 @@ def auto_load_image(repo_root: Path, extra_packages: List[str] = None, runtime: 
             stream_proc.wait()
             load_proc.wait()
             
-            # Read load output (e.g. "Loaded image: ...")
-            load_output = ""
-            if load_proc.stdout:
-                load_output = load_proc.stdout.read().decode(errors="replace").strip()
-            
             if stream_proc.returncode != 0 or load_proc.returncode != 0:
                 console.print(f"[bold red]Error loading image into {runtime}.[/bold red]")
-                if load_output:
-                    console.print(f"[dim]{load_output}[/dim]")
             else:
                 mb = total_bytes / (1024 * 1024)
                 size_str = f"{mb/1024:.1f} GB" if mb >= 1024 else f"{mb:.0f} MB"
-                msg = load_output if load_output else f"loaded image ({size_str})"
-                console.print(f"[bold green]Done: {msg}[/bold green]")
+                console.print(f"[bold green]Done: loaded image ({size_str})[/bold green]")
                 sentinel.write_text(str(current_path))
                 # Save actual size for accurate future estimates
                 size_file = sentinel.parent / f"{sentinel.name}-size"
