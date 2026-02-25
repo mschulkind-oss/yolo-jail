@@ -12,8 +12,12 @@
         pkgs = nixpkgs.legacyPackages.${system};
 
         # Extra packages from project config (passed via YOLO_EXTRA_PACKAGES env var).
-        # Supports plain strings ("strace") and pinned version objects
-        # ({"name": "freetype", "nixpkgs": "<commit-hash>"}).
+        # Three formats:
+        #   "strace"                                          → latest from flake nixpkgs
+        #   {"name": "freetype", "nixpkgs": "<commit>"}      → pinned nixpkgs commit
+        #   {"name": "freetype", "version": "2.14.1",        → version override (build from source)
+        #    "url": "mirror://savannah/freetype/freetype-2.14.1.tar.xz",
+        #    "hash": "sha256-..."}
         extraPackageSpecs = let
           raw = builtins.getEnv "YOLO_EXTRA_PACKAGES";
         in
@@ -22,12 +26,24 @@
         extraPackages = map (spec:
           if builtins.isString spec then
             pkgs.${spec}
-          else
+          else if spec ? nixpkgs then
+            # Pinned to a specific nixpkgs commit
             let
               pinnedPkgs = import (builtins.fetchTarball {
                 url = "https://github.com/NixOS/nixpkgs/archive/${spec.nixpkgs}.tar.gz";
               }) { inherit system; };
             in pinnedPkgs.${spec.name}
+          else if spec ? version && spec ? url && spec ? hash then
+            # Version override: rebuild existing package with different source
+            pkgs.${spec.name}.overrideAttrs (old: {
+              version = spec.version;
+              src = pkgs.fetchurl {
+                url = spec.url;
+                hash = spec.hash;
+              };
+            })
+          else
+            pkgs.${spec.name}
         ) extraPackageSpecs;
 
         # Derivation for the shim scripts

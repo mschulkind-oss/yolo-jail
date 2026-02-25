@@ -44,7 +44,10 @@ def _default(ctx: typer.Context):
           "runtime": "podman",              // or "docker"
           "packages": [                     // extra nix packages
             "strace",                       // latest from flake nixpkgs
-            {"name": "freetype", "nixpkgs": "e6f23dc0..."}  // pinned version
+            {"name": "freetype", "nixpkgs": "e6f23dc0..."},  // pinned nixpkgs
+            {"name": "freetype", "version": "2.14.1",        // version override
+             "url": "mirror://savannah/freetype/freetype-2.14.1.tar.xz",
+             "hash": "sha256-..."}
           ],
           "mounts": ["/path/to/repo"],      // read-only at /ctx/<name>
           "network": {"mode": "bridge", "ports": ["8000:8000"]},
@@ -342,6 +345,14 @@ def generate_agents_md(
         "```",
         "Find nixpkgs commits for specific versions at: https://lazamar.co.uk/nix-versions/",
         "",
+        "To override a version with an upstream source (when nixpkgs hasn't caught up):",
+        "```json",
+        '  "packages": [{"name": "freetype", "version": "2.14.1",',
+        '    "url": "mirror://savannah/freetype/freetype-2.14.1.tar.xz",',
+        '    "hash": "sha256-MkJ+jEcawJWFMhKjeu+BbGC0IFLU2eSCMLqzvfKTbMw="}]',
+        "```",
+        "Get the hash: run nix-prefetch-url <url>, or set hash to empty and nix reports it.",
+        "",
         "Package names must match nixpkgs attributes (https://search.nixos.org/packages).",
         "Do NOT install packages via apt, nix-env, or other package managers.",
         "Run `yolo config-ref` for the full configuration reference.",
@@ -587,10 +598,13 @@ def init():
   // Extra nix packages to include in the jail image.
   // Names must match nixpkgs attribute names (search at https://search.nixos.org/packages).
   // The image rebuilds only when this list changes.
-  // Supports plain strings (latest) or objects for pinned versions:
+  // Supports plain strings (latest), pinned nixpkgs commits, or version overrides:
   // "packages": [
   //   "postgresql",
-  //   {"name": "freetype", "nixpkgs": "<commit-hash>"}
+  //   {"name": "freetype", "nixpkgs": "<commit-hash>"},
+  //   {"name": "freetype", "version": "2.14.1",
+  //    "url": "mirror://savannah/freetype/freetype-2.14.1.tar.xz",
+  //    "hash": "sha256-..."}
   // ],
   // Find nixpkgs commits for specific versions at: https://lazamar.co.uk/nix-versions/
 
@@ -682,15 +696,22 @@ def config_ref():
     Auto-detect: prefers podman, falls back to docker.
 
   [bold]packages[/bold] (array): Extra nix packages baked into the image.
-    Supports two formats:
+    Supports three formats:
     • String: package name from nixpkgs (latest from flake's pin)
       Example: "postgresql"
-    • Object: pinned to a specific nixpkgs commit for version control
+    • Object with nixpkgs: pinned to a specific nixpkgs commit
       Example: {"name": "freetype", "nixpkgs": "<commit-hash>"}
+    • Object with version override: build from upstream source
+      Uses the existing nix build recipe but swaps version+source.
+      Example: {"name": "freetype", "version": "2.14.1",
+                "url": "mirror://savannah/freetype/freetype-2.14.1.tar.xz",
+                "hash": "sha256-MkJ+jEcawJWFMhKjeu+BbGC0IFLU2eSCMLqzvfKTbMw="}
+      Get the hash: nix-prefetch-url <url>  (then convert with nix hash)
+      Or set hash to "" and nix will tell you the correct one on build failure.
     Find nixpkgs commits per version: https://lazamar.co.uk/nix-versions/
     Search package names: https://search.nixos.org/packages
     Image rebuilds only when this list changes.
-    Example: ["postgresql", {"name": "freetype", "nixpkgs": "e6f23dc0..."}]
+    Nix caches builds — identical configs across jails share cached results.
 
   [bold]mounts[/bold] (array of strings): Extra host paths mounted read-only.
     Simple path → mounted at /ctx/<basename>
@@ -715,7 +736,13 @@ def config_ref():
 
   {
     "runtime": "podman",
-    "packages": ["strace", {"name": "freetype", "nixpkgs": "e6f23dc0..."}],
+    "packages": [
+      "strace",
+      {"name": "freetype", "nixpkgs": "e6f23dc0..."},
+      {"name": "freetype", "version": "2.14.1",
+       "url": "mirror://savannah/freetype/freetype-2.14.1.tar.xz",
+       "hash": "sha256-MkJ+jEcawJWFMhKjeu+BbGC0IFLU2eSCMLqzvfKTbMw="}
+    ],
     "mounts": ["/path/to/ref-repo"],
     "network": {
       "mode": "bridge",
