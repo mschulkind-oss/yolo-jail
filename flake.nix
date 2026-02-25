@@ -11,13 +11,24 @@
       let
         pkgs = nixpkgs.legacyPackages.${system};
 
-        # Extra packages from project config (passed via YOLO_EXTRA_PACKAGES env var)
-        extraPackageNames = let
+        # Extra packages from project config (passed via YOLO_EXTRA_PACKAGES env var).
+        # Supports plain strings ("strace") and pinned version objects
+        # ({"name": "freetype", "nixpkgs": "<commit-hash>"}).
+        extraPackageSpecs = let
           raw = builtins.getEnv "YOLO_EXTRA_PACKAGES";
         in
           if raw == "" then [] else builtins.fromJSON raw;
 
-        extraPackages = map (name: pkgs.${name}) extraPackageNames;
+        extraPackages = map (spec:
+          if builtins.isString spec then
+            pkgs.${spec}
+          else
+            let
+              pinnedPkgs = import (builtins.fetchTarball {
+                url = "https://github.com/NixOS/nixpkgs/archive/${spec.nixpkgs}.tar.gz";
+              }) { inherit system; };
+            in pinnedPkgs.${spec.name}
+        ) extraPackageSpecs;
 
         # Derivation for the shim scripts
         shims = pkgs.stdenv.mkDerivation {

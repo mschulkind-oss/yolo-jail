@@ -73,6 +73,13 @@ The intended flow for agents that need additional packages:
      "packages": ["postgresql"]
    }
    ```
+   Or for a specific version, using a nixpkgs commit hash:
+   ```json
+   {
+     "packages": [{"name": "freetype", "nixpkgs": "e6f23dc0..."}]
+   }
+   ```
+   Find commits per version at: https://lazamar.co.uk/nix-versions/
 3. Agent tells the human: *"I've added `postgresql` to the jail config.
    Please restart the jail so I can use it."*
 4. Human exits the jail and runs `yolo` again

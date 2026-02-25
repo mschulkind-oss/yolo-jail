@@ -42,7 +42,10 @@ def _default(ctx: typer.Context):
 
         {
           "runtime": "podman",              // or "docker"
-          "packages": ["strace", "htop"],   // extra nix packages
+          "packages": [                     // extra nix packages
+            "strace",                       // latest from flake nixpkgs
+            {"name": "freetype", "nixpkgs": "e6f23dc0..."}  // pinned version
+          ],
           "mounts": ["/path/to/repo"],      // read-only at /ctx/<name>
           "network": {"mode": "bridge", "ports": ["8000:8000"]},
           "security": {"blocked_tools": ["curl", "wget"]}
@@ -323,15 +326,21 @@ def generate_agents_md(
         "",
         "If you need a tool that is not installed, you can request it:",
         "",
-        "1. Edit `/workspace/yolo-jail.jsonc` and add the package name to the `packages` array",
+        "1. Edit `/workspace/yolo-jail.jsonc` and add the package to the `packages` array",
         "2. Tell the human user: \"Please restart the jail so the new package becomes available\"",
         "3. The human will see a config diff and confirm the change at next startup",
         "4. After restart, the package will be available",
         "",
-        "Example — to add PostgreSQL tools:",
+        "Example — to add PostgreSQL tools (latest version):",
         "```json",
         '  "packages": ["postgresql"]',
         "```",
+        "",
+        "To pin a specific version, use an object with a nixpkgs commit hash:",
+        "```json",
+        '  "packages": [{"name": "freetype", "nixpkgs": "e6f23dc0..."}]',
+        "```",
+        "Find nixpkgs commits for specific versions at: https://lazamar.co.uk/nix-versions/",
         "",
         "Package names must match nixpkgs attributes (https://search.nixos.org/packages).",
         "Do NOT install packages via apt, nix-env, or other package managers.",
@@ -410,7 +419,7 @@ def _format_progress(current: int, estimate: int) -> str:
     return cur_str
 
 
-def auto_load_image(repo_root: Path, extra_packages: List[str] = None, runtime: str = "docker"):
+def auto_load_image(repo_root: Path, extra_packages: List[Union[str, dict]] = None, runtime: str = "docker"):
     """Cheaply check if the nix image needs to be reloaded into the container runtime."""
     # Per-runtime sentinel so docker and podman each track their own loaded image
     sentinel = repo_root / f".last-load-{runtime}"
@@ -578,7 +587,12 @@ def init():
   // Extra nix packages to include in the jail image.
   // Names must match nixpkgs attribute names (search at https://search.nixos.org/packages).
   // The image rebuilds only when this list changes.
-  // "packages": ["postgresql", "redis", "awscli2"],
+  // Supports plain strings (latest) or objects for pinned versions:
+  // "packages": [
+  //   "postgresql",
+  //   {"name": "freetype", "nixpkgs": "<commit-hash>"}
+  // ],
+  // Find nixpkgs commits for specific versions at: https://lazamar.co.uk/nix-versions/
 
   "security": {
     // Tools to block. Can be a simple string or an object with custom messages.
@@ -667,10 +681,16 @@ def config_ref():
     Override: YOLO_RUNTIME env var takes priority.
     Auto-detect: prefers podman, falls back to docker.
 
-  [bold]packages[/bold] (array of strings): Extra nix packages baked into the image.
-    Names must match nixpkgs attributes (https://search.nixos.org/packages).
+  [bold]packages[/bold] (array): Extra nix packages baked into the image.
+    Supports two formats:
+    • String: package name from nixpkgs (latest from flake's pin)
+      Example: "postgresql"
+    • Object: pinned to a specific nixpkgs commit for version control
+      Example: {"name": "freetype", "nixpkgs": "<commit-hash>"}
+    Find nixpkgs commits per version: https://lazamar.co.uk/nix-versions/
+    Search package names: https://search.nixos.org/packages
     Image rebuilds only when this list changes.
-    Example: ["postgresql", "redis", "awscli2", "htop"]
+    Example: ["postgresql", {"name": "freetype", "nixpkgs": "e6f23dc0..."}]
 
   [bold]mounts[/bold] (array of strings): Extra host paths mounted read-only.
     Simple path → mounted at /ctx/<basename>
@@ -695,7 +715,7 @@ def config_ref():
 
   {
     "runtime": "podman",
-    "packages": ["strace", "htop"],
+    "packages": ["strace", {"name": "freetype", "nixpkgs": "e6f23dc0..."}],
     "mounts": ["/path/to/ref-repo"],
     "network": {
       "mode": "bridge",
