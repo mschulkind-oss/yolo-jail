@@ -200,13 +200,13 @@ class TestMCPWrappers:
         entrypoint.generate_mcp_wrappers()
         node = (entrypoint.MCP_WRAPPERS_BIN / "node").read_text()
         assert "LD_LIBRARY_PATH" in node
-        assert "/mise/shims/node" in node
+        assert "/bin/node" in node
         assert os.access(entrypoint.MCP_WRAPPERS_BIN / "node", os.X_OK)
 
     def test_npx_wrapper(self, jail_home):
         entrypoint.generate_mcp_wrappers()
         npx = (entrypoint.MCP_WRAPPERS_BIN / "npx").read_text()
-        assert "/mise/shims/npx" in npx
+        assert "/bin/npx" in npx
 
     def test_chrome_wrapper(self, jail_home):
         entrypoint.generate_mcp_wrappers()

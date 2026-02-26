@@ -11,7 +11,45 @@ import shutil
 import stat
 import subprocess
 import sys
+import time
 from pathlib import Path
+
+
+# ---------------------------------------------------------------------------
+# Performance logging
+# ---------------------------------------------------------------------------
+
+_PERF_LOG = []
+_PERF_START = time.monotonic()
+
+
+def _perf(label: str):
+    """Record a performance checkpoint with elapsed time."""
+    elapsed = time.monotonic() - _PERF_START
+    _PERF_LOG.append((elapsed, label))
+
+
+def _perf_dump():
+    """Write performance log to ~/.yolo-perf.log for debugging."""
+    log_path = HOME / ".yolo-perf.log"
+    try:
+        prev = None
+        lines = [f"=== YOLO Jail Entrypoint Perf ({time.strftime('%Y-%m-%d %H:%M:%S')}) ===\n"]
+        for elapsed, label in _PERF_LOG:
+            delta = f"+{elapsed - prev:.3f}s" if prev is not None else "       "
+            lines.append(f"  {elapsed:7.3f}s  {delta:>9s}  {label}\n")
+            prev = elapsed
+        lines.append(f"  Total: {_PERF_LOG[-1][0]:.3f}s\n\n")
+        # Append to log (keep last runs visible)
+        with open(log_path, "a") as f:
+            f.writelines(lines)
+        # Trim to last 50 runs
+        content = log_path.read_text()
+        runs = content.split("=== YOLO")
+        if len(runs) > 51:
+            log_path.write_text("=== YOLO" + "=== YOLO".join(runs[-50:]))
+    except Exception:
+        pass
 
 
 # ---------------------------------------------------------------------------
@@ -101,9 +139,6 @@ export PS1="\n${JAIL_BANNER} ${HOST_INFO}\n${GREEN}jail${NC}:${BLUE}\w${NC}\$ "
 # Set tmux window name via escape sequences
 export PROMPT_COMMAND='printf "\033]0;JAIL\033\\" && printf "\033kJAIL\033\\"'
 
-# Initialize font cache for Chromium
-fc-cache -f >/dev/null 2>&1
-
 # Agent-friendly defaults (no pagers, no line numbers)
 export PAGER=cat
 export BAT_PAGER=""
@@ -147,6 +182,9 @@ export NPM_CONFIG_PREFIX="${NPM_CONFIG_PREFIX:-$HOME/.npm-global}"
 export GOPATH="${GOPATH:-$HOME/go}"
 export GOBIN="$GOPATH/bin"
 export PATH="$NPM_CONFIG_PREFIX/bin:$GOBIN:$PATH"
+
+# Initialize font cache (once, not on every shell session)
+fc-cache -f >/dev/null 2>&1
 
 # Install binaries if missing.
 if ! command -v chrome-devtools-mcp >/dev/null; then
@@ -252,20 +290,20 @@ exec "$MCP_WRAPPERS_BIN/node" "$NPM_BIN/chrome-devtools-mcp" \
     "$@"
 """)
 
-    # Node wrapper
+    # Node wrapper — bypass mise shims to avoid workspace env overhead on MCP startup
     _write_executable(MCP_WRAPPERS_BIN / "node", r"""#!/bin/bash
 export LD_LIBRARY_PATH="/lib:/usr/lib${LD_LIBRARY_PATH:+:$LD_LIBRARY_PATH}"
 export FONTCONFIG_FILE="${FONTCONFIG_FILE:-/etc/fonts/fonts.conf}"
 export FONTCONFIG_PATH="${FONTCONFIG_PATH:-/etc/fonts}"
-exec /mise/shims/node "$@"
+exec /bin/node "$@"
 """)
 
-    # npx wrapper
+    # npx wrapper — bypass mise shims for same reason
     _write_executable(MCP_WRAPPERS_BIN / "npx", r"""#!/bin/bash
 export LD_LIBRARY_PATH="/lib:/usr/lib${LD_LIBRARY_PATH:+:$LD_LIBRARY_PATH}"
 export FONTCONFIG_FILE="${FONTCONFIG_FILE:-/etc/fonts/fonts.conf}"
 export FONTCONFIG_PATH="${FONTCONFIG_PATH:-/etc/fonts}"
-exec /mise/shims/npx "$@"
+exec /bin/npx "$@"
 """)
 
 
@@ -487,16 +525,26 @@ def exec_bash(command: str):
 
 def main():
     cmd = " ".join(sys.argv[1:]) if len(sys.argv) > 1 else "bash"
+    _perf("start")
 
     generate_shims()
+    _perf("generate_shims")
     generate_bashrc()
+    _perf("generate_bashrc")
     generate_bootstrap_script()
+    _perf("generate_bootstrap_script")
     generate_mise_config()
+    _perf("generate_mise_config")
     generate_mcp_wrappers()
+    _perf("generate_mcp_wrappers")
     configure_git()
+    _perf("configure_git")
     merge_skills()
+    _perf("merge_skills")
     configure_copilot()
+    _perf("configure_copilot")
     configure_gemini()
+    _perf("configure_gemini")
 
     # Set PATH including mise shims so tools like copilot/gemini are found
     os.environ["PATH"] = f"{SHIM_DIR}:{NPM_BIN}:{GO_BIN}:{MISE_SHIMS}:/bin:/usr/bin"
@@ -511,6 +559,7 @@ def main():
             pass
     except FileNotFoundError:
         pass
+    _perf("mise_activate")
 
     # Trust workspace mise.toml
     if Path("/workspace/mise.toml").exists():
@@ -524,7 +573,9 @@ def main():
         )
     except FileNotFoundError:
         pass
+    _perf("mise_hook_env")
 
+    _perf_dump()
     exec_bash(cmd)
 
 
