@@ -328,6 +328,19 @@ def configure_git():
                        capture_output=True)
 
 
+def configure_jj():
+    """Set jj user identity from host env vars."""
+    if not shutil.which("jj"):
+        return
+    env = os.environ
+    if env.get("YOLO_JJ_NAME"):
+        subprocess.run(["jj", "config", "set", "--user", "user.name", env["YOLO_JJ_NAME"]],
+                       capture_output=True)
+    if env.get("YOLO_JJ_EMAIL"):
+        subprocess.run(["jj", "config", "set", "--user", "user.email", env["YOLO_JJ_EMAIL"]],
+                       capture_output=True)
+
+
 # ---------------------------------------------------------------------------
 # 7. Skills directory merging
 # ---------------------------------------------------------------------------
@@ -539,6 +552,8 @@ def main():
     _perf("generate_mcp_wrappers")
     configure_git()
     _perf("configure_git")
+    configure_jj()
+    _perf("configure_jj")
     merge_skills()
     _perf("merge_skills")
     configure_copilot()

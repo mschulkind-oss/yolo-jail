@@ -119,7 +119,7 @@ def test_exec_path_no_unbound_errors(tmp_path, monkeypatch):
             pass
 
     assert exec_args, "subprocess.run should have been called with the docker exec command"
-    assert any("exec" in str(a) for a in exec_args[0]), "should have called docker exec"
+    assert any(any("exec" in str(a) for a in cmd) for cmd in exec_args), "should have called docker exec"
 
 AVAILABLE_RUNTIMES = []
 if shutil.which("docker"):

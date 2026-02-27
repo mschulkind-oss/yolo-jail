@@ -904,6 +904,41 @@ def run(
                 full_command.insert(1, "--yolo")
         target_cmd = shlex.join(full_command)
 
+    # Collect identity env vars early — needed for both exec and run paths
+    identity_env = []
+    try:
+        git_name = subprocess.check_output(
+            ["git", "config", "--get", "user.name"], stderr=subprocess.DEVNULL
+        ).decode().strip()
+        if git_name:
+            identity_env.extend(["-e", f"YOLO_GIT_NAME={git_name}"])
+    except Exception:
+        pass
+    try:
+        git_email = subprocess.check_output(
+            ["git", "config", "--get", "user.email"], stderr=subprocess.DEVNULL
+        ).decode().strip()
+        if git_email:
+            identity_env.extend(["-e", f"YOLO_GIT_EMAIL={git_email}"])
+    except Exception:
+        pass
+    try:
+        jj_name = subprocess.check_output(
+            ["jj", "config", "get", "user.name"], stderr=subprocess.DEVNULL
+        ).decode().strip().strip('"')
+        if jj_name:
+            identity_env.extend(["-e", f"YOLO_JJ_NAME={jj_name}"])
+    except Exception:
+        pass
+    try:
+        jj_email = subprocess.check_output(
+            ["jj", "config", "get", "user.email"], stderr=subprocess.DEVNULL
+        ).decode().strip().strip('"')
+        if jj_email:
+            identity_env.extend(["-e", f"YOLO_JJ_EMAIL={jj_email}"])
+    except Exception:
+        pass
+
     # Check for existing container BEFORE touching the image.
     # If one is already running we just exec into it — no rebuild needed.
     cname = container_name_for_workspace(workspace)
@@ -918,6 +953,7 @@ def run(
             exec_flags.append("-t")
         docker_cmd = [
             runtime, "exec", *exec_flags,
+            *identity_env,
             cname,
             "yolo-entrypoint", target_cmd,
         ]
@@ -1096,27 +1132,8 @@ def run(
     elif net_mode != "bridge" or runtime == "docker":
         docker_cmd.append(f"--net={net_mode}")
     
-    # Pass git name/email from host for clean commits inside jail
-    # (We don't mount ~/.gitconfig to avoid exposing credentials/tokens)
-    try:
-        git_name = subprocess.check_output(
-            ["git", "config", "--get", "user.name"],
-            stderr=subprocess.DEVNULL
-        ).decode().strip()
-        if git_name:
-            docker_cmd.extend(["-e", f"YOLO_GIT_NAME={git_name}"])
-    except Exception:
-        pass
-    
-    try:
-        git_email = subprocess.check_output(
-            ["git", "config", "--get", "user.email"],
-            stderr=subprocess.DEVNULL
-        ).decode().strip()
-        if git_email:
-            docker_cmd.extend(["-e", f"YOLO_GIT_EMAIL={git_email}"])
-    except Exception:
-        pass
+    # Pass identity env vars (git + jj) collected earlier
+    docker_cmd.extend(identity_env)
 
     # Propagate host global gitignore into the jail
     # (We don't mount ~/.gitconfig to avoid credential leaks, but gitignore is safe)
