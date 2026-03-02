@@ -99,8 +99,15 @@ def ensure_global_storage():
     AGENTS_DIR.mkdir(parents=True, exist_ok=True)
 
 
+def _get_project_name() -> str:
+    """Return the jail project label: SM_PROJECT if set, else cwd basename."""
+    return os.environ.get("SM_PROJECT") or Path.cwd().name
+
+
 def _tmux_rename_window(name: str):
-    """Rename the current tmux window. No-op if not in tmux."""
+    """Rename the current tmux window. No-op if not in tmux or YOLO_NO_TMUX=1."""
+    if os.environ.get("YOLO_NO_TMUX") == "1":
+        return
     if os.environ.get("TMUX"):
         try:
             subprocess.run(["tmux", "rename-window", name],
@@ -109,13 +116,54 @@ def _tmux_rename_window(name: str):
             pass
 
 
+def _kitty_setup_jail_tab():
+    """Set kitty tab title for jail indicator. Returns cleanup function or None."""
+    if not os.environ.get("KITTY_PID") or not sys.stdin.isatty():
+        return None
+
+    project = _get_project_name()
+    window_id = os.environ.get("KITTY_WINDOW_ID", "")
+    match_arg = f"id:{window_id}" if window_id else "recent:0"
+
+    try:
+        old_title = subprocess.check_output(
+            ["kitten", "@", "get-tab-title", "--match", match_arg],
+            stderr=subprocess.DEVNULL,
+        ).decode().strip()
+    except Exception:
+        old_title = ""
+
+    try:
+        subprocess.run(
+            ["kitten", "@", "set-tab-title", "--match", match_arg,
+             f"🔒 JAIL {project}"],
+            stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL,
+        )
+    except Exception:
+        return None
+
+    def restore():
+        try:
+            subprocess.run(
+                ["kitten", "@", "set-tab-title", "--match", match_arg,
+                 old_title or "bash"],
+                stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL,
+            )
+        except Exception:
+            pass
+
+    return restore
+
+
 def _tmux_setup_jail_pane():
     """Set tmux pane border indicators for the jail. Returns cleanup function."""
+    if os.environ.get("YOLO_NO_TMUX") == "1":
+        return None
     if not os.environ.get("TMUX") or not sys.stdin.isatty():
         return None
 
     pane = os.environ.get("TMUX_PANE", "")
-    jail_dir = Path.cwd().name
+    jail_dir = _get_project_name()
 
     def _tmux_opt(opt):
         try:
@@ -1285,11 +1333,17 @@ def ps():
 def main():
     """Entry point for the `yolo` console script.
 
-    Handles tmux pane decoration and routes to the typer CLI.
+    Handles visual jail indicator (kitty tab or tmux pane border) and routes to
+    the typer CLI.  Detection priority: kitty-native > tmux > neither.
+    YOLO_NO_TMUX=1 skips all tmux interactions (useful in kitty-only setups).
     """
     import atexit
 
-    restore = _tmux_setup_jail_pane()
+    # Kitty-native mode takes priority over tmux
+    if os.environ.get("KITTY_PID") and not os.environ.get("TMUX"):
+        restore = _kitty_setup_jail_tab()
+    else:
+        restore = _tmux_setup_jail_pane()
     if restore:
         atexit.register(restore)
 
