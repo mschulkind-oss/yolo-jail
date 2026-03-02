@@ -117,13 +117,22 @@ def _tmux_rename_window(name: str):
 
 
 def _kitty_setup_jail_tab():
-    """Set kitty tab title for jail indicator. Returns cleanup function or None."""
+    """Set kitty tab title and color for jail indicator. Returns cleanup function or None."""
     if not os.environ.get("KITTY_PID") or not sys.stdin.isatty():
         return None
 
     project = _get_project_name()
     window_id = os.environ.get("KITTY_WINDOW_ID", "")
     match_arg = f"id:{window_id}" if window_id else "recent:0"
+
+    def _kitten_run(cmd_args):
+        try:
+            subprocess.run(
+                ["kitten", "@", *cmd_args],
+                stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL,
+            )
+        except Exception:
+            pass
 
     try:
         old_title = subprocess.check_output(
@@ -142,15 +151,18 @@ def _kitty_setup_jail_tab():
     except Exception:
         return None
 
+    # Turn the tab red
+    _kitten_run(["set-tab-color", "--match", match_arg,
+                 "active_bg=#cc0000", "active_fg=#ffffff",
+                 "inactive_bg=#880000", "inactive_fg=#cccccc"])
+
     def restore():
-        try:
-            subprocess.run(
-                ["kitten", "@", "set-tab-title", "--match", match_arg,
-                 old_title or "bash"],
-                stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL,
-            )
-        except Exception:
-            pass
+        _kitten_run(["set-tab-title", "--match", match_arg,
+                      old_title or "bash"])
+        # Reset tab colors to kitty.conf defaults
+        _kitten_run(["set-tab-color", "--match", match_arg,
+                      "active_bg=none", "active_fg=none",
+                      "inactive_bg=none", "inactive_fg=none"])
 
     return restore
 
