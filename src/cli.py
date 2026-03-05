@@ -1,4 +1,5 @@
 import difflib
+import fcntl
 import os
 import re
 import subprocess
@@ -494,15 +495,35 @@ def _format_progress(current: int, estimate: int) -> str:
     return cur_str
 
 
+def _read_loaded_paths(sentinel: Path) -> set[str]:
+    """Read the set of store paths that have been loaded into this runtime."""
+    if not sentinel.exists():
+        return set()
+    return {line.strip() for line in sentinel.read_text().splitlines() if line.strip()}
+
+
+def _add_loaded_path(sentinel: Path, store_path: str):
+    """Add a store path to the sentinel, capping at 10 entries (LRU)."""
+    paths = [line.strip() for line in sentinel.read_text().splitlines() if line.strip()] if sentinel.exists() else []
+    # Remove if already present (will re-add at end as most recent)
+    paths = [p for p in paths if p != store_path]
+    paths.append(store_path)
+    # Keep only the 10 most recent
+    if len(paths) > 10:
+        paths = paths[-10:]
+    sentinel.write_text("\n".join(paths) + "\n")
+
+
 def auto_load_image(repo_root: Path, extra_packages: List[Union[str, dict]] = None, runtime: str = "docker"):
     """Cheaply check if the nix image needs to be reloaded into the container runtime."""
-    # Per-runtime sentinel so docker and podman each track their own loaded image
+    # Per-runtime sentinel tracks all store paths loaded into this runtime
     sentinel = repo_root / f".last-load-{runtime}"
     
     # 1. Build the image (fast if no changes, streams progress otherwise)
     build_env = os.environ.copy()
+    pkg_json = json.dumps(extra_packages) if extra_packages else ""
     if extra_packages:
-        build_env["YOLO_EXTRA_PACKAGES"] = json.dumps(extra_packages)
+        build_env["YOLO_EXTRA_PACKAGES"] = pkg_json
     
     build_stderr_tail: list[str] = []  # Keep last N lines for error display
     build_ok = True
@@ -551,24 +572,29 @@ def auto_load_image(repo_root: Path, extra_packages: List[Union[str, dict]] = No
         console.print(f"[bold red]No existing {JAIL_IMAGE} image found. Cannot start jail.[/bold red]")
         return
 
-    # 2. Check if the store path has changed
-    current_path = (repo_root / ".run-result").resolve()
-    last_path = None
-    if sentinel.exists():
-        last_path = sentinel.read_text().strip()
+    # 2. Check if this store path has already been loaded into the runtime
+    current_path = str((repo_root / ".run-result").resolve())
+    loaded_paths = _read_loaded_paths(sentinel)
 
-    if str(current_path) != last_path:
+    if current_path not in loaded_paths:
+        # Print the reason for the reload
+        if not loaded_paths:
+            console.print(f"[bold blue]Image load needed:[/bold blue] first run (no images loaded into {runtime} yet)")
+        else:
+            console.print(f"[bold blue]Image load needed:[/bold blue] nix store path changed")
+            console.print(f"  [dim]new: {current_path}[/dim]")
+            if pkg_json:
+                console.print(f"  [dim]packages: {pkg_json}[/dim]")
         try:
             with console.status(f"[bold cyan]Preparing image for {runtime}...", spinner="bouncingBar") as status:
                 # Estimate size (uses saved size from last stream, or nix closure size)
-                estimated_size = _estimate_image_size(str(current_path), sentinel)
+                estimated_size = _estimate_image_size(current_path, sentinel)
                 
                 # streamLayeredImage produces a script that outputs the image tar to stdout.
                 # Pipe it directly to `runtime load` — generation and loading run in parallel.
-                stream_script = str(current_path)
                 status.update(f"[bold cyan]Starting image stream to {runtime}...")
                 stream_proc = subprocess.Popen(
-                    [stream_script],
+                    [current_path],
                     stdout=subprocess.PIPE,
                     stderr=subprocess.DEVNULL,  # Suppress "Creating layer N..." noise
                 )
@@ -600,7 +626,7 @@ def auto_load_image(repo_root: Path, extra_packages: List[Union[str, dict]] = No
                 mb = total_bytes / (1024 * 1024)
                 size_str = f"{mb/1024:.1f} GB" if mb >= 1024 else f"{mb:.0f} MB"
                 console.print(f"[bold green]Done: loaded image ({size_str})[/bold green]")
-                sentinel.write_text(str(current_path))
+                _add_loaded_path(sentinel, current_path)
                 # Save actual size for accurate future estimates
                 size_file = sentinel.parent / f"{sentinel.name}-size"
                 size_file.write_text(str(total_bytes))
@@ -1026,6 +1052,37 @@ def run(
     if not _check_config_changes(workspace, config):
         sys.exit(1)
 
+    # Acquire a workspace-specific lock to prevent two concurrent yolo invocations
+    # from racing on build + container creation. The loser waits, then execs into
+    # the container the winner created.
+    lock_path = GLOBAL_STORAGE / "locks"
+    lock_path.mkdir(parents=True, exist_ok=True)
+    lock_file = open(lock_path / f"{cname}.lock", "w")
+    try:
+        fcntl.flock(lock_file, fcntl.LOCK_EX)
+    except OSError as e:
+        console.print(f"[dim]Warning: could not acquire workspace lock ({e}); race protection disabled[/dim]")
+
+    # Re-check after acquiring the lock — another process may have started
+    # a container while we were waiting.
+    if not new:
+        raced_cid = find_running_container(cname, runtime=runtime)
+        if raced_cid:
+            lock_file.close()
+            console.print(f"[bold cyan]Attaching to jail started by another process [dim]({cname})[/dim]...[/bold cyan]")
+            _tmux_rename_window("JAIL")
+            exec_flags = ["-i"]
+            if sys.stdout.isatty():
+                exec_flags.append("-t")
+            docker_cmd = [
+                runtime, "exec", *exec_flags,
+                *identity_env,
+                cname,
+                "yolo-entrypoint", target_cmd,
+            ]
+            result = subprocess.run(docker_cmd)
+            sys.exit(result.returncode)
+
     import time as _time
     _profile_times = {}
     if profile:
@@ -1308,8 +1365,18 @@ def run(
     write_container_tracking(cname, workspace)
     _tmux_rename_window("JAIL")
 
-    # Use subprocess.run (not execvp) so atexit handlers fire for tmux cleanup
-    result = subprocess.run(docker_cmd)
+    # Use Popen so we can release the workspace lock once the container is
+    # confirmed running.  Any concurrent yolo process waiting on the lock will
+    # re-check and find our container, then exec into it.
+    proc = subprocess.Popen(docker_cmd)
+    for _ in range(20):
+        if find_running_container(cname, runtime=runtime):
+            break
+        _time.sleep(0.25)
+    lock_file.close()
+
+    proc.wait()
+    result = proc
 
     if profile and _profile_times:
         _profile_times["container_exited"] = _time.monotonic()
