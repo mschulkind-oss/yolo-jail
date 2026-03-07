@@ -233,7 +233,7 @@
             pkgs.iputils    # ping
             pkgs.dnsutils   # dig, host, nslookup
             pkgs.htop
-            pkgs.neovim
+
             pkgs.hivemind
             pkgs.overmind
             pkgs.tmux

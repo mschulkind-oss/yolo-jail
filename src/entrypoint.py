@@ -220,34 +220,46 @@ fi
 # ---------------------------------------------------------------------------
 
 def generate_mise_config():
-    """Write global mise config, updating neovim version from config."""
+    """Write global mise config, injecting tools from YOLO_MISE_TOOLS."""
     config_path = MISE_CONFIG_DIR / "config.toml"
-    neovim_version = os.environ.get("YOLO_NEOVIM_VERSION", "stable")
-    if config_path.exists():
-        # Update neovim version in existing config
-        content = config_path.read_text()
-        import re
-        if re.search(r'^neovim\s*=', content, re.MULTILINE):
-            content = re.sub(
-                r'^neovim\s*=\s*"[^"]*"',
-                f'neovim = "{neovim_version}"',
-                content,
-                flags=re.MULTILINE,
-            )
-        else:
-            content = content.rstrip("\n") + f'\nneovim = "{neovim_version}"\n'
-        config_path.write_text(content)
+
+    # Parse injected tools from env (set by cli.py from yolo-jail.jsonc)
+    import json as _json
+    try:
+        injected_tools = _json.loads(os.environ.get("YOLO_MISE_TOOLS", "{}"))
+    except (ValueError, TypeError):
+        injected_tools = {}
+
+    # Base tools always present in the jail
+    base_tools = {
+        "node": "22",
+        "python": "3.13",
+        "go": "latest",
+        '"npm:@google/gemini-cli"': "latest",
+        '"npm:@github/copilot"': "latest",
+    }
+
+    if not config_path.exists():
+        MISE_CONFIG_DIR.mkdir(parents=True, exist_ok=True)
+        lines = ["[tools]"]
+        for tool, version in base_tools.items():
+            lines.append(f'{tool} = "{version}"')
+        for tool, version in injected_tools.items():
+            lines.append(f'{tool} = "{version}"')
+        config_path.write_text("\n".join(lines) + "\n")
         return
-    MISE_CONFIG_DIR.mkdir(parents=True, exist_ok=True)
-    config_path.write_text(f"""\
-[tools]
-node = "22"
-python = "3.13"
-go = "latest"
-"npm:@google/gemini-cli" = "latest"
-"npm:@github/copilot" = "latest"
-neovim = "{neovim_version}"
-""")
+
+    # Update existing config: add/update only injected tools
+    if injected_tools:
+        import re
+        content = config_path.read_text()
+        for tool, version in injected_tools.items():
+            pattern = rf'^{re.escape(tool)}\s*=\s*"[^"]*"'
+            if re.search(pattern, content, re.MULTILINE):
+                content = re.sub(pattern, f'{tool} = "{version}"', content, flags=re.MULTILINE)
+            else:
+                content = content.rstrip("\n") + f'\n{tool} = "{version}"\n'
+        config_path.write_text(content)
 
 
 # ---------------------------------------------------------------------------
