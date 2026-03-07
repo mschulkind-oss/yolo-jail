@@ -1290,12 +1290,18 @@ def run(
     # symlinks like init.lua -> ~/.dotfiles/... which break inside the container.
     host_nvim_config = Path.home() / ".config" / "nvim"
     if host_nvim_config.is_dir():
-        jail_nvim_config = data_dir / "home" / ".config" / "nvim"
+        jail_nvim_config = GLOBAL_STORAGE / "home" / ".config" / "nvim"
         try:
             if jail_nvim_config.exists():
                 shutil.rmtree(jail_nvim_config)
-            shutil.copytree(host_nvim_config, jail_nvim_config, symlinks=False)
-        except OSError as e:
+            jail_nvim_config.parent.mkdir(parents=True, exist_ok=True)
+            shutil.copytree(
+                host_nvim_config,
+                jail_nvim_config,
+                symlinks=False,
+                ignore_dangling_symlinks=True,
+            )
+        except (OSError, shutil.Error) as e:
             console.print(f"[yellow]Warning: could not copy nvim config: {e}[/yellow]")
 
     # Shadow workspace .vscode/mcp.json so agents use only our jail MCP config
