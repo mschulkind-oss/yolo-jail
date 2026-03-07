@@ -822,10 +822,16 @@ def config_ref():
     Default: grep and find are blocked (rg/fd suggested instead).
     Bypass: Set YOLO_BYPASS_SHIMS=1 in scripts that need blocked tools.
 
+  [bold]neovim[/bold] (string): Neovim version installed via mise.
+    Default: "stable"
+    Any mise-compatible version string: "stable", "nightly", "0.11.6", etc.
+    The jail always includes neovim. This controls which version.
+
 [bold cyan]EXAMPLE CONFIG[/bold cyan]
 
   {
     "runtime": "podman",
+    "neovim": "nightly",
     "packages": [
       "strace",
       {"name": "freetype", "nixpkgs": "e6f23dc0..."},
@@ -1089,6 +1095,7 @@ def run(
         _profile_times["start"] = _time.monotonic()
 
     extra_packages = config.get("packages", [])
+    neovim_version = config.get("neovim", "stable")
     auto_load_image(repo_root, extra_packages=extra_packages or None, runtime=runtime)
 
     if profile:
@@ -1207,6 +1214,7 @@ def run(
         "-e", f"YOLO_BLOCK_CONFIG={blocked_config_json}",
         "-e", f"YOLO_HOST_DIR={workspace}",
         "-e", "OVERMIND_SOCKET=/tmp/overmind.sock",
+        "-e", f"YOLO_NEOVIM_VERSION={neovim_version}",
         "-e", "YOLO_REPO_ROOT=/opt/yolo-jail",
         "--workdir", "/workspace",
         # Mount yolo-jail repo for in-jail CLI (yolo --help, nested jailing)

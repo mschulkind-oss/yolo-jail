@@ -220,18 +220,33 @@ fi
 # ---------------------------------------------------------------------------
 
 def generate_mise_config():
-    """Write global mise config if it doesn't exist."""
+    """Write global mise config, updating neovim version from config."""
     config_path = MISE_CONFIG_DIR / "config.toml"
+    neovim_version = os.environ.get("YOLO_NEOVIM_VERSION", "stable")
     if config_path.exists():
+        # Update neovim version in existing config
+        content = config_path.read_text()
+        import re
+        if re.search(r'^neovim\s*=', content, re.MULTILINE):
+            content = re.sub(
+                r'^neovim\s*=\s*"[^"]*"',
+                f'neovim = "{neovim_version}"',
+                content,
+                flags=re.MULTILINE,
+            )
+        else:
+            content = content.rstrip("\n") + f'\nneovim = "{neovim_version}"\n'
+        config_path.write_text(content)
         return
     MISE_CONFIG_DIR.mkdir(parents=True, exist_ok=True)
-    config_path.write_text("""\
+    config_path.write_text(f"""\
 [tools]
 node = "22"
 python = "3.13"
 go = "latest"
 "npm:@google/gemini-cli" = "latest"
 "npm:@github/copilot" = "latest"
+neovim = "{neovim_version}"
 """)
 
 
