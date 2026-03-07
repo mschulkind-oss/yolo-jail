@@ -1277,6 +1277,11 @@ def run(
     docker_cmd.extend(publish_args)
     docker_cmd.extend(mount_args)
 
+    # Mount host nvim config so ctrl-g (edit prompt in editor) uses the user's config
+    host_nvim_config = Path.home() / ".config" / "nvim"
+    if host_nvim_config.exists() and host_nvim_config.is_dir():
+        docker_cmd.extend(["-v", f"{host_nvim_config}:/home/agent/.config/nvim:ro"])
+
     # Shadow workspace .vscode/mcp.json so agents use only our jail MCP config
     vscode_mcp = workspace / ".vscode" / "mcp.json"
     if vscode_mcp.exists():

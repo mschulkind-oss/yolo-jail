@@ -144,7 +144,11 @@ export PAGER=cat
 export BAT_PAGER=""
 export BAT_STYLE="plain"
 export GIT_PAGER=cat
-export EDITOR=nvim
+# EDITOR=cat prevents agents from getting stuck in interactive editors (e.g. git commit).
+# VISUAL=nvim is used by interactive tools like Copilot's ctrl-g (edit prompt in editor).
+# Standard Unix convention: programs check VISUAL first for full-screen terminals, EDITOR as fallback.
+export EDITOR=cat
+export VISUAL=nvim
 
 # PATH with npm-global and go binaries
 export NPM_CONFIG_PREFIX="${NPM_CONFIG_PREFIX:-$HOME/.npm-global}"
