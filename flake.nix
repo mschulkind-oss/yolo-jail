@@ -255,7 +255,7 @@
             mkdir -p ./var/tmp ./run ./var/lib/containers
 
             # Podman needs /etc/passwd and /etc/group
-            echo 'root:x:0:0:root:/root:/bin/bash' > ./etc/passwd
+            echo 'root:x:0:0:root:/home/agent:/bin/bash' > ./etc/passwd
             echo 'root:x:0:' > ./etc/group
             echo 'nixbld:x:30000:' >> ./etc/group
           '';
