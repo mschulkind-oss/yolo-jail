@@ -171,8 +171,9 @@
             export PYTHONPATH="/opt/yolo-jail''${PYTHONPATH:+:$PYTHONPATH}"
             exec ${pkgs.uv}/bin/uv run \
               --no-project \
+              --python ${pkgs.python313}/bin/python3 \
               --with typer --with rich --with "pyjson5>=2.0.0" \
-              -- ${pkgs.python313}/bin/python3 -c "from src.cli import main; main()" "$@"
+              -- python3 -c "from src.cli import main; main()" "$@"
           fi
           echo "YOLO Jail CLI: source not mounted at /opt/yolo-jail"
           echo "The yolo-jail repo is normally mounted automatically."
