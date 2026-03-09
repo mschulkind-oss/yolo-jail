@@ -15,6 +15,7 @@ This project provides a secure, isolated container environment for AI agents (Ge
 - **Runtime Selection**: The `"runtime"` key selects the container runtime (`"podman"` or `"docker"`). Can also be set via `YOLO_RUNTIME` env var. Priority: env var > workspace config > user config > auto-detect (prefers podman).
 - **Network Mode**: The `network.mode` key selects network isolation (`"bridge"` default or `"host"`). Bridge mode isolates the container network; host mode shares the host network stack. When using bridge mode, `network.ports` (e.g., `["8000:8000"]`) publishes container ports to the host.
 - **Mise Tools Injection**: The `"mise_tools"` object injects tools into the jail's global mise config (`~/.config/mise/config.toml`), not the workspace `mise.toml`. Default: `{"neovim": "stable"}`. Override in workspace or user-level `yolo-jail.jsonc`. Deep-merged across config levels. Does not trigger an image rebuild.
+- **Device Passthrough**: The `"devices"` array passes host devices into the jail. Supports USB by vendor:product ID (`{"usb": "0bda:2838"}`), raw paths (`"/dev/bus/usb/001/004"`), or cgroup rules (`{"cgroup_rule": "c 189:* rwm"}`). USB IDs are resolved to paths at startup via `lsusb`. Missing devices produce a warning, not an error. Subject to config change safety.
 - **Config Change Safety**: When the config changes between jail startups, the CLI shows a normalized diff and asks the human for y/N confirmation. This prevents agents from silently adding packages or mounts. See `docs/config-safety.md` for the full user/agent workflow.
 - **In-Jail CLI**: The `yolo` command is available inside all jails (mounted from `/opt/yolo-jail`). Agents can run `yolo --help` or `yolo config-ref` for full documentation. The CLI can also be used for nested jailing.
 
@@ -24,7 +25,7 @@ This project provides a secure, isolated container environment for AI agents (Ge
 - **Persistent Global State**: All jail-specific state (auth tokens, bash history, global tool cache) is stored in `~/.local/share/yolo-jail/`.
     - Host `~/.local/share/yolo-jail/home` → Container `/home/agent` (auth, tools, configs — shared across all workspaces)
     - Host `~/.local/share/yolo-jail/mise` → Container `/mise`
-    - Per-workspace overlays: `<workspace>/.yolo/home/copilot-sessions` → `/home/agent/.copilot/session-state`, `<workspace>/.yolo/home/copilot-command-history` → `/home/agent/.copilot/command-history-state.json`, `<workspace>/.yolo/home/bash_history` → `/home/agent/.bash_history`, `<workspace>/.yolo/home/gemini-history` → `/home/agent/.gemini/history`
+    - Per-workspace overlays: `<workspace>/.yolo/home/copilot-sessions` → `/home/agent/.copilot/session-state`, `<workspace>/.yolo/home/copilot-command-history` → `/home/agent/.copilot/command-history-state.json`, `<workspace>/.yolo/home/bash_history` → `/home/agent/.bash_history`, `<workspace>/.yolo/home/gemini-history` → `/home/agent/.gemini/history`, `<workspace>/.yolo/home/ssh` → `/home/agent/.ssh`
 
 ### 3. Execution Engine (`src/cli.py` & `src/entrypoint.py`)
 

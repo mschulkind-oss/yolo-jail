@@ -829,6 +829,19 @@ def config_ref():
     Deep-merged: user config adds tools, workspace config overrides versions.
     Example: {"neovim": "nightly", "typst": "latest"}
 
+  [bold]devices[/bold] (array): Host devices to pass through to the jail.
+    Three formats supported:
+    • USB by vendor:product ID (preferred — stable across reboots):
+      {"usb": "0bda:2838", "description": "RTL-SDR Blog V4"}
+      Resolved to /dev/bus/usb/... at startup via lsusb.
+    • Raw device path (fragile — changes on replug):
+      "/dev/bus/usb/001/004"
+    • Cgroup rule (broad access):
+      {"cgroup_rule": "c 189:* rwm"}
+      Grants access to all devices matching the major number.
+    Missing devices produce a warning, not an error — the jail still starts.
+    Subject to config change safety (human approval required).
+
 [bold cyan]EXAMPLE CONFIG[/bold cyan]
 
   {
@@ -842,6 +855,9 @@ def config_ref():
        "hash": "sha256-MkJ+jEcawJWFMhKjeu+BbGC0IFLU2eSCMLqzvfKTbMw="}
     ],
     "mounts": ["/path/to/ref-repo"],
+    "devices": [
+      {"usb": "0bda:2838", "description": "RTL-SDR Blog V4"}
+    ],
     "network": {
       "mode": "bridge",
       "ports": ["8000:8000"]
@@ -1296,6 +1312,45 @@ def run(
     
     docker_cmd.extend(publish_args)
     docker_cmd.extend(mount_args)
+
+    # Device passthrough from config
+    for dev in config.get("devices", []):
+        if isinstance(dev, str):
+            # Raw device path: "/dev/bus/usb/001/004"
+            if not Path(dev).exists():
+                console.print(f"[yellow]Warning: device {dev} not found — skipping[/yellow]")
+                continue
+            docker_cmd.extend(["--device", dev])
+        elif isinstance(dev, dict):
+            if "usb" in dev:
+                # Resolve USB vendor:product ID to /dev/bus/usb path
+                usb_id = dev["usb"]
+                desc = dev.get("description", usb_id)
+                try:
+                    result = subprocess.run(
+                        ["lsusb", "-d", usb_id],
+                        capture_output=True, text=True, timeout=5,
+                    )
+                    if result.returncode != 0 or not result.stdout.strip():
+                        console.print(f"[yellow]Warning: USB device {desc} ({usb_id}) not found — skipping[/yellow]")
+                        continue
+                    # Parse: "Bus 001 Device 004: ID 0bda:2838 ..."
+                    line = result.stdout.strip().split("\n")[0]
+                    parts = line.split()
+                    bus = parts[1]       # "001"
+                    device = parts[3].rstrip(":")  # "004"
+                    dev_path = f"/dev/bus/usb/{bus}/{device}"
+                    if not Path(dev_path).exists():
+                        console.print(f"[yellow]Warning: USB device {desc} found by lsusb but {dev_path} missing — skipping[/yellow]")
+                        continue
+                    docker_cmd.extend(["--device", dev_path])
+                    console.print(f"[dim]USB device: {desc} → {dev_path}[/dim]")
+                except FileNotFoundError:
+                    console.print("[yellow]Warning: lsusb not found — cannot resolve USB device IDs[/yellow]")
+                except Exception as e:
+                    console.print(f"[yellow]Warning: USB device resolution failed for {usb_id}: {e}[/yellow]")
+            elif "cgroup_rule" in dev:
+                docker_cmd.extend(["--device-cgroup-rule", dev["cgroup_rule"]])
 
     # Copy host nvim config (resolving symlinks) so ctrl-g uses the user's config.
     # We copy instead of bind-mounting because dotfile managers (stow, etc.) create
