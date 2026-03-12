@@ -372,3 +372,146 @@ setup:
 4. **Should mise activation automatically add .venv/bin to PATH?** It may already do this — needs testing. If so, Phase 2 is free.
 
 5. **Is the `uv tool install` pattern (vantage/copilot-viewer/layman) preferable to fixing shebangs?** If so, the new-project skill should recommend it as the primary pattern, with `fix-venv` as a fallback.
+
+---
+
+## Future Roadmap: Security & Platform Enhancements
+
+**Date added**: 2026-03-13
+**Source**: Industry research on AI agent sandboxing best practices (2025-2026)
+
+These are longer-term ideas for hardening yolo-jail beyond the cross-project friction fixes above. They range from quick wins to aspirational platform features.
+
+### Phase 8: Audit Logging & Action Replay
+
+**Goal**: Record all agent actions (commands, file writes, network calls) in a structured, queryable log.
+
+**Why**: Currently the only records are agent-specific logs (Copilot sessions, Gemini history). A jail-level audit log would capture everything — including what agents do via `bash`, `git`, etc. Useful for debugging, compliance, and understanding what agents actually did.
+
+**Approach**:
+- Use `script(1)` or a custom shell wrapper to capture all commands and output
+- Write structured JSON logs to `<workspace>/.yolo/audit.jsonl`
+- Include timestamps, exit codes, working directory, and truncated output
+- Add `yolo audit` subcommand to query/replay sessions
+
+**Effort**: Medium | **Impact**: High for debugging & trust
+
+### Phase 9: Network Egress Controls
+
+**Goal**: Fine-grained outbound network filtering beyond bridge/host mode.
+
+**Why**: Bridge mode isolates the network but doesn't restrict where agents can connect. An agent could exfiltrate code to arbitrary endpoints. Host mode provides no isolation at all.
+
+**Approach**:
+- Add `network.egress_allowlist` to config (list of allowed domains/IPs)
+- Use iptables/nftables rules in the container or a transparent proxy
+- Default: allow all (current behavior). Strict mode: deny by default, allow only listed endpoints
+- Consider DNS-based filtering via a lightweight proxy (e.g., `mitmproxy` or `squid`)
+
+**Effort**: Medium | **Impact**: High for security-sensitive workloads
+
+### Phase 10: Secret Scanning
+
+**Goal**: Prevent agents from accidentally committing secrets (API keys, tokens) to source code.
+
+**Why**: Agents generate code autonomously and may embed secrets from env vars, config files, or hallucinated tokens. A pre-commit scan catches these before they reach git history.
+
+**Approach**:
+- Install `gitleaks` or `trufflehog` in the jail image (via nix)
+- Add a git pre-commit hook in the jail that scans staged changes
+- Make it a blocked-tool-style warning (informative, not blocking) or configurable strictness
+- Add to `yolo doctor` checks
+
+**Effort**: Small | **Impact**: Medium (prevents costly secret rotation)
+
+### Phase 11: Resource Limits & Timeouts
+
+**Goal**: Prevent runaway agents from consuming unbounded CPU, memory, or disk.
+
+**Why**: An agent in a loop can exhaust host resources. Docker/Podman support resource limits but yolo-jail doesn't expose them.
+
+**Approach**:
+- Add `resources` section to config: `{ "memory": "8g", "cpus": 4, "timeout": "2h" }`
+- Map to `--memory`, `--cpus`, and a watchdog timeout in cli.py
+- Default: no limits (current behavior). Let users opt in.
+- Add `--pids-limit` to prevent fork bombs
+
+**Effort**: Small | **Impact**: Medium (safety net for unattended runs)
+
+### Phase 12: eBPF-Based Behavioral Monitoring
+
+**Goal**: Kernel-level visibility into what agents actually do at the syscall level.
+
+**Why**: Shim-based tool blocking is easily bypassed (agents can use absolute paths, `/usr/bin/curl` instead of `curl`). eBPF-based monitoring catches ALL syscall activity regardless of how it's invoked.
+
+**Approach**:
+- Integrate with tools like AgentSight or Falco for runtime behavioral monitoring
+- Define baseline behavioral profiles per project
+- Alert (not block) on anomalous behavior: unexpected network connections, reads outside workspace, privilege escalation attempts
+- Long-term: progressive enforcement (observe → warn → block)
+
+**Effort**: Large | **Impact**: High (defense in depth, but complex)
+
+### Phase 13: Multi-Agent Orchestration
+
+**Goal**: Run multiple agents in the same workspace with coordination.
+
+**Why**: Users may want Gemini and Copilot working on different parts of a project simultaneously, or have a "reviewer" agent checking another agent's work.
+
+**Approach**:
+- Support multiple named containers per workspace (`yolo --name reviewer -- copilot`)
+- File locking or workspace partitioning to prevent conflicts
+- Shared vs isolated state per agent
+- Inter-agent communication via shared files or a message bus
+
+**Effort**: Large | **Impact**: Medium (power-user feature)
+
+### Phase 14: Snapshot & Rollback
+
+**Goal**: Take filesystem snapshots before agent runs and roll back if results are bad.
+
+**Why**: Agents can make sweeping changes. A quick `yolo rollback` is easier than `git checkout` when uncommitted work is involved.
+
+**Approach**:
+- Use overlayfs or btrfs snapshots for the workspace
+- `yolo snapshot` before a run, `yolo rollback` to restore
+- Or integrate with git stash/worktree for a lighter approach
+- Could also snapshot the persistent home dir for tool state rollback
+
+**Effort**: Medium | **Impact**: Medium (safety net for risky operations)
+
+### Phase 15: Remote/Cloud Jail Execution
+
+**Goal**: Run jails on remote machines or cloud instances instead of locally.
+
+**Why**: Heavy agent workloads (large codebases, GPU-intensive tasks) may benefit from more powerful remote hardware. Also enables running jails on headless servers.
+
+**Approach**:
+- `yolo remote --host <ssh-target> -- gemini` syncs workspace and runs remotely
+- Use rsync or unison for workspace sync
+- Tunnel agent ports back to local machine
+- Support cloud providers (EC2 spot instances for cheap burst compute)
+
+**Effort**: Large | **Impact**: Medium (niche but powerful)
+
+---
+
+## Updated Priority Matrix
+
+| Phase | Effort | Impact | Dependencies | Recommendation |
+|-------|--------|--------|--------------|----------------|
+| **Phase 1: fix-venv** | Small | High | None | **Do first** |
+| **Phase 2: .venv on PATH** | Small | Medium | Phase 1 | Do second |
+| **Phase 3: Path transparency** | Large | High | None | **Design now, implement after Phase 1** |
+| **Phase 4: User defaults** | Small | Medium | None | Do anytime |
+| **Phase 5: Doctor checks** | Small | Low | None | Do anytime |
+| **Phase 6: Scaffolding** | Small | Medium | Phase 1 | After Phase 1 |
+| **Phase 7: Session paths** | N/A | Medium | Phase 3 | Solved by Phase 3 |
+| **Phase 8: Audit logging** | Medium | High | None | High priority for trust/debugging |
+| **Phase 9: Network egress** | Medium | High | None | When security matters |
+| **Phase 10: Secret scanning** | Small | Medium | None | Quick win |
+| **Phase 11: Resource limits** | Small | Medium | None | Quick win |
+| **Phase 12: eBPF monitoring** | Large | High | None | Research phase |
+| **Phase 13: Multi-agent** | Large | Medium | None | Future |
+| **Phase 14: Snapshot/rollback** | Medium | Medium | None | Future |
+| **Phase 15: Remote execution** | Large | Medium | None | Future |

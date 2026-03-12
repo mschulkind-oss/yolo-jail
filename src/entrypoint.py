@@ -288,7 +288,7 @@ def generate_mise_config():
         "node": "22",
         "python": "3.13",
         "go": "latest",
-        '"npm:@google/gemini-cli"': "latest",
+        "gemini": "latest",
         '"npm:@github/copilot"': "latest",
     }
 
