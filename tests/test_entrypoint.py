@@ -321,11 +321,21 @@ class TestMiseConfig:
         assert 'node = "22"' in content
         assert 'python = "3.13"' in content
 
-    def test_does_not_overwrite(self, jail_home):
+    def test_preserves_existing_versions(self, jail_home):
+        """Existing tool versions aren't overwritten, but missing base tools are added."""
         entrypoint.MISE_CONFIG_DIR.mkdir(parents=True)
-        (entrypoint.MISE_CONFIG_DIR / "config.toml").write_text("custom")
+        (entrypoint.MISE_CONFIG_DIR / "config.toml").write_text(
+            '[tools]\nnode = "20"\npython = "3.12"\n'
+        )
         entrypoint.generate_mise_config()
-        assert (entrypoint.MISE_CONFIG_DIR / "config.toml").read_text() == "custom"
+        content = (entrypoint.MISE_CONFIG_DIR / "config.toml").read_text()
+        # Existing versions preserved
+        assert 'node = "20"' in content
+        assert 'python = "3.12"' in content
+        # Missing base tools added
+        assert 'go = "latest"' in content
+        assert 'gemini = "latest"' in content
+        assert '"npm:@github/copilot" = "latest"' in content
 
 
 # -- Bootstrap script --

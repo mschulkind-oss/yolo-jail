@@ -302,19 +302,36 @@ def generate_mise_config():
         config_path.write_text("\n".join(lines) + "\n")
         return
 
-    # Update existing config: add/update only injected tools
-    if injected_tools:
-        import re
+    # Update existing config:
+    # - base_tools: add if missing (don't overwrite user customizations)
+    # - injected_tools: always add or update (explicit overrides from config)
+    import re
 
-        content = config_path.read_text()
-        for tool, version in injected_tools.items():
-            pattern = rf'^{re.escape(tool)}\s*=\s*"[^"]*"'
-            if re.search(pattern, content, re.MULTILINE):
-                content = re.sub(
-                    pattern, f'{tool} = "{version}"', content, flags=re.MULTILINE
-                )
-            else:
-                content = content.rstrip("\n") + f'\n{tool} = "{version}"\n'
+    content = config_path.read_text()
+    changed = False
+
+    # Ensure all base tools are present (add missing ones only)
+    for tool, version in base_tools.items():
+        pattern = rf'^{re.escape(tool)}\s*=\s*"[^"]*"'
+        if not re.search(pattern, content, re.MULTILINE):
+            content = content.rstrip("\n") + f"\n{tool} = \"{version}\"\n"
+            changed = True
+
+    # Injected tools always override
+    for tool, version in injected_tools.items():
+        pattern = rf'^{re.escape(tool)}\s*=\s*"[^"]*"'
+        if re.search(pattern, content, re.MULTILINE):
+            new_content = re.sub(
+                pattern, f'{tool} = "{version}"', content, flags=re.MULTILINE
+            )
+            if new_content != content:
+                content = new_content
+                changed = True
+        else:
+            content = content.rstrip("\n") + f"\n{tool} = \"{version}\"\n"
+            changed = True
+
+    if changed:
         config_path.write_text(content)
 
 
