@@ -500,6 +500,13 @@ def generate_agents_md(
             "Do NOT install packages via apt, nix-env, or other package managers.",
             "Run `yolo config-ref` for the full configuration reference.",
             "",
+            "## First Session — Handover",
+            "",
+            "If this is your first session in this jail, invoke the **jail-startup** skill.",
+            "It reads the handover document at `.yolo/handover.md` left by the outer agent",
+            "and orients you to the jail environment. The human may ask you to invoke it —",
+            'just say "invoke the jail-startup skill" or use your skill invocation tool.',
+            "",
         ]
     )
 
@@ -952,26 +959,42 @@ need to know.
   "mise_tools" config or to /workspace/mise.toml for the workspace.
   Examples: rust, zig, terraform, kubectl, typst, pixi, conda.
 
-[bold cyan]WHAT TO DO NOW[/bold cyan]
+[bold cyan]WHAT TO DO NOW — TRANSITION QUICKLY[/bold cyan]
 
-  1. [bold]Review yolo-jail.jsonc[/bold] — edit it if you need extra packages.
+  [bold]Your goal is to get inside the jail as fast as possible.[/bold]
+  Do only what's needed outside, then hand off. All real work happens
+  inside the jail where you have full tool access.
+
+  1. [bold]Review yolo-jail.jsonc[/bold] — edit it [bold]only[/bold] if you need extra packages.
      • "packages": nix packages baked into the image (rebuilds on change).
        Search: https://search.nixos.org/packages
      • "mise_tools": tools installed via mise (no rebuild needed).
        For tools with binary releases — fast, no compilation.
+     Most tasks need NO config changes. Skip this step if unsure.
 
-  2. [bold]Write a handoff document[/bold] — create a file (e.g., scratch/jail-notes.md)
-     with instructions for your inner-jail self. Your jail instance will be
-     a fresh agent session that does NOT share your current conversation
-     context. Tell it:
+  2. [bold](MANDATORY) Write a handover document[/bold] at:
+     [bold yellow].yolo/handover.md[/bold yellow]
+
+     This file is [bold]required[/bold]. Your jail instance will be a completely
+     fresh agent session with NO access to this conversation. Without
+     this document, the inner agent starts blind. Include:
      • What you were working on and the current state
-     • What remains to be done
-     • Any decisions you made and why
+     • What remains to be done (specific tasks, not vague goals)
+     • Key decisions made and why
      • Files to look at first
+     • Any gotchas or context the inner agent needs
 
   3. [bold]Ask the human to restart you inside the jail[/bold]:
      Tell them to run: yolo -- copilot  (or yolo -- gemini)
-     They may also point the inner agent at your handoff document.
+
+     The inner agent has a built-in [bold]jail-startup[/bold] skill that reads
+     your handover doc automatically. The human just needs to say:
+     [bold yellow]"invoke the jail-startup skill"[/bold yellow]
+     and the inner agent will pick up your handover and continue.
+
+  Do NOT spend time on implementation outside the jail. Write the
+  handover doc, request the restart, and stop. The inner agent has
+  the same tools and full internet access — it can do everything.
 
 [bold cyan]CONFIGURATION REFERENCE[/bold cyan]
 

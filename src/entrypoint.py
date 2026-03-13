@@ -471,8 +471,60 @@ def configure_jj():
 # ---------------------------------------------------------------------------
 
 
+def _write_builtin_skills(jail_skills: Path):
+    """Write built-in skills that are available in every jail."""
+    skill_dir = jail_skills / "jail-startup"
+    skill_dir.mkdir(parents=True, exist_ok=True)
+    (skill_dir / "SKILL.md").write_text("""\
+---
+name: jail-startup
+description: First-run skill for agents entering a YOLO Jail. Reads the handover document left by the outer agent and orients you to the jail environment. Invoke this skill immediately when starting a new session inside a jail.
+---
+
+# Jail Startup
+
+You are running inside a **YOLO Jail** — an isolated container environment.
+This skill helps you pick up where the previous (outer) agent left off.
+
+## Step 1: Read the Handover Document
+
+The outer agent was REQUIRED to write a handover document before you were
+launched. Read it now:
+
+**Primary location:** `.yolo/handover.md` (i.e., `/workspace/.yolo/handover.md`)
+
+If it exists, read it carefully — it contains:
+- What the outer agent was working on
+- What remains to be done
+- Key decisions and rationale
+- Files to look at first
+- Gotchas and context you need
+
+If the file does NOT exist, tell the human:
+> "No handover document found at `.yolo/handover.md`. The outer agent should
+> have created one. Can you tell me what I should be working on?"
+
+## Step 2: Orient Yourself
+
+Key facts about your environment:
+- **Workspace** is at `/workspace` — this is the SAME directory as on the host (bind-mounted read-write). Changes you make are immediately visible on the host.
+- **Internet** is available. You can curl, pip install, npm install, etc.
+- **Home** is `/home/agent` — shared across ALL jail workspaces. Auth tokens, tool caches, and configs persist here.
+- **Tools**: git, rg, fd, bat, jq, nvim, curl, gh, uv, mise, tmux, and more.
+- **Runtimes**: Node.js, Python, Go (managed by mise).
+- **Blocked tools**: Some tools may be shimmed (e.g., grep → rg). Check AGENTS.md or run `ls ~/.yolo-shims/` if you hit unexpected blocks. Set `YOLO_BYPASS_SHIMS=1` for scripts that need originals.
+- **No pagers**: `PAGER=cat`. Never pipe to `less` or `more`.
+- Run `yolo config-ref` for full configuration and environment reference.
+
+## Step 3: Execute
+
+After reading the handover document, proceed with the tasks described in it.
+You have full capability — treat this as your primary working environment.
+""")
+
+
 def merge_skills():
-    """Sync host + workspace skills into Copilot and Gemini skills dirs (read-only)."""
+    """Sync built-in + host + workspace skills into agent skills dirs."""
     host_skills_path = os.environ.get("YOLO_HOST_GEMINI_SKILLS", "")
 
     for agent_dir in [COPILOT_DIR, GEMINI_DIR]:
@@ -482,6 +534,9 @@ def merge_skills():
             _make_writable(jail_skills)
             shutil.rmtree(jail_skills)
         jail_skills.mkdir(parents=True, exist_ok=True)
+
+        # Built-in skills (lowest priority — can be overridden)
+        _write_builtin_skills(jail_skills)
 
         # Host user-level skills
         if host_skills_path:
