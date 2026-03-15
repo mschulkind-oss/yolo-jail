@@ -96,6 +96,7 @@ def ensure_jail_image():
         if stream_proc.returncode != 0 or load.returncode != 0:
             # Warn but don't fail — unit tests don't need the image
             import warnings
+
             warnings.warn(
                 f"{runtime} load failed (integration tests may be skipped): "
                 f"{load.stderr.decode().strip()}"

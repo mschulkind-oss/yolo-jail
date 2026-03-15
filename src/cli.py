@@ -8,6 +8,7 @@ import json
 import shlex
 import shutil
 import hashlib
+import time
 from pathlib import Path
 from typing import Optional, List, Dict, Any, Union
 import typer
@@ -389,6 +390,108 @@ def cleanup_container_tracking(name: str):
     tracking_file.unlink(missing_ok=True)
 
 
+def _parse_port_forwards(forward_host_ports: List) -> List[tuple]:
+    """Parse forward_host_ports config into (local_port, host_port) tuples."""
+    result = []
+    for entry in forward_host_ports:
+        if isinstance(entry, int):
+            result.append((entry, entry))
+        elif isinstance(entry, str) and ":" in entry:
+            parts = entry.split(":", 1)
+            result.append((int(parts[0]), int(parts[1])))
+        elif isinstance(entry, str):
+            port = int(entry)
+            result.append((port, port))
+        else:
+            print(f"Warning: invalid port forward entry: {entry}", file=sys.stderr)
+    return result
+
+
+def start_host_port_forwarding(
+    forward_host_ports: List, cname: str, socket_dir: Path
+) -> List[subprocess.Popen]:
+    """Start host-side socat to bridge Unix sockets to host localhost services.
+
+    Uses Unix sockets (shared via bind mount) to tunnel host localhost ports
+    into the jail — analogous to SSH -L port forwarding. This avoids exposing
+    services to the network and works regardless of container networking mode
+    (pasta, slirp4netns, bridge, etc.).
+
+    Architecture:
+      container app → container socat (TCP→Unix) → socket file → host socat (Unix→TCP) → host 127.0.0.1
+
+    Host side (this function): socat UNIX-LISTEN:sock → TCP:127.0.0.1:PORT
+    Container side (entrypoint.py): socat TCP-LISTEN:PORT → UNIX-CONNECT:sock
+
+    Must be called BEFORE the container starts so socket files exist when
+    entrypoint.py runs.
+    """
+    if not forward_host_ports:
+        return []
+
+    parsed = _parse_port_forwards(forward_host_ports)
+    if not parsed:
+        return []
+
+    socket_dir.mkdir(parents=True, exist_ok=True)
+    log_dir = Path.home() / ".local" / "share" / "yolo-jail" / "logs"
+    log_dir.mkdir(parents=True, exist_ok=True)
+    log_file = open(log_dir / f"{cname}-socat.log", "a")
+
+    processes = []
+    for local_port, host_port in parsed:
+        sock_path = socket_dir / f"port-{local_port}.sock"
+        # Remove stale socket from previous run
+        sock_path.unlink(missing_ok=True)
+
+        try:
+            proc = subprocess.Popen(
+                [
+                    "socat",
+                    f"UNIX-LISTEN:{sock_path},fork,mode=777",
+                    f"TCP:127.0.0.1:{host_port}",
+                ],
+                stdout=subprocess.DEVNULL,
+                stderr=log_file,
+            )
+            processes.append(proc)
+        except FileNotFoundError:
+            print(
+                "Warning: socat not found on host, cannot forward ports. "
+                "Install socat (e.g., nix-shell -p socat, apt install socat).",
+                file=sys.stderr,
+            )
+            break
+        except Exception as e:
+            print(
+                f"Warning: failed to start port forward {local_port}: {e}",
+                file=sys.stderr,
+            )
+
+    # Give socat a moment to create the socket files before the container starts
+    if processes:
+        time.sleep(0.1)
+
+    return processes
+
+
+def cleanup_port_forwarding(
+    socat_procs: List[subprocess.Popen], socket_dir: Optional[Path]
+):
+    """Terminate host-side socat processes and remove socket directory."""
+    for sp in socat_procs:
+        try:
+            sp.terminate()
+            sp.wait(timeout=2)
+        except Exception:
+            try:
+                sp.kill()
+            except Exception:
+                pass
+    if socket_dir and socket_dir.exists():
+        shutil.rmtree(socket_dir, ignore_errors=True)
+
+
 def generate_agents_md(
     cname: str,
     workspace: Path,
@@ -417,15 +520,23 @@ def generate_agents_md(
     # Build forwarded host ports description
     forwarded_ports_lines = []
     if forward_host_ports and net_mode != "host":
-        forwarded_ports_lines.append("- **Forwarded Host Ports**: The following host services are available on `localhost` inside this container:")
+        forwarded_ports_lines.append(
+            "- **Forwarded Host Ports**: The following host services are available on `localhost` inside this container:"
+        )
         for entry in forward_host_ports:
             if isinstance(entry, int):
-                forwarded_ports_lines.append(f"  - `localhost:{entry}` → host port {entry}")
+                forwarded_ports_lines.append(
+                    f"  - `localhost:{entry}` → host port {entry}"
+                )
             elif isinstance(entry, str) and ":" in entry:
                 parts = entry.split(":", 1)
-                forwarded_ports_lines.append(f"  - `localhost:{parts[0]}` → host port {parts[1]}")
+                forwarded_ports_lines.append(
+                    f"  - `localhost:{parts[0]}` → host port {parts[1]}"
+                )
             elif isinstance(entry, str):
-                forwarded_ports_lines.append(f"  - `localhost:{entry}` → host port {entry}")
+                forwarded_ports_lines.append(
+                    f"  - `localhost:{entry}` → host port {entry}"
+                )
 
     lines = [
         "# YOLO Jail Environment",
@@ -1098,11 +1209,13 @@ def config_ref():
     Makes container services reachable from the host.
 
   [bold]network.forward_host_ports[/bold] (array): Forward host ports into the jail.
-    Makes host services appear on localhost inside the container.
+    Makes host services appear on localhost inside the container, even if the
+    host service only listens on 127.0.0.1 (like SSH -L port forwarding).
     Integer: same port on both sides (e.g., 5432)
     String "local:host": remap ports (e.g., "5432:3306")
     Example: [5432, 6379, "8080:9090"]
-    Uses socat; only active in bridge mode.
+    Uses socat via Unix sockets; only active in bridge mode.
+    Requires socat installed on the host.
 
   [bold]security.blocked_tools[/bold] (array): Tools to block inside the jail.
     Simple: ["curl", "wget"]
@@ -1836,8 +1949,11 @@ def run(
     docker_cmd.extend(publish_args)
     docker_cmd.extend(mount_args)
 
-    # Pass host port forwarding config
+    # Host port forwarding via Unix sockets
+    socket_dir = None
     if forward_host_ports:
+        socket_dir = Path(f"/tmp/yolo-fwd-{cname}")
+        docker_cmd.extend(["-v", f"{socket_dir}:/tmp/yolo-fwd:rw"])
         docker_cmd.extend(
             ["-e", f"YOLO_FORWARD_HOST_PORTS={json.dumps(forward_host_ports)}"]
         )
@@ -1981,7 +2097,7 @@ def run(
             "exec 3>&2; "  # save stderr
             f"_t0=$(date +%s%N); {setup_script} >/dev/null 2>&1; "
             "_t1=$(date +%s%N); "
-            f'{mise_activate}; '
+            f"{mise_activate}; "
             "_t2=$(date +%s%N); "
             f"{target_cmd}; _rc=$?; "
             "_t3=$(date +%s%N); "
@@ -2006,12 +2122,20 @@ def run(
             "exit $_rc"
         )
     else:
-        final_internal_cmd = f'{setup_script} >/dev/null 2>&1 && {mise_activate}; {target_cmd}'
+        final_internal_cmd = (
+            f"{setup_script} >/dev/null 2>&1 && {mise_activate}; {target_cmd}"
+        )
 
     docker_cmd.append(final_internal_cmd)
 
     write_container_tracking(cname, workspace)
     _tmux_rename_window("JAIL")
+
+    # Start host-side port forwarding BEFORE the container so socket files
+    # exist when entrypoint.py starts the container-side socat.
+    socat_procs: List[subprocess.Popen] = []
+    if socket_dir:
+        socat_procs = start_host_port_forwarding(forward_host_ports, cname, socket_dir)
 
     # Use Popen so we can release the workspace lock once the container is
     # confirmed running.  Any concurrent yolo process waiting on the lock will
@@ -2025,6 +2149,9 @@ def run(
 
     proc.wait()
     result = proc
+
+    # Clean up host-side socat processes and socket directory
+    cleanup_port_forwarding(socat_procs, socket_dir)
 
     if profile and _profile_times:
         _profile_times["container_exited"] = _time.monotonic()

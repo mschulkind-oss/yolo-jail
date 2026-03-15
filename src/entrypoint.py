@@ -367,7 +367,7 @@ def generate_mise_config():
     for tool, version in base_tools.items():
         pattern = rf'^{re.escape(tool)}\s*=\s*"[^"]*"'
         if not re.search(pattern, content, re.MULTILINE):
-            content = content.rstrip("\n") + f"\n{tool} = \"{version}\"\n"
+            content = content.rstrip("\n") + f'\n{tool} = "{version}"\n'
             changed = True
 
     # Injected tools always override
@@ -381,7 +381,7 @@ def generate_mise_config():
                 content = new_content
                 changed = True
         else:
-            content = content.rstrip("\n") + f"\n{tool} = \"{version}\"\n"
+            content = content.rstrip("\n") + f'\n{tool} = "{version}"\n'
             changed = True
 
     if changed:
@@ -787,13 +787,17 @@ def exec_bash(command: str):
 
 
 # ---------------------------------------------------------------------------
-# Host port forwarding
+# Host port forwarding (container side)
 # ---------------------------------------------------------------------------
+
+# The socket directory where host-side socat has already created Unix sockets.
+FORWARD_SOCKET_DIR = Path("/tmp/yolo-fwd")
 
 
 def _port_in_use(port: int) -> bool:
     """Check if a TCP port is already bound on localhost."""
     import socket
+
     with socket.socket(socket.AF_INET, socket.SOCK_STREAM) as s:
         try:
             s.bind(("127.0.0.1", port))
@@ -802,16 +806,17 @@ def _port_in_use(port: int) -> bool:
             return True
 
 
-def start_host_port_forwarding():
-    """Start socat forwarders for host ports that should appear on container localhost.
+def start_container_port_forwarding():
+    """Start container-side socat: TCP-LISTEN on localhost → UNIX-CONNECT to host socket.
 
-    Reads YOLO_FORWARD_HOST_PORTS (JSON array) and YOLO_RUNTIME to determine
-    the host gateway address. Each entry can be:
-      - An integer: forward that port (same on both sides)
-      - A string "container_port:host_port": remap ports
+    Reads YOLO_FORWARD_HOST_PORTS (JSON array). For each port, starts a socat
+    that listens on container's 127.0.0.1:PORT and connects to the corresponding
+    Unix socket at /tmp/yolo-fwd/port-PORT.sock (bind-mounted from host).
 
-    Skips ports that are already bound (e.g. from a previous entrypoint run
-    when exec-ing into an existing container).
+    The host side (cli.py) runs a matching socat that bridges the Unix socket to
+    the host's 127.0.0.1:PORT. Together they form a tunnel analogous to SSH -L.
+
+    Skips ports already bound (idempotent for container reuse via exec).
     """
     raw = os.environ.get("YOLO_FORWARD_HOST_PORTS", "")
     if not raw:
@@ -826,54 +831,49 @@ def start_host_port_forwarding():
     if not ports:
         return
 
-    # Determine host gateway based on runtime
-    runtime = os.environ.get("YOLO_RUNTIME", "podman")
-    if runtime == "docker":
-        host_gw = "host.internal"
-    else:
-        host_gw = "host.containers.internal"
-
     log_path = HOME / ".yolo-socat.log"
     log_file = open(log_path, "a")
 
     for entry in ports:
         if isinstance(entry, int):
             local_port = entry
-            host_port = entry
         elif isinstance(entry, str) and ":" in entry:
-            parts = entry.split(":", 1)
-            local_port = int(parts[0])
-            host_port = int(parts[1])
+            local_port = int(entry.split(":", 1)[0])
         elif isinstance(entry, str):
             local_port = int(entry)
-            host_port = local_port
         else:
             print(f"Warning: invalid port forward entry: {entry}", file=sys.stderr)
             continue
 
-        # Skip if already forwarded (e.g. re-exec into existing container)
         if _port_in_use(local_port):
             continue
 
-        # Start socat in background — binds to container localhost, forwards to host
+        sock_path = FORWARD_SOCKET_DIR / f"port-{local_port}.sock"
+        if not sock_path.exists():
+            print(
+                f"Warning: socket {sock_path} not found for port {local_port}",
+                file=sys.stderr,
+            )
+            continue
+
         try:
             subprocess.Popen(
                 [
                     "socat",
                     f"TCP-LISTEN:{local_port},bind=127.0.0.1,fork,reuseaddr",
-                    f"TCP:{host_gw}:{host_port}",
+                    f"UNIX-CONNECT:{sock_path}",
                 ],
                 stdout=subprocess.DEVNULL,
                 stderr=log_file,
             )
         except FileNotFoundError:
-            print("Warning: socat not found, cannot forward host ports",
-                  file=sys.stderr)
+            print(
+                "Warning: socat not found, cannot forward host ports", file=sys.stderr
+            )
             log_file.close()
             return
         except Exception as e:
-            print(f"Warning: failed to forward port {local_port}: {e}",
-                  file=sys.stderr)
+            print(f"Warning: failed to forward port {local_port}: {e}", file=sys.stderr)
 
 
 # ---------------------------------------------------------------------------
@@ -916,8 +916,8 @@ def main():
     _perf("configure_copilot")
     configure_gemini()
     _perf("configure_gemini")
-    start_host_port_forwarding()
-    _perf("host_port_forwarding")
+    start_container_port_forwarding()
+    _perf("port_forwarding")
 
     # Set PATH including mise shims so tools like copilot/gemini are found
     os.environ["PATH"] = f"{SHIM_DIR}:{NPM_BIN}:{GO_BIN}:{MISE_SHIMS}:/bin:/usr/bin"

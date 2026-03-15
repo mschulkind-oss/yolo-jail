@@ -367,7 +367,7 @@ def test_host_port_forwarding_data(tmp_path):
         def log_message(self, *_args):
             pass
 
-    server = http.server.HTTPServer(("0.0.0.0", port), Handler)
+    server = http.server.HTTPServer(("127.0.0.1", port), Handler)
     thread = threading.Thread(target=server.serve_forever, daemon=True)
     thread.start()
 

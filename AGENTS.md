@@ -45,6 +45,14 @@ All logic is **pure Python** — no bash scripts with embedded heredocs. The onl
 - **Reaching the Host from Inside Jail**: 
     - **Podman**: Use `host.containers.internal` (resolves to `169.254.1.2`). Automatically added to `/etc/hosts`.
     - **Docker**: Use `172.17.0.1` (default bridge gateway IP). The CLI adds this to `/etc/hosts` as `host.internal` for convenience. Useful for agents that need to access host services (e.g., pull from host git servers, reach a development API running on the host).
+- **Host Port Forwarding**: The `network.forward_host_ports` config forwards host `127.0.0.1` services into the jail via Unix socket tunneling (analogous to SSH `-L`). Architecture:
+    1. **Host side** (`cli.py`): Creates `/tmp/yolo-fwd-{cname}/` with socat processes that UNIX-LISTEN on socket files and TCP-connect to host `127.0.0.1:{port}`.
+    2. **Container side** (`entrypoint.py`): Starts socat processes that TCP-LISTEN on `127.0.0.1:{port}` and UNIX-CONNECT to the bind-mounted socket files at `/tmp/yolo-fwd/`.
+    3. **Why Unix sockets**: Container networking (pasta, slirp4netns, bridge) cannot reach host `127.0.0.1` directly when ports are already bound. Unix sockets bypass all networking via a bind-mounted directory. No network exposure.
+    4. **Ordering**: Host socat starts first (creates sockets) → container mounts dir → entrypoint starts container socat. No race condition.
+    5. **Cleanup**: When container exits, `cli.py` terminates host socat and removes socket dir.
+    6. **Container reuse**: `_port_in_use()` guard in entrypoint prevents duplicate listeners on `exec` into existing container.
+    7. **Requires**: `socat` on the host (already in the jail image).
 - **AGENTS Injection**: Per-workspace AGENTS.md is generated host-side by `cli.py` and stored at `~/.local/share/yolo-jail/agents/<container-name>/AGENTS.md`. It is mounted read-only over `~/.copilot/AGENTS.md` and `~/.gemini/AGENTS.md` inside the container using nested Docker volume mounts. This ensures each workspace jail gets its own context without stomping the shared home directory, and outside-jail agents never see jail-specific instructions.
 - **Skills Auto-Mount**: Host user-level skills from `~/.gemini/skills/` (which `~/.copilot/skills` typically symlinks to) are automatically mounted and synced into the jail at `/home/agent/.copilot/skills/`. If a workspace has `.copilot/skills/`, those skills are also synced and take precedence. Symlinks in skill directories are followed automatically.
 - **Built-in Skills**: The `jail-startup` skill is auto-injected into every jail by `entrypoint.py`. It reads `.yolo/handover.md` and orients the inner agent. Priority order: built-in (lowest) → host user-level → workspace (highest). Built-in skills can be overridden by placing a skill with the same directory name in host or workspace skills.
@@ -214,7 +222,8 @@ mise registry  # List all available tools
 3. **Automatic Test**: Run `uv run pytest tests/`.
 4. **Manual Test**: Run `yolo -- bash -c "my-new-tool --version"`.
 5. **Enforce YOLO**: Always ensure `YOLO_BYPASS_SHIMS=1` is set when running installers inside the jail.
-6. **Commit & Push**: Always commit and push after every change. The Nix image is built from the working tree.
+6. **Prepromote**: Run `just prepromote` before committing. This runs format + lint + fast tests. All must pass.
+7. **Commit & Push**: Always commit and push after every change. The Nix image is built from the working tree.
 
 ## Testing Guidelines
 - **Model**: When testing Copilot interactively, always use the `gpt-4.1` model (e.g., `copilot --model gpt-4.1`). Do not use expensive models.
