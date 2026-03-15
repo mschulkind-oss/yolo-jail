@@ -1802,6 +1802,11 @@ def run(
     elif net_mode != "bridge" or runtime == "docker":
         docker_cmd.append(f"--net={net_mode}")
 
+    # Docker bridge: add host.internal → host-gateway so socat (and agents)
+    # can reach host services.  Podman does this automatically.
+    if runtime == "docker" and net_mode == "bridge":
+        docker_cmd.extend(["--add-host", "host.internal:host-gateway"])
+
     # Pass identity env vars (git + jj) collected earlier
     docker_cmd.extend(identity_env)
 

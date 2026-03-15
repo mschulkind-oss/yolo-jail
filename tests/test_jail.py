@@ -337,3 +337,61 @@ def test_overmind_host_sock_not_visible(temp_project):
     assert "fake-host-socket" not in output, (
         f"Host .overmind.sock leaked into jail: {output}"
     )
+
+
+def test_host_port_forwarding_data(tmp_path):
+    """Test that forward_host_ports actually forwards TCP data end-to-end.
+
+    Starts a real HTTP server on the host side, configures port forwarding,
+    and verifies the response is returned inside the jail.
+    """
+    import socket
+    import http.server
+    import threading
+
+    # Find a free port
+    with socket.socket(socket.AF_INET, socket.SOCK_STREAM) as s:
+        s.bind(("127.0.0.1", 0))
+        port = s.getsockname()[1]
+
+    # Start a simple HTTP server that returns a known payload
+    marker = f"YOLO_PORT_TEST_{port}"
+
+    class Handler(http.server.BaseHTTPRequestHandler):
+        def do_GET(self):
+            self.send_response(200)
+            self.send_header("Content-Type", "text/plain")
+            self.end_headers()
+            self.wfile.write(marker.encode())
+
+        def log_message(self, *_args):
+            pass
+
+    server = http.server.HTTPServer(("0.0.0.0", port), Handler)
+    thread = threading.Thread(target=server.serve_forever, daemon=True)
+    thread.start()
+
+    try:
+        project_dir = tmp_path / "port_test"
+        project_dir.mkdir()
+        config = {
+            "network": {
+                "mode": "bridge",
+                "forward_host_ports": [port],
+            },
+        }
+        with open(project_dir / "yolo-jail.jsonc", "w") as f:
+            json.dump(config, f)
+
+        # curl the forwarded port from inside the jail
+        result = run_yolo(
+            project_dir,
+            f"curl -s --max-time 5 http://127.0.0.1:{port}/",
+            timeout=120,
+        )
+        assert marker in result.stdout, (
+            f"Expected {marker!r} in stdout, got: {result.stdout!r}\n"
+            f"stderr: {result.stderr!r}"
+        )
+    finally:
+        server.shutdown()

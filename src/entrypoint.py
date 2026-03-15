@@ -833,6 +833,9 @@ def start_host_port_forwarding():
     else:
         host_gw = "host.containers.internal"
 
+    log_path = HOME / ".yolo-socat.log"
+    log_file = open(log_path, "a")
+
     for entry in ports:
         if isinstance(entry, int):
             local_port = entry
@@ -861,11 +864,12 @@ def start_host_port_forwarding():
                     f"TCP:{host_gw}:{host_port}",
                 ],
                 stdout=subprocess.DEVNULL,
-                stderr=subprocess.DEVNULL,
+                stderr=log_file,
             )
         except FileNotFoundError:
             print("Warning: socat not found, cannot forward host ports",
                   file=sys.stderr)
+            log_file.close()
             return
         except Exception as e:
             print(f"Warning: failed to forward port {local_port}: {e}",
