@@ -204,8 +204,14 @@ export GOPATH="${GOPATH:-$HOME/go}"
 SHIM_DIR="${HOME}/.yolo-shims"
 export PATH="$SHIM_DIR:$NPM_CONFIG_PREFIX/bin:$GOPATH/bin:${MISE_DATA_DIR:-/mise}/shims:/bin:/usr/bin"
 
-# Activate mise with shell hooks
-eval "$(mise activate bash)"
+# Activate mise with shell hooks (interactive shells only).
+# Non-interactive shells (bash -lc) skip activation to avoid a deadlock:
+# mise hook-env holds a lock then spawns uv via the mise shim (which IS mise),
+# re-entering mise locking. The caller's eval "$(mise env ...)" already set up
+# the environment before spawning this shell.
+if [[ $- == *i* ]]; then
+    eval "$(mise activate bash)"
+fi
 if [ -f /workspace/mise.toml ]; then
     mise trust /workspace/mise.toml >/dev/null 2>&1 || true
 fi
@@ -262,6 +268,53 @@ if ! command -v showboat >/dev/null; then
     echo "Installing showboat..."
     YOLO_BYPASS_SHIMS=1 pip install showboat
 fi
+""")
+    script_path.chmod(script_path.stat().st_mode | stat.S_IEXEC)
+
+
+def generate_venv_precreate_script():
+    """Create a script that pre-creates python venvs using real binaries.
+
+    Must run AFTER `mise install` (so tools are available) and BEFORE
+    `mise hook-env` / `mise env` (which would deadlock trying to create
+    venvs via the mise shim).
+    """
+    script_path = HOME / ".yolo-venv-precreate.sh"
+    script_path.write_text(r"""#!/bin/bash
+# Pre-create python venvs to avoid a mise shim deadlock.
+# When _.python.venv={create:true} is configured, mise hook-env spawns
+# uv via the mise shim (which IS /bin/mise), re-entering mise's flock
+# and deadlocking.  Creating the venv beforehand with the real uv binary
+# means mise finds it already exists and skips the uv call.
+
+[ -f /workspace/mise.toml ] || exit 0
+
+# Get real binary paths (not shims) — requires mise install to have run
+_uv=$(mise which uv 2>/dev/null) || exit 0
+_py=$(mise which python 2>/dev/null) || exit 0
+[ -n "$_uv" ] && [ -n "$_py" ] || exit 0
+
+# Parse venv path from mise.toml
+_vp=$(/bin/python3 -c "
+import tomllib, sys
+try:
+    c = tomllib.load(open('/workspace/mise.toml', 'rb'))
+    v = c.get('env', {}).get('_.python.venv', {})
+    if isinstance(v, dict):
+        if v.get('create', False):
+            print(v.get('path', '.venv'))
+        else:
+            sys.exit(1)
+    elif isinstance(v, str):
+        print(v)
+    else:
+        sys.exit(1)
+except Exception:
+    sys.exit(1)
+" 2>/dev/null) || exit 0
+
+[ -d "/workspace/$_vp" ] && exit 0
+"$_uv" venv "/workspace/$_vp" --python "$_py" 2>/dev/null || true
 """)
     script_path.chmod(script_path.stat().st_mode | stat.S_IEXEC)
 
@@ -734,6 +787,92 @@ def exec_bash(command: str):
 
 
 # ---------------------------------------------------------------------------
+# Host port forwarding
+# ---------------------------------------------------------------------------
+
+
+def _port_in_use(port: int) -> bool:
+    """Check if a TCP port is already bound on localhost."""
+    import socket
+    with socket.socket(socket.AF_INET, socket.SOCK_STREAM) as s:
+        try:
+            s.bind(("127.0.0.1", port))
+            return False
+        except OSError:
+            return True
+
+
+def start_host_port_forwarding():
+    """Start socat forwarders for host ports that should appear on container localhost.
+
+    Reads YOLO_FORWARD_HOST_PORTS (JSON array) and YOLO_RUNTIME to determine
+    the host gateway address. Each entry can be:
+      - An integer: forward that port (same on both sides)
+      - A string "container_port:host_port": remap ports
+
+    Skips ports that are already bound (e.g. from a previous entrypoint run
+    when exec-ing into an existing container).
+    """
+    raw = os.environ.get("YOLO_FORWARD_HOST_PORTS", "")
+    if not raw:
+        return
+
+    try:
+        ports = json.loads(raw)
+    except (json.JSONDecodeError, ValueError):
+        print(f"Warning: invalid YOLO_FORWARD_HOST_PORTS: {raw}", file=sys.stderr)
+        return
+
+    if not ports:
+        return
+
+    # Determine host gateway based on runtime
+    runtime = os.environ.get("YOLO_RUNTIME", "podman")
+    if runtime == "docker":
+        host_gw = "host.internal"
+    else:
+        host_gw = "host.containers.internal"
+
+    for entry in ports:
+        if isinstance(entry, int):
+            local_port = entry
+            host_port = entry
+        elif isinstance(entry, str) and ":" in entry:
+            parts = entry.split(":", 1)
+            local_port = int(parts[0])
+            host_port = int(parts[1])
+        elif isinstance(entry, str):
+            local_port = int(entry)
+            host_port = local_port
+        else:
+            print(f"Warning: invalid port forward entry: {entry}", file=sys.stderr)
+            continue
+
+        # Skip if already forwarded (e.g. re-exec into existing container)
+        if _port_in_use(local_port):
+            continue
+
+        # Start socat in background — binds to container localhost, forwards to host
+        try:
+            subprocess.Popen(
+                [
+                    "socat",
+                    f"TCP-LISTEN:{local_port},bind=127.0.0.1,fork,reuseaddr",
+                    f"TCP:{host_gw}:{host_port}",
+                ],
+                stdout=subprocess.DEVNULL,
+                stderr=subprocess.DEVNULL,
+            )
+        except FileNotFoundError:
+            print("Warning: socat not found, cannot forward host ports",
+                  file=sys.stderr)
+            return
+        except Exception as e:
+            print(f"Warning: failed to forward port {local_port}: {e}",
+                  file=sys.stderr)
+
+
+# ---------------------------------------------------------------------------
 # Main
 # ---------------------------------------------------------------------------
 
@@ -757,6 +896,8 @@ def main():
     _perf("generate_bashrc")
     generate_bootstrap_script()
     _perf("generate_bootstrap_script")
+    generate_venv_precreate_script()
+    _perf("generate_venv_precreate_script")
     generate_mise_config()
     _perf("generate_mise_config")
     generate_mcp_wrappers()
@@ -771,34 +912,22 @@ def main():
     _perf("configure_copilot")
     configure_gemini()
     _perf("configure_gemini")
+    start_host_port_forwarding()
+    _perf("host_port_forwarding")
 
     # Set PATH including mise shims so tools like copilot/gemini are found
     os.environ["PATH"] = f"{SHIM_DIR}:{NPM_BIN}:{GO_BIN}:{MISE_SHIMS}:/bin:/usr/bin"
-
-    # Activate mise for the current process so hook-env works
-    try:
-        result = subprocess.run(
-            ["mise", "activate", "bash"], capture_output=True, text=True
-        )
-        if result.returncode == 0:
-            # We can't eval bash in Python, but we set PATH for the exec'd shell
-            pass
-    except FileNotFoundError:
-        pass
-    _perf("mise_activate")
 
     # Trust workspace mise.toml
     if Path("/workspace/mise.toml").exists():
         subprocess.run(["mise", "trust", "/workspace/mise.toml"], capture_output=True)
 
-    # Apply mise hook-env for non-interactive shells
-    try:
-        result = subprocess.run(
-            ["mise", "hook-env", "-s", "bash"], capture_output=True, text=True
-        )
-    except FileNotFoundError:
-        pass
-    _perf("mise_hook_env")
+    # NOTE: We intentionally do NOT call `mise hook-env` here.
+    # hook-env holds a WRITE flock, then spawns `uv` via the mise shim
+    # (which IS /bin/mise), re-entering mise's flock → deadlock.
+    # Instead, cli.py's setup_script calls ~/.yolo-venv-precreate.sh (after
+    # `mise install`) to create venvs with real binaries, then uses
+    # `eval "$(mise env -s bash)"` for stateless env activation.
 
     _perf_dump()
     exec_bash(cmd)

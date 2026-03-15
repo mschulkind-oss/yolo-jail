@@ -47,6 +47,7 @@ All logic is **pure Python** — no bash scripts with embedded heredocs. The onl
     - **Docker**: Use `172.17.0.1` (default bridge gateway IP). The CLI adds this to `/etc/hosts` as `host.internal` for convenience. Useful for agents that need to access host services (e.g., pull from host git servers, reach a development API running on the host).
 - **AGENTS Injection**: Per-workspace AGENTS.md is generated host-side by `cli.py` and stored at `~/.local/share/yolo-jail/agents/<container-name>/AGENTS.md`. It is mounted read-only over `~/.copilot/AGENTS.md` and `~/.gemini/AGENTS.md` inside the container using nested Docker volume mounts. This ensures each workspace jail gets its own context without stomping the shared home directory, and outside-jail agents never see jail-specific instructions.
 - **Skills Auto-Mount**: Host user-level skills from `~/.gemini/skills/` (which `~/.copilot/skills` typically symlinks to) are automatically mounted and synced into the jail at `/home/agent/.copilot/skills/`. If a workspace has `.copilot/skills/`, those skills are also synced and take precedence. Symlinks in skill directories are followed automatically.
+- **Built-in Skills**: The `jail-startup` skill is auto-injected into every jail by `entrypoint.py`. It reads `.yolo/handover.md` and orients the inner agent. Priority order: built-in (lowest) → host user-level → workspace (highest). Built-in skills can be overridden by placing a skill with the same directory name in host or workspace skills.
 
 ## Developer Runbook
 

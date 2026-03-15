@@ -396,6 +396,7 @@ def generate_agents_md(
     mount_descriptions: List[str],
     net_mode: str = "bridge",
     runtime: str = "podman",
+    forward_host_ports: Optional[List] = None,
 ) -> Path:
     """Generate per-workspace AGENTS.md files and return the directory.
 
@@ -413,6 +414,19 @@ def generate_agents_md(
     else:  # docker bridge
         network_line = "- **Network**: Bridge mode (Docker). Discover gateway IP: `ip route | awk '/default/ {print $3}'` (typically 172.17.0.1). Use that IP to reach the host."
 
+    # Build forwarded host ports description
+    forwarded_ports_lines = []
+    if forward_host_ports and net_mode != "host":
+        forwarded_ports_lines.append("- **Forwarded Host Ports**: The following host services are available on `localhost` inside this container:")
+        for entry in forward_host_ports:
+            if isinstance(entry, int):
+                forwarded_ports_lines.append(f"  - `localhost:{entry}` → host port {entry}")
+            elif isinstance(entry, str) and ":" in entry:
+                parts = entry.split(":", 1)
+                forwarded_ports_lines.append(f"  - `localhost:{parts[0]}` → host port {parts[1]}")
+            elif isinstance(entry, str):
+                forwarded_ports_lines.append(f"  - `localhost:{entry}` → host port {entry}")
+
     lines = [
         "# YOLO Jail Environment",
         "",
@@ -424,6 +438,7 @@ def generate_agents_md(
         "- **Home Directory**: `/home/agent` (persistent across sessions)",
         "- **OS**: NixOS-based minimal container (no systemd, no sudo)",
         network_line,
+        *forwarded_ports_lines,
         "",
         "## Available Tools",
         "",
@@ -857,6 +872,8 @@ def init():
     "mode": "bridge",
     // Ports to publish in bridge mode ["Host:Container"]
     // "ports": ["8000:8000"]
+    // Forward host ports into the jail (appear on localhost inside container)
+    // "forward_host_ports": [5432, "8080:9090"]
   },
   // Extra host paths to mount read-only into the jail for context.
   // Each entry is a host path (mounted at /ctx/<basename>) or "host:container".
@@ -1078,6 +1095,14 @@ def config_ref():
   [bold]network.ports[/bold] (array of strings): Port mappings in bridge mode.
     Format: "host_port:container_port"
     Example: ["8000:8000", "3000:3000"]
+    Makes container services reachable from the host.
+
+  [bold]network.forward_host_ports[/bold] (array): Forward host ports into the jail.
+    Makes host services appear on localhost inside the container.
+    Integer: same port on both sides (e.g., 5432)
+    String "local:host": remap ports (e.g., "5432:3306")
+    Example: [5432, 6379, "8080:9090"]
+    Uses socat; only active in bridge mode.
 
   [bold]security.blocked_tools[/bold] (array): Tools to block inside the jail.
     Simple: ["curl", "wget"]
@@ -1140,7 +1165,8 @@ def config_ref():
     ],
     "network": {
       "mode": "bridge",
-      "ports": ["8000:8000"]
+      "ports": ["8000:8000"],
+      "forward_host_ports": [5432]
     },
     "security": {
       "blocked_tools": [
@@ -1546,6 +1572,11 @@ def run(
         for p in config["network"]["ports"]:
             publish_args.extend(["-p", p])
 
+    # Host port forwarding (host services → container localhost)
+    forward_host_ports = []
+    if net_mode == "bridge" and config.get("network", {}).get("forward_host_ports"):
+        forward_host_ports = config["network"]["forward_host_ports"]
+
     # Process Blocked Tools for the Container
     security_section = config.get("security", {})
     if security_section is None:
@@ -1653,6 +1684,11 @@ def run(
         "-e",
         f"MISE_DATA_DIR={host_mise}",
         "-e",
+        # Use a per-container cache dir so mise lockfiles don't contend with
+        # the host/outer-jail's locks (shared /home/agent would otherwise share
+        # ~/.cache/mise/lockfiles/, causing deadlocks in nested jails).
+        "MISE_CACHE_DIR=/tmp/mise-cache",
+        "-e",
         "MISE_TRUST=1",
         "-e",
         "MISE_YES=1",
@@ -1684,6 +1720,8 @@ def run(
         f"YOLO_MISE_TOOLS={json.dumps(mise_tools)}",
         "-e",
         f"YOLO_LSP_SERVERS={json.dumps(lsp_servers)}",
+        "-e",
+        f"YOLO_RUNTIME={runtime}",
         "-e",
         "YOLO_REPO_ROOT=/opt/yolo-jail",
         "--workdir",
@@ -1793,6 +1831,12 @@ def run(
     docker_cmd.extend(publish_args)
     docker_cmd.extend(mount_args)
 
+    # Pass host port forwarding config
+    if forward_host_ports:
+        docker_cmd.extend(
+            ["-e", f"YOLO_FORWARD_HOST_PORTS={json.dumps(forward_host_ports)}"]
+        )
+
     # Device passthrough from config
     for dev in config.get("devices", []):
         if isinstance(dev, str):
@@ -1898,6 +1942,7 @@ def run(
         mount_descriptions,
         net_mode=net_mode,
         runtime=runtime,
+        forward_host_ports=forward_host_ports or None,
     )
     docker_cmd.extend(
         ["-v", f"{agents_path / 'AGENTS-copilot.md'}:/home/agent/.copilot/AGENTS.md:ro"]
@@ -1917,8 +1962,13 @@ def run(
 
     # If mise.toml exists in workspace, trust it.
     # Then ensure all tools (global + local) are ready.
-    setup_script = "YOLO_BYPASS_SHIMS=1 sh -c '(if [ -f mise.toml ]; then mise trust; fi) && mise install && ~/.yolo-bootstrap.sh'"
-    # After setup, activate mise so tool paths (copilot, gemini, etc.) are in PATH
+    setup_script = "YOLO_BYPASS_SHIMS=1 sh -c '(if [ -f mise.toml ]; then mise trust; fi) && mise install && ~/.yolo-bootstrap.sh && ~/.yolo-venv-precreate.sh'"
+    # After setup, activate mise so tool paths (copilot, gemini, etc.) are in PATH.
+    # We use `mise env` (one-time activation) rather than `mise hook-env` (continuous
+    # shell integration) because hook-env deadlocks when it needs to create a venv:
+    # it holds a lock, spawns `uv` via the mise shim (which IS mise), and the shim
+    # tries to acquire the same lock → deadlock.
+    mise_activate = 'eval "$(mise env -s bash)" 2>/dev/null'
     # Use && for fail-fast: if provisioning fails, don't proceed with broken env
     if profile:
         # Wrap each phase with timing output for profiling
@@ -1926,7 +1976,7 @@ def run(
             "exec 3>&2; "  # save stderr
             f"_t0=$(date +%s%N); {setup_script} >/dev/null 2>&1; "
             "_t1=$(date +%s%N); "
-            'eval "$(mise hook-env -s bash)" 2>/dev/null; '
+            f'{mise_activate}; '
             "_t2=$(date +%s%N); "
             f"{target_cmd}; _rc=$?; "
             "_t3=$(date +%s%N); "
@@ -1951,7 +2001,7 @@ def run(
             "exit $_rc"
         )
     else:
-        final_internal_cmd = f'{setup_script} >/dev/null 2>&1 && eval "$(mise hook-env -s bash)" 2>/dev/null; {target_cmd}'
+        final_internal_cmd = f'{setup_script} >/dev/null 2>&1 && {mise_activate}; {target_cmd}'
 
     docker_cmd.append(final_internal_cmd)
 

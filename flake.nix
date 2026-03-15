@@ -244,6 +244,7 @@
             pkgs.delta
             pkgs.fzf
             pkgs.uv
+            pkgs.socat        # For host port forwarding into the jail
             pkgs.nix          # For building nix images inside jail
             pkgs.podman       # For nested container support
             pkgs.fuse-overlayfs  # Storage driver for rootless podman

@@ -402,3 +402,249 @@ class TestSkillsMerging:
         entrypoint.merge_skills()
         assert not (entrypoint.COPILOT_DIR / "skills" / "old-skill").exists()
         assert (entrypoint.COPILOT_DIR / "skills" / "new-skill").exists()
+
+
+# -- Host port forwarding --
+
+
+class TestHostPortForwarding:
+    """Tests for start_host_port_forwarding() in entrypoint.py."""
+
+    def test_no_env_var_does_nothing(self, monkeypatch):
+        """No YOLO_FORWARD_HOST_PORTS → nothing happens."""
+        monkeypatch.delenv("YOLO_FORWARD_HOST_PORTS", raising=False)
+        # Should not raise
+        entrypoint.start_host_port_forwarding()
+
+    def test_empty_string_does_nothing(self, monkeypatch):
+        monkeypatch.setenv("YOLO_FORWARD_HOST_PORTS", "")
+        entrypoint.start_host_port_forwarding()
+
+    def test_empty_array_does_nothing(self, monkeypatch):
+        monkeypatch.setenv("YOLO_FORWARD_HOST_PORTS", "[]")
+        entrypoint.start_host_port_forwarding()
+
+    def test_invalid_json_warns(self, monkeypatch, capsys):
+        monkeypatch.setenv("YOLO_FORWARD_HOST_PORTS", "not-json")
+        entrypoint.start_host_port_forwarding()
+        assert "invalid YOLO_FORWARD_HOST_PORTS" in capsys.readouterr().err
+
+    def test_integer_port_launches_socat(self, monkeypatch):
+        """Integer entry: forward same port on both sides."""
+        monkeypatch.setenv("YOLO_FORWARD_HOST_PORTS", "[5432]")
+        monkeypatch.setenv("YOLO_RUNTIME", "podman")
+        launched = []
+
+        import subprocess as _subprocess
+        orig_popen = _subprocess.Popen
+
+        def mock_popen(cmd, **kwargs):
+            launched.append(cmd)
+
+            class FakeProc:
+                pid = 999
+            return FakeProc()
+
+        monkeypatch.setattr(_subprocess, "Popen", mock_popen)
+        # Ensure port not seen as in-use
+        monkeypatch.setattr(entrypoint, "_port_in_use", lambda p: False)
+        entrypoint.start_host_port_forwarding()
+
+        assert len(launched) == 1
+        assert launched[0] == [
+            "socat",
+            "TCP-LISTEN:5432,bind=127.0.0.1,fork,reuseaddr",
+            "TCP:host.containers.internal:5432",
+        ]
+
+    def test_string_remap_port(self, monkeypatch):
+        """String 'local:host' entry: remap ports."""
+        monkeypatch.setenv("YOLO_FORWARD_HOST_PORTS", '["8080:9090"]')
+        monkeypatch.setenv("YOLO_RUNTIME", "docker")
+        launched = []
+
+        import subprocess as _subprocess
+        orig_popen = _subprocess.Popen
+
+        def mock_popen(cmd, **kwargs):
+            launched.append(cmd)
+
+            class FakeProc:
+                pid = 999
+            return FakeProc()
+
+        monkeypatch.setattr(_subprocess, "Popen", mock_popen)
+        monkeypatch.setattr(entrypoint, "_port_in_use", lambda p: False)
+        entrypoint.start_host_port_forwarding()
+
+        assert len(launched) == 1
+        assert launched[0] == [
+            "socat",
+            "TCP-LISTEN:8080,bind=127.0.0.1,fork,reuseaddr",
+            "TCP:host.internal:9090",
+        ]
+
+    def test_string_no_colon_same_port(self, monkeypatch):
+        """Plain string '5432' treated as same port both sides."""
+        monkeypatch.setenv("YOLO_FORWARD_HOST_PORTS", '["5432"]')
+        monkeypatch.setenv("YOLO_RUNTIME", "podman")
+        launched = []
+
+        import subprocess as _subprocess
+
+        def mock_popen(cmd, **kwargs):
+            launched.append(cmd)
+
+            class FakeProc:
+                pid = 999
+            return FakeProc()
+
+        monkeypatch.setattr(_subprocess, "Popen", mock_popen)
+        monkeypatch.setattr(entrypoint, "_port_in_use", lambda p: False)
+        entrypoint.start_host_port_forwarding()
+
+        assert len(launched) == 1
+        assert "TCP-LISTEN:5432" in launched[0][1]
+
+    def test_multiple_ports(self, monkeypatch):
+        """Multiple ports in one config."""
+        monkeypatch.setenv("YOLO_FORWARD_HOST_PORTS", '[5432, 6379, "8080:9090"]')
+        monkeypatch.setenv("YOLO_RUNTIME", "podman")
+        launched = []
+
+        import subprocess as _subprocess
+
+        def mock_popen(cmd, **kwargs):
+            launched.append(cmd)
+
+            class FakeProc:
+                pid = 999
+            return FakeProc()
+
+        monkeypatch.setattr(_subprocess, "Popen", mock_popen)
+        monkeypatch.setattr(entrypoint, "_port_in_use", lambda p: False)
+        entrypoint.start_host_port_forwarding()
+
+        assert len(launched) == 3
+
+    def test_skips_port_already_in_use(self, monkeypatch):
+        """Port already bound → skip, no socat launched."""
+        monkeypatch.setenv("YOLO_FORWARD_HOST_PORTS", "[5432]")
+        monkeypatch.setenv("YOLO_RUNTIME", "podman")
+        launched = []
+
+        import subprocess as _subprocess
+
+        def mock_popen(cmd, **kwargs):
+            launched.append(cmd)
+
+            class FakeProc:
+                pid = 999
+            return FakeProc()
+
+        monkeypatch.setattr(_subprocess, "Popen", mock_popen)
+        monkeypatch.setattr(entrypoint, "_port_in_use", lambda p: True)
+        entrypoint.start_host_port_forwarding()
+
+        assert len(launched) == 0
+
+    def test_invalid_entry_warns_and_continues(self, monkeypatch, capsys):
+        """Non-int/non-string entries warn but don't stop other ports."""
+        monkeypatch.setenv("YOLO_FORWARD_HOST_PORTS", '[5432, {"bad": true}, 6379]')
+        monkeypatch.setenv("YOLO_RUNTIME", "podman")
+        launched = []
+
+        import subprocess as _subprocess
+
+        def mock_popen(cmd, **kwargs):
+            launched.append(cmd)
+
+            class FakeProc:
+                pid = 999
+            return FakeProc()
+
+        monkeypatch.setattr(_subprocess, "Popen", mock_popen)
+        monkeypatch.setattr(entrypoint, "_port_in_use", lambda p: False)
+        entrypoint.start_host_port_forwarding()
+
+        assert len(launched) == 2  # 5432 and 6379 — dict entry skipped
+        assert "invalid port forward entry" in capsys.readouterr().err
+
+    def test_socat_not_found_warns(self, monkeypatch, capsys):
+        """FileNotFoundError from socat → warning, early return."""
+        monkeypatch.setenv("YOLO_FORWARD_HOST_PORTS", "[5432, 6379]")
+        monkeypatch.setenv("YOLO_RUNTIME", "podman")
+
+        import subprocess as _subprocess
+
+        def mock_popen(cmd, **kwargs):
+            raise FileNotFoundError("socat")
+
+        monkeypatch.setattr(_subprocess, "Popen", mock_popen)
+        monkeypatch.setattr(entrypoint, "_port_in_use", lambda p: False)
+        entrypoint.start_host_port_forwarding()
+
+        assert "socat not found" in capsys.readouterr().err
+
+    def test_docker_uses_host_internal(self, monkeypatch):
+        """Docker runtime uses host.internal as gateway."""
+        monkeypatch.setenv("YOLO_FORWARD_HOST_PORTS", "[5432]")
+        monkeypatch.setenv("YOLO_RUNTIME", "docker")
+        launched = []
+
+        import subprocess as _subprocess
+
+        def mock_popen(cmd, **kwargs):
+            launched.append(cmd)
+
+            class FakeProc:
+                pid = 999
+            return FakeProc()
+
+        monkeypatch.setattr(_subprocess, "Popen", mock_popen)
+        monkeypatch.setattr(entrypoint, "_port_in_use", lambda p: False)
+        entrypoint.start_host_port_forwarding()
+
+        assert "host.internal" in launched[0][2]
+
+    def test_podman_uses_host_containers_internal(self, monkeypatch):
+        """Podman runtime uses host.containers.internal as gateway."""
+        monkeypatch.setenv("YOLO_FORWARD_HOST_PORTS", "[5432]")
+        monkeypatch.setenv("YOLO_RUNTIME", "podman")
+        launched = []
+
+        import subprocess as _subprocess
+
+        def mock_popen(cmd, **kwargs):
+            launched.append(cmd)
+
+            class FakeProc:
+                pid = 999
+            return FakeProc()
+
+        monkeypatch.setattr(_subprocess, "Popen", mock_popen)
+        monkeypatch.setattr(entrypoint, "_port_in_use", lambda p: False)
+        entrypoint.start_host_port_forwarding()
+
+        assert "host.containers.internal" in launched[0][2]
+
+
+class TestPortInUse:
+    """Tests for _port_in_use() helper."""
+
+    def test_free_port_returns_false(self):
+        """An unbound port should return False."""
+        # Use a high ephemeral port that's almost certainly free
+        assert entrypoint._port_in_use(59123) is False
+
+    def test_bound_port_returns_true(self):
+        """A port we're actively listening on should return True."""
+        import socket
+        sock = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
+        sock.bind(("127.0.0.1", 0))
+        sock.listen(1)
+        port = sock.getsockname()[1]
+        try:
+            assert entrypoint._port_in_use(port) is True
+        finally:
+            sock.close()

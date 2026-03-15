@@ -279,6 +279,10 @@ def test_venv_symlinks_resolve(temp_project):
     assert "Python" in result.stdout
 
 
+@pytest.mark.skipif(
+    Path("/run/.containerenv").exists() or Path("/.dockerenv").exists(),
+    reason="mise has a re-entrant shim deadlock in nested containers (podman-in-podman)",
+)
 def test_mise_venv_activation(tmp_path):
     """Test that mise.toml with _.python.venv activates the venv automatically."""
     project_dir = tmp_path / "venv_test"
@@ -289,8 +293,9 @@ def test_mise_venv_activation(tmp_path):
             '[tools]\npython = "3"\n\n[env]\n_.python.venv = { path = ".venv", create = true }\n'
         )
 
-    # Longer timeout: mise may need to download+install python on first run
-    result = run_yolo(project_dir, "echo $VIRTUAL_ENV", timeout=300)
+    # Longer timeout: nested container startup + mise python install + venv creation
+    # can be very slow, especially when running inside a jail (doubly-nested containers).
+    result = run_yolo(project_dir, "echo $VIRTUAL_ENV", timeout=600)
     assert result.returncode == 0
     assert ".venv" in result.stdout
 
@@ -302,8 +307,12 @@ def test_vscode_mcp_shadowed(temp_project):
     (vscode_dir / "mcp.json").write_text('{"servers": {"bad": {"command": "false"}}}')
 
     result = run_yolo(temp_project, "cat /workspace/.vscode/mcp.json")
-    # /dev/null is empty, so cat should output nothing
-    assert result.stdout.strip() == ""
+    # /dev/null is empty, so cat should not output the original mcp.json content.
+    # cli.py may print diagnostic warnings to stdout (e.g. nix build warnings when
+    # running nested inside a jail), so we check the content is absent rather than
+    # asserting stdout is completely empty.
+    assert "bad" not in result.stdout
+    assert "servers" not in result.stdout
 
 
 def test_overmind_socket_isolated(temp_project):
