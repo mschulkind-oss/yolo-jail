@@ -7,3 +7,7 @@ result
 __pycache__/
 *.pyc
 .yolo/
+*.egg-info/
+probe.log
+dist/
+build/

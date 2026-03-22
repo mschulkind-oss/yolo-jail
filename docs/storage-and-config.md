@@ -223,7 +223,7 @@ stomping the shared home directory.
 | `HOME` | `/home/agent` | Home directory |
 | `NPM_CONFIG_PREFIX` | `/home/agent/.npm-global` | NPM global install location |
 | `GOPATH` | `/home/agent/go` | Go binary location |
-| `MISE_DATA_DIR` | Host mise path (e.g., `/home/matt/.local/share/mise`) | Shared mise tool storage — same dir as host so venv paths match |
+| `MISE_DATA_DIR` | Host mise path (e.g., `/home/$USER/.local/share/mise`) | Shared mise tool storage — same dir as host so venv paths match |
 | `MISE_TRUST` | `1` | Auto-trust workspace mise.toml |
 | `MISE_YES` | `1` | Skip mise confirmation prompts |
 | `LD_LIBRARY_PATH` | `/lib:/usr/lib` | Library search path (survives agent env stripping) |
