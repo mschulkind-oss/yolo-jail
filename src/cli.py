@@ -2180,6 +2180,28 @@ def check(
 
     console.print("\n[bold]YOLO Jail Check[/bold]\n")
 
+    # Show version for debugging
+    try:
+        from importlib.metadata import version as pkg_version
+
+        ver = pkg_version("yolo-jail")
+    except Exception:
+        ver = "unknown"
+    git_hash = ""
+    try:
+        git_result = subprocess.run(
+            ["git", "rev-parse", "--short", "HEAD"],
+            capture_output=True,
+            text=True,
+            timeout=5,
+            cwd=Path(__file__).parent.parent,
+        )
+        if git_result.returncode == 0:
+            git_hash = f" ({git_result.stdout.strip()})"
+    except Exception:
+        pass
+    console.print(f"[dim]Version: {ver}{git_hash}[/dim]\n")
+
     # --- Environment Health ---
 
     console.print("[bold]Container Runtime[/bold]")
@@ -2903,22 +2925,19 @@ def run(
                 ]
             )
         elif gpu_enabled:
-            # GPU passthrough: CDI device injection fails inside custom user
-            # namespaces created by --uidmap/--gidmap. Skip UID mapping and
-            # use keep-id (maps host UID into container without a new userns).
-            # Nested podman-in-podman won't work with GPU, but that's fine.
+            # GPU passthrough: CDI device injection fails with crun (the
+            # default OCI runtime) and custom user namespaces. Use runc and
+            # keep-id to avoid both issues. No /dev/fuse or SYS_ADMIN needed
+            # since nested podman-in-podman is disabled when GPU is active.
+            # See: https://github.com/containers/podman/issues/27483
             docker_cmd.extend(
                 [
                     "--security-opt",
                     "label=disable",
                     "--userns",
                     "keep-id",
-                    "--device",
-                    "/dev/fuse",
-                    "--cap-add",
-                    "SYS_ADMIN",
-                    "--cap-add",
-                    "MKNOD",
+                    "--runtime",
+                    "runc",
                 ]
             )
         else:

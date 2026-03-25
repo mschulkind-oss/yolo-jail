@@ -549,7 +549,7 @@ Train deep learning models inside the jail using NVIDIA GPUs. Requires the NVIDI
 Once inside the GPU-enabled jail:
 
 ```bash
-pip install torch torchvision --index-url https://download.pytorch.org/whl/cu124
+pip install torch torchvision
 python -c "import torch; print(torch.cuda.is_available(), torch.cuda.get_device_name(0))"
 ```
 
@@ -560,7 +560,7 @@ python -c "import torch; print(torch.cuda.is_available(), torch.cuda.get_device_
 | **Docker** | `--gpus all` | Requires `nvidia-ctk runtime configure --runtime=docker` |
 | **Podman** | `--device nvidia.com/gpu=all` (CDI) | Requires CDI spec at `/etc/cdi/nvidia.yaml` |
 
-- **Podman rootless:** GPU passthrough uses `--userns=keep-id` instead of `--uidmap` (nested podman-in-podman is not available when GPU is active).
+- **Podman rootless:** GPU passthrough uses `--userns=keep-id` and `--runtime=runc` (crun has CDI bugs). Nested podman-in-podman is not available when GPU is active.
 - **Shared memory:** The jail uses `--shm-size=2g` for PyTorch multi-process data loading.
 - **CUDA forward compatibility:** CUDA in the container can be newer than the host driver, but not the reverse.
 
@@ -576,7 +576,7 @@ Use an AWS Deep Learning AMI (DLAMI) — drivers and toolkit come pre-installed.
 
 ### Troubleshooting GPU
 
-- **`conmon bytes "": readObjectStart` error (Podman):** Caused by `--uidmap` conflicting with CDI. Fixed in current release. If you see this, update your `yolo-jail` installation.
+- **`conmon bytes "": readObjectStart` error (Podman):** Caused by `crun` OCI runtime's CDI handling bug ([podman#27483](https://github.com/containers/podman/issues/27483)). The jail automatically uses `--runtime runc` when GPU is enabled to work around this. If you see this, update your `yolo-jail` installation.
 - **`nvidia-smi` not found inside jail:** The NVIDIA Container Toolkit injects driver libs at container start. Check the toolkit is installed and configured on the host.
 - **CUDA out of memory:** Reduce batch size, or limit which GPUs are exposed with `"devices": "0"`.
 
