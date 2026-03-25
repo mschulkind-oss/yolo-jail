@@ -1005,6 +1005,13 @@ def main():
     # `eval "$(mise env -s bash)"` for stateless env activation.
 
     _perf_dump()
+
+    # Tell the user the jail is up and we're handing off to their command.
+    # This fires on every path (fresh container, exec-into-existing, interactive shell)
+    # so the user can distinguish "jail starting" from "command starting".
+    sys.stderr.write("\033[1;36m⚡ Jail ready\033[0m\n")
+    sys.stderr.flush()
+
     exec_bash(cmd)
 
 
