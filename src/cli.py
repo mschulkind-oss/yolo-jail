@@ -838,8 +838,29 @@ def generate_agents_md(
             "",
             "The jail may have hard resource limits set by the human operator (memory, CPU, PIDs).",
             "These are kernel-enforced — exceeding memory triggers OOM kill, exceeding PIDs prevents",
-            "new processes. You cannot change container-level limits, but you can constrain your own",
-            "sub-processes:",
+            "new processes. You cannot change container-level limits, but you can enforce hard limits",
+            "on your own sub-processes using cgroup v2 delegation:",
+            "",
+            "### yolo-cglimit (recommended for hard limits)",
+            "",
+            "```bash",
+            "# Limit a training job to 75% of all CPUs",
+            "yolo-cglimit --cpu 75 -- python train.py",
+            "",
+            "# 50% CPU + 2GB RAM",
+            "yolo-cglimit --cpu 50 --memory 2g -- make -j8",
+            "",
+            "# Max 100 processes (prevent fork bombs)",
+            "yolo-cglimit --pids 100 -- ./build.sh",
+            "",
+            "# Named cgroup for monitoring",
+            "yolo-cglimit --cpu 75 --name training -- python train.py",
+            "```",
+            "",
+            "These limits are enforced by the kernel via cgroup v2 — they cannot be exceeded.",
+            "If cgroup delegation is unavailable, `yolo-cglimit` will print an error.",
+            "",
+            "### Soft limits (always available)",
             "",
             "| Tool | Purpose | Example |",
             "|------|---------|---------|",
@@ -850,10 +871,10 @@ def generate_agents_md(
             "",
             "For long-running jobs (training, builds), combine limits:",
             "```bash",
-            "nice -n 10 timeout 7200 python train.py",
+            "yolo-cglimit --cpu 75 --memory 4g -- nice -n 10 timeout 7200 python train.py",
             "```",
             "",
-            "To request resource limit changes, edit `/workspace/yolo-jail.jsonc`:",
+            "To request container-level resource limit changes, edit `/workspace/yolo-jail.jsonc`:",
             "```json",
             '  "resources": {"memory": "8g", "cpus": 4, "pids_limit": 4096}',
             "```",
@@ -2138,11 +2159,14 @@ def config_ref():
       Prevents fork bombs and runaway process creation.
       Maps to --pids-limit flag.
 
-    [bold]In-jail sub-process limits[/bold]:
-    Agents inside the jail can further constrain individual processes using
-    cgroup v2 (if the container runtime delegates the cgroup) or standard
-    Unix tools: nice/renice (CPU priority), ionice (I/O priority),
-    timeout (wall-clock limit), ulimit (per-process limits).
+    [bold]In-jail sub-process limits (cgroup v2 delegation)[/bold]:
+    The jail sets up cgroup v2 delegation so agents can enforce hard resource
+    limits on sub-processes. Use the [bold]yolo-cglimit[/bold] helper:
+      yolo-cglimit --cpu 75 -- python train.py           # 75% of all CPUs
+      yolo-cglimit --cpu 50 --memory 2g -- make -j8      # 50% CPU + 2GB RAM
+      yolo-cglimit --pids 100 -- ./script.sh             # Max 100 processes
+    Requires CAP_SYS_ADMIN and --cgroupns=private (enabled automatically).
+    Falls back to nice/timeout/ulimit if cgroup delegation is unavailable.
     Subject to config change safety (human approval required).
 
 [bold cyan]EXAMPLE CONFIG[/bold cyan]
@@ -3090,7 +3114,7 @@ def run(
         mount_descriptions.append(f"{host_path}:{container_path}")
 
     # Construct Docker Command
-    docker_flags = ["--rm", "-i", "--init", "--name", cname]
+    docker_flags = ["--rm", "-i", "--init", "--cgroupns=private", "--name", cname]
     if sys.stdout.isatty():
         docker_flags.append("-t")
 
@@ -3205,6 +3229,8 @@ def run(
     # Docker needs explicit UID mapping; podman rootless maps container root to host user
     if runtime == "docker":
         docker_cmd.extend(["-u", f"{os.getuid()}:{os.getgid()}"])
+        # SYS_ADMIN for cgroup v2 delegation (remount /sys/fs/cgroup rw)
+        docker_cmd.extend(["--cap-add", "SYS_ADMIN"])
 
     # Detect if we're already inside a container
     in_container = Path("/run/.containerenv").exists() or Path("/.dockerenv").exists()
@@ -3236,8 +3262,7 @@ def run(
             # image (100 layers, multi-GB) and no native shifting support this
             # causes 10+ minute container startup. Identity mapping needs no
             # shifting since container UIDs match the namespace UIDs as stored.
-            # No /dev/fuse or SYS_ADMIN needed since nested podman-in-podman is
-            # disabled when GPU is active.
+            # SYS_ADMIN is needed for cgroup v2 delegation (remount cgroup rw).
             docker_cmd.extend(
                 [
                     "--security-opt",
@@ -3252,6 +3277,8 @@ def run(
                     "1:1:65536",
                     "--runtime",
                     "runc",
+                    "--cap-add",
+                    "SYS_ADMIN",
                 ]
             )
         else:

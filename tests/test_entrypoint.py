@@ -2,6 +2,7 @@
 
 import json
 import os
+import stat
 import sys
 from pathlib import Path
 from unittest.mock import patch
@@ -1035,6 +1036,15 @@ class TestExecBash:
         assert "echo hello" in args[1][-1]
 
     @patch("os.execvp")
+    def test_exec_bash_includes_local_bin(self, mock_exec, jail_home, monkeypatch):
+        monkeypatch.setenv("PATH", "/bin:/usr/bin")
+        entrypoint.exec_bash("echo test")
+        mock_exec.assert_called_once()
+        # Verify .local/bin is on PATH (for yolo-cglimit)
+        env_path = os.environ["PATH"]
+        assert ".local/bin" in env_path
+
+    @patch("os.execvp")
     def test_exec_bash_default_interactive(self, mock_exec, jail_home, monkeypatch):
         monkeypatch.setenv("PATH", "/bin:/usr/bin")
         entrypoint.exec_bash("bash")
@@ -1048,6 +1058,88 @@ class TestExecBash:
         monkeypatch.setenv("YOLO_PROFILE_ENTRYPOINT", "1")
         entrypoint.exec_bash("echo hi")
         mock_exec.assert_called_once()
+
+
+class TestCglimitScript:
+    """Test yolo-cglimit helper script generation."""
+
+    def test_cglimit_script_created(self, jail_home):
+        entrypoint.generate_cglimit_script()
+        script = jail_home / ".local" / "bin" / "yolo-cglimit"
+        assert script.exists()
+        assert script.stat().st_mode & stat.S_IEXEC
+
+    def test_cglimit_script_content(self, jail_home):
+        entrypoint.generate_cglimit_script()
+        script = jail_home / ".local" / "bin" / "yolo-cglimit"
+        content = script.read_text()
+        # Verify key features of the script
+        assert "#!/bin/bash" in content
+        assert "cpu.max" in content
+        assert "memory.max" in content
+        assert "pids.max" in content
+        assert "cgroup.procs" in content
+        assert "/sys/fs/cgroup/agent" in content
+        assert "--cpu" in content
+        assert "--memory" in content
+        assert "--pids" in content
+        assert "--name" in content
+
+    def test_cglimit_script_idempotent(self, jail_home):
+        entrypoint.generate_cglimit_script()
+        entrypoint.generate_cglimit_script()  # Second call should not fail
+        script = jail_home / ".local" / "bin" / "yolo-cglimit"
+        assert script.exists()
+
+    def test_cglimit_cpu_formula(self, jail_home):
+        """Verify the CPU quota formula: PCT * 1000 * nproc / 100000 period."""
+        entrypoint.generate_cglimit_script()
+        content = (jail_home / ".local" / "bin" / "yolo-cglimit").read_text()
+        # The formula: quota=$(( CPU_PCT * 1000 * nproc )), period=100000
+        # This means 75% of all CPUs on an 8-core = 75 * 1000 * 8 = 600000 / 100000 = 6.0 cores
+        assert "CPU_PCT * 1000 * nproc" in content
+        assert "period=100000" in content
+
+
+class TestCgroupDelegation:
+    """Test cgroup v2 delegation setup."""
+
+    def test_skips_when_no_cgroup_root(self, jail_home, monkeypatch):
+        """Should silently skip when /sys/fs/cgroup doesn't exist."""
+        monkeypatch.setattr(entrypoint, "CGROUP_ROOT", jail_home / "no-such-dir")
+        monkeypatch.setattr(
+            entrypoint, "CGROUP_AGENT", jail_home / "no-such-dir" / "agent"
+        )
+        # Should not raise
+        entrypoint.setup_cgroup_delegation()
+
+    def test_skips_when_no_controllers(self, jail_home, monkeypatch, tmp_path):
+        """Should skip when cgroup.controllers doesn't exist (not cgroup v2)."""
+        cg_root = tmp_path / "cgroup"
+        cg_root.mkdir()
+        # No cgroup.controllers file
+        monkeypatch.setattr(entrypoint, "CGROUP_ROOT", cg_root)
+        monkeypatch.setattr(entrypoint, "CGROUP_AGENT", cg_root / "agent")
+        entrypoint.setup_cgroup_delegation()
+        # Should not create agent dir
+        assert not (cg_root / "agent").exists()
+
+    def test_idempotent_moves_pid_to_existing_agent(
+        self, jail_home, monkeypatch, tmp_path
+    ):
+        """When agent cgroup already exists, just move current PID into it."""
+        cg_root = tmp_path / "cgroup"
+        cg_root.mkdir()
+        agent_dir = cg_root / "agent"
+        agent_dir.mkdir()
+        procs_file = agent_dir / "cgroup.procs"
+        procs_file.write_text("")
+
+        monkeypatch.setattr(entrypoint, "CGROUP_ROOT", cg_root)
+        monkeypatch.setattr(entrypoint, "CGROUP_AGENT", agent_dir)
+
+        # The write to cgroup.procs will fail (not real cgroup), but should not raise
+        entrypoint.setup_cgroup_delegation()
 
 
 class TestMainFunction:
@@ -1066,12 +1158,16 @@ class TestMainFunction:
     @patch("entrypoint.generate_bootstrap_script")
     @patch("entrypoint.generate_bashrc")
     @patch("entrypoint.generate_shims")
+    @patch("entrypoint.setup_cgroup_delegation")
+    @patch("entrypoint.generate_cglimit_script")
     @patch("entrypoint._perf_dump")
     @patch("entrypoint._perf")
     def test_main_calls_all_generators(
         self,
         mock_perf,
         mock_dump,
+        mock_cglimit,
+        mock_cgroup,
         mock_shims,
         mock_bashrc,
         mock_bootstrap,
@@ -1101,6 +1197,8 @@ class TestMainFunction:
         mock_jj.assert_called_once()
         mock_copilot.assert_called_once()
         mock_gemini.assert_called_once()
+        mock_cgroup.assert_called_once()
+        mock_cglimit.assert_called_once()
         mock_exec.assert_called_once_with("echo hello")
 
     @patch("entrypoint.exec_bash")
@@ -1116,12 +1214,16 @@ class TestMainFunction:
     @patch("entrypoint.generate_bootstrap_script")
     @patch("entrypoint.generate_bashrc")
     @patch("entrypoint.generate_shims")
+    @patch("entrypoint.setup_cgroup_delegation")
+    @patch("entrypoint.generate_cglimit_script")
     @patch("entrypoint._perf_dump")
     @patch("entrypoint._perf")
     def test_main_creates_mise_symlink(
         self,
         mock_perf,
         mock_dump,
+        mock_cglimit,
+        mock_cgroup,
         mock_shims,
         mock_bashrc,
         mock_bootstrap,
@@ -1158,12 +1260,16 @@ class TestMainFunction:
     @patch("entrypoint.generate_bootstrap_script")
     @patch("entrypoint.generate_bashrc")
     @patch("entrypoint.generate_shims")
+    @patch("entrypoint.setup_cgroup_delegation")
+    @patch("entrypoint.generate_cglimit_script")
     @patch("entrypoint._perf_dump")
     @patch("entrypoint._perf")
     def test_main_trusts_mise_toml(
         self,
         mock_perf,
         mock_dump,
+        mock_cglimit,
+        mock_cgroup,
         mock_shims,
         mock_bashrc,
         mock_bootstrap,

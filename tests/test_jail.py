@@ -574,3 +574,108 @@ def test_host_port_forwarding_data(tmp_path):
         )
     finally:
         server.shutdown()
+
+
+def test_cgroup_delegation_available(tmp_path):
+    """Verify cgroup v2 delegation is set up inside the jail.
+
+    Tests that:
+    1. /sys/fs/cgroup/agent/ exists and is writable
+    2. An agent can create a child cgroup
+    3. CPU controllers are available
+    4. CPU limits can be set via cpu.max
+    """
+    project_dir = tmp_path / "cgroup_test"
+    project_dir.mkdir()
+    config = {"network": {"mode": "bridge"}}
+    with open(project_dir / "yolo-jail.jsonc", "w") as f:
+        json.dump(config, f)
+
+    result = run_yolo(
+        project_dir,
+        # Create a child cgroup, set a CPU limit, verify, then clean up
+        "set -e; "
+        "AGENT_CG=/sys/fs/cgroup/agent; "
+        'test -d "$AGENT_CG" && echo "AGENT_DIR_EXISTS"; '
+        'mkdir -p "$AGENT_CG/test-child"; '
+        'echo "CHILD_CREATED"; '
+        # Read available controllers
+        'cat "$AGENT_CG/test-child/cgroup.controllers" 2>/dev/null || echo "NO_CONTROLLERS"; '
+        # Set CPU limit (75% of all CPUs)
+        "NPROC=$(nproc); "
+        "QUOTA=$((75 * 1000 * NPROC)); "
+        'echo "$QUOTA 100000" > "$AGENT_CG/test-child/cpu.max" 2>/dev/null && echo "CPU_LIMIT_SET"; '
+        # Verify the limit was applied
+        'cat "$AGENT_CG/test-child/cpu.max"; '
+        # Clean up
+        'rmdir "$AGENT_CG/test-child" 2>/dev/null; '
+        "true",
+        timeout=120,
+    )
+    stdout = result.stdout
+    stderr = result.stderr
+    assert "AGENT_DIR_EXISTS" in stdout, (
+        f"Expected cgroup agent dir to exist.\nstdout: {stdout}\nstderr: {stderr}"
+    )
+    assert "CHILD_CREATED" in stdout, (
+        f"Expected child cgroup creation to succeed.\nstdout: {stdout}\nstderr: {stderr}"
+    )
+    assert "CPU_LIMIT_SET" in stdout, (
+        f"Expected CPU limit to be set via cpu.max.\nstdout: {stdout}\nstderr: {stderr}"
+    )
+
+
+def test_cglimit_helper_available(tmp_path):
+    """Verify yolo-cglimit helper is on PATH and functional inside the jail."""
+    project_dir = tmp_path / "cglimit_test"
+    project_dir.mkdir()
+    config = {"network": {"mode": "bridge"}}
+    with open(project_dir / "yolo-jail.jsonc", "w") as f:
+        json.dump(config, f)
+
+    result = run_yolo(
+        project_dir,
+        "which yolo-cglimit && yolo-cglimit --help",
+        timeout=120,
+    )
+    assert "yolo-cglimit" in result.stdout, (
+        f"yolo-cglimit not found on PATH.\nstdout: {result.stdout}\nstderr: {result.stderr}"
+    )
+    assert "--cpu" in result.stdout, (
+        f"yolo-cglimit --help missing expected content.\nstdout: {result.stdout}"
+    )
+
+
+def test_cglimit_enforces_cpu_limit(tmp_path):
+    """Verify yolo-cglimit creates a cgroup and enforces a CPU limit."""
+    project_dir = tmp_path / "cglimit_enforce"
+    project_dir.mkdir()
+    config = {"network": {"mode": "bridge"}}
+    with open(project_dir / "yolo-jail.jsonc", "w") as f:
+        json.dump(config, f)
+
+    result = run_yolo(
+        project_dir,
+        # Use yolo-cglimit to run a simple command with 75% CPU limit
+        # Then verify the cgroup was created with the right limit
+        "set -e; "
+        "yolo-cglimit --cpu 75 --name test-enforce -- "
+        "bash -c '"
+        "cat /sys/fs/cgroup/agent/test-enforce/cpu.max; "
+        'echo "ENFORCE_OK"'
+        "'; "
+        "true",
+        timeout=120,
+    )
+    stdout = result.stdout
+    stderr = result.stderr
+    assert "ENFORCE_OK" in stdout, (
+        f"Expected command to run under cgroup limit.\nstdout: {stdout}\nstderr: {stderr}"
+    )
+    # Verify the cpu.max contains a quota and period (e.g., "600000 100000" for 75% on 8 cores)
+    # The format is "QUOTA PERIOD" where QUOTA = 75 * 1000 * nproc
+    lines = stdout.strip().split("\n")
+    cpu_max_line = [line for line in lines if "100000" in line]
+    assert cpu_max_line, (
+        f"Expected cpu.max with period=100000 in output.\nstdout: {stdout}"
+    )

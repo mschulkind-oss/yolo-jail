@@ -831,13 +831,242 @@ def configure_gemini():
 
 
 # ---------------------------------------------------------------------------
-# 10. Finalize PATH and exec bash
+# 10. Cgroup v2 delegation (in-jail resource management)
+# ---------------------------------------------------------------------------
+
+CGROUP_ROOT = Path("/sys/fs/cgroup")
+CGROUP_INIT = CGROUP_ROOT / "init"
+CGROUP_AGENT = CGROUP_ROOT / "agent"
+
+
+def setup_cgroup_delegation():
+    """Make cgroup v2 writable and set up delegation for in-jail resource management.
+
+    This enables agents to create child cgroups under /sys/fs/cgroup/agent/
+    to enforce CPU, memory, and PID limits on sub-processes.
+
+    The setup:
+    1. Remount /sys/fs/cgroup as read-write (requires CAP_SYS_ADMIN + private cgroupns)
+    2. Create 'init' and 'agent' child cgroups
+    3. Move all existing processes to 'init' (cgroup v2 "no internal process" constraint)
+    4. Enable cpu, memory, pids controllers on root and agent subtrees
+    5. Move current process to 'agent' so exec'd command inherits it
+
+    Idempotent: skips if already set up (e.g. exec into existing container).
+    Silent on failure: falls back to nice/timeout/ulimit in non-delegated jails.
+    """
+    if not CGROUP_ROOT.exists():
+        return
+
+    # Check if already delegated (exec into existing container)
+    if CGROUP_AGENT.exists():
+        # Just move current process into the agent cgroup
+        try:
+            (CGROUP_AGENT / "cgroup.procs").write_text(str(os.getpid()))
+        except OSError:
+            pass
+        return
+
+    # Check if cgroup v2 (unified hierarchy)
+    try:
+        controllers_path = CGROUP_ROOT / "cgroup.controllers"
+        if not controllers_path.exists():
+            return
+    except OSError:
+        return
+
+    # Step 1: Remount cgroup as read-write
+    try:
+        subprocess.run(
+            ["mount", "-o", "remount,rw", "/sys/fs/cgroup"],
+            capture_output=True,
+            timeout=5,
+        )
+        # Verify it's writable
+        test_dir = CGROUP_ROOT / ".yolo-test"
+        try:
+            test_dir.mkdir()
+            test_dir.rmdir()
+        except OSError:
+            return  # Still read-only, bail out silently
+    except (subprocess.TimeoutExpired, FileNotFoundError, OSError):
+        return  # mount command failed or not available
+
+    # Step 2: Create child cgroups
+    try:
+        CGROUP_INIT.mkdir(exist_ok=True)
+        CGROUP_AGENT.mkdir(exist_ok=True)
+    except OSError:
+        return
+
+    # Step 3: Move all existing processes to 'init' cgroup
+    # (cgroup v2 requires no processes in a cgroup that has subtree_control enabled)
+    try:
+        procs = (CGROUP_ROOT / "cgroup.procs").read_text().strip().split()
+        init_procs = CGROUP_INIT / "cgroup.procs"
+        for pid in procs:
+            try:
+                init_procs.write_text(pid)
+            except OSError:
+                pass  # Process may have exited or be unmovable (kthread)
+    except OSError:
+        return
+
+    # Step 4: Enable controllers on root subtree
+    try:
+        available = (CGROUP_ROOT / "cgroup.controllers").read_text().strip().split()
+        wanted = [c for c in ["cpu", "memory", "pids"] if c in available]
+        if wanted:
+            control_str = " ".join(f"+{c}" for c in wanted)
+            (CGROUP_ROOT / "cgroup.subtree_control").write_text(control_str)
+    except OSError:
+        pass  # Non-fatal: some controllers may not be delegatable
+
+    # Step 5: Enable controllers on agent subtree (so child cgroups get them)
+    try:
+        available = (CGROUP_AGENT / "cgroup.controllers").read_text().strip().split()
+        wanted = [c for c in ["cpu", "memory", "pids"] if c in available]
+        if wanted:
+            control_str = " ".join(f"+{c}" for c in wanted)
+            (CGROUP_AGENT / "cgroup.subtree_control").write_text(control_str)
+    except OSError:
+        pass
+
+    # Step 6: Move current process to 'agent' cgroup
+    try:
+        (CGROUP_AGENT / "cgroup.procs").write_text(str(os.getpid()))
+    except OSError:
+        pass
+
+
+def generate_cglimit_script():
+    """Generate yolo-cglimit helper for agents to limit sub-process resources.
+
+    Usage: yolo-cglimit [--cpu PCT] [--memory LIMIT] [--pids LIMIT] [--name NAME] -- COMMAND...
+    Creates a child cgroup under /sys/fs/cgroup/agent/<name>, sets limits, and execs.
+    """
+    script_dir = HOME / ".local" / "bin"
+    script_dir.mkdir(parents=True, exist_ok=True)
+    script_path = script_dir / "yolo-cglimit"
+
+    script_path.write_text(r"""#!/bin/bash
+# yolo-cglimit — Run a command under cgroup v2 resource limits.
+#
+# Usage: yolo-cglimit [OPTIONS] -- COMMAND [ARGS...]
+#
+# Options:
+#   --cpu PCT       CPU limit as percentage of ALL CPUs (e.g. 75 = 75% of total CPU)
+#   --memory LIMIT  Memory limit (e.g. 512m, 2g, 1073741824)
+#   --pids LIMIT    Max number of processes
+#   --name NAME     Cgroup name (default: auto-generated from PID)
+#
+# Examples:
+#   yolo-cglimit --cpu 75 -- python train.py           # 75% of all CPUs
+#   yolo-cglimit --cpu 50 --memory 2g -- make -j8      # 50% CPU + 2GB RAM
+#   yolo-cglimit --pids 100 -- ./fork-heavy-script.sh  # Max 100 processes
+#
+# Requires cgroup v2 delegation (enabled automatically in YOLO Jail).
+
+set -euo pipefail
+
+CGROUP_AGENT="/sys/fs/cgroup/agent"
+CPU_PCT=""
+MEMORY=""
+PIDS=""
+NAME=""
+
+# Parse arguments
+while [[ $# -gt 0 ]]; do
+    case "$1" in
+        --cpu) CPU_PCT="$2"; shift 2 ;;
+        --memory) MEMORY="$2"; shift 2 ;;
+        --pids) PIDS="$2"; shift 2 ;;
+        --name) NAME="$2"; shift 2 ;;
+        --) shift; break ;;
+        -h|--help)
+            sed -n '2,/^$/{ s/^# //; s/^#//; p; }' "$0"
+            exit 0
+            ;;
+        *) echo "Unknown option: $1" >&2; exit 1 ;;
+    esac
+done
+
+if [[ $# -eq 0 ]]; then
+    echo "Error: no command specified. Usage: yolo-cglimit [OPTIONS] -- COMMAND" >&2
+    exit 1
+fi
+
+# Verify cgroup delegation is available
+if [[ ! -d "$CGROUP_AGENT" ]] || [[ ! -w "$CGROUP_AGENT" ]]; then
+    echo "Error: cgroup delegation not available. /sys/fs/cgroup/agent/ is missing or read-only." >&2
+    echo "Hint: cgroup delegation requires CAP_SYS_ADMIN and --cgroupns=private." >&2
+    exit 1
+fi
+
+# Generate cgroup name
+if [[ -z "$NAME" ]]; then
+    NAME="job-$$"
+fi
+CG_PATH="$CGROUP_AGENT/$NAME"
+
+# Create child cgroup
+mkdir -p "$CG_PATH"
+
+# Helper: parse memory suffixes to bytes
+parse_memory() {
+    local val="$1"
+    case "${val,,}" in
+        *g) echo $(( ${val%[gG]} * 1073741824 )) ;;
+        *m) echo $(( ${val%[mM]} * 1048576 )) ;;
+        *k) echo $(( ${val%[kK]} * 1024 )) ;;
+        *b) echo "${val%[bB]}" ;;
+        *)  echo "$val" ;;
+    esac
+}
+
+# Set CPU limit (cpu.max: quota period_us)
+# PCT% of all CPUs = (PCT * 1000 * nproc) quota per 100000 period
+if [[ -n "$CPU_PCT" ]]; then
+    nproc=$(nproc)
+    quota=$(( CPU_PCT * 1000 * nproc ))
+    period=100000
+    echo "$quota $period" > "$CG_PATH/cpu.max" 2>/dev/null || \
+        echo "Warning: could not set cpu.max" >&2
+fi
+
+# Set memory limit
+if [[ -n "$MEMORY" ]]; then
+    bytes=$(parse_memory "$MEMORY")
+    echo "$bytes" > "$CG_PATH/memory.max" 2>/dev/null || \
+        echo "Warning: could not set memory.max" >&2
+fi
+
+# Set PID limit
+if [[ -n "$PIDS" ]]; then
+    echo "$PIDS" > "$CG_PATH/pids.max" 2>/dev/null || \
+        echo "Warning: could not set pids.max" >&2
+fi
+
+# Move self into the cgroup and exec
+echo $$ > "$CG_PATH/cgroup.procs" 2>/dev/null || {
+    echo "Error: could not move process into cgroup" >&2
+    exit 1
+}
+
+exec "$@"
+""")
+    script_path.chmod(script_path.stat().st_mode | stat.S_IEXEC)
+
+
+# ---------------------------------------------------------------------------
+# 11. Finalize PATH and exec bash
 # ---------------------------------------------------------------------------
 
 
 def exec_bash(command: str):
     """Set up final PATH, activate mise, and exec bash with the given command."""
-    path = f"{SHIM_DIR}:{NPM_BIN}:{MISE_SHIMS}:{GO_BIN}:/bin:/usr/bin"
+    local_bin = HOME / ".local" / "bin"
+    path = f"{SHIM_DIR}:{NPM_BIN}:{MISE_SHIMS}:{GO_BIN}:{local_bin}:/bin:/usr/bin"
     os.environ["PATH"] = path
 
     # Prepend mise env activation so tool paths (copilot, gemini, .venv/bin,
@@ -1070,6 +1299,11 @@ def main():
     # Instead, cli.py's setup_script calls ~/.yolo-venv-precreate.sh (after
     # `mise install`) to create venvs with real binaries, then uses
     # `eval "$(mise env -s bash)"` for stateless env activation.
+
+    setup_cgroup_delegation()
+    _perf("cgroup_delegation")
+    generate_cglimit_script()
+    _perf("cglimit_script")
 
     _perf_dump()
 
