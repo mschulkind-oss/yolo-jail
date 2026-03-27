@@ -3345,9 +3345,7 @@ def run(
     # route_localnet allows the kernel to route DNAT'd packets to 127.0.0.1;
     # the entrypoint adds matching iptables PREROUTING rules.
     if publish_args and runtime == "podman":
-        docker_cmd.extend(
-            ["--sysctl", "net.ipv4.conf.all.route_localnet=1"]
-        )
+        docker_cmd.extend(["--sysctl", "net.ipv4.conf.all.route_localnet=1"])
         # Extract container-side ports for the entrypoint's DNAT rules
         published_ports = []
         for p in config.get("network", {}).get("ports", []):
