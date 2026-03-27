@@ -2596,7 +2596,7 @@ def config_ref():
     • [bold]cpus[/bold] (number|string): CPU limit as a decimal. Default: no limit.
       Examples: 4 (four cores), 2.5 (two and a half cores), "0.5" (half a core).
       Maps to --cpus flag (CFS quota).
-    • [bold]pids_limit[/bold] (integer): Maximum number of processes. Default: no limit.
+    • [bold]pids_limit[/bold] (integer): Maximum number of processes. Default: 32768 (Podman's built-in default of 2048 is too low for agent workloads).
       Prevents fork bombs and runaway process creation.
       Maps to --pids-limit flag.
 
@@ -3933,22 +3933,23 @@ def run(
 
     # Resource limits from config
     resources_config = config.get("resources", {})
-    if resources_config:
-        res_parts = []
-        memory = resources_config.get("memory")
-        if memory:
-            docker_cmd.extend(["--memory", memory])
-            res_parts.append(f"memory={memory}")
-        cpus = resources_config.get("cpus")
-        if cpus is not None:
-            docker_cmd.extend(["--cpus", str(cpus)])
-            res_parts.append(f"cpus={cpus}")
-        pids_limit = resources_config.get("pids_limit")
-        if pids_limit is not None:
-            docker_cmd.extend(["--pids-limit", str(pids_limit)])
-            res_parts.append(f"pids={pids_limit}")
-        if res_parts:
-            console.print(f"[dim]Resource limits: {', '.join(res_parts)}[/dim]")
+    res_parts = []
+    memory = resources_config.get("memory")
+    if memory:
+        docker_cmd.extend(["--memory", memory])
+        res_parts.append(f"memory={memory}")
+    cpus = resources_config.get("cpus")
+    if cpus is not None:
+        docker_cmd.extend(["--cpus", str(cpus)])
+        res_parts.append(f"cpus={cpus}")
+    pids_limit = resources_config.get("pids_limit")
+    # Podman defaults to 2048 pids which is too low for agent workloads.
+    # Always set a sane default.
+    effective_pids = pids_limit if pids_limit is not None else 32768
+    docker_cmd.extend(["--pids-limit", str(effective_pids)])
+    res_parts.append(f"pids={effective_pids}")
+    if res_parts:
+        console.print(f"[dim]Resource limits: {', '.join(res_parts)}[/dim]")
 
     # Copy host nvim config (resolving symlinks) so ctrl-g uses the user's config.
     # We copy instead of bind-mounting because dotfile managers (stow, etc.) create
