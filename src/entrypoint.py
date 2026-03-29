@@ -70,6 +70,8 @@ BASHRC_PATH = HOME / ".bashrc"
 COPILOT_DIR = HOME / ".copilot"
 GEMINI_DIR = HOME / ".gemini"
 GEMINI_MANAGED_MCP_PATH = GEMINI_DIR / "yolo-managed-mcp-servers.json"
+CLAUDE_DIR = HOME / ".claude"
+CLAUDE_MANAGED_MCP_PATH = CLAUDE_DIR / "yolo-managed-mcp-servers.json"
 MISE_CONFIG_DIR = HOME / ".config" / "mise"
 
 # Default LSP servers always available in the jail.
@@ -203,7 +205,7 @@ export VISUAL=nvim
 export NPM_CONFIG_PREFIX="${NPM_CONFIG_PREFIX:-$HOME/.npm-global}"
 export GOPATH="${GOPATH:-$HOME/go}"
 SHIM_DIR="${HOME}/.yolo-shims"
-export PATH="$SHIM_DIR:$NPM_CONFIG_PREFIX/bin:${MISE_DATA_DIR:-/mise}/shims:$GOPATH/bin:/bin:/usr/bin"
+export PATH="$SHIM_DIR:$HOME/.local/bin:$NPM_CONFIG_PREFIX/bin:${MISE_DATA_DIR:-/mise}/shims:$GOPATH/bin:/bin:/usr/bin"
 
 # Activate mise with shell hooks (interactive shells only).
 # Non-interactive shells (bash -lc) skip activation to avoid a deadlock:
@@ -222,6 +224,8 @@ alias ls='ls --color=auto'
 alias ll='ls -alF'
 alias gemini='gemini --yolo'
 alias copilot='copilot --yolo --no-auto-update'
+# Claude YOLO mode is set via settings.json (permissions.defaultMode=bypassPermissions)
+# rather than --dangerously-skip-permissions, which refuses to run as UID 0 in Podman rootless.
 alias vi='nvim'
 alias vim='nvim'
 alias bat='bat --style=plain --paging=never'
@@ -247,48 +251,56 @@ export PATH="$NPM_CONFIG_PREFIX/bin:${MISE_DATA_DIR:-/mise}/shims:$GOBIN:$PATH"
 # Initialize font cache (once, not on every shell session)
 fc-cache -f >/dev/null 2>&1
 
-# Keep agent CLIs current in the npm-global prefix that the jail prioritizes on PATH.
-# Their built-in self-updaters are disabled in jail config/launchers, so startup owns
-# the update step instead.  --prefer-online forces npm to check the registry instead
-# of trusting its local metadata cache (which can keep stale @latest tag resolutions).
+# Keep agent CLIs current.  Their built-in self-updaters are disabled in jail
+# config/launchers, so startup owns the update step instead.
+# --prefer-online forces npm to check the registry instead of trusting its
+# local metadata cache (which can keep stale @latest tag resolutions).
 if command -v npm >/dev/null; then
     if ! YOLO_BYPASS_SHIMS=1 npm install -g --prefer-online @google/gemini-cli@latest @github/copilot@latest 2>&1; then
-        echo "Warning: failed to update gemini/copilot via npm; retrying once..." >&2
+        echo "  ⚠ npm update failed for gemini/copilot; retrying..." >&2
         sleep 2
         YOLO_BYPASS_SHIMS=1 npm install -g --prefer-online @google/gemini-cli@latest @github/copilot@latest 2>&1 || \
-            echo "Warning: copilot/gemini install failed after retry; continuing with installed versions" >&2
+            echo "  ⚠ gemini/copilot update failed after retry; using installed versions" >&2
     fi
     # Verify the binaries actually exist — npm can succeed without creating bin links
     # if the package is already installed at the same version.
     for bin in copilot gemini; do
         if ! [ -x "$NPM_CONFIG_PREFIX/bin/$bin" ]; then
-            echo "Warning: $bin binary missing after npm install; attempting reinstall..." >&2
+            echo "  ⚠ $bin binary missing; attempting reinstall..." >&2
             YOLO_BYPASS_SHIMS=1 npm install -g --prefer-online --force @github/copilot@latest @google/gemini-cli@latest 2>&1 || true
             break
         fi
     done
 fi
 
+# Claude Code: use native installer (no Node.js dependency).
+# Binary goes to ~/.local/bin/claude with version data in ~/.local/share/claude.
+if ! command -v claude >/dev/null || [ "${YOLO_CLAUDE_FORCE_UPDATE:-}" = "1" ]; then
+    echo "  Installing Claude Code..." >&2
+    YOLO_BYPASS_SHIMS=1 curl -fsSL https://claude.ai/install.sh | bash 2>&1 || \
+        echo "  ⚠ Claude Code install failed; continuing with installed version" >&2
+fi
+
 # Install binaries if missing.
 if ! command -v chrome-devtools-mcp >/dev/null; then
-    echo "Installing MCP tools via npm..."
+    echo "  Installing MCP tools..." >&2
     YOLO_BYPASS_SHIMS=1 npm install -g chrome-devtools-mcp @modelcontextprotocol/server-sequential-thinking pyright typescript-language-server typescript
 fi
 
 if [ ! -f "$GOBIN/mcp-language-server" ] || [ ! -f "$GOBIN/gopls" ]; then
     if command -v go >/dev/null; then
-        echo "Installing Go tools..."
+        echo "  Installing Go tools..." >&2
         mkdir -p "$GOBIN"
         [ -f "$GOBIN/mcp-language-server" ] || YOLO_BYPASS_SHIMS=1 go install github.com/isaacphi/mcp-language-server@latest
         [ -f "$GOBIN/gopls" ] || YOLO_BYPASS_SHIMS=1 go install golang.org/x/tools/gopls@latest
     else
-        echo "Warning: go not found, skipping Go tool installs"
+        echo "  ⚠ go not found, skipping Go tool installs" >&2
     fi
 fi
 
 # Install showboat
 if ! command -v showboat >/dev/null; then
-    echo "Installing showboat..."
+    echo "  Installing showboat..." >&2
     YOLO_BYPASS_SHIMS=1 pip install showboat
 fi
 """)
@@ -618,7 +630,7 @@ def merge_skills():
     """Sync built-in + host + workspace skills into agent skills dirs."""
     host_skills_path = os.environ.get("YOLO_HOST_GEMINI_SKILLS", "")
 
-    for agent_dir in [COPILOT_DIR, GEMINI_DIR]:
+    for agent_dir in [COPILOT_DIR, GEMINI_DIR, CLAUDE_DIR]:
         jail_skills = agent_dir / "skills"
         if jail_skills.exists():
             # Restore write permission before rmtree (we chmod -w on previous runs)
@@ -633,8 +645,8 @@ def merge_skills():
         if host_skills_path:
             _copy_skill_dirs(Path(host_skills_path), jail_skills)
 
-        # Workspace skills (take precedence) — check both .copilot and .gemini
-        for ws_dir in ["/workspace/.copilot/skills", "/workspace/.gemini/skills"]:
+        # Workspace skills (take precedence) — check .copilot, .gemini, and .claude
+        for ws_dir in ["/workspace/.copilot/skills", "/workspace/.gemini/skills", "/workspace/.claude/skills"]:
             ws_skills = Path(ws_dir)
             if ws_skills.is_dir():
                 _copy_skill_dirs(ws_skills, jail_skills)
@@ -859,7 +871,54 @@ def configure_gemini():
 
 
 # ---------------------------------------------------------------------------
-# 10. Cgroup delegation via host-side daemon (socket client)
+# 10. Claude Code config (MCP in settings.json)
+# ---------------------------------------------------------------------------
+
+
+def configure_claude():
+    """Set up Claude Code settings with MCP servers, merging with existing config."""
+    CLAUDE_DIR.mkdir(parents=True, exist_ok=True)
+    config_path = CLAUDE_DIR / "settings.json"
+
+    configured_servers = _load_mcp_servers()
+
+    try:
+        if config_path.exists():
+            try:
+                current = json.loads(config_path.read_text())
+            except json.JSONDecodeError:
+                current = {}
+        else:
+            current = {}
+
+        current_mcp_servers = current.setdefault("mcpServers", {})
+        try:
+            previous_managed = set(json.loads(CLAUDE_MANAGED_MCP_PATH.read_text()))
+        except (FileNotFoundError, json.JSONDecodeError, TypeError, ValueError):
+            previous_managed = set()
+
+        for name in previous_managed:
+            current_mcp_servers.pop(name, None)
+        current_mcp_servers.update(configured_servers)
+
+        # Ensure Claude starts in YOLO mode (bypass all permission prompts).
+        # We rely on settings.json rather than the --dangerously-skip-permissions
+        # CLI flag because that flag refuses to run as UID 0, which is the norm
+        # inside Podman rootless containers (UID 0 in user namespace).
+        current.setdefault("permissions", {})["defaultMode"] = "bypassPermissions"
+        # Disable auto-update — startup bootstrap owns the update step.
+        current.setdefault("preferences", {})["autoUpdaterStatus"] = "disabled"
+
+        config_path.write_text(json.dumps(current, indent=2) + "\n")
+        CLAUDE_MANAGED_MCP_PATH.write_text(
+            json.dumps(sorted(configured_servers.keys()), indent=2) + "\n"
+        )
+    except Exception as e:
+        print(f"Error configuring Claude MCP: {e}", file=sys.stderr)
+
+
+# ---------------------------------------------------------------------------
+# 11. Cgroup delegation via host-side daemon (socket client)
 # ---------------------------------------------------------------------------
 # The host runs a cgroup delegate daemon that listens on a Unix socket at
 # /tmp/yolo-cgd/cgroup.sock.  The container-side yolo-cglimit sends JSON
@@ -1033,6 +1092,14 @@ def exec_bash(command: str):
     local_bin = HOME / ".local" / "bin"
     path = f"{SHIM_DIR}:{NPM_BIN}:{MISE_SHIMS}:{GO_BIN}:{local_bin}:/bin:/usr/bin"
     os.environ["PATH"] = path
+
+    # Show what we're about to run for the exec-into-existing path.
+    # For new containers, cli.py already embedded "Provisioning..." and "Executing..."
+    # messages in the command string.  For plain interactive shells, skip the noise.
+    is_new_container_cmd = "yolo-bootstrap" in command
+    if command != "bash" and not is_new_container_cmd:
+        sys.stderr.write(f"\033[1;32m🚀 Executing: {command}\033[0m\n")
+        sys.stderr.flush()
 
     # Prepend mise env activation so tool paths (copilot, gemini, .venv/bin,
     # etc.) are available. Fresh containers get this from cli.py's inline
@@ -1246,12 +1313,14 @@ def main():
     _perf("configure_copilot")
     configure_gemini()
     _perf("configure_gemini")
+    configure_claude()
+    _perf("configure_claude")
     setup_published_port_localnet()
     _perf("published_port_localnet")
     start_container_port_forwarding()
     _perf("port_forwarding")
 
-    # Set PATH including mise shims so tools like copilot/gemini are found
+    # Set PATH including mise shims so tools like copilot/gemini/claude are found
     os.environ["PATH"] = f"{SHIM_DIR}:{NPM_BIN}:{MISE_SHIMS}:{GO_BIN}:/bin:/usr/bin"
 
     # Trust workspace mise.toml

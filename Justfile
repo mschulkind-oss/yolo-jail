@@ -49,6 +49,18 @@ clean:
     rm -f result
     rm -rf dist/ build/
 
+# Sync after merging a PR on public repo: fetch, rebase chain, push
+sync:
+    #!/usr/bin/env bash
+    set -euo pipefail
+    echo "=== Syncing with public remote ==="
+    jj git fetch --remote public
+    jj rebase -r staging -d main
+    jj rebase -r dev -d staging
+    just push
+    echo "=== Sync complete ==="
+    jj log --limit 5
+
 # Push bookmarks to remotes (main→both, dev+staging→private only)
 push:
     jj git push --bookmark main --remote public

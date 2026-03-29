@@ -43,7 +43,7 @@ def _default(
 ):
     """[bold]YOLO Jail[/bold] — Secure container environment for AI agents.
 
-    Runs AI agents (Copilot, Gemini CLI) in isolated Docker/Podman containers
+    Runs AI agents (Copilot, Gemini CLI, Claude Code) in isolated Docker/Podman containers
     with no access to host credentials (~/.ssh, ~/.gitconfig, cloud tokens).
     Tool state persists across restarts.
 
@@ -52,6 +52,7 @@ def _default(
         yolo                      Interactive jail shell
         yolo -- copilot           Run Copilot in jail (--yolo auto-injected)
         yolo -- gemini            Run Gemini in jail (--yolo auto-injected)
+        yolo -- claude            Run Claude Code in jail (YOLO mode via settings.json)
         yolo --new -- bash        Force new container (ignore running one)
         yolo --profile -- echo hi Profile startup performance
         yolo check                Validate config and preflight the build
@@ -216,7 +217,7 @@ def ensure_global_storage():
     # of nested bind mounts.  Without this, Docker daemon (running as root) auto-creates
     # them as root:root, making them unwritable by the -u UID:GID container process.
     # Podman rootless is unaffected (UID mapping handles ownership).
-    for subdir in [".copilot", ".gemini", Path(".config") / "git"]:
+    for subdir in [".copilot", ".gemini", ".claude", Path(".config") / "git"]:
         (GLOBAL_HOME / subdir).mkdir(parents=True, exist_ok=True)
 
 
@@ -1100,6 +1101,8 @@ def _init_per_workspace_mcp_configs(ws_state: Path):
     copilot_lsp = ws_state / "copilot-lsp-config.json"
     gemini_settings = ws_state / "gemini-settings.json"
     gemini_managed = ws_state / "gemini-managed-mcp.json"
+    claude_settings = ws_state / "claude-settings.json"
+    claude_managed = ws_state / "claude-managed-mcp.json"
 
     for f in (copilot_mcp, copilot_lsp):
         if not f.exists():
@@ -1122,6 +1125,39 @@ def _init_per_workspace_mcp_configs(ws_state: Path):
     if not gemini_managed.exists():
         gemini_managed.write_text("[]\n")
 
+    if not claude_settings.exists():
+        shared = GLOBAL_HOME / ".claude" / "settings.json"
+        if shared.exists():
+            try:
+                data = json.loads(shared.read_text())
+                data.pop("mcpServers", None)
+                claude_settings.write_text(json.dumps(data, indent=2) + "\n")
+            except (json.JSONDecodeError, OSError):
+                claude_settings.write_text("{}\n")
+        else:
+            claude_settings.write_text("{}\n")
+
+    if not claude_managed.exists():
+        claude_managed.write_text("[]\n")
+
+    # Ensure all overlay files are writable by the container process.
+    # Docker with -u UID:GID maps the same user, so this is usually fine.
+    # Podman rootless maps UID 0 inside to the host user, also fine.
+    # But if a previous Docker run created files as a different UID (e.g. root
+    # creating mount targets), the container process can't write them.
+    for f in (
+        copilot_mcp,
+        copilot_lsp,
+        gemini_settings,
+        gemini_managed,
+        claude_settings,
+        claude_managed,
+    ):
+        try:
+            f.chmod(0o666)
+        except OSError:
+            pass
+
 
 def generate_agents_md(
     cname: str,
@@ -1134,11 +1170,11 @@ def generate_agents_md(
     mcp_servers: Optional[Dict[str, Any]] = None,
     mcp_presets: Optional[List[str]] = None,
 ) -> Path:
-    """Generate per-workspace AGENTS.md files and return the directory.
+    """Generate per-workspace AGENTS.md and CLAUDE.md files and return the directory.
 
-    Produces separate files for Copilot and Gemini so that user-level
-    AGENTS.md content from ~/.copilot/AGENTS.md and ~/.gemini/AGENTS.md
-    can differ between the two agents.
+    Produces separate files for Copilot, Gemini, and Claude so that user-level
+    ~/.copilot/AGENTS.md, ~/.gemini/AGENTS.md, and ~/.claude/CLAUDE.md content
+    can differ between the agents.
     """
     agents_dir = AGENTS_DIR / cname
     agents_dir.mkdir(parents=True, exist_ok=True)
@@ -1342,6 +1378,14 @@ def generate_agents_md(
         else:
             content = jail_content
         (agents_dir / f"AGENTS-{agent}.md").write_text(content)
+
+    # Claude reads ~/.claude/CLAUDE.md (not AGENTS.md) at the user-config level.
+    user_claude = home / ".claude" / "CLAUDE.md"
+    if user_claude.exists():
+        claude_content = user_claude.read_text() + "\n---\n\n" + jail_content
+    else:
+        claude_content = jail_content
+    (agents_dir / "CLAUDE.md").write_text(claude_content)
 
     return agents_dir
 
@@ -2175,10 +2219,12 @@ entrypoint.generate_mise_config()
 entrypoint.generate_mcp_wrappers()
 entrypoint.configure_copilot()
 entrypoint.configure_gemini()
+entrypoint.configure_claude()
 
 json.loads((entrypoint.COPILOT_DIR / "mcp-config.json").read_text())
 json.loads((entrypoint.COPILOT_DIR / "lsp-config.json").read_text())
 json.loads((entrypoint.GEMINI_DIR / "settings.json").read_text())
+json.loads((entrypoint.CLAUDE_DIR / "settings.json").read_text())
 print("ok")
 """
         result = subprocess.run(
@@ -2404,7 +2450,7 @@ need to know.
      • Any gotchas or context the inner agent needs
 
   4. [bold]Ask the human to restart you inside the jail[/bold]:
-     Tell them to run: yolo -- copilot  (or yolo -- gemini)
+     Tell them to run: yolo -- copilot  (or yolo -- gemini, yolo -- claude)
 
      The inner agent has a built-in [bold]jail-startup[/bold] skill that reads
      your handover doc automatically. The human just needs to say:
@@ -2526,7 +2572,7 @@ def config_ref():
     Deep-merged: user config adds tools, workspace config overrides versions.
     Example: {"neovim": "nightly", "typst": "latest"}
 
-  [bold]lsp_servers[/bold] (object): Additional language servers for Copilot and Gemini.
+  [bold]lsp_servers[/bold] (object): Additional language servers for Copilot and Gemini (Claude uses its own tools).
     Default servers (always present): python (pyright), typescript, go (gopls).
     Workspace servers are merged with defaults — add new ones or override existing.
     Each key is a server name; value is an object with:
@@ -2546,7 +2592,7 @@ def config_ref():
     Invalid: enabling a preset here and null-removing it in the same config file.
     Example: ["chrome-devtools", "sequential-thinking"]
 
-  [bold]mcp_servers[/bold] (object): Custom MCP servers for Copilot and Gemini.
+  [bold]mcp_servers[/bold] (object): Custom MCP servers for Copilot, Gemini, and Claude.
     Add custom servers, or set a preset/inherited server to [bold]null[/bold] to disable it.
     Each key is a server name; value is an object with:
       • command (string, required): Binary name (on PATH) or absolute path.
@@ -2554,6 +2600,7 @@ def config_ref():
     The entrypoint translates these for each agent:
       • Copilot: written to a per-workspace overlay mounted at ~/.copilot/mcp-config.json.
       • Gemini: written to a per-workspace overlay mounted at ~/.gemini/settings.json.
+      • Claude: written to a per-workspace overlay mounted at ~/.claude/settings.json.
     Example: {"my-custom": {"command": "/workspace/scripts/my-mcp.py", "args": []}}
 
   [bold]devices[/bold] (array): Host devices to pass through to the jail.
@@ -2719,13 +2766,13 @@ def config_ref():
 
   [bold]Home Directory (/home/agent)[/bold]
     A shared persistent home that is the SAME across ALL jail workspaces.
-    Contains: auth tokens (gh, gemini), tool caches, npm/go globals,
+    Contains: auth tokens (gh, gemini, claude), tool caches, npm/go globals,
     nvim config, shell configs, mise tool data. All of this survives
     jail restarts and is shared between every project's jail.
 
   [bold]Per-Workspace State[/bold]
     Some state is isolated per-workspace (in <workspace>/.yolo/):
-    SSH keys, bash history, copilot sessions, gemini history.
+    SSH keys, bash history, copilot sessions, gemini history, claude projects.
     These are NOT shared across different project jails.
 
   [bold]Identity & Auth[/bold]
@@ -2737,7 +2784,7 @@ def config_ref():
     Runtimes: Node.js 22, Python 3.13, Go (managed by mise)
     Editors:  nvim (version configurable via mise_tools config)
     CLI:      rg, fd, bat, jq, git, jj, gh, curl, strace, uv, tmux
-    Agents:   copilot, gemini (--yolo auto-injected)
+    Agents:   copilot, gemini (--yolo auto-injected), claude (YOLO mode via settings.json)
     The 'yolo' command is available inside for nested jailing and help.
 
   [bold]Mise Tool Management[/bold]
@@ -2781,7 +2828,7 @@ def config_ref():
   2. Edit the config — add any nix packages or mise_tools needed
   3. Run 'yolo check' after EVERY config edit to validate the config before restarting
   4. Run 'yolo -- bash' to enter the jail interactively
-  5. Start your agent: 'yolo -- copilot' or 'yolo -- gemini'
+  5. Start your agent: 'yolo -- copilot', 'yolo -- gemini', or 'yolo -- claude'
 
   [bold]For agents preparing to enter a jail:[/bold]
   Before asking the human to restart you inside the jail, ALWAYS run 'yolo check'
@@ -2999,7 +3046,7 @@ def check(
         if not (repo_root / "src" / "entrypoint.py").exists():
             raise ConfigError(f"entrypoint source not found under {repo_root}")
         _entrypoint_preflight(repo_root, workspace, config)
-        ok("Generated Copilot/Gemini jail config in a temp home")
+        ok("Generated Copilot/Gemini/Claude jail config in a temp home")
     except (ConfigError, SystemExit) as e:
         fail("Entrypoint preflight failed", str(e))
     console.print()
@@ -3354,6 +3401,9 @@ def run(
         if full_command[0] == "copilot":
             if "--no-auto-update" not in full_command:
                 full_command.insert(1, "--no-auto-update")
+        # Claude YOLO mode is set via settings.json (permissions.defaultMode=bypassPermissions)
+        # rather than --dangerously-skip-permissions, which refuses to run as UID 0 in Podman
+        # rootless containers.
         target_cmd = shlex.join(full_command)
 
     # Collect identity env vars early — needed for both exec and run paths
@@ -3571,6 +3621,7 @@ def run(
     (ws_state / "copilot-command-history").touch()
     (ws_state / "bash_history").touch()
     (ws_state / "gemini-history").mkdir(exist_ok=True)
+    (ws_state / "claude-projects").mkdir(exist_ok=True)
     (ws_state / "ssh").mkdir(exist_ok=True, mode=0o700)
 
     # Per-workspace MCP/LSP config overlays — each jail gets its own config
@@ -3595,6 +3646,8 @@ def run(
         f"{ws_state / 'bash_history'}:/home/agent/.bash_history",
         "-v",
         f"{ws_state / 'gemini-history'}:/home/agent/.gemini/history",
+        "-v",
+        f"{ws_state / 'claude-projects'}:/home/agent/.claude/projects",
         # Per-workspace SSH keys — each project gets its own ~/.ssh/
         "-v",
         f"{ws_state / 'ssh'}:/home/agent/.ssh",
@@ -3607,6 +3660,10 @@ def run(
         f"{ws_state / 'gemini-settings.json'}:/home/agent/.gemini/settings.json",
         "-v",
         f"{ws_state / 'gemini-managed-mcp.json'}:/home/agent/.gemini/yolo-managed-mcp-servers.json",
+        "-v",
+        f"{ws_state / 'claude-settings.json'}:/home/agent/.claude/settings.json",
+        "-v",
+        f"{ws_state / 'claude-managed-mcp.json'}:/home/agent/.claude/yolo-managed-mcp-servers.json",
         "-v",
         f"{host_mise}:{host_mise}",
         "--tmpfs",
@@ -3983,7 +4040,7 @@ def run(
     # Pass original host mise path for nested jail re-mounting
     docker_cmd.extend(["-e", f"YOLO_OUTER_MISE_PATH={host_mise}"])
 
-    # Mount host user-level copilot/gemini skills so they're available in the jail
+    # Mount host user-level copilot/gemini/claude skills so they're available in the jail
     host_gemini_skills = Path.home() / ".gemini" / "skills"
     host_dotfiles_skills = Path.home() / ".dotfiles" / "gemini" / "skills"
 
@@ -3996,8 +4053,8 @@ def run(
                 ["-v", f"{host_dotfiles_skills}:{host_dotfiles_skills}:ro"]
             )
 
-    # Generate per-workspace AGENTS.md (separate for Copilot and Gemini to
-    # respect user-level ~/.copilot/AGENTS.md vs ~/.gemini/AGENTS.md)
+    # Generate per-workspace AGENTS.md / CLAUDE.md (separate for each agent to
+    # respect user-level ~/.copilot/AGENTS.md, ~/.gemini/AGENTS.md, ~/.claude/CLAUDE.md)
     agents_path = generate_agents_md(
         cname,
         workspace,
@@ -4015,6 +4072,9 @@ def run(
     docker_cmd.extend(
         ["-v", f"{agents_path / 'AGENTS-gemini.md'}:/home/agent/.gemini/AGENTS.md:ro"]
     )
+    docker_cmd.extend(
+        ["-v", f"{agents_path / 'CLAUDE.md'}:/home/agent/.claude/CLAUDE.md:ro"]
+    )
 
     if "TERM" in os.environ:
         docker_cmd.extend(["-e", f"TERM={os.environ['TERM']}"])
@@ -4028,21 +4088,27 @@ def run(
     # If mise.toml exists in workspace, trust it.
     # Then ensure all tools (global + local) are ready.
     setup_script = "YOLO_BYPASS_SHIMS=1 sh -c '(if [ -f mise.toml ]; then mise trust; fi) && mise install && ~/.yolo-bootstrap.sh && ~/.yolo-venv-precreate.sh'"
-    # After setup, activate mise so tool paths (copilot, gemini, etc.) are in PATH.
+    # After setup, activate mise so tool paths (copilot, gemini, claude, etc.) are in PATH.
     # We use `mise env` (one-time activation) rather than `mise hook-env` (continuous
     # shell integration) because hook-env deadlocks when it needs to create a venv:
     # it holds a lock, spawns `uv` via the mise shim (which IS mise), and the shim
     # tries to acquire the same lock → deadlock.
     mise_activate = 'eval "$(mise env -s bash)" 2>/dev/null'
+
+    # Human-readable command for status messages
+    display_cmd = target_cmd.replace("'", "'\\''")
+
     # Use && for fail-fast: if provisioning fails, don't proceed with broken env
     if profile:
         # Wrap each phase with timing output for profiling
         final_internal_cmd = (
             "exec 3>&2; "  # save stderr
+            "echo '\\033[2m📦 Provisioning tools...\\033[0m' >&2; "
             f"_t0=$(date +%s%N); {setup_script} >/dev/null; "
             "_t1=$(date +%s%N); "
             f"{mise_activate}; "
             "_t2=$(date +%s%N); "
+            f"echo '\\033[1;32m🚀 Executing: {display_cmd}\\033[0m' >&2; "
             f"{target_cmd}; _rc=$?; "
             "_t3=$(date +%s%N); "
             # Print profile report to stderr
@@ -4066,8 +4132,13 @@ def run(
             "exit $_rc"
         )
     else:
+        # Provisioning message → bootstrap → activate → executing message → command
         final_internal_cmd = (
-            f"{setup_script} >/dev/null && {mise_activate}; {target_cmd}"
+            "echo '\\033[2m📦 Provisioning tools...\\033[0m' >&2 && "
+            f"{setup_script} >/dev/null && "
+            f"{mise_activate}; "
+            f"echo '\\033[1;32m🚀 Executing: {display_cmd}\\033[0m' >&2; "
+            f"{target_cmd}"
         )
 
     docker_cmd.append(final_internal_cmd)

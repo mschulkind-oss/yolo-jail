@@ -162,6 +162,8 @@ def test_init_per_workspace_mcp_configs_seeds_gemini_settings(tmp_path, monkeypa
     assert seeded["security"]["approvalMode"] == "yolo"
     assert seeded["general"]["previewFeatures"] is True
     assert "mcpServers" not in seeded
+    assert json.loads((ws_state / "claude-settings.json").read_text()) == {}
+    assert json.loads((ws_state / "claude-managed-mcp.json").read_text()) == []
 
 
 class TestConfigSnapshot:

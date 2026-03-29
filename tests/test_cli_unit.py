@@ -945,6 +945,7 @@ class TestEnsureGlobalStorage:
         ensure_global_storage()
         assert (home / ".copilot").is_dir()
         assert (home / ".gemini").is_dir()
+        assert (home / ".claude").is_dir()
         assert (home / ".config" / "git").is_dir()
 
 
@@ -980,8 +981,11 @@ class TestGenerateAgentsMd:
         )
         assert (agents_dir / "AGENTS-copilot.md").exists()
         assert (agents_dir / "AGENTS-gemini.md").exists()
+        assert (agents_dir / "CLAUDE.md").exists()
         content = (agents_dir / "AGENTS-copilot.md").read_text()
         assert "YOLO Jail" in content
+        claude_content = (agents_dir / "CLAUDE.md").read_text()
+        assert "YOLO Jail" in claude_content
 
     def test_blocked_tools_listed(self, tmp_path, monkeypatch):
         monkeypatch.setattr("cli.AGENTS_DIR", tmp_path / "agents")
@@ -1200,6 +1204,8 @@ class TestInitPerWorkspaceMcpConfigs:
         assert (ws_state / "copilot-lsp-config.json").exists()
         assert (ws_state / "gemini-settings.json").exists()
         assert (ws_state / "gemini-managed-mcp.json").exists()
+        assert (ws_state / "claude-settings.json").exists()
+        assert (ws_state / "claude-managed-mcp.json").exists()
 
     def test_seeds_from_shared_gemini(self, tmp_path, monkeypatch):
         from cli import _init_per_workspace_mcp_configs

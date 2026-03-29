@@ -620,6 +620,7 @@ class TestRunCommandInternals:
         agents_dir.mkdir(parents=True)
         (agents_dir / "AGENTS-copilot.md").write_text("test")
         (agents_dir / "AGENTS-gemini.md").write_text("test")
+        (agents_dir / "CLAUDE.md").write_text("test")
         mock_agents.return_value = agents_dir
         monkeypatch.setattr("cli.GLOBAL_STORAGE", tmp_path / "storage")
         (tmp_path / "storage" / "locks").mkdir(parents=True, exist_ok=True)
@@ -2196,6 +2197,8 @@ class TestInitPerWorkspaceMcpConfigs:
         assert (ws_state / "copilot-lsp-config.json").exists()
         assert (ws_state / "gemini-settings.json").exists()
         assert (ws_state / "gemini-managed-mcp.json").exists()
+        assert (ws_state / "claude-settings.json").exists()
+        assert (ws_state / "claude-managed-mcp.json").exists()
 
     def test_seeds_from_shared_gemini_settings(self, tmp_path, monkeypatch):
         from cli import _init_per_workspace_mcp_configs

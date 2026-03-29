@@ -41,6 +41,8 @@ def jail_home(tmp_path, monkeypatch):
         "COPILOT_DIR",
         "GEMINI_DIR",
         "GEMINI_MANAGED_MCP_PATH",
+        "CLAUDE_DIR",
+        "CLAUDE_MANAGED_MCP_PATH",
         "MISE_CONFIG_DIR",
     ]
     for attr in attrs:
@@ -58,6 +60,10 @@ def jail_home(tmp_path, monkeypatch):
     entrypoint.GEMINI_DIR = tmp_path / ".gemini"
     entrypoint.GEMINI_MANAGED_MCP_PATH = (
         tmp_path / ".gemini" / "yolo-managed-mcp-servers.json"
+    )
+    entrypoint.CLAUDE_DIR = tmp_path / ".claude"
+    entrypoint.CLAUDE_MANAGED_MCP_PATH = (
+        tmp_path / ".claude" / "yolo-managed-mcp-servers.json"
     )
     entrypoint.MISE_CONFIG_DIR = tmp_path / ".config" / "mise"
 
@@ -151,6 +157,9 @@ class TestBashrcGeneration:
         content = entrypoint.BASHRC_PATH.read_text()
         assert "alias gemini='gemini --yolo'" in content
         assert "alias copilot='copilot --yolo --no-auto-update'" in content
+        assert "alias claude='claude --dangerously-skip-permissions'" not in content
+        # Claude YOLO is via settings.json, not an alias flag
+        assert "bypassPermissions" in content or "settings.json" in content
 
     def test_pager_disabled(self, jail_home, monkeypatch):
         monkeypatch.setenv("YOLO_HOST_DIR", "test")
@@ -167,6 +176,15 @@ class TestBashrcGeneration:
         assert content.index("$NPM_CONFIG_PREFIX/bin") < content.index(
             "${MISE_DATA_DIR:-/mise}/shims"
         )
+
+    def test_local_bin_in_path(self, jail_home, monkeypatch):
+        """~/.local/bin is on PATH for native Claude binary."""
+        monkeypatch.setenv("YOLO_HOST_DIR", "test")
+        entrypoint.generate_bashrc()
+        content = entrypoint.BASHRC_PATH.read_text()
+        assert "$HOME/.local/bin" in content
+        # ~/.local/bin should come before npm-global (native claude takes precedence)
+        assert content.index("$HOME/.local/bin") < content.index("$NPM_CONFIG_PREFIX/bin")
 
 
 # -- Copilot config --
@@ -489,6 +507,57 @@ class TestGeminiConfig:
         assert "mcpServers" in cfg
 
 
+# -- Claude config --
+
+
+class TestClaudeConfig:
+    def test_settings_created(self, jail_home):
+        """configure_claude creates settings.json with MCP servers."""
+        entrypoint.configure_claude()
+        cfg = json.loads(
+            (entrypoint.CLAUDE_DIR / "settings.json").read_text()
+        )
+        assert "mcpServers" in cfg
+
+    def test_yolo_mode_default(self, jail_home):
+        """settings.json has bypassPermissions as default mode."""
+        entrypoint.configure_claude()
+        cfg = json.loads(
+            (entrypoint.CLAUDE_DIR / "settings.json").read_text()
+        )
+        assert cfg["permissions"]["defaultMode"] == "bypassPermissions"
+
+    def test_auto_update_disabled(self, jail_home):
+        """settings.json disables auto-updates (startup bootstrap owns updates)."""
+        entrypoint.configure_claude()
+        cfg = json.loads(
+            (entrypoint.CLAUDE_DIR / "settings.json").read_text()
+        )
+        assert cfg["preferences"]["autoUpdaterStatus"] == "disabled"
+
+    def test_preserves_existing_settings(self, jail_home):
+        """configure_claude merges into existing settings.json."""
+        entrypoint.CLAUDE_DIR.mkdir(parents=True, exist_ok=True)
+        existing = {"myCustomKey": True, "mcpServers": {"existing": {"command": "foo"}}}
+        (entrypoint.CLAUDE_DIR / "settings.json").write_text(json.dumps(existing))
+        entrypoint.configure_claude()
+        cfg = json.loads(
+            (entrypoint.CLAUDE_DIR / "settings.json").read_text()
+        )
+        assert cfg["myCustomKey"] is True
+        assert cfg["permissions"]["defaultMode"] == "bypassPermissions"
+
+    def test_handles_corrupt_json(self, jail_home):
+        entrypoint.CLAUDE_DIR.mkdir(parents=True, exist_ok=True)
+        (entrypoint.CLAUDE_DIR / "settings.json").write_text("not json{{{")
+        entrypoint.configure_claude()  # should not raise
+        cfg = json.loads(
+            (entrypoint.CLAUDE_DIR / "settings.json").read_text()
+        )
+        assert "mcpServers" in cfg
+        assert cfg["permissions"]["defaultMode"] == "bypassPermissions"
+
+
 # -- MCP wrappers --
 
 
@@ -569,6 +638,9 @@ class TestBootstrapScript:
             "npm install -g --prefer-online @google/gemini-cli@latest @github/copilot@latest"
             in script
         )
+        # Claude Code uses native installer, not npm
+        assert "@anthropic-ai/claude-code" not in script
+        assert "https://claude.ai/install.sh" in script
         assert os.access(jail_home / ".yolo-bootstrap.sh", os.X_OK)
 
 
@@ -1151,6 +1223,7 @@ class TestMainFunction:
 
     @patch("entrypoint.exec_bash")
     @patch("entrypoint.start_container_port_forwarding")
+    @patch("entrypoint.configure_claude")
     @patch("entrypoint.configure_gemini")
     @patch("entrypoint.configure_copilot")
     @patch("entrypoint.merge_skills")
@@ -1183,6 +1256,7 @@ class TestMainFunction:
         mock_skills,
         mock_copilot,
         mock_gemini,
+        mock_claude,
         mock_port_fwd,
         mock_exec,
         jail_home,
@@ -1201,12 +1275,14 @@ class TestMainFunction:
         mock_jj.assert_called_once()
         mock_copilot.assert_called_once()
         mock_gemini.assert_called_once()
+        mock_claude.assert_called_once()
         mock_cgroup.assert_called_once()
         mock_cglimit.assert_called_once()
         mock_exec.assert_called_once_with("echo hello")
 
     @patch("entrypoint.exec_bash")
     @patch("entrypoint.start_container_port_forwarding")
+    @patch("entrypoint.configure_claude")
     @patch("entrypoint.configure_gemini")
     @patch("entrypoint.configure_copilot")
     @patch("entrypoint.merge_skills")
@@ -1239,6 +1315,7 @@ class TestMainFunction:
         mock_skills,
         mock_copilot,
         mock_gemini,
+        mock_claude,
         mock_port_fwd,
         mock_exec,
         jail_home,
@@ -1253,6 +1330,7 @@ class TestMainFunction:
 
     @patch("entrypoint.exec_bash")
     @patch("entrypoint.start_container_port_forwarding")
+    @patch("entrypoint.configure_claude")
     @patch("entrypoint.configure_gemini")
     @patch("entrypoint.configure_copilot")
     @patch("entrypoint.merge_skills")
@@ -1285,6 +1363,7 @@ class TestMainFunction:
         mock_skills,
         mock_copilot,
         mock_gemini,
+        mock_claude,
         mock_port_fwd,
         mock_exec,
         jail_home,

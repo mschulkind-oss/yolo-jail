@@ -104,6 +104,7 @@ def test_ensure_global_storage_creates_mount_parents(tmp_path, monkeypatch):
     # Intermediate mount-parent dirs that Docker would otherwise create as root
     assert (tmp_path / "home" / ".copilot").is_dir()
     assert (tmp_path / "home" / ".gemini").is_dir()
+    assert (tmp_path / "home" / ".claude").is_dir()
     assert (tmp_path / "home" / ".config" / "git").is_dir()
 
 
