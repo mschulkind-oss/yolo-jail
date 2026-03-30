@@ -3401,9 +3401,11 @@ def run(
         if full_command[0] == "copilot":
             if "--no-auto-update" not in full_command:
                 full_command.insert(1, "--no-auto-update")
-        # Claude YOLO mode is set via settings.json (permissions.defaultMode=bypassPermissions)
-        # rather than --dangerously-skip-permissions, which refuses to run as UID 0 in Podman
-        # rootless containers.
+        # Claude YOLO mode: --dangerously-skip-permissions auto-approves all
+        # tool calls. IS_SANDBOX=1 env var bypasses Claude's root-user check.
+        if full_command[0] == "claude":
+            if "--dangerously-skip-permissions" not in full_command:
+                full_command.insert(1, "--dangerously-skip-permissions")
         target_cmd = shlex.join(full_command)
 
     # Collect identity env vars early — needed for both exec and run paths
@@ -3688,6 +3690,12 @@ def run(
         "MISE_YES=1",
         "-e",
         "COPILOT_ALLOW_ALL=true",
+        # Tell Claude Code this is a sandboxed environment so it skips the
+        # root-user check that blocks bypassPermissions / --dangerously-skip-permissions.
+        # This is a belt-and-suspenders fix: the entrypoint also configures
+        # permissions.allow rules instead of bypassPermissions.
+        "-e",
+        "IS_SANDBOX=1",
         "-e",
         "LD_LIBRARY_PATH=/lib:/usr/lib:/usr/lib/x86_64-linux-gnu",
         "-e",
@@ -4103,12 +4111,12 @@ def run(
         # Wrap each phase with timing output for profiling
         final_internal_cmd = (
             "exec 3>&2; "  # save stderr
-            "echo '\\033[2m📦 Provisioning tools...\\033[0m' >&2; "
-            f"_t0=$(date +%s%N); {setup_script} >/dev/null; "
+            "printf '\\033[2m📦 Provisioning tools...\\033[0m\\n' >&2; "
+            f"_t0=$(date +%s%N); {setup_script} >/dev/null 2>&1; "
             "_t1=$(date +%s%N); "
             f"{mise_activate}; "
             "_t2=$(date +%s%N); "
-            f"echo '\\033[1;32m🚀 Executing: {display_cmd}\\033[0m' >&2; "
+            f"printf '\\033[1;32m🚀 Executing: {display_cmd}\\033[0m\\n' >&2; "
             f"{target_cmd}; _rc=$?; "
             "_t3=$(date +%s%N); "
             # Print profile report to stderr
@@ -4134,10 +4142,10 @@ def run(
     else:
         # Provisioning message → bootstrap → activate → executing message → command
         final_internal_cmd = (
-            "echo '\\033[2m📦 Provisioning tools...\\033[0m' >&2 && "
-            f"{setup_script} >/dev/null && "
+            "printf '\\033[2m📦 Provisioning tools...\\033[0m\\n' >&2 && "
+            f"{setup_script} >/dev/null 2>&1 && "
             f"{mise_activate}; "
-            f"echo '\\033[1;32m🚀 Executing: {display_cmd}\\033[0m' >&2; "
+            f"printf '\\033[1;32m🚀 Executing: {display_cmd}\\033[0m\\n' >&2; "
             f"{target_cmd}"
         )
 

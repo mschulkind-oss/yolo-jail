@@ -158,8 +158,8 @@ class TestBashrcGeneration:
         assert "alias gemini='gemini --yolo'" in content
         assert "alias copilot='copilot --yolo --no-auto-update'" in content
         assert "alias claude='claude --dangerously-skip-permissions'" not in content
-        # Claude YOLO is via settings.json, not an alias flag
-        assert "bypassPermissions" in content or "settings.json" in content
+        # Claude YOLO is via settings.json allow rules, not an alias flag
+        assert "permissions.allow" in content or "settings.json" in content
 
     def test_pager_disabled(self, jail_home, monkeypatch):
         monkeypatch.setenv("YOLO_HOST_DIR", "test")
@@ -184,7 +184,9 @@ class TestBashrcGeneration:
         content = entrypoint.BASHRC_PATH.read_text()
         assert "$HOME/.local/bin" in content
         # ~/.local/bin should come before npm-global (native claude takes precedence)
-        assert content.index("$HOME/.local/bin") < content.index("$NPM_CONFIG_PREFIX/bin")
+        assert content.index("$HOME/.local/bin") < content.index(
+            "$NPM_CONFIG_PREFIX/bin"
+        )
 
 
 # -- Copilot config --
@@ -511,51 +513,94 @@ class TestGeminiConfig:
 
 
 class TestClaudeConfig:
-    def test_settings_created(self, jail_home):
-        """configure_claude creates settings.json with MCP servers."""
+    def test_mcp_servers_in_claude_json(self, jail_home):
+        """MCP servers go in ~/.claude.json (user scope), not settings.json."""
         entrypoint.configure_claude()
-        cfg = json.loads(
-            (entrypoint.CLAUDE_DIR / "settings.json").read_text()
-        )
-        assert "mcpServers" in cfg
+        claude_json = json.loads((entrypoint.HOME / ".claude.json").read_text())
+        assert "mcpServers" in claude_json
+        # settings.json should NOT have mcpServers
+        settings = json.loads((entrypoint.CLAUDE_DIR / "settings.json").read_text())
+        assert "mcpServers" not in settings
 
     def test_yolo_mode_default(self, jail_home):
-        """settings.json has bypassPermissions as default mode."""
+        """settings.json has allow-all rules instead of bypassPermissions (root-safe)."""
         entrypoint.configure_claude()
-        cfg = json.loads(
-            (entrypoint.CLAUDE_DIR / "settings.json").read_text()
-        )
-        assert cfg["permissions"]["defaultMode"] == "bypassPermissions"
+        cfg = json.loads((entrypoint.CLAUDE_DIR / "settings.json").read_text())
+        perms = cfg["permissions"]
+        assert "Bash" in perms["allow"]
+        assert "Edit" in perms["allow"]
+        assert "Read" in perms["allow"]
+        assert "mcp__*" in perms["allow"]
+        assert perms.get("defaultMode") != "bypassPermissions"
 
     def test_auto_update_disabled(self, jail_home):
         """settings.json disables auto-updates (startup bootstrap owns updates)."""
         entrypoint.configure_claude()
-        cfg = json.loads(
-            (entrypoint.CLAUDE_DIR / "settings.json").read_text()
-        )
+        cfg = json.loads((entrypoint.CLAUDE_DIR / "settings.json").read_text())
         assert cfg["preferences"]["autoUpdaterStatus"] == "disabled"
+
+    def test_lsp_tool_enabled(self, jail_home):
+        """settings.json enables ENABLE_LSP_TOOL for language server support."""
+        entrypoint.configure_claude()
+        cfg = json.loads((entrypoint.CLAUDE_DIR / "settings.json").read_text())
+        assert cfg["env"]["ENABLE_LSP_TOOL"] == "1"
+
+    def test_lsp_plugins_enabled(self, jail_home):
+        """Default LSP plugins are enabled in settings.json."""
+        entrypoint.configure_claude()
+        cfg = json.loads((entrypoint.CLAUDE_DIR / "settings.json").read_text())
+        plugins = cfg.get("enabledPlugins", {})
+        assert plugins.get("pyright-lsp@claude-plugins-official") is True
+        assert plugins.get("typescript-lsp@claude-plugins-official") is True
+        assert plugins.get("gopls-lsp@claude-plugins-official") is True
 
     def test_preserves_existing_settings(self, jail_home):
         """configure_claude merges into existing settings.json."""
         entrypoint.CLAUDE_DIR.mkdir(parents=True, exist_ok=True)
-        existing = {"myCustomKey": True, "mcpServers": {"existing": {"command": "foo"}}}
+        existing = {"myCustomKey": True}
         (entrypoint.CLAUDE_DIR / "settings.json").write_text(json.dumps(existing))
         entrypoint.configure_claude()
-        cfg = json.loads(
-            (entrypoint.CLAUDE_DIR / "settings.json").read_text()
-        )
+        cfg = json.loads((entrypoint.CLAUDE_DIR / "settings.json").read_text())
         assert cfg["myCustomKey"] is True
-        assert cfg["permissions"]["defaultMode"] == "bypassPermissions"
+        assert "Bash" in cfg["permissions"]["allow"]
+
+    def test_preserves_existing_claude_json(self, jail_home):
+        """configure_claude merges MCP into existing ~/.claude.json."""
+        existing = {
+            "hasCompletedOnboarding": True,
+            "mcpServers": {"custom": {"command": "foo"}},
+        }
+        (entrypoint.HOME / ".claude.json").write_text(json.dumps(existing))
+        entrypoint.configure_claude()
+        claude_json = json.loads((entrypoint.HOME / ".claude.json").read_text())
+        assert claude_json["hasCompletedOnboarding"] is True
+        assert "custom" in claude_json["mcpServers"]
 
     def test_handles_corrupt_json(self, jail_home):
         entrypoint.CLAUDE_DIR.mkdir(parents=True, exist_ok=True)
         (entrypoint.CLAUDE_DIR / "settings.json").write_text("not json{{{")
         entrypoint.configure_claude()  # should not raise
-        cfg = json.loads(
-            (entrypoint.CLAUDE_DIR / "settings.json").read_text()
-        )
-        assert "mcpServers" in cfg
-        assert cfg["permissions"]["defaultMode"] == "bypassPermissions"
+        cfg = json.loads((entrypoint.CLAUDE_DIR / "settings.json").read_text())
+        assert "Bash" in cfg["permissions"]["allow"]
+
+    def test_migrates_bypass_permissions(self, jail_home):
+        """Existing bypassPermissions is removed and replaced with allow rules."""
+        entrypoint.CLAUDE_DIR.mkdir(parents=True, exist_ok=True)
+        existing = {"permissions": {"defaultMode": "bypassPermissions"}}
+        (entrypoint.CLAUDE_DIR / "settings.json").write_text(json.dumps(existing))
+        entrypoint.configure_claude()
+        cfg = json.loads((entrypoint.CLAUDE_DIR / "settings.json").read_text())
+        assert cfg["permissions"].get("defaultMode") != "bypassPermissions"
+        assert "Bash" in cfg["permissions"]["allow"]
+
+    def test_removes_stale_mcp_from_settings(self, jail_home):
+        """Old mcpServers in settings.json are cleaned up."""
+        entrypoint.CLAUDE_DIR.mkdir(parents=True, exist_ok=True)
+        existing = {"mcpServers": {"stale-server": {"command": "old"}}}
+        (entrypoint.CLAUDE_DIR / "settings.json").write_text(json.dumps(existing))
+        entrypoint.configure_claude()
+        cfg = json.loads((entrypoint.CLAUDE_DIR / "settings.json").read_text())
+        assert "mcpServers" not in cfg
 
 
 # -- MCP wrappers --
@@ -634,14 +679,58 @@ class TestBootstrapScript:
         assert "chrome-devtools-mcp" in script
         assert "mcp-language-server" in script
         assert "showboat" in script
-        assert (
-            "npm install -g --prefer-online @google/gemini-cli@latest @github/copilot@latest"
-            in script
-        )
-        # Claude Code uses native installer, not npm
+        # Agent CLIs (gemini, copilot, claude) are NOT updated in bootstrap —
+        # lazy-update launchers in ~/.yolo-shims/ handle that on first use.
+        assert "@google/gemini-cli@latest" not in script
+        assert "@github/copilot@latest" not in script
         assert "@anthropic-ai/claude-code" not in script
-        assert "https://claude.ai/install.sh" in script
+        assert "https://claude.ai/install.sh" not in script
         assert os.access(jail_home / ".yolo-bootstrap.sh", os.X_OK)
+
+
+# -- Agent launchers --
+
+
+class TestAgentLaunchers:
+    def test_creates_launchers(self, jail_home):
+        entrypoint.SHIM_DIR.mkdir(parents=True, exist_ok=True)
+        entrypoint.generate_agent_launchers()
+        for name in ("gemini", "copilot", "claude"):
+            launcher = entrypoint.SHIM_DIR / name
+            assert launcher.exists(), f"{name} launcher not created"
+            assert os.access(launcher, os.X_OK), f"{name} launcher not executable"
+            content = launcher.read_text()
+            assert "YOLO_BYPASS_SHIMS=1" in content
+            assert "exec " in content
+
+    def test_does_not_overwrite_blocked_shim(self, jail_home, monkeypatch):
+        """If a tool is blocked via YOLO_BLOCK_CONFIG, the launcher must not overwrite it."""
+        monkeypatch.setenv(
+            "YOLO_BLOCK_CONFIG",
+            '[{"name": "gemini", "message": "blocked"}]',
+        )
+        entrypoint.generate_shims()
+        blocked_content = (entrypoint.SHIM_DIR / "gemini").read_text()
+        entrypoint.generate_agent_launchers()
+        assert (entrypoint.SHIM_DIR / "gemini").read_text() == blocked_content
+        # copilot and claude should still get launchers
+        assert (entrypoint.SHIM_DIR / "copilot").exists()
+        assert (entrypoint.SHIM_DIR / "claude").exists()
+
+    def test_npm_launcher_checks_version(self, jail_home):
+        entrypoint.SHIM_DIR.mkdir(parents=True, exist_ok=True)
+        entrypoint.generate_agent_launchers()
+        content = (entrypoint.SHIM_DIR / "gemini").read_text()
+        assert "npm view" in content  # registry version check
+        assert "package.json" in content  # local version check
+        assert "UPDATE_INTERVAL" in content  # stamp-based throttling
+
+    def test_claude_launcher_uses_native_installer(self, jail_home):
+        entrypoint.SHIM_DIR.mkdir(parents=True, exist_ok=True)
+        entrypoint.generate_agent_launchers()
+        content = (entrypoint.SHIM_DIR / "claude").read_text()
+        assert "claude.ai/install.sh" in content
+        assert '"$REAL_BIN" install' in content  # native update command
 
 
 # -- Skills merging --

@@ -161,6 +161,128 @@ def generate_shims():
         shim_path.chmod(shim_path.stat().st_mode | stat.S_IEXEC)
 
 
+def generate_agent_launchers():
+    """Create lazy-update wrappers for agent CLIs (gemini, copilot, claude).
+
+    Instead of updating all agents at boot (slow), these wrappers update the
+    specific agent on first use.  They sit in SHIM_DIR (highest PATH priority)
+    and self-delete after ensuring the real binary is current.
+    """
+    SHIM_DIR.mkdir(parents=True, exist_ok=True)
+    stamp_dir = HOME / ".cache" / "yolo-agent-stamps"
+
+    # npm-based agents: gemini, copilot
+    npm_agents = {
+        "gemini": "@google/gemini-cli",
+        "copilot": "@github/copilot",
+    }
+    for bin_name, pkg_name in npm_agents.items():
+        # Don't overwrite a blocked-tool shim
+        shim_path = SHIM_DIR / bin_name
+        if shim_path.exists():
+            continue
+
+        launcher = f"""#!/bin/bash
+# Lazy-update launcher for {bin_name} — updates on first use, not at boot.
+set -euo pipefail
+export NPM_CONFIG_PREFIX="${{NPM_CONFIG_PREFIX:-$HOME/.npm-global}}"
+STAMP_DIR="{stamp_dir}"
+STAMP="$STAMP_DIR/{bin_name}.stamp"
+REAL_BIN="$NPM_CONFIG_PREFIX/bin/{bin_name}"
+PKG="{pkg_name}"
+UPDATE_INTERVAL=3600  # seconds between update checks
+
+mkdir -p "$STAMP_DIR"
+
+_do_install() {{
+    echo "  Installing $PKG..." >&2
+    # Clean stale npm temp dirs that cause ENOTEMPTY
+    rm -rf "$NPM_CONFIG_PREFIX"/lib/node_modules/${{PKG%%/*}}/.${{PKG##*/}}-* 2>/dev/null
+    YOLO_BYPASS_SHIMS=1 npm install -g --prefer-online "$PKG@latest" 2>&1 || true
+    touch "$STAMP"
+}}
+
+if [ ! -x "$REAL_BIN" ]; then
+    _do_install
+elif [ ! -f "$STAMP" ]; then
+    # First run since jail boot — check if update needed
+    INSTALLED=$(jq -r '.version' "$NPM_CONFIG_PREFIX/lib/node_modules/$PKG/package.json" 2>/dev/null || echo "0")
+    LATEST=$(YOLO_BYPASS_SHIMS=1 npm view "$PKG" version 2>/dev/null || echo "$INSTALLED")
+    if [ "$INSTALLED" != "$LATEST" ]; then
+        echo "  Updating {bin_name} $INSTALLED → $LATEST..." >&2
+        _do_install
+    else
+        touch "$STAMP"
+    fi
+else
+    # Check if stamp is stale (older than UPDATE_INTERVAL)
+    STAMP_AGE=$(( $(date +%s) - $(stat -c %Y "$STAMP" 2>/dev/null || echo 0) ))
+    if [ "$STAMP_AGE" -gt "$UPDATE_INTERVAL" ]; then
+        INSTALLED=$(jq -r '.version' "$NPM_CONFIG_PREFIX/lib/node_modules/$PKG/package.json" 2>/dev/null || echo "0")
+        LATEST=$(YOLO_BYPASS_SHIMS=1 npm view "$PKG" version 2>/dev/null || echo "$INSTALLED")
+        if [ "$INSTALLED" != "$LATEST" ]; then
+            echo "  Updating {bin_name} $INSTALLED → $LATEST..." >&2
+            _do_install
+        else
+            touch "$STAMP"
+        fi
+    fi
+fi
+
+if [ -x "$REAL_BIN" ]; then
+    exec "$REAL_BIN" "$@"
+else
+    echo "  ⚠ {bin_name} not available" >&2
+    exit 1
+fi
+"""
+        shim_path.write_text(launcher)
+        shim_path.chmod(shim_path.stat().st_mode | stat.S_IEXEC)
+
+    # Claude: native installer
+    claude_shim = SHIM_DIR / "claude"
+    if not claude_shim.exists():
+        launcher = f"""#!/bin/bash
+# Lazy-update launcher for claude — installs/updates on first use, not at boot.
+set -euo pipefail
+STAMP_DIR="{stamp_dir}"
+STAMP="$STAMP_DIR/claude.stamp"
+REAL_BIN="$HOME/.local/bin/claude"
+UPDATE_INTERVAL=3600
+
+mkdir -p "$STAMP_DIR"
+
+_do_install() {{
+    echo "  Installing Claude Code..." >&2
+    YOLO_BYPASS_SHIMS=1 curl -fsSL https://claude.ai/install.sh | bash 2>&1 || true
+    touch "$STAMP"
+}}
+
+if [ ! -x "$REAL_BIN" ]; then
+    _do_install
+elif [ ! -f "$STAMP" ]; then
+    # First run since boot — try a quick update
+    YOLO_BYPASS_SHIMS=1 "$REAL_BIN" install 2>&1 || true
+    touch "$STAMP"
+else
+    STAMP_AGE=$(( $(date +%s) - $(stat -c %Y "$STAMP" 2>/dev/null || echo 0) ))
+    if [ "$STAMP_AGE" -gt "$UPDATE_INTERVAL" ]; then
+        YOLO_BYPASS_SHIMS=1 "$REAL_BIN" install 2>&1 || true
+        touch "$STAMP"
+    fi
+fi
+
+if [ -x "$REAL_BIN" ]; then
+    exec "$REAL_BIN" "$@"
+else
+    echo "  ⚠ claude not available" >&2
+    exit 1
+fi
+"""
+        claude_shim.write_text(launcher)
+        claude_shim.chmod(claude_shim.stat().st_mode | stat.S_IEXEC)
+
+
 # ---------------------------------------------------------------------------
 # 2. Generate .bashrc
 # ---------------------------------------------------------------------------
@@ -224,8 +346,8 @@ alias ls='ls --color=auto'
 alias ll='ls -alF'
 alias gemini='gemini --yolo'
 alias copilot='copilot --yolo --no-auto-update'
-# Claude YOLO mode is set via settings.json (permissions.defaultMode=bypassPermissions)
-# rather than --dangerously-skip-permissions, which refuses to run as UID 0 in Podman rootless.
+# Claude YOLO mode: cli.py injects --dangerously-skip-permissions (with
+# IS_SANDBOX=1 to bypass the root check) + settings.json permissions.allow rules.
 alias vi='nvim'
 alias vim='nvim'
 alias bat='bat --style=plain --paging=never'
@@ -246,40 +368,14 @@ def generate_bootstrap_script():
 export NPM_CONFIG_PREFIX="${NPM_CONFIG_PREFIX:-$HOME/.npm-global}"
 export GOPATH="${GOPATH:-$HOME/go}"
 export GOBIN="$GOPATH/bin"
-export PATH="$NPM_CONFIG_PREFIX/bin:${MISE_DATA_DIR:-/mise}/shims:$GOBIN:$PATH"
+export PATH="$HOME/.local/bin:$NPM_CONFIG_PREFIX/bin:${MISE_DATA_DIR:-/mise}/shims:$GOBIN:$PATH"
 
 # Initialize font cache (once, not on every shell session)
 fc-cache -f >/dev/null 2>&1
 
-# Keep agent CLIs current.  Their built-in self-updaters are disabled in jail
-# config/launchers, so startup owns the update step instead.
-# --prefer-online forces npm to check the registry instead of trusting its
-# local metadata cache (which can keep stale @latest tag resolutions).
-if command -v npm >/dev/null; then
-    if ! YOLO_BYPASS_SHIMS=1 npm install -g --prefer-online @google/gemini-cli@latest @github/copilot@latest 2>&1; then
-        echo "  ⚠ npm update failed for gemini/copilot; retrying..." >&2
-        sleep 2
-        YOLO_BYPASS_SHIMS=1 npm install -g --prefer-online @google/gemini-cli@latest @github/copilot@latest 2>&1 || \
-            echo "  ⚠ gemini/copilot update failed after retry; using installed versions" >&2
-    fi
-    # Verify the binaries actually exist — npm can succeed without creating bin links
-    # if the package is already installed at the same version.
-    for bin in copilot gemini; do
-        if ! [ -x "$NPM_CONFIG_PREFIX/bin/$bin" ]; then
-            echo "  ⚠ $bin binary missing; attempting reinstall..." >&2
-            YOLO_BYPASS_SHIMS=1 npm install -g --prefer-online --force @github/copilot@latest @google/gemini-cli@latest 2>&1 || true
-            break
-        fi
-    done
-fi
-
-# Claude Code: use native installer (no Node.js dependency).
-# Binary goes to ~/.local/bin/claude with version data in ~/.local/share/claude.
-if ! command -v claude >/dev/null || [ "${YOLO_CLAUDE_FORCE_UPDATE:-}" = "1" ]; then
-    echo "  Installing Claude Code..." >&2
-    YOLO_BYPASS_SHIMS=1 curl -fsSL https://claude.ai/install.sh | bash 2>&1 || \
-        echo "  ⚠ Claude Code install failed; continuing with installed version" >&2
-fi
+# Agent CLIs (gemini, copilot, claude) are NOT updated here.
+# Lazy-update launchers in ~/.yolo-shims/ handle install/update on first use,
+# keeping boot fast.  Only MCP/LSP tools that agents depend on are installed here.
 
 # Install binaries if missing.
 if ! command -v chrome-devtools-mcp >/dev/null; then
@@ -372,9 +468,10 @@ def generate_mise_config():
         injected_tools = {}
 
     # Base tools always present in the jail.
-    # NOTE: copilot and gemini are NOT managed by mise — the bootstrap script
-    # handles their installation via npm install -g to avoid mise's version
-    # cache preventing updates to @latest.
+    # NOTE: copilot, gemini, and claude are NOT managed by mise — the bootstrap
+    # script handles their installation (npm install -g for copilot/gemini,
+    # native installer for claude) to avoid mise's version cache preventing
+    # updates and the npm deprecation warning for claude.
     base_tools = {
         "node": "22",
         "python": "3.13",
@@ -384,7 +481,11 @@ def generate_mise_config():
     # Tools that used to be in base_tools but are now bootstrap-managed.
     # Remove from existing configs to avoid stale mise-cached versions
     # shadowing the always-fresh npm global installs.
-    retired_tools = ['"npm:@github/copilot"', "gemini"]
+    retired_tools = [
+        '"npm:@github/copilot"',
+        "gemini",
+        '"npm:@anthropic-ai/claude-code"',
+    ]
 
     if not config_path.exists():
         MISE_CONFIG_DIR.mkdir(parents=True, exist_ok=True)
@@ -436,6 +537,33 @@ def generate_mise_config():
 
     if changed:
         config_path.write_text(content)
+
+    # Also retire from workspace mise.toml if present (mounted from host).
+    ws_mise = Path("/workspace/mise.toml")
+    if ws_mise.exists():
+        ws_content = ws_mise.read_text()
+        ws_changed = False
+        for tool in retired_tools:
+            pattern = rf'^{re.escape(tool)}\s*=\s*"[^"]*"\n?'
+            new_ws = re.sub(pattern, "", ws_content, flags=re.MULTILINE)
+            if new_ws != ws_content:
+                ws_content = new_ws
+                ws_changed = True
+        if ws_changed:
+            ws_mise.write_text(ws_content)
+
+    # Uninstall retired mise tools so stale binaries don't shadow bootstrap ones.
+    # mise uninstall is idempotent — safe to call even if already removed.
+    for tool in retired_tools:
+        tool_name = tool.strip('"')
+        try:
+            subprocess.run(
+                ["mise", "uninstall", "--all", tool_name],
+                capture_output=True,
+                timeout=30,
+            )
+        except Exception:
+            pass
 
 
 # ---------------------------------------------------------------------------
@@ -646,7 +774,11 @@ def merge_skills():
             _copy_skill_dirs(Path(host_skills_path), jail_skills)
 
         # Workspace skills (take precedence) — check .copilot, .gemini, and .claude
-        for ws_dir in ["/workspace/.copilot/skills", "/workspace/.gemini/skills", "/workspace/.claude/skills"]:
+        for ws_dir in [
+            "/workspace/.copilot/skills",
+            "/workspace/.gemini/skills",
+            "/workspace/.claude/skills",
+        ]:
             ws_skills = Path(ws_dir)
             if ws_skills.is_dir():
                 _copy_skill_dirs(ws_skills, jail_skills)
@@ -871,50 +1003,128 @@ def configure_gemini():
 
 
 # ---------------------------------------------------------------------------
-# 10. Claude Code config (MCP in settings.json)
+# 10. Claude Code config (MCP in settings.json, LSP plugins)
 # ---------------------------------------------------------------------------
+
+# Map jail LSP server names to Claude Code official plugin IDs.
+CLAUDE_LSP_PLUGIN_MAP = {
+    "python": "pyright-lsp@claude-plugins-official",
+    "typescript": "typescript-lsp@claude-plugins-official",
+    "go": "gopls-lsp@claude-plugins-official",
+}
+
+
+def _install_claude_plugins(plugin_map: dict, lsp_servers: dict):
+    """Install Claude Code LSP plugins from the official marketplace.
+
+    Reads installed_plugins.json to skip already-installed plugins.
+    Uses `claude plugins install` for new ones.  Failures are non-fatal.
+    """
+    plugins_meta = CLAUDE_DIR / "plugins" / "installed_plugins.json"
+    try:
+        installed = set(json.loads(plugins_meta.read_text()).get("plugins", {}).keys())
+    except (FileNotFoundError, json.JSONDecodeError, TypeError):
+        installed = set()
+
+    for lsp_name, plugin_id in plugin_map.items():
+        if lsp_name not in lsp_servers:
+            continue
+        if plugin_id in installed:
+            continue
+        # Only attempt if claude binary is available
+        claude_bin = HOME / ".local" / "bin" / "claude"
+        if not claude_bin.exists():
+            # Fall back to PATH (mise-installed or shim)
+            claude_bin = Path("claude")
+        try:
+            subprocess.run(
+                [str(claude_bin), "plugins", "install", plugin_id],
+                capture_output=True,
+                timeout=30,
+                env={**os.environ, "YOLO_BYPASS_SHIMS": "1"},
+            )
+        except Exception:
+            pass  # non-fatal — plugin will be installed on next boot
 
 
 def configure_claude():
-    """Set up Claude Code settings with MCP servers, merging with existing config."""
+    """Set up Claude Code: settings.json (permissions, plugins) + ~/.claude.json (MCP)."""
     CLAUDE_DIR.mkdir(parents=True, exist_ok=True)
-    config_path = CLAUDE_DIR / "settings.json"
+    settings_path = CLAUDE_DIR / "settings.json"
+    # Claude reads user-scoped MCP servers from ~/.claude.json, not settings.json.
+    claude_json_path = HOME / ".claude.json"
 
     configured_servers = _load_mcp_servers()
 
     try:
-        if config_path.exists():
+        # --- settings.json: permissions, preferences, plugins ---
+        if settings_path.exists():
             try:
-                current = json.loads(config_path.read_text())
+                settings = json.loads(settings_path.read_text())
             except json.JSONDecodeError:
-                current = {}
+                settings = {}
         else:
-            current = {}
+            settings = {}
 
-        current_mcp_servers = current.setdefault("mcpServers", {})
+        # Remove any stale mcpServers from settings.json (moved to ~/.claude.json)
+        settings.pop("mcpServers", None)
+
+        # YOLO mode permissions
+        permissions = settings.setdefault("permissions", {})
+        permissions["allow"] = [
+            "Bash",
+            "Edit",
+            "Read",
+            "WebFetch",
+            "mcp__*",
+            "Agent(*)",
+        ]
+        permissions["deny"] = []
+        if permissions.get("defaultMode") == "bypassPermissions":
+            del permissions["defaultMode"]
+
+        settings.setdefault("preferences", {})["autoUpdaterStatus"] = "disabled"
+
+        # Enable LSP tool so Claude Code uses language servers for navigation.
+        settings.setdefault("env", {})["ENABLE_LSP_TOOL"] = "1"
+
+        # Enable LSP plugins matching the jail's configured LSP servers.
+        lsp_servers = _load_lsp_servers()
+        enabled_plugins = settings.setdefault("enabledPlugins", {})
+        for lsp_name, plugin_id in CLAUDE_LSP_PLUGIN_MAP.items():
+            if lsp_name in lsp_servers:
+                enabled_plugins[plugin_id] = True
+
+        settings_path.write_text(json.dumps(settings, indent=2) + "\n")
+
+        # --- ~/.claude.json: user-scoped MCP servers ---
+        if claude_json_path.exists():
+            try:
+                claude_json = json.loads(claude_json_path.read_text())
+            except json.JSONDecodeError:
+                claude_json = {}
+        else:
+            claude_json = {}
+
+        mcp_servers = claude_json.setdefault("mcpServers", {})
         try:
             previous_managed = set(json.loads(CLAUDE_MANAGED_MCP_PATH.read_text()))
         except (FileNotFoundError, json.JSONDecodeError, TypeError, ValueError):
             previous_managed = set()
 
         for name in previous_managed:
-            current_mcp_servers.pop(name, None)
-        current_mcp_servers.update(configured_servers)
+            mcp_servers.pop(name, None)
+        mcp_servers.update(configured_servers)
 
-        # Ensure Claude starts in YOLO mode (bypass all permission prompts).
-        # We rely on settings.json rather than the --dangerously-skip-permissions
-        # CLI flag because that flag refuses to run as UID 0, which is the norm
-        # inside Podman rootless containers (UID 0 in user namespace).
-        current.setdefault("permissions", {})["defaultMode"] = "bypassPermissions"
-        # Disable auto-update — startup bootstrap owns the update step.
-        current.setdefault("preferences", {})["autoUpdaterStatus"] = "disabled"
-
-        config_path.write_text(json.dumps(current, indent=2) + "\n")
+        claude_json_path.write_text(json.dumps(claude_json, indent=2) + "\n")
         CLAUDE_MANAGED_MCP_PATH.write_text(
             json.dumps(sorted(configured_servers.keys()), indent=2) + "\n"
         )
     except Exception as e:
-        print(f"Error configuring Claude MCP: {e}", file=sys.stderr)
+        print(f"Error configuring Claude: {e}", file=sys.stderr)
+
+    # Install LSP plugins if not already present (idempotent, persists across restarts).
+    _install_claude_plugins(CLAUDE_LSP_PLUGIN_MAP, _load_lsp_servers())
 
 
 # ---------------------------------------------------------------------------
@@ -1293,6 +1503,8 @@ def main():
 
     generate_shims()
     _perf("generate_shims")
+    generate_agent_launchers()
+    _perf("generate_agent_launchers")
     generate_bashrc()
     _perf("generate_bashrc")
     generate_bootstrap_script()
