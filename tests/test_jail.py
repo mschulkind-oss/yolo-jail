@@ -468,13 +468,13 @@ def test_mise_venv_activation(tmp_path):
     project_dir.mkdir()
 
     with open(project_dir / "mise.toml", "w") as f:
+        # Pin to 3.13 (already installed in the jail) to avoid a slow download.
         f.write(
-            '[tools]\npython = "3"\n\n[env]\n_.python.venv = { path = ".venv", create = true }\n'
+            '[tools]\npython = "3.13"\n\n[env]\n_.python.venv = { path = ".venv", create = true }\n'
         )
 
-    # Longer timeout: nested container startup + mise python install + venv creation
-    # can be very slow, especially when running inside a jail (doubly-nested containers).
-    result = run_yolo(project_dir, "echo $VIRTUAL_ENV", timeout=600)
+    # Longer timeout: nested container startup + venv creation can be slow.
+    result = run_yolo(project_dir, "echo $VIRTUAL_ENV", timeout=300)
     assert result.returncode == 0
     assert ".venv" in result.stdout
 

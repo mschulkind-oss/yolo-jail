@@ -4061,7 +4061,7 @@ def run(
     docker_cmd.extend(["--pids-limit", str(effective_pids)])
     res_parts.append(f"pids={effective_pids}")
     if res_parts:
-        console.print(f"[dim]Resource limits: {', '.join(res_parts)}[/dim]")
+        print(f"Resource limits: {', '.join(res_parts)}", file=sys.stderr)
 
     # Copy host nvim config (resolving symlinks) so ctrl-g uses the user's config.
     # We copy instead of bind-mounting because dotfile managers (stow, etc.) create

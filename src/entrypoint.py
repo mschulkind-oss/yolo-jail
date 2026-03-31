@@ -1459,6 +1459,23 @@ def setup_published_port_localnet():
             )
 
 
+def generate_yolo_wrapper():
+    """Generate a yolo CLI wrapper in ~/.local/bin/.
+
+    The host's mise-installed `yolo` console_script does `from src.cli import main`
+    which fails inside the jail because the package isn't pip-installed there.
+    This wrapper delegates to uv run against the mounted repo at /opt/yolo-jail.
+    """
+    repo_root = os.environ.get("YOLO_REPO_ROOT", "/opt/yolo-jail")
+    script_dir = HOME / ".local" / "bin"
+    script_dir.mkdir(parents=True, exist_ok=True)
+    script_path = script_dir / "yolo"
+    script_path.write_text(f"""#!/bin/bash
+exec uv run --project "{repo_root}" python "{repo_root}/src/cli.py" "$@"
+""")
+    script_path.chmod(0o755)
+
+
 # ---------------------------------------------------------------------------
 # Host port forwarding (container side)
 # ---------------------------------------------------------------------------
@@ -1616,6 +1633,8 @@ def main():
     _perf("cgroup_delegation")
     generate_cglimit_script()
     _perf("cglimit_script")
+    generate_yolo_wrapper()
+    _perf("yolo_wrapper")
 
     _perf_dump()
 
