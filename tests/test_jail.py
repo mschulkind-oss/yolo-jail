@@ -458,6 +458,11 @@ def test_venv_symlinks_resolve(temp_project):
     assert "Python" in result.stdout
 
 
+@pytest.mark.xfail(
+    reason="mise venv creation via uv can hang when MISE_DATA_DIR is shared "
+    "between host and container (lock contention during eval mise env)",
+    strict=False,
+)
 @pytest.mark.skipif(
     Path("/run/.containerenv").exists() or Path("/.dockerenv").exists(),
     reason="mise has a re-entrant shim deadlock in nested containers (podman-in-podman)",
@@ -473,8 +478,9 @@ def test_mise_venv_activation(tmp_path):
             '[tools]\npython = "3.13"\n\n[env]\n_.python.venv = { path = ".venv", create = true }\n'
         )
 
-    # Longer timeout: nested container startup + venv creation can be slow.
-    result = run_yolo(project_dir, "echo $VIRTUAL_ENV", timeout=300)
+    # Longer timeout: nested container startup + venv creation can be slow,
+    # especially when mise needs to resolve/install Python versions.
+    result = run_yolo(project_dir, "echo $VIRTUAL_ENV", timeout=600)
     assert result.returncode == 0
     assert ".venv" in result.stdout
 

@@ -1460,16 +1460,16 @@ def setup_published_port_localnet():
 
 
 def generate_yolo_wrapper():
-    """Generate a yolo CLI wrapper in ~/.local/bin/.
+    """Generate a yolo CLI wrapper in ~/.yolo-shims/.
 
     The host's mise-installed `yolo` console_script does `from src.cli import main`
     which fails inside the jail because the package isn't pip-installed there.
-    This wrapper delegates to uv run against the mounted repo at /opt/yolo-jail.
+    mise activation can prepend installs/python/.../bin/ to PATH, so the wrapper
+    must be in ~/.yolo-shims/ (first on PATH) to take priority.
     """
     repo_root = os.environ.get("YOLO_REPO_ROOT", "/opt/yolo-jail")
-    script_dir = HOME / ".local" / "bin"
-    script_dir.mkdir(parents=True, exist_ok=True)
-    script_path = script_dir / "yolo"
+    SHIM_DIR.mkdir(parents=True, exist_ok=True)
+    script_path = SHIM_DIR / "yolo"
     script_path.write_text(f"""#!/bin/bash
 exec uv run --project "{repo_root}" python "{repo_root}/src/cli.py" "$@"
 """)

@@ -4195,7 +4195,9 @@ def run(
     # shell integration) because hook-env deadlocks when it needs to create a venv:
     # it holds a lock, spawns `uv` via the mise shim (which IS mise), and the shim
     # tries to acquire the same lock → deadlock.
-    mise_activate = 'eval "$(mise env -s bash)" 2>/dev/null'
+    # Re-prepend yolo-shims after mise env so our wrappers (yolo, blocked tools)
+    # take priority over mise-installed console_scripts in installs/python/.../bin/.
+    mise_activate = 'eval "$(mise env -s bash)" 2>/dev/null; export PATH="$HOME/.yolo-shims:$PATH"'
 
     # Human-readable command for status messages
     display_cmd = target_cmd.replace("'", "'\\''")
