@@ -5,6 +5,7 @@ Sets up the container environment (shims, configs, prompt) then exec's bash.
 Uses only stdlib — runs before any pip packages are installed.
 """
 
+import hashlib
 import json
 import os
 import shutil
@@ -1096,6 +1097,44 @@ def _load_host_claude_settings() -> dict:
         return {}
 
 
+def _isolate_claude_history():
+    """Give each jail its own Claude Code prompt history (up-arrow isolation).
+
+    Claude stores readline history in ~/.claude/history.jsonl — a single global
+    file.  Since all jails share $HOME and all have cwd /workspace, the default
+    history is shared across jails.
+
+    Fix: replace history.jsonl with a symlink to a per-project file inside
+    ~/.claude/jail-history/<hash>.jsonl, keyed on YOLO_HOST_DIR (the unique
+    host workspace path).
+    """
+    host_dir = os.environ.get("YOLO_HOST_DIR", "")
+    if not host_dir:
+        return
+
+    history_dir = CLAUDE_DIR / "jail-history"
+    history_dir.mkdir(parents=True, exist_ok=True)
+
+    h = hashlib.sha256(host_dir.encode()).hexdigest()[:12]
+    per_jail = history_dir / f"{h}.jsonl"
+    per_jail.touch(exist_ok=True)
+
+    history_file = CLAUDE_DIR / "history.jsonl"
+    # If it's already the right symlink, nothing to do
+    if history_file.is_symlink():
+        try:
+            if history_file.resolve() == per_jail.resolve():
+                return
+        except OSError:
+            pass
+    # Remove existing (regular file or stale symlink)
+    try:
+        history_file.unlink(missing_ok=True)
+    except OSError:
+        pass
+    history_file.symlink_to(per_jail)
+
+
 def configure_claude():
     """Set up Claude Code: settings.json (permissions, plugins) + ~/.claude.json (MCP)."""
     CLAUDE_DIR.mkdir(parents=True, exist_ok=True)
@@ -1107,6 +1146,9 @@ def configure_claude():
 
     # Sync non-settings host claude files first
     _sync_host_claude_files()
+
+    # Isolate prompt history per jail
+    _isolate_claude_history()
 
     try:
         # --- settings.json: permissions, preferences, plugins ---
@@ -1470,8 +1512,11 @@ def generate_yolo_wrapper():
     repo_root = os.environ.get("YOLO_REPO_ROOT", "/opt/yolo-jail")
     SHIM_DIR.mkdir(parents=True, exist_ok=True)
     script_path = SHIM_DIR / "yolo"
+    # Use python directly (not uv run --project) because the repo mount is
+    # read-only and uv would try to build an editable install.  The shared
+    # mise Python already has the patched finder + deps from `just setup`.
     script_path.write_text(f"""#!/bin/bash
-exec uv run --project "{repo_root}" python "{repo_root}/src/cli.py" "$@"
+exec python "{repo_root}/src/cli.py" "$@"
 """)
     script_path.chmod(0o755)
 

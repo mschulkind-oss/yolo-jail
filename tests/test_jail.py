@@ -9,6 +9,19 @@ REPO_ROOT = Path(__file__).parent.parent.resolve()
 pytestmark = pytest.mark.slow
 
 
+def _skip_if_cgroup_readonly():
+    """Skip test if the cgroup filesystem is read-only (e.g. running inside a jail)."""
+    cg = Path("/sys/fs/cgroup")
+    if not cg.exists():
+        pytest.skip("cgroup v2 not available")
+    try:
+        test_dir = cg / ".yolo-test-probe"
+        test_dir.mkdir()
+        test_dir.rmdir()
+    except OSError:
+        pytest.skip("cgroup filesystem is read-only (nested jail?)")
+
+
 @pytest.fixture
 def temp_project(tmp_path):
     """Create a temporary project directory with a yolo-jail.jsonc."""
@@ -590,6 +603,8 @@ def test_cgroup_delegation_available(tmp_path):
     2. yolo-cglimit can communicate with the host daemon
     3. The daemon can create child cgroups and set limits
     """
+    _skip_if_cgroup_readonly()
+
     project_dir = tmp_path / "cgroup_test"
     project_dir.mkdir()
     config = {"network": {"mode": "bridge"}}
@@ -640,6 +655,8 @@ def test_cglimit_helper_available(tmp_path):
 
 def test_cglimit_enforces_cpu_limit(tmp_path):
     """Verify yolo-cglimit creates a cgroup and enforces a CPU limit via host daemon."""
+    _skip_if_cgroup_readonly()
+
     project_dir = tmp_path / "cglimit_enforce"
     project_dir.mkdir()
     config = {"network": {"mode": "bridge"}}
