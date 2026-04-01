@@ -79,15 +79,23 @@ test-fast:
 lint:
     uv run ruff check .
 
+# Lint without auto-fix (CI mode — fails on violations, doesn't modify files)
+lint-ci:
+    uv run ruff check .
+    uv run ruff format --check .
+
 # Format code
 format:
     uv run ruff check --fix .
     uv run ruff format .
 
-# Fast quality checks (pre-commit hook runs this)
+# Quality checks (interactive use)
 check: format lint test-fast
 
-# Full quality checks including container integration tests (CI runs this)
+# Pre-commit hook target (no formatting — just verify and test)
+check-ci: lint-ci test-fast
+
+# Full quality checks including container integration tests
 check-all: format lint test
 
 # Clean up build artifacts
