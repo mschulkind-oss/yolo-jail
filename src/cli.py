@@ -4193,8 +4193,8 @@ def run(
         "YOLO_BYPASS_SHIMS=1 sh -c '"
         "(if [ -f mise.toml ]; then mise trust; fi) && "
         "mise install && "
-        "echo \"  ↳ mise upgrade (shared data dir)\" >&2 && "
-        "mise upgrade --yes 2>&1 | sed \"s/^/    /\" >&2 && "
+        'echo "  ↳ mise upgrade (shared data dir)" >&2 && '
+        'mise upgrade --yes 2>&1 | sed "s/^/    /" >&2 && '
         "~/.yolo-bootstrap.sh && "
         "~/.yolo-venv-precreate.sh'"
     )
