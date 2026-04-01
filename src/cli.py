@@ -4289,7 +4289,7 @@ def run(
         final_internal_cmd = (
             "exec 3>&2; "  # save stderr
             "printf '\\033[2m📦 Provisioning tools...\\033[0m\\n' >&2; "
-            f"_t0=$(date +%s%N); {setup_script} >/dev/null 2>&1; "
+            f"_t0=$(date +%s%N); {setup_script}; "
             "_t1=$(date +%s%N); "
             f"{mise_activate}; "
             "_t2=$(date +%s%N); "
@@ -4320,7 +4320,7 @@ def run(
         # Provisioning message → bootstrap → activate → executing message → command
         final_internal_cmd = (
             "printf '\\033[2m📦 Provisioning tools...\\033[0m\\n' >&2 && "
-            f"{setup_script} >/dev/null 2>&1 && "
+            f"{setup_script} && "
             f"{mise_activate}; "
             f"printf '\\033[1;32m🚀 Executing: {display_cmd}\\033[0m\\n' >&2; "
             f"{target_cmd}"
