@@ -37,5 +37,35 @@ jobs:
       - name: Format check
         run: uv run ruff format --check .
 
-      - name: Test
+      - name: Unit tests
         run: uv run pytest tests/ -v -m "not slow"
+
+  integration:
+    runs-on: ubuntu-latest
+    needs: check
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Install uv
+        uses: astral-sh/setup-uv@v4
+
+      - name: Install Python dependencies
+        run: uv sync --group dev
+
+      - name: Install Nix
+        uses: cachix/install-nix-action@v30
+        with:
+          nix_path: nixpkgs=channel:nixos-unstable
+
+      - name: Install Podman
+        run: sudo apt-get update && sudo apt-get install -y podman
+
+      - name: Build and load jail image
+        run: |
+          uv run python src/cli.py build
+          podman load < result
+
+      - name: Integration tests
+        run: uv run pytest tests/test_jail.py -v --timeout=600
+        env:
+          YOLO_RUNTIME: podman

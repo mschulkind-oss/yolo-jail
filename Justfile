@@ -84,8 +84,11 @@ format:
     uv run ruff check --fix .
     uv run ruff format .
 
-# All quality checks
-check: format lint test
+# Fast quality checks (pre-commit hook runs this)
+check: format lint test-fast
+
+# Full quality checks including container integration tests (CI runs this)
+check-all: format lint test
 
 # Clean up build artifacts
 clean:
