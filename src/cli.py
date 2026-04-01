@@ -4189,7 +4189,15 @@ def run(
 
     # If mise.toml exists in workspace, trust it.
     # Then ensure all tools (global + local) are ready.
-    setup_script = "YOLO_BYPASS_SHIMS=1 sh -c '(if [ -f mise.toml ]; then mise trust; fi) && mise install && ~/.yolo-bootstrap.sh && ~/.yolo-venv-precreate.sh'"
+    setup_script = (
+        "YOLO_BYPASS_SHIMS=1 sh -c '"
+        "(if [ -f mise.toml ]; then mise trust; fi) && "
+        "mise install && "
+        "echo \"  ↳ mise upgrade (shared data dir)\" >&2 && "
+        "mise upgrade --yes 2>&1 | sed \"s/^/    /\" >&2 && "
+        "~/.yolo-bootstrap.sh && "
+        "~/.yolo-venv-precreate.sh'"
+    )
     # After setup, activate mise so tool paths (copilot, gemini, claude, etc.) are in PATH.
     # We use `mise env` (one-time activation) rather than `mise hook-env` (continuous
     # shell integration) because hook-env deadlocks when it needs to create a venv:
