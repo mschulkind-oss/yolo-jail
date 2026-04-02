@@ -1842,6 +1842,7 @@ KNOWN_TOP_LEVEL_CONFIG_KEYS = {
     "devices",
     "gpu",
     "resources",
+    "env",
     "host_claude_files",
 }
 KNOWN_NETWORK_KEYS = {"mode", "ports", "forward_host_ports"}
@@ -2296,6 +2297,23 @@ def _validate_config(
                         "config.resources.pids_limit: expected a positive integer"
                     )
 
+    # env validation
+    env_vars = config.get("env")
+    if env_vars is not None:
+        if not isinstance(env_vars, dict):
+            errors.append("config.env: expected an object of key-value string pairs")
+        else:
+            for key, value in env_vars.items():
+                if not isinstance(key, str) or not key:
+                    errors.append("config.env: keys must be non-empty strings")
+                elif not re.match(r"^[A-Za-z_][A-Za-z0-9_]*$", key):
+                    errors.append(
+                        f"config.env.{key}: invalid variable name "
+                        "(must match [A-Za-z_][A-Za-z0-9_]*)"
+                    )
+                if not isinstance(value, str):
+                    errors.append(f"config.env.{key}: expected a string value")
+
     return errors, warnings
 
 
@@ -2342,6 +2360,10 @@ def _entrypoint_preflight(repo_root: Path, workspace: Path, config: Dict[str, An
                 "YOLO_MCP_PRESETS": json.dumps(config.get("mcp_presets", [])),
             }
         )
+        # Apply user-defined env vars from config
+        for env_key, env_val in config.get("env", {}).items():
+            env[env_key] = env_val
+
         code = f"""
 import json
 import sys
@@ -2434,6 +2456,10 @@ def init():
   //   "~/code/other-repo",
   //   "~/code/shared-lib:/ctx/shared-lib"
   // ]
+
+  // Extra environment variables set inside the jail.
+  // Keys are variable names, values are strings.
+  // "env": {"DATABASE_URL": "postgres://localhost/dev", "DEBUG": "1"}
 
   // Extra tools to install via mise (key: tool name, value: version string).
   // Default: {"neovim": "stable"} — override in user or workspace config.
@@ -2686,6 +2712,12 @@ def config_ref():
     Set to [] to disable host claude file syncing.
     Example: ["settings.json", "keybindings.json"]
 
+  [bold]env[/bold] (object): Extra environment variables set inside the jail.
+    Keys are variable names, values are strings.
+    Merged: user config provides defaults, workspace config overrides.
+    These are set as container-level env vars (visible to all processes).
+    Example: {"DATABASE_URL": "postgres://localhost/dev", "DEBUG": "1"}
+
   [bold]mounts[/bold] (array of strings): Extra host paths mounted read-only.
     Simple path → mounted at /ctx/<basename>
     "host:container" → custom container path
@@ -2829,6 +2861,7 @@ def config_ref():
        "url": "mirror://savannah/freetype/freetype-2.14.1.tar.xz",
        "hash": "sha256-MkJ+jEcawJWFMhKjeu+BbGC0IFLU2eSCMLqzvfKTbMw="}
     ],
+    "env": {"MY_API_KEY": "...", "DEBUG": "1"},
     "mounts": ["/path/to/ref-repo"],
     "devices": [
       {"usb": "0bda:2838", "description": "RTL-SDR Blog V4"}
@@ -3736,6 +3769,7 @@ def run(
     mcp_servers = config.get("mcp_servers", {})
     mcp_presets = config.get("mcp_presets", [])
     host_claude_files = config.get("host_claude_files", DEFAULT_HOST_CLAUDE_FILES)
+    user_env = config.get("env", {})
     auto_load_image(repo_root, extra_packages=extra_packages or None, runtime=runtime)
 
     # Resolve host mise path — share the same data dir so venv paths match.
@@ -3908,6 +3942,13 @@ def run(
         f"YOLO_RUNTIME={runtime}",
         "-e",
         "YOLO_REPO_ROOT=/opt/yolo-jail",
+    ]
+
+    # User-defined environment variables from config
+    for env_key, env_val in user_env.items():
+        docker_cmd.extend(["-e", f"{env_key}={env_val}"])
+
+    docker_cmd += [
         "--workdir",
         "/workspace",
         # Mount yolo-jail repo for in-jail CLI (yolo --help, nested jailing)
