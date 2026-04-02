@@ -67,12 +67,21 @@ def _git_describe_version() -> "str | None":
     except Exception:
         pass
 
-    # Fall back to baked-in version from wheel build
+    # Fall back to setuptools-scm baked version (in installed wheels)
     if raw is None:
         try:
-            from src._version import GIT_DESCRIBE
+            from src._version import version as scm_version
 
-            raw = GIT_DESCRIBE
+            raw = scm_version
+        except Exception:
+            pass
+
+    # Fall back to package metadata
+    if raw is None:
+        try:
+            from importlib.metadata import version as pkg_version
+
+            raw = pkg_version("yolo-jail")
         except Exception:
             return None
 

@@ -3,15 +3,15 @@ package = true
 
 [project]
 name = "yolo-jail"
-version = "0.1.0"
-description = "Secure container jail for AI agents — run Copilot and Gemini in YOLO mode safely"
+dynamic = ["version"]
+description = "Secure container jail for AI agents — run Claude Code, Copilot, and Gemini in YOLO mode safely"
 readme = "README.md"
 requires-python = ">=3.13"
 license = "Apache-2.0"
 authors = [
     {name = "Matt Schulkind"},
 ]
-keywords = ["ai", "agents", "docker", "podman", "sandbox", "copilot", "gemini", "security", "nix"]
+keywords = ["ai", "agents", "docker", "podman", "sandbox", "claude", "copilot", "gemini", "security", "nix"]
 classifiers = [
     "Development Status :: 3 - Alpha",
     "Environment :: Console",
@@ -36,6 +36,16 @@ Issues = "https://github.com/mschulkind-oss/yolo-jail/issues"
 
 [project.scripts]
 yolo = "src.cli:main"
+
+[build-system]
+requires = ["setuptools>=64", "setuptools-scm>=8"]
+build-backend = "setuptools.build_meta"
+
+[tool.setuptools-scm]
+version_file = "src/_version.py"
+
+[tool.vcs-versioning]
+version_file = "src/_version.py"
 
 [tool.setuptools]
 packages = ["src"]

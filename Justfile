@@ -47,20 +47,9 @@ setup:
     echo "  Host fallback: $REPO_ROOT"
     echo "  Jail: uses \$YOLO_REPO_ROOT (/opt/yolo-jail)"
 
-# Build the Python package (bakes git version into the wheel)
+# Build the Python package (version derived from git tags via setuptools-scm)
 build:
-    #!/usr/bin/env bash
-    set -euo pipefail
-    # Bake git describe into src/_version.py so installed wheels know the full version
-    desc=$(git describe --tags --dirty --always 2>/dev/null || echo "")
-    if [ -n "$desc" ]; then
-        echo "GIT_DESCRIBE = \"$desc\"" > src/_version.py
-    else
-        echo "GIT_DESCRIBE = None" > src/_version.py
-    fi
     uv build
-    # Clean up generated file — it lives only in the wheel
-    rm -f src/_version.py
 
 # Install yolo as a standalone tool (decoupled from source tree)
 install: build
