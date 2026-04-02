@@ -49,6 +49,7 @@ setup:
 
 # Build the Python package (version derived from git tags via setuptools-scm)
 build:
+    rm -rf dist/
     uv build
 
 # Install yolo as a standalone tool (decoupled from source tree)
