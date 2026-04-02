@@ -14,10 +14,10 @@ setup:
 
     # Locate the generated finder module
     SITE_PACKAGES="$(python3 -c 'import site; print(site.getsitepackages()[0])')"
-    FINDER="$SITE_PACKAGES/__editable___yolo_jail_0_1_0_finder.py"
+    FINDER=$(ls "$SITE_PACKAGES"/__editable___yolo_jail*_finder.py 2>/dev/null | head -1)
 
-    if [ ! -f "$FINDER" ]; then
-        echo "ERROR: finder not found at $FINDER" >&2
+    if [ -z "$FINDER" ] || [ ! -f "$FINDER" ]; then
+        echo "ERROR: editable finder not found in $SITE_PACKAGES" >&2
         exit 1
     fi
 

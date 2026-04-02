@@ -47,8 +47,10 @@ def _git_describe_version() -> "str | None":
     ``0.1.0+3.gabcdef1.dirty``.  Returns *None* when git is unavailable or
     the command fails (e.g. not a git checkout).
     """
-    # First try live git (works in dev / editable installs)
-    raw = None
+    # First check env var (set by host CLI when launching a jail)
+    raw = os.environ.get("YOLO_VERSION")
+    if raw:
+        return raw
     try:
         repo_root = _resolve_repo_root()
     except Exception:
@@ -3902,6 +3904,8 @@ def run(
         f"YOLO_BLOCK_CONFIG={blocked_config_json}",
         "-e",
         f"YOLO_HOST_DIR={workspace}",
+        "-e",
+        f"YOLO_VERSION={_git_describe_version() or 'unknown'}",
         "-e",
         "OVERMIND_SOCKET=/tmp/overmind.sock",
         "-e",
