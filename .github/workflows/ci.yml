@@ -64,7 +64,7 @@ jobs:
       - name: Build and load jail image
         run: |
           nix build --impure .#dockerImage
-          podman load < result
+          ./result | podman load
 
       - name: Integration tests
         run: uv run pytest tests/test_jail.py -v
