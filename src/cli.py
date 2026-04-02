@@ -3335,29 +3335,35 @@ def check(
 
     if detected_runtime:
         console.print("[bold]Container Image[/bold]")
-        try:
-            result = subprocess.run(
-                [
-                    detected_runtime,
-                    "images",
-                    JAIL_IMAGE,
-                    "--format",
-                    "{{.Repository}}:{{.Tag}} ({{.Size}})",
-                ],
-                capture_output=True,
-                text=True,
-                timeout=10,
-            )
-            images = result.stdout.strip()
-            if images:
-                ok(f"Image loaded: {images.split(chr(10))[0]}")
-            else:
-                warn(
-                    f"Image '{JAIL_IMAGE}' not loaded",
-                    "Run 'yolo' once to build and load the image",
+        # Skip image check when running inside a jail — the nested podman
+        # won't have the image loaded (it's on the host's runtime).
+        in_jail = os.environ.get("YOLO_VERSION") is not None
+        if in_jail:
+            ok("Inside jail — image check skipped (managed by host)")
+        else:
+            try:
+                result = subprocess.run(
+                    [
+                        detected_runtime,
+                        "images",
+                        JAIL_IMAGE,
+                        "--format",
+                        "{{.Repository}}:{{.Tag}} ({{.Size}})",
+                    ],
+                    capture_output=True,
+                    text=True,
+                    timeout=10,
                 )
-        except Exception as e:
-            warn(f"Could not check image: {e}")
+                images = result.stdout.strip()
+                if images:
+                    ok(f"Image loaded: {images.split(chr(10))[0]}")
+                else:
+                    warn(
+                        f"Image '{JAIL_IMAGE}' not loaded",
+                        "Run 'yolo' once to build and load the image",
+                    )
+            except Exception as e:
+                warn(f"Could not check image: {e}")
         console.print()
 
         console.print("[bold]Running Jails[/bold]")
