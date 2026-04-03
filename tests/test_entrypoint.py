@@ -1188,6 +1188,18 @@ class TestMiseConfigUpdate:
         content = config_path.read_text()
         assert 'node = "23"' in content
 
+    def test_system_version_replaced_with_base(self, jail_home, monkeypatch):
+        monkeypatch.delenv("YOLO_MISE_TOOLS", raising=False)
+        entrypoint.generate_mise_config()
+        config_path = jail_home / ".config" / "mise" / "config.toml"
+        # Simulate stale "system" value (deprecated by mise)
+        content = config_path.read_text().replace('node = "22"', 'node = "system"')
+        config_path.write_text(content)
+        entrypoint.generate_mise_config()
+        content = config_path.read_text()
+        assert 'node = "22"' in content
+        assert '"system"' not in content
+
     def test_base_tools_not_duplicated(self, jail_home, monkeypatch):
         monkeypatch.delenv("YOLO_MISE_TOOLS", raising=False)
         entrypoint.generate_mise_config()

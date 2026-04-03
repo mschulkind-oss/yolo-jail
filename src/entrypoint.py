@@ -339,7 +339,7 @@ if [[ $- == *i* ]]; then
     eval "$(mise activate bash)"
 fi
 if [ -f /workspace/mise.toml ]; then
-    mise trust /workspace/mise.toml >/dev/null 2>&1 || true
+    mise trust --quiet /workspace/mise.toml 2>/dev/null || true
 fi
 
 # Aliases
@@ -524,12 +524,21 @@ def generate_mise_config():
             content = new_content
             changed = True
 
-    # Ensure all base tools are present (add missing ones only)
+    # Ensure all base tools are present and not using deprecated "system" value.
+    # mise deprecated @system — replace with the base version.
     for tool, version in base_tools.items():
         tk = _toml_key(tool)
         pattern = rf'^"?{re.escape(tool)}"?\s*=\s*"[^"]*"'
-        if not re.search(pattern, content, re.MULTILINE):
+        match = re.search(pattern, content, re.MULTILINE)
+        if not match:
             content = content.rstrip("\n") + f'\n{tk} = "{version}"\n'
+            changed = True
+        elif '"system"' in match.group():
+            content = (
+                content[: match.start()]
+                + f'{tk} = "{version}"'
+                + content[match.end() :]
+            )
             changed = True
 
     # Injected tools always override
@@ -1416,7 +1425,7 @@ def exec_bash(command: str):
     # messages in the command string.  For plain interactive shells, skip the noise.
     is_new_container_cmd = "yolo-bootstrap" in command
     if command != "bash" and not is_new_container_cmd:
-        sys.stderr.write(f"\033[1;32m🚀 Executing: {command}\033[0m\n")
+        sys.stderr.write(f"\033[1;36m⚡ Executing: {command}\033[0m\n")
         sys.stderr.flush()
 
     # Prepend mise env activation so tool paths (copilot, gemini, .venv/bin,
@@ -1670,9 +1679,12 @@ def main():
     # Set PATH including mise shims so tools like copilot/gemini/claude are found
     os.environ["PATH"] = f"{SHIM_DIR}:{NPM_BIN}:{MISE_SHIMS}:{GO_BIN}:/bin:/usr/bin"
 
-    # Trust workspace mise.toml
+    # Trust workspace mise.toml (--quiet suppresses "No untrusted config files" noise)
     if Path("/workspace/mise.toml").exists():
-        subprocess.run(["mise", "trust", "/workspace/mise.toml"], capture_output=True)
+        subprocess.run(
+            ["mise", "trust", "--quiet", "/workspace/mise.toml"],
+            capture_output=True,
+        )
 
     # NOTE: We intentionally do NOT call `mise hook-env` here.
     # hook-env holds a WRITE flock, then spawns `uv` via the mise shim
@@ -1689,12 +1701,6 @@ def main():
     _perf("yolo_wrapper")
 
     _perf_dump()
-
-    # Tell the user the jail is up and we're handing off to their command.
-    # This fires on every path (fresh container, exec-into-existing, interactive shell)
-    # so the user can distinguish "jail starting" from "command starting".
-    sys.stderr.write("\033[1;36m⚡ Jail ready\033[0m\n")
-    sys.stderr.flush()
 
     exec_bash(cmd)
 

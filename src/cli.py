@@ -4372,12 +4372,16 @@ def run(
 
     # If mise.toml exists in workspace, trust it.
     # Then ensure all tools (global + local) are ready.
+    # --quiet on mise trust suppresses "No untrusted config files found" warning.
+    # mise upgrade stderr is filtered to hide deprecation noise (@system warnings).
     setup_script = (
         "YOLO_BYPASS_SHIMS=1 sh -c '"
-        "(if [ -f mise.toml ]; then mise trust; fi) && "
-        "mise install && "
-        'echo "  ↳ mise upgrade (shared data dir)" >&2 && '
-        'mise upgrade --yes 2>&1 | sed "s/^/    /" >&2 && '
+        "(if [ -f mise.toml ]; then mise trust --quiet 2>/dev/null; fi) && "
+        'echo "  ↳ mise install" >&2 && '
+        "mise install --quiet && "
+        'echo "  ↳ mise upgrade" >&2 && '
+        'mise upgrade --yes 2>&1 | grep -v "^mise WARN" | sed "s/^/    /" >&2 && '
+        'echo "  ↳ bootstrap" >&2 && '
         "~/.yolo-bootstrap.sh && "
         "~/.yolo-venv-precreate.sh'"
     )
@@ -4405,7 +4409,7 @@ def run(
             "_t1=$(date +%s%N); "
             f"{mise_activate}; "
             "_t2=$(date +%s%N); "
-            f"printf '\\033[1;32m🚀 Executing: {display_cmd}\\033[0m\\n' >&2; "
+            f"printf '\\033[1;36m⚡ Executing: {display_cmd}\\033[0m\\n' >&2; "
             f"{target_cmd}; _rc=$?; "
             "_t3=$(date +%s%N); "
             # Print profile report to stderr
@@ -4429,12 +4433,12 @@ def run(
             "exit $_rc"
         )
     else:
-        # Provisioning message → bootstrap → activate → executing message → command
+        # Provisioning message → bootstrap → activate → ready → command
         final_internal_cmd = (
             "printf '\\033[2m📦 Provisioning tools...\\033[0m\\n' >&2 && "
             f"{setup_script} && "
             f"{mise_activate}; "
-            f"printf '\\033[1;32m🚀 Executing: {display_cmd}\\033[0m\\n' >&2; "
+            f"printf '\\033[1;36m⚡ Executing: {display_cmd}\\033[0m\\n' >&2; "
             f"{target_cmd}"
         )
 
