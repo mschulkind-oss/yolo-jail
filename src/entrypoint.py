@@ -5,6 +5,7 @@ Sets up the container environment (shims, configs, prompt) then exec's bash.
 Uses only stdlib — runs before any pip packages are installed.
 """
 
+import fcntl
 import hashlib
 import json
 import os
@@ -1648,32 +1649,54 @@ def main():
         except OSError:
             pass  # may lack permissions on /
 
-    generate_shims()
-    _perf("generate_shims")
-    generate_agent_launchers()
-    _perf("generate_agent_launchers")
-    generate_bashrc()
-    _perf("generate_bashrc")
-    generate_bootstrap_script()
-    _perf("generate_bootstrap_script")
-    generate_venv_precreate_script()
-    _perf("generate_venv_precreate_script")
-    generate_mise_config()
-    _perf("generate_mise_config")
-    generate_mcp_wrappers()
-    _perf("generate_mcp_wrappers")
-    configure_git()
-    _perf("configure_git")
-    configure_jj()
-    _perf("configure_jj")
-    merge_skills()
-    _perf("merge_skills")
-    configure_copilot()
-    _perf("configure_copilot")
-    configure_gemini()
-    _perf("configure_gemini")
-    configure_claude()
-    _perf("configure_claude")
+    # All generation steps write to the shared /home/agent directory.
+    # When multiple jails start concurrently (e.g. after a reboot with session
+    # restore), their entrypoints race on rmtree+recreate of shared paths.
+    # Serialize with an exclusive flock — generation is sub-second so the
+    # wait is negligible.
+    lock_path = HOME / ".yolo-entrypoint.lock"
+    lock_fd = open(lock_path, "w")
+    try:
+        fcntl.flock(lock_fd, fcntl.LOCK_EX)
+        _perf("lock_acquired")
+
+        generate_shims()
+        _perf("generate_shims")
+        generate_agent_launchers()
+        _perf("generate_agent_launchers")
+        generate_bashrc()
+        _perf("generate_bashrc")
+        generate_bootstrap_script()
+        _perf("generate_bootstrap_script")
+        generate_venv_precreate_script()
+        _perf("generate_venv_precreate_script")
+        generate_mise_config()
+        _perf("generate_mise_config")
+        generate_mcp_wrappers()
+        _perf("generate_mcp_wrappers")
+        configure_git()
+        _perf("configure_git")
+        configure_jj()
+        _perf("configure_jj")
+        merge_skills()
+        _perf("merge_skills")
+        configure_copilot()
+        _perf("configure_copilot")
+        configure_gemini()
+        _perf("configure_gemini")
+        configure_claude()
+        _perf("configure_claude")
+        setup_cgroup_delegation()
+        _perf("cgroup_delegation")
+        generate_cglimit_script()
+        _perf("cglimit_script")
+        generate_yolo_wrapper()
+        _perf("yolo_wrapper")
+    finally:
+        fcntl.flock(lock_fd, fcntl.LOCK_UN)
+        lock_fd.close()
+
+    # These are per-container (use container-local network state), not shared
     setup_published_port_localnet()
     _perf("published_port_localnet")
     start_container_port_forwarding()
@@ -1695,13 +1718,6 @@ def main():
     # Instead, cli.py's setup_script calls ~/.yolo-venv-precreate.sh (after
     # `mise install`) to create venvs with real binaries, then uses
     # `eval "$(mise env -s bash)"` for stateless env activation.
-
-    setup_cgroup_delegation()
-    _perf("cgroup_delegation")
-    generate_cglimit_script()
-    _perf("cglimit_script")
-    generate_yolo_wrapper()
-    _perf("yolo_wrapper")
 
     _perf_dump()
 

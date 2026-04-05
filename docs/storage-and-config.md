@@ -84,6 +84,23 @@ All persistent jail state lives under `~/.local/share/yolo-jail/`:
 | `mise/` | All jails (all workspaces) | Survives restarts |
 | `agents/<name>/AGENTS.md` | Per container name | Regenerated each run |
 
+### Concurrent startup safety
+
+Multiple jails share `home/` and their entrypoints all regenerate shims,
+skills, configs, and scripts into it on startup. When many jails start
+at once (e.g. session restore after a reboot), this creates filesystem
+races (rmtree + recreate on the same paths).
+
+**Solution:** The entrypoint acquires an exclusive file lock
+(`/home/agent/.yolo-entrypoint.lock`) before writing to shared home.
+This serializes the generation phase across all concurrent containers.
+Generation is sub-second, so the wait is negligible.
+
+The host CLI also guards against races on global storage:
+- **nix-build-root:** atomic rename (build in temp dir, swap in)
+- **run-result link:** per-PID unique path prevents cross-build deletion
+- **nvim config:** `dirs_exist_ok=True` for concurrent copytree safety
+
 ---
 
 ## 3. Per-Workspace State (`.yolo/`)
