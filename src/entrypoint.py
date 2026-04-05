@@ -124,8 +124,9 @@ def _load_lsp_servers():
 
 def generate_shims():
     """Create shell shims that block or redirect tools per YOLO_BLOCK_CONFIG."""
-    if SHIM_DIR.exists():
-        shutil.rmtree(SHIM_DIR)
+    # Use ignore_errors to handle races when multiple jails start concurrently
+    # and both try to rmtree the same shared home directory.
+    shutil.rmtree(SHIM_DIR, ignore_errors=True)
     SHIM_DIR.mkdir(parents=True, exist_ok=True)
 
     block_json = os.environ.get("YOLO_BLOCK_CONFIG", "")
@@ -784,7 +785,7 @@ def merge_skills():
         if jail_skills.exists():
             # Restore write permission before rmtree (we chmod -w on previous runs)
             _make_writable(jail_skills)
-            shutil.rmtree(jail_skills)
+            shutil.rmtree(jail_skills, ignore_errors=True)
         jail_skills.mkdir(parents=True, exist_ok=True)
 
         # Built-in skills (lowest priority — can be overridden)
@@ -821,8 +822,10 @@ def _copy_skill_dirs(src: Path, dst: Path):
                 # Restore write permissions (may have been made read-only)
                 dst.chmod(dst.stat().st_mode | stat.S_IWUSR)
                 _make_writable(target)
-                shutil.rmtree(target)
-            shutil.copytree(item, target, symlinks=False)
+                shutil.rmtree(target, ignore_errors=True)
+            # dirs_exist_ok handles races where another jail recreated the
+            # dir between our rmtree and copytree.
+            shutil.copytree(item, target, symlinks=False, dirs_exist_ok=True)
 
 
 def _make_readonly(path: Path):

@@ -284,19 +284,28 @@ def _resolve_repo_root() -> Path:
         # paths that break inside the store).
         import shutil
 
-        for fname in ("flake.nix", "flake.lock"):
-            dest = build_root / fname
-            # Remove stale symlinks/files before copying
-            if dest.is_symlink() or dest.exists():
-                dest.unlink()
-            shutil.copy2(pkg_dir / fname, dest)
-        # Copy src/ directory (entrypoint.py, shims/, etc.)
-        src_dest = build_root / "src"
-        if src_dest.is_symlink():
-            src_dest.unlink()
-        if src_dest.exists():
-            shutil.rmtree(src_dest)
-        shutil.copytree(pkg_dir, src_dest)
+        # Use a temp dir + atomic rename to avoid races when multiple
+        # jails start concurrently and all try to populate nix-build-root.
+        import tempfile
+
+        tmp_root = Path(tempfile.mkdtemp(dir=GLOBAL_STORAGE, prefix="nix-build-tmp-"))
+        try:
+            for fname in ("flake.nix", "flake.lock"):
+                shutil.copy2(pkg_dir / fname, tmp_root / fname)
+            shutil.copytree(pkg_dir, tmp_root / "src")
+            # Atomic swap: rename over the target so concurrent readers
+            # either see the old version or the new one, never a half-written state.
+            target_tmp = build_root.with_name(build_root.name + ".old")
+            try:
+                build_root.rename(target_tmp)
+            except FileNotFoundError:
+                target_tmp = None
+            tmp_root.rename(build_root)
+            if target_tmp and target_tmp.exists():
+                shutil.rmtree(target_tmp, ignore_errors=True)
+        except BaseException:
+            shutil.rmtree(tmp_root, ignore_errors=True)
+            raise
         return build_root.resolve()
 
     # 4. User config
@@ -1664,7 +1673,8 @@ def auto_load_image(
     """Cheaply check if the nix image needs to be reloaded into the container runtime."""
     # Per-runtime sentinel tracks all store paths loaded into this runtime
     sentinel = BUILD_DIR / f"last-load-{runtime}"
-    out_link = BUILD_DIR / "run-result"
+    # Use a PID-unique out-link to avoid races when multiple jails build concurrently
+    out_link = BUILD_DIR / f"run-result-{os.getpid()}"
     pkg_json = json.dumps(extra_packages) if extra_packages else ""
     current_path, build_stderr_tail = _build_image_store_path(
         repo_root,
@@ -4253,14 +4263,15 @@ def run(
     if host_nvim_config.is_dir():
         jail_nvim_config = GLOBAL_STORAGE / "home" / ".config" / "nvim"
         try:
-            if jail_nvim_config.exists():
-                shutil.rmtree(jail_nvim_config)
             jail_nvim_config.parent.mkdir(parents=True, exist_ok=True)
+            # Use dirs_exist_ok to handle concurrent jails populating the
+            # same shared home — avoids FileExistsError races.
             shutil.copytree(
                 host_nvim_config,
                 jail_nvim_config,
                 symlinks=False,
                 ignore_dangling_symlinks=True,
+                dirs_exist_ok=True,
             )
         except (OSError, shutil.Error) as e:
             console.print(f"[yellow]Warning: could not copy nvim config: {e}[/yellow]")
