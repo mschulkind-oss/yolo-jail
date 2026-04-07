@@ -1273,6 +1273,15 @@ def _seed_agent_dir(src: Path, dst: Path):
                     pass  # permission errors on stale files — skip
 
 
+def _migrate_old_overlay(old: Path, new: Path):
+    """Copy data from a pre-refactor per-workspace overlay dir into the new location."""
+    if not old.is_dir() or not any(old.iterdir()):
+        return
+    if new.exists() and any(new.iterdir()):
+        return  # already has data — don't overwrite
+    shutil.copytree(old, new, dirs_exist_ok=True)
+
+
 def generate_agents_md(
     cname: str,
     workspace: Path,
@@ -3735,11 +3744,10 @@ def run(
         if full_command[0] == "copilot":
             if "--no-auto-update" not in full_command:
                 full_command.insert(1, "--no-auto-update")
-        # Claude YOLO mode: --dangerously-skip-permissions auto-approves all
-        # tool calls. IS_SANDBOX=1 env var bypasses Claude's root-user check.
-        if full_command[0] == "claude":
-            if "--dangerously-skip-permissions" not in full_command:
-                full_command.insert(1, "--dangerously-skip-permissions")
+        # Claude YOLO mode: settings.json already grants full permissions via
+        # the "allow" list.  Do NOT inject --dangerously-skip-permissions — it
+        # shows its own confirmation prompt and refuses to run as UID 0.
+        # (IS_SANDBOX=1 bypasses the root check, but the prompt is still annoying.)
         target_cmd = shlex.join(full_command)
 
     # Collect identity env vars early — needed for both exec and run paths
@@ -4027,6 +4035,16 @@ def run(
                 dst_file.write_text(json.dumps(dst_data, indent=2) + "\n")
             except (json.JSONDecodeError, OSError):
                 pass
+
+    # Migrate old per-workspace overlays into new unified agent dirs.
+    # Before the read-only refactor, agent state used individual file/dir overlays
+    # (e.g. claude-projects/, copilot-sessions/).  Now each agent gets a single
+    # dir overlay (claude/, copilot/, gemini/).  Copy old data once if present.
+    _migrate_old_overlay(ws_state / "claude-projects", ws_state / "claude" / "projects")
+    _migrate_old_overlay(
+        ws_state / "copilot-sessions", ws_state / "copilot" / "session-state"
+    )
+    _migrate_old_overlay(ws_state / "gemini-history", ws_state / "gemini" / "history")
 
     docker_cmd = [
         runtime,
