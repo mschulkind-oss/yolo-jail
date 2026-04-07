@@ -367,11 +367,30 @@ def ensure_global_storage():
         ".yolo-perf.log",
         ".yolo-socat.log",
         ".yolo-entrypoint.lock",
-        ".claude.json",
     ]:
         p = GLOBAL_HOME / fname
         if not p.exists():
             p.touch()
+    # ~/.claude.json must be a symlink into the writable .claude/ overlay dir.
+    # Claude Code uses atomic writes (write-tmp-then-rename), which fails if the
+    # parent dir is :ro.  A symlink lets the rename happen in the writable .claude/ dir.
+    claude_json_link = GLOBAL_HOME / ".claude.json"
+    claude_json_target = Path(".claude") / "claude.json"
+    claude_json_real = GLOBAL_HOME / ".claude" / "claude.json"
+    if claude_json_link.is_symlink():
+        if Path(os.readlink(str(claude_json_link))) != claude_json_target:
+            claude_json_link.unlink()
+            claude_json_link.symlink_to(claude_json_target)
+    elif claude_json_link.exists():
+        # Was a regular file from a prior version — move data to the new
+        # location inside .claude/ so seeding can read it, then symlink.
+        if not claude_json_real.exists():
+            (GLOBAL_HOME / ".claude").mkdir(parents=True, exist_ok=True)
+            shutil.copy2(claude_json_link, claude_json_real)
+        claude_json_link.unlink()
+        claude_json_link.symlink_to(claude_json_target)
+    else:
+        claude_json_link.symlink_to(claude_json_target)
 
 
 def _get_project_name() -> str:
@@ -4010,7 +4029,6 @@ def run(
         "yolo-socat.log",
         "yolo-entrypoint.lock",
         "gitconfig",
-        "claude.json",
     ]:
         (ws_state / fname).touch()
 
@@ -4022,28 +4040,27 @@ def run(
     _seed_agent_dir(GLOBAL_HOME / ".gemini", ws_state / "gemini")
     _seed_agent_dir(GLOBAL_HOME / ".claude", ws_state / "claude")
 
-    # Seed top-level agent state files (onboarding flags, user prefs, etc.)
-    # These live outside the agent dirs (e.g. ~/.claude.json) and need seeding
-    # so agents don't re-trigger first-run flows on every new workspace.
-    # Merge strategy: GLOBAL_HOME keys fill gaps in the per-workspace file,
-    # but per-workspace values always win for keys that already exist.
-    for fname in ["claude.json"]:
-        src_file = GLOBAL_HOME / f".{fname}"
-        dst_file = ws_state / fname
-        if src_file.is_file():
+    # Seed claude.json onboarding state into the per-workspace overlay.
+    # ~/.claude.json is a symlink → .claude/claude.json, so the actual file
+    # lives inside the writable .claude/ overlay.  Merge GLOBAL_HOME's data
+    # (hasCompletedOnboarding, numStartups, oauthAccount, etc.) into the
+    # per-workspace file, filling missing keys while preserving workspace-specific
+    # MCP server config.
+    src_claude_json = GLOBAL_HOME / ".claude" / "claude.json"
+    dst_claude_json = ws_state / "claude" / "claude.json"
+    if src_claude_json.is_file():
+        try:
+            src_data = json.loads(src_claude_json.read_text())
             try:
-                src_data = json.loads(src_file.read_text())
-                try:
-                    dst_data = json.loads(dst_file.read_text())
-                except (json.JSONDecodeError, FileNotFoundError, OSError):
-                    dst_data = {}
-                # Fill in missing keys from GLOBAL_HOME (onboarding, user prefs)
-                for key, val in src_data.items():
-                    if key not in dst_data:
-                        dst_data[key] = val
-                dst_file.write_text(json.dumps(dst_data, indent=2) + "\n")
-            except (json.JSONDecodeError, OSError):
-                pass
+                dst_data = json.loads(dst_claude_json.read_text())
+            except (json.JSONDecodeError, FileNotFoundError, OSError):
+                dst_data = {}
+            for key, val in src_data.items():
+                if key not in dst_data:
+                    dst_data[key] = val
+            dst_claude_json.write_text(json.dumps(dst_data, indent=2) + "\n")
+        except (json.JSONDecodeError, OSError):
+            pass
 
     # Migrate old per-workspace overlays into new unified agent dirs.
     # Before the read-only refactor, agent state used individual file/dir overlays
@@ -4103,8 +4120,6 @@ def run(
         f"{ws_state / 'yolo-socat.log'}:/home/agent/.yolo-socat.log",
         "-v",
         f"{ws_state / 'yolo-entrypoint.lock'}:/home/agent/.yolo-entrypoint.lock",
-        "-v",
-        f"{ws_state / 'claude.json'}:/home/agent/.claude.json",
         # Agent config dirs — full per-workspace overlays.
         # Auth tokens are seeded from GLOBAL_HOME on first use (see _seed_agent_dir).
         # The entrypoint regenerates all configs into these writable dirs each boot.
@@ -4126,6 +4141,9 @@ def run(
         "/tmp",
         "--tmpfs",
         "/var/tmp",
+        # Podman needs writable storage for nested container operations
+        "--tmpfs",
+        "/var/lib/containers",
         "--shm-size=2g",
         "-e",
         "JAIL_HOME=/home/agent",

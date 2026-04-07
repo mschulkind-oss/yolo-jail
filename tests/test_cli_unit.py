@@ -967,7 +967,11 @@ class TestEnsureGlobalStorage:
         assert (home / ".bashrc").is_file()
         assert (home / ".gitconfig").is_file()
         assert (home / ".yolo-entrypoint.lock").is_file()
-        assert (home / ".claude.json").is_file()
+        # .claude.json is a symlink → .claude/claude.json (atomic writes need writable parent)
+        assert (home / ".claude.json").is_symlink()
+        assert os.readlink(str(home / ".claude.json")) == str(
+            Path(".claude") / "claude.json"
+        )
 
     def test_creates_overlay_dir_mountpoints(self, tmp_path, monkeypatch):
         """Directory mountpoints for per-workspace overlays."""

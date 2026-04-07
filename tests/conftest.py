@@ -47,6 +47,22 @@ def ensure_jail_image():
     if _image_exists(runtime):
         return  # Already loaded from a previous session (persistent home dir)
 
+    # With --read-only root, podman storage is on a read-only filesystem and
+    # cannot load new images.  Skip gracefully — unit tests don't need the image.
+    storage_check = subprocess.run(
+        [runtime, "info", "--format", "{{.Store.GraphRoot}}"],
+        capture_output=True,
+        timeout=10,
+    )
+    if storage_check.returncode != 0:
+        import warnings
+
+        warnings.warn(
+            "Container runtime storage unavailable (read-only filesystem?) — "
+            "integration tests may be skipped"
+        )
+        return
+
     print(
         f"\n[conftest] Loading {JAIL_IMAGE} into inner {runtime} (this may take a minute)..."
     )
