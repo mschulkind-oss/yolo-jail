@@ -523,7 +523,7 @@ class TestClaudeConfig:
         assert "mcpServers" not in settings
 
     def test_yolo_mode_default(self, jail_home):
-        """settings.json has allow-all rules instead of bypassPermissions (root-safe)."""
+        """settings.json has allow-all rules with acceptEdits mode (root-safe)."""
         entrypoint.configure_claude()
         cfg = json.loads((entrypoint.CLAUDE_DIR / "settings.json").read_text())
         perms = cfg["permissions"]
@@ -531,7 +531,8 @@ class TestClaudeConfig:
         assert "Edit" in perms["allow"]
         assert "Read" in perms["allow"]
         assert "mcp__*" in perms["allow"]
-        assert perms.get("defaultMode") != "bypassPermissions"
+        assert perms["defaultMode"] == "acceptEdits"
+        assert cfg["skipDangerousModePermissionPrompt"] is True
 
     def test_auto_update_disabled(self, jail_home):
         """settings.json disables auto-updates (startup bootstrap owns updates)."""
@@ -584,14 +585,15 @@ class TestClaudeConfig:
         assert "Bash" in cfg["permissions"]["allow"]
 
     def test_migrates_bypass_permissions(self, jail_home):
-        """Existing bypassPermissions is removed and replaced with allow rules."""
+        """Existing bypassPermissions is replaced with acceptEdits."""
         entrypoint.CLAUDE_DIR.mkdir(parents=True, exist_ok=True)
         existing = {"permissions": {"defaultMode": "bypassPermissions"}}
         (entrypoint.CLAUDE_DIR / "settings.json").write_text(json.dumps(existing))
         entrypoint.configure_claude()
         cfg = json.loads((entrypoint.CLAUDE_DIR / "settings.json").read_text())
-        assert cfg["permissions"].get("defaultMode") != "bypassPermissions"
+        assert cfg["permissions"]["defaultMode"] == "acceptEdits"
         assert "Bash" in cfg["permissions"]["allow"]
+        assert cfg["skipDangerousModePermissionPrompt"] is True
 
     def test_removes_stale_mcp_from_settings(self, jail_home):
         """Old mcpServers in settings.json are cleaned up."""

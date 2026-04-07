@@ -4046,6 +4046,14 @@ def run(
     )
     _migrate_old_overlay(ws_state / "gemini-history", ws_state / "gemini" / "history")
 
+    # Migrate old claude-settings.json file overlay into new claude/settings.json.
+    # Preserves user customizations (model, hooks, etc.) from pre-refactor.
+    old_claude_settings = ws_state / "claude-settings.json"
+    new_claude_settings = ws_state / "claude" / "settings.json"
+    if old_claude_settings.is_file() and not new_claude_settings.exists():
+        (ws_state / "claude").mkdir(parents=True, exist_ok=True)
+        shutil.copy2(old_claude_settings, new_claude_settings)
+
     docker_cmd = [
         runtime,
         "run",

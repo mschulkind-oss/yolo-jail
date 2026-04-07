@@ -1060,7 +1060,9 @@ def configure_claude():
         # Remove any stale mcpServers from settings.json (moved to ~/.claude.json)
         settings.pop("mcpServers", None)
 
-        # YOLO mode permissions
+        # YOLO mode permissions — acceptEdits auto-approves tool use.
+        # skipDangerousModePermissionPrompt suppresses the one-time confirmation
+        # Claude shows when defaultMode is first set in a workspace.
         permissions = settings.setdefault("permissions", {})
         permissions["allow"] = [
             "Bash",
@@ -1071,8 +1073,8 @@ def configure_claude():
             "Agent(*)",
         ]
         permissions["deny"] = []
-        if permissions.get("defaultMode") == "bypassPermissions":
-            del permissions["defaultMode"]
+        permissions["defaultMode"] = "acceptEdits"
+        settings["skipDangerousModePermissionPrompt"] = True
 
         settings.setdefault("preferences", {})["autoUpdaterStatus"] = "disabled"
 
