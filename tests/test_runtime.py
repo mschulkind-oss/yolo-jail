@@ -92,6 +92,7 @@ def test_ensure_global_storage_creates_mount_parents(tmp_path, monkeypatch):
 
     monkeypatch.setattr(cli, "GLOBAL_HOME", tmp_path / "home")
     monkeypatch.setattr(cli, "GLOBAL_MISE", tmp_path / "mise")
+    monkeypatch.setattr(cli, "GLOBAL_CACHE", tmp_path / "cache")
     monkeypatch.setattr(cli, "CONTAINER_DIR", tmp_path / "containers")
     monkeypatch.setattr(cli, "AGENTS_DIR", tmp_path / "agents")
     cli.ensure_global_storage()

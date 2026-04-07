@@ -57,18 +57,12 @@ All persistent jail state lives under `~/.local/share/yolo-jail/`:
 
 ```
 ~/.local/share/yolo-jail/
-├── home/                  → Mounted as /home/agent inside ALL jails
-│   ├── .claude/           │  Claude Code config, sessions, auth
-│   ├── .copilot/          │  Copilot config, logs, auth tokens
-│   ├── .gemini/           │  Gemini config, cache, auth tokens
-│   ├── .npm-global/       │  NPM global packages (MCP servers, etc.)
-│   ├── go/                │  Go binaries (mcp-language-server, gopls)
-│   ├── .local/bin/        │  MCP wrappers, chrome-devtools wrapper
-│   ├── .gitconfig         │  Git config (written by entrypoint)
-│   ├── .config/jj/        │  jj config (written by entrypoint)
-│   ├── .yolo-perf.log     │  Startup performance log
-│   └── .yolo-bootstrap.sh │  Generated bootstrap script
-├── mise/                  → Mounted as /mise (tool installs, shims)
+├── home/                  → Mounted :ro as /home/agent (auth tokens, base configs)
+│   ├── .claude/           │  Claude Code auth tokens
+│   ├── .copilot/          │  Copilot auth tokens
+│   └── .gemini/           │  Gemini auth tokens
+├── cache/                 → Mounted :rw as /home/agent/.cache (shared download cache)
+├── mise/                  → Mounted :rw as /mise (tool installs — CAS)
 ├── containers/            → Tracking files for running containers
 └── agents/                → Per-container AGENTS.md files
     └── yolo-<hash>/
@@ -76,91 +70,113 @@ All persistent jail state lives under `~/.local/share/yolo-jail/`:
                               ~/.gemini/AGENTS.md, and ~/.claude/CLAUDE.md
 ```
 
-### What's shared vs isolated
+### Isolation model
 
-| Storage | Scope | Persistence |
-|---------|-------|-------------|
-| `home/` | All jails (all workspaces) | Survives restarts |
-| `mise/` | All jails (all workspaces) | Survives restarts |
-| `agents/<name>/AGENTS.md` | Per container name | Regenerated each run |
+The container runs with `--read-only` (immutable root filesystem) and
+`/home/agent` is mounted `:ro`. All writable state goes to explicitly
+mounted per-workspace overlays or shared mounts:
 
-### Concurrent startup safety
+| Storage | Scope | Persistence | Writable? |
+|---------|-------|-------------|-----------|
+| `home/` | All jails | Survives restarts | **Read-only** |
+| `cache/` | All jails | Survives restarts | Writable (shared download CAS) |
+| `mise/` | All jails | Survives restarts | Writable (shared tool CAS) |
+| Per-workspace overlays | Per workspace | Survives restarts | Writable |
+| `agents/<name>/AGENTS.md` | Per container | Regenerated each run | Read-only (in jail) |
+| `/tmp`, `/var/tmp` | Per container | tmpfs (ephemeral) | Writable |
 
-Multiple jails share `home/` and their entrypoints all regenerate shims,
-skills, configs, and scripts into it on startup. When many jails start
-at once (e.g. session restore after a reboot), this creates filesystem
-races (rmtree + recreate on the same paths).
+No cross-jail interference: each jail writes to its own per-workspace
+dirs under `<workspace>/.yolo/home/`. Concurrent startup is safe
+because jails don't share writable paths.
 
-**Solution:** The entrypoint acquires an exclusive file lock
-(`/home/agent/.yolo-entrypoint.lock`) before writing to shared home.
-This serializes the generation phase across all concurrent containers.
-Generation is sub-second, so the wait is negligible.
-
-The host CLI also guards against races on global storage:
+The host CLI guards against races on global storage:
 - **nix-build-root:** atomic rename (build in temp dir, swap in)
 - **run-result link:** per-PID unique path prevents cross-build deletion
-- **nvim config:** `dirs_exist_ok=True` for concurrent copytree safety
 
 ---
 
 ## 3. Per-Workspace State (`.yolo/`)
 
-Each workspace has a `.yolo/` directory (gitignored) for state that
-should NOT leak across workspaces:
+Each workspace has a `.yolo/` directory (gitignored) for isolated state:
 
 ```
 <workspace>/.yolo/
 ├── home/
+│   ├── npm-global/               → /home/agent/.npm-global (agent CLIs)
+│   ├── local/                    → /home/agent/.local (claude, MCP wrappers)
+│   ├── go/                       → /home/agent/go (gopls, mcp-language-server)
+│   ├── yolo-shims/               → /home/agent/.yolo-shims (blocked tool shims)
+│   ├── config/                   → /home/agent/.config (mise, jj, nvim config)
+│   ├── bashrc                    → /home/agent/.bashrc
+│   ├── gitconfig                 → /home/agent/.gitconfig
+│   ├── yolo-bootstrap.sh         → /home/agent/.yolo-bootstrap.sh
+│   ├── yolo-venv-precreate.sh    → /home/agent/.yolo-venv-precreate.sh
+│   ├── yolo-perf.log             → /home/agent/.yolo-perf.log
+│   ├── yolo-socat.log            → /home/agent/.yolo-socat.log
+│   ├── yolo-entrypoint.lock      → /home/agent/.yolo-entrypoint.lock
+│   ├── claude.json               → /home/agent/.claude.json
 │   ├── copilot-sessions/         → /home/agent/.copilot/session-state
 │   ├── copilot-command-history   → /home/agent/.copilot/command-history-state.json
 │   ├── bash_history              → /home/agent/.bash_history
 │   ├── gemini-history/           → /home/agent/.gemini/history
+│   ├── claude-projects/          → /home/agent/.claude/projects
 │   └── ssh/                      → /home/agent/.ssh (mode 700)
 └── config-snapshot.json          → Last-confirmed config (for change detection)
 ```
 
-These are mounted as **nested bind mounts** on top of the global home,
-so workspace-specific history and sessions don't bleed between projects.
+These are mounted as **writable overlays** on top of the read-only global home.
+Each workspace gets its own copy of installed tools, generated configs, and
+history — no cross-jail interference. First boot for a new workspace installs
+tools into empty overlay dirs; subsequent boots reuse cached installs.
 
 ---
 
 ## 4. Inside the Jail — Mount Map
 
-When a jail starts, the container sees this filesystem:
+The container runs with `--read-only` (immutable root filesystem).
+All writable paths are explicitly mounted:
 
 ```
+/ (root)                ← IMMUTABLE (--read-only container flag)
 /workspace              ← Host workspace (read-write)
-/home/agent             ← Global home (~/.local/share/yolo-jail/home)
+/home/agent             ← Global home :ro (auth tokens, base configs)
+  ├── .npm-global/           ← PER-WORKSPACE overlay (agent CLI installs)
+  ├── .local/                ← PER-WORKSPACE overlay (claude, MCP wrappers)
+  ├── go/                    ← PER-WORKSPACE overlay (Go binaries)
+  ├── .yolo-shims/           ← PER-WORKSPACE overlay (blocked tool shims)
+  ├── .config/               ← PER-WORKSPACE overlay (mise, jj, nvim config)
+  ├── .cache/                ← SHARED writable (download caches — CAS)
+  ├── .bashrc                ← PER-WORKSPACE file overlay
+  ├── .gitconfig             ← PER-WORKSPACE file overlay
+  ├── .yolo-bootstrap.sh     ← PER-WORKSPACE file overlay
+  ├── .yolo-venv-precreate.sh ← PER-WORKSPACE file overlay
+  ├── .yolo-perf.log         ← PER-WORKSPACE file overlay
+  ├── .yolo-socat.log        ← PER-WORKSPACE file overlay
+  ├── .yolo-entrypoint.lock  ← PER-WORKSPACE file overlay
+  ├── .claude.json           ← PER-WORKSPACE file overlay
   ├── .claude/
-  │   ├── projects/          ← OVERLAY: workspace .yolo/home/claude-projects
-  │   ├── CLAUDE.md          ← OVERLAY: agents/<name>/AGENTS.md (read-only)
+  │   ├── projects/          ← PER-WORKSPACE overlay
+  │   ├── CLAUDE.md          ← agents/<name>/AGENTS.md (read-only)
   │   ├── skills/            ← MOUNTED :ro (merged on host, kernel-enforced)
-  │   └── settings.json      ← Generated by entrypoint
+  │   └── settings.json      ← PER-WORKSPACE overlay
   ├── .copilot/
-  │   ├── session-state/     ← OVERLAY: workspace .yolo/home/copilot-sessions
-  │   ├── command-history-state.json ← OVERLAY: workspace .yolo/home/copilot-command-history
-  │   ├── AGENTS.md          ← OVERLAY: agents/<name>/AGENTS.md (read-only)
+  │   ├── session-state/     ← PER-WORKSPACE overlay
+  │   ├── command-history-state.json ← PER-WORKSPACE overlay
+  │   ├── AGENTS.md          ← agents/<name>/AGENTS.md (read-only)
   │   ├── skills/            ← MOUNTED :ro (merged on host, kernel-enforced)
-  │   ├── config.json        ← Generated by entrypoint
-  │   ├── mcp-config.json    ← Generated by entrypoint
-  │   └── lsp-config.json    ← Generated by entrypoint
+  │   ├── mcp-config.json    ← PER-WORKSPACE overlay
+  │   └── lsp-config.json    ← PER-WORKSPACE overlay
   ├── .gemini/
-  │   ├── history/           ← OVERLAY: workspace .yolo/home/gemini-history
-  │   ├── AGENTS.md          ← OVERLAY: agents/<name>/AGENTS.md (read-only)
+  │   ├── history/           ← PER-WORKSPACE overlay
+  │   ├── AGENTS.md          ← agents/<name>/AGENTS.md (read-only)
   │   ├── skills/            ← MOUNTED :ro (merged on host, kernel-enforced)
-  │   └── settings.json      ← Generated by entrypoint
-  ├── .bash_history          ← OVERLAY: workspace .yolo/home/bash_history
-  ├── .ssh/                  ← OVERLAY: workspace .yolo/home/ssh (mode 700)
-  ├── .gitconfig             ← Written by entrypoint (from YOLO_GIT_* env)
-  ├── .config/jj/config.toml ← Written by entrypoint (from YOLO_JJ_* env)
-  ├── .npm-global/           ← NPM global packages (persistent)
-  ├── go/                    ← Go binaries (persistent)
-  ├── .yolo-shims/           ← Generated blocked-tool shims
-  ├── .bashrc                ← Generated by entrypoint
-  └── .yolo-bootstrap.sh     ← Generated by entrypoint
-/mise                   ← Global mise data (~/.local/share/yolo-jail/mise)
-/opt/yolo-jail          ← yolo-jail repo (read-only, for in-jail CLI)
-/tmp                    ← tmpfs
+  │   └── settings.json      ← PER-WORKSPACE overlay
+  ├── .bash_history          ← PER-WORKSPACE overlay
+  └── .ssh/                  ← PER-WORKSPACE overlay (mode 700)
+/mise                   ← Global mise data, shared writable (CAS)
+/opt/yolo-jail          ← yolo-jail repo (read-only)
+/tmp                    ← tmpfs (ephemeral)
+/var/tmp                ← tmpfs (ephemeral)
 ```
 
 **Shadowed paths** (mounted as `/dev/null` to prevent leaks):

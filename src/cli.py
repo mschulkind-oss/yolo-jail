@@ -242,6 +242,7 @@ JAIL_IMAGE = "yolo-jail:latest"
 GLOBAL_STORAGE = Path.home() / ".local/share/yolo-jail"
 GLOBAL_HOME = GLOBAL_STORAGE / "home"
 GLOBAL_MISE = GLOBAL_STORAGE / "mise"
+GLOBAL_CACHE = GLOBAL_STORAGE / "cache"
 CONTAINER_DIR = GLOBAL_STORAGE / "containers"
 AGENTS_DIR = GLOBAL_STORAGE / "agents"
 BUILD_DIR = GLOBAL_STORAGE / "build"
@@ -333,15 +334,44 @@ def _resolve_repo_root() -> Path:
 def ensure_global_storage():
     GLOBAL_HOME.mkdir(parents=True, exist_ok=True)
     GLOBAL_MISE.mkdir(parents=True, exist_ok=True)
+    GLOBAL_CACHE.mkdir(parents=True, exist_ok=True)
     CONTAINER_DIR.mkdir(parents=True, exist_ok=True)
     AGENTS_DIR.mkdir(parents=True, exist_ok=True)
     BUILD_DIR.mkdir(parents=True, exist_ok=True)
-    # Pre-create intermediate directories inside GLOBAL_HOME that will be parents
-    # of nested bind mounts.  Without this, Docker daemon (running as root) auto-creates
-    # them as root:root, making them unwritable by the -u UID:GID container process.
-    # Podman rootless is unaffected (UID mapping handles ownership).
-    for subdir in [".copilot", ".gemini", ".claude", Path(".config") / "git"]:
+    # Pre-create directories and files inside GLOBAL_HOME that will be mountpoints
+    # for bind mounts.  GLOBAL_HOME is mounted :ro, so the container runtime cannot
+    # create these on the fly — they must already exist in the base filesystem.
+    for subdir in [
+        ".copilot",
+        ".gemini",
+        ".claude",
+        Path(".config") / "git",
+        ".npm-global",
+        ".local",
+        "go",
+        ".yolo-shims",
+        ".config",
+        ".cache",
+        ".ssh",
+    ]:
         (GLOBAL_HOME / subdir).mkdir(parents=True, exist_ok=True)
+    # File mountpoints — these must exist as files (not dirs) for bind mounts.
+    # Only create if missing — existing files from prior runs may have restrictive
+    # permissions from container UID mapping; we just need them to exist.
+    for fname in [
+        ".bashrc",
+        ".gitconfig",
+        ".bash_history",
+        ".yolo-bootstrap.sh",
+        ".yolo-venv-precreate.sh",
+        ".yolo-perf.log",
+        ".yolo-socat.log",
+        ".yolo-entrypoint.lock",
+        ".claude.json",
+    ]:
+        p = GLOBAL_HOME / fname
+        if not p.exists():
+            p.touch()
 
 
 def _get_project_name() -> str:
@@ -1223,72 +1253,24 @@ def _host_mise_dir() -> Path:
     return host_mise
 
 
-def _init_per_workspace_mcp_configs(ws_state: Path):
-    """Create per-workspace MCP/LSP config overlay files if they don't exist.
+def _seed_agent_dir(src: Path, dst: Path):
+    """Copy auth-related files from GLOBAL_HOME agent dir into per-workspace overlay.
 
-    On first use, seeds Gemini settings from the shared home so that
-    non-MCP settings (security, general preferences) carry over.
+    Only copies files that don't already exist in dst — the entrypoint regenerates
+    configs on every boot, so we only need to seed auth tokens and similar
+    persistent state on first use.  Skips subdirectories (those are created by
+    the entrypoint as needed).
     """
-    copilot_mcp = ws_state / "copilot-mcp-config.json"
-    copilot_lsp = ws_state / "copilot-lsp-config.json"
-    gemini_settings = ws_state / "gemini-settings.json"
-    gemini_managed = ws_state / "gemini-managed-mcp.json"
-    claude_settings = ws_state / "claude-settings.json"
-    claude_managed = ws_state / "claude-managed-mcp.json"
-
-    for f in (copilot_mcp, copilot_lsp):
-        if not f.exists():
-            f.write_text("{}\n")
-
-    if not gemini_settings.exists():
-        shared = GLOBAL_HOME / ".gemini" / "settings.json"
-        if shared.exists():
-            try:
-                data = json.loads(shared.read_text())
-                # Keep non-MCP settings (security, general) but drop mcpServers
-                # so the entrypoint generates a fresh set for this workspace.
-                data.pop("mcpServers", None)
-                gemini_settings.write_text(json.dumps(data, indent=2) + "\n")
-            except (json.JSONDecodeError, OSError):
-                gemini_settings.write_text("{}\n")
-        else:
-            gemini_settings.write_text("{}\n")
-
-    if not gemini_managed.exists():
-        gemini_managed.write_text("[]\n")
-
-    if not claude_settings.exists():
-        shared = GLOBAL_HOME / ".claude" / "settings.json"
-        if shared.exists():
-            try:
-                data = json.loads(shared.read_text())
-                data.pop("mcpServers", None)
-                claude_settings.write_text(json.dumps(data, indent=2) + "\n")
-            except (json.JSONDecodeError, OSError):
-                claude_settings.write_text("{}\n")
-        else:
-            claude_settings.write_text("{}\n")
-
-    if not claude_managed.exists():
-        claude_managed.write_text("[]\n")
-
-    # Ensure all overlay files are writable by the container process.
-    # Docker with -u UID:GID maps the same user, so this is usually fine.
-    # Podman rootless maps UID 0 inside to the host user, also fine.
-    # But if a previous Docker run created files as a different UID (e.g. root
-    # creating mount targets), the container process can't write them.
-    for f in (
-        copilot_mcp,
-        copilot_lsp,
-        gemini_settings,
-        gemini_managed,
-        claude_settings,
-        claude_managed,
-    ):
-        try:
-            f.chmod(0o666)
-        except OSError:
-            pass
+    if not src.is_dir():
+        return
+    for item in src.iterdir():
+        if item.is_file():
+            target = dst / item.name
+            if not target.exists():
+                try:
+                    shutil.copy2(item, target)
+                except OSError:
+                    pass  # permission errors on stale files — skip
 
 
 def generate_agents_md(
@@ -1498,6 +1480,15 @@ def generate_agents_md(
             "To develop a new skill: create it in `/workspace/.copilot/skills/` (or `.gemini/`, `.claude/`),",
             "test it manually, then ask the human to promote it to their host-level skills directory",
             "outside the jail. The skill will be available in all jails after the next restart.",
+            "",
+            "## Testing Changes to yolo-jail",
+            "",
+            "When modifying `src/cli.py` or `src/entrypoint.py`, **always verify with a nested",
+            "jail** before telling the human to test on the host. Run `yolo -- bash` from inside",
+            "this jail to launch a nested jail and confirm your changes work end-to-end.",
+            "Container startup errors (mount failures, permission errors, read-only filesystem",
+            "conflicts) are only caught by actually running the container — unit tests alone are",
+            "not sufficient.",
             "",
             "## First Session — Handover",
             "",
@@ -1961,7 +1952,7 @@ def load_config(
     return merge_config(user_config, workspace_config)
 
 
-DEFAULT_HOST_CLAUDE_FILES = ["settings.json"]
+DEFAULT_HOST_CLAUDE_FILES = ["settings.json", ".credentials.json"]
 
 KNOWN_TOP_LEVEL_CONFIG_KEYS = {
     "runtime",
@@ -3957,23 +3948,62 @@ def run(
         mount_descriptions.append(f"{host_path}:{container_path}")
 
     # Construct Docker Command
-    docker_flags = ["--rm", "-i", "--init", "--cgroupns=private", "--name", cname]
+    docker_flags = [
+        "--rm",
+        "-i",
+        "--init",
+        "--cgroupns=private",
+        "--read-only",
+        "--name",
+        cname,
+    ]
+    if runtime == "podman":
+        # Podman auto-adds tmpfs mounts for /run, /tmp, /dev/shm when --read-only
+        # is set.  This conflicts with our explicit --tmpfs /tmp and can trigger
+        # conmon JSON parsing errors with crun.  Disable the auto-tmpfs and let
+        # our explicit mounts handle it.
+        docker_flags.append("--read-only-tmpfs=false")
     if sys.stdout.isatty():
         docker_flags.append("-t")
 
     # Per-workspace overlays for workspace-specific state
     ws_state = workspace / ".yolo" / "home"
     ws_state.mkdir(parents=True, exist_ok=True)
-    (ws_state / "copilot-sessions").mkdir(exist_ok=True)
-    (ws_state / "copilot-command-history").touch()
-    (ws_state / "bash_history").touch()
-    (ws_state / "gemini-history").mkdir(exist_ok=True)
-    (ws_state / "claude-projects").mkdir(exist_ok=True)
     (ws_state / "ssh").mkdir(exist_ok=True, mode=0o700)
+    # Per-workspace writable overlays — isolate cross-jail writes.
+    # These sit on top of the :ro GLOBAL_HOME base so each jail has its
+    # own copy of generated configs, installed tools, and caches.
+    for subdir in [
+        "npm-global",
+        "local",
+        "go",
+        "yolo-shims",
+        "config",
+        "copilot",
+        "gemini",
+        "claude",
+    ]:
+        (ws_state / subdir).mkdir(exist_ok=True)
+    for fname in [
+        "bashrc",
+        "bash_history",
+        "yolo-bootstrap.sh",
+        "yolo-venv-precreate.sh",
+        "yolo-perf.log",
+        "yolo-socat.log",
+        "yolo-entrypoint.lock",
+        "gitconfig",
+        "claude.json",
+    ]:
+        (ws_state / fname).touch()
 
-    # Per-workspace MCP/LSP config overlays — each jail gets its own config
-    # so containers don't stomp each other's MCP settings via the shared home.
-    _init_per_workspace_mcp_configs(ws_state)
+    # Seed agent config dirs with auth tokens from the :ro GLOBAL_HOME base.
+    # On first boot for this workspace the per-workspace dirs are empty — copy
+    # auth-related files so agents can authenticate.  Subsequent boots skip
+    # files that already exist (the entrypoint regenerates configs each time).
+    _seed_agent_dir(GLOBAL_HOME / ".copilot", ws_state / "copilot")
+    _seed_agent_dir(GLOBAL_HOME / ".gemini", ws_state / "gemini")
+    _seed_agent_dir(GLOBAL_HOME / ".claude", ws_state / "claude")
 
     docker_cmd = [
         runtime,
@@ -3981,49 +4011,76 @@ def run(
         *docker_flags,
         "-v",
         f"{workspace}:/workspace",
-        # Global home as base (has auth, tools, configs)
+        # Global home — read-only base with auth tokens and base configs.
+        # Per-workspace writable overlays are mounted on top below.
         "-v",
-        f"{GLOBAL_HOME}:/home/agent",
-        # Per-workspace overlays for state that should not leak across workspaces
+        f"{GLOBAL_HOME}:/home/agent:ro",
+        # --- Per-workspace writable overlays (isolate cross-jail writes) ---
+        # Directories: installed tools, generated configs, shims
         "-v",
-        f"{ws_state / 'copilot-sessions'}:/home/agent/.copilot/session-state",
+        f"{ws_state / 'npm-global'}:/home/agent/.npm-global",
         "-v",
-        f"{ws_state / 'copilot-command-history'}:/home/agent/.copilot/command-history-state.json",
+        f"{ws_state / 'local'}:/home/agent/.local",
+        "-v",
+        f"{ws_state / 'go'}:/home/agent/go",
+        "-v",
+        f"{ws_state / 'yolo-shims'}:/home/agent/.yolo-shims",
+        "-v",
+        f"{ws_state / 'config'}:/home/agent/.config",
+        # Shared download cache (CAS — safe across workspaces, avoids re-downloads)
+        "-v",
+        f"{GLOBAL_CACHE}:/home/agent/.cache",
+        # Files: generated scripts, configs, logs
+        "-v",
+        f"{ws_state / 'bashrc'}:/home/agent/.bashrc",
+        "-v",
+        f"{ws_state / 'gitconfig'}:/home/agent/.gitconfig",
+        "-v",
+        f"{ws_state / 'yolo-bootstrap.sh'}:/home/agent/.yolo-bootstrap.sh",
+        "-v",
+        f"{ws_state / 'yolo-venv-precreate.sh'}:/home/agent/.yolo-venv-precreate.sh",
+        "-v",
+        f"{ws_state / 'yolo-perf.log'}:/home/agent/.yolo-perf.log",
+        "-v",
+        f"{ws_state / 'yolo-socat.log'}:/home/agent/.yolo-socat.log",
+        "-v",
+        f"{ws_state / 'yolo-entrypoint.lock'}:/home/agent/.yolo-entrypoint.lock",
+        "-v",
+        f"{ws_state / 'claude.json'}:/home/agent/.claude.json",
+        # Agent config dirs — full per-workspace overlays.
+        # Auth tokens are seeded from GLOBAL_HOME on first use (see _seed_agent_dir).
+        # The entrypoint regenerates all configs into these writable dirs each boot.
+        "-v",
+        f"{ws_state / 'copilot'}:/home/agent/.copilot",
+        "-v",
+        f"{ws_state / 'gemini'}:/home/agent/.gemini",
+        "-v",
+        f"{ws_state / 'claude'}:/home/agent/.claude",
+        # Other per-workspace overlays
         "-v",
         f"{ws_state / 'bash_history'}:/home/agent/.bash_history",
         "-v",
-        f"{ws_state / 'gemini-history'}:/home/agent/.gemini/history",
-        "-v",
-        f"{ws_state / 'claude-projects'}:/home/agent/.claude/projects",
-        # Per-workspace SSH keys — each project gets its own ~/.ssh/
-        "-v",
         f"{ws_state / 'ssh'}:/home/agent/.ssh",
-        # Per-workspace MCP/LSP configs — prevent cross-jail config stomping
+        # --- Shared mounts ---
         "-v",
-        f"{ws_state / 'copilot-mcp-config.json'}:/home/agent/.copilot/mcp-config.json",
-        "-v",
-        f"{ws_state / 'copilot-lsp-config.json'}:/home/agent/.copilot/lsp-config.json",
-        "-v",
-        f"{ws_state / 'gemini-settings.json'}:/home/agent/.gemini/settings.json",
-        "-v",
-        f"{ws_state / 'gemini-managed-mcp.json'}:/home/agent/.gemini/yolo-managed-mcp-servers.json",
-        "-v",
-        f"{ws_state / 'claude-settings.json'}:/home/agent/.claude/settings.json",
-        "-v",
-        f"{ws_state / 'claude-managed-mcp.json'}:/home/agent/.claude/yolo-managed-mcp-servers.json",
-        "-v",
-        f"{host_mise}:{host_mise}",
+        f"{host_mise}:/mise",
         "--tmpfs",
         "/tmp",
+        "--tmpfs",
+        "/var/tmp",
         "--shm-size=2g",
         "-e",
         "JAIL_HOME=/home/agent",
         "-e",
         "NPM_CONFIG_PREFIX=/home/agent/.npm-global",
         "-e",
+        # Redirect npm cache to the writable shared cache dir (GLOBAL_HOME is :ro,
+        # so the default ~/.npm/_cacache would fail with EROFS).
+        "NPM_CONFIG_CACHE=/home/agent/.cache/npm",
+        "-e",
         "GOPATH=/home/agent/go",
         "-e",
-        f"MISE_DATA_DIR={host_mise}",
+        "MISE_DATA_DIR=/mise",
         "-e",
         # Use a per-container cache dir so mise lockfiles don't contend with
         # the host/outer-jail's locks (shared /home/agent would otherwise share
@@ -4381,25 +4438,12 @@ def run(
     if res_parts:
         print(f"Resource limits: {', '.join(res_parts)}", file=sys.stderr)
 
-    # Copy host nvim config (resolving symlinks) so ctrl-g uses the user's config.
-    # We copy instead of bind-mounting because dotfile managers (stow, etc.) create
-    # symlinks like init.lua -> ~/.dotfiles/... which break inside the container.
+    # Mount host nvim config read-only for entrypoint to copy into the writable
+    # .config/ overlay.  We can't bind-mount directly because dotfile managers
+    # (stow, etc.) create symlinks that break inside the container.
     host_nvim_config = Path.home() / ".config" / "nvim"
     if host_nvim_config.is_dir():
-        jail_nvim_config = GLOBAL_STORAGE / "home" / ".config" / "nvim"
-        try:
-            jail_nvim_config.parent.mkdir(parents=True, exist_ok=True)
-            # Use dirs_exist_ok to handle concurrent jails populating the
-            # same shared home — avoids FileExistsError races.
-            shutil.copytree(
-                host_nvim_config,
-                jail_nvim_config,
-                symlinks=False,
-                ignore_dangling_symlinks=True,
-                dirs_exist_ok=True,
-            )
-        except (OSError, shutil.Error) as e:
-            console.print(f"[yellow]Warning: could not copy nvim config: {e}[/yellow]")
+        docker_cmd.extend(["-v", f"{host_nvim_config}:/ctx/host-nvim-config:ro"])
 
     # Shadow workspace .vscode/mcp.json so agents use only our jail MCP config
     vscode_mcp = workspace / ".vscode" / "mcp.json"
@@ -4411,8 +4455,9 @@ def run(
     if overmind_sock.exists():
         docker_cmd.extend(["-v", "/dev/null:/workspace/.overmind.sock:ro"])
 
-    # Pass original host mise path for nested jail re-mounting
-    docker_cmd.extend(["-e", f"YOLO_OUTER_MISE_PATH={host_mise}"])
+    # Pass container-side mise path for nested jail re-mounting.
+    # Inside the container, mise is always at /mise regardless of host path.
+    docker_cmd.extend(["-e", "YOLO_OUTER_MISE_PATH=/mise"])
 
     # Mount merged skills directories read-only (prepared on host side).
     # Kernel-enforced :ro — agents get "Read-only file system" on write attempts.
@@ -4592,6 +4637,9 @@ def run(
     # Start host-side cgroup delegate daemon BEFORE the container so the
     # socket exists when the entrypoint or agent runs yolo-cglimit.
     cgd_thread = start_cgroup_delegate(cname, runtime, cgd_socket_dir)
+
+    if os.environ.get("YOLO_DEBUG"):
+        print(" ".join(shlex.quote(s) for s in docker_cmd), file=sys.stderr)
 
     # Use Popen so we can release the workspace lock once the container is
     # confirmed running.  Any concurrent yolo process waiting on the lock will

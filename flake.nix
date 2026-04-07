@@ -257,6 +257,12 @@
           fakeRootCommands = ''
             mkdir -p ./var/tmp ./run ./var/lib/containers
 
+            # Pre-create mountpoint directories for --read-only root filesystem.
+            # With --read-only, the OCI runtime cannot create these on the fly.
+            mkdir -p ./home/agent ./workspace ./tmp ./opt/yolo-jail ./mise
+            mkdir -p ./ctx/host-claude ./ctx/host-nvim-config
+            mkdir -p ./nix/var/nix/daemon-socket
+
             # Podman needs /etc/passwd and /etc/group
             echo 'root:x:0:0:root:/home/agent:/bin/bash' > ./etc/passwd
             echo 'root:x:0:' > ./etc/group

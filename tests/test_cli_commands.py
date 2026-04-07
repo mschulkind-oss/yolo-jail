@@ -589,10 +589,10 @@ class TestRunCommandInternals:
     @patch("cli.write_container_tracking")
     @patch("cli._tmux_rename_window")
     @patch("cli._host_mise_dir")
-    @patch("cli._init_per_workspace_mcp_configs")
+    @patch("cli._seed_agent_dir")
     def test_new_container_creation(
         self,
-        mock_init_mcp,
+        mock_seed_agent,
         mock_mise_dir,
         mock_tmux,
         mock_write_track,
@@ -2178,68 +2178,35 @@ class TestGenerateAgentsMdEdges:
 
 
 # ═══════════════════════════════════════════════════════════════════════════════
-# Test: _init_per_workspace_mcp_configs
+# Test: _seed_agent_dir
 # ═══════════════════════════════════════════════════════════════════════════════
 
 
-class TestInitPerWorkspaceMcpConfigs:
-    """Test _init_per_workspace_mcp_configs creates/seeds config files."""
+class TestSeedAgentDirCommands:
+    """Test _seed_agent_dir seeds auth files from GLOBAL_HOME into per-workspace overlay."""
 
-    def test_creates_fresh_configs(self, tmp_path, monkeypatch):
-        from cli import _init_per_workspace_mcp_configs
+    def test_seeds_auth_files(self, tmp_path):
+        from cli import _seed_agent_dir
 
-        monkeypatch.setattr("cli.GLOBAL_HOME", tmp_path / "global-home")
-        ws_state = tmp_path / "ws-state"
-        ws_state.mkdir()
+        src = tmp_path / "src"
+        src.mkdir()
+        (src / "hosts.json").write_text('{"token": "x"}')
+        dst = tmp_path / "dst"
+        dst.mkdir()
+        _seed_agent_dir(src, dst)
+        assert (dst / "hosts.json").read_text() == '{"token": "x"}'
 
-        _init_per_workspace_mcp_configs(ws_state)
+    def test_does_not_overwrite_existing(self, tmp_path):
+        from cli import _seed_agent_dir
 
-        assert (ws_state / "copilot-mcp-config.json").exists()
-        assert (ws_state / "copilot-lsp-config.json").exists()
-        assert (ws_state / "gemini-settings.json").exists()
-        assert (ws_state / "gemini-managed-mcp.json").exists()
-        assert (ws_state / "claude-settings.json").exists()
-        assert (ws_state / "claude-managed-mcp.json").exists()
-
-    def test_seeds_from_shared_gemini_settings(self, tmp_path, monkeypatch):
-        from cli import _init_per_workspace_mcp_configs
-
-        global_home = tmp_path / "global-home"
-        monkeypatch.setattr("cli.GLOBAL_HOME", global_home)
-
-        # Create shared gemini settings with mcpServers that should be stripped
-        gemini_dir = global_home / ".gemini"
-        gemini_dir.mkdir(parents=True)
-        (gemini_dir / "settings.json").write_text(
-            json.dumps(
-                {
-                    "mcpServers": {"test": {"command": "test"}},
-                    "other_setting": True,
-                }
-            )
-        )
-
-        ws_state = tmp_path / "ws-state"
-        ws_state.mkdir()
-        _init_per_workspace_mcp_configs(ws_state)
-
-        data = json.loads((ws_state / "gemini-settings.json").read_text())
-        assert "mcpServers" not in data
-        assert data.get("other_setting") is True
-
-    def test_idempotent_does_not_overwrite(self, tmp_path, monkeypatch):
-        from cli import _init_per_workspace_mcp_configs
-
-        monkeypatch.setattr("cli.GLOBAL_HOME", tmp_path / "global-home")
-        ws_state = tmp_path / "ws-state"
-        ws_state.mkdir()
-
-        # Pre-create with custom content
-        (ws_state / "gemini-settings.json").write_text('{"custom": true}')
-        _init_per_workspace_mcp_configs(ws_state)
-
-        data = json.loads((ws_state / "gemini-settings.json").read_text())
-        assert data.get("custom") is True
+        src = tmp_path / "src"
+        src.mkdir()
+        (src / "hosts.json").write_text("old")
+        dst = tmp_path / "dst"
+        dst.mkdir()
+        (dst / "hosts.json").write_text("kept")
+        _seed_agent_dir(src, dst)
+        assert (dst / "hosts.json").read_text() == "kept"
 
 
 # ═══════════════════════════════════════════════════════════════════════════════

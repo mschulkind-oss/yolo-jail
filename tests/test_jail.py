@@ -422,16 +422,16 @@ def test_workspace_mcp_configs_are_isolated(tmp_path):
     assert result_b.returncode == 0, result_b.stderr
 
     copilot_a = json.loads(
-        (project_a / ".yolo" / "home" / "copilot-mcp-config.json").read_text()
+        (project_a / ".yolo" / "home" / "copilot" / "mcp-config.json").read_text()
     )
     copilot_b = json.loads(
-        (project_b / ".yolo" / "home" / "copilot-mcp-config.json").read_text()
+        (project_b / ".yolo" / "home" / "copilot" / "mcp-config.json").read_text()
     )
     gemini_a = json.loads(
-        (project_a / ".yolo" / "home" / "gemini-settings.json").read_text()
+        (project_a / ".yolo" / "home" / "gemini" / "settings.json").read_text()
     )
     gemini_b = json.loads(
-        (project_b / ".yolo" / "home" / "gemini-settings.json").read_text()
+        (project_b / ".yolo" / "home" / "gemini" / "settings.json").read_text()
     )
 
     assert "chrome-devtools" in copilot_a["mcpServers"]

@@ -166,35 +166,25 @@ def test_cross_hierarchy_preset_null_override_is_allowed():
     ) == ["sequential-thinking"]
 
 
-def test_init_per_workspace_mcp_configs_seeds_gemini_settings(tmp_path, monkeypatch):
-    shared_home = tmp_path / "shared-home"
-    (shared_home / ".gemini").mkdir(parents=True)
-    (shared_home / ".gemini" / "settings.json").write_text(
-        json.dumps(
-            {
-                "security": {"approvalMode": "yolo"},
-                "general": {"previewFeatures": True},
-                "mcpServers": {"chrome-devtools": {"command": "/bin/node"}},
-            }
-        )
-        + "\n"
-    )
-    monkeypatch.setattr(cli, "GLOBAL_HOME", shared_home)
+def test_seed_agent_dir_copies_auth_files(tmp_path):
+    """_seed_agent_dir copies files from GLOBAL_HOME agent dir into per-workspace overlay."""
+    src = tmp_path / "shared-home" / ".gemini"
+    src.mkdir(parents=True)
+    (src / "hosts.json").write_text('{"auth": true}')
+    (src / "settings.json").write_text('{"theme": "dark"}')
 
-    ws_state = tmp_path / "workspace" / ".yolo" / "home"
-    ws_state.mkdir(parents=True)
+    dst = tmp_path / "workspace" / ".yolo" / "home" / "gemini"
+    dst.mkdir(parents=True)
 
-    cli._init_per_workspace_mcp_configs(ws_state)
+    cli._seed_agent_dir(src, dst)
 
-    assert json.loads((ws_state / "copilot-mcp-config.json").read_text()) == {}
-    assert json.loads((ws_state / "copilot-lsp-config.json").read_text()) == {}
-    assert json.loads((ws_state / "gemini-managed-mcp.json").read_text()) == []
-    seeded = json.loads((ws_state / "gemini-settings.json").read_text())
-    assert seeded["security"]["approvalMode"] == "yolo"
-    assert seeded["general"]["previewFeatures"] is True
-    assert "mcpServers" not in seeded
-    assert json.loads((ws_state / "claude-settings.json").read_text()) == {}
-    assert json.loads((ws_state / "claude-managed-mcp.json").read_text()) == []
+    assert (dst / "hosts.json").read_text() == '{"auth": true}'
+    assert (dst / "settings.json").read_text() == '{"theme": "dark"}'
+
+    # Second call should not overwrite
+    (dst / "hosts.json").write_text("modified")
+    cli._seed_agent_dir(src, dst)
+    assert (dst / "hosts.json").read_text() == "modified"
 
 
 class TestConfigSnapshot:

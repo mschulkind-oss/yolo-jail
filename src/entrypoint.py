@@ -5,7 +5,6 @@ Sets up the container environment (shims, configs, prompt) then exec's bash.
 Uses only stdlib — runs before any pip packages are installed.
 """
 
-import fcntl
 import hashlib
 import json
 import os
@@ -189,6 +188,7 @@ def generate_agent_launchers():
 # Lazy-update launcher for {bin_name} — updates on first use, not at boot.
 set -euo pipefail
 export NPM_CONFIG_PREFIX="${{NPM_CONFIG_PREFIX:-$HOME/.npm-global}}"
+export NPM_CONFIG_CACHE="${{NPM_CONFIG_CACHE:-$HOME/.cache/npm}}"
 STAMP_DIR="{stamp_dir}"
 STAMP="$STAMP_DIR/{bin_name}.stamp"
 REAL_BIN="$NPM_CONFIG_PREFIX/bin/{bin_name}"
@@ -328,6 +328,7 @@ export VISUAL=nvim
 
 # PATH with npm-global and go binaries
 export NPM_CONFIG_PREFIX="${NPM_CONFIG_PREFIX:-$HOME/.npm-global}"
+export NPM_CONFIG_CACHE="${NPM_CONFIG_CACHE:-$HOME/.cache/npm}"
 export GOPATH="${GOPATH:-$HOME/go}"
 SHIM_DIR="${HOME}/.yolo-shims"
 export PATH="$SHIM_DIR:$HOME/.local/bin:$NPM_CONFIG_PREFIX/bin:${MISE_DATA_DIR:-/mise}/shims:$GOPATH/bin:/bin:/usr/bin"
@@ -369,6 +370,7 @@ def generate_bootstrap_script():
     script_path = HOME / ".yolo-bootstrap.sh"
     script_path.write_text(r"""#!/bin/bash
 export NPM_CONFIG_PREFIX="${NPM_CONFIG_PREFIX:-$HOME/.npm-global}"
+export NPM_CONFIG_CACHE="${NPM_CONFIG_CACHE:-$HOME/.cache/npm}"
 export GOPATH="${GOPATH:-$HOME/go}"
 export GOBIN="$GOPATH/bin"
 export PATH="$HOME/.local/bin:$NPM_CONFIG_PREFIX/bin:${MISE_DATA_DIR:-/mise}/shims:$GOBIN:$PATH"
@@ -1508,61 +1510,55 @@ def main():
     cmd = " ".join(sys.argv[1:]) if len(sys.argv) > 1 else "bash"
     _perf("start")
 
-    # Create /mise symlink for backward compat when MISE_DATA_DIR is the host path.
-    # Scripts and PATH entries may reference /mise/shims — this ensures they resolve.
-    mise_data = os.environ.get("MISE_DATA_DIR", "/mise")
-    if mise_data != "/mise" and not Path("/mise").exists():
-        try:
-            Path("/mise").symlink_to(mise_data)
-        except OSError:
-            pass  # may lack permissions on /
+    # Each jail writes to its own per-workspace overlay dirs (mounted by cli.py),
+    # so no flock needed — no cross-jail contention.
+    generate_shims()
+    _perf("generate_shims")
+    generate_agent_launchers()
+    _perf("generate_agent_launchers")
+    generate_bashrc()
+    _perf("generate_bashrc")
+    generate_bootstrap_script()
+    _perf("generate_bootstrap_script")
+    generate_venv_precreate_script()
+    _perf("generate_venv_precreate_script")
+    generate_mise_config()
+    _perf("generate_mise_config")
 
-    # All generation steps write to the shared /home/agent directory.
-    # When multiple jails start concurrently (e.g. after a reboot with session
-    # restore), their entrypoints race on rmtree+recreate of shared paths.
-    # Serialize with an exclusive flock — generation is sub-second so the
-    # wait is negligible.
-    lock_path = HOME / ".yolo-entrypoint.lock"
-    lock_fd = open(lock_path, "w")
-    try:
-        fcntl.flock(lock_fd, fcntl.LOCK_EX)
-        _perf("lock_acquired")
+    # Copy host nvim config into the writable .config/ overlay
+    host_nvim = Path("/ctx/host-nvim-config")
+    if host_nvim.is_dir():
+        jail_nvim = HOME / ".config" / "nvim"
+        jail_nvim.parent.mkdir(parents=True, exist_ok=True)
+        shutil.copytree(
+            host_nvim,
+            jail_nvim,
+            symlinks=False,
+            ignore_dangling_symlinks=True,
+            dirs_exist_ok=True,
+        )
+    _perf("nvim_config")
 
-        generate_shims()
-        _perf("generate_shims")
-        generate_agent_launchers()
-        _perf("generate_agent_launchers")
-        generate_bashrc()
-        _perf("generate_bashrc")
-        generate_bootstrap_script()
-        _perf("generate_bootstrap_script")
-        generate_venv_precreate_script()
-        _perf("generate_venv_precreate_script")
-        generate_mise_config()
-        _perf("generate_mise_config")
-        generate_mcp_wrappers()
-        _perf("generate_mcp_wrappers")
-        configure_git()
-        _perf("configure_git")
-        configure_jj()
-        _perf("configure_jj")
-        # Skills are mounted :ro by cli.py — no entrypoint action needed.
-        _perf("skills_skipped")
-        configure_copilot()
-        _perf("configure_copilot")
-        configure_gemini()
-        _perf("configure_gemini")
-        configure_claude()
-        _perf("configure_claude")
-        setup_cgroup_delegation()
-        _perf("cgroup_delegation")
-        generate_cglimit_script()
-        _perf("cglimit_script")
-        generate_yolo_wrapper()
-        _perf("yolo_wrapper")
-    finally:
-        fcntl.flock(lock_fd, fcntl.LOCK_UN)
-        lock_fd.close()
+    generate_mcp_wrappers()
+    _perf("generate_mcp_wrappers")
+    configure_git()
+    _perf("configure_git")
+    configure_jj()
+    _perf("configure_jj")
+    # Skills are mounted :ro by cli.py — no entrypoint action needed.
+    _perf("skills_skipped")
+    configure_copilot()
+    _perf("configure_copilot")
+    configure_gemini()
+    _perf("configure_gemini")
+    configure_claude()
+    _perf("configure_claude")
+    setup_cgroup_delegation()
+    _perf("cgroup_delegation")
+    generate_cglimit_script()
+    _perf("cglimit_script")
+    generate_yolo_wrapper()
+    _perf("yolo_wrapper")
 
     # These are per-container (use container-local network state), not shared
     setup_published_port_localnet()

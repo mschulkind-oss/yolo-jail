@@ -4,7 +4,6 @@ Covers: argv routing, repo root resolution, config validation, container naming,
 port forwarding, AGENTS.md generation, check command, and helpers.
 """
 
-import json
 import os
 import subprocess
 import sys
@@ -928,12 +927,14 @@ class TestEnsureGlobalStorage:
     def test_creates_directories(self, tmp_path, monkeypatch):
         monkeypatch.setattr("cli.GLOBAL_HOME", tmp_path / "home")
         monkeypatch.setattr("cli.GLOBAL_MISE", tmp_path / "mise")
+        monkeypatch.setattr("cli.GLOBAL_CACHE", tmp_path / "cache")
         monkeypatch.setattr("cli.CONTAINER_DIR", tmp_path / "containers")
         monkeypatch.setattr("cli.AGENTS_DIR", tmp_path / "agents")
         monkeypatch.setattr("cli.BUILD_DIR", tmp_path / "build")
         ensure_global_storage()
         assert (tmp_path / "home").is_dir()
         assert (tmp_path / "mise").is_dir()
+        assert (tmp_path / "cache").is_dir()
         assert (tmp_path / "containers").is_dir()
         assert (tmp_path / "agents").is_dir()
         assert (tmp_path / "build").is_dir()
@@ -942,6 +943,7 @@ class TestEnsureGlobalStorage:
         home = tmp_path / "home"
         monkeypatch.setattr("cli.GLOBAL_HOME", home)
         monkeypatch.setattr("cli.GLOBAL_MISE", tmp_path / "mise")
+        monkeypatch.setattr("cli.GLOBAL_CACHE", tmp_path / "cache")
         monkeypatch.setattr("cli.CONTAINER_DIR", tmp_path / "containers")
         monkeypatch.setattr("cli.AGENTS_DIR", tmp_path / "agents")
         monkeypatch.setattr("cli.BUILD_DIR", tmp_path / "build")
@@ -950,6 +952,61 @@ class TestEnsureGlobalStorage:
         assert (home / ".gemini").is_dir()
         assert (home / ".claude").is_dir()
         assert (home / ".config" / "git").is_dir()
+
+    def test_creates_mountpoint_files(self, tmp_path, monkeypatch):
+        """File mountpoints must exist in GLOBAL_HOME for :ro bind mounts."""
+        home = tmp_path / "home"
+        monkeypatch.setattr("cli.GLOBAL_HOME", home)
+        monkeypatch.setattr("cli.GLOBAL_MISE", tmp_path / "mise")
+        monkeypatch.setattr("cli.GLOBAL_CACHE", tmp_path / "cache")
+        monkeypatch.setattr("cli.CONTAINER_DIR", tmp_path / "containers")
+        monkeypatch.setattr("cli.AGENTS_DIR", tmp_path / "agents")
+        monkeypatch.setattr("cli.BUILD_DIR", tmp_path / "build")
+        ensure_global_storage()
+        # Spot-check key file mountpoints
+        assert (home / ".bashrc").is_file()
+        assert (home / ".gitconfig").is_file()
+        assert (home / ".yolo-entrypoint.lock").is_file()
+        assert (home / ".claude.json").is_file()
+
+    def test_creates_overlay_dir_mountpoints(self, tmp_path, monkeypatch):
+        """Directory mountpoints for per-workspace overlays."""
+        home = tmp_path / "home"
+        monkeypatch.setattr("cli.GLOBAL_HOME", home)
+        monkeypatch.setattr("cli.GLOBAL_MISE", tmp_path / "mise")
+        monkeypatch.setattr("cli.GLOBAL_CACHE", tmp_path / "cache")
+        monkeypatch.setattr("cli.CONTAINER_DIR", tmp_path / "containers")
+        monkeypatch.setattr("cli.AGENTS_DIR", tmp_path / "agents")
+        monkeypatch.setattr("cli.BUILD_DIR", tmp_path / "build")
+        ensure_global_storage()
+        assert (home / ".npm-global").is_dir()
+        assert (home / ".local").is_dir()
+        assert (home / "go").is_dir()
+        assert (home / ".yolo-shims").is_dir()
+        assert (home / ".cache").is_dir()
+        assert (home / ".copilot").is_dir()
+        assert (home / ".gemini").is_dir()
+        assert (home / ".claude").is_dir()
+
+    def test_skips_existing_files_with_bad_perms(self, tmp_path, monkeypatch):
+        """Pre-existing files with restrictive perms should not cause errors."""
+        home = tmp_path / "home"
+        home.mkdir()
+        # Simulate a file written by a container with different UID
+        f = home / ".bashrc"
+        f.write_text("# old")
+        f.chmod(0o000)
+        monkeypatch.setattr("cli.GLOBAL_HOME", home)
+        monkeypatch.setattr("cli.GLOBAL_MISE", tmp_path / "mise")
+        monkeypatch.setattr("cli.GLOBAL_CACHE", tmp_path / "cache")
+        monkeypatch.setattr("cli.CONTAINER_DIR", tmp_path / "containers")
+        monkeypatch.setattr("cli.AGENTS_DIR", tmp_path / "agents")
+        monkeypatch.setattr("cli.BUILD_DIR", tmp_path / "build")
+        # Should not raise despite unwritable file
+        ensure_global_storage()
+        assert f.exists()
+        # Cleanup: restore perms so tmp_path cleanup works
+        f.chmod(0o644)
 
 
 # ═══════════════════════════════════════════════════════════════════════════════
@@ -1256,56 +1313,54 @@ class TestHostMiseDir:
 
 
 # ═══════════════════════════════════════════════════════════════════════════════
-# Test: Init per-workspace MCP configs
+# Test: _seed_agent_dir
 # ═══════════════════════════════════════════════════════════════════════════════
 
 
-class TestInitPerWorkspaceMcpConfigs:
-    def test_creates_files(self, tmp_path, monkeypatch):
-        from cli import _init_per_workspace_mcp_configs
+class TestSeedAgentDir:
+    def test_copies_files_on_first_use(self, tmp_path):
+        from cli import _seed_agent_dir
 
-        monkeypatch.setattr("cli.GLOBAL_HOME", tmp_path / "global")
-        ws_state = tmp_path / "ws-state"
-        ws_state.mkdir()
-        _init_per_workspace_mcp_configs(ws_state)
-        assert (ws_state / "copilot-mcp-config.json").exists()
-        assert (ws_state / "copilot-lsp-config.json").exists()
-        assert (ws_state / "gemini-settings.json").exists()
-        assert (ws_state / "gemini-managed-mcp.json").exists()
-        assert (ws_state / "claude-settings.json").exists()
-        assert (ws_state / "claude-managed-mcp.json").exists()
+        src = tmp_path / "src"
+        src.mkdir()
+        (src / "hosts.json").write_text('{"token": "abc"}')
+        (src / "config.json").write_text("{}")
+        dst = tmp_path / "dst"
+        dst.mkdir()
+        _seed_agent_dir(src, dst)
+        assert (dst / "hosts.json").read_text() == '{"token": "abc"}'
+        assert (dst / "config.json").read_text() == "{}"
 
-    def test_seeds_from_shared_gemini(self, tmp_path, monkeypatch):
-        from cli import _init_per_workspace_mcp_configs
+    def test_does_not_overwrite_existing(self, tmp_path):
+        from cli import _seed_agent_dir
 
-        global_home = tmp_path / "global"
-        gemini_dir = global_home / ".gemini"
-        gemini_dir.mkdir(parents=True)
-        (gemini_dir / "settings.json").write_text(
-            json.dumps({"theme": "dark", "mcpServers": {"old": {}}})
-        )
-        monkeypatch.setattr("cli.GLOBAL_HOME", global_home)
-        ws_state = tmp_path / "ws-state"
-        ws_state.mkdir()
-        _init_per_workspace_mcp_configs(ws_state)
-        data = json.loads((ws_state / "gemini-settings.json").read_text())
-        assert "theme" in data
-        assert "mcpServers" not in data  # Stripped
+        src = tmp_path / "src"
+        src.mkdir()
+        (src / "hosts.json").write_text("old")
+        dst = tmp_path / "dst"
+        dst.mkdir()
+        (dst / "hosts.json").write_text("new")
+        _seed_agent_dir(src, dst)
+        assert (dst / "hosts.json").read_text() == "new"
 
-    def test_idempotent(self, tmp_path, monkeypatch):
-        from cli import _init_per_workspace_mcp_configs
+    def test_skips_subdirectories(self, tmp_path):
+        from cli import _seed_agent_dir
 
-        monkeypatch.setattr("cli.GLOBAL_HOME", tmp_path / "global")
-        ws_state = tmp_path / "ws-state"
-        ws_state.mkdir()
-        _init_per_workspace_mcp_configs(ws_state)
-        # Write custom content
-        (ws_state / "copilot-mcp-config.json").write_text('{"custom": true}')
-        # Second call should not overwrite
-        _init_per_workspace_mcp_configs(ws_state)
-        assert json.loads((ws_state / "copilot-mcp-config.json").read_text()) == {
-            "custom": True
-        }
+        src = tmp_path / "src"
+        src.mkdir()
+        (src / "subdir").mkdir()
+        (src / "subdir" / "file.txt").write_text("x")
+        dst = tmp_path / "dst"
+        dst.mkdir()
+        _seed_agent_dir(src, dst)
+        assert not (dst / "subdir").exists()
+
+    def test_handles_missing_src(self, tmp_path):
+        from cli import _seed_agent_dir
+
+        dst = tmp_path / "dst"
+        dst.mkdir()
+        _seed_agent_dir(tmp_path / "nonexistent", dst)  # should not raise
 
 
 # ═══════════════════════════════════════════════════════════════════════════════
