@@ -4005,6 +4005,29 @@ def run(
     _seed_agent_dir(GLOBAL_HOME / ".gemini", ws_state / "gemini")
     _seed_agent_dir(GLOBAL_HOME / ".claude", ws_state / "claude")
 
+    # Seed top-level agent state files (onboarding flags, user prefs, etc.)
+    # These live outside the agent dirs (e.g. ~/.claude.json) and need seeding
+    # so agents don't re-trigger first-run flows on every new workspace.
+    # Merge strategy: GLOBAL_HOME keys fill gaps in the per-workspace file,
+    # but per-workspace values always win for keys that already exist.
+    for fname in ["claude.json"]:
+        src_file = GLOBAL_HOME / f".{fname}"
+        dst_file = ws_state / fname
+        if src_file.is_file():
+            try:
+                src_data = json.loads(src_file.read_text())
+                try:
+                    dst_data = json.loads(dst_file.read_text())
+                except (json.JSONDecodeError, FileNotFoundError, OSError):
+                    dst_data = {}
+                # Fill in missing keys from GLOBAL_HOME (onboarding, user prefs)
+                for key, val in src_data.items():
+                    if key not in dst_data:
+                        dst_data[key] = val
+                dst_file.write_text(json.dumps(dst_data, indent=2) + "\n")
+            except (json.JSONDecodeError, OSError):
+                pass
+
     docker_cmd = [
         runtime,
         "run",
