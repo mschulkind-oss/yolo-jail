@@ -4233,9 +4233,13 @@ def run(
     docker_cmd += [
         "--workdir",
         "/workspace",
-        # Mount yolo-jail repo for in-jail CLI (yolo --help, nested jailing)
+        # Mount yolo-jail repo for in-jail CLI (yolo --help, nested jailing).
+        # In nested jails, YOLO_REPO_ROOT may point to an empty /opt/yolo-jail
+        # (bind mount doesn't propagate). Fall back to /workspace if it's the repo.
         "-v",
-        f"{repo_root}:/opt/yolo-jail:ro",
+        f"{repo_root}:/opt/yolo-jail:ro"
+        if (repo_root / "flake.nix").exists()
+        else f"{workspace}:/opt/yolo-jail:ro",
     ]
 
     # Docker needs explicit UID mapping; podman rootless maps container root to host user
