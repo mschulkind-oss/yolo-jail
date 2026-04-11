@@ -114,18 +114,18 @@ jobs:
       - name: Install Docker via Colima
         run: |
           brew install --quiet colima docker socat
-          colima start --cpu 2 --memory 4 --disk 20 --mount-type sshfs
-
-      - name: Install Nix
-        uses: cachix/install-nix-action@v30
-        with:
-          extra_nix_config: |
-            experimental-features = nix-command flakes
+          colima start --cpu 2 --memory 4 --disk 30 --mount-type sshfs
 
       - name: Build and load jail image
         run: |
-          nix build --impure .#dockerImage
-          ./result | docker load
+          # The jail image targets Linux.  Build inside a Linux container to
+          # avoid needing a Nix Linux builder on the macOS host.
+          docker run --rm \
+            -v "$PWD:/src:ro" \
+            -w /src \
+            nixos/nix:2.34.4 \
+            sh -c 'nix --extra-experimental-features "nix-command flakes" build --impure .#dockerImage --out-link /tmp/result && /tmp/result' \
+            | docker load
 
       - name: Integration tests (macOS + Docker)
         run: uv run pytest tests/test_jail.py tests/test_runtime.py -v -k "not podman"
