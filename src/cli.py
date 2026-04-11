@@ -1,6 +1,7 @@
 import difflib
 import fcntl
 import os
+import platform
 import re
 import socket
 import struct
@@ -18,6 +19,9 @@ from typing import Optional, List, Dict, Any, Union
 import typer
 import pyjson5
 from rich.console import Console
+
+IS_LINUX = sys.platform == "linux"
+IS_MACOS = sys.platform == "darwin"
 
 app = typer.Typer(
     invoke_without_command=True,
@@ -197,7 +201,7 @@ def _default(
     Place [bold]yolo-jail.jsonc[/bold] in your project root (JSON with comments):
 
         {
-          "runtime": "podman",              // or "docker"
+          "runtime": "podman",              // or "docker" or "container" (Apple)
           "packages": [                     // extra nix packages
             "strace",                       // latest from flake nixpkgs
             {"name": "freetype", "nixpkgs": "e6f23dc0..."},  // pinned nixpkgs
@@ -216,7 +220,7 @@ def _default(
 
     [bold cyan]Environment Variables[/bold cyan]
 
-        YOLO_RUNTIME          Override runtime (podman/docker)
+        YOLO_RUNTIME          Override runtime (podman/docker/container)
         YOLO_BYPASS_SHIMS     Set to 1 to bypass blocked tool shims
 
     [bold cyan]Config Safety[/bold cyan]
@@ -239,6 +243,8 @@ def _default(
 
 
 JAIL_IMAGE = "localhost/yolo-jail:latest"
+# Apple Container CLI doesn't recognize the localhost/ prefix
+JAIL_IMAGE_SHORT = "yolo-jail:latest"
 GLOBAL_STORAGE = Path.home() / ".local/share/yolo-jail"
 GLOBAL_HOME = GLOBAL_STORAGE / "home"
 GLOBAL_MISE = GLOBAL_STORAGE / "mise"
@@ -634,20 +640,44 @@ def _tmux_setup_jail_pane():
     return restore
 
 
+def _linux_multilib() -> str:
+    """Return the Linux multilib directory name for the current architecture.
+
+    The container is always Linux; the arch matches the host (native, not emulated).
+    """
+    machine = platform.machine()
+    _MAP = {
+        "x86_64": "x86_64-linux-gnu",
+        "aarch64": "aarch64-linux-gnu",
+        "arm64": "aarch64-linux-gnu",  # macOS reports arm64
+    }
+    return _MAP.get(machine, f"{machine}-linux-gnu")
+
+
 def _runtime(config: Dict[str, Any] = None) -> str:
-    """Return container runtime: 'podman' or 'docker'."""
+    """Return container runtime: 'podman', 'docker', or 'container' (Apple).
+
+    Auto-detection priority:
+      macOS: container → podman → docker  (prefer native Apple Container)
+      Linux: podman → docker              (container CLI is macOS-only)
+    """
     env = os.environ.get("YOLO_RUNTIME")
-    if env and env in ("podman", "docker"):
+    if env and env in ("podman", "docker", "container"):
         return env
     if config:
         cfg = config.get("runtime")
-        if cfg and cfg in ("podman", "docker"):
+        if cfg and cfg in ("podman", "docker", "container"):
             return cfg
-    for rt in ("podman", "docker"):
+    # Platform-aware auto-detection: prefer native runtime first
+    if IS_MACOS:
+        candidates = ("container", "podman", "docker")
+    else:
+        candidates = ("podman", "docker")
+    for rt in candidates:
         if shutil.which(rt):
             return rt
     console.print(
-        "[bold red]No container runtime found. Install podman or docker.[/bold red]"
+        "[bold red]No container runtime found. Install podman, docker, or Apple's container CLI.[/bold red]"
     )
     sys.exit(1)
 
@@ -670,6 +700,19 @@ def container_name_for_workspace(workspace: Path) -> str:
 def find_running_container(name: str, runtime: str = "docker") -> Optional[str]:
     """Return container ID if a container with this name is running, else None."""
     try:
+        if runtime == "container":
+            # Apple Container CLI uses 'list' with different filter syntax
+            result = subprocess.run(
+                ["container", "ls", "--filter", f"name={name}"],
+                capture_output=True,
+                text=True,
+            )
+            # Apple container ls outputs a table; check if our name appears
+            for line in result.stdout.strip().splitlines()[1:]:  # skip header
+                parts = line.split()
+                if parts and parts[0] == name:
+                    return name
+            return None
         result = subprocess.run(
             [runtime, "ps", "-q", "--filter", f"name=^/{name}$"],
             capture_output=True,
@@ -679,6 +722,166 @@ def find_running_container(name: str, runtime: str = "docker") -> Optional[str]:
         return None
     cid = result.stdout.strip()
     return cid if cid else None
+
+
+def _image_load_cmd(runtime: str, tar_path: str) -> list[str]:
+    """Return the command to load a container image from a tar archive."""
+    if runtime == "container":
+        return ["container", "image", "load", "-i", tar_path]
+    return [runtime, "load", "-i", tar_path]
+
+
+def _load_image_for_apple_container(tar_path: str, console, status=None) -> bool:
+    """Load a Nix-built Docker-format tar into Apple Container CLI.
+
+    Apple Container only accepts OCI-layout tars, but Nix's dockerTools
+    produces Docker V2 format.  We convert using (in priority order):
+      1. skopeo (no daemon needed — works standalone)
+      2. podman save --format oci-archive (needs Podman Machine)
+      3. docker save (needs Docker daemon)
+    """
+    skopeo = shutil.which("skopeo")
+    if skopeo:
+        return _convert_via_skopeo(tar_path, console, status)
+
+    # Fall back to podman or docker daemon-based conversion
+    for rt_name, rt_bin in [
+        ("Podman", shutil.which("podman")),
+        ("Docker", shutil.which("docker")),
+    ]:
+        if not rt_bin:
+            continue
+        return _convert_via_daemon(rt_name.lower(), tar_path, console, status)
+
+    console.print(
+        "[bold red]Cannot convert Nix image to OCI format for Apple Container.[/bold red]"
+    )
+    console.print(
+        "[dim]Install one of: skopeo (recommended, no daemon needed), podman, or docker.[/dim]"
+    )
+    return False
+
+
+def _convert_via_skopeo(tar_path: str, console, status=None) -> bool:
+    """Convert Docker V2 tar → OCI tar via skopeo (no daemon needed)."""
+    import tempfile
+
+    with tempfile.TemporaryDirectory(prefix="yolo-oci-") as oci_dir:
+        if status:
+            status.update("[bold cyan]Converting to OCI format via skopeo...")
+        copy_result = subprocess.run(
+            [
+                "skopeo",
+                "copy",
+                f"docker-archive:{tar_path}",
+                f"oci:{oci_dir}:{JAIL_IMAGE_SHORT}",
+            ],
+            capture_output=True,
+        )
+        if copy_result.returncode != 0:
+            console.print("[bold red]skopeo conversion to OCI failed.[/bold red]")
+            stderr = copy_result.stderr.decode().strip()
+            if stderr:
+                console.print(f"  [dim]{stderr}[/dim]")
+            return False
+
+        # Tar up the OCI directory for Apple Container
+        oci_tar = tar_path + ".oci.tar"
+        if status:
+            status.update("[bold cyan]Loading OCI image into Apple Container...")
+        tar_result = subprocess.run(
+            ["tar", "cf", oci_tar, "-C", oci_dir, "."],
+            capture_output=True,
+        )
+        if tar_result.returncode != 0:
+            console.print("[bold red]Failed to create OCI tar.[/bold red]")
+            return False
+
+        apple_result = subprocess.run(
+            ["container", "image", "load", "-i", oci_tar],
+            capture_output=True,
+        )
+        Path(oci_tar).unlink(missing_ok=True)
+
+        if apple_result.returncode != 0:
+            console.print(
+                "[bold red]Failed to load OCI image into Apple Container.[/bold red]"
+            )
+            stderr = apple_result.stderr.decode().strip()
+            if stderr:
+                console.print(f"  [dim]{stderr}[/dim]")
+            return False
+
+    return True
+
+
+def _convert_via_daemon(daemon: str, tar_path: str, console, status=None) -> bool:
+    """Convert Docker V2 tar → OCI tar via docker/podman daemon save."""
+    if status:
+        status.update(f"[bold cyan]Loading image into {daemon} (for OCI conversion)...")
+    load_result = subprocess.run(
+        [daemon, "load", "-i", tar_path],
+        capture_output=True,
+    )
+    if load_result.returncode != 0:
+        console.print(
+            f"[bold red]Failed to load image into {daemon} for conversion.[/bold red]"
+        )
+        stderr = load_result.stderr.decode().strip()
+        if stderr:
+            console.print(f"  [dim]{stderr}[/dim]")
+        return False
+
+    oci_tar = tar_path + ".oci.tar"
+    if status:
+        status.update(f"[bold cyan]Converting to OCI format via {daemon} save...")
+    if daemon == "podman":
+        save_cmd = [
+            daemon,
+            "save",
+            "--format",
+            "oci-archive",
+            "-o",
+            oci_tar,
+            JAIL_IMAGE,
+        ]
+    else:
+        save_cmd = [daemon, "save", "-o", oci_tar, JAIL_IMAGE]
+    save_result = subprocess.run(save_cmd, capture_output=True)
+    if save_result.returncode != 0:
+        console.print(f"[bold red]Failed to export OCI image from {daemon}.[/bold red]")
+        return False
+
+    if status:
+        status.update("[bold cyan]Loading OCI image into Apple Container...")
+    apple_result = subprocess.run(
+        ["container", "image", "load", "-i", oci_tar],
+        capture_output=True,
+    )
+    Path(oci_tar).unlink(missing_ok=True)
+
+    if apple_result.returncode != 0:
+        console.print(
+            "[bold red]Failed to load OCI image into Apple Container.[/bold red]"
+        )
+        stderr = apple_result.stderr.decode().strip()
+        if stderr:
+            console.print(f"  [dim]{stderr}[/dim]")
+        return False
+
+    return True
+
+
+def _image_inspect_cmd(runtime: str, image: str) -> list[str]:
+    """Return the command to inspect a container image."""
+    return [runtime, "image", "inspect", image]
+
+
+def _jail_image(runtime: str) -> str:
+    """Return the jail image name appropriate for the given runtime."""
+    if runtime == "container":
+        return JAIL_IMAGE_SHORT
+    return JAIL_IMAGE
 
 
 def write_container_tracking(name: str, workspace: Path):
@@ -821,7 +1024,11 @@ def _resolve_container_cgroup(cname: str, runtime: str) -> Optional[Path]:
 
     Returns the absolute Path to the container's cgroup directory on the host
     cgroup v2 filesystem, or None if it cannot be determined.
+
+    Always returns None on macOS — cgroups are a Linux kernel feature.
     """
+    if IS_MACOS:
+        return None
     try:
         if runtime == "podman":
             # podman inspect returns the cgroup path (relative to cgroup root)
@@ -914,13 +1121,21 @@ def _cgroup_delegate_handler(
         request = json.loads(data.decode("utf-8", errors="replace"))
         op = request.get("op", "")
 
-        # Get the host-PID of the caller via SO_PEERCRED (kernel-attested)
+        # Get the host-PID of the caller via SO_PEERCRED (Linux) or LOCAL_PEERPID (macOS)
         try:
-            cred = conn.getsockopt(
-                socket.SOL_SOCKET, socket.SO_PEERCRED, struct.calcsize("3i")
-            )
-            peer_pid, peer_uid, peer_gid = struct.unpack("3i", cred)
-        except (OSError, struct.error):
+            if IS_LINUX:
+                cred = conn.getsockopt(
+                    socket.SOL_SOCKET, socket.SO_PEERCRED, struct.calcsize("3i")
+                )
+                peer_pid, peer_uid, peer_gid = struct.unpack("3i", cred)
+            elif IS_MACOS:
+                # macOS: LOCAL_PEERPID (0x002) returns the peer PID
+                LOCAL_PEERPID = 0x002
+                cred = conn.getsockopt(0, LOCAL_PEERPID, struct.calcsize("i"))
+                peer_pid = struct.unpack("i", cred)[0]
+            else:
+                peer_pid = 0
+        except (OSError, struct.error, AttributeError):
             peer_pid = 0
 
         # Log every request for auditability
@@ -1125,7 +1340,16 @@ def start_cgroup_delegate(
 
     Listens on a Unix socket in socket_dir.  Returns the daemon thread, or
     None if cgroup v2 is not available on this host.
+
+    On macOS, cgroups don't exist — the daemon is not started and resource
+    limiting inside the jail is unavailable.
     """
+    if IS_MACOS:
+        # macOS has no cgroup v2 — skip the delegation daemon entirely.
+        # The socket dir still needs to exist so the container mount succeeds.
+        socket_dir.mkdir(parents=True, exist_ok=True)
+        return None
+
     # Quick sanity: is cgroup v2 available on the host?
     if not Path("/sys/fs/cgroup/cgroup.controllers").exists():
         return None
@@ -1863,14 +2087,51 @@ def _image_cache_path(store_path: str) -> Path:
     return cache_dir / f"{path_hash}.tar"
 
 
+def _stream_image_command(store_path: str) -> list[str]:
+    """Return the command to stream the Docker image tarball to stdout.
+
+    On macOS the streaming script has a Linux shebang and cannot execute
+    locally.  If a remote builder is configured in ``/etc/nix/machines``,
+    we first ``nix copy`` the closure to the builder, then execute the
+    script there via SSH.  Falls back to local execution (Linux hosts).
+    """
+    if not IS_MACOS:
+        return [store_path]
+
+    machines_file = Path("/etc/nix/machines")
+    if not machines_file.exists():
+        # Fallback: try local execution (will likely fail)
+        return [store_path]
+
+    for line in machines_file.read_text().splitlines():
+        line = line.strip()
+        if not line or line.startswith("#"):
+            continue
+        parts = line.split()
+        if len(parts) >= 2 and "linux" in parts[1]:
+            builder_uri = parts[0]  # e.g. ssh-ng://nix-builder
+            # Derive the SSH host from the URI
+            ssh_host = builder_uri.replace("ssh-ng://", "").replace("ssh://", "")
+            # Copy the closure to the builder
+            subprocess.run(
+                ["nix", "copy", "--to", builder_uri, store_path],
+                capture_output=True,
+                timeout=300,
+            )
+            return ["ssh", ssh_host, store_path]
+
+    return [store_path]
+
+
 def _materialize_image(store_path: str, cache_file: Path, status) -> int:
     """Stream the nix image to a cache tar file.  Returns byte count."""
     sentinel = BUILD_DIR / "last-load-size"
     estimated_size = _estimate_image_size(store_path, sentinel)
 
     status.update("[bold cyan]Materializing image to cache...")
+    stream_cmd = _stream_image_command(store_path)
     stream_proc = subprocess.Popen(
-        [store_path],
+        stream_cmd,
         stdout=subprocess.PIPE,
         stderr=subprocess.DEVNULL,
     )
@@ -1929,12 +2190,13 @@ def auto_load_image(
             f"[yellow]Warning: nix build failed:[/yellow]\n[dim]{err_summary}[/dim]"
         )
         # If the image already exists in the runtime, proceed.
+        image_name = _jail_image(runtime)
         check = subprocess.run(
-            [runtime, "image", "inspect", JAIL_IMAGE],
+            _image_inspect_cmd(runtime, image_name),
             capture_output=True,
         )
         if check.returncode == 0:
-            console.print(f"[yellow]Using existing {JAIL_IMAGE} image.[/yellow]")
+            console.print(f"[yellow]Using existing {image_name} image.[/yellow]")
             return
         # No image in runtime — try loading from the most recent cached tar.
         # This handles nested jails where nix build fails but the host already
@@ -1948,17 +2210,24 @@ def auto_load_image(
                 console.print(
                     f"[yellow]Loading image from cache: {tar_file.name}[/yellow]"
                 )
-                load_result = subprocess.run(
-                    [runtime, "load", "-i", str(tar_file)],
-                    capture_output=True,
-                )
-                if load_result.returncode == 0:
-                    console.print(
-                        "[bold green]Done: loaded image from cache[/bold green]"
+                if runtime == "container":
+                    if _load_image_for_apple_container(str(tar_file), console):
+                        console.print(
+                            "[bold green]Done: loaded image from cache[/bold green]"
+                        )
+                        return
+                else:
+                    load_result = subprocess.run(
+                        _image_load_cmd(runtime, str(tar_file)),
+                        capture_output=True,
                     )
-                    return
+                    if load_result.returncode == 0:
+                        console.print(
+                            "[bold green]Done: loaded image from cache[/bold green]"
+                        )
+                        return
         console.print(
-            f"[bold red]No existing {JAIL_IMAGE} image found. Cannot start jail.[/bold red]"
+            f"[bold red]No existing {image_name} image found. Cannot start jail.[/bold red]"
         )
         return
 
@@ -1999,19 +2268,26 @@ def auto_load_image(
                     console.print(f"  [dim]Cached image: {size_str}[/dim]")
 
                 # Load from cached file — podman detects existing layers and skips them
-                status.update(f"[bold cyan]Loading image into {runtime}...")
-                load_result = subprocess.run(
-                    [runtime, "load", "-i", str(cache_file)],
-                    capture_output=True,
-                )
+                if runtime == "container":
+                    load_ok = _load_image_for_apple_container(
+                        str(cache_file), console, status
+                    )
+                else:
+                    status.update(f"[bold cyan]Loading image into {runtime}...")
+                    load_result = subprocess.run(
+                        _image_load_cmd(runtime, str(cache_file)),
+                        capture_output=True,
+                    )
+                    load_ok = load_result.returncode == 0
 
-            if load_result.returncode != 0:
-                console.print(
-                    f"[bold red]Error loading image into {runtime}.[/bold red]"
-                )
-                stderr = load_result.stderr.decode().strip()
-                if stderr:
-                    console.print(f"  [dim]{stderr}[/dim]")
+            if not load_ok:
+                if runtime != "container":
+                    console.print(
+                        f"[bold red]Error loading image into {runtime}.[/bold red]"
+                    )
+                    stderr = load_result.stderr.decode().strip()
+                    if stderr:
+                        console.print(f"  [dim]{stderr}[/dim]")
             else:
                 _add_loaded_path(sentinel, current_path)
                 console.print("[bold green]Done: loaded image[/bold green]")
@@ -2572,20 +2848,29 @@ def _validate_config(
 
 
 def _runtime_for_check(config: Dict[str, Any]) -> tuple[Optional[str], Optional[str]]:
-    """Resolve the effective runtime without exiting."""
+    """Resolve the effective runtime without exiting.
+
+    Same platform-aware priority as _runtime():
+      macOS: container → podman → docker
+      Linux: podman → docker
+    """
     env = os.environ.get("YOLO_RUNTIME")
-    if env and env in ("podman", "docker"):
+    if env and env in ("podman", "docker", "container"):
         if shutil.which(env):
             return env, None
         return None, f"Configured runtime '{env}' from YOLO_RUNTIME is not on PATH"
 
     cfg = config.get("runtime")
-    if cfg and cfg in ("podman", "docker"):
+    if cfg and cfg in ("podman", "docker", "container"):
         if shutil.which(cfg):
             return cfg, None
         return None, f"Configured runtime '{cfg}' from yolo-jail.jsonc is not on PATH"
 
-    for rt in ("podman", "docker"):
+    if IS_MACOS:
+        candidates = ("container", "podman", "docker")
+    else:
+        candidates = ("podman", "docker")
+    for rt in candidates:
         if shutil.which(rt):
             return rt, None
     return None, "No container runtime found on PATH"
@@ -2666,7 +2951,8 @@ def init():
         return
 
     content = """{
-  // Container runtime: "podman" or "docker" (also settable via YOLO_RUNTIME env var)
+  // Container runtime: "podman", "docker", or "container" (Apple)
+  // (also settable via YOLO_RUNTIME env var)
   // "runtime": "podman",
 
   // Extra nix packages to include in the jail image.
@@ -2752,11 +3038,14 @@ def init():
   //   "capabilities": "compute,utility"
   // }
 
-  // Container resource limits (hard cgroup constraints).
+  // Container resource limits.
+  // On Apple Container: applied as VM hardware limits (defaults: half host CPUs/RAM).
+  // On Docker/Podman: applied as --cpus/--memory flags (no defaults — inherits VM limits).
+  // On Linux: also feeds cgroup delegation for in-container yolo-cglimit.
   // "resources": {
   //   "memory": "8g",            // Max memory (b/k/m/g suffix). OOM-killed if exceeded.
   //   "cpus": 4,                 // CPU limit (decimal). e.g. 4, 2.5, "0.5"
-  //   "pids_limit": 4096         // Max processes. Prevents fork bombs.
+  //   "pids_limit": 4096         // Max processes (Docker/Podman only). Prevents fork bombs.
   // }
 }
 """
@@ -2897,7 +3186,8 @@ def init_user_config():
     content = """{
   // User-level defaults merged into every project config.
   // Lists are merged (deduplicated), scalars are overridden by workspace config.
-  // Container runtime: "podman" or "docker" (also settable via YOLO_RUNTIME env var)
+  // Container runtime: "podman", "docker", or "container" (Apple)
+  // (also settable via YOLO_RUNTIME env var)
   // "runtime": "podman",
   // "packages": ["sqlite", "postgresql"],
   // "mounts": ["~/code/shared-lib:/ctx/shared-lib"],
@@ -3145,7 +3435,7 @@ def config_ref():
 
 [bold cyan]ENVIRONMENT VARIABLES[/bold cyan]
 
-  YOLO_RUNTIME          Override container runtime (podman/docker)
+  YOLO_RUNTIME          Override container runtime (podman/docker/container)
   YOLO_BYPASS_SHIMS     Set to 1 to bypass blocked tool shims
   YOLO_EXTRA_PACKAGES   JSON array of extra nix packages (internal)
 
@@ -3358,7 +3648,197 @@ def check(
             fail(f"nix found but not working: {e}")
     else:
         fail("nix not found", "Install Nix: https://nixos.org/download/")
+
+    if IS_MACOS and nix_path:
+        # Nix daemon store connectivity (catches determinate-nixd trust bug)
+        try:
+            result = subprocess.run(
+                ["nix", "store", "info"],
+                capture_output=True,
+                text=True,
+                timeout=15,
+            )
+            # nix store info writes its output to stderr (not stdout)
+            output = result.stdout + result.stderr
+            if result.returncode == 0 and "Trusted: 1" in output:
+                ok("Nix daemon: connected, user is trusted")
+            elif result.returncode == 0:
+                fail(
+                    "Nix daemon: connected but user is NOT trusted",
+                    "Add your user to trusted-users in /etc/nix/nix.custom.conf "
+                    "and restart the Nix daemon",
+                )
+            else:
+                fail(
+                    "Nix daemon: connection failed",
+                    result.stderr.strip().split("\n")[0] if result.stderr else "",
+                )
+        except subprocess.TimeoutExpired:
+            fail(
+                "Nix daemon: store operation timed out (daemon may be hung)",
+                "This is a known issue with determinate-nixd. "
+                "Try: sudo launchctl kickstart -k system/systems.determinate.nix-daemon "
+                "or switch to the vanilla nix-daemon",
+            )
+        except Exception as e:
+            warn(f"Could not verify Nix daemon connectivity: {e}")
+
+        # Check for Linux builder (required for cross-building images)
+        try:
+            machines_file = Path("/etc/nix/machines")
+            cfg_result = subprocess.run(
+                ["nix", "show-config"],
+                capture_output=True,
+                text=True,
+                timeout=10,
+            )
+            has_builder = False
+            if cfg_result.returncode == 0:
+                for line in cfg_result.stdout.split("\n"):
+                    if line.startswith("builders =") and "@" in line:
+                        if machines_file.exists() and machines_file.read_text().strip():
+                            has_builder = True
+                    if line.startswith("extra-platforms =") and "linux" in line:
+                        warn(
+                            "extra-platforms includes linux — builds will fail locally",
+                            "Remove 'extra-platforms = aarch64-linux' from "
+                            "/etc/nix/nix.custom.conf; use a remote builder instead",
+                        )
+            if has_builder:
+                ok("Linux builder configured in /etc/nix/machines")
+            else:
+                warn(
+                    "No Linux builder configured",
+                    "Image builds require a Linux builder. See docs/macos.md "
+                    "for setup with Colima or a remote Linux host",
+                )
+        except Exception:
+            pass
     console.print()
+
+    if IS_MACOS:
+        console.print("[bold]macOS Platform[/bold]")
+        import platform as _platform
+
+        ok(f"Architecture: {_platform.machine()}")
+
+        # Container VM backend check
+        for vm_backend in ("colima", "podman"):
+            vm_path = shutil.which(vm_backend)
+            if vm_path:
+                try:
+                    if vm_backend == "colima":
+                        result = subprocess.run(
+                            ["colima", "status"],
+                            capture_output=True,
+                            text=True,
+                            timeout=5,
+                        )
+                        if result.returncode == 0:
+                            ok("Colima: running")
+                        else:
+                            warn(
+                                "Colima installed but not running",
+                                "Start with: colima start --arch aarch64 --cpu 4 --memory 8",
+                            )
+                    else:
+                        result = subprocess.run(
+                            ["podman", "machine", "info"],
+                            capture_output=True,
+                            text=True,
+                            timeout=5,
+                        )
+                        if result.returncode == 0:
+                            ok("Podman Machine: available")
+                        else:
+                            warn("Podman Machine: not configured")
+                except Exception as e:
+                    warn(f"{vm_backend}: {e}")
+
+        # Apple Container CLI check (native macOS container runtime)
+        container_path = shutil.which("container")
+        if container_path:
+            try:
+                result = subprocess.run(
+                    ["container", "system", "info"],
+                    capture_output=True,
+                    text=True,
+                    timeout=5,
+                )
+                if result.returncode == 0:
+                    ok("Apple Container CLI: available")
+                    # Check if system is running
+                    status_result = subprocess.run(
+                        ["container", "system", "status"],
+                        capture_output=True,
+                        text=True,
+                        timeout=5,
+                    )
+                    if status_result.returncode == 0:
+                        ok("Apple Container system: running")
+                    else:
+                        warn(
+                            "Apple Container system not running",
+                            "Start with: container system start",
+                        )
+                else:
+                    warn("Apple Container CLI: installed but not working")
+            except Exception as e:
+                warn(f"Apple Container CLI: {e}")
+
+        # OCI conversion tool check (for Apple Container image loading)
+        if container_path:
+            if shutil.which("skopeo"):
+                ok("skopeo: available (OCI image conversion, no daemon needed)")
+            elif shutil.which("docker") or shutil.which("podman"):
+                ok(
+                    "OCI conversion: via docker/podman (skopeo recommended: brew install skopeo)"
+                )
+            else:
+                warn(
+                    "No OCI conversion tool for Apple Container",
+                    "Install skopeo (recommended): brew install skopeo",
+                )
+
+        # Nix store volume check
+        nix_mount = Path("/nix")
+        if nix_mount.exists():
+            try:
+                result = subprocess.run(
+                    ["mount"],
+                    capture_output=True,
+                    text=True,
+                    timeout=5,
+                )
+                nix_line = [
+                    line
+                    for line in result.stdout.split("\n")
+                    if " /nix " in line or " on /nix" in line
+                ]
+                if nix_line:
+                    if "apfs" in nix_line[0].lower():
+                        ok("Nix store: mounted (APFS volume)")
+                    else:
+                        ok("Nix store: mounted")
+                else:
+                    warn(
+                        "Nix store: /nix exists but mount not detected",
+                        "Check /etc/synthetic.conf and Disk Utility",
+                    )
+            except Exception:
+                ok("Nix store: /nix exists")
+        else:
+            fail(
+                "Nix store: /nix not found",
+                "Reinstall Nix or check /etc/synthetic.conf",
+            )
+
+        # Cgroup limitation notice
+        warn(
+            "cgroup delegation unavailable (macOS kernel limitation)",
+            "Resource limits inside the jail are not enforced on macOS",
+        )
+        console.print()
 
     console.print("[bold]Global Storage[/bold]")
     for name, path in [
@@ -3475,122 +3955,131 @@ def check(
     gpu_config = config.get("gpu", {})
     if gpu_config.get("enabled", False):
         console.print("[bold]GPU (NVIDIA)[/bold]")
-        # Check nvidia-smi
-        nvidia_smi = shutil.which("nvidia-smi")
-        if nvidia_smi:
-            try:
-                result = subprocess.run(
-                    [
-                        "nvidia-smi",
-                        "--query-gpu=name,driver_version",
-                        "--format=csv,noheader",
-                    ],
-                    capture_output=True,
-                    text=True,
-                    timeout=10,
-                )
-                if result.returncode == 0 and result.stdout.strip():
-                    for line in result.stdout.strip().split("\n"):
-                        ok(f"GPU detected: {line.strip()}")
-                else:
-                    fail(
-                        "nvidia-smi found but no GPUs detected",
-                        "Check NVIDIA driver installation",
-                    )
-            except Exception as e:
-                fail("nvidia-smi execution failed", str(e))
-        else:
-            fail(
-                "nvidia-smi not found",
-                "Install NVIDIA drivers: https://docs.aws.amazon.com/AWSEC2/latest/UserGuide/install-nvidia-driver.html",
+        if IS_MACOS:
+            warn(
+                "GPU passthrough is not supported on macOS",
+                "NVIDIA GPU passthrough requires Linux with NVIDIA drivers",
             )
-
-        # Check nvidia-ctk
-        nvidia_ctk = shutil.which("nvidia-ctk")
-        if nvidia_ctk:
-            ok("nvidia-ctk found (NVIDIA Container Toolkit)")
+            console.print()
         else:
-            fail(
-                "nvidia-ctk not found",
-                "Install: https://docs.nvidia.com/datacenter/cloud-native/container-toolkit/latest/install-guide.html",
-            )
-
-        # Runtime-specific checks
-        effective_runtime, _ = _runtime_for_check(config)
-        if effective_runtime == "podman":
-            # GPU+Podman requires runc (CDI device injection fails with crun,
-            # see https://github.com/containers/podman/issues/27483)
-            runc_path = shutil.which("runc")
-            if runc_path:
-                ok("runc found (required for Podman GPU passthrough)")
-            else:
-                fail(
-                    "runc not found",
-                    "GPU passthrough requires runc (CDI fails with crun). "
-                    "Install runc: https://github.com/opencontainers/runc/releases",
-                )
-
-            # Check CDI spec exists
-            cdi_paths = [
-                Path("/etc/cdi/nvidia.yaml"),
-                Path("/var/run/cdi/nvidia.yaml"),
-            ]
-            cdi_found = None
-            for p in cdi_paths:
-                if p.exists():
-                    cdi_found = p
-                    break
-            if cdi_found:
-                ok("CDI spec found for Podman GPU support")
-                # Check CDI spec driver version matches installed driver
+            # Check nvidia-smi
+            nvidia_smi = shutil.which("nvidia-smi")
+            if nvidia_smi:
                 try:
-                    cdi_text = cdi_found.read_text()
-                    # nvidia-smi driver version from earlier check
-                    smi_result = subprocess.run(
+                    result = subprocess.run(
                         [
                             "nvidia-smi",
-                            "--query-gpu=driver_version",
+                            "--query-gpu=name,driver_version",
                             "--format=csv,noheader",
                         ],
                         capture_output=True,
                         text=True,
                         timeout=10,
                     )
-                    if smi_result.returncode == 0:
-                        smi_driver = smi_result.stdout.strip().split("\n")[0].strip()
-                        if smi_driver and smi_driver in cdi_text:
-                            ok(f"CDI spec matches driver {smi_driver}")
-                        elif smi_driver:
-                            warn(
-                                f"CDI spec may be stale (driver is {smi_driver})",
-                                "Regenerate: sudo nvidia-ctk cdi generate --output=/etc/cdi/nvidia.yaml",
-                            )
-                except Exception:
-                    pass  # Non-critical check
+                    if result.returncode == 0 and result.stdout.strip():
+                        for line in result.stdout.strip().split("\n"):
+                            ok(f"GPU detected: {line.strip()}")
+                    else:
+                        fail(
+                            "nvidia-smi found but no GPUs detected",
+                            "Check NVIDIA driver installation",
+                        )
+                except Exception as e:
+                    fail("nvidia-smi execution failed", str(e))
             else:
                 fail(
-                    "No CDI spec found for Podman",
-                    "Generate with: sudo nvidia-ctk cdi generate --output=/etc/cdi/nvidia.yaml",
+                    "nvidia-smi not found",
+                    "Install NVIDIA drivers: https://docs.aws.amazon.com/AWSEC2/latest/UserGuide/install-nvidia-driver.html",
                 )
-        elif effective_runtime == "docker":
-            # Check Docker NVIDIA runtime configured
-            try:
-                result = subprocess.run(
-                    ["docker", "info", "--format", "{{.Runtimes}}"],
-                    capture_output=True,
-                    text=True,
-                    timeout=10,
+
+            # Check nvidia-ctk
+            nvidia_ctk = shutil.which("nvidia-ctk")
+            if nvidia_ctk:
+                ok("nvidia-ctk found (NVIDIA Container Toolkit)")
+            else:
+                fail(
+                    "nvidia-ctk not found",
+                    "Install: https://docs.nvidia.com/datacenter/cloud-native/container-toolkit/latest/install-guide.html",
                 )
-                if result.returncode == 0 and "nvidia" in result.stdout.lower():
-                    ok("Docker NVIDIA runtime configured")
+
+            # Runtime-specific checks
+            effective_runtime, _ = _runtime_for_check(config)
+            if effective_runtime == "podman":
+                # GPU+Podman requires runc (CDI device injection fails with crun,
+                # see https://github.com/containers/podman/issues/27483)
+                runc_path = shutil.which("runc")
+                if runc_path:
+                    ok("runc found (required for Podman GPU passthrough)")
                 else:
-                    warn(
-                        "Docker NVIDIA runtime may not be configured",
-                        "Run: sudo nvidia-ctk runtime configure --runtime=docker && sudo systemctl restart docker",
+                    fail(
+                        "runc not found",
+                        "GPU passthrough requires runc (CDI fails with crun). "
+                        "Install runc: https://github.com/opencontainers/runc/releases",
                     )
-            except Exception:
-                warn("Could not verify Docker NVIDIA runtime configuration")
-        console.print()
+
+                # Check CDI spec exists
+                cdi_paths = [
+                    Path("/etc/cdi/nvidia.yaml"),
+                    Path("/var/run/cdi/nvidia.yaml"),
+                ]
+                cdi_found = None
+                for p in cdi_paths:
+                    if p.exists():
+                        cdi_found = p
+                        break
+                if cdi_found:
+                    ok("CDI spec found for Podman GPU support")
+                    # Check CDI spec driver version matches installed driver
+                    try:
+                        cdi_text = cdi_found.read_text()
+                        # nvidia-smi driver version from earlier check
+                        smi_result = subprocess.run(
+                            [
+                                "nvidia-smi",
+                                "--query-gpu=driver_version",
+                                "--format=csv,noheader",
+                            ],
+                            capture_output=True,
+                            text=True,
+                            timeout=10,
+                        )
+                        if smi_result.returncode == 0:
+                            smi_driver = (
+                                smi_result.stdout.strip().split("\n")[0].strip()
+                            )
+                            if smi_driver and smi_driver in cdi_text:
+                                ok(f"CDI spec matches driver {smi_driver}")
+                            elif smi_driver:
+                                warn(
+                                    f"CDI spec may be stale (driver is {smi_driver})",
+                                    "Regenerate: sudo nvidia-ctk cdi generate --output=/etc/cdi/nvidia.yaml",
+                                )
+                    except Exception:
+                        pass  # Non-critical check
+                else:
+                    fail(
+                        "No CDI spec found for Podman",
+                        "Generate with: sudo nvidia-ctk cdi generate --output=/etc/cdi/nvidia.yaml",
+                    )
+            elif effective_runtime == "docker":
+                # Check Docker NVIDIA runtime configured
+                try:
+                    result = subprocess.run(
+                        ["docker", "info", "--format", "{{.Runtimes}}"],
+                        capture_output=True,
+                        text=True,
+                        timeout=10,
+                    )
+                    if result.returncode == 0 and "nvidia" in result.stdout.lower():
+                        ok("Docker NVIDIA runtime configured")
+                    else:
+                        warn(
+                            "Docker NVIDIA runtime may not be configured",
+                            "Run: sudo nvidia-ctk runtime configure --runtime=docker && sudo systemctl restart docker",
+                        )
+                except Exception:
+                    warn("Could not verify Docker NVIDIA runtime configuration")
+            console.print()
 
     # --- Image & Containers ---
 
@@ -3628,47 +4117,79 @@ def check(
         if in_jail:
             ok("Inside jail — image check skipped (managed by host)")
         else:
+            check_image = _jail_image(detected_runtime)
             try:
-                result = subprocess.run(
-                    [
-                        detected_runtime,
-                        "images",
-                        JAIL_IMAGE,
-                        "--format",
-                        "{{.Repository}}:{{.Tag}} ({{.Size}})",
-                    ],
-                    capture_output=True,
-                    text=True,
-                    timeout=10,
-                )
-                images = result.stdout.strip()
-                if images:
-                    ok(f"Image loaded: {images.split(chr(10))[0]}")
-                else:
-                    warn(
-                        f"Image '{JAIL_IMAGE}' not loaded",
-                        "Run 'yolo' once to build and load the image",
+                if detected_runtime == "container":
+                    result = subprocess.run(
+                        ["container", "image", "inspect", check_image],
+                        capture_output=True,
+                        text=True,
+                        timeout=10,
                     )
+                    if result.returncode == 0:
+                        ok(f"Image loaded: {check_image}")
+                    else:
+                        warn(
+                            f"Image '{check_image}' not loaded",
+                            "Run 'yolo' once to build and load the image",
+                        )
+                else:
+                    result = subprocess.run(
+                        [
+                            detected_runtime,
+                            "images",
+                            check_image,
+                            "--format",
+                            "{{.Repository}}:{{.Tag}} ({{.Size}})",
+                        ],
+                        capture_output=True,
+                        text=True,
+                        timeout=10,
+                    )
+                    images = result.stdout.strip()
+                    if images:
+                        ok(f"Image loaded: {images.split(chr(10))[0]}")
+                    else:
+                        warn(
+                            f"Image '{check_image}' not loaded",
+                            "Run 'yolo' once to build and load the image",
+                        )
             except Exception as e:
                 warn(f"Could not check image: {e}")
         console.print()
 
         console.print("[bold]Running Jails[/bold]")
         try:
-            result = subprocess.run(
-                [
-                    detected_runtime,
-                    "ps",
-                    "--filter",
-                    "name=^yolo-",
-                    "--format",
-                    "{{.Names}}\t{{.RunningFor}}",
-                ],
-                capture_output=True,
-                text=True,
-                timeout=5,
-            )
-            containers = [c for c in result.stdout.strip().split("\n") if c]
+            if detected_runtime == "container":
+                result = subprocess.run(
+                    ["container", "ls", "--filter", "name=yolo-"],
+                    capture_output=True,
+                    text=True,
+                    timeout=5,
+                )
+                # Parse Apple container ls table output
+                containers = []
+                for line in result.stdout.strip().splitlines()[1:]:  # skip header
+                    parts = line.split()
+                    if parts:
+                        cname = parts[0]
+                        if cname.startswith("yolo-"):
+                            containers.append(f"{cname}\t")
+            else:
+                result = subprocess.run(
+                    [
+                        detected_runtime,
+                        "ps",
+                        "--filter",
+                        "name=^yolo-",
+                        "--format",
+                        "{{.Names}}\t{{.RunningFor}}",
+                    ],
+                    capture_output=True,
+                    text=True,
+                    timeout=5,
+                )
+                containers = [c for c in result.stdout.strip().split("\n") if c]
             if containers:
                 orphaned_jails = []
                 ok(f"{len(containers)} jail(s) running")
@@ -4079,11 +4600,13 @@ def run(
         "--rm",
         "-i",
         "--init",
-        "--cgroupns=private",
         "--read-only",
         "--name",
         cname,
     ]
+    # Apple Container doesn't support --cgroupns
+    if runtime != "container":
+        docker_flags.insert(3, "--cgroupns=private")
     if runtime == "podman":
         # Podman auto-adds tmpfs mounts for /run, /tmp, /dev/shm when --read-only
         # is set.  This conflicts with our explicit --tmpfs /tmp and can trigger
@@ -4169,144 +4692,190 @@ def run(
         (ws_state / "claude").mkdir(parents=True, exist_ok=True)
         shutil.copy2(old_claude_settings, new_claude_settings)
 
-    docker_cmd = [
-        runtime,
-        "run",
-        *docker_flags,
-        "-v",
-        f"{workspace}:/workspace",
-        # Global home — read-only base with auth tokens and base configs.
-        # Per-workspace writable overlays are mounted on top below.
-        "-v",
-        f"{GLOBAL_HOME}:/home/agent:ro",
-        # --- Per-workspace writable overlays (isolate cross-jail writes) ---
-        # Directories: installed tools, generated configs, shims
-        "-v",
-        f"{ws_state / 'npm-global'}:/home/agent/.npm-global",
-        "-v",
-        f"{ws_state / 'local'}:/home/agent/.local",
-        "-v",
-        f"{ws_state / 'go'}:/home/agent/go",
-        "-v",
-        f"{ws_state / 'yolo-shims'}:/home/agent/.yolo-shims",
-        "-v",
-        f"{ws_state / 'config'}:/home/agent/.config",
-        # Shared download cache (CAS — safe across workspaces, avoids re-downloads)
-        "-v",
-        f"{GLOBAL_CACHE}:/home/agent/.cache",
-        # Files: generated scripts, configs, logs
-        # (.bashrc and .gitconfig are symlinks into the writable .config/ overlay,
-        # so they don't need separate file bind mounts.)
-        "-v",
-        f"{ws_state / 'yolo-bootstrap.sh'}:/home/agent/.yolo-bootstrap.sh",
-        "-v",
-        f"{ws_state / 'yolo-venv-precreate.sh'}:/home/agent/.yolo-venv-precreate.sh",
-        "-v",
-        f"{ws_state / 'yolo-perf.log'}:/home/agent/.yolo-perf.log",
-        "-v",
-        f"{ws_state / 'yolo-socat.log'}:/home/agent/.yolo-socat.log",
-        "-v",
-        f"{ws_state / 'yolo-entrypoint.lock'}:/home/agent/.yolo-entrypoint.lock",
-        # Agent config dirs — full per-workspace overlays.
-        # Auth tokens are seeded from GLOBAL_HOME on first use (see _seed_agent_dir).
-        # The entrypoint regenerates all configs into these writable dirs each boot.
-        "-v",
-        f"{ws_state / 'copilot'}:/home/agent/.copilot",
-        "-v",
-        f"{ws_state / 'gemini'}:/home/agent/.gemini",
-        "-v",
-        f"{ws_state / 'claude'}:/home/agent/.claude",
-        # Other per-workspace overlays
-        "-v",
-        f"{ws_state / 'bash_history'}:/home/agent/.bash_history",
-        "-v",
-        f"{ws_state / 'ssh'}:/home/agent/.ssh",
-        # --- Shared mounts ---
-        "-v",
-        f"{host_mise}:/mise",
-        "--tmpfs",
-        "/tmp",
-        "--tmpfs",
-        "/var/tmp",
-        # Podman needs writable storage, runtime dirs, and shared memory for nested containers.
-        # --read-only-tmpfs=false disables automatic tmpfs mounts (including /dev/shm),
-        # so we must explicitly mount all tmpfs paths podman needs.
-        "--tmpfs",
-        "/var/lib/containers",
-        "--tmpfs",
-        "/run",
-        "--tmpfs",
-        "/dev/shm:size=2g",
-        "-e",
-        "JAIL_HOME=/home/agent",
-        "-e",
-        "NPM_CONFIG_PREFIX=/home/agent/.npm-global",
-        "-e",
-        # Redirect npm cache to the writable shared cache dir (GLOBAL_HOME is :ro,
-        # so the default ~/.npm/_cacache would fail with EROFS).
-        "NPM_CONFIG_CACHE=/home/agent/.cache/npm",
-        "-e",
-        "GOPATH=/home/agent/go",
-        "-e",
-        "MISE_DATA_DIR=/mise",
-        "-e",
-        # Use a per-container cache dir so mise lockfiles don't contend with
-        # the host/outer-jail's locks (shared /home/agent would otherwise share
-        # ~/.cache/mise/lockfiles/, causing deadlocks in nested jails).
-        "MISE_CACHE_DIR=/tmp/mise-cache",
-        "-e",
-        # Explicitly request the non-freethreaded prebuilt to avoid
-        # "missing lib directory" errors from freethreaded builds.
-        "MISE_PYTHON_PRECOMPILED_FLAVOR=install_only_stripped",
-        "-e",
-        "MISE_TRUST=1",
-        "-e",
-        "MISE_YES=1",
-        "-e",
-        "COPILOT_ALLOW_ALL=true",
-        # Tell Claude Code this is a sandboxed environment so it skips the
-        # root-user check that blocks bypassPermissions / --dangerously-skip-permissions.
-        # This is a belt-and-suspenders fix: the entrypoint also configures
-        # permissions.allow rules instead of bypassPermissions.
-        "-e",
-        "IS_SANDBOX=1",
-        "-e",
-        "LD_LIBRARY_PATH=/lib:/usr/lib:/usr/lib/x86_64-linux-gnu",
-        "-e",
-        "HOME=/home/agent",
-        # EDITOR=cat prevents agents from getting stuck in interactive editors.
-        # VISUAL=nvim is used by Copilot ctrl-g (checks COPILOT_EDITOR > VISUAL > EDITOR).
-        # These must be container-level env vars, not just in .bashrc, because
-        # Copilot runs as a non-interactive process that doesn't source .bashrc.
-        "-e",
-        "EDITOR=cat",
-        "-e",
-        "VISUAL=nvim",
-        "-e",
-        "PAGER=cat",
-        "-e",
-        "GIT_PAGER=cat",
-        "-e",
-        f"YOLO_BLOCK_CONFIG={blocked_config_json}",
-        "-e",
-        f"YOLO_HOST_DIR={workspace}",
-        "-e",
-        f"YOLO_VERSION={_git_describe_version() or 'unknown'}",
-        "-e",
-        "OVERMIND_SOCKET=/tmp/overmind.sock",
-        "-e",
-        f"YOLO_MISE_TOOLS={json.dumps(mise_tools)}",
-        "-e",
-        f"YOLO_LSP_SERVERS={json.dumps(lsp_servers)}",
-        "-e",
-        f"YOLO_MCP_SERVERS={json.dumps(mcp_servers)}",
-        "-e",
-        f"YOLO_MCP_PRESETS={json.dumps(mcp_presets)}",
-        "-e",
-        f"YOLO_RUNTIME={runtime}",
-        "-e",
-        "YOLO_REPO_ROOT=/opt/yolo-jail",
-    ]
+    if runtime == "container":
+        # Apple Container has a limit of ~22 directory sharing devices
+        # (Virtualization.framework constraint).  Instead of the GLOBAL_HOME :ro
+        # base + 15 individual per-workspace writable overlays (which would use
+        # 16 slots), mount ws_state as a single writable /home/agent.
+        # Auth tokens are already seeded into ws_state from GLOBAL_HOME above.
+        docker_cmd = [
+            runtime,
+            "run",
+            *docker_flags,
+            "-v",
+            f"{workspace}:/workspace",
+            "-v",
+            f"{ws_state}:/home/agent",
+            "-v",
+            f"{GLOBAL_CACHE}:/home/agent/.cache",
+            "-v",
+            "yolo-mise-data:/mise",
+            # Apple Container's --tmpfs only takes a plain path (no options)
+            "--tmpfs",
+            "/tmp",
+            "--tmpfs",
+            "/var/tmp",
+            "--tmpfs",
+            "/var/lib/containers",
+            "--tmpfs",
+            "/run",
+            "--tmpfs",
+            "/dev/shm",
+        ]
+    else:
+        docker_cmd = [
+            runtime,
+            "run",
+            *docker_flags,
+            "-v",
+            f"{workspace}:/workspace",
+            # Global home — read-only base with auth tokens and base configs.
+            # Per-workspace writable overlays are mounted on top below.
+            "-v",
+            f"{GLOBAL_HOME}:/home/agent:ro",
+            # --- Per-workspace writable overlays (isolate cross-jail writes) ---
+            # Directories: installed tools, generated configs, shims
+            "-v",
+            f"{ws_state / 'npm-global'}:/home/agent/.npm-global",
+            "-v",
+            f"{ws_state / 'local'}:/home/agent/.local",
+            "-v",
+            f"{ws_state / 'go'}:/home/agent/go",
+            "-v",
+            f"{ws_state / 'yolo-shims'}:/home/agent/.yolo-shims",
+            "-v",
+            f"{ws_state / 'config'}:/home/agent/.config",
+            # Shared download cache (CAS — safe across workspaces, avoids re-downloads)
+            "-v",
+            f"{GLOBAL_CACHE}:/home/agent/.cache",
+            # Files: generated scripts, configs, logs
+            # (.bashrc and .gitconfig are symlinks into the writable .config/ overlay,
+            # so they don't need separate file bind mounts.)
+            "-v",
+            f"{ws_state / 'yolo-bootstrap.sh'}:/home/agent/.yolo-bootstrap.sh",
+            "-v",
+            f"{ws_state / 'yolo-venv-precreate.sh'}:/home/agent/.yolo-venv-precreate.sh",
+            "-v",
+            f"{ws_state / 'yolo-perf.log'}:/home/agent/.yolo-perf.log",
+            "-v",
+            f"{ws_state / 'yolo-socat.log'}:/home/agent/.yolo-socat.log",
+            "-v",
+            f"{ws_state / 'yolo-entrypoint.lock'}:/home/agent/.yolo-entrypoint.lock",
+            # Agent config dirs — full per-workspace overlays.
+            # Auth tokens are seeded from GLOBAL_HOME on first use (see _seed_agent_dir).
+            # The entrypoint regenerates all configs into these writable dirs each boot.
+            "-v",
+            f"{ws_state / 'copilot'}:/home/agent/.copilot",
+            "-v",
+            f"{ws_state / 'gemini'}:/home/agent/.gemini",
+            "-v",
+            f"{ws_state / 'claude'}:/home/agent/.claude",
+            # Other per-workspace overlays
+            "-v",
+            f"{ws_state / 'bash_history'}:/home/agent/.bash_history",
+            "-v",
+            f"{ws_state / 'ssh'}:/home/agent/.ssh",
+            # --- Shared mounts ---
+            "-v",
+            # On macOS the host mise dir has Mach-O (darwin) binaries that cannot
+            # execute inside the Linux container.  Use a Docker named volume so the
+            # container installs its own native Linux toolchains.  The volume
+            # persists across runs so subsequent starts are fast.
+            "yolo-mise-data:/mise" if IS_MACOS else f"{host_mise}:/mise",
+            "--tmpfs",
+            # Explicit mode=1777 ensures non-root UIDs can write to tmpfs
+            # (Docker on some backends defaults to 755).
+            "/tmp:exec,mode=1777",
+            "--tmpfs",
+            "/var/tmp:exec,mode=1777",
+            # Podman needs writable storage, runtime dirs, and shared memory for nested containers.
+            # --read-only-tmpfs=false disables automatic tmpfs mounts (including /dev/shm),
+            # so we must explicitly mount all tmpfs paths podman needs.
+            "--tmpfs",
+            "/var/lib/containers",
+            "--tmpfs",
+            "/run",
+            "--tmpfs",
+            "/dev/shm:size=2g",
+        ]
+
+    # Common env vars and flags for all runtimes
+    docker_cmd.extend(
+        [
+            "-e",
+            "JAIL_HOME=/home/agent",
+            "-e",
+            "NPM_CONFIG_PREFIX=/home/agent/.npm-global",
+            "-e",
+            # Redirect npm cache to the writable shared cache dir (GLOBAL_HOME is :ro,
+            # so the default ~/.npm/_cacache would fail with EROFS).
+            "NPM_CONFIG_CACHE=/home/agent/.cache/npm",
+            "-e",
+            "GOPATH=/home/agent/go",
+            "-e",
+            "MISE_DATA_DIR=/mise",
+            "-e",
+            # Use a per-container cache dir so mise lockfiles don't contend with
+            # the host/outer-jail's locks (shared /home/agent would otherwise share
+            # ~/.cache/mise/lockfiles/, causing deadlocks in nested jails).
+            "MISE_CACHE_DIR=/tmp/mise-cache",
+            "-e",
+            # Explicitly request the non-freethreaded prebuilt to avoid
+            # "missing lib directory" errors from freethreaded builds.
+            "MISE_PYTHON_PRECOMPILED_FLAVOR=install_only_stripped",
+            "-e",
+            "MISE_TRUST=1",
+            "-e",
+            "MISE_YES=1",
+            "-e",
+            "COPILOT_ALLOW_ALL=true",
+            # Tell Claude Code this is a sandboxed environment so it skips the
+            # root-user check that blocks bypassPermissions / --dangerously-skip-permissions.
+            # This is a belt-and-suspenders fix: the entrypoint also configures
+            # permissions.allow rules instead of bypassPermissions.
+            "-e",
+            "IS_SANDBOX=1",
+            "-e",
+            f"LD_LIBRARY_PATH=/lib:/usr/lib:/usr/lib/{_linux_multilib()}",
+            "-e",
+            "HOME=/home/agent",
+            # EDITOR=cat prevents agents from getting stuck in interactive editors.
+            # VISUAL=nvim is used by Copilot ctrl-g (checks COPILOT_EDITOR > VISUAL > EDITOR).
+            # These must be container-level env vars, not just in .bashrc, because
+            # Copilot runs as a non-interactive process that doesn't source .bashrc.
+            "-e",
+            "EDITOR=cat",
+            "-e",
+            "VISUAL=nvim",
+            "-e",
+            "PAGER=cat",
+            "-e",
+            "GIT_PAGER=cat",
+            "-e",
+            f"YOLO_BLOCK_CONFIG={blocked_config_json}",
+            "-e",
+            f"YOLO_HOST_DIR={workspace}",
+            "-e",
+            f"YOLO_VERSION={_git_describe_version() or 'unknown'}",
+            "-e",
+            "OVERMIND_SOCKET=/tmp/overmind.sock",
+            "-e",
+            f"YOLO_MISE_TOOLS={json.dumps(mise_tools)}",
+            "-e",
+            f"YOLO_LSP_SERVERS={json.dumps(lsp_servers)}",
+            "-e",
+            f"YOLO_MCP_SERVERS={json.dumps(mcp_servers)}",
+            "-e",
+            f"YOLO_MCP_PRESETS={json.dumps(mcp_presets)}",
+            "-e",
+            # Inside the container, podman is always the available runtime (it's
+            # built into the image).  Using the host's runtime value (e.g. docker
+            # on macOS) would fail since docker CLI isn't in the container.
+            "YOLO_RUNTIME=podman",
+            "-e",
+            "YOLO_REPO_ROOT=/opt/yolo-jail",
+        ]
+    )
 
     # User-defined environment variables from config
     for env_key, env_val in user_env.items():
@@ -4324,12 +4893,18 @@ def run(
         else f"{workspace}:/opt/yolo-jail:ro",
     ]
 
-    # Docker needs explicit UID mapping; podman rootless maps container root to host user
-    if runtime == "docker":
+    # Docker needs explicit UID mapping; podman rootless maps container root to host user.
+    # On macOS, Docker runs inside a VM — the host UID (e.g. 501) doesn't exist
+    # in the container, causing permission errors on volumes.  Skip -u on macOS
+    # and let the container run as root (its default/intended user).
+    # Apple Container: each container is its own VM — no UID mapping needed.
+    if runtime == "docker" and not IS_MACOS:
         docker_cmd.extend(["-u", f"{os.getuid()}:{os.getgid()}"])
 
-    # Detect if we're already inside a container
-    in_container = Path("/run/.containerenv").exists() or Path("/.dockerenv").exists()
+    # Detect if we're already inside a container (macOS host is never in a container)
+    in_container = not IS_MACOS and (
+        Path("/run/.containerenv").exists() or Path("/.dockerenv").exists()
+    )
 
     # Check if GPU passthrough is enabled (affects user namespace strategy)
     gpu_enabled = config.get("gpu", {}).get("enabled", False)
@@ -4403,9 +4978,13 @@ def run(
     # Mount host nix daemon socket + store so nix builds work inside the jail.
     # NIX_REMOTE=daemon forces nix to use the host daemon (which has nixbld users)
     # instead of trying local store access (which fails on UID mapping/permissions).
+    # On macOS, /nix exists on the host but the container runtime's VM may not
+    # have it mounted.  Podman Machine needs `--volume /nix:/nix` at init time;
+    # Docker Desktop needs /nix added to file sharing settings.
     nix_socket = Path("/nix/var/nix/daemon-socket")
     nix_store = Path("/nix/store")
-    if nix_socket.exists() and nix_store.exists():
+    if nix_socket.exists() and nix_store.exists() and runtime != "container":
+        # Apple Container VMs can't share Unix sockets via -v bind mounts
         docker_cmd.extend(
             [
                 "-v",
@@ -4421,13 +5000,18 @@ def run(
     # Only pass --net explicitly for non-default modes like "host".
     # Inside a container, always use host networking (netavark can't create
     # network namespaces without NET_ADMIN).
-    if runtime == "podman" and in_container:
+    # Apple Container: each container gets its own VM with dedicated networking;
+    # --net flags are not supported.
+    if runtime == "container":
+        pass  # Apple Container handles networking internally
+    elif runtime == "podman" and in_container:
         docker_cmd.append("--net=host")
     elif net_mode != "bridge" or runtime == "docker":
         docker_cmd.append(f"--net={net_mode}")
 
     # Docker bridge: add host.internal → host-gateway so socat (and agents)
     # can reach host services.  Podman does this automatically.
+    # Apple Container: containers have their own IP and can reach the host directly.
     if runtime == "docker" and net_mode == "bridge":
         docker_cmd.extend(["--add-host", "host.internal:host-gateway"])
 
@@ -4484,23 +5068,56 @@ def run(
                 ["-e", f"YOLO_PUBLISHED_PORTS={json.dumps(published_ports)}"]
             )
 
-    # Host port forwarding via Unix sockets
+    # Host port forwarding.
+    # On Linux: uses Unix sockets bind-mounted between host and container.
+    # On macOS+Docker: virtiofs doesn't support Unix sockets, so the container-side
+    # socat connects directly to host.docker.internal (TCP) instead.
+    # On macOS+Apple Container: native --publish-socket for socket forwarding.
+    _host_tmp = Path("/tmp").resolve() if IS_MACOS else Path("/tmp")
     socket_dir = None
     if forward_host_ports:
-        socket_dir = Path(f"/tmp/yolo-fwd-{cname}")
-        docker_cmd.extend(["-v", f"{socket_dir}:/tmp/yolo-fwd:rw"])
         docker_cmd.extend(
             ["-e", f"YOLO_FORWARD_HOST_PORTS={json.dumps(forward_host_ports)}"]
         )
+        if runtime == "container":
+            # Apple Container: native socket forwarding (no TCP gateway needed)
+            socket_dir = _host_tmp / f"yolo-fwd-{cname}"
+            socket_dir.mkdir(parents=True, exist_ok=True)
+            for port_spec in forward_host_ports:
+                port = str(port_spec).split(":")[0]
+                host_sock = socket_dir / f"port-{port}.sock"
+                docker_cmd.extend(
+                    [
+                        "--publish-socket",
+                        f"{host_sock}:/tmp/yolo-fwd/port-{port}.sock",
+                    ]
+                )
+        elif IS_MACOS:
+            # Tell the container entrypoint to use TCP forwarding via the
+            # Docker host gateway instead of Unix sockets.
+            docker_cmd.extend(["-e", "YOLO_FWD_HOST_GATEWAY=host.docker.internal"])
+        else:
+            socket_dir = _host_tmp / f"yolo-fwd-{cname}"
+            docker_cmd.extend(["-v", f"{socket_dir}:/tmp/yolo-fwd:rw"])
 
     # Host-side cgroup delegate: Unix socket for safe cgroup operations
-    cgd_socket_dir = Path(f"/tmp/yolo-cgd-{cname}")
-    docker_cmd.extend(["-v", f"{cgd_socket_dir}:/tmp/yolo-cgd:rw"])
+    # Apple Container doesn't support cgroup delegation or Unix socket bind mounts
+    cgd_socket_dir = _host_tmp / f"yolo-cgd-{cname}"
+    if runtime != "container":
+        docker_cmd.extend(["-v", f"{cgd_socket_dir}:/tmp/yolo-cgd:rw"])
 
     # Device passthrough from config
+    # On macOS, device passthrough goes through the container runtime's VM.
+    # Raw /dev paths and lsusb are Linux concepts — USB passthrough is not
+    # supported on macOS.  Device cgroup rules are also Linux-only.
     for dev in config.get("devices", []):
         if isinstance(dev, str):
             # Raw device path: "/dev/bus/usb/001/004"
+            if IS_MACOS:
+                console.print(
+                    f"[yellow]Warning: device passthrough ({dev}) not supported on macOS — skipping[/yellow]"
+                )
+                continue
             if not Path(dev).exists():
                 console.print(
                     f"[yellow]Warning: device {dev} not found — skipping[/yellow]"
@@ -4509,9 +5126,14 @@ def run(
             docker_cmd.extend(["--device", dev])
         elif isinstance(dev, dict):
             if "usb" in dev:
-                # Resolve USB vendor:product ID to /dev/bus/usb path
                 usb_id = dev["usb"]
                 desc = dev.get("description", usb_id)
+                if IS_MACOS:
+                    console.print(
+                        f"[yellow]Warning: USB device passthrough ({desc}) not supported on macOS — skipping[/yellow]"
+                    )
+                    continue
+                # Resolve USB vendor:product ID to /dev/bus/usb path
                 try:
                     result = subprocess.run(
                         ["lsusb", "-d", usb_id],
@@ -4546,60 +5168,103 @@ def run(
                         f"[yellow]Warning: USB device resolution failed for {usb_id}: {e}[/yellow]"
                     )
             elif "cgroup_rule" in dev:
+                if IS_MACOS:
+                    console.print(
+                        "[yellow]Warning: device cgroup rules not supported on macOS — skipping[/yellow]"
+                    )
+                    continue
                 docker_cmd.extend(["--device-cgroup-rule", dev["cgroup_rule"]])
 
-    # GPU passthrough from config
+    # GPU passthrough from config (NVIDIA only, not available on macOS)
     gpu_config = config.get("gpu", {})
     if gpu_config.get("enabled", False):
-        gpu_devices = gpu_config.get("devices", "all")
-        gpu_capabilities = gpu_config.get("capabilities", "compute,utility")
+        if IS_MACOS:
+            console.print(
+                "[yellow]Warning: GPU passthrough is not supported on macOS — skipping[/yellow]"
+            )
+        else:
+            gpu_devices = gpu_config.get("devices", "all")
+            gpu_capabilities = gpu_config.get("capabilities", "compute,utility")
 
-        if runtime == "docker":
-            # Docker: use --gpus flag (requires nvidia-container-toolkit)
-            if gpu_devices == "all":
-                docker_cmd.extend(["--gpus", "all"])
-            else:
-                docker_cmd.extend(["--gpus", f'"device={gpu_devices}"'])
-        elif runtime == "podman":
-            # Podman: use CDI (Container Device Interface) notation
-            if gpu_devices == "all":
-                docker_cmd.extend(["--device", "nvidia.com/gpu=all"])
-            else:
-                # CDI supports individual GPU indices: nvidia.com/gpu=0
-                for gpu_idx in gpu_devices.split(","):
-                    gpu_idx = gpu_idx.strip()
-                    docker_cmd.extend(["--device", f"nvidia.com/gpu={gpu_idx}"])
+            if runtime == "docker":
+                # Docker: use --gpus flag (requires nvidia-container-toolkit)
+                if gpu_devices == "all":
+                    docker_cmd.extend(["--gpus", "all"])
+                else:
+                    docker_cmd.extend(["--gpus", f'"device={gpu_devices}"'])
+            elif runtime == "podman":
+                # Podman: use CDI (Container Device Interface) notation
+                if gpu_devices == "all":
+                    docker_cmd.extend(["--device", "nvidia.com/gpu=all"])
+                else:
+                    # CDI supports individual GPU indices: nvidia.com/gpu=0
+                    for gpu_idx in gpu_devices.split(","):
+                        gpu_idx = gpu_idx.strip()
+                        docker_cmd.extend(["--device", f"nvidia.com/gpu={gpu_idx}"])
 
-        # Set NVIDIA environment variables for the container runtime to pick up
-        docker_cmd.extend(
-            [
-                "-e",
-                f"NVIDIA_VISIBLE_DEVICES={gpu_devices}",
-                "-e",
-                f"NVIDIA_DRIVER_CAPABILITIES={gpu_capabilities}",
-            ]
-        )
-        console.print(
-            f"[dim]GPU passthrough: devices={gpu_devices}, capabilities={gpu_capabilities}[/dim]"
-        )
+            # Set NVIDIA environment variables for the container runtime to pick up
+            docker_cmd.extend(
+                [
+                    "-e",
+                    f"NVIDIA_VISIBLE_DEVICES={gpu_devices}",
+                    "-e",
+                    f"NVIDIA_DRIVER_CAPABILITIES={gpu_capabilities}",
+                ]
+            )
+            console.print(
+                f"[dim]GPU passthrough: devices={gpu_devices}, capabilities={gpu_capabilities}[/dim]"
+            )
 
-    # Resource limits from config
+    # Resource limits from config.
+    # Apple Container needs explicit defaults (its built-in defaults are 4 CPU / 1GB RAM).
+    # Docker/Podman inherit VM-level resources; only set limits when explicitly configured.
     resources_config = config.get("resources", {})
     res_parts = []
     memory = resources_config.get("memory")
+    cpus = resources_config.get("cpus")
+
+    if runtime == "container":
+        # Apple Container: apply sane defaults since its built-ins are too low
+        # for agent workloads. Default to half the host resources.
+        if cpus is None:
+            import multiprocessing
+
+            host_cpus = multiprocessing.cpu_count()
+            cpus = max(2, host_cpus // 2)
+        if memory is None:
+            try:
+                if IS_MACOS:
+                    result = subprocess.run(
+                        ["sysctl", "-n", "hw.memsize"],
+                        capture_output=True,
+                        text=True,
+                        timeout=5,
+                    )
+                    host_mem_bytes = int(result.stdout.strip())
+                else:
+                    host_mem_bytes = os.sysconf("SC_PAGE_SIZE") * os.sysconf(
+                        "SC_PHYS_PAGES"
+                    )
+                # Default to half of host memory, minimum 4GB, formatted for Apple Container
+                default_mem = max(4 * 1024**3, host_mem_bytes // 2)
+                memory = f"{default_mem // (1024**3)}g"
+            except Exception:
+                memory = "8g"
+
     if memory:
         docker_cmd.extend(["--memory", memory])
         res_parts.append(f"memory={memory}")
-    cpus = resources_config.get("cpus")
     if cpus is not None:
         docker_cmd.extend(["--cpus", str(cpus)])
         res_parts.append(f"cpus={cpus}")
     pids_limit = resources_config.get("pids_limit")
-    # Podman defaults to 2048 pids which is too low for agent workloads.
-    # Always set a sane default.
-    effective_pids = pids_limit if pids_limit is not None else 32768
-    docker_cmd.extend(["--pids-limit", str(effective_pids)])
-    res_parts.append(f"pids={effective_pids}")
+    # Apple Container doesn't support --pids-limit (each container is a VM)
+    if runtime != "container":
+        # Podman defaults to 2048 pids which is too low for agent workloads.
+        # Always set a sane default.
+        effective_pids = pids_limit if pids_limit is not None else 32768
+        docker_cmd.extend(["--pids-limit", str(effective_pids)])
+        res_parts.append(f"pids={effective_pids}")
     # Print version at startup for log capture
     v = _git_describe_version()
     if v is None:
@@ -4731,7 +5396,7 @@ def run(
     if profile:
         docker_cmd.extend(["-e", "YOLO_PROFILE=1"])
 
-    docker_cmd.append(JAIL_IMAGE)
+    docker_cmd.append(_jail_image(runtime))
     docker_cmd.append("yolo-entrypoint")
 
     # If mise.toml exists in workspace, trust it.
@@ -4746,8 +5411,8 @@ def run(
         'echo "  ↳ mise upgrade" >&2 && '
         'mise upgrade --yes 2>&1 | grep -v "^mise WARN" | sed "s/^/    /" >&2 && '
         'echo "  ↳ bootstrap" >&2 && '
-        "~/.yolo-bootstrap.sh && "
-        "~/.yolo-venv-precreate.sh'"
+        "~/.yolo-bootstrap.sh >&2 && "
+        "~/.yolo-venv-precreate.sh >&2'"
     )
     # After setup, activate mise so tool paths (copilot, gemini, claude, etc.) are in PATH.
     # We use `mise env` (one-time activation) rather than `mise hook-env` (continuous
@@ -4873,6 +5538,9 @@ def _check_container_stuck(name: str, runtime: str) -> "str | None":
 
     Returns a reason string if stuck, None if healthy.
     """
+    if runtime == "container":
+        # Apple Container CLI doesn't support 'top'
+        return None
     try:
         result = subprocess.run(
             [runtime, "top", name, "-eo", "comm"],
@@ -4912,22 +5580,43 @@ def _get_container_workspace(name: str, runtime: str) -> str:
             return ws
     # Fall back to inspecting the container's YOLO_HOST_DIR env var
     try:
-        result = subprocess.run(
-            [
-                runtime,
-                "inspect",
-                name,
-                "--format",
-                "{{range .Config.Env}}{{println .}}{{end}}",
-            ],
-            capture_output=True,
-            text=True,
-            timeout=5,
-        )
-        if result.returncode == 0:
-            for line in result.stdout.splitlines():
-                if line.startswith("YOLO_HOST_DIR="):
-                    return line.split("=", 1)[1]
+        if runtime == "container":
+            # Apple Container: inspect outputs JSON without --format support
+            result = subprocess.run(
+                ["container", "inspect", name],
+                capture_output=True,
+                text=True,
+                timeout=5,
+            )
+            if result.returncode == 0:
+                import json as _json
+
+                try:
+                    data = _json.loads(result.stdout)
+                    # Apple Container inspect returns a dict with config.env
+                    env_list = data.get("config", {}).get("env", [])
+                    for env_entry in env_list:
+                        if env_entry.startswith("YOLO_HOST_DIR="):
+                            return env_entry.split("=", 1)[1]
+                except (ValueError, KeyError, TypeError):
+                    pass
+        else:
+            result = subprocess.run(
+                [
+                    runtime,
+                    "inspect",
+                    name,
+                    "--format",
+                    "{{range .Config.Env}}{{println .}}{{end}}",
+                ],
+                capture_output=True,
+                text=True,
+                timeout=5,
+            )
+            if result.returncode == 0:
+                for line in result.stdout.splitlines():
+                    if line.startswith("YOLO_HOST_DIR="):
+                        return line.split("=", 1)[1]
     except Exception:
         pass
     return "unknown"
@@ -4937,19 +5626,33 @@ def _get_container_workspace(name: str, runtime: str) -> str:
 def ps():
     """List running YOLO jail containers."""
     runtime = _runtime()
-    result = subprocess.run(
-        [
-            runtime,
-            "ps",
-            "--filter",
-            "name=^yolo-",
-            "--format",
-            "{{.Names}}\t{{.Status}}\t{{.RunningFor}}",
-        ],
-        capture_output=True,
-        text=True,
-    )
-    lines = result.stdout.strip().splitlines() if result.stdout.strip() else []
+    if runtime == "container":
+        result = subprocess.run(
+            ["container", "ls", "--filter", "name=yolo-"],
+            capture_output=True,
+            text=True,
+        )
+        lines = []
+        for line in result.stdout.strip().splitlines()[1:]:  # skip header
+            parts = line.split()
+            if parts and parts[0].startswith("yolo-"):
+                cname = parts[0]
+                status = " ".join(parts[1:]) if len(parts) > 1 else ""
+                lines.append(f"{cname}\t{status}\t")
+    else:
+        result = subprocess.run(
+            [
+                runtime,
+                "ps",
+                "--filter",
+                "name=^yolo-",
+                "--format",
+                "{{.Names}}\t{{.Status}}\t{{.RunningFor}}",
+            ],
+            capture_output=True,
+            text=True,
+        )
+        lines = result.stdout.strip().splitlines() if result.stdout.strip() else []
 
     if not lines:
         typer.echo("No running jails.")

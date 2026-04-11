@@ -1,8 +1,10 @@
 import hashlib
 import os
 import re
+import shutil
 import subprocess
 import json
+import sys
 from pathlib import Path
 import pytest
 
@@ -23,7 +25,9 @@ def _container_name_for_workspace(workspace: Path) -> str:
 
 def _force_remove_container(project_dir: Path):
     """Force-remove the jail container for a project directory."""
-    runtime = os.environ.get("YOLO_RUNTIME", "podman")
+    runtime = os.environ.get("YOLO_RUNTIME") or (
+        "docker" if sys.platform == "darwin" and shutil.which("docker") else "podman"
+    )
     cname = _container_name_for_workspace(project_dir)
     subprocess.run(
         [runtime, "rm", "-f", cname],
@@ -457,6 +461,10 @@ def test_workspace_agents_untouched_and_home_agents_present(temp_project):
     assert workspace_agents.read_text() == original
 
 
+@pytest.mark.skipif(
+    sys.platform == "darwin",
+    reason="Host mise has macOS binaries that cannot execute in the Linux container",
+)
 def test_venv_symlinks_resolve(temp_project):
     """Test that host .venv python symlinks resolve inside the jail."""
     # Always use /mise as the base if available: it's mounted in all jails (inner and outer).

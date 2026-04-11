@@ -33,8 +33,12 @@ def test_runtime_config_used_when_no_env():
 def test_runtime_auto_detect_when_no_config():
     with patch.dict(os.environ, {}, clear=False):
         os.environ.pop("YOLO_RUNTIME", None)
-        result = _runtime({})
-        assert result in ("podman", "docker")
+        with patch("shutil.which") as mock_which:
+            mock_which.side_effect = lambda x: (
+                "/usr/bin/podman" if x == "podman" else None
+            )
+            result = _runtime({})
+            assert result in ("podman", "docker", "container")
 
 
 def test_runtime_rejects_invalid_env():
@@ -47,8 +51,12 @@ def test_runtime_rejects_invalid_env():
 def test_runtime_rejects_invalid_config():
     with patch.dict(os.environ, {}, clear=False):
         os.environ.pop("YOLO_RUNTIME", None)
-        result = _runtime({"runtime": "lxc"})
-        assert result in ("podman", "docker")  # Falls through to auto-detect
+        with patch("shutil.which") as mock_which:
+            mock_which.side_effect = lambda x: (
+                "/usr/bin/docker" if x == "docker" else None
+            )
+            result = _runtime({"runtime": "lxc"})
+            assert result in ("podman", "docker", "container")
 
 
 def test_check_help_mentions_every_config_edit():
@@ -211,7 +219,34 @@ AVAILABLE_RUNTIMES = []
 if shutil.which("docker"):
     AVAILABLE_RUNTIMES.append("docker")
 if shutil.which("podman"):
-    AVAILABLE_RUNTIMES.append("podman")
+    # On macOS, podman requires a running VM (Podman Machine).  Only include
+    # it if `podman info` succeeds (confirms the machine is reachable).
+    if sys.platform == "darwin":
+        try:
+            subprocess.run(
+                ["podman", "info"],
+                capture_output=True,
+                timeout=10,
+            ).check_returncode()
+            AVAILABLE_RUNTIMES.append("podman")
+        except (subprocess.CalledProcessError, subprocess.TimeoutExpired, OSError):
+            pass  # Podman Machine not running — skip podman tests
+    else:
+        AVAILABLE_RUNTIMES.append("podman")
+if shutil.which("container"):
+    # Apple Container CLI (macOS only). Check that the system is running.
+    # NOTE: Apple Container is not yet included in integration tests (AVAILABLE_RUNTIMES)
+    # because full jail support requires further end-to-end verification.
+    # Unit tests for Apple Container code paths are in test_macos_paths.py.
+    try:
+        subprocess.run(
+            ["container", "system", "status"],
+            capture_output=True,
+            timeout=10,
+        ).check_returncode()
+        # AVAILABLE_RUNTIMES.append("container")  # Enable when full jail integration works
+    except (subprocess.CalledProcessError, subprocess.TimeoutExpired, OSError):
+        pass  # Apple Container system not running
 
 
 def run_yolo_with_runtime(project_dir, command, runtime):
