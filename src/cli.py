@@ -721,9 +721,11 @@ def find_existing_container(name: str, runtime: str = "docker") -> Optional[str]
     """Return container ID if a container with this name exists (running OR stopped)."""
     try:
         if runtime == "container":
-            # Apple Container CLI: 'list' already shows all containers
+            # Apple Container CLI: 'ls' only shows running by default;
+            # use --all to include stopped containers.
+            # --filter is not supported; scan the table output instead.
             result = subprocess.run(
-                ["container", "ls", "--filter", f"name={name}"],
+                ["container", "ls", "--all"],
                 capture_output=True,
                 text=True,
             )
@@ -747,8 +749,9 @@ def _remove_stale_container(name: str, runtime: str = "docker") -> bool:
     """Remove a stopped container. Returns True if removal succeeded."""
     try:
         if runtime == "container":
+            # Apple Container CLI: use 'delete' (aliased as 'rm') with --force
             result = subprocess.run(
-                ["container", "rm", name],
+                ["container", "rm", "--force", name],
                 capture_output=True,
                 text=True,
             )
@@ -766,7 +769,9 @@ def _remove_stale_container(name: str, runtime: str = "docker") -> bool:
         return False
 
 
-def _print_startup_banner(version: str, runtime: str, cname: str, res_parts: "list[str] | None" = None):
+def _print_startup_banner(
+    version: str, runtime: str, cname: str, res_parts: "list[str] | None" = None
+):
     """Print startup info to stderr for debugging and log sharing."""
     host_platform = f"{sys.platform}/{platform.machine()}"
     parts = [f"yolo-jail {version}", host_platform, runtime, cname]
@@ -4602,9 +4607,7 @@ def run(
     # `docker run --name <cname>` fails with "container already exists".
     stale_cid = find_existing_container(cname, runtime=runtime)
     if stale_cid:
-        console.print(
-            f"[dim]Removing stale container {cname}...[/dim]"
-        )
+        console.print(f"[dim]Removing stale container {cname}...[/dim]")
         _remove_stale_container(cname, runtime=runtime)
 
     import time as _time
