@@ -42,9 +42,8 @@ jobs:
       - name: Unit tests
         run: uv run pytest tests/ -v -m "not slow"
 
-  integration:
-    runs-on: ubuntu-latest
-    needs: check
+  check-macos:
+    runs-on: macos-latest
     steps:
       - uses: actions/checkout@v4
         with:
@@ -56,21 +55,101 @@ jobs:
       - name: Install Python dependencies
         run: uv sync --group dev
 
+      - name: Lint
+        run: uv run ruff check .
+
+      - name: Unit tests (macOS)
+        run: uv run pytest tests/ -v -m "not slow"
+
+  build-image:
+    runs-on: ubuntu-latest
+    needs: check
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+
       - name: Install Nix
         uses: cachix/install-nix-action@v30
         with:
           extra_nix_config: |
             experimental-features = nix-command flakes
 
+      - name: Build jail image
+        run: |
+          nix build --impure .#dockerImage
+          ./result > /tmp/jail-image.tar
+
+      - name: Upload jail image
+        uses: actions/upload-artifact@v4
+        with:
+          name: jail-image
+          path: /tmp/jail-image.tar
+          retention-days: 1
+
+  integration:
+    runs-on: ubuntu-latest
+    needs: build-image
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+
+      - name: Install uv
+        uses: astral-sh/setup-uv@v4
+
+      - name: Install Python dependencies
+        run: uv sync --group dev
+
       - name: Install Podman and socat
         run: sudo apt-get update && sudo apt-get install -y podman socat
 
-      - name: Build and load jail image
-        run: |
-          nix build --impure .#dockerImage
-          ./result | podman load
+      - name: Download jail image
+        uses: actions/download-artifact@v4
+        with:
+          name: jail-image
+          path: /tmp
+
+      - name: Load jail image
+        run: podman load < /tmp/jail-image.tar
 
       - name: Integration tests
         run: uv run pytest tests/test_jail.py -v
         env:
           YOLO_RUNTIME: podman
+
+  integration-macos:
+    # macOS Intel runners support nested virtualization, so Docker via Colima works.
+    # This lets us run macOS integration tests for free on public repos.
+    # Note: x86_64 not ARM — tests the macOS code paths, not native ARM performance.
+    runs-on: macos-15-intel
+    needs: [check-macos, build-image]
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+
+      - name: Install uv
+        uses: astral-sh/setup-uv@v4
+
+      - name: Install Python dependencies
+        run: uv sync --group dev
+
+      - name: Install Docker via Colima
+        run: |
+          brew install --quiet colima docker socat
+          colima start --cpu 2 --memory 4 --disk 30 --mount-type sshfs
+
+      - name: Download jail image
+        uses: actions/download-artifact@v4
+        with:
+          name: jail-image
+          path: /tmp
+
+      - name: Load jail image
+        run: docker load < /tmp/jail-image.tar
+
+      - name: Integration tests (macOS + Docker)
+        run: uv run pytest tests/test_jail.py tests/test_runtime.py -v -k "not podman"
+        env:
+          YOLO_RUNTIME: docker
