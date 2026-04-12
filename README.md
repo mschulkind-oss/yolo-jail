@@ -46,22 +46,37 @@ Platform specifics:
 
 ## Installation
 
-Installation is identical on Linux and macOS:
+Two ways to install, pick whichever fits:
+
+### Option A — Homebrew (easiest, both macOS and Linux)
 
 ```bash
-# Install from source
-git clone https://github.com/mschulkind/yolo-jail.git
+brew tap mschulkind-oss/tap
+brew install mschulkind-oss/tap/yolo-jail
+```
+
+Works on macOS and Linuxbrew. Single command, auto-upgrades with `brew upgrade`. No source checkout, no `just` required. Does **not** install the host-side Claude OAuth token refresher — if you run many jails in parallel against one Claude account, see [Install from source](#option-b--install-from-source) instead, or follow [scripts/README.md](scripts/README.md) to install the refresher manually.
+
+### Option B — Install from source
+
+Required if you want the Claude OAuth token refresher systemd timer auto-installed, or if you want to hack on yolo-jail itself. Identical on Linux and macOS:
+
+```bash
+git clone https://github.com/mschulkind-oss/yolo-jail.git
 cd yolo-jail
 just deploy            # builds + installs the yolo CLI + host-side token refresher
-
-# (Optional) Set user-level defaults
-yolo init-user-config
-# Edit: ~/.config/yolo-jail/config.jsonc
 ```
 
 To upgrade later: `cd yolo-jail && git pull && just deploy`
 
-**Platform-specific runtime setup** (one-time):
+### Optional — User-level defaults
+
+```bash
+yolo init-user-config
+# Edit: ~/.config/yolo-jail/config.jsonc
+```
+
+**Platform-specific runtime setup** (one-time, needed for both install options):
 
 ```bash
 # Linux — Podman (recommended)

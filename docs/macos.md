@@ -173,12 +173,31 @@ This starts the standard Nix daemon which does not have the hang bug.
 
 ## Installation
 
-```bash
-git clone https://github.com/mschulkind/yolo-jail.git
-cd yolo-jail
-uv tool install .
+Two options. Homebrew is easiest; source install is required if you want the
+Claude OAuth token refresher auto-installed or if you're hacking on the CLI.
 
-# Build the Docker image (downloads Linux packages from cache)
+### Option A — Homebrew (recommended for users)
+
+```bash
+brew tap mschulkind-oss/tap
+brew install mschulkind-oss/tap/yolo-jail
+```
+
+The formula is auto-generated from the PyPI release on every tag. No source
+checkout, no `just`, auto-updates via `brew upgrade`. Works on Apple Silicon
+and Intel. Does not set up the token refresher — see
+[scripts/README.md](../scripts/README.md) for manual launchd setup if you
+need it.
+
+### Option B — Install from source
+
+```bash
+git clone https://github.com/mschulkind-oss/yolo-jail.git
+cd yolo-jail
+just deploy          # builds, installs the yolo CLI, sets up refresher if applicable
+
+# Build the Docker image (downloads Linux packages from cache via the
+# remote Linux builder you configured above)
 yolo build
 
 # (Optional) Set user-level defaults

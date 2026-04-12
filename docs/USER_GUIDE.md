@@ -105,15 +105,37 @@ The container image is a Linux image. Nix needs a remote Linux builder to compil
 
 ### Install YOLO Jail
 
-Same on both platforms:
+Two install paths, pick whichever fits:
+
+#### Option A — Homebrew (easiest, both macOS and Linux)
 
 ```bash
-git clone https://github.com/mschulkind/yolo-jail.git
+brew tap mschulkind-oss/tap
+brew install mschulkind-oss/tap/yolo-jail
+```
+
+| Pros | Cons |
+|---|---|
+| Single command | No refresher auto-install |
+| Auto-upgrades via `brew upgrade` | No source checkout available for hacking |
+| No `just`, no source, no build tools | |
+| Works on macOS and Linuxbrew identically | |
+
+This is the recommended path for users who just want to run yolo-jail. The Homebrew formula is published to [mschulkind-oss/homebrew-tap](https://github.com/mschulkind-oss/homebrew-tap) automatically on every release via the `brew` job in `.github/workflows/publish.yml`.
+
+**Note:** the Homebrew install does **not** set up the host-side Claude OAuth token refresher. If you run many jails in parallel against one Claude account and want to avoid refresh-token races, either install from source (Option B) to get the systemd timer, or follow [scripts/README.md](../scripts/README.md) to install the refresher manually via launchd (macOS) or systemd user units (Linux).
+
+#### Option B — Install from source
+
+Required if you want the token refresher auto-installed via `just deploy`, or if you're hacking on yolo-jail. Identical on Linux and macOS:
+
+```bash
+git clone https://github.com/mschulkind-oss/yolo-jail.git
 cd yolo-jail
 just deploy      # builds + installs yolo CLI + host-side token refresher
 ```
 
-`just deploy` is idempotent and safe to re-run. On Linux, it installs a systemd `--user` timer for the Claude OAuth token refresher. On macOS (no systemd `--user`), the same script is installable via cron or launchd — see [scripts/README.md](../scripts/README.md) for launchd instructions.
+`just deploy` is idempotent and safe to re-run. On Linux it installs a systemd `--user` timer for the Claude OAuth token refresher. On macOS (no systemd `--user`), the same script is installable via cron or launchd — see [scripts/README.md](../scripts/README.md) for launchd instructions.
 
 To upgrade later:
 
