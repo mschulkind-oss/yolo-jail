@@ -1083,6 +1083,117 @@ class TestRuntimeForCheck:
 
 
 # ═══════════════════════════════════════════════════════════════════════════════
+# Test: _detect_host_timezone
+# ═══════════════════════════════════════════════════════════════════════════════
+
+
+class TestDetectHostTimezone:
+    """Cover all three detection paths: $TZ, /etc/timezone, /etc/localtime."""
+
+    def test_env_var_wins(self, monkeypatch):
+        from cli import _detect_host_timezone
+
+        monkeypatch.setenv("TZ", "Europe/Berlin")
+        # Even if /etc/timezone would say something else, $TZ wins
+        monkeypatch.setattr(
+            "pathlib.Path.is_file", lambda self: str(self) == "/etc/timezone"
+        )
+        assert _detect_host_timezone() == "Europe/Berlin"
+
+    def test_reads_etc_timezone(self, tmp_path, monkeypatch):
+        from cli import _detect_host_timezone
+
+        monkeypatch.delenv("TZ", raising=False)
+        fake_tz = tmp_path / "timezone"
+        fake_tz.write_text("America/New_York\n")
+
+        # Patch Path("/etc/timezone") / Path("/etc/localtime") lookups.
+        import cli
+
+        real_path = cli.Path
+
+        def fake_path(p, *args, **kwargs):
+            if p == "/etc/timezone":
+                return fake_tz
+            if p == "/etc/localtime":
+                return real_path(tmp_path / "does-not-exist")
+            return real_path(p, *args, **kwargs)
+
+        monkeypatch.setattr(cli, "Path", fake_path)
+        assert _detect_host_timezone() == "America/New_York"
+
+    def test_reads_etc_localtime_symlink(self, tmp_path, monkeypatch):
+        from cli import _detect_host_timezone
+
+        monkeypatch.delenv("TZ", raising=False)
+        # Build a fake zoneinfo target and a symlink pointing at it
+        zoneinfo = tmp_path / "zoneinfo" / "Asia" / "Tokyo"
+        zoneinfo.parent.mkdir(parents=True)
+        zoneinfo.write_bytes(b"fake tzdata")
+        localtime = tmp_path / "localtime"
+        os.symlink(str(zoneinfo), str(localtime))
+
+        import cli
+
+        real_path = cli.Path
+
+        def fake_path(p, *args, **kwargs):
+            if p == "/etc/timezone":
+                return real_path(tmp_path / "does-not-exist")
+            if p == "/etc/localtime":
+                return localtime
+            return real_path(p, *args, **kwargs)
+
+        monkeypatch.setattr(cli, "Path", fake_path)
+        assert _detect_host_timezone() == "Asia/Tokyo"
+
+    def test_macos_symlink_format(self, tmp_path, monkeypatch):
+        """macOS /etc/localtime → /var/db/timezone/zoneinfo/<zone>"""
+        from cli import _detect_host_timezone
+
+        monkeypatch.delenv("TZ", raising=False)
+        # Fake the macOS path layout
+        target = (
+            tmp_path / "var" / "db" / "timezone" / "zoneinfo" / "Pacific" / "Auckland"
+        )
+        target.parent.mkdir(parents=True)
+        target.write_bytes(b"fake tzdata")
+        localtime = tmp_path / "localtime"
+        os.symlink(str(target), str(localtime))
+
+        import cli
+
+        real_path = cli.Path
+
+        def fake_path(p, *args, **kwargs):
+            if p == "/etc/timezone":
+                return real_path(tmp_path / "does-not-exist")
+            if p == "/etc/localtime":
+                return localtime
+            return real_path(p, *args, **kwargs)
+
+        monkeypatch.setattr(cli, "Path", fake_path)
+        assert _detect_host_timezone() == "Pacific/Auckland"
+
+    def test_returns_none_when_nothing_found(self, tmp_path, monkeypatch):
+        from cli import _detect_host_timezone
+
+        monkeypatch.delenv("TZ", raising=False)
+
+        import cli
+
+        real_path = cli.Path
+
+        def fake_path(p, *args, **kwargs):
+            if p in ("/etc/timezone", "/etc/localtime"):
+                return real_path(tmp_path / "does-not-exist")
+            return real_path(p, *args, **kwargs)
+
+        monkeypatch.setattr(cli, "Path", fake_path)
+        assert _detect_host_timezone() is None
+
+
+# ═══════════════════════════════════════════════════════════════════════════════
 # Test: ensure_global_storage
 # ═══════════════════════════════════════════════════════════════════════════════
 

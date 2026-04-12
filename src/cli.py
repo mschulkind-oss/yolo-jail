@@ -643,6 +643,58 @@ def _linux_multilib() -> str:
     return _MAP.get(machine, f"{machine}-linux-gnu")
 
 
+def _detect_host_timezone() -> Optional[str]:
+    """Return the host's IANA timezone name (e.g. "America/New_York") or None.
+
+    Passed to the jail container via ``TZ`` env var so `date` and glibc/musl
+    time functions inside the jail report the same wall-clock time as the
+    host.  Without this, the minimal Linux image defaults to UTC.
+
+    Detection, in order of preference:
+
+      1. ``$TZ`` env var on the host (user explicitly set one — respect it)
+      2. ``/etc/timezone`` on Linux — contains the zone name as a plain string
+         (``America/New_York\\n``).  Debian/Ubuntu/Arch use this.
+      3. ``/etc/localtime`` symlink target — the zone name is the path suffix
+         after ``zoneinfo/``.  macOS and some Linux distros (Fedora) use this.
+
+    Returns None if none of these work.  Callers should treat a None return as
+    "don't set TZ, leave the container in UTC" rather than failing.
+    """
+    # 1. Explicit $TZ on host
+    tz = os.environ.get("TZ")
+    if tz:
+        return tz
+
+    # 2. /etc/timezone (plain-text zone name)
+    etc_tz = Path("/etc/timezone")
+    if etc_tz.is_file():
+        try:
+            content = etc_tz.read_text().strip()
+            if content:
+                return content
+        except OSError:
+            pass
+
+    # 3. /etc/localtime symlink target
+    # Typical forms:
+    #   /usr/share/zoneinfo/America/New_York     (Linux)
+    #   ../usr/share/zoneinfo/America/New_York   (Linux, relative)
+    #   /var/db/timezone/zoneinfo/America/New_York (macOS)
+    etc_lt = Path("/etc/localtime")
+    if etc_lt.is_symlink():
+        try:
+            target = os.readlink(str(etc_lt))
+            marker = "/zoneinfo/"
+            idx = target.find(marker)
+            if idx >= 0:
+                return target[idx + len(marker) :]
+        except OSError:
+            pass
+
+    return None
+
+
 def _is_apple_container(path: str) -> bool:
     """Return True if the binary at *path* is Apple's container CLI."""
     try:
@@ -5040,6 +5092,10 @@ def run(
         (ws_state / "claude").mkdir(parents=True, exist_ok=True)
         shutil.copy2(old_claude_settings, new_claude_settings)
 
+    # Detect host timezone once — passed to the container via TZ env var below
+    # so `date` and glibc time functions report host-local time instead of UTC.
+    host_tz = _detect_host_timezone()
+
     if runtime == "container":
         # Apple Container has a limit of ~22 directory sharing devices
         # (Virtualization.framework constraint).  Instead of the GLOBAL_HOME :ro
@@ -5214,6 +5270,11 @@ def run(
             "GIT_PAGER=cat",
             "-e",
             f"YOLO_BLOCK_CONFIG={blocked_config_json}",
+            # TZ is set from the host's timezone so `date` and time functions
+            # inside the jail report the same wall-clock time as the host.
+            # Without this, the minimal Linux image defaults to UTC, which is
+            # confusing for log timestamps, cron expressions, and file mtimes.
+            *(["-e", f"TZ={host_tz}"] if host_tz else []),
             "-e",
             f"YOLO_HOST_DIR={workspace}",
             "-e",

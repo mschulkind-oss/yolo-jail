@@ -681,6 +681,16 @@ Use an AWS Deep Learning AMI (DLAMI) — drivers and toolkit come pre-installed.
 
 All paths below use the same layout on Linux and macOS (`~/.local/share/yolo-jail/` resolves to `/home/$USER/.local/share/yolo-jail/` on Linux and `/Users/$USER/.local/share/yolo-jail/` on macOS). On macOS with Docker Desktop or Colima, make sure `$HOME` is in the Colima/Docker shared folders list (the Colima `--mount "$HOME:w"` flag, Docker Desktop's Resources → File Sharing).
 
+### Timezone
+
+The host's timezone is passed into the jail via the `TZ` env var, so `date`, log timestamps, cron expressions, and file mtimes inside the jail report the same wall-clock time as the host. Detection order:
+
+1. `$TZ` on the host (if you've explicitly set one, it wins)
+2. `/etc/timezone` plain-text zone name (Debian, Ubuntu, Arch)
+3. `/etc/localtime` symlink target suffix (Fedora, macOS — `/var/db/timezone/zoneinfo/<zone>`)
+
+If none of these resolve, the jail falls back to UTC. Override per-jail by exporting `TZ` in the shell you use to launch `yolo`, or by setting it in `env` inside `yolo-jail.jsonc`.
+
 ### What Persists Across Restarts
 
 | Data | Location (Host) | Shared? |
