@@ -3760,7 +3760,11 @@ def _check_claude_token_refresher(repo_root: Optional[Path], ok, warn, fail) -> 
 
     # --- Credentials file ---
     creds_path = GLOBAL_HOME / ".claude" / ".credentials.json"
-    if not creds_path.exists():
+    # ensure_global_storage() creates this path as an empty file so the jail's
+    # bind mount can target it on first boot.  An empty file here means "no
+    # credentials yet", not a corrupted credentials file — treat it the same
+    # as missing and emit a warn rather than failing the whole check.
+    if not creds_path.exists() or creds_path.stat().st_size == 0:
         warn(
             f"No credentials at {creds_path}",
             "Run `claude` and /login to create — refresher has nothing to refresh yet",
