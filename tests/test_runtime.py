@@ -239,16 +239,13 @@ if shutil.which("podman"):
         AVAILABLE_RUNTIMES.append("podman")
 if shutil.which("container"):
     # Apple Container CLI (macOS only). Check that the system is running.
-    # NOTE: Apple Container is not yet included in integration tests (AVAILABLE_RUNTIMES)
-    # because full jail support requires further end-to-end verification.
-    # Unit tests for Apple Container code paths are in test_macos_paths.py.
     try:
         subprocess.run(
             ["container", "system", "status"],
             capture_output=True,
             timeout=10,
         ).check_returncode()
-        # AVAILABLE_RUNTIMES.append("container")  # Enable when full jail integration works
+        AVAILABLE_RUNTIMES.append("container")
     except (subprocess.CalledProcessError, subprocess.TimeoutExpired, OSError):
         pass  # Apple Container system not running
 
