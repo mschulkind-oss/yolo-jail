@@ -3151,7 +3151,18 @@ print("ok")
 
 
 @app.command()
-def init():
+def init(
+    mount: List[str] = typer.Option(
+        [],
+        "--mount",
+        "-m",
+        help=(
+            "Host path to mount read-only at /ctx/<basename> inside the jail. "
+            "Repeatable. Use 'HOST:/ctx/NAME' to override the container path. "
+            "Example: -m ~/code/shared-lib -m ~/notes:/ctx/notes"
+        ),
+    ),
+):
     """Initialize a yolo-jail.jsonc config and print an agent briefing."""
     config_path = Path.cwd() / "yolo-jail.jsonc"
     if config_path.exists():
@@ -3159,7 +3170,39 @@ def init():
         _print_init_briefing(config_path)
         return
 
-    content = """{
+    # If the user passed any --mount flags, bake them into a real `mounts`
+    # array.  Otherwise emit the same commented-out placeholder as before.
+    if mount:
+        mounts_block = (
+            "  // Extra host paths to mount read-only into the jail at /ctx/.\n"
+            '  // Each entry is a host path (mounted at /ctx/<basename>) or "host:container".\n'
+            '  "mounts": [\n'
+            + "".join(f"    {json.dumps(m)},\n" for m in mount)
+            + "  ],\n"
+        )
+        # Trim the trailing comma on the last list entry — valid JSONC tolerates
+        # trailing commas in arrays, but be polite.
+        mounts_block = mounts_block.replace(",\n  ],", "\n  ],")
+    else:
+        mounts_block = (
+            "  // Extra host paths to mount read-only into the jail for context.\n"
+            '  // Each entry is a host path (mounted at /ctx/<basename>) or "host:container".\n'
+            "  // Pass --mount/-m on `yolo init` to populate this automatically, e.g.\n"
+            "  //   yolo init -m ~/code/shared-lib -m ~/notes\n"
+            '  // "mounts": [\n'
+            '  //   "~/code/other-repo",\n'
+            '  //   "~/code/shared-lib:/ctx/shared-lib"\n'
+            "  // ]\n"
+        )
+
+    content = (
+        """{
+  // ───────────────────────────────────────────────────────────────
+  // YOLO Jail workspace config.  First-time agents: run `yolo --help`
+  // for an overview of commands, `yolo config-ref` for the full field
+  // reference, and `yolo check` after every edit to this file.
+  // ───────────────────────────────────────────────────────────────
+
   // Container runtime: "podman", "docker", or "container" (Apple)
   // (also settable via YOLO_RUNTIME env var)
   // "runtime": "podman",
@@ -3199,13 +3242,9 @@ def init():
     // Forward host ports into the jail (appear on localhost inside container)
     // "forward_host_ports": [5432, "8080:9090"]
   },
-  // Extra host paths to mount read-only into the jail for context.
-  // Each entry is a host path (mounted at /ctx/<basename>) or "host:container".
-  // "mounts": [
-  //   "~/code/other-repo",
-  //   "~/code/shared-lib:/ctx/shared-lib"
-  // ]
-
+"""
+        + mounts_block
+        + """
   // Extra environment variables set inside the jail.
   // Keys are variable names, values are strings.
   // "env": {"DATABASE_URL": "postgres://localhost/dev", "DEBUG": "1"}
@@ -3258,6 +3297,8 @@ def init():
   // }
 }
 """
+    )
+
     with open(config_path, "w") as f:
         f.write(content)
     typer.echo("Created yolo-jail.jsonc")
@@ -3393,8 +3434,15 @@ def init_user_config():
         typer.echo(f"{USER_CONFIG_PATH} already exists.")
         return
     content = """{
+  // ───────────────────────────────────────────────────────────────
+  // YOLO Jail user-level defaults.  First-time agents: run `yolo --help`
+  // for an overview of commands, `yolo config-ref` for the full field
+  // reference, and `yolo check` after every edit to this file.
+  // ───────────────────────────────────────────────────────────────
+  //
   // User-level defaults merged into every project config.
   // Lists are merged (deduplicated), scalars are overridden by workspace config.
+  //
   // Container runtime: "podman", "docker", or "container" (Apple)
   // (also settable via YOLO_RUNTIME env var)
   // "runtime": "podman",

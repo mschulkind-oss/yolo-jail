@@ -1766,6 +1766,108 @@ class TestCliRunner:
         assert "node_modules/" in content
         assert ".yolo/" in content
 
+    def test_init_has_agent_help_hint(self, tmp_path, monkeypatch):
+        """Default config tells first-time agents to run `yolo --help`."""
+        from cli import app
+
+        runner = CliRunner()
+        monkeypatch.chdir(tmp_path)
+        runner.invoke(app, ["init"])
+        text = (tmp_path / "yolo-jail.jsonc").read_text()
+        # Check both that the hint is present and that it's near the top
+        # (within the first 10 lines) so agents see it immediately.
+        first_block = "\n".join(text.splitlines()[:10])
+        assert "yolo --help" in first_block
+        assert "yolo config-ref" in first_block
+
+    def test_init_no_mounts_keeps_placeholder(self, tmp_path, monkeypatch):
+        """Without --mount, the mounts section stays commented-out."""
+        from cli import app
+
+        runner = CliRunner()
+        monkeypatch.chdir(tmp_path)
+        runner.invoke(app, ["init"])
+        text = (tmp_path / "yolo-jail.jsonc").read_text()
+        # The placeholder is commented out; no active "mounts": [...] key.
+        import pyjson5
+
+        data = pyjson5.loads(text)
+        assert "mounts" not in data
+
+    def test_init_with_single_mount(self, tmp_path, monkeypatch):
+        """--mount with one path emits a real mounts array."""
+        from cli import app
+
+        runner = CliRunner()
+        monkeypatch.chdir(tmp_path)
+        result = runner.invoke(app, ["init", "-m", "~/code/shared-lib"])
+        assert result.exit_code == 0
+        text = (tmp_path / "yolo-jail.jsonc").read_text()
+
+        import pyjson5
+
+        data = pyjson5.loads(text)
+        assert data["mounts"] == ["~/code/shared-lib"]
+
+    def test_init_with_multiple_mounts(self, tmp_path, monkeypatch):
+        """Repeated --mount flags accumulate into the mounts array."""
+        from cli import app
+
+        runner = CliRunner()
+        monkeypatch.chdir(tmp_path)
+        result = runner.invoke(
+            app,
+            [
+                "init",
+                "-m",
+                "~/code/repo-a",
+                "-m",
+                "~/code/repo-b",
+                "-m",
+                "~/notes:/ctx/notes",
+            ],
+        )
+        assert result.exit_code == 0
+        text = (tmp_path / "yolo-jail.jsonc").read_text()
+
+        import pyjson5
+
+        data = pyjson5.loads(text)
+        assert data["mounts"] == [
+            "~/code/repo-a",
+            "~/code/repo-b",
+            "~/notes:/ctx/notes",
+        ]
+
+    def test_init_with_mount_long_option(self, tmp_path, monkeypatch):
+        """--mount is the long form; -m is the short form."""
+        from cli import app
+
+        runner = CliRunner()
+        monkeypatch.chdir(tmp_path)
+        result = runner.invoke(app, ["init", "--mount", "~/code/shared-lib"])
+        assert result.exit_code == 0
+        text = (tmp_path / "yolo-jail.jsonc").read_text()
+
+        import pyjson5
+
+        data = pyjson5.loads(text)
+        assert data["mounts"] == ["~/code/shared-lib"]
+
+    def test_init_user_config_has_agent_help_hint(self, tmp_path, monkeypatch):
+        """Default user config also tells first-time agents to run `yolo --help`."""
+        import cli
+        from cli import app
+
+        user_config = tmp_path / "config.jsonc"
+        monkeypatch.setattr(cli, "USER_CONFIG_PATH", user_config)
+
+        runner = CliRunner()
+        runner.invoke(app, ["init-user-config"])
+        text = user_config.read_text()
+        first_block = "\n".join(text.splitlines()[:10])
+        assert "yolo --help" in first_block
+
     def test_ps_command(self):
         from cli import app
 
