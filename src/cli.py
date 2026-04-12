@@ -735,13 +735,13 @@ def find_running_container(name: str, runtime: str = "docker") -> Optional[str]:
     """Return container ID if a container with this name is running, else None."""
     try:
         if runtime == "container":
-            # Apple Container CLI uses 'list' with different filter syntax
+            # Apple Container CLI: 'ls' shows running containers by default.
+            # --filter is not supported; scan the table output instead.
             result = subprocess.run(
-                ["container", "ls", "--filter", f"name={name}"],
+                ["container", "ls"],
                 capture_output=True,
                 text=True,
             )
-            # Apple container ls outputs a table; check if our name appears
             for line in result.stdout.strip().splitlines()[1:]:  # skip header
                 parts = line.split()
                 if parts and parts[0] == name:

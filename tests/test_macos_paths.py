@@ -738,7 +738,7 @@ class TestAppleContainerRuntime:
         assert cmd == ["container", "image", "inspect", "yolo-jail:latest"]
 
     def test_find_running_container_uses_ls(self, monkeypatch):
-        """Apple Container uses 'container ls' instead of 'docker ps'."""
+        """Apple Container uses 'container ls' (no --filter) instead of 'docker ps'."""
         _set_macos(monkeypatch)
         with patch("subprocess.run") as mock_run:
             mock_run.return_value = MagicMock(
@@ -747,10 +747,11 @@ class TestAppleContainerRuntime:
             )
             result = cli.find_running_container("yolo-test-abc", runtime="container")
             assert result == "yolo-test-abc"
-            # Verify it used 'ls' not 'ps'
+            # Verify it used 'ls' not 'ps', and no --filter (unsupported)
             call_args = mock_run.call_args[0][0]
             assert "ls" in call_args
             assert "ps" not in call_args
+            assert "--filter" not in call_args
 
     def test_find_running_container_ls_not_found(self, monkeypatch):
         """Returns None when container not in 'container ls' output."""
