@@ -3861,21 +3861,14 @@ def check(
         if container_path:
             try:
                 result = subprocess.run(
-                    ["container", "system", "info"],
+                    ["container", "system", "status"],
                     capture_output=True,
                     text=True,
                     timeout=5,
                 )
                 if result.returncode == 0:
                     ok("Apple Container CLI: available")
-                    # Check if system is running
-                    status_result = subprocess.run(
-                        ["container", "system", "status"],
-                        capture_output=True,
-                        text=True,
-                        timeout=5,
-                    )
-                    if status_result.returncode == 0:
+                    if "running" in result.stdout.lower():
                         ok("Apple Container system: running")
                     else:
                         warn(
@@ -3883,7 +3876,10 @@ def check(
                             "Start with: container system start",
                         )
                 else:
-                    warn("Apple Container CLI: installed but not working")
+                    warn(
+                        "Apple Container CLI: installed but not working",
+                        "Start with: container system start",
+                    )
             except Exception as e:
                 warn(f"Apple Container CLI: {e}")
 
