@@ -34,18 +34,13 @@ Exit codes:
 
 Never logs full token values, only 12-character prefixes.
 
-### Install as a systemd user timer (recommended)
+### Install via `just deploy` (Linux — recommended)
+
+On Linux, `just deploy` handles this automatically: it templates `claude-token-refresher.service` with the real repo path, writes it and the `.timer` to `~/.config/systemd/user/`, reloads systemd, enables + starts the timer, and fires one service run immediately. Idempotent, safe to re-run.
 
 ```bash
-# Assumes the repo is at ~/code/yolo-jail.  Edit the ExecStart path in the
-# .service file if you keep it elsewhere.
-
-mkdir -p ~/.config/systemd/user
-cp scripts/claude-token-refresher.service ~/.config/systemd/user/
-cp scripts/claude-token-refresher.timer   ~/.config/systemd/user/
-
-systemctl --user daemon-reload
-systemctl --user enable --now claude-token-refresher.timer
+cd ~/code/yolo-jail
+just deploy
 
 # Verify:
 systemctl --user list-timers claude-token-refresher
@@ -61,11 +56,63 @@ If your systemd user instance doesn't run when you're not logged in, enable ling
 sudo loginctl enable-linger "$USER"
 ```
 
-### Install as a cron job (alternative)
+### Install on macOS (launchd — recommended)
+
+macOS has no `systemd --user`, so `just deploy` detects this and skips the systemd install. Use launchd instead — `launchctl` runs user agents without a GUI session, survives logout, and is the native approach.
+
+Create `~/Library/LaunchAgents/com.yolojail.claude-token-refresher.plist`:
+
+```xml
+<?xml version="1.0" encoding="UTF-8"?>
+<!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN"
+  "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
+<plist version="1.0">
+<dict>
+  <key>Label</key>
+  <string>com.yolojail.claude-token-refresher</string>
+
+  <key>ProgramArguments</key>
+  <array>
+    <string>/Users/YOU/code/yolo-jail/scripts/claude-token-refresher.py</string>
+  </array>
+
+  <key>StartInterval</key>
+  <integer>600</integer>  <!-- every 10 minutes -->
+
+  <key>RunAtLoad</key>
+  <true/>
+
+  <key>StandardOutPath</key>
+  <string>/tmp/claude-token-refresher.log</string>
+  <key>StandardErrorPath</key>
+  <string>/tmp/claude-token-refresher.log</string>
+</dict>
+</plist>
+```
+
+Replace `/Users/YOU/code/yolo-jail/` with your actual repo path, then:
+
+```bash
+launchctl load ~/Library/LaunchAgents/com.yolojail.claude-token-refresher.plist
+
+# Verify it's running and scheduled:
+launchctl list | grep yolojail
+tail -f /tmp/claude-token-refresher.log
+```
+
+To stop/remove:
+
+```bash
+launchctl unload ~/Library/LaunchAgents/com.yolojail.claude-token-refresher.plist
+```
+
+### Install as a cron job (fallback — Linux or macOS)
+
+Works everywhere but has no structured logging and doesn't survive reboots cleanly on macOS.
 
 ```bash
 # Every 10 minutes:
-( crontab -l 2>/dev/null; echo '*/10 * * * * /home/YOU/code/yolo-jail/scripts/claude-token-refresher.py >> /tmp/claude-refresher.log 2>&1' ) | crontab -
+( crontab -l 2>/dev/null; echo '*/10 * * * * /path/to/yolo-jail/scripts/claude-token-refresher.py >> /tmp/claude-refresher.log 2>&1' ) | crontab -
 ```
 
 ### Troubleshooting

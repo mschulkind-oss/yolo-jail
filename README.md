@@ -3,7 +3,7 @@
 [![CI](https://github.com/mschulkind/yolo-jail/actions/workflows/ci.yml/badge.svg)](https://github.com/mschulkind/yolo-jail/actions/workflows/ci.yml)
 [![License](https://img.shields.io/badge/License-Apache_2.0-blue.svg)](LICENSE)
 
-A secure, isolated container environment for AI agents (Claude Code, Copilot, Gemini CLI) to safely modify codebases without compromising host security or identity. Supports both Docker and Podman runtimes.
+A secure, isolated container environment for AI agents (Claude Code, Copilot, Gemini CLI) to safely modify codebases without compromising host security or identity. Runs on **Linux and macOS** (Apple Silicon and Intel) with Docker, Podman, or Apple Container.
 
 ## Why?
 
@@ -30,31 +30,69 @@ AI coding agents like Claude Code, GitHub Copilot, and Google Gemini CLI have a 
 
 ## Prerequisites
 
+Core requirements (both platforms):
+
 - **[uv](https://docs.astral.sh/uv/)** — Python package manager
 - **[Nix](https://nixos.org/download/)** (with flakes enabled)
-- **[Docker](https://docs.docker.com/)** or **[Podman](https://podman.io/)**
-- **Linux** or **macOS** (Apple Silicon and Intel) — see [docs/macos.md](docs/macos.md) for macOS setup
+- A container runtime — one of:
+  - **[Podman](https://podman.io/)** (preferred on Linux; Podman Machine on macOS)
+  - **[Docker](https://docs.docker.com/)** (Docker Engine on Linux; Docker Desktop or [Colima](https://github.com/abiosoft/colima) on macOS)
+  - **[Apple Container](https://github.com/apple/container)** (native macOS, `brew install container`)
+
+Platform specifics:
+
+- **Linux** — any modern distribution with Docker or Podman. No extra setup.
+- **macOS** — Apple Silicon or Intel. You'll need a container runtime + a Nix remote Linux builder. See [docs/macos.md](docs/macos.md).
 
 ## Installation
 
-Requires [uv](https://docs.astral.sh/uv/), [Nix](https://nixos.org/download/) (with flakes), and [Docker](https://docs.docker.com/) or [Podman](https://podman.io/).
+Installation is identical on Linux and macOS:
 
 ```bash
 # Install from source
 git clone https://github.com/mschulkind/yolo-jail.git
 cd yolo-jail
-uv tool install .
+just deploy            # builds + installs the yolo CLI + host-side token refresher
 
 # (Optional) Set user-level defaults
 yolo init-user-config
 # Edit: ~/.config/yolo-jail/config.jsonc
 ```
 
-To upgrade later: `cd yolo-jail && git pull && uv tool install . --force`
+To upgrade later: `cd yolo-jail && git pull && just deploy`
+
+**Platform-specific runtime setup** (one-time):
+
+```bash
+# Linux — Podman (recommended)
+sudo pacman -S podman                   # or apt/dnf/pacman for your distro
+
+# Linux — Docker
+sudo apt-get install docker.io          # or your distro equivalent
+sudo usermod -aG docker $USER
+
+# macOS — Apple Container (native, recommended)
+brew install container skopeo
+container system start
+
+# macOS — Docker via Colima (headless/CI Macs)
+brew install colima docker
+colima start --cpu 4 --memory 8 --mount-type virtiofs \
+  --mount "$HOME:w" --mount /private/tmp:w --mount /private/var/folders:w
+
+# macOS — Podman Machine
+brew install podman
+podman machine init --cpus 4 --memory 8192 --disk-size 50
+podman machine start
+```
+
+On macOS you'll also need a Nix remote Linux builder for image builds — see [docs/macos.md](docs/macos.md) for step-by-step setup.
 
 For development, see [CONTRIBUTING.md](CONTRIBUTING.md).
 
 ## Quick Start
+
+Works identically on Linux and macOS:
 
 ```bash
 # Navigate to any repository
@@ -84,15 +122,17 @@ yolo ps
 yolo config-ref
 ```
 
+On macOS, `yolo doctor` additionally checks the VM backend (Podman Machine, Colima, or Apple Container `system status`) and the Nix remote Linux builder.
+
 ### First Run
 
 On first run, YOLO Jail will:
-1. Build the Docker image via `nix build` (takes a few minutes)
+1. Build the Linux container image via `nix build` (takes a few minutes — Linux downloads from the binary cache; macOS builds via the remote Linux builder)
 2. Load the image into your container runtime
 3. Install MCP servers, LSP servers, and utilities
 4. Start your command
 
-Subsequent runs are fast — tools are cached in persistent storage.
+Subsequent runs are fast — tools are cached in persistent storage on both platforms.
 
 ### Auth Setup (One-Time)
 
@@ -101,10 +141,10 @@ Inside the jail, authenticate with your tools:
 ```bash
 gh auth login          # GitHub CLI
 gemini login           # Google Gemini CLI
-# Claude Code authenticates via API key or OAuth — see User Guide
+# Claude Code authenticates via /login on first run
 ```
 
-These tokens are stored in `~/.local/share/yolo-jail/home/` and persist across jail restarts.
+These tokens are stored in `~/.local/share/yolo-jail/home/` (same path on Linux and macOS) and persist across jail restarts. On both platforms, a host-side systemd timer (installed by `just deploy`) periodically refreshes the shared Claude OAuth token so jails never race the refresh flow.
 
 ## Configuration
 

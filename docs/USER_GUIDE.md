@@ -2,6 +2,8 @@
 
 This guide covers everything you need to get started with YOLO Jail and make the most of its features. For quick-start instructions, see the [README](../README.md).
 
+**YOLO Jail runs on Linux and macOS as first-class platforms.** Every section below shows instructions for both where they differ. Linux uses Docker or Podman; macOS uses Docker (via Docker Desktop or Colima), Podman Machine, or Apple Container. For the full macOS-specific setup, see [docs/macos.md](macos.md); for a feature-by-feature comparison, see [docs/platform-comparison.md](platform-comparison.md).
+
 ---
 
 ## Table of Contents
@@ -21,37 +23,102 @@ This guide covers everything you need to get started with YOLO Jail and make the
 - [Storage & Persistence](#storage--persistence)
 - [Container Reuse](#container-reuse)
 - [Config Safety](#config-safety)
-- [macOS Platform Notes](#macos-platform-notes)
+- [Platform Differences Reference](#platform-differences-reference)
 - [Troubleshooting](#troubleshooting)
 
 ---
 
 ## Installation
 
-### Prerequisites
+### Prerequisites (both platforms)
 
 | Tool | Purpose | Install |
 |------|---------|---------|
 | [uv](https://docs.astral.sh/uv/) | Python package manager | `curl -LsSf https://astral.sh/uv/install.sh \| sh` |
 | [Nix](https://nixos.org/download/) | Image builder (with flakes) | [Determinate Nix Installer](https://github.com/DeterminateSystems/nix-installer) recommended |
-| [Docker](https://docs.docker.com/), [Podman](https://podman.io/), or [Apple Container](https://github.com/apple/container) | Container runtime | Your package manager |
+| [just](https://github.com/casey/just) | Task runner for `just deploy` | `cargo install just`, `brew install just`, or your package manager |
+| Container runtime | Docker, Podman, or Apple Container | See platform-specific setup below |
 
-**Supported platforms:** Linux (x86_64, aarch64) and macOS (Apple Silicon and Intel).
+**Supported platforms:** Linux (x86_64, aarch64) and macOS (Apple Silicon and Intel). On macOS, containers run in a lightweight Linux VM managed by Docker Desktop, Colima, Podman Machine, or Apple Container.
 
-On macOS, containers run in a lightweight Linux VM managed by Docker Desktop, Colima, Podman Machine, or Apple Container. See [docs/macos.md](macos.md) for the macOS-specific setup guide and [docs/platform-comparison.md](platform-comparison.md) for a detailed feature comparison.
+### Container Runtime Setup
 
-### Install
+Pick the runtime that fits your platform. YOLO Jail auto-detects whichever is available; the env var `YOLO_RUNTIME` (or the `runtime` key in config) forces a specific one.
+
+#### Linux
+
+```bash
+# Podman (preferred — rootless by default, no daemon)
+sudo apt-get install podman          # Debian/Ubuntu
+sudo dnf install podman              # Fedora/RHEL
+sudo pacman -S podman                # Arch
+
+# Docker
+sudo apt-get install docker.io       # Debian/Ubuntu
+sudo usermod -aG docker $USER
+# (log out and back in for group membership to take effect)
+```
+
+Auto-detect priority on Linux: **podman → docker**.
+
+#### macOS
+
+You have three runtime choices. Pick one based on your needs:
+
+**Option A — Apple Container (native, recommended for desktop Macs on macOS 15+):**
+
+```bash
+brew install container skopeo
+container system start
+```
+
+Native per-container CPU/memory limits, native Unix socket port forwarding, smallest footprint (no separate VM daemon). Has a ~22 bind mount limit — YOLO Jail works around this by consolidating workspace state into one mount. `skopeo` is used to convert Nix's Docker V2 image tarballs to OCI for Apple Container.
+
+**Option B — Docker via Colima (recommended for headless/CI Macs):**
+
+```bash
+brew install colima docker
+colima start --cpu 4 --memory 8 --disk 30 \
+  --mount-type virtiofs \
+  --mount "$HOME:w" \
+  --mount /private/var/folders:w \
+  --mount /private/tmp:w
+```
+
+Works without a GUI session (unlike Docker Desktop / Podman Machine). Uses VZ.framework under the hood on modern Macs.
+
+**Option C — Podman Machine:**
+
+```bash
+brew install podman
+podman machine init --cpus 4 --memory 8192 --disk-size 50
+podman machine start
+```
+
+Good if you already use Podman on Linux and want the same CLI on macOS. Requires a GUI session on some versions.
+
+Auto-detect priority on macOS: **container → podman → docker**.
+
+#### Nix remote Linux builder (macOS only)
+
+The container image is a Linux image. Nix needs a remote Linux builder to compile or fetch `aarch64-linux`/`x86_64-linux` packages. See [docs/macos.md § Nix Linux Builder](macos.md#nix-linux-builder-for-building-the-image-from-source) for the full setup — in short, install Nix inside Colima or Podman Machine and register it as a builder in `/etc/nix/machines`.
+
+### Install YOLO Jail
+
+Same on both platforms:
 
 ```bash
 git clone https://github.com/mschulkind/yolo-jail.git
 cd yolo-jail
-uv tool install .
+just deploy      # builds + installs yolo CLI + host-side token refresher
 ```
+
+`just deploy` is idempotent and safe to re-run. On Linux, it installs a systemd `--user` timer for the Claude OAuth token refresher. On macOS (no systemd `--user`), the same script is installable via cron or launchd — see [scripts/README.md](../scripts/README.md) for launchd instructions.
 
 To upgrade later:
 
 ```bash
-cd yolo-jail && git pull && uv tool install . --force
+cd yolo-jail && git pull && just deploy
 ```
 
 ### Set Up User Defaults (Optional)
@@ -61,7 +128,7 @@ yolo init-user-config
 # Edit: ~/.config/yolo-jail/config.jsonc
 ```
 
-User-level defaults apply to all projects and are merged under workspace config.
+Same path and merge semantics on Linux and macOS. User-level defaults apply to all projects and are merged under workspace config.
 
 ---
 
@@ -76,12 +143,16 @@ yolo
 
 On first run, YOLO Jail will:
 
-1. **Build the Docker image** via `nix build` — this takes a few minutes the first time. Nix caches the result, so subsequent builds are fast unless the package list changes.
-2. **Load the image** into your container runtime (Docker or Podman).
-3. **Install tools** — MCP servers, LSP servers, and utilities are installed into persistent storage.
+1. **Build the Linux container image** via `nix build`:
+   - **Linux:** Nix downloads prebuilt packages from the binary cache (~2–5 minutes).
+   - **macOS:** Nix dispatches the image build to the remote Linux builder you configured (~5–10 minutes the first time, instant on subsequent runs thanks to caching).
+2. **Load the image** into your container runtime:
+   - Docker / Podman: `docker load` / `podman load` from the cached tarball
+   - Apple Container: the tarball is converted from Docker V2 to OCI via `skopeo` (or `podman`/`docker` as fallback) and then `container image load`ed
+3. **Install tools** — MCP servers, LSP servers, and utilities are installed into persistent storage (`~/.local/share/yolo-jail/home/`).
 4. **Start your command** — by default, an interactive shell.
 
-Subsequent runs skip steps 1–3 (everything is cached) and start in seconds.
+Subsequent runs skip steps 1–3 (everything is cached) and start in seconds on both platforms.
 
 ---
 
@@ -92,12 +163,24 @@ Inside the jail, authenticate with your tools once:
 ```bash
 gh auth login          # GitHub CLI
 gemini login           # Google Gemini CLI
-# Claude Code authenticates via API key or OAuth on first run
+claude                 # Runs /login on first launch
 ```
 
-Tokens are stored in `~/.local/share/yolo-jail/home/` on the host and persist across jail restarts. You do **not** need to re-authenticate each time.
+Tokens are stored in `~/.local/share/yolo-jail/home/` on the host (same path on Linux and macOS) and persist across jail restarts. You do **not** need to re-authenticate each time, and on Docker/Podman runtimes a `/login` in any jail propagates to every other jail automatically.
 
-> **Security note:** Auth tokens are stored separately from your host credentials. The jail never accesses your host `~/.ssh/`, `~/.gitconfig`, or cloud credentials.
+### Claude OAuth token refresher
+
+Anthropic uses single-use refresh tokens — when multiple jails share the same `.credentials.json` and two of them try to refresh the OAuth token in the same window, one loses the race and gets logged out. YOLO Jail ships a **host-side refresher** that keeps the shared token fresh on a timer, so jails never refresh on their own.
+
+`just deploy` installs the refresher. On Linux, it runs as a systemd `--user` timer (every 10 minutes, refreshes when the token has under 30 minutes of headroom). On macOS, install via launchd or cron — see [scripts/README.md](../scripts/README.md).
+
+Once installed, `yolo doctor` (alias for `yolo check`) includes a "Claude Token Refresher" section that reports:
+
+- Script presence + executable
+- Credentials parse + remaining headroom
+- (Linux) systemd unit installed, timer enabled + active, last run state, next scheduled tick
+
+> **Security note:** Auth tokens are stored separately from your host credentials. The jail never accesses your host `~/.ssh/`, `~/.gitconfig`, or cloud credentials. The token refresher reads only `~/.local/share/yolo-jail/home/.claude/.credentials.json` — never your host `~/.claude/`.
 
 ---
 
@@ -476,9 +559,9 @@ YOLO_BYPASS_SHIMS=1 grep -r "pattern" .
 
 ## Device Passthrough
 
-> **macOS note:** Device passthrough is a Linux-only feature. USB devices, raw device paths, and cgroup rules are silently skipped on macOS with a warning.
+**Platform support:** Device passthrough (USB, serial, cgroup rules) is a **Linux-only** feature. It relies on the host kernel exposing `/dev/bus/usb/`, `/dev/tty*`, and `--device-cgroup-rule` — none of which exist on macOS where containers run inside a VM. On macOS, device entries in `yolo-jail.jsonc` are parsed, logged as skipped with a warning, and do not prevent the jail from starting.
 
-Pass host devices (USB, serial, etc.) into the jail:
+On Linux, pass host devices (USB, serial, etc.) into the jail:
 
 ```jsonc
 {
@@ -501,9 +584,9 @@ Missing devices produce a warning but don't prevent the jail from starting. Devi
 
 ## GPU Passthrough (NVIDIA)
 
-> **macOS note:** GPU passthrough is not available on macOS. Apple Silicon GPUs use Metal, not CUDA/OpenCL. The `"gpu"` config section is silently skipped with a warning.
+**Platform support:** GPU passthrough is **Linux-only**. Apple Silicon Macs use Metal, not CUDA/OpenCL, and Apple's Virtualization.framework doesn't expose the GPU to the guest Linux kernel. If `"gpu": {"enabled": true}` appears in `yolo-jail.jsonc` on macOS, it is parsed, logged as skipped with a warning, and does not prevent the jail from starting. For GPU workflows on macOS, run on a Linux box (local or EC2 `g5`/`p3` instance) instead.
 
-Train deep learning models inside the jail using NVIDIA GPUs. Requires the NVIDIA Container Toolkit on the host.
+On Linux, train deep learning models inside the jail using NVIDIA GPUs. Requires the NVIDIA Container Toolkit on the host.
 
 ### Host Setup
 
@@ -596,18 +679,22 @@ Use an AWS Deep Learning AMI (DLAMI) — drivers and toolkit come pre-installed.
 
 ## Storage & Persistence
 
+All paths below use the same layout on Linux and macOS (`~/.local/share/yolo-jail/` resolves to `/home/$USER/.local/share/yolo-jail/` on Linux and `/Users/$USER/.local/share/yolo-jail/` on macOS). On macOS with Docker Desktop or Colima, make sure `$HOME` is in the Colima/Docker shared folders list (the Colima `--mount "$HOME:w"` flag, Docker Desktop's Resources → File Sharing).
+
 ### What Persists Across Restarts
 
 | Data | Location (Host) | Shared? |
 |------|-----------------|---------|
 | Auth tokens (gh, gemini, claude) | `~/.local/share/yolo-jail/home/` | All jails |
 | Installed tools (npm, go) | `~/.local/share/yolo-jail/home/` | All jails |
-| Mise tools & runtimes | `~/.local/share/mise/` | All jails + host |
+| Mise tools & runtimes | `~/.local/share/mise/` (Linux); Docker named volume `yolo-mise-data` (macOS) | All jails |
 | Bash history | `<workspace>/.yolo/home/bash_history` | Per workspace |
 | Claude sessions | `<workspace>/.yolo/home/claude-projects/` | Per workspace |
 | Copilot sessions | `<workspace>/.yolo/home/copilot-sessions/` | Per workspace |
 | Gemini history | `<workspace>/.yolo/home/gemini-history/` | Per workspace |
 | SSH keys | `<workspace>/.yolo/home/ssh/` | Per workspace |
+
+**Why mise differs on macOS:** The host `~/.local/share/mise/` on macOS contains Mach-O (darwin) binaries that cannot execute inside the Linux container. Instead of bind-mounting the host directory, YOLO Jail uses a Docker named volume (`yolo-mise-data`) so the container installs its own native Linux toolchains. The volume persists across jail restarts.
 
 ### What Gets Regenerated
 
@@ -667,132 +754,158 @@ See [docs/config-safety.md](config-safety.md) for the full workflow.
 
 ---
 
-## macOS Platform Notes
+## Platform Differences Reference
 
-YOLO Jail has full macOS support (Apple Silicon and Intel). The container image is always a Linux container — Docker Desktop, Colima, Podman Machine, or Apple Container runs it in a lightweight Linux VM.
+YOLO Jail runs on Linux and macOS as first-class platforms. Everything in this guide works on both unless explicitly noted. The table below summarizes what differs; see [docs/platform-comparison.md](platform-comparison.md) for the full feature matrix and architecture diagrams.
 
-### Quick Start (macOS)
-
-```bash
-# Option A: Colima + Docker (recommended for headless/CI Macs)
-brew install colima docker
-colima start --cpu 4 --memory 8 --disk 30 --mount-type virtiofs \
-  --mount "$HOME:w" --mount /private/var/folders:w --mount /private/tmp:w
-
-# Option B: Podman Machine
-brew install podman
-podman machine init --cpus 4 --memory 8192 --disk-size 50
-podman machine start
-
-# Option C: Apple Container (native macOS, per-container resource limits)
-brew install container skopeo
-container system start
-export YOLO_RUNTIME=container
-```
-
-You also need a Nix remote Linux builder for image builds. See [docs/macos.md](macos.md) for full setup instructions.
-
-### What's Different on macOS
-
-| Feature | Linux | macOS Docker/Podman | macOS Apple Container | Notes |
-|---------|-------|---------------------|----------------------|-------|
-| Cgroup limits (`yolo-cglimit`) | ✅ | ❌ | ❌ | Use VM resource controls or AC native limits |
-| Per-container CPU/memory | Via cgroups | ❌ | ✅ (`--cpus`/`--memory`) | AC: native resource limits |
-| GPU passthrough (NVIDIA) | ✅ | ❌ | ❌ | Apple Silicon uses Metal, not CUDA |
-| USB device passthrough | ✅ | ❌ | ❌ | No `/dev/bus/usb` on macOS |
-| Port forwarding | Unix sockets | TCP gateway | Native sockets | AC: `--publish-socket` |
-| UID mapping | `-u UID:GID` | VM handles | VM per container | Automatic |
-| mise tools | Host bind mount | Docker volume | Docker volume | macOS binaries are Mach-O, not ELF |
-| Max bind mounts | Unlimited | Unlimited | ~22 | VZ.framework limit |
-| `yolo doctor` | Linux checks | macOS checks | AC system checks | Runtime-specific diagnostics |
-
-All other features work identically. See [docs/platform-comparison.md](platform-comparison.md) for the complete comparison.
+| Feature | Linux | macOS Docker / Podman | macOS Apple Container |
+|---------|-------|------------------------|----------------------|
+| Container isolation | ✅ native | ✅ via VM | ✅ per-container VM |
+| Workspace mount (`/workspace`) | Native bind | VirtioFS | VirtioFS |
+| Auto-detect priority | podman → docker | container → podman → docker (via VM) | same |
+| Cgroup limits (`yolo-cglimit`) | ✅ | ❌ — use VM resource controls | ✅ (own kernel) |
+| Per-container CPU/memory | Via cgroups | VM-level only | ✅ native (`--cpus`, `--memory`) |
+| GPU passthrough (NVIDIA) | ✅ | ❌ (no CUDA on Apple Silicon) | ❌ |
+| USB / serial device passthrough | ✅ | ❌ | ❌ |
+| Port publishing (`network.ports`) | ✅ | ✅ | ✅ |
+| Port forwarding (`forward_host_ports`) | Unix sockets | TCP gateway (auto) | Native Unix sockets |
+| `--network host` | ✅ | ✅ | ❌ (not supported) |
+| UID mapping | `-u UID:GID` | VM handles automatically | VM per container |
+| `mise` tool storage | Host bind mount | Docker named volume | Docker named volume |
+| Max bind mounts | Unlimited | Unlimited | ~22 (VZ.framework) |
+| Image format | Docker V2 | Docker V2 | OCI (auto-converted via skopeo) |
+| `yolo doctor` runtime checks | Linux | macOS / VM | `container system status` |
+| Token refresher install | systemd `--user` | launchd or cron (see [scripts/README.md](../scripts/README.md)) | same |
 
 ---
 
 ## Troubleshooting
 
-### Run the Health Check
+Start with `yolo check` — it validates your entire setup on both platforms: runtime (podman/docker/container), nix, config, image, running containers, GPU (Linux only), macOS VM backend (macOS only), and the Claude token refresher.
 
 ```bash
-yolo check
+yolo check                    # full check including nix build
+yolo check --no-build         # fast — skip nix build
 ```
 
-This validates your entire setup: runtime, nix, config, image, and running containers.
+### Common Issues (both platforms)
 
-### Common Issues
+**"Cannot find yolo-jail repo root"** — The CLI needs the source for nix image builds. Either clone the repo and run `just deploy` from inside it, or add `repo_path` to your user config:
 
-**"Cannot find yolo-jail repo root"**
-The CLI needs the source for nix image builds. Either:
-- Clone the repo and run `uv tool install .` from inside it, or
-- Add `repo_path` to your user config:
-  ```jsonc
-  // ~/.config/yolo-jail/config.jsonc
-  { "repo_path": "~/code/yolo-jail" }
-  ```
+```jsonc
+// ~/.config/yolo-jail/config.jsonc
+{ "repo_path": "~/code/yolo-jail" }
+```
 
 **Image build fails**
+
 - Check nix is installed with flakes: `nix --version`
 - Ensure flakes are enabled in `~/.config/nix/nix.conf`:
   ```
   experimental-features = nix-command flakes
   ```
+- On macOS: also verify the remote Linux builder — `nix store info --store ssh-ng://nix-builder` should respond within a few seconds
 - Run `yolo check` for detailed diagnostics
 
 **Container won't start**
-- Check your runtime: `docker --version` or `podman --version`
+
+- Linux: check `podman --version` or `docker --version`; verify your user is in the `docker` group (for Docker)
+- macOS: check that your runtime's VM/daemon is up:
+  - Colima: `colima status`
+  - Podman Machine: `podman machine list`
+  - Apple Container: `container system status`
 - Try forcing a new container: `yolo --new`
 - Check for leftover containers: `yolo ps`
 
 **MCP server not working**
+
 - Verify the preset is enabled in `mcp_presets`
-- Check logs: `~/.copilot/logs/` (Copilot), `~/.cache/gemini-cli/logs/` (Gemini), or `~/.claude/logs/` (Claude)
-- Inside jail, view logs:
-  ```bash
-  tail -100 ~/.copilot/logs/$(ls -1t ~/.copilot/logs | head -1)
-  ```
+- Check logs (same paths on Linux and macOS): `~/.copilot/logs/` (Copilot), `~/.cache/gemini-cli/logs/` (Gemini), `~/.claude/logs/` (Claude)
+- Inside jail, view logs: `tail -100 ~/.copilot/logs/$(ls -1t ~/.copilot/logs | head -1)`
 
 **LSP not responding**
+
 - LSP servers are spawned on-demand, not as background services
-- Ensure the language server binary is installed (check `mise ls`)
+- Ensure the language server binary is installed (`mise ls`)
 - TypeScript LSP requires `tsconfig.json` or `jsconfig.json` in the workspace root
 
 **Tools missing after restart**
-- Run `eval "$(mise hook-env -s bash)"` to refresh PATH
+
+- `eval "$(mise hook-env -s bash)"` to refresh PATH
 - Or restart the jail: `yolo --new`
 
 **Permission errors on files**
-- Docker: UID/GID mapping is handled via `-u UID:GID`
-- Podman: Rootless UID mapping handles ownership automatically
+
+- Linux + Docker: UID/GID mapping is handled via `-u UID:GID`
+- Linux + Podman: Rootless UID mapping handles ownership automatically
+- macOS (any runtime): File ownership is mediated by the VM's virtiofs layer; files inside `/workspace` appear as the jail user and on the host appear as you
 - If persistent, check `ls -la ~/.local/share/yolo-jail/home/`
+
+**Claude keeps logging out across jails**
+
+- Usually means the host-side token refresher isn't running. Check with `yolo check` — it has a dedicated "Claude Token Refresher" section.
+- Linux: `systemctl --user status claude-token-refresher.timer` and `journalctl --user -u claude-token-refresher -n 30`
+- macOS: check your launchd/cron setup per [scripts/README.md](../scripts/README.md)
+- Background: Anthropic rotates refresh tokens single-use, so multiple jails refreshing simultaneously race each other. The refresher serializes refreshes on the host so jails never race. See `docs/claude-oauth-mitm-proxy-plan.md` for the fallback plan if the refresher alone isn't enough.
+
+### Linux-Specific Issues
+
+**NVIDIA GPU not visible in jail**
+
+- Check `nvidia-smi` on the host works
+- Verify NVIDIA Container Toolkit: `nvidia-ctk --version`
+- For Podman, ensure the CDI spec exists: `/etc/cdi/nvidia.yaml`
+- See [GPU Passthrough](#gpu-passthrough-nvidia) for the full setup
+
+**Podman rootless permission denied on `/dev/dri` or devices**
+
+- Some device passthrough paths need `--cap-add` which Podman rootless may restrict
+- Fall back to Docker for these workloads, or run Podman rootful (`sudo podman`)
 
 ### macOS-Specific Issues
 
 **Podman Machine won't start on headless Mac (EC2, CI)**
+
 - Apple's Hypervisor.framework may require a GUI session
-- Use Colima + Docker instead: `brew install colima docker && colima start`
-- Set `export YOLO_RUNTIME=docker`
+- Switch to Colima + Docker: `brew install colima docker && colima start`
+- Set `export YOLO_RUNTIME=docker` (or drop `YOLO_RUNTIME` — auto-detect will pick it up)
 
 **Nix build hangs or times out**
-- Check `nix store info` responds within 2 seconds
-- If it hangs, kill determinate-nixd and use vanilla daemon: `sudo pkill determinate-nixd && sudo /nix/var/nix/profiles/default/bin/nix-daemon &`
-- Verify the remote builder: `nix store info --store ssh-ng://nix-builder`
 
-**Port forwarding not working on macOS**
-- Docker/Podman: Uses TCP gateway (`host.docker.internal`) instead of Unix sockets — automatic
-- Apple Container: Uses native `--publish-socket` for direct socket forwarding
-- Ensure `socat` is in the container (included by default)
+- Check `nix store info` responds within 2 seconds
+- If it hangs, kill determinate-nixd and use the vanilla daemon:
+  ```bash
+  sudo pkill determinate-nixd
+  sudo /nix/var/nix/profiles/default/bin/nix-daemon &
+  ```
+- Verify the remote builder: `nix store info --store ssh-ng://nix-builder`
+- After `colima start` restarts the VM, the SSH port for `nix-builder` may change — update `~/.ssh/config` accordingly
+
+**Port forwarding not working**
+
+- Docker/Podman on macOS: YOLO Jail uses a TCP gateway (`host.docker.internal`) instead of Unix sockets because virtiofs rejects sockets. This is automatic.
+- Apple Container: uses native `--publish-socket` — no TCP gateway needed.
+- Ensure `socat` is in the container (it's in the default image)
 
 **Apple Container: "virtual machine failed to start"**
-- VZ.framework has a ~22 bind mount limit — YOLO Jail consolidates mounts automatically
-- If you add many custom mounts, you may hit this limit
 
-**Apple Container: image won't load**
-- Apple Container requires OCI-format images — YOLO Jail auto-converts via Docker
-- Ensure Docker (via Colima) is running: `colima start`
+- VZ.framework caps bind mounts at ~22. YOLO Jail consolidates the workspace state into a single `/home/agent` mount to stay under this, but if you add many custom `mounts` entries you may still hit it.
+- Try `YOLO_RUNTIME=podman` or `YOLO_RUNTIME=docker` to sidestep the limit.
 
-**`/tmp` bind mounts fail on macOS**
-- macOS `/tmp` → `/private/tmp` (symlink) — `cli.py` resolves this automatically
-- If using Colima, ensure it was started with `--mount /private/tmp:w`
+**Apple Container: image load fails**
 
-See [docs/macos.md](macos.md) for the full macOS troubleshooting guide.
+- Apple Container requires OCI-format images. YOLO Jail converts via `skopeo` first (no daemon needed), or `podman`/`docker` as fallback.
+- If you don't have `skopeo` installed and don't have a Docker daemon running, install skopeo: `brew install skopeo`.
+
+**`/tmp` bind mounts fail**
+
+- macOS `/tmp` → `/private/tmp` is a symlink. `cli.py` resolves this automatically.
+- With Colima, ensure the VM was started with `--mount /private/tmp:w`.
+
+**Colima's Nix builder port changes on restart**
+
+- Every `colima stop` + `colima start` can assign a new SSH port for the VM
+- Re-run the SSH port update step from [docs/macos.md](macos.md#option-a--colima-vm-as-nix-builder-recommended-for-colima-users) after each restart
+- Or use a fixed port via `colima start --ssh-port 2222` and hardcode it in `~/.ssh/config`
+
+See [docs/macos.md](macos.md) for the full macOS-specific reference, and [docs/platform-comparison.md](platform-comparison.md) for the complete Linux-vs-macOS feature matrix.
