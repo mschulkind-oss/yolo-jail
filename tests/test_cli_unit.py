@@ -1017,9 +1017,10 @@ class TestRuntimeForCheck:
     def test_env_var_on_path(self):
         with patch.dict(os.environ, {"YOLO_RUNTIME": "docker"}):
             with patch("shutil.which", return_value="/usr/bin/docker"):
-                rt, err = _runtime_for_check({})
-                assert rt == "docker"
-                assert err is None
+                with patch("cli._runtime_is_connectable", return_value=True):
+                    rt, err = _runtime_for_check({})
+                    assert rt == "docker"
+                    assert err is None
 
     def test_env_var_not_on_path(self):
         with patch.dict(os.environ, {"YOLO_RUNTIME": "podman"}):
@@ -1032,8 +1033,9 @@ class TestRuntimeForCheck:
         with patch.dict(os.environ, {}, clear=False):
             os.environ.pop("YOLO_RUNTIME", None)
             with patch("shutil.which", return_value="/usr/bin/docker"):
-                rt, err = _runtime_for_check({"runtime": "docker"})
-                assert rt == "docker"
+                with patch("cli._runtime_is_connectable", return_value=True):
+                    rt, err = _runtime_for_check({"runtime": "docker"})
+                    assert rt == "docker"
 
     def test_auto_detect(self):
         with patch.dict(os.environ, {}, clear=False):
@@ -1042,8 +1044,9 @@ class TestRuntimeForCheck:
                 "shutil.which",
                 side_effect=lambda x: "/usr/bin/podman" if x == "podman" else None,
             ):
-                rt, err = _runtime_for_check({})
-                assert rt == "podman"
+                with patch("cli._runtime_is_connectable", return_value=True):
+                    rt, err = _runtime_for_check({})
+                    assert rt == "podman"
 
     def test_nothing_found(self):
         with patch.dict(os.environ, {}, clear=False):
@@ -1052,6 +1055,14 @@ class TestRuntimeForCheck:
                 rt, err = _runtime_for_check({})
                 assert rt is None
                 assert "No container runtime" in err
+
+    def test_env_var_not_connected(self):
+        with patch.dict(os.environ, {"YOLO_RUNTIME": "podman"}):
+            with patch("shutil.which", return_value="/usr/bin/podman"):
+                with patch("cli._runtime_is_connectable", return_value=False):
+                    rt, err = _runtime_for_check({})
+                    assert rt is None
+                    assert "not connected" in err
 
 
 # ═══════════════════════════════════════════════════════════════════════════════

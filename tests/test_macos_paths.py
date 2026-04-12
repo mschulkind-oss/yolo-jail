@@ -667,6 +667,7 @@ class TestAppleContainerRuntime:
         """_runtime() auto-detects container CLI when no env/config set."""
         _set_macos(monkeypatch)
         monkeypatch.delenv("YOLO_RUNTIME", raising=False)
+        monkeypatch.setattr(cli, "_runtime_is_connectable", lambda rt: True)
         with patch("shutil.which") as mock_which, patch(
             "cli._is_apple_container", return_value=True
         ):
@@ -680,6 +681,7 @@ class TestAppleContainerRuntime:
         """On macOS, container is preferred over podman/docker when all are available."""
         _set_macos(monkeypatch)
         monkeypatch.delenv("YOLO_RUNTIME", raising=False)
+        monkeypatch.setattr(cli, "_runtime_is_connectable", lambda rt: True)
         with patch("shutil.which") as mock_which, patch(
             "cli._is_apple_container", return_value=True
         ):
@@ -696,6 +698,7 @@ class TestAppleContainerRuntime:
         monkeypatch.setattr(cli, "IS_MACOS", False)
         monkeypatch.setattr(cli, "IS_LINUX", True)
         monkeypatch.delenv("YOLO_RUNTIME", raising=False)
+        monkeypatch.setattr(cli, "_runtime_is_connectable", lambda rt: True)
         with patch("shutil.which") as mock_which:
             mock_which.side_effect = lambda x: (
                 f"/usr/bin/{x}" if x in ("podman", "docker") else None
@@ -706,6 +709,7 @@ class TestAppleContainerRuntime:
         """_runtime_for_check() prefers container over podman/docker on macOS."""
         _set_macos(monkeypatch)
         monkeypatch.delenv("YOLO_RUNTIME", raising=False)
+        monkeypatch.setattr(cli, "_runtime_is_connectable", lambda rt: True)
         with patch("shutil.which") as mock_which, patch(
             "cli._is_apple_container", return_value=True
         ):
@@ -796,6 +800,7 @@ class TestAppleContainerRuntime:
         """_runtime_for_check() accepts 'container' runtime."""
         _set_macos(monkeypatch)
         monkeypatch.setenv("YOLO_RUNTIME", "container")
+        monkeypatch.setattr(cli, "_runtime_is_connectable", lambda rt: True)
         with patch("shutil.which") as mock_which:
             mock_which.return_value = "/usr/local/bin/container"
             rt, err = cli._runtime_for_check({"runtime": "container"})

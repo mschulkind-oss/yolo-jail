@@ -660,12 +660,35 @@ def _is_apple_container(path: str) -> bool:
         return False
 
 
+def _runtime_is_connectable(rt: str) -> bool:
+    """Check if a container runtime daemon is reachable (not just the CLI)."""
+    if rt == "container":
+        # Apple Container: check system status
+        try:
+            result = subprocess.run(
+                ["container", "system", "status"],
+                capture_output=True, text=True, timeout=5,
+            )
+            return result.returncode == 0 and "running" in result.stdout.lower()
+        except Exception:
+            return False
+    try:
+        result = subprocess.run(
+            [rt, "info"], capture_output=True, text=True, timeout=10,
+        )
+        return result.returncode == 0
+    except Exception:
+        return False
+
+
 def _runtime(config: Dict[str, Any] = None) -> str:
     """Return container runtime: 'podman', 'docker', or 'container' (Apple).
 
     Auto-detection priority:
       macOS: container → podman → docker  (native Apple Container preferred)
       Linux: podman → docker              (container CLI is macOS-only)
+
+    Only returns runtimes whose daemon is actually reachable.
     """
     env = os.environ.get("YOLO_RUNTIME")
     if env and env in ("podman", "docker", "container"):
@@ -683,6 +706,8 @@ def _runtime(config: Dict[str, Any] = None) -> str:
         path = shutil.which(rt)
         if path:
             if rt == "container" and not _is_apple_container(path):
+                continue
+            if not _runtime_is_connectable(rt):
                 continue
             return rt
     console.print(
@@ -2955,17 +2980,23 @@ def _runtime_for_check(config: Dict[str, Any]) -> tuple[Optional[str], Optional[
     Same platform-aware priority as _runtime():
       macOS: container → podman → docker
       Linux: podman → docker
+
+    Only returns runtimes whose daemon is actually reachable.
     """
     env = os.environ.get("YOLO_RUNTIME")
     if env and env in ("podman", "docker", "container"):
         if shutil.which(env):
-            return env, None
+            if _runtime_is_connectable(env):
+                return env, None
+            return None, f"Configured runtime '{env}' from YOLO_RUNTIME is not connected"
         return None, f"Configured runtime '{env}' from YOLO_RUNTIME is not on PATH"
 
     cfg = config.get("runtime")
     if cfg and cfg in ("podman", "docker", "container"):
         if shutil.which(cfg):
-            return cfg, None
+            if _runtime_is_connectable(cfg):
+                return cfg, None
+            return None, f"Configured runtime '{cfg}' from yolo-jail.jsonc is not connected"
         return None, f"Configured runtime '{cfg}' from yolo-jail.jsonc is not on PATH"
 
     if IS_MACOS:
@@ -2976,6 +3007,8 @@ def _runtime_for_check(config: Dict[str, Any]) -> tuple[Optional[str], Optional[
         path = shutil.which(rt)
         if path:
             if rt == "container" and not _is_apple_container(path):
+                continue
+            if not _runtime_is_connectable(rt):
                 continue
             return rt, None
     return None, "No container runtime found on PATH"
@@ -3729,9 +3762,22 @@ def check(
                     timeout=5,
                 )
                 version = result.stdout.strip().split("\n")[0]
-                ok(f"{rt}: {version}")
-                if detected_runtime is None:
-                    detected_runtime = rt
+                # Verify the daemon is actually reachable, not just the CLI
+                ping = subprocess.run(
+                    [rt, "info"],
+                    capture_output=True,
+                    text=True,
+                    timeout=10,
+                )
+                if ping.returncode == 0:
+                    ok(f"{rt}: {version}")
+                    if detected_runtime is None:
+                        detected_runtime = rt
+                else:
+                    warn(
+                        f"{rt}: {version} (not connected)",
+                        f"Run '{rt} info' to diagnose",
+                    )
             except Exception as e:
                 fail(f"{rt} found but not working: {e}")
     if detected_runtime is None:
