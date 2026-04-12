@@ -3807,7 +3807,11 @@ def _check_claude_token_refresher(repo_root: Optional[Path], ok, warn, fail) -> 
     service_unit = systemd_dir / "claude-token-refresher.service"
     timer_unit = systemd_dir / "claude-token-refresher.timer"
     if not service_unit.is_file() or not timer_unit.is_file():
-        fail(
+        # Not installed is a warn, not a fail: on a fresh system or CI runner
+        # the user simply hasn't run `just deploy` yet.  `yolo check` validates
+        # the jail environment; it shouldn't hard-fail on optional host-side
+        # setup the user can opt into.
+        warn(
             "Refresher systemd units not installed",
             "Run `just deploy` from the yolo-jail repo to install them",
         )
@@ -3840,11 +3844,13 @@ def _check_claude_token_refresher(repo_root: Optional[Path], ok, warn, fail) -> 
             return -1, str(e)
 
     # --- Timer enabled ---
+    # Not-enabled / not-active are warns rather than fails: user may have
+    # disabled the timer intentionally, or just needs to enable it.
     rc, out = _systemctl(["is-enabled", "claude-token-refresher.timer"])
     if rc == 0 and out == "enabled":
         ok("Refresher timer enabled")
     else:
-        fail(
+        warn(
             f"Refresher timer not enabled (state: {out or 'unknown'})",
             "systemctl --user enable --now claude-token-refresher.timer",
         )
@@ -3855,14 +3861,16 @@ def _check_claude_token_refresher(repo_root: Optional[Path], ok, warn, fail) -> 
     if rc == 0 and out == "active":
         ok("Refresher timer active")
     else:
-        fail(
+        warn(
             f"Refresher timer not active (state: {out or 'unknown'})",
             "systemctl --user start claude-token-refresher.timer",
         )
         return
 
     # --- Last service run status ---
-    # is-failed returns 0 if the unit IS failed, nonzero otherwise.
+    # is-failed IS a hard fail: the unit is installed and running, but the
+    # actual refresh attempt errored — something is genuinely broken (expired
+    # refresh token, network down, etc.) and the user needs to investigate.
     rc, out = _systemctl(["is-failed", "claude-token-refresher.service"])
     if rc == 0 and out == "failed":
         fail(
