@@ -662,7 +662,7 @@ def _runtime(config: Dict[str, Any] = None) -> str:
     """Return container runtime: 'podman', 'docker', or 'container' (Apple).
 
     Auto-detection priority:
-      macOS: podman → docker → container  (Apple Container is opt-in)
+      macOS: container → podman → docker  (native Apple Container preferred)
       Linux: podman → docker              (container CLI is macOS-only)
     """
     env = os.environ.get("YOLO_RUNTIME")
@@ -674,7 +674,7 @@ def _runtime(config: Dict[str, Any] = None) -> str:
             return cfg
     # Platform-aware auto-detection
     if IS_MACOS:
-        candidates = ("podman", "docker", "container")
+        candidates = ("container", "podman", "docker")
     else:
         candidates = ("podman", "docker")
     for rt in candidates:
@@ -2951,7 +2951,7 @@ def _runtime_for_check(config: Dict[str, Any]) -> tuple[Optional[str], Optional[
     """Resolve the effective runtime without exiting.
 
     Same platform-aware priority as _runtime():
-      macOS: podman → docker → container
+      macOS: container → podman → docker
       Linux: podman → docker
     """
     env = os.environ.get("YOLO_RUNTIME")
@@ -2967,7 +2967,7 @@ def _runtime_for_check(config: Dict[str, Any]) -> tuple[Optional[str], Optional[
         return None, f"Configured runtime '{cfg}' from yolo-jail.jsonc is not on PATH"
 
     if IS_MACOS:
-        candidates = ("podman", "docker", "container")
+        candidates = ("container", "podman", "docker")
     else:
         candidates = ("podman", "docker")
     for rt in candidates:
@@ -4630,7 +4630,7 @@ def run(
     # `docker run --name <cname>` fails with "container already exists".
     stale_cid = find_existing_container(cname, runtime=runtime)
     if stale_cid:
-        console.print(f"[dim]Removing stale container {cname}...[/dim]")
+        print(f"Removing stale container {cname}...", file=sys.stderr)
         _remove_stale_container(cname, runtime=runtime)
 
     import time as _time

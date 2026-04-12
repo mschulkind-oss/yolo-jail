@@ -667,7 +667,9 @@ class TestAppleContainerRuntime:
         """_runtime() auto-detects container CLI when no env/config set."""
         _set_macos(monkeypatch)
         monkeypatch.delenv("YOLO_RUNTIME", raising=False)
-        with patch("shutil.which") as mock_which:
+        with patch("shutil.which") as mock_which, patch(
+            "cli._is_apple_container", return_value=True
+        ):
             # Only 'container' is on PATH
             mock_which.side_effect = lambda x: (
                 "/usr/local/bin/container" if x == "container" else None
@@ -678,7 +680,9 @@ class TestAppleContainerRuntime:
         """On macOS, container is preferred over podman/docker when all are available."""
         _set_macos(monkeypatch)
         monkeypatch.delenv("YOLO_RUNTIME", raising=False)
-        with patch("shutil.which") as mock_which:
+        with patch("shutil.which") as mock_which, patch(
+            "cli._is_apple_container", return_value=True
+        ):
             # All three runtimes are on PATH
             mock_which.side_effect = lambda x: (
                 f"/usr/local/bin/{x}"
@@ -702,7 +706,9 @@ class TestAppleContainerRuntime:
         """_runtime_for_check() prefers container over podman/docker on macOS."""
         _set_macos(monkeypatch)
         monkeypatch.delenv("YOLO_RUNTIME", raising=False)
-        with patch("shutil.which") as mock_which:
+        with patch("shutil.which") as mock_which, patch(
+            "cli._is_apple_container", return_value=True
+        ):
             mock_which.side_effect = lambda x: (
                 f"/usr/local/bin/{x}"
                 if x in ("container", "podman", "docker")
