@@ -82,6 +82,14 @@ OAUTH_BETA_HEADER = "oauth-2025-04-20"
 DEFAULT_CREDS_PATH = (
     Path.home() / ".local/share/yolo-jail/home/.claude/.credentials.json"
 )
+# Host-side Claude Code's own credentials file. If this exists AND currently
+# holds the same refresh token as DEFAULT_CREDS_PATH (meaning host and jail
+# share one identity — the default after `_sync_host_claude_files` seeds the
+# jail from the host on first boot), the refresher keeps both files in
+# lockstep so host Claude Code doesn't get logged out every time the jail
+# refreshes.  If the refresh tokens differ, host and jail have independent
+# identities and the host file is left strictly alone.
+DEFAULT_HOST_CREDS_PATH = Path.home() / ".claude" / ".credentials.json"
 DEFAULT_LOCK_PATH = Path.home() / ".local/share/yolo-jail/oauth-broker/refresh.lock"
 
 # Refresh when the access token has less than this much time left.
@@ -301,12 +309,37 @@ def write_credentials_in_place(path: Path, creds: Credentials) -> None:
         os.close(fd)
 
 
+def _load_host_if_same_identity(
+    host_path: Path, primary_refresh_token: str
+) -> "Credentials | None":
+    """Return the host Credentials iff the host file exists and shares the
+    same refresh token as the primary file.
+
+    If the host and primary have different refresh tokens, the user has
+    independent host/jail identities and the refresher must not touch the
+    host file — return None.  Also return None if the host file doesn't
+    exist, is empty, or can't be parsed (all treated as "not in sync").
+    """
+    if not host_path.exists():
+        return None
+    try:
+        if host_path.stat().st_size == 0:
+            return None
+        host = Credentials.load(host_path)
+    except (ValueError, json.JSONDecodeError, OSError):
+        return None
+    if host.refresh_token != primary_refresh_token:
+        return None
+    return host
+
+
 def refresh_once(
     creds_path: Path,
     lock_path: Path,
     threshold_secs: float,
     force: bool,
     dry_run: bool,
+    host_creds_path: Path | None = None,
 ) -> int:
     # --- Load current state ---
     if not creds_path.exists():
@@ -342,6 +375,21 @@ def refresh_once(
     if dry_run:
         log.info("[dry-run] would POST to %s", TOKEN_URL)
         log.info("[dry-run] would write new credentials to %s", creds_path)
+        if host_creds_path is not None:
+            host_match = _load_host_if_same_identity(
+                host_creds_path, creds.refresh_token
+            )
+            if host_match is not None:
+                log.info(
+                    "[dry-run] would also write new credentials to %s "
+                    "(host file shares identity with primary)",
+                    host_creds_path,
+                )
+            elif host_creds_path.exists():
+                log.info(
+                    "[dry-run] would not touch %s (host identity differs from primary)",
+                    host_creds_path,
+                )
         return 0
 
     # --- Lock ---
@@ -358,6 +406,27 @@ def refresh_once(
         if not force and not creds.needs_refresh(threshold_secs):
             log.info("refresh no longer needed after re-read under lock")
             return 0
+
+        # Decide whether to mirror the new tokens to the host file.  We
+        # resolve this BEFORE the refresh so we compare against the refresh
+        # token that the refresh call will invalidate — i.e. if the host
+        # file currently shares that token, its current token is about to
+        # become server-invalidated and must be replaced.
+        host_match: "Credentials | None" = None
+        if host_creds_path is not None:
+            host_match = _load_host_if_same_identity(
+                host_creds_path, creds.refresh_token
+            )
+            if host_match is not None:
+                log.info(
+                    "host file %s shares identity with primary; will mirror refresh",
+                    host_creds_path,
+                )
+            elif host_creds_path.exists():
+                log.debug(
+                    "host file %s has a different refresh token; leaving untouched",
+                    host_creds_path,
+                )
 
         # --- Refresh ---
         try:
@@ -394,9 +463,29 @@ def refresh_once(
             fmt_expiry(new_creds),
         )
 
-        # --- Write ---
+        # --- Write primary ---
         write_credentials_in_place(creds_path, new_creds)
         log.info("wrote new credentials to %s", creds_path)
+
+        # --- Mirror to host file if it shares identity ---
+        if host_match is not None and host_creds_path is not None:
+            # Use the host file's own raw structure as the round-trip base —
+            # preserves any host-only fields we don't know about.
+            host_new = host_match.with_new_tokens(
+                access, refresh, expires_at_ms, scopes
+            )
+            try:
+                write_credentials_in_place(host_creds_path, host_new)
+                log.info("mirrored new credentials to %s", host_creds_path)
+            except OSError as e:
+                # Mirroring is best-effort: the primary write succeeded and
+                # that's the critical one.  A failure here just means host
+                # Claude Code may still be running an in-sync copy that's
+                # about to rot.  Warn loudly but don't fail the job.
+                log.warning(
+                    "could not mirror credentials to %s: %s", host_creds_path, e
+                )
+
         return 0
     finally:
         try:
@@ -414,6 +503,19 @@ def main() -> int:
         type=Path,
         default=DEFAULT_CREDS_PATH,
         help=f"path to .credentials.json (default: {DEFAULT_CREDS_PATH})",
+    )
+    parser.add_argument(
+        "--host-creds-file",
+        type=Path,
+        default=DEFAULT_HOST_CREDS_PATH,
+        help=(
+            "path to host Claude Code's own credentials file. When set "
+            "(default: ~/.claude/.credentials.json), the refresher mirrors "
+            "each successful refresh into this file IFF it currently shares "
+            "the same refresh token as --creds-file — keeps host Claude Code "
+            "logged in when host and jail share one identity. Set to "
+            "/dev/null to disable mirroring entirely."
+        ),
     )
     parser.add_argument(
         "--lock-file",
@@ -451,12 +553,19 @@ def main() -> int:
         datefmt="%Y-%m-%dT%H:%M:%S",
     )
 
+    # Allow /dev/null or an explicit "" to disable host mirroring.
+    host_creds_arg = args.host_creds_file.expanduser()
+    host_creds_path: Path | None = (
+        None if str(host_creds_arg) in ("/dev/null", "") else host_creds_arg
+    )
+
     return refresh_once(
         creds_path=args.creds_file.expanduser(),
         lock_path=args.lock_file.expanduser(),
         threshold_secs=args.threshold_minutes * 60,
         force=args.force,
         dry_run=args.dry_run,
+        host_creds_path=host_creds_path,
     )
 
 

@@ -131,8 +131,21 @@ And update `TOKEN_URL` at the top of the script.
 
 **Jails still getting logged out after deploying this** — the refresher is keeping the file fresh, but Claude Code inside jails may not be reloading it on its mtime check path (the `ak4()` assumption in `HANDOFF-credentials-logout.md`). In that case, the next step is the MITM proxy — see `docs/claude-oauth-mitm-proxy-plan.md`.
 
+### Host Claude Code interaction
+
+Host Claude Code (running directly on your Mac/Linux host, not inside a jail) uses `~/.claude/.credentials.json`. On first jail boot the jail seeds its own credentials file from this host file, so both files initially share the same refresh token. Left unhandled, the refresher would then refresh the jail-shared file and invalidate the shared refresh token, locking the host out.
+
+**The refresher automatically mirrors the refresh to `~/.claude/.credentials.json` when — and only when — that file has the same refresh token as the jail-shared file.** If the two files have different refresh tokens (you have separate host/jail logins on purpose), the host file is left strictly alone.
+
+Control:
+
+- Default host-file path: `~/.claude/.credentials.json`. Override with `--host-creds-file PATH`.
+- Disable mirroring: `--host-creds-file /dev/null`.
+
+Any already-running host `claude` process caches the old tokens in memory. After the refresher mirrors the file, restart the host Claude process (or let it hit a 401 and re-read the file) to pick up the new tokens.
+
 ### What this doesn't fix
 
 - **Initial `/login`** — you still need to authenticate once. The refresher only extends the session, it doesn't create it.
-- **Races with *host-side* Claude Code** — if you run Claude Code on the host (not in a jail) against the same shared credentials file, and it tries to refresh at the same time as the host timer, there's still a small race. The `flock` serializes concurrent refreshers but not a concurrent Claude Code process. Mitigate by pointing host-side Claude Code at `~/.claude/` instead of the shared file.
+- **Concurrent host Claude Code refresh** — if host Claude Code tries to refresh at the same tick as the refresher, one will invalidate the other's refresh token. The in-process `flock` serializes concurrent refreshers but not a concurrent Claude Code process. In practice this is rare because host Claude only refreshes on token expiry and the refresher's aggressive cadence keeps both files ahead of that window.
 - **Long-term refresh token expiry** — Anthropic may eventually invalidate refresh tokens after some absolute lifetime (~1 year is common). When that happens, you'll need to `/login` again. The refresher can't rescue you from that.
