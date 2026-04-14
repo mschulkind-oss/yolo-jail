@@ -13,10 +13,16 @@ ExecStart=%h/code/yolo-jail/scripts/claude-token-refresher.py
 # Don't retry on failure — the timer will fire again soon enough.  A
 # transient network error shouldn't tie up systemd.
 Restart=no
-# Defensive sandboxing.  We only need network + HOME for reading the
-# credentials file and writing back to it.
+# Defensive sandboxing.  Most of /home is read-only; only the directories
+# the refresher actually writes are carved out:
+#   - ~/.claude                  (the host credentials file)
+#   - ~/.local/share/yolo-jail   (mirrored creds + the refresh.lock flock)
+# ProtectHome=read-write is NOT a valid systemd value — systemd silently
+# ignored the directive and left HOME fully writable.  This replaces it
+# with the real thing.
 ProtectSystem=strict
-ProtectHome=read-write
+ProtectHome=read-only
+ReadWritePaths=%h/.claude %h/.local/share/yolo-jail
 PrivateTmp=yes
 NoNewPrivileges=yes
 # Timeout: generous, in case the auth endpoint is slow.
