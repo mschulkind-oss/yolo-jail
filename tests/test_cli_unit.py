@@ -2217,6 +2217,20 @@ class TestJournalDaemon:
         fake.chmod(0o755)
         return bin_dir
 
+    def _short_sockets_dir(self):
+        """Create a per-test sockets dir under /tmp, short enough for AF_UNIX.
+
+        Must not use `tmp_path`: on macOS CI runners tmp_path expands to
+        /private/var/folders/tb/<long>/pytest-of-runner/pytest-0/<test-name>,
+        which blows the 104-byte AF_UNIX limit once we append
+        `host-services/journal.sock`.  /tmp (resolved to /private/tmp on
+        macOS) keeps the whole path comfortably under the limit.
+        """
+        import tempfile
+
+        base = "/private/tmp" if sys.platform == "darwin" else "/tmp"
+        return Path(tempfile.mkdtemp(dir=base, prefix="yj-jtest-"))
+
     def _journal_client(self, sock_path, args):
         """Tiny in-process client mirroring ~/.local/bin/yolo-journalctl."""
         import socket as _socket
@@ -2265,13 +2279,14 @@ class TestJournalDaemon:
 
     def test_daemon_end_to_end_user_mode_forces_user_flag(self, tmp_path):
         """Full wire-protocol roundtrip: client → daemon → fake journalctl → client."""
-        sockets_dir = tmp_path / "host-services"
+        sockets_dir = self._short_sockets_dir()
         bin_dir = self._with_fake_journalctl(
             tmp_path, stdout_text="hello out", stderr_text="", rc=0
         )
         # Prepend fake bin to PATH so the daemon finds our script.
         old_path = os.environ.get("PATH", "")
         os.environ["PATH"] = f"{bin_dir}:{old_path}"
+        handle = None
         try:
             handle = _start_host_service_builtin_journal(
                 "test-journal-cname", sockets_dir, "user"
@@ -2290,10 +2305,11 @@ class TestJournalDaemon:
             os.environ["PATH"] = old_path
 
     def test_daemon_end_to_end_full_mode_does_not_inject_user(self, tmp_path):
-        sockets_dir = tmp_path / "host-services"
+        sockets_dir = self._short_sockets_dir()
         bin_dir = self._with_fake_journalctl(tmp_path, rc=0)
         old_path = os.environ.get("PATH", "")
         os.environ["PATH"] = f"{bin_dir}:{old_path}"
+        handle = None
         try:
             handle = _start_host_service_builtin_journal(
                 "test-journal-full", sockets_dir, "full"
@@ -2310,10 +2326,11 @@ class TestJournalDaemon:
             os.environ["PATH"] = old_path
 
     def test_daemon_propagates_exit_code(self, tmp_path):
-        sockets_dir = tmp_path / "host-services"
+        sockets_dir = self._short_sockets_dir()
         bin_dir = self._with_fake_journalctl(tmp_path, rc=7)
         old_path = os.environ.get("PATH", "")
         os.environ["PATH"] = f"{bin_dir}:{old_path}"
+        handle = None
         try:
             handle = _start_host_service_builtin_journal(
                 "test-journal-rc", sockets_dir, "user"
@@ -2327,10 +2344,11 @@ class TestJournalDaemon:
 
     def test_daemon_rejects_malformed_request(self, tmp_path):
         """A non-JSON or non-list `args` field returns exit=2 with an error."""
-        sockets_dir = tmp_path / "host-services"
+        sockets_dir = self._short_sockets_dir()
         bin_dir = self._with_fake_journalctl(tmp_path, rc=0)
         old_path = os.environ.get("PATH", "")
         os.environ["PATH"] = f"{bin_dir}:{old_path}"
+        handle = None
         try:
             handle = _start_host_service_builtin_journal(
                 "test-journal-bad", sockets_dir, "user"
