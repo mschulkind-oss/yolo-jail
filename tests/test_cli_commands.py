@@ -2086,6 +2086,155 @@ class TestRunDevicePassthrough:
             assert "--device-cgroup-rule" in docker_cmd
 
 
+class TestRunKvm:
+    """KVM passthrough flag wiring (opt-in via `kvm: true`)."""
+
+    @patch("subprocess.Popen")
+    @patch("cli.auto_load_image")
+    @patch("cli._check_config_changes", return_value=True)
+    @patch("cli.find_running_container", return_value=None)
+    @patch("subprocess.run")
+    @patch("subprocess.check_output")
+    @patch("shutil.which")
+    def test_kvm_disabled_adds_nothing(
+        self,
+        mock_which,
+        mock_check_output,
+        mock_run,
+        mock_find,
+        mock_config_changes,
+        mock_auto_load,
+        mock_popen,
+        tmp_path,
+        monkeypatch,
+    ):
+        _run_monkeypatch(monkeypatch, tmp_path)
+        _mock_runtimes(mock_which)
+        (tmp_path / "yolo-jail.jsonc").write_text("{}")
+        mock_check_output.side_effect = FileNotFoundError
+
+        mock_proc = MagicMock()
+        mock_proc.wait.return_value = None
+        mock_proc.returncode = 0
+        mock_popen.return_value = mock_proc
+
+        runner = CliRunner()
+        runner.invoke(app, ["run", "--", "bash"])
+
+        if mock_popen.called:
+            docker_cmd = mock_popen.call_args[0][0]
+            # No /dev/kvm device, no group-add.
+            assert "/dev/kvm" not in docker_cmd
+            assert "keep-groups" not in docker_cmd
+
+    @patch("subprocess.Popen")
+    @patch("cli.auto_load_image")
+    @patch("cli._check_config_changes", return_value=True)
+    @patch("cli.find_running_container", return_value=None)
+    @patch("subprocess.run")
+    @patch("subprocess.check_output")
+    @patch("shutil.which")
+    def test_kvm_enabled_podman_adds_device_and_keep_groups(
+        self,
+        mock_which,
+        mock_check_output,
+        mock_run,
+        mock_find,
+        mock_config_changes,
+        mock_auto_load,
+        mock_popen,
+        tmp_path,
+        monkeypatch,
+    ):
+        _run_monkeypatch(monkeypatch, tmp_path)
+        _mock_runtimes(mock_which)
+        (tmp_path / "yolo-jail.jsonc").write_text('{"kvm": true}')
+        mock_check_output.side_effect = FileNotFoundError
+
+        mock_proc = MagicMock()
+        mock_proc.wait.return_value = None
+        mock_proc.returncode = 0
+        mock_popen.return_value = mock_proc
+
+        # Surgically pretend /dev/kvm exists without affecting other Path.exists
+        # calls in the run path (which there are many of).
+        import cli as _cli
+
+        original_exists = _cli.Path.exists
+
+        def fake_exists(self):
+            if str(self) == "/dev/kvm":
+                return True
+            return original_exists(self)
+
+        with patch.object(_cli.Path, "exists", fake_exists):
+            runner = CliRunner()
+            runner.invoke(app, ["run", "--", "bash"])
+
+        assert mock_popen.called
+        docker_cmd = mock_popen.call_args[0][0]
+        # --device /dev/kvm appears as two consecutive elements.
+        assert "/dev/kvm" in docker_cmd
+        idx = docker_cmd.index("/dev/kvm")
+        assert docker_cmd[idx - 1] == "--device"
+        # Podman path: group-add keep-groups.
+        assert "keep-groups" in docker_cmd
+        ga_idx = docker_cmd.index("keep-groups")
+        assert docker_cmd[ga_idx - 1] == "--group-add"
+
+    @patch("subprocess.Popen")
+    @patch("cli.auto_load_image")
+    @patch("cli._check_config_changes", return_value=True)
+    @patch("cli.find_running_container", return_value=None)
+    @patch("subprocess.run")
+    @patch("subprocess.check_output")
+    @patch("shutil.which")
+    def test_kvm_enabled_but_device_missing_warns_and_skips(
+        self,
+        mock_which,
+        mock_check_output,
+        mock_run,
+        mock_find,
+        mock_config_changes,
+        mock_auto_load,
+        mock_popen,
+        tmp_path,
+        monkeypatch,
+    ):
+        _run_monkeypatch(monkeypatch, tmp_path)
+        _mock_runtimes(mock_which)
+        (tmp_path / "yolo-jail.jsonc").write_text('{"kvm": true}')
+        mock_check_output.side_effect = FileNotFoundError
+
+        mock_proc = MagicMock()
+        mock_proc.wait.return_value = None
+        mock_proc.returncode = 0
+        mock_popen.return_value = mock_proc
+
+        # Pretend /dev/kvm is absent even if it's actually present on the
+        # test runner (covers both host situations deterministically).
+        import cli as _cli
+
+        original_exists = _cli.Path.exists
+
+        def fake_exists(self):
+            if str(self) == "/dev/kvm":
+                return False
+            return original_exists(self)
+
+        with patch.object(_cli.Path, "exists", fake_exists):
+            runner = CliRunner()
+            result = runner.invoke(app, ["run", "--", "bash"])
+
+        # Container still launches; just no kvm flags.
+        assert mock_popen.called
+        docker_cmd = mock_popen.call_args[0][0]
+        assert "/dev/kvm" not in docker_cmd
+        assert "keep-groups" not in docker_cmd
+        # A warn is printed on the way through.
+        assert "kvm" in result.output.lower()
+
+
 class TestRunProfile:
     """Test run() with --profile flag."""
 

@@ -3110,6 +3110,7 @@ KNOWN_TOP_LEVEL_CONFIG_KEYS = {
     "host_services",
     "journal",
     "claude_token_refresher",
+    "kvm",
 }
 JOURNAL_MODES = ("off", "user", "full")
 KNOWN_NETWORK_KEYS = {"mode", "ports", "forward_host_ports"}
@@ -3375,6 +3376,10 @@ def _validate_config(
         errors.append(
             f"config.claude_token_refresher: expected a boolean (got {refresher!r})"
         )
+
+    kvm = config.get("kvm")
+    if kvm is not None and not isinstance(kvm, bool):
+        errors.append(f"config.kvm: expected a boolean (got {kvm!r})")
 
     network = config.get("network")
     if network is not None:
@@ -4080,7 +4085,11 @@ def init_user_config():
   // Disable the host-side Claude OAuth token refresher.  Set to false if
   // you don't use Claude Code on the host or don't want `yolo check` /
   // `just deploy` to touch the systemd --user timer.
-  // "claude_token_refresher": false
+  // "claude_token_refresher": false,
+
+  // Expose /dev/kvm inside the jail for nested hardware-accelerated VMs.
+  // Requires your host user to be in the kvm group.  Linux only.
+  // "kvm": true
 }
 """
     with open(USER_CONFIG_PATH, "w") as f:
@@ -4305,6 +4314,28 @@ def config_ref():
          Podman: sudo nvidia-ctk cdi generate --output=/etc/cdi/nvidia.yaml
     Run [bold]yolo check[/bold] to verify GPU readiness.
     Subject to config change safety (human approval required).
+
+  [bold]kvm[/bold] (boolean, default false): Expose /dev/kvm inside the jail.
+    When true, yolo adds [cyan]--device /dev/kvm[/cyan] to the container run
+    command plus the appropriate [cyan]--group-add[/cyan] flag so the in-jail
+    user inherits the host's kvm-group membership:
+      • Podman: [cyan]--group-add keep-groups[/cyan]
+      • Docker: [cyan]--group-add <kvm-gid>[/cyan]
+    Enables nested hardware-accelerated VMs inside the jail (QEMU,
+    firecracker, Android emulator, kernel dev workflows).  Runs full-speed
+    virtualization via KVM instead of falling back to software emulation.
+    Host prerequisites (verified by [bold]yolo check[/bold] when enabled):
+      1. CPU virtualization extensions enabled in firmware (VT-x / AMD-V)
+      2. kvm kernel module loaded ([cyan]modprobe kvm_intel[/cyan] or [cyan]kvm_amd[/cyan])
+      3. Your host user is a member of the kvm group
+    Not supported on macOS (Apple hosts use the VZ framework) or on the
+    Apple Container runtime (no device passthrough).  Skipped with a warn
+    when /dev/kvm is absent on a Linux host.
+    [yellow]Security note:[/yellow] /dev/kvm is a kernel hypervisor interface.
+    The attack surface is narrow — historical CVEs have mostly been
+    guest-to-host escape bugs requiring attacker code in a KVM guest —
+    but it is strictly larger than no-kvm.  Leave this off unless you
+    actually need nested virtualization.
 
   [bold]resources[/bold] (object): Container resource limits.
     Sets hard cgroup constraints on the jail container via Docker/Podman flags.
@@ -5210,6 +5241,81 @@ def check(
                 except Exception:
                     warn("Could not verify Docker NVIDIA runtime configuration")
             console.print()
+
+    # --- KVM Checks ---
+    #
+    # Only runs when the user has opted in via `kvm: true`.  Never runs
+    # inside a jail (the host's /dev/kvm state isn't meaningfully visible
+    # from inside a container that wasn't started with passthrough).
+
+    if config.get("kvm") is True:
+        console.print("[bold]KVM Virtualization[/bold]")
+        if os.environ.get("YOLO_VERSION") is not None:
+            ok("Inside jail — kvm checks skipped (managed by host)")
+        elif IS_MACOS:
+            warn(
+                "kvm passthrough is not supported on macOS",
+                "Apple hosts use the VZ framework; drop the `kvm` key on mac",
+            )
+        else:
+            kvm_path = Path("/dev/kvm")
+            if not kvm_path.exists():
+                fail(
+                    "/dev/kvm not present",
+                    "Enable virtualization in firmware and `modprobe kvm_intel` "
+                    "or `modprobe kvm_amd`",
+                )
+            else:
+                ok(f"Device node: {kvm_path}")
+                # Can the current user open /dev/kvm for read+write?
+                # This is the actual gate — not the file mode.
+                if os.access(kvm_path, os.R_OK | os.W_OK):
+                    ok("/dev/kvm is readable and writable by the current user")
+                else:
+                    try:
+                        st = kvm_path.stat()
+                        kvm_gid = st.st_gid
+                        import grp
+
+                        try:
+                            kvm_group_name = grp.getgrgid(kvm_gid).gr_name
+                        except KeyError:
+                            kvm_group_name = str(kvm_gid)
+                        user_groups = set(os.getgroups())
+                        if kvm_gid in user_groups:
+                            # Group membership is correct, but access still
+                            # fails — almost always means the login session
+                            # hasn't picked up the new group yet.
+                            warn(
+                                f"User is in group '{kvm_group_name}' but "
+                                "/dev/kvm is not accessible from this process",
+                                "Log out and back in (or `newgrp kvm`) so the "
+                                "new group takes effect",
+                            )
+                        else:
+                            fail(
+                                f"/dev/kvm not accessible; user missing group '{kvm_group_name}'",
+                                f"sudo usermod -aG {kvm_group_name} $USER && "
+                                "log out / log back in",
+                            )
+                    except OSError as e:
+                        fail(f"Could not stat /dev/kvm: {e}")
+
+                # Podman rootless needs --group-add keep-groups to honor
+                # supplementary groups inside the user namespace.  We add
+                # this flag automatically in run(); here we just confirm
+                # the runtime is one that supports it.
+                effective_runtime_kvm, _ = _runtime_for_check(config)
+                if effective_runtime_kvm == "podman":
+                    ok("Podman will preserve kvm group via --group-add keep-groups")
+                elif effective_runtime_kvm == "docker":
+                    ok("Docker will use --group-add with /dev/kvm's gid")
+                elif effective_runtime_kvm == "container":
+                    warn(
+                        "Apple Container does not support device passthrough",
+                        "kvm: true will be ignored on the 'container' runtime",
+                    )
+        console.print()
 
     # --- Image & Containers ---
 
@@ -6453,6 +6559,41 @@ def run(
             console.print(
                 f"[dim]GPU passthrough: devices={gpu_devices}, capabilities={gpu_capabilities}[/dim]"
             )
+
+    # KVM passthrough from config.  Opt-in via top-level `kvm: true`.
+    # Not available on macOS (no /dev/kvm) or Apple Container (uses VZ
+    # framework, no device passthrough).  When /dev/kvm is missing on a
+    # Linux host we warn and skip — either virtualization extensions are
+    # disabled in firmware, or the kvm module isn't loaded.
+    if config.get("kvm") is True:
+        if IS_MACOS or runtime == "container":
+            console.print(
+                "[yellow]Warning: kvm passthrough is not supported on this runtime — skipping[/yellow]"
+            )
+        elif not Path("/dev/kvm").exists():
+            console.print(
+                "[yellow]Warning: /dev/kvm not present on host — skipping kvm passthrough[/yellow]"
+            )
+        else:
+            docker_cmd.extend(["--device", "/dev/kvm"])
+            # Rootless podman drops supplementary groups by default, so even
+            # after --device the in-container process can't open /dev/kvm
+            # unless we explicitly preserve the invoking user's kvm group.
+            # `keep-groups` is a podman-specific convenience flag.
+            if runtime == "podman":
+                docker_cmd.extend(["--group-add", "keep-groups"])
+            elif runtime == "docker":
+                # Docker doesn't have keep-groups — pass the raw gid of
+                # /dev/kvm so the container process gets that supplementary
+                # group directly.  If stat fails for any reason, fall back
+                # to just --device and let the user hit the permission
+                # error (doctor will have flagged it anyway).
+                try:
+                    kvm_gid = os.stat("/dev/kvm").st_gid
+                    docker_cmd.extend(["--group-add", str(kvm_gid)])
+                except OSError:
+                    pass
+            console.print("[dim]KVM passthrough: /dev/kvm[/dim]")
 
     # Resource limits from config.
     # Apple Container needs explicit defaults (its built-in defaults are 4 CPU / 1GB RAM).

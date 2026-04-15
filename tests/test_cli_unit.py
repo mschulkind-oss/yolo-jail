@@ -1056,6 +1056,26 @@ class TestValidateConfig:
         )
         assert errors == []
 
+    def test_kvm_true_valid(self, tmp_path):
+        errors, _ = _validate_config({"kvm": True}, workspace=tmp_path)
+        assert errors == []
+
+    def test_kvm_false_valid(self, tmp_path):
+        errors, _ = _validate_config({"kvm": False}, workspace=tmp_path)
+        assert errors == []
+
+    def test_kvm_missing_valid(self, tmp_path):
+        errors, _ = _validate_config({}, workspace=tmp_path)
+        assert errors == []
+
+    def test_kvm_non_boolean_rejected(self, tmp_path):
+        errors, _ = _validate_config({"kvm": "yes"}, workspace=tmp_path)
+        assert any("config.kvm" in e and "boolean" in e for e in errors)
+
+    def test_kvm_integer_rejected(self, tmp_path):
+        errors, _ = _validate_config({"kvm": 1}, workspace=tmp_path)
+        assert any("config.kvm" in e and "boolean" in e for e in errors)
+
 
 class TestPresetNullConflicts:
     def test_no_conflict(self):

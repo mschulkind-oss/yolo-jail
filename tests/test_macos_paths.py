@@ -439,6 +439,63 @@ class TestMacosGpuSkip:
 
 
 # ---------------------------------------------------------------------------
+# run() — KVM passthrough skipped on macOS
+# ---------------------------------------------------------------------------
+
+
+class TestMacosKvmSkip:
+    """`kvm: true` is a no-op on macOS (Apple uses the VZ framework)."""
+
+    @patch("subprocess.Popen")
+    @patch("cli.auto_load_image")
+    @patch("cli._check_config_changes", return_value=True)
+    @patch("cli.find_running_container", return_value=None)
+    @patch("subprocess.run")
+    @patch("subprocess.check_output")
+    @patch("shutil.which")
+    def test_kvm_skipped_on_macos(
+        self,
+        mock_which,
+        mock_check_output,
+        mock_run,
+        mock_find,
+        mock_config_changes,
+        mock_auto_load,
+        mock_popen,
+        tmp_path,
+        monkeypatch,
+    ):
+        _set_macos(monkeypatch)
+        _run_monkeypatch(monkeypatch, tmp_path)
+        _mock_runtimes(mock_which, runtimes=("container", "nix"))
+        monkeypatch.setenv("YOLO_RUNTIME", "container")
+        monkeypatch.setattr(cli, "_runtime_is_connectable", lambda rt: True)
+        monkeypatch.setattr(cli, "_is_apple_container", lambda p: True)
+        (tmp_path / "yolo-jail.jsonc").write_text('{"kvm": true}')
+        mock_check_output.side_effect = FileNotFoundError
+
+        mock_proc = MagicMock()
+        mock_proc.wait.return_value = None
+        mock_proc.returncode = 0
+        mock_popen.return_value = mock_proc
+
+        runner = CliRunner()
+        result = runner.invoke(app, ["run", "--", "bash"])
+
+        # Container still launches; /dev/kvm and keep-groups must not appear.
+        assert mock_popen.called, f"popen should be called; output was: {result.output}"
+        docker_cmd = mock_popen.call_args[0][0]
+        assert "/dev/kvm" not in docker_cmd, (
+            f"macOS should skip /dev/kvm, got: {docker_cmd}"
+        )
+        assert "keep-groups" not in docker_cmd, (
+            f"macOS should skip keep-groups, got: {docker_cmd}"
+        )
+        # And a warning is printed.
+        assert "kvm" in result.output.lower()
+
+
+# ---------------------------------------------------------------------------
 # run() — YOLO_RUNTIME inside container is always podman
 # ---------------------------------------------------------------------------
 
