@@ -335,6 +335,47 @@ def _resolve_repo_root() -> Path:
     raise typer.Exit(1)
 
 
+def _resolve_source_checkout() -> Optional[Path]:
+    """Locate the user's source checkout of yolo-jail, if any.
+
+    Unlike `_resolve_repo_root`, this does NOT stage a synthetic build
+    directory from packaged flake data — it only returns a path if there
+    is a real, full checkout that contains non-packaged files like
+    ``scripts/``.  Checks that read repo-only assets (the refresher
+    script, the Justfile, etc.) should use this function; checks that
+    just need a flake for nix builds should use `_resolve_repo_root`.
+
+    Resolution order:
+      1. YOLO_REPO_ROOT env var (jails, CI)
+      2. Source checkout detection (running from source)
+      3. repo_path field in ~/.config/yolo-jail/config.jsonc
+    Returns None when no real checkout is found — callers decide how
+    loudly to complain.
+    """
+    env_val = os.environ.get("YOLO_REPO_ROOT")
+    if env_val:
+        p = Path(env_val).expanduser()
+        if (p / "flake.nix").exists() and (p / "scripts").is_dir():
+            return p.resolve()
+
+    source_root = Path(__file__).parent.parent
+    if (source_root / "flake.nix").exists() and (source_root / "scripts").is_dir():
+        return source_root.resolve()
+
+    if USER_CONFIG_PATH.exists():
+        try:
+            cfg = pyjson5.loads(USER_CONFIG_PATH.read_text())
+            repo_path = cfg.get("repo_path")
+            if repo_path:
+                p = Path(repo_path).expanduser().resolve()
+                if (p / "flake.nix").exists() and (p / "scripts").is_dir():
+                    return p
+        except Exception:
+            pass
+
+    return None
+
+
 def ensure_global_storage():
     GLOBAL_HOME.mkdir(parents=True, exist_ok=True)
     GLOBAL_MISE.mkdir(parents=True, exist_ok=True)
@@ -4546,7 +4587,6 @@ def config_ref():
 
 
 def _check_claude_token_refresher(
-    repo_root: Optional[Path],
     ok,
     warn,
     fail,
@@ -4579,17 +4619,28 @@ def _check_claude_token_refresher(
         return
 
     # --- Script presence ---
-    if repo_root is None:
-        warn("Skipping refresher checks", "repo root not resolved")
-        return
-    script = repo_root / "scripts" / "claude-token-refresher.py"
-    if not script.is_file():
-        fail(f"Refresher script missing: {script}")
-        return
-    if not os.access(script, os.X_OK):
-        fail(f"Refresher script not executable: {script}", f"chmod +x {script}")
+    # Use _resolve_source_checkout, NOT the repo_root passed in by the
+    # caller.  repo_root may point at ~/.local/share/yolo-jail/nix-build-root
+    # for pip-installed yolo — that's a synthetic flake staging dir without
+    # scripts/.  _resolve_source_checkout returns None in that case and we
+    # warn with a concrete fix (set repo_path in user config).
+    source_checkout = _resolve_source_checkout()
+    if source_checkout is None:
+        warn(
+            "Skipping refresher script check — no source checkout found",
+            "Set `repo_path` in ~/.config/yolo-jail/config.jsonc to point at "
+            "your yolo-jail clone (e.g. ~/code/yolo-jail), or set "
+            "claude_token_refresher: false if you don't use it",
+        )
     else:
-        ok(f"Refresher script: {script}")
+        script = source_checkout / "scripts" / "claude-token-refresher.py"
+        if not script.is_file():
+            fail(f"Refresher script missing: {script}")
+            return
+        if not os.access(script, os.X_OK):
+            fail(f"Refresher script not executable: {script}", f"chmod +x {script}")
+        else:
+            ok(f"Refresher script: {script}")
 
     # --- Credentials file ---
     creds_path = GLOBAL_HOME / ".claude" / ".credentials.json"
@@ -4612,9 +4663,15 @@ def _check_claude_token_refresher(
                 headroom_secs = expires_at_ms / 1000 - time.time()
                 sub = oauth.get("subscriptionType", "?")
                 if headroom_secs <= 0:
+                    force_hint = (
+                        f"Run `claude` /login or force: "
+                        f"{source_checkout / 'scripts' / 'claude-token-refresher.py'} --force"
+                        if source_checkout is not None
+                        else "Run `claude` /login, or force a refresh via the installed script"
+                    )
                     fail(
                         f"Access token expired {-headroom_secs / 60:.0f}m ago (sub={sub})",
-                        f"Run `claude` /login or force: {script} --force",
+                        force_hint,
                     )
                 elif headroom_secs < 300:
                     warn(
@@ -4653,16 +4710,19 @@ def _check_claude_token_refresher(
 
     # Check that the service unit's ExecStart actually points at our script.
     # A stale unit file from a previous checkout at a different path is an
-    # easy-to-miss bug; better to flag it here.
-    try:
-        unit_text = service_unit.read_text()
-        if str(script) not in unit_text:
-            warn(
-                "Service unit ExecStart does not reference current script path",
-                f"Re-run `just deploy` from {repo_root} to refresh the unit",
-            )
-    except OSError:
-        pass
+    # easy-to-miss bug; better to flag it here.  Only runs when we found a
+    # real source checkout to compare against.
+    if source_checkout is not None:
+        script = source_checkout / "scripts" / "claude-token-refresher.py"
+        try:
+            unit_text = service_unit.read_text()
+            if str(script) not in unit_text:
+                warn(
+                    "Service unit ExecStart does not reference current script path",
+                    f"Re-run `just deploy` from {source_checkout} to refresh the unit",
+                )
+        except OSError:
+            pass
 
     def _systemctl(args: List[str]) -> "tuple[int, str]":
         try:
@@ -5474,7 +5534,7 @@ def check(
     # --- Claude Token Refresher ---
 
     console.print("[bold]Claude Token Refresher[/bold]")
-    _check_claude_token_refresher(repo_root, ok, warn, fail, config=config)
+    _check_claude_token_refresher(ok, warn, fail, config=config)
     console.print()
 
     # --- Host Services ---
