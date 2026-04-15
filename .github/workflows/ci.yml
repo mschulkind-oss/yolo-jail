@@ -72,16 +72,36 @@ jobs:
         with:
           fetch-depth: 0
 
+      # GitHub-hosted runners start with ~14 GB free on /.  A full nix build
+      # of yolo-jail (chromium + gcc + podman + nix) needed ~8 GB of store
+      # plus the 4.3 GB streamed image tar on top of that, and ran OOD on
+      # the last run.  Strip the ~25 GB of preinstalled toolchains we never
+      # touch and prune the runner's own Docker image cache before building.
+      - name: Free disk space
+        run: |
+          df -h /
+          sudo rm -rf /usr/share/dotnet /usr/local/lib/android /opt/ghc \
+                      /opt/hostedtoolcache/CodeQL /usr/local/share/boost \
+                      "$AGENT_TOOLSDIRECTORY" || true
+          sudo docker image prune --all --force || true
+          sudo apt-get clean
+          df -h /
+
       - name: Install Nix
         uses: cachix/install-nix-action@v30
         with:
           extra_nix_config: |
             experimental-features = nix-command flakes
 
-      - name: Build jail image
+      - name: Build minimal jail image
+        # The minimal variant drops chromium, the gcc toolchain, nested-podman,
+        # and assorted dev/debug tools — roughly 1.6–2 GB off the streamed tar.
+        # It still contains everything tests/test_jail.py exercises.  The full
+        # image builds locally via `just build-image` and runs in production.
         run: |
-          nix build --impure .#dockerImage
+          nix build --impure .#dockerImageMinimal
           ./result > /tmp/jail-image.tar
+          ls -lh /tmp/jail-image.tar
 
       - name: Upload jail image
         uses: actions/upload-artifact@v4
@@ -97,6 +117,19 @@ jobs:
       - uses: actions/checkout@v4
         with:
           fetch-depth: 0
+
+      # Same disk pressure considerations as build-image.  Loading the image
+      # into podman's rootless store doubles its on-disk footprint, and the
+      # integration test suite pulls additional nix closures on top.
+      - name: Free disk space
+        run: |
+          df -h /
+          sudo rm -rf /usr/share/dotnet /usr/local/lib/android /opt/ghc \
+                      /opt/hostedtoolcache/CodeQL /usr/local/share/boost \
+                      "$AGENT_TOOLSDIRECTORY" || true
+          sudo docker image prune --all --force || true
+          sudo apt-get clean
+          df -h /
 
       - name: Install uv
         uses: astral-sh/setup-uv@v4

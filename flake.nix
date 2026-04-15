@@ -71,8 +71,13 @@
           '';
         };
 
-        # Derivation to provide /usr/bin/env and other standard paths
-        binPathLinks = imagePkgs.runCommand "bin-path-links" {} ''
+        # Derivation to provide /usr/bin/env and other standard paths.
+        # `withChromium` controls whether chromium shims + font links are
+        # created.  `withNestedPodman` controls rootless-podman config files
+        # under /etc/containers.  Both are opt-out so the minimal image
+        # variant can skip the bulky and/or unused plumbing.
+        mkBinPathLinks = { withChromium ? true, withNestedPodman ? true }:
+          imagePkgs.runCommand "bin-path-links" {} (''
           mkdir -p $out/usr/bin $out/bin $out/lib64 $out/lib $out/usr/lib $out/etc $out/usr/share/fonts
           ln -s ${imagePkgs.coreutils}/bin/env $out/usr/bin/env
           ln -s ${imagePkgs.bashInteractive}/bin/bash $out/bin/bash
@@ -81,16 +86,18 @@
           ln -s ${imagePkgs.gnused}/bin/sed $out/bin/sed
           ln -s ${imagePkgs.gnugrep}/bin/grep $out/bin/grep
           ln -s ${imagePkgs.findutils}/bin/find $out/bin/find
+        '' + imagePkgs.lib.optionalString withChromium ''
           ln -s ${imagePkgs.chromium}/bin/chromium $out/usr/bin/chromium
           ln -s ${imagePkgs.chromium}/bin/chromium $out/usr/bin/google-chrome
           ln -s ${imagePkgs.chromium}/bin/chromium $out/usr/bin/chrome
-          
+          ln -s ${imagePkgs.fontconfig.out}/etc/fonts $out/etc/fonts
+        '' + ''
+
           # Link the dynamic linker at conventional paths (architecture-aware)
           LINKER_BASENAME=$(basename "${imagePkgs.stdenv.cc.bintools.dynamicLinker}")
           ln -sf ${imagePkgs.stdenv.cc.bintools.dynamicLinker} $out/lib/$LINKER_BASENAME
           ln -sf ${imagePkgs.stdenv.cc.bintools.dynamicLinker} $out/lib64/$LINKER_BASENAME
-          ln -s ${imagePkgs.fontconfig.out}/etc/fonts $out/etc/fonts
-          
+
           # Link shared libraries to /lib and /usr/lib for LD_LIBRARY_PATH discovery.
           # Iterates over all packages with lib outputs, including split-output packages
           # (e.g., fontconfig.lib has .so files separate from fontconfig.out which has etc/).
@@ -101,8 +108,21 @@
           for dir in $out/lib $out/usr/lib; do
             for pkg in ${imagePkgs.glibc} \
                        ${imagePkgs.stdenv.cc.cc.lib} \
-                       ${imagePkgs.zlib} \
-                       ${imagePkgs.fontconfig.lib} \
+                       ${imagePkgs.zlib}; do
+              if [ -d "$pkg/lib" ]; then
+                for f in "$pkg"/lib/lib*.so*; do
+                  [ -f "$f" ] || [ -L "$f" ] || continue
+                  name=$(basename "$f")
+                  [ ! -e "$dir/$name" ] && ln -s "$f" "$dir/$name" 2>/dev/null || true
+                done
+              fi
+            done
+          done
+        '' + imagePkgs.lib.optionalString withChromium ''
+          # Chromium graphics stack — only linked when chromium itself is in
+          # the image.  The minimal variant has neither the binary nor the libs.
+          for dir in $out/lib $out/usr/lib; do
+            for pkg in ${imagePkgs.fontconfig.lib} \
                        ${imagePkgs.glib.out} \
                        ${imagePkgs.pango.out} \
                        ${imagePkgs.cairo} \
@@ -126,9 +146,6 @@
 
           # Font directories: symlink into /usr/share/fonts so fontconfig finds them
           # (fontconfig's default fonts.conf includes <dir>/usr/share/fonts</dir>)
-          # Note: do NOT symlink freefont_ttf — its fonts lack fontconfig classification
-          # and 49-sansserif.conf misclassifies FreeMono as sans-serif, beating DejaVu.
-          # dejavu-fonts-minimal (transitive dep) handles base fonts correctly.
           for fontPkg in ${imagePkgs.noto-fonts-color-emoji}; do
             if [ -d "$fontPkg/share/fonts" ]; then
               for d in "$fontPkg"/share/fonts/*; do
@@ -136,7 +153,7 @@
               done
             fi
           done
-
+        '' + imagePkgs.lib.optionalString withNestedPodman ''
           # Podman nested container support
           echo "root:100000:65536" > $out/etc/subuid
           echo "root:100000:65536" > $out/etc/subgid
@@ -168,7 +185,13 @@
           cat > $out/etc/containers/registries.conf <<REGISTRIES
           unqualified-search-registries = ["docker.io"]
           REGISTRIES
-        '';
+        '');
+
+        binPathLinks = mkBinPathLinks { };
+        binPathLinksMinimal = mkBinPathLinks {
+          withChromium = false;
+          withNestedPodman = false;
+        };
 
         # Derivation for the Python entrypoint (runs inside Linux container)
         entrypointScript = imagePkgs.writeTextFile {
@@ -196,113 +219,131 @@
           exit 1
         '';
 
-        # The Docker Image (always Linux, even when built on macOS)
-        dockerImage = imagePkgs.dockerTools.streamLayeredImage {
-          name = "yolo-jail";
-          tag = "latest";
-          created = "now";
-          maxLayers = 100;
-          
-          contents = [
-            binPathLinks
-            shims
-            entrypoint
-            yoloCli
-            imagePkgs.bashInteractive
-            imagePkgs.coreutils-full
-            imagePkgs.git
-            imagePkgs.ripgrep
-            imagePkgs.fd
-            imagePkgs.curl
-            imagePkgs.cacert
-            imagePkgs.mise
-            imagePkgs.findutils
-            imagePkgs.which
-            imagePkgs.nodejs_22
-            imagePkgs.python3
-            imagePkgs.gh
-            imagePkgs.gnused
-            imagePkgs.gnugrep
-            imagePkgs.gawk
-            imagePkgs.gnupatch
-            imagePkgs.diffutils
-            imagePkgs.gzip
-            imagePkgs.bzip2
-            imagePkgs.xz
-            imagePkgs.gnutar
-            imagePkgs.unzip
-            imagePkgs.zip
-            imagePkgs.openssh
-            imagePkgs.strace
-            imagePkgs.lsof
-            imagePkgs.file
-            imagePkgs.gcc
-            imagePkgs.gnumake
-            imagePkgs.binutils
-            imagePkgs.zlib
-            imagePkgs.chromium   # For both MCP and Playwright
-            imagePkgs.fontconfig
-            imagePkgs.noto-fonts-color-emoji  # Emoji font for Chromium rendering
-            imagePkgs.glibc.bin  # For ldd
-            imagePkgs.procps     # ps, pgrep, pkill
-            imagePkgs.net-tools  # netstat
-            imagePkgs.iproute2   # ss, ip
-            imagePkgs.iputils    # ping
-            imagePkgs.dnsutils   # dig, host, nslookup
-            imagePkgs.htop
+        # Core packages: everything the integration test suite in
+        # tests/test_jail.py actually touches, plus POSIX essentials that
+        # shell scripts in src/entrypoint.py and src/shims/ rely on.
+        # Shared between the full and minimal image variants.
+        corePackages = [
+          shims
+          entrypoint
+          yoloCli
+          imagePkgs.bashInteractive
+          imagePkgs.coreutils-full
+          imagePkgs.git
+          imagePkgs.ripgrep
+          imagePkgs.fd
+          imagePkgs.curl          # real curl for host-port-forwarding tests
+          imagePkgs.cacert
+          imagePkgs.mise
+          imagePkgs.findutils
+          imagePkgs.which
+          imagePkgs.nodejs_22
+          imagePkgs.python3
+          imagePkgs.gh
+          imagePkgs.gnused
+          imagePkgs.gnugrep
+          imagePkgs.gawk
+          imagePkgs.gnupatch
+          imagePkgs.diffutils
+          imagePkgs.gzip
+          imagePkgs.bzip2
+          imagePkgs.xz
+          imagePkgs.gnutar
+          imagePkgs.unzip
+          imagePkgs.zip
+          imagePkgs.zlib
+          imagePkgs.procps        # ps, pgrep, pkill
+          imagePkgs.overmind      # exercised by overmind isolation tests
+          imagePkgs.jq
+          imagePkgs.uv
+          imagePkgs.iptables      # DNAT rules (published port → localhost fixup)
+          imagePkgs.socat         # host port forwarding into the jail
+        ];
 
-            imagePkgs.hivemind
-            imagePkgs.overmind
-            imagePkgs.tmux
-            imagePkgs.jq
-            imagePkgs.bat
-            imagePkgs.eza
-            imagePkgs.delta
-            imagePkgs.fzf
-            imagePkgs.uv
-            imagePkgs.iptables     # For DNAT rules (published port → localhost fixup)
-            imagePkgs.socat        # For host port forwarding into the jail
-            imagePkgs.nix          # For building nix images inside jail
-            imagePkgs.podman       # For nested container support
-            imagePkgs.fuse-overlayfs  # Storage driver for rootless podman
-            imagePkgs.slirp4netns  # Rootless networking for nested podman
-            imagePkgs.shadow       # newuidmap/newgidmap for user namespace mapping
-          ] ++ extraPackages;
+        # Extras that bulk the image up but aren't exercised by the
+        # integration test suite.  Kept out of the minimal variant so CI
+        # integration runs don't need to load ~2 GB of unused bytes.
+        fullPackages = [
+          imagePkgs.openssh
+          imagePkgs.strace
+          imagePkgs.lsof
+          imagePkgs.file
+          imagePkgs.gcc
+          imagePkgs.gnumake
+          imagePkgs.binutils
+          imagePkgs.chromium                   # For both MCP and Playwright
+          imagePkgs.fontconfig
+          imagePkgs.noto-fonts-color-emoji     # Emoji font for Chromium rendering
+          imagePkgs.glibc.bin                  # ldd
+          imagePkgs.net-tools                  # netstat
+          imagePkgs.iproute2                   # ss, ip
+          imagePkgs.iputils                    # ping
+          imagePkgs.dnsutils                   # dig, host, nslookup
+          imagePkgs.htop
+          imagePkgs.hivemind
+          imagePkgs.tmux
+          imagePkgs.bat
+          imagePkgs.eza
+          imagePkgs.delta
+          imagePkgs.fzf
+          imagePkgs.nix                        # nested nix builds inside jail
+          imagePkgs.podman                     # nested container support
+          imagePkgs.fuse-overlayfs             # storage driver for rootless podman
+          imagePkgs.slirp4netns                # rootless networking for nested podman
+          imagePkgs.shadow                     # newuidmap/newgidmap
+        ];
 
-          # Create directories needed by nested podman and general operation
-          fakeRootCommands = ''
-            mkdir -p ./var/tmp ./var/cache ./var/log ./run ./var/lib/containers
+        mkDockerImage = { minimal ? false }:
+          imagePkgs.dockerTools.streamLayeredImage {
+            name = "yolo-jail";
+            tag = if minimal then "ci-minimal" else "latest";
+            created = "now";
+            maxLayers = 100;
 
-            # Pre-create mountpoint directories for --read-only root filesystem.
-            # With --read-only, the OCI runtime cannot create these on the fly.
-            mkdir -p ./home/agent ./workspace ./tmp ./opt/yolo-jail ./mise
-            mkdir -p ./ctx/host-claude ./ctx/host-nvim-config
-            mkdir -p ./nix/var/nix/daemon-socket
+            contents =
+              [ (if minimal then binPathLinksMinimal else binPathLinks) ]
+              ++ corePackages
+              ++ (if minimal then [] else fullPackages)
+              ++ extraPackages;
 
-            # Podman needs /etc/passwd and /etc/group
-            echo 'root:x:0:0:root:/home/agent:/bin/bash' > ./etc/passwd
-            echo 'root:x:0:' > ./etc/group
-            echo 'nixbld:x:30000:' >> ./etc/group
-          '';
+            # Create directories needed by nested podman and general operation
+            fakeRootCommands = ''
+              mkdir -p ./var/tmp ./var/cache ./var/log ./run ./var/lib/containers
 
-          config = {
-            Cmd = [ "/bin/bash" ];
-            # We explicitly place shims first in PATH
-            Env = [ 
-              "PATH=${shims}/bin:/bin:/usr/bin" 
-              "SSL_CERT_FILE=${imagePkgs.cacert}/etc/ssl/certs/ca-bundle.crt"
-              "LD_LIBRARY_PATH=/lib:/usr/lib:/usr/lib/${linuxMultilib}"
-              "FONTCONFIG_FILE=/etc/fonts/fonts.conf"
-              "FONTCONFIG_PATH=/etc/fonts"
-            ];
-            WorkingDir = "/workspace";
+              # Pre-create mountpoint directories for --read-only root filesystem.
+              # With --read-only, the OCI runtime cannot create these on the fly.
+              mkdir -p ./home/agent ./workspace ./tmp ./opt/yolo-jail ./mise
+              mkdir -p ./ctx/host-claude ./ctx/host-nvim-config
+              mkdir -p ./nix/var/nix/daemon-socket
+
+              # Podman needs /etc/passwd and /etc/group
+              echo 'root:x:0:0:root:/home/agent:/bin/bash' > ./etc/passwd
+              echo 'root:x:0:' > ./etc/group
+              echo 'nixbld:x:30000:' >> ./etc/group
+            '';
+
+            config = {
+              Cmd = [ "/bin/bash" ];
+              # We explicitly place shims first in PATH
+              Env = [
+                "PATH=${shims}/bin:/bin:/usr/bin"
+                "SSL_CERT_FILE=${imagePkgs.cacert}/etc/ssl/certs/ca-bundle.crt"
+                "LD_LIBRARY_PATH=/lib:/usr/lib:/usr/lib/${linuxMultilib}"
+                "FONTCONFIG_FILE=/etc/fonts/fonts.conf"
+                "FONTCONFIG_PATH=/etc/fonts"
+              ];
+              WorkingDir = "/workspace";
+            };
           };
-        };
+
+        dockerImage = mkDockerImage { minimal = false; };
+        dockerImageMinimal = mkDockerImage { minimal = true; };
 
       in
       {
         packages.default = dockerImage;
         packages.dockerImage = dockerImage;
+        packages.dockerImageMinimal = dockerImageMinimal;
 
         devShells.default = pkgs.mkShell {
           buildInputs = [

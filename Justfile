@@ -117,6 +117,12 @@ deploy: install
 build-image:
     nix --extra-experimental-features 'nix-command flakes' build .#dockerImage
 
+# Build the minimal image variant used by CI integration (no chromium,
+# gcc toolchain, nested-podman, or debug tools — ~1.6–2 GB smaller).
+# Contains everything tests/test_jail.py exercises but nothing more.
+build-image-minimal:
+    nix --extra-experimental-features 'nix-command flakes' build .#dockerImageMinimal
+
 # Build and load the image into the container runtime
 load: build-image
     ./result | {{runtime}} load
