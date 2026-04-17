@@ -1019,7 +1019,8 @@ yolo check --no-build         # fast — skip nix build
 - Usually means the host-side token refresher isn't running. Check with `yolo check` — it has a dedicated "Claude Token Refresher" section.
 - Linux: `systemctl --user status claude-token-refresher.timer` and `journalctl --user -u claude-token-refresher -n 30`
 - macOS: check your launchd/cron setup per [scripts/README.md](../scripts/README.md)
-- Background: Anthropic rotates refresh tokens single-use, so multiple jails refreshing simultaneously race each other. The refresher serializes refreshes on the host so jails never race. See `docs/claude-oauth-mitm-proxy-plan.md` for the fallback plan if the refresher alone isn't enough.
+- Background: Anthropic rotates refresh tokens single-use, so multiple jails refreshing simultaneously race each other. The refresher serializes refreshes on the host so jails never race.
+- When the refresher isn't enough, install the `claude-oauth-broker` module (bundled with `just deploy`; see [docs/modules.md](modules.md) for the plugin system and [modules/claude-oauth-broker/README.md](../modules/claude-oauth-broker/README.md) for operator notes). The broker terminates TLS for `platform.claude.com` on the host so jails can't refresh independently — eliminating the race class entirely.
 
 ### Linux-Specific Issues
 

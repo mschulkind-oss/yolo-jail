@@ -22,6 +22,8 @@ import typer
 import pyjson5
 from rich.console import Console
 
+from src import modules as _modules
+
 IS_LINUX = sys.platform == "linux"
 IS_MACOS = sys.platform == "darwin"
 
@@ -4545,6 +4547,47 @@ def config_ref():
 """)
 
 
+def _check_modules(ok, warn, fail) -> None:
+    """Surface module discovery + each module's own self-check.
+
+    Bad manifests warn (one broken third-party module shouldn't fail the
+    whole check); individual module self-checks that return non-zero fail,
+    since the module's author declared this is the health signal.
+    """
+    if os.environ.get("YOLO_VERSION") is not None:
+        ok("Inside jail — module checks skipped (managed by host)")
+        return
+    entries = _modules.validate_modules()
+    if not entries:
+        ok(f"No modules installed ({_modules.modules_dir()})")
+        return
+    for path, module, err in entries:
+        if err:
+            warn(f"module {path.name}: invalid manifest", err)
+            continue
+        assert module is not None
+        if not module.enabled:
+            ok(f"module {module.name}: disabled")
+            continue
+        if not module.doctor_cmd:
+            ok(f"module {module.name}: no self-check declared")
+            continue
+        results = _modules.run_doctor_checks([module], timeout=10.0)
+        r = results[0]
+        if r.returncode == 0:
+            ok(f"module {module.name}: self-check ok")
+        elif r.returncode is None:
+            warn(
+                f"module {module.name}: self-check could not run",
+                r.output or "command missing",
+            )
+        else:
+            fail(
+                f"module {module.name}: self-check failed (rc={r.returncode})",
+                r.output or "no output",
+            )
+
+
 def _check_claude_token_refresher(
     ok,
     warn,
@@ -5479,6 +5522,12 @@ def check(
 
     console.print("[bold]Claude Token Refresher[/bold]")
     _check_claude_token_refresher(ok, warn, fail, config=config)
+    console.print()
+
+    # --- Host-side modules ---
+
+    console.print("[bold]Modules[/bold]")
+    _check_modules(ok, warn, fail)
     console.print()
 
     # --- Host Services ---
@@ -6781,6 +6830,12 @@ def run(
     if profile:
         docker_cmd.extend(["-e", "YOLO_PROFILE=1"])
 
+    # Apply host-side modules: --add-host entries for DNS interception, CA
+    # cert bind mounts, and NODE_EXTRA_CA_CERTS. Module lifecycle (their
+    # daemons) is the module's own responsibility; we just wire up the
+    # jail-side integration at run time. See src/modules.py.
+    docker_cmd.extend(_modules.docker_args_for(_modules.discover_modules()))
+
     docker_cmd.append(_jail_image(runtime))
     docker_cmd.append("yolo-entrypoint")
 
@@ -7112,6 +7167,82 @@ def doctor(
     check(build=build)
 
 
+# ---------------------------------------------------------------------------
+# yolo modules — list / status / enable / disable
+# ---------------------------------------------------------------------------
+
+
+modules_app = typer.Typer(
+    help="Inspect and toggle host-side modules (e.g. the Claude OAuth broker)."
+)
+app.add_typer(modules_app, name="modules")
+
+
+@modules_app.command("list")
+def modules_list():
+    """List installed modules and their enabled state."""
+    entries = _modules.validate_modules()
+    if not entries:
+        typer.echo(f"No modules installed under {_modules.modules_dir()}")
+        return
+    for path, module, err in entries:
+        if err:
+            typer.echo(f"  ✗ {path.name}  INVALID  {err}")
+            continue
+        assert module is not None
+        state = "enabled" if module.enabled else "disabled"
+        hosts = ", ".join(i.host for i in module.intercepts) or "—"
+        typer.echo(f"  {state:<8}  {module.name}  intercepts=[{hosts}]")
+        if module.description:
+            typer.echo(f"            {module.description}")
+
+
+@modules_app.command("status")
+def modules_status():
+    """Run each module's doctor_cmd and report."""
+    modules = _modules.discover_modules(include_disabled=True)
+    if not modules:
+        typer.echo(f"No modules installed under {_modules.modules_dir()}")
+        return
+    results = _modules.run_doctor_checks(modules)
+    for r in results:
+        prefix = (
+            "disabled"
+            if not r.module.enabled
+            else (
+                "ok"
+                if r.returncode == 0
+                else ("no-check" if r.returncode is None else "fail")
+            )
+        )
+        typer.echo(f"  [{prefix}] {r.module.name}  rc={r.returncode}")
+        if r.output:
+            for line in r.output.splitlines():
+                typer.echo(f"      {line}")
+
+
+@modules_app.command("enable")
+def modules_enable(name: str):
+    """Enable a module by name."""
+    path = _modules.modules_dir() / name
+    if not (path / "manifest.jsonc").is_file():
+        typer.echo(f"No module at {path}", err=True)
+        raise typer.Exit(1)
+    _modules.set_enabled(path, True)
+    typer.echo(f"enabled {name}")
+
+
+@modules_app.command("disable")
+def modules_disable(name: str):
+    """Disable a module by name (leaves files in place; takes effect next `yolo run`)."""
+    path = _modules.modules_dir() / name
+    if not (path / "manifest.jsonc").is_file():
+        typer.echo(f"No module at {path}", err=True)
+        raise typer.Exit(1)
+    _modules.set_enabled(path, False)
+    typer.echo(f"disabled {name}")
+
+
 def main():
     """Entry point for the `yolo` console script.
 
@@ -7133,6 +7264,7 @@ def main():
         "run",
         "ps",
         "doctor",
+        "modules",
     }
     args = sys.argv[1:]
     if args and "--" in args:

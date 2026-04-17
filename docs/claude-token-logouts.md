@@ -90,7 +90,15 @@ watch -n 1 'stat -c "mtime=%y inode=%i" \
 
 If the mtime advances with no corresponding refresher journal entry, a jail wrote it → jails are still refreshing.
 
-When that happens, the next step is the MITM broker in [`docs/claude-oauth-mitm-proxy-plan.md`](claude-oauth-mitm-proxy-plan.md). The broker terminates TLS for `platform.claude.com` and serializes *all* refreshes — jails never talk to Anthropic directly, so they can't race.
+When that happens, install the **claude-oauth-broker** module. It's the reference host-side module (see [`docs/modules.md`](modules.md) for the plugin system) — terminates TLS for `platform.claude.com` on the host and serializes *all* refreshes through a flock. Jails never talk to Anthropic directly, so they can't race.
+
+```bash
+cd ~/code/yolo-jail && just deploy    # installs broker alongside the refresher
+systemctl --user status claude-oauth-broker
+yolo modules status                    # summary across every installed module
+```
+
+Design notes: [`docs/claude-oauth-mitm-proxy-plan.md`](claude-oauth-mitm-proxy-plan.md). Module README: [`modules/claude-oauth-broker/README.md`](../modules/claude-oauth-broker/README.md) — covers the port-443 privilege requirement (which bit of `AmbientCapabilities` / sysctl / DNAT you need, depending on your host).
 
 ## Manual checks cheat sheet
 

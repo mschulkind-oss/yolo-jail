@@ -1,4 +1,6 @@
-# Claude OAuth MITM Proxy — Deferred Plan
+# Claude OAuth MITM Proxy — Design Notes
+
+> **Status:** implemented as the [`claude-oauth-broker`](../modules/claude-oauth-broker/) module. The daemon lives in [`src/oauth_broker.py`](../src/oauth_broker.py); it's wired into the jail via the general module system described in [`docs/modules.md`](modules.md). This document is preserved for the design rationale — it's what was built.
 
 This doc captures the MITM-proxy approach to the Claude Code logout problem. It's the **fallback** if the periodic refresher (see `src/claude_refresher.py`, installed as the `claude-token-refresher` console script) doesn't eliminate the 401 races in practice. For the user-facing triage path, see [`claude-token-logouts.md`](claude-token-logouts.md).
 

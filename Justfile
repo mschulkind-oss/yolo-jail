@@ -111,6 +111,47 @@ deploy: install
         echo "  ExecStart → $REFRESHER_BIN"
     fi
 
+    # --- Claude OAuth broker module (systemd --user) ---
+    # Reference implementation of a yolo-jail host-side module. Eliminates the
+    # refresh-token rotation race that the standalone refresher can only mostly
+    # work around. Coexists with the refresher — see
+    # modules/claude-oauth-broker/README.md.
+    if ! command -v claude >/dev/null 2>&1; then
+        echo "⚠ claude not found — skipping claude-oauth-broker module install"
+    elif ! command -v systemctl >/dev/null 2>&1; then
+        echo "⚠ systemctl not found — skipping claude-oauth-broker module install"
+    elif ! command -v openssl >/dev/null 2>&1; then
+        echo "⚠ openssl not found — skipping claude-oauth-broker module install"
+    else
+        BROKER_BIN="$(command -v yolo-claude-oauth-broker || true)"
+        if [ -z "$BROKER_BIN" ]; then
+            echo "ERROR: yolo-claude-oauth-broker not on PATH after install" >&2
+            echo "  Expected entry point from the yolo-jail wheel." >&2
+            exit 1
+        fi
+
+        MODULES_DIR="$HOME/.local/share/yolo-jail/modules/claude-oauth-broker"
+        mkdir -p "$MODULES_DIR"
+        cp modules/claude-oauth-broker/manifest.jsonc "$MODULES_DIR/manifest.jsonc"
+        cp modules/claude-oauth-broker/README.md "$MODULES_DIR/README.md"
+
+        # Generate CA + leaf on first run (idempotent — skips if present).
+        "$BROKER_BIN" --init-ca >/dev/null
+
+        SYSTEMD_DIR="$HOME/.config/systemd/user"
+        mkdir -p "$SYSTEMD_DIR"
+        sed "s|@@BROKER_BIN@@|$BROKER_BIN|g" \
+            modules/claude-oauth-broker/claude-oauth-broker.service \
+            > "$SYSTEMD_DIR/claude-oauth-broker.service"
+
+        systemctl --user daemon-reload
+        systemctl --user enable --now claude-oauth-broker.service || \
+            echo "⚠ claude-oauth-broker failed to start — journalctl --user -u claude-oauth-broker"
+
+        echo "✓ claude-oauth-broker module installed at $MODULES_DIR"
+        echo "  ExecStart → $BROKER_BIN"
+    fi
+
     echo "yolo-jail deployed. Verify: yolo check"
 
 # Build the container image using Nix
