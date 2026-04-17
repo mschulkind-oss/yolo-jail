@@ -35,6 +35,8 @@ import fcntl
 import json
 import logging
 import os
+import shutil
+import socket
 import ssl
 import subprocess
 import sys
@@ -43,7 +45,7 @@ import urllib.error
 import urllib.request
 from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 from pathlib import Path
-from typing import Any, Dict, Optional, Tuple
+from typing import Any, Dict, List, Optional, Tuple
 
 try:
     from . import claude_refresher as refresher
@@ -403,10 +405,11 @@ def make_server(host: str, port: int, creds_path: Path) -> ThreadingHTTPServer:
 
 # --- Self-check (used by `yolo doctor` via manifest.doctor_cmd) -------------
 
+SYSTEMD_SERVICE = "claude-oauth-broker.service"
 
-def self_check() -> int:
-    """Cheap health check: CA + leaf exist and creds file is parseable."""
-    problems: list[str] = []
+
+def _files_check() -> List[str]:
+    problems: List[str] = []
     if not CA_CRT.is_file():
         problems.append(f"missing {CA_CRT}")
     if not SERVER_CRT.is_file():
@@ -419,6 +422,124 @@ def self_check() -> int:
             problems.append(f"{creds}: {e}")
     else:
         problems.append(f"{creds} does not exist (no one has /login'd yet)")
+    return problems
+
+
+def _systemd_check() -> List[str]:
+    """Verify the systemd user service is running.  Diagnoses the common
+    port-443 privilege failure modes when the service isn't active.
+
+    Silent (returns ``[]``) when systemctl is unavailable — macOS / launchd
+    users don't have a service unit to check, and the TCP probe below is
+    still meaningful on its own.
+    """
+    if not shutil.which("systemctl"):
+        return []
+    # Does the unit even exist?  If the user hasn't run `just deploy` yet,
+    # there's nothing to check — not a failure, just not installed.
+    exists = subprocess.run(
+        ["systemctl", "--user", "cat", SYSTEMD_SERVICE],
+        capture_output=True,
+        text=True,
+        timeout=5,
+    )
+    if exists.returncode != 0:
+        return []
+    active = subprocess.run(
+        ["systemctl", "--user", "is-active", SYSTEMD_SERVICE],
+        capture_output=True,
+        text=True,
+        timeout=5,
+    )
+    state = (active.stdout or active.stderr).strip() or "unknown"
+    if state == "active":
+        return []
+
+    # Inactive — scan the journal for known failure patterns and offer
+    # specific remediation.  Generic fallback otherwise.
+    journal = subprocess.run(
+        [
+            "journalctl",
+            "--user",
+            "-u",
+            SYSTEMD_SERVICE,
+            "-n",
+            "40",
+            "--no-pager",
+        ],
+        capture_output=True,
+        text=True,
+        timeout=5,
+    ).stdout
+
+    low = journal.lower()
+    if "permission denied" in low and (
+        "bind" in low or "cap_net_bind" in low or ":443" in journal
+    ):
+        return [
+            f"{SYSTEMD_SERVICE} state={state}: port 443 bind denied. "
+            "AmbientCapabilities=CAP_NET_BIND_SERVICE isn't effective on this host. "
+            "Pick one: "
+            "(1) `sudo sysctl -w net.ipv4.ip_unprivileged_port_start=0` + persist in /etc/sysctl.d/; "
+            "(2) edit ExecStart to `--port 8443` and add an iptables/nftables DNAT "
+            "from 169.254.1.2:443 → :8443; "
+            "(3) switch to a runtime that honors the unit's ambient caps. "
+            "See modules/claude-oauth-broker/README.md."
+        ]
+    if "address already in use" in low:
+        return [
+            f"{SYSTEMD_SERVICE} state={state}: port already bound by another process. "
+            "Run `ss -tlnp sport = :443` to identify — may be the host's own web server."
+        ]
+    if "no such file" in low and "openssl" in low:
+        return [
+            f"{SYSTEMD_SERVICE} state={state}: openssl not found. "
+            "Install it on the host (it's only needed once, for CA generation)."
+        ]
+    if "exec format error" in low or "failed to execute" in low:
+        return [
+            f"{SYSTEMD_SERVICE} state={state}: ExecStart binary missing or stale. "
+            "Re-run `just deploy` to reinstall."
+        ]
+    # Unknown failure — point at the journal and continue.
+    return [
+        f"{SYSTEMD_SERVICE} state={state}. "
+        f"`journalctl --user -u {SYSTEMD_SERVICE} -n 50 --no-pager` for details."
+    ]
+
+
+def _tcp_probe(host: str, port: int, timeout: float = 2.0) -> List[str]:
+    """TCP connect to the broker's advertised endpoint.
+
+    This is what a jail would do; if it fails, the jail will get 401s on
+    every refresh attempt regardless of what systemd says.  We connect
+    raw TCP (no TLS handshake) so we don't need to drag the CA into the
+    probe path — the bind itself is what we're verifying.
+    """
+    s = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
+    s.settimeout(timeout)
+    try:
+        s.connect((host, port))
+    except OSError as e:
+        return [
+            f"cannot reach broker at {host}:{port}: {e}. "
+            "The daemon is not bound to the address jails route "
+            "platform.claude.com to. Check the service logs."
+        ]
+    finally:
+        s.close()
+    return []
+
+
+def self_check(probe_host: str = "169.254.1.2", probe_port: int = 443) -> int:
+    """Aggregate health check used by ``yolo doctor``.
+
+    Order of checks is cheap → expensive: file-level (ms), systemd query
+    (~50ms), TCP probe (up to ``timeout``).  Failures short-circuit the
+    message but not the checks — we report everything wrong so the operator
+    fixes once, not per ``yolo doctor`` run.
+    """
+    problems = _files_check() + _systemd_check() + _tcp_probe(probe_host, probe_port)
     if problems:
         for p in problems:
             print(f"FAIL: {p}")
@@ -454,6 +575,17 @@ def main(argv: Optional[list[str]] = None) -> int:
     parser.add_argument(
         "--self-check", action="store_true", help="Emit status and exit"
     )
+    parser.add_argument(
+        "--probe-host",
+        default="169.254.1.2",
+        help="Address self-check TCP-probes (default: the jail-reachable broker IP)",
+    )
+    parser.add_argument(
+        "--probe-port",
+        type=int,
+        default=443,
+        help="Port self-check TCP-probes (default: 443 — the port jails connect to)",
+    )
     parser.add_argument("-v", "--verbose", action="store_true", help="Debug logging")
     args = parser.parse_args(argv)
 
@@ -463,7 +595,7 @@ def main(argv: Optional[list[str]] = None) -> int:
     )
 
     if args.self_check:
-        return self_check()
+        return self_check(probe_host=args.probe_host, probe_port=args.probe_port)
 
     if args.init_ca or args.force_init_ca:
         ensure_ca_and_leaf(force=args.force_init_ca)

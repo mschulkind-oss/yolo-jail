@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import json
 import shutil
+import socket
 import time
 from pathlib import Path
 from unittest.mock import patch
@@ -232,8 +233,119 @@ def test_self_check_ok(broker_dirs: Path, creds_file: Path, monkeypatch, capsys)
     assert rc == 0
 
 
-def test_self_check_reports_missing_ca(broker_dirs: Path, capsys):
+def test_self_check_reports_missing_ca(broker_dirs: Path, capsys, monkeypatch):
+    # Make systemd check a no-op and TCP probe fail silently to isolate CA miss.
+    monkeypatch.setattr(oauth_broker, "_systemd_check", lambda: [])
+    monkeypatch.setattr(
+        oauth_broker, "_tcp_probe", lambda h, p, timeout=2.0: ["probe skip"]
+    )
     rc = oauth_broker.self_check()
     out = capsys.readouterr().out
     assert rc == 1
     assert "missing" in out
+
+
+# ---------------------------------------------------------------------------
+# Systemd + TCP probe diagnostics
+# ---------------------------------------------------------------------------
+
+
+def test_tcp_probe_flags_unreachable():
+    # Port 1 on an unroutable address is guaranteed to fail fast in CI.
+    out = oauth_broker._tcp_probe("127.0.0.1", 1, timeout=0.5)
+    assert len(out) == 1
+    assert "cannot reach broker" in out[0]
+
+
+def test_tcp_probe_ok_when_listening(tmp_path: Path):
+    s = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
+    s.bind(("127.0.0.1", 0))
+    s.listen(1)
+    port = s.getsockname()[1]
+    try:
+        assert oauth_broker._tcp_probe("127.0.0.1", port, timeout=1.0) == []
+    finally:
+        s.close()
+
+
+def test_systemd_check_silent_when_systemctl_missing(monkeypatch):
+    monkeypatch.setattr(oauth_broker.shutil, "which", lambda _: None)
+    assert oauth_broker._systemd_check() == []
+
+
+def test_systemd_check_silent_when_unit_missing(monkeypatch):
+    monkeypatch.setattr(oauth_broker.shutil, "which", lambda _: "/usr/bin/systemctl")
+    calls = {"n": 0}
+
+    def fake_run(cmd, **kw):
+        calls["n"] += 1
+        # First call: `systemctl cat …` → rc=1 (no unit file)
+        return _MockProc(returncode=1, stdout="", stderr="No such unit")
+
+    monkeypatch.setattr(oauth_broker.subprocess, "run", fake_run)
+    assert oauth_broker._systemd_check() == []
+    assert calls["n"] == 1
+
+
+def test_systemd_check_diagnoses_port_443(monkeypatch):
+    monkeypatch.setattr(oauth_broker.shutil, "which", lambda _: "/usr/bin/systemctl")
+    responses = iter(
+        [
+            _MockProc(returncode=0),  # cat → unit exists
+            _MockProc(returncode=3, stdout="failed"),  # is-active
+            _MockProc(
+                returncode=0,
+                stdout=(
+                    "Apr 17 18:00:00 host bin[1]: Permission denied binding to :443\n"
+                ),
+            ),  # journalctl
+        ]
+    )
+    monkeypatch.setattr(
+        oauth_broker.subprocess, "run", lambda *a, **kw: next(responses)
+    )
+    out = oauth_broker._systemd_check()
+    assert len(out) == 1
+    assert "port 443 bind denied" in out[0]
+    assert "ip_unprivileged_port_start" in out[0]
+    assert "--port 8443" in out[0]
+
+
+def test_systemd_check_diagnoses_port_in_use(monkeypatch):
+    monkeypatch.setattr(oauth_broker.shutil, "which", lambda _: "/usr/bin/systemctl")
+    responses = iter(
+        [
+            _MockProc(returncode=0),
+            _MockProc(returncode=3, stdout="failed"),
+            _MockProc(
+                returncode=0,
+                stdout="OSError: [Errno 98] Address already in use\n",
+            ),
+        ]
+    )
+    monkeypatch.setattr(
+        oauth_broker.subprocess, "run", lambda *a, **kw: next(responses)
+    )
+    out = oauth_broker._systemd_check()
+    assert "already bound" in out[0]
+
+
+def test_systemd_check_active_returns_empty(monkeypatch):
+    monkeypatch.setattr(oauth_broker.shutil, "which", lambda _: "/usr/bin/systemctl")
+    responses = iter(
+        [
+            _MockProc(returncode=0),  # cat
+            _MockProc(returncode=0, stdout="active"),  # is-active
+        ]
+    )
+    monkeypatch.setattr(
+        oauth_broker.subprocess, "run", lambda *a, **kw: next(responses)
+    )
+    assert oauth_broker._systemd_check() == []
+
+
+class _MockProc:
+    def __init__(self, returncode=0, stdout="", stderr=""):
+        self.returncode = returncode
+        self.stdout = stdout
+        self.stderr = stderr
