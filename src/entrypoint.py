@@ -1140,22 +1140,11 @@ def configure_claude():
         ]
         permissions["deny"] = []
         permissions["defaultMode"] = "acceptEdits"
-        # Pre-authorize reads outside the cwd so Claude doesn't prompt for
-        # "allow reading from X" on paths like /tmp. The jail itself is the
-        # security boundary — any path reachable from inside is already
-        # scoped to the container.
-        permissions["additionalDirectories"] = [
-            "/tmp",
-            "/var",
-            "/etc",
-            "/usr",
-            "/opt",
-            "/home",
-            "/root",
-            "/srv",
-            "/run",
-            "/workspace",
-        ]
+        # Pre-authorize reads everywhere. The jail container is the security
+        # boundary; whatever is reachable from inside is already scoped. A
+        # per-directory allowlist was whack-a-mole (forgot /ctx, etc.); "/"
+        # matches every path so we stop playing.
+        permissions["additionalDirectories"] = ["/"]
         settings["skipDangerousModePermissionPrompt"] = True
 
         settings.setdefault("preferences", {})["autoUpdaterStatus"] = "disabled"
