@@ -7,7 +7,14 @@ Wants=network-online.target
 [Service]
 # Placeholder replaced by `just deploy` with the absolute path of the
 # broker console script shipped by the yolo-jail wheel.
-ExecStart=@@BROKER_BIN@@ --host 169.254.1.2 --port 443
+#
+# Bind 0.0.0.0 — 169.254.1.2 is a container-side alias (pasta tunnel),
+# not a real host interface, so bind(2) against it fails with
+# EADDRNOTAVAIL and the daemon crash-loops. The kernel routes
+# container-origin packets for `platform.claude.com` to the host's
+# loopback via the --add-host :host-gateway line the yolo modules
+# loader emits, so 0.0.0.0:443 catches them.
+ExecStart=@@BROKER_BIN@@ --host 0.0.0.0 --port 443
 Restart=on-failure
 RestartSec=5s
 

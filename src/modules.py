@@ -26,7 +26,7 @@ Manifest schema (v1)
       "intercepts": [                            // optional
         {"host": "platform.claude.com"}          // DNS-overridden to broker_ip
       ],
-      "broker_ip": "169.254.1.2",                // address jails route intercepts to
+      "broker_ip": "host-gateway",               // podman/docker magic value; see below
       "ca_cert": "ca.crt",                       // relative path; auto-mounted + trusted
       "jail_env": {"FOO": "bar"},                // extra env vars for the jail
       "doctor_cmd": ["bin-name", "--self-check"] // optional health check
@@ -48,7 +48,11 @@ from typing import Any, Dict, List, Optional
 import pyjson5
 
 
-DEFAULT_BROKER_IP = "169.254.1.2"  # host.containers.internal in podman/docker
+# Both podman and docker translate the literal "host-gateway" into the
+# right host-reachable-from-container address for the active runtime
+# (pasta tunnel, CNI bridge, Docker Desktop VM gateway, …). Hardcoding a
+# specific IP like 169.254.1.2 only works on one runtime/config combination.
+DEFAULT_BROKER_IP = "host-gateway"
 
 
 def modules_dir() -> Path:

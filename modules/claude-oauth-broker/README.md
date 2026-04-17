@@ -20,15 +20,24 @@ Reference implementation of a yolo-jail host-side module. MITM proxy that termin
 3. Runs `yolo-claude-oauth-broker --init-ca` to generate the CA/leaf pair.
 4. Templates the systemd unit and starts `claude-oauth-broker.service`.
 
+## How the network path works
+
+Claude Code inside a jail opens TLS to `platform.claude.com`. The module's manifest routes that hostname to `host-gateway`, which podman/docker translates to whatever host address the container can actually reach — `169.254.1.2` on pasta-rootless podman, the bridge gateway on CNI/Docker, a VM gateway on Docker Desktop. Traffic arrives on the host's loopback, where the broker listens on `0.0.0.0:443` and accepts it.
+
+We deliberately don't pin a literal IP in the systemd unit or the manifest; pinning `169.254.1.2` only works on pasta, and the failure mode is subtle — the daemon crash-loops with `EADDRNOTAVAIL` because that address isn't on any real host interface.
+
 ## Port 443 requirement
 
-Claude Code inside jails opens TLS to `platform.claude.com` on port 443 — we can't redirect that to a different port without patching the binary. Options:
+Binding port 443 is privileged. The default:
 
-- **`AmbientCapabilities=CAP_NET_BIND_SERVICE`** in the systemd unit (default). Works on most modern systemd setups; some restrictive user-namespace configurations disallow ambient caps and you'll need one of the fallbacks.
-- **`sysctl net.ipv4.ip_unprivileged_port_start=0`** — global, lets any user bind any port. Minimal privilege increase (port numbers have no real meaning today), but requires a one-time sudo.
-- **DNAT on the container bridge** — redirect 169.254.1.2:443 → 169.254.1.2:8443 via iptables/nftables, then run the broker on 8443. Requires sudo at deploy time.
+- **`AmbientCapabilities=CAP_NET_BIND_SERVICE`** in the systemd unit. Works on most modern systemd setups; some restrictive user-namespace configurations disallow ambient caps and you'll need a fallback.
 
-If the default fails, the systemd journal will say `Failed to bind to port 443 (Permission denied)`. Switch to `--port 8443` in the unit's `ExecStart` and add the DNAT rule.
+If that fails (journal says `Failed to bind to port 443 (Permission denied)`), pick one:
+
+- **`sudo sysctl -w net.ipv4.ip_unprivileged_port_start=0`** (persist in `/etc/sysctl.d/99-yolo.conf`). Global, lets any user bind any port. Minimal privilege increase in practice — port numbers carry no special meaning today — but requires a one-time sudo.
+- **DNAT on the container bridge.** Redirect the host-side flow from `:443` → `:8443` via iptables/nftables, then edit the unit's `ExecStart` to `--port 8443`. Requires sudo at deploy time and correct matching on the bridge interface (`-i podman0` / `-i docker0`).
+
+`yolo doctor` surfaces which option you need: when the broker is stuck in `activating`, it scans the service journal for the common failure signatures and prints the specific remediation.
 
 ## Operations
 

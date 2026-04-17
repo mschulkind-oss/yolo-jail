@@ -15,10 +15,11 @@
   "intercepts": [
     {"host": "platform.claude.com"}
   ],
-  // host.containers.internal on podman/docker bridge. The broker daemon
-  // binds to this IP so every running jail can reach it. If your runtime
-  // uses a different gateway, override this key.
-  "broker_ip": "169.254.1.2",
+  // `host-gateway` is the magic value both podman and docker translate
+  // to the correct host-reachable-from-container address (pasta tunnel,
+  // CNI bridge, Docker Desktop VM — whatever the runtime uses). Pinning
+  // a literal IP like 169.254.1.2 only works with pasta.
+  "broker_ip": "host-gateway",
   // Auto-trusted in the jail via NODE_EXTRA_CA_CERTS.
   "ca_cert": "ca.crt",
   "doctor_cmd": ["yolo-claude-oauth-broker", "--self-check"]

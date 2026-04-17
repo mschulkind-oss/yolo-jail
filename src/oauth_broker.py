@@ -531,7 +531,7 @@ def _tcp_probe(host: str, port: int, timeout: float = 2.0) -> List[str]:
     return []
 
 
-def self_check(probe_host: str = "169.254.1.2", probe_port: int = 443) -> int:
+def self_check(probe_host: str = "127.0.0.1", probe_port: int = 443) -> int:
     """Aggregate health check used by ``yolo doctor``.
 
     Order of checks is cheap → expensive: file-level (ms), systemd query
@@ -577,8 +577,13 @@ def main(argv: Optional[list[str]] = None) -> int:
     )
     parser.add_argument(
         "--probe-host",
-        default="169.254.1.2",
-        help="Address self-check TCP-probes (default: the jail-reachable broker IP)",
+        default="127.0.0.1",
+        help=(
+            "Address self-check TCP-probes. Default: 127.0.0.1 — the broker binds "
+            "to 0.0.0.0:443, and container-origin traffic is routed to the host's "
+            "loopback via --add-host :host-gateway, so loopback sees the same "
+            "socket the jail does."
+        ),
     )
     parser.add_argument(
         "--probe-port",

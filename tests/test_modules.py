@@ -108,7 +108,7 @@ def test_docker_args_no_ca_no_env(mods_dir: Path):
         },
     )
     args = modules.docker_args_for(modules.discover_modules(mods_dir))
-    assert args == ["--add-host", "plain.test:169.254.1.2"]
+    assert args == ["--add-host", "plain.test:host-gateway"]
 
 
 def test_multiple_modules_merge_ca_paths(mods_dir: Path):

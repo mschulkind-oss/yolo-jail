@@ -30,7 +30,7 @@ Only `manifest.jsonc` is required. Everything else is up to the module.
   "intercepts": [                // optional: DNS overrides for the jail
     {"host": "example.com"}
   ],
-  "broker_ip": "169.254.1.2",    // default: host.containers.internal on podman/docker
+  "broker_ip": "host-gateway",   // podman/docker magic value → host-reachable-from-container
   "ca_cert": "ca.crt",           // optional: path rel. to module dir; auto-trusted via NODE_EXTRA_CA_CERTS
   "jail_env": {"FOO": "bar"},    // optional: extra env vars injected into every jail
   "doctor_cmd": ["bin", "--ok"]  // optional: health check run by `yolo doctor`
