@@ -44,8 +44,18 @@ def _read_frames(conn: socket.socket, timeout: float = 2.0):
 
 
 @pytest.fixture
-def socket_path(tmp_path: Path) -> Path:
-    return tmp_path / "svc.sock"
+def socket_path():
+    # macOS AF_UNIX caps paths at 104 bytes; pytest's default tmp_path
+    # (under /private/var/folders/…) is already past that.  Use /tmp
+    # plus a short slug so the resulting socket path fits.
+    import shutil as _shutil
+    import tempfile
+
+    d = Path(tempfile.mkdtemp(prefix="yjt-", dir="/tmp"))
+    try:
+        yield d / "s.sock"
+    finally:
+        _shutil.rmtree(d, ignore_errors=True)
 
 
 def _start_server(handler, sock_path: Path) -> threading.Thread:

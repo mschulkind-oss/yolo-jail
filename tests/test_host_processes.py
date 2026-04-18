@@ -57,7 +57,13 @@ def _collect(conn: socket.socket):
 
 @pytest.fixture
 def started_daemon(tmp_path: Path):
-    sock = tmp_path / "host-processes.sock"
+    # Socket path under /tmp to stay under macOS AF_UNIX 104-byte cap;
+    # the config file can use pytest's tmp_path (any length).
+    import shutil as _shutil
+    import tempfile
+
+    sockdir = Path(tempfile.mkdtemp(prefix="yjtp-", dir="/tmp"))
+    sock = sockdir / "s.sock"
     cfg = tmp_path / "yolo-jail.jsonc"
     cfg.write_text(
         json.dumps(
@@ -86,7 +92,10 @@ def started_daemon(tmp_path: Path):
                 pass
         time.sleep(0.02)
     assert sock.exists()
-    yield sock, cfg
+    try:
+        yield sock, cfg
+    finally:
+        _shutil.rmtree(sockdir, ignore_errors=True)
 
 
 def _client(sock: Path) -> socket.socket:
@@ -142,7 +151,10 @@ def test_pid_mode_rejects_nonexistent_pid(started_daemon):
 
 
 def test_empty_visible_list_fails_gracefully(tmp_path: Path):
-    sock = tmp_path / "s.sock"
+    import tempfile
+
+    sockdir = Path(tempfile.mkdtemp(prefix="yjtp-", dir="/tmp"))
+    sock = sockdir / "s.sock"
     cfg = tmp_path / "yolo-jail.jsonc"
     cfg.write_text(json.dumps({"host_processes": {"visible": []}}))
 
