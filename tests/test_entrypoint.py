@@ -77,34 +77,48 @@ def jail_home(tmp_path, monkeypatch):
 
 
 class TestShimGeneration:
-    def test_yolo_wrapper_does_not_rely_on_pythonpath(self, jail_home, monkeypatch):
-        """Regression: ``uv run`` doesn't reliably honor PYTHONPATH across
-        Python/uv version combinations.  A shim that depends on
-        ``export PYTHONPATH=...`` to make ``src.cli`` importable fails
-        intermittently with ModuleNotFoundError.  The generator must
-        reach for ``src`` through a more robust mechanism."""
+    def test_yolo_wrapper_does_not_rely_on_pythonpath_or_cd(
+        self, jail_home, monkeypatch
+    ):
+        """Regression test for two different breakage modes of the shim:
+
+        1. PYTHONPATH-based: ``uv run`` doesn't reliably honor PYTHONPATH,
+           so ``from src.cli import main`` fails with ModuleNotFoundError.
+        2. cd-based: cd'ing into /opt/yolo-jail (a read-only bind mount)
+           before calling ``uv run`` causes ``uv`` to bail with
+           "Current directory does not exist" because its getcwd() can't
+           resolve the bind-mounted CWD.
+
+        The shim must make ``src`` importable without either gambit.
+        Today's approach: a bootstrap Python file in the writable shim
+        dir that does ``sys.path.insert(0, repo_root)`` before importing.
+        """
         monkeypatch.setenv("YOLO_REPO_ROOT", "/opt/yolo-jail")
         entrypoint.generate_yolo_wrapper()
         shim = (entrypoint.SHIM_DIR / "yolo").read_text()
-        # The shim must still make ``src.cli`` importable — via ``cd``
-        # into the repo root, not solely via PYTHONPATH.
-        assert "cd " in shim, "shim should cd into the repo root"
-        # And should preserve the invocation CWD so cli.py's
-        # Path.cwd() logic still sees the user's directory.
-        assert "YOLO_INVOCATION_CWD" in shim
-
-    def test_cli_main_honors_invocation_cwd_env(self):
-        """cli.main() must chdir back to YOLO_INVOCATION_CWD before any
-        subcommand runs, so the shim's repo-root cd is transparent.
-        Verified by source inspection — main() is a typer dispatcher
-        and hard to unit-test end-to-end."""
-        from src import cli as cli_mod
-        import inspect
-
-        src = inspect.getsource(cli_mod.main)
-        # The env var pop + chdir pattern must be present.
-        assert "YOLO_INVOCATION_CWD" in src
-        assert "os.chdir(" in src or "chdir(" in src
+        # No cd into the repo root — that path is a read-only bind
+        # mount on production jails and breaks uv's getcwd.
+        assert "cd /opt/yolo-jail" not in shim, (
+            "shim must not cd into the read-only repo root"
+        )
+        assert "cd " not in shim.split("exec ")[0], (
+            "shim must not cd anywhere before exec"
+        )
+        # No PYTHONPATH dependency.
+        assert "PYTHONPATH" not in shim, (
+            "shim must not rely on PYTHONPATH (uv run strips it unreliably)"
+        )
+        # Must reach src via a bootstrap script in the writable shim dir.
+        bootstrap_py = entrypoint.SHIM_DIR / "_yolo_bootstrap.py"
+        assert bootstrap_py.is_file(), (
+            "shim should invoke a bootstrap .py in the shim dir"
+        )
+        bootstrap = bootstrap_py.read_text()
+        assert "sys.path.insert" in bootstrap
+        assert "/opt/yolo-jail" in bootstrap
+        assert "from src.cli import main" in bootstrap
+        # Shim should reference the bootstrap by path.
+        assert str(bootstrap_py) in shim
 
     def test_blocked_tool_no_fallthrough(self, jail_home, monkeypatch):
         monkeypatch.setenv(

@@ -1653,18 +1653,37 @@ def generate_yolo_wrapper():
     # Use --no-project with explicit --with deps so uv doesn't need to find
     # or build the project (which fails on read-only /opt/yolo-jail mount and
     # when CWD is outside the project tree).
-    # `uv run` manages its own environment and does NOT reliably honor
-    # PYTHONPATH — so the obvious "export PYTHONPATH=$repo_root; python
-    # -m src.cli" fails with ModuleNotFoundError: src.  Instead: cd
-    # into the repo root so Python's implicit `` entry in sys.path
-    # covers the ``src`` package, and preserve the invocation CWD via
-    # an env var that cli.py's main() chdirs back to before doing any
-    # Path.cwd() work.
+    # Two broken approaches this design avoids:
+    #
+    # 1. ``export PYTHONPATH={repo_root}`` — ``uv run`` doesn't
+    #    reliably honor PYTHONPATH (it manages its own environment
+    #    for the ephemeral venv), so ``from src.cli import main``
+    #    fails with ModuleNotFoundError intermittently.
+    # 2. ``cd {repo_root}`` — the repo root is a read-only bind
+    #    mount, and uv's getcwd() fails on bind-mounted CWDs with
+    #    "Current directory does not exist" before the Python child
+    #    even starts.
+    #
+    # Instead: a tiny bootstrap Python file in the writable shim dir
+    # does the sys.path insert before importing.  The shim runs
+    # ``uv run -- python {bootstrap}`` from whatever CWD the user is
+    # in (normal writable directory), so neither of the above bites.
+    bootstrap_py = SHIM_DIR / "_yolo_bootstrap.py"
+    bootstrap_py.write_text(f'''#!/usr/bin/env python3
+"""Make ``src`` importable without PYTHONPATH or cd gymnastics."""
+import sys
+sys.path.insert(0, {repo_root!r})
+# Rewrite argv[0] so typer's help/usage strings read "yolo", not
+# this bootstrap path.
+sys.argv[0] = "yolo"
+from src.cli import main
+
+main()
+''')
+    bootstrap_py.chmod(0o755)
     script_path.write_text(f"""#!/bin/bash
-export YOLO_INVOCATION_CWD="$PWD"
-cd "{repo_root}"
 exec uv run --no-project --with typer --with rich --with "pyjson5>=2.0.0" \
-  -- python -m src.cli "$@"
+  -- python "{bootstrap_py}" "$@"
 """)
     script_path.chmod(0o755)
 

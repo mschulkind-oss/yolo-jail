@@ -330,6 +330,23 @@ def test_yolo_check_available_inside_jail(temp_project):
     assert "YOLO Jail Check" in result.stdout
 
 
+def test_yolo_help_inside_jail(temp_project):
+    """``yolo --help`` inside a jail must work without tripping on uv's
+    getcwd, without requiring the repo root to be writable, and without
+    a PYTHONPATH dependency.  Regression: the previous shim cd'd into
+    /opt/yolo-jail (a read-only bind mount) before calling ``uv run``,
+    which caused ``uv`` to bail with "Current directory does not exist"
+    on the host's getcwd call."""
+    result = run_yolo(temp_project, "yolo --help")
+    assert result.returncode == 0, (
+        f"yolo --help failed: returncode={result.returncode}\n"
+        f"stdout={result.stdout!r}\nstderr={result.stderr!r}"
+    )
+    # Typer's help output.  Presence of "Usage:" confirms we actually
+    # reached the main() dispatcher, not a pre-import error.
+    assert "Usage:" in result.stdout, result.stdout
+
+
 def test_custom_mcp_server_config_propagates(temp_project):
     """Custom MCP servers from yolo-jail.jsonc should reach both agent configs."""
     probe_script = temp_project / "probe-mcp.py"
