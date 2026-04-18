@@ -7406,6 +7406,18 @@ def main():
     """
     import atexit
 
+    # The jail-side shim chdirs into the repo root so ``python -m
+    # src.cli`` can find the ``src`` package (uv run doesn't honor
+    # PYTHONPATH).  Chdir back to the real invocation CWD here so
+    # everything downstream — Path.cwd() for workspace resolution,
+    # yolo-jail.jsonc lookup, etc. — sees the user's actual directory.
+    _invocation_cwd = os.environ.pop("YOLO_INVOCATION_CWD", None)
+    if _invocation_cwd:
+        try:
+            os.chdir(_invocation_cwd)
+        except OSError:
+            pass
+
     # Rewrite argv so `yolo -- echo foo` routes to `yolo run -- echo foo`.
     # Typer groups resolve the first positional arg as a subcommand name, so
     # extra args after `--` that aren't subcommands would fail with "No such
