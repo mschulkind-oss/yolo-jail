@@ -4582,10 +4582,48 @@ def _check_modules(ok, warn, fail) -> None:
                 r.output or "command missing",
             )
         else:
-            fail(
-                f"module {module.name}: self-check failed (rc={r.returncode})",
-                r.output or "no output",
-            )
+            # Each "FAIL: …" chunk is a distinct problem that should
+            # render on its own (with its own ❌ and arrow-indented
+            # note). Without this split, multi-problem self-checks pack
+            # several issues into one run-on blob.
+            problems = _split_self_check_problems(r.output)
+            if not problems:
+                fail(
+                    f"module {module.name}: self-check failed (rc={r.returncode})",
+                    "no output",
+                )
+            else:
+                for title, detail in problems:
+                    fail(f"module {module.name}: {title}", detail)
+
+
+def _split_self_check_problems(output: str) -> List["tuple[str, str]"]:
+    """Split module self-check output into (title, detail) pairs.
+
+    Self-checks print one or more ``FAIL: …`` entries, each optionally
+    followed by continuation lines that provide remediation.  This splits
+    on ``FAIL:`` boundaries, takes the first line of each chunk as the
+    title and the rest as the detail.  Non-FAIL preamble is dropped.
+    """
+    problems: List["tuple[str, str]"] = []
+    current: Optional[List[str]] = None
+    for raw in output.splitlines():
+        line = raw.rstrip()
+        if line.startswith("FAIL:"):
+            if current is not None:
+                problems.append(_finalize_problem(current))
+            current = [line[len("FAIL:") :].strip()]
+        elif current is not None:
+            current.append(line)
+    if current is not None:
+        problems.append(_finalize_problem(current))
+    return problems
+
+
+def _finalize_problem(lines: List[str]) -> "tuple[str, str]":
+    title = lines[0]
+    detail_lines = [line for line in lines[1:] if line.strip()]
+    return title, "\n".join(detail_lines)
 
 
 def _check_claude_token_refresher(
@@ -4790,6 +4828,15 @@ def check(
     failed = 0
     warned = 0
 
+    def _print_note(note: str) -> None:
+        """Render a note; every line gets the same indent, first line
+        marked with an arrow so multi-line messages don't become a wall
+        of text."""
+        lines = note.splitlines() or [note]
+        for i, line in enumerate(lines):
+            prefix = "     → " if i == 0 else "       "
+            console.print(f"{prefix}{line}")
+
     def ok(msg: str):
         nonlocal passed
         passed += 1
@@ -4800,14 +4847,14 @@ def check(
         failed += 1
         console.print(f"  ❌ {msg}")
         if note:
-            console.print(f"     → {note}")
+            _print_note(note)
 
     def warn(msg: str, note: str = ""):
         nonlocal warned
         warned += 1
         console.print(f"  ⚠️  {msg}")
         if note:
-            console.print(f"     → {note}")
+            _print_note(note)
 
     console.print("\n[bold]YOLO Jail Check[/bold]\n")
 

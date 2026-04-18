@@ -477,34 +477,55 @@ def _systemd_check() -> List[str]:
         "bind" in low or "cap_net_bind" in low or ":443" in journal
     ):
         return [
-            f"{SYSTEMD_SERVICE} state={state}: port 443 bind denied. "
-            "AmbientCapabilities=CAP_NET_BIND_SERVICE isn't effective on this host. "
-            "Pick one: "
-            "(1) `sudo sysctl -w net.ipv4.ip_unprivileged_port_start=0` + persist in /etc/sysctl.d/; "
-            "(2) edit ExecStart to `--port 8443` and add an iptables/nftables DNAT "
-            "from 169.254.1.2:443 → :8443; "
-            "(3) switch to a runtime that honors the unit's ambient caps. "
-            "See modules/claude-oauth-broker/README.md."
+            "\n".join(
+                [
+                    f"{SYSTEMD_SERVICE} state={state}: port 443 bind denied.",
+                    "AmbientCapabilities=CAP_NET_BIND_SERVICE isn't effective on this host.",
+                    "Pick one:",
+                    "  (1) sudo sysctl -w net.ipv4.ip_unprivileged_port_start=0",
+                    "      (persist in /etc/sysctl.d/99-yolo-jail.conf)",
+                    "  (2) edit the unit's ExecStart to --port 8443,",
+                    "      then add an iptables DNAT from :443 → :8443 on the bridge iface",
+                    "  (3) switch to a runtime that honors the unit's ambient caps",
+                    "See modules/claude-oauth-broker/README.md.",
+                ]
+            )
         ]
     if "address already in use" in low:
         return [
-            f"{SYSTEMD_SERVICE} state={state}: port already bound by another process. "
-            "Run `ss -tlnp sport = :443` to identify — may be the host's own web server."
+            "\n".join(
+                [
+                    f"{SYSTEMD_SERVICE} state={state}: port 443 already bound.",
+                    "Identify the holder: `ss -tlnp sport = :443`",
+                    "(often the host's own web server or a prior broker instance).",
+                ]
+            )
         ]
     if "no such file" in low and "openssl" in low:
         return [
-            f"{SYSTEMD_SERVICE} state={state}: openssl not found. "
-            "Install it on the host (it's only needed once, for CA generation)."
+            "\n".join(
+                [
+                    f"{SYSTEMD_SERVICE} state={state}: openssl not found.",
+                    "Install it on the host — only needed once, for CA generation.",
+                ]
+            )
         ]
     if "exec format error" in low or "failed to execute" in low:
         return [
-            f"{SYSTEMD_SERVICE} state={state}: ExecStart binary missing or stale. "
-            "Re-run `just deploy` to reinstall."
+            "\n".join(
+                [
+                    f"{SYSTEMD_SERVICE} state={state}: ExecStart binary missing or stale.",
+                    "Re-run `just deploy` to reinstall.",
+                ]
+            )
         ]
-    # Unknown failure — point at the journal and continue.
     return [
-        f"{SYSTEMD_SERVICE} state={state}. "
-        f"`journalctl --user -u {SYSTEMD_SERVICE} -n 50 --no-pager` for details."
+        "\n".join(
+            [
+                f"{SYSTEMD_SERVICE} state={state}.",
+                f"journalctl --user -u {SYSTEMD_SERVICE} -n 50 --no-pager",
+            ]
+        )
     ]
 
 
@@ -522,9 +543,13 @@ def _tcp_probe(host: str, port: int, timeout: float = 2.0) -> List[str]:
         s.connect((host, port))
     except OSError as e:
         return [
-            f"cannot reach broker at {host}:{port}: {e}. "
-            "The daemon is not bound to the address jails route "
-            "platform.claude.com to. Check the service logs."
+            "\n".join(
+                [
+                    f"cannot reach broker at {host}:{port}: {e}.",
+                    "The daemon is not bound to the address jails route",
+                    "platform.claude.com to.  Check the service logs.",
+                ]
+            )
         ]
     finally:
         s.close()
