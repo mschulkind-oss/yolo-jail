@@ -42,16 +42,19 @@ from typing import Any, Dict, List, Optional
 try:
     from . import claude_refresher as refresher
     from . import host_service
+    from . import loopholes as _loopholes
 except ImportError:  # pragma: no cover — running as a script
     from src import claude_refresher as refresher  # type: ignore[no-redef]
     from src import host_service  # type: ignore[no-redef]
+    from src import loopholes as _loopholes  # type: ignore[no-redef]
 
 
 # --- Constants ---------------------------------------------------------------
 
-BROKER_DIR = (
-    Path.home() / ".local" / "share" / "yolo-jail" / "loopholes" / "claude-oauth-broker"
-)
+# Writable state dir for the broker loophole — CA + leaf + refresh lock.
+# Manifest lives in the bundled_loopholes directory (read-only in the
+# installed wheel); generated state can't live there.
+BROKER_DIR = _loopholes.state_dir_for("claude-oauth-broker")
 CA_CRT = BROKER_DIR / "ca.crt"
 CA_KEY = BROKER_DIR / "ca.key"
 SERVER_CRT = BROKER_DIR / "server.crt"

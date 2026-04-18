@@ -91,10 +91,32 @@ VALID_TRANSPORTS = {"tls-intercept", "unix-socket", "none"}
 VALID_LIFECYCLES = {"external", "spawned"}
 VALID_RESTART_POLICIES = {"always", "on-failure", "no"}
 
+# Sources, ordered weakest → strongest: bundled < user < workspace.
+SOURCE_BUNDLED = "bundled"
+SOURCE_USER = "user"
+SOURCE_CONFIG = "config"
 
-def loopholes_dir() -> Path:
-    """Return the host-side loopholes directory."""
+
+def bundled_loopholes_dir() -> Path:
+    """Loopholes that ship with the yolo-jail wheel — always available."""
+    return Path(__file__).parent / "bundled_loopholes"
+
+
+def user_loopholes_dir() -> Path:
+    """Third-party loopholes installed by the user.  Override bundled on
+    name collision."""
     return Path.home() / ".local" / "share" / "yolo-jail" / "loopholes"
+
+
+def state_dir_for(name: str) -> Path:
+    """Writable state directory for a loophole — CA files, leaf certs,
+    locks, and anything else generated at runtime.  Bundled manifests
+    live in the read-only wheel; their generated state lives here."""
+    return Path.home() / ".local" / "share" / "yolo-jail" / "state" / name
+
+
+# Kept for back-compat with older call sites.
+loopholes_dir = user_loopholes_dir
 
 
 @dataclass
@@ -119,6 +141,20 @@ class HostDaemon:
 
 
 @dataclass
+class Requires:
+    """Activation preconditions.  A loophole is *present* regardless —
+    but it's only *active* (docker wiring, daemons spawned) when every
+    ``requires`` predicate is satisfied.  Missing a requirement produces
+    an informational 'inactive' state in ``yolo loopholes list`` but
+    never an error."""
+
+    # A binary that must be resolvable on the user's PATH.  Example:
+    # ``"command_on_path": "claude"`` — no point running the Claude OAuth
+    # broker if there's no Claude to refresh for.
+    command_on_path: Optional[str] = None
+
+
+@dataclass
 class Loophole:
     """A loaded, validated loophole manifest."""
 
@@ -133,22 +169,58 @@ class Loophole:
     ca_cert: Optional[Path] = None
     jail_env: Dict[str, str] = field(default_factory=dict)
     doctor_cmd: Optional[List[str]] = None
-    # Daemons described by the manifest itself (see JailDaemon / HostDaemon
-    # dataclasses).  Either may be absent.
     host_daemon: Optional[HostDaemon] = None
     jail_daemon: Optional[JailDaemon] = None
-    # True for loopholes synthesized from yolo-jail.jsonc's ``loopholes``
-    # config block (workspace-scoped, spawned + unix-socket).  False for
-    # file-backed loopholes with their own manifest.jsonc under
-    # ``~/.local/share/yolo-jail/loopholes/``.  Used to decide which
-    # integration path applies: config-backed loopholes route through
-    # ``start_loopholes`` in cli.py; file-backed ones through
-    # ``docker_args_for`` below.
-    from_config: bool = False
+    requires: Requires = field(default_factory=Requires)
+    # Where this loophole was loaded from: bundled / user / config.
+    # Back-compat: from_config stays as a property below.
+    source: str = SOURCE_USER
+
+    @property
+    def from_config(self) -> bool:
+        """Back-compat alias — True when this loophole came from a
+        yolo-jail.jsonc ``loopholes:`` entry (no manifest file)."""
+        return self.source == SOURCE_CONFIG
 
     @property
     def has_ca(self) -> bool:
         return self.ca_cert is not None and self.ca_cert.is_file()
+
+    @property
+    def requirements_met(self) -> bool:
+        req = self.requires
+        if req.command_on_path is not None:
+            import shutil as _shutil
+
+            if _shutil.which(req.command_on_path) is None:
+                return False
+        return True
+
+    @property
+    def active(self) -> bool:
+        """True when the loophole should actually be wired up this run.
+        False for disabled loopholes OR loopholes whose ``requires``
+        predicate isn't satisfied."""
+        return self.enabled and self.requirements_met
+
+    @property
+    def inactive_reason(self) -> Optional[str]:
+        """Human explanation for why an enabled loophole is inactive,
+        or None if it's active.  Used by ``yolo loopholes list``."""
+        if not self.enabled:
+            return "disabled"
+        req = self.requires
+        if req.command_on_path is not None:
+            import shutil as _shutil
+
+            if _shutil.which(req.command_on_path) is None:
+                return f"{req.command_on_path!r} not on PATH"
+        return None
+
+    @property
+    def state_dir(self) -> Path:
+        """Writable state directory for this loophole."""
+        return state_dir_for(self.name)
 
 
 class LoopholeError(ValueError):
@@ -202,9 +274,17 @@ def _load_manifest(module_path: Path) -> Loophole:
         intercepts.append(Intercept(host=entry["host"]))
 
     ca_cert: Optional[Path] = None
-    ca_cert_rel = data.get("ca_cert")
-    if isinstance(ca_cert_rel, str) and ca_cert_rel:
-        ca_cert = (module_path / ca_cert_rel).resolve()
+    ca_cert_raw = data.get("ca_cert")
+    if isinstance(ca_cert_raw, str) and ca_cert_raw:
+        # {state} template → per-loophole state dir (writable).
+        # Any other value is resolved relative to the manifest directory
+        # (useful for loopholes that ship a pre-built CA in the bundled
+        # or user dir).
+        if "{state}" in ca_cert_raw:
+            resolved = ca_cert_raw.replace("{state}", str(state_dir_for(name)))
+            ca_cert = Path(resolved)
+        else:
+            ca_cert = (module_path / ca_cert_raw).resolve()
 
     jail_env_raw = data.get("jail_env") or {}
     if not isinstance(jail_env_raw, dict):
@@ -224,6 +304,7 @@ def _load_manifest(module_path: Path) -> Loophole:
 
     host_daemon = _parse_host_daemon(manifest_path, data.get("host_daemon"))
     jail_daemon = _parse_jail_daemon(manifest_path, data.get("jail_daemon"))
+    requires = _parse_requires(manifest_path, data.get("requires"))
 
     return Loophole(
         name=name,
@@ -239,7 +320,21 @@ def _load_manifest(module_path: Path) -> Loophole:
         doctor_cmd=doctor_cmd,
         host_daemon=host_daemon,
         jail_daemon=jail_daemon,
+        requires=requires,
     )
+
+
+def _parse_requires(manifest_path: Path, raw: Any) -> Requires:
+    if raw is None:
+        return Requires()
+    if not isinstance(raw, dict):
+        raise LoopholeError(f"{manifest_path}: 'requires' must be a mapping")
+    command_on_path = raw.get("command_on_path")
+    if command_on_path is not None and not isinstance(command_on_path, str):
+        raise LoopholeError(
+            f"{manifest_path}: 'requires.command_on_path' must be a string"
+        )
+    return Requires(command_on_path=command_on_path)
 
 
 def _parse_host_daemon(manifest_path: Path, raw: Any) -> Optional[HostDaemon]:
@@ -282,13 +377,10 @@ def _parse_jail_daemon(manifest_path: Path, raw: Any) -> Optional[JailDaemon]:
 def _synthesize_config_loopholes(
     loopholes_config: Optional[Dict[str, Any]],
 ) -> List[Loophole]:
-    """Surface entries from ``yolo-jail.jsonc``'s ``loopholes`` block as
-    read-only Loophole records.
+    """Surface yolo-jail.jsonc ``loopholes:`` entries as Loophole records.
 
-    These are not file-backed (no manifest.jsonc) and can't be enabled /
-    disabled through the loopholes CLI — you edit yolo-jail.jsonc.  They
-    appear in ``yolo loopholes list`` so the operator has a single pane
-    of glass on what's crossing the jail boundary.
+    These are workspace-inline loopholes: no separate manifest file,
+    the daemon lifecycle is spawned + unix-socket.
     """
     out: List[Loophole] = []
     if not isinstance(loopholes_config, dict):
@@ -313,9 +405,78 @@ def _synthesize_config_loopholes(
                 transport="unix-socket",
                 lifecycle="spawned",
                 doctor_cmd=doctor_cmd,
-                from_config=True,
+                source=SOURCE_CONFIG,
             )
         )
+    return out
+
+
+def _apply_workspace_overrides(
+    existing: Dict[str, Loophole],
+    loopholes_config: Optional[Dict[str, Any]],
+) -> List[Loophole]:
+    """Merge workspace ``loopholes:`` entries into already-loaded
+    loopholes.  Returns (in document order) the list of NEW loopholes
+    that didn't match anything existing — those become inline
+    config-backed loopholes.
+
+    Override merge rules (conservative — only the fields a workspace
+    should be allowed to tweak):
+      - ``enabled`` — replaces.
+      - ``env`` — shallow-merges into ``host_daemon.env`` if present.
+      - ``jail_env`` — shallow-merges into ``jail_env``.
+
+    The command (and any other shape-defining fields) of a file-backed
+    loophole are never overridden; workspaces ship config values, not
+    surgery on the loophole's definition.
+    """
+    new_inline: List[Loophole] = []
+    if not isinstance(loopholes_config, dict):
+        return new_inline
+    for name, spec in loopholes_config.items():
+        if not isinstance(spec, dict):
+            continue
+        target = existing.get(str(name))
+        if target is None:
+            # No existing loophole by this name — fall back to inline
+            # config-backed synthesis.
+            new_inline.extend(_synthesize_config_loopholes({name: spec}))
+            continue
+        # Merge overrides in place.
+        if "enabled" in spec:
+            target.enabled = bool(spec["enabled"])
+        env_override = spec.get("env") or {}
+        if isinstance(env_override, dict) and target.host_daemon is not None:
+            target.host_daemon.env = {
+                **target.host_daemon.env,
+                **{str(k): str(v) for k, v in env_override.items()},
+            }
+        jail_env_override = spec.get("jail_env") or {}
+        if isinstance(jail_env_override, dict):
+            target.jail_env = {
+                **target.jail_env,
+                **{str(k): str(v) for k, v in jail_env_override.items()},
+            }
+    return new_inline
+
+
+def _load_from_dir(dir_path: Path, source: str) -> Dict[str, Loophole]:
+    """Scan ``dir_path`` for loophole manifests.  Returns a name→Loophole
+    mapping.  Invalid manifests are skipped silently; use
+    ``validate_loopholes`` for diagnostics.
+    """
+    out: Dict[str, Loophole] = {}
+    if not dir_path.is_dir():
+        return out
+    for child in sorted(dir_path.iterdir()):
+        if not child.is_dir() or child.name.startswith("."):
+            continue
+        try:
+            loophole = _load_manifest(child)
+        except LoopholeError:
+            continue
+        loophole.source = source
+        out[loophole.name] = loophole
     return out
 
 
@@ -324,53 +485,69 @@ def discover_loopholes(
     *,
     include_disabled: bool = False,
     loopholes_config: Optional[Dict[str, Any]] = None,
+    include_bundled: bool = True,
 ) -> List[Loophole]:
-    """Return every validated loophole — file-backed plus any synthesized
-    from the ``loopholes`` block in yolo-jail.jsonc.
+    """Return every loophole visible at run time, merged across the three
+    sources (bundled < user < workspace overrides) and with workspace
+    inline definitions appended.
 
-    Invalid manifests are skipped silently — a broken third-party loophole
-    should not prevent ``yolo run`` from starting.  Use ``validate_loopholes``
-    for operator-facing diagnostics.
+    ``root`` — override the user-level loopholes directory.  When None,
+    uses ``user_loopholes_dir()``.  Bundled dir is always added unless
+    ``include_bundled=False`` (used by tests that want an isolated view).
+
+    Merge semantics on name collision:
+      - user overrides bundled (the whole manifest — different dir, so
+        it's a full replacement).
+      - workspace config overrides either, but only on a small set of
+        safe fields (enabled, env, jail_env).  See
+        ``_apply_workspace_overrides``.
     """
-    root = root or loopholes_dir()
+    root = root or user_loopholes_dir()
+    by_name: Dict[str, Loophole] = {}
+    if include_bundled:
+        by_name.update(_load_from_dir(bundled_loopholes_dir(), SOURCE_BUNDLED))
+    by_name.update(_load_from_dir(root, SOURCE_USER))
+    inline = _apply_workspace_overrides(by_name, loopholes_config)
+
     out: List[Loophole] = []
-    if root.is_dir():
-        for child in sorted(root.iterdir()):
-            if not child.is_dir() or child.name.startswith("."):
-                continue
-            try:
-                loophole = _load_manifest(child)
-            except LoopholeError:
-                continue
-            if not include_disabled and not loophole.enabled:
-                continue
-            out.append(loophole)
-    for synth in _synthesize_config_loopholes(loopholes_config):
-        if not include_disabled and not synth.enabled:
+    for m in by_name.values():
+        if not include_disabled and not m.enabled:
             continue
-        out.append(synth)
+        out.append(m)
+    for m in inline:
+        if not include_disabled and not m.enabled:
+            continue
+        out.append(m)
     return out
 
 
 def validate_loopholes(
     root: Optional[Path] = None,
+    *,
+    include_bundled: bool = True,
 ) -> List["tuple[Path, Optional[Loophole], Optional[str]]"]:
-    """Return one entry per file-backed loophole directory.
+    """Return one entry per file-backed loophole directory (bundled + user).
 
     Config-synthesized loopholes are not included — they have no manifest
     to validate (they live in yolo-jail.jsonc).
     """
-    root = root or loopholes_dir()
-    if not root.is_dir():
-        return []
     out: List["tuple[Path, Optional[Loophole], Optional[str]]"] = []
-    for child in sorted(root.iterdir()):
-        if not child.is_dir() or child.name.startswith("."):
+    dirs: List["tuple[Path, str]"] = []
+    if include_bundled:
+        dirs.append((bundled_loopholes_dir(), SOURCE_BUNDLED))
+    dirs.append(((root or user_loopholes_dir()), SOURCE_USER))
+    for dir_path, source in dirs:
+        if not dir_path.is_dir():
             continue
-        try:
-            out.append((child, _load_manifest(child), None))
-        except LoopholeError as e:
-            out.append((child, None, str(e)))
+        for child in sorted(dir_path.iterdir()):
+            if not child.is_dir() or child.name.startswith("."):
+                continue
+            try:
+                loophole = _load_manifest(child)
+                loophole.source = source
+                out.append((child, loophole, None))
+            except LoopholeError as e:
+                out.append((child, None, str(e)))
     return out
 
 
@@ -397,7 +574,13 @@ def docker_args_for(loopholes: List[Loophole]) -> List[str]:
     trusted_ca_paths: List[str] = []
     jail_daemons_payload: List[Dict[str, Any]] = []
     for m in loopholes:
+        # Config-backed loopholes: wiring lives in cli.start_loopholes.
         if m.from_config:
+            continue
+        # Present-but-inactive loopholes (disabled, or requires not met)
+        # emit nothing — they show up in ``yolo loopholes list`` but are
+        # not wired into the jail.
+        if not m.active:
             continue
         container_dir = f"/etc/yolo-jail/loopholes/{m.name}"
 
@@ -406,15 +589,25 @@ def docker_args_for(loopholes: List[Loophole]) -> List[str]:
 
         # If the loophole has a jail_daemon, mount the whole loophole dir
         # so the daemon cmd can reference files shipped with it (e.g. a
-        # jail.py proxy).  Otherwise fall back to mounting just ca.crt.
+        # jail.py proxy).
         if m.jail_daemon is not None:
             args.extend(["-v", f"{m.path}:{container_dir}:ro"])
-            if m.has_ca and m.ca_cert is not None:
-                trusted_ca_paths.append(f"{container_dir}/{m.ca_cert.name}")
-        elif m.has_ca:
-            container_path = f"{container_dir}/ca.crt"
-            args.extend(["-v", f"{m.ca_cert}:{container_path}:ro"])
-            trusted_ca_paths.append(container_path)
+            # State dir — writable on host, read-only in jail.  Lets
+            # daemons inside the jail read generated files (leaf cert,
+            # etc.) without rebaking them into the read-only bundled
+            # dir.  Only mount if it exists (otherwise podman errors).
+            if m.state_dir.is_dir():
+                state_container = f"/var/lib/yolo-jail/loopholes/{m.name}"
+                args.extend(["-v", f"{m.state_dir}:{state_container}:ro"])
+
+        # Always mount the CA file at a canonical path inside the jail
+        # so NODE_EXTRA_CA_CERTS has a known target.  Works whether the
+        # CA lives in the loophole dir OR the state dir — the file
+        # mount overlays whatever the dir mount already provided.
+        if m.has_ca and m.ca_cert is not None:
+            container_ca = f"{container_dir}/ca.crt"
+            args.extend(["-v", f"{m.ca_cert}:{container_ca}:ro"])
+            trusted_ca_paths.append(container_ca)
 
         if m.jail_daemon is not None:
             jail_daemons_payload.append(
@@ -446,6 +639,8 @@ def manifest_host_daemon_specs(loopholes: List[Loophole]) -> Dict[str, Dict[str,
     out: Dict[str, Dict[str, Any]] = {}
     for m in loopholes:
         if m.from_config or m.host_daemon is None:
+            continue
+        if not m.active:
             continue
         spec: Dict[str, Any] = {
             "command": list(m.host_daemon.cmd),

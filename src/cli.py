@@ -2147,22 +2147,31 @@ def start_loopholes(
         if journal is not None:
             handles.append(journal)
 
-    # 3. External services, from two sources:
-    #    a) Workspace/user config's ``loopholes:`` block.
-    #    b) File-backed loophole manifests that declare a ``host_daemon``.
-    #    Merge with (a) winning on name conflict so a user can override a
-    #    loophole's bundled daemon from config if they really need to.
-    manifest_specs = _loopholes.manifest_host_daemon_specs(
-        _loopholes.discover_loopholes()
-    )
+    # 3. External services.  Discovery unifies three sources:
+    #      a) Bundled loopholes (ship in the wheel).
+    #      b) User-installed loopholes (~/.local/share/yolo-jail/loopholes/).
+    #      c) Inline ``loopholes:`` entries in yolo-jail.jsonc for daemons
+    #         that don't need a file-backed manifest.
+    #    Workspace config can also override (a) and (b) via name-matching
+    #    entries — see ``_apply_workspace_overrides`` in src/loopholes.py.
+    #    Inactive loopholes (disabled, or ``requires`` not met) are skipped.
+    loopholes_config = config.get("loopholes")
+    discovered = _loopholes.discover_loopholes(loopholes_config=loopholes_config)
+    manifest_specs = _loopholes.manifest_host_daemon_specs(discovered)
     external_specs: Dict[str, Any] = dict(manifest_specs)
-    config_specs = config.get("loopholes") or {}
-    if isinstance(config_specs, dict):
-        external_specs.update(config_specs)
+    # Config-inline loopholes (no matching file-backed entry) still end up
+    # as unix-socket daemons — the synthesizer captured them, but
+    # _start_host_service_external wants the original config dict shape,
+    # so pull those straight from config for their command fields.
+    if isinstance(loopholes_config, dict):
+        for name, spec in loopholes_config.items():
+            if name in external_specs:
+                continue  # already covered by a file-backed manifest's host_daemon
+            if isinstance(spec, dict) and "command" in spec:
+                external_specs[name] = spec
     for name, spec in external_specs.items():
         if name in (BUILTIN_CGROUP_LOOPHOLE_NAME, BUILTIN_JOURNAL_LOOPHOLE_NAME):
-            # Reserved — user can't shadow the builtins.
-            continue
+            continue  # reserved builtins
         if not isinstance(spec, dict):
             continue
         h = _start_host_service_external(name, spec, sockets_dir)
@@ -7287,39 +7296,32 @@ def _loopholes_with_config(include_disabled: bool = False):
 
 @loopholes_app.command("list")
 def loopholes_list():
-    """List installed loopholes and their enabled state."""
-    file_backed = _loopholes.validate_loopholes()
-    synthesized = [
-        m for m in _loopholes_with_config(include_disabled=True) if m.from_config
-    ]
-    if not file_backed and not synthesized:
-        typer.echo(f"No loopholes installed under {_loopholes.loopholes_dir()}")
-        typer.echo("(Also checked yolo-jail.jsonc loopholes: block — empty.)")
+    """List installed loopholes and their enabled/active state."""
+    all_loopholes = _loopholes_with_config(include_disabled=True)
+    if not all_loopholes:
+        typer.echo("No loopholes installed.")
+        typer.echo(f"  • bundled: {_loopholes.bundled_loopholes_dir()}")
+        typer.echo(f"  • user: {_loopholes.user_loopholes_dir()}")
+        typer.echo("  • workspace: yolo-jail.jsonc loopholes: block")
         return
-    for path, loophole, err in file_backed:
-        if err:
-            typer.echo(f"  ✗ {path.name}  INVALID  {err}")
-            continue
-        assert loophole is not None
-        state = "enabled" if loophole.enabled else "disabled"
-        extra = ""
-        if loophole.transport == "tls-intercept":
-            hosts = ", ".join(i.host for i in loophole.intercepts) or "—"
-            extra = f"intercepts=[{hosts}]"
+    for loophole in all_loopholes:
+        # State label: active / inactive(reason) / disabled.
+        if not loophole.enabled:
+            label = "disabled"
+        elif loophole.inactive_reason:
+            label = f"inactive ({loophole.inactive_reason})"
+        else:
+            label = "active"
+        if loophole.transport == "tls-intercept" and loophole.intercepts:
+            extra = (
+                "intercepts=[" + ", ".join(i.host for i in loophole.intercepts) + "]"
+            )
         else:
             extra = f"transport={loophole.transport}"
-        typer.echo(
-            f"  {state:<8}  {loophole.name}  ({loophole.transport}/{loophole.lifecycle})  {extra}"
-        )
+        tags = f"{loophole.source}/{loophole.transport}/{loophole.lifecycle}"
+        typer.echo(f"  {label:<36}  {loophole.name}  ({tags})  {extra}")
         if loophole.description:
-            typer.echo(f"            {loophole.description}")
-    for s in synthesized:
-        state = "enabled" if s.enabled else "disabled"
-        typer.echo(
-            f"  {state:<8}  {s.name}  (unix-socket/spawned)  [host_services shorthand]"
-        )
-        if s.description:
-            typer.echo(f"            {s.description}")
+            typer.echo(f"      {loophole.description}")
 
 
 @loopholes_app.command("status")
@@ -7327,19 +7329,20 @@ def loopholes_status():
     """Run each loophole's doctor_cmd and report."""
     loopholes_list_ = _loopholes_with_config(include_disabled=True)
     if not loopholes_list_:
-        typer.echo(f"No loopholes installed under {_loopholes.loopholes_dir()}")
+        typer.echo("No loopholes installed.")
         return
     results = _loopholes.run_doctor_checks(loopholes_list_)
     for r in results:
-        prefix = (
-            "disabled"
-            if not r.loophole.enabled
-            else (
-                "ok"
-                if r.returncode == 0
-                else ("no-check" if r.returncode is None else "fail")
-            )
-        )
+        if not r.loophole.enabled:
+            prefix = "disabled"
+        elif not r.loophole.requirements_met:
+            prefix = "inactive"
+        elif r.returncode == 0:
+            prefix = "ok"
+        elif r.returncode is None:
+            prefix = "no-check"
+        else:
+            prefix = "fail"
         typer.echo(f"  [{prefix}] {r.loophole.name}  rc={r.returncode}")
         if r.output:
             for line in r.output.splitlines():
@@ -7348,12 +7351,18 @@ def loopholes_status():
 
 @loopholes_app.command("enable")
 def loopholes_enable(name: str):
-    """Enable a file-backed loophole by name."""
-    path = _loopholes.loopholes_dir() / name
+    """Enable a user-installed loophole by name.
+
+    Bundled loopholes (shipped with the wheel) are read-only; to disable
+    one, set ``loopholes.<name>.enabled: false`` in yolo-jail.jsonc.
+    Config-inline loopholes are toggled the same way.
+    """
+    path = _loopholes.user_loopholes_dir() / name
     if not (path / "manifest.jsonc").is_file():
         typer.echo(
-            f"No file-backed loophole at {path}.\n"
-            "host_services-shorthand loopholes are toggled via yolo-jail.jsonc.",
+            f"No user-installed loophole at {path}.\n"
+            "For bundled or workspace-inline loopholes, edit the workspace "
+            "yolo-jail.jsonc (loopholes.<name>.enabled).",
             err=True,
         )
         raise typer.Exit(1)
@@ -7363,12 +7372,13 @@ def loopholes_enable(name: str):
 
 @loopholes_app.command("disable")
 def loopholes_disable(name: str):
-    """Disable a file-backed loophole (leaves files; next `yolo run` picks it up)."""
-    path = _loopholes.loopholes_dir() / name
+    """Disable a user-installed loophole (leaves files in place)."""
+    path = _loopholes.user_loopholes_dir() / name
     if not (path / "manifest.jsonc").is_file():
         typer.echo(
-            f"No file-backed loophole at {path}.\n"
-            "host_services-shorthand loopholes are toggled via yolo-jail.jsonc.",
+            f"No user-installed loophole at {path}.\n"
+            "For bundled or workspace-inline loopholes, edit the workspace "
+            "yolo-jail.jsonc (loopholes.<name>.enabled).",
             err=True,
         )
         raise typer.Exit(1)

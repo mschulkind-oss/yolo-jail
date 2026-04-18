@@ -111,33 +111,39 @@ deploy: install
         echo "  ExecStart → $REFRESHER_BIN"
     fi
 
-    # --- Claude OAuth broker loophole ---
-    # Host daemon + jail daemon: per-jail, spawned by yolo run.  No
-    # systemd unit, no privileged host port.  We just stage the
-    # manifest into the loopholes directory and pre-generate the CA
-    # (the jail needs it at mount time, before the per-jail host
-    # daemon has a chance to run its own ensure_ca_and_leaf).
-    # Also cleans up a pre-rename ``modules/`` install + a pre-split
-    # claude-oauth-broker.service if present.
-    if ! command -v claude >/dev/null 2>&1; then
-        echo "⚠ claude not found — skipping claude-oauth-broker loophole install"
-    elif ! command -v openssl >/dev/null 2>&1; then
-        echo "⚠ openssl not found — skipping claude-oauth-broker loophole install"
+    # --- Claude OAuth broker loophole (bundled) ---
+    # The manifest ships inside the yolo-jail wheel under
+    # src/bundled_loopholes/claude-oauth-broker/ — the loader finds it
+    # automatically whenever yolo-jail is installed.  The loophole's
+    # ``requires.command_on_path: claude`` predicate gates activation,
+    # so there's no separate "is Claude installed" check here.
+    #
+    # The only host-install step: pre-generate the CA + leaf into the
+    # writable state dir so jails have something to trust on first
+    # boot.  Also retires any pre-bundled-era install artifacts.
+    if ! command -v openssl >/dev/null 2>&1; then
+        echo "⚠ openssl not found — skipping claude-oauth-broker state init"
     else
         BROKER_BIN="$(command -v yolo-claude-oauth-broker-host || true)"
         if [ -z "$BROKER_BIN" ]; then
             echo "ERROR: yolo-claude-oauth-broker-host not on PATH after install" >&2
-            echo "  Expected entry point from the yolo-jail wheel." >&2
             exit 1
         fi
 
-        # Migrate prior install locations.
-        OLD_DIR="$HOME/.local/share/yolo-jail/modules/claude-oauth-broker"
-        LOOPHOLE_DIR="$HOME/.local/share/yolo-jail/loopholes/claude-oauth-broker"
-        if [ -d "$OLD_DIR" ] && [ ! -d "$LOOPHOLE_DIR" ]; then
-            mkdir -p "$(dirname "$LOOPHOLE_DIR")"
-            mv "$OLD_DIR" "$LOOPHOLE_DIR"
-            echo "  migrated $OLD_DIR → $LOOPHOLE_DIR"
+        # Retire stale copies of the manifest from pre-bundled installs.
+        rm -rf "$HOME/.local/share/yolo-jail/modules/claude-oauth-broker"
+        if [ -d "$HOME/.local/share/yolo-jail/loopholes/claude-oauth-broker" ]; then
+            # Move any generated state into the new state dir before
+            # removing the legacy copy (the manifest lives in the wheel
+            # now, but CA/leaf files shouldn't be lost).
+            STATE_DIR="$HOME/.local/share/yolo-jail/state/claude-oauth-broker"
+            mkdir -p "$STATE_DIR"
+            for f in ca.crt ca.key server.crt server.key refresh.lock; do
+                src_f="$HOME/.local/share/yolo-jail/loopholes/claude-oauth-broker/$f"
+                [ -f "$src_f" ] && mv "$src_f" "$STATE_DIR/$f" 2>/dev/null || true
+            done
+            rm -rf "$HOME/.local/share/yolo-jail/loopholes/claude-oauth-broker"
+            echo "  migrated legacy loopholes/claude-oauth-broker → bundled + state split"
         fi
         # Retire the pre-split systemd unit if present.
         if command -v systemctl >/dev/null 2>&1; then
@@ -149,19 +155,14 @@ deploy: install
             fi
         fi
 
-        mkdir -p "$LOOPHOLE_DIR"
-        cp loopholes/claude-oauth-broker/manifest.jsonc "$LOOPHOLE_DIR/manifest.jsonc"
-        cp loopholes/claude-oauth-broker/README.md "$LOOPHOLE_DIR/README.md"
-
-        # Generate CA + leaf now so the jail can trust them at first boot.
+        # Generate CA + leaf in the state dir (idempotent).
         "$BROKER_BIN" --init-ca >/dev/null
 
-        echo "✓ claude-oauth-broker loophole installed at $LOOPHOLE_DIR"
-        echo "  host daemon: $BROKER_BIN (spawned per jail)"
-        echo "  jail daemon: python -m src.oauth_broker_jail (supervised in jail)"
+        echo "✓ claude-oauth-broker state primed at $HOME/.local/share/yolo-jail/state/claude-oauth-broker"
+        echo "  manifest is bundled in the wheel; loophole activates automatically when Claude is on PATH"
     fi
 
-    echo "yolo-jail deployed. Verify: yolo check"
+    echo "yolo-jail deployed. Verify: yolo loopholes list"
 
 # Build the container image using Nix
 build-image:

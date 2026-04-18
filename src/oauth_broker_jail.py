@@ -40,8 +40,11 @@ from typing import Any, Dict, Optional, Tuple
 
 
 LOOPHOLE_DIR = Path("/etc/yolo-jail/loopholes/claude-oauth-broker")
-DEFAULT_CERT = LOOPHOLE_DIR / "server.crt"
-DEFAULT_KEY = LOOPHOLE_DIR / "server.key"
+# State dir mount — contains the leaf cert + key generated on the host
+# side by ``yolo-claude-oauth-broker-host --init-ca``.
+STATE_DIR = Path("/var/lib/yolo-jail/loopholes/claude-oauth-broker")
+DEFAULT_CERT = STATE_DIR / "server.crt"
+DEFAULT_KEY = STATE_DIR / "server.key"
 
 UPSTREAM_HOST = "platform.claude.com"
 DEFAULT_LISTEN_HOST = "127.0.0.1"

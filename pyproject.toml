@@ -53,10 +53,11 @@ version_file = "src/_version.py"
 version_file = "src/_version.py"
 
 [tool.setuptools]
-packages = ["src"]
+packages = ["src", "src.bundled_loopholes"]
 
 [tool.setuptools.package-data]
 src = ["flake.nix", "flake.lock", "shims/*"]
+"src.bundled_loopholes" = ["**/*"]
 
 [dependency-groups]
 dev = [

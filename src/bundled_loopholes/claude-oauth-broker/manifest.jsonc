@@ -1,0 +1,36 @@
+// Bundled yolo-jail loophole — ships with the wheel.
+// See src/loopholes.py for the schema.  Generated CA + leaf state live
+// under ~/.local/share/yolo-jail/state/claude-oauth-broker/ (writable);
+// this manifest is in the read-only package dir.
+{
+  "name": "claude-oauth-broker",
+  "description": "Serializes Claude OAuth refreshes so multi-jail setups don't burn the single-use refresh token. TLS termination lives inside each jail; a host-side daemon owns the flock + shared credentials file.",
+  "version": 1,
+  "enabled": true,
+  // Activation precondition.  Bundled → always *present*; inactive when
+  // Claude Code isn't installed on the host (no point running the
+  // broker with nothing to refresh for).
+  "requires": {
+    "command_on_path": "claude"
+  },
+  "transport": "tls-intercept",
+  "lifecycle": "spawned",
+  "intercepts": [
+    {"host": "platform.claude.com"}
+  ],
+  // Jail-local loopback — the jail_daemon terminates TLS on
+  // 127.0.0.1:443 inside the container network namespace (unprivileged
+  // there).  No host port binding.
+  "broker_ip": "127.0.0.1",
+  // {state} → per-loophole writable state dir; the generated CA/leaf
+  // pair lives there, not in the read-only bundled dir.
+  "ca_cert": "{state}/ca.crt",
+  "host_daemon": {
+    "cmd": ["yolo-claude-oauth-broker-host", "--socket", "{socket}"]
+  },
+  "jail_daemon": {
+    "cmd": ["python3", "-m", "src.oauth_broker_jail"],
+    "restart": "on-failure"
+  },
+  "doctor_cmd": ["yolo-claude-oauth-broker-host", "--self-check"]
+}
