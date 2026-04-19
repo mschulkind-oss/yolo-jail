@@ -73,6 +73,7 @@ GEMINI_DIR = HOME / ".gemini"
 GEMINI_MANAGED_MCP_PATH = GEMINI_DIR / "yolo-managed-mcp-servers.json"
 CLAUDE_DIR = HOME / ".claude"
 CLAUDE_MANAGED_MCP_PATH = CLAUDE_DIR / "yolo-managed-mcp-servers.json"
+CLAUDE_SHARED_CREDENTIALS_DIR = HOME / ".claude-shared-credentials"
 MISE_CONFIG_DIR = HOME / ".config" / "mise"
 
 # Default LSP servers always available in the jail.
@@ -369,6 +370,19 @@ export GIT_PAGER=cat
 export EDITOR=cat
 export VISUAL=nvim
 
+# Combined CA bundle — baseline Nix cacert + every loophole CA.
+# Point every standard TLS trust-store env var at one file so Python
+# (ssl, requests, httpx), curl, and git all verify the same roots the
+# in-jail broker leafs are signed by.  NODE_EXTRA_CA_CERTS is set by
+# the container launcher to just the extras (Node adds them to its own
+# bundled roots).  See generate_ca_bundle() in entrypoint.py.
+if [ -f "$HOME/.yolo-ca-bundle.crt" ]; then
+    export SSL_CERT_FILE="$HOME/.yolo-ca-bundle.crt"
+    export REQUESTS_CA_BUNDLE="$HOME/.yolo-ca-bundle.crt"
+    export CURL_CA_BUNDLE="$HOME/.yolo-ca-bundle.crt"
+    export GIT_SSL_CAINFO="$HOME/.yolo-ca-bundle.crt"
+fi
+
 # Source user-defined env vars from config (defaults, overridable by .env).
 # Loaded early so mise activation can override with .env values.
 [ -f "$HOME/.config/yolo-user-env.sh" ] && . "$HOME/.config/yolo-user-env.sh"
@@ -407,6 +421,84 @@ alias bat='bat --style=plain --paging=never'
 """
     )
     BASHRC_PATH.write_text(content)
+
+
+# ---------------------------------------------------------------------------
+# 2a. Combined CA bundle — so every TLS client finds the loophole CAs
+# ---------------------------------------------------------------------------
+
+# The combined bundle.  Writable path under $HOME so we can rewrite it at
+# every jail boot.
+
+
+def _read_bundle_bytes(path: Path) -> bytes:
+    """Read a PEM file, returning b'' on any error.  Not finding a cert
+    source is a warn, not a fatal — the combined bundle is best-effort
+    and we always keep going.  The baseline bundle is usually present
+    via the image env var; individual loophole CAs can be absent if the
+    loophole hasn't been primed yet."""
+    try:
+        return path.read_bytes()
+    except OSError:
+        return b""
+
+
+def generate_ca_bundle() -> Path:
+    """Build ``$HOME/.yolo-ca-bundle.crt`` from the image baseline +
+    every loophole CA, and point the standard env vars at it.
+
+    Order of contents:
+      1. the image's baseline bundle (``$SSL_CERT_FILE``; set at image
+         build time to the Nix cacert Mozilla bundle), if readable.
+      2. each path in ``$NODE_EXTRA_CA_CERTS`` — that's the colon-
+         separated list cli.py assembles from every active loophole's
+         ``ca_cert`` field.
+
+    The resulting bundle is exported via ``os.environ`` so any child
+    process spawned from the entrypoint (jail-daemon supervisor, bash,
+    etc.) sees the combined trust store under the usual var names.
+    The bashrc re-exports the same vars for interactive shells.
+    """
+    # Refresh CA_BUNDLE_PATH in case HOME was monkeypatched (tests).
+    bundle_path = HOME / ".yolo-ca-bundle.crt"
+
+    chunks: list[bytes] = []
+    baseline = os.environ.get("SSL_CERT_FILE", "")
+    if baseline and baseline != str(bundle_path):
+        data = _read_bundle_bytes(Path(baseline))
+        if data:
+            chunks.append(data)
+
+    extras = os.environ.get("NODE_EXTRA_CA_CERTS", "")
+    if extras:
+        seen: set[str] = set()
+        for raw in extras.split(os.pathsep):
+            p = raw.strip()
+            if not p or p in seen:
+                continue
+            seen.add(p)
+            data = _read_bundle_bytes(Path(p))
+            if data:
+                chunks.append(data)
+
+    # Always write a file, even if empty — env vars pointing at a
+    # nonexistent path confuse some tools (curl prints a warning on
+    # every request).  An empty bundle is harmless: baseline-only
+    # verification still works via the image default if set.
+    body = b"\n".join(c.rstrip(b"\n") for c in chunks)
+    if body and not body.endswith(b"\n"):
+        body += b"\n"
+    bundle_path.write_bytes(body)
+    os.chmod(bundle_path, 0o644)
+
+    # Point the standard vars at the combined bundle so children inherit
+    # the right trust store without having to know about this file.
+    bundle_str = str(bundle_path)
+    os.environ["SSL_CERT_FILE"] = bundle_str
+    os.environ["REQUESTS_CA_BUNDLE"] = bundle_str
+    os.environ["CURL_CA_BUNDLE"] = bundle_str
+    os.environ["GIT_SSL_CAINFO"] = bundle_str
+    return bundle_path
 
 
 # ---------------------------------------------------------------------------
@@ -1040,7 +1132,13 @@ def _sync_host_claude_files():
         if fname == "settings.json":
             continue  # handled by configure_claude() via deep-merge
         src = host_claude_dir / fname
-        dst = CLAUDE_DIR / fname
+        # Credentials live in the shared dir (directory bind mount that
+        # supports atomic rename).  Other files go to the per-workspace
+        # .claude/ overlay as before.
+        if fname == ".credentials.json":
+            dst = CLAUDE_SHARED_CREDENTIALS_DIR / fname
+        else:
+            dst = CLAUDE_DIR / fname
         if not src.exists():
             continue
         # For credentials: keep the token with the later expiry.
@@ -1114,6 +1212,42 @@ def _isolate_claude_history():
     history_file.symlink_to(per_jail)
 
 
+def _ensure_credentials_symlink():
+    """Ensure .claude/.credentials.json is a symlink into the shared credentials dir.
+
+    The shared credentials directory is a rw directory bind mount, so Claude
+    Code's IWH atomic writer (readlinkSync → tmp → rename) works correctly.
+    The old approach — a single-file bind mount — caused EBUSY on rename,
+    forcing the fallback truncate+write path which can lose data in races.
+    """
+    link = CLAUDE_DIR / ".credentials.json"
+    target = Path("..") / ".claude-shared-credentials" / ".credentials.json"
+
+    if link.is_symlink():
+        try:
+            if Path(os.readlink(str(link))) == target:
+                return  # already correct
+        except OSError:
+            pass
+        link.unlink()
+    elif link.exists():
+        # Migration: existing regular file (from old single-file bind mount era).
+        # Copy its data to the shared dir if the shared dir's copy is missing
+        # or empty, then replace with symlink.
+        shared = CLAUDE_SHARED_CREDENTIALS_DIR / ".credentials.json"
+        if not shared.exists() or shared.stat().st_size == 0:
+            try:
+                shutil.copy2(str(link), str(shared))
+            except OSError:
+                pass
+        try:
+            link.unlink()
+        except OSError:
+            return  # can't remove — leave as-is (still works via fallback write)
+
+    link.symlink_to(target)
+
+
 def configure_claude():
     """Set up Claude Code: settings.json (permissions, plugins) + ~/.claude.json (MCP)."""
     CLAUDE_DIR.mkdir(parents=True, exist_ok=True)
@@ -1122,6 +1256,12 @@ def configure_claude():
     claude_json_path = HOME / ".claude.json"
 
     configured_servers = _load_mcp_servers()
+
+    # Ensure .credentials.json is a symlink into the shared credentials dir.
+    # Claude Code's IWH atomic writer resolves symlinks before writing, so
+    # tmp+rename happens in the directory mount (where rename works) instead
+    # of on the old single-file bind mount (where rename returned EBUSY).
+    _ensure_credentials_symlink()
 
     # Sync non-settings host claude files first
     _sync_host_claude_files()
@@ -1883,6 +2023,12 @@ def main():
     _perf("generate_shims")
     generate_agent_launchers()
     _perf("generate_agent_launchers")
+    # Build the combined CA bundle BEFORE bashrc so bashrc can just
+    # reference ``$HOME/.yolo-ca-bundle.crt`` and the env vars we set
+    # in ``os.environ`` propagate to every child the entrypoint spawns
+    # (jail daemon supervisor, port-forwarders, etc.) ahead of bash.
+    generate_ca_bundle()
+    _perf("generate_ca_bundle")
     generate_bashrc()
     _perf("generate_bashrc")
     generate_bootstrap_script()

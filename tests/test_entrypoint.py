@@ -26,6 +26,7 @@ def jail_home(tmp_path, monkeypatch):
         "YOLO_BLOCK_CONFIG",
         "YOLO_MISE_TOOLS",
         "YOLO_HOST_DIR",
+        "YOLO_HOST_CLAUDE_FILES",
     ):
         monkeypatch.delenv(var, raising=False)
 
@@ -44,6 +45,7 @@ def jail_home(tmp_path, monkeypatch):
         "GEMINI_MANAGED_MCP_PATH",
         "CLAUDE_DIR",
         "CLAUDE_MANAGED_MCP_PATH",
+        "CLAUDE_SHARED_CREDENTIALS_DIR",
         "MISE_CONFIG_DIR",
     ]
     for attr in attrs:
@@ -66,6 +68,7 @@ def jail_home(tmp_path, monkeypatch):
     entrypoint.CLAUDE_MANAGED_MCP_PATH = (
         tmp_path / ".claude" / "yolo-managed-mcp-servers.json"
     )
+    entrypoint.CLAUDE_SHARED_CREDENTIALS_DIR = tmp_path / ".claude-shared-credentials"
     entrypoint.MISE_CONFIG_DIR = tmp_path / ".config" / "mise"
 
     yield tmp_path
@@ -361,6 +364,136 @@ class TestBashrcGeneration:
         assert content.index("$HOME/.local/bin") < content.index(
             "$NPM_CONFIG_PREFIX/bin"
         )
+
+    def test_exports_ca_bundle_env_vars(self, jail_home, monkeypatch):
+        """bashrc exports SSL_CERT_FILE / REQUESTS_CA_BUNDLE / CURL_CA_BUNDLE /
+        GIT_SSL_CAINFO pointing at $HOME/.yolo-ca-bundle.crt so every
+        standard TLS client trusts loophole CAs, not just Node."""
+        monkeypatch.setenv("YOLO_HOST_DIR", "test")
+        entrypoint.generate_bashrc()
+        content = entrypoint.BASHRC_PATH.read_text()
+        for var in (
+            "SSL_CERT_FILE",
+            "REQUESTS_CA_BUNDLE",
+            "CURL_CA_BUNDLE",
+            "GIT_SSL_CAINFO",
+        ):
+            assert f'export {var}="$HOME/.yolo-ca-bundle.crt"' in content, (
+                f"{var} not exported from bashrc"
+            )
+
+
+# -- CA bundle generation --
+
+
+class TestCaBundleGeneration:
+    """generate_ca_bundle() builds a combined PEM bundle under $HOME and
+    points every standard trust-store env var at it."""
+
+    def _snapshot_env(self, monkeypatch):
+        """generate_ca_bundle mutates os.environ; isolate each test."""
+        for v in (
+            "SSL_CERT_FILE",
+            "REQUESTS_CA_BUNDLE",
+            "CURL_CA_BUNDLE",
+            "GIT_SSL_CAINFO",
+            "NODE_EXTRA_CA_CERTS",
+        ):
+            monkeypatch.delenv(v, raising=False)
+
+    def test_bundle_includes_baseline(self, jail_home, monkeypatch):
+        """SSL_CERT_FILE (the Nix cacert bundle baked into the image)
+        must be part of the combined bundle — otherwise we'd lose
+        trust in every Mozilla root."""
+        self._snapshot_env(monkeypatch)
+        baseline = jail_home / "baseline.crt"
+        baseline.write_bytes(
+            b"-----BEGIN CERTIFICATE-----\nBASELINE\n-----END CERTIFICATE-----\n"
+        )
+        monkeypatch.setenv("SSL_CERT_FILE", str(baseline))
+
+        bundle = entrypoint.generate_ca_bundle()
+
+        contents = bundle.read_bytes()
+        assert b"BASELINE" in contents
+
+    def test_bundle_includes_loophole_cas(self, jail_home, monkeypatch):
+        """Every path in NODE_EXTRA_CA_CERTS (colon-separated) must
+        appear in the combined bundle — that's the whole point."""
+        self._snapshot_env(monkeypatch)
+        ca1 = jail_home / "broker.crt"
+        ca2 = jail_home / "other-loophole.crt"
+        ca1.write_bytes(
+            b"-----BEGIN CERTIFICATE-----\nBROKERCA\n-----END CERTIFICATE-----\n"
+        )
+        ca2.write_bytes(
+            b"-----BEGIN CERTIFICATE-----\nOTHERCA\n-----END CERTIFICATE-----\n"
+        )
+        monkeypatch.setenv("NODE_EXTRA_CA_CERTS", f"{ca1}{os.pathsep}{ca2}")
+
+        bundle = entrypoint.generate_ca_bundle()
+
+        contents = bundle.read_bytes()
+        assert b"BROKERCA" in contents
+        assert b"OTHERCA" in contents
+
+    def test_bundle_tolerates_missing_sources(self, jail_home, monkeypatch):
+        """Unreadable baseline and dangling loophole CA paths must not
+        crash — an empty combined bundle is still better than a
+        dangling env var pointing at a nonexistent file."""
+        self._snapshot_env(monkeypatch)
+        monkeypatch.setenv("SSL_CERT_FILE", "/nonexistent/baseline.crt")
+        monkeypatch.setenv(
+            "NODE_EXTRA_CA_CERTS", f"/nonexistent/a.crt{os.pathsep}/nonexistent/b.crt"
+        )
+
+        bundle = entrypoint.generate_ca_bundle()
+        assert bundle.exists()
+
+    def test_bundle_sets_standard_env_vars(self, jail_home, monkeypatch):
+        """Every standard trust-store var (SSL_CERT_FILE, REQUESTS_CA_BUNDLE,
+        CURL_CA_BUNDLE, GIT_SSL_CAINFO) is set to the combined bundle
+        path so children of the entrypoint inherit them even before
+        bashrc runs."""
+        self._snapshot_env(monkeypatch)
+        baseline = jail_home / "baseline.crt"
+        baseline.write_bytes(
+            b"-----BEGIN CERTIFICATE-----\nBASELINE\n-----END CERTIFICATE-----\n"
+        )
+        monkeypatch.setenv("SSL_CERT_FILE", str(baseline))
+
+        bundle = entrypoint.generate_ca_bundle()
+
+        bundle_str = str(bundle)
+        assert os.environ["SSL_CERT_FILE"] == bundle_str
+        assert os.environ["REQUESTS_CA_BUNDLE"] == bundle_str
+        assert os.environ["CURL_CA_BUNDLE"] == bundle_str
+        assert os.environ["GIT_SSL_CAINFO"] == bundle_str
+
+    def test_bundle_does_not_recurse_on_its_own_path(self, jail_home, monkeypatch):
+        """On the *second* boot of a jail the baked SSL_CERT_FILE the
+        entrypoint sees in os.environ is the one the previous boot set —
+        i.e. the bundle itself.  We must not read it back into itself
+        (would double its size every boot)."""
+        self._snapshot_env(monkeypatch)
+        bundle_path = jail_home / ".yolo-ca-bundle.crt"
+        bundle_path.write_bytes(
+            b"-----BEGIN CERTIFICATE-----\nPRIOR\n-----END CERTIFICATE-----\n"
+        )
+        # Prior boot's env — SSL_CERT_FILE points at our own bundle.
+        monkeypatch.setenv("SSL_CERT_FILE", str(bundle_path))
+        ca = jail_home / "extra.crt"
+        ca.write_bytes(
+            b"-----BEGIN CERTIFICATE-----\nEXTRA\n-----END CERTIFICATE-----\n"
+        )
+        monkeypatch.setenv("NODE_EXTRA_CA_CERTS", str(ca))
+
+        entrypoint.generate_ca_bundle()
+
+        body = bundle_path.read_bytes()
+        # Prior cruft must not be re-inlined; fresh extras must be in.
+        assert b"PRIOR" not in body
+        assert b"EXTRA" in body
 
 
 # -- Copilot config --
@@ -840,6 +973,50 @@ class TestClaudeConfig:
         entrypoint.configure_claude()
         cfg = json.loads((entrypoint.CLAUDE_DIR / "settings.json").read_text())
         assert "mcpServers" not in cfg
+
+    def test_credentials_symlink_created(self, jail_home):
+        """configure_claude creates a symlink from .claude/.credentials.json
+        to the shared credentials dir so Claude's atomic writer works."""
+        entrypoint.CLAUDE_SHARED_CREDENTIALS_DIR.mkdir(parents=True, exist_ok=True)
+        (entrypoint.CLAUDE_SHARED_CREDENTIALS_DIR / ".credentials.json").touch()
+        entrypoint.configure_claude()
+        link = entrypoint.CLAUDE_DIR / ".credentials.json"
+        assert link.is_symlink()
+        assert (
+            os.readlink(str(link)) == "../.claude-shared-credentials/.credentials.json"
+        )
+
+    def test_credentials_symlink_migrates_existing_file(self, jail_home):
+        """If .credentials.json is a regular file (old setup), its data is
+        migrated to the shared dir and replaced with a symlink."""
+        entrypoint.CLAUDE_DIR.mkdir(parents=True, exist_ok=True)
+        entrypoint.CLAUDE_SHARED_CREDENTIALS_DIR.mkdir(parents=True, exist_ok=True)
+        # Old-style regular file with valid credentials
+        cred_data = (
+            '{"claudeAiOauth": {"accessToken": "test", "expiresAt": 9999999999}}'
+        )
+        (entrypoint.CLAUDE_DIR / ".credentials.json").write_text(cred_data)
+        (entrypoint.CLAUDE_SHARED_CREDENTIALS_DIR / ".credentials.json").touch()
+
+        entrypoint.configure_claude()
+
+        link = entrypoint.CLAUDE_DIR / ".credentials.json"
+        assert link.is_symlink()
+        # Data should have been migrated to shared dir
+        shared = entrypoint.CLAUDE_SHARED_CREDENTIALS_DIR / ".credentials.json"
+        assert "test" in shared.read_text()
+
+    def test_credentials_symlink_idempotent(self, jail_home):
+        """Running configure_claude twice doesn't break the symlink."""
+        entrypoint.CLAUDE_SHARED_CREDENTIALS_DIR.mkdir(parents=True, exist_ok=True)
+        (entrypoint.CLAUDE_SHARED_CREDENTIALS_DIR / ".credentials.json").touch()
+        entrypoint.configure_claude()
+        entrypoint.configure_claude()
+        link = entrypoint.CLAUDE_DIR / ".credentials.json"
+        assert link.is_symlink()
+        assert (
+            os.readlink(str(link)) == "../.claude-shared-credentials/.credentials.json"
+        )
 
 
 # -- MCP wrappers --

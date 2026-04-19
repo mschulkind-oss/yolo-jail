@@ -372,6 +372,10 @@ def ensure_global_storage():
         ".copilot",
         ".gemini",
         ".claude",
+        # Shared credentials dir — all jails mount this rw as a directory so
+        # Claude Code's atomic writer (tmp+rename) works.  The old approach
+        # used a single-file bind mount which returned EBUSY on rename.
+        ".claude-shared-credentials",
         Path(".config") / "git",
         ".npm-global",
         ".local",
@@ -382,6 +386,22 @@ def ensure_global_storage():
         ".ssh",
     ]:
         (GLOBAL_HOME / subdir).mkdir(parents=True, exist_ok=True)
+    # Migrate credentials from old single-file mount location to new shared dir.
+    old_cred = GLOBAL_HOME / ".claude" / ".credentials.json"
+    new_cred = GLOBAL_HOME / ".claude-shared-credentials" / ".credentials.json"
+    if old_cred.is_file() and not old_cred.is_symlink():
+        if not new_cred.exists() or new_cred.stat().st_size == 0:
+            try:
+                shutil.copy2(old_cred, new_cred)
+            except OSError:
+                pass
+        try:
+            old_cred.unlink()
+        except OSError:
+            pass  # may have restrictive perms — leave for now
+    # Ensure the credentials file exists in the shared dir (touch for mountpoint).
+    if not new_cred.exists():
+        new_cred.touch()
     # File mountpoints — these must exist as files (not dirs) for bind mounts.
     # Only create if missing — existing files from prior runs may have restrictive
     # permissions from container UID mapping; we just need them to exist.
@@ -392,9 +412,6 @@ def ensure_global_storage():
         ".yolo-perf.log",
         ".yolo-socat.log",
         ".yolo-entrypoint.lock",
-        # Shared credentials file — all jails mount this rw so /login in any
-        # jail persists for all jails.
-        str(Path(".claude") / ".credentials.json"),
     ]:
         p = GLOBAL_HOME / fname
         if not p.exists():
@@ -5974,11 +5991,9 @@ def run(
     # files that already exist (the entrypoint regenerates configs each time).
     _seed_agent_dir(GLOBAL_HOME / ".copilot", ws_state / "copilot")
     _seed_agent_dir(GLOBAL_HOME / ".gemini", ws_state / "gemini")
-    # Skip .credentials.json — it's handled via a shared rw mount so /login
-    # in any jail persists for all jails (not per-workspace).
-    _seed_agent_dir(
-        GLOBAL_HOME / ".claude", ws_state / "claude", skip=(".credentials.json",)
-    )
+    # Credentials are in the shared dir (.claude-shared-credentials/), not
+    # .claude/, so no skip needed — _seed_agent_dir won't encounter them.
+    _seed_agent_dir(GLOBAL_HOME / ".claude", ws_state / "claude")
 
     # Seed claude.json onboarding state into the per-workspace overlay.
     # ~/.claude.json is a symlink → .claude/claude.json, so the actual file
@@ -6115,12 +6130,14 @@ def run(
             f"{ws_state / 'gemini'}:/home/agent/.gemini",
             "-v",
             f"{ws_state / 'claude'}:/home/agent/.claude",
-            # Shared credentials — mounted rw ON TOP of the per-workspace .claude
-            # overlay so /login in any jail persists for all jails.  Refreshes
-            # go through the host-side claude-oauth-broker, which rewrites this
-            # file in place (preserving the inode jails hold).
+            # Shared credentials dir — mounted rw so /login in any jail
+            # persists for all jails.  Using a directory mount (not a
+            # single-file mount) because Claude Code's IWH atomic writer
+            # uses tmp+rename which returns EBUSY on single-file bind
+            # mounts.  The entrypoint creates a symlink from
+            # .claude/.credentials.json → this dir so Claude finds it.
             "-v",
-            f"{GLOBAL_HOME / '.claude' / '.credentials.json'}:/home/agent/.claude/.credentials.json",
+            f"{GLOBAL_HOME / '.claude-shared-credentials'}:/home/agent/.claude-shared-credentials",
             # Other per-workspace overlays
             "-v",
             f"{ws_state / 'bash_history'}:/home/agent/.bash_history",
