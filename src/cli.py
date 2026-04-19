@@ -292,12 +292,31 @@ def _resolve_repo_root() -> Path:
     if (pkg_dir / "flake.nix").exists():
         build_root = GLOBAL_STORAGE / "nix-build-root"
         build_root.mkdir(parents=True, exist_ok=True)
-        # Copy flake files (not symlinks — nix resolves symlinks to absolute
-        # paths that break inside the store).
-        import shutil
 
-        # Use a temp dir + atomic rename to avoid races when multiple
-        # jails start concurrently and all try to populate nix-build-root.
+        # Idempotence: the old approach re-copied every yolo run via
+        # an atomic rename dance.  That was expensive and vulnerable
+        # to races + partial-copy bugs that left build_root empty
+        # (handoff bug 6).  Skip the whole dance when the existing
+        # build_root already matches the wheel's flake.nix mtime and
+        # has at least cli.py in place.
+        try:
+            src_cli = build_root / "src" / "cli.py"
+            br_flake = build_root / "flake.nix"
+            pkg_flake_mtime = (pkg_dir / "flake.nix").stat().st_mtime_ns
+            if (
+                src_cli.is_file()
+                and br_flake.is_file()
+                and br_flake.stat().st_mtime_ns >= pkg_flake_mtime
+            ):
+                return build_root.resolve()
+        except OSError:
+            pass  # fall through to repopulate
+
+        # Repopulate.  Use a temp dir + atomic rename to avoid races
+        # when multiple jails start concurrently — either everybody
+        # sees the old (complete) build_root or everybody sees the
+        # new one, never a half-written state.
+        import shutil
         import tempfile
 
         tmp_root = Path(tempfile.mkdtemp(dir=GLOBAL_STORAGE, prefix="nix-build-tmp-"))
@@ -305,8 +324,6 @@ def _resolve_repo_root() -> Path:
             for fname in ("flake.nix", "flake.lock"):
                 shutil.copy2(pkg_dir / fname, tmp_root / fname)
             shutil.copytree(pkg_dir, tmp_root / "src")
-            # Atomic swap: rename over the target so concurrent readers
-            # either see the old version or the new one, never a half-written state.
             target_tmp = build_root.with_name(build_root.name + ".old")
             try:
                 build_root.rename(target_tmp)

@@ -768,6 +768,85 @@ class TestResolveRepoRootInstalled:
         finally:
             cli.__file__ = original_file
 
+    def test_installed_package_path_is_idempotent(self, tmp_path, monkeypatch):
+        """Regression: every ``yolo`` invocation was re-copying the
+        package into nix-build-root via an atomic rename dance.  If
+        something raced or failed mid-copy, the resulting build_root
+        could be empty (bug 6 in the handoff).  The copy should be
+        a no-op when the existing build_root already matches the
+        wheel's flake.nix mtime."""
+        from cli import _resolve_repo_root
+
+        monkeypatch.delenv("YOLO_REPO_ROOT", raising=False)
+
+        pkg_dir = tmp_path / "pkg" / "src"
+        pkg_dir.mkdir(parents=True)
+        (pkg_dir / "flake.nix").write_text("{ }")
+        (pkg_dir / "flake.lock").write_text("{}")
+        (pkg_dir / "entrypoint.py").write_text("")
+        (pkg_dir / "cli.py").write_text("")
+
+        build_root = tmp_path / "storage" / "nix-build-root"
+        monkeypatch.setattr("cli.GLOBAL_STORAGE", tmp_path / "storage")
+
+        import cli
+
+        original_file = cli.__file__
+        try:
+            cli.__file__ = str(pkg_dir / "cli.py")
+
+            # First call: populates build_root.
+            _resolve_repo_root()
+            assert (build_root / "src" / "cli.py").exists()
+            first_mtime = (build_root / "flake.nix").stat().st_mtime_ns
+            first_inode = (build_root / "src" / "cli.py").stat().st_ino
+
+            # Second call: should be a no-op.  Build root should be
+            # the SAME directory — not replaced via atomic rename —
+            # so inode is preserved and mtime is unchanged.
+            _resolve_repo_root()
+            second_inode = (build_root / "src" / "cli.py").stat().st_ino
+            second_mtime = (build_root / "flake.nix").stat().st_mtime_ns
+            assert second_inode == first_inode, (
+                "second call should reuse existing build_root, not recreate"
+            )
+            assert second_mtime == first_mtime
+        finally:
+            cli.__file__ = original_file
+
+    def test_installed_package_path_recovers_from_empty_build_root(
+        self, tmp_path, monkeypatch
+    ):
+        """If a prior invocation left build_root empty (bug 6), the
+        next call should detect that and re-populate — not silently
+        return an empty path that'd make the jail unusable."""
+        from cli import _resolve_repo_root
+
+        monkeypatch.delenv("YOLO_REPO_ROOT", raising=False)
+
+        pkg_dir = tmp_path / "pkg" / "src"
+        pkg_dir.mkdir(parents=True)
+        (pkg_dir / "flake.nix").write_text("{ }")
+        (pkg_dir / "flake.lock").write_text("{}")
+        (pkg_dir / "entrypoint.py").write_text("")
+        (pkg_dir / "cli.py").write_text("")
+
+        build_root = tmp_path / "storage" / "nix-build-root"
+        # Simulate the empty-dir bug: build_root exists but has no content.
+        build_root.mkdir(parents=True)
+        monkeypatch.setattr("cli.GLOBAL_STORAGE", tmp_path / "storage")
+
+        import cli
+
+        original_file = cli.__file__
+        try:
+            cli.__file__ = str(pkg_dir / "cli.py")
+            _resolve_repo_root()
+            assert (build_root / "flake.nix").is_file()
+            assert (build_root / "src" / "cli.py").is_file()
+        finally:
+            cli.__file__ = original_file
+
     def test_user_config_repo_path(self, tmp_path, monkeypatch):
         """When user config has repo_path, use it."""
         from cli import _resolve_repo_root
