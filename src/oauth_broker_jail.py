@@ -7,11 +7,13 @@ loophole.  Claude Code inside the jail opens TLS to
 ``127.0.0.1``, and this daemon terminates the TLS with a leaf cert the
 jail trusts (via ``NODE_EXTRA_CA_CERTS``).
 
-For ``POST /v1/oauth/token``: forward the refresh request to the
-host-side broker over the loophole's Unix socket (the flock +
-single-writer lives there).  For any other path: reverse-proxy to the
-real ``platform.claude.com`` so ``/login`` and any future endpoints
-keep working.
+For ``POST /v1/oauth/token`` with ``grant_type=refresh_token``:
+forward the refresh to the host-side broker over the loophole's Unix
+socket (the flock + single-writer lives there).  For any other
+``/v1/oauth/token`` grant (``authorization_code`` from ``/login``,
+future PKCE exchanges, …) and for any other path: reverse-proxy to
+the real ``platform.claude.com``.  The broker only exists to
+serialize refreshes — all other flows pass through unchanged.
 
 No privileged host ports, no host-side firewall changes, no tampering
 with the jail's ambient caps.  Binding :443 inside a container is
@@ -146,6 +148,28 @@ def _proxy_upstream(
 # --- HTTP handler ------------------------------------------------------------
 
 
+def _is_refresh_grant(body: bytes) -> bool:
+    """True iff ``body`` is a JSON object with
+    ``grant_type == "refresh_token"``.
+
+    The broker serializes the single-use refresh-token rotation.
+    Anything else that hits ``/v1/oauth/token`` — most importantly
+    ``grant_type=authorization_code`` from ``/login`` — must be
+    proxied through untouched so the upstream server can mint the
+    initial credential.  Unparseable / empty bodies fall through to
+    the proxy path too; the upstream will reject them with its own
+    (honest) error message instead of the broker returning a
+    misleading ``no_refresh_token``.
+    """
+    if not body:
+        return False
+    try:
+        parsed = json.loads(body.decode("utf-8"))
+    except (UnicodeDecodeError, json.JSONDecodeError):
+        return False
+    return isinstance(parsed, dict) and parsed.get("grant_type") == "refresh_token"
+
+
 class _JailBrokerHandler(BaseHTTPRequestHandler):
     host_socket_path: str = ""  # populated per-server
 
@@ -175,7 +199,11 @@ class _JailBrokerHandler(BaseHTTPRequestHandler):
 
     def _handle(self) -> None:
         body = self._read_body()
-        if self.command == "POST" and self.path.startswith("/v1/oauth/token"):
+        if (
+            self.command == "POST"
+            and self.path.startswith("/v1/oauth/token")
+            and _is_refresh_grant(body)
+        ):
             try:
                 resp = ask_host_broker(self.host_socket_path, {"action": "refresh"})
             except RuntimeError as e:
