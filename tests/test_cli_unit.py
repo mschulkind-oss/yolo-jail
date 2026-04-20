@@ -383,6 +383,32 @@ class TestPrintStartupBanner:
         err = capsys.readouterr().err
         assert "Resource limits" not in err
 
+    def test_banner_surfaces_mismatched_jail_version(self, capsys):
+        """When the host CLI differs from the jail's baked YOLO_VERSION,
+        the banner must show both — stale-shim bugs on attach are
+        invisible otherwise."""
+        _print_startup_banner("2.0.0", "podman", "yolo-test", jail_version="1.0.0")
+        err = capsys.readouterr().err
+        assert "yolo-jail 2.0.0" in err
+        assert "1.0.0" in err
+        assert "attached" in err.lower()
+
+    def test_banner_hides_matching_jail_version(self, capsys):
+        """When versions match, don't clutter the banner."""
+        _print_startup_banner("1.0.0", "podman", "yolo-test", jail_version="1.0.0")
+        err = capsys.readouterr().err
+        assert "attached" not in err.lower()
+        # Version appears exactly once (in "yolo-jail 1.0.0")
+        assert err.count("1.0.0") == 1
+
+    def test_banner_handles_missing_jail_version(self, capsys):
+        """A None jail_version (inspect failed / fresh container) must
+        not crash and must leave the banner looking like the old form."""
+        _print_startup_banner("1.0.0", "podman", "yolo-test", jail_version=None)
+        err = capsys.readouterr().err
+        assert "yolo-jail 1.0.0" in err
+        assert "attached" not in err.lower()
+
 
 class TestGetYoloVersion:
     def test_returns_git_describe_version(self):

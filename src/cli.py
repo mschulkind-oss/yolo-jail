@@ -913,14 +913,60 @@ def _remove_stale_container(name: str, runtime: str = "docker") -> bool:
 
 
 def _print_startup_banner(
-    version: str, runtime: str, cname: str, res_parts: "list[str] | None" = None
+    version: str,
+    runtime: str,
+    cname: str,
+    res_parts: "list[str] | None" = None,
+    jail_version: "str | None" = None,
 ):
-    """Print startup info to stderr for debugging and log sharing."""
+    """Print startup info to stderr for debugging and log sharing.
+
+    ``version`` is the host CLI's version (what's running right now).
+    ``jail_version``, if given, is the ``YOLO_VERSION`` baked into the
+    already-running container — shown only when it differs from the
+    host version, since that's the gap that silently causes stale
+    shims / stale mounts / stale entrypoint logic on attach.
+    """
     host_platform = f"{sys.platform}/{platform.machine()}"
-    parts = [f"yolo-jail {version}", host_platform, runtime, cname]
+    if jail_version and jail_version != version:
+        ver_part = f"yolo-jail {version} (attached to jail built at {jail_version})"
+    else:
+        ver_part = f"yolo-jail {version}"
+    parts = [ver_part, host_platform, runtime, cname]
     print(" | ".join(parts), file=sys.stderr)
     if res_parts:
         print(f"Resource limits: {', '.join(res_parts)}", file=sys.stderr)
+
+
+def _container_baked_yolo_version(runtime: str, cname: str) -> "str | None":
+    """Return the ``YOLO_VERSION`` baked into ``cname``'s env, or None.
+
+    Runs ``<runtime> inspect`` to read the container's ``Config.Env``
+    and greps out ``YOLO_VERSION=…``.  Short timeout + catch-all
+    failure: a missing version is never a hard error, just falls back
+    to the host CLI's version in the banner.
+    """
+    try:
+        result = subprocess.run(
+            [
+                runtime,
+                "inspect",
+                "--format",
+                "{{range .Config.Env}}{{println .}}{{end}}",
+                cname,
+            ],
+            capture_output=True,
+            text=True,
+            timeout=3,
+        )
+    except (subprocess.TimeoutExpired, OSError, FileNotFoundError):
+        return None
+    if result.returncode != 0:
+        return None
+    for line in result.stdout.splitlines():
+        if line.startswith("YOLO_VERSION="):
+            return line[len("YOLO_VERSION=") :].strip() or None
+    return None
 
 
 def _get_yolo_version() -> str:
@@ -5777,8 +5823,12 @@ def run(
     existing_cid = None if new else find_running_container(cname, runtime=runtime)
 
     if existing_cid:
-        # Exec into the existing container
-        _print_startup_banner(_get_yolo_version(), runtime, cname)
+        # Exec into the existing container.  Surface the jail's baked
+        # version so a host CLI upgrade attaching to a pre-upgrade
+        # container (stale shims / mounts) is visible at a glance.
+        host_version = _get_yolo_version()
+        jail_version = _container_baked_yolo_version(runtime, cname)
+        _print_startup_banner(host_version, runtime, cname, jail_version=jail_version)
         console.print(
             f"[bold cyan]Attaching to existing jail [dim]({cname})[/dim]...[/bold cyan]"
         )
