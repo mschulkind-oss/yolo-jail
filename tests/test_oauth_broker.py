@@ -553,11 +553,16 @@ def test_self_check_ok(broker_dirs: Path, creds_file: Path, monkeypatch, capsys)
 
 
 def test_self_check_reports_missing_ca(broker_dirs: Path, capsys, monkeypatch):
-    # Without openssl on PATH AND without CA files on disk, the user
+    # Without openssl anywhere AND without CA files on disk, the user
     # has no recovery path (`--init-ca` won't work), so we fail hard.
     # See test_doctor_inactive_loopholes for the state-missing-but-
     # openssl-present happy path (returns rc=0 with warnings).
-    monkeypatch.setattr(oauth_broker.shutil, "which", lambda _x: None)
+    #
+    # Mock ``_resolve_openssl`` directly — broker's openssl resolution
+    # falls back to a list of absolute paths (``/usr/bin/openssl`` etc.)
+    # when ``shutil.which`` misses, so patching ``which`` alone isn't
+    # enough on a CI runner that has openssl preinstalled.
+    monkeypatch.setattr(oauth_broker, "_resolve_openssl", lambda: None)
     rc = oauth_broker.self_check()
     out = capsys.readouterr().out
     assert rc == 1

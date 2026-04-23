@@ -131,8 +131,13 @@ def test_broker_self_check_fails_when_openssl_and_state_both_missing(
 ):
     """If state is missing AND openssl is missing, the user can't
     recover via --init-ca.  That's a real failure that should hard-fail
-    doctor, not just warn."""
-    monkeypatch.setattr(oauth_broker.shutil, "which", lambda _x: None)
+    doctor, not just warn.
+
+    Patches ``_resolve_openssl`` directly — the broker's openssl
+    resolution walks fallback absolute paths when ``shutil.which``
+    misses, so CI runners with openssl preinstalled at ``/usr/bin``
+    would otherwise report it present despite the mock."""
+    monkeypatch.setattr(oauth_broker, "_resolve_openssl", lambda: None)
     import tempfile
 
     creds = Path(tempfile.mkdtemp(prefix="yjt-")) / "creds.json"
