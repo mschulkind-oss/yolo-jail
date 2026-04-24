@@ -349,6 +349,60 @@ def test_do_proxy_returns_error_dict_on_network_failure(monkeypatch):
     assert "dns failure" in out.get("message", "")
 
 
+class _FakeSession:
+    """Minimal stand-in for host_service.Session used to assert what the
+    broker handler writes for a given request.  Captures json / stderr /
+    exit calls in order so tests can inspect the conversation."""
+
+    def __init__(self, request):
+        self.request = request
+        self.jail_id = "test-jail"
+        self.events: list = []
+
+    def json(self, obj):
+        self.events.append(("json", obj))
+
+    def stdout(self, data):
+        self.events.append(("stdout", data))
+
+    def stderr(self, data):
+        self.events.append(("stderr", data))
+
+    def exit(self, code):
+        self.events.append(("exit", code))
+
+
+def test_handler_ping_returns_pong_without_touching_upstream_or_creds(
+    tmp_path, broker_dirs, monkeypatch
+):
+    """The ``ping`` action is a pure liveness probe — it must never call
+    upstream, never read the creds file, never take the flock.  A
+    successful ping is the liveness signal ``yolo broker status`` and
+    ``yolo doctor`` rely on to distinguish "broker dead" from "broker
+    alive but misconfigured"."""
+
+    # Guard rails: if the handler accidentally routed ping through
+    # refresh or proxy, these mocks would raise.
+    def _boom(*a, **kw):
+        raise AssertionError("ping must not call refresh/proxy/cache paths")
+
+    monkeypatch.setattr(oauth_broker, "do_refresh", _boom)
+    monkeypatch.setattr(oauth_broker, "do_proxy", _boom)
+    monkeypatch.setattr(oauth_broker, "_cached_tokens", _boom)
+
+    # Point creds_path somewhere that would error hard if read, so we
+    # *prove* the handler doesn't touch it on ping.
+    handler = oauth_broker.build_handler(tmp_path / "does-not-exist.json")
+    sess = _FakeSession({"action": "ping"})
+    handler(sess)
+
+    assert len(sess.events) == 1, f"expected exactly 1 event, got {sess.events}"
+    kind, payload = sess.events[0]
+    assert kind == "json"
+    assert payload.get("pong") is True
+    assert isinstance(payload.get("pid"), int)
+
+
 def test_do_proxy_rejects_path_without_leading_slash():
     """Defensive — a relative path would make ``https://host + path``
     collapse into a different URL."""

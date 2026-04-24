@@ -2627,3 +2627,259 @@ class TestHostServices:
                 import shutil as _sh
 
                 _sh.rmtree(sockets_dir, ignore_errors=True)
+
+
+class TestBrokerSingleton:
+    """The Claude OAuth broker is a singleton host daemon keyed on a
+    well-known socket+PID pair, NOT spawned per-jail.  Per-jail was a
+    holdover from the generic host-service machinery that caused
+    (a) N brokers fighting over a shared flock, (b) stale daemons
+    surviving wheel upgrades (the 2026-04-24 incident).  These tests
+    lock in the singleton contract."""
+
+    def _patch_paths(self, monkeypatch, tmp_path):
+        import cli
+
+        sock = tmp_path / "broker.sock"
+        pidf = tmp_path / "broker.pid"
+        monkeypatch.setattr(cli, "BROKER_SINGLETON_SOCKET", sock)
+        monkeypatch.setattr(cli, "BROKER_SINGLETON_PID_FILE", pidf)
+        return sock, pidf, cli
+
+    def test_is_alive_false_without_pid_file(self, monkeypatch, tmp_path):
+        _, _, cli = self._patch_paths(monkeypatch, tmp_path)
+        assert cli._broker_is_alive() is False
+
+    def test_is_alive_false_when_pid_dead(self, monkeypatch, tmp_path):
+        """A PID file pointing at a non-existent process means a prior
+        broker crashed without cleanup.  Liveness must report false
+        so the next access respawns."""
+        _, pidf, cli = self._patch_paths(monkeypatch, tmp_path)
+        pidf.write_text("999999\n")  # PID extremely unlikely to exist
+
+        def fake_kill(pid, sig):
+            raise ProcessLookupError
+
+        monkeypatch.setattr(cli.os, "kill", fake_kill)
+        assert cli._broker_is_alive() is False
+
+    def test_is_alive_false_when_pid_alive_but_socket_missing(
+        self, monkeypatch, tmp_path
+    ):
+        """Process exists but its socket doesn't — that's crashed
+        mid-startup or bound to the wrong path.  Not alive for our
+        purposes; the caller should kill + respawn."""
+        _, pidf, cli = self._patch_paths(monkeypatch, tmp_path)
+        pidf.write_text(str(os.getpid()))  # our own pid is real
+        # socket left nonexistent
+        assert cli._broker_is_alive() is False
+
+    def test_is_alive_true_when_pid_alive_and_ping_succeeds(
+        self, monkeypatch, tmp_path
+    ):
+        sock, pidf, cli = self._patch_paths(monkeypatch, tmp_path)
+        pidf.write_text(str(os.getpid()))
+        sock.touch()
+
+        def fake_ping(*a, **kw):
+            return True
+
+        monkeypatch.setattr(cli, "_broker_ping", fake_ping)
+        assert cli._broker_is_alive() is True
+
+    def test_ensure_spawns_when_not_alive(self, monkeypatch, tmp_path):
+        """``_broker_ensure`` is the one-shot entrypoint other code
+        paths call.  It returns the socket path regardless of whether
+        the broker was already alive or had to be spawned."""
+        sock, pidf, cli = self._patch_paths(monkeypatch, tmp_path)
+        monkeypatch.setattr(cli, "_broker_is_alive", lambda: False)
+
+        spawned = {"n": 0}
+
+        def fake_spawn():
+            spawned["n"] += 1
+            sock.touch()
+            pidf.write_text("42\n")
+            return sock
+
+        monkeypatch.setattr(cli, "_broker_spawn", fake_spawn)
+        result = cli._broker_ensure()
+        assert result == sock
+        assert spawned["n"] == 1
+
+    def test_ensure_is_noop_when_alive(self, monkeypatch, tmp_path):
+        sock, pidf, cli = self._patch_paths(monkeypatch, tmp_path)
+        monkeypatch.setattr(cli, "_broker_is_alive", lambda: True)
+        spawned = {"n": 0}
+        monkeypatch.setattr(
+            cli, "_broker_spawn", lambda: spawned.update(n=spawned["n"] + 1) or sock
+        )
+        cli._broker_ensure()
+        assert spawned["n"] == 0
+
+    def test_kill_sends_sigterm_and_cleans_up(self, monkeypatch, tmp_path):
+        """kill writes the broker-stop signal, removes the PID file,
+        and unlinks the stale socket so the next spawn starts clean."""
+        sock, pidf, cli = self._patch_paths(monkeypatch, tmp_path)
+        pidf.write_text("12345\n")
+        sock.touch()
+
+        signals: list = []
+
+        def fake_kill(pid, sig):
+            signals.append((pid, sig))
+
+        monkeypatch.setattr(cli.os, "kill", fake_kill)
+        # After SIGTERM, "process gone": second kill() check raises.
+        # Use a counter so first call is noop, subsequent raise.
+        state = {"n": 0}
+
+        def kill_with_death(pid, sig):
+            state["n"] += 1
+            if sig == 0 and state["n"] > 1:
+                raise ProcessLookupError
+            signals.append((pid, sig))
+
+        monkeypatch.setattr(cli.os, "kill", kill_with_death)
+        cli._broker_kill()
+        # SIGTERM must have been sent
+        assert any(sig == 15 for _, sig in signals), f"no SIGTERM in {signals}"
+        assert not pidf.exists()
+        assert not sock.exists()
+
+    def test_kill_noop_when_pid_file_absent(self, monkeypatch, tmp_path):
+        """``yolo broker stop`` when nothing is running must succeed
+        silently, not raise."""
+        _, _, cli = self._patch_paths(monkeypatch, tmp_path)
+        cli._broker_kill()  # should not raise
+
+    def test_spawn_takes_flock_to_avoid_double_spawn(self, monkeypatch, tmp_path):
+        """Two parallel ``yolo run`` invocations must not both fork a
+        broker — second caller sees the PID file the first just wrote.
+        Test: call _broker_spawn twice back-to-back with Popen mocked;
+        the second one should notice the PID file and skip.
+
+        In the singleton design, _broker_spawn itself holds a flock on
+        the PID file's lock path; while it's held, any concurrent spawner
+        that tries to start inside it finds the file already populated
+        when the flock releases."""
+        sock, pidf, cli = self._patch_paths(monkeypatch, tmp_path)
+
+        class FakePopen:
+            _pid = 777
+
+            def __init__(self, *a, **kw):
+                type(self)._pid += 1
+                self.pid = type(self)._pid
+
+            def wait(self, timeout=None):
+                return None
+
+        monkeypatch.setattr(cli.subprocess, "Popen", FakePopen)
+        monkeypatch.setattr(cli.time, "sleep", lambda *_: None)
+
+        # Fake the "socket now exists" detection so spawn considers the
+        # bind successful on the first call without needing a real daemon.
+        def fake_wait_for_socket(p, *, timeout):
+            sock.touch()
+            return True
+
+        monkeypatch.setattr(cli, "_broker_wait_for_socket", fake_wait_for_socket)
+
+        cli._broker_spawn()
+        _first_pid = pidf.read_text().strip()
+
+        # Second call: PID file already exists and points at a live
+        # process (ours).  Spawn should be a noop, PID file unchanged.
+        pidf.write_text(str(os.getpid()))  # put a *real* live PID
+        sock.touch()
+        monkeypatch.setattr(cli, "_broker_ping", lambda *a, **kw: True)
+
+        # _broker_spawn must bail when _broker_is_alive is True inside
+        # its locked section.
+        spawned_again = {"n": 0}
+
+        orig_popen = cli.subprocess.Popen
+
+        class TrackedPopen(FakePopen):
+            def __init__(self, *a, **kw):
+                spawned_again["n"] += 1
+                super().__init__(*a, **kw)
+
+        monkeypatch.setattr(cli.subprocess, "Popen", TrackedPopen)
+        cli._broker_spawn()
+        assert spawned_again["n"] == 0, (
+            "second spawn must noop when PID file + live process present"
+        )
+        # ensure we didn't blow away the first PID file either
+        assert pidf.exists()
+        # (restore for other tests — monkeypatch will undo)
+        del orig_popen
+
+    def test_cli_status_reports_alive(self, monkeypatch, tmp_path):
+        """``yolo broker status`` exit code 0 when healthy, non-zero
+        otherwise — lets scripts gate on it."""
+        from typer.testing import CliRunner
+        import cli
+
+        self._patch_paths(monkeypatch, tmp_path)
+        monkeypatch.setattr(
+            cli,
+            "_broker_status",
+            lambda: {
+                "pid": 123,
+                "pid_live": True,
+                "socket_exists": True,
+                "ping_ok": True,
+                "socket": "/tmp/x.sock",
+                "pid_file": "/tmp/x.pid",
+            },
+        )
+        result = CliRunner().invoke(cli.app, ["broker", "status"])
+        assert result.exit_code == 0, result.output
+        assert "healthy" in result.output.lower()
+
+    def test_cli_status_nonzero_when_dead(self, monkeypatch, tmp_path):
+        from typer.testing import CliRunner
+        import cli
+
+        self._patch_paths(monkeypatch, tmp_path)
+        monkeypatch.setattr(
+            cli,
+            "_broker_status",
+            lambda: {
+                "pid": None,
+                "pid_live": False,
+                "socket_exists": False,
+                "ping_ok": False,
+                "socket": "/tmp/x.sock",
+                "pid_file": "/tmp/x.pid",
+            },
+        )
+        result = CliRunner().invoke(cli.app, ["broker", "status"])
+        assert result.exit_code != 0
+        assert "not running" in result.output.lower()
+
+    def test_cli_restart_invokes_kill_then_spawn(self, monkeypatch, tmp_path):
+        from typer.testing import CliRunner
+        import cli
+
+        sock, _, _ = self._patch_paths(monkeypatch, tmp_path)
+        order: list = []
+
+        def fake_kill():
+            order.append("kill")
+            return True
+
+        def fake_spawn():
+            order.append("spawn")
+            return sock
+
+        monkeypatch.setattr(cli, "_broker_kill", fake_kill)
+        monkeypatch.setattr(cli, "_broker_spawn", fake_spawn)
+        monkeypatch.setattr(cli, "_broker_is_alive", lambda: True)
+
+        result = CliRunner().invoke(cli.app, ["broker", "restart"])
+        assert result.exit_code == 0, result.output
+        assert order == ["kill", "spawn"]
+        assert "restarted" in result.output.lower()

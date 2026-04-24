@@ -4,6 +4,7 @@ import fcntl
 import os
 import platform
 import re
+import signal
 import socket
 import struct
 import subprocess
@@ -1416,6 +1417,263 @@ def _substitute_socket_in_cmd(args: List[str], socket_path: str) -> List[str]:
     return [a.replace("{socket}", socket_path) for a in args]
 
 
+# ---------------------------------------------------------------------------
+# Claude OAuth broker singleton
+# ---------------------------------------------------------------------------
+#
+# The broker used to be a per-jail host daemon: each ``yolo run`` forked its
+# own ``yolo-claude-oauth-broker-host`` process bound to a socket under the
+# jail's unique sockets dir.  That had three problems:
+#
+# 1. N brokers contending for a single flock on a single shared creds file,
+#    doing exactly the coordination the flock is meant to enable — but
+#    serially rather than concurrently, at higher overhead.
+# 2. Daemon processes outlive the container that spawned them — they're
+#    host processes, not container processes.  A ``yolo run --new`` rebuilds
+#    the container but leaves the original broker running with the OLD
+#    Python code still loaded in memory, even after ``just deploy``
+#    upgrades the wheel.  (2026-04-24 incident.)
+# 3. Per-jail ==> N sockets, N log files, N lines in ``pgrep``, and the
+#    operator can't tell at a glance whether "the broker" is healthy.
+#
+# The singleton model: one host daemon, one well-known socket, one PID file.
+# All jails bind-mount the same socket at their existing
+# ``/run/yolo-services/claude-oauth-broker.sock`` path.  The socket is
+# under /tmp so AF_UNIX path-length limits aren't a concern (108 bytes on
+# Linux, 104 on macOS) and so a host reboot leaves a clean slate.  No
+# systemd unit needed — the first ``yolo run`` lazily spawns; ``just
+# deploy`` / ``yolo broker restart`` explicitly cycle it.
+BROKER_SINGLETON_SOCKET = Path("/tmp/yolo-claude-oauth-broker.sock")
+BROKER_SINGLETON_PID_FILE = Path("/tmp/yolo-claude-oauth-broker.pid")
+# Separate lock file so flock during spawn doesn't contend with the PID
+# file itself (which must be rewritten atomically by the spawner).
+BROKER_SINGLETON_LOCK = Path("/tmp/yolo-claude-oauth-broker.lock")
+# Name used by ``loopholes`` for this service; keep in sync with the
+# bundled manifest's ``name`` field.
+BROKER_LOOPHOLE_NAME = "claude-oauth-broker"
+
+
+def _broker_ping(socket_path: Path, *, timeout: float = 2.0) -> bool:
+    """Open ``socket_path``, send ``{action: "ping"}``, expect a
+    ``pong: true`` frame within ``timeout`` seconds.  Returns False on
+    any error so callers can use this as a boolean liveness probe.
+
+    Implements the small bit of the loophole frame protocol we need
+    inline (4-byte length-prefixed JSON request; 1-byte stream id +
+    4-byte length frames coming back; the broker emits a single JSON
+    line on stream 0 and an exit frame on stream 2).  This keeps the
+    probe free of a dependency on the heavier
+    ``src.oauth_broker_jail.ask_host_broker`` path.
+    """
+    import socket as _socket
+    import struct as _struct
+
+    try:
+        s = _socket.socket(_socket.AF_UNIX, _socket.SOCK_STREAM)
+        s.settimeout(timeout)
+        s.connect(str(socket_path))
+    except OSError:
+        return False
+    try:
+        body = b'{"action":"ping"}'
+        s.sendall(_struct.pack(">I", len(body)) + body)
+        # Expect at least one data frame (pong) before the exit frame.
+        while True:
+            hdr = s.recv(5)
+            if len(hdr) < 5:
+                return False
+            sid, ln = _struct.unpack(">BI", hdr)
+            payload = b""
+            while len(payload) < ln:
+                chunk = s.recv(ln - len(payload))
+                if not chunk:
+                    return False
+                payload += chunk
+            if sid == 0:  # STREAM_STDOUT
+                try:
+                    obj = json.loads(payload.decode())
+                except (UnicodeDecodeError, json.JSONDecodeError):
+                    return False
+                return bool(obj.get("pong"))
+            if sid == 2:  # STREAM_EXIT without a pong on stream 0 → not alive
+                return False
+    except OSError:
+        return False
+    finally:
+        try:
+            s.close()
+        except OSError:
+            pass
+
+
+def _broker_read_pid() -> "Optional[int]":
+    """Return the integer PID from the singleton PID file, or None if
+    the file is absent / unreadable / malformed."""
+    try:
+        raw = BROKER_SINGLETON_PID_FILE.read_text().strip()
+    except OSError:
+        return None
+    try:
+        return int(raw)
+    except ValueError:
+        return None
+
+
+def _broker_pid_is_live(pid: int) -> bool:
+    """``os.kill(pid, 0)`` — the standard Unix liveness check.  Returns
+    True if the process exists and we can signal it, False on
+    ``ProcessLookupError`` or ``OSError`` other than permission.
+    EPERM (we can't signal someone else's process) still counts as
+    alive for our purposes."""
+    try:
+        os.kill(pid, 0)
+    except ProcessLookupError:
+        return False
+    except PermissionError:
+        return True
+    except OSError:
+        return False
+    return True
+
+
+def _broker_is_alive() -> bool:
+    """Singleton liveness: PID file exists, PID is live, socket is
+    present, and a ping round-trips.  All four must hold — otherwise
+    we treat the slot as vacant so the next ``_broker_ensure`` respawns."""
+    pid = _broker_read_pid()
+    if pid is None or not _broker_pid_is_live(pid):
+        return False
+    if not BROKER_SINGLETON_SOCKET.exists():
+        return False
+    return _broker_ping(BROKER_SINGLETON_SOCKET)
+
+
+def _broker_wait_for_socket(sock: Path, *, timeout: float = 5.0) -> bool:
+    """Poll until ``sock`` appears or ``timeout`` elapses."""
+    deadline = time.monotonic() + timeout
+    while time.monotonic() < deadline:
+        if sock.exists():
+            return True
+        time.sleep(0.05)
+    return sock.exists()
+
+
+def _broker_spawn() -> Path:
+    """Fork the singleton broker if it's not already running.  Returns
+    the socket path regardless of whether we had to spawn.
+
+    ``fcntl.flock`` on the lock file serializes concurrent spawners so
+    two parallel ``yolo run`` invocations don't race into forking two
+    brokers.  Inside the lock we re-check liveness; the loser of the
+    race finds a live broker on second look and returns without
+    spawning."""
+    import fcntl as _fcntl
+
+    BROKER_SINGLETON_LOCK.parent.mkdir(parents=True, exist_ok=True)
+    with open(BROKER_SINGLETON_LOCK, "w") as lock_f:
+        _fcntl.flock(lock_f, _fcntl.LOCK_EX)
+        if _broker_is_alive():
+            return BROKER_SINGLETON_SOCKET
+
+        # Clean any stale socket left behind by a crashed prior broker;
+        # a second bind(2) on a stale path fails with EADDRINUSE.
+        try:
+            BROKER_SINGLETON_SOCKET.unlink()
+        except FileNotFoundError:
+            pass
+
+        log_dir = GLOBAL_STORAGE / "logs"
+        log_dir.mkdir(parents=True, exist_ok=True)
+        log_path = log_dir / "host-service-claude-oauth-broker.log"
+        log_file = open(log_path, "ab")
+        proc = subprocess.Popen(
+            ["yolo-claude-oauth-broker-host", "--socket", str(BROKER_SINGLETON_SOCKET)],
+            stdout=log_file,
+            stderr=log_file,
+            start_new_session=True,
+            close_fds=True,
+        )
+        BROKER_SINGLETON_PID_FILE.write_text(f"{proc.pid}\n")
+        if not _broker_wait_for_socket(BROKER_SINGLETON_SOCKET, timeout=5.0):
+            # Bind failed — process likely crashed.  Leave the PID
+            # file for ``yolo broker status`` to report.
+            return BROKER_SINGLETON_SOCKET
+        return BROKER_SINGLETON_SOCKET
+
+
+def _broker_ensure() -> Path:
+    """If the singleton is alive, return its socket.  Otherwise spawn
+    and return.  One-shot entrypoint for code paths that need a live
+    broker (``yolo run`` via ``start_loopholes``, ``yolo broker``
+    subcommands)."""
+    if _broker_is_alive():
+        return BROKER_SINGLETON_SOCKET
+    return _broker_spawn()
+
+
+def _broker_kill(*, sig: int = signal.SIGTERM, timeout: float = 3.0) -> bool:
+    """Send ``sig`` to the singleton broker.  Returns True if a
+    broker was running and has been signaled (whether or not it's
+    already exited); False if nothing was running.  Always cleans up
+    the PID file and socket on success."""
+    pid = _broker_read_pid()
+    if pid is None:
+        # Nothing to kill — still remove a stale socket if present so
+        # the next spawn gets a clean slate.
+        try:
+            BROKER_SINGLETON_SOCKET.unlink()
+        except FileNotFoundError:
+            pass
+        return False
+    try:
+        os.kill(pid, sig)
+    except ProcessLookupError:
+        # Already dead — treat as a clean stop.
+        pass
+    except OSError:
+        return False
+
+    # Wait for the process to actually exit before declaring success.
+    deadline = time.monotonic() + timeout
+    while time.monotonic() < deadline:
+        try:
+            os.kill(pid, 0)
+        except ProcessLookupError:
+            break
+        time.sleep(0.05)
+    else:
+        # Stubborn — escalate to SIGKILL.
+        try:
+            os.kill(pid, signal.SIGKILL)
+        except ProcessLookupError:
+            pass
+
+    # Cleanup.
+    for p in (BROKER_SINGLETON_PID_FILE, BROKER_SINGLETON_SOCKET):
+        try:
+            p.unlink()
+        except FileNotFoundError:
+            pass
+    return True
+
+
+def _broker_status() -> Dict[str, Any]:
+    """Snapshot for ``yolo broker status``: pid (or None), alive bool,
+    socket exists bool, ping ok bool, socket path (for display)."""
+    pid = _broker_read_pid()
+    pid_live = pid is not None and _broker_pid_is_live(pid)
+    sock_exists = BROKER_SINGLETON_SOCKET.exists()
+    ping_ok = sock_exists and _broker_ping(BROKER_SINGLETON_SOCKET)
+    return {
+        "pid": pid,
+        "pid_live": pid_live,
+        "socket_exists": sock_exists,
+        "ping_ok": ping_ok,
+        "socket": str(BROKER_SINGLETON_SOCKET),
+        "pid_file": str(BROKER_SINGLETON_PID_FILE),
+    }
+
+
 def _resolve_container_cgroup(cname: str, runtime: str) -> Optional[Path]:
     """Discover the host-side cgroup path for a running container.
 
@@ -2287,6 +2545,24 @@ def start_loopholes(
         if name in (BUILTIN_CGROUP_LOOPHOLE_NAME, BUILTIN_JOURNAL_LOOPHOLE_NAME):
             continue  # reserved builtins
         if not isinstance(spec, dict):
+            continue
+        # Claude OAuth broker is a HOST-WIDE singleton, not per-jail.
+        # See the block near ``BROKER_SINGLETON_SOCKET`` for why.  We
+        # ensure a live broker here; the per-jail bind-mount of the
+        # singleton socket into the jail at
+        # ``/run/yolo-services/claude-oauth-broker.sock`` happens in
+        # ``run()``'s docker command assembly (see the matching code
+        # near the host-services sockets dir bind mount).  Returning
+        # no handle is correct — singleton lifecycle is NOT tied to a
+        # single jail; we don't want ``stop_loopholes`` reaping it
+        # when this jail exits.
+        if name == BROKER_LOOPHOLE_NAME:
+            try:
+                _broker_ensure()
+            except Exception as e:
+                console.print(
+                    f"[red]claude-oauth-broker: failed to ensure singleton: {e}[/red]"
+                )
             continue
         h = _start_host_service_external(name, spec, sockets_dir)
         if h is not None:
@@ -4843,6 +5119,41 @@ def _check_loopholes(ok, warn, fail) -> None:
         r = results[0]
         if r.returncode == 0:
             ok(f"loophole {loophole.name}: self-check ok")
+            # Broker gets an additional runtime probe: self_check
+            # validates static state (CA files, creds parseable) but
+            # can't tell whether the daemon is actually answering.
+            # This is the check that would have caught the 2026-04-24
+            # stale-wheel incident in doctor instead of at
+            # /login-prompt time.
+            if loophole.name == BROKER_LOOPHOLE_NAME:
+                status = _broker_status()
+                if status["pid_live"] and status["ping_ok"]:
+                    ok(
+                        "loophole claude-oauth-broker: daemon live "
+                        f"(pid={status['pid']}, ping ok)"
+                    )
+                elif status["pid"] is None:
+                    warn(
+                        "loophole claude-oauth-broker: daemon not running",
+                        "First `yolo run` will spawn it; "
+                        "`yolo broker status` reports state, "
+                        "`yolo broker restart` cycles.",
+                    )
+                elif not status["pid_live"]:
+                    fail(
+                        "loophole claude-oauth-broker: stale PID file, "
+                        f"pid {status['pid']} not running",
+                        "Run `yolo broker restart` to clean up and respawn.",
+                    )
+                else:
+                    fail(
+                        "loophole claude-oauth-broker: daemon unresponsive "
+                        f"(pid={status['pid']}, socket "
+                        f"{'present' if status['socket_exists'] else 'missing'}, "
+                        "ping failed)",
+                        "Run `yolo broker restart` — typical after a "
+                        "wheel upgrade; old code still loaded in memory.",
+                    )
         elif r.returncode is None:
             warn(
                 f"loophole {loophole.name}: self-check could not run",
@@ -6782,6 +7093,35 @@ def run(
         docker_cmd.extend(
             ["-v", f"{host_services_sockets_dir}:{JAIL_HOST_SERVICES_DIR}:rw"]
         )
+        # Claude OAuth broker singleton — eagerly ensure it's alive
+        # BEFORE we add the bind-mount flag so the socket source path
+        # exists at the moment podman tries to set up the mount.
+        # ``start_loopholes`` (called later) also calls _broker_ensure
+        # for idempotence, but putting it here too means the mount
+        # never fails for want of a source.
+        try:
+            _broker_ensure()
+        except Exception as e:  # noqa: BLE001 — never fail run() on this
+            console.print(
+                f"[yellow]claude-oauth-broker: singleton not ensured pre-mount: {e}[/yellow]"
+            )
+        if BROKER_SINGLETON_SOCKET.exists():
+            _broker_jail_socket = (
+                f"{JAIL_HOST_SERVICES_DIR}/{BROKER_LOOPHOLE_NAME}.sock"
+            )
+            docker_cmd.extend(
+                [
+                    "-v",
+                    f"{BROKER_SINGLETON_SOCKET}:{_broker_jail_socket}:rw",
+                ]
+            )
+            # The jail-side TLS terminator reads
+            # YOLO_SERVICE_CLAUDE_OAUTH_BROKER_SOCKET to find the
+            # broker.  start_loopholes no longer synthesizes this env
+            # (singleton doesn't come back as a LoopholeDaemon handle)
+            # so inject it explicitly.
+            _broker_env_var = _host_service_env_var(BROKER_LOOPHOLE_NAME)
+            docker_cmd.extend(["-e", f"{_broker_env_var}={_broker_jail_socket}"])
 
     # Device passthrough from config
     # On macOS, device passthrough goes through the container runtime's VM.
@@ -7827,6 +8167,98 @@ def loopholes_disable(name: str):
         raise typer.Exit(1)
     _loopholes.set_enabled(path, False)
     typer.echo(f"disabled {name}")
+
+
+# ---------------------------------------------------------------------------
+# yolo broker — manage the singleton Claude OAuth broker
+# ---------------------------------------------------------------------------
+
+broker_app = typer.Typer(
+    help=(
+        "Manage the singleton Claude OAuth broker daemon.  One broker per "
+        "host serves every running jail — cycle it here after a wheel "
+        "upgrade, inspect its liveness, tail its log."
+    )
+)
+app.add_typer(broker_app, name="broker")
+
+
+@broker_app.command("status")
+def broker_status_cmd():
+    """Report whether the broker is alive + socket path + last ping."""
+    status = _broker_status()
+    console.print("[bold]Claude OAuth broker (singleton)[/bold]")
+    pid = status["pid"]
+    if pid is None:
+        console.print("  [dim]not running[/dim] (no PID file)")
+    else:
+        mark = "[green]live[/green]" if status["pid_live"] else "[red]dead[/red]"
+        console.print(f"  pid:          {pid}  {mark}")
+    sock_mark = (
+        "[green]present[/green]" if status["socket_exists"] else "[red]missing[/red]"
+    )
+    console.print(f"  socket:       {status['socket']}  {sock_mark}")
+    ping_mark = "[green]ok[/green]" if status["ping_ok"] else "[red]no response[/red]"
+    console.print(f"  ping:         {ping_mark}")
+    console.print(f"  pid file:     {status['pid_file']}")
+    console.print()
+    if status["pid_live"] and status["ping_ok"]:
+        console.print("[green]Broker healthy.[/green]")
+        raise typer.Exit(0)
+    console.print(
+        "[yellow]Broker not fully healthy.[/yellow]  "
+        "Run [cyan]yolo broker restart[/cyan] to cycle."
+    )
+    raise typer.Exit(1)
+
+
+@broker_app.command("stop")
+def broker_stop_cmd():
+    """Kill the running broker singleton (if any).  Next jail access
+    lazily respawns."""
+    stopped = _broker_kill()
+    if stopped:
+        console.print("[green]Stopped broker.[/green]")
+    else:
+        console.print("[dim]No broker was running.[/dim]")
+
+
+@broker_app.command("restart")
+def broker_restart_cmd():
+    """Stop the running broker (if any) then spawn a fresh one — the
+    canonical way to pick up a new wheel's broker code without
+    restarting every jail.  ``just deploy`` calls this at the end so
+    upgrades are immediate."""
+    _broker_kill()
+    sock = _broker_spawn()
+    if _broker_is_alive():
+        console.print(f"[green]Broker restarted.[/green]  socket={sock}")
+        raise typer.Exit(0)
+    console.print(
+        "[red]Broker failed to become live after spawn.[/red]  "
+        f"Check {GLOBAL_STORAGE / 'logs' / 'host-service-claude-oauth-broker.log'}"
+    )
+    raise typer.Exit(1)
+
+
+@broker_app.command("logs")
+def broker_logs_cmd(
+    lines: int = typer.Option(50, "-n", "--lines", help="Tail N lines"),
+    follow: bool = typer.Option(False, "-f", "--follow", help="tail -f style"),
+):
+    """Tail the broker log.  One log shared across every jail."""
+    log_path = GLOBAL_STORAGE / "logs" / "host-service-claude-oauth-broker.log"
+    if not log_path.is_file():
+        console.print(f"[dim]No log file yet at {log_path}[/dim]")
+        raise typer.Exit(0)
+    cmd = ["tail", f"-n{lines}"]
+    if follow:
+        cmd.append("-f")
+    cmd.append(str(log_path))
+    try:
+        subprocess.run(cmd)
+    except KeyboardInterrupt:
+        pass
 
 
 def main():

@@ -131,6 +131,17 @@ deploy: install
         echo "  manifest is bundled in the wheel; loophole activates automatically when Claude is on PATH"
     fi
 
+    # Cycle the singleton broker so this deploy's wheel code is live
+    # immediately.  Previously, an old broker process could outlive
+    # `just deploy` (different process, same filesystem) and serve
+    # requests with stale Python loaded in memory — the 2026-04-24
+    # incident.  `yolo broker restart` kills + respawns; next `yolo
+    # run` also does lazy-spawn-if-missing, so this is belt AND
+    # suspenders.
+    if command -v yolo >/dev/null 2>&1; then
+        yolo broker restart 2>&1 | sed 's/^/  /' || true
+    fi
+
     echo "yolo-jail deployed. Verify: yolo loopholes list"
 
 # Build the container image using Nix

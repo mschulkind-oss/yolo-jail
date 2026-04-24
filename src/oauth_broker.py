@@ -610,6 +610,15 @@ def build_handler(creds_path: Path):
                 return
             session.json(do_proxy(**decoded))
             return
+        if action == "ping":
+            # Liveness probe.  Never touches upstream or the creds file —
+            # a successful round-trip means the daemon is alive, the
+            # socket is bound, and the handler path is intact.  Used by
+            # ``yolo broker status`` and the ``yolo doctor`` liveness
+            # check so operators can distinguish "broker down" from
+            # "broker alive but failing at refresh time".
+            session.json({"pong": True, "pid": os.getpid()})
+            return
         log.warning("unknown action: %r (req keys: %s)", action, sorted(req.keys()))
         session.stderr(f"unknown action: {action!r}\n")
         session.exit(2)
