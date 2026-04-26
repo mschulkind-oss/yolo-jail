@@ -9,6 +9,11 @@ on:
 permissions:
   contents: read
 
+# Opt every JavaScript action into Node.js 24 ahead of GitHub's
+# 2026-06-02 default switch.  See ci.yml for full rationale.
+env:
+  FORCE_JAVASCRIPT_ACTIONS_TO_NODE24: "true"
+
 jobs:
   build-image:
     runs-on: ubuntu-latest

@@ -9,6 +9,16 @@ on:
 permissions:
   contents: read
 
+# Opt every JavaScript action into Node.js 24 ahead of GitHub's
+# 2026-06-02 default switch.  ``actions/upload-artifact@v5`` still
+# bundles Node 20 in its ``action.yml`` (no v6 with Node 24 yet);
+# this env var overrides that for the whole workflow without
+# pinning to a beta tag, and silences the runtime deprecation
+# annotation we'd otherwise get on every CI run.  Removable once
+# every pinned action ships a Node-24 release.
+env:
+  FORCE_JAVASCRIPT_ACTIONS_TO_NODE24: "true"
+
 jobs:
   secrets-scan:
     runs-on: ubuntu-latest

@@ -1611,13 +1611,65 @@ def _broker_ensure() -> Path:
     return _broker_spawn()
 
 
+def _broker_pgrep_strays() -> List[int]:
+    """Return PIDs of any running ``yolo-claude-oauth-broker-host``
+    processes the OS knows about, regardless of our PID file state.
+
+    Why this exists: when an older yolo-jail wheel ran the broker
+    under a different PID-file path (or before we had a PID file at
+    all), upgrades left the old daemon running.  ``_broker_kill``
+    saw an empty PID file and silently no-op'd, so ``yolo broker
+    restart`` couldn't actually cycle the daemon — old code kept
+    serving until the next host reboot.  pgrep is the belt-and-
+    suspenders cleanup: any process whose argv contains the broker
+    binary name gets caught.
+    """
+    try:
+        result = subprocess.run(
+            ["pgrep", "-f", "yolo-claude-oauth-broker-host"],
+            capture_output=True,
+            text=True,
+            timeout=2,
+        )
+    except (FileNotFoundError, subprocess.TimeoutExpired, OSError):
+        return []
+    if result.returncode != 0:
+        return []
+    pids: List[int] = []
+    for line in result.stdout.splitlines():
+        line = line.strip()
+        if not line:
+            continue
+        try:
+            pid = int(line)
+        except ValueError:
+            continue
+        # Don't kill ourselves if pgrep happens to match the
+        # currently-running ``yolo`` invocation.  (It shouldn't —
+        # different argv — but be defensive.)
+        if pid == os.getpid():
+            continue
+        pids.append(pid)
+    return pids
+
+
 def _broker_kill(*, sig: int = signal.SIGTERM, timeout: float = 3.0) -> bool:
     """Send ``sig`` to the singleton broker.  Returns True if a
     broker was running and has been signaled (whether or not it's
     already exited); False if nothing was running.  Always cleans up
-    the PID file and socket on success."""
-    pid = _broker_read_pid()
-    if pid is None:
+    the PID file and socket on success.
+
+    When the PID file is missing or stale, falls back to ``pgrep``-
+    based discovery so wheel-upgrade orphans (whose original PID file
+    layout differed) still get reaped.  See ``_broker_pgrep_strays``."""
+    pids: List[int] = []
+    primary = _broker_read_pid()
+    if primary is not None:
+        pids.append(primary)
+    else:
+        pids.extend(_broker_pgrep_strays())
+
+    if not pids:
         # Nothing to kill — still remove a stale socket if present so
         # the next spawn gets a clean slate.
         try:
@@ -1625,24 +1677,27 @@ def _broker_kill(*, sig: int = signal.SIGTERM, timeout: float = 3.0) -> bool:
         except FileNotFoundError:
             pass
         return False
-    try:
-        os.kill(pid, sig)
-    except ProcessLookupError:
-        # Already dead — treat as a clean stop.
-        pass
-    except OSError:
-        return False
 
-    # Wait for the process to actually exit before declaring success.
-    deadline = time.monotonic() + timeout
-    while time.monotonic() < deadline:
+    for pid in pids:
         try:
-            os.kill(pid, 0)
+            os.kill(pid, sig)
         except ProcessLookupError:
-            break
-        time.sleep(0.05)
-    else:
-        # Stubborn — escalate to SIGKILL.
+            # Already dead — treat as a clean stop for this PID.
+            continue
+        except OSError:
+            # Permission error or similar — skip this PID, keep going
+            # so a partial cleanup beats none.
+            continue
+
+    # Wait for every signaled PID to actually exit before declaring
+    # success.  Escalate to SIGKILL on stragglers.
+    deadline = time.monotonic() + timeout
+    survivors = list(pids)
+    while survivors and time.monotonic() < deadline:
+        survivors = [p for p in survivors if _broker_pid_is_live(p)]
+        if survivors:
+            time.sleep(0.05)
+    for pid in survivors:
         try:
             os.kill(pid, signal.SIGKILL)
         except ProcessLookupError:

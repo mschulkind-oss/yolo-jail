@@ -7,6 +7,7 @@ port forwarding, AGENTS.md generation, check command, and helpers.
 import json
 import os
 import shlex
+import signal
 import subprocess
 import sys
 from pathlib import Path
@@ -2751,7 +2752,73 @@ class TestBrokerSingleton:
         """``yolo broker stop`` when nothing is running must succeed
         silently, not raise."""
         _, _, cli = self._patch_paths(monkeypatch, tmp_path)
+        # No pgrep matches either — nothing running anywhere.
+        monkeypatch.setattr(cli, "_broker_pgrep_strays", lambda: [])
         cli._broker_kill()  # should not raise
+
+    def test_kill_finds_strays_via_pgrep_when_pid_file_missing(
+        self, monkeypatch, tmp_path
+    ):
+        """The 2026-04-26 incident: an old broker survived a wheel
+        upgrade because the new code's PID file path didn't match
+        whatever the old code wrote.  ``yolo broker restart`` ran
+        ``_broker_kill`` against the empty PID-file path and silently
+        no-op'd, so the stale broker kept serving stale code.
+        ``_broker_kill`` must fall back to ``pgrep`` when the PID
+        file is missing, so wheel-upgrade-orphans are cleaned up."""
+        sock, pidf, cli = self._patch_paths(monkeypatch, tmp_path)
+        # Stray broker found via pgrep, no PID file.
+        monkeypatch.setattr(cli, "_broker_pgrep_strays", lambda: [42, 43])
+
+        signals: list = []
+
+        def fake_kill(pid, sig):
+            signals.append((pid, sig))
+            # Simulate process dying after first signal.
+            if sig == 0:
+                raise ProcessLookupError
+
+        monkeypatch.setattr(cli.os, "kill", fake_kill)
+        # Sock present so cleanup branch runs end-to-end.
+        sock.touch()
+
+        result = cli._broker_kill()
+        assert result is True
+        # Each stray must have received a SIGTERM.
+        terms = [(p, s) for p, s in signals if s == signal.SIGTERM]
+        assert sorted(p for p, _ in terms) == [42, 43]
+        # Socket cleaned up.
+        assert not sock.exists()
+
+    def test_kill_pid_file_path_still_works(self, monkeypatch, tmp_path):
+        """Regression guard for the PID-file path: when the PID file
+        IS present, behavior is unchanged.  pgrep fallback only kicks
+        in when the file is absent or empty."""
+        sock, pidf, cli = self._patch_paths(monkeypatch, tmp_path)
+        pidf.write_text("12345\n")
+        sock.touch()
+
+        # If pgrep ran, that'd be a bug (we already have a PID).
+        pgrep_calls = {"n": 0}
+
+        def fake_pgrep():
+            pgrep_calls["n"] += 1
+            return []
+
+        monkeypatch.setattr(cli, "_broker_pgrep_strays", fake_pgrep)
+
+        signals: list = []
+
+        def fake_kill(pid, sig):
+            signals.append((pid, sig))
+            if sig == 0:
+                raise ProcessLookupError
+
+        monkeypatch.setattr(cli.os, "kill", fake_kill)
+        cli._broker_kill()
+        assert any(p == 12345 and s == signal.SIGTERM for p, s in signals)
+        # Pgrep fallback NOT consulted when PID file gave us a target.
+        assert pgrep_calls["n"] == 0
 
     def test_spawn_takes_flock_to_avoid_double_spawn(self, monkeypatch, tmp_path):
         """Two parallel ``yolo run`` invocations must not both fork a
