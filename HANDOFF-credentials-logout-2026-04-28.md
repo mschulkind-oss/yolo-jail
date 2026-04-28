@@ -226,3 +226,50 @@ Should be unchanged when the next agent picks this up, but capture in case of ro
 - `~/.local/share/yolo-jail/logs/host-service-claude-oauth-broker.log` (singleton broker, 474 lines as of 2026-04-28T19:08Z)
 - `/home/agent/.local/state/yolo-jail-daemons/claude-oauth-broker.log` per jail (in `yolo-yolo-jail-887995ca`: 3.1 MB, last entry 2026-04-27 14:06:20)
 - `~/.local/share/yolo-jail/state/claude-oauth-broker/` for CA + lock state
+
+---
+
+## Update — 2026-04-28T21:30Z (after this handoff was first written)
+
+### Landed since the handoff
+
+- **`3f976cd` fix(doctor): skip singleton broker in per-jail liveness probe** — addresses §"What the existing playbook gets wrong" item 1.  The "socket dead" false positive is gone.  TDD red→green with two tests in `TestHostServiceLivenessProbe`.
+
+- **`4dbbd20` feat(doctor): symptom-level shared-creds freshness check** — implements the §"Step 4 — health metric the actual symptom" recommendation.  Doctor now reads `expiresAt` from the shared creds and reports `ok` (`valid for Xh Ym`), `warn` (`expire in <1h`), or `fail` (`expired`).  Five TDD tests in `TestBrokerCredsFreshness`.  Limitation noted in the commit: a fresh `expiresAt` can still hide a server-revoked refresh token (see new data point below); a real network roundtrip would be the only way to prove validity, planned as follow-up.
+
+- **`docs/claude-token-logouts.md`** rewritten to match the broker era (singleton paths, `claude-shared-credentials/`, no host↔jail mirror, references to `yolo broker status` and the new symptom check).
+
+### New data point — 2026-04-28 ~21:00Z
+
+User reported losing auth **on host AND in jail simultaneously**.  Host was rescued by running `/login` outside the jail, which only fixed the host's `~/.claude/.credentials.json` (post-`cb6e850` they're independent).  Jail stayed broken until a host-side agent manually copied host creds → shared creds:
+
+```
+cp ~/.claude/.credentials.json \
+   ~/.local/share/yolo-jail/home/.claude-shared-credentials/.credentials.json
+```
+
+The shared file's prior refresh token (`sk-ant-ort01-ses…`) was rejected by Anthropic with `invalid_grant` — definitively server-side revoked.  The host file's refresh token (`sk-ant-ort01-Hyz…`) was freshly minted by the host `/login`, hence valid.
+
+**Two findings from this:**
+
+1. **Server-side revocation is real and observed.**  This was the open architectural question Q1's likely ultimate failure mode regardless of whether Claude refreshes — even with perfect refresh logic, a revoked refresh token kills the jail.  The new doctor metric won't catch this case (fresh `expiresAt` will still appear healthy); only a network roundtrip can prove validity.  Follow-up: add a periodic broker-side "ping the issuer with the refresh token" health check.
+
+2. **The host→shared copy is bandaid #18.**  This is the same convergence the post-`cb6e850` design was supposed to eliminate, and it re-introduces the exact race (two clients sharing one refresh token; whichever rotates first invalidates the other).  Almost certainly **this is also what wrote the shared creds at 14:56:22 on 2026-04-28** (the open Q2 in §"How did today's restart 'fix' it without /login?") — a prior agent or human did the same manual copy, the broker was silent because it never saw a request, and the new token's lineage was opaque because it came from `/login` on the host, not the broker proxy.  Q2 is plausibly answered: it's manual convergence, not a hidden code path.
+
+### Updated open architectural questions
+
+1. **Does Claude Code attempt refresh-token grants AT ALL?** — Still partially open.  Strace evidence so far: Claude does not refresh proactively based on local `expiresAt`, and does not refresh on a 401 caused by a malformed access token.  Untested: server-side-expired-but-well-formed token, which would require waiting for natural expiry on a token Anthropic hasn't already revoked.
+
+2. **What wrote shared creds during the broker's silent gap on 2026-04-27 → 2026-04-28?** — **Likely answered:** a host-side manual copy.  The 2026-04-28 21:00Z incident was a documented instance of the same operation; the prior gap was almost certainly the same shape.
+
+3. **Is the broker's flock helping or hurting?** — Unchanged, still open.
+
+4. **Should the per-jail TLS terminator exist at all?** — Unchanged, still open.
+
+5. **NEW: how do we detect server-side revocation before the user hits a 401?** — Only periodic upstream validation can prove a refresh token still works.  Cheapest implementation: have the broker do a `grant_type=refresh_token` roundtrip every Nh and rotate.  This converts the wall-clock metric in `4dbbd20` from "partial signal" to "ground truth", and as a side-effect proactively refreshes — eliminating the dependency on Claude ever sending a refresh-grant.
+
+### Recommended next move
+
+The follow-up that addresses both Q1 (Claude doesn't refresh) AND Q5 (server-side revocation) AND Q2 (silent rewrites) is the same piece of code: **make the broker proactively refresh on a wall-clock schedule**, validating the refresh token and rewriting shared creds before expiry.  This is exactly the function the `02821aa` commit removed.  Bringing it back in the singleton makes the broker the single, observable writer of the shared file, eliminates the "Claude never refreshes" failure mode, and surfaces revocation as a logged 4xx instead of a user-facing 401.
+
+The current doctor metric (`4dbbd20`) is the safety net that surfaces failure of that mechanism if/when it lands.  Until then, the metric still catches the simple case where Claude just stops refreshing.
