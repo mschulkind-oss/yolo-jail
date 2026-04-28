@@ -7747,8 +7747,9 @@ def ps():
     """List running YOLO jail containers."""
     runtime = _runtime()
     if runtime == "container":
+        # Apple Container CLI does not support --filter; scan output instead.
         result = subprocess.run(
-            ["container", "ls", "--filter", "name=yolo-"],
+            ["container", "ls"],
             capture_output=True,
             text=True,
         )
