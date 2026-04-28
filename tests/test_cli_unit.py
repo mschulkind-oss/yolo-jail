@@ -3102,6 +3102,24 @@ class TestBrokerCredsFreshness:
         kinds = {kind for kind, _ in events}
         assert kinds == {"ok"}, f"expected only ok events, got {events}"
 
+    def test_ok_message_includes_mtime(self, monkeypatch, tmp_path):
+        """File mtime is a stand-in for "time since last refresh" — every
+        successful refresh-grant rewrites the shared file.  Surfacing it
+        next to the expiry distinguishes "fresh token" from "ancient
+        token, just hasn't aged out yet"."""
+        creds_file = self._write_creds(tmp_path, 6 * 3600)
+        # Backdate so the test isn't sensitive to write latency.
+        import os as _os
+
+        old = creds_file.stat().st_mtime - 7200  # 2h old
+        _os.utime(creds_file, (old, old))
+        events = self._run(monkeypatch, tmp_path)
+        ok_msgs = [m for kind, m in events if kind == "ok"]
+        assert ok_msgs, f"expected ok event, got {events}"
+        assert "last write" in ok_msgs[0], (
+            f"expected mtime info in ok message, got {ok_msgs[0]!r}"
+        )
+
     def test_warn_when_expiring_soon(self, monkeypatch, tmp_path):
         self._write_creds(tmp_path, 30 * 60)  # 30min remaining
         events = self._run(monkeypatch, tmp_path)

@@ -5172,25 +5172,41 @@ def _check_broker_creds_freshness(ok, warn, fail) -> None:
 
     now_ms = int(time.time() * 1000)
     remaining_s = (expires_at_ms - now_ms) // 1000
+    # File mtime is a proxy for "time since last refresh" — every
+    # successful refresh-grant or /login rewrites the file.  Flat
+    # mtime + advancing wall-clock = nothing is landing.
+    try:
+        mtime_age_s = int(time.time() - creds_path.stat().st_mtime)
+    except OSError:
+        mtime_age_s = -1
+
+    def _fmt(seconds: int) -> str:
+        if seconds < 0:
+            return "?"
+        if seconds < 3600:
+            return f"{seconds // 60}m"
+        return f"{seconds // 3600}h{(seconds % 3600) // 60}m"
+
+    last_write = f"last write {_fmt(mtime_age_s)} ago" if mtime_age_s >= 0 else ""
 
     if remaining_s < 0:
         fail(
-            f"shared creds expired {-remaining_s // 60}m ago",
+            f"shared creds expired {_fmt(-remaining_s)} ago"
+            + (f" ({last_write})" if last_write else ""),
             "Refreshes are not landing.  Run /login from inside a "
             "jail to recover; check broker log at "
             "~/.local/share/yolo-jail/logs/host-service-claude-oauth-broker.log",
         )
     elif remaining_s < 3600:
         warn(
-            f"shared creds expire in {remaining_s // 60}m",
+            f"shared creds expire in {_fmt(remaining_s)}"
+            + (f" ({last_write})" if last_write else ""),
             "Approaching expiry without a refresh having landed.  "
             "Healthy cadence keeps this above 1h.",
         )
     else:
-        ok(
-            f"shared creds valid for "
-            f"{remaining_s // 3600}h{(remaining_s % 3600) // 60}m"
-        )
+        suffix = f", {last_write}" if last_write else ""
+        ok(f"shared creds valid for {_fmt(remaining_s)}{suffix}")
 
 
 def _check_loopholes(ok, warn, fail) -> None:
