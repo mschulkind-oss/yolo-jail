@@ -142,9 +142,16 @@ echo "ssh-ng://nix-builder aarch64-linux $HOME/.colima/_lima/_config/user 4 1 be
 # Enable substitutes from the builder
 echo 'builders-use-substitutes = true' | sudo tee -a /etc/nix/nix.custom.conf
 
-# Restart Nix daemon
-sudo launchctl kickstart -k system/systems.determinate.nix-daemon
+# Restart Nix daemon (use whichever label matches your installer)
+sudo launchctl kickstart -k system/systems.determinate.nix-daemon  # Determinate installer
+# or:
+sudo launchctl kickstart -k system/org.nixos.nix-daemon             # Official NixOS installer
 ```
+
+> The service label depends on which Nix installer you used. Determinate
+> Systems' installer registers `systems.determinate.nix-daemon`; the
+> official NixOS installer registers `org.nixos.nix-daemon`. Check
+> `ls /Library/LaunchDaemons/ | grep nix-daemon` if you're unsure.
 
 > **Note:** The Colima SSH port changes on VM restart. After `colima start`,
 > update `~/.ssh/config` and `/var/root/.ssh/config` with the new port.
@@ -215,10 +222,14 @@ echo 'ssh-ng://nix-linux-builder aarch64-linux /etc/nix/builder_ed25519 4 1 benc
   | sudo tee /etc/nix/machines
 ```
 
-**Step 5 — Restart the Nix daemon** to pick up the new config:
+**Step 5 — Restart the Nix daemon** to pick up the new config. The
+service label depends on your installer — see the note in Option A
+above if you're unsure:
 
 ```bash
-sudo launchctl kickstart -k system/systems.determinate.nix-daemon
+sudo launchctl kickstart -k system/systems.determinate.nix-daemon  # Determinate installer
+# or:
+sudo launchctl kickstart -k system/org.nixos.nix-daemon             # Official NixOS installer
 ```
 
 **Step 6 — Verify the builder is reachable:**

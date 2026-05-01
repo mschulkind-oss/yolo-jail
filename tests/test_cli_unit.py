@@ -1280,6 +1280,83 @@ class TestRuntimeForCheck:
 # ═══════════════════════════════════════════════════════════════════════════════
 
 
+class TestDetectNixDaemonLabel:
+    """_detect_nix_daemon_label returns the launchd Label based on the plist."""
+
+    def test_returns_official_label(self, tmp_path, monkeypatch):
+        from cli import _detect_nix_daemon_label
+
+        daemon_dir = tmp_path / "LaunchDaemons"
+        daemon_dir.mkdir()
+        (daemon_dir / "org.nixos.nix-daemon.plist").write_text("<plist/>")
+
+        import cli
+
+        real_path = cli.Path
+
+        def fake_path(p, *args, **kwargs):
+            if p == "/Library/LaunchDaemons":
+                return daemon_dir
+            return real_path(p, *args, **kwargs)
+
+        monkeypatch.setattr(cli, "Path", fake_path)
+        assert _detect_nix_daemon_label() == "org.nixos.nix-daemon"
+
+    def test_returns_determinate_label(self, tmp_path, monkeypatch):
+        from cli import _detect_nix_daemon_label
+
+        daemon_dir = tmp_path / "LaunchDaemons"
+        daemon_dir.mkdir()
+        (daemon_dir / "systems.determinate.nix-daemon.plist").write_text("<plist/>")
+        # An unrelated daemon shouldn't confuse the scan.
+        (daemon_dir / "com.apple.other.plist").write_text("<plist/>")
+
+        import cli
+
+        real_path = cli.Path
+
+        def fake_path(p, *args, **kwargs):
+            if p == "/Library/LaunchDaemons":
+                return daemon_dir
+            return real_path(p, *args, **kwargs)
+
+        monkeypatch.setattr(cli, "Path", fake_path)
+        assert _detect_nix_daemon_label() == "systems.determinate.nix-daemon"
+
+    def test_returns_none_when_no_plist(self, tmp_path, monkeypatch):
+        from cli import _detect_nix_daemon_label
+
+        daemon_dir = tmp_path / "LaunchDaemons"
+        daemon_dir.mkdir()
+
+        import cli
+
+        real_path = cli.Path
+
+        def fake_path(p, *args, **kwargs):
+            if p == "/Library/LaunchDaemons":
+                return daemon_dir
+            return real_path(p, *args, **kwargs)
+
+        monkeypatch.setattr(cli, "Path", fake_path)
+        assert _detect_nix_daemon_label() is None
+
+    def test_returns_none_on_non_macos(self, monkeypatch):
+        from cli import _detect_nix_daemon_label
+
+        import cli
+
+        real_path = cli.Path
+
+        def fake_path(p, *args, **kwargs):
+            if p == "/Library/LaunchDaemons":
+                return real_path("/does-not-exist-for-tests")
+            return real_path(p, *args, **kwargs)
+
+        monkeypatch.setattr(cli, "Path", fake_path)
+        assert _detect_nix_daemon_label() is None
+
+
 class TestDetectHostTimezone:
     """Cover all three detection paths: $TZ, /etc/timezone, /etc/localtime."""
 

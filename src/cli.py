@@ -692,6 +692,26 @@ def _linux_multilib() -> str:
     return _MAP.get(machine, f"{machine}-linux-gnu")
 
 
+def _detect_nix_daemon_label() -> Optional[str]:
+    """Return the launchd Label of the installed nix-daemon on macOS, or None.
+
+    The Determinate Systems installer registers
+    ``systems.determinate.nix-daemon``; the official NixOS installer
+    registers ``org.nixos.nix-daemon``.  We look in
+    ``/Library/LaunchDaemons/`` for any file whose name ends in
+    ``nix-daemon.plist`` and return the stem — launchd labels match the
+    plist filename.  First match wins; returns None on non-macOS hosts
+    or if no matching plist exists.
+    """
+    daemon_dir = Path("/Library/LaunchDaemons")
+    if not daemon_dir.is_dir():
+        return None
+    for entry in sorted(daemon_dir.iterdir()):
+        if entry.name.endswith("nix-daemon.plist"):
+            return entry.stem
+    return None
+
+
 def _detect_host_timezone() -> Optional[str]:
     """Return the host's IANA timezone name (e.g. "America/New_York") or None.
 
@@ -5591,11 +5611,17 @@ def check(
                     result.stderr.strip().split("\n")[0] if result.stderr else "",
                 )
         except subprocess.TimeoutExpired:
+            label = _detect_nix_daemon_label()
+            kickstart = (
+                f"sudo launchctl kickstart -k system/{label}"
+                if label
+                else "sudo launchctl kickstart -k system/<label>"
+                " — check ls /Library/LaunchDaemons/ for your *nix-daemon.plist"
+            )
             fail(
                 "Nix daemon: store operation timed out (daemon may be hung)",
                 "This is a known issue with determinate-nixd. "
-                "Try: sudo launchctl kickstart -k system/systems.determinate.nix-daemon "
-                "or switch to the vanilla nix-daemon",
+                f"Try: {kickstart} or switch to the vanilla nix-daemon",
             )
         except Exception as e:
             warn(f"Could not verify Nix daemon connectivity: {e}")
