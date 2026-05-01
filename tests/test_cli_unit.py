@@ -1280,6 +1280,63 @@ class TestRuntimeForCheck:
 # ═══════════════════════════════════════════════════════════════════════════════
 
 
+class TestNixCustomConfIncluded:
+    """_nix_custom_conf_included parses /etc/nix/nix.conf for the include line."""
+
+    def _patch_conf(self, monkeypatch, conf_path):
+        import cli
+
+        real_path = cli.Path
+
+        def fake_path(p, *args, **kwargs):
+            if p == "/etc/nix/nix.conf":
+                return conf_path
+            return real_path(p, *args, **kwargs)
+
+        monkeypatch.setattr(cli, "Path", fake_path)
+
+    def test_detects_bang_include(self, tmp_path, monkeypatch):
+        from cli import _nix_custom_conf_included
+
+        conf = tmp_path / "nix.conf"
+        conf.write_text(
+            "build-users-group = nixbld\n"
+            "!include /etc/nix/nix.custom.conf\n"
+        )
+        self._patch_conf(monkeypatch, conf)
+        assert _nix_custom_conf_included() is True
+
+    def test_detects_plain_include(self, tmp_path, monkeypatch):
+        from cli import _nix_custom_conf_included
+
+        conf = tmp_path / "nix.conf"
+        conf.write_text("include /etc/nix/nix.custom.conf\n")
+        self._patch_conf(monkeypatch, conf)
+        assert _nix_custom_conf_included() is True
+
+    def test_returns_false_when_no_include(self, tmp_path, monkeypatch):
+        from cli import _nix_custom_conf_included
+
+        conf = tmp_path / "nix.conf"
+        conf.write_text("build-users-group = nixbld\n")
+        self._patch_conf(monkeypatch, conf)
+        assert _nix_custom_conf_included() is False
+
+    def test_ignores_commented_include(self, tmp_path, monkeypatch):
+        from cli import _nix_custom_conf_included
+
+        conf = tmp_path / "nix.conf"
+        conf.write_text("# !include /etc/nix/nix.custom.conf\n")
+        self._patch_conf(monkeypatch, conf)
+        assert _nix_custom_conf_included() is False
+
+    def test_returns_none_when_missing(self, tmp_path, monkeypatch):
+        from cli import _nix_custom_conf_included
+
+        self._patch_conf(monkeypatch, tmp_path / "does-not-exist")
+        assert _nix_custom_conf_included() is None
+
+
 class TestDetectNixDaemonLabel:
     """_detect_nix_daemon_label returns the launchd Label based on the plist."""
 

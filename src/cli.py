@@ -692,6 +692,42 @@ def _linux_multilib() -> str:
     return _MAP.get(machine, f"{machine}-linux-gnu")
 
 
+def _nix_custom_conf_included() -> Optional[bool]:
+    """Return True if /etc/nix/nix.conf includes /etc/nix/nix.custom.conf.
+
+    Nix reads ``/etc/nix/nix.conf`` (and ``$XDG_CONFIG_HOME/nix/nix.conf``)
+    but not arbitrary sibling files.  The Determinate Systems installer
+    adds ``!include /etc/nix/nix.custom.conf`` to ``nix.conf`` so the
+    "custom" file is actually loaded; the official NixOS installer does
+    not.  yolo-jail's macOS setup guide tells users to append settings
+    to ``nix.custom.conf``, which silently no-ops on the official
+    installer.  This helper lets the ``check`` command explain exactly
+    which of the two fixes the user needs.
+
+    Returns True/False if ``/etc/nix/nix.conf`` is readable, None if not
+    (e.g. non-macOS host, missing file, permission error).
+    """
+    conf = Path("/etc/nix/nix.conf")
+    if not conf.is_file():
+        return None
+    try:
+        text = conf.read_text()
+    except OSError:
+        return None
+    for raw in text.splitlines():
+        stripped = raw.strip()
+        if stripped.startswith("#") or not stripped:
+            continue
+        # Match both ``include`` (fatal if missing) and ``!include``
+        # (non-fatal).  Tolerate extra whitespace.
+        for prefix in ("!include", "include"):
+            if stripped.startswith(prefix):
+                rest = stripped[len(prefix):].lstrip()
+                if rest == "/etc/nix/nix.custom.conf":
+                    return True
+    return False
+
+
 def _detect_nix_daemon_label() -> Optional[str]:
     """Return the launchd Label of the installed nix-daemon on macOS, or None.
 
@@ -5537,37 +5573,51 @@ def check(
 
     console.print("[bold]Container Runtime[/bold]")
     detected_runtime = None
-    for rt in ("podman", "docker"):
+    # Each entry: (name, version_cmd, liveness_cmd, liveness_hint)
+    # Apple Container's daemon check is `container system status`, not
+    # `container info` — the latter returns usage text even without a
+    # running apiserver.
+    runtime_probes = [
+        ("podman", ["podman", "--version"], ["podman", "info"], "Run 'podman info' to diagnose"),
+        ("docker", ["docker", "--version"], ["docker", "info"], "Run 'docker info' to diagnose"),
+        (
+            "container",
+            ["container", "--version"],
+            ["container", "system", "status"],
+            "Start with: container system start",
+        ),
+    ]
+    for rt, version_cmd, liveness_cmd, liveness_hint in runtime_probes:
         path = shutil.which(rt)
-        if path:
-            try:
-                result = subprocess.run(
-                    [rt, "--version"],
-                    capture_output=True,
-                    text=True,
-                    timeout=5,
-                )
-                version = result.stdout.strip().split("\n")[0]
-                # Verify the daemon is actually reachable, not just the CLI
-                ping = subprocess.run(
-                    [rt, "info"],
-                    capture_output=True,
-                    text=True,
-                    timeout=10,
-                )
-                if ping.returncode == 0:
-                    ok(f"{rt}: {version}")
-                    if detected_runtime is None:
-                        detected_runtime = rt
-                else:
-                    warn(
-                        f"{rt}: {version} (not connected)",
-                        f"Run '{rt} info' to diagnose",
-                    )
-            except Exception as e:
-                fail(f"{rt} found but not working: {e}")
+        if not path:
+            continue
+        try:
+            result = subprocess.run(
+                version_cmd, capture_output=True, text=True, timeout=5
+            )
+            version = result.stdout.strip().split("\n")[0]
+            # Verify the daemon/apiserver is actually reachable, not just the CLI
+            ping = subprocess.run(
+                liveness_cmd, capture_output=True, text=True, timeout=10
+            )
+            ping_ok = ping.returncode == 0
+            if rt == "container" and ping_ok:
+                # `container system status` succeeds even when the apiserver
+                # is stopped — the real signal is "running" in stdout.
+                ping_ok = "running" in ping.stdout.lower()
+            if ping_ok:
+                ok(f"{rt}: {version}")
+                if detected_runtime is None:
+                    detected_runtime = rt
+            else:
+                warn(f"{rt}: {version} (not connected)", liveness_hint)
+        except Exception as e:
+            fail(f"{rt} found but not working: {e}")
     if detected_runtime is None:
-        fail("No container runtime found", "Install podman or docker")
+        fail(
+            "No container runtime found",
+            "Install podman, docker, or Apple Container (macOS)",
+        )
     console.print()
 
     console.print("[bold]Nix[/bold]")
@@ -5600,11 +5650,31 @@ def check(
             if result.returncode == 0 and "Trusted: 1" in output:
                 ok("Nix daemon: connected, user is trusted")
             elif result.returncode == 0:
-                fail(
-                    "Nix daemon: connected but user is NOT trusted",
-                    "Add your user to trusted-users in /etc/nix/nix.custom.conf "
-                    "and restart the Nix daemon",
-                )
+                included = _nix_custom_conf_included()
+                label = _detect_nix_daemon_label() or "<label>"
+                restart = f"sudo launchctl kickstart -k system/{label}"
+                if included is False:
+                    # nix.conf exists but has no include — the typical
+                    # official-NixOS-installer layout.  Writing to
+                    # nix.custom.conf alone won't do anything.
+                    hint = (
+                        "/etc/nix/nix.conf does not include nix.custom.conf. "
+                        "Either add it to the trusted-users line directly in "
+                        "/etc/nix/nix.conf, or add an include line once: "
+                        "echo '!include /etc/nix/nix.custom.conf' | "
+                        "sudo tee -a /etc/nix/nix.conf. Then add your user "
+                        "(trusted-users = root $(whoami)) and restart the "
+                        f"daemon: {restart}"
+                    )
+                else:
+                    # Determinate Systems layout (or unknown) — the
+                    # existing custom.conf advice is correct.
+                    hint = (
+                        "Add your user to trusted-users in "
+                        "/etc/nix/nix.custom.conf and restart the Nix daemon: "
+                        f"{restart}"
+                    )
+                fail("Nix daemon: connected but user is NOT trusted", hint)
             else:
                 fail(
                     "Nix daemon: connection failed",
