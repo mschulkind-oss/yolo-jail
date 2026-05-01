@@ -5243,6 +5243,15 @@ def _check_broker_creds_freshness(ok, warn, fail) -> None:
         # First /login hasn't happened yet — nothing to grade.
         return
     try:
+        # ``ensure_global_storage`` touches an empty placeholder file so
+        # the bind-mount target exists on first boot.  Treat zero-byte
+        # as the documented pre-login state (same as "file absent"),
+        # not as a corruption warning.
+        if creds_path.stat().st_size == 0:
+            return
+    except OSError:
+        pass
+    try:
         data = json.loads(creds_path.read_text())
         expires_at_ms = int(data["claudeAiOauth"]["expiresAt"])
     except (json.JSONDecodeError, KeyError, TypeError, ValueError, OSError) as e:
@@ -5587,6 +5596,18 @@ def check(
             "Start with: container system start",
         ),
     ]
+    # Only warn about an offline runtime if the user explicitly selected
+    # it (YOLO_RUNTIME).  A dormant docker CLI next to a working podman
+    # or Apple Container is normal — users keep the docker client
+    # installed for Colima or ad-hoc use without actually running the
+    # daemon.  The merged-config runtime pick happens later and emits
+    # its own error via ``_runtime_for_check``.
+    selected_runtime = os.environ.get("YOLO_RUNTIME")
+    if selected_runtime not in ("podman", "docker", "container"):
+        selected_runtime = None
+    # First pass: collect probe results so we know whether anything is
+    # live before deciding severity on the rest.
+    offline: list[tuple[str, str, str]] = []  # (rt, version, hint)
     for rt, version_cmd, liveness_cmd, liveness_hint in runtime_probes:
         path = shutil.which(rt)
         if not path:
@@ -5610,9 +5631,18 @@ def check(
                 if detected_runtime is None:
                     detected_runtime = rt
             else:
-                warn(f"{rt}: {version} (not connected)", liveness_hint)
+                offline.append((rt, version, liveness_hint))
         except Exception as e:
             fail(f"{rt} found but not working: {e}")
+    # Grade the offline runtimes after all probes finish.  If the user
+    # explicitly selected one and it's offline, that's a real problem.
+    # If another runtime is live, dormant siblings are just clutter —
+    # print them as dim info so the signal is there without a warning.
+    for rt, version, hint in offline:
+        if rt == selected_runtime or detected_runtime is None:
+            warn(f"{rt}: {version} (not connected)", hint)
+        else:
+            console.print(f"  [dim]· {rt}: {version} (not connected — not selected)[/dim]")
     if detected_runtime is None:
         fail(
             "No container runtime found",

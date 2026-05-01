@@ -3285,3 +3285,21 @@ class TestBrokerCredsFreshness:
         assert any(kind == "warn" for kind, _ in events), (
             f"expected warn for unreadable creds, got {events}"
         )
+
+    def test_silent_when_creds_empty(self, monkeypatch, tmp_path):
+        # ``ensure_global_storage`` touches the credentials file as a
+        # zero-byte mount-point placeholder before the first /login.
+        # Treat that as "pre-login" (silent), not "unreadable" (warn).
+        monkeypatch.setattr("cli.GLOBAL_HOME", tmp_path / "home")
+        creds_dir = tmp_path / "home" / ".claude-shared-credentials"
+        creds_dir.mkdir(parents=True)
+        (creds_dir / ".credentials.json").touch()
+        events: list = []
+        cli._check_broker_creds_freshness(
+            lambda m, *a, **kw: events.append(("ok", m)),
+            lambda m, *a, **kw: events.append(("warn", m)),
+            lambda m, *a, **kw: events.append(("fail", m)),
+        )
+        assert events == [], (
+            f"expected silent skip when creds file is empty, got {events}"
+        )
