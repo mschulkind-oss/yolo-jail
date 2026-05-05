@@ -76,6 +76,11 @@ CLAUDE_MANAGED_MCP_PATH = CLAUDE_DIR / "yolo-managed-mcp-servers.json"
 CLAUDE_SHARED_CREDENTIALS_DIR = HOME / ".claude-shared-credentials"
 MISE_CONFIG_DIR = HOME / ".config" / "mise"
 
+# Writable tmpfs that backs the ``/etc/localtime`` + ``/etc/timezone``
+# image symlinks (root fs is mounted --read-only).  A module constant so
+# tests can redirect it to a tmp dir without monkey-patching pathlib.
+TZ_RUN_DIR = Path("/run")
+
 # Default LSP servers always available in the jail.
 # command: absolute path (for Copilot); basename extracted for Gemini's mcp-language-server.
 # args: passed to the LSP binary directly.
@@ -429,6 +434,45 @@ alias bat='bat --style=plain --paging=never'
 
 # The combined bundle.  Writable path under $HOME so we can rewrite it at
 # every jail boot.
+
+
+def configure_timezone():
+    """Populate ``/run/localtime`` and ``/run/timezone`` from ``$TZ``.
+
+    The image bakes ``/etc/localtime -> /run/localtime`` and
+    ``/etc/timezone -> /run/timezone`` symlinks because the root
+    filesystem is mounted read-only.  cli.py forwards the host zone via
+    ``$TZ`` (plus ``$TZDIR`` pointing at the Nix tzdata), which covers
+    glibc, Python, Node, and bash.  But anything that reads
+    ``/etc/localtime`` directly — Go's ``time`` package, some Java/Ruby
+    paths, ``date`` after ``env -i``, ``ls -l`` when libc can't parse
+    $TZ — otherwise falls back to UTC and disagrees with the host.
+
+    Best-effort: if $TZ is unset, or the zone file can't be found, leave
+    the dangling symlinks alone.  Callers of those paths will see ENOENT
+    and fall back to UTC, which matches the pre-fix behavior.
+    """
+    tz = os.environ.get("TZ")
+    if not tz:
+        return
+    tzdir = os.environ.get("TZDIR") or "/usr/share/zoneinfo"
+    zone_file = Path(tzdir) / tz
+    if not zone_file.is_file():
+        return
+    run_dir = TZ_RUN_DIR
+    try:
+        run_dir.mkdir(parents=True, exist_ok=True)
+        localtime = run_dir / "localtime"
+        if localtime.is_symlink() or localtime.exists():
+            localtime.unlink()
+        localtime.symlink_to(zone_file)
+        (run_dir / "timezone").write_text(f"{tz}\n")
+    except OSError:
+        # /run is a tmpfs on every runtime we support, so write failures
+        # here are unexpected — but a broken TZ symlink shouldn't abort
+        # jail startup.  The $TZ env var still gives the right answer
+        # for everything that reads it.
+        pass
 
 
 def _read_bundle_bytes(path: Path) -> bytes:
@@ -2020,6 +2064,13 @@ def start_container_port_forwarding():
 def main():
     cmd = " ".join(sys.argv[1:]) if len(sys.argv) > 1 else "bash"
     _perf("start")
+
+    # Populate /run/localtime + /run/timezone from $TZ before anything else
+    # so file mtimes, log timestamps, etc. from subsequent setup steps use the
+    # right wall-clock zone.  /etc/localtime and /etc/timezone are symlinks
+    # into /run baked by the image (root fs is read-only).
+    configure_timezone()
+    _perf("configure_timezone")
 
     # Each jail writes to its own per-workspace overlay dirs (mounted by cli.py),
     # so no flock needed — no cross-jail contention.
