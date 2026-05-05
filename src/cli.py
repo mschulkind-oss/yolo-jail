@@ -5727,7 +5727,10 @@ def check(
         if storage_path.exists():
             ok(f"{name}: {storage_path}")
         else:
-            warn(f"{name} directory missing: {storage_path}", "Will be created on first run")
+            warn(
+                f"{name} directory missing: {storage_path}",
+                "Will be created on first run",
+            )
     console.print()
 
     # --- Config Validation ---
@@ -6148,7 +6151,9 @@ def check(
                     parts = line.split("\t")
                     cname = parts[0]
                     running_for = parts[1] if len(parts) > 1 else ""
-                    container_workspace = _get_container_workspace(cname, detected_runtime)
+                    container_workspace = _get_container_workspace(
+                        cname, detected_runtime
+                    )
                     ws_exists = (
                         Path(container_workspace).is_dir()
                         if container_workspace != "unknown"
@@ -7103,7 +7108,12 @@ def run(
     # not have it mounted — skip the bind mount to avoid a statfs error at startup.
     nix_socket = Path("/nix/var/nix/daemon-socket")
     nix_store = Path("/nix/store")
-    if nix_socket.exists() and nix_store.exists() and runtime != "container" and not IS_MACOS:
+    if (
+        nix_socket.exists()
+        and nix_store.exists()
+        and runtime != "container"
+        and not IS_MACOS
+    ):
         # Apple Container VMs can't share Unix sockets via -v bind mounts
         docker_cmd.extend(
             [
@@ -7264,9 +7274,7 @@ def run(
                 # no extra -v flag needed — the relay socket is already
                 # visible at {JAIL_HOST_SERVICES_DIR}/{BROKER_LOOPHOLE_NAME}.sock
                 # through the directory mount above.
-                _relay_path = (
-                    host_services_sockets_dir / f"{BROKER_LOOPHOLE_NAME}.sock"
-                )
+                _relay_path = host_services_sockets_dir / f"{BROKER_LOOPHOLE_NAME}.sock"
                 _start_broker_relay(_relay_path, BROKER_SINGLETON_SOCKET.resolve())
             else:
                 docker_cmd.extend(
