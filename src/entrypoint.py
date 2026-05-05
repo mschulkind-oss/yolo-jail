@@ -329,6 +329,45 @@ fi
         claude_shim.chmod(claude_shim.stat().st_mode | stat.S_IEXEC)
 
 
+def generate_package_manager_launchers():
+    """Create lazy npm-backed launchers for package managers disabled in mise."""
+    SHIM_DIR.mkdir(parents=True, exist_ok=True)
+    stamp_dir = HOME / ".cache" / "yolo-package-manager-stamps"
+    npm_package_managers = {"pnpm": "pnpm"}
+
+    for bin_name, pkg_name in npm_package_managers.items():
+        shim_path = SHIM_DIR / bin_name
+        if shim_path.exists():
+            continue
+
+        launcher = f"""#!/bin/bash
+set -euo pipefail
+export NPM_CONFIG_PREFIX="${{NPM_CONFIG_PREFIX:-$HOME/.npm-global}}"
+export NPM_CONFIG_CACHE="${{NPM_CONFIG_CACHE:-$HOME/.cache/npm}}"
+STAMP_DIR="{stamp_dir}"
+STAMP="$STAMP_DIR/{bin_name}.stamp"
+REAL_BIN="$NPM_CONFIG_PREFIX/bin/{bin_name}"
+PKG="{pkg_name}"
+
+mkdir -p "$STAMP_DIR"
+
+if [ ! -x "$REAL_BIN" ]; then
+    echo "  Installing $PKG..." >&2
+    YOLO_BYPASS_SHIMS=1 npm install -g --prefer-online "$PKG@latest" 2>&1 || true
+    touch "$STAMP"
+fi
+
+if [ -x "$REAL_BIN" ]; then
+    exec "$REAL_BIN" "$@"
+else
+    echo "  ⚠ {bin_name} not available" >&2
+    exit 1
+fi
+"""
+        shim_path.write_text(launcher)
+        shim_path.chmod(shim_path.stat().st_mode | stat.S_IEXEC)
+
+
 # ---------------------------------------------------------------------------
 # 2. Generate .bashrc
 # ---------------------------------------------------------------------------
@@ -2056,6 +2095,8 @@ def main():
     _perf("generate_shims")
     generate_agent_launchers()
     _perf("generate_agent_launchers")
+    generate_package_manager_launchers()
+    _perf("generate_package_manager_launchers")
     # Build the combined CA bundle BEFORE bashrc so bashrc can just
     # reference ``$HOME/.yolo-ca-bundle.crt`` and the env vars we set
     # in ``os.environ`` propagate to every child the entrypoint spawns

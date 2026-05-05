@@ -27,6 +27,7 @@ from cli import (  # noqa: E402
     _effective_mcp_server_names,
     _format_progress,
     _host_mise_dir,
+    _merge_mise_disabled_tools,
     _merge_mise_tools,
     _normalize_blocked_tools,
     _parse_port_forwards,
@@ -80,6 +81,14 @@ from cli import (  # noqa: E402
     start_loopholes,
     stop_loopholes,
 )
+
+
+def test_merge_mise_disabled_tools_defaults_to_pnpm():
+    assert _merge_mise_disabled_tools("") == "pnpm"
+
+
+def test_merge_mise_disabled_tools_preserves_user_tools():
+    assert _merge_mise_disabled_tools("ruby, terraform pnpm") == "pnpm,ruby,terraform"
 
 
 # ═══════════════════════════════════════════════════════════════════════════════

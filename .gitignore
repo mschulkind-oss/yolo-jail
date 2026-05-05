@@ -16,3 +16,4 @@ probe.log
 dist/
 build/
 src/_version.py
+.DS_Store

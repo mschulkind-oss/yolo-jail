@@ -326,13 +326,15 @@ def _resolve_repo_root() -> Path:
                 shutil.copy2(pkg_dir / fname, tmp_root / fname)
             shutil.copytree(pkg_dir, tmp_root / "src")
             target_tmp = build_root.with_name(build_root.name + ".old")
+            old_build_root: Optional[Path]
             try:
                 build_root.rename(target_tmp)
+                old_build_root = target_tmp
             except FileNotFoundError:
-                target_tmp = None
+                old_build_root = None
             tmp_root.rename(build_root)
-            if target_tmp and target_tmp.exists():
-                shutil.rmtree(target_tmp, ignore_errors=True)
+            if old_build_root and old_build_root.exists():
+                shutil.rmtree(old_build_root, ignore_errors=True)
         except BaseException:
             shutil.rmtree(tmp_root, ignore_errors=True)
             raise
@@ -800,6 +802,7 @@ def _runtime(config: Optional[Dict[str, Any]] = None) -> str:
         if cfg and cfg in ("podman", "docker", "container"):
             return cfg
     # Platform-aware auto-detection
+    candidates: tuple[str, ...]
     if IS_MACOS:
         candidates = ("container", "podman", "docker")
     else:
@@ -1611,6 +1614,59 @@ def _broker_ensure() -> Path:
     return _broker_spawn()
 
 
+def _start_broker_relay(relay_path: Path, broker_path: Path) -> None:
+    """Start a background thread relaying relay_path → broker_path.
+
+    Used on macOS where Podman Machine cannot bind-mount a Unix socket
+    *file* directly (EOPNOTSUPP) but *can* see socket files that live
+    inside an already-mounted directory via virtiofs.  We create the
+    relay socket inside host_services_sockets_dir (which is mounted as
+    a directory), so the container sees it at the expected
+    ``{JAIL_HOST_SERVICES_DIR}/{BROKER_LOOPHOLE_NAME}.sock`` path
+    without any extra ``-v`` flag.
+    """
+
+    def _pipe(src: socket.socket, dst: socket.socket) -> None:
+        try:
+            while True:
+                data = src.recv(65536)
+                if not data:
+                    break
+                dst.sendall(data)
+        except OSError:
+            pass
+        finally:
+            for s, how in [(src, socket.SHUT_RD), (dst, socket.SHUT_WR)]:
+                try:
+                    s.shutdown(how)
+                except OSError:
+                    pass
+
+    def _handle(client: socket.socket) -> None:
+        try:
+            upstream = socket.socket(socket.AF_UNIX, socket.SOCK_STREAM)
+            upstream.connect(str(broker_path))
+        except OSError:
+            client.close()
+            return
+        threading.Thread(target=_pipe, args=(client, upstream), daemon=True).start()
+        threading.Thread(target=_pipe, args=(upstream, client), daemon=True).start()
+
+    def _serve() -> None:
+        srv = socket.socket(socket.AF_UNIX, socket.SOCK_STREAM)
+        relay_path.unlink(missing_ok=True)
+        srv.bind(str(relay_path))
+        srv.listen(32)
+        while True:
+            try:
+                conn, _ = srv.accept()
+            except OSError:
+                break
+            threading.Thread(target=_handle, args=(conn,), daemon=True).start()
+
+    threading.Thread(target=_serve, daemon=True).start()
+
+
 def _broker_pgrep_strays() -> List[int]:
     """Return PIDs of any running ``yolo-claude-oauth-broker-host``
     processes the OS knows about, regardless of our PID file state.
@@ -1838,7 +1894,9 @@ def _cgroup_delegate_handler(
         try:
             if IS_LINUX:
                 cred = conn.getsockopt(
-                    socket.SOL_SOCKET, socket.SO_PEERCRED, struct.calcsize("3i")
+                    socket.SOL_SOCKET,
+                    getattr(socket, "SO_PEERCRED"),
+                    struct.calcsize("3i"),
                 )
                 peer_pid = struct.unpack("3i", cred)[0]
             elif IS_MACOS:
@@ -2641,6 +2699,7 @@ def stop_loopholes(handles: List[LoopholeDaemon], sockets_dir: Optional[Path]) -
 
 VALID_MCP_PRESETS = {"chrome-devtools", "sequential-thinking"}
 DEFAULT_MISE_TOOLS = {"neovim": "stable"}
+DEFAULT_MISE_DISABLED_TOOLS = ("pnpm",)
 
 
 def _effective_mcp_server_names(
@@ -2669,9 +2728,22 @@ def _merge_mise_tools(config: Dict[str, Any]) -> Dict[str, Any]:
     return {**DEFAULT_MISE_TOOLS, **config.get("mise_tools", {})}
 
 
+def _merge_mise_disabled_tools(user_value: Any = "") -> str:
+    """Return MISE_DISABLE_TOOLS with yolo-managed package managers included."""
+    tools: list[str] = []
+    for tool in DEFAULT_MISE_DISABLED_TOOLS:
+        if tool not in tools:
+            tools.append(tool)
+    if isinstance(user_value, str):
+        for tool in user_value.replace(",", " ").split():
+            if tool and tool not in tools:
+                tools.append(tool)
+    return ",".join(tools)
+
+
 def _normalize_blocked_tools(
     security_section: Optional[Dict[str, Any]],
-) -> List[Dict[str, str]]:
+) -> List[Dict[str, Any]]:
     """Normalize blocked tool config into the format consumed by the entrypoint."""
     if security_section is None:
         security_section = {}
@@ -2680,7 +2752,7 @@ def _normalize_blocked_tools(
     if raw_blocked is None:
         raw_blocked = ["grep", "find"]
 
-    default_messages = {
+    default_messages: Dict[str, Dict[str, Any]] = {
         "grep": {
             "message": "grep's recursive mode is blocked. Use ripgrep (rg) for recursive searches; pipe filters and single-file greps pass through.",
             "suggestion": "Try: rg <pattern> [path]",
@@ -2698,7 +2770,7 @@ def _normalize_blocked_tools(
         },
     }
 
-    normalized_blocked = []
+    normalized_blocked: List[Dict[str, Any]] = []
     for tool in raw_blocked:
         if isinstance(tool, str):
             merged = {"name": tool}
@@ -2721,8 +2793,10 @@ def _normalize_blocked_tools(
 
 def _host_mise_dir() -> Path:
     """Return the host-visible mise data dir shared with the jail."""
-    host_mise_path = os.environ.get("YOLO_OUTER_MISE_PATH") or os.environ.get(
-        "MISE_DATA_DIR", str(Path.home() / ".local" / "share" / "mise")
+    host_mise_path: str = (
+        os.environ.get("YOLO_OUTER_MISE_PATH")
+        or os.environ.get("MISE_DATA_DIR")
+        or str(Path.home() / ".local" / "share" / "mise")
     )
     host_mise = Path(host_mise_path)
     if not host_mise.exists():
@@ -2774,7 +2848,7 @@ def _copy_if_missing(src: str, dst: str):
 def generate_agents_md(
     cname: str,
     workspace: Path,
-    blocked_tools: List[Dict[str, str]],
+    blocked_tools: List[Dict[str, Any]],
     mount_descriptions: List[str],
     net_mode: str = "bridge",
     runtime: str = "podman",
@@ -3447,11 +3521,11 @@ def auto_load_image(
                         )
                         return
                 else:
-                    load_result = subprocess.run(
+                    cache_load_result = subprocess.run(
                         _image_load_cmd(runtime, str(tar_file)),
                         capture_output=True,
                     )
-                    if load_result.returncode == 0:
+                    if cache_load_result.returncode == 0:
                         console.print(
                             "[bold green]Done: loaded image from cache[/bold green]"
                         )
@@ -3499,7 +3573,7 @@ def auto_load_image(
 
                 # Load from cached file — podman detects existing layers and skips them
                 load_ok = False
-                load_result = None
+                load_result: Optional[subprocess.CompletedProcess[bytes]] = None
                 if runtime == "container":
                     load_ok = _load_image_for_apple_container(
                         str(cache_file), console, status
@@ -4218,6 +4292,7 @@ def _runtime_for_check(config: Dict[str, Any]) -> tuple[Optional[str], Optional[
             )
         return None, f"Configured runtime '{cfg}' from yolo-jail.jsonc is not on PATH"
 
+    candidates: tuple[str, ...]
     if IS_MACOS:
         candidates = ("container", "podman", "docker")
     else:
@@ -5469,7 +5544,10 @@ def check(
             if result.returncode == 0 and "Trusted: 1" in output:
                 ok("Nix daemon: connected, user is trusted")
             elif result.returncode == 0:
-                fail(
+                # On macOS with Determinate Nix, untrusted users can still
+                # build images via the binary cache (no local Linux builder
+                # needed). Demote to a warning rather than a hard failure.
+                warn(
                     "Nix daemon: connected but user is NOT trusted",
                     "Add your user to trusted-users in /etc/nix/nix.custom.conf "
                     "and restart the Nix daemon",
@@ -5513,10 +5591,13 @@ def check(
             if has_builder:
                 ok("Linux builder configured in /etc/nix/machines")
             else:
+                # The flake fetches aarch64-linux packages from the binary
+                # cache rather than building them locally, so a Linux builder
+                # is not required in practice. Surface as info only.
                 warn(
-                    "No Linux builder configured",
-                    "Image builds require a Linux builder. See docs/macos.md "
-                    "for setup with Colima or a remote Linux host",
+                    "No Linux builder configured (binary cache substitution used)",
+                    "A remote Linux builder speeds up fresh image builds. "
+                    "See docs/macos.md for optional setup with Colima or a remote host",
                 )
         except Exception:
             pass
@@ -5636,17 +5717,17 @@ def check(
         console.print()
 
     console.print("[bold]Global Storage[/bold]")
-    for name, path in [
+    for name, storage_path in [
         ("Home", GLOBAL_HOME),
         ("Mise", GLOBAL_MISE),
         ("Containers", CONTAINER_DIR),
         ("Agents", AGENTS_DIR),
         ("Build", BUILD_DIR),
     ]:
-        if path.exists():
-            ok(f"{name}: {path}")
+        if storage_path.exists():
+            ok(f"{name}: {storage_path}")
         else:
-            warn(f"{name} directory missing: {path}", "Will be created on first run")
+            warn(f"{name} directory missing: {storage_path}", "Will be created on first run")
     console.print()
 
     # --- Config Validation ---
@@ -6067,9 +6148,11 @@ def check(
                     parts = line.split("\t")
                     cname = parts[0]
                     running_for = parts[1] if len(parts) > 1 else ""
-                    workspace = _get_container_workspace(cname, detected_runtime)
+                    container_workspace = _get_container_workspace(cname, detected_runtime)
                     ws_exists = (
-                        Path(workspace).is_dir() if workspace != "unknown" else True
+                        Path(container_workspace).is_dir()
+                        if container_workspace != "unknown"
+                        else True
                     )
                     reason = None
                     if not ws_exists:
@@ -6078,10 +6161,12 @@ def check(
                         reason = _check_container_stuck(cname, detected_runtime)
                     if reason:
                         marker = f" [red]({reason})[/red]"
-                        orphaned_jails.append((cname, running_for, workspace, reason))
+                        orphaned_jails.append(
+                            (cname, running_for, container_workspace, reason)
+                        )
                     else:
                         marker = ""
-                    console.print(f"    {cname} → {workspace}{marker}")
+                    console.print(f"    {cname} → {container_workspace}{marker}")
                 if orphaned_jails:
                     warn(
                         f"{len(orphaned_jails)} orphaned jail(s)",
@@ -6506,6 +6591,7 @@ def run(
     mcp_presets = config.get("mcp_presets", [])
     host_claude_files = config.get("host_claude_files", DEFAULT_HOST_CLAUDE_FILES)
     user_env = config.get("env", {})
+    mise_disabled_tools = _merge_mise_disabled_tools(user_env.get("MISE_DISABLE_TOOLS"))
     auto_load_image(repo_root, extra_packages=extra_packages or None, runtime=runtime)
 
     # Resolve host mise path — share the same data dir so venv paths match.
@@ -6569,11 +6655,14 @@ def run(
     # Apple Container doesn't support --cgroupns
     if runtime != "container":
         docker_flags.insert(3, "--cgroupns=private")
-    if runtime == "podman":
-        # Podman auto-adds tmpfs mounts for /run, /tmp, /dev/shm when --read-only
-        # is set.  This conflicts with our explicit --tmpfs /tmp and can trigger
-        # conmon JSON parsing errors with crun.  Disable the auto-tmpfs and let
-        # our explicit mounts handle it.
+    if runtime == "podman" and IS_LINUX:
+        # On Linux, Podman auto-adds tmpfs mounts for /run, /tmp, /dev/shm when
+        # --read-only is set.  This conflicts with our explicit --tmpfs /tmp and
+        # can trigger conmon JSON parsing errors with crun.  Disable the
+        # auto-tmpfs and let our explicit mounts handle it.
+        # On macOS (Podman Machine), do NOT set this: crun inside the VM needs
+        # --read-only-tmpfs enabled so it can unlink /dev/console when -t is
+        # passed (otherwise: "crun: unlink /dev/console: Read-only file system").
         docker_flags.append("--read-only-tmpfs=false")
     if runtime in ("podman", "docker"):
         # Don't capture container stdout/stderr anywhere.  The default log
@@ -7010,12 +7099,11 @@ def run(
     # Mount host nix daemon socket + store so nix builds work inside the jail.
     # NIX_REMOTE=daemon forces nix to use the host daemon (which has nixbld users)
     # instead of trying local store access (which fails on UID mapping/permissions).
-    # On macOS, /nix exists on the host but the container runtime's VM may not
-    # have it mounted.  Podman Machine needs `--volume /nix:/nix` at init time;
-    # Docker Desktop needs /nix added to file sharing settings.
+    # On macOS, /nix exists on the host but the container runtime's Linux VM does
+    # not have it mounted — skip the bind mount to avoid a statfs error at startup.
     nix_socket = Path("/nix/var/nix/daemon-socket")
     nix_store = Path("/nix/store")
-    if nix_socket.exists() and nix_store.exists() and runtime != "container":
+    if nix_socket.exists() and nix_store.exists() and runtime != "container" and not IS_MACOS:
         # Apple Container VMs can't share Unix sockets via -v bind mounts
         docker_cmd.extend(
             [
@@ -7145,8 +7233,12 @@ def run(
     host_services_sockets_dir = _host_service_sockets_dir(cname)
     if runtime != "container":
         host_services_sockets_dir.mkdir(parents=True, exist_ok=True)
+        # On macOS /tmp is a symlink to /private/tmp. Podman Machine's VM
+        # mounts /private from the host but not the /tmp symlink itself, so
+        # paths passed as /tmp/... are invisible to the VM. Resolve to the
+        # real path (/private/tmp/...) before handing to Podman.
         docker_cmd.extend(
-            ["-v", f"{host_services_sockets_dir}:{JAIL_HOST_SERVICES_DIR}:rw"]
+            ["-v", f"{host_services_sockets_dir.resolve()}:{JAIL_HOST_SERVICES_DIR}:rw"]
         )
         # Claude OAuth broker singleton — eagerly ensure it's alive
         # BEFORE we add the bind-mount flag so the socket source path
@@ -7164,12 +7256,25 @@ def run(
             _broker_jail_socket = (
                 f"{JAIL_HOST_SERVICES_DIR}/{BROKER_LOOPHOLE_NAME}.sock"
             )
-            docker_cmd.extend(
-                [
-                    "-v",
-                    f"{BROKER_SINGLETON_SOCKET}:{_broker_jail_socket}:rw",
-                ]
-            )
+            if IS_MACOS:
+                # Podman Machine on macOS cannot bind-mount a Unix socket
+                # *file* (EOPNOTSUPP).  Socket files that live *inside* a
+                # mounted directory are accessible via the virtiofs dir
+                # mount.  Start a relay inside host_services_sockets_dir;
+                # no extra -v flag needed — the relay socket is already
+                # visible at {JAIL_HOST_SERVICES_DIR}/{BROKER_LOOPHOLE_NAME}.sock
+                # through the directory mount above.
+                _relay_path = (
+                    host_services_sockets_dir / f"{BROKER_LOOPHOLE_NAME}.sock"
+                )
+                _start_broker_relay(_relay_path, BROKER_SINGLETON_SOCKET.resolve())
+            else:
+                docker_cmd.extend(
+                    [
+                        "-v",
+                        f"{BROKER_SINGLETON_SOCKET.resolve()}:{_broker_jail_socket}:rw",
+                    ]
+                )
             # The jail-side TLS terminator reads
             # YOLO_SERVICE_CLAUDE_OAUTH_BROKER_SOCKET to find the
             # broker.  start_loopholes no longer synthesizes this env
@@ -7207,19 +7312,19 @@ def run(
                     continue
                 # Resolve USB vendor:product ID to /dev/bus/usb path
                 try:
-                    result = subprocess.run(
+                    lsusb_result = subprocess.run(
                         ["lsusb", "-d", usb_id],
                         capture_output=True,
                         text=True,
                         timeout=5,
                     )
-                    if result.returncode != 0 or not result.stdout.strip():
+                    if lsusb_result.returncode != 0 or not lsusb_result.stdout.strip():
                         console.print(
                             f"[yellow]Warning: USB device {desc} ({usb_id}) not found — skipping[/yellow]"
                         )
                         continue
                     # Parse: "Bus 001 Device 004: ID 0bda:2838 ..."
-                    line = result.stdout.strip().split("\n")[0]
+                    line = lsusb_result.stdout.strip().split("\n")[0]
                     parts = line.split()
                     bus = parts[1]  # "001"
                     device = parts[3].rstrip(":")  # "004"
@@ -7341,13 +7446,13 @@ def run(
         if memory is None:
             try:
                 if IS_MACOS:
-                    result = subprocess.run(
+                    sysctl_result = subprocess.run(
                         ["sysctl", "-n", "hw.memsize"],
                         capture_output=True,
                         text=True,
                         timeout=5,
                     )
-                    host_mem_bytes = int(result.stdout.strip())
+                    host_mem_bytes = int(sysctl_result.stdout.strip())
                 else:
                     host_mem_bytes = os.sysconf("SC_PAGE_SIZE") * os.sysconf(
                         "SC_PHYS_PAGES"
@@ -7402,6 +7507,7 @@ def run(
     # Pass the mise path through to any nested jail so the same host path
     # keeps resolving one level deeper. The path is identical inside and out.
     docker_cmd.extend(["-e", f"YOLO_OUTER_MISE_PATH={host_mise}"])
+    docker_cmd.extend(["-e", f"MISE_DISABLE_TOOLS={mise_disabled_tools}"])
 
     # Mount merged skills directories read-only (prepared on host side).
     # Kernel-enforced :ro — agents get "Read-only file system" on write attempts.
@@ -7633,8 +7739,6 @@ def run(
     lock_file.close()
 
     proc.wait()
-    result = proc
-
     # Clean up host-side socat processes, host services (incl. cgroup
     # delegate), and their per-jail socket directory.
     cleanup_port_forwarding(socat_procs, socket_dir)
@@ -7652,7 +7756,7 @@ def run(
             f"  Total (host-side):  {_profile_times['container_exited'] - start:.3f}s\n"
         )
 
-    sys.exit(result.returncode)
+    sys.exit(proc.returncode)
 
 
 def _check_container_stuck(name: str, runtime: str) -> "str | None":
@@ -8021,7 +8125,7 @@ def prune_cmd(
     cache_bytes = 0
     cache_files = 0
     if cache_age > 0:
-        subdirs = list(_prune.CACHE_PURGE_DEFAULT_SUBDIRS)
+        subdirs: List[str] = list(_prune.CACHE_PURGE_DEFAULT_SUBDIRS)
         if purge_heavy_caches:
             subdirs.extend(_prune.CACHE_PURGE_HEAVY_SUBDIRS)
         console.print(

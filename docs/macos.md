@@ -97,17 +97,24 @@ auto-converts from Nix's Docker V2 format using (in priority order):
 1. **skopeo** (recommended — no daemon needed): `brew install skopeo`
 2. **podman** or **docker** (needs running daemon as fallback)
 
-### Nix Linux Builder (for building the image from source)
+### Nix Linux Builder (optional — binary cache substitution used by default)
 
-The Docker image contains Linux binaries. When building on macOS, Nix needs a
-remote Linux builder to compile or fetch `aarch64-linux` / `x86_64-linux`
-packages.
+The Docker image contains Linux binaries (`aarch64-linux` or `x86_64-linux`).
+YOLO Jail's flake is structured so that all build-time Nix machinery
+(`dockerTools`, `writeShellScriptBin`, etc.) runs natively on your macOS host,
+while the image *content* (chromium, bash, python, etc.) is fetched directly
+from the NixOS binary cache. **No remote Linux builder is required for a
+normal install.**
+
+A Linux builder is only needed if you:
+- Modify the flake to add packages that are not in the binary cache, **or**
+- Build with `--no-substitute` (disables cache)
 
 > **Important:** Do NOT set `extra-platforms = aarch64-linux` in your Nix
 > config. This tells Nix to execute Linux binaries locally, which fails on
-> macOS. Instead, use a remote builder.
+> macOS. Instead, use a remote builder if you need one.
 
-**Option A — Colima VM as Nix builder (recommended for Colima users)**
+**Option A — Colima VM as Nix builder (for cache misses)**
 
 Install Nix inside the Colima VM and configure it as a remote builder:
 
@@ -352,8 +359,11 @@ this has no practical impact.
 
 Key insight: `cli.py` runs on the macOS host and is platform-aware.
 `entrypoint.py` runs inside the Linux container and needs no macOS changes.
-The Nix flake builds the image with Linux packages (`imagePkgs`) while using
-macOS packages for the development shell (`pkgs`).
+The Nix flake uses `pkgs` (native macOS) for all build-time derivations
+(`dockerTools`, `writeShellScriptBin`, `stdenv.mkDerivation`, etc.) and
+`imagePkgs` (Linux target) only for the *content* of the image (chromium, bash,
+python, etc.). This means the image can be built on macOS using the NixOS
+binary cache — no cross-compilation or remote Linux builder required.
 
 ## Troubleshooting
 
@@ -408,7 +418,9 @@ ssh nix-builder "$STORE_PATH" | docker load
 
 The first `nix build` downloads the nixpkgs tarball and all Linux packages
 from the binary cache. Subsequent builds are instant due to the Nix store
-cache. If using a remote builder, the builder's own Nix cache must also warm up.
+cache. Because all packages are fetched from the NixOS binary cache (no local
+Linux build required), the bottleneck is download speed rather than
+compilation time.
 
 ### File ownership issues
 
@@ -453,5 +465,42 @@ colima start
 
 ### `/tmp` bind mount failures
 
-macOS `/tmp` is a symlink to `/private/tmp`. If bind mounts involving `/tmp`
-fail, ensure Colima is started with `--mount /private/tmp:w`.
+macOS `/tmp` is a symlink to `/private/tmp`.
+
+**Colima/Docker:** Ensure Colima is started with `--mount /private/tmp:w`.
+
+**Podman Machine:** The VM mounts `/private` from the host via virtiofs but
+does not resolve the `/tmp` symlink itself. YOLO Jail automatically calls
+`.resolve()` on all socket/directory paths before passing them to Podman, so
+`/tmp/...` paths are transparently converted to `/private/tmp/...`.
+
+### Podman Machine: broker socket bind-mount fails (`EOPNOTSUPP`)
+
+Podman Machine cannot bind-mount Unix socket *files* directly — Podman returns
+`Error: statfs ...: operation not supported` or `EOPNOTSUPP`. YOLO Jail works
+around this by running a lightweight in-process relay thread: the broker socket
+is exposed via a relay socket created *inside* the already-mounted
+`/run/yolo-services/` directory, which Podman can see through the virtiofs
+directory mount. No manual action is needed.
+
+### Podman Machine: TTY error (`crun: unlink /dev/console: Read-only file system`)
+
+When stdout is a TTY, Podman passes `-t` to `crun`, which tries to unlink
+`/dev/console` to set up a console device. With `--read-only` this fails unless
+Podman's automatic read-only tmpfs support is active. YOLO Jail only sets
+`--read-only-tmpfs=false` on Linux (where it's needed to avoid a conmon JSON
+parsing conflict); on macOS the flag is omitted so crun can set up the console
+correctly. No manual action is needed.
+
+### `yolo check` reports "Nix daemon: user is NOT trusted"
+
+With Determinate Nix on macOS, non-trusted users can still build the image via
+binary cache substitution (no compilation needed). `yolo check` treats this as
+a **warning** rather than a failure. To silence it, add your user to
+`trusted-users` in `/etc/nix/nix.custom.conf` and restart the daemon:
+
+```bash
+# Add to /etc/nix/nix.custom.conf:
+echo 'trusted-users = root your-username' | sudo tee -a /etc/nix/nix.custom.conf
+sudo launchctl kickstart -k system/systems.determinate.nix-daemon
+```

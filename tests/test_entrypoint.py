@@ -1141,6 +1141,30 @@ class TestAgentLaunchers:
         assert '"$REAL_BIN" install' in content  # native update command
 
 
+class TestPackageManagerLaunchers:
+    def test_creates_pnpm_launcher(self, jail_home):
+        entrypoint.SHIM_DIR.mkdir(parents=True, exist_ok=True)
+        entrypoint.generate_package_manager_launchers()
+        launcher = entrypoint.SHIM_DIR / "pnpm"
+        assert launcher.exists()
+        assert os.access(launcher, os.X_OK)
+        content = launcher.read_text()
+        assert "npm install -g" in content
+        assert 'PKG="pnpm"' in content
+        assert '"$PKG@latest"' in content
+        assert "YOLO_BYPASS_SHIMS=1" in content
+
+    def test_does_not_overwrite_blocked_pnpm(self, jail_home, monkeypatch):
+        monkeypatch.setenv(
+            "YOLO_BLOCK_CONFIG",
+            '[{"name": "pnpm", "message": "blocked"}]',
+        )
+        entrypoint.generate_shims()
+        blocked_content = (entrypoint.SHIM_DIR / "pnpm").read_text()
+        entrypoint.generate_package_manager_launchers()
+        assert (entrypoint.SHIM_DIR / "pnpm").read_text() == blocked_content
+
+
 # Skills merging moved to cli.py (_prepare_skills) — see test_cli_unit.py
 
 

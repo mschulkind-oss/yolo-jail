@@ -61,7 +61,7 @@
         ) extraPackageSpecs;
 
         # Derivation for the shim scripts (plain text — built on host, runs in container)
-        shims = imagePkgs.stdenv.mkDerivation {
+        shims = pkgs.stdenv.mkDerivation {
           name = "yolo-shims";
           src = ./src/shims;
           installPhase = ''
@@ -77,7 +77,7 @@
         # under /etc/containers.  Both are opt-out so the minimal image
         # variant can skip the bulky and/or unused plumbing.
         mkBinPathLinks = { withChromium ? true, withNestedPodman ? true }:
-          imagePkgs.runCommand "bin-path-links" {} (''
+          pkgs.runCommand "bin-path-links" {} (''
           mkdir -p $out/usr/bin $out/bin $out/lib64 $out/lib $out/usr/lib $out/etc $out/usr/share/fonts $out/usr/share
           ln -s ${imagePkgs.coreutils}/bin/env $out/usr/bin/env
           ln -s ${imagePkgs.bashInteractive}/bin/bash $out/bin/bash
@@ -219,17 +219,17 @@
         };
 
         # Derivation for the Python entrypoint (runs inside Linux container)
-        entrypointScript = imagePkgs.writeTextFile {
+        entrypointScript = pkgs.writeTextFile {
           name = "yolo-entrypoint-py";
           text = builtins.readFile ./src/entrypoint.py;
           destination = "/lib/yolo-entrypoint.py";
         };
-        entrypoint = imagePkgs.writeShellScriptBin "yolo-entrypoint" ''
+        entrypoint = pkgs.writeShellScriptBin "yolo-entrypoint" ''
           exec ${imagePkgs.python313}/bin/python3 ${entrypointScript}/lib/yolo-entrypoint.py "$@"
         '';
 
         # In-jail yolo CLI wrapper — delegates to the mounted repo via uv
-        yoloCli = imagePkgs.writeShellScriptBin "yolo" ''
+        yoloCli = pkgs.writeShellScriptBin "yolo" ''
           # Use the mounted repo with uv (deps are cached in persistent ~/.cache/uv)
           if [ -d /opt/yolo-jail/src ]; then
             export PYTHONPATH="/opt/yolo-jail''${PYTHONPATH:+:$PYTHONPATH}"
@@ -326,7 +326,7 @@
         ];
 
         mkDockerImage = { minimal ? false }:
-          imagePkgs.dockerTools.streamLayeredImage {
+          pkgs.dockerTools.streamLayeredImage {
             name = "yolo-jail";
             tag = if minimal then "ci-minimal" else "latest";
             created = "now";
