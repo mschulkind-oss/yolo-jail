@@ -694,6 +694,62 @@ def _linux_multilib() -> str:
     return _MAP.get(machine, f"{machine}-linux-gnu")
 
 
+def _nix_custom_conf_included() -> Optional[bool]:
+    """Return True if /etc/nix/nix.conf includes /etc/nix/nix.custom.conf.
+
+    Nix reads ``/etc/nix/nix.conf`` (and ``$XDG_CONFIG_HOME/nix/nix.conf``)
+    but not arbitrary sibling files.  The Determinate Systems installer
+    adds ``!include /etc/nix/nix.custom.conf`` to ``nix.conf`` so the
+    "custom" file is actually loaded; the official NixOS installer does
+    not.  yolo-jail's macOS setup guide tells users to append settings
+    to ``nix.custom.conf``, which silently no-ops on the official
+    installer.  This helper lets the ``check`` command explain exactly
+    which of the two fixes the user needs.
+
+    Returns True/False if ``/etc/nix/nix.conf`` is readable, None if not
+    (e.g. non-macOS host, missing file, permission error).
+    """
+    conf = Path("/etc/nix/nix.conf")
+    if not conf.is_file():
+        return None
+    try:
+        text = conf.read_text()
+    except OSError:
+        return None
+    for raw in text.splitlines():
+        stripped = raw.strip()
+        if stripped.startswith("#") or not stripped:
+            continue
+        # Match both ``include`` (fatal if missing) and ``!include``
+        # (non-fatal).  Tolerate extra whitespace.
+        for prefix in ("!include", "include"):
+            if stripped.startswith(prefix):
+                rest = stripped[len(prefix) :].lstrip()
+                if rest == "/etc/nix/nix.custom.conf":
+                    return True
+    return False
+
+
+def _detect_nix_daemon_label() -> Optional[str]:
+    """Return the launchd Label of the installed nix-daemon on macOS, or None.
+
+    The Determinate Systems installer registers
+    ``systems.determinate.nix-daemon``; the official NixOS installer
+    registers ``org.nixos.nix-daemon``.  We look in
+    ``/Library/LaunchDaemons/`` for any file whose name ends in
+    ``nix-daemon.plist`` and return the stem — launchd labels match the
+    plist filename.  First match wins; returns None on non-macOS hosts
+    or if no matching plist exists.
+    """
+    daemon_dir = Path("/Library/LaunchDaemons")
+    if not daemon_dir.is_dir():
+        return None
+    for entry in sorted(daemon_dir.iterdir()):
+        if entry.name.endswith("nix-daemon.plist"):
+            return entry.stem
+    return None
+
+
 def _detect_host_timezone() -> Optional[str]:
     """Return the host's IANA timezone name (e.g. "America/New_York") or None.
 
@@ -2804,6 +2860,32 @@ def _host_mise_dir() -> Path:
     return host_mise
 
 
+def _ac_materialize_under_ws_state(
+    src: Path, target_rel: str, ws_state: Path, *, is_dir: bool = False
+) -> None:
+    """Copy ``src`` into ``ws_state / target_rel`` for Apple Container.
+
+    Apple Container 0.12.3 silently drops the ``-v ws_state:/home/agent``
+    parent bind mount as soon as any ``-v host_file:/home/agent/sub/...``
+    single-file mount is added (apple/container#1089 — single-file mounts
+    use a separate virtiofs share via a hardlink tempdir, and the parent
+    dir share gets shadowed).  Nested directory mounts don't trip the
+    bug, but single-file mounts do.
+
+    Workaround: instead of bind-mounting, materialize the contents into
+    ``ws_state`` directly — the existing ``ws_state:/home/agent`` dir
+    mount then exposes them at the expected paths inside the jail.
+    """
+    dst = ws_state / target_rel
+    dst.parent.mkdir(parents=True, exist_ok=True)
+    if is_dir:
+        if dst.exists():
+            shutil.rmtree(dst)
+        shutil.copytree(src, dst, symlinks=False)
+    else:
+        shutil.copy2(src, dst)
+
+
 def _seed_agent_dir(src: Path, dst: Path, *, skip: tuple[str, ...] = ()):
     """Copy auth-related files from GLOBAL_HOME agent dir into per-workspace overlay.
 
@@ -3661,7 +3743,7 @@ def load_config(
     return merge_config(user_config, workspace_config)
 
 
-DEFAULT_HOST_CLAUDE_FILES = ["settings.json", ".credentials.json"]
+DEFAULT_HOST_CLAUDE_FILES = ["settings.json"]
 
 KNOWN_TOP_LEVEL_CONFIG_KEYS = {
     "runtime",
@@ -5213,6 +5295,86 @@ def _check_disk_usage(
         ok(f"yolo-jail disk usage: {human} (threshold {threshold_gb:.0f} GiB)")
 
 
+def _check_broker_creds_freshness(ok, warn, fail) -> None:
+    """Symptom-level health check on the shared Claude credentials.
+
+    The broker exists to keep
+    ``~/.local/share/yolo-jail/home/.claude-shared-credentials/.credentials.json``
+    valid — its ``expiresAt`` should always be comfortably in the
+    future.  When refreshes fail to land (Claude not asking, broker
+    crash, server-side revocation, …) the symptom is the same:
+    expiresAt approaches now and nothing rewrites the file.
+
+    This is the actually-useful metric the 2026-04-28 handoff called
+    for: surface the symptom directly so we don't have to wait for a
+    user to hit a 401 to find out refreshes have stopped.
+
+    Caveat: a fresh-looking ``expiresAt`` can still hide a
+    server-revoked refresh token (observed 2026-04-28); only a real
+    network roundtrip can prove validity.  That's a planned follow-up.
+    """
+    creds_path = GLOBAL_HOME / ".claude-shared-credentials" / ".credentials.json"
+    if not creds_path.exists():
+        # First /login hasn't happened yet — nothing to grade.
+        return
+    try:
+        # ``ensure_global_storage`` touches an empty placeholder file so
+        # the bind-mount target exists on first boot.  Treat zero-byte
+        # as the documented pre-login state (same as "file absent"),
+        # not as a corruption warning.
+        if creds_path.stat().st_size == 0:
+            return
+    except OSError:
+        pass
+    try:
+        data = json.loads(creds_path.read_text())
+        expires_at_ms = int(data["claudeAiOauth"]["expiresAt"])
+    except (json.JSONDecodeError, KeyError, TypeError, ValueError, OSError) as e:
+        warn(
+            f"shared creds {creds_path}: unreadable",
+            f"{type(e).__name__}: {e}",
+        )
+        return
+
+    now_ms = int(time.time() * 1000)
+    remaining_s = (expires_at_ms - now_ms) // 1000
+    # File mtime is a proxy for "time since last refresh" — every
+    # successful refresh-grant or /login rewrites the file.  Flat
+    # mtime + advancing wall-clock = nothing is landing.
+    try:
+        mtime_age_s = int(time.time() - creds_path.stat().st_mtime)
+    except OSError:
+        mtime_age_s = -1
+
+    def _fmt(seconds: int) -> str:
+        if seconds < 0:
+            return "?"
+        if seconds < 3600:
+            return f"{seconds // 60}m"
+        return f"{seconds // 3600}h{(seconds % 3600) // 60}m"
+
+    last_write = f"last write {_fmt(mtime_age_s)} ago" if mtime_age_s >= 0 else ""
+
+    if remaining_s < 0:
+        fail(
+            f"shared creds expired {_fmt(-remaining_s)} ago"
+            + (f" ({last_write})" if last_write else ""),
+            "Refreshes are not landing.  Run /login from inside a "
+            "jail to recover; check broker log at "
+            "~/.local/share/yolo-jail/logs/host-service-claude-oauth-broker.log",
+        )
+    elif remaining_s < 3600:
+        warn(
+            f"shared creds expire in {_fmt(remaining_s)}"
+            + (f" ({last_write})" if last_write else ""),
+            "Approaching expiry without a refresh having landed.  "
+            "Healthy cadence keeps this above 1h.",
+        )
+    else:
+        suffix = f", {last_write}" if last_write else ""
+        ok(f"shared creds valid for {_fmt(remaining_s)}{suffix}")
+
+
 def _check_loopholes(ok, warn, fail) -> None:
     """Surface loophole discovery + each loophole's own self-check.
 
@@ -5256,6 +5418,10 @@ def _check_loopholes(ok, warn, fail) -> None:
             # stale-wheel incident in doctor instead of at
             # /login-prompt time.
             if loophole.name == BROKER_LOOPHOLE_NAME:
+                # Symptom-level: are the shared creds about to expire?
+                # Liveness above only tells us the daemon is up; this
+                # tells us whether refreshes are actually landing.
+                _check_broker_creds_freshness(ok, warn, fail)
                 status = _broker_status()
                 if status["pid_live"] and status["ping_ok"]:
                     ok(
@@ -5390,6 +5556,16 @@ def _check_host_service_liveness(ok, warn, fail) -> None:
     for cname in cnames:
         sockets_dir = _host_service_sockets_dir(cname)
         for lp in externals:
+            # Singleton broker: its per-jail entry is a bind-mount
+            # placeholder (zero-byte regular file on the host;
+            # connect() against it raises ENOTSOCK).  Liveness for
+            # the singleton is checked separately in
+            # ``_check_loopholes`` via ``_broker_status`` against the
+            # well-known singleton path.  Probing here was producing
+            # ``socket dead`` false positives that sent investigators
+            # down the wrong trail (handoff 2026-04-28).
+            if lp.name == BROKER_LOOPHOLE_NAME:
+                continue
             sock_path = sockets_dir / f"{lp.name}.sock"
             label = f"loophole {lp.name} @ {cname}"
             if not sock_path.exists():
@@ -5481,37 +5657,84 @@ def check(
 
     console.print("[bold]Container Runtime[/bold]")
     detected_runtime = None
-    for rt in ("podman", "docker"):
+    # Each entry: (name, version_cmd, liveness_cmd, liveness_hint)
+    # Apple Container's daemon check is `container system status`, not
+    # `container info` — the latter returns usage text even without a
+    # running apiserver.
+    runtime_probes = [
+        (
+            "podman",
+            ["podman", "--version"],
+            ["podman", "info"],
+            "Run 'podman info' to diagnose",
+        ),
+        (
+            "docker",
+            ["docker", "--version"],
+            ["docker", "info"],
+            "Run 'docker info' to diagnose",
+        ),
+        (
+            "container",
+            ["container", "--version"],
+            ["container", "system", "status"],
+            "Start with: container system start",
+        ),
+    ]
+    # Only warn about an offline runtime if the user explicitly selected
+    # it (YOLO_RUNTIME).  A dormant docker CLI next to a working podman
+    # or Apple Container is normal — users keep the docker client
+    # installed for Colima or ad-hoc use without actually running the
+    # daemon.  The merged-config runtime pick happens later and emits
+    # its own error via ``_runtime_for_check``.
+    selected_runtime = os.environ.get("YOLO_RUNTIME")
+    if selected_runtime not in ("podman", "docker", "container"):
+        selected_runtime = None
+    # First pass: collect probe results so we know whether anything is
+    # live before deciding severity on the rest.
+    offline: list[tuple[str, str, str]] = []  # (rt, version, hint)
+    for rt, version_cmd, liveness_cmd, liveness_hint in runtime_probes:
         path = shutil.which(rt)
-        if path:
-            try:
-                result = subprocess.run(
-                    [rt, "--version"],
-                    capture_output=True,
-                    text=True,
-                    timeout=5,
-                )
-                version = result.stdout.strip().split("\n")[0]
-                # Verify the daemon is actually reachable, not just the CLI
-                ping = subprocess.run(
-                    [rt, "info"],
-                    capture_output=True,
-                    text=True,
-                    timeout=10,
-                )
-                if ping.returncode == 0:
-                    ok(f"{rt}: {version}")
-                    if detected_runtime is None:
-                        detected_runtime = rt
-                else:
-                    warn(
-                        f"{rt}: {version} (not connected)",
-                        f"Run '{rt} info' to diagnose",
-                    )
-            except Exception as e:
-                fail(f"{rt} found but not working: {e}")
+        if not path:
+            continue
+        try:
+            result = subprocess.run(
+                version_cmd, capture_output=True, text=True, timeout=5
+            )
+            version = result.stdout.strip().split("\n")[0]
+            # Verify the daemon/apiserver is actually reachable, not just the CLI
+            ping = subprocess.run(
+                liveness_cmd, capture_output=True, text=True, timeout=10
+            )
+            ping_ok = ping.returncode == 0
+            if rt == "container" and ping_ok:
+                # `container system status` succeeds even when the apiserver
+                # is stopped — the real signal is "running" in stdout.
+                ping_ok = "running" in ping.stdout.lower()
+            if ping_ok:
+                ok(f"{rt}: {version}")
+                if detected_runtime is None:
+                    detected_runtime = rt
+            else:
+                offline.append((rt, version, liveness_hint))
+        except Exception as e:
+            fail(f"{rt} found but not working: {e}")
+    # Grade the offline runtimes after all probes finish.  If the user
+    # explicitly selected one and it's offline, that's a real problem.
+    # If another runtime is live, dormant siblings are just clutter —
+    # print them as dim info so the signal is there without a warning.
+    for rt, version, hint in offline:
+        if rt == selected_runtime or detected_runtime is None:
+            warn(f"{rt}: {version} (not connected)", hint)
+        else:
+            console.print(
+                f"  [dim]· {rt}: {version} (not connected — not selected)[/dim]"
+            )
     if detected_runtime is None:
-        fail("No container runtime found", "Install podman or docker")
+        fail(
+            "No container runtime found",
+            "Install podman, docker, or Apple Container (macOS)",
+        )
     console.print()
 
     console.print("[bold]Nix[/bold]")
@@ -5547,22 +5770,48 @@ def check(
                 # On macOS with Determinate Nix, untrusted users can still
                 # build images via the binary cache (no local Linux builder
                 # needed). Demote to a warning rather than a hard failure.
-                warn(
-                    "Nix daemon: connected but user is NOT trusted",
-                    "Add your user to trusted-users in /etc/nix/nix.custom.conf "
-                    "and restart the Nix daemon",
-                )
+                included = _nix_custom_conf_included()
+                label = _detect_nix_daemon_label() or "<label>"
+                restart = f"sudo launchctl kickstart -k system/{label}"
+                if included is False:
+                    # nix.conf exists but has no include — the typical
+                    # official-NixOS-installer layout.  Writing to
+                    # nix.custom.conf alone won't do anything.
+                    hint = (
+                        "/etc/nix/nix.conf does not include nix.custom.conf. "
+                        "Either add it to the trusted-users line directly in "
+                        "/etc/nix/nix.conf, or add an include line once: "
+                        "echo '!include /etc/nix/nix.custom.conf' | "
+                        "sudo tee -a /etc/nix/nix.conf. Then add your user "
+                        "(trusted-users = root $(whoami)) and restart the "
+                        f"daemon: {restart}"
+                    )
+                else:
+                    # Determinate Systems layout (or unknown) — the
+                    # existing custom.conf advice is correct.
+                    hint = (
+                        "Add your user to trusted-users in "
+                        "/etc/nix/nix.custom.conf and restart the Nix daemon: "
+                        f"{restart}"
+                    )
+                warn("Nix daemon: connected but user is NOT trusted", hint)
             else:
                 fail(
                     "Nix daemon: connection failed",
                     result.stderr.strip().split("\n")[0] if result.stderr else "",
                 )
         except subprocess.TimeoutExpired:
+            label = _detect_nix_daemon_label()
+            kickstart = (
+                f"sudo launchctl kickstart -k system/{label}"
+                if label
+                else "sudo launchctl kickstart -k system/<label>"
+                " — check ls /Library/LaunchDaemons/ for your *nix-daemon.plist"
+            )
             fail(
                 "Nix daemon: store operation timed out (daemon may be hung)",
                 "This is a known issue with determinate-nixd. "
-                "Try: sudo launchctl kickstart -k system/systems.determinate.nix-daemon "
-                "or switch to the vanilla nix-daemon",
+                f"Try: {kickstart} or switch to the vanilla nix-daemon",
             )
         except Exception as e:
             warn(f"Could not verify Nix daemon connectivity: {e}")
@@ -7005,7 +7254,16 @@ def run(
     else:
         # Ensure the file exists (empty) so the mount doesn't fail
         user_env_file.touch()
-    docker_cmd.extend(["-v", f"{user_env_file}:/home/agent/.config/yolo-user-env.sh"])
+    if runtime == "container":
+        # See _ac_materialize_under_ws_state — AC can't do single-file
+        # mounts under the ws_state parent mount without dropping it.
+        _ac_materialize_under_ws_state(
+            user_env_file, ".config/yolo-user-env.sh", ws_state
+        )
+    else:
+        docker_cmd.extend(
+            ["-v", f"{user_env_file}:/home/agent/.config/yolo-user-env.sh"]
+        )
 
     docker_cmd += [
         "--workdir",
@@ -7166,7 +7424,14 @@ def run(
     except Exception:
         excludes_path = Path.home() / ".config" / "git" / "ignore"
     if excludes_path.is_file():
-        docker_cmd.extend(["-v", f"{excludes_path}:/home/agent/.config/git/ignore:ro"])
+        if runtime == "container":
+            _ac_materialize_under_ws_state(
+                excludes_path, ".config/git/ignore", ws_state
+            )
+        else:
+            docker_cmd.extend(
+                ["-v", f"{excludes_path}:/home/agent/.config/git/ignore:ro"]
+            )
         docker_cmd.extend(
             ["-e", "YOLO_GLOBAL_GITIGNORE=/home/agent/.config/git/ignore"]
         )
@@ -7510,7 +7775,14 @@ def run(
     # yolo resolves to empty config, stomping the host's config snapshot.
     if USER_CONFIG_PATH.is_file():
         container_config = f"/home/agent/.config/yolo-jail/{USER_CONFIG_PATH.name}"
-        docker_cmd.extend(["-v", f"{USER_CONFIG_PATH}:{container_config}:ro"])
+        if runtime == "container":
+            _ac_materialize_under_ws_state(
+                USER_CONFIG_PATH,
+                f".config/yolo-jail/{USER_CONFIG_PATH.name}",
+                ws_state,
+            )
+        else:
+            docker_cmd.extend(["-v", f"{USER_CONFIG_PATH}:{container_config}:ro"])
 
     # Pass the mise path through to any nested jail so the same host path
     # keeps resolving one level deeper. The path is identical inside and out.
@@ -7590,15 +7862,32 @@ def run(
         mcp_servers=mcp_servers or None,
         mcp_presets=mcp_presets or None,
     )
-    docker_cmd.extend(
-        ["-v", f"{agents_path / 'AGENTS-copilot.md'}:/home/agent/.copilot/AGENTS.md:ro"]
-    )
-    docker_cmd.extend(
-        ["-v", f"{agents_path / 'AGENTS-gemini.md'}:/home/agent/.gemini/AGENTS.md:ro"]
-    )
-    docker_cmd.extend(
-        ["-v", f"{agents_path / 'CLAUDE.md'}:/home/agent/.claude/CLAUDE.md:ro"]
-    )
+    if runtime == "container":
+        _ac_materialize_under_ws_state(
+            agents_path / "AGENTS-copilot.md", ".copilot/AGENTS.md", ws_state
+        )
+        _ac_materialize_under_ws_state(
+            agents_path / "AGENTS-gemini.md", ".gemini/AGENTS.md", ws_state
+        )
+        _ac_materialize_under_ws_state(
+            agents_path / "CLAUDE.md", ".claude/CLAUDE.md", ws_state
+        )
+    else:
+        docker_cmd.extend(
+            [
+                "-v",
+                f"{agents_path / 'AGENTS-copilot.md'}:/home/agent/.copilot/AGENTS.md:ro",
+            ]
+        )
+        docker_cmd.extend(
+            [
+                "-v",
+                f"{agents_path / 'AGENTS-gemini.md'}:/home/agent/.gemini/AGENTS.md:ro",
+            ]
+        )
+        docker_cmd.extend(
+            ["-v", f"{agents_path / 'CLAUDE.md'}:/home/agent/.claude/CLAUDE.md:ro"]
+        )
 
     if "TERM" in os.environ:
         docker_cmd.extend(["-e", f"TERM={os.environ['TERM']}"])
@@ -7614,7 +7903,8 @@ def run(
     # src/loopholes.py for the full schema.
     docker_cmd.extend(
         _loopholes.docker_args_for(
-            _loopholes.discover_loopholes(loopholes_config=config.get("loopholes"))
+            _loopholes.discover_loopholes(loopholes_config=config.get("loopholes")),
+            runtime=runtime,
         )
     )
 
@@ -7859,8 +8149,9 @@ def ps():
     """List running YOLO jail containers."""
     runtime = _runtime()
     if runtime == "container":
+        # Apple Container CLI does not support --filter; scan output instead.
         result = subprocess.run(
-            ["container", "ls", "--filter", "name=yolo-"],
+            ["container", "ls"],
             capture_output=True,
             text=True,
         )
@@ -7983,12 +8274,37 @@ def prune_cmd(
         "--keep-images",
         help="Number of most-recent yolo-jail images to retain (default: 2).",
     ),
+    no_image_cache: bool = typer.Option(
+        False,
+        "--no-image-cache",
+        help="Skip the ~/.cache/images/ tarball cleanup.",
+    ),
+    no_shadowed_home: bool = typer.Option(
+        False,
+        "--no-shadowed-home",
+        help="Skip the shadowed-seed cleanup.  By default, prune deletes "
+        "subdirs of the :ro GLOBAL_HOME seed that are fully masked by "
+        "overlay mounts at runtime (.cache, .npm, .npm-global, .local, "
+        "go).  These can never be read by any live jail but accumulate "
+        "tens of GiB from pre-cache-split installs.",
+    ),
+    image_cache_keep: int = typer.Option(
+        3,
+        "--image-cache-keep",
+        help="Number of most-recent cached image tarballs to retain "
+        "under ~/.cache/images/ (default: 3).  Each tar is ~3 GiB, so "
+        "this bucket dominates disk use — it's the single biggest win "
+        "for most users.  Orphan .tmp files from crashed builds are "
+        "always swept regardless of this count.",
+    ),
     cache_age: int = typer.Option(
-        0,
+        30,
         "--cache-age",
-        help="If >0, purge files under ~/.cache/{uv,pip,npm,go-build,mise} "
-        "older than this many days.  Content is re-downloadable from PyPI/"
-        "npm/go/mise on next install.  Default 0 disables the pass.",
+        help="Purge files under re-downloadable ~/.cache/ subdirs "
+        "(uv, pip, npm, go-build, mise, pex, pants, node-gyp, gopls) "
+        "older than this many days.  Pass 0 to skip the pass entirely; "
+        "pass a smaller number to be more aggressive.  Content is "
+        "re-downloadable from PyPI/npm/go/mise on next install.",
     ),
     purge_heavy_caches: bool = typer.Option(
         False,
@@ -8036,10 +8352,33 @@ def prune_cmd(
         for name, size in sorted(breakdown.items(), key=lambda kv: kv[1], reverse=True):
             console.print(f"    {name:<20} {_fmt_bytes(size):>12}")
 
+    # When the cache bucket dominates, break it down too — saves the
+    # operator from running `du -sh` manually to find the fat subdir.
+    cache_breakdown = before.get("cache_breakdown") or {}
+    if cache_breakdown:
+        top = sorted(cache_breakdown.items(), key=lambda kv: kv[1], reverse=True)[:5]
+        console.print("  [dim]cache/ top 5 (largest first):[/dim]")
+        for name, size in top:
+            console.print(f"    cache/{name:<14} {_fmt_bytes(size):>12}")
+
+    # Hint: the image tar cache is almost always the biggest offender
+    # and an ideal candidate for cold storage (HDD).  Surface it once,
+    # proactively, when it exceeds a reasonable SSD budget.
+    images_bytes = cache_breakdown.get("images", 0)
+    if images_bytes >= 20 * (1024**3):  # 20 GiB
+        console.print(
+            f"  [yellow]hint:[/yellow] cache/images holds "
+            f"{_fmt_bytes(images_bytes)} of jail tarballs.  They're "
+            "streamed once at podman load then unused — consider "
+            "symlinking this subdir to HDD storage if you have it."
+        )
+
     total_saved = 0
     total_links = 0
     removed_containers: list[str] = []
     removed_images: list[str] = []
+    image_cache_bytes = 0
+    image_cache_files = 0
 
     if not no_hardlink and (workspaces or dedup_global):
         console.print("\n[bold]Hardlink dedup[/bold]")
@@ -8130,6 +8469,46 @@ def prune_cmd(
         else:
             console.print("  [dim]none[/dim]")
 
+    if not no_image_cache:
+        console.print(
+            f"\n[bold]Cached image tarballs[/bold]  (keep={image_cache_keep})"
+        )
+        image_cache_bytes, image_cache_files = _prune._prune_image_cache(
+            GLOBAL_CACHE / "images",
+            keep=image_cache_keep,
+            apply=apply,
+        )
+        verb = "would remove" if not apply else "removed"
+        if image_cache_files:
+            console.print(
+                f"  {verb}: {_fmt_bytes(image_cache_bytes)} across "
+                f"{image_cache_files:,} file(s)"
+            )
+        else:
+            console.print("  [dim]none[/dim]")
+        total_saved += image_cache_bytes
+
+    shadowed_bytes = 0
+    shadowed_items = 0
+    if not no_shadowed_home:
+        console.print("\n[bold]Shadowed seed subtrees[/bold]")
+        console.print(
+            f"  [dim]targets: {', '.join(_prune.SHADOWED_HOME_PATHS)} "
+            "(each overlay-masked at runtime)[/dim]"
+        )
+        shadowed_bytes, shadowed_items = _prune._prune_shadowed_home(
+            GLOBAL_HOME, apply=apply
+        )
+        verb = "would remove" if not apply else "removed"
+        if shadowed_items:
+            console.print(
+                f"  {verb}: {_fmt_bytes(shadowed_bytes)} across "
+                f"{shadowed_items:,} path(s)"
+            )
+        else:
+            console.print("  [dim]none[/dim]")
+        total_saved += shadowed_bytes
+
     cache_bytes = 0
     cache_files = 0
     if cache_age > 0:
@@ -8158,14 +8537,19 @@ def prune_cmd(
         console.print(
             f"[bold green]Reclaimed {_fmt_bytes(total_saved)}[/bold green] via "
             f"{total_links:,} hardlinks, {len(removed_containers)} container(s), "
-            f"{len(removed_images)} image(s), {cache_files:,} cache file(s)."
+            f"{len(removed_images)} image(s), {image_cache_files:,} image tar(s), "
+            f"{shadowed_items:,} shadowed seed path(s), "
+            f"{cache_files:,} cache file(s)."
         )
     else:
         console.print(
             f"[bold yellow]DRY-RUN:[/bold yellow] would reclaim "
             f"{_fmt_bytes(total_saved)} via {total_links:,} hardlinks, remove "
             f"{len(removed_containers)} container(s), "
-            f"{len(removed_images)} image(s), {cache_files:,} cache file(s).  "
+            f"{len(removed_images)} image(s), "
+            f"{image_cache_files:,} image tar(s), "
+            f"{shadowed_items:,} shadowed seed path(s), "
+            f"{cache_files:,} cache file(s).  "
             f"Re-run with [cyan]--apply[/cyan] to execute."
         )
 

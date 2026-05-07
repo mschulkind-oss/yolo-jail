@@ -76,6 +76,11 @@ CLAUDE_MANAGED_MCP_PATH = CLAUDE_DIR / "yolo-managed-mcp-servers.json"
 CLAUDE_SHARED_CREDENTIALS_DIR = HOME / ".claude-shared-credentials"
 MISE_CONFIG_DIR = HOME / ".config" / "mise"
 
+# Writable tmpfs that backs the ``/etc/localtime`` + ``/etc/timezone``
+# image symlinks (root fs is mounted --read-only).  A module constant so
+# tests can redirect it to a tmp dir without monkey-patching pathlib.
+TZ_RUN_DIR = Path("/run")
+
 # Default LSP servers always available in the jail.
 # command: absolute path (for Copilot); basename extracted for Gemini's mcp-language-server.
 # args: passed to the LSP binary directly.
@@ -468,6 +473,45 @@ alias bat='bat --style=plain --paging=never'
 
 # The combined bundle.  Writable path under $HOME so we can rewrite it at
 # every jail boot.
+
+
+def configure_timezone():
+    """Populate ``/run/localtime`` and ``/run/timezone`` from ``$TZ``.
+
+    The image bakes ``/etc/localtime -> /run/localtime`` and
+    ``/etc/timezone -> /run/timezone`` symlinks because the root
+    filesystem is mounted read-only.  cli.py forwards the host zone via
+    ``$TZ`` (plus ``$TZDIR`` pointing at the Nix tzdata), which covers
+    glibc, Python, Node, and bash.  But anything that reads
+    ``/etc/localtime`` directly — Go's ``time`` package, some Java/Ruby
+    paths, ``date`` after ``env -i``, ``ls -l`` when libc can't parse
+    $TZ — otherwise falls back to UTC and disagrees with the host.
+
+    Best-effort: if $TZ is unset, or the zone file can't be found, leave
+    the dangling symlinks alone.  Callers of those paths will see ENOENT
+    and fall back to UTC, which matches the pre-fix behavior.
+    """
+    tz = os.environ.get("TZ")
+    if not tz:
+        return
+    tzdir = os.environ.get("TZDIR") or "/usr/share/zoneinfo"
+    zone_file = Path(tzdir) / tz
+    if not zone_file.is_file():
+        return
+    run_dir = TZ_RUN_DIR
+    try:
+        run_dir.mkdir(parents=True, exist_ok=True)
+        localtime = run_dir / "localtime"
+        if localtime.is_symlink() or localtime.exists():
+            localtime.unlink()
+        localtime.symlink_to(zone_file)
+        (run_dir / "timezone").write_text(f"{tz}\n")
+    except OSError:
+        # /run is a tmpfs on every runtime we support, so write failures
+        # here are unexpected — but a broken TZ symlink shouldn't abort
+        # jail startup.  The $TZ env var still gives the right answer
+        # for everything that reads it.
+        pass
 
 
 def _read_bundle_bytes(path: Path) -> bytes:
@@ -1143,25 +1187,8 @@ def _install_claude_plugins(plugin_map: dict, lsp_servers: dict):
             pass  # non-fatal — plugin will be installed on next boot
 
 
-def _credentials_expiry(path: Path) -> int:
-    """Return the expiresAt timestamp (ms) from a Claude credentials file, or 0."""
-    import json as _json
-
-    try:
-        data = _json.loads(path.read_text())
-        oauth = data.get("claudeAiOauth") or {}
-        return int(oauth.get("expiresAt", 0))
-    except (ValueError, OSError, KeyError):
-        return 0
-
-
 def _sync_host_claude_files():
-    """Copy host ~/.claude/ files into the jail, except settings.json (merged separately).
-
-    For .credentials.json, keeps the freshest token — if the jail already has
-    credentials with a later expiry (from a prior /login), the host copy is
-    skipped so the user doesn't have to re-login in every jail.
-    """
+    """Copy host ~/.claude/ files into the jail, except settings.json (merged separately)."""
     import json as _json
 
     host_claude_files = _json.loads(os.environ.get("YOLO_HOST_CLAUDE_FILES", "[]"))
@@ -1171,21 +1198,9 @@ def _sync_host_claude_files():
         if fname == "settings.json":
             continue  # handled by configure_claude() via deep-merge
         src = host_claude_dir / fname
-        # Credentials live in the shared dir (directory bind mount that
-        # supports atomic rename).  Other files go to the per-workspace
-        # .claude/ overlay as before.
-        if fname == ".credentials.json":
-            dst = CLAUDE_SHARED_CREDENTIALS_DIR / fname
-        else:
-            dst = CLAUDE_DIR / fname
+        dst = CLAUDE_DIR / fname
         if not src.exists():
             continue
-        # For credentials: keep the token with the later expiry.
-        if fname == ".credentials.json":
-            dst_expiry = _credentials_expiry(dst)
-            src_expiry = _credentials_expiry(src)
-            if dst_expiry >= src_expiry and dst_expiry > 0:
-                continue  # jail credentials are fresher — keep them
         try:
             shutil.copy2(str(src), str(dst))
         except shutil.SameFileError:
@@ -2088,6 +2103,13 @@ def start_container_port_forwarding():
 def main():
     cmd = " ".join(sys.argv[1:]) if len(sys.argv) > 1 else "bash"
     _perf("start")
+
+    # Populate /run/localtime + /run/timezone from $TZ before anything else
+    # so file mtimes, log timestamps, etc. from subsequent setup steps use the
+    # right wall-clock zone.  /etc/localtime and /etc/timezone are symlinks
+    # into /run baked by the image (root fs is read-only).
+    configure_timezone()
+    _perf("configure_timezone")
 
     # Each jail writes to its own per-workspace overlay dirs (mounted by cli.py),
     # so no flock needed — no cross-jail contention.

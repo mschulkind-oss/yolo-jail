@@ -23,7 +23,7 @@ jobs:
           fetch-depth: 0
 
       - name: Install Nix
-        uses: cachix/install-nix-action@v30
+        uses: cachix/install-nix-action@v31
         with:
           extra_nix_config: |
             experimental-features = nix-command flakes
@@ -34,7 +34,7 @@ jobs:
           ./result > /tmp/jail-image.tar
 
       - name: Upload jail image
-        uses: actions/upload-artifact@v5
+        uses: actions/upload-artifact@v7
         with:
           name: jail-image
           path: /tmp/jail-image.tar
@@ -62,7 +62,7 @@ jobs:
           colima start --cpu 2 --memory 4 --disk 30 --mount-type sshfs
 
       - name: Download jail image
-        uses: actions/download-artifact@v5
+        uses: actions/download-artifact@v8
         with:
           name: jail-image
           path: /tmp

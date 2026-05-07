@@ -91,6 +91,16 @@
           # clients search the standard FHS path first, so symlink
           # it so both paths work.
           ln -s ${imagePkgs.tzdata}/share/zoneinfo $out/usr/share/zoneinfo
+          # /etc/localtime and /etc/timezone are the FHS paths that
+          # tools reach for when ``$TZ`` isn't set (Go's time package,
+          # some Java/Ruby paths, ``date`` under ``env -i``).  The root
+          # filesystem is mounted --read-only, so /etc can't be written
+          # at entrypoint time; point these at /run (tmpfs) and let the
+          # entrypoint populate /run/localtime + /run/timezone from the
+          # host zone passed in via $TZ.  Without this, those clients
+          # silently fall back to UTC and disagree with the host clock.
+          ln -s /run/localtime $out/etc/localtime
+          ln -s /run/timezone $out/etc/timezone
         '' + imagePkgs.lib.optionalString withChromium ''
           ln -s ${imagePkgs.chromium}/bin/chromium $out/usr/bin/chromium
           ln -s ${imagePkgs.chromium}/bin/chromium $out/usr/bin/google-chrome
