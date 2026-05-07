@@ -103,8 +103,6 @@ podman machine start
 
 On macOS you'll also need a Nix remote Linux builder for image builds — see [docs/macos.md](docs/macos.md) for step-by-step setup.
 
-For development, see [CONTRIBUTING.md](CONTRIBUTING.md).
-
 ## Quick Start
 
 Works identically on Linux and macOS:
@@ -206,10 +204,6 @@ yolo doctor
 This checks your container runtime, Nix installation, configuration files, image status, and running containers.
 
 Run `yolo check` after **every** config edit, especially when handing work from an outside agent into the jail or when an in-jail agent edits `yolo-jail.jsonc` mid-session and needs to verify the restart will succeed.
-
-## Contributing
-
-See [CONTRIBUTING.md](CONTRIBUTING.md) for development setup and guidelines.
 
 ## Documentation
 
