@@ -1280,6 +1280,139 @@ class TestRuntimeForCheck:
 # ═══════════════════════════════════════════════════════════════════════════════
 
 
+class TestNixCustomConfIncluded:
+    """_nix_custom_conf_included parses /etc/nix/nix.conf for the include line."""
+
+    def _patch_conf(self, monkeypatch, conf_path):
+        import cli
+
+        real_path = cli.Path
+
+        def fake_path(p, *args, **kwargs):
+            if p == "/etc/nix/nix.conf":
+                return conf_path
+            return real_path(p, *args, **kwargs)
+
+        monkeypatch.setattr(cli, "Path", fake_path)
+
+    def test_detects_bang_include(self, tmp_path, monkeypatch):
+        from cli import _nix_custom_conf_included
+
+        conf = tmp_path / "nix.conf"
+        conf.write_text(
+            "build-users-group = nixbld\n!include /etc/nix/nix.custom.conf\n"
+        )
+        self._patch_conf(monkeypatch, conf)
+        assert _nix_custom_conf_included() is True
+
+    def test_detects_plain_include(self, tmp_path, monkeypatch):
+        from cli import _nix_custom_conf_included
+
+        conf = tmp_path / "nix.conf"
+        conf.write_text("include /etc/nix/nix.custom.conf\n")
+        self._patch_conf(monkeypatch, conf)
+        assert _nix_custom_conf_included() is True
+
+    def test_returns_false_when_no_include(self, tmp_path, monkeypatch):
+        from cli import _nix_custom_conf_included
+
+        conf = tmp_path / "nix.conf"
+        conf.write_text("build-users-group = nixbld\n")
+        self._patch_conf(monkeypatch, conf)
+        assert _nix_custom_conf_included() is False
+
+    def test_ignores_commented_include(self, tmp_path, monkeypatch):
+        from cli import _nix_custom_conf_included
+
+        conf = tmp_path / "nix.conf"
+        conf.write_text("# !include /etc/nix/nix.custom.conf\n")
+        self._patch_conf(monkeypatch, conf)
+        assert _nix_custom_conf_included() is False
+
+    def test_returns_none_when_missing(self, tmp_path, monkeypatch):
+        from cli import _nix_custom_conf_included
+
+        self._patch_conf(monkeypatch, tmp_path / "does-not-exist")
+        assert _nix_custom_conf_included() is None
+
+
+class TestDetectNixDaemonLabel:
+    """_detect_nix_daemon_label returns the launchd Label based on the plist."""
+
+    def test_returns_official_label(self, tmp_path, monkeypatch):
+        from cli import _detect_nix_daemon_label
+
+        daemon_dir = tmp_path / "LaunchDaemons"
+        daemon_dir.mkdir()
+        (daemon_dir / "org.nixos.nix-daemon.plist").write_text("<plist/>")
+
+        import cli
+
+        real_path = cli.Path
+
+        def fake_path(p, *args, **kwargs):
+            if p == "/Library/LaunchDaemons":
+                return daemon_dir
+            return real_path(p, *args, **kwargs)
+
+        monkeypatch.setattr(cli, "Path", fake_path)
+        assert _detect_nix_daemon_label() == "org.nixos.nix-daemon"
+
+    def test_returns_determinate_label(self, tmp_path, monkeypatch):
+        from cli import _detect_nix_daemon_label
+
+        daemon_dir = tmp_path / "LaunchDaemons"
+        daemon_dir.mkdir()
+        (daemon_dir / "systems.determinate.nix-daemon.plist").write_text("<plist/>")
+        # An unrelated daemon shouldn't confuse the scan.
+        (daemon_dir / "com.apple.other.plist").write_text("<plist/>")
+
+        import cli
+
+        real_path = cli.Path
+
+        def fake_path(p, *args, **kwargs):
+            if p == "/Library/LaunchDaemons":
+                return daemon_dir
+            return real_path(p, *args, **kwargs)
+
+        monkeypatch.setattr(cli, "Path", fake_path)
+        assert _detect_nix_daemon_label() == "systems.determinate.nix-daemon"
+
+    def test_returns_none_when_no_plist(self, tmp_path, monkeypatch):
+        from cli import _detect_nix_daemon_label
+
+        daemon_dir = tmp_path / "LaunchDaemons"
+        daemon_dir.mkdir()
+
+        import cli
+
+        real_path = cli.Path
+
+        def fake_path(p, *args, **kwargs):
+            if p == "/Library/LaunchDaemons":
+                return daemon_dir
+            return real_path(p, *args, **kwargs)
+
+        monkeypatch.setattr(cli, "Path", fake_path)
+        assert _detect_nix_daemon_label() is None
+
+    def test_returns_none_on_non_macos(self, monkeypatch):
+        from cli import _detect_nix_daemon_label
+
+        import cli
+
+        real_path = cli.Path
+
+        def fake_path(p, *args, **kwargs):
+            if p == "/Library/LaunchDaemons":
+                return real_path("/does-not-exist-for-tests")
+            return real_path(p, *args, **kwargs)
+
+        monkeypatch.setattr(cli, "Path", fake_path)
+        assert _detect_nix_daemon_label() is None
+
+
 class TestDetectHostTimezone:
     """Cover all three detection paths: $TZ, /etc/timezone, /etc/localtime."""
 
@@ -2950,3 +3083,222 @@ class TestBrokerSingleton:
         assert result.exit_code == 0, result.output
         assert order == ["kill", "spawn"]
         assert "restarted" in result.output.lower()
+
+
+class TestHostServiceLivenessProbe:
+    """``_check_host_service_liveness`` probes per-jail UNIX sockets to
+    confirm the daemons spawned by ``start_loopholes`` are alive.  But
+    the broker is a SINGLETON now (post-e7b7073) — its bind-mount source
+    on the host is a zero-byte placeholder, not a real socket.  Probing
+    that path always fails with ECONNREFUSED, so doctor was reporting
+    the broker as dead while the actual singleton was healthy.
+
+    Lock in the fix: the per-jail probe must skip the broker name and
+    leave broker liveness reporting to ``_check_loopholes``'s singleton
+    probe (which uses ``_broker_status`` against the singleton path)."""
+
+    def _common_setup(self, monkeypatch, tmp_path):
+        from unittest.mock import MagicMock as _MM
+
+        # Pretend we're on the host — the probe early-returns inside a jail.
+        monkeypatch.delenv("YOLO_VERSION", raising=False)
+        # Pretend a runtime is available.
+        monkeypatch.setattr(cli, "_detect_runtime_for_listing", lambda: "podman")
+        # Pretend one jail is running.
+        run_result = _MM(stdout="yolo-test-cname-abc12345\n", returncode=0)
+        monkeypatch.setattr(cli.subprocess, "run", lambda *a, **kw: run_result)
+        # Per-jail sockets dir; we'll touch a placeholder broker socket
+        # in here to mimic the host-side bind-mount source.
+        sockets_dir = tmp_path / "yolo-host-services-test"
+        sockets_dir.mkdir()
+        # Zero-byte regular file — exactly what the broker bind-mount source
+        # looks like on the host.  A connect() against it raises ENOTSOCK.
+        (sockets_dir / f"{cli.BROKER_LOOPHOLE_NAME}.sock").touch()
+        monkeypatch.setattr(
+            cli, "_host_service_sockets_dir", lambda _cname: sockets_dir
+        )
+        return sockets_dir
+
+    def _broker_loophole_entry(self):
+        """Return a (path, loophole, err) entry shaped like
+        ``_loopholes.validate_loopholes`` produces, with a broker
+        loophole that has a ``host_daemon`` field set."""
+        from unittest.mock import MagicMock as _MM
+        from src.loopholes import HostDaemon
+
+        lp = _MM()
+        lp.name = cli.BROKER_LOOPHOLE_NAME
+        lp.enabled = True
+        lp.requirements_met = True
+        lp.host_daemon = HostDaemon(cmd=["yolo-claude-oauth-broker-host"])
+        return (None, lp, None)
+
+    def test_probe_skips_singleton_broker(self, monkeypatch, tmp_path):
+        """The broker is a singleton; its per-jail sockets-dir entry
+        is a bind-mount placeholder, not a real socket.  The per-jail
+        probe must skip this loophole entirely so doctor doesn't
+        report a healthy broker as dead."""
+        self._common_setup(monkeypatch, tmp_path)
+        monkeypatch.setattr(
+            cli._loopholes,
+            "validate_loopholes",
+            lambda: [self._broker_loophole_entry()],
+        )
+
+        events: list = []
+        cli._check_host_service_liveness(
+            lambda m, *a, **kw: events.append(("ok", m)),
+            lambda m, *a, **kw: events.append(("warn", m)),
+            lambda m, *a, **kw: events.append(("fail", m)),
+        )
+        # Critically: NO failure for the broker.  A "skipping broker"
+        # info line is fine; "socket dead" is not.
+        fails = [m for kind, m in events if kind == "fail"]
+        assert all("claude-oauth-broker" not in m for m in fails), (
+            f"per-jail probe must not fail for the singleton broker; got {fails}"
+        )
+
+    def test_probe_still_runs_for_non_broker_loopholes(self, monkeypatch, tmp_path):
+        """Other loopholes (e.g. host-processes) ARE per-jail and DO
+        have real sockets — the skip must be broker-only.  Verify a
+        synthetic non-broker loophole with a missing socket still gets
+        a fail (i.e. the probe's normal logic runs)."""
+        from unittest.mock import MagicMock as _MM
+        from src.loopholes import HostDaemon
+
+        sockets_dir = self._common_setup(monkeypatch, tmp_path)
+        # Don't create a socket for "host-processes" — the probe should
+        # report it missing.
+        other = _MM()
+        other.name = "host-processes"
+        other.enabled = True
+        other.requirements_met = True
+        other.host_daemon = HostDaemon(cmd=["yolo-host-processes"])
+
+        monkeypatch.setattr(
+            cli._loopholes, "validate_loopholes", lambda: [(None, other, None)]
+        )
+
+        events: list = []
+        cli._check_host_service_liveness(
+            lambda m, *a, **kw: events.append(("ok", m)),
+            lambda m, *a, **kw: events.append(("warn", m)),
+            lambda m, *a, **kw: events.append(("fail", m)),
+        )
+        # Probe ran; reported the missing socket as a fail.
+        fails = [m for kind, m in events if kind == "fail"]
+        assert any("host-processes" in m for m in fails)
+        # Sanity: sockets_dir is still the one we set up (no use-after-free).
+        assert sockets_dir.is_dir()
+
+
+class TestBrokerCredsFreshness:
+    """Symptom-level health check: alarm when shared creds are about
+    to expire.  Handoff 2026-04-28 called this out as the actually
+    useful metric — refreshes either land or they don't, and doctor
+    should surface that without us needing to know WHY (Claude not
+    asking, refresher not running, server-side revocation, etc.)."""
+
+    def _write_creds(self, tmp_path, expires_in_seconds):
+        import time as _time
+
+        creds_dir = tmp_path / "home" / ".claude-shared-credentials"
+        creds_dir.mkdir(parents=True)
+        creds_file = creds_dir / ".credentials.json"
+        expires_ms = int((_time.time() + expires_in_seconds) * 1000)
+        creds_file.write_text(
+            json.dumps(
+                {
+                    "claudeAiOauth": {
+                        "accessToken": "sk-ant-xxx",
+                        "refreshToken": "sk-ant-rt-xxx",
+                        "expiresAt": expires_ms,
+                    }
+                }
+            )
+        )
+        return creds_file
+
+    def _run(self, monkeypatch, tmp_path):
+        monkeypatch.setattr("cli.GLOBAL_HOME", tmp_path / "home")
+        events: list = []
+        cli._check_broker_creds_freshness(
+            lambda m, *a, **kw: events.append(("ok", m)),
+            lambda m, *a, **kw: events.append(("warn", m)),
+            lambda m, *a, **kw: events.append(("fail", m)),
+        )
+        return events
+
+    def test_ok_when_fresh(self, monkeypatch, tmp_path):
+        self._write_creds(tmp_path, 6 * 3600)  # 6h remaining
+        events = self._run(monkeypatch, tmp_path)
+        kinds = {kind for kind, _ in events}
+        assert kinds == {"ok"}, f"expected only ok events, got {events}"
+
+    def test_ok_message_includes_mtime(self, monkeypatch, tmp_path):
+        """File mtime is a stand-in for "time since last refresh" — every
+        successful refresh-grant rewrites the shared file.  Surfacing it
+        next to the expiry distinguishes "fresh token" from "ancient
+        token, just hasn't aged out yet"."""
+        creds_file = self._write_creds(tmp_path, 6 * 3600)
+        # Backdate so the test isn't sensitive to write latency.
+        import os as _os
+
+        old = creds_file.stat().st_mtime - 7200  # 2h old
+        _os.utime(creds_file, (old, old))
+        events = self._run(monkeypatch, tmp_path)
+        ok_msgs = [m for kind, m in events if kind == "ok"]
+        assert ok_msgs, f"expected ok event, got {events}"
+        assert "last write" in ok_msgs[0], (
+            f"expected mtime info in ok message, got {ok_msgs[0]!r}"
+        )
+
+    def test_warn_when_expiring_soon(self, monkeypatch, tmp_path):
+        self._write_creds(tmp_path, 30 * 60)  # 30min remaining
+        events = self._run(monkeypatch, tmp_path)
+        warns = [m for kind, m in events if kind == "warn"]
+        assert warns, f"expected warn for near-expiry creds, got {events}"
+
+    def test_fail_when_expired(self, monkeypatch, tmp_path):
+        self._write_creds(tmp_path, -300)  # expired 5min ago
+        events = self._run(monkeypatch, tmp_path)
+        fails = [m for kind, m in events if kind == "fail"]
+        assert fails, f"expected fail for expired creds, got {events}"
+
+    def test_silent_when_creds_missing(self, monkeypatch, tmp_path):
+        # First /login hasn't happened yet — nothing to check.
+        events = self._run(monkeypatch, tmp_path)
+        assert events == [], f"expected silent skip when creds absent, got {events}"
+
+    def test_warn_when_creds_unreadable(self, monkeypatch, tmp_path):
+        monkeypatch.setattr("cli.GLOBAL_HOME", tmp_path / "home")
+        creds_dir = tmp_path / "home" / ".claude-shared-credentials"
+        creds_dir.mkdir(parents=True)
+        (creds_dir / ".credentials.json").write_text("not json {{{")
+        events: list = []
+        cli._check_broker_creds_freshness(
+            lambda m, *a, **kw: events.append(("ok", m)),
+            lambda m, *a, **kw: events.append(("warn", m)),
+            lambda m, *a, **kw: events.append(("fail", m)),
+        )
+        assert any(kind == "warn" for kind, _ in events), (
+            f"expected warn for unreadable creds, got {events}"
+        )
+
+    def test_silent_when_creds_empty(self, monkeypatch, tmp_path):
+        # ``ensure_global_storage`` touches the credentials file as a
+        # zero-byte mount-point placeholder before the first /login.
+        # Treat that as "pre-login" (silent), not "unreadable" (warn).
+        monkeypatch.setattr("cli.GLOBAL_HOME", tmp_path / "home")
+        creds_dir = tmp_path / "home" / ".claude-shared-credentials"
+        creds_dir.mkdir(parents=True)
+        (creds_dir / ".credentials.json").touch()
+        events: list = []
+        cli._check_broker_creds_freshness(
+            lambda m, *a, **kw: events.append(("ok", m)),
+            lambda m, *a, **kw: events.append(("warn", m)),
+            lambda m, *a, **kw: events.append(("fail", m)),
+        )
+        assert events == [], (
+            f"expected silent skip when creds file is empty, got {events}"
+        )

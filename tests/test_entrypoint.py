@@ -496,6 +496,88 @@ class TestCaBundleGeneration:
         assert b"EXTRA" in body
 
 
+# -- Timezone setup --
+
+
+class TestConfigureTimezone:
+    """configure_timezone() populates /run/localtime + /run/timezone
+    (targets of the baked /etc symlinks) from ``$TZ`` so clients that
+    bypass ``$TZ`` and read /etc/localtime directly stop falling back
+    to UTC."""
+
+    def test_writes_localtime_and_timezone(self, tmp_path, monkeypatch):
+        tzdir = tmp_path / "zoneinfo"
+        (tzdir / "America").mkdir(parents=True)
+        zone_file = tzdir / "America" / "New_York"
+        zone_file.write_bytes(b"TZif\x00")  # magic header is enough
+
+        run = tmp_path / "run"
+        run.mkdir()
+        monkeypatch.setattr(entrypoint, "TZ_RUN_DIR", run)
+        monkeypatch.setenv("TZ", "America/New_York")
+        monkeypatch.setenv("TZDIR", str(tzdir))
+
+        entrypoint.configure_timezone()
+
+        assert (run / "localtime").is_symlink()
+        assert os.readlink(run / "localtime") == str(zone_file)
+        assert (run / "timezone").read_text() == "America/New_York\n"
+
+    def test_noop_when_tz_unset(self, tmp_path, monkeypatch):
+        """No $TZ → leave the baked dangling symlinks alone.  Clients
+        fall back to UTC, which matches pre-fix behavior (not a
+        regression)."""
+        run = tmp_path / "run"
+        run.mkdir()
+        monkeypatch.setattr(entrypoint, "TZ_RUN_DIR", run)
+        monkeypatch.delenv("TZ", raising=False)
+
+        entrypoint.configure_timezone()
+
+        assert not (run / "localtime").exists()
+        assert not (run / "timezone").exists()
+
+    def test_noop_when_zone_file_missing(self, tmp_path, monkeypatch):
+        """$TZ set to a zone the tzdata package doesn't ship — don't
+        create a broken symlink; leave the dangling baked ones so the
+        failure mode is ENOENT, not a symlink loop."""
+        tzdir = tmp_path / "zoneinfo"
+        tzdir.mkdir()
+        run = tmp_path / "run"
+        run.mkdir()
+        monkeypatch.setattr(entrypoint, "TZ_RUN_DIR", run)
+        monkeypatch.setenv("TZ", "Mars/Olympus_Mons")
+        monkeypatch.setenv("TZDIR", str(tzdir))
+
+        entrypoint.configure_timezone()
+
+        assert not (run / "localtime").exists()
+        assert not (run / "timezone").exists()
+
+    def test_overwrites_existing_localtime(self, tmp_path, monkeypatch):
+        """Re-boot of a container image (podman/docker exec into an
+        existing container) may find /run/localtime already pointing
+        at a stale zone.  The new boot must replace it, not fail with
+        EEXIST."""
+        tzdir = tmp_path / "zoneinfo"
+        (tzdir / "Europe").mkdir(parents=True)
+        old_zone = tzdir / "Europe" / "Berlin"
+        old_zone.write_bytes(b"TZif\x00")
+        new_zone = tzdir / "Europe" / "Paris"
+        new_zone.write_bytes(b"TZif\x00")
+
+        run = tmp_path / "run"
+        run.mkdir()
+        (run / "localtime").symlink_to(old_zone)
+        monkeypatch.setattr(entrypoint, "TZ_RUN_DIR", run)
+        monkeypatch.setenv("TZ", "Europe/Paris")
+        monkeypatch.setenv("TZDIR", str(tzdir))
+
+        entrypoint.configure_timezone()
+
+        assert os.readlink(run / "localtime") == str(new_zone)
+
+
 # -- Copilot config --
 
 
