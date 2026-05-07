@@ -1697,6 +1697,14 @@ def _start_broker_relay(relay_path: Path, broker_path: Path) -> None:
                     s.shutdown(how)
                 except OSError:
                     pass
+            # Always close so file descriptors don't accumulate over the
+            # lifetime of the host yolo process across many container
+            # connections.  shutdown() alone doesn't release the fd.
+            for s in (src, dst):
+                try:
+                    s.close()
+                except OSError:
+                    pass
 
     def _handle(client: socket.socket) -> None:
         try:
@@ -7362,15 +7370,23 @@ def run(
     # Mount host nix daemon socket + store so nix builds work inside the jail.
     # NIX_REMOTE=daemon forces nix to use the host daemon (which has nixbld users)
     # instead of trying local store access (which fails on UID mapping/permissions).
-    # On macOS, /nix exists on the host but the container runtime's Linux VM does
-    # not have it mounted — skip the bind mount to avoid a statfs error at startup.
+    # On macOS, /nix exists on the host but the typical container runtime VM
+    # (Podman Machine, Apple container) does not have it shared in — bind-mounting
+    # would statfs-error at startup.  Setups that *do* share /nix into the runtime
+    # VM (e.g. Docker Desktop or Colima with a custom mount) can opt in via
+    # YOLO_NIX_HOST_DAEMON=1.
     nix_socket = Path("/nix/var/nix/daemon-socket")
     nix_store = Path("/nix/store")
+    nix_host_daemon_optin = os.environ.get("YOLO_NIX_HOST_DAEMON", "").lower() in (
+        "1",
+        "true",
+        "yes",
+    )
     if (
         nix_socket.exists()
         and nix_store.exists()
         and runtime != "container"
-        and not IS_MACOS
+        and (not IS_MACOS or nix_host_daemon_optin)
     ):
         # Apple Container VMs can't share Unix sockets via -v bind mounts
         docker_cmd.extend(

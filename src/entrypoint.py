@@ -353,13 +353,25 @@ STAMP_DIR="{stamp_dir}"
 STAMP="$STAMP_DIR/{bin_name}.stamp"
 REAL_BIN="$NPM_CONFIG_PREFIX/bin/{bin_name}"
 PKG="{pkg_name}"
+RETRY_INTERVAL=3600  # seconds before retrying a failed install
 
 mkdir -p "$STAMP_DIR"
 
 if [ ! -x "$REAL_BIN" ]; then
-    echo "  Installing $PKG..." >&2
-    YOLO_BYPASS_SHIMS=1 npm install -g --prefer-online "$PKG@latest" 2>&1 || true
-    touch "$STAMP"
+    # Throttle repeated install attempts after a failure — without this, every
+    # invocation would re-hit npm registry when offline / install is broken.
+    SHOULD_INSTALL=1
+    if [ -f "$STAMP" ]; then
+        STAMP_AGE=$(( $(date +%s) - $(stat -c %Y "$STAMP" 2>/dev/null || echo 0) ))
+        if [ "$STAMP_AGE" -lt "$RETRY_INTERVAL" ]; then
+            SHOULD_INSTALL=0
+        fi
+    fi
+    if [ "$SHOULD_INSTALL" = "1" ]; then
+        echo "  Installing $PKG..." >&2
+        YOLO_BYPASS_SHIMS=1 npm install -g --prefer-online "$PKG@latest" 2>&1 || true
+        touch "$STAMP"
+    fi
 fi
 
 if [ -x "$REAL_BIN" ]; then

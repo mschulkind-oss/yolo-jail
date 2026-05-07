@@ -234,25 +234,43 @@
           text = builtins.readFile ./src/entrypoint.py;
           destination = "/lib/yolo-entrypoint.py";
         };
-        entrypoint = pkgs.writeShellScriptBin "yolo-entrypoint" ''
-          exec ${imagePkgs.python313}/bin/python3 ${entrypointScript}/lib/yolo-entrypoint.py "$@"
-        '';
+        # Use pkgs.writeTextFile (host) instead of imagePkgs.writeShellScriptBin
+        # so building these wrappers does not require a Linux builder on macOS.
+        # Shebang is intentionally `/usr/bin/env bash` so the script picks up
+        # the container's Linux bash (imagePkgs.bashInteractive is in
+        # corePackages and on PATH inside the image) rather than a Darwin-bash
+        # store path that would be unrunnable in a Linux container.
+        entrypoint = pkgs.writeTextFile {
+          name = "yolo-entrypoint";
+          executable = true;
+          destination = "/bin/yolo-entrypoint";
+          text = ''
+            #!/usr/bin/env bash
+            exec ${imagePkgs.python313}/bin/python3 ${entrypointScript}/lib/yolo-entrypoint.py "$@"
+          '';
+        };
 
         # In-jail yolo CLI wrapper — delegates to the mounted repo via uv
-        yoloCli = pkgs.writeShellScriptBin "yolo" ''
-          # Use the mounted repo with uv (deps are cached in persistent ~/.cache/uv)
-          if [ -d /opt/yolo-jail/src ]; then
-            export PYTHONPATH="/opt/yolo-jail''${PYTHONPATH:+:$PYTHONPATH}"
-            exec ${imagePkgs.uv}/bin/uv run \
-              --no-project \
-              --python ${imagePkgs.python313}/bin/python3 \
-              --with typer --with rich --with "pyjson5>=2.0.0" \
-              -- python3 -c "from src.cli import main; main()" "$@"
-          fi
-          echo "YOLO Jail CLI: source not mounted at /opt/yolo-jail"
-          echo "The yolo-jail repo is normally mounted automatically."
-          exit 1
-        '';
+        yoloCli = pkgs.writeTextFile {
+          name = "yolo";
+          executable = true;
+          destination = "/bin/yolo";
+          text = ''
+            #!/usr/bin/env bash
+            # Use the mounted repo with uv (deps are cached in persistent ~/.cache/uv)
+            if [ -d /opt/yolo-jail/src ]; then
+              export PYTHONPATH="/opt/yolo-jail''${PYTHONPATH:+:$PYTHONPATH}"
+              exec ${imagePkgs.uv}/bin/uv run \
+                --no-project \
+                --python ${imagePkgs.python313}/bin/python3 \
+                --with typer --with rich --with "pyjson5>=2.0.0" \
+                -- python3 -c "from src.cli import main; main()" "$@"
+            fi
+            echo "YOLO Jail CLI: source not mounted at /opt/yolo-jail"
+            echo "The yolo-jail repo is normally mounted automatically."
+            exit 1
+          '';
+        };
 
         # Core packages: everything the integration test suite in
         # tests/test_jail.py actually touches, plus POSIX essentials that
