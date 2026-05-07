@@ -236,16 +236,17 @@
         };
         # Use pkgs.writeTextFile (host) instead of imagePkgs.writeShellScriptBin
         # so building these wrappers does not require a Linux builder on macOS.
-        # Shebang is intentionally `/usr/bin/env bash` so the script picks up
-        # the container's Linux bash (imagePkgs.bashInteractive is in
-        # corePackages and on PATH inside the image) rather than a Darwin-bash
-        # store path that would be unrunnable in a Linux container.
+        # The shebang is hardcoded to imagePkgs.bashInteractive's Linux store
+        # path: writeTextFile only emits text on the host, but the shebang
+        # string transitively pulls Linux bash into the wrapper's closure
+        # (fetched from the binary cache) so the wrapper is self-contained
+        # and doesn't rely on PATH or /usr/bin/env existing in the image.
         entrypoint = pkgs.writeTextFile {
           name = "yolo-entrypoint";
           executable = true;
           destination = "/bin/yolo-entrypoint";
           text = ''
-            #!/usr/bin/env bash
+            #!${imagePkgs.bashInteractive}/bin/bash
             exec ${imagePkgs.python313}/bin/python3 ${entrypointScript}/lib/yolo-entrypoint.py "$@"
           '';
         };
@@ -256,7 +257,7 @@
           executable = true;
           destination = "/bin/yolo";
           text = ''
-            #!/usr/bin/env bash
+            #!${imagePkgs.bashInteractive}/bin/bash
             # Use the mounted repo with uv (deps are cached in persistent ~/.cache/uv)
             if [ -d /opt/yolo-jail/src ]; then
               export PYTHONPATH="/opt/yolo-jail''${PYTHONPATH:+:$PYTHONPATH}"
