@@ -300,6 +300,27 @@ sudo /nix/var/nix/profiles/default/bin/nix-daemon &
 
 This starts the standard Nix daemon which does not have the hang bug.
 
+### Nested Nix builds inside the jail (advanced)
+
+By default, YOLO Jail mounts the host's `/nix/store` and Nix daemon socket
+into the container so `NIX_REMOTE=daemon` "just works" for nested Nix builds
+inside the jail. On macOS, the runtime VM (Podman Machine, Apple container)
+typically does **not** share `/nix` from the host, so the bind mount would
+fail with a `statfs` error at startup. YOLO Jail therefore skips this mount
+on macOS by default.
+
+If your runtime VM *does* share `/nix` into the container (e.g. a Colima or
+Docker Desktop setup with a custom virtiofs mount of `/nix`), opt back in:
+
+```bash
+export YOLO_NIX_HOST_DAEMON=1
+yolo
+```
+
+With the variable set, YOLO Jail will bind-mount `/nix/var/nix/daemon-socket`
+and `/nix/store:ro` into the jail and export `NIX_REMOTE=daemon`, exactly as
+on Linux.
+
 ## Installation
 
 Two options. Homebrew is easiest; source install is required if you want the
@@ -325,8 +346,8 @@ git clone https://github.com/mschulkind-oss/yolo-jail.git
 cd yolo-jail
 just deploy          # builds, installs the yolo CLI, sets up refresher if applicable
 
-# Build the Docker image (downloads Linux packages from cache via the
-# remote Linux builder you configured above)
+# Build the Docker image (downloads Linux packages directly from the
+# NixOS binary cache; no remote builder needed for the default install)
 yolo build
 
 # (Optional) Set user-level defaults
@@ -519,7 +540,7 @@ podman machine start
 
 1. Check the daemon is responsive: `nix store info` (should return within 2s)
 2. If it hangs, see [Known Issue: Determinate Nix Daemon Hang](#known-issue-determinate-nix-daemon-hang)
-3. Check the remote builder: `nix store info --store ssh-ng://nix-builder`
+3. If you configured a remote Linux builder, check it: `nix store info --store ssh-ng://nix-builder`
 4. Verify SSH works: `ssh nix-builder echo ok`
 
 ### Container image not loading

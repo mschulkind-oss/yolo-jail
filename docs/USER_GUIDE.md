@@ -100,9 +100,9 @@ Good if you already use Podman on Linux and want the same CLI on macOS. Requires
 
 Auto-detect priority on macOS: **container → podman → docker**.
 
-#### Nix remote Linux builder (macOS only)
+#### Nix remote Linux builder (macOS, optional)
 
-The container image is a Linux image. Nix needs a remote Linux builder to compile or fetch `aarch64-linux`/`x86_64-linux` packages. See [docs/macos.md § Nix Linux Builder](macos.md#nix-linux-builder-for-building-the-image-from-source) for the full setup — in short, install Nix inside Colima or Podman Machine and register it as a builder in `/etc/nix/machines`.
+The container image is a Linux image, but the standard build downloads all `aarch64-linux`/`x86_64-linux` packages directly from the NixOS binary cache — **no remote Linux builder is required for a normal install.** A remote builder is only needed if you add packages not in the binary cache, or build with `--no-substitute`. See [docs/macos.md § Nix Linux Builder](macos.md#nix-linux-builder-optional--binary-cache-substitution-used-by-default) for setup if you need one.
 
 ### Install YOLO Jail
 
@@ -168,7 +168,7 @@ On first run, YOLO Jail will:
 
 1. **Build the Linux container image** via `nix build`:
    - **Linux:** Nix downloads prebuilt packages from the binary cache (~2–5 minutes).
-   - **macOS:** Nix dispatches the image build to the remote Linux builder you configured (~5–10 minutes the first time, instant on subsequent runs thanks to caching).
+   - **macOS:** Nix downloads the same Linux packages from the binary cache (~2–5 minutes the first time, instant on subsequent runs thanks to caching). A remote Linux builder is only needed if you've added non-cached packages.
 2. **Load the image** into your container runtime:
    - Docker / Podman: `docker load` / `podman load` from the cached tarball
    - Apple Container: the tarball is converted from Docker V2 to OCI via `skopeo` (or `podman`/`docker` as fallback) and then `container image load`ed
@@ -972,7 +972,7 @@ yolo check --no-build         # fast — skip nix build
   ```
   experimental-features = nix-command flakes
   ```
-- On macOS: also verify the remote Linux builder — `nix store info --store ssh-ng://nix-builder` should respond within a few seconds
+- On macOS: if you configured a remote Linux builder, verify it — `nix store info --store ssh-ng://nix-builder` should respond within a few seconds. (No builder is required for the default binary-cache build path.)
 - Run `yolo check` for detailed diagnostics
 
 **Container won't start**
@@ -1045,7 +1045,7 @@ yolo check --no-build         # fast — skip nix build
   sudo pkill determinate-nixd
   sudo /nix/var/nix/profiles/default/bin/nix-daemon &
   ```
-- Verify the remote builder: `nix store info --store ssh-ng://nix-builder`
+- If you configured a remote Linux builder, verify it: `nix store info --store ssh-ng://nix-builder`
 - After `colima start` restarts the VM, the SSH port for `nix-builder` may change — update `~/.ssh/config` accordingly
 
 **Port forwarding not working**
