@@ -3594,6 +3594,7 @@ KNOWN_TOP_LEVEL_CONFIG_KEYS = {
     "repo_path",
     "packages",
     "mounts",
+    "workspace_readonly",
     "network",
     "security",
     "mise_tools",
@@ -3791,6 +3792,20 @@ def _validate_config(
                     warnings.append(
                         f"{path}: host path does not exist and will be skipped: {resolved_host}"
                     )
+
+    workspace_readonly = config.get("workspace_readonly")
+    if workspace_readonly is not None:
+        if not isinstance(workspace_readonly, list):
+            errors.append("config.workspace_readonly: expected a list of strings")
+        else:
+            for idx, entry in enumerate(workspace_readonly):
+                path = f"config.workspace_readonly[{idx}]"
+                if not isinstance(entry, str):
+                    errors.append(f"{path}: expected a string")
+                elif entry.startswith("/"):
+                    errors.append(f"{path}: must be a relative path, not absolute")
+                elif ".." in entry.split("/"):
+                    errors.append(f"{path}: must not contain '..' components")
 
     host_claude_files = config.get("host_claude_files")
     if host_claude_files is not None:
@@ -4735,6 +4750,13 @@ def config_ref():
     Simple path → mounted at /ctx/<basename>
     "host:container" → custom container path
     Example: ["/path/to/repo", "~/lib:/ctx/lib"]
+
+  [bold]workspace_readonly[/bold] (array of strings): Workspace sub-paths to overlay as read-only.
+    Each entry is a relative path inside the workspace (no leading /, no ..).
+    Mounted on top of the writable /workspace volume so agents cannot modify
+    those paths. Use this to protect host-executed code that lives in the
+    workspace repo (e.g. the yolo-jail src/ directory itself).
+    Example: ["src", "flake.nix", "Justfile"]
 
   [bold]network.mode[/bold] (string): Network isolation mode.
     "bridge" (default): Isolated. Use network.ports for access.
@@ -7391,6 +7413,26 @@ def run(
     overmind_sock = workspace / ".overmind.sock"
     if overmind_sock.exists():
         docker_cmd.extend(["-v", "/dev/null:/workspace/.overmind.sock:ro"])
+
+    # Overlay workspace sub-paths as read-only to protect host-executed code.
+    # Mounted after the rw workspace volume so they shadow it for those paths.
+    for rel in config.get("workspace_readonly", []):
+        host_subpath = (workspace / rel).resolve()
+        # Reject traversal outside the workspace root
+        try:
+            host_subpath.relative_to(workspace.resolve())
+        except ValueError:
+            console.print(
+                f"[yellow]Warning: workspace_readonly path escapes workspace, skipping: {rel}[/yellow]"
+            )
+            continue
+        if not host_subpath.exists():
+            console.print(
+                f"[yellow]Warning: workspace_readonly path does not exist, skipping: {rel}[/yellow]"
+            )
+            continue
+        container_subpath = f"/workspace/{rel}"
+        docker_cmd.extend(["-v", f"{host_subpath}:{container_subpath}:ro"])
 
     # Mount user-level yolo config so nested jails see the same merged config.
     # Without this, ~/.config/ is an empty per-workspace overlay and the nested

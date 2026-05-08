@@ -1,0 +1,12 @@
+{
+  // yolo-jail workspace config for the yolo-jail repo itself.
+  // Protects host-executed source code from modification by agents inside the jail.
+  "workspace_readonly": [
+    "src",
+    "flake.nix",
+    "flake.lock",
+    "Justfile",
+    "pyproject.toml",
+    "uv.lock"
+  ]
+}
