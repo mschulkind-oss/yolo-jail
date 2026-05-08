@@ -8,6 +8,7 @@ Uses only stdlib — runs before any pip packages are installed.
 import hashlib
 import json
 import os
+import shlex
 import shutil
 import stat
 import subprocess
@@ -338,6 +339,9 @@ def generate_package_manager_launchers():
     """Create lazy npm-backed launchers for package managers disabled in mise."""
     SHIM_DIR.mkdir(parents=True, exist_ok=True)
     stamp_dir = HOME / ".cache" / "yolo-package-manager-stamps"
+    # shlex.quote so a $HOME containing shell metacharacters (spaces, quotes,
+    # backslashes) doesn't break the generated launcher.
+    stamp_dir_literal = shlex.quote(str(stamp_dir))
     npm_package_managers = {"pnpm": "pnpm"}
 
     for bin_name, pkg_name in npm_package_managers.items():
@@ -349,7 +353,7 @@ def generate_package_manager_launchers():
 set -euo pipefail
 export NPM_CONFIG_PREFIX="${{NPM_CONFIG_PREFIX:-$HOME/.npm-global}}"
 export NPM_CONFIG_CACHE="${{NPM_CONFIG_CACHE:-$HOME/.cache/npm}}"
-STAMP_DIR="{stamp_dir}"
+STAMP_DIR={stamp_dir_literal}
 STAMP="$STAMP_DIR/{bin_name}.stamp"
 REAL_BIN="$NPM_CONFIG_PREFIX/bin/{bin_name}"
 PKG="{pkg_name}"

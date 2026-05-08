@@ -100,7 +100,7 @@ auto-converts from Nix's Docker V2 format using (in priority order):
 1. **skopeo** (recommended — no daemon needed): `brew install skopeo`
 2. **podman** or **docker** (needs running daemon as fallback)
 
-### Nix Linux Builder (optional — binary cache substitution used by default)
+### Nix Linux Builder (optional, binary cache substitution used by default)
 
 The Docker image contains Linux binaries (`aarch64-linux` or `x86_64-linux`).
 YOLO Jail's flake is structured so that all build-time Nix machinery

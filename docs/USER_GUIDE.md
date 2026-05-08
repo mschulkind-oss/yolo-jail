@@ -102,7 +102,7 @@ Auto-detect priority on macOS: **container → podman → docker**.
 
 #### Nix remote Linux builder (macOS, optional)
 
-The container image is a Linux image, but the standard build downloads all `aarch64-linux`/`x86_64-linux` packages directly from the NixOS binary cache — **no remote Linux builder is required for a normal install.** A remote builder is only needed if you add packages not in the binary cache, or build with `--no-substitute`. See [docs/macos.md § Nix Linux Builder](macos.md#nix-linux-builder-optional--binary-cache-substitution-used-by-default) for setup if you need one.
+The container image is a Linux image, but the standard build downloads all `aarch64-linux`/`x86_64-linux` packages directly from the NixOS binary cache — **no remote Linux builder is required for a normal install.** A remote builder is only needed if you add packages not in the binary cache, or build with `--no-substitute`. See [docs/macos.md § Nix Linux Builder](macos.md#nix-linux-builder-optional-binary-cache-substitution-used-by-default) for setup if you need one.
 
 ### Install YOLO Jail
 

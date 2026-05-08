@@ -1670,6 +1670,35 @@ def _broker_ensure() -> Path:
     return _broker_spawn()
 
 
+def _should_mount_host_nix(
+    runtime: str,
+    *,
+    nix_socket_exists: bool,
+    nix_store_exists: bool,
+    is_macos: bool,
+    opt_in_env: Optional[str],
+) -> bool:
+    """Decide whether ``run()`` should bind-mount the host's Nix daemon + store.
+
+    Linux: mount whenever both paths exist and runtime supports it.
+    macOS: skip by default — the typical container runtime VM (Podman
+    Machine, Apple container) does not share /nix, and bind-mounting
+    statfs-errors at startup.  Setups that *do* share /nix (e.g. Docker
+    Desktop or Colima with a custom mount) can opt back in by setting
+    ``YOLO_NIX_HOST_DAEMON`` to a truthy value (``1``/``true``/``yes``).
+    Apple Container can't share Unix sockets via -v bind mounts regardless,
+    so the runtime gate handles that case.
+    """
+    if not (nix_socket_exists and nix_store_exists):
+        return False
+    if runtime == "container":
+        return False
+    if not is_macos:
+        return True
+    opt_in = (opt_in_env or "").lower() in ("1", "true", "yes")
+    return opt_in
+
+
 def _start_broker_relay(relay_path: Path, broker_path: Path) -> None:
     """Start a background thread relaying relay_path → broker_path.
 
@@ -7377,16 +7406,12 @@ def run(
     # YOLO_NIX_HOST_DAEMON=1.
     nix_socket = Path("/nix/var/nix/daemon-socket")
     nix_store = Path("/nix/store")
-    nix_host_daemon_optin = os.environ.get("YOLO_NIX_HOST_DAEMON", "").lower() in (
-        "1",
-        "true",
-        "yes",
-    )
-    if (
-        nix_socket.exists()
-        and nix_store.exists()
-        and runtime != "container"
-        and (not IS_MACOS or nix_host_daemon_optin)
+    if _should_mount_host_nix(
+        runtime,
+        nix_socket_exists=nix_socket.exists(),
+        nix_store_exists=nix_store.exists(),
+        is_macos=IS_MACOS,
+        opt_in_env=os.environ.get("YOLO_NIX_HOST_DAEMON"),
     ):
         # Apple Container VMs can't share Unix sockets via -v bind mounts
         docker_cmd.extend(
@@ -7524,12 +7549,11 @@ def run(
     host_services_sockets_dir = _host_service_sockets_dir(cname)
     if runtime != "container":
         host_services_sockets_dir.mkdir(parents=True, exist_ok=True)
-        # On macOS /tmp is a symlink to /private/tmp. Podman Machine's VM
-        # mounts /private from the host but not the /tmp symlink itself, so
-        # paths passed as /tmp/... are invisible to the VM. Resolve to the
-        # real path (/private/tmp/...) before handing to Podman.
+        # _host_service_sockets_dir already resolves /tmp → /private/tmp on
+        # macOS (Podman Machine's VM mounts /private but not the /tmp symlink,
+        # so unresolved /tmp/... paths are invisible to the VM).
         docker_cmd.extend(
-            ["-v", f"{host_services_sockets_dir.resolve()}:{JAIL_HOST_SERVICES_DIR}:rw"]
+            ["-v", f"{host_services_sockets_dir}:{JAIL_HOST_SERVICES_DIR}:rw"]
         )
         # Claude OAuth broker singleton — eagerly ensure it's alive
         # BEFORE we add the bind-mount flag so the socket source path

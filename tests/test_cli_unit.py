@@ -7,9 +7,11 @@ port forwarding, AGENTS.md generation, check command, and helpers.
 import json
 import os
 import shlex
+import shutil
 import signal
 import subprocess
 import sys
+import time
 from pathlib import Path
 from unittest.mock import MagicMock, patch
 
@@ -74,6 +76,8 @@ from cli import (  # noqa: E402
     _host_service_env_var,
     _host_service_sockets_dir,
     _resolve_journal_mode,
+    _should_mount_host_nix,
+    _start_broker_relay,
     _start_host_service_builtin_cgroup,
     _start_host_service_builtin_journal,
     _start_host_service_external,
@@ -89,6 +93,27 @@ def test_merge_mise_disabled_tools_defaults_to_pnpm():
 
 def test_merge_mise_disabled_tools_preserves_user_tools():
     assert _merge_mise_disabled_tools("ruby, terraform pnpm") == "pnpm,ruby,terraform"
+
+
+def test_merge_mise_disabled_tools_none_falls_back_to_defaults():
+    # env dicts may omit MISE_DISABLE_TOOLS entirely — .get() returns None.
+    assert _merge_mise_disabled_tools(None) == "pnpm"
+
+
+def test_merge_mise_disabled_tools_non_string_is_ignored():
+    # Misconfigured yolo-jail.jsonc may stash a list/int here; we silently
+    # drop it rather than TypeError'ing at jail start.
+    assert _merge_mise_disabled_tools(["ruby"]) == "pnpm"
+    assert _merge_mise_disabled_tools(42) == "pnpm"
+
+
+def test_merge_mise_disabled_tools_deduplicates():
+    # Both the pnpm default and the user listing pnpm → single entry.
+    assert _merge_mise_disabled_tools("pnpm, pnpm, node, node") == "pnpm,node"
+
+
+def test_merge_mise_disabled_tools_handles_empty_commas():
+    assert _merge_mise_disabled_tools(",,, ,") == "pnpm"
 
 
 # ═══════════════════════════════════════════════════════════════════════════════
@@ -3092,6 +3117,249 @@ class TestBrokerSingleton:
         assert result.exit_code == 0, result.output
         assert order == ["kill", "spawn"]
         assert "restarted" in result.output.lower()
+
+
+class TestBrokerRelay:
+    """On macOS, Podman Machine cannot bind-mount a Unix socket *file*
+    (EOPNOTSUPP), but it can see socket files inside a directory that's
+    already bind-mounted via virtiofs.  ``_start_broker_relay`` opens a
+    server socket inside the sockets directory and pipes it bidirectionally
+    to the real broker socket.  These tests exercise the relay end-to-end
+    with a fake upstream."""
+
+    def _short_sockets_dir(self):
+        """Create a per-test sockets dir under /tmp.
+
+        AF_UNIX paths are capped at 108 bytes on Linux / 104 on macOS;
+        pytest's ``tmp_path`` is too long once we append ``.sock`` under
+        a deep workspace.
+        """
+        import tempfile
+
+        base = "/private/tmp" if sys.platform == "darwin" else "/tmp"
+        return Path(tempfile.mkdtemp(dir=base, prefix="yj-relay-"))
+
+    def _drain(self, conn, n, *, timeout=2.0):
+        """Read exactly ``n`` bytes from ``conn`` or raise on timeout/EOF."""
+        import socket as _socket
+
+        conn.settimeout(timeout)
+        buf = b""
+        while len(buf) < n:
+            try:
+                chunk = conn.recv(n - len(buf))
+            except _socket.timeout:
+                raise AssertionError(f"timed out waiting for {n} bytes, got {buf!r}")
+            if not chunk:
+                raise AssertionError(f"unexpected EOF after {buf!r}")
+            buf += chunk
+        return buf
+
+    def test_round_trip_both_directions(self):
+        """A client connecting to the relay socket should see its bytes
+        arrive at the upstream broker, and bytes sent back by the broker
+        should propagate to the client."""
+        import socket as _socket
+        import threading as _threading
+
+        sockets_dir = self._short_sockets_dir()
+        try:
+            upstream_path = sockets_dir / "upstream.sock"
+            relay_path = sockets_dir / "relay.sock"
+
+            # Fake upstream broker: echoes client bytes prefixed with b"U:".
+            upstream = _socket.socket(_socket.AF_UNIX, _socket.SOCK_STREAM)
+            upstream.bind(str(upstream_path))
+            upstream.listen(4)
+            upstream.settimeout(5.0)
+
+            def _serve_upstream():
+                try:
+                    conn, _ = upstream.accept()
+                except OSError:
+                    return
+                try:
+                    conn.settimeout(5.0)
+                    data = conn.recv(1024)
+                    conn.sendall(b"U:" + data)
+                finally:
+                    conn.close()
+
+            server_thread = _threading.Thread(target=_serve_upstream, daemon=True)
+            server_thread.start()
+
+            _start_broker_relay(relay_path, upstream_path)
+
+            # Wait briefly for the relay to bind.
+            deadline = time.monotonic() + 2.0
+            while time.monotonic() < deadline and not relay_path.exists():
+                time.sleep(0.01)
+            assert relay_path.exists(), "relay never bound its socket"
+
+            client = _socket.socket(_socket.AF_UNIX, _socket.SOCK_STREAM)
+            client.settimeout(5.0)
+            client.connect(str(relay_path))
+            client.sendall(b"hello")
+            echoed = self._drain(client, len(b"U:hello"))
+            assert echoed == b"U:hello"
+            client.close()
+            server_thread.join(timeout=5.0)
+            assert not server_thread.is_alive()
+        finally:
+            shutil.rmtree(sockets_dir, ignore_errors=True)
+
+    def test_upstream_unreachable_closes_client(self):
+        """If the broker singleton is down, the relay must not hang its
+        client — it should close the connection and move on."""
+        import socket as _socket
+
+        sockets_dir = self._short_sockets_dir()
+        try:
+            missing_upstream = sockets_dir / "does-not-exist.sock"
+            relay_path = sockets_dir / "relay.sock"
+
+            _start_broker_relay(relay_path, missing_upstream)
+
+            deadline = time.monotonic() + 2.0
+            while time.monotonic() < deadline and not relay_path.exists():
+                time.sleep(0.01)
+            assert relay_path.exists()
+
+            client = _socket.socket(_socket.AF_UNIX, _socket.SOCK_STREAM)
+            client.settimeout(2.0)
+            client.connect(str(relay_path))
+            # Upstream connect() failed — relay closes the client.  recv()
+            # should return b"" (EOF) rather than hang forever.
+            assert client.recv(1) == b""
+            client.close()
+        finally:
+            shutil.rmtree(sockets_dir, ignore_errors=True)
+
+    def test_stale_relay_socket_is_replaced(self):
+        """If a previous run left a file at ``relay_path``, the new relay
+        must unlink it before ``bind()`` (otherwise EADDRINUSE)."""
+        import socket as _socket
+
+        sockets_dir = self._short_sockets_dir()
+        try:
+            upstream_path = sockets_dir / "upstream.sock"
+            relay_path = sockets_dir / "relay.sock"
+            relay_path.write_text("stale placeholder")  # not a real socket
+
+            upstream = _socket.socket(_socket.AF_UNIX, _socket.SOCK_STREAM)
+            upstream.bind(str(upstream_path))
+            upstream.listen(1)
+            try:
+                _start_broker_relay(relay_path, upstream_path)
+                # Connectable after relay rebinds — if unlink() were missing,
+                # bind() would have raised and the relay would be dead.
+                deadline = time.monotonic() + 2.0
+                while time.monotonic() < deadline:
+                    try:
+                        probe = _socket.socket(_socket.AF_UNIX, _socket.SOCK_STREAM)
+                        probe.settimeout(0.5)
+                        probe.connect(str(relay_path))
+                        probe.close()
+                        break
+                    except OSError:
+                        time.sleep(0.05)
+                else:
+                    raise AssertionError("relay never rebound stale socket path")
+            finally:
+                upstream.close()
+        finally:
+            shutil.rmtree(sockets_dir, ignore_errors=True)
+
+
+class TestShouldMountHostNix:
+    """Gate logic that decides whether ``run()`` bind-mounts the host
+    Nix daemon + store into the jail.  On macOS this is off by default
+    because the runtime VM typically doesn't share /nix, and trying to
+    bind-mount statfs-errors at container startup.
+    """
+
+    def test_linux_mounts_when_both_paths_exist(self):
+        assert _should_mount_host_nix(
+            "podman",
+            nix_socket_exists=True,
+            nix_store_exists=True,
+            is_macos=False,
+            opt_in_env=None,
+        )
+
+    def test_linux_skips_when_nix_socket_missing(self):
+        assert not _should_mount_host_nix(
+            "podman",
+            nix_socket_exists=False,
+            nix_store_exists=True,
+            is_macos=False,
+            opt_in_env=None,
+        )
+
+    def test_linux_skips_when_nix_store_missing(self):
+        assert not _should_mount_host_nix(
+            "podman",
+            nix_socket_exists=True,
+            nix_store_exists=False,
+            is_macos=False,
+            opt_in_env=None,
+        )
+
+    def test_apple_container_runtime_always_skipped(self):
+        # AC VMs can't share Unix sockets via -v bind mounts.
+        assert not _should_mount_host_nix(
+            "container",
+            nix_socket_exists=True,
+            nix_store_exists=True,
+            is_macos=True,
+            opt_in_env="1",
+        )
+        # Same on Linux — runtime gate wins regardless of opt-in.
+        assert not _should_mount_host_nix(
+            "container",
+            nix_socket_exists=True,
+            nix_store_exists=True,
+            is_macos=False,
+            opt_in_env=None,
+        )
+
+    def test_macos_skips_by_default(self):
+        # Both paths exist on the host but the runtime VM doesn't share them.
+        assert not _should_mount_host_nix(
+            "podman",
+            nix_socket_exists=True,
+            nix_store_exists=True,
+            is_macos=True,
+            opt_in_env=None,
+        )
+        # Empty string is the env var unset case too.
+        assert not _should_mount_host_nix(
+            "podman",
+            nix_socket_exists=True,
+            nix_store_exists=True,
+            is_macos=True,
+            opt_in_env="",
+        )
+
+    def test_macos_opt_in_values(self):
+        for value in ("1", "true", "True", "TRUE", "yes", "YES"):
+            assert _should_mount_host_nix(
+                "podman",
+                nix_socket_exists=True,
+                nix_store_exists=True,
+                is_macos=True,
+                opt_in_env=value,
+            ), f"expected opt-in for {value!r}"
+
+    def test_macos_opt_in_rejects_nonsense_values(self):
+        for value in ("0", "false", "no", "maybe", "sure"):
+            assert not _should_mount_host_nix(
+                "podman",
+                nix_socket_exists=True,
+                nix_store_exists=True,
+                is_macos=True,
+                opt_in_env=value,
+            ), f"expected opt-out for {value!r}"
 
 
 class TestHostServiceLivenessProbe:
