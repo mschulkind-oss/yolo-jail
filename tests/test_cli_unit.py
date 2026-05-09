@@ -37,6 +37,7 @@ from cli import (  # noqa: E402
     _runtime_for_check,
     _summarize_nix_line,
     _validate_config,
+    _workspace_readonly_mount_args,
     _validate_forward_host_port,
     _validate_port_number,
     _validate_publish_port,
@@ -986,6 +987,35 @@ class TestValidateConfig:
         errors, _ = _validate_config(config, workspace=tmp_path)
         assert any("empty" in e for e in errors)
 
+    def test_workspace_readonly_valid(self, tmp_path):
+        config = {"workspace_readonly": ["src", "flake.nix"]}
+        errors, _ = _validate_config(config, workspace=tmp_path)
+        assert errors == []
+
+    def test_workspace_readonly_not_list(self, tmp_path):
+        config = {"workspace_readonly": "src"}
+        errors, _ = _validate_config(config, workspace=tmp_path)
+        assert any("workspace_readonly" in e and "list" in e for e in errors)
+
+    def test_workspace_readonly_non_string_entry(self, tmp_path):
+        config = {"workspace_readonly": [123]}
+        errors, _ = _validate_config(config, workspace=tmp_path)
+        assert any("workspace_readonly[0]" in e and "string" in e for e in errors)
+
+    def test_workspace_readonly_absolute_path_rejected(self, tmp_path):
+        config = {"workspace_readonly": ["/etc/passwd"]}
+        errors, _ = _validate_config(config, workspace=tmp_path)
+        assert any("relative" in e for e in errors)
+
+    def test_workspace_readonly_traversal_rejected(self, tmp_path):
+        config = {"workspace_readonly": ["../escape"]}
+        errors, _ = _validate_config(config, workspace=tmp_path)
+        assert any(".." in e for e in errors)
+
+        config = {"workspace_readonly": ["src/../../escape"]}
+        errors, _ = _validate_config(config, workspace=tmp_path)
+        assert any(".." in e for e in errors)
+
     def test_publish_port_valid(self, tmp_path):
         config = {"network": {"ports": ["8000:8000"]}}
         errors, _ = _validate_config(config, workspace=tmp_path)
@@ -1132,6 +1162,99 @@ class TestValidateConfig:
     def test_kvm_integer_rejected(self, tmp_path):
         errors, _ = _validate_config({"kvm": 1}, workspace=tmp_path)
         assert any("config.kvm" in e and "boolean" in e for e in errors)
+
+
+class TestWorkspaceReadonlyMountArgs:
+    """Test construction of read-only bind-mount args from workspace_readonly."""
+
+    def _bind_mounts(self, args):
+        """Extract (host, container, opts) triples from a -v args list."""
+        mounts = []
+        it = iter(args)
+        for flag in it:
+            if flag != "-v":
+                continue
+            spec = next(it)
+            parts = spec.split(":")
+            opts = parts[2] if len(parts) > 2 else ""
+            mounts.append((parts[0], parts[1], opts))
+        return mounts
+
+    def test_empty_returns_no_args(self, tmp_path):
+        assert _workspace_readonly_mount_args(tmp_path, {}) == []
+        assert (
+            _workspace_readonly_mount_args(tmp_path, {"workspace_readonly": []}) == []
+        )
+
+    def test_listed_subpath_mounted_readonly(self, tmp_path):
+        (tmp_path / "src").mkdir()
+        (tmp_path / "src" / "cli.py").write_text("# stub")
+        args = _workspace_readonly_mount_args(tmp_path, {"workspace_readonly": ["src"]})
+        mounts = self._bind_mounts(args)
+        src_mount = next(m for m in mounts if m[1] == "/workspace/src")
+        assert src_mount[0] == str((tmp_path / "src").resolve())
+        assert src_mount[2] == "ro"
+
+    def test_multiple_entries_all_mounted(self, tmp_path):
+        (tmp_path / "src").mkdir()
+        (tmp_path / "flake.nix").write_text("{}")
+        args = _workspace_readonly_mount_args(
+            tmp_path, {"workspace_readonly": ["src", "flake.nix"]}
+        )
+        container_paths = [m[1] for m in self._bind_mounts(args)]
+        assert "/workspace/src" in container_paths
+        assert "/workspace/flake.nix" in container_paths
+
+    def test_nonexistent_entry_skipped_with_warning(self, tmp_path, capsys):
+        args = _workspace_readonly_mount_args(
+            tmp_path, {"workspace_readonly": ["does-not-exist"]}
+        )
+        # No mount emitted for the missing path (the config-file auto-mount
+        # may still appear if yolo-jail.jsonc exists in tmp_path, but
+        # does-not-exist must not).
+        container_paths = [m[1] for m in self._bind_mounts(args)]
+        assert "/workspace/does-not-exist" not in container_paths
+        assert "does not exist" in capsys.readouterr().out
+
+    def test_traversal_escape_rejected_at_runtime(self, tmp_path, capsys):
+        # The validator already blocks '..' syntactically, but the runtime
+        # check is a second layer for symlink-based escapes. Simulate by
+        # constructing a symlink that resolves outside the workspace.
+        outside = tmp_path.parent / "outside-target"
+        outside.mkdir(exist_ok=True)
+        workspace = tmp_path / "ws"
+        workspace.mkdir()
+        (workspace / "escape").symlink_to(outside)
+        args = _workspace_readonly_mount_args(
+            workspace, {"workspace_readonly": ["escape"]}
+        )
+        container_paths = [m[1] for m in self._bind_mounts(args)]
+        assert "/workspace/escape" not in container_paths
+        assert "escapes workspace" in capsys.readouterr().out
+
+    def test_config_file_auto_mounted_when_active(self, tmp_path):
+        (tmp_path / "src").mkdir()
+        (tmp_path / "yolo-jail.jsonc").write_text('{"workspace_readonly": ["src"]}')
+        args = _workspace_readonly_mount_args(tmp_path, {"workspace_readonly": ["src"]})
+        mounts = self._bind_mounts(args)
+        cfg = next((m for m in mounts if m[1] == "/workspace/yolo-jail.jsonc"), None)
+        assert cfg is not None, (
+            "yolo-jail.jsonc must be auto-locked when workspace_readonly is active"
+        )
+        assert cfg[2] == "ro"
+
+    def test_config_file_not_mounted_when_inactive(self, tmp_path):
+        (tmp_path / "yolo-jail.jsonc").write_text("{}")
+        args = _workspace_readonly_mount_args(tmp_path, {})
+        container_paths = [m[1] for m in self._bind_mounts(args)]
+        assert "/workspace/yolo-jail.jsonc" not in container_paths
+
+    def test_config_file_auto_mount_skipped_when_file_absent(self, tmp_path):
+        (tmp_path / "src").mkdir()
+        # No yolo-jail.jsonc on disk — helper shouldn't fabricate a mount.
+        args = _workspace_readonly_mount_args(tmp_path, {"workspace_readonly": ["src"]})
+        container_paths = [m[1] for m in self._bind_mounts(args)]
+        assert "/workspace/yolo-jail.jsonc" not in container_paths
 
 
 class TestPresetNullConflicts:

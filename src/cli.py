@@ -4202,6 +4202,47 @@ def _validate_config(
     return errors, warnings
 
 
+def _workspace_readonly_mount_args(
+    workspace: Path, config: Dict[str, Any]
+) -> List[str]:
+    """Build the ``-v …:ro`` arguments for ``config.workspace_readonly``.
+
+    Each configured sub-path is overlaid onto the writable ``/workspace``
+    mount so agents can't modify host-executed source.  When any entry is
+    active we also lock ``yolo-jail.jsonc`` itself — otherwise an agent
+    could rewrite the config and escape on the next run.
+
+    Entries that escape the workspace or don't exist are skipped with a
+    warning rather than failing the run.
+    """
+    readonly_entries = config.get("workspace_readonly", []) or []
+    if not readonly_entries:
+        return []
+
+    args: List[str] = []
+    ws_config_file = workspace / "yolo-jail.jsonc"
+    if ws_config_file.exists():
+        args.extend(["-v", f"{ws_config_file}:/workspace/yolo-jail.jsonc:ro"])
+
+    workspace_root = workspace.resolve()
+    for rel in readonly_entries:
+        host_subpath = (workspace / rel).resolve()
+        try:
+            host_subpath.relative_to(workspace_root)
+        except ValueError:
+            console.print(
+                f"[yellow]Warning: workspace_readonly path escapes workspace, skipping: {rel}[/yellow]"
+            )
+            continue
+        if not host_subpath.exists():
+            console.print(
+                f"[yellow]Warning: workspace_readonly path does not exist, skipping: {rel}[/yellow]"
+            )
+            continue
+        args.extend(["-v", f"{host_subpath}:/workspace/{rel}:ro"])
+    return args
+
+
 def _runtime_for_check(config: Dict[str, Any]) -> tuple[Optional[str], Optional[str]]:
     """Resolve the effective runtime without exiting.
 
@@ -7416,23 +7457,7 @@ def run(
 
     # Overlay workspace sub-paths as read-only to protect host-executed code.
     # Mounted after the rw workspace volume so they shadow it for those paths.
-    for rel in config.get("workspace_readonly", []):
-        host_subpath = (workspace / rel).resolve()
-        # Reject traversal outside the workspace root
-        try:
-            host_subpath.relative_to(workspace.resolve())
-        except ValueError:
-            console.print(
-                f"[yellow]Warning: workspace_readonly path escapes workspace, skipping: {rel}[/yellow]"
-            )
-            continue
-        if not host_subpath.exists():
-            console.print(
-                f"[yellow]Warning: workspace_readonly path does not exist, skipping: {rel}[/yellow]"
-            )
-            continue
-        container_subpath = f"/workspace/{rel}"
-        docker_cmd.extend(["-v", f"{host_subpath}:{container_subpath}:ro"])
+    docker_cmd.extend(_workspace_readonly_mount_args(workspace, config))
 
     # Mount user-level yolo config so nested jails see the same merged config.
     # Without this, ~/.config/ is an empty per-workspace overlay and the nested
