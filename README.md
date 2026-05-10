@@ -42,7 +42,7 @@ Core requirements (both platforms):
 Platform specifics:
 
 - **Linux** — any modern distribution with Docker or Podman. No extra setup.
-- **macOS** — Apple Silicon or Intel. You'll need a container runtime + a Nix remote Linux builder. See [docs/macos.md](docs/macos.md).
+- **macOS** — Apple Silicon or Intel. You need a container runtime (Apple Container, Podman Machine, Docker Desktop, or Colima). A remote Nix Linux builder is **optional** — the standard image builds entirely from the NixOS binary cache. See [docs/macos.md](docs/macos.md).
 
 ## Installation
 
@@ -101,7 +101,7 @@ podman machine init --cpus 4 --memory 8192 --disk-size 50
 podman machine start
 ```
 
-On macOS you'll also need a Nix remote Linux builder for image builds — see [docs/macos.md](docs/macos.md) for step-by-step setup.
+On macOS, image builds use the NixOS binary cache by default — no remote Linux builder required. See [docs/macos.md](docs/macos.md) if you need to add packages that aren't in the cache (or want to build offline).
 
 For development, see [CONTRIBUTING.md](CONTRIBUTING.md).
 
@@ -137,12 +137,12 @@ yolo ps
 yolo config-ref
 ```
 
-On macOS, `yolo doctor` additionally checks the VM backend (Podman Machine, Colima, or Apple Container `system status`) and the Nix remote Linux builder.
+On macOS, `yolo doctor` additionally checks the VM backend (Podman Machine, Colima, or Apple Container `system status`) and (if configured) the Nix remote Linux builder.
 
 ### First Run
 
 On first run, YOLO Jail will:
-1. Build the Linux container image via `nix build` (takes a few minutes — Linux downloads from the binary cache; macOS builds via the remote Linux builder)
+1. Build the Linux container image via `nix build` (takes a few minutes — both Linux and macOS download from the NixOS binary cache; macOS only needs a remote Linux builder if you've added non-cached packages)
 2. Load the image into your container runtime
 3. Install MCP servers, LSP servers, and utilities
 4. Start your command

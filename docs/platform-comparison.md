@@ -135,7 +135,7 @@ and needs **no macOS changes**. Only `cli.py` (host-side) is platform-aware.
 | TCP gateway fallback | N/A | ✅ | N/A | Docker/Podman only |
 | | | | | |
 | **Image Building** | | | | |
-| `nix build .#dockerImage` | ✅ | ✅¹ | ✅¹ | ¹Requires Linux builder |
+| `nix build .#dockerImage` | ✅ | ✅¹ | ✅¹ | ¹Builds from binary cache by default; Linux builder only needed for non-cached packages |
 | Native ARM image (aarch64) | ✅ | ✅ | ✅ | |
 | Image format | Docker V2 | Docker V2 | OCI² | ²Auto-converted via skopeo/podman/docker |
 | | | | | |
@@ -169,7 +169,7 @@ and needs **no macOS changes**. Only `cli.py` (host-side) is platform-aware.
 | Bind mounts | ✅ | ✅ | ⚠️⁴ | ⁴Max ~22 per container (VZ limit) |
 | tmpfs mounts | ✅ | ✅ | ✅ | No options syntax on AC |
 | `/dev/fuse` passthrough | ✅ | ✅ | ❌ | |
-| Nix store mount (`/nix`) | ✅ | ⚠️ | ❌ | Skipped on AC |
+| Nix store mount (`/nix`) | ✅ | ⚠️⁵ | ❌ | ⁵macOS: skipped by default (runtime VM doesn't share `/nix`); set `YOLO_NIX_HOST_DAEMON=1` to opt in. AC: always skipped. |
 
 **Legend:** ✅ = fully supported, ⚠️ = partially supported / needs config,
 ❌ = not available (gracefully skipped with warning), N/A = not applicable

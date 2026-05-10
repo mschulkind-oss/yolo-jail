@@ -8,6 +8,7 @@ Uses only stdlib — runs before any pip packages are installed.
 import hashlib
 import json
 import os
+import shlex
 import shutil
 import stat
 import subprocess
@@ -332,6 +333,60 @@ fi
 """
         claude_shim.write_text(launcher)
         claude_shim.chmod(claude_shim.stat().st_mode | stat.S_IEXEC)
+
+
+def generate_package_manager_launchers():
+    """Create lazy npm-backed launchers for package managers disabled in mise."""
+    SHIM_DIR.mkdir(parents=True, exist_ok=True)
+    stamp_dir = HOME / ".cache" / "yolo-package-manager-stamps"
+    # shlex.quote so a $HOME containing shell metacharacters (spaces, quotes,
+    # backslashes) doesn't break the generated launcher.
+    stamp_dir_literal = shlex.quote(str(stamp_dir))
+    npm_package_managers = {"pnpm": "pnpm"}
+
+    for bin_name, pkg_name in npm_package_managers.items():
+        shim_path = SHIM_DIR / bin_name
+        if shim_path.exists():
+            continue
+
+        launcher = f"""#!/bin/bash
+set -euo pipefail
+export NPM_CONFIG_PREFIX="${{NPM_CONFIG_PREFIX:-$HOME/.npm-global}}"
+export NPM_CONFIG_CACHE="${{NPM_CONFIG_CACHE:-$HOME/.cache/npm}}"
+STAMP_DIR={stamp_dir_literal}
+STAMP="$STAMP_DIR/{bin_name}.stamp"
+REAL_BIN="$NPM_CONFIG_PREFIX/bin/{bin_name}"
+PKG="{pkg_name}"
+RETRY_INTERVAL=3600  # seconds before retrying a failed install
+
+mkdir -p "$STAMP_DIR"
+
+if [ ! -x "$REAL_BIN" ]; then
+    # Throttle repeated install attempts after a failure — without this, every
+    # invocation would re-hit npm registry when offline / install is broken.
+    SHOULD_INSTALL=1
+    if [ -f "$STAMP" ]; then
+        STAMP_AGE=$(( $(date +%s) - $(stat -c %Y "$STAMP" 2>/dev/null || echo 0) ))
+        if [ "$STAMP_AGE" -lt "$RETRY_INTERVAL" ]; then
+            SHOULD_INSTALL=0
+        fi
+    fi
+    if [ "$SHOULD_INSTALL" = "1" ]; then
+        echo "  Installing $PKG..." >&2
+        YOLO_BYPASS_SHIMS=1 npm install -g --prefer-online "$PKG@latest" 2>&1 || true
+        touch "$STAMP"
+    fi
+fi
+
+if [ -x "$REAL_BIN" ]; then
+    exec "$REAL_BIN" "$@"
+else
+    echo "  ⚠ {bin_name} not available" >&2
+    exit 1
+fi
+"""
+        shim_path.write_text(launcher)
+        shim_path.chmod(shim_path.stat().st_mode | stat.S_IEXEC)
 
 
 # ---------------------------------------------------------------------------
@@ -2078,6 +2133,8 @@ def main():
     _perf("generate_shims")
     generate_agent_launchers()
     _perf("generate_agent_launchers")
+    generate_package_manager_launchers()
+    _perf("generate_package_manager_launchers")
     # Build the combined CA bundle BEFORE bashrc so bashrc can just
     # reference ``$HOME/.yolo-ca-bundle.crt`` and the env vars we set
     # in ``os.environ`` propagate to every child the entrypoint spawns

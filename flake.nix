@@ -61,7 +61,7 @@
         ) extraPackageSpecs;
 
         # Derivation for the shim scripts (plain text — built on host, runs in container)
-        shims = imagePkgs.stdenv.mkDerivation {
+        shims = pkgs.stdenv.mkDerivation {
           name = "yolo-shims";
           src = ./src/shims;
           installPhase = ''
@@ -77,7 +77,7 @@
         # under /etc/containers.  Both are opt-out so the minimal image
         # variant can skip the bulky and/or unused plumbing.
         mkBinPathLinks = { withChromium ? true, withNestedPodman ? true }:
-          imagePkgs.runCommand "bin-path-links" {} (''
+          pkgs.runCommand "bin-path-links" {} (''
           mkdir -p $out/usr/bin $out/bin $out/lib64 $out/lib $out/usr/lib $out/etc $out/usr/share/fonts $out/usr/share
           ln -s ${imagePkgs.coreutils}/bin/env $out/usr/bin/env
           ln -s ${imagePkgs.bashInteractive}/bin/bash $out/bin/bash
@@ -229,30 +229,49 @@
         };
 
         # Derivation for the Python entrypoint (runs inside Linux container)
-        entrypointScript = imagePkgs.writeTextFile {
+        entrypointScript = pkgs.writeTextFile {
           name = "yolo-entrypoint-py";
           text = builtins.readFile ./src/entrypoint.py;
           destination = "/lib/yolo-entrypoint.py";
         };
-        entrypoint = imagePkgs.writeShellScriptBin "yolo-entrypoint" ''
-          exec ${imagePkgs.python313}/bin/python3 ${entrypointScript}/lib/yolo-entrypoint.py "$@"
-        '';
+        # Use pkgs.writeTextFile (host) instead of imagePkgs.writeShellScriptBin
+        # so building these wrappers does not require a Linux builder on macOS.
+        # The shebang is hardcoded to imagePkgs.bashInteractive's Linux store
+        # path: writeTextFile only emits text on the host, but the shebang
+        # string transitively pulls Linux bash into the wrapper's closure
+        # (fetched from the binary cache) so the wrapper is self-contained
+        # and doesn't rely on PATH or /usr/bin/env existing in the image.
+        entrypoint = pkgs.writeTextFile {
+          name = "yolo-entrypoint";
+          executable = true;
+          destination = "/bin/yolo-entrypoint";
+          text = ''
+            #!${imagePkgs.bashInteractive}/bin/bash
+            exec ${imagePkgs.python313}/bin/python3 ${entrypointScript}/lib/yolo-entrypoint.py "$@"
+          '';
+        };
 
         # In-jail yolo CLI wrapper — delegates to the mounted repo via uv
-        yoloCli = imagePkgs.writeShellScriptBin "yolo" ''
-          # Use the mounted repo with uv (deps are cached in persistent ~/.cache/uv)
-          if [ -d /opt/yolo-jail/src ]; then
-            export PYTHONPATH="/opt/yolo-jail''${PYTHONPATH:+:$PYTHONPATH}"
-            exec ${imagePkgs.uv}/bin/uv run \
-              --no-project \
-              --python ${imagePkgs.python313}/bin/python3 \
-              --with typer --with rich --with "pyjson5>=2.0.0" \
-              -- python3 -c "from src.cli import main; main()" "$@"
-          fi
-          echo "YOLO Jail CLI: source not mounted at /opt/yolo-jail"
-          echo "The yolo-jail repo is normally mounted automatically."
-          exit 1
-        '';
+        yoloCli = pkgs.writeTextFile {
+          name = "yolo";
+          executable = true;
+          destination = "/bin/yolo";
+          text = ''
+            #!${imagePkgs.bashInteractive}/bin/bash
+            # Use the mounted repo with uv (deps are cached in persistent ~/.cache/uv)
+            if [ -d /opt/yolo-jail/src ]; then
+              export PYTHONPATH="/opt/yolo-jail''${PYTHONPATH:+:$PYTHONPATH}"
+              exec ${imagePkgs.uv}/bin/uv run \
+                --no-project \
+                --python ${imagePkgs.python313}/bin/python3 \
+                --with typer --with rich --with "pyjson5>=2.0.0" \
+                -- python3 -c "from src.cli import main; main()" "$@"
+            fi
+            echo "YOLO Jail CLI: source not mounted at /opt/yolo-jail"
+            echo "The yolo-jail repo is normally mounted automatically."
+            exit 1
+          '';
+        };
 
         # Core packages: everything the integration test suite in
         # tests/test_jail.py actually touches, plus POSIX essentials that
@@ -336,7 +355,7 @@
         ];
 
         mkDockerImage = { minimal ? false }:
-          imagePkgs.dockerTools.streamLayeredImage {
+          pkgs.dockerTools.streamLayeredImage {
             name = "yolo-jail";
             tag = if minimal then "ci-minimal" else "latest";
             created = "now";
