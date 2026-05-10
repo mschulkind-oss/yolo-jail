@@ -103,7 +103,7 @@ podman machine start
 
 On macOS, image builds use the NixOS binary cache by default — no remote Linux builder required. See [docs/macos.md](docs/macos.md) if you need to add packages that aren't in the cache (or want to build offline).
 
-For development, see [CONTRIBUTING.md](CONTRIBUTING.md).
+For development, see [CONTRIBUTING.md](https://github.com/mschulkind-oss/.github/blob/main/CONTRIBUTING.md).
 
 ## Quick Start
 
@@ -209,7 +209,7 @@ Run `yolo check` after **every** config edit, especially when handing work from 
 
 ## Contributing
 
-See [CONTRIBUTING.md](CONTRIBUTING.md) for development setup and guidelines.
+See [CONTRIBUTING.md](https://github.com/mschulkind-oss/.github/blob/main/CONTRIBUTING.md) for development setup and guidelines.
 
 ## Documentation
 
