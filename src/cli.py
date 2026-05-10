@@ -3797,7 +3797,7 @@ KNOWN_TOP_LEVEL_CONFIG_KEYS = {
     "devices",
     "gpu",
     "resources",
-    "env",
+    "env_sources",
     "host_claude_files",
     "loopholes",
     "host_processes",
@@ -4375,24 +4375,127 @@ def _validate_config(
                         "config.resources.pids_limit: expected a positive integer"
                     )
 
-    # env validation
-    env_vars = config.get("env")
-    if env_vars is not None:
-        if not isinstance(env_vars, dict):
-            errors.append("config.env: expected an object of key-value string pairs")
+    # env_sources validation — ordered list of str (file path) or dict (inline map)
+    if "env" in config:
+        errors.append(
+            "config.env: removed — rename to 'env_sources' (an ordered list where "
+            'strings are KEY=VALUE files and objects are inline {"KEY": "VALUE"} sets). '
+            "See `yolo config-ref`."
+        )
+    env_sources = config.get("env_sources")
+    if env_sources is not None:
+        if not isinstance(env_sources, list):
+            errors.append(
+                "config.env_sources: expected a list of strings (file paths) "
+                "or objects (inline env maps)"
+            )
         else:
-            for key, value in env_vars.items():
-                if not isinstance(key, str) or not key:
-                    errors.append("config.env: keys must be non-empty strings")
-                elif not re.match(r"^[A-Za-z_][A-Za-z0-9_]*$", key):
+            for idx, entry in enumerate(env_sources):
+                path = f"config.env_sources[{idx}]"
+                if isinstance(entry, str):
+                    if not entry:
+                        errors.append(f"{path}: empty string is not a valid path")
+                elif isinstance(entry, dict):
+                    for key, value in entry.items():
+                        if not isinstance(key, str) or not key:
+                            errors.append(
+                                f"{path}: inline map keys must be non-empty strings"
+                            )
+                        elif not re.match(r"^[A-Za-z_][A-Za-z0-9_]*$", key):
+                            errors.append(
+                                f"{path}.{key}: invalid variable name "
+                                "(must match [A-Za-z_][A-Za-z0-9_]*)"
+                            )
+                        if not isinstance(value, str):
+                            errors.append(f"{path}.{key}: expected a string value")
+                else:
                     errors.append(
-                        f"config.env.{key}: invalid variable name "
-                        "(must match [A-Za-z_][A-Za-z0-9_]*)"
+                        f"{path}: expected a string (file path) or object (inline map), "
+                        f"got {type(entry).__name__}"
                     )
-                if not isinstance(value, str):
-                    errors.append(f"config.env.{key}: expected a string value")
 
     return errors, warnings
+
+
+def _parse_dotenv(text: str) -> Dict[str, str]:
+    """Parse KEY=VALUE dotenv content into a dict.
+
+    Lines starting with ``#`` and blank lines are ignored.  ``export``
+    prefix is allowed and stripped.  Values may be wrapped in matching
+    single or double quotes; inner whitespace is preserved.  Malformed
+    lines (no ``=``, invalid variable name) are silently skipped — the
+    caller has already validated the file path; dropping one junk line
+    is better than refusing to start the jail over a typo in a secrets
+    file.
+    """
+    out: Dict[str, str] = {}
+    for raw in text.splitlines():
+        line = raw.strip()
+        if not line or line.startswith("#"):
+            continue
+        if line.startswith("export "):
+            line = line[len("export ") :].lstrip()
+        if "=" not in line:
+            continue
+        key, value = line.split("=", 1)
+        key = key.strip()
+        if not re.match(r"^[A-Za-z_][A-Za-z0-9_]*$", key):
+            continue
+        value = value.strip()
+        if len(value) >= 2 and value[0] == value[-1] and value[0] in ("'", '"'):
+            value = value[1:-1]
+        out[key] = value
+    return out
+
+
+def _resolve_env_source_path(entry: str, workspace: Path) -> Path:
+    """Resolve an env_sources string entry to an absolute filesystem path.
+
+    Supports ``~`` expansion, absolute paths, and workspace-relative
+    paths.  Relative paths resolve against the workspace root so
+    workspace-level configs can reference files inside the repo, and
+    user-level configs typically use ``~/...`` or absolute paths.
+    """
+    expanded = os.path.expanduser(entry)
+    p = Path(expanded)
+    if not p.is_absolute():
+        p = (workspace / p).resolve()
+    return p
+
+
+def _resolve_env_sources(workspace: Path, config: Dict[str, Any]) -> Dict[str, str]:
+    """Resolve ``env_sources`` into the final env map injected into the jail.
+
+    Iterates entries in order: inline dicts apply directly; string
+    entries are read as KEY=VALUE dotenv files.  Later entries override
+    earlier ones.  Missing files emit a warning and are skipped — start
+    the jail with whatever env is available rather than failing on an
+    absent secrets file.
+    """
+    merged: Dict[str, str] = {}
+    for entry in config.get("env_sources", []) or []:
+        if isinstance(entry, dict):
+            for k, v in entry.items():
+                if isinstance(k, str) and isinstance(v, str):
+                    merged[k] = v
+        elif isinstance(entry, str):
+            path = _resolve_env_source_path(entry, workspace)
+            if not path.exists():
+                console.print(
+                    f"[yellow]Warning: env_sources file not found, skipping: "
+                    f"{entry} (resolved to {path})[/yellow]"
+                )
+                continue
+            try:
+                text = path.read_text()
+            except OSError as e:
+                console.print(
+                    f"[yellow]Warning: env_sources file unreadable, skipping: "
+                    f"{entry}: {e}[/yellow]"
+                )
+                continue
+            merged.update(_parse_dotenv(text))
+    return merged
 
 
 def _workspace_readonly_mount_args(
@@ -4506,8 +4609,8 @@ def _entrypoint_preflight(repo_root: Path, workspace: Path, config: Dict[str, An
                 "YOLO_MCP_PRESETS": json.dumps(config.get("mcp_presets", [])),
             }
         )
-        # Apply user-defined env vars from config
-        for env_key, env_val in config.get("env", {}).items():
+        # Apply user-defined env vars from env_sources
+        for env_key, env_val in _resolve_env_sources(workspace, config).items():
             env[env_key] = env_val
 
         code = f"""
@@ -4646,9 +4749,16 @@ def init(
 """
         + mounts_block
         + """
-  // Extra environment variables set inside the jail.
-  // Keys are variable names, values are strings.
-  // "env": {"DATABASE_URL": "postgres://localhost/dev", "DEBUG": "1"}
+  // Environment variables set inside the jail.
+  // Ordered list: strings are KEY=VALUE file paths, objects are inline maps.
+  // Later entries override earlier ones; workspace config appends to user config.
+  // File paths: ~ expanded, relative paths resolve against the workspace root.
+  // Missing files warn and skip; keep secrets out of the dotfiles-synced config.
+  // "env_sources": [
+  //   "~/.config/yolo-jail/defaults.env",
+  //   {"DEBUG": "1"},
+  //   ".secrets/claude.env"
+  // ]
 
   // Extra tools to install via mise (key: tool name, value: version string).
   // Default: {"neovim": "stable"} — override in user or workspace config.
@@ -4974,12 +5084,23 @@ def config_ref():
     Env var: YOLO_SERVICE_JOURNAL_SOCKET
     "journal" is reserved as a host_services name — you cannot shadow it.
 
-  [bold]env[/bold] (object): Extra environment variables set inside the jail.
-    Keys are variable names, values are strings.
-    Merged: user config provides defaults, workspace config overrides.
-    Written to ~/.config/yolo-user-env.sh (sourced by .bashrc and entrypoint).
-    Can be overridden by mise .env or by editing the file inside the jail.
-    Example: {"DATABASE_URL": "postgres://localhost/dev", "DEBUG": "1"}
+  [bold]env_sources[/bold] (array): Environment variables set inside the jail.
+    Ordered list; each entry is either:
+      • a string — path to a KEY=VALUE dotenv file (# comments allowed,
+        quoted values OK, `export` prefix tolerated)
+      • an object — inline {"KEY": "VALUE"} map
+    Later entries override earlier ones.  User-config list loads first,
+    then workspace-config list.  File paths support ~ expansion,
+    absolute paths, and workspace-relative paths.  Missing files warn
+    and skip rather than failing the run — keep secrets in an unsynced
+    file outside your dotfiles tree.
+    Written to ~/.config/yolo-user-env.sh (sourced by .bashrc and entrypoint);
+    can be overridden by mise .env or by editing that file inside the jail.
+    Example: [
+      "~/.config/yolo-jail/defaults.env",
+      {"DEBUG": "1"},
+      ".secrets/claude.env"
+    ]
 
   [bold]mounts[/bold] (array of strings): Extra host paths mounted read-only.
     Simple path → mounted at /ctx/<basename>
@@ -5175,7 +5296,7 @@ def config_ref():
        "url": "mirror://savannah/freetype/freetype-2.14.1.tar.xz",
        "hash": "sha256-MkJ+jEcawJWFMhKjeu+BbGC0IFLU2eSCMLqzvfKTbMw="}
     ],
-    "env": {"MY_API_KEY": "...", "DEBUG": "1"},
+    "env_sources": [{"DEBUG": "1"}, "~/.config/yolo-jail/secrets.env"],
     "mounts": ["/path/to/ref-repo"],
     "devices": [
       {"usb": "0bda:2838", "description": "RTL-SDR Blog V4"}
@@ -6944,7 +7065,7 @@ def run(
     mcp_servers = config.get("mcp_servers", {})
     mcp_presets = config.get("mcp_presets", [])
     host_claude_files = config.get("host_claude_files", DEFAULT_HOST_CLAUDE_FILES)
-    user_env = config.get("env", {})
+    user_env = _resolve_env_sources(workspace, config)
     mise_disabled_tools = _merge_mise_disabled_tools(user_env.get("MISE_DISABLE_TOOLS"))
     auto_load_image(repo_root, extra_packages=extra_packages or None, runtime=runtime)
 

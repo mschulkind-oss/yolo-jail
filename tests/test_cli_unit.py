@@ -32,11 +32,13 @@ from cli import (  # noqa: E402
     _merge_mise_disabled_tools,
     _merge_mise_tools,
     _normalize_blocked_tools,
+    _parse_dotenv,
     _parse_port_forwards,
     _prepare_skills,
     _read_loaded_paths,
     _add_loaded_path,
     _report_unknown_keys,
+    _resolve_env_sources,
     _runtime_for_check,
     _summarize_nix_line,
     _validate_config,
@@ -1050,6 +1052,52 @@ class TestValidateConfig:
         errors, _ = _validate_config(config, workspace=tmp_path)
         assert any(".." in e for e in errors)
 
+    def test_env_sources_valid_mixed(self, tmp_path):
+        config = {
+            "env_sources": [
+                "~/.config/yolo-jail/defaults.env",
+                {"DEBUG": "1"},
+                ".secrets/claude.env",
+            ]
+        }
+        errors, _ = _validate_config(config, workspace=tmp_path)
+        assert errors == []
+
+    def test_env_sources_legacy_env_rejected(self, tmp_path):
+        config = {"env": {"FOO": "bar"}}
+        errors, _ = _validate_config(config, workspace=tmp_path)
+        assert any(
+            "config.env" in e and "env_sources" in e and "removed" in e for e in errors
+        )
+
+    def test_env_sources_not_list(self, tmp_path):
+        config = {"env_sources": {"FOO": "bar"}}
+        errors, _ = _validate_config(config, workspace=tmp_path)
+        assert any("env_sources" in e and "list" in e for e in errors)
+
+    def test_env_sources_entry_wrong_type(self, tmp_path):
+        config = {"env_sources": [123]}
+        errors, _ = _validate_config(config, workspace=tmp_path)
+        assert any("env_sources[0]" in e for e in errors)
+
+    def test_env_sources_inline_bad_key(self, tmp_path):
+        config = {"env_sources": [{"123BAD": "x"}]}
+        errors, _ = _validate_config(config, workspace=tmp_path)
+        assert any(
+            "env_sources[0].123BAD" in e and "invalid variable name" in e
+            for e in errors
+        )
+
+    def test_env_sources_inline_non_string_value(self, tmp_path):
+        config = {"env_sources": [{"FOO": 42}]}
+        errors, _ = _validate_config(config, workspace=tmp_path)
+        assert any("env_sources[0].FOO" in e and "string value" in e for e in errors)
+
+    def test_env_sources_empty_string_rejected(self, tmp_path):
+        config = {"env_sources": [""]}
+        errors, _ = _validate_config(config, workspace=tmp_path)
+        assert any("env_sources[0]" in e for e in errors)
+
     def test_publish_port_valid(self, tmp_path):
         config = {"network": {"ports": ["8000:8000"]}}
         errors, _ = _validate_config(config, workspace=tmp_path)
@@ -1196,6 +1244,99 @@ class TestValidateConfig:
     def test_kvm_integer_rejected(self, tmp_path):
         errors, _ = _validate_config({"kvm": 1}, workspace=tmp_path)
         assert any("config.kvm" in e and "boolean" in e for e in errors)
+
+
+class TestParseDotenv:
+    """Parser for KEY=VALUE secrets files consumed by env_sources."""
+
+    def test_basic_key_value(self):
+        assert _parse_dotenv("FOO=bar\nBAZ=qux\n") == {"FOO": "bar", "BAZ": "qux"}
+
+    def test_comments_and_blank_lines_ignored(self):
+        text = "# a comment\n\nFOO=bar\n   # indented comment\nBAZ=qux\n"
+        assert _parse_dotenv(text) == {"FOO": "bar", "BAZ": "qux"}
+
+    def test_export_prefix_stripped(self):
+        assert _parse_dotenv("export FOO=bar\n") == {"FOO": "bar"}
+
+    def test_quoted_values_unwrapped(self):
+        text = "A=\"double\"\nB='single'\nC=no_quotes\n"
+        assert _parse_dotenv(text) == {"A": "double", "B": "single", "C": "no_quotes"}
+
+    def test_value_with_equals_preserved(self):
+        assert _parse_dotenv("TOKEN=a=b=c\n") == {"TOKEN": "a=b=c"}
+
+    def test_empty_value_allowed(self):
+        assert _parse_dotenv("EMPTY=\n") == {"EMPTY": ""}
+
+    def test_invalid_variable_name_skipped(self):
+        text = "123BAD=x\nGOOD=y\nalso-bad=z\n"
+        assert _parse_dotenv(text) == {"GOOD": "y"}
+
+    def test_no_equals_sign_skipped(self):
+        text = "just a line\nFOO=bar\n"
+        assert _parse_dotenv(text) == {"FOO": "bar"}
+
+
+class TestResolveEnvSources:
+    """Resolver that turns env_sources config into the final env map."""
+
+    def test_empty_returns_empty(self, tmp_path):
+        assert _resolve_env_sources(tmp_path, {}) == {}
+        assert _resolve_env_sources(tmp_path, {"env_sources": []}) == {}
+
+    def test_inline_dict_applied(self, tmp_path):
+        config = {"env_sources": [{"FOO": "bar"}]}
+        assert _resolve_env_sources(tmp_path, config) == {"FOO": "bar"}
+
+    def test_file_read_and_merged(self, tmp_path):
+        creds = tmp_path / "creds.env"
+        creds.write_text("API_KEY=sk-abc\nDEBUG=0\n")
+        config = {"env_sources": [str(creds)]}
+        assert _resolve_env_sources(tmp_path, config) == {
+            "API_KEY": "sk-abc",
+            "DEBUG": "0",
+        }
+
+    def test_later_entries_override_earlier(self, tmp_path):
+        creds = tmp_path / "creds.env"
+        creds.write_text("FOO=from_file\n")
+        config = {
+            "env_sources": [
+                {"FOO": "first", "KEEP": "yes"},
+                str(creds),
+                {"FOO": "last"},
+            ]
+        }
+        result = _resolve_env_sources(tmp_path, config)
+        assert result == {"FOO": "last", "KEEP": "yes"}
+
+    def test_workspace_relative_path(self, tmp_path):
+        (tmp_path / ".secrets").mkdir()
+        (tmp_path / ".secrets" / "env").write_text("TOKEN=rel\n")
+        config = {"env_sources": [".secrets/env"]}
+        assert _resolve_env_sources(tmp_path, config) == {"TOKEN": "rel"}
+
+    def test_tilde_expansion(self, tmp_path, monkeypatch):
+        fake_home = tmp_path / "home"
+        fake_home.mkdir()
+        (fake_home / "creds.env").write_text("HOME_VAR=1\n")
+        monkeypatch.setenv("HOME", str(fake_home))
+        config = {"env_sources": ["~/creds.env"]}
+        assert _resolve_env_sources(tmp_path, config) == {"HOME_VAR": "1"}
+
+    def test_missing_file_warns_and_continues(self, tmp_path, capsys):
+        config = {
+            "env_sources": [{"BEFORE": "1"}, "does-not-exist.env", {"AFTER": "2"}]
+        }
+        result = _resolve_env_sources(tmp_path, config)
+        assert result == {"BEFORE": "1", "AFTER": "2"}
+
+    def test_absolute_path(self, tmp_path):
+        creds = tmp_path / "abs.env"
+        creds.write_text("ABS=yes\n")
+        config = {"env_sources": [str(creds.resolve())]}
+        assert _resolve_env_sources(tmp_path / "subdir", config) == {"ABS": "yes"}
 
 
 class TestWorkspaceReadonlyMountArgs:
