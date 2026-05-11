@@ -952,7 +952,7 @@ class TestAppleContainerMountWorkarounds:
         (tmp_path / "user-config.jsonc").write_text('{"packages": []}')
 
         # Force user_env so the yolo-user-env.sh path runs with content.
-        (tmp_path / "yolo-jail.jsonc").write_text('{"env": {"FOO": "bar"}}')
+        (tmp_path / "yolo-jail.jsonc").write_text('{"env_sources": [{"FOO": "bar"}]}')
         mock_check_output.side_effect = FileNotFoundError
 
         mock_proc = MagicMock()
@@ -1042,7 +1042,9 @@ class TestAppleContainerMountWorkarounds:
 
         # Workspace config with a user env var so yolo-user-env.sh gets content.
         workspace = tmp_path
-        (workspace / "yolo-jail.jsonc").write_text('{"env": {"HELLO": "world"}}')
+        (workspace / "yolo-jail.jsonc").write_text(
+            '{"env_sources": [{"HELLO": "world"}]}'
+        )
         mock_check_output.side_effect = FileNotFoundError
 
         mock_proc = MagicMock()

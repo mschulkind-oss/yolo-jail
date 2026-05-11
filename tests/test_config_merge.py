@@ -107,35 +107,54 @@ def test_validate_config_requires_file_extensions_for_lsp_servers():
     assert "config.lsp_servers.python.fileExtensions: expected an object" in errors
 
 
-def test_validate_config_accepts_valid_env():
+def test_validate_config_accepts_valid_env_sources():
     errors, warnings = _validate_config(
-        {"env": {"DATABASE_URL": "postgres://localhost/dev", "DEBUG": "1"}},
+        {
+            "env_sources": [
+                {"DATABASE_URL": "postgres://localhost/dev", "DEBUG": "1"},
+                "~/.config/yolo-jail/secrets.env",
+            ]
+        },
         workspace=Path.cwd(),
     )
     assert errors == []
     assert warnings == []
 
 
-def test_validate_config_rejects_non_dict_env():
-    errors, _ = _validate_config({"env": ["FOO=bar"]}, workspace=Path.cwd())
-    assert "config.env: expected an object of key-value string pairs" in errors
+def test_validate_config_rejects_legacy_env_key():
+    errors, _ = _validate_config({"env": {"FOO": "bar"}}, workspace=Path.cwd())
+    assert any(
+        "config.env" in e and "env_sources" in e and "removed" in e for e in errors
+    )
 
 
-def test_validate_config_rejects_non_string_env_value():
-    errors, _ = _validate_config({"env": {"DEBUG": 1}}, workspace=Path.cwd())
-    assert "config.env.DEBUG: expected a string value" in errors
+def test_validate_config_rejects_non_list_env_sources():
+    errors, _ = _validate_config({"env_sources": {"FOO": "bar"}}, workspace=Path.cwd())
+    assert any("env_sources" in e and "list" in e for e in errors)
 
 
-def test_validate_config_rejects_invalid_env_var_name():
-    errors, _ = _validate_config({"env": {"123BAD": "val"}}, workspace=Path.cwd())
+def test_validate_config_rejects_non_string_env_sources_value():
+    errors, _ = _validate_config({"env_sources": [{"DEBUG": 1}]}, workspace=Path.cwd())
+    assert any("env_sources[0].DEBUG" in e and "string value" in e for e in errors)
+
+
+def test_validate_config_rejects_invalid_env_sources_var_name():
+    errors, _ = _validate_config(
+        {"env_sources": [{"123BAD": "val"}]}, workspace=Path.cwd()
+    )
     assert any("invalid variable name" in e for e in errors)
 
 
-def test_merge_config_env_workspace_overrides_user():
-    user = {"env": {"A": "1", "B": "2"}}
-    workspace = {"env": {"B": "override", "C": "3"}}
+def test_merge_config_env_sources_concatenates_user_then_workspace():
+    user = {"env_sources": [{"A": "1", "B": "2"}]}
+    workspace = {"env_sources": [{"B": "override", "C": "3"}]}
     merged = merge_config(user, workspace)
-    assert merged["env"] == {"A": "1", "B": "override", "C": "3"}
+    # Lists concatenate: user entries first, workspace entries appended.
+    # Final precedence is resolved at load time (later wins), not at merge.
+    assert merged["env_sources"] == [
+        {"A": "1", "B": "2"},
+        {"B": "override", "C": "3"},
+    ]
 
 
 def test_same_file_preset_null_conflict_is_reported():
