@@ -1,6 +1,40 @@
 {
-  // yolo-jail workspace config for the yolo-jail repo itself.
-  // Protects host-executed source code from modification by agents inside the jail.
+  // ───────────────────────────────────────────────────────────────
+  // YOLO Jail workspace config — for the yolo-jail repo itself.
+  //
+  // Committed to the repo so every clone shares the same protections
+  // and packages.  First-time agents: run `yolo --help` for an
+  // overview, `yolo config-ref` for the full field reference, and
+  // `yolo check` after every edit to this file.
+  // ───────────────────────────────────────────────────────────────
+
+  // Container runtime: "podman", "docker", or "container" (Apple)
+  // (also settable via YOLO_RUNTIME env var)
+  // "runtime": "podman",
+
+  // Extra nix packages to include in the jail image.
+  // Names must match nixpkgs attribute names (search at https://search.nixos.org/packages).
+  // The image rebuilds only when this list changes.
+  // Supports plain strings (latest), pinned nixpkgs commits, or version overrides:
+  // "packages": [
+  //   "postgresql",
+  //   {"name": "freetype", "nixpkgs": "<commit-hash>"},
+  //   {"name": "freetype", "version": "2.14.1",
+  //    "url": "mirror://savannah/freetype/freetype-2.14.1.tar.xz",
+  //    "hash": "sha256-..."}
+  // ],
+  // Find nixpkgs commits for specific versions at: https://lazamar.co.uk/nix-versions/
+  "packages": [
+    // `just` isn't in the image's corePackages — we need it in the jail
+    // to run the Justfile recipes this repo ships (test, lint, deploy).
+    "just"
+  ],
+
+  // Overlay workspace sub-paths as read-only so agents in the jail
+  // can't modify host-executed source.  Without this, a jailed agent
+  // could rewrite src/ or flake.nix and the host would execute the
+  // altered code on the next `yolo` invocation — a sandbox escape.
+  // `yolo-jail.jsonc` itself is auto-locked when this key is set.
   "workspace_readonly": [
     "src",
     "flake.nix",
@@ -8,5 +42,97 @@
     "Justfile",
     "pyproject.toml",
     "uv.lock"
-  ]
+  ],
+
+  // security: tool shims injected into the jail's PATH.  Defaults (no
+  // config needed): grep is blocked only for recursive usage (``-r``,
+  // ``-R``, ``--recursive``, ``-rn`` etc. — pipe filters and
+  // single-file greps pass through); find is blocked unconditionally.
+  // Override only if you want custom rules — the defaults are sane.
+  // "security": {
+  //   "blocked_tools": [
+  //     {
+  //       "name": "grep",
+  //       // Only block when argv contains one of these shell-glob
+  //       // patterns.  Omit to block unconditionally.
+  //       "block_flags": ["--recursive", "-r", "-R", "-*[rR]*"]
+  //     },
+  //     "find",           // string form → unconditional block
+  //     "curl"            // add your own tools here
+  //   ]
+  // },
+  "network": {
+    // "bridge" (default) or "host"
+    "mode": "bridge",
+    // Ports to publish in bridge mode ["Host:Container"]
+    // "ports": ["8000:8000"]
+    // Forward host ports into the jail (appear on localhost inside container)
+    // "forward_host_ports": [5432, "8080:9090"]
+  },
+  // Extra host paths to mount read-only into the jail for context.
+  // Each entry is a host path (mounted at /ctx/<basename>) or "host:container".
+  // Pass --mount/-m on `yolo init` to populate this automatically, e.g.
+  //   yolo init -m ~/code/shared-lib -m ~/notes
+  // "mounts": [
+  //   "~/code/other-repo",
+  //   "~/code/shared-lib:/ctx/shared-lib"
+  // ]
+
+  // Environment variables set inside the jail.
+  // Ordered list: strings are KEY=VALUE file paths, objects are inline maps.
+  // Later entries override earlier ones; workspace config appends to user config.
+  // File paths: ~ expanded, relative paths resolve against the workspace root.
+  // Missing files warn and skip; keep secrets out of the dotfiles-synced config.
+  // "env_sources": [
+  //   "~/.config/yolo-jail/defaults.env",
+  //   {"DEBUG": "1"},
+  //   ".secrets/claude.env"
+  // ]
+
+  // Extra tools to install via mise (key: tool name, value: version string).
+  // Default: {"neovim": "stable"} — override in user or workspace config.
+  // "mise_tools": {"neovim": "nightly", "typst": "latest"}
+
+  // Additional language servers for Copilot and Gemini.
+  // Defaults (always present): python (pyright), typescript, go (gopls).
+  // Add new servers or override defaults. Binary must be on PATH (e.g., via mise_tools).
+  // "lsp_servers": {
+  //   "rust": {
+  //     "command": "rust-analyzer",
+  //     "args": [],
+  //     "fileExtensions": {".rs": "rust"}
+  //   }
+  // }
+  //
+  // Enable built-in MCP server presets by name.
+  // Available presets: chrome-devtools, sequential-thinking
+  // "mcp_presets": ["chrome-devtools", "sequential-thinking"]
+
+  // Additional custom MCP servers for Copilot and Gemini.
+  // Add custom servers or set a preset/inherited server to null to disable it.
+  // Binary must be on PATH or absolute.
+  // "mcp_servers": {
+  //   "my-custom": {
+  //     "command": "/workspace/scripts/my-mcp-server.py",
+  //     "args": []
+  //   }
+  // }
+
+  // NVIDIA GPU passthrough. Requires NVIDIA Container Toolkit on the host.
+  // Run "yolo check" to verify GPU readiness before enabling.
+  // "gpu": {
+  //   "enabled": true,
+  //   "devices": "all",          // "all", "0", "0,1", or "GPU-<uuid>"
+  //   "capabilities": "compute,utility"
+  // }
+
+  // Container resource limits.
+  // On Apple Container: applied as VM hardware limits (defaults: half host CPUs/RAM).
+  // On Docker/Podman: applied as --cpus/--memory flags (no defaults — inherits VM limits).
+  // On Linux: also feeds cgroup delegation for in-container yolo-cglimit.
+  // "resources": {
+  //   "memory": "8g",            // Max memory (b/k/m/g suffix). OOM-killed if exceeded.
+  //   "cpus": 4,                 // CPU limit (decimal). e.g. 4, 2.5, "0.5"
+  //   "pids_limit": 4096         // Max processes (Docker/Podman only). Prevents fork bombs.
+  // }
 }
