@@ -78,6 +78,7 @@ from cli import (  # noqa: E402
     _host_service_default_jail_socket,
     _host_service_env_var,
     _host_service_sockets_dir,
+    _gpu_host_available,
     _resolve_journal_mode,
     _should_mount_host_nix,
     _start_broker_relay,
@@ -3624,6 +3625,105 @@ class TestShouldMountHostNix:
                 is_macos=True,
                 opt_in_env=value,
             ), f"expected opt-out for {value!r}"
+
+
+class TestGpuHostAvailable:
+    """Runtime probe that decides whether GPU passthrough will actually
+    work on this host.  Keeps the same workspace config portable between
+    a GPU machine and a GPU-less laptop — the laptop sees a warning and
+    starts without CDI device flags instead of hitting a podman error.
+    """
+
+    def _mock_probe(self, monkeypatch, *, is_macos, nvidia_smi, smi_rc, cdi_exists):
+        """Helper: patch out IS_MACOS + shutil.which + subprocess.run + Path.exists.
+
+        ``nvidia_smi`` is the path returned by shutil.which (None → missing).
+        ``smi_rc`` is the return code of ``nvidia-smi -L``.
+        ``cdi_exists`` is whether either /etc/cdi/nvidia.yaml path exists.
+        """
+        monkeypatch.setattr(cli, "IS_MACOS", is_macos)
+        monkeypatch.setattr(
+            cli.shutil, "which", lambda cmd: nvidia_smi if cmd == "nvidia-smi" else None
+        )
+
+        def fake_run(cmd, **kwargs):
+            result = MagicMock()
+            result.returncode = smi_rc
+            result.stdout = b""
+            return result
+
+        monkeypatch.setattr(cli.subprocess, "run", fake_run)
+
+        real_exists = Path.exists
+
+        def fake_exists(self):
+            if str(self) in ("/etc/cdi/nvidia.yaml", "/var/run/cdi/nvidia.yaml"):
+                return cdi_exists
+            return real_exists(self)
+
+        monkeypatch.setattr(Path, "exists", fake_exists)
+
+    def test_macos_reports_unsupported(self, monkeypatch):
+        monkeypatch.setattr(cli, "IS_MACOS", True)
+        ok, reason = _gpu_host_available("podman")
+        assert not ok
+        assert reason and "does not support" in reason
+
+    def test_apple_container_runtime_unsupported(self, monkeypatch):
+        monkeypatch.setattr(cli, "IS_MACOS", False)
+        ok, reason = _gpu_host_available("container")
+        assert not ok
+        assert reason and "does not support" in reason
+
+    def test_docker_runtime_unsupported(self, monkeypatch):
+        monkeypatch.setattr(cli, "IS_MACOS", False)
+        ok, reason = _gpu_host_available("docker")
+        assert not ok
+        assert reason and "unsupported runtime" in reason
+
+    def test_podman_missing_nvidia_smi(self, monkeypatch):
+        self._mock_probe(
+            monkeypatch, is_macos=False, nvidia_smi=None, smi_rc=0, cdi_exists=True
+        )
+        ok, reason = _gpu_host_available("podman")
+        assert not ok
+        assert reason == "nvidia-smi not found on host"
+
+    def test_podman_nvidia_smi_reports_no_gpus(self, monkeypatch):
+        self._mock_probe(
+            monkeypatch,
+            is_macos=False,
+            nvidia_smi="/usr/bin/nvidia-smi",
+            smi_rc=9,
+            cdi_exists=True,
+        )
+        ok, reason = _gpu_host_available("podman")
+        assert not ok
+        assert reason == "nvidia-smi reported no GPUs"
+
+    def test_podman_missing_cdi_spec(self, monkeypatch):
+        self._mock_probe(
+            monkeypatch,
+            is_macos=False,
+            nvidia_smi="/usr/bin/nvidia-smi",
+            smi_rc=0,
+            cdi_exists=False,
+        )
+        ok, reason = _gpu_host_available("podman")
+        assert not ok
+        assert reason and "CDI spec" in reason
+
+    def test_podman_all_prereqs_available(self, monkeypatch):
+        self._mock_probe(
+            monkeypatch,
+            is_macos=False,
+            nvidia_smi="/usr/bin/nvidia-smi",
+            smi_rc=0,
+            cdi_exists=True,
+        )
+        ok, reason = _gpu_host_available("podman")
+        assert ok
+        assert reason is None
 
 
 class TestHostServiceLivenessProbe:

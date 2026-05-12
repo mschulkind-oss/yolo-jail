@@ -1699,6 +1699,48 @@ def _should_mount_host_nix(
     return opt_in
 
 
+def _gpu_host_available(runtime: str) -> tuple[bool, Optional[str]]:
+    """Probe whether NVIDIA GPU passthrough will actually work on this host.
+
+    Returns ``(True, None)`` if the host has the drivers + toolkit
+    podman needs, or ``(False, reason)`` explaining what's missing.
+    ``reason`` is a single short phrase suitable for a one-line
+    warning (e.g. ``"nvidia-smi not found on host"``).
+
+    Used by :func:`run` so a workspace config with ``gpu.enabled: true``
+    stays portable across a GPU box and a GPU-less laptop — the
+    GPU-less machine sees a warning and starts without the CDI device
+    flags instead of a hard podman error.
+
+    GPU passthrough requires podman + CDI.  Other runtimes (macOS,
+    Apple Container) return a skip reason; callers already warn/skip
+    for those earlier.
+    """
+    if IS_MACOS or runtime == "container":
+        return False, "runtime does not support NVIDIA passthrough"
+    if runtime != "podman":
+        return False, f"unsupported runtime: {runtime}"
+
+    nvidia_smi = shutil.which("nvidia-smi")
+    if not nvidia_smi:
+        return False, "nvidia-smi not found on host"
+    try:
+        probe = subprocess.run(
+            [nvidia_smi, "-L"],
+            capture_output=True,
+            timeout=5,
+        )
+    except (OSError, subprocess.SubprocessError) as e:
+        return False, f"nvidia-smi failed to run ({e})"
+    if probe.returncode != 0:
+        return False, "nvidia-smi reported no GPUs"
+
+    cdi_paths = (Path("/etc/cdi/nvidia.yaml"), Path("/var/run/cdi/nvidia.yaml"))
+    if not any(p.exists() for p in cdi_paths):
+        return False, "no CDI spec at /etc/cdi/nvidia.yaml"
+    return True, None
+
+
 def _start_broker_relay(relay_path: Path, broker_path: Path) -> None:
     """Start a background thread relaying relay_path → broker_path.
 
@@ -4789,8 +4831,11 @@ def init(
   //   }
   // }
 
-  // NVIDIA GPU passthrough. Requires NVIDIA Container Toolkit on the host.
-  // Run "yolo check" to verify GPU readiness before enabling.
+  // NVIDIA GPU passthrough (podman + CDI).  Safe to commit: when
+  // enabled on a host without NVIDIA drivers/CDI, yolo warns and
+  // starts without passthrough instead of erroring, so the same
+  // config works on a GPU box and a GPU-less laptop.
+  // Run "yolo check" on the GPU machine to verify readiness.
   // "gpu": {
   //   "enabled": true,
   //   "devices": "all",          // "all", "0", "0,1", or "GPU-<uuid>"
@@ -5212,21 +5257,24 @@ def config_ref():
     Subject to config change safety (human approval required).
 
   [bold]gpu[/bold] (object): NVIDIA GPU passthrough configuration.
-    Requires NVIDIA Container Toolkit on the host.
+    Requires NVIDIA Container Toolkit on the host (podman + CDI).
     • [bold]enabled[/bold] (bool): Enable GPU passthrough. Default: false.
+      If true but the host lacks drivers/CDI (e.g. laptop without an
+      NVIDIA GPU), yolo prints a one-line warning and starts without
+      GPU passthrough — so the same config can be committed and used
+      on both a GPU box and a GPU-less machine.
     • [bold]devices[/bold] (string): Which GPUs to expose. Default: "all".
-      Values: "all", "0", "0,1", or "GPU-<uuid>".
-      Docker uses --gpus flag; Podman uses CDI (nvidia.com/gpu=...).
+      Values: "all", "0", "0,1", or "GPU-<uuid>".  Mapped to CDI
+      device entries (nvidia.com/gpu=...).
     • [bold]capabilities[/bold] (string): NVIDIA driver capabilities. Default: "compute,utility".
       Valid: compute, utility, graphics, video, display, compat32.
       "compute,utility" is sufficient for PyTorch/CUDA training.
 
-    Host prerequisites:
+    Host prerequisites (on the GPU machine):
       1. NVIDIA driver installed (nvidia-smi works)
       2. nvidia-container-toolkit installed
-      3. Docker: sudo nvidia-ctk runtime configure --runtime=docker
-         Podman: sudo nvidia-ctk cdi generate --output=/etc/cdi/nvidia.yaml
-    Run [bold]yolo check[/bold] to verify GPU readiness.
+      3. sudo nvidia-ctk cdi generate --output=/etc/cdi/nvidia.yaml
+    Run [bold]yolo check[/bold] to verify GPU readiness on a given host.
     Subject to config change safety (human approval required).
 
   [bold]kvm[/bold] (boolean, default false): Expose /dev/kvm inside the jail.
@@ -7511,8 +7559,19 @@ def run(
         Path("/run/.containerenv").exists() or Path("/.dockerenv").exists()
     )
 
-    # Check if GPU passthrough is enabled (affects user namespace strategy)
-    gpu_enabled = config.get("gpu", {}).get("enabled", False)
+    # Check if GPU passthrough is both requested and actually available on
+    # this host.  Same config works on a GPU box and a GPU-less machine:
+    # if drivers/CDI are missing we fall back to starting without GPU flags
+    # rather than letting podman error on a nonexistent CDI device.  This
+    # also gates the uidmap/runc branch below — that strategy only makes
+    # sense when we're really going to inject CDI devices.
+    gpu_requested = config.get("gpu", {}).get("enabled", False)
+    gpu_unavailable_reason: Optional[str] = None
+    if gpu_requested:
+        ok_gpu, gpu_unavailable_reason = _gpu_host_available(runtime)
+        gpu_enabled = ok_gpu
+    else:
+        gpu_enabled = False
 
     # Podman: enable nested container support (rootless podman-in-podman)
     # When running on the host, use UID/GID mapping to create a user namespace.
@@ -7849,45 +7908,41 @@ def run(
                     continue
                 docker_cmd.extend(["--device-cgroup-rule", dev["cgroup_rule"]])
 
-    # GPU passthrough from config (NVIDIA only, not available on macOS)
-    gpu_config = config.get("gpu", {})
-    if gpu_config.get("enabled", False):
-        if IS_MACOS:
-            console.print(
-                "[yellow]Warning: GPU passthrough is not supported on macOS — skipping[/yellow]"
-            )
+    # GPU passthrough from config (NVIDIA via podman+CDI).  Availability
+    # already probed above — gpu_enabled reflects "requested AND present",
+    # gpu_unavailable_reason carries the warning text when requested but
+    # not present.
+    if gpu_requested and not gpu_enabled:
+        console.print(
+            f"[yellow]Warning: GPU requested but {gpu_unavailable_reason} — "
+            "starting without GPU passthrough[/yellow]"
+        )
+    if gpu_enabled:
+        gpu_config = config.get("gpu", {})
+        gpu_devices = gpu_config.get("devices", "all")
+        gpu_capabilities = gpu_config.get("capabilities", "compute,utility")
+
+        # Podman: use CDI (Container Device Interface) notation
+        if gpu_devices == "all":
+            docker_cmd.extend(["--device", "nvidia.com/gpu=all"])
         else:
-            gpu_devices = gpu_config.get("devices", "all")
-            gpu_capabilities = gpu_config.get("capabilities", "compute,utility")
+            # CDI supports individual GPU indices: nvidia.com/gpu=0
+            for gpu_idx in gpu_devices.split(","):
+                gpu_idx = gpu_idx.strip()
+                docker_cmd.extend(["--device", f"nvidia.com/gpu={gpu_idx}"])
 
-            if runtime == "docker":
-                # Docker: use --gpus flag (requires nvidia-container-toolkit)
-                if gpu_devices == "all":
-                    docker_cmd.extend(["--gpus", "all"])
-                else:
-                    docker_cmd.extend(["--gpus", f'"device={gpu_devices}"'])
-            elif runtime == "podman":
-                # Podman: use CDI (Container Device Interface) notation
-                if gpu_devices == "all":
-                    docker_cmd.extend(["--device", "nvidia.com/gpu=all"])
-                else:
-                    # CDI supports individual GPU indices: nvidia.com/gpu=0
-                    for gpu_idx in gpu_devices.split(","):
-                        gpu_idx = gpu_idx.strip()
-                        docker_cmd.extend(["--device", f"nvidia.com/gpu={gpu_idx}"])
-
-            # Set NVIDIA environment variables for the container runtime to pick up
-            docker_cmd.extend(
-                [
-                    "-e",
-                    f"NVIDIA_VISIBLE_DEVICES={gpu_devices}",
-                    "-e",
-                    f"NVIDIA_DRIVER_CAPABILITIES={gpu_capabilities}",
-                ]
-            )
-            console.print(
-                f"[dim]GPU passthrough: devices={gpu_devices}, capabilities={gpu_capabilities}[/dim]"
-            )
+        # Set NVIDIA environment variables for the container runtime to pick up
+        docker_cmd.extend(
+            [
+                "-e",
+                f"NVIDIA_VISIBLE_DEVICES={gpu_devices}",
+                "-e",
+                f"NVIDIA_DRIVER_CAPABILITIES={gpu_capabilities}",
+            ]
+        )
+        console.print(
+            f"[dim]GPU passthrough: devices={gpu_devices}, capabilities={gpu_capabilities}[/dim]"
+        )
 
     # KVM passthrough from config.  Opt-in via top-level `kvm: true`.
     # Not available on macOS (no /dev/kvm) or Apple Container (uses VZ
