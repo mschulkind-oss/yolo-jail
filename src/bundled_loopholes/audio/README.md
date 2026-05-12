@@ -21,7 +21,7 @@ To explicitly disable — e.g. you want the jail silent — add to `yolo-jail.js
 
 ## macOS
 
-Deliberately unsupported. Docker Desktop and Apple Container run Linux through a hypervisor VM with no CoreAudio passthrough, so there's no equivalent socket to bind. The `requires.file_exists` gate keeps the loophole inactive on macOS with no error noise. If you need voice features with yolo-jail-style isolation on macOS, run Claude Code directly on the host (the shared-credentials loophole keeps your jails and host session in sync).
+Deliberately unsupported. The macOS container runtimes (Apple Container, Podman Machine) run Linux through a hypervisor VM with no CoreAudio passthrough, so there's no equivalent socket to bind. The `requires.file_exists` gate keeps the loophole inactive on macOS with no error noise. If you need voice features with yolo-jail-style isolation on macOS, run Claude Code directly on the host (the shared-credentials loophole keeps your jails and host session in sync).
 
 ## What gets wired up
 

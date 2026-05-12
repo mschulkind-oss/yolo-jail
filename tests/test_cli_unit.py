@@ -296,18 +296,18 @@ class TestFindRunningContainer:
     def test_returns_cid_when_running(self):
         with patch("subprocess.run") as mock_run:
             mock_run.return_value = MagicMock(stdout="abc123def\n")
-            result = find_running_container("yolo-test", runtime="docker")
+            result = find_running_container("yolo-test", runtime="podman")
             assert result == "abc123def"
 
     def test_returns_none_when_not_running(self):
         with patch("subprocess.run") as mock_run:
             mock_run.return_value = MagicMock(stdout="")
-            result = find_running_container("yolo-test", runtime="docker")
+            result = find_running_container("yolo-test", runtime="podman")
             assert result is None
 
     def test_returns_none_on_file_not_found(self):
         with patch("subprocess.run", side_effect=FileNotFoundError):
-            result = find_running_container("yolo-test", runtime="docker")
+            result = find_running_container("yolo-test", runtime="podman")
             assert result is None
 
 
@@ -315,10 +315,10 @@ class TestFindExistingContainer:
     def test_returns_cid_when_stopped(self):
         with patch("subprocess.run") as mock_run:
             mock_run.return_value = MagicMock(stdout="abc123def\n")
-            result = find_existing_container("yolo-test", runtime="docker")
+            result = find_existing_container("yolo-test", runtime="podman")
             assert result == "abc123def"
             mock_run.assert_called_once_with(
-                ["docker", "ps", "-a", "-q", "--filter", "name=^/yolo-test$"],
+                ["podman", "ps", "-a", "-q", "--filter", "name=^/yolo-test$"],
                 capture_output=True,
                 text=True,
             )
@@ -326,12 +326,12 @@ class TestFindExistingContainer:
     def test_returns_none_when_no_container(self):
         with patch("subprocess.run") as mock_run:
             mock_run.return_value = MagicMock(stdout="")
-            result = find_existing_container("yolo-test", runtime="docker")
+            result = find_existing_container("yolo-test", runtime="podman")
             assert result is None
 
     def test_returns_none_on_file_not_found(self):
         with patch("subprocess.run", side_effect=FileNotFoundError):
-            result = find_existing_container("yolo-test", runtime="docker")
+            result = find_existing_container("yolo-test", runtime="podman")
             assert result is None
 
     def test_apple_container_runtime(self):
@@ -364,10 +364,10 @@ class TestRemoveStaleContainer:
             patch("cli.cleanup_container_tracking") as mock_cleanup,
         ):
             mock_run.return_value = MagicMock(returncode=0)
-            result = _remove_stale_container("yolo-test", runtime="docker")
+            result = _remove_stale_container("yolo-test", runtime="podman")
             assert result is True
             mock_run.assert_called_once_with(
-                ["docker", "rm", "yolo-test"],
+                ["podman", "rm", "yolo-test"],
                 capture_output=True,
                 text=True,
             )
@@ -379,7 +379,7 @@ class TestRemoveStaleContainer:
             patch("cli.cleanup_container_tracking") as mock_cleanup,
         ):
             mock_run.return_value = MagicMock(returncode=1)
-            result = _remove_stale_container("yolo-test", runtime="docker")
+            result = _remove_stale_container("yolo-test", runtime="podman")
             assert result is False
             mock_cleanup.assert_not_called()
 
@@ -398,7 +398,7 @@ class TestRemoveStaleContainer:
 
     def test_runtime_not_found(self):
         with patch("subprocess.run", side_effect=FileNotFoundError):
-            result = _remove_stale_container("yolo-test", runtime="docker")
+            result = _remove_stale_container("yolo-test", runtime="podman")
             assert result is False
 
 
@@ -412,13 +412,13 @@ class TestPrintStartupBanner:
 
     def test_banner_with_resource_limits(self, capsys):
         _print_startup_banner(
-            "1.0.0", "docker", "yolo-test-abc123", ["memory=8g", "cpus=4"]
+            "1.0.0", "podman", "yolo-test-abc123", ["memory=8g", "cpus=4"]
         )
         err = capsys.readouterr().err
         assert "Resource limits: memory=8g, cpus=4" in err
 
     def test_banner_no_resource_limits(self, capsys):
-        _print_startup_banner("1.0.0", "docker", "yolo-test-abc123")
+        _print_startup_banner("1.0.0", "podman", "yolo-test-abc123")
         err = capsys.readouterr().err
         assert "Resource limits" not in err
 
@@ -768,10 +768,10 @@ class TestLoadConfig:
 
     def test_workspace_config_merged(self, tmp_path):
         ws_config = tmp_path / "yolo-jail.jsonc"
-        ws_config.write_text('{"runtime": "docker"}')
+        ws_config.write_text('{"runtime": "podman"}')
         with patch("cli.USER_CONFIG_PATH", tmp_path / "nonexistent.jsonc"):
             result = load_config(tmp_path)
-            assert result["runtime"] == "docker"
+            assert result["runtime"] == "podman"
 
 
 # ═══════════════════════════════════════════════════════════════════════════════
@@ -1615,11 +1615,11 @@ class TestValidationHelpers:
 
 class TestRuntimeForCheck:
     def test_env_var_on_path(self):
-        with patch.dict(os.environ, {"YOLO_RUNTIME": "docker"}):
-            with patch("shutil.which", return_value="/usr/bin/docker"):
+        with patch.dict(os.environ, {"YOLO_RUNTIME": "podman"}):
+            with patch("shutil.which", return_value="/usr/bin/podman"):
                 with patch("cli._runtime_is_connectable", return_value=True):
                     rt, err = _runtime_for_check({})
-                    assert rt == "docker"
+                    assert rt == "podman"
                     assert err is None
 
     def test_env_var_not_on_path(self):
@@ -1632,10 +1632,10 @@ class TestRuntimeForCheck:
     def test_config_runtime(self):
         with patch.dict(os.environ, {}, clear=False):
             os.environ.pop("YOLO_RUNTIME", None)
-            with patch("shutil.which", return_value="/usr/bin/docker"):
+            with patch("shutil.which", return_value="/usr/bin/podman"):
                 with patch("cli._runtime_is_connectable", return_value=True):
-                    rt, err = _runtime_for_check({"runtime": "docker"})
-                    assert rt == "docker"
+                    rt, err = _runtime_for_check({"runtime": "podman"})
+                    assert rt == "podman"
 
     def test_auto_detect(self):
         with patch.dict(os.environ, {}, clear=False):
@@ -2096,19 +2096,6 @@ class TestGenerateAgentsMd:
         content = (agents_dir / "AGENTS-copilot.md").read_text()
         assert "host.containers.internal" in content
 
-    def test_bridge_docker(self, tmp_path, monkeypatch):
-        monkeypatch.setattr("cli.AGENTS_DIR", tmp_path / "agents")
-        agents_dir = generate_agents_md(
-            cname="yolo-test",
-            workspace=tmp_path,
-            blocked_tools=[],
-            mount_descriptions=[],
-            net_mode="bridge",
-            runtime="docker",
-        )
-        content = (agents_dir / "AGENTS-copilot.md").read_text()
-        assert "host.internal" in content
-
     def test_forwarded_ports(self, tmp_path, monkeypatch):
         monkeypatch.setattr("cli.AGENTS_DIR", tmp_path / "agents")
         agents_dir = generate_agents_md(
@@ -2237,7 +2224,7 @@ class TestConfigChanges:
         _check_config_changes(tmp_path, {"runtime": "podman"})
         with patch("sys.stdin") as mock_stdin:
             mock_stdin.isatty.return_value = False
-            result = _check_config_changes(tmp_path, {"runtime": "docker"})
+            result = _check_config_changes(tmp_path, {"runtime": "container"})
             assert result is True
 
     def test_change_interactive_rejected(self, tmp_path):
@@ -2245,7 +2232,7 @@ class TestConfigChanges:
         with patch("sys.stdin") as mock_stdin:
             mock_stdin.isatty.return_value = True
             with patch("builtins.input", return_value="n"):
-                result = _check_config_changes(tmp_path, {"runtime": "docker"})
+                result = _check_config_changes(tmp_path, {"runtime": "container"})
                 assert result is False
 
     def test_change_interactive_accepted(self, tmp_path):
@@ -2253,7 +2240,7 @@ class TestConfigChanges:
         with patch("sys.stdin") as mock_stdin:
             mock_stdin.isatty.return_value = True
             with patch("builtins.input", return_value="y"):
-                result = _check_config_changes(tmp_path, {"runtime": "docker"})
+                result = _check_config_changes(tmp_path, {"runtime": "container"})
                 assert result is True
 
     def test_change_interactive_eof(self, tmp_path):
@@ -2261,7 +2248,7 @@ class TestConfigChanges:
         with patch("sys.stdin") as mock_stdin:
             mock_stdin.isatty.return_value = True
             with patch("builtins.input", side_effect=EOFError):
-                result = _check_config_changes(tmp_path, {"runtime": "docker"})
+                result = _check_config_changes(tmp_path, {"runtime": "container"})
                 assert result is False
 
 
@@ -2371,8 +2358,8 @@ class TestSeedAgentDir:
 
 class TestMergeConfig:
     def test_scalar_override(self):
-        result = merge_config({"runtime": "podman"}, {"runtime": "docker"})
-        assert result["runtime"] == "docker"
+        result = merge_config({"runtime": "podman"}, {"runtime": "container"})
+        assert result["runtime"] == "container"
 
     def test_dict_deep_merge(self):
         result = merge_config(
@@ -3766,9 +3753,9 @@ class TestGpuHostAvailable:
         assert not ok
         assert reason and "does not support" in reason
 
-    def test_docker_runtime_unsupported(self, monkeypatch):
+    def test_unknown_runtime_unsupported(self, monkeypatch):
         monkeypatch.setattr(cli, "IS_MACOS", False)
-        ok, reason = _gpu_host_available("docker")
+        ok, reason = _gpu_host_available("unknown")
         assert not ok
         assert reason and "unsupported runtime" in reason
 

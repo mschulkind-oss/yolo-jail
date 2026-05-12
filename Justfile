@@ -1,4 +1,4 @@
-# Container runtime (podman or docker)
+# Container runtime (podman or container)
 runtime := env("YOLO_RUNTIME", "podman")
 
 default:
@@ -146,13 +146,13 @@ deploy: install
 
 # Build the container image using Nix
 build-image:
-    nix --extra-experimental-features 'nix-command flakes' build .#dockerImage
+    nix --extra-experimental-features 'nix-command flakes' build .#ociImage
 
 # Build the minimal image variant used by CI integration (no chromium,
 # gcc toolchain, nested-podman, or debug tools — ~1.6–2 GB smaller).
 # Contains everything tests/test_jail.py exercises but nothing more.
 build-image-minimal:
-    nix --extra-experimental-features 'nix-command flakes' build .#dockerImageMinimal
+    nix --extra-experimental-features 'nix-command flakes' build .#ociImageMinimal
 
 # Build and load the image into the container runtime
 load: build-image

@@ -117,7 +117,7 @@ Note: multiple public sources (including earlier research during this investigat
   - [ ] Atomic in-place write of `.credentials.json` (no rename — rename onto a bind-mounted file fails with EBUSY)
 - [ ] Systemd service + socket activation OR a simple always-on unit; socket activation would let the broker idle cheaply
 - [ ] Update `src/cli.py` to:
-  - [ ] Add `--add-host platform.claude.com:169.254.1.2` to the docker run command when the broker is running
+  - [ ] Add `--add-host platform.claude.com:169.254.1.2` to the container run command when the broker is running
   - [ ] Mount the CA cert into the jail
   - [ ] Set `NODE_EXTRA_CA_CERTS` env var
 - [ ] Add a `yolo broker status` / `yolo broker logs` subcommand

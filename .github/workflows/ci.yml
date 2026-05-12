@@ -86,7 +86,8 @@ jobs:
       # of yolo-jail (chromium + gcc + podman + nix) needed ~8 GB of store
       # plus the 4.3 GB streamed image tar on top of that, and ran OOD on
       # the last run.  Strip the ~25 GB of preinstalled toolchains we never
-      # touch and prune the runner's own Docker image cache before building.
+      # touch and prune the runner's preinstalled docker image cache before
+      # building (the runner's docker daemon is unrelated to yolo-jail).
       - name: Free disk space
         run: |
           df -h /
@@ -109,7 +110,7 @@ jobs:
         # It still contains everything tests/test_jail.py exercises.  The full
         # image builds locally via `just build-image` and runs in production.
         run: |
-          nix build --impure .#dockerImageMinimal
+          nix build --impure .#ociImageMinimal
           ./result > /tmp/jail-image.tar
           ls -lh /tmp/jail-image.tar
 

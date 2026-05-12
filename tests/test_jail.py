@@ -38,7 +38,9 @@ def _container_name_for_workspace(workspace: Path) -> str:
 def _force_remove_container(project_dir: Path):
     """Force-remove the jail container for a project directory."""
     runtime = os.environ.get("YOLO_RUNTIME") or (
-        "docker" if sys.platform == "darwin" and shutil.which("docker") else "podman"
+        "container"
+        if sys.platform == "darwin" and shutil.which("container")
+        else "podman"
     )
     cname = _container_name_for_workspace(project_dir)
     subprocess.run(

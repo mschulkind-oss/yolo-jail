@@ -12,7 +12,7 @@ runtime differences.
 ┌──────────────────────────────────────────────┐
 │  Linux Host (x86_64 or aarch64)              │
 │                                              │
-│  cli.py ──► podman/docker ──► Linux kernel   │
+│  cli.py ──► podman ──► Linux kernel          │
 │                                  │           │
 │                ┌─────────────────▼────────┐  │
 │                │  yolo-jail container      │  │
@@ -33,16 +33,16 @@ On Linux, the container shares the **host kernel** directly. All kernel
 features — cgroups, device nodes, user namespaces — are available natively.
 There is zero virtualisation overhead.
 
-### macOS — Docker / Podman (VM-mediated)
+### macOS — Podman (VM-mediated)
 
 ```
 ┌──────────────────────────────────────────────┐
 │  macOS Host (Apple Silicon or Intel)         │
 │                                              │
-│  cli.py ──► podman/docker CLI                │
+│  cli.py ──► podman CLI                       │
 │                 │                            │
 │  ┌──────────────▼───────────────────────┐    │
-│  │  Linux VM (Podman Machine / Colima)  │    │
+│  │  Linux VM (Podman Machine)           │    │
 │  │  Apple Hypervisor / Virtualization.f │    │
 │  │                                      │    │
 │  │  ┌──────────────────────────────┐    │    │
@@ -64,7 +64,7 @@ There is zero virtualisation overhead.
 └──────────────────────────────────────────────┘
 ```
 
-On macOS with Docker or Podman, a **Linux VM** sits between the host and
+On macOS with Podman, a **Linux VM** sits between the host and
 the container. The runtime manages this VM transparently.
 
 ### macOS — Apple Container (per-container VM)
@@ -104,8 +104,8 @@ and needs **no macOS changes**. Only `cli.py` (host-side) is platform-aware.
 
 ## Feature Matrix
 
-| Feature | Linux | macOS Docker/Podman | macOS Apple Container | Notes |
-|---------|:-----:|:-------------------:|:---------------------:|-------|
+| Feature | Linux | macOS Podman | macOS Apple Container | Notes |
+|---------|:-----:|:------------:|:---------------------:|-------|
 | **Core** | | | | |
 | Container isolation | ✅ | ✅ | ✅ | Read-only root, tmpfs |
 | Workspace mount (`/workspace`) | ✅ | ✅ | ✅ | VirtioFS on macOS |
@@ -117,12 +117,10 @@ and needs **no macOS changes**. Only `cli.py` (host-side) is platform-aware.
 | | | | | |
 | **Container Runtimes** | | | | |
 | Podman (rootless) | ✅ | ✅ | N/A | Podman Machine on macOS |
-| Docker | ✅ | ✅ | N/A | Docker Desktop / Colima |
 | Apple Container | N/A | N/A | ✅ | `YOLO_RUNTIME=container` |
 | Podman-in-Podman | ✅ | ✅ | ✅ | AC: own kernel with /dev/fuse |
-| Docker-in-Docker | ✅ | ✅ | ✅ | AC: own kernel with /dev/fuse |
 | Selfhosting (nested yolo-jail) | ✅ | ✅ | ✅ | All backends support nesting |
-| Runtime auto-detection | ✅ | ✅ | ✅ | macOS: Container > Podman > Docker |
+| Runtime auto-detection | ✅ | ✅ | ✅ | macOS: Container > Podman |
 | `YOLO_RUNTIME` env override | ✅ | ✅ | ✅ | |
 | | | | | |
 | **Networking** | | | | |
@@ -132,12 +130,12 @@ and needs **no macOS changes**. Only `cli.py` (host-side) is platform-aware.
 | Port publishing (`network.ports`) | ✅ | ✅ | ✅ | |
 | Port forwarding (`forward_host_ports`) | ✅ | ✅ | ✅ | Native `--publish-socket` on AC |
 | Unix socket forwarding | ✅ | ❌ | ✅ | VirtioFS rejects sockets; AC native |
-| TCP gateway fallback | N/A | ✅ | N/A | Docker/Podman only |
+| TCP gateway fallback | N/A | ✅ | N/A | Podman on macOS only |
 | | | | | |
 | **Image Building** | | | | |
-| `nix build .#dockerImage` | ✅ | ✅¹ | ✅¹ | ¹Builds from binary cache by default; Linux builder only needed for non-cached packages |
+| `nix build .#ociImage` | ✅ | ✅¹ | ✅¹ | ¹Builds from binary cache by default; Linux builder only needed for non-cached packages |
 | Native ARM image (aarch64) | ✅ | ✅ | ✅ | |
-| Image format | Docker V2 | Docker V2 | OCI² | ²Auto-converted via skopeo/podman/docker |
+| Image format | OCI | OCI | OCI² | ²Auto-converted via skopeo/podman |
 | | | | | |
 | **Agent Support** | | | | |
 | Claude Code / Copilot / Gemini | ✅ | ✅ | ✅ | |
@@ -157,7 +155,7 @@ and needs **no macOS changes**. Only `cli.py` (host-side) is platform-aware.
 | In-container cgroups v2 (writable) | ✅ | ❌ | ✅ | AC: own kernel = full cgroup tree |
 | `yolo-cglimit` in-container | ✅ | ❌ | ✅¹ | ¹Per-job CPU/mem limits work in AC! |
 | Per-container CPU/memory | ✅ | ❌ | ✅ | AC: `--cpus`, `--memory` native |
-| VM-level resource caps | N/A | ✅ | N/A | Podman Machine / Docker Desktop |
+| VM-level resource caps | N/A | ✅ | N/A | Podman Machine |
 | | | | | |
 | **Device & GPU Passthrough** | | | | |
 | Raw `/dev/*` paths | ✅ | ❌ | ❌ | |
@@ -207,7 +205,7 @@ imageSystem = builtins.replaceStrings ["-darwin"] ["-linux"] system;
 imagePkgs   = nixpkgs.legacyPackages.${imageSystem};
 ```
 
-All Docker image content uses `imagePkgs` (Linux packages). The devShell
+All OCI image content uses `imagePkgs` (Linux packages). The devShell
 uses `pkgs` (host-native packages, macOS on Mac).
 
 | Variable | Linux Host | macOS Host |
@@ -236,21 +234,20 @@ layer adds minimal overhead for compute-bound AI agent tasks.
 
 ## Container Runtime Comparison (macOS)
 
-| | Podman Machine | Docker Desktop | Colima | Apple Container |
-|---|---|---|---|---|
-| VM technology | Apple HV (applehv) | Apple HV | Virtualization.f (vz) | Virtualization.f (per-container) |
-| License | Free / open source | Free (personal) / paid | Free / open source | Free / open source (Apple) |
-| Podman-in-Podman | ✅ Native | ❌ | ❌ | ✅ (own kernel + /dev/fuse) |
-| Docker-in-Docker | ❌ | ✅ Native | ✅ (daemon in VM) | ✅ (own kernel + /dev/fuse) |
-| In-container cgroups | ❌ (read-only) | ❌ (read-only) | ❌ (read-only) | ✅ (writable, own kernel) |
-| Per-container CPU/mem | ❌ (VM-level only) | ❌ (VM-level only) | ❌ (VM-level only) | ✅ (`--cpus`, `--memory`) |
-| Resource defaults | Set at VM init | Set in GUI | Set at VM start | Auto: ½ host CPUs + ½ RAM |
-| File sharing | VirtioFS | VirtioFS / gRPC FUSE | VirtioFS (vz) | VirtioFS (per-container) |
-| Unix socket fwd | ❌ | ❌ | ❌ | ✅ (`--publish-socket`) |
-| Max bind mounts | Unlimited | Unlimited | Unlimited | ~22 (VZ.framework limit) |
-| Image format | Docker V2 | Docker V2 | Docker V2 | OCI layout |
-| `YOLO_RUNTIME=` | `podman` | `docker` | `docker` | `container` |
-| Maturity | Mature | Mature | Mature | Early stage (v0.x) |
+| | Podman Machine | Apple Container |
+|---|---|---|
+| VM technology | Apple HV (applehv) | Virtualization.f (per-container) |
+| License | Free / open source | Free / open source (Apple) |
+| Podman-in-Podman | ✅ Native | ✅ (own kernel + /dev/fuse) |
+| In-container cgroups | ❌ (read-only) | ✅ (writable, own kernel) |
+| Per-container CPU/mem | ❌ (VM-level only) | ✅ (`--cpus`, `--memory`) |
+| Resource defaults | Set at VM init | Auto: ½ host CPUs + ½ RAM |
+| File sharing | VirtioFS | VirtioFS (per-container) |
+| Unix socket fwd | ❌ | ✅ (`--publish-socket`) |
+| Max bind mounts | Unlimited | ~22 (VZ.framework limit) |
+| Image format | OCI | OCI layout |
+| `YOLO_RUNTIME=` | `podman` | `container` |
+| Maturity | Mature | Early stage (v0.x) |
 
 ## Error Handling on macOS
 
@@ -283,10 +280,10 @@ paths. This ensures:
 - Tests that need real macOS behaviour can override via `monkeypatch`
 
 `tests/test_macos_paths.py` contains dedicated tests that explicitly set
-`IS_MACOS=True` and exercise every macOS code path with mocked Docker/Nix.
-This includes 15 Docker/Podman macOS tests and 10 Apple Container-specific
-tests covering runtime detection, image commands, container listing, stuck
-check handling, flag filtering, and `_runtime_for_check()`.
+`IS_MACOS=True` and exercise every macOS code path with mocked runtimes/Nix.
+This includes Podman/Apple Container macOS tests covering runtime detection,
+image commands, container listing, stuck check handling, flag filtering,
+and `_runtime_for_check()`.
 
 Integration tests (`test_jail.py`) that need cgroup access auto-skip via
 `_skip_if_cgroup_readonly()` since `/sys/fs/cgroup` doesn't exist on macOS.

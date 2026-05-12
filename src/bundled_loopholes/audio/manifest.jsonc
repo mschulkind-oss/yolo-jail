@@ -4,7 +4,7 @@
 // ``claude /voice``, any other Claude Code audio features, and
 // generally anything that uses `sox`, `ffmpeg`, `parecord`, etc.
 //
-// macOS is deliberately unsupported: Docker Desktop / Apple Container
+// macOS is deliberately unsupported: the macOS container runtimes
 // don't bridge host CoreAudio, so there's no socket to pass through.
 // The ``requires.file_exists`` gate keeps this loophole silently
 // inactive on macOS (XDG_RUNTIME_DIR is unset or the socket doesn't

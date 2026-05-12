@@ -570,7 +570,7 @@ def _disk_usage_report(*, workspaces: Iterable[Path], global_storage: Path) -> d
 # before those were split out into per-workspace overlays.
 #
 # SAFETY: every path here MUST be fully shadowed by an overlay bind
-# mount declared in cli.py's docker_cmd (or by a redirect env var like
+# mount declared in cli.py's run_cmd (or by a redirect env var like
 # NPM_CONFIG_CACHE that points reads elsewhere while the :ro base makes
 # writes fail).  The drift-check in tests/test_prune.py greps cli.py
 # at test time to enforce this — if an overlay mount is removed without

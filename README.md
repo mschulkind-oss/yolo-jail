@@ -3,7 +3,7 @@
 [![CI](https://github.com/mschulkind/yolo-jail/actions/workflows/ci.yml/badge.svg)](https://github.com/mschulkind/yolo-jail/actions/workflows/ci.yml)
 [![License](https://img.shields.io/badge/License-Apache_2.0-blue.svg)](LICENSE)
 
-A secure, isolated container environment for AI agents (Claude Code, Copilot, Gemini CLI) to safely modify codebases without compromising host security or identity. Runs on **Linux and macOS** (Apple Silicon and Intel) with Docker, Podman, or Apple Container.
+A secure, isolated container environment for AI agents (Claude Code, Copilot, Gemini CLI) to safely modify codebases without compromising host security or identity. Runs on **Linux and macOS** (Apple Silicon and Intel) with Podman or Apple Container.
 
 ## Why?
 
@@ -18,14 +18,14 @@ AI coding agents like Claude Code, GitHub Copilot, and Google Gemini CLI have a 
 
 ## Features
 
-- **Isolated:** Runs in a Docker/Podman container with no access to host credentials
+- **Isolated:** Runs in a podman or Apple Container container with no access to host credentials
 - **Optimized:** Pre-installed with modern, fast tools (`rg`, `fd`, `bat`, `eza`, `jq`, `delta`, `fzf`)
 - **Restricted:** Blocked tools return clear errors with suggestions (e.g., `rg` instead of `grep`)
 - **Reproducible:** Defined entirely via Nix Flakes
 - **Agent-Ready:** MCP presets (Chrome DevTools, Sequential Thinking) and LSP servers (Pyright, TypeScript) — enable by name
 - **Configurable:** Per-project config via `yolo-jail.jsonc`, user defaults via `~/.config/yolo-jail/config.jsonc`
 - **Container Reuse:** Same workspace reuses the same container via `exec`
-- **Runtime Flexible:** Works with both Docker and Podman (prefers Podman)
+- **Runtime Flexible:** Works with podman (Linux/macOS) and Apple Container (macOS native)
 - **Cross-Platform:** Full support for Linux and macOS (Apple Silicon and Intel)
 
 ## Prerequisites
@@ -36,13 +36,12 @@ Core requirements (both platforms):
 - **[Nix](https://nixos.org/download/)** (with flakes enabled)
 - A container runtime — one of:
   - **[Podman](https://podman.io/)** (preferred on Linux; Podman Machine on macOS)
-  - **[Docker](https://docs.docker.com/)** (Docker Engine on Linux; Docker Desktop or [Colima](https://github.com/abiosoft/colima) on macOS)
   - **[Apple Container](https://github.com/apple/container)** (native macOS, `brew install container`)
 
 Platform specifics:
 
-- **Linux** — any modern distribution with Docker or Podman. No extra setup.
-- **macOS** — Apple Silicon or Intel. You need a container runtime (Apple Container, Podman Machine, Docker Desktop, or Colima). A remote Nix Linux builder is **optional** — the standard image builds entirely from the NixOS binary cache. See [docs/macos.md](docs/macos.md).
+- **Linux** — any modern distribution with Podman. No extra setup.
+- **macOS** — Apple Silicon or Intel. You need a container runtime (Apple Container or Podman Machine). A remote Nix Linux builder is **optional** — the standard image builds entirely from the NixOS binary cache. See [docs/macos.md](docs/macos.md).
 
 ## Installation
 
@@ -79,21 +78,12 @@ yolo init-user-config
 **Platform-specific runtime setup** (one-time, needed for both install options):
 
 ```bash
-# Linux — Podman (recommended)
+# Linux — Podman
 sudo pacman -S podman                   # or apt/dnf/pacman for your distro
-
-# Linux — Docker
-sudo apt-get install docker.io          # or your distro equivalent
-sudo usermod -aG docker $USER
 
 # macOS — Apple Container (native, recommended)
 brew install container skopeo
 container system start
-
-# macOS — Docker via Colima (headless/CI Macs)
-brew install colima docker
-colima start --cpu 4 --memory 8 --mount-type virtiofs \
-  --mount "$HOME:w" --mount /private/tmp:w --mount /private/var/folders:w
 
 # macOS — Podman Machine
 brew install podman
@@ -137,7 +127,7 @@ yolo ps
 yolo config-ref
 ```
 
-On macOS, `yolo doctor` additionally checks the VM backend (Podman Machine, Colima, or Apple Container `system status`) and (if configured) the Nix remote Linux builder.
+On macOS, `yolo doctor` additionally checks the VM backend (Podman Machine or Apple Container `system status`) and (if configured) the Nix remote Linux builder.
 
 ### First Run
 
@@ -167,7 +157,7 @@ Create a per-project config in `yolo-jail.jsonc`:
 
 ```jsonc
 {
-  "runtime": "podman",              // or "docker" or "container" (Apple Container)
+  "runtime": "podman",              // or "container" (Apple Container)
   "packages": ["strace", "htop"],   // extra nix packages
   "mounts": ["/path/to/ref-repo"],  // extra read-only mounts
   "network": {

@@ -1,25 +1,24 @@
 # macOS Setup Guide
 
 YOLO Jail supports macOS (Apple Silicon and Intel) in addition to Linux.
-On macOS the container image is still a **Linux container** — Docker Desktop,
-Colima, Podman Machine, or Apple Container transparently runs a lightweight
-Linux VM, so the jail experience is nearly identical to a native Linux host.
+On macOS the container image is still a **Linux container** — Podman Machine
+or Apple Container transparently runs a lightweight Linux VM, so the jail
+experience is nearly identical to a native Linux host.
 
 ## Runtimes
 
-macOS supports three container runtimes:
+macOS supports two container runtimes:
 
 | Runtime | Backend | Best For |
 |---------|---------|----------|
 | **Podman** | Podman Machine (Apple HV) | Desktop Macs, Podman-in-Podman |
-| **Docker** | Docker Desktop or Colima | Headless/CI Macs, broadest compat |
 | **Apple Container** | Virtualization.framework | Native macOS, per-container resource limits |
 
-Set the runtime with `YOLO_RUNTIME=podman`, `docker`, or `container`.
+Set the runtime with `YOLO_RUNTIME=podman` or `container`.
 
 Auto-detection priority:
-- **macOS:** Apple Container → Podman → Docker (native-first)
-- **Linux:** Podman → Docker
+- **macOS:** Apple Container → Podman (native-first)
+- **Linux:** Podman
 
 ## Prerequisites
 
@@ -27,8 +26,7 @@ Auto-detection priority:
 |------|---------|-------|
 | **[uv](https://docs.astral.sh/uv/)** | `curl -LsSf https://astral.sh/uv/install.sh \| sh` | Python package manager |
 | **[Nix](https://nixos.org/download/)** | [Determinate Nix Installer](https://github.com/DeterminateSystems/nix-installer) recommended | Flakes must be enabled |
-| **[Podman](https://podman.io/)** | `brew install podman` | Preferred runtime (requires Podman Machine) |
-| **[Docker](https://docs.docker.com/desktop/install/mac-install/)** | Docker Desktop or [Colima](https://github.com/abiosoft/colima) | Alternative runtime |
+| **[Podman](https://podman.io/)** | `brew install podman` | Cross-platform runtime (requires Podman Machine) |
 | **[Apple Container](https://github.com/apple/container)** | `brew install container` | Native macOS runtime (macOS 15+) |
 
 ### Podman Machine Setup
@@ -46,23 +44,6 @@ podman machine start
 
 The machine persists across reboots. Use `podman machine stop` / `podman machine start`
 to manage it.
-
-### Docker via Colima (alternative)
-
-[Colima](https://github.com/abiosoft/colima) provides Docker on macOS without
-Docker Desktop. This is especially useful on headless/CI Macs (e.g. EC2 Mac
-instances) where Podman Machine's Apple Hypervisor may not work:
-
-```bash
-brew install colima docker
-
-# Start with writable mounts for /tmp and /var/folders
-colima start --cpu 4 --memory 8 --disk 30 \
-  --mount-type virtiofs \
-  --mount /Users/$USER:w \
-  --mount /private/var/folders:w \
-  --mount /private/tmp:w
-```
 
 ### Apple Container (native macOS runtime)
 
@@ -87,27 +68,27 @@ container system kernel set --recommended
 **Key advantages:**
 - Native per-container CPU/memory limits (no cgroup delegation needed)
 - Native Unix socket forwarding (no TCP gateway workaround)
-- Smallest footprint — no separate VM daemon (Colima/Podman Machine)
+- Smallest footprint — no separate VM daemon
 
 **Key limitations:**
 - Maximum ~22 bind mounts per container (Virtualization.framework limit)
 - No `--net=host` or network mode control
 - No security capabilities (`--cap-add`, `--security-opt`)
-- Early-stage project — fewer features than Docker/Podman
+- Early-stage project — fewer features than Podman
 
 **Image conversion:** Apple Container requires OCI-format images. YOLO Jail
-auto-converts from Nix's Docker V2 format using (in priority order):
+auto-converts from Nix's streamed image tar using (in priority order):
 1. **skopeo** (recommended — no daemon needed): `brew install skopeo`
-2. **podman** or **docker** (needs running daemon as fallback)
+2. **podman** (needs running daemon as fallback)
 
 ### Nix Linux Builder (optional, binary cache substitution used by default)
 
-The Docker image contains Linux binaries (`aarch64-linux` or `x86_64-linux`).
+The OCI image contains Linux binaries (`aarch64-linux` or `x86_64-linux`).
 YOLO Jail's flake is structured so that all build-time Nix machinery
-(`dockerTools`, `writeShellScriptBin`, etc.) runs natively on your macOS host,
-while the image *content* (chromium, bash, python, etc.) is fetched directly
-from the NixOS binary cache. **No remote Linux builder is required for a
-normal install.**
+(image-layer tooling, `writeShellScriptBin`, etc.) runs natively on your macOS
+host, while the image *content* (chromium, bash, python, etc.) is fetched
+directly from the NixOS binary cache. **No remote Linux builder is required
+for a normal install.**
 
 A Linux builder is only needed if you:
 - Modify the flake to add packages that are not in the binary cache, **or**
@@ -117,53 +98,7 @@ A Linux builder is only needed if you:
 > config. This tells Nix to execute Linux binaries locally, which fails on
 > macOS. Instead, use a remote builder if you need one.
 
-**Option A — Colima VM as Nix builder (for cache misses)**
-
-Install Nix inside the Colima VM and configure it as a remote builder:
-
-```bash
-# Install Nix inside Colima
-colima ssh -- sh -c 'curl --proto "=https" --tlsv1.2 -sSf -L \
-  https://install.determinate.systems/nix | sh -s -- install --no-confirm'
-
-# Get the SSH port
-COLIMA_PORT=$(colima ssh-config | awk '/Port/ {print $2}')
-
-# Configure SSH alias for "nix-builder" (for both root and your user)
-cat >> ~/.ssh/config <<EOF
-
-Host nix-builder
-  HostName 127.0.0.1
-  Port $COLIMA_PORT
-  User $USER
-  IdentityFile ~/.colima/_lima/_config/user
-  StrictHostKeyChecking no
-  UserKnownHostsFile /dev/null
-EOF
-sudo cp ~/.ssh/config /var/root/.ssh/config
-
-# Register the builder with Nix
-echo "ssh-ng://nix-builder aarch64-linux $HOME/.colima/_lima/_config/user 4 1 benchmark,big-parallel,kvm" \
-  | sudo tee /etc/nix/machines
-
-# Enable substitutes from the builder
-echo 'builders-use-substitutes = true' | sudo tee -a /etc/nix/nix.custom.conf
-
-# Restart Nix daemon (use whichever label matches your installer)
-sudo launchctl kickstart -k system/systems.determinate.nix-daemon  # Determinate installer
-# or:
-sudo launchctl kickstart -k system/org.nixos.nix-daemon             # Official NixOS installer
-```
-
-> The service label depends on which Nix installer you used. Determinate
-> Systems' installer registers `systems.determinate.nix-daemon`; the
-> official NixOS installer registers `org.nixos.nix-daemon`. Check
-> `ls /Library/LaunchDaemons/ | grep nix-daemon` if you're unsure.
-
-> **Note:** The Colima SSH port changes on VM restart. After `colima start`,
-> update `~/.ssh/config` and `/var/root/.ssh/config` with the new port.
-
-**Option B — NixOS linux-builder (built-in)**
+**Option A — NixOS linux-builder (built-in)**
 
 The built-in NixOS linux-builder starts a QEMU VM that acts as a remote Nix
 builder. Unlike Colima, it requires no extra installation — just Nix itself.
@@ -282,7 +217,7 @@ ssh nix-linux-builder echo ok
 You should see `ok` printed. If SSH asks for a password, the key wasn't copied
 correctly — revisit Step 3.
 
-**Option C — Remote Linux host**
+**Option B — Remote Linux host**
 
 Configure a remote builder in `/etc/nix/machines`. See the
 [Nix manual on distributed builds](https://nix.dev/manual/nix/latest/advanced-topics/distributed-builds).
@@ -309,8 +244,8 @@ typically does **not** share `/nix` from the host, so the bind mount would
 fail with a `statfs` error at startup. YOLO Jail therefore skips this mount
 on macOS by default.
 
-If your runtime VM *does* share `/nix` into the container (e.g. a Colima or
-Docker Desktop setup with a custom virtiofs mount of `/nix`), opt back in:
+If your runtime VM *does* share `/nix` into the container (e.g. a custom
+virtiofs mount of `/nix` in Podman Machine), opt back in:
 
 ```bash
 export YOLO_NIX_HOST_DAEMON=1
@@ -346,7 +281,7 @@ git clone https://github.com/mschulkind-oss/yolo-jail.git
 cd yolo-jail
 just deploy          # builds, installs the yolo CLI, sets up refresher if applicable
 
-# Build the Docker image (downloads Linux packages directly from the
+# Build the OCI image (downloads Linux packages directly from the
 # NixOS binary cache; no remote builder needed for the default install)
 yolo build
 
@@ -366,7 +301,7 @@ yolo run
 Set the runtime explicitly if needed:
 
 ```bash
-export YOLO_RUNTIME=podman   # or docker, or container
+export YOLO_RUNTIME=podman   # or container
 yolo run
 ```
 
@@ -378,10 +313,9 @@ Everything that works on Linux works on macOS **except** the items listed in
 - ✅ Full jail isolation (read-only root, no host credentials)
 - ✅ Workspace mounting at `/workspace`
 - ✅ Podman-in-Podman (nested containers via Podman Machine)
-- ✅ Docker-in-Docker (via Docker Desktop / Colima)
 - ✅ MCP server presets (Chrome DevTools, Sequential Thinking, etc.)
 - ✅ LSP servers (Pyright, TypeScript)
-- ✅ Port forwarding and publishing (via TCP gateway on Docker/Podman, native sockets on Apple Container)
+- ✅ Port forwarding and publishing (via TCP gateway on Podman, native sockets on Apple Container)
 - ✅ `mise` tool management inside the jail
 - ✅ Agent launchers (Claude Code, Copilot, Gemini CLI)
 - ✅ Container reuse across sessions
@@ -405,14 +339,12 @@ the host-side cgroup delegation daemon are unavailable. This means:
 - The cgroup delegate socket (`/tmp/yolo-cgd/cgroup.sock`) is created as an
   empty directory so the container volume mount succeeds, but no daemon listens
 
-**Workaround:** Use Docker Desktop's or Podman Machine's built-in resource
-controls to limit the VM's CPU/memory instead:
+**Workaround:** Use Podman Machine's built-in resource controls to limit
+the VM's CPU/memory instead:
 
 ```bash
 # Podman: configure at init time
 podman machine init --cpus 2 --memory 4096
-
-# Docker Desktop: Settings → Resources → Advanced
 ```
 
 **Apple Container:** Native per-container resource limits work out of the box:
@@ -423,8 +355,8 @@ YOLO_RUNTIME=container yolo run  # uses --cpus and --memory flags natively
 
 ### GPU Passthrough
 
-NVIDIA GPU passthrough (Docker `--gpus` / Podman CDI) is not available on
-macOS. Apple Silicon GPUs use Metal, not CUDA/OpenCL.
+NVIDIA GPU passthrough (Podman CDI) is not available on macOS. Apple Silicon
+GPUs use Metal, not CUDA/OpenCL.
 
 - `"gpu": {"enabled": true}` in config is silently skipped with a warning
 - `yolo check` reports GPU passthrough as unavailable on macOS
@@ -449,7 +381,7 @@ this has no practical impact.
 
 ## Architecture
 
-### Docker / Podman
+### Podman
 
 ```
 ┌─────────────────────────────────────────┐
@@ -460,7 +392,7 @@ this has no practical impact.
 │  └───────┬───────┘  └────────────────┘  │
 │          │                               │
 │  ┌───────▼──────────────────────────┐   │
-│  │  Podman Machine / Docker Desktop  │   │
+│  │  Podman Machine                    │   │
 │  │  (Linux VM — Apple Hypervisor)    │   │
 │  │  ┌────────────────────────────┐  │   │
 │  │  │  yolo-jail container        │  │   │
@@ -503,7 +435,7 @@ this has no practical impact.
 Key insight: `cli.py` runs on the macOS host and is platform-aware.
 `entrypoint.py` runs inside the Linux container and needs no macOS changes.
 The Nix flake uses `pkgs` (native macOS) for all build-time derivations
-(`dockerTools`, `writeShellScriptBin`, `stdenv.mkDerivation`, etc.) and
+(image-layer tooling, `writeShellScriptBin`, `stdenv.mkDerivation`, etc.) and
 `imagePkgs` (Linux target) only for the *content* of the image (chromium, bash,
 python, etc.). This means the image can be built on macOS using the NixOS
 binary cache — no cross-compilation or remote Linux builder required.
@@ -519,13 +451,9 @@ store APFS volume.
 ### Podman Machine won't start
 
 On headless Macs (EC2, CI), Podman Machine may fail because Apple's
-Hypervisor.framework requires a GUI session. Use Colima + Docker instead:
-
-```bash
-brew install colima docker
-colima start --cpu 4 --memory 8 --disk 30 --mount-type virtiofs
-export YOLO_RUNTIME=docker
-```
+Hypervisor.framework requires a GUI session. On such hosts, consider using
+Apple Container instead (`YOLO_RUNTIME=container`) which uses
+Virtualization.framework per-container.
 
 On desktop Macs, try resetting the machine:
 
@@ -549,12 +477,12 @@ If `yolo build` or `yolo run` fails to load the image, try manually:
 
 ```bash
 # Build the image
-nix build .#dockerImage --no-link --print-out-paths
+nix build .#ociImage --no-link --print-out-paths
 
-# Stream it into Docker/Podman
-STORE_PATH=$(nix build .#dockerImage --no-link --print-out-paths)
+# Stream it into Podman
+STORE_PATH=$(nix build .#ociImage --no-link --print-out-paths)
 # If using a remote builder, stream via SSH:
-ssh nix-builder "$STORE_PATH" | docker load
+ssh nix-builder "$STORE_PATH" | podman load
 ```
 
 ### Slow first build
@@ -567,21 +495,20 @@ compilation time.
 
 ### File ownership issues
 
-Docker Desktop and Podman Machine use different volume-mount implementations.
-On macOS with Docker via Colima, containers run as root (UID 0) because the
-VM handles file ownership mapping via virtiofs. This is handled automatically
+On macOS, Podman Machine handles file ownership mapping via virtiofs so
+containers see your host-side files correctly. This is handled automatically
 by `cli.py`.
 
 ### Port forwarding not working
 
-**Docker/Podman:** Host↔container port forwarding uses TCP via
-`host.docker.internal` instead of Unix domain sockets (virtiofs doesn't
+**Podman:** Host↔container port forwarding uses TCP via
+`host.containers.internal` instead of Unix domain sockets (virtiofs doesn't
 support them). This is automatic — if port forwarding fails, ensure:
 
 1. `socat` is available inside the container (it's in the default image)
 2. The host service is listening on the configured port
-3. `host.docker.internal` resolves inside the container:
-   `docker exec <container> ping -c1 host.docker.internal`
+3. `host.containers.internal` resolves inside the container:
+   `podman exec <container> ping -c1 host.containers.internal`
 
 **Apple Container:** Uses native `--publish-socket` for direct Unix socket
 forwarding. No TCP gateway or socat needed.
@@ -605,21 +532,19 @@ container system kernel set --recommended
 ### Apple Container: image load fails
 
 Apple Container only accepts OCI-layout image tars. YOLO Jail automatically
-converts via skopeo (preferred) or docker/podman as fallback:
+converts via skopeo (preferred) or podman as fallback:
 
 ```bash
 # Recommended: install skopeo (no daemon needed)
 brew install skopeo
 
-# Or use docker/podman as fallback (needs running daemon)
-colima start
+# Or use podman as fallback (needs running daemon)
+podman machine start
 ```
 
 ### `/tmp` bind mount failures
 
 macOS `/tmp` is a symlink to `/private/tmp`.
-
-**Colima/Docker:** Ensure Colima is started with `--mount /private/tmp:w`.
 
 **Podman Machine:** The VM mounts `/private` from the host via virtiofs but
 does not resolve the `/tmp` symlink itself. YOLO Jail automatically calls

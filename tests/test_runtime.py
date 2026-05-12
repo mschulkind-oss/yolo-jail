@@ -22,8 +22,8 @@ from cli import _runtime  # noqa: E402
 
 
 def test_runtime_env_var_overrides_config():
-    with patch.dict(os.environ, {"YOLO_RUNTIME": "docker"}):
-        assert _runtime({"runtime": "podman"}) == "docker"
+    with patch.dict(os.environ, {"YOLO_RUNTIME": "container"}):
+        assert _runtime({"runtime": "podman"}) == "container"
 
 
 def test_runtime_config_used_when_no_env():
@@ -43,14 +43,14 @@ def test_runtime_auto_detect_when_no_config():
                 "/usr/bin/podman" if x == "podman" else None
             )
             result = _runtime({})
-            assert result in ("podman", "docker", "container")
+            assert result in ("podman", "container")
 
 
 def test_runtime_rejects_invalid_env():
     with patch.dict(os.environ, {"YOLO_RUNTIME": "containerd"}):
         # Invalid env value ignored, falls through to config/auto-detect
-        result = _runtime({"runtime": "docker"})
-        assert result == "docker"
+        result = _runtime({"runtime": "container"})
+        assert result == "container"
 
 
 def test_runtime_rejects_invalid_config():
@@ -61,10 +61,10 @@ def test_runtime_rejects_invalid_config():
             patch("cli._runtime_is_connectable", return_value=True),
         ):
             mock_which.side_effect = lambda x: (
-                "/usr/bin/docker" if x == "docker" else None
+                "/usr/bin/podman" if x == "podman" else None
             )
             result = _runtime({"runtime": "lxc"})
-            assert result in ("podman", "docker", "container")
+            assert result in ("podman", "container")
 
 
 def test_check_help_mentions_every_config_edit():
@@ -103,7 +103,7 @@ def test_generated_agents_md_mentions_yolo_check(tmp_path, monkeypatch):
 
 
 def test_ensure_global_storage_creates_mount_parents(tmp_path, monkeypatch):
-    """Pre-create intermediate dirs so Docker daemon doesn't create them as root."""
+    """Pre-create intermediate dirs so the container runtime doesn't create them as root."""
     import cli
 
     monkeypatch.setattr(cli, "GLOBAL_HOME", tmp_path / "home")
@@ -118,7 +118,7 @@ def test_ensure_global_storage_creates_mount_parents(tmp_path, monkeypatch):
     assert (tmp_path / "mise").is_dir()
     assert (tmp_path / "containers").is_dir()
     assert (tmp_path / "agents").is_dir()
-    # Intermediate mount-parent dirs that Docker would otherwise create as root
+    # Intermediate mount-parent dirs that the runtime would otherwise create as root
     assert (tmp_path / "home" / ".copilot").is_dir()
     assert (tmp_path / "home" / ".gemini").is_dir()
     assert (tmp_path / "home" / ".claude").is_dir()
@@ -132,9 +132,9 @@ def test_sentinel_is_per_runtime(tmp_path):
     """Verify that .last-load-<runtime> sentinel files are created per runtime."""
     # Just check the sentinel path logic (don't actually load)
     # We can verify by checking the sentinel attribute
-    sentinel_docker = tmp_path / ".last-load-docker"
+    sentinel_container = tmp_path / ".last-load-container"
     sentinel_podman = tmp_path / ".last-load-podman"
-    assert not sentinel_docker.exists()
+    assert not sentinel_container.exists()
     assert not sentinel_podman.exists()
 
 
@@ -160,7 +160,7 @@ def test_skip_image_load_when_container_running(tmp_path, monkeypatch):
         patch.object(cli, "find_running_container", return_value="abc123def456"),
         patch.object(cli, "load_config", return_value={}),
         patch.object(cli, "ensure_global_storage"),
-        patch.object(cli, "_runtime", return_value="docker"),
+        patch.object(cli, "_runtime", return_value="podman"),
         patch.object(cli, "_tmux_rename_window"),
         patch.object(cli.subprocess, "run", return_value=fake_proc),
     ):
@@ -202,7 +202,7 @@ def test_exec_path_no_unbound_errors(tmp_path, monkeypatch):
         patch.object(cli, "find_running_container", return_value="abc123def456"),
         patch.object(cli, "load_config", return_value={}),
         patch.object(cli, "ensure_global_storage"),
-        patch.object(cli, "_runtime", return_value="docker"),
+        patch.object(cli, "_runtime", return_value="podman"),
         patch.object(cli, "_tmux_rename_window"),
         patch.object(cli.subprocess, "run", side_effect=capture_run),
     ):
@@ -216,16 +216,14 @@ def test_exec_path_no_unbound_errors(tmp_path, monkeypatch):
             pass
 
     assert exec_args, (
-        "subprocess.run should have been called with the docker exec command"
+        "subprocess.run should have been called with the runtime's exec command"
     )
     assert any(any("exec" in str(a) for a in cmd) for cmd in exec_args), (
-        "should have called docker exec"
+        "should have called the runtime's exec command"
     )
 
 
 AVAILABLE_RUNTIMES = []
-if shutil.which("docker"):
-    AVAILABLE_RUNTIMES.append("docker")
 if shutil.which("podman"):
     # On macOS, podman requires a running VM (Podman Machine).  Only include
     # it if `podman info` succeeds (confirms the machine is reachable).

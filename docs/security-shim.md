@@ -52,7 +52,7 @@ The security shim is the **only code that bridges the trust boundary** between t
 
 ### 1. Container Lifecycle (~100 lines)
 
-**What it does**: Constructs and executes the `docker run` / `podman run` command.
+**What it does**: Constructs and executes the `podman run` / `container run` command.
 
 **Why it's privileged**: This is the moment where host resources (filesystem, devices, network) are granted to the container. The flags passed here define the entire sandbox boundary.
 
@@ -67,7 +67,7 @@ The security shim is the **only code that bridges the trust boundary** between t
 | No concurrent races | `fcntl.flock()` on workspace lock file |
 | Arguments are not shell-injected | `subprocess` list mode (no `shell=True`) |
 
-**Audit target**: The `docker_args` / `podman_args` list construction in `run()`. Every flag is visible, every mount is explicit.
+**Audit target**: The runtime-flag list construction in `run()`. Every flag is visible, every mount is explicit.
 
 ### 2. Cgroup Delegate Daemon (~300 lines)
 
@@ -153,7 +153,7 @@ HOST (trusted)
   │
   ├── cli.py runtime ◄── THE SECURITY SHIM
   │     ├── Container lifecycle ◄── SHIM COMPONENT 1
-  │     │     └── docker/podman run (defines sandbox)
+  │     │     └── podman/container run (defines sandbox)
   │     ├── Port-forward bridge ◄── SHIM COMPONENT 3
   │     │     └── socat host↔container via Unix socket
   │     └── Cgroup delegate daemon ◄── SHIM COMPONENT 2
@@ -242,7 +242,7 @@ To verify YOLO Jail's security, audit these specific code sections:
 
 ## Future Work
 
-- **seccomp profiles**: Restrict the container's syscall surface beyond what Docker/Podman defaults provide. This would further reduce what a compromised container can attempt.
+- **seccomp profiles**: Restrict the container's syscall surface beyond what the runtime's defaults provide. This would further reduce what a compromised container can attempt.
 - **AppArmor/SELinux policies**: Mandatory access control profiles tailored to YOLO Jail's specific mount and capability set.
 - **Formal verification**: The cgroup daemon protocol is small enough (3 operations, ~300 lines) to be a candidate for lightweight formal verification or property-based testing.
 - **Socket authentication**: While SO_PEERCRED is unforgeable, we could add a per-session nonce exchanged at container startup to bind the socket to a specific container instance.

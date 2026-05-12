@@ -30,7 +30,7 @@ jobs:
 
       - name: Build jail image
         run: |
-          nix build --impure .#dockerImage
+          nix build --impure .#ociImage
           ./result > /tmp/jail-image.tar
 
       - name: Upload jail image
@@ -41,7 +41,7 @@ jobs:
           retention-days: 1
 
   integration-macos:
-    # macOS Intel runners support nested virtualization, so Docker via Colima works.
+    # macOS Intel runners support nested virtualization via Podman Machine.
     # Note: x86_64 not ARM — tests the macOS code paths, not native ARM performance.
     runs-on: macos-13
     needs: build-image
@@ -56,10 +56,11 @@ jobs:
       - name: Install Python dependencies
         run: uv sync --group dev
 
-      - name: Install Docker via Colima
+      - name: Install Podman
         run: |
-          brew install --quiet colima docker socat
-          colima start --cpu 2 --memory 4 --disk 30 --mount-type sshfs
+          brew install --quiet podman
+          podman machine init --cpus 2 --memory 4096 --disk-size 30
+          podman machine start
 
       - name: Download jail image
         uses: actions/download-artifact@v8
@@ -69,10 +70,10 @@ jobs:
 
       - name: Load jail image
         run: |
-          docker load < /tmp/jail-image.tar
-          docker tag yolo-jail:latest localhost/yolo-jail:latest
+          podman load < /tmp/jail-image.tar
+          podman tag yolo-jail:latest localhost/yolo-jail:latest
 
-      - name: Integration tests (macOS + Docker)
-        run: uv run pytest tests/test_jail.py tests/test_runtime.py -v -k "not podman"
+      - name: Integration tests (macOS + Podman)
+        run: uv run pytest tests/test_jail.py tests/test_runtime.py -v
         env:
-          YOLO_RUNTIME: docker
+          YOLO_RUNTIME: podman

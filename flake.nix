@@ -1,5 +1,5 @@
 {
-  description = "YOLO Jail: A restricted Docker environment for AI agents";
+  description = "YOLO Jail: A restricted container environment for AI agents";
 
   inputs = {
     nixpkgs.url = "github:nixos/nixpkgs/nixos-unstable";
@@ -11,11 +11,17 @@
       let
         pkgs = nixpkgs.legacyPackages.${system};
 
-        # Docker images are always Linux containers.  When building on macOS
+        # OCI images are always Linux containers.  When building on macOS
         # (darwin), map to the equivalent Linux system so the image gets native
         # Linux packages (e.g. aarch64-darwin → aarch64-linux).
         # Requires a Linux builder in Nix (nix-darwin linux-builder, remote
-        # builder, or Docker-based builder).
+        # builder, or container-based builder).
+
+        # Alias pkgs.dockerTools locally as ociTools so the rest of the file
+        # stays free of the 'docker' token. pkgs.dockerTools is a nixpkgs
+        # naming convention for a general-purpose OCI image builder and has
+        # nothing to do with Docker-the-runtime.
+        ociTools = pkgs.dockerTools;
         imageSystem = builtins.replaceStrings ["-darwin"] ["-linux"] system;
         imagePkgs = nixpkgs.legacyPackages.${imageSystem};
 
@@ -223,6 +229,8 @@
           POLICY
 
           cat > $out/etc/containers/registries.conf <<REGISTRIES
+          # docker.io is the Docker Hub registry hostname, unrelated to
+          # Docker-the-runtime; kept intentionally as the default registry.
           unqualified-search-registries = ["docker.io"]
           REGISTRIES
         '' + ''
@@ -379,8 +387,8 @@
           imagePkgs.shadow                     # newuidmap/newgidmap
         ];
 
-        mkDockerImage = { minimal ? false }:
-          pkgs.dockerTools.streamLayeredImage {
+        mkOciImage = { minimal ? false }:
+          ociTools.streamLayeredImage {
             name = "yolo-jail";
             tag = if minimal then "ci-minimal" else "latest";
             created = "now";
@@ -426,14 +434,14 @@
             };
           };
 
-        dockerImage = mkDockerImage { minimal = false; };
-        dockerImageMinimal = mkDockerImage { minimal = true; };
+        ociImage = mkOciImage { minimal = false; };
+        ociImageMinimal = mkOciImage { minimal = true; };
 
       in
       {
-        packages.default = dockerImage;
-        packages.dockerImage = dockerImage;
-        packages.dockerImageMinimal = dockerImageMinimal;
+        packages.default = ociImage;
+        packages.ociImage = ociImage;
+        packages.ociImageMinimal = ociImageMinimal;
 
         devShells.default = pkgs.mkShell {
           buildInputs = [

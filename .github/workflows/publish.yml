@@ -139,7 +139,7 @@ jobs:
           )
 
           # Replace poet's `false` test stub with a real smoke test.
-          # `yolo --help` exits 0 without needing podman/docker/nix and emits
+          # `yolo --help` exits 0 without needing podman/container/nix and emits
           # the distinctive "YOLO Jail" banner via typer.
           text = text.replace(
               "  test do\n    false\n  end",

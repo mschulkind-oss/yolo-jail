@@ -47,7 +47,7 @@ class TestAutoLoadImage:
         mock_build.return_value = ("/nix/store/abc", [])
         mock_read.return_value = {"/nix/store/abc"}  # Already loaded
         with patch("cli.BUILD_DIR", tmp_path):
-            auto_load_image(tmp_path, runtime="docker")
+            auto_load_image(tmp_path, runtime="podman")
         mock_popen.assert_not_called()  # No streaming needed
 
     @patch("cli._build_image_store_path")
@@ -58,7 +58,7 @@ class TestAutoLoadImage:
         mock_build.return_value = (None, ["error: something broke"])
         mock_run.return_value = MagicMock(returncode=0)  # Image exists
         with patch("cli.BUILD_DIR", tmp_path):
-            auto_load_image(tmp_path, runtime="docker")
+            auto_load_image(tmp_path, runtime="podman")
         # Should have checked for existing image
         mock_run.assert_called()
 
@@ -68,7 +68,7 @@ class TestAutoLoadImage:
         mock_build.return_value = (None, ["error: nope"])
         mock_run.return_value = MagicMock(returncode=1)  # No image
         with patch("cli.BUILD_DIR", tmp_path):
-            auto_load_image(tmp_path, runtime="docker")
+            auto_load_image(tmp_path, runtime="podman")
 
     @patch("cli._build_image_store_path")
     @patch("cli._read_loaded_paths", return_value=set())
@@ -93,7 +93,7 @@ class TestAutoLoadImage:
             patch("subprocess.Popen", return_value=stream_proc),
             patch("subprocess.run", return_value=load_result),
         ):
-            auto_load_image(tmp_path, runtime="docker")
+            auto_load_image(tmp_path, runtime="podman")
 
         mock_add.assert_called_once()
 
@@ -120,7 +120,7 @@ class TestAutoLoadImage:
             patch("subprocess.Popen") as mock_popen,
             patch("subprocess.run", return_value=load_result),
         ):
-            auto_load_image(tmp_path, runtime="docker")
+            auto_load_image(tmp_path, runtime="podman")
 
         # Should NOT have streamed (Popen not called for image generation)
         mock_popen.assert_not_called()
@@ -337,7 +337,7 @@ class TestCheckCommand:
         """Smart mock that returns expected output for different commands."""
         if isinstance(cmd, list):
             prog = cmd[0] if cmd else ""
-            if prog in ("podman", "docker"):
+            if prog == "podman":
                 if "--version" in cmd:
                     return MagicMock(returncode=0, stdout=f"{prog} version 4.9.0\n")
                 if "image" in cmd and "inspect" in cmd:
@@ -388,117 +388,6 @@ class TestCheckCommand:
             result.exit_code != 0
             or "No container runtime" in result.output
             or "failed" in result.output
-        )
-
-    @patch("subprocess.run")
-    @patch("shutil.which")
-    def test_check_dormant_runtime_is_dim_info_when_another_is_live(
-        self, mock_which, mock_run, tmp_path, monkeypatch
-    ):
-        """A dormant docker CLI next to a working podman should not warn.
-
-        The user has podman running but also has the docker client
-        installed (e.g. for Colima).  Docker's daemon is off.  Yolo
-        check should report docker quietly (dim info), not as a
-        yellow warning — there's nothing to fix.
-        """
-        monkeypatch.chdir(tmp_path)
-        monkeypatch.setenv("YOLO_REPO_ROOT", str(REPO_ROOT))
-        monkeypatch.delenv("YOLO_RUNTIME", raising=False)
-        mock_which.side_effect = lambda x: (
-            f"/usr/bin/{x}" if x in ("podman", "docker", "nix") else None
-        )
-
-        def run_router(cmd, **kwargs):
-            if isinstance(cmd, list) and cmd:
-                prog = cmd[0]
-                if prog == "podman":
-                    if "--version" in cmd:
-                        return MagicMock(returncode=0, stdout="podman version 4.9.0\n")
-                    if cmd[1:] == ["info"]:
-                        return MagicMock(returncode=0, stdout="ok\n")
-                    return MagicMock(returncode=0, stdout="")
-                if prog == "docker":
-                    if "--version" in cmd:
-                        return MagicMock(
-                            returncode=0, stdout="Docker version 20.10.9\n"
-                        )
-                    if cmd[1:] == ["info"]:
-                        return MagicMock(
-                            returncode=1, stderr="Cannot connect to the Docker daemon"
-                        )
-                    return MagicMock(returncode=1, stdout="")
-                if prog == "nix":
-                    return MagicMock(returncode=0, stdout="nix (Nix) 2.18.1\n")
-            return MagicMock(returncode=0, stdout="", stderr="")
-
-        mock_run.side_effect = run_router
-
-        runner = CliRunner()
-        result = runner.invoke(app, ["check", "--no-build"])
-        # Docker line appears, but not as a warning.
-        assert "docker" in result.output.lower()
-        # Extract the line that mentions docker's version — it should
-        # carry the "not selected" qualifier and no warning glyph.
-        docker_line = next(
-            (line for line in result.output.splitlines() if "Docker version" in line),
-            "",
-        )
-        assert docker_line, f"expected a docker version line, got: {result.output}"
-        assert "⚠" not in docker_line, (
-            f"docker should not warn when another runtime is live: {docker_line!r}"
-        )
-        assert "not selected" in docker_line, (
-            f"expected 'not selected' qualifier, got: {docker_line!r}"
-        )
-
-    @patch("subprocess.run")
-    @patch("shutil.which")
-    def test_check_warns_when_selected_runtime_offline(
-        self, mock_which, mock_run, tmp_path, monkeypatch
-    ):
-        """If YOLO_RUNTIME=docker is set and docker is offline, warn loudly.
-
-        Different from the dim-info case: here the user has explicitly
-        asked for docker.  An offline selection is a real problem.
-        """
-        monkeypatch.chdir(tmp_path)
-        monkeypatch.setenv("YOLO_REPO_ROOT", str(REPO_ROOT))
-        monkeypatch.setenv("YOLO_RUNTIME", "docker")
-        mock_which.side_effect = lambda x: (
-            f"/usr/bin/{x}" if x in ("podman", "docker", "nix") else None
-        )
-
-        def run_router(cmd, **kwargs):
-            if isinstance(cmd, list) and cmd:
-                prog = cmd[0]
-                if prog == "podman":
-                    if "--version" in cmd:
-                        return MagicMock(returncode=0, stdout="podman version 4.9.0\n")
-                    if cmd[1:] == ["info"]:
-                        return MagicMock(returncode=0, stdout="ok\n")
-                if prog == "docker":
-                    if "--version" in cmd:
-                        return MagicMock(
-                            returncode=0, stdout="Docker version 20.10.9\n"
-                        )
-                    if cmd[1:] == ["info"]:
-                        return MagicMock(returncode=1, stderr="Cannot connect")
-                if prog == "nix":
-                    return MagicMock(returncode=0, stdout="nix (Nix) 2.18.1\n")
-            return MagicMock(returncode=0, stdout="", stderr="")
-
-        mock_run.side_effect = run_router
-
-        runner = CliRunner()
-        result = runner.invoke(app, ["check", "--no-build"])
-        docker_line = next(
-            (line for line in result.output.splitlines() if "Docker version" in line),
-            "",
-        )
-        assert docker_line, f"expected docker version line, got: {result.output}"
-        assert "⚠" in docker_line, (
-            f"docker should warn when selected via YOLO_RUNTIME: {docker_line!r}"
         )
 
     @patch("subprocess.run")
@@ -801,7 +690,7 @@ class TestRunCommandInternals:
 
         runner = CliRunner()
         runner.invoke(app, ["run", "--", "copilot"])
-        # The docker exec command should include --yolo
+        # The runtime exec command should include --yolo
         if mock_run.called:
             cmd = mock_run.call_args[0][0]
             cmd_str = " ".join(str(c) for c in cmd)
@@ -1497,17 +1386,17 @@ class TestRuntimeNoRuntime:
     def test_runtime_from_env(self, mock_which, monkeypatch):
         from cli import _runtime
 
-        monkeypatch.setenv("YOLO_RUNTIME", "docker")
-        mock_which.return_value = "/usr/bin/docker"
-        assert _runtime({}) == "docker"
+        monkeypatch.setenv("YOLO_RUNTIME", "podman")
+        mock_which.return_value = "/usr/bin/podman"
+        assert _runtime({}) == "podman"
 
     @patch("shutil.which")
     def test_runtime_from_config(self, mock_which, monkeypatch):
         from cli import _runtime
 
         monkeypatch.delenv("YOLO_RUNTIME", raising=False)
-        mock_which.side_effect = lambda x: "/usr/bin/docker" if x == "docker" else None
-        assert _runtime({"runtime": "docker"}) == "docker"
+        mock_which.side_effect = lambda x: "/usr/bin/podman" if x == "podman" else None
+        assert _runtime({"runtime": "podman"}) == "podman"
 
 
 # ═══════════════════════════════════════════════════════════════════════════════
@@ -1927,10 +1816,10 @@ class TestRunIdentityEnvCollection:
         runner = CliRunner()
         runner.invoke(app, ["run", "--", "echo", "hello"])
 
-        # Verify Popen was called and the docker command contains identity env
+        # Verify Popen was called and the runtime command contains identity env
         if mock_popen.called:
-            docker_cmd = mock_popen.call_args[0][0]
-            cmd_str = " ".join(str(a) for a in docker_cmd)
+            run_cmd = mock_popen.call_args[0][0]
+            cmd_str = " ".join(str(a) for a in run_cmd)
             assert "YOLO_GIT_NAME=Test User" in cmd_str
             assert "YOLO_GIT_EMAIL=test@example.com" in cmd_str
 
@@ -1971,9 +1860,9 @@ class TestRunYoloInjection:
         runner.invoke(app, ["run", "--", "copilot"])
 
         if mock_popen.called:
-            docker_cmd = mock_popen.call_args[0][0]
+            run_cmd = mock_popen.call_args[0][0]
             # The final arg is the internal command string
-            final_cmd = docker_cmd[-1]
+            final_cmd = run_cmd[-1]
             assert "--yolo" in final_cmd
             assert "--no-auto-update" in final_cmd
 
@@ -2054,8 +1943,8 @@ class TestRunNewContainerMounts:
         runner.invoke(app, ["run", "--", "bash"])
 
         if mock_popen.called:
-            docker_cmd = mock_popen.call_args[0][0]
-            assert "--net=host" in docker_cmd
+            run_cmd = mock_popen.call_args[0][0]
+            assert "--net=host" in run_cmd
 
     @patch("subprocess.Popen")
     @patch("cli.auto_load_image")
@@ -2092,9 +1981,9 @@ class TestRunNewContainerMounts:
         runner.invoke(app, ["run", "--", "bash"])
 
         if mock_popen.called:
-            docker_cmd = mock_popen.call_args[0][0]
-            assert "-p" in docker_cmd
-            assert "8000:8000" in docker_cmd
+            run_cmd = mock_popen.call_args[0][0]
+            assert "-p" in run_cmd
+            assert "8000:8000" in run_cmd
 
     @patch("subprocess.Popen")
     @patch("cli.auto_load_image")
@@ -2134,8 +2023,8 @@ class TestRunNewContainerMounts:
         runner.invoke(app, ["run", "--", "bash"])
 
         if mock_popen.called:
-            docker_cmd = mock_popen.call_args[0][0]
-            cmd_str = " ".join(str(a) for a in docker_cmd)
+            run_cmd = mock_popen.call_args[0][0]
+            cmd_str = " ".join(str(a) for a in run_cmd)
             assert "extra-data" in cmd_str
             assert ":ro" in cmd_str
 
@@ -2175,48 +2064,8 @@ class TestRunNewContainerMounts:
         assert "skipping" in result.output.lower() or "warning" in result.output.lower()
 
 
-class TestRunDockerVsPodman:
-    """Test run() runtime-specific docker command differences."""
-
-    @patch("subprocess.Popen")
-    @patch("cli.auto_load_image")
-    @patch("cli._check_config_changes", return_value=True)
-    @patch("cli.find_running_container", return_value=None)
-    @patch("subprocess.run")
-    @patch("subprocess.check_output")
-    @patch("shutil.which")
-    def test_docker_runtime_adds_uid_mapping(
-        self,
-        mock_which,
-        mock_check_output,
-        mock_run,
-        mock_find,
-        mock_config_changes,
-        mock_auto_load,
-        mock_popen,
-        tmp_path,
-        monkeypatch,
-    ):
-        _run_monkeypatch(monkeypatch, tmp_path)
-        mock_which.side_effect = lambda x: (
-            f"/usr/bin/{x}" if x in ("docker", "nix") else None
-        )
-        monkeypatch.setenv("YOLO_RUNTIME", "docker")
-        (tmp_path / "yolo-jail.jsonc").write_text("{}")
-        mock_check_output.side_effect = FileNotFoundError
-
-        mock_proc = MagicMock()
-        mock_proc.wait.return_value = None
-        mock_proc.returncode = 0
-        mock_popen.return_value = mock_proc
-
-        runner = CliRunner()
-        runner.invoke(app, ["run", "--", "bash"])
-
-        if mock_popen.called:
-            docker_cmd = mock_popen.call_args[0][0]
-            assert "-u" in docker_cmd
-            assert "host-gateway" in " ".join(str(a) for a in docker_cmd)
+class TestRunPodman:
+    """Test run() runtime-specific command wiring for podman."""
 
     @patch("subprocess.Popen")
     @patch("cli.auto_load_image")
@@ -2251,8 +2100,8 @@ class TestRunDockerVsPodman:
         runner.invoke(app, ["run", "--", "bash"])
 
         if mock_popen.called:
-            docker_cmd = mock_popen.call_args[0][0]
-            assert "--uidmap" in docker_cmd or "--userns" in docker_cmd
+            run_cmd = mock_popen.call_args[0][0]
+            assert "--uidmap" in run_cmd or "--userns" in run_cmd
 
 
 class TestRunDevicePassthrough:
@@ -2330,8 +2179,8 @@ class TestRunDevicePassthrough:
         runner.invoke(app, ["run", "--", "bash"])
 
         if mock_popen.called:
-            docker_cmd = mock_popen.call_args[0][0]
-            assert "--device-cgroup-rule" in docker_cmd
+            run_cmd = mock_popen.call_args[0][0]
+            assert "--device-cgroup-rule" in run_cmd
 
 
 class TestRunKvm:
@@ -2370,10 +2219,10 @@ class TestRunKvm:
         runner.invoke(app, ["run", "--", "bash"])
 
         if mock_popen.called:
-            docker_cmd = mock_popen.call_args[0][0]
+            run_cmd = mock_popen.call_args[0][0]
             # No /dev/kvm device, no group-add.
-            assert "/dev/kvm" not in docker_cmd
-            assert "keep-groups" not in docker_cmd
+            assert "/dev/kvm" not in run_cmd
+            assert "keep-groups" not in run_cmd
 
     @patch("subprocess.Popen")
     @patch("cli.auto_load_image")
@@ -2420,15 +2269,15 @@ class TestRunKvm:
             runner.invoke(app, ["run", "--", "bash"])
 
         assert mock_popen.called
-        docker_cmd = mock_popen.call_args[0][0]
+        run_cmd = mock_popen.call_args[0][0]
         # --device /dev/kvm appears as two consecutive elements.
-        assert "/dev/kvm" in docker_cmd
-        idx = docker_cmd.index("/dev/kvm")
-        assert docker_cmd[idx - 1] == "--device"
+        assert "/dev/kvm" in run_cmd
+        idx = run_cmd.index("/dev/kvm")
+        assert run_cmd[idx - 1] == "--device"
         # Podman path: group-add keep-groups.
-        assert "keep-groups" in docker_cmd
-        ga_idx = docker_cmd.index("keep-groups")
-        assert docker_cmd[ga_idx - 1] == "--group-add"
+        assert "keep-groups" in run_cmd
+        ga_idx = run_cmd.index("keep-groups")
+        assert run_cmd[ga_idx - 1] == "--group-add"
 
     @patch("subprocess.Popen")
     @patch("cli.auto_load_image")
@@ -2476,9 +2325,9 @@ class TestRunKvm:
 
         # Container still launches; just no kvm flags.
         assert mock_popen.called
-        docker_cmd = mock_popen.call_args[0][0]
-        assert "/dev/kvm" not in docker_cmd
-        assert "keep-groups" not in docker_cmd
+        run_cmd = mock_popen.call_args[0][0]
+        assert "/dev/kvm" not in run_cmd
+        assert "keep-groups" not in run_cmd
         # A warn is printed on the way through.
         assert "kvm" in result.output.lower()
 
@@ -2519,8 +2368,8 @@ class TestRunProfile:
         runner.invoke(app, ["run", "--profile", "--", "bash"])
 
         if mock_popen.called:
-            docker_cmd = mock_popen.call_args[0][0]
-            assert "YOLO_PROFILE=1" in docker_cmd
+            run_cmd = mock_popen.call_args[0][0]
+            assert "YOLO_PROFILE=1" in run_cmd
 
 
 # ═══════════════════════════════════════════════════════════════════════════════

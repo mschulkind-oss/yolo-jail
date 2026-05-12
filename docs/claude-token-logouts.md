@@ -79,7 +79,7 @@ Even with `expiresAt` in the future, Anthropic can invalidate a refresh token. S
 Possible causes:
 
 - `NODE_EXTRA_CA_CERTS` not set in the jail (TLS to intercepted `platform.claude.com` fails, Claude falls back).
-- `--add-host platform.claude.com:127.0.0.1` missing from the podman/docker invocation.
+- `--add-host platform.claude.com:127.0.0.1` missing from the container runtime invocation.
 - The in-jail `oauth-broker-jail` daemon crashed — `cat ~/.local/state/yolo-jail-daemons/claude-oauth-broker.log` inside a jail.
 
 Watch shared file mtime while a jail makes an authed request:

@@ -1,8 +1,9 @@
 """Unit tests that exercise macOS code paths in cli.py.
 
-These tests set IS_MACOS=True and IS_LINUX=False, then mock Docker/Nix/subprocess
-to verify that the macOS-specific branches behave correctly.  They run on any
-platform (including Linux CI) because everything is mocked.
+These tests set IS_MACOS=True and IS_LINUX=False, then mock the container
+runtime/Nix/subprocess to verify that the macOS-specific branches behave
+correctly.  They run on any platform (including Linux CI) because
+everything is mocked.
 
 The autouse fixture in conftest.py forces IS_LINUX=True for unit tests; individual
 tests here override that back to macOS mode via monkeypatch.
@@ -38,8 +39,8 @@ def _set_macos(monkeypatch):
     monkeypatch.setattr(cli, "IS_LINUX", False)
 
 
-def _mock_runtimes(mock_which, runtimes=("docker", "nix")):
-    """Configure shutil.which for macOS (docker preferred)."""
+def _mock_runtimes(mock_which, runtimes=("podman", "nix")):
+    """Configure shutil.which for macOS (podman preferred)."""
     mock_which.side_effect = lambda x: f"/usr/bin/{x}" if x in runtimes else None
 
 
@@ -110,7 +111,7 @@ class TestMacosCgroupSkip:
 
 
 class TestMacosMiseVolume:
-    """On macOS, mise uses a Docker named volume (not host bind mount)."""
+    """On macOS, mise uses a named volume (not host bind mount)."""
 
     @patch("subprocess.Popen")
     @patch("cli.auto_load_image")
@@ -146,8 +147,8 @@ class TestMacosMiseVolume:
         runner.invoke(app, ["run", "--", "bash"])
 
         if mock_popen.called:
-            docker_cmd = mock_popen.call_args[0][0]
-            cmd_str = " ".join(str(c) for c in docker_cmd)
+            run_cmd = mock_popen.call_args[0][0]
+            cmd_str = " ".join(str(c) for c in run_cmd)
             # Named volume backs the mount (Mach-O binaries in the host mise
             # dir can't run in Linux), but the mount point is the host mise
             # path — same canonical location as Linux jails, so venv
@@ -157,56 +158,6 @@ class TestMacosMiseVolume:
             host_mise = _host_mise_dir()
             assert f"yolo-mise-data:{host_mise}" in cmd_str, (
                 f"Expected 'yolo-mise-data:{host_mise}' on macOS, got: {cmd_str}"
-            )
-
-
-# ---------------------------------------------------------------------------
-# run() — UID mapping skipped on macOS Docker
-# ---------------------------------------------------------------------------
-
-
-class TestMacosUidMapping:
-    """macOS Docker skips -u UID:GID (VM handles ownership)."""
-
-    @patch("subprocess.Popen")
-    @patch("cli.auto_load_image")
-    @patch("cli._check_config_changes", return_value=True)
-    @patch("cli.find_running_container", return_value=None)
-    @patch("subprocess.run")
-    @patch("subprocess.check_output")
-    @patch("shutil.which")
-    def test_no_uid_flag_on_macos_docker(
-        self,
-        mock_which,
-        mock_check_output,
-        mock_run,
-        mock_find,
-        mock_config_changes,
-        mock_auto_load,
-        mock_popen,
-        tmp_path,
-        monkeypatch,
-    ):
-        _set_macos(monkeypatch)
-        _run_monkeypatch(monkeypatch, tmp_path)
-        monkeypatch.setenv("YOLO_RUNTIME", "docker")
-        _mock_runtimes(mock_which)
-        (tmp_path / "yolo-jail.jsonc").write_text("{}")
-        mock_check_output.side_effect = FileNotFoundError
-
-        mock_proc = MagicMock()
-        mock_proc.wait.return_value = None
-        mock_proc.returncode = 0
-        mock_popen.return_value = mock_proc
-
-        runner = CliRunner()
-        runner.invoke(app, ["run", "--", "bash"])
-
-        if mock_popen.called:
-            docker_cmd = mock_popen.call_args[0][0]
-            # Should NOT contain -u flag on macOS Docker
-            assert "-u" not in docker_cmd, (
-                f"macOS Docker should not pass -u UID:GID, got: {docker_cmd}"
             )
 
 
@@ -254,9 +205,9 @@ class TestMacosPortForwarding:
         runner.invoke(app, ["run", "--", "bash"])
 
         if mock_popen.called:
-            docker_cmd = mock_popen.call_args[0][0]
-            cmd_str = " ".join(str(c) for c in docker_cmd)
-            assert "YOLO_FWD_HOST_GATEWAY=host.docker.internal" in cmd_str, (
+            run_cmd = mock_popen.call_args[0][0]
+            cmd_str = " ".join(str(c) for c in run_cmd)
+            assert "YOLO_FWD_HOST_GATEWAY=host.containers.internal" in cmd_str, (
                 f"Expected YOLO_FWD_HOST_GATEWAY env var on macOS, got: {cmd_str}"
             )
 
@@ -303,9 +254,11 @@ class TestMacosDeviceSkip:
         runner.invoke(app, ["run", "--", "bash"])
 
         if mock_popen.called:
-            docker_cmd = mock_popen.call_args[0][0]
-            assert "--device" not in docker_cmd, (
-                f"macOS should skip --device, got: {docker_cmd}"
+            run_cmd = mock_popen.call_args[0][0]
+            # config-declared devices are skipped on macOS (only the
+            # runtime's built-in /dev/fuse may be present).
+            assert "/dev/ttyUSB0" not in run_cmd, (
+                f"macOS should skip config devices, got: {run_cmd}"
             )
 
     @patch("subprocess.Popen")
@@ -344,9 +297,10 @@ class TestMacosDeviceSkip:
         runner.invoke(app, ["run", "--", "bash"])
 
         if mock_popen.called:
-            docker_cmd = mock_popen.call_args[0][0]
-            assert "--device" not in docker_cmd, (
-                f"macOS should skip USB --device, got: {docker_cmd}"
+            run_cmd = mock_popen.call_args[0][0]
+            # USB-spec devices are skipped on macOS.
+            assert not any(isinstance(c, str) and "0bda:2838" in c for c in run_cmd), (
+                f"macOS should skip USB devices, got: {run_cmd}"
             )
 
     @patch("subprocess.Popen")
@@ -385,9 +339,9 @@ class TestMacosDeviceSkip:
         runner.invoke(app, ["run", "--", "bash"])
 
         if mock_popen.called:
-            docker_cmd = mock_popen.call_args[0][0]
-            assert "--device-cgroup-rule" not in docker_cmd, (
-                f"macOS should skip --device-cgroup-rule, got: {docker_cmd}"
+            run_cmd = mock_popen.call_args[0][0]
+            assert "--device-cgroup-rule" not in run_cmd, (
+                f"macOS should skip --device-cgroup-rule, got: {run_cmd}"
             )
 
 
@@ -434,13 +388,11 @@ class TestMacosGpuSkip:
 
         # Should warn but not crash
         if mock_popen.called:
-            docker_cmd = mock_popen.call_args[0][0]
-            assert "--gpus" not in docker_cmd, (
-                f"macOS should skip --gpus, got: {docker_cmd}"
-            )
+            run_cmd = mock_popen.call_args[0][0]
+            assert "--gpus" not in run_cmd, f"macOS should skip --gpus, got: {run_cmd}"
             # No CDI device either
             gpu_devices = [
-                c for c in docker_cmd if isinstance(c, str) and "nvidia" in c.lower()
+                c for c in run_cmd if isinstance(c, str) and "nvidia" in c.lower()
             ]
             assert not gpu_devices, (
                 f"macOS should skip NVIDIA devices, got: {gpu_devices}"
@@ -493,12 +445,10 @@ class TestMacosKvmSkip:
 
         # Container still launches; /dev/kvm and keep-groups must not appear.
         assert mock_popen.called, f"popen should be called; output was: {result.output}"
-        docker_cmd = mock_popen.call_args[0][0]
-        assert "/dev/kvm" not in docker_cmd, (
-            f"macOS should skip /dev/kvm, got: {docker_cmd}"
-        )
-        assert "keep-groups" not in docker_cmd, (
-            f"macOS should skip keep-groups, got: {docker_cmd}"
+        run_cmd = mock_popen.call_args[0][0]
+        assert "/dev/kvm" not in run_cmd, f"macOS should skip /dev/kvm, got: {run_cmd}"
+        assert "keep-groups" not in run_cmd, (
+            f"macOS should skip keep-groups, got: {run_cmd}"
         )
         # And a warning is printed.
         assert "kvm" in result.output.lower()
@@ -533,8 +483,8 @@ class TestMacosContainerRuntime:
     ):
         _set_macos(monkeypatch)
         _run_monkeypatch(monkeypatch, tmp_path)
-        monkeypatch.setenv("YOLO_RUNTIME", "docker")
-        _mock_runtimes(mock_which)
+        monkeypatch.setenv("YOLO_RUNTIME", "container")
+        _mock_runtimes(mock_which, runtimes=("container", "nix"))
         (tmp_path / "yolo-jail.jsonc").write_text("{}")
         mock_check_output.side_effect = FileNotFoundError
 
@@ -547,9 +497,9 @@ class TestMacosContainerRuntime:
         runner.invoke(app, ["run", "--", "bash"])
 
         if mock_popen.called:
-            docker_cmd = mock_popen.call_args[0][0]
-            cmd_str = " ".join(str(c) for c in docker_cmd)
-            # Container should get YOLO_RUNTIME=podman (not docker)
+            run_cmd = mock_popen.call_args[0][0]
+            cmd_str = " ".join(str(c) for c in run_cmd)
+            # Container should get YOLO_RUNTIME=podman (not the host runtime)
             assert "YOLO_RUNTIME=podman" in cmd_str, (
                 f"Container should get YOLO_RUNTIME=podman, got: {cmd_str}"
             )
@@ -561,7 +511,7 @@ class TestMacosContainerRuntime:
 
 
 class TestMacosTmpfs:
-    """macOS Docker gets explicit tmpfs mode=1777."""
+    """macOS gets explicit tmpfs mode=1777."""
 
     @patch("subprocess.Popen")
     @patch("cli.auto_load_image")
@@ -597,13 +547,11 @@ class TestMacosTmpfs:
         runner.invoke(app, ["run", "--", "bash"])
 
         if mock_popen.called:
-            docker_cmd = mock_popen.call_args[0][0]
-            tmpfs_args = [
-                c for c in docker_cmd if isinstance(c, str) and "mode=1777" in c
-            ]
+            run_cmd = mock_popen.call_args[0][0]
+            tmpfs_args = [c for c in run_cmd if isinstance(c, str) and "mode=1777" in c]
             assert tmpfs_args, (
                 f"Expected tmpfs with mode=1777 on macOS, "
-                f"tmpfs flags: {[c for c in docker_cmd if 'tmpfs' in str(c)]}"
+                f"tmpfs flags: {[c for c in run_cmd if 'tmpfs' in str(c)]}"
             )
 
 
@@ -639,7 +587,7 @@ class TestMacosDoctor:
         _mock_runtimes(mock_which)
 
         mock_run.return_value = MagicMock(
-            returncode=0, stdout="docker version 24.0\n", stderr=""
+            returncode=0, stdout="podman version 5.0\n", stderr=""
         )
         mock_check_output.side_effect = FileNotFoundError
 
@@ -676,7 +624,7 @@ class TestMacosDoctor:
         _mock_runtimes(mock_which)
 
         mock_run.return_value = MagicMock(
-            returncode=0, stdout="docker version 24.0\n", stderr=""
+            returncode=0, stdout="podman version 5.0\n", stderr=""
         )
         mock_check_output.side_effect = FileNotFoundError
 
@@ -712,7 +660,7 @@ class TestMacosDoctor:
         _mock_runtimes(mock_which)
 
         mock_run.return_value = MagicMock(
-            returncode=0, stdout="docker version 24.0\n", stderr=""
+            returncode=0, stdout="podman version 5.0\n", stderr=""
         )
         mock_check_output.side_effect = FileNotFoundError
 
@@ -755,7 +703,7 @@ class TestAppleContainerRuntime:
             assert cli._runtime() == "container"
 
     def test_runtime_prefers_container_on_macos(self, monkeypatch):
-        """On macOS, container is preferred over podman/docker when all are available."""
+        """On macOS, container is preferred over podman when both are available."""
         _set_macos(monkeypatch)
         monkeypatch.delenv("YOLO_RUNTIME", raising=False)
         monkeypatch.setattr(cli, "_runtime_is_connectable", lambda rt: True)
@@ -763,11 +711,9 @@ class TestAppleContainerRuntime:
             patch("shutil.which") as mock_which,
             patch("cli._is_apple_container", return_value=True),
         ):
-            # All three runtimes are on PATH
+            # Both candidate runtimes are on PATH
             mock_which.side_effect = lambda x: (
-                f"/usr/local/bin/{x}"
-                if x in ("container", "podman", "docker")
-                else None
+                f"/usr/local/bin/{x}" if x in ("container", "podman") else None
             )
             assert cli._runtime() == "container"
 
@@ -779,12 +725,12 @@ class TestAppleContainerRuntime:
         monkeypatch.setattr(cli, "_runtime_is_connectable", lambda rt: True)
         with patch("shutil.which") as mock_which:
             mock_which.side_effect = lambda x: (
-                f"/usr/bin/{x}" if x in ("podman", "docker") else None
+                f"/usr/bin/{x}" if x == "podman" else None
             )
             assert cli._runtime() == "podman"
 
     def test_runtime_for_check_prefers_container_on_macos(self, monkeypatch):
-        """_runtime_for_check() prefers container over podman/docker on macOS."""
+        """_runtime_for_check() prefers container over podman on macOS."""
         _set_macos(monkeypatch)
         monkeypatch.delenv("YOLO_RUNTIME", raising=False)
         monkeypatch.setattr(cli, "_runtime_is_connectable", lambda rt: True)
@@ -793,23 +739,21 @@ class TestAppleContainerRuntime:
             patch("cli._is_apple_container", return_value=True),
         ):
             mock_which.side_effect = lambda x: (
-                f"/usr/local/bin/{x}"
-                if x in ("container", "podman", "docker")
-                else None
+                f"/usr/local/bin/{x}" if x in ("container", "podman") else None
             )
             rt, err = cli._runtime_for_check({})
             assert rt == "container"
             assert err is None
 
     def test_image_load_cmd_container(self):
-        """Apple Container uses 'container image load -i' instead of 'docker load -i'."""
+        """Apple Container uses 'container image load -i'."""
         cmd = cli._image_load_cmd("container", "/tmp/image.tar")
         assert cmd == ["container", "image", "load", "-i", "/tmp/image.tar"]
 
-    def test_image_load_cmd_docker(self):
-        """Docker uses 'docker load -i'."""
-        cmd = cli._image_load_cmd("docker", "/tmp/image.tar")
-        assert cmd == ["docker", "load", "-i", "/tmp/image.tar"]
+    def test_image_load_cmd_podman(self):
+        """Podman uses 'podman load -i'."""
+        cmd = cli._image_load_cmd("podman", "/tmp/image.tar")
+        assert cmd == ["podman", "load", "-i", "/tmp/image.tar"]
 
     def test_image_inspect_cmd_container(self):
         """Apple Container uses 'container image inspect'."""
@@ -817,7 +761,7 @@ class TestAppleContainerRuntime:
         assert cmd == ["container", "image", "inspect", "yolo-jail:latest"]
 
     def test_find_running_container_uses_ls(self, monkeypatch):
-        """Apple Container uses 'container ls' (no --filter) instead of 'docker ps'."""
+        """Apple Container uses 'container ls' (no --filter) instead of 'podman ps'."""
         _set_macos(monkeypatch)
         with patch("subprocess.run") as mock_run:
             mock_run.return_value = MagicMock(
@@ -852,7 +796,7 @@ class TestAppleContainerRuntime:
     @patch("subprocess.run")
     @patch("subprocess.check_output")
     @patch("shutil.which")
-    def test_docker_flags_no_cgroupns(
+    def test_container_flags_no_cgroupns(
         self, mock_which, mock_check_output, mock_run, monkeypatch, tmp_path
     ):
         """Apple Container run command should not include --cgroupns."""
@@ -964,17 +908,17 @@ class TestAppleContainerMountWorkarounds:
         result = runner.invoke(app, ["run", "--", "bash"])
         assert mock_popen.called, f"popen should be called; output: {result.output}"
 
-        docker_cmd = [str(a) for a in mock_popen.call_args[0][0]]
+        run_cmd = [str(a) for a in mock_popen.call_args[0][0]]
 
         # Walk `-v <spec>` pairs and reject any single-file mount whose
         # target sits inside /home/agent/<subdir>/ (apple/container#1089).
         # File vs dir is decided by the host-side path (trusted here —
         # the CLI constructs both explicitly).
         bad = []
-        for i, arg in enumerate(docker_cmd):
+        for i, arg in enumerate(run_cmd):
             if arg != "-v":
                 continue
-            spec = docker_cmd[i + 1]
+            spec = run_cmd[i + 1]
             # "volname:/target[:ro]" — first colon separates source from
             # target (volume names don't contain colons).
             src, _, rest = spec.partition(":")

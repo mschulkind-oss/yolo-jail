@@ -208,11 +208,11 @@ jj config user.email  ─→  YOLO_JJ_EMAIL  ─→  jj config set --user user.e
   and passed as env vars.
 - **Global gitignore is mounted read-only**: The host's `core.excludesFile`
   is bind-mounted to `/home/agent/.config/git/ignore:ro`.
-- **Identity set on every startup**: Even on container reuse (`docker exec`),
+- **Identity set on every startup**: Even on container reuse (`podman exec`),
   the entrypoint re-runs `configure_git()` and `configure_jj()` with fresh
   env vars. This means if you change your host identity, the next jail
   session picks it up.
-- **Exec path gets env vars too**: Both `docker run` and `docker exec`
+- **Exec path gets env vars too**: Both `podman run` and `podman exec`
   pass `-e YOLO_GIT_NAME=...` etc. so identity works for both new
   containers and reattaching to existing ones.
 

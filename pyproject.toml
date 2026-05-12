@@ -11,7 +11,7 @@ license = "Apache-2.0"
 authors = [
     {name = "Matt Schulkind"},
 ]
-keywords = ["ai", "agents", "docker", "podman", "sandbox", "claude", "copilot", "gemini", "security", "nix"]
+keywords = ["ai", "agents", "podman", "sandbox", "claude", "copilot", "gemini", "security", "nix"]
 classifiers = [
     "Development Status :: 3 - Alpha",
     "Environment :: Console",

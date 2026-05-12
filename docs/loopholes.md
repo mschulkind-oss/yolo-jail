@@ -34,7 +34,7 @@ Only `manifest.jsonc` is required. Everything else is up to the loophole.
   "intercepts": [                 // tls-intercept only
     {"host": "example.com"}
   ],
-  "broker_ip": "host-gateway",    // tls-intercept only; podman/docker magic value
+  "broker_ip": "host-gateway",    // tls-intercept only; container runtime magic value
   "ca_cert": "ca.crt",            // tls-intercept only; auto-mounted + trusted
   "jail_env": {"FOO": "bar"},     // any transport
   "doctor_cmd": ["bin", "--ok"]   // optional; run by `yolo doctor`

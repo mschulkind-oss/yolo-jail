@@ -28,6 +28,13 @@ from src import loopholes as _loopholes
 IS_LINUX = sys.platform == "linux"
 IS_MACOS = sys.platform == "darwin"
 
+# Supported container runtimes.  Docker was removed — podman is the
+# first-class Linux runtime (rootless, daemonless, cgroup delegation
+# that matches how yolo-cglimit talks to the host), and Apple Container
+# is the native macOS runtime on Tahoe+.  Any config that sets
+# runtime: "docker" gets a migration error; see _validate_config.
+SUPPORTED_RUNTIMES = ("podman", "container")
+
 app = typer.Typer(
     invoke_without_command=True,
     rich_markup_mode="rich",
@@ -159,7 +166,7 @@ def _default(
 ):
     """[bold]YOLO Jail[/bold] — Secure container environment for AI agents.
 
-    Runs AI agents (Copilot, Gemini CLI, Claude Code) in isolated Docker/Podman containers
+    Runs AI agents (Copilot, Gemini CLI, Claude Code) in isolated Podman/Apple Container containers
     with no access to host credentials (~/.ssh, ~/.gitconfig, cloud tokens).
     Tool state persists across restarts.
 
@@ -199,7 +206,7 @@ def _default(
     Place [bold]yolo-jail.jsonc[/bold] in your project root (JSON with comments):
 
         {
-          "runtime": "podman",              // or "docker" or "container" (Apple)
+          "runtime": "podman",              // or "container" (Apple Container)
           "packages": [                     // extra nix packages
             "strace",                       // latest from flake nixpkgs
             {"name": "freetype", "nixpkgs": "e6f23dc0..."},  // pinned nixpkgs
@@ -218,7 +225,7 @@ def _default(
 
     [bold cyan]Environment Variables[/bold cyan]
 
-        YOLO_RUNTIME          Override runtime (podman/docker/container)
+        YOLO_RUNTIME          Override runtime (podman/container)
         YOLO_BYPASS_SHIMS     Set to 1 to bypass blocked tool shims
 
     [bold cyan]Config Safety[/bold cyan]
@@ -842,27 +849,27 @@ def _runtime_is_connectable(rt: str) -> bool:
 
 
 def _runtime(config: Optional[Dict[str, Any]] = None) -> str:
-    """Return container runtime: 'podman', 'docker', or 'container' (Apple).
+    """Return container runtime: 'podman' or 'container' (Apple).
 
     Auto-detection priority:
-      macOS: container → podman → docker  (native Apple Container preferred)
-      Linux: podman → docker              (container CLI is macOS-only)
+      macOS: container → podman  (native Apple Container preferred)
+      Linux: podman             (container CLI is macOS-only)
 
     Only returns runtimes whose daemon is actually reachable.
     """
     env = os.environ.get("YOLO_RUNTIME")
-    if env and env in ("podman", "docker", "container"):
+    if env and env in SUPPORTED_RUNTIMES:
         return env
     if config:
         cfg = config.get("runtime")
-        if cfg and cfg in ("podman", "docker", "container"):
+        if cfg and cfg in SUPPORTED_RUNTIMES:
             return cfg
     # Platform-aware auto-detection
     candidates: tuple[str, ...]
     if IS_MACOS:
-        candidates = ("container", "podman", "docker")
+        candidates = ("container", "podman")
     else:
-        candidates = ("podman", "docker")
+        candidates = ("podman",)
     for rt in candidates:
         path = shutil.which(rt)
         if path:
@@ -872,7 +879,7 @@ def _runtime(config: Optional[Dict[str, Any]] = None) -> str:
                 continue
             return rt
     console.print(
-        "[bold red]No container runtime found. Install podman, docker, or Apple's container CLI.[/bold red]"
+        "[bold red]No container runtime found. Install podman, or on macOS, Apple's container CLI.[/bold red]"
     )
     sys.exit(1)
 
@@ -892,7 +899,7 @@ def container_name_for_workspace(workspace: Path) -> str:
     return f"yolo-{safe}-{h}"
 
 
-def find_running_container(name: str, runtime: str = "docker") -> Optional[str]:
+def find_running_container(name: str, runtime: str = "podman") -> Optional[str]:
     """Return container ID if a container with this name is running, else None."""
     try:
         if runtime == "container":
@@ -920,7 +927,7 @@ def find_running_container(name: str, runtime: str = "docker") -> Optional[str]:
     return cid if cid else None
 
 
-def find_existing_container(name: str, runtime: str = "docker") -> Optional[str]:
+def find_existing_container(name: str, runtime: str = "podman") -> Optional[str]:
     """Return container ID if a container with this name exists (running OR stopped)."""
     try:
         if runtime == "container":
@@ -948,7 +955,7 @@ def find_existing_container(name: str, runtime: str = "docker") -> Optional[str]
     return cid if cid else None
 
 
-def _remove_stale_container(name: str, runtime: str = "docker") -> bool:
+def _remove_stale_container(name: str, runtime: str = "podman") -> bool:
     """Remove a stopped container. Returns True if removal succeeded."""
     try:
         if runtime == "container":
@@ -1050,38 +1057,32 @@ def _image_load_cmd(runtime: str, tar_path: str) -> list[str]:
 
 
 def _load_image_for_apple_container(tar_path: str, console, status=None) -> bool:
-    """Load a Nix-built Docker-format tar into Apple Container CLI.
+    """Load a Nix-built OCI image tar into Apple Container CLI.
 
-    Apple Container only accepts OCI-layout tars, but Nix's dockerTools
-    produces Docker V2 format.  We convert using (in priority order):
+    Apple Container only accepts OCI-layout tars, but Nix's image
+    tooling produces a non-OCI tar.  We convert using (in priority
+    order):
       1. skopeo (no daemon needed — works standalone)
       2. podman save --format oci-archive (needs Podman Machine)
-      3. docker save (needs Docker daemon)
     """
     skopeo = shutil.which("skopeo")
     if skopeo:
         return _convert_via_skopeo(tar_path, console, status)
 
-    # Fall back to podman or docker daemon-based conversion
-    for rt_name, rt_bin in [
-        ("Podman", shutil.which("podman")),
-        ("Docker", shutil.which("docker")),
-    ]:
-        if not rt_bin:
-            continue
-        return _convert_via_daemon(rt_name.lower(), tar_path, console, status)
+    if shutil.which("podman"):
+        return _convert_via_daemon("podman", tar_path, console, status)
 
     console.print(
         "[bold red]Cannot convert Nix image to OCI format for Apple Container.[/bold red]"
     )
     console.print(
-        "[dim]Install one of: skopeo (recommended, no daemon needed), podman, or docker.[/dim]"
+        "[dim]Install one of: skopeo (recommended, no daemon needed) or podman.[/dim]"
     )
     return False
 
 
 def _convert_via_skopeo(tar_path: str, console, status=None) -> bool:
-    """Convert Docker V2 tar → OCI tar via skopeo (no daemon needed)."""
+    """Convert V2 image tar → OCI tar via skopeo (no daemon needed)."""
     import tempfile
 
     with tempfile.TemporaryDirectory(prefix="yolo-oci-") as oci_dir:
@@ -1134,7 +1135,7 @@ def _convert_via_skopeo(tar_path: str, console, status=None) -> bool:
 
 
 def _convert_via_daemon(daemon: str, tar_path: str, console, status=None) -> bool:
-    """Convert Docker V2 tar → OCI tar via docker/podman daemon save."""
+    """Convert V2 image tar → OCI tar via podman daemon save."""
     if status:
         status.update(f"[bold cyan]Loading image into {daemon} (for OCI conversion)...")
     load_result = subprocess.run(
@@ -1153,29 +1154,15 @@ def _convert_via_daemon(daemon: str, tar_path: str, console, status=None) -> boo
     oci_tar = tar_path + ".oci.tar"
     if status:
         status.update(f"[bold cyan]Converting to OCI format via {daemon} save...")
-    if daemon == "podman":
-        save_cmd = [
-            daemon,
-            "save",
-            "--format",
-            "oci-archive",
-            "-o",
-            oci_tar,
-            JAIL_IMAGE,
-        ]
-    else:
-        # docker save produces Docker V2 tar, not OCI. Use skopeo to convert
-        # if available, otherwise fall back to docker save (may fail on Apple
-        # Container which strictly requires OCI format).
-        if shutil.which("skopeo"):
-            save_cmd = [
-                "skopeo",
-                "copy",
-                f"docker-daemon:{JAIL_IMAGE}",
-                f"oci-archive:{oci_tar}",
-            ]
-        else:
-            save_cmd = [daemon, "save", "-o", oci_tar, JAIL_IMAGE]
+    save_cmd = [
+        daemon,
+        "save",
+        "--format",
+        "oci-archive",
+        "-o",
+        oci_tar,
+        JAIL_IMAGE,
+    ]
     save_result = subprocess.run(save_cmd, capture_output=True)
     if save_result.returncode != 0:
         console.print(f"[bold red]Failed to export OCI image from {daemon}.[/bold red]")
@@ -1357,7 +1344,7 @@ def cleanup_port_forwarding(
 #   • Same bind-mounted directory in the jail: /run/yolo-services/
 #   • Same socket naming: /run/yolo-services/<service-name>.sock
 #   • Same env var convention: YOLO_SERVICE_<NAME>_SOCKET
-#   • Same lifecycle: started before docker run, stopped after container exits
+#   • Same lifecycle: started before the container, stopped after container exits
 #
 # Security model (both kinds):
 #   • The socket dir is bind-mounted from a per-jail host directory — no
@@ -1392,7 +1379,7 @@ class LoopholeDaemon:
     """A host-side service exposing a Unix socket inside the jail.
 
     Created by `start_loopholes` and torn down by `stop_loopholes`.
-    Holds everything `run()` needs to wire the service into the docker command:
+    Holds everything `run()` needs to wire the service into the container run command:
     bind mount, env var, optional client shim path.
 
     The `_stop` callable encapsulates the service's shutdown logic (SIGTERM for
@@ -1683,8 +1670,8 @@ def _should_mount_host_nix(
     Linux: mount whenever both paths exist and runtime supports it.
     macOS: skip by default — the typical container runtime VM (Podman
     Machine, Apple container) does not share /nix, and bind-mounting
-    statfs-errors at startup.  Setups that *do* share /nix (e.g. Docker
-    Desktop or Colima with a custom mount) can opt back in by setting
+    statfs-errors at startup.  Setups that *do* share /nix (e.g.
+    Colima with a custom mount) can opt back in by setting
     ``YOLO_NIX_HOST_DAEMON`` to a truthy value (``1``/``true``/``yes``).
     Apple Container can't share Unix sockets via -v bind mounts regardless,
     so the runtime gate handles that case.
@@ -1949,10 +1936,9 @@ def _resolve_container_cgroup(cname: str, runtime: str) -> Optional[Path]:
                     return candidate
                 # Some podman versions return the scope name only
                 # Try to find it via the container's init PID
-        # Fallback for both Docker and Podman: use init PID's /proc cgroup
-        fmt = "{{.State.Pid}}" if runtime == "docker" else "{{.State.Pid}}"
+        # Fallback: use init PID's /proc cgroup
         result = subprocess.run(
-            [runtime, "inspect", "--format", fmt, cname],
+            [runtime, "inspect", "--format", "{{.State.Pid}}", cname],
             capture_output=True,
             text=True,
             timeout=5,
@@ -2799,7 +2785,7 @@ def start_loopholes(
         # ensure a live broker here; the per-jail bind-mount of the
         # singleton socket into the jail at
         # ``/run/yolo-services/claude-oauth-broker.sock`` happens in
-        # ``run()``'s docker command assembly (see the matching code
+        # ``run()``'s container command assembly (see the matching code
         # near the host-services sockets dir bind mount).  Returning
         # no handle is correct — singleton lifecycle is NOT tied to a
         # single jail; we don't want ``stop_loopholes`` reaping it
@@ -3028,10 +3014,8 @@ def generate_agents_md(
 
     if net_mode == "host":
         network_line = "- **Network**: Host networking — the container shares the host network stack. `localhost` / `127.0.0.1` resolves directly to the host. No port mapping needed."
-    elif runtime == "podman":
+    else:
         network_line = "- **Network**: Bridge mode. Use `host.containers.internal` (resolves to 169.254.1.2) to reach the host."
-    else:  # docker bridge
-        network_line = "- **Network**: Bridge mode (Docker). Use `host.internal` to reach the host."
 
     # Build forwarded host ports description
     forwarded_ports_lines = []
@@ -3059,7 +3043,7 @@ def generate_agents_md(
     lines = [
         "# YOLO Jail Environment",
         "",
-        "You are running inside a YOLO Jail — a sandboxed Docker container.",
+        "You are running inside a YOLO Jail — a sandboxed container.",
         "",
         "## Environment",
         "",
@@ -3200,8 +3184,7 @@ def generate_agents_md(
             "cgroup tree, sets limits, and moves your process into it using SO_PEERCRED for secure",
             "PID identity. All operations are logged for auditability.",
             "",
-            "**Podman is the primary supported runtime** for cgroup delegation. Docker support",
-            "is best-effort.",
+            "**Podman is the primary supported runtime** for cgroup delegation.",
             "",
             "### Soft limits (always available)",
             "",
@@ -3475,7 +3458,7 @@ def _build_image_store_path(
                 "--extra-experimental-features",
                 "nix-command flakes",
                 "build",
-                ".#dockerImage",
+                ".#ociImage",
                 "--impure",
                 "--out-link",
                 str(out_link),
@@ -3557,7 +3540,7 @@ def _image_cache_path(store_path: str) -> Path:
 
 
 def _stream_image_command(store_path: str) -> list[str]:
-    """Return the command to stream the Docker image tarball to stdout.
+    """Return the command to stream the container image tarball to stdout.
 
     On macOS the streaming script has a Linux shebang and cannot execute
     locally.  If a remote builder is configured in ``/etc/nix/machines``,
@@ -3640,7 +3623,7 @@ def _materialize_image(store_path: str, cache_file: Path, status) -> int:
 def auto_load_image(
     repo_root: Path,
     extra_packages: Optional[List[Union[str, dict]]] = None,
-    runtime: str = "docker",
+    runtime: str = "podman",
 ):
     """Cheaply check if the nix image needs to be reloaded into the container runtime."""
     # Per-runtime sentinel tracks all store paths loaded into this runtime
@@ -3974,8 +3957,13 @@ def _validate_config(
     _report_unknown_keys(config, KNOWN_TOP_LEVEL_CONFIG_KEYS, "config", errors)
 
     runtime = config.get("runtime")
-    if runtime is not None and runtime not in ("podman", "docker"):
-        errors.append("config.runtime: expected 'podman' or 'docker'")
+    if runtime == "docker":
+        errors.append(
+            "config.runtime: 'docker' is no longer supported — "
+            "use 'podman' (Linux) or 'container' (macOS Apple Container)"
+        )
+    elif runtime is not None and runtime not in SUPPORTED_RUNTIMES:
+        errors.append("config.runtime: expected 'podman' or 'container'")
 
     repo_path = config.get("repo_path")
     if repo_path is not None and not isinstance(repo_path, str):
@@ -4630,13 +4618,13 @@ def _runtime_for_check(config: Dict[str, Any]) -> tuple[Optional[str], Optional[
     """Resolve the effective runtime without exiting.
 
     Same platform-aware priority as _runtime():
-      macOS: container → podman → docker
-      Linux: podman → docker
+      macOS: container → podman
+      Linux: podman
 
     Only returns runtimes whose daemon is actually reachable.
     """
     env = os.environ.get("YOLO_RUNTIME")
-    if env and env in ("podman", "docker", "container"):
+    if env and env in SUPPORTED_RUNTIMES:
         if shutil.which(env):
             if _runtime_is_connectable(env):
                 return env, None
@@ -4647,7 +4635,7 @@ def _runtime_for_check(config: Dict[str, Any]) -> tuple[Optional[str], Optional[
         return None, f"Configured runtime '{env}' from YOLO_RUNTIME is not on PATH"
 
     cfg = config.get("runtime")
-    if cfg and cfg in ("podman", "docker", "container"):
+    if cfg and cfg in SUPPORTED_RUNTIMES:
         if shutil.which(cfg):
             if _runtime_is_connectable(cfg):
                 return cfg, None
@@ -4659,9 +4647,9 @@ def _runtime_for_check(config: Dict[str, Any]) -> tuple[Optional[str], Optional[
 
     candidates: tuple[str, ...]
     if IS_MACOS:
-        candidates = ("container", "podman", "docker")
+        candidates = ("container", "podman")
     else:
-        candidates = ("podman", "docker")
+        candidates = ("podman",)
     for rt in candidates:
         path = shutil.which(rt)
         if path:
@@ -4791,7 +4779,7 @@ def init(
   // reference, and `yolo check` after every edit to this file.
   // ───────────────────────────────────────────────────────────────
 
-  // Container runtime: "podman", "docker", or "container" (Apple)
+  // Container runtime: "podman" or "container" (Apple)
   // (also settable via YOLO_RUNTIME env var)
   // "runtime": "podman",
 
@@ -4893,12 +4881,12 @@ def init(
 
   // Container resource limits.
   // On Apple Container: applied as VM hardware limits (defaults: half host CPUs/RAM).
-  // On Docker/Podman: applied as --cpus/--memory flags (no defaults — inherits VM limits).
+  // On Podman: applied as --cpus/--memory flags (no defaults — inherits VM limits).
   // On Linux: also feeds cgroup delegation for in-container yolo-cglimit.
   // "resources": {
   //   "memory": "8g",            // Max memory (b/k/m/g suffix). OOM-killed if exceeded.
   //   "cpus": 4,                 // CPU limit (decimal). e.g. 4, 2.5, "0.5"
-  //   "pids_limit": 4096         // Max processes (Docker/Podman only). Prevents fork bombs.
+  //   "pids_limit": 4096         // Max processes (podman only). Prevents fork bombs.
   // }
 }
 """
@@ -5048,7 +5036,7 @@ def init_user_config():
   // User-level defaults merged into every project config.
   // Lists are merged (deduplicated), scalars are overridden by workspace config.
   //
-  // Container runtime: "podman", "docker", or "container" (Apple)
+  // Container runtime: "podman" or "container" (Apple)
   // (also settable via YOLO_RUNTIME env var)
   // "runtime": "podman",
   // "packages": ["sqlite", "postgresql"],
@@ -5095,9 +5083,9 @@ def config_ref():
 [bold cyan]FIELDS[/bold cyan]
 
   [bold]runtime[/bold] (string): Container runtime.
-    Values: "podman" (preferred) or "docker"
+    Values: "podman" or "container"
     Override: YOLO_RUNTIME env var takes priority.
-    Auto-detect: prefers podman, falls back to docker.
+    Auto-detect: macOS prefers "container" then "podman"; Linux uses "podman".
 
   [bold]packages[/bold] (array): Extra nix packages baked into the image.
     Supports three formats:
@@ -5145,7 +5133,7 @@ def config_ref():
       • Its socket bind-mounted into the jail at /run/yolo-services/<name>.sock
       • An env var YOLO_SERVICE_<NAME>_SOCKET injected into the container so
         agents can locate the socket without hard-coding paths.
-      • A managed lifecycle: started before docker run, SIGTERM + 5s grace +
+      • A managed lifecycle: started before container start, SIGTERM + 5s grace +
         SIGKILL after the container exits.
       • stdout/stderr captured to ~/.local/share/yolo-jail/logs/host-service-<name>.log
 
@@ -5328,10 +5316,8 @@ def config_ref():
 
   [bold]kvm[/bold] (boolean, default false): Expose /dev/kvm inside the jail.
     When true, yolo adds [cyan]--device /dev/kvm[/cyan] to the container run
-    command plus the appropriate [cyan]--group-add[/cyan] flag so the in-jail
-    user inherits the host's kvm-group membership:
-      • Podman: [cyan]--group-add keep-groups[/cyan]
-      • Docker: [cyan]--group-add <kvm-gid>[/cyan]
+    command plus [cyan]--group-add keep-groups[/cyan] so the in-jail user
+    inherits the host's kvm-group membership (podman).
     Enables nested hardware-accelerated VMs inside the jail (QEMU,
     firecracker, Android emulator, kernel dev workflows).  Runs full-speed
     virtualization via KVM instead of falling back to software emulation.
@@ -5349,7 +5335,7 @@ def config_ref():
     actually need nested virtualization.
 
   [bold]resources[/bold] (object): Container resource limits.
-    Sets hard cgroup constraints on the jail container via Docker/Podman flags.
+    Sets hard cgroup constraints on the jail container via podman flags.
     These limits are enforced by the kernel — the jail cannot exceed them.
     • [bold]memory[/bold] (string): Maximum memory. Format: number + suffix (b/k/m/g).
       Examples: "8g" (8 GB), "512m" (512 MB), "2g".
@@ -5372,7 +5358,7 @@ def config_ref():
       yolo-cglimit --cpu 50 --memory 2g -- make -j8      # 50% CPU + 2GB RAM
       yolo-cglimit --pids 100 -- ./script.sh             # Max 100 processes
     The daemon is started automatically by the yolo CLI.  Podman is the
-    primary supported runtime; Docker support is best-effort.
+    primary supported runtime.
     Falls back to nice/timeout/ulimit if delegation is unavailable.
     Subject to config change safety (human approval required).
 
@@ -5423,7 +5409,7 @@ def config_ref():
 
 [bold cyan]ENVIRONMENT VARIABLES[/bold cyan]
 
-  YOLO_RUNTIME          Override container runtime (podman/docker/container)
+  YOLO_RUNTIME          Override container runtime (podman/container)
   YOLO_BYPASS_SHIMS     Set to 1 to bypass blocked tool shims
   YOLO_EXTRA_PACKAGES   JSON array of extra nix packages (internal)
 
@@ -5915,7 +5901,7 @@ def _check_host_service_liveness(ok, warn, fail) -> None:
 
 def _detect_runtime_for_listing() -> Optional[str]:
     """Best-effort runtime discovery for read-only doctor probes."""
-    for r in ("podman", "docker"):
+    for r in SUPPORTED_RUNTIMES:
         if shutil.which(r):
             return r
     return None
@@ -5987,12 +5973,6 @@ def check(
             "Run 'podman info' to diagnose",
         ),
         (
-            "docker",
-            ["docker", "--version"],
-            ["docker", "info"],
-            "Run 'docker info' to diagnose",
-        ),
-        (
             "container",
             ["container", "--version"],
             ["container", "system", "status"],
@@ -6000,13 +5980,10 @@ def check(
         ),
     ]
     # Only warn about an offline runtime if the user explicitly selected
-    # it (YOLO_RUNTIME).  A dormant docker CLI next to a working podman
-    # or Apple Container is normal — users keep the docker client
-    # installed for Colima or ad-hoc use without actually running the
-    # daemon.  The merged-config runtime pick happens later and emits
-    # its own error via ``_runtime_for_check``.
+    # it (YOLO_RUNTIME).  The merged-config runtime pick happens later
+    # and emits its own error via ``_runtime_for_check``.
     selected_runtime = os.environ.get("YOLO_RUNTIME")
-    if selected_runtime not in ("podman", "docker", "container"):
+    if selected_runtime not in SUPPORTED_RUNTIMES:
         selected_runtime = None
     # First pass: collect probe results so we know whether anything is
     # live before deciding severity on the rest.
@@ -6051,7 +6028,7 @@ def check(
     if detected_runtime is None:
         fail(
             "No container runtime found",
-            "Install podman, docker, or Apple Container (macOS)",
+            "Install podman, or Apple Container (macOS)",
         )
     console.print()
 
@@ -6238,9 +6215,9 @@ def check(
         if container_path:
             if shutil.which("skopeo"):
                 ok("skopeo: available (OCI image conversion, no daemon needed)")
-            elif shutil.which("docker") or shutil.which("podman"):
+            elif shutil.which("podman"):
                 ok(
-                    "OCI conversion: via docker/podman (skopeo recommended: brew install skopeo)"
+                    "OCI conversion: via podman (skopeo recommended: brew install skopeo)"
                 )
             else:
                 warn(
@@ -6507,24 +6484,6 @@ def check(
                         "No CDI spec found for Podman",
                         "Generate with: sudo nvidia-ctk cdi generate --output=/etc/cdi/nvidia.yaml",
                     )
-            elif effective_runtime == "docker":
-                # Check Docker NVIDIA runtime configured
-                try:
-                    result = subprocess.run(
-                        ["docker", "info", "--format", "{{.Runtimes}}"],
-                        capture_output=True,
-                        text=True,
-                        timeout=10,
-                    )
-                    if result.returncode == 0 and "nvidia" in result.stdout.lower():
-                        ok("Docker NVIDIA runtime configured")
-                    else:
-                        warn(
-                            "Docker NVIDIA runtime may not be configured",
-                            "Run: sudo nvidia-ctk runtime configure --runtime=docker && sudo systemctl restart docker",
-                        )
-                except Exception:
-                    warn("Could not verify Docker NVIDIA runtime configuration")
             console.print()
 
     # --- KVM Checks ---
@@ -6593,8 +6552,6 @@ def check(
                 effective_runtime_kvm, _ = _runtime_for_check(config)
                 if effective_runtime_kvm == "podman":
                     ok("Podman will preserve kvm group via --group-add keep-groups")
-                elif effective_runtime_kvm == "docker":
-                    ok("Docker will use --group-add with /dev/kvm's gid")
                 elif effective_runtime_kvm == "container":
                     warn(
                         "Apple Container does not support device passthrough",
@@ -7067,7 +7024,7 @@ def run(
         exec_flags = ["-i"]
         if sys.stdout.isatty():
             exec_flags.append("-t")
-        docker_cmd = [
+        run_cmd = [
             runtime,
             "exec",
             *exec_flags,
@@ -7078,7 +7035,7 @@ def run(
         ]
         # Use subprocess.run (not execvp) so atexit handlers fire for tmux cleanup
         try:
-            result = subprocess.run(docker_cmd)
+            result = subprocess.run(run_cmd)
         except FileNotFoundError:
             console.print(
                 f"[bold red]Configured runtime '{runtime}' not found on PATH.[/bold red]"
@@ -7121,7 +7078,7 @@ def run(
             exec_flags = ["-i"]
             if sys.stdout.isatty():
                 exec_flags.append("-t")
-            docker_cmd = [
+            run_cmd = [
                 runtime,
                 "exec",
                 *exec_flags,
@@ -7131,7 +7088,7 @@ def run(
                 target_cmd,
             ]
             try:
-                result = subprocess.run(docker_cmd)
+                result = subprocess.run(run_cmd)
             except FileNotFoundError:
                 console.print(
                     f"[bold red]Configured runtime '{runtime}' not found on PATH.[/bold red]"
@@ -7144,7 +7101,7 @@ def run(
 
     # Remove any stopped container with the same name left over from an
     # unclean shutdown (e.g. OOM-kill, host reboot).  Without this,
-    # `docker run --name <cname>` fails with "container already exists".
+    # `<runtime> run --name <cname>` fails with "container already exists".
     stale_cid = find_existing_container(cname, runtime=runtime)
     if stale_cid:
         print(f"Removing stale container {cname}...", file=sys.stderr)
@@ -7215,8 +7172,8 @@ def run(
         mount_args.extend(["-v", f"{host_path}:{container_path}:ro"])
         mount_descriptions.append(f"{host_path}:{container_path}")
 
-    # Construct Docker Command
-    docker_flags = [
+    # Construct Container Run Command
+    run_flags = [
         "--rm",
         "-i",
         "--init",
@@ -7226,7 +7183,7 @@ def run(
     ]
     # Apple Container doesn't support --cgroupns
     if runtime != "container":
-        docker_flags.insert(3, "--cgroupns=private")
+        run_flags.insert(3, "--cgroupns=private")
     if runtime == "podman" and IS_LINUX:
         # On Linux, Podman auto-adds tmpfs mounts for /run, /tmp, /dev/shm when
         # --read-only is set.  This conflicts with our explicit --tmpfs /tmp and
@@ -7235,8 +7192,8 @@ def run(
         # On macOS (Podman Machine), do NOT set this: crun inside the VM needs
         # --read-only-tmpfs enabled so it can unlink /dev/console when -t is
         # passed (otherwise: "crun: unlink /dev/console: Read-only file system").
-        docker_flags.append("--read-only-tmpfs=false")
-    if runtime in ("podman", "docker"):
+        run_flags.append("--read-only-tmpfs=false")
+    if runtime == "podman":
         # Don't capture container stdout/stderr anywhere.  The default log
         # driver on systemd hosts is journald, which means every interactive
         # TUI redraw (Claude Code's status line, vim scrolls, progress bars)
@@ -7244,9 +7201,9 @@ def run(
         # actually read `podman logs <name>` — failure diagnosis lives in
         # the agent-side logs under ~/.local/share/yolo-jail/logs/ and in
         # the nix build output.  Drop it on the floor.
-        docker_flags.extend(["--log-driver", "none"])
+        run_flags.extend(["--log-driver", "none"])
     if sys.stdout.isatty():
-        docker_flags.append("-t")
+        run_flags.append("-t")
 
     # Per-workspace overlays for workspace-specific state
     ws_state = workspace / ".yolo" / "home"
@@ -7343,13 +7300,13 @@ def run(
         # Note: Apple Container cannot do the cross-jail shared .credentials.json
         # rw mount (one bind mount per file would push us over the device limit).
         # On AC, each workspace has its own credentials file; cross-jail /login
-        # propagation requires podman or docker on macOS, or running the
+        # propagation requires podman on macOS, or running the
         # host-side claude-oauth-broker which refreshes against the
         # GLOBAL_HOME source.
-        docker_cmd = [
+        run_cmd = [
             runtime,
             "run",
-            *docker_flags,
+            *run_flags,
             "-v",
             f"{workspace}:/workspace",
             "-v",
@@ -7377,10 +7334,10 @@ def run(
             "/dev/shm",
         ]
     else:
-        docker_cmd = [
+        run_cmd = [
             runtime,
             "run",
-            *docker_flags,
+            *run_flags,
             "-v",
             f"{workspace}:/workspace",
             # Global home — read-only base with auth tokens and base configs.
@@ -7451,13 +7408,13 @@ def run(
             #
             # On macOS the host tree has Mach-O (darwin) binaries that cannot
             # execute inside the Linux container, so we back the mount with a
-            # Docker named volume that holds Linux toolchains. The volume is
+            # podman named volume that holds Linux toolchains. The volume is
             # mounted at the same host path string, keeping a single canonical
             # mise location across runtimes (and matching what nested jails see).
             f"yolo-mise-data:{host_mise}" if IS_MACOS else f"{host_mise}:{host_mise}",
             "--tmpfs",
             # Explicit mode=1777 ensures non-root UIDs can write to tmpfs
-            # (Docker on some backends defaults to 755).
+            # (some container backends default to 755).
             "/tmp:exec,mode=1777",
             "--tmpfs",
             "/var/tmp:exec,mode=1777",
@@ -7473,7 +7430,7 @@ def run(
         ]
 
     # Common env vars and flags for all runtimes
-    docker_cmd.extend(
+    run_cmd.extend(
         [
             "-e",
             "JAIL_HOME=/home/agent",
@@ -7547,8 +7504,8 @@ def run(
             f"YOLO_MCP_PRESETS={json.dumps(mcp_presets)}",
             "-e",
             # Inside the container, podman is always the available runtime (it's
-            # built into the image).  Using the host's runtime value (e.g. docker
-            # on macOS) would fail since docker CLI isn't in the container.
+            # built into the image).  Using the host's runtime value (e.g.
+            # 'container' on macOS) would fail since that CLI isn't in the image.
             "YOLO_RUNTIME=podman",
             "-e",
             "YOLO_REPO_ROOT=/opt/yolo-jail",
@@ -7579,11 +7536,9 @@ def run(
             user_env_file, ".config/yolo-user-env.sh", ws_state
         )
     else:
-        docker_cmd.extend(
-            ["-v", f"{user_env_file}:/home/agent/.config/yolo-user-env.sh"]
-        )
+        run_cmd.extend(["-v", f"{user_env_file}:/home/agent/.config/yolo-user-env.sh"])
 
-    docker_cmd += [
+    run_cmd += [
         "--workdir",
         "/workspace",
         # Mount yolo-jail repo for in-jail CLI (yolo --help, nested jailing).
@@ -7594,14 +7549,6 @@ def run(
         if (repo_root / "flake.nix").exists()
         else f"{workspace}:/opt/yolo-jail:ro",
     ]
-
-    # Docker needs explicit UID mapping; podman rootless maps container root to host user.
-    # On macOS, Docker runs inside a VM — the host UID (e.g. 501) doesn't exist
-    # in the container, causing permission errors on volumes.  Skip -u on macOS
-    # and let the container run as root (its default/intended user).
-    # Apple Container: each container is its own VM — no UID mapping needed.
-    if runtime == "docker" and not IS_MACOS:
-        docker_cmd.extend(["-u", f"{os.getuid()}:{os.getgid()}"])
 
     # Detect if we're already inside a container (macOS host is never in a container)
     in_container = not IS_MACOS and (
@@ -7629,7 +7576,7 @@ def run(
     if runtime == "podman":
         if in_container:
             # Inside a container: share parent's user namespace
-            docker_cmd.extend(
+            run_cmd.extend(
                 [
                     "--security-opt",
                     "label=disable",
@@ -7647,7 +7594,7 @@ def run(
             # causes 10+ minute container startup. Identity mapping needs no
             # shifting since container UIDs match the namespace UIDs as stored.
             # SYS_ADMIN is needed for nested containers (podman-in-podman).
-            docker_cmd.extend(
+            run_cmd.extend(
                 [
                     "--security-opt",
                     "label=disable",
@@ -7667,7 +7614,7 @@ def run(
             )
         else:
             # On host: create user namespace with UID/GID mapping for nesting
-            docker_cmd.extend(
+            run_cmd.extend(
                 [
                     "--security-opt",
                     "label=disable",
@@ -7694,8 +7641,7 @@ def run(
     # On macOS, /nix exists on the host but the typical container runtime VM
     # (Podman Machine, Apple container) does not have it shared in — bind-mounting
     # would statfs-error at startup.  Setups that *do* share /nix into the runtime
-    # VM (e.g. Docker Desktop or Colima with a custom mount) can opt in via
-    # YOLO_NIX_HOST_DAEMON=1.
+    # VM can opt in via YOLO_NIX_HOST_DAEMON=1.
     nix_socket = Path("/nix/var/nix/daemon-socket")
     nix_store = Path("/nix/store")
     if _should_mount_host_nix(
@@ -7706,7 +7652,7 @@ def run(
         opt_in_env=os.environ.get("YOLO_NIX_HOST_DAEMON"),
     ):
         # Apple Container VMs can't share Unix sockets via -v bind mounts
-        docker_cmd.extend(
+        run_cmd.extend(
             [
                 "-v",
                 f"{nix_socket}:{nix_socket}",
@@ -7726,18 +7672,12 @@ def run(
     if runtime == "container":
         pass  # Apple Container handles networking internally
     elif runtime == "podman" and in_container:
-        docker_cmd.append("--net=host")
-    elif net_mode != "bridge" or runtime == "docker":
-        docker_cmd.append(f"--net={net_mode}")
-
-    # Docker bridge: add host.internal → host-gateway so socat (and agents)
-    # can reach host services.  Podman does this automatically.
-    # Apple Container: containers have their own IP and can reach the host directly.
-    if runtime == "docker" and net_mode == "bridge":
-        docker_cmd.extend(["--add-host", "host.internal:host-gateway"])
+        run_cmd.append("--net=host")
+    elif net_mode != "bridge":
+        run_cmd.append(f"--net={net_mode}")
 
     # Pass identity env vars (git + jj) collected earlier
-    docker_cmd.extend(identity_env)
+    run_cmd.extend(identity_env)
 
     # Propagate host global gitignore into the jail
     # (We don't mount ~/.gitconfig to avoid credential leaks, but gitignore is safe)
@@ -7762,25 +7702,20 @@ def run(
                 excludes_path, ".config/git/ignore", ws_state
             )
         else:
-            docker_cmd.extend(
-                ["-v", f"{excludes_path}:/home/agent/.config/git/ignore:ro"]
-            )
-        docker_cmd.extend(
-            ["-e", "YOLO_GLOBAL_GITIGNORE=/home/agent/.config/git/ignore"]
-        )
+            run_cmd.extend(["-v", f"{excludes_path}:/home/agent/.config/git/ignore:ro"])
+        run_cmd.extend(["-e", "YOLO_GLOBAL_GITIGNORE=/home/agent/.config/git/ignore"])
 
-    docker_cmd.extend(publish_args)
-    docker_cmd.extend(mount_args)
+    run_cmd.extend(publish_args)
+    run_cmd.extend(mount_args)
 
     # Enable iptables DNAT so published ports reach services bound to 127.0.0.1.
     # Container runtimes forward published-port traffic to the container's eth0,
     # not loopback — so services listening on localhost never see it.
     # Podman rootless runs as UID 0 in a user namespace, so iptables works.
-    # Docker uses -u UID:GID (non-root, no NET_ADMIN) so this is Podman-only.
     # route_localnet allows the kernel to route DNAT'd packets to 127.0.0.1;
     # the entrypoint adds matching iptables PREROUTING rules.
     if publish_args and runtime == "podman":
-        docker_cmd.extend(["--sysctl", "net.ipv4.conf.all.route_localnet=1"])
+        run_cmd.extend(["--sysctl", "net.ipv4.conf.all.route_localnet=1"])
         # Extract container-side ports for the entrypoint's DNAT rules
         published_ports = []
         for p in config.get("network", {}).get("ports", []):
@@ -7792,19 +7727,19 @@ def run(
             container_port = parts[-1]  # always the last element
             published_ports.append(f"{container_port}/{proto}")
         if published_ports:
-            docker_cmd.extend(
+            run_cmd.extend(
                 ["-e", f"YOLO_PUBLISHED_PORTS={json.dumps(published_ports)}"]
             )
 
     # Host port forwarding.
     # On Linux: uses Unix sockets bind-mounted between host and container.
-    # On macOS+Docker: virtiofs doesn't support Unix sockets, so the container-side
-    # socat connects directly to host.docker.internal (TCP) instead.
     # On macOS+Apple Container: native --publish-socket for socket forwarding.
+    # On macOS+Podman: virtiofs doesn't support Unix sockets, so the container-side
+    # socat connects directly to host.containers.internal (TCP) instead.
     _host_tmp = Path("/tmp").resolve() if IS_MACOS else Path("/tmp")
     socket_dir = None
     if forward_host_ports:
-        docker_cmd.extend(
+        run_cmd.extend(
             ["-e", f"YOLO_FORWARD_HOST_PORTS={json.dumps(forward_host_ports)}"]
         )
         if runtime == "container":
@@ -7814,7 +7749,7 @@ def run(
             for port_spec in forward_host_ports:
                 port = str(port_spec).split(":")[0]
                 host_sock = socket_dir / f"port-{port}.sock"
-                docker_cmd.extend(
+                run_cmd.extend(
                     [
                         "--publish-socket",
                         f"{host_sock}:/tmp/yolo-fwd/port-{port}.sock",
@@ -7822,11 +7757,11 @@ def run(
                 )
         elif IS_MACOS:
             # Tell the container entrypoint to use TCP forwarding via the
-            # Docker host gateway instead of Unix sockets.
-            docker_cmd.extend(["-e", "YOLO_FWD_HOST_GATEWAY=host.docker.internal"])
+            # host gateway instead of Unix sockets.
+            run_cmd.extend(["-e", "YOLO_FWD_HOST_GATEWAY=host.containers.internal"])
         else:
             socket_dir = _host_tmp / f"yolo-fwd-{cname}"
-            docker_cmd.extend(["-v", f"{socket_dir}:/tmp/yolo-fwd:rw"])
+            run_cmd.extend(["-v", f"{socket_dir}:/tmp/yolo-fwd:rw"])
 
     # Host services: bind-mount the per-jail sockets directory into the jail
     # at /run/yolo-services/.  Each service (built-in cgroup delegate,
@@ -7844,7 +7779,7 @@ def run(
         # _host_service_sockets_dir already resolves /tmp → /private/tmp on
         # macOS (Podman Machine's VM mounts /private but not the /tmp symlink,
         # so unresolved /tmp/... paths are invisible to the VM).
-        docker_cmd.extend(
+        run_cmd.extend(
             ["-v", f"{host_services_sockets_dir}:{JAIL_HOST_SERVICES_DIR}:rw"]
         )
         # Claude OAuth broker singleton — eagerly ensure it's alive
@@ -7874,7 +7809,7 @@ def run(
                 _relay_path = host_services_sockets_dir / f"{BROKER_LOOPHOLE_NAME}.sock"
                 _start_broker_relay(_relay_path, BROKER_SINGLETON_SOCKET.resolve())
             else:
-                docker_cmd.extend(
+                run_cmd.extend(
                     [
                         "-v",
                         f"{BROKER_SINGLETON_SOCKET.resolve()}:{_broker_jail_socket}:rw",
@@ -7886,7 +7821,7 @@ def run(
             # (singleton doesn't come back as a LoopholeDaemon handle)
             # so inject it explicitly.
             _broker_env_var = _host_service_env_var(BROKER_LOOPHOLE_NAME)
-            docker_cmd.extend(["-e", f"{_broker_env_var}={_broker_jail_socket}"])
+            run_cmd.extend(["-e", f"{_broker_env_var}={_broker_jail_socket}"])
 
     # Device passthrough from config
     # On macOS, device passthrough goes through the container runtime's VM.
@@ -7905,7 +7840,7 @@ def run(
                     f"[yellow]Warning: device {dev} not found — skipping[/yellow]"
                 )
                 continue
-            docker_cmd.extend(["--device", dev])
+            run_cmd.extend(["--device", dev])
         elif isinstance(dev, dict):
             if "usb" in dev:
                 usb_id = dev["usb"]
@@ -7939,7 +7874,7 @@ def run(
                             f"[yellow]Warning: USB device {desc} found by lsusb but {dev_path} missing — skipping[/yellow]"
                         )
                         continue
-                    docker_cmd.extend(["--device", dev_path])
+                    run_cmd.extend(["--device", dev_path])
                     console.print(f"[dim]USB device: {desc} → {dev_path}[/dim]")
                 except FileNotFoundError:
                     console.print(
@@ -7955,7 +7890,7 @@ def run(
                         "[yellow]Warning: device cgroup rules not supported on macOS — skipping[/yellow]"
                     )
                     continue
-                docker_cmd.extend(["--device-cgroup-rule", dev["cgroup_rule"]])
+                run_cmd.extend(["--device-cgroup-rule", dev["cgroup_rule"]])
 
     # GPU passthrough from config (NVIDIA via podman+CDI).  Availability
     # already probed above — gpu_enabled reflects "requested AND present",
@@ -7973,15 +7908,15 @@ def run(
 
         # Podman: use CDI (Container Device Interface) notation
         if gpu_devices == "all":
-            docker_cmd.extend(["--device", "nvidia.com/gpu=all"])
+            run_cmd.extend(["--device", "nvidia.com/gpu=all"])
         else:
             # CDI supports individual GPU indices: nvidia.com/gpu=0
             for gpu_idx in gpu_devices.split(","):
                 gpu_idx = gpu_idx.strip()
-                docker_cmd.extend(["--device", f"nvidia.com/gpu={gpu_idx}"])
+                run_cmd.extend(["--device", f"nvidia.com/gpu={gpu_idx}"])
 
         # Set NVIDIA environment variables for the container runtime to pick up
-        docker_cmd.extend(
+        run_cmd.extend(
             [
                 "-e",
                 f"NVIDIA_VISIBLE_DEVICES={gpu_devices}",
@@ -8008,29 +7943,18 @@ def run(
                 "[yellow]Warning: /dev/kvm not present on host — skipping kvm passthrough[/yellow]"
             )
         else:
-            docker_cmd.extend(["--device", "/dev/kvm"])
+            run_cmd.extend(["--device", "/dev/kvm"])
             # Rootless podman drops supplementary groups by default, so even
             # after --device the in-container process can't open /dev/kvm
             # unless we explicitly preserve the invoking user's kvm group.
             # `keep-groups` is a podman-specific convenience flag.
             if runtime == "podman":
-                docker_cmd.extend(["--group-add", "keep-groups"])
-            elif runtime == "docker":
-                # Docker doesn't have keep-groups — pass the raw gid of
-                # /dev/kvm so the container process gets that supplementary
-                # group directly.  If stat fails for any reason, fall back
-                # to just --device and let the user hit the permission
-                # error (doctor will have flagged it anyway).
-                try:
-                    kvm_gid = os.stat("/dev/kvm").st_gid
-                    docker_cmd.extend(["--group-add", str(kvm_gid)])
-                except OSError:
-                    pass
+                run_cmd.extend(["--group-add", "keep-groups"])
             console.print("[dim]KVM passthrough: /dev/kvm[/dim]")
 
     # Resource limits from config.
     # Apple Container needs explicit defaults (its built-in defaults are 4 CPU / 1GB RAM).
-    # Docker/Podman inherit VM-level resources; only set limits when explicitly configured.
+    # Podman inherits VM-level resources; only set limits when explicitly configured.
     resources_config = config.get("resources", {})
     res_parts = []
     memory = resources_config.get("memory")
@@ -8065,10 +7989,10 @@ def run(
                 memory = "8g"
 
     if memory:
-        docker_cmd.extend(["--memory", memory])
+        run_cmd.extend(["--memory", memory])
         res_parts.append(f"memory={memory}")
     if cpus is not None:
-        docker_cmd.extend(["--cpus", str(cpus)])
+        run_cmd.extend(["--cpus", str(cpus)])
         res_parts.append(f"cpus={cpus}")
     pids_limit = resources_config.get("pids_limit")
     # Apple Container doesn't support --pids-limit (each container is a VM)
@@ -8076,7 +8000,7 @@ def run(
         # Podman defaults to 2048 pids which is too low for agent workloads.
         # Always set a sane default.
         effective_pids = pids_limit if pids_limit is not None else 32768
-        docker_cmd.extend(["--pids-limit", str(effective_pids)])
+        run_cmd.extend(["--pids-limit", str(effective_pids)])
         res_parts.append(f"pids={effective_pids}")
     # Print version at startup for log capture
     _print_startup_banner(_get_yolo_version(), runtime, cname, res_parts or None)
@@ -8086,21 +8010,21 @@ def run(
     # (stow, etc.) create symlinks that break inside the container.
     host_nvim_config = Path.home() / ".config" / "nvim"
     if host_nvim_config.is_dir():
-        docker_cmd.extend(["-v", f"{host_nvim_config}:/ctx/host-nvim-config:ro"])
+        run_cmd.extend(["-v", f"{host_nvim_config}:/ctx/host-nvim-config:ro"])
 
     # Shadow workspace .vscode/mcp.json so agents use only our jail MCP config
     vscode_mcp = workspace / ".vscode" / "mcp.json"
     if vscode_mcp.exists():
-        docker_cmd.extend(["-v", "/dev/null:/workspace/.vscode/mcp.json:ro"])
+        run_cmd.extend(["-v", "/dev/null:/workspace/.vscode/mcp.json:ro"])
 
     # Shadow workspace .overmind.sock so host overmind doesn't leak into the jail
     overmind_sock = workspace / ".overmind.sock"
     if overmind_sock.exists():
-        docker_cmd.extend(["-v", "/dev/null:/workspace/.overmind.sock:ro"])
+        run_cmd.extend(["-v", "/dev/null:/workspace/.overmind.sock:ro"])
 
     # Overlay workspace sub-paths as read-only to protect host-executed code.
     # Mounted after the rw workspace volume so they shadow it for those paths.
-    docker_cmd.extend(_workspace_readonly_mount_args(workspace, config))
+    run_cmd.extend(_workspace_readonly_mount_args(workspace, config))
 
     # Mount user-level yolo config so nested jails see the same merged config.
     # Without this, ~/.config/ is an empty per-workspace overlay and the nested
@@ -8114,23 +8038,23 @@ def run(
                 ws_state,
             )
         else:
-            docker_cmd.extend(["-v", f"{USER_CONFIG_PATH}:{container_config}:ro"])
+            run_cmd.extend(["-v", f"{USER_CONFIG_PATH}:{container_config}:ro"])
 
     # Pass the mise path through to any nested jail so the same host path
     # keeps resolving one level deeper. The path is identical inside and out.
-    docker_cmd.extend(["-e", f"YOLO_OUTER_MISE_PATH={host_mise}"])
-    docker_cmd.extend(["-e", f"MISE_DISABLE_TOOLS={mise_disabled_tools}"])
+    run_cmd.extend(["-e", f"YOLO_OUTER_MISE_PATH={host_mise}"])
+    run_cmd.extend(["-e", f"MISE_DISABLE_TOOLS={mise_disabled_tools}"])
 
     # Mount merged skills directories read-only (prepared on host side).
     # Kernel-enforced :ro — agents get "Read-only file system" on write attempts.
     skills_path = _prepare_skills(cname, workspace)
-    docker_cmd.extend(
+    run_cmd.extend(
         ["-v", f"{skills_path / 'skills-copilot'}:/home/agent/.copilot/skills:ro"]
     )
-    docker_cmd.extend(
+    run_cmd.extend(
         ["-v", f"{skills_path / 'skills-gemini'}:/home/agent/.gemini/skills:ro"]
     )
-    docker_cmd.extend(
+    run_cmd.extend(
         ["-v", f"{skills_path / 'skills-claude'}:/home/agent/.claude/skills:ro"]
     )
 
@@ -8174,10 +8098,10 @@ def run(
     for fname in effective_claude_files:
         host_file = host_claude_dir / fname
         if host_file.exists() and host_file.is_file():
-            docker_cmd.extend(["-v", f"{host_file}:/ctx/host-claude/{fname}:ro"])
+            run_cmd.extend(["-v", f"{host_file}:/ctx/host-claude/{fname}:ro"])
             mounted_claude_files.append(fname)
     if mounted_claude_files:
-        docker_cmd.extend(
+        run_cmd.extend(
             ["-e", f"YOLO_HOST_CLAUDE_FILES={json.dumps(mounted_claude_files)}"]
         )
 
@@ -8205,27 +8129,27 @@ def run(
             agents_path / "CLAUDE.md", ".claude/CLAUDE.md", ws_state
         )
     else:
-        docker_cmd.extend(
+        run_cmd.extend(
             [
                 "-v",
                 f"{agents_path / 'AGENTS-copilot.md'}:/home/agent/.copilot/AGENTS.md:ro",
             ]
         )
-        docker_cmd.extend(
+        run_cmd.extend(
             [
                 "-v",
                 f"{agents_path / 'AGENTS-gemini.md'}:/home/agent/.gemini/AGENTS.md:ro",
             ]
         )
-        docker_cmd.extend(
+        run_cmd.extend(
             ["-v", f"{agents_path / 'CLAUDE.md'}:/home/agent/.claude/CLAUDE.md:ro"]
         )
 
     if "TERM" in os.environ:
-        docker_cmd.extend(["-e", f"TERM={os.environ['TERM']}"])
+        run_cmd.extend(["-e", f"TERM={os.environ['TERM']}"])
 
     if profile:
-        docker_cmd.extend(["-e", "YOLO_PROFILE=1"])
+        run_cmd.extend(["-e", "YOLO_PROFILE=1"])
 
     # Apply host-side loopholes: --add-host entries for DNS interception,
     # CA cert bind mounts, and NODE_EXTRA_CA_CERTS for tls-intercept
@@ -8233,15 +8157,15 @@ def run(
     # host_services entries) ride the existing start_loopholes
     # pipeline below; we only do jail-side integration here. See
     # src/loopholes.py for the full schema.
-    docker_cmd.extend(
-        _loopholes.docker_args_for(
+    run_cmd.extend(
+        _loopholes.runtime_args_for(
             _loopholes.discover_loopholes(loopholes_config=config.get("loopholes")),
             runtime=runtime,
         )
     )
 
-    docker_cmd.append(_jail_image(runtime))
-    docker_cmd.append("yolo-entrypoint")
+    run_cmd.append(_jail_image(runtime))
+    run_cmd.append("yolo-entrypoint")
 
     # If mise.toml exists in workspace, trust it.
     # Then ensure all tools (global + local) are ready.
@@ -8334,23 +8258,23 @@ def run(
     for svc in host_services:
         # Insert each `-e VAR=val` pair just before the image arg.  We can't
         # extend at the end — the image and command args are already in
-        # docker_cmd at this point.
-        image_idx = docker_cmd.index(_jail_image(runtime))
-        docker_cmd[image_idx:image_idx] = [
+        # the run command at this point.
+        image_idx = run_cmd.index(_jail_image(runtime))
+        run_cmd[image_idx:image_idx] = [
             "-e",
             f"{svc.env_var_name}={svc.jail_socket_path}",
         ]
 
-    docker_cmd.append(final_internal_cmd)
+    run_cmd.append(final_internal_cmd)
 
     if os.environ.get("YOLO_DEBUG"):
-        print(" ".join(shlex.quote(s) for s in docker_cmd), file=sys.stderr)
+        print(" ".join(shlex.quote(s) for s in run_cmd), file=sys.stderr)
 
     # Use Popen so we can release the workspace lock once the container is
     # confirmed running.  Any concurrent yolo process waiting on the lock will
     # re-check and find our container, then exec into it.
     try:
-        proc = subprocess.Popen(docker_cmd)
+        proc = subprocess.Popen(run_cmd)
     except FileNotFoundError:
         console.print(
             f"[bold red]Configured runtime '{runtime}' not found on PATH.[/bold red]"

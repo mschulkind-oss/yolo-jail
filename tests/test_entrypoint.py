@@ -555,7 +555,7 @@ class TestConfigureTimezone:
         assert not (run / "timezone").exists()
 
     def test_overwrites_existing_localtime(self, tmp_path, monkeypatch):
-        """Re-boot of a container image (podman/docker exec into an
+        """Re-boot of a container image (podman exec into an
         existing container) may find /run/localtime already pointing
         at a stale zone.  The new boot must replace it, not fail with
         EEXIST."""

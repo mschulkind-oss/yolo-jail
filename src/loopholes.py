@@ -14,7 +14,7 @@ nothing escapes that's not declared.  Examples:
 A loophole lives under ``~/.local/share/yolo-jail/loopholes/<name>/`` with
 at least a ``manifest.jsonc``.  The loader discovers every installed
 loophole at jail startup and applies its declared wiring — CA cert mount,
-DNS overrides, socket bind mount, jail env — to the docker run command.
+DNS overrides, socket bind mount, jail env — to the container run command.
 
 ``loopholes`` config entries in ``yolo-jail.jsonc`` are the second
 source of loopholes (workspace-scoped, unix-socket + spawned).  The
@@ -85,10 +85,10 @@ import pyjson5
 log = logging.getLogger("yolo.loopholes")
 
 
-# Both podman and docker translate the literal "host-gateway" into the
+# The container runtime translates the literal "host-gateway" into the
 # right host-reachable-from-container address for the active runtime
-# (pasta tunnel, CNI bridge, Docker Desktop VM gateway, …). Hardcoding a
-# specific IP like 169.254.1.2 only works on one runtime/config combination.
+# (pasta tunnel, CNI bridge, VM gateway, …). Hardcoding a specific IP
+# like 169.254.1.2 only works on one runtime/config combination.
 DEFAULT_BROKER_IP = "host-gateway"
 
 VALID_TRANSPORTS = {"tls-intercept", "unix-socket", "none"}
@@ -164,7 +164,7 @@ class HostBindMount:
 @dataclass
 class Requires:
     """Activation preconditions.  A loophole is *present* regardless —
-    but it's only *active* (docker wiring, daemons spawned) when every
+    but it's only *active* (runtime wiring, daemons spawned) when every
     ``requires`` predicate is satisfied.  Missing a requirement produces
     an informational 'inactive' state in ``yolo loopholes list`` but
     never an error."""
@@ -419,7 +419,7 @@ def _parse_host_bind_mounts(manifest_path: Path, raw: Any) -> List[HostBindMount
     Each entry: ``{host: str, container: str, readonly: bool=True}``.
     The host path may contain ``${VAR}`` refs; we expand them at parse
     time so downstream code sees concrete ``Path`` objects.  Empty
-    expansions (unset env var) keep the Path as-is; ``docker_args_for``
+    expansions (unset env var) keep the Path as-is; ``runtime_args_for``
     will skip such mounts with a log message instead of crashing."""
     if raw is None:
         return []
@@ -672,16 +672,16 @@ def validate_loopholes(
 
 
 # ---------------------------------------------------------------------------
-# docker run integration — only file-backed tls-intercept loopholes.
+# container runtime integration — only file-backed tls-intercept loopholes.
 # Config-backed (spawned + unix-socket) loopholes ride the ``start_loopholes``
 # pipeline in cli.py.
 # ---------------------------------------------------------------------------
 
 
-def docker_args_for(
+def runtime_args_for(
     loopholes: List[Loophole], *, runtime: Optional[str] = None
 ) -> List[str]:
-    """Translate file-backed loopholes into docker run flags.
+    """Translate file-backed loopholes into container runtime flags.
 
     Emits --add-host, CA mounts, NODE_EXTRA_CA_CERTS, jail_env, plus the
     YOLO_JAIL_DAEMONS payload and a full loophole-dir bind mount when a

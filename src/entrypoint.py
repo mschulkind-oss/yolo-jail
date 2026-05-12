@@ -1835,7 +1835,7 @@ def setup_published_port_localnet():
     published ports work regardless of the bind address inside the jail.
 
     Reads YOLO_PUBLISHED_PORTS (JSON array of "PORT/PROTO" strings).
-    Silently skips if iptables is unavailable (e.g. Docker without NET_ADMIN).
+    Silently skips if iptables is unavailable (e.g. when NET_ADMIN is missing).
     """
     raw = os.environ.get("YOLO_PUBLISHED_PORTS", "")
     if not raw:
@@ -1885,7 +1885,7 @@ def setup_published_port_localnet():
             )
 
 
-# /tmp is a per-container tmpfs on both podman and docker, so a PID
+# /tmp is a per-container tmpfs on podman, so a PID
 # file here is naturally scoped to this jail and evaporates on restart.
 # Serves as the single-instance lock for the supervisor: entrypoint.main()
 # re-runs on every ``podman exec yolo-entrypoint <cmd>``, and without
@@ -2040,7 +2040,7 @@ def start_container_port_forwarding():
     - Unix socket mode (Linux): connects to /tmp/yolo-fwd/port-PORT.sock
       (bind-mounted from host where host-side socat bridges to host localhost).
     - TCP gateway mode (macOS): connects to YOLO_FWD_HOST_GATEWAY:PORT
-      directly via TCP (host.docker.internal resolves to the host).
+      directly via TCP (host.containers.internal resolves to the host).
 
     Skips ports already bound (idempotent for container reuse via exec).
     """
@@ -2078,7 +2078,7 @@ def start_container_port_forwarding():
             continue
 
         if host_gateway:
-            # TCP gateway mode: connect directly to host via Docker gateway
+            # TCP gateway mode: connect directly to host via host gateway
             target = f"TCP:{host_gateway}:{local_port}"
         else:
             # Unix socket mode: connect to bind-mounted socket from host

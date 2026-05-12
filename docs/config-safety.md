@@ -60,7 +60,7 @@ Accept these config changes? [y/N]
 ### Reusing Containers
 
 Config approval checks only run when **creating a new container**. When attaching to
-an existing running container (`docker exec`), the config is not re-checked
+an existing running container (`podman exec`), the config is not re-checked
 because the container was already started with its config. This is why agents
 must run `yolo check` themselves after every config edit, even mid-session.
 

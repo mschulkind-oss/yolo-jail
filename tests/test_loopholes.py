@@ -97,7 +97,7 @@ def test_invalid_lifecycle_rejected(mods_dir: Path):
     assert err is not None and "lifecycle=" in err
 
 
-def test_docker_args_intercept_and_ca(mods_dir: Path):
+def test_runtime_args_intercept_and_ca(mods_dir: Path):
     mod = mods_dir / "broker"
     mod.mkdir()
     ca = mod / "ca.crt"
@@ -114,7 +114,7 @@ def test_docker_args_intercept_and_ca(mods_dir: Path):
         },
     )
     loaded = loopholes.discover_loopholes(mods_dir, include_bundled=False)
-    args = loopholes.docker_args_for(loaded)
+    args = loopholes.runtime_args_for(loaded)
     assert args.count("--add-host") == 2
     assert "example.test:10.0.0.1" in args
     assert "api.example.test:10.0.0.1" in args
@@ -123,7 +123,7 @@ def test_docker_args_intercept_and_ca(mods_dir: Path):
     assert any(a.startswith("NODE_EXTRA_CA_CERTS=") for a in args)
 
 
-def test_docker_args_no_ca_no_env(mods_dir: Path):
+def test_runtime_args_no_ca_no_env(mods_dir: Path):
     mod = mods_dir / "plain"
     mod.mkdir()
     _write_manifest(
@@ -134,16 +134,16 @@ def test_docker_args_no_ca_no_env(mods_dir: Path):
             "intercepts": [{"host": "plain.test"}],
         },
     )
-    args = loopholes.docker_args_for(
+    args = loopholes.runtime_args_for(
         loopholes.discover_loopholes(mods_dir, include_bundled=False)
     )
     assert args == ["--add-host", "plain.test:host-gateway"]
 
 
-def test_docker_args_skip_tls_intercept_on_apple_container(mods_dir: Path):
+def test_runtime_args_skip_tls_intercept_on_apple_container(mods_dir: Path):
     # Apple Container 0.12.3 has no --add-host (apple/container#673) and its
     # single-file bind mounts collide with the ws_state parent mount
-    # (apple/container#1089).  docker_args_for(runtime="container") must drop
+    # (apple/container#1089).  runtime_args_for(runtime="container") must drop
     # tls-intercept loopholes entirely — --add-host, CA mount, jail_env.
     mod = mods_dir / "broker"
     mod.mkdir()
@@ -160,27 +160,27 @@ def test_docker_args_skip_tls_intercept_on_apple_container(mods_dir: Path):
         },
     )
     loaded = loopholes.discover_loopholes(mods_dir, include_bundled=False)
-    # Podman/docker: full wiring.
-    podman_args = loopholes.docker_args_for(loaded, runtime="podman")
+    # Podman: full wiring.
+    podman_args = loopholes.runtime_args_for(loaded, runtime="podman")
     assert "--add-host" in podman_args
     assert "FOO=bar" in podman_args
     # Apple Container: nothing.
-    ac_args = loopholes.docker_args_for(loaded, runtime="container")
+    ac_args = loopholes.runtime_args_for(loaded, runtime="container")
     assert "--add-host" not in ac_args
     assert "FOO=bar" not in ac_args
     assert ac_args == []
 
 
-def test_docker_args_skip_config_backed_loopholes(tmp_path: Path):
+def test_runtime_args_skip_config_backed_loopholes(tmp_path: Path):
     # Config-backed (synthesized from yolo-jail.jsonc) loopholes have no
     # file-backed mounts or intercepts — their wiring lives in
-    # cli.start_loopholes.  docker_args_for should ignore them entirely.
+    # cli.start_loopholes.  runtime_args_for should ignore them entirely.
     loaded = loopholes.discover_loopholes(
         tmp_path / "empty",
         include_bundled=False,
         loopholes_config={"journal": {"description": "x"}},
     )
-    assert loopholes.docker_args_for(loaded) == []
+    assert loopholes.runtime_args_for(loaded) == []
 
 
 def test_multiple_loopholes_merge_ca_paths(mods_dir: Path):
@@ -192,7 +192,7 @@ def test_multiple_loopholes_merge_ca_paths(mods_dir: Path):
             mod,
             {"name": name, "description": "x", "ca_cert": "ca.crt"},
         )
-    args = loopholes.docker_args_for(
+    args = loopholes.runtime_args_for(
         loopholes.discover_loopholes(mods_dir, include_bundled=False)
     )
     node_ca = next(a for a in args if a.startswith("NODE_EXTRA_CA_CERTS="))
@@ -259,14 +259,14 @@ def test_loopholes_config_synthesized_as_loopholes(mods_dir: Path):
         assert m.from_config
 
 
-def test_loopholes_config_synthesized_do_not_emit_docker_args(mods_dir: Path):
+def test_loopholes_config_synthesized_do_not_emit_runtime_args(mods_dir: Path):
     loopholes_config = {"journal": {"description": "x"}}
     loaded = loopholes.discover_loopholes(
         mods_dir, include_bundled=False, loopholes_config=loopholes_config
     )
-    # synthesized entries are for display only; their docker wiring is
+    # synthesized entries are for display only; their runtime wiring is
     # the existing start_loopholes pipeline.
-    assert loopholes.docker_args_for(loaded) == []
+    assert loopholes.runtime_args_for(loaded) == []
 
 
 def test_run_doctor_checks_no_cmd(mods_dir: Path):
@@ -365,7 +365,7 @@ def test_manifest_parses_host_daemon(mods_dir: Path):
     assert hd.env == {"FOO": "bar"}
 
 
-def test_docker_args_mounts_dir_for_jail_daemon(mods_dir: Path):
+def test_runtime_args_mounts_dir_for_jail_daemon(mods_dir: Path):
     mod = mods_dir / "jd-mod"
     mod.mkdir()
     (mod / "ca.crt").write_text("ca")
@@ -384,7 +384,7 @@ def test_docker_args_mounts_dir_for_jail_daemon(mods_dir: Path):
             },
         },
     )
-    args = loopholes.docker_args_for(
+    args = loopholes.runtime_args_for(
         loopholes.discover_loopholes(mods_dir, include_bundled=False)
     )
     # Dir mount covers the CA too — only one -v line per loophole.
@@ -623,8 +623,8 @@ def test_host_bind_mounts_expand_env_in_host_path(
     assert loaded[0].host_bind_mounts[0].host == sock
 
 
-def test_host_bind_mounts_emitted_as_docker_args(mods_dir: Path, tmp_path: Path):
-    """Active loophole's host_bind_mounts produce ``-v host:container`` docker
+def test_host_bind_mounts_emitted_as_runtime_args(mods_dir: Path, tmp_path: Path):
+    """Active loophole's host_bind_mounts produce ``-v host:container`` runtime
     flags.  Readonly entries get ``:ro``."""
     rw_src = tmp_path / "rw-sock"
     rw_src.write_bytes(b"")
@@ -654,7 +654,7 @@ def test_host_bind_mounts_emitted_as_docker_args(mods_dir: Path, tmp_path: Path)
         },
     )
     loaded = loopholes.discover_loopholes(mods_dir, include_bundled=False)
-    args = loopholes.docker_args_for(loaded)
+    args = loopholes.runtime_args_for(loaded)
     joined = " ".join(args)
     assert f"{rw_src}:/run/pulse/native" in joined
     assert f"{ro_src}:/etc/some-config:ro" in joined
@@ -680,14 +680,14 @@ def test_host_bind_mounts_skip_when_source_missing(
             "description": "x",
             "transport": "none",
             # Don't gate on file_exists here — we want to exercise the
-            # docker_args_for path, not the active check.
+            # runtime_args_for path, not the active check.
             "host_bind_mounts": [
                 {"host": str(gone), "container": "/run/pulse/native"},
             ],
         },
     )
     loaded = loopholes.discover_loopholes(mods_dir, include_bundled=False)
-    args = loopholes.docker_args_for(loaded)
+    args = loopholes.runtime_args_for(loaded)
     # No -v for the missing source.
     joined = " ".join(args)
     assert f"{gone}:/run/pulse/native" not in joined
@@ -700,7 +700,7 @@ def test_host_bind_mounts_skip_when_source_missing(
 
 def test_bundled_audio_loophole_parses(monkeypatch, tmp_path):
     """Smoke-test the shipped src/bundled_loopholes/audio/manifest.jsonc:
-    parser accepts it, expansion works, docker_args_for renders the
+    parser accepts it, expansion works, runtime_args_for renders the
     expected -v + PULSE_SERVER when the socket is present."""
     from src import loopholes as _l
 
@@ -715,13 +715,13 @@ def test_bundled_audio_loophole_parses(monkeypatch, tmp_path):
     # Discover only the audio loophole in isolation.
     loaded = [_l.load_loophole(bundled)]
     assert loaded[0].active is True
-    args = _l.docker_args_for(loaded)
+    args = _l.runtime_args_for(loaded)
     joined = " ".join(args)
     assert f"{sock}:/run/pulse/native" in joined
     assert "PULSE_SERVER=unix:/run/pulse/native" in joined
 
 
-def test_inactive_loopholes_skipped_in_docker_args(mods_dir: Path):
+def test_inactive_loopholes_skipped_in_runtime_args(mods_dir: Path):
     mod = mods_dir / "inactive-mod"
     mod.mkdir()
     (mod / "ca.crt").write_text("ca")
@@ -736,8 +736,8 @@ def test_inactive_loopholes_skipped_in_docker_args(mods_dir: Path):
         },
     )
     loaded = loopholes.discover_loopholes(mods_dir, include_bundled=False)
-    # Present but inactive — docker_args_for emits nothing.
-    assert loopholes.docker_args_for(loaded) == []
+    # Present but inactive — runtime_args_for emits nothing.
+    assert loopholes.runtime_args_for(loaded) == []
 
 
 def test_workspace_override_merges_enabled(mods_dir: Path):
@@ -843,7 +843,7 @@ def test_no_file_overlay_on_dir_mount(mods_dir: Path, tmp_path: Path, monkeypatc
     """Regression: podman rejects container specs that mount a file INTO
     a path already covered by a dir mount ("conmon bytes '': readObjectStart").
     When the CA lives inside a mounted dir (bundled loophole dir OR the
-    state dir), docker_args_for must reference the existing mount — not
+    state dir), runtime_args_for must reference the existing mount — not
     stack a second file mount on top."""
     mod = mods_dir / "has-jail"
     mod.mkdir()
@@ -868,7 +868,7 @@ def test_no_file_overlay_on_dir_mount(mods_dir: Path, tmp_path: Path, monkeypatc
     (state_dir / "ca.crt").write_text("ca")
     monkeypatch.setattr(loopholes_mod, "state_dir_for", lambda name: state_root / name)
 
-    args = loopholes.docker_args_for(
+    args = loopholes.runtime_args_for(
         loopholes.discover_loopholes(mods_dir, include_bundled=False)
     )
     # Exactly two -v flags for this loophole: loophole dir + state dir.

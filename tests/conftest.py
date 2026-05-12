@@ -56,7 +56,7 @@ def _simulate_linux_for_unit_tests(request, monkeypatch):
 
 
 def _detect_runtime() -> str | None:
-    for rt in ("podman", "docker"):
+    for rt in ("podman", "container"):
         if shutil.which(rt):
             return rt
     return None
@@ -96,7 +96,7 @@ def ensure_jail_image():
 
     runtime = _detect_runtime()
     if runtime is None:
-        pytest.skip("No container runtime (podman/docker) found")
+        pytest.skip("No container runtime (podman/container) found")
 
     if _image_exists(runtime):
         return  # Already loaded from a previous session (persistent home dir)
@@ -129,7 +129,7 @@ def ensure_jail_image():
             "--extra-experimental-features",
             "nix-command flakes",
             "build",
-            ".#dockerImage",
+            ".#ociImage",
             "--impure",
             "--out-link",
             str(REPO_ROOT / ".run-result"),
