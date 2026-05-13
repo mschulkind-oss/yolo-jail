@@ -55,12 +55,56 @@
             then { base = builtins.head parts; output = null; }
             else { base = builtins.head parts; output = builtins.elemAt parts 1; };
 
+        # Walk ``propagatedBuildInputs`` transitively starting from ``drv``,
+        # deduplicating by store path.  Used to chase the *header* closure
+        # when a ``.dev`` output is requested: gtk4.dev → pango.dev →
+        # harfbuzz.dev, so ``pkg-config --cflags gtk4`` actually resolves.
+        # genericClosure handles cycles and dedup for us.
+        #
+        # ``propagatedBuildInputs`` lists may contain ``null`` entries
+        # (nixpkgs uses ``lib.optional cond pkg`` patterns that resolve to
+        # null when disabled) and bare strings, so filter to honest
+        # derivations before recursing.
+        isDerivation = p:
+          p != null && builtins.isAttrs p && (p ? outPath);
+        propagatedClosure = drv:
+          builtins.genericClosure {
+            startSet = [ { key = drv.outPath; pkg = drv; } ];
+            operator = item:
+              map (p: { key = p.outPath; pkg = p; })
+                  (builtins.filter isDerivation
+                    (item.pkg.propagatedBuildInputs or []));
+          };
+
+        # Expand a selected output of ``drv`` into a list of derivations.
+        # For ``dev`` specifically, also pull in the dev outputs of every
+        # transitively propagated package — that's what nix-shell does
+        # implicitly when you put gtk4 in buildInputs, and what users need
+        # for cgo / FFI builds.  Other outputs (bin, lib, man, doc) are not
+        # propagated: they don't chain the same way and propagation would
+        # bloat the image with surprise content.
+        expandSelected = drv: output:
+          if output == "dev" then
+            let
+              closure = propagatedClosure drv;
+              # Drop the root (we always include it explicitly so a
+              # ``dev``-less package surfaces a clear Nix error rather than
+              # silently disappearing) and keep every reachable package
+              # that exposes a dev output.
+              propagated = builtins.filter
+                (i: i.key != drv.outPath && i.pkg ? dev)
+                closure;
+            in
+              [ drv.dev ] ++ map (i: i.pkg.dev) propagated
+          else
+            [ drv.${output} ];
+
         # Resolve a derivation + optional list of output names to a list of
         # derivations.  Empty/missing outputs → just the default derivation.
         selectOutputs = drv: outs:
           if outs == null || outs == []
           then [ drv ]
-          else map (o: drv.${o}) outs;
+          else builtins.concatMap (o: expandSelected drv o) outs;
 
         extraPackages = builtins.concatMap (spec:
           if builtins.isString spec then
@@ -68,7 +112,9 @@
               parsed = parseDottedSpec spec;
               drv = imagePkgs.${parsed.base};
             in
-              if parsed.output == null then [ drv ] else [ drv.${parsed.output} ]
+              if parsed.output == null
+              then [ drv ]
+              else expandSelected drv parsed.output
           else if spec ? nixpkgs then
             # Pinned to a specific nixpkgs commit
             let
@@ -423,6 +469,13 @@
                 "PATH=${shims}/bin:/bin:/usr/bin"
                 "SSL_CERT_FILE=${imagePkgs.cacert}/etc/ssl/certs/ca-bundle.crt"
                 "LD_LIBRARY_PATH=/lib:/usr/lib:/usr/lib/${linuxMultilib}"
+                # FHS-style pkg-config search path for .pc files laid down
+                # by any ``.dev`` outputs in the image (gtk4.dev,
+                # freetype.dev, ...).  Without this, ``pkg-config --cflags
+                # foo`` fails even when /lib/pkgconfig/foo.pc exists,
+                # because pkg-config's compiled-in default only looks in
+                # its own nix-store path.
+                "PKG_CONFIG_PATH=/lib/pkgconfig:/share/pkgconfig:/usr/lib/pkgconfig"
                 "FONTCONFIG_FILE=/etc/fonts/fonts.conf"
                 "FONTCONFIG_PATH=/etc/fonts"
                 # Point glibc at the tzdata store path so ``TZ=<zone>``
