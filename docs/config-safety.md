@@ -75,7 +75,14 @@ The intended flow for agents that need additional packages:
      "packages": ["postgresql"]
    }
    ```
-   Or for a specific version, using a nixpkgs commit hash:
+   For C headers + `pkg-config` (e.g. cgo builds), use the `.dev` shorthand —
+   propagated dev outputs are pulled in transitively:
+   ```json
+   {
+     "packages": ["gtk4", "gtk4.dev"]
+   }
+   ```
+   For a specific version, using a nixpkgs commit hash:
    ```json
    {
      "packages": [{"name": "freetype", "nixpkgs": "e6f23dc0..."}]

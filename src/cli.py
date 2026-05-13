@@ -209,6 +209,8 @@ def _default(
           "runtime": "podman",              // or "container" (Apple Container)
           "packages": [                     // extra nix packages
             "strace",                       // latest from flake nixpkgs
+            "gtk4.dev",                     // non-default output (headers + .pc)
+            {"name": "gtk4-layer-shell", "outputs": ["out", "dev"]},
             {"name": "freetype", "nixpkgs": "e6f23dc0..."},  // pinned nixpkgs
             {"name": "freetype", "version": "2.14.1",        // version override
              "url": "mirror://savannah/freetype/freetype-2.14.1.tar.xz",
@@ -5374,6 +5376,8 @@ def config_ref():
     },
     "packages": [
       "strace",
+      "gtk4", "gtk4.dev",
+      {"name": "gtk4-layer-shell", "outputs": ["out", "dev"]},
       {"name": "freetype", "nixpkgs": "e6f23dc0..."},
       {"name": "freetype", "version": "2.14.1",
        "url": "mirror://savannah/freetype/freetype-2.14.1.tar.xz",

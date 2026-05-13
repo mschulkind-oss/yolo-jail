@@ -1721,6 +1721,18 @@ def _run_monkeypatch(monkeypatch, tmp_path):
     monkeypatch.setattr("cli.USER_CONFIG_PATH", tmp_path / "user-config.jsonc")
     monkeypatch.setattr("cli._runtime_is_connectable", lambda rt: True)
     monkeypatch.setattr("time.sleep", lambda _: None)
+    # The Claude OAuth broker singleton + loophole daemons run real
+    # subprocesses and worker threads; ``stop_loopholes`` then blocks ~6s
+    # joining a thread parked in ``socket.accept()``.  None of the run-
+    # command unit tests below care about broker plumbing — they assert
+    # on the constructed podman/docker argv.  Stub the lot out so each
+    # test runs in milliseconds instead of seconds.
+    fake_sock = tmp_path / "broker.sock"
+    monkeypatch.setattr("cli._broker_ensure", lambda: fake_sock)
+    monkeypatch.setattr("cli._broker_spawn", lambda: fake_sock)
+    monkeypatch.setattr("cli.start_loopholes", lambda *a, **kw: [])
+    monkeypatch.setattr("cli.stop_loopholes", lambda *a, **kw: None)
+    monkeypatch.setattr("cli._start_broker_relay", lambda *a, **kw: None)
     for d in (
         "home",
         "mise",

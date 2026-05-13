@@ -488,13 +488,29 @@ Add system packages via the `packages` config array. These are baked into the co
 
 Package names must match [nixpkgs attributes](https://search.nixos.org/packages). The image only rebuilds when this list changes.
 
-**Pinned versions:** Pin to a specific nixpkgs commit for reproducibility:
+**Non-default outputs (`.dev` for headers + `pkg-config`):** Nixpkgs splits many libraries into outputs — the default output ships only the runtime `.so`, while `.dev` carries headers and `.pc` files. For cgo / FFI builds, request both with a dotted shorthand or an explicit `outputs` array:
+
+```jsonc
+{
+  "packages": [
+    "gtk4", "gtk4.dev",                              // dotted shorthand
+    {"name": "gtk4", "outputs": ["out", "dev"]}      // explicit form
+  ]
+}
+```
+
+When a `.dev` output is selected, the image also pulls in the `.dev` outputs of every transitively propagated build input — so `pkg-config --cflags gtk4` resolves `pango → harfbuzz → fontconfig → …` without listing each by hand. `PKG_CONFIG_PATH` is preset so the `.pc` files are found out of the box.
+
+Common outputs: `out` (default), `dev` (headers + pkg-config), `bin`, `lib`, `man`, `doc`.
+
+**Pinned versions:** Pin to a specific nixpkgs commit for reproducibility. `outputs` works alongside pinning:
 
 ```jsonc
 {
   "packages": [
     "postgresql",
-    {"name": "freetype", "nixpkgs": "e6f23dc0..."}
+    {"name": "freetype", "nixpkgs": "e6f23dc0..."},
+    {"name": "gtk4", "nixpkgs": "e6f23dc0...", "outputs": ["out", "dev"]}
   ]
 }
 ```
