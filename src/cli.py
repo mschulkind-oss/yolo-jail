@@ -3144,6 +3144,14 @@ def generate_agents_md(
             "```",
             "Find nixpkgs commits for specific versions at: https://lazamar.co.uk/nix-versions/",
             "",
+            "To pull in a non-default nix output (e.g. C headers from `.dev`), use a "
+            "dotted shorthand for one output, or the `outputs` field for several:",
+            "```json",
+            '  "packages": ["gtk4", "gtk4.dev"]',
+            '  "packages": [{"name": "gtk4", "outputs": ["out", "dev"]}]',
+            "```",
+            "Common output names: out (default), dev (headers + .pc), bin, lib, man, doc.",
+            "",
             "To override a version with an upstream source (when nixpkgs hasn't caught up):",
             "```json",
             '  "packages": [{"name": "freetype", "version": "2.14.1",',
@@ -3852,7 +3860,13 @@ KNOWN_NETWORK_KEYS = {"mode", "ports", "forward_host_ports"}
 KNOWN_SECURITY_KEYS = {"blocked_tools"}
 KNOWN_BLOCKED_TOOL_KEYS = {"name", "message", "suggestion", "block_flags"}
 KNOWN_HOST_PROCESSES_KEYS = {"visible", "fields"}
-KNOWN_PACKAGE_KEYS = {"name", "nixpkgs", "version", "url", "hash"}
+KNOWN_PACKAGE_KEYS = {"name", "nixpkgs", "version", "url", "hash", "outputs"}
+# Plain attribute names like "gtk4"; an optional single dotted suffix selects a
+# non-default output like "gtk4.dev".  Multi-dot strings are rejected because
+# nested attribute lookup (e.g. "python3Packages.numpy") is not supported.
+PACKAGE_NAME_RE = re.compile(r"^[a-zA-Z0-9_-]+(\.[a-zA-Z0-9_-]+)?$")
+# Output names follow the nixpkgs convention: short alphanumeric tokens.
+PACKAGE_OUTPUT_RE = re.compile(r"^[a-zA-Z][a-zA-Z0-9_]*$")
 KNOWN_LSP_SERVER_KEYS = {"command", "args", "fileExtensions"}
 KNOWN_MCP_SERVER_KEYS = {"command", "args"}
 KNOWN_DEVICE_KEYS = {"usb", "description", "cgroup_rule"}
@@ -3975,17 +3989,47 @@ def _validate_config(
             for idx, pkg in enumerate(packages):
                 path = f"config.packages[{idx}]"
                 if isinstance(pkg, str):
+                    if not PACKAGE_NAME_RE.match(pkg):
+                        errors.append(
+                            f"{path}: invalid package name {pkg!r}; "
+                            "expected '<name>' or '<name>.<output>' "
+                            "(letters, digits, '_' and '-' only; at most one dot)"
+                        )
                     continue
                 if not isinstance(pkg, dict):
                     errors.append(f"{path}: expected a string or object")
                     continue
                 _report_unknown_keys(pkg, KNOWN_PACKAGE_KEYS, path, errors)
-                if not isinstance(pkg.get("name"), str):
+                name = pkg.get("name")
+                if not isinstance(name, str):
                     errors.append(f"{path}.name: expected a string")
+                elif "." in name:
+                    errors.append(
+                        f"{path}.name: dotted output shorthand ('gtk4.dev') is "
+                        "string-only; use the 'outputs' field on the object form"
+                    )
+                outputs = pkg.get("outputs")
+                if "outputs" in pkg:
+                    if not isinstance(outputs, list) or not all(
+                        isinstance(o, str) for o in outputs
+                    ):
+                        errors.append(
+                            f"{path}.outputs: expected a list of strings "
+                            '(e.g. ["out", "dev"])'
+                        )
+                    else:
+                        for o_idx, out in enumerate(outputs):
+                            if not PACKAGE_OUTPUT_RE.match(out):
+                                errors.append(
+                                    f"{path}.outputs[{o_idx}]: invalid output name "
+                                    f"{out!r} (common values: out, dev, bin, lib, "
+                                    "man, doc)"
+                                )
                 has_nixpkgs = "nixpkgs" in pkg
                 has_version_override = any(
                     key in pkg for key in ("version", "url", "hash")
                 )
+                has_outputs = "outputs" in pkg
                 if has_nixpkgs:
                     if not isinstance(pkg.get("nixpkgs"), str):
                         errors.append(f"{path}.nixpkgs: expected a string")
@@ -3997,9 +4041,10 @@ def _validate_config(
                     for key in ("version", "url", "hash"):
                         if not isinstance(pkg.get(key), str):
                             errors.append(f"{path}.{key}: expected a string")
-                else:
+                elif not has_outputs:
                     errors.append(
-                        f"{path}: object packages must use either 'nixpkgs' or 'version'+'url'+'hash'"
+                        f"{path}: object packages must use 'nixpkgs', "
+                        "'version'+'url'+'hash', or 'outputs'"
                     )
 
     mounts = config.get("mounts")
@@ -4753,14 +4798,18 @@ def init(
   // Extra nix packages to include in the jail image.
   // Names must match nixpkgs attribute names (search at https://search.nixos.org/packages).
   // The image rebuilds only when this list changes.
-  // Supports plain strings (latest), pinned nixpkgs commits, or version overrides:
+  // Supports plain strings (latest), dotted output selection, pinned nixpkgs
+  // commits, version overrides, and explicit multi-output objects:
   // "packages": [
   //   "postgresql",
+  //   "gtk4.dev",                                       // single non-default output
+  //   {"name": "gtk4", "outputs": ["out", "dev"]},      // multiple outputs
   //   {"name": "freetype", "nixpkgs": "<commit-hash>"},
   //   {"name": "freetype", "version": "2.14.1",
   //    "url": "mirror://savannah/freetype/freetype-2.14.1.tar.xz",
   //    "hash": "sha256-..."}
   // ],
+  // Common output names: out (default), dev (headers + pkg-config), bin, lib, man, doc.
   // Find nixpkgs commits for specific versions at: https://lazamar.co.uk/nix-versions/
 
   // security: tool shims injected into the jail's PATH.  Defaults (no

@@ -849,6 +849,97 @@ class TestValidateConfig:
         errors, _ = _validate_config({"packages": "postgresql"}, workspace=tmp_path)
         assert any("expected a list" in e for e in errors)
 
+    def test_packages_dotted_string_output(self, tmp_path):
+        errors, _ = _validate_config(
+            {"packages": ["gtk4", "gtk4.dev"]}, workspace=tmp_path
+        )
+        assert errors == []
+
+    def test_packages_dotted_string_rejects_multi_dot(self, tmp_path):
+        errors, _ = _validate_config(
+            {"packages": ["python3Packages.numpy.dev"]}, workspace=tmp_path
+        )
+        assert any(
+            "invalid package name" in e and "python3Packages.numpy.dev" in e
+            for e in errors
+        )
+
+    def test_packages_string_rejects_invalid_chars(self, tmp_path):
+        errors, _ = _validate_config({"packages": ["foo/bar"]}, workspace=tmp_path)
+        assert any("invalid package name" in e for e in errors)
+
+    def test_packages_outputs_only(self, tmp_path):
+        """Object form with just name+outputs (no nixpkgs/version) is valid."""
+        errors, _ = _validate_config(
+            {"packages": [{"name": "gtk4", "outputs": ["out", "dev"]}]},
+            workspace=tmp_path,
+        )
+        assert errors == []
+
+    def test_packages_outputs_with_nixpkgs(self, tmp_path):
+        errors, _ = _validate_config(
+            {
+                "packages": [
+                    {"name": "gtk4", "nixpkgs": "abc123", "outputs": ["out", "dev"]}
+                ]
+            },
+            workspace=tmp_path,
+        )
+        assert errors == []
+
+    def test_packages_outputs_with_version_override(self, tmp_path):
+        errors, _ = _validate_config(
+            {
+                "packages": [
+                    {
+                        "name": "freetype",
+                        "version": "2.14.1",
+                        "url": "mirror://...",
+                        "hash": "sha256-...",
+                        "outputs": ["out", "dev"],
+                    }
+                ]
+            },
+            workspace=tmp_path,
+        )
+        assert errors == []
+
+    def test_packages_outputs_not_list(self, tmp_path):
+        errors, _ = _validate_config(
+            {"packages": [{"name": "gtk4", "outputs": "dev"}]},
+            workspace=tmp_path,
+        )
+        assert any("outputs" in e and "list of strings" in e for e in errors)
+
+    def test_packages_outputs_non_string_element(self, tmp_path):
+        errors, _ = _validate_config(
+            {"packages": [{"name": "gtk4", "outputs": [42]}]},
+            workspace=tmp_path,
+        )
+        assert any("outputs" in e and "list of strings" in e for e in errors)
+
+    def test_packages_outputs_invalid_name(self, tmp_path):
+        errors, _ = _validate_config(
+            {"packages": [{"name": "gtk4", "outputs": ["out", "bad/name"]}]},
+            workspace=tmp_path,
+        )
+        assert any("outputs[1]" in e and "invalid output name" in e for e in errors)
+
+    def test_packages_object_name_with_dot_rejected(self, tmp_path):
+        """Dotted shorthand is string-only; object form must use 'outputs'."""
+        errors, _ = _validate_config(
+            {"packages": [{"name": "gtk4.dev", "outputs": ["dev"]}]},
+            workspace=tmp_path,
+        )
+        assert any("string-only" in e for e in errors)
+
+    def test_packages_object_no_strategy_still_errors(self, tmp_path):
+        """Object form with only a name (no nixpkgs/version/outputs) still errors."""
+        errors, _ = _validate_config(
+            {"packages": [{"name": "freetype"}]}, workspace=tmp_path
+        )
+        assert any("must use" in e and "outputs" in e for e in errors)
+
     def test_network_valid(self, tmp_path):
         config = {"network": {"mode": "bridge", "ports": ["8000:8000"]}}
         errors, _ = _validate_config(config, workspace=tmp_path)

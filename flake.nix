@@ -26,38 +26,63 @@
           else "${builtins.head (builtins.split "-" imageSystem)}-linux-gnu";
 
         # Extra packages from project config (passed via YOLO_EXTRA_PACKAGES env var).
-        # Three formats:
-        #   "strace"                                          → latest from flake nixpkgs
+        # String forms:
+        #   "strace"           → latest, default output
+        #   "gtk4.dev"         → latest, "dev" output only (one extra output max)
+        # Object forms (all support an optional ``outputs`` list — e.g. ["out" "dev"]):
         #   {"name": "freetype", "nixpkgs": "<commit>"}      → pinned nixpkgs commit
         #   {"name": "freetype", "version": "2.14.1",        → version override (build from source)
-        #    "url": "mirror://savannah/freetype/freetype-2.14.1.tar.xz",
-        #    "hash": "sha256-..."}
+        #    "url": "mirror://...", "hash": "sha256-..."}
+        #   {"name": "gtk4", "outputs": ["out", "dev"]}      → latest, multiple outputs
         extraPackageSpecs = let
           raw = builtins.getEnv "YOLO_EXTRA_PACKAGES";
         in
           if raw == "" then [] else builtins.fromJSON raw;
 
-        extraPackages = map (spec:
+        # Split "gtk4.dev" → { base = "gtk4"; output = "dev"; }; "gtk4" → { base = "gtk4"; output = null; }.
+        # Validator (yolo check) rejects multi-dot strings, so we only handle one dot here.
+        parseDottedSpec = s:
+          let
+            parts = builtins.filter builtins.isString (builtins.split "\\." s);
+          in
+            if builtins.length parts == 1
+            then { base = builtins.head parts; output = null; }
+            else { base = builtins.head parts; output = builtins.elemAt parts 1; };
+
+        # Resolve a derivation + optional list of output names to a list of
+        # derivations.  Empty/missing outputs → just the default derivation.
+        selectOutputs = drv: outs:
+          if outs == null || outs == []
+          then [ drv ]
+          else map (o: drv.${o}) outs;
+
+        extraPackages = builtins.concatMap (spec:
           if builtins.isString spec then
-            imagePkgs.${spec}
+            let
+              parsed = parseDottedSpec spec;
+              drv = imagePkgs.${parsed.base};
+            in
+              if parsed.output == null then [ drv ] else [ drv.${parsed.output} ]
           else if spec ? nixpkgs then
             # Pinned to a specific nixpkgs commit
             let
               pinnedPkgs = import (builtins.fetchTarball {
                 url = "https://github.com/NixOS/nixpkgs/archive/${spec.nixpkgs}.tar.gz";
               }) { system = imageSystem; };
-            in pinnedPkgs.${spec.name}
+            in selectOutputs pinnedPkgs.${spec.name} (spec.outputs or null)
           else if spec ? version && spec ? url && spec ? hash then
             # Version override: rebuild existing package with different source
-            imagePkgs.${spec.name}.overrideAttrs (old: {
-              version = spec.version;
-              src = imagePkgs.fetchurl {
-                url = spec.url;
-                hash = spec.hash;
-              };
-            })
+            let
+              drv = imagePkgs.${spec.name}.overrideAttrs (old: {
+                version = spec.version;
+                src = imagePkgs.fetchurl {
+                  url = spec.url;
+                  hash = spec.hash;
+                };
+              });
+            in selectOutputs drv (spec.outputs or null)
           else
-            imagePkgs.${spec.name}
+            selectOutputs imagePkgs.${spec.name} (spec.outputs or null)
         ) extraPackageSpecs;
 
         # Derivation for the shim scripts (plain text — built on host, runs in container)
