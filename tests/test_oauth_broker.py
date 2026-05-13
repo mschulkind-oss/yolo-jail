@@ -303,6 +303,11 @@ def test_do_proxy_strips_hop_by_hop_headers_on_request(monkeypatch):
             "Host": "platform.claude.com",  # stripped; urllib sets Host from URL
             "Connection": "keep-alive",  # hop-by-hop
             "Content-Length": "42",  # recomputed
+            # accept-encoding must be stripped: if Claude's "gzip, br" reaches
+            # upstream, the response body comes back compressed, and the
+            # broker's mirror-to-shared-creds path silently fails on the
+            # body.decode() call.  That was the 2026-05-12 logout loop.
+            "Accept-Encoding": "gzip, br, deflate",
             "X-Keep": "me",
         },
         b"",
@@ -310,7 +315,70 @@ def test_do_proxy_strips_hop_by_hop_headers_on_request(monkeypatch):
     assert "host" not in captured["headers"]
     assert "connection" not in captured["headers"]
     assert "content-length" not in captured["headers"]
+    assert "accept-encoding" not in captured["headers"]
     assert captured["headers"].get("x-keep") == "me"
+
+
+def test_proxy_warns_when_response_body_is_gzipped(
+    tmp_path, broker_dirs, monkeypatch, caplog
+):
+    """Pre-2026-05-12: upstream returned the /login response gzipped
+    because Claude's request advertised ``Accept-Encoding: gzip``.  The
+    mirror's ``body.decode()`` raised UnicodeDecodeError and the function
+    silently returned at DEBUG level.  Shared creds stayed stale for 10
+    days before anyone noticed.
+
+    The strip in _HOP_BY_HOP should prevent this at the source, but if
+    anything ever does return a non-text body to the mirror path again,
+    the failure must be loud — WARN, not DEBUG — so we don't repeat the
+    silent-rot."""
+    import gzip
+    import logging
+
+    creds = tmp_path / "shared.json"
+    original = json.dumps(
+        {
+            "claudeAiOauth": {
+                "accessToken": "stale",
+                "refreshToken": "stale",
+                "expiresAt": int(time.time() * 1000) + 3_600_000,
+            }
+        }
+    )
+    creds.write_text(original)
+
+    gz_body = gzip.compress(
+        json.dumps(
+            {"access_token": "fresh", "refresh_token": "fresh", "expires_in": 7200}
+        ).encode()
+    )
+    monkeypatch.setattr(
+        oauth_broker,
+        "do_proxy",
+        lambda **_: {
+            "status": 200,
+            "headers": {"Content-Encoding": "gzip"},
+            "body_b64": base64.b64encode(gz_body).decode(),
+        },
+    )
+    handler = oauth_broker.build_handler(creds)
+    with caplog.at_level(logging.WARNING, logger="oauth-broker-host"):
+        _proxy_call(
+            handler,
+            method="POST",
+            path="/v1/oauth/token",
+            body=json.dumps({"grant_type": "authorization_code", "code": "x"}).encode(),
+        )
+
+    # Shared creds untouched — better stale than corrupted.
+    assert creds.read_text() == original
+    # Loud failure — not a silent debug-level skip.
+    warnings = [r for r in caplog.records if "proxy mirror" in r.getMessage()]
+    assert warnings, "expected a WARN-level 'proxy mirror' record"
+    assert any(
+        r.levelno >= logging.WARNING and "shared creds NOT updated" in r.getMessage()
+        for r in warnings
+    )
 
 
 def test_do_proxy_passes_through_http_error_as_status(monkeypatch):

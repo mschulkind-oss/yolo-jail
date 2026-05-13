@@ -458,8 +458,16 @@ def do_refresh(creds_path: Path) -> Dict[str, Any]:
 
 # --- Upstream HTTP proxy (for non-refresh traffic) --------------------------
 
-# Hop-by-hop headers we strip on both legs — never forward these upstream and
-# never echo them back to the jail.  ``content-length`` is recomputed.
+# Headers stripped from forwarded requests/responses.  ``content-length`` is
+# recomputed by urllib.  ``accept-encoding`` is stripped because the broker
+# has to *parse* token-endpoint responses (to mirror /login into the shared
+# creds file — see ``_maybe_propagate_token_response``) and Python's urllib
+# does not auto-decompress.  Forwarding Claude's ``Accept-Encoding: gzip, br``
+# would cause upstream to return a compressed body, the mirror's
+# ``body.decode()`` would raise UnicodeDecodeError, and the shared creds
+# would silently stay stale — exactly the 2026-05-12 logout loop.  The broker
+# only proxies ``platform.claude.com`` OAuth endpoints (small JSON bodies),
+# so compression buys nothing here.
 _HOP_BY_HOP = frozenset(
     {
         "host",
@@ -472,6 +480,7 @@ _HOP_BY_HOP = frozenset(
         "transfer-encoding",
         "upgrade",
         "content-length",
+        "accept-encoding",
     }
 )
 
@@ -614,17 +623,42 @@ def _maybe_propagate_token_response(
         return
     body_b64 = response.get("body_b64") or ""
     if not isinstance(body_b64, str) or not body_b64:
+        log.warning(
+            "proxy mirror: token-endpoint 200 with empty/invalid body_b64 — "
+            "shared creds not updated; next refresh will likely 401",
+        )
         return
+    # WARN-level (not DEBUG) because every silent skip here means the shared
+    # creds file falls behind and the next refresh will fail with
+    # invalid_grant.  Past silent failures were invisible for ~10 days; never
+    # again.  See _HOP_BY_HOP for why ``accept-encoding`` is stripped on the
+    # forwarded request — that's what makes this code path's ``body.decode()``
+    # reliably succeed.
     try:
         body = base64.b64decode(body_b64.encode("ascii"), validate=True)
         upstream_resp = json.loads(body.decode())
-    except (UnicodeDecodeError, ValueError, json.JSONDecodeError):
-        log.debug("proxy mirror: skipping non-JSON / non-b64 body")
+    except (UnicodeDecodeError, ValueError, json.JSONDecodeError) as e:
+        log.warning(
+            "proxy mirror: token-endpoint 200 body not parseable JSON "
+            "(content-encoding=%r): %s — shared creds NOT updated",
+            response.get("headers", {}).get("Content-Encoding")
+            or response.get("headers", {}).get("content-encoding"),
+            e,
+        )
         return
     if not isinstance(upstream_resp, dict):
+        log.warning(
+            "proxy mirror: token-endpoint 200 body decoded to non-dict %s — "
+            "shared creds NOT updated",
+            type(upstream_resp).__name__,
+        )
         return
     if "access_token" not in upstream_resp or "refresh_token" not in upstream_resp:
-        log.debug("proxy mirror: skipping body without access_token+refresh_token")
+        log.warning(
+            "proxy mirror: token-endpoint 200 body missing access_token/refresh_token "
+            "(keys=%s) — shared creds NOT updated",
+            sorted(upstream_resp.keys()),
+        )
         return
 
     REFRESH_LOCK.parent.mkdir(parents=True, exist_ok=True)
