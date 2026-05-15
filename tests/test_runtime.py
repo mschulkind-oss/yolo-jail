@@ -204,6 +204,7 @@ def test_exec_path_no_unbound_errors(tmp_path, monkeypatch):
         patch.object(cli, "ensure_global_storage"),
         patch.object(cli, "_runtime", return_value="podman"),
         patch.object(cli, "_tmux_rename_window"),
+        patch.object(cli.subprocess, "check_output", side_effect=FileNotFoundError),
         patch.object(cli.subprocess, "run", side_effect=capture_run),
     ):
         from typer.testing import CliRunner
@@ -221,6 +222,77 @@ def test_exec_path_no_unbound_errors(tmp_path, monkeypatch):
     assert any(any("exec" in str(a) for a in cmd) for cmd in exec_args), (
         "should have called the runtime's exec command"
     )
+
+
+def test_exec_path_reattaches_live_claude_after_disconnect(tmp_path, monkeypatch):
+    """If podman exec drops but Claude is still alive, attach to the jail."""
+    import sys
+
+    sys.path.insert(0, str(REPO_ROOT / "src"))
+    import cli
+    from unittest.mock import patch, MagicMock
+
+    monkeypatch.chdir(tmp_path)
+    cname = cli.container_name_for_workspace(tmp_path)
+    exec_calls = []
+
+    def capture_run(cmd, **kwargs):
+        exec_calls.append(cmd)
+        return MagicMock(returncode=125 if len(exec_calls) == 1 else 0)
+
+    with (
+        patch.object(cli, "find_running_container", return_value="abc123def456"),
+        patch.object(cli, "_container_process_running", return_value=True),
+        patch.object(cli, "_container_baked_yolo_version", return_value=None),
+        patch.object(cli, "_get_yolo_version", return_value="test-version"),
+        patch.object(cli, "load_config", return_value={}),
+        patch.object(cli, "ensure_global_storage"),
+        patch.object(cli, "_runtime", return_value="podman"),
+        patch.object(cli, "_tmux_rename_window"),
+        patch.object(cli.subprocess, "check_output", side_effect=FileNotFoundError),
+        patch.object(cli.subprocess, "run", side_effect=capture_run),
+    ):
+        result = CliRunner().invoke(cli.app, ["run", "--", "claude"])
+
+    assert result.exit_code == 0
+    assert exec_calls[0][:2] == ["podman", "exec"]
+    assert exec_calls[1] == ["podman", "attach", cname]
+    assert "reattaching" in result.output
+
+
+def test_exec_path_does_not_reattach_when_claude_is_gone(tmp_path, monkeypatch):
+    """A live jail alone is not enough; don't reattach without a Claude process."""
+    import sys
+
+    sys.path.insert(0, str(REPO_ROOT / "src"))
+    import cli
+    from unittest.mock import patch, MagicMock
+
+    monkeypatch.chdir(tmp_path)
+    exec_calls = []
+
+    def capture_run(cmd, **kwargs):
+        exec_calls.append(cmd)
+        return MagicMock(returncode=125)
+
+    with (
+        patch.object(cli, "find_running_container", return_value="abc123def456"),
+        patch.object(cli, "_container_process_running", return_value=False),
+        patch.object(cli, "_container_baked_yolo_version", return_value=None),
+        patch.object(cli, "_get_yolo_version", return_value="test-version"),
+        patch.object(cli, "load_config", return_value={}),
+        patch.object(cli, "ensure_global_storage"),
+        patch.object(cli, "_runtime", return_value="podman"),
+        patch.object(cli, "_tmux_rename_window"),
+        patch.object(cli.subprocess, "check_output", side_effect=FileNotFoundError),
+        patch.object(cli.subprocess, "run", side_effect=capture_run),
+    ):
+        result = CliRunner().invoke(cli.app, ["run", "--", "claude"])
+
+    assert result.exit_code == 125
+    assert len(exec_calls) == 1
+    assert "no live" in result.output
+    assert "process was found" in result.output
 
 
 AVAILABLE_RUNTIMES = []

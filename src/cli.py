@@ -267,6 +267,9 @@ USER_CONFIG_PATH = Path.home() / ".config" / "yolo-jail" / "config.jsonc"
 
 console = Console()
 
+AGENT_REATTACH_PROCESS_NAMES = {"claude", "copilot", "gemini"}
+AGENT_REATTACH_ATTEMPTS = 2
+
 
 class ConfigError(ValueError):
     """Raised when a yolo-jail config file or merged config is invalid."""
@@ -6893,6 +6896,144 @@ def _inject_agent_yolo_flags(full_command: "list[str]") -> None:
             full_command.insert(1, "--dangerously-skip-permissions")
 
 
+def _reattachable_agent_name(full_command: "list[str]") -> "str | None":
+    if not full_command:
+        return None
+    head = Path(full_command[0]).name
+    if head in AGENT_REATTACH_PROCESS_NAMES:
+        return head
+    return None
+
+
+def _build_exec_command(
+    runtime: str, identity_env: "list[str]", cname: str, target_cmd: str
+) -> "list[str]":
+    exec_flags = ["-i"]
+    if sys.stdout.isatty():
+        exec_flags.append("-t")
+    return [
+        runtime,
+        "exec",
+        *exec_flags,
+        *identity_env,
+        cname,
+        "yolo-entrypoint",
+        target_cmd,
+    ]
+
+
+def _container_attach_command(runtime: str, cname: str) -> "list[str] | None":
+    if runtime == "podman":
+        return [runtime, "attach", cname]
+    return None
+
+
+def _container_process_running(runtime: str, cname: str, process_name: str) -> bool:
+    if runtime != "podman":
+        return False
+    try:
+        result = subprocess.run(
+            [runtime, "top", cname, "-eo", "comm,args"],
+            capture_output=True,
+            text=True,
+            timeout=5,
+        )
+    except (FileNotFoundError, OSError, subprocess.SubprocessError):
+        return False
+    if result.returncode != 0:
+        return False
+
+    for line in result.stdout.splitlines()[1:]:
+        line = line.strip()
+        if not line:
+            continue
+        parts = line.split(None, 1)
+        comm = Path(parts[0]).name
+        if comm == process_name:
+            return True
+        if len(parts) == 1:
+            continue
+        try:
+            argv0 = shlex.split(parts[1])[0]
+        except (IndexError, ValueError):
+            argv0 = parts[1].split()[0] if parts[1].split() else ""
+        if Path(argv0).name == process_name:
+            return True
+    return False
+
+
+def _maybe_reattach_live_agent(
+    exit_code: int, runtime: str, cname: str, full_command: "list[str]"
+) -> int:
+    if exit_code == 0:
+        return exit_code
+
+    agent = _reattachable_agent_name(full_command)
+    if agent is None:
+        return exit_code
+
+    if not find_running_container(cname, runtime=runtime):
+        console.print(
+            f"[yellow]{agent} exited with code {exit_code}; "
+            "the jail is no longer running.[/yellow]"
+        )
+        return exit_code
+
+    if not _container_process_running(runtime, cname, agent):
+        console.print(
+            f"[yellow]{agent} exited with code {exit_code}; the jail is still "
+            f"running, but no live {agent} process was found.[/yellow]"
+        )
+        return exit_code
+
+    attach_cmd = _container_attach_command(runtime, cname)
+    if attach_cmd is None:
+        console.print(
+            f"[yellow]{agent} exited with code {exit_code}; the jail and "
+            f"{agent} still appear to be running, but automatic attach is not "
+            f"supported for runtime '{runtime}'. Run `yolo -- {agent}` again "
+            "to reconnect.[/yellow]"
+        )
+        return exit_code
+
+    rc = exit_code
+    for attempt in range(1, AGENT_REATTACH_ATTEMPTS + 1):
+        console.print(
+            f"[bold yellow]{agent} detached while the jail is still running; "
+            f"reattaching ({attempt}/{AGENT_REATTACH_ATTEMPTS})...[/bold yellow]"
+        )
+        result = subprocess.run(attach_cmd)
+        rc = result.returncode
+        if rc == 0:
+            return rc
+        if not find_running_container(cname, runtime=runtime):
+            console.print(
+                f"[yellow]{agent} attach exited with code {rc}; "
+                "the jail has stopped.[/yellow]"
+            )
+            return rc
+        if not _container_process_running(runtime, cname, agent):
+            console.print(
+                f"[yellow]{agent} attach exited with code {rc}; "
+                f"no live {agent} process remains in the jail.[/yellow]"
+            )
+            return rc
+
+    console.print(
+        f"[yellow]Automatic reattach failed after {AGENT_REATTACH_ATTEMPTS} "
+        f"attempts, but the jail still appears to be running. Run "
+        f"`{shlex.join(attach_cmd)}` or `yolo -- {agent}` to reconnect.[/yellow]"
+    )
+    return rc
+
+
+def _run_exec_with_agent_reattach(
+    run_cmd: "list[str]", runtime: str, cname: str, full_command: "list[str]"
+) -> int:
+    result = subprocess.run(run_cmd)
+    return _maybe_reattach_live_agent(result.returncode, runtime, cname, full_command)
+
+
 @app.command(
     context_settings={"allow_extra_args": True, "ignore_unknown_options": True}
 )
@@ -7025,21 +7166,10 @@ def run(
             f"[bold cyan]Attaching to existing jail [dim]({cname})[/dim]...[/bold cyan]"
         )
         _tmux_rename_window("JAIL")
-        exec_flags = ["-i"]
-        if sys.stdout.isatty():
-            exec_flags.append("-t")
-        run_cmd = [
-            runtime,
-            "exec",
-            *exec_flags,
-            *identity_env,
-            cname,
-            "yolo-entrypoint",
-            target_cmd,
-        ]
+        run_cmd = _build_exec_command(runtime, identity_env, cname, target_cmd)
         # Use subprocess.run (not execvp) so atexit handlers fire for tmux cleanup
         try:
-            result = subprocess.run(run_cmd)
+            rc = _run_exec_with_agent_reattach(run_cmd, runtime, cname, full_command)
         except FileNotFoundError:
             console.print(
                 f"[bold red]Configured runtime '{runtime}' not found on PATH.[/bold red]"
@@ -7048,7 +7178,7 @@ def run(
                 "[dim]Run `yolo check` to validate runtime availability before restarting.[/dim]"
             )
             sys.exit(1)
-        sys.exit(result.returncode)
+        sys.exit(rc)
 
     # No existing container — build/load the image then start a new one.
     # Check for config changes and get human confirmation
@@ -7079,20 +7209,11 @@ def run(
                 f"[bold cyan]Attaching to jail started by another process [dim]({cname})[/dim]...[/bold cyan]"
             )
             _tmux_rename_window("JAIL")
-            exec_flags = ["-i"]
-            if sys.stdout.isatty():
-                exec_flags.append("-t")
-            run_cmd = [
-                runtime,
-                "exec",
-                *exec_flags,
-                *identity_env,
-                cname,
-                "yolo-entrypoint",
-                target_cmd,
-            ]
+            run_cmd = _build_exec_command(runtime, identity_env, cname, target_cmd)
             try:
-                result = subprocess.run(run_cmd)
+                rc = _run_exec_with_agent_reattach(
+                    run_cmd, runtime, cname, full_command
+                )
             except FileNotFoundError:
                 console.print(
                     f"[bold red]Configured runtime '{runtime}' not found on PATH.[/bold red]"
@@ -7101,7 +7222,7 @@ def run(
                     "[dim]Run `yolo check` to validate runtime availability before restarting.[/dim]"
                 )
                 sys.exit(1)
-            sys.exit(result.returncode)
+            sys.exit(rc)
 
     # Remove any stopped container with the same name left over from an
     # unclean shutdown (e.g. OOM-kill, host reboot).  Without this,
@@ -8297,10 +8418,17 @@ def run(
     lock_file.close()
 
     proc.wait()
-    # Clean up host-side socat processes, host services (incl. cgroup
-    # delegate), and their per-jail socket directory.
-    cleanup_port_forwarding(socat_procs, socket_dir)
-    stop_loopholes(host_services, host_services_sockets_dir)
+    rc = _maybe_reattach_live_agent(proc.returncode, runtime, cname, full_command)
+    container_still_running = bool(find_running_container(cname, runtime=runtime))
+    if not container_still_running:
+        # Clean up host-side socat processes, host services (incl. cgroup
+        # delegate), and their per-jail socket directory.
+        cleanup_port_forwarding(socat_procs, socket_dir)
+        stop_loopholes(host_services, host_services_sockets_dir)
+    else:
+        console.print(
+            "[dim]Jail is still running; leaving host-side services active.[/dim]"
+        )
 
     if profile and _profile_times:
         _profile_times["container_exited"] = _time.monotonic()
@@ -8314,7 +8442,7 @@ def run(
             f"  Total (host-side):  {_profile_times['container_exited'] - start:.3f}s\n"
         )
 
-    sys.exit(proc.returncode)
+    sys.exit(rc)
 
 
 def _check_container_stuck(name: str, runtime: str) -> "str | None":
