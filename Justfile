@@ -9,11 +9,13 @@ setup:
     #!/usr/bin/env bash
     set -euo pipefail
 
-    # Editable install into mise's Python
-    uv pip install -e .
+    # Editable install into this project's uv environment.  Do not trust an
+    # unrelated active VIRTUAL_ENV from the caller's shell.
+    PYTHON="$(env -u VIRTUAL_ENV uv run python -c 'import sys; print(sys.executable)')"
+    env -u VIRTUAL_ENV uv pip install --python "$PYTHON" -e .
 
     # Locate the generated finder module
-    SITE_PACKAGES="$(python3 -c 'import site; print(site.getsitepackages()[0])')"
+    SITE_PACKAGES="$("$PYTHON" -c 'import site; print(site.getsitepackages()[0])')"
     FINDER=$(ls "$SITE_PACKAGES"/__editable___yolo_jail*_finder.py 2>/dev/null | head -1)
 
     if [ -z "$FINDER" ] || [ ! -f "$FINDER" ]; then
@@ -24,7 +26,7 @@ setup:
     REPO_ROOT="$(pwd)"
 
     # Patch the static MAPPING to resolve dynamically via YOLO_REPO_ROOT
-    python3 - "$FINDER" "$REPO_ROOT" <<'PYEOF'
+    "$PYTHON" - "$FINDER" "$REPO_ROOT" <<'PYEOF'
     import re, sys
     finder_path, repo_root = sys.argv[1], sys.argv[2]
     with open(finder_path) as f:
@@ -156,7 +158,7 @@ build-image-minimal:
 
 # Build and load the image into the container runtime
 load: build-image
-    ./result | {{runtime}} load
+    ./result | {{ runtime }} load
 
 # Run all tests
 test:
@@ -193,4 +195,3 @@ check-all: format lint test
 clean:
     rm -f result
     rm -rf dist/ build/
-
