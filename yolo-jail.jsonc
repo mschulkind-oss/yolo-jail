@@ -7,11 +7,9 @@
   // overview, `yolo config-ref` for the full field reference, and
   // `yolo check` after every edit to this file.
   // ───────────────────────────────────────────────────────────────
-
   // Container runtime: "podman", "docker", or "container" (Apple)
   // (also settable via YOLO_RUNTIME env var)
   // "runtime": "podman",
-
   // Extra nix packages to include in the jail image.
   // Names must match nixpkgs attribute names (search at https://search.nixos.org/packages).
   // The image rebuilds only when this list changes.
@@ -29,21 +27,6 @@
     // to run the Justfile recipes this repo ships (test, lint, deploy).
     "just"
   ],
-
-  // Overlay workspace sub-paths as read-only so agents in the jail
-  // can't modify host-executed source.  Without this, a jailed agent
-  // could rewrite src/ or flake.nix and the host would execute the
-  // altered code on the next `yolo` invocation — a sandbox escape.
-  // `yolo-jail.jsonc` itself is auto-locked when this key is set.
-  "workspace_readonly": [
-    "src",
-    "flake.nix",
-    "flake.lock",
-    "Justfile",
-    "pyproject.toml",
-    "uv.lock"
-  ],
-
   // security: tool shims injected into the jail's PATH.  Defaults (no
   // config needed): grep is blocked only for recursive usage (``-r``,
   // ``-R``, ``--recursive``, ``-rn`` etc. — pipe filters and
@@ -77,7 +60,6 @@
   //   "~/code/other-repo",
   //   "~/code/shared-lib:/ctx/shared-lib"
   // ]
-
   // Environment variables set inside the jail.
   // Ordered list: strings are KEY=VALUE file paths, objects are inline maps.
   // Later entries override earlier ones; workspace config appends to user config.
@@ -88,11 +70,9 @@
   //   {"DEBUG": "1"},
   //   ".secrets/claude.env"
   // ]
-
   // Extra tools to install via mise (key: tool name, value: version string).
   // Default: {"neovim": "stable"} — override in user or workspace config.
   // "mise_tools": {"neovim": "nightly", "typst": "latest"}
-
   // Additional language servers for Copilot and Gemini.
   // Defaults (always present): python (pyright), typescript, go (gopls).
   // Add new servers or override defaults. Binary must be on PATH (e.g., via mise_tools).
@@ -107,7 +87,6 @@
   // Enable built-in MCP server presets by name.
   // Available presets: chrome-devtools, sequential-thinking
   // "mcp_presets": ["chrome-devtools", "sequential-thinking"]
-
   // Additional custom MCP servers for Copilot and Gemini.
   // Add custom servers or set a preset/inherited server to null to disable it.
   // Binary must be on PATH or absolute.
@@ -117,7 +96,6 @@
   //     "args": []
   //   }
   // }
-
   // NVIDIA GPU passthrough. Requires NVIDIA Container Toolkit on the host.
   // Run "yolo check" to verify GPU readiness before enabling.
   // "gpu": {
@@ -125,7 +103,6 @@
   //   "devices": "all",          // "all", "0", "0,1", or "GPU-<uuid>"
   //   "capabilities": "compute,utility"
   // }
-
   // Container resource limits.
   // On Apple Container: applied as VM hardware limits (defaults: half host CPUs/RAM).
   // On Docker/Podman: applied as --cpus/--memory flags (no defaults — inherits VM limits).

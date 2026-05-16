@@ -2146,7 +2146,7 @@ class TestGenerateAgentsMd:
 class TestPrepareSkills:
     def test_builtin_skill_created(self, tmp_path, monkeypatch):
         monkeypatch.setattr(cli, "AGENTS_DIR", tmp_path / "agents")
-        result = _prepare_skills("test-cname", tmp_path)
+        result = _prepare_skills("test-cname")
         for agent in ("copilot", "gemini", "claude"):
             skill = result / f"skills-{agent}" / "jail-startup" / "SKILL.md"
             assert skill.exists()
@@ -2160,29 +2160,10 @@ class TestPrepareSkills:
         (host_home / ".gemini" / "skills" / "my-skill" / "SKILL.md").write_text(
             "host skill"
         )
-        workspace = tmp_path / "workspace"
-        workspace.mkdir()
-        result = _prepare_skills("test-cname", workspace)
+        result = _prepare_skills("test-cname")
         for agent in ("copilot", "gemini", "claude"):
             content = (result / f"skills-{agent}" / "my-skill" / "SKILL.md").read_text()
             assert content == "host skill"
-
-    def test_workspace_skills_override_host(self, tmp_path, monkeypatch):
-        monkeypatch.setattr(cli, "AGENTS_DIR", tmp_path / "agents")
-        host_home = tmp_path / "home"
-        monkeypatch.setattr(Path, "home", lambda: host_home)
-        (host_home / ".gemini" / "skills" / "shared").mkdir(parents=True)
-        (host_home / ".gemini" / "skills" / "shared" / "SKILL.md").write_text(
-            "host version"
-        )
-        workspace = tmp_path / "workspace"
-        (workspace / ".gemini" / "skills" / "shared").mkdir(parents=True)
-        (workspace / ".gemini" / "skills" / "shared" / "SKILL.md").write_text(
-            "workspace version"
-        )
-        result = _prepare_skills("test-cname", workspace)
-        content = (result / "skills-gemini" / "shared" / "SKILL.md").read_text()
-        assert content == "workspace version"
 
     def test_stale_skills_cleaned(self, tmp_path, monkeypatch):
         monkeypatch.setattr(cli, "AGENTS_DIR", tmp_path / "agents")
@@ -2190,16 +2171,14 @@ class TestPrepareSkills:
         monkeypatch.setattr(Path, "home", lambda: host_home)
         (host_home / ".gemini" / "skills" / "old-skill").mkdir(parents=True)
         (host_home / ".gemini" / "skills" / "old-skill" / "SKILL.md").write_text("old")
-        workspace = tmp_path / "workspace"
-        workspace.mkdir()
-        result = _prepare_skills("test-cname", workspace)
+        result = _prepare_skills("test-cname")
         assert (result / "skills-gemini" / "old-skill").exists()
         import shutil
 
         shutil.rmtree(host_home / ".gemini" / "skills" / "old-skill")
         (host_home / ".gemini" / "skills" / "new-skill").mkdir(parents=True)
         (host_home / ".gemini" / "skills" / "new-skill" / "SKILL.md").write_text("new")
-        result = _prepare_skills("test-cname", workspace)
+        result = _prepare_skills("test-cname")
         assert not (result / "skills-gemini" / "old-skill").exists()
         assert (result / "skills-gemini" / "new-skill").exists()
 

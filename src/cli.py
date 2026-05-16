@@ -3321,13 +3321,17 @@ You have full capability — treat this as your primary working environment.
 """
 
 
-def _prepare_skills(cname: str, workspace: Path) -> Path:
+def _prepare_skills(cname: str) -> Path:
     """Prepare merged skills directory on the host for :ro bind mounting.
 
     Merge order (later overrides earlier):
       1. Built-in skills (jail-startup)
       2. Host user-level skills (~/.gemini/skills/, ~/.copilot/skills/, ~/.claude/skills/)
-      3. Workspace skills (<workspace>/.copilot/skills/, .gemini/skills/, .claude/skills/)
+
+    Workspace skills (<workspace>/.{copilot,gemini,claude}/skills/) are NOT
+    collected here — agents already discover them natively from the workspace
+    tree, so duplicating them into the user-level mount would surface the same
+    skill twice (once from the workspace, once from the merged user-level dir).
 
     Returns the staging directory containing skills-copilot/, skills-gemini/, skills-claude/.
     """
@@ -3341,13 +3345,6 @@ def _prepare_skills(cname: str, workspace: Path) -> Path:
         p = home / dotdir / "skills"
         if p.is_dir():
             host_skill_dirs.append(p)
-
-    # Collect workspace skill sources
-    ws_skill_dirs = []
-    for dotdir in (".copilot", ".gemini", ".claude"):
-        p = workspace / dotdir / "skills"
-        if p.is_dir():
-            ws_skill_dirs.append(p)
 
     for agent_suffix in ("copilot", "gemini", "claude"):
         skills_dir = staging / f"skills-{agent_suffix}"
@@ -3363,10 +3360,6 @@ def _prepare_skills(cname: str, workspace: Path) -> Path:
 
         # 2. Host user-level skills (all agent dirs merged)
         for src_dir in host_skill_dirs:
-            _copy_skill_subdirs(src_dir, skills_dir)
-
-        # 3. Workspace skills (highest priority, all agent dirs merged)
-        for src_dir in ws_skill_dirs:
             _copy_skill_subdirs(src_dir, skills_dir)
 
     return staging
@@ -8051,7 +8044,7 @@ def run(
 
     # Mount merged skills directories read-only (prepared on host side).
     # Kernel-enforced :ro — agents get "Read-only file system" on write attempts.
-    skills_path = _prepare_skills(cname, workspace)
+    skills_path = _prepare_skills(cname)
     run_cmd.extend(
         ["-v", f"{skills_path / 'skills-copilot'}:/home/agent/.copilot/skills:ro"]
     )
