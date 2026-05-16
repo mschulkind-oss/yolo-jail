@@ -18,7 +18,6 @@ import tempfile
 import threading
 from dataclasses import dataclass
 from pathlib import Path
-from io import TextIOWrapper
 from typing import Callable, Optional, List, Dict, Any, Union
 import typer
 import pyjson5
@@ -267,15 +266,6 @@ BUILD_DIR = GLOBAL_STORAGE / "build"
 USER_CONFIG_PATH = Path.home() / ".config" / "yolo-jail" / "config.jsonc"
 
 console = Console()
-
-AGENT_REATTACH_PROCESS_NAMES = {"claude", "copilot", "gemini"}
-AGENT_REATTACH_ATTEMPTS = 2
-# Podman's default detach key sequence; we pin it so the message we print
-# matches what the user actually has to type.
-AGENT_REATTACH_DETACH_KEYS = "ctrl-p,ctrl-q"
-# Anything shorter than this between attach start and exit-zero is treated as
-# a deliberate detach (user hit the detach keys); we don't loop in that case.
-AGENT_REATTACH_INSTANT_DETACH_SECONDS = 1.0
 
 
 class ConfigError(ValueError):
@@ -1310,19 +1300,9 @@ def start_host_port_forwarding(
 
 
 def cleanup_port_forwarding(
-    socat_procs: List[subprocess.Popen],
-    socket_dir: Optional[Path],
-    *,
-    remove_dir: bool = True,
+    socat_procs: List[subprocess.Popen], socket_dir: Optional[Path]
 ):
-    """Terminate host-side socat processes; optionally remove the socket dir.
-
-    The socket directory is bind-mounted into the jail by inode, so deleting
-    it while the container is still running orphans the in-jail mount (the
-    container sees an empty/deleted directory and any subsequent revival
-    can't reach it).  Pass ``remove_dir=False`` to keep the directory's
-    inode alive when the jail is going to outlive this Python process.
-    """
+    """Terminate host-side socat processes and remove socket directory."""
     for sp in socat_procs:
         try:
             sp.terminate()
@@ -1332,7 +1312,7 @@ def cleanup_port_forwarding(
                 sp.kill()
             except Exception:
                 pass
-    if remove_dir and socket_dir and socket_dir.exists():
+    if socket_dir and socket_dir.exists():
         shutil.rmtree(socket_dir, ignore_errors=True)
 
 
@@ -2827,19 +2807,8 @@ def start_loopholes(
     return handles
 
 
-def stop_loopholes(
-    handles: List[LoopholeDaemon],
-    sockets_dir: Optional[Path],
-    *,
-    remove_dir: bool = True,
-) -> None:
-    """Stop all host services; optionally remove the sockets directory.
-
-    The directory is bind-mounted into the jail by inode.  When the jail is
-    going to outlive this Python process, callers should pass
-    ``remove_dir=False`` so the next ``yolo run`` can revive services into
-    the same directory inode without orphaning the in-jail mount.
-    """
+def stop_loopholes(handles: List[LoopholeDaemon], sockets_dir: Optional[Path]) -> None:
+    """Stop all host services and clean up the sockets directory."""
     for h in handles:
         try:
             h._stop()
@@ -2847,7 +2816,7 @@ def stop_loopholes(
             console.print(
                 f"[yellow]Error stopping host service '{h.name}': {e}[/yellow]"
             )
-    if remove_dir and sockets_dir is not None and sockets_dir.exists():
+    if sockets_dir is not None and sockets_dir.exists():
         shutil.rmtree(sockets_dir, ignore_errors=True)
 
 
@@ -3870,7 +3839,6 @@ KNOWN_TOP_LEVEL_CONFIG_KEYS = {
     "journal",
     "kvm",
     "prune",
-    "reattachable_agents",
 }
 JOURNAL_MODES = ("off", "user", "full")
 KNOWN_NETWORK_KEYS = {"mode", "ports", "forward_host_ports"}
@@ -4108,16 +4076,6 @@ def _validate_config(
                     errors.append(f"{path}: must be a relative path, not absolute")
                 elif ".." in entry.split("/"):
                     errors.append(f"{path}: must not contain '..' components")
-
-    reattachable_agents = config.get("reattachable_agents")
-    if reattachable_agents is not None:
-        if not isinstance(reattachable_agents, list) or not all(
-            isinstance(a, str) and a.strip() for a in reattachable_agents
-        ):
-            errors.append(
-                "config.reattachable_agents: expected a list of non-empty strings "
-                '(agent process basenames, e.g. ["aider", "qwen-code"])'
-            )
 
     host_claude_files = config.get("host_claude_files")
     if host_claude_files is not None:
@@ -5098,11 +5056,6 @@ def init_user_config():
   // Expose /dev/kvm inside the jail for nested hardware-accelerated VMs.
   // Requires your host user to be in the kvm group.  Linux only.
   // "kvm": true
-
-  // Extra agent CLI names that should be reattached if podman exec drops
-  // while they're still running (terminal disconnect, SSH glitch).  Defaults:
-  // claude, copilot, gemini.  Add others by basename.
-  // "reattachable_agents": ["aider", "qwen-code"]
 }
 """
     with open(USER_CONFIG_PATH, "w") as f:
@@ -5382,19 +5335,6 @@ def config_ref():
     guest-to-host escape bugs requiring attacker code in a KVM guest —
     but it is strictly larger than no-kvm.  Leave this off unless you
     actually need nested virtualization.
-
-  [bold]reattachable_agents[/bold] (array of strings): Extra agent CLI names
-    that should be opportunistically reattached when [cyan]podman exec[/cyan]
-    drops while the agent is still alive in the jail (e.g. terminal disconnect,
-    dropped SSH session).  yolo always recognizes [cyan]claude[/cyan],
-    [cyan]copilot[/cyan], and [cyan]gemini[/cyan]; this key extends the set with
-    additional process basenames (e.g. [cyan]aider[/cyan], [cyan]qwen-code[/cyan]).
-    Detection scans the in-jail process tree's [cyan]comm[/cyan] *and* every
-    argv token's basename, so node-wrapped CLIs are matched correctly.
-    Reattach uses [cyan]podman attach[/cyan]; podman is the only runtime where
-    this is supported.  Press [bold]ctrl-p,ctrl-q[/bold] to detach without
-    stopping the jail.
-    Example: ["aider", "qwen-code"]
 
   [bold]resources[/bold] (object): Container resource limits.
     Sets hard cgroup constraints on the jail container via podman flags.
@@ -7065,106 +7005,6 @@ def _inject_agent_yolo_flags(full_command: "list[str]") -> None:
             full_command.insert(1, "--dangerously-skip-permissions")
 
 
-def _reattachable_agent_names(config: "Dict[str, Any] | None") -> "set[str]":
-    """Default reattachable agents plus any user extras from config."""
-    names = set(AGENT_REATTACH_PROCESS_NAMES)
-    extra = (config or {}).get("reattachable_agents")
-    if isinstance(extra, list):
-        for entry in extra:
-            if isinstance(entry, str) and entry.strip():
-                names.add(Path(entry.strip()).name)
-    return names
-
-
-def _reattachable_agent_name(
-    full_command: "list[str]", config: "Dict[str, Any] | None" = None
-) -> "str | None":
-    if not full_command:
-        return None
-    head = Path(full_command[0]).name
-    if head in _reattachable_agent_names(config):
-        return head
-    return None
-
-
-def _build_exec_command(
-    runtime: str, identity_env: "list[str]", cname: str, target_cmd: str
-) -> "list[str]":
-    exec_flags = ["-i"]
-    if sys.stdout.isatty():
-        exec_flags.append("-t")
-    return [
-        runtime,
-        "exec",
-        *exec_flags,
-        *identity_env,
-        cname,
-        "yolo-entrypoint",
-        target_cmd,
-    ]
-
-
-def _container_attach_command(runtime: str, cname: str) -> "list[str] | None":
-    if runtime == "podman":
-        # --sig-proxy=false: keep Ctrl-C in the user's terminal from
-        # SIGINT'ing PID 1 (which would kill the whole jail).  The agent
-        # itself runs as a child of PID 1's shell and shares the tty, so
-        # interactive signals still reach it via the controlling terminal.
-        # --detach-keys: pin the sequence so our user-facing message
-        # matches what the user actually has to type to detach again.
-        return [
-            runtime,
-            "attach",
-            "--sig-proxy=false",
-            f"--detach-keys={AGENT_REATTACH_DETACH_KEYS}",
-            cname,
-        ]
-    return None
-
-
-def _container_process_running(runtime: str, cname: str, process_name: str) -> bool:
-    """Return True if a process matching ``process_name`` is alive in the jail.
-
-    We can't rely solely on ``comm`` because Linux truncates it to 15 chars
-    and most agent CLIs (claude, copilot, gemini) are Node scripts, so
-    ``comm`` is ``node`` and the agent name only appears later in argv.
-    To handle that, we also scan every argv token's basename.
-    """
-    if runtime != "podman":
-        return False
-    try:
-        result = subprocess.run(
-            [runtime, "top", cname, "-eo", "comm,args"],
-            capture_output=True,
-            text=True,
-            timeout=5,
-        )
-    except (FileNotFoundError, OSError, subprocess.SubprocessError):
-        return False
-    if result.returncode != 0:
-        return False
-
-    for line in result.stdout.splitlines()[1:]:
-        line = line.strip()
-        if not line:
-            continue
-        parts = line.split(None, 1)
-        if not parts:
-            continue
-        if Path(parts[0]).name == process_name:
-            return True
-        if len(parts) == 1:
-            continue
-        # `podman top --args` is whitespace-separated, not shell-quoted; use
-        # a plain split so paths with spaces don't trip shlex.  Then check
-        # the basename of every token, not just argv[0], so node-wrapped
-        # CLIs like `node /path/to/claude --foo` are detected.
-        for token in parts[1].split():
-            if Path(token).name == process_name:
-                return True
-    return False
-
-
 def _maybe_warn_about_oom_killer(exit_code: int, runtime: str) -> None:
     """Print a hint when the agent's exit looks like an OOM-kill on a tiny
     Podman Machine.  Triggered by exit 137 (128 + SIGKILL) on macOS+podman
@@ -7188,255 +7028,6 @@ def _maybe_warn_about_oom_killer(exit_code: int, runtime: str) -> None:
         f"(below the {PODMAN_MACHINE_MEMORY_FLOOR_MB} MB recommended floor "
         f"for running an agent).  {_podman_machine_resize_hint()}[/dim]"
     )
-
-
-def _maybe_reattach_live_agent(
-    exit_code: int,
-    runtime: str,
-    cname: str,
-    full_command: "list[str]",
-    config: "Dict[str, Any] | None" = None,
-) -> int:
-    if exit_code == 0:
-        return exit_code
-
-    agent = _reattachable_agent_name(full_command, config)
-    if agent is None:
-        # Even non-reattachable commands (plain `bash`, custom scripts) can
-        # be killed by the VM OOM-er; the hint is just as useful there.
-        _maybe_warn_about_oom_killer(exit_code, runtime)
-        return exit_code
-
-    if not find_running_container(cname, runtime=runtime):
-        console.print(
-            f"[yellow]{agent} exited with code {exit_code}; "
-            "the jail is no longer running.[/yellow]"
-        )
-        _maybe_warn_about_oom_killer(exit_code, runtime)
-        return exit_code
-
-    if not _container_process_running(runtime, cname, agent):
-        console.print(
-            f"[yellow]{agent} exited with code {exit_code}; the jail is still "
-            f"running, but no live {agent} process was found.[/yellow]"
-        )
-        return exit_code
-
-    attach_cmd = _container_attach_command(runtime, cname)
-    if attach_cmd is None:
-        console.print(
-            f"[yellow]{agent} exited with code {exit_code}; the jail and "
-            f"{agent} still appear to be running, but automatic attach is not "
-            f"supported for runtime '{runtime}'. Run `yolo -- {agent}` again "
-            "to reconnect.[/yellow]"
-        )
-        return exit_code
-
-    attach_display = shlex.join(attach_cmd)
-    console.print(
-        f"[dim]Reattach reconnects to the jail's main process (PID 1), not "
-        f"the {agent} session that just exited; if multiple {agent} sessions "
-        f"are running you'll land on the original one.  Press "
-        f"[bold]{AGENT_REATTACH_DETACH_KEYS}[/bold] to detach without "
-        "stopping the jail.[/dim]"
-    )
-    console.print(f"[dim]Attach command: {attach_display}[/dim]")
-
-    rc = exit_code
-    for attempt in range(1, AGENT_REATTACH_ATTEMPTS + 1):
-        console.print(
-            f"[bold yellow]{agent} detached while the jail is still running; "
-            f"reattaching ({attempt}/{AGENT_REATTACH_ATTEMPTS})...[/bold yellow]"
-        )
-        started = time.monotonic()
-        try:
-            result = subprocess.run(attach_cmd)
-        except FileNotFoundError:
-            console.print(
-                f"[yellow]Configured runtime '{runtime}' disappeared mid-reattach; "
-                f"run `{attach_display}` or `yolo -- {agent}` once it's back on PATH.[/yellow]"
-            )
-            return exit_code
-        rc = result.returncode
-        elapsed = time.monotonic() - started
-        if rc == 0:
-            # A near-instant zero-exit means the user hit the detach keys
-            # immediately — don't loop and force them to do it again.
-            if elapsed < AGENT_REATTACH_INSTANT_DETACH_SECONDS:
-                console.print(
-                    f"[dim]Detected deliberate detach (after {elapsed:.2f}s); "
-                    f"not reattaching.  Run `{attach_display}` or "
-                    f"`yolo -- {agent}` to reconnect.[/dim]"
-                )
-            return rc
-        if not find_running_container(cname, runtime=runtime):
-            console.print(
-                f"[yellow]{agent} attach exited with code {rc}; "
-                "the jail has stopped.[/yellow]"
-            )
-            return rc
-        if not _container_process_running(runtime, cname, agent):
-            console.print(
-                f"[yellow]{agent} attach exited with code {rc}; "
-                f"no live {agent} process remains in the jail.[/yellow]"
-            )
-            return rc
-
-    console.print(
-        f"[yellow]Automatic reattach failed after {AGENT_REATTACH_ATTEMPTS} "
-        f"attempts, but the jail still appears to be running. Run "
-        f"`{attach_display}` or `yolo -- {agent}` to reconnect.[/yellow]"
-    )
-    return rc
-
-
-def _run_exec_with_agent_reattach(
-    run_cmd: "list[str]",
-    runtime: str,
-    cname: str,
-    full_command: "list[str]",
-    config: "Dict[str, Any] | None" = None,
-) -> int:
-    result = subprocess.run(run_cmd)
-    return _maybe_reattach_live_agent(
-        result.returncode, runtime, cname, full_command, config
-    )
-
-
-@dataclass
-class _RevivedHostServices:
-    """Bundle of host-side service handles owned by a fast-path yolo process.
-
-    A non-None ``owner_lock`` means *this* process won the per-jail revival
-    race and is responsible for stopping the contained services on exec
-    exit.  When ``owner_lock`` is None, another concurrent yolo invocation
-    already owns the host-side services and we just exec'd alongside them.
-    """
-
-    socat_procs: List[subprocess.Popen]
-    host_services: List[LoopholeDaemon]
-    socket_dir: Optional[Path]
-    host_services_sockets_dir: Optional[Path]
-    owner_lock: Optional[Any] = None  # held flock on the owner file
-
-
-def _revive_host_services_for_existing_jail(
-    cname: str,
-    runtime: str,
-    config: "Dict[str, Any]",
-) -> _RevivedHostServices:
-    """Revive host-side socat + loopholes for a jail that was started by an
-    earlier yolo process which has since exited.
-
-    Race-safe: a per-jail non-blocking flock on
-    ``<GLOBAL_STORAGE>/locks/<cname>.services-owner`` ensures only one
-    concurrent yolo process owns and starts services.  Subsequent
-    concurrent invocations get a result with ``owner_lock=None`` and skip
-    revival (services are already alive courtesy of the owner).
-
-    The socket directory inodes are preserved (not recreated) because the
-    jail's bind mounts point at them by inode — recreating the dirs would
-    orphan the in-jail view.
-
-    Apple Container ('container' runtime) doesn't support Unix-socket
-    bind mounts at all, so revival is a no-op there.
-    """
-    empty = _RevivedHostServices(
-        socat_procs=[],
-        host_services=[],
-        socket_dir=None,
-        host_services_sockets_dir=None,
-        owner_lock=None,
-    )
-    if runtime == "container":
-        return empty
-
-    lock_dir = GLOBAL_STORAGE / "locks"
-    lock_dir.mkdir(parents=True, exist_ok=True)
-    owner_lock = open(lock_dir / f"{cname}.services-owner", "w")
-    try:
-        fcntl.flock(owner_lock, fcntl.LOCK_EX | fcntl.LOCK_NB)
-    except OSError:
-        # Another yolo process owns host services for this jail; share them.
-        owner_lock.close()
-        return empty
-
-    net_mode = "bridge"
-    if config.get("network", {}).get("mode"):
-        net_mode = config["network"]["mode"]
-
-    forward_host_ports: List = []
-    if net_mode == "bridge" and config.get("network", {}).get("forward_host_ports"):
-        forward_host_ports = config["network"]["forward_host_ports"]
-
-    _host_tmp = Path("/tmp").resolve() if IS_MACOS else Path("/tmp")
-    socket_dir: Optional[Path] = None
-    socat_procs: List[subprocess.Popen] = []
-    if forward_host_ports and not IS_MACOS:
-        # macOS+podman bridges via host.containers.internal (no socket dir);
-        # Apple Container is already excluded above.
-        socket_dir = _host_tmp / f"yolo-fwd-{cname}"
-        if socket_dir.exists():
-            socat_procs = start_host_port_forwarding(
-                forward_host_ports, cname, socket_dir
-            )
-        else:
-            console.print(
-                "[yellow]Cannot revive port forwarding: bind-mount source "
-                f"{socket_dir} is gone.  Restart with `yolo --new` if "
-                "forwarded ports are required.[/yellow]"
-            )
-
-    host_services_sockets_dir = _host_service_sockets_dir(cname)
-    host_services: List[LoopholeDaemon] = []
-    if host_services_sockets_dir.exists():
-        host_services = start_loopholes(cname, runtime, config)
-    else:
-        console.print(
-            "[yellow]Cannot revive host services: bind-mount source "
-            f"{host_services_sockets_dir} is gone.  Restart with `yolo --new` "
-            "if cgroup-delegate / journal / loopholes are required.[/yellow]"
-        )
-
-    if not socat_procs and not host_services:
-        # Nothing to manage — release ownership so another yolo can try.
-        owner_lock.close()
-        return empty
-
-    return _RevivedHostServices(
-        socat_procs=socat_procs,
-        host_services=host_services,
-        socket_dir=socket_dir,
-        host_services_sockets_dir=host_services_sockets_dir,
-        owner_lock=owner_lock,
-    )
-
-
-def _teardown_revived_host_services(
-    revived: _RevivedHostServices,
-    runtime: str,
-    cname: str,
-) -> None:
-    """Mirror of the build-path post-`proc.wait` cleanup, scoped to revived
-    services.  Stops processes/threads but preserves the bind-mount source
-    directory inodes if the jail is still running so a subsequent yolo can
-    revive again.
-    """
-    if revived.owner_lock is None:
-        return
-    jail_alive = bool(find_running_container(cname, runtime=runtime))
-    cleanup_port_forwarding(
-        revived.socat_procs, revived.socket_dir, remove_dir=not jail_alive
-    )
-    stop_loopholes(
-        revived.host_services,
-        revived.host_services_sockets_dir,
-        remove_dir=not jail_alive,
-    )
-    try:
-        revived.owner_lock.close()
-    except Exception:
-        pass
 
 
 @app.command(
@@ -7571,19 +7162,22 @@ def run(
             f"[bold cyan]Attaching to existing jail [dim]({cname})[/dim]...[/bold cyan]"
         )
         _tmux_rename_window("JAIL")
-        # If the original yolo run that started this container has exited,
-        # its host-side services (cgroup-delegate, journal, loopholes,
-        # forwarded ports) are dead while the jail still references their
-        # bind mounts.  Revive any we can manage from this process.
-        revived = _revive_host_services_for_existing_jail(cname, runtime, config)
-        run_cmd = _build_exec_command(runtime, identity_env, cname, target_cmd)
+        exec_flags = ["-i"]
+        if sys.stdout.isatty():
+            exec_flags.append("-t")
+        run_cmd = [
+            runtime,
+            "exec",
+            *exec_flags,
+            *identity_env,
+            cname,
+            "yolo-entrypoint",
+            target_cmd,
+        ]
         # Use subprocess.run (not execvp) so atexit handlers fire for tmux cleanup
         try:
-            rc = _run_exec_with_agent_reattach(
-                run_cmd, runtime, cname, full_command, config
-            )
+            result = subprocess.run(run_cmd)
         except FileNotFoundError:
-            _teardown_revived_host_services(revived, runtime, cname)
             console.print(
                 f"[bold red]Configured runtime '{runtime}' not found on PATH.[/bold red]"
             )
@@ -7591,8 +7185,8 @@ def run(
                 "[dim]Run `yolo check` to validate runtime availability before restarting.[/dim]"
             )
             sys.exit(1)
-        _teardown_revived_host_services(revived, runtime, cname)
-        sys.exit(rc)
+        _maybe_warn_about_oom_killer(result.returncode, runtime)
+        sys.exit(result.returncode)
 
     # No existing container — build/load the image then start a new one.
     # Check for config changes and get human confirmation
@@ -7623,18 +7217,21 @@ def run(
                 f"[bold cyan]Attaching to jail started by another process [dim]({cname})[/dim]...[/bold cyan]"
             )
             _tmux_rename_window("JAIL")
-            # See note above on revival in the existing-container fast path —
-            # the racing-attach branch needs the same treatment, since the
-            # other process may already be done starting host services or
-            # may have died after starting them.
-            revived = _revive_host_services_for_existing_jail(cname, runtime, config)
-            run_cmd = _build_exec_command(runtime, identity_env, cname, target_cmd)
+            exec_flags = ["-i"]
+            if sys.stdout.isatty():
+                exec_flags.append("-t")
+            run_cmd = [
+                runtime,
+                "exec",
+                *exec_flags,
+                *identity_env,
+                cname,
+                "yolo-entrypoint",
+                target_cmd,
+            ]
             try:
-                rc = _run_exec_with_agent_reattach(
-                    run_cmd, runtime, cname, full_command, config
-                )
+                result = subprocess.run(run_cmd)
             except FileNotFoundError:
-                _teardown_revived_host_services(revived, runtime, cname)
                 console.print(
                     f"[bold red]Configured runtime '{runtime}' not found on PATH.[/bold red]"
                 )
@@ -7642,8 +7239,8 @@ def run(
                     "[dim]Run `yolo check` to validate runtime availability before restarting.[/dim]"
                 )
                 sys.exit(1)
-            _teardown_revived_host_services(revived, runtime, cname)
-            sys.exit(rc)
+            _maybe_warn_about_oom_killer(result.returncode, runtime)
+            sys.exit(result.returncode)
 
     # Remove any stopped container with the same name left over from an
     # unclean shutdown (e.g. OOM-kill, host reboot).  Without this,
@@ -8789,21 +8386,6 @@ def run(
     write_container_tracking(cname, workspace)
     _tmux_rename_window("JAIL")
 
-    # Acquire the per-jail "host services owner" lock so any concurrent
-    # fast-path yolo invocation that finds this container later won't try
-    # to revive (and trample) our host services.  Held until cleanup at
-    # the bottom of run().  Non-blocking: if we somehow can't get it (a
-    # prior process is still attached), we proceed without the lock — the
-    # alternative is a deadlock that would block the whole jail boot.
-    services_owner_lock_path = lock_path / f"{cname}.services-owner"
-    _lock_file = open(services_owner_lock_path, "w")
-    try:
-        fcntl.flock(_lock_file, fcntl.LOCK_EX | fcntl.LOCK_NB)
-        services_owner_lock: Optional[TextIOWrapper] = _lock_file
-    except OSError:
-        _lock_file.close()
-        services_owner_lock = None
-
     # Start host-side port forwarding BEFORE the container so socket files
     # exist when entrypoint.py starts the container-side socat.
     socat_procs: List[subprocess.Popen] = []
@@ -8845,11 +8427,6 @@ def run(
         )
         cleanup_port_forwarding(socat_procs, socket_dir)
         stop_loopholes(host_services, host_services_sockets_dir)
-        if services_owner_lock is not None:
-            try:
-                services_owner_lock.close()
-            except Exception:
-                pass
         lock_file.close()
         sys.exit(1)
     for _ in range(20):
@@ -8859,33 +8436,11 @@ def run(
     lock_file.close()
 
     proc.wait()
-    rc = _maybe_reattach_live_agent(
-        proc.returncode, runtime, cname, full_command, config
-    )
-    # Always stop the host-side processes/threads — leaving them around
-    # after this Python exits would orphan them.  But when the jail is
-    # *still alive* (e.g. an external supervisor restarted it, or
-    # ``podman run`` returned before the container did), keep the
-    # bind-mounted directories' inodes intact so the next ``yolo run``
-    # can revive services into the same mount points.  Deleting them
-    # would point the in-jail mounts at deleted inodes and break every
-    # in-jail tool that relies on host-side services (yolo-cglimit,
-    # yolo-journalctl, user loopholes, port forwards).
-    jail_alive = bool(find_running_container(cname, runtime=runtime))
-    cleanup_port_forwarding(socat_procs, socket_dir, remove_dir=not jail_alive)
-    stop_loopholes(host_services, host_services_sockets_dir, remove_dir=not jail_alive)
-    if services_owner_lock is not None:
-        try:
-            services_owner_lock.close()
-        except Exception:
-            pass
-    if jail_alive:
-        console.print(
-            "[dim]Jail is still running.  Host-side services were stopped "
-            "(this process can't manage them after exit) but their socket "
-            "directories were preserved.  The next `yolo` invocation in "
-            "this workspace will revive them automatically.[/dim]"
-        )
+    # Clean up host-side socat processes, host services (incl. cgroup
+    # delegate), and their per-jail socket directory.
+    cleanup_port_forwarding(socat_procs, socket_dir)
+    stop_loopholes(host_services, host_services_sockets_dir)
+    _maybe_warn_about_oom_killer(proc.returncode, runtime)
 
     if profile and _profile_times:
         _profile_times["container_exited"] = _time.monotonic()
@@ -8899,7 +8454,7 @@ def run(
             f"  Total (host-side):  {_profile_times['container_exited'] - start:.3f}s\n"
         )
 
-    sys.exit(rc)
+    sys.exit(proc.returncode)
 
 
 def _check_container_stuck(name: str, runtime: str) -> "str | None":
