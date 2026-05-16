@@ -269,6 +269,12 @@ console = Console()
 
 AGENT_REATTACH_PROCESS_NAMES = {"claude", "copilot", "gemini"}
 AGENT_REATTACH_ATTEMPTS = 2
+# Podman's default detach key sequence; we pin it so the message we print
+# matches what the user actually has to type.
+AGENT_REATTACH_DETACH_KEYS = "ctrl-p,ctrl-q"
+# Anything shorter than this between attach start and exit-zero is treated as
+# a deliberate detach (user hit the detach keys); we don't loop in that case.
+AGENT_REATTACH_INSTANT_DETACH_SECONDS = 1.0
 
 
 class ConfigError(ValueError):
@@ -3842,6 +3848,7 @@ KNOWN_TOP_LEVEL_CONFIG_KEYS = {
     "journal",
     "kvm",
     "prune",
+    "reattachable_agents",
 }
 JOURNAL_MODES = ("off", "user", "full")
 KNOWN_NETWORK_KEYS = {"mode", "ports", "forward_host_ports"}
@@ -4079,6 +4086,16 @@ def _validate_config(
                     errors.append(f"{path}: must be a relative path, not absolute")
                 elif ".." in entry.split("/"):
                     errors.append(f"{path}: must not contain '..' components")
+
+    reattachable_agents = config.get("reattachable_agents")
+    if reattachable_agents is not None:
+        if not isinstance(reattachable_agents, list) or not all(
+            isinstance(a, str) and a.strip() for a in reattachable_agents
+        ):
+            errors.append(
+                "config.reattachable_agents: expected a list of non-empty strings "
+                '(agent process basenames, e.g. ["aider", "qwen-code"])'
+            )
 
     host_claude_files = config.get("host_claude_files")
     if host_claude_files is not None:
@@ -6896,11 +6913,24 @@ def _inject_agent_yolo_flags(full_command: "list[str]") -> None:
             full_command.insert(1, "--dangerously-skip-permissions")
 
 
-def _reattachable_agent_name(full_command: "list[str]") -> "str | None":
+def _reattachable_agent_names(config: "Dict[str, Any] | None") -> "set[str]":
+    """Default reattachable agents plus any user extras from config."""
+    names = set(AGENT_REATTACH_PROCESS_NAMES)
+    extra = (config or {}).get("reattachable_agents")
+    if isinstance(extra, list):
+        for entry in extra:
+            if isinstance(entry, str) and entry.strip():
+                names.add(Path(entry.strip()).name)
+    return names
+
+
+def _reattachable_agent_name(
+    full_command: "list[str]", config: "Dict[str, Any] | None" = None
+) -> "str | None":
     if not full_command:
         return None
     head = Path(full_command[0]).name
-    if head in AGENT_REATTACH_PROCESS_NAMES:
+    if head in _reattachable_agent_names(config):
         return head
     return None
 
@@ -6924,11 +6954,30 @@ def _build_exec_command(
 
 def _container_attach_command(runtime: str, cname: str) -> "list[str] | None":
     if runtime == "podman":
-        return [runtime, "attach", cname]
+        # --sig-proxy=false: keep Ctrl-C in the user's terminal from
+        # SIGINT'ing PID 1 (which would kill the whole jail).  The agent
+        # itself runs as a child of PID 1's shell and shares the tty, so
+        # interactive signals still reach it via the controlling terminal.
+        # --detach-keys: pin the sequence so our user-facing message
+        # matches what the user actually has to type to detach again.
+        return [
+            runtime,
+            "attach",
+            "--sig-proxy=false",
+            f"--detach-keys={AGENT_REATTACH_DETACH_KEYS}",
+            cname,
+        ]
     return None
 
 
 def _container_process_running(runtime: str, cname: str, process_name: str) -> bool:
+    """Return True if a process matching ``process_name`` is alive in the jail.
+
+    We can't rely solely on ``comm`` because Linux truncates it to 15 chars
+    and most agent CLIs (claude, copilot, gemini) are Node scripts, so
+    ``comm`` is ``node`` and the agent name only appears later in argv.
+    To handle that, we also scan every argv token's basename.
+    """
     if runtime != "podman":
         return False
     try:
@@ -6948,27 +6997,33 @@ def _container_process_running(runtime: str, cname: str, process_name: str) -> b
         if not line:
             continue
         parts = line.split(None, 1)
-        comm = Path(parts[0]).name
-        if comm == process_name:
+        if not parts:
+            continue
+        if Path(parts[0]).name == process_name:
             return True
         if len(parts) == 1:
             continue
-        try:
-            argv0 = shlex.split(parts[1])[0]
-        except (IndexError, ValueError):
-            argv0 = parts[1].split()[0] if parts[1].split() else ""
-        if Path(argv0).name == process_name:
-            return True
+        # `podman top --args` is whitespace-separated, not shell-quoted; use
+        # a plain split so paths with spaces don't trip shlex.  Then check
+        # the basename of every token, not just argv[0], so node-wrapped
+        # CLIs like `node /path/to/claude --foo` are detected.
+        for token in parts[1].split():
+            if Path(token).name == process_name:
+                return True
     return False
 
 
 def _maybe_reattach_live_agent(
-    exit_code: int, runtime: str, cname: str, full_command: "list[str]"
+    exit_code: int,
+    runtime: str,
+    cname: str,
+    full_command: "list[str]",
+    config: "Dict[str, Any] | None" = None,
 ) -> int:
     if exit_code == 0:
         return exit_code
 
-    agent = _reattachable_agent_name(full_command)
+    agent = _reattachable_agent_name(full_command, config)
     if agent is None:
         return exit_code
 
@@ -6996,15 +7051,35 @@ def _maybe_reattach_live_agent(
         )
         return exit_code
 
+    attach_display = shlex.join(attach_cmd)
+    console.print(
+        f"[dim]Reattach reconnects to the jail's main process (PID 1), not "
+        f"the {agent} session that just exited; if multiple {agent} sessions "
+        f"are running you'll land on the original one.  Press "
+        f"[bold]{AGENT_REATTACH_DETACH_KEYS}[/bold] to detach without "
+        "stopping the jail.[/dim]"
+    )
+    console.print(f"[dim]Attach command: {attach_display}[/dim]")
+
     rc = exit_code
     for attempt in range(1, AGENT_REATTACH_ATTEMPTS + 1):
         console.print(
             f"[bold yellow]{agent} detached while the jail is still running; "
             f"reattaching ({attempt}/{AGENT_REATTACH_ATTEMPTS})...[/bold yellow]"
         )
+        started = time.monotonic()
         result = subprocess.run(attach_cmd)
         rc = result.returncode
+        elapsed = time.monotonic() - started
         if rc == 0:
+            # A near-instant zero-exit means the user hit the detach keys
+            # immediately — don't loop and force them to do it again.
+            if elapsed < AGENT_REATTACH_INSTANT_DETACH_SECONDS:
+                console.print(
+                    f"[dim]Detected deliberate detach (after {elapsed:.2f}s); "
+                    f"not reattaching.  Run `{attach_display}` or "
+                    f"`yolo -- {agent}` to reconnect.[/dim]"
+                )
             return rc
         if not find_running_container(cname, runtime=runtime):
             console.print(
@@ -7022,16 +7097,22 @@ def _maybe_reattach_live_agent(
     console.print(
         f"[yellow]Automatic reattach failed after {AGENT_REATTACH_ATTEMPTS} "
         f"attempts, but the jail still appears to be running. Run "
-        f"`{shlex.join(attach_cmd)}` or `yolo -- {agent}` to reconnect.[/yellow]"
+        f"`{attach_display}` or `yolo -- {agent}` to reconnect.[/yellow]"
     )
     return rc
 
 
 def _run_exec_with_agent_reattach(
-    run_cmd: "list[str]", runtime: str, cname: str, full_command: "list[str]"
+    run_cmd: "list[str]",
+    runtime: str,
+    cname: str,
+    full_command: "list[str]",
+    config: "Dict[str, Any] | None" = None,
 ) -> int:
     result = subprocess.run(run_cmd)
-    return _maybe_reattach_live_agent(result.returncode, runtime, cname, full_command)
+    return _maybe_reattach_live_agent(
+        result.returncode, runtime, cname, full_command, config
+    )
 
 
 @app.command(
@@ -7169,7 +7250,9 @@ def run(
         run_cmd = _build_exec_command(runtime, identity_env, cname, target_cmd)
         # Use subprocess.run (not execvp) so atexit handlers fire for tmux cleanup
         try:
-            rc = _run_exec_with_agent_reattach(run_cmd, runtime, cname, full_command)
+            rc = _run_exec_with_agent_reattach(
+                run_cmd, runtime, cname, full_command, config
+            )
         except FileNotFoundError:
             console.print(
                 f"[bold red]Configured runtime '{runtime}' not found on PATH.[/bold red]"
@@ -7212,7 +7295,7 @@ def run(
             run_cmd = _build_exec_command(runtime, identity_env, cname, target_cmd)
             try:
                 rc = _run_exec_with_agent_reattach(
-                    run_cmd, runtime, cname, full_command
+                    run_cmd, runtime, cname, full_command, config
                 )
             except FileNotFoundError:
                 console.print(
@@ -8418,16 +8501,23 @@ def run(
     lock_file.close()
 
     proc.wait()
-    rc = _maybe_reattach_live_agent(proc.returncode, runtime, cname, full_command)
-    container_still_running = bool(find_running_container(cname, runtime=runtime))
-    if not container_still_running:
-        # Clean up host-side socat processes, host services (incl. cgroup
-        # delegate), and their per-jail socket directory.
-        cleanup_port_forwarding(socat_procs, socket_dir)
-        stop_loopholes(host_services, host_services_sockets_dir)
-    else:
+    rc = _maybe_reattach_live_agent(
+        proc.returncode, runtime, cname, full_command, config
+    )
+    # Always tear down host-side socat + loopholes once `podman run` returns.
+    # If the container is somehow still alive (e.g. an external supervisor
+    # restarted it), keeping orphaned subprocess children around just leaks
+    # them: this Python process is about to exit and can no longer manage
+    # their lifecycle.  The next `yolo run` for this workspace will start
+    # fresh services through the existing-container fast-path's cleanup +
+    # restart story, or build a brand-new jail.
+    cleanup_port_forwarding(socat_procs, socket_dir)
+    stop_loopholes(host_services, host_services_sockets_dir)
+    if find_running_container(cname, runtime=runtime):
         console.print(
-            "[dim]Jail is still running; leaving host-side services active.[/dim]"
+            "[dim]Jail is still running but host-side services have been "
+            "stopped (this process can't manage them after exit).  "
+            "Run `yolo` again in this workspace to attach.[/dim]"
         )
 
     if profile and _profile_times:

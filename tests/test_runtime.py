@@ -256,8 +256,15 @@ def test_exec_path_reattaches_live_claude_after_disconnect(tmp_path, monkeypatch
 
     assert result.exit_code == 0
     assert exec_calls[0][:2] == ["podman", "exec"]
-    assert exec_calls[1] == ["podman", "attach", cname]
+    # Attach is now hardened with --sig-proxy=false and --detach-keys.
+    assert exec_calls[1][0:2] == ["podman", "attach"]
+    assert "--sig-proxy=false" in exec_calls[1]
+    assert any(a.startswith("--detach-keys=") for a in exec_calls[1])
+    assert exec_calls[1][-1] == cname
     assert "reattaching" in result.output
+    # User-facing message must explain the PID-1 caveat and the detach keys.
+    assert "PID 1" in result.output
+    assert "ctrl-p,ctrl-q" in result.output
 
 
 def test_exec_path_does_not_reattach_when_claude_is_gone(tmp_path, monkeypatch):
@@ -293,6 +300,226 @@ def test_exec_path_does_not_reattach_when_claude_is_gone(tmp_path, monkeypatch):
     assert len(exec_calls) == 1
     assert "no live" in result.output
     assert "process was found" in result.output
+
+
+def test_reattach_skips_retry_on_instant_zero_exit(tmp_path, monkeypatch):
+    """Attach exits 0 quickly → user hit detach keys; don't loop."""
+    import sys
+
+    sys.path.insert(0, str(REPO_ROOT / "src"))
+    import cli
+    from unittest.mock import patch, MagicMock
+
+    monkeypatch.chdir(tmp_path)
+    exec_calls = []
+
+    def capture_run(cmd, **kwargs):
+        exec_calls.append(cmd)
+        # exec exits non-zero, attach exits 0 (and `time.monotonic` will
+        # report ~0 elapsed because we don't sleep).
+        return MagicMock(returncode=125 if len(exec_calls) == 1 else 0)
+
+    with (
+        patch.object(cli, "find_running_container", return_value="abc123def456"),
+        patch.object(cli, "_container_process_running", return_value=True),
+        patch.object(cli, "_container_baked_yolo_version", return_value=None),
+        patch.object(cli, "_get_yolo_version", return_value="test-version"),
+        patch.object(cli, "load_config", return_value={}),
+        patch.object(cli, "ensure_global_storage"),
+        patch.object(cli, "_runtime", return_value="podman"),
+        patch.object(cli, "_tmux_rename_window"),
+        patch.object(cli.subprocess, "check_output", side_effect=FileNotFoundError),
+        patch.object(cli.subprocess, "run", side_effect=capture_run),
+    ):
+        result = CliRunner().invoke(cli.app, ["run", "--", "claude"])
+
+    # exec + exactly one attach (no retry on instant detach)
+    assert result.exit_code == 0
+    assert len(exec_calls) == 2
+    assert "deliberate detach" in result.output
+
+
+def test_reattach_unsupported_runtime_emits_helpful_message(tmp_path, monkeypatch):
+    """For runtimes without `attach`, we tell the user how to reconnect."""
+    import sys
+
+    sys.path.insert(0, str(REPO_ROOT / "src"))
+    import cli
+    from unittest.mock import patch, MagicMock
+
+    monkeypatch.chdir(tmp_path)
+    exec_calls = []
+
+    def capture_run(cmd, **kwargs):
+        exec_calls.append(cmd)
+        return MagicMock(returncode=125)
+
+    with (
+        patch.object(cli, "find_running_container", return_value="abc123def456"),
+        patch.object(cli, "_container_process_running", return_value=True),
+        patch.object(cli, "_container_baked_yolo_version", return_value=None),
+        patch.object(cli, "_get_yolo_version", return_value="test-version"),
+        patch.object(cli, "load_config", return_value={}),
+        patch.object(cli, "ensure_global_storage"),
+        patch.object(cli, "_runtime", return_value="container"),
+        patch.object(cli, "_tmux_rename_window"),
+        patch.object(cli.subprocess, "check_output", side_effect=FileNotFoundError),
+        patch.object(cli.subprocess, "run", side_effect=capture_run),
+    ):
+        result = CliRunner().invoke(cli.app, ["run", "--", "claude"])
+
+    assert result.exit_code == 125
+    # Only the original exec; no attach attempt.
+    assert len(exec_calls) == 1
+    assert "automatic attach is not supported" in result.output
+    assert "yolo -- claude" in result.output
+
+
+def test_reattachable_agents_config_extends_default_set(tmp_path, monkeypatch):
+    """User config can opt extra agents into the reattach machinery."""
+    import sys
+
+    sys.path.insert(0, str(REPO_ROOT / "src"))
+    import cli
+    from unittest.mock import patch, MagicMock
+
+    monkeypatch.chdir(tmp_path)
+    cname = cli.container_name_for_workspace(tmp_path)
+    exec_calls = []
+
+    def capture_run(cmd, **kwargs):
+        exec_calls.append(cmd)
+        return MagicMock(returncode=125 if len(exec_calls) == 1 else 0)
+
+    with (
+        patch.object(cli, "find_running_container", return_value="abc123def456"),
+        patch.object(cli, "_container_process_running", return_value=True),
+        patch.object(cli, "_container_baked_yolo_version", return_value=None),
+        patch.object(cli, "_get_yolo_version", return_value="test-version"),
+        patch.object(
+            cli,
+            "load_config",
+            return_value={"reattachable_agents": ["aider"]},
+        ),
+        patch.object(cli, "ensure_global_storage"),
+        patch.object(cli, "_runtime", return_value="podman"),
+        patch.object(cli, "_tmux_rename_window"),
+        patch.object(cli.subprocess, "check_output", side_effect=FileNotFoundError),
+        patch.object(cli.subprocess, "run", side_effect=capture_run),
+    ):
+        result = CliRunner().invoke(cli.app, ["run", "--", "aider"])
+
+    assert result.exit_code == 0
+    assert exec_calls[1][0:2] == ["podman", "attach"]
+    assert exec_calls[1][-1] == cname
+
+
+def test_container_process_running_detects_node_wrapped_agent():
+    """`comm` is `node` for claude/copilot/gemini; we must scan argv too."""
+    import sys
+
+    sys.path.insert(0, str(REPO_ROOT / "src"))
+    import cli
+    from unittest.mock import patch, MagicMock
+
+    # Realistic `podman top -eo comm,args` output: comm is truncated to 15
+    # chars, and the agent name only appears as a script path in argv.
+    fake_top = MagicMock(
+        returncode=0,
+        stdout=(
+            "COMMAND         COMMAND\n"
+            "sh              /bin/sh -c yolo-entrypoint claude\n"
+            "node            node /home/yolo/.local/share/mise/installs/node/22/bin/claude --dangerously-skip-permissions\n"
+        ),
+    )
+    with patch.object(cli.subprocess, "run", return_value=fake_top):
+        assert cli._container_process_running("podman", "j", "claude") is True
+        assert cli._container_process_running("podman", "j", "gemini") is False
+
+
+def test_container_process_running_handles_top_failure():
+    import sys
+
+    sys.path.insert(0, str(REPO_ROOT / "src"))
+    import cli
+    from unittest.mock import patch, MagicMock
+
+    with patch.object(
+        cli.subprocess, "run", return_value=MagicMock(returncode=1, stdout="")
+    ):
+        assert cli._container_process_running("podman", "j", "claude") is False
+    with patch.object(cli.subprocess, "run", side_effect=FileNotFoundError):
+        assert cli._container_process_running("podman", "j", "claude") is False
+    # Non-podman runtimes are out of scope and never report alive.
+    assert cli._container_process_running("container", "j", "claude") is False
+
+
+def test_new_container_path_cleanup_runs_even_when_jail_alive(tmp_path, monkeypatch):
+    """Always tear down host services after `podman run` returns.
+
+    Skipping cleanup just orphans subprocess children once this Python
+    process exits, since their lifecycle can no longer be managed.
+    """
+    import sys
+
+    sys.path.insert(0, str(REPO_ROOT / "src"))
+    import cli
+    from unittest.mock import patch, MagicMock
+
+    monkeypatch.chdir(tmp_path)
+    cleanup_calls = {"port": 0, "loopholes": 0}
+
+    def fake_cleanup_port(*a, **kw):
+        cleanup_calls["port"] += 1
+
+    def fake_stop_loopholes(*a, **kw):
+        cleanup_calls["loopholes"] += 1
+
+    fake_proc = MagicMock()
+    fake_proc.returncode = 0
+    fake_proc.wait.return_value = None
+
+    with (
+        # find_running_container is called multiple times:
+        #   1. existing-container fast-path check → None (force build path)
+        #   2. raced-container check after lock     → None (still build path)
+        #   3. polling loop after Popen (up to 20×) → "abc" (container alive)
+        #   4. final post-cleanup check             → "abc" (still alive)
+        patch.object(
+            cli,
+            "find_running_container",
+            side_effect=[None, None] + ["abc"] * 30,
+        ),
+        patch.object(cli, "find_existing_container", return_value=None),
+        patch.object(cli, "_remove_stale_container"),
+        patch.object(cli, "_check_config_changes", return_value=True),
+        patch.object(cli, "_container_baked_yolo_version", return_value=None),
+        patch.object(cli, "_get_yolo_version", return_value="test-version"),
+        patch.object(cli, "load_config", return_value={}),
+        patch.object(cli, "ensure_global_storage"),
+        patch.object(cli, "_runtime", return_value="podman"),
+        patch.object(cli, "_tmux_rename_window"),
+        patch.object(cli, "auto_load_image"),
+        patch.object(cli, "write_container_tracking"),
+        patch.object(cli, "start_host_port_forwarding", return_value=[]),
+        patch.object(cli, "start_loopholes", return_value=[]),
+        patch.object(cli, "cleanup_port_forwarding", side_effect=fake_cleanup_port),
+        patch.object(cli, "stop_loopholes", side_effect=fake_stop_loopholes),
+        patch.object(cli, "_maybe_reattach_live_agent", return_value=0),
+        patch.object(cli.subprocess, "check_output", side_effect=FileNotFoundError),
+        patch.object(cli.subprocess, "Popen", return_value=fake_proc),
+        patch.object(
+            cli.subprocess, "run", return_value=MagicMock(returncode=0, stdout="")
+        ),
+    ):
+        result = CliRunner().invoke(cli.app, ["run", "--", "claude"])
+
+    assert cleanup_calls["port"] == 1, (
+        f"cleanup_port_forwarding must run unconditionally; output:\n{result.output}"
+    )
+    assert cleanup_calls["loopholes"] == 1, (
+        f"stop_loopholes must run unconditionally; output:\n{result.output}"
+    )
 
 
 AVAILABLE_RUNTIMES = []
