@@ -12,7 +12,7 @@ setup:
     # Editable install into this project's uv environment.  Do not trust an
     # unrelated active VIRTUAL_ENV from the caller's shell.
     PYTHON="$(env -u VIRTUAL_ENV uv run python -c 'import sys; print(sys.executable)')"
-    env -u VIRTUAL_ENV uv pip install --python "$PYTHON" -e .
+    uv pip install --python "$PYTHON" -e .
 
     # Locate the generated finder module
     SITE_PACKAGES="$("$PYTHON" -c 'import site; print(site.getsitepackages()[0])')"
@@ -195,3 +195,4 @@ check-all: format lint test
 clean:
     rm -f result
     rm -rf dist/ build/
+
