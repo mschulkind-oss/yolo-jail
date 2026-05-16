@@ -14,8 +14,7 @@ from typer.testing import CliRunner
 
 REPO_ROOT = Path(__file__).parent.parent.resolve()
 
-sys.path.insert(0, str(REPO_ROOT / "src"))
-from cli import _runtime  # noqa: E402
+from src.cli import _runtime  # noqa: E402
 
 
 # --- Unit tests for _runtime() ---
@@ -68,7 +67,7 @@ def test_runtime_rejects_invalid_config():
 
 
 def test_check_help_mentions_every_config_edit():
-    import cli
+    import src.cli as cli
 
     result = CliRunner().invoke(cli.app, ["check", "--help"])
     assert result.exit_code == 0
@@ -76,7 +75,7 @@ def test_check_help_mentions_every_config_edit():
 
 
 def test_config_ref_mentions_yolo_check_after_every_edit():
-    import cli
+    import src.cli as cli
 
     result = CliRunner().invoke(cli.app, ["config-ref"])
     assert result.exit_code == 0
@@ -85,7 +84,7 @@ def test_config_ref_mentions_yolo_check_after_every_edit():
 
 
 def test_generated_agents_md_mentions_yolo_check(tmp_path, monkeypatch):
-    import cli
+    import src.cli as cli
 
     monkeypatch.setattr(cli, "AGENTS_DIR", tmp_path / "agents")
     agents_path = cli.generate_agents_md(
@@ -104,7 +103,7 @@ def test_generated_agents_md_mentions_yolo_check(tmp_path, monkeypatch):
 
 def test_ensure_global_storage_creates_mount_parents(tmp_path, monkeypatch):
     """Pre-create intermediate dirs so the container runtime doesn't create them as root."""
-    import cli
+    import src.cli as cli
 
     monkeypatch.setattr(cli, "GLOBAL_HOME", tmp_path / "home")
     monkeypatch.setattr(cli, "GLOBAL_MISE", tmp_path / "mise")
@@ -140,10 +139,8 @@ def test_sentinel_is_per_runtime(tmp_path):
 
 def test_skip_image_load_when_container_running(tmp_path, monkeypatch):
     """auto_load_image must NOT be called when a container is already running."""
-    import sys
 
-    sys.path.insert(0, str(REPO_ROOT / "src"))
-    import cli
+    import src.cli as cli
     from unittest.mock import patch, MagicMock
 
     monkeypatch.chdir(tmp_path)
@@ -183,10 +180,8 @@ def test_exec_path_no_unbound_errors(tmp_path, monkeypatch):
     subprocess to be treated as a local variable, making it unbound
     when accessed before the import statement.
     """
-    import sys
 
-    sys.path.insert(0, str(REPO_ROOT / "src"))
-    import cli
+    import src.cli as cli
     from unittest.mock import patch, MagicMock
 
     monkeypatch.chdir(tmp_path)
@@ -226,10 +221,8 @@ def test_exec_path_no_unbound_errors(tmp_path, monkeypatch):
 
 def test_exec_path_reattaches_live_claude_after_disconnect(tmp_path, monkeypatch):
     """If podman exec drops but Claude is still alive, attach to the jail."""
-    import sys
 
-    sys.path.insert(0, str(REPO_ROOT / "src"))
-    import cli
+    import src.cli as cli
     from unittest.mock import patch, MagicMock
 
     monkeypatch.chdir(tmp_path)
@@ -269,10 +262,8 @@ def test_exec_path_reattaches_live_claude_after_disconnect(tmp_path, monkeypatch
 
 def test_exec_path_does_not_reattach_when_claude_is_gone(tmp_path, monkeypatch):
     """A live jail alone is not enough; don't reattach without a Claude process."""
-    import sys
 
-    sys.path.insert(0, str(REPO_ROOT / "src"))
-    import cli
+    import src.cli as cli
     from unittest.mock import patch, MagicMock
 
     monkeypatch.chdir(tmp_path)
@@ -304,10 +295,8 @@ def test_exec_path_does_not_reattach_when_claude_is_gone(tmp_path, monkeypatch):
 
 def test_reattach_skips_retry_on_instant_zero_exit(tmp_path, monkeypatch):
     """Attach exits 0 quickly → user hit detach keys; don't loop."""
-    import sys
 
-    sys.path.insert(0, str(REPO_ROOT / "src"))
-    import cli
+    import src.cli as cli
     from unittest.mock import patch, MagicMock
 
     monkeypatch.chdir(tmp_path)
@@ -341,10 +330,8 @@ def test_reattach_skips_retry_on_instant_zero_exit(tmp_path, monkeypatch):
 
 def test_reattach_unsupported_runtime_emits_helpful_message(tmp_path, monkeypatch):
     """For runtimes without `attach`, we tell the user how to reconnect."""
-    import sys
 
-    sys.path.insert(0, str(REPO_ROOT / "src"))
-    import cli
+    import src.cli as cli
     from unittest.mock import patch, MagicMock
 
     monkeypatch.chdir(tmp_path)
@@ -377,10 +364,8 @@ def test_reattach_unsupported_runtime_emits_helpful_message(tmp_path, monkeypatc
 
 def test_reattachable_agents_config_extends_default_set(tmp_path, monkeypatch):
     """User config can opt extra agents into the reattach machinery."""
-    import sys
 
-    sys.path.insert(0, str(REPO_ROOT / "src"))
-    import cli
+    import src.cli as cli
     from unittest.mock import patch, MagicMock
 
     monkeypatch.chdir(tmp_path)
@@ -416,10 +401,8 @@ def test_reattachable_agents_config_extends_default_set(tmp_path, monkeypatch):
 
 def test_container_process_running_detects_node_wrapped_agent():
     """`comm` is `node` for claude/copilot/gemini; we must scan argv too."""
-    import sys
 
-    sys.path.insert(0, str(REPO_ROOT / "src"))
-    import cli
+    import src.cli as cli
     from unittest.mock import patch, MagicMock
 
     # Realistic `podman top -eo comm,args` output: comm is truncated to 15
@@ -438,10 +421,8 @@ def test_container_process_running_detects_node_wrapped_agent():
 
 
 def test_container_process_running_handles_top_failure():
-    import sys
 
-    sys.path.insert(0, str(REPO_ROOT / "src"))
-    import cli
+    import src.cli as cli
     from unittest.mock import patch, MagicMock
 
     with patch.object(
@@ -455,25 +436,24 @@ def test_container_process_running_handles_top_failure():
 
 
 def test_new_container_path_cleanup_runs_even_when_jail_alive(tmp_path, monkeypatch):
-    """Always tear down host services after `podman run` returns.
-
-    Skipping cleanup just orphans subprocess children once this Python
-    process exits, since their lifecycle can no longer be managed.
+    """When ``podman run`` returns but the jail is still alive, stop the
+    host-side processes (so they don't orphan after Python exit) but
+    preserve the bind-mount source directories so the next ``yolo run``
+    can revive services through the existing-container fast path.
     """
-    import sys
 
-    sys.path.insert(0, str(REPO_ROOT / "src"))
-    import cli
+    import src.cli as cli
     from unittest.mock import patch, MagicMock
 
     monkeypatch.chdir(tmp_path)
-    cleanup_calls = {"port": 0, "loopholes": 0}
+    cleanup_calls = []
+    loophole_calls = []
 
     def fake_cleanup_port(*a, **kw):
-        cleanup_calls["port"] += 1
+        cleanup_calls.append({"args": a, "remove_dir": kw.get("remove_dir", True)})
 
     def fake_stop_loopholes(*a, **kw):
-        cleanup_calls["loopholes"] += 1
+        loophole_calls.append({"args": a, "remove_dir": kw.get("remove_dir", True)})
 
     fake_proc = MagicMock()
     fake_proc.returncode = 0
@@ -514,12 +494,164 @@ def test_new_container_path_cleanup_runs_even_when_jail_alive(tmp_path, monkeypa
     ):
         result = CliRunner().invoke(cli.app, ["run", "--", "claude"])
 
-    assert cleanup_calls["port"] == 1, (
+    assert len(cleanup_calls) == 1, (
         f"cleanup_port_forwarding must run unconditionally; output:\n{result.output}"
     )
-    assert cleanup_calls["loopholes"] == 1, (
+    assert len(loophole_calls) == 1, (
         f"stop_loopholes must run unconditionally; output:\n{result.output}"
     )
+    # Jail alive → preserve directory inodes so the in-jail bind mount stays valid.
+    assert cleanup_calls[0]["remove_dir"] is False, (
+        f"port socket dir must be preserved when jail still running:\n{result.output}"
+    )
+    assert loophole_calls[0]["remove_dir"] is False, (
+        f"host services socket dir must be preserved when jail still running:\n{result.output}"
+    )
+    assert "revive them automatically" in result.output
+
+
+def test_new_container_path_removes_dirs_when_jail_is_dead(tmp_path, monkeypatch):
+    """Container is gone after ``podman run`` returns: cleanup must remove
+    the bind-mount source directories — there's no jail to break.
+    """
+
+    import src.cli as cli
+    from unittest.mock import patch, MagicMock
+
+    monkeypatch.chdir(tmp_path)
+    cleanup_calls = []
+    loophole_calls = []
+
+    def fake_cleanup_port(*a, **kw):
+        cleanup_calls.append(kw.get("remove_dir", True))
+
+    def fake_stop_loopholes(*a, **kw):
+        loophole_calls.append(kw.get("remove_dir", True))
+
+    fake_proc = MagicMock()
+    fake_proc.returncode = 0
+    fake_proc.wait.return_value = None
+
+    with (
+        # find_running_container call sequence:
+        #   1. existing-container fast-path check → None  (force build path)
+        #   2. raced-container check after lock   → None  (still build)
+        #   3. polling iter 1 after Popen         → "abc" (loop breaks)
+        #   4. jail_alive final check             → None  (jail exited)
+        patch.object(
+            cli,
+            "find_running_container",
+            side_effect=[None, None, "abc", None],
+        ),
+        patch.object(cli, "find_existing_container", return_value=None),
+        patch.object(cli, "_remove_stale_container"),
+        patch.object(cli, "_check_config_changes", return_value=True),
+        patch.object(cli, "_container_baked_yolo_version", return_value=None),
+        patch.object(cli, "_get_yolo_version", return_value="test-version"),
+        patch.object(cli, "load_config", return_value={}),
+        patch.object(cli, "ensure_global_storage"),
+        patch.object(cli, "_runtime", return_value="podman"),
+        patch.object(cli, "_tmux_rename_window"),
+        patch.object(cli, "auto_load_image"),
+        patch.object(cli, "write_container_tracking"),
+        patch.object(cli, "start_host_port_forwarding", return_value=[]),
+        patch.object(cli, "start_loopholes", return_value=[]),
+        patch.object(cli, "cleanup_port_forwarding", side_effect=fake_cleanup_port),
+        patch.object(cli, "stop_loopholes", side_effect=fake_stop_loopholes),
+        patch.object(cli, "_maybe_reattach_live_agent", return_value=0),
+        patch.object(cli.subprocess, "check_output", side_effect=FileNotFoundError),
+        patch.object(cli.subprocess, "Popen", return_value=fake_proc),
+        patch.object(
+            cli.subprocess, "run", return_value=MagicMock(returncode=0, stdout="")
+        ),
+    ):
+        CliRunner().invoke(cli.app, ["run", "--", "claude"])
+
+    assert cleanup_calls == [True]
+    assert loophole_calls == [True]
+
+
+def test_existing_container_fast_path_revives_host_services(tmp_path, monkeypatch):
+    """The fast path attaches to an existing jail whose owner Python has
+    exited; revive its host services so in-jail tooling keeps working.
+    """
+
+    import src.cli as cli
+    from unittest.mock import patch, MagicMock
+
+    monkeypatch.chdir(tmp_path)
+
+    revive_calls = []
+    teardown_calls = []
+
+    def fake_start_loopholes(cname, runtime, config):
+        revive_calls.append((cname, runtime))
+        return []  # zero handles → revival ends up returning empty result
+
+    def fake_stop_loopholes(*a, **kw):
+        teardown_calls.append(kw.get("remove_dir", True))
+
+    with (
+        patch.object(cli, "find_running_container", return_value="abc123def456"),
+        patch.object(cli, "_container_process_running", return_value=False),
+        patch.object(cli, "_container_baked_yolo_version", return_value=None),
+        patch.object(cli, "_get_yolo_version", return_value="test-version"),
+        patch.object(cli, "load_config", return_value={}),
+        patch.object(cli, "ensure_global_storage"),
+        patch.object(cli, "_runtime", return_value="podman"),
+        patch.object(cli, "_tmux_rename_window"),
+        # Mock dir-existence so the revival helper attempts start_loopholes.
+        patch.object(cli.Path, "exists", return_value=True),
+        patch.object(cli, "start_loopholes", side_effect=fake_start_loopholes),
+        patch.object(cli, "stop_loopholes", side_effect=fake_stop_loopholes),
+        patch.object(cli, "start_host_port_forwarding", return_value=[]),
+        patch.object(cli, "cleanup_port_forwarding"),
+        patch.object(cli.subprocess, "check_output", side_effect=FileNotFoundError),
+        patch.object(
+            cli.subprocess, "run", return_value=MagicMock(returncode=0, stdout="")
+        ),
+    ):
+        result = CliRunner().invoke(cli.app, ["run", "--", "claude"])
+
+    assert result.exit_code == 0
+    assert len(revive_calls) == 1, (
+        f"start_loopholes must be called from revival in the fast path:\n{result.output}"
+    )
+
+
+def test_revive_skips_when_another_yolo_owns_services(tmp_path):
+    """A second concurrent fast-path yolo must not race the first into
+    start_loopholes — the per-jail owner flock yields an empty result.
+    """
+
+    import src.cli as cli
+    from unittest.mock import patch
+
+    cname = cli.container_name_for_workspace(tmp_path)
+    # First call grabs the owner lock.
+    revived1 = cli._revive_host_services_for_existing_jail(cname, "podman", {})
+    try:
+        # Second call (still within this process; same flock semantics) must
+        # see the owner held and bail without calling start_loopholes.
+        with patch.object(cli, "start_loopholes") as start_mock:
+            revived2 = cli._revive_host_services_for_existing_jail(cname, "podman", {})
+            assert revived2.owner_lock is None
+            assert start_mock.call_count == 0
+    finally:
+        cli._teardown_revived_host_services(revived1, "podman", cname)
+
+
+def test_revive_is_noop_for_apple_container_runtime(tmp_path):
+    """Apple Container can't bind-mount Unix sockets; revival is a no-op."""
+
+    import src.cli as cli
+    from unittest.mock import patch
+
+    cname = cli.container_name_for_workspace(tmp_path)
+    with patch.object(cli, "start_loopholes") as start_mock:
+        revived = cli._revive_host_services_for_existing_jail(cname, "container", {})
+    assert revived.owner_lock is None
+    assert start_mock.call_count == 0
 
 
 AVAILABLE_RUNTIMES = []
