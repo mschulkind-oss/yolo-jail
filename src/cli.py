@@ -5971,6 +5971,117 @@ def _detect_runtime_for_listing() -> Optional[str]:
     return None
 
 
+# Floor below which Podman Machine struggles to host a single jail running
+# even one modern agent.  Empirically: claude's first-run native install
+# alone has been observed to OOM at 2 GB on macOS.  4 GB leaves enough
+# headroom for one agent + provisioning; users running multiple jails or
+# heavy in-jail workloads will want more.
+PODMAN_MACHINE_MEMORY_FLOOR_MB = 4096
+
+
+def _podman_machine_memory() -> "tuple[str, int] | None":
+    """Return ``(machine_name, memory_mb)`` for the running Podman Machine,
+    or None if podman/the machine is unavailable or output isn't parseable.
+
+    Best-effort and side-effect free — every callsite uses this for
+    *advisory* output, never as a gate.
+    """
+    try:
+        result = subprocess.run(
+            ["podman", "machine", "inspect"],
+            capture_output=True,
+            text=True,
+            timeout=5,
+        )
+    except Exception:
+        return None
+    if result.returncode != 0 or not result.stdout.strip():
+        return None
+    try:
+        machines = json.loads(result.stdout)
+    except json.JSONDecodeError:
+        return None
+    if not isinstance(machines, list) or not machines:
+        return None
+
+    # Prefer the running machine if there's one; otherwise just take the first.
+    machine = next(
+        (m for m in machines if isinstance(m, dict) and m.get("State") == "running"),
+        machines[0] if isinstance(machines[0], dict) else None,
+    )
+    if not isinstance(machine, dict):
+        return None
+    resources = machine.get("Resources") or {}
+    mem_mb = resources.get("Memory")
+    if not isinstance(mem_mb, int) or mem_mb <= 0:
+        return None
+    name = machine.get("Name") or "podman-machine-default"
+    return name, mem_mb
+
+
+def _podman_machine_resize_hint() -> str:
+    """Single source of truth for the `podman machine set` advice we print.
+
+    Includes the VM-restart caveat — a `machine stop && start` is not
+    free, it kills every container running on the VM.
+    """
+    return (
+        f"Increase the VM: `podman machine set --memory "
+        f"{PODMAN_MACHINE_MEMORY_FLOOR_MB} && podman machine stop && "
+        "podman machine start`.  Note: this restarts the VM and stops "
+        "every container running on it."
+    )
+
+
+def _check_podman_machine_resources(
+    workspace: Path,
+    *,
+    ok: "Callable[[str], None]",
+    warn: "Callable[[str, str], None]",
+) -> None:
+    """Surface Podman Machine VM memory in `yolo check` output and warn if
+    it's below a sensible floor or below the workspace's
+    ``resources.memory`` request.  Best-effort: any error is silently
+    skipped — this check is informational, not gating.
+    """
+    info = _podman_machine_memory()
+    if info is None:
+        return
+    name, mem_mb = info
+
+    # Compare against the workspace's requested resources.memory if set.
+    workspace_floor_mb: Optional[int] = None
+    try:
+        ws_config = load_config(workspace, strict=False)
+    except Exception:
+        ws_config = {}
+    requested = (ws_config.get("resources") or {}).get("memory")
+    if isinstance(requested, str):
+        parsed = _parse_memory_value(requested)
+        if parsed is not None:
+            workspace_floor_mb = parsed // (1024 * 1024)
+
+    fix = _podman_machine_resize_hint()
+
+    if mem_mb < PODMAN_MACHINE_MEMORY_FLOOR_MB:
+        warn(
+            f"Podman Machine '{name}' memory: {mem_mb} MB "
+            f"(below {PODMAN_MACHINE_MEMORY_FLOOR_MB} MB recommended floor)",
+            f"Agent installs (claude, copilot) and `mise install` can OOM at "
+            f"this size — claude's first-run native install has been observed "
+            f"to take SIGKILL at 2 GB.  {fix}",
+        )
+    elif workspace_floor_mb is not None and mem_mb < workspace_floor_mb:
+        warn(
+            f"Podman Machine '{name}' memory: {mem_mb} MB "
+            f"(workspace requests resources.memory={requested})",
+            f"The jail's memory limit is enforced inside the VM, so the VM "
+            f"itself needs at least that much.  {fix}",
+        )
+    else:
+        ok(f"Podman Machine '{name}' memory: {mem_mb} MB")
+
+
 @app.command()
 def check(
     build: bool = typer.Option(
@@ -6243,6 +6354,7 @@ def check(
                         )
                         if result.returncode == 0:
                             ok("Podman Machine: available")
+                            _check_podman_machine_resources(workspace, ok=ok, warn=warn)
                         else:
                             warn("Podman Machine: not configured")
                 except Exception as e:
@@ -7053,6 +7165,31 @@ def _container_process_running(runtime: str, cname: str, process_name: str) -> b
     return False
 
 
+def _maybe_warn_about_oom_killer(exit_code: int, runtime: str) -> None:
+    """Print a hint when the agent's exit looks like an OOM-kill on a tiny
+    Podman Machine.  Triggered by exit 137 (128 + SIGKILL) on macOS+podman
+    with a VM under the recommended floor.
+
+    137 isn't *only* OOM (manual `kill -9` also produces it), so we phrase
+    the hint as "this often means" rather than asserting.  Side effects
+    are limited to a single `podman machine inspect` call.
+    """
+    if not (IS_MACOS and runtime == "podman" and exit_code == 137):
+        return
+    info = _podman_machine_memory()
+    if info is None:
+        return
+    name, mem_mb = info
+    if mem_mb >= PODMAN_MACHINE_MEMORY_FLOOR_MB:
+        return
+    console.print(
+        f"[dim]Exit 137 is SIGKILL.  On Podman Machine this often means "
+        f"the VM's OOM-killer fired — '{name}' has only {mem_mb} MB "
+        f"(below the {PODMAN_MACHINE_MEMORY_FLOOR_MB} MB recommended floor "
+        f"for running an agent).  {_podman_machine_resize_hint()}[/dim]"
+    )
+
+
 def _maybe_reattach_live_agent(
     exit_code: int,
     runtime: str,
@@ -7065,6 +7202,9 @@ def _maybe_reattach_live_agent(
 
     agent = _reattachable_agent_name(full_command, config)
     if agent is None:
+        # Even non-reattachable commands (plain `bash`, custom scripts) can
+        # be killed by the VM OOM-er; the hint is just as useful there.
+        _maybe_warn_about_oom_killer(exit_code, runtime)
         return exit_code
 
     if not find_running_container(cname, runtime=runtime):
@@ -7072,6 +7212,7 @@ def _maybe_reattach_live_agent(
             f"[yellow]{agent} exited with code {exit_code}; "
             "the jail is no longer running.[/yellow]"
         )
+        _maybe_warn_about_oom_killer(exit_code, runtime)
         return exit_code
 
     if not _container_process_running(runtime, cname, agent):
