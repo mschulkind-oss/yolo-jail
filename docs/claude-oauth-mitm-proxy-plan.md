@@ -6,7 +6,7 @@ This doc captures the MITM-proxy approach to the Claude Code logout problem. It'
 
 ## Why this exists
 
-The root cause of the repeated `/login` prompts is **OAuth refresh-token rotation**: each refresh on the Anthropic auth server invalidates the prior refresh token. When multiple jails share one credentials file and decide to refresh in the same window, only the first one wins — the rest present an already-burned refresh token and get 401. See `HANDOFF-credentials-logout.md` for the full investigation.
+The root cause of the repeated `/login` prompts is **OAuth refresh-token rotation**: each refresh on the Anthropic auth server invalidates the prior refresh token. When multiple jails share one credentials file and decide to refresh in the same window, only the first one wins — the rest present an already-burned refresh token and get 401. See [`docs/claude-oauth-refresh-mechanics.md`](claude-oauth-refresh-mechanics.md) §4 (Path C) for the decoded mechanism, including the `T86` in-process dead-refresh-token cache that makes this irrecoverable without a process restart.
 
 The periodic refresher solves this by making the host the only entity that ever refreshes, so jails never race. But it depends on a couple of assumptions about Claude Code's behavior (mainly: that `ak4()` re-reads `.credentials.json` from disk before hitting the network on refresh). If that assumption is wrong, jails will still race even with the refresher running.
 
@@ -138,7 +138,7 @@ Note: multiple public sources (including earlier research during this investigat
 
 ## References
 
-- `HANDOFF-credentials-logout.md` — original investigation, symptoms, ruled-out hypotheses
+- [`docs/claude-oauth-refresh-mechanics.md`](claude-oauth-refresh-mechanics.md) — bundle-level decode of Claude's OAuth state machine; supersedes the original investigation handoff
 - `docs/claude-token-logouts.md` — user-facing decision tree (symptoms → `yolo doctor` → fix → escalate)
 - `docs/loopholes.md` — the unified registry this was built into
 - `src/claude_refresher.py` (installed as `claude-token-refresher`) — the simpler refresher we're shipping first

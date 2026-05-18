@@ -35,6 +35,7 @@ import os
 import shutil
 import subprocess
 import sys
+import threading
 import time
 import urllib.error
 import urllib.request
@@ -88,6 +89,28 @@ def _broker_user_agent() -> str:
 
 
 USER_AGENT = _broker_user_agent()
+
+# Background refresher cadence and lead time.  The broker proactively
+# refreshes the shared creds file before its access token expires, so
+# in-jail Claude can recover from a 401 via its on-disk recovery path
+# (``jk1`` in the bundle: re-read creds → if accessToken differs, use
+# it — no HTTP refresh required) rather than calling the refresh
+# endpoint over the bind-mounted broker socket.  This sidesteps two
+# known failure modes:
+#   1. ``T86`` dead-refresh-token cache.  Once Claude has seen an
+#      ``invalid_grant`` (transient or otherwise) for a refresh token
+#      it never tries the HTTP refresh path again with that token
+#      until the process restarts.  Disk recovery bypasses ``T86``.
+#   2. Bind-mount inode desync after a singleton restart (see the
+#      2026-05-13 handoff).  Disk recovery doesn't traverse the
+#      broker socket at all.
+# 5-min lead matches ``claude-oauth-proxy`` (the closest prior art
+# with a long-lived consumer downstream).  60-s tick matches both
+# ``claude-oauth-proxy`` and ``auth2api``; it's fine-grained enough
+# that the window where the disk is stale is bounded by the tick, but
+# coarse enough that the broker isn't burning syscalls.
+BACKGROUND_REFRESH_LEAD_SECONDS = 300
+BACKGROUND_REFRESH_TICK_SECONDS = 60
 
 # Shared credentials file — lives in the directory-mounted shared
 # credentials dir so Claude Code's atomic writer (tmp+rename) works.
@@ -454,6 +477,114 @@ def do_refresh(creds_path: Path) -> Dict[str, Any]:
             new_oauth.get("expiresAt"),
         )
         return _as_oauth_response(new_oauth)
+
+
+# --- Background refresher ---------------------------------------------------
+
+
+def _refresh_due(
+    creds_path: Path, lead_seconds: int, now_ms: Optional[int] = None
+) -> bool:
+    """Return True iff the shared creds file's access token is within
+    ``lead_seconds`` of expiry (or already past it).
+
+    Decoupled from the loop so it can be unit-tested without sleeping.
+    Returns False (skip this tick) on any read / parse error: the
+    on-demand path will surface the real error message when a client
+    next asks for a refresh.  Missing files (no ``/login`` yet) are
+    a no-op for the background refresher; spamming refresh attempts
+    against an unprimed broker is worse than waiting for the user.
+    """
+    if now_ms is None:
+        now_ms = int(time.time() * 1000)
+    try:
+        data = json.loads(creds_path.read_text())
+    except (FileNotFoundError, OSError, json.JSONDecodeError):
+        return False
+    oauth = data.get("claudeAiOauth") or {}
+    expires_at_ms = oauth.get("expiresAt")
+    if not isinstance(expires_at_ms, (int, float)):
+        return False
+    return expires_at_ms - now_ms < lead_seconds * 1000
+
+
+def _background_refresh_tick(creds_path: Path, lead_seconds: int) -> None:
+    """One iteration of the background refresher.  Decoupled from the
+    loop so tests can call it directly.
+
+    Logs at INFO when it decides to refresh (so the operator can
+    correlate periodic broker activity with the creds file's mtime),
+    DEBUG when it decides to skip (because most ticks skip).
+    """
+    if not _refresh_due(creds_path, lead_seconds):
+        log.debug("bg_refresh: skip (not due) shared=%s", _describe_creds(creds_path))
+        return
+    log.info(
+        "bg_refresh: due (within %ds of expiry) shared=%s",
+        lead_seconds,
+        _describe_creds(creds_path),
+    )
+    result = do_refresh(creds_path)
+    if "error" in result:
+        log.warning(
+            "bg_refresh: refresh failed error=%s message=%s",
+            result.get("error"),
+            result.get("message") or result.get("body") or "",
+        )
+    else:
+        log.info(
+            "bg_refresh: ok expires_in=%s shared=%s",
+            result.get("expires_in"),
+            _describe_creds(creds_path),
+        )
+
+
+def _background_refresher_loop(
+    creds_path: Path,
+    stop_event: threading.Event,
+    tick_seconds: float = BACKGROUND_REFRESH_TICK_SECONDS,
+    lead_seconds: int = BACKGROUND_REFRESH_LEAD_SECONDS,
+) -> None:
+    """Run the background refresher until ``stop_event`` is set.
+
+    Wrapped in a try/except so a single tick failure doesn't kill the
+    loop — the on-demand path is the safety net but it's only the
+    safety net if this loop is still running.
+    """
+    log.info(
+        "bg_refresh: started (tick=%ds, lead=%ds, creds=%s)",
+        tick_seconds,
+        lead_seconds,
+        creds_path,
+    )
+    while not stop_event.is_set():
+        try:
+            _background_refresh_tick(creds_path, lead_seconds)
+        except Exception as e:  # noqa: BLE001 — loop must survive any tick error
+            log.error("bg_refresh: tick crashed: %s", e, exc_info=True)
+        stop_event.wait(tick_seconds)
+    log.info("bg_refresh: stopped")
+
+
+def start_background_refresher(
+    creds_path: Path,
+    tick_seconds: float = BACKGROUND_REFRESH_TICK_SECONDS,
+    lead_seconds: int = BACKGROUND_REFRESH_LEAD_SECONDS,
+) -> threading.Event:
+    """Start the refresher in a daemon thread.  Returns the stop event
+    so callers (mainly tests) can request shutdown.  In production the
+    process exit triggered by ``host_service.serve``'s SIGTERM handler
+    is enough — the daemon thread dies with the process.
+    """
+    stop_event = threading.Event()
+    thread = threading.Thread(
+        target=_background_refresher_loop,
+        args=(creds_path, stop_event, tick_seconds, lead_seconds),
+        name="oauth-broker-bg-refresh",
+        daemon=True,
+    )
+    thread.start()
+    return stop_event
 
 
 # --- Upstream HTTP proxy (for non-refresh traffic) --------------------------
@@ -830,6 +961,11 @@ def main(argv: Optional[List[str]] = None) -> int:
         help="Regenerate CA + leaf even if they exist",
     )
     parser.add_argument("--self-check", action="store_true")
+    parser.add_argument(
+        "--no-background-refresh",
+        action="store_true",
+        help="Disable the proactive refresh loop (testing / debugging)",
+    )
     parser.add_argument("-v", "--verbose", action="store_true")
     args = parser.parse_args(argv)
 
@@ -862,6 +998,16 @@ def main(argv: Optional[List[str]] = None) -> int:
     # debugger see the starting state and cross-reference it with the
     # drift detection in do_refresh.
     log.info("startup: shared=%s", _describe_creds(args.creds_file))
+
+    # Proactive refresh keeps the on-disk creds file ahead of expiry so
+    # in-jail Claude's 401 recovery path (read disk → if accessToken
+    # differs, use it) succeeds without ever calling the refresh
+    # endpoint through the bind-mounted socket.  See the 2026-05-17
+    # handoff for the failure mode this addresses.  Started as a daemon
+    # thread; dies with the process when host_service.serve returns.
+    if not args.no_background_refresh:
+        start_background_refresher(args.creds_file)
+
     host_service.serve(build_handler(args.creds_file), args.socket)
     return 0
 

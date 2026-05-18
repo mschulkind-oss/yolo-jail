@@ -969,3 +969,151 @@ def test_self_check_reports_missing_ca(broker_dirs: Path, capsys, monkeypatch):
     out = capsys.readouterr().out
     assert rc == 1
     assert "openssl" in out or "not yet generated" in out
+
+
+# ---------------------------------------------------------------------------
+# Background refresher
+# ---------------------------------------------------------------------------
+
+
+def test_refresh_due_true_when_within_lead(tmp_path: Path):
+    path = tmp_path / "creds.json"
+    now_ms = 1_000_000_000_000
+    # expires 60s from "now", lead is 300s → due
+    path.write_text(json.dumps({"claudeAiOauth": {"expiresAt": now_ms + 60_000}}))
+    assert oauth_broker._refresh_due(path, lead_seconds=300, now_ms=now_ms) is True
+
+
+def test_refresh_due_false_when_outside_lead(tmp_path: Path):
+    path = tmp_path / "creds.json"
+    now_ms = 1_000_000_000_000
+    # expires 30 minutes from "now", lead is 300s → not due
+    path.write_text(json.dumps({"claudeAiOauth": {"expiresAt": now_ms + 1_800_000}}))
+    assert oauth_broker._refresh_due(path, lead_seconds=300, now_ms=now_ms) is False
+
+
+def test_refresh_due_true_when_already_expired(tmp_path: Path):
+    path = tmp_path / "creds.json"
+    now_ms = 1_000_000_000_000
+    path.write_text(json.dumps({"claudeAiOauth": {"expiresAt": now_ms - 60_000}}))
+    assert oauth_broker._refresh_due(path, lead_seconds=300, now_ms=now_ms) is True
+
+
+def test_refresh_due_false_when_file_missing(tmp_path: Path):
+    # Pre-/login state — don't burn refreshes against an unprimed broker.
+    assert oauth_broker._refresh_due(tmp_path / "nope.json", lead_seconds=300) is False
+
+
+def test_refresh_due_false_when_corrupt(tmp_path: Path):
+    path = tmp_path / "bad.json"
+    path.write_text("{not json")
+    assert oauth_broker._refresh_due(path, lead_seconds=300) is False
+
+
+def test_refresh_due_false_when_no_expires_at(tmp_path: Path):
+    path = tmp_path / "creds.json"
+    path.write_text(json.dumps({"claudeAiOauth": {"accessToken": "x"}}))
+    assert oauth_broker._refresh_due(path, lead_seconds=300) is False
+
+
+def test_background_tick_skips_when_not_due(creds_file: Path, broker_dirs: Path):
+    # creds_file fixture has expiresAt ~2h out; default lead is 5min → skip.
+    with patch.object(oauth_broker, "do_refresh") as m:
+        oauth_broker._background_refresh_tick(creds_file, lead_seconds=300)
+    m.assert_not_called()
+
+
+def test_background_tick_refreshes_when_due(tmp_path: Path, broker_dirs: Path):
+    creds = tmp_path / "near-expiry.json"
+    creds.write_text(
+        json.dumps(
+            {
+                "claudeAiOauth": {
+                    "accessToken": "stale",
+                    "refreshToken": "r-old",
+                    "expiresAt": int(time.time() * 1000) + 60_000,  # 60s out
+                    "subscriptionType": "max",
+                    "scopes": ["user:inference"],
+                }
+            }
+        )
+    )
+    with patch.object(oauth_broker, "_refresh_upstream") as m:
+        m.return_value = {
+            "access_token": "a-new",
+            "refresh_token": "r-new",
+            "expires_in": 7200,
+            "token_type": "Bearer",
+        }
+        oauth_broker._background_refresh_tick(creds, lead_seconds=300)
+    m.assert_called_once_with("r-old")
+    new = json.loads(creds.read_text())["claudeAiOauth"]
+    assert new["accessToken"] == "a-new"
+
+
+def test_background_tick_survives_refresh_failure(
+    tmp_path: Path, broker_dirs: Path, caplog
+):
+    """A failed tick must not propagate — the loop has to survive
+    transient upstream errors so the next tick gets a chance."""
+    creds = tmp_path / "near-expiry.json"
+    creds.write_text(
+        json.dumps(
+            {
+                "claudeAiOauth": {
+                    "accessToken": "stale",
+                    "refreshToken": "r-old",
+                    "expiresAt": int(time.time() * 1000) + 60_000,
+                    "subscriptionType": "max",
+                    "scopes": ["user:inference"],
+                }
+            }
+        )
+    )
+    with patch.object(oauth_broker, "_refresh_upstream") as m:
+        m.side_effect = urllib.error.URLError("dns boom")
+        # Should NOT raise.
+        oauth_broker._background_refresh_tick(creds, lead_seconds=300)
+
+
+def test_background_loop_stops_on_event(tmp_path: Path, broker_dirs: Path):
+    """The loop must exit promptly when stop_event is set so the daemon
+    thread doesn't outlive its parent process during testing."""
+    creds = tmp_path / "creds.json"
+    creds.write_text(
+        json.dumps(
+            {"claudeAiOauth": {"expiresAt": int(time.time() * 1000) + 7_200_000}}
+        )
+    )
+    import threading as _threading
+
+    stop = _threading.Event()
+    thread = _threading.Thread(
+        target=oauth_broker._background_refresher_loop,
+        args=(creds, stop, 0.05, 300),
+        daemon=True,
+    )
+    thread.start()
+    time.sleep(0.15)  # let it tick a couple of times
+    stop.set()
+    thread.join(timeout=1.0)
+    assert not thread.is_alive(), "loop did not exit within 1s of stop_event being set"
+
+
+def test_start_background_refresher_returns_running_stop_event(
+    tmp_path: Path, broker_dirs: Path
+):
+    creds = tmp_path / "creds.json"
+    creds.write_text(
+        json.dumps(
+            {"claudeAiOauth": {"expiresAt": int(time.time() * 1000) + 7_200_000}}
+        )
+    )
+    stop = oauth_broker.start_background_refresher(
+        creds, tick_seconds=0.05, lead_seconds=300
+    )
+    try:
+        # Event is fresh, loop is running.
+        assert not stop.is_set()
+    finally:
+        stop.set()

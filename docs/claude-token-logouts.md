@@ -4,8 +4,7 @@ Entry point when a jail (or host) prompts `Please run /login · API Error: 401 {
 
 This doc is user-facing and operational. Background:
 
-- [`HANDOFF-credentials-logout-2026-04-28.md`](../HANDOFF-credentials-logout-2026-04-28.md) — current investigation notes (broker era).
-- [`HANDOFF-credentials-logout.md`](../HANDOFF-credentials-logout.md) — earlier handoff, still useful for binary offsets and ruled-out hypotheses.
+- [`docs/claude-oauth-refresh-mechanics.md`](claude-oauth-refresh-mechanics.md) — how Claude's OAuth refresh actually works (bundle-level mechanics + the architectural reasoning behind the broker's proactive refresher).
 - [`src/bundled_loopholes/claude-oauth-broker/README.md`](../src/bundled_loopholes/claude-oauth-broker/README.md) — broker architecture + operator ops.
 - [`docs/claude-oauth-mitm-proxy-plan.md`](claude-oauth-mitm-proxy-plan.md) — historical design notes for the broker split.
 
