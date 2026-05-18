@@ -14,8 +14,7 @@ from typer.testing import CliRunner
 
 REPO_ROOT = Path(__file__).parent.parent.resolve()
 
-sys.path.insert(0, str(REPO_ROOT / "src"))
-from cli import _runtime  # noqa: E402
+from src.cli import _runtime  # noqa: E402
 
 
 # --- Unit tests for _runtime() ---
@@ -68,7 +67,7 @@ def test_runtime_rejects_invalid_config():
 
 
 def test_check_help_mentions_every_config_edit():
-    import cli
+    import src.cli as cli
 
     result = CliRunner().invoke(cli.app, ["check", "--help"])
     assert result.exit_code == 0
@@ -76,7 +75,7 @@ def test_check_help_mentions_every_config_edit():
 
 
 def test_config_ref_mentions_yolo_check_after_every_edit():
-    import cli
+    import src.cli as cli
 
     result = CliRunner().invoke(cli.app, ["config-ref"])
     assert result.exit_code == 0
@@ -85,7 +84,7 @@ def test_config_ref_mentions_yolo_check_after_every_edit():
 
 
 def test_generated_agents_md_mentions_yolo_check(tmp_path, monkeypatch):
-    import cli
+    import src.cli as cli
 
     monkeypatch.setattr(cli, "AGENTS_DIR", tmp_path / "agents")
     agents_path = cli.generate_agents_md(
@@ -104,7 +103,7 @@ def test_generated_agents_md_mentions_yolo_check(tmp_path, monkeypatch):
 
 def test_ensure_global_storage_creates_mount_parents(tmp_path, monkeypatch):
     """Pre-create intermediate dirs so the container runtime doesn't create them as root."""
-    import cli
+    import src.cli as cli
 
     monkeypatch.setattr(cli, "GLOBAL_HOME", tmp_path / "home")
     monkeypatch.setattr(cli, "GLOBAL_MISE", tmp_path / "mise")
@@ -140,10 +139,8 @@ def test_sentinel_is_per_runtime(tmp_path):
 
 def test_skip_image_load_when_container_running(tmp_path, monkeypatch):
     """auto_load_image must NOT be called when a container is already running."""
-    import sys
 
-    sys.path.insert(0, str(REPO_ROOT / "src"))
-    import cli
+    import src.cli as cli
     from unittest.mock import patch, MagicMock
 
     monkeypatch.chdir(tmp_path)
@@ -183,10 +180,8 @@ def test_exec_path_no_unbound_errors(tmp_path, monkeypatch):
     subprocess to be treated as a local variable, making it unbound
     when accessed before the import statement.
     """
-    import sys
 
-    sys.path.insert(0, str(REPO_ROOT / "src"))
-    import cli
+    import src.cli as cli
     from unittest.mock import patch, MagicMock
 
     monkeypatch.chdir(tmp_path)
@@ -204,6 +199,7 @@ def test_exec_path_no_unbound_errors(tmp_path, monkeypatch):
         patch.object(cli, "ensure_global_storage"),
         patch.object(cli, "_runtime", return_value="podman"),
         patch.object(cli, "_tmux_rename_window"),
+        patch.object(cli.subprocess, "check_output", side_effect=FileNotFoundError),
         patch.object(cli.subprocess, "run", side_effect=capture_run),
     ):
         from typer.testing import CliRunner
@@ -221,6 +217,209 @@ def test_exec_path_no_unbound_errors(tmp_path, monkeypatch):
     assert any(any("exec" in str(a) for a in cmd) for cmd in exec_args), (
         "should have called the runtime's exec command"
     )
+
+
+def _fake_machine_inspect(memory_mb: int, *, state: str = "running"):
+    import src.cli as cli
+    from unittest.mock import MagicMock
+
+    payload = json.dumps(
+        [
+            {
+                "Name": "podman-machine-default",
+                "State": state,
+                "Resources": {"Memory": memory_mb},
+            }
+        ]
+    )
+    return cli, MagicMock(returncode=0, stdout=payload, stderr="")
+
+
+def test_podman_machine_check_warns_below_floor(tmp_path):
+    """A 2 GB Podman Machine (the OOM-prone setup) must produce a warning."""
+    cli, fake_result = _fake_machine_inspect(2048)
+
+    calls = []
+
+    def ok(msg):
+        calls.append(("ok", msg))
+
+    def warn(msg, note=""):
+        calls.append(("warn", msg, note))
+
+    with (
+        patch.object(cli.subprocess, "run", return_value=fake_result),
+        patch.object(cli, "load_config", return_value={}),
+    ):
+        cli._check_podman_machine_resources(tmp_path, ok=ok, warn=warn)
+
+    assert len(calls) == 1
+    assert calls[0][0] == "warn"
+    assert "2048 MB" in calls[0][1]
+    assert "below" in calls[0][1].lower()
+    # The fix hint must include the actual command and the VM-restart caveat.
+    assert "podman machine set --memory" in calls[0][2]
+    assert "restarts the VM" in calls[0][2]
+
+
+def test_podman_machine_check_ok_above_floor(tmp_path):
+    """8 GB is well above the floor and no workspace constraint — green."""
+    cli, fake_result = _fake_machine_inspect(8192)
+
+    calls = []
+
+    def ok(msg):
+        calls.append(("ok", msg))
+
+    def warn(msg, note=""):
+        calls.append(("warn", msg, note))
+
+    with (
+        patch.object(cli.subprocess, "run", return_value=fake_result),
+        patch.object(cli, "load_config", return_value={}),
+    ):
+        cli._check_podman_machine_resources(tmp_path, ok=ok, warn=warn)
+
+    assert len(calls) == 1
+    assert calls[0][0] == "ok"
+    assert "8192 MB" in calls[0][1]
+
+
+def test_podman_machine_check_warns_below_workspace_request(tmp_path):
+    """VM > floor but smaller than the workspace's resources.memory request."""
+    cli, fake_result = _fake_machine_inspect(6144)
+
+    calls = []
+
+    def ok(msg):
+        calls.append(("ok", msg))
+
+    def warn(msg, note=""):
+        calls.append(("warn", msg, note))
+
+    with (
+        patch.object(cli.subprocess, "run", return_value=fake_result),
+        patch.object(cli, "load_config", return_value={"resources": {"memory": "8g"}}),
+    ):
+        cli._check_podman_machine_resources(tmp_path, ok=ok, warn=warn)
+
+    assert len(calls) == 1
+    assert calls[0][0] == "warn"
+    assert "workspace requests" in calls[0][1]
+    assert "resources.memory=8g" in calls[0][1]
+
+
+def test_podman_machine_check_silent_when_inspect_fails(tmp_path):
+    """If `podman machine inspect` errors, the helper is silent — best-effort."""
+    import src.cli as cli
+    from unittest.mock import MagicMock
+
+    calls = []
+
+    def ok(msg):
+        calls.append(("ok", msg))
+
+    def warn(msg, note=""):
+        calls.append(("warn", msg, note))
+
+    with patch.object(
+        cli.subprocess,
+        "run",
+        return_value=MagicMock(returncode=1, stdout="", stderr="boom"),
+    ):
+        cli._check_podman_machine_resources(tmp_path, ok=ok, warn=warn)
+    assert calls == []
+
+
+def test_oom_hint_fires_on_macos_podman_137_with_tiny_vm(capsys):
+    """Exit 137 on macOS+podman with a 2 GB VM should print an OOM hint."""
+    import src.cli as cli
+    from unittest.mock import MagicMock
+
+    fake_inspect = MagicMock(
+        returncode=0,
+        stdout=json.dumps(
+            [
+                {
+                    "Name": "podman-machine-default",
+                    "State": "running",
+                    "Resources": {"Memory": 2048},
+                }
+            ]
+        ),
+    )
+    with (
+        patch.object(cli, "IS_MACOS", True),
+        patch.object(cli.subprocess, "run", return_value=fake_inspect),
+    ):
+        cli._maybe_warn_about_oom_killer(137, "podman")
+    out = capsys.readouterr().out
+    assert "OOM-killer" in out
+    assert "2048 MB" in out
+    assert "podman machine set --memory" in out
+
+
+def test_oom_hint_silent_when_vm_above_floor(capsys):
+    """A healthy 8 GB VM should produce no hint even on exit 137."""
+    import src.cli as cli
+    from unittest.mock import MagicMock
+
+    fake_inspect = MagicMock(
+        returncode=0,
+        stdout=json.dumps(
+            [
+                {
+                    "Name": "podman-machine-default",
+                    "State": "running",
+                    "Resources": {"Memory": 8192},
+                }
+            ]
+        ),
+    )
+    with (
+        patch.object(cli, "IS_MACOS", True),
+        patch.object(cli.subprocess, "run", return_value=fake_inspect),
+    ):
+        cli._maybe_warn_about_oom_killer(137, "podman")
+    assert capsys.readouterr().out == ""
+
+
+def test_oom_hint_silent_for_non_137_exit_codes(capsys):
+    """Only SIGKILL (137) gets the OOM speculation; other exits are quiet."""
+    import src.cli as cli
+    from unittest.mock import MagicMock
+
+    fake_inspect = MagicMock(returncode=0, stdout="[]")  # would fail anyway
+    with (
+        patch.object(cli, "IS_MACOS", True),
+        patch.object(cli.subprocess, "run", return_value=fake_inspect) as run_mock,
+    ):
+        cli._maybe_warn_about_oom_killer(1, "podman")
+        cli._maybe_warn_about_oom_killer(130, "podman")  # SIGINT
+    assert capsys.readouterr().out == ""
+    # Skips the inspect entirely — exit-code gate runs first.
+    assert run_mock.call_count == 0
+
+
+def test_oom_hint_silent_on_non_macos_or_non_podman(capsys):
+    """Linux+podman or macOS+container doesn't have the Podman Machine VM."""
+    import src.cli as cli
+
+    with (
+        patch.object(cli, "IS_MACOS", False),
+        patch.object(cli.subprocess, "run") as run_mock,
+    ):
+        cli._maybe_warn_about_oom_killer(137, "podman")
+    assert capsys.readouterr().out == ""
+    assert run_mock.call_count == 0
+
+    with (
+        patch.object(cli, "IS_MACOS", True),
+        patch.object(cli.subprocess, "run") as run_mock,
+    ):
+        cli._maybe_warn_about_oom_killer(137, "container")
+    assert capsys.readouterr().out == ""
+    assert run_mock.call_count == 0
 
 
 AVAILABLE_RUNTIMES = []
