@@ -3132,8 +3132,8 @@ class TestBrokerSingleton:
 
         sock = tmp_path / "broker.sock"
         pidf = tmp_path / "broker.pid"
-        monkeypatch.setattr(cli, "BROKER_SINGLETON_SOCKET", sock)
-        monkeypatch.setattr(cli, "BROKER_SINGLETON_PID_FILE", pidf)
+        monkeypatch.setattr("cli.loopholes_runtime.BROKER_SINGLETON_SOCKET", sock)
+        monkeypatch.setattr("cli.loopholes_runtime.BROKER_SINGLETON_PID_FILE", pidf)
         return sock, pidf, cli
 
     def test_is_alive_false_without_pid_file(self, monkeypatch, tmp_path):
@@ -3150,7 +3150,7 @@ class TestBrokerSingleton:
         def fake_kill(pid, sig):
             raise ProcessLookupError
 
-        monkeypatch.setattr(cli.os, "kill", fake_kill)
+        monkeypatch.setattr("cli.loopholes_runtime.os.kill", fake_kill)
         assert cli._broker_is_alive() is False
 
     def test_is_alive_false_when_pid_alive_but_socket_missing(
@@ -3174,7 +3174,7 @@ class TestBrokerSingleton:
         def fake_ping(*a, **kw):
             return True
 
-        monkeypatch.setattr(cli, "_broker_ping", fake_ping)
+        monkeypatch.setattr("cli.loopholes_runtime._broker_ping", fake_ping)
         assert cli._broker_is_alive() is True
 
     def test_ensure_spawns_when_not_alive(self, monkeypatch, tmp_path):
@@ -3182,7 +3182,7 @@ class TestBrokerSingleton:
         paths call.  It returns the socket path regardless of whether
         the broker was already alive or had to be spawned."""
         sock, pidf, cli = self._patch_paths(monkeypatch, tmp_path)
-        monkeypatch.setattr(cli, "_broker_is_alive", lambda: False)
+        monkeypatch.setattr("cli.loopholes_runtime._broker_is_alive", lambda: False)
 
         spawned = {"n": 0}
 
@@ -3192,14 +3192,14 @@ class TestBrokerSingleton:
             pidf.write_text("42\n")
             return sock
 
-        monkeypatch.setattr(cli, "_broker_spawn", fake_spawn)
+        monkeypatch.setattr("cli.loopholes_runtime._broker_spawn", fake_spawn)
         result = cli._broker_ensure()
         assert result == sock
         assert spawned["n"] == 1
 
     def test_ensure_is_noop_when_alive(self, monkeypatch, tmp_path):
         sock, pidf, cli = self._patch_paths(monkeypatch, tmp_path)
-        monkeypatch.setattr(cli, "_broker_is_alive", lambda: True)
+        monkeypatch.setattr("cli.loopholes_runtime._broker_is_alive", lambda: True)
         spawned = {"n": 0}
         monkeypatch.setattr(
             cli, "_broker_spawn", lambda: spawned.update(n=spawned["n"] + 1) or sock
@@ -3219,7 +3219,7 @@ class TestBrokerSingleton:
         def fake_kill(pid, sig):
             signals.append((pid, sig))
 
-        monkeypatch.setattr(cli.os, "kill", fake_kill)
+        monkeypatch.setattr("cli.loopholes_runtime.os.kill", fake_kill)
         # After SIGTERM, "process gone": second kill() check raises.
         # Use a counter so first call is noop, subsequent raise.
         state = {"n": 0}
@@ -3230,7 +3230,7 @@ class TestBrokerSingleton:
                 raise ProcessLookupError
             signals.append((pid, sig))
 
-        monkeypatch.setattr(cli.os, "kill", kill_with_death)
+        monkeypatch.setattr("cli.loopholes_runtime.os.kill", kill_with_death)
         cli._broker_kill()
         # SIGTERM must have been sent
         assert any(sig == 15 for _, sig in signals), f"no SIGTERM in {signals}"
@@ -3242,7 +3242,7 @@ class TestBrokerSingleton:
         silently, not raise."""
         _, _, cli = self._patch_paths(monkeypatch, tmp_path)
         # No pgrep matches either — nothing running anywhere.
-        monkeypatch.setattr(cli, "_broker_pgrep_strays", lambda: [])
+        monkeypatch.setattr("cli.loopholes_runtime._broker_pgrep_strays", lambda: [])
         cli._broker_kill()  # should not raise
 
     def test_kill_finds_strays_via_pgrep_when_pid_file_missing(
@@ -3257,7 +3257,7 @@ class TestBrokerSingleton:
         file is missing, so wheel-upgrade-orphans are cleaned up."""
         sock, pidf, cli = self._patch_paths(monkeypatch, tmp_path)
         # Stray broker found via pgrep, no PID file.
-        monkeypatch.setattr(cli, "_broker_pgrep_strays", lambda: [42, 43])
+        monkeypatch.setattr("cli.loopholes_runtime._broker_pgrep_strays", lambda: [42, 43])
 
         signals: list = []
 
@@ -3267,7 +3267,7 @@ class TestBrokerSingleton:
             if sig == 0:
                 raise ProcessLookupError
 
-        monkeypatch.setattr(cli.os, "kill", fake_kill)
+        monkeypatch.setattr("cli.loopholes_runtime.os.kill", fake_kill)
         # Sock present so cleanup branch runs end-to-end.
         sock.touch()
 
@@ -3294,7 +3294,7 @@ class TestBrokerSingleton:
             pgrep_calls["n"] += 1
             return []
 
-        monkeypatch.setattr(cli, "_broker_pgrep_strays", fake_pgrep)
+        monkeypatch.setattr("cli.loopholes_runtime._broker_pgrep_strays", fake_pgrep)
 
         signals: list = []
 
@@ -3303,7 +3303,7 @@ class TestBrokerSingleton:
             if sig == 0:
                 raise ProcessLookupError
 
-        monkeypatch.setattr(cli.os, "kill", fake_kill)
+        monkeypatch.setattr("cli.loopholes_runtime.os.kill", fake_kill)
         cli._broker_kill()
         assert any(p == 12345 and s == signal.SIGTERM for p, s in signals)
         # Pgrep fallback NOT consulted when PID file gave us a target.
@@ -3340,7 +3340,7 @@ class TestBrokerSingleton:
             sock.touch()
             return True
 
-        monkeypatch.setattr(cli, "_broker_wait_for_socket", fake_wait_for_socket)
+        monkeypatch.setattr("cli.loopholes_runtime._broker_wait_for_socket", fake_wait_for_socket)
 
         cli._broker_spawn()
         _first_pid = pidf.read_text().strip()
@@ -3349,7 +3349,7 @@ class TestBrokerSingleton:
         # process (ours).  Spawn should be a noop, PID file unchanged.
         pidf.write_text(str(os.getpid()))  # put a *real* live PID
         sock.touch()
-        monkeypatch.setattr(cli, "_broker_ping", lambda *a, **kw: True)
+        monkeypatch.setattr("cli.loopholes_runtime._broker_ping", lambda *a, **kw: True)
 
         # _broker_spawn must bail when _broker_is_alive is True inside
         # its locked section.
@@ -3431,9 +3431,9 @@ class TestBrokerSingleton:
             order.append("spawn")
             return sock
 
-        monkeypatch.setattr(cli, "_broker_kill", fake_kill)
-        monkeypatch.setattr(cli, "_broker_spawn", fake_spawn)
-        monkeypatch.setattr(cli, "_broker_is_alive", lambda: True)
+        monkeypatch.setattr("cli._broker_kill", fake_kill)
+        monkeypatch.setattr("cli._broker_spawn", fake_spawn)
+        monkeypatch.setattr("cli._broker_is_alive", lambda: True)
 
         result = CliRunner().invoke(cli.app, ["broker", "restart"])
         assert result.exit_code == 0, result.output
@@ -3698,9 +3698,10 @@ class TestGpuHostAvailable:
         ``smi_rc`` is the return code of ``nvidia-smi -L``.
         ``cdi_exists`` is whether either /etc/cdi/nvidia.yaml path exists.
         """
-        monkeypatch.setattr(cli, "IS_MACOS", is_macos)
+        monkeypatch.setattr("cli.loopholes_runtime.IS_MACOS", is_macos)
         monkeypatch.setattr(
-            cli.shutil, "which", lambda cmd: nvidia_smi if cmd == "nvidia-smi" else None
+            "cli.loopholes_runtime.shutil.which",
+            lambda cmd: nvidia_smi if cmd == "nvidia-smi" else None,
         )
 
         def fake_run(cmd, **kwargs):
@@ -3721,7 +3722,7 @@ class TestGpuHostAvailable:
         monkeypatch.setattr(Path, "exists", fake_exists)
 
     def test_macos_reports_unsupported(self, monkeypatch):
-        monkeypatch.setattr(cli, "IS_MACOS", True)
+        monkeypatch.setattr("cli.loopholes_runtime.IS_MACOS", True)
         ok, reason = _gpu_host_available("podman")
         assert not ok
         assert reason and "does not support" in reason

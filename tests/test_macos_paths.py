@@ -47,6 +47,8 @@ def _set_macos(monkeypatch):
     monkeypatch.setattr("cli.image.IS_MACOS", True)
     monkeypatch.setattr("cli.paths.IS_MACOS", True)
     monkeypatch.setattr("cli.paths.IS_LINUX", False)
+    monkeypatch.setattr("cli.loopholes_runtime.IS_MACOS", True)
+    monkeypatch.setattr("cli.loopholes_runtime.IS_LINUX", False)
 
 
 def _mock_runtimes(mock_which, runtimes=("podman", "nix")):
