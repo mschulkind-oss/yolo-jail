@@ -3379,9 +3379,7 @@ class TestBrokerSingleton:
         import cli
 
         self._patch_paths(monkeypatch, tmp_path)
-        monkeypatch.setattr(
-            cli,
-            "_broker_status",
+        monkeypatch.setattr("cli.broker_cmd._broker_status",
             lambda: {
                 "pid": 123,
                 "pid_live": True,
@@ -3400,9 +3398,7 @@ class TestBrokerSingleton:
         import cli
 
         self._patch_paths(monkeypatch, tmp_path)
-        monkeypatch.setattr(
-            cli,
-            "_broker_status",
+        monkeypatch.setattr("cli.broker_cmd._broker_status",
             lambda: {
                 "pid": None,
                 "pid_live": False,
@@ -3431,9 +3427,9 @@ class TestBrokerSingleton:
             order.append("spawn")
             return sock
 
-        monkeypatch.setattr("cli._broker_kill", fake_kill)
-        monkeypatch.setattr("cli._broker_spawn", fake_spawn)
-        monkeypatch.setattr("cli._broker_is_alive", lambda: True)
+        monkeypatch.setattr("cli.broker_cmd._broker_kill", fake_kill)
+        monkeypatch.setattr("cli.broker_cmd._broker_spawn", fake_spawn)
+        monkeypatch.setattr("cli.broker_cmd._broker_is_alive", lambda: True)
 
         result = CliRunner().invoke(cli.app, ["broker", "restart"])
         assert result.exit_code == 0, result.output
