@@ -24,16 +24,21 @@ import pyjson5
 from rich.console import Console
 
 from src import loopholes as _loopholes
-
-IS_LINUX = sys.platform == "linux"
-IS_MACOS = sys.platform == "darwin"
-
-# Supported container runtimes.  Docker was removed — podman is the
-# first-class Linux runtime (rootless, daemonless, cgroup delegation
-# that matches how yolo-cglimit talks to the host), and Apple Container
-# is the native macOS runtime on Tahoe+.  Any config that sets
-# runtime: "docker" gets a migration error; see _validate_config.
-SUPPORTED_RUNTIMES = ("podman", "container")
+from .paths import (
+    AGENTS_DIR,
+    BUILD_DIR,
+    CONTAINER_DIR,
+    GLOBAL_CACHE,
+    GLOBAL_HOME,
+    GLOBAL_MISE,
+    GLOBAL_STORAGE,
+    IS_LINUX,
+    IS_MACOS,
+    JAIL_IMAGE,
+    JAIL_IMAGE_SHORT,
+    SUPPORTED_RUNTIMES,
+    USER_CONFIG_PATH,
+)
 
 app = typer.Typer(
     invoke_without_command=True,
@@ -252,18 +257,6 @@ def _default(
         # No subcommand → default to `run` (interactive shell)
         ctx.invoke(run, ctx=ctx, network=network, new=new, profile=profile)
 
-
-JAIL_IMAGE = "localhost/yolo-jail:latest"
-# Apple Container CLI doesn't recognize the localhost/ prefix
-JAIL_IMAGE_SHORT = "yolo-jail:latest"
-GLOBAL_STORAGE = Path.home() / ".local/share/yolo-jail"
-GLOBAL_HOME = GLOBAL_STORAGE / "home"
-GLOBAL_MISE = GLOBAL_STORAGE / "mise"
-GLOBAL_CACHE = GLOBAL_STORAGE / "cache"
-CONTAINER_DIR = GLOBAL_STORAGE / "containers"
-AGENTS_DIR = GLOBAL_STORAGE / "agents"
-BUILD_DIR = GLOBAL_STORAGE / "build"
-USER_CONFIG_PATH = Path.home() / ".config" / "yolo-jail" / "config.jsonc"
 
 console = Console()
 

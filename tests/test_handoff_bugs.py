@@ -101,8 +101,8 @@ def test_no_host_services_in_user_facing_text():
     """Post-rename the string ``host_services`` shouldn't appear in
     any message the operator sees.  The config key is ``loopholes``
     now.  Internal variable names aren't the concern; visible text is."""
-    cli_path = Path(__file__).parent.parent / "src" / "cli.py"
-    src = cli_path.read_text()
+    cli_dir = Path(__file__).parent.parent / "src" / "cli"
+    src = "\n".join(p.read_text() for p in sorted(cli_dir.rglob("*.py")))
     # Find user-facing text (inside f"..." / "..." used with fail/ok/warn/echo).
     # Simple check: no ``host_services.`` substring in any string literal
     # that also contains a brace-format placeholder.

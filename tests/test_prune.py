@@ -590,7 +590,8 @@ class TestPruneShadowedHome:
         redirects reads/writes away from that path (e.g.
         ``NPM_CONFIG_CACHE`` points .npm/ reads elsewhere).
         """
-        cli_src = (Path(__file__).parent.parent / "src" / "cli.py").read_text()
+        cli_dir = Path(__file__).parent.parent / "src" / "cli"
+        cli_src = "\n".join(p.read_text() for p in sorted(cli_dir.rglob("*.py")))
         for rel in prune.SHADOWED_HOME_PATHS:
             mount_marker = f":/home/agent/{rel}"
             env_marker_candidates = (
