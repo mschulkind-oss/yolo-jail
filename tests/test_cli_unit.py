@@ -281,14 +281,14 @@ class TestContainerNaming:
 
 class TestContainerTracking:
     def test_write_and_cleanup(self, tmp_path, monkeypatch):
-        monkeypatch.setattr("cli.CONTAINER_DIR", tmp_path)
+        monkeypatch.setattr("cli.runtime.CONTAINER_DIR", tmp_path)
         write_container_tracking("yolo-abc123", tmp_path / "ws")
         assert (tmp_path / "yolo-abc123").exists()
         cleanup_container_tracking("yolo-abc123")
         assert not (tmp_path / "yolo-abc123").exists()
 
     def test_cleanup_missing_ok(self, tmp_path, monkeypatch):
-        monkeypatch.setattr("cli.CONTAINER_DIR", tmp_path)
+        monkeypatch.setattr("cli.runtime.CONTAINER_DIR", tmp_path)
         cleanup_container_tracking("nonexistent")  # Should not raise
 
 
@@ -361,7 +361,7 @@ class TestRemoveStaleContainer:
     def test_successful_removal(self, tmp_path):
         with (
             patch("subprocess.run") as mock_run,
-            patch("cli.cleanup_container_tracking") as mock_cleanup,
+            patch("cli.runtime.cleanup_container_tracking") as mock_cleanup,
         ):
             mock_run.return_value = MagicMock(returncode=0)
             result = _remove_stale_container("yolo-test", runtime="podman")
@@ -376,7 +376,7 @@ class TestRemoveStaleContainer:
     def test_failed_removal(self):
         with (
             patch("subprocess.run") as mock_run,
-            patch("cli.cleanup_container_tracking") as mock_cleanup,
+            patch("cli.runtime.cleanup_container_tracking") as mock_cleanup,
         ):
             mock_run.return_value = MagicMock(returncode=1)
             result = _remove_stale_container("yolo-test", runtime="podman")
@@ -386,7 +386,7 @@ class TestRemoveStaleContainer:
     def test_apple_container_runtime(self):
         with (
             patch("subprocess.run") as mock_run,
-            patch("cli.cleanup_container_tracking"),
+            patch("cli.runtime.cleanup_container_tracking"),
         ):
             mock_run.return_value = MagicMock(returncode=0)
             _remove_stale_container("yolo-test", runtime="container")
@@ -1617,7 +1617,7 @@ class TestRuntimeForCheck:
     def test_env_var_on_path(self):
         with patch.dict(os.environ, {"YOLO_RUNTIME": "podman"}):
             with patch("shutil.which", return_value="/usr/bin/podman"):
-                with patch("cli._runtime_is_connectable", return_value=True):
+                with patch("cli.runtime._runtime_is_connectable", return_value=True):
                     rt, err = _runtime_for_check({})
                     assert rt == "podman"
                     assert err is None
@@ -1633,7 +1633,7 @@ class TestRuntimeForCheck:
         with patch.dict(os.environ, {}, clear=False):
             os.environ.pop("YOLO_RUNTIME", None)
             with patch("shutil.which", return_value="/usr/bin/podman"):
-                with patch("cli._runtime_is_connectable", return_value=True):
+                with patch("cli.runtime._runtime_is_connectable", return_value=True):
                     rt, err = _runtime_for_check({"runtime": "podman"})
                     assert rt == "podman"
 
@@ -1644,7 +1644,7 @@ class TestRuntimeForCheck:
                 "shutil.which",
                 side_effect=lambda x: "/usr/bin/podman" if x == "podman" else None,
             ):
-                with patch("cli._runtime_is_connectable", return_value=True):
+                with patch("cli.runtime._runtime_is_connectable", return_value=True):
                     rt, err = _runtime_for_check({})
                     assert rt == "podman"
 
@@ -1659,7 +1659,7 @@ class TestRuntimeForCheck:
     def test_env_var_not_connected(self):
         with patch.dict(os.environ, {"YOLO_RUNTIME": "podman"}):
             with patch("shutil.which", return_value="/usr/bin/podman"):
-                with patch("cli._runtime_is_connectable", return_value=False):
+                with patch("cli.runtime._runtime_is_connectable", return_value=False):
                     rt, err = _runtime_for_check({})
                     assert rt is None
                     assert "not connected" in err

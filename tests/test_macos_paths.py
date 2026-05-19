@@ -34,9 +34,19 @@ from cli import (  # noqa: E402
 
 
 def _set_macos(monkeypatch):
-    """Switch the cli module into macOS mode."""
+    """Switch the cli module into macOS mode.
+
+    The cli package re-exports paths.IS_MACOS/IS_LINUX, but submodules that
+    were extracted (cli.runtime, cli.image) reference paths via their own
+    module-local imports. Patch every binding so the macOS branch fires
+    consistently regardless of which extracted module the call site lives in.
+    """
     monkeypatch.setattr(cli, "IS_MACOS", True)
     monkeypatch.setattr(cli, "IS_LINUX", False)
+    monkeypatch.setattr("cli.runtime.IS_MACOS", True)
+    monkeypatch.setattr("cli.image.IS_MACOS", True)
+    monkeypatch.setattr("cli.paths.IS_MACOS", True)
+    monkeypatch.setattr("cli.paths.IS_LINUX", False)
 
 
 def _mock_runtimes(mock_which, runtimes=("podman", "nix")):
@@ -430,7 +440,7 @@ class TestMacosKvmSkip:
         _run_monkeypatch(monkeypatch, tmp_path)
         _mock_runtimes(mock_which, runtimes=("container", "nix"))
         monkeypatch.setenv("YOLO_RUNTIME", "container")
-        monkeypatch.setattr(cli, "_runtime_is_connectable", lambda rt: True)
+        monkeypatch.setattr("cli.runtime._runtime_is_connectable", lambda rt: True)
         monkeypatch.setattr(cli, "_is_apple_container", lambda p: True)
         (tmp_path / "yolo-jail.jsonc").write_text('{"kvm": true}')
         mock_check_output.side_effect = FileNotFoundError
@@ -691,10 +701,10 @@ class TestAppleContainerRuntime:
         """_runtime() auto-detects container CLI when no env/config set."""
         _set_macos(monkeypatch)
         monkeypatch.delenv("YOLO_RUNTIME", raising=False)
-        monkeypatch.setattr(cli, "_runtime_is_connectable", lambda rt: True)
+        monkeypatch.setattr("cli.runtime._runtime_is_connectable", lambda rt: True)
         with (
             patch("shutil.which") as mock_which,
-            patch("cli._is_apple_container", return_value=True),
+            patch("cli.runtime._is_apple_container", return_value=True),
         ):
             # Only 'container' is on PATH
             mock_which.side_effect = lambda x: (
@@ -706,10 +716,10 @@ class TestAppleContainerRuntime:
         """On macOS, container is preferred over podman when both are available."""
         _set_macos(monkeypatch)
         monkeypatch.delenv("YOLO_RUNTIME", raising=False)
-        monkeypatch.setattr(cli, "_runtime_is_connectable", lambda rt: True)
+        monkeypatch.setattr("cli.runtime._runtime_is_connectable", lambda rt: True)
         with (
             patch("shutil.which") as mock_which,
-            patch("cli._is_apple_container", return_value=True),
+            patch("cli.runtime._is_apple_container", return_value=True),
         ):
             # Both candidate runtimes are on PATH
             mock_which.side_effect = lambda x: (
@@ -722,7 +732,7 @@ class TestAppleContainerRuntime:
         monkeypatch.setattr(cli, "IS_MACOS", False)
         monkeypatch.setattr(cli, "IS_LINUX", True)
         monkeypatch.delenv("YOLO_RUNTIME", raising=False)
-        monkeypatch.setattr(cli, "_runtime_is_connectable", lambda rt: True)
+        monkeypatch.setattr("cli.runtime._runtime_is_connectable", lambda rt: True)
         with patch("shutil.which") as mock_which:
             mock_which.side_effect = lambda x: (
                 f"/usr/bin/{x}" if x == "podman" else None
@@ -733,10 +743,10 @@ class TestAppleContainerRuntime:
         """_runtime_for_check() prefers container over podman on macOS."""
         _set_macos(monkeypatch)
         monkeypatch.delenv("YOLO_RUNTIME", raising=False)
-        monkeypatch.setattr(cli, "_runtime_is_connectable", lambda rt: True)
+        monkeypatch.setattr("cli.runtime._runtime_is_connectable", lambda rt: True)
         with (
             patch("shutil.which") as mock_which,
-            patch("cli._is_apple_container", return_value=True),
+            patch("cli.runtime._is_apple_container", return_value=True),
         ):
             mock_which.side_effect = lambda x: (
                 f"/usr/local/bin/{x}" if x in ("container", "podman") else None
@@ -824,7 +834,7 @@ class TestAppleContainerRuntime:
         """_runtime_for_check() accepts 'container' runtime."""
         _set_macos(monkeypatch)
         monkeypatch.setenv("YOLO_RUNTIME", "container")
-        monkeypatch.setattr(cli, "_runtime_is_connectable", lambda rt: True)
+        monkeypatch.setattr("cli.runtime._runtime_is_connectable", lambda rt: True)
         with patch("shutil.which") as mock_which:
             mock_which.return_value = "/usr/local/bin/container"
             rt, err = cli._runtime_for_check({"runtime": "container"})
@@ -880,7 +890,7 @@ class TestAppleContainerMountWorkarounds:
         _run_monkeypatch(monkeypatch, tmp_path)
         _mock_runtimes(mock_which, runtimes=("container", "nix"))
         monkeypatch.setenv("YOLO_RUNTIME", "container")
-        monkeypatch.setattr(cli, "_runtime_is_connectable", lambda rt: True)
+        monkeypatch.setattr("cli.runtime._runtime_is_connectable", lambda rt: True)
         monkeypatch.setattr(cli, "_is_apple_container", lambda p: True)
 
         # Force the git-ignore branch by making the global gitignore exist.
@@ -970,7 +980,7 @@ class TestAppleContainerMountWorkarounds:
         _run_monkeypatch(monkeypatch, tmp_path)
         _mock_runtimes(mock_which, runtimes=("container", "nix"))
         monkeypatch.setenv("YOLO_RUNTIME", "container")
-        monkeypatch.setattr(cli, "_runtime_is_connectable", lambda rt: True)
+        monkeypatch.setattr("cli.runtime._runtime_is_connectable", lambda rt: True)
         monkeypatch.setattr(cli, "_is_apple_container", lambda p: True)
 
         # Seed a host gitignore so the branch at cli.py runs.
