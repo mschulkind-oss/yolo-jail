@@ -30,3 +30,22 @@ CONTAINER_DIR = GLOBAL_STORAGE / "containers"
 AGENTS_DIR = GLOBAL_STORAGE / "agents"
 BUILD_DIR = GLOBAL_STORAGE / "build"
 USER_CONFIG_PATH = Path.home() / ".config" / "yolo-jail" / "config.jsonc"
+
+# Directory inside the jail where all host service sockets appear.
+# All bind mounts land under this path.
+JAIL_HOST_SERVICES_DIR = "/run/yolo-services"
+
+# Name of the builtin cgroup delegate service.  Reserved — user-configured
+# services in `loopholes` cannot use this name.
+BUILTIN_CGROUP_LOOPHOLE_NAME = "cgroup-delegate"
+
+# Name of the builtin journal bridge service.  Off by default; opt in with
+# top-level config key `journal: "user"` or `"full"`.  Reserved — user
+# `loopholes` cannot shadow it.
+BUILTIN_JOURNAL_LOOPHOLE_NAME = "journal"
+JOURNAL_SOCKET_NAME = "journal.sock"
+
+# Legacy name used by the cgroup daemon when it was hard-coded at
+# /tmp/yolo-cgd/cgroup.sock.  Kept as a constant for the refactor so the
+# existing handler can be reused without changes.
+CGD_SOCKET_NAME = "cgroup.sock"

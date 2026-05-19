@@ -762,14 +762,14 @@ class TestLoadJsoncFile:
 
 class TestLoadConfig:
     def test_empty_workspace(self, tmp_path):
-        with patch("cli.USER_CONFIG_PATH", tmp_path / "nonexistent.jsonc"):
+        with patch("cli.config.USER_CONFIG_PATH", tmp_path / "nonexistent.jsonc"):
             result = load_config(tmp_path)
             assert result == {}
 
     def test_workspace_config_merged(self, tmp_path):
         ws_config = tmp_path / "yolo-jail.jsonc"
         ws_config.write_text('{"runtime": "podman"}')
-        with patch("cli.USER_CONFIG_PATH", tmp_path / "nonexistent.jsonc"):
+        with patch("cli.config.USER_CONFIG_PATH", tmp_path / "nonexistent.jsonc"):
             result = load_config(tmp_path)
             assert result["runtime"] == "podman"
 
