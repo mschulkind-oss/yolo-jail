@@ -1683,7 +1683,7 @@ class TestNixCustomConfIncluded:
                 return conf_path
             return real_path(p, *args, **kwargs)
 
-        monkeypatch.setattr(cli, "Path", fake_path)
+        monkeypatch.setattr("cli.storage.Path", fake_path)
 
     def test_detects_bang_include(self, tmp_path, monkeypatch):
         from cli import _nix_custom_conf_included
@@ -1745,7 +1745,7 @@ class TestDetectNixDaemonLabel:
                 return daemon_dir
             return real_path(p, *args, **kwargs)
 
-        monkeypatch.setattr(cli, "Path", fake_path)
+        monkeypatch.setattr("cli.storage.Path", fake_path)
         assert _detect_nix_daemon_label() == "org.nixos.nix-daemon"
 
     def test_returns_determinate_label(self, tmp_path, monkeypatch):
@@ -1766,7 +1766,7 @@ class TestDetectNixDaemonLabel:
                 return daemon_dir
             return real_path(p, *args, **kwargs)
 
-        monkeypatch.setattr(cli, "Path", fake_path)
+        monkeypatch.setattr("cli.storage.Path", fake_path)
         assert _detect_nix_daemon_label() == "systems.determinate.nix-daemon"
 
     def test_returns_none_when_no_plist(self, tmp_path, monkeypatch):
@@ -1784,7 +1784,7 @@ class TestDetectNixDaemonLabel:
                 return daemon_dir
             return real_path(p, *args, **kwargs)
 
-        monkeypatch.setattr(cli, "Path", fake_path)
+        monkeypatch.setattr("cli.storage.Path", fake_path)
         assert _detect_nix_daemon_label() is None
 
     def test_returns_none_on_non_macos(self, monkeypatch):
@@ -1799,7 +1799,7 @@ class TestDetectNixDaemonLabel:
                 return real_path("/does-not-exist-for-tests")
             return real_path(p, *args, **kwargs)
 
-        monkeypatch.setattr(cli, "Path", fake_path)
+        monkeypatch.setattr("cli.storage.Path", fake_path)
         assert _detect_nix_daemon_label() is None
 
 
@@ -1835,7 +1835,7 @@ class TestDetectHostTimezone:
                 return real_path(tmp_path / "does-not-exist")
             return real_path(p, *args, **kwargs)
 
-        monkeypatch.setattr(cli, "Path", fake_path)
+        monkeypatch.setattr("cli.storage.Path", fake_path)
         assert _detect_host_timezone() == "America/New_York"
 
     def test_reads_etc_localtime_symlink(self, tmp_path, monkeypatch):
@@ -1860,7 +1860,7 @@ class TestDetectHostTimezone:
                 return localtime
             return real_path(p, *args, **kwargs)
 
-        monkeypatch.setattr(cli, "Path", fake_path)
+        monkeypatch.setattr("cli.storage.Path", fake_path)
         assert _detect_host_timezone() == "Asia/Tokyo"
 
     def test_macos_symlink_format(self, tmp_path, monkeypatch):
@@ -1888,7 +1888,7 @@ class TestDetectHostTimezone:
                 return localtime
             return real_path(p, *args, **kwargs)
 
-        monkeypatch.setattr(cli, "Path", fake_path)
+        monkeypatch.setattr("cli.storage.Path", fake_path)
         assert _detect_host_timezone() == "Pacific/Auckland"
 
     def test_returns_none_when_nothing_found(self, tmp_path, monkeypatch):
@@ -1905,7 +1905,7 @@ class TestDetectHostTimezone:
                 return real_path(tmp_path / "does-not-exist")
             return real_path(p, *args, **kwargs)
 
-        monkeypatch.setattr(cli, "Path", fake_path)
+        monkeypatch.setattr("cli.storage.Path", fake_path)
         assert _detect_host_timezone() is None
 
 
@@ -1916,12 +1916,12 @@ class TestDetectHostTimezone:
 
 class TestEnsureGlobalStorage:
     def test_creates_directories(self, tmp_path, monkeypatch):
-        monkeypatch.setattr("cli.GLOBAL_HOME", tmp_path / "home")
-        monkeypatch.setattr("cli.GLOBAL_MISE", tmp_path / "mise")
-        monkeypatch.setattr("cli.GLOBAL_CACHE", tmp_path / "cache")
-        monkeypatch.setattr("cli.CONTAINER_DIR", tmp_path / "containers")
-        monkeypatch.setattr("cli.AGENTS_DIR", tmp_path / "agents")
-        monkeypatch.setattr("cli.BUILD_DIR", tmp_path / "build")
+        monkeypatch.setattr("cli.storage.GLOBAL_HOME", tmp_path / "home")
+        monkeypatch.setattr("cli.storage.GLOBAL_MISE", tmp_path / "mise")
+        monkeypatch.setattr("cli.storage.GLOBAL_CACHE", tmp_path / "cache")
+        monkeypatch.setattr("cli.storage.CONTAINER_DIR", tmp_path / "containers")
+        monkeypatch.setattr("cli.storage.AGENTS_DIR", tmp_path / "agents")
+        monkeypatch.setattr("cli.storage.BUILD_DIR", tmp_path / "build")
         ensure_global_storage()
         assert (tmp_path / "home").is_dir()
         assert (tmp_path / "mise").is_dir()
@@ -1932,12 +1932,12 @@ class TestEnsureGlobalStorage:
 
     def test_creates_subdirs(self, tmp_path, monkeypatch):
         home = tmp_path / "home"
-        monkeypatch.setattr("cli.GLOBAL_HOME", home)
-        monkeypatch.setattr("cli.GLOBAL_MISE", tmp_path / "mise")
-        monkeypatch.setattr("cli.GLOBAL_CACHE", tmp_path / "cache")
-        monkeypatch.setattr("cli.CONTAINER_DIR", tmp_path / "containers")
-        monkeypatch.setattr("cli.AGENTS_DIR", tmp_path / "agents")
-        monkeypatch.setattr("cli.BUILD_DIR", tmp_path / "build")
+        monkeypatch.setattr("cli.storage.GLOBAL_HOME", home)
+        monkeypatch.setattr("cli.storage.GLOBAL_MISE", tmp_path / "mise")
+        monkeypatch.setattr("cli.storage.GLOBAL_CACHE", tmp_path / "cache")
+        monkeypatch.setattr("cli.storage.CONTAINER_DIR", tmp_path / "containers")
+        monkeypatch.setattr("cli.storage.AGENTS_DIR", tmp_path / "agents")
+        monkeypatch.setattr("cli.storage.BUILD_DIR", tmp_path / "build")
         ensure_global_storage()
         assert (home / ".copilot").is_dir()
         assert (home / ".gemini").is_dir()
@@ -1947,12 +1947,12 @@ class TestEnsureGlobalStorage:
     def test_creates_mountpoint_files(self, tmp_path, monkeypatch):
         """File mountpoints must exist in GLOBAL_HOME for :ro bind mounts."""
         home = tmp_path / "home"
-        monkeypatch.setattr("cli.GLOBAL_HOME", home)
-        monkeypatch.setattr("cli.GLOBAL_MISE", tmp_path / "mise")
-        monkeypatch.setattr("cli.GLOBAL_CACHE", tmp_path / "cache")
-        monkeypatch.setattr("cli.CONTAINER_DIR", tmp_path / "containers")
-        monkeypatch.setattr("cli.AGENTS_DIR", tmp_path / "agents")
-        monkeypatch.setattr("cli.BUILD_DIR", tmp_path / "build")
+        monkeypatch.setattr("cli.storage.GLOBAL_HOME", home)
+        monkeypatch.setattr("cli.storage.GLOBAL_MISE", tmp_path / "mise")
+        monkeypatch.setattr("cli.storage.GLOBAL_CACHE", tmp_path / "cache")
+        monkeypatch.setattr("cli.storage.CONTAINER_DIR", tmp_path / "containers")
+        monkeypatch.setattr("cli.storage.AGENTS_DIR", tmp_path / "agents")
+        monkeypatch.setattr("cli.storage.BUILD_DIR", tmp_path / "build")
         ensure_global_storage()
         # Spot-check key file mountpoints
         assert (home / ".yolo-entrypoint.lock").is_file()
@@ -1971,12 +1971,12 @@ class TestEnsureGlobalStorage:
     def test_creates_overlay_dir_mountpoints(self, tmp_path, monkeypatch):
         """Directory mountpoints for per-workspace overlays."""
         home = tmp_path / "home"
-        monkeypatch.setattr("cli.GLOBAL_HOME", home)
-        monkeypatch.setattr("cli.GLOBAL_MISE", tmp_path / "mise")
-        monkeypatch.setattr("cli.GLOBAL_CACHE", tmp_path / "cache")
-        monkeypatch.setattr("cli.CONTAINER_DIR", tmp_path / "containers")
-        monkeypatch.setattr("cli.AGENTS_DIR", tmp_path / "agents")
-        monkeypatch.setattr("cli.BUILD_DIR", tmp_path / "build")
+        monkeypatch.setattr("cli.storage.GLOBAL_HOME", home)
+        monkeypatch.setattr("cli.storage.GLOBAL_MISE", tmp_path / "mise")
+        monkeypatch.setattr("cli.storage.GLOBAL_CACHE", tmp_path / "cache")
+        monkeypatch.setattr("cli.storage.CONTAINER_DIR", tmp_path / "containers")
+        monkeypatch.setattr("cli.storage.AGENTS_DIR", tmp_path / "agents")
+        monkeypatch.setattr("cli.storage.BUILD_DIR", tmp_path / "build")
         ensure_global_storage()
         assert (home / ".npm-global").is_dir()
         assert (home / ".local").is_dir()
@@ -1997,12 +1997,12 @@ class TestEnsureGlobalStorage:
         f = home / ".yolo-entrypoint.lock"
         f.write_text("# old")
         f.chmod(0o000)
-        monkeypatch.setattr("cli.GLOBAL_HOME", home)
-        monkeypatch.setattr("cli.GLOBAL_MISE", tmp_path / "mise")
-        monkeypatch.setattr("cli.GLOBAL_CACHE", tmp_path / "cache")
-        monkeypatch.setattr("cli.CONTAINER_DIR", tmp_path / "containers")
-        monkeypatch.setattr("cli.AGENTS_DIR", tmp_path / "agents")
-        monkeypatch.setattr("cli.BUILD_DIR", tmp_path / "build")
+        monkeypatch.setattr("cli.storage.GLOBAL_HOME", home)
+        monkeypatch.setattr("cli.storage.GLOBAL_MISE", tmp_path / "mise")
+        monkeypatch.setattr("cli.storage.GLOBAL_CACHE", tmp_path / "cache")
+        monkeypatch.setattr("cli.storage.CONTAINER_DIR", tmp_path / "containers")
+        monkeypatch.setattr("cli.storage.AGENTS_DIR", tmp_path / "agents")
+        monkeypatch.setattr("cli.storage.BUILD_DIR", tmp_path / "build")
         # Should not raise despite unwritable file
         ensure_global_storage()
         assert f.exists()
