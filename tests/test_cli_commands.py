@@ -36,27 +36,27 @@ from cli import (  # noqa: E402
 class TestAutoLoadImage:
     """Test the nix image build + load pipeline."""
 
-    @patch("cli._build_image_store_path")
-    @patch("cli._read_loaded_paths")
-    @patch("cli._add_loaded_path")
+    @patch("cli.image._build_image_store_path")
+    @patch("cli.image._read_loaded_paths")
+    @patch("cli.image._add_loaded_path")
     @patch("subprocess.Popen")
     @patch("subprocess.run")
-    @patch("cli._estimate_image_size", return_value=0)
+    @patch("cli.image._estimate_image_size", return_value=0)
     def test_skips_load_when_already_loaded_and_image_present(
         self, mock_est, mock_run, mock_popen, mock_add, mock_read, mock_build, tmp_path
     ):
         mock_build.return_value = ("/nix/store/abc", [])
         mock_read.return_value = {"/nix/store/abc"}  # Already loaded
         mock_run.return_value = MagicMock(returncode=0)  # image inspect succeeds
-        with patch("cli.BUILD_DIR", tmp_path):
+        with patch("cli.image.BUILD_DIR", tmp_path):
             auto_load_image(tmp_path, runtime="podman")
         mock_popen.assert_not_called()  # No streaming needed
         mock_add.assert_not_called()  # Sentinel not rewritten
 
-    @patch("cli._build_image_store_path")
-    @patch("cli._read_loaded_paths")
-    @patch("cli._add_loaded_path")
-    @patch("cli._estimate_image_size", return_value=100_000_000)
+    @patch("cli.image._build_image_store_path")
+    @patch("cli.image._read_loaded_paths")
+    @patch("cli.image._add_loaded_path")
+    @patch("cli.image._estimate_image_size", return_value=100_000_000)
     def test_reloads_when_sentinel_says_loaded_but_image_missing(
         self, mock_est, mock_add, mock_read, mock_build, tmp_path
     ):
@@ -79,8 +79,8 @@ class TestAutoLoadImage:
         ]
 
         with (
-            patch("cli.BUILD_DIR", tmp_path),
-            patch("cli.GLOBAL_CACHE", tmp_path / "cache"),
+            patch("cli.image.BUILD_DIR", tmp_path),
+            patch("cli.image.GLOBAL_CACHE", tmp_path / "cache"),
             patch("subprocess.Popen", return_value=stream_proc),
             patch("subprocess.run", side_effect=run_results),
         ):
@@ -88,30 +88,30 @@ class TestAutoLoadImage:
 
         mock_add.assert_called_once()  # Reloaded → sentinel rewritten
 
-    @patch("cli._build_image_store_path")
+    @patch("cli.image._build_image_store_path")
     @patch("subprocess.run")
     def test_warns_on_build_failure_with_existing_image(
         self, mock_run, mock_build, tmp_path
     ):
         mock_build.return_value = (None, ["error: something broke"])
         mock_run.return_value = MagicMock(returncode=0)  # Image exists
-        with patch("cli.BUILD_DIR", tmp_path):
+        with patch("cli.image.BUILD_DIR", tmp_path):
             auto_load_image(tmp_path, runtime="podman")
         # Should have checked for existing image
         mock_run.assert_called()
 
-    @patch("cli._build_image_store_path")
+    @patch("cli.image._build_image_store_path")
     @patch("subprocess.run")
     def test_errors_on_build_failure_no_image(self, mock_run, mock_build, tmp_path):
         mock_build.return_value = (None, ["error: nope"])
         mock_run.return_value = MagicMock(returncode=1)  # No image
-        with patch("cli.BUILD_DIR", tmp_path):
+        with patch("cli.image.BUILD_DIR", tmp_path):
             auto_load_image(tmp_path, runtime="podman")
 
-    @patch("cli._build_image_store_path")
-    @patch("cli._read_loaded_paths", return_value=set())
-    @patch("cli._add_loaded_path")
-    @patch("cli._estimate_image_size", return_value=100_000_000)
+    @patch("cli.image._build_image_store_path")
+    @patch("cli.image._read_loaded_paths", return_value=set())
+    @patch("cli.image._add_loaded_path")
+    @patch("cli.image._estimate_image_size", return_value=100_000_000)
     def test_caches_and_loads_image_on_new_path(
         self, mock_est, mock_add, mock_read, mock_build, tmp_path
     ):
@@ -126,8 +126,8 @@ class TestAutoLoadImage:
         load_result = MagicMock(returncode=0, stderr=b"")
 
         with (
-            patch("cli.BUILD_DIR", tmp_path),
-            patch("cli.GLOBAL_CACHE", tmp_path / "cache"),
+            patch("cli.image.BUILD_DIR", tmp_path),
+            patch("cli.image.GLOBAL_CACHE", tmp_path / "cache"),
             patch("subprocess.Popen", return_value=stream_proc),
             patch("subprocess.run", return_value=load_result),
         ):
@@ -135,9 +135,9 @@ class TestAutoLoadImage:
 
         mock_add.assert_called_once()
 
-    @patch("cli._build_image_store_path")
-    @patch("cli._read_loaded_paths", return_value=set())
-    @patch("cli._add_loaded_path")
+    @patch("cli.image._build_image_store_path")
+    @patch("cli.image._read_loaded_paths", return_value=set())
+    @patch("cli.image._add_loaded_path")
     def test_reuses_cached_tar(self, mock_add, mock_read, mock_build, tmp_path):
         """When the tar cache file already exists, skip materialization."""
         mock_build.return_value = ("/nix/store/cached", [])
@@ -153,8 +153,8 @@ class TestAutoLoadImage:
         load_result = MagicMock(returncode=0, stderr=b"")
 
         with (
-            patch("cli.BUILD_DIR", tmp_path),
-            patch("cli.GLOBAL_CACHE", tmp_path / "cache"),
+            patch("cli.image.BUILD_DIR", tmp_path),
+            patch("cli.image.GLOBAL_CACHE", tmp_path / "cache"),
             patch("subprocess.Popen") as mock_popen,
             patch("subprocess.run", return_value=load_result),
         ):
