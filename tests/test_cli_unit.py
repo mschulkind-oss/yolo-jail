@@ -451,19 +451,19 @@ class TestPrintStartupBanner:
 
 class TestGetYoloVersion:
     def test_returns_git_describe_version(self):
-        with patch("cli._git_describe_version", return_value="1.2.3"):
+        with patch("cli.version._git_describe_version", return_value="1.2.3"):
             assert _get_yolo_version() == "1.2.3"
 
     def test_falls_back_to_pkg_version(self):
         with (
-            patch("cli._git_describe_version", return_value=None),
+            patch("cli.version._git_describe_version", return_value=None),
             patch("importlib.metadata.version", return_value="0.9.0"),
         ):
             assert _get_yolo_version() == "0.9.0"
 
     def test_returns_unknown_on_error(self):
         with (
-            patch("cli._git_describe_version", return_value=None),
+            patch("cli.version._git_describe_version", return_value=None),
             patch("importlib.metadata.version", side_effect=Exception("no pkg")),
         ):
             assert _get_yolo_version() == "unknown"
