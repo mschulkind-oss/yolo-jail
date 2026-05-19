@@ -19,19 +19,14 @@ Co-resident helpers:
 The Typer commands are registered in cli/__init__.py.
 """
 
-import atexit
-import datetime
 import fcntl
 import json
 import os
-import platform
 import shlex
 import shutil
-import signal
 import subprocess
 import sys
 import tempfile
-import time
 from pathlib import Path
 from typing import Any, Dict, List, Optional
 
@@ -54,20 +49,16 @@ from .config import (
     _resolve_env_sources,
     _validate_config,
     load_config,
-    merge_config,
 )
 from .console import console
 from .image import _jail_image, auto_load_image
 from .loopholes_runtime import (
     BROKER_LOOPHOLE_NAME,
     BROKER_SINGLETON_SOCKET,
-    LoopholeDaemon,
     _broker_ensure,
     _gpu_host_available,
-    _host_service_default_jail_socket,
     _host_service_env_var,
     _host_service_sockets_dir,
-    _resolve_journal_mode,
     _should_mount_host_nix,
     _start_broker_relay,
     start_loopholes,
@@ -77,7 +68,11 @@ from .network import (
     cleanup_port_forwarding,
     start_host_port_forwarding,
 )
-from .paths import (
+# Several of these path constants aren't *referenced* by run() directly,
+# but tests `monkeypatch.setattr("cli.run_cmd.GLOBAL_MISE", ...)` to
+# redirect filesystem layout — the patch fails ATTRIBUTE-not-found if
+# the name isn't already bound on the module.  Keep them all imported.
+from .paths import (  # noqa: F401
     AGENTS_DIR,
     BUILD_DIR,
     CONTAINER_DIR,

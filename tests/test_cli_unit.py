@@ -2538,7 +2538,6 @@ class TestCliRunner:
 
     def test_init_user_config_has_agent_help_hint(self, tmp_path, monkeypatch):
         """Default user config also tells first-time agents to run `yolo --help`."""
-        import cli
         from cli import app
 
         user_config = tmp_path / "config.jsonc"

@@ -1,27 +1,19 @@
-import dataclasses
-import difflib
-import fcntl
+# ruff: noqa: F401, E402
+# cli/__init__.py is the cli package's public face: it builds the Typer
+# ``app``, defines the top-level callback, and re-imports the symbols
+# every test and entry point expects on ``cli.X`` after the modules
+# were split out.  Those cross-module re-imports look unused to linters,
+# so the per-file directive above silences F401 (re-exports) and E402
+# (module-level imports below the wired-up Typer app).
+
 import os
-import platform
-import re
-import signal
-import socket
-import struct
+import shutil
 import subprocess
 import sys
-import json
-import shlex
-import shutil
-import hashlib
 import time
-import tempfile
-import threading
-from dataclasses import dataclass
 from pathlib import Path
-from typing import Callable, Optional, List, Dict, Any, Union
+
 import typer
-import pyjson5
-from rich.console import Console
 
 from src import loopholes as _loopholes
 from .paths import (
