@@ -68,6 +68,15 @@ def _run_monkeypatch(monkeypatch, tmp_path):
     monkeypatch.setattr(cli, "AGENTS_DIR", tmp_path / "agents")
     monkeypatch.setattr(cli, "BUILD_DIR", tmp_path / "build")
     monkeypatch.setattr(cli, "USER_CONFIG_PATH", tmp_path / "user-config.jsonc")
+    # The run command body lives in cli.run_cmd; patch its module-local
+    # bindings too so the redirection actually reaches the call sites.
+    monkeypatch.setattr("cli.run_cmd.GLOBAL_HOME", tmp_path / "home")
+    monkeypatch.setattr("cli.run_cmd.GLOBAL_MISE", tmp_path / "mise")
+    monkeypatch.setattr("cli.run_cmd.GLOBAL_STORAGE", tmp_path / "storage")
+    monkeypatch.setattr("cli.run_cmd.CONTAINER_DIR", tmp_path / "containers")
+    monkeypatch.setattr("cli.run_cmd.AGENTS_DIR", tmp_path / "agents")
+    monkeypatch.setattr("cli.run_cmd.BUILD_DIR", tmp_path / "build")
+    monkeypatch.setattr("cli.run_cmd.USER_CONFIG_PATH", tmp_path / "user-config.jsonc")
     monkeypatch.setattr("time.sleep", lambda _: None)
     for d in (
         "home",
@@ -127,9 +136,9 @@ class TestMacosMiseVolume:
     """On macOS, mise uses a named volume (not host bind mount)."""
 
     @patch("subprocess.Popen")
-    @patch("cli.auto_load_image")
-    @patch("cli._check_config_changes", return_value=True)
-    @patch("cli.find_running_container", return_value=None)
+    @patch("cli.run_cmd.auto_load_image")
+    @patch("cli.run_cmd._check_config_changes", return_value=True)
+    @patch("cli.run_cmd.find_running_container", return_value=None)
     @patch("subprocess.run")
     @patch("subprocess.check_output")
     @patch("shutil.which")
@@ -183,9 +192,9 @@ class TestMacosPortForwarding:
     """macOS uses YOLO_FWD_HOST_GATEWAY env var instead of Unix sockets."""
 
     @patch("subprocess.Popen")
-    @patch("cli.auto_load_image")
-    @patch("cli._check_config_changes", return_value=True)
-    @patch("cli.find_running_container", return_value=None)
+    @patch("cli.run_cmd.auto_load_image")
+    @patch("cli.run_cmd._check_config_changes", return_value=True)
+    @patch("cli.run_cmd.find_running_container", return_value=None)
     @patch("subprocess.run")
     @patch("subprocess.check_output")
     @patch("shutil.which")
@@ -234,9 +243,9 @@ class TestMacosDeviceSkip:
     """Device passthrough (raw, USB, cgroup rules) is skipped on macOS."""
 
     @patch("subprocess.Popen")
-    @patch("cli.auto_load_image")
-    @patch("cli._check_config_changes", return_value=True)
-    @patch("cli.find_running_container", return_value=None)
+    @patch("cli.run_cmd.auto_load_image")
+    @patch("cli.run_cmd._check_config_changes", return_value=True)
+    @patch("cli.run_cmd.find_running_container", return_value=None)
     @patch("subprocess.run")
     @patch("subprocess.check_output")
     @patch("shutil.which")
@@ -275,9 +284,9 @@ class TestMacosDeviceSkip:
             )
 
     @patch("subprocess.Popen")
-    @patch("cli.auto_load_image")
-    @patch("cli._check_config_changes", return_value=True)
-    @patch("cli.find_running_container", return_value=None)
+    @patch("cli.run_cmd.auto_load_image")
+    @patch("cli.run_cmd._check_config_changes", return_value=True)
+    @patch("cli.run_cmd.find_running_container", return_value=None)
     @patch("subprocess.run")
     @patch("subprocess.check_output")
     @patch("shutil.which")
@@ -317,9 +326,9 @@ class TestMacosDeviceSkip:
             )
 
     @patch("subprocess.Popen")
-    @patch("cli.auto_load_image")
-    @patch("cli._check_config_changes", return_value=True)
-    @patch("cli.find_running_container", return_value=None)
+    @patch("cli.run_cmd.auto_load_image")
+    @patch("cli.run_cmd._check_config_changes", return_value=True)
+    @patch("cli.run_cmd.find_running_container", return_value=None)
     @patch("subprocess.run")
     @patch("subprocess.check_output")
     @patch("shutil.which")
@@ -367,9 +376,9 @@ class TestMacosGpuSkip:
     """GPU passthrough is skipped on macOS."""
 
     @patch("subprocess.Popen")
-    @patch("cli.auto_load_image")
-    @patch("cli._check_config_changes", return_value=True)
-    @patch("cli.find_running_container", return_value=None)
+    @patch("cli.run_cmd.auto_load_image")
+    @patch("cli.run_cmd._check_config_changes", return_value=True)
+    @patch("cli.run_cmd.find_running_container", return_value=None)
     @patch("subprocess.run")
     @patch("subprocess.check_output")
     @patch("shutil.which")
@@ -421,9 +430,9 @@ class TestMacosKvmSkip:
     """`kvm: true` is a no-op on macOS (Apple uses the VZ framework)."""
 
     @patch("subprocess.Popen")
-    @patch("cli.auto_load_image")
-    @patch("cli._check_config_changes", return_value=True)
-    @patch("cli.find_running_container", return_value=None)
+    @patch("cli.run_cmd.auto_load_image")
+    @patch("cli.run_cmd._check_config_changes", return_value=True)
+    @patch("cli.run_cmd.find_running_container", return_value=None)
     @patch("subprocess.run")
     @patch("subprocess.check_output")
     @patch("shutil.which")
@@ -476,9 +485,9 @@ class TestMacosContainerRuntime:
     """Container always gets YOLO_RUNTIME=podman regardless of host runtime."""
 
     @patch("subprocess.Popen")
-    @patch("cli.auto_load_image")
-    @patch("cli._check_config_changes", return_value=True)
-    @patch("cli.find_running_container", return_value=None)
+    @patch("cli.run_cmd.auto_load_image")
+    @patch("cli.run_cmd._check_config_changes", return_value=True)
+    @patch("cli.run_cmd.find_running_container", return_value=None)
     @patch("subprocess.run")
     @patch("subprocess.check_output")
     @patch("shutil.which")
@@ -527,9 +536,9 @@ class TestMacosTmpfs:
     """macOS gets explicit tmpfs mode=1777."""
 
     @patch("subprocess.Popen")
-    @patch("cli.auto_load_image")
-    @patch("cli._check_config_changes", return_value=True)
-    @patch("cli.find_running_container", return_value=None)
+    @patch("cli.run_cmd.auto_load_image")
+    @patch("cli.run_cmd._check_config_changes", return_value=True)
+    @patch("cli.run_cmd.find_running_container", return_value=None)
     @patch("subprocess.run")
     @patch("subprocess.check_output")
     @patch("shutil.which")
@@ -876,9 +885,9 @@ class TestAppleContainerMountWorkarounds:
     """AC can't do single-file -v into /home/agent/* — verify we don't."""
 
     @patch("subprocess.Popen")
-    @patch("cli.auto_load_image")
-    @patch("cli._check_config_changes", return_value=True)
-    @patch("cli.find_running_container", return_value=None)
+    @patch("cli.run_cmd.auto_load_image")
+    @patch("cli.run_cmd._check_config_changes", return_value=True)
+    @patch("cli.run_cmd.find_running_container", return_value=None)
     @patch("subprocess.run")
     @patch("subprocess.check_output")
     @patch("shutil.which")
@@ -967,9 +976,9 @@ class TestAppleContainerMountWorkarounds:
         )
 
     @patch("subprocess.Popen")
-    @patch("cli.auto_load_image")
-    @patch("cli._check_config_changes", return_value=True)
-    @patch("cli.find_running_container", return_value=None)
+    @patch("cli.run_cmd.auto_load_image")
+    @patch("cli.run_cmd._check_config_changes", return_value=True)
+    @patch("cli.run_cmd.find_running_container", return_value=None)
     @patch("subprocess.run")
     @patch("subprocess.check_output")
     @patch("shutil.which")

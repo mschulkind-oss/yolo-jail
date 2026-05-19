@@ -490,7 +490,7 @@ class TestDoctorAlias:
 
 
 class TestPsCommand:
-    @patch("cli._runtime", return_value="podman")
+    @patch("cli.run_cmd._runtime", return_value="podman")
     @patch("subprocess.run")
     def test_no_running_jails(self, mock_run, mock_runtime):
         mock_run.return_value = MagicMock(returncode=0, stdout="")
@@ -498,9 +498,9 @@ class TestPsCommand:
         result = runner.invoke(app, ["ps"])
         assert "No running jails" in result.output
 
-    @patch("cli._runtime", return_value="podman")
+    @patch("cli.run_cmd._runtime", return_value="podman")
     @patch("subprocess.run")
-    @patch("cli.find_running_container")
+    @patch("cli.run_cmd.find_running_container")
     @patch("cli.CONTAINER_DIR")
     def test_shows_running_jails(
         self, mock_dir, mock_find, mock_run, mock_runtime, tmp_path
@@ -617,9 +617,9 @@ class TestRunCommandInternals:
     @patch("subprocess.run")
     @patch("subprocess.Popen")
     @patch("subprocess.check_output")
-    @patch("cli.find_running_container", return_value="abc123")
-    @patch("cli._runtime", return_value="podman")
-    @patch("cli.auto_load_image")
+    @patch("cli.run_cmd.find_running_container", return_value="abc123")
+    @patch("cli.run_cmd._runtime", return_value="podman")
+    @patch("cli.run_cmd.auto_load_image")
     def test_exec_into_existing_container(
         self,
         mock_load,
@@ -646,14 +646,14 @@ class TestRunCommandInternals:
     @patch("subprocess.run")
     @patch("subprocess.Popen")
     @patch("subprocess.check_output")
-    @patch("cli.find_running_container", return_value=None)
-    @patch("cli._runtime", return_value="podman")
-    @patch("cli.auto_load_image")
-    @patch("cli._check_config_changes", return_value=True)
-    @patch("cli.generate_agents_md")
+    @patch("cli.run_cmd.find_running_container", return_value=None)
+    @patch("cli.run_cmd._runtime", return_value="podman")
+    @patch("cli.run_cmd.auto_load_image")
+    @patch("cli.run_cmd._check_config_changes", return_value=True)
+    @patch("cli.run_cmd.generate_agents_md")
     @patch("cli.start_host_port_forwarding", return_value=[])
     @patch("cli.cleanup_port_forwarding")
-    @patch("cli.write_container_tracking")
+    @patch("cli.run_cmd.write_container_tracking")
     @patch("cli._tmux_rename_window")
     @patch("cli._host_mise_dir")
     @patch("cli._seed_agent_dir")
@@ -708,8 +708,8 @@ class TestRunCommandInternals:
 
     @patch("subprocess.run")
     @patch("subprocess.check_output")
-    @patch("cli.find_running_container", return_value="abc123")
-    @patch("cli._runtime", return_value="podman")
+    @patch("cli.run_cmd.find_running_container", return_value="abc123")
+    @patch("cli.run_cmd._runtime", return_value="podman")
     def test_copilot_yolo_injection(
         self,
         mock_runtime,
@@ -736,8 +736,8 @@ class TestRunCommandInternals:
 
     @patch("subprocess.run")
     @patch("subprocess.check_output")
-    @patch("cli.find_running_container", return_value="abc123")
-    @patch("cli._runtime", return_value="podman")
+    @patch("cli.run_cmd.find_running_container", return_value="abc123")
+    @patch("cli.run_cmd._runtime", return_value="podman")
     def test_gemini_yolo_injection(
         self,
         mock_runtime,
@@ -843,7 +843,7 @@ class TestResolveRepoRootInstalled:
         (cli_dir / "__init__.py").write_text("")
 
         build_root = tmp_path / "storage" / "nix-build-root"
-        monkeypatch.setattr("cli.GLOBAL_STORAGE", tmp_path / "storage")
+        monkeypatch.setattr("cli.run_cmd.GLOBAL_STORAGE", tmp_path / "storage")
 
         import cli
 
@@ -877,7 +877,7 @@ class TestResolveRepoRootInstalled:
         (cli_dir / "__init__.py").write_text("")
 
         build_root = tmp_path / "storage" / "nix-build-root"
-        monkeypatch.setattr("cli.GLOBAL_STORAGE", tmp_path / "storage")
+        monkeypatch.setattr("cli.run_cmd.GLOBAL_STORAGE", tmp_path / "storage")
 
         import cli
 
@@ -926,7 +926,7 @@ class TestResolveRepoRootInstalled:
         build_root = tmp_path / "storage" / "nix-build-root"
         # Simulate the empty-dir bug: build_root exists but has no content.
         build_root.mkdir(parents=True)
-        monkeypatch.setattr("cli.GLOBAL_STORAGE", tmp_path / "storage")
+        monkeypatch.setattr("cli.run_cmd.GLOBAL_STORAGE", tmp_path / "storage")
 
         import cli
 
@@ -959,7 +959,7 @@ class TestResolveRepoRootInstalled:
             repo_dir.mkdir()
             (repo_dir / "flake.nix").write_text("{ }")
             user_config.write_text(json.dumps({"repo_path": str(repo_dir)}))
-            monkeypatch.setattr("cli.USER_CONFIG_PATH", user_config)
+            monkeypatch.setattr("cli.run_cmd.USER_CONFIG_PATH", user_config)
 
             result = _resolve_repo_root()
             assert result == repo_dir.resolve()
@@ -980,7 +980,7 @@ class TestResolveRepoRootInstalled:
             fake_dir.mkdir(parents=True)
             (fake_dir / "__init__.py").write_text("")
             cli.__file__ = str(fake_dir / "__init__.py")
-            monkeypatch.setattr("cli.USER_CONFIG_PATH", tmp_path / "no-config")
+            monkeypatch.setattr("cli.run_cmd.USER_CONFIG_PATH", tmp_path / "no-config")
 
             with pytest.raises((SystemExit, RuntimeError)):
                 _resolve_repo_root()
@@ -1769,6 +1769,15 @@ def _run_monkeypatch(monkeypatch, tmp_path):
     monkeypatch.setattr("cli.AGENTS_DIR", tmp_path / "agents")
     monkeypatch.setattr("cli.BUILD_DIR", tmp_path / "build")
     monkeypatch.setattr("cli.USER_CONFIG_PATH", tmp_path / "user-config.jsonc")
+    # The run command body lives in cli.run_cmd; patch its module-local
+    # bindings too so the redirection actually reaches the call sites.
+    monkeypatch.setattr("cli.run_cmd.GLOBAL_HOME", tmp_path / "home")
+    monkeypatch.setattr("cli.run_cmd.GLOBAL_MISE", tmp_path / "mise")
+    monkeypatch.setattr("cli.run_cmd.GLOBAL_STORAGE", tmp_path / "storage")
+    monkeypatch.setattr("cli.run_cmd.CONTAINER_DIR", tmp_path / "containers")
+    monkeypatch.setattr("cli.run_cmd.AGENTS_DIR", tmp_path / "agents")
+    monkeypatch.setattr("cli.run_cmd.BUILD_DIR", tmp_path / "build")
+    monkeypatch.setattr("cli.run_cmd.USER_CONFIG_PATH", tmp_path / "user-config.jsonc")
     monkeypatch.setattr("cli.runtime._runtime_is_connectable", lambda rt: True)
     monkeypatch.setattr("time.sleep", lambda _: None)
     # The Claude OAuth broker singleton + loophole daemons run real
@@ -1778,10 +1787,10 @@ def _run_monkeypatch(monkeypatch, tmp_path):
     # on the constructed podman/docker argv.  Stub the lot out so each
     # test runs in milliseconds instead of seconds.
     fake_sock = tmp_path / "broker.sock"
-    monkeypatch.setattr("cli._broker_ensure", lambda: fake_sock)
+    monkeypatch.setattr("cli.run_cmd._broker_ensure", lambda: fake_sock)
     monkeypatch.setattr("cli._broker_spawn", lambda: fake_sock)
-    monkeypatch.setattr("cli.start_loopholes", lambda *a, **kw: [])
-    monkeypatch.setattr("cli.stop_loopholes", lambda *a, **kw: None)
+    monkeypatch.setattr("cli.run_cmd.start_loopholes", lambda *a, **kw: [])
+    monkeypatch.setattr("cli.run_cmd.stop_loopholes", lambda *a, **kw: None)
     monkeypatch.setattr("cli._start_broker_relay", lambda *a, **kw: None)
     for d in (
         "home",
@@ -1838,9 +1847,9 @@ class TestRunIdentityEnvCollection:
     """Test run() collects git/jj identity env vars."""
 
     @patch("subprocess.Popen")
-    @patch("cli.auto_load_image")
-    @patch("cli._check_config_changes", return_value=True)
-    @patch("cli.find_running_container", return_value=None)
+    @patch("cli.run_cmd.auto_load_image")
+    @patch("cli.run_cmd._check_config_changes", return_value=True)
+    @patch("cli.run_cmd.find_running_container", return_value=None)
     @patch("subprocess.run")
     @patch("subprocess.check_output")
     @patch("shutil.which")
@@ -1890,9 +1899,9 @@ class TestRunYoloInjection:
     """Test run() injects --yolo for gemini/copilot commands."""
 
     @patch("subprocess.Popen")
-    @patch("cli.auto_load_image")
-    @patch("cli._check_config_changes", return_value=True)
-    @patch("cli.find_running_container", return_value=None)
+    @patch("cli.run_cmd.auto_load_image")
+    @patch("cli.run_cmd._check_config_changes", return_value=True)
+    @patch("cli.run_cmd.find_running_container", return_value=None)
     @patch("subprocess.run")
     @patch("subprocess.check_output")
     @patch("shutil.which")
@@ -1932,7 +1941,7 @@ class TestRunYoloInjection:
 class TestRunExecIntoExisting:
     """Test run() exec path when container already exists."""
 
-    @patch("cli.find_running_container")
+    @patch("cli.run_cmd.find_running_container")
     @patch("subprocess.run")
     @patch("subprocess.check_output")
     @patch("shutil.which")
@@ -1950,7 +1959,7 @@ class TestRunExecIntoExisting:
         result = runner.invoke(app, ["run", "--", "echo", "hello"])
         assert "Attaching" in result.output
 
-    @patch("cli.find_running_container")
+    @patch("cli.run_cmd.find_running_container")
     @patch("subprocess.run")
     @patch("subprocess.check_output")
     @patch("shutil.which")
@@ -1973,9 +1982,9 @@ class TestRunNewContainerMounts:
     """Test run() new container path with mounts and network config."""
 
     @patch("subprocess.Popen")
-    @patch("cli.auto_load_image")
-    @patch("cli._check_config_changes", return_value=True)
-    @patch("cli.find_running_container", return_value=None)
+    @patch("cli.run_cmd.auto_load_image")
+    @patch("cli.run_cmd._check_config_changes", return_value=True)
+    @patch("cli.run_cmd.find_running_container", return_value=None)
     @patch("subprocess.run")
     @patch("subprocess.check_output")
     @patch("shutil.which")
@@ -2009,9 +2018,9 @@ class TestRunNewContainerMounts:
             assert "--net=host" in run_cmd
 
     @patch("subprocess.Popen")
-    @patch("cli.auto_load_image")
-    @patch("cli._check_config_changes", return_value=True)
-    @patch("cli.find_running_container", return_value=None)
+    @patch("cli.run_cmd.auto_load_image")
+    @patch("cli.run_cmd._check_config_changes", return_value=True)
+    @patch("cli.run_cmd.find_running_container", return_value=None)
     @patch("subprocess.run")
     @patch("subprocess.check_output")
     @patch("shutil.which")
@@ -2048,9 +2057,9 @@ class TestRunNewContainerMounts:
             assert "8000:8000" in run_cmd
 
     @patch("subprocess.Popen")
-    @patch("cli.auto_load_image")
-    @patch("cli._check_config_changes", return_value=True)
-    @patch("cli.find_running_container", return_value=None)
+    @patch("cli.run_cmd.auto_load_image")
+    @patch("cli.run_cmd._check_config_changes", return_value=True)
+    @patch("cli.run_cmd.find_running_container", return_value=None)
     @patch("subprocess.run")
     @patch("subprocess.check_output")
     @patch("shutil.which")
@@ -2091,9 +2100,9 @@ class TestRunNewContainerMounts:
             assert ":ro" in cmd_str
 
     @patch("subprocess.Popen")
-    @patch("cli.auto_load_image")
-    @patch("cli._check_config_changes", return_value=True)
-    @patch("cli.find_running_container", return_value=None)
+    @patch("cli.run_cmd.auto_load_image")
+    @patch("cli.run_cmd._check_config_changes", return_value=True)
+    @patch("cli.run_cmd.find_running_container", return_value=None)
     @patch("subprocess.run")
     @patch("subprocess.check_output")
     @patch("shutil.which")
@@ -2130,9 +2139,9 @@ class TestRunPodman:
     """Test run() runtime-specific command wiring for podman."""
 
     @patch("subprocess.Popen")
-    @patch("cli.auto_load_image")
-    @patch("cli._check_config_changes", return_value=True)
-    @patch("cli.find_running_container", return_value=None)
+    @patch("cli.run_cmd.auto_load_image")
+    @patch("cli.run_cmd._check_config_changes", return_value=True)
+    @patch("cli.run_cmd.find_running_container", return_value=None)
     @patch("subprocess.run")
     @patch("subprocess.check_output")
     @patch("shutil.which")
@@ -2170,9 +2179,9 @@ class TestRunDevicePassthrough:
     """Test run() device passthrough configuration."""
 
     @patch("subprocess.Popen")
-    @patch("cli.auto_load_image")
-    @patch("cli._check_config_changes", return_value=True)
-    @patch("cli.find_running_container", return_value=None)
+    @patch("cli.run_cmd.auto_load_image")
+    @patch("cli.run_cmd._check_config_changes", return_value=True)
+    @patch("cli.run_cmd.find_running_container", return_value=None)
     @patch("subprocess.run")
     @patch("subprocess.check_output")
     @patch("shutil.which")
@@ -2207,9 +2216,9 @@ class TestRunDevicePassthrough:
         )
 
     @patch("subprocess.Popen")
-    @patch("cli.auto_load_image")
-    @patch("cli._check_config_changes", return_value=True)
-    @patch("cli.find_running_container", return_value=None)
+    @patch("cli.run_cmd.auto_load_image")
+    @patch("cli.run_cmd._check_config_changes", return_value=True)
+    @patch("cli.run_cmd.find_running_container", return_value=None)
     @patch("subprocess.run")
     @patch("subprocess.check_output")
     @patch("shutil.which")
@@ -2249,9 +2258,9 @@ class TestRunKvm:
     """KVM passthrough flag wiring (opt-in via `kvm: true`)."""
 
     @patch("subprocess.Popen")
-    @patch("cli.auto_load_image")
-    @patch("cli._check_config_changes", return_value=True)
-    @patch("cli.find_running_container", return_value=None)
+    @patch("cli.run_cmd.auto_load_image")
+    @patch("cli.run_cmd._check_config_changes", return_value=True)
+    @patch("cli.run_cmd.find_running_container", return_value=None)
     @patch("subprocess.run")
     @patch("subprocess.check_output")
     @patch("shutil.which")
@@ -2287,9 +2296,9 @@ class TestRunKvm:
             assert "keep-groups" not in run_cmd
 
     @patch("subprocess.Popen")
-    @patch("cli.auto_load_image")
-    @patch("cli._check_config_changes", return_value=True)
-    @patch("cli.find_running_container", return_value=None)
+    @patch("cli.run_cmd.auto_load_image")
+    @patch("cli.run_cmd._check_config_changes", return_value=True)
+    @patch("cli.run_cmd.find_running_container", return_value=None)
     @patch("subprocess.run")
     @patch("subprocess.check_output")
     @patch("shutil.which")
@@ -2342,9 +2351,9 @@ class TestRunKvm:
         assert run_cmd[ga_idx - 1] == "--group-add"
 
     @patch("subprocess.Popen")
-    @patch("cli.auto_load_image")
-    @patch("cli._check_config_changes", return_value=True)
-    @patch("cli.find_running_container", return_value=None)
+    @patch("cli.run_cmd.auto_load_image")
+    @patch("cli.run_cmd._check_config_changes", return_value=True)
+    @patch("cli.run_cmd.find_running_container", return_value=None)
     @patch("subprocess.run")
     @patch("subprocess.check_output")
     @patch("shutil.which")
@@ -2398,9 +2407,9 @@ class TestRunProfile:
     """Test run() with --profile flag."""
 
     @patch("subprocess.Popen")
-    @patch("cli.auto_load_image")
-    @patch("cli._check_config_changes", return_value=True)
-    @patch("cli.find_running_container", return_value=None)
+    @patch("cli.run_cmd.auto_load_image")
+    @patch("cli.run_cmd._check_config_changes", return_value=True)
+    @patch("cli.run_cmd.find_running_container", return_value=None)
     @patch("subprocess.run")
     @patch("subprocess.check_output")
     @patch("shutil.which")
