@@ -835,11 +835,12 @@ class TestResolveRepoRootInstalled:
         monkeypatch.delenv("YOLO_REPO_ROOT", raising=False)
 
         pkg_dir = tmp_path / "pkg" / "src"
-        pkg_dir.mkdir(parents=True)
+        cli_dir = pkg_dir / "cli"
+        cli_dir.mkdir(parents=True)
         (pkg_dir / "flake.nix").write_text("{ }")
         (pkg_dir / "flake.lock").write_text("{}")
         (pkg_dir / "entrypoint.py").write_text("")
-        (pkg_dir / "cli.py").write_text("")
+        (cli_dir / "__init__.py").write_text("")
 
         build_root = tmp_path / "storage" / "nix-build-root"
         monkeypatch.setattr("cli.GLOBAL_STORAGE", tmp_path / "storage")
@@ -848,7 +849,7 @@ class TestResolveRepoRootInstalled:
 
         original_file = cli.__file__
         try:
-            cli.__file__ = str(pkg_dir / "cli.py")
+            cli.__file__ = str(cli_dir / "__init__.py")
             result = _resolve_repo_root()
             assert result == build_root.resolve()
             assert (build_root / "flake.nix").exists()
@@ -868,11 +869,12 @@ class TestResolveRepoRootInstalled:
         monkeypatch.delenv("YOLO_REPO_ROOT", raising=False)
 
         pkg_dir = tmp_path / "pkg" / "src"
-        pkg_dir.mkdir(parents=True)
+        cli_dir = pkg_dir / "cli"
+        cli_dir.mkdir(parents=True)
         (pkg_dir / "flake.nix").write_text("{ }")
         (pkg_dir / "flake.lock").write_text("{}")
         (pkg_dir / "entrypoint.py").write_text("")
-        (pkg_dir / "cli.py").write_text("")
+        (cli_dir / "__init__.py").write_text("")
 
         build_root = tmp_path / "storage" / "nix-build-root"
         monkeypatch.setattr("cli.GLOBAL_STORAGE", tmp_path / "storage")
@@ -881,19 +883,20 @@ class TestResolveRepoRootInstalled:
 
         original_file = cli.__file__
         try:
-            cli.__file__ = str(pkg_dir / "cli.py")
+            cli.__file__ = str(cli_dir / "__init__.py")
 
             # First call: populates build_root.
             _resolve_repo_root()
-            assert (build_root / "src" / "cli.py").exists()
+            staged_init = build_root / "src" / "cli" / "__init__.py"
+            assert staged_init.exists()
             first_mtime = (build_root / "flake.nix").stat().st_mtime_ns
-            first_inode = (build_root / "src" / "cli.py").stat().st_ino
+            first_inode = staged_init.stat().st_ino
 
             # Second call: should be a no-op.  Build root should be
             # the SAME directory — not replaced via atomic rename —
             # so inode is preserved and mtime is unchanged.
             _resolve_repo_root()
-            second_inode = (build_root / "src" / "cli.py").stat().st_ino
+            second_inode = staged_init.stat().st_ino
             second_mtime = (build_root / "flake.nix").stat().st_mtime_ns
             assert second_inode == first_inode, (
                 "second call should reuse existing build_root, not recreate"
@@ -913,11 +916,12 @@ class TestResolveRepoRootInstalled:
         monkeypatch.delenv("YOLO_REPO_ROOT", raising=False)
 
         pkg_dir = tmp_path / "pkg" / "src"
-        pkg_dir.mkdir(parents=True)
+        cli_dir = pkg_dir / "cli"
+        cli_dir.mkdir(parents=True)
         (pkg_dir / "flake.nix").write_text("{ }")
         (pkg_dir / "flake.lock").write_text("{}")
         (pkg_dir / "entrypoint.py").write_text("")
-        (pkg_dir / "cli.py").write_text("")
+        (cli_dir / "__init__.py").write_text("")
 
         build_root = tmp_path / "storage" / "nix-build-root"
         # Simulate the empty-dir bug: build_root exists but has no content.
@@ -928,10 +932,10 @@ class TestResolveRepoRootInstalled:
 
         original_file = cli.__file__
         try:
-            cli.__file__ = str(pkg_dir / "cli.py")
+            cli.__file__ = str(cli_dir / "__init__.py")
             _resolve_repo_root()
             assert (build_root / "flake.nix").is_file()
-            assert (build_root / "src" / "cli.py").is_file()
+            assert (build_root / "src" / "cli" / "__init__.py").is_file()
         finally:
             cli.__file__ = original_file
 
@@ -945,10 +949,10 @@ class TestResolveRepoRootInstalled:
 
         original_file = cli.__file__
         try:
-            fake_dir = tmp_path / "no-flake"
-            fake_dir.mkdir()
-            (fake_dir / "cli.py").write_text("")
-            cli.__file__ = str(fake_dir / "cli.py")
+            fake_dir = tmp_path / "no-flake" / "src" / "cli"
+            fake_dir.mkdir(parents=True)
+            (fake_dir / "__init__.py").write_text("")
+            cli.__file__ = str(fake_dir / "__init__.py")
 
             user_config = tmp_path / "config.jsonc"
             repo_dir = tmp_path / "repo"
@@ -972,10 +976,10 @@ class TestResolveRepoRootInstalled:
 
         original_file = cli.__file__
         try:
-            fake_dir = tmp_path / "no-flake"
-            fake_dir.mkdir()
-            (fake_dir / "cli.py").write_text("")
-            cli.__file__ = str(fake_dir / "cli.py")
+            fake_dir = tmp_path / "no-flake" / "src" / "cli"
+            fake_dir.mkdir(parents=True)
+            (fake_dir / "__init__.py").write_text("")
+            cli.__file__ = str(fake_dir / "__init__.py")
             monkeypatch.setattr("cli.USER_CONFIG_PATH", tmp_path / "no-config")
 
             with pytest.raises((SystemExit, RuntimeError)):

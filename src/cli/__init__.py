@@ -286,12 +286,14 @@ def _resolve_repo_root() -> Path:
             return p.resolve()
 
     # 2. Running from source checkout (dev mode)
-    source_root = Path(__file__).parent.parent
+    # __file__ is src/cli/__init__.py — repo root is two parents up.
+    source_root = Path(__file__).parent.parent.parent
     if (source_root / "flake.nix").exists():
         return source_root.resolve()
 
     # 3. Installed package — flake.nix bundled as package data in src/
-    pkg_dir = Path(__file__).parent
+    # (so its parent dir, not the cli package, is what we check).
+    pkg_dir = Path(__file__).parent.parent
     if (pkg_dir / "flake.nix").exists():
         build_root = GLOBAL_STORAGE / "nix-build-root"
         build_root.mkdir(parents=True, exist_ok=True)
@@ -303,7 +305,7 @@ def _resolve_repo_root() -> Path:
         # build_root already matches the wheel's flake.nix mtime and
         # has at least cli.py in place.
         try:
-            src_cli = build_root / "src" / "cli.py"
+            src_cli = build_root / "src" / "cli" / "__init__.py"
             br_flake = build_root / "flake.nix"
             pkg_flake_mtime = (pkg_dir / "flake.nix").stat().st_mtime_ns
             if (
