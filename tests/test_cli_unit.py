@@ -3915,7 +3915,7 @@ class TestBrokerCredsFreshness:
         return creds_file
 
     def _run(self, monkeypatch, tmp_path):
-        monkeypatch.setattr("cli.GLOBAL_HOME", tmp_path / "home")
+        monkeypatch.setattr("cli.check_cmd.GLOBAL_HOME", tmp_path / "home")
         events: list = []
         cli._check_broker_creds_freshness(
             lambda m, *a, **kw: events.append(("ok", m)),
@@ -3966,7 +3966,7 @@ class TestBrokerCredsFreshness:
         assert events == [], f"expected silent skip when creds absent, got {events}"
 
     def test_warn_when_creds_unreadable(self, monkeypatch, tmp_path):
-        monkeypatch.setattr("cli.GLOBAL_HOME", tmp_path / "home")
+        monkeypatch.setattr("cli.check_cmd.GLOBAL_HOME", tmp_path / "home")
         creds_dir = tmp_path / "home" / ".claude-shared-credentials"
         creds_dir.mkdir(parents=True)
         (creds_dir / ".credentials.json").write_text("not json {{{")
@@ -3984,7 +3984,7 @@ class TestBrokerCredsFreshness:
         # ``ensure_global_storage`` touches the credentials file as a
         # zero-byte mount-point placeholder before the first /login.
         # Treat that as "pre-login" (silent), not "unreadable" (warn).
-        monkeypatch.setattr("cli.GLOBAL_HOME", tmp_path / "home")
+        monkeypatch.setattr("cli.check_cmd.GLOBAL_HOME", tmp_path / "home")
         creds_dir = tmp_path / "home" / ".claude-shared-credentials"
         creds_dir.mkdir(parents=True)
         (creds_dir / ".credentials.json").touch()

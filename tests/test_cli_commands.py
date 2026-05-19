@@ -1456,6 +1456,14 @@ def _check_monkeypatch(monkeypatch, tmp_path, *, create_dirs=True):
     monkeypatch.setattr("cli.AGENTS_DIR", tmp_path / "agents")
     monkeypatch.setattr("cli.BUILD_DIR", tmp_path / "build")
     monkeypatch.setattr("cli.USER_CONFIG_PATH", tmp_path / "user-config.jsonc")
+    # The check command body lives in cli.check_cmd; patch its module-local
+    # bindings too so the redirection actually reaches the call sites.
+    monkeypatch.setattr("cli.check_cmd.GLOBAL_HOME", tmp_path / "home")
+    monkeypatch.setattr("cli.check_cmd.GLOBAL_MISE", tmp_path / "mise")
+    monkeypatch.setattr("cli.check_cmd.CONTAINER_DIR", tmp_path / "containers")
+    monkeypatch.setattr("cli.check_cmd.AGENTS_DIR", tmp_path / "agents")
+    monkeypatch.setattr("cli.check_cmd.BUILD_DIR", tmp_path / "build")
+    monkeypatch.setattr("cli.check_cmd.USER_CONFIG_PATH", tmp_path / "user-config.jsonc")
     monkeypatch.setattr("cli.runtime._runtime_is_connectable", lambda rt: True)
     if create_dirs:
         for d in ("home", "mise", "containers", "agents", "build"):
@@ -1622,7 +1630,7 @@ class TestCheckNixBuildSection:
 
     @patch("subprocess.run")
     @patch("shutil.which")
-    @patch("cli._build_image_store_path")
+    @patch("cli.check_cmd._build_image_store_path")
     def test_nix_build_success(
         self, mock_build, mock_which, mock_run, tmp_path, monkeypatch
     ):
@@ -1640,7 +1648,7 @@ class TestCheckNixBuildSection:
 
     @patch("subprocess.run")
     @patch("shutil.which")
-    @patch("cli._build_image_store_path")
+    @patch("cli.check_cmd._build_image_store_path")
     def test_nix_build_failure(
         self, mock_build, mock_which, mock_run, tmp_path, monkeypatch
     ):
