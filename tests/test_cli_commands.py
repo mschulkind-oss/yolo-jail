@@ -572,10 +572,10 @@ class TestStartHostPortForwarding:
 
 
 class TestInitUserConfig:
-    @patch("cli.USER_CONFIG_PATH")
+    @patch("cli.init_cmd.USER_CONFIG_PATH")
     def test_creates_user_config(self, mock_path, tmp_path, monkeypatch):
         config_path = tmp_path / "config.jsonc"
-        monkeypatch.setattr("cli.USER_CONFIG_PATH", config_path)
+        monkeypatch.setattr("cli.init_cmd.USER_CONFIG_PATH", config_path)
         runner = CliRunner()
         result = runner.invoke(app, ["init-user-config"])
         assert result.exit_code == 0
@@ -583,7 +583,7 @@ class TestInitUserConfig:
 
     def test_init_user_config_idempotent(self, tmp_path, monkeypatch):
         config_path = tmp_path / "config.jsonc"
-        monkeypatch.setattr("cli.USER_CONFIG_PATH", config_path)
+        monkeypatch.setattr("cli.init_cmd.USER_CONFIG_PATH", config_path)
         runner = CliRunner()
         runner.invoke(app, ["init-user-config"])
         result = runner.invoke(app, ["init-user-config"])

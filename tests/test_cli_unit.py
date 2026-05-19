@@ -2542,7 +2542,7 @@ class TestCliRunner:
         from cli import app
 
         user_config = tmp_path / "config.jsonc"
-        monkeypatch.setattr(cli, "USER_CONFIG_PATH", user_config)
+        monkeypatch.setattr("cli.init_cmd.USER_CONFIG_PATH", user_config)
 
         runner = CliRunner()
         runner.invoke(app, ["init-user-config"])
