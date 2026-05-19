@@ -40,15 +40,53 @@ class TestAutoLoadImage:
     @patch("cli._read_loaded_paths")
     @patch("cli._add_loaded_path")
     @patch("subprocess.Popen")
+    @patch("subprocess.run")
     @patch("cli._estimate_image_size", return_value=0)
-    def test_skips_load_when_already_loaded(
-        self, mock_est, mock_popen, mock_add, mock_read, mock_build, tmp_path
+    def test_skips_load_when_already_loaded_and_image_present(
+        self, mock_est, mock_run, mock_popen, mock_add, mock_read, mock_build, tmp_path
     ):
         mock_build.return_value = ("/nix/store/abc", [])
         mock_read.return_value = {"/nix/store/abc"}  # Already loaded
+        mock_run.return_value = MagicMock(returncode=0)  # image inspect succeeds
         with patch("cli.BUILD_DIR", tmp_path):
             auto_load_image(tmp_path, runtime="podman")
         mock_popen.assert_not_called()  # No streaming needed
+        mock_add.assert_not_called()  # Sentinel not rewritten
+
+    @patch("cli._build_image_store_path")
+    @patch("cli._read_loaded_paths")
+    @patch("cli._add_loaded_path")
+    @patch("cli._estimate_image_size", return_value=100_000_000)
+    def test_reloads_when_sentinel_says_loaded_but_image_missing(
+        self, mock_est, mock_add, mock_read, mock_build, tmp_path
+    ):
+        """Regression: sentinel can lie if podman storage was pruned/reset.
+        Without re-verifying, podman run falls back to a registry pull
+        ('Trying to pull docker://localhost/yolo-jail:latest')."""
+        mock_build.return_value = ("/nix/store/abc", [])
+        mock_read.return_value = {"/nix/store/abc"}  # Sentinel claims loaded
+
+        stream_proc = MagicMock()
+        stream_proc.stdout.read.side_effect = [b"x" * 1024, b""]
+        stream_proc.returncode = 0
+        stream_proc.wait.return_value = None
+
+        # First subprocess.run is the image inspect (returncode=1 → missing).
+        # Subsequent subprocess.run calls are the load — return rc=0.
+        run_results = [
+            MagicMock(returncode=1, stderr=b""),  # inspect: image NOT present
+            MagicMock(returncode=0, stderr=b""),  # load: success
+        ]
+
+        with (
+            patch("cli.BUILD_DIR", tmp_path),
+            patch("cli.GLOBAL_CACHE", tmp_path / "cache"),
+            patch("subprocess.Popen", return_value=stream_proc),
+            patch("subprocess.run", side_effect=run_results),
+        ):
+            auto_load_image(tmp_path, runtime="podman")
+
+        mock_add.assert_called_once()  # Reloaded → sentinel rewritten
 
     @patch("cli._build_image_store_path")
     @patch("subprocess.run")

@@ -3682,12 +3682,28 @@ def auto_load_image(
         )
         return
 
-    # 2. Check if this store path has already been loaded into the runtime
+    # 2. Check if this store path has already been loaded into the runtime.
+    # The sentinel can lie: podman storage may have been pruned, reset, or
+    # migrated since the sentinel was written. Verify the image actually
+    # exists in the runtime — if not, force a reload regardless of sentinel.
     loaded_paths = _read_loaded_paths(sentinel)
+    image_name = _jail_image(runtime)
+    image_present = (
+        subprocess.run(
+            _image_inspect_cmd(runtime, image_name),
+            capture_output=True,
+        ).returncode
+        == 0
+    )
 
-    if current_path not in loaded_paths:
+    if current_path not in loaded_paths or not image_present:
         # Print the reason for the reload
-        if not loaded_paths:
+        if not image_present and current_path in loaded_paths:
+            console.print(
+                f"[bold blue]Image load needed:[/bold blue] sentinel claims loaded, "
+                f"but {image_name} is missing from {runtime} (storage reset / pruned?)"
+            )
+        elif not loaded_paths:
             console.print(
                 f"[bold blue]Image load needed:[/bold blue] first run (no images loaded into {runtime} yet)"
             )
@@ -7191,6 +7207,11 @@ def run(
         # passed (otherwise: "crun: unlink /dev/console: Read-only file system").
         run_flags.append("--read-only-tmpfs=false")
     if runtime == "podman":
+        # Never let podman fall back to a registry pull. The image is built
+        # locally by nix and loaded by auto_load_image; if it isn't present
+        # at run time, that's a bug we want to see — not a confusing
+        # "Trying to pull docker://localhost/yolo-jail:latest" retry loop.
+        run_flags.extend(["--pull=never"])
         # Don't capture container stdout/stderr anywhere.  The default log
         # driver on systemd hosts is journald, which means every interactive
         # TUI redraw (Claude Code's status line, vim scrolls, progress bars)
