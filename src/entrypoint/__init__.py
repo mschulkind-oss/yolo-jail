@@ -111,7 +111,9 @@ DEFAULT_LSP_SERVERS = {
 
 
 # Stand-alone scripts dropped into the jail's PATH live in entrypoint/scripts.py;
-# re-import so callers (and tests) keep using ``entrypoint.generate_*_script``.
+# git/jj identity injection lives in entrypoint/identity.py.  Re-import so
+# callers (and tests) keep using the bare names on the package.
+from .identity import configure_git, configure_jj  # noqa: E402
 from .scripts import (  # noqa: E402
     generate_cglimit_script,
     generate_journalctl_script,
@@ -951,46 +953,6 @@ exec /bin/npx "$@"
 # ---------------------------------------------------------------------------
 # 6. Git config
 # ---------------------------------------------------------------------------
-
-
-def configure_git():
-    """Set git name, email, and global gitignore from host env vars."""
-    if not shutil.which("git"):
-        return
-    env = os.environ
-    if env.get("YOLO_GIT_NAME"):
-        subprocess.run(
-            ["git", "config", "--global", "user.name", env["YOLO_GIT_NAME"]],
-            capture_output=True,
-        )
-    if env.get("YOLO_GIT_EMAIL"):
-        subprocess.run(
-            ["git", "config", "--global", "user.email", env["YOLO_GIT_EMAIL"]],
-            capture_output=True,
-        )
-    gitignore = env.get("YOLO_GLOBAL_GITIGNORE", "")
-    if gitignore and Path(gitignore).is_file():
-        subprocess.run(
-            ["git", "config", "--global", "core.excludesFile", gitignore],
-            capture_output=True,
-        )
-
-
-def configure_jj():
-    """Set jj user identity from host env vars."""
-    if not shutil.which("jj"):
-        return
-    env = os.environ
-    if env.get("YOLO_JJ_NAME"):
-        subprocess.run(
-            ["jj", "config", "set", "--user", "user.name", env["YOLO_JJ_NAME"]],
-            capture_output=True,
-        )
-    if env.get("YOLO_JJ_EMAIL"):
-        subprocess.run(
-            ["jj", "config", "set", "--user", "user.email", env["YOLO_JJ_EMAIL"]],
-            capture_output=True,
-        )
 
 
 # ---------------------------------------------------------------------------
