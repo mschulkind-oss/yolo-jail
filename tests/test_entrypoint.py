@@ -1282,7 +1282,7 @@ class TestContainerPortForwarding:
         """Integer entry: forward same port via Unix socket."""
         monkeypatch.setenv("YOLO_FORWARD_HOST_PORTS", "[5432]")
         # Create a fake socket file so the function finds it
-        monkeypatch.setattr(entrypoint, "FORWARD_SOCKET_DIR", tmp_path)
+        monkeypatch.setattr("entrypoint.runtime.FORWARD_SOCKET_DIR", tmp_path)
         (tmp_path / "port-5432.sock").touch()
         launched = []
 
@@ -1297,7 +1297,7 @@ class TestContainerPortForwarding:
             return FakeProc()
 
         monkeypatch.setattr(_subprocess, "Popen", mock_popen)
-        monkeypatch.setattr(entrypoint, "_port_in_use", lambda p: False)
+        monkeypatch.setattr("entrypoint.runtime._port_in_use", lambda p: False)
         entrypoint.start_container_port_forwarding()
 
         assert len(launched) == 1
@@ -1310,7 +1310,7 @@ class TestContainerPortForwarding:
     def test_string_remap_port(self, monkeypatch, tmp_path):
         """String 'local:host' entry: listens on local port, connects to host port socket."""
         monkeypatch.setenv("YOLO_FORWARD_HOST_PORTS", '["8080:9090"]')
-        monkeypatch.setattr(entrypoint, "FORWARD_SOCKET_DIR", tmp_path)
+        monkeypatch.setattr("entrypoint.runtime.FORWARD_SOCKET_DIR", tmp_path)
         # Socket file is named after the LOCAL port
         (tmp_path / "port-8080.sock").touch()
         launched = []
@@ -1326,7 +1326,7 @@ class TestContainerPortForwarding:
             return FakeProc()
 
         monkeypatch.setattr(_subprocess, "Popen", mock_popen)
-        monkeypatch.setattr(entrypoint, "_port_in_use", lambda p: False)
+        monkeypatch.setattr("entrypoint.runtime._port_in_use", lambda p: False)
         entrypoint.start_container_port_forwarding()
 
         assert len(launched) == 1
@@ -1336,7 +1336,7 @@ class TestContainerPortForwarding:
     def test_string_no_colon_same_port(self, monkeypatch, tmp_path):
         """Plain string '5432' treated as same port both sides."""
         monkeypatch.setenv("YOLO_FORWARD_HOST_PORTS", '["5432"]')
-        monkeypatch.setattr(entrypoint, "FORWARD_SOCKET_DIR", tmp_path)
+        monkeypatch.setattr("entrypoint.runtime.FORWARD_SOCKET_DIR", tmp_path)
         (tmp_path / "port-5432.sock").touch()
         launched = []
 
@@ -1351,7 +1351,7 @@ class TestContainerPortForwarding:
             return FakeProc()
 
         monkeypatch.setattr(_subprocess, "Popen", mock_popen)
-        monkeypatch.setattr(entrypoint, "_port_in_use", lambda p: False)
+        monkeypatch.setattr("entrypoint.runtime._port_in_use", lambda p: False)
         entrypoint.start_container_port_forwarding()
 
         assert len(launched) == 1
@@ -1360,7 +1360,7 @@ class TestContainerPortForwarding:
     def test_multiple_ports(self, monkeypatch, tmp_path):
         """Multiple ports in one config."""
         monkeypatch.setenv("YOLO_FORWARD_HOST_PORTS", '[5432, 6379, "8080:9090"]')
-        monkeypatch.setattr(entrypoint, "FORWARD_SOCKET_DIR", tmp_path)
+        monkeypatch.setattr("entrypoint.runtime.FORWARD_SOCKET_DIR", tmp_path)
         for name in ["port-5432.sock", "port-6379.sock", "port-8080.sock"]:
             (tmp_path / name).touch()
         launched = []
@@ -1376,7 +1376,7 @@ class TestContainerPortForwarding:
             return FakeProc()
 
         monkeypatch.setattr(_subprocess, "Popen", mock_popen)
-        monkeypatch.setattr(entrypoint, "_port_in_use", lambda p: False)
+        monkeypatch.setattr("entrypoint.runtime._port_in_use", lambda p: False)
         entrypoint.start_container_port_forwarding()
 
         assert len(launched) == 3
@@ -1384,7 +1384,7 @@ class TestContainerPortForwarding:
     def test_skips_port_already_in_use(self, monkeypatch, tmp_path):
         """Port already bound → skip, no socat launched."""
         monkeypatch.setenv("YOLO_FORWARD_HOST_PORTS", "[5432]")
-        monkeypatch.setattr(entrypoint, "FORWARD_SOCKET_DIR", tmp_path)
+        monkeypatch.setattr("entrypoint.runtime.FORWARD_SOCKET_DIR", tmp_path)
         (tmp_path / "port-5432.sock").touch()
         launched = []
 
@@ -1399,7 +1399,7 @@ class TestContainerPortForwarding:
             return FakeProc()
 
         monkeypatch.setattr(_subprocess, "Popen", mock_popen)
-        monkeypatch.setattr(entrypoint, "_port_in_use", lambda p: True)
+        monkeypatch.setattr("entrypoint.runtime._port_in_use", lambda p: True)
         entrypoint.start_container_port_forwarding()
 
         assert len(launched) == 0
@@ -1407,7 +1407,7 @@ class TestContainerPortForwarding:
     def test_missing_socket_warns_and_skips(self, monkeypatch, tmp_path, capsys):
         """Socket file not found → warning, skip that port."""
         monkeypatch.setenv("YOLO_FORWARD_HOST_PORTS", "[5432]")
-        monkeypatch.setattr(entrypoint, "FORWARD_SOCKET_DIR", tmp_path)
+        monkeypatch.setattr("entrypoint.runtime.FORWARD_SOCKET_DIR", tmp_path)
         # Don't create the socket file
         launched = []
 
@@ -1422,7 +1422,7 @@ class TestContainerPortForwarding:
             return FakeProc()
 
         monkeypatch.setattr(_subprocess, "Popen", mock_popen)
-        monkeypatch.setattr(entrypoint, "_port_in_use", lambda p: False)
+        monkeypatch.setattr("entrypoint.runtime._port_in_use", lambda p: False)
         entrypoint.start_container_port_forwarding()
 
         assert len(launched) == 0
@@ -1431,7 +1431,7 @@ class TestContainerPortForwarding:
     def test_invalid_entry_warns_and_continues(self, monkeypatch, tmp_path, capsys):
         """Non-int/non-string entries warn but don't stop other ports."""
         monkeypatch.setenv("YOLO_FORWARD_HOST_PORTS", '[5432, {"bad": true}, 6379]')
-        monkeypatch.setattr(entrypoint, "FORWARD_SOCKET_DIR", tmp_path)
+        monkeypatch.setattr("entrypoint.runtime.FORWARD_SOCKET_DIR", tmp_path)
         (tmp_path / "port-5432.sock").touch()
         (tmp_path / "port-6379.sock").touch()
         launched = []
@@ -1447,7 +1447,7 @@ class TestContainerPortForwarding:
             return FakeProc()
 
         monkeypatch.setattr(_subprocess, "Popen", mock_popen)
-        monkeypatch.setattr(entrypoint, "_port_in_use", lambda p: False)
+        monkeypatch.setattr("entrypoint.runtime._port_in_use", lambda p: False)
         entrypoint.start_container_port_forwarding()
 
         assert len(launched) == 2  # 5432 and 6379 — dict entry skipped
@@ -1456,7 +1456,7 @@ class TestContainerPortForwarding:
     def test_socat_not_found_warns(self, monkeypatch, tmp_path, capsys):
         """FileNotFoundError from socat → warning, early return."""
         monkeypatch.setenv("YOLO_FORWARD_HOST_PORTS", "[5432, 6379]")
-        monkeypatch.setattr(entrypoint, "FORWARD_SOCKET_DIR", tmp_path)
+        monkeypatch.setattr("entrypoint.runtime.FORWARD_SOCKET_DIR", tmp_path)
         (tmp_path / "port-5432.sock").touch()
         (tmp_path / "port-6379.sock").touch()
 
@@ -1466,7 +1466,7 @@ class TestContainerPortForwarding:
             raise FileNotFoundError("socat")
 
         monkeypatch.setattr(_subprocess, "Popen", mock_popen)
-        monkeypatch.setattr(entrypoint, "_port_in_use", lambda p: False)
+        monkeypatch.setattr("entrypoint.runtime._port_in_use", lambda p: False)
         entrypoint.start_container_port_forwarding()
 
         assert "socat not found" in capsys.readouterr().err
@@ -1985,7 +1985,9 @@ class TestSupervisorSingleInstance:
 
     def test_first_call_spawns_supervisor(self, jail_home, monkeypatch, tmp_path):
         self._set_daemons_env(monkeypatch)
-        monkeypatch.setattr(entrypoint, "SUPERVISOR_PID_FILE", tmp_path / "sup.pid")
+        monkeypatch.setattr(
+            "entrypoint.runtime.SUPERVISOR_PID_FILE", tmp_path / "sup.pid"
+        )
 
         popen_called = {"n": 0}
 
@@ -2009,7 +2011,7 @@ class TestSupervisorSingleInstance:
         # os.getpid() is guaranteed-live — use it as "the running supervisor".
         pid_file = tmp_path / "sup.pid"
         pid_file.write_text(str(os.getpid()))
-        monkeypatch.setattr(entrypoint, "SUPERVISOR_PID_FILE", pid_file)
+        monkeypatch.setattr("entrypoint.runtime.SUPERVISOR_PID_FILE", pid_file)
 
         popen_called = {"n": 0}
 
@@ -2031,7 +2033,7 @@ class TestSupervisorSingleInstance:
         # PID 999999 is very unlikely to exist; test would be flaky if
         # it did, so fake the liveness probe to be deterministic.
         pid_file.write_text("999999")
-        monkeypatch.setattr(entrypoint, "SUPERVISOR_PID_FILE", pid_file)
+        monkeypatch.setattr("entrypoint.runtime.SUPERVISOR_PID_FILE", pid_file)
 
         def fake_kill(pid, sig):
             raise ProcessLookupError("no such pid")
@@ -2056,7 +2058,9 @@ class TestSupervisorSingleInstance:
         the pre-guard behavior.  Guard must not add work for loopholes
         with nothing to supervise."""
         monkeypatch.delenv("YOLO_JAIL_DAEMONS", raising=False)
-        monkeypatch.setattr(entrypoint, "SUPERVISOR_PID_FILE", tmp_path / "sup.pid")
+        monkeypatch.setattr(
+            "entrypoint.runtime.SUPERVISOR_PID_FILE", tmp_path / "sup.pid"
+        )
 
         popen_called = {"n": 0}
 
