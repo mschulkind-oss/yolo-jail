@@ -356,14 +356,6 @@ app.command()(ps)
 app.command()(doctor)
 
 
-
-
-
-
-
-
-
-
 # ---------------------------------------------------------------------------
 # yolo loopholes — list / status / enable / disable.
 # Subcommand definitions live in cli/loopholes_cmd.py.

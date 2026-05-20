@@ -68,6 +68,7 @@ from .network import (
     cleanup_port_forwarding,
     start_host_port_forwarding,
 )
+
 # Several of these path constants aren't *referenced* by run() directly,
 # but tests `monkeypatch.setattr("cli.run_cmd.GLOBAL_MISE", ...)` to
 # redirect filesystem layout — the patch fails ATTRIBUTE-not-found if
@@ -109,7 +110,12 @@ from .storage import (
     ensure_global_storage,
 )
 from .terminal import _print_startup_banner, _tmux_rename_window
-from .version import _container_baked_yolo_version, _get_yolo_version, _git_describe_version
+from .version import (
+    _container_baked_yolo_version,
+    _get_yolo_version,
+    _git_describe_version,
+)
+
 
 def _resolve_repo_root() -> Path:
     """Find the yolo-jail repo root for nix image builds.
@@ -220,16 +226,6 @@ def _resolve_repo_root() -> Path:
     raise typer.Exit(1)
 
 
-
-
-
-
-
-
-
-
-
-
 # ---------------------------------------------------------------------------
 # Host services: split the jail boundary with outside-the-jail processes
 # ---------------------------------------------------------------------------
@@ -271,19 +267,6 @@ def _resolve_repo_root() -> Path:
 # ---------------------------------------------------------------------------
 
 
-
-
-
-
-
-
-
-
-
-
-
-
-
 def _workspace_readonly_mount_args(
     workspace: Path, config: Dict[str, Any]
 ) -> List[str]:
@@ -323,7 +306,6 @@ def _workspace_readonly_mount_args(
             continue
         args.extend(["-v", f"{host_subpath}:/workspace/{rel}:ro"])
     return args
-
 
 
 def _entrypoint_preflight(repo_root: Path, workspace: Path, config: Dict[str, Any]):
@@ -389,15 +371,6 @@ print("ok")
                 part for part in (result.stdout.strip(), result.stderr.strip()) if part
             )
             raise ConfigError(details or "entrypoint dry-run failed")
-
-
-
-
-
-
-
-
-
 
 
 def _inject_agent_yolo_flags(full_command: "list[str]") -> None:
@@ -1855,8 +1828,6 @@ def run(
         )
 
     sys.exit(proc.returncode)
-
-
 
 
 def ps():

@@ -427,8 +427,6 @@ def _check_host_service_liveness(ok, warn, fail) -> None:
                     pass
 
 
-
-
 def check(
     build: bool = typer.Option(
         True,

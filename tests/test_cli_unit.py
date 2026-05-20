@@ -3256,7 +3256,9 @@ class TestBrokerSingleton:
         file is missing, so wheel-upgrade-orphans are cleaned up."""
         sock, pidf, cli = self._patch_paths(monkeypatch, tmp_path)
         # Stray broker found via pgrep, no PID file.
-        monkeypatch.setattr("cli.loopholes_runtime._broker_pgrep_strays", lambda: [42, 43])
+        monkeypatch.setattr(
+            "cli.loopholes_runtime._broker_pgrep_strays", lambda: [42, 43]
+        )
 
         signals: list = []
 
@@ -3339,7 +3341,9 @@ class TestBrokerSingleton:
             sock.touch()
             return True
 
-        monkeypatch.setattr("cli.loopholes_runtime._broker_wait_for_socket", fake_wait_for_socket)
+        monkeypatch.setattr(
+            "cli.loopholes_runtime._broker_wait_for_socket", fake_wait_for_socket
+        )
 
         cli._broker_spawn()
         _first_pid = pidf.read_text().strip()
@@ -3378,7 +3382,8 @@ class TestBrokerSingleton:
         import cli
 
         self._patch_paths(monkeypatch, tmp_path)
-        monkeypatch.setattr("cli.broker_cmd._broker_status",
+        monkeypatch.setattr(
+            "cli.broker_cmd._broker_status",
             lambda: {
                 "pid": 123,
                 "pid_live": True,
@@ -3397,7 +3402,8 @@ class TestBrokerSingleton:
         import cli
 
         self._patch_paths(monkeypatch, tmp_path)
-        monkeypatch.setattr("cli.broker_cmd._broker_status",
+        monkeypatch.setattr(
+            "cli.broker_cmd._broker_status",
             lambda: {
                 "pid": None,
                 "pid_live": False,

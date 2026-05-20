@@ -606,7 +606,9 @@ class TestMacosDoctor:
         monkeypatch.setattr(cli, "GLOBAL_STORAGE", tmp_path / "storage")
         monkeypatch.setattr("cli.check_cmd.GLOBAL_STORAGE", tmp_path / "storage")
         monkeypatch.setattr(cli, "USER_CONFIG_PATH", tmp_path / "user-config.jsonc")
-        monkeypatch.setattr("cli.check_cmd.USER_CONFIG_PATH", tmp_path / "user-config.jsonc")
+        monkeypatch.setattr(
+            "cli.check_cmd.USER_CONFIG_PATH", tmp_path / "user-config.jsonc"
+        )
         (tmp_path / "home").mkdir(exist_ok=True)
         (tmp_path / "mise").mkdir(exist_ok=True)
         (tmp_path / "storage").mkdir(exist_ok=True)
@@ -647,7 +649,9 @@ class TestMacosDoctor:
         monkeypatch.setattr(cli, "GLOBAL_STORAGE", tmp_path / "storage")
         monkeypatch.setattr("cli.check_cmd.GLOBAL_STORAGE", tmp_path / "storage")
         monkeypatch.setattr(cli, "USER_CONFIG_PATH", tmp_path / "user-config.jsonc")
-        monkeypatch.setattr("cli.check_cmd.USER_CONFIG_PATH", tmp_path / "user-config.jsonc")
+        monkeypatch.setattr(
+            "cli.check_cmd.USER_CONFIG_PATH", tmp_path / "user-config.jsonc"
+        )
         (tmp_path / "home").mkdir(exist_ok=True)
         (tmp_path / "mise").mkdir(exist_ok=True)
         (tmp_path / "storage").mkdir(exist_ok=True)
@@ -687,7 +691,9 @@ class TestMacosDoctor:
         monkeypatch.setattr(cli, "GLOBAL_STORAGE", tmp_path / "storage")
         monkeypatch.setattr("cli.check_cmd.GLOBAL_STORAGE", tmp_path / "storage")
         monkeypatch.setattr(cli, "USER_CONFIG_PATH", tmp_path / "user-config.jsonc")
-        monkeypatch.setattr("cli.check_cmd.USER_CONFIG_PATH", tmp_path / "user-config.jsonc")
+        monkeypatch.setattr(
+            "cli.check_cmd.USER_CONFIG_PATH", tmp_path / "user-config.jsonc"
+        )
         (tmp_path / "home").mkdir(exist_ok=True)
         (tmp_path / "mise").mkdir(exist_ok=True)
         (tmp_path / "storage").mkdir(exist_ok=True)

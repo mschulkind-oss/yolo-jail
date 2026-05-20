@@ -1,12 +1,12 @@
 """Per-workspace AGENTS.md / CLAUDE.md generation and host-skill staging.
 
-  * generate_agents_md emits the in-jail briefing files (one per agent —
-    Copilot, Gemini, Claude) into AGENTS_DIR/<cname>/.  The files are
-    bind-mounted into the jail at boot; their content is the agent's
-    primary source of truth for how this jail is set up.
-  * _prepare_skills + _copy_skill_subdirs merge built-in jail-startup
-    plus host-level ~/.copilot/skills, ~/.gemini/skills, ~/.claude/skills
-    into a staging directory that gets bind-mounted :ro per agent.
+* generate_agents_md emits the in-jail briefing files (one per agent —
+  Copilot, Gemini, Claude) into AGENTS_DIR/<cname>/.  The files are
+  bind-mounted into the jail at boot; their content is the agent's
+  primary source of truth for how this jail is set up.
+* _prepare_skills + _copy_skill_subdirs merge built-in jail-startup
+  plus host-level ~/.copilot/skills, ~/.gemini/skills, ~/.claude/skills
+  into a staging directory that gets bind-mounted :ro per agent.
 """
 
 import shutil

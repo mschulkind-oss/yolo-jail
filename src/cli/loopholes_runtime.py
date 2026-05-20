@@ -593,7 +593,6 @@ def _broker_status() -> Dict[str, Any]:
     }
 
 
-
 def _validate_cgroup_name(name: str) -> bool:
     """Validate that a cgroup name is safe (no path traversal)."""
     return (
