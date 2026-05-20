@@ -889,7 +889,7 @@ def check(
     try:
         if repo_root is None:
             raise ConfigError("repo root resolution failed")
-        if not (repo_root / "src" / "entrypoint.py").exists():
+        if not (repo_root / "src" / "entrypoint" / "__init__.py").exists():
             raise ConfigError(f"entrypoint source not found under {repo_root}")
         _entrypoint_preflight(repo_root, workspace, config)
         ok("Generated Copilot/Gemini/Claude jail config in a temp home")

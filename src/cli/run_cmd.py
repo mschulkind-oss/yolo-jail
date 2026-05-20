@@ -143,7 +143,9 @@ def _resolve_repo_root() -> Path:
     env_val = os.environ.get("YOLO_REPO_ROOT")
     if env_val:
         p = Path(env_val)
-        if (p / "flake.nix").exists() or (p / "src" / "entrypoint.py").exists():
+        if (p / "flake.nix").exists() or (
+            p / "src" / "entrypoint" / "__init__.py"
+        ).exists():
             return p.resolve()
 
     # 2. Running from source checkout (dev mode)
