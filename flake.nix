@@ -307,12 +307,16 @@
           withNestedPodman = false;
         };
 
-        # Derivation for the Python entrypoint (runs inside Linux container)
-        entrypointScript = pkgs.writeTextFile {
-          name = "yolo-entrypoint-py";
-          text = builtins.readFile ./src/entrypoint.py;
-          destination = "/lib/yolo-entrypoint.py";
-        };
+        # Derivation for the Python entrypoint package (runs inside Linux
+        # container).  src/entrypoint/ used to be a single file; the
+        # package is now a directory tree.  Copy it under
+        # /lib/python/entrypoint/ so adding /lib/python to PYTHONPATH
+        # exposes ``import entrypoint`` (matching the host-side import
+        # used by cli.run_cmd's preflight subprocess).
+        entrypointPkg = pkgs.runCommand "yolo-entrypoint-pkg" { } ''
+          mkdir -p $out/lib/python/entrypoint
+          cp -r ${./src/entrypoint}/. $out/lib/python/entrypoint/
+        '';
         # Use pkgs.writeTextFile (host) instead of imagePkgs.writeShellScriptBin
         # so building these wrappers does not require a Linux builder on macOS.
         # The shebang is hardcoded to imagePkgs.bashInteractive's Linux store
@@ -326,7 +330,12 @@
           destination = "/bin/yolo-entrypoint";
           text = ''
             #!${imagePkgs.bashInteractive}/bin/bash
-            exec ${imagePkgs.python313}/bin/python3 ${entrypointScript}/lib/yolo-entrypoint.py "$@"
+            # The entrypoint package lives at /lib/python/entrypoint/
+            # inside the image (see entrypointPkg above).  Put the
+            # parent ``python`` dir on PYTHONPATH and run as a module
+            # so the package's relative imports resolve.
+            export PYTHONPATH="${entrypointPkg}/lib/python''${PYTHONPATH:+:$PYTHONPATH}"
+            exec ${imagePkgs.python313}/bin/python3 -m entrypoint "$@"
           '';
         };
 
