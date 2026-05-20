@@ -51,6 +51,26 @@ def _simulate_linux_for_unit_tests(request, monkeypatch):
 
             monkeypatch.setattr(_cli, "IS_MACOS", False)
             monkeypatch.setattr(_cli, "IS_LINUX", True)
+            # The package split copied IS_MACOS/IS_LINUX into each submodule's
+            # namespace at import time; the cli.X re-exports above don't
+            # propagate back into those modules.  Patch each one too so call
+            # sites inside cli.check_cmd / cli.runtime / etc. see Linux.
+            for mod_name in (
+                "cli.paths",
+                "cli.check_cmd",
+                "cli.runtime",
+                "cli.image",
+                "cli.run_cmd",
+                "cli.loopholes_runtime",
+            ):
+                try:
+                    mod = __import__(mod_name, fromlist=["IS_MACOS", "IS_LINUX"])
+                except ImportError:
+                    continue
+                if hasattr(mod, "IS_MACOS"):
+                    monkeypatch.setattr(mod, "IS_MACOS", False)
+                if hasattr(mod, "IS_LINUX"):
+                    monkeypatch.setattr(mod, "IS_LINUX", True)
         except ImportError:
             pass
 
