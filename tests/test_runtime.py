@@ -37,7 +37,7 @@ def test_runtime_auto_detect_when_no_config():
         os.environ.pop("YOLO_RUNTIME", None)
         with (
             patch("shutil.which") as mock_which,
-            patch("cli._runtime_is_connectable", return_value=True),
+            patch("cli.runtime._runtime_is_connectable", return_value=True),
         ):
             mock_which.side_effect = lambda x: (
                 "/usr/bin/podman" if x == "podman" else None
@@ -58,7 +58,7 @@ def test_runtime_rejects_invalid_config():
         os.environ.pop("YOLO_RUNTIME", None)
         with (
             patch("shutil.which") as mock_which,
-            patch("cli._runtime_is_connectable", return_value=True),
+            patch("cli.runtime._runtime_is_connectable", return_value=True),
         ):
             mock_which.side_effect = lambda x: (
                 "/usr/bin/podman" if x == "podman" else None
@@ -200,12 +200,14 @@ def test_exec_path_no_unbound_errors(tmp_path, monkeypatch):
         return fake_proc
 
     with (
-        patch.object(cli, "find_running_container", return_value="abc123def456"),
-        patch.object(cli, "load_config", return_value={}),
-        patch.object(cli, "ensure_global_storage"),
-        patch.object(cli, "_runtime", return_value="podman"),
-        patch.object(cli, "_tmux_rename_window"),
-        patch.object(cli.subprocess, "run", side_effect=capture_run),
+        patch.object(
+            cli.run_cmd, "find_running_container", return_value="abc123def456"
+        ),
+        patch.object(cli.run_cmd, "load_config", return_value={}),
+        patch.object(cli.run_cmd, "ensure_global_storage"),
+        patch.object(cli.run_cmd, "_runtime", return_value="podman"),
+        patch.object(cli.run_cmd, "_tmux_rename_window"),
+        patch.object(cli.run_cmd.subprocess, "run", side_effect=capture_run),
     ):
         from typer.testing import CliRunner
 

@@ -3802,20 +3802,21 @@ class TestHostServiceLivenessProbe:
 
         # Pretend we're on the host — the probe early-returns inside a jail.
         monkeypatch.delenv("YOLO_VERSION", raising=False)
-        # Pretend a runtime is available.
-        monkeypatch.setattr(cli, "_detect_runtime_for_listing", lambda: "podman")
-        # Pretend one jail is running.
+        # _check_host_service_liveness lives in cli.check_cmd and looks up
+        # _detect_runtime_for_listing / _host_service_sockets_dir / subprocess
+        # via its own module namespace, not via cli.X.  Patch the actual call sites.
+        monkeypatch.setattr(
+            "cli.check_cmd._detect_runtime_for_listing", lambda: "podman"
+        )
         run_result = _MM(stdout="yolo-test-cname-abc12345\n", returncode=0)
-        monkeypatch.setattr(cli.subprocess, "run", lambda *a, **kw: run_result)
-        # Per-jail sockets dir; we'll touch a placeholder broker socket
-        # in here to mimic the host-side bind-mount source.
+        monkeypatch.setattr("cli.check_cmd.subprocess.run", lambda *a, **kw: run_result)
         sockets_dir = tmp_path / "yolo-host-services-test"
         sockets_dir.mkdir()
         # Zero-byte regular file — exactly what the broker bind-mount source
         # looks like on the host.  A connect() against it raises ENOTSOCK.
         (sockets_dir / f"{cli.BROKER_LOOPHOLE_NAME}.sock").touch()
         monkeypatch.setattr(
-            cli, "_host_service_sockets_dir", lambda _cname: sockets_dir
+            "cli.check_cmd._host_service_sockets_dir", lambda _cname: sockets_dir
         )
         return sockets_dir
 
