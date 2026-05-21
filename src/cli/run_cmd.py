@@ -310,6 +310,67 @@ def _workspace_readonly_mount_args(
     return args
 
 
+def _scratch_mount_args(mode: object) -> List[str]:
+    """Build the mount args for the read-only-rootfs scratch dirs.
+
+    ``--read-only`` (set unconditionally on the rootfs) means anything
+    that writes to /tmp, /var/tmp, /var/lib/containers, /run, or
+    /dev/shm needs an explicit writable mount.
+
+    ``ephemeral_storage`` chooses the backing for /tmp, /var/tmp, and
+    /var/lib/containers:
+
+      * ``"volume"`` (default) — anonymous podman volumes.  Disk-backed,
+        wiped by ``podman run --rm`` on container exit, doesn't compete
+        with the jail's memory budget.
+      * ``"tmpfs"`` — RAM-backed.  Faster but counts against the host's
+        free memory and can OOM the jail under pressure.
+
+    /run and /dev/shm always stay on tmpfs regardless: /run holds the
+    /etc/localtime and /etc/timezone symlinks the entrypoint
+    rewrites (and is small), and /dev/shm is shared memory by
+    definition — disk-backing it would defeat the point and slow
+    Chromium.
+
+    Apple Container's ``-v`` syntax for anonymous volumes isn't
+    interchangeable with podman's, and its ``--tmpfs`` only takes a
+    bare path, so AC stays on tmpfs.
+    """
+    if not isinstance(mode, str) or mode not in ("volume", "tmpfs"):
+        mode = "volume"
+    if mode == "volume":
+        # Anonymous volumes: ``-v <container_path>`` with no host source.
+        # Podman creates an anonymous volume and removes it with ``--rm``.
+        # Image bakes /tmp etc. with default mkdir perms (0755); that's
+        # fine since the container runs as root inside the user namespace.
+        return [
+            "-v",
+            "/tmp",
+            "-v",
+            "/var/tmp",
+            "-v",
+            "/var/lib/containers",
+            "--tmpfs",
+            "/run",
+            "--tmpfs",
+            "/dev/shm:size=2g",
+        ]
+    return [
+        "--tmpfs",
+        # mode=1777 ensures non-root UIDs can write to tmpfs (some
+        # backends default to 755).
+        "/tmp:exec,mode=1777",
+        "--tmpfs",
+        "/var/tmp:exec,mode=1777",
+        "--tmpfs",
+        "/var/lib/containers",
+        "--tmpfs",
+        "/run",
+        "--tmpfs",
+        "/dev/shm:size=2g",
+    ]
+
+
 def _entrypoint_preflight(repo_root: Path, workspace: Path, config: Dict[str, Any]):
     """Generate jail-managed config into a temp home to catch config/render errors."""
     src_dir = repo_root / "src"
@@ -931,22 +992,10 @@ def run(
             # mounted at the same host path string, keeping a single canonical
             # mise location across runtimes (and matching what nested jails see).
             f"yolo-mise-data:{host_mise}" if IS_MACOS else f"{host_mise}:{host_mise}",
-            "--tmpfs",
-            # Explicit mode=1777 ensures non-root UIDs can write to tmpfs
-            # (some container backends default to 755).
-            "/tmp:exec,mode=1777",
-            "--tmpfs",
-            "/var/tmp:exec,mode=1777",
-            # Podman needs writable storage, runtime dirs, and shared memory for nested containers.
-            # --read-only-tmpfs=false disables automatic tmpfs mounts (including /dev/shm),
-            # so we must explicitly mount all tmpfs paths podman needs.
-            "--tmpfs",
-            "/var/lib/containers",
-            "--tmpfs",
-            "/run",
-            "--tmpfs",
-            "/dev/shm:size=2g",
         ]
+        # Ephemeral scratch dirs — see _scratch_mount_args() for the
+        # tmpfs-vs-volume trade-off and config knob.
+        run_cmd.extend(_scratch_mount_args(config.get("ephemeral_storage")))
 
     # Common env vars and flags for all runtimes
     run_cmd.extend(

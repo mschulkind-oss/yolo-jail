@@ -145,6 +145,22 @@ def test_validate_config_rejects_invalid_env_sources_var_name():
     assert any("invalid variable name" in e for e in errors)
 
 
+def test_validate_config_accepts_valid_ephemeral_storage():
+    for value in ("volume", "tmpfs"):
+        errors, warnings = _validate_config(
+            {"ephemeral_storage": value}, workspace=Path.cwd()
+        )
+        assert errors == [], (value, errors)
+        assert warnings == []
+
+
+def test_validate_config_rejects_invalid_ephemeral_storage():
+    errors, _ = _validate_config({"ephemeral_storage": "ramdisk"}, workspace=Path.cwd())
+    assert any("ephemeral_storage" in e for e in errors)
+    errors, _ = _validate_config({"ephemeral_storage": True}, workspace=Path.cwd())
+    assert any("ephemeral_storage" in e for e in errors)
+
+
 def test_merge_config_env_sources_concatenates_user_then_workspace():
     user = {"env_sources": [{"A": "1", "B": "2"}]}
     workspace = {"env_sources": [{"B": "override", "C": "3"}]}

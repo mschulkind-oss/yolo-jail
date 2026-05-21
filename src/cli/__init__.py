@@ -337,6 +337,7 @@ from .run_cmd import (  # noqa: E402
     _entrypoint_preflight,
     _inject_agent_yolo_flags,
     _resolve_repo_root,
+    _scratch_mount_args,
     _workspace_readonly_mount_args,
     doctor,
     ps,

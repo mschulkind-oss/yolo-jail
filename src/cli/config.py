@@ -71,8 +71,10 @@ KNOWN_TOP_LEVEL_CONFIG_KEYS = {
     "journal",
     "kvm",
     "prune",
+    "ephemeral_storage",
 }
 JOURNAL_MODES = ("off", "user", "full")
+EPHEMERAL_STORAGE_MODES = ("volume", "tmpfs")
 KNOWN_NETWORK_KEYS = {"mode", "ports", "forward_host_ports"}
 KNOWN_SECURITY_KEYS = {"blocked_tools"}
 KNOWN_BLOCKED_TOOL_KEYS = {"name", "message", "suggestion", "block_flags"}
@@ -556,6 +558,16 @@ def _validate_config(
     kvm = config.get("kvm")
     if kvm is not None and not isinstance(kvm, bool):
         errors.append(f"config.kvm: expected a boolean (got {kvm!r})")
+
+    ephemeral_storage = config.get("ephemeral_storage")
+    if ephemeral_storage is not None and (
+        not isinstance(ephemeral_storage, str)
+        or ephemeral_storage not in EPHEMERAL_STORAGE_MODES
+    ):
+        errors.append(
+            f"config.ephemeral_storage: expected one of "
+            f"{list(EPHEMERAL_STORAGE_MODES)} (got {ephemeral_storage!r})"
+        )
 
     network = config.get("network")
     if network is not None:

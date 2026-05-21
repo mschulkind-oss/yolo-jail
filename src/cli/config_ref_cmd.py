@@ -307,6 +307,20 @@ def config_ref():
     Falls back to nice/timeout/ulimit if delegation is unavailable.
     Subject to config change safety (human approval required).
 
+  [bold]ephemeral_storage[/bold] (string, default "volume"): Backing for /tmp,
+    /var/tmp, and /var/lib/containers inside the jail.
+    The container rootfs is mounted [cyan]--read-only[/cyan], so these scratch
+    paths need explicit writable mounts. Two modes:
+      • "volume" (default) — anonymous podman volumes, disk-backed.
+        Wiped automatically by [cyan]podman run --rm[/cyan] on container exit;
+        doesn't compete with the jail's memory budget. Recommended for
+        workloads that touch large temp files (builds, model downloads).
+      • "tmpfs" — RAM-backed scratch. Faster reads/writes, but counts
+        against host free memory and can OOM the jail under pressure.
+    /run and /dev/shm always stay on tmpfs in either mode (small + shared
+    memory, respectively). Apple Container always uses tmpfs (its volume
+    syntax differs and isn't a drop-in replacement).
+
 [bold cyan]EXAMPLE CONFIG[/bold cyan]
 
   {

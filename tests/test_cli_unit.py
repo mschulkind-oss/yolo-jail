@@ -40,6 +40,7 @@ from cli import (  # noqa: E402
     _report_unknown_keys,
     _resolve_env_sources,
     _runtime_for_check,
+    _scratch_mount_args,
     _summarize_nix_line,
     _validate_config,
     _workspace_readonly_mount_args,
@@ -4003,3 +4004,49 @@ class TestBrokerCredsFreshness:
         assert events == [], (
             f"expected silent skip when creds file is empty, got {events}"
         )
+
+
+class TestScratchMountArgs:
+    """ephemeral_storage controls /tmp /var/tmp /var/lib/containers backing."""
+
+    def _grouped(self, args: list) -> list[tuple[str, str]]:
+        # Pair each flag with its operand so order/equivalence checks
+        # don't drown in indexing math.
+        assert len(args) % 2 == 0, args
+        return list(zip(args[::2], args[1::2]))
+
+    def test_default_is_anonymous_volumes(self):
+        pairs = self._grouped(_scratch_mount_args(None))
+        # /tmp + /var/tmp + /var/lib/containers as anonymous volumes
+        assert ("-v", "/tmp") in pairs
+        assert ("-v", "/var/tmp") in pairs
+        assert ("-v", "/var/lib/containers") in pairs
+        # /run + /dev/shm always tmpfs
+        assert ("--tmpfs", "/run") in pairs
+        assert ("--tmpfs", "/dev/shm:size=2g") in pairs
+        # No --tmpfs for the volume-backed paths
+        assert not any(
+            flag == "--tmpfs" and dst.startswith("/tmp") for flag, dst in pairs
+        )
+
+    def test_explicit_volume_matches_default(self):
+        assert _scratch_mount_args("volume") == _scratch_mount_args(None)
+
+    def test_tmpfs_keeps_all_paths_on_tmpfs(self):
+        pairs = self._grouped(_scratch_mount_args("tmpfs"))
+        for path in (
+            "/tmp:exec,mode=1777",
+            "/var/tmp:exec,mode=1777",
+            "/var/lib/containers",
+            "/run",
+            "/dev/shm:size=2g",
+        ):
+            assert ("--tmpfs", path) in pairs
+        # No anonymous volumes
+        assert not any(flag == "-v" for flag, _ in pairs)
+
+    def test_invalid_value_falls_back_to_volume(self):
+        # Defensive: validation already rejects bad values, but the helper
+        # shouldn't blow up if a future caller hands it something weird.
+        assert _scratch_mount_args("nope") == _scratch_mount_args("volume")
+        assert _scratch_mount_args(42) == _scratch_mount_args("volume")
