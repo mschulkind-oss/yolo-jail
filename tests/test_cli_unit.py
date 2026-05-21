@@ -3479,6 +3479,34 @@ class TestBrokerRelay:
             buf += chunk
         return buf
 
+    @staticmethod
+    def _connect_when_listening(path, timeout=5.0):
+        """Connect to a Unix socket, retrying past the bind→listen race.
+
+        ``_start_broker_relay`` does ``bind()`` (creates the socket file)
+        and ``listen()`` in two separate steps inside its serve thread.
+        If we connect after ``bind`` but before ``listen``, the kernel
+        returns ECONNREFUSED.  Just spin-loop on connect() instead of
+        gating on the file existing — that's the actual signal we want.
+        """
+        import socket as _socket
+
+        deadline = time.monotonic() + timeout
+        last_err: Exception | None = None
+        while time.monotonic() < deadline:
+            sock = _socket.socket(_socket.AF_UNIX, _socket.SOCK_STREAM)
+            sock.settimeout(timeout)
+            try:
+                sock.connect(str(path))
+                return sock
+            except (FileNotFoundError, ConnectionRefusedError) as e:
+                last_err = e
+                sock.close()
+                time.sleep(0.02)
+        raise AssertionError(
+            f"socket at {path} never started listening within {timeout}s ({last_err!r})"
+        )
+
     def test_round_trip_both_directions(self):
         """A client connecting to the relay socket should see its bytes
         arrive at the upstream broker, and bytes sent back by the broker
@@ -3514,15 +3542,7 @@ class TestBrokerRelay:
 
             _start_broker_relay(relay_path, upstream_path)
 
-            # Wait briefly for the relay to bind.
-            deadline = time.monotonic() + 2.0
-            while time.monotonic() < deadline and not relay_path.exists():
-                time.sleep(0.01)
-            assert relay_path.exists(), "relay never bound its socket"
-
-            client = _socket.socket(_socket.AF_UNIX, _socket.SOCK_STREAM)
-            client.settimeout(5.0)
-            client.connect(str(relay_path))
+            client = self._connect_when_listening(relay_path)
             client.sendall(b"hello")
             echoed = self._drain(client, len(b"U:hello"))
             assert echoed == b"U:hello"
@@ -3535,8 +3555,6 @@ class TestBrokerRelay:
     def test_upstream_unreachable_closes_client(self):
         """If the broker singleton is down, the relay must not hang its
         client — it should close the connection and move on."""
-        import socket as _socket
-
         sockets_dir = self._short_sockets_dir()
         try:
             missing_upstream = sockets_dir / "does-not-exist.sock"
@@ -3544,14 +3562,7 @@ class TestBrokerRelay:
 
             _start_broker_relay(relay_path, missing_upstream)
 
-            deadline = time.monotonic() + 2.0
-            while time.monotonic() < deadline and not relay_path.exists():
-                time.sleep(0.01)
-            assert relay_path.exists()
-
-            client = _socket.socket(_socket.AF_UNIX, _socket.SOCK_STREAM)
-            client.settimeout(2.0)
-            client.connect(str(relay_path))
+            client = self._connect_when_listening(relay_path, timeout=2.0)
             # Upstream connect() failed — relay closes the client.  recv()
             # should return b"" (EOF) rather than hang forever.
             assert client.recv(1) == b""
