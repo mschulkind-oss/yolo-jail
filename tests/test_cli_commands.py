@@ -706,6 +706,7 @@ class TestRunCommandInternals:
             "Attaching to existing" in str(c) for c in mock_run.call_args_list
         )
 
+    @patch("subprocess.Popen")
     @patch("subprocess.run")
     @patch("subprocess.check_output")
     @patch("cli.run_cmd.find_running_container", return_value="abc123")
@@ -716,6 +717,7 @@ class TestRunCommandInternals:
         mock_find,
         mock_check_output,
         mock_run,
+        mock_popen,
         tmp_path,
         monkeypatch,
     ):
@@ -725,15 +727,24 @@ class TestRunCommandInternals:
         (tmp_path / "yolo-jail.jsonc").write_text("{}")
         mock_check_output.side_effect = FileNotFoundError
         mock_run.return_value = MagicMock(returncode=0)
+        mock_proc = MagicMock()
+        mock_proc.wait.return_value = None
+        mock_proc.returncode = 0
+        mock_popen.return_value = mock_proc
 
         runner = CliRunner()
         runner.invoke(app, ["run", "--", "copilot"])
-        # The runtime exec command should include --yolo
-        if mock_run.called:
-            cmd = mock_run.call_args[0][0]
-            cmd_str = " ".join(str(c) for c in cmd)
-            assert "--yolo" in cmd_str or "--no-auto-update" in cmd_str
+        # The exec-into-existing path runs through tty_proxy.run_with_proxy →
+        # subprocess.Popen (CliRunner has no TTY so the proxy falls back).
+        # Search every Popen call for the agent flags.
+        if mock_popen.called:
+            joined = " ".join(
+                " ".join(str(c) for c in call.args[0])
+                for call in mock_popen.call_args_list
+            )
+            assert "--yolo" in joined or "--no-auto-update" in joined
 
+    @patch("subprocess.Popen")
     @patch("subprocess.run")
     @patch("subprocess.check_output")
     @patch("cli.run_cmd.find_running_container", return_value="abc123")
@@ -744,6 +755,7 @@ class TestRunCommandInternals:
         mock_find,
         mock_check_output,
         mock_run,
+        mock_popen,
         tmp_path,
         monkeypatch,
     ):
@@ -753,13 +765,19 @@ class TestRunCommandInternals:
         (tmp_path / "yolo-jail.jsonc").write_text("{}")
         mock_check_output.side_effect = FileNotFoundError
         mock_run.return_value = MagicMock(returncode=0)
+        mock_proc = MagicMock()
+        mock_proc.wait.return_value = None
+        mock_proc.returncode = 0
+        mock_popen.return_value = mock_proc
 
         runner = CliRunner()
         runner.invoke(app, ["run", "--", "gemini"])
-        if mock_run.called:
-            cmd = mock_run.call_args[0][0]
-            cmd_str = " ".join(str(c) for c in cmd)
-            assert "--yolo" in cmd_str
+        if mock_popen.called:
+            joined = " ".join(
+                " ".join(str(c) for c in call.args[0])
+                for call in mock_popen.call_args_list
+            )
+            assert "--yolo" in joined
 
 
 class TestInjectAgentYoloFlags:

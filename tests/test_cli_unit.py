@@ -4093,3 +4093,56 @@ class TestScratchMountArgs:
         # shouldn't blow up if a future caller hands it something weird.
         assert _scratch_mount_args("nope") == _scratch_mount_args("volume")
         assert _scratch_mount_args(42) == _scratch_mount_args("volume")
+
+
+class TestRunWithProxy:
+    """The TTY proxy wraps the host-side ``podman run/exec``; without a
+    host TTY there's nothing to intercept, so the wrapper falls back to a
+    plain ``Popen``.  Test the fallback path here — the actual ^Z dance
+    needs a real TTY and is exercised manually."""
+
+    def test_no_tty_fallback_uses_popen_and_returns_exit_code(self):
+        from unittest.mock import patch, MagicMock
+        import cli
+
+        proc = MagicMock()
+        proc.wait.return_value = None
+        proc.returncode = 7
+        with patch("subprocess.Popen", return_value=proc) as mock_popen:
+            # CliRunner's stdin isn't a TTY; emulate that here so the
+            # branch under test is the fallback.
+            rc = cli.run_with_proxy(["does-not-matter", "arg"])
+        assert rc == 7
+        mock_popen.assert_called_once_with(["does-not-matter", "arg"])
+        proc.wait.assert_called_once()
+
+    def test_no_tty_fallback_runs_on_started_callback(self):
+        from unittest.mock import patch, MagicMock
+        import cli
+
+        proc = MagicMock()
+        proc.wait.return_value = None
+        proc.returncode = 0
+        seen: list = []
+
+        def cb(p):
+            seen.append(p)
+
+        with patch("subprocess.Popen", return_value=proc):
+            cli.run_with_proxy(["x"], on_started=cb)
+        assert seen == [proc]
+
+    def test_no_tty_fallback_swallows_callback_exceptions(self):
+        from unittest.mock import patch, MagicMock
+        import cli
+
+        proc = MagicMock()
+        proc.wait.return_value = None
+        proc.returncode = 0
+
+        def cb(_p):
+            raise RuntimeError("boom")
+
+        with patch("subprocess.Popen", return_value=proc):
+            # Must not raise.
+            cli.run_with_proxy(["x"], on_started=cb)

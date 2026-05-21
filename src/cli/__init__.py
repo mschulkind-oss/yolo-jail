@@ -343,6 +343,7 @@ from .run_cmd import (  # noqa: E402
     ps,
     run,
 )
+from .tty_proxy import run_with_proxy  # noqa: E402, F401
 
 # Register the extracted commands on the top-level Typer app.
 app.command()(init)

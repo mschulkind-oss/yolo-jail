@@ -110,6 +110,7 @@ from .storage import (
     ensure_global_storage,
 )
 from .terminal import _print_startup_banner, _tmux_rename_window
+from .tty_proxy import run_with_proxy
 from .version import (
     _container_baked_yolo_version,
     _get_yolo_version,
@@ -608,9 +609,13 @@ def run(
             "yolo-entrypoint",
             target_cmd,
         ]
-        # Use subprocess.run (not execvp) so atexit handlers fire for tmux cleanup
+        # Wrap with run_with_proxy so a host-side ^Z suspends the proxy
+        # (host shell shows it as a stopped job) instead of wedging
+        # claude inside the jail.  See cli/tty_proxy.py for the why.
+        # Bare subprocess.run when stdin isn't a TTY happens automatically
+        # inside run_with_proxy.
         try:
-            result = subprocess.run(run_cmd)
+            rc = run_with_proxy(run_cmd)
         except FileNotFoundError:
             console.print(
                 f"[bold red]Configured runtime '{runtime}' not found on PATH.[/bold red]"
@@ -619,7 +624,7 @@ def run(
                 "[dim]Run `yolo check` to validate runtime availability before restarting.[/dim]"
             )
             sys.exit(1)
-        sys.exit(result.returncode)
+        sys.exit(rc)
 
     # No existing container — build/load the image then start a new one.
     # Check for config changes and get human confirmation
@@ -663,7 +668,7 @@ def run(
                 target_cmd,
             ]
             try:
-                result = subprocess.run(run_cmd)
+                rc = run_with_proxy(run_cmd)
             except FileNotFoundError:
                 console.print(
                     f"[bold red]Configured runtime '{runtime}' not found on PATH.[/bold red]"
@@ -672,7 +677,7 @@ def run(
                     "[dim]Run `yolo check` to validate runtime availability before restarting.[/dim]"
                 )
                 sys.exit(1)
-            sys.exit(result.returncode)
+            sys.exit(rc)
 
     # Remove any stopped container with the same name left over from an
     # unclean shutdown (e.g. OOM-kill, host reboot).  Without this,
@@ -1840,11 +1845,21 @@ def run(
     if os.environ.get("YOLO_DEBUG"):
         print(" ".join(shlex.quote(s) for s in run_cmd), file=sys.stderr)
 
-    # Use Popen so we can release the workspace lock once the container is
-    # confirmed running.  Any concurrent yolo process waiting on the lock will
-    # re-check and find our container, then exec into it.
+    # Wrap the container launch in run_with_proxy so a host-side ^Z
+    # suspends the proxy (host shell shows it as a stopped job)
+    # instead of wedging claude inside the jail.  See cli/tty_proxy.py
+    # for the why.  The on_started callback releases the workspace
+    # lock once the container is visible — any concurrent yolo
+    # process waiting on the lock then exec's into our container.
+    def _release_lock_when_started(_proc):
+        for _ in range(20):
+            if find_running_container(cname, runtime=runtime):
+                break
+            _time.sleep(0.25)
+        lock_file.close()
+
     try:
-        proc = subprocess.Popen(run_cmd)
+        rc = run_with_proxy(run_cmd, on_started=_release_lock_when_started)
     except FileNotFoundError:
         console.print(
             f"[bold red]Configured runtime '{runtime}' not found on PATH.[/bold red]"
@@ -1856,13 +1871,6 @@ def run(
         stop_loopholes(host_services, host_services_sockets_dir)
         lock_file.close()
         sys.exit(1)
-    for _ in range(20):
-        if find_running_container(cname, runtime=runtime):
-            break
-        _time.sleep(0.25)
-    lock_file.close()
-
-    proc.wait()
     # Clean up host-side socat processes, host services (incl. cgroup
     # delegate), and their per-jail socket directory.
     cleanup_port_forwarding(socat_procs, socket_dir)
@@ -1880,7 +1888,7 @@ def run(
             f"  Total (host-side):  {_profile_times['container_exited'] - start:.3f}s\n"
         )
 
-    sys.exit(proc.returncode)
+    sys.exit(rc)
 
 
 def ps():
