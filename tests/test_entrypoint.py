@@ -2221,3 +2221,87 @@ class TestSupervisorSingleInstance:
         entrypoint.start_jail_daemon_supervisor()
         assert popen_called["n"] == 0
         assert not (tmp_path / "sup.pid").exists()
+
+
+# -- env_sources → os.environ hydration --
+
+
+class TestUserEnvHydration:
+    """The hydrator mirrors yolo-user-env.sh into os.environ before any
+    agent-config writer runs, so MCP ``env`` ``${VAR}`` interpolation
+    can resolve names that env_sources puts in the file."""
+
+    def _write_user_env(self, content: str) -> None:
+        f = entrypoint.HOME / ".config" / "yolo-user-env.sh"
+        f.parent.mkdir(parents=True, exist_ok=True)
+        f.write_text(content)
+
+    def test_hydrated_value_reaches_mcp_env(self, jail_home, monkeypatch):
+        """env_sources value gets substituted into per-server env."""
+        self._write_user_env(
+            "export CEREBRAS_API_KEY=${CEREBRAS_API_KEY:-'csk-from-file'}\n"
+        )
+        monkeypatch.delenv("CEREBRAS_API_KEY", raising=False)
+        monkeypatch.setenv(
+            "YOLO_MCP_SERVERS",
+            json.dumps(
+                {
+                    "cerebras-mcp": {
+                        "command": "cerebras-mcp",
+                        "env": {"CEREBRAS_API_KEY": "${CEREBRAS_API_KEY}"},
+                    }
+                }
+            ),
+        )
+        entrypoint._hydrate_env_from_user_env_file()
+        entrypoint.configure_claude()
+        claude_json = json.loads((entrypoint.HOME / ".claude.json").read_text())
+        assert (
+            claude_json["mcpServers"]["cerebras-mcp"]["env"]["CEREBRAS_API_KEY"]
+            == "csk-from-file"
+        )
+
+    def test_launch_env_beats_file_default(self, jail_home, monkeypatch):
+        """${KEY:-'default'} precedence — container-launch env wins."""
+        self._write_user_env(
+            "export CEREBRAS_API_KEY=${CEREBRAS_API_KEY:-'csk-from-file'}\n"
+        )
+        monkeypatch.setenv("CEREBRAS_API_KEY", "csk-from-launch")
+        entrypoint._hydrate_env_from_user_env_file()
+        assert os.environ["CEREBRAS_API_KEY"] == "csk-from-launch"
+
+    def test_handles_export_form_variants(self, jail_home, monkeypatch):
+        """Bare, single-quoted, and double-quoted exports also parse —
+        defensive against future writer-format changes."""
+        self._write_user_env(
+            "# a comment\n"
+            "\n"
+            "export PLAIN=bare\n"
+            "export SQUOTED='it'\\''s safe'\n"
+            'export DQUOTED="double"\n'
+        )
+        for k in ("PLAIN", "SQUOTED", "DQUOTED"):
+            monkeypatch.delenv(k, raising=False)
+        entrypoint._hydrate_env_from_user_env_file()
+        assert os.environ["PLAIN"] == "bare"
+        assert os.environ["SQUOTED"] == "it's safe"
+        assert os.environ["DQUOTED"] == "double"
+
+    def test_missing_file_is_noop(self, jail_home, monkeypatch):
+        """No file → no work, no exception."""
+        f = entrypoint.HOME / ".config" / "yolo-user-env.sh"
+        assert not f.exists()
+        monkeypatch.setenv("SENTINEL_BEFORE", "kept")
+        entrypoint._hydrate_env_from_user_env_file()
+        assert os.environ["SENTINEL_BEFORE"] == "kept"
+
+    def test_unparseable_lines_skipped(self, jail_home, monkeypatch):
+        """Garbage lines don't abort the whole hydration."""
+        self._write_user_env(
+            "this is not a shell line\n"
+            "export GOOD_KEY=${GOOD_KEY:-'good'}\n"
+            "another bogus line\n"
+        )
+        monkeypatch.delenv("GOOD_KEY", raising=False)
+        entrypoint._hydrate_env_from_user_env_file()
+        assert os.environ["GOOD_KEY"] == "good"

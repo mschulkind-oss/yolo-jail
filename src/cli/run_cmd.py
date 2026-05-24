@@ -1088,7 +1088,9 @@ def run(
         lines = ["# Auto-generated from yolo-jail.jsonc env config.\n"]
         lines.append("# Override by editing this file or workspace .env (mise).\n")
         for env_key, env_val in user_env.items():
-            # Only set if not already overridden (e.g. by mise .env loading)
+            # Only set if not already overridden (e.g. by mise .env loading).
+            # The ${KEY:-'value'} precedence (launch env wins) is mirrored by
+            # entrypoint._hydrate_env_from_user_env_file — keep both in sync.
             escaped = env_val.replace("'", "'\\''")
             lines.append(
                 "export %(k)s=${%(k)s:-'%(v)s'}\n" % {"k": env_key, "v": escaped}

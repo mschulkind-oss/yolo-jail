@@ -7,6 +7,7 @@ Uses only stdlib — runs before any pip packages are installed.
 
 import json
 import os
+import re
 import shutil
 import subprocess
 import sys
@@ -200,7 +201,72 @@ def setup_cgroup_delegation():
 
 
 # ---------------------------------------------------------------------------
-# 11. Finalize PATH and exec bash
+# 11. User-env hydration (mirror yolo-user-env.sh into os.environ)
+# ---------------------------------------------------------------------------
+# The file is normally sourced by bash on shell startup (and again by
+# exec_bash at the end of this entrypoint), but agent-config writers run
+# earlier in main() and need its values for MCP env ${VAR} interpolation
+# (see _interpolate_env in agent_configs.py).  This step parses the file
+# into os.environ so the early writers see the same values bash will.
+#
+# Format we parse matches what cli/run_cmd.py writes — primarily the
+# ``export KEY=${KEY:-'value'}`` form (existing env wins, default
+# otherwise), plus the bare and quoted forms as a safety net if the
+# writer format ever loosens.  The hydrator must stay in sync with the
+# writer's precedence rule.
+
+_EXPORT_RE = re.compile(
+    r"""
+    ^\s*export\s+
+    (?P<key>[A-Za-z_][A-Za-z0-9_]*)
+    =
+    (?:
+        \$\{[A-Za-z_][A-Za-z0-9_]*:-'(?P<def>(?:[^']|'\\'')*)'\}
+      | '(?P<sq>(?:[^']|'\\'')*)'
+      | "(?P<dq>[^"]*)"
+      | (?P<bare>\S*)
+    )
+    \s*$
+    """,
+    re.VERBOSE,
+)
+
+
+def _hydrate_env_from_user_env_file():
+    """Merge ``~/.config/yolo-user-env.sh`` exports into ``os.environ``.
+
+    Mirrors the precedence used by the writer's ``${KEY:-'value'}`` form:
+    if the key is already in ``os.environ`` (set on container launch),
+    the file's default loses.  Unparseable lines are ignored — bash will
+    still source the file at shell time as a backstop.
+    """
+    f = HOME / ".config" / "yolo-user-env.sh"
+    if not f.exists():
+        return
+    for line in f.read_text().splitlines():
+        if not line.strip() or line.lstrip().startswith("#"):
+            continue
+        m = _EXPORT_RE.match(line)
+        if not m:
+            continue
+        key = m.group("key")
+        if key in os.environ:
+            continue  # launch-time env beats the file default
+        raw = (
+            m.group("def")
+            if m.group("def") is not None
+            else m.group("sq")
+            if m.group("sq") is not None
+            else m.group("dq")
+            if m.group("dq") is not None
+            else m.group("bare") or ""
+        )
+        # Reverse the writer's '\'' escape for single-quoted contexts.
+        os.environ[key] = raw.replace("'\\''", "'")
+
+
+# ---------------------------------------------------------------------------
+# 12. Finalize PATH and exec bash
 # ---------------------------------------------------------------------------
 
 
@@ -251,6 +317,13 @@ def exec_bash(command: str):
 def main():
     cmd = " ".join(sys.argv[1:]) if len(sys.argv) > 1 else "bash"
     _perf("start")
+
+    # Hydrate env_sources values into os.environ before any configure_*
+    # so MCP env ${VAR} interpolation sees them.  bash will source the
+    # same file again at shell time — this is purely the Python-side
+    # mirror needed for the early agent-config writers.
+    _hydrate_env_from_user_env_file()
+    _perf("hydrate_user_env")
 
     # Populate /run/localtime + /run/timezone from $TZ before anything else
     # so file mtimes, log timestamps, etc. from subsequent setup steps use the
