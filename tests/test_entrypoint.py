@@ -651,6 +651,115 @@ class TestCopilotConfig:
         assert "chrome-devtools" not in mcp["mcpServers"]
         assert "sequential-thinking" in mcp["mcpServers"]
 
+    def test_mcp_workspace_env_passthrough(self, jail_home, monkeypatch):
+        """Per-server env from YOLO_MCP_SERVERS lands in mcp-config.json verbatim."""
+        monkeypatch.setenv(
+            "YOLO_MCP_SERVERS",
+            json.dumps(
+                {
+                    "cerebras-mcp": {
+                        "command": "npx",
+                        "args": ["-y", "cerebras-code-mcp"],
+                        "env": {
+                            "CEREBRAS_API_KEY": "csk-abc",
+                            "CEREBRAS_MCP_IDE": "copilot",
+                        },
+                    }
+                }
+            ),
+        )
+        entrypoint.configure_copilot()
+        mcp = json.loads((entrypoint.COPILOT_DIR / "mcp-config.json").read_text())
+        assert mcp["mcpServers"]["cerebras-mcp"]["env"] == {
+            "CEREBRAS_API_KEY": "csk-abc",
+            "CEREBRAS_MCP_IDE": "copilot",
+        }
+
+    def test_mcp_env_var_interpolation(self, jail_home, monkeypatch):
+        """${VAR} in env values expands against os.environ at load time."""
+        monkeypatch.setenv("CEREBRAS_API_KEY", "csk-from-env-sources")
+        monkeypatch.setenv(
+            "YOLO_MCP_SERVERS",
+            json.dumps(
+                {
+                    "cerebras-mcp": {
+                        "command": "npx",
+                        "env": {
+                            "CEREBRAS_API_KEY": "${CEREBRAS_API_KEY}",
+                            "CEREBRAS_MCP_IDE": "claude",
+                        },
+                    }
+                }
+            ),
+        )
+        entrypoint.configure_copilot()
+        mcp = json.loads((entrypoint.COPILOT_DIR / "mcp-config.json").read_text())
+        assert mcp["mcpServers"]["cerebras-mcp"]["env"] == {
+            "CEREBRAS_API_KEY": "csk-from-env-sources",
+            "CEREBRAS_MCP_IDE": "claude",
+        }
+
+    def test_mcp_env_var_undefined_left_literal(self, jail_home, monkeypatch, capsys):
+        """Undefined ${VAR} survives as literal and produces a stderr warning."""
+        monkeypatch.delenv("DEFINITELY_NOT_SET", raising=False)
+        monkeypatch.setenv(
+            "YOLO_MCP_SERVERS",
+            json.dumps(
+                {
+                    "custom": {
+                        "command": "cat",
+                        "env": {"KEY": "${DEFINITELY_NOT_SET}"},
+                    }
+                }
+            ),
+        )
+        entrypoint.configure_copilot()
+        mcp = json.loads((entrypoint.COPILOT_DIR / "mcp-config.json").read_text())
+        assert mcp["mcpServers"]["custom"]["env"] == {"KEY": "${DEFINITELY_NOT_SET}"}
+        err = capsys.readouterr().err
+        assert "DEFINITELY_NOT_SET" in err
+        assert "undefined" in err.lower()
+
+    def test_mcp_env_var_partial_substitution(self, jail_home, monkeypatch):
+        """${VAR} substring inside a larger value expands in place."""
+        monkeypatch.setenv("API_HOST", "api.example.com")
+        monkeypatch.setenv(
+            "YOLO_MCP_SERVERS",
+            json.dumps(
+                {
+                    "custom": {
+                        "command": "cat",
+                        "env": {"ENDPOINT": "https://${API_HOST}/v1/mcp"},
+                    }
+                }
+            ),
+        )
+        entrypoint.configure_copilot()
+        mcp = json.loads((entrypoint.COPILOT_DIR / "mcp-config.json").read_text())
+        assert (
+            mcp["mcpServers"]["custom"]["env"]["ENDPOINT"]
+            == "https://api.example.com/v1/mcp"
+        )
+
+    def test_mcp_env_var_only_braced_form_expanded(self, jail_home, monkeypatch):
+        """Bare $VAR (no braces) is left alone — only ${VAR} is recognised."""
+        monkeypatch.setenv("BARE", "expanded")
+        monkeypatch.setenv(
+            "YOLO_MCP_SERVERS",
+            json.dumps(
+                {
+                    "custom": {
+                        "command": "cat",
+                        "env": {"VAL": "$BARE"},
+                    }
+                }
+            ),
+        )
+        entrypoint.configure_copilot()
+        mcp = json.loads((entrypoint.COPILOT_DIR / "mcp-config.json").read_text())
+        # $BARE stays literal — predictable, no shell-style surprises.
+        assert mcp["mcpServers"]["custom"]["env"]["VAL"] == "$BARE"
+
     def test_lsp_config(self, jail_home):
         entrypoint.configure_copilot()
         lsp = json.loads((entrypoint.COPILOT_DIR / "lsp-config.json").read_text())
@@ -897,6 +1006,26 @@ class TestGeminiConfig:
         cfg = json.loads((entrypoint.GEMINI_DIR / "settings.json").read_text())
         assert "mcpServers" in cfg
 
+    def test_mcp_workspace_env_passthrough(self, jail_home, monkeypatch):
+        """Per-server env from YOLO_MCP_SERVERS lands in settings.json verbatim."""
+        monkeypatch.setenv(
+            "YOLO_MCP_SERVERS",
+            json.dumps(
+                {
+                    "cerebras-mcp": {
+                        "command": "npx",
+                        "args": ["-y", "cerebras-code-mcp"],
+                        "env": {"CEREBRAS_API_KEY": "csk-abc"},
+                    }
+                }
+            ),
+        )
+        entrypoint.configure_gemini()
+        cfg = json.loads((entrypoint.GEMINI_DIR / "settings.json").read_text())
+        assert cfg["mcpServers"]["cerebras-mcp"]["env"] == {
+            "CEREBRAS_API_KEY": "csk-abc"
+        }
+
 
 # -- Claude config --
 
@@ -1047,6 +1176,26 @@ class TestClaudeConfig:
         entrypoint.configure_claude()
         cfg = json.loads((entrypoint.CLAUDE_DIR / "settings.json").read_text())
         assert "mcpServers" not in cfg
+
+    def test_mcp_workspace_env_passthrough(self, jail_home, monkeypatch):
+        """Per-server env from YOLO_MCP_SERVERS lands in ~/.claude.json verbatim."""
+        monkeypatch.setenv(
+            "YOLO_MCP_SERVERS",
+            json.dumps(
+                {
+                    "cerebras-mcp": {
+                        "command": "npx",
+                        "args": ["-y", "cerebras-code-mcp"],
+                        "env": {"CEREBRAS_API_KEY": "csk-abc"},
+                    }
+                }
+            ),
+        )
+        entrypoint.configure_claude()
+        claude_json = json.loads((entrypoint.HOME / ".claude.json").read_text())
+        assert claude_json["mcpServers"]["cerebras-mcp"]["env"] == {
+            "CEREBRAS_API_KEY": "csk-abc"
+        }
 
     def test_credentials_symlink_created(self, jail_home):
         """configure_claude creates a symlink from .claude/.credentials.json

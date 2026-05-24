@@ -26,10 +26,52 @@ after import keep working.
 import hashlib
 import json
 import os
+import re
 import shutil
 import subprocess
 import sys
 from pathlib import Path
+
+# ``${VAR}`` references in MCP env values get expanded against the jail's
+# startup env at _load_mcp_servers time.  Only the braced form is
+# recognised — keeps the rule predictable and dodges the ``$foo$bar``
+# ambiguities that os.path.expandvars inherits from sh.
+_ENV_VAR_PATTERN = re.compile(r"\$\{([A-Za-z_][A-Za-z0-9_]*)\}")
+
+
+def _interpolate_env(env) -> dict:
+    """Expand ``${VAR}`` in MCP env values against ``os.environ``.
+
+    Undefined variables are left as the literal ``${VAR}`` (same default
+    as ``set +u`` shell expansion) and a warning is written to stderr so
+    the user notices the missing reference without aborting startup.
+    Non-string values are passed through untouched — the host-side
+    validator already rejects them, this guards against bypass.
+    """
+    if not isinstance(env, dict):
+        return env
+    resolved: dict = {}
+    unresolved: list[str] = []
+    for k, v in env.items():
+        if not isinstance(v, str):
+            resolved[k] = v
+            continue
+
+        def _replace(match, _missing=unresolved):
+            name = match.group(1)
+            if name in os.environ:
+                return os.environ[name]
+            _missing.append(name)
+            return match.group(0)
+
+        resolved[k] = _ENV_VAR_PATTERN.sub(_replace, v)
+    if unresolved:
+        names = ", ".join(sorted(set(unresolved)))
+        print(
+            f"warning: MCP env references undefined variable(s): {names}",
+            file=sys.stderr,
+        )
+    return resolved
 
 
 def _chrome_devtools_args() -> list:
@@ -98,6 +140,14 @@ def _load_mcp_servers():
                         servers[name] = cfg
         except (json.JSONDecodeError, TypeError):
             pass
+
+    # Expand ${VAR} in env values against the jail's startup env (which
+    # already has env_sources merged in).  Lets users keep a secret in
+    # one unsynced file and scope it to a single MCP server's env
+    # without hoisting it jail-wide.
+    for name, cfg in servers.items():
+        if isinstance(cfg, dict) and isinstance(cfg.get("env"), dict):
+            servers[name] = {**cfg, "env": _interpolate_env(cfg["env"])}
     return servers
 
 

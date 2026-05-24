@@ -87,7 +87,7 @@ PACKAGE_NAME_RE = re.compile(r"^[a-zA-Z0-9_-]+(\.[a-zA-Z0-9_-]+)?$")
 # Output names follow the nixpkgs convention: short alphanumeric tokens.
 PACKAGE_OUTPUT_RE = re.compile(r"^[a-zA-Z][a-zA-Z0-9_]*$")
 KNOWN_LSP_SERVER_KEYS = {"command", "args", "fileExtensions"}
-KNOWN_MCP_SERVER_KEYS = {"command", "args"}
+KNOWN_MCP_SERVER_KEYS = {"command", "args", "env"}
 KNOWN_DEVICE_KEYS = {"usb", "description", "cgroup_rule"}
 KNOWN_GPU_KEYS = {"enabled", "devices", "capabilities"}
 KNOWN_RESOURCES_KEYS = {"memory", "cpus", "pids_limit"}
@@ -734,6 +734,17 @@ def _validate_config(
                     errors.append(f"{path}.command: expected a string")
                 if "args" in cfg:
                     _validate_string_list(cfg["args"], f"{path}.args", errors)
+                if "env" in cfg:
+                    env = cfg["env"]
+                    if not isinstance(env, dict):
+                        errors.append(f"{path}.env: expected an object")
+                    else:
+                        for k, v in env.items():
+                            if not isinstance(k, str) or not isinstance(v, str):
+                                errors.append(
+                                    f"{path}.env.{k}: expected string keys and values"
+                                )
+                                break
 
     devices = config.get("devices")
     if devices is not None:

@@ -1070,6 +1070,38 @@ class TestValidateConfig:
         errors, _ = _validate_config(config, workspace=tmp_path)
         assert any("command" in e for e in errors)
 
+    def test_mcp_servers_env_valid(self, tmp_path):
+        config = {
+            "mcp_servers": {
+                "custom": {
+                    "command": "/path/to/server",
+                    "env": {"API_KEY": "secret", "MODE": "prod"},
+                }
+            }
+        }
+        errors, _ = _validate_config(config, workspace=tmp_path)
+        assert errors == []
+
+    def test_mcp_servers_env_not_object(self, tmp_path):
+        config = {
+            "mcp_servers": {
+                "custom": {"command": "cat", "env": ["KEY=val"]},
+            }
+        }
+        errors, _ = _validate_config(config, workspace=tmp_path)
+        assert any(
+            "config.mcp_servers.custom.env: expected an object" in e for e in errors
+        )
+
+    def test_mcp_servers_env_non_string_value(self, tmp_path):
+        config = {
+            "mcp_servers": {
+                "bad": {"command": "cat", "env": {"PORT": 8080}},
+            }
+        }
+        errors, _ = _validate_config(config, workspace=tmp_path)
+        assert any("config.mcp_servers.bad.env.PORT" in e for e in errors)
+
     def test_devices_usb_valid(self, tmp_path):
         config = {"devices": [{"usb": "0bda:2838", "description": "RTL-SDR"}]}
         errors, _ = _validate_config(config, workspace=tmp_path)

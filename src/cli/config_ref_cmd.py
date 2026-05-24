@@ -219,11 +219,22 @@ def config_ref():
     Each key is a server name; value is an object with:
       • command (string, required): Binary name (on PATH) or absolute path.
       • args (array of strings): Args passed to the MCP server. Default: [].
+      • env (object of string→string): Environment variables passed only to
+        this MCP server's process. Use for per-server secrets and config so
+        they don't leak into the jail-wide env. Default: {}.
+        [bold]${VAR}[/bold] references are expanded against the jail's startup env
+        (after [bold]env_sources[/bold] is loaded), so a secret can live in one
+        unsynced file and be scoped to a single server. Undefined names
+        are left as the literal [bold]${VAR}[/bold] and logged as a warning.
     The entrypoint translates these for each agent:
       • Copilot: written to a per-workspace overlay mounted at ~/.copilot/mcp-config.json.
       • Gemini: written to a per-workspace overlay mounted at ~/.gemini/settings.json.
       • Claude: written to a per-workspace overlay mounted at ~/.claude/settings.json.
-    Example: {"my-custom": {"command": "/workspace/scripts/my-mcp.py", "args": []}}
+    Example:
+      {"cerebras-mcp": {
+        "command": "npx", "args": ["-y", "cerebras-code-mcp"],
+        "env": {"CEREBRAS_API_KEY": "csk-...", "CEREBRAS_MCP_IDE": "claude"}
+      }}
 
   [bold]devices[/bold] (array): Host devices to pass through to the jail.
     Three formats supported:
