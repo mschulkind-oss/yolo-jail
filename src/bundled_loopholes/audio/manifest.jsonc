@@ -1,6 +1,6 @@
 // Bundled yolo-jail loophole — ships with the wheel.
 // Passes the user's PipeWire / PulseAudio sockets through to the jail
-// so microphone + playback work inside the container.  Three bridges:
+// so microphone + playback work inside the container.  Four bridges:
 //
 //   1. PulseAudio socket → /run/pulse/native + PULSE_SERVER env.
 //      Covers libpulse clients (sox, ffmpeg's pulse input, parecord).
@@ -15,6 +15,12 @@
 //      that pulls in `alsa-lib` for gomidi/rtmididrv) and would
 //      otherwise die with "cannot find card '0'" — there's no
 //      /dev/snd/* in the jail.
+//   4. /dev/snd device passthrough.  Covers ALSA-seq MIDI (rtmidi and
+//      gomidi/rtmididrv talk to /dev/snd/seq directly — no userspace
+//      seq-to-PipeWire shim exists in nixpkgs), raw ALSA hardware
+//      access, and direct aplay/arecord for workspaces that install
+//      alsa-utils.  Permission flows through the host audio group
+//      (the user is already trusted with /dev/snd/* via ACL).
 //
 // macOS is deliberately unsupported: the macOS container runtimes
 // don't bridge host CoreAudio, so there's no socket to pass through.
@@ -62,6 +68,16 @@
       "container": "/etc/asound.conf",
       "readonly": true
     }
+  ],
+
+  // /dev/snd character-device tree: ALSA-seq for MIDI, raw hardware
+  // ALSA, mixers.  Passed through via --device so the cgroup
+  // device-allow rules permit reads/writes (a bare bind-mount would
+  // surface the nodes but rootless podman would deny the cgroup
+  // access).  Skipped silently on hosts where the snd kernel module
+  // isn't loaded — no /dev/snd, no passthrough, no error.
+  "host_devices": [
+    "/dev/snd"
   ],
 
   // PULSE_SERVER: libpulse clients (sox, ffmpeg -f pulse, parec).

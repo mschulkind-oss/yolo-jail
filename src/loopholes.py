@@ -202,6 +202,7 @@ class Loophole:
     host_daemon: Optional[HostDaemon] = None
     jail_daemon: Optional[JailDaemon] = None
     host_bind_mounts: List[HostBindMount] = field(default_factory=list)
+    host_devices: List[str] = field(default_factory=list)
     requires: Requires = field(default_factory=Requires)
     # Where this loophole was loaded from: bundled / user / config.
     # Back-compat: from_config stays as a property below.
@@ -219,6 +220,15 @@ class Loophole:
 
     @property
     def requirements_met(self) -> bool:
+        # Inside a jail (``yolo loopholes list`` from in-container) the
+        # host-side ``requires`` gate isn't meaningful — those env vars
+        # and host paths were checked at boot, the wiring either
+        # happened or it didn't.  Re-evaluating them against the jail's
+        # empty XDG_RUNTIME_DIR gives a misleading "inactive" line for
+        # loopholes that are clearly working.  Switch to a container-
+        # side check: did at least one bind-mount actually land?
+        if os.environ.get("YOLO_VERSION") is not None:
+            return self._in_jail_active()
         req = self.requires
         if req.command_on_path is not None:
             import shutil as _shutil
@@ -230,6 +240,18 @@ class Loophole:
             if not expanded or not Path(expanded).exists():
                 return False
         return True
+
+    def _in_jail_active(self) -> bool:
+        """Container-side activation check.  A loophole declaring
+        ``host_bind_mounts`` is active iff at least one of those
+        container paths exists — that's direct evidence the host wired
+        the mount through.  Loopholes with no host_bind_mounts (TLS
+        intercepts, daemons, env-only) can't be cheaply re-verified
+        from in-jail, so we trust the host's decision and treat them
+        as active when enabled."""
+        if not self.host_bind_mounts:
+            return True
+        return any(Path(bm.container).exists() for bm in self.host_bind_mounts)
 
     @property
     def active(self) -> bool:
@@ -244,6 +266,10 @@ class Loophole:
         or None if it's active.  Used by ``yolo loopholes list``."""
         if not self.enabled:
             return "disabled"
+        if os.environ.get("YOLO_VERSION") is not None:
+            if self.host_bind_mounts and not self._in_jail_active():
+                return "host-side wiring not visible in this jail"
+            return None
         req = self.requires
         if req.command_on_path is not None:
             import shutil as _shutil
@@ -376,6 +402,7 @@ def _load_manifest(module_path: Path) -> Loophole:
     host_bind_mounts = _parse_host_bind_mounts(
         manifest_path, data.get("host_bind_mounts")
     )
+    host_devices = _parse_host_devices(manifest_path, data.get("host_devices"))
     requires = _parse_requires(manifest_path, data.get("requires"))
 
     return Loophole(
@@ -393,6 +420,7 @@ def _load_manifest(module_path: Path) -> Loophole:
         host_daemon=host_daemon,
         jail_daemon=jail_daemon,
         host_bind_mounts=host_bind_mounts,
+        host_devices=host_devices,
         requires=requires,
     )
 
@@ -463,6 +491,29 @@ def _parse_host_bind_mounts(manifest_path: Path, raw: Any) -> List[HostBindMount
                 readonly=readonly_raw,
             )
         )
+    return out
+
+
+def _parse_host_devices(manifest_path: Path, raw: Any) -> List[str]:
+    """Parse the ``host_devices`` array — a list of host device paths
+    (e.g. ``"/dev/snd"``) to pass through to the jail via the runtime's
+    ``--device`` flag.
+
+    ``--device`` is used instead of a plain bind-mount because cgroup
+    device-allow rules need to be set for the container to actually
+    read/write the device nodes; rootless podman with a bare ``-v``
+    mount silently denies the access."""
+    if raw is None:
+        return []
+    if not isinstance(raw, list):
+        raise LoopholeError(f"{manifest_path}: 'host_devices' must be a list")
+    out: List[str] = []
+    for i, entry in enumerate(raw):
+        if not isinstance(entry, str) or not entry:
+            raise LoopholeError(
+                f"{manifest_path}: host_devices[{i}] must be a non-empty string"
+            )
+        out.append(entry)
     return out
 
 
@@ -800,6 +851,19 @@ def runtime_args_for(
             if bm.readonly:
                 spec += ":ro"
             args.extend(["-v", spec])
+
+        for dev in m.host_devices:
+            # Skip device entries whose host node disappeared (kernel
+            # module unloaded, etc.) — podman fails the run with an
+            # opaque error otherwise.
+            if not Path(dev).exists():
+                log.warning(
+                    "loophole %s: skipping device passthrough, host node missing: %s",
+                    m.name,
+                    dev,
+                )
+                continue
+            args.extend(["--device", dev])
 
         for k, v in m.jail_env.items():
             args.extend(["-e", f"{k}={v}"])

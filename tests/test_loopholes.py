@@ -562,6 +562,107 @@ def test_requires_file_exists_collapses_when_env_var_unset(mods_dir: Path, monke
 
 
 # ---------------------------------------------------------------------------
+# In-jail gating — `yolo loopholes list` from inside the container
+# ---------------------------------------------------------------------------
+
+
+def test_in_jail_uses_container_paths_not_host_gate(
+    mods_dir: Path, tmp_path: Path, monkeypatch
+):
+    """Inside a jail (YOLO_VERSION env set) the host-side ``requires``
+    gate is meaningless — $XDG_RUNTIME_DIR is empty there, host paths
+    don't exist, but the loophole *was* wired up at boot.  The
+    container-path side of host_bind_mounts is the honest signal.
+
+    Concretely: simulate the audio loophole's situation — host gate
+    can't pass (file doesn't exist), but one bind-mount's container
+    path does exist.  In-jail: active.  Outside-jail: inactive."""
+    monkeypatch.setenv("YOLO_VERSION", "test-1.0.0")
+    monkeypatch.delenv("XDG_RUNTIME_DIR", raising=False)
+
+    # Use /tmp as the "container" path — it's always there, so it's
+    # a reliable stand-in for /run/pulse/native landing in the jail.
+    mod = mods_dir / "audio-like"
+    mod.mkdir()
+    _write_manifest(
+        mod,
+        {
+            "name": "audio-like",
+            "description": "x",
+            "transport": "none",
+            "requires": {"file_exists": "${XDG_RUNTIME_DIR}/pulse/native"},
+            "host_bind_mounts": [
+                {
+                    "host": "/this/host/path/does/not/exist",
+                    "container": "/tmp",
+                    "readonly": False,
+                },
+            ],
+        },
+    )
+    loaded = loopholes.discover_loopholes(
+        mods_dir, include_bundled=False, include_disabled=True
+    )
+    assert loaded[0].active is True, "in-jail: container path exists, gate should pass"
+    assert loaded[0].inactive_reason is None
+
+
+def test_in_jail_inactive_when_no_bind_mounts_landed(
+    mods_dir: Path, tmp_path: Path, monkeypatch
+):
+    """In-jail, if a loophole declared host_bind_mounts but none of the
+    container paths exist, the wiring genuinely didn't make it through
+    — surface that as inactive with a clear reason."""
+    monkeypatch.setenv("YOLO_VERSION", "test-1.0.0")
+    mod = mods_dir / "audio-like"
+    mod.mkdir()
+    _write_manifest(
+        mod,
+        {
+            "name": "audio-like",
+            "description": "x",
+            "transport": "none",
+            "host_bind_mounts": [
+                {
+                    "host": "/some/host/path",
+                    "container": str(tmp_path / "container-target-missing"),
+                    "readonly": False,
+                },
+            ],
+        },
+    )
+    loaded = loopholes.discover_loopholes(
+        mods_dir, include_bundled=False, include_disabled=True
+    )
+    assert loaded[0].active is False
+    reason = loaded[0].inactive_reason
+    assert reason is not None and "not visible" in reason
+
+
+def test_in_jail_trusts_enabled_for_loopholes_without_bind_mounts(
+    mods_dir: Path, monkeypatch
+):
+    """A TLS-intercept loophole (claude-oauth-broker-style) has no
+    host_bind_mounts to verify from the container side; in-jail, just
+    trust the enabled bit rather than misreporting it inactive."""
+    monkeypatch.setenv("YOLO_VERSION", "test-1.0.0")
+    mod = mods_dir / "broker-like"
+    mod.mkdir()
+    _write_manifest(
+        mod,
+        {
+            "name": "broker-like",
+            "description": "x",
+            "intercepts": [{"host": "example.test"}],
+            # Host-side gate that would fail in-jail (binary not on PATH).
+            "requires": {"command_on_path": "xyz-not-installed"},
+        },
+    )
+    loaded = loopholes.discover_loopholes(mods_dir, include_bundled=False)
+    assert loaded[0].active is True
+
+
+# ---------------------------------------------------------------------------
 # host_bind_mounts — pass existing host-owned sockets / dirs into the jail
 # ---------------------------------------------------------------------------
 
@@ -688,6 +789,69 @@ def test_host_bind_mounts_expand_loophole_dir_template(mods_dir: Path, tmp_path:
     assert loaded[0].host_bind_mounts[0].host == mod / "asound.conf"
 
 
+def test_host_devices_emitted_as_device_flags(mods_dir: Path, tmp_path: Path):
+    """``host_devices`` produces ``--device <path>`` runtime args, one per
+    entry.  Used for /dev/snd passthrough in the audio loophole — bare
+    bind mounts don't get cgroup device-allow rules under rootless
+    podman, so a real ``--device`` is required."""
+    # Pick a host node that's guaranteed to exist so runtime_args_for
+    # doesn't skip it.  /dev/null is always there.
+    mod = mods_dir / "snd-like"
+    mod.mkdir()
+    _write_manifest(
+        mod,
+        {
+            "name": "snd-like",
+            "description": "x",
+            "transport": "none",
+            "host_devices": ["/dev/null"],
+        },
+    )
+    loaded = loopholes.discover_loopholes(mods_dir, include_bundled=False)
+    assert loaded[0].host_devices == ["/dev/null"]
+    args = loopholes.runtime_args_for(loaded)
+    # Expect a literal ``--device /dev/null`` pair.
+    pairs = list(zip(args, args[1:]))
+    assert ("--device", "/dev/null") in pairs
+
+
+def test_host_devices_skipped_when_node_missing(mods_dir: Path, tmp_path: Path):
+    """If a declared device node doesn't exist on the host (kernel
+    module not loaded), drop the ``--device`` arg silently — podman
+    would otherwise fail the whole run with an opaque error."""
+    mod = mods_dir / "snd-like"
+    mod.mkdir()
+    _write_manifest(
+        mod,
+        {
+            "name": "snd-like",
+            "description": "x",
+            "transport": "none",
+            "host_devices": ["/dev/this-does-not-exist-xyz"],
+        },
+    )
+    loaded = loopholes.discover_loopholes(mods_dir, include_bundled=False)
+    args = loopholes.runtime_args_for(loaded)
+    assert "--device" not in args
+
+
+def test_host_devices_must_be_list_of_nonempty_strings(mods_dir: Path):
+    mod = mods_dir / "bad-devs"
+    mod.mkdir()
+    _write_manifest(
+        mod,
+        {
+            "name": "bad-devs",
+            "description": "x",
+            "host_devices": [""],
+        },
+    )
+    entries = loopholes.validate_loopholes(mods_dir, include_bundled=False)
+    _, loophole, err = entries[0]
+    assert loophole is None
+    assert err is not None and "host_devices[0]" in err
+
+
 def test_host_bind_mounts_skip_when_source_missing(
     mods_dir: Path, tmp_path: Path, capsys
 ):
@@ -754,6 +918,31 @@ def test_bundled_audio_loophole_parses(monkeypatch, tmp_path):
     assert f"{bundled / 'asound.conf'}:/etc/asound.conf:ro" in joined
     assert "PULSE_SERVER=unix:/run/pulse/native" in joined
     assert "PIPEWIRE_REMOTE=/run/pipewire/pipewire-0" in joined
+
+
+def test_bundled_audio_loophole_emits_dev_snd_device(monkeypatch, tmp_path):
+    """The audio loophole declares /dev/snd as a host device so MIDI
+    (ALSA-seq) and raw hardware ALSA work in-jail.  When /dev/snd
+    exists on the host, runtime_args_for emits the --device flag."""
+    from src import loopholes as _l
+
+    runtime = tmp_path / "run-1000"
+    (runtime / "pulse").mkdir(parents=True)
+    (runtime / "pulse" / "native").write_bytes(b"")
+    monkeypatch.setenv("XDG_RUNTIME_DIR", str(runtime))
+
+    bundled = _l.bundled_loopholes_dir() / "audio"
+    loaded = [_l.load_loophole(bundled)]
+    assert loaded[0].host_devices == ["/dev/snd"]
+    args = _l.runtime_args_for(loaded)
+    # /dev/snd may or may not exist in CI (containers, macOS); just
+    # verify the manifest entry parses and runtime_args_for handles
+    # both presence and absence without raising.
+    if Path("/dev/snd").exists():
+        pairs = list(zip(args, args[1:]))
+        assert ("--device", "/dev/snd") in pairs
+    else:
+        assert "/dev/snd" not in args
 
 
 def test_bundled_audio_loophole_pulse_only_host(monkeypatch, tmp_path):
