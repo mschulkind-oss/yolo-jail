@@ -662,6 +662,32 @@ def test_host_bind_mounts_emitted_as_runtime_args(mods_dir: Path, tmp_path: Path
     assert f"{rw_src}:/run/pulse/native:ro" not in joined
 
 
+def test_host_bind_mounts_expand_loophole_dir_template(mods_dir: Path, tmp_path: Path):
+    """``{loophole_dir}`` resolves to the loophole's own module dir, so
+    a bundled loophole can ship a config file alongside its manifest
+    and bind-mount it into the jail (see audio loophole's asound.conf).
+    The substitution runs before ``${VAR}`` env expansion, so the two
+    can coexist in one path."""
+    mod = mods_dir / "audio-like"
+    mod.mkdir()
+    (mod / "asound.conf").write_text("pcm.!default { type pipewire }\n")
+    _write_manifest(
+        mod,
+        {
+            "name": "audio-like",
+            "description": "x",
+            "host_bind_mounts": [
+                {
+                    "host": "{loophole_dir}/asound.conf",
+                    "container": "/etc/asound.conf",
+                }
+            ],
+        },
+    )
+    loaded = loopholes.discover_loopholes(mods_dir, include_bundled=False)
+    assert loaded[0].host_bind_mounts[0].host == mod / "asound.conf"
+
+
 def test_host_bind_mounts_skip_when_source_missing(
     mods_dir: Path, tmp_path: Path, capsys
 ):
@@ -700,25 +726,61 @@ def test_host_bind_mounts_skip_when_source_missing(
 
 def test_bundled_audio_loophole_parses(monkeypatch, tmp_path):
     """Smoke-test the shipped src/bundled_loopholes/audio/manifest.jsonc:
-    parser accepts it, expansion works, runtime_args_for renders the
-    expected -v + PULSE_SERVER when the socket is present."""
+    parser accepts it, env + loophole_dir expansion both work, and
+    runtime_args_for renders the full triple bridge (Pulse socket +
+    PipeWire native socket + ALSA→PipeWire asound.conf) with the
+    matching jail_env vars when both sockets are present."""
     from src import loopholes as _l
 
     runtime = tmp_path / "run-1000"
     (runtime / "pulse").mkdir(parents=True)
-    sock = runtime / "pulse" / "native"
-    sock.write_bytes(b"")
+    pulse_sock = runtime / "pulse" / "native"
+    pulse_sock.write_bytes(b"")
+    pw_sock = runtime / "pipewire-0"
+    pw_sock.write_bytes(b"")
     monkeypatch.setenv("XDG_RUNTIME_DIR", str(runtime))
 
     bundled = _l.bundled_loopholes_dir() / "audio"
     assert bundled.is_dir(), "audio loophole must be shipped in the wheel"
-    # Discover only the audio loophole in isolation.
+    assert (bundled / "asound.conf").is_file(), (
+        "audio loophole must ship its asound.conf alongside the manifest"
+    )
     loaded = [_l.load_loophole(bundled)]
     assert loaded[0].active is True
     args = _l.runtime_args_for(loaded)
     joined = " ".join(args)
-    assert f"{sock}:/run/pulse/native" in joined
+    assert f"{pulse_sock}:/run/pulse/native" in joined
+    assert f"{pw_sock}:/run/pipewire/pipewire-0" in joined
+    assert f"{bundled / 'asound.conf'}:/etc/asound.conf:ro" in joined
     assert "PULSE_SERVER=unix:/run/pulse/native" in joined
+    assert "PIPEWIRE_REMOTE=/run/pipewire/pipewire-0" in joined
+
+
+def test_bundled_audio_loophole_pulse_only_host(monkeypatch, tmp_path):
+    """On a host with PulseAudio but no native PipeWire socket, the
+    PipeWire bind-mount silently drops out (runtime_args_for skips
+    missing sources) while the Pulse mount and asound.conf still go
+    through.  PIPEWIRE_REMOTE env stays set — clients that try the
+    native socket fail the same way they would on the host, which is
+    the honest outcome."""
+    from src import loopholes as _l
+
+    runtime = tmp_path / "run-1000"
+    (runtime / "pulse").mkdir(parents=True)
+    pulse_sock = runtime / "pulse" / "native"
+    pulse_sock.write_bytes(b"")
+    monkeypatch.setenv("XDG_RUNTIME_DIR", str(runtime))
+
+    bundled = _l.bundled_loopholes_dir() / "audio"
+    loaded = [_l.load_loophole(bundled)]
+    args = _l.runtime_args_for(loaded)
+    joined = " ".join(args)
+    assert f"{pulse_sock}:/run/pulse/native" in joined
+    # The PipeWire bind-mount entry must not appear (skipped because
+    # source missing); the PIPEWIRE_REMOTE env, which mentions the same
+    # container path, is still emitted and is fine.
+    assert ":/run/pipewire/pipewire-0" not in joined
+    assert f"{bundled / 'asound.conf'}:/etc/asound.conf:ro" in joined
 
 
 def test_inactive_loopholes_skipped_in_runtime_args(mods_dir: Path):

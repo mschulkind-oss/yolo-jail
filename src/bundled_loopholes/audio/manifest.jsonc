@@ -1,8 +1,20 @@
 // Bundled yolo-jail loophole — ships with the wheel.
-// Passes the user's PipeWire / PulseAudio socket through to the jail so
-// microphone + playback work inside the container.  Powers
-// ``claude /voice``, any other Claude Code audio features, and
-// generally anything that uses `sox`, `ffmpeg`, `parecord`, etc.
+// Passes the user's PipeWire / PulseAudio sockets through to the jail
+// so microphone + playback work inside the container.  Three bridges:
+//
+//   1. PulseAudio socket → /run/pulse/native + PULSE_SERVER env.
+//      Covers libpulse clients (sox, ffmpeg's pulse input, parecord).
+//   2. Native PipeWire socket → /run/pipewire/pipewire-0 +
+//      PIPEWIRE_REMOTE env.  Covers pipewire-rs clients and the ALSA
+//      shim (which talks the native protocol, not Pulse).
+//   3. /etc/asound.conf shipped from the loophole dir, routing ALSA's
+//      "default" PCM/CTL through the PipeWire shim.  Covers anything
+//      that dlopens libasound and calls snd_pcm_open("default") —
+//      notably Claude Code's voice mode, which picks the ALSA backend
+//      whenever libasound.so.2 is present in the jail (e.g. a workspace
+//      that pulls in `alsa-lib` for gomidi/rtmididrv) and would
+//      otherwise die with "cannot find card '0'" — there's no
+//      /dev/snd/* in the jail.
 //
 // macOS is deliberately unsupported: the macOS container runtimes
 // don't bridge host CoreAudio, so there's no socket to pass through.
@@ -11,7 +23,7 @@
 // exist), so no error noise.
 {
   "name": "audio",
-  "description": "PipeWire/PulseAudio socket pass-through — enables microphone and playback inside the jail (Claude Code /voice, sox, ffmpeg).",
+  "description": "PipeWire/PulseAudio socket pass-through + ALSA→PipeWire routing — enables microphone and playback inside the jail (Claude Code /voice, sox, ffmpeg, pipewire-rs, libasound clients).",
   "version": 1,
   "enabled": true,
 
@@ -23,7 +35,7 @@
   },
 
   // No TLS intercept, no daemon — we're just granting the jail access
-  // to an existing host socket.
+  // to existing host sockets + shipping an ALSA config file.
   "transport": "none",
   "lifecycle": "external",
 
@@ -33,13 +45,33 @@
       "container": "/run/pulse/native",
       // Bidirectional by design — audio frames flow both ways.
       "readonly": false
+    },
+    {
+      // Native PipeWire socket.  On a pure-PulseAudio host this path
+      // won't exist and runtime_args_for skips the mount silently.
+      "host": "${XDG_RUNTIME_DIR}/pipewire-0",
+      "container": "/run/pipewire/pipewire-0",
+      "readonly": false
+    },
+    {
+      // ALSA config that routes "default" through the PipeWire shim.
+      // Always mounted — the file ships with the loophole, so the
+      // source always exists.  Harmless when nothing in the jail
+      // dlopens libasound (file just isn't read).
+      "host": "{loophole_dir}/asound.conf",
+      "container": "/etc/asound.conf",
+      "readonly": true
     }
   ],
 
-  // Point libpulse / Pulse-compatible clients at the bound socket.
-  // pipewire-pulse, pa-clients, sox's pulse driver, ffmpeg's pulse
-  // input all honor this.
+  // PULSE_SERVER: libpulse clients (sox, ffmpeg -f pulse, parec).
+  // PIPEWIRE_REMOTE: pipewire-rs and the ALSA pipewire shim.  Both
+  // are unconditional because the bind mounts above use a stable
+  // container path, even if (on a Pulse-only host) the PipeWire
+  // mount was skipped — in that case clients that try the native
+  // socket simply fail to connect, the same as on the host.
   "jail_env": {
-    "PULSE_SERVER": "unix:/run/pulse/native"
+    "PULSE_SERVER": "unix:/run/pulse/native",
+    "PIPEWIRE_REMOTE": "/run/pipewire/pipewire-0"
   }
 }

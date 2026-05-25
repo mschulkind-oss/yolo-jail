@@ -417,14 +417,23 @@ def _parse_host_bind_mounts(manifest_path: Path, raw: Any) -> List[HostBindMount
     """Parse the ``host_bind_mounts`` array.
 
     Each entry: ``{host: str, container: str, readonly: bool=True}``.
-    The host path may contain ``${VAR}`` refs; we expand them at parse
-    time so downstream code sees concrete ``Path`` objects.  Empty
-    expansions (unset env var) keep the Path as-is; ``runtime_args_for``
-    will skip such mounts with a log message instead of crashing."""
+    The host path supports two substitutions, applied in this order:
+
+    1. ``{loophole_dir}`` → the loophole's own module directory.  Lets a
+       bundled loophole ship a config file alongside its manifest and
+       bind-mount it into the jail without depending on the
+       ``jail_daemon`` path (which is the only other mechanism that
+       surfaces the loophole dir inside the container).
+    2. ``${VAR}`` / ``$VAR`` → host env at parse time.
+
+    Empty expansions (unset env var) keep the Path as-is; the resulting
+    path won't exist and ``runtime_args_for`` will skip the mount with
+    a log message instead of crashing."""
     if raw is None:
         return []
     if not isinstance(raw, list):
         raise LoopholeError(f"{manifest_path}: 'host_bind_mounts' must be a list")
+    module_dir = str(manifest_path.parent)
     out: List[HostBindMount] = []
     for i, entry in enumerate(raw):
         if not isinstance(entry, dict):
@@ -446,7 +455,7 @@ def _parse_host_bind_mounts(manifest_path: Path, raw: Any) -> List[HostBindMount
             raise LoopholeError(
                 f"{manifest_path}: host_bind_mounts[{i}].readonly must be a boolean"
             )
-        expanded = _expand_env(host_raw)
+        expanded = _expand_env(host_raw.replace("{loophole_dir}", module_dir))
         out.append(
             HostBindMount(
                 host=Path(expanded),
