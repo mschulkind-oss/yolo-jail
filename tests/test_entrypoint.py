@@ -760,21 +760,23 @@ class TestCopilotConfig:
         # $BARE stays literal — predictable, no shell-style surprises.
         assert mcp["mcpServers"]["custom"]["env"]["VAL"] == "$BARE"
 
-    def test_lsp_config(self, jail_home):
+    def test_lsp_config_empty_by_default(self, jail_home):
+        """No LSPs are configured unless the workspace asks for them."""
         entrypoint.configure_copilot()
         lsp = json.loads((entrypoint.COPILOT_DIR / "lsp-config.json").read_text())
-        assert "python" in lsp["lspServers"]
-        assert ".py" in lsp["lspServers"]["python"]["fileExtensions"]
-        assert "typescript" in lsp["lspServers"]
-        assert "go" in lsp["lspServers"]
-        assert ".go" in lsp["lspServers"]["go"]["fileExtensions"]
+        assert lsp["lspServers"] == {}
 
-    def test_lsp_workspace_override(self, jail_home, monkeypatch):
-        """Workspace LSP servers merge with defaults."""
+    def test_lsp_workspace_servers_are_emitted(self, jail_home, monkeypatch):
+        """Workspace-configured LSP servers land in lsp-config.json."""
         monkeypatch.setenv(
             "YOLO_LSP_SERVERS",
             json.dumps(
                 {
+                    "python": {
+                        "command": "/custom/pyright",
+                        "args": ["--stdio"],
+                        "fileExtensions": {".py": "python"},
+                    },
                     "rust": {
                         "command": "rust-analyzer",
                         "args": [],
@@ -785,32 +787,9 @@ class TestCopilotConfig:
         )
         entrypoint.configure_copilot()
         lsp = json.loads((entrypoint.COPILOT_DIR / "lsp-config.json").read_text())
-        # Defaults still present
-        assert "python" in lsp["lspServers"]
-        assert "typescript" in lsp["lspServers"]
-        assert "go" in lsp["lspServers"]
-        # Workspace server added
-        assert "rust" in lsp["lspServers"]
+        assert lsp["lspServers"]["python"]["command"] == "/custom/pyright"
         assert lsp["lspServers"]["rust"]["command"] == "rust-analyzer"
         assert ".rs" in lsp["lspServers"]["rust"]["fileExtensions"]
-
-    def test_lsp_workspace_override_replaces_default(self, jail_home, monkeypatch):
-        """Workspace can override a default LSP server."""
-        monkeypatch.setenv(
-            "YOLO_LSP_SERVERS",
-            json.dumps(
-                {
-                    "python": {
-                        "command": "/custom/pyright",
-                        "args": ["--stdio"],
-                        "fileExtensions": {".py": "python"},
-                    },
-                }
-            ),
-        )
-        entrypoint.configure_copilot()
-        lsp = json.loads((entrypoint.COPILOT_DIR / "lsp-config.json").read_text())
-        assert lsp["lspServers"]["python"]["command"] == "/custom/pyright"
 
     def test_yolo_config_created(self, jail_home):
         entrypoint.configure_copilot()
@@ -837,9 +816,10 @@ class TestGeminiConfig:
         cfg = json.loads((entrypoint.GEMINI_DIR / "settings.json").read_text())
         assert cfg["security"]["approvalMode"] == "yolo"
         assert "chrome-devtools" not in cfg["mcpServers"]
-        assert "python-lsp" in cfg["mcpServers"]
-        assert "typescript-lsp" in cfg["mcpServers"]
-        assert "go-lsp" in cfg["mcpServers"]
+        # No LSPs configured → no *-lsp MCP entries.
+        assert "python-lsp" not in cfg["mcpServers"]
+        assert "typescript-lsp" not in cfg["mcpServers"]
+        assert "go-lsp" not in cfg["mcpServers"]
         assert cfg["general"]["enableAutoUpdate"] is False
         assert cfg["general"]["enableAutoUpdateNotification"] is False
 
@@ -1119,14 +1099,58 @@ class TestClaudeConfig:
         cfg = json.loads((entrypoint.CLAUDE_DIR / "settings.json").read_text())
         assert cfg["env"]["ENABLE_LSP_TOOL"] == "1"
 
-    def test_lsp_plugins_enabled(self, jail_home):
-        """Default LSP plugins are enabled in settings.json."""
+    def test_lsp_plugins_disabled_by_default(self, jail_home):
+        """No Claude LSP plugins are enabled when the workspace has no LSPs."""
+        entrypoint.configure_claude()
+        cfg = json.loads((entrypoint.CLAUDE_DIR / "settings.json").read_text())
+        plugins = cfg.get("enabledPlugins", {})
+        assert "pyright-lsp@claude-plugins-official" not in plugins
+        assert "typescript-lsp@claude-plugins-official" not in plugins
+        assert "gopls-lsp@claude-plugins-official" not in plugins
+
+    def test_lsp_plugins_enabled_when_lsp_configured(self, jail_home, monkeypatch):
+        """Claude LSP plugins are enabled for each configured LSP."""
+        monkeypatch.setenv(
+            "YOLO_LSP_SERVERS",
+            json.dumps(
+                {
+                    "python": {
+                        "command": "/x/pyright-langserver",
+                        "args": ["--stdio"],
+                        "fileExtensions": {".py": "python"},
+                    },
+                    "go": {
+                        "command": "/x/gopls",
+                        "args": [],
+                        "fileExtensions": {".go": "go"},
+                    },
+                }
+            ),
+        )
         entrypoint.configure_claude()
         cfg = json.loads((entrypoint.CLAUDE_DIR / "settings.json").read_text())
         plugins = cfg.get("enabledPlugins", {})
         assert plugins.get("pyright-lsp@claude-plugins-official") is True
-        assert plugins.get("typescript-lsp@claude-plugins-official") is True
         assert plugins.get("gopls-lsp@claude-plugins-official") is True
+        # typescript not configured → its plugin not enabled.
+        assert "typescript-lsp@claude-plugins-official" not in plugins
+
+    def test_lsp_plugins_pruned_when_lsp_removed(self, jail_home, monkeypatch):
+        """If a previous boot enabled a Claude LSP plugin and the LSP is now
+        gone, the plugin entry is removed from settings.json."""
+        # Pre-existing settings.json with a plugin enabled (pretend the
+        # last boot had the LSP configured).
+        entrypoint.CLAUDE_DIR.mkdir(parents=True, exist_ok=True)
+        (entrypoint.CLAUDE_DIR / "settings.json").write_text(
+            json.dumps(
+                {"enabledPlugins": {"pyright-lsp@claude-plugins-official": True}}
+            )
+        )
+        # No LSPs configured this boot.
+        entrypoint.configure_claude()
+        cfg = json.loads((entrypoint.CLAUDE_DIR / "settings.json").read_text())
+        plugins = cfg.get("enabledPlugins", {})
+        assert "pyright-lsp@claude-plugins-official" not in plugins
 
     def test_preserves_existing_settings(self, jail_home):
         """configure_claude merges into existing settings.json."""
@@ -1778,13 +1802,13 @@ class TestLspServerLoading:
     def test_invalid_json_ignored(self, jail_home, monkeypatch):
         monkeypatch.setenv("YOLO_LSP_SERVERS", "{invalid json}")
         servers = entrypoint._load_lsp_servers()
-        # Should still return defaults
-        assert "python" in servers
+        # Defaults are empty, so a malformed env value yields {} (not a crash).
+        assert servers == {}
 
     def test_non_dict_ignored(self, jail_home, monkeypatch):
         monkeypatch.setenv("YOLO_LSP_SERVERS", '"just a string"')
         servers = entrypoint._load_lsp_servers()
-        assert "python" in servers
+        assert servers == {}
 
 
 class TestMiseConfigUpdate:

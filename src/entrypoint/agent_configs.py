@@ -259,10 +259,18 @@ CLAUDE_LSP_PLUGIN_MAP = {
 
 
 def _install_claude_plugins(plugin_map: dict, lsp_servers: dict):
-    """Install Claude Code LSP plugins from the official marketplace.
+    """Install/uninstall Claude Code LSP plugins to match ``lsp_servers``.
 
-    Reads installed_plugins.json to skip already-installed plugins.
-    Uses `claude plugins install` for new ones.  Failures are non-fatal.
+    For each entry in ``plugin_map``:
+      * if the matching LSP is configured and the plugin isn't installed
+        yet → ``claude plugins install``;
+      * if the LSP is *not* configured but the plugin *is* installed
+        (left over from a previous boot when it was) →
+        ``claude plugins uninstall``.
+
+    Reads installed_plugins.json to know what's currently installed.
+    All claude invocations are best-effort; failures don't abort jail
+    startup (worst case the plugin sticks around an extra boot).
     """
     from . import CLAUDE_DIR, HOME
 
@@ -272,25 +280,28 @@ def _install_claude_plugins(plugin_map: dict, lsp_servers: dict):
     except (FileNotFoundError, json.JSONDecodeError, TypeError):
         installed = set()
 
-    for lsp_name, plugin_id in plugin_map.items():
-        if lsp_name not in lsp_servers:
-            continue
-        if plugin_id in installed:
-            continue
-        # Only attempt if claude binary is available
-        claude_bin = HOME / ".local" / "bin" / "claude"
-        if not claude_bin.exists():
-            # Fall back to PATH (mise-installed or shim)
-            claude_bin = Path("claude")
+    claude_bin = HOME / ".local" / "bin" / "claude"
+    if not claude_bin.exists():
+        claude_bin = Path("claude")
+
+    def _claude(*args: str) -> None:
         try:
             subprocess.run(
-                [str(claude_bin), "plugins", "install", plugin_id],
+                [str(claude_bin), *args],
                 capture_output=True,
                 timeout=30,
                 env={**os.environ, "YOLO_BYPASS_SHIMS": "1"},
             )
         except Exception:
-            pass  # non-fatal — plugin will be installed on next boot
+            pass  # non-fatal — retry next boot
+
+    for lsp_name, plugin_id in plugin_map.items():
+        wanted = lsp_name in lsp_servers
+        present = plugin_id in installed
+        if wanted and not present:
+            _claude("plugins", "install", plugin_id)
+        elif present and not wanted:
+            _claude("plugins", "uninstall", plugin_id)
 
 
 def _sync_host_claude_files():
@@ -487,12 +498,18 @@ def configure_claude():
         # Enable LSP tool so Claude Code uses language servers for navigation.
         settings.setdefault("env", {})["ENABLE_LSP_TOOL"] = "1"
 
-        # Enable LSP plugins matching the jail's configured LSP servers.
+        # Enable/disable LSP plugins to match the jail's configured LSP
+        # servers.  Plugins for LSPs that *were* configured on a prior
+        # boot but aren't now are removed from enabledPlugins so claude
+        # doesn't try to talk to a binary the bootstrap script just
+        # uninstalled.
         lsp_servers = _load_lsp_servers()
         enabled_plugins = settings.setdefault("enabledPlugins", {})
         for lsp_name, plugin_id in CLAUDE_LSP_PLUGIN_MAP.items():
             if lsp_name in lsp_servers:
                 enabled_plugins[plugin_id] = True
+            else:
+                enabled_plugins.pop(plugin_id, None)
 
         settings_path.write_text(json.dumps(settings, indent=2) + "\n")
 

@@ -311,6 +311,53 @@ def _workspace_readonly_mount_args(
     return args
 
 
+# Map a configured LSP server name to (npm packages, go packages) the
+# bootstrap script should ensure installed.  Anything not in this table
+# is the user's responsibility (e.g. they specified a ``command`` that
+# already exists in the image).  The ``mcp-language-server`` go binary
+# is added once whenever *any* LSP is configured because Gemini wraps
+# every LSP through it.
+_LSP_INSTALL_RECIPES: Dict[str, Dict[str, List[str]]] = {
+    "python": {"npm": ["pyright"], "go": []},
+    "typescript": {"npm": ["typescript-language-server", "typescript"], "go": []},
+    "go": {"npm": [], "go": ["golang.org/x/tools/gopls@latest"]},
+}
+_LSP_GEMINI_BRIDGE_GO = "github.com/isaacphi/mcp-language-server@latest"
+
+
+def _resolve_lsp_installs(lsp_servers: Dict[str, Any]) -> Dict[str, str]:
+    """Translate a configured ``lsp_servers`` dict into install lists.
+
+    Returns ``{"npm": "pkg1\\npkg2", "go": "pkg1\\npkg2"}`` (newline-
+    separated to keep the bash side parser-free).  Empty strings when
+    nothing's configured.
+
+    Server names not in :data:`_LSP_INSTALL_RECIPES` contribute nothing —
+    callers wiring a custom LSP point ``command`` at a binary they
+    install themselves (image/mise/etc.).
+    """
+    if not isinstance(lsp_servers, dict) or not lsp_servers:
+        return {"npm": "", "go": ""}
+    npm: List[str] = []
+    go: List[str] = []
+    for name in lsp_servers:
+        recipe = _LSP_INSTALL_RECIPES.get(name)
+        if not recipe:
+            continue
+        for pkg in recipe["npm"]:
+            if pkg not in npm:
+                npm.append(pkg)
+        for pkg in recipe["go"]:
+            if pkg not in go:
+                go.append(pkg)
+    # mcp-language-server is the bridge Gemini uses to wrap every LSP
+    # as an MCP server.  Pull it whenever *any* LSP is configured —
+    # including custom ones outside our recipe table — since Gemini
+    # will go looking for it regardless of who owns the LSP binary.
+    go.append(_LSP_GEMINI_BRIDGE_GO)
+    return {"npm": "\n".join(npm), "go": "\n".join(go)}
+
+
 def _scratch_mount_args(mode: object) -> List[str]:
     """Build the mount args for the read-only-rootfs scratch dirs.
 
@@ -696,6 +743,7 @@ def run(
     extra_packages = config.get("packages", [])
     mise_tools = _merge_mise_tools(config)
     lsp_servers = config.get("lsp_servers", {})
+    lsp_installs = _resolve_lsp_installs(lsp_servers)
     mcp_servers = config.get("mcp_servers", {})
     mcp_presets = config.get("mcp_presets", [])
     host_claude_files = config.get("host_claude_files", DEFAULT_HOST_CLAUDE_FILES)
@@ -1071,6 +1119,13 @@ def run(
             f"YOLO_MISE_TOOLS={json.dumps(mise_tools)}",
             "-e",
             f"YOLO_LSP_SERVERS={json.dumps(lsp_servers)}",
+            "-e",
+            # The bootstrap script reads these to decide which language
+            # server binaries to install/uninstall on this boot.  See
+            # _resolve_lsp_installs and entrypoint/shell.py.
+            f"YOLO_LSP_NPM_INSTALL={lsp_installs['npm']}",
+            "-e",
+            f"YOLO_LSP_GO_INSTALL={lsp_installs['go']}",
             "-e",
             f"YOLO_MCP_SERVERS={json.dumps(mcp_servers)}",
             "-e",

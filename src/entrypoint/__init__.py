@@ -80,32 +80,31 @@ MISE_CONFIG_DIR = HOME / ".config" / "mise"
 # tests can redirect it to a tmp dir without monkey-patching pathlib.
 TZ_RUN_DIR = Path("/run")
 
-# Default LSP servers always available in the jail.
-# command: absolute path (for Copilot); basename extracted for Gemini's mcp-language-server.
-# args: passed to the LSP binary directly.
-# fileExtensions: extension → language ID map (required for Copilot).
-DEFAULT_LSP_SERVERS = {
-    "python": {
-        "command": str(NPM_BIN / "pyright-langserver"),
-        "args": ["--stdio"],
-        "fileExtensions": {".py": "python", ".pyi": "python"},
-    },
-    "typescript": {
-        "command": str(NPM_BIN / "typescript-language-server"),
-        "args": ["--stdio"],
-        "fileExtensions": {
-            ".ts": "typescript",
-            ".tsx": "typescriptreact",
-            ".js": "javascript",
-            ".jsx": "javascriptreact",
-        },
-    },
-    "go": {
-        "command": str(GO_BIN / "gopls"),
-        "args": [],
-        "fileExtensions": {".go": "go"},
-    },
-}
+# LSP servers are opt-in.  Workspaces that want pyright / TypeScript /
+# gopls (etc.) wired into Copilot/Gemini/Claude must list them in
+# ``lsp_servers`` in yolo-jail.jsonc; the bootstrap script then installs
+# the matching binaries and the agent configurators reference them.
+#
+# Earlier versions of yolo-jail shipped pyright/ts-server/gopls as
+# always-on defaults.  That cost ~30 seconds of npm + go installs on
+# every fresh jail and added MCP/LSP integrations into agent configs
+# regardless of whether the user wanted them.  Now: empty default,
+# nothing happens unless asked, and ``configure_*`` actively unwires
+# previously-configured servers when they're removed from the config.
+#
+# Recipes for the common languages (drop into yolo-jail.jsonc under
+# ``lsp_servers``):
+#
+#   "python":     {"command": "$NPM_BIN/pyright-langserver",
+#                  "args": ["--stdio"],
+#                  "fileExtensions": {".py": "python", ".pyi": "python"}}
+#   "typescript": {"command": "$NPM_BIN/typescript-language-server",
+#                  "args": ["--stdio"],
+#                  "fileExtensions": {".ts": "typescript", ".tsx": "typescriptreact",
+#                                     ".js": "javascript", ".jsx": "javascriptreact"}}
+#   "go":         {"command": "$GO_BIN/gopls", "args": [],
+#                  "fileExtensions": {".go": "go"}}
+DEFAULT_LSP_SERVERS: dict = {}
 
 
 # Stand-alone scripts dropped into the jail's PATH live in

@@ -116,7 +116,25 @@ alias bat='bat --style=plain --paging=never'
 
 
 def generate_bootstrap_script():
-    """Create the idempotent bootstrap script that installs MCP/LSP tools."""
+    """Create the idempotent bootstrap script that installs MCP/LSP tools.
+
+    LSP installs are gated on which servers the workspace has configured
+    (via ``lsp_servers`` in ``yolo-jail.jsonc``).  We track what we've
+    previously installed in ``~/.yolo-installed-lsps`` so we can also
+    *uninstall* anything that was once configured but isn't anymore.
+
+    Two env vars feed the installer:
+
+      * ``YOLO_LSP_NPM_INSTALL`` — newline-separated npm packages to
+        ensure installed (e.g. ``pyright\ntypescript-language-server``).
+      * ``YOLO_LSP_GO_INSTALL`` — newline-separated go packages to
+        ensure installed (e.g.
+        ``github.com/isaacphi/mcp-language-server@latest``).
+
+    Both default to empty.  cli.run_cmd populates them from the
+    workspace config; an unconfigured jail installs nothing LSP-related
+    and uninstalls anything left from a previous boot.
+    """
     from . import HOME, MISE_SHIMS
 
     script_path = HOME / ".yolo-bootstrap.sh"
@@ -135,27 +153,90 @@ fc-cache -f >/dev/null 2>&1
 # Lazy-update launchers in ~/.yolo-shims/ handle install/update on first use,
 # keeping boot fast.  Only MCP/LSP tools that agents depend on are installed here.
 
-# Install binaries if missing.
+# --- Always-on MCP tools (chrome-devtools-mcp, sequential-thinking) -----
 if ! command -v chrome-devtools-mcp >/dev/null; then
     echo "  Installing MCP tools..." >&2
     # Clean stale npm temp directories that cause ENOTEMPTY on rename.
     # maxdepth 2 catches both top-level and scoped (@org/) packages.
     find "$NPM_CONFIG_PREFIX/lib/node_modules" -maxdepth 2 -name '.*' -type d 2>/dev/null | xargs rm -rf
-    YOLO_BYPASS_SHIMS=1 npm install -g chrome-devtools-mcp @modelcontextprotocol/server-sequential-thinking pyright typescript-language-server typescript
+    YOLO_BYPASS_SHIMS=1 npm install -g chrome-devtools-mcp @modelcontextprotocol/server-sequential-thinking
 fi
 
-if [ ! -f "$GOBIN/mcp-language-server" ] || [ ! -f "$GOBIN/gopls" ]; then
-    if command -v go >/dev/null; then
-        echo "  Installing Go tools..." >&2
-        mkdir -p "$GOBIN"
-        [ -f "$GOBIN/mcp-language-server" ] || YOLO_BYPASS_SHIMS=1 go install github.com/isaacphi/mcp-language-server@latest
-        [ -f "$GOBIN/gopls" ] || YOLO_BYPASS_SHIMS=1 go install golang.org/x/tools/gopls@latest
-    else
-        echo "  ⚠ go not found, skipping Go tool installs" >&2
+# --- LSP installs (gated on workspace config) ---------------------------
+# Sentinel records what we installed last boot, so we can uninstall on
+# removal.  Format: one ``kind:identifier`` per line, e.g.
+# ``npm:pyright`` / ``go:github.com/isaacphi/mcp-language-server``.
+SENTINEL="$HOME/.yolo-installed-lsps"
+prev=""
+[ -f "$SENTINEL" ] && prev=$(cat "$SENTINEL")
+desired=""
+for pkg in $(printf '%s\n' "${{YOLO_LSP_NPM_INSTALL:-}}" | sed '/^$/d'); do
+    desired="${{desired}}npm:${{pkg}}\n"
+done
+for pkg in $(printf '%s\n' "${{YOLO_LSP_GO_INSTALL:-}}" | sed '/^$/d'); do
+    desired="${{desired}}go:${{pkg}}\n"
+done
+desired=$(printf "$desired")
+
+# Install anything in desired that isn't already installed.
+echo "$desired" | while IFS= read -r entry; do
+    [ -z "$entry" ] && continue
+    kind=${{entry%%:*}}
+    pkg=${{entry#*:}}
+    case "$kind" in
+        npm)
+            # Probe via npm ls -g; faster than `command -v` when the bin name doesn't match the pkg name.
+            if ! YOLO_BYPASS_SHIMS=1 npm ls -g --depth=0 "$pkg" >/dev/null 2>&1; then
+                echo "  Installing npm: $pkg" >&2
+                YOLO_BYPASS_SHIMS=1 npm install -g --prefer-online "$pkg" 2>&1 || true
+            fi
+            ;;
+        go)
+            # ``go install pkg@ver`` is idempotent but slow; skip if the bin already exists.
+            # Strip ``@version`` to derive the binary name from the last path segment.
+            base=${{pkg%@*}}
+            bin=${{base##*/}}
+            if [ ! -f "$GOBIN/$bin" ]; then
+                if command -v go >/dev/null; then
+                    echo "  Installing go: $pkg" >&2
+                    mkdir -p "$GOBIN"
+                    YOLO_BYPASS_SHIMS=1 go install "$pkg" 2>&1 || true
+                else
+                    echo "  ⚠ go not found, skipping $pkg" >&2
+                fi
+            fi
+            ;;
+    esac
+done
+
+# Uninstall anything in prev that's no longer in desired (workspace
+# dropped an LSP between boots).
+echo "$prev" | while IFS= read -r entry; do
+    [ -z "$entry" ] && continue
+    if ! printf '%s\n' "$desired" | grep -qxF "$entry"; then
+        kind=${{entry%%:*}}
+        pkg=${{entry#*:}}
+        case "$kind" in
+            npm)
+                echo "  Uninstalling npm: $pkg (no longer configured)" >&2
+                YOLO_BYPASS_SHIMS=1 npm uninstall -g "$pkg" 2>&1 || true
+                ;;
+            go)
+                base=${{pkg%@*}}
+                bin=${{base##*/}}
+                if [ -f "$GOBIN/$bin" ]; then
+                    echo "  Removing go binary: $bin (no longer configured)" >&2
+                    rm -f "$GOBIN/$bin"
+                fi
+                ;;
+        esac
     fi
-fi
+done
 
-# Install showboat
+# Persist the new sentinel.
+printf '%s\n' "$desired" > "$SENTINEL"
+
+# --- showboat (unconditional; tiny dep, useful for debugging) -----------
 if ! command -v showboat >/dev/null; then
     echo "  Installing showboat..." >&2
     YOLO_BYPASS_SHIMS=1 pip install showboat

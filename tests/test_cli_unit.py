@@ -4146,3 +4146,72 @@ class TestRunWithProxy:
         with patch("subprocess.Popen", return_value=proc):
             # Must not raise.
             cli.run_with_proxy(["x"], on_started=cb)
+
+
+class TestResolveLspInstalls:
+    """``_resolve_lsp_installs`` translates ``lsp_servers`` config into the
+    install lists the bootstrap script consumes."""
+
+    def test_empty_config_yields_no_installs(self):
+        import cli
+
+        out = cli._resolve_lsp_installs({})
+        assert out == {"npm": "", "go": ""}
+
+    def test_python_pulls_pyright_and_mcp_bridge(self):
+        import cli
+
+        out = cli._resolve_lsp_installs(
+            {"python": {"command": "pyright-langserver", "args": ["--stdio"]}}
+        )
+        assert "pyright" in out["npm"].splitlines()
+        # mcp-language-server is added once whenever any LSP is configured —
+        # Gemini wraps every LSP through it.
+        assert any("mcp-language-server" in p for p in out["go"].splitlines())
+
+    def test_go_pulls_gopls_and_mcp_bridge(self):
+        import cli
+
+        out = cli._resolve_lsp_installs(
+            {"go": {"command": "gopls", "fileExtensions": {".go": "go"}}}
+        )
+        assert any("gopls" in p for p in out["go"].splitlines())
+        assert any("mcp-language-server" in p for p in out["go"].splitlines())
+
+    def test_unknown_lsp_name_is_user_responsibility(self):
+        """A workspace can configure an LSP outside our recipe table —
+        ``command`` then points at a binary the user installed (image,
+        mise, custom).  We don't ship installers for it."""
+        import cli
+
+        out = cli._resolve_lsp_installs(
+            {"rust": {"command": "rust-analyzer", "fileExtensions": {".rs": "rust"}}}
+        )
+        # Bridge is still pulled because Gemini will need it.
+        assert any("mcp-language-server" in p for p in out["go"].splitlines())
+        # No npm install is emitted (rust isn't in the recipe table).
+        assert out["npm"] == ""
+
+    def test_typescript_pulls_typescript_and_lsp_pkg(self):
+        import cli
+
+        out = cli._resolve_lsp_installs(
+            {"typescript": {"command": "typescript-language-server"}}
+        )
+        npm_pkgs = out["npm"].splitlines()
+        assert "typescript-language-server" in npm_pkgs
+        assert "typescript" in npm_pkgs
+
+    def test_multiple_lsps_dedupe_bridge(self):
+        import cli
+
+        out = cli._resolve_lsp_installs(
+            {
+                "python": {"command": "pyright"},
+                "go": {"command": "gopls"},
+            }
+        )
+        bridge_count = sum(
+            1 for p in out["go"].splitlines() if "mcp-language-server" in p
+        )
+        assert bridge_count == 1
