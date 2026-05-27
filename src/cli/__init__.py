@@ -337,6 +337,7 @@ from .check_cmd import (  # noqa: E402
 from .run_cmd import (  # noqa: E402
     _entrypoint_preflight,
     _inject_agent_yolo_flags,
+    _refresh_jail_briefings,
     _resolve_lsp_installs,
     _resolve_repo_root,
     _scratch_mount_args,

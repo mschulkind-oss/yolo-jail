@@ -419,6 +419,60 @@ def _scratch_mount_args(mode: object) -> List[str]:
     ]
 
 
+def _refresh_jail_briefings(
+    cname: str,
+    workspace: Path,
+    config: Dict[str, Any],
+    runtime: str,
+    network_default: str,
+) -> Path:
+    """Rebuild the per-jail skills staging + AGENTS.md/CLAUDE.md files.
+
+    Called on every ``yolo`` invocation — including the attach-to-running
+    branch — so host-side edits and deletions to ``~/.{copilot,gemini,claude}/skills/``
+    and the host-level AGENTS.md/CLAUDE.md propagate to a live jail through
+    the staging dir's bind mount (inode-sharing semantics).  Without this,
+    deletions only took effect after a full container restart.
+
+    Computes the per-call args from ``config`` alone so it can run before
+    the heavyweight ``run_cmd`` is assembled.  Idempotent; safe to call
+    repeatedly.
+    """
+    network_section = config.get("network") or {}
+    net_mode = network_section.get("mode") or network_default
+    forward_host_ports = (
+        network_section.get("forward_host_ports") or [] if net_mode == "bridge" else []
+    )
+    normalized_blocked = _normalize_blocked_tools(config.get("security"))
+
+    mount_descriptions: List[str] = []
+    for mount in config.get("mounts", []) or []:
+        colon_idx = mount.rfind(":")
+        if colon_idx > 0 and mount[colon_idx + 1 : colon_idx + 2] == "/":
+            host_path = mount[:colon_idx]
+            container_path = mount[colon_idx + 1 :]
+        else:
+            host_path = mount
+            container_path = f"/ctx/{Path(host_path).expanduser().resolve().name}"
+        resolved = Path(host_path).expanduser().resolve()
+        if resolved.exists():
+            mount_descriptions.append(f"{resolved}:{container_path}")
+
+    _prepare_skills(cname)
+    return generate_agents_md(
+        cname,
+        workspace,
+        normalized_blocked,
+        mount_descriptions,
+        net_mode=net_mode,
+        runtime=runtime,
+        forward_host_ports=forward_host_ports or None,
+        mcp_servers=config.get("mcp_servers") or None,
+        mcp_presets=config.get("mcp_presets") or None,
+        agents_md_extra=config.get("agents_md_extra"),
+    )
+
+
 def _entrypoint_preflight(repo_root: Path, workspace: Path, config: Dict[str, Any]):
     """Generate jail-managed config into a temp home to catch config/render errors."""
     src_dir = repo_root / "src"
@@ -638,6 +692,13 @@ def run(
     # If one is already running we just exec into it — no rebuild needed.
     cname = container_name_for_workspace(workspace)
     existing_cid = None if new else find_running_container(cname, runtime=runtime)
+
+    # Refresh the per-jail skills + AGENTS/CLAUDE staging on every invocation.
+    # The staging dir is bind-mounted into the jail, so refreshing it here
+    # propagates host-side edits and deletions to a running container
+    # (inode-sharing).  Without this, deletions only took effect after a
+    # full container restart.  See _refresh_jail_briefings.
+    agents_path = _refresh_jail_briefings(cname, workspace, config, runtime, network)
 
     if existing_cid:
         # Exec into the existing container.  Surface the jail's baked
@@ -1681,17 +1742,18 @@ def run(
     run_cmd.extend(["-e", f"YOLO_OUTER_MISE_PATH={host_mise}"])
     run_cmd.extend(["-e", f"MISE_DISABLE_TOOLS={mise_disabled_tools}"])
 
-    # Mount merged skills directories read-only (prepared on host side).
+    # Mount merged skills directories read-only.  The staging dir was
+    # already rebuilt at the top of `run` by `_refresh_jail_briefings`
+    # (same dir as `agents_path` — both resolve to AGENTS_DIR/cname).
     # Kernel-enforced :ro — agents get "Read-only file system" on write attempts.
-    skills_path = _prepare_skills(cname)
     run_cmd.extend(
-        ["-v", f"{skills_path / 'skills-copilot'}:/home/agent/.copilot/skills:ro"]
+        ["-v", f"{agents_path / 'skills-copilot'}:/home/agent/.copilot/skills:ro"]
     )
     run_cmd.extend(
-        ["-v", f"{skills_path / 'skills-gemini'}:/home/agent/.gemini/skills:ro"]
+        ["-v", f"{agents_path / 'skills-gemini'}:/home/agent/.gemini/skills:ro"]
     )
     run_cmd.extend(
-        ["-v", f"{skills_path / 'skills-claude'}:/home/agent/.claude/skills:ro"]
+        ["-v", f"{agents_path / 'skills-claude'}:/home/agent/.claude/skills:ro"]
     )
 
     # Mount host ~/.claude/ files for syncing into the jail.
@@ -1741,20 +1803,10 @@ def run(
             ["-e", f"YOLO_HOST_CLAUDE_FILES={json.dumps(mounted_claude_files)}"]
         )
 
-    # Generate per-workspace AGENTS.md / CLAUDE.md (separate for each agent to
-    # respect user-level ~/.copilot/AGENTS.md, ~/.gemini/AGENTS.md, ~/.claude/CLAUDE.md)
-    agents_path = generate_agents_md(
-        cname,
-        workspace,
-        normalized_blocked,
-        mount_descriptions,
-        net_mode=net_mode,
-        runtime=runtime,
-        forward_host_ports=forward_host_ports or None,
-        mcp_servers=mcp_servers or None,
-        mcp_presets=mcp_presets or None,
-        agents_md_extra=config.get("agents_md_extra"),
-    )
+    # Per-workspace AGENTS.md / CLAUDE.md already generated at the top of
+    # `run` by `_refresh_jail_briefings` (so attach-to-running picks up
+    # host edits/deletions too).  `agents_path` from that call is the
+    # bind-mount source below.
     if runtime == "container":
         _ac_materialize_under_ws_state(
             agents_path / "AGENTS-copilot.md", ".copilot/AGENTS.md", ws_state

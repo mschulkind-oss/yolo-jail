@@ -2584,6 +2584,103 @@ class TestGenerateAgentsMdEdges:
         assert "## Cerebras MCP" not in content
 
 
+class TestRefreshJailBriefings:
+    """End-to-end: skill + AGENTS staging refresh reflects host-side deletions.
+
+    Repro of the bug this guards: the staging dir is bind-mounted into the
+    running jail.  Without an attach-time refresh, deleting a host skill or
+    editing a host AGENTS.md wouldn't propagate until the container was
+    fully restarted.
+    """
+
+    def test_helper_rebuilds_after_host_skill_deletion(self, tmp_path, monkeypatch):
+        from cli import _refresh_jail_briefings
+
+        fake_home = tmp_path / "home"
+        fake_agents = tmp_path / "agents"
+        fake_home.mkdir()
+        fake_agents.mkdir()
+
+        # Seed a host skill in each agent's dir.
+        for dotdir, sname in (
+            (".copilot", "skill-a"),
+            (".gemini", "skill-b"),
+            (".claude", "skill-c"),
+        ):
+            sd = fake_home / dotdir / "skills" / sname
+            sd.mkdir(parents=True)
+            (sd / "SKILL.md").write_text(f"# {sname}\n")
+
+        monkeypatch.setattr(Path, "home", staticmethod(lambda: fake_home))
+        monkeypatch.setattr("cli.run_cmd.AGENTS_DIR", fake_agents)
+        monkeypatch.setattr("cli.agents_md.AGENTS_DIR", fake_agents)
+
+        workspace = tmp_path / "ws"
+        workspace.mkdir()
+        config = {"network": {"mode": "bridge"}}
+
+        agents_path = _refresh_jail_briefings(
+            "test-cname", workspace, config, "podman", "bridge"
+        )
+        assert (agents_path / "skills-copilot" / "skill-a").exists()
+        assert (agents_path / "skills-gemini" / "skill-b").exists()
+        assert (agents_path / "skills-claude" / "skill-c").exists()
+        # jail-startup builtin always present.
+        assert (agents_path / "skills-copilot" / "jail-startup").exists()
+        # AGENTS files generated.
+        assert (agents_path / "AGENTS-copilot.md").exists()
+        assert (agents_path / "CLAUDE.md").exists()
+
+        # Delete two skills from the host.
+        import shutil
+
+        shutil.rmtree(fake_home / ".copilot" / "skills" / "skill-a")
+        shutil.rmtree(fake_home / ".claude" / "skills" / "skill-c")
+
+        # Refresh again — deletions reflected, surviving skills retained.
+        _refresh_jail_briefings("test-cname", workspace, config, "podman", "bridge")
+        assert not (agents_path / "skills-copilot" / "skill-a").exists()
+        assert not (agents_path / "skills-claude" / "skill-c").exists()
+        assert (agents_path / "skills-gemini" / "skill-b").exists()
+        assert (agents_path / "skills-copilot" / "jail-startup").exists()
+
+    def test_helper_propagates_agents_md_extra_changes(self, tmp_path, monkeypatch):
+        from cli import _refresh_jail_briefings
+
+        fake_home = tmp_path / "home"
+        fake_agents = tmp_path / "agents"
+        fake_home.mkdir()
+        fake_agents.mkdir()
+
+        monkeypatch.setattr(Path, "home", staticmethod(lambda: fake_home))
+        monkeypatch.setattr("cli.run_cmd.AGENTS_DIR", fake_agents)
+        monkeypatch.setattr("cli.agents_md.AGENTS_DIR", fake_agents)
+
+        workspace = tmp_path / "ws"
+        workspace.mkdir()
+
+        agents_path = _refresh_jail_briefings(
+            "test-cname",
+            workspace,
+            {"agents_md_extra": "## Note v1"},
+            "podman",
+            "bridge",
+        )
+        assert "## Note v1" in (agents_path / "CLAUDE.md").read_text()
+
+        # User edits the extra; next attach-time refresh rewrites the file.
+        _refresh_jail_briefings(
+            "test-cname",
+            workspace,
+            {"agents_md_extra": "## Note v2"},
+            "podman",
+            "bridge",
+        )
+        text = (agents_path / "CLAUDE.md").read_text()
+        assert "## Note v2" in text
+        assert "## Note v1" not in text
+
+
 # ═══════════════════════════════════════════════════════════════════════════════
 # Test: _seed_agent_dir
 # ═══════════════════════════════════════════════════════════════════════════════
