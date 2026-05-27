@@ -2185,18 +2185,49 @@ class TestPrepareSkills:
             assert skill.exists()
             assert "Jail Startup" in skill.read_text()
 
-    def test_host_skills_merged(self, tmp_path, monkeypatch):
+    def test_host_skills_strict_per_agent(self, tmp_path, monkeypatch):
+        """Each agent's staging dir mirrors ONLY its host counterpart.
+
+        No cross-agent merging — a skill installed in ~/.gemini/skills/
+        is visible to gemini in the jail and nowhere else.  This makes
+        deletion intuitive: removing from the host dir cleanly removes
+        from the matching jail dir.
+        """
         monkeypatch.setattr(cli, "AGENTS_DIR", tmp_path / "agents")
         host_home = tmp_path / "home"
         monkeypatch.setattr(Path, "home", lambda: host_home)
-        (host_home / ".gemini" / "skills" / "my-skill").mkdir(parents=True)
-        (host_home / ".gemini" / "skills" / "my-skill" / "SKILL.md").write_text(
-            "host skill"
+        (host_home / ".gemini" / "skills" / "gemini-only").mkdir(parents=True)
+        (host_home / ".gemini" / "skills" / "gemini-only" / "SKILL.md").write_text(
+            "gemini"
+        )
+        (host_home / ".copilot" / "skills" / "copilot-only").mkdir(parents=True)
+        (host_home / ".copilot" / "skills" / "copilot-only" / "SKILL.md").write_text(
+            "copilot"
+        )
+        (host_home / ".claude" / "skills" / "claude-only").mkdir(parents=True)
+        (host_home / ".claude" / "skills" / "claude-only" / "SKILL.md").write_text(
+            "claude"
         )
         result = _prepare_skills("test-cname")
-        for agent in ("copilot", "gemini", "claude"):
-            content = (result / f"skills-{agent}" / "my-skill" / "SKILL.md").read_text()
-            assert content == "host skill"
+
+        # Each skill appears in its own agent's dir.
+        assert (result / "skills-gemini" / "gemini-only" / "SKILL.md").read_text() == (
+            "gemini"
+        )
+        assert (
+            result / "skills-copilot" / "copilot-only" / "SKILL.md"
+        ).read_text() == "copilot"
+        assert (result / "skills-claude" / "claude-only" / "SKILL.md").read_text() == (
+            "claude"
+        )
+
+        # And NOT in the others.
+        assert not (result / "skills-copilot" / "gemini-only").exists()
+        assert not (result / "skills-claude" / "gemini-only").exists()
+        assert not (result / "skills-gemini" / "copilot-only").exists()
+        assert not (result / "skills-claude" / "copilot-only").exists()
+        assert not (result / "skills-gemini" / "claude-only").exists()
+        assert not (result / "skills-copilot" / "claude-only").exists()
 
     def test_stale_skills_cleaned(self, tmp_path, monkeypatch):
         monkeypatch.setattr(cli, "AGENTS_DIR", tmp_path / "agents")

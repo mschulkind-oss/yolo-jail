@@ -4,9 +4,11 @@
   Copilot, Gemini, Claude) into AGENTS_DIR/<cname>/.  The files are
   bind-mounted into the jail at boot; their content is the agent's
   primary source of truth for how this jail is set up.
-* _prepare_skills + _copy_skill_subdirs merge built-in jail-startup
-  plus host-level ~/.copilot/skills, ~/.gemini/skills, ~/.claude/skills
-  into a staging directory that gets bind-mounted :ro per agent.
+* _prepare_skills + _copy_skill_subdirs stage per-agent skills dirs
+  (skills-copilot/, skills-gemini/, skills-claude/) that get bind-mounted
+  :ro at /home/agent/.<agent>/skills.  Each one mirrors its host
+  counterpart 1:1 (~/.<agent>/skills/) plus the built-in jail-startup
+  skill — no cross-agent merging.
 """
 
 import shutil
@@ -354,29 +356,28 @@ You have full capability — treat this as your primary working environment.
 
 
 def _prepare_skills(cname: str) -> Path:
-    """Prepare merged skills directory on the host for :ro bind mounting.
+    """Prepare per-agent skills directories on the host for :ro bind mounting.
 
-    Merge order (later overrides earlier):
-      1. Built-in skills (jail-startup)
-      2. Host user-level skills (~/.gemini/skills/, ~/.copilot/skills/, ~/.claude/skills/)
+    Each agent's staging dir mirrors its host counterpart 1:1:
+      * skills-copilot/ ← ~/.copilot/skills/
+      * skills-gemini/  ← ~/.gemini/skills/
+      * skills-claude/  ← ~/.claude/skills/
 
-    Workspace skills (<workspace>/.{copilot,gemini,claude}/skills/) are NOT
-    collected here — agents already discover them natively from the workspace
-    tree, so duplicating them into the user-level mount would surface the same
-    skill twice (once from the workspace, once from the merged user-level dir).
+    Plus the built-in ``jail-startup`` skill in every staging dir (it's
+    not a host skill — it's our orientation doc).
 
-    Returns the staging directory containing skills-copilot/, skills-gemini/, skills-claude/.
+    Workspace skills (``<workspace>/.{copilot,gemini,claude}/skills/``)
+    are NOT collected here — agents already discover them natively from
+    the workspace tree, so duplicating them into the user-level mount
+    would surface the same skill twice.
+
+    Returns the staging directory containing skills-copilot/,
+    skills-gemini/, skills-claude/.
     """
     staging = AGENTS_DIR / cname
     staging.mkdir(parents=True, exist_ok=True)
 
-    # Collect host user-level skill sources
     home = Path.home()
-    host_skill_dirs = []
-    for dotdir in (".copilot", ".gemini", ".claude"):
-        p = home / dotdir / "skills"
-        if p.is_dir():
-            host_skill_dirs.append(p)
 
     for agent_suffix in ("copilot", "gemini", "claude"):
         skills_dir = staging / f"skills-{agent_suffix}"
@@ -398,14 +399,16 @@ def _prepare_skills(cname: str) -> Path:
             else:
                 child.unlink()
 
-        # 1. Built-in skills
+        # 1. Built-in skills (every agent gets jail-startup).
         builtin = skills_dir / "jail-startup"
         builtin.mkdir()
         (builtin / "SKILL.md").write_text(_BUILTIN_JAIL_STARTUP_SKILL)
 
-        # 2. Host user-level skills (all agent dirs merged)
-        for src_dir in host_skill_dirs:
-            _copy_skill_subdirs(src_dir, skills_dir)
+        # 2. Host user-level skills — strictly per-agent.  Whatever's in
+        # ~/.<agent>/skills/ is what the matching jail agent sees; no
+        # cross-agent merging.  Deleting from one host dir cleanly
+        # removes from the matching jail dir.
+        _copy_skill_subdirs(home / f".{agent_suffix}" / "skills", skills_dir)
 
     return staging
 
