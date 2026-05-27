@@ -92,6 +92,11 @@ def ensure_global_storage():
         # bind-mount a writable file over it, the entrypoint's write
         # lands on the read-only layer and errors with EROFS.
         ".yolo-ca-bundle.crt",
+        # LSP install sentinel written by ~/.yolo-bootstrap.sh on every
+        # boot (records what was installed last time so the next boot
+        # can uninstall anything the workspace dropped).  Same EROFS
+        # problem as the CA bundle — needs a writable file overlay.
+        ".yolo-installed-lsps",
     ]:
         p = GLOBAL_HOME / fname
         if not p.exists():

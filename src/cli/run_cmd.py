@@ -946,6 +946,10 @@ def run(
         # CA bundle is per-workspace: the set of active loopholes (and
         # therefore the set of CAs to trust) is workspace-specific.
         "yolo-ca-bundle.crt",
+        # LSP install sentinel — per-workspace because lsp_servers is a
+        # per-workspace config knob.  Writable overlay so the bootstrap
+        # script can update it after install/uninstall.
+        "yolo-installed-lsps",
     ]:
         (ws_state / fname).touch()
 
@@ -1090,6 +1094,8 @@ def run(
             # hits the :ro GLOBAL_HOME base and raises EROFS.
             "-v",
             f"{ws_state / 'yolo-ca-bundle.crt'}:/home/agent/.yolo-ca-bundle.crt",
+            "-v",
+            f"{ws_state / 'yolo-installed-lsps'}:/home/agent/.yolo-installed-lsps",
             # Agent config dirs — full per-workspace overlays.
             # Auth tokens are seeded from GLOBAL_HOME on first use (see _seed_agent_dir).
             # The entrypoint regenerates all configs into these writable dirs each boot.
