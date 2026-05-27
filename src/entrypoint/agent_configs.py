@@ -495,9 +495,6 @@ def configure_claude():
 
         settings.setdefault("preferences", {})["autoUpdaterStatus"] = "disabled"
 
-        # Enable LSP tool so Claude Code uses language servers for navigation.
-        settings.setdefault("env", {})["ENABLE_LSP_TOOL"] = "1"
-
         # Enable/disable LSP plugins to match the jail's configured LSP
         # servers.  Plugins for LSPs that *were* configured on a prior
         # boot but aren't now are removed from enabledPlugins so claude
@@ -510,6 +507,20 @@ def configure_claude():
                 enabled_plugins[plugin_id] = True
             else:
                 enabled_plugins.pop(plugin_id, None)
+
+        # ENABLE_LSP_TOOL turns on Claude's language-server tool.  Only set
+        # it when at least one LSP is actually configured — leaving it on
+        # in an LSP-less jail makes claude advertise a tool with nothing
+        # behind it.  When LSPs are removed between boots, pop the key
+        # (and the env dict if it ends up empty) so the setting doesn't
+        # linger.
+        env_block = settings.get("env")
+        if lsp_servers:
+            settings.setdefault("env", {})["ENABLE_LSP_TOOL"] = "1"
+        elif isinstance(env_block, dict):
+            env_block.pop("ENABLE_LSP_TOOL", None)
+            if not env_block:
+                settings.pop("env", None)
 
         settings_path.write_text(json.dumps(settings, indent=2) + "\n")
 

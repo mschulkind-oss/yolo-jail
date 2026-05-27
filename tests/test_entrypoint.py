@@ -1093,11 +1093,57 @@ class TestClaudeConfig:
         cfg = json.loads((entrypoint.CLAUDE_DIR / "settings.json").read_text())
         assert cfg["preferences"]["autoUpdaterStatus"] == "disabled"
 
-    def test_lsp_tool_enabled(self, jail_home):
-        """settings.json enables ENABLE_LSP_TOOL for language server support."""
+    def test_lsp_tool_omitted_when_no_lsps_configured(self, jail_home):
+        """No LSP servers → ENABLE_LSP_TOOL must not appear in settings.json.
+
+        Default state is `DEFAULT_LSP_SERVERS = {}` (LSPs are opt-in), so
+        a vanilla jail shouldn't advertise the language-server tool at all.
+        """
+        entrypoint.configure_claude()
+        cfg = json.loads((entrypoint.CLAUDE_DIR / "settings.json").read_text())
+        env_block = cfg.get("env", {})
+        assert "ENABLE_LSP_TOOL" not in env_block, env_block
+
+    def test_lsp_tool_enabled_when_lsp_configured(self, jail_home, monkeypatch):
+        """settings.json enables ENABLE_LSP_TOOL when at least one LSP is set."""
+        monkeypatch.setenv(
+            "YOLO_LSP_SERVERS",
+            json.dumps(
+                {
+                    "python": {
+                        "command": "/x/pyright-langserver",
+                        "args": ["--stdio"],
+                        "fileExtensions": {".py": "python"},
+                    }
+                }
+            ),
+        )
         entrypoint.configure_claude()
         cfg = json.loads((entrypoint.CLAUDE_DIR / "settings.json").read_text())
         assert cfg["env"]["ENABLE_LSP_TOOL"] == "1"
+
+    def test_lsp_tool_pruned_when_lsps_removed(self, jail_home):
+        """A boot that had ENABLE_LSP_TOOL set must clear it on a no-LSP reboot."""
+        entrypoint.CLAUDE_DIR.mkdir(parents=True, exist_ok=True)
+        (entrypoint.CLAUDE_DIR / "settings.json").write_text(
+            json.dumps({"env": {"ENABLE_LSP_TOOL": "1", "OTHER": "keep"}})
+        )
+        entrypoint.configure_claude()
+        cfg = json.loads((entrypoint.CLAUDE_DIR / "settings.json").read_text())
+        env_block = cfg.get("env", {})
+        assert "ENABLE_LSP_TOOL" not in env_block
+        # Other env keys are preserved (only the LSP-specific key is pruned).
+        assert env_block.get("OTHER") == "keep"
+
+    def test_lsp_tool_env_dict_pruned_when_only_key(self, jail_home):
+        """If ENABLE_LSP_TOOL was the only env entry, the empty env dict is dropped."""
+        entrypoint.CLAUDE_DIR.mkdir(parents=True, exist_ok=True)
+        (entrypoint.CLAUDE_DIR / "settings.json").write_text(
+            json.dumps({"env": {"ENABLE_LSP_TOOL": "1"}})
+        )
+        entrypoint.configure_claude()
+        cfg = json.loads((entrypoint.CLAUDE_DIR / "settings.json").read_text())
+        assert "env" not in cfg
 
     def test_lsp_plugins_disabled_by_default(self, jail_home):
         """No Claude LSP plugins are enabled when the workspace has no LSPs."""
