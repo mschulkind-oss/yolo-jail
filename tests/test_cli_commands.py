@@ -6,6 +6,7 @@ without spinning up actual containers.
 
 import json
 import subprocess
+import os
 import sys
 from pathlib import Path
 from unittest.mock import MagicMock, patch
@@ -2643,6 +2644,71 @@ class TestRefreshJailBriefings:
         assert not (agents_path / "skills-claude" / "skill-c").exists()
         assert (agents_path / "skills-gemini" / "skill-b").exists()
         assert (agents_path / "skills-copilot" / "jail-startup").exists()
+
+    def test_skills_dir_inode_is_stable_across_refreshes(self, tmp_path, monkeypatch):
+        """Regression guard: `_prepare_skills` must NOT unlink+recreate the
+        per-agent skills dir.  That dir is the bind-mount source for
+        `/home/agent/.<agent>/skills` inside a running container; recreating
+        it allocates a new inode and orphans the container's mount, so all
+        future host-side edits silently no-op for any attached jail.
+        """
+        from cli import _refresh_jail_briefings
+
+        fake_home = tmp_path / "home"
+        fake_agents = tmp_path / "agents"
+        fake_home.mkdir()
+        fake_agents.mkdir()
+
+        for dotdir, sname in (
+            (".copilot", "skill-a"),
+            (".gemini", "skill-b"),
+            (".claude", "skill-c"),
+        ):
+            sd = fake_home / dotdir / "skills" / sname
+            sd.mkdir(parents=True)
+            (sd / "SKILL.md").write_text(f"# {sname}\n")
+
+        monkeypatch.setattr(Path, "home", staticmethod(lambda: fake_home))
+        monkeypatch.setattr("cli.run_cmd.AGENTS_DIR", fake_agents)
+        monkeypatch.setattr("cli.agents_md.AGENTS_DIR", fake_agents)
+
+        workspace = tmp_path / "ws"
+        workspace.mkdir()
+        config: dict = {}
+
+        agents_path = _refresh_jail_briefings(
+            "test-cname", workspace, config, "podman", "bridge"
+        )
+        ino_before = {
+            suffix: os.stat(agents_path / f"skills-{suffix}").st_ino
+            for suffix in ("copilot", "gemini", "claude")
+        }
+
+        # Mutate host state (add one skill, remove another) — exactly what
+        # the user would do between two `yolo` invocations.
+        import shutil
+
+        (fake_home / ".copilot" / "skills" / "skill-new").mkdir()
+        (fake_home / ".copilot" / "skills" / "skill-new" / "SKILL.md").write_text(
+            "# new\n"
+        )
+        shutil.rmtree(fake_home / ".claude" / "skills" / "skill-c")
+
+        _refresh_jail_briefings("test-cname", workspace, config, "podman", "bridge")
+        ino_after = {
+            suffix: os.stat(agents_path / f"skills-{suffix}").st_ino
+            for suffix in ("copilot", "gemini", "claude")
+        }
+
+        for suffix in ("copilot", "gemini", "claude"):
+            assert ino_before[suffix] == ino_after[suffix], (
+                f"skills-{suffix} dir was recreated "
+                f"({ino_before[suffix]} -> {ino_after[suffix]}); "
+                "this orphans any running container's bind mount."
+            )
+        # And the host mutations are reflected in the directory listing.
+        assert (agents_path / "skills-copilot" / "skill-new").exists()
+        assert not (agents_path / "skills-claude" / "skill-c").exists()
 
     def test_helper_propagates_agents_md_extra_changes(self, tmp_path, monkeypatch):
         from cli import _refresh_jail_briefings

@@ -429,10 +429,23 @@ def _refresh_jail_briefings(
     """Rebuild the per-jail skills staging + AGENTS.md/CLAUDE.md files.
 
     Called on every ``yolo`` invocation — including the attach-to-running
-    branch — so host-side edits and deletions to ``~/.{copilot,gemini,claude}/skills/``
-    and the host-level AGENTS.md/CLAUDE.md propagate to a live jail through
-    the staging dir's bind mount (inode-sharing semantics).  Without this,
-    deletions only took effect after a full container restart.
+    branch — so host-side edits and deletions to
+    ``~/.{copilot,gemini,claude}/skills/`` and the host-level AGENTS.md /
+    CLAUDE.md propagate to a live jail.
+
+    The propagation only works because the underlying writes preserve the
+    inodes the container's bind mounts captured at start time:
+      * `_prepare_skills` clears the contents *inside* each
+        ``skills-<agent>/`` dir rather than rmtree-and-mkdir'ing the dir
+        itself — so the container's `-v skills-claude:/home/agent/.claude/skills`
+        mount keeps seeing the same parent inode and the updated listing.
+      * `generate_agents_md` uses ``Path.write_text`` (O_WRONLY|O_CREAT|O_TRUNC),
+        which truncates the existing AGENTS-*.md / CLAUDE.md file in place
+        and preserves the inode the file→file bind mount captured.
+
+    If either side starts unlinking and recreating the mount source, the
+    container will stay pinned to the orphaned inode and refreshes
+    silently no-op for any running jail.
 
     Computes the per-call args from ``config`` alone so it can run before
     the heavyweight ``run_cmd`` is assembled.  Idempotent; safe to call

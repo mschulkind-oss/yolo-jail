@@ -380,10 +380,23 @@ def _prepare_skills(cname: str) -> Path:
 
     for agent_suffix in ("copilot", "gemini", "claude"):
         skills_dir = staging / f"skills-{agent_suffix}"
-        # Clean slate each time
-        if skills_dir.exists():
-            shutil.rmtree(skills_dir)
-        skills_dir.mkdir()
+        skills_dir.mkdir(exist_ok=True)
+        # Clear contents *inside* skills_dir — never unlink skills_dir
+        # itself.  `run_cmd` bind-mounts this exact path into the running
+        # container at /home/agent/.<agent>/skills.  Linux bind mounts
+        # capture the source's *inode* at mount time, not its path; if
+        # we rmtree(skills_dir)+mkdir(skills_dir) here, mkdir allocates
+        # a new inode and the container's mount stays pinned to the old
+        # one — so attach-time refreshes (the whole point of the
+        # `_refresh_jail_briefings` plumbing) silently no-op for any
+        # running jail.  Removing entries *inside* the dir is fine: the
+        # parent mount is unaffected and the container sees the updated
+        # listing immediately.
+        for child in skills_dir.iterdir():
+            if child.is_dir():
+                shutil.rmtree(child)
+            else:
+                child.unlink()
 
         # 1. Built-in skills
         builtin = skills_dir / "jail-startup"
