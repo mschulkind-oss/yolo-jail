@@ -44,6 +44,12 @@ def _simulate_linux_for_unit_tests(request, monkeypatch):
         return  # let integration tests use real platform values
 
     monkeypatch.delenv("YOLO_RUNTIME", raising=False)
+    # When the test suite runs inside a jail, YOLO_VERSION is set, which
+    # flips loophole `requirements_met` / `active` to the in-jail
+    # container-side branch and breaks host-mode tests.  Clear it for
+    # every unit test; in-jail-mode tests already opt back in via
+    # monkeypatch.setenv("YOLO_VERSION", ...).
+    monkeypatch.delenv("YOLO_VERSION", raising=False)
     if sys.platform == "darwin":
         # Lazily import — cli may not be on sys.path yet for conftest itself
         try:

@@ -425,6 +425,12 @@ def _entrypoint_preflight(repo_root: Path, workspace: Path, config: Dict[str, An
     host_mise = _host_mise_dir()
     normalized_blocked = _normalize_blocked_tools(config.get("security"))
     env = os.environ.copy()
+    # Drop inherited PYTHONPATH so the subprocess can only import
+    # entrypoint from src_dir (via sys.path.insert below).  Without
+    # this, running ``yolo check`` from inside a jail would silently
+    # validate the nix-baked entrypoint instead of this repo's, since
+    # PYTHONPATH there points at the baked package.
+    env.pop("PYTHONPATH", None)
 
     with tempfile.TemporaryDirectory(prefix="yolo-check-") as tmp:
         env.update(
