@@ -113,6 +113,7 @@ from .config import (
     _config_snapshot_path,
     _effective_mcp_server_names,
     _load_jsonc_file,
+    _load_jsonc_with_includes,
     _merge_lists,
     _merge_mise_disabled_tools,
     _merge_mise_tools,

@@ -72,6 +72,8 @@ KNOWN_TOP_LEVEL_CONFIG_KEYS = {
     "kvm",
     "prune",
     "ephemeral_storage",
+    "include_if_found",
+    "agents_md_extra",
 }
 JOURNAL_MODES = ("off", "user", "full")
 EPHEMERAL_STORAGE_MODES = ("volume", "tmpfs")
@@ -150,14 +152,88 @@ def merge_config(base: Dict[str, Any], override: Dict[str, Any]) -> Dict[str, An
     return result
 
 
+def _load_jsonc_with_includes(
+    path: Path,
+    label: str,
+    *,
+    strict: bool = False,
+    _seen: Optional[set[Path]] = None,
+) -> Dict[str, Any]:
+    """Load a JSONC file and merge in any ``include_if_found`` overrides.
+
+    Include entries are relative paths resolved against the including
+    file's directory.  Missing files silently skip; overrides win on
+    conflict (later wins, like the user→workspace merge above).
+    Includes can declare their own includes; cycles are detected and
+    aborted.  The ``include_if_found`` key is consumed during loading
+    and removed from the returned config — it's a loader directive,
+    not a runtime field.
+    """
+    if _seen is None:
+        _seen = set()
+    try:
+        resolved = path.resolve() if path.exists() else path
+    except OSError:
+        resolved = path
+    if resolved in _seen:
+        return {}
+    _seen.add(resolved)
+
+    raw = _load_jsonc_file(path, label, strict=strict)
+    if not raw:
+        return raw
+
+    includes = raw.pop("include_if_found", None)
+    if includes is None:
+        return raw
+
+    if not isinstance(includes, list):
+        msg = f"{label}.include_if_found: expected a list of strings"
+        if strict:
+            raise ConfigError(msg)
+        typer.echo(f"Warning: {msg}", err=True)
+        return raw
+
+    base_dir = path.parent
+    result = raw
+    for idx, entry in enumerate(includes):
+        entry_label = f"{label}.include_if_found[{idx}]"
+        if not isinstance(entry, str):
+            msg = f"{entry_label}: expected a string path"
+            if strict:
+                raise ConfigError(msg)
+            typer.echo(f"Warning: {msg}", err=True)
+            continue
+        if not entry:
+            continue
+        if entry.startswith("/") or entry.startswith("~"):
+            msg = (
+                f"{entry_label}: must be a relative path (got {entry!r}); "
+                "absolute paths and '~' are not supported"
+            )
+            if strict:
+                raise ConfigError(msg)
+            typer.echo(f"Warning: {msg}", err=True)
+            continue
+        inc_path = (base_dir / entry).resolve()
+        if not inc_path.exists():
+            continue
+        included = _load_jsonc_with_includes(
+            inc_path, str(inc_path), strict=strict, _seen=_seen
+        )
+        result = merge_config(result, included)
+
+    return result
+
+
 def load_config(
     workspace: Optional[Path] = None, *, strict: bool = False
 ) -> Dict[str, Any]:
     workspace = workspace or Path.cwd()
-    user_config = _load_jsonc_file(
+    user_config = _load_jsonc_with_includes(
         USER_CONFIG_PATH, str(USER_CONFIG_PATH), strict=strict
     )
-    workspace_config = _load_jsonc_file(
+    workspace_config = _load_jsonc_with_includes(
         workspace / "yolo-jail.jsonc", "yolo-jail.jsonc", strict=strict
     )
     return merge_config(user_config, workspace_config)
@@ -871,6 +947,29 @@ def _validate_config(
                     errors.append(
                         "config.resources.pids_limit: expected a positive integer"
                     )
+
+    include_if_found = config.get("include_if_found")
+    if include_if_found is not None:
+        if not isinstance(include_if_found, list):
+            errors.append(
+                "config.include_if_found: expected a list of relative path strings"
+            )
+        else:
+            for idx, entry in enumerate(include_if_found):
+                path = f"config.include_if_found[{idx}]"
+                if not isinstance(entry, str):
+                    errors.append(f"{path}: expected a string")
+                elif not entry:
+                    errors.append(f"{path}: empty string is not a valid path")
+                elif entry.startswith("/") or entry.startswith("~"):
+                    errors.append(
+                        f"{path}: must be a relative path (got {entry!r}); "
+                        "absolute paths and '~' are not supported"
+                    )
+
+    agents_md_extra = config.get("agents_md_extra")
+    if agents_md_extra is not None and not isinstance(agents_md_extra, str):
+        errors.append("config.agents_md_extra: expected a string of markdown")
 
     # env_sources validation — ordered list of str (file path) or dict (inline map)
     if "env" in config:

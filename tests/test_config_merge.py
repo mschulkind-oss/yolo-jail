@@ -10,6 +10,7 @@ from cli import (
     ConfigError,
     _check_config_changes,
     _load_jsonc_file,
+    _load_jsonc_with_includes,
     _validate_config,
     merge_config,
 )
@@ -220,6 +221,120 @@ def test_seed_agent_dir_copies_auth_files(tmp_path):
     (dst / "hosts.json").write_text("modified")
     cli._seed_agent_dir(src, dst)
     assert (dst / "hosts.json").read_text() == "modified"
+
+
+class TestIncludeIfFound:
+    def test_no_include_key_returns_raw(self, tmp_path):
+        base = tmp_path / "base.jsonc"
+        base.write_text('{"packages": ["just"]}')
+        assert _load_jsonc_with_includes(base, "base") == {"packages": ["just"]}
+
+    def test_missing_include_silently_skipped(self, tmp_path):
+        base = tmp_path / "base.jsonc"
+        base.write_text(
+            '{"packages": ["just"], "include_if_found": ["does-not-exist.jsonc"]}'
+        )
+        merged = _load_jsonc_with_includes(base, "base")
+        assert merged == {"packages": ["just"]}
+        assert "include_if_found" not in merged
+
+    def test_existing_include_is_merged_and_overrides_win(self, tmp_path):
+        base = tmp_path / "base.jsonc"
+        base.write_text(
+            '{"packages": ["just"], "network": {"mode": "bridge"}, '
+            '"include_if_found": ["overrides.jsonc"]}'
+        )
+        (tmp_path / "overrides.jsonc").write_text(
+            '{"packages": ["htop"], "network": {"mode": "host"}}'
+        )
+        merged = _load_jsonc_with_includes(base, "base")
+        assert merged["network"]["mode"] == "host"
+        assert merged["packages"] == ["just", "htop"]
+        assert "include_if_found" not in merged
+
+    def test_include_resolves_relative_to_including_file(self, tmp_path):
+        sub = tmp_path / "sub"
+        sub.mkdir()
+        base = sub / "base.jsonc"
+        base.write_text('{"include_if_found": ["sibling.jsonc"]}')
+        (sub / "sibling.jsonc").write_text('{"packages": ["fd"]}')
+        assert _load_jsonc_with_includes(base, "base") == {"packages": ["fd"]}
+
+    def test_recursive_includes(self, tmp_path):
+        a = tmp_path / "a.jsonc"
+        a.write_text('{"packages": ["a"], "include_if_found": ["b.jsonc"]}')
+        b = tmp_path / "b.jsonc"
+        b.write_text('{"packages": ["b"], "include_if_found": ["c.jsonc"]}')
+        c = tmp_path / "c.jsonc"
+        c.write_text('{"packages": ["c"]}')
+        merged = _load_jsonc_with_includes(a, "a")
+        assert merged["packages"] == ["a", "b", "c"]
+
+    def test_cycle_is_broken(self, tmp_path):
+        a = tmp_path / "a.jsonc"
+        a.write_text('{"packages": ["a"], "include_if_found": ["b.jsonc"]}')
+        b = tmp_path / "b.jsonc"
+        b.write_text('{"packages": ["b"], "include_if_found": ["a.jsonc"]}')
+        merged = _load_jsonc_with_includes(a, "a")
+        assert "a" in merged["packages"]
+        assert "b" in merged["packages"]
+
+    def test_absolute_path_rejected_strict(self, tmp_path):
+        base = tmp_path / "base.jsonc"
+        base.write_text('{"include_if_found": ["/etc/passwd"]}')
+        with pytest.raises(ConfigError):
+            _load_jsonc_with_includes(base, "base", strict=True)
+
+    def test_tilde_path_rejected_strict(self, tmp_path):
+        base = tmp_path / "base.jsonc"
+        base.write_text('{"include_if_found": ["~/secret.jsonc"]}')
+        with pytest.raises(ConfigError):
+            _load_jsonc_with_includes(base, "base", strict=True)
+
+    def test_non_list_include_rejected_strict(self, tmp_path):
+        base = tmp_path / "base.jsonc"
+        base.write_text('{"include_if_found": "single.jsonc"}')
+        with pytest.raises(ConfigError):
+            _load_jsonc_with_includes(base, "base", strict=True)
+
+    def test_validate_accepts_relative_includes(self):
+        errors, warnings = _validate_config(
+            {"include_if_found": ["overrides.jsonc", "secret/local.jsonc"]},
+            workspace=Path.cwd(),
+        )
+        assert errors == []
+        assert warnings == []
+
+    def test_validate_rejects_absolute_include(self):
+        errors, _ = _validate_config(
+            {"include_if_found": ["/etc/passwd"]}, workspace=Path.cwd()
+        )
+        assert any("must be a relative path" in e for e in errors)
+
+    def test_validate_rejects_non_list_include(self):
+        errors, _ = _validate_config(
+            {"include_if_found": "single.jsonc"}, workspace=Path.cwd()
+        )
+        assert any(
+            "include_if_found" in e and "list of relative path strings" in e
+            for e in errors
+        )
+
+
+class TestAgentsMdExtra:
+    def test_validate_accepts_string(self):
+        errors, warnings = _validate_config(
+            {"agents_md_extra": "## My MCPs\n\nUse cerebras-mcp for X."},
+            workspace=Path.cwd(),
+        )
+        assert errors == []
+        assert warnings == []
+
+    def test_validate_rejects_non_string(self):
+        errors, _ = _validate_config(
+            {"agents_md_extra": ["a", "b"]}, workspace=Path.cwd()
+        )
+        assert any("agents_md_extra" in e and "string of markdown" in e for e in errors)
 
 
 class TestConfigSnapshot:

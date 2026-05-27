@@ -30,7 +30,7 @@ from src import loopholes as _loopholes
 from .config import (
     ConfigError,
     _check_preset_null_conflicts,
-    _load_jsonc_file,
+    _load_jsonc_with_includes,
     _validate_config,
     merge_config,
 )
@@ -805,7 +805,7 @@ def check(
 
     console.print("[bold]Config Files[/bold]")
     try:
-        user_config = _load_jsonc_file(
+        user_config = _load_jsonc_with_includes(
             USER_CONFIG_PATH, str(USER_CONFIG_PATH), strict=True
         )
         if USER_CONFIG_PATH.exists():
@@ -818,7 +818,7 @@ def check(
 
     workspace_config_path = workspace / "yolo-jail.jsonc"
     try:
-        workspace_config = _load_jsonc_file(
+        workspace_config = _load_jsonc_with_includes(
             workspace_config_path, "yolo-jail.jsonc", strict=True
         )
         if workspace_config_path.exists():
