@@ -1753,6 +1753,7 @@ def run(
         forward_host_ports=forward_host_ports or None,
         mcp_servers=mcp_servers or None,
         mcp_presets=mcp_presets or None,
+        agents_md_extra=config.get("agents_md_extra"),
     )
     if runtime == "container":
         _ac_materialize_under_ws_state(

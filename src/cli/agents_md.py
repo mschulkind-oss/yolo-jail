@@ -27,12 +27,18 @@ def generate_agents_md(
     forward_host_ports: Optional[List] = None,
     mcp_servers: Optional[Dict[str, Any]] = None,
     mcp_presets: Optional[List[str]] = None,
+    agents_md_extra: Optional[str] = None,
 ) -> Path:
     """Generate per-workspace AGENTS.md and CLAUDE.md files and return the directory.
 
     Produces separate files for Copilot, Gemini, and Claude so that user-level
     ~/.copilot/AGENTS.md, ~/.gemini/AGENTS.md, and ~/.claude/CLAUDE.md content
     can differ between the agents.
+
+    ``agents_md_extra`` is appended verbatim to the generated jail-managed
+    content (before host-level user content is prepended) so per-workspace
+    or per-user notes — extra MCP server usage hints, project conventions,
+    etc. — can ride along with each agent's briefing.
     """
     agents_dir = AGENTS_DIR / cname
     agents_dir.mkdir(parents=True, exist_ok=True)
@@ -270,6 +276,9 @@ def generate_agents_md(
     )
 
     jail_content = "\n".join(lines) + "\n"
+    if agents_md_extra:
+        extra = agents_md_extra.rstrip() + "\n"
+        jail_content = jail_content + "\n" + extra
 
     home = Path.home()
     for agent, dotdir in [("copilot", ".copilot"), ("gemini", ".gemini")]:

@@ -2544,6 +2544,45 @@ class TestGenerateAgentsMdEdges:
         agents_copilot = (result / "AGENTS-copilot.md").read_text()
         assert "data" in agents_copilot
 
+    def test_agents_md_extra_appended_to_all_agents(self, tmp_path, monkeypatch):
+        from cli import generate_agents_md
+
+        monkeypatch.setattr("cli.AGENTS_DIR", tmp_path / "agents")
+        (tmp_path / "agents").mkdir()
+
+        extra = "## Cerebras MCP\n\nUse cerebras-mcp for ultra-fast completions."
+        result = generate_agents_md(
+            "yolo-test",
+            tmp_path,
+            [],
+            [],
+            net_mode="bridge",
+            runtime="podman",
+            agents_md_extra=extra,
+        )
+        for name in ("AGENTS-copilot.md", "AGENTS-gemini.md", "CLAUDE.md"):
+            content = (result / name).read_text()
+            assert "## Cerebras MCP" in content
+            assert "cerebras-mcp" in content
+
+    def test_agents_md_extra_none_is_noop(self, tmp_path, monkeypatch):
+        from cli import generate_agents_md
+
+        monkeypatch.setattr("cli.AGENTS_DIR", tmp_path / "agents")
+        (tmp_path / "agents").mkdir()
+
+        result = generate_agents_md(
+            "yolo-test",
+            tmp_path,
+            [],
+            [],
+            net_mode="bridge",
+            runtime="podman",
+            agents_md_extra=None,
+        )
+        content = (result / "CLAUDE.md").read_text()
+        assert "## Cerebras MCP" not in content
+
 
 # ═══════════════════════════════════════════════════════════════════════════════
 # Test: _seed_agent_dir

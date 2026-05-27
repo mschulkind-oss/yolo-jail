@@ -50,6 +50,36 @@ def config_ref():
     Image rebuilds only when this list changes.
     Nix caches builds — identical configs across jails share cached results.
 
+  [bold]include_if_found[/bold] (array of strings): Layer in sibling override files.
+    Each entry is a relative path resolved against the including file's
+    directory. Missing files are silently skipped — keep entries that may
+    or may not exist on a given machine (gitignored *.local.jsonc, secrets,
+    machine-specific tweaks). Present files are loaded and merged on top
+    (later wins; lists concatenate-and-dedup; nulls disable). Includes can
+    declare their own `include_if_found`; cycles are detected and broken.
+
+    Common use: each level (user config, workspace config) references a
+    gitignored sibling that adds custom MCP servers, agents_md_extra notes,
+    or env_sources entries without committing them.
+
+    Example (~/.config/yolo-jail/config.jsonc):
+      "include_if_found": ["overrides.jsonc"]
+    Example (./yolo-jail.jsonc):
+      "include_if_found": ["yolo-jail.local.jsonc"]
+
+  [bold]agents_md_extra[/bold] (string): Markdown appended to every agent's briefing.
+    Whatever you put here is concatenated onto the jail-managed section of
+    AGENTS-copilot.md, AGENTS-gemini.md, and CLAUDE.md before the host-level
+    user content is prepended.  Use it to surface per-jail notes that every
+    agent should see — "this jail has cerebras-mcp wired up, prefer it for X",
+    project-specific quirks, links to the right runbook, etc.
+
+    Pairs naturally with include_if_found: put it in a gitignored local
+    overrides file so the note rides along with custom MCP servers.
+
+    Example:
+      "agents_md_extra": "## Cerebras MCP\\n\\nUse cerebras-mcp for X."
+
   [bold]host_claude_files[/bold] (array of strings): Host ~/.claude/ files to sync into the jail.
     Each entry is a filename (not a path) relative to ~/.claude/.
     Files are mounted read-only at /ctx/host-claude/ and copied into the jail's
