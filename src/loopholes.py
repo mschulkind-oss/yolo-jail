@@ -874,9 +874,10 @@ def runtime_args_for(
             # exposes a socket from container to host (host path must NOT
             # exist yet), opposite of what we want.
             if runtime == "container" and bm.host.is_socket():
-                same_as_agent = bool(
-                    ssh_auth_sock_host
-                ) and bm.host.resolve() == Path(ssh_auth_sock_host).resolve()
+                same_as_agent = (
+                    bool(ssh_auth_sock_host)
+                    and bm.host.resolve() == Path(ssh_auth_sock_host).resolve()
+                )
                 if same_as_agent:
                     if not ssh_flag_emitted:
                         args.append("--ssh")
@@ -915,11 +916,7 @@ def runtime_args_for(
             # in the jail point at the path AC actually populates.  On
             # Podman the manifest's container path is the real mount
             # destination, so the value is left as declared.
-            if (
-                runtime == "container"
-                and ssh_flag_emitted
-                and k == "SSH_AUTH_SOCK"
-            ):
+            if runtime == "container" and ssh_flag_emitted and k == "SSH_AUTH_SOCK":
                 v = "/var/host-services/ssh-auth.sock"
             args.extend(["-e", f"{k}={v}"])
 

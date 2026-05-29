@@ -857,9 +857,9 @@ def test_ssh_agent_socket_routes_through_ssh_flag_on_apple_container(
         "--publish-socket is the wrong direction (container→host); see comment"
     )
     ac_pairs = list(zip(ac_args, ac_args[1:]))
-    assert not any(
-        a == "-v" and str(sock_src) in b for a, b in ac_pairs
-    ), f"socket leaked into -v on AC: {ac_args!r}"
+    assert not any(a == "-v" and str(sock_src) in b for a, b in ac_pairs), (
+        f"socket leaked into -v on AC: {ac_args!r}"
+    )
     assert ("-v", f"{file_src}:/etc/some-config:ro") in ac_pairs
     assert (
         "-e",
@@ -929,9 +929,7 @@ def test_non_agent_socket_warned_and_skipped_on_apple_container(
     assert not any(
         a == "-v" and str(sock_src) in b for a, b in zip(ac_args, ac_args[1:])
     )
-    assert any(
-        "no primitive to forward" in rec.message for rec in caplog.records
-    )
+    assert any("no primitive to forward" in rec.message for rec in caplog.records)
 
     s.close()
     so.close()
