@@ -1350,6 +1350,59 @@ class TestValidateConfig:
         )
         assert errors == []
 
+    def test_loopholes_config_override_of_bundled_loophole_minimal(self, tmp_path):
+        # Workspace blocks keyed by a bundled loophole's name are *overrides*
+        # of that file-backed manifest — they do NOT need 'command', and
+        # 'enabled' is a permitted key.  Regression: previously the validator
+        # rejected `{ "ssh-agent": { "enabled": true } }` with both
+        # "unknown key" (enabled) and "command: required".
+        errors, _ = _validate_config(
+            {"loopholes": {"ssh-agent": {"enabled": True}}}, workspace=tmp_path
+        )
+        assert errors == []
+
+    def test_loopholes_config_override_of_bundled_loophole_full_keys(self, tmp_path):
+        errors, _ = _validate_config(
+            {
+                "loopholes": {
+                    "ssh-agent": {
+                        "enabled": True,
+                        "env": {"FOO": "bar"},
+                        "jail_env": {"BAZ": "qux"},
+                    }
+                }
+            },
+            workspace=tmp_path,
+        )
+        assert errors == []
+
+    def test_loopholes_config_override_rejects_command(self, tmp_path):
+        # Overrides cannot redefine the manifest's shape — 'command' is not
+        # an override-safe key.
+        errors, _ = _validate_config(
+            {"loopholes": {"ssh-agent": {"command": ["/bin/true"]}}},
+            workspace=tmp_path,
+        )
+        assert any("unknown key" in e and "command" in e for e in errors)
+
+    def test_loopholes_config_override_enabled_must_be_bool(self, tmp_path):
+        errors, _ = _validate_config(
+            {"loopholes": {"ssh-agent": {"enabled": "yes"}}}, workspace=tmp_path
+        )
+        assert any("ssh-agent.enabled" in e and "boolean" in e for e in errors)
+
+    def test_loopholes_config_override_env_must_be_strings(self, tmp_path):
+        errors, _ = _validate_config(
+            {"loopholes": {"ssh-agent": {"env": {"K": 42}}}}, workspace=tmp_path
+        )
+        assert any("ssh-agent.env" in e and "strings" in e for e in errors)
+
+    def test_loopholes_config_override_jail_env_must_be_strings(self, tmp_path):
+        errors, _ = _validate_config(
+            {"loopholes": {"ssh-agent": {"jail_env": {"K": 42}}}}, workspace=tmp_path
+        )
+        assert any("ssh-agent.jail_env" in e and "strings" in e for e in errors)
+
     def test_kvm_true_valid(self, tmp_path):
         errors, _ = _validate_config({"kvm": True}, workspace=tmp_path)
         assert errors == []

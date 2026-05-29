@@ -59,6 +59,43 @@ def test_name_must_match_directory(mods_dir: Path):
     assert err is not None and "disagrees with directory" in err
 
 
+def test_validate_loopholes_applies_workspace_overrides(mods_dir: Path):
+    # A bundled-style manifest that ships disabled, then enabled by the
+    # workspace config — validate_loopholes (used by `yolo check`) must
+    # reflect the override, not just the file's baked-in value.  Regression:
+    # `yolo check` previously reported the loophole as 'disabled' even when
+    # yolo-jail.jsonc set `enabled: true`.
+    mod = mods_dir / "off-by-default"
+    mod.mkdir()
+    _write_manifest(
+        mod, {"name": "off-by-default", "description": "x", "enabled": False}
+    )
+
+    # Without override: still disabled.
+    [(_, lh, _)] = loopholes.validate_loopholes(mods_dir, include_bundled=False)
+    assert lh is not None and lh.enabled is False
+
+    # With override: enabled flips through.
+    [(_, lh, _)] = loopholes.validate_loopholes(
+        mods_dir,
+        include_bundled=False,
+        loopholes_config={"off-by-default": {"enabled": True}},
+    )
+    assert lh is not None and lh.enabled is True
+
+    # Inverse direction: workspace can also disable a default-enabled one.
+    mod2 = mods_dir / "on-by-default"
+    mod2.mkdir()
+    _write_manifest(mod2, {"name": "on-by-default", "description": "x"})
+    entries = loopholes.validate_loopholes(
+        mods_dir,
+        include_bundled=False,
+        loopholes_config={"on-by-default": {"enabled": False}},
+    )
+    by_name = {lh.name: lh for _, lh, _ in entries if lh is not None}
+    assert by_name["on-by-default"].enabled is False
+
+
 def test_disabled_skipped_by_default(mods_dir: Path):
     mod = mods_dir / "off"
     mod.mkdir()

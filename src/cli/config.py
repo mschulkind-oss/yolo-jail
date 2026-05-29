@@ -94,6 +94,11 @@ KNOWN_DEVICE_KEYS = {"usb", "description", "cgroup_rule"}
 KNOWN_GPU_KEYS = {"enabled", "devices", "capabilities"}
 KNOWN_RESOURCES_KEYS = {"memory", "cpus", "pids_limit"}
 KNOWN_HOST_SERVICE_KEYS = {"command", "env", "jail_socket"}
+# Keys that a workspace may set on an *override* of a file-backed loophole
+# (bundled or user-installed).  The shape of such a loophole comes from its
+# manifest; the workspace block only tunes runtime knobs.  Mirrors the merge
+# rules in loopholes._apply_workspace_overrides.
+KNOWN_LOOPHOLE_OVERRIDE_KEYS = {"enabled", "env", "jail_env"}
 HOST_SERVICE_NAME_RE = re.compile(r"^[a-zA-Z][a-zA-Z0-9_-]{0,63}$")
 USB_ID_RE = re.compile(r"^[0-9a-fA-F]{4}:[0-9a-fA-F]{4}$")
 MEMORY_RE = re.compile(r"^\d+[bkmgBKMG]?$")
@@ -346,6 +351,30 @@ def _report_unknown_keys(
             errors.append(f"{path}.{key}: unknown key")
 
 
+def _file_backed_loophole_names() -> set[str]:
+    """Names of bundled + user-installed loopholes — those whose shape comes
+    from a manifest file, not from the workspace config.  A workspace block
+    keyed by one of these names is an *override* (only ``enabled`` / ``env``
+    / ``jail_env`` are permitted), not an inline service definition.
+
+    Imported lazily to keep ``cli.config`` free of an import-time dependency
+    on the wider loophole machinery.
+    """
+    from src import loopholes as _loopholes  # local to avoid cycles
+
+    names: set[str] = set()
+    for source_dir in (
+        _loopholes.bundled_loopholes_dir(),
+        _loopholes.user_loopholes_dir(),
+    ):
+        if not source_dir.is_dir():
+            continue
+        for child in source_dir.iterdir():
+            if child.is_dir() and not child.name.startswith("."):
+                names.add(child.name)
+    return names
+
+
 def _validate_string_list(values: Any, path: str, errors: List[str]):
     if not isinstance(values, list):
         errors.append(f"{path}: expected a list")
@@ -570,6 +599,7 @@ def _validate_config(
         if not isinstance(host_services, dict):
             errors.append("config.loopholes: expected an object")
         else:
+            file_backed = _file_backed_loophole_names()
             for name, spec in host_services.items():
                 path = f"config.loopholes.{name}"
                 if not isinstance(name, str) or not HOST_SERVICE_NAME_RE.match(name):
@@ -586,6 +616,39 @@ def _validate_config(
                     continue
                 if not isinstance(spec, dict):
                     errors.append(f"{path}: expected an object")
+                    continue
+                if name in file_backed:
+                    # Override of a bundled / user-installed loophole — the
+                    # shape comes from its manifest; only override-safe keys
+                    # are allowed here.  Mirrors loopholes._apply_workspace_overrides.
+                    _report_unknown_keys(
+                        spec, KNOWN_LOOPHOLE_OVERRIDE_KEYS, path, errors
+                    )
+                    enabled = spec.get("enabled")
+                    if enabled is not None and not isinstance(enabled, bool):
+                        errors.append(f"{path}.enabled: expected a boolean")
+                    env = spec.get("env")
+                    if env is not None:
+                        if not isinstance(env, dict):
+                            errors.append(f"{path}.env: expected an object")
+                        else:
+                            for k, v in env.items():
+                                if not isinstance(k, str) or not isinstance(v, str):
+                                    errors.append(
+                                        f"{path}.env: keys and values must be strings"
+                                    )
+                                    break
+                    jail_env = spec.get("jail_env")
+                    if jail_env is not None:
+                        if not isinstance(jail_env, dict):
+                            errors.append(f"{path}.jail_env: expected an object")
+                        else:
+                            for k, v in jail_env.items():
+                                if not isinstance(k, str) or not isinstance(v, str):
+                                    errors.append(
+                                        f"{path}.jail_env: keys and values must be strings"
+                                    )
+                                    break
                     continue
                 _report_unknown_keys(spec, KNOWN_HOST_SERVICE_KEYS, path, errors)
                 cmd = spec.get("command")

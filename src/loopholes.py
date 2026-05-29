@@ -705,13 +705,20 @@ def validate_loopholes(
     root: Optional[Path] = None,
     *,
     include_bundled: bool = True,
+    loopholes_config: Optional[Dict[str, Any]] = None,
 ) -> List["tuple[Path, Optional[Loophole], Optional[str]]"]:
     """Return one entry per file-backed loophole directory (bundled + user).
 
     Config-synthesized loopholes are not included — they have no manifest
     to validate (they live in yolo-jail.jsonc).
+
+    When ``loopholes_config`` is provided, workspace overrides (enabled,
+    env, jail_env) are applied to the parsed manifests before they're
+    returned — so callers see the same enabled/disabled state the runtime
+    will use, not just what's baked into the manifest file.
     """
     out: List["tuple[Path, Optional[Loophole], Optional[str]]"] = []
+    by_name: Dict[str, Loophole] = {}
     dirs: List["tuple[Path, str]"] = []
     if include_bundled:
         dirs.append((bundled_loopholes_dir(), SOURCE_BUNDLED))
@@ -725,9 +732,12 @@ def validate_loopholes(
             try:
                 loophole = _load_manifest(child)
                 loophole.source = source
+                by_name[loophole.name] = loophole
                 out.append((child, loophole, None))
             except LoopholeError as e:
                 out.append((child, None, str(e)))
+    if loopholes_config:
+        _apply_workspace_overrides(by_name, loopholes_config)
     return out
 
 

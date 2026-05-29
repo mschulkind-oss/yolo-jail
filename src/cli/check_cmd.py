@@ -207,17 +207,22 @@ def _check_broker_creds_freshness(ok, warn, fail) -> None:
         ok(f"shared creds valid for {_fmt(remaining_s)}{suffix}")
 
 
-def _check_loopholes(ok, warn, fail) -> None:
+def _check_loopholes(ok, warn, fail, *, loopholes_config=None) -> None:
     """Surface loophole discovery + each loophole's own self-check.
 
     Bad manifests warn (one broken third-party loophole shouldn't fail
     the whole check); individual self-checks that return non-zero fail,
     since the loophole's author declared this is the health signal.
+
+    ``loopholes_config`` is the workspace's ``loopholes:`` block — passed
+    through so workspace overrides (enabled flips, env tweaks) are
+    reflected in what we report.  Without it, an enabled-by-config
+    bundled loophole would still show as ``disabled`` here.
     """
     if os.environ.get("YOLO_VERSION") is not None:
         ok("Inside jail — loophole checks skipped (managed by host)")
         return
-    entries = _loopholes.validate_loopholes()
+    entries = _loopholes.validate_loopholes(loopholes_config=loopholes_config)
     if not entries:
         ok(f"No loopholes installed ({_loopholes.loopholes_dir()})")
         return
@@ -1246,7 +1251,7 @@ def check(
     # --- Host-side loopholes ---
 
     console.print("[bold]Loopholes[/bold]")
-    _check_loopholes(ok, warn, fail)
+    _check_loopholes(ok, warn, fail, loopholes_config=config.get("loopholes"))
     console.print()
 
     # --- Per-jail host-service liveness ---
@@ -1273,11 +1278,18 @@ def check(
         if _loophole_exec_checks_skipped_in_jail():
             ok("Inside jail — exec checks skipped (host paths aren't reachable here)")
         else:
+            file_backed = {
+                lh.name
+                for lh in _loopholes.discover_loopholes(include_disabled=True)
+                if lh.source != _loopholes.SOURCE_CONFIG
+            }
             for name, spec in loopholes_cfg.items():
                 if name == BUILTIN_CGROUP_LOOPHOLE_NAME:
                     continue  # builtin is unconditional, not user-configurable
                 if not isinstance(spec, dict):
                     continue
+                if name in file_backed:
+                    continue  # override of a file-backed loophole; no inline command
                 cmd = spec.get("command") or []
                 if not isinstance(cmd, list) or not cmd:
                     fail(f"loopholes.{name}: missing command")
