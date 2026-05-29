@@ -844,6 +844,12 @@ def runtime_args_for(
                 }
             )
 
+        # Track whether we've already emitted --ssh for this loader run.
+        # Apple Container only accepts the flag once per `container run`,
+        # and a single agent forward is enough for every loophole that
+        # asks for it (the in-jail mount point is fixed by AC anyway).
+        ssh_flag_emitted = False
+        ssh_auth_sock_host = os.environ.get("SSH_AUTH_SOCK") or ""
         for bm in m.host_bind_mounts:
             # Skip mounts whose source vanished between manifest
             # parse and now (e.g. user stopped pipewire).  podman
@@ -853,6 +859,33 @@ def runtime_args_for(
             if not bm.host.exists():
                 log.warning(
                     "loophole %s: skipping bind mount, host source missing: %s",
+                    m.name,
+                    bm.host,
+                )
+                continue
+            # Apple Container can't surface AF_UNIX nodes through virtiofs,
+            # so a plain ``-v`` of a Unix socket silently doesn't work.
+            # AC has one purpose-built primitive — ``--ssh`` — which forwards
+            # the host's $SSH_AUTH_SOCK to a fixed in-jail path.  When this
+            # mount points at the agent socket, route it through that flag.
+            # Any other Unix-socket mount is simply unsupported on AC; warn
+            # so loopholes that rely on it (e.g. PipeWire) don't fail
+            # silently.  Note: ``--publish-socket`` is the WRONG flag — it
+            # exposes a socket from container to host (host path must NOT
+            # exist yet), opposite of what we want.
+            if runtime == "container" and bm.host.is_socket():
+                same_as_agent = bool(
+                    ssh_auth_sock_host
+                ) and bm.host.resolve() == Path(ssh_auth_sock_host).resolve()
+                if same_as_agent:
+                    if not ssh_flag_emitted:
+                        args.append("--ssh")
+                        ssh_flag_emitted = True
+                    continue
+                log.warning(
+                    "loophole %s: Apple Container has no primitive to forward "
+                    "an existing host Unix socket %s into the jail; skipping. "
+                    "Use Podman if this loophole is required.",
                     m.name,
                     bm.host,
                 )
@@ -876,6 +909,18 @@ def runtime_args_for(
             args.extend(["--device", dev])
 
         for k, v in m.jail_env.items():
+            # Apple Container's ``--ssh`` flag fixes the in-jail socket
+            # path at /var/host-services/ssh-auth.sock — we can't change
+            # it.  Rewrite the manifest's SSH_AUTH_SOCK target so apps
+            # in the jail point at the path AC actually populates.  On
+            # Podman the manifest's container path is the real mount
+            # destination, so the value is left as declared.
+            if (
+                runtime == "container"
+                and ssh_flag_emitted
+                and k == "SSH_AUTH_SOCK"
+            ):
+                v = "/var/host-services/ssh-auth.sock"
             args.extend(["-e", f"{k}={v}"])
 
     if trusted_ca_paths:

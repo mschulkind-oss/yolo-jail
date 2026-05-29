@@ -1,0 +1,85 @@
+// Bundled yolo-jail loophole — pass the host's ssh-agent socket
+// through to the jail so jailed processes (git, ssh, scp) can sign
+// against keys held by the user's host-side agent.
+//
+// Trust model
+// -----------
+// This is RAW passthrough — semantically identical to `ssh -A` agent
+// forwarding.  Anything inside the jail that can read SSH_AUTH_SOCK
+// can ask the host agent to sign with any key the agent holds.  Keys
+// never leave the agent (the agent protocol exposes signing, not key
+// extraction), but signing-as-you is the whole capability we're
+// granting.  Don't enable this in jails running untrusted workloads.
+//
+// A future version may grow a filtering broker (host-side daemon
+// re-implementing the SSH agent wire protocol with a per-workspace
+// key-fingerprint allowlist).  For v1 we ship the simple shape — same
+// trust posture as `ssh -A`, no new code paths.
+//
+// Disabled by default
+// -------------------
+// Most jails don't need agent access; granting it on by default would
+// silently expand every jail's blast radius.  Enable per workspace:
+//
+//   // yolo-jail.jsonc
+//   "loopholes": {
+//     "ssh-agent": { "enabled": true }
+//   }
+//
+// Or, ad hoc on a host with multiple workspaces:
+//
+//   yolo loopholes enable ssh-agent
+//
+// Either way, the change takes effect on the next `yolo run` —
+// loopholes are wired at container-create time, not hot-attached.
+//
+// Apple Container support
+// -----------------------
+// Apple Container 0.12.x can't surface AF_UNIX nodes through virtiofs,
+// so a plain ``-v`` of the agent socket silently doesn't work.  AC ships
+// a purpose-built ``--ssh`` flag that forwards the host's $SSH_AUTH_SOCK
+// into the jail at a fixed path (/var/host-services/ssh-auth.sock); the
+// loader detects when this mount points at the agent socket and routes
+// it through ``--ssh`` instead of ``-v``.  The manifest's ``container:``
+// path below is therefore a no-op on AC — the loader rewrites the
+// SSH_AUTH_SOCK jail_env to AC's fixed path automatically.  On Podman
+// the manifest values are used verbatim.
+{
+  "name": "ssh-agent",
+  "description": "Pass-through of the host's ssh-agent socket (SSH_AUTH_SOCK) — lets jailed git/ssh/scp sign with the user's host keys. Same trust model as `ssh -A`. Disabled by default.",
+  "version": 1,
+
+  // Off by default — operator opts in per workspace or globally.  See
+  // the trust-model note above.
+  "enabled": false,
+
+  // Only activate when the host actually has an agent running.  An
+  // empty SSH_AUTH_SOCK collapses to "" and the file_exists check
+  // fails, so the loophole stays inactive without noise.
+  "requires": {
+    "file_exists": "${SSH_AUTH_SOCK}"
+  },
+
+  // No TLS intercept, no daemon — the SSH agent protocol already
+  // speaks Unix-socket frames natively, so we just hand the existing
+  // socket to the jail.
+  "transport": "none",
+  "lifecycle": "external",
+
+  "host_bind_mounts": [
+    {
+      "host": "${SSH_AUTH_SOCK}",
+      // Stable container path so SSH_AUTH_SOCK below stays valid
+      // regardless of the host-side path (which differs per OS / per
+      // ssh-agent invocation).
+      "container": "/run/yolo-services/ssh-agent.sock",
+      // Agent traffic is bidirectional (request + signature reply),
+      // so the socket has to be writable.
+      "readonly": false
+    }
+  ],
+
+  "jail_env": {
+    "SSH_AUTH_SOCK": "/run/yolo-services/ssh-agent.sock"
+  }
+}

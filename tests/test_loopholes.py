@@ -800,6 +800,143 @@ def test_host_bind_mounts_emitted_as_runtime_args(mods_dir: Path, tmp_path: Path
     assert f"{rw_src}:/run/pulse/native:ro" not in joined
 
 
+def test_ssh_agent_socket_routes_through_ssh_flag_on_apple_container(
+    mods_dir: Path, tmp_path: Path, monkeypatch
+):
+    """Apple Container can't surface AF_UNIX nodes through virtiofs.  The
+    one socket primitive AC ships — ``--ssh`` — forwards the host's
+    $SSH_AUTH_SOCK to /var/host-services/ssh-auth.sock.  When a host
+    bind-mount points at the live agent socket, the loader emits
+    ``--ssh`` (without an argument), suppresses the ``-v``, and rewrites
+    the jail_env so apps inside see AC's fixed path.
+
+    Regression: a previous version emitted ``--publish-socket`` here,
+    which is the WRONG direction (container→host; AC tries to create
+    the host path and aborts when it already exists).
+    """
+    import socket as _socket
+
+    sock_src = tmp_path / "agent.sock"
+    s = _socket.socket(_socket.AF_UNIX, _socket.SOCK_STREAM)
+    s.bind(str(sock_src))
+    monkeypatch.setenv("SSH_AUTH_SOCK", str(sock_src))
+
+    file_src = tmp_path / "config.toml"
+    file_src.write_bytes(b"")
+
+    mod = mods_dir / "ssh-agent-like"
+    mod.mkdir()
+    _write_manifest(
+        mod,
+        {
+            "name": "ssh-agent-like",
+            "description": "x",
+            "transport": "none",
+            "host_bind_mounts": [
+                {
+                    "host": str(sock_src),
+                    "container": "/run/yolo-services/ssh-agent.sock",
+                    "readonly": False,
+                },
+                {
+                    "host": str(file_src),
+                    "container": "/etc/some-config",
+                    "readonly": True,
+                },
+            ],
+            "jail_env": {"SSH_AUTH_SOCK": "/run/yolo-services/ssh-agent.sock"},
+        },
+    )
+    loaded = loopholes.discover_loopholes(mods_dir, include_bundled=False)
+
+    # AC: agent socket uses --ssh (no argument), regular file keeps -v,
+    # SSH_AUTH_SOCK gets remapped to AC's fixed path.
+    ac_args = loopholes.runtime_args_for(loaded, runtime="container")
+    assert "--ssh" in ac_args
+    assert "--publish-socket" not in ac_args, (
+        "--publish-socket is the wrong direction (container→host); see comment"
+    )
+    ac_pairs = list(zip(ac_args, ac_args[1:]))
+    assert not any(
+        a == "-v" and str(sock_src) in b for a, b in ac_pairs
+    ), f"socket leaked into -v on AC: {ac_args!r}"
+    assert ("-v", f"{file_src}:/etc/some-config:ro") in ac_pairs
+    assert (
+        "-e",
+        "SSH_AUTH_SOCK=/var/host-services/ssh-auth.sock",
+    ) in ac_pairs
+    assert (
+        "-e",
+        "SSH_AUTH_SOCK=/run/yolo-services/ssh-agent.sock",
+    ) not in ac_pairs
+
+    # Podman: socket goes through -v as declared, jail_env keeps the
+    # manifest value (which is the real container mount path).
+    podman_args = loopholes.runtime_args_for(loaded, runtime="podman")
+    podman_pairs = list(zip(podman_args, podman_args[1:]))
+    assert "--ssh" not in podman_args
+    assert ("-v", f"{sock_src}:/run/yolo-services/ssh-agent.sock") in podman_pairs
+    assert (
+        "-e",
+        "SSH_AUTH_SOCK=/run/yolo-services/ssh-agent.sock",
+    ) in podman_pairs
+
+    s.close()
+
+
+def test_non_agent_socket_warned_and_skipped_on_apple_container(
+    mods_dir: Path, tmp_path: Path, monkeypatch, caplog
+):
+    """A Unix socket that ISN'T $SSH_AUTH_SOCK has no AC primitive — log
+    a warning and skip.  ``--publish-socket`` would be misuse here too;
+    silently emitting ``-v`` would be a virtiofs no-op.
+    """
+    import logging
+    import socket as _socket
+
+    sock_src = tmp_path / "pulse.sock"
+    s = _socket.socket(_socket.AF_UNIX, _socket.SOCK_STREAM)
+    s.bind(str(sock_src))
+    # SSH_AUTH_SOCK points elsewhere so this mount is NOT the agent.
+    other = tmp_path / "agent.sock"
+    so = _socket.socket(_socket.AF_UNIX, _socket.SOCK_STREAM)
+    so.bind(str(other))
+    monkeypatch.setenv("SSH_AUTH_SOCK", str(other))
+
+    mod = mods_dir / "audio-like"
+    mod.mkdir()
+    _write_manifest(
+        mod,
+        {
+            "name": "audio-like",
+            "description": "x",
+            "transport": "none",
+            "host_bind_mounts": [
+                {
+                    "host": str(sock_src),
+                    "container": "/run/pulse/native",
+                    "readonly": False,
+                }
+            ],
+        },
+    )
+    loaded = loopholes.discover_loopholes(mods_dir, include_bundled=False)
+
+    with caplog.at_level(logging.WARNING, logger="src.loopholes"):
+        ac_args = loopholes.runtime_args_for(loaded, runtime="container")
+    assert "--ssh" not in ac_args
+    assert "--publish-socket" not in ac_args
+    assert not any(
+        a == "-v" and str(sock_src) in b for a, b in zip(ac_args, ac_args[1:])
+    )
+    assert any(
+        "no primitive to forward" in rec.message for rec in caplog.records
+    )
+
+    s.close()
+    so.close()
+
+
 def test_host_bind_mounts_expand_loophole_dir_template(mods_dir: Path, tmp_path: Path):
     """``{loophole_dir}`` resolves to the loophole's own module dir, so
     a bundled loophole can ship a config file alongside its manifest
