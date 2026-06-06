@@ -2663,8 +2663,10 @@ class TestRunRocm:
         tmp_path,
         monkeypatch,
     ):
-        # Finite host hard cap (8 MB) below what GPU queues need: emit
-        # memlock=<cap>:<cap> (NOT -1, which crun would reject) and warn.
+        # Finite host hard cap (8 MB): clamp the --ulimit to exactly the host
+        # cap (the most a rootless container can get), NOT -1 (which can be
+        # rejected by crun on some hosts).  Current ROCm runs fine at 8 MB, so
+        # there is no low-cap warning.
         mock_check_output.side_effect = FileNotFoundError
         eight_mb = 8 * 1024 * 1024
         run_cmd, output = self._run_rocm_with_host_memlock(
@@ -2675,10 +2677,6 @@ class TestRunRocm:
         assert run_cmd[ul_idx + 1] == f"memlock={eight_mb}:{eight_mb}"
         # Must NOT request unlimited on a finite-cap rootless host.
         assert "memlock=-1:-1" not in run_cmd
-        # User is warned the cap is too low for GPU queue allocation.
-        # (Match the distinctive warning phrase, not the bare word "memlock" —
-        # the test container name itself contains "memlock".)
-        assert "cannot exceed the host cap" in output.lower()
 
     @patch("subprocess.Popen")
     @patch("cli.run_cmd.auto_load_image")
@@ -2699,7 +2697,7 @@ class TestRunRocm:
         tmp_path,
         monkeypatch,
     ):
-        # Host hard cap is unlimited: request unlimited, no warning needed.
+        # Host hard cap is unlimited: request unlimited.
         import resource
 
         mock_check_output.side_effect = FileNotFoundError
@@ -2713,10 +2711,6 @@ class TestRunRocm:
         assert "memlock=-1:-1" in run_cmd
         ul_idx = run_cmd.index("memlock=-1:-1")
         assert run_cmd[ul_idx - 1] == "--ulimit"
-        # No low-cap warning when the host allows unlimited.  (Check the
-        # distinctive warning phrase, not the bare word "memlock" — the test
-        # container name itself contains "memlock".)
-        assert "cannot exceed the host cap" not in output.lower()
 
     @patch("subprocess.Popen")
     @patch("cli.run_cmd.auto_load_image")

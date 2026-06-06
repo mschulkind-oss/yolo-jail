@@ -1627,26 +1627,24 @@ def run(
             "starting without GPU passthrough[/yellow]"
         )
     if gpu_enabled:
-        # Raise the locked-memory limit for GPU passthrough.  GPU runtimes pin
-        # (mlock) device queue ring buffers — AMD's KFD pins a ~13 MB queue
-        # buffer to create a command queue (AMDKFD_IOC_CREATE_QUEUE fails with
-        # EINVAL and ROCr segfaults when the cap is too small; verified on
-        # gfx1151), and NVIDIA pinned/registered host memory needs headroom too.
+        # Raise the container's locked-memory *soft* limit to the host's hard
+        # cap for GPU passthrough.  GPU runtimes pin (mlock) device queue ring
+        # buffers, and ROCm/CUDA check the soft RLIMIT_MEMLOCK; lifting soft to
+        # the host ceiling gives them the most a rootless container can have.
         #
-        # CRITICAL: a *rootless* container CANNOT raise RLIMIT_MEMLOCK above the
-        # host's hard limit — crun's setrlimit gets EPERM and the container
-        # fails to *start*.  So we must NOT blindly request `memlock=-1`
-        # (unlimited): on a host whose hard cap is finite (the common rootless
-        # default, often 8 MB) that would brick `yolo run` for every GPU user.
-        # yolo runs on the host, so resource.getrlimit here sees the real
-        # ceiling.  If the host hard cap is unlimited, request unlimited;
-        # otherwise raise the soft limit to the host hard cap (the most a
-        # rootless container can get) and warn when that ceiling is below what
-        # GPU queue allocation needs.  The jail's --memory cgroup cap still
-        # bounds total RAM.  Raising the host cap itself is a host-side step
-        # (limits.conf 'hard memlock unlimited', systemd LimitMEMLOCK=infinity,
-        # podman containers.conf default_ulimits, or rootful podman).
-        _MEMLOCK_NEEDED = 16 * 1024 * 1024  # ~13 MB queue buffer + headroom
+        # We clamp to the host hard cap rather than blindly requesting
+        # `memlock=-1`: a rootless container cannot raise the *hard* limit
+        # above the host's, and on some crun/host combinations requesting a
+        # finite value above the cap is rejected with EPERM at container start.
+        # Requesting exactly the host hard cap always succeeds.  yolo runs on
+        # the host, so resource.getrlimit here sees the real ceiling.
+        #
+        # Note: current ROCm userspace (verified on gfx1151 / ROCm 7.2) runs
+        # GPU compute fine at the common 8 MB rootless cap — no host change is
+        # required.  (Older ROCm builds pinned a larger queue buffer; if a
+        # workload ever hits AMDKFD_IOC_CREATE_QUEUE EINVAL, raising the host
+        # cap via limits.conf / systemd LimitMEMLOCK / podman containers.conf
+        # default_ulimits is the remedy — but it is not needed by default.)
         _, _host_hard_memlock = resource.getrlimit(resource.RLIMIT_MEMLOCK)
         if _host_hard_memlock == resource.RLIM_INFINITY:
             run_cmd.extend(["--ulimit", "memlock=-1:-1"])
@@ -1654,16 +1652,6 @@ def run(
             run_cmd.extend(
                 ["--ulimit", f"memlock={_host_hard_memlock}:{_host_hard_memlock}"]
             )
-            if _host_hard_memlock < _MEMLOCK_NEEDED:
-                console.print(
-                    "[yellow]Warning: host RLIMIT_MEMLOCK hard cap is "
-                    f"{_host_hard_memlock // (1024 * 1024)} MB; GPU queue "
-                    "creation needs ~16 MB and a rootless jail cannot exceed "
-                    "the host cap. Raise it on the host (limits.conf "
-                    "'hard memlock unlimited', systemd LimitMEMLOCK=infinity, "
-                    "or podman containers.conf default_ulimits) or GPU kernels "
-                    "may fail (AMDKFD_IOC_CREATE_QUEUE EINVAL).[/yellow]"
-                )
     if gpu_enabled and gpu_vendor == "nvidia":
         gpu_config = config.get("gpu", {})
         gpu_devices = gpu_config.get("devices", "all")

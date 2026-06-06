@@ -7,6 +7,16 @@
 **Reads with:** `docs/rocm-gpu-jail-findings.md` (the diagnosis) and
 `docs/rocm-passthrough-design.md` §7.2 (the design rationale).
 
+> **✅ RESOLVED WITHOUT HOST ACTION (2026-06-06, verified on the GPU host).** The blocker was
+> **ROCm-7.1.1-userspace-specific**. With **ROCm 7.2.4** images, the `hip_smoke` test below returns
+> **`RESULT: PASS` at the existing 8 MB host cap** (passes even at 64 KB) — confirmed real GPU compute
+> (wrong-arch gfx900 binary segfaults; gfx1151 build computes correctly). **The host memlock cap was
+> left at 8 MB** (raising it is unnecessary and a needless DoS vector). yolo's misleading low-cap
+> warning + the `yolo check` "GPU locked-memory limit" section were **removed**; the harmless
+> `--ulimit memlock=<host-hard>:<host-hard>` clamp was kept. The step-by-step below is retained only
+> for the rare case of an older ROCm build that genuinely needs >8 MB. See design §7.2 for the full
+> write-up and the open security question's answer.
+
 ---
 
 ## TL;DR

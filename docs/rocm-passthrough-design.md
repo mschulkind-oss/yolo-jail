@@ -448,7 +448,36 @@ Resolutions to the questions above:
 - `amd-ctk cdi list` maps `amd.com/gpu=0` → `/dev/dri/renderD128` (confirms #14).
 - Basic ROCm compute works with the **default seccomp profile enabled** — `seccomp=unconfined` is not required (confirms #11/#27). No SELinux on this host, so `container_use_devices` was not exercised.
 
-### 7.2 Locked-memory limit blocks queue creation in-jail — PARTIAL (host action required) (2026-06-05)
+### 7.2 Locked-memory limit blocks queue creation in-jail — **RESOLVED by ROCm 7.2 userspace (2026-06-06)**
+
+> **UPDATE (2026-06-06, verified on hardware):** The memlock blocker described below was specific to
+> the **nixpkgs-built ROCm 7.1.1** userspace the in-jail agent used. Re-tested on the same GPU host
+> with **ROCm 7.2.4** images (`rocm/dev-ubuntu-24.04`, `rocm/pytorch`): the `hip_smoke` gfx1151 saxpy
+> kernel returns **`RESULT: PASS`** at the **current 8 MB** host cap — and continues to pass with the
+> `--ulimit` clamped as low as **64 KB**. No `AMDKFD_IOC_CREATE_QUEUE EINVAL`, no failing kfd ioctls;
+> confirmed real GPU execution (a gfx900-built binary segfaults on the gfx1151 hardware while the
+> gfx1151 build passes with correct numerics). So **newer ROCm userspace no longer pins a >8 MB queue
+> ring buffer**, and *raising the host memlock cap is not required* on this host.
+>
+> Consequences (landed 2026-06-06):
+> - **No host change made.** Leaving the host hard cap at 8 MB avoids an unnecessary
+>   unlimited-locked-memory DoS vector for zero functional benefit.
+> - **The misleading warning was removed.** `yolo run`'s low-cap warning and `yolo check`'s
+>   "GPU locked-memory limit" section claimed "GPU queue creation needs ~16 MB; raise the host cap" —
+>   factually wrong on ROCm 7.2 and it nudged users toward weakening host security. Both were deleted.
+> - **The `--ulimit memlock=<host-hard>:<host-hard>` clamp was kept** in `run_cmd.py` — it harmlessly
+>   lifts the container's *soft* limit to the host ceiling (the most a rootless container can get) and
+>   never bricks startup. Tests retained, warning assertions dropped.
+> - **Side-note correction:** on this host (crun 1.27.1) `--ulimit memlock=-1:-1` (unlimited) does
+>   **not** brick rootless startup — crun accepts `-1`. It rejects a *finite* value above the cap
+>   (16 MB → EPERM). So the stale installed yolo (`596ad4a`, unconditional `-1`) would have started
+>   fine here; the clamp fix remains the safer cross-host choice.
+>
+> The original 7.1.1-era diagnosis is preserved below for the record.
+
+---
+
+#### Original diagnosis (ROCm 7.1.1 nixpkgs userspace, 2026-06-05)
 
 A follow-up test running ROCm **inside a persistent yolo jail** (same GPU; jail kernel `7.0.7-zen`, nixpkgs ROCm 7.1.1 userspace) surfaced a blocker that the §7.1 host argv-replay did **not** hit: **GPU kernel dispatch fails at command-queue creation.** `strace`/`gdb` traced it to ground truth:
 
@@ -475,7 +504,7 @@ So an unconditional `memlock=-1` is not a safe default — it would **brick `yol
 
 **Still requires host action — the jail cannot fix this itself.** Because a rootless jail can't exceed the host cap, the *actual* unblock is to **raise the host's memlock hard limit** (`limits.conf` `hard memlock unlimited`, systemd `LimitMEMLOCK=infinity`, or podman `containers.conf` `default_ulimits = ["memlock=-1:-1"]`) and update the GPU host's yolo to this branch. See `docs/rocm-memlock-handoff.md` for the step-by-step. The reported "8192 after restart" almost certainly means the GPU host was still running an **old yolo** with no memlock flag at all — the new code was never deployed there.
 
-**Still open (not yet verified on hardware):** the actual end-to-end run *inside the jail* with the memlock fix — the GPU agent's `hip_smoke` test should now reach `CREATE_QUEUE` success and `RESULT: PASS`. The onnxruntime execution-provider path (gfx1151 code objects / migraphx asserts-LLVM) is a separate downstream item tracked in `scratch/rocm-gpu-jail-findings.md`.
+**Resolved (see the 2026-06-06 update at the top of this section):** the end-to-end `hip_smoke` run reaches `CREATE_QUEUE` success and `RESULT: PASS` at the 8 MB cap with ROCm 7.2.4 userspace — the memlock fix is moot for current ROCm and no host change is needed. The onnxruntime execution-provider path (gfx1151 code objects / migraphx asserts-LLVM) is a separate downstream item tracked in `docs/rocm-gpu-jail-findings.md`.
 
 ---
 

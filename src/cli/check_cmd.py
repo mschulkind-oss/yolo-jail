@@ -1200,40 +1200,6 @@ def check(
                     )
             console.print()
 
-    # --- GPU locked-memory (RLIMIT_MEMLOCK) check ---
-    #
-    # Runs for either vendor whenever GPU passthrough is enabled.  GPU
-    # runtimes pin device queue ring buffers (AMD's KFD needs ~13 MB to
-    # create a command queue); a rootless container cannot raise memlock
-    # above the host's hard cap, so a low host cap (often 8 MB) makes GPU
-    # kernel launches fail (AMDKFD_IOC_CREATE_QUEUE EINVAL) even though the
-    # GPU enumerates fine.  yolo requests the host hard cap via --ulimit, so
-    # the binding constraint is the host limit itself — check it here.
-    if gpu_config.get("enabled", False) and not IS_MACOS:
-        console.print("[bold]GPU locked-memory limit[/bold]")
-        if os.environ.get("YOLO_VERSION") is not None:
-            ok("Inside jail — host RLIMIT_MEMLOCK check skipped (managed by host)")
-        else:
-            import resource
-
-            needed = 16 * 1024 * 1024  # ~13 MB queue buffer + headroom
-            _, hard = resource.getrlimit(resource.RLIMIT_MEMLOCK)
-            if hard == resource.RLIM_INFINITY:
-                ok("Host RLIMIT_MEMLOCK hard cap is unlimited")
-            elif hard >= needed:
-                ok(f"Host RLIMIT_MEMLOCK hard cap is {hard // (1024 * 1024)} MB")
-            else:
-                warn(
-                    f"Host RLIMIT_MEMLOCK hard cap is only "
-                    f"{hard // (1024 * 1024)} MB; GPU queue creation needs "
-                    "~16 MB and a rootless jail cannot exceed the host cap",
-                    "Raise it on the host: limits.conf "
-                    "'<user> hard memlock unlimited', systemd "
-                    "LimitMEMLOCK=infinity, or podman containers.conf "
-                    '[containers] default_ulimits = ["memlock=-1:-1"]',
-                )
-        console.print()
-
     # --- KVM Checks ---
     #
     # Only runs when the user has opted in via `kvm: true`.  Never runs

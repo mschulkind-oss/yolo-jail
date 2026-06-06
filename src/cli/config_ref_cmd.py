@@ -323,9 +323,10 @@ def config_ref():
       3. (cdi mode only) sudo amd-ctk cdi generate --output=/etc/cdi/amd.json
       ROCm userspace (HIP, rocm-smi) lives in the image, not on the host —
       use a rocm/* base image for working compute.
-    When GPU passthrough is active, yolo also adds [cyan]--ulimit memlock=-1[/cyan]
-    so the GPU runtime can pin device queue buffers (AMD's KFD needs ~13 MB;
-    the rootless default 8 MB cap would otherwise fail queue creation).
+    When GPU passthrough is active, yolo lifts the container's locked-memory
+    soft limit to the host hard cap ([cyan]--ulimit memlock=<host-hard>[/cyan])
+    so the GPU runtime can pin device queue buffers.  Current ROCm (7.2+) runs
+    fine at the common 8 MB rootless cap — no host change needed.
     Run [bold]yolo check[/bold] to verify GPU readiness on a given host.
     Subject to config change safety (human approval required).
 

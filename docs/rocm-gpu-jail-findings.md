@@ -6,34 +6,32 @@ to the jail (`gpu.enabled` in `yolo-jail.jsonc`) to enable GPU-accelerated rembg
 This documents how far GPU compute gets in the jail and the one blocker that stops
 it.
 
-> **⚠️ PARTIAL FIX + HARD DEPENDENCY ON A HOST SETTING (updated 2026-06-05):**
-> The first fix attempt (`--ulimit memlock=-1:-1`, unconditional) was **wrong for
-> rootless podman** and has been corrected. A rootless container **cannot raise
-> RLIMIT_MEMLOCK above the host's hard cap** — crun rejects `setrlimit` with
-> `EPERM` and the container fails to *start*. (Empirically reproduced in a nested
-> jail: `podman run --ulimit memlock=-1:-1` → `crun: setrlimit RLIMIT_MEMLOCK:
-> Operation not permitted` whenever the host hard cap is finite.)
+> **✅ RESOLVED — no host change needed (verified on hardware 2026-06-06):**
+> The memlock blocker below was **specific to the nixpkgs-built ROCm 7.1.1
+> userspace** used during this diagnosis. Re-tested on the **same GPU host** with
+> **ROCm 7.2.4** images (`rocm/dev-ubuntu-24.04`, `rocm/pytorch`): `hip_smoke`
+> (the gfx1151 saxpy below) returns **`RESULT: PASS` at the current 8 MB host
+> cap** — and keeps passing with `--ulimit` as low as **64 KB**. No
+> `CREATE_QUEUE EINVAL`, confirmed real GPU execution (a wrong-arch gfx900 binary
+> segfaults; the gfx1151 build computes correctly). **Newer ROCm userspace no
+> longer pins a >8 MB queue ring buffer.**
 >
-> `run_cmd.py` now reads the host hard cap and requests `memlock=<hard>:<hard>`
-> (or `-1` only when the host cap is already unlimited), and `yolo check` warns
-> when the host cap is below ~16 MB. **But raising the cap itself is a host step
-> the jail cannot perform.** So the real unblock is:
+> What changed in yolo as a result (2026-06-06):
+> - **Host memlock cap left at 8 MB** — raising it (the original recommendation)
+>   is unnecessary and would add an unlimited-locked-memory DoS vector for no gain.
+> - **Removed** the now-misleading `yolo check` "GPU locked-memory limit" section
+>   and the `yolo run` low-cap warning (they claimed "needs ~16 MB; raise the host
+>   cap", which is wrong on ROCm 7.2).
+> - **Kept** the `--ulimit memlock=<host-hard>:<host-hard>` clamp in `run_cmd.py`
+>   — harmless soft-limit lift, never bricks startup.
 >
-> 1. **On the GPU host, raise the memlock hard cap**, e.g. one of:
->    - `/etc/security/limits.conf`: `<user> hard memlock unlimited` (re-login), or
->    - podman: `~/.config/containers/containers.conf` → `[containers]
->      default_ulimits = ["memlock=-1:-1"]`, or
->    - if yolo runs under systemd: a drop-in with `LimitMEMLOCK=infinity`.
-> 2. **Update the GPU host's yolo install** to this branch. (The "8192 after
->    restart" result means the host was running an *old* yolo with no memlock flag
->    at all — the new code was never deployed there.)
-> 3. Restart the jail; confirm `ulimit -Hl` inside is now high/unlimited.
-> 4. Re-run `hip_smoke` → expect `RESULT: PASS`.
+> If a workload ever does hit `CREATE_QUEUE EINVAL` on an older ROCm build, the
+> remedy (raise the host memlock cap) is documented in
+> `docs/rocm-memlock-handoff.md` and design §7.2 — but it is not the default need.
+> The onnxruntime EP work (gfx1151 code objects / migraphx asserts-LLVM) remains
+> the next item.
 >
-> Full procedure: `docs/rocm-memlock-handoff.md`. §7.2 of
-> `docs/rocm-passthrough-design.md` has the design rationale. The onnxruntime EP
-> work (gfx1151 code objects / migraphx asserts-LLVM) remains the next item after
-> compute works.
+> The original 7.1.1-era diagnosis is preserved below for the record.
 
 ## TL;DR
 
