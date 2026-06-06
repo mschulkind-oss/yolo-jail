@@ -91,7 +91,15 @@ PACKAGE_OUTPUT_RE = re.compile(r"^[a-zA-Z][a-zA-Z0-9_]*$")
 KNOWN_LSP_SERVER_KEYS = {"command", "args", "fileExtensions"}
 KNOWN_MCP_SERVER_KEYS = {"command", "args", "env"}
 KNOWN_DEVICE_KEYS = {"usb", "description", "cgroup_rule"}
-KNOWN_GPU_KEYS = {"enabled", "devices", "capabilities"}
+KNOWN_GPU_KEYS = {
+    "enabled",
+    "devices",
+    "capabilities",
+    "vendor",
+    "mode",
+    "hsa_override_gfx_version",
+    "seccomp_unconfined",
+}
 KNOWN_RESOURCES_KEYS = {"memory", "cpus", "pids_limit"}
 KNOWN_HOST_SERVICE_KEYS = {"command", "env", "jail_socket"}
 HOST_SERVICE_NAME_RE = re.compile(r"^[a-zA-Z][a-zA-Z0-9_-]{0,63}$")
@@ -870,15 +878,33 @@ def _validate_config(
             enabled = gpu.get("enabled")
             if enabled is not None and not isinstance(enabled, bool):
                 errors.append("config.gpu.enabled: expected a boolean")
+
+            vendor = gpu.get("vendor")
+            if vendor is not None and vendor not in ("nvidia", "amd"):
+                errors.append("config.gpu.vendor: expected 'nvidia' or 'amd'")
+            is_amd = vendor == "amd"
+
             devices_val = gpu.get("devices")
-            if devices_val is not None:
-                if not isinstance(devices_val, str):
-                    errors.append(
-                        "config.gpu.devices: expected a string ('all', '0', '0,1', or 'GPU-<uuid>')"
-                    )
+            if devices_val is not None and not isinstance(devices_val, str):
+                errors.append(
+                    "config.gpu.devices: expected a string ('all', '0', or '0,1')"
+                )
+
+            mode = gpu.get("mode")
+            if mode is not None:
+                if not is_amd:
+                    errors.append("config.gpu.mode: only valid when vendor='amd'")
+                elif mode not in ("devices", "cdi"):
+                    errors.append("config.gpu.mode: expected 'devices' or 'cdi'")
+
             capabilities = gpu.get("capabilities")
             if capabilities is not None:
-                if not isinstance(capabilities, str):
+                if is_amd:
+                    errors.append(
+                        "config.gpu.capabilities: not supported for vendor='amd' "
+                        "(ROCm has no driver-capabilities concept)"
+                    )
+                elif not isinstance(capabilities, str):
                     errors.append(
                         "config.gpu.capabilities: expected a string (e.g. 'compute,utility')"
                     )
@@ -898,6 +924,21 @@ def _validate_config(
                                 f"config.gpu.capabilities: unknown capability '{cap}'. "
                                 f"Valid: {', '.join(sorted(valid_caps))}"
                             )
+
+            gfx = gpu.get("hsa_override_gfx_version")
+            if gfx is not None:
+                if not is_amd:
+                    errors.append(
+                        "config.gpu.hsa_override_gfx_version: only valid when vendor='amd'"
+                    )
+                elif not isinstance(gfx, str):
+                    errors.append(
+                        "config.gpu.hsa_override_gfx_version: expected a string (e.g. '11.0.0')"
+                    )
+
+            seccomp = gpu.get("seccomp_unconfined")
+            if seccomp is not None and not isinstance(seccomp, bool):
+                errors.append("config.gpu.seccomp_unconfined: expected a boolean")
 
     # Resources config validation
     resources = config.get("resources")

@@ -420,6 +420,61 @@ class TestMacosGpuSkip:
                 f"macOS should skip NVIDIA devices, got: {gpu_devices}"
             )
 
+    @patch("subprocess.Popen")
+    @patch("cli.run_cmd.auto_load_image")
+    @patch("cli.run_cmd._check_config_changes", return_value=True)
+    @patch("cli.run_cmd.find_running_container", return_value=None)
+    @patch("subprocess.run")
+    @patch("subprocess.check_output")
+    @patch("shutil.which")
+    def test_rocm_skipped_on_macos(
+        self,
+        mock_which,
+        mock_check_output,
+        mock_run,
+        mock_find,
+        mock_config_changes,
+        mock_auto_load,
+        mock_popen,
+        tmp_path,
+        monkeypatch,
+    ):
+        _set_macos(monkeypatch)
+        _run_monkeypatch(monkeypatch, tmp_path)
+        _mock_runtimes(mock_which)
+        (tmp_path / "yolo-jail.jsonc").write_text(
+            '{"gpu": {"enabled": true, "vendor": "amd"}}'
+        )
+        mock_check_output.side_effect = FileNotFoundError
+
+        mock_proc = MagicMock()
+        mock_proc.wait.return_value = None
+        mock_proc.returncode = 0
+        mock_popen.return_value = mock_proc
+
+        runner = CliRunner()
+        runner.invoke(app, ["run", "--", "bash"])
+
+        # Should warn but not crash; no AMD/ROCm device flags leak through.
+        if mock_popen.called:
+            run_cmd = mock_popen.call_args[0][0]
+            assert "/dev/kfd" not in run_cmd, (
+                f"macOS should skip /dev/kfd, got: {run_cmd}"
+            )
+            # No render-node passthrough.
+            dri = [c for c in run_cmd if isinstance(c, str) and "/dev/dri" in c]
+            assert not dri, f"macOS should skip /dev/dri, got: {dri}"
+            # No AMD CDI device either.
+            cdi = [c for c in run_cmd if isinstance(c, str) and "amd.com/gpu" in c]
+            assert not cdi, f"macOS should skip AMD CDI devices, got: {cdi}"
+            # No keep-groups (rootless render-GID preservation is Linux-only).
+            assert "--group-add" not in run_cmd, (
+                f"macOS should skip --group-add, got: {run_cmd}"
+            )
+            assert "keep-groups" not in run_cmd, (
+                f"macOS should skip keep-groups, got: {run_cmd}"
+            )
+
 
 # ---------------------------------------------------------------------------
 # run() — KVM passthrough skipped on macOS
@@ -710,6 +765,53 @@ class TestMacosDoctor:
         output = result.output.lower()
         assert "gpu" in output, (
             f"Expected GPU unavailable notice on macOS, got: {result.output[:500]}"
+        )
+
+    @patch("subprocess.run")
+    @patch("subprocess.check_output")
+    @patch("shutil.which")
+    def test_check_warns_rocm_unavailable(
+        self,
+        mock_which,
+        mock_check_output,
+        mock_run,
+        tmp_path,
+        monkeypatch,
+    ):
+        _set_macos(monkeypatch)
+        monkeypatch.chdir(tmp_path)
+        monkeypatch.setenv("YOLO_REPO_ROOT", str(REPO_ROOT))
+        monkeypatch.setattr(cli, "GLOBAL_HOME", tmp_path / "home")
+        monkeypatch.setattr("cli.check_cmd.GLOBAL_HOME", tmp_path / "home")
+        monkeypatch.setattr(cli, "GLOBAL_MISE", tmp_path / "mise")
+        monkeypatch.setattr("cli.check_cmd.GLOBAL_MISE", tmp_path / "mise")
+        monkeypatch.setattr(cli, "GLOBAL_STORAGE", tmp_path / "storage")
+        monkeypatch.setattr("cli.check_cmd.GLOBAL_STORAGE", tmp_path / "storage")
+        monkeypatch.setattr(cli, "USER_CONFIG_PATH", tmp_path / "user-config.jsonc")
+        monkeypatch.setattr(
+            "cli.check_cmd.USER_CONFIG_PATH", tmp_path / "user-config.jsonc"
+        )
+        (tmp_path / "home").mkdir(exist_ok=True)
+        (tmp_path / "mise").mkdir(exist_ok=True)
+        (tmp_path / "storage").mkdir(exist_ok=True)
+        # Enable the AMD/ROCm vendor branch so the ROCm check path fires.
+        (tmp_path / "yolo-jail.jsonc").write_text(
+            '{"gpu": {"enabled": true, "vendor": "amd"}}'
+        )
+        _mock_runtimes(mock_which)
+
+        mock_run.return_value = MagicMock(
+            returncode=0, stdout="podman version 5.0\n", stderr=""
+        )
+        mock_check_output.side_effect = FileNotFoundError
+
+        runner = CliRunner()
+        result = runner.invoke(app, ["check", "--no-build"])
+
+        output = result.output.lower()
+        # The AMD/ROCm block must render and warn that ROCm is Linux-only.
+        assert "rocm" in output, (
+            f"Expected ROCm unavailable notice on macOS, got: {result.output[:500]}"
         )
 
 

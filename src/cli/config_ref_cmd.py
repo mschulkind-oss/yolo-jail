@@ -279,24 +279,50 @@ def config_ref():
     Missing devices produce a warning, not an error — the jail still starts.
     Subject to config change safety (human approval required).
 
-  [bold]gpu[/bold] (object): NVIDIA GPU passthrough configuration.
-    Requires NVIDIA Container Toolkit on the host (podman + CDI).
+  [bold]gpu[/bold] (object): GPU passthrough configuration (NVIDIA / AMD ROCm).
+    NVIDIA (default) uses the NVIDIA Container Toolkit on the host (podman +
+    CDI). AMD ROCm defaults to raw device-node passthrough and needs no host
+    toolkit — just the amdgpu kernel driver.
     • [bold]enabled[/bold] (bool): Enable GPU passthrough. Default: false.
-      If true but the host lacks drivers/CDI (e.g. laptop without an
-      NVIDIA GPU), yolo prints a one-line warning and starts without
+      If true but the host lacks drivers/CDI (e.g. laptop without a
+      GPU), yolo prints a one-line warning and starts without
       GPU passthrough — so the same config can be committed and used
       on both a GPU box and a GPU-less machine.
+    • [bold]vendor[/bold] (string): GPU vendor. Default: "nvidia".
+      Values: "nvidia" or "amd".  Absent ⇒ "nvidia" (backward compatible).
     • [bold]devices[/bold] (string): Which GPUs to expose. Default: "all".
-      Values: "all", "0", "0,1", or "GPU-<uuid>".  Mapped to CDI
-      device entries (nvidia.com/gpu=...).
-    • [bold]capabilities[/bold] (string): NVIDIA driver capabilities. Default: "compute,utility".
+      Values: "all", "0", "0,1", or "GPU-<uuid>".
+      NVIDIA: mapped to CDI device entries (nvidia.com/gpu=...).
+      AMD: mapped to /dev/dri/renderD<N> nodes (or amd.com/gpu=... in cdi mode).
+    • [bold]mode[/bold] (string): AMD only. Default: "devices".
+      Values: "devices" (raw /dev/kfd + /dev/dri render nodes, no host
+      toolkit) or "cdi" (amd.com/gpu=... via the AMD Container Toolkit).
+      Rejected for vendor="nvidia".
+    • [bold]capabilities[/bold] (string): NVIDIA only. Default: "compute,utility".
       Valid: compute, utility, graphics, video, display, compat32.
       "compute,utility" is sufficient for PyTorch/CUDA training.
+      Rejected for vendor="amd" (ROCm has no driver-capabilities concept).
+    • [bold]hsa_override_gfx_version[/bold] (string): AMD only, optional.
+      Sets HSA_OVERRIDE_GFX_VERSION inside the jail to make ROCm treat an
+      unsupported/consumer GPU as a known gfx target (e.g. "11.0.0" → gfx1100,
+      "10.3.0" → gfx1030). Best-effort, same-architecture-family only.
+    • [bold]seccomp_unconfined[/bold] (bool): AMD only, optional. Default: false.
+      Opt-in --security-opt seccomp=unconfined (enables memory mapping for
+      some HPC/numactl workloads). Removes syscall filtering — leave off
+      unless a workload actually needs it.
 
-    Host prerequisites (on the GPU machine):
+    NVIDIA host prerequisites (on the GPU machine):
       1. NVIDIA driver installed (nvidia-smi works)
       2. nvidia-container-toolkit installed
       3. sudo nvidia-ctk cdi generate --output=/etc/cdi/nvidia.yaml
+
+    AMD ROCm host prerequisites (on the GPU machine):
+      1. amdgpu kernel driver installed (amdgpu-dkms) and /dev/kfd present
+      2. Host user in the render group (compute device nodes are root:render)
+      3. (cdi mode only) sudo amd-ctk cdi generate --output=/etc/cdi/amd.json
+         [yellow]needs-verification — not yet hardware-tested[/yellow]
+      ROCm userspace (HIP, rocm-smi) lives in the image, not on the host —
+      use a rocm/* base image for working compute.
     Run [bold]yolo check[/bold] to verify GPU readiness on a given host.
     Subject to config change safety (human approval required).
 
@@ -391,6 +417,13 @@ def config_ref():
       "devices": "all",
       "capabilities": "compute,utility"
     },
+    // AMD ROCm variant (vendor "amd", raw device-node mode):
+    //   "gpu": {
+    //     "enabled": true,
+    //     "vendor": "amd",
+    //     "mode": "devices",
+    //     "devices": "all"
+    //   },
     "resources": {
       "memory": "8g",
       "cpus": 4,

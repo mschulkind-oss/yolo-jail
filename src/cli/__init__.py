@@ -187,6 +187,7 @@ from .loopholes_runtime import (
     _journal_send_frame,
     _parse_memory_value,
     _resolve_journal_mode,
+    _rocm_host_available,
     _should_mount_host_nix,
     _start_broker_relay,
     _start_host_service_builtin_cgroup,

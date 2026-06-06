@@ -25,7 +25,7 @@ runtime differences.
 │                                              │
 │  /sys/fs/cgroup ← cgroup delegation daemon   │
 │  /dev/* ← device passthrough                 │
-│  nvidia-smi ← GPU access                     │
+│  nvidia-smi / rocminfo ← GPU access          │
 └──────────────────────────────────────────────┘
 ```
 
@@ -60,7 +60,7 @@ There is zero virtualisation overhead.
 │                                              │
 │  No /sys/fs/cgroup (XNU kernel)              │
 │  No /dev/bus/usb (IOKit instead)             │
-│  No NVIDIA GPU (Metal instead)               │
+│  No NVIDIA/AMD GPU (Metal instead)           │
 └──────────────────────────────────────────────┘
 ```
 
@@ -162,6 +162,7 @@ and needs **no macOS changes**. Only `cli.py` (host-side) is platform-aware.
 | USB device passthrough | ✅ | ❌ | ❌ | |
 | Device cgroup rules | ✅ | ❌ | ❌ | |
 | NVIDIA GPU (`--gpus`) | ✅ | ❌ | ❌ | |
+| AMD GPU (ROCm) | ✅ | ❌ | ❌ | `/dev/kfd` + render nodes |
 | | | | | |
 | **Filesystem** | | | | |
 | Bind mounts | ✅ | ✅ | ⚠️⁴ | ⁴Max ~22 per container (VZ limit) |
@@ -189,8 +190,8 @@ These gate all platform-specific behaviour:
 | `_resolve_container_cgroup()` | Returns `None` (no `/proc` on macOS host) |
 | Container detection (`in_container`) | macOS host is never inside a container |
 | Device passthrough loop | Warns and skips each device entry |
-| GPU passthrough block | Warns and skips `--gpus` / CDI flags |
-| `check()` GPU section | Reports GPU unavailable instead of probing `nvidia-smi` |
+| GPU passthrough block | Warns and skips GPU flags (NVIDIA CDI or AMD `/dev/kfd` + render nodes per `gpu.vendor`) |
+| `check()` GPU section | Reports GPU unavailable instead of probing `nvidia-smi` / `rocminfo` |
 
 `entrypoint.py` has **no platform guards** — it always runs on Linux inside
 the container.
@@ -267,6 +268,7 @@ The `yolo check` command also reports macOS limitations:
 GPU (NVIDIA)
   ⚠ GPU passthrough is not supported on macOS
     NVIDIA GPU passthrough requires Linux with NVIDIA drivers
+    AMD ROCm passthrough requires Linux with the amdgpu driver
 ```
 
 ## Test Suite on macOS

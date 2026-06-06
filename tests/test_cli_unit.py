@@ -80,6 +80,7 @@ from cli import (  # noqa: E402
     _host_service_env_var,
     _host_service_sockets_dir,
     _gpu_host_available,
+    _rocm_host_available,
     _resolve_journal_mode,
     _should_mount_host_nix,
     _start_broker_relay,
@@ -1369,6 +1370,127 @@ class TestValidateConfig:
     def test_kvm_integer_rejected(self, tmp_path):
         errors, _ = _validate_config({"kvm": 1}, workspace=tmp_path)
         assert any("config.kvm" in e and "boolean" in e for e in errors)
+
+    # GPU passthrough config — NVIDIA path plus the AMD/ROCm extensions
+    # (vendor/mode/capabilities/hsa_override_gfx_version/seccomp_unconfined).
+    def test_gpu_not_object_rejected(self, tmp_path):
+        errors, _ = _validate_config({"gpu": True}, workspace=tmp_path)
+        assert any("config.gpu" in e and "object" in e for e in errors)
+
+    def test_gpu_enabled_non_boolean_rejected(self, tmp_path):
+        errors, _ = _validate_config(
+            {"gpu": {"enabled": "yes"}}, workspace=tmp_path
+        )
+        assert any("config.gpu.enabled" in e and "boolean" in e for e in errors)
+
+    def test_gpu_unknown_key_rejected(self, tmp_path):
+        errors, _ = _validate_config(
+            {"gpu": {"enabled": True, "bogus": 1}}, workspace=tmp_path
+        )
+        assert any("config.gpu" in e and "bogus" in e for e in errors)
+
+    def test_gpu_vendor_invalid_rejected(self, tmp_path):
+        errors, _ = _validate_config(
+            {"gpu": {"enabled": True, "vendor": "intel"}}, workspace=tmp_path
+        )
+        assert any("config.gpu.vendor" in e for e in errors)
+
+    def test_gpu_mode_for_nvidia_rejected(self, tmp_path):
+        # mode is AMD-only; setting it for vendor=nvidia is an error.
+        errors, _ = _validate_config(
+            {"gpu": {"enabled": True, "vendor": "nvidia", "mode": "devices"}},
+            workspace=tmp_path,
+        )
+        assert any(
+            "config.gpu.mode" in e and "vendor='amd'" in e for e in errors
+        )
+
+    def test_gpu_mode_invalid_value_rejected(self, tmp_path):
+        errors, _ = _validate_config(
+            {"gpu": {"enabled": True, "vendor": "amd", "mode": "bogus"}},
+            workspace=tmp_path,
+        )
+        assert any(
+            "config.gpu.mode" in e and "'devices' or 'cdi'" in e for e in errors
+        )
+
+    def test_gpu_capabilities_for_amd_rejected(self, tmp_path):
+        # ROCm has no NVIDIA_DRIVER_CAPABILITIES analog.
+        errors, _ = _validate_config(
+            {"gpu": {"enabled": True, "vendor": "amd", "capabilities": "compute"}},
+            workspace=tmp_path,
+        )
+        assert any(
+            "config.gpu.capabilities" in e and "vendor='amd'" in e for e in errors
+        )
+
+    def test_gpu_capabilities_unknown_for_nvidia_rejected(self, tmp_path):
+        errors, _ = _validate_config(
+            {"gpu": {"enabled": True, "capabilities": "compute,bogus"}},
+            workspace=tmp_path,
+        )
+        assert any(
+            "config.gpu.capabilities" in e and "bogus" in e for e in errors
+        )
+
+    def test_gpu_hsa_override_for_nvidia_rejected(self, tmp_path):
+        errors, _ = _validate_config(
+            {"gpu": {"enabled": True, "vendor": "nvidia",
+                     "hsa_override_gfx_version": "11.0.0"}},
+            workspace=tmp_path,
+        )
+        assert any(
+            "config.gpu.hsa_override_gfx_version" in e and "vendor='amd'" in e
+            for e in errors
+        )
+
+    def test_gpu_seccomp_unconfined_non_boolean_rejected(self, tmp_path):
+        errors, _ = _validate_config(
+            {"gpu": {"enabled": True, "vendor": "amd",
+                     "seccomp_unconfined": "yes"}},
+            workspace=tmp_path,
+        )
+        assert any(
+            "config.gpu.seccomp_unconfined" in e and "boolean" in e
+            for e in errors
+        )
+
+    def test_gpu_valid_amd_config(self, tmp_path):
+        config = {
+            "gpu": {
+                "enabled": True,
+                "vendor": "amd",
+                "devices": "0,1",
+                "mode": "devices",
+                "hsa_override_gfx_version": "11.0.0",
+                "seccomp_unconfined": False,
+            }
+        }
+        errors, _ = _validate_config(config, workspace=tmp_path)
+        assert not any("config.gpu" in e for e in errors)
+
+    def test_gpu_valid_amd_cdi_config(self, tmp_path):
+        config = {"gpu": {"enabled": True, "vendor": "amd", "mode": "cdi"}}
+        errors, _ = _validate_config(config, workspace=tmp_path)
+        assert not any("config.gpu" in e for e in errors)
+
+    def test_gpu_valid_nvidia_config(self, tmp_path):
+        config = {
+            "gpu": {
+                "enabled": True,
+                "vendor": "nvidia",
+                "devices": "all",
+                "capabilities": "compute,utility",
+            }
+        }
+        errors, _ = _validate_config(config, workspace=tmp_path)
+        assert not any("config.gpu" in e for e in errors)
+
+    def test_gpu_valid_nvidia_config_vendor_absent(self, tmp_path):
+        # vendor defaults to nvidia when absent — existing configs keep working.
+        config = {"gpu": {"enabled": True, "capabilities": "compute"}}
+        errors, _ = _validate_config(config, workspace=tmp_path)
+        assert not any("config.gpu" in e for e in errors)
 
 
 class TestParseDotenv:
@@ -3856,6 +3978,177 @@ class TestGpuHostAvailable:
             cdi_exists=True,
         )
         ok, reason = _gpu_host_available("podman")
+        assert ok
+        assert reason is None
+
+
+class TestRocmHostAvailable:
+    """Runtime probe that decides whether AMD ROCm GPU passthrough will
+    actually work on this host.  Mirrors :class:`TestGpuHostAvailable`
+    for the NVIDIA path.  The default (device-node) mode needs no host
+    toolkit — just the amdgpu kernel driver plus the /dev/kfd and
+    /dev/dri render nodes — so the probe layers /sys/module/amdgpu,
+    /dev/kfd, renderD*, and (when present) a functional rocminfo run.
+    """
+
+    def _mock_probe(
+        self,
+        monkeypatch,
+        *,
+        is_macos,
+        rocminfo,
+        rocminfo_rc,
+        kfd,
+        renderd,
+        amdgpu_mod,
+    ):
+        """Patch IS_MACOS + shutil.which + subprocess.run + Path.exists/glob.
+
+        ``rocminfo`` is whether shutil.which finds rocminfo on PATH.
+        ``rocminfo_rc`` is the return code of the rocminfo run.
+        ``kfd``/``renderd``/``amdgpu_mod`` toggle the device-node and
+        kernel-module signals.  The fake Path.exists/glob allowlist every
+        ROCm path the probe touches so the result is deterministic even on
+        a real AMD CI host (where /dev/kfd etc. genuinely exist).
+        """
+        monkeypatch.setattr("cli.loopholes_runtime.IS_MACOS", is_macos)
+        monkeypatch.setattr(
+            "cli.loopholes_runtime.shutil.which",
+            lambda cmd: "/usr/bin/rocminfo"
+            if (cmd == "rocminfo" and rocminfo)
+            else None,
+        )
+
+        def fake_run(cmd, **kwargs):
+            result = MagicMock()
+            result.returncode = rocminfo_rc
+            result.stdout = b""
+            return result
+
+        monkeypatch.setattr(cli.subprocess, "run", fake_run)
+
+        real_exists = Path.exists
+        real_glob = Path.glob
+
+        def fake_exists(self):
+            s = str(self)
+            if s == "/sys/module/amdgpu":
+                return amdgpu_mod
+            if s == "/dev/kfd":
+                return kfd
+            return real_exists(self)
+
+        def fake_glob(self, pattern):
+            if str(self) == "/dev/dri" and pattern == "renderD*":
+                return (
+                    iter([Path("/dev/dri/renderD128")]) if renderd else iter([])
+                )
+            return real_glob(self, pattern)
+
+        monkeypatch.setattr(Path, "exists", fake_exists)
+        monkeypatch.setattr(Path, "glob", fake_glob)
+
+    def test_macos_reports_unsupported(self, monkeypatch):
+        monkeypatch.setattr("cli.loopholes_runtime.IS_MACOS", True)
+        ok, reason = _rocm_host_available("podman")
+        assert not ok
+        assert reason and "does not support" in reason
+
+    def test_apple_container_runtime_unsupported(self, monkeypatch):
+        monkeypatch.setattr(cli, "IS_MACOS", False)
+        ok, reason = _rocm_host_available("container")
+        assert not ok
+        assert reason and "does not support" in reason
+
+    def test_unknown_runtime_unsupported(self, monkeypatch):
+        monkeypatch.setattr(cli, "IS_MACOS", False)
+        ok, reason = _rocm_host_available("unknown")
+        assert not ok
+        assert reason and "unsupported runtime" in reason
+
+    def test_podman_amdgpu_module_not_loaded(self, monkeypatch):
+        self._mock_probe(
+            monkeypatch,
+            is_macos=False,
+            rocminfo=True,
+            rocminfo_rc=0,
+            kfd=True,
+            renderd=True,
+            amdgpu_mod=False,
+        )
+        ok, reason = _rocm_host_available("podman")
+        assert not ok
+        assert reason == "amdgpu kernel module not loaded"
+
+    def test_podman_missing_kfd(self, monkeypatch):
+        self._mock_probe(
+            monkeypatch,
+            is_macos=False,
+            rocminfo=True,
+            rocminfo_rc=0,
+            kfd=False,
+            renderd=True,
+            amdgpu_mod=True,
+        )
+        ok, reason = _rocm_host_available("podman")
+        assert not ok
+        assert reason == "no /dev/kfd on host"
+
+    def test_podman_missing_render_node(self, monkeypatch):
+        self._mock_probe(
+            monkeypatch,
+            is_macos=False,
+            rocminfo=True,
+            rocminfo_rc=0,
+            kfd=True,
+            renderd=False,
+            amdgpu_mod=True,
+        )
+        ok, reason = _rocm_host_available("podman")
+        assert not ok
+        assert reason == "no /dev/dri render node on host"
+
+    def test_podman_rocminfo_reports_no_gpus(self, monkeypatch):
+        self._mock_probe(
+            monkeypatch,
+            is_macos=False,
+            rocminfo=True,
+            rocminfo_rc=1,
+            kfd=True,
+            renderd=True,
+            amdgpu_mod=True,
+        )
+        ok, reason = _rocm_host_available("podman")
+        assert not ok
+        assert reason == "rocminfo reported no GPUs"
+
+    def test_podman_all_prereqs_available(self, monkeypatch):
+        self._mock_probe(
+            monkeypatch,
+            is_macos=False,
+            rocminfo=True,
+            rocminfo_rc=0,
+            kfd=True,
+            renderd=True,
+            amdgpu_mod=True,
+        )
+        ok, reason = _rocm_host_available("podman")
+        assert ok
+        assert reason is None
+
+    def test_podman_all_prereqs_available_without_rocminfo(self, monkeypatch):
+        # rocminfo absence is NOT fatal — the device nodes are the real
+        # precondition and ROCm userspace lives in the image, not the host.
+        self._mock_probe(
+            monkeypatch,
+            is_macos=False,
+            rocminfo=False,
+            rocminfo_rc=0,
+            kfd=True,
+            renderd=True,
+            amdgpu_mod=True,
+        )
+        ok, reason = _rocm_host_available("podman")
         assert ok
         assert reason is None
 

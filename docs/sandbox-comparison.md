@@ -412,8 +412,8 @@ about it.
 - **Max bind mounts on Apple Container:** ~22 (Virtualization.framework limit).
   Large projects with many context mounts may hit this.
 - **No GPU passthrough on macOS:** Neither the Claude Code sandbox nor
-  yolo-jail supports NVIDIA GPU passthrough on macOS. Linux + NVIDIA drivers
-  is required for GPU work.
+  yolo-jail supports NVIDIA or AMD GPU passthrough on macOS. Linux + NVIDIA
+  drivers (or the amdgpu driver for ROCm) is required for GPU work.
 - **No `--network host` on Apple Container:** The container always uses bridge
   mode on Apple Container.
 - **Nix store not shared on macOS:** Each jail build downloads packages from

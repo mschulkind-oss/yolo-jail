@@ -689,6 +689,100 @@ Use an AWS Deep Learning AMI (DLAMI) — drivers and toolkit come pre-installed.
 
 ---
 
+## AMD GPU Passthrough (ROCm)
+
+**Platform support:** Like NVIDIA, AMD/ROCm passthrough is **Linux-only**. Apple Silicon Macs have no ROCm path, and Apple's Virtualization.framework doesn't expose the GPU to the guest. If `"gpu": {"enabled": true, "vendor": "amd"}` appears in `yolo-jail.jsonc` on macOS, it is parsed, logged as skipped with a warning, and does not prevent the jail from starting.
+
+On Linux, run ROCm compute workloads inside the jail using AMD GPUs. Unlike NVIDIA, the default path needs **no host container toolkit** — just the `amdgpu` kernel driver and the right group membership. ROCm passthrough works on both AMD Instinct and consumer Radeon hardware.
+
+> **Note:** ROCm userspace (HIP, rocm-smi, math libs) is **not** injected from the host. Unlike the NVIDIA toolkit, AMD's device-node and CDI paths inject **only kernel device nodes** (`/dev/kfd`, `/dev/dri/renderD*`). Your container image must ship its own ROCm userspace — use a `rocm/*` base image (see the PyTorch example below).
+
+### Host Setup
+
+> The host commands below have not been verified on real AMD hardware in this environment (`needs-verification`); package names and exact group names can vary by distribution.
+
+1. **Install the `amdgpu` kernel driver** (needs-verification). On Ubuntu, AMD ships `amdgpu-dkms` via the ROCm `amdgpu-install` tooling:
+   ```bash
+   sudo amdgpu-install --usecase=dkms
+   ```
+   Confirm the module is loaded:
+   ```bash
+   ls /sys/module/amdgpu        # present when the driver is loaded
+   ls /dev/kfd /dev/dri/renderD*  # compute + render device nodes
+   ```
+
+2. **Join the `render` (and `video`) groups** (needs-verification). `/dev/kfd` and `/dev/dri/renderD*` are owned by the `render` group; `/dev/dri/card*` nodes are owned by `video`. Your host user must be a member or device access fails:
+   ```bash
+   sudo usermod -aG render,video "$USER"
+   # log out and back in (or `newgrp render`) for the new groups to take effect
+   ```
+
+3. **(Optional) AMD Container Toolkit for CDI mode** (needs-verification). The default `mode: "devices"` needs no toolkit. Only if you want CDI-style per-GPU selection (`mode: "cdi"`), install the AMD Container Toolkit and generate a spec:
+   ```bash
+   sudo amd-ctk cdi generate --output=/etc/cdi/amd.json
+   amd-ctk cdi list   # should list amd.com/gpu=all, amd.com/gpu=0, ...
+   ```
+
+4. **Validate:**
+   ```bash
+   yolo check   # GPU section shows amdgpu module, rocminfo, device nodes, group membership
+   ```
+
+### Jail Configuration
+
+```jsonc
+// yolo-jail.jsonc
+{
+  "gpu": {
+    "enabled": true,
+    "vendor": "amd",
+    "devices": "all"
+  }
+}
+```
+
+| Key | Default | Description |
+|-----|---------|-------------|
+| `vendor` | `"nvidia"` | Set to `"amd"` for ROCm passthrough. Absent ⇒ NVIDIA (backward-compatible). |
+| `enabled` | `false` | Enable GPU passthrough |
+| `devices` | `"all"` | `"all"`, or specific GPUs: `"0"`, `"0,1"` |
+| `mode` | `"devices"` | AMD only. `"devices"` = raw device nodes (no host toolkit); `"cdi"` = `amd.com/gpu` via the AMD Container Toolkit |
+| `hsa_override_gfx_version` | _(unset)_ | AMD only, optional. Override the gfx target for unsupported/consumer GPUs (e.g. `"11.0.0"`) |
+| `seccomp_unconfined` | `false` | AMD only, optional. Opt-in `--security-opt seccomp=unconfined` (only needed for some HPC/numactl workloads; widens the syscall surface) |
+
+> `capabilities` is **NVIDIA-only** — ROCm has no driver-capabilities concept, so it is rejected for `vendor: "amd"`.
+
+### Installing PyTorch (ROCm)
+
+ROCm userspace ships in the image, so start from a `rocm/*` base image that already includes a ROCm-built PyTorch (for example a `rocm/pytorch` image), or install the ROCm wheels from AMD's index inside such an image:
+
+```bash
+# inside a rocm/* based jail image
+pip install torch --index-url https://download.pytorch.org/whl/rocm6.2
+python -c "import torch; print(torch.cuda.is_available(), torch.cuda.get_device_name(0))"
+```
+
+ROCm exposes the AMD GPU through PyTorch's `torch.cuda` API, so `torch.cuda.is_available()` returning `True` means ROCm is working. A generic (non-ROCm) image will get working device nodes but **no working HIP/rocm-smi**.
+
+### Runtime Details
+
+| Runtime | Mechanism | Notes |
+|---------|-----------|-------|
+| **Podman** | `--device /dev/kfd` + `--device /dev/dri/renderD*` (or `--device /dev/dri` for `all`) + `--group-add keep-groups` | Default `mode: "devices"`; no host toolkit required |
+| **Podman (CDI)** | `--device amd.com/gpu=all` + `--group-add keep-groups` | `mode: "cdi"`; requires `/etc/cdi/amd.json` from `amd-ctk` |
+
+- **Runtime:** AMD stays on the default **crun** runtime. `--group-add keep-groups` is crun-only — it preserves the host `render`/`video` GID so `/dev/kfd` is openable rootless. AMD does **not** use NVIDIA's `--runtime runc` workaround.
+- **`/dev/kfd` is shared:** the Kernel Fusion Driver node is a single interface shared by all GPUs and is always passed in. Per-GPU restriction comes from which `/dev/dri/renderD*` nodes you select via `devices`.
+- **In-container GPU selection:** `ROCR_VISIBLE_DEVICES` and `HIP_VISIBLE_DEVICES` are set from `devices`. These are **not a security boundary** — real isolation comes from which render nodes are passed in.
+
+### Troubleshooting AMD GPU
+
+- **`Unable to open /dev/kfd read-write: Permission denied`:** The container process lacks the owning group. Make sure your host user is in the `render` group (`sudo usermod -aG render "$USER"`, then re-login) — `--group-add keep-groups` only preserves groups the host user already holds.
+- **GPU detected but ROCm errors out on a consumer Radeon:** Consumer/unsupported GPUs often need `HSA_OVERRIDE_GFX_VERSION` to be recognized as a supported gfx target (e.g. `"11.0.0"` for gfx1100, `"10.3.0"` for gfx1030, `"9.0.0"` for gfx900). Set it via `hsa_override_gfx_version` in the config. This is best-effort, same-architecture-family only, and unsupported by AMD.
+- **`rocminfo`/`rocm-smi` not found inside jail:** ROCm userspace is **not** injected from the host — it must ship inside the image. Use a `rocm/*` base image instead of a generic one.
+
+---
+
 ## Loopholes (spawned host services)
 
 **A way to split the jail boundary cleanly.** A *spawned* loophole is a process that runs on the host (outside the jail) and exposes a Unix socket that gets bind-mounted into the jail at `/run/yolo-services/<name>.sock`. The agent inside the jail can talk to the loophole without ever holding its secrets, credentials, or privileges. See [docs/loopholes.md](loopholes.md) for the broader loophole system (including `tls-intercept` loopholes for things like the Claude OAuth broker).

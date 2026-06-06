@@ -355,8 +355,9 @@ YOLO_RUNTIME=container yolo run  # uses --cpus and --memory flags natively
 
 ### GPU Passthrough
 
-NVIDIA GPU passthrough (Podman CDI) is not available on macOS. Apple Silicon
-GPUs use Metal, not CUDA/OpenCL.
+GPU passthrough is not available on macOS — neither NVIDIA (Podman CDI) nor
+AMD ROCm (`/dev/kfd` + render nodes). Apple Silicon GPUs use Metal, and have
+neither CUDA nor ROCm support.
 
 - `"gpu": {"enabled": true}` in config is silently skipped with a warning
 - `yolo check` reports GPU passthrough as unavailable on macOS

@@ -900,7 +900,8 @@ def check(
     # --- GPU Checks ---
 
     gpu_config = config.get("gpu", {})
-    if gpu_config.get("enabled", False):
+    gpu_vendor = gpu_config.get("vendor", "nvidia")
+    if gpu_config.get("enabled", False) and gpu_vendor != "amd":
         console.print("[bold]GPU (NVIDIA)[/bold]")
         if IS_MACOS:
             warn(
@@ -1007,6 +1008,181 @@ def check(
                     fail(
                         "No CDI spec found for Podman",
                         "Generate with: sudo nvidia-ctk cdi generate --output=/etc/cdi/nvidia.yaml",
+                    )
+            console.print()
+
+    # --- GPU Checks (AMD / ROCm) ---
+    #
+    # Parallel to the NVIDIA block above, gated on vendor == "amd".  ROCm
+    # passthrough is the device-node path (no host toolkit): /dev/kfd plus
+    # one or more /dev/dri/renderD* render nodes, with podman preserving
+    # the owning group via --group-add keep-groups.  We reuse the KVM
+    # block's device-node + group-membership idiom (os.access /
+    # grp.getgrgid / os.getgroups) and skip host-state probes inside a
+    # jail (YOLO_VERSION set).  AMD host commands below (rocminfo, amd-ctk)
+    # are needs-verification — confirmed only against docs, not hardware.
+
+    if gpu_config.get("enabled", False) and gpu_vendor == "amd":
+        console.print("[bold]GPU (AMD/ROCm)[/bold]")
+        if IS_MACOS:
+            warn(
+                "ROCm passthrough is not supported on macOS",
+                "AMD ROCm GPU passthrough requires Linux with the amdgpu driver",
+            )
+            console.print()
+        else:
+            in_jail = os.environ.get("YOLO_VERSION") is not None
+
+            # Functional enumeration via rocminfo (the AMD analog of
+            # `nvidia-smi -L`).  rocminfo ignores argv, so no flags.
+            # rocm-smi / amd-smi are secondary signals.  (needs-verification)
+            rocminfo = shutil.which("rocminfo")
+            if rocminfo:
+                try:
+                    result = subprocess.run(
+                        ["rocminfo"],
+                        capture_output=True,
+                        text=True,
+                        timeout=10,
+                    )
+                    if result.returncode == 0 and result.stdout.strip():
+                        found_agent = False
+                        for line in result.stdout.splitlines():
+                            marker = "Marketing Name:"
+                            if marker in line:
+                                name = line.split(marker, 1)[1].strip()
+                                if name:
+                                    ok(f"GPU detected: {name}")
+                                    found_agent = True
+                        if not found_agent:
+                            ok("rocminfo ran (no GPU marketing name reported)")
+                    else:
+                        fail(
+                            "rocminfo found but reported no GPUs",
+                            "Check amdgpu driver installation",
+                        )
+                except Exception as e:
+                    fail("rocminfo execution failed", str(e))
+            else:
+                rocm_smi = shutil.which("rocm-smi") or shutil.which("amd-smi")
+                if rocm_smi:
+                    warn(
+                        "rocminfo not found (rocm-smi/amd-smi present)",
+                        "Install full ROCm for enumeration: "
+                        "https://rocm.docs.amd.com/projects/install-on-linux/",
+                    )
+                else:
+                    fail(
+                        "rocminfo not found",
+                        "Install ROCm: "
+                        "https://rocm.docs.amd.com/projects/install-on-linux/",
+                    )
+
+            # amdgpu kernel module — host state, skipped inside a jail.
+            if in_jail:
+                ok("Inside jail — amdgpu module check skipped (managed by host)")
+            elif Path("/sys/module/amdgpu").exists():
+                ok("amdgpu kernel module loaded")
+            else:
+                fail(
+                    "amdgpu kernel module not loaded",
+                    "Install amdgpu-dkms and reboot, or `modprobe amdgpu`",
+                )
+
+            # Device nodes + group membership.  /dev/kfd is the shared
+            # compute interface (always required); each /dev/dri/renderD*
+            # is a per-GPU render node.  Both are typically root:render.
+            # Reuses the KVM block's os.access / grp.getgrgid / os.getgroups
+            # idiom.  Host device state isn't meaningful inside a jail.
+            if in_jail:
+                ok("Inside jail — device-node checks skipped (managed by host)")
+            else:
+                import grp
+
+                def _check_node(node: Path):
+                    if not node.exists():
+                        fail(f"{node} not present")
+                        return
+                    ok(f"Device node: {node}")
+                    # The actual gate is open(), not the file mode.
+                    if os.access(node, os.R_OK | os.W_OK):
+                        ok(f"{node} is readable and writable by the current user")
+                        return
+                    try:
+                        node_gid = node.stat().st_gid
+                        try:
+                            node_group_name = grp.getgrgid(node_gid).gr_name
+                        except KeyError:
+                            node_group_name = str(node_gid)
+                        if node_gid in set(os.getgroups()):
+                            # Group membership is correct but access still
+                            # fails — usually the session hasn't picked up
+                            # the new group yet.
+                            warn(
+                                f"User is in group '{node_group_name}' but "
+                                f"{node} is not accessible from this process",
+                                f"Log out and back in (or `newgrp {node_group_name}`) "
+                                "so the new group takes effect",
+                            )
+                        else:
+                            fail(
+                                f"{node} not accessible; user missing group "
+                                f"'{node_group_name}'",
+                                f"sudo usermod -aG {node_group_name} $USER && "
+                                "log out / log back in",
+                            )
+                    except OSError as e:
+                        fail(f"Could not stat {node}: {e}")
+
+                _check_node(Path("/dev/kfd"))
+                render_nodes = sorted(Path("/dev/dri").glob("renderD*"))
+                if render_nodes:
+                    for node in render_nodes:
+                        _check_node(node)
+                else:
+                    fail(
+                        "no /dev/dri render node present",
+                        "ROCm needs at least one /dev/dri/renderD* node",
+                    )
+
+            # Rootless podman drops supplementary groups; keep-groups
+            # (crun-only) preserves the host render/video GID.  We add this
+            # flag automatically in run(); here we just confirm the runtime
+            # supports it.  AMD stays on crun (not the NVIDIA runc branch).
+            effective_runtime_rocm, _ = _runtime_for_check(config)
+            if effective_runtime_rocm == "podman":
+                ok(
+                    "Podman will preserve render/video group via "
+                    "--group-add keep-groups"
+                )
+            elif effective_runtime_rocm == "container":
+                warn(
+                    "Apple Container does not support device passthrough",
+                    "ROCm passthrough will be ignored on the 'container' runtime",
+                )
+
+            # mode: "cdi" only — the AMD Container Toolkit CDI spec.  The
+            # default device-node mode needs no CDI spec, so only check
+            # when the user opted into CDI.  (host commands needs-verification)
+            if gpu_config.get("mode") == "cdi":
+                cdi_paths = [
+                    Path("/etc/cdi/amd.json"),
+                    Path("/var/run/cdi/amd.json"),
+                ]
+                cdi_found = None
+                for p in cdi_paths:
+                    if p.exists():
+                        cdi_found = p
+                        break
+                if cdi_found:
+                    ok(f"AMD CDI spec found: {cdi_found}")
+                    # No auto-refresh service exists for AMD CDI; regenerate
+                    # manually after driver/GPU changes (amd-ctk cdi validate).
+                else:
+                    fail(
+                        "No AMD CDI spec found (mode: cdi)",
+                        "Generate with: sudo amd-ctk cdi generate "
+                        "--output=/etc/cdi/amd.json",
                     )
             console.print()
 

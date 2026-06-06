@@ -96,12 +96,26 @@
   //     "args": []
   //   }
   // }
-  // NVIDIA GPU passthrough. Requires NVIDIA Container Toolkit on the host.
+  // GPU passthrough.  "vendor" selects NVIDIA (default) or AMD ROCm.
   // Run "yolo check" to verify GPU readiness before enabling.
+  //
+  // NVIDIA: requires the NVIDIA Container Toolkit on the host.
   // "gpu": {
   //   "enabled": true,
+  //   "vendor": "nvidia",        // "nvidia" (default) or "amd"
   //   "devices": "all",          // "all", "0", "0,1", or "GPU-<uuid>"
-  //   "capabilities": "compute,utility"
+  //   "capabilities": "compute,utility"  // NVIDIA only
+  // }
+  //
+  // AMD ROCm: default "devices" mode needs no host toolkit — just the
+  // amdgpu driver and /dev/kfd + /dev/dri render nodes ("capabilities"
+  // is NVIDIA-only and is rejected for vendor "amd").
+  // "gpu": {
+  //   "enabled": true,
+  //   "vendor": "amd",
+  //   "mode": "devices",         // AMD only: "devices" (default) or "cdi"
+  //   "devices": "all",          // "all", "0", or "0,1"
+  //   "hsa_override_gfx_version": "11.0.0"  // AMD only, optional
   // }
   // Container resource limits.
   // On Apple Container: applied as VM hardware limits (defaults: half host CPUs/RAM).

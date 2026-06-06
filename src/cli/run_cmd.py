@@ -59,6 +59,7 @@ from .loopholes_runtime import (
     _gpu_host_available,
     _host_service_env_var,
     _host_service_sockets_dir,
+    _rocm_host_available,
     _should_mount_host_nix,
     _start_broker_relay,
     start_loopholes,
@@ -1278,9 +1279,13 @@ def run(
     # also gates the uidmap/runc branch below — that strategy only makes
     # sense when we're really going to inject CDI devices.
     gpu_requested = config.get("gpu", {}).get("enabled", False)
+    gpu_vendor = config.get("gpu", {}).get("vendor", "nvidia")
     gpu_unavailable_reason: Optional[str] = None
     if gpu_requested:
-        ok_gpu, gpu_unavailable_reason = _gpu_host_available(runtime)
+        if gpu_vendor == "amd":
+            ok_gpu, gpu_unavailable_reason = _rocm_host_available(runtime)
+        else:
+            ok_gpu, gpu_unavailable_reason = _gpu_host_available(runtime)
         gpu_enabled = ok_gpu
     else:
         gpu_enabled = False
@@ -1300,9 +1305,12 @@ def run(
                     "host",
                 ]
             )
-        elif gpu_enabled:
-            # GPU passthrough: CDI device injection fails with crun and custom
-            # user namespaces (https://github.com/containers/podman/issues/27483).
+        elif gpu_enabled and gpu_vendor == "nvidia":
+            # NVIDIA GPU passthrough: CDI device injection fails with crun and
+            # custom user namespaces (https://github.com/containers/podman/issues/27483).
+            # AMD/ROCm does NOT take this branch — rootless --group-add keep-groups
+            # is crun-only, so AMD falls through to the normal host else-branch
+            # (keeping /dev/fuse + MKNOD + the default crun runtime).
             # Use runc to avoid the CDI+crun incompatibility, and identity UID/GID
             # mapping (same as non-GPU) instead of keep-id. keep-id forces podman
             # to shift UIDs across every file in every image layer — with a large
@@ -1608,16 +1616,16 @@ def run(
                     continue
                 run_cmd.extend(["--device-cgroup-rule", dev["cgroup_rule"]])
 
-    # GPU passthrough from config (NVIDIA via podman+CDI).  Availability
-    # already probed above — gpu_enabled reflects "requested AND present",
-    # gpu_unavailable_reason carries the warning text when requested but
-    # not present.
+    # GPU passthrough from config (NVIDIA via podman+CDI; AMD/ROCm via raw
+    # device nodes or amd.com/gpu CDI).  Availability already probed above —
+    # gpu_enabled reflects "requested AND present", gpu_unavailable_reason
+    # carries the warning text when requested but not present.
     if gpu_requested and not gpu_enabled:
         console.print(
             f"[yellow]Warning: GPU requested but {gpu_unavailable_reason} — "
             "starting without GPU passthrough[/yellow]"
         )
-    if gpu_enabled:
+    if gpu_enabled and gpu_vendor == "nvidia":
         gpu_config = config.get("gpu", {})
         gpu_devices = gpu_config.get("devices", "all")
         gpu_capabilities = gpu_config.get("capabilities", "compute,utility")
@@ -1642,6 +1650,56 @@ def run(
         )
         console.print(
             f"[dim]GPU passthrough: devices={gpu_devices}, capabilities={gpu_capabilities}[/dim]"
+        )
+    elif gpu_enabled and gpu_vendor == "amd":
+        gpu_config = config.get("gpu", {})
+        gpu_devices = gpu_config.get("devices", "all")
+        gpu_mode = gpu_config.get("mode", "devices")
+
+        if gpu_mode == "cdi":
+            # AMD CDI: amd.com/gpu=all | amd.com/gpu=N  (spec at /etc/cdi/amd.json)
+            if gpu_devices == "all":
+                run_cmd.extend(["--device", "amd.com/gpu=all"])
+            else:
+                for idx in gpu_devices.split(","):
+                    run_cmd.extend(["--device", f"amd.com/gpu={idx.strip()}"])
+        else:
+            # Default: raw device nodes (no host toolkit needed).
+            # /dev/kfd is the shared compute interface and is ALWAYS required.
+            if Path("/dev/kfd").exists():
+                run_cmd.extend(["--device", "/dev/kfd"])
+            if gpu_devices == "all":
+                run_cmd.extend(["--device", "/dev/dri"])
+            else:
+                for idx in gpu_devices.split(","):
+                    node = Path(f"/dev/dri/renderD{128 + int(idx.strip())}")
+                    if node.exists():
+                        run_cmd.extend(["--device", str(node)])
+
+        # Rootless podman drops supplementary groups; keep-groups (crun-only)
+        # preserves the host render/video GID so /dev/kfd is openable.  This
+        # is REQUIRED for both modes and is why AMD stays on crun (not runc).
+        if runtime == "podman":
+            run_cmd.extend(["--group-add", "keep-groups"])
+
+        # ROCm in-container selectors (NOT a security boundary).  No
+        # NVIDIA_DRIVER_CAPABILITIES analog exists — omit it.
+        run_cmd.extend(
+            [
+                "-e",
+                f"ROCR_VISIBLE_DEVICES={gpu_devices}",
+                "-e",
+                f"HIP_VISIBLE_DEVICES={gpu_devices}",
+            ]
+        )
+        gfx = gpu_config.get("hsa_override_gfx_version")
+        if gfx:
+            run_cmd.extend(["-e", f"HSA_OVERRIDE_GFX_VERSION={gfx}"])
+        if gpu_config.get("seccomp_unconfined") is True:
+            run_cmd.extend(["--security-opt", "seccomp=unconfined"])
+
+        console.print(
+            f"[dim]ROCm passthrough (mode={gpu_mode}): devices={gpu_devices}[/dim]"
         )
 
     # KVM passthrough from config.  Opt-in via top-level `kvm: true`.

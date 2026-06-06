@@ -10,9 +10,12 @@ What lives here:
   * Claude OAuth broker singleton — BROKER_SINGLETON_*, _broker_*
     family.  One host-wide daemon, not per-jail; see the long comment
     block near BROKER_SINGLETON_SOCKET for the history.
-  * _should_mount_host_nix, _gpu_host_available — host-state probes
-    used by run()'s mount-decision logic.  Kept here so the runtime
-    plumbing all lives together.
+  * _should_mount_host_nix, _gpu_host_available,
+    _rocm_host_available — host-state probes used by run()'s
+    mount-decision logic.  _gpu_host_available checks the NVIDIA
+    drivers + CDI; _rocm_host_available is the AMD/ROCm twin
+    (amdgpu module + /dev/kfd + render nodes).  Kept here so the
+    runtime plumbing all lives together.
   * cgroup delegate — _cgroup_delegate_handler,
     _cgd_ensure_agent_cgroup, _cgd_create_and_join, _cgd_destroy,
     _start_host_service_builtin_cgroup, _validate_cgroup_name,
@@ -411,6 +414,52 @@ def _gpu_host_available(runtime: str) -> tuple[bool, Optional[str]]:
     cdi_paths = (Path("/etc/cdi/nvidia.yaml"), Path("/var/run/cdi/nvidia.yaml"))
     if not any(p.exists() for p in cdi_paths):
         return False, "no CDI spec at /etc/cdi/nvidia.yaml"
+    return True, None
+
+
+def _rocm_host_available(runtime: str) -> tuple[bool, Optional[str]]:
+    """Probe whether AMD ROCm GPU passthrough will actually work on this host.
+
+    Returns ``(True, None)`` when the host exposes the AMD kernel
+    device nodes ROCm needs, or ``(False, reason)`` with a one-line
+    warning phrase.  ROCm passthrough is podman + Linux only; other
+    runtimes return a skip reason (callers warn/skip earlier).
+
+    Default (device-node) mode needs no host toolkit — just the
+    amdgpu kernel driver and the /dev/kfd + /dev/dri render nodes.
+    """
+    if IS_MACOS or runtime == "container":
+        return False, "runtime does not support ROCm/AMD passthrough"
+    if runtime != "podman":
+        return False, f"unsupported runtime: {runtime}"
+
+    # amdgpu kernel module loaded? (cheap, no subprocess)
+    if not Path("/sys/module/amdgpu").exists():
+        return False, "amdgpu kernel module not loaded"
+
+    # Mandatory compute interface, shared by all GPUs.
+    if not Path("/dev/kfd").exists():
+        return False, "no /dev/kfd on host"
+
+    # At least one DRI render node.
+    if not any(Path("/dev/dri").glob("renderD*")):
+        return False, "no /dev/dri render node on host"
+
+    # Functional enumeration via rocminfo, when present, catches the
+    # blacklisted/unsupported-GPU false-negative.  rocminfo's banner
+    # and agent list are the AMD analog of `nvidia-smi -L`.  rocminfo
+    # ignores argv, so no flags.  Absence of rocminfo is NOT fatal:
+    # the device nodes above are the real precondition and ROCm
+    # userspace lives in the image, not on the host.
+    rocminfo = shutil.which("rocminfo")
+    if rocminfo:
+        try:
+            probe = subprocess.run([rocminfo], capture_output=True, timeout=5)
+        except (OSError, subprocess.SubprocessError) as e:
+            return False, f"rocminfo failed to run ({e})"
+        if probe.returncode != 0:
+            return False, "rocminfo reported no GPUs"
+
     return True, None
 
 

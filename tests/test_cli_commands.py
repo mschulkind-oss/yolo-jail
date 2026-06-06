@@ -2424,6 +2424,154 @@ class TestRunKvm:
         assert "kvm" in result.output.lower()
 
 
+class TestRunRocm:
+    """AMD ROCm passthrough flag wiring (opt-in via `gpu.vendor: amd`)."""
+
+    @patch("subprocess.Popen")
+    @patch("cli.run_cmd.auto_load_image")
+    @patch("cli.run_cmd._check_config_changes", return_value=True)
+    @patch("cli.run_cmd.find_running_container", return_value=None)
+    @patch("subprocess.run")
+    @patch("subprocess.check_output")
+    @patch("shutil.which")
+    def test_rocm_enabled_podman_adds_device_nodes_and_keep_groups(
+        self,
+        mock_which,
+        mock_check_output,
+        mock_run,
+        mock_find,
+        mock_config_changes,
+        mock_auto_load,
+        mock_popen,
+        tmp_path,
+        monkeypatch,
+    ):
+        _run_monkeypatch(monkeypatch, tmp_path)
+        # rocminfo is deliberately absent — the probe must still pass on the
+        # device nodes alone (ROCm userspace lives in the image, not the host).
+        _mock_runtimes(mock_which)
+        (tmp_path / "yolo-jail.jsonc").write_text(
+            '{"gpu": {"enabled": true, "vendor": "amd"}}'
+        )
+        mock_check_output.side_effect = FileNotFoundError
+
+        mock_proc = MagicMock()
+        mock_proc.wait.return_value = None
+        mock_proc.returncode = 0
+        mock_popen.return_value = mock_proc
+
+        # Surgically pretend the AMD device nodes exist without affecting the
+        # many other Path.exists/glob calls in the run path.  The probe checks
+        # /sys/module/amdgpu, /dev/kfd, and /dev/dri (renderD* via glob); the
+        # injection block checks /dev/kfd and emits --device /dev/dri for the
+        # "all" case.
+        import cli as _cli
+
+        original_exists = _cli.Path.exists
+        original_glob = _cli.Path.glob
+
+        def fake_exists(self):
+            if str(self) in ("/dev/kfd", "/dev/dri", "/sys/module/amdgpu"):
+                return True
+            return original_exists(self)
+
+        def fake_glob(self, pattern):
+            if str(self) == "/dev/dri" and pattern == "renderD*":
+                return iter([_cli.Path("/dev/dri/renderD128")])
+            return original_glob(self, pattern)
+
+        with patch.object(_cli.Path, "exists", fake_exists), patch.object(
+            _cli.Path, "glob", fake_glob
+        ):
+            runner = CliRunner()
+            runner.invoke(app, ["run", "--", "bash"])
+
+        assert mock_popen.called
+        run_cmd = mock_popen.call_args[0][0]
+        # --device /dev/kfd appears as two consecutive elements.
+        assert "/dev/kfd" in run_cmd
+        idx = run_cmd.index("/dev/kfd")
+        assert run_cmd[idx - 1] == "--device"
+        # devices=="all" → whole render dir.
+        assert "/dev/dri" in run_cmd
+        # Podman path: group-add keep-groups (crun-only; never a numeric GID).
+        assert "keep-groups" in run_cmd
+        ga_idx = run_cmd.index("keep-groups")
+        assert run_cmd[ga_idx - 1] == "--group-add"
+        # ROCm in-container selector env.
+        assert "ROCR_VISIBLE_DEVICES=all" in run_cmd
+        # No NVIDIA leakage into the AMD path.
+        assert "nvidia.com/gpu=all" not in run_cmd
+        assert not any(
+            isinstance(a, str) and a.startswith("nvidia.com/gpu") for a in run_cmd
+        )
+        assert not any(
+            isinstance(a, str) and a.startswith("NVIDIA_VISIBLE_DEVICES")
+            for a in run_cmd
+        )
+        # AMD stays on crun: it must NOT inherit NVIDIA's --runtime runc pin.
+        assert not ("--runtime" in run_cmd and "runc" in run_cmd)
+
+    @patch("subprocess.Popen")
+    @patch("cli.run_cmd.auto_load_image")
+    @patch("cli.run_cmd._check_config_changes", return_value=True)
+    @patch("cli.run_cmd.find_running_container", return_value=None)
+    @patch("subprocess.run")
+    @patch("subprocess.check_output")
+    @patch("shutil.which")
+    def test_rocm_enabled_but_device_missing_warns_and_skips(
+        self,
+        mock_which,
+        mock_check_output,
+        mock_run,
+        mock_find,
+        mock_config_changes,
+        mock_auto_load,
+        mock_popen,
+        tmp_path,
+        monkeypatch,
+    ):
+        _run_monkeypatch(monkeypatch, tmp_path)
+        _mock_runtimes(mock_which)
+        (tmp_path / "yolo-jail.jsonc").write_text(
+            '{"gpu": {"enabled": true, "vendor": "amd"}}'
+        )
+        mock_check_output.side_effect = FileNotFoundError
+
+        mock_proc = MagicMock()
+        mock_proc.wait.return_value = None
+        mock_proc.returncode = 0
+        mock_popen.return_value = mock_proc
+
+        # Pretend /dev/kfd is absent even if the test runner happens to have an
+        # AMD GPU.  The host probe then fails and the run warns-and-continues
+        # without GPU flags (deterministic on any host).
+        import cli as _cli
+
+        original_exists = _cli.Path.exists
+
+        def fake_exists(self):
+            if str(self) == "/dev/kfd":
+                return False
+            return original_exists(self)
+
+        with patch.object(_cli.Path, "exists", fake_exists):
+            runner = CliRunner()
+            result = runner.invoke(app, ["run", "--", "bash"])
+
+        # Container still launches; just no ROCm flags.
+        assert mock_popen.called
+        run_cmd = mock_popen.call_args[0][0]
+        assert "/dev/kfd" not in run_cmd
+        assert "keep-groups" not in run_cmd
+        assert not any(
+            isinstance(a, str) and a.startswith("ROCR_VISIBLE_DEVICES")
+            for a in run_cmd
+        )
+        # A warn is printed on the way through.
+        assert "gpu" in result.output.lower() or "rocm" in result.output.lower()
+
+
 class TestRunProfile:
     """Test run() with --profile flag."""
 
