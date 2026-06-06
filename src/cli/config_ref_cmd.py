@@ -318,9 +318,9 @@ def config_ref():
 
     AMD ROCm host prerequisites (on the GPU machine):
       1. amdgpu kernel driver installed (amdgpu-dkms) and /dev/kfd present
-      2. Host user in the render group (compute device nodes are root:render)
+      2. Host user in the group owning /dev/kfd + /dev/dri/renderD*
+         (usually 'render'; some distros ship them world-writable)
       3. (cdi mode only) sudo amd-ctk cdi generate --output=/etc/cdi/amd.json
-         [yellow]needs-verification — not yet hardware-tested[/yellow]
       ROCm userspace (HIP, rocm-smi) lives in the image, not on the host —
       use a rocm/* base image for working compute.
     Run [bold]yolo check[/bold] to verify GPU readiness on a given host.

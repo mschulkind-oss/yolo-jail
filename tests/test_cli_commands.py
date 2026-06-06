@@ -2498,8 +2498,18 @@ class TestRunRocm:
         assert "keep-groups" in run_cmd
         ga_idx = run_cmd.index("keep-groups")
         assert run_cmd[ga_idx - 1] == "--group-add"
-        # ROCm in-container selector env.
-        assert "ROCR_VISIBLE_DEVICES=all" in run_cmd
+        # ROCm in-container selector env: the ROCr/HSA selector does NOT
+        # accept the literal "all" (it would hide every GPU, verified on
+        # gfx1151 hardware).  For devices=="all" we leave it UNSET — ROCm's
+        # own "all GPUs visible" default — so it must NOT appear in argv.
+        assert not any(
+            isinstance(a, str) and a.startswith("ROCR_VISIBLE_DEVICES")
+            for a in run_cmd
+        )
+        assert not any(
+            isinstance(a, str) and a.startswith("HIP_VISIBLE_DEVICES")
+            for a in run_cmd
+        )
         # No NVIDIA leakage into the AMD path.
         assert "nvidia.com/gpu=all" not in run_cmd
         assert not any(
@@ -2570,6 +2580,76 @@ class TestRunRocm:
         )
         # A warn is printed on the way through.
         assert "gpu" in result.output.lower() or "rocm" in result.output.lower()
+
+    @patch("subprocess.Popen")
+    @patch("cli.run_cmd.auto_load_image")
+    @patch("cli.run_cmd._check_config_changes", return_value=True)
+    @patch("cli.run_cmd.find_running_container", return_value=None)
+    @patch("subprocess.run")
+    @patch("subprocess.check_output")
+    @patch("shutil.which")
+    def test_rocm_explicit_index_sets_visible_devices_env(
+        self,
+        mock_which,
+        mock_check_output,
+        mock_run,
+        mock_find,
+        mock_config_changes,
+        mock_auto_load,
+        mock_popen,
+        tmp_path,
+        monkeypatch,
+    ):
+        # For an explicit non-"all" selection the ROCr/HSA selector IS valid
+        # (it takes indices/UUIDs), so the env vars must be emitted and the
+        # per-index render node (renderD128 for index 0) must be passed.
+        _run_monkeypatch(monkeypatch, tmp_path)
+        _mock_runtimes(mock_which)
+        (tmp_path / "yolo-jail.jsonc").write_text(
+            '{"gpu": {"enabled": true, "vendor": "amd", "devices": "0"}}'
+        )
+        mock_check_output.side_effect = FileNotFoundError
+
+        mock_proc = MagicMock()
+        mock_proc.wait.return_value = None
+        mock_proc.returncode = 0
+        mock_popen.return_value = mock_proc
+
+        import cli as _cli
+
+        original_exists = _cli.Path.exists
+        original_glob = _cli.Path.glob
+
+        def fake_exists(self):
+            if str(self) in (
+                "/dev/kfd",
+                "/dev/dri",
+                "/dev/dri/renderD128",
+                "/sys/module/amdgpu",
+            ):
+                return True
+            return original_exists(self)
+
+        def fake_glob(self, pattern):
+            if str(self) == "/dev/dri" and pattern == "renderD*":
+                return iter([_cli.Path("/dev/dri/renderD128")])
+            return original_glob(self, pattern)
+
+        with patch.object(_cli.Path, "exists", fake_exists), patch.object(
+            _cli.Path, "glob", fake_glob
+        ):
+            runner = CliRunner()
+            runner.invoke(app, ["run", "--", "bash"])
+
+        assert mock_popen.called
+        run_cmd = mock_popen.call_args[0][0]
+        # Per-index selection: renderD128 for index 0, alongside /dev/kfd.
+        assert "/dev/dri/renderD128" in run_cmd
+        # Whole /dev/dri dir must NOT be passed for an explicit index.
+        assert "/dev/dri" not in run_cmd
+        # Explicit indices ARE valid for the selector env.
+        assert "ROCR_VISIBLE_DEVICES=0" in run_cmd
+        assert "HIP_VISIBLE_DEVICES=0" in run_cmd
 
 
 class TestRunProfile:

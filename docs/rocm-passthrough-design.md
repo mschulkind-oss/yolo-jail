@@ -424,6 +424,30 @@ class TestRocmHostAvailable:
 5. **ROCm host/userspace version window.** AMD guarantees ±1 year (≥6.4.0) driver↔userspace compat (confirmed #25). Should `check` warn when the host driver and image ROCm are outside the window? *Resolve:* host agent decides whether a staleness warning is worth the complexity (no auto-refresh service exists for AMD CDI either, claim C11).
 6. **Default image steering.** Should yolo warn (or refuse) when `gpu.vendor=amd` is enabled with a non-`rocm/*` base image, since a generic image gets device nodes but no working HIP (confirmed #0/#3)? *Resolve:* product decision — warn vs hard error vs silent.
 
+### 7.1 Resolved on hardware (2026-06-05)
+
+Verified on an **AMD Radeon 8060S (gfx1151, Strix Halo APU; PCI `1002:1586`)**, host ROCm 7.2.3, image ROCm 7.2.4, rootless podman 5.8.2 + crun 1.27.1, Arch Linux (no SELinux). Tested with `rocm/dev-ubuntu-24.04` and `rocm/pytorch` images, replaying the exact argv yolo emits (including its full userns flag set: identity uidmap, `SYS_ADMIN`, `MKNOD`, `label=disable`, `/dev/fuse`).
+
+**Two real bugs were found and fixed during verification** (neither was observable in-jail):
+
+- **`ROCR_VISIBLE_DEVICES=all` hides the GPU.** The original injection set `ROCR_VISIBLE_DEVICES={devices}` / `HIP_VISIBLE_DEVICES={devices}` unconditionally. Unlike NVIDIA's `NVIDIA_VISIBLE_DEVICES`, the ROCr/HSA selector does **not** accept the literal `"all"` — it matches no device, so `torch.cuda.is_available()` returns `False` and `rocminfo` shows only the CPU agent. Since `devices` defaults to `"all"`, **the default AMD config shipped a GPU-less container.** Fix (`run_cmd.py`): omit both env vars when `devices == "all"` (ROCm's own "all visible" default); emit them only for explicit indices/UUIDs. (The design §4.3 had hedged "skip when `devices=="all"` is fine, or pass `all`" — the "skip" branch is the correct one.)
+- **`yolo check` mislabeled non-GPU HSA agents as GPUs.** `rocminfo` enumerates every HSA agent — the CPU, and on this APU an NPU/DSP (`RyzenAI-npu5`) — and the check reported each `Marketing Name:` as "GPU detected". Fix (`check_cmd.py`): only report agents whose `Device Type:` is `GPU`.
+
+Resolutions to the questions above:
+
+1. **runc premise / AMD CDI under crun — RESOLVED.** AMD `mode: "cdi"` (`--device amd.com/gpu=all` + `--group-add keep-groups`) runs ROCm correctly under the **default crun** runtime — no crun+CDI injection failure, so AMD needs no `runc` workaround for either mode. The NVIDIA runc pin's exact issue number remains unconfirmed but is moot for AMD. The "AMD stays on crun, runc branch gated `vendor=="nvidia"`" decision is confirmed correct on hardware.
+2. **render vs video group — PARTIALLY RESOLVED.** On this host `/dev/kfd` + `/dev/dri/renderD128` are `crw-rw-rw-` (mode `0666`, world-writable) and the user was in **neither** `render` nor `video` — device `open()` succeeded regardless, and `--group-add keep-groups` worked. So the group mechanism is correct but could not be stress-tested against the `0660 root:render` case here. `keep-groups` (covers both groups, no hard-coded GID) remains the right default; an explicit least-privilege `--group-add <gid>` mode is still optional future work. The CDI spec generator emitted gids `987` (render) for kfd/renderD and `983` (video) for the card node — confirming render owns the compute nodes.
+3. **`mode` for `vendor=nvidia`: error — UNCHANGED.** Kept as an error (consistency call; no hardware bearing).
+4. **HSA_OVERRIDE_GFX_VERSION — RESOLVED for this card.** gfx1151 is natively supported by ROCm 7.2.4, so **no override was needed**. The knob remains best-effort/same-arch-only for genuinely unsupported consumer GPUs; the value table is still not adversarially verified.
+5. **Version window — NO CHANGE RECOMMENDED.** Host 7.2.3 vs image 7.2.4 (within AMD's ±1yr window) worked fine. A staleness warning in `check` is not worth the complexity; left unimplemented.
+6. **Default image steering — NO CHANGE.** Confirmed a generic image gets device nodes but no HIP. Left as a documentation steer (USER_GUIDE points users at `rocm/*` images); no warn/refuse added.
+
+**Confirmed properties (no change needed):**
+- The make-or-break path works: rootless crun + `keep-groups` + raw device nodes opens `/dev/kfd` and runs real compute (HIP vector-add kernel + `torch.mm`), including under yolo's full userns/cap flag set.
+- The generated `/etc/cdi/amd.json` (CDI spec v0.6.0) injects **only `deviceNodes`** — no env vars, hooks, or host-library mounts (top-level `containerEdits` is `{}`). Confirms refuted #28.
+- `amd-ctk cdi list` maps `amd.com/gpu=0` → `/dev/dri/renderD128` (confirms #14).
+- Basic ROCm compute works with the **default seccomp profile enabled** — `seccomp=unconfined` is not required (confirms #11/#27). No SELinux on this host, so `container_use_devices` was not exercised.
+
 ---
 
 ## 8. Sources

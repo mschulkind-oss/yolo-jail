@@ -1019,8 +1019,8 @@ def check(
     # the owning group via --group-add keep-groups.  We reuse the KVM
     # block's device-node + group-membership idiom (os.access /
     # grp.getgrgid / os.getgroups) and skip host-state probes inside a
-    # jail (YOLO_VERSION set).  AMD host commands below (rocminfo, amd-ctk)
-    # are needs-verification — confirmed only against docs, not hardware.
+    # jail (YOLO_VERSION set).  Verified on real AMD hardware (Radeon
+    # 8060S / gfx1151, ROCm 7.2): rocminfo enumeration + amd-ctk CDI.
 
     if gpu_config.get("enabled", False) and gpu_vendor == "amd":
         console.print("[bold]GPU (AMD/ROCm)[/bold]")
@@ -1035,7 +1035,7 @@ def check(
 
             # Functional enumeration via rocminfo (the AMD analog of
             # `nvidia-smi -L`).  rocminfo ignores argv, so no flags.
-            # rocm-smi / amd-smi are secondary signals.  (needs-verification)
+            # rocm-smi / amd-smi are secondary signals.
             rocminfo = shutil.which("rocminfo")
             if rocminfo:
                 try:
@@ -1046,16 +1046,29 @@ def check(
                         timeout=10,
                     )
                     if result.returncode == 0 and result.stdout.strip():
-                        found_agent = False
+                        # rocminfo lists every HSA agent — CPU and (on APUs)
+                        # the NPU/DSP too — so only report agents whose
+                        # "Device Type:" is GPU.  "Marketing Name:" precedes
+                        # "Device Type:" within each agent block.
+                        found_gpu = False
+                        pending_name = None
                         for line in result.stdout.splitlines():
-                            marker = "Marketing Name:"
-                            if marker in line:
-                                name = line.split(marker, 1)[1].strip()
-                                if name:
-                                    ok(f"GPU detected: {name}")
-                                    found_agent = True
-                        if not found_agent:
-                            ok("rocminfo ran (no GPU marketing name reported)")
+                            if "Marketing Name:" in line:
+                                pending_name = line.split(
+                                    "Marketing Name:", 1
+                                )[1].strip()
+                            elif "Device Type:" in line:
+                                dev_type = line.split("Device Type:", 1)[1].strip()
+                                if dev_type == "GPU" and pending_name:
+                                    ok(f"GPU detected: {pending_name}")
+                                    found_gpu = True
+                                pending_name = None
+                        if not found_gpu:
+                            warn(
+                                "rocminfo ran but enumerated no GPU agent",
+                                "Check the amdgpu driver and that the GPU is "
+                                "ROCm-supported",
+                            )
                     else:
                         fail(
                             "rocminfo found but reported no GPUs",
@@ -1163,7 +1176,8 @@ def check(
 
             # mode: "cdi" only — the AMD Container Toolkit CDI spec.  The
             # default device-node mode needs no CDI spec, so only check
-            # when the user opted into CDI.  (host commands needs-verification)
+            # when the user opted into CDI.  (CDI mode verified on hardware:
+            # amd-ctk-generated /etc/cdi/amd.json runs ROCm under crun.)
             if gpu_config.get("mode") == "cdi":
                 cdi_paths = [
                     Path("/etc/cdi/amd.json"),

@@ -699,9 +699,9 @@ On Linux, run ROCm compute workloads inside the jail using AMD GPUs. Unlike NVID
 
 ### Host Setup
 
-> The host commands below have not been verified on real AMD hardware in this environment (`needs-verification`); package names and exact group names can vary by distribution.
+> Verified end-to-end on real AMD hardware (Radeon 8060S / gfx1151, ROCm 7.2, rootless podman + crun) — both the default device-node mode and CDI mode run ROCm PyTorch inside the jail. Package names and exact group names still vary by distribution, so adapt the commands below to yours.
 
-1. **Install the `amdgpu` kernel driver** (needs-verification). On Ubuntu, AMD ships `amdgpu-dkms` via the ROCm `amdgpu-install` tooling:
+1. **Install the `amdgpu` kernel driver.** On Ubuntu, AMD ships `amdgpu-dkms` via the ROCm `amdgpu-install` tooling (other distros package it directly, e.g. Arch's `linux*-headers` + mainline `amdgpu`):
    ```bash
    sudo amdgpu-install --usecase=dkms
    ```
@@ -711,17 +711,19 @@ On Linux, run ROCm compute workloads inside the jail using AMD GPUs. Unlike NVID
    ls /dev/kfd /dev/dri/renderD*  # compute + render device nodes
    ```
 
-2. **Join the `render` (and `video`) groups** (needs-verification). `/dev/kfd` and `/dev/dri/renderD*` are owned by the `render` group; `/dev/dri/card*` nodes are owned by `video`. Your host user must be a member or device access fails:
+2. **Ensure your host user can open the device nodes.** `/dev/kfd` and `/dev/dri/renderD*` are commonly owned by the `render` group (`/dev/dri/card*` by `video`), in which case your host user must be a member:
    ```bash
    sudo usermod -aG render,video "$USER"
    # log out and back in (or `newgrp render`) for the new groups to take effect
    ```
+   Some distributions instead ship these nodes world-readable/writable (mode `0666`), in which case no group membership is needed — `yolo check` reports whether the nodes are openable by the current user either way. `--group-add keep-groups` (which yolo always adds) preserves whatever host groups you already hold into the rootless container.
 
-3. **(Optional) AMD Container Toolkit for CDI mode** (needs-verification). The default `mode: "devices"` needs no toolkit. Only if you want CDI-style per-GPU selection (`mode: "cdi"`), install the AMD Container Toolkit and generate a spec:
+3. **(Optional) AMD Container Toolkit for CDI mode.** The default `mode: "devices"` needs no toolkit. Only if you want CDI-style per-GPU selection (`mode: "cdi"`), install the AMD Container Toolkit and generate a spec:
    ```bash
    sudo amd-ctk cdi generate --output=/etc/cdi/amd.json
    amd-ctk cdi list   # should list amd.com/gpu=all, amd.com/gpu=0, ...
    ```
+   The generated spec injects **only device nodes** (no env vars, hooks, or host-library mounts — verified), and CDI mode runs ROCm correctly under the default crun runtime (no `runc` workaround needed). On a single-GPU host CDI offers no advantage over the default device-node mode.
 
 4. **Validate:**
    ```bash
@@ -754,12 +756,13 @@ On Linux, run ROCm compute workloads inside the jail using AMD GPUs. Unlike NVID
 
 ### Installing PyTorch (ROCm)
 
-ROCm userspace ships in the image, so start from a `rocm/*` base image that already includes a ROCm-built PyTorch (for example a `rocm/pytorch` image), or install the ROCm wheels from AMD's index inside such an image:
+ROCm userspace ships in the image, so start from a `rocm/*` base image that already includes a ROCm-built PyTorch (for example a `rocm/pytorch` image), or install the ROCm wheels from AMD's index inside such an image (pick the `rocmX.Y` index matching the image's ROCm version):
 
 ```bash
 # inside a rocm/* based jail image
 pip install torch --index-url https://download.pytorch.org/whl/rocm6.2
 python -c "import torch; print(torch.cuda.is_available(), torch.cuda.get_device_name(0))"
+# verified output on a Radeon 8060S (gfx1151): True Radeon 8060S Graphics
 ```
 
 ROCm exposes the AMD GPU through PyTorch's `torch.cuda` API, so `torch.cuda.is_available()` returning `True` means ROCm is working. A generic (non-ROCm) image will get working device nodes but **no working HIP/rocm-smi**.
@@ -773,13 +776,14 @@ ROCm exposes the AMD GPU through PyTorch's `torch.cuda` API, so `torch.cuda.is_a
 
 - **Runtime:** AMD stays on the default **crun** runtime. `--group-add keep-groups` is crun-only — it preserves the host `render`/`video` GID so `/dev/kfd` is openable rootless. AMD does **not** use NVIDIA's `--runtime runc` workaround.
 - **`/dev/kfd` is shared:** the Kernel Fusion Driver node is a single interface shared by all GPUs and is always passed in. Per-GPU restriction comes from which `/dev/dri/renderD*` nodes you select via `devices`.
-- **In-container GPU selection:** `ROCR_VISIBLE_DEVICES` and `HIP_VISIBLE_DEVICES` are set from `devices`. These are **not a security boundary** — real isolation comes from which render nodes are passed in.
+- **In-container GPU selection:** for an explicit `devices` selection (e.g. `"0"` or `"0,1"`), yolo sets `ROCR_VISIBLE_DEVICES` and `HIP_VISIBLE_DEVICES` to that value. For the default `devices: "all"` it leaves them **unset** — unlike NVIDIA's `NVIDIA_VISIBLE_DEVICES`, the ROCr/HSA selector does **not** accept the literal `"all"` (it matches no device and hides every GPU), and ROCm's own default is "all GPUs visible". These env vars are **not a security boundary** — real isolation comes from which render nodes are passed in.
 
 ### Troubleshooting AMD GPU
 
 - **`Unable to open /dev/kfd read-write: Permission denied`:** The container process lacks the owning group. Make sure your host user is in the `render` group (`sudo usermod -aG render "$USER"`, then re-login) — `--group-add keep-groups` only preserves groups the host user already holds.
 - **GPU detected but ROCm errors out on a consumer Radeon:** Consumer/unsupported GPUs often need `HSA_OVERRIDE_GFX_VERSION` to be recognized as a supported gfx target (e.g. `"11.0.0"` for gfx1100, `"10.3.0"` for gfx1030, `"9.0.0"` for gfx900). Set it via `hsa_override_gfx_version` in the config. This is best-effort, same-architecture-family only, and unsupported by AMD.
 - **`rocminfo`/`rocm-smi` not found inside jail:** ROCm userspace is **not** injected from the host — it must ship inside the image. Use a `rocm/*` base image instead of a generic one.
+- **`torch.cuda.is_available()` is `False` / `rocminfo` shows only the CPU agent, but the device nodes are present:** if you set `ROCR_VISIBLE_DEVICES=all` (or `HIP_VISIBLE_DEVICES=all`) yourself, ROCm sees zero GPUs — the selector does not accept `"all"`. Leave it unset for all GPUs, or use explicit indices (`0`, `0,1`). yolo handles this for you (it omits the env vars when `devices: "all"`), so this only bites if you override them manually inside the container.
 
 ---
 

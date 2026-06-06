@@ -6,6 +6,14 @@
 **Branch:** `feat/rocm-passthrough`
 **Design doc:** [`docs/rocm-passthrough-design.md`](./rocm-passthrough-design.md) — read it first; this handoff assumes it.
 
+> **✅ STATUS: Bucket B VERIFIED ON HARDWARE (2026-06-05).** All steps below were run on a real
+> AMD Radeon 8060S (gfx1151, Strix Halo APU), host ROCm 7.2.3 / image ROCm 7.2.4, rootless podman +
+> crun, no SELinux. Both the device-node and CDI paths run ROCm PyTorch end-to-end. **Two real bugs
+> were found and fixed** (`ROCR_VISIBLE_DEVICES=all` hid the GPU → default config shipped GPU-less;
+> `yolo check` mislabeled CPU/NPU agents as GPUs). The `needs-verification` markers have been removed
+> from `src/`. See design doc **§7.1 "Resolved on hardware"** for the full findings and Open-Question
+> resolutions. The notes below are retained as the original handoff for context.
+
 ---
 
 ## TL;DR

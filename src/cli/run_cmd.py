@@ -1683,15 +1683,22 @@ def run(
             run_cmd.extend(["--group-add", "keep-groups"])
 
         # ROCm in-container selectors (NOT a security boundary).  No
-        # NVIDIA_DRIVER_CAPABILITIES analog exists — omit it.
-        run_cmd.extend(
-            [
-                "-e",
-                f"ROCR_VISIBLE_DEVICES={gpu_devices}",
-                "-e",
-                f"HIP_VISIBLE_DEVICES={gpu_devices}",
-            ]
-        )
+        # NVIDIA_DRIVER_CAPABILITIES analog exists — omit it.  Unlike
+        # NVIDIA's NVIDIA_VISIBLE_DEVICES, the ROCr/HSA selector does NOT
+        # accept the literal "all": setting ROCR_VISIBLE_DEVICES=all matches
+        # no device and hides every GPU (verified on gfx1151 — torch.cuda
+        # goes False).  When devices=="all" we therefore leave these env
+        # vars UNSET, which is ROCm's "all GPUs visible" default; we only
+        # set explicit indices/UUIDs for a non-"all" selection.
+        if gpu_devices != "all":
+            run_cmd.extend(
+                [
+                    "-e",
+                    f"ROCR_VISIBLE_DEVICES={gpu_devices}",
+                    "-e",
+                    f"HIP_VISIBLE_DEVICES={gpu_devices}",
+                ]
+            )
         gfx = gpu_config.get("hsa_override_gfx_version")
         if gfx:
             run_cmd.extend(["-e", f"HSA_OVERRIDE_GFX_VERSION={gfx}"])
