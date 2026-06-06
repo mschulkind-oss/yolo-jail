@@ -2480,8 +2480,9 @@ class TestRunRocm:
                 return iter([_cli.Path("/dev/dri/renderD128")])
             return original_glob(self, pattern)
 
-        with patch.object(_cli.Path, "exists", fake_exists), patch.object(
-            _cli.Path, "glob", fake_glob
+        with (
+            patch.object(_cli.Path, "exists", fake_exists),
+            patch.object(_cli.Path, "glob", fake_glob),
         ):
             runner = CliRunner()
             runner.invoke(app, ["run", "--", "bash"])
@@ -2503,12 +2504,10 @@ class TestRunRocm:
         # gfx1151 hardware).  For devices=="all" we leave it UNSET — ROCm's
         # own "all GPUs visible" default — so it must NOT appear in argv.
         assert not any(
-            isinstance(a, str) and a.startswith("ROCR_VISIBLE_DEVICES")
-            for a in run_cmd
+            isinstance(a, str) and a.startswith("ROCR_VISIBLE_DEVICES") for a in run_cmd
         )
         assert not any(
-            isinstance(a, str) and a.startswith("HIP_VISIBLE_DEVICES")
-            for a in run_cmd
+            isinstance(a, str) and a.startswith("HIP_VISIBLE_DEVICES") for a in run_cmd
         )
         # No NVIDIA leakage into the AMD path.
         assert "nvidia.com/gpu=all" not in run_cmd
@@ -2575,8 +2574,7 @@ class TestRunRocm:
         assert "/dev/kfd" not in run_cmd
         assert "keep-groups" not in run_cmd
         assert not any(
-            isinstance(a, str) and a.startswith("ROCR_VISIBLE_DEVICES")
-            for a in run_cmd
+            isinstance(a, str) and a.startswith("ROCR_VISIBLE_DEVICES") for a in run_cmd
         )
         # A warn is printed on the way through.
         assert "gpu" in result.output.lower() or "rocm" in result.output.lower()
@@ -2635,8 +2633,9 @@ class TestRunRocm:
                 return iter([_cli.Path("/dev/dri/renderD128")])
             return original_glob(self, pattern)
 
-        with patch.object(_cli.Path, "exists", fake_exists), patch.object(
-            _cli.Path, "glob", fake_glob
+        with (
+            patch.object(_cli.Path, "exists", fake_exists),
+            patch.object(_cli.Path, "glob", fake_glob),
         ):
             runner = CliRunner()
             runner.invoke(app, ["run", "--", "bash"])

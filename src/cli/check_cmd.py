@@ -1054,9 +1054,9 @@ def check(
                         pending_name = None
                         for line in result.stdout.splitlines():
                             if "Marketing Name:" in line:
-                                pending_name = line.split(
-                                    "Marketing Name:", 1
-                                )[1].strip()
+                                pending_name = line.split("Marketing Name:", 1)[
+                                    1
+                                ].strip()
                             elif "Device Type:" in line:
                                 dev_type = line.split("Device Type:", 1)[1].strip()
                                 if dev_type == "GPU" and pending_name:

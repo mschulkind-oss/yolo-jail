@@ -1378,9 +1378,7 @@ class TestValidateConfig:
         assert any("config.gpu" in e and "object" in e for e in errors)
 
     def test_gpu_enabled_non_boolean_rejected(self, tmp_path):
-        errors, _ = _validate_config(
-            {"gpu": {"enabled": "yes"}}, workspace=tmp_path
-        )
+        errors, _ = _validate_config({"gpu": {"enabled": "yes"}}, workspace=tmp_path)
         assert any("config.gpu.enabled" in e and "boolean" in e for e in errors)
 
     def test_gpu_unknown_key_rejected(self, tmp_path):
@@ -1401,18 +1399,14 @@ class TestValidateConfig:
             {"gpu": {"enabled": True, "vendor": "nvidia", "mode": "devices"}},
             workspace=tmp_path,
         )
-        assert any(
-            "config.gpu.mode" in e and "vendor='amd'" in e for e in errors
-        )
+        assert any("config.gpu.mode" in e and "vendor='amd'" in e for e in errors)
 
     def test_gpu_mode_invalid_value_rejected(self, tmp_path):
         errors, _ = _validate_config(
             {"gpu": {"enabled": True, "vendor": "amd", "mode": "bogus"}},
             workspace=tmp_path,
         )
-        assert any(
-            "config.gpu.mode" in e and "'devices' or 'cdi'" in e for e in errors
-        )
+        assert any("config.gpu.mode" in e and "'devices' or 'cdi'" in e for e in errors)
 
     def test_gpu_capabilities_for_amd_rejected(self, tmp_path):
         # ROCm has no NVIDIA_DRIVER_CAPABILITIES analog.
@@ -1429,14 +1423,17 @@ class TestValidateConfig:
             {"gpu": {"enabled": True, "capabilities": "compute,bogus"}},
             workspace=tmp_path,
         )
-        assert any(
-            "config.gpu.capabilities" in e and "bogus" in e for e in errors
-        )
+        assert any("config.gpu.capabilities" in e and "bogus" in e for e in errors)
 
     def test_gpu_hsa_override_for_nvidia_rejected(self, tmp_path):
         errors, _ = _validate_config(
-            {"gpu": {"enabled": True, "vendor": "nvidia",
-                     "hsa_override_gfx_version": "11.0.0"}},
+            {
+                "gpu": {
+                    "enabled": True,
+                    "vendor": "nvidia",
+                    "hsa_override_gfx_version": "11.0.0",
+                }
+            },
             workspace=tmp_path,
         )
         assert any(
@@ -1446,13 +1443,11 @@ class TestValidateConfig:
 
     def test_gpu_seccomp_unconfined_non_boolean_rejected(self, tmp_path):
         errors, _ = _validate_config(
-            {"gpu": {"enabled": True, "vendor": "amd",
-                     "seccomp_unconfined": "yes"}},
+            {"gpu": {"enabled": True, "vendor": "amd", "seccomp_unconfined": "yes"}},
             workspace=tmp_path,
         )
         assert any(
-            "config.gpu.seccomp_unconfined" in e and "boolean" in e
-            for e in errors
+            "config.gpu.seccomp_unconfined" in e and "boolean" in e for e in errors
         )
 
     def test_gpu_valid_amd_config(self, tmp_path):
@@ -4014,9 +4009,9 @@ class TestRocmHostAvailable:
         monkeypatch.setattr("cli.loopholes_runtime.IS_MACOS", is_macos)
         monkeypatch.setattr(
             "cli.loopholes_runtime.shutil.which",
-            lambda cmd: "/usr/bin/rocminfo"
-            if (cmd == "rocminfo" and rocminfo)
-            else None,
+            lambda cmd: (
+                "/usr/bin/rocminfo" if (cmd == "rocminfo" and rocminfo) else None
+            ),
         )
 
         def fake_run(cmd, **kwargs):
@@ -4040,9 +4035,7 @@ class TestRocmHostAvailable:
 
         def fake_glob(self, pattern):
             if str(self) == "/dev/dri" and pattern == "renderD*":
-                return (
-                    iter([Path("/dev/dri/renderD128")]) if renderd else iter([])
-                )
+                return iter([Path("/dev/dri/renderD128")]) if renderd else iter([])
             return real_glob(self, pattern)
 
         monkeypatch.setattr(Path, "exists", fake_exists)
