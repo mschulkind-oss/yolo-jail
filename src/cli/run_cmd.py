@@ -1625,6 +1625,17 @@ def run(
             f"[yellow]Warning: GPU requested but {gpu_unavailable_reason} — "
             "starting without GPU passthrough[/yellow]"
         )
+    if gpu_enabled:
+        # Lift the locked-memory limit for any GPU passthrough.  GPU runtimes
+        # pin (mlock) device queue ring buffers: AMD's KFD pins a ~13 MB queue
+        # buffer to create a command queue, and the rootless default
+        # RLIMIT_MEMLOCK (often 8 MB) is a kernel-hard cap that can't be raised
+        # from inside the jail — so AMDKFD_IOC_CREATE_QUEUE fails with EINVAL
+        # and ROCr segfaults on the cleanup path (verified on gfx1151).  NVIDIA
+        # pinned/registered host memory benefits identically.  This only raises
+        # a limit, and the jail's --memory cgroup cap still bounds total RAM.
+        # AMD docs prescribe exactly `--ulimit memlock=-1` for ROCm containers.
+        run_cmd.extend(["--ulimit", "memlock=-1:-1"])
     if gpu_enabled and gpu_vendor == "nvidia":
         gpu_config = config.get("gpu", {})
         gpu_devices = gpu_config.get("devices", "all")

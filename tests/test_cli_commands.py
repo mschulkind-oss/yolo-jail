@@ -2499,6 +2499,11 @@ class TestRunRocm:
         assert "keep-groups" in run_cmd
         ga_idx = run_cmd.index("keep-groups")
         assert run_cmd[ga_idx - 1] == "--group-add"
+        # Locked-memory limit lifted so KFD can pin the queue ring buffer
+        # (CREATE_QUEUE EINVAL otherwise; verified on gfx1151).
+        assert "memlock=-1:-1" in run_cmd
+        ml_idx = run_cmd.index("memlock=-1:-1")
+        assert run_cmd[ml_idx - 1] == "--ulimit"
         # ROCm in-container selector env: the ROCr/HSA selector does NOT
         # accept the literal "all" (it would hide every GPU, verified on
         # gfx1151 hardware).  For devices=="all" we leave it UNSET — ROCm's
@@ -2573,6 +2578,8 @@ class TestRunRocm:
         run_cmd = mock_popen.call_args[0][0]
         assert "/dev/kfd" not in run_cmd
         assert "keep-groups" not in run_cmd
+        # No GPU → no memlock lift (it's gated on gpu_enabled).
+        assert "memlock=-1:-1" not in run_cmd
         assert not any(
             isinstance(a, str) and a.startswith("ROCR_VISIBLE_DEVICES") for a in run_cmd
         )
