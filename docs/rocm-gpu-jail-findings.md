@@ -6,13 +6,34 @@ to the jail (`gpu.enabled` in `yolo-jail.jsonc`) to enable GPU-accelerated rembg
 This documents how far GPU compute gets in the jail and the one blocker that stops
 it.
 
-> **✅ FIX LANDED (host-side, yolo tool):** `run_cmd.py` now adds
-> `--ulimit memlock=-1:-1` whenever GPU passthrough is active (commit on `main`;
-> see `docs/rocm-passthrough-design.md` §7.2). Covered by `TestRunRocm` argv
-> assertions. **Restart the GPU jail and re-run `hip_smoke` — expect `RESULT: PASS`.**
-> If it still fails at `CREATE_QUEUE`, the memlock cap wasn't fully lifted (check
-> `ulimit -l` inside the new jail → should be `unlimited`). The onnxruntime EP
-> work (gfx1151 code objects / migraphx asserts-LLVM) remains the next item.
+> **⚠️ PARTIAL FIX + HARD DEPENDENCY ON A HOST SETTING (updated 2026-06-05):**
+> The first fix attempt (`--ulimit memlock=-1:-1`, unconditional) was **wrong for
+> rootless podman** and has been corrected. A rootless container **cannot raise
+> RLIMIT_MEMLOCK above the host's hard cap** — crun rejects `setrlimit` with
+> `EPERM` and the container fails to *start*. (Empirically reproduced in a nested
+> jail: `podman run --ulimit memlock=-1:-1` → `crun: setrlimit RLIMIT_MEMLOCK:
+> Operation not permitted` whenever the host hard cap is finite.)
+>
+> `run_cmd.py` now reads the host hard cap and requests `memlock=<hard>:<hard>`
+> (or `-1` only when the host cap is already unlimited), and `yolo check` warns
+> when the host cap is below ~16 MB. **But raising the cap itself is a host step
+> the jail cannot perform.** So the real unblock is:
+>
+> 1. **On the GPU host, raise the memlock hard cap**, e.g. one of:
+>    - `/etc/security/limits.conf`: `<user> hard memlock unlimited` (re-login), or
+>    - podman: `~/.config/containers/containers.conf` → `[containers]
+>      default_ulimits = ["memlock=-1:-1"]`, or
+>    - if yolo runs under systemd: a drop-in with `LimitMEMLOCK=infinity`.
+> 2. **Update the GPU host's yolo install** to this branch. (The "8192 after
+>    restart" result means the host was running an *old* yolo with no memlock flag
+>    at all — the new code was never deployed there.)
+> 3. Restart the jail; confirm `ulimit -Hl` inside is now high/unlimited.
+> 4. Re-run `hip_smoke` → expect `RESULT: PASS`.
+>
+> Full procedure: `docs/rocm-memlock-handoff.md`. §7.2 of
+> `docs/rocm-passthrough-design.md` has the design rationale. The onnxruntime EP
+> work (gfx1151 code objects / migraphx asserts-LLVM) remains the next item after
+> compute works.
 
 ## TL;DR
 

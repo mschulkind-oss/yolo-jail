@@ -448,7 +448,7 @@ Resolutions to the questions above:
 - `amd-ctk cdi list` maps `amd.com/gpu=0` → `/dev/dri/renderD128` (confirms #14).
 - Basic ROCm compute works with the **default seccomp profile enabled** — `seccomp=unconfined` is not required (confirms #11/#27). No SELinux on this host, so `container_use_devices` was not exercised.
 
-### 7.2 Locked-memory limit blocks queue creation in-jail — RESOLVED (2026-06-05)
+### 7.2 Locked-memory limit blocks queue creation in-jail — PARTIAL (host action required) (2026-06-05)
 
 A follow-up test running ROCm **inside a persistent yolo jail** (same GPU; jail kernel `7.0.7-zen`, nixpkgs ROCm 7.1.1 userspace) surfaced a blocker that the §7.1 host argv-replay did **not** hit: **GPU kernel dispatch fails at command-queue creation.** `strace`/`gdb` traced it to ground truth:
 
@@ -461,7 +461,19 @@ ioctl(AMDKFD_IOC_CREATE_QUEUE, ...) = -1 EINVAL   ← only failing call
 
 **Why §7.1 didn't see it:** §7.1 verified by replaying yolo's argv as a fresh host `podman run`, which inherited the host shell's higher locked-memory limit. The *persistent* jail process inherits the restrictive 8 MB cap instead. Both observations are real; they differ only in the inherited `RLIMIT_MEMLOCK`.
 
-**Fix (landed, `run_cmd.py`):** when `gpu_enabled` (either vendor), emit `--ulimit memlock=-1:-1` before the vendor-specific injection. It only *raises* a limit (can't break a working setup), the jail's `--memory` cgroup cap still bounds total RAM, and NVIDIA pinned/registered host memory benefits identically. Covered by `TestRunRocm` argv assertions (present when GPU enabled; absent when unavailable). Seccomp was **ruled out** as the cause during this investigation (`seccomp=unconfined` → `Seccomp: 0`, still crashed identically).
+**The non-obvious constraint (empirically established):** `--ulimit memlock=-1` (unlimited) is what AMD's *rootful* Docker docs prescribe, but a **rootless** podman container **cannot raise `RLIMIT_MEMLOCK` above the host process's hard cap** — `crun` calls `setrlimit` and gets `EPERM`, and the container **fails to start**. Verified in a nested jail on this host (hard cap 8 MB):
+
+```
+podman run --ulimit memlock=-1:-1      → crun: setrlimit RLIMIT_MEMLOCK: Operation not permitted
+podman run --ulimit memlock=16MB:16MB  → same EPERM (any value > host hard cap)
+podman run --ulimit memlock=8MB:8MB    → OK (== host hard cap)
+```
+
+So an unconditional `memlock=-1` is not a safe default — it would **brick `yolo run`** for every GPU user on a rootless host whose hard cap is finite (the common default).
+
+**Fix (landed, `run_cmd.py`) — adaptive, not unconditional:** when `gpu_enabled` (either vendor), read the host hard cap via `resource.getrlimit(RLIMIT_MEMLOCK)` (yolo runs on the host, so it sees the real ceiling) and emit `--ulimit memlock=<hard>:<hard>` — or `memlock=-1:-1` only when the host cap is already unlimited. When the host cap is below ~16 MB, `yolo run` prints a warning (the container will start, but GPU queue creation may still fail), and `yolo check` reports the same as a `warn`. Covered by `TestRunRocm` (`test_rocm_memlock_clamped_to_finite_host_cap`, `test_rocm_memlock_unlimited_when_host_allows`). Seccomp was **ruled out** as the cause (`seccomp=unconfined` → `Seccomp: 0`, still crashed identically).
+
+**Still requires host action — the jail cannot fix this itself.** Because a rootless jail can't exceed the host cap, the *actual* unblock is to **raise the host's memlock hard limit** (`limits.conf` `hard memlock unlimited`, systemd `LimitMEMLOCK=infinity`, or podman `containers.conf` `default_ulimits = ["memlock=-1:-1"]`) and update the GPU host's yolo to this branch. See `docs/rocm-memlock-handoff.md` for the step-by-step. The reported "8192 after restart" almost certainly means the GPU host was still running an **old yolo** with no memlock flag at all — the new code was never deployed there.
 
 **Still open (not yet verified on hardware):** the actual end-to-end run *inside the jail* with the memlock fix — the GPU agent's `hip_smoke` test should now reach `CREATE_QUEUE` success and `RESULT: PASS`. The onnxruntime execution-provider path (gfx1151 code objects / migraphx asserts-LLVM) is a separate downstream item tracked in `scratch/rocm-gpu-jail-findings.md`.
 

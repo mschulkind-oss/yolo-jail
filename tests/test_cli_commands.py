@@ -2499,11 +2499,14 @@ class TestRunRocm:
         assert "keep-groups" in run_cmd
         ga_idx = run_cmd.index("keep-groups")
         assert run_cmd[ga_idx - 1] == "--group-add"
-        # Locked-memory limit lifted so KFD can pin the queue ring buffer
-        # (CREATE_QUEUE EINVAL otherwise; verified on gfx1151).
-        assert "memlock=-1:-1" in run_cmd
-        ml_idx = run_cmd.index("memlock=-1:-1")
-        assert run_cmd[ml_idx - 1] == "--ulimit"
+        # Locked-memory limit raised so KFD can pin the queue ring buffer
+        # (CREATE_QUEUE EINVAL otherwise; verified on gfx1151).  A --ulimit
+        # memlock flag must be present; its value depends on the host hard cap
+        # (covered precisely by the dedicated memlock tests below), so here we
+        # only assert the flag exists.
+        assert "--ulimit" in run_cmd
+        ul_idx = run_cmd.index("--ulimit")
+        assert run_cmd[ul_idx + 1].startswith("memlock=")
         # ROCm in-container selector env: the ROCr/HSA selector does NOT
         # accept the literal "all" (it would hide every GPU, verified on
         # gfx1151 hardware).  For devices=="all" we leave it UNSET — ROCm's
@@ -2579,12 +2582,141 @@ class TestRunRocm:
         assert "/dev/kfd" not in run_cmd
         assert "keep-groups" not in run_cmd
         # No GPU → no memlock lift (it's gated on gpu_enabled).
-        assert "memlock=-1:-1" not in run_cmd
+        assert not any(isinstance(a, str) and a.startswith("memlock=") for a in run_cmd)
         assert not any(
             isinstance(a, str) and a.startswith("ROCR_VISIBLE_DEVICES") for a in run_cmd
         )
         # A warn is printed on the way through.
         assert "gpu" in result.output.lower() or "rocm" in result.output.lower()
+
+    def _run_rocm_with_host_memlock(
+        self, mock_which, mock_popen, tmp_path, monkeypatch, *, hard_limit
+    ):
+        """Invoke `yolo run` with AMD GPU enabled, forcing the host's
+        RLIMIT_MEMLOCK hard cap to ``hard_limit``.  Returns (run_cmd, output).
+
+        A rootless container can't raise memlock above the host hard cap, so
+        the emitted --ulimit value must track that cap, not blindly request
+        unlimited (which crun rejects with EPERM, failing container startup).
+        """
+        import resource
+
+        _run_monkeypatch(monkeypatch, tmp_path)
+        _mock_runtimes(mock_which)
+        (tmp_path / "yolo-jail.jsonc").write_text(
+            '{"gpu": {"enabled": true, "vendor": "amd"}}'
+        )
+
+        mock_proc = MagicMock()
+        mock_proc.wait.return_value = None
+        mock_proc.returncode = 0
+        mock_popen.return_value = mock_proc
+
+        import cli as _cli
+
+        original_exists = _cli.Path.exists
+        original_glob = _cli.Path.glob
+
+        def fake_exists(self):
+            s = str(self)
+            if s in ("/dev/kfd", "/sys/module/amdgpu", "/dev/dri"):
+                return True
+            return original_exists(self)
+
+        def fake_glob(self, pattern):
+            if str(self) == "/dev/dri" and pattern == "renderD*":
+                return iter([_cli.Path("/dev/dri/renderD128")])
+            return original_glob(self, pattern)
+
+        def fake_getrlimit(which):
+            if which == resource.RLIMIT_MEMLOCK:
+                return (hard_limit, hard_limit)
+            return resource.getrlimit(which)
+
+        with (
+            patch.object(_cli.Path, "exists", fake_exists),
+            patch.object(_cli.Path, "glob", fake_glob),
+            patch("cli.run_cmd.resource.getrlimit", fake_getrlimit),
+        ):
+            runner = CliRunner()
+            result = runner.invoke(app, ["run", "--", "bash"])
+
+        assert mock_popen.called
+        return mock_popen.call_args[0][0], result.output
+
+    @patch("subprocess.Popen")
+    @patch("cli.run_cmd.auto_load_image")
+    @patch("cli.run_cmd._check_config_changes", return_value=True)
+    @patch("cli.run_cmd.find_running_container", return_value=None)
+    @patch("subprocess.run")
+    @patch("subprocess.check_output")
+    @patch("shutil.which")
+    def test_rocm_memlock_clamped_to_finite_host_cap(
+        self,
+        mock_which,
+        mock_check_output,
+        mock_run,
+        mock_find,
+        mock_config_changes,
+        mock_auto_load,
+        mock_popen,
+        tmp_path,
+        monkeypatch,
+    ):
+        # Finite host hard cap (8 MB) below what GPU queues need: emit
+        # memlock=<cap>:<cap> (NOT -1, which crun would reject) and warn.
+        mock_check_output.side_effect = FileNotFoundError
+        eight_mb = 8 * 1024 * 1024
+        run_cmd, output = self._run_rocm_with_host_memlock(
+            mock_which, mock_popen, tmp_path, monkeypatch, hard_limit=eight_mb
+        )
+        assert "--ulimit" in run_cmd
+        ul_idx = run_cmd.index("--ulimit")
+        assert run_cmd[ul_idx + 1] == f"memlock={eight_mb}:{eight_mb}"
+        # Must NOT request unlimited on a finite-cap rootless host.
+        assert "memlock=-1:-1" not in run_cmd
+        # User is warned the cap is too low for GPU queue allocation.
+        # (Match the distinctive warning phrase, not the bare word "memlock" —
+        # the test container name itself contains "memlock".)
+        assert "cannot exceed the host cap" in output.lower()
+
+    @patch("subprocess.Popen")
+    @patch("cli.run_cmd.auto_load_image")
+    @patch("cli.run_cmd._check_config_changes", return_value=True)
+    @patch("cli.run_cmd.find_running_container", return_value=None)
+    @patch("subprocess.run")
+    @patch("subprocess.check_output")
+    @patch("shutil.which")
+    def test_rocm_memlock_unlimited_when_host_allows(
+        self,
+        mock_which,
+        mock_check_output,
+        mock_run,
+        mock_find,
+        mock_config_changes,
+        mock_auto_load,
+        mock_popen,
+        tmp_path,
+        monkeypatch,
+    ):
+        # Host hard cap is unlimited: request unlimited, no warning needed.
+        import resource
+
+        mock_check_output.side_effect = FileNotFoundError
+        run_cmd, output = self._run_rocm_with_host_memlock(
+            mock_which,
+            mock_popen,
+            tmp_path,
+            monkeypatch,
+            hard_limit=resource.RLIM_INFINITY,
+        )
+        assert "memlock=-1:-1" in run_cmd
+        ul_idx = run_cmd.index("memlock=-1:-1")
+        assert run_cmd[ul_idx - 1] == "--ulimit"
+        # No low-cap warning when the host allows unlimited.  (Check the
+        # distinctive warning phrase, not the bare word "memlock" — the test
+        # container name itself contains "memlock".)
+        assert "cannot exceed the host cap" not in output.lower()
 
     @patch("subprocess.Popen")
     @patch("cli.run_cmd.auto_load_image")
