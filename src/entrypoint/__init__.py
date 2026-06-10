@@ -72,6 +72,10 @@ GEMINI_DIR = HOME / ".gemini"
 GEMINI_MANAGED_MCP_PATH = GEMINI_DIR / "yolo-managed-mcp-servers.json"
 CLAUDE_DIR = HOME / ".claude"
 CLAUDE_MANAGED_MCP_PATH = CLAUDE_DIR / "yolo-managed-mcp-servers.json"
+# Snapshot of host ~/.claude/settings.json as of the last sync — the
+# baseline for the three-way host→jail settings merge (see
+# agent_configs._sync_host_settings).
+CLAUDE_HOST_SETTINGS_SNAPSHOT_PATH = CLAUDE_DIR / "yolo-host-synced-settings.json"
 CLAUDE_SHARED_CREDENTIALS_DIR = HOME / ".claude-shared-credentials"
 MISE_CONFIG_DIR = HOME / ".config" / "mise"
 

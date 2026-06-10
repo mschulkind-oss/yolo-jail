@@ -83,8 +83,11 @@ def config_ref():
   [bold]host_claude_files[/bold] (array of strings): Host ~/.claude/ files to sync into the jail.
     Each entry is a filename (not a path) relative to ~/.claude/.
     Files are mounted read-only at /ctx/host-claude/ and copied into the jail's
-    ~/.claude/ on startup. For settings.json, host settings are deep-merged with
-    YOLO-required overrides (YOLO wins on conflicts).
+    ~/.claude/ on startup. settings.json gets a three-way merge against a
+    last-synced snapshot: host keys are added, updated, AND removed as the
+    host file changes, but keys the jail modified locally (Claude writes
+    settings.json at runtime) are preserved. YOLO-required overrides
+    (permissions, plugin wiring) win over everything.
     The fileSuggestion script referenced in host settings.json is auto-discovered
     and synced (if it lives under ~/.claude/) — no need to list it explicitly.
     Default: ["settings.json"]

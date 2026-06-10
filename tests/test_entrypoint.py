@@ -45,6 +45,7 @@ def jail_home(tmp_path, monkeypatch):
         "GEMINI_MANAGED_MCP_PATH",
         "CLAUDE_DIR",
         "CLAUDE_MANAGED_MCP_PATH",
+        "CLAUDE_HOST_SETTINGS_SNAPSHOT_PATH",
         "CLAUDE_SHARED_CREDENTIALS_DIR",
         "MISE_CONFIG_DIR",
     ]
@@ -67,6 +68,9 @@ def jail_home(tmp_path, monkeypatch):
     entrypoint.CLAUDE_DIR = tmp_path / ".claude"
     entrypoint.CLAUDE_MANAGED_MCP_PATH = (
         tmp_path / ".claude" / "yolo-managed-mcp-servers.json"
+    )
+    entrypoint.CLAUDE_HOST_SETTINGS_SNAPSHOT_PATH = (
+        tmp_path / ".claude" / "yolo-host-synced-settings.json"
     )
     entrypoint.CLAUDE_SHARED_CREDENTIALS_DIR = tmp_path / ".claude-shared-credentials"
     entrypoint.MISE_CONFIG_DIR = tmp_path / ".config" / "mise"
@@ -1231,6 +1235,101 @@ class TestClaudeConfig:
         entrypoint.configure_claude()
         cfg = json.loads((entrypoint.CLAUDE_DIR / "settings.json").read_text())
         assert "env" not in cfg
+
+    def _set_host_settings(self, monkeypatch, host: dict):
+        """Make configure_claude see ``host`` as /ctx/host-claude/settings.json."""
+        monkeypatch.setattr(
+            entrypoint.agent_configs,
+            "_load_host_claude_settings",
+            lambda: dict(host),
+        )
+
+    def _jail_settings(self) -> dict:
+        return json.loads((entrypoint.CLAUDE_DIR / "settings.json").read_text())
+
+    def test_host_settings_synced_and_snapshot_written(self, jail_home, monkeypatch):
+        """A host key lands in the jail and the snapshot records the host state."""
+        self._set_host_settings(monkeypatch, {"showThinkingSummaries": True})
+        entrypoint.configure_claude()
+        assert self._jail_settings()["showThinkingSummaries"] is True
+        snapshot = json.loads(entrypoint.CLAUDE_HOST_SETTINGS_SNAPSHOT_PATH.read_text())
+        assert snapshot == {"showThinkingSummaries": True}
+
+    def test_host_key_removal_rolls_back(self, jail_home, monkeypatch):
+        """A key the host drops is removed from the jail when unmodified.
+
+        This is the bug the three-way merge exists to fix: with the old
+        add-only merge, a host setting that later reverted stayed baked
+        into every jail forever.
+        """
+        self._set_host_settings(monkeypatch, {"showThinkingSummaries": True})
+        entrypoint.configure_claude()
+        assert "showThinkingSummaries" in self._jail_settings()
+
+        self._set_host_settings(monkeypatch, {})
+        entrypoint.configure_claude()
+        assert "showThinkingSummaries" not in self._jail_settings()
+
+    def test_host_value_change_propagates(self, jail_home, monkeypatch):
+        """A changed host value overwrites the jail copy when unmodified."""
+        self._set_host_settings(monkeypatch, {"showThinkingSummaries": True})
+        entrypoint.configure_claude()
+
+        self._set_host_settings(monkeypatch, {"showThinkingSummaries": False})
+        entrypoint.configure_claude()
+        assert self._jail_settings()["showThinkingSummaries"] is False
+
+    def test_jail_diverged_key_survives_host_changes(self, jail_home, monkeypatch):
+        """A key the jail modified locally is never clobbered or removed."""
+        self._set_host_settings(monkeypatch, {"theme": "dark"})
+        entrypoint.configure_claude()
+
+        # Claude (or the user via /config) changes it inside the jail.
+        cfg = self._jail_settings()
+        cfg["theme"] = "light"
+        (entrypoint.CLAUDE_DIR / "settings.json").write_text(json.dumps(cfg))
+
+        # Host changes the value — jail divergence wins.
+        self._set_host_settings(monkeypatch, {"theme": "dark-daltonized"})
+        entrypoint.configure_claude()
+        assert self._jail_settings()["theme"] == "light"
+
+        # Host drops the key entirely — jail divergence still wins.
+        self._set_host_settings(monkeypatch, {})
+        entrypoint.configure_claude()
+        assert self._jail_settings()["theme"] == "light"
+
+    def test_no_snapshot_migration_is_add_only(self, jail_home, monkeypatch):
+        """Pre-snapshot jails keep their existing keys on first boot.
+
+        A contaminated jail (key baked in by the old add-only merge, no
+        snapshot yet) must not have keys ripped out on upgrade — we can't
+        distinguish jail-local from host-originated without a baseline.
+        """
+        entrypoint.CLAUDE_DIR.mkdir(parents=True, exist_ok=True)
+        (entrypoint.CLAUDE_DIR / "settings.json").write_text(
+            json.dumps({"showThinkingSummaries": True})
+        )
+        self._set_host_settings(monkeypatch, {})
+        entrypoint.configure_claude()
+        # Key survives this boot (no baseline to justify removal) …
+        assert self._jail_settings()["showThinkingSummaries"] is True
+        # … but the snapshot now exists, so future host-synced keys
+        # get full add/update/remove tracking.
+        assert entrypoint.CLAUDE_HOST_SETTINGS_SNAPSHOT_PATH.exists()
+
+    def test_nested_dict_subkey_rollback(self, jail_home, monkeypatch):
+        """One-level-deep dict subkeys get the same sync rules."""
+        self._set_host_settings(
+            monkeypatch, {"voice": {"mode": "push-to-talk", "speed": 2}}
+        )
+        entrypoint.configure_claude()
+        assert self._jail_settings()["voice"] == {"mode": "push-to-talk", "speed": 2}
+
+        # Host drops one subkey and changes the other.
+        self._set_host_settings(monkeypatch, {"voice": {"speed": 3}})
+        entrypoint.configure_claude()
+        assert self._jail_settings()["voice"] == {"speed": 3}
 
     def test_lsp_plugins_disabled_by_default(self, jail_home):
         """No Claude LSP plugins are enabled when the workspace has no LSPs."""

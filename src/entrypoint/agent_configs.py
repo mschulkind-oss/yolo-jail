@@ -354,6 +354,59 @@ def _sync_host_claude_files():
             )
 
 
+def _sync_host_settings(jail: dict, host: dict, prev: dict) -> dict:
+    """Three-way host→jail settings merge.  Mutates and returns ``jail``.
+
+    ``prev`` is the host settings as of the last sync (the snapshot at
+    ``CLAUDE_HOST_SETTINGS_SNAPSHOT_PATH``).  It lets us distinguish
+    "key the jail set locally" from "key we copied from the host" —
+    without it, host-originated keys could never be updated or removed
+    (the pre-snapshot merge was add-only, so a host setting that later
+    reverted stayed baked into every jail forever).
+
+    Per key:
+      * in host, not in jail               → add (host fills gaps)
+      * in host and jail, jail == prev     → update to host value (the jail
+                                             never touched it, so the host
+                                             change propagates)
+      * in host and jail, jail != prev     → keep jail (jail-local runtime
+                                             state wins — Claude writes this
+                                             file live)
+      * in prev, not in host, jail == prev → remove (host dropped it and the
+                                             jail never modified it: roll back)
+    Dict values get the same rules one level deep — matching the depth of
+    the original merge; deeper structures are compared atomically.
+    First boot (``prev == {}``) degrades to the old add-only behavior.
+    """
+    _sync_settings_level(jail, host, prev, deep=True)
+    return jail
+
+
+def _sync_settings_level(jail: dict, host: dict, prev: dict, *, deep: bool):
+    # Roll back keys we synced before that the host no longer has —
+    # but only when the jail still holds exactly what we wrote.
+    for key, prev_val in prev.items():
+        if key in host or key not in jail:
+            continue
+        if jail[key] == prev_val:
+            del jail[key]
+        elif deep and isinstance(prev_val, dict) and isinstance(jail[key], dict):
+            for k, v in prev_val.items():
+                if k in jail[key] and jail[key][k] == v:
+                    del jail[key][k]
+    # Adds + updates from the current host file.
+    for key, host_val in host.items():
+        if key not in jail:
+            jail[key] = host_val
+        elif deep and isinstance(host_val, dict) and isinstance(jail[key], dict):
+            prev_sub = prev.get(key)
+            if not isinstance(prev_sub, dict):
+                prev_sub = {}
+            _sync_settings_level(jail[key], host_val, prev_sub, deep=False)
+        elif key in prev and jail[key] == prev[key] and jail[key] != host_val:
+            jail[key] = host_val
+
+
 def _load_host_claude_settings() -> dict:
     """Load host settings.json from /ctx/host-claude/ if available."""
     host_claude_files = json.loads(os.environ.get("YOLO_HOST_CLAUDE_FILES", "[]"))
@@ -448,7 +501,13 @@ def _ensure_credentials_symlink():
 
 def configure_claude():
     """Set up Claude Code: settings.json (permissions, plugins) + ~/.claude.json (MCP)."""
-    from . import CLAUDE_DIR, CLAUDE_MANAGED_MCP_PATH, HOME, _load_lsp_servers
+    from . import (
+        CLAUDE_DIR,
+        CLAUDE_HOST_SETTINGS_SNAPSHOT_PATH,
+        CLAUDE_MANAGED_MCP_PATH,
+        HOME,
+        _load_lsp_servers,
+    )
 
     CLAUDE_DIR.mkdir(parents=True, exist_ok=True)
     settings_path = CLAUDE_DIR / "settings.json"
@@ -471,7 +530,8 @@ def configure_claude():
 
     try:
         # --- settings.json: permissions, preferences, plugins ---
-        # Start from host settings (deep-merge base), then layer YOLO overrides
+        # Start from host settings (three-way merge base), then layer
+        # YOLO overrides
         host_settings = _load_host_claude_settings()
 
         if settings_path.exists():
@@ -482,16 +542,20 @@ def configure_claude():
         else:
             settings = {}
 
-        # Deep-merge: host settings provide the base, existing jail settings
-        # override, then YOLO-required keys override everything below.
-        for key, val in host_settings.items():
-            if key not in settings:
-                settings[key] = val
-            elif isinstance(val, dict) and isinstance(settings[key], dict):
-                # Merge dicts one level deep (host fills gaps)
-                for k, v in val.items():
-                    if k not in settings[key]:
-                        settings[key][k] = v
+        # Three-way merge against the last-synced snapshot so host
+        # changes propagate AND roll back, while jail-local edits
+        # (Claude writes this file at runtime) are preserved.  See
+        # _sync_host_settings for the per-key rules.
+        try:
+            prev_synced = json.loads(CLAUDE_HOST_SETTINGS_SNAPSHOT_PATH.read_text())
+            if not isinstance(prev_synced, dict):
+                prev_synced = {}
+        except (FileNotFoundError, json.JSONDecodeError, OSError):
+            prev_synced = {}
+        _sync_host_settings(settings, host_settings, prev_synced)
+        CLAUDE_HOST_SETTINGS_SNAPSHOT_PATH.write_text(
+            json.dumps(host_settings, indent=2) + "\n"
+        )
 
         # Remove any stale mcpServers from settings.json (moved to ~/.claude.json)
         settings.pop("mcpServers", None)
