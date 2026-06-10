@@ -89,7 +89,7 @@ PACKAGE_NAME_RE = re.compile(r"^[a-zA-Z0-9_-]+(\.[a-zA-Z0-9_-]+)?$")
 # Output names follow the nixpkgs convention: short alphanumeric tokens.
 PACKAGE_OUTPUT_RE = re.compile(r"^[a-zA-Z][a-zA-Z0-9_]*$")
 KNOWN_LSP_SERVER_KEYS = {"command", "args", "fileExtensions"}
-KNOWN_MCP_SERVER_KEYS = {"command", "args", "env"}
+KNOWN_MCP_SERVER_KEYS = {"command", "args", "env", "requires_env"}
 KNOWN_DEVICE_KEYS = {"usb", "description", "cgroup_rule"}
 KNOWN_GPU_KEYS = {
     "enabled",
@@ -250,6 +250,35 @@ def load_config(
 # ---------------------------------------------------------------------------
 # Derived helpers
 # ---------------------------------------------------------------------------
+
+
+def _filter_mcp_servers_by_env(
+    mcp_servers: Optional[Dict[str, Any]],
+    env_map: Dict[str, str],
+) -> Optional[Dict[str, Any]]:
+    """Drop MCP servers whose ``requires_env`` gate isn't satisfied.
+
+    A server declaring ``requires_env: ["TAVILY_API_KEY"]`` is removed
+    when any listed variable is unset or empty in ``env_map``.  Lets a
+    dotfiles-shared user config declare machine-dependent servers that
+    only activate where the secrets exist.  Null entries (preset
+    removals) and the in-jail gating in
+    ``entrypoint.agent_configs._load_mcp_servers`` are unaffected — this
+    host-side copy only keeps the AGENTS.md briefing's server list
+    honest.
+    """
+    if not isinstance(mcp_servers, dict):
+        return mcp_servers
+    filtered: Dict[str, Any] = {}
+    for name, cfg in mcp_servers.items():
+        if isinstance(cfg, dict):
+            required = cfg.get("requires_env")
+            if isinstance(required, list) and any(
+                isinstance(v, str) and not env_map.get(v) for v in required
+            ):
+                continue
+        filtered[name] = cfg
+    return filtered
 
 
 def _effective_mcp_server_names(
@@ -829,6 +858,21 @@ def _validate_config(
                                     f"{path}.env.{k}: expected string keys and values"
                                 )
                                 break
+                if "requires_env" in cfg:
+                    req = cfg["requires_env"]
+                    if not isinstance(req, list):
+                        errors.append(
+                            f"{path}.requires_env: expected a list of env var names"
+                        )
+                    else:
+                        for r_idx, var in enumerate(req):
+                            if not isinstance(var, str) or not re.match(
+                                r"^[A-Za-z_][A-Za-z0-9_]*$", var
+                            ):
+                                errors.append(
+                                    f"{path}.requires_env[{r_idx}]: invalid env var "
+                                    f"name {var!r} (must match [A-Za-z_][A-Za-z0-9_]*)"
+                                )
 
     devices = config.get("devices")
     if devices is not None:

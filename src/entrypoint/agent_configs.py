@@ -141,6 +141,31 @@ def _load_mcp_servers():
         except (json.JSONDecodeError, TypeError):
             pass
 
+    # Conditional loading: a server declaring ``requires_env`` is only
+    # configured when every listed variable is set (and non-empty) in
+    # the jail's startup env.  Lets a dotfiles-shared user config carry
+    # machine-dependent servers (e.g. tavily) that activate only where
+    # env_sources provides the keys.  The key is stripped before the
+    # config reaches any agent — it's a yolo-jail directive, not part
+    # of the MCP server schema.
+    for name in list(servers):
+        cfg = servers[name]
+        if not isinstance(cfg, dict):
+            continue
+        required = cfg.get("requires_env")
+        if not isinstance(required, list):
+            continue
+        missing = [v for v in required if isinstance(v, str) and not os.environ.get(v)]
+        if missing:
+            print(
+                f"notice: MCP server '{name}' skipped — required env not set: "
+                f"{', '.join(missing)}",
+                file=sys.stderr,
+            )
+            del servers[name]
+        else:
+            servers[name] = {k: v for k, v in cfg.items() if k != "requires_env"}
+
     # Expand ${VAR} in env values against the jail's startup env (which
     # already has env_sources merged in).  Lets users keep a secret in
     # one unsynced file and scope it to a single MCP server's env

@@ -256,6 +256,18 @@ def config_ref():
         (after [bold]env_sources[/bold] is loaded), so a secret can live in one
         unsynced file and be scoped to a single server. Undefined names
         are left as the literal [bold]${VAR}[/bold] and logged as a warning.
+      • requires_env (array of strings): Conditional loading gate. The
+        server is only configured when every listed variable is set
+        (and non-empty) in the jail's startup env. If any is missing,
+        the server is skipped with a notice — not an error. Lets a
+        dotfiles-shared user config declare machine-dependent servers
+        that activate only where env_sources provides the keys.
+        Example:
+          {"tavily": {
+            "command": "npx", "args": ["-y", "tavily-mcp"],
+            "env": {"TAVILY_API_KEY": "${TAVILY_API_KEY}"},
+            "requires_env": ["TAVILY_API_KEY"]
+          }}
     The entrypoint translates these for each agent:
       • Copilot: written to a per-workspace overlay mounted at ~/.copilot/mcp-config.json.
       • Gemini: written to a per-workspace overlay mounted at ~/.gemini/settings.json.

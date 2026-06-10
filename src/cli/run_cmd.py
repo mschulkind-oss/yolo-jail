@@ -43,6 +43,7 @@ from .config import (
     DEFAULT_HOST_CLAUDE_FILES,
     _check_config_changes,
     _check_preset_null_conflicts,
+    _filter_mcp_servers_by_env,
     _load_jsonc_file,
     _merge_mise_disabled_tools,
     _merge_mise_tools,
@@ -473,6 +474,14 @@ def _refresh_jail_briefings(
         if resolved.exists():
             mount_descriptions.append(f"{resolved}:{container_path}")
 
+    # Mirror the in-jail requires_env gating (entrypoint._load_mcp_servers)
+    # so the AGENTS.md "MCP Servers:" line only names servers that will
+    # actually be configured.  The predictor for the jail env is the
+    # resolved env_sources map — host shell vars don't reach the jail.
+    mcp_servers = _filter_mcp_servers_by_env(
+        config.get("mcp_servers"), _resolve_env_sources(workspace, config)
+    )
+
     _prepare_skills(cname)
     return generate_agents_md(
         cname,
@@ -482,7 +491,7 @@ def _refresh_jail_briefings(
         net_mode=net_mode,
         runtime=runtime,
         forward_host_ports=forward_host_ports or None,
-        mcp_servers=config.get("mcp_servers") or None,
+        mcp_servers=mcp_servers or None,
         mcp_presets=config.get("mcp_presets") or None,
         agents_md_extra=config.get("agents_md_extra"),
     )

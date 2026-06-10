@@ -321,6 +321,63 @@ class TestIncludeIfFound:
         )
 
 
+class TestMcpRequiresEnv:
+    def test_validate_accepts_requires_env(self):
+        errors, warnings = _validate_config(
+            {
+                "mcp_servers": {
+                    "tavily": {
+                        "command": "npx",
+                        "args": ["-y", "tavily-mcp"],
+                        "requires_env": ["TAVILY_API_KEY"],
+                    }
+                }
+            },
+            workspace=Path.cwd(),
+        )
+        assert errors == []
+        assert warnings == []
+
+    def test_validate_rejects_non_list_requires_env(self):
+        errors, _ = _validate_config(
+            {"mcp_servers": {"x": {"command": "cat", "requires_env": "KEY"}}},
+            workspace=Path.cwd(),
+        )
+        assert any("requires_env" in e and "list" in e for e in errors)
+
+    def test_validate_rejects_invalid_var_name(self):
+        errors, _ = _validate_config(
+            {"mcp_servers": {"x": {"command": "cat", "requires_env": ["123BAD"]}}},
+            workspace=Path.cwd(),
+        )
+        assert any("requires_env[0]" in e and "invalid env var" in e for e in errors)
+
+    def test_filter_drops_unsatisfied_server(self):
+        servers = {
+            "tavily": {"command": "npx", "requires_env": ["TAVILY_API_KEY"]},
+            "always": {"command": "cat"},
+            "removed-preset": None,
+        }
+        filtered = cli._filter_mcp_servers_by_env(servers, {})
+        assert "tavily" not in filtered
+        assert "always" in filtered
+        # Null preset-removals pass through untouched.
+        assert "removed-preset" in filtered and filtered["removed-preset"] is None
+
+    def test_filter_keeps_satisfied_server(self):
+        servers = {"tavily": {"command": "npx", "requires_env": ["TAVILY_API_KEY"]}}
+        filtered = cli._filter_mcp_servers_by_env(servers, {"TAVILY_API_KEY": "tvly-x"})
+        assert "tavily" in filtered
+
+    def test_filter_empty_value_counts_as_unset(self):
+        servers = {"tavily": {"command": "npx", "requires_env": ["TAVILY_API_KEY"]}}
+        filtered = cli._filter_mcp_servers_by_env(servers, {"TAVILY_API_KEY": ""})
+        assert "tavily" not in filtered
+
+    def test_filter_none_passthrough(self):
+        assert cli._filter_mcp_servers_by_env(None, {}) is None
+
+
 class TestAgentsMdExtra:
     def test_validate_accepts_string(self):
         errors, warnings = _validate_config(

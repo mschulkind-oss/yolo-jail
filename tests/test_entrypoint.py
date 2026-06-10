@@ -720,6 +720,93 @@ class TestCopilotConfig:
         assert "DEFINITELY_NOT_SET" in err
         assert "undefined" in err.lower()
 
+    def test_mcp_requires_env_skips_when_missing(self, jail_home, monkeypatch, capsys):
+        """A server gated on requires_env is skipped when the var is unset."""
+        monkeypatch.delenv("TAVILY_API_KEY", raising=False)
+        monkeypatch.setenv(
+            "YOLO_MCP_SERVERS",
+            json.dumps(
+                {
+                    "tavily": {
+                        "command": "npx",
+                        "args": ["-y", "tavily-mcp"],
+                        "env": {"TAVILY_API_KEY": "${TAVILY_API_KEY}"},
+                        "requires_env": ["TAVILY_API_KEY"],
+                    },
+                    "always-on": {"command": "cat"},
+                }
+            ),
+        )
+        entrypoint.configure_copilot()
+        mcp = json.loads((entrypoint.COPILOT_DIR / "mcp-config.json").read_text())
+        assert "tavily" not in mcp["mcpServers"]
+        assert "always-on" in mcp["mcpServers"]
+        err = capsys.readouterr().err
+        assert "tavily" in err
+        assert "TAVILY_API_KEY" in err
+
+    def test_mcp_requires_env_skips_when_empty(self, jail_home, monkeypatch):
+        """An empty-string env var counts as unset (dotenv `KEY=` lines)."""
+        monkeypatch.setenv("TAVILY_API_KEY", "")
+        monkeypatch.setenv(
+            "YOLO_MCP_SERVERS",
+            json.dumps(
+                {
+                    "tavily": {
+                        "command": "npx",
+                        "requires_env": ["TAVILY_API_KEY"],
+                    }
+                }
+            ),
+        )
+        entrypoint.configure_copilot()
+        mcp = json.loads((entrypoint.COPILOT_DIR / "mcp-config.json").read_text())
+        assert "tavily" not in mcp["mcpServers"]
+
+    def test_mcp_requires_env_loads_when_set_and_strips_key(
+        self, jail_home, monkeypatch
+    ):
+        """With the var set, the server loads and requires_env is stripped
+        from the emitted config (agents don't understand the key)."""
+        monkeypatch.setenv("TAVILY_API_KEY", "tvly-abc123")
+        monkeypatch.setenv(
+            "YOLO_MCP_SERVERS",
+            json.dumps(
+                {
+                    "tavily": {
+                        "command": "npx",
+                        "args": ["-y", "tavily-mcp"],
+                        "env": {"TAVILY_API_KEY": "${TAVILY_API_KEY}"},
+                        "requires_env": ["TAVILY_API_KEY"],
+                    }
+                }
+            ),
+        )
+        entrypoint.configure_copilot()
+        mcp = json.loads((entrypoint.COPILOT_DIR / "mcp-config.json").read_text())
+        tavily = mcp["mcpServers"]["tavily"]
+        assert "requires_env" not in tavily
+        assert tavily["env"]["TAVILY_API_KEY"] == "tvly-abc123"
+
+    def test_mcp_requires_env_multiple_vars_all_required(self, jail_home, monkeypatch):
+        """All listed vars must be set — one missing skips the server."""
+        monkeypatch.setenv("KEY_A", "a")
+        monkeypatch.delenv("KEY_B", raising=False)
+        monkeypatch.setenv(
+            "YOLO_MCP_SERVERS",
+            json.dumps(
+                {
+                    "multi": {
+                        "command": "cat",
+                        "requires_env": ["KEY_A", "KEY_B"],
+                    }
+                }
+            ),
+        )
+        entrypoint.configure_copilot()
+        mcp = json.loads((entrypoint.COPILOT_DIR / "mcp-config.json").read_text())
+        assert "multi" not in mcp["mcpServers"]
+
     def test_mcp_env_var_partial_substitution(self, jail_home, monkeypatch):
         """${VAR} substring inside a larger value expands in place."""
         monkeypatch.setenv("API_HOST", "api.example.com")
