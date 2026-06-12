@@ -1487,6 +1487,77 @@ class TestValidateConfig:
         errors, _ = _validate_config(config, workspace=tmp_path)
         assert not any("config.gpu" in e for e in errors)
 
+    def test_gpu_vaapi_valid_amd_config(self, tmp_path):
+        config = {"gpu": {"enabled": True, "vendor": "amd", "vaapi": True}}
+        errors, warnings = _validate_config(config, workspace=tmp_path)
+        assert not any("config.gpu" in e for e in errors)
+        assert not any("vaapi" in w for w in warnings)
+
+    def test_gpu_vaapi_for_nvidia_rejected(self, tmp_path):
+        errors, _ = _validate_config(
+            {"gpu": {"enabled": True, "vendor": "nvidia", "vaapi": True}},
+            workspace=tmp_path,
+        )
+        assert any("config.gpu.vaapi" in e and "vendor='amd'" in e for e in errors)
+
+    def test_gpu_vaapi_non_boolean_rejected(self, tmp_path):
+        errors, _ = _validate_config(
+            {"gpu": {"enabled": True, "vendor": "amd", "vaapi": "yes"}},
+            workspace=tmp_path,
+        )
+        assert any("config.gpu.vaapi" in e and "boolean" in e for e in errors)
+
+    def test_gpu_vaapi_without_enabled_warns(self, tmp_path):
+        _, warnings = _validate_config(
+            {"gpu": {"vendor": "amd", "vaapi": True}}, workspace=tmp_path
+        )
+        assert any("config.gpu.vaapi" in w and "inert" in w for w in warnings)
+
+
+class TestEffectivePackages:
+    """gpu.vaapi implies mesa + libva-utils in the image package list."""
+
+    def test_plain_packages_passthrough(self):
+        from cli import _effective_packages
+
+        config = {"packages": ["just", {"name": "gtk4", "outputs": ["out", "dev"]}]}
+        assert _effective_packages(config) == config["packages"]
+
+    def test_vaapi_appends_driver_packages(self):
+        from cli import _effective_packages
+
+        config = {
+            "packages": ["just"],
+            "gpu": {"enabled": True, "vendor": "amd", "vaapi": True},
+        }
+        assert _effective_packages(config) == ["just", "mesa", "libva-utils"]
+
+    def test_vaapi_dedupes_explicit_packages(self):
+        from cli import _effective_packages
+
+        config = {
+            "packages": ["mesa"],
+            "gpu": {"enabled": True, "vendor": "amd", "vaapi": True},
+        }
+        assert _effective_packages(config) == ["mesa", "libva-utils"]
+
+    def test_vaapi_inert_without_enabled(self):
+        from cli import _effective_packages
+
+        config = {"gpu": {"vendor": "amd", "vaapi": True}}
+        assert _effective_packages(config) == []
+
+    def test_vaapi_inert_for_nvidia(self):
+        from cli import _effective_packages
+
+        config = {"gpu": {"enabled": True, "vendor": "nvidia", "vaapi": True}}
+        assert _effective_packages(config) == []
+
+    def test_no_gpu_section(self):
+        from cli import _effective_packages
+
+        assert _effective_packages({}) == []
+
 
 class TestParseDotenv:
     """Parser for KEY=VALUE secrets files consumed by env_sources."""

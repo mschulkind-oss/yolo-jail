@@ -112,6 +112,7 @@ from .config import (
     _check_preset_null_conflicts,
     _config_snapshot_path,
     _effective_mcp_server_names,
+    _effective_packages,
     _filter_mcp_servers_by_env,
     _load_jsonc_file,
     _load_jsonc_with_includes,

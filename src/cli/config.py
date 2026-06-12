@@ -99,7 +99,12 @@ KNOWN_GPU_KEYS = {
     "mode",
     "hsa_override_gfx_version",
     "seccomp_unconfined",
+    "vaapi",
 }
+# Image packages implied by gpu.vaapi — mesa carries the radeonsi VA-API
+# driver (lib/dri/radeonsi_drv_video.so, landing at /lib/dri in the image),
+# libva-utils brings vainfo + full libva for verification.
+VAAPI_PACKAGES = ("mesa", "libva-utils")
 KNOWN_RESOURCES_KEYS = {"memory", "cpus", "pids_limit"}
 KNOWN_HOST_SERVICE_KEYS = {"command", "env", "jail_socket"}
 HOST_SERVICE_NAME_RE = re.compile(r"^[a-zA-Z][a-zA-Z0-9_-]{0,63}$")
@@ -250,6 +255,24 @@ def load_config(
 # ---------------------------------------------------------------------------
 # Derived helpers
 # ---------------------------------------------------------------------------
+
+
+def _effective_packages(config: Dict[str, Any]) -> List[Any]:
+    """Image package list: config ``packages`` plus feature-implied extras.
+
+    ``gpu.vaapi`` (AMD-only) appends mesa + libva-utils so the radeonsi
+    VA-API driver and vainfo are baked into the image without the user
+    hand-listing them.  The drivers land at /lib/dri via the image's
+    contents merge; run_cmd points LIBVA_DRIVERS_PATH there at runtime.
+    Kept out of the default image because mesa's closure (LLVM) is ~1 GB.
+    """
+    packages = list(config.get("packages", []) or [])
+    gpu = config.get("gpu") or {}
+    if gpu.get("enabled") and gpu.get("vaapi") and gpu.get("vendor") == "amd":
+        for pkg in VAAPI_PACKAGES:
+            if pkg not in packages:
+                packages.append(pkg)
+    return packages
 
 
 def _filter_mcp_servers_by_env(
@@ -983,6 +1006,21 @@ def _validate_config(
             seccomp = gpu.get("seccomp_unconfined")
             if seccomp is not None and not isinstance(seccomp, bool):
                 errors.append("config.gpu.seccomp_unconfined: expected a boolean")
+
+            vaapi = gpu.get("vaapi")
+            if vaapi is not None:
+                if not isinstance(vaapi, bool):
+                    errors.append("config.gpu.vaapi: expected a boolean")
+                elif vaapi and not is_amd:
+                    errors.append(
+                        "config.gpu.vaapi: currently requires vendor='amd' "
+                        "(mesa radeonsi is the only wired-up VA-API driver)"
+                    )
+                elif vaapi and not gpu.get("enabled"):
+                    warnings.append(
+                        "config.gpu.vaapi: inert without gpu.enabled=true "
+                        "(no devices are passed through)"
+                    )
 
     # Resources config validation
     resources = config.get("resources")

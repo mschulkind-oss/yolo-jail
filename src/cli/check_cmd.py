@@ -30,6 +30,7 @@ from src import loopholes as _loopholes
 from .config import (
     ConfigError,
     _check_preset_null_conflicts,
+    _effective_packages,
     _load_jsonc_with_includes,
     _validate_config,
     merge_config,
@@ -1284,7 +1285,7 @@ def check(
             try:
                 store_path, build_stderr_tail = _build_image_store_path(
                     repo_root,
-                    extra_packages=config.get("packages") or None,
+                    extra_packages=_effective_packages(config) or None,
                     out_link=out_link,
                     status_message="[bold blue]Preflighting jail image...",
                 )

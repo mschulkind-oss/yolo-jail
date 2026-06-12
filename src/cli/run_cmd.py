@@ -43,6 +43,7 @@ from .config import (
     DEFAULT_HOST_CLAUDE_FILES,
     _check_config_changes,
     _check_preset_null_conflicts,
+    _effective_packages,
     _filter_mcp_servers_by_env,
     _load_jsonc_file,
     _merge_mise_disabled_tools,
@@ -831,7 +832,7 @@ def run(
     if profile:
         _profile_times["start"] = _time.monotonic()
 
-    extra_packages = config.get("packages", [])
+    extra_packages = _effective_packages(config)
     mise_tools = _merge_mise_tools(config)
     lsp_servers = config.get("lsp_servers", {})
     lsp_installs = _resolve_lsp_installs(lsp_servers)
@@ -1741,8 +1742,22 @@ def run(
         if gpu_config.get("seccomp_unconfined") is True:
             run_cmd.extend(["--security-opt", "seccomp=unconfined"])
 
+        # VAAPI (video encode/decode accel).  gpu.vaapi bakes mesa +
+        # libva-utils into the image (see _effective_packages); the
+        # radeonsi driver lands at /lib/dri via the image contents merge,
+        # which is NOT on libva's compiled-in search path
+        # (/run/opengl-driver/lib/dri:/usr/lib/dri:...) — point
+        # LIBVA_DRIVERS_PATH at it.  libva auto-derives the driver name
+        # (amdgpu → radeonsi) from the render node, so no
+        # LIBVA_DRIVER_NAME needed.  Device + group access is already
+        # covered by the ROCm flags above (/dev/dri + keep-groups).
+        if gpu_config.get("vaapi") is True:
+            run_cmd.extend(["-e", "LIBVA_DRIVERS_PATH=/lib/dri:/usr/lib/dri"])
+
         console.print(
-            f"[dim]ROCm passthrough (mode={gpu_mode}): devices={gpu_devices}[/dim]"
+            f"[dim]ROCm passthrough (mode={gpu_mode}): devices={gpu_devices}"
+            + (", vaapi" if gpu_config.get("vaapi") is True else "")
+            + "[/dim]"
         )
 
     # KVM passthrough from config.  Opt-in via top-level `kvm: true`.

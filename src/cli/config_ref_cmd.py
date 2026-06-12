@@ -325,6 +325,13 @@ def config_ref():
       Opt-in --security-opt seccomp=unconfined (enables memory mapping for
       some HPC/numactl workloads). Removes syscall filtering — leave off
       unless a workload actually needs it.
+    • [bold]vaapi[/bold] (bool): AMD only, optional. Default: false.
+      VA-API video encode/decode acceleration. Bakes mesa (radeonsi VA
+      driver) + libva-utils (vainfo) into the image and sets
+      LIBVA_DRIVERS_PATH inside the jail. Requires enabled=true and
+      vendor="amd" — device nodes and the render group come from the
+      regular AMD passthrough. Adds ~1 GB to the image (mesa pulls LLVM),
+      which is why it's opt-in. Verify in-jail with: vainfo
 
     NVIDIA host prerequisites (on the GPU machine):
       1. NVIDIA driver installed (nvidia-smi works)

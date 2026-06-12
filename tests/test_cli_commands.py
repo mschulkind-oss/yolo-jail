@@ -2528,6 +2528,75 @@ class TestRunRocm:
         )
         # AMD stays on crun: it must NOT inherit NVIDIA's --runtime runc pin.
         assert not ("--runtime" in run_cmd and "runc" in run_cmd)
+        # vaapi not requested → no LIBVA env and no implied mesa package.
+        assert not any(
+            isinstance(a, str) and a.startswith("LIBVA_DRIVERS_PATH") for a in run_cmd
+        )
+
+    @patch("subprocess.Popen")
+    @patch("cli.run_cmd.auto_load_image")
+    @patch("cli.run_cmd._check_config_changes", return_value=True)
+    @patch("cli.run_cmd.find_running_container", return_value=None)
+    @patch("subprocess.run")
+    @patch("subprocess.check_output")
+    @patch("shutil.which")
+    def test_rocm_vaapi_adds_libva_env_and_image_packages(
+        self,
+        mock_which,
+        mock_check_output,
+        mock_run,
+        mock_find,
+        mock_config_changes,
+        mock_auto_load,
+        mock_popen,
+        tmp_path,
+        monkeypatch,
+    ):
+        _run_monkeypatch(monkeypatch, tmp_path)
+        _mock_runtimes(mock_which)
+        (tmp_path / "yolo-jail.jsonc").write_text(
+            '{"gpu": {"enabled": true, "vendor": "amd", "vaapi": true}}'
+        )
+        mock_check_output.side_effect = FileNotFoundError
+
+        mock_proc = MagicMock()
+        mock_proc.wait.return_value = None
+        mock_proc.returncode = 0
+        mock_popen.return_value = mock_proc
+
+        import cli as _cli
+
+        original_exists = _cli.Path.exists
+        original_glob = _cli.Path.glob
+
+        def fake_exists(self):
+            if str(self) in ("/dev/kfd", "/dev/dri", "/sys/module/amdgpu"):
+                return True
+            return original_exists(self)
+
+        def fake_glob(self, pattern):
+            if str(self) == "/dev/dri" and pattern == "renderD*":
+                return iter([_cli.Path("/dev/dri/renderD128")])
+            return original_glob(self, pattern)
+
+        with (
+            patch.object(_cli.Path, "exists", fake_exists),
+            patch.object(_cli.Path, "glob", fake_glob),
+        ):
+            runner = CliRunner()
+            runner.invoke(app, ["run", "--", "bash"])
+
+        assert mock_popen.called
+        run_cmd = mock_popen.call_args[0][0]
+        # libva's compiled-in search path lacks /lib/dri (where the image
+        # contents merge puts mesa's drivers) — the env var bridges it.
+        assert "LIBVA_DRIVERS_PATH=/lib/dri:/usr/lib/dri" in run_cmd
+        env_idx = run_cmd.index("LIBVA_DRIVERS_PATH=/lib/dri:/usr/lib/dri")
+        assert run_cmd[env_idx - 1] == "-e"
+        # The image build was asked for the implied VAAPI packages.
+        image_packages = mock_auto_load.call_args.kwargs.get("extra_packages")
+        assert "mesa" in image_packages
+        assert "libva-utils" in image_packages
 
     @patch("subprocess.Popen")
     @patch("cli.run_cmd.auto_load_image")
