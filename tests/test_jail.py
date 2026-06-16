@@ -388,21 +388,54 @@ def test_extra_package_lib_in_lib_farm(tmp_path):
         _force_remove_container(project_dir)
 
 
-def test_extra_package_lib_in_ldcache(tmp_path):
-    """The extra-package symlinks are created before ldconfig runs, so the
-    library also lands in /etc/ld.so.cache — covering dlopen callers that
-    don't read LD_LIBRARY_PATH.  Validates the insertion point is
-    pre-ldconfig."""
+def test_extra_package_lib_dlopen_by_name(tmp_path):
+    """A user `packages:` lib is dlopen-able by bare soname — the real
+    consumer path (e.g. pyzbar's `ctypes.CDLL("libzbar.so.0")`).
+
+    This works via LD_LIBRARY_PATH=/lib:/usr/lib (set in the image env +
+    entrypoint), which is how the nixpkgs glibc loader finds the symlinked
+    libs.  The loader does NOT consult /etc/ld.so.cache in this image (it
+    reads its cache from $glibc/etc/ld.so.cache, a read-only store path),
+    so LD_LIBRARY_PATH is the mechanism under test here."""
     project_dir = _write_project(
         tmp_path, {"network": {"mode": "bridge"}, "packages": ["zbar"]}
     )
     try:
-        result = run_yolo(project_dir, "ldconfig -p | grep -c libzbar || true")
+        result = run_yolo(
+            project_dir,
+            'python3 -c \'import ctypes; ctypes.CDLL("libzbar.so.0"); '
+            "print(\"dlopen-ok\")'",
+        )
+        assert result.returncode == 0, (
+            f"ctypes.CDLL(libzbar.so.0) failed\n"
+            f"stdout={result.stdout!r}\nstderr={result.stderr!r}"
+        )
+        assert "dlopen-ok" in result.stdout
+    finally:
+        _force_remove_container(project_dir)
+
+
+def test_extra_package_lib_in_fhs_ldcache(tmp_path):
+    """The build-time ldconfig populates /etc/ld.so.cache (the FHS path) so
+    tools that read it explicitly see the lib — and, critically, the cache
+    is NOT empty.  Regression guard for the prior `ldconfig -r $out` bug,
+    which chrooted into $out where the farm symlinks' store targets didn't
+    resolve, producing a 0-entry cache (no libc, nothing).
+
+    Note: bare `ldconfig -p` reads $glibc/etc/ld.so.cache, not the FHS path,
+    so we point -C at /etc/ld.so.cache explicitly."""
+    project_dir = _write_project(
+        tmp_path, {"network": {"mode": "bridge"}, "packages": ["zbar"]}
+    )
+    try:
+        result = run_yolo(
+            project_dir, "ldconfig -C /etc/ld.so.cache -p | grep -c libzbar || true"
+        )
         assert result.returncode == 0, result.stderr
         count = int((result.stdout.strip() or "0").splitlines()[-1])
         assert count >= 1, (
-            f"libzbar not found in ld.so.cache (count={count})\n"
-            f"stdout={result.stdout!r}"
+            f"libzbar not in /etc/ld.so.cache (count={count}); the cache may "
+            f"be empty (the -r $out regression)\nstdout={result.stdout!r}"
         )
     finally:
         _force_remove_container(project_dir)

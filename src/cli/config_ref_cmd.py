@@ -51,14 +51,15 @@ def config_ref():
     Nix caches builds — identical configs across jails share cached results.
 
     Shared libraries: each package's shared libraries are symlinked into
-    /lib and /usr/lib (and indexed into ld.so.cache), so a package added
-    for its .so (zbar, libdmtx, ...) is dlopen-able and resolves via
-    LD_LIBRARY_PATH=/lib:/usr/lib — non-nix binaries (node, pip wheels)
-    find it without RPATH entries. The correct shared-lib output is picked
-    automatically (e.g. zbar ships its .so in a separate "-lib" output),
-    so a bare "zbar" just works — no need to spell ".lib". A header-only
-    request (e.g. "gtk4.dev") stays a .dev output and contributes no
-    runtime library, so it adds nothing to /lib and the image is unchanged.
+    /lib and /usr/lib, so a package added for its .so (zbar, libdmtx, ...)
+    is dlopen-able by bare soname (e.g. ctypes.CDLL("libzbar.so.0")). This
+    works via LD_LIBRARY_PATH=/lib:/usr/lib, which the jail sets in every
+    process — so a consumer that scrubs LD_LIBRARY_PATH won't find the lib
+    (the loader does not use /etc/ld.so.cache in this image). The correct
+    shared-lib output is picked automatically (e.g. zbar ships its .so in a
+    separate "-lib" output), so a bare "zbar" just works — no need to spell
+    ".lib". A header-only request (e.g. "gtk4.dev") stays a .dev output and
+    contributes no runtime library, so it adds nothing to /lib.
 
   [bold]include_if_found[/bold] (array of strings): Layer in sibling override files.
     Each entry is a relative path resolved against the including file's

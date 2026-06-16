@@ -308,24 +308,40 @@
           REGISTRIES
         '' + ''
 
-          # /etc/ld.so.cache so non-nix binaries that don't read
-          # LD_LIBRARY_PATH (setuid helpers, some dlopen callers) can
-          # still find libstdc++, glibc, etc.  The symlinks created
-          # above under /lib and /usr/lib are the scan roots.
+          # /etc/ld.so.cache + /etc/ld.so.conf, populated for tools that
+          # read /etc/ld.so.cache directly (`ldconfig -p`, diagnostics, and
+          # any non-nix glibc binary built to use the standard cache path).
           #
-          # ``-r $out`` tells ldconfig to treat $out as root while it
-          # scans, so the paths it records in the cache are absolute
-          # paths that will resolve at runtime inside the container.
-          # Failure shouldn't abort the image build — if ldconfig
-          # can't index something we fall back to LD_LIBRARY_PATH
-          # which is already wired for every standard path.
+          # IMPORTANT — this cache is NOT how the *runtime* loader finds
+          # libraries in this image.  nixpkgs glibc's ld.so is built to read
+          # its cache from `$glibc/etc/ld.so.cache` (a read-only store path
+          # we can't write), and verified via `LD_DEBUG=libs` it never
+          # consults /etc/ld.so.cache at all.  So runtime discovery of the
+          # symlinked libs above — core, chromium, and user `packages:` —
+          # relies entirely on LD_LIBRARY_PATH=/lib:/usr/lib (set in the
+          # image config.Env below, and re-exported by the entrypoint,
+          # run_cmd, and the MCP wrappers).  A consumer that scrubs
+          # LD_LIBRARY_PATH cannot be rescued by this cache; that is a
+          # documented limitation, not something ldconfig can fix here.
           {
             echo "/lib"
             echo "/usr/lib"
             echo "/usr/lib/${linuxMultilib}"
           } > $out/etc/ld.so.conf
+          # Generate the cache at build time.  We must NOT pass ``-r $out``:
+          # that chroots ldconfig into $out, where each farm symlink's
+          # absolute /nix/store/... target does not resolve, so ldconfig
+          # reads zero sonames and writes an EMPTY cache (the prior bug —
+          # `ldconfig -p` reported "0 libs", not even glibc).  Instead scan
+          # the assembled farm directly: $out/lib + $out/usr/lib are
+          # build-absolute paths equal to the runtime
+          # /nix/store/<hash>-bin-path-links/lib paths (the $out store path
+          # is in the image closure and mounted), so every recorded entry
+          # resolves at runtime.  Best-effort (`|| true`).
+          echo "$out/lib"     >  ld.so.conf.build
+          echo "$out/usr/lib" >> ld.so.conf.build
           ${imagePkgs.glibc.bin}/bin/ldconfig \
-            -r $out -C /etc/ld.so.cache -f /etc/ld.so.conf || true
+            -C $out/etc/ld.so.cache -f ld.so.conf.build || true
         '');
 
         binPathLinks = mkBinPathLinks { };
