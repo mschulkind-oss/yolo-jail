@@ -237,6 +237,30 @@ class TestBuildImageStorePath:
         assert "YOLO_EXTRA_PACKAGES" in env
 
     @patch("subprocess.Popen")
+    def test_extra_packages_env_threads_library_package(self, mock_popen, tmp_path):
+        """A package added for its shared library still threads through
+        YOLO_EXTRA_PACKAGES so the flake's lib-link loop receives it.
+
+        The flake side (getLib → symlink into /lib) is covered by the
+        integration tests in test_jail.py; this is the cheap fast-suite
+        anchor that the env wiring is intact for a lib-only package.
+        """
+        out_link = tmp_path / "result"
+        out_link.symlink_to(tmp_path)
+        mock_popen.return_value = _make_nix_proc([""], 0)
+
+        _build_image_store_path(
+            tmp_path,
+            extra_packages=["zbar"],
+            out_link=out_link,
+            status_message="Building...",
+        )
+        call_kwargs = mock_popen.call_args
+        env = call_kwargs[1].get("env") or call_kwargs.kwargs.get("env")
+        assert env is not None
+        assert json.loads(env["YOLO_EXTRA_PACKAGES"]) == ["zbar"]
+
+    @patch("subprocess.Popen")
     def test_stderr_tail_capped(self, mock_popen, tmp_path):
         out_link = tmp_path / "result"
         lines = [f"line {i}\n" for i in range(50)] + [""]

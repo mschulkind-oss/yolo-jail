@@ -210,6 +210,33 @@
               fi
             done
           done
+
+          # Link shared libraries from user-added packages (yolo-jail.jsonc
+          # "packages", carried in via extraPackages) so a package added for
+          # its .so (zbar, libdmtx, ...) is dlopen-able / discoverable on
+          # LD_LIBRARY_PATH=/lib:/usr/lib.  getLib picks each package's
+          # conventional shared-lib output: e.g. zbar's .so lives in its
+          # separate "-lib" output, and mupdf/openssl/sqlite default to a
+          # "-bin" output with no lib/ at all — so a plain pkg/lib glob
+          # would find nothing.  getLib is a no-op on an already
+          # output-specified entry (a ".dev" header request stays .dev and
+          # carries no .so, so the `[ -d "$pkg/lib" ]` guard links nothing),
+          # and an empty packages list expands to an empty for-loop.  Same
+          # idiom + [ ! -e ] precedence guard as the core loop above, so a
+          # user package can never shadow glibc/zlib.  Unconditional (outside
+          # withChromium) so the minimal image gets it too, and placed before
+          # the ldconfig step below so these libs also land in ld.so.cache.
+          for dir in $out/lib $out/usr/lib; do
+            for pkg in ${imagePkgs.lib.concatMapStringsSep " " (p: "${imagePkgs.lib.getLib p}") extraPackages}; do
+              if [ -d "$pkg/lib" ]; then
+                for f in "$pkg"/lib/lib*.so*; do
+                  [ -f "$f" ] || [ -L "$f" ] || continue
+                  name=$(basename "$f")
+                  [ ! -e "$dir/$name" ] && ln -s "$f" "$dir/$name" 2>/dev/null || true
+                done
+              fi
+            done
+          done
         '' + imagePkgs.lib.optionalString withChromium ''
           # Chromium graphics stack — only linked when chromium itself is in
           # the image.  The minimal variant has neither the binary nor the libs.

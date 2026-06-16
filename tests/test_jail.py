@@ -354,6 +354,80 @@ def test_yolo_check_available_inside_jail(temp_project):
     assert "YOLO Jail Check" in result.stdout
 
 
+def _write_project(tmp_path, config, name="lib_project"):
+    """Create a temp project dir with the given yolo-jail.jsonc config."""
+    project_dir = tmp_path / name
+    project_dir.mkdir()
+    with open(project_dir / "yolo-jail.jsonc", "w") as f:
+        json.dump(config, f)
+    return project_dir
+
+
+def test_extra_package_lib_in_lib_farm(tmp_path):
+    """A package added to `packages` for its shared library is symlinked
+    into /lib and /usr/lib so it is dlopen-able.
+
+    zbar is the canonical split-output case: its .so lives in a separate
+    `-lib` output (the default output has binaries, no lib/), so this also
+    guards against a naive `${pkg}/lib` implementation that would miss it.
+    """
+    project_dir = _write_project(
+        tmp_path, {"network": {"mode": "bridge"}, "packages": ["zbar"]}
+    )
+    try:
+        result = run_yolo(
+            project_dir, "ls -l /lib/libzbar.so.0 /usr/lib/libzbar.so.0"
+        )
+        assert result.returncode == 0, (
+            f"libzbar.so.0 not linked into /lib or /usr/lib\n"
+            f"stdout={result.stdout!r}\nstderr={result.stderr!r}"
+        )
+        # The symlink must resolve into the nix store (the -lib output).
+        assert "/nix/store" in result.stdout
+    finally:
+        _force_remove_container(project_dir)
+
+
+def test_extra_package_lib_in_ldcache(tmp_path):
+    """The extra-package symlinks are created before ldconfig runs, so the
+    library also lands in /etc/ld.so.cache — covering dlopen callers that
+    don't read LD_LIBRARY_PATH.  Validates the insertion point is
+    pre-ldconfig."""
+    project_dir = _write_project(
+        tmp_path, {"network": {"mode": "bridge"}, "packages": ["zbar"]}
+    )
+    try:
+        result = run_yolo(project_dir, "ldconfig -p | grep -c libzbar || true")
+        assert result.returncode == 0, result.stderr
+        count = int((result.stdout.strip() or "0").splitlines()[-1])
+        assert count >= 1, (
+            f"libzbar not found in ld.so.cache (count={count})\n"
+            f"stdout={result.stdout!r}"
+        )
+    finally:
+        _force_remove_container(project_dir)
+
+
+def test_dev_only_package_links_no_runtime_lib(tmp_path):
+    """A header-only `.dev` request stays a .dev output (getLib is a no-op
+    on output-specified entries) and contributes no runtime .so to /lib —
+    guarding the image-size-nil property of the dev path."""
+    project_dir = _write_project(
+        tmp_path, {"network": {"mode": "bridge"}, "packages": ["freetype.dev"]}
+    )
+    try:
+        result = run_yolo(
+            project_dir, "ls /lib/libfreetype.so* 2>/dev/null | wc -l"
+        )
+        assert result.returncode == 0, result.stderr
+        assert result.stdout.strip().splitlines()[-1] == "0", (
+            f"a .dev-only request unexpectedly linked a runtime lib into /lib\n"
+            f"stdout={result.stdout!r}"
+        )
+    finally:
+        _force_remove_container(project_dir)
+
+
 def test_yolo_help_inside_jail(temp_project):
     """``yolo --help`` inside a jail must work without tripping on uv's
     getcwd, without requiring the repo root to be writable, and without
