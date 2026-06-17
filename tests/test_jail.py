@@ -375,9 +375,7 @@ def test_extra_package_lib_in_lib_farm(tmp_path):
         tmp_path, {"network": {"mode": "bridge"}, "packages": ["zbar"]}
     )
     try:
-        result = run_yolo(
-            project_dir, "ls -l /lib/libzbar.so.0 /usr/lib/libzbar.so.0"
-        )
+        result = run_yolo(project_dir, "ls -l /lib/libzbar.so.0 /usr/lib/libzbar.so.0")
         assert result.returncode == 0, (
             f"libzbar.so.0 not linked into /lib or /usr/lib\n"
             f"stdout={result.stdout!r}\nstderr={result.stderr!r}"
@@ -404,7 +402,7 @@ def test_extra_package_lib_dlopen_by_name(tmp_path):
         result = run_yolo(
             project_dir,
             'python3 -c \'import ctypes; ctypes.CDLL("libzbar.so.0"); '
-            "print(\"dlopen-ok\")'",
+            'print("dlopen-ok")\'',
         )
         assert result.returncode == 0, (
             f"ctypes.CDLL(libzbar.so.0) failed\n"
@@ -449,9 +447,7 @@ def test_dev_only_package_links_no_runtime_lib(tmp_path):
         tmp_path, {"network": {"mode": "bridge"}, "packages": ["freetype.dev"]}
     )
     try:
-        result = run_yolo(
-            project_dir, "ls /lib/libfreetype.so* 2>/dev/null | wc -l"
-        )
+        result = run_yolo(project_dir, "ls /lib/libfreetype.so* 2>/dev/null | wc -l")
         assert result.returncode == 0, result.stderr
         assert result.stdout.strip().splitlines()[-1] == "0", (
             f"a .dev-only request unexpectedly linked a runtime lib into /lib\n"
