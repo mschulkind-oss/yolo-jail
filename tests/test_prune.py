@@ -1737,3 +1737,126 @@ class TestDoctorDiskUsageCheck:
             config={"prune": {"warn_threshold_gb": 5}},
         )
         assert warnings, "custom threshold must cause a warn"
+
+
+# ---------------------------------------------------------------------------
+# Orphan build-root prune (rename-aside generations from the repopulate dance)
+# ---------------------------------------------------------------------------
+
+
+class TestPruneOrphanBuildRoots:
+    """``_prune_orphan_build_roots`` reclaims orphaned
+    ``nix-build-root.old.*`` generations left by the repopulate
+    rename-aside, but never one a live jail still binds into
+    /opt/yolo-jail, never one inside the age grace window, and never
+    when runtime liveness is unknown."""
+
+    def _make_gen(self, gs: Path, suffix: str, *, age_s: float) -> Path:
+        d = gs / ("nix-build-root.old." + suffix)
+        (d / "src" / "cli").mkdir(parents=True)
+        (d / "src" / "cli" / "__init__.py").write_bytes(b"x")
+        old = __import__("time").time() - age_s
+        os.utime(d, (old, old))
+        return d
+
+    def test_reclaims_old_unreferenced_generation(self, tmp_path):
+        gs = tmp_path / "yolo-jail"
+        (gs / "nix-build-root" / "src").mkdir(parents=True)  # live, keep
+        stale = self._make_gen(gs, "aaa", age_s=3600)
+        b, n = prune._prune_orphan_build_roots(
+            gs, referenced=set(), older_than_seconds=600, apply=True
+        )
+        assert not stale.exists()
+        assert n == 1
+        assert b > 0
+        assert (gs / "nix-build-root").exists()  # live build root untouched
+
+    def test_skips_referenced_generation(self, tmp_path):
+        gs = tmp_path / "yolo-jail"
+        gs.mkdir()
+        pinned = self._make_gen(gs, "bbb", age_s=99999)
+        _, n = prune._prune_orphan_build_roots(
+            gs,
+            referenced={pinned.resolve()},
+            older_than_seconds=600,
+            apply=True,
+        )
+        assert pinned.exists(), "a referenced generation must not be GC'd"
+        assert n == 0
+
+    def test_skips_young_generation_within_grace(self, tmp_path):
+        gs = tmp_path / "yolo-jail"
+        gs.mkdir()
+        young = self._make_gen(gs, "ccc", age_s=30)
+        _, n = prune._prune_orphan_build_roots(
+            gs, referenced=set(), older_than_seconds=600, apply=True
+        )
+        assert young.exists()
+        assert n == 0
+
+    def test_declines_when_liveness_unknown(self, tmp_path):
+        """referenced=None means `podman ps` couldn't be enumerated — the
+        sweeper must delete NOTHING rather than risk a live mount."""
+        gs = tmp_path / "yolo-jail"
+        gs.mkdir()
+        stale = self._make_gen(gs, "eee", age_s=99999)
+        b, n = prune._prune_orphan_build_roots(
+            gs, referenced=None, older_than_seconds=600, apply=True
+        )
+        assert stale.exists(), "liveness-unknown must be fail-safe (no delete)"
+        assert (b, n) == (0, 0)
+
+    def test_dry_run_reports_but_does_not_delete(self, tmp_path):
+        gs = tmp_path / "yolo-jail"
+        gs.mkdir()
+        stale = self._make_gen(gs, "ddd", age_s=3600)
+        b, n = prune._prune_orphan_build_roots(
+            gs, referenced=set(), older_than_seconds=600, apply=False
+        )
+        assert stale.exists(), "dry-run must not delete"
+        assert n == 1
+        assert b > 0
+
+
+class TestFindReferencedBuildRoots:
+    """``_find_referenced_build_roots`` collects the /opt/yolo-jail bind
+    source of every LIVE yolo-* container, and returns None when the
+    runtime can't be enumerated (fail-safe sentinel)."""
+
+    def test_filters_to_live_opt_mount(self, monkeypatch, tmp_path):
+        live_src = tmp_path / "nix-build-root.old.live"
+        live_src.mkdir()
+
+        def fake_run(cmd, *a, **k):
+            r = MagicMock(returncode=0, stderr="")
+            if cmd[1] == "ps":
+                # one running yolo, one stopped yolo, one non-yolo running
+                r.stdout = "yolo-live running\nyolo-dead exited\nother-x running\n"
+            elif cmd[1] == "inspect":
+                name = cmd[-1]
+                if name == "yolo-live":
+                    r.stdout = json.dumps(
+                        [
+                            {
+                                "Destination": "/opt/yolo-jail",
+                                "Source": str(live_src),
+                            },
+                            {"Destination": "/workspace", "Source": "/somewhere"},
+                        ]
+                    )
+                else:
+                    r.stdout = "[]"
+            else:
+                r.stdout = ""
+            return r
+
+        monkeypatch.setattr(prune.subprocess, "run", fake_run)
+        refs = prune._find_referenced_build_roots("podman")
+        assert refs == {live_src.resolve()}
+
+    def test_returns_none_when_runtime_missing(self, monkeypatch):
+        def raising(*a, **k):
+            raise FileNotFoundError
+
+        monkeypatch.setattr(prune.subprocess, "run", raising)
+        assert prune._find_referenced_build_roots("podman") is None

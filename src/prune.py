@@ -39,7 +39,10 @@ _DEDUPE_SUBTREES = ("npm-global", "local", "go")
 # hold per-host bookkeeping + per-jail state that MUST NOT be shared.
 # ``state`` holds loophole runtime state (flock files, CA keys) —
 # also not safe.  ``nix-build-root`` and ``build`` are too small to
-# matter and change on every rebuild.
+# matter for dedup and change on every rebuild.  (Its rename-aside
+# ``nix-build-root.old.*`` generations DO accumulate and are reclaimed
+# separately by ``_prune_orphan_build_roots`` once no live jail binds
+# them — see that function.)
 _GLOBAL_DEDUPE_SUBDIRS = ("cache", "mise", "home")
 
 # Subdirs under ``~/.cache`` that are safe to purge by age — content
@@ -164,6 +167,175 @@ def _inspect_workspace_mount(runtime: str, name: str) -> "Path | None":
             if isinstance(src, str) and src:
                 return Path(src)
     return None
+
+
+# ---------------------------------------------------------------------------
+# Orphan build-root prune (rename-aside generations from the repopulate dance)
+# ---------------------------------------------------------------------------
+#
+# ``_resolve_repo_root`` (cli/run_cmd.py) keeps the installed-wheel build
+# root fresh by renaming the stale copy aside to
+# ``nix-build-root.old.<uuid>`` rather than deleting it — deleting it could
+# unlink an inode a live jail still binds read-only at /opt/yolo-jail (the
+# ``//deleted`` race).  Those aside generations accumulate; this sweeper
+# reclaims them, but ONLY once no running jail still references them.
+
+
+def _inspect_build_root_mount(runtime: str, name: str) -> "Path | None":
+    """Return the host path bound into ``/opt/yolo-jail`` for ``name``.
+
+    Near-clone of :func:`_inspect_workspace_mount`, matching the repo-root
+    bind (``-v {repo_root}:/opt/yolo-jail:ro`` in run_cmd.py) instead of
+    the ``/workspace`` bind.  Returns None on any inspect failure.
+    """
+    try:
+        res = subprocess.run(
+            [runtime, "inspect", "--format", "{{json .Mounts}}", name],
+            capture_output=True,
+            text=True,
+            timeout=5,
+        )
+    except (FileNotFoundError, OSError, subprocess.TimeoutExpired):
+        return None
+    if res.returncode != 0:
+        return None
+    try:
+        mounts = json.loads(res.stdout)
+    except (json.JSONDecodeError, ValueError):
+        return None
+    if not isinstance(mounts, list):
+        return None
+    for m in mounts:
+        if isinstance(m, dict) and m.get("Destination") == "/opt/yolo-jail":
+            src = m.get("Source")
+            if isinstance(src, str) and src:
+                return Path(src)
+    return None
+
+
+def _find_referenced_build_roots(runtime: str) -> "set[Path] | None":
+    """Resolved host paths currently bound into ``/opt/yolo-jail`` by a
+    LIVE yolo-* container (running / paused / restarting).
+
+    This is the liveness gate that protects an in-use build root from the
+    sweeper.  Note the polarity: unlike :func:`_prune_stopped_containers`
+    (which skips live containers to *remove* the dead ones), here we
+    *collect* the live containers' bind sources so they are never deleted.
+
+    Returns ``None`` (NOT an empty set) when the container runtime can't
+    be enumerated — the caller treats that as "liveness unknown" and
+    declines to delete, so a flaky/absent ``podman ps`` can never be
+    mistaken for "nothing is live, delete everything".
+    """
+    try:
+        res = subprocess.run(
+            [runtime, "ps", "-a", "--format", "{{.Names}} {{.State}}"],
+            capture_output=True,
+            text=True,
+            timeout=10,
+        )
+    except (FileNotFoundError, OSError, subprocess.TimeoutExpired):
+        return None
+    if res.returncode != 0:
+        return None
+
+    referenced: set[Path] = set()
+    for line in res.stdout.splitlines():
+        parts = line.strip().split()
+        if len(parts) < 2:
+            continue
+        name, state = parts[0], parts[1]
+        if not name.startswith("yolo-"):
+            continue
+        # Only LIVE containers hold a mount; "running"/"paused"/"restarting"
+        # (case-insensitive) — mirrors the live-state set in
+        # _prune_stopped_containers, but kept (not skipped).
+        if state.lower() not in ("running", "paused", "restarting"):
+            continue
+        src = _inspect_build_root_mount(runtime, name)
+        if src is None:
+            continue
+        try:
+            referenced.add(src.resolve())
+        except OSError:
+            referenced.add(src)
+    return referenced
+
+
+def _prune_orphan_build_roots(
+    global_storage: Path,
+    *,
+    referenced: "set[Path] | None",
+    older_than_seconds: float,
+    apply: bool,
+) -> Tuple[int, int]:
+    """Reclaim ``nix-build-root.old.*`` generations left aside by the
+    repopulate rename in ``_resolve_repo_root``.
+
+    A generation is reclaimed ONLY when it is BOTH (a) not in
+    ``referenced`` (no live jail binds it into /opt/yolo-jail) AND (b)
+    older than ``older_than_seconds`` (a grace window covering a jail that
+    has resolved the path but not yet completed its podman bind).
+
+    Fail-safe: if ``referenced is None`` (runtime liveness could not be
+    determined), nothing is deleted — we never risk unlinking an inode a
+    live jail might hold.  The live ``nix-build-root`` itself and the
+    in-flight ``nix-build-tmp-*`` dirs are never candidates.
+
+    Returns ``(bytes_removed, dirs_removed)``; dry-run reports without
+    touching disk, matching the ``(bytes, count)`` discipline of the other
+    prune primitives.
+    """
+    import shutil
+    import time
+
+    if not global_storage.is_dir():
+        return 0, 0
+    if referenced is None:
+        # Liveness unknown — decline to delete (fail safe).
+        return 0, 0
+
+    now = time.time()
+    bytes_removed = 0
+    dirs_removed = 0
+
+    try:
+        children = list(global_storage.iterdir())
+    except OSError:
+        return 0, 0
+
+    for child in children:
+        # Only aside-generations; never the live nix-build-root and never
+        # the in-flight nix-build-tmp-* dirs.
+        if not child.name.startswith("nix-build-root.old."):
+            continue
+        try:
+            if child.is_symlink() or not child.is_dir():
+                continue
+            st = child.stat()
+        except OSError:
+            continue
+        # (a) liveness gate — skip anything a running jail still binds.
+        try:
+            resolved = child.resolve()
+        except OSError:
+            resolved = child
+        if resolved in referenced or child in referenced:
+            continue
+        # (b) age grace floor — skip recent generations (startup window).
+        if (now - st.st_mtime) < older_than_seconds:
+            continue
+        size = _dir_size_bytes(child)
+        if apply:
+            try:
+                shutil.rmtree(child, ignore_errors=True)
+            except OSError as e:
+                log.debug("rmtree %s failed: %s", child, e)
+                continue
+        bytes_removed += size
+        dirs_removed += 1
+
+    return bytes_removed, dirs_removed
 
 
 # ---------------------------------------------------------------------------

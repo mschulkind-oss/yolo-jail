@@ -982,6 +982,117 @@ class TestResolveRepoRootInstalled:
         finally:
             cli.__file__ = original_file
 
+    def test_repopulate_preserves_previous_generation_dir(self, tmp_path, monkeypatch):
+        """A repopulate must NOT delete the previous build_root — a jail
+        launched from it may still hold its inode bound :ro at
+        /opt/yolo-jail.  The old tree must be renamed aside to
+        nix-build-root.old.<uuid> (same inode, same content), not rmtree'd.
+
+        Regression for the `//deleted` race: in-jail `yolo` died with
+        `No module named 'src'` because the repopulate's
+        ``rmtree(nix-build-root.old)`` unlinked the inode a live jail still
+        had mounted.
+        """
+        import os
+
+        from cli import _resolve_repo_root
+
+        monkeypatch.delenv("YOLO_REPO_ROOT", raising=False)
+        pkg_dir = tmp_path / "pkg" / "src"
+        cli_dir = pkg_dir / "cli"
+        cli_dir.mkdir(parents=True)
+        (pkg_dir / "flake.nix").write_text("{ }")
+        (pkg_dir / "flake.lock").write_text("{}")
+        (pkg_dir / "entrypoint.py").write_text("")
+        (cli_dir / "__init__.py").write_text("# v1")
+
+        storage = tmp_path / "storage"
+        build_root = storage / "nix-build-root"
+        monkeypatch.setattr("cli.run_cmd.GLOBAL_STORAGE", storage)
+
+        import cli
+
+        original_file = cli.__file__
+        try:
+            cli.__file__ = str(cli_dir / "__init__.py")
+            first = _resolve_repo_root()
+            first_marker = first / "src" / "cli" / "__init__.py"
+            first_inode = first_marker.stat().st_ino
+
+            # Force a repopulate: bump pkg flake.nix mtime past the staged
+            # copy so the idempotence skip falls through.
+            os.utime(
+                pkg_dir / "flake.nix",
+                ((build_root / "flake.nix").stat().st_mtime + 10,) * 2,
+            )
+            (cli_dir / "__init__.py").write_text("# v2")
+            _resolve_repo_root()
+
+            # The repopulate actually happened (guards against a future
+            # idempotence change silently turning this test green).
+            assert (build_root / "src" / "cli" / "__init__.py").read_text() == "# v2"
+
+            # The generation live at first resolve must still be reachable
+            # by path (renamed aside, NOT rmtree'd), same inode + content.
+            survivors = [
+                p
+                for p in storage.iterdir()
+                if p.is_dir() and p.name.startswith("nix-build-root.old.")
+            ]
+            assert survivors, (
+                "repopulate must rename the old build_root aside as "
+                "nix-build-root.old.<uuid>, not delete it"
+            )
+            surv_marker = survivors[0] / "src" / "cli" / "__init__.py"
+            assert surv_marker.stat().st_ino == first_inode
+            assert surv_marker.read_text() == "# v1"
+        finally:
+            cli.__file__ = original_file
+
+    def test_repopulate_aside_names_are_unique(self, tmp_path, monkeypatch):
+        """Two repopulates must mint two DISTINCT aside dirs — a single
+        fixed `.old` name would collide (rename onto a non-empty dir
+        raises ENOTEMPTY and aborts one launch)."""
+        import os
+
+        from cli import _resolve_repo_root
+
+        monkeypatch.delenv("YOLO_REPO_ROOT", raising=False)
+        pkg_dir = tmp_path / "pkg" / "src"
+        cli_dir = pkg_dir / "cli"
+        cli_dir.mkdir(parents=True)
+        (pkg_dir / "flake.nix").write_text("{ }")
+        (pkg_dir / "flake.lock").write_text("{}")
+        (pkg_dir / "entrypoint.py").write_text("")
+        (cli_dir / "__init__.py").write_text("# a")
+
+        storage = tmp_path / "storage"
+        build_root = storage / "nix-build-root"
+        monkeypatch.setattr("cli.run_cmd.GLOBAL_STORAGE", storage)
+
+        import cli
+
+        original_file = cli.__file__
+        try:
+            cli.__file__ = str(cli_dir / "__init__.py")
+            _resolve_repo_root()
+            for tag in ("# b", "# c"):
+                os.utime(
+                    pkg_dir / "flake.nix",
+                    ((build_root / "flake.nix").stat().st_mtime + 10,) * 2,
+                )
+                (cli_dir / "__init__.py").write_text(tag)
+                _resolve_repo_root()
+            asides = [
+                p.name
+                for p in storage.iterdir()
+                if p.is_dir() and p.name.startswith("nix-build-root.old.")
+            ]
+            assert len(asides) == 2, "two repopulates must mint two asides"
+            assert len(set(asides)) == 2, "aside names must be unique (uuid)"
+        finally:
+            cli.__file__ = original_file
+
     def test_user_config_repo_path(self, tmp_path, monkeypatch):
         """When user config has repo_path, use it."""
         from cli import _resolve_repo_root

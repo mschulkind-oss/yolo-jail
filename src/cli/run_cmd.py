@@ -164,7 +164,12 @@ def _resolve_repo_root() -> Path:
     pkg_dir = Path(_cli_init_file).parent.parent
     if (pkg_dir / "flake.nix").exists():
         build_root = GLOBAL_STORAGE / "nix-build-root"
-        build_root.mkdir(parents=True, exist_ok=True)
+        # Ensure the *parent* exists for mkdtemp + the rename swap below,
+        # but do NOT pre-create build_root itself: an empty placeholder
+        # would be renamed aside on the first populate (leaking an empty
+        # nix-build-root.old.<uuid>) instead of taking the no-op
+        # first-populate path.
+        GLOBAL_STORAGE.mkdir(parents=True, exist_ok=True)
 
         # Idempotence: the old approach re-copied every yolo run via
         # an atomic rename dance.  That was expensive and vulnerable
@@ -185,28 +190,51 @@ def _resolve_repo_root() -> Path:
         except OSError:
             pass  # fall through to repopulate
 
-        # Repopulate.  Use a temp dir + atomic rename to avoid races
-        # when multiple jails start concurrently — either everybody
-        # sees the old (complete) build_root or everybody sees the
-        # new one, never a half-written state.
+        # Repopulate.  Build the new tree in a temp dir, then swap it in
+        # with two inode-preserving renames.
+        #
+        # CRITICAL: do NOT rmtree the old build_root here.  podman resolves
+        # a -v bind to the source *inode* at `podman run` time, and the
+        # repo is bound read-only into the jail at /opt/yolo-jail
+        # (f"{repo_root}:/opt/yolo-jail:ro" below).  A jail that launched
+        # from the previous copy may still hold that inode mounted; deleting
+        # it out from under the live mount leaves the kernel serving a
+        # //deleted inode — /opt/yolo-jail reads empty and in-jail `yolo`
+        # dies with `No module named 'src'` until the jail restarts.
+        #
+        # So instead of `rename(build_root -> .old); rmtree(.old)`, rename
+        # the old tree ASIDE to a UNIQUE `nix-build-root.old.<uuid>` name
+        # (uuid so two concurrent repopulates never collide on one fixed
+        # `.old` target — a rename onto a non-empty `.old` would raise
+        # ENOTEMPTY and abort one of the launches) and leave it on disk.
+        # The liveness-gated `_prune_orphan_build_roots` sweeper reclaims
+        # these once no running jail still binds them (`yolo prune`).
         import shutil
         import tempfile
+        import time
+        import uuid
 
         tmp_root = Path(tempfile.mkdtemp(dir=GLOBAL_STORAGE, prefix="nix-build-tmp-"))
         try:
             for fname in ("flake.nix", "flake.lock"):
                 shutil.copy2(pkg_dir / fname, tmp_root / fname)
             shutil.copytree(pkg_dir, tmp_root / "src")
-            target_tmp = build_root.with_name(build_root.name + ".old")
-            old_build_root: Optional[Path]
+            aside = build_root.with_name(build_root.name + ".old." + uuid.uuid4().hex)
             try:
-                build_root.rename(target_tmp)
-                old_build_root = target_tmp
+                build_root.rename(aside)
             except FileNotFoundError:
-                old_build_root = None
+                aside = None  # nothing to move aside (first populate)
             tmp_root.rename(build_root)
-            if old_build_root and old_build_root.exists():
-                shutil.rmtree(old_build_root, ignore_errors=True)
+            # Stamp the aside dir's mtime to *now*: rename doesn't touch a
+            # directory's mtime, but the prune sweeper uses mtime as the
+            # age grace floor that protects a jail still mid-startup (path
+            # resolved, podman bind not yet established).  Best-effort.
+            if aside is not None:
+                try:
+                    now = time.time()
+                    os.utime(aside, (now, now))
+                except OSError:
+                    pass
         except BaseException:
             shutil.rmtree(tmp_root, ignore_errors=True)
             raise

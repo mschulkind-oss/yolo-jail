@@ -73,6 +73,14 @@ def prune_cmd(
         "--no-image-cache",
         help="Skip the ~/.cache/images/ tarball cleanup.",
     ),
+    no_build_roots: bool = typer.Option(
+        False,
+        "--no-build-roots",
+        help="Skip reclaiming orphaned nix-build-root.old.* generations. "
+        "These are left aside by the in-jail-repo repopulate dance and are "
+        "only swept once no running jail still binds them into "
+        "/opt/yolo-jail (with an age grace floor for jails mid-startup).",
+    ),
     no_shadowed_home: bool = typer.Option(
         False,
         "--no-shadowed-home",
@@ -282,6 +290,37 @@ def prune_cmd(
             console.print("  [dim]none[/dim]")
         total_saved += image_cache_bytes
 
+    build_root_bytes = 0
+    build_root_dirs = 0
+    if not no_build_roots:
+        console.print("\n[bold]Orphaned build-root generations[/bold]")
+        # Liveness gate: collect build roots still bound into /opt/yolo-jail
+        # by a running jail so the sweep never unlinks an in-use inode.
+        # `None` means the runtime couldn't be enumerated → sweep declines.
+        referenced = _prune._find_referenced_build_roots(runtime)
+        if referenced is None:
+            console.print(
+                "  [dim]skipped — could not enumerate running jails "
+                f"({runtime}); declining to sweep[/dim]"
+            )
+        else:
+            build_root_bytes, build_root_dirs = _prune._prune_orphan_build_roots(
+                GLOBAL_STORAGE,
+                referenced=referenced,
+                # Grace floor well past any jail's resolve→podman-bind window.
+                older_than_seconds=3600,
+                apply=apply,
+            )
+            verb = "would remove" if not apply else "removed"
+            if build_root_dirs:
+                console.print(
+                    f"  {verb}: {_fmt_bytes(build_root_bytes)} across "
+                    f"{build_root_dirs:,} generation(s)"
+                )
+            else:
+                console.print("  [dim]none[/dim]")
+        total_saved += build_root_bytes
+
     shadowed_bytes = 0
     shadowed_items = 0
     if not no_shadowed_home:
@@ -332,6 +371,7 @@ def prune_cmd(
             f"[bold green]Reclaimed {_fmt_bytes(total_saved)}[/bold green] via "
             f"{total_links:,} hardlinks, {len(removed_containers)} container(s), "
             f"{len(removed_images)} image(s), {image_cache_files:,} image tar(s), "
+            f"{build_root_dirs:,} build-root generation(s), "
             f"{shadowed_items:,} shadowed seed path(s), "
             f"{cache_files:,} cache file(s)."
         )
@@ -342,6 +382,7 @@ def prune_cmd(
             f"{len(removed_containers)} container(s), "
             f"{len(removed_images)} image(s), "
             f"{image_cache_files:,} image tar(s), "
+            f"{build_root_dirs:,} build-root generation(s), "
             f"{shadowed_items:,} shadowed seed path(s), "
             f"{cache_files:,} cache file(s).  "
             f"Re-run with [cyan]--apply[/cyan] to execute."
