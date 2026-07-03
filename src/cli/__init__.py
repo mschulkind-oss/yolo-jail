@@ -143,6 +143,7 @@ from .storage import (
     _migrate_old_overlay,
     _nix_custom_conf_included,
     _seed_agent_dir,
+    _sync_claude_json_seed,
     ensure_global_storage,
 )
 from .network import (

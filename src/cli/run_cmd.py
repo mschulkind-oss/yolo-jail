@@ -111,6 +111,7 @@ from .storage import (
     _linux_multilib,
     _migrate_old_overlay,
     _seed_agent_dir,
+    _sync_claude_json_seed,
     ensure_global_storage,
 )
 from .terminal import _print_startup_banner, _tmux_rename_window
@@ -1003,27 +1004,16 @@ def run(
     # .claude/, so no skip needed — _seed_agent_dir won't encounter them.
     _seed_agent_dir(GLOBAL_HOME / ".claude", ws_state / "claude")
 
-    # Seed claude.json onboarding state into the per-workspace overlay.
-    # ~/.claude.json is a symlink → .claude/claude.json, so the actual file
-    # lives inside the writable .claude/ overlay.  Merge GLOBAL_HOME's data
-    # (hasCompletedOnboarding, numStartups, oauthAccount, etc.) into the
-    # per-workspace file, filling missing keys while preserving workspace-specific
-    # MCP server config.
-    src_claude_json = GLOBAL_HOME / ".claude" / "claude.json"
-    dst_claude_json = ws_state / "claude" / "claude.json"
-    if src_claude_json.is_file():
-        try:
-            src_data = json.loads(src_claude_json.read_text())
-            try:
-                dst_data = json.loads(dst_claude_json.read_text())
-            except (json.JSONDecodeError, FileNotFoundError, OSError):
-                dst_data = {}
-            for key, val in src_data.items():
-                if key not in dst_data:
-                    dst_data[key] = val
-            dst_claude_json.write_text(json.dumps(dst_data, indent=2) + "\n")
-        except (json.JSONDecodeError, OSError):
-            pass
+    # Sync claude.json login/onboarding state between the GLOBAL_HOME seed
+    # and the per-workspace overlay — both directions, see
+    # _sync_claude_json_seed.  ~/.claude.json is a symlink →
+    # .claude/claude.json, so the actual file lives inside the writable
+    # .claude/ overlay; the seed is likewise written through the real path
+    # (GLOBAL_HOME/.claude.json is a symlink too — see storage.py).
+    _sync_claude_json_seed(
+        GLOBAL_HOME / ".claude" / "claude.json",
+        ws_state / "claude" / "claude.json",
+    )
 
     # Migrate old per-workspace overlays into new unified agent dirs.
     # Before the read-only refactor, agent state used individual file/dir overlays

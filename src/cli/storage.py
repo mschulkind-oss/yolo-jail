@@ -16,6 +16,7 @@ Owns the set-up that happens before any container starts:
     the check command.
 """
 
+import json
 import os
 import platform
 import shutil
@@ -207,6 +208,66 @@ def _seed_agent_dir(src: Path, dst: Path, *, skip: tuple[str, ...] = ()):
                     shutil.copy2(item, target)
                 except OSError:
                     pass  # permission errors on stale files — skip
+
+
+# Login-state keys back-propagated from a workspace claude.json into the
+# GLOBAL_HOME seed.  Allowlist only — mcpServers, projects, and other
+# workspace-specific keys must never leak into the shared seed.
+_CLAUDE_JSON_SEED_KEYS = ("oauthAccount", "hasCompletedOnboarding")
+
+
+def _sync_claude_json_seed(seed: Path, ws: Path) -> None:
+    """Two-way sync of Claude login/onboarding state between the GLOBAL_HOME
+    seed (``seed``) and a per-workspace overlay's claude.json (``ws``).
+
+    Forward (seed → workspace): merge the seed's keys into the workspace
+    file, filling missing keys while preserving workspace-specific config
+    (mcpServers, projects, …).  This is how a brand-new workspace boots
+    already logged in.
+
+    Reverse (workspace → seed): if the workspace has ``oauthAccount`` and
+    the seed lacks it (or doesn't exist), write the allowlisted login keys
+    up into the seed, preserving any unrelated keys already there.  Jails
+    only write to their per-workspace overlay, so without this the seed
+    never comes into existence on installs that first logged in after the
+    read-only refactor — and every new workspace boots logged out.
+
+    Never raises: a parse/IO error degrades to a no-op for that direction
+    (an unparseable file reads as ``{}``).
+    """
+
+    def read_json_dict(path: Path) -> dict:
+        try:
+            data = json.loads(path.read_text())
+        except (OSError, json.JSONDecodeError, ValueError):
+            return {}
+        return data if isinstance(data, dict) else {}
+
+    seed_data = read_json_dict(seed)
+    ws_data = read_json_dict(ws)
+
+    if seed_data:
+        merged = False
+        for key, val in seed_data.items():
+            if key not in ws_data:
+                ws_data[key] = val
+                merged = True
+        if merged:
+            try:
+                ws.parent.mkdir(parents=True, exist_ok=True)
+                ws.write_text(json.dumps(ws_data, indent=2) + "\n")
+            except OSError:
+                pass
+
+    if ws_data.get("oauthAccount") and not seed_data.get("oauthAccount"):
+        for key in _CLAUDE_JSON_SEED_KEYS:
+            if key in ws_data:
+                seed_data[key] = ws_data[key]
+        try:
+            seed.parent.mkdir(parents=True, exist_ok=True)
+            seed.write_text(json.dumps(seed_data, indent=2) + "\n")
+        except OSError:
+            pass
 
 
 def _migrate_old_overlay(old: Path, new: Path):

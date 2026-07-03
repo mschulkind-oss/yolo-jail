@@ -3344,6 +3344,125 @@ class TestSeedAgentDirCommands:
 
 
 # ═══════════════════════════════════════════════════════════════════════════════
+# Test: _sync_claude_json_seed
+# ═══════════════════════════════════════════════════════════════════════════════
+
+
+class TestSyncClaudeJsonSeed:
+    """Test the two-way claude.json login-state sync between the
+    GLOBAL_HOME seed and a per-workspace overlay."""
+
+    @staticmethod
+    def _paths(tmp_path):
+        seed = tmp_path / "global" / ".claude" / "claude.json"
+        ws = tmp_path / "ws" / "claude" / "claude.json"
+        ws.parent.mkdir(parents=True)
+        return seed, ws
+
+    def test_seed_merged_into_workspace(self, tmp_path):
+        from cli import _sync_claude_json_seed
+
+        seed, ws = self._paths(tmp_path)
+        seed.parent.mkdir(parents=True)
+        seed.write_text(
+            json.dumps({"oauthAccount": {"uuid": "u1"}, "hasCompletedOnboarding": True})
+        )
+        ws.write_text(json.dumps({"mcpServers": {"foo": {}}}))
+        _sync_claude_json_seed(seed, ws)
+        data = json.loads(ws.read_text())
+        assert data["oauthAccount"] == {"uuid": "u1"}
+        assert data["hasCompletedOnboarding"] is True
+        # Workspace-specific config preserved.
+        assert data["mcpServers"] == {"foo": {}}
+
+    def test_seed_does_not_overwrite_workspace_keys(self, tmp_path):
+        from cli import _sync_claude_json_seed
+
+        seed, ws = self._paths(tmp_path)
+        seed.parent.mkdir(parents=True)
+        seed.write_text(json.dumps({"oauthAccount": {"uuid": "seed"}}))
+        ws.write_text(json.dumps({"oauthAccount": {"uuid": "ws"}}))
+        _sync_claude_json_seed(seed, ws)
+        assert json.loads(ws.read_text())["oauthAccount"] == {"uuid": "ws"}
+
+    def test_backpropagates_to_missing_seed_allowlist_only(self, tmp_path):
+        from cli import _sync_claude_json_seed
+
+        seed, ws = self._paths(tmp_path)
+        ws.write_text(
+            json.dumps(
+                {
+                    "oauthAccount": {"uuid": "u1"},
+                    "hasCompletedOnboarding": True,
+                    "mcpServers": {"foo": {}},
+                    "projects": {"/x": {}},
+                }
+            )
+        )
+        _sync_claude_json_seed(seed, ws)
+        data = json.loads(seed.read_text())
+        assert data == {
+            "oauthAccount": {"uuid": "u1"},
+            "hasCompletedOnboarding": True,
+        }
+
+    def test_backpropagates_into_existing_seed_preserving_keys(self, tmp_path):
+        from cli import _sync_claude_json_seed
+
+        seed, ws = self._paths(tmp_path)
+        seed.parent.mkdir(parents=True)
+        seed.write_text(json.dumps({"numStartups": 7}))
+        ws.write_text(
+            json.dumps({"oauthAccount": {"uuid": "u1"}, "hasCompletedOnboarding": True})
+        )
+        _sync_claude_json_seed(seed, ws)
+        data = json.loads(seed.read_text())
+        assert data["oauthAccount"] == {"uuid": "u1"}
+        assert data["hasCompletedOnboarding"] is True
+        assert data["numStartups"] == 7
+
+    def test_no_write_when_neither_side_logged_in(self, tmp_path):
+        from cli import _sync_claude_json_seed
+
+        seed, ws = self._paths(tmp_path)
+        ws.write_text(json.dumps({"mcpServers": {"foo": {}}}))
+        _sync_claude_json_seed(seed, ws)
+        assert not seed.exists()
+
+    def test_no_backprop_when_seed_already_has_account(self, tmp_path):
+        from cli import _sync_claude_json_seed
+
+        seed, ws = self._paths(tmp_path)
+        seed.parent.mkdir(parents=True)
+        seed.write_text(json.dumps({"oauthAccount": {"uuid": "seed"}}))
+        ws.write_text(json.dumps({"oauthAccount": {"uuid": "ws"}}))
+        _sync_claude_json_seed(seed, ws)
+        # Seed untouched — workspace state must not clobber it.
+        assert json.loads(seed.read_text()) == {"oauthAccount": {"uuid": "seed"}}
+
+    def test_corrupt_seed_does_not_crash_and_gets_repaired(self, tmp_path):
+        from cli import _sync_claude_json_seed
+
+        seed, ws = self._paths(tmp_path)
+        seed.parent.mkdir(parents=True)
+        seed.write_text("{not json")
+        ws.write_text(json.dumps({"oauthAccount": {"uuid": "u1"}}))
+        _sync_claude_json_seed(seed, ws)
+        assert json.loads(seed.read_text())["oauthAccount"] == {"uuid": "u1"}
+
+    def test_corrupt_workspace_does_not_crash(self, tmp_path):
+        from cli import _sync_claude_json_seed
+
+        seed, ws = self._paths(tmp_path)
+        seed.parent.mkdir(parents=True)
+        seed.write_text(json.dumps({"hasCompletedOnboarding": True}))
+        ws.write_text("{not json")
+        _sync_claude_json_seed(seed, ws)
+        # Corrupt workspace reads as empty → seed keys fill it.
+        assert json.loads(ws.read_text())["hasCompletedOnboarding"] is True
+
+
+# ═══════════════════════════════════════════════════════════════════════════════
 # Test: _host_mise_dir
 # ═══════════════════════════════════════════════════════════════════════════════
 
