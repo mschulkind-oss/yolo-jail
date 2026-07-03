@@ -289,6 +289,21 @@ window to 60 s plus the upstream refresh round-trip. Coarser ticks
 could still see a 60-s-stale token; finer ticks (every 5 s) burn
 syscalls without measurable benefit.
 
+**Exception (added 2026-07-03): fast retry on transient failure.**
+Suspend/resume broke the 60-s bound in practice: the token expires
+during sleep, the refresher fires within seconds of wake but DNS isn't
+up yet (`upstream_unreachable`), and the full-tick wait left running
+jails holding an expired token long enough to exhaust Claude's 401
+retries. When a tick fails with `upstream_unreachable` while the token
+is still due, the loop now waits `BACKGROUND_REFRESH_FAST_RETRY_SECONDS`
+(5 s) instead, capped at `BACKGROUND_REFRESH_MAX_FAST_RETRIES` (12 ≈
+one normal tick) consecutive fast retries so a long outage falls back
+to the normal cadence. Non-transient errors (`invalid_grant` / any
+upstream 4xx) never fast-retry — hammering a revoked refresh token buys
+nothing and risks upstream rate limits. Residual race: Claude can still
+401 in the first seconds after wake, before the NIC exists at all; that
+window can't be closed from the broker side.
+
 ### 6.3 Where the loop lives
 
 Inside the host singleton broker process, not a separate daemon.

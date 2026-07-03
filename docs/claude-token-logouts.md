@@ -53,6 +53,13 @@ Scan the Loopholes section for the `claude-oauth-broker` lines.
 | `shared creds expire in Nm` | Approaching expiry without a refresh. | Watch — if it ticks down without a refresh landing, escalate. |
 | `loophole claude-oauth-broker: daemon live (pid=…, ping ok)` and `shared creds valid for Xh Ym` | All good. | — |
 
+### Step 1b — patterns doctor can't see (both fixed 2026-07-03)
+
+| Symptom | What it means | Fix |
+|---|---|---|
+| **Fresh workspace prompts `/login` despite valid shared creds.** First `yolo run` in a never-jailed repo demands `/login` even though `yolo doctor` says creds are healthy. | Claude decides "am I logged in" partly from `~/.claude.json` (`oauthAccount`, `hasCompletedOnboarding`), not just `.credentials.json`. New workspaces inherit that state from the `GLOBAL_HOME` seed (`~/.local/share/yolo-jail/home/.claude/claude.json`) — which never existed on installs that first logged in after the read-only refactor, because jails write only to their per-workspace overlay. | Fixed: `yolo run` now back-propagates the allowlisted login keys (`oauthAccount`, `hasCompletedOnboarding`) from the workspace overlay into the seed (`_sync_claude_json_seed` in `src/cli/storage.py`). One run of any already-logged-in workspace repairs the seed; workspaces created afterwards boot logged in. A truly fresh install still needs exactly one `/login` — expected. |
+| **Logout right after laptop wake.** A running jail 401s within a minute of resume from suspend; broker log shows `bg_refresh` failing with `upstream_unreachable` / `Temporary failure in name resolution` at wake, succeeding a tick later. | The token expired during sleep. At wake the refresher fires before DNS is up, fails, and used to wait a full 60-s tick — Claude exhausts its 5 retries inside that window and demands `/login`. | Fixed: a transient (`upstream_unreachable`) failure while the token is due now retries every ~5 s (`BACKGROUND_REFRESH_FAST_RETRY_SECONDS`, capped at 12 consecutive) instead of waiting the full tick, shrinking the stale window to ~5–10 s. Residual race: Claude can still 401 in the first seconds before the NIC is up at all — rare, and a plain retry of the request recovers; only re-`/login` if it persists. |
+
 ## Step 2 — broker status + log
 
 ```bash
