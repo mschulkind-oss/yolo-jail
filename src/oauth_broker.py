@@ -111,6 +111,16 @@ USER_AGENT = _broker_user_agent()
 # coarse enough that the broker isn't burning syscalls.
 BACKGROUND_REFRESH_LEAD_SECONDS = 300
 BACKGROUND_REFRESH_TICK_SECONDS = 60
+# Fast-retry cadence after a *transient* refresh failure while the token
+# is due/expired.  Covers the suspend/resume race: at wake the refresher
+# fires within seconds but DNS is often not up yet, the tick fails with
+# upstream_unreachable, and a full 60-s wait leaves running jails holding
+# an expired token long enough for Claude to exhaust its 401 retries and
+# demand /login.  Retrying every few seconds shrinks that window to
+# ~5-10s.  Capped so a genuine long outage falls back to the normal
+# cadence instead of hammering; 12 × 5s ≈ one normal tick.
+BACKGROUND_REFRESH_FAST_RETRY_SECONDS = 5
+BACKGROUND_REFRESH_MAX_FAST_RETRIES = 12
 
 # Shared credentials file — lives in the directory-mounted shared
 # credentials dir so Claude Code's atomic writer (tmp+rename) works.
@@ -508,9 +518,17 @@ def _refresh_due(
     return expires_at_ms - now_ms < lead_seconds * 1000
 
 
-def _background_refresh_tick(creds_path: Path, lead_seconds: int) -> None:
+def _background_refresh_tick(creds_path: Path, lead_seconds: int) -> bool:
     """One iteration of the background refresher.  Decoupled from the
     loop so tests can call it directly.
+
+    Returns True when the refresh failed *transiently* (network
+    unreachable — e.g. DNS not up yet right after a suspend/resume wake)
+    while the token is still due: the loop uses this to retry on the
+    fast cadence instead of waiting a full tick.  Anything else —
+    success, not due, or a non-transient error like ``invalid_grant``
+    (retrying a revoked refresh token buys nothing and risks upstream
+    rate limits) — returns False.
 
     Logs at INFO when it decides to refresh (so the operator can
     correlate periodic broker activity with the creds file's mtime),
@@ -518,7 +536,7 @@ def _background_refresh_tick(creds_path: Path, lead_seconds: int) -> None:
     """
     if not _refresh_due(creds_path, lead_seconds):
         log.debug("bg_refresh: skip (not due) shared=%s", _describe_creds(creds_path))
-        return
+        return False
     log.info(
         "bg_refresh: due (within %ds of expiry) shared=%s",
         lead_seconds,
@@ -531,12 +549,15 @@ def _background_refresh_tick(creds_path: Path, lead_seconds: int) -> None:
             result.get("error"),
             result.get("message") or result.get("body") or "",
         )
-    else:
-        log.info(
-            "bg_refresh: ok expires_in=%s shared=%s",
-            result.get("expires_in"),
-            _describe_creds(creds_path),
+        return result.get("error") == "upstream_unreachable" and _refresh_due(
+            creds_path, lead_seconds
         )
+    log.info(
+        "bg_refresh: ok expires_in=%s shared=%s",
+        result.get("expires_in"),
+        _describe_creds(creds_path),
+    )
+    return False
 
 
 def _background_refresher_loop(
@@ -544,12 +565,19 @@ def _background_refresher_loop(
     stop_event: threading.Event,
     tick_seconds: float = BACKGROUND_REFRESH_TICK_SECONDS,
     lead_seconds: int = BACKGROUND_REFRESH_LEAD_SECONDS,
+    fast_retry_seconds: float = BACKGROUND_REFRESH_FAST_RETRY_SECONDS,
 ) -> None:
     """Run the background refresher until ``stop_event`` is set.
 
     Wrapped in a try/except so a single tick failure doesn't kill the
     loop — the on-demand path is the safety net but it's only the
     safety net if this loop is still running.
+
+    When a tick reports a transient failure while the token is due, the
+    next wait is ``fast_retry_seconds`` instead of ``tick_seconds`` (up
+    to ``BACKGROUND_REFRESH_MAX_FAST_RETRIES`` consecutive times) so a
+    wake-from-suspend DNS hiccup doesn't leave jails with an expired
+    token for a full tick.
     """
     log.info(
         "bg_refresh: started (tick=%ds, lead=%ds, creds=%s)",
@@ -557,12 +585,25 @@ def _background_refresher_loop(
         lead_seconds,
         creds_path,
     )
+    fast_retries = 0
     while not stop_event.is_set():
+        transient_failure = False
         try:
-            _background_refresh_tick(creds_path, lead_seconds)
+            transient_failure = _background_refresh_tick(creds_path, lead_seconds)
         except Exception as e:  # noqa: BLE001 — loop must survive any tick error
             log.error("bg_refresh: tick crashed: %s", e, exc_info=True)
-        stop_event.wait(tick_seconds)
+        if transient_failure and fast_retries < BACKGROUND_REFRESH_MAX_FAST_RETRIES:
+            fast_retries += 1
+            log.info(
+                "bg_refresh: transient failure while due — fast retry %d/%d in %ss",
+                fast_retries,
+                BACKGROUND_REFRESH_MAX_FAST_RETRIES,
+                fast_retry_seconds,
+            )
+            stop_event.wait(fast_retry_seconds)
+        else:
+            fast_retries = 0
+            stop_event.wait(tick_seconds)
     log.info("bg_refresh: stopped")
 
 

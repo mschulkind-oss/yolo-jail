@@ -1019,8 +1019,9 @@ def test_refresh_due_false_when_no_expires_at(tmp_path: Path):
 def test_background_tick_skips_when_not_due(creds_file: Path, broker_dirs: Path):
     # creds_file fixture has expiresAt ~2h out; default lead is 5min → skip.
     with patch.object(oauth_broker, "do_refresh") as m:
-        oauth_broker._background_refresh_tick(creds_file, lead_seconds=300)
+        result = oauth_broker._background_refresh_tick(creds_file, lead_seconds=300)
     m.assert_not_called()
+    assert result is False
 
 
 def test_background_tick_refreshes_when_due(tmp_path: Path, broker_dirs: Path):
@@ -1045,10 +1046,12 @@ def test_background_tick_refreshes_when_due(tmp_path: Path, broker_dirs: Path):
             "expires_in": 7200,
             "token_type": "Bearer",
         }
-        oauth_broker._background_refresh_tick(creds, lead_seconds=300)
+        result = oauth_broker._background_refresh_tick(creds, lead_seconds=300)
     m.assert_called_once_with("r-old")
     new = json.loads(creds.read_text())["claudeAiOauth"]
     assert new["accessToken"] == "a-new"
+    # Success → no fast-retry signal.
+    assert result is False
 
 
 def test_background_tick_survives_refresh_failure(
@@ -1074,6 +1077,108 @@ def test_background_tick_survives_refresh_failure(
         m.side_effect = urllib.error.URLError("dns boom")
         # Should NOT raise.
         oauth_broker._background_refresh_tick(creds, lead_seconds=300)
+
+
+def _write_near_expiry_creds(path: Path) -> None:
+    path.write_text(
+        json.dumps(
+            {
+                "claudeAiOauth": {
+                    "accessToken": "stale",
+                    "refreshToken": "r-old",
+                    "expiresAt": int(time.time() * 1000) + 60_000,
+                    "subscriptionType": "max",
+                    "scopes": ["user:inference"],
+                }
+            }
+        )
+    )
+
+
+def test_background_tick_signals_fast_retry_on_unreachable_while_due(
+    tmp_path: Path, broker_dirs: Path
+):
+    """Network-unreachable while the token is still due → fast-retry
+    signal, so the wake-from-suspend DNS race resolves in seconds, not a
+    full tick."""
+    creds = tmp_path / "near-expiry.json"
+    _write_near_expiry_creds(creds)
+    with patch.object(oauth_broker, "_refresh_upstream") as m:
+        m.side_effect = urllib.error.URLError("Temporary failure in name resolution")
+        assert oauth_broker._background_refresh_tick(creds, lead_seconds=300) is True
+
+
+def test_background_tick_no_fast_retry_on_invalid_grant(
+    tmp_path: Path, broker_dirs: Path
+):
+    """A 4xx (revoked/invalid refresh token) is not transient — fast
+    retrying it buys nothing and risks upstream rate limits."""
+    import io
+
+    creds = tmp_path / "near-expiry.json"
+    _write_near_expiry_creds(creds)
+    with patch.object(oauth_broker, "_refresh_upstream") as m:
+        m.side_effect = urllib.error.HTTPError(
+            url="https://platform.claude.com/v1/oauth/token",
+            code=400,
+            msg="Bad Request",
+            hdrs={"Content-Type": "application/json"},
+            fp=io.BytesIO(b'{"error":"invalid_grant"}'),
+        )
+        assert oauth_broker._background_refresh_tick(creds, lead_seconds=300) is False
+
+
+def test_background_loop_uses_fast_wait_when_signaled(
+    tmp_path: Path, broker_dirs: Path
+):
+    """When ticks report transient failure, the loop must retry on the
+    fast cadence — with tick_seconds far longer than the test, multiple
+    tick calls prove the short wait was used."""
+    import threading as _threading
+
+    creds = tmp_path / "creds.json"
+    _write_near_expiry_creds(creds)
+    stop = _threading.Event()
+    with patch.object(oauth_broker, "_background_refresh_tick", return_value=True) as m:
+        thread = _threading.Thread(
+            target=oauth_broker._background_refresher_loop,
+            args=(creds, stop, 60.0, 300, 0.01),
+            daemon=True,
+        )
+        thread.start()
+        time.sleep(0.2)
+        stop.set()
+        thread.join(timeout=1.0)
+    assert not thread.is_alive()
+    assert m.call_count >= 3, f"expected several fast-cadence ticks, got {m.call_count}"
+
+
+def test_background_loop_caps_consecutive_fast_retries(
+    tmp_path: Path, broker_dirs: Path
+):
+    """A long outage must fall back to the normal cadence: after the cap,
+    the next wait is tick_seconds, so tick calls stop at cap + 1."""
+    import threading as _threading
+
+    creds = tmp_path / "creds.json"
+    _write_near_expiry_creds(creds)
+    stop = _threading.Event()
+    with (
+        patch.object(oauth_broker, "BACKGROUND_REFRESH_MAX_FAST_RETRIES", 2),
+        patch.object(oauth_broker, "_background_refresh_tick", return_value=True) as m,
+    ):
+        thread = _threading.Thread(
+            target=oauth_broker._background_refresher_loop,
+            args=(creds, stop, 60.0, 300, 0.01),
+            daemon=True,
+        )
+        thread.start()
+        time.sleep(0.3)
+        stop.set()
+        thread.join(timeout=1.0)
+    assert not thread.is_alive()
+    # 1 initial tick + 2 fast retries, then the loop blocks on the 60s wait.
+    assert m.call_count == 3, f"expected exactly 3 ticks, got {m.call_count}"
 
 
 def test_background_loop_stops_on_event(tmp_path: Path, broker_dirs: Path):
