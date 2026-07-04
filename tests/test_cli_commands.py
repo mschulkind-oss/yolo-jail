@@ -557,18 +557,34 @@ class TestPsCommand:
 
 
 class TestStartHostPortForwarding:
+    @staticmethod
+    def _socat_stub(mock_popen):
+        """Make the mocked Popen behave like socat: create the
+        UNIX-LISTEN socket file.  start_host_port_forwarding polls for
+        those files (instead of a fixed sleep), so the stub keeps the
+        readiness wait on its instant fast path."""
+
+        def spawn(cmd, **_kwargs):
+            listen = next(a for a in cmd if a.startswith("UNIX-LISTEN:"))
+            Path(listen.split(":", 1)[1].split(",", 1)[0]).touch()
+            return MagicMock()
+
+        mock_popen.side_effect = spawn
+
     def test_empty_list_returns_empty(self, tmp_path):
         result = start_host_port_forwarding([], "yolo-test", tmp_path)
         assert result == []
 
     @patch("subprocess.Popen")
     def test_creates_socat_processes(self, mock_popen, tmp_path):
-        mock_popen.return_value = MagicMock()
+        self._socat_stub(mock_popen)
         socket_dir = tmp_path / "sockets"
         Path.home() / ".local" / "share" / "yolo-jail" / "logs"
         result = start_host_port_forwarding([5432], "yolo-test", socket_dir)
         assert len(result) == 1
         mock_popen.assert_called_once()
+        # The readiness poll saw the socket file appear.
+        assert (socket_dir / "port-5432.sock").exists()
 
     @patch("subprocess.Popen", side_effect=FileNotFoundError)
     def test_socat_not_found(self, mock_popen, tmp_path, capsys):
@@ -578,7 +594,7 @@ class TestStartHostPortForwarding:
 
     @patch("subprocess.Popen")
     def test_multiple_ports(self, mock_popen, tmp_path):
-        mock_popen.return_value = MagicMock()
+        self._socat_stub(mock_popen)
         socket_dir = tmp_path / "sockets"
         result = start_host_port_forwarding(
             [5432, "8080:9090"], "yolo-test", socket_dir
@@ -587,14 +603,24 @@ class TestStartHostPortForwarding:
 
     @patch("subprocess.Popen")
     def test_removes_stale_socket(self, mock_popen, tmp_path):
-        mock_popen.return_value = MagicMock()
         socket_dir = tmp_path / "sockets"
         socket_dir.mkdir()
         stale = socket_dir / "port-5432.sock"
         stale.touch()
+        seen_at_spawn = {}
+
+        def spawn(cmd, **_kwargs):
+            # Record whether the stale socket was gone when "socat"
+            # started, then create the fresh one like socat would.
+            seen_at_spawn["stale_removed"] = not stale.exists()
+            stale.touch()
+            return MagicMock()
+
+        mock_popen.side_effect = spawn
         start_host_port_forwarding([5432], "yolo-test", socket_dir)
-        # Stale socket should have been removed before socat
-        # (socat creates a new one)
+        # Stale socket was removed before socat spawned (socat then
+        # creates a new one).
+        assert seen_at_spawn["stale_removed"] is True
 
 
 # ═══════════════════════════════════════════════════════════════════════════════
@@ -707,21 +733,21 @@ class TestRunCommandInternals:
         tmp_path,
         monkeypatch,
     ):
-        monkeypatch.chdir(tmp_path)
-        monkeypatch.setenv("YOLO_REPO_ROOT", str(REPO_ROOT))
+        # Shared hermetic setup: redirects every GLOBAL_* path to
+        # tmp_path, no-ops time.sleep, and stubs the broker/relay/
+        # loophole plumbing (real subprocesses + a ~6s socket.accept
+        # join in stop_loopholes) that this test doesn't assert on.
+        _run_monkeypatch(monkeypatch, tmp_path)
         (tmp_path / "yolo-jail.jsonc").write_text("{}")
 
         mock_check_output.side_effect = FileNotFoundError
         mock_mise_dir.return_value = tmp_path / "mise"
-        (tmp_path / "mise").mkdir()
         agents_dir = tmp_path / "agents" / "yolo-test"
         agents_dir.mkdir(parents=True)
         (agents_dir / "AGENTS-copilot.md").write_text("test")
         (agents_dir / "AGENTS-gemini.md").write_text("test")
         (agents_dir / "CLAUDE.md").write_text("test")
         mock_agents.return_value = agents_dir
-        monkeypatch.setattr("cli.GLOBAL_STORAGE", tmp_path / "storage")
-        (tmp_path / "storage" / "locks").mkdir(parents=True, exist_ok=True)
 
         proc = MagicMock()
         proc.wait.return_value = None

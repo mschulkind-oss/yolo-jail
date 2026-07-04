@@ -142,6 +142,15 @@ from .version import (
 # designed migration; see docs/jail-state-separation-design.md).
 MISE_STORE_VOLUME = "yolo-mise-data-v2"
 
+# _release_lock_when_started polls `find_running_container` until the
+# freshly launched container is visible, then releases the workspace
+# lock so concurrent `yolo` invocations exec into it instead of racing
+# a second launch.  Worst case ATTEMPTS x INTERVAL = 5s before giving
+# up and releasing anyway.  Hoisted to module level so tests can shrink
+# them explicitly; production defaults must stay 20 x 0.25s.
+LOCK_RELEASE_POLL_ATTEMPTS = 20
+LOCK_RELEASE_POLL_INTERVAL_SECONDS = 0.25
+
 
 def _resolve_repo_root() -> Path:
     """Find the yolo-jail repo root for nix image builds.
@@ -2537,10 +2546,10 @@ def run(
     # lock once the container is visible — any concurrent yolo
     # process waiting on the lock then exec's into our container.
     def _release_lock_when_started(_proc):
-        for _ in range(20):
+        for _ in range(LOCK_RELEASE_POLL_ATTEMPTS):
             if find_running_container(cname, runtime=runtime):
                 break
-            _time.sleep(0.25)
+            _time.sleep(LOCK_RELEASE_POLL_INTERVAL_SECONDS)
         lock_file.close()
 
     try:

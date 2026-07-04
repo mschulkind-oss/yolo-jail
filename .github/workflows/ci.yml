@@ -50,7 +50,10 @@ jobs:
         run: uv run ruff format --check .
 
       - name: Unit tests
-        run: uv run pytest tests/ -v -m "not slow"
+        # -n 4 matches GH hosted runners' 4 vCPUs; worksteal shaves the
+        # long-test tail.  The integration job below stays serial (real
+        # containers; session image load must not run per worker).
+        run: uv run pytest tests/ -v -m "not slow" -n 4 --dist worksteal
 
   check-macos:
     runs-on: macos-latest
@@ -72,7 +75,7 @@ jobs:
         run: uv run ruff check .
 
       - name: Unit tests (macOS)
-        run: uv run pytest tests/ -v -m "not slow"
+        run: uv run pytest tests/ -v -m "not slow" -n 4 --dist worksteal
 
   build-image:
     runs-on: ubuntu-latest

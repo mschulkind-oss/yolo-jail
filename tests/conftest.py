@@ -109,6 +109,35 @@ _STORAGE_CONSTANTS = (
     "USER_CONFIG_PATH",
 )
 
+# Machine-global /tmp paths for the OAuth-broker singleton (defined in
+# cli/loopholes_runtime.py, from-imported by cli/__init__.py and
+# cli/run_cmd.py).  Redirected for the same reason as the storage
+# constants: a live broker on the machine flips `.exists()` branches in
+# unit tests, and parallel (xdist) workers would collide on the shared
+# /tmp lock/pid files.
+_BROKER_SINGLETON_CONSTANTS = (
+    "BROKER_SINGLETON_SOCKET",
+    "BROKER_SINGLETON_PID_FILE",
+    "BROKER_SINGLETON_LOCK",
+)
+
+
+def _is_yolo_cli_module(mod_name: str) -> bool:
+    """Match every alias the CLI source tree gets imported under.
+
+    The suite imports the same source files under TWO module identities:
+    ``cli`` / ``cli.*`` (tests that sys.path-insert ``src/``) and
+    ``src.cli`` / ``src.cli.*`` (tests importing the installed package,
+    e.g. tests/test_prune.py).  Distinct module objects hold distinct
+    constant bindings, so both must be redirected.  ``src.prune`` is
+    matched too: today it only takes paths as arguments, but a future
+    module-level storage constant there must not silently re-open the
+    real-storage hole.
+    """
+    return mod_name in ("cli", "src.cli", "src.prune") or mod_name.startswith(
+        ("cli.", "src.cli.")
+    )
+
 
 @pytest.fixture(autouse=True)
 def _hermetic_storage_paths(request, monkeypatch, tmp_path_factory):
@@ -131,6 +160,13 @@ def _hermetic_storage_paths(request, monkeypatch, tmp_path_factory):
         return
 
     root = tmp_path_factory.mktemp("yolo-hermetic")
+    # Broker singleton files live directly in /tmp in production, so code
+    # writes them without mkdir-ing a parent — create the redirect dir up
+    # front to mirror that.  (Tests that actually BIND an AF_UNIX socket
+    # use the short-path ``sock_dir`` fixture instead: on macOS this
+    # tmp_path-based location can exceed the 104-byte sun_path cap.)
+    broker_dir = root / "broker"
+    broker_dir.mkdir()
     values = {
         "GLOBAL_STORAGE": root / "storage",
         "GLOBAL_HOME": root / "storage" / "home",
@@ -140,16 +176,32 @@ def _hermetic_storage_paths(request, monkeypatch, tmp_path_factory):
         "AGENTS_DIR": root / "storage" / "agents",
         "BUILD_DIR": root / "storage" / "build",
         "USER_CONFIG_PATH": root / "config.jsonc",
+        "BROKER_SINGLETON_SOCKET": broker_dir / "broker.sock",
+        "BROKER_SINGLETON_PID_FILE": broker_dir / "broker.pid",
+        "BROKER_SINGLETON_LOCK": broker_dir / "broker.lock",
     }
+    assert set(values) == set(_STORAGE_CONSTANTS) | set(_BROKER_SINGLETON_CONSTANTS)
+    # tests/test_prune.py imports ``from src.cli import app`` lazily,
+    # INSIDE the test body — after this fixture ran.  Import the package
+    # eagerly so its constant bindings exist in sys.modules and get
+    # redirected here (a fresh import mid-test would resolve to the real
+    # ~/.local/share/yolo-jail and walk/mutate host storage).
+    try:
+        import src.cli  # noqa: F401
+    except ImportError:
+        pass
     for mod_name, mod in list(sys.modules.items()):
-        if mod is None or not (mod_name == "cli" or mod_name.startswith("cli.")):
+        if mod is None or not _is_yolo_cli_module(mod_name):
             continue
-        for const in _STORAGE_CONSTANTS:
+        for const, value in values.items():
             if hasattr(mod, const):
-                monkeypatch.setattr(mod, const, values[const])
-    storage_mod = sys.modules.get("cli.storage")
-    if storage_mod is not None and hasattr(storage_mod, "_host_mise_dir"):
-        monkeypatch.setattr(storage_mod, "_host_mise_dir", lambda: root / "host-mise")
+                monkeypatch.setattr(mod, const, value)
+    for storage_alias in ("cli.storage", "src.cli.storage"):
+        storage_mod = sys.modules.get(storage_alias)
+        if storage_mod is not None and hasattr(storage_mod, "_host_mise_dir"):
+            monkeypatch.setattr(
+                storage_mod, "_host_mise_dir", lambda: root / "host-mise"
+            )
 
 
 def _detect_runtime() -> str | None:
@@ -160,11 +212,18 @@ def _detect_runtime() -> str | None:
 
 
 def _image_exists(runtime: str) -> bool:
-    result = subprocess.run(
-        [runtime, "image", "inspect", JAIL_IMAGE],
-        capture_output=True,
-    )
-    return result.returncode == 0
+    # Inside a jail, podman may lack unqualified-search registries, so the
+    # short name "yolo-jail:latest" fails to resolve even when the image is
+    # loaded — always check the localhost-qualified name too, or every run
+    # rebuilds and re-loads the 3.1GB image.
+    for name in (JAIL_IMAGE, f"localhost/{JAIL_IMAGE}"):
+        result = subprocess.run(
+            [runtime, "image", "inspect", name],
+            capture_output=True,
+        )
+        if result.returncode == 0:
+            return True
+    return False
 
 
 @pytest.fixture(scope="session", autouse=True)
@@ -179,12 +238,20 @@ def _ensure_nix_in_path():
 
 
 @pytest.fixture(scope="session", autouse=True)
-def ensure_jail_image():
+def ensure_jail_image(request):
     """
     Before any test runs, ensure yolo-jail:latest is loaded into the local container
     runtime. On the host this is a no-op (cli.py handles it). Inside a jail the inner
     podman has an empty image store, so we build via the host nix daemon and load.
+
+    Only integration tests (``slow`` marker) ever run the image, so a
+    fast-only invocation (``-m "not slow"``) skips the build/load entirely —
+    it costs ~30s serial and, under pytest-xdist, would run once PER WORKER
+    (concurrent nix builds + duplicate 3.1GB podman loads).
     """
+    if not any(item.get_closest_marker("slow") for item in request.session.items):
+        return  # no integration tests selected — image never used
+
     in_container = sys.platform != "darwin" and (
         Path("/run/.containerenv").exists() or Path("/.dockerenv").exists()
     )

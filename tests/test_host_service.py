@@ -66,8 +66,10 @@ def _start_server(handler, sock_path: Path) -> threading.Thread:
     # `bind()` creates the socket file before `listen()` completes, so
     # `sock_path.exists()` going true is necessary but not sufficient —
     # connections arriving before listen() get ECONNREFUSED. Wait for a
-    # probe connect to succeed before returning.
-    deadline = time.monotonic() + 2.0
+    # probe connect to succeed before returning.  Tight interval /
+    # generous deadline: returns in a few ms when the server is up, and
+    # only a genuinely wedged server burns the deadline.
+    deadline = time.monotonic() + 10.0
     while time.monotonic() < deadline:
         if sock_path.exists():
             try:
@@ -78,7 +80,7 @@ def _start_server(handler, sock_path: Path) -> threading.Thread:
                 return t
             except OSError:
                 pass
-        time.sleep(0.02)
+        time.sleep(0.005)
     raise AssertionError("server did not start accepting")
 
 

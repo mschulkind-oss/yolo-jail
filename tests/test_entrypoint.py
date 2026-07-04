@@ -1209,6 +1209,15 @@ class TestClaudeConfig:
 
     def test_lsp_tool_enabled_when_lsp_configured(self, jail_home, monkeypatch):
         """settings.json enables ENABLE_LSP_TOOL when at least one LSP is set."""
+        # With an LSP configured, configure_claude() would shell out to a
+        # real `claude plugins install` (mutating the dev machine's
+        # ~/.claude plugin state, seconds per call).  This test asserts on
+        # settings.json only — stub the installer.
+        monkeypatch.setattr(
+            entrypoint.agent_configs,
+            "_install_claude_plugins",
+            lambda *a, **kw: None,
+        )
         monkeypatch.setenv(
             "YOLO_LSP_SERVERS",
             json.dumps(
@@ -1354,6 +1363,14 @@ class TestClaudeConfig:
 
     def test_lsp_plugins_enabled_when_lsp_configured(self, jail_home, monkeypatch):
         """Claude LSP plugins are enabled for each configured LSP."""
+        # enabledPlugins in settings.json is written by configure_claude()
+        # itself; the separate `claude plugins install` subprocesses would
+        # hit the real CLI and real ~/.claude plugin state.  Stub them out.
+        monkeypatch.setattr(
+            entrypoint.agent_configs,
+            "_install_claude_plugins",
+            lambda *a, **kw: None,
+        )
         monkeypatch.setenv(
             "YOLO_LSP_SERVERS",
             json.dumps(

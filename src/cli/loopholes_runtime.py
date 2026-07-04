@@ -6,7 +6,8 @@ What lives here:
     and consumed by stop_loopholes / run()'s container command assembly.
   * _host_service_env_var, _host_service_default_jail_socket,
     _host_service_sockets_dir, _resolve_journal_mode,
-    _substitute_socket_in_cmd — small helpers used by all daemons.
+    _substitute_socket_in_cmd, _wake_and_close_listener — small helpers
+    used by all daemons.
   * Claude OAuth broker singleton — BROKER_SINGLETON_*, _broker_*
     family.  One host-wide daemon, not per-jail; see the long comment
     block near BROKER_SINGLETON_SOCKET for the history.
@@ -156,6 +157,41 @@ def _substitute_socket_in_cmd(args: List[str], socket_path: str) -> List[str]:
     return [a.replace("{socket}", socket_path) for a in args]
 
 
+def _wake_and_close_listener(srv: socket.socket, sock_path: Path) -> None:
+    """Wake a serve loop blocked in ``srv.accept()`` and close ``srv``.
+
+    Used by the builtin daemons' ``_stop`` closures after setting their
+    shutdown event, so stop latency is milliseconds instead of an accept
+    tick.  The wake is a dummy connect: portable for AF_UNIX on both
+    Linux and macOS, unlike the alternatives —
+
+    * ``close()`` alone does not reliably wake a thread blocked in
+      ``accept()``/``poll()`` on Linux (the waiter keeps sleeping on the
+      old fd until its timeout);
+    * ``shutdown()`` on a listening socket wakes the accept on Linux but
+      fails with ENOTCONN on macOS/BSD.
+
+    The serve loops check their shutdown event right after ``accept()``
+    and drop the dummy connection without doing handler work.  Closing
+    ``srv`` afterwards makes any subsequent ``accept()`` raise OSError,
+    which the loops treat as exit."""
+    try:
+        wake = socket.socket(socket.AF_UNIX, socket.SOCK_STREAM)
+        try:
+            wake.settimeout(1.0)
+            wake.connect(str(sock_path))
+        finally:
+            wake.close()
+    except OSError:
+        # Socket already gone/unconnectable — the serve loop will exit
+        # via its fallback accept tick or the close below.
+        pass
+    try:
+        srv.close()
+    except OSError:
+        pass
+
+
 # ---------------------------------------------------------------------------
 # Claude OAuth broker singleton
 # ---------------------------------------------------------------------------
@@ -191,6 +227,24 @@ BROKER_SINGLETON_LOCK = Path("/tmp/yolo-claude-oauth-broker.lock")
 # Name used by ``loopholes`` for this service; keep in sync with the
 # bundled manifest's ``name`` field.
 BROKER_LOOPHOLE_NAME = "claude-oauth-broker"
+
+# --- Timing knobs ----------------------------------------------------------
+# Condition-polling pattern: TIGHT poll interval, GENEROUS deadline — waits
+# return as soon as the condition holds and only burn the full deadline on
+# genuine failure.  Tests may shrink these; production defaults must stay
+# behavior-identical to the historical hardcoded values.
+#
+# Deadline for a just-spawned broker/relay to bind its socket.
+BROKER_SPAWN_TIMEOUT = 5.0
+# Poll interval for socket-appearance and PID-exit waits.  Must be much
+# smaller than any deadline that uses it (currently 5.0s spawn / 3.0s kill /
+# 1.0s SIGKILL-reap graces).
+SOCKET_POLL_INTERVAL = 0.05
+# After SIGKILL, how long to keep reaping before giving up on the zombie.
+RELAY_SIGKILL_REAP_GRACE = 1.0
+# External host-service stop: SIGTERM grace before SIGKILL, then reap grace.
+EXTERNAL_SERVICE_TERM_GRACE = 5.0
+EXTERNAL_SERVICE_KILL_GRACE = 2.0
 
 
 def _broker_ping(socket_path: Path, *, timeout: float = 2.0) -> bool:
@@ -288,13 +342,25 @@ def _broker_is_alive() -> bool:
     return _broker_ping(BROKER_SINGLETON_SOCKET)
 
 
-def _broker_wait_for_socket(sock: Path, *, timeout: float = 5.0) -> bool:
-    """Poll until ``sock`` appears or ``timeout`` elapses."""
+def _broker_wait_for_socket(
+    sock: Path,
+    *,
+    timeout: float = BROKER_SPAWN_TIMEOUT,
+    proc: "Optional[subprocess.Popen]" = None,
+) -> bool:
+    """Poll until ``sock`` appears or ``timeout`` elapses.
+
+    When ``proc`` (the just-spawned daemon) is given, a dead child is a
+    genuine failure detected in milliseconds — return False immediately
+    instead of burning the whole deadline waiting for a socket that a
+    corpse will never bind."""
     deadline = time.monotonic() + timeout
     while time.monotonic() < deadline:
         if sock.exists():
             return True
-        time.sleep(0.05)
+        if proc is not None and proc.poll() is not None:
+            return sock.exists()
+        time.sleep(SOCKET_POLL_INTERVAL)
     return sock.exists()
 
 
@@ -334,7 +400,9 @@ def _broker_spawn() -> Path:
             close_fds=True,
         )
         BROKER_SINGLETON_PID_FILE.write_text(f"{proc.pid}\n")
-        if not _broker_wait_for_socket(BROKER_SINGLETON_SOCKET, timeout=5.0):
+        if not _broker_wait_for_socket(
+            BROKER_SINGLETON_SOCKET, timeout=BROKER_SPAWN_TIMEOUT, proc=proc
+        ):
             # Bind failed — process likely crashed.  Leave the PID
             # file for ``yolo broker status`` to report.
             return BROKER_SINGLETON_SOCKET
@@ -676,18 +744,18 @@ def _relay_kill(
         while time.monotonic() < deadline:
             if _reap_if_child(pid) or not _broker_pid_is_live(pid):
                 break
-            time.sleep(0.05)
+            time.sleep(SOCKET_POLL_INTERVAL)
         if _broker_pid_is_live(pid):
             try:
                 os.kill(pid, signal.SIGKILL)
             except OSError:
                 pass
             # Don't leave the SIGKILL'd child as a zombie either.
-            kill_deadline = time.monotonic() + 1.0
+            kill_deadline = time.monotonic() + RELAY_SIGKILL_REAP_GRACE
             while time.monotonic() < kill_deadline:
                 if _reap_if_child(pid) or not _broker_pid_is_live(pid):
                     break
-                time.sleep(0.05)
+                time.sleep(SOCKET_POLL_INTERVAL)
     try:
         pid_file.unlink()
     except FileNotFoundError:
@@ -760,12 +828,15 @@ def _relay_ensure(
                 close_fds=True,
             )
         pid_file.write_text(f"{proc.pid}\n")
-        if not _broker_wait_for_socket(socket_path, timeout=5.0):
+        if not _broker_wait_for_socket(
+            socket_path, timeout=BROKER_SPAWN_TIMEOUT, proc=proc
+        ):
             # Leave the PID file for diagnosis; doctor's per-jail probe
             # reports the dead relay.
             console.print(
                 f"[yellow]claude-oauth-broker: relay for {cname} did not "
-                f"bind {socket_path} within 5s — see {log_path}[/yellow]"
+                f"bind {socket_path} within {BROKER_SPAWN_TIMEOUT:.0f}s — "
+                f"see {log_path}[/yellow]"
             )
 
 
@@ -920,7 +991,7 @@ def _broker_kill(*, sig: int = signal.SIGTERM, timeout: float = 3.0) -> bool:
     while survivors and time.monotonic() < deadline:
         survivors = [p for p in survivors if _broker_pid_is_live(p)]
         if survivors:
-            time.sleep(0.05)
+            time.sleep(SOCKET_POLL_INTERVAL)
     for pid in survivors:
         try:
             os.kill(pid, signal.SIGKILL)
@@ -1253,7 +1324,10 @@ def _start_host_service_builtin_cgroup(
     srv.bind(str(sock_path))
     sock_path.chmod(0o777)  # Container runs as mapped UID — must be accessible
     srv.listen(8)
-    srv.settimeout(1.0)  # Allow periodic shutdown checks
+    # Fallback tick only: normal shutdown is woken instantly by
+    # _wake_and_close_listener; this bounds the exit latency if that
+    # wake ever fails (e.g. socket file removed under us).
+    srv.settimeout(1.0)
 
     container_cgroup: Optional[Path] = None
     container_cgroup_lock = threading.Lock()
@@ -1267,6 +1341,13 @@ def _start_host_service_builtin_cgroup(
             except socket.timeout:
                 continue
             except OSError:
+                break
+            if shutdown.is_set():
+                # Woken by _stop's dummy connection — not a real client.
+                try:
+                    conn.close()
+                except OSError:
+                    pass
                 break
 
             # Lazy-resolve container cgroup on first request
@@ -1304,21 +1385,30 @@ def _start_host_service_builtin_cgroup(
                 continue
 
             _cgroup_delegate_handler(conn, container_cgroup, log_file)
-        srv.close()
-        log_file.close()
+        # Double-close guards: _stop also closes srv (both closes are
+        # idempotent in CPython, the try/except is belt-and-braces).
+        try:
+            srv.close()
+        except OSError:
+            pass
+        try:
+            log_file.close()
+        except OSError:
+            pass
 
     t = threading.Thread(
         target=serve, daemon=True, name=f"host-service-{BUILTIN_CGROUP_LOOPHOLE_NAME}"
     )
+    # bind()+listen() completed synchronously above, so the socket is
+    # already connectable — no settling sleep needed.
     t.start()
-
-    # Give the socket a moment to be ready
-    time.sleep(0.05)
 
     def _stop():
         shutdown.set()
-        # The srv.settimeout(1.0) means accept() will return within a second,
-        # at which point the loop notices shutdown.is_set() and exits cleanly.
+        # Wake the accept() immediately (dummy connect + close) so stop
+        # doesn't wait out the fallback accept tick; join is a generous
+        # deadline that only bites on genuine failure.
+        _wake_and_close_listener(srv, sock_path)
         t.join(timeout=3)
 
     return LoopholeDaemon(
@@ -1523,6 +1613,7 @@ def _start_host_service_builtin_journal(
     srv.bind(str(sock_path))
     sock_path.chmod(0o777)
     srv.listen(8)
+    # Fallback tick only — see the cgroup twin for rationale.
     srv.settimeout(1.0)
 
     shutdown = threading.Event()
@@ -1535,6 +1626,13 @@ def _start_host_service_builtin_journal(
                 continue
             except OSError:
                 break
+            if shutdown.is_set():
+                # Woken by _stop's dummy connection — not a real client.
+                try:
+                    conn.close()
+                except OSError:
+                    pass
+                break
             handler = threading.Thread(
                 target=_journal_handle_client,
                 args=(conn, mode, log_file),
@@ -1542,17 +1640,25 @@ def _start_host_service_builtin_journal(
                 name="journal-client",
             )
             handler.start()
-        srv.close()
-        log_file.close()
+        # Double-close guards — _stop also closes srv.
+        try:
+            srv.close()
+        except OSError:
+            pass
+        try:
+            log_file.close()
+        except OSError:
+            pass
 
     t = threading.Thread(
         target=serve, daemon=True, name=f"host-service-{BUILTIN_JOURNAL_LOOPHOLE_NAME}"
     )
+    # bind()+listen() completed synchronously above — no settling sleep.
     t.start()
-    time.sleep(0.05)
 
     def _stop():
         shutdown.set()
+        _wake_and_close_listener(srv, sock_path)
         t.join(timeout=3)
 
     return LoopholeDaemon(
@@ -1658,7 +1764,7 @@ def _start_host_service_external(
             _print_log_tail(f"exit code {proc.returncode}")
             log_file.close()
             return None
-        time.sleep(0.05)
+        time.sleep(SOCKET_POLL_INTERVAL)
     else:
         console.print(
             f"[red]Host service '{name}' did not bind {host_socket} within "
@@ -1667,25 +1773,26 @@ def _start_host_service_external(
         _print_log_tail("startup timeout")
         try:
             proc.kill()
-            proc.wait(timeout=2)
+            proc.wait(timeout=EXTERNAL_SERVICE_KILL_GRACE)
         except Exception:
             pass
         log_file.close()
         return None
 
     def _stop():
-        # SIGTERM, give it 5s, SIGKILL if it's still around.
+        # SIGTERM, give it EXTERNAL_SERVICE_TERM_GRACE seconds, SIGKILL
+        # if it's still around.
         if proc.poll() is None:
             try:
                 proc.terminate()
             except Exception:
                 pass
             try:
-                proc.wait(timeout=5)
+                proc.wait(timeout=EXTERNAL_SERVICE_TERM_GRACE)
             except subprocess.TimeoutExpired:
                 try:
                     proc.kill()
-                    proc.wait(timeout=2)
+                    proc.wait(timeout=EXTERNAL_SERVICE_KILL_GRACE)
                 except Exception:
                     pass
         try:

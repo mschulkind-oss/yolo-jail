@@ -22,6 +22,18 @@ import pytest
 from src import oauth_broker
 
 
+def _poll_until(condition, deadline: float = 2.0, interval: float = 0.005) -> None:
+    """Spin on ``condition()`` — tight interval, generous deadline.
+
+    Returns the moment the condition holds; only a genuine failure burns
+    the full deadline (the caller's own assertion then reports it).
+    Replaces fixed thread-tick sleeps, which were both slow and flaky.
+    """
+    end = time.monotonic() + deadline
+    while not condition() and time.monotonic() < end:
+        time.sleep(interval)
+
+
 # ---------------------------------------------------------------------------
 # Fixtures
 # ---------------------------------------------------------------------------
@@ -1218,7 +1230,9 @@ def test_background_loop_uses_fast_wait_when_signaled(
             daemon=True,
         )
         thread.start()
-        time.sleep(0.2)
+        # With fast_retry_seconds=0.01 and tick_seconds=60, three ticks
+        # inside the poll deadline can only come from the fast cadence.
+        _poll_until(lambda: m.call_count >= 3)
         stop.set()
         thread.join(timeout=1.0)
     assert not thread.is_alive()
@@ -1229,12 +1243,31 @@ def test_background_loop_caps_consecutive_fast_retries(
     tmp_path: Path, broker_dirs: Path
 ):
     """A long outage must fall back to the normal cadence: after the cap,
-    the next wait is tick_seconds, so tick calls stop at cap + 1."""
+    the next wait is tick_seconds, so tick calls stop at cap + 1.
+
+    The cap is proven by observing the waits the loop *requests* on the
+    stop event, not by racing a wall clock: an uncapped loop keeps
+    requesting fast_retry_seconds waits forever and never asks for the
+    tick_seconds one, so polling for the long wait detects the mutation
+    deterministically (mutant burns the poll deadline, then fails the
+    assertions below) while the healthy path finishes in milliseconds.
+    """
     import threading as _threading
+
+    class _RecordingEvent(_threading.Event):
+        """Event that records every wait timeout the loop asks for."""
+
+        def __init__(self) -> None:
+            super().__init__()
+            self.wait_timeouts: list[float | None] = []
+
+        def wait(self, timeout: float | None = None) -> bool:
+            self.wait_timeouts.append(timeout)
+            return super().wait(timeout)
 
     creds = tmp_path / "creds.json"
     _write_near_expiry_creds(creds)
-    stop = _threading.Event()
+    stop = _RecordingEvent()
     with (
         patch.object(oauth_broker, "BACKGROUND_REFRESH_MAX_FAST_RETRIES", 2),
         patch.object(oauth_broker, "_background_refresh_tick", return_value=True) as m,
@@ -1245,12 +1278,21 @@ def test_background_loop_caps_consecutive_fast_retries(
             daemon=True,
         )
         thread.start()
-        time.sleep(0.3)
+        # Wait for the loop to park on the tick_seconds wait — with the
+        # cap at 2 that must be the 3rd wait (after 1 initial tick + 2
+        # fast retries).  A cap-less loop never requests it.
+        _poll_until(lambda: 60.0 in stop.wait_timeouts)
         stop.set()
         thread.join(timeout=1.0)
     assert not thread.is_alive()
-    # 1 initial tick + 2 fast retries, then the loop blocks on the 60s wait.
+    # 1 initial tick + 2 fast retries, then the loop blocks on the 60s
+    # wait; once it is parked there (and stop is set inside it) no 4th
+    # tick can ever land, so exact equality is deterministic.
     assert m.call_count == 3, f"expected exactly 3 ticks, got {m.call_count}"
+    assert stop.wait_timeouts[:3] == [0.01, 0.01, 60.0], (
+        f"expected 2 fast retries then the tick_seconds fallback, "
+        f"got waits {stop.wait_timeouts[:5]}"
+    )
 
 
 def test_background_loop_stops_on_event(tmp_path: Path, broker_dirs: Path):
@@ -1265,15 +1307,22 @@ def test_background_loop_stops_on_event(tmp_path: Path, broker_dirs: Path):
     import threading as _threading
 
     stop = _threading.Event()
-    thread = _threading.Thread(
-        target=oauth_broker._background_refresher_loop,
-        args=(creds, stop, 0.05, 300),
-        daemon=True,
-    )
-    thread.start()
-    time.sleep(0.15)  # let it tick a couple of times
-    stop.set()
-    thread.join(timeout=1.0)
+    # Spy on the tick (wraps= keeps the real one running underneath) so
+    # "let it tick a couple of times" is a condition poll, not a sleep.
+    with patch.object(
+        oauth_broker,
+        "_background_refresh_tick",
+        wraps=oauth_broker._background_refresh_tick,
+    ) as m:
+        thread = _threading.Thread(
+            target=oauth_broker._background_refresher_loop,
+            args=(creds, stop, 0.05, 300),
+            daemon=True,
+        )
+        thread.start()
+        _poll_until(lambda: m.call_count >= 2)  # let it tick a couple of times
+        stop.set()
+        thread.join(timeout=1.0)
     assert not thread.is_alive(), "loop did not exit within 1s of stop_event being set"
 
 

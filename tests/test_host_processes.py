@@ -24,6 +24,33 @@ _SKIP_MACOS_PS = pytest.mark.skipif(
 )
 
 
+def _wait_for_daemon(
+    sock: Path, deadline: float = 10.0, interval: float = 0.005
+) -> None:
+    """Poll until the daemon accepts a connection on ``sock``.
+
+    ``bind()`` creates the socket file before ``listen()`` completes, so
+    the file existing is necessary but not sufficient — connections
+    arriving before listen() get ECONNREFUSED; a probe connect must
+    succeed.  Tight interval / generous deadline: returns in a few ms
+    when the server thread is up, and raises on genuine startup failure
+    instead of letting the test limp on against a dead socket.
+    """
+    end = time.monotonic() + deadline
+    while time.monotonic() < end:
+        if sock.exists():
+            try:
+                probe = socket.socket(socket.AF_UNIX, socket.SOCK_STREAM)
+                probe.settimeout(0.1)
+                probe.connect(str(sock))
+                probe.close()
+                return
+            except OSError:
+                pass
+        time.sleep(interval)
+    raise AssertionError(f"daemon did not start accepting on {sock}")
+
+
 def _send_request(conn: socket.socket, payload: Dict[str, Any]) -> None:
     body = json.dumps(payload).encode()
     conn.sendall(struct.pack(">I", len(body)))
@@ -88,19 +115,7 @@ def started_daemon(tmp_path: Path):
     handler = host_processes.build_handler(cfg)
     t = threading.Thread(target=host_service.serve, args=(handler, sock), daemon=True)
     t.start()
-    deadline = time.monotonic() + 2.0
-    while time.monotonic() < deadline:
-        if sock.exists():
-            try:
-                probe = socket.socket(socket.AF_UNIX, socket.SOCK_STREAM)
-                probe.settimeout(0.1)
-                probe.connect(str(sock))
-                probe.close()
-                break
-            except OSError:
-                pass
-        time.sleep(0.02)
-    assert sock.exists()
+    _wait_for_daemon(sock)
     try:
         yield sock, cfg
     finally:
@@ -120,8 +135,20 @@ def test_list_mode_runs_ps_for_allowlisted_comm(started_daemon):
     import subprocess
 
     p = subprocess.Popen(["sleep", "5"])
-    time.sleep(0.1)
     try:
+        # Popen returns after fork, possibly before exec — poll /proc
+        # until the child's comm reads "sleep" so the daemon's
+        # `ps -C sleep` is guaranteed to see it (test is Linux-only).
+        deadline = time.monotonic() + 2.0
+        while time.monotonic() < deadline:
+            try:
+                if Path(f"/proc/{p.pid}/comm").read_text().strip() == "sleep":
+                    break
+            except OSError:
+                pass
+            time.sleep(0.005)
+        else:
+            raise AssertionError("child process never exec'd into `sleep`")
         c = _client(sock)
         _send_request(c, {"jail_id": "test", "mode": "list"})
         stdout, stderr, rc = _collect(c)
@@ -173,18 +200,7 @@ def test_empty_visible_list_fails_gracefully(tmp_path: Path):
     handler = host_processes.build_handler(cfg)
     t = threading.Thread(target=host_service.serve, args=(handler, sock), daemon=True)
     t.start()
-    deadline = time.monotonic() + 2.0
-    while time.monotonic() < deadline:
-        if sock.exists():
-            try:
-                probe = socket.socket(socket.AF_UNIX, socket.SOCK_STREAM)
-                probe.settimeout(0.1)
-                probe.connect(str(sock))
-                probe.close()
-                break
-            except OSError:
-                pass
-        time.sleep(0.02)
+    _wait_for_daemon(sock)
 
     c = _client(sock)
     _send_request(c, {"jail_id": "test", "mode": "list"})

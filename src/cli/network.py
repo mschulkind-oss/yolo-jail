@@ -21,6 +21,15 @@ import time
 from pathlib import Path
 from typing import List, Optional
 
+# start_host_port_forwarding polls for the socket files socat creates
+# before letting the container start (the container-side socat needs
+# them to exist).  Tight interval / generous deadline: returns as soon
+# as the sockets appear (normally a few ms), only burns the deadline
+# when socat genuinely failed to come up.  Module-level so tests can
+# shrink the deadline explicitly; production defaults must stay 2s/5ms.
+SOCKET_WAIT_DEADLINE_SECONDS = 2.0
+SOCKET_WAIT_POLL_INTERVAL_SECONDS = 0.005
+
 
 def _parse_port_forwards(forward_host_ports: List) -> List[tuple]:
     """Parse forward_host_ports config into (local_port, host_port) tuples."""
@@ -71,6 +80,7 @@ def start_host_port_forwarding(
     log_file = open(log_dir / f"{cname}-socat.log", "a")
 
     processes = []
+    expected_sockets = []
     for local_port, host_port in parsed:
         sock_path = socket_dir / f"port-{local_port}.sock"
         # Remove stale socket from previous run
@@ -87,6 +97,7 @@ def start_host_port_forwarding(
                 stderr=log_file,
             )
             processes.append(proc)
+            expected_sockets.append(sock_path)
         except FileNotFoundError:
             print(
                 "Warning: socat not found on host, cannot forward ports. "
@@ -100,9 +111,22 @@ def start_host_port_forwarding(
                 file=sys.stderr,
             )
 
-    # Give socat a moment to create the socket files before the container starts
+    # Wait for socat to create the socket files before the container
+    # starts.  Condition poll rather than a fixed sleep: exits the
+    # moment every socket exists (fast path), and a loaded host that
+    # needs longer than a fixed 100ms still gets its sockets.
     if processes:
-        time.sleep(0.1)
+        deadline = time.monotonic() + SOCKET_WAIT_DEADLINE_SECONDS
+        while not all(s.exists() for s in expected_sockets):
+            if time.monotonic() >= deadline:
+                missing = [str(s) for s in expected_sockets if not s.exists()]
+                print(
+                    "Warning: socat socket(s) not ready after "
+                    f"{SOCKET_WAIT_DEADLINE_SECONDS}s: {', '.join(missing)}",
+                    file=sys.stderr,
+                )
+                break
+            time.sleep(SOCKET_WAIT_POLL_INTERVAL_SECONDS)
 
     return processes
 

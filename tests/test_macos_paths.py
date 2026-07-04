@@ -139,10 +139,20 @@ class TestMacosCgroupSkip:
 
     def test_start_loopholes_macos_skips_builtin(self, monkeypatch):
         _set_macos(monkeypatch)
+        # Stub bundled-loophole discovery: unstubbed, the discovered
+        # claude-oauth-broker manifest makes start_loopholes spawn a REAL
+        # yolo-claude-oauth-broker-host process and burn the full
+        # BROKER_SPAWN_TIMEOUT when it can't come up (leaking
+        # /tmp/yolo-claude-oauth-broker.{pid,lock} on the dev machine).
+        # The invariant under test is only that the builtin
+        # cgroup-delegate is skipped on macOS — bundled loopholes are
+        # irrelevant to it.
+        monkeypatch.setattr(
+            "cli.loopholes_runtime._loopholes.discover_loopholes",
+            lambda **kw: [],
+        )
         # Even with podman as runtime, on macOS the builtin returns None
-        # (no cgroup v2).  Bundled loopholes MAY still try to spawn
-        # (depends on ``requires`` predicates), but the builtin
-        # cgroup-delegate specifically isn't among them.
+        # (no cgroup v2).
         handles = start_loopholes("test-cname-macos", "podman", {})
         names = [h.name for h in handles]
         assert "cgroup-delegate" not in names

@@ -3310,8 +3310,22 @@ class TestHostServices:
             }
         }
         try:
-            # Mock _resolve_container_cgroup so the builtin doesn't try to reach a real container
-            with patch("cli._resolve_container_cgroup", return_value=None):
+            # Mock _resolve_container_cgroup so the builtin doesn't try to
+            # reach a real container, and stub bundled-loophole discovery:
+            # unstubbed, discovery surfaces the claude-oauth-broker manifest
+            # and start_loopholes spawns a REAL yolo-claude-oauth-broker-host
+            # process (which then burns the full BROKER_SPAWN_TIMEOUT when it
+            # crashes, and leaks /tmp/yolo-claude-oauth-broker.{pid,lock}).
+            # The invariant under test — the builtin cgroup-delegate name is
+            # reserved against the user's inline config shadow — doesn't
+            # involve bundled loopholes at all.
+            with (
+                patch("cli._resolve_container_cgroup", return_value=None),
+                patch(
+                    "cli.loopholes_runtime._loopholes.discover_loopholes",
+                    return_value=[],
+                ),
+            ):
                 handles = start_loopholes(cname, "podman", config)
             # The user spec is silently dropped.  Bundled loopholes
             # (claude-oauth-broker, host-processes, …) may appear
@@ -3357,6 +3371,13 @@ class TestBrokerSingleton:
         pidf = tmp_path / "broker.pid"
         monkeypatch.setattr("cli.loopholes_runtime.BROKER_SINGLETON_SOCKET", sock)
         monkeypatch.setattr("cli.loopholes_runtime.BROKER_SINGLETON_PID_FILE", pidf)
+        # The spawn lock too: without this, _broker_spawn flocks the REAL
+        # /tmp/yolo-claude-oauth-broker.lock — hermetically wrong, and
+        # under xdist a concurrent worker (or a real broker on a dev
+        # machine) holding that flock stalls the test for seconds.
+        monkeypatch.setattr(
+            "cli.loopholes_runtime.BROKER_SINGLETON_LOCK", tmp_path / "broker.lock"
+        )
         return sock, pidf, cli
 
     def test_is_alive_false_without_pid_file(self, monkeypatch, tmp_path):
@@ -3561,7 +3582,7 @@ class TestBrokerSingleton:
 
         # Fake the "socket now exists" detection so spawn considers the
         # bind successful on the first call without needing a real daemon.
-        def fake_wait_for_socket(p, *, timeout):
+        def fake_wait_for_socket(p, *, timeout, proc=None):
             sock.touch()
             return True
 
@@ -3736,7 +3757,7 @@ class TestBrokerRelay:
         monkeypatch.setattr(cli.subprocess, "Popen", FakePopen)
         sockets_dir = tmp_path / "sockets"  # deliberately not created yet
 
-        def fake_wait(sock, *, timeout):
+        def fake_wait(sock, *, timeout, proc=None):
             (sockets_dir / "claude-oauth-broker.sock").touch()
             return True
 
@@ -3904,11 +3925,25 @@ class TestBrokerRelay:
         assert not pidf.exists(), "the stale PID file is still cleaned up"
 
     def test_cmdline_matcher_rejects_a_real_non_relay_process(self):
-        """Identity check against the live process table: the test
-        runner itself is emphatically not a broker relay."""
+        """Identity check against the live process table: a live process
+        whose argv doesn't name broker_relay.py must be rejected.
+
+        Uses a spawned child with a controlled argv instead of the test
+        runner itself: pytest's own argv contains the literal substring
+        ``broker_relay.py`` whenever ``tests/test_broker_relay.py`` is on
+        the command line, which made the runner falsely *match*."""
         from cli.loopholes_runtime import _relay_pid_cmdline_matches
 
-        assert _relay_pid_cmdline_matches(os.getpid()) is False
+        child = subprocess.Popen(
+            [sys.executable, "-c", "import time; time.sleep(30)"],
+            stdout=subprocess.DEVNULL,
+            stderr=subprocess.DEVNULL,
+        )
+        try:
+            assert _relay_pid_cmdline_matches(child.pid) is False
+        finally:
+            child.kill()
+            child.wait(timeout=5)
 
     def test_stop_loopholes_spares_live_jail(self, monkeypatch, tmp_path):
         """`yolo run --new` can lose the name-conflict race (podman rm

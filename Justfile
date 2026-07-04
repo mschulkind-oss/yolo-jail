@@ -164,9 +164,13 @@ load: build-image
 test:
     uv run --group dev python -m pytest tests/
 
-# Run fast tests only (skip container integration tests)
+# Run fast tests only (skip container integration tests).
+# -n 4 (not auto): measured no gain past 4 workers — the tail is a few long
+# tests; worksteal rebalances that tail.  The slow/full `test` target stays
+# serial: slow tests spin real containers and the session-scoped image
+# build/load must never run once per worker.
 test-fast:
-    uv run --group dev python -m pytest tests/ -m "not slow"
+    uv run --group dev python -m pytest tests/ -m "not slow" -n 4 --dist worksteal
 
 # Run linter
 lint:
