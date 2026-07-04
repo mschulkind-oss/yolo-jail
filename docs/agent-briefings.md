@@ -34,21 +34,26 @@ three parts, in order:
    are not picked up.
 2. **The jail-managed briefing** — one `# YOLO Jail Environment` document
    describing this specific jail, deliberately limited to what an agent
-   *cannot* discover through its own native mechanisms. Sections, in
-   emission order: Environment (workspace, home, network, forwarded
-   ports) → Available Tools (CLI tools + runtimes; MCP servers are NOT
-   listed — agents read them from their own generated config) →
-   Loopholes → Blocked Tools (conditional, from `security.blocked_tools`)
-   → Additional Context Mounts (conditional, from `mounts`) →
-   Limitations → Adding Packages → Resource Management (`yolo-cglimit`
-   et al.) → Skills (only the non-discoverable constraint: user-level
-   skill dirs are read-only in-jail, workspace-level ones are writable) →
-   Testing Changes to yolo-jail (conditional: only when the workspace is
-   itself a yolo-jail source tree) → Startup Log (points at
-   `/workspace/.yolo/startup.log` and tells the agent to self-serve if it
-   contains `PROVISIONING FAILED`). There is no handover section: the
-   staged `jail-startup` skill's own description already instructs
-   invocation at session start.
+   *cannot* discover through its own native mechanisms, with inline
+   manuals replaced by pointers (`yolo --help`, `yolo config-ref`,
+   `yolo-cglimit --help`) and conditional sections that appear only when
+   their data exists. Emission order: ⚠ Provisioning failed (conditional:
+   only when `/workspace/.yolo/startup.log` contains `PROVISIONING
+   FAILED` — refreshed every invocation, so it appears on the next attach
+   after a failed boot) → Environment (workspace, home, network,
+   forwarded ports, and the *configured* resource limits with a
+   `yolo-cglimit` pointer — nothing when none are set) → the rg
+   `--replace` trap warning → Loopholes (conditional: the actual enabled
+   set by name, not an instruction to enumerate) → Blocked Tools
+   (conditional, from `security.blocked_tools`) → Additional Context
+   Mounts (conditional, from `mounts`) → Limitations (two lines) →
+   Packages & Resource Limits (edit config → `yolo check` → restart;
+   reference `yolo config-ref`) → Skills (the read-only-user-level /
+   writable-workspace constraint) → Testing Changes to yolo-jail
+   (conditional: yolo-jail source workspaces only). There is no tool
+   inventory, no MCP listing (agents read their own generated config),
+   and no handover section (the staged `jail-startup` skill's description
+   drives invocation).
 3. **`agents_md_extra`**, appended verbatim — the config key
    (`yolo-jail.jsonc`, user- or workspace-level; string) for injecting
    arbitrary extra instructions into all three files.

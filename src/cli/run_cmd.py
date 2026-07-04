@@ -733,6 +733,18 @@ def _refresh_jail_briefings(
         if resolved.exists():
             mount_descriptions.append(f"{resolved}:{container_path}")
 
+    # Enabled loopholes, listed by name in the briefing (the agent gets
+    # the actual set, not an instruction to go enumerate it).
+    try:
+        enabled_loopholes = [
+            (lo.name, lo.description)
+            for lo in _loopholes.discover_loopholes(
+                loopholes_config=config.get("loopholes")
+            )
+        ]
+    except Exception:
+        enabled_loopholes = []
+
     _prepare_skills(cname)
     return generate_agents_md(
         cname,
@@ -742,6 +754,8 @@ def _refresh_jail_briefings(
         net_mode=net_mode,
         runtime=runtime,
         forward_host_ports=forward_host_ports or None,
+        loopholes=enabled_loopholes or None,
+        resources=config.get("resources") or None,
         agents_md_extra=config.get("agents_md_extra"),
     )
 

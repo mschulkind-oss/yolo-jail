@@ -21,7 +21,7 @@ gh pr close 23 --comment "Superseded by 6be6290, which applies the same bump plu
 
 **Do not merge.** The branch targets `src/cli.py`, the pre-package-split
 monolith — it cannot rebase onto the current layout. All three changes were
-instead ported by hand to `PORT_COMMIT` with
+instead ported by hand to `0ebafe7` with
 `Co-authored-by: Kurt Galiatsatos <kurt.galiatsatos@hyperscience.com>` so
 authorship lands in the history:
 
@@ -41,7 +41,7 @@ Action — comment and close (adapt tone as you like, keep the substance):
 
 ```
 Thanks for this — the diagnosis and the advisory-only design were both
-spot-on, and all three pieces are now on main as PORT_COMMIT with your
+spot-on, and all three pieces are now on main as 0ebafe7 with your
 co-authorship: the machine-memory check in `yolo check`, the exit-137
 OOM hint (at all three container-exit paths), and the Justfile
 editable-install hardening, plus your test matrix rewritten against the

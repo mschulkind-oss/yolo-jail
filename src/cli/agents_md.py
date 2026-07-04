@@ -42,6 +42,8 @@ def generate_agents_md(
     net_mode: str = "bridge",
     runtime: str = "podman",
     forward_host_ports: Optional[List] = None,
+    loopholes: Optional[List[tuple]] = None,
+    resources: Optional[Dict[str, Any]] = None,
     agents_md_extra: Optional[str] = None,
 ) -> Path:
     """Generate per-workspace AGENTS.md and CLAUDE.md files and return the directory.
@@ -84,41 +86,63 @@ def generate_agents_md(
                     f"  - `localhost:{entry}` → host port {entry}"
                 )
 
+    resource_line = []
+    if resources:
+        limits = ", ".join(f"{k}={v}" for k, v in sorted(resources.items()))
+        resource_line = [
+            f"- **Resource limits** (kernel-enforced): {limits}.  Sub-limit your own processes with `yolo-cglimit` (`--help` for usage)."
+        ]
+
+    # Provisioning-failure breadcrumb: only when the last boot actually
+    # failed.  The briefing is refreshed on every yolo invocation, so a
+    # failure surfaces here on the next attach even though the initial
+    # generation ran before provisioning.
+    provisioning_failed = []
+    try:
+        log_text = (workspace / ".yolo" / "startup.log").read_text(errors="replace")
+        if "PROVISIONING FAILED" in log_text:
+            provisioning_failed = [
+                "## ⚠ Provisioning failed",
+                "",
+                "The last boot's provisioning failed — project tools may be missing.",
+                "Read `/workspace/.yolo/startup.log` and self-serve (e.g. run",
+                "`mise install` in /workspace, then re-run the step that failed).",
+                "",
+            ]
+    except OSError:
+        pass
+
     lines = [
         "# YOLO Jail Environment",
         "",
         "You are running inside a YOLO Jail — a sandboxed container.",
+        "Jail tooling: `yolo --help`; config reference: `yolo config-ref`.",
         "",
+        *provisioning_failed,
         "## Environment",
         "",
         f"- **Workspace**: `/workspace` (mounted from host `{workspace}`)",
-        "- **Home Directory**: `/home/agent` (persistent across sessions)",
+        "- **Home**: `/home/agent` (persistent across sessions)",
         "- **OS**: NixOS-based minimal container (no systemd, no sudo)",
         network_line,
         *forwarded_ports_lines,
+        *resource_line,
         "",
-        "## Available Tools",
-        "",
-        "Standard CLI tools: git, rg (ripgrep), fd, bat, jq, nvim, curl, wget, strace, gh",
-        "Runtimes: Node.js 22, Python 3.13, Go (managed by mise)",
-        "",
-        "⚠ rg is recursive by default — never pass grep-style `-r`/`-rn` flags.",
-        "In rg, `-r` means `--replace`: `rg -rn pat` silently rewrites every match",
-        "as the literal text `n` in the output (no files harmed, results corrupted).",
+        "⚠ rg is recursive by default — never pass grep-style `-r`/`-rn` flags",
+        "(in rg, `-r` means `--replace` and silently corrupts match output).",
         "Use `rg -n <pattern> [path]`.",
         "",
-        "## Loopholes — controlled host access",
-        "",
-        "The jail may expose **loopholes**: sanctioned narrow passages through the jail wall for specific host-side capabilities (OAuth brokers, process views, log tailers, etc.). What's active in this jail depends on workspace/user config; list them with:",
-        "",
-        "```sh",
-        "yolo loopholes list     # every loophole + its transport",
-        "yolo loopholes status   # doctor self-check per loophole",
-        "```",
-        "",
-        "If the command you need isn't in the standard toolset, a loophole may already expose it (e.g. `yolo-ps` for host processes). Don't enumerate them from memory — run `yolo loopholes list` to see what's actually wired up.",
-        "",
     ]
+
+    if loopholes:
+        lines.append("## Loopholes — host capabilities wired into this jail")
+        lines.append("")
+        for name, desc in loopholes:
+            first = (desc or "").split(". ")[0].split("\n")[0].strip().rstrip(".")
+            lines.append(f"- **{name}**" + (f": {first}" if first else ""))
+        lines.append("")
+        lines.append("Details: `yolo loopholes list`.")
+        lines.append("")
 
     if blocked_tools:
         lines.append("## Blocked Tools")
@@ -149,110 +173,15 @@ def generate_agents_md(
         [
             "## Limitations",
             "",
-            "- **No internet restrictions** but no host credentials (no ~/.ssh, no ~/.gitconfig).",
-            "- **No pagers**: PAGER=cat, GIT_PAGER=cat. Do not pipe to less/more.",
-            "- **Read-only mounts**: Context mounts under `/ctx/` are read-only.",
-            "- **No sudo/root**: You run as a mapped host user with no privilege escalation.",
-            "- **No git push/pull**: No GitHub credentials are available. Do not attempt `gh auth login` or SSH-based git operations.",
+            "- Full internet access, but no host credentials (no ~/.ssh, no ~/.gitconfig): git push/pull and `gh auth login` will not work.",
+            "- No sudo/root; context mounts under `/ctx/` are read-only.",
             "",
-            "## Adding Packages",
+            "## Packages & Resource Limits",
             "",
-            "If you need a tool that is not installed, you can request it:",
-            "",
-            "1. Edit `/workspace/yolo-jail.jsonc` and add the package to the `packages` array",
-            "2. ALWAYS run `yolo check` after every config edit (`yolo check --no-build` is fine inside a running jail)",
-            '3. If the check passes, tell the human user: "Please restart the jail so the new package becomes available"',
-            "4. The human will see a config diff and confirm the change at next startup",
-            "5. After restart, the package will be available",
-            "",
-            "Example — to add PostgreSQL tools (latest version):",
-            "```json",
-            '  "packages": ["postgresql"]',
-            "```",
-            "",
-            "To pin a specific version, use an object with a nixpkgs commit hash:",
-            "```json",
-            '  "packages": [{"name": "freetype", "nixpkgs": "e6f23dc0..."}]',
-            "```",
-            "Find nixpkgs commits for specific versions at: https://lazamar.co.uk/nix-versions/",
-            "",
-            "To pull in a non-default nix output (e.g. C headers from `.dev`), use a "
-            "dotted shorthand for one output, or the `outputs` field for several:",
-            "```json",
-            '  "packages": ["gtk4", "gtk4.dev"]',
-            '  "packages": [{"name": "gtk4", "outputs": ["out", "dev"]}]',
-            "```",
-            "Common output names: out (default), dev (headers + .pc), bin, lib, man, doc.",
-            "",
-            "To override a version with an upstream source (when nixpkgs hasn't caught up):",
-            "```json",
-            '  "packages": [{"name": "freetype", "version": "2.14.1",',
-            '    "url": "mirror://savannah/freetype/freetype-2.14.1.tar.xz",',
-            '    "hash": "sha256-MkJ+jEcawJWFMhKjeu+BbGC0IFLU2eSCMLqzvfKTbMw="}]',
-            "```",
-            "Get the hash: run nix-prefetch-url <url>, or set hash to empty and nix reports it.",
-            "",
-            "Package names must match nixpkgs attributes (https://search.nixos.org/packages).",
-            "Do NOT install packages via apt, nix-env, or other package managers.",
-            "Run `yolo config-ref` for the full configuration reference.",
-            "",
-            "## Resource Management",
-            "",
-            "The jail may have hard resource limits set by the human operator (memory, CPU, PIDs).",
-            "These are kernel-enforced — exceeding memory triggers OOM kill, exceeding PIDs prevents",
-            "new processes. You cannot change container-level limits, but you can enforce hard limits",
-            "on your own sub-processes using `yolo-cglimit`:",
-            "",
-            "### yolo-cglimit (recommended for hard limits)",
-            "",
-            "Located at `~/.local/bin/yolo-cglimit` (on PATH). Run `yolo-cglimit --help` for usage.",
-            "",
-            "```bash",
-            "# Limit a training job to 75% of all CPUs",
-            "yolo-cglimit --cpu 75 -- python train.py",
-            "",
-            "# 50% CPU + 2GB RAM",
-            "yolo-cglimit --cpu 50 --memory 2g -- make -j8",
-            "",
-            "# Max 100 processes (prevent fork bombs)",
-            "yolo-cglimit --pids 100 -- ./build.sh",
-            "",
-            "# Named cgroup for monitoring",
-            "yolo-cglimit --cpu 75 --name training -- python train.py",
-            "```",
-            "",
-            "These limits are enforced by the kernel via cgroup v2 — they cannot be exceeded.",
-            "The tool communicates with a host-side daemon over a Unix socket; no elevated",
-            "privileges are needed inside the jail. If the daemon is unavailable, `yolo-cglimit`",
-            "will print an error with guidance.",
-            "",
-            "**How it works**: The yolo CLI runs a cgroup delegate daemon on the host alongside",
-            "the container. When you call `yolo-cglimit`, it sends a JSON request to the daemon",
-            "via `/run/yolo-services/cgroup-delegate.sock`. The daemon creates a child cgroup in the container's",
-            "cgroup tree, sets limits, and moves your process into it using SO_PEERCRED for secure",
-            "PID identity. All operations are logged for auditability.",
-            "",
-            "**Podman is the primary supported runtime** for cgroup delegation.",
-            "",
-            "### Soft limits (always available)",
-            "",
-            "| Tool | Purpose | Example |",
-            "|------|---------|---------|",
-            "| `nice` | Lower CPU priority | `nice -n 19 python train.py` |",
-            "| `ionice` | Lower I/O priority | `ionice -c 3 python train.py` |",
-            "| `timeout` | Wall-clock limit | `timeout 3600 python train.py` |",
-            "| `ulimit` | Per-process limits | `ulimit -v 4000000` (4GB virtual mem) |",
-            "",
-            "For long-running jobs (training, builds), combine limits:",
-            "```bash",
-            "yolo-cglimit --cpu 75 --memory 4g -- nice -n 10 timeout 7200 python train.py",
-            "```",
-            "",
-            "To request container-level resource limit changes, edit `/workspace/yolo-jail.jsonc`:",
-            "```json",
-            '  "resources": {"memory": "8g", "cpus": 4, "pids_limit": 4096}',
-            "```",
-            "Then run `yolo check --no-build` and ask the human to restart the jail.",
+            "To request a tool or a container-limit change: edit `/workspace/yolo-jail.jsonc`",
+            "(`packages` / `resources`), ALWAYS run `yolo check` after every config edit",
+            "(`yolo check --no-build` is fine inside a running jail), then ask the human to",
+            "restart the jail. Reference: `yolo config-ref`.",
             "",
             "## Skills",
             "",
@@ -286,18 +215,6 @@ def generate_agents_md(
                 "",
             ]
         )
-
-    lines.extend(
-        [
-            "## Startup Log",
-            "",
-            "The jail's provisioning log persists at `/workspace/.yolo/startup.log`.",
-            "At session start, check its tail. If it contains `PROVISIONING FAILED`,",
-            "project tools may be missing — read the log and self-serve: e.g. run",
-            "`mise install` in /workspace, then re-run the step that failed.",
-            "",
-        ]
-    )
 
     jail_content = "\n".join(lines) + "\n"
     if agents_md_extra:
