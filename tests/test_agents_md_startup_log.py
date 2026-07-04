@@ -66,6 +66,14 @@ class TestBriefingSlimness:
         assert "MCP Servers:" not in content
         assert "First Session" not in content
 
+    def test_rg_replace_trap_warning_present(self, tmp_path, monkeypatch):
+        """Agents habitually type grep's -rn into rg, where -r means
+        --replace and corrupts search output (14 observed misfires) —
+        the briefing must warn, since we deliberately don't shim rg."""
+        content = (self._generate(tmp_path, monkeypatch) / "CLAUDE.md").read_text()
+        assert "rg is recursive by default" in content
+        assert "--replace" in content
+
     def test_skills_section_is_the_readonly_constraint_only(
         self, tmp_path, monkeypatch
     ):
