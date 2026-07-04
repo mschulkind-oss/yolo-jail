@@ -22,6 +22,19 @@ REPO_ROOT = Path(__file__).parent.parent.resolve()
 JAIL_IMAGE = "yolo-jail:latest"
 
 
+@pytest.fixture
+def sock_dir():
+    """Short per-test dir under /tmp for AF_UNIX sockets — sun_path is
+    capped at 108 bytes on Linux / 104 on macOS, and pytest's tmp_path
+    (/private/var/folders/... on macOS) exceeds it."""
+    import tempfile
+
+    base = "/private/tmp" if sys.platform == "darwin" else "/tmp"
+    d = Path(tempfile.mkdtemp(dir=base, prefix="yj-sock-"))
+    yield d
+    shutil.rmtree(d, ignore_errors=True)
+
+
 @pytest.fixture(autouse=True)
 def _simulate_linux_for_unit_tests(request, monkeypatch):
     """Ensure *unit* tests exercise the Linux code paths regardless of host OS.

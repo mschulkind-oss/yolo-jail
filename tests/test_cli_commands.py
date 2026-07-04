@@ -1996,8 +1996,8 @@ class TestDoctorBrokerRelayProbe:
             lambda m, *a, **kw: events.append(("fail", m)),
         )
 
-    def test_healthy_relay_reports_ok(self, tmp_path):
-        sock_path = tmp_path / "claude-oauth-broker.sock"
+    def test_healthy_relay_reports_ok(self, sock_dir):
+        sock_path = sock_dir / "claude-oauth-broker.sock"
         srv = _serve_unix(sock_path, _pong_handler)
         try:
             events, ok, warn, fail = self._events()
@@ -2021,10 +2021,10 @@ class TestDoctorBrokerRelayProbe:
         assert "yolo-ws-abc12345" in events[0][1]
         assert "relay" in events[0][1]
 
-    def test_stale_socket_connect_refused_is_relay_layer(self, tmp_path):
+    def test_stale_socket_connect_refused_is_relay_layer(self, sock_dir):
         # Bind then close: the socket FILE stays behind but nothing
         # listens — the signature of a relay process that died.
-        sock_path = tmp_path / "claude-oauth-broker.sock"
+        sock_path = sock_dir / "claude-oauth-broker.sock"
         srv = socket.socket(socket.AF_UNIX, socket.SOCK_STREAM)
         srv.bind(str(sock_path))
         srv.listen(1)
@@ -2036,10 +2036,10 @@ class TestDoctorBrokerRelayProbe:
         assert [k for k, _ in events] == ["fail"]
         assert "relay socket dead" in events[0][1]
 
-    def test_relay_up_broker_down_is_broker_layer(self, tmp_path):
+    def test_relay_up_broker_down_is_broker_layer(self, sock_dir):
         # Relay-alike that accepts and immediately closes — what the real
         # relay does to its client when the singleton is unreachable.
-        sock_path = tmp_path / "claude-oauth-broker.sock"
+        sock_path = sock_dir / "claude-oauth-broker.sock"
         srv = _serve_unix(sock_path, lambda conn: conn.close())
         try:
             events, ok, warn, fail = self._events()
@@ -2054,7 +2054,7 @@ class TestDoctorBrokerRelayProbe:
     # ── the caller: _check_host_service_liveness routes the broker to
     #    the relay probe and must never false-pass on enumeration errors ──
 
-    def _liveness_setup(self, monkeypatch, tmp_path, *, ps_stdout, ps_rc=0):
+    def _liveness_setup(self, monkeypatch, sockets_base, *, ps_stdout, ps_rc=0):
         monkeypatch.delenv("YOLO_VERSION", raising=False)
         lp = MagicMock()
         lp.name = cli.BROKER_LOOPHOLE_NAME
@@ -2069,19 +2069,19 @@ class TestDoctorBrokerRelayProbe:
         )
         ps_result = MagicMock(stdout=ps_stdout, stderr="boom", returncode=ps_rc)
         monkeypatch.setattr("cli.check_cmd.subprocess.run", lambda *a, **kw: ps_result)
-        sockets_dir = tmp_path / "sockets"
+        sockets_dir = sockets_base / "sockets"
         sockets_dir.mkdir()
         monkeypatch.setattr(
             "cli.check_cmd._host_service_sockets_dir", lambda _cname: sockets_dir
         )
         return sockets_dir
 
-    def test_liveness_probes_broker_relay_per_jail(self, monkeypatch, tmp_path):
+    def test_liveness_probes_broker_relay_per_jail(self, monkeypatch, sock_dir):
         """The old broker skip is gone: a running jail whose relay socket
         answers gets an ok line naming the jail; a jail without the
         socket gets a relay-layer fail."""
         sockets_dir = self._liveness_setup(
-            monkeypatch, tmp_path, ps_stdout="yolo-ws-abc12345\n"
+            monkeypatch, sock_dir, ps_stdout="yolo-ws-abc12345\n"
         )
         srv = _serve_unix(sockets_dir / "claude-oauth-broker.sock", _pong_handler)
         try:

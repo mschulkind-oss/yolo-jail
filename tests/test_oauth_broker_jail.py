@@ -169,11 +169,11 @@ def test_ask_host_broker_wraps_oserror_as_runtimeerror(tmp_path):
 # ---------------------------------------------------------------------------
 
 
-def test_ask_host_broker_names_relay_layer_on_enoent(tmp_path):
+def test_ask_host_broker_names_relay_layer_on_enoent(sock_dir):
     """Relay socket missing entirely (relay never started, or the
     sockets dir was recreated under it) → connect raises ENOENT → the
     message must name the RELAY layer, not the broker."""
-    missing_sock = tmp_path / "relay-not-here.sock"
+    missing_sock = sock_dir / "relay-not-here.sock"
     with pytest.raises(RuntimeError) as exc:
         oauth_broker_jail.ask_host_broker(str(missing_sock), {"action": "ping"})
     msg = str(exc.value)
@@ -181,10 +181,10 @@ def test_ask_host_broker_names_relay_layer_on_enoent(tmp_path):
     assert str(missing_sock) in msg
 
 
-def test_ask_host_broker_names_relay_layer_on_connection_refused(tmp_path):
+def test_ask_host_broker_names_relay_layer_on_connection_refused(sock_dir):
     """Socket file present but no relay process listening behind it →
     connect raises ECONNREFUSED → relay-layer wording."""
-    dead_sock = tmp_path / "relay-dead.sock"
+    dead_sock = sock_dir / "relay-dead.sock"
     s = socket.socket(socket.AF_UNIX, socket.SOCK_STREAM)
     s.bind(str(dead_sock))
     s.close()  # leaves the socket file with nothing accepting on it
@@ -195,12 +195,12 @@ def test_ask_host_broker_names_relay_layer_on_connection_refused(tmp_path):
     assert str(dead_sock) in msg
 
 
-def test_ask_host_broker_names_broker_layer_on_eof_before_exit_frame(tmp_path):
+def test_ask_host_broker_names_broker_layer_on_eof_before_exit_frame(sock_dir):
     """The relay accepted the connection but closed it without any
     response frames — its per-connection dial of the real broker failed.
     That is the BROKER layer (reached through the relay), and the
     message must say so instead of blaming the relay."""
-    sock_path = tmp_path / "relay-live.sock"
+    sock_path = sock_dir / "relay-live.sock"
     server = socket.socket(socket.AF_UNIX, socket.SOCK_STREAM)
     server.bind(str(sock_path))
     server.listen(1)
@@ -236,7 +236,7 @@ def test_ask_host_broker_names_broker_layer_on_eof_before_exit_frame(tmp_path):
     assert not msg.startswith("relay unreachable")
 
 
-def test_ask_host_broker_names_broker_layer_on_send_phase_reset(tmp_path):
+def test_ask_host_broker_names_broker_layer_on_send_phase_reset(sock_dir):
     """The send-phase twin of the EOF case: the relay accepted, its
     per-connection dial of the broker failed, and it tore the
     connection down while our frame was still in flight — a large
@@ -244,7 +244,7 @@ def test_ask_host_broker_names_broker_layer_on_send_phase_reset(tmp_path):
     raises EPIPE/ECONNRESET instead of the recv path ever seeing EOF.
     That is still the BROKER layer and the message must say so, not
     fall into the generic ``host broker socket …: [Errno 32]`` wrap."""
-    sock_path = tmp_path / "relay-reset.sock"
+    sock_path = sock_dir / "relay-reset.sock"
     server = socket.socket(socket.AF_UNIX, socket.SOCK_STREAM)
     server.bind(str(sock_path))
     server.listen(1)
@@ -271,11 +271,11 @@ def test_ask_host_broker_names_broker_layer_on_send_phase_reset(tmp_path):
     assert not msg.startswith("relay unreachable")
 
 
-def test_proxy_upstream_relay_layer_keeps_502_shape(tmp_path):
+def test_proxy_upstream_relay_layer_keeps_502_shape(sock_dir):
     """The HTTP-facing contract is unchanged by layer discrimination:
     a relay-layer failure still surfaces as 502 ``broker_unavailable``;
     only the detail string names the relay."""
-    missing_sock = tmp_path / "relay-not-here.sock"
+    missing_sock = sock_dir / "relay-not-here.sock"
     status, headers, body = oauth_broker_jail._proxy_upstream(
         str(missing_sock), "POST", "/v1/oauth/token", {}, b'{"grant_type":"x"}'
     )
