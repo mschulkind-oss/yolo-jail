@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import json
+import logging
 from pathlib import Path
 
 import pytest
@@ -833,6 +834,96 @@ def test_host_devices_skipped_when_node_missing(mods_dir: Path, tmp_path: Path):
     loaded = loopholes.discover_loopholes(mods_dir, include_bundled=False)
     args = loopholes.runtime_args_for(loaded)
     assert "--device" not in args
+
+
+def test_host_devices_skipped_in_jail_but_mounts_and_env_survive(
+    mods_dir: Path, tmp_path: Path, monkeypatch
+):
+    """Nested launch: inside a jail (YOLO_VERSION set) the outer jail's
+    device wiring makes /dev/snd exist, so the existence gate passes —
+    but rootless podman can't re-passthrough devices ("no devices found
+    in /dev/snd").  All ``--device`` args must drop while the loophole's
+    bind mounts and jail_env still wire up (audio degrades to
+    socket-only instead of failing the boot)."""
+    monkeypatch.setenv("YOLO_VERSION", "test-1.0.0")
+    sock = tmp_path / "pulse-native"
+    sock.write_bytes(b"")
+    mod = mods_dir / "audio-like"
+    mod.mkdir()
+    _write_manifest(
+        mod,
+        {
+            "name": "audio-like",
+            "description": "x",
+            "transport": "none",
+            # /dev/null always exists, so only the in-jail gate — not
+            # the existence check — can drop the --device arg.
+            "host_devices": ["/dev/null"],
+            "host_bind_mounts": [
+                # Container path /tmp exists, so _in_jail_active passes.
+                {"host": str(sock), "container": "/tmp", "readonly": False},
+            ],
+            "jail_env": {"PULSE_SERVER": "unix:/run/pulse/native"},
+        },
+    )
+    loaded = loopholes.discover_loopholes(mods_dir, include_bundled=False)
+    assert loaded[0].active is True
+    args = loopholes.runtime_args_for(loaded)
+    assert "--device" not in args
+    pairs = list(zip(args, args[1:]))
+    assert ("-v", f"{sock}:/tmp") in pairs
+    assert ("-e", "PULSE_SERVER=unix:/run/pulse/native") in pairs
+
+
+def test_host_devices_in_jail_skip_logs_once_per_loophole(
+    mods_dir: Path, monkeypatch, caplog
+):
+    """The in-jail device skip announces itself with one info log per
+    loophole — not one per device, not silence."""
+    monkeypatch.setenv("YOLO_VERSION", "test-1.0.0")
+    for name in ("snd-like", "video-like"):
+        mod = mods_dir / name
+        mod.mkdir()
+        _write_manifest(
+            mod,
+            {
+                "name": name,
+                "description": "x",
+                "transport": "none",
+                "host_devices": ["/dev/null", "/dev/zero"],
+            },
+        )
+    loaded = loopholes.discover_loopholes(mods_dir, include_bundled=False)
+    with caplog.at_level(logging.INFO, logger="yolo.loopholes"):
+        args = loopholes.runtime_args_for(loaded)
+    assert "--device" not in args
+    skips = [
+        r for r in caplog.records if "skipping device passthrough" in r.getMessage()
+    ]
+    # Two devices per loophole, two loopholes: exactly one log each.
+    assert sorted(r.args[0] for r in skips) == ["snd-like", "video-like"]
+
+
+def test_host_devices_kept_on_host_when_not_in_jail(mods_dir: Path, monkeypatch):
+    """Host side (no YOLO_VERSION): device passthrough stays
+    existence-gated exactly as before — the in-jail skip must not leak
+    out of the jail."""
+    monkeypatch.delenv("YOLO_VERSION", raising=False)
+    mod = mods_dir / "snd-like"
+    mod.mkdir()
+    _write_manifest(
+        mod,
+        {
+            "name": "snd-like",
+            "description": "x",
+            "transport": "none",
+            "host_devices": ["/dev/null"],
+        },
+    )
+    loaded = loopholes.discover_loopholes(mods_dir, include_bundled=False)
+    args = loopholes.runtime_args_for(loaded)
+    pairs = list(zip(args, args[1:]))
+    assert ("--device", "/dev/null") in pairs
 
 
 def test_host_devices_must_be_list_of_nonempty_strings(mods_dir: Path):

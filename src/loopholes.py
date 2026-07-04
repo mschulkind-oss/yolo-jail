@@ -852,18 +852,30 @@ def runtime_args_for(
                 spec += ":ro"
             args.extend(["-v", spec])
 
-        for dev in m.host_devices:
-            # Skip device entries whose host node disappeared (kernel
-            # module unloaded, etc.) — podman fails the run with an
-            # opaque error otherwise.
-            if not Path(dev).exists():
-                log.warning(
-                    "loophole %s: skipping device passthrough, host node missing: %s",
-                    m.name,
-                    dev,
-                )
-                continue
-            args.extend(["--device", dev])
+        # Nested jail: rootless podman can't re-passthrough devices the
+        # outer jail exposed ("no devices found in /dev/snd"), and the
+        # existence check below passes because the nodes are visible
+        # in-jail.  Skip all device wiring — bind mounts still nest, so
+        # e.g. audio degrades to socket-only instead of failing the boot.
+        if m.host_devices and os.environ.get("YOLO_VERSION") is not None:
+            log.info(
+                "loophole %s: skipping device passthrough inside a jail — "
+                "devices cannot nest under rootless podman",
+                m.name,
+            )
+        else:
+            for dev in m.host_devices:
+                # Skip device entries whose host node disappeared (kernel
+                # module unloaded, etc.) — podman fails the run with an
+                # opaque error otherwise.
+                if not Path(dev).exists():
+                    log.warning(
+                        "loophole %s: skipping device passthrough, host node missing: %s",
+                        m.name,
+                        dev,
+                    )
+                    continue
+                args.extend(["--device", dev])
 
         for k, v in m.jail_env.items():
             args.extend(["-e", f"{k}={v}"])
