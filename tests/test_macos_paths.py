@@ -77,6 +77,10 @@ def _run_monkeypatch(monkeypatch, tmp_path):
     monkeypatch.setattr("cli.run_cmd.AGENTS_DIR", tmp_path / "agents")
     monkeypatch.setattr("cli.run_cmd.BUILD_DIR", tmp_path / "build")
     monkeypatch.setattr("cli.run_cmd.USER_CONFIG_PATH", tmp_path / "user-config.jsonc")
+    # cli.storage holds its own bindings: _jail_mise_store_dir reads
+    # GLOBAL_MISE and the layout migration reads GLOBAL_STORAGE there.
+    monkeypatch.setattr("cli.storage.GLOBAL_MISE", tmp_path / "mise")
+    monkeypatch.setattr("cli.storage.GLOBAL_STORAGE", tmp_path / "storage")
     monkeypatch.setattr("time.sleep", lambda _: None)
     for d in (
         "home",
@@ -88,6 +92,9 @@ def _run_monkeypatch(monkeypatch, tmp_path):
         "storage/locks",
     ):
         (tmp_path / d).mkdir(parents=True, exist_ok=True)
+    # Pre-stamp the storage layout marker so the one-time migration
+    # (which scans the real host mise dir) stays a no-op in unit tests.
+    (tmp_path / "storage" / "layout-version").write_text("2\n")
 
 
 # ---------------------------------------------------------------------------
@@ -171,15 +178,14 @@ class TestMacosMiseVolume:
         if mock_popen.called:
             run_cmd = mock_popen.call_args[0][0]
             cmd_str = " ".join(str(c) for c in run_cmd)
-            # Named volume backs the mount (Mach-O binaries in the host mise
-            # dir can't run in Linux), but the mount point is the host mise
-            # path — same canonical location as Linux jails, so venv
-            # absolute paths resolve identically.
-            from cli import _host_mise_dir
-
-            host_mise = _host_mise_dir()
-            assert f"yolo-mise-data:{host_mise}" in cmd_str, (
-                f"Expected 'yolo-mise-data:{host_mise}' on macOS, got: {cmd_str}"
+            # Named volume backs the mount (Mach-O binaries in the host
+            # mise dir can't run in Linux), mounted at the fixed neutral
+            # path /mise — the same jail-land store location as every
+            # other runtime (see docs/jail-state-separation-design.md).
+            # v2 name: the pre-split volume held content laid out for
+            # the old host-path mount target.
+            assert "yolo-mise-data-v2:/mise" in cmd_str, (
+                f"Expected 'yolo-mise-data-v2:/mise' on macOS, got: {cmd_str}"
             )
 
 

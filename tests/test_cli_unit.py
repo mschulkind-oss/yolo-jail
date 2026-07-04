@@ -2136,13 +2136,23 @@ class TestDetectHostTimezone:
 
 
 class TestEnsureGlobalStorage:
-    def test_creates_directories(self, tmp_path, monkeypatch):
+    def _patch_storage(self, tmp_path, monkeypatch):
         monkeypatch.setattr("cli.storage.GLOBAL_HOME", tmp_path / "home")
         monkeypatch.setattr("cli.storage.GLOBAL_MISE", tmp_path / "mise")
         monkeypatch.setattr("cli.storage.GLOBAL_CACHE", tmp_path / "cache")
         monkeypatch.setattr("cli.storage.CONTAINER_DIR", tmp_path / "containers")
         monkeypatch.setattr("cli.storage.AGENTS_DIR", tmp_path / "agents")
         monkeypatch.setattr("cli.storage.BUILD_DIR", tmp_path / "build")
+        # Keep the one-time layout migration off the developer's real
+        # host state: GLOBAL_STORAGE holds the layout-version marker and
+        # _host_mise_dir names the store the v2 heal scans/unlinks.
+        monkeypatch.setattr("cli.storage.GLOBAL_STORAGE", tmp_path / "storage")
+        monkeypatch.setattr(
+            "cli.storage._host_mise_dir", lambda: tmp_path / "host-mise"
+        )
+
+    def test_creates_directories(self, tmp_path, monkeypatch):
+        self._patch_storage(tmp_path, monkeypatch)
         ensure_global_storage()
         assert (tmp_path / "home").is_dir()
         assert (tmp_path / "mise").is_dir()
@@ -2153,12 +2163,7 @@ class TestEnsureGlobalStorage:
 
     def test_creates_subdirs(self, tmp_path, monkeypatch):
         home = tmp_path / "home"
-        monkeypatch.setattr("cli.storage.GLOBAL_HOME", home)
-        monkeypatch.setattr("cli.storage.GLOBAL_MISE", tmp_path / "mise")
-        monkeypatch.setattr("cli.storage.GLOBAL_CACHE", tmp_path / "cache")
-        monkeypatch.setattr("cli.storage.CONTAINER_DIR", tmp_path / "containers")
-        monkeypatch.setattr("cli.storage.AGENTS_DIR", tmp_path / "agents")
-        monkeypatch.setattr("cli.storage.BUILD_DIR", tmp_path / "build")
+        self._patch_storage(tmp_path, monkeypatch)
         ensure_global_storage()
         assert (home / ".copilot").is_dir()
         assert (home / ".gemini").is_dir()
@@ -2168,12 +2173,7 @@ class TestEnsureGlobalStorage:
     def test_creates_mountpoint_files(self, tmp_path, monkeypatch):
         """File mountpoints must exist in GLOBAL_HOME for :ro bind mounts."""
         home = tmp_path / "home"
-        monkeypatch.setattr("cli.storage.GLOBAL_HOME", home)
-        monkeypatch.setattr("cli.storage.GLOBAL_MISE", tmp_path / "mise")
-        monkeypatch.setattr("cli.storage.GLOBAL_CACHE", tmp_path / "cache")
-        monkeypatch.setattr("cli.storage.CONTAINER_DIR", tmp_path / "containers")
-        monkeypatch.setattr("cli.storage.AGENTS_DIR", tmp_path / "agents")
-        monkeypatch.setattr("cli.storage.BUILD_DIR", tmp_path / "build")
+        self._patch_storage(tmp_path, monkeypatch)
         ensure_global_storage()
         # Spot-check key file mountpoints
         assert (home / ".yolo-entrypoint.lock").is_file()
@@ -2192,12 +2192,7 @@ class TestEnsureGlobalStorage:
     def test_creates_overlay_dir_mountpoints(self, tmp_path, monkeypatch):
         """Directory mountpoints for per-workspace overlays."""
         home = tmp_path / "home"
-        monkeypatch.setattr("cli.storage.GLOBAL_HOME", home)
-        monkeypatch.setattr("cli.storage.GLOBAL_MISE", tmp_path / "mise")
-        monkeypatch.setattr("cli.storage.GLOBAL_CACHE", tmp_path / "cache")
-        monkeypatch.setattr("cli.storage.CONTAINER_DIR", tmp_path / "containers")
-        monkeypatch.setattr("cli.storage.AGENTS_DIR", tmp_path / "agents")
-        monkeypatch.setattr("cli.storage.BUILD_DIR", tmp_path / "build")
+        self._patch_storage(tmp_path, monkeypatch)
         ensure_global_storage()
         assert (home / ".npm-global").is_dir()
         assert (home / ".local").is_dir()
@@ -2218,12 +2213,7 @@ class TestEnsureGlobalStorage:
         f = home / ".yolo-entrypoint.lock"
         f.write_text("# old")
         f.chmod(0o000)
-        monkeypatch.setattr("cli.storage.GLOBAL_HOME", home)
-        monkeypatch.setattr("cli.storage.GLOBAL_MISE", tmp_path / "mise")
-        monkeypatch.setattr("cli.storage.GLOBAL_CACHE", tmp_path / "cache")
-        monkeypatch.setattr("cli.storage.CONTAINER_DIR", tmp_path / "containers")
-        monkeypatch.setattr("cli.storage.AGENTS_DIR", tmp_path / "agents")
-        monkeypatch.setattr("cli.storage.BUILD_DIR", tmp_path / "build")
+        self._patch_storage(tmp_path, monkeypatch)
         # Should not raise despite unwritable file
         ensure_global_storage()
         assert f.exists()
@@ -2507,28 +2497,21 @@ class TestMergeLists:
 
 
 class TestHostMiseDir:
-    def test_from_env(self, monkeypatch, tmp_path):
+    """Host-only: no env overrides, no mkdir side effect — the jail
+    store is a separate dir (see _jail_mise_store_dir)."""
+
+    def test_env_is_ignored(self, monkeypatch, tmp_path):
         mise_dir = tmp_path / "mise"
-        mise_dir.mkdir()
-        monkeypatch.delenv("YOLO_OUTER_MISE_PATH", raising=False)
         monkeypatch.setenv("MISE_DATA_DIR", str(mise_dir))
         result = _host_mise_dir()
-        assert result == mise_dir
+        assert result == Path.home() / ".local" / "share" / "mise"
+        assert not mise_dir.exists()
 
-    def test_from_outer_env(self, monkeypatch, tmp_path):
-        mise_dir = tmp_path / "outer-mise"
-        mise_dir.mkdir()
-        monkeypatch.setenv("YOLO_OUTER_MISE_PATH", str(mise_dir))
-        result = _host_mise_dir()
-        assert result == mise_dir
-
-    def test_default_creates(self, monkeypatch, tmp_path):
-        monkeypatch.delenv("YOLO_OUTER_MISE_PATH", raising=False)
+    def test_default_path_no_mkdir(self, monkeypatch):
         monkeypatch.delenv("MISE_DATA_DIR", raising=False)
-        Path.home() / ".local" / "share" / "mise"
         result = _host_mise_dir()
-        # Should return the default path (may or may not exist in CI)
-        assert str(result).endswith("mise")
+        # Names the host's own store; existence is not required.
+        assert result == Path.home() / ".local" / "share" / "mise"
 
 
 # ═══════════════════════════════════════════════════════════════════════════════
@@ -2625,7 +2608,6 @@ class TestEntrypointPreflight:
         repo_root = REPO_ROOT
         workspace = tmp_path / "ws"
         workspace.mkdir()
-        monkeypatch.delenv("YOLO_OUTER_MISE_PATH", raising=False)
         _entrypoint_preflight(repo_root, workspace, {})
 
     def test_missing_entrypoint_raises(self, tmp_path):

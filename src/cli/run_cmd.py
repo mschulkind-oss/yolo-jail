@@ -8,6 +8,8 @@ into an existing container or launches a fresh one.
 
 Co-resident helpers:
   * _resolve_repo_root — locate the yolo-jail repo root for nix builds.
+  * _workspace_is_yolo_source_tree — detect a jailed yolo-jail checkout
+    (its live tree then backs /opt/yolo-jail instead of repo_root).
   * _workspace_readonly_mount_args — read-only overlays on /workspace.
   * _entrypoint_preflight — generate jail-managed config in a temp home
     so check() catches config/render errors before any container starts.
@@ -22,12 +24,14 @@ The Typer commands are registered in cli/__init__.py.
 import fcntl
 import json
 import os
+import re
 import resource
 import shlex
 import shutil
 import subprocess
 import sys
 import tempfile
+import tomllib
 from pathlib import Path
 from typing import Any, Dict, List, Optional
 
@@ -107,7 +111,7 @@ from .runtime import (
 from .storage import (
     _ac_materialize_under_ws_state,
     _detect_host_timezone,
-    _host_mise_dir,
+    _jail_mise_store_dir,
     _linux_multilib,
     _migrate_old_overlay,
     _seed_agent_dir,
@@ -121,6 +125,15 @@ from .version import (
     _get_yolo_version,
     _git_describe_version,
 )
+
+# Named volume backing the jail-land mise store on macOS (podman and
+# Apple Container), mounted at /mise.  Versioned name: the pre-split
+# volume (yolo-mise-data) was mounted at the host's ~/.local/share/mise
+# path string, so path-embedding installs in it (pipx-backend venv
+# shebangs, pyvenv.cfg homes) would break if the same content were
+# remounted at /mise — v2 starts a fresh store cold instead (the
+# designed migration; see docs/jail-state-separation-design.md).
+MISE_STORE_VOLUME = "yolo-mise-data-v2"
 
 
 def _resolve_repo_root() -> Path:
@@ -262,6 +275,21 @@ def _resolve_repo_root() -> Path:
     raise typer.Exit(1)
 
 
+def _workspace_is_yolo_source_tree(workspace: Path) -> bool:
+    """True when the workspace being jailed is itself a yolo-jail source
+    checkout: ``src/cli/__init__.py`` present AND ``pyproject.toml``
+    naming the ``yolo-jail`` project.  An absent, unreadable, or foreign
+    pyproject reads as "not a yolo repo"."""
+    if not (workspace / "src" / "cli" / "__init__.py").exists():
+        return False
+    try:
+        data = tomllib.loads((workspace / "pyproject.toml").read_text())
+    except (OSError, UnicodeDecodeError, tomllib.TOMLDecodeError):
+        return False
+    project = data.get("project")
+    return isinstance(project, dict) and project.get("name") == "yolo-jail"
+
+
 # ---------------------------------------------------------------------------
 # Host services: split the jail boundary with outside-the-jail processes
 # ---------------------------------------------------------------------------
@@ -342,6 +370,215 @@ def _workspace_readonly_mount_args(
             continue
         args.extend(["-v", f"{host_subpath}:/workspace/{rel}:ro"])
     return args
+
+
+def _mise_config_venv_path(workspace: Path) -> Optional[str]:
+    """The ``env._.python.venv`` path from the workspace's mise config.
+
+    mise loads the base pair (``mise.toml``/``.mise.toml``) and — because
+    every jail exports ``MISE_ENV=jail`` — the jail pair
+    (``mise.jail.toml``/``.mise.jail.toml``) on top.  On a key conflict a
+    later file wins (env-specific after base, dotted after plain), so
+    parse in that order and keep the last hit.  String form is the path
+    itself; dict form carries it in ``path`` (default ``.venv``).  A
+    leading ``{{config_root}}/`` tera template resolves to the workspace
+    root (== ``/workspace`` in-jail) and is stripped; any other template
+    is left verbatim for the caller to reject.  Parse/decode errors read
+    as absent — in-jail provisioning surfaces them.
+    """
+    found: Optional[str] = None
+    for fname in ("mise.toml", ".mise.toml", "mise.jail.toml", ".mise.jail.toml"):
+        cfg = workspace / fname
+        if not cfg.is_file():
+            continue
+        try:
+            data = tomllib.loads(cfg.read_text())
+        except (OSError, UnicodeDecodeError, tomllib.TOMLDecodeError):
+            continue
+        node: Any = data
+        for key in ("env", "_", "python", "venv"):
+            node = node.get(key) if isinstance(node, dict) else None
+        if isinstance(node, str):
+            found = node
+        elif isinstance(node, dict):
+            path = node.get("path", ".venv")
+            if isinstance(path, str):
+                found = path
+    if found:
+        found = re.sub(r"^\{\{\s*config_root\s*\}\}/", "", found)
+    return found
+
+
+def _valid_per_side_rel(rel: str) -> bool:
+    """True when ``rel`` is a shadowable workspace sub-path: relative,
+    no ``..`` traversal, and no unresolved tera template (a literal
+    ``{{…}}`` dir must never be materialized in the host workspace)."""
+    return (
+        bool(rel)
+        and rel != "."
+        and not rel.startswith("/")
+        and ".." not in rel.split("/")
+        and "{{" not in rel
+        and "{%" not in rel
+    )
+
+
+def _venv_shadow_mount_args(
+    workspace: Path, ws_state: Path, config: Dict[str, Any]
+) -> List[str]:
+    """Build the per-side shadow mounts over ``/workspace``.
+
+    Derived state (venvs and friends) never crosses the host↔jail
+    boundary: each side sees its own backing at the same idiomatic path.
+    Shadow set: ``.venv`` ∪ the venv path from the workspace mise config
+    ∪ config ``per_side_paths``.  Backing dirs live under
+    ``ws_state/venv-shadows/`` (``/`` → ``__`` in the name) so they
+    persist across restarts and ride the existing ``.yolo`` disk
+    accounting.  Entries must be relative, template-free workspace
+    sub-paths; offenders are skipped with a warning (config validation
+    rejects malformed ``per_side_paths`` separately).  A host path that
+    exists as a file or symlink (pipenv's ``.venv`` path file, a venv
+    symlinked out of tree, …) is also skipped: a directory mount over a
+    non-directory aborts container creation, so the jail sees the host's
+    entry through the workspace bind instead — the pre-split behavior.
+    Directory mounts only — the safe kind for Apple Container
+    (apple/container#1089 is file mounts).
+    """
+    rels = {".venv"}
+    mise_venv = _mise_config_venv_path(workspace)
+    if mise_venv:
+        rels.add(mise_venv)
+    for entry in config.get("per_side_paths") or []:
+        if isinstance(entry, str):
+            rels.add(entry)
+
+    args: List[str] = []
+    for rel in sorted(rels):
+        if not _valid_per_side_rel(rel):
+            console.print(
+                f"[yellow]Warning: invalid per-side path, skipping: {rel!r}[/yellow]"
+            )
+            continue
+        host_path = workspace / rel
+        if host_path.is_symlink() or (host_path.exists() and not host_path.is_dir()):
+            console.print(
+                f"[yellow]Warning: workspace path {rel!r} is a file or symlink "
+                "— cannot shadow it per-side; the jail will see the host's "
+                "entry[/yellow]"
+            )
+            continue
+        backing = ws_state / "venv-shadows" / rel.replace("/", "__")
+        backing.mkdir(parents=True, exist_ok=True)
+        args.extend(["-v", f"{backing}:/workspace/{rel}"])
+    return args
+
+
+def _retire_jail_made_venv(workspace: Path) -> None:
+    """Delete workspace venvs that a jail materialized under the old
+    shared-store model.
+
+    Examines every venv-shaped member of the shadow set — ``.venv`` plus
+    the mise-configured venv path.  Detection: ``pyvenv.cfg``'s
+    ``home =`` names a jail-flavored interpreter dir (``/workspace/…``,
+    ``/mise/…``, or the previously shared ``~/.local/share/mise``) that
+    does not exist on the host.  Such a venv is broken derived state on
+    the only side that can still see it — the shadow mount hides it from
+    every jail, so nothing would ever repair it.  A venv whose ``home``
+    resolves is left strictly alone, as is a symlinked venv (host-made
+    by definition — jails create real dirs).  Host-side only, and only
+    called on the fresh-container path: a running old-model jail may
+    still be using the venv through the shared workspace bind.
+    """
+    if os.environ.get("YOLO_VERSION") is not None:
+        return
+    rels = {".venv"}
+    mise_venv = _mise_config_venv_path(workspace)
+    if mise_venv:
+        rels.add(mise_venv)
+    jail_prefixes = (
+        "/workspace/",
+        "/mise/",
+        str(Path.home() / ".local" / "share" / "mise"),
+    )
+    for rel in sorted(rels):
+        if not _valid_per_side_rel(rel):
+            continue
+        venv_dir = workspace / rel
+        if venv_dir.is_symlink():
+            continue
+        try:
+            text = (venv_dir / "pyvenv.cfg").read_text()
+        except (OSError, UnicodeDecodeError):
+            continue
+        home = ""
+        for line in text.splitlines():
+            key, sep, value = line.partition("=")
+            if sep and key.strip() == "home":
+                home = value.strip()
+                break
+        if not home:
+            continue
+        if not home.startswith(jail_prefixes) or Path(home).exists():
+            continue
+        console.print(
+            f"[yellow]Removing jail-made {rel} — its interpreter at {home} "
+            "does not exist on the host[/yellow]"
+        )
+        shutil.rmtree(venv_dir, ignore_errors=True)
+
+
+def _live_yolo_containers(runtime: str) -> "Optional[set[str]]":
+    """Names of yolo-* containers currently running/paused/restarting.
+
+    Returns ``None`` (NOT an empty set) when the runtime can't be
+    enumerated — "liveness unknown" must never read as "nothing live"
+    (same fail-safe polarity as prune._find_referenced_build_roots).
+    """
+    live: set[str] = set()
+    if runtime == "container":
+        # Apple Container CLI has no docker-style `ps` or Go-template
+        # --format (same special-case as find_existing_container and
+        # ps()); `container ls` lists *running* containers only, so
+        # every yolo-* row it prints is live.
+        try:
+            res = subprocess.run(
+                ["container", "ls"],
+                capture_output=True,
+                text=True,
+                timeout=10,
+            )
+        except (FileNotFoundError, OSError, subprocess.TimeoutExpired):
+            return None
+        if res.returncode != 0:
+            return None
+        for line in res.stdout.strip().splitlines()[1:]:  # skip header
+            parts = line.split()
+            if parts and parts[0].startswith("yolo-"):
+                live.add(parts[0])
+        return live
+    try:
+        res = subprocess.run(
+            [runtime, "ps", "-a", "--format", "{{.Names}} {{.State}}"],
+            capture_output=True,
+            text=True,
+            timeout=10,
+        )
+    except (FileNotFoundError, OSError, subprocess.TimeoutExpired):
+        return None
+    if res.returncode != 0:
+        return None
+    for line in res.stdout.splitlines():
+        parts = line.strip().split()
+        if len(parts) < 2:
+            continue
+        name, state = parts[0], parts[1]
+        if name.startswith("yolo-") and state.lower() in (
+            "running",
+            "paused",
+            "restarting",
+        ):
+            live.add(name)
+    return live
 
 
 # Map a configured LSP server name to (npm packages, go packages) the
@@ -530,7 +767,6 @@ def _refresh_jail_briefings(
 def _entrypoint_preflight(repo_root: Path, workspace: Path, config: Dict[str, Any]):
     """Generate jail-managed config into a temp home to catch config/render errors."""
     src_dir = repo_root / "src"
-    host_mise = _host_mise_dir()
     normalized_blocked = _normalize_blocked_tools(config.get("security"))
     env = os.environ.copy()
     # Drop inherited PYTHONPATH so the subprocess can only import
@@ -547,7 +783,9 @@ def _entrypoint_preflight(repo_root: Path, workspace: Path, config: Dict[str, An
                 "HOME": tmp,
                 "NPM_CONFIG_PREFIX": f"{tmp}/.npm-global",
                 "GOPATH": f"{tmp}/go",
-                "MISE_DATA_DIR": str(host_mise),
+                # The fixed in-jail store path — the dry-run then renders
+                # the same /mise/shims PATH strings the jail will.
+                "MISE_DATA_DIR": "/mise",
                 "YOLO_HOST_DIR": str(workspace.resolve()),
                 "YOLO_BLOCK_CONFIG": json.dumps(normalized_blocked),
                 "YOLO_MISE_TOOLS": json.dumps(_merge_mise_tools(config)),
@@ -855,6 +1093,13 @@ def run(
         print(f"Removing stale container {cname}...", file=sys.stderr)
         _remove_stale_container(cname, runtime=runtime)
 
+    # Retire jail-made workspace venvs left behind by the old
+    # shared-store model — after the exec-into-existing paths above (a
+    # still-running old-model jail may be using that venv through the
+    # shared workspace bind) and before the venv shadow mounts hide the
+    # paths from the new jail.  See _retire_jail_made_venv.
+    _retire_jail_made_venv(workspace)
+
     import time as _time
 
     _profile_times = {}
@@ -872,9 +1117,11 @@ def run(
     mise_disabled_tools = _merge_mise_disabled_tools(user_env.get("MISE_DISABLE_TOOLS"))
     auto_load_image(repo_root, extra_packages=extra_packages or None, runtime=runtime)
 
-    # Resolve host mise path — share the same data dir so venv paths match.
-    # Inside a nested jail, YOLO_OUTER_MISE_PATH carries the original host path.
-    host_mise = _host_mise_dir()
+    # Jail-land mise store — shared by all jails, never by the host, and
+    # mounted at the fixed neutral path /mise in every jail (see
+    # docs/jail-state-separation-design.md).  Nested jails re-mount the
+    # /mise they already see.
+    mise_store = _jail_mise_store_dir()
 
     if profile:
         _profile_times["image_loaded"] = _time.monotonic()
@@ -1060,14 +1307,16 @@ def run(
             f"{ws_state}:/home/agent",
             "-v",
             f"{GLOBAL_CACHE}:/home/agent/.cache",
-            # Host mise dir mirrored at its native host path so absolute paths
-            # baked into host-side venvs (e.g., python symlink targets) resolve
-            # inside the jail. On macOS the host tree has Mach-O binaries that
-            # can't run in Linux, so we back it with a named volume but mount
-            # it at the same host path string — keeping a single canonical
-            # mise location across runtimes.
+            # Jail-land mise store at the fixed neutral path /mise —
+            # shared across jails only, never with the host, so no host
+            # path string leaks into the jail (see
+            # docs/jail-state-separation-design.md).  Backed by a named
+            # volume: the macOS host filesystem couldn't hold the Linux
+            # toolchains anyway.  See MISE_STORE_VOLUME for why the name
+            # is versioned; reclaim the old volume with
+            # `container volume rm yolo-mise-data`.
             "-v",
-            f"yolo-mise-data:{host_mise}",
+            f"{MISE_STORE_VOLUME}:/mise",
             # Apple Container's --tmpfs only takes a plain path (no options)
             "--tmpfs",
             "/tmp",
@@ -1150,17 +1399,19 @@ def run(
             f"{ws_state / 'ssh'}:/home/agent/.ssh",
             # --- Shared mounts ---
             "-v",
-            # Host mise dir mirrored at its native host path inside the jail.
-            # This keeps absolute paths baked into host-side venvs (python
-            # symlink targets, shebangs) resolvable from inside the container —
-            # no /mise alias, no divergence.
+            # Jail-land mise store at the fixed neutral path /mise —
+            # identical in every jail on every machine.  The store is
+            # shared across jails only, never with the host (whose
+            # ~/.local/share/mise stays fully its own): the only thing
+            # crossing the host↔jail boundary is the workspace itself.
+            # Host-created venvs no longer resolve in-jail by design —
+            # the per-side venv shadow mounts below give each side its
+            # own.  See docs/jail-state-separation-design.md.
             #
-            # On macOS the host tree has Mach-O (darwin) binaries that cannot
-            # execute inside the Linux container, so we back the mount with a
-            # podman named volume that holds Linux toolchains. The volume is
-            # mounted at the same host path string, keeping a single canonical
-            # mise location across runtimes (and matching what nested jails see).
-            f"yolo-mise-data:{host_mise}" if IS_MACOS else f"{host_mise}:{host_mise}",
+            # macOS podman keeps a named volume: the host tree has
+            # Mach-O binaries that cannot execute in the Linux container.
+            # See MISE_STORE_VOLUME for why the name is versioned.
+            f"{MISE_STORE_VOLUME}:/mise" if IS_MACOS else f"{mise_store}:/mise",
         ]
         # Ephemeral scratch dirs — see _scratch_mount_args() for the
         # tmpfs-vs-volume trade-off and config knob.
@@ -1180,7 +1431,7 @@ def run(
             "-e",
             "GOPATH=/home/agent/go",
             "-e",
-            f"MISE_DATA_DIR={host_mise}",
+            "MISE_DATA_DIR=/mise",
             "-e",
             # Use a per-container cache dir so mise lockfiles don't contend with
             # the host/outer-jail's locks (shared /home/agent would otherwise share
@@ -1191,7 +1442,16 @@ def run(
             # "missing lib directory" errors from freethreaded builds.
             "MISE_PYTHON_PRECOMPILED_FLAVOR=install_only_stripped",
             "-e",
-            "MISE_TRUST=1",
+            # Blanket trust for every mise config under the workspace —
+            # recursive-downward and path-component-aware, which no
+            # `mise trust` invocation provides (trust is dir-scoped;
+            # --all only covers cwd + parents).
+            "MISE_TRUSTED_CONFIG_PATHS=/workspace",
+            "-e",
+            # Lets projects keep host-inert, jail-only overrides in a
+            # checked-in mise.jail.toml (overrides mise.toml, including
+            # _.python.venv); side-effect-free when no such file exists.
+            "MISE_ENV=jail",
             "-e",
             "MISE_YES=1",
             "-e",
@@ -1284,16 +1544,26 @@ def run(
     else:
         run_cmd.extend(["-v", f"{user_env_file}:/home/agent/.config/yolo-user-env.sh"])
 
+    # Mount yolo-jail repo for in-jail CLI (yolo --help, nested jailing).
+    # Dev loop: when the workspace IS a yolo-jail source tree, it must back
+    # /opt/yolo-jail — for a uv-tool-installed yolo, repo_root is a frozen
+    # copy from the last `just install`, so nested jails would run stale
+    # code instead of the live src/cli edits the workspace bind carries
+    # (the loop agents_md's "Testing Changes to yolo-jail" promises).
+    # Otherwise keep repo_root; in nested jails YOLO_REPO_ROOT may point to
+    # an empty /opt/yolo-jail (bind mount doesn't propagate), so fall back
+    # to /workspace if it's the repo.
+    if _workspace_is_yolo_source_tree(workspace):
+        repo_mount_src = workspace
+    elif (repo_root / "flake.nix").exists():
+        repo_mount_src = repo_root
+    else:
+        repo_mount_src = workspace
     run_cmd += [
         "--workdir",
         "/workspace",
-        # Mount yolo-jail repo for in-jail CLI (yolo --help, nested jailing).
-        # In nested jails, YOLO_REPO_ROOT may point to an empty /opt/yolo-jail
-        # (bind mount doesn't propagate). Fall back to /workspace if it's the repo.
         "-v",
-        f"{repo_root}:/opt/yolo-jail:ro"
-        if (repo_root / "flake.nix").exists()
-        else f"{workspace}:/opt/yolo-jail:ro",
+        f"{repo_mount_src}:/opt/yolo-jail:ro",
     ]
 
     # Detect if we're already inside a container (macOS host is never in a container)
@@ -1876,6 +2146,11 @@ def run(
     # Mounted after the rw workspace volume so they shadow it for those paths.
     run_cmd.extend(_workspace_readonly_mount_args(workspace, config))
 
+    # Per-side venv shadows — mounted after the rw workspace volume so
+    # each jail sees its own backing at /workspace/.venv (and friends)
+    # while the host keeps its own.  See _venv_shadow_mount_args.
+    run_cmd.extend(_venv_shadow_mount_args(workspace, ws_state, config))
+
     # Mount user-level yolo config so nested jails see the same merged config.
     # Without this, ~/.config/ is an empty per-workspace overlay and the nested
     # yolo resolves to empty config, stomping the host's config snapshot.
@@ -1890,10 +2165,20 @@ def run(
         else:
             run_cmd.extend(["-v", f"{USER_CONFIG_PATH}:{container_config}:ro"])
 
-    # Pass the mise path through to any nested jail so the same host path
-    # keeps resolving one level deeper. The path is identical inside and out.
-    run_cmd.extend(["-e", f"YOLO_OUTER_MISE_PATH={host_mise}"])
     run_cmd.extend(["-e", f"MISE_DISABLE_TOOLS={mise_disabled_tools}"])
+
+    # Store-prune gate: a dangling symlink in the shared jail store can be
+    # live for a sibling jail (same path string, per-jail backing), so the
+    # in-jail prune is only allowed once the host CLI has proved no other
+    # jail is running.  Never granted from inside a jail — an inner CLI
+    # can't see its siblings.  TOCTOU: a jail launching between this check
+    # and the prune could lose an entry mid-boot; accepted — mise relinks
+    # it on that jail's next install.
+    if (
+        os.environ.get("YOLO_VERSION") is None
+        and _live_yolo_containers(runtime) == set()
+    ):
+        run_cmd.extend(["-e", "YOLO_STORE_PRUNE_OK=1"])
 
     # Mount merged skills directories read-only.  The staging dir was
     # already rebuilt at the top of `run` by `_refresh_jail_briefings`
@@ -2009,20 +2294,59 @@ def run(
     run_cmd.append(_jail_image(runtime))
     run_cmd.append("yolo-entrypoint")
 
-    # If mise.toml exists in workspace, trust it.
-    # Then ensure all tools (global + local) are ready.
-    # --quiet on mise trust suppresses "No untrusted config files found" warning.
-    # mise upgrade stderr is filtered to hide deprecation noise (@system warnings).
+    # Trust the workspace mise configs (mise.toml AND .mise.toml; --all also
+    # covers parent dirs — blanket subtree trust comes from
+    # MISE_TRUSTED_CONFIG_PATHS in the env block, this hook is
+    # belt-and-suspenders), then ensure all tools (global + local) are ready.
+    # --quiet on mise trust suppresses "No untrusted config files found".
+    # The inner wrapper is POSIX sh — no PIPESTATUS in here.
     setup_script = (
         "YOLO_BYPASS_SHIMS=1 sh -c '"
-        "(if [ -f mise.toml ]; then mise trust --quiet 2>/dev/null; fi) && "
+        "(mise trust --all --quiet 2>/dev/null || true) && "
+        # Store hygiene: entries like installs/rust/<v> → /workspace/.cargo
+        # dangle in jails whose workspace lacks the target.  Removal is only
+        # safe with zero sibling jails — the host CLI grants that via
+        # YOLO_STORE_PRUNE_OK (see the run() gate).  Output lands in the
+        # startup log via the tee wrapper below.
+        'if [ "${YOLO_STORE_PRUNE_OK:-0}" = "1" ]; then '
+        'for _p in "$MISE_DATA_DIR"/installs/*/*; do '
+        'if [ -L "$_p" ] && [ ! -e "$_p" ]; then '
+        'rm -f -- "$_p" && echo "  ↳ pruned dangling store symlink: $_p" >&2; '
+        "fi; done; fi && "
         'echo "  ↳ mise install" >&2 && '
         "mise install --quiet && "
         'echo "  ↳ mise upgrade" >&2 && '
-        'mise upgrade --yes 2>&1 | grep -v "^mise WARN" | sed "s/^/    /" >&2 && '
+        # Capture the real upgrade status — piping straight into grep/sed
+        # (to hide "mise WARN" deprecation noise) would report the filter
+        # status and swallow upgrade failures.
+        "{ mise upgrade --yes >/tmp/yolo-mise-upgrade.out 2>&1; _urc=$?; "
+        'grep -v "^mise WARN" /tmp/yolo-mise-upgrade.out | sed "s/^/    /" >&2; '
+        '[ "$_urc" -eq 0 ]; } && '
         'echo "  ↳ bootstrap" >&2 && '
         "~/.yolo-bootstrap.sh >&2 && "
         "~/.yolo-venv-precreate.sh >&2'"
+    )
+    # Provisioning wrapper: tee everything into /workspace/.yolo/startup.log
+    # (fresh per container, timestamped header) while still streaming to
+    # stderr.  On failure: the PROVISIONING FAILED marker in the log, a red
+    # banner naming the log, then a continue/abort prompt (tty only;
+    # YOLO_PROVISION_PROMPT=0 bypasses; default answer = continue, n
+    # aborts with the provisioning exit code).  The outer shell is bash
+    # (the entrypoint execs bash -c), so PIPESTATUS is available here.
+    startup_log = "/workspace/.yolo/startup.log"
+    provision_script = (
+        'printf "=== yolo provisioning %s ===\\n" "$(date "+%Y-%m-%dT%H:%M:%S%z")" '
+        f">{startup_log}; "
+        f"({setup_script}) 2>&1 | tee -a {startup_log} >&2; "
+        '_prc="${PIPESTATUS[0]}"; '
+        'if [ "$_prc" -ne 0 ]; then '
+        f'printf "PROVISIONING FAILED (exit %s)\\n" "$_prc" >>{startup_log}; '
+        'printf "\\033[1;31m✗ Provisioning failed (exit %s) — log: '
+        f'{startup_log}\\033[0m\\n" "$_prc" >&2; '
+        'if [ -t 0 ] && [ "${YOLO_PROVISION_PROMPT:-1}" != "0" ]; then '
+        'printf "Provisioning failed — continue anyway? [Y/n] " >&2; '
+        'read -r _ans; case "$_ans" in [nN]*) exit "$_prc";; esac; '
+        "fi; fi"
     )
     # After setup, activate mise so tool paths (copilot, gemini, claude, etc.) are in PATH.
     # We use `mise env` (one-time activation) rather than `mise hook-env` (continuous
@@ -2039,13 +2363,15 @@ def run(
     # Human-readable command for status messages
     display_cmd = target_cmd.replace("'", "'\\''")
 
-    # Use && for fail-fast: if provisioning fails, don't proceed with broken env
+    # provision_script owns failure handling (log marker + banner +
+    # continue/abort prompt); on continue, target_cmd still runs with the
+    # best-effort environment.
     if profile:
         # Wrap each phase with timing output for profiling
         final_internal_cmd = (
             "exec 3>&2; "  # save stderr
             "printf '\\033[2m📦 Provisioning tools...\\033[0m\\n' >&2; "
-            f"_t0=$(date +%s%N); {setup_script}; "
+            f"_t0=$(date +%s%N); {provision_script}; "
             "_t1=$(date +%s%N); "
             f"{mise_activate}; "
             "_t2=$(date +%s%N); "
@@ -2073,10 +2399,11 @@ def run(
             "exit $_rc"
         )
     else:
-        # Provisioning message → bootstrap → activate → ready → command
+        # Provisioning message → bootstrap (logged/gated) → activate →
+        # ready → command
         final_internal_cmd = (
-            "printf '\\033[2m📦 Provisioning tools...\\033[0m\\n' >&2 && "
-            f"{setup_script} && "
+            "printf '\\033[2m📦 Provisioning tools...\\033[0m\\n' >&2; "
+            f"{provision_script}; "
             f"{mise_activate}; "
             f"printf '\\033[1;36m⚡ Executing: {display_cmd}\\033[0m\\n' >&2; "
             f"{target_cmd}"

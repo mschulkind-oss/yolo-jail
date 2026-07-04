@@ -106,12 +106,15 @@ def test_ensure_global_storage_creates_mount_parents(tmp_path, monkeypatch):
     """Pre-create intermediate dirs so the container runtime doesn't create them as root."""
     import cli
 
+    monkeypatch.setattr("cli.storage.GLOBAL_STORAGE", tmp_path)
     monkeypatch.setattr("cli.storage.GLOBAL_HOME", tmp_path / "home")
     monkeypatch.setattr("cli.storage.GLOBAL_MISE", tmp_path / "mise")
     monkeypatch.setattr("cli.storage.GLOBAL_CACHE", tmp_path / "cache")
     monkeypatch.setattr("cli.storage.CONTAINER_DIR", tmp_path / "containers")
     monkeypatch.setattr("cli.storage.AGENTS_DIR", tmp_path / "agents")
     monkeypatch.setattr("cli.storage.BUILD_DIR", tmp_path / "build")
+    # Keep the one-time layout migration off the real host mise dir.
+    monkeypatch.setattr("cli.storage._host_mise_dir", lambda: tmp_path / "host-mise")
     cli.ensure_global_storage()
 
     # Core dirs exist
@@ -124,6 +127,8 @@ def test_ensure_global_storage_creates_mount_parents(tmp_path, monkeypatch):
     assert (tmp_path / "home" / ".gemini").is_dir()
     assert (tmp_path / "home" / ".claude").is_dir()
     assert (tmp_path / "home" / ".config" / "git").is_dir()
+    # Layout migration ran and stamped its marker
+    assert (tmp_path / "layout-version").read_text().strip() == "2"
 
 
 # --- Integration tests for per-runtime sentinel ---

@@ -788,7 +788,7 @@ def check(
     console.print("[bold]Global Storage[/bold]")
     for name, storage_path in [
         ("Home", GLOBAL_HOME),
-        ("Mise", GLOBAL_MISE),
+        ("Mise (jail store)", GLOBAL_MISE),
         ("Containers", CONTAINER_DIR),
         ("Agents", AGENTS_DIR),
         ("Build", BUILD_DIR),
@@ -1471,7 +1471,11 @@ def check(
                     continue
                 cmd = spec.get("command") or []
                 if not isinstance(cmd, list) or not cmd:
-                    fail(f"loopholes.{name}: missing command")
+                    # No command — an override of a file-backed loophole
+                    # (enabled/env/jail_env only), so there is nothing to
+                    # exec-check.  A genuinely inline service missing its
+                    # command is already reported by the merged-config
+                    # validation above.
                     continue
                 # Resolve the command's executable.  Allow ~ expansion and PATH lookup.
                 exe_arg = str(cmd[0])

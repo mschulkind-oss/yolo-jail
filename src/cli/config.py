@@ -8,7 +8,8 @@ Owns:
   * validation entry point: _validate_config and its small helpers
     (_report_unknown_keys, _validate_string_list, _validate_port_number,
     _validate_publish_port, _validate_forward_host_port,
-    _check_preset_null_conflicts)
+    _check_preset_null_conflicts, _known_loopholes,
+    _validate_loophole_override)
   * env_sources resolution: _parse_dotenv, _resolve_env_source_path,
     _resolve_env_sources
   * config-snapshot diffing: _config_snapshot_path, _check_config_changes
@@ -55,6 +56,7 @@ KNOWN_TOP_LEVEL_CONFIG_KEYS = {
     "packages",
     "mounts",
     "workspace_readonly",
+    "per_side_paths",
     "network",
     "security",
     "mise_tools",
@@ -107,6 +109,9 @@ KNOWN_GPU_KEYS = {
 VAAPI_PACKAGES = ("mesa", "libva-utils")
 KNOWN_RESOURCES_KEYS = {"memory", "cpus", "pids_limit"}
 KNOWN_HOST_SERVICE_KEYS = {"command", "env", "jail_socket"}
+# Overrides of an existing (bundled/user-dir) loophole honor exactly these
+# keys at runtime — see loopholes._apply_workspace_overrides.
+KNOWN_LOOPHOLE_OVERRIDE_KEYS = {"enabled", "env", "jail_env"}
 HOST_SERVICE_NAME_RE = re.compile(r"^[a-zA-Z][a-zA-Z0-9_-]{0,63}$")
 USB_ID_RE = re.compile(r"^[0-9a-fA-F]{4}:[0-9a-fA-F]{4}$")
 MEMORY_RE = re.compile(r"^\d+[bkmgBKMG]?$")
@@ -406,6 +411,79 @@ def _report_unknown_keys(
             errors.append(f"{path}.{key}: unknown key")
 
 
+def _known_loopholes() -> "Dict[str, Any]":
+    """File-backed (bundled + user-dir) loopholes by name, resolved via the
+    same discovery the runtime uses — entries are keyed by manifest name,
+    which must match the directory name.  An unreadable directory degrades
+    to "no known loopholes" rather than aborting validation.
+
+    NOTE: this reflects the *validating* machine's filesystem.  Inside a
+    jail the host's user-dir loopholes are not mounted, so a name that is
+    known on the host may be absent here — callers must not hard-fail on
+    that basis alone (see the override-shaped fallback in _validate_config).
+    """
+    # Local import: config.py is a leaf module — keep it importable without
+    # dragging in the loophole machinery unless a config actually has
+    # ``loopholes:`` entries.
+    from src import loopholes as _loopholes
+
+    try:
+        return {
+            lp.name: lp for lp in _loopholes.discover_loopholes(include_disabled=True)
+        }
+    except OSError:
+        return {}
+
+
+def _validate_loophole_override(
+    name: str,
+    spec: Dict[str, Any],
+    path: str,
+    errors: List[str],
+    loophole: Optional[Any] = None,
+):
+    """Validate a workspace override of an existing (bundled/user-dir)
+    loophole.  The runtime merge honors only enabled/env/jail_env for these
+    names and silently ignores everything else — notably ``command`` — so
+    anything the runtime would drop is a config error.
+
+    ``loophole`` is the discovered Loophole record when the target is
+    resolvable on this machine; None when the override is merely
+    override-shaped (e.g. validating in-jail a host user-dir loophole),
+    in which case manifest-dependent checks are skipped.
+    """
+    if "command" in spec:
+        errors.append(
+            f"{path}.command: not overridable — {name!r} is an existing "
+            "loophole whose command is fixed by its manifest; only "
+            "'enabled', 'env', and 'jail_env' may be overridden"
+        )
+    # 'command' already got its dedicated error above.
+    _report_unknown_keys(spec, KNOWN_LOOPHOLE_OVERRIDE_KEYS | {"command"}, path, errors)
+    if "enabled" in spec and not isinstance(spec["enabled"], bool):
+        errors.append(f"{path}.enabled: expected a boolean (got {spec['enabled']!r})")
+    # The runtime merge applies ``env`` only into the target's
+    # host_daemon.env — for a loophole with no host daemon the override
+    # would be silently dropped, so surface it here instead.
+    if "env" in spec and loophole is not None and loophole.host_daemon is None:
+        errors.append(
+            f"{path}.env: not applicable — {name!r} has no host daemon, so "
+            "'env' would be silently ignored; use 'jail_env' to set "
+            "variables inside the jail"
+        )
+    for env_key in ("env", "jail_env"):
+        env = spec.get(env_key)
+        if env is None:
+            continue
+        if not isinstance(env, dict):
+            errors.append(f"{path}.{env_key}: expected an object")
+            continue
+        for k, v in env.items():
+            if not isinstance(k, str) or not isinstance(v, str):
+                errors.append(f"{path}.{env_key}: keys and values must be strings")
+                break
+
+
 def _validate_string_list(values: Any, path: str, errors: List[str]):
     if not isinstance(values, list):
         errors.append(f"{path}: expected a list")
@@ -612,6 +690,25 @@ def _validate_config(
                 elif ".." in entry.split("/"):
                     errors.append(f"{path}: must not contain '..' components")
 
+    # Per-side workspace sub-paths (venv shadows) — same shape constraints
+    # as workspace_readonly, plus "." / empty are meaningless for a shadow
+    # mount target.
+    per_side_paths = config.get("per_side_paths")
+    if per_side_paths is not None:
+        if not isinstance(per_side_paths, list):
+            errors.append("config.per_side_paths: expected a list of strings")
+        else:
+            for idx, entry in enumerate(per_side_paths):
+                path = f"config.per_side_paths[{idx}]"
+                if not isinstance(entry, str):
+                    errors.append(f"{path}: expected a string")
+                elif not entry or entry == ".":
+                    errors.append(f"{path}: must name a workspace sub-path")
+                elif entry.startswith("/"):
+                    errors.append(f"{path}: must be a relative path, not absolute")
+                elif ".." in entry.split("/"):
+                    errors.append(f"{path}: must not contain '..' components")
+
     host_claude_files = config.get("host_claude_files")
     if host_claude_files is not None:
         if not isinstance(host_claude_files, list):
@@ -630,6 +727,9 @@ def _validate_config(
         if not isinstance(host_services, dict):
             errors.append("config.loopholes: expected an object")
         else:
+            # Names matching a file-backed loophole are overrides, not
+            # inline service definitions — they take a different shape.
+            known_loopholes = _known_loopholes() if host_services else {}
             for name, spec in host_services.items():
                 path = f"config.loopholes.{name}"
                 if not isinstance(name, str) or not HOST_SERVICE_NAME_RE.match(name):
@@ -646,6 +746,33 @@ def _validate_config(
                     continue
                 if not isinstance(spec, dict):
                     errors.append(f"{path}: expected an object")
+                    continue
+                if name in known_loopholes:
+                    _validate_loophole_override(
+                        name, spec, path, errors, loophole=known_loopholes[name]
+                    )
+                    continue
+                if (
+                    spec
+                    and "command" not in spec
+                    and set(spec) <= KNOWN_LOOPHOLE_OVERRIDE_KEYS
+                ):
+                    # Override-shaped, but no loophole by this name is
+                    # discoverable from here.  The known set reflects the
+                    # validating machine only: inside a jail the host's
+                    # user-dir loopholes aren't mounted, so a perfectly
+                    # valid host-side override must not hard-fail here.
+                    # Validate the override shape and warn — if the
+                    # loophole really is gone, the entry is a runtime
+                    # no-op, not a broken inline service.
+                    _validate_loophole_override(name, spec, path, errors)
+                    warnings.append(
+                        f"{path}: no loophole named {name!r} is installed on "
+                        "this machine — treating the entry as an override of "
+                        "a host-side loophole. If the loophole was removed, "
+                        "this entry is a no-op; an inline service would need "
+                        "a 'command'."
+                    )
                     continue
                 _report_unknown_keys(spec, KNOWN_HOST_SERVICE_KEYS, path, errors)
                 cmd = spec.get("command")

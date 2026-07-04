@@ -96,9 +96,11 @@ export PATH="$SHIM_DIR:$HOME/.local/bin:$NPM_CONFIG_PREFIX/bin:"""
 if [[ $- == *i* ]]; then
     eval "$(mise activate bash)"
 fi
-if [ -f /workspace/mise.toml ]; then
-    mise trust --quiet /workspace/mise.toml 2>/dev/null || true
-fi
+# Trust workspace mise configs from any cwd.  mise trust is dir-scoped and
+# --all covers cwd+parents only; MISE_TRUSTED_CONFIG_PATHS=/workspace is the
+# blanket mechanism — this hook is belt-and-suspenders for configs written
+# after boot.
+(cd /workspace 2>/dev/null && mise trust --all --quiet 2>/dev/null) || true
 
 # Aliases
 alias ls='ls --color=auto'
@@ -262,33 +264,65 @@ def generate_venv_precreate_script():
 # and deadlocking.  Creating the venv beforehand with the real uv binary
 # means mise finds it already exists and skips the uv call.
 
-[ -f /workspace/mise.toml ] || exit 0
+[ -f /workspace/mise.toml ] || [ -f /workspace/.mise.toml ] || \
+    [ -f /workspace/mise.jail.toml ] || [ -f /workspace/.mise.jail.toml ] || exit 0
 
 # Get real binary paths (not shims) — requires mise install to have run
 _uv=$(mise which uv 2>/dev/null) || exit 0
 _py=$(mise which python 2>/dev/null) || exit 0
 [ -n "$_uv" ] && [ -n "$_py" ] || exit 0
 
-# Parse venv path from mise.toml
+# Parse the venv path from mise config.  Every jail exports
+# MISE_ENV=jail, so the jail pair (mise.jail.toml/.mise.jail.toml)
+# overrides the base pair; within each pair the dotted file wins (it
+# loads later).  Read highest-priority first, first hit wins.
 _vp=$(/bin/python3 -c "
-import tomllib, sys
-try:
-    c = tomllib.load(open('/workspace/mise.toml', 'rb'))
-    v = c.get('env', {}).get('_.python.venv', {})
-    if isinstance(v, dict):
-        if v.get('create', False):
-            print(v.get('path', '.venv'))
-        else:
-            sys.exit(1)
-    elif isinstance(v, str):
-        print(v)
-    else:
-        sys.exit(1)
-except Exception:
-    sys.exit(1)
-" 2>/dev/null) || exit 0
+import re, sys, tomllib
 
-[ -d "/workspace/$_vp" ] && exit 0
-"$_uv" venv "/workspace/$_vp" --python "$_py" 2>/dev/null || true
+def venv_value(path):
+    try:
+        with open(path, 'rb') as f:
+            v = tomllib.load(f).get('env')
+    except Exception:
+        return None
+    for key in ('_', 'python', 'venv'):
+        if not isinstance(v, dict):
+            return None
+        v = v.get(key)
+    return v
+
+root = sys.argv[1]
+v = None
+for name in ('.mise.jail.toml', 'mise.jail.toml', '.mise.toml', 'mise.toml'):
+    v = venv_value(root + '/' + name)
+    if v is not None:
+        break
+if isinstance(v, dict):
+    if not v.get('create', False):
+        sys.exit(1)
+    v = v.get('path', '.venv')
+if not isinstance(v, str):
+    sys.exit(1)
+# Resolve the one tera template we can (config_root == /workspace);
+# any other template is unresolvable here — skip pre-creation.
+v = re.sub(r'^\{\{\s*config_root\s*\}\}/', '', v)
+if '{{' in v or '{%' in v:
+    sys.exit(1)
+print(v)
+" /workspace 2>/dev/null) || exit 0
+
+# The per-side venv shadow mount materializes an empty dir, and a pre-split
+# venv may point at an interpreter path that no longer resolves — a bare -d
+# test would wrongly skip both.  Only a pyvenv.cfg whose 'home =' dir still
+# exists counts as a live venv; anything else is (re)created.  --clear is
+# what makes the heal work: without it uv refuses to reuse an existing
+# venv dir.  It empties the dir in place (same inode), which is the only
+# safe move when /workspace/<path> is the shadow mountpoint itself.
+if [ -f "/workspace/$_vp/pyvenv.cfg" ]; then
+    _home=$(sed -n 's/^home *= *//p' "/workspace/$_vp/pyvenv.cfg" | head -n 1)
+    [ -n "$_home" ] && [ -d "$_home" ] && exit 0
+fi
+# stderr kept: creation failures must reach the startup log.
+"$_uv" venv --clear "/workspace/$_vp" --python "$_py" || true
 """)
     script_path.chmod(script_path.stat().st_mode | stat.S_IEXEC)

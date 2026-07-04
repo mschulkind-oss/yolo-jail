@@ -185,6 +185,17 @@ def config_ref():
     workspace repo (e.g. the yolo-jail src/ directory itself).
     Example: ["src", "flake.nix", "Justfile"]
 
+  [bold]per_side_paths[/bold] (array of strings): Workspace sub-paths kept per side.
+    Each entry is a relative path inside the workspace (no leading /, no ..).
+    Each gets a per-workspace backing dir (under
+    <workspace>/.yolo/home/venv-shadows/) shadow-mounted over it, so the
+    host and the jail each see their own copy — for derived state that must
+    not cross the host/jail boundary (interpreter symlinks, native builds).
+    ".venv" and the venv path configured in the workspace's mise.toml are
+    always shadowed automatically; list extra paths here (e.g. a workspace
+    .cargo).
+    Example: [".cargo"]
+
   [bold]network.mode[/bold] (string): Network isolation mode.
     "bridge" (default): Isolated. Use network.ports for access.
     "host": Share host network stack (localhost works directly).
@@ -540,8 +551,9 @@ def config_ref():
   [bold]Home Directory (/home/agent)[/bold]
     A shared persistent home that is the SAME across ALL jail workspaces.
     Contains: auth tokens (gh, gemini, claude), tool caches, npm/go globals,
-    nvim config, shell configs, mise tool data. All of this survives
-    jail restarts and is shared between every project's jail.
+    nvim config, shell configs. All of this survives jail restarts and is
+    shared between every project's jail. Mise tool data lives at /mise —
+    also shared between all jails, also surviving restarts.
 
   [bold]Per-Workspace State[/bold]
     Some state is isolated per-workspace (in <workspace>/.yolo/):
@@ -573,8 +585,9 @@ def config_ref():
     Run 'mise registry' to browse all available tools. Add tools via:
     • "mise_tools" in yolo-jail.jsonc (injected into jail global config)
     • /workspace/mise.toml (workspace-specific, checked into git)
-    The host's mise data directory is shared with the jail, so tool
-    installs are available in both environments.
+    All jails share one jail-land mise store, mounted at /mise — a tool
+    installed in one jail is available in every jail. The host's own mise
+    installation is fully independent; installs never cross the boundary.
 
   [bold]Blocked Tools[/bold]
     By default, grep is replaced by rg and find by fd. These are shims —
@@ -582,10 +595,13 @@ def config_ref():
     Configure via security.blocked_tools in yolo-jail.jsonc.
 
   [bold]Venvs & Python[/bold]
-    The host's mise data directory is shared with the jail, so venvs
-    created on the host resolve inside the jail (python binary paths
-    match). The workspace path changes to /workspace though, so
-    venv scripts with absolute shebangs may need fixing.
+    Venvs are per side: /workspace/.venv (plus any venv path configured in
+    mise.toml and any per_side_paths entries) is shadow-mounted over a
+    per-workspace backing dir, so the host and the jail each keep their own
+    venv at the same idiomatic path. The jail's venv is created on first
+    boot and persists across restarts; host venvs never leak in, and
+    jail-built native extensions never leak out. The lockfile
+    (uv.lock/requirements) in the shared workspace is the sync channel.
 
   [bold]Persistence Summary[/bold]
     Shared home:   /home/agent (same across all jails — auth, tools, caches)

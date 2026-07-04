@@ -333,6 +333,18 @@ class TestBashrcGeneration:
         entrypoint.generate_bashrc()
         assert "mise activate bash" in entrypoint.BASHRC_PATH.read_text()
 
+    def test_trust_hook_ungated_and_cwd_independent(self, jail_home, monkeypatch):
+        """The trust hook must not be gated on a config filename and must
+        trust the workspace regardless of the shell's cwd."""
+        monkeypatch.setenv("YOLO_HOST_DIR", "test")
+        entrypoint.generate_bashrc()
+        content = entrypoint.BASHRC_PATH.read_text()
+        assert (
+            "(cd /workspace 2>/dev/null && mise trust --all --quiet 2>/dev/null) || true"
+            in content
+        )
+        assert "mise trust --quiet /workspace/mise.toml" not in content
+
     def test_contains_aliases(self, jail_home, monkeypatch):
         monkeypatch.setenv("YOLO_HOST_DIR", "test")
         entrypoint.generate_bashrc()
@@ -1955,7 +1967,21 @@ class TestPerfLogging:
 
 
 class TestVenvPrecreateScript:
-    """Cover generate_venv_precreate_script (lines 292-329)."""
+    """Cover generate_venv_precreate_script."""
+
+    def _generate(self, jail_home) -> str:
+        entrypoint.generate_venv_precreate_script()
+        return (jail_home / ".yolo-venv-precreate.sh").read_text()
+
+    def _run_parser(self, jail_home, workspace):
+        """Execute the script's embedded venv-path parser against a dir."""
+        content = self._generate(jail_home)
+        code = content.split('/bin/python3 -c "', 1)[1].split('" /workspace', 1)[0]
+        return subprocess.run(
+            [sys.executable, "-c", code, str(workspace)],
+            capture_output=True,
+            text=True,
+        )
 
     def test_script_created(self, jail_home):
         entrypoint.generate_venv_precreate_script()
@@ -1973,6 +1999,138 @@ class TestVenvPrecreateScript:
 
         mode = script_path.stat().st_mode
         assert mode & stat_mod.S_IEXEC
+
+    def test_gate_accepts_all_config_filenames(self, jail_home):
+        # MISE_ENV=jail means the jail pair participates in config
+        # resolution too — the gate must not skip jail-file-only setups.
+        content = self._generate(jail_home)
+        for fname in ("mise.toml", ".mise.toml", "mise.jail.toml", ".mise.jail.toml"):
+            assert f"[ -f /workspace/{fname} ]" in content
+
+    def test_parser_reads_undotted_mise_toml(self, jail_home, tmp_path):
+        ws = tmp_path / "ws"
+        ws.mkdir()
+        (ws / "mise.toml").write_text(
+            '[env]\n_.python.venv = { path = ".venv-plain", create = true }\n'
+        )
+        result = self._run_parser(jail_home, ws)
+        assert result.returncode == 0, result.stderr
+        assert result.stdout.strip() == ".venv-plain"
+
+    def test_parser_reads_dotted_mise_toml(self, jail_home, tmp_path):
+        ws = tmp_path / "ws"
+        ws.mkdir()
+        (ws / ".mise.toml").write_text(
+            '[env]\n_.python.venv = { path = ".venv-dotted", create = true }\n'
+        )
+        result = self._run_parser(jail_home, ws)
+        assert result.returncode == 0, result.stderr
+        assert result.stdout.strip() == ".venv-dotted"
+
+    def test_parser_dotted_file_wins_on_conflict(self, jail_home, tmp_path):
+        # mise loads both files; .mise.toml loads second and overrides.
+        ws = tmp_path / "ws"
+        ws.mkdir()
+        (ws / "mise.toml").write_text(
+            '[env]\n_.python.venv = { path = ".venv-plain", create = true }\n'
+        )
+        (ws / ".mise.toml").write_text(
+            '[env]\n_.python.venv = { path = ".venv-dotted", create = true }\n'
+        )
+        result = self._run_parser(jail_home, ws)
+        assert result.returncode == 0, result.stderr
+        assert result.stdout.strip() == ".venv-dotted"
+
+    def test_parser_string_form_is_path(self, jail_home, tmp_path):
+        ws = tmp_path / "ws"
+        ws.mkdir()
+        (ws / ".mise.toml").write_text('[env]\n_.python.venv = ".custom-venv"\n')
+        result = self._run_parser(jail_home, ws)
+        assert result.returncode == 0, result.stderr
+        assert result.stdout.strip() == ".custom-venv"
+
+    def test_parser_dict_form_defaults_to_dot_venv(self, jail_home, tmp_path):
+        ws = tmp_path / "ws"
+        ws.mkdir()
+        (ws / "mise.toml").write_text("[env]\n_.python.venv = { create = true }\n")
+        result = self._run_parser(jail_home, ws)
+        assert result.returncode == 0, result.stderr
+        assert result.stdout.strip() == ".venv"
+
+    def test_parser_create_false_skips(self, jail_home, tmp_path):
+        ws = tmp_path / "ws"
+        ws.mkdir()
+        (ws / "mise.toml").write_text(
+            '[env]\n_.python.venv = { path = ".venv", create = false }\n'
+        )
+        result = self._run_parser(jail_home, ws)
+        assert result.returncode == 1
+
+    def test_parser_jail_file_wins_over_base_pair(self, jail_home, tmp_path):
+        # MISE_ENV=jail is exported in every jail, so mise.jail.toml
+        # overrides mise.toml — the precreate must target ITS venv path.
+        ws = tmp_path / "ws"
+        ws.mkdir()
+        (ws / "mise.toml").write_text(
+            '[env]\n_.python.venv = { path = ".venv-base", create = true }\n'
+        )
+        (ws / "mise.jail.toml").write_text(
+            '[env]\n_.python.venv = { path = ".venv-jail", create = true }\n'
+        )
+        result = self._run_parser(jail_home, ws)
+        assert result.returncode == 0, result.stderr
+        assert result.stdout.strip() == ".venv-jail"
+
+    def test_parser_reads_jail_file_alone(self, jail_home, tmp_path):
+        ws = tmp_path / "ws"
+        ws.mkdir()
+        (ws / ".mise.jail.toml").write_text(
+            '[env]\n_.python.venv = { path = ".venv-j", create = true }\n'
+        )
+        result = self._run_parser(jail_home, ws)
+        assert result.returncode == 0, result.stderr
+        assert result.stdout.strip() == ".venv-j"
+
+    def test_parser_resolves_config_root_template(self, jail_home, tmp_path):
+        # In-jail config_root is /workspace, so the documented
+        # {{config_root}}/… form reduces to a workspace-relative path.
+        ws = tmp_path / "ws"
+        ws.mkdir()
+        (ws / "mise.toml").write_text(
+            '[env]\n_.python.venv = { path = "{{config_root}}/.venv", create = true }\n'
+        )
+        result = self._run_parser(jail_home, ws)
+        assert result.returncode == 0, result.stderr
+        assert result.stdout.strip() == ".venv"
+
+    def test_parser_skips_unresolvable_template(self, jail_home, tmp_path):
+        ws = tmp_path / "ws"
+        ws.mkdir()
+        (ws / "mise.toml").write_text(
+            '[env]\n_.python.venv = { path = "{{env.HOME}}/v", create = true }\n'
+        )
+        result = self._run_parser(jail_home, ws)
+        assert result.returncode == 1
+
+    def test_stale_venv_detection_uses_pyvenv_cfg_home(self, jail_home):
+        content = self._generate(jail_home)
+        # A bare dir test must not gate creation: the per-side shadow mount
+        # materializes an empty dir, and a pre-split venv in the shadow may
+        # point at an interpreter that no longer resolves.
+        assert '[ -d "/workspace/$_vp" ] && exit 0' not in content
+        assert '[ -f "/workspace/$_vp/pyvenv.cfg" ]' in content
+        assert "s/^home *= *//p" in content
+        assert '[ -n "$_home" ] && [ -d "$_home" ] && exit 0' in content
+
+    def test_creation_errors_reach_stderr(self, jail_home):
+        content = self._generate(jail_home)
+        create_lines = [ln for ln in content.splitlines() if '"$_uv" venv' in ln]
+        # --clear is what makes the stale-venv heal path work: plain
+        # `uv venv` refuses to reuse an existing venv dir (verified on
+        # uv 0.11.x), and it clears in place (mountpoint-safe).
+        assert create_lines == [
+            '"$_uv" venv --clear "/workspace/$_vp" --python "$_py" || true'
+        ]
 
 
 class TestConfigureGit:
@@ -2289,7 +2447,7 @@ class TestMainFunction:
     @patch("entrypoint.generate_cglimit_script")
     @patch("entrypoint._perf_dump")
     @patch("entrypoint._perf")
-    def test_main_creates_mise_symlink(
+    def test_main_with_custom_mise_data_dir(
         self,
         mock_perf,
         mock_dump,
@@ -2314,7 +2472,8 @@ class TestMainFunction:
         monkeypatch.setattr("sys.argv", ["entrypoint"])
         monkeypatch.setenv("MISE_DATA_DIR", str(jail_home / "custom-mise"))
         monkeypatch.setenv("PATH", "/bin:/usr/bin")
-        # Can't actually create /mise symlink in test env without root
+        # /mise is a real mount created by cli.py — the entrypoint derives
+        # everything from MISE_DATA_DIR and must boot with any store path.
         entrypoint.main()
         mock_exec.assert_called_once_with("bash")
 
@@ -2335,7 +2494,7 @@ class TestMainFunction:
     @patch("entrypoint.generate_cglimit_script")
     @patch("entrypoint._perf_dump")
     @patch("entrypoint._perf")
-    def test_main_trusts_mise_toml(
+    def test_main_trusts_workspace_configs(
         self,
         mock_perf,
         mock_dump,
@@ -2361,11 +2520,56 @@ class TestMainFunction:
         monkeypatch.setattr("sys.argv", ["entrypoint"])
         monkeypatch.setenv("MISE_DATA_DIR", "/mise")
         monkeypatch.setenv("PATH", "/bin:/usr/bin")
-        Path("/workspace/mise.toml")
-        # This test just verifies main() doesn't crash when /workspace/mise.toml exists
-        with patch("subprocess.run"):
+        ws = tmp_path / "ws"
+        ws.mkdir()
+        # Dotted-only workspace: the un-gated hook must still trust it.
+        (ws / ".mise.toml").write_text('[env]\nVAR = "x"\n')
+        monkeypatch.setattr(entrypoint, "WORKSPACE", ws)
+        with patch("subprocess.run") as mock_run:
             entrypoint.main()
+        trust_calls = [
+            c
+            for c in mock_run.call_args_list
+            if c.args and c.args[0] == ["mise", "trust", "--all", "--quiet"]
+        ]
+        assert len(trust_calls) == 1
+        assert trust_calls[0].kwargs["cwd"] == ws
         mock_exec.assert_called_once()
+
+
+class TestTrustWorkspaceConfigs:
+    """The boot trust hook is un-gated: ``mise trust --all --quiet`` runs
+    from the workspace dir regardless of which config filename (if any)
+    exists — trust is dir-scoped, so one call covers mise.toml, .mise.toml,
+    and mise.jail.toml alike."""
+
+    def _trust_calls(self, ws, monkeypatch):
+        monkeypatch.setattr(entrypoint, "WORKSPACE", ws)
+        with patch("subprocess.run") as mock_run:
+            entrypoint.trust_workspace_configs()
+        return mock_run.call_args_list
+
+    def test_trusts_mise_toml_workspace(self, tmp_path, monkeypatch):
+        ws = tmp_path / "ws"
+        ws.mkdir()
+        (ws / "mise.toml").write_text('[env]\nVAR = "x"\n')
+        calls = self._trust_calls(ws, monkeypatch)
+        assert len(calls) == 1
+        assert calls[0].args[0] == ["mise", "trust", "--all", "--quiet"]
+        assert calls[0].kwargs["cwd"] == ws
+        assert calls[0].kwargs["capture_output"] is True
+
+    def test_trusts_dotted_only_workspace(self, tmp_path, monkeypatch):
+        ws = tmp_path / "ws"
+        ws.mkdir()
+        (ws / ".mise.toml").write_text('[env]\nVAR = "x"\n')
+        calls = self._trust_calls(ws, monkeypatch)
+        assert len(calls) == 1
+        assert calls[0].args[0] == ["mise", "trust", "--all", "--quiet"]
+
+    def test_missing_workspace_dir_skips(self, tmp_path, monkeypatch):
+        calls = self._trust_calls(tmp_path / "absent", monkeypatch)
+        assert calls == []
 
 
 # -- jail_daemon_supervisor single-instance gate --

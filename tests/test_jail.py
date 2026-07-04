@@ -610,83 +610,49 @@ def test_workspace_agents_untouched_and_home_agents_present(temp_project):
     assert workspace_agents.read_text() == original
 
 
-@pytest.mark.skipif(
-    sys.platform == "darwin",
-    reason="Host mise has macOS binaries that cannot execute in the Linux container",
-)
-def test_venv_symlinks_resolve(temp_project):
-    """Test that host .venv python symlinks resolve inside the jail.
+def test_host_venv_shadowed(temp_project):
+    """A host-created .venv is invisible inside the jail (per-side venvs).
 
-    The host mise dir is bind-mounted at its native host path inside the jail,
-    so an absolute shebang like /home/user/.local/share/mise/installs/python/...
-    points to the same bytes whether resolved on the host or in the container.
-    This test writes a venv using the host path and asserts it works in-jail.
+    /workspace/.venv is a shadow mount backed by a per-side dir under
+    .yolo/home, so a host venv — whose interpreter symlink points into the
+    host's mise store and can never resolve in-jail — must not leak through
+    the workspace bind.
     """
-    host_mise_base = Path(
-        os.environ.get("MISE_DATA_DIR", str(Path.home() / ".local/share/mise"))
+    venv_dir = temp_project / ".venv"
+    (venv_dir / "bin").mkdir(parents=True)
+    host_python = "/home/hostuser/.local/share/mise/installs/python/3.13.0/bin"
+    (venv_dir / "pyvenv.cfg").write_text(f"home = {host_python}\n")
+    (venv_dir / "bin" / "python").symlink_to(f"{host_python}/python")
+    (venv_dir / "host-marker").write_text("host venv contents\n")
+
+    result = run_yolo(
+        temp_project,
+        "ls -a /workspace/.venv/ && cat /workspace/.venv/pyvenv.cfg 2>/dev/null; true",
     )
-    installs = host_mise_base / "installs" / "python"
-    if not installs.exists():
-        pytest.skip("No mise python installs found")
+    assert result.returncode == 0, result.stderr
+    # The jail-side view is a separate per-side dir: none of the host venv's
+    # contents may show through.
+    assert "host-marker" not in result.stdout
+    assert "hostuser" not in result.stdout
 
-    versions = [
-        d
-        for d in installs.iterdir()
-        if d.is_dir() and not d.is_symlink() and (d / "bin").exists()
-    ]
-    if not versions:
-        pytest.skip("No mise python installs found")
 
-    # Pick the version matching the running Python — guaranteed to exist in all jails.
-    import sys
-
-    running_ver = (
-        f"{sys.version_info.major}.{sys.version_info.minor}.{sys.version_info.micro}"
+def test_mise_store_neutral_path_writable(temp_project):
+    """MISE_DATA_DIR is the fixed neutral path /mise and the store is writable."""
+    result = run_yolo(
+        temp_project,
+        'echo "MISE_DATA_DIR=$MISE_DATA_DIR"'
+        " && touch /mise/.yolo-write-probe"
+        " && rm /mise/.yolo-write-probe"
+        " && echo MISE_STORE_WRITABLE",
     )
-    version_dir = None
-    for v in versions:
-        if v.name == running_ver:
-            version_dir = v
-            break
-    if version_dir is None:
-        # Fall back to last concrete version if exact match not found
-        version_dir = sorted(versions)[-1]
-    # Find a real python interpreter (not python*-config)
-    python_bin = None
-    for candidate in sorted(version_dir.glob("bin/python3.*")):
-        if "-config" not in candidate.name:
-            python_bin = candidate
-            break
-    if not python_bin:
-        pytest.skip("No python binary in mise install")
-
-    # Symlink target is the native host path — the jail mirrors the host mise
-    # dir at the same absolute path, so this resolves identically inside.
-    container_python = (
-        host_mise_base
-        / "installs"
-        / "python"
-        / version_dir.name
-        / "bin"
-        / python_bin.name
-    )
-
-    venv_dir = temp_project / ".venv" / "bin"
-    venv_dir.mkdir(parents=True)
-    (venv_dir / "python").symlink_to(container_python)
-
-    result = run_yolo(temp_project, "/workspace/.venv/bin/python --version")
-    assert result.returncode == 0, (
-        f"symlink target: {container_python}, stderr: {result.stderr}"
-    )
-    assert "Python" in result.stdout
+    assert result.returncode == 0, result.stderr
+    assert "MISE_DATA_DIR=/mise" in result.stdout
+    assert "MISE_STORE_WRITABLE" in result.stdout
 
 
-@pytest.mark.xfail(
-    reason="mise venv creation via uv can hang when MISE_DATA_DIR is shared "
-    "between host and container (lock contention during eval mise env)",
-    strict=False,
-)
+# Previously xfail'd: venv creation could hang on host↔jail lock contention
+# over the shared MISE_DATA_DIR.  The store split (/mise, jail-land only)
+# removed that contention.
 @pytest.mark.skipif(
     Path("/run/.containerenv").exists() or Path("/.dockerenv").exists(),
     reason="mise has a re-entrant shim deadlock in nested containers (podman-in-podman)",

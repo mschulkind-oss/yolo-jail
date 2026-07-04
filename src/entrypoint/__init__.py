@@ -78,6 +78,9 @@ CLAUDE_MANAGED_MCP_PATH = CLAUDE_DIR / "yolo-managed-mcp-servers.json"
 CLAUDE_HOST_SETTINGS_SNAPSHOT_PATH = CLAUDE_DIR / "yolo-host-synced-settings.json"
 CLAUDE_SHARED_CREDENTIALS_DIR = HOME / ".claude-shared-credentials"
 MISE_CONFIG_DIR = HOME / ".config" / "mise"
+# Workspace mount point — fixed across all jails.  A module constant so
+# tests can redirect it to a tmp dir.
+WORKSPACE = Path("/workspace")
 
 # Writable tmpfs that backs the ``/etc/localtime`` + ``/etc/timezone``
 # image symlinks (root fs is mounted --read-only).  A module constant so
@@ -268,6 +271,22 @@ def _hydrate_env_from_user_env_file():
         os.environ[key] = raw.replace("'\\''", "'")
 
 
+def trust_workspace_configs():
+    """Trust the workspace's mise configs (mise.toml, .mise.toml, mise.jail.toml).
+
+    mise trust is dir-scoped and ``--all`` covers cwd+parents only;
+    MISE_TRUSTED_CONFIG_PATHS=/workspace (set by cli.py) is the blanket
+    mechanism — this hook is belt-and-suspenders for configs written
+    after launch.  Output discarded: --quiet still prints on some paths.
+    """
+    if WORKSPACE.is_dir():
+        subprocess.run(
+            ["mise", "trust", "--all", "--quiet"],
+            cwd=WORKSPACE,
+            capture_output=True,
+        )
+
+
 # ---------------------------------------------------------------------------
 # 12. Finalize PATH and exec bash
 # ---------------------------------------------------------------------------
@@ -417,12 +436,8 @@ def main():
     # Set PATH including mise shims so tools like copilot/gemini/claude are found
     os.environ["PATH"] = f"{SHIM_DIR}:{NPM_BIN}:{MISE_SHIMS}:{GO_BIN}:/bin:/usr/bin"
 
-    # Trust workspace mise.toml (--quiet suppresses "No untrusted config files" noise)
-    if Path("/workspace/mise.toml").exists():
-        subprocess.run(
-            ["mise", "trust", "--quiet", "/workspace/mise.toml"],
-            capture_output=True,
-        )
+    trust_workspace_configs()
+    _perf("trust_workspace_configs")
 
     # NOTE: We intentionally do NOT call `mise hook-env` here.
     # hook-env holds a WRITE flock, then spawns `uv` via the mise shim

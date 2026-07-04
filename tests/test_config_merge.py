@@ -6,6 +6,7 @@ import pytest
 
 sys.path.insert(0, str(Path(__file__).parent.parent / "src"))
 import cli
+from src import loopholes
 from cli import (
     ConfigError,
     _check_config_changes,
@@ -394,6 +395,52 @@ class TestAgentsMdExtra:
         assert any("agents_md_extra" in e and "string of markdown" in e for e in errors)
 
 
+class TestPerSidePaths:
+    """per_side_paths — workspace sub-paths that get per-side (host vs
+    jail) venv-shadow backing."""
+
+    def test_validate_accepts_relative_paths(self):
+        errors, warnings = _validate_config(
+            {"per_side_paths": [".venv-alt", ".cargo", "data/models"]},
+            workspace=Path.cwd(),
+        )
+        assert errors == []
+        assert warnings == []
+
+    def test_validate_rejects_non_list(self):
+        errors, _ = _validate_config({"per_side_paths": ".venv"}, workspace=Path.cwd())
+        assert any("per_side_paths" in e and "list" in e for e in errors)
+
+    def test_validate_rejects_non_string_entry(self):
+        errors, _ = _validate_config({"per_side_paths": [42]}, workspace=Path.cwd())
+        assert any("per_side_paths[0]" in e and "string" in e for e in errors)
+
+    def test_validate_rejects_absolute(self):
+        errors, _ = _validate_config(
+            {"per_side_paths": ["/abs/path"]}, workspace=Path.cwd()
+        )
+        assert any("must be a relative path" in e for e in errors)
+
+    def test_validate_rejects_dotdot(self):
+        errors, _ = _validate_config(
+            {"per_side_paths": ["a/../b"]}, workspace=Path.cwd()
+        )
+        assert any("'..'" in e for e in errors)
+
+    def test_validate_rejects_dot_and_empty(self):
+        errors, _ = _validate_config(
+            {"per_side_paths": [".", ""]}, workspace=Path.cwd()
+        )
+        assert sum("must name a workspace sub-path" in e for e in errors) == 2
+
+    def test_merge_concatenates_and_dedups(self):
+        merged = merge_config(
+            {"per_side_paths": [".cargo", ".venv-x"]},
+            {"per_side_paths": [".venv-x", "models"]},
+        )
+        assert merged["per_side_paths"] == [".cargo", ".venv-x", "models"]
+
+
 class TestConfigSnapshot:
     def test_first_run_saves_snapshot(self, tmp_path):
         workspace = tmp_path / "project"
@@ -458,3 +505,177 @@ class TestConfigSnapshot:
             (workspace / ".yolo" / "config-snapshot.json").read_text()
         )
         assert snapshot == config
+
+
+class TestLoopholeOverrides:
+    """Workspace ``loopholes:`` entries whose name matches an existing
+    (bundled or user-dir) loophole are overrides — the runtime merge in
+    ``loopholes._apply_workspace_overrides`` honors exactly
+    {enabled, env, jail_env} for them — so the validator must not demand
+    the inline-service shape (``command`` etc.) for those names."""
+
+    @pytest.fixture
+    def known_loophole(self, tmp_path, monkeypatch):
+        """A user-dir loophole named 'my-hole' (daemon-backed, so 'env'
+        overrides are applicable) plus a daemonless 'no-daemon-hole';
+        bundled dir pointed at nothing so the known set is fully
+        test-controlled."""
+        mods_root = tmp_path / "loopholes"
+        mod = mods_root / "my-hole"
+        mod.mkdir(parents=True)
+        (mod / "manifest.jsonc").write_text(
+            json.dumps(
+                {
+                    "name": "my-hole",
+                    "description": "test loophole",
+                    "transport": "unix-socket",
+                    "lifecycle": "spawned",
+                    "host_daemon": {"cmd": ["true"]},
+                }
+            )
+        )
+        plain = mods_root / "no-daemon-hole"
+        plain.mkdir()
+        (plain / "manifest.jsonc").write_text(
+            json.dumps({"name": "no-daemon-hole", "description": "no daemon"})
+        )
+        monkeypatch.setattr(loopholes, "user_loopholes_dir", lambda: mods_root)
+        monkeypatch.setattr(
+            loopholes, "bundled_loopholes_dir", lambda: tmp_path / "nobundled"
+        )
+        return "my-hole"
+
+    def test_bundled_disable_validates_clean(self, tmp_path, monkeypatch):
+        # The reproduced bug: {"enabled": false} on the bundled 'audio'
+        # loophole failed 'command: required' + 'enabled: unknown key'.
+        # Real bundled dir; user dir isolated from host state.
+        monkeypatch.setattr(loopholes, "user_loopholes_dir", lambda: tmp_path / "none")
+        errors, warnings = _validate_config(
+            {"loopholes": {"audio": {"enabled": False}}}, workspace=Path.cwd()
+        )
+        assert errors == []
+        assert warnings == []
+
+    def test_override_full_shape_validates_clean(self, known_loophole):
+        errors, warnings = _validate_config(
+            {
+                "loopholes": {
+                    known_loophole: {
+                        "enabled": False,
+                        "env": {"FOO": "bar"},
+                        "jail_env": {"BAZ": "qux"},
+                    }
+                }
+            },
+            workspace=Path.cwd(),
+        )
+        assert errors == []
+        assert warnings == []
+
+    def test_override_enabled_must_be_bool(self, known_loophole):
+        errors, _ = _validate_config(
+            {"loopholes": {known_loophole: {"enabled": "yes"}}},
+            workspace=Path.cwd(),
+        )
+        assert any(".enabled" in e and "boolean" in e for e in errors)
+
+    def test_override_command_is_not_overridable(self, known_loophole):
+        errors, _ = _validate_config(
+            {"loopholes": {known_loophole: {"command": ["echo", "hi"]}}},
+            workspace=Path.cwd(),
+        )
+        assert any(".command" in e and "not overridable" in e for e in errors)
+        # Rejected with the dedicated message, not as an unknown key.
+        assert not any("command: unknown key" in e for e in errors)
+
+    def test_override_unknown_key_reported(self, known_loophole):
+        errors, _ = _validate_config(
+            {"loopholes": {known_loophole: {"enabled": True, "transport": "none"}}},
+            workspace=Path.cwd(),
+        )
+        assert any(".transport: unknown key" in e for e in errors)
+
+    def test_override_env_type_validation(self, known_loophole):
+        errors, _ = _validate_config(
+            {"loopholes": {known_loophole: {"env": {"FOO": 1}}}},
+            workspace=Path.cwd(),
+        )
+        assert any(".env" in e and "must be strings" in e for e in errors)
+
+        errors, _ = _validate_config(
+            {"loopholes": {known_loophole: {"jail_env": "PATH=/x"}}},
+            workspace=Path.cwd(),
+        )
+        assert any(".jail_env" in e and "expected an object" in e for e in errors)
+
+    def test_unknown_name_still_requires_command(self, known_loophole):
+        errors, _ = _validate_config(
+            {"loopholes": {"other-svc": {}}}, workspace=Path.cwd()
+        )
+        assert any("other-svc.command: required" in e for e in errors)
+
+    def test_inline_env_type_validation_unchanged(self, known_loophole):
+        errors, _ = _validate_config(
+            {"loopholes": {"other-svc": {"command": ["run"], "env": {"FOO": 1}}}},
+            workspace=Path.cwd(),
+        )
+        assert any("other-svc.env" in e and "must be strings" in e for e in errors)
+        # jail_env stays an inline-service unknown key — only overrides
+        # of existing loopholes may set it.
+        errors, _ = _validate_config(
+            {"loopholes": {"other-svc": {"command": ["run"], "jail_env": {}}}},
+            workspace=Path.cwd(),
+        )
+        assert any("other-svc.jail_env: unknown key" in e for e in errors)
+
+    def test_env_override_without_host_daemon_rejected(self, known_loophole):
+        # 'no-daemon-hole' has no host_daemon — the runtime merge only
+        # applies 'env' into host_daemon.env, so the override would be
+        # silently dropped.  The validator must reject it; 'jail_env'
+        # remains the supported way to reach the jail side.
+        errors, _ = _validate_config(
+            {"loopholes": {"no-daemon-hole": {"env": {"FOO": "bar"}}}},
+            workspace=Path.cwd(),
+        )
+        assert any("no-daemon-hole.env" in e and "no host daemon" in e for e in errors)
+        errors, warnings = _validate_config(
+            {"loopholes": {"no-daemon-hole": {"jail_env": {"FOO": "bar"}}}},
+            workspace=Path.cwd(),
+        )
+        assert errors == []
+        assert warnings == []
+
+    def test_unknown_name_override_shape_warns_instead_of_erroring(
+        self, known_loophole
+    ):
+        # A host user-dir loophole isn't discoverable when validating
+        # inside a jail (or after it was uninstalled on the host) — an
+        # override-shaped entry must degrade to a warning, not hard-fail
+        # with misleading inline-service errors like 'command: required'.
+        errors, warnings = _validate_config(
+            {"loopholes": {"host-only-hole": {"enabled": False}}},
+            workspace=Path.cwd(),
+        )
+        assert errors == []
+        assert any("host-only-hole" in w and "no loophole" in w for w in warnings)
+
+    def test_unknown_name_override_shape_still_type_checked(self, known_loophole):
+        errors, _ = _validate_config(
+            {"loopholes": {"host-only-hole": {"enabled": "yes"}}},
+            workspace=Path.cwd(),
+        )
+        assert any(".enabled" in e and "boolean" in e for e in errors)
+
+    def test_unreadable_dirs_degrade_to_override_warning(self, monkeypatch):
+        # Discovery failing (unreadable dirs) must not turn a valid
+        # override into hard errors — override-shaped entries take the
+        # same warn-not-error path as the in-jail case.
+        def _boom(*a, **kw):
+            raise OSError("permission denied")
+
+        monkeypatch.setattr(loopholes, "discover_loopholes", _boom)
+        errors, warnings = _validate_config(
+            {"loopholes": {"audio": {"enabled": False}}}, workspace=Path.cwd()
+        )
+        assert errors == []
+        assert any("audio" in w for w in warnings)

@@ -10,7 +10,10 @@ Owns the set-up that happens before any container starts:
     copies of auth state into per-workspace overlays.
   * _ac_materialize_under_ws_state — Apple Container workaround for the
     "single-file bind mount shadows parent dir mount" bug.
-  * _host_mise_dir — the host-visible mise data dir shared with the jail.
+  * _host_mise_dir — the host's own mise data dir (never mounted).
+  * _jail_mise_store_dir — source dir for the jail-land mise store
+    that every jail mounts at /mise.
+  * _migrate_storage_layout — one-time, versioned layout migrations.
   * _detect_host_timezone, _linux_multilib, _nix_custom_conf_included,
     _detect_nix_daemon_label — pure host-state probes used by run() and
     the check command.
@@ -20,6 +23,7 @@ import json
 import os
 import platform
 import shutil
+import sys
 from pathlib import Path
 from typing import Optional
 
@@ -30,10 +34,12 @@ from .paths import (
     GLOBAL_CACHE,
     GLOBAL_HOME,
     GLOBAL_MISE,
+    GLOBAL_STORAGE,
 )
 
 
 def ensure_global_storage():
+    GLOBAL_STORAGE.mkdir(parents=True, exist_ok=True)
     GLOBAL_HOME.mkdir(parents=True, exist_ok=True)
     GLOBAL_MISE.mkdir(parents=True, exist_ok=True)
     GLOBAL_CACHE.mkdir(parents=True, exist_ok=True)
@@ -122,6 +128,9 @@ def ensure_global_storage():
         GLOBAL_HOME / ".bashrc",
         Path(".config") / "bashrc",
     )
+    # One-time layout migrations — marker-stamped, so a single file read
+    # once the layout is current.
+    _migrate_storage_layout()
 
 
 def _ensure_symlink(link: Path, target: Path):
@@ -149,16 +158,95 @@ def _ensure_symlink(link: Path, target: Path):
 
 
 def _host_mise_dir() -> Path:
-    """Return the host-visible mise data dir shared with the jail."""
-    host_mise_path: str = (
-        os.environ.get("YOLO_OUTER_MISE_PATH")
-        or os.environ.get("MISE_DATA_DIR")
-        or str(Path.home() / ".local" / "share" / "mise")
-    )
-    host_mise = Path(host_mise_path)
-    if not host_mise.exists():
-        host_mise.mkdir(parents=True, exist_ok=True)
-    return host_mise
+    """Return the host's own mise data dir (``~/.local/share/mise``).
+
+    Host-only: consulted for migration/doctor accounting, never as a
+    mount source or target — jails use :func:`_jail_mise_store_dir`.
+    May not exist; callers must tolerate absence (no mkdir here).
+    """
+    return Path.home() / ".local" / "share" / "mise"
+
+
+def _jail_mise_store_dir() -> Path:
+    """Source directory for the jail-land mise store, mounted at /mise.
+
+    On the host: GLOBAL_MISE — shared by all jails, never by the host.
+    When the CLI itself runs inside a jail (nested jails), that store is
+    already mounted at /mise; re-mount the same path one level down so
+    every nesting depth shares the one store.
+    """
+    if os.environ.get("YOLO_VERSION") is not None:
+        return Path("/mise")
+    return GLOBAL_MISE
+
+
+# Current storage layout version.  v2 = split mise store: jails share
+# GLOBAL_MISE at /mise and no longer mount the host's ~/.local/share/mise.
+STORAGE_LAYOUT_VERSION = 2
+
+
+def _migrate_storage_layout() -> None:
+    """One-time, versioned, host-side layout migration (marker-stamped).
+
+    v2 heal step: under the old shared-mount model jails could write
+    ``installs/<tool>/<version>`` symlinks into the host store whose
+    targets only resolve in-jail (e.g. ``→ /workspace/.cargo/bin``).
+    Remove exactly those dangling symlinks — a resolving symlink or a
+    regular file/dir is never touched (this mirrors the ``rm`` mise's
+    own relink pass performs).  Idempotent: a crashed run re-runs.
+
+    The heal only fires when no jail is live: an entry that dangles in
+    the host's view can be live inside a running old-model jail (symlink
+    targets resolve per-exec in the reader's namespace), so unlinking it
+    would yank that jail's toolchain mid-session.  Same fail-safe
+    polarity as the store-prune gate — "liveness unknown" defers, and a
+    deferred heal leaves the marker unstamped so a later invocation
+    retries.
+
+    Never runs inside a jail — the store visible there is not the
+    host's, and /mise must not be scanned as if it were.
+    """
+    if os.environ.get("YOLO_VERSION") is not None:
+        return
+    marker = GLOBAL_STORAGE / "layout-version"
+    try:
+        if int(marker.read_text().strip()) >= STORAGE_LAYOUT_VERSION:
+            return
+    except (OSError, ValueError):
+        pass
+    installs = _host_mise_dir() / "installs"
+    dangling: list[Path] = []
+    if installs.is_dir():
+        for tool_dir in sorted(installs.iterdir()):
+            if not tool_dir.is_dir():
+                continue
+            for entry in sorted(tool_dir.iterdir()):
+                # exists() follows symlinks: True only when the target
+                # resolves — a dangling link is is_symlink() and not
+                # exists().
+                if entry.is_symlink() and not entry.exists():
+                    dangling.append(entry)
+    if dangling:
+        # Lazy imports: run_cmd imports this module at load time.
+        from .run_cmd import _live_yolo_containers
+        from .runtime import _runtime_for_check
+
+        rt, _err = _runtime_for_check({})
+        if rt is None or _live_yolo_containers(rt) != set():
+            return  # live/unknown siblings — defer, retry next invocation
+        for entry in dangling:
+            try:
+                entry.unlink()
+                print(
+                    f"Removed dangling mise store symlink: {entry}",
+                    file=sys.stderr,
+                )
+            except OSError:
+                pass
+    try:
+        marker.write_text(f"{STORAGE_LAYOUT_VERSION}\n")
+    except OSError:
+        pass  # re-runs next invocation; every step is idempotent
 
 
 def _ac_materialize_under_ws_state(

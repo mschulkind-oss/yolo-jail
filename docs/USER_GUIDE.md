@@ -528,7 +528,7 @@ typst = "latest"
 rust = "1.80"
 ```
 
-On jail startup, `mise install` fetches declared tools. They persist across restarts in `~/.local/share/mise/`.
+On jail startup, `mise install` fetches declared tools. They persist across restarts in the jail-land mise store mounted at `/mise` — shared by every jail, fully independent of the host's own mise installation.
 
 To inject tools into all jails globally, use `mise_tools` in your config:
 
@@ -948,14 +948,14 @@ If none of these resolve, the jail falls back to UTC. Override per-jail by expor
 |------|-----------------|---------|
 | Auth tokens (gh, gemini, claude) | `~/.local/share/yolo-jail/home/` | All jails |
 | Installed tools (npm, go) | `~/.local/share/yolo-jail/home/` | All jails |
-| Mise tools & runtimes | `~/.local/share/mise/` on Linux (bind-mounted at the same path inside the jail); podman named volume `yolo-mise-data` on macOS, also mounted at `~/.local/share/mise/` inside the jail | All jails |
+| Mise tools & runtimes | `~/.local/share/yolo-jail/mise/` on Linux (bind-mounted at `/mise` inside the jail); podman named volume `yolo-mise-data-v2` on macOS and Apple Container, also mounted at `/mise` | All jails |
 | Bash history | `<workspace>/.yolo/home/bash_history` | Per workspace |
 | Claude sessions | `<workspace>/.yolo/home/claude-projects/` | Per workspace |
 | Copilot sessions | `<workspace>/.yolo/home/copilot-sessions/` | Per workspace |
 | Gemini history | `<workspace>/.yolo/home/gemini-history/` | Per workspace |
 | SSH keys | `<workspace>/.yolo/home/ssh/` | Per workspace |
 
-**Why mise differs on macOS:** The host `~/.local/share/mise/` on macOS contains Mach-O (darwin) binaries that cannot execute inside the Linux container. Instead of bind-mounting the host directory, YOLO Jail backs the mount with a podman named volume (`yolo-mise-data`) that holds native Linux toolchains. The volume is mounted at the same host path string inside the container so there is one canonical mise location across runtimes — venvs with absolute shebangs keep resolving in both environments. The volume persists across jail restarts.
+**Mise storage is jail-land only:** the host's `~/.local/share/mise/` is never mounted — jails and the host maintain fully independent mise installations, so neither side can break the other's tool installs and host↔jail mise version skew doesn't matter. Every jail sees the same store at the same path, `/mise`; only the backing differs per platform (a yolo-owned host directory on Linux, the `yolo-mise-data-v2` named volume on macOS and Apple Container). In-jail behavior is identical everywhere, and the store persists across jail restarts.
 
 ### What Gets Regenerated
 
@@ -1032,7 +1032,7 @@ YOLO Jail runs on Linux and macOS as first-class platforms. Everything in this g
 | Port forwarding (`forward_host_ports`) | Unix sockets | TCP gateway (auto) | Native Unix sockets |
 | `--network host` | ✅ | ✅ | ❌ (not supported) |
 | UID mapping | `-u UID:GID` | VM handles automatically | VM per container |
-| `mise` tool storage | Host bind mount | podman named volume | podman named volume |
+| `mise` tool storage (at `/mise` in-jail) | yolo-owned dir bind mount | podman named volume | podman named volume |
 | Max bind mounts | Unlimited | Unlimited | ~22 (VZ.framework) |
 | Image format | OCI | OCI | OCI (auto-converted via skopeo) |
 | `yolo doctor` runtime checks | Linux | macOS / VM | `container system status` |

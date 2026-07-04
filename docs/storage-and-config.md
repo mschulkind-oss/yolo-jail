@@ -62,6 +62,9 @@ All persistent jail state lives under `~/.local/share/yolo-jail/`:
 │   ├── .copilot/          │  Copilot auth tokens
 │   └── .gemini/           │  Gemini auth tokens
 ├── cache/                 → Mounted :rw as /home/agent/.cache (shared download cache)
+├── mise/                  → Mounted :rw as /mise (jail-land mise store — Linux podman;
+│                             macOS podman and Apple Container use the yolo-mise-data-v2
+│                             named volume instead, also mounted at /mise)
 ├── containers/            → Tracking files for running containers
 └── agents/                → Per-container AGENTS.md files
     └── yolo-<hash>/
@@ -79,8 +82,9 @@ mounted per-workspace overlays or shared mounts:
 |---------|-------|-------------|-----------|
 | `home/` | All jails | Survives restarts | **Read-only** |
 | `cache/` | All jails | Survives restarts | Writable (shared download CAS) |
-| Host mise dir (`$MISE_DATA_DIR`, default `~/.local/share/mise`) | Host + all jails | Survives restarts | Writable (shared tool CAS; mirrored into the jail at the same host path so absolute venv paths resolve) |
+| `mise/` (jail-land mise store) | All jails | Survives restarts | Writable (shared tool CAS, mounted at `/mise` in every jail; the host's own mise install is not a party) |
 | Per-workspace overlays | Per workspace | Survives restarts | Writable |
+| `venv-shadows/` (under `<workspace>/.yolo/home/`) | Per workspace | Survives restarts | Writable (per-side backing for `/workspace/.venv` and other `per_side_paths`) |
 | `agents/<name>/AGENTS.md` | Per container | Regenerated each run | Read-only (in jail) |
 | `/tmp`, `/var/tmp` | Per container | tmpfs (ephemeral) | Writable |
 
@@ -119,7 +123,12 @@ Each workspace has a `.yolo/` directory (gitignored) for isolated state:
 │   ├── bash_history              → /home/agent/.bash_history
 │   ├── gemini-history/           → /home/agent/.gemini/history
 │   ├── claude-projects/          → /home/agent/.claude/projects
-│   └── ssh/                      → /home/agent/.ssh (mode 700)
+│   ├── ssh/                      → /home/agent/.ssh (mode 700)
+│   └── venv-shadows/             → Per-side backing dirs, shadow-mounted over
+│       └── .venv/                  /workspace/.venv (plus the mise-configured
+│                                   venv path and any per_side_paths entries;
+│                                   '/' in an entry becomes '__' in the dir name)
+├── startup.log                   → Provisioning log from the last new-container boot
 └── config-snapshot.json          → Last-confirmed config (for change detection)
 ```
 
@@ -138,6 +147,11 @@ All writable paths are explicitly mounted:
 ```
 / (root)                ← IMMUTABLE (--read-only container flag)
 /workspace              ← Host workspace (read-write)
+  ├── .venv/                 ← PER-SIDE shadow (backed by <workspace>/.yolo/home/
+  │                            venv-shadows/ — the host keeps its own .venv underneath;
+  │                            same treatment for the mise-configured venv path and
+  │                            any per_side_paths entries)
+  └── .yolo/startup.log      ← Provisioning log (fresh file per new container)
 /home/agent             ← Global home :ro (auth tokens, base configs)
   ├── .npm-global/           ← PER-WORKSPACE overlay (agent CLI installs)
   ├── .local/                ← PER-WORKSPACE overlay (claude, MCP wrappers)
@@ -172,8 +186,10 @@ All writable paths are explicitly mounted:
   │   └── settings.json      ← PER-WORKSPACE overlay
   ├── .bash_history          ← PER-WORKSPACE overlay
   └── .ssh/                  ← PER-WORKSPACE overlay (mode 700)
-$MISE_DATA_DIR          ← Host mise dir, bind-mounted at the same absolute path
-                         (e.g., /home/<user>/.local/share/mise). Shared writable CAS.
+/mise                   ← Jail-land mise store (~/.local/share/yolo-jail/mise on Linux;
+                         yolo-mise-data-v2 named volume on macOS podman and Apple
+                         Container). Shared writable CAS across all jails — the
+                         host's ~/.local/share/mise is never mounted.
 /opt/yolo-jail          ← yolo-jail repo (read-only)
 /tmp                    ← tmpfs (ephemeral)
 /var/tmp                ← tmpfs (ephemeral)
@@ -271,8 +287,9 @@ stomping the shared home directory.
 | `HOME` | `/home/agent` | Home directory |
 | `NPM_CONFIG_PREFIX` | `/home/agent/.npm-global` | NPM global install location |
 | `GOPATH` | `/home/agent/go` | Go binary location |
-| `MISE_DATA_DIR` | Host mise path (e.g., `/home/$USER/.local/share/mise`) | Shared mise tool storage. Bind-mounted at the same absolute path inside the jail so absolute venv paths (python symlinks, shebangs) resolve identically on host and in container |
-| `MISE_TRUST` | `1` | Auto-trust workspace mise.toml |
+| `MISE_DATA_DIR` | `/mise` | Jail-land mise store, shared by all jails (host dir bind mount on Linux; `yolo-mise-data-v2` named volume on macOS podman / Apple Container). The host's own mise dir is never mounted |
+| `MISE_TRUSTED_CONFIG_PATHS` | `/workspace` | Trust every mise config under the workspace (recursive, path-component-aware prefix match) |
+| `MISE_ENV` | `jail` | Jail-only overrides: a checked-in `mise.jail.toml` overrides `mise.toml` inside jails, no-op on the host |
 | `MISE_YES` | `1` | Skip mise confirmation prompts |
 | `LD_LIBRARY_PATH` | `/lib:/usr/lib` | Library search path (survives agent env stripping) |
 | `PAGER` | `cat` | No interactive pagers |
@@ -295,7 +312,7 @@ stomping the shared home directory.
 | NPM global packages | `/home/agent/.npm-global/bin/` | Installed by bootstrap |
 | Go binaries | `/home/agent/go/bin/` | Installed by bootstrap |
 | MCP node wrappers | `/home/agent/.local/bin/mcp-wrappers/` | Generated by entrypoint |
-| Mise shims | `$MISE_DATA_DIR/shims/` (same path as host) | Managed by mise |
+| Mise shims | `/mise/shims/` | Managed by mise |
 | Blocked tool shims | `/home/agent/.yolo-shims/` | Generated by entrypoint |
 
 **PATH order:**

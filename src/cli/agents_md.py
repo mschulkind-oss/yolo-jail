@@ -274,6 +274,13 @@ def generate_agents_md(
             "and orients you to the jail environment. The human may ask you to invoke it —",
             'just say "invoke the jail-startup skill" or use your skill invocation tool.',
             "",
+            "## Startup Log",
+            "",
+            "The jail's provisioning log persists at `/workspace/.yolo/startup.log`.",
+            "At session start, check its tail. If it contains `PROVISIONING FAILED`,",
+            "project tools may be missing — read the log and self-serve: e.g. run",
+            "`mise install` in /workspace, then re-run the step that failed.",
+            "",
         ]
     )
 

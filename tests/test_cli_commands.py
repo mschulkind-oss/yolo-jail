@@ -680,7 +680,7 @@ class TestRunCommandInternals:
     @patch("cli.cleanup_port_forwarding")
     @patch("cli.run_cmd.write_container_tracking")
     @patch("cli._tmux_rename_window")
-    @patch("cli._host_mise_dir")
+    @patch("cli.run_cmd._jail_mise_store_dir")
     @patch("cli._seed_agent_dir")
     def test_new_container_creation(
         self,
@@ -1620,6 +1620,12 @@ def _check_monkeypatch(monkeypatch, tmp_path, *, create_dirs=True):
     monkeypatch.setattr(
         "cli.check_cmd.USER_CONFIG_PATH", tmp_path / "user-config.jsonc"
     )
+    # cli.storage bindings — keep ensure_global_storage's layout migration
+    # off the real host dirs, and pre-stamp its marker so it's a no-op.
+    monkeypatch.setattr("cli.storage.GLOBAL_MISE", tmp_path / "mise")
+    monkeypatch.setattr("cli.storage.GLOBAL_STORAGE", tmp_path / "storage")
+    (tmp_path / "storage").mkdir(exist_ok=True)
+    (tmp_path / "storage" / "layout-version").write_text("2\n")
     monkeypatch.setattr("cli.runtime._runtime_is_connectable", lambda rt: True)
     if create_dirs:
         for d in ("home", "mise", "containers", "agents", "build"):
@@ -1934,6 +1940,10 @@ def _run_monkeypatch(monkeypatch, tmp_path):
     monkeypatch.setattr("cli.run_cmd.AGENTS_DIR", tmp_path / "agents")
     monkeypatch.setattr("cli.run_cmd.BUILD_DIR", tmp_path / "build")
     monkeypatch.setattr("cli.run_cmd.USER_CONFIG_PATH", tmp_path / "user-config.jsonc")
+    # cli.storage holds its own bindings: _jail_mise_store_dir reads
+    # GLOBAL_MISE and the layout migration reads GLOBAL_STORAGE there.
+    monkeypatch.setattr("cli.storage.GLOBAL_MISE", tmp_path / "mise")
+    monkeypatch.setattr("cli.storage.GLOBAL_STORAGE", tmp_path / "storage")
     monkeypatch.setattr("cli.runtime._runtime_is_connectable", lambda rt: True)
     monkeypatch.setattr("time.sleep", lambda _: None)
     # The Claude OAuth broker singleton + loophole daemons run real
@@ -1958,6 +1968,32 @@ def _run_monkeypatch(monkeypatch, tmp_path):
         "storage/locks",
     ):
         (tmp_path / d).mkdir(parents=True, exist_ok=True)
+    # Pre-stamp the storage layout marker so the one-time migration
+    # (which scans the real host mise dir) stays a no-op in unit tests.
+    (tmp_path / "storage" / "layout-version").write_text("2\n")
+
+
+def _launch_argv(tmp_path, monkeypatch, *, config_text="{}"):
+    """Invoke ``yolo run`` with mocks and return the container argv."""
+    _run_monkeypatch(monkeypatch, tmp_path)
+    (tmp_path / "yolo-jail.jsonc").write_text(config_text)
+    with (
+        patch("shutil.which") as mock_which,
+        patch("subprocess.check_output", side_effect=FileNotFoundError),
+        patch("subprocess.run", return_value=MagicMock(returncode=0, stdout="")),
+        patch("cli.run_cmd.find_running_container", return_value=None),
+        patch("cli.run_cmd._check_config_changes", return_value=True),
+        patch("cli.run_cmd.auto_load_image"),
+        patch("subprocess.Popen") as mock_popen,
+    ):
+        _mock_runtimes(mock_which)
+        proc = MagicMock()
+        proc.wait.return_value = None
+        proc.returncode = 0
+        mock_popen.return_value = proc
+        result = CliRunner().invoke(app, ["run", "--", "true"])
+        assert mock_popen.called, f"launch argv expected; output: {result.output}"
+        return [str(a) for a in mock_popen.call_args[0][0]]
 
 
 class TestRunConfigErrors:
@@ -2289,6 +2325,51 @@ class TestRunNewContainerMounts:
         runner = CliRunner()
         result = runner.invoke(app, ["run", "--", "bash"])
         assert "skipping" in result.output.lower() or "warning" in result.output.lower()
+
+
+class TestRunRepoMountSource:
+    """The /opt/yolo-jail mount source.  A workspace that is itself a
+    yolo-jail source tree backs the mount (dev loop: nested jails must run
+    the live edits, not the frozen uv-tool install at repo_root); every
+    other workspace keeps repo_root."""
+
+    @staticmethod
+    def _make_yolo_tree(tmp_path, name="yolo-jail"):
+        (tmp_path / "src" / "cli").mkdir(parents=True)
+        (tmp_path / "src" / "cli" / "__init__.py").write_text("")
+        (tmp_path / "pyproject.toml").write_text(f'[project]\nname = "{name}"\n')
+
+    def test_yolo_source_workspace_backs_mount(self, tmp_path, monkeypatch):
+        self._make_yolo_tree(tmp_path)
+        argv = _launch_argv(tmp_path, monkeypatch)
+        assert f"{tmp_path}:/opt/yolo-jail:ro" in argv
+        assert f"{REPO_ROOT}:/opt/yolo-jail:ro" not in argv
+
+    def test_normal_workspace_keeps_repo_root(self, tmp_path, monkeypatch):
+        argv = _launch_argv(tmp_path, monkeypatch)
+        assert f"{REPO_ROOT}:/opt/yolo-jail:ro" in argv
+        assert f"{tmp_path}:/opt/yolo-jail:ro" not in argv
+
+    def test_foreign_pyproject_name_keeps_repo_root(self, tmp_path, monkeypatch):
+        self._make_yolo_tree(tmp_path, name="some-other-project")
+        argv = _launch_argv(tmp_path, monkeypatch)
+        assert f"{REPO_ROOT}:/opt/yolo-jail:ro" in argv
+        assert f"{tmp_path}:/opt/yolo-jail:ro" not in argv
+
+    def test_absent_pyproject_keeps_repo_root(self, tmp_path, monkeypatch):
+        self._make_yolo_tree(tmp_path)
+        (tmp_path / "pyproject.toml").unlink()
+        argv = _launch_argv(tmp_path, monkeypatch)
+        assert f"{REPO_ROOT}:/opt/yolo-jail:ro" in argv
+        assert f"{tmp_path}:/opt/yolo-jail:ro" not in argv
+
+    @pytest.mark.parametrize("raw", [b'name = "yolo-jail', b"\xff\xfe not utf-8 \xff"])
+    def test_unreadable_pyproject_keeps_repo_root(self, tmp_path, monkeypatch, raw):
+        self._make_yolo_tree(tmp_path)
+        (tmp_path / "pyproject.toml").write_bytes(raw)
+        argv = _launch_argv(tmp_path, monkeypatch)
+        assert f"{REPO_ROOT}:/opt/yolo-jail:ro" in argv
+        assert f"{tmp_path}:/opt/yolo-jail:ro" not in argv
 
 
 class TestRunPodman:
@@ -3039,7 +3120,9 @@ class TestGenerateAgentsMdEdges:
     def test_with_forwarded_ports_int(self, tmp_path, monkeypatch):
         from cli import generate_agents_md
 
-        monkeypatch.setattr("cli.AGENTS_DIR", tmp_path / "agents")
+        # generate_agents_md reads AGENTS_DIR from cli.agents_md's namespace;
+        # the cli.AGENTS_DIR re-export is never consulted, so patch the module.
+        monkeypatch.setattr("cli.agents_md.AGENTS_DIR", tmp_path / "agents")
         (tmp_path / "agents").mkdir()
 
         result = generate_agents_md(
@@ -3057,7 +3140,9 @@ class TestGenerateAgentsMdEdges:
     def test_with_forwarded_ports_string(self, tmp_path, monkeypatch):
         from cli import generate_agents_md
 
-        monkeypatch.setattr("cli.AGENTS_DIR", tmp_path / "agents")
+        # generate_agents_md reads AGENTS_DIR from cli.agents_md's namespace;
+        # the cli.AGENTS_DIR re-export is never consulted, so patch the module.
+        monkeypatch.setattr("cli.agents_md.AGENTS_DIR", tmp_path / "agents")
         (tmp_path / "agents").mkdir()
 
         result = generate_agents_md(
@@ -3075,7 +3160,9 @@ class TestGenerateAgentsMdEdges:
     def test_with_blocked_tools_suggestion(self, tmp_path, monkeypatch):
         from cli import generate_agents_md
 
-        monkeypatch.setattr("cli.AGENTS_DIR", tmp_path / "agents")
+        # generate_agents_md reads AGENTS_DIR from cli.agents_md's namespace;
+        # the cli.AGENTS_DIR re-export is never consulted, so patch the module.
+        monkeypatch.setattr("cli.agents_md.AGENTS_DIR", tmp_path / "agents")
         (tmp_path / "agents").mkdir()
 
         blocked = [{"name": "grep", "message": "Use rg", "suggestion": "rg"}]
@@ -3094,7 +3181,9 @@ class TestGenerateAgentsMdEdges:
     def test_with_mount_descriptions(self, tmp_path, monkeypatch):
         from cli import generate_agents_md
 
-        monkeypatch.setattr("cli.AGENTS_DIR", tmp_path / "agents")
+        # generate_agents_md reads AGENTS_DIR from cli.agents_md's namespace;
+        # the cli.AGENTS_DIR re-export is never consulted, so patch the module.
+        monkeypatch.setattr("cli.agents_md.AGENTS_DIR", tmp_path / "agents")
         (tmp_path / "agents").mkdir()
 
         mounts = ["/home/user/data:/ctx/data"]
@@ -3112,7 +3201,9 @@ class TestGenerateAgentsMdEdges:
     def test_agents_md_extra_appended_to_all_agents(self, tmp_path, monkeypatch):
         from cli import generate_agents_md
 
-        monkeypatch.setattr("cli.AGENTS_DIR", tmp_path / "agents")
+        # generate_agents_md reads AGENTS_DIR from cli.agents_md's namespace;
+        # the cli.AGENTS_DIR re-export is never consulted, so patch the module.
+        monkeypatch.setattr("cli.agents_md.AGENTS_DIR", tmp_path / "agents")
         (tmp_path / "agents").mkdir()
 
         extra = "## Cerebras MCP\n\nUse cerebras-mcp for ultra-fast completions."
@@ -3133,7 +3224,9 @@ class TestGenerateAgentsMdEdges:
     def test_agents_md_extra_none_is_noop(self, tmp_path, monkeypatch):
         from cli import generate_agents_md
 
-        monkeypatch.setattr("cli.AGENTS_DIR", tmp_path / "agents")
+        # generate_agents_md reads AGENTS_DIR from cli.agents_md's namespace;
+        # the cli.AGENTS_DIR re-export is never consulted, so patch the module.
+        monkeypatch.setattr("cli.agents_md.AGENTS_DIR", tmp_path / "agents")
         (tmp_path / "agents").mkdir()
 
         result = generate_agents_md(
@@ -3468,24 +3561,22 @@ class TestSyncClaudeJsonSeed:
 
 
 class TestHostMiseDir:
-    """Test _host_mise_dir resolves the host mise path correctly."""
+    """_host_mise_dir names the host's own store — no env overrides, no
+    side effects (the jail store lives in _jail_mise_store_dir)."""
 
-    def test_default_path(self, tmp_path, monkeypatch):
+    def test_default_path(self, monkeypatch):
         from cli import _host_mise_dir
 
-        monkeypatch.delenv("YOLO_OUTER_MISE_PATH", raising=False)
         monkeypatch.delenv("MISE_DATA_DIR", raising=False)
-        result = _host_mise_dir()
-        assert "mise" in str(result)
+        assert _host_mise_dir() == Path.home() / ".local" / "share" / "mise"
 
-    def test_outer_mise_path_env(self, tmp_path, monkeypatch):
+    def test_ignores_env_and_does_not_mkdir(self, tmp_path, monkeypatch):
         from cli import _host_mise_dir
 
-        mise_dir = tmp_path / "custom-mise"
-        monkeypatch.setenv("YOLO_OUTER_MISE_PATH", str(mise_dir))
-        result = _host_mise_dir()
-        assert result == mise_dir
-        assert mise_dir.exists()
+        env_dir = tmp_path / "env-mise"
+        monkeypatch.setenv("MISE_DATA_DIR", str(env_dir))
+        assert _host_mise_dir() == Path.home() / ".local" / "share" / "mise"
+        assert not env_dir.exists()
 
 
 # ═══════════════════════════════════════════════════════════════════════════════
