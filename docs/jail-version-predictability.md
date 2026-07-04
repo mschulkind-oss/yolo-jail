@@ -2,8 +2,10 @@
 
 **Date:** 2026-07-03 · **Status:** plan drafted, no decision yet.
 Implemented 2026-07-03: weekly `flake.lock` bump CI workflow added
-(`.github/workflows/update-flake-lock.yml`); the manual first bump is
-still pending on the host
+(`.github/workflows/update-flake-lock.yml`); first manual bump done the
+same day — nixpkgs 2026-02-08 → 2026-07-02 (mise 2026.2.1 → 2026.6.13,
+node 22.23.1, python 3.13.13, go 1.26.4, git 2.54.0). Image rebuild
+(`just load && just install`) pending on the host
 **Trigger:** in-jail mise is `2026.2.1` while the host runs `2026.6.11`; the
 skew produced divergent behavior on shared state (see
 [mise-host-jail-path-mismatch.md](mise-host-jail-path-mismatch.md)).
