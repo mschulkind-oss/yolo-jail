@@ -342,6 +342,15 @@ def serve(
             try:
                 sock.shutdown(socket.SHUT_RDWR)
             except OSError:
+                # BSD/macOS: shutdown() on a LISTENING socket raises
+                # ENOTCONN and PEP 475 retries the interrupted accept(),
+                # so the loop never observes ``stop``.  close() below is
+                # what breaks accept() out there (EBADF); on Linux it's
+                # a no-op after the successful shutdown.
+                pass
+            try:
+                sock.close()
+            except OSError:
                 pass
 
         # Signal handlers can only be installed from the main thread.

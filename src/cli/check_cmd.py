@@ -39,7 +39,9 @@ from .console import console
 from .image import _build_image_store_path, _jail_image
 from .loopholes_runtime import (
     BROKER_LOOPHOLE_NAME,
+    _broker_ping,
     _broker_status,
+    _host_service_default_jail_socket,
     _host_service_sockets_dir,
 )
 from .paths import (
@@ -333,6 +335,110 @@ def _finalize_problem(lines: List[str]) -> "tuple[str, str]":
     return title, "\n".join(detail_lines)
 
 
+def _relay_socket_visible_in_jail(
+    runtime: Optional[str], cname: Optional[str]
+) -> Optional[bool]:
+    """Does the RUNNING container actually see the relay socket?
+
+    A host-side probe of the sockets dir can pass while the jail 502s:
+    if the dir was removed and recreated AFTER the container mounted it
+    (host /tmp aging, a teardown/startup race), the bind mount pins the
+    old, deleted inode — the healed relay binds into a new inode the
+    jail never sees.  That is exactly the "doctor says healthy while
+    one jail 502s" blind spot this probe closes: check the path where
+    the jail looks, from inside the jail.
+
+    Returns True (visible), False (absent in-jail), or None (could not
+    determine — exec unavailable/failed; never grade on a guess).
+    """
+    if runtime is None or cname is None:
+        return None
+    jail_sock = _host_service_default_jail_socket(BROKER_LOOPHOLE_NAME)
+    try:
+        result = subprocess.run(
+            [runtime, "exec", cname, "sh", "-c", f"test -S {jail_sock}"],
+            capture_output=True,
+            timeout=10,
+        )
+    except Exception:
+        return None
+    if result.returncode == 0:
+        return True
+    if result.returncode == 1:
+        return False
+    return None  # 125/126/127…: exec-level failure, not a probe answer
+
+
+def _check_broker_relay(
+    ok,
+    fail,
+    label: str,
+    sock_path: Path,
+    *,
+    runtime: Optional[str] = None,
+    cname: Optional[str] = None,
+) -> None:
+    """Probe one jail's broker relay socket end-to-end.
+
+    The failing LAYER must be named: the per-jail relay is a supervised
+    standalone process that any ``yolo`` invocation against the jail
+    respawns, while the singleton broker behind it is cycled with
+    ``yolo broker restart``.  Four outcomes:
+
+    - socket file absent            → relay layer (never started / dir wiped)
+    - connect() refused             → relay layer (process exited, stale socket)
+    - connected but no pong proxied → broker layer (relay dials the
+      singleton per connection and closes the client when it can't)
+    - host-side pong but the socket is invisible IN-JAIL → mount layer
+      (sockets dir recreated after the container mounted it; only a
+      relaunch remounts it — see ``_relay_socket_visible_in_jail``)
+    """
+    if not sock_path.exists():
+        fail(
+            f"{label}: relay socket missing",
+            f"Expected {sock_path}.  The per-jail relay never started or "
+            f"its sockets dir was removed.  Any `yolo` invocation against "
+            f"this jail respawns it.",
+        )
+        return
+    s = socket.socket(socket.AF_UNIX, socket.SOCK_STREAM)
+    try:
+        s.settimeout(2.0)
+        s.connect(str(sock_path))
+    except (OSError, socket.timeout) as e:
+        fail(
+            f"{label}: relay socket dead",
+            f"connect({sock_path}) failed: {e}.  The relay process exited; "
+            f"any `yolo` invocation against this jail respawns it.",
+        )
+        return
+    finally:
+        try:
+            s.close()
+        except OSError:
+            pass
+    if _broker_ping(sock_path):
+        if _relay_socket_visible_in_jail(runtime, cname) is False:
+            fail(
+                f"{label}: relay ok on host, socket invisible in-jail",
+                "The sockets dir was recreated after the container mounted "
+                "it (host /tmp cleanup or a teardown/startup race): the "
+                "jail's bind mount still points at the old, deleted "
+                "directory, so in-jail auth requests 502 even though the "
+                "host-side relay answers.  Relaunch the jail to remount "
+                "the directory.",
+            )
+        else:
+            ok(f"{label}: relay ok, broker answers through it")
+    else:
+        fail(
+            f"{label}: relay up, broker unreachable",
+            "The relay accepted but the singleton broker did not answer "
+            "the proxied ping.  Check `yolo broker status` / "
+            "`yolo broker restart`.",
+        )
+
+
 def _check_host_service_liveness(ok, warn, fail) -> None:
     """For each running jail, verify each external host_daemon's socket is alive.
 
@@ -382,6 +488,15 @@ def _check_host_service_liveness(ok, warn, fail) -> None:
     except Exception as e:
         warn(f"could not list containers: {e}")
         return
+    if result.returncode != 0:
+        # A failed `ps` must not read as "no jails running" — that would
+        # be a false pass over every per-jail probe below.
+        warn(
+            f"could not list containers: `{detected_runtime} ps` exited "
+            f"{result.returncode}",
+            (result.stderr or "").strip(),
+        )
+        return
     cnames = [c.strip() for c in result.stdout.splitlines() if c.strip()]
     if not cnames:
         ok("no jails running — nothing to probe")
@@ -389,18 +504,26 @@ def _check_host_service_liveness(ok, warn, fail) -> None:
     for cname in cnames:
         sockets_dir = _host_service_sockets_dir(cname)
         for lp in externals:
-            # Singleton broker: its per-jail entry is a bind-mount
-            # placeholder (zero-byte regular file on the host;
-            # connect() against it raises ENOTSOCK).  Liveness for
-            # the singleton is checked separately in
-            # ``_check_loopholes`` via ``_broker_status`` against the
-            # well-known singleton path.  Probing here was producing
-            # ``socket dead`` false positives that sent investigators
-            # down the wrong trail (handoff 2026-04-28).
-            if lp.name == BROKER_LOOPHOLE_NAME:
-                continue
             sock_path = sockets_dir / f"{lp.name}.sock"
             label = f"loophole {lp.name} @ {cname}"
+            # Singleton broker: since relay unification its per-jail
+            # entry is a real listening socket owned by the per-jail
+            # relay process (it used to be a bind-mount placeholder
+            # that had to be skipped here — handoff 2026-04-28).  A
+            # dead relay reproduces the "one jail 502s while doctor
+            # says broker healthy" symptom, so probe it end-to-end
+            # and name the failing layer.  Singleton liveness itself
+            # is still graded in ``_check_loopholes``.
+            if lp.name == BROKER_LOOPHOLE_NAME:
+                _check_broker_relay(
+                    ok,
+                    fail,
+                    label,
+                    sock_path,
+                    runtime=detected_runtime,
+                    cname=cname,
+                )
+                continue
             if not sock_path.exists():
                 fail(
                     f"{label}: no socket",

@@ -82,6 +82,20 @@ def _run_monkeypatch(monkeypatch, tmp_path):
     monkeypatch.setattr("cli.storage.GLOBAL_MISE", tmp_path / "mise")
     monkeypatch.setattr("cli.storage.GLOBAL_STORAGE", tmp_path / "storage")
     monkeypatch.setattr("time.sleep", lambda _: None)
+    # Broker/relay hermeticity: run_cmd binds these by from-import, so
+    # patch the run_cmd names.  The singleton socket is pointed at a tmp
+    # path (not created here) so the broker block never keys off the dev
+    # machine's real /tmp/yolo-claude-oauth-broker.sock, and the relay
+    # ensure is stubbed — post relay-unification it spawns a supervised
+    # standalone process, which must never leak out of a unit test.
+    fake_sock = tmp_path / "broker.sock"
+    monkeypatch.setattr("cli.run_cmd.BROKER_SINGLETON_SOCKET", fake_sock)
+    monkeypatch.setattr("cli.run_cmd._broker_ensure", lambda: fake_sock)
+    monkeypatch.setattr("cli.run_cmd._relay_ensure", lambda *a, **kw: None)
+    # The orphan-relay sweep enumerates containers through the mocked
+    # subprocess.run (→ live = empty set) — unstubbed it would reap
+    # REAL relays on the dev machine.
+    monkeypatch.setattr("cli.run_cmd._relay_reap_orphans", lambda *a, **kw: [])
     for d in (
         "home",
         "mise",
@@ -1168,3 +1182,117 @@ class TestAppleContainerMountWorkarounds:
             assert (ws_state / rel).is_file(), (
                 f"expected {ws_state / rel} to exist after AC materialization"
             )
+
+
+# ---------------------------------------------------------------------------
+# run() — broker relay is platform-neutral (relay unification, Round 2)
+# ---------------------------------------------------------------------------
+
+
+class TestMacosBrokerRelay:
+    """macOS no longer has its own relay branch — both platforms take the
+    per-jail relay path (supervised standalone process listening inside
+    the mounted sockets dir), and Apple Container takes none at all."""
+
+    @patch("subprocess.Popen")
+    @patch("cli.run_cmd.auto_load_image")
+    @patch("cli.run_cmd._check_config_changes", return_value=True)
+    @patch("cli.run_cmd.find_running_container", return_value=None)
+    @patch("subprocess.run")
+    @patch("subprocess.check_output")
+    @patch("shutil.which")
+    def test_macos_podman_takes_the_shared_relay_path(
+        self,
+        mock_which,
+        mock_check_output,
+        mock_run,
+        mock_find,
+        mock_config_changes,
+        mock_auto_load,
+        mock_popen,
+        tmp_path,
+        monkeypatch,
+    ):
+        """Same wiring as Linux: relay ensured, env var injected, and no
+        socket-FILE `-v` mount (Podman Machine can't mount one anyway —
+        EOPNOTSUPP; the relay socket rides the sockets-dir mount)."""
+        _set_macos(monkeypatch)
+        _run_monkeypatch(monkeypatch, tmp_path)
+        _mock_runtimes(mock_which)
+        # Arm the broker block: the (patched) singleton socket exists.
+        (tmp_path / "broker.sock").touch()
+        relay = MagicMock()
+        monkeypatch.setattr("cli.run_cmd._relay_ensure", relay)
+        (tmp_path / "yolo-jail.jsonc").write_text("{}")
+        mock_check_output.side_effect = FileNotFoundError
+        # An unconfigured run-mock's returncode is a truthy MagicMock, which
+        # fails _runtime_is_connectable's `returncode == 0` — no runtime found.
+        mock_run.return_value = MagicMock(returncode=0, stdout="", stderr="")
+
+        mock_proc = MagicMock()
+        mock_proc.wait.return_value = None
+        mock_proc.returncode = 0
+        mock_popen.return_value = mock_proc
+
+        runner = CliRunner()
+        result = runner.invoke(app, ["run", "--", "bash"])
+        assert mock_popen.called, f"launch expected; output: {result.output}"
+
+        assert relay.call_count == 1
+        argv = [str(a) for a in mock_popen.call_args[0][0]]
+        mounts = [argv[i + 1] for i, a in enumerate(argv) if a == "-v"]
+        singleton = str(tmp_path / "broker.sock")
+        assert not [m for m in mounts if m.startswith(f"{singleton}:")], mounts
+        assert (
+            "YOLO_SERVICE_CLAUDE_OAUTH_BROKER_SOCKET="
+            "/run/yolo-services/claude-oauth-broker.sock" in argv
+        )
+
+    @patch("subprocess.Popen")
+    @patch("cli.run_cmd.auto_load_image")
+    @patch("cli.run_cmd._check_config_changes", return_value=True)
+    @patch("cli.run_cmd.find_running_container", return_value=None)
+    @patch("subprocess.run")
+    @patch("subprocess.check_output")
+    @patch("shutil.which")
+    def test_apple_container_starts_no_relay(
+        self,
+        mock_which,
+        mock_check_output,
+        mock_run,
+        mock_find,
+        mock_config_changes,
+        mock_auto_load,
+        mock_popen,
+        tmp_path,
+        monkeypatch,
+    ):
+        """Apple Container has no sockets-dir mount, so the broker was
+        never wired through it — no relay, no broker env var."""
+        _set_macos(monkeypatch)
+        _run_monkeypatch(monkeypatch, tmp_path)
+        _mock_runtimes(mock_which, runtimes=("container", "nix"))
+        monkeypatch.setenv("YOLO_RUNTIME", "container")
+        monkeypatch.setattr(cli, "_is_apple_container", lambda p: True)
+        # Even with a live singleton socket, the container runtime must
+        # not grow a relay.
+        (tmp_path / "broker.sock").touch()
+        relay = MagicMock()
+        monkeypatch.setattr("cli.run_cmd._relay_ensure", relay)
+        (tmp_path / "yolo-jail.jsonc").write_text('{"runtime": "container"}')
+        mock_check_output.side_effect = FileNotFoundError
+
+        mock_proc = MagicMock()
+        mock_proc.wait.return_value = None
+        mock_proc.returncode = 0
+        mock_popen.return_value = mock_proc
+
+        runner = CliRunner()
+        result = runner.invoke(app, ["run", "--", "bash"])
+        assert mock_popen.called, f"launch expected; output: {result.output}"
+
+        assert relay.call_count == 0
+        argv = [str(a) for a in mock_popen.call_args[0][0]]
+        assert not [
+            a for a in argv if "YOLO_SERVICE_CLAUDE_OAUTH_BROKER_SOCKET" in a
+        ], argv

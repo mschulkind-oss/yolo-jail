@@ -2,10 +2,13 @@
 
 Ships with the yolo-jail wheel. Serializes Claude OAuth refreshes so multi-jail setups don't burn the single-use refresh token. See [`docs/claude-oauth-mitm-proxy-plan.md`](../../../docs/claude-oauth-mitm-proxy-plan.md) for design rationale, [`docs/claude-token-logouts.md`](../../../docs/claude-token-logouts.md) for operator triage, [`docs/loopholes.md`](../../../docs/loopholes.md) for the loophole system.
 
-## Architecture — two daemons, one loophole, no privileged ports
+## Architecture — two daemons + a per-jail relay, no privileged ports
 
-- **Host daemon** (`yolo-claude-oauth-broker-host`) — spawned per-jail by the loopholes pipeline. Holds the flock, reads/writes the shared credentials file. Listens only on a Unix socket that's bind-mounted into the jail.
-- **Jail daemon** (`python -m src.oauth_broker_jail`) — supervised inside the jail at boot. Binds `127.0.0.1:443` in the container network namespace (unprivileged there), terminates TLS for `platform.claude.com` with a CA-signed leaf cert, forwards refresh requests to the host daemon over the socket.
+- **Host daemon** (`yolo-claude-oauth-broker-host`) — a host-wide **singleton** serving every jail. Holds the flock, reads/writes the shared credentials file. Listens only on `/tmp/yolo-claude-oauth-broker.sock`; that socket is never exposed to jails.
+- **Per-jail relay** (`src/broker_relay.py`) — a supervised standalone host process, one per running jail, re-ensured on every `yolo` invocation that targets the jail. Listens on `claude-oauth-broker.sock` in the jail's host-services dir (host side `/tmp/yolo-host-services-<hash>/`, visible in-jail at `/run/yolo-services/` via the existing directory mount) and dials the singleton's socket **per connection** — so a restarted broker is picked up on the very next request, no jail relaunch. The relay is also the attribution point: it injects `jail_id` into each connection's first length-prefixed request message, so the broker log names the jail (host-side injection — trustworthy, unlike an in-jail self-report).
+- **Jail daemon** (`python -m src.oauth_broker_jail`) — supervised inside the jail at boot. Binds `127.0.0.1:443` in the container network namespace (unprivileged there), terminates TLS for `platform.claude.com` with a CA-signed leaf cert, forwards refresh/proxy requests to the relay socket (`YOLO_SERVICE_CLAUDE_OAUTH_BROKER_SOCKET=/run/yolo-services/claude-oauth-broker.sock`).
+
+Failure layers in the jail daemon's log: `relay unreachable — …` means the host-side relay for this jail is down (relay socket missing or connection refused); `host broker unreachable through the relay …` / `host broker exited N` means the relay answered but the broker behind it failed.
 
 ## Activation
 
@@ -43,8 +46,9 @@ yolo-claude-oauth-broker-host --force-init-ca
 # Self-check (also runs automatically via `yolo doctor` → manifest.doctor_cmd)
 yolo-claude-oauth-broker-host --self-check
 
-# Host daemon per-jail logs
-ls ~/.local/share/yolo-jail/logs/host-service-claude-oauth-broker-*.log
+# Singleton host daemon log (one file, all jails; per-jail relay logs
+# live in the same directory)
+tail -F ~/.local/share/yolo-jail/logs/host-service-claude-oauth-broker.log
 
 # Jail daemon logs (from inside a jail)
 cat ~/.local/state/yolo-jail-daemons/claude-oauth-broker.log

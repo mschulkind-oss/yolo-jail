@@ -81,9 +81,11 @@ from cli import (  # noqa: E402
     _host_service_sockets_dir,
     _gpu_host_available,
     _rocm_host_available,
+    _relay_ensure,
+    _relay_reap_orphans,
+    _relay_stop,
     _resolve_journal_mode,
     _should_mount_host_nix,
-    _start_broker_relay,
     _start_host_service_builtin_cgroup,
     _start_host_service_builtin_journal,
     _start_host_service_external,
@@ -3677,166 +3679,420 @@ class TestBrokerSingleton:
 
 
 class TestBrokerRelay:
-    """On macOS, Podman Machine cannot bind-mount a Unix socket *file*
-    (EOPNOTSUPP), but it can see socket files inside a directory that's
-    already bind-mounted via virtiofs.  ``_start_broker_relay`` opens a
-    server socket inside the sockets directory and pipes it bidirectionally
-    to the real broker socket.  These tests exercise the relay end-to-end
-    with a fake upstream."""
+    """Per-jail broker relay supervision — ``_relay_ensure`` / ``_relay_stop``.
 
-    def _short_sockets_dir(self):
-        """Create a per-test sockets dir under /tmp.
+    The relay is a supervised standalone process, not a thread in the
+    ``yolo run`` host process: conmon keeps a container alive
+    independently of any yolo invocation (terminal close, SIGKILL,
+    exec/attach), so an in-process relay thread dies out from under a
+    live jail — exactly the "one jail 502s while doctor says broker
+    healthy" symptom.  These tests mock the spawn; process-level
+    behavior (real relay subprocess, per-connection broker dial,
+    jail_id injection, fd hygiene) lives in tests/test_broker_relay.py.
+    """
 
-        AF_UNIX paths are capped at 108 bytes on Linux / 104 on macOS;
-        pytest's ``tmp_path`` is too long once we append ``.sock`` under
-        a deep workspace.
-        """
-        import tempfile
+    def _patch_paths(self, monkeypatch, tmp_path):
+        import cli
 
-        base = "/private/tmp" if sys.platform == "darwin" else "/tmp"
-        return Path(tempfile.mkdtemp(dir=base, prefix="yj-relay-"))
+        pidf = tmp_path / "relay.pid"
+        lockf = tmp_path / "relay.lock"
+        monkeypatch.setattr(
+            "cli.loopholes_runtime._relay_pid_file", lambda short_hash: pidf
+        )
+        monkeypatch.setattr(
+            "cli.loopholes_runtime._relay_lock_file", lambda short_hash: lockf
+        )
+        # Keep spawn logs out of the real ~/.local/share/yolo-jail.
+        monkeypatch.setattr("cli.loopholes_runtime.GLOBAL_STORAGE", tmp_path)
+        # These tests use fake PIDs (12345, 54321…); the kill path's
+        # identity guard would look them up in the real process table.
+        # Default to "yes, it's a relay" — the guard has its own test.
+        monkeypatch.setattr(
+            "cli.loopholes_runtime._relay_pid_cmdline_matches", lambda pid: True
+        )
+        return pidf, lockf, cli
 
-    def _drain(self, conn, n, *, timeout=2.0):
-        """Read exactly ``n`` bytes from ``conn`` or raise on timeout/EOF."""
-        import socket as _socket
+    def test_ensure_noop_when_alive(self, monkeypatch, tmp_path):
+        _, _, cli = self._patch_paths(monkeypatch, tmp_path)
+        monkeypatch.setattr("cli.loopholes_runtime._relay_is_alive", lambda *a: True)
+        spawned = {"n": 0}
 
-        conn.settimeout(timeout)
-        buf = b""
-        while len(buf) < n:
-            try:
-                chunk = conn.recv(n - len(buf))
-            except _socket.timeout:
-                raise AssertionError(f"timed out waiting for {n} bytes, got {buf!r}")
-            if not chunk:
-                raise AssertionError(f"unexpected EOF after {buf!r}")
-            buf += chunk
-        return buf
+        class TrackedPopen:
+            def __init__(self, *a, **kw):
+                spawned["n"] += 1
+                self.pid = 999
 
-    @staticmethod
-    def _connect_when_listening(path, timeout=5.0):
-        """Connect to a Unix socket, retrying past the bind→listen race.
+        monkeypatch.setattr(cli.subprocess, "Popen", TrackedPopen)
+        _relay_ensure("jail-x", tmp_path / "sockets")
+        assert spawned["n"] == 0
 
-        ``_start_broker_relay`` does ``bind()`` (creates the socket file)
-        and ``listen()`` in two separate steps inside its serve thread.
-        If we connect after ``bind`` but before ``listen``, the kernel
-        returns ECONNREFUSED.  Just spin-loop on connect() instead of
-        gating on the file existing — that's the actual signal we want.
-        """
-        import socket as _socket
+    def test_ensure_spawns_relay_script_with_expected_argv(self, monkeypatch, tmp_path):
+        """The spawn must launch src/broker_relay.py by absolute file
+        path — ``-m src.broker_relay`` would resolve against the
+        invoking process's cwd first, so a workspace with its own
+        ``src`` package would shadow ours — with the sockets-dir
+        socket, the singleton broker (default), and the container name
+        for jail_id stamping — detached like the broker singleton (own
+        session, PID file, wait-for-socket)."""
+        pidf, _, cli = self._patch_paths(monkeypatch, tmp_path)
+        monkeypatch.setattr("cli.loopholes_runtime._relay_is_alive", lambda *a: False)
 
-        deadline = time.monotonic() + timeout
-        last_err: Exception | None = None
-        while time.monotonic() < deadline:
-            sock = _socket.socket(_socket.AF_UNIX, _socket.SOCK_STREAM)
-            sock.settimeout(timeout)
-            try:
-                sock.connect(str(path))
-                return sock
-            except (FileNotFoundError, ConnectionRefusedError) as e:
-                last_err = e
-                sock.close()
-                time.sleep(0.02)
-        raise AssertionError(
-            f"socket at {path} never started listening within {timeout}s ({last_err!r})"
+        calls = {}
+
+        class FakePopen:
+            def __init__(self, argv, **kw):
+                calls["argv"] = argv
+                calls["kwargs"] = kw
+                self.pid = 4242
+
+        monkeypatch.setattr(cli.subprocess, "Popen", FakePopen)
+        sockets_dir = tmp_path / "sockets"  # deliberately not created yet
+
+        def fake_wait(sock, *, timeout):
+            (sockets_dir / "claude-oauth-broker.sock").touch()
+            return True
+
+        monkeypatch.setattr("cli.loopholes_runtime._broker_wait_for_socket", fake_wait)
+
+        _relay_ensure("jail-x", sockets_dir)
+
+        argv = calls["argv"]
+        assert argv[1].endswith("/broker_relay.py")
+        assert Path(argv[1]).is_file(), "spawn must point at the real script"
+        assert argv[argv.index("--socket") + 1] == str(
+            sockets_dir / "claude-oauth-broker.sock"
+        )
+        assert argv[argv.index("--broker") + 1] == str(
+            cli.loopholes_runtime.BROKER_SINGLETON_SOCKET
+        )
+        assert argv[argv.index("--jail") + 1] == "jail-x"
+        # Detached from the spawning yolo process.
+        assert calls["kwargs"]["start_new_session"] is True
+        # Attach paths call this after stop_loopholes rmtree'd the dir.
+        assert sockets_dir.is_dir()
+        assert pidf.read_text().strip() == "4242"
+
+    def test_ensure_honors_broker_socket_override(self, monkeypatch, tmp_path):
+        _, _, cli = self._patch_paths(monkeypatch, tmp_path)
+        monkeypatch.setattr("cli.loopholes_runtime._relay_is_alive", lambda *a: False)
+        monkeypatch.setattr(
+            "cli.loopholes_runtime._broker_wait_for_socket",
+            lambda *a, **kw: True,
+        )
+        calls = {}
+
+        class FakePopen:
+            def __init__(self, argv, **kw):
+                calls["argv"] = argv
+                self.pid = 4243
+
+        monkeypatch.setattr(cli.subprocess, "Popen", FakePopen)
+        other = tmp_path / "other-broker.sock"
+        _relay_ensure("jail-x", tmp_path / "sockets", broker_socket=other)
+        argv = calls["argv"]
+        assert argv[argv.index("--broker") + 1] == str(other)
+
+    def test_ensure_reaps_live_orphan_before_spawn(self, monkeypatch, tmp_path):
+        """A live PID whose socket died (e.g. the sockets dir was
+        recreated under it) must be SIGTERM'd before the PID file is
+        overwritten — otherwise the old process leaks with nothing
+        pointing at it."""
+        pidf, _, cli = self._patch_paths(monkeypatch, tmp_path)
+        pidf.write_text("54321\n")
+        monkeypatch.setattr("cli.loopholes_runtime._relay_is_alive", lambda *a: False)
+        monkeypatch.setattr(
+            "cli.loopholes_runtime._broker_wait_for_socket",
+            lambda *a, **kw: True,
         )
 
-    def test_round_trip_both_directions(self):
-        """A client connecting to the relay socket should see its bytes
-        arrive at the upstream broker, and bytes sent back by the broker
-        should propagate to the client."""
-        import socket as _socket
-        import threading as _threading
+        signals: list = []
 
-        sockets_dir = self._short_sockets_dir()
+        def fake_kill(pid, sig):
+            if sig == 0 and any(s == signal.SIGTERM for _, s in signals):
+                raise ProcessLookupError  # dead once TERM was delivered
+            if sig != 0:
+                signals.append((pid, sig))
+
+        monkeypatch.setattr("cli.loopholes_runtime.os.kill", fake_kill)
+
+        class FakePopen:
+            def __init__(self, *a, **kw):
+                self.pid = 4244
+
+        monkeypatch.setattr(cli.subprocess, "Popen", FakePopen)
+        _relay_ensure("jail-x", tmp_path / "sockets")
+        assert (54321, signal.SIGTERM) in signals
+        assert pidf.read_text().strip() == "4244"
+
+    def test_stop_noop_when_pid_file_absent(self, monkeypatch, tmp_path):
+        """Stopping a jail that never had a relay must succeed silently."""
+        self._patch_paths(monkeypatch, tmp_path)
+        _relay_stop("jail-x")  # should not raise
+
+    def test_stop_sends_sigterm_and_removes_pid_file(self, monkeypatch, tmp_path):
+        pidf, _, cli = self._patch_paths(monkeypatch, tmp_path)
+        pidf.write_text("12345\n")
+
+        signals: list = []
+
+        def fake_kill(pid, sig):
+            if sig == 0 and any(s == signal.SIGTERM for _, s in signals):
+                raise ProcessLookupError
+            if sig != 0:
+                signals.append((pid, sig))
+
+        monkeypatch.setattr("cli.loopholes_runtime.os.kill", fake_kill)
+        _relay_stop("jail-x")
+        assert (12345, signal.SIGTERM) in signals
+        assert not pidf.exists()
+
+    def test_stop_loopholes_reaps_relay_before_rmtree(self, monkeypatch, tmp_path):
+        """stop_loopholes only receives the sockets dir, not cname — it
+        must derive the relay's PID file from the dir-name hash and reap
+        the relay while the dir still exists (the relay's SIGTERM
+        handler unlinks its socket inside it)."""
+        pidf, _, cli = self._patch_paths(monkeypatch, tmp_path)
+        sockets_dir = tmp_path / "yolo-host-services-abcd1234"
+        sockets_dir.mkdir()
+        (sockets_dir / "claude-oauth-broker.sock").touch()
+        pidf.write_text("12345\n")
+
+        signals: list = []
+
+        def fake_kill(pid, sig):
+            if sig == signal.SIGTERM:
+                assert sockets_dir.exists(), "relay reaped after rmtree"
+            if sig == 0 and any(s == signal.SIGTERM for _, s in signals):
+                raise ProcessLookupError
+            if sig != 0:
+                signals.append((pid, sig))
+
+        monkeypatch.setattr("cli.loopholes_runtime.os.kill", fake_kill)
+        stop_loopholes([], sockets_dir)
+        assert (12345, signal.SIGTERM) in signals
+        assert not pidf.exists()
+        assert not sockets_dir.exists()
+
+    def test_stop_loopholes_ignores_unconventional_dir_names(
+        self, monkeypatch, tmp_path
+    ):
+        """Tests (and any future caller) may pass an arbitrary dir; only
+        the yolo-host-services-<hash> convention maps to a relay."""
+        pidf, _, cli = self._patch_paths(monkeypatch, tmp_path)
+        sockets_dir = tmp_path / "some-other-dir"
+        sockets_dir.mkdir()
+        pidf.write_text("12345\n")
+
+        def fail_kill(pid, sig):
+            raise AssertionError("no relay reap for a non-conventional dir")
+
+        monkeypatch.setattr("cli.loopholes_runtime.os.kill", fail_kill)
+        stop_loopholes([], sockets_dir)
+        assert pidf.exists()  # untouched
+        assert not sockets_dir.exists()
+
+    def test_kill_skips_recycled_pid_that_is_not_a_relay(self, monkeypatch, tmp_path):
+        """The stale-pidfile/recycled-PID hazard: unlike ``_broker_kill``
+        (explicit ``yolo broker stop`` only), ``_relay_kill`` fires
+        automatically from ``_relay_ensure`` on every run/attach, so a
+        PID file left by a crashed/never-reaped relay must never turn
+        into a SIGTERM at whatever same-user process the kernel recycled
+        that PID onto.  A live PID whose cmdline doesn't name
+        broker_relay.py is left alone; the stale PID file still goes."""
+        pidf, _, cli = self._patch_paths(monkeypatch, tmp_path)
+        pidf.write_text("12345\n")
+        monkeypatch.setattr(
+            "cli.loopholes_runtime._relay_pid_cmdline_matches", lambda pid: False
+        )
+        signals: list = []
+
+        def fake_kill(pid, sig):
+            if sig != 0:
+                signals.append((pid, sig))
+
+        monkeypatch.setattr("cli.loopholes_runtime.os.kill", fake_kill)
+        _relay_stop("jail-x")
+        assert signals == [], "an unidentified PID must never be signaled"
+        assert not pidf.exists(), "the stale PID file is still cleaned up"
+
+    def test_cmdline_matcher_rejects_a_real_non_relay_process(self):
+        """Identity check against the live process table: the test
+        runner itself is emphatically not a broker relay."""
+        from cli.loopholes_runtime import _relay_pid_cmdline_matches
+
+        assert _relay_pid_cmdline_matches(os.getpid()) is False
+
+    def test_stop_loopholes_spares_live_jail(self, monkeypatch, tmp_path):
+        """`yolo run --new` can lose the name-conflict race (podman rm
+        without -f fails on a running container, podman run exits on
+        the name clash) and reach stop_loopholes while the ORIGINAL
+        jail still runs.  With cname/runtime given, the live jail's
+        relay and mounted sockets dir must be left alone — killing them
+        502s every auth request in that jail, and the heal-on-attach
+        mkdir would bind the next relay into a NEW inode the running
+        container cannot see."""
+        pidf, _, cli = self._patch_paths(monkeypatch, tmp_path)
+        sockets_dir = tmp_path / "yolo-host-services-abcd1234"
+        sockets_dir.mkdir()
+        (sockets_dir / "claude-oauth-broker.sock").touch()
+        pidf.write_text("12345\n")
+        monkeypatch.setattr(
+            "cli.loopholes_runtime.find_running_container",
+            lambda name, runtime="podman": "deadbeef",
+        )
+
+        def fail_kill(pid, sig):
+            raise AssertionError("live jail's relay must not be signaled")
+
+        monkeypatch.setattr("cli.loopholes_runtime.os.kill", fail_kill)
+        stop_loopholes([], sockets_dir, cname="yolo-x", runtime="podman")
+        assert pidf.exists(), "live jail's relay pidfile must survive"
+        assert sockets_dir.exists(), "mounted sockets dir must survive"
+
+    def test_stop_loopholes_skips_cleanup_when_relaunch_holds_the_lock(
+        self, monkeypatch, tmp_path
+    ):
+        """Back-to-back relaunch race: a concurrent `yolo run` holds the
+        per-workspace lock from before its relay spawn until its
+        container is visible.  Teardown must not read the pidfile in
+        that window — it may already name the NEW run's fresh relay —
+        so a busy lock means skip cleanup entirely."""
+        import fcntl as _fcntl
+
+        pidf, _, cli = self._patch_paths(monkeypatch, tmp_path)
+        sockets_dir = tmp_path / "yolo-host-services-abcd1234"
+        sockets_dir.mkdir()
+        pidf.write_text("12345\n")
+        lock_dir = tmp_path / "locks"
+        lock_dir.mkdir()
+        holder = open(lock_dir / "yolo-x.lock", "w")
+        _fcntl.flock(holder, _fcntl.LOCK_EX)
+        monkeypatch.setattr(
+            "cli.loopholes_runtime.find_running_container", lambda *a, **kw: None
+        )
+
+        def fail_kill(pid, sig):
+            raise AssertionError("mid-launch relay must not be signaled")
+
+        monkeypatch.setattr("cli.loopholes_runtime.os.kill", fail_kill)
         try:
-            upstream_path = sockets_dir / "upstream.sock"
-            relay_path = sockets_dir / "relay.sock"
-
-            # Fake upstream broker: echoes client bytes prefixed with b"U:".
-            upstream = _socket.socket(_socket.AF_UNIX, _socket.SOCK_STREAM)
-            upstream.bind(str(upstream_path))
-            upstream.listen(4)
-            upstream.settimeout(5.0)
-
-            def _serve_upstream():
-                try:
-                    conn, _ = upstream.accept()
-                except OSError:
-                    return
-                try:
-                    conn.settimeout(5.0)
-                    data = conn.recv(1024)
-                    conn.sendall(b"U:" + data)
-                finally:
-                    conn.close()
-
-            server_thread = _threading.Thread(target=_serve_upstream, daemon=True)
-            server_thread.start()
-
-            _start_broker_relay(relay_path, upstream_path)
-
-            client = self._connect_when_listening(relay_path)
-            client.sendall(b"hello")
-            echoed = self._drain(client, len(b"U:hello"))
-            assert echoed == b"U:hello"
-            client.close()
-            server_thread.join(timeout=5.0)
-            assert not server_thread.is_alive()
+            stop_loopholes([], sockets_dir, cname="yolo-x", runtime="podman")
         finally:
-            shutil.rmtree(sockets_dir, ignore_errors=True)
+            holder.close()
+        assert pidf.exists()
+        assert sockets_dir.exists()
 
-    def test_upstream_unreachable_closes_client(self):
-        """If the broker singleton is down, the relay must not hang its
-        client — it should close the connection and move on."""
-        sockets_dir = self._short_sockets_dir()
-        try:
-            missing_upstream = sockets_dir / "does-not-exist.sock"
-            relay_path = sockets_dir / "relay.sock"
+    def test_stop_loopholes_cleans_up_when_container_exited(
+        self, monkeypatch, tmp_path
+    ):
+        """The guards must not neuter the normal path: container gone,
+        lock free → relay reaped, pidfile removed, dir rmtree'd."""
+        pidf, _, cli = self._patch_paths(monkeypatch, tmp_path)
+        sockets_dir = tmp_path / "yolo-host-services-abcd1234"
+        sockets_dir.mkdir()
+        pidf.write_text("12345\n")
+        monkeypatch.setattr(
+            "cli.loopholes_runtime.find_running_container", lambda *a, **kw: None
+        )
+        signals: list = []
 
-            _start_broker_relay(relay_path, missing_upstream)
+        def fake_kill(pid, sig):
+            if sig == 0 and any(s == signal.SIGTERM for _, s in signals):
+                raise ProcessLookupError
+            if sig != 0:
+                signals.append((pid, sig))
 
-            client = self._connect_when_listening(relay_path, timeout=2.0)
-            # Upstream connect() failed — relay closes the client.  recv()
-            # should return b"" (EOF) rather than hang forever.
-            assert client.recv(1) == b""
-            client.close()
-        finally:
-            shutil.rmtree(sockets_dir, ignore_errors=True)
+        monkeypatch.setattr("cli.loopholes_runtime.os.kill", fake_kill)
+        stop_loopholes([], sockets_dir, cname="yolo-x", runtime="podman")
+        assert (12345, signal.SIGTERM) in signals
+        assert not pidf.exists()
+        assert not sockets_dir.exists()
 
-    def test_stale_relay_socket_is_replaced(self):
-        """If a previous run left a file at ``relay_path``, the new relay
-        must unlink it before ``bind()`` (otherwise EADDRINUSE)."""
-        import socket as _socket
 
-        sockets_dir = self._short_sockets_dir()
-        try:
-            upstream_path = sockets_dir / "upstream.sock"
-            relay_path = sockets_dir / "relay.sock"
-            relay_path.write_text("stale placeholder")  # not a real socket
+class TestRelayOrphanSweep:
+    """``_relay_reap_orphans`` — the backstop for relays whose jail died
+    without the original ``yolo run`` process around to run
+    ``stop_loopholes`` (terminal close → SIGHUP; conmon keeps the
+    container alive; the user exits from an attach session).  Runs from
+    ``yolo run`` and ``yolo prune``."""
 
-            upstream = _socket.socket(_socket.AF_UNIX, _socket.SOCK_STREAM)
-            upstream.bind(str(upstream_path))
-            upstream.listen(1)
-            try:
-                _start_broker_relay(relay_path, upstream_path)
-                # Connectable after relay rebinds — if unlink() were missing,
-                # bind() would have raised and the relay would be dead.
-                deadline = time.monotonic() + 2.0
-                while time.monotonic() < deadline:
-                    try:
-                        probe = _socket.socket(_socket.AF_UNIX, _socket.SOCK_STREAM)
-                        probe.settimeout(0.5)
-                        probe.connect(str(relay_path))
-                        probe.close()
-                        break
-                    except OSError:
-                        time.sleep(0.05)
-                else:
-                    raise AssertionError("relay never rebound stale socket path")
-            finally:
-                upstream.close()
-        finally:
-            shutil.rmtree(sockets_dir, ignore_errors=True)
+    def _kill_mocks(self, monkeypatch):
+        signals: list = []
+
+        def fake_kill(pid, sig):
+            if sig == 0 and any(s == signal.SIGTERM for _, s in signals):
+                raise ProcessLookupError
+            if sig != 0:
+                signals.append((pid, sig))
+
+        monkeypatch.setattr("cli.loopholes_runtime.os.kill", fake_kill)
+        monkeypatch.setattr(
+            "cli.loopholes_runtime._relay_pid_cmdline_matches", lambda pid: True
+        )
+        return signals
+
+    def _orphan(self, base, cname, *, age=7200.0, pid=12345):
+        """Materialize a relay's on-disk footprint keyed by cname's hash."""
+        from cli.loopholes_runtime import _relay_short_hash
+
+        short_hash = _relay_short_hash(cname)
+        pidf = base / f"yolo-broker-relay-{short_hash}.pid"
+        pidf.write_text(f"{pid}\n")
+        lockf = base / f"yolo-broker-relay-{short_hash}.lock"
+        lockf.touch()
+        sockets_dir = base / f"yolo-host-services-{short_hash}"
+        sockets_dir.mkdir()
+        (sockets_dir / "claude-oauth-broker.sock").touch()
+        old = time.time() - age
+        os.utime(pidf, (old, old))
+        return pidf, lockf, sockets_dir
+
+    def test_reaps_relay_of_dead_jail_and_spares_live_one(self, monkeypatch, tmp_path):
+        signals = self._kill_mocks(monkeypatch)
+        dead_pidf, dead_lockf, dead_sockets = self._orphan(
+            tmp_path, "yolo-dead-11111111", pid=12345
+        )
+        live_pidf, _, live_sockets = self._orphan(
+            tmp_path, "yolo-live-22222222", pid=54321
+        )
+        reaped = _relay_reap_orphans({"yolo-live-22222222"}, base=tmp_path)
+        assert reaped == [dead_pidf]
+        assert (12345, signal.SIGTERM) in signals
+        assert not any(pid == 54321 for pid, _ in signals)
+        assert not dead_pidf.exists()
+        assert not dead_lockf.exists()
+        assert not dead_sockets.exists()
+        assert live_pidf.exists()
+        assert live_sockets.exists()
+
+    def test_declines_when_liveness_unknown(self, monkeypatch, tmp_path):
+        """None = enumeration failed — must NOT read as "nothing live"
+        (same polarity as the store-prune gate)."""
+        signals = self._kill_mocks(monkeypatch)
+        pidf, _, sockets_dir = self._orphan(tmp_path, "yolo-x-33333333")
+        assert _relay_reap_orphans(None, base=tmp_path) == []
+        assert signals == []
+        assert pidf.exists()
+        assert sockets_dir.exists()
+
+    def test_grace_window_protects_a_jail_mid_startup(self, monkeypatch, tmp_path):
+        """A fresh PID file belongs to a relay ensured before its
+        container is visible to `ps` — never reap inside the grace."""
+        signals = self._kill_mocks(monkeypatch)
+        pidf, _, _ = self._orphan(tmp_path, "yolo-y-44444444", age=60.0)
+        assert _relay_reap_orphans(set(), base=tmp_path) == []
+        assert signals == []
+        assert pidf.exists()
+
+    def test_dry_run_reports_without_touching(self, monkeypatch, tmp_path):
+        signals = self._kill_mocks(monkeypatch)
+        pidf, lockf, sockets_dir = self._orphan(tmp_path, "yolo-z-55555555")
+        reaped = _relay_reap_orphans(set(), apply=False, base=tmp_path)
+        assert reaped == [pidf]
+        assert signals == []
+        assert pidf.exists()
+        assert lockf.exists()
+        assert sockets_dir.exists()
 
 
 class TestShouldMountHostNix:
@@ -4201,15 +4457,16 @@ class TestRocmHostAvailable:
 
 class TestHostServiceLivenessProbe:
     """``_check_host_service_liveness`` probes per-jail UNIX sockets to
-    confirm the daemons spawned by ``start_loopholes`` are alive.  But
-    the broker is a SINGLETON now (post-e7b7073) — its bind-mount source
-    on the host is a zero-byte placeholder, not a real socket.  Probing
-    that path always fails with ECONNREFUSED, so doctor was reporting
-    the broker as dead while the actual singleton was healthy.
+    confirm the daemons spawned by ``start_loopholes`` are alive.
 
-    Lock in the fix: the per-jail probe must skip the broker name and
-    leave broker liveness reporting to ``_check_loopholes``'s singleton
-    probe (which uses ``_broker_status`` against the singleton path)."""
+    The broker's per-jail entry used to be a bind-mount placeholder the
+    probe had to skip (handoff 2026-04-28).  Since relay unification it
+    is a REAL socket owned by the per-jail relay process, and a dead
+    relay is exactly the "one jail 502s while doctor says broker
+    healthy" symptom — so the probe must grade it end-to-end via
+    ``_check_broker_relay`` and name the failing layer (relay vs the
+    singleton broker behind it).  Singleton liveness itself is still
+    graded separately in ``_check_loopholes`` via ``_broker_status``."""
 
     def _common_setup(self, monkeypatch, tmp_path):
         from unittest.mock import MagicMock as _MM
@@ -4248,11 +4505,11 @@ class TestHostServiceLivenessProbe:
         lp.host_daemon = HostDaemon(cmd=["yolo-claude-oauth-broker-host"])
         return (None, lp, None)
 
-    def test_probe_skips_singleton_broker(self, monkeypatch, tmp_path):
-        """The broker is a singleton; its per-jail sockets-dir entry
-        is a bind-mount placeholder, not a real socket.  The per-jail
-        probe must skip this loophole entirely so doctor doesn't
-        report a healthy broker as dead."""
+    def test_probe_grades_broker_relay_and_names_the_jail(self, monkeypatch, tmp_path):
+        """A dead per-jail relay socket must produce a FAIL that names
+        both the jail and the relay layer.  (Pre-relay this entry was a
+        bind-mount placeholder the probe skipped; skipping now would
+        hide exactly the symptom Round 2 exists to surface.)"""
         self._common_setup(monkeypatch, tmp_path)
         monkeypatch.setattr(
             cli._loopholes,
@@ -4266,12 +4523,69 @@ class TestHostServiceLivenessProbe:
             lambda m, *a, **kw: events.append(("warn", m)),
             lambda m, *a, **kw: events.append(("fail", m)),
         )
-        # Critically: NO failure for the broker.  A "skipping broker"
-        # info line is fine; "socket dead" is not.
         fails = [m for kind, m in events if kind == "fail"]
-        assert all("claude-oauth-broker" not in m for m in fails), (
-            f"per-jail probe must not fail for the singleton broker; got {fails}"
+        # The placeholder file from _common_setup is not a live socket —
+        # that's a relay-layer failure attributed to this jail.
+        assert any(
+            "claude-oauth-broker" in m
+            and "yolo-test-cname-abc12345" in m
+            and "relay" in m
+            for m in fails
+        ), f"expected a relay-layer fail naming the jail; got {events}"
+
+    def _relay_probe_events(self, sock_path):
+        """Run ``_check_broker_relay`` directly and collect its events."""
+        events: list = []
+        cli.check_cmd._check_broker_relay(
+            lambda m, *a, **kw: events.append(("ok", m)),
+            lambda m, *a, **kw: events.append(("fail", m)),
+            "loophole claude-oauth-broker @ jail-x",
+            sock_path,
         )
+        return events
+
+    def test_relay_probe_missing_socket_is_relay_layer(self, tmp_path):
+        events = self._relay_probe_events(tmp_path / "claude-oauth-broker.sock")
+        assert events[0][0] == "fail"
+        assert "relay socket missing" in events[0][1]
+
+    def test_relay_probe_dead_socket_is_relay_layer(self, tmp_path):
+        # A file nothing listens on — connect() refuses.
+        sock_path = tmp_path / "claude-oauth-broker.sock"
+        sock_path.touch()
+        events = self._relay_probe_events(sock_path)
+        assert events[0][0] == "fail"
+        assert "relay socket dead" in events[0][1]
+
+    def test_relay_probe_distinguishes_broker_layer(self, monkeypatch):
+        """Relay accepts but the proxied ping gets no pong: that's the
+        broker layer, and the message must say so (not blame the relay)."""
+        import socket as _socket
+        import tempfile as _tempfile
+
+        base = "/private/tmp" if sys.platform == "darwin" else "/tmp"
+        d = Path(_tempfile.mkdtemp(dir=base, prefix="yj-probe-"))
+        try:
+            sock_path = d / "claude-oauth-broker.sock"
+            srv = _socket.socket(_socket.AF_UNIX, _socket.SOCK_STREAM)
+            srv.bind(str(sock_path))
+            srv.listen(4)
+            try:
+                monkeypatch.setattr(
+                    "cli.check_cmd._broker_ping", lambda *a, **kw: False
+                )
+                events = self._relay_probe_events(sock_path)
+                assert events[0][0] == "fail"
+                assert "broker unreachable" in events[0][1]
+
+                monkeypatch.setattr("cli.check_cmd._broker_ping", lambda *a, **kw: True)
+                events = self._relay_probe_events(sock_path)
+                assert events[0][0] == "ok"
+                assert "relay ok" in events[0][1]
+            finally:
+                srv.close()
+        finally:
+            shutil.rmtree(d, ignore_errors=True)
 
     def test_probe_still_runs_for_non_broker_loopholes(self, monkeypatch, tmp_path):
         """Other loopholes (e.g. host-processes) ARE per-jail and DO

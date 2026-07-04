@@ -25,8 +25,11 @@ What lives here:
     _journal_handle_client, _start_host_service_builtin_journal.
     Implements the framed binary-safe protocol behind
     ``yolo-journalctl``.
-  * External daemons — _start_host_service_external, _start_broker_relay
-    (macOS broker socket relay).
+  * External daemons — _start_host_service_external.
+  * Per-jail broker relay supervision — _relay_ensure / _relay_stop /
+    _relay_reap_orphans, which spawn and reap src/broker_relay.py; see
+    the comment block above _relay_ensure for why it's a standalone
+    process.
   * start_loopholes / stop_loopholes — the lifecycle entry points
     called by run().
 """
@@ -41,6 +44,7 @@ import signal
 import socket
 import struct
 import subprocess
+import sys
 import threading
 import time
 from dataclasses import dataclass
@@ -60,7 +64,7 @@ from .paths import (
     JAIL_HOST_SERVICES_DIR,
     JOURNAL_SOCKET_NAME,
 )
-from .runtime import _resolve_container_cgroup
+from .runtime import _resolve_container_cgroup, find_running_container
 
 
 @dataclass
@@ -172,7 +176,8 @@ def _substitute_socket_in_cmd(args: List[str], socket_path: str) -> List[str]:
 #    operator can't tell at a glance whether "the broker" is healthy.
 #
 # The singleton model: one host daemon, one well-known socket, one PID file.
-# All jails bind-mount the same socket at their existing
+# Jails never touch the singleton socket directly — each reaches it through
+# its per-jail relay (see ``_relay_ensure``) at the existing
 # ``/run/yolo-services/claude-oauth-broker.sock`` path.  The socket is
 # under /tmp so AF_UNIX path-length limits aren't a concern (108 bytes on
 # Linux, 104 on macOS) and so a host reboot leaves a clean slate.  No
@@ -463,65 +468,371 @@ def _rocm_host_available(runtime: str) -> tuple[bool, Optional[str]]:
     return True, None
 
 
-def _start_broker_relay(relay_path: Path, broker_path: Path) -> None:
-    """Start a background thread relaying relay_path → broker_path.
+# ---------------------------------------------------------------------------
+# Per-jail broker relay
+# ---------------------------------------------------------------------------
+#
+# Jails never touch BROKER_SINGLETON_SOCKET directly.  A socket-FILE bind
+# mount pins the inode: ``yolo broker restart`` unlinks and re-binds the
+# host path, and every already-running jail keeps piping into the dead
+# socket — Connection refused / 502 until relaunch (2026-07-03 incident).
+# macOS Podman Machine can't bind-mount a socket file at all (EOPNOTSUPP).
+# Instead each jail gets a relay process (src/broker_relay.py) listening
+# inside its host-services sockets dir — visible in-jail through the
+# existing directory mount, no extra -v flag — that dials the singleton
+# per connection and stamps jail_id on each request for attribution.
+#
+# The relay is a supervised standalone process, NOT a thread inside the
+# ``yolo run`` host process: conmon keeps a container alive independently
+# of any yolo invocation (terminal close, SIGKILL, exec/attach from other
+# processes), so an in-process thread dies out from under a live jail.
+# Supervision mirrors the broker singleton machinery above, keyed per
+# jail.  The PID and lock files live OUTSIDE the sockets dir (which
+# ``stop_loopholes`` rmtree's and attach recreates) and are keyed by the
+# same 8-char hash as the dir name, so ``stop_loopholes`` can find them
+# without being handed cname.
 
-    Used on macOS where Podman Machine cannot bind-mount a Unix socket
-    *file* directly (EOPNOTSUPP) but *can* see socket files that live
-    inside an already-mounted directory via virtiofs.  We create the
-    relay socket inside host_services_sockets_dir (which is mounted as
-    a directory), so the container sees it at the expected
-    ``{JAIL_HOST_SERVICES_DIR}/{BROKER_LOOPHOLE_NAME}.sock`` path
-    without any extra ``-v`` flag.
-    """
 
-    def _pipe(src: socket.socket, dst: socket.socket) -> None:
+def _relay_short_hash(cname: str) -> str:
+    """The 8-char hash that keys the jail's sockets dir — keep in sync
+    with ``_host_service_sockets_dir``."""
+    return hashlib.sha1(cname.encode()).hexdigest()[:8]
+
+
+def _relay_pid_file(short_hash: str) -> Path:
+    return Path(f"/tmp/yolo-broker-relay-{short_hash}.pid")
+
+
+def _relay_lock_file(short_hash: str) -> Path:
+    return Path(f"/tmp/yolo-broker-relay-{short_hash}.lock")
+
+
+def _relay_read_pid(pid_file: Path) -> "Optional[int]":
+    try:
+        raw = pid_file.read_text().strip()
+    except OSError:
+        return None
+    try:
+        return int(raw)
+    except ValueError:
+        return None
+
+
+def _relay_socket_connectable(socket_path: Path, *, timeout: float = 2.0) -> bool:
+    """connect() probe only — no protocol ping.  The relay is a byte
+    proxy: it is alive even while the broker behind it is down (that
+    layer is graded separately via ``_broker_status`` / doctor)."""
+    s = socket.socket(socket.AF_UNIX, socket.SOCK_STREAM)
+    try:
+        s.settimeout(timeout)
+        s.connect(str(socket_path))
+        return True
+    except OSError:
+        return False
+    finally:
         try:
-            while True:
-                data = src.recv(65536)
-                if not data:
-                    break
-                dst.sendall(data)
+            s.close()
         except OSError:
             pass
-        finally:
-            for s, how in [(src, socket.SHUT_RD), (dst, socket.SHUT_WR)]:
-                try:
-                    s.shutdown(how)
-                except OSError:
-                    pass
-            # Always close so file descriptors don't accumulate over the
-            # lifetime of the host yolo process across many container
-            # connections.  shutdown() alone doesn't release the fd.
-            for s in (src, dst):
-                try:
-                    s.close()
-                except OSError:
-                    pass
 
-    def _handle(client: socket.socket) -> None:
+
+def _relay_is_alive(pid_file: Path, socket_path: Path) -> bool:
+    """Relay liveness: PID live, socket connectable.
+    ``_broker_is_alive`` minus the ping — see ``_relay_socket_connectable``.
+
+    A MISSING pidfile does not condemn the relay: write-once /tmp files
+    can be aged away (e.g. systemd-tmpfiles) under a long-lived jail
+    while the relay itself is healthy.  Declaring it dead here would
+    unlink its LIVE socket, spawn a duplicate on the same path, and
+    leak the original.  A connectable socket is proof enough of life;
+    ``_relay_kill``'s pgrep fallback keeps such a relay reapable."""
+    pid = _relay_read_pid(pid_file)
+    if pid is None:
+        return _relay_socket_connectable(socket_path)
+    if not _broker_pid_is_live(pid):
+        return False
+    if not socket_path.exists():
+        return False
+    return _relay_socket_connectable(socket_path)
+
+
+def _reap_if_child(pid: int) -> bool:
+    """Reap ``pid`` iff it is a zombie child of THIS process, returning
+    True when it was (or has just been) waited on.
+
+    The relay is spawned by ``_relay_ensure`` as a direct, never-waited
+    child of the ``yolo run`` process.  Once SIGTERM'd it exits within
+    milliseconds but sits in the process table as a zombie — and
+    ``os.kill(pid, 0)`` counts a zombie as alive, so without reaping,
+    ``_relay_kill``'s liveness poll would spin its full timeout and then
+    SIGKILL the corpse on every graceful jail exit.  A relay that is NOT
+    our child (spawned by an earlier, now-dead yolo process) raises
+    ChildProcessError here and is reaped by init instead.
+    """
+    try:
+        waited, _status = os.waitpid(pid, os.WNOHANG)
+    except ChildProcessError:
+        return False  # not our child — its parent (or init) reaps it
+    except OSError:
+        return False
+    return waited == pid
+
+
+def _relay_pid_cmdline_matches(pid: int) -> bool:
+    """True iff the process at ``pid`` really is a broker relay — its
+    cmdline names ``broker_relay.py`` (the same argv matching idea as
+    ``_broker_pgrep_strays``).
+
+    This is ``_relay_kill``'s identity guard: unlike ``_broker_kill``
+    (explicit ``yolo broker stop`` only), ``_relay_kill`` fires
+    automatically from ``_relay_ensure`` on every run/attach, so a stale
+    PID file from a crashed/orphaned relay must never translate into a
+    SIGTERM at whatever same-user process the kernel recycled that PID
+    onto.  Unknown identity reads as False — never signal a process we
+    can't positively identify.  Linux: /proc cmdline; macOS (no /proc):
+    ``ps`` fallback.
+    """
+    try:
+        cmdline = Path(f"/proc/{pid}/cmdline").read_bytes()
+    except OSError:
         try:
-            upstream = socket.socket(socket.AF_UNIX, socket.SOCK_STREAM)
-            upstream.connect(str(broker_path))
+            probe = subprocess.run(
+                ["ps", "-p", str(pid), "-o", "args="],
+                capture_output=True,
+                text=True,
+                timeout=2,
+            )
+        except (OSError, subprocess.SubprocessError):
+            return False
+        return probe.returncode == 0 and "broker_relay.py" in probe.stdout
+    return b"broker_relay.py" in cmdline
+
+
+def _relay_pgrep(socket_path: Path) -> List[int]:
+    """PIDs of relay processes serving ``socket_path``, found by argv —
+    the ``_broker_pgrep_strays`` twin for relays whose pidfile vanished
+    (e.g. systemd-tmpfiles aged it out of /tmp).  ``_relay_is_alive``
+    deliberately keeps such a relay ALIVE on the strength of its
+    connectable socket; this keeps it REAPABLE at jail exit."""
+    try:
+        result = subprocess.run(
+            ["pgrep", "-f", f"broker_relay.py --socket {socket_path}"],
+            capture_output=True,
+            text=True,
+            timeout=2,
+        )
+    except Exception:
+        return []
+    if result.returncode != 0:
+        return []
+    pids: List[int] = []
+    for line in result.stdout.splitlines():
+        line = line.strip()
+        if not line:
+            continue
+        try:
+            pid = int(line)
+        except ValueError:
+            continue
+        if pid == os.getpid():
+            continue
+        pids.append(pid)
+    return pids
+
+
+def _relay_kill(
+    pid_file: Path,
+    *,
+    socket_path: "Optional[Path]" = None,
+    timeout: float = 3.0,
+) -> None:
+    """SIGTERM the relay named by ``pid_file`` (SIGKILL stragglers) and
+    remove the PID file.  No-op when the file is absent, the PID is
+    already dead, or the PID's cmdline no longer names the relay script
+    (stale PID file + recycled PID — see ``_relay_pid_cmdline_matches``).
+
+    When the pidfile is missing but ``socket_path`` is given, falls
+    back to argv-based discovery (``_relay_pgrep``) so a relay whose
+    pidfile was aged out of /tmp is still reaped rather than leaked.
+    """
+    pids: List[int] = []
+    pid = _relay_read_pid(pid_file)
+    if pid is not None:
+        pids.append(pid)
+    elif socket_path is not None:
+        pids.extend(_relay_pgrep(socket_path))
+    for pid in pids:
+        if (
+            _reap_if_child(pid)  # zombie child == already dead
+            or not _broker_pid_is_live(pid)
+            or not _relay_pid_cmdline_matches(pid)
+        ):
+            continue
+        try:
+            os.kill(pid, signal.SIGTERM)
         except OSError:
-            client.close()
-            return
-        threading.Thread(target=_pipe, args=(client, upstream), daemon=True).start()
-        threading.Thread(target=_pipe, args=(upstream, client), daemon=True).start()
-
-    def _serve() -> None:
-        srv = socket.socket(socket.AF_UNIX, socket.SOCK_STREAM)
-        relay_path.unlink(missing_ok=True)
-        srv.bind(str(relay_path))
-        srv.listen(32)
-        while True:
-            try:
-                conn, _ = srv.accept()
-            except OSError:
+            pass
+        deadline = time.monotonic() + timeout
+        while time.monotonic() < deadline:
+            if _reap_if_child(pid) or not _broker_pid_is_live(pid):
                 break
-            threading.Thread(target=_handle, args=(conn,), daemon=True).start()
+            time.sleep(0.05)
+        if _broker_pid_is_live(pid):
+            try:
+                os.kill(pid, signal.SIGKILL)
+            except OSError:
+                pass
+            # Don't leave the SIGKILL'd child as a zombie either.
+            kill_deadline = time.monotonic() + 1.0
+            while time.monotonic() < kill_deadline:
+                if _reap_if_child(pid) or not _broker_pid_is_live(pid):
+                    break
+                time.sleep(0.05)
+    try:
+        pid_file.unlink()
+    except FileNotFoundError:
+        pass
 
-    threading.Thread(target=_serve, daemon=True).start()
+
+def _relay_ensure(
+    cname: str,
+    sockets_dir: Path,
+    broker_socket: "Optional[Path]" = None,
+) -> None:
+    """Idempotent per-jail relay supervision — the relay twin of
+    ``_broker_ensure``.  Alive → return; dead/absent → spawn under a
+    flock (two concurrent ``yolo`` invocations must not fork two
+    relays).  Runs on every code path that targets the jail — fresh run
+    AND exec/attach — because the container outlives any single yolo
+    process; whoever touches the jail next heals a relay whose spawning
+    process died."""
+    import fcntl as _fcntl
+
+    if broker_socket is None:
+        broker_socket = BROKER_SINGLETON_SOCKET
+    short_hash = _relay_short_hash(cname)
+    pid_file = _relay_pid_file(short_hash)
+    socket_path = sockets_dir / f"{BROKER_LOOPHOLE_NAME}.sock"
+    if _relay_is_alive(pid_file, socket_path):
+        return
+    with open(_relay_lock_file(short_hash), "w") as lock_f:
+        _fcntl.flock(lock_f, _fcntl.LOCK_EX)
+        if _relay_is_alive(pid_file, socket_path):
+            return
+
+        # A live PID whose socket died (e.g. the sockets dir was removed
+        # under it) would be orphaned forever if we just overwrote the
+        # PID file — reap it before spawning.  socket_path covers the
+        # inverse wreckage: a pidfile-less relay wedged on a dead socket.
+        _relay_kill(pid_file, socket_path=socket_path)
+
+        # stop_loopholes rmtree's the dir at jail exit; attach paths
+        # arrive here with it missing.
+        sockets_dir.mkdir(parents=True, exist_ok=True)
+        # Stale socket from a crashed relay → EADDRINUSE on bind.
+        socket_path.unlink(missing_ok=True)
+
+        log_dir = GLOBAL_STORAGE / "logs"
+        log_dir.mkdir(parents=True, exist_ok=True)
+        log_path = log_dir / f"broker-relay-{short_hash}.log"
+        # Launch by absolute file path, not ``-m src.broker_relay``:
+        # ``python -m`` prepends the child's cwd to sys.path, and yolo
+        # runs from arbitrary workspaces — one with its own ``src``
+        # package would shadow ours and the relay would never bind.
+        # broker_relay.py is stdlib-only precisely so a by-path launch
+        # needs no importable package context.
+        relay_script = Path(__file__).resolve().parent.parent / "broker_relay.py"
+        with open(log_path, "ab") as log_file:
+            proc = subprocess.Popen(
+                [
+                    sys.executable,
+                    str(relay_script),
+                    "--socket",
+                    str(socket_path),
+                    "--broker",
+                    str(broker_socket),
+                    "--jail",
+                    cname,
+                ],
+                stdout=log_file,
+                stderr=log_file,
+                start_new_session=True,
+                close_fds=True,
+            )
+        pid_file.write_text(f"{proc.pid}\n")
+        if not _broker_wait_for_socket(socket_path, timeout=5.0):
+            # Leave the PID file for diagnosis; doctor's per-jail probe
+            # reports the dead relay.
+            console.print(
+                f"[yellow]claude-oauth-broker: relay for {cname} did not "
+                f"bind {socket_path} within 5s — see {log_path}[/yellow]"
+            )
+
+
+def _relay_stop(cname: str) -> None:
+    """Stop the jail's relay and remove its PID file; no-op if absent.
+    ``stop_loopholes`` reaches the same relay by deriving the hash from
+    the sockets-dir name instead (it isn't handed cname)."""
+    _relay_kill(_relay_pid_file(_relay_short_hash(cname)))
+
+
+def _relay_reap_orphans(
+    live_cnames: "Optional[set[str]]",
+    *,
+    apply: bool = True,
+    older_than_seconds: float = 3600.0,
+    base: "Optional[Path]" = None,
+) -> List[Path]:
+    """Reap relay processes whose jail is no longer running.
+
+    ``stop_loopholes`` only reaps a relay in the graceful tail of the
+    original ``yolo run`` process.  When that process dies first
+    (terminal close → SIGHUP; conmon keeps the container alive; the
+    user keeps working via attach sessions and eventually exits from
+    one), nothing kills the relay: it survives — with its PID file,
+    lock file, and sockets dir — until host reboot.  A stale PID file
+    left this way is also the precondition for the recycled-PID hazard
+    ``_relay_kill`` guards against.  This sweep is the backstop: kill
+    every relay whose PID-file hash matches no live yolo container.
+    It runs from ``yolo run`` (piggybacking on the store-prune gate's
+    container enumeration) and from ``yolo prune``.
+
+    ``live_cnames`` is the set of live container names; ``None`` means
+    liveness could not be enumerated and the sweep declines (unknown
+    must never read as "nothing live" — same polarity as the
+    store-prune gate).  ``older_than_seconds`` is a grace floor keyed
+    off the PID file's mtime so a relay spawned for a jail mid-startup
+    (ensured before its container is visible) is never reaped.
+    Returns the PID files reaped (or, with ``apply=False``, the ones
+    that would be).
+    """
+    if live_cnames is None:
+        return []
+    if base is None:
+        base = Path("/tmp")
+    live_hashes = {_relay_short_hash(c) for c in live_cnames}
+    reaped: List[Path] = []
+    now = time.time()
+    for pid_file in sorted(base.glob("yolo-broker-relay-*.pid")):
+        short_hash = pid_file.name.removeprefix("yolo-broker-relay-").removesuffix(
+            ".pid"
+        )
+        if short_hash in live_hashes:
+            continue
+        try:
+            if now - pid_file.stat().st_mtime < older_than_seconds:
+                continue
+        except OSError:
+            continue  # unlinked under us — someone else reaped it
+        reaped.append(pid_file)
+        if not apply:
+            continue
+        _relay_kill(pid_file)
+        (base / f"yolo-broker-relay-{short_hash}.lock").unlink(missing_ok=True)
+        # The orphaned jail's sockets dir was never rmtree'd by
+        # stop_loopholes either — sweep it with the relay.
+        shutil.rmtree(base / f"yolo-host-services-{short_hash}", ignore_errors=True)
+    return reaped
 
 
 def _broker_pgrep_strays() -> List[int]:
@@ -1460,14 +1771,16 @@ def start_loopholes(
             continue
         # Claude OAuth broker is a HOST-WIDE singleton, not per-jail.
         # See the block near ``BROKER_SINGLETON_SOCKET`` for why.  We
-        # ensure a live broker here; the per-jail bind-mount of the
-        # singleton socket into the jail at
-        # ``/run/yolo-services/claude-oauth-broker.sock`` happens in
-        # ``run()``'s container command assembly (see the matching code
-        # near the host-services sockets dir bind mount).  Returning
-        # no handle is correct — singleton lifecycle is NOT tied to a
-        # single jail; we don't want ``stop_loopholes`` reaping it
-        # when this jail exits.
+        # ensure a live broker here; the per-jail relay that exposes it
+        # inside the jail at
+        # ``/run/yolo-services/claude-oauth-broker.sock`` is ensured in
+        # ``run()``'s container command assembly (``_ensure_broker_relay``
+        # → ``_relay_ensure``).  Returning no handle is correct —
+        # singleton lifecycle is NOT tied to a single jail; we don't
+        # want ``stop_loopholes`` reaping it when this jail exits.  (The
+        # relay isn't a handle either: it must survive yolo-process
+        # death, so it's supervised via its PID file and reaped by
+        # ``stop_loopholes`` through the sockets-dir hash.)
         if name == BROKER_LOOPHOLE_NAME:
             try:
                 _broker_ensure()
@@ -1483,8 +1796,35 @@ def start_loopholes(
     return handles
 
 
-def stop_loopholes(handles: List[LoopholeDaemon], sockets_dir: Optional[Path]) -> None:
-    """Stop all host services and clean up the sockets directory."""
+def stop_loopholes(
+    handles: List[LoopholeDaemon],
+    sockets_dir: Optional[Path],
+    *,
+    cname: Optional[str] = None,
+    runtime: Optional[str] = None,
+) -> None:
+    """Stop all host services and clean up the sockets directory.
+
+    The relay reap + sockets-dir rmtree are DESTRUCTIVE to a live jail:
+    the container bind-mounts the dir, so removing it under a running
+    container orphans the mount on a deleted inode — any later
+    heal-on-attach mkdir creates a NEW inode the container cannot see,
+    and every in-jail auth request 502s while host-side probes look
+    healthy.  When ``cname``/``runtime`` are given (``run()`` passes
+    them), two guards protect that state:
+
+    * ownership/liveness — if the container is STILL RUNNING (e.g.
+      ``yolo run --new`` lost the name-conflict race against a live
+      jail and is exiting without ever having started a container),
+      the relay and dir belong to that jail: leave both alone.
+    * relaunch race — a concurrent ``yolo run`` holds the per-workspace
+      lock from before its relay spawn until its container is visible;
+      taking the same lock (non-blocking) here means we can never read
+      the pidfile after the new run wrote its fresh relay's PID and
+      kill it, or rmtree the dir its container is about to mount.  If
+      the lock is busy, a relaunch is mid-flight — skip cleanup and let
+      the new invocation own the state.
+    """
     for h in handles:
         try:
             h._stop()
@@ -1492,5 +1832,53 @@ def stop_loopholes(handles: List[LoopholeDaemon], sockets_dir: Optional[Path]) -
             console.print(
                 f"[yellow]Error stopping host service '{h.name}': {e}[/yellow]"
             )
-    if sockets_dir is not None and sockets_dir.exists():
-        shutil.rmtree(sockets_dir, ignore_errors=True)
+    if sockets_dir is None:
+        return
+
+    lock_f = None
+    if cname is not None:
+        import fcntl as _fcntl
+
+        try:
+            lock_dir = GLOBAL_STORAGE / "locks"
+            lock_dir.mkdir(parents=True, exist_ok=True)
+            lock_f = open(lock_dir / f"{cname}.lock", "w")
+            _fcntl.flock(lock_f, _fcntl.LOCK_EX | _fcntl.LOCK_NB)
+        except OSError:
+            if lock_f is not None:
+                lock_f.close()
+            console.print(
+                f"[dim]Another yolo invocation is launching {cname}; "
+                f"leaving its relay and sockets dir alone.[/dim]"
+            )
+            return
+    try:
+        if cname is not None:
+            try:
+                still_running = bool(
+                    find_running_container(cname, runtime=runtime or "podman")
+                )
+            except Exception:
+                still_running = False
+            if still_running:
+                console.print(
+                    f"[dim]Container {cname} is still running; leaving its "
+                    f"relay and sockets dir alone.[/dim]"
+                )
+                return
+        # The per-jail broker relay isn't in ``handles`` — it has to
+        # survive yolo-process death, so it's supervised via a PID file
+        # keyed by the sockets-dir hash (callers don't pass cname here).
+        # Reap it BEFORE the rmtree so its SIGTERM socket cleanup targets
+        # a directory that still exists.
+        prefix = "yolo-host-services-"
+        if sockets_dir.name.startswith(prefix):
+            _relay_kill(
+                _relay_pid_file(sockets_dir.name.removeprefix(prefix)),
+                socket_path=sockets_dir / f"{BROKER_LOOPHOLE_NAME}.sock",
+            )
+        if sockets_dir.exists():
+            shutil.rmtree(sockets_dir, ignore_errors=True)
+    finally:
+        if lock_f is not None:
+            lock_f.close()

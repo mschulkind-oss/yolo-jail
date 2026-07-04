@@ -58,8 +58,21 @@ def _run_monkeypatch(monkeypatch, tmp_path):
     monkeypatch.setattr("cli.agents_md.AGENTS_DIR", tmp_path / "agents")
     monkeypatch.setattr("cli.runtime._runtime_is_connectable", lambda rt: True)
     monkeypatch.setattr("time.sleep", lambda _: None)
+    # Broker/relay hermeticity — same rationale as test_cli_commands's
+    # _run_monkeypatch: point the singleton socket at a tmp path so the
+    # run() broker block never keys off the dev machine's real
+    # /tmp/yolo-claude-oauth-broker.sock (it EXISTS so the block is
+    # exercised deterministically), and stub the relay ensure/sweep so
+    # no supervised relay process, /tmp PID file, or log under the real
+    # ~/.local/share/yolo-jail leaks out of a unit test.  Applies to the
+    # exec-into-existing attach path too (_ensure_broker_relay).
     fake_sock = tmp_path / "broker.sock"
+    fake_sock.touch()
     monkeypatch.setattr("cli.run_cmd._broker_ensure", lambda: fake_sock)
+    monkeypatch.setattr("cli.run_cmd.BROKER_SINGLETON_SOCKET", fake_sock)
+    monkeypatch.setattr("cli.run_cmd._relay_ensure", MagicMock())
+    monkeypatch.setattr("cli.run_cmd._relay_reap_orphans", MagicMock(return_value=[]))
+    monkeypatch.setattr("cli.loopholes_runtime.GLOBAL_STORAGE", tmp_path / "storage")
     monkeypatch.setattr("cli.run_cmd.start_loopholes", lambda *a, **kw: [])
     monkeypatch.setattr("cli.run_cmd.stop_loopholes", lambda *a, **kw: None)
     for d in (

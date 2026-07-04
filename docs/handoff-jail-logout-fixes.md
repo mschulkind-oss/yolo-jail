@@ -20,7 +20,7 @@ the code fixes below are the defense that keeps it from regressing.
 | 1 | New workspaces boot logged-out (empty `GLOBAL_HOME` claude.json seed) | Fixed — `8f7b550` (`_sync_claude_json_seed` back-propagation) |
 | 2 | Suspend/resume DNS window (bg refresher waited a full 60s tick) | Fixed — `e0ebba5` (fast retry on `upstream_unreachable`) |
 | 3 | Broker-written creds file lacks `scopes`/`subscriptionType`; claude ≥ 2.1.200 rejects it | Fixed in code 2026-07-04 (Fixes A/B + atomic `_write_tokens`) — live after broker restart + image rebuild |
-| 4 | Broker restart orphans the socket inode mounted into running jails | **Open — round 2 (relay unification below)** |
+| 4 | Broker restart orphans the socket inode mounted into running jails | Fixed in code 2026-07-04 (round 2: supervised per-jail relay, per-connection dial) — live on next `yolo` invocation per jail |
 
 ## Mechanism 3 — stripped creds metadata (the open one)
 

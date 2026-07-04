@@ -258,6 +258,33 @@ def prune_cmd(
         else:
             console.print("  [dim]none[/dim]")
 
+    # Orphaned per-jail broker relays: a relay is a detached host process
+    # that must outlive the ``yolo run`` that spawned it, so a jail ended
+    # from an attach session (original run process long dead) leaves its
+    # relay + PID file + sockets dir running until reboot.  ``yolo run``
+    # sweeps these opportunistically; prune is the operator-visible path.
+    # Local imports: run_cmd/loopholes_runtime import chains are heavy and
+    # prune must stay importable from cli/__init__ without cycles.
+    console.print("\n[bold]Orphaned broker relays[/bold]")
+    from .loopholes_runtime import _relay_reap_orphans
+    from .run_cmd import _live_yolo_containers
+
+    live_jails = _live_yolo_containers(runtime) if runtime else None
+    if live_jails is None:
+        console.print(
+            "  [dim]skipped — could not enumerate running jails "
+            f"({runtime}); declining to sweep[/dim]"
+        )
+    else:
+        reaped_relays = _relay_reap_orphans(live_jails, apply=apply)
+        verb = "would reap" if not apply else "reaped"
+        if reaped_relays:
+            console.print(f"  {verb}: {len(reaped_relays)} relay(s)")
+            for pid_file in reaped_relays:
+                console.print(f"    • {pid_file.name}")
+        else:
+            console.print("  [dim]none[/dim]")
+
     if not no_images:
         console.print(f"\n[bold]Old yolo-jail images[/bold]  (keep={keep_images})")
         removed_images = _prune._prune_old_images(

@@ -66,9 +66,10 @@ from .loopholes_runtime import (
     _gpu_host_available,
     _host_service_env_var,
     _host_service_sockets_dir,
+    _relay_ensure,
+    _relay_reap_orphans,
     _rocm_host_available,
     _should_mount_host_nix,
-    _start_broker_relay,
     start_loopholes,
     stop_loopholes,
 )
@@ -867,6 +868,48 @@ def _inject_agent_yolo_flags(full_command: "list[str]") -> None:
             full_command.insert(1, "--dangerously-skip-permissions")
 
 
+def _ensure_broker_relay(cname: str, runtime: str) -> None:
+    """Ensure the per-jail broker relay is running; never fail the caller.
+
+    Called on every path that targets a jail — fresh run AND both
+    exec/attach branches — because the relay is a supervised standalone
+    process: the container outlives any single ``yolo`` invocation
+    (conmon supervises it independently), so a relay whose spawning
+    process died must be healed by whichever invocation touches the
+    jail next.
+
+    Skipped for Apple Container (no sockets-dir mount there, so the
+    broker was never wired through it) and when the singleton socket is
+    absent (nothing to relay to; ``_broker_ensure`` owns that layer).
+    """
+    if runtime == "container" or not BROKER_SINGLETON_SOCKET.exists():
+        return
+    sockets_dir = _host_service_sockets_dir(cname)
+    if not sockets_dir.is_dir():
+        # On the fresh-run path the dir was just mkdir'd, so a missing
+        # dir means we are HEALING a running jail whose mounted dir was
+        # removed after launch (host /tmp aging; a teardown that lost
+        # its guards).  The mkdir below creates a NEW inode — the
+        # container's bind mount still pins the deleted one, so the
+        # healed relay socket will never appear in-jail.  Heal anyway
+        # (host state stays consistent, doctor probes the host side)
+        # but say plainly that only a relaunch remounts the dir.
+        try:
+            if find_running_container(cname, runtime=runtime):
+                console.print(
+                    f"[yellow]claude-oauth-broker: sockets dir {sockets_dir} "
+                    f"was removed after the jail started — the healed relay "
+                    f"will NOT be visible inside the running jail.  Relaunch "
+                    f"the jail to remount it.[/yellow]"
+                )
+        except Exception:  # noqa: BLE001 — diagnosis must not block the heal
+            pass
+    try:
+        _relay_ensure(cname, sockets_dir)
+    except Exception as e:  # noqa: BLE001 — a broken relay must not block the jail
+        console.print(f"[yellow]claude-oauth-broker: relay not ensured: {e}[/yellow]")
+
+
 def run(
     ctx: typer.Context,
     network: str = typer.Option("bridge", help="Container network mode (bridge/host)"),
@@ -1003,6 +1046,10 @@ def run(
             f"[bold cyan]Attaching to existing jail [dim]({cname})[/dim]...[/bold cyan]"
         )
         _tmux_rename_window("JAIL")
+        # The container may have outlived the `yolo run` that spawned its
+        # relay (terminal close, SIGKILL) — heal it before handing the
+        # session over.
+        _ensure_broker_relay(cname, runtime)
         exec_flags = ["-i"]
         if sys.stdout.isatty():
             exec_flags.append("-t")
@@ -1061,6 +1108,8 @@ def run(
                 f"[bold cyan]Attaching to jail started by another process [dim]({cname})[/dim]...[/bold cyan]"
             )
             _tmux_rename_window("JAIL")
+            # Same healing as the existing-container branch above.
+            _ensure_broker_relay(cname, runtime)
             exec_flags = ["-i"]
             if sys.stdout.isatty():
                 exec_flags.append("-t")
@@ -1806,11 +1855,9 @@ def run(
             ["-v", f"{host_services_sockets_dir}:{JAIL_HOST_SERVICES_DIR}:rw"]
         )
         # Claude OAuth broker singleton — eagerly ensure it's alive
-        # BEFORE we add the bind-mount flag so the socket source path
-        # exists at the moment podman tries to set up the mount.
-        # ``start_loopholes`` (called later) also calls _broker_ensure
-        # for idempotence, but putting it here too means the mount
-        # never fails for want of a source.
+        # BEFORE the relay spawn so the relay has a live upstream from
+        # its first connection.  ``start_loopholes`` (called later) also
+        # calls _broker_ensure for idempotence.
         try:
             _broker_ensure()
         except Exception as e:  # noqa: BLE001 — never fail run() on this
@@ -1821,23 +1868,16 @@ def run(
             _broker_jail_socket = (
                 f"{JAIL_HOST_SERVICES_DIR}/{BROKER_LOOPHOLE_NAME}.sock"
             )
-            if IS_MACOS:
-                # Podman Machine on macOS cannot bind-mount a Unix socket
-                # *file* (EOPNOTSUPP).  Socket files that live *inside* a
-                # mounted directory are accessible via the virtiofs dir
-                # mount.  Start a relay inside host_services_sockets_dir;
-                # no extra -v flag needed — the relay socket is already
-                # visible at {JAIL_HOST_SERVICES_DIR}/{BROKER_LOOPHOLE_NAME}.sock
-                # through the directory mount above.
-                _relay_path = host_services_sockets_dir / f"{BROKER_LOOPHOLE_NAME}.sock"
-                _start_broker_relay(_relay_path, BROKER_SINGLETON_SOCKET.resolve())
-            else:
-                run_cmd.extend(
-                    [
-                        "-v",
-                        f"{BROKER_SINGLETON_SOCKET.resolve()}:{_broker_jail_socket}:rw",
-                    ]
-                )
+            # Per-jail relay, both platforms.  It listens inside
+            # host_services_sockets_dir — already visible in-jail at
+            # {JAIL_HOST_SERVICES_DIR}/{BROKER_LOOPHOLE_NAME}.sock through
+            # the directory mount above, no extra -v flag — and dials the
+            # singleton per connection.  macOS: Podman Machine cannot
+            # bind-mount a Unix socket *file* (EOPNOTSUPP).  Linux: a
+            # socket-file bind mount pins the inode, so a broker restart
+            # left every running jail holding the dead socket
+            # (Connection refused / 502 until relaunch).
+            _ensure_broker_relay(cname, runtime)
             # The jail-side TLS terminator reads
             # YOLO_SERVICE_CLAUDE_OAUTH_BROKER_SOCKET to find the
             # broker.  start_loopholes no longer synthesizes this env
@@ -2174,11 +2214,22 @@ def run(
     # can't see its siblings.  TOCTOU: a jail launching between this check
     # and the prune could lose an entry mid-boot; accepted — mise relinks
     # it on that jail's next install.
-    if (
-        os.environ.get("YOLO_VERSION") is None
-        and _live_yolo_containers(runtime) == set()
-    ):
-        run_cmd.extend(["-e", "YOLO_STORE_PRUNE_OK=1"])
+    if os.environ.get("YOLO_VERSION") is None:
+        live_jails = _live_yolo_containers(runtime)
+        if live_jails == set():
+            run_cmd.extend(["-e", "YOLO_STORE_PRUNE_OK=1"])
+        # Backstop reap of orphaned per-jail broker relays (piggybacks on
+        # the enumeration above): a relay outlives the yolo process that
+        # spawned it by design, and stop_loopholes only runs in that
+        # original process's graceful tail — jails ended from attach
+        # sessions leave their relay running forever otherwise.  The
+        # current jail's relay (just ensured, container not started yet)
+        # is excluded by name; None (liveness unknown) declines inside.
+        if live_jails is not None:
+            try:
+                _relay_reap_orphans(live_jails | {cname})
+            except Exception:  # noqa: BLE001 — cleanup must never block a run
+                pass
 
     # Mount merged skills directories read-only.  The staging dir was
     # already rebuilt at the top of `run` by `_refresh_jail_briefings`
@@ -2462,13 +2513,24 @@ def run(
             "[dim]Run `yolo check` to validate runtime availability before restarting.[/dim]"
         )
         cleanup_port_forwarding(socat_procs, socket_dir)
-        stop_loopholes(host_services, host_services_sockets_dir)
+        # Release the workspace lock BEFORE stop_loopholes: its cleanup
+        # guard takes the same lock non-blocking, and we still hold it
+        # here (on_started never ran — the runtime binary is missing).
         lock_file.close()
+        stop_loopholes(
+            host_services, host_services_sockets_dir, cname=cname, runtime=runtime
+        )
         sys.exit(1)
     # Clean up host-side socat processes, host services (incl. cgroup
-    # delegate), and their per-jail socket directory.
+    # delegate), and their per-jail socket directory.  cname/runtime arm
+    # stop_loopholes' guards: never reap the relay or rmtree the mounted
+    # sockets dir under a container that is still running (e.g. a
+    # `--new` name-conflict launch failure while the old jail lives on),
+    # and never race a concurrent relaunch that is mid-spawn.
     cleanup_port_forwarding(socat_procs, socket_dir)
-    stop_loopholes(host_services, host_services_sockets_dir)
+    stop_loopholes(
+        host_services, host_services_sockets_dir, cname=cname, runtime=runtime
+    )
 
     if profile and _profile_times:
         _profile_times["container_exited"] = _time.monotonic()

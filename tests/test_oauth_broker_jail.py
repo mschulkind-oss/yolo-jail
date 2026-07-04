@@ -19,6 +19,11 @@ from __future__ import annotations
 
 import base64
 import json
+import socket
+import struct
+import threading
+
+import pytest
 
 from src import oauth_broker_jail
 
@@ -151,12 +156,135 @@ def test_ask_host_broker_wraps_oserror_as_runtimeerror(tmp_path):
     Lock in: any transport failure becomes a ``RuntimeError`` so the
     single ``except RuntimeError`` in callers catches it and returns a
     proper 502 instead of aborting the connection."""
-    import pytest
-
     missing_sock = tmp_path / "definitely-not-here.sock"
     with pytest.raises(RuntimeError) as exc:
         oauth_broker_jail.ask_host_broker(str(missing_sock), {"action": "ping"})
     assert str(missing_sock) in str(exc.value)
+
+
+# ---------------------------------------------------------------------------
+# Layer discrimination — the jail log must answer "which layer failed":
+# the per-jail relay (connect fails) or the broker behind it (relay
+# answers but closes before an exit frame).
+# ---------------------------------------------------------------------------
+
+
+def test_ask_host_broker_names_relay_layer_on_enoent(tmp_path):
+    """Relay socket missing entirely (relay never started, or the
+    sockets dir was recreated under it) → connect raises ENOENT → the
+    message must name the RELAY layer, not the broker."""
+    missing_sock = tmp_path / "relay-not-here.sock"
+    with pytest.raises(RuntimeError) as exc:
+        oauth_broker_jail.ask_host_broker(str(missing_sock), {"action": "ping"})
+    msg = str(exc.value)
+    assert msg.startswith("relay unreachable")
+    assert str(missing_sock) in msg
+
+
+def test_ask_host_broker_names_relay_layer_on_connection_refused(tmp_path):
+    """Socket file present but no relay process listening behind it →
+    connect raises ECONNREFUSED → relay-layer wording."""
+    dead_sock = tmp_path / "relay-dead.sock"
+    s = socket.socket(socket.AF_UNIX, socket.SOCK_STREAM)
+    s.bind(str(dead_sock))
+    s.close()  # leaves the socket file with nothing accepting on it
+    with pytest.raises(RuntimeError) as exc:
+        oauth_broker_jail.ask_host_broker(str(dead_sock), {"action": "ping"})
+    msg = str(exc.value)
+    assert msg.startswith("relay unreachable")
+    assert str(dead_sock) in msg
+
+
+def test_ask_host_broker_names_broker_layer_on_eof_before_exit_frame(tmp_path):
+    """The relay accepted the connection but closed it without any
+    response frames — its per-connection dial of the real broker failed.
+    That is the BROKER layer (reached through the relay), and the
+    message must say so instead of blaming the relay."""
+    sock_path = tmp_path / "relay-live.sock"
+    server = socket.socket(socket.AF_UNIX, socket.SOCK_STREAM)
+    server.bind(str(sock_path))
+    server.listen(1)
+
+    def _recv_exact(conn: socket.socket, n: int) -> bytes:
+        buf = b""
+        while len(buf) < n:
+            chunk = conn.recv(n - len(buf))
+            if not chunk:
+                return buf
+            buf += chunk
+        return buf
+
+    def _accept_drain_close():
+        conn, _ = server.accept()
+        # Read the full framed request so the client's sendall completes,
+        # then close with zero response frames — exactly what the relay
+        # does when the broker socket is unreachable.
+        (length,) = struct.unpack(">I", _recv_exact(conn, 4))
+        _recv_exact(conn, length)
+        conn.close()
+
+    t = threading.Thread(target=_accept_drain_close, daemon=True)
+    t.start()
+    try:
+        with pytest.raises(RuntimeError) as exc:
+            oauth_broker_jail.ask_host_broker(str(sock_path), {"action": "ping"})
+    finally:
+        server.close()
+        t.join(timeout=5)
+    msg = str(exc.value)
+    assert "unreachable through the relay" in msg
+    assert not msg.startswith("relay unreachable")
+
+
+def test_ask_host_broker_names_broker_layer_on_send_phase_reset(tmp_path):
+    """The send-phase twin of the EOF case: the relay accepted, its
+    per-connection dial of the broker failed, and it tore the
+    connection down while our frame was still in flight — a large
+    ``action=proxy`` body spends real time in ``sendall``, which then
+    raises EPIPE/ECONNRESET instead of the recv path ever seeing EOF.
+    That is still the BROKER layer and the message must say so, not
+    fall into the generic ``host broker socket …: [Errno 32]`` wrap."""
+    sock_path = tmp_path / "relay-reset.sock"
+    server = socket.socket(socket.AF_UNIX, socket.SOCK_STREAM)
+    server.bind(str(sock_path))
+    server.listen(1)
+
+    def _accept_close_without_reading():
+        conn, _ = server.accept()
+        # Close with the request unread — pending bytes are discarded
+        # and the client's in-flight sendall raises EPIPE/ECONNRESET.
+        conn.close()
+
+    t = threading.Thread(target=_accept_close_without_reading, daemon=True)
+    t.start()
+    # Body far larger than the socket buffers so sendall is still
+    # writing when the close lands.
+    big_request = {"action": "proxy", "body_b64": "x" * (8 * 1024 * 1024)}
+    try:
+        with pytest.raises(RuntimeError) as exc:
+            oauth_broker_jail.ask_host_broker(str(sock_path), big_request)
+    finally:
+        server.close()
+        t.join(timeout=5)
+    msg = str(exc.value)
+    assert "unreachable through the relay" in msg
+    assert not msg.startswith("relay unreachable")
+
+
+def test_proxy_upstream_relay_layer_keeps_502_shape(tmp_path):
+    """The HTTP-facing contract is unchanged by layer discrimination:
+    a relay-layer failure still surfaces as 502 ``broker_unavailable``;
+    only the detail string names the relay."""
+    missing_sock = tmp_path / "relay-not-here.sock"
+    status, headers, body = oauth_broker_jail._proxy_upstream(
+        str(missing_sock), "POST", "/v1/oauth/token", {}, b'{"grant_type":"x"}'
+    )
+    assert status == 502
+    assert headers["Content-Type"] == "application/json"
+    parsed = json.loads(body)
+    assert parsed["error"] == "broker_unavailable"
+    assert parsed["detail"].startswith("relay unreachable")
+    assert str(missing_sock) in parsed["detail"]
 
 
 def test_proxy_upstream_returns_502_when_host_socket_missing(tmp_path):

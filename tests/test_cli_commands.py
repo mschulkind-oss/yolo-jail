@@ -5,9 +5,12 @@ without spinning up actual containers.
 """
 
 import json
+import socket
+import struct
 import subprocess
 import os
 import sys
+import threading
 from pathlib import Path
 from unittest.mock import MagicMock, patch
 
@@ -18,12 +21,15 @@ sys.path.insert(0, str(REPO_ROOT / "src"))
 
 from typer.testing import CliRunner  # noqa: E402
 
+import cli  # noqa: E402
 from cli import (  # noqa: E402
     _build_image_store_path,
+    _host_service_sockets_dir,
     _kitty_setup_jail_tab,
     _tmux_rename_window,
     _tmux_setup_jail_pane,
     auto_load_image,
+    container_name_for_workspace,
     start_host_port_forwarding,
     app,
 )
@@ -1916,11 +1922,200 @@ class TestCheckSummaryWithFailures:
 
 
 # ═══════════════════════════════════════════════════════════════════════════════
+# Test: doctor — per-jail broker relay probe (relay unification, Round 2)
+# ═══════════════════════════════════════════════════════════════════════════════
+
+
+def _serve_unix(sock_path, handler):
+    """Bind an AF_UNIX listener at ``sock_path`` and run ``handler(conn)``
+    per accepted connection on a daemon thread.  Returns the server
+    socket; closing it stops the accept loop."""
+    srv = socket.socket(socket.AF_UNIX, socket.SOCK_STREAM)
+    srv.bind(str(sock_path))
+    srv.listen(8)
+
+    def _loop():
+        while True:
+            try:
+                conn, _ = srv.accept()
+            except OSError:
+                return
+            handler(conn)
+
+    threading.Thread(target=_loop, daemon=True).start()
+    return srv
+
+
+def _pong_handler(conn):
+    """Speak just enough of the loophole frame protocol to answer
+    ``_broker_ping``: read one length-prefixed request, reply with a
+    pong on stream 0 and an exit frame on stream 2.  The probe's first
+    connection is a bare connect+close, so EOF anywhere is tolerated."""
+    try:
+        hdr = b""
+        while len(hdr) < 4:
+            chunk = conn.recv(4 - len(hdr))
+            if not chunk:
+                return
+            hdr += chunk
+        (ln,) = struct.unpack(">I", hdr)
+        body = b""
+        while len(body) < ln:
+            chunk = conn.recv(ln - len(body))
+            if not chunk:
+                return
+            body += chunk
+        payload = b'{"pong": true}'
+        conn.sendall(struct.pack(">BI", 0, len(payload)) + payload)
+        conn.sendall(struct.pack(">BI", 2, 1) + b"0")
+    except OSError:
+        pass
+    finally:
+        try:
+            conn.close()
+        except OSError:
+            pass
+
+
+class TestDoctorBrokerRelayProbe:
+    """Per-jail relay probe (relay unification, Round 2).
+
+    A dead relay reproduces exactly the symptom the token-logout doc
+    exists for: one jail 502s while ``yolo doctor`` grades the singleton
+    broker healthy.  So doctor must probe each running jail's relay
+    socket end-to-end and NAME THE FAILING LAYER — relay (socket
+    missing / connect refused) vs broker (relay accepts but no pong
+    comes back through it)."""
+
+    def _events(self):
+        events = []
+        return (
+            events,
+            lambda m, *a, **kw: events.append(("ok", m)),
+            lambda m, *a, **kw: events.append(("warn", m)),
+            lambda m, *a, **kw: events.append(("fail", m)),
+        )
+
+    def test_healthy_relay_reports_ok(self, tmp_path):
+        sock_path = tmp_path / "claude-oauth-broker.sock"
+        srv = _serve_unix(sock_path, _pong_handler)
+        try:
+            events, ok, warn, fail = self._events()
+            cli.check_cmd._check_broker_relay(
+                ok, fail, "loophole claude-oauth-broker @ yolo-ws-abc12345", sock_path
+            )
+        finally:
+            srv.close()
+        assert [k for k, _ in events] == ["ok"]
+        assert "relay ok" in events[0][1]
+
+    def test_missing_socket_fails_naming_jail_and_relay(self, tmp_path):
+        events, ok, warn, fail = self._events()
+        cli.check_cmd._check_broker_relay(
+            ok,
+            fail,
+            "loophole claude-oauth-broker @ yolo-ws-abc12345",
+            tmp_path / "claude-oauth-broker.sock",
+        )
+        assert [k for k, _ in events] == ["fail"]
+        assert "yolo-ws-abc12345" in events[0][1]
+        assert "relay" in events[0][1]
+
+    def test_stale_socket_connect_refused_is_relay_layer(self, tmp_path):
+        # Bind then close: the socket FILE stays behind but nothing
+        # listens — the signature of a relay process that died.
+        sock_path = tmp_path / "claude-oauth-broker.sock"
+        srv = socket.socket(socket.AF_UNIX, socket.SOCK_STREAM)
+        srv.bind(str(sock_path))
+        srv.listen(1)
+        srv.close()
+        events, ok, warn, fail = self._events()
+        cli.check_cmd._check_broker_relay(
+            ok, fail, "loophole claude-oauth-broker @ yolo-ws-abc12345", sock_path
+        )
+        assert [k for k, _ in events] == ["fail"]
+        assert "relay socket dead" in events[0][1]
+
+    def test_relay_up_broker_down_is_broker_layer(self, tmp_path):
+        # Relay-alike that accepts and immediately closes — what the real
+        # relay does to its client when the singleton is unreachable.
+        sock_path = tmp_path / "claude-oauth-broker.sock"
+        srv = _serve_unix(sock_path, lambda conn: conn.close())
+        try:
+            events, ok, warn, fail = self._events()
+            cli.check_cmd._check_broker_relay(
+                ok, fail, "loophole claude-oauth-broker @ yolo-ws-abc12345", sock_path
+            )
+        finally:
+            srv.close()
+        assert [k for k, _ in events] == ["fail"]
+        assert "broker unreachable" in events[0][1]
+
+    # ── the caller: _check_host_service_liveness routes the broker to
+    #    the relay probe and must never false-pass on enumeration errors ──
+
+    def _liveness_setup(self, monkeypatch, tmp_path, *, ps_stdout, ps_rc=0):
+        monkeypatch.delenv("YOLO_VERSION", raising=False)
+        lp = MagicMock()
+        lp.name = cli.BROKER_LOOPHOLE_NAME
+        lp.enabled = True
+        lp.requirements_met = True
+        lp.host_daemon = MagicMock()
+        monkeypatch.setattr(
+            cli._loopholes, "validate_loopholes", lambda: [(None, lp, None)]
+        )
+        monkeypatch.setattr(
+            "cli.check_cmd._detect_runtime_for_listing", lambda: "podman"
+        )
+        ps_result = MagicMock(stdout=ps_stdout, stderr="boom", returncode=ps_rc)
+        monkeypatch.setattr("cli.check_cmd.subprocess.run", lambda *a, **kw: ps_result)
+        sockets_dir = tmp_path / "sockets"
+        sockets_dir.mkdir()
+        monkeypatch.setattr(
+            "cli.check_cmd._host_service_sockets_dir", lambda _cname: sockets_dir
+        )
+        return sockets_dir
+
+    def test_liveness_probes_broker_relay_per_jail(self, monkeypatch, tmp_path):
+        """The old broker skip is gone: a running jail whose relay socket
+        answers gets an ok line naming the jail; a jail without the
+        socket gets a relay-layer fail."""
+        sockets_dir = self._liveness_setup(
+            monkeypatch, tmp_path, ps_stdout="yolo-ws-abc12345\n"
+        )
+        srv = _serve_unix(sockets_dir / "claude-oauth-broker.sock", _pong_handler)
+        try:
+            events, ok, warn, fail = self._events()
+            cli._check_host_service_liveness(ok, warn, fail)
+        finally:
+            srv.close()
+        oks = [m for k, m in events if k == "ok"]
+        assert any("yolo-ws-abc12345" in m and "relay ok" in m for m in oks), events
+        assert not [m for k, m in events if k == "fail"]
+
+    def test_liveness_fails_when_relay_socket_missing(self, monkeypatch, tmp_path):
+        self._liveness_setup(monkeypatch, tmp_path, ps_stdout="yolo-ws-abc12345\n")
+        events, ok, warn, fail = self._events()
+        cli._check_host_service_liveness(ok, warn, fail)
+        fails = [m for k, m in events if k == "fail"]
+        assert any("yolo-ws-abc12345" in m and "relay" in m for m in fails), events
+
+    def test_liveness_warns_when_jail_listing_fails(self, monkeypatch, tmp_path):
+        """`podman ps` failing must warn — NOT read as "no jails running",
+        which would false-pass every per-jail relay probe."""
+        self._liveness_setup(monkeypatch, tmp_path, ps_stdout="", ps_rc=1)
+        events, ok, warn, fail = self._events()
+        cli._check_host_service_liveness(ok, warn, fail)
+        assert [k for k, _ in events] == ["warn"], events
+        assert "could not list containers" in events[0][1]
+
+
+# ═══════════════════════════════════════════════════════════════════════════════
 # Test: run() command — early setup paths
 # ═══════════════════════════════════════════════════════════════════════════════
 
 
-def _run_monkeypatch(monkeypatch, tmp_path):
+def _run_monkeypatch(monkeypatch, tmp_path, *, broker_socket_exists=True):
     """Common monkeypatching for run command tests."""
     monkeypatch.chdir(tmp_path)
     monkeypatch.setenv("YOLO_REPO_ROOT", str(REPO_ROOT))
@@ -1957,7 +2152,22 @@ def _run_monkeypatch(monkeypatch, tmp_path):
     monkeypatch.setattr("cli._broker_spawn", lambda: fake_sock)
     monkeypatch.setattr("cli.run_cmd.start_loopholes", lambda *a, **kw: [])
     monkeypatch.setattr("cli.run_cmd.stop_loopholes", lambda *a, **kw: None)
-    monkeypatch.setattr("cli._start_broker_relay", lambda *a, **kw: None)
+    # run_cmd binds the broker/relay names by from-import, so patch the
+    # run_cmd bindings — patching the cli re-exports would leave the real
+    # ones reachable.  Point the singleton socket at a tmp path so the
+    # broker block never keys off the dev machine's real
+    # /tmp/yolo-claude-oauth-broker.sock; it EXISTS by default so the
+    # block is exercised deterministically.  The relay ensure is a
+    # MagicMock so no supervised relay process leaks out of a unit test
+    # and wiring tests can assert on the calls.
+    if broker_socket_exists:
+        fake_sock.touch()
+    monkeypatch.setattr("cli.run_cmd.BROKER_SINGLETON_SOCKET", fake_sock)
+    monkeypatch.setattr("cli.run_cmd._relay_ensure", MagicMock())
+    # The orphan-relay sweep enumerates containers through the SAME
+    # mocked subprocess.run these tests install (→ live = empty set) —
+    # unstubbed it would reap REAL relays on the dev machine.
+    monkeypatch.setattr("cli.run_cmd._relay_reap_orphans", MagicMock(return_value=[]))
     for d in (
         "home",
         "mise",
@@ -2168,6 +2378,152 @@ class TestRunExecIntoExisting:
         runner = CliRunner()
         result = runner.invoke(app, ["run", "--", "echo", "hello"])
         assert result.exit_code != 0
+
+
+def _invoke_run_with_relay(
+    tmp_path, monkeypatch, relay, *, existing=(None, None), broker_socket_exists=True
+):
+    """Invoke ``yolo run`` with the broker block armed: the (patched)
+    singleton socket exists (unless ``broker_socket_exists=False``) and
+    ``cli.run_cmd._relay_ensure`` is ``relay``.  ``existing`` feeds
+    ``find_running_container`` — one value per expected call (pre-lock
+    check, then post-lock re-check).  Returns (CliRunner result, mocked
+    subprocess.Popen)."""
+    _run_monkeypatch(monkeypatch, tmp_path, broker_socket_exists=broker_socket_exists)
+    monkeypatch.setattr("cli.run_cmd._relay_ensure", relay)
+    (tmp_path / "yolo-jail.jsonc").write_text("{}")
+    with (
+        patch("shutil.which") as mock_which,
+        patch("subprocess.check_output", side_effect=FileNotFoundError),
+        patch("subprocess.run", return_value=MagicMock(returncode=0, stdout="")),
+        # Padding covers the post-launch lock-release poll (up to 20 calls).
+        patch(
+            "cli.run_cmd.find_running_container",
+            side_effect=list(existing) + [None] * 25,
+        ),
+        patch("cli.run_cmd._check_config_changes", return_value=True),
+        patch("cli.run_cmd.auto_load_image"),
+        patch("subprocess.Popen") as mock_popen,
+    ):
+        _mock_runtimes(mock_which)
+        proc = MagicMock()
+        proc.wait.return_value = None
+        proc.returncode = 0
+        mock_popen.return_value = proc
+        result = CliRunner().invoke(app, ["run", "--", "true"])
+    return result, mock_popen
+
+
+class TestRunBrokerRelayWiring:
+    """Relay unification wiring in run() (Round 2).
+
+    The singleton broker socket is never bind-mounted into the jail any
+    more (a socket-FILE mount pins the inode; a broker restart left
+    every running jail holding the dead socket).  Instead a per-jail
+    relay — a supervised standalone process — listens inside the
+    already-mounted sockets dir, and ``_relay_ensure`` must fire on the
+    fresh-run path AND both exec/attach branches (the container outlives
+    any single ``yolo`` invocation, so attach must heal a dead relay).
+    A relay failure must never block the jail."""
+
+    def test_fresh_run_mounts_no_socket_file_and_keeps_env(self, tmp_path, monkeypatch):
+        relay = MagicMock()
+        result, mock_popen = _invoke_run_with_relay(tmp_path, monkeypatch, relay)
+        assert mock_popen.called, f"launch expected; output: {result.output}"
+        argv = [str(a) for a in mock_popen.call_args[0][0]]
+
+        # The Round-2 bug: no `-v` spec may reference the singleton
+        # socket file (that mount pinned the inode across broker restarts).
+        singleton = str(tmp_path / "broker.sock")
+        mounts = [argv[i + 1] for i, a in enumerate(argv) if a == "-v"]
+        assert not [m for m in mounts if m.startswith(f"{singleton}:")], mounts
+
+        # The terminator still finds the (relay) socket through the
+        # unchanged env wiring + the existing sockets-DIR mount.
+        assert (
+            "YOLO_SERVICE_CLAUDE_OAUTH_BROKER_SOCKET="
+            "/run/yolo-services/claude-oauth-broker.sock" in argv
+        )
+        cname = container_name_for_workspace(tmp_path)
+        assert any(
+            m == f"{_host_service_sockets_dir(cname)}:/run/yolo-services:rw"
+            for m in mounts
+        ), mounts
+
+    def test_fresh_run_ensures_relay_for_this_jail(self, tmp_path, monkeypatch):
+        relay = MagicMock()
+        result, mock_popen = _invoke_run_with_relay(tmp_path, monkeypatch, relay)
+        assert mock_popen.called, f"launch expected; output: {result.output}"
+        assert relay.call_count == 1
+        cname, sockets_dir = relay.call_args[0]
+        assert cname == container_name_for_workspace(tmp_path)
+        assert sockets_dir == _host_service_sockets_dir(cname)
+
+    def test_fresh_run_relay_failure_is_nonfatal(self, tmp_path, monkeypatch):
+        relay = MagicMock(side_effect=RuntimeError("relay spawn boom"))
+        result, mock_popen = _invoke_run_with_relay(tmp_path, monkeypatch, relay)
+        assert mock_popen.called, "a broken relay must not block the jail launch"
+        assert result.exit_code == 0, result.output
+        assert "relay not ensured" in result.output
+
+    def test_attach_existing_heals_relay(self, tmp_path, monkeypatch):
+        relay = MagicMock()
+        result, mock_popen = _invoke_run_with_relay(
+            tmp_path, monkeypatch, relay, existing=("abc123",)
+        )
+        assert "Attaching to existing" in result.output
+        # The exec path starts no container — but it must heal a relay
+        # whose spawning `yolo run` process died (terminal close, SIGKILL).
+        assert relay.call_count == 1
+        assert relay.call_args[0][0] == container_name_for_workspace(tmp_path)
+        assert result.exit_code == 0, result.output
+
+    def test_attach_race_branch_heals_relay(self, tmp_path, monkeypatch):
+        relay = MagicMock()
+        result, mock_popen = _invoke_run_with_relay(
+            tmp_path, monkeypatch, relay, existing=(None, "abc123")
+        )
+        assert "Attaching to jail started by another process" in result.output
+        assert relay.call_count == 1
+        assert result.exit_code == 0, result.output
+
+    def test_attach_relay_failure_is_nonfatal(self, tmp_path, monkeypatch):
+        relay = MagicMock(side_effect=RuntimeError("relay spawn boom"))
+        result, mock_popen = _invoke_run_with_relay(
+            tmp_path, monkeypatch, relay, existing=("abc123",)
+        )
+        assert "Attaching to existing" in result.output
+        assert result.exit_code == 0, result.output
+        assert "relay not ensured" in result.output
+
+    def test_fresh_run_skips_relay_without_singleton_socket(
+        self, tmp_path, monkeypatch
+    ):
+        """No singleton socket = nothing to relay to.  The relay must not
+        spawn and the terminator env var must not be injected —
+        ``_broker_ensure`` owns that layer."""
+        relay = MagicMock()
+        result, mock_popen = _invoke_run_with_relay(
+            tmp_path, monkeypatch, relay, broker_socket_exists=False
+        )
+        assert mock_popen.called, f"launch expected; output: {result.output}"
+        argv = [str(a) for a in mock_popen.call_args[0][0]]
+        relay.assert_not_called()
+        assert not any("YOLO_SERVICE_CLAUDE_OAUTH_BROKER_SOCKET" in a for a in argv), (
+            argv
+        )
+
+    def test_attach_skips_relay_without_singleton_socket(self, tmp_path, monkeypatch):
+        relay = MagicMock()
+        result, _ = _invoke_run_with_relay(
+            tmp_path,
+            monkeypatch,
+            relay,
+            existing=("abc123",),
+            broker_socket_exists=False,
+        )
+        assert "Attaching to existing" in result.output
+        relay.assert_not_called()
 
 
 class TestRunNewContainerMounts:

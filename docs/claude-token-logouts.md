@@ -15,6 +15,7 @@ Host and jail are **independent identities** by design.
 - **Host** Claude reads/writes `~/.claude/.credentials.json` and talks to Anthropic directly.
 - **Jails** share `~/.local/share/yolo-jail/home/.claude-shared-credentials/.credentials.json`. Each jail's `~/.claude/.credentials.json` is a relative symlink into the shared dir (resolves only inside the jail).
 - A **singleton** `yolo-claude-oauth-broker-host` daemon serves every jail. PID file at `/tmp/yolo-claude-oauth-broker.pid`, socket at `/tmp/yolo-claude-oauth-broker.sock`, log at `~/.local/share/yolo-jail/logs/host-service-claude-oauth-broker.log`.
+- Jails never touch the singleton's socket directly. Each running jail has a **per-jail relay** — a supervised host-side process listening at `/tmp/yolo-host-services-<hash>/claude-oauth-broker.sock` (in-jail: `/run/yolo-services/claude-oauth-broker.sock`) that dials the singleton **per connection** and stamps each request with the jail's identity for the broker log. The relay is re-ensured on every `yolo` invocation that targets the jail.
 
 Implication for triage: **divergence between host and shared creds is the design**, not a bug. Don't try to "re-converge" them — that re-introduces the refresh-token race the split was designed to eliminate.
 
@@ -49,6 +50,7 @@ Scan the Loopholes section for the `claude-oauth-broker` lines.
 | `loophole claude-oauth-broker: daemon not running` | Singleton hasn't been started. | `yolo broker restart` (or just run a jail — first `yolo run` spawns it). |
 | `loophole claude-oauth-broker: stale PID file …` | Previous singleton crashed. | `yolo broker restart`. |
 | `loophole claude-oauth-broker: daemon unresponsive …` | Process exists but doesn't answer ping. | `yolo broker restart` — typical after a wheel upgrade left old code in memory. |
+| **One jail 502s (`broker_unavailable`) / `Connection refused` in its terminator log while doctor says the broker is healthy.** Post-relay terminator logs name the layer: `relay unreachable — the host-side relay for this jail is down`. | That jail's per-jail relay is dead — the singleton can be perfectly healthy while one jail's relay socket answers nothing. On pre-relay installs (socket-file bind mount), the same symptom means the jail is holding a dead socket inode from a broker restart. | Check the per-jail relay lines in `yolo doctor` — they name the jail. Any `yolo` command targeting that workspace heals the relay (`_relay_ensure` runs on every invocation). Pre-relay installs: relaunch the jail. |
 | `shared creds expired Nm ago` | Refreshes are not landing. | Re-`/login` from inside a jail; tail the broker log to see what's happening. |
 | `shared creds expire in Nm` | Approaching expiry without a refresh. | Watch — if it ticks down without a refresh landing, escalate. |
 | `loophole claude-oauth-broker: daemon live (pid=…, ping ok)` and `shared creds valid for Xh Ym` | All good. | — |
@@ -67,6 +69,8 @@ Scan the Loopholes section for the `claude-oauth-broker` lines.
 yolo broker status
 yolo broker logs -n 50
 ```
+
+`yolo broker restart` is safe under running jails: each jail's relay dials the singleton per connection, so the next request lands on the new socket automatically — no jail relaunch needed. A request in flight at the instant of restart fails once and recovers on retry. (Pre-relay installs bind-mounted the socket *file* and pinned the dead inode — there, a broker restart requires relaunching every running jail.)
 
 The log shows every `POST /v1/oauth/token` proxied from a jail. Healthy refresh cadence is one `is_refresh=True` request every ~7–8h per active jail. If the log shows only `is_refresh=False` (PKCE `authorization_code`, i.e. `/login`) entries — Claude inside the jail is not sending refresh-token grants. That's the open architectural question; see the handoff doc.
 

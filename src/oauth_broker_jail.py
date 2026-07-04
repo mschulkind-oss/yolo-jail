@@ -9,7 +9,8 @@ jail trusts (via ``NODE_EXTRA_CA_CERTS``).
 
 For ``POST /v1/oauth/token`` with ``grant_type=refresh_token``:
 forward the refresh to the host-side broker over the loophole's Unix
-socket (the flock + single-writer lives there).  For any other
+socket — a per-jail relay on the host that dials the broker singleton
+per connection (the flock + single-writer lives in the broker).  For any other
 ``/v1/oauth/token`` grant (``authorization_code`` from ``/login``,
 future PKCE exchanges, …) and for any other path: ship the request
 over the same socket with ``action=proxy`` and let the host broker
@@ -31,6 +32,7 @@ from __future__ import annotations
 
 import argparse
 import base64
+import errno
 import json
 import logging
 import os
@@ -77,20 +79,43 @@ def _recv_all(conn: socket.socket, n: int) -> Optional[bytes]:
 
 
 def ask_host_broker(socket_path: str, request: Dict[str, Any]) -> Dict[str, Any]:
-    """Send a request to the host-side OAuth broker over its Unix socket,
-    return the parsed JSON response.  Raises ``RuntimeError`` on any
-    transport or protocol failure — caller translates those into 502s for
-    Claude.  OSErrors (host daemon dead, socket bind-mount stale,
-    connection refused, read timeout) are wrapped as RuntimeError so a
-    single ``except RuntimeError`` in callers catches every failure
-    mode; otherwise the exception escapes the HTTP handler and Claude
-    sees a torn TLS connection mid-response — which during ``/login``
-    looks like "socket closed too soon after I pasted the code"."""
+    """Send a request to the host-side OAuth broker, return the parsed
+    JSON response.  ``socket_path`` is the per-jail RELAY socket — a
+    host-side relay process listens there and dials the real broker
+    per connection — so failures come in two layers, and every error
+    message must name which one so the jail log answers "which layer
+    failed": connect-phase ENOENT/ECONNREFUSED means the relay itself
+    is down; a connection that closes before an exit frame means the
+    relay answered but the broker behind it was unreachable.  Post-
+    connect EPIPE/ECONNRESET is that same broker layer caught in the
+    send/recv phase — the relay accepted, failed its dial, and tore
+    the connection down while our frame was still in flight.
+
+    Raises ``RuntimeError`` on any transport or protocol failure —
+    caller translates those into 502s for Claude.  OSErrors are wrapped
+    as RuntimeError so a single ``except RuntimeError`` in callers
+    catches every failure mode; otherwise the exception escapes the
+    HTTP handler and Claude sees a torn TLS connection mid-response —
+    which during ``/login`` looks like "socket closed too soon after I
+    pasted the code"."""
     conn = socket.socket(socket.AF_UNIX, socket.SOCK_STREAM)
     conn.settimeout(30.0)
     try:
         try:
             conn.connect(socket_path)
+        except OSError as e:
+            # ENOENT = relay socket missing (never started, or the
+            # sockets dir was recreated under it); ECONNREFUSED = socket
+            # file present but no relay process behind it.  Both are the
+            # relay layer — distinct from the broker being down behind a
+            # live relay (EOF before exit frame, below).
+            if e.errno in (errno.ENOENT, errno.ECONNREFUSED):
+                raise RuntimeError(
+                    "relay unreachable — the host-side relay for this jail "
+                    f"is down ({socket_path}: {e})"
+                ) from e
+            raise RuntimeError(f"host broker socket {socket_path}: {e}") from e
+        try:
             body = json.dumps(request).encode()
             conn.sendall(struct.pack(">I", len(body)))
             conn.sendall(body)
@@ -115,11 +140,30 @@ def ask_host_broker(socket_path: str, request: Dict[str, Any]) -> Dict[str, Any]
                     (rc,) = struct.unpack(">i", payload)
                     break
         except OSError as e:
+            # EPIPE/ECONNRESET after a successful connect is the relay
+            # tearing the connection down because its per-connection
+            # dial of the real broker failed — the same broker layer as
+            # EOF-before-exit-frame (below), just caught while our
+            # frame was still in flight (large action=proxy bodies
+            # spend real time in sendall; the relay may accept, fail
+            # its dial, and close before the write lands).  Name the
+            # layer instead of the generic wrap.
+            if e.errno in (errno.EPIPE, errno.ECONNRESET):
+                raise RuntimeError(
+                    "host broker unreachable through the relay "
+                    f"(connection reset mid-request: {e})"
+                ) from e
             raise RuntimeError(f"host broker socket {socket_path}: {e}") from e
     finally:
         conn.close()
     if rc is None:
-        raise RuntimeError("host broker closed without an exit frame")
+        # The relay accepted the connection but closed it before an exit
+        # frame — its per-connection dial of the real broker failed.
+        # Broker layer, not relay layer.
+        raise RuntimeError(
+            "host broker unreachable through the relay "
+            "(connection closed without an exit frame)"
+        )
     if rc != 0:
         raise RuntimeError(f"host broker exited {rc}")
     try:
@@ -154,7 +198,9 @@ def _proxy_upstream(
     try:
         resp = ask_host_broker(host_socket_path, request)
     except RuntimeError as e:
-        log.error("proxy via host broker failed: %s", e)
+        # The message names the failing layer ("relay unreachable —" vs
+        # "host broker …") — don't prefix it with a layer of our own.
+        log.error("proxy failed: %s", e)
         return (
             502,
             {"Content-Type": "application/json"},
@@ -251,7 +297,8 @@ class _JailBrokerHandler(BaseHTTPRequestHandler):
             try:
                 resp = ask_host_broker(self.host_socket_path, {"action": "refresh"})
             except RuntimeError as e:
-                log.error("refresh: host broker error: %s", e)
+                # Message names the failing layer (relay vs broker).
+                log.error("refresh failed: %s", e)
                 self._send(
                     502,
                     json.dumps(
