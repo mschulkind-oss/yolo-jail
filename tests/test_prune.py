@@ -643,11 +643,32 @@ class TestPruneShadowedHome:
 
         bytes_removed, items_removed = prune._prune_shadowed_home(gh, apply=True)
 
-        assert not (gh / ".cache").exists()
-        assert not (gh / ".npm").exists()
+        # Contents reclaimed; the dirs themselves survive — they are the
+        # mount anchors live jails' home overlays hang off (see
+        # test_keeps_dirs_as_live_mount_anchors).
+        assert (gh / ".cache").is_dir()
+        assert not (gh / ".cache" / "big").exists()
+        assert (gh / ".npm").is_dir()
+        assert not (gh / ".npm" / "big").exists()
         assert (gh / ".copilot" / "auth.json").exists()
         assert items_removed == 2
         assert bytes_removed == 8000
+
+    def test_keeps_dirs_as_live_mount_anchors(self, monkeypatch, tmp_path):
+        """Regression for the 2026-07-04 incident: `yolo prune --apply`
+        rmtree'd GLOBAL_HOME/.cache etc. while a jail was running, which
+        orphaned the jail's overlay mounts anchored on those dentries.
+        The pass must empty the dirs, never delete them."""
+        gh = tmp_path / "home"
+        (gh / ".cache" / "nested" / "deep").mkdir(parents=True)
+        (gh / ".cache" / "nested" / "deep" / "f").write_bytes(b"x" * 10)
+        (gh / ".cache" / "toplevel-file").write_bytes(b"y" * 5)
+        monkeypatch.setattr(prune, "SHADOWED_HOME_PATHS", (".cache",))
+
+        prune._prune_shadowed_home(gh, apply=True)
+
+        assert (gh / ".cache").is_dir(), "mount anchor must survive"
+        assert list((gh / ".cache").iterdir()) == [], "contents reclaimed"
 
     def test_dry_run_reports_but_does_not_delete(self, monkeypatch, tmp_path):
         gh = tmp_path / "home"

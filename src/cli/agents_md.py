@@ -229,7 +229,7 @@ def generate_agents_md(
             content = user_content + "\n---\n\n" + jail_content
         else:
             content = jail_content
-        (agents_dir / f"AGENTS-{agent}.md").write_text(content)
+        _write_briefing(agents_dir / f"AGENTS-{agent}.md", content)
 
     # Claude reads ~/.claude/CLAUDE.md (not AGENTS.md) at the user-config level.
     user_claude = home / ".claude" / "CLAUDE.md"
@@ -237,9 +237,29 @@ def generate_agents_md(
         claude_content = user_claude.read_text() + "\n---\n\n" + jail_content
     else:
         claude_content = jail_content
-    (agents_dir / "CLAUDE.md").write_text(claude_content)
+    _write_briefing(agents_dir / "CLAUDE.md", claude_content)
 
     return agents_dir
+
+
+def _write_briefing(path: Path, content: str) -> None:
+    """Truncate-in-place, but never through a hardlink.
+
+    In-place truncation preserves the inode a running jail's file bind
+    mount captured, so refreshes propagate (see _refresh_jail_briefings).
+    But a hardlink-dedup pass (`yolo prune`) can fuse identical briefing
+    files onto ONE inode — truncating through that link would clobber
+    every sibling briefing with whichever agent's content is written
+    last (observed 2026-07-04 after a host-side `yolo prune --apply`).
+    A multi-linked file has already lost its live-refresh identity, so
+    breaking the link with a fresh inode is strictly an improvement.
+    """
+    try:
+        if path.lstat().st_nlink > 1:
+            path.unlink()
+    except OSError:
+        pass
+    path.write_text(content)
 
 
 # ---------------------------------------------------------------------------

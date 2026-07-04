@@ -770,8 +770,10 @@ def _prune_shadowed_home(
     *,
     apply: bool,
 ) -> Tuple[int, int]:
-    """Delete subpaths of ``global_home`` listed in
-    ``SHADOWED_HOME_PATHS``.  Returns ``(bytes_removed, items_removed)``.
+    """Reclaim the shadowed copies under ``global_home`` listed in
+    ``SHADOWED_HOME_PATHS``.  Directories are emptied but PRESERVED —
+    they anchor live jails' overlay mounts.  Returns
+    ``(bytes_removed, items_removed)``.
 
     Symlinks are unlinked but never traversed — if the operator
     relocated a shadowed dir to cold storage via ``ln -s``, the real
@@ -816,10 +818,27 @@ def _prune_shadowed_home(
         if _stat.S_ISDIR(lst.st_mode):
             size = _dir_size_bytes(target)
             if apply:
-                try:
-                    _shutil.rmtree(target)
-                except OSError as e:
-                    log.debug("rmtree %s failed: %s", target, e)
+                # Delete CONTENTS only, never the directory itself: these
+                # dirs are the mount anchors for every running jail's home
+                # overlays (`-v ws_state/local:/home/agent/.local` etc. hang
+                # off these dentries in the :ro GLOBAL_HOME base).  rmtree
+                # of the dir orphans those mounts in-place — observed
+                # 2026-07-04: `yolo prune --apply` under a running jail
+                # severed its .cache/.local/.npm-global/go mid-session.
+                # The contents are invisible to running jails (the overlay
+                # shadows them), so removing them is safe; the empty dir
+                # costs one block.
+                failed = False
+                for child in target.iterdir():
+                    try:
+                        if child.is_dir() and not child.is_symlink():
+                            _shutil.rmtree(child)
+                        else:
+                            child.unlink()
+                    except OSError as e:
+                        log.debug("remove %s failed: %s", child, e)
+                        failed = True
+                if failed:
                     continue
             bytes_removed += size
             items_removed += 1

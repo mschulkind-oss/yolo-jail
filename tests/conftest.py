@@ -95,6 +95,63 @@ def _simulate_linux_for_unit_tests(request, monkeypatch):
             pass
 
 
+# Storage-path constants that unit tests must never resolve to the real
+# machine.  Every cli module that from-imports one gets its binding
+# redirected; a test's own monkeypatch (applied later) still wins.
+_STORAGE_CONSTANTS = (
+    "GLOBAL_STORAGE",
+    "GLOBAL_HOME",
+    "GLOBAL_MISE",
+    "GLOBAL_CACHE",
+    "CONTAINER_DIR",
+    "AGENTS_DIR",
+    "BUILD_DIR",
+    "USER_CONFIG_PATH",
+)
+
+
+@pytest.fixture(autouse=True)
+def _hermetic_storage_paths(request, monkeypatch, tmp_path_factory):
+    """Redirect every storage-path constant to a per-test scratch root.
+
+    Unit tests that miss a monkeypatch otherwise operate on the REAL
+    yolo-jail state of whatever machine runs the suite — on 2026-07-04 a
+    suite run left ~1650 litter dirs in the real AGENTS_DIR, and
+    real-path writes were a live suspect while diagnosing a severed-jail
+    incident.  Safe-by-default: tests get a scratch root; the handful of
+    integration tests (``slow`` marker) that genuinely need real state
+    keep it.
+
+    Only module-level *bindings* are redirected — code that re-derives a
+    path from ``Path.home()`` at call time (rare; ``_host_mise_dir``) is
+    redirected explicitly below.
+    """
+    is_integration = any(m.name == "slow" for m in request.node.iter_markers())
+    if is_integration:
+        return
+
+    root = tmp_path_factory.mktemp("yolo-hermetic")
+    values = {
+        "GLOBAL_STORAGE": root / "storage",
+        "GLOBAL_HOME": root / "storage" / "home",
+        "GLOBAL_MISE": root / "storage" / "mise",
+        "GLOBAL_CACHE": root / "storage" / "cache",
+        "CONTAINER_DIR": root / "storage" / "containers",
+        "AGENTS_DIR": root / "storage" / "agents",
+        "BUILD_DIR": root / "storage" / "build",
+        "USER_CONFIG_PATH": root / "config.jsonc",
+    }
+    for mod_name, mod in list(sys.modules.items()):
+        if mod is None or not (mod_name == "cli" or mod_name.startswith("cli.")):
+            continue
+        for const in _STORAGE_CONSTANTS:
+            if hasattr(mod, const):
+                monkeypatch.setattr(mod, const, values[const])
+    storage_mod = sys.modules.get("cli.storage")
+    if storage_mod is not None and hasattr(storage_mod, "_host_mise_dir"):
+        monkeypatch.setattr(storage_mod, "_host_mise_dir", lambda: root / "host-mise")
+
+
 def _detect_runtime() -> str | None:
     for rt in ("podman", "container"):
         if shutil.which(rt):
