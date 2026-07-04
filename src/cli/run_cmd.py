@@ -41,14 +41,17 @@ from rich.console import Console
 
 from src import loopholes as _loopholes
 
-from .agents_md import _prepare_skills, generate_agents_md
+from .agents_md import (
+    _prepare_skills,
+    _workspace_is_yolo_source_tree,
+    generate_agents_md,
+)
 from .config import (
     ConfigError,
     DEFAULT_HOST_CLAUDE_FILES,
     _check_config_changes,
     _check_preset_null_conflicts,
     _effective_packages,
-    _filter_mcp_servers_by_env,
     _load_jsonc_file,
     _merge_mise_disabled_tools,
     _merge_mise_tools,
@@ -274,21 +277,6 @@ def _resolve_repo_root() -> Path:
         '  { "repo_path": "~/code/yolo-jail" }'
     )
     raise typer.Exit(1)
-
-
-def _workspace_is_yolo_source_tree(workspace: Path) -> bool:
-    """True when the workspace being jailed is itself a yolo-jail source
-    checkout: ``src/cli/__init__.py`` present AND ``pyproject.toml``
-    naming the ``yolo-jail`` project.  An absent, unreadable, or foreign
-    pyproject reads as "not a yolo repo"."""
-    if not (workspace / "src" / "cli" / "__init__.py").exists():
-        return False
-    try:
-        data = tomllib.loads((workspace / "pyproject.toml").read_text())
-    except (OSError, UnicodeDecodeError, tomllib.TOMLDecodeError):
-        return False
-    project = data.get("project")
-    return isinstance(project, dict) and project.get("name") == "yolo-jail"
 
 
 # ---------------------------------------------------------------------------
@@ -742,14 +730,6 @@ def _refresh_jail_briefings(
         if resolved.exists():
             mount_descriptions.append(f"{resolved}:{container_path}")
 
-    # Mirror the in-jail requires_env gating (entrypoint._load_mcp_servers)
-    # so the AGENTS.md "MCP Servers:" line only names servers that will
-    # actually be configured.  The predictor for the jail env is the
-    # resolved env_sources map — host shell vars don't reach the jail.
-    mcp_servers = _filter_mcp_servers_by_env(
-        config.get("mcp_servers"), _resolve_env_sources(workspace, config)
-    )
-
     _prepare_skills(cname)
     return generate_agents_md(
         cname,
@@ -759,8 +739,6 @@ def _refresh_jail_briefings(
         net_mode=net_mode,
         runtime=runtime,
         forward_host_ports=forward_host_ports or None,
-        mcp_servers=mcp_servers or None,
-        mcp_presets=config.get("mcp_presets") or None,
         agents_md_extra=config.get("agents_md_extra"),
     )
 

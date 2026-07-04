@@ -12,11 +12,26 @@
 """
 
 import shutil
+import tomllib
 from pathlib import Path
 from typing import Any, Dict, List, Optional
 
-from .config import _effective_mcp_server_names
 from .paths import AGENTS_DIR
+
+
+def _workspace_is_yolo_source_tree(workspace: Path) -> bool:
+    """True when the workspace being jailed is itself a yolo-jail source
+    checkout: ``src/cli/__init__.py`` present AND ``pyproject.toml``
+    naming the ``yolo-jail`` project.  An absent, unreadable, or foreign
+    pyproject reads as "not a yolo repo"."""
+    if not (workspace / "src" / "cli" / "__init__.py").exists():
+        return False
+    try:
+        data = tomllib.loads((workspace / "pyproject.toml").read_text())
+    except (OSError, UnicodeDecodeError, tomllib.TOMLDecodeError):
+        return False
+    project = data.get("project")
+    return isinstance(project, dict) and project.get("name") == "yolo-jail"
 
 
 def generate_agents_md(
@@ -27,8 +42,6 @@ def generate_agents_md(
     net_mode: str = "bridge",
     runtime: str = "podman",
     forward_host_ports: Optional[List] = None,
-    mcp_servers: Optional[Dict[str, Any]] = None,
-    mcp_presets: Optional[List[str]] = None,
     agents_md_extra: Optional[str] = None,
 ) -> Path:
     """Generate per-workspace AGENTS.md and CLAUDE.md files and return the directory.
@@ -71,8 +84,6 @@ def generate_agents_md(
                     f"  - `localhost:{entry}` → host port {entry}"
                 )
 
-    mcp_server_names = _effective_mcp_server_names(mcp_servers, mcp_presets)
-
     lines = [
         "# YOLO Jail Environment",
         "",
@@ -90,7 +101,6 @@ def generate_agents_md(
         "",
         "Standard CLI tools: git, rg (ripgrep), fd, bat, jq, nvim, curl, wget, strace, gh",
         "Runtimes: Node.js 22, Python 3.13, Go (managed by mise)",
-        f"MCP Servers: {', '.join(mcp_server_names)}",
         "",
         "## Loopholes — controlled host access",
         "",
@@ -241,39 +251,39 @@ def generate_agents_md(
             "",
             "## Skills",
             "",
-            "Skills directories (`~/.copilot/skills/`, `~/.gemini/skills/`, `~/.claude/skills/`)",
-            "are **read-only** (kernel-enforced). You cannot create or modify skills inside the jail.",
-            "If you attempt to write, you will get a 'Read-only file system' error — this is expected.",
+            "User-level skills dirs (`~/.<agent>/skills/`) are **read-only** in-jail",
+            "(kernel-enforced); workspace-level ones (`/workspace/.<agent>/skills/`) are",
+            "writable — develop there, then ask the human to promote to the host.",
             "",
-            "To develop a new skill: create it in `/workspace/.copilot/skills/` (or `.gemini/`, `.claude/`),",
-            "test it manually, then ask the human to promote it to their host-level skills directory",
-            "outside the jail. The skill will be available in all jails after the next restart.",
-            "",
-            "## Testing Changes to yolo-jail",
-            "",
-            "The `/workspace` directory is a bind mount of the host's repo. Your edits to",
-            "`src/cli.py` are **immediately visible to the host** — no commit or push needed.",
-            "The host's `yolo` command reads from this shared working tree.",
-            "",
-            "When modifying `src/cli.py` or `src/entrypoint.py`, **always verify with a nested",
-            "jail** before telling the human to test on the host. Run `yolo -- bash` from inside",
-            "this jail to launch a nested jail and confirm your changes work end-to-end.",
-            "Container startup errors (mount failures, permission errors, read-only filesystem",
-            "conflicts) are only caught by actually running the container — unit tests alone are",
-            "not sufficient.",
-            "",
-            "**Important:** Changes to `src/cli.py` take effect on the next `yolo` invocation",
-            "on the host (no rebuild needed). Changes to `src/entrypoint.py` or `flake.nix`",
-            "require `just load && just install` on the host since the entrypoint is baked",
-            "into the Nix image.",
-            "",
-            "## First Session — Handover",
-            "",
-            "If this is your first session in this jail, invoke the **jail-startup** skill.",
-            "It reads the handover document at `.yolo/handover.md` left by the outer agent",
-            "and orients you to the jail environment. The human may ask you to invoke it —",
-            'just say "invoke the jail-startup skill" or use your skill invocation tool.',
-            "",
+        ]
+    )
+
+    if _workspace_is_yolo_source_tree(workspace):
+        lines.extend(
+            [
+                "## Testing Changes to yolo-jail",
+                "",
+                "The `/workspace` directory is a bind mount of the host's repo, and it also",
+                "backs `/opt/yolo-jail` — so nested jails launched from here run your edited",
+                "`src/cli` code live.",
+                "",
+                "When modifying `src/cli/` or `src/entrypoint/`, **always verify with a nested",
+                "jail** before telling the human to test on the host. Run `yolo -- bash` from",
+                "inside this jail to launch one and confirm your changes work end-to-end.",
+                "Container startup errors (mount failures, permission errors, read-only",
+                "filesystem conflicts) are only caught by actually running the container —",
+                "unit tests alone are not sufficient.",
+                "",
+                "**Important:** Changes to `src/cli/` take effect on the next `yolo` invocation",
+                "on the host (no rebuild needed). Changes to `src/entrypoint/` or `flake.nix`",
+                "require `just load && just install` on the host since the entrypoint is baked",
+                "into the Nix image.",
+                "",
+            ]
+        )
+
+    lines.extend(
+        [
             "## Startup Log",
             "",
             "The jail's provisioning log persists at `/workspace/.yolo/startup.log`.",

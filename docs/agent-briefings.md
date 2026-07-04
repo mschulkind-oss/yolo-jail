@@ -33,17 +33,22 @@ three parts, in order:
    `AGENTS.md`, Claude reads `CLAUDE.md`; variants like `CLAUDE.local.md`
    are not picked up.
 2. **The jail-managed briefing** — one `# YOLO Jail Environment` document
-   describing this specific jail. Sections, in emission order:
-   Environment (workspace, home, network, forwarded ports) → Available
-   Tools (+ MCP servers, filtered to those whose `requires_env` will
-   actually be satisfiable in-jail) → Loopholes → Blocked Tools
-   (conditional, from `security.blocked_tools`) → Additional Context
-   Mounts (conditional, from `mounts`) → Limitations → Adding Packages →
-   Resource Management (`yolo-cglimit` et al.) → Skills → Testing Changes
-   to yolo-jail → First Session — Handover (points at the `jail-startup`
-   skill and `.yolo/handover.md`) → Startup Log (points at
+   describing this specific jail, deliberately limited to what an agent
+   *cannot* discover through its own native mechanisms. Sections, in
+   emission order: Environment (workspace, home, network, forwarded
+   ports) → Available Tools (CLI tools + runtimes; MCP servers are NOT
+   listed — agents read them from their own generated config) →
+   Loopholes → Blocked Tools (conditional, from `security.blocked_tools`)
+   → Additional Context Mounts (conditional, from `mounts`) →
+   Limitations → Adding Packages → Resource Management (`yolo-cglimit`
+   et al.) → Skills (only the non-discoverable constraint: user-level
+   skill dirs are read-only in-jail, workspace-level ones are writable) →
+   Testing Changes to yolo-jail (conditional: only when the workspace is
+   itself a yolo-jail source tree) → Startup Log (points at
    `/workspace/.yolo/startup.log` and tells the agent to self-serve if it
-   contains `PROVISIONING FAILED`).
+   contains `PROVISIONING FAILED`). There is no handover section: the
+   staged `jail-startup` skill's own description already instructs
+   invocation at session start.
 3. **`agents_md_extra`**, appended verbatim — the config key
    (`yolo-jail.jsonc`, user- or workspace-level; string) for injecting
    arbitrary extra instructions into all three files.
@@ -156,3 +161,9 @@ propagates on the next `yolo` invocation like any other briefing edit.
 - `~/.claude/CLAUDE.md` prepending is unrelated to the
   `host_claude_files` config key — that syncs *settings/credential*
   files into `~/.claude/`, not briefings.
+
+<!-- changelog -->
+- [8e08ea37] Removed the MCP-server listing from the generated briefing (agents read their own generated config) and dropped the mcp_servers/mcp_presets plumbing from generate_agents_md
+- [89dc5579] Slimmed the Skills section to the one non-discoverable fact: user-level skill dirs read-only in-jail, workspace-level writable, promote via the host
+- [a6cc1e7c] Deleted the First Session — Handover section; the staged jail-startup skill's own description already drives invocation
+- [5774c1d9] Made "Testing Changes to yolo-jail" conditional on the workspace being a yolo-jail source tree (predicate moved to agents_md.py), and updated its text for the live /opt/yolo-jail mount

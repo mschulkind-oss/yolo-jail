@@ -2322,18 +2322,6 @@ class TestGenerateAgentsMd:
         assert "localhost:5432" in content
         assert "localhost:8080" in content
 
-    def test_mcp_servers_listed(self, tmp_path, monkeypatch):
-        monkeypatch.setattr("cli.AGENTS_DIR", tmp_path / "agents")
-        agents_dir = generate_agents_md(
-            cname="yolo-test",
-            workspace=tmp_path,
-            blocked_tools=[],
-            mount_descriptions=[],
-            mcp_presets=["chrome-devtools"],
-        )
-        content = (agents_dir / "AGENTS-copilot.md").read_text()
-        assert "chrome-devtools" in content
-
     def test_user_agents_prepended(self, tmp_path, monkeypatch):
         monkeypatch.setattr("cli.AGENTS_DIR", tmp_path / "agents")
         copilot_dir = tmp_path / ".copilot"
