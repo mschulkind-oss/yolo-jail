@@ -180,6 +180,15 @@ class TestJailEnv:
         assert "MISE_TRUST=1" not in argv
         assert not any(a.startswith("YOLO_OUTER_MISE_PATH") for a in argv)
 
+    def test_rustup_cargo_homes_point_into_the_store(self, tmp_path, monkeypatch):
+        """mise's rust backend drives rustup, which defaults to ~/.rustup /
+        ~/.cargo — read-only in-jail.  The jail defaults must land in the
+        writable store; a workspace's own mise [env] overrides them on
+        activation (empirically verified, mise 2026.6.13)."""
+        argv = _launch_argv(tmp_path, monkeypatch)
+        assert "RUSTUP_HOME=/mise/rustup" in argv
+        assert "CARGO_HOME=/mise/cargo" in argv
+
     def test_preflight_uses_fixed_store_path(self, tmp_path, monkeypatch):
         from cli.run_cmd import _entrypoint_preflight
 

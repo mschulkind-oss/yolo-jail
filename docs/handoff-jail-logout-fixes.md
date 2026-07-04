@@ -1,19 +1,13 @@
-# Handoff: fix the residual jail-logout mechanisms
+# Handoff: jail fix queue (oauth logouts + provisioning)
 
 Audience: an agent running **inside a yolo-jail** with this repo mounted at
 `/workspace`. All the host-side evidence below was gathered on the host on
-2026-07-03 — you cannot re-verify it from inside the jail (broker logs,
+2026-07-03/04 — you cannot re-verify it from inside the jail (broker logs,
 `GLOBAL_HOME`, other workspaces' `.yolo/` dirs are host-only). Trust it;
 your job is the code fix plus unit tests. Host-level verification steps for
 Matt are at the end.
 
 ## Status
-
-Three logout mechanisms have been diagnosed. Two are **fixed and shipped**;
-the third was found the same evening the first two deployed (it masked
-them) and is **the open work item**. A one-time host-side state repair for
-mechanism 3 was applied on 2026-07-03, so the system is currently stable —
-the code fixes below are the defense that keeps it from regressing.
 
 | # | Mechanism | Status |
 |---|---|---|
@@ -21,6 +15,7 @@ the code fixes below are the defense that keeps it from regressing.
 | 2 | Suspend/resume DNS window (bg refresher waited a full 60s tick) | Fixed — `e0ebba5` (fast retry on `upstream_unreachable`) |
 | 3 | Broker-written creds file lacks `scopes`/`subscriptionType`; claude ≥ 2.1.200 rejects it | Fixed in code 2026-07-04 (Fixes A/B + atomic `_write_tokens`) — live after broker restart + image rebuild |
 | 4 | Broker restart orphans the socket inode mounted into running jails | Fixed in code 2026-07-04 (round 2: supervised per-jail relay, per-connection dial) — live on next `yolo` invocation per jail |
+| 5 | mise rust backend writes to `~/.rustup`/`~/.cargo` — read-only in-jail; provisioning fails | Fixed in code 2026-07-04 (round 3: `RUSTUP_HOME`/`CARGO_HOME` → `/mise`) — live on next `yolo` invocation |
 
 ## Mechanism 3 — stripped creds metadata (the open one)
 
@@ -226,6 +221,87 @@ in the broker log (per-jail attribution).
 - `src/bundled_loopholes/claude-oauth-broker/README.md`: architecture
   section gains the relay hop.
 
+## Round 3 — rust toolchains escape the mise store (provisioning fails on read-only home)
+
+Independent of rounds 1–2; can land in any order relative to them.
+
+### Problem (observed 2026-07-04, `~/code/vantage`, first `yolo run`)
+
+```
+mise ERROR Failed to install core:rust@latest: failed create_dir_all:
+~/.rustup: Read-only file system (os error 30)
+✗ Provisioning failed (exit 1)
+```
+
+mise's **rust core backend is the one tool that does not install into
+`MISE_DATA_DIR`**: it drives rustup, which writes toolchains to
+`RUSTUP_HOME` and `CARGO_HOME` — defaulting to `~/.rustup` / `~/.cargo`.
+In-jail, `$HOME` is read-only by design (the read-only-home refactor), and
+nothing sets those vars (`rustup` appears nowhere in `src/`). So any
+project with a plain `rust = "..."` in its mise config fails provisioning
+on first boot.
+
+Why it never surfaced before: polyclav — the only rust project jailed
+until now — sets `CARGO_HOME = "{{ config_root }}/.cargo"` in its own
+mise.toml, which lands inside the writable workspace and masked the gap.
+vantage has bare `rust = "latest"`, no overrides → first project to hit
+the defaults. This is the same misbehaving backend documented in
+[`mise-host-jail-path-mismatch.md`](mise-host-jail-path-mismatch.md)
+(there for its symlink side effect; the read-only-home crash is the same
+root cause surfacing on a clean project). The jail-state separation and
+its migrations are working as designed — this is a fresh-provisioning gap
+they were never scoped to cover.
+
+### Fix (required): jail-land defaults pointing into the store
+
+In `run_cmd.py`, next to the existing `MISE_DATA_DIR=/mise` /
+`MISE_ENV=jail` exports (~lines 1461–1481), export for every jail:
+
+- `RUSTUP_HOME=/mise/rustup`
+- `CARGO_HOME=/mise/cargo`
+
+`/mise` is the writable jail-land store shared by all jails, so rust
+toolchains get the same install-once-for-all-jails behavior as every
+other tool.
+
+Details that matter:
+
+1. **Project config must still win.** These are container-env defaults; a
+   workspace that sets `CARGO_HOME`/`RUSTUP_HOME` in its mise `[env]`
+   (polyclav does) must override them on mise activation. mise applies
+   config `[env]` over inherited process env — verify that precedence
+   with a test rather than assuming it.
+2. **Bonus — this closes the residual jail↔jail rust collision** from
+   `mise-host-jail-path-mismatch.md`: mise records
+   `installs/rust/<ver> → $CARGO_HOME/bin`. With `CARGO_HOME=/mise/cargo`
+   that symlink resolves identically in every jail, instead of dangling
+   whenever it was created by a different workspace (all named
+   `/workspace`). The boot-time dangling-symlink prune stops having rust
+   entries to eat.
+3. **Nested jails**: `_jail_mise_store_dir()` (`src/cli/storage.py`,
+   ~line 170) already remounts `/mise` one level down, so the same env
+   values stay valid at every nesting depth — no extra plumbing, but add
+   it to the things the nested-jail test touches if one exists.
+4. Do **not** shadow other backends' homes (`GOPATH`, etc.) while here —
+   they install into the store correctly; rust is the exception.
+
+### Tests (round 3)
+
+- `run_cmd` arg-building: the podman invocation contains
+  `-e RUSTUP_HOME=/mise/rustup` and `-e CARGO_HOME=/mise/cargo` (follow
+  whatever pattern asserts `MISE_DATA_DIR=/mise` / `MISE_ENV=jail` today).
+- Precedence: a workspace mise config with `[env] CARGO_HOME = ...` wins
+  over the injected default (unit-test at whatever layer is testable
+  without a live mise; if none is, document the manual check in the PR).
+
+### Docs (round 3)
+
+- `mise-host-jail-path-mismatch.md`: add an update note — the rust
+  residual (jail↔jail symlink collision *and* the read-only `~/.rustup`
+  crash) is closed by the `/mise/rustup`+`/mise/cargo` jail defaults.
+- `storage-and-config.md` (or wherever the in-jail env contract is
+  listed): document the two new vars next to `MISE_DATA_DIR`.
+
 ## Constraints (you are in a jail)
 
 - You can edit `/workspace` (this repo) and run its test suite. You cannot
@@ -258,4 +334,11 @@ python3 -c "import json;d=json.load(open('/home/matt/.local/share/yolo-jail/home
 yolo broker restart
 # inside the running jail:
 claude -p 'reply OK'
+
+# 6. (round 3) `yolo run` in ~/code/vantage — provisioning must install
+#    rust without the ~/.rustup read-only error; toolchain lands in the
+#    shared jail store:
+ls ~/.local/share/yolo-jail/mise/rustup/toolchains/
+#    then boot a second rust-using workspace — no re-download (store hit).
+#    Also re-run polyclav once: its own CARGO_HOME override must still win.
 ```

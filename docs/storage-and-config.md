@@ -290,6 +290,8 @@ stomping the shared home directory.
 | `MISE_DATA_DIR` | `/mise` | Jail-land mise store, shared by all jails (host dir bind mount on Linux; `yolo-mise-data-v2` named volume on macOS podman / Apple Container). The host's own mise dir is never mounted |
 | `MISE_TRUSTED_CONFIG_PATHS` | `/workspace` | Trust every mise config under the workspace (recursive, path-component-aware prefix match) |
 | `MISE_ENV` | `jail` | Jail-only overrides: a checked-in `mise.jail.toml` overrides `mise.toml` inside jails, no-op on the host |
+| `RUSTUP_HOME` | `/mise/rustup` | mise's rust backend drives rustup, which installs OUTSIDE the mise store; its default `~/.rustup` is read-only in-jail. Workspace mise `[env]` overrides win on activation |
+| `CARGO_HOME` | `/mise/cargo` | Same rust-backend escape; also makes the recorded `installs/rust/<ver> → $CARGO_HOME/bin` symlink resolve identically in every jail |
 | `MISE_YES` | `1` | Skip mise confirmation prompts |
 | `LD_LIBRARY_PATH` | `/lib:/usr/lib` | Library search path (survives agent env stripping) |
 | `PAGER` | `cat` | No interactive pagers |

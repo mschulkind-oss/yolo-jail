@@ -1480,6 +1480,22 @@ def run(
             # _.python.venv); side-effect-free when no such file exists.
             "MISE_ENV=jail",
             "-e",
+            # mise's rust core backend is the one tool that does NOT
+            # install into MISE_DATA_DIR: it drives rustup, whose default
+            # homes (~/.rustup, ~/.cargo) are read-only in-jail — a bare
+            # `rust = "..."` in a project's mise config would fail
+            # provisioning with `failed create_dir_all: ~/.rustup`.
+            # Point both into the writable jail-land store so toolchains
+            # install once for all jails, and so the recorded
+            # installs/rust/<ver> -> $CARGO_HOME/bin symlink resolves
+            # identically in every jail (closes the jail<->jail rust
+            # collision residual from mise-host-jail-path-mismatch.md).
+            # A workspace's own mise [env] wins over these on activation
+            # (verified against mise 2026.6.13).
+            "RUSTUP_HOME=/mise/rustup",
+            "-e",
+            "CARGO_HOME=/mise/cargo",
+            "-e",
             "MISE_YES=1",
             "-e",
             "COPILOT_ALLOW_ALL=true",

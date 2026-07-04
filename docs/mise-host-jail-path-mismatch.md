@@ -1,6 +1,6 @@
 # mise shared-state / host↔jail path mismatch — findings
 
-**Date:** 2026-07-02 · **Updated:** 2026-07-03 (re-verified from yolo-jail jail; line refs refreshed, third trust hook found, `MISE_TRUST` question answered) · **Status:** superseded as a decision doc by
+**Date:** 2026-07-02 · **Updated:** 2026-07-03 (re-verified from yolo-jail jail; line refs refreshed, third trust hook found, `MISE_TRUST` question answered); 2026-07-04 — **the rust residual is closed**: jails now export `RUSTUP_HOME=/mise/rustup` + `CARGO_HOME=/mise/cargo` (handoff round 3), so the rust backend both stops crashing on the read-only `~/.rustup` *and* records `installs/rust/<ver>` symlinks that resolve identically in every jail — the jail↔jail collision this doc's "Residual issue" analysis left to the boot-time prune no longer produces rust entries at all (workspace `[env]` overrides still win) · **Status:** superseded as a decision doc by
 [jail-state-separation-design.md](jail-state-separation-design.md) —
 retained as the incident record. **Still live here and nowhere else:** the
 `.mise.toml` trust-hook fixes (three filename-gated sites + the no-op
