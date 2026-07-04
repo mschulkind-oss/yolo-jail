@@ -1509,6 +1509,291 @@ class TestClaudeConfig:
             os.readlink(str(link)) == "../.claude-shared-credentials/.credentials.json"
         )
 
+    # -- credentials harvest: Claude's /login replaces the symlink with a
+    # regular file holding the full record; the entrypoint must merge it
+    # into the shared file instead of discarding it --
+
+    def _creds_setup(self, local_oauth=None, shared_doc=None, local_raw=None):
+        """Lay out a regular in-jail creds file plus an optional shared file."""
+        entrypoint.CLAUDE_DIR.mkdir(parents=True, exist_ok=True)
+        entrypoint.CLAUDE_SHARED_CREDENTIALS_DIR.mkdir(parents=True, exist_ok=True)
+        link = entrypoint.CLAUDE_DIR / ".credentials.json"
+        if local_raw is not None:
+            link.write_text(local_raw)
+        else:
+            link.write_text(json.dumps({"claudeAiOauth": local_oauth}))
+        shared = entrypoint.CLAUDE_SHARED_CREDENTIALS_DIR / ".credentials.json"
+        if shared_doc is not None:
+            shared.write_text(json.dumps(shared_doc))
+        return link, shared
+
+    _LOGIN_METADATA = {
+        "scopes": ["user:inference", "user:profile"],
+        "subscriptionType": "max",
+        "rateLimitTier": "default_claude_max_20x",
+    }
+
+    def test_credentials_harvest_merges_metadata(self, jail_home):
+        """Full post-/login record + non-empty shared file: metadata keys are
+        grafted onto the shared record, unrelated keys survive, and the
+        symlink is restored."""
+        link, shared = self._creds_setup(
+            local_oauth={
+                "accessToken": "at-login",
+                "refreshToken": "rt-login",
+                "expiresAt": 1000,
+                **self._LOGIN_METADATA,
+            },
+            shared_doc={
+                "claudeAiOauth": {
+                    "accessToken": "at-shared",
+                    "refreshToken": "rt-shared",
+                    "expiresAt": 2000,
+                    "customKey": "keep-me",
+                },
+                "otherTopLevel": True,
+            },
+        )
+
+        entrypoint.configure_claude()
+
+        assert link.is_symlink()
+        doc = json.loads(shared.read_text())
+        oauth = doc["claudeAiOauth"]
+        for key, value in self._LOGIN_METADATA.items():
+            assert oauth[key] == value
+        assert oauth["customKey"] == "keep-me"
+        assert doc["otherTopLevel"] is True
+        assert stat.S_IMODE(shared.stat().st_mode) == 0o600
+
+    def test_credentials_harvest_adopts_newer_token_trio(self, jail_home):
+        """Regular file with a strictly newer expiresAt: its token trio wins."""
+        link, shared = self._creds_setup(
+            local_oauth={
+                "accessToken": "at-login",
+                "refreshToken": "rt-login",
+                "expiresAt": 2000,
+                **self._LOGIN_METADATA,
+            },
+            shared_doc={
+                "claudeAiOauth": {
+                    "accessToken": "at-shared",
+                    "refreshToken": "rt-shared",
+                    "expiresAt": 1000,
+                }
+            },
+        )
+
+        entrypoint.configure_claude()
+
+        assert link.is_symlink()
+        oauth = json.loads(shared.read_text())["claudeAiOauth"]
+        assert oauth["accessToken"] == "at-login"
+        assert oauth["refreshToken"] == "rt-login"
+        assert oauth["expiresAt"] == 2000
+
+    def test_credentials_harvest_keeps_older_token_trio(self, jail_home):
+        """Regular file with an older expiresAt: shared trio kept, metadata
+        still merged."""
+        link, shared = self._creds_setup(
+            local_oauth={
+                "accessToken": "at-login",
+                "refreshToken": "rt-login",
+                "expiresAt": 1000,
+                **self._LOGIN_METADATA,
+            },
+            shared_doc={
+                "claudeAiOauth": {
+                    "accessToken": "at-shared",
+                    "refreshToken": "rt-shared",
+                    "expiresAt": 2000,
+                }
+            },
+        )
+
+        entrypoint.configure_claude()
+
+        oauth = json.loads(shared.read_text())["claudeAiOauth"]
+        assert oauth["accessToken"] == "at-shared"
+        assert oauth["refreshToken"] == "rt-shared"
+        assert oauth["expiresAt"] == 2000
+        assert oauth["subscriptionType"] == "max"
+
+    def test_credentials_harvest_missing_local_expiry_not_newer(self, jail_home):
+        """A claudeAiOauth record without expiresAt is never 'newer': shared
+        trio kept, metadata still grafted."""
+        link, shared = self._creds_setup(
+            local_oauth={
+                "accessToken": "at-login",
+                "refreshToken": "rt-login",
+                **self._LOGIN_METADATA,
+            },
+            shared_doc={
+                "claudeAiOauth": {
+                    "accessToken": "at-shared",
+                    "refreshToken": "rt-shared",
+                    "expiresAt": 2000,
+                }
+            },
+        )
+
+        entrypoint.configure_claude()
+
+        oauth = json.loads(shared.read_text())["claudeAiOauth"]
+        assert oauth["accessToken"] == "at-shared"
+        assert oauth["expiresAt"] == 2000
+        assert oauth["scopes"] == self._LOGIN_METADATA["scopes"]
+
+    def test_credentials_harvest_shared_without_oauth_record(self, jail_home):
+        """Shared file exists but has no claudeAiOauth: the full local record
+        is adopted; unrelated top-level keys survive."""
+        link, shared = self._creds_setup(
+            local_oauth={
+                "accessToken": "at-login",
+                "refreshToken": "rt-login",
+                "expiresAt": 1000,
+                **self._LOGIN_METADATA,
+            },
+            shared_doc={"otherTopLevel": True},
+        )
+
+        entrypoint.configure_claude()
+
+        doc = json.loads(shared.read_text())
+        oauth = doc["claudeAiOauth"]
+        assert oauth["accessToken"] == "at-login"
+        assert oauth["expiresAt"] == 1000
+        assert oauth["subscriptionType"] == "max"
+        assert doc["otherTopLevel"] is True
+
+    def test_credentials_harvest_skips_empty_metadata(self, jail_home):
+        """Empty metadata values (scopes=[], subscriptionType="") are never
+        grafted: they'd clobber good shared values and would permanently
+        mask the broker's _normalize_oauth scope fallback, which only fires
+        when the `scopes` key is absent from the shared record."""
+        link, shared = self._creds_setup(
+            local_oauth={
+                "accessToken": "at-login",
+                "refreshToken": "rt-login",
+                "expiresAt": 1000,
+                "scopes": [],
+                "subscriptionType": "",
+                "rateLimitTier": "default_claude_max_20x",
+            },
+            shared_doc={
+                "claudeAiOauth": {
+                    "accessToken": "at-shared",
+                    "refreshToken": "rt-shared",
+                    "expiresAt": 2000,
+                    "scopes": ["user:inference", "user:profile"],
+                }
+            },
+        )
+
+        entrypoint.configure_claude()
+
+        assert link.is_symlink()
+        oauth = json.loads(shared.read_text())["claudeAiOauth"]
+        # Good shared scopes survive the empty local list.
+        assert oauth["scopes"] == ["user:inference", "user:profile"]
+        # Empty subscriptionType is not introduced at all.
+        assert "subscriptionType" not in oauth
+        # Non-empty metadata still grafts as usual.
+        assert oauth["rateLimitTier"] == "default_claude_max_20x"
+
+    def test_credentials_harvest_empty_scopes_never_written(self, jail_home):
+        """Shared file lacking `scopes` stays lacking it when the local
+        record only has scopes=[] — the key must remain absent so the
+        broker's scope fallback can fill it on the next refresh."""
+        link, shared = self._creds_setup(
+            local_oauth={
+                "accessToken": "at-login",
+                "refreshToken": "rt-login",
+                "expiresAt": 3000,
+                "scopes": [],
+            },
+            shared_doc={
+                "claudeAiOauth": {
+                    "accessToken": "at-shared",
+                    "refreshToken": "rt-shared",
+                    "expiresAt": 2000,
+                }
+            },
+        )
+
+        entrypoint.configure_claude()
+
+        oauth = json.loads(shared.read_text())["claudeAiOauth"]
+        assert "scopes" not in oauth
+        # Newer trio is still adopted independently of the metadata rule.
+        assert oauth["accessToken"] == "at-login"
+        assert oauth["expiresAt"] == 3000
+
+    def test_credentials_harvest_leaves_no_tmp_litter(self, jail_home):
+        """The atomic writer's unique tmp file is renamed away on success —
+        nothing but the credentials file remains in the shared dir."""
+        link, shared = self._creds_setup(
+            local_oauth={
+                "accessToken": "at-login",
+                "refreshToken": "rt-login",
+                "expiresAt": 1000,
+                **self._LOGIN_METADATA,
+            },
+            shared_doc={"claudeAiOauth": {"accessToken": "at-shared"}},
+        )
+
+        entrypoint.configure_claude()
+
+        assert link.is_symlink()
+        names = [p.name for p in entrypoint.CLAUDE_SHARED_CREDENTIALS_DIR.iterdir()]
+        assert names == [".credentials.json"]
+
+    def test_credentials_harvest_corrupt_file_no_crash(self, jail_home):
+        """Unparseable regular file: no crash, symlink restored, non-empty
+        shared file untouched."""
+        link, shared = self._creds_setup(
+            local_raw="not json {{{",
+            shared_doc={"claudeAiOauth": {"accessToken": "at-shared"}},
+        )
+        before = shared.read_text()
+
+        entrypoint.configure_claude()
+
+        assert link.is_symlink()
+        assert shared.read_text() == before
+
+    def test_credentials_harvest_shared_missing(self, jail_home):
+        """Shared file absent: the full record still lands there (migrate
+        behavior) and the symlink is created."""
+        link, shared = self._creds_setup(
+            local_oauth={
+                "accessToken": "at-login",
+                "refreshToken": "rt-login",
+                "expiresAt": 1000,
+                **self._LOGIN_METADATA,
+            },
+        )
+        assert not shared.exists()
+
+        entrypoint.configure_claude()
+
+        assert link.is_symlink()
+        oauth = json.loads(shared.read_text())["claudeAiOauth"]
+        assert oauth["accessToken"] == "at-login"
+        assert oauth["scopes"] == self._LOGIN_METADATA["scopes"]
+        assert stat.S_IMODE(shared.stat().st_mode) == 0o600
+
+    def test_credentials_no_oauth_key_falls_back_to_copy(self, jail_home):
+        """A parseable file without claudeAiOauth keeps the legacy behavior:
+        copied verbatim only when the shared file is missing or empty."""
+        link, shared = self._creds_setup(local_raw='{"someOtherTool": true}')
+        assert not shared.exists()
+
+        entrypoint.configure_claude()
+
+        assert link.is_symlink()
+        assert shared.read_text() == '{"someOtherTool": true}'
+
 
 # -- MCP wrappers --
 

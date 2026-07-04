@@ -850,14 +850,86 @@ def test_normalize_oauth_keeps_previous_refresh_if_upstream_omits(tmp_path: Path
     assert out["accessToken"] == "new"
 
 
-def test_write_tokens_preserves_inode(tmp_path: Path):
-    """Jails bind-mount this file; rewriting in-place must keep the same inode."""
+def test_normalize_oauth_maps_scope_string_to_scopes_list():
+    """claude >= 2.1.200 rejects creds without `scopes`; a fresh login (empty
+    previous) must map the response's space-separated `scope` string."""
+    upstream = {
+        "access_token": "new",
+        "refresh_token": "new-r",
+        "expires_in": 3600,
+        "scope": "user:inference user:profile",
+    }
+    out = oauth_broker._normalize_oauth(upstream, previous={})
+    assert out["scopes"] == ["user:inference", "user:profile"]
+    # Not in the token response — must arrive via previous, never be guessed.
+    assert "subscriptionType" not in out
+    assert "rateLimitTier" not in out
+
+
+def test_normalize_oauth_previous_scopes_win_over_response_scope():
+    prev = {"accessToken": "old", "expiresAt": 0, "scopes": ["a", "b"]}
+    upstream = {"access_token": "new", "expires_in": 3600, "scope": "x y"}
+    out = oauth_broker._normalize_oauth(upstream, previous=prev)
+    assert out["scopes"] == ["a", "b"]
+
+
+def test_normalize_oauth_no_scope_anywhere_leaves_key_absent():
+    upstream = {"access_token": "new", "refresh_token": "new-r", "expires_in": 3600}
+    out = oauth_broker._normalize_oauth(upstream, previous={})
+    assert "scopes" not in out
+
+
+def test_normalize_oauth_empty_scope_string_leaves_key_absent():
+    upstream = {"access_token": "new", "expires_in": 3600, "scope": ""}
+    out = oauth_broker._normalize_oauth(upstream, previous={})
+    assert "scopes" not in out
+
+
+def test_normalize_oauth_scope_splits_on_runs_of_whitespace():
+    upstream = {"access_token": "new", "expires_in": 3600, "scope": "  a   b "}
+    out = oauth_broker._normalize_oauth(upstream, previous={})
+    assert out["scopes"] == ["a", "b"]
+
+
+def test_normalize_oauth_never_removes_previous_metadata():
+    """Regression for the 2026-07-03 relaunch->/login loop: a broker write
+    must never strip metadata keys the previous record carried."""
+    prev = {
+        "accessToken": "old",
+        "refreshToken": "old-r",
+        "expiresAt": 0,
+        "scopes": ["user:inference", "user:profile"],
+        "subscriptionType": "max",
+        "rateLimitTier": "default_claude_max_20x",
+    }
+    upstream = {"access_token": "new", "refresh_token": "new-r", "expires_in": 3600}
+    out = oauth_broker._normalize_oauth(upstream, previous=prev)
+    assert set(prev.keys()) <= set(out.keys())
+    assert out["scopes"] == ["user:inference", "user:profile"]
+    assert out["subscriptionType"] == "max"
+    assert out["rateLimitTier"] == "default_claude_max_20x"
+
+
+def test_write_tokens_atomic_rename(tmp_path: Path):
+    """Jails bind-mount the credentials *directory* (the single-file mount
+    is legacy), and in-jail readers hold no flock — so the write must be
+    tmp+rename: correct content, 0600 perms, and no tmp litter left behind.
+    (Replaces the old preserve-inode test from the single-file-mount era.)"""
     path = tmp_path / "c.json"
     path.write_text(json.dumps({"claudeAiOauth": {"accessToken": "a", "expiresAt": 0}}))
-    inode_before = path.stat().st_ino
     oauth_broker._write_tokens(path, {"accessToken": "b", "expiresAt": 1})
-    assert path.stat().st_ino == inode_before
     assert json.loads(path.read_text())["claudeAiOauth"]["accessToken"] == "b"
+    assert path.stat().st_mode & 0o777 == 0o600
+    assert [p.name for p in tmp_path.iterdir()] == ["c.json"]
+
+
+def test_write_tokens_creates_missing_file(tmp_path: Path):
+    """First-ever write (no shared file yet) also lands atomically at 0600."""
+    path = tmp_path / "c.json"
+    oauth_broker._write_tokens(path, {"accessToken": "b", "expiresAt": 1})
+    assert json.loads(path.read_text())["claudeAiOauth"]["accessToken"] == "b"
+    assert path.stat().st_mode & 0o777 == 0o600
+    assert [p.name for p in tmp_path.iterdir()] == ["c.json"]
 
 
 # ---------------------------------------------------------------------------

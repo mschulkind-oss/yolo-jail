@@ -35,6 +35,7 @@ import os
 import shutil
 import subprocess
 import sys
+import tempfile
 import threading
 import time
 import urllib.error
@@ -380,13 +381,33 @@ def _refresh_upstream(refresh_token: str) -> Dict[str, Any]:
 
 
 def _write_tokens(creds_path: Path, oauth: Dict[str, Any]) -> None:
-    """Atomic write of the shared credentials file."""
+    """Atomic tmp+rename write of the shared credentials file.
+
+    Jails bind-mount the *directory* this file lives in (the single-file
+    mount is legacy — see storage.py's migration), so a same-directory
+    rename is atomic and visible in every jail.  In-jail readers (Claude
+    itself, the entrypoint harvest) take no flock, so an in-place O_TRUNC
+    rewrite would expose an empty/torn file mid-write — which Claude
+    reads as "logged out".  mkstemp gives the tmp file a unique name (no
+    collision with the entrypoint's harvest writer) and 0600 perms.
+    """
     blob = json.dumps({"claudeAiOauth": oauth}, indent=2)
-    fd = os.open(creds_path, os.O_WRONLY | os.O_CREAT | os.O_TRUNC, 0o600)
+    fd, tmp_name = tempfile.mkstemp(
+        dir=creds_path.parent, prefix=creds_path.name + ".tmp."
+    )
     try:
-        os.write(fd, blob.encode())
-    finally:
-        os.close(fd)
+        try:
+            os.fchmod(fd, 0o600)
+            os.write(fd, blob.encode())
+        finally:
+            os.close(fd)
+        os.replace(tmp_name, creds_path)
+    except OSError:
+        try:
+            os.unlink(tmp_name)
+        except OSError:
+            pass
+        raise
 
 
 def _normalize_oauth(
@@ -394,7 +415,8 @@ def _normalize_oauth(
 ) -> Dict[str, Any]:
     """Convert upstream {access_token, refresh_token, expires_in} to the
     Claude-Code on-disk shape.  Preserves subscriptionType / scopes from
-    the previous record."""
+    the previous record; falls back to the response's `scope` string for
+    `scopes` so the shared file never lacks it after a fresh login."""
     now_ms = int(time.time() * 1000)
     expires_in = int(upstream_resp.get("expires_in", 3600))
     out = dict(previous)
@@ -402,6 +424,14 @@ def _normalize_oauth(
     if "refresh_token" in upstream_resp:
         out["refreshToken"] = upstream_resp["refresh_token"]
     out["expiresAt"] = now_ms + expires_in * 1000
+    # claude >= 2.1.200 rejects a creds file without `scopes`.  The upstream
+    # response carries it as a space-separated `scope` string (RFC 6749, both
+    # grant types); previous["scopes"] wins, and an empty/absent scope must
+    # not produce an empty list.
+    if "scopes" not in out:
+        scopes = str(upstream_resp.get("scope") or "").split()
+        if scopes:
+            out["scopes"] = scopes
     return out
 
 

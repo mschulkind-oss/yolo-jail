@@ -16,7 +16,9 @@ Claude Code gets a few extras the others don't need:
     jails sharing the same $HOME.
   * ``_ensure_credentials_symlink`` migrates the legacy single-file
     bind mount of ``.credentials.json`` to a symlink into the rw
-    directory bind mount, fixing IWH atomic-write EBUSY.
+    directory bind mount, fixing IWH atomic-write EBUSY.  A regular
+    file left behind by Claude's ``/login`` is harvested into the
+    shared file first (see ``_harvest_credentials_file``).
 
 Path constants and ``_load_lsp_servers`` are imported lazily from the
 parent package so test fixtures that rebind ``entrypoint.HOME`` (etc.)
@@ -30,6 +32,7 @@ import re
 import shutil
 import subprocess
 import sys
+import tempfile
 from pathlib import Path
 
 # ``${VAR}`` references in MCP env values get expanded against the jail's
@@ -461,6 +464,101 @@ def _isolate_claude_history():
     history_file.symlink_to(per_jail)
 
 
+# On-disk claudeAiOauth record: the trio rotates together on refresh; the
+# metadata keys are written only by Claude's own /login and are required by
+# claude >= 2.1.200's logged-in check.
+_OAUTH_TOKEN_KEYS = ("accessToken", "refreshToken", "expiresAt")
+_OAUTH_METADATA_KEYS = ("scopes", "subscriptionType", "rateLimitTier")
+
+
+def _expires_at_ms(oauth: dict) -> int:
+    """``expiresAt`` as an int for comparison; missing/garbage → 0 (never newer)."""
+    try:
+        return int(oauth.get("expiresAt") or 0)
+    except (TypeError, ValueError):
+        return 0
+
+
+def _harvest_credentials_file(link: Path, shared: Path) -> bool:
+    """Merge a post-/login regular ``.credentials.json`` into the shared file.
+
+    Claude's ``/login`` atomic write replaces the credentials symlink with a
+    regular file holding the full record — the token trio plus the metadata
+    keys the broker's mirror never writes.  Non-empty metadata values are
+    grafted onto the shared record (empty ones are skipped — see the
+    inline comment); the token trio is adopted only when the regular
+    file's ``expiresAt`` is strictly newer.  Unrelated keys in the shared
+    record are preserved.  Returns False when the file has no
+    ``claudeAiOauth`` dict, so the caller can fall back to the legacy
+    copy-if-empty migration.
+
+    No cross-boundary locking: the host broker serializes shared-file
+    writes with a host-side flock this in-jail code cannot take.  The
+    expiresAt-newer guard makes a lost race benign — worst case a stale
+    trio is skipped, and the metadata graft is idempotent.
+    """
+    try:
+        local_doc = json.loads(link.read_text())
+    except (OSError, ValueError):
+        return False
+    if not isinstance(local_doc, dict):
+        return False
+    local_oauth = local_doc.get("claudeAiOauth")
+    if not isinstance(local_oauth, dict):
+        return False
+
+    try:
+        shared_doc = json.loads(shared.read_text())
+    except (OSError, ValueError):
+        shared_doc = {}
+    if not isinstance(shared_doc, dict):
+        shared_doc = {}
+    shared_oauth = shared_doc.get("claudeAiOauth")
+    if not isinstance(shared_oauth, dict):
+        shared_oauth = {}
+
+    merged = dict(shared_oauth)
+    for key in _OAUTH_METADATA_KEYS:
+        # Truthy values only: grafting scopes=[] (or "") into the shared
+        # record would permanently mask the broker's scope fallback —
+        # _normalize_oauth in src/oauth_broker.py fills `scopes` from the
+        # upstream response only when the key is *absent* — and an empty
+        # value must never clobber a good shared one.
+        if local_oauth.get(key):
+            merged[key] = local_oauth[key]
+    if _expires_at_ms(local_oauth) > _expires_at_ms(shared_oauth):
+        for key in _OAUTH_TOKEN_KEYS:
+            if key in local_oauth:
+                merged[key] = local_oauth[key]
+    shared_doc["claudeAiOauth"] = merged
+
+    # Atomic tmp+rename with restrictive mode, matching the broker's
+    # _write_tokens (tokens must never be world-readable, and a reader
+    # must never see a torn file).  mkstemp gives the tmp file a unique
+    # name: two jails can run this harvest concurrently against the same
+    # shared dir, and a fixed tmp name would let their writes interleave.
+    blob = json.dumps(shared_doc, indent=2)
+    tmp_name = None
+    try:
+        fd, tmp_name = tempfile.mkstemp(
+            dir=str(shared.parent), prefix=shared.name + ".tmp."
+        )
+        try:
+            os.fchmod(fd, 0o600)
+            os.write(fd, blob.encode())
+        finally:
+            os.close(fd)
+        os.replace(tmp_name, shared)
+    except OSError:
+        if tmp_name is not None:
+            try:
+                os.unlink(tmp_name)
+            except OSError:
+                pass
+        return False
+    return True
+
+
 def _ensure_credentials_symlink():
     """Ensure .claude/.credentials.json is a symlink into the shared credentials dir.
 
@@ -482,15 +580,17 @@ def _ensure_credentials_symlink():
             pass
         link.unlink()
     elif link.exists():
-        # Migration: existing regular file (from old single-file bind mount era).
-        # Copy its data to the shared dir if the shared dir's copy is missing
-        # or empty, then replace with symlink.
+        # A regular file here is either Claude's post-/login full record
+        # (harvest it — discarding it re-creates the relaunch→/login loop)
+        # or a legacy single-file-bind-mount leftover (copy it over only
+        # when the shared copy is missing or empty).  Then re-link.
         shared = CLAUDE_SHARED_CREDENTIALS_DIR / ".credentials.json"
-        if not shared.exists() or shared.stat().st_size == 0:
-            try:
-                shutil.copy2(str(link), str(shared))
-            except OSError:
-                pass
+        if not _harvest_credentials_file(link, shared):
+            if not shared.exists() or shared.stat().st_size == 0:
+                try:
+                    shutil.copy2(str(link), str(shared))
+                except OSError:
+                    pass
         try:
             link.unlink()
         except OSError:

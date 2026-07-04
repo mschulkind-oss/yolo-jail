@@ -44,6 +44,28 @@ are non-obvious.
 | **On-disk creds file** (`~/.claude/.credentials.json`, which in our jails is a symlink into the shared creds dir) | The persisted JSON blob: `accessToken`, `refreshToken`, `expiresAt`, `scopes`, `subscriptionType`. | Claude itself after a successful refresh; our broker after a successful host-side refresh. | `kZ()` reads it; `Dk1()` watches its `mtimeMs`. |
 | **`T86` dead-refresh-token set** | An in-process Set of refresh tokens that have ever produced an `invalid_grant` reply during this Claude lifetime. | `v86()` adds on `invalid_grant`. Never removed. | `v86()` early-returns false if the current refresh token is in here. |
 
+**The on-disk shape is load-bearing (Claude ≥ 2.1.200).** The logged-in
+check requires the metadata keys — a creds file carrying only the token
+trio (`accessToken`, `refreshToken`, `expiresAt`) is treated as *not
+logged in* even when the tokens are valid. A/B proven 2026-07-03 on
+2.1.201: the same trio with `scopes`, `subscriptionType`,
+`rateLimitTier` grafted on works. Consequence: **no writer of the file
+may strip metadata down to the trio**. Our two writers divide the work:
+the broker preserves whatever metadata the previous record carries and
+falls back to the token response's `scope` string for `scopes`
+(`_normalize_oauth`, [`src/oauth_broker.py`](../src/oauth_broker.py)),
+but it cannot invent `subscriptionType` / `rateLimitTier` it never saw
+— a `/login` mirrored into a from-scratch shared file yields trio +
+`scopes` only. The full shape is guaranteed only after the jail
+entrypoint's harvest runs at the next launch and grafts the metadata
+from the regular file Claude leaves behind after `/login`
+(`_ensure_credentials_symlink`, `src/entrypoint/agent_configs.py`).
+Until then, other running jails see a shared record without
+`subscriptionType` / `rateLimitTier`; whether `scopes` alone satisfies
+the ≥ 2.1.200 check is untested (the A/B grafted all three keys
+together), so don't rule out the stripped-metadata mechanism in that
+window.
+
 `T86` is the surface that has been making people's lives mysterious.
 It's not persisted — restart Claude and it's empty — and it's not
 visible in any log or telemetry the broker can see. It also can never
