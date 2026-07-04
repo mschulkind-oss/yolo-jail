@@ -33,6 +33,7 @@ from .config import (
     _effective_packages,
     _load_jsonc_with_includes,
     _validate_config,
+    load_config,
     merge_config,
 )
 from .console import console
@@ -43,6 +44,7 @@ from .loopholes_runtime import (
     _broker_status,
     _host_service_default_jail_socket,
     _host_service_sockets_dir,
+    _parse_memory_value,
 )
 from .paths import (
     AGENTS_DIR,
@@ -58,10 +60,13 @@ from .paths import (
 )
 from .prune_cmd import _fmt_bytes
 from .runtime import (
+    PODMAN_MACHINE_MEMORY_FLOOR_MB,
     _check_container_stuck,
     _detect_runtime,
     _detect_runtime_for_listing,
     _get_container_workspace,
+    _podman_machine_memory,
+    _podman_machine_resize_hint,
     _runtime_for_check,
     cleanup_container_tracking,
 )
@@ -551,6 +556,52 @@ def _check_host_service_liveness(ok, warn, fail) -> None:
                     pass
 
 
+def _check_podman_machine_resources(workspace, *, ok, warn) -> None:
+    """Surface Podman Machine VM memory in `yolo check` output and warn if
+    it's below a sensible floor or below the workspace's
+    ``resources.memory`` request.  Best-effort: any error is silently
+    skipped — this check is informational, not gating.
+
+    Ported from PR #21 (kurt-hs) against the pre-package-split layout.
+    """
+    info = _podman_machine_memory()
+    if info is None:
+        return
+    name, mem_mb = info
+
+    # Compare against the workspace's requested resources.memory if set.
+    workspace_floor_mb = None
+    try:
+        ws_config = load_config(workspace, strict=False)
+    except Exception:
+        ws_config = {}
+    requested = (ws_config.get("resources") or {}).get("memory")
+    if isinstance(requested, str):
+        parsed = _parse_memory_value(requested)
+        if parsed is not None:
+            workspace_floor_mb = parsed // (1024 * 1024)
+
+    fix = _podman_machine_resize_hint()
+
+    if mem_mb < PODMAN_MACHINE_MEMORY_FLOOR_MB:
+        warn(
+            f"Podman Machine '{name}' memory: {mem_mb} MB "
+            f"(below {PODMAN_MACHINE_MEMORY_FLOOR_MB} MB recommended floor)",
+            f"Agent installs (claude, copilot) and `mise install` can OOM at "
+            f"this size — claude's first-run native install has been observed "
+            f"to take SIGKILL at 2 GB.  {fix}",
+        )
+    elif workspace_floor_mb is not None and mem_mb < workspace_floor_mb:
+        warn(
+            f"Podman Machine '{name}' memory: {mem_mb} MB "
+            f"(workspace requests resources.memory={requested})",
+            f"The jail's memory limit is enforced inside the VM, so the VM "
+            f"itself needs at least that much.  {fix}",
+        )
+    else:
+        ok(f"Podman Machine '{name}' memory: {mem_mb} MB")
+
+
 def check(
     build: bool = typer.Option(
         True,
@@ -827,6 +878,7 @@ def check(
                         )
                         if result.returncode == 0:
                             ok("Podman Machine: available")
+                            _check_podman_machine_resources(workspace, ok=ok, warn=warn)
                         else:
                             warn("Podman Machine: not configured")
                 except Exception as e:

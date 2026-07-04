@@ -425,3 +425,69 @@ def _get_container_workspace(name: str, runtime: str) -> str:
     except Exception:
         pass
     return "unknown"
+
+
+# ---------------------------------------------------------------------------
+# Podman Machine (macOS VM) introspection — advisory only, never gating
+# ---------------------------------------------------------------------------
+
+# Floor below which Podman Machine struggles to host a single jail running
+# even one modern agent.  Empirically: claude's first-run native install
+# alone has been observed to OOM at 2 GB on macOS.  4 GB leaves enough
+# headroom for one agent + provisioning; users running multiple jails or
+# heavy in-jail workloads will want more.
+PODMAN_MACHINE_MEMORY_FLOOR_MB = 4096
+
+
+def _podman_machine_memory() -> "Optional[tuple[str, int]]":
+    """Return ``(machine_name, memory_mb)`` for the running Podman Machine,
+    or None if podman/the machine is unavailable or output isn't parseable.
+
+    Best-effort and side-effect free — every callsite uses this for
+    *advisory* output, never as a gate.
+    """
+    try:
+        result = subprocess.run(
+            ["podman", "machine", "inspect"],
+            capture_output=True,
+            text=True,
+            timeout=5,
+        )
+    except Exception:
+        return None
+    if result.returncode != 0 or not result.stdout.strip():
+        return None
+    try:
+        machines = json.loads(result.stdout)
+    except json.JSONDecodeError:
+        return None
+    if not isinstance(machines, list) or not machines:
+        return None
+
+    # Prefer the running machine if there's one; otherwise just take the first.
+    machine = next(
+        (m for m in machines if isinstance(m, dict) and m.get("State") == "running"),
+        machines[0] if isinstance(machines[0], dict) else None,
+    )
+    if not isinstance(machine, dict):
+        return None
+    resources = machine.get("Resources") or {}
+    mem_mb = resources.get("Memory")
+    if not isinstance(mem_mb, int) or mem_mb <= 0:
+        return None
+    name = machine.get("Name") or "podman-machine-default"
+    return name, mem_mb
+
+
+def _podman_machine_resize_hint() -> str:
+    """Single source of truth for the `podman machine set` advice we print.
+
+    Includes the VM-restart caveat — a `machine stop && start` is not
+    free, it kills every container running on the VM.
+    """
+    return (
+        f"Increase the VM: `podman machine set --memory "
+        f"{PODMAN_MACHINE_MEMORY_FLOOR_MB} && podman machine stop && "
+        "podman machine start`.  Note: this restarts the VM and stops "
+        "every container running on it."
+    )

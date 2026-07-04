@@ -102,8 +102,11 @@ from .paths import (  # noqa: F401
     USER_CONFIG_PATH,
 )
 from .runtime import (
+    PODMAN_MACHINE_MEMORY_FLOOR_MB,
     _check_container_stuck,
     _get_container_workspace,
+    _podman_machine_memory,
+    _podman_machine_resize_hint,
     _remove_stale_container,
     _runtime,
     cleanup_container_tracking,
@@ -846,6 +849,33 @@ def _inject_agent_yolo_flags(full_command: "list[str]") -> None:
             full_command.insert(1, "--dangerously-skip-permissions")
 
 
+def _maybe_warn_about_oom_killer(exit_code: int, runtime: str) -> None:
+    """Print a hint when the agent's exit looks like an OOM-kill on a tiny
+    Podman Machine.  Triggered by exit 137 (128 + SIGKILL) on macOS+podman
+    with a VM under the recommended floor.
+
+    137 isn't *only* OOM (manual `kill -9` also produces it), so we phrase
+    the hint as "this often means" rather than asserting.  Side effects
+    are limited to a single `podman machine inspect` call.
+
+    Ported from PR #21 (kurt-hs).
+    """
+    if not (IS_MACOS and runtime == "podman" and exit_code == 137):
+        return
+    info = _podman_machine_memory()
+    if info is None:
+        return
+    name, mem_mb = info
+    if mem_mb >= PODMAN_MACHINE_MEMORY_FLOOR_MB:
+        return
+    console.print(
+        f"[dim]Exit 137 is SIGKILL.  On Podman Machine this often means "
+        f"the VM's OOM-killer fired — '{name}' has only {mem_mb} MB "
+        f"(below the {PODMAN_MACHINE_MEMORY_FLOOR_MB} MB recommended floor "
+        f"for running an agent).  {_podman_machine_resize_hint()}[/dim]"
+    )
+
+
 def _ensure_broker_relay(cname: str, runtime: str) -> None:
     """Ensure the per-jail broker relay is running; never fail the caller.
 
@@ -1055,6 +1085,7 @@ def run(
                 "[dim]Run `yolo check` to validate runtime availability before restarting.[/dim]"
             )
             sys.exit(1)
+        _maybe_warn_about_oom_killer(rc, runtime)
         sys.exit(rc)
 
     # No existing container — build/load the image then start a new one.
@@ -1110,6 +1141,7 @@ def run(
                     "[dim]Run `yolo check` to validate runtime availability before restarting.[/dim]"
                 )
                 sys.exit(1)
+            _maybe_warn_about_oom_killer(rc, runtime)
             sys.exit(rc)
 
     # Remove any stopped container with the same name left over from an
@@ -2525,6 +2557,8 @@ def run(
     stop_loopholes(
         host_services, host_services_sockets_dir, cname=cname, runtime=runtime
     )
+
+    _maybe_warn_about_oom_killer(rc, runtime)
 
     if profile and _profile_times:
         _profile_times["container_exited"] = _time.monotonic()
