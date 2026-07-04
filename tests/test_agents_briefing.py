@@ -126,6 +126,15 @@ class TestBriefingSlimness:
         content = (_generate(tmp_path, monkeypatch) / "CLAUDE.md").read_text()
         assert "ALWAYS run `yolo check` after every config edit" in content
 
+    def test_workspace_is_described_as_live_shared_dir(self, tmp_path, monkeypatch):
+        """Agents routinely assume the host copy of /workspace needs a git
+        pull to see jail-side edits (or vice versa). The briefing must say
+        it's the same live bind-mounted directory, no sync step ever."""
+        content = (_generate(tmp_path, monkeypatch) / "CLAUDE.md").read_text()
+        assert "bind-mounted LIVE" in content
+        assert "not a copy" in content
+        assert "never a git" in content
+
     def test_rg_replace_trap_warning_present(self, tmp_path, monkeypatch):
         """Agents habitually type grep's -rn into rg, where -r means
         --replace and corrupts search output (14 observed misfires) —
