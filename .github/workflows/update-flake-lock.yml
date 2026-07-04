@@ -1,0 +1,57 @@
+name: Update flake.lock
+
+on:
+  schedule:
+    # Weekly, Mondays 06:00 UTC.  The jail image's entire toolchain
+    # (mise, node, python, go, …) rides flake.lock — see
+    # docs/jail-version-predictability.md for why this must not drift.
+    - cron: "0 6 * * 1"
+  workflow_dispatch: # Allow manual trigger
+
+# Opt every JavaScript action into Node.js 24 ahead of GitHub's
+# 2026-06-02 default switch.  ``actions/upload-artifact@v5`` still
+# bundles Node 20 in its ``action.yml`` (no v6 with Node 24 yet);
+# this env var overrides that for the whole workflow without
+# pinning to a beta tag, and silences the runtime deprecation
+# annotation we'd otherwise get on every CI run.  Removable once
+# every pinned action ships a Node-24 release.
+env:
+  FORCE_JAVASCRIPT_ACTIONS_TO_NODE24: "true"
+
+jobs:
+  update-flake-lock:
+    runs-on: ubuntu-latest
+    # Deviation from the repo's read-only default (ci.yml sets
+    # `permissions: contents: read` workflow-wide): this job pushes a
+    # branch with the refreshed flake.lock and opens a PR for it, which
+    # requires write access — scoped to this job only.
+    permissions:
+      contents: write
+      pull-requests: write
+    steps:
+      - uses: actions/checkout@v5
+        with:
+          fetch-depth: 0
+
+      - name: Install Nix
+        uses: cachix/install-nix-action@v31
+        with:
+          extra_nix_config: |
+            experimental-features = nix-command flakes
+
+      # flake.nix/flake.lock live at the repo root (src/flake.* are
+      # symlinks to them), so no working directory override is needed.
+      - name: Update flake.lock
+        uses: DeterminateSystems/update-flake-lock@v28
+        with:
+          pr-title: "chore(deps): weekly flake.lock bump"
+          pr-body: |
+            Automated weekly `flake.lock` refresh.
+
+            The jail image's toolchain (mise, node, python, go, …) rides
+            this lock — see docs/jail-version-predictability.md. Merging
+            picks up current nixpkgs on the next image rebuild
+            (`just load && just install` on the host).
+          pr-labels: |
+            dependencies
+            automated
