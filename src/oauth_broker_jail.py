@@ -147,8 +147,10 @@ def ask_host_broker(socket_path: str, request: Dict[str, Any]) -> Dict[str, Any]
             # frame was still in flight (large action=proxy bodies
             # spend real time in sendall; the relay may accept, fail
             # its dial, and close before the write lands).  Name the
-            # layer instead of the generic wrap.
-            if e.errno in (errno.EPIPE, errno.ECONNRESET):
+            # layer instead of the generic wrap.  macOS/BSD raises
+            # ENOTCONN where Linux raises EPIPE for a send after the
+            # peer closed (caught by macOS CI, 2026-07-04).
+            if e.errno in (errno.EPIPE, errno.ECONNRESET, errno.ENOTCONN):
                 raise RuntimeError(
                     "host broker unreachable through the relay "
                     f"(connection reset mid-request: {e})"
