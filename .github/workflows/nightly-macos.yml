@@ -62,7 +62,15 @@ jobs:
 
       - name: Install Podman
         run: |
-          brew install --quiet podman
+          # No brew here: Homebrew ships no x86_64 macOS bottles for podman
+          # 6.x (Tier 3 on Tahoe Intel → "no bottle available"), and podman
+          # v6 dropped Intel macOS builds upstream. v5.8.x is the last line
+          # with podman-installer-macos-amd64.pkg, so pin its latest.
+          curl -fsSL -o /tmp/podman.pkg \
+            "https://github.com/containers/podman/releases/download/v5.8.4/podman-installer-macos-amd64.pkg"
+          sudo installer -pkg /tmp/podman.pkg -target /
+          echo "/opt/podman/bin" >> "$GITHUB_PATH"
+          export PATH="/opt/podman/bin:$PATH"
           podman machine init --cpus 2 --memory 4096 --disk-size 30
           podman machine start
 
