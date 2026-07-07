@@ -177,7 +177,12 @@ def generate_agents_md(
         [
             "## Limitations",
             "",
-            "- Full internet access, but no host credentials (no ~/.ssh, no ~/.gitconfig): git push/pull and `gh auth login` will not work.",
+            "- Host credentials are not propagated into the jail: the host's `~/.ssh`,",
+            "  `~/.gitconfig`, and cloud/gh tokens are invisible here. This is a credential",
+            "  boundary, not a network block — outbound SSH and HTTPS work normally, so git",
+            "  push/pull and API calls succeed whenever the jail has its own credentials",
+            "  (e.g. a workspace-specific deploy key or a token in `.env`). Only without",
+            "  such jail-local credentials do authenticated operations fail.",
             "- No sudo/root; context mounts under `/ctx/` are read-only.",
             "",
             "## Packages & Resource Limits",
