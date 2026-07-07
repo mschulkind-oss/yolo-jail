@@ -41,9 +41,13 @@ jobs:
           retention-days: 1
 
   integration-macos:
-    # macOS Intel runners support nested virtualization via Podman Machine.
+    # macOS Intel runners support nested virtualization via Podman Machine;
+    # GitHub's Apple Silicon runners do not, so stay on an -intel label.
+    # macos-13 was retired Dec 2025. macOS 26 (Tahoe) is the last Intel macOS,
+    # and GitHub plans to retire Intel runner images around late 2027 — after
+    # that this job needs a self-hosted runner or arm64 nested-virt support.
     # Note: x86_64 not ARM — tests the macOS code paths, not native ARM performance.
-    runs-on: macos-13
+    runs-on: macos-26-intel
     needs: build-image
     steps:
       - uses: actions/checkout@v7
