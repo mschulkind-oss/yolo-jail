@@ -40,6 +40,68 @@ def test_merge_config_lists_dedup_and_override_scalars():
     assert merged["security"]["blocked_tools"] == ["wget", {"name": "grep"}, "curl"]
 
 
+def test_merge_config_agents_overrides_not_unions():
+    """Unlike other list fields, ``agents`` from the workspace REPLACES the
+    user default so a workspace can narrow the selected set."""
+    user = {"agents": ["claude", "gemini"]}
+    workspace = {"agents": ["claude"]}
+    merged = merge_config(user, workspace)
+    assert merged["agents"] == ["claude"]
+
+
+def test_merge_config_agents_user_default_used_when_workspace_omits():
+    """A workspace with no ``agents`` inherits the user-level list verbatim."""
+    user = {"agents": ["opencode", "pi"]}
+    workspace = {"packages": ["ripgrep"]}
+    merged = merge_config(user, workspace)
+    assert merged["agents"] == ["opencode", "pi"]
+
+
+def test_selected_agents_default_is_claude():
+    from cli.config import selected_agents
+
+    assert selected_agents({}) == ["claude"]
+
+
+def test_selected_agents_filters_and_dedups():
+    from cli.config import selected_agents
+
+    assert selected_agents({"agents": ["gemini", "gemini", "bogus", "pi"]}) == [
+        "gemini",
+        "pi",
+    ]
+
+
+def test_selected_agents_honors_empty_list():
+    from cli.config import selected_agents
+
+    assert selected_agents({"agents": []}) == []
+
+
+def test_validate_config_accepts_known_agents():
+    errors, _ = _validate_config(
+        {"agents": ["claude", "copilot", "gemini", "opencode", "pi"]},
+        workspace=Path.cwd(),
+    )
+    assert not errors
+
+
+def test_validate_config_rejects_unknown_agent():
+    errors, _ = _validate_config({"agents": ["nope"]}, workspace=Path.cwd())
+    assert any("unknown agent 'nope'" in e for e in errors)
+
+
+def test_validate_config_rejects_non_list_agents():
+    errors, _ = _validate_config({"agents": "claude"}, workspace=Path.cwd())
+    assert any("config.agents: expected a list" in e for e in errors)
+
+
+def test_validate_config_warns_on_empty_agents():
+    errors, warnings = _validate_config({"agents": []}, workspace=Path.cwd())
+    assert not errors
+    assert any("no coding agents" in w for w in warnings)
+
+
 def test_merge_config_merges_mcp_servers_dicts():
     user = {
         "mcp_servers": {

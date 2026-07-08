@@ -1157,9 +1157,11 @@ class TestAppleContainerMountWorkarounds:
         (tmp_path / "user-config.jsonc").write_text('{"packages": []}')
 
         # Workspace config with a user env var so yolo-user-env.sh gets content.
+        # Select all three legacy agents so each briefing materializes.
         workspace = tmp_path
         (workspace / "yolo-jail.jsonc").write_text(
-            '{"env_sources": [{"HELLO": "world"}]}'
+            '{"env_sources": [{"HELLO": "world"}], '
+            '"agents": ["copilot", "gemini", "claude"]}'
         )
         mock_check_output.side_effect = FileNotFoundError
 

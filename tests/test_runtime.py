@@ -88,11 +88,13 @@ def test_generated_agents_md_mentions_yolo_check(tmp_path, monkeypatch):
     import cli
 
     monkeypatch.setattr(cli, "AGENTS_DIR", tmp_path / "agents")
+    monkeypatch.setattr("cli.agents_md.AGENTS_DIR", tmp_path / "agents")
     agents_path = cli.generate_agents_md(
         "yolo-test",
         tmp_path / "workspace",
         [],
         [],
+        agents=["copilot", "gemini", "claude"],
     )
 
     content = (agents_path / "AGENTS-copilot.md").read_text()

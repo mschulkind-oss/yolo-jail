@@ -85,6 +85,10 @@ def temp_project(tmp_path):
     project_dir.mkdir()
 
     config = {
+        # Legacy trio: many tests below assert copilot/gemini/claude configs
+        # and MCP propagation.  The library-model default is claude-only, so
+        # select all three explicitly here.
+        "agents": ["copilot", "gemini", "claude"],
         "security": {
             "blocked_tools": [
                 "curl",
@@ -297,25 +301,96 @@ def test_shim_persistence(tmp_path):
 
 
 def test_agent_tools_available(tmp_path):
-    """Test that gemini and copilot are available inside the jail."""
-    project_dir = tmp_path / "agent_test"
-    project_dir.mkdir()
+    """Test that gemini and copilot are available inside the jail when selected."""
+    project_dir = _write_project(
+        tmp_path, {"agents": ["gemini", "copilot"]}, name="agent_test"
+    )
     result = run_yolo(project_dir, "gemini --version && copilot --version")
     assert result.returncode == 0
 
 
 def test_agent_tools_available_direct(tmp_path):
-    """Test that copilot/gemini work when invoked directly (not via bash -lc).
+    """Test that copilot works when invoked directly (not via bash -lc).
 
     This is the exact path taken by `yolo -- copilot`, which previously
     failed with 'copilot: command not found' because /mise/shims was absent
     from the non-login-shell PATH.
     """
-    project_dir = tmp_path / "direct_agent_test"
-    project_dir.mkdir()
+    project_dir = _write_project(
+        tmp_path, {"agents": ["copilot"]}, name="direct_agent_test"
+    )
     result = run_yolo_direct(project_dir, "copilot", "--version")
     assert result.returncode == 0, (
         f"copilot --version failed:\nstdout: {result.stdout}\nstderr: {result.stderr}"
+    )
+
+
+# ---------------------------------------------------------------------------
+# Agent library model: install + version + config generation per agent.
+#
+# These prove each selectable agent installs (lazy launcher on first use),
+# reports a version, and gets its config/briefing generated — the install +
+# update + run surface, credential-free (no authenticated task runs).
+# ---------------------------------------------------------------------------
+
+# (agent, binary, version-args, config-file path in-jail, marker in that file)
+_AGENT_MATRIX = [
+    ("claude", "claude", "--version", ".claude/settings.json", "acceptEdits"),
+    ("copilot", "copilot", "--version", ".copilot/config.json", "yolo"),
+    ("gemini", "gemini", "--version", ".gemini/settings.json", "approvalMode"),
+    (
+        "opencode",
+        "opencode",
+        "--version",
+        ".config/opencode/opencode.json",
+        "allow",
+    ),
+    ("pi", "pi", "--version", ".pi/agent/settings.json", "defaultProjectTrust"),
+]
+
+
+@pytest.mark.parametrize(
+    "agent,binary,version_args,config_rel,marker",
+    _AGENT_MATRIX,
+    ids=[m[0] for m in _AGENT_MATRIX],
+)
+def test_agent_installs_versions_and_configures(
+    tmp_path, agent, binary, version_args, config_rel, marker
+):
+    """For each selectable agent: it installs on first use, `--version`
+    works, and its config file is generated with the expected auto-approve
+    marker.  Runs the version check + config read in one jail session."""
+    project_dir = _write_project(tmp_path, {"agents": [agent]}, name=f"agent_{agent}")
+    # Version check exercises the lazy launcher's install path; the config
+    # read proves the entrypoint generated the agent's config.  The stamp
+    # file (written after install/update) proves the update path ran.
+    stamp = f"$HOME/.cache/yolo-agent-stamps/{binary}.stamp"
+    cmd = (
+        f"{binary} {version_args} && "
+        f"test -f {stamp} && "
+        f'grep -q {marker!r} "$HOME/{config_rel}"'
+    )
+    result = run_yolo(project_dir, cmd, timeout=DEFAULT_JAIL_TIMEOUT)
+    assert result.returncode == 0, (
+        f"{agent}: install/version/config check failed:\n"
+        f"stdout: {result.stdout}\nstderr: {result.stderr}"
+    )
+
+
+def test_agent_selection_prunes_unselected(tmp_path):
+    """A gemini-only jail installs gemini but NOT copilot/claude, and does
+    not generate their config dirs — the library model's isolation win."""
+    project_dir = _write_project(tmp_path, {"agents": ["gemini"]}, name="agent_prune")
+    # gemini present; copilot/claude launchers absent; copilot config not generated.
+    cmd = (
+        "gemini --version && "
+        "! test -e $HOME/.yolo-shims/copilot && "
+        "! test -e $HOME/.yolo-shims/claude && "
+        "! test -e $HOME/.copilot/config.json"
+    )
+    result = run_yolo(project_dir, cmd)
+    assert result.returncode == 0, (
+        f"selection pruning failed:\nstdout: {result.stdout}\nstderr: {result.stderr}"
     )
 
 
@@ -577,6 +652,8 @@ def test_workspace_mcp_configs_are_isolated(tmp_path):
     project_b.mkdir()
 
     base = {
+        # This test reads the copilot + gemini MCP configs, so select them.
+        "agents": ["copilot", "gemini"],
         "security": {"blocked_tools": ["curl"]},
         "network": {"mode": "bridge"},
     }

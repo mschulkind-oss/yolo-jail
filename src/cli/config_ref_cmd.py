@@ -36,6 +36,27 @@ def config_ref():
     Override: YOLO_RUNTIME env var takes priority.
     Auto-detect: macOS prefers "container" then "podman"; Linux uses "podman".
 
+  [bold]agents[/bold] (array of strings): Which coding agents to install in the jail.
+    Only the listed agents are installed and configured — a lean jail with
+    just the agents you use (faster boot, less to update).  Agents install
+    lazily on first use (npm / native installer), so changing this list does
+    NOT rebuild the image.
+    Valid agents:
+      • claude   — Claude Code (native installer; YOLO via --dangerously-skip-permissions)
+      • copilot  — GitHub Copilot CLI (npm @github/copilot; --yolo --no-auto-update)
+      • gemini   — Google Gemini CLI (npm @google/gemini-cli; --yolo)
+      • opencode — opencode.ai agent (npm opencode-ai; auto-approve via permission:allow)
+      • pi       — pi.dev coding agent (npm @earendil-works/pi-coding-agent;
+                   auto-approve via defaultProjectTrust:always)
+    Default: ["claude"].
+    Merge: unlike other list fields, [bold]agents replaces (does not union)[/bold] across
+    the user→workspace hierarchy — so a workspace can NARROW the user default
+    (e.g. user ["claude","gemini"] but a claude-only workspace ["claude"]).
+    Auth: each agent authenticates itself (claude/gemini/copilot OAuth via their
+    own /login; opencode/pi via provider API keys in env_sources).  yolo-jail
+    wires MCP for claude/copilot/gemini/opencode; pi has no native MCP.
+    Example: ["claude", "opencode"]
+
   [bold]packages[/bold] (array): Extra nix packages baked into the image.
     Supports three formats:
     • String: package name from nixpkgs (latest from flake's pin)
@@ -302,10 +323,12 @@ def config_ref():
             "env": {"TAVILY_API_KEY": "${TAVILY_API_KEY}"},
             "requires_env": ["TAVILY_API_KEY"]
           }}
-    The entrypoint translates these for each agent:
+    The entrypoint translates these for each SELECTED agent:
       • Copilot: written to a per-workspace overlay mounted at ~/.copilot/mcp-config.json.
       • Gemini: written to a per-workspace overlay mounted at ~/.gemini/settings.json.
       • Claude: written to a per-workspace overlay mounted at ~/.claude/settings.json.
+      • opencode: written to ~/.config/opencode/opencode.json (mcp key, native schema).
+      • pi: no native MCP support (skipped).
     Example:
       {"cerebras-mcp": {
         "command": "npx", "args": ["-y", "cerebras-code-mcp"],
@@ -578,7 +601,9 @@ def config_ref():
     Runtimes: Node.js 22, Python 3.13, Go (managed by mise)
     Editors:  nvim (version configurable via mise_tools config)
     CLI:      rg, fd, bat, jq, git, jj, gh, curl, strace, uv, tmux
-    Agents:   copilot, gemini (--yolo auto-injected), claude (YOLO mode via settings.json)
+    Agents:   the ones listed in the `agents` config (default: claude).
+              Available: claude, copilot, gemini, opencode, pi — each with
+              auto-approve/YOLO mode wired up.
     The 'yolo' command is available inside for nested jailing and help.
 
   [bold]Mise Tool Management[/bold]
@@ -626,7 +651,8 @@ def config_ref():
   2. Edit the config — add any nix packages or mise_tools needed
   3. Run 'yolo check' after EVERY config edit to validate the config before restarting
   4. Run 'yolo -- bash' to enter the jail interactively
-  5. Start your agent: 'yolo -- copilot', 'yolo -- gemini', or 'yolo -- claude'
+  5. Start your agent: 'yolo -- claude' (or copilot / gemini / opencode / pi,
+     whichever you listed in the `agents` config)
 
   [bold]For agents preparing to enter a jail:[/bold]
   Before asking the human to restart you inside the jail, ALWAYS run 'yolo check'

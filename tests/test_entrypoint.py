@@ -27,6 +27,7 @@ def jail_home(tmp_path, monkeypatch):
         "YOLO_MISE_TOOLS",
         "YOLO_HOST_DIR",
         "YOLO_HOST_CLAUDE_FILES",
+        "YOLO_AGENTS",
     ):
         monkeypatch.delenv(var, raising=False)
 
@@ -47,6 +48,8 @@ def jail_home(tmp_path, monkeypatch):
         "CLAUDE_MANAGED_MCP_PATH",
         "CLAUDE_HOST_SETTINGS_SNAPSHOT_PATH",
         "CLAUDE_SHARED_CREDENTIALS_DIR",
+        "OPENCODE_DIR",
+        "PI_DIR",
         "MISE_CONFIG_DIR",
     ]
     for attr in attrs:
@@ -73,6 +76,8 @@ def jail_home(tmp_path, monkeypatch):
         tmp_path / ".claude" / "yolo-host-synced-settings.json"
     )
     entrypoint.CLAUDE_SHARED_CREDENTIALS_DIR = tmp_path / ".claude-shared-credentials"
+    entrypoint.OPENCODE_DIR = tmp_path / ".config" / "opencode"
+    entrypoint.PI_DIR = tmp_path / ".pi" / "agent"
     entrypoint.MISE_CONFIG_DIR = tmp_path / ".config" / "mise"
 
     yield tmp_path
@@ -346,14 +351,29 @@ class TestBashrcGeneration:
         assert "mise trust --quiet /workspace/mise.toml" not in content
 
     def test_contains_aliases(self, jail_home, monkeypatch):
+        # Aliases are emitted only for SELECTED agents that declare one.
         monkeypatch.setenv("YOLO_HOST_DIR", "test")
+        monkeypatch.setenv("YOLO_AGENTS", json.dumps(["gemini", "copilot", "claude"]))
         entrypoint.generate_bashrc()
         content = entrypoint.BASHRC_PATH.read_text()
         assert "alias gemini='gemini --yolo'" in content
         assert "alias copilot='copilot --yolo --no-auto-update'" in content
+        # Claude has no alias — its flag is injected by cli.py, not bashrc.
         assert "alias claude='claude --dangerously-skip-permissions'" not in content
-        # Claude YOLO is via settings.json allow rules, not an alias flag
-        assert "permissions.allow" in content or "settings.json" in content
+
+    def test_aliases_gated_on_selection(self, jail_home, monkeypatch):
+        """A claude-only jail emits no gemini/copilot alias."""
+        monkeypatch.setenv("YOLO_HOST_DIR", "test")
+        monkeypatch.setenv("YOLO_AGENTS", json.dumps(["claude"]))
+        entrypoint.generate_bashrc()
+        content = entrypoint.BASHRC_PATH.read_text()
+        assert "alias gemini=" not in content
+        assert "alias copilot=" not in content
+
+    def test_pi_telemetry_disabled(self, jail_home, monkeypatch):
+        monkeypatch.setenv("YOLO_HOST_DIR", "test")
+        entrypoint.generate_bashrc()
+        assert "PI_TELEMETRY=0" in entrypoint.BASHRC_PATH.read_text()
 
     def test_pager_disabled(self, jail_home, monkeypatch):
         monkeypatch.setenv("YOLO_HOST_DIR", "test")
@@ -1850,6 +1870,70 @@ class TestClaudeConfig:
         assert shared.read_text() == '{"someOtherTool": true}'
 
 
+# -- opencode config --
+
+
+class TestOpencodeConfig:
+    def test_writes_permission_allow_and_schema(self, jail_home):
+        entrypoint.configure_opencode()
+        cfg = json.loads((entrypoint.OPENCODE_DIR / "opencode.json").read_text())
+        assert cfg["permission"] == "allow"
+        assert cfg["$schema"] == "https://opencode.ai/config.json"
+
+    def test_translates_mcp_servers_to_native_schema(self, jail_home, monkeypatch):
+        monkeypatch.setenv("YOLO_MCP_PRESETS", json.dumps(["sequential-thinking"]))
+        entrypoint.configure_opencode()
+        cfg = json.loads((entrypoint.OPENCODE_DIR / "opencode.json").read_text())
+        server = cfg["mcp"]["sequential-thinking"]
+        assert server["type"] == "local"
+        # command is a single argv array (opencode's native schema)
+        assert isinstance(server["command"], list)
+        assert server["command"][0].endswith("node")
+        assert server["enabled"] is True
+
+    def test_reconciles_stale_managed_servers(self, jail_home, monkeypatch):
+        # First boot: a preset server is written and recorded as managed.
+        monkeypatch.setenv("YOLO_MCP_PRESETS", json.dumps(["sequential-thinking"]))
+        entrypoint.configure_opencode()
+        cfg = json.loads((entrypoint.OPENCODE_DIR / "opencode.json").read_text())
+        assert "sequential-thinking" in cfg["mcp"]
+        # Second boot with the preset removed: the stale managed server goes.
+        monkeypatch.setenv("YOLO_MCP_PRESETS", json.dumps([]))
+        entrypoint.configure_opencode()
+        cfg = json.loads((entrypoint.OPENCODE_DIR / "opencode.json").read_text())
+        assert "mcp" not in cfg or "sequential-thinking" not in cfg.get("mcp", {})
+
+    def test_preserves_user_keys(self, jail_home):
+        entrypoint.OPENCODE_DIR.mkdir(parents=True)
+        (entrypoint.OPENCODE_DIR / "opencode.json").write_text(
+            json.dumps({"theme": "dark", "permission": "ask"})
+        )
+        entrypoint.configure_opencode()
+        cfg = json.loads((entrypoint.OPENCODE_DIR / "opencode.json").read_text())
+        assert cfg["theme"] == "dark"  # user key preserved
+        assert cfg["permission"] == "allow"  # yolo-managed key asserted
+
+
+# -- pi config --
+
+
+class TestPiConfig:
+    def test_writes_default_project_trust(self, jail_home):
+        entrypoint.configure_pi()
+        cfg = json.loads((entrypoint.PI_DIR / "settings.json").read_text())
+        assert cfg["defaultProjectTrust"] == "always"
+
+    def test_preserves_user_keys(self, jail_home):
+        entrypoint.PI_DIR.mkdir(parents=True)
+        (entrypoint.PI_DIR / "settings.json").write_text(
+            json.dumps({"thinkingLevel": "high"})
+        )
+        entrypoint.configure_pi()
+        cfg = json.loads((entrypoint.PI_DIR / "settings.json").read_text())
+        assert cfg["thinkingLevel"] == "high"
+        assert cfg["defaultProjectTrust"] == "always"
+
+
 # -- MCP wrappers --
 
 
@@ -1939,7 +2023,9 @@ class TestBootstrapScript:
 
 
 class TestAgentLaunchers:
-    def test_creates_launchers(self, jail_home):
+    def test_creates_launchers(self, jail_home, monkeypatch):
+        # Library model: launchers are generated only for the SELECTED agents.
+        monkeypatch.setenv("YOLO_AGENTS", json.dumps(["gemini", "copilot", "claude"]))
         entrypoint.SHIM_DIR.mkdir(parents=True, exist_ok=True)
         entrypoint.generate_agent_launchers()
         for name in ("gemini", "copilot", "claude"):
@@ -1950,8 +2036,38 @@ class TestAgentLaunchers:
             assert "YOLO_BYPASS_SHIMS=1" in content
             assert "exec " in content
 
+    def test_default_is_claude_only(self, jail_home, monkeypatch):
+        """With no YOLO_AGENTS, only claude gets a launcher (the default)."""
+        monkeypatch.delenv("YOLO_AGENTS", raising=False)
+        entrypoint.SHIM_DIR.mkdir(parents=True, exist_ok=True)
+        entrypoint.generate_agent_launchers()
+        assert (entrypoint.SHIM_DIR / "claude").exists()
+        for name in ("gemini", "copilot", "opencode", "pi"):
+            assert not (entrypoint.SHIM_DIR / name).exists(), (
+                f"{name} launcher should not exist when unselected"
+            )
+
+    def test_selection_prunes_launchers(self, jail_home, monkeypatch):
+        """Only the selected subset gets launchers; others are absent."""
+        monkeypatch.setenv("YOLO_AGENTS", json.dumps(["opencode", "pi"]))
+        entrypoint.SHIM_DIR.mkdir(parents=True, exist_ok=True)
+        entrypoint.generate_agent_launchers()
+        assert (entrypoint.SHIM_DIR / "opencode").exists()
+        assert (entrypoint.SHIM_DIR / "pi").exists()
+        for name in ("claude", "gemini", "copilot"):
+            assert not (entrypoint.SHIM_DIR / name).exists()
+
+    def test_pi_launcher_uses_ignore_scripts(self, jail_home, monkeypatch):
+        monkeypatch.setenv("YOLO_AGENTS", json.dumps(["pi"]))
+        entrypoint.SHIM_DIR.mkdir(parents=True, exist_ok=True)
+        entrypoint.generate_agent_launchers()
+        content = (entrypoint.SHIM_DIR / "pi").read_text()
+        assert "@earendil-works/pi-coding-agent" in content
+        assert "--ignore-scripts" in content
+
     def test_does_not_overwrite_blocked_shim(self, jail_home, monkeypatch):
         """If a tool is blocked via YOLO_BLOCK_CONFIG, the launcher must not overwrite it."""
+        monkeypatch.setenv("YOLO_AGENTS", json.dumps(["gemini", "copilot", "claude"]))
         monkeypatch.setenv(
             "YOLO_BLOCK_CONFIG",
             '[{"name": "gemini", "message": "blocked"}]',
@@ -1964,7 +2080,8 @@ class TestAgentLaunchers:
         assert (entrypoint.SHIM_DIR / "copilot").exists()
         assert (entrypoint.SHIM_DIR / "claude").exists()
 
-    def test_npm_launcher_checks_version(self, jail_home):
+    def test_npm_launcher_checks_version(self, jail_home, monkeypatch):
+        monkeypatch.setenv("YOLO_AGENTS", json.dumps(["gemini"]))
         entrypoint.SHIM_DIR.mkdir(parents=True, exist_ok=True)
         entrypoint.generate_agent_launchers()
         content = (entrypoint.SHIM_DIR / "gemini").read_text()
@@ -1972,7 +2089,8 @@ class TestAgentLaunchers:
         assert "package.json" in content  # local version check
         assert "UPDATE_INTERVAL" in content  # stamp-based throttling
 
-    def test_claude_launcher_uses_native_installer(self, jail_home):
+    def test_claude_launcher_uses_native_installer(self, jail_home, monkeypatch):
+        monkeypatch.setenv("YOLO_AGENTS", json.dumps(["claude"]))
         entrypoint.SHIM_DIR.mkdir(parents=True, exist_ok=True)
         entrypoint.generate_agent_launchers()
         content = (entrypoint.SHIM_DIR / "claude").read_text()
@@ -2755,6 +2873,8 @@ class TestMainFunction:
         monkeypatch.setattr("sys.argv", ["entrypoint", "echo", "hello"])
         monkeypatch.setenv("MISE_DATA_DIR", "/mise")
         monkeypatch.setenv("PATH", "/bin:/usr/bin")
+        # Select all three legacy agents so each configure_* writer runs.
+        monkeypatch.setenv("YOLO_AGENTS", json.dumps(["copilot", "gemini", "claude"]))
         entrypoint.main()
         mock_shims.assert_called_once()
         mock_bashrc.assert_called_once()

@@ -59,14 +59,15 @@ def generate_mise_config():
         "go": "latest",
     }
 
-    # Tools that used to be in base_tools but are now bootstrap-managed.
+    # Tools that used to be in base_tools but are now launcher-managed
+    # (npm install -g / native installer via ~/.yolo-shims launchers).
     # Remove from existing configs to avoid stale mise-cached versions
-    # shadowing the always-fresh npm global installs.
-    retired_tools = [
-        '"npm:@github/copilot"',
-        "gemini",
-        '"npm:@anthropic-ai/claude-code"',
-    ]
+    # shadowing the always-fresh installs.  Driven by the agent registry:
+    # EVERY known agent stays retired from mise regardless of which are
+    # selected — a deselected agent must also never be mise-managed.
+    from .agent_registry import ALL_MISE_RETIRE
+
+    retired_tools = list(ALL_MISE_RETIRE)
 
     if not config_path.exists():
         MISE_CONFIG_DIR.mkdir(parents=True, exist_ok=True)

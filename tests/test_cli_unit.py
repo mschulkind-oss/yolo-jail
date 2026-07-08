@@ -2244,6 +2244,10 @@ class TestGetProjectName:
 # ═══════════════════════════════════════════════════════════════════════════════
 
 
+# Every agent selected — used by tests that assert on all briefing files.
+_ALL_AGENTS = ["copilot", "gemini", "claude", "opencode", "pi"]
+
+
 class TestGenerateAgentsMd:
     def test_basic_generation(self, tmp_path, monkeypatch):
         monkeypatch.setattr("cli.AGENTS_DIR", tmp_path / "agents")
@@ -2252,14 +2256,44 @@ class TestGenerateAgentsMd:
             workspace=tmp_path / "ws",
             blocked_tools=[],
             mount_descriptions=[],
+            agents=_ALL_AGENTS,
         )
         assert (agents_dir / "AGENTS-copilot.md").exists()
         assert (agents_dir / "AGENTS-gemini.md").exists()
         assert (agents_dir / "CLAUDE.md").exists()
+        assert (agents_dir / "AGENTS-opencode.md").exists()
+        assert (agents_dir / "AGENTS-pi.md").exists()
         content = (agents_dir / "AGENTS-copilot.md").read_text()
         assert "YOLO Jail" in content
         claude_content = (agents_dir / "CLAUDE.md").read_text()
         assert "YOLO Jail" in claude_content
+
+    def test_default_is_claude_only(self, tmp_path, monkeypatch):
+        """No agents arg → only claude's CLAUDE.md is written (the default)."""
+        monkeypatch.setattr("cli.AGENTS_DIR", tmp_path / "agents")
+        agents_dir = generate_agents_md(
+            cname="yolo-test",
+            workspace=tmp_path / "ws",
+            blocked_tools=[],
+            mount_descriptions=[],
+        )
+        assert (agents_dir / "CLAUDE.md").exists()
+        assert not (agents_dir / "AGENTS-copilot.md").exists()
+        assert not (agents_dir / "AGENTS-gemini.md").exists()
+
+    def test_selection_prunes_briefings(self, tmp_path, monkeypatch):
+        monkeypatch.setattr("cli.AGENTS_DIR", tmp_path / "agents")
+        agents_dir = generate_agents_md(
+            cname="yolo-test",
+            workspace=tmp_path / "ws",
+            blocked_tools=[],
+            mount_descriptions=[],
+            agents=["opencode", "pi"],
+        )
+        assert (agents_dir / "AGENTS-opencode.md").exists()
+        assert (agents_dir / "AGENTS-pi.md").exists()
+        assert not (agents_dir / "CLAUDE.md").exists()
+        assert not (agents_dir / "AGENTS-copilot.md").exists()
 
     def test_blocked_tools_listed(self, tmp_path, monkeypatch):
         monkeypatch.setattr("cli.AGENTS_DIR", tmp_path / "agents")
@@ -2268,6 +2302,7 @@ class TestGenerateAgentsMd:
             workspace=tmp_path,
             blocked_tools=[{"name": "curl", "message": "Use wget"}],
             mount_descriptions=[],
+            agents=_ALL_AGENTS,
         )
         content = (agents_dir / "AGENTS-copilot.md").read_text()
         assert "curl" in content
@@ -2280,6 +2315,7 @@ class TestGenerateAgentsMd:
             workspace=tmp_path,
             blocked_tools=[],
             mount_descriptions=["/host/path:/ctx/path"],
+            agents=_ALL_AGENTS,
         )
         content = (agents_dir / "AGENTS-copilot.md").read_text()
         assert "/ctx/path" in content
@@ -2292,6 +2328,7 @@ class TestGenerateAgentsMd:
             blocked_tools=[],
             mount_descriptions=[],
             net_mode="host",
+            agents=_ALL_AGENTS,
         )
         content = (agents_dir / "AGENTS-copilot.md").read_text()
         assert "Host networking" in content
@@ -2305,6 +2342,7 @@ class TestGenerateAgentsMd:
             mount_descriptions=[],
             net_mode="bridge",
             runtime="podman",
+            agents=_ALL_AGENTS,
         )
         content = (agents_dir / "AGENTS-copilot.md").read_text()
         assert "host.containers.internal" in content
@@ -2317,6 +2355,7 @@ class TestGenerateAgentsMd:
             blocked_tools=[],
             mount_descriptions=[],
             forward_host_ports=[5432, "8080:9090"],
+            agents=_ALL_AGENTS,
         )
         content = (agents_dir / "AGENTS-copilot.md").read_text()
         assert "localhost:5432" in content
@@ -2333,10 +2372,36 @@ class TestGenerateAgentsMd:
             workspace=tmp_path,
             blocked_tools=[],
             mount_descriptions=[],
+            agents=_ALL_AGENTS,
         )
         content = (agents_dir / "AGENTS-copilot.md").read_text()
         assert content.startswith("# My Custom AGENTS")
         assert "YOLO Jail" in content
+
+    def test_opencode_pi_host_briefing_prepended(self, tmp_path, monkeypatch):
+        """opencode reads ~/.config/opencode/AGENTS.md; pi reads
+        ~/.pi/agent/AGENTS.md — each is prepended when present on the host."""
+        monkeypatch.setattr("cli.AGENTS_DIR", tmp_path / "agents")
+        oc = tmp_path / ".config" / "opencode"
+        oc.mkdir(parents=True)
+        (oc / "AGENTS.md").write_text("# opencode custom")
+        pi = tmp_path / ".pi" / "agent"
+        pi.mkdir(parents=True)
+        (pi / "AGENTS.md").write_text("# pi custom")
+        monkeypatch.setattr("cli.Path.home", lambda: tmp_path)
+        agents_dir = generate_agents_md(
+            cname="yolo-test",
+            workspace=tmp_path,
+            blocked_tools=[],
+            mount_descriptions=[],
+            agents=["opencode", "pi"],
+        )
+        assert (
+            (agents_dir / "AGENTS-opencode.md")
+            .read_text()
+            .startswith("# opencode custom")
+        )
+        assert (agents_dir / "AGENTS-pi.md").read_text().startswith("# pi custom")
 
 
 # ═══════════════════════════════════════════════════════════════════════════════
@@ -2347,11 +2412,27 @@ class TestGenerateAgentsMd:
 class TestPrepareSkills:
     def test_builtin_skill_created(self, tmp_path, monkeypatch):
         monkeypatch.setattr(cli, "AGENTS_DIR", tmp_path / "agents")
-        result = _prepare_skills("test-cname")
+        result = _prepare_skills("test-cname", ["copilot", "gemini", "claude"])
         for agent in ("copilot", "gemini", "claude"):
             skill = result / f"skills-{agent}" / "jail-startup" / "SKILL.md"
             assert skill.exists()
             assert "Jail Startup" in skill.read_text()
+
+    def test_skilless_agents_get_no_staging_dir(self, tmp_path, monkeypatch):
+        """opencode and pi have no user-skills dir → no skills-<x> staged."""
+        monkeypatch.setattr(cli, "AGENTS_DIR", tmp_path / "agents")
+        result = _prepare_skills("test-cname", ["claude", "opencode", "pi"])
+        assert (result / "skills-claude").exists()
+        assert not (result / "skills-opencode").exists()
+        assert not (result / "skills-pi").exists()
+
+    def test_selection_prunes_skills(self, tmp_path, monkeypatch):
+        """A claude-only selection stages no copilot/gemini skills dir."""
+        monkeypatch.setattr(cli, "AGENTS_DIR", tmp_path / "agents")
+        result = _prepare_skills("test-cname", ["claude"])
+        assert (result / "skills-claude").exists()
+        assert not (result / "skills-copilot").exists()
+        assert not (result / "skills-gemini").exists()
 
     def test_host_skills_strict_per_agent(self, tmp_path, monkeypatch):
         """Each agent's staging dir mirrors ONLY its host counterpart.
@@ -2376,7 +2457,7 @@ class TestPrepareSkills:
         (host_home / ".claude" / "skills" / "claude-only" / "SKILL.md").write_text(
             "claude"
         )
-        result = _prepare_skills("test-cname")
+        result = _prepare_skills("test-cname", ["copilot", "gemini", "claude"])
 
         # Each skill appears in its own agent's dir.
         assert (result / "skills-gemini" / "gemini-only" / "SKILL.md").read_text() == (
@@ -2403,14 +2484,14 @@ class TestPrepareSkills:
         monkeypatch.setattr(Path, "home", lambda: host_home)
         (host_home / ".gemini" / "skills" / "old-skill").mkdir(parents=True)
         (host_home / ".gemini" / "skills" / "old-skill" / "SKILL.md").write_text("old")
-        result = _prepare_skills("test-cname")
+        result = _prepare_skills("test-cname", ["gemini"])
         assert (result / "skills-gemini" / "old-skill").exists()
         import shutil
 
         shutil.rmtree(host_home / ".gemini" / "skills" / "old-skill")
         (host_home / ".gemini" / "skills" / "new-skill").mkdir(parents=True)
         (host_home / ".gemini" / "skills" / "new-skill" / "SKILL.md").write_text("new")
-        result = _prepare_skills("test-cname")
+        result = _prepare_skills("test-cname", ["gemini"])
         assert not (result / "skills-gemini" / "old-skill").exists()
         assert (result / "skills-gemini" / "new-skill").exists()
 

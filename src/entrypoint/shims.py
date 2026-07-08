@@ -115,30 +115,55 @@ def generate_shims():
 
 
 def generate_agent_launchers():
-    """Create lazy-update wrappers for agent CLIs (gemini, copilot, claude).
+    """Create lazy-update wrappers for the SELECTED agent CLIs.
 
-    Instead of updating all agents at boot (slow), these wrappers update the
-    specific agent on first use.  They sit in SHIM_DIR (highest PATH priority)
-    and self-delete after ensuring the real binary is current.
+    Instead of updating all agents at boot (slow), these wrappers install +
+    update the specific agent on first use.  They sit in SHIM_DIR (highest
+    PATH priority) and ``exec`` the real binary once it's current.
+
+    Which agents get a launcher is driven by ``YOLO_AGENTS`` (the library
+    model) via :func:`entrypoint._load_agents`, and HOW each installs — npm
+    package vs native ``curl | bash`` installer — comes from that agent's
+    :class:`~entrypoint.agent_registry.InstallSpec`.  Only the selected
+    subset is emitted, so a claude-only jail never installs copilot/gemini.
     """
-    from . import HOME, SHIM_DIR
+    from . import HOME, SHIM_DIR, _load_agents
+    from .agent_registry import AGENTS
 
     SHIM_DIR.mkdir(parents=True, exist_ok=True)
     stamp_dir = HOME / ".cache" / "yolo-agent-stamps"
 
-    # npm-based agents: gemini, copilot
-    npm_agents = {
-        "gemini": "@google/gemini-cli",
-        "copilot": "@github/copilot",
-    }
-    for bin_name, pkg_name in npm_agents.items():
-        # Don't overwrite a blocked-tool shim
+    for name in _load_agents():
+        spec = AGENTS.get(name)
+        if spec is None:
+            continue
+        bin_name = spec.install.bin
+        # Don't overwrite a blocked-tool shim (YOLO_BLOCK_CONFIG ran first).
         shim_path = SHIM_DIR / bin_name
         if shim_path.exists():
             continue
 
-        launcher = f"""#!/bin/bash
-# Lazy-update launcher for {bin_name} — updates on first use, not at boot.
+        if spec.install.kind == "npm":
+            launcher = _npm_agent_launcher(spec, stamp_dir)
+        elif spec.install.kind == "native":
+            launcher = _native_agent_launcher(spec, stamp_dir)
+        else:
+            continue
+
+        shim_path.write_text(launcher)
+        shim_path.chmod(shim_path.stat().st_mode | stat.S_IEXEC)
+
+
+def _npm_agent_launcher(spec, stamp_dir) -> str:
+    """Lazy install+update launcher body for an npm-packaged agent."""
+    bin_name = spec.install.bin
+    pkg_name = spec.install.package
+    # Extra one-time install flags (e.g. pi's --ignore-scripts).  Joined into
+    # the npm invocation; empty for most agents.
+    extra_flags = " ".join(spec.install.install_flags)
+    extra_flags = (extra_flags + " ") if extra_flags else ""
+    return f"""#!/bin/bash
+# Lazy-update launcher for {bin_name} — installs/updates on first use, not at boot.
 set -euo pipefail
 export NPM_CONFIG_PREFIX="${{NPM_CONFIG_PREFIX:-$HOME/.npm-global}}"
 export NPM_CONFIG_CACHE="${{NPM_CONFIG_CACHE:-$HOME/.cache/npm}}"
@@ -154,7 +179,7 @@ _do_install() {{
     echo "  Installing $PKG..." >&2
     # Clean stale npm temp dirs that cause ENOTEMPTY
     rm -rf "$NPM_CONFIG_PREFIX"/lib/node_modules/${{PKG%%/*}}/.${{PKG##*/}}-* 2>/dev/null
-    YOLO_BYPASS_SHIMS=1 npm install -g --prefer-online "$PKG@latest" 2>&1 || true
+    YOLO_BYPASS_SHIMS=1 npm install -g {extra_flags}--prefer-online "$PKG@latest" 2>&1 || true
     touch "$STAMP"
 }}
 
@@ -192,25 +217,29 @@ else
     exit 1
 fi
 """
-        shim_path.write_text(launcher)
-        shim_path.chmod(shim_path.stat().st_mode | stat.S_IEXEC)
 
-    # Claude: native installer
-    claude_shim = SHIM_DIR / "claude"
-    if not claude_shim.exists():
-        launcher = f"""#!/bin/bash
-# Lazy-update launcher for claude — installs/updates on first use, not at boot.
+
+def _native_agent_launcher(spec, stamp_dir) -> str:
+    """Lazy install+update launcher body for a native-installer agent (claude).
+
+    Installs via the agent's ``curl | bash`` installer, then self-updates
+    with ``$REAL_BIN install`` (the pattern claude's installer supports).
+    """
+    bin_name = spec.install.bin
+    installer_url = spec.install.installer_url
+    return f"""#!/bin/bash
+# Lazy-update launcher for {bin_name} — installs/updates on first use, not at boot.
 set -euo pipefail
 STAMP_DIR="{stamp_dir}"
-STAMP="$STAMP_DIR/claude.stamp"
-REAL_BIN="$HOME/.local/bin/claude"
+STAMP="$STAMP_DIR/{bin_name}.stamp"
+REAL_BIN="$HOME/.local/bin/{bin_name}"
 UPDATE_INTERVAL=3600
 
 mkdir -p "$STAMP_DIR"
 
 _do_install() {{
-    echo "  Installing Claude Code..." >&2
-    YOLO_BYPASS_SHIMS=1 curl -fsSL https://claude.ai/install.sh | bash 2>&1 || true
+    echo "  Installing {bin_name}..." >&2
+    YOLO_BYPASS_SHIMS=1 curl -fsSL {installer_url} | bash 2>&1 || true
     touch "$STAMP"
 }}
 
@@ -231,12 +260,10 @@ fi
 if [ -x "$REAL_BIN" ]; then
     exec "$REAL_BIN" "$@"
 else
-    echo "  ⚠ claude not available" >&2
+    echo "  ⚠ {bin_name} not available" >&2
     exit 1
 fi
 """
-        claude_shim.write_text(launcher)
-        claude_shim.chmod(claude_shim.stat().st_mode | stat.S_IEXEC)
 
 
 def generate_package_manager_launchers():

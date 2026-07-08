@@ -753,3 +753,132 @@ def configure_claude():
 
     # Install LSP plugins if not already present (idempotent, persists across restarts).
     _install_claude_plugins(CLAUDE_LSP_PLUGIN_MAP, _load_lsp_servers())
+
+
+def configure_opencode():
+    """Set up opencode: ~/.config/opencode/opencode.json (MCP + auto-approve).
+
+    opencode reads its global config from ``~/.config/opencode/opencode.json``
+    (JSON/JSONC).  We write:
+
+      * ``permission: "allow"`` — blanket auto-approve for every tool
+        (edit/bash/webfetch/…).  This is opencode's equivalent of Claude's
+        ``--dangerously-skip-permissions`` / Gemini's ``--yolo``; the jail
+        container is the security boundary, so we allow everything inside.
+      * ``mcp`` — the same shared MCP servers the other agents get, in
+        opencode's native schema (``type: "local"``, ``command`` as an
+        argv array, ``environment`` map).
+
+    Merges into any existing file (opencode also merges a project-root
+    ``opencode.json`` on top at runtime).  Preserves user keys; only the
+    ``permission`` and yolo-managed ``mcp`` entries are (re)asserted.
+    """
+    from . import OPENCODE_DIR
+
+    OPENCODE_DIR.mkdir(parents=True, exist_ok=True)
+    config_path = OPENCODE_DIR / "opencode.json"
+    managed_path = OPENCODE_DIR / "yolo-managed-mcp-servers.json"
+
+    # Translate the shared MCP servers into opencode's native schema.
+    # command is a single string in our shared form (plus args); opencode
+    # wants a single argv array under "command".
+    configured_servers = _load_mcp_servers()
+    opencode_mcp = {}
+    for name, cfg in configured_servers.items():
+        if not isinstance(cfg, dict):
+            continue
+        command = [cfg.get("command", "")] + list(cfg.get("args", []))
+        entry = {"type": "local", "command": command, "enabled": True}
+        if isinstance(cfg.get("env"), dict) and cfg["env"]:
+            entry["environment"] = cfg["env"]
+        opencode_mcp[name] = entry
+
+    try:
+        if config_path.exists():
+            try:
+                current = json.loads(config_path.read_text())
+                if not isinstance(current, dict):
+                    current = {}
+            except json.JSONDecodeError:
+                current = {}
+        else:
+            current = {}
+
+        current.setdefault("$schema", "https://opencode.ai/config.json")
+        # Blanket auto-approve — jail is the boundary.
+        current["permission"] = "allow"
+
+        # Reconcile yolo-managed MCP servers: drop the ones we added last
+        # boot (so a removed server disappears) without touching servers
+        # the user added directly.
+        mcp = current.get("mcp")
+        if not isinstance(mcp, dict):
+            mcp = {}
+        try:
+            previous_managed = set(json.loads(managed_path.read_text()))
+        except (FileNotFoundError, json.JSONDecodeError, TypeError, ValueError):
+            previous_managed = set()
+        for name in previous_managed:
+            mcp.pop(name, None)
+        mcp.update(opencode_mcp)
+        if mcp:
+            current["mcp"] = mcp
+        elif "mcp" in current:
+            del current["mcp"]
+
+        config_path.write_text(json.dumps(current, indent=2) + "\n")
+        managed_path.write_text(
+            json.dumps(sorted(opencode_mcp.keys()), indent=2) + "\n"
+        )
+    except Exception as e:
+        print(f"Error configuring opencode: {e}", file=sys.stderr)
+
+
+def configure_pi():
+    """Set up the pi (pi.dev) coding agent: ~/.pi/agent/settings.json.
+
+    pi is deliberately minimal — no permission popups, and no native MCP
+    (MCP would require installing a separate adapter extension, so we do
+    not wire the shared MCP servers here).  For unattended jail use we set
+    ``defaultProjectTrust: "always"`` so pi trusts project-local config and
+    runs without confirmation prompts — the jail container is the security
+    boundary.  ``PI_TELEMETRY=0`` is set as a jail env var elsewhere, not
+    here.
+
+    Merges into any existing settings.json, preserving user keys.
+    """
+    from . import PI_DIR
+
+    PI_DIR.mkdir(parents=True, exist_ok=True)
+    settings_path = PI_DIR / "settings.json"
+
+    try:
+        if settings_path.exists():
+            try:
+                settings = json.loads(settings_path.read_text())
+                if not isinstance(settings, dict):
+                    settings = {}
+            except json.JSONDecodeError:
+                settings = {}
+        else:
+            settings = {}
+
+        # Unattended: trust project-local config without prompting.
+        settings["defaultProjectTrust"] = "always"
+
+        settings_path.write_text(json.dumps(settings, indent=2) + "\n")
+    except Exception as e:
+        print(f"Error configuring pi: {e}", file=sys.stderr)
+
+
+# Name → config-writer, consumed by entrypoint.main()'s selected-agent loop.
+# Kept here (not in the registry) so agent_registry stays free of the
+# subprocess-heavy config code.  Every name in agent_registry.AGENTS must
+# have an entry.
+CONFIG_WRITERS = {
+    "claude": configure_claude,
+    "copilot": configure_copilot,
+    "gemini": configure_gemini,
+    "opencode": configure_opencode,
+    "pi": configure_pi,
+}

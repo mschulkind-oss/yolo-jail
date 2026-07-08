@@ -18,6 +18,14 @@ from typing import Any, Dict, List, Optional
 
 from .paths import AGENTS_DIR
 
+# Agent registry (baked into the jail image, stdlib-only).  Dual-try import
+# so it resolves under both the ``cli`` and ``src.cli`` test identities and
+# inside a jail (top-level ``entrypoint``).
+try:
+    from src.entrypoint.agent_registry import DEFAULT_AGENTS, resolve_agents
+except ImportError:  # pragma: no cover - exercised under the ``entrypoint`` identity
+    from entrypoint.agent_registry import DEFAULT_AGENTS, resolve_agents
+
 
 def _workspace_is_yolo_source_tree(workspace: Path) -> bool:
     """True when the workspace being jailed is itself a yolo-jail source
@@ -45,12 +53,16 @@ def generate_agents_md(
     loopholes: Optional[List[tuple]] = None,
     resources: Optional[Dict[str, Any]] = None,
     agents_md_extra: Optional[str] = None,
+    agents: Optional[List[str]] = None,
 ) -> Path:
-    """Generate per-workspace AGENTS.md and CLAUDE.md files and return the directory.
+    """Generate per-workspace briefing files for the selected agents.
 
-    Produces separate files for Copilot, Gemini, and Claude so that user-level
-    ~/.copilot/AGENTS.md, ~/.gemini/AGENTS.md, and ~/.claude/CLAUDE.md content
-    can differ between the agents.
+    Produces a separate briefing file per selected agent (Claude reads
+    ``.claude/CLAUDE.md``; Copilot/Gemini/opencode read ``AGENTS.md`` under
+    their own dir; pi reads ``.pi/agent/AGENTS.md``) so that host-level
+    per-agent content can differ.  ``agents`` is the selected agent-name
+    list (defaults to :data:`DEFAULT_AGENTS`); only those agents' briefings
+    are written.
 
     ``agents_md_extra`` is appended verbatim to the generated jail-managed
     content (before host-level user content is prepended) so per-workspace
@@ -230,23 +242,19 @@ def generate_agents_md(
         extra = agents_md_extra.rstrip() + "\n"
         jail_content = jail_content + "\n" + extra
 
+    # One briefing file per SELECTED agent, staged under the per-jail dir.
+    # Each spec knows its staging filename (e.g. CLAUDE.md vs AGENTS-copilot.md)
+    # and the HOME-relative host file to prepend (~/.claude/CLAUDE.md,
+    # ~/.copilot/AGENTS.md, …).  run_cmd mounts each staged file at the
+    # agent's in-jail read path.
     home = Path.home()
-    for agent, dotdir in [("copilot", ".copilot"), ("gemini", ".gemini")]:
-        user_agents = home / dotdir / "AGENTS.md"
-        if user_agents.exists():
-            user_content = user_agents.read_text()
-            content = user_content + "\n---\n\n" + jail_content
+    for spec in resolve_agents(agents if agents is not None else DEFAULT_AGENTS):
+        host_briefing = home / spec.briefing.host_source
+        if host_briefing.exists():
+            content = host_briefing.read_text() + "\n---\n\n" + jail_content
         else:
             content = jail_content
-        _write_briefing(agents_dir / f"AGENTS-{agent}.md", content)
-
-    # Claude reads ~/.claude/CLAUDE.md (not AGENTS.md) at the user-config level.
-    user_claude = home / ".claude" / "CLAUDE.md"
-    if user_claude.exists():
-        claude_content = user_claude.read_text() + "\n---\n\n" + jail_content
-    else:
-        claude_content = jail_content
-    _write_briefing(agents_dir / "CLAUDE.md", claude_content)
+        _write_briefing(agents_dir / spec.briefing.staging, content)
 
     return agents_dir
 
@@ -323,32 +331,33 @@ You have full capability — treat this as your primary working environment.
 """
 
 
-def _prepare_skills(cname: str) -> Path:
+def _prepare_skills(cname: str, agents: Optional[List[str]] = None) -> Path:
     """Prepare per-agent skills directories on the host for :ro bind mounting.
 
-    Each agent's staging dir mirrors its host counterpart 1:1:
-      * skills-copilot/ ← ~/.copilot/skills/
-      * skills-gemini/  ← ~/.gemini/skills/
-      * skills-claude/  ← ~/.claude/skills/
+    For each SELECTED agent that has a user-skills dir, the staging dir
+    mirrors its host counterpart 1:1 (e.g. skills-copilot/ ← ~/.copilot/skills/,
+    skills-gemini/ ← ~/.gemini/skills/, skills-claude/ ← ~/.claude/skills/).
+    Agents without a skills dir (opencode, pi) are skipped.
 
     Plus the built-in ``jail-startup`` skill in every staging dir (it's
     not a host skill — it's our orientation doc).
 
-    Workspace skills (``<workspace>/.{copilot,gemini,claude}/skills/``)
-    are NOT collected here — agents already discover them natively from
-    the workspace tree, so duplicating them into the user-level mount
-    would surface the same skill twice.
+    Workspace skills (``<workspace>/.<agent>/skills/``) are NOT collected
+    here — agents already discover them natively from the workspace tree,
+    so duplicating them into the user-level mount would surface the same
+    skill twice.
 
-    Returns the staging directory containing skills-copilot/,
-    skills-gemini/, skills-claude/.
+    Returns the staging directory containing the skills-<agent>/ dirs.
     """
     staging = AGENTS_DIR / cname
     staging.mkdir(parents=True, exist_ok=True)
 
     home = Path.home()
 
-    for agent_suffix in ("copilot", "gemini", "claude"):
-        skills_dir = staging / f"skills-{agent_suffix}"
+    for spec in resolve_agents(agents if agents is not None else DEFAULT_AGENTS):
+        if not spec.skills:
+            continue  # agent has no user-skills dir (opencode, pi)
+        skills_dir = staging / spec.skills_staging
         skills_dir.mkdir(exist_ok=True)
         # Clear contents *inside* skills_dir — never unlink skills_dir
         # itself.  `run_cmd` bind-mounts this exact path into the running
@@ -373,10 +382,10 @@ def _prepare_skills(cname: str) -> Path:
         (builtin / "SKILL.md").write_text(_BUILTIN_JAIL_STARTUP_SKILL)
 
         # 2. Host user-level skills — strictly per-agent.  Whatever's in
-        # ~/.<agent>/skills/ is what the matching jail agent sees; no
-        # cross-agent merging.  Deleting from one host dir cleanly
-        # removes from the matching jail dir.
-        _copy_skill_subdirs(home / f".{agent_suffix}" / "skills", skills_dir)
+        # the agent's host skills dir (e.g. ~/.copilot/skills/) is what the
+        # matching jail agent sees; no cross-agent merging.  Deleting from
+        # one host dir cleanly removes from the matching jail dir.
+        _copy_skill_subdirs(home / spec.skills, skills_dir)
 
     return staging
 

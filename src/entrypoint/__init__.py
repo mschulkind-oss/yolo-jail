@@ -72,6 +72,11 @@ GEMINI_DIR = HOME / ".gemini"
 GEMINI_MANAGED_MCP_PATH = GEMINI_DIR / "yolo-managed-mcp-servers.json"
 CLAUDE_DIR = HOME / ".claude"
 CLAUDE_MANAGED_MCP_PATH = CLAUDE_DIR / "yolo-managed-mcp-servers.json"
+# opencode: global config + rules under ~/.config/opencode/; auth under
+# ~/.local/share/opencode/ (both already sit in writable overlays).
+OPENCODE_DIR = HOME / ".config" / "opencode"
+# pi (pi.dev coding agent): config/state under ~/.pi/agent/.
+PI_DIR = HOME / ".pi" / "agent"
 # Snapshot of host ~/.claude/settings.json as of the last sync — the
 # baseline for the three-way host→jail settings merge (see
 # agent_configs._sync_host_settings).
@@ -120,10 +125,13 @@ DEFAULT_LSP_SERVERS: dict = {}
 # Gemini / Claude) MCP+LSP wiring in entrypoint/agent_configs.py.
 # Re-import so callers (and tests) keep using the bare names on the
 # package.
-from .agent_configs import (  # noqa: E402
+from .agent_configs import (  # noqa: E402, F401
+    CONFIG_WRITERS,
     configure_claude,
     configure_copilot,
     configure_gemini,
+    configure_opencode,
+    configure_pi,
 )
 from .identity import configure_git, configure_jj  # noqa: E402
 from .mcp_wrappers import generate_mcp_wrappers  # noqa: E402
@@ -172,6 +180,31 @@ def _load_lsp_servers():
         except (json.JSONDecodeError, TypeError):
             pass
     return servers
+
+
+def _load_agents():
+    """Return the selected agent names from ``YOLO_AGENTS`` (a JSON list).
+
+    Falls back to :data:`agent_registry.DEFAULT_AGENTS` (claude only) when
+    the var is unset or unparseable — mirroring how ``_load_lsp_servers``
+    tolerates a missing/garbage ``YOLO_LSP_SERVERS``.  Unknown names are
+    dropped so a newer host CLI naming an agent this jail image doesn't know
+    degrades gracefully instead of crashing boot.
+    """
+    from .agent_registry import AGENTS, DEFAULT_AGENTS
+
+    raw = os.environ.get("YOLO_AGENTS", "")
+    names = None
+    if raw:
+        try:
+            parsed = json.loads(raw)
+            if isinstance(parsed, list):
+                names = [n for n in parsed if isinstance(n, str)]
+        except (json.JSONDecodeError, TypeError):
+            names = None
+    if names is None:
+        names = list(DEFAULT_AGENTS)
+    return [n for n in names if n in AGENTS]
 
 
 # ---------------------------------------------------------------------------
@@ -414,12 +447,20 @@ def main():
     _perf("configure_jj")
     # Skills are mounted :ro by cli.py — no entrypoint action needed.
     _perf("skills_skipped")
-    configure_copilot()
-    _perf("configure_copilot")
-    configure_gemini()
-    _perf("configure_gemini")
-    configure_claude()
-    _perf("configure_claude")
+    # Configure only the selected agents (YOLO_AGENTS).  Each writer is
+    # gated so an unselected agent's config dir / MCP wiring is never
+    # touched — the performance + isolation win of the library model.  The
+    # writer is resolved by the registry's ``config_writer`` name through
+    # this module's globals (the configure_* re-exports), so it stays a
+    # patchable seam for tests.
+    from .agent_registry import AGENTS
+
+    for _agent in _load_agents():
+        spec = AGENTS.get(_agent)
+        writer = globals().get(spec.config_writer) if spec is not None else None
+        if writer is not None:
+            writer()
+        _perf(f"configure_{_agent}")
     setup_cgroup_delegation()
     _perf("cgroup_delegation")
     generate_cglimit_script()

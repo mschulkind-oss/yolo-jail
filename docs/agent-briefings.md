@@ -13,25 +13,32 @@ completely differently:
 
 | Layer | In-jail path | Who owns it | Yolo's role |
 |---|---|---|---|
-| **User-level briefing** | `/home/agent/.copilot/AGENTS.md`, `/home/agent/.gemini/AGENTS.md`, `/home/agent/.claude/CLAUDE.md` | yolo (generated) | Generated per jail, mounted read-only |
+| **User-level briefing** | one per selected agent — `~/.claude/CLAUDE.md`, `~/.copilot/AGENTS.md`, `~/.gemini/AGENTS.md`, `~/.config/opencode/AGENTS.md`, `~/.pi/agent/AGENTS.md` | yolo (generated) | Generated per jail, mounted read-only |
 | **Project-level file** | `/workspace/AGENTS.md`, `/workspace/CLAUDE.md` | the repository | None — it's just a file in the workspace bind, exactly what the repo checked in |
 
 Yolo never writes, rewrites, or merges the project-level files. Everything
 below is about the user-level layer.
+
+Which agents get a briefing is driven by the `agents` config (default
+`["claude"]`) — only the selected agents' files are generated and mounted.
+Each agent's staging filename, in-jail mount path, and host-file source
+come from the agent registry (`src/entrypoint/agent_registry.py`,
+`BriefingSpec`).
 
 ## What the generated briefing contains
 
 `generate_agents_md()` (src/cli/agents_md.py) composes each file from
 three parts, in order:
 
-1. **The host user's own briefing, prepended.** If
-   `~/.copilot/AGENTS.md` / `~/.gemini/AGENTS.md` / `~/.claude/CLAUDE.md`
-   exists on the host, its content comes first, separated from the jail
-   part by a `---` rule. This is how the user's global instructions
-   (commit rules, skill architecture, tool preferences) reach every jail.
-   Note the mapping is filename-exact: Copilot and Gemini read
-   `AGENTS.md`, Claude reads `CLAUDE.md`; variants like `CLAUDE.local.md`
-   are not picked up.
+1. **The host user's own briefing, prepended.** If the agent's host
+   source file (each spec's `briefing.host_source` — e.g.
+   `~/.claude/CLAUDE.md`, `~/.copilot/AGENTS.md`, `~/.gemini/AGENTS.md`,
+   `~/.config/opencode/AGENTS.md`, `~/.pi/agent/AGENTS.md`) exists on the
+   host, its content comes first, separated from the jail part by a `---`
+   rule. This is how the user's global instructions (commit rules, skill
+   architecture, tool preferences) reach every jail. Note the mapping is
+   filename-exact: Claude reads `CLAUDE.md`, the others read `AGENTS.md`;
+   variants like `CLAUDE.local.md` are not picked up.
 2. **The jail-managed briefing** — one `# YOLO Jail Environment` document
    describing this specific jail, deliberately limited to what an agent
    *cannot* discover through its own native mechanisms, with inline
@@ -58,20 +65,23 @@ three parts, in order:
    (`yolo-jail.jsonc`, user- or workspace-level; string) for injecting
    arbitrary extra instructions into all three files.
 
-The same jail content goes to all three agents; only the prepended host
-file differs per agent.
+The same jail content goes to every selected agent; only the prepended
+host file differs per agent.
 
 ## Where the files live and how they get into the jail
 
 Generated files land host-side in `AGENTS_DIR/<container-name>/`
-(`~/.local/share/yolo-jail/agents/<cname>/`) as `AGENTS-copilot.md`,
-`AGENTS-gemini.md`, and `CLAUDE.md`, then bind-mount **read-only** into
-the jail:
+(`~/.local/share/yolo-jail/agents/<cname>/`), one staging file per
+selected agent (`CLAUDE.md`, `AGENTS-copilot.md`, `AGENTS-gemini.md`,
+`AGENTS-opencode.md`, `AGENTS-pi.md`), then bind-mount **read-only** into
+the jail at each agent's registry mount path:
 
 ```
+AGENTS_DIR/<cname>/CLAUDE.md          →  /home/agent/.claude/CLAUDE.md:ro
 AGENTS_DIR/<cname>/AGENTS-copilot.md  →  /home/agent/.copilot/AGENTS.md:ro
 AGENTS_DIR/<cname>/AGENTS-gemini.md   →  /home/agent/.gemini/AGENTS.md:ro
-AGENTS_DIR/<cname>/CLAUDE.md          →  /home/agent/.claude/CLAUDE.md:ro
+AGENTS_DIR/<cname>/AGENTS-opencode.md →  /home/agent/.config/opencode/AGENTS.md:ro
+AGENTS_DIR/<cname>/AGENTS-pi.md       →  /home/agent/.pi/agent/AGENTS.md:ro
 ```
 
 The read-only mount is why an in-jail agent gets `Read-only file system`
@@ -81,10 +91,12 @@ trip apple/container#1089, so the files are materialized under `ws_state`
 instead (`_ac_materialize_under_ws_state`); same content, different
 plumbing.
 
-Skills ride the same staging area: `_prepare_skills()` mirrors each
-host-side `~/.<agent>/skills/` into `AGENTS_DIR/<cname>/skills-<agent>/`
-(plus the built-in `jail-startup` skill) and mounts each at
-`/home/agent/.<agent>/skills:ro`. No cross-agent merging.
+Skills ride the same staging area, for the selected agents that have a
+user-skills dir (claude/copilot/gemini; opencode and pi have none):
+`_prepare_skills()` mirrors each host-side `~/.<agent>/skills/` into
+`AGENTS_DIR/<cname>/skills-<agent>/` (plus the built-in `jail-startup`
+skill) and mounts each at `/home/agent/.<agent>/skills:ro`. No cross-agent
+merging.
 
 ## Refresh semantics — live jails see host edits
 
@@ -168,6 +180,7 @@ propagates on the next `yolo` invocation like any other briefing edit.
   files into `~/.claude/`, not briefings.
 
 <!-- changelog -->
+- Agent library model: briefings/skills are now generated only for the agents selected in the `agents` config (default claude), driven by the agent registry (`src/entrypoint/agent_registry.py`); added opencode + pi
 - [8e08ea37] Removed the MCP-server listing from the generated briefing (agents read their own generated config) and dropped the mcp_servers/mcp_presets plumbing from generate_agents_md
 - [89dc5579] Slimmed the Skills section to the one non-discoverable fact: user-level skill dirs read-only in-jail, workspace-level writable, promote via the host
 - [a6cc1e7c] Deleted the First Session — Handover section; the staged jail-startup skill's own description already drives invocation

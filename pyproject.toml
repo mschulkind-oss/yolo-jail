@@ -4,14 +4,14 @@ package = true
 [project]
 name = "yolo-jail"
 dynamic = ["version"]
-description = "Secure container jail for AI agents — run Claude Code, Copilot, and Gemini in YOLO mode safely"
+description = "Secure container jail for AI coding agents — run Claude Code, Copilot, Gemini, opencode, or pi in YOLO mode safely"
 readme = "README.md"
 requires-python = ">=3.13"
 license = "Apache-2.0"
 authors = [
     {name = "Matt Schulkind"},
 ]
-keywords = ["ai", "agents", "podman", "sandbox", "claude", "copilot", "gemini", "security", "nix"]
+keywords = ["ai", "agents", "podman", "sandbox", "claude", "copilot", "gemini", "opencode", "pi", "security", "nix"]
 classifiers = [
     "Development Status :: 3 - Alpha",
     "Environment :: Console",

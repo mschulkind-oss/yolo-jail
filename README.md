@@ -3,7 +3,7 @@
 [![CI](https://github.com/mschulkind/yolo-jail/actions/workflows/ci.yml/badge.svg)](https://github.com/mschulkind/yolo-jail/actions/workflows/ci.yml)
 [![License](https://img.shields.io/badge/License-Apache_2.0-blue.svg)](LICENSE)
 
-A secure, isolated container environment for AI agents (Claude Code, Copilot, Gemini CLI) to safely modify codebases without compromising host security or identity. Runs on **Linux and macOS** (Apple Silicon and Intel) with Podman or Apple Container.
+A secure, isolated container environment for AI coding agents (Claude Code, Copilot, Gemini CLI, opencode, pi) to safely modify codebases without compromising host security or identity. Pick which agents to install per project with the `agents` config. Runs on **Linux and macOS** (Apple Silicon and Intel) with Podman or Apple Container.
 
 ## Why?
 

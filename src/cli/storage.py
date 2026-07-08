@@ -37,6 +37,13 @@ from .paths import (
     GLOBAL_STORAGE,
 )
 
+# Agent registry (baked into the jail image, stdlib-only).  Dual-try import
+# so it resolves under both the ``cli`` and ``src.cli`` test identities.
+try:
+    from src.entrypoint.agent_registry import ALL_OVERLAY_DIRS
+except ImportError:  # pragma: no cover - exercised under the ``entrypoint`` identity
+    from entrypoint.agent_registry import ALL_OVERLAY_DIRS
+
 
 def ensure_global_storage():
     GLOBAL_STORAGE.mkdir(parents=True, exist_ok=True)
@@ -49,10 +56,13 @@ def ensure_global_storage():
     # Pre-create directories and files inside GLOBAL_HOME that will be mountpoints
     # for bind mounts.  GLOBAL_HOME is mounted :ro, so the container runtime cannot
     # create these on the fly — they must already exist in the base filesystem.
+    #
+    # The per-agent overlay dirs (.copilot/.gemini/.claude/.pi) come from the
+    # agent registry — the UNION across all known agents, not just the
+    # selected set, so a per-run selection change never targets a missing
+    # base mountpoint.
     for subdir in [
-        ".copilot",
-        ".gemini",
-        ".claude",
+        *ALL_OVERLAY_DIRS,
         # Shared credentials dir — all jails mount this rw as a directory so
         # Claude Code's atomic writer (tmp+rename) works.  The old approach
         # used a single-file bind mount which returned EBUSY on rename.

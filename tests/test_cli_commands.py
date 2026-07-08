@@ -889,6 +889,22 @@ class TestInjectAgentYoloFlags:
         assert "--yolo" in copilot
         assert "--no-auto-update" in copilot
 
+    def test_gemini_short_yolo_alias_not_duplicated(self):
+        """``-y`` is the same switch as ``--yolo`` — don't add both."""
+        out = self._inject(["gemini", "-y"])
+        assert "--yolo" not in out
+        assert out == ["gemini", "-y"]
+
+    def test_copilot_flag_order_preserved(self):
+        """Both copilot flags land before user args, in registry order."""
+        out = self._inject(["copilot", "chat"])
+        assert out == ["copilot", "--yolo", "--no-auto-update", "chat"]
+
+    def test_opencode_and_pi_get_no_launch_flags(self):
+        """opencode/pi auto-approve via their config files, not a flag."""
+        assert self._inject(["opencode", "run", "hi"]) == ["opencode", "run", "hi"]
+        assert self._inject(["pi", "-p", "x"]) == ["pi", "-p", "x"]
+
     def test_empty_command_no_crash(self):
         """Defensive — empty list must be a no-op, not IndexError."""
         out = self._inject([])
@@ -3515,6 +3531,7 @@ class TestGenerateAgentsMdEdges:
             net_mode="bridge",
             runtime="podman",
             forward_host_ports=[5432],
+            agents=["copilot"],
         )
         agents_copilot = (result / "AGENTS-copilot.md").read_text()
         assert "5432" in agents_copilot
@@ -3535,6 +3552,7 @@ class TestGenerateAgentsMdEdges:
             net_mode="bridge",
             runtime="podman",
             forward_host_ports=["3000:3000"],
+            agents=["copilot"],
         )
         agents_copilot = (result / "AGENTS-copilot.md").read_text()
         assert "3000" in agents_copilot
@@ -3555,6 +3573,7 @@ class TestGenerateAgentsMdEdges:
             [],
             net_mode="bridge",
             runtime="podman",
+            agents=["copilot"],
         )
         agents_copilot = (result / "AGENTS-copilot.md").read_text()
         assert "grep" in agents_copilot
@@ -3576,6 +3595,7 @@ class TestGenerateAgentsMdEdges:
             mounts,
             net_mode="bridge",
             runtime="podman",
+            agents=["copilot"],
         )
         agents_copilot = (result / "AGENTS-copilot.md").read_text()
         assert "data" in agents_copilot
@@ -3597,6 +3617,7 @@ class TestGenerateAgentsMdEdges:
             net_mode="bridge",
             runtime="podman",
             agents_md_extra=extra,
+            agents=["copilot", "gemini", "claude"],
         )
         for name in ("AGENTS-copilot.md", "AGENTS-gemini.md", "CLAUDE.md"):
             content = (result / name).read_text()
@@ -3657,7 +3678,10 @@ class TestRefreshJailBriefings:
 
         workspace = tmp_path / "ws"
         workspace.mkdir()
-        config = {"network": {"mode": "bridge"}}
+        config = {
+            "network": {"mode": "bridge"},
+            "agents": ["copilot", "gemini", "claude"],
+        }
 
         agents_path = _refresh_jail_briefings(
             "test-cname", workspace, config, "podman", "bridge"
@@ -3713,7 +3737,7 @@ class TestRefreshJailBriefings:
 
         workspace = tmp_path / "ws"
         workspace.mkdir()
-        config: dict = {}
+        config: dict = {"agents": ["copilot", "gemini", "claude"]}
 
         agents_path = _refresh_jail_briefings(
             "test-cname", workspace, config, "podman", "bridge"

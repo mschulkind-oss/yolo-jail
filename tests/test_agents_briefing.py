@@ -22,6 +22,9 @@ def _generate(tmp_path, monkeypatch, workspace=None, **kwargs):
     # briefing and would leak outer-jail text into the assertions.
     (tmp_path / "home").mkdir(exist_ok=True)
     monkeypatch.setenv("HOME", str(tmp_path / "home"))
+    # Generate all agents' briefings by default so tests can assert on any
+    # of AGENTS-copilot.md / AGENTS-gemini.md / CLAUDE.md (override via kwargs).
+    kwargs.setdefault("agents", ["copilot", "gemini", "claude", "opencode", "pi"])
     return generate_agents_md(
         "yolo-test", workspace or tmp_path / "workspace", [], [], **kwargs
     )

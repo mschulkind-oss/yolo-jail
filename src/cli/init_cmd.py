@@ -75,6 +75,12 @@ def init(
   // (also settable via YOLO_RUNTIME env var)
   // "runtime": "podman",
 
+  // Coding agents to install in the jail (only these are installed).
+  // Available: claude, copilot, gemini, opencode, pi.  Default: ["claude"].
+  // A workspace list REPLACES the user-level default (it does not union),
+  // so you can narrow to just the agents this project uses.
+  // "agents": ["claude", "opencode"],
+
   // Extra nix packages to include in the jail image.
   // Names must match nixpkgs attribute names (search at https://search.nixos.org/packages).
   // The image rebuilds only when this list changes.
@@ -253,7 +259,8 @@ need to know.
   Runtimes:  Node.js 22, Python 3.13, Go (managed by mise)
   Editors:   nvim (stable by default, configurable via mise_tools)
   CLI tools: rg, fd, bat, jq, git, jj, gh, curl, strace, uv, tmux
-  Agents:    copilot, gemini (auto-injected with --yolo flag)
+  Agents:    the ones in your `agents` config (default: claude). Available:
+             claude, copilot, gemini, opencode, pi (auto-approve wired up).
   The 'yolo' command itself is available inside for nested jailing.
 
   [bold]Mise[/bold] manages all runtimes and supports thousands of tools from
@@ -293,7 +300,8 @@ need to know.
      • Any gotchas or context the inner agent needs
 
   4. [bold]Ask the human to restart you inside the jail[/bold]:
-     Tell them to run: yolo -- copilot  (or yolo -- gemini, yolo -- claude)
+     Tell them to run: yolo -- claude  (or copilot / gemini / opencode / pi,
+     whichever is in the `agents` config)
 
      The inner agent has a built-in [bold]jail-startup[/bold] skill that reads
      your handover doc automatically. The human just needs to say:

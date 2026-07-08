@@ -41,6 +41,14 @@ from rich.console import Console
 
 from src import loopholes as _loopholes
 
+# Agent registry (baked into the jail image, stdlib-only).  Dual-try import
+# so it resolves under both the ``cli`` and ``src.cli`` test identities and
+# inside a jail (top-level ``entrypoint``).
+try:
+    from src.entrypoint.agent_registry import AGENTS, YOLO_FLAG_ALIASES
+except ImportError:  # pragma: no cover - exercised under the ``entrypoint`` identity
+    from entrypoint.agent_registry import AGENTS, YOLO_FLAG_ALIASES
+
 from .agents_md import (
     _prepare_skills,
     _workspace_is_yolo_source_tree,
@@ -59,6 +67,7 @@ from .config import (
     _resolve_env_sources,
     _validate_config,
     load_config,
+    selected_agents,
 )
 from .console import console
 from .image import _jail_image, auto_load_image
@@ -754,7 +763,8 @@ def _refresh_jail_briefings(
     except Exception:
         enabled_loopholes = []
 
-    _prepare_skills(cname)
+    agents = selected_agents(config)
+    _prepare_skills(cname, agents)
     return generate_agents_md(
         cname,
         workspace,
@@ -766,6 +776,7 @@ def _refresh_jail_briefings(
         loopholes=enabled_loopholes or None,
         resources=config.get("resources") or None,
         agents_md_extra=config.get("agents_md_extra"),
+        agents=agents,
     )
 
 
@@ -797,12 +808,16 @@ def _entrypoint_preflight(repo_root: Path, workspace: Path, config: Dict[str, An
                 "YOLO_LSP_SERVERS": json.dumps(config.get("lsp_servers", {})),
                 "YOLO_MCP_SERVERS": json.dumps(config.get("mcp_servers", {})),
                 "YOLO_MCP_PRESETS": json.dumps(config.get("mcp_presets", [])),
+                "YOLO_AGENTS": json.dumps(selected_agents(config)),
             }
         )
         # Apply user-defined env vars from env_sources
         for env_key, env_val in _resolve_env_sources(workspace, config).items():
             env[env_key] = env_val
 
+        # Only the SELECTED agents' config writers run in the dry-run, and
+        # each agent validates only its own output JSON — so `yolo check`
+        # never requires configs for agents that won't be installed.
         code = f"""
 import json
 import sys
@@ -810,21 +825,31 @@ from pathlib import Path
 
 sys.path.insert(0, {str(src_dir)!r})
 import entrypoint
+from entrypoint.agent_configs import CONFIG_WRITERS
 
 entrypoint.generate_shims()
+entrypoint.generate_agent_launchers()
 entrypoint.generate_bashrc()
 entrypoint.generate_bootstrap_script()
 entrypoint.generate_venv_precreate_script()
 entrypoint.generate_mise_config()
 entrypoint.generate_mcp_wrappers()
-entrypoint.configure_copilot()
-entrypoint.configure_gemini()
-entrypoint.configure_claude()
 
-json.loads((entrypoint.COPILOT_DIR / "mcp-config.json").read_text())
-json.loads((entrypoint.COPILOT_DIR / "lsp-config.json").read_text())
-json.loads((entrypoint.GEMINI_DIR / "settings.json").read_text())
-json.loads((entrypoint.CLAUDE_DIR / "settings.json").read_text())
+# Per-agent config outputs to validate after each writer runs.
+_agent_outputs = {{
+    "copilot": [
+        entrypoint.COPILOT_DIR / "mcp-config.json",
+        entrypoint.COPILOT_DIR / "lsp-config.json",
+    ],
+    "gemini": [entrypoint.GEMINI_DIR / "settings.json"],
+    "claude": [entrypoint.CLAUDE_DIR / "settings.json"],
+    "opencode": [entrypoint.OPENCODE_DIR / "opencode.json"],
+    "pi": [entrypoint.PI_DIR / "settings.json"],
+}}
+for _agent in entrypoint._load_agents():
+    CONFIG_WRITERS[_agent]()
+    for _out in _agent_outputs.get(_agent, []):
+        json.loads(_out.read_text())
 print("ok")
 """
         result = subprocess.run(
@@ -845,31 +870,35 @@ def _inject_agent_yolo_flags(full_command: "list[str]") -> None:
     """Mutate ``full_command`` in place to inject agent-specific YOLO
     flags based on the leading binary name.
 
-    - ``gemini``: prepend ``--yolo`` (unless the user passed ``-y`` /
-      ``--yolo`` themselves).
-    - ``copilot``: prepend ``--yolo`` AND ``--no-auto-update`` on the
-      same no-duplicate basis.
-    - ``claude``: prepend ``--dangerously-skip-permissions``.  The
-      settings.json allow-list that used to serve as YOLO was
-      half-broken for weeks (bare ``"Bash"`` is inert, Claude Code's
-      matcher needs a pattern).  The flag is the single source of
-      truth; ``IS_SANDBOX=1`` in the jail env already suppresses the
-      flag's own confirmation prompt.
+    The per-agent flag list comes from the agent registry
+    (``AgentSpec.yolo_flags``), keyed on the leading binary:
+
+    - ``gemini``: ``--yolo`` (skipped if the user passed ``-y`` / ``--yolo``).
+    - ``copilot``: ``--yolo`` and ``--no-auto-update`` (same no-dup basis).
+    - ``claude``: ``--dangerously-skip-permissions``.  The settings.json
+      allow-list that used to serve as YOLO was half-broken for weeks; the
+      flag is the single source of truth, and ``IS_SANDBOX=1`` in the jail
+      env suppresses its confirmation prompt.
+    - ``opencode`` / ``pi``: no launch flags — their auto-approve lives in
+      their config files (opencode ``permission: allow``, pi
+      ``defaultProjectTrust: always``).
 
     All other commands are left alone.
     """
     if not full_command:
         return
     head = full_command[0]
-    if head in ("gemini", "copilot"):
-        if "--yolo" not in full_command and "-y" not in full_command:
-            full_command.insert(1, "--yolo")
-    if head == "copilot":
-        if "--no-auto-update" not in full_command:
-            full_command.insert(1, "--no-auto-update")
-    if head == "claude":
-        if "--dangerously-skip-permissions" not in full_command:
-            full_command.insert(1, "--dangerously-skip-permissions")
+    spec = next((s for s in AGENTS.values() if s.install.bin == head), None)
+    if spec is None:
+        return
+    # Insert flags in reverse so their relative order is preserved (each
+    # inserts at index 1).  Skip a flag if it (or a known alias, e.g. -y for
+    # --yolo) is already present.
+    for flag in reversed(spec.yolo_flags):
+        aliases = YOLO_FLAG_ALIASES.get(flag, [])
+        if flag in full_command or any(a in full_command for a in aliases):
+            continue
+        full_command.insert(1, flag)
 
 
 def _maybe_warn_about_oom_killer(exit_code: int, runtime: str) -> None:
@@ -992,6 +1021,11 @@ def run(
         )
         sys.exit(1)
     runtime = _runtime(config)
+
+    # Which coding agents this jail installs/configures (library model).
+    # Default is claude only; a config's ``agents`` list narrows/expands it.
+    agents = selected_agents(config)
+    agent_specs = [AGENTS[a] for a in agents]
 
     # Command construction (needed for both exec and run paths)
     full_command = list(ctx.args)
@@ -1294,16 +1328,21 @@ def run(
     (ws_state / "ssh").mkdir(exist_ok=True, mode=0o700)
     # Per-workspace writable overlays — isolate cross-jail writes.
     # These sit on top of the :ro GLOBAL_HOME base so each jail has its
-    # own copy of generated configs, installed tools, and caches.
+    # own copy of generated configs, installed tools, and caches.  The
+    # per-agent overlay dirs (.copilot/.gemini/.claude/.pi) are derived
+    # from the selected agents' registry specs — an unselected agent gets
+    # no overlay.  Stored without the leading dot (ws_state uses bare
+    # names, mounted at /home/agent/.<name> below).
+    agent_overlay_subdirs = [
+        d.lstrip(".") for spec in agent_specs for d in spec.overlay_dirs
+    ]
     for subdir in [
         "npm-global",
         "local",
         "go",
         "yolo-shims",
         "config",
-        "copilot",
-        "gemini",
-        "claude",
+        *agent_overlay_subdirs,
     ]:
         (ws_state / subdir).mkdir(exist_ok=True)
     for fname in [
@@ -1323,44 +1362,56 @@ def run(
     ]:
         (ws_state / fname).touch()
 
-    # Seed agent config dirs with auth tokens from the :ro GLOBAL_HOME base.
-    # On first boot for this workspace the per-workspace dirs are empty — copy
-    # auth-related files so agents can authenticate.  Subsequent boots skip
-    # files that already exist (the entrypoint regenerates configs each time).
-    _seed_agent_dir(GLOBAL_HOME / ".copilot", ws_state / "copilot")
-    _seed_agent_dir(GLOBAL_HOME / ".gemini", ws_state / "gemini")
-    # Credentials are in the shared dir (.claude-shared-credentials/), not
-    # .claude/, so no skip needed — _seed_agent_dir won't encounter them.
-    _seed_agent_dir(GLOBAL_HOME / ".claude", ws_state / "claude")
+    # Seed the selected agents' config dirs with auth tokens from the :ro
+    # GLOBAL_HOME base.  On first boot for this workspace the per-workspace
+    # dirs are empty — copy auth-related files so agents can authenticate.
+    # Subsequent boots skip files that already exist (the entrypoint
+    # regenerates configs each time).  Only selected agents' overlay dirs
+    # exist, so seed only those.  (Claude credentials live in the shared
+    # dir .claude-shared-credentials/, not .claude/, so _seed_agent_dir
+    # won't encounter them.)
+    for subdir in agent_overlay_subdirs:
+        _seed_agent_dir(GLOBAL_HOME / f".{subdir}", ws_state / subdir)
 
-    # Sync claude.json login/onboarding state between the GLOBAL_HOME seed
-    # and the per-workspace overlay — both directions, see
-    # _sync_claude_json_seed.  ~/.claude.json is a symlink →
-    # .claude/claude.json, so the actual file lives inside the writable
-    # .claude/ overlay; the seed is likewise written through the real path
-    # (GLOBAL_HOME/.claude.json is a symlink too — see storage.py).
-    _sync_claude_json_seed(
-        GLOBAL_HOME / ".claude" / "claude.json",
-        ws_state / "claude" / "claude.json",
-    )
+    if "claude" in agents:
+        # Sync claude.json login/onboarding state between the GLOBAL_HOME seed
+        # and the per-workspace overlay — both directions, see
+        # _sync_claude_json_seed.  ~/.claude.json is a symlink →
+        # .claude/claude.json, so the actual file lives inside the writable
+        # .claude/ overlay; the seed is likewise written through the real path
+        # (GLOBAL_HOME/.claude.json is a symlink too — see storage.py).
+        _sync_claude_json_seed(
+            GLOBAL_HOME / ".claude" / "claude.json",
+            ws_state / "claude" / "claude.json",
+        )
 
     # Migrate old per-workspace overlays into new unified agent dirs.
     # Before the read-only refactor, agent state used individual file/dir overlays
     # (e.g. claude-projects/, copilot-sessions/).  Now each agent gets a single
     # dir overlay (claude/, copilot/, gemini/).  Copy old data once if present.
-    _migrate_old_overlay(ws_state / "claude-projects", ws_state / "claude" / "projects")
-    _migrate_old_overlay(
-        ws_state / "copilot-sessions", ws_state / "copilot" / "session-state"
-    )
-    _migrate_old_overlay(ws_state / "gemini-history", ws_state / "gemini" / "history")
+    # Gated on selection so we don't recreate an overlay dir for an agent that
+    # isn't installed in this jail (the mount below only exists for selected).
+    if "claude" in agents:
+        _migrate_old_overlay(
+            ws_state / "claude-projects", ws_state / "claude" / "projects"
+        )
+    if "copilot" in agents:
+        _migrate_old_overlay(
+            ws_state / "copilot-sessions", ws_state / "copilot" / "session-state"
+        )
+    if "gemini" in agents:
+        _migrate_old_overlay(
+            ws_state / "gemini-history", ws_state / "gemini" / "history"
+        )
 
     # Migrate old claude-settings.json file overlay into new claude/settings.json.
     # Preserves user customizations (model, hooks, etc.) from pre-refactor.
-    old_claude_settings = ws_state / "claude-settings.json"
-    new_claude_settings = ws_state / "claude" / "settings.json"
-    if old_claude_settings.is_file() and not new_claude_settings.exists():
-        (ws_state / "claude").mkdir(parents=True, exist_ok=True)
-        shutil.copy2(old_claude_settings, new_claude_settings)
+    if "claude" in agents:
+        old_claude_settings = ws_state / "claude-settings.json"
+        new_claude_settings = ws_state / "claude" / "settings.json"
+        if old_claude_settings.is_file() and not new_claude_settings.exists():
+            (ws_state / "claude").mkdir(parents=True, exist_ok=True)
+            shutil.copy2(old_claude_settings, new_claude_settings)
 
     # Detect host timezone once — passed to the container via TZ env var below
     # so `date` and glibc time functions report host-local time instead of UTC.
@@ -1457,23 +1508,8 @@ def run(
             f"{ws_state / 'yolo-ca-bundle.crt'}:/home/agent/.yolo-ca-bundle.crt",
             "-v",
             f"{ws_state / 'yolo-installed-lsps'}:/home/agent/.yolo-installed-lsps",
-            # Agent config dirs — full per-workspace overlays.
-            # Auth tokens are seeded from GLOBAL_HOME on first use (see _seed_agent_dir).
-            # The entrypoint regenerates all configs into these writable dirs each boot.
-            "-v",
-            f"{ws_state / 'copilot'}:/home/agent/.copilot",
-            "-v",
-            f"{ws_state / 'gemini'}:/home/agent/.gemini",
-            "-v",
-            f"{ws_state / 'claude'}:/home/agent/.claude",
-            # Shared credentials dir — mounted rw so /login in any jail
-            # persists for all jails.  Using a directory mount (not a
-            # single-file mount) because Claude Code's IWH atomic writer
-            # uses tmp+rename which returns EBUSY on single-file bind
-            # mounts.  The entrypoint creates a symlink from
-            # .claude/.credentials.json → this dir so Claude finds it.
-            "-v",
-            f"{GLOBAL_HOME / '.claude-shared-credentials'}:/home/agent/.claude-shared-credentials",
+            # (Per-agent config-dir overlays + claude shared credentials are
+            # appended below, gated on the selected agent set.)
             # Other per-workspace overlays
             "-v",
             f"{ws_state / 'bash_history'}:/home/agent/.bash_history",
@@ -1498,6 +1534,26 @@ def run(
         # Ephemeral scratch dirs — see _scratch_mount_args() for the
         # tmpfs-vs-volume trade-off and config knob.
         run_cmd.extend(_scratch_mount_args(config.get("ephemeral_storage")))
+
+        # Per-agent config-dir overlays (library model): mount only the
+        # SELECTED agents' overlay dirs (.copilot/.gemini/.claude/.pi).  Auth
+        # tokens are seeded from GLOBAL_HOME on first use (see _seed_agent_dir);
+        # the entrypoint regenerates configs into these writable dirs each boot.
+        for subdir in agent_overlay_subdirs:
+            run_cmd.extend(["-v", f"{ws_state / subdir}:/home/agent/.{subdir}"])
+        # Claude's shared credentials dir — mounted rw so /login in any jail
+        # persists for all jails.  A directory mount (not single-file) because
+        # Claude Code's IWH atomic writer uses tmp+rename which returns EBUSY
+        # on single-file bind mounts.  The entrypoint symlinks
+        # .claude/.credentials.json → this dir so Claude finds it.  Only
+        # relevant when claude is selected.
+        if "claude" in agents:
+            run_cmd.extend(
+                [
+                    "-v",
+                    f"{GLOBAL_HOME / '.claude-shared-credentials'}:/home/agent/.claude-shared-credentials",
+                ]
+            )
 
     # Common env vars and flags for all runtimes
     run_cmd.extend(
@@ -1604,6 +1660,10 @@ def run(
             f"YOLO_MCP_SERVERS={json.dumps(mcp_servers)}",
             "-e",
             f"YOLO_MCP_PRESETS={json.dumps(mcp_presets)}",
+            "-e",
+            # Selected coding agents (library model) — the entrypoint reads
+            # this to decide which agent launchers + configs to generate.
+            f"YOLO_AGENTS={json.dumps(agents)}",
             "-e",
             # Inside the container, podman is always the available runtime (it's
             # built into the image).  Using the host's runtime value (e.g.
@@ -2280,27 +2340,28 @@ def run(
             except Exception:  # noqa: BLE001 — cleanup must never block a run
                 pass
 
-    # Mount merged skills directories read-only.  The staging dir was
-    # already rebuilt at the top of `run` by `_refresh_jail_briefings`
-    # (same dir as `agents_path` — both resolve to AGENTS_DIR/cname).
-    # Kernel-enforced :ro — agents get "Read-only file system" on write attempts.
-    run_cmd.extend(
-        ["-v", f"{agents_path / 'skills-copilot'}:/home/agent/.copilot/skills:ro"]
-    )
-    run_cmd.extend(
-        ["-v", f"{agents_path / 'skills-gemini'}:/home/agent/.gemini/skills:ro"]
-    )
-    run_cmd.extend(
-        ["-v", f"{agents_path / 'skills-claude'}:/home/agent/.claude/skills:ro"]
-    )
+    # Mount merged skills directories read-only, one per SELECTED agent that
+    # has a user-skills dir (copilot/gemini/claude; opencode/pi have none).
+    # The staging dir was already rebuilt at the top of `run` by
+    # `_refresh_jail_briefings` (same dir as `agents_path` — both resolve to
+    # AGENTS_DIR/cname).  Kernel-enforced :ro — agents get "Read-only file
+    # system" on write attempts.
+    for spec in agent_specs:
+        if spec.skills:
+            run_cmd.extend(
+                [
+                    "-v",
+                    f"{agents_path / spec.skills_staging}:/home/agent/{spec.skills}:ro",
+                ]
+            )
 
-    # Mount host ~/.claude/ files for syncing into the jail.
+    # Mount host ~/.claude/ files for syncing into the jail (claude only).
     # Auto-discover scripts referenced in host settings.json (fileSuggestion,
     # statusLine, hooks) and include them if they live under ~/.claude/.
     host_claude_dir = Path.home() / ".claude"
-    effective_claude_files = list(host_claude_files)
+    effective_claude_files = list(host_claude_files) if "claude" in agents else []
     host_settings_file = host_claude_dir / "settings.json"
-    if host_settings_file.exists():
+    if "claude" in agents and host_settings_file.exists():
         try:
             host_settings = json.loads(host_settings_file.read_text())
             # Collect all command paths referenced in settings
@@ -2341,36 +2402,17 @@ def run(
             ["-e", f"YOLO_HOST_CLAUDE_FILES={json.dumps(mounted_claude_files)}"]
         )
 
-    # Per-workspace AGENTS.md / CLAUDE.md already generated at the top of
-    # `run` by `_refresh_jail_briefings` (so attach-to-running picks up
-    # host edits/deletions too).  `agents_path` from that call is the
-    # bind-mount source below.
-    if runtime == "container":
-        _ac_materialize_under_ws_state(
-            agents_path / "AGENTS-copilot.md", ".copilot/AGENTS.md", ws_state
-        )
-        _ac_materialize_under_ws_state(
-            agents_path / "AGENTS-gemini.md", ".gemini/AGENTS.md", ws_state
-        )
-        _ac_materialize_under_ws_state(
-            agents_path / "CLAUDE.md", ".claude/CLAUDE.md", ws_state
-        )
-    else:
-        run_cmd.extend(
-            [
-                "-v",
-                f"{agents_path / 'AGENTS-copilot.md'}:/home/agent/.copilot/AGENTS.md:ro",
-            ]
-        )
-        run_cmd.extend(
-            [
-                "-v",
-                f"{agents_path / 'AGENTS-gemini.md'}:/home/agent/.gemini/AGENTS.md:ro",
-            ]
-        )
-        run_cmd.extend(
-            ["-v", f"{agents_path / 'CLAUDE.md'}:/home/agent/.claude/CLAUDE.md:ro"]
-        )
+    # Per-workspace briefing files already generated at the top of `run` by
+    # `_refresh_jail_briefings` (so attach-to-running picks up host
+    # edits/deletions too).  Mount each SELECTED agent's staged briefing at
+    # its in-jail read path (registry ``briefing.staging`` → ``briefing.mount``;
+    # e.g. CLAUDE.md → .claude/CLAUDE.md, AGENTS-copilot.md → .copilot/AGENTS.md).
+    for spec in agent_specs:
+        staged = agents_path / spec.briefing.staging
+        if runtime == "container":
+            _ac_materialize_under_ws_state(staged, spec.briefing.mount, ws_state)
+        else:
+            run_cmd.extend(["-v", f"{staged}:/home/agent/{spec.briefing.mount}:ro"])
 
     if "TERM" in os.environ:
         run_cmd.extend(["-e", f"TERM={os.environ['TERM']}"])

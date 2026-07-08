@@ -24,12 +24,32 @@ import os
 import stat
 
 
+def _agent_aliases() -> str:
+    """bashrc alias lines for the SELECTED agents that declare one.
+
+    Driven by the agent registry + ``YOLO_AGENTS`` so only selected agents
+    that want a launch-flag alias (gemini, copilot today) get one; claude
+    has none (its flags come via _inject_agent_yolo_flags), and
+    opencode/pi have none (auto-approve lives in their config files).
+    """
+    from . import _load_agents
+    from .agent_registry import AGENTS
+
+    lines = []
+    for name in _load_agents():
+        spec = AGENTS.get(name)
+        if spec is not None and spec.alias:
+            lines.append(f"alias {spec.install.bin}='{spec.alias}'")
+    return "\n".join(lines)
+
+
 def generate_bashrc():
     """Write the jail .bashrc with prompt, PATH, aliases, and mise activation."""
     from . import BASHRC_PATH, MISE_SHIMS
 
     host_dir = os.environ.get("YOLO_HOST_DIR", "unknown")
     mise_shims = str(MISE_SHIMS)
+    agent_aliases = _agent_aliases()
 
     content = (
         r"""# YOLO Jail Prompt
@@ -61,6 +81,8 @@ export GIT_PAGER=cat
 # Standard Unix convention: programs check VISUAL first for full-screen terminals, EDITOR as fallback.
 export EDITOR=cat
 export VISUAL=nvim
+# Disable pi (pi.dev coding agent) install/usage telemetry inside the jail.
+export PI_TELEMETRY=0
 
 # Combined CA bundle — baseline Nix cacert + every loophole CA.
 # Point every standard TLS trust-store env var at one file so Python
@@ -105,10 +127,12 @@ fi
 # Aliases
 alias ls='ls --color=auto'
 alias ll='ls -alF'
-alias gemini='gemini --yolo'
-alias copilot='copilot --yolo --no-auto-update'
-# Claude YOLO mode: cli.py injects --dangerously-skip-permissions (with
-# IS_SANDBOX=1 to bypass the root check) + settings.json permissions.allow rules.
+"""
+        + (agent_aliases + "\n" if agent_aliases else "")
+        + r"""# Agent YOLO flags: gemini/copilot get a --yolo alias above (when selected);
+# claude gets --dangerously-skip-permissions injected by cli.py (with
+# IS_SANDBOX=1 to bypass the root check); opencode/pi auto-approve via their
+# own config files.
 alias vi='nvim'
 alias vim='nvim'
 alias bat='bat --style=plain --paging=never'

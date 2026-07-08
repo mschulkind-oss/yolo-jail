@@ -39,6 +39,23 @@ from .paths import (
     USER_CONFIG_PATH,
 )
 
+# The agent registry lives in the entrypoint package (baked into the jail
+# image, stdlib-only).  Import it under whichever identity resolves: the
+# suite loads the CLI as both ``cli`` and ``src.cli`` (see conftest
+# ``_is_yolo_cli_module``), and inside a jail only the top-level
+# ``entrypoint`` package exists.  Mirrors the ``from src import loopholes``
+# fallback used elsewhere in this module.
+try:
+    from src.entrypoint.agent_registry import (
+        DEFAULT_AGENTS,
+        VALID_AGENTS,
+    )
+except ImportError:  # pragma: no cover - exercised under the ``entrypoint`` identity
+    from entrypoint.agent_registry import (
+        DEFAULT_AGENTS,
+        VALID_AGENTS,
+    )
+
 
 class ConfigError(ValueError):
     """Raised when a yolo-jail config file or merged config is invalid."""
@@ -60,6 +77,7 @@ DEFAULT_HOST_CLAUDE_FILES = ["settings.json"]
 KNOWN_TOP_LEVEL_CONFIG_KEYS = {
     "runtime",
     "repo_path",
+    "agents",
     "packages",
     "mounts",
     "workspace_readonly",
@@ -163,13 +181,24 @@ def _merge_lists(base: List[Any], override: List[Any]) -> List[Any]:
     return merged
 
 
+# Keys whose list value a workspace config REPLACES wholesale rather than
+# union-merging into the user default.  ``agents`` is override-not-union so a
+# workspace can *narrow* the selected agent set (e.g. a user default of
+# ["claude","gemini"] but a claude-only workspace) — union merge would make
+# it impossible to drop an inherited agent.
+_OVERRIDE_LIST_KEYS = {"agents"}
+
+
 def merge_config(base: Dict[str, Any], override: Dict[str, Any]) -> Dict[str, Any]:
     result = dict(base)
     for key, value in override.items():
         if key in result and isinstance(result[key], dict) and isinstance(value, dict):
             result[key] = merge_config(result[key], value)
         elif (
-            key in result and isinstance(result[key], list) and isinstance(value, list)
+            key in result
+            and key not in _OVERRIDE_LIST_KEYS
+            and isinstance(result[key], list)
+            and isinstance(value, list)
         ):
             result[key] = _merge_lists(result[key], value)
         else:
@@ -359,6 +388,28 @@ def _effective_mcp_server_names(
         if isinstance(cfg, dict) and name not in names:
             names.append(name)
     return names
+
+
+def selected_agents(config: Dict[str, Any]) -> List[str]:
+    """Return the list of coding-agent names selected in ``config``.
+
+    Falls back to :data:`DEFAULT_AGENTS` (claude only) when ``agents`` is
+    absent.  Filters to known/valid names and de-duplicates while
+    preserving order — malformed entries are caught by ``_validate_config``
+    before this is consulted, but a defensive filter keeps every consumer
+    (launchers, mounts, briefings) honest.  An explicit empty list is
+    honored (no agents installed).
+    """
+    raw = config.get("agents")
+    if raw is None:
+        raw = DEFAULT_AGENTS
+    seen: set[str] = set()
+    result: List[str] = []
+    for name in raw:
+        if isinstance(name, str) and name in VALID_AGENTS and name not in seen:
+            seen.add(name)
+            result.append(name)
+    return result
 
 
 def _merge_mise_tools(config: Dict[str, Any]) -> Dict[str, Any]:
@@ -614,6 +665,28 @@ def _validate_config(
     repo_path = config.get("repo_path")
     if repo_path is not None and not isinstance(repo_path, str):
         errors.append("config.repo_path: expected a string path")
+
+    agents = config.get("agents")
+    if agents is not None:
+        if not isinstance(agents, list):
+            errors.append(
+                "config.agents: expected a list of agent names "
+                f"(valid: {', '.join(sorted(VALID_AGENTS))})"
+            )
+        else:
+            for idx, name in enumerate(agents):
+                if not isinstance(name, str):
+                    errors.append(f"config.agents[{idx}]: expected a string")
+                elif name not in VALID_AGENTS:
+                    errors.append(
+                        f"config.agents[{idx}]: unknown agent '{name}'. "
+                        f"Valid agents: {', '.join(sorted(VALID_AGENTS))}"
+                    )
+            if isinstance(agents, list) and not agents:
+                warnings.append(
+                    "config.agents: empty list — no coding agents will be "
+                    "installed in the jail"
+                )
 
     packages = config.get("packages")
     if packages is not None:
