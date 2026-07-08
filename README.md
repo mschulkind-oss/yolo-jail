@@ -170,7 +170,7 @@ Create a per-project config in `yolo-jail.jsonc`:
 }
 ```
 
-Workspace config merges over user defaults (`~/.config/yolo-jail/config.jsonc`). Lists merge and dedupe, scalars override.
+Workspace config merges over user defaults (`~/.config/yolo-jail/config.jsonc`), and a sibling `yolo-jail.local.jsonc` — meant to be gitignored for per-machine overrides — auto-merges over the workspace config. Lists merge and dedupe, scalars override.
 
 Run `yolo check` after **every** edit to `yolo-jail.jsonc` to validate the merged config, dry-run the generated jail agent configs, and preflight the image build before restarting into the jail. Inside a running jail, `yolo check --no-build` is the fast way to validate config changes mid-session before asking for a restart.
 

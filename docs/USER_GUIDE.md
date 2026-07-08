@@ -266,9 +266,10 @@ YOLO Jail is configured via JSONC (JSON with comments) files:
 | File | Scope | Purpose |
 |------|-------|---------|
 | `yolo-jail.jsonc` | Workspace | Per-project settings |
+| `yolo-jail.local.jsonc` | Workspace (untracked) | Per-machine overrides, auto-merged over `yolo-jail.jsonc` when present — gitignore it (a global gitignore entry works well) |
 | `~/.config/yolo-jail/config.jsonc` | User | Global defaults for all projects |
 
-**Merge rules:** Workspace config merges over user defaults. Lists are merged and deduplicated; scalars and objects in workspace override user values.
+**Merge rules:** Workspace config merges over user defaults, and `yolo-jail.local.jsonc` merges over the workspace config. Lists are merged and deduplicated; scalars and objects in later layers override earlier values.
 
 ### Minimal Example
 

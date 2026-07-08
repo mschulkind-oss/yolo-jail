@@ -16,14 +16,18 @@ def config_ref():
   Location: Project root (per-workspace)
   Format:   JSON with comments (JSONC)
   User defaults: ~/.config/yolo-jail/config.jsonc
+  Local overrides: yolo-jail.local.jsonc (sibling, auto-merged when present)
 
-  Workspace config merges over user defaults.
+  Workspace config merges over user defaults; a sibling
+  `yolo-jail.local.jsonc` merges over the workspace config automatically —
+  no include_if_found entry needed. Keep it out of git (global gitignore)
+  for per-machine tweaks that don't belong in the tracked config.
   Lists are merged and deduplicated. Scalars override.
 
-  [bold yellow]Rule:[/bold yellow] After [bold]EVERY[/bold] edit to `yolo-jail.jsonc` or
-  `~/.config/yolo-jail/config.jsonc`, run `yolo check` before restarting or
-  asking a human to restart the jail. Use `yolo check --no-build` inside a
-  running jail for a faster preflight.
+  [bold yellow]Rule:[/bold yellow] After [bold]EVERY[/bold] edit to `yolo-jail.jsonc`,
+  `yolo-jail.local.jsonc`, or `~/.config/yolo-jail/config.jsonc`, run
+  `yolo check` before restarting or asking a human to restart the jail.
+  Use `yolo check --no-build` inside a running jail for a faster preflight.
 
 [bold cyan]FIELDS[/bold cyan]
 
@@ -73,10 +77,13 @@ def config_ref():
     gitignored sibling that adds custom MCP servers, agents_md_extra notes,
     or env_sources entries without committing them.
 
+    Note: the workspace-level `yolo-jail.local.jsonc` no longer needs an
+    include entry — it is auto-merged whenever it exists (listing it
+    anyway is harmless; it won't merge twice). include_if_found remains
+    for other file names and for the user-level config.
+
     Example (~/.config/yolo-jail/config.jsonc):
       "include_if_found": ["overrides.jsonc"]
-    Example (./yolo-jail.jsonc):
-      "include_if_found": ["yolo-jail.local.jsonc"]
 
   [bold]agents_md_extra[/bold] (string): Markdown appended to every agent's briefing.
     Whatever you put here is concatenated onto the jail-managed section of

@@ -18,3 +18,4 @@ build/
 src/_version.py
 .DS_Store
 .research/
+yolo-jail.local.jsonc

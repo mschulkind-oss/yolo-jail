@@ -14,6 +14,8 @@ Configuration is loaded and merged in this order (later overrides earlier):
 User defaults          ~/.config/yolo-jail/config.jsonc
     ↓ merged over by
 Workspace config       <workspace>/yolo-jail.jsonc
+    ↓ merged over by
+Workspace local        <workspace>/yolo-jail.local.jsonc   (if present)
     ↓ overridden by
 Environment vars       YOLO_RUNTIME, YOLO_BYPASS_SHIMS
 ```
@@ -22,6 +24,12 @@ Environment vars       YOLO_RUNTIME, YOLO_BYPASS_SHIMS
 - Lists (e.g. `packages`, `blocked`) are merged and deduplicated.
 - Scalar and object values in workspace override user defaults.
 - `YOLO_RUNTIME` env var overrides `runtime` from either config file.
+
+`yolo-jail.local.jsonc` is auto-merged whenever it sits next to
+`yolo-jail.jsonc` — no `include_if_found` entry needed. It's meant for
+per-machine overrides kept out of version control: add the name to your
+global gitignore and use it for tweaks that don't belong in the tracked
+config.
 
 ### Create configs
 

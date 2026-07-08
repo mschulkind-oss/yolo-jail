@@ -14,7 +14,7 @@ import typer
 
 from src import loopholes as _loopholes
 
-from .config import _load_jsonc_file
+from .config import _load_jsonc_file, load_workspace_config
 from .paths import USER_CONFIG_PATH
 
 
@@ -36,9 +36,7 @@ def _loopholes_with_config(include_disabled: bool = False):
     except Exception:
         user_cfg = {}
     try:
-        ws_cfg = (
-            _load_jsonc_file(Path.cwd() / "yolo-jail.jsonc", "workspace config") or {}
-        )
+        ws_cfg = load_workspace_config(Path.cwd()) or {}
     except Exception:
         ws_cfg = {}
     merged_loopholes: Dict[str, Any] = {}

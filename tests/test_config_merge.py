@@ -13,6 +13,7 @@ from cli import (
     _load_jsonc_file,
     _load_jsonc_with_includes,
     _validate_config,
+    load_config,
     merge_config,
 )
 
@@ -320,6 +321,64 @@ class TestIncludeIfFound:
             "include_if_found" in e and "list of relative path strings" in e
             for e in errors
         )
+
+
+class TestWorkspaceLocalConfig:
+    @pytest.fixture(autouse=True)
+    def _no_user_config(self, tmp_path, monkeypatch):
+        monkeypatch.setattr(
+            "cli.config.USER_CONFIG_PATH", tmp_path / "no-user-config.jsonc"
+        )
+
+    def test_local_file_auto_merged_and_wins(self, tmp_path):
+        (tmp_path / "yolo-jail.jsonc").write_text(
+            '{"packages": ["just"], "network": {"mode": "bridge"}}'
+        )
+        (tmp_path / "yolo-jail.local.jsonc").write_text(
+            '{"packages": ["htop"], "network": {"mode": "host"}}'
+        )
+        merged = load_config(tmp_path)
+        assert merged["packages"] == ["just", "htop"]
+        assert merged["network"]["mode"] == "host"
+
+    def test_local_file_absent_is_noop(self, tmp_path):
+        (tmp_path / "yolo-jail.jsonc").write_text('{"packages": ["just"]}')
+        assert load_config(tmp_path) == {"packages": ["just"]}
+
+    def test_local_file_alone_works_without_main_config(self, tmp_path):
+        (tmp_path / "yolo-jail.local.jsonc").write_text('{"packages": ["fd"]}')
+        assert load_config(tmp_path) == {"packages": ["fd"]}
+
+    def test_explicit_include_of_local_does_not_merge_twice(self, tmp_path):
+        (tmp_path / "yolo-jail.jsonc").write_text(
+            '{"packages": ["just"], "include_if_found": ["yolo-jail.local.jsonc"]}'
+        )
+        (tmp_path / "yolo-jail.local.jsonc").write_text('{"packages": ["htop"]}')
+        merged = load_config(tmp_path)
+        assert merged["packages"] == ["just", "htop"]
+
+    def test_local_file_may_declare_its_own_includes(self, tmp_path):
+        (tmp_path / "yolo-jail.jsonc").write_text('{"packages": ["just"]}')
+        (tmp_path / "yolo-jail.local.jsonc").write_text(
+            '{"packages": ["htop"], "include_if_found": ["extra.jsonc"]}'
+        )
+        (tmp_path / "extra.jsonc").write_text('{"packages": ["fd"]}')
+        merged = load_config(tmp_path)
+        assert merged["packages"] == ["just", "htop", "fd"]
+
+    def test_local_file_overrides_user_config(self, tmp_path, monkeypatch):
+        user = tmp_path / "user-config.jsonc"
+        user.write_text('{"journal": "off"}')
+        monkeypatch.setattr("cli.config.USER_CONFIG_PATH", user)
+        (tmp_path / "yolo-jail.jsonc").write_text("{}")
+        (tmp_path / "yolo-jail.local.jsonc").write_text('{"journal": "full"}')
+        assert load_config(tmp_path)["journal"] == "full"
+
+    def test_malformed_local_file_raises_in_strict_mode(self, tmp_path):
+        (tmp_path / "yolo-jail.jsonc").write_text("{}")
+        (tmp_path / "yolo-jail.local.jsonc").write_text("{not valid json")
+        with pytest.raises(ConfigError):
+            load_config(tmp_path, strict=True)
 
 
 class TestMcpRequiresEnv:

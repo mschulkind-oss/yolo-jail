@@ -44,6 +44,13 @@ class ConfigError(ValueError):
     """Raised when a yolo-jail config file or merged config is invalid."""
 
 
+WORKSPACE_CONFIG_NAME = "yolo-jail.jsonc"
+# Auto-merged on top of the workspace config when present — no
+# include_if_found entry needed.  Meant for per-machine overrides kept out
+# of git (add the name to your global gitignore).
+WORKSPACE_LOCAL_CONFIG_NAME = "yolo-jail.local.jsonc"
+
+
 # ---------------------------------------------------------------------------
 # Schema constants
 # ---------------------------------------------------------------------------
@@ -244,17 +251,41 @@ def _load_jsonc_with_includes(
     return result
 
 
+def load_workspace_config(
+    workspace: Optional[Path] = None, *, strict: bool = False
+) -> Dict[str, Any]:
+    """Workspace-level config: yolo-jail.jsonc plus yolo-jail.local.jsonc.
+
+    The local file is auto-merged on top when present (local wins), so
+    per-machine overrides can live outside git without the tracked config
+    opting in via ``include_if_found``.  The shared ``_seen`` set means a
+    config that *also* lists the local file in ``include_if_found``
+    doesn't merge it twice.
+    """
+    workspace = workspace or Path.cwd()
+    seen: set[Path] = set()
+    workspace_config = _load_jsonc_with_includes(
+        workspace / WORKSPACE_CONFIG_NAME,
+        WORKSPACE_CONFIG_NAME,
+        strict=strict,
+        _seen=seen,
+    )
+    local_config = _load_jsonc_with_includes(
+        workspace / WORKSPACE_LOCAL_CONFIG_NAME,
+        WORKSPACE_LOCAL_CONFIG_NAME,
+        strict=strict,
+        _seen=seen,
+    )
+    return merge_config(workspace_config, local_config)
+
+
 def load_config(
     workspace: Optional[Path] = None, *, strict: bool = False
 ) -> Dict[str, Any]:
-    workspace = workspace or Path.cwd()
     user_config = _load_jsonc_with_includes(
         USER_CONFIG_PATH, str(USER_CONFIG_PATH), strict=strict
     )
-    workspace_config = _load_jsonc_with_includes(
-        workspace / "yolo-jail.jsonc", "yolo-jail.jsonc", strict=strict
-    )
-    return merge_config(user_config, workspace_config)
+    return merge_config(user_config, load_workspace_config(workspace, strict=strict))
 
 
 # ---------------------------------------------------------------------------
