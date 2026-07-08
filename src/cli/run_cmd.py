@@ -1628,6 +1628,11 @@ def run(
             "EDITOR=cat",
             "-e",
             "VISUAL=nvim",
+            # Disable pi (pi.dev) install/usage telemetry inside the jail.
+            # Container-level (not just .bashrc) so `yolo -- pi` — a
+            # non-interactive process that never sources .bashrc — sees it.
+            "-e",
+            "PI_TELEMETRY=0",
             "-e",
             "PAGER=cat",
             "-e",
