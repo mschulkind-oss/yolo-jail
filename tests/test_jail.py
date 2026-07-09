@@ -22,7 +22,15 @@ pytestmark = pytest.mark.slow
 # (``test_blocked_tool_curl``).  300s gives enough headroom for a cold
 # boot while still catching a genuinely-hung container within a single
 # test run.
-DEFAULT_JAIL_TIMEOUT = 300
+#
+# YOLO_TEST_JAIL_TIMEOUT overrides the default for slow environments.
+# The macOS nightly (Intel runner, containers inside a QEMU podman
+# machine) needs it: cold starts there run 5-15 minutes while the
+# shared mise store downloads tools, and the extra-package tests
+# nix-build a per-workspace image inside the same timed invocation —
+# at 300s ten tests died sequentially warming caches that the tail of
+# the suite then passed on.
+DEFAULT_JAIL_TIMEOUT = int(os.environ.get("YOLO_TEST_JAIL_TIMEOUT", "300"))
 
 
 def _container_name_for_workspace(workspace: Path) -> str:

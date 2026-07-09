@@ -98,3 +98,8 @@ jobs:
         run: uv run pytest tests/test_jail.py tests/test_runtime.py -v
         env:
           YOLO_RUNTIME: podman
+          # Intel macOS runner + QEMU podman machine: cold jail starts
+          # (mise store bootstrap) and in-test nix image builds run
+          # 5-15 minutes — the 300s default killed ten tests
+          # sequentially while they warmed shared caches.
+          YOLO_TEST_JAIL_TIMEOUT: "1200"
