@@ -439,25 +439,36 @@ def test_extra_package_lib_in_fhs_ldcache(tmp_path):
         _force_remove_container(project_dir)
 
 
-def test_dev_only_package_links_no_runtime_lib(tmp_path):
-    """A header-only `.dev` request stays a .dev output (getLib is a no-op
-    on output-specified entries) and contributes no runtime .so to /lib —
-    guarding the image-size-nil property of the dev path.
+def test_dev_package_links_runtime_lib(tmp_path):
+    """A `.dev` request links the package's *runtime* .so into /lib too:
+    .dev is the documented way to make a library buildable (headers +
+    .pc), so binaries linked against it must also be able to load it.
+    Regression guard for the getLib-on-output-specified no-op, which left
+    the farm without the runtime lib and every freshly linked binary
+    failing at startup with "libfoo.so.N: cannot open shared object file".
 
     Uses libsodium, which is NOT part of the core/chromium lib stacks the
     image links unconditionally — so any /lib/libsodium.so* must come from
     this request.  (freetype would be a false fixture: it's already linked
-    via the chromium graphics stack regardless of the .dev request.)"""
+    via the chromium graphics stack regardless of the .dev request.)
+    dlopens the versioned soname via glob so nixpkgs version bumps don't
+    invalidate the fixture."""
     project_dir = _write_project(
         tmp_path, {"network": {"mode": "bridge"}, "packages": ["libsodium.dev"]}
     )
     try:
-        result = run_yolo(project_dir, "ls /lib/libsodium.so* 2>/dev/null | wc -l")
-        assert result.returncode == 0, result.stderr
-        assert result.stdout.strip().splitlines()[-1] == "0", (
-            f"a .dev-only request unexpectedly linked a runtime lib into /lib\n"
-            f"stdout={result.stdout!r}"
+        result = run_yolo(
+            project_dir,
+            "python3 -c 'import ctypes, glob; "
+            'ctypes.CDLL(sorted(glob.glob("/lib/libsodium.so.*"))[0]); '
+            'print("dlopen-ok")\'',
         )
+        assert result.returncode == 0, (
+            f"loading libsodium from /lib failed — the .dev request did not "
+            f"link the runtime lib into the farm\n"
+            f"stdout={result.stdout!r}\nstderr={result.stderr!r}"
+        )
+        assert "dlopen-ok" in result.stdout
     finally:
         _force_remove_container(project_dir)
 
