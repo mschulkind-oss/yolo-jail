@@ -106,25 +106,28 @@
           then [ drv ]
           else builtins.concatMap (o: expandSelected drv o) outs;
 
-        extraPackages = builtins.concatMap (spec:
+        # Resolve each package spec to its base derivation + requested
+        # output names (null → default output).  extraPackages (image
+        # contents) and extraLibPackages (the /lib symlink farm) both
+        # derive from this, so they can make different output choices
+        # from the same spec.
+        resolvedPackageSpecs = map (spec:
           if builtins.isString spec then
-            let
-              parsed = parseDottedSpec spec;
+            let parsed = parseDottedSpec spec;
+            in {
               drv = imagePkgs.${parsed.base};
-            in
-              if parsed.output == null
-              then [ drv ]
-              else expandSelected drv parsed.output
+              outputs = if parsed.output == null then null else [ parsed.output ];
+            }
           else if spec ? nixpkgs then
             # Pinned to a specific nixpkgs commit
             let
               pinnedPkgs = import (builtins.fetchTarball {
                 url = "https://github.com/NixOS/nixpkgs/archive/${spec.nixpkgs}.tar.gz";
               }) { system = imageSystem; };
-            in selectOutputs pinnedPkgs.${spec.name} (spec.outputs or null)
+            in { drv = pinnedPkgs.${spec.name}; outputs = spec.outputs or null; }
           else if spec ? version && spec ? url && spec ? hash then
             # Version override: rebuild existing package with different source
-            let
+            {
               drv = imagePkgs.${spec.name}.overrideAttrs (old: {
                 version = spec.version;
                 src = imagePkgs.fetchurl {
@@ -132,10 +135,35 @@
                   hash = spec.hash;
                 };
               });
-            in selectOutputs drv (spec.outputs or null)
+              outputs = spec.outputs or null;
+            }
           else
-            selectOutputs imagePkgs.${spec.name} (spec.outputs or null)
+            { drv = imagePkgs.${spec.name}; outputs = spec.outputs or null; }
         ) extraPackageSpecs;
+
+        extraPackages = builtins.concatMap
+          (r: selectOutputs r.drv r.outputs) resolvedPackageSpecs;
+
+        # Runtime-library derivations for the /lib farm.  getLib is applied
+        # to the BASE derivation of each spec, never the selected outputs:
+        # getLib is a no-op on an output-specified entry, so deriving the
+        # farm from extraPackages made a ".dev" request — the normal way to
+        # make a library *buildable* (headers + .pc) — contribute no
+        # runtime .so at all, and every freshly linked binary died at
+        # startup with "libfoo.so.N: cannot open shared object file".
+        # A dev request also pulls its propagated closure's lib outputs:
+        # expandSelected makes those packages linkable (their dev outputs
+        # land in the image), so their .so's must be loadable too.
+        extraLibPackages = builtins.concatMap (r:
+          let
+            devRequested = r.outputs != null && builtins.elem "dev" r.outputs;
+            propagatedLibs = map (i: imagePkgs.lib.getLib i.pkg)
+              (builtins.filter (i: i.key != r.drv.outPath)
+                (propagatedClosure r.drv));
+          in
+            [ (imagePkgs.lib.getLib r.drv) ]
+            ++ imagePkgs.lib.optionals devRequested propagatedLibs
+        ) resolvedPackageSpecs;
 
         # Derivation for the shim scripts (plain text — built on host, runs in container)
         shims = pkgs.stdenv.mkDerivation {
@@ -212,22 +240,23 @@
           done
 
           # Link shared libraries from user-added packages (yolo-jail.jsonc
-          # "packages", carried in via extraPackages) so a package added for
-          # its .so (zbar, libdmtx, ...) is dlopen-able / discoverable on
-          # LD_LIBRARY_PATH=/lib:/usr/lib.  getLib picks each package's
-          # conventional shared-lib output: e.g. zbar's .so lives in its
-          # separate "-lib" output, and mupdf/openssl/sqlite default to a
-          # "-bin" output with no lib/ at all — so a plain pkg/lib glob
-          # would find nothing.  getLib is a no-op on an already
-          # output-specified entry (a ".dev" header request stays .dev and
-          # carries no .so, so the `[ -d "$pkg/lib" ]` guard links nothing),
-          # and an empty packages list expands to an empty for-loop.  Same
-          # idiom + [ ! -e ] precedence guard as the core loop above, so a
-          # user package can never shadow glibc/zlib.  Unconditional (outside
-          # withChromium) so the minimal image gets it too, and placed before
-          # the ldconfig step below so these libs also land in ld.so.cache.
+          # "packages", resolved into extraLibPackages above) so a package
+          # added for its .so (zbar, libdmtx, ...) — or added as ".dev" to
+          # build against — is dlopen-able / discoverable on
+          # LD_LIBRARY_PATH=/lib:/usr/lib.  extraLibPackages already went
+          # through getLib, which picks each package's conventional
+          # shared-lib output: e.g. zbar's .so lives in its separate "-lib"
+          # output, and mupdf/openssl/sqlite default to a "-bin" output
+          # with no lib/ at all — so a plain pkg/lib glob would find
+          # nothing.  A headers-only package contributes no lib/ (the
+          # `[ -d "$pkg/lib" ]` guard links nothing), and an empty packages
+          # list expands to an empty for-loop.  Same idiom + [ ! -e ]
+          # precedence guard as the core loop above, so a user package can
+          # never shadow glibc/zlib.  Unconditional (outside withChromium)
+          # so the minimal image gets it too, and placed before the
+          # ldconfig step below so these libs also land in ld.so.cache.
           for dir in $out/lib $out/usr/lib; do
-            for pkg in ${imagePkgs.lib.concatMapStringsSep " " (p: "${imagePkgs.lib.getLib p}") extraPackages}; do
+            for pkg in ${imagePkgs.lib.concatStringsSep " " (imagePkgs.lib.unique (map toString extraLibPackages))}; do
               if [ -d "$pkg/lib" ]; then
                 for f in "$pkg"/lib/lib*.so*; do
                   [ -f "$f" ] || [ -L "$f" ] || continue
@@ -547,6 +576,10 @@
         packages.default = ociImage;
         packages.ociImage = ociImage;
         packages.ociImageMinimal = ociImageMinimal;
+        # The /lib symlink farm alone — buildable in seconds, so tests and
+        # humans can assert lib discovery (e.g. that a "foo.dev" package
+        # spec still lands libfoo.so in /lib) without building an image.
+        packages.binPathLinks = binPathLinksMinimal;
 
         devShells.default = pkgs.mkShell {
           buildInputs = [

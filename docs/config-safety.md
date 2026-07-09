@@ -76,10 +76,11 @@ The intended flow for agents that need additional packages:
    }
    ```
    For C headers + `pkg-config` (e.g. cgo builds), use the `.dev` shorthand —
-   propagated dev outputs are pulled in transitively:
+   propagated dev outputs are pulled in transitively, and the runtime
+   libraries ride along so built binaries also run:
    ```json
    {
-     "packages": ["gtk4", "gtk4.dev"]
+     "packages": ["gtk4.dev"]
    }
    ```
    For a specific version, using a nixpkgs commit hash:

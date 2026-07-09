@@ -62,8 +62,10 @@ def config_ref():
     (the loader does not use /etc/ld.so.cache in this image). The correct
     shared-lib output is picked automatically (e.g. zbar ships its .so in a
     separate "-lib" output), so a bare "zbar" just works — no need to spell
-    ".lib". A header-only request (e.g. "gtk4.dev") stays a .dev output and
-    contributes no runtime library, so it adds nothing to /lib.
+    ".lib". A ".dev" request (e.g. "lilv.dev") contributes the package's
+    runtime libraries too — and those of its propagated closure — so
+    binaries you build against it also load: compile with pkg-config, run
+    without extra LD_LIBRARY_PATH fiddling.
 
   [bold]include_if_found[/bold] (array of strings): Layer in sibling override files.
     Each entry is a relative path resolved against the including file's
