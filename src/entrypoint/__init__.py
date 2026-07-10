@@ -153,7 +153,11 @@ from .runtime import (  # noqa: E402, F401
     start_container_port_forwarding,
     start_jail_daemon_supervisor,
 )
-from .system import configure_timezone, generate_ca_bundle  # noqa: E402
+from .system import (  # noqa: E402
+    configure_timezone,
+    generate_ca_bundle,
+    generate_ld_cache,
+)
 
 
 def _load_lsp_servers():
@@ -353,6 +357,12 @@ def main():
     # into /run baked by the image (root fs is read-only).
     configure_timezone()
     _perf("configure_timezone")
+
+    # Populate /run/ld.so.cache (target of the image's /etc/ld.so.cache
+    # symlink) from the /lib farm — build-time generation can't run the
+    # Linux ldconfig when the image is assembled on a macOS host.
+    generate_ld_cache()
+    _perf("generate_ld_cache")
 
     # Each jail writes to its own per-workspace overlay dirs (mounted by cli.py),
     # so no flock needed — no cross-jail contention.

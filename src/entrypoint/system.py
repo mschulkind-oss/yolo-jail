@@ -4,17 +4,22 @@
     so anything that reads ``/etc/localtime`` directly (Go's time pkg,
     some Java/Ruby paths, ``date`` after ``env -i``) agrees with the
     host wall clock.  $TZ already covers glibc, Python, Node, and bash.
+  * generate_ld_cache — populate /run/ld.so.cache (the target of the
+    image's /etc/ld.so.cache symlink) from the /lib + /usr/lib farm so
+    tools that read the FHS cache path see real entries.
   * generate_ca_bundle — combine the image's baseline trust store and
     every loophole's CA into ~/.yolo-ca-bundle.crt and point
     SSL_CERT_FILE / REQUESTS_CA_BUNDLE / CURL_CA_BUNDLE / GIT_SSL_CAINFO
     at it so child processes inherit the right trust store without
     knowing about this file.
 
-Both look up HOME / TZ_RUN_DIR via the parent package at call time so
+These look up HOME / TZ_RUN_DIR via the parent package at call time so
 test fixtures that rebind ``entrypoint.HOME = tmp_path`` keep working.
 """
 
 import os
+import shutil
+import subprocess
 from pathlib import Path
 
 
@@ -68,6 +73,34 @@ def configure_timezone():
         # here are unexpected — but a broken TZ symlink shouldn't abort
         # jail startup.  The $TZ env var still gives the right answer
         # for everything that reads it.
+        pass
+
+
+def generate_ld_cache():
+    """Populate ``/run/ld.so.cache`` from the /lib + /usr/lib farm.
+
+    The image bakes ``/etc/ld.so.cache -> /run/ld.so.cache`` (root fs is
+    read-only, same pattern as /etc/localtime) and ships /etc/ld.so.conf
+    listing the farm directories.  Generation has to happen here rather
+    than at image build time: the farm derivation builds natively on
+    darwin for macOS hosts, where the Linux ldconfig binary cannot run —
+    a build-time cache was silently empty for every macOS-built image.
+
+    The cache only serves tools that read the FHS path directly
+    (``ldconfig -p``, non-nix glibc binaries built for the standard cache
+    path); the nix loader ignores it and uses LD_LIBRARY_PATH, so failure
+    here is a diagnostics gap, not a startup error.
+    """
+    ldconfig = shutil.which("ldconfig")
+    if not ldconfig:
+        return
+    try:
+        subprocess.run(
+            [ldconfig, "-C", "/run/ld.so.cache", "-f", "/etc/ld.so.conf"],
+            capture_output=True,
+            timeout=30,
+        )
+    except (OSError, subprocess.TimeoutExpired):
         pass
 
 

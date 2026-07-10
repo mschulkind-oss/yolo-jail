@@ -512,6 +512,44 @@ class TestCaBundleGeneration:
         assert b"EXTRA" in body
 
 
+# -- FHS ld.so.cache setup --
+
+
+class TestGenerateLdCache:
+    """generate_ld_cache() populates /run/ld.so.cache (target of the
+    baked /etc/ld.so.cache symlink) at startup — build-time generation
+    can't run the Linux ldconfig when the image is assembled on macOS."""
+
+    def test_invokes_ldconfig_against_run_path(self, monkeypatch):
+        calls = []
+        monkeypatch.setattr(
+            entrypoint.system.shutil, "which", lambda name: "/bin/ldconfig"
+        )
+        monkeypatch.setattr(
+            entrypoint.system.subprocess,
+            "run",
+            lambda cmd, **kw: calls.append(cmd),
+        )
+
+        entrypoint.generate_ld_cache()
+
+        assert calls == [
+            ["/bin/ldconfig", "-C", "/run/ld.so.cache", "-f", "/etc/ld.so.conf"]
+        ]
+
+    def test_noop_without_ldconfig(self, monkeypatch):
+        """No ldconfig on PATH (minimal/hand-rolled image) → silently skip;
+        the cache is a diagnostics aid, not a startup requirement."""
+        monkeypatch.setattr(entrypoint.system.shutil, "which", lambda name: None)
+
+        def _boom(*a, **kw):
+            raise AssertionError("subprocess.run should not be called")
+
+        monkeypatch.setattr(entrypoint.system.subprocess, "run", _boom)
+
+        entrypoint.generate_ld_cache()
+
+
 # -- Timezone setup --
 
 
