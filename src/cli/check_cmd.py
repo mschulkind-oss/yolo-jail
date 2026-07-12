@@ -729,8 +729,11 @@ def check(
     if selected_runtime not in SUPPORTED_RUNTIMES:
         selected_runtime = None
     # First pass: collect probe results so we know whether anything is
-    # live before deciding severity on the rest.
-    offline: list[tuple[str, str, str]] = []  # (rt, version, hint)
+    # live before deciding severity on the rest.  ``offline`` = installed
+    # but its daemon/VM isn't running (fixable with a start command);
+    # tracked separately from "not installed at all" so the final guidance
+    # doesn't tell you to INSTALL something that's already installed.
+    offline: list[tuple[str, str, str]] = []  # (rt, version, start_hint)
     for rt, version_cmd, liveness_cmd, liveness_hint in runtime_probes:
         path = shutil.which(rt)
         if not path:
@@ -768,11 +771,29 @@ def check(
             console.print(
                 f"  [dim]- {rt}: {version} (not connected, not selected)[/dim]"
             )
+    # Final verdict when nothing is live.  Distinguish "installed but not
+    # started" (just start it — the common case that misleadingly read as
+    # "install something" before) from "genuinely nothing installed".
     if detected_runtime is None:
-        fail(
-            "No container runtime found",
-            "Install podman, or Apple Container (macOS)",
-        )
+        if offline:
+            # At least one runtime is installed; it just needs starting.
+            names = ", ".join(rt for rt, _, _ in offline)
+            starts = "; ".join(f"{rt}: {hint}" for rt, _, hint in offline)
+            fail(
+                f"Container runtime installed but not started ({names})",
+                f"It's installed — you just need to START it.\n{starts}",
+            )
+        else:
+            fail(
+                "No container runtime installed",
+                "Install one:\n"
+                "  Linux:  your package manager, e.g. `sudo apt install podman`\n"
+                "  macOS:  `brew install podman` then `podman machine init "
+                "&& podman machine start`,\n"
+                "          or `brew install container` then `container system start`\n"
+                "  (or use the native macOS backend: runtime \"macos-user\", "
+                "no container needed — see docs/macos.md)",
+            )
     console.print()
 
     console.print("[bold]Nix[/bold]")
@@ -949,7 +970,7 @@ def check(
                         )
                 else:
                     warn(
-                        "Apple Container CLI: installed but not working",
+                        "Apple Container: installed but not started",
                         "Start with: container system start",
                     )
             except Exception as e:
