@@ -4936,6 +4936,62 @@ class TestScratchMountArgs:
         assert _scratch_mount_args(42) == _scratch_mount_args("volume")
 
 
+class TestRoFileMountArg:
+    """Single-file :ro host mounts must survive the nested-jail case where
+    the source file is itself a bind mountpoint (rootless podman/crun can't
+    use such a file as a bind source — the whole `run` dies with
+    `mount <src>: No such file or directory`).  The helper dereferences it
+    by copying to a plain file under ws_state; on a real host (plain source)
+    it mounts directly with no copy.
+    """
+
+    def test_plain_source_mounts_directly(self, tmp_path):
+        from cli.run_cmd import _ro_file_mount_arg
+
+        src = tmp_path / "ignore"
+        src.write_text("*.pyc\n")
+        ws_state = tmp_path / "ws"
+        ws_state.mkdir()
+        args = _ro_file_mount_arg(
+            src, "/home/agent/.config/git/ignore", ws_state, ".config/git/ignore", set()
+        )
+        # Direct mount of the original source; no copy made.
+        assert args == ["-v", f"{src}:/home/agent/.config/git/ignore:ro"]
+        assert not (ws_state / ".config/git/ignore").exists()
+
+    def test_bind_mountpoint_source_is_dereferenced(self, tmp_path):
+        from cli.run_cmd import _ro_file_mount_arg
+
+        src = tmp_path / "config.jsonc"
+        src.write_text('{"x": 1}')
+        ws_state = tmp_path / "ws"
+        ws_state.mkdir()
+        # Simulate the source being a bind mountpoint by naming it in the set.
+        target = "/home/agent/.config/yolo-jail/config.jsonc"
+        rel = ".config/yolo-jail/config.jsonc"
+        args = _ro_file_mount_arg(src, target, ws_state, rel, {str(src)})
+        deref = ws_state / rel
+        # Mount now points at the dereferenced copy, not the bind-mounted source.
+        assert args == ["-v", f"{deref}:{target}:ro"]
+        assert deref.read_text() == '{"x": 1}'
+
+    def test_is_bind_mountpoint_matches_realpath(self, tmp_path):
+        from cli.run_cmd import _is_bind_mountpoint
+
+        f = tmp_path / "f"
+        f.write_text("x")
+        assert _is_bind_mountpoint(f, {str(f)})
+        assert not _is_bind_mountpoint(f, set())
+
+    def test_bind_mount_targets_reads_mountinfo(self):
+        from cli.run_cmd import _bind_mount_targets
+
+        # Real /proc/self/mountinfo on Linux; must at least return a set and
+        # never raise.  "/" is a mount on any Linux host running the suite.
+        targets = _bind_mount_targets()
+        assert isinstance(targets, set)
+
+
 class TestRunWithProxy:
     """The TTY proxy wraps the host-side ``podman run/exec``; without a
     host TTY there's nothing to intercept, so the wrapper falls back to a

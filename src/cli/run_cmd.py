@@ -638,6 +638,69 @@ def _resolve_lsp_installs(lsp_servers: Dict[str, Any]) -> Dict[str, str]:
     return {"npm": "\n".join(npm), "go": "\n".join(go)}
 
 
+def _bind_mount_targets() -> "set[str]":
+    """Paths that are themselves bind mountpoints in the current mount ns.
+
+    Read from ``/proc/self/mountinfo`` (field 5 is the mount point).  Used
+    to detect the nested-jail case where a host source *file* we want to
+    bind-mount ``:ro`` is itself a bind mountpoint — rootless nested
+    podman/crun cannot use such a file as a bind *source* and fails the
+    whole ``run`` with ``mount <src>: No such file or directory``.  Empty
+    set on any read error (non-Linux, restricted proc) — callers then take
+    the normal direct-mount path, which is correct off-nested-jail.
+    """
+    targets: "set[str]" = set()
+    try:
+        with open("/proc/self/mountinfo") as f:
+            for line in f:
+                parts = line.split()
+                if len(parts) >= 5:
+                    targets.add(parts[4])
+    except OSError:
+        pass
+    return targets
+
+
+def _is_bind_mountpoint(path: Path, mount_targets: "set[str]") -> bool:
+    """True if ``path`` (or its realpath) is itself a bind mountpoint.
+
+    ``os.path.ismount`` only detects directory mountpoints, not single-file
+    bind mounts, so we match against ``/proc/self/mountinfo`` targets.
+    """
+    try:
+        rp = os.path.realpath(path)
+    except OSError:
+        rp = str(path)
+    return str(path) in mount_targets or rp in mount_targets
+
+
+def _ro_file_mount_arg(
+    host_file: Path,
+    container_path: str,
+    ws_state: Path,
+    rel: str,
+    mount_targets: "set[str]",
+) -> List[str]:
+    """``-v host_file:container_path:ro`` args, dereferencing nested binds.
+
+    When ``host_file`` is itself a bind mountpoint (nested jail — the outer
+    jail already bind-mounted this exact config file in), rootless podman
+    can't use it as a bind source.  Copy it to a plain file under
+    ``ws_state`` (``rel``) and mount that stable inode instead.  On a real
+    host the file is plain, so we mount it directly with no copy.
+    """
+    src = host_file
+    if _is_bind_mountpoint(host_file, mount_targets):
+        deref = ws_state / rel
+        deref.parent.mkdir(parents=True, exist_ok=True)
+        try:
+            shutil.copy2(host_file, deref)
+            src = deref
+        except OSError:
+            src = host_file  # best-effort: fall back to the direct mount
+    return ["-v", f"{src}:{container_path}:ro"]
+
+
 def _scratch_mount_args(mode: object) -> List[str]:
     """Build the mount args for the read-only-rootfs scratch dirs.
 
@@ -1335,6 +1398,10 @@ def run(
     ws_state = workspace / ".yolo" / "home"
     ws_state.mkdir(parents=True, exist_ok=True)
     (ws_state / "ssh").mkdir(exist_ok=True, mode=0o700)
+    # Snapshot the current mount table once: single-file :ro host mounts
+    # (git ignore, user config, host-claude files) dereference their source
+    # through this when it's itself a bind mountpoint (nested-jail case).
+    mount_targets = _bind_mount_targets()
     # Per-workspace writable overlays — isolate cross-jail writes.
     # These sit on top of the :ro GLOBAL_HOME base so each jail has its
     # own copy of generated configs, installed tools, and caches.  The
@@ -1897,7 +1964,18 @@ def run(
                 excludes_path, ".config/git/ignore", ws_state
             )
         else:
-            run_cmd.extend(["-v", f"{excludes_path}:/home/agent/.config/git/ignore:ro"])
+            # A single-file :ro mount whose source may itself be a bind
+            # mountpoint in a nested jail (the outer jail bind-mounted this
+            # exact file) — dereference it so rootless podman can bind it.
+            run_cmd.extend(
+                _ro_file_mount_arg(
+                    excludes_path,
+                    "/home/agent/.config/git/ignore",
+                    ws_state,
+                    ".config/git/ignore",
+                    mount_targets,
+                )
+            )
         run_cmd.extend(["-e", "YOLO_GLOBAL_GITIGNORE=/home/agent/.config/git/ignore"])
 
     run_cmd.extend(publish_args)
@@ -2319,14 +2397,21 @@ def run(
     # yolo resolves to empty config, stomping the host's config snapshot.
     if USER_CONFIG_PATH.is_file():
         container_config = f"/home/agent/.config/yolo-jail/{USER_CONFIG_PATH.name}"
+        rel_config = f".config/yolo-jail/{USER_CONFIG_PATH.name}"
         if runtime == "container":
-            _ac_materialize_under_ws_state(
-                USER_CONFIG_PATH,
-                f".config/yolo-jail/{USER_CONFIG_PATH.name}",
-                ws_state,
-            )
+            _ac_materialize_under_ws_state(USER_CONFIG_PATH, rel_config, ws_state)
         else:
-            run_cmd.extend(["-v", f"{USER_CONFIG_PATH}:{container_config}:ro"])
+            # Dereference if the source is itself a bind mountpoint (nested
+            # jail — the outer jail already bind-mounted this config file).
+            run_cmd.extend(
+                _ro_file_mount_arg(
+                    USER_CONFIG_PATH,
+                    container_config,
+                    ws_state,
+                    rel_config,
+                    mount_targets,
+                )
+            )
 
     run_cmd.extend(["-e", f"MISE_DISABLE_TOOLS={mise_disabled_tools}"])
 
@@ -2409,7 +2494,18 @@ def run(
     for fname in effective_claude_files:
         host_file = host_claude_dir / fname
         if host_file.exists() and host_file.is_file():
-            run_cmd.extend(["-v", f"{host_file}:/ctx/host-claude/{fname}:ro"])
+            # Dereference if the source is itself a bind mountpoint (nested
+            # jail).  Staged under ctx-host-claude/ in ws_state so the copy
+            # doesn't collide with the agent's own overlay files.
+            run_cmd.extend(
+                _ro_file_mount_arg(
+                    host_file,
+                    f"/ctx/host-claude/{fname}",
+                    ws_state,
+                    f"ctx-host-claude/{fname}",
+                    mount_targets,
+                )
+            )
             mounted_claude_files.append(fname)
     if mounted_claude_files:
         run_cmd.extend(
