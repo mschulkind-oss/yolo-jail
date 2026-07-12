@@ -905,6 +905,21 @@ class TestInjectAgentYoloFlags:
         assert self._inject(["opencode", "run", "hi"]) == ["opencode", "run", "hi"]
         assert self._inject(["pi", "-p", "x"]) == ["pi", "-p", "x"]
 
+    def test_codex_gets_bypass_flag(self):
+        """codex YOLO = --dangerously-bypass-approvals-and-sandbox (disables
+        both its approval prompts and its own sandbox)."""
+        out = self._inject(["codex", "exec", "do it"])
+        assert out == [
+            "codex",
+            "--dangerously-bypass-approvals-and-sandbox",
+            "exec",
+            "do it",
+        ]
+
+    def test_codex_does_not_duplicate_bypass_flag(self):
+        out = self._inject(["codex", "--dangerously-bypass-approvals-and-sandbox"])
+        assert out.count("--dangerously-bypass-approvals-and-sandbox") == 1
+
     def test_empty_command_no_crash(self):
         """Defensive — empty list must be a no-op, not IndexError."""
         out = self._inject([])

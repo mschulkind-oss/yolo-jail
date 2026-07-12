@@ -50,6 +50,7 @@ def jail_home(tmp_path, monkeypatch):
         "CLAUDE_SHARED_CREDENTIALS_DIR",
         "OPENCODE_DIR",
         "PI_DIR",
+        "CODEX_DIR",
         "MISE_CONFIG_DIR",
     ]
     for attr in attrs:
@@ -78,6 +79,7 @@ def jail_home(tmp_path, monkeypatch):
     entrypoint.CLAUDE_SHARED_CREDENTIALS_DIR = tmp_path / ".claude-shared-credentials"
     entrypoint.OPENCODE_DIR = tmp_path / ".config" / "opencode"
     entrypoint.PI_DIR = tmp_path / ".pi" / "agent"
+    entrypoint.CODEX_DIR = tmp_path / ".codex"
     entrypoint.MISE_CONFIG_DIR = tmp_path / ".config" / "mise"
 
     yield tmp_path
@@ -1934,6 +1936,64 @@ class TestPiConfig:
         assert cfg["defaultProjectTrust"] == "always"
 
 
+# -- codex config --
+
+
+class TestCodexConfig:
+    def _load(self):
+        import tomllib
+
+        return tomllib.loads((entrypoint.CODEX_DIR / "config.toml").read_text())
+
+    def test_writes_bypass_approvals_and_sandbox(self, jail_home):
+        entrypoint.configure_codex()
+        cfg = self._load()
+        # Config-file equivalent of --dangerously-bypass-approvals-and-sandbox.
+        assert cfg["approval_policy"] == "never"
+        assert cfg["sandbox_mode"] == "danger-full-access"
+
+    def test_emits_valid_toml(self, jail_home, monkeypatch):
+        monkeypatch.setenv("YOLO_MCP_PRESETS", json.dumps(["sequential-thinking"]))
+        entrypoint.configure_codex()
+        # Parses as TOML (no writer in stdlib — our serializer must be correct).
+        cfg = self._load()
+        server = cfg["mcp_servers"]["sequential-thinking"]
+        assert isinstance(server["command"], str)
+        assert isinstance(server["args"], list)
+
+    def test_mcp_env_is_inline_table(self, jail_home, monkeypatch):
+        monkeypatch.setenv(
+            "YOLO_MCP_SERVERS",
+            json.dumps(
+                {"probe": {"command": "/bin/probe", "args": [], "env": {"K": "v"}}}
+            ),
+        )
+        entrypoint.configure_codex()
+        cfg = self._load()
+        assert cfg["mcp_servers"]["probe"]["env"] == {"K": "v"}
+
+    def test_overrides_user_approval_but_preserves_other_keys(self, jail_home):
+        entrypoint.CODEX_DIR.mkdir(parents=True)
+        (entrypoint.CODEX_DIR / "config.toml").write_text(
+            'model = "gpt-5"\napproval_policy = "on-request"\n'
+        )
+        entrypoint.configure_codex()
+        cfg = self._load()
+        assert cfg["model"] == "gpt-5"  # user key preserved
+        assert cfg["approval_policy"] == "never"  # yolo-managed key asserted
+
+    def test_reconciles_stale_managed_servers(self, jail_home, monkeypatch):
+        monkeypatch.setenv("YOLO_MCP_PRESETS", json.dumps(["sequential-thinking"]))
+        entrypoint.configure_codex()
+        assert "sequential-thinking" in self._load()["mcp_servers"]
+        monkeypatch.setenv("YOLO_MCP_PRESETS", json.dumps([]))
+        entrypoint.configure_codex()
+        cfg = self._load()
+        assert "mcp_servers" not in cfg or "sequential-thinking" not in cfg.get(
+            "mcp_servers", {}
+        )
+
+
 # -- MCP wrappers --
 
 
@@ -2042,7 +2102,7 @@ class TestAgentLaunchers:
         entrypoint.SHIM_DIR.mkdir(parents=True, exist_ok=True)
         entrypoint.generate_agent_launchers()
         assert (entrypoint.SHIM_DIR / "claude").exists()
-        for name in ("gemini", "copilot", "opencode", "pi"):
+        for name in ("gemini", "copilot", "opencode", "pi", "codex"):
             assert not (entrypoint.SHIM_DIR / name).exists(), (
                 f"{name} launcher should not exist when unselected"
             )
@@ -2054,7 +2114,7 @@ class TestAgentLaunchers:
         entrypoint.generate_agent_launchers()
         assert (entrypoint.SHIM_DIR / "opencode").exists()
         assert (entrypoint.SHIM_DIR / "pi").exists()
-        for name in ("claude", "gemini", "copilot"):
+        for name in ("claude", "gemini", "copilot", "codex"):
             assert not (entrypoint.SHIM_DIR / name).exists()
 
     def test_pi_launcher_uses_ignore_scripts(self, jail_home, monkeypatch):
@@ -2064,6 +2124,14 @@ class TestAgentLaunchers:
         content = (entrypoint.SHIM_DIR / "pi").read_text()
         assert "@earendil-works/pi-coding-agent" in content
         assert "--ignore-scripts" in content
+
+    def test_codex_launcher_is_npm(self, jail_home, monkeypatch):
+        monkeypatch.setenv("YOLO_AGENTS", json.dumps(["codex"]))
+        entrypoint.SHIM_DIR.mkdir(parents=True, exist_ok=True)
+        entrypoint.generate_agent_launchers()
+        content = (entrypoint.SHIM_DIR / "codex").read_text()
+        assert "@openai/codex" in content
+        assert "npm view" in content  # npm update-check path
 
     def test_does_not_overwrite_blocked_shim(self, jail_home, monkeypatch):
         """If a tool is blocked via YOLO_BLOCK_CONFIG, the launcher must not overwrite it."""

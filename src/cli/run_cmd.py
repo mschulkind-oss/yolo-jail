@@ -821,6 +821,7 @@ def _entrypoint_preflight(repo_root: Path, workspace: Path, config: Dict[str, An
         code = f"""
 import json
 import sys
+import tomllib
 from pathlib import Path
 
 sys.path.insert(0, {str(src_dir)!r})
@@ -835,21 +836,29 @@ entrypoint.generate_venv_precreate_script()
 entrypoint.generate_mise_config()
 entrypoint.generate_mcp_wrappers()
 
-# Per-agent config outputs to validate after each writer runs.
+def _load_json(p):
+    json.loads(p.read_text())
+
+def _load_toml(p):
+    tomllib.loads(p.read_text())
+
+# Per-agent config outputs to validate after each writer runs — each with
+# the parser for its format (JSON for most agents, TOML for codex).
 _agent_outputs = {{
     "copilot": [
-        entrypoint.COPILOT_DIR / "mcp-config.json",
-        entrypoint.COPILOT_DIR / "lsp-config.json",
+        (entrypoint.COPILOT_DIR / "mcp-config.json", _load_json),
+        (entrypoint.COPILOT_DIR / "lsp-config.json", _load_json),
     ],
-    "gemini": [entrypoint.GEMINI_DIR / "settings.json"],
-    "claude": [entrypoint.CLAUDE_DIR / "settings.json"],
-    "opencode": [entrypoint.OPENCODE_DIR / "opencode.json"],
-    "pi": [entrypoint.PI_DIR / "settings.json"],
+    "gemini": [(entrypoint.GEMINI_DIR / "settings.json", _load_json)],
+    "claude": [(entrypoint.CLAUDE_DIR / "settings.json", _load_json)],
+    "opencode": [(entrypoint.OPENCODE_DIR / "opencode.json", _load_json)],
+    "pi": [(entrypoint.PI_DIR / "settings.json", _load_json)],
+    "codex": [(entrypoint.CODEX_DIR / "config.toml", _load_toml)],
 }}
 for _agent in entrypoint._load_agents():
     CONFIG_WRITERS[_agent]()
-    for _out in _agent_outputs.get(_agent, []):
-        json.loads(_out.read_text())
+    for _out, _parse in _agent_outputs.get(_agent, []):
+        _parse(_out)
 print("ok")
 """
         result = subprocess.run(

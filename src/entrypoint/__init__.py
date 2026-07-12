@@ -85,6 +85,9 @@ CLAUDE_MANAGED_MCP_PATH = CLAUDE_DIR / "yolo-managed-mcp-servers.json"
 OPENCODE_DIR = HOME / ".config" / "opencode"
 # pi (pi.dev coding agent): config/state under ~/.pi/agent/.
 PI_DIR = HOME / ".pi" / "agent"
+# codex (OpenAI Codex CLI): config.toml + auth.json under ~/.codex/
+# (overridable via CODEX_HOME, which we leave at its default).
+CODEX_DIR = HOME / ".codex"
 # Snapshot of host ~/.claude/settings.json as of the last sync — the
 # baseline for the three-way host→jail settings merge (see
 # agent_configs._sync_host_settings).
@@ -136,6 +139,7 @@ DEFAULT_LSP_SERVERS: dict = {}
 from .agent_configs import (  # noqa: E402, F401
     CONFIG_WRITERS,
     configure_claude,
+    configure_codex,
     configure_copilot,
     configure_gemini,
     configure_opencode,

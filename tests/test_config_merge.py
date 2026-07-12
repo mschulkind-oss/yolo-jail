@@ -80,7 +80,7 @@ def test_selected_agents_honors_empty_list():
 
 def test_validate_config_accepts_known_agents():
     errors, _ = _validate_config(
-        {"agents": ["claude", "copilot", "gemini", "opencode", "pi"]},
+        {"agents": ["claude", "copilot", "gemini", "opencode", "pi", "codex"]},
         workspace=Path.cwd(),
     )
     assert not errors

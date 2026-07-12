@@ -346,6 +346,7 @@ _AGENT_MATRIX = [
         "allow",
     ),
     ("pi", "pi", "--version", ".pi/agent/settings.json", "defaultProjectTrust"),
+    ("codex", "codex", "--version", ".codex/config.toml", "danger-full-access"),
 ]
 
 

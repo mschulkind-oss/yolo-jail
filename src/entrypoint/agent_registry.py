@@ -181,6 +181,26 @@ _SPECS = [
         alias=None,
         mise_retire=[],
     ),
+    AgentSpec(
+        name="codex",
+        install=InstallSpec(kind="npm", bin="codex", package="@openai/codex"),
+        config_writer="configure_codex",
+        briefing=BriefingSpec(
+            staging="AGENTS-codex.md",
+            mount=".codex/AGENTS.md",
+            host_source=".codex/AGENTS.md",
+        ),
+        overlay_dirs=[".codex"],
+        skills=None,
+        # --dangerously-bypass-approvals-and-sandbox disables BOTH Codex's
+        # approval prompts and its own OS sandbox — the right choice since the
+        # jail container is the security boundary and we don't want Codex
+        # double-sandboxing.  config.toml (approval_policy/sandbox_mode) is
+        # written too as belt-and-suspenders, mirroring claude's flag+settings.
+        yolo_flags=["--dangerously-bypass-approvals-and-sandbox"],
+        alias=None,
+        mise_retire=[],
+    ),
 ]
 
 AGENTS: Dict[str, AgentSpec] = {spec.name: spec for spec in _SPECS}

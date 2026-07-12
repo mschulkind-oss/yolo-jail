@@ -48,13 +48,17 @@ def config_ref():
       • opencode — opencode.ai agent (npm opencode-ai; auto-approve via permission:allow)
       • pi       — pi.dev coding agent (npm @earendil-works/pi-coding-agent;
                    auto-approve via defaultProjectTrust:always)
+      • codex    — OpenAI Codex CLI (npm @openai/codex; auto-approve +
+                   sandbox-off via --dangerously-bypass-approvals-and-sandbox)
     Default: ["claude"].
     Merge: unlike other list fields, [bold]agents replaces (does not union)[/bold] across
     the user→workspace hierarchy — so a workspace can NARROW the user default
     (e.g. user ["claude","gemini"] but a claude-only workspace ["claude"]).
-    Auth: each agent authenticates itself (claude/gemini/copilot OAuth via their
-    own /login; opencode/pi via provider API keys in env_sources).  yolo-jail
-    wires MCP for claude/copilot/gemini/opencode; pi has no native MCP.
+    Auth: each agent authenticates itself inside the jail (claude/gemini/
+    copilot/codex OAuth via their own /login or `codex login`; opencode/pi/
+    codex also accept a provider API key via env_sources — e.g. OPENAI_API_KEY
+    for codex).  yolo-jail wires MCP for claude/copilot/gemini/opencode/codex;
+    pi has no native MCP.
     Example: ["claude", "opencode"]
 
   [bold]packages[/bold] (array): Extra nix packages baked into the image.
@@ -328,6 +332,7 @@ def config_ref():
       • Gemini: written to a per-workspace overlay mounted at ~/.gemini/settings.json.
       • Claude: written to a per-workspace overlay mounted at ~/.claude/settings.json.
       • opencode: written to ~/.config/opencode/opencode.json (mcp key, native schema).
+      • codex: written to ~/.codex/config.toml (\\[mcp_servers.<name>] tables).
       • pi: no native MCP support (skipped).
     Example:
       {"cerebras-mcp": {

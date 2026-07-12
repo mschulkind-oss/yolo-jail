@@ -2297,7 +2297,7 @@ class TestGetProjectName:
 
 
 # Every agent selected — used by tests that assert on all briefing files.
-_ALL_AGENTS = ["copilot", "gemini", "claude", "opencode", "pi"]
+_ALL_AGENTS = ["copilot", "gemini", "claude", "opencode", "pi", "codex"]
 
 
 class TestGenerateAgentsMd:
@@ -2315,6 +2315,7 @@ class TestGenerateAgentsMd:
         assert (agents_dir / "CLAUDE.md").exists()
         assert (agents_dir / "AGENTS-opencode.md").exists()
         assert (agents_dir / "AGENTS-pi.md").exists()
+        assert (agents_dir / "AGENTS-codex.md").exists()
         content = (agents_dir / "AGENTS-copilot.md").read_text()
         assert "YOLO Jail" in content
         claude_content = (agents_dir / "CLAUDE.md").read_text()

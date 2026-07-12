@@ -3,7 +3,7 @@
 [![CI](https://github.com/mschulkind/yolo-jail/actions/workflows/ci.yml/badge.svg)](https://github.com/mschulkind/yolo-jail/actions/workflows/ci.yml)
 [![License](https://img.shields.io/badge/License-Apache_2.0-blue.svg)](LICENSE)
 
-A secure, isolated container environment for AI coding agents (Claude Code, Copilot, Gemini CLI, opencode, pi) to safely modify codebases without compromising host security or identity. Pick which agents to install per project with the `agents` config. Runs on **Linux and macOS** (Apple Silicon and Intel) with Podman or Apple Container.
+A secure, isolated container environment for AI coding agents (Claude Code, Copilot, Gemini CLI, opencode, pi, Codex) to safely modify codebases without compromising host security or identity. Pick which agents to install per project with the [`agents` config](#agents). Runs on **Linux and macOS** (Apple Silicon and Intel) with Podman or Apple Container.
 
 ## Why?
 
@@ -106,10 +106,13 @@ cd ~/code/my-project
 # Start an interactive shell in the jail
 yolo
 
-# Or run a command directly
+# Or run a command directly (only agents in your `agents` config are installed)
 yolo -- claude           # Claude Code in YOLO mode
 yolo -- copilot          # Copilot with --yolo auto-injected
 yolo -- gemini           # Gemini with --yolo auto-injected
+yolo -- opencode         # opencode.ai agent (auto-approve)
+yolo -- pi               # pi.dev coding agent (auto-approve)
+yolo -- codex            # OpenAI Codex CLI (auto-approve, sandbox off)
 
 # Force a new container
 yolo --new -- bash
@@ -147,7 +150,12 @@ Inside the jail, authenticate with your tools:
 gh auth login          # GitHub CLI
 gemini login           # Google Gemini CLI
 # Claude Code authenticates via /login on first run
+# codex login / opencode auth login / pi's /login work the same way
 ```
+
+Each coding agent authenticates itself inside the jail — see the per-agent
+auth column in [Agents](#agents). Agents that take a provider API key
+(opencode, pi, codex) can instead read it from [`env_sources`](#configuration).
 
 These tokens are stored in `~/.local/share/yolo-jail/home/` (same path on Linux and macOS) and persist across jail restarts. On both platforms, a host-side systemd timer (installed by `just deploy`) periodically refreshes the shared Claude OAuth token so jails never race the refresh flow.
 
@@ -158,6 +166,7 @@ Create a per-project config in `yolo-jail.jsonc`:
 ```jsonc
 {
   "runtime": "podman",              // or "container" (Apple Container)
+  "agents": ["claude", "codex"],    // which coding agents to install (see below)
   "packages": ["strace", "htop"],   // extra nix packages
   "mounts": ["/path/to/ref-repo"],  // extra read-only mounts
   "network": {
@@ -175,6 +184,44 @@ Workspace config merges over user defaults (`~/.config/yolo-jail/config.jsonc`),
 Run `yolo check` after **every** edit to `yolo-jail.jsonc` to validate the merged config, dry-run the generated jail agent configs, and preflight the image build before restarting into the jail. Inside a running jail, `yolo check --no-build` is the fast way to validate config changes mid-session before asking for a restart.
 
 Run `yolo config-ref` for the full configuration reference.
+
+## Agents
+
+YOLO Jail is a **library of coding agents** — you choose which to install per
+project with the `agents` field. Only the selected agents are installed and
+configured, so a jail stays lean and boots faster. The default is Claude Code.
+
+```jsonc
+// yolo-jail.jsonc — install just the agents this project uses
+{ "agents": ["claude", "codex"] }
+```
+
+- **Default:** `["claude"]` when `agents` is omitted.
+- **Merge:** unlike other list fields, `agents` **replaces** (does not union)
+  across the user→workspace hierarchy, so a workspace can *narrow* your
+  user-level default (e.g. user `["claude","gemini"]`, but a claude-only
+  workspace `["claude"]`).
+- **No rebuild:** agents install lazily on first use, so changing the list
+  never rebuilds the image — just restart the jail.
+
+Each agent is launched with its autonomous/YOLO mode auto-enabled (the jail
+container is the security boundary), and authenticates itself **inside the
+jail** — host credentials never cross the boundary.
+
+| Agent | `agents` value | Run | Install | Auth (inside the jail) |
+|---|---|---|---|---|
+| **Claude Code** | `claude` | `yolo -- claude` | native installer | `/login` on first run |
+| **GitHub Copilot** | `copilot` | `yolo -- copilot` | npm `@github/copilot` | `/login` (GitHub OAuth) |
+| **Gemini CLI** | `gemini` | `yolo -- gemini` | npm `@google/gemini-cli` | `gemini login`, or `GEMINI_API_KEY` |
+| **opencode** | `opencode` | `yolo -- opencode` | npm `opencode-ai` | `opencode auth login`, or a provider key (e.g. `ANTHROPIC_API_KEY`/`OPENAI_API_KEY`) |
+| **pi** ([pi.dev](https://pi.dev)) | `pi` | `yolo -- pi` | npm `@earendil-works/pi-coding-agent` | `pi` `/login`, or a provider key |
+| **OpenAI Codex** | `codex` | `yolo -- codex` | npm `@openai/codex` | `codex login` (ChatGPT), or `OPENAI_API_KEY` |
+
+Provider API keys are easiest to supply via [`env_sources`](#configuration)
+(a gitignored dotenv file) so they reach the agent inside the jail without
+living in your committed config. MCP servers you configure (`mcp_presets` /
+`mcp_servers`) are wired into every selected agent that supports MCP —
+claude, copilot, gemini, opencode, and codex (pi has no native MCP).
 
 ## Security
 

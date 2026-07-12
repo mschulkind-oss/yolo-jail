@@ -871,6 +871,165 @@ def configure_pi():
         print(f"Error configuring pi: {e}", file=sys.stderr)
 
 
+def _toml_key(key: str) -> str:
+    """Quote a TOML key unless it's a valid bare key (alnum, ``_``, ``-``)."""
+    if re.fullmatch(r"[A-Za-z0-9_-]+", key):
+        return key
+    return f'"{_toml_escape(key)}"'
+
+
+def _toml_escape(s: str) -> str:
+    r"""Escape a string for a TOML basic (double-quoted) value."""
+    return s.replace("\\", "\\\\").replace('"', '\\"')
+
+
+def _toml_scalar(v) -> str:
+    """Serialize a scalar (str/bool/int/float) as a TOML value."""
+    if isinstance(v, bool):
+        return "true" if v else "false"
+    if isinstance(v, (int, float)):
+        return str(v)
+    return f'"{_toml_escape(str(v))}"'
+
+
+def _toml_inline_table(d: dict) -> str:
+    """Serialize a flat dict as a TOML inline table (values are scalars)."""
+    parts = [f"{_toml_key(k)} = {_toml_scalar(v)}" for k, v in d.items()]
+    return "{ " + ", ".join(parts) + " }"
+
+
+def _toml_array(values) -> str:
+    """Serialize a list of scalars as a TOML array."""
+    return "[" + ", ".join(_toml_scalar(v) for v in values) + "]"
+
+
+def _dump_codex_toml(doc: dict) -> str:
+    """Serialize the constrained Codex config shape we produce to TOML.
+
+    Handles top-level scalars, the ``[mcp_servers.<name>]`` sub-tables
+    (with string/array/inline-table values), and passes through any
+    top-level scalar/array/inline-table user keys read back from an
+    existing file.  Not a general TOML emitter — just enough for the
+    keys ``configure_codex`` writes plus round-tripped user scalars.
+    Nested user tables other than ``mcp_servers`` are dropped with a
+    warning rather than mis-serialized (Python 3.13 ships no TOML writer).
+    """
+    lines: list[str] = []
+    dropped: list[str] = []
+    # Top-level scalars / arrays first (TOML requires them before any table).
+    for key, val in doc.items():
+        if key == "mcp_servers":
+            continue
+        if isinstance(val, dict):
+            # A non-mcp_servers table — can't faithfully emit arbitrary
+            # nesting without a real writer; skip and note it.
+            dropped.append(key)
+            continue
+        if isinstance(val, list):
+            lines.append(f"{_toml_key(key)} = {_toml_array(val)}")
+        else:
+            lines.append(f"{_toml_key(key)} = {_toml_scalar(val)}")
+    # MCP server sub-tables.
+    mcp = doc.get("mcp_servers")
+    if isinstance(mcp, dict):
+        for name, cfg in mcp.items():
+            if not isinstance(cfg, dict):
+                continue
+            lines.append("")
+            lines.append(f"[mcp_servers.{_toml_key(name)}]")
+            for k, v in cfg.items():
+                if isinstance(v, dict):
+                    lines.append(f"{_toml_key(k)} = {_toml_inline_table(v)}")
+                elif isinstance(v, list):
+                    lines.append(f"{_toml_key(k)} = {_toml_array(v)}")
+                else:
+                    lines.append(f"{_toml_key(k)} = {_toml_scalar(v)}")
+    if dropped:
+        print(
+            f"warning: codex config: dropped un-serializable table(s): "
+            f"{', '.join(sorted(dropped))}",
+            file=sys.stderr,
+        )
+    return "\n".join(lines) + "\n"
+
+
+def configure_codex():
+    """Set up OpenAI Codex CLI: ~/.codex/config.toml (auto-approve + MCP).
+
+    Codex reads ``~/.codex/config.toml`` (TOML).  We assert:
+
+      * ``approval_policy = "never"`` and
+        ``sandbox_mode = "danger-full-access"`` — the config-file
+        equivalent of ``--dangerously-bypass-approvals-and-sandbox``
+        (which cli.py also injects on ``yolo -- codex``).  The jail
+        container is the security boundary, so Codex's own approval
+        prompts + OS sandbox are disabled to avoid double-sandboxing.
+      * ``[mcp_servers.<name>]`` tables from the shared MCP servers, in
+        Codex's native TOML schema (command / args / env).
+
+    Merges into an existing config.toml, preserving top-level user
+    scalars.  Python 3.13 ships no TOML writer, so we read with tomllib
+    and emit with a small serializer for the shape we produce (see
+    _dump_codex_toml); a yolo-managed-mcp sidecar tracks which servers we
+    added so stale ones are dropped without touching user servers.
+    """
+    from . import CODEX_DIR
+
+    import tomllib
+
+    CODEX_DIR.mkdir(parents=True, exist_ok=True)
+    config_path = CODEX_DIR / "config.toml"
+    managed_path = CODEX_DIR / "yolo-managed-mcp-servers.json"
+
+    # Translate shared MCP servers into Codex's TOML table shape.
+    configured_servers = _load_mcp_servers()
+    codex_mcp = {}
+    for name, cfg in configured_servers.items():
+        if not isinstance(cfg, dict):
+            continue
+        entry = {"command": cfg.get("command", ""), "args": list(cfg.get("args", []))}
+        if isinstance(cfg.get("env"), dict) and cfg["env"]:
+            entry["env"] = cfg["env"]
+        codex_mcp[name] = entry
+
+    try:
+        if config_path.exists():
+            try:
+                current = tomllib.loads(config_path.read_text())
+                if not isinstance(current, dict):
+                    current = {}
+            except (tomllib.TOMLDecodeError, ValueError):
+                current = {}
+        else:
+            current = {}
+
+        # Auto-approve (jail is the boundary).
+        current["approval_policy"] = "never"
+        current["sandbox_mode"] = "danger-full-access"
+
+        # Reconcile yolo-managed MCP servers: drop the ones we added last
+        # boot (so a removed server disappears) without touching user servers.
+        servers = current.get("mcp_servers")
+        if not isinstance(servers, dict):
+            servers = {}
+        try:
+            previous_managed = set(json.loads(managed_path.read_text()))
+        except (FileNotFoundError, json.JSONDecodeError, TypeError, ValueError):
+            previous_managed = set()
+        for name in previous_managed:
+            servers.pop(name, None)
+        servers.update(codex_mcp)
+        if servers:
+            current["mcp_servers"] = servers
+        elif "mcp_servers" in current:
+            del current["mcp_servers"]
+
+        config_path.write_text(_dump_codex_toml(current))
+        managed_path.write_text(json.dumps(sorted(codex_mcp.keys()), indent=2) + "\n")
+    except Exception as e:
+        print(f"Error configuring codex: {e}", file=sys.stderr)
+
+
 # Name → config-writer, consumed by entrypoint.main()'s selected-agent loop.
 # Kept here (not in the registry) so agent_registry stays free of the
 # subprocess-heavy config code.  Every name in agent_registry.AGENTS must
@@ -881,4 +1040,5 @@ CONFIG_WRITERS = {
     "gemini": configure_gemini,
     "opencode": configure_opencode,
     "pi": configure_pi,
+    "codex": configure_codex,
 }
