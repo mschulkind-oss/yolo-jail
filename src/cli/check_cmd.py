@@ -664,28 +664,33 @@ def check(
     def _print_note(note: str) -> None:
         """Render a note; every line gets the same indent, first line
         marked with an arrow so multi-line messages don't become a wall
-        of text."""
+        of text.  ASCII ``->`` (not a Unicode arrow) so it's legible on a
+        terminal without special-glyph fonts (e.g. plain ssh)."""
         lines = note.splitlines() or [note]
         for i, line in enumerate(lines):
-            prefix = "     → " if i == 0 else "       "
-            console.print(f"{prefix}{line}")
+            prefix = "       -> " if i == 0 else "          "
+            console.print(f"{prefix}[dim]{line}[/dim]")
 
+    # Status badges are colored TEXT, not emoji — legible in any font and
+    # far louder than a subtle ✅/⚠️/❌ (which render as tofu over plain
+    # ssh/tmux without an emoji font).  All three badges are 6 columns wide
+    # so the messages stay aligned.
     def ok(msg: str):
         nonlocal passed
         passed += 1
-        console.print(f"  ✅ {msg}")
+        console.print(rf"  [bold green]\[PASS][/bold green] {msg}")
 
     def fail(msg: str, note: str = ""):
         nonlocal failed
         failed += 1
-        console.print(f"  ❌ {msg}")
+        console.print(rf"  [bold white on red]\[FAIL][/bold white on red] {msg}")
         if note:
             _print_note(note)
 
     def warn(msg: str, note: str = ""):
         nonlocal warned
         warned += 1
-        console.print(f"  ⚠️  {msg}")
+        console.print(rf"  [bold black on yellow]\[WARN][/bold black on yellow] {msg}")
         if note:
             _print_note(note)
 
@@ -761,7 +766,7 @@ def check(
             warn(f"{rt}: {version} (not connected)", hint)
         else:
             console.print(
-                f"  [dim]· {rt}: {version} (not connected — not selected)[/dim]"
+                f"  [dim]- {rt}: {version} (not connected, not selected)[/dim]"
             )
     if detected_runtime is None:
         fail(
@@ -1633,7 +1638,7 @@ def check(
                         )
                     else:
                         marker = ""
-                    console.print(f"    {cname} → {container_workspace}{marker}")
+                    console.print(f"    {cname} -> {container_workspace}{marker}")
                 if orphaned_jails:
                     warn(
                         f"{len(orphaned_jails)} orphaned jail(s)",
