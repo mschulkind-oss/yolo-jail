@@ -579,10 +579,9 @@ def _diagnose_nix_build_failure(stderr_tail: List[str]) -> "tuple[str, str]":
     generated ``yolo-jail-conf.json``, which is never in the binary cache —
     with no Linux builder available.  nix reports only ``1 dependency
     failed`` at the top level, which tells the user nothing.  Detect the
-    "needs a Linux builder" signatures and lead them down the Colima VM
-    path (the pragmatic macОS remedy); otherwise fall back to the stderr
-    tail.  Remote builders are intentionally NOT offered here — they live
-    in docs/macos.md for the advanced case.
+    "needs a Linux builder" signatures and lead the user to the fix (a
+    prebuilt image from the published cache, or the nix-darwin
+    linux-builder); otherwise fall back to the stderr tail.
     """
     text = "\n".join(stderr_tail)
     low = text.lower()
@@ -597,28 +596,18 @@ def _diagnose_nix_build_failure(stderr_tail: List[str]) -> "tuple[str, str]":
     # never cacheable by construction; a bad nixpkgs pin misses the cache).
     ambiguous_mac = IS_MACOS and "dependency failed" in low and not explicit_cross
 
-    _colima = (
-        "Set up a local Linux builder with Colima (a Linux VM):\n"
-        "    brew install colima docker && colima start\n"
-        "    # then register it as a Nix Linux builder — see "
-        "docs/macos.md > 'Linux builder'."
-    )
     if explicit_cross:
         return (
             "Image build needs a Linux builder (something must be built from source)",
             "Part of the image isn't in the binary cache and must be BUILT, "
-            "but building a Linux image on macOS needs a Linux builder.\n" + _colima,
+            "but building a Linux image on macOS needs a Linux builder.\n"
+            + _LINUX_BUILDER_REMEDY,
         )
     if ambiguous_mac:
         return (
             "Image build failed — likely needs a Linux builder or a cached package",
-            "A Linux derivation had to be built from source and couldn't be. "
-            "Two common causes:\n"
-            "  1. A `packages` entry forces a source build — a "
-            "{version,url,hash} override is never cached (rebuild is "
-            "unavoidable); a {nixpkgs:<commit>} pin may miss the cache "
-            "(pin to a released revision instead).\n"
-            "  2. No Linux builder for the image's own build steps.\n" + _colima,
+            "A Linux derivation had to be built from source and couldn't be.\n"
+            + _LINUX_BUILDER_REMEDY,
         )
     return "nix build failed", "\n".join(stderr_tail[-10:]) if stderr_tail else ""
 
@@ -734,47 +723,61 @@ def _has_linux_builder() -> bool:
     return False
 
 
+_LINUX_BUILDER_REMEDY = (
+    "Building a Linux image on macOS needs a Linux builder.  Set up the "
+    "nix-darwin linux-builder (a persistent, launchd-managed Linux VM — the "
+    "standard Nix tool for this):\n"
+    "  nix-darwin:  nix.linux-builder.enable = true;  (then darwin-rebuild switch)\n"
+    "  standalone:  nix run nixpkgs#darwin.linux-builder  (leave it running)\n"
+    "See docs/macos.md > 'Linux builder' for the trusted-users step.\n"
+    "If this is a custom `packages` entry: a {version,url,hash} override is "
+    "never cached (a rebuild is unavoidable); a {nixpkgs:<commit>} pin may "
+    "just need a released revision that IS cached."
+)
+
+
 def _preflight_builder_needs(
     repo_root: Path, extra_packages: Optional[List[object]], ok, warn, fail
-) -> None:
-    """Emit the right builder message BEFORE the real build.
+) -> "Optional[bool]":
+    """Decide whether the real image build should even be attempted.
 
-    State A (nothing builds): quiet dim info — no builder needed.
-    State B (will build, builder present): informational PASS.
-    State C (will build, no builder): actionable WARN naming the offending
-    drv(s) + the Colima-led remedy (the real build below then fails with its
-    own diagnosis; this explains WHY without double-failing).
-    Inconclusive (offline): dim info, never a false alarm.
+    Returns True when the build is viable (fully cached, a builder is
+    present, or we couldn't tell and should try), and **False** when we
+    KNOW it will fail (a from-source Linux build is required but no builder
+    exists) — the caller then skips the doomed build + its misleading
+    "Run 'yolo' once to build the image" hint, so the user sees ONE clear
+    message instead of a WARN followed by a duplicate FAIL.
+
+    States: A (nothing builds) quiet dim info → True; B (will build, builder
+    present) PASS → True; C (will build, no builder) actionable FAIL → False;
+    inconclusive (offline) dim info → True (try; the build surfaces the truth).
     """
     will_build, offending = _nix_dry_run_will_build(repo_root, extra_packages)
     if will_build is None:
         console.print(
             "  [dim]- Could not check binary-cache coverage (nix dry-run "
-            "unavailable/offline); skipping the Linux-builder check.[/dim]"
+            "unavailable/offline); attempting the build anyway.[/dim]"
         )
-        return
+        return True
     if not will_build:
         console.print(
             "  [dim]- No Linux builder needed: every image path is served from "
             "the binary cache (nothing is built from source).[/dim]"
         )
-        return
+        return True
     named = f" ({', '.join(offending[:3])})" if offending else ""
     if _has_linux_builder():
         ok(
             f"A package will be built from source{named}; a Linux builder will handle it"
         )
-        return
-    warn(
-        f"A package must be built from source{named}, but no Linux builder is configured",
-        "Building a Linux image on macOS needs a Linux builder. Easiest fix:\n"
-        "  brew install colima docker && colima start\n"
-        "  # then register it as a Nix Linux builder — see "
-        "docs/macos.md > 'Linux builder'.\n"
-        "Or, if this is a custom `packages` entry: a {version,url,hash} "
-        "override is never cached (rebuild is unavoidable); a {nixpkgs:<commit>} "
-        "pin may just need a released revision that IS cached.",
+        return True
+    # Known-doomed: a from-source Linux build with no builder.  Emit ONE
+    # actionable FAIL and tell the caller to skip the real build entirely.
+    fail(
+        f"Image needs a Linux builder — a package must be built from source{named}",
+        _LINUX_BUILDER_REMEDY,
     )
+    return False
 
 
 def _check_macos_user_backend(ok, warn, fail) -> None:
@@ -1739,6 +1742,10 @@ def check(
     # --- Image & Containers ---
 
     console.print("[bold]Image Build[/bold]")
+    # True when the image can't be built here (needs a Linux builder we don't
+    # have) — suppresses the misleading "Run 'yolo' once to build the image"
+    # hint below, which would just hit the same wall.
+    image_build_skipped = False
     if build:
         out_link = BUILD_DIR / "check-result"
         if repo_root is None:
@@ -1749,27 +1756,44 @@ def check(
             # needs a Linux builder on macOS — so we stay quiet in the common
             # (fully-cached) case and escalate only on a real miss.  Gated on
             # --build (dry-run costs cache round-trips); INCONCLUSIVE when
-            # offline so we never cry wolf.
-            _preflight_builder_needs(
+            # offline so we never cry wolf.  When it returns False the build
+            # is known-doomed (needs a builder we don't have) — skip the real
+            # build so the user sees ONE clear message, not a WARN + a
+            # duplicate FAIL, and no misleading "Run 'yolo' once" hint.
+            image_buildable = _preflight_builder_needs(
                 repo_root, _effective_packages(config) or None, ok, warn, fail
             )
-            try:
-                store_path, build_stderr_tail = _build_image_store_path(
-                    repo_root,
-                    extra_packages=_effective_packages(config) or None,
-                    out_link=out_link,
-                    status_message="[bold blue]Preflighting jail image...",
-                )
-                if store_path is None:
-                    title, note = _diagnose_nix_build_failure(build_stderr_tail)
-                    fail(title, note)
-                else:
-                    ok(f"nix build succeeded: {store_path}")
-            finally:
-                out_link.unlink(missing_ok=True)
+            if image_buildable is False:
+                image_build_skipped = True
+            else:
+                try:
+                    store_path, build_stderr_tail = _build_image_store_path(
+                        repo_root,
+                        extra_packages=_effective_packages(config) or None,
+                        out_link=out_link,
+                        status_message="[bold blue]Preflighting jail image...",
+                    )
+                    if store_path is None:
+                        title, note = _diagnose_nix_build_failure(build_stderr_tail)
+                        fail(title, note)
+                    else:
+                        ok(f"nix build succeeded: {store_path}")
+                finally:
+                    out_link.unlink(missing_ok=True)
     else:
         warn("Skipped nix build (--no-build)")
     console.print()
+
+    # When the image can't be built here (no Linux builder), the "Image not
+    # loaded → Run 'yolo' once" hint below is misleading — running yolo hits
+    # the same wall.  Point at the real fix instead.
+    _not_loaded_hint = (
+        "Run 'yolo' once to build and load the image"
+        if not image_build_skipped
+        else "This host can't build the image (needs a Linux builder — see "
+        "above / docs/macos.md), or download a prebuilt image once the cache "
+        "is published."
+    )
 
     if detected_runtime:
         console.print("[bold]Container Image[/bold]")
@@ -1793,7 +1817,7 @@ def check(
                     else:
                         warn(
                             f"Image '{check_image}' not loaded",
-                            "Run 'yolo' once to build and load the image",
+                            _not_loaded_hint,
                         )
                 else:
                     result = subprocess.run(
@@ -1814,7 +1838,7 @@ def check(
                     else:
                         warn(
                             f"Image '{check_image}' not loaded",
-                            "Run 'yolo' once to build and load the image",
+                            _not_loaded_hint,
                         )
             except Exception as e:
                 warn(f"Could not check image: {e}")

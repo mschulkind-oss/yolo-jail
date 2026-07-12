@@ -70,9 +70,8 @@ def test_diagnose_explicit_cross_build_leads_to_colima(monkeypatch):
     ]
     title, note = _diagnose_nix_build_failure(tail)
     assert "Linux builder" in title
-    assert "colima" in note.lower()
-    # Remote builders are intentionally NOT the first-line remedy.
-    assert "remote" not in note.lower()
+    # nix-darwin linux-builder is the recommended remedy (not Colima).
+    assert "linux-builder" in note.lower()
 
 
 def test_diagnose_ambiguous_mac_dependency_failure(monkeypatch):
@@ -81,8 +80,8 @@ def test_diagnose_ambiguous_mac_dependency_failure(monkeypatch):
         ["error: Build failed due to failed dependency", "1 dependency failed"]
     )
     assert "Linux builder or a cached package" in title
-    assert "colima" in note.lower()
-    # names both causes: a package forcing a source build, and no builder
+    assert "linux-builder" in note.lower()
+    # names the custom-package cause too
     assert "override" in note.lower()
 
 
@@ -174,32 +173,51 @@ def test_preflight_state_a_quiet_when_all_cached(monkeypatch):
     assert any("binary cache" in m for m in msgs)
 
 
-def test_preflight_state_c_warns_without_builder(monkeypatch):
+def test_preflight_state_c_fails_and_skips_build_without_builder(monkeypatch):
     monkeypatch.setattr(
         _cc, "_nix_dry_run_will_build", lambda *a: (True, ["yolo-jail-conf.json.drv"])
     )
     monkeypatch.setattr(_cc, "_has_linux_builder", lambda: False)
-    warned = []
-    _cc._preflight_builder_needs(
+    failed = []
+    result = _cc._preflight_builder_needs(
         Path("/repo"),
         None,
         ok=lambda m: None,
-        warn=lambda m, n="": warned.append((m, n)),
-        fail=lambda m, n="": None,
+        warn=lambda m, n="": None,
+        fail=lambda m, n="": failed.append((m, n)),
     )
-    assert warned and "no Linux builder" in warned[0][0]
-    assert "colima" in warned[0][1].lower()
+    # ONE actionable FAIL (not a WARN+FAIL pair) and the caller is told to
+    # skip the doomed build.
+    assert result is False
+    assert failed and "Linux builder" in failed[0][0]
+    assert "linux-builder" in failed[0][1].lower()  # nix-darwin remedy, not colima
 
 
 def test_preflight_state_b_pass_with_builder(monkeypatch):
     monkeypatch.setattr(_cc, "_nix_dry_run_will_build", lambda *a: (True, ["x.drv"]))
     monkeypatch.setattr(_cc, "_has_linux_builder", lambda: True)
     passed = []
-    _cc._preflight_builder_needs(
+    result = _cc._preflight_builder_needs(
         Path("/repo"),
         None,
         ok=lambda m: passed.append(m),
         warn=lambda m, n="": None,
         fail=lambda m, n="": None,
     )
+    assert result is True
     assert passed and "built from source" in passed[0]
+
+
+def test_preflight_state_a_returns_true(monkeypatch):
+    monkeypatch.setattr(_cc, "_nix_dry_run_will_build", lambda *a: (False, []))
+    monkeypatch.setattr(_cc.console, "print", lambda *a, **k: None)
+    assert (
+        _cc._preflight_builder_needs(
+            Path("/repo"),
+            None,
+            ok=lambda m: None,
+            warn=lambda m, n="": None,
+            fail=lambda m, n="": None,
+        )
+        is True
+    )
