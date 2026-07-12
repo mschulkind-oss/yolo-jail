@@ -276,6 +276,41 @@ class TestOrchestratorGuards:
         assert p.name == "profile-yolo-proj-abcd1234.sb"
 
 
+class TestSetup:
+    def test_next_free_id_skips_taken(self):
+        assert m.next_free_id({600, 601, 603}, floor=600) == 602
+
+    def test_next_free_id_floor_when_empty(self):
+        assert m.next_free_id(set(), floor=600) == 600
+
+    def test_setup_requires_macos(self, monkeypatch):
+        import typer
+
+        monkeypatch.setattr(m, "_is_macos", lambda: False)
+        called = []
+        monkeypatch.setattr(
+            m.subprocess, "run", lambda *a, **k: called.append(a) or None
+        )
+        try:
+            m.macos_setup()
+            raised = False
+        except typer.Exit:
+            raised = True
+        assert raised
+        assert called == []  # no provisioning shelled out off-macОS
+
+    def test_teardown_requires_macos(self, monkeypatch):
+        import typer
+
+        monkeypatch.setattr(m, "_is_macos", lambda: False)
+        try:
+            m.macos_teardown()
+            raised = False
+        except typer.Exit:
+            raised = True
+        assert raised
+
+
 class TestMacosLogHelper:
     def test_off_mode_is_a_disabled_stub(self):
         s = m.macos_log_wrapper_script("off")

@@ -368,6 +368,12 @@ app.command(
 app.command()(ps)
 app.command()(doctor)
 
+# Native macOS-user backend provisioning (macOS-only; no-op errors elsewhere).
+from .macos_user import macos_setup, macos_teardown  # noqa: E402
+
+app.command("macos-setup")(macos_setup)
+app.command("macos-teardown")(macos_teardown)
+
 
 # ---------------------------------------------------------------------------
 # yolo loopholes — list / status / enable / disable.

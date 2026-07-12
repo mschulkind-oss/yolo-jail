@@ -687,3 +687,125 @@ def _cname(workspace: Path) -> str:
     from .runtime import container_name_for_workspace
 
     return container_name_for_workspace(workspace)
+
+
+def next_free_id(existing: "set[int]", floor: int = SANDBOX_MIN_ID) -> int:
+    """First integer >= ``floor`` not in ``existing`` (SandVault's picker).
+
+    ``existing`` is the union of taken UIDs and GIDs so the account's UID
+    and GID can match.  Pure so it's unit-testable without ``dscl``.
+    """
+    uid = floor
+    while uid in existing:
+        uid += 1
+    return uid
+
+
+# ---------------------------------------------------------------------------
+# Setup / teardown commands (macOS-only; shell out with sudo) — registered
+# as `yolo macos-setup` / `yolo macos-teardown`.
+# ---------------------------------------------------------------------------
+
+
+def macos_setup() -> None:
+    """Create the dedicated sandbox account (one-time, needs admin).
+
+    Idempotent: exits early if the account already exists.  Picks a free
+    UID/GID at/above SANDBOX_MIN_ID, runs the create command list, then sets
+    a random password via ``dscl . -passwd`` reading the value from stdin
+    (never an argv — it would show in ``ps``).  macOS only.
+    """
+    import getpass
+    import typer
+
+    from .console import console
+
+    if not _is_macos():
+        console.print("[bold red]yolo macos-setup requires macOS.[/bold red]")
+        raise typer.Exit(1)
+    if _sandbox_user_exists():
+        console.print(f"[green]Sandbox user '{SANDBOX_USER}' already exists.[/green]")
+        return
+
+    host_user = getpass.getuser()
+    uid = next_free_id(_taken_ids())
+    console.print(
+        f"Creating sandbox user [bold]{SANDBOX_USER}[/bold] (uid {uid}); "
+        "you may be prompted for your admin password by sudo."
+    )
+    for cmd in create_user_commands(uid, uid, host_user=host_user):
+        if subprocess.run(["sudo", *cmd]).returncode != 0:
+            console.print(f"[bold red]setup step failed:[/bold red] {' '.join(cmd)}")
+            raise typer.Exit(1)
+    # Random password, piped via stdin (openssl rand → dscl . -passwd -).
+    _set_random_password()
+    console.print(
+        f"[green]✓ Sandbox user '{SANDBOX_USER}' ready.[/green] "
+        'Run agents with `runtime: "macos-user"` (or YOLO_RUNTIME=macos-user).'
+    )
+
+
+def macos_teardown() -> None:
+    """Delete the sandbox account + home (needs admin).  macOS only."""
+    import typer
+
+    from .console import console
+
+    if not _is_macos():
+        console.print("[bold red]yolo macos-teardown requires macOS.[/bold red]")
+        raise typer.Exit(1)
+    if not _sandbox_user_exists():
+        console.print(f"Sandbox user '{SANDBOX_USER}' does not exist — nothing to do.")
+        return
+    import getpass
+
+    for cmd in delete_user_commands(host_user=getpass.getuser()):
+        subprocess.run(["sudo", *cmd])
+    console.print(f"[green]✓ Removed sandbox user '{SANDBOX_USER}'.[/green]")
+
+
+def _taken_ids() -> "set[int]":
+    """Union of existing UIDs and GIDs (for next_free_id).  macOS dscl."""
+    ids: "set[int]" = set()
+    for kind in ("Users", "Groups"):
+        key = "UniqueID" if kind == "Users" else "PrimaryGroupID"
+        try:
+            out = subprocess.run(
+                ["dscl", ".", "-list", f"/{kind}", key],
+                capture_output=True,
+                text=True,
+                timeout=10,
+            )
+        except (OSError, subprocess.SubprocessError):
+            continue
+        for line in out.stdout.splitlines():
+            parts = line.split()
+            if parts and parts[-1].lstrip("-").isdigit():
+                ids.add(int(parts[-1]))
+    return ids
+
+
+def _set_random_password(user: str = SANDBOX_USER) -> bool:
+    """Set a random password on the sandbox account (value never in argv)."""
+    try:
+        rand = subprocess.run(
+            ["openssl", "rand", "-base64", "32"], capture_output=True, timeout=5
+        )
+        if rand.returncode != 0:
+            return False
+        pw = rand.stdout.decode().strip()
+        # `dscl . -passwd /Users/<u> <newpass>` — pass via a shell that reads
+        # the value from an env var so it doesn't appear in this process's
+        # argv/ps.  sudo preserves the single var we pass.
+        proc = subprocess.run(
+            [
+                "sudo",
+                "/bin/sh",
+                "-c",
+                f'dscl . -passwd /Users/{user} "$YOLO_SBPW"',
+            ],
+            env={"YOLO_SBPW": pw, "PATH": "/usr/bin:/bin:/usr/sbin:/sbin"},
+        )
+        return proc.returncode == 0
+    except (OSError, subprocess.SubprocessError):
+        return False
