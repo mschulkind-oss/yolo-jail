@@ -117,15 +117,39 @@ A Linux builder is only needed if you:
 - Modify the flake to add packages that are not in the binary cache, **or**
 - Build with `--no-substitute` (disables cache)
 
+`yolo check` tells you when you actually need one: on the common (fully
+cached) path it stays quiet, and only when a build-from-source is required
+does it warn and point you here.
+
 > **Important:** Do NOT set `extra-platforms = aarch64-linux` in your Nix
 > config. This tells Nix to execute Linux binaries locally, which fails on
-> macOS. Instead, use a remote builder if you need one.
+> macOS. Set up a Linux builder VM (below) instead.
 
-**Option A — NixOS linux-builder (built-in)**
+**Option A — Colima (recommended)**
+
+[Colima](https://github.com/abiosoft/colima) runs a lightweight Linux VM and
+is the simplest way to get a local Linux builder on macOS:
+
+```bash
+brew install colima docker
+colima start                       # boots the Linux VM
+
+# Register the VM as a Nix Linux builder.  Colima exposes an SSH endpoint;
+# add it to /etc/nix/machines (one line):
+#   ssh://<colima-ssh-host> aarch64-linux /path/to/ssh-key 4 - - -
+# then reload the daemon (see the kickstart command in the daemon-trust
+# section above).  `colima ssh-config` prints the host/key to use.
+```
+
+After that, `nix build .#ociImage` offloads any from-source Linux
+derivation to the Colima VM automatically, and `yolo check` will show
+"Linux builder configured".
+
+**Option B — NixOS linux-builder (built-in, no extra install)**
 
 The built-in NixOS linux-builder starts a QEMU VM that acts as a remote Nix
-builder. Unlike Colima, it requires no extra installation — just Nix itself.
-However, it needs several configuration steps to work correctly.
+builder — no Colima needed, just Nix itself, at the cost of several
+configuration steps.
 
 **Step 1 — Start the builder VM** (in a dedicated terminal / tmux pane):
 
@@ -240,9 +264,10 @@ ssh nix-linux-builder echo ok
 You should see `ok` printed. If SSH asks for a password, the key wasn't copied
 correctly — revisit Step 3.
 
-**Option B — Remote Linux host**
+**Option C — Remote Linux host (advanced)**
 
-Configure a remote builder in `/etc/nix/machines`. See the
+If you already run a Linux box, configure it as a remote builder in
+`/etc/nix/machines`. See the
 [Nix manual on distributed builds](https://nix.dev/manual/nix/latest/advanced-topics/distributed-builds).
 
 ### Known Issue: Determinate Nix Daemon Hang

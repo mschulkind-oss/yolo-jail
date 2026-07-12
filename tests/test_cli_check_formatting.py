@@ -54,3 +54,152 @@ def test_split_strips_blank_continuation_lines():
 
 def test_finalize_problem_single_line():
     assert _finalize_problem(["only title"]) == ("only title", "")
+
+
+# --- nix build failure diagnosis (opaque "1 dependency failed" -> guidance) ---
+
+from src.cli.check_cmd import _diagnose_nix_build_failure  # noqa: E402
+import src.cli.check_cmd as _cc  # noqa: E402
+
+
+def test_diagnose_explicit_cross_build_leads_to_colima(monkeypatch):
+    monkeypatch.setattr(_cc, "IS_MACOS", True)
+    tail = [
+        "error: a 'aarch64-linux' with features {} is required to build "
+        "'/nix/store/x.drv', but I am a 'aarch64-darwin'"
+    ]
+    title, note = _diagnose_nix_build_failure(tail)
+    assert "Linux builder" in title
+    assert "colima" in note.lower()
+    # Remote builders are intentionally NOT the first-line remedy.
+    assert "remote" not in note.lower()
+
+
+def test_diagnose_ambiguous_mac_dependency_failure(monkeypatch):
+    monkeypatch.setattr(_cc, "IS_MACOS", True)
+    title, note = _diagnose_nix_build_failure(
+        ["error: Build failed due to failed dependency", "1 dependency failed"]
+    )
+    assert "Linux builder or a cached package" in title
+    assert "colima" in note.lower()
+    # names both causes: a package forcing a source build, and no builder
+    assert "override" in note.lower()
+
+
+def test_diagnose_unrelated_failure_falls_through(monkeypatch):
+    monkeypatch.setattr(_cc, "IS_MACOS", True)
+    title, note = _diagnose_nix_build_failure(["error: attribute 'foo' missing"])
+    assert title == "nix build failed"
+    assert "foo" in note
+
+
+def test_diagnose_non_mac_dependency_failure_is_not_builder(monkeypatch):
+    # On Linux a dependency failure isn't a "needs a builder" situation.
+    monkeypatch.setattr(_cc, "IS_MACOS", False)
+    title, _ = _diagnose_nix_build_failure(["1 dependency failed"])
+    assert title == "nix build failed"
+
+
+# --- nix --dry-run "will build?" detection ---------------------------------
+
+from pathlib import Path  # noqa: E402
+from types import SimpleNamespace  # noqa: E402
+
+
+def _fake_run(stdout="", stderr="", returncode=0):
+    return lambda *a, **k: SimpleNamespace(
+        stdout=stdout, stderr=stderr, returncode=returncode
+    )
+
+
+_DRY_BUILD = (
+    "these 2 derivations will be built:\n"
+    "  /nix/store/aaa-yolo-jail-conf.json.drv\n"
+    "  /nix/store/bbb-stream-yolo-jail.drv\n"
+    "these 40 paths will be fetched (12 MB):\n"
+    "  /nix/store/ccc-bash\n"
+)
+_DRY_FETCH = "these 40 paths will be fetched (300 MB download):\n  /nix/store/c-bash\n"
+
+
+def test_dry_run_detects_build(monkeypatch):
+    monkeypatch.setattr(_cc.subprocess, "run", _fake_run(stderr=_DRY_BUILD))
+    will, drvs = _cc._nix_dry_run_will_build(Path("/repo"), None)
+    assert will is True
+    assert "aaa-yolo-jail-conf.json.drv" in drvs
+
+
+def test_dry_run_fetch_only_is_not_build(monkeypatch):
+    monkeypatch.setattr(_cc.subprocess, "run", _fake_run(stderr=_DRY_FETCH))
+    will, drvs = _cc._nix_dry_run_will_build(Path("/repo"), None)
+    assert will is False
+    assert drvs == []
+
+
+def test_dry_run_offline_is_inconclusive(monkeypatch):
+    # Non-zero exit with a network error (no plan) -> None, never a false miss.
+    monkeypatch.setattr(
+        _cc.subprocess,
+        "run",
+        _fake_run(
+            stderr="error: unable to download 'https://cache.nixos.org'", returncode=1
+        ),
+    )
+    will, _ = _cc._nix_dry_run_will_build(Path("/repo"), None)
+    assert will is None
+
+
+def test_dry_run_subprocess_error_is_inconclusive(monkeypatch):
+    def boom(*a, **k):
+        raise OSError("nix missing")
+
+    monkeypatch.setattr(_cc.subprocess, "run", boom)
+    will, _ = _cc._nix_dry_run_will_build(Path("/repo"), None)
+    assert will is None
+
+
+def test_preflight_state_a_quiet_when_all_cached(monkeypatch):
+    monkeypatch.setattr(_cc, "_nix_dry_run_will_build", lambda *a: (False, []))
+    msgs = []
+    monkeypatch.setattr(_cc.console, "print", lambda m, *a, **k: msgs.append(str(m)))
+    warned = []
+    _cc._preflight_builder_needs(
+        Path("/repo"),
+        None,
+        ok=lambda m: None,
+        warn=lambda m, n="": warned.append(m),
+        fail=lambda m, n="": None,
+    )
+    assert warned == []  # no warning in the common case
+    assert any("binary cache" in m for m in msgs)
+
+
+def test_preflight_state_c_warns_without_builder(monkeypatch):
+    monkeypatch.setattr(
+        _cc, "_nix_dry_run_will_build", lambda *a: (True, ["yolo-jail-conf.json.drv"])
+    )
+    monkeypatch.setattr(_cc, "_has_linux_builder", lambda: False)
+    warned = []
+    _cc._preflight_builder_needs(
+        Path("/repo"),
+        None,
+        ok=lambda m: None,
+        warn=lambda m, n="": warned.append((m, n)),
+        fail=lambda m, n="": None,
+    )
+    assert warned and "no Linux builder" in warned[0][0]
+    assert "colima" in warned[0][1].lower()
+
+
+def test_preflight_state_b_pass_with_builder(monkeypatch):
+    monkeypatch.setattr(_cc, "_nix_dry_run_will_build", lambda *a: (True, ["x.drv"]))
+    monkeypatch.setattr(_cc, "_has_linux_builder", lambda: True)
+    passed = []
+    _cc._preflight_builder_needs(
+        Path("/repo"),
+        None,
+        ok=lambda m: passed.append(m),
+        warn=lambda m, n="": None,
+        fail=lambda m, n="": None,
+    )
+    assert passed and "built from source" in passed[0]

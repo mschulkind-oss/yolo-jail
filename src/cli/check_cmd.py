@@ -16,6 +16,7 @@ private helpers.
 import json
 import os
 import platform
+import re
 import shutil
 import socket
 import subprocess
@@ -494,13 +495,27 @@ def _check_host_service_liveness(ok, warn, fail) -> None:
         warn(f"could not list containers: {e}")
         return
     if result.returncode != 0:
-        # A failed `ps` must not read as "no jails running" — that would
-        # be a false pass over every per-jail probe below.
-        warn(
-            f"could not list containers: `{detected_runtime} ps` exited "
-            f"{result.returncode}",
-            (result.stderr or "").strip(),
-        )
+        stderr = (result.stderr or "").strip()
+        # Old Apple Container CLIs don't ship the `ps` plugin the newer
+        # ones do (`container-ps` not found, exit 64).  Don't dump the raw
+        # plugin-help wall of text — say plainly it's a too-old CLI and how
+        # to fix it.  A failed `ps` must not read as "no jails running"
+        # (that would false-pass every per-jail probe below).
+        if detected_runtime == "container" and (
+            "container-ps" in stderr or "plugin" in stderr.lower()
+        ):
+            warn(
+                "Apple Container CLI too old for the per-jail liveness probe",
+                "Your `container` CLI lacks the `ps` plugin this probe uses. "
+                "Upgrade it: `brew upgrade container` (then `container system "
+                "start`).  This only affects the liveness probe, not running jails.",
+            )
+        else:
+            warn(
+                f"could not list containers: `{detected_runtime} ps` exited "
+                f"{result.returncode}",
+                stderr.splitlines()[0] if stderr else "",
+            )
         return
     cnames = [c.strip() for c in result.stdout.splitlines() if c.strip()]
     if not cnames:
@@ -554,6 +569,212 @@ def _check_host_service_liveness(ok, warn, fail) -> None:
                     s.close()
                 except Exception:
                     pass
+
+
+def _diagnose_nix_build_failure(stderr_tail: List[str]) -> "tuple[str, str]":
+    """Turn opaque nix build stderr into a (title, remediation) pair.
+
+    The common macOS failure is nix trying to BUILD a Linux
+    (``aarch64-linux``) derivation from source — e.g. the flake's own
+    generated ``yolo-jail-conf.json``, which is never in the binary cache —
+    with no Linux builder available.  nix reports only ``1 dependency
+    failed`` at the top level, which tells the user nothing.  Detect the
+    "needs a Linux builder" signatures and lead them down the Colima VM
+    path (the pragmatic macОS remedy); otherwise fall back to the stderr
+    tail.  Remote builders are intentionally NOT offered here — they live
+    in docs/macos.md for the advanced case.
+    """
+    text = "\n".join(stderr_tail)
+    low = text.lower()
+
+    # nix's EXPLICIT cross-build refusal — unambiguous "needs a Linux builder".
+    explicit_cross = ("required to build" in low and "aarch64-linux" in low) or (
+        "cannot build" in low and "aarch64-linux" in low
+    )
+    # A bare "dependency failed" on macOS is the AMBIGUOUS case: either the
+    # image needs a Linux builder for a from-source drv, OR a workspace
+    # `packages` entry forces a source build (a version/url/hash override is
+    # never cacheable by construction; a bad nixpkgs pin misses the cache).
+    ambiguous_mac = IS_MACOS and "dependency failed" in low and not explicit_cross
+
+    _colima = (
+        "Set up a local Linux builder with Colima (a Linux VM):\n"
+        "    brew install colima docker && colima start\n"
+        "    # then register it as a Nix Linux builder — see "
+        "docs/macos.md > 'Linux builder'."
+    )
+    if explicit_cross:
+        return (
+            "Image build needs a Linux builder (something must be built from source)",
+            "Part of the image isn't in the binary cache and must be BUILT, "
+            "but building a Linux image on macOS needs a Linux builder.\n" + _colima,
+        )
+    if ambiguous_mac:
+        return (
+            "Image build failed — likely needs a Linux builder or a cached package",
+            "A Linux derivation had to be built from source and couldn't be. "
+            "Two common causes:\n"
+            "  1. A `packages` entry forces a source build — a "
+            "{version,url,hash} override is never cached (rebuild is "
+            "unavoidable); a {nixpkgs:<commit>} pin may miss the cache "
+            "(pin to a released revision instead).\n"
+            "  2. No Linux builder for the image's own build steps.\n" + _colima,
+        )
+    return "nix build failed", "\n".join(stderr_tail[-10:]) if stderr_tail else ""
+
+
+_WILL_BUILD_RE = re.compile(
+    r"^(this derivation|these \d+ derivations) will be built:", re.MULTILINE
+)
+
+
+def _nix_dry_run_will_build(
+    repo_root: Path, extra_packages: Optional[List[object]]
+) -> "tuple[Optional[bool], list[str]]":
+    """Return (will_build, offending_drvs) from a `nix build --dry-run`.
+
+    ``will_build`` is True when nix's plan lists derivations that will be
+    BUILT (a binary-cache miss → needs a Linux builder on macOS), False
+    when everything is substitutable, or **None** when inconclusive (offline
+    / substituter unreachable / dry-run errored) — callers must treat None
+    as "unknown", never as a miss (offline makes everything look built).
+
+    Same invocation as the real build (image.py) minus the actual build:
+    no ``--system`` (the flake already maps darwin→linux), and we parse
+    STDERR (``--json`` has no build-vs-fetch distinction).
+    """
+    env = os.environ.copy()
+    if extra_packages:
+        env["YOLO_EXTRA_PACKAGES"] = json.dumps(extra_packages)
+    try:
+        p = subprocess.run(
+            [
+                "nix",
+                "--extra-experimental-features",
+                "nix-command flakes",
+                "build",
+                ".#ociImage",
+                "--impure",
+                "--dry-run",
+            ],
+            cwd=repo_root,
+            env=env,
+            capture_output=True,
+            text=True,
+            timeout=120,
+        )
+    except (OSError, subprocess.SubprocessError):
+        return None, []
+    err = p.stderr
+    if not isinstance(err, str):
+        return None, []  # defensive: unexpected shape -> inconclusive
+    # A non-zero exit with a network/substituter error (not a plan) is
+    # inconclusive, not a miss.
+    if p.returncode != 0 and not _WILL_BUILD_RE.search(err):
+        return None, []
+    if not _WILL_BUILD_RE.search(err):
+        return False, []
+    # Collect the .drv names under the "will be built:" header so we can
+    # name the offending package(s).
+    offending: list[str] = []
+    in_build = False
+    for line in err.splitlines():
+        if _WILL_BUILD_RE.match(line):
+            in_build = True
+            continue
+        if in_build:
+            s = line.strip()
+            if s.endswith(".drv"):
+                offending.append(s.rsplit("/", 1)[-1])
+            elif not s or "will be fetched" in line:
+                in_build = False
+    return True, offending
+
+
+def _has_linux_builder() -> bool:
+    """True if a usable aarch64-linux Nix builder is reachable on this host.
+
+    Checks the ``builders`` config (inline entries and/or the
+    ``@/etc/nix/machines`` file) for an entry whose systems list contains
+    EXACT ``aarch64-linux`` with a non-zero job slot, plus Determinate
+    Nix's native-linux-builder.  Best-effort: any probe error → False.
+    """
+    # Determinate Nix native-linux-builder (no /etc/nix/machines entry).
+    try:
+        r = subprocess.run(
+            ["nix", "config", "show"], capture_output=True, text=True, timeout=10
+        )
+        cfg = r.stdout if r.returncode == 0 else ""
+    except (OSError, subprocess.SubprocessError):
+        cfg = ""
+    builder_lines: list[str] = []
+    for line in cfg.splitlines():
+        if line.startswith("builders ="):
+            spec = line.split("=", 1)[1].strip()
+            for part in spec.split(";"):
+                part = part.strip()
+                if part.startswith("@"):
+                    fp = Path(part[1:])
+                    if fp.exists():
+                        try:
+                            builder_lines.extend(fp.read_text().splitlines())
+                        except OSError:
+                            pass
+                elif part:
+                    builder_lines.append(part)
+    for entry in builder_lines:
+        entry = entry.strip()
+        if not entry or entry.startswith("#"):
+            continue
+        fields = entry.split()
+        systems = fields[1].split(",") if len(fields) > 1 else []
+        max_jobs = fields[3] if len(fields) > 3 else "1"
+        if "aarch64-linux" in systems and max_jobs != "0":
+            return True
+    return False
+
+
+def _preflight_builder_needs(
+    repo_root: Path, extra_packages: Optional[List[object]], ok, warn, fail
+) -> None:
+    """Emit the right builder message BEFORE the real build.
+
+    State A (nothing builds): quiet dim info — no builder needed.
+    State B (will build, builder present): informational PASS.
+    State C (will build, no builder): actionable WARN naming the offending
+    drv(s) + the Colima-led remedy (the real build below then fails with its
+    own diagnosis; this explains WHY without double-failing).
+    Inconclusive (offline): dim info, never a false alarm.
+    """
+    will_build, offending = _nix_dry_run_will_build(repo_root, extra_packages)
+    if will_build is None:
+        console.print(
+            "  [dim]- Could not check binary-cache coverage (nix dry-run "
+            "unavailable/offline); skipping the Linux-builder check.[/dim]"
+        )
+        return
+    if not will_build:
+        console.print(
+            "  [dim]- No Linux builder needed: every image path is served from "
+            "the binary cache (nothing is built from source).[/dim]"
+        )
+        return
+    named = f" ({', '.join(offending[:3])})" if offending else ""
+    if _has_linux_builder():
+        ok(
+            f"A package will be built from source{named}; a Linux builder will handle it"
+        )
+        return
+    warn(
+        f"A package must be built from source{named}, but no Linux builder is configured",
+        "Building a Linux image on macOS needs a Linux builder. Easiest fix:\n"
+        "  brew install colima docker && colima start\n"
+        "  # then register it as a Nix Linux builder — see "
+        "docs/macos.md > 'Linux builder'.\n"
+        "Or, if this is a custom `packages` entry: a {version,url,hash} "
+        "override is never cached (rebuild is unavoidable); a {nixpkgs:<commit>} "
+        "pin may just need a released revision that IS cached.",
+    )
 
 
 def _check_macos_user_backend(ok, warn, fail) -> None:
@@ -791,7 +1012,7 @@ def check(
                 "  macOS:  `brew install podman` then `podman machine init "
                 "&& podman machine start`,\n"
                 "          or `brew install container` then `container system start`\n"
-                "  (or use the native macOS backend: runtime \"macos-user\", "
+                '  (or use the native macOS backend: runtime "macos-user", '
                 "no container needed — see docs/macos.md)",
             )
     console.print()
@@ -875,38 +1096,30 @@ def check(
         except Exception as e:
             warn(f"Could not verify Nix daemon connectivity: {e}")
 
-        # Check for Linux builder (required for cross-building images)
+        # Linux builder: only surface the presence of one (positive) and the
+        # extra-platforms footgun here.  The "is a builder actually NEEDED?"
+        # verdict is owned by the Image Build preflight below, which knows —
+        # via a nix dry-run — whether anything will be built from source, so
+        # we don't cry wolf about a missing builder that isn't needed.
         try:
-            machines_file = Path("/etc/nix/machines")
             cfg_result = subprocess.run(
-                ["nix", "show-config"],
+                ["nix", "config", "show"],
                 capture_output=True,
                 text=True,
                 timeout=10,
             )
-            has_builder = False
             if cfg_result.returncode == 0:
                 for line in cfg_result.stdout.split("\n"):
-                    if line.startswith("builders =") and "@" in line:
-                        if machines_file.exists() and machines_file.read_text().strip():
-                            has_builder = True
                     if line.startswith("extra-platforms =") and "linux" in line:
                         warn(
-                            "extra-platforms includes linux — builds will fail locally",
-                            "Remove 'extra-platforms = aarch64-linux' from "
-                            "/etc/nix/nix.custom.conf; use a remote builder instead",
+                            "extra-platforms includes linux — local Linux builds "
+                            "will be attempted and fail",
+                            "Remove 'aarch64-linux' from extra-platforms in your "
+                            "nix config; use a Colima Linux builder instead "
+                            "(see docs/macos.md).",
                         )
-            if has_builder:
-                ok("Linux builder configured in /etc/nix/machines")
-            else:
-                # The flake fetches aarch64-linux packages from the binary
-                # cache rather than building them locally, so a Linux builder
-                # is not required in practice. Surface as info only.
-                warn(
-                    "No Linux builder configured (binary cache substitution used)",
-                    "A remote Linux builder speeds up fresh image builds. "
-                    "See docs/macos.md for optional setup with Colima or a remote host",
-                )
+            if _has_linux_builder():
+                ok("Linux builder configured")
         except Exception:
             pass
     console.print()
@@ -1531,6 +1744,15 @@ def check(
         if repo_root is None:
             fail("Skipped nix build", "repo root resolution failed")
         else:
+            # Preflight: will anything be BUILT from source (cache miss), or
+            # is the whole image substitutable?  Only a from-source build
+            # needs a Linux builder on macOS — so we stay quiet in the common
+            # (fully-cached) case and escalate only on a real miss.  Gated on
+            # --build (dry-run costs cache round-trips); INCONCLUSIVE when
+            # offline so we never cry wolf.
+            _preflight_builder_needs(
+                repo_root, _effective_packages(config) or None, ok, warn, fail
+            )
             try:
                 store_path, build_stderr_tail = _build_image_store_path(
                     repo_root,
@@ -1539,10 +1761,8 @@ def check(
                     status_message="[bold blue]Preflighting jail image...",
                 )
                 if store_path is None:
-                    fail(
-                        "nix build failed",
-                        "\n".join(build_stderr_tail[-10:]) if build_stderr_tail else "",
-                    )
+                    title, note = _diagnose_nix_build_failure(build_stderr_tail)
+                    fail(title, note)
                 else:
                     ok(f"nix build succeeded: {store_path}")
             finally:
