@@ -253,14 +253,45 @@ class TestEntrypointBootstrap:
 
 class TestOrchestratorGuards:
     def test_run_macos_user_fails_closed_off_macos(self, monkeypatch):
-        # On non-macOS the orchestrator must refuse rather than half-run.
+        # On non-macOS the orchestrator must refuse rather than half-run —
+        # and must NOT shell out to any provisioning command.
         monkeypatch.setattr(m, "_is_macos", lambda: False)
+        called = []
+        monkeypatch.setattr(
+            m.subprocess, "run", lambda *a, **k: called.append(a) or None
+        )
         rc = m.run_macos_user(
-            Path("/tmp/ws"), {}, ["claude"], ["claude"], sandbox_env={}
+            Path("/tmp/ws"),
+            {},
+            ["claude"],
+            ["claude"],
+            repo_src=Path("/opt/yolo-jail/src"),
         )
         assert rc == 1
+        assert called == []  # failed closed before any subprocess
 
     def test_session_profile_path_is_root_owned_state_dir(self):
         p = m.session_profile_path("yolo-proj-abcd1234")
         assert str(p).startswith("/var/yolo-jail/")
         assert p.name == "profile-yolo-proj-abcd1234.sb"
+
+
+class TestSandboxEnv:
+    def test_includes_git_identity_only(self, monkeypatch):
+        monkeypatch.setattr(
+            m,
+            "_git_config",
+            lambda key: {"user.name": "Ada", "user.email": "ada@x.dev"}.get(key),
+        )
+        monkeypatch.setenv("TERM", "xterm-kitty")
+        env = m.macos_sandbox_env({})
+        assert env["YOLO_GIT_NAME"] == "Ada"
+        assert env["YOLO_GIT_EMAIL"] == "ada@x.dev"
+        assert env["TERM"] == "xterm-kitty"
+
+    def test_omits_missing_identity(self, monkeypatch):
+        monkeypatch.setattr(m, "_git_config", lambda key: None)
+        monkeypatch.delenv("TERM", raising=False)
+        monkeypatch.delenv("COLORTERM", raising=False)
+        # No host creds, no git identity, no TERM → empty (nothing leaks in).
+        assert m.macos_sandbox_env({}) == {}

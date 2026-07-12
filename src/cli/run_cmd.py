@@ -1107,6 +1107,27 @@ def run(
         _inject_agent_yolo_flags(full_command)
         target_cmd = shlex.join(full_command)
 
+    # Native macOS-user backend: no container argv, image, or mounts —
+    # isolate in a dedicated macOS user + Seatbelt instead.  Dispatch here,
+    # after config validation + agent selection + YOLO-flag injection (all
+    # backend-agnostic), and BEFORE any container machinery.  See
+    # src/cli/macos_user.py and docs/macos-native-user-sandbox-design.md.
+    if runtime == "macos-user":
+        from .macos_user import run_macos_user
+
+        # Default to an interactive shell when no command is given, matching
+        # the container path's ``target_cmd = "bash"``.
+        agent_argv = full_command or ["/bin/zsh", "-l"]
+        sys.exit(
+            run_macos_user(
+                workspace,
+                config,
+                agents,
+                agent_argv,
+                repo_src=repo_root / "src",
+            )
+        )
+
     # Collect identity env vars early — needed for both exec and run paths
     identity_env = []
     try:

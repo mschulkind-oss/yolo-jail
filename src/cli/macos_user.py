@@ -20,6 +20,7 @@ guarded to macOS.  This mirrors how ``run_cmd.py`` builds the podman argv
 as data before executing it.
 """
 
+import os
 import shutil
 import subprocess
 import sys
@@ -409,27 +410,58 @@ def _is_macos() -> bool:
     return sys.platform == "darwin"
 
 
+def macos_sandbox_env(config: Dict[str, Any]) -> Dict[str, str]:
+    """Extra env layered into the sandbox launch (git identity, TERM).
+
+    Host credentials never cross: only the git/jj identity (safe, and what
+    the container backend also injects) and TERM/COLORTERM for a working
+    REPL.  Provider API keys, if the user wants them, come from the config's
+    ``env_sources`` — resolved by the caller and merged in — not from the
+    host environment wholesale.
+    """
+    env: Dict[str, str] = {}
+    term = os.environ.get("TERM")
+    if term:
+        env["TERM"] = term
+    colorterm = os.environ.get("COLORTERM")
+    if colorterm:
+        env["COLORTERM"] = colorterm
+    for var, key in (("YOLO_GIT_NAME", "user.name"), ("YOLO_GIT_EMAIL", "user.email")):
+        val = _git_config(key)
+        if val:
+            env[var] = val
+    return env
+
+
 def run_macos_user(
     workspace: Path,
     config: Dict[str, Any],
     agents: List[str],
     agent_argv: List[str],
+    *,
+    repo_src: Path,
     sandbox_env: Optional[Dict[str, str]] = None,
 ) -> int:
     """Launch ``agent_argv`` in the dedicated-user + Seatbelt sandbox.
 
-    Guarded to macOS (the builders above are cross-platform and tested on
-    Linux, but the account/ACL/sandbox-exec machinery is Darwin-only).
-    Assumes the sandbox account + workspace ACL are already provisioned
-    (via the setup path); a missing account produces a clear, actionable
-    error rather than a partial run.
+    Steps (all macOS-only; the builders they call are Linux-tested):
 
-    NOTE: the full end-to-end wiring (writing the profile to the root-owned
-    STATE_DIR, running the entrypoint bootstrap as the sandbox user, and
-    the TTY-proxied launch) is completed on a real Mac — see the handoff in
-    docs/.  This function fails closed off-macOS and when unprovisioned.
+      1. Preconditions: macOS, ``sandbox-exec`` present, sandbox account
+         provisioned.  Fail closed with an actionable message otherwise.
+      2. Write the per-session Seatbelt profile to the root-owned STATE_DIR
+         (``sudo tee`` + ``chmod 0444`` — the sandbox user can't edit its own
+         profile).
+      3. Apply the inheriting workspace ACL so the sandbox user shares the
+         repo rw on the same inodes.
+      4. Run the entrypoint bootstrap AS the sandbox user to populate its
+         home with shims + per-agent configs natively.
+      5. Launch the agent under ``run_with_proxy`` via
+         ``sudo -u … env -i … sandbox-exec -f profile -- <agent>``.
+
+    Returns the agent's exit code (or 1 on a precondition/setup failure).
     """
     from .console import console
+    from .tty_proxy import run_with_proxy
 
     if not _is_macos():
         console.print(
@@ -437,34 +469,100 @@ def run_macos_user(
             "Use 'podman' or 'container' on this host."
         )
         return 1
-
     if shutil.which("sandbox-exec") is None:
         console.print(
             "[bold red]sandbox-exec not found[/bold red] — the macos-user "
             "backend needs Apple Seatbelt (built into macOS)."
         )
         return 1
-
     if not _sandbox_user_exists():
         console.print(
             f"[bold red]Sandbox user '{SANDBOX_USER}' does not exist.[/bold red]\n"
-            "Run the one-time setup to create it (see "
+            "Run the one-time setup to create it (`yolo macos-setup`; see "
             "`docs/macos-native-user-sandbox-design.md`)."
         )
         return 1
 
-    profile_path = session_profile_path(_cname(workspace))
-    profile_text = seatbelt_profile(workspace, SANDBOX_HOME)
-    # The remaining steps (root-owned profile write, ACL apply, entrypoint
-    # bootstrap as the sandbox user, run_with_proxy launch) are finished on
-    # a real Mac — this build ships the tested builders + guarded wiring.
-    _ = (profile_path, profile_text, sandbox_env, agent_argv, agents, config)
-    console.print(
-        "[yellow]macos-user backend: builders are ready but the on-Mac "
-        "orchestration is pending a real-macOS bring-up — see the handoff "
-        "doc.[/yellow]"
+    cname = _cname(workspace)
+    profile_path = session_profile_path(cname)
+
+    # 2. Install the root-owned Seatbelt profile (0444).
+    if not _install_root_file(profile_path, seatbelt_profile(workspace, SANDBOX_HOME)):
+        console.print(f"[bold red]Could not write Seatbelt profile {profile_path}")
+        return 1
+
+    # 3. Share the workspace via the inheriting ACL.
+    acl_script = workspace_acl_apply_script(workspace)
+    if subprocess.run(["bash", "-c", acl_script]).returncode != 0:
+        console.print(
+            "[yellow]workspace ACL grant reported an error — the sandbox "
+            "user may not have full rw. Try `yolo macos-fix-permissions`.[/yellow]"
+        )
+
+    # 4. Bootstrap the sandbox user's home (shims + agent configs), natively.
+    boot = entrypoint_bootstrap_script(
+        repo_src, workspace=workspace, sandbox_home=SANDBOX_HOME, agents=agents
     )
-    return 1
+    boot_path = STATE_DIR / f"bootstrap-{cname}.py"
+    if not _install_root_file(boot_path, boot, mode="0444"):
+        console.print(f"[bold red]Could not write bootstrap {boot_path}")
+        return 1
+    boot_rc = subprocess.run(
+        [
+            "sudo",
+            "--login",
+            f"--user={SANDBOX_USER}",
+            "/usr/bin/python3",
+            str(boot_path),
+        ]
+    ).returncode
+    if boot_rc != 0:
+        console.print(
+            "[yellow]entrypoint bootstrap returned non-zero — agent configs "
+            "may be incomplete; continuing.[/yellow]"
+        )
+
+    # 5. Launch under the TTY proxy.
+    env = macos_sandbox_env(config)
+    if sandbox_env:
+        env.update(sandbox_env)
+    argv = launch_argv(agent_argv, profile_path=profile_path, sandbox_env=env)
+    return run_with_proxy(argv)
+
+
+def _install_root_file(path: Path, content: str, mode: str = "0444") -> bool:
+    """Write ``content`` to a root-owned file at ``path`` (mode ``0444``).
+
+    Uses ``sudo mkdir -p`` + ``sudo tee`` + ``sudo chmod`` so the file is
+    owned by root and unwritable by the sandbox user — the sandbox must not
+    be able to edit its own Seatbelt profile or bootstrap script.
+    """
+    try:
+        if subprocess.run(["sudo", "mkdir", "-p", str(path.parent)]).returncode != 0:
+            return False
+        proc = subprocess.run(
+            ["sudo", "tee", str(path)],
+            input=content.encode(),
+            stdout=subprocess.DEVNULL,
+        )
+        if proc.returncode != 0:
+            return False
+        return subprocess.run(["sudo", "chmod", mode, str(path)]).returncode == 0
+    except (OSError, subprocess.SubprocessError):
+        return False
+
+
+def _git_config(key: str) -> Optional[str]:
+    """Read a host git config value (best-effort; None if unset)."""
+    try:
+        out = subprocess.run(
+            ["git", "config", "--get", key], capture_output=True, timeout=5
+        )
+        if out.returncode == 0:
+            return out.stdout.decode().strip() or None
+    except (OSError, subprocess.SubprocessError):
+        pass
+    return None
 
 
 def _sandbox_user_exists(user: str = SANDBOX_USER) -> bool:
