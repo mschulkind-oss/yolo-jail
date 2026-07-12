@@ -276,6 +276,47 @@ class TestOrchestratorGuards:
         assert p.name == "profile-yolo-proj-abcd1234.sb"
 
 
+class TestMacosLogHelper:
+    def test_off_mode_is_a_disabled_stub(self):
+        s = m.macos_log_wrapper_script("off")
+        assert "disabled" in s
+        assert "exit 1" in s
+        assert "/usr/bin/log" not in s  # off must not exec log
+
+    def test_full_mode_passes_through(self):
+        s = m.macos_log_wrapper_script("full")
+        assert 'exec /usr/bin/log "$@"' in s
+
+    def test_user_mode_defaults_to_show(self):
+        s = m.macos_log_wrapper_script("user")
+        assert "/usr/bin/log show" in s
+        assert "stream" in s  # still allows explicit stream
+
+    def test_unknown_mode_falls_back_to_off(self):
+        assert m.macos_log_wrapper_script("bogus") == m.macos_log_wrapper_script("off")
+
+    def test_bootstrap_installs_yolo_log(self):
+        s = m.entrypoint_bootstrap_script(
+            Path("/opt/yolo-jail/src"),
+            workspace=Path("/Users/Shared/proj"),
+            sandbox_home=m.SANDBOX_HOME,
+            agents=["claude"],
+            macos_log="user",
+        )
+        assert "yolo-log" in s
+        assert "/usr/bin/log show" in s  # the user-mode helper body is embedded
+
+
+class TestBrokerSocketGrant:
+    def test_grants_group_access_to_socket_and_parent(self):
+        cmds = m.broker_socket_grant_commands(Path("/tmp/yolo-broker/broker.sock"))
+        assert ["chgrp", "_yolojail", "/tmp/yolo-broker/broker.sock"] in cmds
+        assert ["chmod", "0660", "/tmp/yolo-broker/broker.sock"] in cmds
+        # parent dir group-scoped (not world) so only the sandbox group connects
+        assert ["chgrp", "_yolojail", "/tmp/yolo-broker"] in cmds
+        assert ["chmod", "0750", "/tmp/yolo-broker"] in cmds
+
+
 class TestSandboxEnv:
     def test_includes_git_identity_only(self, monkeypatch):
         monkeypatch.setattr(

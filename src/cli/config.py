@@ -96,6 +96,7 @@ KNOWN_TOP_LEVEL_CONFIG_KEYS = {
     "loopholes",
     "host_processes",
     "journal",
+    "macos_log",
     "kvm",
     "prune",
     "ephemeral_storage",
@@ -103,6 +104,12 @@ KNOWN_TOP_LEVEL_CONFIG_KEYS = {
     "agents_md_extra",
 }
 JOURNAL_MODES = ("off", "user", "full")
+# macOS-user backend: the `macos_log` config gates the in-sandbox
+# `yolo-log` wrapper over Apple's unified logging.  Mirrors JOURNAL_MODES;
+# the authoritative tuple lives in cli.macos_user.MACOS_LOG_MODES and is
+# re-declared here to keep config.py import-light (no cross-import needed
+# for a 3-value literal).
+MACOS_LOG_MODES = ("off", "user", "full")
 EPHEMERAL_STORAGE_MODES = ("volume", "tmpfs")
 KNOWN_NETWORK_KEYS = {"mode", "ports", "forward_host_ports"}
 KNOWN_SECURITY_KEYS = {"blocked_tools"}
@@ -921,6 +928,17 @@ def _validate_config(
                 f"config.journal: expected one of {list(JOURNAL_MODES)} "
                 f"or a boolean (got {journal!r})"
             )
+
+    # macos_log — the macOS-user backend's analog of `journal`: gates the
+    # in-sandbox `yolo-log` wrapper over Apple's unified logging (`log`).
+    macos_log = config.get("macos_log")
+    if macos_log is not None and (
+        not isinstance(macos_log, str) or macos_log not in MACOS_LOG_MODES
+    ):
+        errors.append(
+            f"config.macos_log: expected one of {list(MACOS_LOG_MODES)} "
+            f"(got {macos_log!r})"
+        )
 
     kvm = config.get("kvm")
     if kvm is not None and not isinstance(kvm, bool):

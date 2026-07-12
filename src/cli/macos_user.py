@@ -318,6 +318,7 @@ def entrypoint_bootstrap_script(
     workspace: Path,
     sandbox_home: Path,
     agents: List[str],
+    macos_log: str = "off",
 ) -> str:
     """A Python script the sandbox user runs to generate its jail config.
 
@@ -335,15 +336,19 @@ def entrypoint_bootstrap_script(
 
     Returned as text (not executed) so it is unit-testable and can be
     written to the root-owned STATE_DIR before the sandbox user runs it.
+    ``macos_log`` gates the in-sandbox ``yolo-log`` helper (off/user/full).
     """
     import json
 
+    log_helper = macos_log_wrapper_script(macos_log)
     return f"""\
 #!/usr/bin/env python3
 # yolo-jail macOS-user entrypoint bootstrap (generated).  Runs AS the
 # sandbox user to populate its home with shims + agent configs natively.
 import os
+import stat
 import sys
+from pathlib import Path
 
 sys.path.insert(0, {str(repo_src)!r})
 os.environ["YOLO_AGENTS"] = {json.dumps(json.dumps(agents))}
@@ -355,9 +360,9 @@ import entrypoint
 # real host $HOME is the sandbox user's home; there is no /mise store and
 # no /workspace mount, so point everything at the sandbox home + the real
 # workspace path.
-home = {str(sandbox_home)!r}
-entrypoint.HOME = __import__("pathlib").Path(home)
-entrypoint.WORKSPACE = __import__("pathlib").Path({str(workspace)!r})
+home = Path({str(sandbox_home)!r})
+entrypoint.HOME = home
+entrypoint.WORKSPACE = Path({str(workspace)!r})
 
 # Generate the same config the container entrypoint does.  The Linux-only
 # boot steps the container entrypoint also runs are intentionally NOT
@@ -377,8 +382,106 @@ for _name in entrypoint._load_agents():
     _writer = CONFIG_WRITERS.get(_name) if _spec is not None else None
     if _writer is not None:
         _writer()
+
+# Install the macOS unified-logging helper (yolo-log) — the native analog
+# of the Linux jail's yolo-journalctl bridge, gated by `macos_log`.
+_bin = home / ".local" / "bin"
+_bin.mkdir(parents=True, exist_ok=True)
+_ylog = _bin / "yolo-log"
+_ylog.write_text({json.dumps(log_helper)})
+_ylog.chmod(_ylog.stat().st_mode | stat.S_IEXEC)
+
 print("yolo-jail macos-user bootstrap ok")
 """
+
+
+# ---------------------------------------------------------------------------
+# Loopholes on the native backend
+# ---------------------------------------------------------------------------
+# The container backend bridges a few host capabilities INTO the jail over
+# Unix sockets (loopholes).  On the native backend the sandbox is just
+# another local user on the same box, so most of that plumbing collapses:
+#
+#   * claude-oauth-broker: no socket relay / bind mount.  The broker's
+#     singleton Unix socket is already local; we just have to let uid 449
+#     connect.  ``broker_socket_grant_commands`` builds the chmod/ACL for
+#     that (SO_PEERCRED/getpeereid then attests a REAL macOS uid — a
+#     stronger identity signal than a mapped container uid).
+#   * host-processes / cgroup-delegate / journal bridge: dropped — a native
+#     macOS user can already see host processes it's entitled to and has no
+#     cgroup analog.  The Linux "journal" loophole's ANALOG is the unified
+#     logging system (`log show`/`log stream`), replicated below as an
+#     opt-in ``yolo-log`` helper with the same config-gated ergonomics.
+
+# Config values for the macOS log helper, mirroring `journal`'s modes:
+#   "off"       — no helper (default)
+#   "user"      — helper scoped to the current process subsystem/predicate
+#   "full"      — helper passes args straight through to `log`
+MACOS_LOG_MODES = ("off", "user", "full")
+
+
+def broker_socket_grant_commands(
+    socket_path: Path, *, group: str = SANDBOX_GROUP
+) -> List[List[str]]:
+    """chmod/chgrp argv letting the sandbox group reach the broker socket.
+
+    The claude-oauth-broker's singleton socket lives on the host fs; the
+    sandbox user connects to it directly (no relay).  Grant the shared
+    group rw on the socket + its parent dir so uid 449 can connect while
+    other local users can't (the dir stays group-scoped, not world).
+    """
+    parent = socket_path.parent
+    return [
+        ["chgrp", group, str(parent)],
+        ["chmod", "0750", str(parent)],
+        ["chgrp", group, str(socket_path)],
+        ["chmod", "0660", str(socket_path)],
+    ]
+
+
+def macos_log_wrapper_script(mode: str) -> str:
+    """A ``yolo-log`` helper wrapping Apple's unified logging (`log`).
+
+    The macOS analog of the Linux jail's ``yolo-journalctl`` journal
+    bridge — but no socket bridge is needed (the sandbox user is local), so
+    this just wraps ``/usr/bin/log`` with the same opt-in, config-gated
+    ergonomics:
+
+      * ``mode == "off"``  — a stub that explains how to enable it and exits 1.
+      * ``mode == "user"`` — defaults to ``log show`` for recent messages;
+        the user can still pass ``stream``/``show`` + predicates.
+      * ``mode == "full"`` — passes all args straight through to ``log``.
+
+    Returned as text so it's unit-testable and installed into the sandbox
+    user's ``~/.local/bin/yolo-log`` by the entrypoint bootstrap.
+    """
+    if mode not in MACOS_LOG_MODES:
+        mode = "off"
+    if mode == "off":
+        body = (
+            'echo "yolo-log: macOS log access is disabled." >&2\n'
+            'echo "  Enable it by setting \\"macos_log\\": \\"user\\" (or '
+            '\\"full\\") in yolo-jail.jsonc, then restart." >&2\n'
+            "exit 1\n"
+        )
+    elif mode == "full":
+        # Unrestricted passthrough to `log`.
+        body = 'exec /usr/bin/log "$@"\n'
+    else:  # "user"
+        # Default to a recent `show` when no subcommand is given; otherwise
+        # pass through (so `yolo-log stream --predicate …` works).
+        body = (
+            'if [ "$#" -eq 0 ]; then\n'
+            "  exec /usr/bin/log show --last 5m --style compact\n"
+            "fi\n"
+            'case "$1" in\n'
+            "  show|stream|collect|config|help)\n"
+            '    exec /usr/bin/log "$@" ;;\n'
+            "  *)\n"
+            '    exec /usr/bin/log show "$@" ;;\n'
+            "esac\n"
+        )
+    return "#!/bin/bash\nset -euo pipefail\n" + body
 
 
 # ---------------------------------------------------------------------------
@@ -501,7 +604,11 @@ def run_macos_user(
 
     # 4. Bootstrap the sandbox user's home (shims + agent configs), natively.
     boot = entrypoint_bootstrap_script(
-        repo_src, workspace=workspace, sandbox_home=SANDBOX_HOME, agents=agents
+        repo_src,
+        workspace=workspace,
+        sandbox_home=SANDBOX_HOME,
+        agents=agents,
+        macos_log=str(config.get("macos_log", "off")),
     )
     boot_path = STATE_DIR / f"bootstrap-{cname}.py"
     if not _install_root_file(boot_path, boot, mode="0444"):
