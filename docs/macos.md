@@ -7,14 +7,37 @@ experience is nearly identical to a native Linux host.
 
 ## Runtimes
 
-macOS supports two container runtimes:
+macOS supports two container runtimes plus a native (non-container) backend:
 
 | Runtime | Backend | Best For |
 |---------|---------|----------|
 | **Podman** | Podman Machine (Apple HV) | Desktop Macs, Podman-in-Podman |
 | **Apple Container** | Virtualization.framework | Native macOS, per-container resource limits |
+| **macos-user** | Dedicated macOS user + Seatbelt (no VM) | Fast native arm64; trusted-but-autonomous agents |
 
-Set the runtime with `YOLO_RUNTIME=podman` or `container`.
+Set the runtime with `YOLO_RUNTIME=podman`, `container`, or `macos-user`
+(or the `runtime` key in `yolo-jail.jsonc`).
+
+### `macos-user` — the native backend (opt-in)
+
+Instead of a Linux container, `macos-user` runs the agent as arm64-native
+macOS binaries in a dedicated hidden, unprivileged macOS user account
+hardened with an Apple Seatbelt (`sandbox-exec`) profile — no VM, no arch
+switch. It matches the security model of
+[SandVault](https://github.com/webcoyote/sandvault): host credentials are
+kept out (separate UID = separate login keychain + TCC db, plus profile
+denies on `/Library/Keychains` and other users' homes), the workspace is
+shared live via an inheriting ACL, and writes are denied everywhere but the
+workspace + sandbox home + scratch.
+
+It is a **weaker boundary than the container** (shared kernel, deprecated
+`sandbox-exec`, no resource caps) and is therefore **explicit opt-in only —
+never auto-detected**. Prefer the container for adversarial or
+exfil-sensitive work. Full rationale, the honest security delta, and the
+one-time account setup are in
+[docs/macos-native-user-sandbox-design.md](macos-native-user-sandbox-design.md).
+Enable the in-sandbox `yolo-log` helper (Apple unified logging) with the
+`macos_log` config (`off`/`user`/`full`).
 
 Auto-detection priority:
 - **macOS:** Apple Container → Podman (native-first)

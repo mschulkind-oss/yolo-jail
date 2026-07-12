@@ -556,6 +556,45 @@ def _check_host_service_liveness(ok, warn, fail) -> None:
                     pass
 
 
+def _check_macos_user_backend(ok, warn, fail) -> None:
+    """Probe readiness of the native macos-user backend.
+
+    Reports the OS, Apple Seatbelt (``sandbox-exec``), and whether the
+    dedicated sandbox account is provisioned — with actionable fixes.
+    Never runs inside a jail (host-side state).  Uses the same builders +
+    detectors the backend itself uses so the check and the run agree.
+    """
+    from .macos_user import SANDBOX_USER, _sandbox_user_exists
+    from .paths import IS_MACOS
+
+    console.print("[bold]macOS-user backend[/bold]")
+    if os.environ.get("YOLO_VERSION") is not None:
+        ok("Inside jail — macos-user checks skipped (host-side backend)")
+        return
+    if not IS_MACOS:
+        fail(
+            "runtime 'macos-user' requires macOS",
+            "It isolates via a dedicated macOS user account; use 'podman' "
+            "or 'container' on this host.",
+        )
+        return
+    if shutil.which("sandbox-exec"):
+        ok("Apple Seatbelt (sandbox-exec) available")
+    else:
+        fail(
+            "sandbox-exec not found",
+            "Seatbelt ships with macOS; a missing binary means an unusual PATH.",
+        )
+    if _sandbox_user_exists():
+        ok(f"Sandbox user '{SANDBOX_USER}' exists")
+    else:
+        warn(
+            f"Sandbox user '{SANDBOX_USER}' not provisioned",
+            "Run the one-time setup to create it (see "
+            "docs/macos-native-user-sandbox-design.md).",
+        )
+
+
 def _check_podman_machine_resources(workspace, *, ok, warn) -> None:
     """Surface Podman Machine VM memory in `yolo check` output and warn if
     it's below a sensible floor or below the workspace's
@@ -1072,6 +1111,15 @@ def check(
     except (ConfigError, SystemExit) as e:
         fail("Entrypoint preflight failed", str(e))
     console.print()
+
+    # --- macOS-user backend readiness ---
+    #
+    # Only when the native backend is the resolved runtime.  It needs macOS,
+    # Apple Seatbelt, and a provisioned sandbox account — probe each and give
+    # actionable fixes.  Host-side only (never meaningful inside a jail).
+    if runtime == "macos-user":
+        _check_macos_user_backend(ok, warn, fail)
+        console.print()
 
     # --- GPU Checks ---
 

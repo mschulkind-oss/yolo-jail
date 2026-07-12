@@ -31,10 +31,23 @@ def config_ref():
 
 [bold cyan]FIELDS[/bold cyan]
 
-  [bold]runtime[/bold] (string): Container runtime.
-    Values: "podman" or "container"
+  [bold]runtime[/bold] (string): Isolation backend.
+    Values: "podman", "container", or "macos-user".
     Override: YOLO_RUNTIME env var takes priority.
     Auto-detect: macOS prefers "container" then "podman"; Linux uses "podman".
+    "macos-user" (macOS only, EXPLICIT opt-in — never auto-detected) runs the
+    agent natively in a dedicated macOS user account + Apple Seatbelt instead
+    of a Linux container (no VM, no arch switch).  It is a WEAKER boundary than
+    the container (shared kernel, no resource caps) — see
+    docs/macos-native-user-sandbox-design.md.  Prefer the container for
+    adversarial/exfil-sensitive work.
+
+  [bold]macos_log[/bold] (string, default "off"): macOS-user backend only.
+    Gates the in-sandbox [bold]yolo-log[/bold] helper, the macOS analog of the Linux
+    jail's [cyan]yolo-journalctl[/cyan] — it wraps Apple's unified logging ([cyan]log[/cyan]).
+      • "off"  (default) — no helper
+      • "user" — [cyan]yolo-log[/cyan] defaults to `log show` (pass show/stream + predicates)
+      • "full" — args pass straight through to [cyan]log[/cyan]
 
   [bold]agents[/bold] (array of strings): Which coding agents to install in the jail.
     Only the listed agents are installed and configured — a lean jail with
