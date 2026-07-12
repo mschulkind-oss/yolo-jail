@@ -263,34 +263,72 @@ def seatbelt_profile(workspace: Path, sandbox_home: Path = SANDBOX_HOME) -> str:
 # ---------------------------------------------------------------------------
 
 
+def sandbox_path(home: Path = SANDBOX_HOME) -> str:
+    """PATH for the sandboxed agent — its own bin dirs first, then system.
+
+    Mirrors the jail's PATH ordering (shims → .local/bin → npm-global →
+    mise shims → system) so the entrypoint-generated agent launchers
+    (``~/.yolo-shims/claude`` etc.) and mise-managed tools are found, then
+    system binaries.  Without this the scrubbed ``env -i`` PATH wouldn't
+    include the agent binaries at all.
+    """
+    h = str(home)
+    return ":".join(
+        [
+            f"{h}/.yolo-shims",
+            f"{h}/.local/bin",
+            f"{h}/.npm-global/bin",
+            f"{h}/.local/share/mise/shims",
+            f"{h}/go/bin",
+            "/usr/bin",
+            "/bin",
+            "/usr/sbin",
+            "/sbin",
+        ]
+    )
+
+
 def launch_argv(
     agent_argv: List[str],
     *,
     profile_path: Path,
     sandbox_env: Dict[str, str],
+    workspace: Path,
     user: str = SANDBOX_USER,
     home: Path = SANDBOX_HOME,
 ) -> List[str]:
     """Build the ``sudo -u … env -i … sandbox-exec -f … -- <agent>`` argv.
+
+    Workspace-centric, matching the container backend's semantics: the
+    agent starts **cd'd into the workspace** (``sudo --login`` would
+    otherwise drop it in the sandbox home), and PATH leads with the sandbox
+    user's own bin dirs so the entrypoint-generated agent launchers are
+    found.
 
     ``env -i`` is load-bearing: without a scrubbed env, HOME still resolves
     to the *admin* home and the agent reads the host user's
     ``~/.gitconfig``/``~/.ssh`` — the #1 documented footgun.  ``sudo -u``
     (not ``launchctl asuser``) preserves the controlling TTY so the agent
     REPL works interactively.  ``sandbox_env`` is layered after the fixed
-    HOME/USER/SHELL/PATH so a caller can inject e.g. git identity or a
-    provider API key, but can't accidentally drop HOME.
+    identity vars; the HOME/USER/SHELL/PATH quartet is not caller-overridable
+    (a caller could otherwise drop HOME or shadow the agent PATH).
     """
+    protected = ("HOME", "USER", "SHELL", "PATH")
     env_pairs: List[str] = [
         f"HOME={home}",
         f"USER={user}",
         "SHELL=/bin/zsh",
-        "PATH=/usr/bin:/bin:/usr/sbin:/sbin",
+        f"PATH={sandbox_path(home)}",
     ]
     for k, v in sandbox_env.items():
-        if k in ("HOME", "USER", "SHELL"):
-            continue  # never let a caller override the identity trio
+        if k in protected:
+            continue  # never let a caller override the identity/PATH quartet
         env_pairs.append(f"{k}={v}")
+    # Run the agent from the workspace.  A login zsh `cd`s in, then execs the
+    # agent so it inherits the TTY and PID (no wrapper process lingering).
+    inner = f"cd {_sh_quote(str(workspace))} && exec " + " ".join(
+        _sh_quote(a) for a in agent_argv
+    )
     return [
         "sudo",
         "--login",
@@ -303,7 +341,9 @@ def launch_argv(
         "-f",
         str(profile_path),
         "--",
-        *agent_argv,
+        "/bin/zsh",
+        "-c",
+        inner,
     ]
 
 
@@ -633,7 +673,12 @@ def run_macos_user(
     env = macos_sandbox_env(config)
     if sandbox_env:
         env.update(sandbox_env)
-    argv = launch_argv(agent_argv, profile_path=profile_path, sandbox_env=env)
+    argv = launch_argv(
+        agent_argv,
+        profile_path=profile_path,
+        sandbox_env=env,
+        workspace=workspace,
+    )
     return run_with_proxy(argv)
 
 

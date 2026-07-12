@@ -85,6 +85,7 @@ class TestLaunchArgv:
     def _argv(self, **kw):
         kw.setdefault("profile_path", Path("/var/yolo-jail/p.sb"))
         kw.setdefault("sandbox_env", {})
+        kw.setdefault("workspace", Path("/Users/Shared/proj"))
         return m.launch_argv(["claude", "--dangerously-skip-permissions"], **kw)
 
     def test_runs_as_sandbox_user_via_sudo(self):
@@ -102,22 +103,48 @@ class TestLaunchArgv:
         # user's ~/.gitconfig / ~/.ssh.
         assert "HOME=/Users/_yolojail" in self._argv()
 
-    def test_identity_trio_not_overridable_by_caller(self):
+    def test_path_leads_with_sandbox_bin_dirs(self):
+        # The scrubbed env must still find the agent launchers + mise tools.
+        argv = self._argv()
+        path = next(a for a in argv if a.startswith("PATH="))
+        assert path.startswith("PATH=/Users/_yolojail/.yolo-shims:")
+        assert "/Users/_yolojail/.npm-global/bin" in path
+
+    def test_identity_and_path_not_overridable_by_caller(self):
         argv = self._argv(
-            sandbox_env={"HOME": "/evil", "USER": "root", "SHELL": "/x", "OK": "1"}
+            sandbox_env={
+                "HOME": "/evil",
+                "USER": "root",
+                "SHELL": "/x",
+                "PATH": "/evil/bin",
+                "OK": "1",
+            }
         )
         assert "HOME=/evil" not in argv
         assert "USER=root" not in argv
+        assert "PATH=/evil/bin" not in argv
         assert "HOME=/Users/_yolojail" in argv
-        assert "OK=1" in argv  # non-identity extra env is passed through
+        assert "OK=1" in argv  # non-protected extra env is passed through
+
+    def test_workspace_centric_cd(self):
+        # Workspace-centric: the agent starts cd'd into the workspace, not
+        # the sandbox home (which --login would otherwise impose).
+        argv = self._argv(workspace=Path("/Users/Shared/proj"))
+        inner = argv[-1]
+        assert argv[-3:-1] == ["/bin/zsh", "-c"]
+        assert inner.startswith("cd '/Users/Shared/proj' && exec ")
+        # agent args are individually shell-quoted after `exec`
+        assert "'claude' '--dangerously-skip-permissions'" in inner
 
     def test_wraps_agent_in_sandbox_exec(self):
         argv = self._argv()
         assert "/usr/bin/sandbox-exec" in argv
         assert "-f" in argv
         assert str(Path("/var/yolo-jail/p.sb")) in argv
-        # agent argv comes last, after the -- separator
-        assert argv[-3:] == ["--", "claude", "--dangerously-skip-permissions"]
+        # sandbox-exec runs zsh -c "<cd ws && exec agent>"
+        i = argv.index("/usr/bin/sandbox-exec")
+        assert argv[i + 1] == "-f"
+        assert "--" in argv[i:]
 
 
 class TestUserProvisioning:

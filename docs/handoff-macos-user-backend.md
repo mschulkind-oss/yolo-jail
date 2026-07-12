@@ -83,6 +83,13 @@ anything that differs from real macOS behavior:
 7. **Broker loophole.** If using Claude via the OAuth broker, run
    `broker_socket_grant_commands(<singleton socket>)` and confirm uid 449
    connects and `getpeereid` attests the real uid.
+8. **Workspace location edge case.** The profile always re-allows the actual
+   workspace path for read+write, but a workspace on a **non-boot `/Volumes`
+   mount** collides with the `/Volumes` read-deny (the re-allow for the
+   workspace comes after, so last-match-wins should cover it — verify on
+   hardware). SandVault sidesteps this by forcing the shared dir under
+   `/Users/Shared`; if `/Volumes` workspaces misbehave, consider the same.
+   Workspaces under `/Users/...` and typical dev paths are fine.
 
 ## How to run it
 
