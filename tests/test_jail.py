@@ -625,7 +625,11 @@ print('sequential-thinking' in gemini['mcpServers'])
 PY""",
     )
     assert result.returncode == 0, result.stderr
-    assert result.stdout.strip().splitlines() == ["True", "True", "True", "True"]
+    # The four probe lines are the payload; ignore any leading CLI notices
+    # (e.g. an env_sources "file not found" warning from the host user
+    # config) that print to stdout ahead of the script output.
+    payload = [ln for ln in result.stdout.splitlines() if ln in ("True", "False")]
+    assert payload == ["True", "True", "True", "True"]
 
 
 def test_same_file_mcp_preset_and_null_override_is_rejected(temp_project):
