@@ -1131,39 +1131,24 @@ def check(
         console.print("[bold]macOS Platform[/bold]")
         ok(f"Architecture: {platform.machine()}")
 
-        # Container VM backend check
-        for vm_backend in ("colima", "podman"):
-            vm_path = shutil.which(vm_backend)
-            if vm_path:
-                try:
-                    if vm_backend == "colima":
-                        result = subprocess.run(
-                            ["colima", "status"],
-                            capture_output=True,
-                            text=True,
-                            timeout=5,
-                        )
-                        if result.returncode == 0:
-                            ok("Colima: running")
-                        else:
-                            warn(
-                                "Colima installed but not running",
-                                "Start with: colima start --arch aarch64 --cpu 4 --memory 8",
-                            )
-                    else:
-                        result = subprocess.run(
-                            ["podman", "machine", "info"],
-                            capture_output=True,
-                            text=True,
-                            timeout=5,
-                        )
-                        if result.returncode == 0:
-                            ok("Podman Machine: available")
-                            _check_podman_machine_resources(workspace, ok=ok, warn=warn)
-                        else:
-                            warn("Podman Machine: not configured")
-                except Exception as e:
-                    warn(f"{vm_backend}: {e}")
+        # Container VM backend check.  The supported macOS runtimes are
+        # Podman Machine and Apple Container (below); Colima is not a
+        # supported runtime, so it isn't probed.
+        if shutil.which("podman"):
+            try:
+                result = subprocess.run(
+                    ["podman", "machine", "info"],
+                    capture_output=True,
+                    text=True,
+                    timeout=5,
+                )
+                if result.returncode == 0:
+                    ok("Podman Machine: available")
+                    _check_podman_machine_resources(workspace, ok=ok, warn=warn)
+                else:
+                    warn("Podman Machine: not configured")
+            except Exception as e:
+                warn(f"podman: {e}")
 
         # Apple Container CLI check (native macOS container runtime)
         container_path = shutil.which("container")

@@ -84,7 +84,7 @@ Auto-detect priority on macOS: **container → podman**.
 
 #### Nix remote Linux builder (macOS, optional)
 
-The container image is a Linux image, but the standard build downloads all `aarch64-linux`/`x86_64-linux` packages directly from the NixOS binary cache — **no remote Linux builder is required for a normal install.** A remote builder is only needed if you add packages not in the binary cache, or build with `--no-substitute`. See [docs/macos.md § Nix Linux Builder](macos.md#nix-linux-builder-optional-binary-cache-substitution-used-by-default) for setup if you need one.
+The container image is a Linux image, but most of its content downloads directly from the NixOS binary cache. A few derivations are built from yolo-jail's own source and aren't cached, so building the image on macOS needs a Linux builder — **unless you download the prebuilt image from yolo-jail's cache** (the intended happy path; no builder at all). A local Linux builder is the fallback, needed only before that cache is published or if you add a custom uncached package. See [docs/macos.md § Building the image on macOS](macos.md#building-the-image-on-macos-cache-vs-linux-builder) for setup.
 
 ### Install YOLO Jail
 
@@ -1073,7 +1073,6 @@ yolo check --no-build         # fast — skip nix build
 
 - Linux: check `podman --version`
 - macOS: check that your runtime's VM/daemon is up:
-  - Colima: `colima status`
   - Podman Machine: `podman machine list`
   - Apple Container: `container system status`
 - Try forcing a new container: `yolo --new`
@@ -1139,8 +1138,7 @@ yolo check --no-build         # fast — skip nix build
   sudo pkill determinate-nixd
   sudo /nix/var/nix/profiles/default/bin/nix-daemon &
   ```
-- If you configured a remote Linux builder, verify it: `nix store info --store ssh-ng://nix-builder`
-- After `colima start` restarts the VM, the SSH port for `nix-builder` may change — update `~/.ssh/config` accordingly
+- If you configured a Linux builder, verify it: `nix store info --store ssh-ng://nix-builder` (or `darwin.linux-builder` — see [docs/macos.md](macos.md))
 
 **Port forwarding not working**
 
@@ -1161,12 +1159,5 @@ yolo check --no-build         # fast — skip nix build
 **`/tmp` bind mounts fail**
 
 - macOS `/tmp` → `/private/tmp` is a symlink. `cli.py` resolves this automatically.
-- With Colima, ensure the VM was started with `--mount /private/tmp:w`.
-
-**Colima's Nix builder port changes on restart**
-
-- Every `colima stop` + `colima start` can assign a new SSH port for the VM
-- Re-run the SSH port update step from [docs/macos.md](macos.md#option-a--colima-vm-as-nix-builder-recommended-for-colima-users) after each restart
-- Or use a fixed port via `colima start --ssh-port 2222` and hardcode it in `~/.ssh/config`
 
 See [docs/macos.md](macos.md) for the full macOS-specific reference, and [docs/platform-comparison.md](platform-comparison.md) for the complete Linux-vs-macOS feature matrix.

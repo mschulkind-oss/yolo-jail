@@ -83,9 +83,9 @@ cacheable by construction).
   job in `publish.yml`), not on every `main` merge. Change the job's `if:`
   if you want per-merge freshness.
 - **Fallback builder** for users who add custom uncached packages:
-  **nix-darwin `linux-builder`** (persistent, launchd-managed) — documented
-  in `docs/macos.md`. Colima is a secondary option there, not the lead (it's
-  a Docker VM, not a Nix builder, so it's the most setup).
+  **nix-darwin `linux-builder`** (persistent, launchd-managed) — the single
+  documented builder in `docs/macos.md`, per the
+  [happy-path principle](happy-path-principle.md).
 - **Alternative if you never want Cachix:** publish the built image tarball
   as a GitHub Release asset and have the CLI download+`load` it — no cache
   infra, everything on GitHub. Not wired; mentioned as an escape hatch.

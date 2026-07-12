@@ -62,7 +62,7 @@ from src.cli.check_cmd import _diagnose_nix_build_failure  # noqa: E402
 import src.cli.check_cmd as _cc  # noqa: E402
 
 
-def test_diagnose_explicit_cross_build_leads_to_colima(monkeypatch):
+def test_diagnose_explicit_cross_build_leads_to_linux_builder(monkeypatch):
     monkeypatch.setattr(_cc, "IS_MACOS", True)
     tail = [
         "error: a 'aarch64-linux' with features {} is required to build "
@@ -70,7 +70,7 @@ def test_diagnose_explicit_cross_build_leads_to_colima(monkeypatch):
     ]
     title, note = _diagnose_nix_build_failure(tail)
     assert "Linux builder" in title
-    # nix-darwin linux-builder is the recommended remedy (not Colima).
+    # nix-darwin linux-builder is the recommended remedy.
     assert "linux-builder" in note.lower()
 
 
@@ -190,7 +190,7 @@ def test_preflight_state_c_fails_and_skips_build_without_builder(monkeypatch):
     # skip the doomed build.
     assert result is False
     assert failed and "Linux builder" in failed[0][0]
-    assert "linux-builder" in failed[0][1].lower()  # nix-darwin remedy, not colima
+    assert "linux-builder" in failed[0][1].lower()  # nix-darwin remedy
 
 
 def test_preflight_state_b_pass_with_builder(monkeypatch):

@@ -430,11 +430,11 @@ def _should_mount_host_nix(
     """Decide whether ``run()`` should bind-mount the host's Nix daemon + store.
 
     Linux: mount whenever both paths exist and runtime supports it.
-    macOS: skip by default — the typical container runtime VM (Podman
-    Machine, Apple container) does not share /nix, and bind-mounting
-    statfs-errors at startup.  Setups that *do* share /nix (e.g.
-    Colima with a custom mount) can opt back in by setting
-    ``YOLO_NIX_HOST_DAEMON`` to a truthy value (``1``/``true``/``yes``).
+    macOS: skip by default — the container runtime VM (Podman Machine,
+    Apple Container) does not share /nix, and bind-mounting statfs-errors
+    at startup.  A setup that *does* share /nix into its runtime VM can opt
+    back in by setting ``YOLO_NIX_HOST_DAEMON`` to a truthy value
+    (``1``/``true``/``yes``).
     Apple Container can't share Unix sockets via -v bind mounts regardless,
     so the runtime gate handles that case.
     """
