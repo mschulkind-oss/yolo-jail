@@ -131,7 +131,7 @@ required.
 > config. This tells Nix to execute Linux binaries locally, which fails on
 > macOS. Set up a Linux builder VM (below) instead.
 
-**Option A — nix-darwin `linux-builder` (recommended)**
+**The fallback builder: nix-darwin `linux-builder`**
 
 The purpose-built Nix Linux builder: a persistent, launchd-managed Linux VM
 (Apple Virtualization), the standard tool for this. If you use **nix-darwin**,
@@ -154,147 +154,32 @@ then offloads the from-source derivations to it and `yolo check` shows
 "Linux builder configured". Ensure your user is trusted by the daemon (see
 the trusted-users note below).
 
-**Option B — NixOS linux-builder, manual QEMU (foreground)**
-
-The lower-level form of Option A if you're not on nix-darwin and want to drive
-the VM by hand.
-
-**Step 1 — Start the builder VM** (in a dedicated terminal / tmux pane):
+**Your user must be trusted by the Nix daemon** (so it may offload builds).
+Check, set, and restart:
 
 ```bash
-nix run nixpkgs#darwin.linux-builder
+# Is a custom.conf include present? (Determinate adds it; official NixOS
+# installer does not — on that one, edit nix.conf directly.)
+grep -qF 'include /etc/nix/nix.custom.conf' /etc/nix/nix.conf \
+  && echo 'trusted-users = root '"$(whoami)" | sudo tee -a /etc/nix/nix.custom.conf \
+  || echo 'trusted-users = root '"$(whoami)" | sudo tee -a /etc/nix/nix.conf
+
+# Restart the daemon (label depends on installer):
+sudo launchctl kickstart -k system/systems.determinate.nix-daemon  # Determinate
+# or: sudo launchctl kickstart -k system/org.nixos.nix-daemon       # official NixOS
 ```
 
-The VM stays running in the foreground. To stop it, press `Ctrl+C` in the
-terminal. If `Ctrl+C` is intercepted (e.g. auto-login loops), try `Ctrl+A`
-then `X` to quit the QEMU session, or kill the process from another terminal.
+With `nix.linux-builder.enable = true`, nix-darwin registers the
+`aarch64-linux` builder for you. Running `nix run nixpkgs#darwin.linux-builder`
+standalone leaves the VM in the foreground (`Ctrl+C` to stop; if a tmux
+prefix eats it, press it twice). `yolo check` then shows "Linux builder
+configured" and image builds offload automatically.
 
-> **Note:** If your terminal multiplexer uses `Ctrl+A` as its prefix key
-> (e.g. tmux), press `Ctrl+A` twice so the first is consumed by the
-> multiplexer and the second reaches QEMU.
-
-**Step 2 — Ensure your user is trusted by the Nix daemon.**
-
-Nix reads `/etc/nix/nix.conf` by default. The Determinate Systems
-installer also adds `!include /etc/nix/nix.custom.conf` to `nix.conf`
-so a sibling `nix.custom.conf` is picked up automatically; the official
-NixOS installer does **not**, so writing to `nix.custom.conf` alone is a
-no-op on that installer.
-
-Check whether your `nix.conf` includes the custom file:
-
-```bash
-grep -F 'include /etc/nix/nix.custom.conf' /etc/nix/nix.conf \
-  && echo "custom.conf is included" \
-  || echo "custom.conf is NOT included"
-```
-
-If it's included, append to `nix.custom.conf`:
-
-```bash
-echo 'trusted-users = root <your-username>' \
-  | sudo tee -a /etc/nix/nix.custom.conf
-```
-
-If it isn't (official NixOS installer), either add the include line
-once and keep using `nix.custom.conf`, or edit `nix.conf` directly:
-
-```bash
-# Option A — add the include line (survives installer upgrades for
-# Determinate; harmless for the official installer):
-echo '!include /etc/nix/nix.custom.conf' | sudo tee -a /etc/nix/nix.conf
-echo 'trusted-users = root <your-username>' \
-  | sudo tee -a /etc/nix/nix.custom.conf
-
-# Option B — edit nix.conf directly:
-echo 'trusted-users = root <your-username>' | sudo tee -a /etc/nix/nix.conf
-```
-
-Then restart the daemon so the new trust setting takes effect (see the
-label guidance in Option A above for which name to use).
-
-**Step 3 — Create an SSH config entry for the builder.**
-
-The `darwin.linux-builder` VM listens on port 31022 and ships an SSH key at
-`/etc/nix/builder_ed25519`. That key is owned by root, so copy it for your
-user first:
-
-```bash
-sudo cp /etc/nix/builder_ed25519 ~/.ssh/nix-builder-key
-sudo chown $(whoami) ~/.ssh/nix-builder-key
-chmod 600 ~/.ssh/nix-builder-key
-```
-
-Then add an SSH host alias:
-
-```bash
-cat >> ~/.ssh/config <<'EOF'
-
-Host nix-linux-builder
-  HostName localhost
-  Port 31022
-  User builder
-  IdentityFile ~/.ssh/nix-builder-key
-  StrictHostKeyChecking accept-new
-EOF
-```
-
-Copy the SSH config for root as well, since the Nix daemon runs as root:
-
-```bash
-sudo mkdir -p /var/root/.ssh
-sudo cp ~/.ssh/config /var/root/.ssh/config
-```
-
-**Step 4 — Register the builder with Nix:**
-
-```bash
-echo 'ssh-ng://nix-linux-builder aarch64-linux /etc/nix/builder_ed25519 4 1 benchmark,big-parallel,kvm - -' \
-  | sudo tee /etc/nix/machines
-```
-
-**Step 5 — Restart the Nix daemon** to pick up the new config. The
-service label depends on your installer — see the note in Option A
-above if you're unsure:
-
-```bash
-sudo launchctl kickstart -k system/systems.determinate.nix-daemon  # Determinate installer
-# or:
-sudo launchctl kickstart -k system/org.nixos.nix-daemon             # Official NixOS installer
-```
-
-**Step 6 — Verify the builder is reachable:**
-
-```bash
-ssh nix-linux-builder echo ok
-```
-
-You should see `ok` printed. If SSH asks for a password, the key wasn't copied
-correctly — revisit Step 3.
-
-**Option C — Colima (if you already run it)**
-
-If you already use [Colima](https://github.com/abiosoft/colima) for Docker,
-you can reuse its Linux VM as a Nix builder — but note Colima is a
-Docker/containerd VM, **not** a Nix builder out of the box, so it's more
-setup than Option A (you install Nix + expose sshd inside the VM, then
-register it):
-
-```bash
-brew install colima docker
-colima start
-# Install Nix inside the VM and enable sshd, then add it to /etc/nix/machines
-# (one line): ssh://<colima-ssh-host> aarch64-linux /path/to/ssh-key 4 - - -
-# `colima ssh-config` prints the host/key.  Reload the daemon afterward.
-```
-
-Prefer Option A unless you specifically want to reuse an existing Colima VM.
-
-**Option D — Remote Linux host (advanced)**
-
-If you already run a Linux box, configure it as a remote builder in
-`/etc/nix/machines`. See the
-[Nix manual on distributed builds](https://nix.dev/manual/nix/latest/advanced-topics/distributed-builds).
+> **Escape hatch (advanced):** if you already own a Linux box, you can point
+> Nix at it as a remote builder in `/etc/nix/machines` instead — see the
+> [Nix manual on distributed builds](https://nix.dev/manual/nix/latest/advanced-topics/distributed-builds).
+> This isn't a first-class path (it requires a machine you must already have);
+> the cache + `nix-darwin linux-builder` cover everyone else.
 
 ### Known Issue: Determinate Nix Daemon Hang
 

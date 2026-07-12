@@ -1118,7 +1118,7 @@ def check(
                             "extra-platforms includes linux — local Linux builds "
                             "will be attempted and fail",
                             "Remove 'aarch64-linux' from extra-platforms in your "
-                            "nix config; use a Colima Linux builder instead "
+                            "nix config; use the nix-darwin linux-builder instead "
                             "(see docs/macos.md).",
                         )
             if _has_linux_builder():
