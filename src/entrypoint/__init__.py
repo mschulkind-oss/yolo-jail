@@ -64,7 +64,15 @@ NPM_PREFIX = Path(os.environ.get("NPM_CONFIG_PREFIX", HOME / ".npm-global"))
 GOPATH = Path(os.environ.get("GOPATH", HOME / "go"))
 NPM_BIN = NPM_PREFIX / "bin"
 GO_BIN = GOPATH / "bin"
-MISE_SHIMS = Path(os.environ["MISE_DATA_DIR"]) / "shims"
+# MISE_DATA_DIR is set to /mise by the CLI in every jail, but is absent on
+# the host.  Importing this module must never crash there — the host-side
+# CLI imports it at load time (e.g. for the agent registry), and MISE_SHIMS
+# is only ever consumed inside the jail, so a host fallback is inert.  Match
+# the `.get`-with-default form the sibling path constants above already use.
+MISE_SHIMS = (
+    Path(os.environ.get("MISE_DATA_DIR") or (HOME / ".local" / "share" / "mise"))
+    / "shims"
+)
 MCP_WRAPPERS_BIN = HOME / ".local" / "bin" / "mcp-wrappers"
 BASHRC_PATH = HOME / ".bashrc"
 COPILOT_DIR = HOME / ".copilot"

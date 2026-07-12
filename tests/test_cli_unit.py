@@ -125,6 +125,58 @@ def test_merge_mise_disabled_tools_handles_empty_commas():
 
 
 # ═══════════════════════════════════════════════════════════════════════════════
+# Test: host-side import must not require jail-only env
+# ═══════════════════════════════════════════════════════════════════════════════
+
+
+class TestHostImport:
+    """The `yolo` CLI is imported on the HOST, where jail-only env vars
+    (MISE_DATA_DIR, JAIL_HOME) are absent.  Importing ``cli`` — which
+    transitively imports the ``entrypoint`` package for the agent registry —
+    must never crash for want of a jail env var.
+
+    Regression: ``entrypoint/__init__.py`` used ``os.environ["MISE_DATA_DIR"]``
+    (no default) at module scope, so once ``cli.config`` began importing the
+    registry, every host ``yolo`` invocation died with ``KeyError:
+    'MISE_DATA_DIR'``.  conftest's ``os.environ.setdefault('MISE_DATA_DIR')``
+    masks this for in-process tests, and integration tests run inside a jail
+    where the var is always set — so only a clean-env subprocess catches it.
+    """
+
+    def _import_in_clean_env(self, target: str):
+        env = {
+            k: v
+            for k, v in os.environ.items()
+            if k not in ("MISE_DATA_DIR", "JAIL_HOME")
+        }
+        # Prepend src/ so `import cli` / `import entrypoint` resolve the same
+        # way the installed console-script does.
+        code = (
+            f"import sys; sys.path.insert(0, {str(REPO_ROOT / 'src')!r}); "
+            f"import {target}"
+        )
+        return subprocess.run(
+            [sys.executable, "-c", code],
+            capture_output=True,
+            text=True,
+            env=env,
+        )
+
+    def test_cli_imports_without_mise_data_dir(self):
+        result = self._import_in_clean_env("cli")
+        assert result.returncode == 0, (
+            f"host `import cli` failed without MISE_DATA_DIR:\n{result.stderr}"
+        )
+        assert "KeyError" not in result.stderr
+
+    def test_entrypoint_imports_without_mise_data_dir(self):
+        result = self._import_in_clean_env("entrypoint")
+        assert result.returncode == 0, (
+            f"host `import entrypoint` failed without MISE_DATA_DIR:\n{result.stderr}"
+        )
+
+
+# ═══════════════════════════════════════════════════════════════════════════════
 # Test: argv routing in main()
 # ═══════════════════════════════════════════════════════════════════════════════
 
