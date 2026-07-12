@@ -104,52 +104,60 @@ auto-converts from Nix's streamed image tar using (in priority order):
 1. **skopeo** (recommended — no daemon needed): `brew install skopeo`
 2. **podman** (needs running daemon as fallback)
 
-### Nix Linux Builder (optional, binary cache substitution used by default)
+### Building the image on macOS (cache vs. Linux builder)
 
-The OCI image contains Linux binaries (`aarch64-linux` or `x86_64-linux`).
-YOLO Jail's flake is structured so that all build-time Nix machinery
-(image-layer tooling, `writeShellScriptBin`, etc.) runs natively on your macOS
-host, while the image *content* (chromium, bash, python, etc.) is fetched
-directly from the NixOS binary cache. **No remote Linux builder is required
-for a normal install.**
+The OCI image is a **Linux** image (`aarch64-linux`). Most of its content
+(chromium, bash, python, node, …) is standard nixpkgs, fetched from
+`cache.nixos.org` — but a few derivations are built from **this repo's own
+source** (`yolo-jail-conf`, the entrypoint pkg, the image stream script) and
+are therefore **never** on the public cache. Building those on macOS needs a
+Linux builder.
 
-A Linux builder is only needed if you:
-- Modify the flake to add packages that are not in the binary cache, **or**
-- Build with `--no-substitute` (disables cache)
+Two ways to avoid that:
 
-`yolo check` tells you when you actually need one: on the common (fully
-cached) path it stays quiet, and only when a build-from-source is required
-does it warn and point you here.
+**Best — download the prebuilt image (no builder at all).** When yolo-jail's
+Cachix cache is published, macOS users download the fully-built image and
+never compile anything. This is the intended happy path; see
+[docs/handoff-cachix-cache.md](handoff-cachix-cache.md) for its status. Once
+live, `yolo check` shows "every image path is served from the binary cache".
+
+**Fallback — a local Linux builder.** Needed only until the cache is
+published, or if you add a custom package that isn't cached. `yolo check`
+tells you exactly when: it's quiet on the fully-cached path and only escalates
+(naming the offending derivation) when a from-source build is actually
+required.
 
 > **Important:** Do NOT set `extra-platforms = aarch64-linux` in your Nix
 > config. This tells Nix to execute Linux binaries locally, which fails on
 > macOS. Set up a Linux builder VM (below) instead.
 
-**Option A — Colima (recommended)**
+**Option A — nix-darwin `linux-builder` (recommended)**
 
-[Colima](https://github.com/abiosoft/colima) runs a lightweight Linux VM and
-is the simplest way to get a local Linux builder on macOS:
+The purpose-built Nix Linux builder: a persistent, launchd-managed Linux VM
+(Apple Virtualization), the standard tool for this. If you use **nix-darwin**,
+it's one line:
 
-```bash
-brew install colima docker
-colima start                       # boots the Linux VM
-
-# Register the VM as a Nix Linux builder.  Colima exposes an SSH endpoint;
-# add it to /etc/nix/machines (one line):
-#   ssh://<colima-ssh-host> aarch64-linux /path/to/ssh-key 4 - - -
-# then reload the daemon (see the kickstart command in the daemon-trust
-# section above).  `colima ssh-config` prints the host/key to use.
+```nix
+# in your nix-darwin configuration, then `darwin-rebuild switch`:
+nix.linux-builder.enable = true;
+nix.settings.trusted-users = [ "@admin" ];   # so your user may offload builds
 ```
 
-After that, `nix build .#ociImage` offloads any from-source Linux
-derivation to the Colima VM automatically, and `yolo check` will show
-"Linux builder configured".
+**Standalone (no nix-darwin)** — run the same builder VM on demand:
 
-**Option B — NixOS linux-builder (built-in, no extra install)**
+```bash
+nix run nixpkgs#darwin.linux-builder   # leave running in a terminal/tmux pane
+```
 
-The built-in NixOS linux-builder starts a QEMU VM that acts as a remote Nix
-builder — no Colima needed, just Nix itself, at the cost of several
-configuration steps.
+Either way it auto-registers an `aarch64-linux` builder; `nix build .#ociImage`
+then offloads the from-source derivations to it and `yolo check` shows
+"Linux builder configured". Ensure your user is trusted by the daemon (see
+the trusted-users note below).
+
+**Option B — NixOS linux-builder, manual QEMU (foreground)**
+
+The lower-level form of Option A if you're not on nix-darwin and want to drive
+the VM by hand.
 
 **Step 1 — Start the builder VM** (in a dedicated terminal / tmux pane):
 
@@ -264,7 +272,25 @@ ssh nix-linux-builder echo ok
 You should see `ok` printed. If SSH asks for a password, the key wasn't copied
 correctly — revisit Step 3.
 
-**Option C — Remote Linux host (advanced)**
+**Option C — Colima (if you already run it)**
+
+If you already use [Colima](https://github.com/abiosoft/colima) for Docker,
+you can reuse its Linux VM as a Nix builder — but note Colima is a
+Docker/containerd VM, **not** a Nix builder out of the box, so it's more
+setup than Option A (you install Nix + expose sshd inside the VM, then
+register it):
+
+```bash
+brew install colima docker
+colima start
+# Install Nix inside the VM and enable sshd, then add it to /etc/nix/machines
+# (one line): ssh://<colima-ssh-host> aarch64-linux /path/to/ssh-key 4 - - -
+# `colima ssh-config` prints the host/key.  Reload the daemon afterward.
+```
+
+Prefer Option A unless you specifically want to reuse an existing Colima VM.
+
+**Option D — Remote Linux host (advanced)**
 
 If you already run a Linux box, configure it as a remote builder in
 `/etc/nix/machines`. See the

@@ -160,6 +160,19 @@ build-image-minimal:
 load: build-image
     ./result | {{runtime}} load
 
+# Build BOTH image variants on a Linux host and push their closures to the
+# Cachix cache, so macOS users download the prebuilt image (no Linux builder
+# needed).  Prereqs (one-time): a Cachix account + cache, and
+# `cachix authtoken <write-token>` (or CACHIX_AUTH_TOKEN in the env).  Run on
+# a Linux box (this repo's CI does the same on release).  CACHE defaults to
+# the flake's cache name — override: `just cachix-push CACHE=my-cache`.
+# See docs/handoff-cachix-cache.md for signup + verification.
+cachix-push CACHE="yolo-jail":
+    @command -v cachix >/dev/null || {{ '{ echo "cachix not found: nix profile install nixpkgs#cachix"; exit 1; }' }}
+    nix --extra-experimental-features 'nix-command flakes' build .#ociImage --print-out-paths --no-link | cachix push {{CACHE}}
+    nix --extra-experimental-features 'nix-command flakes' build .#ociImageMinimal --print-out-paths --no-link | cachix push {{CACHE}}
+    @echo "Pushed both image variants to https://{{CACHE}}.cachix.org"
+
 # Run all tests
 test:
     uv run --group dev python -m pytest tests/

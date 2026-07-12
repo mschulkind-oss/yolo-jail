@@ -1,6 +1,24 @@
 {
   description = "YOLO Jail: A restricted container environment for AI agents";
 
+  # ── Prebuilt-image binary cache (Cachix) ────────────────────────────────
+  # The OCI image contains a few Linux (aarch64-linux) derivations built
+  # from THIS repo's source (yolo-jail-conf, the entrypoint pkg, the stream
+  # script) that are never on cache.nixos.org — so building the image on
+  # macOS otherwise needs a Linux builder.  Publishing the built image to a
+  # Cachix cache lets every macOS user *download* it instead (zero setup).
+  #
+  # NOT YET ENABLED — pending the Cachix account (see
+  # docs/handoff-cachix-cache.md).  To turn on: create the cache, then
+  # UNCOMMENT the block below and replace <PUBLIC_KEY> with the key Cachix
+  # prints (format: yolo-jail.cachix.org-1:<base64>).  Rename `yolo-jail`
+  # throughout if you claim a different cache name.
+  #
+  # nixConfig = {
+  #   extra-substituters = [ "https://yolo-jail.cachix.org" ];
+  #   extra-trusted-public-keys = [ "yolo-jail.cachix.org-1:<PUBLIC_KEY>" ];
+  # };
+
   inputs = {
     nixpkgs.url = "github:nixos/nixpkgs/nixos-unstable";
     flake-utils.url = "github:numtide/flake-utils";

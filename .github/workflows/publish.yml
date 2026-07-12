@@ -168,3 +168,62 @@ jobs:
           fi
           git commit -m "yolo-jail ${VERSION}"
           git push
+
+  # Build both OCI image variants on Linux and push them to the Cachix cache
+  # so macOS users download the prebuilt image instead of needing a Linux
+  # builder.  Release-gated only.
+  #
+  # NO-OP UNTIL SET UP (see docs/handoff-cachix-cache.md): the job skips
+  # entirely unless the CACHIX_AUTH_TOKEN secret AND CACHIX_CACHE variable
+  # are configured — so releases stay green before the Cachix account exists.
+  push-image-cache:
+    if: github.event_name == 'release'
+    runs-on: ubuntu-latest
+    steps:
+      - name: Check Cachix is configured
+        id: gate
+        run: |
+          if [ -n "${{ secrets.CACHIX_AUTH_TOKEN }}" ] && [ -n "${{ vars.CACHIX_CACHE }}" ]; then
+            echo "enabled=true" >> "$GITHUB_OUTPUT"
+          else
+            echo "enabled=false" >> "$GITHUB_OUTPUT"
+            echo "Cachix not configured (CACHIX_AUTH_TOKEN secret + CACHIX_CACHE var). Skipping — see docs/handoff-cachix-cache.md."
+          fi
+
+      - uses: actions/checkout@v7
+        if: steps.gate.outputs.enabled == 'true'
+        with:
+          fetch-depth: 0
+
+      # Same disk pressure as the build-image job in ci.yml.
+      - name: Free disk space
+        if: steps.gate.outputs.enabled == 'true'
+        run: |
+          sudo rm -rf /usr/share/dotnet /usr/local/lib/android /opt/ghc \
+                      /opt/hostedtoolcache/CodeQL /usr/local/share/boost \
+                      "$AGENT_TOOLSDIRECTORY" || true
+          sudo docker image prune --all --force || true
+          sudo apt-get clean
+
+      - name: Install Nix
+        if: steps.gate.outputs.enabled == 'true'
+        uses: cachix/install-nix-action@v31
+        with:
+          extra_nix_config: |
+            experimental-features = nix-command flakes
+
+      - name: Set up Cachix
+        if: steps.gate.outputs.enabled == 'true'
+        uses: cachix/cachix-action@v15
+        with:
+          name: ${{ vars.CACHIX_CACHE }}
+          authToken: ${{ secrets.CACHIX_AUTH_TOKEN }}
+
+      # cachix-action auto-pushes every path built while it's active, so a
+      # plain `nix build` of both variants populates the cache.
+      - name: Build + push both image variants
+        if: steps.gate.outputs.enabled == 'true'
+        run: |
+          nix build --impure .#ociImage
+          nix build --impure .#ociImageMinimal
+          echo "Pushed image closures to ${{ vars.CACHIX_CACHE }}.cachix.org"
