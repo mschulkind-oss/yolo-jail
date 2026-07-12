@@ -1887,6 +1887,36 @@ class TestCheckNixBuildSection:
         result = runner.invoke(app, ["check", "--build"])
         assert "nix build failed" in result.output.lower() or result.exit_code != 0
 
+    @patch("subprocess.run")
+    @patch("shutil.which")
+    @patch("cli.check_cmd._build_image_store_path")
+    def test_macos_user_runtime_skips_image_build(
+        self, mock_build, mock_which, mock_run, tmp_path, monkeypatch
+    ):
+        # The native macos-user backend builds no image — the Image Build
+        # section must say "Not applicable", NOT run a build or FAIL on a
+        # Linux builder, and the container probe must not run.
+        monkeypatch.setattr("cli.check_cmd.IS_MACOS", True)
+        monkeypatch.setattr("cli.paths.IS_MACOS", True)
+        monkeypatch.setattr("cli.runtime.IS_MACOS", True)
+        # Stub the macos-user backend readiness probe (needs a real Mac).
+        monkeypatch.setattr(
+            "cli.check_cmd._check_macos_user_backend",
+            lambda ok, warn, fail: ok("macos-user backend (stubbed)"),
+        )
+        _check_monkeypatch(monkeypatch, tmp_path)
+        _mock_runtimes(mock_which)
+        mock_run.side_effect = _default_smart_run
+        (tmp_path / "yolo-jail.jsonc").write_text('{"runtime": "macos-user"}')
+
+        runner = CliRunner()
+        result = runner.invoke(app, ["check", "--build"])
+        out = result.output
+        assert "Not applicable" in out
+        # No builder FAIL, no image-not-loaded hint, no build attempt.
+        assert "Linux builder" not in out
+        assert not mock_build.called
+
 
 class TestCheckImageAndContainers:
     """Test check() image and running container sections."""

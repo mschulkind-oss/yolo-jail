@@ -56,6 +56,7 @@ from .paths import (
     GLOBAL_MISE,
     GLOBAL_STORAGE,
     IS_MACOS,
+    NATIVE_RUNTIMES,
     SUPPORTED_RUNTIMES,
     USER_CONFIG_PATH,
 )
@@ -1296,6 +1297,11 @@ def check(
         errors.append(runtime_error)
     elif runtime:
         ok(f"Runtime available: {runtime}")
+    # Native backends (macos-user) build no image and run no container, so
+    # the image-build + container-image + per-jail-container-liveness probes
+    # below are irrelevant — skip them rather than FAIL on a Linux builder
+    # or WARN about a container CLI the user isn't using.
+    is_native_runtime = runtime in NATIVE_RUNTIMES
 
     if workspace_config_path.exists() and "repo_path" in workspace_config:
         warnings.append(
@@ -1725,62 +1731,70 @@ def check(
         console.print()
 
     # --- Image & Containers ---
-
-    console.print("[bold]Image Build[/bold]")
-    # True when the image can't be built here (needs a Linux builder we don't
-    # have) — suppresses the misleading "Run 'yolo' once to build the image"
-    # hint below, which would just hit the same wall.
+    #
+    # Native backends (macos-user) build no image and run no container, so
+    # the whole image/container region is skipped with a single info line —
+    # no builder FAIL, no image-not-loaded WARN, no container-CLI probes.
     image_build_skipped = False
-    if build:
-        out_link = BUILD_DIR / "check-result"
-        if repo_root is None:
-            fail("Skipped nix build", "repo root resolution failed")
-        else:
-            # Preflight: will anything be BUILT from source (cache miss), or
-            # is the whole image substitutable?  Only a from-source build
-            # needs a Linux builder on macOS — so we stay quiet in the common
-            # (fully-cached) case and escalate only on a real miss.  Gated on
-            # --build (dry-run costs cache round-trips); INCONCLUSIVE when
-            # offline so we never cry wolf.  When it returns False the build
-            # is known-doomed (needs a builder we don't have) — skip the real
-            # build so the user sees ONE clear message, not a WARN + a
-            # duplicate FAIL, and no misleading "Run 'yolo' once" hint.
-            image_buildable = _preflight_builder_needs(
-                repo_root, _effective_packages(config) or None, ok, warn, fail
-            )
-            if image_buildable is False:
-                image_build_skipped = True
-            else:
-                try:
-                    store_path, build_stderr_tail = _build_image_store_path(
-                        repo_root,
-                        extra_packages=_effective_packages(config) or None,
-                        out_link=out_link,
-                        status_message="[bold blue]Preflighting jail image...",
-                    )
-                    if store_path is None:
-                        title, note = _diagnose_nix_build_failure(build_stderr_tail)
-                        fail(title, note)
-                    else:
-                        ok(f"nix build succeeded: {store_path}")
-                finally:
-                    out_link.unlink(missing_ok=True)
+    _not_loaded_hint = "Run 'yolo' once to build and load the image"
+    if is_native_runtime:
+        console.print("[bold]Image Build[/bold]")
+        console.print(
+            f"  [dim]- Not applicable: the '{runtime}' backend runs the agent "
+            "natively (no container image to build or load).[/dim]"
+        )
+        console.print()
     else:
-        warn("Skipped nix build (--no-build)")
-    console.print()
+        console.print("[bold]Image Build[/bold]")
+        if build:
+            out_link = BUILD_DIR / "check-result"
+            if repo_root is None:
+                fail("Skipped nix build", "repo root resolution failed")
+            else:
+                # Preflight: will anything be BUILT from source (cache miss), or
+                # is the whole image substitutable?  Only a from-source build
+                # needs a Linux builder on macOS — stay quiet in the common
+                # (fully-cached) case and escalate only on a real miss.  Gated
+                # on --build (dry-run costs cache round-trips); INCONCLUSIVE
+                # when offline so we never cry wolf.  When it returns False the
+                # build is known-doomed (needs a builder we don't have) — skip
+                # the real build so the user sees ONE clear message, not a WARN
+                # + a duplicate FAIL, and no misleading "Run 'yolo' once" hint.
+                image_buildable = _preflight_builder_needs(
+                    repo_root, _effective_packages(config) or None, ok, warn, fail
+                )
+                if image_buildable is False:
+                    image_build_skipped = True
+                else:
+                    try:
+                        store_path, build_stderr_tail = _build_image_store_path(
+                            repo_root,
+                            extra_packages=_effective_packages(config) or None,
+                            out_link=out_link,
+                            status_message="[bold blue]Preflighting jail image...",
+                        )
+                        if store_path is None:
+                            title, note = _diagnose_nix_build_failure(build_stderr_tail)
+                            fail(title, note)
+                        else:
+                            ok(f"nix build succeeded: {store_path}")
+                    finally:
+                        out_link.unlink(missing_ok=True)
+        else:
+            warn("Skipped nix build (--no-build)")
+        console.print()
 
-    # When the image can't be built here (no Linux builder), the "Image not
-    # loaded → Run 'yolo' once" hint below is misleading — running yolo hits
-    # the same wall.  Point at the real fix instead.
-    _not_loaded_hint = (
-        "Run 'yolo' once to build and load the image"
-        if not image_build_skipped
-        else "This host can't build the image (needs a Linux builder — see "
-        "above / docs/macos.md), or download a prebuilt image once the cache "
-        "is published."
-    )
+        # When the image can't be built here (no Linux builder), the "Image
+        # not loaded → Run 'yolo' once" hint below is misleading — running
+        # yolo hits the same wall.  Point at the real fix instead.
+        if image_build_skipped:
+            _not_loaded_hint = (
+                "This host can't build the image (needs a Linux builder — see "
+                "above / docs/macos.md), or download a prebuilt image once the "
+                "cache is published."
+            )
 
-    if detected_runtime:
+    if not is_native_runtime and detected_runtime:
         console.print("[bold]Container Image[/bold]")
         # Skip image check when running inside a jail — the nested podman
         # won't have the image loaded (it's on the host's runtime).
@@ -1924,9 +1938,13 @@ def check(
     # They don't catch the case where the per-jail daemon was spawned
     # but immediately crashed.  This probe connects to each running
     # jail's host-service socket and reports any that aren't listening.
-    console.print("[bold]Per-jail host-service liveness[/bold]")
-    _check_host_service_liveness(ok, warn, fail)
-    console.print()
+    # It enumerates *containers*, so it's skipped for native backends (no
+    # containers to probe — this is where the stale "Apple Container CLI
+    # too old" WARN came from on a macos-user host).
+    if not is_native_runtime:
+        console.print("[bold]Per-jail host-service liveness[/bold]")
+        _check_host_service_liveness(ok, warn, fail)
+        console.print()
 
     # --- Disk usage (nudges toward `yolo prune` when large) ---
 
