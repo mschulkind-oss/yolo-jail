@@ -11,12 +11,29 @@ from pathlib import Path
 IS_LINUX = sys.platform == "linux"
 IS_MACOS = sys.platform == "darwin"
 
-# Supported container runtimes.  Docker was removed — podman is the
+# Supported *container* runtimes.  Docker was removed — podman is the
 # first-class Linux runtime (rootless, daemonless, cgroup delegation
 # that matches how yolo-cglimit talks to the host), and Apple Container
 # is the native macOS runtime on Tahoe+.  Any config that sets
 # runtime: "docker" gets a migration error; see _validate_config.
+#
+# NOTE: these are the runtimes that build a container argv, load an
+# image, and answer `<rt> ps`.  Code that shells out to a container CLI
+# must iterate SUPPORTED_RUNTIMES, NOT ALL_RUNTIMES — the native
+# macos-user backend (below) has no image and no `ps`.
 SUPPORTED_RUNTIMES = ("podman", "container")
+
+# Native (non-container) backends.  "macos-user" isolates the agent in a
+# dedicated macOS user account + Seatbelt instead of a Linux container —
+# no VM, no image, no arch switch.  See docs/macos-native-user-sandbox-design.md
+# and src/cli/macos_user.py.  Kept separate from SUPPORTED_RUNTIMES so the
+# container-CLI code paths never try to `run`/`ps`/load-image it.
+NATIVE_RUNTIMES = ("macos-user",)
+
+# Every value the `runtime` config key / YOLO_RUNTIME may take.  Used for
+# config validation and runtime resolution; dispatch then branches on
+# whether the resolved value is in NATIVE_RUNTIMES.
+ALL_RUNTIMES = SUPPORTED_RUNTIMES + NATIVE_RUNTIMES
 
 JAIL_IMAGE = "localhost/yolo-jail:latest"
 # Apple Container CLI doesn't recognize the localhost/ prefix
