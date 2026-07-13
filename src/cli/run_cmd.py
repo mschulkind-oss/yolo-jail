@@ -1055,6 +1055,13 @@ def run(
         "--profile",
         help="Show detailed startup performance timing after command exits",
     ),
+    dry_run: bool = typer.Option(
+        False,
+        "--dry-run",
+        help="macos-user only: print the full run plan (profile, ACL, "
+        "bootstrap, launch argv, sudoers) and its invariant checks without "
+        "executing anything.",
+    ),
 ):
     """Run the YOLO jail in the current directory."""
     repo_root = _resolve_repo_root()
@@ -1125,8 +1132,15 @@ def run(
                 agents,
                 agent_argv,
                 repo_src=repo_root / "src",
+                dry_run=dry_run,
             )
         )
+    if dry_run:
+        console.print(
+            "[yellow]--dry-run is only meaningful for runtime "
+            f"'macos-user' (this workspace uses '{runtime}').[/yellow]"
+        )
+        sys.exit(1)
 
     # Collect identity env vars early — needed for both exec and run paths
     identity_env = []

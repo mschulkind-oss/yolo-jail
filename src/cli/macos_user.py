@@ -24,6 +24,7 @@ import os
 import shutil
 import subprocess
 import sys
+from dataclasses import dataclass, field
 from pathlib import Path
 from typing import Any, Dict, List, Optional
 
@@ -38,10 +39,42 @@ SANDBOX_HOME = Path("/Users") / SANDBOX_USER
 # hides sub-500 accounts but 500+ service accounts + IsHidden is the safe,
 # collision-free range).
 SANDBOX_MIN_ID = 600
-# Root-owned, 0444 state dir holding the per-session Seatbelt profile and
-# the entrypoint bootstrap the sandbox user runs.  Root-owned so the
-# sandbox user cannot rewrite its own sandbox profile.
+# Root-owned, 0444 state dir holding the per-session Seatbelt profile, the
+# entrypoint bootstrap the sandbox user runs, and a root-owned copy of the
+# stdlib-only ``entrypoint`` package.  Root-owned so the sandbox user cannot
+# rewrite its own sandbox profile — and world-readable so it can *import*
+# the staged entrypoint (the host checkout may sit behind a 0750 home the
+# sandbox uid can't traverse).
 STATE_DIR = Path("/var/yolo-jail")
+# Passwordless-sudo policy installed by ``yolo macos-setup`` so the run path
+# never prompts (a prompt would hang inside the proxied pty).  NO dot in the
+# filename — sudo silently ignores files in sudoers.d whose name contains a
+# ``.`` (or ``~``).
+SUDOERS_PATH = Path("/etc/sudoers.d/yolo-jail")
+
+# Absolute paths to the system tools the run path invokes under sudo.  Pinned
+# so the generated sudoers rule and the actual argv match byte-for-byte
+# (sudo's command match is exact-path): a ``mkdir`` PATH lookup that resolved
+# to ``/usr/bin/mkdir`` would not match a rule written for ``/bin/mkdir``.
+MKDIR = "/bin/mkdir"
+TEE = "/usr/bin/tee"
+CHMOD = "/bin/chmod"
+CP = "/bin/cp"
+ENV = "/usr/bin/env"
+ZSH = "/bin/zsh"
+SANDBOX_EXEC = "/usr/bin/sandbox-exec"
+
+# Candidate python3 interpreters for the sandbox user, best first.  The bare
+# ``/usr/bin/python3`` is LAST and only a fallback: with the Command Line
+# Tools absent it is the xcode-select *stub*, which triggers a GUI install
+# flow (or errors headless) instead of running Python — a service account
+# can't authorize that install, so the bootstrap would never run.  A real
+# Homebrew/Nix python3 is preferred.
+_PYTHON_CANDIDATES = (
+    "/opt/homebrew/bin/python3",  # arm64 Homebrew (0755, world-runnable)
+    "/usr/local/bin/python3",  # Intel Homebrew / python.org
+    "/usr/bin/python3",  # CLT/system — LAST (may be the xcode-select stub)
+)
 
 
 # ---------------------------------------------------------------------------
@@ -119,6 +152,114 @@ def delete_user_commands(
 
 
 # ---------------------------------------------------------------------------
+# Interpreter resolution — never blindly trust /usr/bin/python3
+# ---------------------------------------------------------------------------
+
+
+def python_candidates() -> List[str]:
+    """Ordered python3 candidates for the sandbox user, best first.
+
+    Pure (returns the static preference list); the caller filters to what
+    actually exists.  ``/usr/bin/python3`` is intentionally last — it is the
+    xcode-select stub when the Command Line Tools are absent, which cannot
+    run as a service account.
+    """
+    return list(_PYTHON_CANDIDATES)
+
+
+def resolve_python(exists=os.path.exists) -> Optional[str]:
+    """First existing candidate interpreter, or ``None`` if none exist.
+
+    ``exists`` is injectable so a Linux test can assert the ordering (a real
+    Homebrew/Nix python3 wins over the bare ``/usr/bin/python3`` stub)
+    without any of these paths existing on the CI host.
+    """
+    for cand in python_candidates():
+        if exists(cand):
+            return cand
+    return None
+
+
+# ---------------------------------------------------------------------------
+# Passwordless-sudo policy — generated as text, installed by macos-setup
+# ---------------------------------------------------------------------------
+
+
+def sudoers_rule(host_user: str, interp: str) -> str:
+    """The ``/etc/sudoers.d/yolo-jail`` policy text the run path relies on.
+
+    Scoped to the exact absolute commands the orchestrator runs under sudo:
+    root-owned state-file installs (``mkdir``/``tee``/``chmod``/``cp``) and
+    the run-as-sandbox-user launch/bootstrap (the resolved interpreter,
+    ``sandbox-exec``, ``zsh``, ``env``).  Args are omitted (the profile,
+    bootstrap, and workspace paths vary per session) — omitting is the
+    simplest match that is still correct, since the command *paths* are
+    pinned.  Without this, every ``sudo`` prompts on ``/dev/tty`` and the
+    launch (which runs in a fresh proxied pty) hangs unanswerably.
+    """
+    root_cmds = ", ".join([MKDIR, TEE, CHMOD, CP])
+    user_cmds = ", ".join([interp, SANDBOX_EXEC, ZSH, ENV])
+    return (
+        "# Managed by `yolo macos-setup` — passwordless sudo for the\n"
+        "# macos-user backend.  Do not edit by hand; re-run macos-setup.\n"
+        f"{host_user} ALL=(root) NOPASSWD: {root_cmds}\n"
+        f"{host_user} ALL=({SANDBOX_USER}) NOPASSWD: {user_cmds}\n"
+    )
+
+
+# ---------------------------------------------------------------------------
+# Staging the entrypoint package into the root-owned state dir
+# ---------------------------------------------------------------------------
+
+
+def staged_entrypoint_dir(state_dir: Path = STATE_DIR) -> Path:
+    """Where the stdlib-only ``entrypoint`` package is staged (importable)."""
+    return state_dir / "entrypoint"
+
+
+def stage_entrypoint_commands(
+    repo_src: Path, *, state_dir: Path = STATE_DIR
+) -> List[List[str]]:
+    """``sudo`` argv copying ``entrypoint`` into the root-owned state dir.
+
+    The bootstrap runs as the sandbox uid, which cannot import ``entrypoint``
+    from the host checkout: the credential-hiding step (``chmod 750 ~`` on the
+    host home) removes the other-execute bit the non-staff sandbox user would
+    need to traverse into the checkout.  So we copy the package (root-owned,
+    world-readable) into ``/var/yolo-jail`` — matching the existing root-owned
+    STATE_DIR model — and the bootstrap imports it from there instead.  The
+    copy is refreshed every run so edits to the entrypoint take effect.
+    """
+    src = repo_src / "entrypoint"
+    dst = staged_entrypoint_dir(state_dir)
+    return [
+        [MKDIR, "-p", str(state_dir)],
+        [CP, "-R", f"{src}/.", str(dst)],
+        # World-readable, dirs traversable; root-owned so the sandbox can't
+        # rewrite the code it's about to run.
+        [CHMOD, "-R", "a+rX", str(dst)],
+    ]
+
+
+# ---------------------------------------------------------------------------
+# Workspace ancestry — traversal into a workspace nested under the host home
+# ---------------------------------------------------------------------------
+
+
+def workspace_ancestors(workspace: Path, root: Path = Path("/Users")) -> List[Path]:
+    """Ancestor dirs strictly between ``root`` and ``workspace``.
+
+    For ``/Users/matt/code/proj`` → ``[/Users/matt/code, /Users/matt]``.
+    These are the components a non-staff sandbox user must be able to
+    *traverse* (search + stat) to reach a workspace under the host home,
+    yet gets no traversal on once the home is ``chmod 750``.  ``/Users``
+    itself (root-owned, 0755) and the workspace (granted full rights
+    separately) are excluded, as is anything the host user can't ``chmod``.
+    """
+    return [p for p in workspace.parents if root in p.parents]
+
+
+# ---------------------------------------------------------------------------
 # Workspace ACL — SandVault's dir/file-split inheriting ACEs
 # ---------------------------------------------------------------------------
 
@@ -143,45 +284,69 @@ _FILE_RIGHTS = (
 )
 
 
+# Search-only ACE for the workspace's ancestor dirs: grants directory
+# traversal (open/stat the dir, read its metadata) WITHOUT read-data, so the
+# sandbox user can descend to a workspace nested under the host home without
+# being able to list or read sibling files in those ancestors.
+_ANCESTOR_RIGHTS = "search,readattr,readsecurity"
+
+
 def workspace_acl_aces(group: str = SANDBOX_GROUP) -> Dict[str, str]:
-    """The three ``chmod +a`` ACE strings (dir / file-inherit / file).
+    """The four ``chmod +a`` ACE strings (dir / file-inherit / file / ancestor).
 
     Split so directories are searchable/listable and inherit correctly to
     children, while plain files never gain execute/search — SandVault's
     exact scheme, which sidesteps the umask-022 trap of a plain
-    setgid-group share.
+    setgid-group share.  The ``ancestor`` ACE is traversal-only (no
+    read-data) for the path components leading down to the workspace.
     """
     return {
         "dir": f"group:{group} allow {_DIR_RIGHTS}",
         "file_inherit": f"group:{group} allow {_FILE_INHERIT_RIGHTS}",
         "file": f"group:{group} allow {_FILE_RIGHTS}",
+        "ancestor": f"group:{group} allow {_ANCESTOR_RIGHTS}",
     }
 
 
 def workspace_acl_apply_script(workspace: Path, group: str = SANDBOX_GROUP) -> str:
     """A ``find``-based bash script applying the split ACEs in one pass.
 
-    Directories get the dir ACE + the file-inherit template; non-directories
-    get the file ACE.  ``chmod -h`` so symlinks aren't followed (avoid a
-    swap race).  Idiomatic and idempotent (re-adding an identical ACE is a
-    no-op).  Returned as text so it can be asserted in tests and run via
+    First grants a traversal-only ACE on each ancestor dir from the host home
+    down to the workspace, so a workspace nested under a ``chmod 750`` host
+    home is still reachable (without leaking sibling file contents).  Then
+    directories get the dir ACE + the file-inherit template and
+    non-directories get the file ACE.  ``chmod -h`` so symlinks aren't
+    followed (avoid a swap race).  Idempotent (re-adding an identical ACE is
+    a no-op).  Returned as text so it can be asserted in tests and run via
     ``bash -c`` on macOS.
     """
     aces = workspace_acl_aces(group)
     ws = str(workspace)
-    return (
-        "set -euo pipefail\n"
-        f"ws={_sh_quote(ws)}\n"
+    lines = [
+        "set -euo pipefail\n",
+        f"ws={_sh_quote(ws)}\n",
+    ]
+    # Ancestors first: traversal-only so the sandbox user can descend to a
+    # workspace under the host home.  Missing/unowned ancestors are skipped
+    # (|| true) — the grant is best-effort and the run's own preflight
+    # surfaces an unreachable workspace.
+    for anc in workspace_ancestors(workspace):
+        lines.append(
+            f"chmod -h +a {_sh_quote(aces['ancestor'])} {_sh_quote(str(anc))} "
+            "2>/dev/null || true\n"
+        )
+    lines += [
         # Directories: dir rights + inheritance template (two -a ACEs).
-        'find "$ws" -type d -print0 | while IFS= read -r -d "" d; do\n'
-        f'  chmod -h +a {_sh_quote(aces["dir"])} "$d"\n'
-        f'  chmod -h +a {_sh_quote(aces["file_inherit"])} "$d"\n'
-        "done\n"
+        'find "$ws" -type d -print0 | while IFS= read -r -d "" d; do\n',
+        f'  chmod -h +a {_sh_quote(aces["dir"])} "$d"\n',
+        f'  chmod -h +a {_sh_quote(aces["file_inherit"])} "$d"\n',
+        "done\n",
         # Everything else (files, symlinks): file rights, no inherit.
-        'find "$ws" ! -type d -print0 | while IFS= read -r -d "" f; do\n'
-        f'  chmod -h +a {_sh_quote(aces["file"])} "$f"\n'
-        "done\n"
-    )
+        'find "$ws" ! -type d -print0 | while IFS= read -r -d "" f; do\n',
+        f'  chmod -h +a {_sh_quote(aces["file"])} "$f"\n',
+        "done\n",
+    ]
+    return "".join(lines)
 
 
 # ---------------------------------------------------------------------------
@@ -212,6 +377,27 @@ def seatbelt_profile(workspace: Path, sandbox_home: Path = SANDBOX_HOME) -> str:
     """
     ws = _sbpl_str(str(workspace))
     home = _sbpl_str(str(sandbox_home))
+    # Path resolution evaluates file-read-metadata on EVERY component, so a
+    # workspace nested under the host home needs each ancestor's metadata
+    # readable — but NOT its contents.  Emit a per-ancestor
+    # file-read-metadata allow (read-data on those dirs stays denied by the
+    # /Users blanket deny above, so sibling files remain unreadable).  Only
+    # when there ARE ancestors — a bare ``(allow file-read-metadata)`` would
+    # match everything.
+    ancestors = workspace_ancestors(workspace)
+    if ancestors:
+        ancestor_block = (
+            "\n;; Traversal into a workspace nested under the host home: allow\n"
+            + (
+                ";; metadata (stat) on each ancestor component so path resolution\n"
+                ";; succeeds, without re-allowing read-data (sibling files stay hidden).\n"
+                "(allow file-read-metadata"
+                + "".join(f"\n    (literal {_sbpl_str(str(a))})" for a in ancestors)
+                + ")"
+            )
+        )
+    else:
+        ancestor_block = ""
     return f"""\
 (version 1)
 ;; yolo-jail macOS-user sandbox profile — SandVault-parity.
@@ -246,7 +432,7 @@ def seatbelt_profile(workspace: Path, sandbox_home: Path = SANDBOX_HOME) -> str:
     (literal "/Users")
     (literal "/Users/Shared")
     (subpath {ws})
-    (subpath {home}))
+    (subpath {home})){ancestor_block}
 
 ;; --- Keychains: System.keychain is world-readable (0644) on stock
 ;;     macOS, so this deny is load-bearing ---
@@ -359,6 +545,8 @@ def entrypoint_bootstrap_script(
     sandbox_home: Path,
     agents: List[str],
     macos_log: str = "off",
+    git_identity: Optional[Dict[str, str]] = None,
+    staged_dir: Path = STATE_DIR,
 ) -> str:
     """A Python script the sandbox user runs to generate its jail config.
 
@@ -374,6 +562,15 @@ def entrypoint_bootstrap_script(
     cache, /run timezone).  The result: ``~/.yolo-shims`` + real
     ``~/.claude``/``~/.codex``/… configs in the sandbox home, natively.
 
+    ``entrypoint`` is imported from the root-owned staged copy under
+    ``staged_dir`` (see :func:`stage_entrypoint_commands`), NOT from
+    ``repo_src`` — the sandbox uid can't traverse a ``chmod 750`` host home
+    to reach the checkout.  ``git_identity`` (``{"YOLO_GIT_NAME": …,
+    "YOLO_GIT_EMAIL": …}``) is baked into the script's env so
+    ``configure_git``/``configure_jj`` write the right identity (the
+    bootstrap runs under a scrubbed env, so the launch-time env doesn't reach
+    it).
+
     Returned as text (not executed) so it is unit-testable and can be
     written to the root-owned STATE_DIR before the sandbox user runs it.
     ``macos_log`` gates the in-sandbox ``yolo-log`` helper (off/user/full).
@@ -381,6 +578,10 @@ def entrypoint_bootstrap_script(
     import json
 
     log_helper = macos_log_wrapper_script(macos_log)
+    import_path = staged_entrypoint_dir(staged_dir).parent
+    identity_lines = "".join(
+        f"os.environ[{k!r}] = {v!r}\n" for k, v in sorted((git_identity or {}).items())
+    )
     return f"""\
 #!/usr/bin/env python3
 # yolo-jail macOS-user entrypoint bootstrap (generated).  Runs AS the
@@ -390,18 +591,26 @@ import stat
 import sys
 from pathlib import Path
 
-sys.path.insert(0, {str(repo_src)!r})
+# Point the entrypoint's HOME-derived path constants at the sandbox user's
+# home BEFORE importing it — SHIM_DIR/NPM_BIN/CLAUDE_DIR/MISE_SHIMS/… are
+# computed at import time, so rebinding after import would be too late.
+# JAIL_HOME drives HOME; leaving NPM_CONFIG_PREFIX/GOPATH/MISE_DATA_DIR unset
+# makes them derive from HOME (.npm-global / go / .local/share/mise), which
+# is exactly the PATH the launch env expects.  No /mise, no /workspace mount
+# on a native host.
+home = Path({str(sandbox_home)!r})
+os.environ["JAIL_HOME"] = str(home)
+os.environ["HOME"] = str(home)
 os.environ["YOLO_AGENTS"] = {json.dumps(json.dumps(agents))}
 os.environ.setdefault("YOLO_HOST_DIR", {str(workspace)!r})
-
+{identity_lines}
+# Import the stdlib-only entrypoint from the root-owned staged copy — the
+# host checkout ({str(repo_src)!r}) may be unreadable to this uid.
+sys.path.insert(0, {str(import_path)!r})
 import entrypoint
 
-# Rebind the entrypoint's path constants to native macOS locations.  On a
-# real host $HOME is the sandbox user's home; there is no /mise store and
-# no /workspace mount, so point everything at the sandbox home + the real
-# workspace path.
-home = Path({str(sandbox_home)!r})
-entrypoint.HOME = home
+# The workspace path is a hardcoded /workspace mount in the container; point
+# it at the real workspace so any workspace-relative entrypoint logic lines up.
 entrypoint.WORKSPACE = Path({str(workspace)!r})
 
 # Generate the same config the container entrypoint does.  The Linux-only
@@ -545,6 +754,252 @@ def _sbpl_str(s: str) -> str:
 
 
 # ---------------------------------------------------------------------------
+# Run plan — the ordered, pre-computed artifacts + commands for a session
+# ---------------------------------------------------------------------------
+# Everything the orchestrator does is first assembled into this plan as data
+# (Linux-pure), then either PRINTED (``--dry-run``) or EXECUTED.  Building the
+# plan and validating its invariants needs no Mac, so a Linux unit test
+# statically catches the interpreter-stub, host-import, ancestor-traversal,
+# and sudoers/argv-mismatch problems before any privileged command runs.
+
+
+@dataclass
+class RunPlan:
+    """The fully-resolved, ordered artifacts + commands for one session."""
+
+    workspace: Path
+    cname: str
+    profile_path: Path
+    seatbelt: str
+    acl_script: str
+    interp: Optional[str]
+    interp_candidates: List[str]
+    staged_dir: Path
+    stage_commands: List[List[str]]
+    bootstrap: str
+    bootstrap_path: Path
+    bootstrap_argv: List[str]
+    launch_argv: List[str]
+    sudoers_text: str
+    sudoers_path: Path
+    git_identity: Dict[str, str]
+    ancestors: List[Path] = field(default_factory=list)
+
+
+def _bootstrap_argv(
+    interp: str, boot_path: Path, user: str = SANDBOX_USER
+) -> List[str]:
+    """``sudo -u <sandbox> <interp> <boot>`` — run the bootstrap as the sandbox.
+
+    No ``--login``/``--set-home``: the bootstrap imports the staged entrypoint
+    from the root-owned STATE_DIR and is launched with an explicit safe cwd,
+    so it never needs to traverse the host home or source ``_yolojail``'s
+    login zsh + ``/etc/zprofile`` (a documented fragility on managed Macs).
+    """
+    return ["sudo", f"--user={user}", interp, str(boot_path)]
+
+
+def build_run_plan(
+    workspace: Path,
+    config: Dict[str, Any],
+    agents: List[str],
+    agent_argv: List[str],
+    *,
+    repo_src: Path,
+    sandbox_env: Dict[str, str],
+    interp: Optional[str],
+    host_user: str,
+) -> RunPlan:
+    """Assemble the full :class:`RunPlan` (pure — no shelling out).
+
+    ``sandbox_env`` is the fully-resolved launch env (git identity + TERM +
+    any provider keys); ``interp`` is the resolved python3 (may be ``None`` if
+    none was found — the invariant check flags that).  The git identity is
+    lifted out of ``sandbox_env`` and baked into the bootstrap script too, so
+    ``configure_git``/``configure_jj`` write the right identity under the
+    bootstrap's scrubbed env.
+    """
+    cname = _cname(workspace)
+    profile_path = session_profile_path(cname)
+    bootstrap_path = STATE_DIR / f"bootstrap-{cname}.py"
+    git_identity = {
+        k: v
+        for k, v in sandbox_env.items()
+        if k.startswith("YOLO_GIT") or k.startswith("YOLO_JJ")
+    }
+    # A concrete interpreter string for the argv/sudoers even when unresolved,
+    # so the plan is still printable/inspectable; the invariant check fails
+    # the plan when interp is None.
+    interp_str = interp or _PYTHON_CANDIDATES[-1]
+    boot = entrypoint_bootstrap_script(
+        repo_src,
+        workspace=workspace,
+        sandbox_home=SANDBOX_HOME,
+        agents=agents,
+        macos_log=str(config.get("macos_log", "off")),
+        git_identity=git_identity,
+    )
+    return RunPlan(
+        workspace=workspace,
+        cname=cname,
+        profile_path=profile_path,
+        seatbelt=seatbelt_profile(workspace, SANDBOX_HOME),
+        acl_script=workspace_acl_apply_script(workspace),
+        interp=interp,
+        interp_candidates=python_candidates(),
+        staged_dir=STATE_DIR,
+        stage_commands=stage_entrypoint_commands(repo_src),
+        bootstrap=boot,
+        bootstrap_path=bootstrap_path,
+        bootstrap_argv=_bootstrap_argv(interp_str, bootstrap_path),
+        launch_argv=launch_argv(
+            agent_argv,
+            profile_path=profile_path,
+            sandbox_env=sandbox_env,
+            workspace=workspace,
+        ),
+        sudoers_text=sudoers_rule(host_user, interp_str),
+        sudoers_path=SUDOERS_PATH,
+        git_identity=git_identity,
+        ancestors=workspace_ancestors(workspace),
+    )
+
+
+def plan_invariants(plan: RunPlan) -> List[str]:
+    """Static checks over a :class:`RunPlan`; returns violation messages.
+
+    All Linux-checkable — this is what makes ``--dry-run`` a real gate rather
+    than a pretty-printer.  Each failure corresponds to a confirmed
+    real-macOS blocker the run path would otherwise hit.
+    """
+    problems: List[str] = []
+
+    # B2: a real interpreter must resolve, and never the bare stub as first
+    # choice while better candidates exist.
+    if plan.interp is None:
+        problems.append(
+            "no python3 interpreter resolved for the sandbox user "
+            "(install Command Line Tools or a Homebrew/Nix python3)"
+        )
+    if plan.interp_candidates and plan.interp_candidates[0] == "/usr/bin/python3":
+        problems.append(
+            "/usr/bin/python3 (the xcode-select stub risk) must not be the "
+            "first interpreter candidate"
+        )
+
+    # B3: the bootstrap must import from the root-owned staged dir, never the
+    # host checkout.
+    if str(staged_entrypoint_dir(plan.staged_dir).parent) not in plan.bootstrap:
+        problems.append(
+            "bootstrap does not import entrypoint from the staged state dir "
+            f"({plan.staged_dir}); it would fail to import from a 0750 home"
+        )
+
+    # B4: every workspace ancestor must be granted traversal in BOTH layers.
+    for anc in plan.ancestors:
+        if _sh_quote(str(anc)) not in plan.acl_script:
+            problems.append(f"workspace ancestor {anc} missing a traversal ACE")
+        if _sbpl_str(str(anc)) not in plan.seatbelt:
+            problems.append(
+                f"workspace ancestor {anc} missing a Seatbelt file-read-metadata allow"
+            )
+
+    # Git identity must reach the BOOTSTRAP env (not only the launch env),
+    # else configure_git/jj no-op and commits get the wrong identity.
+    for k in plan.git_identity:
+        if k not in plan.bootstrap:
+            problems.append(f"git identity {k} not baked into the bootstrap env")
+
+    # Every privileged command path must be covered by the sudoers rule
+    # (exact-path match), else it prompts + hangs in the proxied pty.
+    def _sudo_command_paths(argv: List[str]) -> List[str]:
+        # The command sudo matches is the first token after sudo's own flags
+        # (``--user=…`` / ``-n`` / ``--login`` / ``--set-home``) and, for the
+        # run-as-sandbox path, after the ``env -i k=v …`` prefix.
+        rest = argv[1:] if argv and argv[0] == "sudo" else argv
+        i = 0
+        while i < len(rest) and (rest[i].startswith("-") or "=" in rest[i]):
+            # stop stepping over the env prefix once we hit ``/usr/bin/env``
+            if rest[i].startswith("/"):
+                break
+            i += 1
+        paths: List[str] = []
+        if i < len(rest):
+            paths.append(rest[i])
+        return paths
+
+    covered = set()
+    for line in plan.sudoers_text.splitlines():
+        if "NOPASSWD:" in line:
+            for tok in line.split("NOPASSWD:", 1)[1].split(","):
+                covered.add(tok.strip())
+    # stage_commands are bare argv (no ``sudo`` prefix); they run via sudo.
+    for argv in plan.stage_commands:
+        if argv and argv[0] not in covered:
+            problems.append(
+                f"privileged command {argv[0]} is not covered by the sudoers rule"
+            )
+    for argv in (plan.bootstrap_argv, plan.launch_argv):
+        for p in _sudo_command_paths(argv):
+            # For the launch, the matched command is ``/usr/bin/env`` (the
+            # first absolute token after sudo's flags); for the bootstrap it's
+            # the interpreter.  Either way it must be in the rule.
+            if p not in covered:
+                problems.append(
+                    f"privileged command {p} is not covered by the sudoers rule"
+                )
+
+    # The sudoers filename must be dot-free (sudo silently ignores dotted
+    # names in sudoers.d).
+    if "." in plan.sudoers_path.name:
+        problems.append(
+            f"sudoers filename {plan.sudoers_path.name} contains a dot — sudo "
+            "would silently ignore it"
+        )
+    return problems
+
+
+def _print_plan(plan: RunPlan, problems: List[str]) -> None:
+    """Render a :class:`RunPlan` for ``--dry-run`` (human-readable)."""
+    from .console import console
+
+    console.print("[bold]macos-user run plan[/bold] (dry-run — nothing executed)\n")
+    console.print(f"workspace:   {plan.workspace}")
+    console.print(f"session:     {plan.cname}")
+    console.print(f"interpreter: {plan.interp or '[red]<unresolved>[/red]'}")
+    console.print(f"  candidates: {', '.join(plan.interp_candidates)}")
+    console.print(f"profile:     {plan.profile_path}")
+    console.print(f"staged src:  {staged_entrypoint_dir(plan.staged_dir)}")
+    console.print(
+        f"git identity: {plan.git_identity or '(none — commits use no identity)'}\n"
+    )
+
+    def _section(title: str, body: str) -> None:
+        console.print(f"[bold]── {title} ──[/bold]")
+        console.print(body.rstrip("\n"))
+        console.print("")
+
+    _section(f"sudoers rule → {plan.sudoers_path} (0440 root:wheel)", plan.sudoers_text)
+    console.print("[bold]── privileged commands (run via sudo) ──[/bold]")
+    for cmd in plan.stage_commands:
+        console.print("  sudo " + " ".join(cmd))
+    console.print("  sudo " + " ".join(plan.bootstrap_argv[1:]))
+    console.print("")
+    _section("Seatbelt profile", plan.seatbelt)
+    _section("workspace ACL script", plan.acl_script)
+    _section("bootstrap script", plan.bootstrap)
+    console.print("[bold]── launch argv ──[/bold]")
+    console.print("  " + " ".join(plan.launch_argv))
+    console.print("")
+    if problems:
+        console.print("[bold red]plan invariant violations:[/bold red]")
+        for p in problems:
+            console.print(f"  ✗ {p}")
+    else:
+        console.print("[green]✓ all plan invariants hold[/green]")
+
+
+# ---------------------------------------------------------------------------
 # Orchestrator (macOS-only; shells out) — thin, wired from run()
 # ---------------------------------------------------------------------------
 
@@ -584,34 +1039,74 @@ def run_macos_user(
     *,
     repo_src: Path,
     sandbox_env: Optional[Dict[str, str]] = None,
+    dry_run: bool = False,
 ) -> int:
     """Launch ``agent_argv`` in the dedicated-user + Seatbelt sandbox.
 
     Steps (all macOS-only; the builders they call are Linux-tested):
 
+      0. Build the full :class:`RunPlan` (pure) and check its invariants.
+         In ``dry_run`` mode, print the plan + invariant results and return
+         (0 if the plan is clean, 1 otherwise) WITHOUT executing anything —
+         this is the Linux/CI-testable gate.
       1. Preconditions: macOS, ``sandbox-exec`` present, sandbox account
-         provisioned.  Fail closed with an actionable message otherwise.
-      2. Write the per-session Seatbelt profile to the root-owned STATE_DIR
-         (``sudo tee`` + ``chmod 0444`` — the sandbox user can't edit its own
-         profile).
-      3. Apply the inheriting workspace ACL so the sandbox user shares the
-         repo rw on the same inodes.
-      4. Run the entrypoint bootstrap AS the sandbox user to populate its
-         home with shims + per-agent configs natively.
-      5. Launch the agent under ``run_with_proxy`` via
-         ``sudo -u … env -i … sandbox-exec -f profile -- <agent>``.
+         provisioned, and — the fail-closed additions — passwordless sudo
+         configured and a real interpreter runnable as the sandbox user, so
+         we never prompt into an unanswerable proxied pty.
+      2. Install the root-owned Seatbelt profile + stage the entrypoint pkg.
+      3. Apply the inheriting workspace ACL (incl. ancestor traversal).
+      4. Run the entrypoint bootstrap AS the sandbox user; ABORT on failure
+         (a dead bootstrap means no shims/configs — launching is pointless).
+      5. Launch the agent under ``run_with_proxy``.
 
     Returns the agent's exit code (or 1 on a precondition/setup failure).
     """
     from .console import console
     from .tty_proxy import run_with_proxy
 
+    def _plan() -> "RunPlan":
+        env = macos_sandbox_env(config)
+        if sandbox_env:
+            env.update(sandbox_env)
+        return build_run_plan(
+            workspace,
+            config,
+            agents,
+            agent_argv,
+            repo_src=repo_src,
+            sandbox_env=env,
+            interp=resolve_python(),
+            host_user=_host_user(),
+        )
+
+    # 0. Dry-run: build the plan, print it + its invariants, execute nothing.
+    # Pure, so CI and a Mac agent can both inspect it pre-launch on any OS.
+    if dry_run:
+        plan = _plan()
+        problems = plan_invariants(plan)
+        _print_plan(plan, problems)
+        return 1 if problems else 0
+
+    # Fail closed BEFORE any subprocess when we can't run here — the plan
+    # builder reads host git config, so build it only past this gate.
     if not _is_macos():
         console.print(
             "[bold red]runtime 'macos-user' requires macOS.[/bold red] "
-            "Use 'podman' or 'container' on this host."
+            "Use 'podman' or 'container' on this host.\n"
+            "[dim]Tip: `yolo run --dry-run` prints the full plan on any OS.[/dim]"
         )
         return 1
+
+    plan = _plan()
+    problems = plan_invariants(plan)
+    if problems:
+        console.print("[bold red]macos-user run plan is not viable:[/bold red]")
+        for p in problems:
+            console.print(f"  ✗ {p}")
+        console.print("\n[dim]Run `yolo run --dry-run` to inspect the full plan.[/dim]")
+        return 1
+
+    # 1. Preconditions — fail closed with actionable messages.
     if shutil.which("sandbox-exec") is None:
         console.print(
             "[bold red]sandbox-exec not found[/bold red] — the macos-user "
@@ -625,61 +1120,120 @@ def run_macos_user(
             "`docs/macos-native-user-sandbox-design.md`)."
         )
         return 1
-
-    cname = _cname(workspace)
-    profile_path = session_profile_path(cname)
-
-    # 2. Install the root-owned Seatbelt profile (0444).
-    if not _install_root_file(profile_path, seatbelt_profile(workspace, SANDBOX_HOME)):
-        console.print(f"[bold red]Could not write Seatbelt profile {profile_path}")
+    if not _passwordless_sudo_ok():
+        console.print(
+            "[bold red]passwordless sudo for the macos-user backend is not "
+            "configured.[/bold red]\n"
+            "Every run would prompt for your admin password, and the launch "
+            "prompt (inside a proxied pty) would hang.\n"
+            "Run `yolo macos-setup` to install the sudoers rule."
+        )
+        return 1
+    # The resolved interpreter must actually RUN as the sandbox user (catches
+    # the /usr/bin/python3 xcode-select stub — it errors instead of running).
+    assert plan.interp is not None  # guaranteed by the invariant check above
+    if not _interp_runs_as_sandbox(plan.interp):
+        console.print(
+            f"[bold red]python3 ({plan.interp}) can't run as '{SANDBOX_USER}'."
+            "[/bold red]\n"
+            "Install the Command Line Tools (`xcode-select --install`) or a "
+            "Homebrew/Nix python3, then re-run."
+        )
         return 1
 
-    # 3. Share the workspace via the inheriting ACL.
-    acl_script = workspace_acl_apply_script(workspace)
-    if subprocess.run(["bash", "-c", acl_script]).returncode != 0:
+    # 2. Install the root-owned Seatbelt profile (0444) + stage entrypoint.
+    if not _install_root_file(plan.profile_path, plan.seatbelt):
+        console.print(f"[bold red]Could not write Seatbelt profile {plan.profile_path}")
+        return 1
+    for cmd in plan.stage_commands:
+        if subprocess.run(["sudo", *cmd]).returncode != 0:
+            console.print(
+                f"[bold red]Could not stage entrypoint ({' '.join(cmd)}).[/bold red]"
+            )
+            return 1
+
+    # 3. Share the workspace via the inheriting ACL (incl. ancestor traversal).
+    if subprocess.run(["bash", "-c", plan.acl_script]).returncode != 0:
         console.print(
             "[yellow]workspace ACL grant reported an error — the sandbox "
             "user may not have full rw. Try `yolo macos-fix-permissions`.[/yellow]"
         )
 
     # 4. Bootstrap the sandbox user's home (shims + agent configs), natively.
-    boot = entrypoint_bootstrap_script(
-        repo_src,
-        workspace=workspace,
-        sandbox_home=SANDBOX_HOME,
-        agents=agents,
-        macos_log=str(config.get("macos_log", "off")),
-    )
-    boot_path = STATE_DIR / f"bootstrap-{cname}.py"
-    if not _install_root_file(boot_path, boot, mode="0444"):
-        console.print(f"[bold red]Could not write bootstrap {boot_path}")
+    #    ABORT on failure: without shims/configs the agent launch is doomed
+    #    and would fail confusingly downstream.
+    if not _install_root_file(plan.bootstrap_path, plan.bootstrap):
+        console.print(f"[bold red]Could not write bootstrap {plan.bootstrap_path}")
         return 1
-    boot_rc = subprocess.run(
-        [
-            "sudo",
-            "--login",
-            f"--user={SANDBOX_USER}",
-            "/usr/bin/python3",
-            str(boot_path),
-        ]
-    ).returncode
-    if boot_rc != 0:
+    if subprocess.run(plan.bootstrap_argv).returncode != 0:
         console.print(
-            "[yellow]entrypoint bootstrap returned non-zero — agent configs "
-            "may be incomplete; continuing.[/yellow]"
+            "[bold red]entrypoint bootstrap failed[/bold red] — the sandbox "
+            "user's shims/agent configs were not generated, so the agent "
+            "would not run correctly. Aborting."
         )
+        return 1
 
     # 5. Launch under the TTY proxy.
-    env = macos_sandbox_env(config)
-    if sandbox_env:
-        env.update(sandbox_env)
-    argv = launch_argv(
-        agent_argv,
-        profile_path=profile_path,
-        sandbox_env=env,
-        workspace=workspace,
-    )
-    return run_with_proxy(argv)
+    return run_with_proxy(plan.launch_argv)
+
+
+def _host_user() -> str:
+    """The invoking (admin) user — best-effort, empty string if unknown."""
+    import getpass
+
+    try:
+        return getpass.getuser()
+    except (OSError, KeyError):
+        return os.environ.get("USER", "")
+
+
+def _passwordless_sudo_ok() -> bool:
+    """True if the run path's sudo commands won't prompt (``sudo -n`` probe).
+
+    Probes both the root-owned-file path (``sudo -n <mkdir> …``) and the
+    run-as-sandbox path (``sudo -n -u <user> true``); either prompting means
+    the sudoers rule is missing or ignored.  ``sudo -n`` never prompts — it
+    fails immediately when a password would be required — so this can't hang.
+    """
+    try:
+        root_ok = (
+            subprocess.run(
+                ["sudo", "-n", MKDIR, "-p", str(STATE_DIR)],
+                capture_output=True,
+                timeout=10,
+            ).returncode
+            == 0
+        )
+        user_ok = (
+            subprocess.run(
+                ["sudo", "-n", f"--user={SANDBOX_USER}", "/usr/bin/true"],
+                capture_output=True,
+                timeout=10,
+            ).returncode
+            == 0
+        )
+        return root_ok and user_ok
+    except (OSError, subprocess.SubprocessError):
+        return False
+
+
+def _interp_runs_as_sandbox(interp: str) -> bool:
+    """True if ``interp`` actually executes Python as the sandbox user.
+
+    Catches the ``/usr/bin/python3`` xcode-select stub, which (CLT absent)
+    errors instead of running.  Uses ``sudo -n`` so it never prompts.
+    """
+    try:
+        return (
+            subprocess.run(
+                ["sudo", "-n", f"--user={SANDBOX_USER}", interp, "-c", "import sys"],
+                capture_output=True,
+                timeout=15,
+            ).returncode
+            == 0
+        )
+    except (OSError, subprocess.SubprocessError):
+        return False
 
 
 def _install_root_file(path: Path, content: str, mode: str = "0444") -> bool:
@@ -690,16 +1244,18 @@ def _install_root_file(path: Path, content: str, mode: str = "0444") -> bool:
     be able to edit its own Seatbelt profile or bootstrap script.
     """
     try:
-        if subprocess.run(["sudo", "mkdir", "-p", str(path.parent)]).returncode != 0:
+        # Absolute tool paths so these match the NOPASSWD sudoers rule
+        # exactly (sudo's command match is by exact path).
+        if subprocess.run(["sudo", MKDIR, "-p", str(path.parent)]).returncode != 0:
             return False
         proc = subprocess.run(
-            ["sudo", "tee", str(path)],
+            ["sudo", TEE, str(path)],
             input=content.encode(),
             stdout=subprocess.DEVNULL,
         )
         if proc.returncode != 0:
             return False
-        return subprocess.run(["sudo", "chmod", mode, str(path)]).returncode == 0
+        return subprocess.run(["sudo", CHMOD, mode, str(path)]).returncode == 0
     except (OSError, subprocess.SubprocessError):
         return False
 
@@ -753,14 +1309,23 @@ def next_free_id(existing: "set[int]", floor: int = SANDBOX_MIN_ID) -> int:
 
 
 def macos_setup() -> None:
-    """Create the dedicated sandbox account (one-time, needs admin).
+    """Create the sandbox account + install the passwordless-sudo rule.
 
-    Idempotent: exits early if the account already exists.  Picks a free
-    UID/GID at/above SANDBOX_MIN_ID, runs the create command list, then sets
-    a random password via ``dscl . -passwd`` reading the value from stdin
-    (never an argv — it would show in ``ps``).  macOS only.
+    Two idempotent steps (both need admin; this setup path DOES prompt for
+    your password — that's expected; it's the per-run launch that must never
+    prompt):
+
+      1. Create the hidden sandbox account if absent (free UID/GID ≥
+         SANDBOX_MIN_ID, hidden, off staff, random password via stdin so it
+         never shows in ``ps``).
+      2. Install ``/etc/sudoers.d/yolo-jail`` (validated with ``visudo -cf``,
+         0440 root:wheel, dot-free name) so the run path's ``sudo`` calls are
+         NOPASSWD — otherwise the launch prompts inside a proxied pty and
+         hangs.  Re-written every run so a changed interpreter/host-user is
+         picked up.
+
+    macOS only.
     """
-    import getpass
     import typer
 
     from .console import console
@@ -768,26 +1333,96 @@ def macos_setup() -> None:
     if not _is_macos():
         console.print("[bold red]yolo macos-setup requires macOS.[/bold red]")
         raise typer.Exit(1)
+
+    host_user = _host_user()
+
+    # 1. Account.
     if _sandbox_user_exists():
         console.print(f"[green]Sandbox user '{SANDBOX_USER}' already exists.[/green]")
-        return
+    else:
+        uid = next_free_id(_taken_ids())
+        console.print(
+            f"Creating sandbox user [bold]{SANDBOX_USER}[/bold] (uid {uid}); "
+            "you may be prompted for your admin password by sudo."
+        )
+        for cmd in create_user_commands(uid, uid, host_user=host_user):
+            if subprocess.run(["sudo", *cmd]).returncode != 0:
+                console.print(
+                    f"[bold red]setup step failed:[/bold red] {' '.join(cmd)}"
+                )
+                raise typer.Exit(1)
+        # Random password, piped via stdin (openssl rand → dscl . -passwd -).
+        _set_random_password()
 
-    host_user = getpass.getuser()
-    uid = next_free_id(_taken_ids())
+    # 2. Passwordless-sudo rule (needs a resolved interpreter to scope it).
+    interp = resolve_python()
+    if interp is None:
+        console.print(
+            "[bold red]No python3 found[/bold red] for the sandbox user "
+            "(looked for Homebrew/Nix, then /usr/bin/python3).\n"
+            "Install one (`brew install python` or `xcode-select --install`) "
+            "and re-run `yolo macos-setup`."
+        )
+        raise typer.Exit(1)
+    console.print(f"Installing passwordless-sudo rule at {SUDOERS_PATH} …")
+    if not _install_sudoers(sudoers_rule(host_user, interp)):
+        console.print(
+            "[bold red]Could not install the sudoers rule.[/bold red] "
+            "The run path would prompt for a password and hang."
+        )
+        raise typer.Exit(1)
+
     console.print(
-        f"Creating sandbox user [bold]{SANDBOX_USER}[/bold] (uid {uid}); "
-        "you may be prompted for your admin password by sudo."
-    )
-    for cmd in create_user_commands(uid, uid, host_user=host_user):
-        if subprocess.run(["sudo", *cmd]).returncode != 0:
-            console.print(f"[bold red]setup step failed:[/bold red] {' '.join(cmd)}")
-            raise typer.Exit(1)
-    # Random password, piped via stdin (openssl rand → dscl . -passwd -).
-    _set_random_password()
-    console.print(
-        f"[green]✓ Sandbox user '{SANDBOX_USER}' ready.[/green] "
+        f"[green]✓ Sandbox user '{SANDBOX_USER}' + sudoers rule ready.[/green] "
         'Run agents with `runtime: "macos-user"` (or YOLO_RUNTIME=macos-user).'
     )
+
+
+def _install_sudoers(rule_text: str, path: Path = SUDOERS_PATH) -> bool:
+    """Validate + install ``rule_text`` as a sudoers.d policy (root:wheel 0440).
+
+    Writes to a temp file, validates with ``visudo -cf`` (a bad rule is
+    rejected rather than locking sudo), installs it root-owned 0440 with a
+    dot-free name, then self-verifies the NOPASSWD lines are in effect via
+    ``sudo -n -l`` (catches the silent-ignore-on-bad-name/perms case).
+    """
+    import tempfile
+
+    try:
+        with tempfile.NamedTemporaryFile(
+            "w", prefix="yolo-sudoers-", delete=False
+        ) as tf:
+            tf.write(rule_text)
+            tmp = tf.name
+        # Validate first — never install an unparseable rule.
+        if subprocess.run(["visudo", "-cf", tmp]).returncode != 0:
+            os.unlink(tmp)
+            return False
+        # Install root-owned 0440 (install(1) sets owner+mode atomically).
+        ok = (
+            subprocess.run(
+                [
+                    "sudo",
+                    "install",
+                    "-m",
+                    "0440",
+                    "-o",
+                    "root",
+                    "-g",
+                    "wheel",
+                    tmp,
+                    str(path),
+                ]
+            ).returncode
+            == 0
+        )
+        os.unlink(tmp)
+        if not ok:
+            return False
+        # Self-verify: the NOPASSWD rule must actually be in effect.
+        return _passwordless_sudo_ok()
+    except (OSError, subprocess.SubprocessError):
+        return False
 
 
 def macos_teardown() -> None:
@@ -799,14 +1434,17 @@ def macos_teardown() -> None:
     if not _is_macos():
         console.print("[bold red]yolo macos-teardown requires macOS.[/bold red]")
         raise typer.Exit(1)
+    # Remove the sudoers rule first (safe even if the account is already gone).
+    subprocess.run(["sudo", "rm", "-f", str(SUDOERS_PATH)])
     if not _sandbox_user_exists():
         console.print(f"Sandbox user '{SANDBOX_USER}' does not exist — nothing to do.")
         return
-    import getpass
 
-    for cmd in delete_user_commands(host_user=getpass.getuser()):
+    for cmd in delete_user_commands(host_user=_host_user()):
         subprocess.run(["sudo", *cmd])
-    console.print(f"[green]✓ Removed sandbox user '{SANDBOX_USER}'.[/green]")
+    console.print(
+        f"[green]✓ Removed sandbox user '{SANDBOX_USER}' + sudoers rule.[/green]"
+    )
 
 
 def _taken_ids() -> "set[int]":

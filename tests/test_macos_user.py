@@ -398,3 +398,211 @@ class TestSandboxEnv:
         monkeypatch.delenv("COLORTERM", raising=False)
         # No host creds, no git identity, no TERM → empty (nothing leaks in).
         assert m.macos_sandbox_env({}) == {}
+
+
+# --- Hardening (B1–B4) — pure builders, asserted on Linux --------------------
+
+
+class TestPythonResolution:
+    def test_candidates_have_stub_last(self):
+        # B2: /usr/bin/python3 (the xcode-select stub risk) must never be
+        # preferred over a real Homebrew/Nix python3.
+        cands = m.python_candidates()
+        assert cands[-1] == "/usr/bin/python3"
+        assert "/opt/homebrew/bin/python3" in cands
+        assert cands.index("/opt/homebrew/bin/python3") < cands.index(
+            "/usr/bin/python3"
+        )
+
+    def test_resolve_prefers_homebrew_over_stub(self):
+        # Both exist → the Homebrew one wins.
+        got = m.resolve_python(exists=lambda p: True)
+        assert got == "/opt/homebrew/bin/python3"
+
+    def test_resolve_falls_back_to_stub(self):
+        got = m.resolve_python(exists=lambda p: p == "/usr/bin/python3")
+        assert got == "/usr/bin/python3"
+
+    def test_resolve_none_when_absent(self):
+        assert m.resolve_python(exists=lambda p: False) is None
+
+
+class TestSudoersRule:
+    def test_covers_root_and_sandbox_command_paths(self):
+        rule = m.sudoers_rule("matt", "/opt/homebrew/bin/python3")
+        # root-scoped file installers
+        assert "matt ALL=(root) NOPASSWD:" in rule
+        for tool in ("/bin/mkdir", "/usr/bin/tee", "/bin/chmod", "/bin/cp"):
+            assert tool in rule
+        # run-as-sandbox launch/bootstrap tools
+        assert "matt ALL=(_yolojail) NOPASSWD:" in rule
+        for tool in (
+            "/opt/homebrew/bin/python3",
+            "/usr/bin/sandbox-exec",
+            "/bin/zsh",
+            "/usr/bin/env",
+        ):
+            assert tool in rule
+
+    def test_sudoers_filename_is_dot_free(self):
+        # sudo silently ignores sudoers.d files whose name contains a dot.
+        assert "." not in m.SUDOERS_PATH.name
+
+
+class TestStageEntrypoint:
+    def test_copies_into_root_owned_state_dir(self):
+        cmds = m.stage_entrypoint_commands(Path("/opt/yolo-jail/src"))
+        flat = [" ".join(c) for c in cmds]
+        assert any(c.startswith("/bin/mkdir -p /var/yolo-jail") for c in flat)
+        assert any(
+            "/bin/cp -R /opt/yolo-jail/src/entrypoint/. /var/yolo-jail/entrypoint" == c
+            for c in flat
+        )
+        # world-readable, dirs traversable
+        assert any("/bin/chmod -R a+rX /var/yolo-jail/entrypoint" == c for c in flat)
+
+
+class TestWorkspaceAncestors:
+    def test_ancestors_between_users_and_workspace(self):
+        anc = m.workspace_ancestors(Path("/Users/matt/code/proj"))
+        assert anc == [Path("/Users/matt/code"), Path("/Users/matt")]
+
+    def test_shared_workspace_has_no_host_home_ancestor(self):
+        # /Users/Shared/proj → only /Users/Shared (still under /Users).
+        assert m.workspace_ancestors(Path("/Users/Shared/proj")) == [
+            Path("/Users/Shared")
+        ]
+
+    def test_acl_grants_traversal_only_on_ancestors(self):
+        script = m.workspace_acl_apply_script(Path("/Users/matt/code/proj"))
+        # search-only ACE (no read-data) on each ancestor
+        assert "'/Users/matt/code'" in script
+        assert "'/Users/matt'" in script
+        assert "search,readattr,readsecurity" in script
+
+    def test_seatbelt_allows_metadata_on_ancestors(self):
+        p = m.seatbelt_profile(Path("/Users/matt/code/proj"))
+        assert "(allow file-read-metadata" in p
+        assert '(literal "/Users/matt")' in p
+        assert '(literal "/Users/matt/code")' in p
+
+    def test_seatbelt_no_bare_metadata_allow_without_ancestors(self):
+        # A workspace directly under /Users/Shared has no host-home ancestor;
+        # we must NOT emit a bare (allow file-read-metadata) matching all.
+        p = m.seatbelt_profile(Path("/Users/Shared"))
+        assert "(allow file-read-metadata\n" not in p
+
+
+class TestBootstrapHardening:
+    def _script(self, **kw):
+        kw.setdefault("workspace", Path("/Users/matt/code/proj"))
+        kw.setdefault("sandbox_home", m.SANDBOX_HOME)
+        kw.setdefault("agents", ["claude"])
+        return m.entrypoint_bootstrap_script(Path("/opt/yolo-jail/src"), **kw)
+
+    def test_imports_from_staged_state_dir_not_host_checkout(self):
+        # B3: import path is the root-owned staged dir, never repo_src.
+        s = self._script()
+        assert "sys.path.insert(0, '/var/yolo-jail')" in s
+        # the host checkout path only appears in a comment, not an insert
+        assert "sys.path.insert(0, '/opt/yolo-jail/src')" not in s
+
+    def test_sets_jail_home_before_importing_entrypoint(self):
+        # HOME-derived path constants freeze at import — JAIL_HOME must be set
+        # BEFORE `import entrypoint`.
+        s = self._script()
+        assert s.index('os.environ["JAIL_HOME"]') < s.index("import entrypoint")
+
+    def test_bakes_git_identity_into_bootstrap_env(self):
+        s = self._script(
+            git_identity={"YOLO_GIT_NAME": "Ada", "YOLO_GIT_EMAIL": "ada@x.dev"}
+        )
+        assert "os.environ['YOLO_GIT_NAME'] = 'Ada'" in s
+        assert "os.environ['YOLO_GIT_EMAIL'] = 'ada@x.dev'" in s
+
+
+class TestBootstrapArgv:
+    def test_no_login_flags(self):
+        # --login/--set-home would source _yolojail's login zsh + /etc/zprofile
+        # and try to cd into a 0750 home; dropped in favor of staged import.
+        argv = m._bootstrap_argv(
+            "/opt/homebrew/bin/python3", Path("/var/yolo-jail/b.py")
+        )
+        assert "--login" not in argv
+        assert "--set-home" not in argv
+        assert argv[:2] == ["sudo", "--user=_yolojail"]
+        assert argv[2] == "/opt/homebrew/bin/python3"
+
+
+class TestRunPlan:
+    def _plan(self, ws="/Users/matt/code/proj", interp="/opt/homebrew/bin/python3"):
+        return m.build_run_plan(
+            Path(ws),
+            {},
+            ["claude"],
+            ["claude"],
+            repo_src=Path("/opt/yolo-jail/src"),
+            sandbox_env={"YOLO_GIT_NAME": "Ada", "TERM": "xterm"},
+            interp=interp,
+            host_user="matt",
+        )
+
+    def test_clean_plan_has_no_violations(self):
+        assert m.plan_invariants(self._plan()) == []
+
+    def test_flags_unresolved_interpreter(self):
+        probs = m.plan_invariants(self._plan(interp=None))
+        assert any("no python3" in p for p in probs)
+
+    def test_git_identity_lifted_into_plan_and_bootstrap(self):
+        plan = self._plan()
+        assert plan.git_identity == {"YOLO_GIT_NAME": "Ada"}
+        assert "YOLO_GIT_NAME" in plan.bootstrap
+
+    def test_all_privileged_paths_covered_by_sudoers(self):
+        # The invariant that catches a /bin/mkdir-vs-/usr/bin/mkdir drift.
+        assert not any(
+            "not covered by the sudoers rule" in p
+            for p in m.plan_invariants(self._plan())
+        )
+
+    def test_launch_uses_sandbox_exec_with_session_profile(self):
+        plan = self._plan()
+        assert "/usr/bin/sandbox-exec" in plan.launch_argv
+        assert str(plan.profile_path) in plan.launch_argv
+
+
+class TestDryRun:
+    def test_dry_run_prints_and_executes_nothing(self, monkeypatch):
+        # Works off-macOS (pure); must not shell out.
+        monkeypatch.setattr(m, "_is_macos", lambda: False)
+        monkeypatch.setattr(m, "resolve_python", lambda: "/opt/homebrew/bin/python3")
+        monkeypatch.setattr(m, "_git_config", lambda key: None)
+        called = []
+        monkeypatch.setattr(
+            m.subprocess, "run", lambda *a, **k: called.append(a) or None
+        )
+        rc = m.run_macos_user(
+            Path("/Users/matt/code/proj"),
+            {},
+            ["claude"],
+            ["claude"],
+            repo_src=Path("/opt/yolo-jail/src"),
+            dry_run=True,
+        )
+        assert rc == 0  # clean plan
+        assert called == []  # nothing executed
+
+    def test_dry_run_nonzero_when_plan_broken(self, monkeypatch):
+        monkeypatch.setattr(m, "_is_macos", lambda: False)
+        monkeypatch.setattr(m, "resolve_python", lambda: None)  # no interpreter
+        monkeypatch.setattr(m, "_git_config", lambda key: None)
+        rc = m.run_macos_user(
+            Path("/Users/matt/code/proj"),
+            {},
+            ["claude"],
+            ["claude"],
+            repo_src=Path("/opt/yolo-jail/src"),
+            dry_run=True,
+        )
+        assert rc == 1
