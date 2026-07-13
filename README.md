@@ -274,6 +274,7 @@ See [CONTRIBUTING.md](https://github.com/mschulkind-oss/.github/blob/main/CONTRI
 - [Config Safety](docs/config-safety.md) — How config change approval works
 - [Storage & Config](docs/storage-and-config.md) — Storage hierarchy and mount layout
 - [macOS native-user sandbox design](docs/macos-native-user-sandbox-design.md) — the `macos-user` backend
+- [macOS-user sandbox guarantees](docs/macos-user-sandbox-guarantees.md) — what the `macos-user` sandbox does and doesn't contain
 - [Happy-path principle](docs/happy-path-principle.md) — fill the matrix, support one tool per capability
 
 ## Attribution
