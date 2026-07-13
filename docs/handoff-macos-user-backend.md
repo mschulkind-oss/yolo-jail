@@ -34,12 +34,12 @@ is a stub — the artifacts are complete; only *executing* them needs macOS.
   `macos_log_wrapper_script`, plus the hardening builders below.
 - **Run plan + invariants.** `build_run_plan` assembles the whole session as
   data; `plan_invariants` statically checks it. `yolo run --dry-run` prints
-  the plan (profile, ACL, staged commands, bootstrap, launch argv, sudoers)
-  and its invariant results on **any OS** and executes nothing.
+  the plan (profile, ACL, staged commands, bootstrap, launch argv) and its
+  invariant results on **any OS** and executes nothing.
 - **Orchestrator + commands.** `run_macos_user` is fully wired but **guarded
   to macOS** (fails closed elsewhere). `yolo macos-setup` /
-  `yolo macos-teardown` provision/remove the account **and** the sudoers
-  rule. `yolo check` has an honest, experimental-labelled readiness block.
+  `yolo macos-teardown` provision/remove the account. `yolo check` has an
+  honest, experimental-labelled readiness block.
 
 ## Blockers found by adversarial review — and how they're already addressed
 
@@ -47,18 +47,18 @@ A review of the run path against real macOS behavior found four CONFIRMED
 blockers. All four are **fixed in code** (pure builders + a fail-closed
 preflight), so your job is to *confirm on hardware*, not to discover them:
 
-- **B1 — passwordless sudo.** Without it, every run prompts on `/dev/tty`,
-  and the launch (in a fresh proxied pty) prompts *again* and hangs.
-  `yolo macos-setup` now installs a `visudo`-validated
-  `/etc/sudoers.d/yolo-jail` (0440 root:wheel, **dot-free name**, self-checked
-  with `sudo -n -l`) scoped to the exact absolute command paths the run uses.
-  The run path preflights with `sudo -n` and fails closed with an actionable
-  message instead of hanging.
+- **B1 — per-run `sudo`.** The privileged steps (`sudo -u _yolojail …`, the
+  root-owned profile install) prompt for the admin password. That's expected
+  and fine: the launch runs under `run_with_proxy`, which forwards stdin, so
+  the prompt is answerable inline (this is SandVault's posture too). We
+  deliberately do **NOT** install a NOPASSWD sudoers rule — changing the
+  host's sudo policy is the user's call, not ours. `run_macos_user` prints a
+  heads-up that sudo may prompt. A user who wants non-interactive runs can add
+  their own sudoers rule; yolo neither requires nor endorses that.
 - **B2 — `/usr/bin/python3` is the xcode-select stub** when the Command Line
   Tools are absent (it errors / triggers a GUI install, never runs Python).
   `resolve_python()` prefers a Homebrew/Nix python3 and only falls back to
-  the system path; the run path verifies it actually executes *as the sandbox
-  user* via `sudo -n`.
+  the system path; a `None` result fails the dry-run invariants.
 - **B3 — the bootstrap imported `entrypoint` from the host checkout**, which
   the credential-hiding `chmod 750 ~` makes untraversable to the sandbox uid.
   It now **stages** the stdlib-only `entrypoint` package into the root-owned
@@ -93,19 +93,17 @@ Mac and no account, so it can be inspected from anywhere first.
 2. **A real python3.** `brew install python` (→ `/opt/homebrew/bin/python3`)
    or `xcode-select --install`. Do **not** rely on the bare `/usr/bin/python3`
    stub. Step 5's dry-run shows which interpreter resolved.
-3. **`yolo macos-setup`.** Enter your admin password once at the `/dev/tty`
-   prompt. Confirm it (a) creates `_yolojail` (hidden, off `staff`, home
-   owned by it — watch the Jamf root-owned-home bug, `chown -R` if so),
-   (b) writes `/etc/sudoers.d/yolo-jail` (dot-free, 0440 root:wheel) validated
-   by `visudo -cf`, and (c) self-verifies with `sudo -n -l`. Double-check:
-   `sudo -n -u _yolojail /usr/bin/true` exits 0 with **no** prompt.
+3. **`yolo macos-setup`.** Enter your admin password when sudo prompts.
+   Confirm it creates `_yolojail` (hidden, off `staff`, home owned by it —
+   watch the Jamf root-owned-home bug, `chown -R` if so):
+   `dscl . -read /Users/_yolojail` looks right, and the password is never
+   visible in `ps`.
 4. **Interpreter runs as the sandbox user.**
-   `sudo -n -u _yolojail <resolved-interp> -c 'import sys; print(sys.version)'`
-   exits 0 (proves B2 closed and NOPASSWD covers it).
+   `sudo -u _yolojail <resolved-interp> -c 'import sys; print(sys.version)'`
+   exits 0 (proves B2 closed — a real interpreter, not the stub).
 5. **`yolo run --dry-run`** in a target workspace. Inspect the printed
-   profile, ACL script, interpreter, staged commands, bootstrap, launch argv,
-   and sudoers text; confirm **all plan invariants pass** and every sudo path
-   matches the sudoers rule.
+   profile, ACL script, interpreter, staged commands, bootstrap, and launch
+   argv; confirm **all plan invariants pass**.
 6. **Pick a workspace outside TCC-protected dirs** — not `~/Documents`,
    `~/Desktop`, `~/Downloads`, or iCloud. A hidden service account has no Aqua
    session and can't be TCC-prompted. (If it must live there, grant the
@@ -113,9 +111,9 @@ Mac and no account, so it can be inspected from anywhere first.
    `/Users/Shared/...` are fine.
 7. **The real run, with the sandbox log open.** In a second terminal:
    `log stream --predicate 'sender=="Sandbox"'`. Then `yolo run` (or
-   `yolo -- claude`). Confirm **no password prompt** at the proxied launch
-   (B1), and watch for Seatbelt denials on the workspace's **ancestor
-   components** (validates the B4 Seatbelt fix on your OS).
+   `yolo -- claude`). Answer the sudo password prompt inline (it's forwarded
+   through the TTY proxy), and watch for Seatbelt denials on the workspace's
+   **ancestor components** (validates the B4 Seatbelt fix on your OS).
 8. **Prove the bootstrap ran.** `~_yolojail/.yolo-shims` and the per-agent
    configs exist, and `sudo -u _yolojail cat ~_yolojail/.gitconfig` shows the
    injected identity (proves B3 + the git-identity fix).
@@ -151,14 +149,14 @@ Mac and no account, so it can be inspected from anywhere first.
   scrubs and the inner `zsh -c` does the workspace `cd`). If `_yolojail`'s
   login zsh / a broken `/etc/zprofile` interferes, drop `--login/--set-home`
   from `launch_argv` too (the bootstrap already dropped them).
-- **sudoers arg-less command match.** The rule pins command *paths* but omits
-  args (paths vary per session). Some hardened environments will want tighter
-  specs; validate the effective policy with `sudo -n -l` regardless.
+- **Per-run sudo prompt.** Expected, not a bug — we don't change the host's
+  sudo policy. If the prompt is disruptive in your workflow, add your own
+  NOPASSWD sudoers rule (your call); yolo won't do it for you.
 
 ## How to run it
 
 ```bash
-# one-time, needs admin (creates _yolojail + installs the sudoers rule):
+# one-time, needs admin (creates the hidden _yolojail account):
 yolo macos-setup
 
 # inspect the full plan — works on ANY OS, no account needed:
@@ -172,7 +170,7 @@ yolo -- claude             # launches natively as _yolojail + Seatbelt
 # optional macOS log access inside the sandbox:
 #   add  "macos_log": "user"  to yolo-jail.jsonc  → `yolo-log show ...`
 
-# remove the account + sudoers rule when done:
+# remove the account when done:
 yolo macos-teardown
 ```
 

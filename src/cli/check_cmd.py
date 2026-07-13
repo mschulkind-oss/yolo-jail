@@ -798,12 +798,7 @@ def _check_macos_user_backend(ok, warn, fail) -> None:
     its invariants; the definitive test is a real run on a Mac (see
     docs/handoff-macos-user-backend.md).
     """
-    from .macos_user import (
-        SANDBOX_USER,
-        _passwordless_sudo_ok,
-        _sandbox_user_exists,
-        resolve_python,
-    )
+    from .macos_user import SANDBOX_USER, _sandbox_user_exists, resolve_python
     from .paths import IS_MACOS
 
     console.print("[bold]macOS-user backend[/bold] [dim](experimental)[/dim]")
@@ -839,8 +834,8 @@ def _check_macos_user_backend(ok, warn, fail) -> None:
     else:
         warn(
             f"Sandbox user '{SANDBOX_USER}' not provisioned",
-            "Run `yolo macos-setup` to create it + install the sudoers rule "
-            "(see docs/macos-native-user-sandbox-design.md).",
+            "Run `yolo macos-setup` to create it (see "
+            "docs/macos-native-user-sandbox-design.md).",
         )
     # A real interpreter must resolve — never the xcode-select stub.
     interp = resolve_python()
@@ -852,17 +847,6 @@ def _check_macos_user_backend(ok, warn, fail) -> None:
         )
     else:
         ok(f"Interpreter for sandbox user: {interp}")
-    # Passwordless sudo must be in effect or the run path hangs on a prompt.
-    if _sandbox_user_exists():
-        if _passwordless_sudo_ok():
-            ok("Passwordless sudo rule in effect (run path won't prompt)")
-        else:
-            fail(
-                "passwordless sudo for the macos-user backend not configured",
-                "Every run would prompt for your admin password and the launch "
-                "prompt (inside a proxied pty) would hang.  Run `yolo "
-                "macos-setup` to install /etc/sudoers.d/yolo-jail.",
-            )
 
 
 def _check_podman_machine_resources(workspace, *, ok, warn) -> None:

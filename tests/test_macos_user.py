@@ -427,26 +427,14 @@ class TestPythonResolution:
         assert m.resolve_python(exists=lambda p: False) is None
 
 
-class TestSudoersRule:
-    def test_covers_root_and_sandbox_command_paths(self):
-        rule = m.sudoers_rule("matt", "/opt/homebrew/bin/python3")
-        # root-scoped file installers
-        assert "matt ALL=(root) NOPASSWD:" in rule
-        for tool in ("/bin/mkdir", "/usr/bin/tee", "/bin/chmod", "/bin/cp"):
-            assert tool in rule
-        # run-as-sandbox launch/bootstrap tools
-        assert "matt ALL=(_yolojail) NOPASSWD:" in rule
-        for tool in (
-            "/opt/homebrew/bin/python3",
-            "/usr/bin/sandbox-exec",
-            "/bin/zsh",
-            "/usr/bin/env",
-        ):
-            assert tool in rule
-
-    def test_sudoers_filename_is_dot_free(self):
-        # sudo silently ignores sudoers.d files whose name contains a dot.
-        assert "." not in m.SUDOERS_PATH.name
+class TestNoSudoPolicyChange:
+    def test_no_sudoers_machinery(self):
+        # We must NOT ship any host sudo-policy mutation — changing the user's
+        # sudo config is their call, not ours (SandVault prompts every run).
+        assert not hasattr(m, "sudoers_rule")
+        assert not hasattr(m, "_install_sudoers")
+        assert not hasattr(m, "SUDOERS_PATH")
+        assert not hasattr(m, "_passwordless_sudo_ok")
 
 
 class TestStageEntrypoint:
@@ -544,7 +532,6 @@ class TestRunPlan:
             repo_src=Path("/opt/yolo-jail/src"),
             sandbox_env={"YOLO_GIT_NAME": "Ada", "TERM": "xterm"},
             interp=interp,
-            host_user="matt",
         )
 
     def test_clean_plan_has_no_violations(self):
@@ -558,13 +545,6 @@ class TestRunPlan:
         plan = self._plan()
         assert plan.git_identity == {"YOLO_GIT_NAME": "Ada"}
         assert "YOLO_GIT_NAME" in plan.bootstrap
-
-    def test_all_privileged_paths_covered_by_sudoers(self):
-        # The invariant that catches a /bin/mkdir-vs-/usr/bin/mkdir drift.
-        assert not any(
-            "not covered by the sudoers rule" in p
-            for p in m.plan_invariants(self._plan())
-        )
 
     def test_launch_uses_sandbox_exec_with_session_profile(self):
         plan = self._plan()

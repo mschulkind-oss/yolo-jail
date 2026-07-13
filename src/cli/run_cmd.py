@@ -1059,8 +1059,8 @@ def run(
         False,
         "--dry-run",
         help="macos-user only: print the full run plan (profile, ACL, "
-        "bootstrap, launch argv, sudoers) and its invariant checks without "
-        "executing anything.",
+        "bootstrap, launch argv) and its invariant checks without executing "
+        "anything.",
     ),
 ):
     """Run the YOLO jail in the current directory."""

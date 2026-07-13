@@ -179,9 +179,11 @@ proof-of-concept for in-process generation.
 `fix-permissions`, `write_seatbelt_profile()` (root-owned 0444
 deny-default `.sb`), `run_macos_user()` (orchestrate in-process generation
 → broker socket perms → `sudo -u … sandbox-exec …` under `run_with_proxy`),
-the `macos-user` lifecycle branches, the `build_container_argv` extraction,
-and a one-time setup command that installs a `visudo -c`-validated
-NOPASSWD sudoers rule scoped to `sudo -u _yolojail` + `launchctl bootout`.
+and the `macos-user` lifecycle branches + the `build_container_argv`
+extraction.  Per-run `sudo` prompts for the admin password (forwarded
+through `run_with_proxy`, so the prompt is answerable inline); we do **not**
+install a NOPASSWD sudoers rule — see the root-policy note under Open
+questions.
 
 **Dropped for this backend:** `src/flake.nix` image, `src/cli/image.py`,
 all `-v`/userns/device argv, venv/Mach-O shadow mounts, `/run/yolo-services`
@@ -221,10 +223,11 @@ Linux fixups.
   launch under `run_with_proxy`. Assume the user/ACL are set up manually.
   No credential hardening yet, no auto user creation. ~1–2 weeks.
 - **Phase 2 — credential boundary + loopholes + lifecycle.**
-  `ensure_sandbox_user()`/`ensure_workspace_acl()`, the setup command +
-  NOPASSWD sudoers, `chmod 750 ~` enforcement, collapse the loopholes
-  bridging (drop `broker_relay.py`, chmod/ACL the broker socket, verify
-  `getpeereid`), copy-in auth, teardown. ~1–2 weeks.
+  `ensure_sandbox_user()`/`ensure_workspace_acl()`, the setup command,
+  `chmod 750 ~` enforcement, collapse the loopholes bridging (drop
+  `broker_relay.py`, chmod/ACL the broker socket, verify `getpeereid`),
+  copy-in auth, teardown. Per-run `sudo` prompts (no host sudo-policy
+  change). ~1–2 weeks.
 - **Phase 3 — Seatbelt hardening + docs + CI.** Ship the root-owned 0444
   deny-default profile, optional localhost-proxy egress, a profile-debug
   helper (`log stream --predicate 'sender=="Sandbox"'`), the nested/Seatbelt
@@ -241,13 +244,16 @@ Container backends stay the default and untouched at every phase;
    fallback, or accept the risk with a documented "fall back to
    user-account-only" posture?
 2. **Root policy** — ~~require per-run `sudo` + NOPASSWD sudoers (SandVault's
-   model), or a pre-installed LaunchDaemon?~~ **RESOLVED: per-run `sudo` +
-   NOPASSWD sudoers.** `yolo macos-setup` installs a `visudo`-validated
-   `/etc/sudoers.d/yolo-jail` (0440 root:wheel, dot-free name) scoped to the
-   exact absolute command paths the run path uses; the run path preflights
-   with `sudo -n` and fails closed rather than prompting into the proxied
-   pty. The LaunchDaemon path is dropped (it complicates the TTY attach the
-   agent REPL needs).
+   model), or a pre-installed LaunchDaemon?~~ **RESOLVED: per-run `sudo`,
+   plain prompt, no host sudo-policy change.** Like SandVault, each run's
+   privileged steps (`sudo -u _yolojail …`, root-owned profile install) just
+   prompt for the admin password; the launch runs under `run_with_proxy`,
+   which forwards stdin, so the prompt is answerable inline. We deliberately
+   do **not** install a NOPASSWD sudoers rule — changing the host's sudo
+   policy is the user's decision, not ours, and we shouldn't weaken system
+   security on their behalf. A user who wants non-interactive runs can add
+   their own sudoers rule. The LaunchDaemon path is dropped (it complicates
+   the TTY attach the agent REPL needs).
 3. **Keychain as another user** — the sandbox user's login keychain may be
    locked at first use (no GUI login / SecureToken). Does
    `security create-keychain -p ''` + headless Claude/gh OAuth store

@@ -46,23 +46,17 @@ SANDBOX_MIN_ID = 600
 # the staged entrypoint (the host checkout may sit behind a 0750 home the
 # sandbox uid can't traverse).
 STATE_DIR = Path("/var/yolo-jail")
-# Passwordless-sudo policy installed by ``yolo macos-setup`` so the run path
-# never prompts (a prompt would hang inside the proxied pty).  NO dot in the
-# filename — sudo silently ignores files in sudoers.d whose name contains a
-# ``.`` (or ``~``).
-SUDOERS_PATH = Path("/etc/sudoers.d/yolo-jail")
 
-# Absolute paths to the system tools the run path invokes under sudo.  Pinned
-# so the generated sudoers rule and the actual argv match byte-for-byte
-# (sudo's command match is exact-path): a ``mkdir`` PATH lookup that resolved
-# to ``/usr/bin/mkdir`` would not match a rule written for ``/bin/mkdir``.
+# Absolute paths to the system tools the run path invokes under sudo — pinned
+# so the argv is deterministic regardless of the caller's PATH.  We do NOT
+# install a passwordless-sudo rule: changing the host's sudo policy is the
+# user's call, not ours (SandVault prompts every run for the same reason).
+# The launch runs under the TTY proxy, which forwards stdin, so sudo's
+# password prompt is answerable inline.
 MKDIR = "/bin/mkdir"
 TEE = "/usr/bin/tee"
 CHMOD = "/bin/chmod"
 CP = "/bin/cp"
-ENV = "/usr/bin/env"
-ZSH = "/bin/zsh"
-SANDBOX_EXEC = "/usr/bin/sandbox-exec"
 
 # Candidate python3 interpreters for the sandbox user, best first.  The bare
 # ``/usr/bin/python3`` is LAST and only a fallback: with the Command Line
@@ -178,33 +172,6 @@ def resolve_python(exists=os.path.exists) -> Optional[str]:
         if exists(cand):
             return cand
     return None
-
-
-# ---------------------------------------------------------------------------
-# Passwordless-sudo policy — generated as text, installed by macos-setup
-# ---------------------------------------------------------------------------
-
-
-def sudoers_rule(host_user: str, interp: str) -> str:
-    """The ``/etc/sudoers.d/yolo-jail`` policy text the run path relies on.
-
-    Scoped to the exact absolute commands the orchestrator runs under sudo:
-    root-owned state-file installs (``mkdir``/``tee``/``chmod``/``cp``) and
-    the run-as-sandbox-user launch/bootstrap (the resolved interpreter,
-    ``sandbox-exec``, ``zsh``, ``env``).  Args are omitted (the profile,
-    bootstrap, and workspace paths vary per session) — omitting is the
-    simplest match that is still correct, since the command *paths* are
-    pinned.  Without this, every ``sudo`` prompts on ``/dev/tty`` and the
-    launch (which runs in a fresh proxied pty) hangs unanswerably.
-    """
-    root_cmds = ", ".join([MKDIR, TEE, CHMOD, CP])
-    user_cmds = ", ".join([interp, SANDBOX_EXEC, ZSH, ENV])
-    return (
-        "# Managed by `yolo macos-setup` — passwordless sudo for the\n"
-        "# macos-user backend.  Do not edit by hand; re-run macos-setup.\n"
-        f"{host_user} ALL=(root) NOPASSWD: {root_cmds}\n"
-        f"{host_user} ALL=({SANDBOX_USER}) NOPASSWD: {user_cmds}\n"
-    )
 
 
 # ---------------------------------------------------------------------------
@@ -759,8 +726,8 @@ def _sbpl_str(s: str) -> str:
 # Everything the orchestrator does is first assembled into this plan as data
 # (Linux-pure), then either PRINTED (``--dry-run``) or EXECUTED.  Building the
 # plan and validating its invariants needs no Mac, so a Linux unit test
-# statically catches the interpreter-stub, host-import, ancestor-traversal,
-# and sudoers/argv-mismatch problems before any privileged command runs.
+# statically catches the interpreter-stub, host-import, and ancestor-traversal
+# problems before any privileged command runs.
 
 
 @dataclass
@@ -780,8 +747,6 @@ class RunPlan:
     bootstrap_path: Path
     bootstrap_argv: List[str]
     launch_argv: List[str]
-    sudoers_text: str
-    sudoers_path: Path
     git_identity: Dict[str, str]
     ancestors: List[Path] = field(default_factory=list)
 
@@ -808,7 +773,6 @@ def build_run_plan(
     repo_src: Path,
     sandbox_env: Dict[str, str],
     interp: Optional[str],
-    host_user: str,
 ) -> RunPlan:
     """Assemble the full :class:`RunPlan` (pure — no shelling out).
 
@@ -827,9 +791,9 @@ def build_run_plan(
         for k, v in sandbox_env.items()
         if k.startswith("YOLO_GIT") or k.startswith("YOLO_JJ")
     }
-    # A concrete interpreter string for the argv/sudoers even when unresolved,
-    # so the plan is still printable/inspectable; the invariant check fails
-    # the plan when interp is None.
+    # A concrete interpreter string for the argv even when unresolved, so the
+    # plan is still printable/inspectable; the invariant check fails the plan
+    # when interp is None.
     interp_str = interp or _PYTHON_CANDIDATES[-1]
     boot = entrypoint_bootstrap_script(
         repo_src,
@@ -858,8 +822,6 @@ def build_run_plan(
             sandbox_env=sandbox_env,
             workspace=workspace,
         ),
-        sudoers_text=sudoers_rule(host_user, interp_str),
-        sudoers_path=SUDOERS_PATH,
         git_identity=git_identity,
         ancestors=workspace_ancestors(workspace),
     )
@@ -910,52 +872,6 @@ def plan_invariants(plan: RunPlan) -> List[str]:
         if k not in plan.bootstrap:
             problems.append(f"git identity {k} not baked into the bootstrap env")
 
-    # Every privileged command path must be covered by the sudoers rule
-    # (exact-path match), else it prompts + hangs in the proxied pty.
-    def _sudo_command_paths(argv: List[str]) -> List[str]:
-        # The command sudo matches is the first token after sudo's own flags
-        # (``--user=…`` / ``-n`` / ``--login`` / ``--set-home``) and, for the
-        # run-as-sandbox path, after the ``env -i k=v …`` prefix.
-        rest = argv[1:] if argv and argv[0] == "sudo" else argv
-        i = 0
-        while i < len(rest) and (rest[i].startswith("-") or "=" in rest[i]):
-            # stop stepping over the env prefix once we hit ``/usr/bin/env``
-            if rest[i].startswith("/"):
-                break
-            i += 1
-        paths: List[str] = []
-        if i < len(rest):
-            paths.append(rest[i])
-        return paths
-
-    covered = set()
-    for line in plan.sudoers_text.splitlines():
-        if "NOPASSWD:" in line:
-            for tok in line.split("NOPASSWD:", 1)[1].split(","):
-                covered.add(tok.strip())
-    # stage_commands are bare argv (no ``sudo`` prefix); they run via sudo.
-    for argv in plan.stage_commands:
-        if argv and argv[0] not in covered:
-            problems.append(
-                f"privileged command {argv[0]} is not covered by the sudoers rule"
-            )
-    for argv in (plan.bootstrap_argv, plan.launch_argv):
-        for p in _sudo_command_paths(argv):
-            # For the launch, the matched command is ``/usr/bin/env`` (the
-            # first absolute token after sudo's flags); for the bootstrap it's
-            # the interpreter.  Either way it must be in the rule.
-            if p not in covered:
-                problems.append(
-                    f"privileged command {p} is not covered by the sudoers rule"
-                )
-
-    # The sudoers filename must be dot-free (sudo silently ignores dotted
-    # names in sudoers.d).
-    if "." in plan.sudoers_path.name:
-        problems.append(
-            f"sudoers filename {plan.sudoers_path.name} contains a dot — sudo "
-            "would silently ignore it"
-        )
     return problems
 
 
@@ -979,8 +895,11 @@ def _print_plan(plan: RunPlan, problems: List[str]) -> None:
         console.print(body.rstrip("\n"))
         console.print("")
 
-    _section(f"sudoers rule → {plan.sudoers_path} (0440 root:wheel)", plan.sudoers_text)
-    console.print("[bold]── privileged commands (run via sudo) ──[/bold]")
+    console.print(
+        "[bold]── privileged commands (run via sudo) ──[/bold]\n"
+        "[dim]sudo may prompt for your password; it's forwarded through the "
+        "TTY proxy so you can answer inline.[/dim]"
+    )
     for cmd in plan.stage_commands:
         console.print("  sudo " + " ".join(cmd))
     console.print("  sudo " + " ".join(plan.bootstrap_argv[1:]))
@@ -1076,7 +995,6 @@ def run_macos_user(
             repo_src=repo_src,
             sandbox_env=env,
             interp=resolve_python(),
-            host_user=_host_user(),
         )
 
     # 0. Dry-run: build the plan, print it + its invariants, execute nothing.
@@ -1120,26 +1038,16 @@ def run_macos_user(
             "`docs/macos-native-user-sandbox-design.md`)."
         )
         return 1
-    if not _passwordless_sudo_ok():
-        console.print(
-            "[bold red]passwordless sudo for the macos-user backend is not "
-            "configured.[/bold red]\n"
-            "Every run would prompt for your admin password, and the launch "
-            "prompt (inside a proxied pty) would hang.\n"
-            "Run `yolo macos-setup` to install the sudoers rule."
-        )
-        return 1
-    # The resolved interpreter must actually RUN as the sandbox user (catches
-    # the /usr/bin/python3 xcode-select stub — it errors instead of running).
-    assert plan.interp is not None  # guaranteed by the invariant check above
-    if not _interp_runs_as_sandbox(plan.interp):
-        console.print(
-            f"[bold red]python3 ({plan.interp}) can't run as '{SANDBOX_USER}'."
-            "[/bold red]\n"
-            "Install the Command Line Tools (`xcode-select --install`) or a "
-            "Homebrew/Nix python3, then re-run."
-        )
-        return 1
+
+    # The setup steps below run under sudo.  We deliberately do NOT install a
+    # passwordless-sudo rule (changing the host's sudo policy is the user's
+    # call, not ours), so sudo may prompt for a password.  The launch itself
+    # runs under the TTY proxy, which forwards stdin, so the prompt is
+    # answerable inline.  Give a heads-up so the prompt isn't a surprise.
+    console.print(
+        "[dim]Setting up the sandbox (Seatbelt profile, workspace ACL, "
+        "bootstrap) — sudo may prompt for your password.[/dim]"
+    )
 
     # 2. Install the root-owned Seatbelt profile (0444) + stage entrypoint.
     if not _install_root_file(plan.profile_path, plan.seatbelt):
@@ -1187,55 +1095,6 @@ def _host_user() -> str:
         return os.environ.get("USER", "")
 
 
-def _passwordless_sudo_ok() -> bool:
-    """True if the run path's sudo commands won't prompt (``sudo -n`` probe).
-
-    Probes both the root-owned-file path (``sudo -n <mkdir> …``) and the
-    run-as-sandbox path (``sudo -n -u <user> true``); either prompting means
-    the sudoers rule is missing or ignored.  ``sudo -n`` never prompts — it
-    fails immediately when a password would be required — so this can't hang.
-    """
-    try:
-        root_ok = (
-            subprocess.run(
-                ["sudo", "-n", MKDIR, "-p", str(STATE_DIR)],
-                capture_output=True,
-                timeout=10,
-            ).returncode
-            == 0
-        )
-        user_ok = (
-            subprocess.run(
-                ["sudo", "-n", f"--user={SANDBOX_USER}", "/usr/bin/true"],
-                capture_output=True,
-                timeout=10,
-            ).returncode
-            == 0
-        )
-        return root_ok and user_ok
-    except (OSError, subprocess.SubprocessError):
-        return False
-
-
-def _interp_runs_as_sandbox(interp: str) -> bool:
-    """True if ``interp`` actually executes Python as the sandbox user.
-
-    Catches the ``/usr/bin/python3`` xcode-select stub, which (CLT absent)
-    errors instead of running.  Uses ``sudo -n`` so it never prompts.
-    """
-    try:
-        return (
-            subprocess.run(
-                ["sudo", "-n", f"--user={SANDBOX_USER}", interp, "-c", "import sys"],
-                capture_output=True,
-                timeout=15,
-            ).returncode
-            == 0
-        )
-    except (OSError, subprocess.SubprocessError):
-        return False
-
-
 def _install_root_file(path: Path, content: str, mode: str = "0444") -> bool:
     """Write ``content`` to a root-owned file at ``path`` (mode ``0444``).
 
@@ -1244,8 +1103,8 @@ def _install_root_file(path: Path, content: str, mode: str = "0444") -> bool:
     be able to edit its own Seatbelt profile or bootstrap script.
     """
     try:
-        # Absolute tool paths so these match the NOPASSWD sudoers rule
-        # exactly (sudo's command match is by exact path).
+        # Absolute tool paths so the argv is deterministic regardless of the
+        # caller's PATH.
         if subprocess.run(["sudo", MKDIR, "-p", str(path.parent)]).returncode != 0:
             return False
         proc = subprocess.run(
@@ -1309,22 +1168,17 @@ def next_free_id(existing: "set[int]", floor: int = SANDBOX_MIN_ID) -> int:
 
 
 def macos_setup() -> None:
-    """Create the sandbox account + install the passwordless-sudo rule.
+    """Create the dedicated sandbox account (one-time, needs admin).
 
-    Two idempotent steps (both need admin; this setup path DOES prompt for
-    your password — that's expected; it's the per-run launch that must never
-    prompt):
+    Idempotent: exits early if the account already exists.  Picks a free
+    UID/GID at/above SANDBOX_MIN_ID, runs the create command list, then sets
+    a random password via ``dscl . -passwd`` reading the value from stdin
+    (never an argv — it would show in ``ps``).  macOS only.
 
-      1. Create the hidden sandbox account if absent (free UID/GID ≥
-         SANDBOX_MIN_ID, hidden, off staff, random password via stdin so it
-         never shows in ``ps``).
-      2. Install ``/etc/sudoers.d/yolo-jail`` (validated with ``visudo -cf``,
-         0440 root:wheel, dot-free name) so the run path's ``sudo`` calls are
-         NOPASSWD — otherwise the launch prompts inside a proxied pty and
-         hangs.  Re-written every run so a changed interpreter/host-user is
-         picked up.
-
-    macOS only.
+    We intentionally do NOT touch the host's sudo policy: per-run ``sudo``
+    prompts are expected (SandVault does the same), and installing a NOPASSWD
+    rule is the user's own decision, not something yolo-jail should make for
+    them.  If you want non-interactive runs, configure sudo yourself.
     """
     import typer
 
@@ -1333,96 +1187,35 @@ def macos_setup() -> None:
     if not _is_macos():
         console.print("[bold red]yolo macos-setup requires macOS.[/bold red]")
         raise typer.Exit(1)
-
-    host_user = _host_user()
-
-    # 1. Account.
     if _sandbox_user_exists():
         console.print(f"[green]Sandbox user '{SANDBOX_USER}' already exists.[/green]")
-    else:
-        uid = next_free_id(_taken_ids())
-        console.print(
-            f"Creating sandbox user [bold]{SANDBOX_USER}[/bold] (uid {uid}); "
-            "you may be prompted for your admin password by sudo."
-        )
-        for cmd in create_user_commands(uid, uid, host_user=host_user):
-            if subprocess.run(["sudo", *cmd]).returncode != 0:
-                console.print(
-                    f"[bold red]setup step failed:[/bold red] {' '.join(cmd)}"
-                )
-                raise typer.Exit(1)
-        # Random password, piped via stdin (openssl rand → dscl . -passwd -).
-        _set_random_password()
+        return
 
-    # 2. Passwordless-sudo rule (needs a resolved interpreter to scope it).
-    interp = resolve_python()
-    if interp is None:
-        console.print(
-            "[bold red]No python3 found[/bold red] for the sandbox user "
-            "(looked for Homebrew/Nix, then /usr/bin/python3).\n"
-            "Install one (`brew install python` or `xcode-select --install`) "
-            "and re-run `yolo macos-setup`."
-        )
-        raise typer.Exit(1)
-    console.print(f"Installing passwordless-sudo rule at {SUDOERS_PATH} …")
-    if not _install_sudoers(sudoers_rule(host_user, interp)):
-        console.print(
-            "[bold red]Could not install the sudoers rule.[/bold red] "
-            "The run path would prompt for a password and hang."
-        )
-        raise typer.Exit(1)
-
+    host_user = _host_user()
+    uid = next_free_id(_taken_ids())
     console.print(
-        f"[green]✓ Sandbox user '{SANDBOX_USER}' + sudoers rule ready.[/green] "
+        f"Creating sandbox user [bold]{SANDBOX_USER}[/bold] (uid {uid}); "
+        "you may be prompted for your admin password by sudo."
+    )
+    for cmd in create_user_commands(uid, uid, host_user=host_user):
+        if subprocess.run(["sudo", *cmd]).returncode != 0:
+            console.print(f"[bold red]setup step failed:[/bold red] {' '.join(cmd)}")
+            raise typer.Exit(1)
+    # Random password, piped via stdin (openssl rand → dscl . -passwd -).
+    _set_random_password()
+    # A real python3 must be reachable so the bootstrap can run as the sandbox
+    # user; nudge (don't gate) if only the xcode-select stub would be found.
+    if resolve_python() is None:
+        console.print(
+            "[yellow]Note:[/yellow] no Homebrew/Nix python3 found — the run "
+            "path would fall back to /usr/bin/python3, which is the "
+            "xcode-select stub unless the Command Line Tools are installed. "
+            "Consider `brew install python` or `xcode-select --install`."
+        )
+    console.print(
+        f"[green]✓ Sandbox user '{SANDBOX_USER}' ready.[/green] "
         'Run agents with `runtime: "macos-user"` (or YOLO_RUNTIME=macos-user).'
     )
-
-
-def _install_sudoers(rule_text: str, path: Path = SUDOERS_PATH) -> bool:
-    """Validate + install ``rule_text`` as a sudoers.d policy (root:wheel 0440).
-
-    Writes to a temp file, validates with ``visudo -cf`` (a bad rule is
-    rejected rather than locking sudo), installs it root-owned 0440 with a
-    dot-free name, then self-verifies the NOPASSWD lines are in effect via
-    ``sudo -n -l`` (catches the silent-ignore-on-bad-name/perms case).
-    """
-    import tempfile
-
-    try:
-        with tempfile.NamedTemporaryFile(
-            "w", prefix="yolo-sudoers-", delete=False
-        ) as tf:
-            tf.write(rule_text)
-            tmp = tf.name
-        # Validate first — never install an unparseable rule.
-        if subprocess.run(["visudo", "-cf", tmp]).returncode != 0:
-            os.unlink(tmp)
-            return False
-        # Install root-owned 0440 (install(1) sets owner+mode atomically).
-        ok = (
-            subprocess.run(
-                [
-                    "sudo",
-                    "install",
-                    "-m",
-                    "0440",
-                    "-o",
-                    "root",
-                    "-g",
-                    "wheel",
-                    tmp,
-                    str(path),
-                ]
-            ).returncode
-            == 0
-        )
-        os.unlink(tmp)
-        if not ok:
-            return False
-        # Self-verify: the NOPASSWD rule must actually be in effect.
-        return _passwordless_sudo_ok()
-    except (OSError, subprocess.SubprocessError):
-        return False
 
 
 def macos_teardown() -> None:
@@ -1434,17 +1227,13 @@ def macos_teardown() -> None:
     if not _is_macos():
         console.print("[bold red]yolo macos-teardown requires macOS.[/bold red]")
         raise typer.Exit(1)
-    # Remove the sudoers rule first (safe even if the account is already gone).
-    subprocess.run(["sudo", "rm", "-f", str(SUDOERS_PATH)])
     if not _sandbox_user_exists():
         console.print(f"Sandbox user '{SANDBOX_USER}' does not exist — nothing to do.")
         return
 
     for cmd in delete_user_commands(host_user=_host_user()):
         subprocess.run(["sudo", *cmd])
-    console.print(
-        f"[green]✓ Removed sandbox user '{SANDBOX_USER}' + sudoers rule.[/green]"
-    )
+    console.print(f"[green]✓ Removed sandbox user '{SANDBOX_USER}'.[/green]")
 
 
 def _taken_ids() -> "set[int]":
