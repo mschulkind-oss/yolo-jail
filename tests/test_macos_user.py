@@ -450,35 +450,60 @@ class TestStageEntrypoint:
         assert any("/bin/chmod -R a+rX /var/yolo-jail/entrypoint" == c for c in flat)
 
 
-class TestWorkspaceAncestors:
-    def test_ancestors_between_users_and_workspace(self):
-        anc = m.workspace_ancestors(Path("/Users/matt/code/proj"))
-        assert anc == [Path("/Users/matt/code"), Path("/Users/matt")]
+class TestWorkspaceLocation:
+    """The workspace must be neutral ground — never inside a user's home.
 
-    def test_shared_workspace_has_no_host_home_ancestor(self):
-        # /Users/Shared/proj → only /Users/Shared (still under /Users).
-        assert m.workspace_ancestors(Path("/Users/Shared/proj")) == [
-            Path("/Users/Shared")
-        ]
+    This is the model's clear-semantics property: sharing happens only on a
+    dedicated location outside every home, so no access grant is ever
+    threaded through anyone's home directory.
+    """
 
-    def test_acl_grants_traversal_only_on_ancestors(self):
-        script = m.workspace_acl_apply_script(Path("/Users/matt/code/proj"))
-        # search-only ACE (no read-data) on each ancestor
-        assert "'/Users/matt/code'" in script
-        assert "'/Users/matt'" in script
-        assert "search,readattr,readsecurity" in script
+    def test_home_path_is_rejected(self):
+        # A project nested in the host home → the offending home is returned.
+        assert m.home_containing(Path("/Users/matt/code/proj")) == Path("/Users/matt")
+        # The home dir itself, too.
+        assert m.home_containing(Path("/Users/matt")) == Path("/Users/matt")
 
-    def test_seatbelt_allows_metadata_on_ancestors(self):
-        p = m.seatbelt_profile(Path("/Users/matt/code/proj"))
-        assert "(allow file-read-metadata" in p
-        assert '(literal "/Users/matt")' in p
-        assert '(literal "/Users/matt/code")' in p
+    def test_shared_location_is_neutral(self):
+        # /Users/Shared/... is explicitly NOT a home → accepted.
+        assert m.home_containing(Path("/Users/Shared/yolo/proj")) is None
+        assert m.home_containing(Path("/Users/Shared")) is None
 
-    def test_seatbelt_no_bare_metadata_allow_without_ancestors(self):
-        # A workspace directly under /Users/Shared has no host-home ancestor;
-        # we must NOT emit a bare (allow file-read-metadata) matching all.
-        p = m.seatbelt_profile(Path("/Users/Shared"))
-        assert "(allow file-read-metadata\n" not in p
+    def test_non_users_paths_are_neutral(self):
+        assert m.home_containing(Path("/opt/yolo/proj")) is None
+        assert m.home_containing(Path("/Volumes/ext/work")) is None
+
+    def test_default_shared_root_is_under_users_shared(self):
+        assert str(m.SHARED_ROOT_DEFAULT).startswith("/Users/Shared/")
+        assert m.home_containing(m.SHARED_ROOT_DEFAULT) is None
+
+    def test_acl_touches_only_the_workspace_no_ancestors(self):
+        # The ACL script must scope to the workspace subtree only — no
+        # ancestor path appears, and no traversal-only ACE exists anymore.
+        script = m.workspace_acl_apply_script(Path("/Users/Shared/yolo/proj"))
+        assert "'/Users/Shared/yolo/proj'" in script
+        assert "'/Users/Shared/yolo'" not in script  # parent never touched
+        assert "search,readattr,readsecurity" not in script  # ancestor ACE gone
+
+    def test_seatbelt_has_no_ancestor_metadata_block(self):
+        # No per-ancestor traversal grant of any kind now.
+        p = m.seatbelt_profile(Path("/Users/Shared/yolo/proj"))
+        assert "file-read-metadata" not in p
+        # The /Users deny + /Users/Shared traversal literal still stand.
+        assert '(deny file-read* (subpath "/Users"))' in p
+        assert '(literal "/Users/Shared")' in p
+
+    def test_shared_root_provision_is_setgid_group_owned(self):
+        cmds = m.shared_root_provision_commands(host_user="matt")
+        flat = [" ".join(c) for c in cmds]
+        assert any(c.startswith("mkdir -p /Users/Shared/yolo") for c in flat)
+        assert "chown matt:_yolojail /Users/Shared/yolo" in flat
+        assert "chmod 2770 /Users/Shared/yolo" in flat  # setgid + group rwx
+
+    def test_acl_strip_script_removes_all_acls(self):
+        s = m.workspace_acl_strip_script(Path("/Users/Shared/yolo/proj"))
+        assert "chmod -h -N" in s
+        assert "'/Users/Shared/yolo/proj'" in s
 
 
 class TestBootstrapHardening:
@@ -523,7 +548,7 @@ class TestBootstrapArgv:
 
 
 class TestRunPlan:
-    def _plan(self, ws="/Users/matt/code/proj", interp="/opt/homebrew/bin/python3"):
+    def _plan(self, ws="/Users/Shared/yolo/proj", interp="/opt/homebrew/bin/python3"):
         return m.build_run_plan(
             Path(ws),
             {},
@@ -551,10 +576,49 @@ class TestRunPlan:
         assert "/usr/bin/sandbox-exec" in plan.launch_argv
         assert str(plan.profile_path) in plan.launch_argv
 
+    def test_home_workspace_is_a_plan_violation(self):
+        probs = m.plan_invariants(self._plan(ws="/Users/matt/code/proj"))
+        assert any("inside the home directory" in p for p in probs)
+
 
 class TestDryRun:
     def test_dry_run_prints_and_executes_nothing(self, monkeypatch):
         # Works off-macOS (pure); must not shell out.
+        monkeypatch.setattr(m, "_is_macos", lambda: False)
+        monkeypatch.setattr(m, "resolve_python", lambda: "/opt/homebrew/bin/python3")
+        monkeypatch.setattr(m, "_git_config", lambda key: None)
+        called = []
+        monkeypatch.setattr(
+            m.subprocess, "run", lambda *a, **k: called.append(a) or None
+        )
+        rc = m.run_macos_user(
+            Path("/Users/Shared/yolo/proj"),
+            {},
+            ["claude"],
+            ["claude"],
+            repo_src=Path("/opt/yolo-jail/src"),
+            dry_run=True,
+        )
+        assert rc == 0  # clean plan
+        assert called == []  # nothing executed
+
+    def test_dry_run_nonzero_when_plan_broken(self, monkeypatch):
+        monkeypatch.setattr(m, "_is_macos", lambda: False)
+        monkeypatch.setattr(m, "resolve_python", lambda: None)  # no interpreter
+        monkeypatch.setattr(m, "_git_config", lambda key: None)
+        rc = m.run_macos_user(
+            Path("/Users/Shared/yolo/proj"),
+            {},
+            ["claude"],
+            ["claude"],
+            repo_src=Path("/opt/yolo-jail/src"),
+            dry_run=True,
+        )
+        assert rc == 1
+
+    def test_dry_run_rejects_home_workspace(self, monkeypatch):
+        # A workspace inside the host home is a hard plan violation → rc 1,
+        # nothing executed.
         monkeypatch.setattr(m, "_is_macos", lambda: False)
         monkeypatch.setattr(m, "resolve_python", lambda: "/opt/homebrew/bin/python3")
         monkeypatch.setattr(m, "_git_config", lambda key: None)
@@ -570,19 +634,5 @@ class TestDryRun:
             repo_src=Path("/opt/yolo-jail/src"),
             dry_run=True,
         )
-        assert rc == 0  # clean plan
-        assert called == []  # nothing executed
-
-    def test_dry_run_nonzero_when_plan_broken(self, monkeypatch):
-        monkeypatch.setattr(m, "_is_macos", lambda: False)
-        monkeypatch.setattr(m, "resolve_python", lambda: None)  # no interpreter
-        monkeypatch.setattr(m, "_git_config", lambda key: None)
-        rc = m.run_macos_user(
-            Path("/Users/matt/code/proj"),
-            {},
-            ["claude"],
-            ["claude"],
-            repo_src=Path("/opt/yolo-jail/src"),
-            dry_run=True,
-        )
         assert rc == 1
+        assert called == []

@@ -49,6 +49,15 @@ def config_ref():
       • "user" — [cyan]yolo-log[/cyan] defaults to `log show` (pass show/stream + predicates)
       • "full" — args pass straight through to [cyan]log[/cyan]
 
+  [bold]macos_shared_root[/bold] (string, default "/Users/Shared/yolo"): macOS-user
+    backend only.  The NEUTRAL root your project lives under to be shared
+    host<->sandbox.  The macos-user backend shares one directory live (same
+    inodes) but NEVER a path inside a user home — sharing a home path would
+    thread an access grant through your home, the footgun this model avoids.
+    Must be an absolute, non-home path (any [cyan]/Users/<name>/...[/cyan] home is
+    rejected; [cyan]/Users/Shared/...[/cyan], [cyan]/opt/...[/cyan], external volumes are fine).
+    Put your project at [cyan]<root>/<project>[/cyan] and run [cyan]yolo[/cyan] from there.
+
   [bold]agents[/bold] (array of strings): Which coding agents to install in the jail.
     Only the listed agents are installed and configured — a lean jail with
     just the agents you use (faster boot, less to update).  Agents install

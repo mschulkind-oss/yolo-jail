@@ -94,13 +94,29 @@ A dedicated **hidden service account**, created once and reused.
   — the #1 documented footgun. `sudo -u` preserves the controlling TTY so
   the agent REPL works; do **not** use `launchctl asuser` for the headless
   CLI (Apple DTS: it "does not set the security context correctly").
-- **Workspace share** (live, same inodes, no copy): the host user grants
-  an inheriting ACL — `chmod -R +a "_yolojail allow
-  read,write,…,file_inherit,directory_inherit" <repo>` (no root needed —
-  the host user owns the tree). `file_inherit`+`directory_inherit` solve
-  the UID mismatch both ways and sidestep the umask-022 trap of a plain
-  setgid-group scheme. Budget a `yolo fix-permissions` for ACL drift
-  (SandVault ships `sv build --rebuild` for exactly this).
+- **Workspace share** (live, same inodes, no copy) — **on neutral ground,
+  never inside a home.** The workspace must live under a dedicated shared
+  root (default `/Users/Shared/yolo/<project>`, config `macos_shared_root`
+  overridable to any non-home path); the run path *rejects* a workspace
+  inside any user home (`home_containing`). This is the crux of the model's
+  clear semantics: because the shared dir is a sibling of the home (à la
+  SandVault's `/Users/Shared/sv-$USER`), **no access grant is ever threaded
+  through the host home** — no ancestor traversal ACEs, no `file-read-metadata`
+  on `~`. The host user grants a flat inheriting ACL on the workspace subtree
+  only — `chmod +a "_yolojail allow read,write,…,file_inherit,directory_inherit"`
+  — which solves the UID mismatch both ways and (being an ACL, not POSIX
+  mode) sidesteps the umask-022 trap that breaks `git checkout`/`tar`. The
+  shared root is provisioned setgid+group-owned by `macos-setup`.
+  `yolo macos-unshare <ws>` (`chmod -h -N`) strips the ACLs back to plain
+  POSIX for clean teardown. We deliberately do **not** replicate SandVault's
+  `sv-clone` git round-trip — the user simply keeps the project under the
+  shared root and edits are live on both sides.
+  **Compromise acknowledged:** a project can't stay in place inside `~`, and a
+  layout that straddles the boundary (a sibling repo back in `~`) won't work;
+  keep related trees under the shared root. There is no clean native macOS
+  overlay/bind to paper over this (nullfs unshipped, firmlinks OS-only,
+  bindfs needs a Reduced-Security kext) — dropping "appear in two places" is
+  what *buys* the clear semantics, not a limitation we're stuck with.
 - **Credential hiding** (two layers, both required): (a) structural — a
   different UID can't unlock the host login keychain (cryptographically
   gated) and starts with a zero-grant TCC db; (b) the crux — close the

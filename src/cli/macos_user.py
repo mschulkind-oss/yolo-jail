@@ -24,7 +24,7 @@ import os
 import shutil
 import subprocess
 import sys
-from dataclasses import dataclass, field
+from dataclasses import dataclass
 from pathlib import Path
 from typing import Any, Dict, List, Optional
 
@@ -35,6 +35,17 @@ from typing import Any, Dict, List, Optional
 SANDBOX_USER = "_yolojail"
 SANDBOX_GROUP = "_yolojail"
 SANDBOX_HOME = Path("/Users") / SANDBOX_USER
+
+# Where a shared workspace must live: a NEUTRAL directory outside every user's
+# home.  This is the crux of the model's "clear semantics" — the workspace is
+# shared host<->sandbox live (same inodes) via one flat inheriting ACL on this
+# tree, and NO access-control grant is ever threaded through anyone's home
+# directory.  ``/Users/Shared`` exists on every Mac, is a sibling of (never
+# nested under) the host home, and its name makes the sharing self-evident —
+# nobody drops an ssh key in a dir called "Shared" by accident.  The default
+# root is overridable (config ``macos_shared_root``) to any non-home path
+# (e.g. an external volume), but it can NEVER be inside a home.
+SHARED_ROOT_DEFAULT = Path("/Users/Shared/yolo")
 # UID/GID floor for the auto-picked free id (SandVault uses 600; macOS
 # hides sub-500 accounts but 500+ service accounts + IsHidden is the safe,
 # collision-free range).
@@ -145,6 +156,31 @@ def delete_user_commands(
     ]
 
 
+def shared_root_provision_commands(
+    root: Path = SHARED_ROOT_DEFAULT,
+    *,
+    host_user: str,
+    group: str = SANDBOX_GROUP,
+) -> List[List[str]]:
+    """``mkdir``/``chown``/``chmod`` argv to provision the neutral shared root.
+
+    The root (default ``/Users/Shared/yolo``) is owned by the host user, group
+    ``_yolojail``, mode ``2770`` — setgid so a project the host user creates
+    under it inherits the shared group, ``rwx`` for owner+group, and NO access
+    for "other".  This is the neutral ground both identities share; the
+    per-run ACL then lands on each project subtree.  Idempotent (``mkdir -p``,
+    re-``chmod`` is a no-op).  Pure — executed with ``sudo`` by the caller.
+    """
+    r = str(root)
+    return [
+        ["mkdir", "-p", r],
+        ["chown", f"{host_user}:{group}", r],
+        # setgid (2) so new subdirs inherit the shared group; 770 = owner+group
+        # rwx, other none.  "Shared" in the name makes the sharing self-evident.
+        ["chmod", "2770", r],
+    ]
+
+
 # ---------------------------------------------------------------------------
 # Interpreter resolution — never blindly trust /usr/bin/python3
 # ---------------------------------------------------------------------------
@@ -209,21 +245,31 @@ def stage_entrypoint_commands(
 
 
 # ---------------------------------------------------------------------------
-# Workspace ancestry — traversal into a workspace nested under the host home
+# Workspace location — must be neutral ground, never inside a home
 # ---------------------------------------------------------------------------
 
 
-def workspace_ancestors(workspace: Path, root: Path = Path("/Users")) -> List[Path]:
-    """Ancestor dirs strictly between ``root`` and ``workspace``.
+def home_containing(
+    workspace: Path, users_root: Path = Path("/Users")
+) -> Optional[Path]:
+    """Return the user-home dir that contains ``workspace``, or ``None``.
 
-    For ``/Users/matt/code/proj`` → ``[/Users/matt/code, /Users/matt]``.
-    These are the components a non-staff sandbox user must be able to
-    *traverse* (search + stat) to reach a workspace under the host home,
-    yet gets no traversal on once the home is ``chmod 750``.  ``/Users``
-    itself (root-owned, 0755) and the workspace (granted full rights
-    separately) are excluded, as is anything the host user can't ``chmod``.
+    A "home" here is a direct child of ``/Users`` (``/Users/<name>``) other
+    than ``/Users/Shared`` — i.e. ``/Users/matt`` but not ``/Users/Shared``.
+    A workspace AT or UNDER such a dir is rejected by the run path: sharing
+    it would require threading an access grant through someone's home, which
+    is exactly the layered, error-prone posture this model exists to avoid.
+
+    Pure and path-only (no filesystem access), so it's unit-testable on Linux
+    and can't be fooled by symlinks-at-runtime — the caller resolves the path
+    first.  Returns the offending home so the error can name it.
     """
-    return [p for p in workspace.parents if root in p.parents]
+    candidates = [workspace, *workspace.parents]
+    for p in candidates:
+        parent = p.parent
+        if parent == users_root and p.name != "Shared":
+            return p
+    return None
 
 
 # ---------------------------------------------------------------------------
@@ -251,69 +297,69 @@ _FILE_RIGHTS = (
 )
 
 
-# Search-only ACE for the workspace's ancestor dirs: grants directory
-# traversal (open/stat the dir, read its metadata) WITHOUT read-data, so the
-# sandbox user can descend to a workspace nested under the host home without
-# being able to list or read sibling files in those ancestors.
-_ANCESTOR_RIGHTS = "search,readattr,readsecurity"
-
-
 def workspace_acl_aces(group: str = SANDBOX_GROUP) -> Dict[str, str]:
-    """The four ``chmod +a`` ACE strings (dir / file-inherit / file / ancestor).
+    """The three ``chmod +a`` ACE strings (dir / file-inherit / file).
 
     Split so directories are searchable/listable and inherit correctly to
     children, while plain files never gain execute/search — SandVault's
     exact scheme, which sidesteps the umask-022 trap of a plain
-    setgid-group share.  The ``ancestor`` ACE is traversal-only (no
-    read-data) for the path components leading down to the workspace.
+    setgid-group share.  Applied ONLY to the workspace tree itself; because
+    the workspace is neutral ground outside every home
+    (:func:`home_containing` rejects otherwise), there are no ancestor
+    grants — the sandbox reaches the workspace because ``/Users/Shared`` (or
+    the configured root) is world-traversable, not because we opened a path
+    through anyone's home.
     """
     return {
         "dir": f"group:{group} allow {_DIR_RIGHTS}",
         "file_inherit": f"group:{group} allow {_FILE_INHERIT_RIGHTS}",
         "file": f"group:{group} allow {_FILE_RIGHTS}",
-        "ancestor": f"group:{group} allow {_ANCESTOR_RIGHTS}",
     }
 
 
 def workspace_acl_apply_script(workspace: Path, group: str = SANDBOX_GROUP) -> str:
     """A ``find``-based bash script applying the split ACEs in one pass.
 
-    First grants a traversal-only ACE on each ancestor dir from the host home
-    down to the workspace, so a workspace nested under a ``chmod 750`` host
-    home is still reachable (without leaking sibling file contents).  Then
-    directories get the dir ACE + the file-inherit template and
-    non-directories get the file ACE.  ``chmod -h`` so symlinks aren't
-    followed (avoid a swap race).  Idempotent (re-adding an identical ACE is
-    a no-op).  Returned as text so it can be asserted in tests and run via
-    ``bash -c`` on macOS.
+    Directories get the dir ACE + the file-inherit template; non-directories
+    get the file ACE.  The grant lands ONLY on the workspace subtree — no
+    ancestor is ever touched (the workspace is neutral ground outside every
+    home).  ``chmod -h`` so symlinks aren't followed (avoid a swap race).
+    Idempotent (re-adding an identical ACE is a no-op).  Also fixes the modes
+    of files moved/created into the workspace with a restrictive umask, so no
+    clone-in/copy helper is needed.  Returned as text so it can be asserted
+    in tests and run via ``bash -c`` on macOS.
     """
     aces = workspace_acl_aces(group)
     ws = str(workspace)
-    lines = [
-        "set -euo pipefail\n",
-        f"ws={_sh_quote(ws)}\n",
-    ]
-    # Ancestors first: traversal-only so the sandbox user can descend to a
-    # workspace under the host home.  Missing/unowned ancestors are skipped
-    # (|| true) — the grant is best-effort and the run's own preflight
-    # surfaces an unreachable workspace.
-    for anc in workspace_ancestors(workspace):
-        lines.append(
-            f"chmod -h +a {_sh_quote(aces['ancestor'])} {_sh_quote(str(anc))} "
-            "2>/dev/null || true\n"
-        )
-    lines += [
+    return (
+        "set -euo pipefail\n"
+        f"ws={_sh_quote(ws)}\n"
         # Directories: dir rights + inheritance template (two -a ACEs).
-        'find "$ws" -type d -print0 | while IFS= read -r -d "" d; do\n',
-        f'  chmod -h +a {_sh_quote(aces["dir"])} "$d"\n',
-        f'  chmod -h +a {_sh_quote(aces["file_inherit"])} "$d"\n',
-        "done\n",
+        'find "$ws" -type d -print0 | while IFS= read -r -d "" d; do\n'
+        f'  chmod -h +a {_sh_quote(aces["dir"])} "$d"\n'
+        f'  chmod -h +a {_sh_quote(aces["file_inherit"])} "$d"\n'
+        "done\n"
         # Everything else (files, symlinks): file rights, no inherit.
-        'find "$ws" ! -type d -print0 | while IFS= read -r -d "" f; do\n',
-        f'  chmod -h +a {_sh_quote(aces["file"])} "$f"\n',
-        "done\n",
-    ]
-    return "".join(lines)
+        'find "$ws" ! -type d -print0 | while IFS= read -r -d "" f; do\n'
+        f'  chmod -h +a {_sh_quote(aces["file"])} "$f"\n'
+        "done\n"
+    )
+
+
+def workspace_acl_strip_script(workspace: Path) -> str:
+    """A ``find``-based bash script that removes ALL ACLs from the workspace.
+
+    The clean-teardown primitive: ``chmod -h -N`` strips the entire ACL from
+    each inode, returning the tree to plain POSIX permissions with no
+    lingering ``group:_yolojail`` entries.  Because we only ever ACL neutral
+    ground (never a home), this provably leaves nothing of the user's own
+    outside the workspace touched.  Run by ``yolo macos-unshare <workspace>``.
+    """
+    return (
+        "set -euo pipefail\n"
+        f"ws={_sh_quote(str(workspace))}\n"
+        'find "$ws" -exec chmod -h -N {} +\n'
+    )
 
 
 # ---------------------------------------------------------------------------
@@ -341,30 +387,17 @@ def seatbelt_profile(workspace: Path, sandbox_home: Path = SANDBOX_HOME) -> str:
     is NOT restricted (``allow default`` covers it) — matching SandVault,
     which does not filter egress; egress control is a documented follow-up,
     not part of the SandVault-parity baseline.
+
+    The workspace lives on neutral ground outside every home
+    (:func:`home_containing` enforces this), so there are NO per-ancestor
+    grants: the ``/Users`` read-deny re-allows only the ``/Users`` and
+    ``/Users/Shared`` directory-entry lookups needed to traverse to a
+    ``/Users/Shared/...`` workspace, plus the workspace and sandbox-home
+    subtrees.  A workspace under a non-``/Users`` root (e.g. an external
+    volume) is reachable for free — only ``/Users`` is read-denied.
     """
     ws = _sbpl_str(str(workspace))
     home = _sbpl_str(str(sandbox_home))
-    # Path resolution evaluates file-read-metadata on EVERY component, so a
-    # workspace nested under the host home needs each ancestor's metadata
-    # readable — but NOT its contents.  Emit a per-ancestor
-    # file-read-metadata allow (read-data on those dirs stays denied by the
-    # /Users blanket deny above, so sibling files remain unreadable).  Only
-    # when there ARE ancestors — a bare ``(allow file-read-metadata)`` would
-    # match everything.
-    ancestors = workspace_ancestors(workspace)
-    if ancestors:
-        ancestor_block = (
-            "\n;; Traversal into a workspace nested under the host home: allow\n"
-            + (
-                ";; metadata (stat) on each ancestor component so path resolution\n"
-                ";; succeeds, without re-allowing read-data (sibling files stay hidden).\n"
-                "(allow file-read-metadata"
-                + "".join(f"\n    (literal {_sbpl_str(str(a))})" for a in ancestors)
-                + ")"
-            )
-        )
-    else:
-        ancestor_block = ""
     return f"""\
 (version 1)
 ;; yolo-jail macOS-user sandbox profile — SandVault-parity.
@@ -392,14 +425,16 @@ def seatbelt_profile(workspace: Path, sandbox_home: Path = SANDBOX_HOME) -> str:
     (regex #"^/private/dev/r?disk")
     (regex #"^/dev/bpf"))
 
-;; --- Other users' homes: deny reads under /Users, re-allow traversal
-;;     entries + the workspace + this sandbox user's own home ---
+;; --- Other users' homes: deny reads under /Users, re-allow the traversal
+;;     entries + the (neutral, non-home) workspace + this sandbox user's own
+;;     home.  The workspace is NOT under any /Users/<name> home, so no
+;;     ancestor grant is needed. ---
 (deny file-read* (subpath "/Users"))
 (allow file-read*
     (literal "/Users")
     (literal "/Users/Shared")
     (subpath {ws})
-    (subpath {home})){ancestor_block}
+    (subpath {home}))
 
 ;; --- Keychains: System.keychain is world-readable (0644) on stock
 ;;     macOS, so this deny is load-bearing ---
@@ -726,7 +761,7 @@ def _sbpl_str(s: str) -> str:
 # Everything the orchestrator does is first assembled into this plan as data
 # (Linux-pure), then either PRINTED (``--dry-run``) or EXECUTED.  Building the
 # plan and validating its invariants needs no Mac, so a Linux unit test
-# statically catches the interpreter-stub, host-import, and ancestor-traversal
+# statically catches the interpreter-stub, host-import, and workspace-in-home
 # problems before any privileged command runs.
 
 
@@ -748,7 +783,9 @@ class RunPlan:
     bootstrap_argv: List[str]
     launch_argv: List[str]
     git_identity: Dict[str, str]
-    ancestors: List[Path] = field(default_factory=list)
+    # The home dir the workspace lives inside, or None when it's on neutral
+    # ground.  Non-None is a hard error (the run refuses).
+    offending_home: Optional[Path] = None
 
 
 def _bootstrap_argv(
@@ -823,7 +860,7 @@ def build_run_plan(
             workspace=workspace,
         ),
         git_identity=git_identity,
-        ancestors=workspace_ancestors(workspace),
+        offending_home=home_containing(workspace),
     )
 
 
@@ -857,14 +894,16 @@ def plan_invariants(plan: RunPlan) -> List[str]:
             f"({plan.staged_dir}); it would fail to import from a 0750 home"
         )
 
-    # B4: every workspace ancestor must be granted traversal in BOTH layers.
-    for anc in plan.ancestors:
-        if _sh_quote(str(anc)) not in plan.acl_script:
-            problems.append(f"workspace ancestor {anc} missing a traversal ACE")
-        if _sbpl_str(str(anc)) not in plan.seatbelt:
-            problems.append(
-                f"workspace ancestor {anc} missing a Seatbelt file-read-metadata allow"
-            )
+    # The workspace must be neutral ground — never inside a user's home.
+    # Sharing a workspace under ~ would require threading an access grant
+    # through the home dir, the layered footgun this model exists to avoid.
+    if plan.offending_home is not None:
+        problems.append(
+            f"workspace {plan.workspace} is inside the home directory "
+            f"{plan.offending_home}; the macos-user backend shares only "
+            f"neutral ground. Move it under {SHARED_ROOT_DEFAULT} (or set "
+            "config `macos_shared_root` to another non-home path)."
+        )
 
     # Git identity must reach the BOOTSTRAP env (not only the launch env),
     # else configure_git/jj no-op and commits get the wrong identity.
@@ -973,7 +1012,8 @@ def run_macos_user(
          configured and a real interpreter runnable as the sandbox user, so
          we never prompt into an unanswerable proxied pty.
       2. Install the root-owned Seatbelt profile + stage the entrypoint pkg.
-      3. Apply the inheriting workspace ACL (incl. ancestor traversal).
+      3. Apply the inheriting workspace ACL (flat, on the neutral workspace
+         tree only — the workspace is never inside a home).
       4. Run the entrypoint bootstrap AS the sandbox user; ABORT on failure
          (a dead bootstrap means no shims/configs — launching is pointless).
       5. Launch the agent under ``run_with_proxy``.
@@ -1060,7 +1100,7 @@ def run_macos_user(
             )
             return 1
 
-    # 3. Share the workspace via the inheriting ACL (incl. ancestor traversal).
+    # 3. Share the workspace via the flat inheriting ACL (workspace tree only).
     if subprocess.run(["bash", "-c", plan.acl_script]).returncode != 0:
         console.print(
             "[yellow]workspace ACL grant reported an error — the sandbox "
@@ -1210,6 +1250,17 @@ def macos_setup() -> None:
         _set_random_password()
         console.print(f"  [green]created[/green] {SANDBOX_USER}.")
 
+    # 1b. Provision the neutral shared root (idempotent).  This is where
+    #     projects live to be shared host<->sandbox; it is NOT inside any home.
+    console.print(
+        f"• Provisioning shared root [bold]{SHARED_ROOT_DEFAULT}[/bold] "
+        "(setgid, group _yolojail, no other-access)."
+    )
+    for cmd in shared_root_provision_commands(host_user=_host_user()):
+        if subprocess.run(["sudo", *cmd]).returncode != 0:
+            console.print(f"[bold red]✗ setup step failed:[/bold red] {' '.join(cmd)}")
+            raise typer.Exit(1)
+
     # 2. Readiness checks — report each so the final verdict is unambiguous.
     #    A real python3 must be reachable for the bootstrap; sandbox-exec must
     #    exist for the Seatbelt profile.  Neither is fatal to *setup* (they can
@@ -1259,9 +1310,12 @@ def macos_setup() -> None:
             "pass."
         )
         console.print(
-            'Next: set `runtime: "macos-user"` in yolo-jail.jsonc (or '
-            "YOLO_RUNTIME=macos-user), then [bold]yolo run --dry-run[/bold] to "
-            "preview the plan, or just [bold]yolo[/bold] to launch.\n"
+            f"Next: put your project under [bold]{SHARED_ROOT_DEFAULT}/"
+            "<name>[/bold] (the agent can only share neutral ground, never a "
+            'path inside your home), set `runtime: "macos-user"` in '
+            "yolo-jail.jsonc (or YOLO_RUNTIME=macos-user), then from that "
+            "directory run [bold]yolo run --dry-run[/bold] to preview, or "
+            "[bold]yolo[/bold] to launch.\n"
             "[dim]sudo will prompt per run — that's expected (we don't change "
             "your sudo policy).[/dim]"
         )
@@ -1283,6 +1337,32 @@ def macos_teardown() -> None:
     for cmd in delete_user_commands(host_user=_host_user()):
         subprocess.run(["sudo", *cmd])
     console.print(f"[green]✓ Removed sandbox user '{SANDBOX_USER}'.[/green]")
+
+
+def macos_unshare(workspace: str) -> None:
+    """Strip the yolo-jail ACLs from a shared workspace (``chmod -h -N``).
+
+    The clean-teardown primitive for a single project: returns every inode
+    under ``workspace`` to plain POSIX permissions with no lingering
+    ``group:_yolojail`` ACEs.  Safe because we only ever ACL neutral ground —
+    this cannot touch anything of yours outside the workspace.  macOS only.
+    """
+    import typer
+
+    from .console import console
+
+    if not _is_macos():
+        console.print("[bold red]yolo macos-unshare requires macOS.[/bold red]")
+        raise typer.Exit(1)
+    ws = Path(workspace).resolve()
+    if not ws.is_dir():
+        console.print(f"[bold red]Not a directory:[/bold red] {ws}")
+        raise typer.Exit(1)
+    rc = subprocess.run(["bash", "-c", workspace_acl_strip_script(ws)]).returncode
+    if rc != 0:
+        console.print(f"[yellow]ACL strip reported an error on {ws}.[/yellow]")
+        raise typer.Exit(1)
+    console.print(f"[green]✓ Stripped yolo-jail ACLs from {ws}.[/green]")
 
 
 def _taken_ids() -> "set[int]":

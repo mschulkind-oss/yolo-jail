@@ -4,7 +4,7 @@
 does and does not protect — to build a correct mental model, not a hopeful one.
 **Status:** describes the code as it runs today (`src/cli/macos_user.py`),
 which differs from the original proposal in one load-bearing way (see
-[§5](#5-the-gap-between-this-doc-and-the-design-doc)).
+[§6](#6-the-gap-between-this-doc-and-the-design-doc)).
 **Reads with:** [macos-native-user-sandbox-design.md](macos-native-user-sandbox-design.md)
 (the *why* + the honest security delta vs. the container).
 
@@ -15,8 +15,10 @@ tell me which.
 ## 0. The one-sentence version
 
 An agent under `macos-user` runs as a **different real macOS user**
-(`_yolojail`) wrapped in an **Apple Seatbelt profile**, so it can read most of
-the system but can **write almost nothing except your workspace**, and
+(`_yolojail`) wrapped in an **Apple Seatbelt profile**, sharing exactly one
+directory with you — a **neutral location outside everyone's home**
+(`/Users/Shared/yolo/<project>`), never your `~`. It can read most of the
+system but can **write almost nothing except that shared workspace**, and
 **cannot read the things that matter** — your home's private files, other
 users, the keychain files, raw disk. It is a *credible* boundary, *weaker than
 the Linux container* (shared kernel, no resource caps), and it depends on a
@@ -28,36 +30,91 @@ This is the most useful thing to understand, because it's exactly what you saw.
 
 The agent is launched **cd'd into your workspace** — the same path you ran
 `yolo` from — on purpose. The launch command ends with
-`zsh -c "cd <workspace> && exec <agent>"` (`macos_user.py:482`,
-`launch_argv`). We match the container backend's "you're in your project"
-feel; there's no `/workspace` remapping, you're at the real path.
+`zsh -c "cd <workspace> && exec <agent>"` (`macos_user.py`, `launch_argv`).
+We match the container backend's "you're in your project" feel; there's no
+`/workspace` remapping, you're at the real path.
 
-But you are **not you** in that shell. You're `_yolojail`, a different UID. And
-the Seatbelt profile says (`macos_user.py:397`):
+The workspace lives on **neutral ground** — a dedicated shared directory
+outside every user's home, `/Users/Shared/yolo/<project>` by default (the
+run path *refuses* a workspace inside a home; see [§2](#2-where-work-lives-neutral-ground-not-your-home)).
+
+But you are **not you** in that shell. You're `_yolojail`, a different UID.
+And the Seatbelt profile says (`macos_user.py`, `seatbelt_profile`):
 
 ```lisp
 (deny file-read* (subpath "/Users"))          ; everything under /Users: no read
 (allow file-read*
     (literal "/Users")                          ; the bare directory entry only
-    (literal "/Users/Shared")
+    (literal "/Users/Shared")                   ; traverse INTO the shared area
     (subpath "<your workspace>")                ; your project: full read
     (subpath "/Users/_yolojail"))               ; the sandbox's own home
 ```
 
-So `cd ..` (from `/Users/matt/yolo_test` up to `/Users/matt`) hits the deny:
-`/Users/matt` is under `/Users`, and it is **not** one of the re-allowed paths.
-The kernel refuses the directory read/traversal → **permission error**. Your
-workspace is a lit room; one step up is a locked door. That error is the
-sandbox working, not something misconfigured.
+So `cd ..` out of your workspace eventually hits `/Users/<you>` (your home),
+which is under the `/Users` deny and **not** re-allowed. The kernel refuses
+the read/traversal → **permission error**. Your workspace is a lit room; step
+far enough up and you hit a locked door. That error is the sandbox working,
+not something misconfigured.
 
-(There is a narrow exception so a workspace *nested* under your home is even
-reachable: each ancestor between `/Users` and the workspace gets a
-**metadata-only** allow — `stat` the directory to resolve the path, but not
-list or read its contents. `macos_user.py:354`, the `file-read-metadata`
-block. That's why you can be *inside* `/Users/matt/yolo_test` even though you
-can't read `/Users/matt`.)
+Note what is *not* here anymore: there are **no per-ancestor grants**. Because
+the workspace sits under `/Users/Shared` (neutral ground), the two `literal`
+entries (`/Users`, `/Users/Shared`) are the only traversal the sandbox needs
+to reach it — nothing is opened up inside your home to make a nested project
+reachable. That "thread a grant through `~`" machinery is gone (see §2).
 
-## 2. The two walls (this is the whole model)
+## 2. Where work lives — neutral ground, not your home
+
+This is the design decision that makes the whole thing easy to reason about.
+
+**The rule: the workspace is shared host↔sandbox live (same files, real-time
+edits, no copy) — but it may never live inside anyone's home directory.**
+
+- Default location: **`/Users/Shared/yolo/<project>`**. Overridable to any
+  non-home path via config `macos_shared_root` (e.g. `/opt/yolo`, an external
+  volume). A path inside a home is rejected by config validation *and* by the
+  run path (`home_containing` in `macos_user.py` — one source of truth).
+- You put the project there to start (`mv ~/code/proj /Users/Shared/yolo/`,
+  or clone/start it there). That's the one ergonomic cost. There is **no**
+  copy-in/sync-back, no `sv-clone`-style git round-trip — you and the agent
+  edit the *same inodes* in real time, exactly like the container backend's
+  bind mount.
+
+**Why this and not "share my project where it already is":** to share a
+project nested at `~/code/proj` with a different UID, you'd have to open a
+traversal path *through your home* (`/Users/you`, `/Users/you/code`, …). That
+is layered access control threaded through the most sensitive directory on
+the machine — precisely where a mistake (an over-broad grant, a leftover ACE)
+silently exposes `~/.ssh`. A neutral, sibling directory removes the entire
+problem: **no grant ever touches your home**, and the mental model collapses
+to one sentence — *"the agent and I share exactly one directory named `Shared`,
+and nothing else of mine is reachable."* Nobody drops an ssh key into a
+directory called `Shared/yolo` by accident.
+
+**How the one shared directory is shared** (all on that tree, never your home):
+- `macos-setup` provisions the root `mkdir -p` + `chown you:_yolojail` +
+  `chmod 2770` — **setgid** so projects you create under it inherit the shared
+  `_yolojail` group, group-rwx, no access for "other"
+  (`shared_root_provision_commands`).
+- At run start, an **inheriting ACL** (`chmod +a`, the dir/file split) is
+  stamped on the project subtree so both UIDs read+write the same inodes and
+  new files inherit the grant. macOS ACLs grant independent of the umask, so
+  this survives `git checkout`/`tar`/`unzip` writing restrictive modes
+  (`workspace_acl_apply_script`).
+- Teardown is clean: `yolo macos-unshare <project>` runs `chmod -h -N` to
+  strip every ACL back to plain POSIX (`workspace_acl_strip_script`). Because
+  we only ever ACL neutral ground, this provably leaves nothing of yours
+  outside the workspace altered.
+
+**Bonus:** `/Users/Shared` also sidesteps macOS TCC entirely (Documents /
+Desktop / Downloads / iCloud are both TCC-protected *and* inside your home —
+a workspace there would be double-blocked; this dodges both).
+
+The honest cost: a monorepo or symlink layout that **straddles** the boundary
+(e.g. expects a sibling repo at `../other` back in `~`) won't work — keep the
+related trees together under the shared root. Everything else you'd "lose" by
+moving out of `~` is host access the sandbox exists to deny.
+
+## 3. The two walls (this is the whole model)
 
 The boundary is **two independent mechanisms**. Understanding which one is
 doing the work in each case is the mental model.
@@ -99,7 +156,7 @@ The denies that are the actual boundary:
 | `(deny file-read* (subpath "/Volumes"))` + re-allow boot volume | External/other volumes unreadable | Stops reading mounted disks, backups, other APFS volumes. |
 | `(deny … (regex #"^/dev/r?disk") … #"^/dev/bpf")` | Raw disk devices + packet capture denied | Blocks reading the raw filesystem (bypassing perms) and sniffing network traffic. |
 
-## 3. What the agent CAN do (be honest about the blast radius)
+## 4. What the agent CAN do (be honest about the blast radius)
 
 Not a jail in the "nothing gets out" sense. Inside the sandbox the agent can:
 
@@ -124,7 +181,7 @@ The honest framing from the design doc holds: this protects against *"don't
 let a YOLO-mode agent wreck my host or read my creds,"* **not** against
 *adversarial code trying to escape or exfiltrate.*
 
-## 4. How strong is the guarantee, really
+## 5. How strong is the guarantee, really
 
 Ranked strongest → weakest:
 
@@ -134,10 +191,12 @@ Ranked strongest → weakest:
 2. **Keychain secrets** — *strong.* Protected by UID crypto (Wall 1)
    *and* the file deny (Wall 2). Two independent mechanisms.
 3. **Your home's private files (`~/.ssh`, `~/.aws`, `~/.gitconfig`)** —
-   *good, but single-walled today.* See [§5](#5-the-gap-between-this-doc-and-the-design-doc):
-   right now only Wall 2 (the profile deny on `/Users`) protects these; the
-   POSIX belt-and-suspenders (`chmod 750 ~`) is **not** applied by the code.
-   One correct rule is protecting them, not two.
+   *good, but single-walled today.* See [§6](#6-the-gap-between-this-doc-and-the-design-doc):
+   only Wall 2 (the profile deny on `/Users`) protects these; there is no
+   POSIX belt-and-suspenders (`chmod 750 ~`). One correct rule protects them,
+   not two. Note the neutral-workspace model makes this *cleaner* than before
+   — the workspace is out of your home and no grant is threaded through it —
+   but the second layer still isn't there.
 4. **Reading the rest of the system** — *not protected, by design.* It's an
    `(allow default)` read base.
 5. **Network egress** — *not protected, by design.*
@@ -153,9 +212,9 @@ used by Chrome, Bazel, Swift PM, Codex, and Anthropic's own runtime, so it
 isn't going away tomorrow — but it's a dependency Apple has disavowed. If it
 vanished, Wall 1 (the separate user) would remain a real, if lesser, boundary.
 
-## 5. The gap between this doc and the design doc
+## 6. The gap between this doc and the design doc
 
-The design doc ([macos-native-user-sandbox-design.md:60-63,104-111](macos-native-user-sandbox-design.md))
+The design doc ([macos-native-user-sandbox-design.md](macos-native-user-sandbox-design.md))
 specifies the credential boundary as **two layers**: (a) the Seatbelt
 `file-read*` deny on `/Users`, **and** (b) `chmod 750` on your host home so a
 different UID can't traverse in via POSIX either.
@@ -174,15 +233,15 @@ it never `chmod`s your host home (grep the orchestrator: no such call). So:
 This is a real single-point-of-failure that the design called out as needing
 two layers. It is **not** an argument to panic (the profile deny is a genuine
 kernel-enforced control), but you should know the second layer isn't there
-yet. Tracked in [§7](#7-open-questions).
+yet. Tracked in [§8](#8-open-questions).
 
 Why the code doesn't `chmod ~` today: doing it silently mutates the operator's
 home permissions, which — like the sudo-policy question we already settled — is
-arguably the user's call, not something the tool should do unannounced. That
-tension is unresolved (see Open questions), which is *why* it's currently
-one-walled rather than deliberately so.
+arguably the user's call, not something the tool should do unannounced. (The
+neutral-workspace model deliberately made the home *irrelevant* to sharing, so
+this is now purely about the last-ditch read barrier, not about reachability.)
 
-## 6. How to verify any of this yourself (from inside the sandbox)
+## 7. How to verify any of this yourself (from inside the sandbox)
 
 Don't trust the doc — check it. Launch `yolo` on a `macos-user` workspace, then:
 
@@ -190,30 +249,39 @@ Don't trust the doc — check it. Launch `yolo` on a `macos-user` workspace, the
 # You are the sandbox user, not you:
 whoami                      # -> _yolojail
 id                          # different uid/gid
+pwd                         # -> /Users/Shared/yolo/<project> (neutral ground)
 
 # Wall in action — these MUST fail:
 cat ~matt/.ssh/id_ed25519   # permission denied (/Users read-denied)
-cd .. && ls                 # permission denied one level up
+ls /Users/matt              # permission denied — your home is unreachable
 cat /Library/Keychains/System.keychain   # denied (world-readable file, but sandbox-denied)
 echo x > /usr/local/should-not-write      # denied (writes are workspace-only)
 
 # These SHOULD work (by design):
-touch ./scratch-file        # workspace is writable
+touch ./scratch-file        # the shared workspace is writable
 curl -sI https://example.com | head -1    # network is open
 cat /usr/bin/sw_vers >/dev/null            # system reads are open
 ```
+
+Then confirm the **share is live** from the host side (as *you*, in another
+terminal): edit `./scratch-file` in your editor and watch the agent see the
+change instantly, and vice-versa — same inodes, no copy. When done,
+`yolo macos-unshare /Users/Shared/yolo/<project>` strips the ACLs back to
+plain POSIX.
 
 To watch the kernel enforce it live, in another terminal on the host:
 `log stream --predicate 'sender=="Sandbox"'` — you'll see the denials as they
 happen. If a "MUST fail" line *succeeds*, that's a real finding worth a bug.
 
-## 7. Open questions
+## 8. Open questions
 
 1. **Should the run path `chmod 750` the host home** to add the POSIX second
-   wall the design specified (§5)? Options: do it (mutates the operator's
+   wall the design specified (§6)? Options: do it (mutates the operator's
    home, needs consent, like the sudo decision), warn-and-skip (current, but
    undocumented), or make it an explicit opt-in flag. Until resolved, the
-   credential boundary is single-walled.
+   credential boundary is single-walled. (Lower priority now that the
+   workspace itself lives outside the home and no grant is threaded through
+   it — this is only the last-ditch read barrier.)
 2. **Egress**: leave network open (matches SandVault, current) or add an
    opt-in localhost-proxy / deny for exfil-sensitive work? A design doc +
    approval gate, per the SandVault-parity rule.
@@ -222,13 +290,18 @@ happen. If a "MUST fail" line *succeeds*, that's a real finding worth a bug.
 4. **`sandbox-exec` longevity**: pre-invest in an Endpoint Security fallback,
    or accept the risk with a documented "fall back to user-account-only"
    posture if Apple removes it?
+5. **Straddling layouts**: a monorepo/symlink setup that references paths
+   outside the shared root won't work. Accept "keep related trees under the
+   shared root," or add a way to share multiple neutral trees to one session?
 
 ## References
 
 - Implementation: `src/cli/macos_user.py` — `seatbelt_profile` (the profile),
   `launch_argv` (the launch), `create_user_commands` (the account),
-  `workspace_acl_apply_script` (the workspace share + ancestor traversal),
-  `run_macos_user` (the orchestrator).
+  `home_containing` (the non-home enforcement), `workspace_acl_apply_script` /
+  `workspace_acl_strip_script` (the flat workspace share + clean teardown),
+  `shared_root_provision_commands` (the neutral root), `run_macos_user` (the
+  orchestrator).
 - Rationale + honest delta vs. container:
   [macos-native-user-sandbox-design.md](macos-native-user-sandbox-design.md),
   especially "The honest verdict, up front."

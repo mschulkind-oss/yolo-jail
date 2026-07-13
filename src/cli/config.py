@@ -97,6 +97,7 @@ KNOWN_TOP_LEVEL_CONFIG_KEYS = {
     "host_processes",
     "journal",
     "macos_log",
+    "macos_shared_root",
     "kvm",
     "prune",
     "ephemeral_storage",
@@ -939,6 +940,33 @@ def _validate_config(
             f"config.macos_log: expected one of {list(MACOS_LOG_MODES)} "
             f"(got {macos_log!r})"
         )
+
+    # macos_shared_root — the macos-user backend's neutral shared-workspace
+    # root.  Must be an absolute path and NOT inside any user's home (the
+    # backend shares only neutral ground; a home path defeats the boundary).
+    macos_shared_root = config.get("macos_shared_root")
+    if macos_shared_root is not None:
+        if not isinstance(macos_shared_root, str) or not macos_shared_root.startswith(
+            "/"
+        ):
+            errors.append(
+                "config.macos_shared_root: expected an absolute path "
+                f"(got {macos_shared_root!r})"
+            )
+        else:
+            from pathlib import Path as _P
+
+            # One source of truth for "is this inside a home?" — the same
+            # check the run path enforces.
+            from .macos_user import home_containing
+
+            offending = home_containing(_P(macos_shared_root))
+            if offending is not None:
+                errors.append(
+                    "config.macos_shared_root: must not be inside a user home "
+                    f"({macos_shared_root!r} is under {offending}); use "
+                    "/Users/Shared/... or a non-home path"
+                )
 
     kvm = config.get("kvm")
     if kvm is not None and not isinstance(kvm, bool):
