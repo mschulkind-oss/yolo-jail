@@ -240,9 +240,14 @@ Container backends stay the default and untouched at every phase;
 1. **`sandbox-exec` longevity** — pre-invest in an Endpoint Security
    fallback, or accept the risk with a documented "fall back to
    user-account-only" posture?
-2. **Root policy** — require per-run `sudo` + NOPASSWD sudoers (SandVault's
-   model), or a pre-installed LaunchDaemon (`UserName` key) that launchd
-   starts as `_yolojail` (removes per-run root but complicates TTY attach)?
+2. **Root policy** — ~~require per-run `sudo` + NOPASSWD sudoers (SandVault's
+   model), or a pre-installed LaunchDaemon?~~ **RESOLVED: per-run `sudo` +
+   NOPASSWD sudoers.** `yolo macos-setup` installs a `visudo`-validated
+   `/etc/sudoers.d/yolo-jail` (0440 root:wheel, dot-free name) scoped to the
+   exact absolute command paths the run path uses; the run path preflights
+   with `sudo -n` and fails closed rather than prompting into the proxied
+   pty. The LaunchDaemon path is dropped (it complicates the TTY attach the
+   agent REPL needs).
 3. **Keychain as another user** — the sandbox user's login keychain may be
    locked at first use (no GUI login / SecureToken). Does
    `security create-keychain -p ''` + headless Claude/gh OAuth store

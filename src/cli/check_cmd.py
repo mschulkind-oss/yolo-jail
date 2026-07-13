@@ -784,23 +784,47 @@ def _preflight_builder_needs(
 def _check_macos_user_backend(ok, warn, fail) -> None:
     """Probe readiness of the native macos-user backend.
 
-    Reports the OS, Apple Seatbelt (``sandbox-exec``), and whether the
-    dedicated sandbox account is provisioned — with actionable fixes.
-    Never runs inside a jail (host-side state).  Uses the same builders +
-    detectors the backend itself uses so the check and the run agree.
+    Reports the OS, Apple Seatbelt (``sandbox-exec``), the dedicated sandbox
+    account, the passwordless-sudo rule, and a runnable interpreter — with
+    actionable fixes.  Never runs inside a jail (host-side state).  Uses the
+    same builders + detectors the backend itself uses so the check and the
+    run agree.
+
+    IMPORTANT: this backend is EXPERIMENTAL and has not been verified
+    end-to-end on real macOS hardware.  These checks validate *readiness*
+    (config + preconditions), not *runnability* — a fully green result here
+    does NOT mean a run will succeed.  The honest gate is
+    ``yolo run --dry-run``, which builds the full plan and statically checks
+    its invariants; the definitive test is a real run on a Mac (see
+    docs/handoff-macos-user-backend.md).
     """
-    from .macos_user import SANDBOX_USER, _sandbox_user_exists
+    from .macos_user import (
+        SANDBOX_USER,
+        _passwordless_sudo_ok,
+        _sandbox_user_exists,
+        resolve_python,
+    )
     from .paths import IS_MACOS
 
-    console.print("[bold]macOS-user backend[/bold]")
+    console.print("[bold]macOS-user backend[/bold] [dim](experimental)[/dim]")
     if os.environ.get("YOLO_VERSION") is not None:
         ok("Inside jail — macos-user checks skipped (host-side backend)")
         return
+    # Set the honest expectation before the per-check lines, so a wall of
+    # green isn't mistaken for "verified working".
+    warn(
+        "Experimental backend — readiness only, NOT verified end-to-end",
+        "A green check here means the preconditions are in place, not that a "
+        "run will succeed on this hardware.  Inspect the full plan with "
+        "`yolo run --dry-run`; the definitive test is a real run on a Mac "
+        "(docs/handoff-macos-user-backend.md).",
+    )
     if not IS_MACOS:
         fail(
             "runtime 'macos-user' requires macOS",
             "It isolates via a dedicated macOS user account; use 'podman' "
-            "or 'container' on this host.",
+            "or 'container' on this host.  `yolo run --dry-run` still prints "
+            "the plan here for inspection.",
         )
         return
     if shutil.which("sandbox-exec"):
@@ -815,9 +839,30 @@ def _check_macos_user_backend(ok, warn, fail) -> None:
     else:
         warn(
             f"Sandbox user '{SANDBOX_USER}' not provisioned",
-            "Run the one-time setup to create it (see "
-            "docs/macos-native-user-sandbox-design.md).",
+            "Run `yolo macos-setup` to create it + install the sudoers rule "
+            "(see docs/macos-native-user-sandbox-design.md).",
         )
+    # A real interpreter must resolve — never the xcode-select stub.
+    interp = resolve_python()
+    if interp is None:
+        fail(
+            "no python3 interpreter found for the sandbox user",
+            "Install one (`brew install python` or `xcode-select --install`); "
+            "the bare /usr/bin/python3 stub can't run as a service account.",
+        )
+    else:
+        ok(f"Interpreter for sandbox user: {interp}")
+    # Passwordless sudo must be in effect or the run path hangs on a prompt.
+    if _sandbox_user_exists():
+        if _passwordless_sudo_ok():
+            ok("Passwordless sudo rule in effect (run path won't prompt)")
+        else:
+            fail(
+                "passwordless sudo for the macos-user backend not configured",
+                "Every run would prompt for your admin password and the launch "
+                "prompt (inside a proxied pty) would hang.  Run `yolo "
+                "macos-setup` to install /etc/sudoers.d/yolo-jail.",
+            )
 
 
 def _check_podman_machine_resources(workspace, *, ok, warn) -> None:
