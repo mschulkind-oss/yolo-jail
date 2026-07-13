@@ -1187,35 +1187,84 @@ def macos_setup() -> None:
     if not _is_macos():
         console.print("[bold red]yolo macos-setup requires macOS.[/bold red]")
         raise typer.Exit(1)
-    if _sandbox_user_exists():
-        console.print(f"[green]Sandbox user '{SANDBOX_USER}' already exists.[/green]")
-        return
 
-    host_user = _host_user()
-    uid = next_free_id(_taken_ids())
-    console.print(
-        f"Creating sandbox user [bold]{SANDBOX_USER}[/bold] (uid {uid}); "
-        "you may be prompted for your admin password by sudo."
-    )
-    for cmd in create_user_commands(uid, uid, host_user=host_user):
-        if subprocess.run(["sudo", *cmd]).returncode != 0:
-            console.print(f"[bold red]setup step failed:[/bold red] {' '.join(cmd)}")
-            raise typer.Exit(1)
-    # Random password, piped via stdin (openssl rand → dscl . -passwd -).
-    _set_random_password()
-    # A real python3 must be reachable so the bootstrap can run as the sandbox
-    # user; nudge (don't gate) if only the xcode-select stub would be found.
-    if resolve_python() is None:
+    # 1. Account — create if missing, otherwise reuse (idempotent).  BOTH
+    #    outcomes are success; report which one so the operator isn't left
+    #    guessing whether "already exists" means it bailed.
+    if _sandbox_user_exists():
+        console.print(f"• Sandbox user [bold]{SANDBOX_USER}[/bold] already exists.")
+    else:
+        host_user = _host_user()
+        uid = next_free_id(_taken_ids())
         console.print(
-            "[yellow]Note:[/yellow] no Homebrew/Nix python3 found — the run "
-            "path would fall back to /usr/bin/python3, which is the "
-            "xcode-select stub unless the Command Line Tools are installed. "
-            "Consider `brew install python` or `xcode-select --install`."
+            f"• Creating sandbox user [bold]{SANDBOX_USER}[/bold] (uid {uid}); "
+            "you may be prompted for your admin password by sudo."
         )
-    console.print(
-        f"[green]✓ Sandbox user '{SANDBOX_USER}' ready.[/green] "
-        'Run agents with `runtime: "macos-user"` (or YOLO_RUNTIME=macos-user).'
-    )
+        for cmd in create_user_commands(uid, uid, host_user=host_user):
+            if subprocess.run(["sudo", *cmd]).returncode != 0:
+                console.print(
+                    f"[bold red]✗ setup step failed:[/bold red] {' '.join(cmd)}"
+                )
+                raise typer.Exit(1)
+        # Random password, piped via stdin (openssl rand → dscl . -passwd -).
+        _set_random_password()
+        console.print(f"  [green]created[/green] {SANDBOX_USER}.")
+
+    # 2. Readiness checks — report each so the final verdict is unambiguous.
+    #    A real python3 must be reachable for the bootstrap; sandbox-exec must
+    #    exist for the Seatbelt profile.  Neither is fatal to *setup* (they can
+    #    be fixed later), but both gate a successful *run*, so surface them now.
+    warnings: List[str] = []
+
+    interp = resolve_python()
+    if interp is None:
+        warnings.append(
+            "No Homebrew/Nix python3 found — the run path would fall back to "
+            "/usr/bin/python3, which is the xcode-select stub unless the "
+            "Command Line Tools are installed. Fix: `brew install python` or "
+            "`xcode-select --install`."
+        )
+        console.print("• python3 for the sandbox: [yellow]not found[/yellow]")
+    else:
+        console.print(f"• python3 for the sandbox: [green]{interp}[/green]")
+
+    if shutil.which("sandbox-exec") is None:
+        warnings.append(
+            "sandbox-exec not found on PATH — it ships with macOS, so this is "
+            "unusual; the run path needs it for the Seatbelt profile."
+        )
+        console.print("• Apple Seatbelt (sandbox-exec): [yellow]not found[/yellow]")
+    else:
+        console.print("• Apple Seatbelt (sandbox-exec): [green]available[/green]")
+
+    # 3. One clear verdict + next steps.  Green ✓ only when nothing is
+    #    outstanding; otherwise a yellow ⚠ that lists exactly what to fix.
+    console.print("")
+    if warnings:
+        console.print(
+            "[bold yellow]⚠ Setup done, but the macos-user backend is not "
+            "ready to run yet:[/bold yellow]"
+        )
+        for w in warnings:
+            console.print(f"  • {w}")
+        console.print(
+            "\nResolve the above, then verify with "
+            "[bold]yolo run --dry-run[/bold] (prints the full plan; needs no "
+            "further setup)."
+        )
+    else:
+        console.print(
+            f"[bold green]✓ macos-user backend ready.[/bold green] "
+            f"Sandbox user '{SANDBOX_USER}' is provisioned and preconditions "
+            "pass."
+        )
+        console.print(
+            'Next: set `runtime: "macos-user"` in yolo-jail.jsonc (or '
+            "YOLO_RUNTIME=macos-user), then [bold]yolo run --dry-run[/bold] to "
+            "preview the plan, or just [bold]yolo[/bold] to launch.\n"
+            "[dim]sudo will prompt per run — that's expected (we don't change "
+            "your sudo policy).[/dim]"
+        )
 
 
 def macos_teardown() -> None:
