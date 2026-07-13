@@ -1,16 +1,28 @@
-# How the macOS-user sandbox actually contains an agent
+# macOS-user sandbox: the complete security model
 
 **Audience:** anyone reasoning about what the `runtime: "macos-user"` backend
 does and does not protect — to build a correct mental model, not a hopeful one.
+No prior knowledge of the project assumed; §3 shows the actual sandbox config
+verbatim.
 **Status:** describes the code as it runs today (`src/cli/macos_user.py`).
 One spot is single-layer rather than two (world-readable files in a `0755`
-home — see [§6](#6-the-one-single-layer-spot-world-readable-home-files)).
-**Reads with:** [macos-native-user-sandbox-design.md](macos-native-user-sandbox-design.md)
-(the *why* + the honest security delta vs. the container).
+home — see [§7](#7-the-one-single-layer-spot-world-readable-home-files)).
+**Companion:** [Running agents natively on macOS](macos-user-mode.md) — the
+*how do I use it* doc. This is the *what exactly does it protect* doc.
 
 This is the doc to argue with. If a claim here doesn't match what you can
 actually do from inside the sandbox, that's a bug in the code or the doc —
 tell me which.
+
+**The 30-second model.** The agent runs as a **separate, hidden macOS user**
+(`_yolojail`), inside an **Apple Seatbelt profile**, sharing exactly **one
+directory** with you — on neutral ground outside everyone's home. Two
+independent walls (a different UID *and* a kernel sandbox profile) mean it can
+read most of the OS but **cannot write anything except that one shared folder**
+and **cannot read your home, your credentials, the keychain, or other users**.
+It is a *credible* boundary, deliberately *weaker than a container* (shared
+kernel, no resource caps, network open) — right for a trusted-but-autonomous
+agent, not for genuinely hostile code.
 
 ## 0. The one-sentence version
 
@@ -44,7 +56,7 @@ The agent is launched **cd'd into your workspace** — the same path you ran
 `yolo` from. The launch ends with `zsh -c "cd <workspace> && exec <agent>"`
 (`macos_user.py`, `launch_argv`); there's no `/workspace` remapping, you're at
 the real path, on **neutral ground** (`/Users/Shared/yolo/<project>` by
-default; the run path refuses a workspace inside a home — see [§2](#2-where-work-lives-neutral-ground-not-your-home)).
+default; the run path refuses a workspace inside a home — see [§2](#2-where-work-lives--neutral-ground-not-your-home)).
 
 But you are **not you** in that shell — you're `_yolojail`, a different UID —
 and the Seatbelt profile (`macos_user.py`, `seatbelt_profile`) denies reads
@@ -136,7 +148,92 @@ The honest cost: a monorepo or symlink layout that **straddles** the boundary
 related trees together under the shared root. Everything else you'd "lose" by
 moving out of `~` is host access the sandbox exists to deny.
 
-## 3. The two walls (this is the whole model)
+## 3. The sandbox config, verbatim
+
+Everything below is exactly what the code generates — no summary, no
+paraphrase. This is the whole surface; if it's not here, the agent doesn't get
+it.
+
+**(a) The account** (`yolo macos-setup`, once). A hidden, unprivileged user +
+a shared group, both you and it are members of:
+
+```
+dscl . -create /Users/_yolojail IsHidden 1          # off the login window
+dseditgroup -o edit -d _yolojail -t user staff      # NOT a normal login user
+dseditgroup -o edit -a _yolojail -t user _yolojail  # sandbox user in the group
+dseditgroup -o edit -a <you>     -t user _yolojail  # you in the group too
+chmod 750 /Users/_yolojail                           # its own home
+# + a random password never passed on a command line (never visible in `ps`)
+```
+
+**(b) The shared root** (`yolo macos-setup`, once). The neutral ground:
+
+```
+mkdir -p /Users/Shared/yolo
+chown <you>:_yolojail /Users/Shared/yolo
+chmod 2770 /Users/Shared/yolo    # setgid + owner/group rwx + NO access for "other"
+```
+
+**(c) The Seatbelt profile** (per run, root-owned `0444` so the agent can't
+edit its own sandbox). For a workspace at `/Users/Shared/yolo/my-app`:
+
+```lisp
+(version 1)
+(allow default)                                   ; permissive base...
+
+;; ...then deny all writes, re-allow only the agent's writable set:
+(deny file-write* (subpath "/"))
+(allow file-write*
+    (subpath "/Users/Shared/yolo/my-app")         ; the workspace
+    (subpath "/Users/_yolojail")                   ; the sandbox's own home
+    (subpath "/tmp") (subpath "/private/tmp")
+    (subpath "/var/folders") (subpath "/private/var/folders")
+    (subpath "/dev"))
+
+;; other volumes: no read (except the boot volume)
+(deny file-read* (subpath "/Volumes"))
+(allow file-read* (subpath "/Volumes/Macintosh HD"))
+
+;; raw disk + packet capture: never (would bypass file perms / sniff traffic)
+(deny file-read* file-write*
+    (regex #"^/dev/r?disk") (regex #"^/private/dev/r?disk") (regex #"^/dev/bpf"))
+
+;; everyone's homes: no read, re-allow only traversal entries + the
+;; (neutral) workspace + the sandbox's own home. Your home is NOT re-allowed.
+(deny file-read* (subpath "/Users"))
+(allow file-read*
+    (literal "/Users") (literal "/Users/Shared")
+    (subpath "/Users/Shared/yolo/my-app")
+    (subpath "/Users/_yolojail"))
+
+;; the machine keychain file: world-readable 0644, so this deny is load-bearing
+(deny file-read* (subpath "/Library/Keychains"))
+
+(allow process-info*)                              ; tooling needs to see procs
+(allow sysctl-read)
+```
+
+**(d) The launch** (per run). Run as the sandbox user, with a scrubbed
+environment, under the profile:
+
+```
+sudo --login --user=_yolojail \
+  /usr/bin/env -i \                                # empty env — nothing inherited
+    HOME=/Users/_yolojail USER=_yolojail SHELL=/bin/zsh \
+    PATH=/Users/_yolojail/.yolo-shims:...:/usr/bin:/bin \
+    TERM=... \                                      # + git identity, no host secrets
+  /usr/bin/sandbox-exec -f /var/yolo-jail/profile-<session>.sb \
+  -- /bin/zsh -c "cd /Users/Shared/yolo/my-app && exec claude ..."
+```
+
+`env -i` is load-bearing: without it, `HOME` would still point at *your* home
+and the agent would read your `~/.gitconfig`/`~/.ssh`. The identity vars
+(`HOME`/`USER`/`SHELL`/`PATH`) are fixed and not caller-overridable.
+
+The rest of this doc explains *why* each line is there and how strongly it
+holds.
+
+## 4. The two walls (this is the whole model)
 
 The boundary is **two independent mechanisms**. Understanding which one is
 doing the work in each case is the mental model.
@@ -165,8 +262,8 @@ What this wall gives you **for free**, without any profile:
 A root-owned, `0444`, per-session profile the agent can't edit
 (`macos_user.py:seatbelt_profile`, installed to `/var/yolo-jail/profile-*.sb`).
 Its shape is **`(allow default)` + targeted denies** — permissive base, deny
-what matters (`macos_user.py:372`). Last-match-wins, so each deny is followed
-by narrower re-allows.
+what matters (the full text is in [§3c](#3-the-sandbox-config-verbatim)).
+Last-match-wins, so each deny is followed by narrower re-allows.
 
 The denies that are the actual boundary:
 
@@ -178,7 +275,7 @@ The denies that are the actual boundary:
 | `(deny file-read* (subpath "/Volumes"))` + re-allow boot volume | External/other volumes unreadable | Stops reading mounted disks, backups, other APFS volumes. |
 | `(deny … (regex #"^/dev/r?disk") … #"^/dev/bpf")` | Raw disk devices + packet capture denied | Blocks reading the raw filesystem (bypassing perms) and sniffing network traffic. |
 
-## 4. What the agent CAN do (be honest about the blast radius)
+## 5. What the agent CAN do (be honest about the blast radius)
 
 Not a jail in the "nothing gets out" sense. Inside the sandbox the agent can:
 
@@ -190,9 +287,9 @@ Not a jail in the "nothing gets out" sense. Inside the sandbox the agent can:
 - **Write to your workspace** (that's the point) and to `/tmp`,
   `/var/folders`, `/dev`.
 - **Full network access.** Egress is **not** restricted — `(allow default)`
-  covers the network and there is no deny for it (`macos_user.py:341`). The
-  agent can reach the internet, localhost, and LAN. If your threat model
-  includes exfiltration, this backend does not stop it.
+  covers the network and there is no deny for it (see the profile in §3c —
+  no network rule). The agent can reach the internet, localhost, and LAN. If
+  your threat model includes exfiltration, this backend does not stop it.
 - **See other processes** (`(allow process-info*)`, `sysctl-read`) — needed by
   normal tooling; means it can enumerate what's running.
 - **Consume unbounded CPU/RAM/PIDs.** There is **no resource limit** — no
@@ -203,7 +300,7 @@ The honest framing from the design doc holds: this protects against *"don't
 let a YOLO-mode agent wreck my host or read my creds,"* **not** against
 *adversarial code trying to escape or exfiltrate.*
 
-## 5. How strong is the guarantee, really
+## 6. How strong is the guarantee, really
 
 Ranked strongest → weakest:
 
@@ -239,7 +336,7 @@ used by Chrome, Bazel, Swift PM, Codex, and Anthropic's own runtime, so it
 isn't going away tomorrow — but it's a dependency Apple has disavowed. If it
 vanished, Wall 1 (the separate user) would remain a real, if lesser, boundary.
 
-## 6. The one single-layer spot: world-readable home files
+## 7. The one single-layer spot: world-readable home files
 
 For most of your home (the `0600`/`0700` secrets), the boundary is two
 independent layers — the UID switch AND the Seatbelt `/Users` deny. For
@@ -264,9 +361,9 @@ version of this doc claimed SandVault does `chmod 750 ~` and that we had a
 The residual risk is narrow and honest: a bypass/removal of Seatbelt would
 expose `0644` files in a `0755` home. A `chmod 750 ~` opt-in flag could close
 that at the POSIX layer for users who want it, without imposing it — tracked
-in [§8](#8-open-questions).
+in [§9](#9-open-questions).
 
-## 7. How to verify any of this yourself (from inside the sandbox)
+## 8. How to verify any of this yourself (from inside the sandbox)
 
 Don't trust the doc — check it. Launch `yolo` on a `macos-user` workspace, then:
 
@@ -304,10 +401,10 @@ To watch the kernel enforce it live, in another terminal on the host:
 `log stream --predicate 'sender=="Sandbox"'` — you'll see the denials as they
 happen. If a "MUST fail" line *succeeds*, that's a real finding worth a bug.
 
-## 8. Open questions
+## 9. Open questions
 
 1. **Offer an opt-in `chmod 750 ~`** as a POSIX second layer for the
-   world-readable-home-file case (§6)? Strictly opt-in — never imposed, since
+   world-readable-home-file case (§7)? Strictly opt-in — never imposed, since
    it mutates the operator's home. Not a "gap vs SandVault" (SandVault doesn't
    do it either); purely a hardening knob for users who want belt-and-braces.
 2. **Egress**: leave network open (matches SandVault, current) or add an

@@ -33,11 +33,16 @@ workspace + sandbox home + scratch.
 It is a **weaker boundary than the container** (shared kernel, deprecated
 `sandbox-exec`, no resource caps) and is therefore **explicit opt-in only —
 never auto-detected**. Prefer the container for adversarial or
-exfil-sensitive work. Full rationale, the honest security delta, and the
-one-time account setup are in
-[docs/macos-native-user-sandbox-design.md](macos-native-user-sandbox-design.md).
-Enable the in-sandbox `yolo-log` helper (Apple unified logging) with the
-`macos_log` config (`off`/`user`/`full`).
+exfil-sensitive work. Enable the in-sandbox `yolo-log` helper (Apple unified
+logging) with the `macos_log` config (`off`/`user`/`full`).
+
+Two focused docs cover it:
+- [macOS-user mode](macos-user-mode.md) — how to set it up and use it.
+- [macOS-user security model](macos-user-security-model.md) — the complete
+  mental model: the actual sandbox config and exactly what it protects.
+
+(Design rationale + the honest delta vs. the container:
+[macos-native-user-sandbox-design.md](macos-native-user-sandbox-design.md).)
 
 Auto-detection priority:
 - **macOS:** Apple Container → Podman (native-first)
