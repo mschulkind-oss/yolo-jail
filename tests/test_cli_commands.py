@@ -1909,10 +1909,27 @@ class TestCheckNixBuildSection:
         mock_run.side_effect = _default_smart_run
         (tmp_path / "yolo-jail.jsonc").write_text('{"runtime": "macos-user"}')
 
+        # With IS_MACOS forced True the check runs its macOS-platform preflight,
+        # whose Nix-store probe does `Path("/nix").exists()` and FAILs (early
+        # `typer.Exit`) on any host without a /nix volume — which aborts before
+        # the Image-Build section under test.  Runners have no /nix; a dev jail
+        # happens to, which is why this only reproduced in CI.  Surgically
+        # pretend /nix exists so the preflight passes and we reach Image Build.
+        import cli.check_cmd as _cc
+
+        _orig_exists = _cc.Path.exists
+
+        def _fake_exists(self):
+            if str(self) == "/nix":
+                return True
+            return _orig_exists(self)
+
+        monkeypatch.setattr(_cc.Path, "exists", _fake_exists)
+
         runner = CliRunner()
         result = runner.invoke(app, ["check", "--build"])
         out = result.output
-        assert "Not applicable" in out
+        assert "Not applicable" in out, out
         # No builder FAIL, no image-not-loaded hint, no build attempt.
         assert "Linux builder" not in out
         assert not mock_build.called
