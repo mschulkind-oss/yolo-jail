@@ -24,43 +24,65 @@ users, the keychain files, raw disk. It is a *credible* boundary, *weaker than
 the Linux container* (shared kernel, no resource caps), and it depends on a
 deprecated-but-ubiquitous Apple tool.
 
-## 1. Why you're in the same directory but `cd ..` fails
+## 1. Why `cd ..` "succeeds" but you still can't see anything
 
-This is the most useful thing to understand, because it's exactly what you saw.
+This is the most useful thing to understand, and it's subtler than a plain
+"cd .. fails" — here's exactly what you'll observe:
+
+```console
+_yolojail@host yolo_test % cd ..
+_yolojail@host yolo_test % ls
+ls: .: Operation not permitted          # ← the denial surfaces HERE, on read
+_yolojail@host yolo_test % pwd
+/Users/Shared/yolo/yolo_test            # ← stale: still the workspace, not the parent
+```
+
+`cd ..` returns **no error**, `ls` then fails, and `pwd` and the prompt still
+show the workspace. That's not a bug — it's the shape of the boundary. Why:
 
 The agent is launched **cd'd into your workspace** — the same path you ran
-`yolo` from — on purpose. The launch command ends with
-`zsh -c "cd <workspace> && exec <agent>"` (`macos_user.py`, `launch_argv`).
-We match the container backend's "you're in your project" feel; there's no
-`/workspace` remapping, you're at the real path.
+`yolo` from. The launch ends with `zsh -c "cd <workspace> && exec <agent>"`
+(`macos_user.py`, `launch_argv`); there's no `/workspace` remapping, you're at
+the real path, on **neutral ground** (`/Users/Shared/yolo/<project>` by
+default; the run path refuses a workspace inside a home — see [§2](#2-where-work-lives-neutral-ground-not-your-home)).
 
-The workspace lives on **neutral ground** — a dedicated shared directory
-outside every user's home, `/Users/Shared/yolo/<project>` by default (the
-run path *refuses* a workspace inside a home; see [§2](#2-where-work-lives-neutral-ground-not-your-home)).
-
-But you are **not you** in that shell. You're `_yolojail`, a different UID.
-And the Seatbelt profile says (`macos_user.py`, `seatbelt_profile`):
+But you are **not you** in that shell — you're `_yolojail`, a different UID —
+and the Seatbelt profile (`macos_user.py`, `seatbelt_profile`) denies reads
+under `/Users`, re-allowing only four things:
 
 ```lisp
 (deny file-read* (subpath "/Users"))          ; everything under /Users: no read
 (allow file-read*
-    (literal "/Users")                          ; the bare directory entry only
-    (literal "/Users/Shared")                   ; traverse INTO the shared area
+    (literal "/Users")                          ; the bare entry, for traversal only
+    (literal "/Users/Shared")                   ; the bare entry, for traversal only
     (subpath "<your workspace>")                ; your project: full read
     (subpath "/Users/_yolojail"))               ; the sandbox's own home
 ```
 
-So `cd ..` out of your workspace eventually hits `/Users/<you>` (your home),
-which is under the `/Users` deny and **not** re-allowed. The kernel refuses
-the read/traversal → **permission error**. Your workspace is a lit room; step
-far enough up and you hit a locked door. That error is the sandbox working,
-not something misconfigured.
+Note what is **not** in that list: the workspace's *parent*,
+`/Users/Shared/yolo`. So there are two different permissions in play, and this
+is the whole trick:
 
-Note what is *not* here anymore: there are **no per-ancestor grants**. Because
-the workspace sits under `/Users/Shared` (neutral ground), the two `literal`
-entries (`/Users`, `/Users/Shared`) are the only traversal the sandbox needs
-to reach it — nothing is opened up inside your home to make a nested project
-reachable. That "thread a grant through `~`" machinery is gone (see §2).
+- **Traverse (chdir/`cd`)** needs only *search* on a directory. `cd ..` into
+  `/Users/Shared/yolo` works because it's group-traversable (mode `2770`,
+  `_yolojail` is in the group) — hence **no error**.
+- **List/read (`ls`, globbing, reading files)** needs *read-data*, which the
+  profile denies on `/Users/Shared/yolo`. Hence `ls: Operation not permitted`.
+- **`pwd` goes stale** because zsh's `getcwd()` reconstructs the path by
+  reading directory entries *upward* — and it just hit a dir it can't read, so
+  it falls back to the cached `$PWD` (still the workspace). You really did move
+  up; the shell simply can't confirm where to. Same reason the prompt segment
+  doesn't update.
+
+So the honest one-liner isn't "cd .. errors" — it's: **you can step out of
+your workspace, but the moment you try to *see* anything out there, the kernel
+says no, and even your shell loses track of where it is.** The room next door
+isn't just locked — it's unlit and unmarked. That's the boundary working.
+
+There are **no per-ancestor grants**: because the workspace sits under
+`/Users/Shared` (neutral ground), the two `literal` entries are the only
+traversal the sandbox needs — nothing is opened up inside your home. That
+"thread a grant through `~`" machinery is gone (see §2).
 
 ## 2. Where work lives — neutral ground, not your home
 
@@ -251,11 +273,17 @@ whoami                      # -> _yolojail
 id                          # different uid/gid
 pwd                         # -> /Users/Shared/yolo/<project> (neutral ground)
 
-# Wall in action — these MUST fail:
-cat ~matt/.ssh/id_ed25519   # permission denied (/Users read-denied)
-ls /Users/matt              # permission denied — your home is unreachable
-cat /Library/Keychains/System.keychain   # denied (world-readable file, but sandbox-denied)
-echo x > /usr/local/should-not-write      # denied (writes are workspace-only)
+# Wall in action — these MUST fail (all "Operation not permitted"):
+cat ~matt/.ssh/id_ed25519   # your home is read-denied
+ls /Users/matt              # your home is unreachable
+ls /Users/Shared/yolo       # even the workspace's PARENT can't be listed
+cat /Library/Keychains/System.keychain   # world-readable file, but sandbox-denied
+echo x > /usr/local/should-not-write      # writes are workspace-only
+
+# The subtle one — traverse-but-not-read (see §1): `cd` works, `ls` doesn't.
+cd .. ; ls                  # cd: ok (silent) ; ls: Operation not permitted
+pwd                         # stale — still shows the workspace, not the parent
+cd -                        # back into the workspace
 
 # These SHOULD work (by design):
 touch ./scratch-file        # the shared workspace is writable
