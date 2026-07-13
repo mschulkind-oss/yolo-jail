@@ -2,9 +2,9 @@
 
 **Audience:** anyone reasoning about what the `runtime: "macos-user"` backend
 does and does not protect — to build a correct mental model, not a hopeful one.
-**Status:** describes the code as it runs today (`src/cli/macos_user.py`),
-which differs from the original proposal in one load-bearing way (see
-[§6](#6-the-gap-between-this-doc-and-the-design-doc)).
+**Status:** describes the code as it runs today (`src/cli/macos_user.py`).
+One spot is single-layer rather than two (world-readable files in a `0755`
+home — see [§6](#6-the-one-single-layer-spot-world-readable-home-files)).
 **Reads with:** [macos-native-user-sandbox-design.md](macos-native-user-sandbox-design.md)
 (the *why* + the honest security delta vs. the container).
 
@@ -173,8 +173,8 @@ The denies that are the actual boundary:
 | Rule (`macos_user.py`) | Effect | Why it's load-bearing |
 |---|---|---|
 | `(deny file-write* (subpath "/"))` then re-allow workspace + sandbox home + `/tmp` + `/var/folders` + `/dev` | **Writes: nothing except your workspace and scratch** | This is the big one — the agent cannot modify your host, /usr, /etc, /Applications, other projects. |
-| `(deny file-read* (subpath "/Users"))` + re-allows | Other users' homes **and your own home** are unreadable | The credential wall: `~/.ssh`, `~/.aws`, `~/.gitconfig` sit under `/Users/<you>` → denied. |
-| `(deny file-read* (subpath "/Library/Keychains"))` | The keychain **files** are unreadable | `System.keychain` is world-readable `0644` on stock macOS, so UID separation alone doesn't cover it — this deny does. |
+| `(deny file-read* (subpath "/Users"))` + re-allows | Other users' homes **and your own home** are unreadable | The credential wall. Most dev secrets are already `0600`/`0700` (`~/.ssh`, `~/.aws/credentials`) so the UID switch alone covers them — but the load-bearing case is **world-readable (`0644`) files** a differently-configured home might expose: `~/.npmrc` (npm writes it `0644`, and it can hold an auth token), `~/.gitconfig`, misc app configs. This deny makes the boundary hold **regardless of any user's home permissions** (which vary by macOS version and MDM), so it's not just belt-and-suspenders. |
+| `(deny file-read* (subpath "/Library/Keychains"))` | The **machine** keychain file is unreadable | `System.keychain` (Wi-Fi passwords, 802.1X/VPN creds, machine certs — distinct from your UID-gated *login* keychain) is a world-readable `0644` file, so the UID switch alone doesn't cover the file. The secret material inside is additionally Security-framework-encrypted, but denying the read is correct defense-in-depth. |
 | `(deny file-read* (subpath "/Volumes"))` + re-allow boot volume | External/other volumes unreadable | Stops reading mounted disks, backups, other APFS volumes. |
 | `(deny … (regex #"^/dev/r?disk") … #"^/dev/bpf")` | Raw disk devices + packet capture denied | Blocks reading the raw filesystem (bypassing perms) and sniffing network traffic. |
 
@@ -210,20 +210,25 @@ Ranked strongest → weakest:
 1. **Writes staying inside the workspace** — *strong.* Deny-all-writes +
    narrow re-allow, enforced by the kernel sandbox. To escape it needs a
    Seatbelt bypass or a kernel bug.
-2. **Keychain secrets** — *strong.* Protected by UID crypto (Wall 1)
-   *and* the file deny (Wall 2). Two independent mechanisms.
-3. **Your home's private files (`~/.ssh`, `~/.aws`, `~/.gitconfig`)** —
-   *good, but single-walled today.* See [§6](#6-the-gap-between-this-doc-and-the-design-doc):
-   only Wall 2 (the profile deny on `/Users`) protects these; there is no
-   POSIX belt-and-suspenders (`chmod 750 ~`). One correct rule protects them,
-   not two. Note the neutral-workspace model makes this *cleaner* than before
-   — the workspace is out of your home and no grant is threaded through it —
-   but the second layer still isn't there.
-4. **Reading the rest of the system** — *not protected, by design.* It's an
+2. **Login-keychain secrets** — *strong.* Your per-user login keychain is
+   cryptographically gated to your UID — a different UID can't unlock it,
+   Seatbelt or not.
+3. **Your `0600`/`0700` home secrets (`~/.ssh`, `~/.aws/credentials`)** —
+   *strong.* SSH keys are `0600` (ssh refuses looser), the AWS CLI writes
+   credentials `0600`, `~/.ssh` is `0700`. The UID switch alone blocks these;
+   Seatbelt is a redundant second layer for them.
+4. **Your world-readable (`0644`) home files (`~/.npmrc` token, `~/.gitconfig`,
+   sloppy app configs)** — *held by Seatbelt (Wall 2) regardless of home
+   perms.* The UID switch alone would NOT stop these if a given user's home is
+   `0755` (home mode varies by macOS version + MDM), so the `/Users` read-deny
+   is genuinely load-bearing here, not belt-and-suspenders. It gives the same
+   guarantee for every user without the tool having to inspect or change
+   anyone's home permissions.
+5. **Reading the rest of the system** — *not protected, by design.* It's an
    `(allow default)` read base.
-5. **Network egress** — *not protected, by design.*
-6. **Resource exhaustion** — *not protected.*
-7. **Kernel-level escape** — *this is the ceiling.* Everything runs on the
+6. **Network egress** — *not protected, by design.*
+7. **Resource exhaustion** — *not protected.*
+8. **Kernel-level escape** — *this is the ceiling.* Everything runs on the
    host kernel (XNU). A kernel LPE escapes the sandbox entirely. The container
    backend interposes a VM/hypervisor here; this backend does not. This is the
    structural reason it's "weaker than the container," full stop.
@@ -234,34 +239,32 @@ used by Chrome, Bazel, Swift PM, Codex, and Anthropic's own runtime, so it
 isn't going away tomorrow — but it's a dependency Apple has disavowed. If it
 vanished, Wall 1 (the separate user) would remain a real, if lesser, boundary.
 
-## 6. The gap between this doc and the design doc
+## 6. The one single-layer spot: world-readable home files
 
-The design doc ([macos-native-user-sandbox-design.md](macos-native-user-sandbox-design.md))
-specifies the credential boundary as **two layers**: (a) the Seatbelt
-`file-read*` deny on `/Users`, **and** (b) `chmod 750` on your host home so a
-different UID can't traverse in via POSIX either.
+For most of your home (the `0600`/`0700` secrets), the boundary is two
+independent layers — the UID switch AND the Seatbelt `/Users` deny. For
+**world-readable (`0644`) files in a `0755` home** (a `~/.npmrc` token, say),
+it's **one** layer: only the Seatbelt `/Users` read-deny stops the read. If a
+user's home is `0700` (macOS default has trended that way, but MDM/older
+setups vary), the UID switch covers even those — but we don't depend on it.
 
-**The code today only does (a).** `run_macos_user` (`macos_user.py`) installs
-the profile, applies the workspace ACL, stages the entrypoint, and launches —
-it never `chmod`s your host home (grep the orchestrator: no such call). So:
+We deliberately do **not** `chmod` your home to add a POSIX second layer.
+Doing so silently mutates the operator's home permissions — the user's call,
+not the tool's (same principle as not touching the sudo policy). The
+neutral-workspace model makes the home *irrelevant to sharing* — no grant is
+ever threaded through it — so there is no functional reason to touch it.
 
-- Your `~/.ssh` is protected **because the Seatbelt profile denies it**, and
-  only that. It is not *also* protected by filesystem permissions on the home
-  directory itself.
-- If the Seatbelt profile were bypassed or disabled, POSIX would **not** catch
-  the read the way the design intends — because your home is likely still
-  `0755` and `_yolojail` could traverse it.
+**This matches SandVault.** SandVault also relies on the user switch + the
+Seatbelt `/Users` deny and does **not** `chmod` your home either (verified in
+its source — it only touches its own shared dir and the sandbox user's home).
+So this is not a gap versus the prior art; it's the same posture. (An earlier
+version of this doc claimed SandVault does `chmod 750 ~` and that we had a
+"single-walled gap" against it — that was wrong; corrected here.)
 
-This is a real single-point-of-failure that the design called out as needing
-two layers. It is **not** an argument to panic (the profile deny is a genuine
-kernel-enforced control), but you should know the second layer isn't there
-yet. Tracked in [§8](#8-open-questions).
-
-Why the code doesn't `chmod ~` today: doing it silently mutates the operator's
-home permissions, which — like the sudo-policy question we already settled — is
-arguably the user's call, not something the tool should do unannounced. (The
-neutral-workspace model deliberately made the home *irrelevant* to sharing, so
-this is now purely about the last-ditch read barrier, not about reachability.)
+The residual risk is narrow and honest: a bypass/removal of Seatbelt would
+expose `0644` files in a `0755` home. A `chmod 750 ~` opt-in flag could close
+that at the POSIX layer for users who want it, without imposing it — tracked
+in [§8](#8-open-questions).
 
 ## 7. How to verify any of this yourself (from inside the sandbox)
 
@@ -303,13 +306,10 @@ happen. If a "MUST fail" line *succeeds*, that's a real finding worth a bug.
 
 ## 8. Open questions
 
-1. **Should the run path `chmod 750` the host home** to add the POSIX second
-   wall the design specified (§6)? Options: do it (mutates the operator's
-   home, needs consent, like the sudo decision), warn-and-skip (current, but
-   undocumented), or make it an explicit opt-in flag. Until resolved, the
-   credential boundary is single-walled. (Lower priority now that the
-   workspace itself lives outside the home and no grant is threaded through
-   it — this is only the last-ditch read barrier.)
+1. **Offer an opt-in `chmod 750 ~`** as a POSIX second layer for the
+   world-readable-home-file case (§6)? Strictly opt-in — never imposed, since
+   it mutates the operator's home. Not a "gap vs SandVault" (SandVault doesn't
+   do it either); purely a hardening knob for users who want belt-and-braces.
 2. **Egress**: leave network open (matches SandVault, current) or add an
    opt-in localhost-proxy / deny for exfil-sensitive work? A design doc +
    approval gate, per the SandVault-parity rule.

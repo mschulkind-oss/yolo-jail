@@ -57,13 +57,18 @@ are structural, not cosmetic:
 - **~95% escape coverage, not 100%** — raw `socket()` fds and some Mach
   IPC classes can't be closed by a profile.
 - **No resource limits.** No cgroup analog for `--cpus`/`--memory`/PID caps.
-- **Credential boundary is not automatic.** `~/.ssh`, `~/.gitconfig`,
-  `~/.aws`, cloud tokens are plain files, not TCC-protected, and a 0755
-  home lets the sandbox user traverse in and read them. It only holds if
-  we deliberately `chmod 750 ~` **and** deny those reads in the profile.
-  Keychain-resident secrets are protected for free; TCC is not the
-  credential boundary (it guards Documents/Downloads/Photos, not dev creds,
-  and has a long bypass history).
+- **Credential boundary leans on the profile for `0644` files.** Most dev
+  secrets are already `0600`/`0700` (`~/.ssh`, `~/.aws/credentials`) so the
+  UID switch alone covers them. The exposure is **world-readable (`0644`)
+  files** in a `0755` home (e.g. a `~/.npmrc` auth token): the Seatbelt
+  `file-read*` deny on `/Users` is what stops those, giving the same
+  guarantee regardless of a given user's home mode (which varies by macOS
+  version + MDM). We do NOT `chmod` the host home — that's the operator's
+  call, and SandVault doesn't either; the profile deny is the boundary. An
+  opt-in `chmod 750 ~` could add a POSIX second layer for those who want it.
+  Login-keychain secrets are protected for free (UID-gated crypto); TCC is
+  not the credential boundary (it guards Documents/Downloads/Photos, not dev
+  creds, and has a long bypass history).
 - **Needs root per run** (`sudo -u`), versus rootless Podman needing none.
 
 **Position it as opt-in, with the container as the security-max default.**
@@ -117,14 +122,17 @@ A dedicated **hidden service account**, created once and reused.
   overlay/bind to paper over this (nullfs unshipped, firmlinks OS-only,
   bindfs needs a Reduced-Security kext) — dropping "appear in two places" is
   what *buys* the clear semantics, not a limitation we're stuck with.
-- **Credential hiding** (two layers, both required): (a) structural — a
-  different UID can't unlock the host login keychain (cryptographically
-  gated) and starts with a zero-grant TCC db; (b) the crux — close the
-  home-traversal hole with `chmod 750 ~` **and** a root-owned `0444`
-  Seatbelt profile that denies `file-read*` under `/Users` except the
-  workspace + `/Users/_yolojail`, and denies `/Library/Keychains`
-  (System.keychain is world-readable 644), `/Volumes` except boot, and
-  `/dev/rdisk*`/`/dev/bpf`.
+- **Credential hiding:** (a) structural — a different UID can't unlock the
+  host login keychain (cryptographically gated) and starts with a zero-grant
+  TCC db, and `0600`/`0700` secrets (`~/.ssh`, `~/.aws/credentials`) are
+  unreadable by ordinary POSIX perms; (b) the crux for world-readable
+  (`0644`) files — a root-owned `0444` Seatbelt profile that denies
+  `file-read*` under `/Users` except the workspace + `/Users/_yolojail`, and
+  denies `/Library/Keychains` (System.keychain is world-readable 644),
+  `/Volumes` except boot, and `/dev/rdisk*`/`/dev/bpf`. We do NOT `chmod` the
+  host home (operator's call; SandVault doesn't either) — the profile deny
+  makes the boundary hold regardless of home mode. An opt-in `chmod 750 ~` is
+  a possible POSIX second layer.
 - **Agent auth: copy-in, never mount-in.** `_yolojail` keeps its own
   persistent `~/.claude`; the user does the Claude OAuth `/login` once
   inside the sandbox account and it persists. Git identity is written into
@@ -228,8 +236,9 @@ Linux fixups.
   inheriting `chmod +a` ACL; run
   `sudo -u _yolojail env -i HOME=… sandbox-exec -f profile.sb -- claude
   --dangerously-skip-permissions` and verify the agent **can** edit the
-  workspace but **cannot** read the host `~/.ssh`/`~/.gitconfig` after
-  `chmod 750 ~`. Confirm `sandbox-exec` still works and note the broad
+  workspace but **cannot** read the host `~/.ssh`/`~/.gitconfig` (via the
+  profile's `/Users` deny — no host `chmod` needed). Confirm `sandbox-exec`
+  still works and note the broad
   read-allows Claude/Codex need at startup. ~2–3 days. This single spike
   de-risks user creation, the ACL share, Seatbelt viability, and the
   credential boundary at once. **Nothing lands in `src/cli/` before it.**
@@ -240,7 +249,7 @@ Linux fixups.
   No credential hardening yet, no auto user creation. ~1–2 weeks.
 - **Phase 2 — credential boundary + loopholes + lifecycle.**
   `ensure_sandbox_user()`/`ensure_workspace_acl()`, the setup command,
-  `chmod 750 ~` enforcement, collapse the loopholes bridging (drop
+  collapse the loopholes bridging (drop
   `broker_relay.py`, chmod/ACL the broker socket, verify `getpeereid`),
   copy-in auth, teardown. Per-run `sudo` prompts (no host sudo-policy
   change). ~1–2 weeks.
@@ -297,8 +306,8 @@ proven by `_entrypoint_preflight`), and has proven references (SandVault +
 Anthropic's Windows precedent). Conditions: (a) it ships as an **opt-in
 third backend**, never a rewrite — containers stay the default; (b) the
 weaker-than-container delta is documented honestly; (c) the credential
-boundary is claimed only **after** Phase 2 closes the `chmod 750 ~` +
-Seatbelt deny-reads hole.
+boundary is claimed only **after** the Seatbelt `/Users` deny-reads profile
+is verified on hardware.
 
 **Smallest first step:** run Phase 0 on a real Sequoia/arm64 Mac. Its
 result is the real GO/NO-GO gate before any code lands in `src/cli/`.
