@@ -4930,7 +4930,8 @@ class TestBrokerCredsFreshness:
 
 
 class TestScratchMountArgs:
-    """ephemeral_storage controls /tmp /var/tmp /var/lib/containers backing."""
+    """ephemeral_storage controls /tmp /var/tmp /var/lib/containers +
+    /var/cache/containers backing."""
 
     def _grouped(self, args: list) -> list[tuple[str, str]]:
         # Pair each flag with its operand so order/equivalence checks
@@ -4940,10 +4941,13 @@ class TestScratchMountArgs:
 
     def test_default_is_anonymous_volumes(self):
         pairs = self._grouped(_scratch_mount_args(None))
-        # /tmp + /var/tmp + /var/lib/containers as anonymous volumes
+        # /tmp + /var/tmp + both container scratch dirs as anonymous volumes
         assert ("-v", "/tmp") in pairs
         assert ("-v", "/var/tmp") in pairs
         assert ("-v", "/var/lib/containers") in pairs
+        # Nested podman also needs its cache dir writable, else `podman run`
+        # dies with `mkdir /var/cache/containers: read-only file system`.
+        assert ("-v", "/var/cache/containers") in pairs
         # /run + /dev/shm always tmpfs
         assert ("--tmpfs", "/run") in pairs
         assert ("--tmpfs", "/dev/shm:size=2g") in pairs
@@ -4961,12 +4965,21 @@ class TestScratchMountArgs:
             "/tmp:exec,mode=1777",
             "/var/tmp:exec,mode=1777",
             "/var/lib/containers",
+            "/var/cache/containers",
             "/run",
             "/dev/shm:size=2g",
         ):
             assert ("--tmpfs", path) in pairs
         # No anonymous volumes
         assert not any(flag == "-v" for flag, _ in pairs)
+
+    def test_both_container_scratch_dirs_present_in_both_modes(self):
+        # Regression: /var/cache/containers was missing, breaking nested
+        # podman (the /var/lib one was there but the cache one wasn't).
+        for mode in ("volume", "tmpfs"):
+            args = _scratch_mount_args(mode)
+            assert "/var/lib/containers" in args, mode
+            assert "/var/cache/containers" in args, mode
 
     def test_invalid_value_falls_back_to_volume(self):
         # Defensive: validation already rejects bad values, but the helper

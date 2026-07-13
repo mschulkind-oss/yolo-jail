@@ -705,11 +705,21 @@ def _scratch_mount_args(mode: object) -> List[str]:
     """Build the mount args for the read-only-rootfs scratch dirs.
 
     ``--read-only`` (set unconditionally on the rootfs) means anything
-    that writes to /tmp, /var/tmp, /var/lib/containers, /run, or
-    /dev/shm needs an explicit writable mount.
+    that writes to /tmp, /var/tmp, /var/lib/containers,
+    /var/cache/containers, /run, or /dev/shm needs an explicit writable
+    mount.
 
-    ``ephemeral_storage`` chooses the backing for /tmp, /var/tmp, and
-    /var/lib/containers:
+    Nested podman (podman-in-jail) needs BOTH container scratch dirs
+    writable: /var/lib/containers is the graph/run store, and
+    /var/cache/containers is podman's own cache (blob-info + additional
+    image store), which containers-common computes as
+    ``<cachedir>/containers`` = /var/cache/containers for root.  Its parent
+    /var/cache is on the read-only rootfs overlay, so ``podman run`` dies
+    with ``mkdir /var/cache/containers: read-only file system`` unless we
+    mount it writable — same treatment as /var/lib/containers.
+
+    ``ephemeral_storage`` chooses the backing for /tmp, /var/tmp,
+    /var/lib/containers, and /var/cache/containers:
 
       * ``"volume"`` (default) — anonymous podman volumes.  Disk-backed,
         wiped by ``podman run --rm`` on container exit, doesn't compete
@@ -741,6 +751,8 @@ def _scratch_mount_args(mode: object) -> List[str]:
             "/var/tmp",
             "-v",
             "/var/lib/containers",
+            "-v",
+            "/var/cache/containers",
             "--tmpfs",
             "/run",
             "--tmpfs",
@@ -755,6 +767,8 @@ def _scratch_mount_args(mode: object) -> List[str]:
         "/var/tmp:exec,mode=1777",
         "--tmpfs",
         "/var/lib/containers",
+        "--tmpfs",
+        "/var/cache/containers",
         "--tmpfs",
         "/run",
         "--tmpfs",
@@ -1568,6 +1582,8 @@ def run(
             "/var/tmp",
             "--tmpfs",
             "/var/lib/containers",
+            "--tmpfs",
+            "/var/cache/containers",
             "--tmpfs",
             "/run",
             "--tmpfs",
