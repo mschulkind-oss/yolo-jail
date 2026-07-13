@@ -255,6 +255,45 @@ class TestArgvRouting:
         assert result == ["yolo", "doctor"]
 
 
+class TestBareYoloForwardsOptions:
+    """Bare `yolo` (no subcommand) must forward every option to `run` as a
+    real value.
+
+    Regression: the top-level callback invoked `run` via ``ctx.invoke`` but
+    omitted ``dry_run``.  A param omitted from ``ctx.invoke`` keeps its
+    declared default — the ``typer.Option(...)`` OptionInfo object — which is
+    truthy, so every bare ``yolo`` silently ran in ``--dry-run`` mode (on
+    macos-user it only printed the plan and never launched; on podman it
+    errored with "--dry-run is only meaningful for macos-user").
+    """
+
+    def _invoke_bare(self):
+        """Run the bare-`yolo` callback with `run` stubbed; return its kwargs."""
+        captured = {}
+
+        def _fake_run(**kwargs):
+            captured.update(kwargs)
+
+        runner = CliRunner()
+        # Patch the `run` symbol the callback closes over in cli.__init__.
+        with patch.object(cli, "run", _fake_run):
+            result = runner.invoke(cli.app, [])
+        return captured, result
+
+    def test_dry_run_forwarded_as_false(self):
+        captured, result = self._invoke_bare()
+        assert result.exit_code == 0, result.output
+        # The bug: dry_run arrived as a truthy OptionInfo instead of False.
+        assert captured.get("dry_run") is False
+
+    def test_all_flags_are_real_bools_not_optioninfo(self):
+        captured, _ = self._invoke_bare()
+        for flag in ("new", "profile", "dry_run"):
+            assert captured.get(flag) is False, (
+                f"{flag} forwarded as {captured.get(flag)!r}, not a real bool"
+            )
+
+
 # ═══════════════════════════════════════════════════════════════════════════════
 # Test: _resolve_repo_root
 # ═══════════════════════════════════════════════════════════════════════════════

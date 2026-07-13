@@ -227,6 +227,11 @@ def _default(
         "--profile",
         help="Show detailed startup performance timing after command exits",
     ),
+    dry_run: bool = typer.Option(
+        False,
+        "--dry-run",
+        help="macos-user only: print the full run plan without executing it.",
+    ),
     version: bool = typer.Option(
         False,
         "--version",
@@ -320,8 +325,13 @@ def _default(
     https://github.com/mschulkind-oss/yolo-jail
     """
     if ctx.invoked_subcommand is None:
-        # No subcommand → default to `run` (interactive shell)
-        ctx.invoke(run, ctx=ctx, network=network, new=new, profile=profile)
+        # No subcommand → default to `run` (interactive shell).  Forward every
+        # option explicitly: a param omitted here would keep its OptionInfo
+        # default (which is truthy), so a missing `dry_run` silently put every
+        # bare `yolo` into dry-run mode.
+        ctx.invoke(
+            run, ctx=ctx, network=network, new=new, profile=profile, dry_run=dry_run
+        )
 
 
 from .console import console
