@@ -1885,15 +1885,33 @@ def run(
     # to avoid kernel restrictions on doubly-nested user namespaces.
     if runtime == "podman":
         if in_container:
-            # Inside a container: share parent's user namespace
+            # Inside a container (nested jail): share the parent's user
+            # namespace — a doubly-nested *new* userns hits kernel
+            # restrictions.  But the nested jail still needs the same
+            # device+capability set as a host-launched jail for its OWN
+            # nested podman to work (podman-in-podman-in-podman, e.g. an
+            # agent running DB containers inside a nested jail):
+            #   * /dev/fuse   — fuse-overlayfs storage driver
+            #   * SYS_ADMIN   — mount /proc et al. for the grandchild container
+            #   * MKNOD       — create device nodes in image layers
+            #   * /dev/net/tun (best-effort) — slirp4netns rootless networking;
+            #     only passed through if the parent actually has it, since a
+            #     missing --device is a hard podman error, not a warning.
             run_cmd.extend(
                 [
                     "--security-opt",
                     "label=disable",
                     "--userns",
                     "host",
+                    "--cap-add",
+                    "SYS_ADMIN",
+                    "--cap-add",
+                    "MKNOD",
                 ]
             )
+            for dev in ("/dev/fuse", "/dev/net/tun"):
+                if Path(dev).exists():
+                    run_cmd.extend(["--device", dev])
         elif gpu_enabled and gpu_vendor == "nvidia":
             # NVIDIA GPU passthrough: CDI device injection fails with crun and
             # custom user namespaces (https://github.com/containers/podman/issues/27483).
