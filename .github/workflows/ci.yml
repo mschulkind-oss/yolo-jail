@@ -80,13 +80,12 @@ jobs:
   build-image:
     # Build the jail image on BOTH arches natively — x86_64 and arm64 — so
     # linux/arm (aarch64-linux) is a tested target, not just an aspirational
-    # claim.  ubuntu-24.04-arm is a free, unlimited hosted runner ON PUBLIC
-    # REPOS (this origin, mschulkind-oss/yolo-jail); on the private
-    # hyperscience fork the arm cell would be billed.  Native per-arch build
-    # (no QEMU/--platform): nix substitutes the whole closure from
-    # cache.nixos.org for aarch64-linux and compiles only the few repo-local
-    # derivations.  The Free-disk-space `rm -rf … || true` below no-ops
-    # harmlessly on the arm image's absent x86 toolchains.
+    # claim.  ubuntu-24.04-arm is a free, unlimited hosted runner on this
+    # public repo.  Native per-arch build (no QEMU/--platform): nix
+    # substitutes the whole closure from cache.nixos.org for aarch64-linux
+    # and compiles only the few repo-local derivations.  The Free-disk-space
+    # `rm -rf … || true` below no-ops harmlessly on the arm image's absent
+    # x86 toolchains.
     strategy:
       fail-fast: false
       matrix:
