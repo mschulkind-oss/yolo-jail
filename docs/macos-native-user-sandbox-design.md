@@ -107,15 +107,19 @@ A dedicated **hidden service account**, created once and reused.
   clear semantics: because the shared dir is a sibling of the home (à la
   SandVault's `/Users/Shared/sv-$USER`), **no access grant is ever threaded
   through the host home** — no ancestor traversal ACEs, no `file-read-metadata`
-  on `~`. The host user grants a flat inheriting ACL on the workspace subtree
-  only — `chmod +a "_yolojail allow read,write,…,file_inherit,directory_inherit"`
-  — which solves the UID mismatch both ways and (being an ACL, not POSIX
-  mode) sidesteps the umask-022 trap that breaks `git checkout`/`tar`. The
-  shared root is provisioned setgid+group-owned by `macos-setup`.
-  `yolo macos-unshare <ws>` (`chmod -h -N`) strips the ACLs back to plain
-  POSIX for clean teardown. We deliberately do **not** replicate SandVault's
-  `sv-clone` git round-trip — the user simply keeps the project under the
-  shared root and edits are live on both sides.
+  on `~`. `macos-setup` provisions the shared root **once**: setgid +
+  group-owned + the **inheriting** ACL ACEs (`chmod +a "_yolojail allow
+  read,write,…,file_inherit,directory_inherit"`) on the root itself. macOS
+  then applies those ACEs to everything created underneath at create-time, so
+  **every project/file inherits the grant for free and the run path does no
+  ACL work** — solving the UID mismatch both ways and (being an ACL, not POSIX
+  mode) sidestepping the umask-022 trap. The one case inheritance misses —
+  pre-existing files *moved/preserve-copied* in — is retrofitted on demand by
+  `yolo macos-fix-permissions` (batched), never on the hot path.
+  `yolo macos-unshare <ws>` (`chmod -h -N`) strips ACLs back to plain POSIX
+  for clean teardown. We deliberately do **not** replicate SandVault's
+  `sv-clone` git round-trip — the user keeps the project under the shared root
+  and edits are live on both sides.
   **Compromise acknowledged:** a project can't stay in place inside `~`, and a
   layout that straddles the boundary (a sibling repo back in `~`) won't work;
   keep related trees under the shared root. There is no clean native macOS

@@ -28,8 +28,9 @@ is a stub — the artifacts are complete; only *executing* them needs macOS.
 - **`run()` dispatch.** `run()` short-circuits to `run_macos_user(...)`
   before any container machinery; the podman/container paths are untouched.
 - **Pure, tested builders** (assert SandVault parity): `create_user_commands`
-  / `delete_user_commands`, `workspace_acl_aces` / `workspace_acl_apply_script`
-  (dir/file split + ancestor traversal), `seatbelt_profile`, `launch_argv`,
+  / `delete_user_commands`, `shared_root_provision_commands` (neutral root +
+  inheriting ACL), `workspace_acl_aces` / `fix_permissions_script`
+  (dir/file split; on-demand retrofit), `seatbelt_profile`, `launch_argv`,
   `entrypoint_bootstrap_script`, `broker_socket_grant_commands`,
   `macos_log_wrapper_script`, plus the hardening builders below.
 - **Run plan + invariants.** `build_run_plan` assembles the whole session as
@@ -174,14 +175,22 @@ yolo -- claude             # launches natively as _yolojail + Seatbelt
 yolo macos-teardown
 ```
 
-## First real-hardware run — findings to fix (2026-07-14)
+## First real-hardware run — findings (2026-07-14) — RESOLVED
 
 The backend was launched on a real Mac for the first time (`yolo -- claude`
 in `/Users/Shared/sv-matt/repos/forms`, a large repo with a populated
 `.venv`). It did **not** crash on the design blockers B1–B4 — the failures
-below are **new, UX/performance issues in the setup path**, not security-model
-regressions. Fix these before the backend is pleasant (or trustworthy-looking)
-to use.
+below were **UX/performance issues in the setup path**, not security-model
+regressions.
+
+> **RESOLVED (commit `perf(macos-user): inheriting ACL on shared root, drop
+> per-run walk`).** The root cause — a per-run ACL tree walk — was removed
+> entirely: the inheriting ACL is now applied **once** to the shared root at
+> `macos-setup`, and everything created under it inherits for free, so the
+> launch path does no ACL work (and the two remaining sudo steps are
+> consecutive → one password). Moved-in pre-existing files are handled by the
+> new on-demand `yolo macos-fix-permissions`. The analysis below is kept as
+> the record of what was wrong and why.
 
 **Symptom the user saw:** after the "Setting up the sandbox …" line, a
 multi-minute silent pause that looked exactly like a hang (they `^C`'d out of

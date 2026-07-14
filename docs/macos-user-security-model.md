@@ -124,16 +124,23 @@ to one sentence — *"the agent and I share exactly one directory named `Shared`
 and nothing else of mine is reachable."* Nobody drops an ssh key into a
 directory called `Shared/yolo` by accident.
 
-**How the one shared directory is shared** (all on that tree, never your home):
-- `macos-setup` provisions the root `mkdir -p` + `chown you:_yolojail` +
-  `chmod 2770` — **setgid** so projects you create under it inherit the shared
-  `_yolojail` group, group-rwx, no access for "other"
-  (`shared_root_provision_commands`).
-- At run start, an **inheriting ACL** (`chmod +a`, the dir/file split) is
-  stamped on the project subtree so both UIDs read+write the same inodes and
-  new files inherit the grant. macOS ACLs grant independent of the umask, so
-  this survives `git checkout`/`tar`/`unzip` writing restrictive modes
-  (`workspace_acl_apply_script`).
+**How the one shared directory is shared** (all on that tree, never your home)
+— and the key point, **it's a one-time setup cost, not a per-run one**:
+- `macos-setup` provisions the root once: `mkdir -p` + `chown you:_yolojail`
+  + `chmod 2770` (**setgid**, group-rwx, no "other" access) + the **inheriting
+  ACL ACEs** (`chmod +a` dir-rights + file-inherit template) on the root
+  itself (`shared_root_provision_commands`).
+- Because macOS applies inheritable ACEs to everything created under an
+  ACL'd directory *at create-time*, **every project and file you or the agent
+  later create under the root inherits the shared-group grant automatically**
+  — same inodes, both UIDs read+write, no per-run walk. macOS ACLs grant
+  independent of the umask, so this survives `git checkout`/`tar` writing
+  restrictive modes. The launch path does **zero** ACL work.
+- The one exception inheritance misses: **pre-existing files moved or
+  preserve-copied in** (`mv ~/old-proj …`, `cp -p`) keep their original ACL
+  and don't re-trigger inheritance, so they lack the grant. Fix on demand
+  with `yolo macos-fix-permissions` (`fix_permissions_script` — batched, off
+  the hot path); you rarely need it.
 - Teardown is clean: `yolo macos-unshare <project>` runs `chmod -h -N` to
   strip every ACL back to plain POSIX (`workspace_acl_strip_script`). Because
   we only ever ACL neutral ground, this provably leaves nothing of yours
@@ -423,9 +430,10 @@ happen. If a "MUST fail" line *succeeds*, that's a real finding worth a bug.
 
 - Implementation: `src/cli/macos_user.py` — `seatbelt_profile` (the profile),
   `launch_argv` (the launch), `create_user_commands` (the account),
-  `home_containing` (the non-home enforcement), `workspace_acl_apply_script` /
-  `workspace_acl_strip_script` (the flat workspace share + clean teardown),
-  `shared_root_provision_commands` (the neutral root), `run_macos_user` (the
+  `home_containing` (the non-home enforcement), `shared_root_provision_commands`
+  (the neutral root + the inheriting ACL that shares everything under it),
+  `fix_permissions_script` (the on-demand retrofit for moved-in files) /
+  `workspace_acl_strip_script` (clean teardown), `run_macos_user` (the
   orchestrator).
 - Rationale + honest delta vs. container:
   [macos-native-user-sandbox-design.md](macos-native-user-sandbox-design.md),

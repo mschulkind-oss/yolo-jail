@@ -135,6 +135,23 @@ $ yolo macos-unshare /Users/Shared/yolo/my-app
 $ yolo macos-teardown
 ```
 
+## Troubleshooting
+
+**The agent can't write (or read) some files I moved in.** Files *created*
+under `/Users/Shared/yolo/` are shared automatically. But files you **moved or
+copied-with-`-p`** in from elsewhere (e.g. `mv ~/old-proj /Users/Shared/yolo/`)
+keep their original permissions and don't pick up the share. One command fixes
+it:
+
+```console
+$ yolo macos-fix-permissions                       # the whole shared root
+$ yolo macos-fix-permissions /Users/Shared/yolo/my-app   # or one project
+```
+
+You rarely need this — only after bringing *pre-existing* files in. (This is
+why starting a project *in* the shared root, or letting the agent create it,
+just works.)
+
 ## Honest limits (read before you rely on it)
 
 `macos-user` is a **credible** boundary but **weaker than the container**, and
