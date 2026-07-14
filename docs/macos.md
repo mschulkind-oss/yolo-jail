@@ -1,40 +1,52 @@
 # macOS Setup Guide
 
 YOLO Jail supports macOS (Apple Silicon and Intel) in addition to Linux.
-On macOS the container image is still a **Linux container** — Podman Machine
-or Apple Container transparently runs a lightweight Linux VM, so the jail
-experience is nearly identical to a native Linux host.
+On macOS you can run agents two ways:
 
-## Runtimes
+- **In a Linux container** (the default) — Podman Machine or Apple Container
+  transparently runs a lightweight Linux VM, so the jail experience is nearly
+  identical to a native Linux host. This is the security-maximum path.
+- **Natively, no container** (`macos-user`, opt-in) — the agent runs as
+  arm64-native macOS processes in a dedicated sandboxed user account. No VM.
 
-macOS supports two container runtimes plus a native (non-container) backend:
+## Choosing a runtime
 
-| Runtime | Backend | Best For |
-|---------|---------|----------|
-| **Podman** | Podman Machine (Apple HV) | Desktop Macs, Podman-in-Podman |
-| **Apple Container** | Virtualization.framework | Native macOS, per-container resource limits |
-| **macos-user** | Dedicated macOS user + Seatbelt (no VM) | Fast native arm64; trusted-but-autonomous agents |
+Pick based on **what you're optimizing for**:
 
-Set the runtime with `YOLO_RUNTIME=podman`, `container`, or `macos-user`
-(or the `runtime` key in `yolo-jail.jsonc`).
+| Runtime | What it is | Choose it for |
+|---------|------------|---------------|
+| **Podman** | Linux container in a Podman Machine VM | The portable default; Podman-in-Podman; parity with Linux hosts |
+| **Apple Container** | Linux container, one lightweight VM per container | Per-container CPU/memory limits, native socket forwarding (macOS 15+) |
+| **macos-user** | Dedicated macOS user + Apple Seatbelt, **no VM** | **Native arm64 speed** and running **macOS/arm tools directly** — when a Linux VM is the wrong shape for the work |
 
-### `macos-user` — the native backend (opt-in)
+The two container runtimes give you a **true VM boundary**; `macos-user` trades
+some of that isolation for **native performance and native-arch tooling**. Set
+the runtime with `YOLO_RUNTIME=podman`, `container`, or `macos-user` (or the
+`runtime` key in `yolo-jail.jsonc`).
 
-Instead of a Linux container, `macos-user` runs the agent as arm64-native
-macOS binaries in a dedicated hidden, unprivileged macOS user account
-hardened with an Apple Seatbelt (`sandbox-exec`) profile — no VM, no arch
-switch. It matches the security model of
-[SandVault](https://github.com/webcoyote/sandvault): host credentials are
-kept out (separate UID = separate login keychain + TCC db, plus profile
-denies on `/Library/Keychains` and other users' homes), the workspace is
-shared live via an inheriting ACL, and writes are denied everywhere but the
-workspace + sandbox home + scratch.
+### `macos-user` — the native (non-container) backend
 
-It is a **weaker boundary than the container** (shared kernel, deprecated
-`sandbox-exec`, no resource caps) and is therefore **explicit opt-in only —
-never auto-detected**. Prefer the container for adversarial or
-exfil-sensitive work. Enable the in-sandbox `yolo-log` helper (Apple unified
-logging) with the `macos_log` config (`off`/`user`/`full`).
+**Why you'd choose it:** native arm64 speed (no Linux VM overhead, seconds to
+start) and the ability to run macOS/arm-native binaries directly. It's the
+right shape for a **trusted-but-autonomous** agent where the goal is "don't let
+it wreck my Mac or read my credentials" — not for sandboxing hostile code.
+
+**How it works:** the agent runs as a dedicated hidden, unprivileged macOS
+user account hardened with an Apple Seatbelt (`sandbox-exec`) profile. It
+matches the security model of
+[SandVault](https://github.com/webcoyote/sandvault): host credentials are kept
+out (separate UID = separate login keychain + TCC db, plus profile denies on
+`/Library/Keychains` and other users' homes), the workspace is shared live via
+an inheriting ACL, and writes are denied everywhere but the workspace + sandbox
+home + scratch. Enable the in-sandbox `yolo-log` helper (Apple unified logging)
+with the `macos_log` config (`off`/`user`/`full`).
+
+**The tradeoff:** it is a **weaker boundary than the container** — shared
+kernel, deprecated `sandbox-exec`, no resource caps. So it is **never selected
+automatically or by default**: you must ask for it explicitly (`runtime` /
+`YOLO_RUNTIME`), and auto-detection will never fall back to it even if no
+container runtime is installed. Prefer the container for adversarial or
+exfil-sensitive work.
 
 Two focused docs cover it:
 - [macOS-user mode](macos-user-mode.md) — how to set it up and use it.
@@ -44,18 +56,26 @@ Two focused docs cover it:
 (Design rationale + the honest delta vs. the container:
 [macos-native-user-sandbox-design.md](macos-native-user-sandbox-design.md).)
 
-Auto-detection priority:
+Auto-detection priority (containers only — `macos-user` is never auto-selected):
 - **macOS:** Apple Container → Podman (native-first)
 - **Linux:** Podman
 
 ## Prerequisites
 
+**Always required:**
+
 | Tool | Install | Notes |
 |------|---------|-------|
 | **[uv](https://docs.astral.sh/uv/)** | `curl -LsSf https://astral.sh/uv/install.sh \| sh` | Python package manager |
-| **[Nix](https://nixos.org/download/)** | [Determinate Nix Installer](https://github.com/DeterminateSystems/nix-installer) recommended | Flakes must be enabled |
-| **[Podman](https://podman.io/)** | `brew install podman` | Cross-platform runtime (requires Podman Machine) |
-| **[Apple Container](https://github.com/apple/container)** | `brew install container` | Native macOS runtime (macOS 15+) |
+| **[Nix](https://nixos.org/download/)** | [Determinate Nix Installer](https://github.com/DeterminateSystems/nix-installer) recommended | Flakes must be enabled; builds the jail image |
+
+**Plus a runtime — pick ONE** (see [Choosing a runtime](#choosing-a-runtime)):
+
+| Runtime | Install | Notes |
+|---------|---------|-------|
+| **[Podman](https://podman.io/)** | `brew install podman` | The portable default; requires Podman Machine (setup below) |
+| **[Apple Container](https://github.com/apple/container)** | `brew install container` | Native per-container VM; macOS 15+ |
+| **macos-user** | nothing to install | Uses built-in macOS user accounts + `sandbox-exec`; one-time `yolo macos-setup` (needs a Homebrew/CLT `python3`) |
 
 ### Podman Machine Setup
 
@@ -552,3 +572,9 @@ a **warning** rather than a failure. To silence it, add your user to
 echo 'trusted-users = root your-username' | sudo tee -a /etc/nix/nix.custom.conf
 sudo launchctl kickstart -k system/systems.determinate.nix-daemon
 ```
+
+<!-- changelog -->
+- [4d54df64] Reworded intro to two approaches (Linux container by default vs native macos-user), dropping the "always a container" framing
+- [9f082ebf] Added a "Choosing a runtime" section that leads with why (performance + native arch) before the model details, and retitled the macos-user section around that
+- [78c23f1a] Replaced "never auto-detected" with "never selected automatically or by default — including when no container runtime is installed"
+- [8a7a2d41] Split Prerequisites into "always required" vs "pick ONE runtime" (Podman / Apple Container / macos-user), so the runtimes read as options not co-requirements
