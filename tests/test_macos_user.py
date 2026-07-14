@@ -227,12 +227,23 @@ class TestWorkspaceAcl:
         assert "only_inherit" in aces["file_inherit"]
         assert "file_inherit" in aces["file_inherit"]
 
-    def test_apply_script_splits_dirs_and_files(self):
-        script = m.workspace_acl_apply_script(Path("/Users/Shared/proj"))
+    def test_fix_permissions_script_splits_dirs_and_files(self):
+        # The on-demand retrofit (yolo macos-fix-permissions), NOT the hot path.
+        script = m.fix_permissions_script(Path("/Users/Shared/yolo"))
         assert "-type d" in script
         assert "! -type d" in script
         assert "chmod -h +a" in script  # -h: don't follow symlinks
-        assert "'/Users/Shared/proj'" in script
+        assert "'/Users/Shared/yolo'" in script
+
+    def test_fix_permissions_script_is_batched_not_per_item(self):
+        # Regression: the old per-run walk forked chmod once per file via a
+        # `while read` loop (the multi-minute .venv hang). The retrofit must
+        # batch with `find ... -exec chmod {} +`.
+        script = m.fix_permissions_script(Path("/Users/Shared/yolo"))
+        assert "-exec chmod -h +a" in script
+        assert "{} +" in script
+        assert "while" not in script  # no per-item read loop
+        assert "this can take a moment" in script  # progress note
 
 
 class TestEntrypointBootstrap:
@@ -477,14 +488,6 @@ class TestWorkspaceLocation:
         assert str(m.SHARED_ROOT_DEFAULT).startswith("/Users/Shared/")
         assert m.home_containing(m.SHARED_ROOT_DEFAULT) is None
 
-    def test_acl_touches_only_the_workspace_no_ancestors(self):
-        # The ACL script must scope to the workspace subtree only — no
-        # ancestor path appears, and no traversal-only ACE exists anymore.
-        script = m.workspace_acl_apply_script(Path("/Users/Shared/yolo/proj"))
-        assert "'/Users/Shared/yolo/proj'" in script
-        assert "'/Users/Shared/yolo'" not in script  # parent never touched
-        assert "search,readattr,readsecurity" not in script  # ancestor ACE gone
-
     def test_seatbelt_has_no_ancestor_metadata_block(self):
         # No per-ancestor traversal grant of any kind now.
         p = m.seatbelt_profile(Path("/Users/Shared/yolo/proj"))
@@ -493,12 +496,22 @@ class TestWorkspaceLocation:
         assert '(deny file-read* (subpath "/Users"))' in p
         assert '(literal "/Users/Shared")' in p
 
-    def test_shared_root_provision_is_setgid_group_owned(self):
+    def test_shared_root_provision_setgid_and_inheriting_acl(self):
+        # The whole sharing story lives here: setgid + group ownership + the
+        # INHERITING ACEs on the root itself, so children inherit for free and
+        # the hot path needs no walk.
         cmds = m.shared_root_provision_commands(host_user="matt")
         flat = [" ".join(c) for c in cmds]
         assert any(c.startswith("mkdir -p /Users/Shared/yolo") for c in flat)
         assert "chown matt:_yolojail /Users/Shared/yolo" in flat
         assert "chmod 2770 /Users/Shared/yolo" in flat  # setgid + group rwx
+        # inheriting ACEs applied to the root itself:
+        aces = m.workspace_acl_aces()
+        assert ["chmod", "+a", aces["dir"], "/Users/Shared/yolo"] in cmds
+        assert ["chmod", "+a", aces["file_inherit"], "/Users/Shared/yolo"] in cmds
+        # the dir ACE carries directory_inherit; the template carries file_inherit
+        assert "directory_inherit" in aces["dir"]
+        assert "file_inherit" in aces["file_inherit"]
 
     def test_acl_strip_script_removes_all_acls(self):
         s = m.workspace_acl_strip_script(Path("/Users/Shared/yolo/proj"))

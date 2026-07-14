@@ -167,17 +167,34 @@ def shared_root_provision_commands(
     The root (default ``/Users/Shared/yolo``) is owned by the host user, group
     ``_yolojail``, mode ``2770`` — setgid so a project the host user creates
     under it inherits the shared group, ``rwx`` for owner+group, and NO access
-    for "other".  This is the neutral ground both identities share; the
-    per-run ACL then lands on each project subtree.  Idempotent (``mkdir -p``,
-    re-``chmod`` is a no-op).  Pure — executed with ``sudo`` by the caller.
+    for "other".
+
+    Crucially it also gets the **inheriting** ACL ACEs (dir rights + the
+    file-inherit template) applied to the root *itself*.  Because the root is
+    provisioned empty and macOS applies inheritable ACEs to everything created
+    underneath at create-time, **every project and file the agent or host
+    later creates under the root inherits the shared-group grant for free** —
+    with NO per-run tree walk.  The only files that miss the ACE are
+    pre-existing inodes *moved/preserve-copied in* (rename/`cp -p` don't
+    re-trigger inheritance); those are handled on demand by
+    ``yolo macos-fix-permissions`` (:func:`fix_permissions_script`), not on the
+    hot path.
+
+    Idempotent (``mkdir -p``; re-adding an identical ACE / re-``chmod`` is a
+    no-op).  Pure — executed with ``sudo`` by the caller.
     """
     r = str(root)
+    aces = workspace_acl_aces(group)
     return [
         ["mkdir", "-p", r],
         ["chown", f"{host_user}:{group}", r],
         # setgid (2) so new subdirs inherit the shared group; 770 = owner+group
         # rwx, other none.  "Shared" in the name makes the sharing self-evident.
         ["chmod", "2770", r],
+        # The inheriting ACEs on the root itself — children inherit at create
+        # time, so no per-run walk is ever needed.
+        ["chmod", "+a", aces["dir"], r],
+        ["chmod", "+a", aces["file_inherit"], r],
     ]
 
 
@@ -303,12 +320,11 @@ def workspace_acl_aces(group: str = SANDBOX_GROUP) -> Dict[str, str]:
     Split so directories are searchable/listable and inherit correctly to
     children, while plain files never gain execute/search — SandVault's
     exact scheme, which sidesteps the umask-022 trap of a plain
-    setgid-group share.  Applied ONLY to the workspace tree itself; because
-    the workspace is neutral ground outside every home
-    (:func:`home_containing` rejects otherwise), there are no ancestor
-    grants — the sandbox reaches the workspace because ``/Users/Shared`` (or
-    the configured root) is world-traversable, not because we opened a path
-    through anyone's home.
+    setgid-group share.  The dir + file-inherit ACEs are applied to the
+    **shared root** at setup (:func:`shared_root_provision_commands`); the
+    kernel then inherits them onto everything created underneath, so the hot
+    path does no ACL work.  The bare file ACE is only used by the on-demand
+    :func:`fix_permissions_script` retrofit for pre-existing moved-in files.
     """
     return {
         "dir": f"group:{group} allow {_DIR_RIGHTS}",
@@ -317,32 +333,35 @@ def workspace_acl_aces(group: str = SANDBOX_GROUP) -> Dict[str, str]:
     }
 
 
-def workspace_acl_apply_script(workspace: Path, group: str = SANDBOX_GROUP) -> str:
-    """A ``find``-based bash script applying the split ACEs in one pass.
+def fix_permissions_script(root: Path, group: str = SANDBOX_GROUP) -> str:
+    """A ``find``-based bash script that (re)applies the split ACEs to a tree.
 
-    Directories get the dir ACE + the file-inherit template; non-directories
-    get the file ACE.  The grant lands ONLY on the workspace subtree — no
-    ancestor is ever touched (the workspace is neutral ground outside every
-    home).  ``chmod -h`` so symlinks aren't followed (avoid a swap race).
-    Idempotent (re-adding an identical ACE is a no-op).  Also fixes the modes
-    of files moved/created into the workspace with a restrictive umask, so no
-    clone-in/copy helper is needed.  Returned as text so it can be asserted
-    in tests and run via ``bash -c`` on macOS.
+    NOT on the hot path — this is the one-time retrofit behind
+    ``yolo macos-fix-permissions``, for the rare case where **pre-existing**
+    files were moved or preserve-copied into the shared area (rename / ``cp
+    -p`` don't re-trigger inheritance, so those inodes lack the group ACE).
+    Files *created* under the shared root inherit the ACE for free from the
+    root (see :func:`shared_root_provision_commands`) and never need this.
+
+    Batches with ``find … -exec chmod {} +`` (many paths per ``chmod``, not
+    one fork per file) so even a large ``.venv`` retrofit is fast, and prints
+    a note first so a multi-second pass on a huge tree doesn't look like a
+    hang.  ``chmod -h`` so symlinks aren't followed.  Returned as text so it's
+    unit-testable and run via ``bash -c`` on macOS.
     """
     aces = workspace_acl_aces(group)
-    ws = str(workspace)
+    r = _sh_quote(str(root))
     return (
         "set -euo pipefail\n"
-        f"ws={_sh_quote(ws)}\n"
-        # Directories: dir rights + inheritance template (two -a ACEs).
-        'find "$ws" -type d -print0 | while IFS= read -r -d "" d; do\n'
-        f'  chmod -h +a {_sh_quote(aces["dir"])} "$d"\n'
-        f'  chmod -h +a {_sh_quote(aces["file_inherit"])} "$d"\n'
-        "done\n"
-        # Everything else (files, symlinks): file rights, no inherit.
-        'find "$ws" ! -type d -print0 | while IFS= read -r -d "" f; do\n'
-        f'  chmod -h +a {_sh_quote(aces["file"])} "$f"\n'
-        "done\n"
+        f"root={r}\n"
+        'echo "Applying shared-group ACLs under $root (this can take a '
+        'moment on a large tree)…"\n'
+        # Directories: dir rights + inheritance template, batched.
+        f'find "$root" -type d -exec chmod -h +a {_sh_quote(aces["dir"])} {{}} +\n'
+        f'find "$root" -type d -exec chmod -h +a {_sh_quote(aces["file_inherit"])} {{}} +\n'
+        # Everything else (files, symlinks): bare file ACE, batched.
+        f'find "$root" ! -type d -exec chmod -h +a {_sh_quote(aces["file"])} {{}} +\n'
+        'echo "Done."\n'
     )
 
 
@@ -773,7 +792,6 @@ class RunPlan:
     cname: str
     profile_path: Path
     seatbelt: str
-    acl_script: str
     interp: Optional[str]
     interp_candidates: List[str]
     staged_dir: Path
@@ -845,7 +863,6 @@ def build_run_plan(
         cname=cname,
         profile_path=profile_path,
         seatbelt=seatbelt_profile(workspace, SANDBOX_HOME),
-        acl_script=workspace_acl_apply_script(workspace),
         interp=interp,
         interp_candidates=python_candidates(),
         staged_dir=STATE_DIR,
@@ -944,7 +961,6 @@ def _print_plan(plan: RunPlan, problems: List[str]) -> None:
     console.print("  sudo " + " ".join(plan.bootstrap_argv[1:]))
     console.print("")
     _section("Seatbelt profile", plan.seatbelt)
-    _section("workspace ACL script", plan.acl_script)
     _section("bootstrap script", plan.bootstrap)
     console.print("[bold]── launch argv ──[/bold]")
     console.print("  " + " ".join(plan.launch_argv))
@@ -1012,11 +1028,11 @@ def run_macos_user(
          configured and a real interpreter runnable as the sandbox user, so
          we never prompt into an unanswerable proxied pty.
       2. Install the root-owned Seatbelt profile + stage the entrypoint pkg.
-      3. Apply the inheriting workspace ACL (flat, on the neutral workspace
-         tree only — the workspace is never inside a home).
-      4. Run the entrypoint bootstrap AS the sandbox user; ABORT on failure
+         (No ACL step: files under the shared root already inherit the group
+         grant from the root ACE applied at `macos-setup`.)
+      3. Run the entrypoint bootstrap AS the sandbox user; ABORT on failure
          (a dead bootstrap means no shims/configs — launching is pointless).
-      5. Launch the agent under ``run_with_proxy``.
+      4. Launch the agent under ``run_with_proxy``.
 
     Returns the agent's exit code (or 1 on a precondition/setup failure).
     """
@@ -1084,9 +1100,15 @@ def run_macos_user(
     # call, not ours), so sudo may prompt for a password.  The launch itself
     # runs under the TTY proxy, which forwards stdin, so the prompt is
     # answerable inline.  Give a heads-up so the prompt isn't a surprise.
+    # NOTE: no per-run ACL walk — the workspace is shared via the inheriting
+    # ACL on the shared root (applied once at `macos-setup`), so files under
+    # it already carry the group grant.  Pre-existing files moved in are
+    # retrofitted on demand with `yolo macos-fix-permissions`, off the hot
+    # path.  These sudo steps are consecutive + fast, so one password covers
+    # the whole run.
     console.print(
-        "[dim]Setting up the sandbox (Seatbelt profile, workspace ACL, "
-        "bootstrap) — sudo may prompt for your password.[/dim]"
+        "[dim]Setting up the sandbox (Seatbelt profile + bootstrap) — sudo may "
+        "prompt for your password once.[/dim]"
     )
 
     # 2. Install the root-owned Seatbelt profile (0444) + stage entrypoint.
@@ -1100,14 +1122,7 @@ def run_macos_user(
             )
             return 1
 
-    # 3. Share the workspace via the flat inheriting ACL (workspace tree only).
-    if subprocess.run(["bash", "-c", plan.acl_script]).returncode != 0:
-        console.print(
-            "[yellow]workspace ACL grant reported an error — the sandbox "
-            "user may not have full rw. Try `yolo macos-fix-permissions`.[/yellow]"
-        )
-
-    # 4. Bootstrap the sandbox user's home (shims + agent configs), natively.
+    # 3. Bootstrap the sandbox user's home (shims + agent configs), natively.
     #    ABORT on failure: without shims/configs the agent launch is doomed
     #    and would fail confusingly downstream.
     if not _install_root_file(plan.bootstrap_path, plan.bootstrap):
@@ -1121,7 +1136,7 @@ def run_macos_user(
         )
         return 1
 
-    # 5. Launch under the TTY proxy.
+    # 4. Launch under the TTY proxy.
     return run_with_proxy(plan.launch_argv)
 
 
@@ -1254,7 +1269,8 @@ def macos_setup() -> None:
     #     projects live to be shared host<->sandbox; it is NOT inside any home.
     console.print(
         f"• Provisioning shared root [bold]{SHARED_ROOT_DEFAULT}[/bold] "
-        "(setgid, group _yolojail, no other-access)."
+        "(setgid + inheriting ACL, group _yolojail, no other-access) — "
+        "projects created under it are shared automatically, no per-run walk."
     )
     for cmd in shared_root_provision_commands(host_user=_host_user()):
         if subprocess.run(["sudo", *cmd]).returncode != 0:
@@ -1363,6 +1379,49 @@ def macos_unshare(workspace: str) -> None:
         console.print(f"[yellow]ACL strip reported an error on {ws}.[/yellow]")
         raise typer.Exit(1)
     console.print(f"[green]✓ Stripped yolo-jail ACLs from {ws}.[/green]")
+
+
+def macos_fix_permissions(path: Optional[str] = None) -> None:
+    """Retrofit the shared-group ACL onto pre-existing files in the shared area.
+
+    You should rarely need this.  Files *created* under the shared root
+    inherit the group ACL automatically (set once at ``macos-setup``).  This
+    command exists for the exception: **pre-existing files moved or
+    preserve-copied in** (a ``mv ~/old-proj`` or ``cp -p``), which don't
+    re-trigger inheritance and so arrive without the group grant — the agent
+    could read world-readable ones but not *write* them, and couldn't read
+    tightened-perm ones at all.
+
+    ``path`` defaults to the whole shared root; pass a single project to scope
+    it.  Batched + progress-announced, so even a large ``.venv`` is quick and
+    doesn't look like a hang.  macOS only.
+    """
+    import typer
+
+    from .console import console
+
+    if not _is_macos():
+        console.print("[bold red]yolo macos-fix-permissions requires macOS.[/bold red]")
+        raise typer.Exit(1)
+    target = Path(path).resolve() if path else SHARED_ROOT_DEFAULT
+    if not target.is_dir():
+        console.print(f"[bold red]Not a directory:[/bold red] {target}")
+        raise typer.Exit(1)
+    if home_containing(target) is not None:
+        console.print(
+            f"[bold red]{target} is inside a user home[/bold red] — the "
+            "macos-user backend only manages ACLs on neutral ground "
+            f"(under {SHARED_ROOT_DEFAULT} or another non-home root)."
+        )
+        raise typer.Exit(1)
+    rc = subprocess.run(["bash", "-c", fix_permissions_script(target)]).returncode
+    if rc != 0:
+        console.print(
+            f"[yellow]Some ACLs could not be applied under {target} "
+            "(e.g. a file whose ACL is locked). The rest were applied.[/yellow]"
+        )
+        raise typer.Exit(1)
+    console.print(f"[green]✓ Applied shared-group ACLs under {target}.[/green]")
 
 
 def _taken_ids() -> "set[int]":

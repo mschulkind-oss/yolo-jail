@@ -379,11 +379,17 @@ app.command()(ps)
 app.command()(doctor)
 
 # Native macOS-user backend provisioning (macOS-only; no-op errors elsewhere).
-from .macos_user import macos_setup, macos_teardown, macos_unshare  # noqa: E402
+from .macos_user import (  # noqa: E402
+    macos_fix_permissions,
+    macos_setup,
+    macos_teardown,
+    macos_unshare,
+)
 
 app.command("macos-setup")(macos_setup)
 app.command("macos-teardown")(macos_teardown)
 app.command("macos-unshare")(macos_unshare)
+app.command("macos-fix-permissions")(macos_fix_permissions)
 
 
 # ---------------------------------------------------------------------------
