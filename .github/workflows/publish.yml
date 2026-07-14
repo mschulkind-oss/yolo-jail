@@ -178,7 +178,15 @@ jobs:
   # are configured — so releases stay green before the Cachix account exists.
   push-image-cache:
     if: github.event_name == 'release'
-    runs-on: ubuntu-latest
+    # Push BOTH x86_64-linux and aarch64-linux closures — each matrix cell
+    # builds + pushes its own native arch.  The aarch64-linux closure is the
+    # SAME one Apple Silicon Macs consume, so this also serves the mac/arm
+    # audience (previously the x86-only push left them building from source).
+    strategy:
+      fail-fast: false
+      matrix:
+        os: [ubuntu-latest, ubuntu-24.04-arm]
+    runs-on: ${{ matrix.os }}
     steps:
       - name: Check Cachix is configured
         id: gate
