@@ -135,7 +135,7 @@ and needs **no macOS changes**. Only `cli.py` (host-side) is platform-aware.
 | | | | | |
 | **Image Building** | | | | |
 | `nix build .#ociImage` | ✅ | ✅¹ | ✅¹ | ¹Builds from binary cache by default; Linux builder only needed for non-cached packages |
-| Native ARM image (aarch64) | ✅ | ✅ | ✅ | |
+| Native ARM image (aarch64) | ✅ | ✅ | ✅ | Built natively + integration-tested in CI on `ubuntu-24.04-arm`; mac/arm consumes the *same* aarch64-linux closure via its native arm64 container |
 | Image format | OCI | OCI | OCI² | ²Auto-converted via skopeo/podman |
 | | | | | |
 | **Agent Support** | | | | |

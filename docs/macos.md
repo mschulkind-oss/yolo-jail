@@ -116,6 +116,9 @@ Cachix cache is published, macOS users download the fully-built image and
 never compile anything. This is the intended happy path; see
 [docs/handoff-cachix-cache.md](handoff-cachix-cache.md) for its status. Once
 live, `yolo check` shows "every image path is served from the binary cache".
+CI pushes the **aarch64-linux** closure on every release (built natively on
+an arm runner), so Apple Silicon Macs pull the exact arm image they run — no
+cross-build, no Linux builder for cached packages.
 
 **Fallback — a local Linux builder.** Needed only until the cache is
 published, or if you add a custom package that isn't cached. `yolo check`

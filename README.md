@@ -38,10 +38,14 @@ Core requirements (both platforms):
   - **[Podman](https://podman.io/)** (preferred on Linux; Podman Machine on macOS)
   - **[Apple Container](https://github.com/apple/container)** (native macOS, `brew install container`)
 
-Platform specifics:
+Platform specifics (in priority order):
 
-- **Linux** — any modern distribution with Podman. No extra setup.
-- **macOS** — Apple Silicon or Intel. You need a container runtime (Apple Container or Podman Machine). A remote Nix Linux builder is **optional** — the standard image builds entirely from the NixOS binary cache. See [docs/macos.md](docs/macos.md).
+- **Linux / x86_64** — any modern distribution with Podman. No extra setup. The primary target.
+- **macOS / Apple Silicon** — via a native **arm64** Linux container (Apple Container or Podman Machine); no emulation. See [docs/macos.md](docs/macos.md).
+- **Linux / arm64 (aarch64-linux)** — supported and CI-tested (image built + integration-tested natively on `ubuntu-24.04-arm`); same nix image as x86_64, no arch switch.
+- **macOS / Intel** — also supported (x86_64 Linux container).
+
+A remote Nix Linux builder is **optional** on macOS — the standard image builds entirely from the NixOS binary cache.
 
 ## Installation
 
