@@ -12,14 +12,3 @@ distributed under the License is distributed on an "AS IS" BASIS,
 WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
 See the License for the specific language governing permissions and
 limitations under the License.
-
----
-
-The native macOS backend (runtime "macos-user", src/cli/macos_user.py)
-adapts the isolation design of SandVault by Patrick Wyatt
-(https://github.com/webcoyote/sandvault), used under the Apache License 2.0.
-We reimplemented — did not copy — its mechanics: a dedicated hidden macOS
-user, the (allow default) Seatbelt profile shape with its load-bearing denies
-(all writes, /Library/Keychains, other users' homes, raw disk + bpf, Volumes),
-the dir/file-split inheriting workspace ACL, and the env-scrubbed sudo -u +
-sandbox-exec launch.  See docs/macos-native-user-sandbox-design.md.

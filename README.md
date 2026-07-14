@@ -229,17 +229,8 @@ The `runtime` config picks how the agent is isolated:
 
 - **`podman`** (Linux, default) / **`container`** (macOS, Apple Container) —
   the agent runs in a Linux container. Strongest boundary (kernel/VM
-  isolation, resource caps). On macOS this means a lightweight Linux VM.
-- **`macos-user`** (macOS only, **explicit opt-in**) — the agent runs
-  *natively* (arm64, no VM, no arch switch) in a dedicated hidden macOS user
-  account hardened with an Apple Seatbelt profile. Faster startup and native
-  toolchains, but a **weaker boundary** than the container (shared kernel, no
-  resource caps). Use it for a trusted-but-autonomous agent where the goal is
-  "don't let YOLO mode wreck my host or read my creds"; prefer the container
-  for adversarial or exfil-sensitive work. It matches the security model of
-  [SandVault](https://github.com/webcoyote/sandvault) — see
-  [attribution](#attribution) and the
-  [design doc](docs/macos-native-user-sandbox-design.md).
+  isolation, resource caps). On macOS this means a lightweight Linux VM —
+  **native arm64 on Apple Silicon (no emulation)**; see [docs/macos.md](docs/macos.md).
 
 ## Security
 
@@ -273,23 +264,7 @@ See [CONTRIBUTING.md](https://github.com/mschulkind-oss/.github/blob/main/CONTRI
 - [Platform Comparison](docs/platform-comparison.md) — Feature matrix: Linux vs macOS
 - [Config Safety](docs/config-safety.md) — How config change approval works
 - [Storage & Config](docs/storage-and-config.md) — Storage hierarchy and mount layout
-- [macOS-user mode](docs/macos-user-mode.md) — running agents natively on macOS (no container/VM): usage
-- [macOS-user security model](docs/macos-user-security-model.md) — the complete mental model: what the sandbox does and doesn't protect
-- [macOS native-user sandbox design](docs/macos-native-user-sandbox-design.md) — the `macos-user` backend design rationale
 - [Happy-path principle](docs/happy-path-principle.md) — fill the matrix, support one tool per capability
-
-## Attribution
-
-The native macOS backend (`runtime: "macos-user"`) adapts the isolation
-design of **[SandVault](https://github.com/webcoyote/sandvault)** by Patrick
-Wyatt, used under the Apache License 2.0 (the same license as this project).
-We reimplemented rather than copied its mechanics — the dedicated hidden
-macOS user, the `(allow default)` Seatbelt profile shape with its
-load-bearing denies (all writes, `/Library/Keychains`, other users' homes,
-raw disk + bpf, `/Volumes`), the dir/file-split inheriting workspace ACL, and
-the env-scrubbed `sudo -u` + `sandbox-exec` launch — so yolo-jail's macOS
-backend matches SandVault's security model. Thanks to SandVault for a clear,
-well-documented reference. See [NOTICE](NOTICE).
 
 ## License
 

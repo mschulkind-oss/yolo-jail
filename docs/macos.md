@@ -1,62 +1,34 @@
 # macOS Setup Guide
 
 YOLO Jail supports macOS (Apple Silicon and Intel) in addition to Linux.
-On macOS you can run agents two ways:
+The agent runs in a **Linux container** — Podman Machine or Apple Container
+transparently runs a lightweight Linux VM, so the jail experience is nearly
+identical to a native Linux host.
 
-- **In a Linux container** (the default) — Podman Machine or Apple Container
-  transparently runs a lightweight Linux VM, so the jail experience is nearly
-  identical to a native Linux host. This is the security-maximum path.
-- **Natively, no container** (`macos-user`, opt-in) — the agent runs as
-  arm64-native macOS processes in a dedicated sandboxed user account. No VM.
+**On Apple Silicon this is native arm64 — there is no emulation.** The image
+is built as `aarch64-linux` (the flake maps `aarch64-darwin → aarch64-linux`)
+and the runtime VM is `linux/arm64`, so it's arm-on-arm — no qemu, no Rosetta.
+The only time you hit emulation is pulling an **amd64-only image** (e.g. some
+database images); that's a property of that image, not of the backend.
+
+> A native, non-container macOS backend (`macos-user`) was prototyped and then
+> removed — on arm64 the container is already native, so it bought little at
+> the cost of dropping the nix image, per-workspace config, and isolation. See
+> [macos-backend-direction.md](macos-backend-direction.md) for the full
+> reasoning (recoverable at git tag `macos-user-experiment`).
 
 ## Choosing a runtime
-
-Pick based on **what you're optimizing for**:
 
 | Runtime | What it is | Choose it for |
 |---------|------------|---------------|
 | **Podman** | Linux container in a Podman Machine VM | The portable default; Podman-in-Podman; parity with Linux hosts |
 | **Apple Container** | Linux container, one lightweight VM per container | Per-container CPU/memory limits, native socket forwarding (macOS 15+) |
-| **macos-user** | Dedicated macOS user + Apple Seatbelt, **no VM** | **Native arm64 speed** and running **macOS/arm tools directly** — when a Linux VM is the wrong shape for the work |
 
-The two container runtimes give you a **true VM boundary**; `macos-user` trades
-some of that isolation for **native performance and native-arch tooling**. Set
-the runtime with `YOLO_RUNTIME=podman`, `container`, or `macos-user` (or the
-`runtime` key in `yolo-jail.jsonc`).
+Both are native arm64 on Apple Silicon. Set the runtime with
+`YOLO_RUNTIME=podman` or `container` (or the `runtime` key in
+`yolo-jail.jsonc`).
 
-### `macos-user` — the native (non-container) backend
-
-**Why you'd choose it:** native arm64 speed (no Linux VM overhead, seconds to
-start) and the ability to run macOS/arm-native binaries directly. It's the
-right shape for a **trusted-but-autonomous** agent where the goal is "don't let
-it wreck my Mac or read my credentials" — not for sandboxing hostile code.
-
-**How it works:** the agent runs as a dedicated hidden, unprivileged macOS
-user account hardened with an Apple Seatbelt (`sandbox-exec`) profile. It
-matches the security model of
-[SandVault](https://github.com/webcoyote/sandvault): host credentials are kept
-out (separate UID = separate login keychain + TCC db, plus profile denies on
-`/Library/Keychains` and other users' homes), the workspace is shared live via
-an inheriting ACL, and writes are denied everywhere but the workspace + sandbox
-home + scratch. Enable the in-sandbox `yolo-log` helper (Apple unified logging)
-with the `macos_log` config (`off`/`user`/`full`).
-
-**The tradeoff:** it is a **weaker boundary than the container** — shared
-kernel, deprecated `sandbox-exec`, no resource caps. So it is **never selected
-automatically or by default**: you must ask for it explicitly (`runtime` /
-`YOLO_RUNTIME`), and auto-detection will never fall back to it even if no
-container runtime is installed. Prefer the container for adversarial or
-exfil-sensitive work.
-
-Two focused docs cover it:
-- [macOS-user mode](macos-user-mode.md) — how to set it up and use it.
-- [macOS-user security model](macos-user-security-model.md) — the complete
-  mental model: the actual sandbox config and exactly what it protects.
-
-(Design rationale + the honest delta vs. the container:
-[macos-native-user-sandbox-design.md](macos-native-user-sandbox-design.md).)
-
-Auto-detection priority (containers only — `macos-user` is never auto-selected):
+Auto-detection priority:
 - **macOS:** Apple Container → Podman (native-first)
 - **Linux:** Podman
 
@@ -75,7 +47,6 @@ Auto-detection priority (containers only — `macos-user` is never auto-selected
 |---------|---------|-------|
 | **[Podman](https://podman.io/)** | `brew install podman` | The portable default; requires Podman Machine (setup below) |
 | **[Apple Container](https://github.com/apple/container)** | `brew install container` | Native per-container VM; macOS 15+ |
-| **macos-user** | nothing to install | Uses built-in macOS user accounts + `sandbox-exec`; one-time `yolo macos-setup` (needs a Homebrew/CLT `python3`) |
 
 ### Podman Machine Setup
 
