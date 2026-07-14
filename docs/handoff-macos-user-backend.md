@@ -174,6 +174,67 @@ yolo -- claude             # launches natively as _yolojail + Seatbelt
 yolo macos-teardown
 ```
 
+## First real-hardware run — findings to fix (2026-07-14)
+
+The backend was launched on a real Mac for the first time (`yolo -- claude`
+in `/Users/Shared/sv-matt/repos/forms`, a large repo with a populated
+`.venv`). It did **not** crash on the design blockers B1–B4 — the failures
+below are **new, UX/performance issues in the setup path**, not security-model
+regressions. Fix these before the backend is pleasant (or trustworthy-looking)
+to use.
+
+**Symptom the user saw:** after the "Setting up the sandbox …" line, a
+multi-minute silent pause that looked exactly like a hang (they `^C`'d out of
+it twice on earlier attempts), then an ACL error, then a **second**
+`Password:` prompt at the very end of the run.
+
+**Root cause — the workspace ACL walk (`workspace_acl_apply_script`,
+`macos_user.py:320`, run at `macos_user.py:1104`):**
+
+- It's a `find`-based walk over the **entire workspace**, forking `chmod -h +a`
+  **once per file and twice per directory**. On a repo with a large `.venv`
+  (thousands of `site-packages` files) that's tens of thousands of serial
+  process spawns → the multi-minute pause.
+- The walk emits **no per-item output** and the single heads-up line lumps it
+  in with two other steps, so a slow ACL pass is indistinguishable from a
+  freeze. This is why it reads as a hang.
+- It ACLs files it arguably shouldn't (`.venv`, and it hit
+  `chmod: Failed to set ACL on … flask-3.1.3.dist-info/licenses: Operation not
+  permitted` — a file whose ACL couldn't be set, surfaced as the
+  "workspace ACL grant reported an error" warning at `macos_user.py:1105`).
+- **The re-prompt is a consequence of the slowness:** the ACL walk (step 3,
+  runs as the *user*, no sudo) outlasts sudo's ~5-min credential timestamp, so
+  the step-4 bootstrap sudo (`macos_user.py:1113`) has to prompt for the
+  password **again** mid-run. So the slow silent step both looks like a hang
+  *and* forces a second password entry.
+
+**Fixes to make (recommended order — first two are low-risk, high-impact):**
+
+1. **Batch all sudo work up front**, before the slow ACL walk, so one password
+   entry covers the whole run and the ACL pass can't push the bootstrap past
+   the sudo timestamp. Today the order is: profile install (sudo) → ACL walk
+   (no sudo, slow) → bootstrap (sudo). Reordering so both sudo phases precede
+   the ACL walk removes the double prompt.
+2. **Show progress on the ACL walk** — a spinner + running file count (or at
+   minimum a "this can take a minute on large repos" note). Silence here is the
+   single biggest "is it hung?" trap.
+3. **Scope the ACL tree.** Don't blanket-ACL `.venv`/`node_modules`/`.git`
+   internals — most are throwaway the sandbox rebuilds, and some (like the
+   flask `licenses` dir above) can't even take the ACE. Options: make the walk
+   `.gitignore`-aware, or skip known-heavy dirs. **Caveat:** think about which
+   of these the sandbox still needs *read* access to before excluding them —
+   don't break the agent's ability to import from a shared venv if that's the
+   intent. This one needs a moment of design thought, not just a filter.
+4. **Speed up the walk itself** even where it must run: batching `chmod` calls
+   (feed `find` output to fewer invocations) or applying inheriting ACEs at the
+   directory level and letting inheritance do the rest instead of touching
+   every existing file, would cut the fork count dramatically.
+
+None of these touch the security posture — they're about not looking broken and
+not making the user type their password twice. Keep the SandVault-parity ACL
+*semantics* (dir/file split, workspace-only) intact while changing *how/when*
+they're applied.
+
 ## Guardrails / scope
 
 - **Match SandVault's security level — do not relax it.** The profile denies
