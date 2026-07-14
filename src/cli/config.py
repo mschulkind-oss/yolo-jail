@@ -96,8 +96,6 @@ KNOWN_TOP_LEVEL_CONFIG_KEYS = {
     "loopholes",
     "host_processes",
     "journal",
-    "macos_log",
-    "macos_shared_root",
     "kvm",
     "prune",
     "ephemeral_storage",
@@ -105,12 +103,6 @@ KNOWN_TOP_LEVEL_CONFIG_KEYS = {
     "agents_md_extra",
 }
 JOURNAL_MODES = ("off", "user", "full")
-# macOS-user backend: the `macos_log` config gates the in-sandbox
-# `yolo-log` wrapper over Apple's unified logging.  Mirrors JOURNAL_MODES;
-# the authoritative tuple lives in cli.macos_user.MACOS_LOG_MODES and is
-# re-declared here to keep config.py import-light (no cross-import needed
-# for a 3-value literal).
-MACOS_LOG_MODES = ("off", "user", "full")
 EPHEMERAL_STORAGE_MODES = ("volume", "tmpfs")
 KNOWN_NETWORK_KEYS = {"mode", "ports", "forward_host_ports"}
 KNOWN_SECURITY_KEYS = {"blocked_tools"}
@@ -668,7 +660,7 @@ def _validate_config(
             "use 'podman' (Linux) or 'container' (macOS Apple Container)"
         )
     elif runtime is not None and runtime not in ALL_RUNTIMES:
-        errors.append("config.runtime: expected 'podman', 'container', or 'macos-user'")
+        errors.append("config.runtime: expected 'podman' or 'container'")
 
     repo_path = config.get("repo_path")
     if repo_path is not None and not isinstance(repo_path, str):
@@ -929,44 +921,6 @@ def _validate_config(
                 f"config.journal: expected one of {list(JOURNAL_MODES)} "
                 f"or a boolean (got {journal!r})"
             )
-
-    # macos_log — the macOS-user backend's analog of `journal`: gates the
-    # in-sandbox `yolo-log` wrapper over Apple's unified logging (`log`).
-    macos_log = config.get("macos_log")
-    if macos_log is not None and (
-        not isinstance(macos_log, str) or macos_log not in MACOS_LOG_MODES
-    ):
-        errors.append(
-            f"config.macos_log: expected one of {list(MACOS_LOG_MODES)} "
-            f"(got {macos_log!r})"
-        )
-
-    # macos_shared_root — the macos-user backend's neutral shared-workspace
-    # root.  Must be an absolute path and NOT inside any user's home (the
-    # backend shares only neutral ground; a home path defeats the boundary).
-    macos_shared_root = config.get("macos_shared_root")
-    if macos_shared_root is not None:
-        if not isinstance(macos_shared_root, str) or not macos_shared_root.startswith(
-            "/"
-        ):
-            errors.append(
-                "config.macos_shared_root: expected an absolute path "
-                f"(got {macos_shared_root!r})"
-            )
-        else:
-            from pathlib import Path as _P
-
-            # One source of truth for "is this inside a home?" — the same
-            # check the run path enforces.
-            from .macos_user import home_containing
-
-            offending = home_containing(_P(macos_shared_root))
-            if offending is not None:
-                errors.append(
-                    "config.macos_shared_root: must not be inside a user home "
-                    f"({macos_shared_root!r} is under {offending}); use "
-                    "/Users/Shared/... or a non-home path"
-                )
 
     kvm = config.get("kvm")
     if kvm is not None and not isinstance(kvm, bool):

@@ -221,26 +221,3 @@ def test_preflight_state_a_returns_true(monkeypatch):
         )
         is True
     )
-
-
-# --- macos-user backend check is HONEST (green != runnable) ----------------
-
-
-def test_macos_user_check_warns_experimental(monkeypatch):
-    # A green wall must not read as "verified working": the block leads with
-    # an experimental / not-verified-end-to-end WARN pointing at --dry-run.
-    monkeypatch.setattr(_cc.console, "print", lambda *a, **k: None)
-    # Not inside a jail (so the block actually runs its probes).
-    monkeypatch.delenv("YOLO_VERSION", raising=False)
-    warns, fails = [], []
-    _cc._check_macos_user_backend(
-        ok=lambda m: None,
-        warn=lambda m, n="": warns.append((m, n)),
-        fail=lambda m, n="": fails.append((m, n)),
-    )
-    assert any("experimental" in m.lower() for m, _ in warns)
-    assert any(
-        "not verified" in m.lower() or "readiness" in m.lower() for m, _ in warns
-    )
-    # The remedy names the honest gate.
-    assert any("--dry-run" in n for _, n in warns)

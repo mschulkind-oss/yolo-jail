@@ -56,7 +56,6 @@ from .paths import (
     GLOBAL_MISE,
     GLOBAL_STORAGE,
     IS_MACOS,
-    NATIVE_RUNTIMES,
     SUPPORTED_RUNTIMES,
     USER_CONFIG_PATH,
 )
@@ -781,74 +780,6 @@ def _preflight_builder_needs(
     return False
 
 
-def _check_macos_user_backend(ok, warn, fail) -> None:
-    """Probe readiness of the native macos-user backend.
-
-    Reports the OS, Apple Seatbelt (``sandbox-exec``), the dedicated sandbox
-    account, the passwordless-sudo rule, and a runnable interpreter — with
-    actionable fixes.  Never runs inside a jail (host-side state).  Uses the
-    same builders + detectors the backend itself uses so the check and the
-    run agree.
-
-    IMPORTANT: this backend is EXPERIMENTAL and has not been verified
-    end-to-end on real macOS hardware.  These checks validate *readiness*
-    (config + preconditions), not *runnability* — a fully green result here
-    does NOT mean a run will succeed.  The honest gate is
-    ``yolo run --dry-run``, which builds the full plan and statically checks
-    its invariants; the definitive test is a real run on a Mac (see
-    docs/handoff-macos-user-backend.md).
-    """
-    from .macos_user import SANDBOX_USER, _sandbox_user_exists, resolve_python
-    from .paths import IS_MACOS
-
-    console.print("[bold]macOS-user backend[/bold] [dim](experimental)[/dim]")
-    if os.environ.get("YOLO_VERSION") is not None:
-        ok("Inside jail — macos-user checks skipped (host-side backend)")
-        return
-    # Set the honest expectation before the per-check lines, so a wall of
-    # green isn't mistaken for "verified working".
-    warn(
-        "Experimental backend — readiness only, NOT verified end-to-end",
-        "A green check here means the preconditions are in place, not that a "
-        "run will succeed on this hardware.  Inspect the full plan with "
-        "`yolo run --dry-run`; the definitive test is a real run on a Mac "
-        "(docs/handoff-macos-user-backend.md).",
-    )
-    if not IS_MACOS:
-        fail(
-            "runtime 'macos-user' requires macOS",
-            "It isolates via a dedicated macOS user account; use 'podman' "
-            "or 'container' on this host.  `yolo run --dry-run` still prints "
-            "the plan here for inspection.",
-        )
-        return
-    if shutil.which("sandbox-exec"):
-        ok("Apple Seatbelt (sandbox-exec) available")
-    else:
-        fail(
-            "sandbox-exec not found",
-            "Seatbelt ships with macOS; a missing binary means an unusual PATH.",
-        )
-    if _sandbox_user_exists():
-        ok(f"Sandbox user '{SANDBOX_USER}' exists")
-    else:
-        warn(
-            f"Sandbox user '{SANDBOX_USER}' not provisioned",
-            "Run `yolo macos-setup` to create it (see "
-            "docs/macos-native-user-sandbox-design.md).",
-        )
-    # A real interpreter must resolve — never the xcode-select stub.
-    interp = resolve_python()
-    if interp is None:
-        fail(
-            "no python3 interpreter found for the sandbox user",
-            "Install one (`brew install python` or `xcode-select --install`); "
-            "the bare /usr/bin/python3 stub can't run as a service account.",
-        )
-    else:
-        ok(f"Interpreter for sandbox user: {interp}")
-
-
 def _check_podman_machine_resources(workspace, *, ok, warn) -> None:
     """Surface Podman Machine VM memory in `yolo check` output and warn if
     it's below a sensible floor or below the workspace's
@@ -1044,9 +975,7 @@ def check(
                 "  Linux:  your package manager, e.g. `sudo apt install podman`\n"
                 "  macOS:  `brew install podman` then `podman machine init "
                 "&& podman machine start`,\n"
-                "          or `brew install container` then `container system start`\n"
-                '  (or use the native macOS backend: runtime "macos-user", '
-                "no container needed — see docs/macos.md)",
+                "          or `brew install container` then `container system start`",
             )
     console.print()
 
@@ -1326,11 +1255,6 @@ def check(
         errors.append(runtime_error)
     elif runtime:
         ok(f"Runtime available: {runtime}")
-    # Native backends (macos-user) build no image and run no container, so
-    # the image-build + container-image + per-jail-container-liveness probes
-    # below are irrelevant — skip them rather than FAIL on a Linux builder
-    # or WARN about a container CLI the user isn't using.
-    is_native_runtime = runtime in NATIVE_RUNTIMES
 
     if workspace_config_path.exists() and "repo_path" in workspace_config:
         warnings.append(
@@ -1373,15 +1297,6 @@ def check(
     except (ConfigError, SystemExit) as e:
         fail("Entrypoint preflight failed", str(e))
     console.print()
-
-    # --- macOS-user backend readiness ---
-    #
-    # Only when the native backend is the resolved runtime.  It needs macOS,
-    # Apple Seatbelt, and a provisioned sandbox account — probe each and give
-    # actionable fixes.  Host-side only (never meaningful inside a jail).
-    if runtime == "macos-user":
-        _check_macos_user_backend(ok, warn, fail)
-        console.print()
 
     # --- GPU Checks ---
 
@@ -1760,70 +1675,58 @@ def check(
         console.print()
 
     # --- Image & Containers ---
-    #
-    # Native backends (macos-user) build no image and run no container, so
-    # the whole image/container region is skipped with a single info line —
-    # no builder FAIL, no image-not-loaded WARN, no container-CLI probes.
     image_build_skipped = False
     _not_loaded_hint = "Run 'yolo' once to build and load the image"
-    if is_native_runtime:
-        console.print("[bold]Image Build[/bold]")
-        console.print(
-            f"  [dim]- Not applicable: the '{runtime}' backend runs the agent "
-            "natively (no container image to build or load).[/dim]"
-        )
-        console.print()
-    else:
-        console.print("[bold]Image Build[/bold]")
-        if build:
-            out_link = BUILD_DIR / "check-result"
-            if repo_root is None:
-                fail("Skipped nix build", "repo root resolution failed")
-            else:
-                # Preflight: will anything be BUILT from source (cache miss), or
-                # is the whole image substitutable?  Only a from-source build
-                # needs a Linux builder on macOS — stay quiet in the common
-                # (fully-cached) case and escalate only on a real miss.  Gated
-                # on --build (dry-run costs cache round-trips); INCONCLUSIVE
-                # when offline so we never cry wolf.  When it returns False the
-                # build is known-doomed (needs a builder we don't have) — skip
-                # the real build so the user sees ONE clear message, not a WARN
-                # + a duplicate FAIL, and no misleading "Run 'yolo' once" hint.
-                image_buildable = _preflight_builder_needs(
-                    repo_root, _effective_packages(config) or None, ok, warn, fail
-                )
-                if image_buildable is False:
-                    image_build_skipped = True
-                else:
-                    try:
-                        store_path, build_stderr_tail = _build_image_store_path(
-                            repo_root,
-                            extra_packages=_effective_packages(config) or None,
-                            out_link=out_link,
-                            status_message="[bold blue]Preflighting jail image...",
-                        )
-                        if store_path is None:
-                            title, note = _diagnose_nix_build_failure(build_stderr_tail)
-                            fail(title, note)
-                        else:
-                            ok(f"nix build succeeded: {store_path}")
-                    finally:
-                        out_link.unlink(missing_ok=True)
+    console.print("[bold]Image Build[/bold]")
+    if build:
+        out_link = BUILD_DIR / "check-result"
+        if repo_root is None:
+            fail("Skipped nix build", "repo root resolution failed")
         else:
-            warn("Skipped nix build (--no-build)")
-        console.print()
-
-        # When the image can't be built here (no Linux builder), the "Image
-        # not loaded → Run 'yolo' once" hint below is misleading — running
-        # yolo hits the same wall.  Point at the real fix instead.
-        if image_build_skipped:
-            _not_loaded_hint = (
-                "This host can't build the image (needs a Linux builder — see "
-                "above / docs/macos.md), or download a prebuilt image once the "
-                "cache is published."
+            # Preflight: will anything be BUILT from source (cache miss), or
+            # is the whole image substitutable?  Only a from-source build
+            # needs a Linux builder on macOS — stay quiet in the common
+            # (fully-cached) case and escalate only on a real miss.  Gated
+            # on --build (dry-run costs cache round-trips); INCONCLUSIVE
+            # when offline so we never cry wolf.  When it returns False the
+            # build is known-doomed (needs a builder we don't have) — skip
+            # the real build so the user sees ONE clear message, not a WARN
+            # + a duplicate FAIL, and no misleading "Run 'yolo' once" hint.
+            image_buildable = _preflight_builder_needs(
+                repo_root, _effective_packages(config) or None, ok, warn, fail
             )
+            if image_buildable is False:
+                image_build_skipped = True
+            else:
+                try:
+                    store_path, build_stderr_tail = _build_image_store_path(
+                        repo_root,
+                        extra_packages=_effective_packages(config) or None,
+                        out_link=out_link,
+                        status_message="[bold blue]Preflighting jail image...",
+                    )
+                    if store_path is None:
+                        title, note = _diagnose_nix_build_failure(build_stderr_tail)
+                        fail(title, note)
+                    else:
+                        ok(f"nix build succeeded: {store_path}")
+                finally:
+                    out_link.unlink(missing_ok=True)
+    else:
+        warn("Skipped nix build (--no-build)")
+    console.print()
 
-    if not is_native_runtime and detected_runtime:
+    # When the image can't be built here (no Linux builder), the "Image
+    # not loaded → Run 'yolo' once" hint below is misleading — running
+    # yolo hits the same wall.  Point at the real fix instead.
+    if image_build_skipped:
+        _not_loaded_hint = (
+            "This host can't build the image (needs a Linux builder — see "
+            "above / docs/macos.md), or download a prebuilt image once the "
+            "cache is published."
+        )
+
+    if detected_runtime:
         console.print("[bold]Container Image[/bold]")
         # Skip image check when running inside a jail — the nested podman
         # won't have the image loaded (it's on the host's runtime).
@@ -1967,13 +1870,9 @@ def check(
     # They don't catch the case where the per-jail daemon was spawned
     # but immediately crashed.  This probe connects to each running
     # jail's host-service socket and reports any that aren't listening.
-    # It enumerates *containers*, so it's skipped for native backends (no
-    # containers to probe — this is where the stale "Apple Container CLI
-    # too old" WARN came from on a macos-user host).
-    if not is_native_runtime:
-        console.print("[bold]Per-jail host-service liveness[/bold]")
-        _check_host_service_liveness(ok, warn, fail)
-        console.print()
+    console.print("[bold]Per-jail host-service liveness[/bold]")
+    _check_host_service_liveness(ok, warn, fail)
+    console.print()
 
     # --- Disk usage (nudges toward `yolo prune` when large) ---
 

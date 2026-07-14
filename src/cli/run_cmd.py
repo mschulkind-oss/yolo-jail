@@ -1069,13 +1069,6 @@ def run(
         "--profile",
         help="Show detailed startup performance timing after command exits",
     ),
-    dry_run: bool = typer.Option(
-        False,
-        "--dry-run",
-        help="macos-user only: print the full run plan (profile, ACL, "
-        "bootstrap, launch argv) and its invariant checks without executing "
-        "anything.",
-    ),
 ):
     """Run the YOLO jail in the current directory."""
     repo_root = _resolve_repo_root()
@@ -1127,34 +1120,6 @@ def run(
     if full_command:
         _inject_agent_yolo_flags(full_command)
         target_cmd = shlex.join(full_command)
-
-    # Native macOS-user backend: no container argv, image, or mounts —
-    # isolate in a dedicated macOS user + Seatbelt instead.  Dispatch here,
-    # after config validation + agent selection + YOLO-flag injection (all
-    # backend-agnostic), and BEFORE any container machinery.  See
-    # src/cli/macos_user.py and docs/macos-native-user-sandbox-design.md.
-    if runtime == "macos-user":
-        from .macos_user import run_macos_user
-
-        # Default to an interactive shell when no command is given, matching
-        # the container path's ``target_cmd = "bash"``.
-        agent_argv = full_command or ["/bin/zsh", "-l"]
-        sys.exit(
-            run_macos_user(
-                workspace,
-                config,
-                agents,
-                agent_argv,
-                repo_src=repo_root / "src",
-                dry_run=dry_run,
-            )
-        )
-    if dry_run:
-        console.print(
-            "[yellow]--dry-run is only meaningful for runtime "
-            f"'macos-user' (this workspace uses '{runtime}').[/yellow]"
-        )
-        sys.exit(1)
 
     # Collect identity env vars early — needed for both exec and run paths
     identity_env = []

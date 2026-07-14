@@ -1887,53 +1887,6 @@ class TestCheckNixBuildSection:
         result = runner.invoke(app, ["check", "--build"])
         assert "nix build failed" in result.output.lower() or result.exit_code != 0
 
-    @patch("subprocess.run")
-    @patch("shutil.which")
-    @patch("cli.check_cmd._build_image_store_path")
-    def test_macos_user_runtime_skips_image_build(
-        self, mock_build, mock_which, mock_run, tmp_path, monkeypatch
-    ):
-        # The native macos-user backend builds no image — the Image Build
-        # section must say "Not applicable", NOT run a build or FAIL on a
-        # Linux builder, and the container probe must not run.
-        monkeypatch.setattr("cli.check_cmd.IS_MACOS", True)
-        monkeypatch.setattr("cli.paths.IS_MACOS", True)
-        monkeypatch.setattr("cli.runtime.IS_MACOS", True)
-        # Stub the macos-user backend readiness probe (needs a real Mac).
-        monkeypatch.setattr(
-            "cli.check_cmd._check_macos_user_backend",
-            lambda ok, warn, fail: ok("macos-user backend (stubbed)"),
-        )
-        _check_monkeypatch(monkeypatch, tmp_path)
-        _mock_runtimes(mock_which)
-        mock_run.side_effect = _default_smart_run
-        (tmp_path / "yolo-jail.jsonc").write_text('{"runtime": "macos-user"}')
-
-        # With IS_MACOS forced True the check runs its macOS-platform preflight,
-        # whose Nix-store probe does `Path("/nix").exists()` and FAILs (early
-        # `typer.Exit`) on any host without a /nix volume — which aborts before
-        # the Image-Build section under test.  Runners have no /nix; a dev jail
-        # happens to, which is why this only reproduced in CI.  Surgically
-        # pretend /nix exists so the preflight passes and we reach Image Build.
-        import cli.check_cmd as _cc
-
-        _orig_exists = _cc.Path.exists
-
-        def _fake_exists(self):
-            if str(self) == "/nix":
-                return True
-            return _orig_exists(self)
-
-        monkeypatch.setattr(_cc.Path, "exists", _fake_exists)
-
-        runner = CliRunner()
-        result = runner.invoke(app, ["check", "--build"])
-        out = result.output
-        assert "Not applicable" in out, out
-        # No builder FAIL, no image-not-loaded hint, no build attempt.
-        assert "Linux builder" not in out
-        assert not mock_build.called
-
 
 class TestCheckImageAndContainers:
     """Test check() image and running container sections."""

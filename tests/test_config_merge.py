@@ -91,45 +91,9 @@ def test_validate_config_rejects_unknown_agent():
     assert any("unknown agent 'nope'" in e for e in errors)
 
 
-def test_validate_config_accepts_macos_user_runtime():
-    errors, _ = _validate_config({"runtime": "macos-user"}, workspace=Path.cwd())
-    assert not errors
-
-
 def test_validate_config_rejects_unknown_runtime():
     errors, _ = _validate_config({"runtime": "bogus"}, workspace=Path.cwd())
-    assert any("expected 'podman', 'container', or 'macos-user'" in e for e in errors)
-
-
-def test_validate_config_accepts_macos_log_modes():
-    for mode in ("off", "user", "full"):
-        errors, _ = _validate_config({"macos_log": mode}, workspace=Path.cwd())
-        assert not errors, mode
-
-
-def test_validate_config_rejects_bad_macos_log():
-    errors, _ = _validate_config({"macos_log": "loud"}, workspace=Path.cwd())
-    assert any("config.macos_log" in e for e in errors)
-
-
-def test_validate_config_accepts_neutral_macos_shared_root():
-    for root in ("/Users/Shared/yolo", "/opt/yolo", "/Volumes/ext/work"):
-        errors, _ = _validate_config({"macos_shared_root": root}, workspace=Path.cwd())
-        assert not errors, root
-
-
-def test_validate_config_rejects_home_macos_shared_root():
-    # A path inside a user home defeats the neutral-ground boundary.
-    for root in ("/Users/matt", "/Users/matt/private/share"):
-        errors, _ = _validate_config({"macos_shared_root": root}, workspace=Path.cwd())
-        assert any("config.macos_shared_root" in e for e in errors), root
-
-
-def test_validate_config_rejects_relative_macos_shared_root():
-    errors, _ = _validate_config(
-        {"macos_shared_root": "rel/path"}, workspace=Path.cwd()
-    )
-    assert any("config.macos_shared_root" in e for e in errors)
+    assert any("expected 'podman' or 'container'" in e for e in errors)
 
 
 def test_validate_config_rejects_non_list_agents():
