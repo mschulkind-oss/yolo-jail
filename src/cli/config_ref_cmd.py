@@ -163,8 +163,7 @@ def config_ref():
 
     Use this to split the jail boundary cleanly: a host-side process can hold
     secrets, credentials, and access-control logic that the agent inside the
-    jail can call but never sees.  See docs/USER_GUIDE.md § Host Services for
-    a complete example.
+    jail can call but never sees.
 
     Example:
       "loopholes": {

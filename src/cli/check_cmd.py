@@ -596,17 +596,21 @@ def _diagnose_nix_build_failure(stderr_tail: List[str]) -> "tuple[str, str]":
     # never cacheable by construction; a bad nixpkgs pin misses the cache).
     ambiguous_mac = IS_MACOS and "dependency failed" in low and not explicit_cross
 
+    # Fill the daemon-restart label for whichever Nix installer is present
+    # (Determinate vs official) so the copy-pasteable step is correct.
+    remedy = _LINUX_BUILDER_REMEDY.replace(
+        "NIX_DAEMON_LABEL", _detect_nix_daemon_label() or "org.nixos.nix-daemon"
+    )
     if explicit_cross:
         return (
             "Image build needs a Linux builder",
-            "Part of the image isn't in the binary cache and must be built.\n"
-            + _LINUX_BUILDER_REMEDY,
+            "Part of the image isn't in the binary cache and must be built.\n" + remedy,
         )
     if ambiguous_mac:
         return (
             "Image build needs a Linux builder (or a cached package)",
             "A Linux derivation had to be built from source and couldn't be.\n"
-            + _LINUX_BUILDER_REMEDY,
+            + remedy,
         )
     return "nix build failed", "\n".join(stderr_tail[-10:]) if stderr_tail else ""
 
@@ -723,15 +727,21 @@ def _has_linux_builder() -> bool:
 
 
 _LINUX_BUILDER_REMEDY = (
-    "Building a Linux image on macOS needs a Linux builder.  Set up the "
-    "nix-darwin linux-builder (a persistent, launchd-managed Linux VM — the "
-    "standard Nix tool for this):\n"
-    "  nix-darwin:  nix.linux-builder.enable = true;  (then darwin-rebuild switch)\n"
-    "  standalone:  nix run nixpkgs#darwin.linux-builder  (leave it running)\n"
-    "See docs/macos.md > 'Linux builder' for the trusted-users step.\n"
-    "If this is a custom `packages` entry: a {version,url,hash} override is "
-    "never cached (a rebuild is unavoidable); a {nixpkgs:<commit>} pin may "
-    "just need a released revision that IS cached."
+    "The jail image is a Linux image; part of it must be built from source, "
+    "and macOS can't build Linux without a Linux builder.  Do this ONCE:\n"
+    "\n"
+    "  1. Let your user offload builds (run once):\n"
+    '       echo "trusted-users = root $(whoami)" | sudo tee -a /etc/nix/nix.conf\n'
+    "       sudo launchctl kickstart -k system/NIX_DAEMON_LABEL\n"
+    "  2. Start a Linux builder VM and LEAVE IT RUNNING in its own terminal:\n"
+    "       nix run nixpkgs#darwin.linux-builder\n"
+    "  3. In this terminal, run `yolo` again — it will build + start the jail.\n"
+    "\n"
+    "The builder is a small persistent VM (the standard Nix tool for this); "
+    "keep it running while you use yolo, or re-run step 2 when you need it.\n"
+    "(If you added a custom `packages` entry: a {version,url,hash} override "
+    "is never cached, so a rebuild is unavoidable; a {nixpkgs:<commit>} pin "
+    "may just need a released revision that IS in the cache.)"
 )
 
 
@@ -1154,8 +1164,10 @@ def check(
                             "extra-platforms includes linux — local Linux builds "
                             "will be attempted and fail",
                             "Remove 'aarch64-linux' from extra-platforms in your "
-                            "nix config; use the nix-darwin linux-builder instead "
-                            "(see docs/macos.md).",
+                            "nix config (~/.config/nix/nix.conf or /etc/nix/nix.conf) "
+                            "— it makes nix try to run Linux binaries locally, which "
+                            "fails on macOS.  Use a Linux builder instead: "
+                            "`nix run nixpkgs#darwin.linux-builder`.",
                         )
             if _has_linux_builder():
                 ok("Linux builder configured")
@@ -1742,8 +1754,8 @@ def check(
     # yolo hits the same wall.  Point at the real fix instead.
     if image_build_skipped:
         _not_loaded_hint = (
-            "This host can't build the image (needs a Linux builder — see "
-            "above / docs/macos.md), or download a prebuilt image once the "
+            "This host can't build the image (needs a Linux builder — see the "
+            "steps printed above), or download a prebuilt image once the "
             "cache is published."
         )
 
