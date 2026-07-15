@@ -89,8 +89,9 @@ The other yolo config keys map to the native context (the entrypoint already
 runs library-style outside a container — proven by `_entrypoint_preflight`):
 
 - **`packages:`** → the generated devShell (the core; above).
-- **`mise_tools:`** → either fold into the devShell (nix-provided) or run mise
-  in the sandbox as today; decide during build.
+- **`mise_tools:`** → **keep mise**, exactly as on Linux (it's the
+  tool-version layer; the devShell is the `packages:` layer — they don't
+  overlap). No change for this backend.
 - **`mcp_servers` / `lsp_servers` / agent configs** → the entrypoint's
   `CONFIG_WRITERS` run natively, writing into the sandbox user's home (this
   part `macos-user` already did correctly).
@@ -195,16 +196,24 @@ sandbox half + add the nix half that was always missing."
 - **Phase 3 — the rest of the config surface** (mise, mcp/lsp, blocked-tools,
   env_sources) + honest docs on the network/resource gaps.
 
-## Open questions
+## Decisions (settled)
 
-1. **devShell vs `nix profile --profile <ws>`** for materialization? devShell
-   is declarative + gives env vars/hooks; profile gives a stable on-disk
-   `bin/` and gcroot but is imperative and version-drift-prone. Leaning
-   devShell + cached `print-dev-env`. Decide in Phase 1.
-2. **`mise_tools` — nixify or keep mise?** If the devShell can provide the
-   tools, mise may be redundant on this backend.
-3. **Per-platform `packages` override** in `yolo-jail.jsonc` for the
-   Linux-only-package case, or just error and let the user fix it?
-4. **Is Seatbelt-grade isolation acceptable** for this backend given the
-   container/VM remains for stronger needs? (Same question the excised backend
-   raised; still the maintainer's call.)
+1. **Materialization: devShell (`nix develop` / `print-dev-env`), not
+   `nix profile`.** Declarative, pinned by construction, and gives env
+   vars/hooks; the imperative, version-drift-prone profile path is rejected.
+2. **Keep mise.** `mise_tools` works exactly as it does on Linux — no reason
+   to change it for this backend. The devShell provides the `packages:` layer;
+   mise stays the tool-version layer, same as everywhere else.
+3. **Allow per-platform `packages` overrides** in `yolo-jail.jsonc` for the
+   Linux-only-package case (so a config can specify mac-appropriate packages
+   where the Linux list has an unavailable entry) — in addition to the
+   aggregated "unavailable on macOS" error for anything unhandled.
+4. **Seatbelt + separate user is the accepted isolation level** for this
+   backend; the container/VM remains available for stronger needs. Settled
+   (discussed extensively for the excised backend; unchanged here).
+
+<!-- changelog -->
+- [bff7deb7] Decided devShell (print-dev-env) over nix profile; retitled section "Open questions" → "Decisions (settled)"
+- [a2b22770] Decided: keep mise unchanged (same as Linux); aligned the config-surface section to match
+- [a203b6ed] Decided: allow per-platform `packages` overrides
+- [ee9008aa] Decided: Seatbelt + separate user is the accepted isolation level
