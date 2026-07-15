@@ -212,6 +212,74 @@ def test_preflight_state_b_pass_with_builder(monkeypatch):
     assert passed and "built from source" in passed[0]
 
 
+def _rocm_enum(monkeypatch, *, which, run=None):
+    """Drive _check_rocm_enumeration with a fake PATH/rocminfo and collect
+    the ok/warn calls.  ``which`` maps command name -> found?  ``run`` is
+    the fake subprocess.run (None = must not be called)."""
+    monkeypatch.setattr(
+        _cc.shutil, "which", lambda cmd: f"/usr/bin/{cmd}" if which.get(cmd) else None
+    )
+    if run is None:
+
+        def run(*a, **k):
+            raise AssertionError("rocminfo must not be executed")
+
+    monkeypatch.setattr(_cc.subprocess, "run", run)
+    oks, warns = [], []
+    _cc._check_rocm_enumeration(
+        ok=lambda m: oks.append(m), warn=lambda m, n="": warns.append((m, n))
+    )
+    return oks, warns
+
+
+def test_rocm_enumeration_missing_rocminfo_warns_never_fails(monkeypatch):
+    """Passthrough needs only device nodes; a missing rocminfo (its own
+    package on e.g. Arch) must be a WARN pointing at the optional install,
+    not a 'ROCm is broken' FAIL.  Regression guard for the false FAIL on a
+    working ROCm host that just lacked the util."""
+    oks, warns = _rocm_enum(monkeypatch, which={})
+    assert oks == []
+    assert len(warns) == 1
+    msg, note = warns[0]
+    assert "enumeration skipped" in msg
+    assert "Optional" in note and "pacman -S rocminfo" in note
+
+
+def test_rocm_enumeration_missing_rocminfo_with_smi_notes_it(monkeypatch):
+    _, warns = _rocm_enum(monkeypatch, which={"rocm-smi": True})
+    assert "rocm-smi/amd-smi present" in warns[0][0]
+
+
+def test_rocm_enumeration_lists_gpu_agents(monkeypatch):
+    out = (
+        "  Marketing Name:          AMD Ryzen 9\n"
+        "  Device Type:             CPU\n"
+        "  Marketing Name:          Radeon 8060S\n"
+        "  Device Type:             GPU\n"
+    )
+
+    def fake_run(*a, **k):
+        class R:
+            returncode = 0
+            stdout = out
+
+        return R()
+
+    oks, warns = _rocm_enum(monkeypatch, which={"rocminfo": True}, run=fake_run)
+    assert oks == ["GPU detected: Radeon 8060S"]
+    assert warns == []
+
+
+def test_rocm_enumeration_execution_failure_is_warn(monkeypatch):
+    def boom(*a, **k):
+        raise OSError("rocminfo segfault")
+
+    oks, warns = _rocm_enum(monkeypatch, which={"rocminfo": True}, run=boom)
+    assert oks == []
+    assert len(warns) == 1
+    assert "execution failed" in warns[0][0]
+
+
 def test_preflight_linux_native_build_proceeds_without_builder(monkeypatch):
     """On a native Linux host a from-source drv is built locally — never a
     "needs a Linux builder" FAIL (that's macOS-only).  Regression guard for

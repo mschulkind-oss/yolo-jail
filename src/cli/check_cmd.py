@@ -792,6 +792,72 @@ def _preflight_builder_needs(
     return False
 
 
+def _check_rocm_enumeration(ok, warn) -> None:
+    """Enumerate AMD GPUs via rocminfo for the `yolo check` report.
+
+    Informational only — NEVER a fail.  ROCm passthrough is the
+    device-node path (no host toolkit): the /dev/kfd + renderD* checks
+    that follow this in check() are the functional gate, and the ROCm
+    userspace lives in the image, not on the host.  rocminfo is just the
+    AMD analog of `nvidia-smi -L` used to print GPU model names, and it
+    often ships as its own package separate from the rest of ROCm (e.g.
+    `rocminfo` on Arch) — so a missing/broken rocminfo says nothing
+    about whether passthrough works.
+    """
+    rocminfo_note = (
+        "Optional: rocminfo is only used to list GPU models in this "
+        "check — passthrough itself needs only the device nodes below.  "
+        "To enable enumeration install the rocminfo package (Arch: "
+        "pacman -S rocminfo; other distros: "
+        "https://rocm.docs.amd.com/projects/install-on-linux/)."
+    )
+    rocminfo = shutil.which("rocminfo")
+    if not rocminfo:
+        smi = shutil.which("rocm-smi") or shutil.which("amd-smi")
+        present = " (rocm-smi/amd-smi present)" if smi else ""
+        warn(
+            f"rocminfo not found{present} — GPU model enumeration skipped",
+            rocminfo_note,
+        )
+        return
+    try:
+        result = subprocess.run(
+            ["rocminfo"],  # rocminfo ignores argv, so no flags
+            capture_output=True,
+            text=True,
+            timeout=10,
+        )
+    except Exception as e:
+        warn("rocminfo execution failed — enumeration skipped", str(e))
+        return
+    if result.returncode != 0 or not result.stdout.strip():
+        warn(
+            "rocminfo ran but reported no GPUs",
+            "Check amdgpu driver installation (the device-node checks "
+            "below are the functional gate)",
+        )
+        return
+    # rocminfo lists every HSA agent — CPU and (on APUs) the NPU/DSP too
+    # — so only report agents whose "Device Type:" is GPU.  "Marketing
+    # Name:" precedes "Device Type:" within each agent block.
+    found_gpu = False
+    pending_name = None
+    for line in result.stdout.splitlines():
+        if "Marketing Name:" in line:
+            pending_name = line.split("Marketing Name:", 1)[1].strip()
+        elif "Device Type:" in line:
+            dev_type = line.split("Device Type:", 1)[1].strip()
+            if dev_type == "GPU" and pending_name:
+                ok(f"GPU detected: {pending_name}")
+                found_gpu = True
+            pending_name = None
+    if not found_gpu:
+        warn(
+            "rocminfo ran but enumerated no GPU agent",
+            "Check the amdgpu driver and that the GPU is ROCm-supported",
+        )
+
+
 def _check_podman_machine_resources(workspace, *, ok, warn) -> None:
     """Surface Podman Machine VM memory in `yolo check` output and warn if
     it's below a sensible floor or below the workspace's
@@ -1446,63 +1512,7 @@ def check(
         else:
             in_jail = os.environ.get("YOLO_VERSION") is not None
 
-            # Functional enumeration via rocminfo (the AMD analog of
-            # `nvidia-smi -L`).  rocminfo ignores argv, so no flags.
-            # rocm-smi / amd-smi are secondary signals.
-            rocminfo = shutil.which("rocminfo")
-            if rocminfo:
-                try:
-                    result = subprocess.run(
-                        ["rocminfo"],
-                        capture_output=True,
-                        text=True,
-                        timeout=10,
-                    )
-                    if result.returncode == 0 and result.stdout.strip():
-                        # rocminfo lists every HSA agent — CPU and (on APUs)
-                        # the NPU/DSP too — so only report agents whose
-                        # "Device Type:" is GPU.  "Marketing Name:" precedes
-                        # "Device Type:" within each agent block.
-                        found_gpu = False
-                        pending_name = None
-                        for line in result.stdout.splitlines():
-                            if "Marketing Name:" in line:
-                                pending_name = line.split("Marketing Name:", 1)[
-                                    1
-                                ].strip()
-                            elif "Device Type:" in line:
-                                dev_type = line.split("Device Type:", 1)[1].strip()
-                                if dev_type == "GPU" and pending_name:
-                                    ok(f"GPU detected: {pending_name}")
-                                    found_gpu = True
-                                pending_name = None
-                        if not found_gpu:
-                            warn(
-                                "rocminfo ran but enumerated no GPU agent",
-                                "Check the amdgpu driver and that the GPU is "
-                                "ROCm-supported",
-                            )
-                    else:
-                        fail(
-                            "rocminfo found but reported no GPUs",
-                            "Check amdgpu driver installation",
-                        )
-                except Exception as e:
-                    fail("rocminfo execution failed", str(e))
-            else:
-                rocm_smi = shutil.which("rocm-smi") or shutil.which("amd-smi")
-                if rocm_smi:
-                    warn(
-                        "rocminfo not found (rocm-smi/amd-smi present)",
-                        "Install full ROCm for enumeration: "
-                        "https://rocm.docs.amd.com/projects/install-on-linux/",
-                    )
-                else:
-                    fail(
-                        "rocminfo not found",
-                        "Install ROCm: "
-                        "https://rocm.docs.amd.com/projects/install-on-linux/",
-                    )
+            _check_rocm_enumeration(ok, warn)
 
             # amdgpu kernel module — host state, skipped inside a jail.
             if in_jail:
