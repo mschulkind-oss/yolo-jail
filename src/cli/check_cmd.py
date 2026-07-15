@@ -766,13 +766,25 @@ def _preflight_builder_needs(
         )
         return True
     named = f" ({', '.join(offending[:3])})" if offending else ""
+    # "Needs a Linux builder" is a macOS-only situation: cross-building a
+    # Linux image from Darwin needs a separate Linux VM.  A native Linux
+    # host builds the image itself — a from-source drv is viable (just not
+    # cache-fast), so proceed and let the real build be the judge.  Any
+    # local commit bumps the setuptools-scm version and invalidates the
+    # yolo-entrypoint drv, so this branch is the norm on a dev machine.
+    if not IS_MACOS:
+        console.print(
+            f"  [dim]- A package will be built from source{named} "
+            f"(native Linux build; not served from the binary cache).[/dim]"
+        )
+        return True
     if _has_linux_builder():
         ok(
             f"A package will be built from source{named}; a Linux builder will handle it"
         )
         return True
-    # Known-doomed: a from-source Linux build with no builder.  Emit ONE
-    # actionable FAIL and tell the caller to skip the real build entirely.
+    # Known-doomed: a from-source Linux build on macOS with no builder.
+    # Emit ONE actionable FAIL and tell the caller to skip the real build.
     fail(
         f"Image needs a Linux builder — a package must be built from source{named}",
         _LINUX_BUILDER_REMEDY,

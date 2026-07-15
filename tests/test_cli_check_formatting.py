@@ -174,6 +174,9 @@ def test_preflight_state_a_quiet_when_all_cached(monkeypatch):
 
 
 def test_preflight_state_c_fails_and_skips_build_without_builder(monkeypatch):
+    # "Needs a Linux builder" is a macOS-only verdict — force macOS so the
+    # test exercises it regardless of the host running the suite.
+    monkeypatch.setattr(_cc, "IS_MACOS", True)
     monkeypatch.setattr(
         _cc, "_nix_dry_run_will_build", lambda *a: (True, ["yolo-jail-conf.json.drv"])
     )
@@ -194,6 +197,7 @@ def test_preflight_state_c_fails_and_skips_build_without_builder(monkeypatch):
 
 
 def test_preflight_state_b_pass_with_builder(monkeypatch):
+    monkeypatch.setattr(_cc, "IS_MACOS", True)
     monkeypatch.setattr(_cc, "_nix_dry_run_will_build", lambda *a: (True, ["x.drv"]))
     monkeypatch.setattr(_cc, "_has_linux_builder", lambda: True)
     passed = []
@@ -206,6 +210,32 @@ def test_preflight_state_b_pass_with_builder(monkeypatch):
     )
     assert result is True
     assert passed and "built from source" in passed[0]
+
+
+def test_preflight_linux_native_build_proceeds_without_builder(monkeypatch):
+    """On a native Linux host a from-source drv is built locally — never a
+    "needs a Linux builder" FAIL (that's macOS-only).  Regression guard for
+    `yolo check` false-failing after any local commit bumps the version and
+    invalidates the yolo-entrypoint drv."""
+    monkeypatch.setattr(_cc, "IS_MACOS", False)
+    monkeypatch.setattr(
+        _cc, "_nix_dry_run_will_build", lambda *a: (True, ["yolo-entrypoint.drv"])
+    )
+    # A Linux host has no remote builder configured; must not matter.
+    monkeypatch.setattr(_cc, "_has_linux_builder", lambda: False)
+    msgs = []
+    monkeypatch.setattr(_cc.console, "print", lambda m, *a, **k: msgs.append(str(m)))
+    failed = []
+    result = _cc._preflight_builder_needs(
+        Path("/repo"),
+        None,
+        ok=lambda m: None,
+        warn=lambda m, n="": None,
+        fail=lambda m, n="": failed.append((m, n)),
+    )
+    assert result is True  # proceed to the real build
+    assert failed == []  # no macOS Linux-builder FAIL
+    assert any("native Linux build" in m for m in msgs)
 
 
 def test_preflight_state_a_returns_true(monkeypatch):
