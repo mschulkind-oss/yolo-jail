@@ -598,14 +598,13 @@ def _diagnose_nix_build_failure(stderr_tail: List[str]) -> "tuple[str, str]":
 
     if explicit_cross:
         return (
-            "Image build needs a Linux builder (something must be built from source)",
-            "Part of the image isn't in the binary cache and must be BUILT, "
-            "but building a Linux image on macOS needs a Linux builder.\n"
+            "Image build needs a Linux builder",
+            "Part of the image isn't in the binary cache and must be built.\n"
             + _LINUX_BUILDER_REMEDY,
         )
     if ambiguous_mac:
         return (
-            "Image build failed — likely needs a Linux builder or a cached package",
+            "Image build needs a Linux builder (or a cached package)",
             "A Linux derivation had to be built from source and couldn't be.\n"
             + _LINUX_BUILDER_REMEDY,
         )

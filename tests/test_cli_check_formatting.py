@@ -79,7 +79,7 @@ def test_diagnose_ambiguous_mac_dependency_failure(monkeypatch):
     title, note = _diagnose_nix_build_failure(
         ["error: Build failed due to failed dependency", "1 dependency failed"]
     )
-    assert "Linux builder or a cached package" in title
+    assert "Linux builder (or a cached package)" in title
     assert "linux-builder" in note.lower()
     # names the custom-package cause too
     assert "override" in note.lower()
