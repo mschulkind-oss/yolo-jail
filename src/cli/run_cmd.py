@@ -1973,9 +1973,16 @@ def run(
             #   * /dev/fuse   — fuse-overlayfs storage driver
             #   * SYS_ADMIN   — mount /proc et al. for the grandchild container
             #   * MKNOD       — create device nodes in image layers
-            #   * /dev/net/tun (best-effort) — slirp4netns rootless networking;
-            #     only passed through if the parent actually has it, since a
-            #     missing --device is a hard podman error, not a warning.
+            #   * NET_ADMIN + NET_RAW — netavark bridge networking for the
+            #     grandchild container.  The jail's podman runs as jail-root
+            #     WITHOUT a second userns (see above), so every netns it
+            #     creates is owned by the jail's userns and configuring it
+            #     (veth/bridge via netlink, even loopback SIOCSIFFLAGS for
+            #     --network=none) needs NET_ADMIN there.  Scoped: these caps
+            #     only govern the jail's own private netns, not the host's.
+            #   * /dev/net/tun (best-effort) — pasta/slirp4netns rootless
+            #     networking; only passed through if the parent actually has
+            #     it, since a missing --device is a hard podman error.
             run_cmd.extend(
                 [
                     "--security-opt",
@@ -1986,6 +1993,10 @@ def run(
                     "SYS_ADMIN",
                     "--cap-add",
                     "MKNOD",
+                    "--cap-add",
+                    "NET_ADMIN",
+                    "--cap-add",
+                    "NET_RAW",
                 ]
             )
             for dev in ("/dev/fuse", "/dev/net/tun"):
@@ -2020,10 +2031,23 @@ def run(
                     "runc",
                     "--cap-add",
                     "SYS_ADMIN",
+                    "--cap-add",
+                    "NET_ADMIN",
+                    "--cap-add",
+                    "NET_RAW",
                 ]
             )
         else:
-            # On host: create user namespace with UID/GID mapping for nesting
+            # On host: create user namespace with UID/GID mapping for nesting.
+            # NET_ADMIN + NET_RAW make the jail's own podman's bridge
+            # networking work: the jail's podman runs as jail-root without a
+            # second userns, so netavark's netlink ops (and even loopback
+            # SIOCSIFFLAGS for --network=none) are capability-checked against
+            # the jail's userns.  Scoped to the jail's private netns — the
+            # host netns is owned by the init userns and stays out of reach.
+            # /dev/net/tun (best-effort) additionally enables pasta/
+            # slirp4netns rootless networking in the jail, and passing it
+            # here is what lets nested jails inherit it.
             run_cmd.extend(
                 [
                     "--security-opt",
@@ -2042,8 +2066,14 @@ def run(
                     "SYS_ADMIN",
                     "--cap-add",
                     "MKNOD",
+                    "--cap-add",
+                    "NET_ADMIN",
+                    "--cap-add",
+                    "NET_RAW",
                 ]
             )
+            if Path("/dev/net/tun").exists():
+                run_cmd.extend(["--device", "/dev/net/tun"])
 
     # Mount host nix daemon socket + store so nix builds work inside the jail.
     # NIX_REMOTE=daemon forces nix to use the host daemon (which has nixbld users)

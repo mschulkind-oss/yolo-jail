@@ -2824,6 +2824,49 @@ class TestRunPodman:
             run_cmd = mock_popen.call_args[0][0]
             assert "--uidmap" in run_cmd or "--userns" in run_cmd
 
+    @patch("subprocess.Popen")
+    @patch("cli.run_cmd.auto_load_image")
+    @patch("cli.run_cmd._check_config_changes", return_value=True)
+    @patch("cli.run_cmd.find_running_container", return_value=None)
+    @patch("subprocess.run")
+    @patch("subprocess.check_output")
+    @patch("shutil.which")
+    def test_podman_grants_net_caps_for_nested_bridge_networking(
+        self,
+        mock_which,
+        mock_check_output,
+        mock_run,
+        mock_find,
+        mock_config_changes,
+        mock_auto_load,
+        mock_popen,
+        tmp_path,
+        monkeypatch,
+    ):
+        """The jail's own podman runs as jail-root without a second userns,
+        so netavark bridge networking (and even --network=none loopback
+        setup) is capability-checked against the jail's userns.  Without
+        NET_ADMIN/NET_RAW in the jail, plain `podman run` fails with
+        'netavark: Netlink error: Operation not permitted'.  Both the host
+        and in-container launch branches must grant them."""
+        _run_monkeypatch(monkeypatch, tmp_path)
+        _mock_runtimes(mock_which)
+        (tmp_path / "yolo-jail.jsonc").write_text("{}")
+        mock_check_output.side_effect = FileNotFoundError
+
+        mock_proc = MagicMock()
+        mock_proc.wait.return_value = None
+        mock_proc.returncode = 0
+        mock_popen.return_value = mock_proc
+
+        runner = CliRunner()
+        runner.invoke(app, ["run", "--", "bash"])
+
+        assert mock_popen.called
+        run_cmd = mock_popen.call_args[0][0]
+        caps = {run_cmd[i + 1] for i, a in enumerate(run_cmd[:-1]) if a == "--cap-add"}
+        assert {"NET_ADMIN", "NET_RAW", "SYS_ADMIN"} <= caps
+
 
 class TestRunDevicePassthrough:
     """Test run() device passthrough configuration."""

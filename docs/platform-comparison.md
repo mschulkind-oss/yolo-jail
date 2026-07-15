@@ -119,7 +119,7 @@ and needs **no macOS changes**. Only `cli.py` (host-side) is platform-aware.
 | Podman (rootless) | ✅ | ✅ | N/A | Podman Machine on macOS |
 | Apple Container | N/A | N/A | ✅ | `YOLO_RUNTIME=container` |
 | Podman-in-Podman | ✅ | ✅ | ✅ | AC: own kernel with /dev/fuse |
-| Podman inside a *nested* jail | ✅ | ✅ | ✅ | `/dev/fuse`+SYS_ADMIN+MKNOD passed to nested jails; run the innermost container with `--network=host` (nested jail has no NET_ADMIN/tun) |
+| Podman inside a *nested* jail | ✅ | ✅ | ✅ | `/dev/fuse`+`/dev/net/tun`+SYS_ADMIN+MKNOD+NET_ADMIN+NET_RAW passed to jails at every depth; bridge networking works (`--network=host` no longer required) |
 | Selfhosting (nested yolo-jail) | ✅ | ✅ | ✅ | All backends support nesting |
 | Runtime auto-detection | ✅ | ✅ | ✅ | macOS: Container > Podman |
 | `YOLO_RUNTIME` env override | ✅ | ✅ | ✅ | |
