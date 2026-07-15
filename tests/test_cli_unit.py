@@ -5090,6 +5090,228 @@ class TestRunWithProxy:
             # Must not raise.
             cli.run_with_proxy(["x"], on_started=cb)
 
+    def test_no_tty_fallback_accepts_on_terminate(self):
+        from unittest.mock import patch, MagicMock
+        import cli
+
+        proc = MagicMock()
+        proc.wait.return_value = None
+        proc.returncode = 0
+        with patch("subprocess.Popen", return_value=proc):
+            # on_terminate only matters on the TTY path (window close); the
+            # fallback must accept and ignore it without error.
+            rc = cli.run_with_proxy(["x"], on_terminate=lambda: None)
+        assert rc == 0
+
+
+class TestProxyTeardownSignal:
+    """The SIGHUP/SIGTERM handler is the core orphan fix: on window close
+    the proxy must run its host-side teardown and exit 128+signum instead
+    of dying silently and leaving the jail's PID 1 (conmon-supervised)
+    alive.  Exercised in a child process behind a pty because the real
+    handler ends in ``os._exit``."""
+
+    def _drive(self, tmp_path, term_signal):
+        import pty
+        import select
+        import textwrap
+
+        marker = tmp_path / "torn-down"
+        script = textwrap.dedent(
+            f"""
+            import sys
+            sys.path.insert(0, {str(REPO_ROOT / "src")!r})
+            from cli.tty_proxy import run_with_proxy
+            def teardown():
+                with open({str(marker)!r}, "w") as f:
+                    f.write("torn-down")
+            # Emit READY once the inner command's output is being pumped —
+            # by then the proxy loop is running and the signal handlers are
+            # installed, so the parent can safely deliver the signal.
+            run_with_proxy(
+                ["bash", "-c", "echo READY; sleep 5"], on_terminate=teardown
+            )
+            """
+        )
+        try:
+            master, slave = pty.openpty()
+        except OSError:
+            pytest.skip("no pty available")
+        proc = subprocess.Popen(
+            [sys.executable, "-c", script],
+            stdin=slave,
+            stdout=slave,
+            stderr=slave,
+            start_new_session=True,
+        )
+        os.close(slave)
+        try:
+            buf = b""
+            deadline = time.time() + 10
+            while b"READY" not in buf and time.time() < deadline:
+                r, _, _ = select.select([master], [], [], 0.5)
+                if master in r:
+                    try:
+                        buf += os.read(master, 1024)
+                    except OSError:
+                        break
+            assert b"READY" in buf, "child never reached the proxy loop"
+            os.kill(proc.pid, term_signal)
+            rc = proc.wait(timeout=10)
+        finally:
+            os.close(master)
+            if proc.poll() is None:
+                proc.kill()
+        return rc, marker
+
+    def test_sighup_runs_teardown_and_exits_128_plus_signum(self, tmp_path):
+        rc, marker = self._drive(tmp_path, signal.SIGHUP)
+        # Handler ran to completion (os._exit(128+signum)); a regression
+        # that let the default disposition win would give rc == -SIGHUP
+        # and no marker.
+        assert rc == 128 + signal.SIGHUP
+        assert marker.read_text() == "torn-down"
+
+    def test_sigterm_runs_teardown_and_exits_128_plus_signum(self, tmp_path):
+        rc, marker = self._drive(tmp_path, signal.SIGTERM)
+        assert rc == 128 + signal.SIGTERM
+        assert marker.read_text() == "torn-down"
+
+
+class TestOrphanedJailReaper:
+    """``_reap_orphaned_jails`` stops running jails whose owning ``yolo
+    run`` PID is dead — the SIGKILL / host-crash case the proxy's teardown
+    handler can't catch.  Conservative: only reaps jails it can prove are
+    orphaned (owner-PID file present, its PID gone)."""
+
+    def _setup(self, monkeypatch, tmp_path, live):
+        import cli.run_cmd as rc
+
+        monkeypatch.setattr(rc, "OWNER_PID_DIR", tmp_path)
+        monkeypatch.setattr(rc, "_live_yolo_containers", lambda runtime: live)
+        stops: list = []
+        monkeypatch.setattr(
+            rc.subprocess,
+            "run",
+            lambda cmd, *a, **kw: stops.append(cmd) or MagicMock(returncode=0),
+        )
+        return rc, stops
+
+    def test_reaps_jail_with_dead_owner(self, monkeypatch, tmp_path):
+        rc, stops = self._setup(monkeypatch, tmp_path, {"yolo-dead-11111111"})
+        monkeypatch.setattr(rc, "_pid_alive", lambda pid: False)
+        (tmp_path / "yolo-dead-11111111").write_text("12345\n")
+        rc._reap_orphaned_jails("podman")
+        assert stops == [["podman", "stop", "-t", "5", "yolo-dead-11111111"]]
+        assert not (tmp_path / "yolo-dead-11111111").exists()
+
+    def test_spares_jail_with_live_owner(self, monkeypatch, tmp_path):
+        # Real _pid_alive against our own PID — definitely alive.
+        rc, stops = self._setup(monkeypatch, tmp_path, {"yolo-live-22222222"})
+        (tmp_path / "yolo-live-22222222").write_text(f"{os.getpid()}\n")
+        rc._reap_orphaned_jails("podman")
+        assert stops == []
+        assert (tmp_path / "yolo-live-22222222").exists()
+
+    def test_skips_jail_without_owner_file(self, monkeypatch, tmp_path):
+        # Pre-feature or attach-only jail: no owner marker → left alone.
+        rc, stops = self._setup(monkeypatch, tmp_path, {"yolo-old-33333333"})
+        monkeypatch.setattr(rc, "_pid_alive", lambda pid: False)
+        rc._reap_orphaned_jails("podman")
+        assert stops == []
+
+    def test_noop_when_liveness_unknown(self, monkeypatch, tmp_path):
+        # None = enumeration failed; must not read as "nothing live".
+        rc, stops = self._setup(monkeypatch, tmp_path, None)
+        (tmp_path / "yolo-x-44444444").write_text("12345\n")
+        monkeypatch.setattr(rc, "_pid_alive", lambda pid: False)
+        rc._reap_orphaned_jails("podman")
+        assert stops == []
+
+    def test_apple_container_runtime_skipped(self, monkeypatch, tmp_path):
+        rc, stops = self._setup(monkeypatch, tmp_path, {"yolo-a-55555555"})
+        (tmp_path / "yolo-a-55555555").write_text("12345\n")
+        monkeypatch.setattr(rc, "_pid_alive", lambda pid: False)
+        rc._reap_orphaned_jails("container")
+        assert stops == []
+
+    def test_ignores_non_numeric_pid_file(self, monkeypatch, tmp_path):
+        rc, stops = self._setup(monkeypatch, tmp_path, {"yolo-g-66666666"})
+        (tmp_path / "yolo-g-66666666").write_text("not-a-pid\n")
+        rc._reap_orphaned_jails("podman")
+        assert stops == []
+
+
+class TestPidAlive:
+    def test_own_pid_is_alive(self):
+        from cli.run_cmd import _pid_alive
+
+        assert _pid_alive(os.getpid()) is True
+
+    def test_missing_pid_is_dead(self, monkeypatch):
+        import cli.run_cmd as rc
+
+        def raise_lookup(pid, sig):
+            raise ProcessLookupError
+
+        monkeypatch.setattr(rc.os, "kill", raise_lookup)
+        assert rc._pid_alive(999999) is False
+
+    def test_permission_error_counts_as_alive(self, monkeypatch):
+        import cli.run_cmd as rc
+
+        def raise_perm(pid, sig):
+            raise PermissionError
+
+        monkeypatch.setattr(rc.os, "kill", raise_perm)
+        assert rc._pid_alive(1) is True
+
+
+class TestStopJailAndOwnerPid:
+    def test_write_then_clear_owner_pid_roundtrip(self, monkeypatch, tmp_path):
+        import cli.run_cmd as rc
+
+        monkeypatch.setattr(rc, "OWNER_PID_DIR", tmp_path / "owners")
+        rc._write_owner_pid("yolo-abc")
+        f = tmp_path / "owners" / "yolo-abc"
+        assert f.read_text().strip() == str(os.getpid())
+        rc._clear_owner_pid("yolo-abc")
+        assert not f.exists()
+
+    def test_clear_owner_pid_missing_is_noop(self, monkeypatch, tmp_path):
+        import cli.run_cmd as rc
+
+        monkeypatch.setattr(rc, "OWNER_PID_DIR", tmp_path)
+        rc._clear_owner_pid("nope")  # must not raise
+
+    def test_stop_jail_podman_stops_and_clears_pid(self, monkeypatch, tmp_path):
+        import cli.run_cmd as rc
+
+        monkeypatch.setattr(rc, "OWNER_PID_DIR", tmp_path)
+        (tmp_path / "yolo-s").write_text("123\n")
+        calls: list = []
+        monkeypatch.setattr(
+            rc.subprocess,
+            "run",
+            lambda cmd, *a, **kw: calls.append(cmd) or MagicMock(),
+        )
+        rc._stop_jail("yolo-s", "podman")
+        assert calls == [["podman", "stop", "-t", "5", "yolo-s"]]
+        assert not (tmp_path / "yolo-s").exists()
+
+    def test_stop_jail_apple_container_uses_plain_stop(self, monkeypatch, tmp_path):
+        import cli.run_cmd as rc
+
+        monkeypatch.setattr(rc, "OWNER_PID_DIR", tmp_path)
+        calls: list = []
+        monkeypatch.setattr(
+            rc.subprocess,
+            "run",
+            lambda cmd, *a, **kw: calls.append(cmd) or MagicMock(),
+        )
+        rc._stop_jail("yolo-s", "container")
+        assert calls == [["container", "stop", "yolo-s"]]
+
 
 class TestResolveLspInstalls:
     """``_resolve_lsp_installs`` translates ``lsp_servers`` config into the

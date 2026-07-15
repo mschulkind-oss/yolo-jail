@@ -160,6 +160,19 @@ MISE_STORE_VOLUME = "yolo-mise-data-v2"
 LOCK_RELEASE_POLL_ATTEMPTS = 20
 LOCK_RELEASE_POLL_INTERVAL_SECONDS = 0.25
 
+# How long `podman stop` may run during host-side teardown (window close
+# / SIGTERM) before it SIGKILLs the container.  Bounded so a wedged jail
+# can't hang the terminal on the way out.
+TEARDOWN_STOP_TIMEOUT_SECONDS = 5
+
+# Per-jail owner-PID files: the PID of the `yolo run` that STARTED the
+# jail.  Window close and `kill` tear the jail down synchronously (the
+# proxy's SIGHUP/SIGTERM handler), but SIGKILL is uncatchable and a host
+# crash runs no handler — so a jail can outlive its owner.  A running jail
+# whose recorded owner PID is dead was orphaned that way; the next `yolo`
+# reaps it.  See _reap_orphaned_jails.
+OWNER_PID_DIR = GLOBAL_STORAGE / "owners"
+
 
 def _resolve_repo_root() -> Path:
     """Find the yolo-jail repo root for nix image builds.
@@ -1056,6 +1069,101 @@ def _ensure_broker_relay(cname: str, runtime: str) -> None:
         console.print(f"[yellow]claude-oauth-broker: relay not ensured: {e}[/yellow]")
 
 
+def _owner_pid_file(cname: str) -> Path:
+    return OWNER_PID_DIR / cname
+
+
+def _write_owner_pid(cname: str) -> None:
+    """Record that THIS process started the jail, so a later ``yolo`` can
+    tell a jail orphaned by an uncatchable kill from a live one."""
+    try:
+        OWNER_PID_DIR.mkdir(parents=True, exist_ok=True)
+        _owner_pid_file(cname).write_text(f"{os.getpid()}\n")
+    except OSError:
+        pass
+
+
+def _clear_owner_pid(cname: str) -> None:
+    try:
+        _owner_pid_file(cname).unlink(missing_ok=True)
+    except OSError:
+        pass
+
+
+def _pid_alive(pid: int) -> bool:
+    """True if a process with ``pid`` exists (owned by anyone)."""
+    try:
+        os.kill(pid, 0)
+    except ProcessLookupError:
+        return False
+    except PermissionError:
+        # Exists but owned by another user — still alive.
+        return True
+    except OSError:
+        # Uncertain — assume alive so we never reap a jail we can't prove
+        # is orphaned.
+        return True
+    return True
+
+
+def _stop_jail(cname: str, runtime: str) -> None:
+    """Best-effort stop of a jail, then drop its owner-PID file.
+
+    The jail was started with ``--rm``, so stopping it also removes it.
+    Bounded timeout so teardown can't hang the terminal.
+    """
+    if runtime == "container":
+        # Apple Container has no `-t` grace flag; give its own default.
+        cmd = ["container", "stop", cname]
+        timeout = 30
+    else:
+        cmd = [runtime, "stop", "-t", str(TEARDOWN_STOP_TIMEOUT_SECONDS), cname]
+        timeout = TEARDOWN_STOP_TIMEOUT_SECONDS + 5
+    try:
+        subprocess.run(cmd, capture_output=True, timeout=timeout)
+    except (FileNotFoundError, OSError, subprocess.TimeoutExpired):
+        pass
+    _clear_owner_pid(cname)
+
+
+def _reap_orphaned_jails(runtime: str) -> None:
+    """Stop running jails whose owning ``yolo run`` process is gone.
+
+    Window close (SIGHUP) and ``kill`` (SIGTERM) are torn down
+    synchronously by the proxy's teardown handler.  But SIGKILL is
+    uncatchable and a host crash runs no handler, so a jail can outlive
+    its owner with the agent still running.  Every ``yolo run`` sweeps
+    these first: a live ``yolo-*`` jail whose recorded owner PID is dead
+    was abandoned — stop it (transparent teardown, same end state as a
+    clean window close).  Running this before the attach decision also
+    stops us execing a SECOND agent into an orphan of this workspace.
+
+    Conservative: a jail with no owner-PID file (started before this
+    feature landed, or a runtime we don't track) is left alone — we only
+    reap what we can prove is orphaned.
+    """
+    if runtime == "container":
+        # No owner-PID lifecycle wired for Apple Container yet.
+        return
+    live = _live_yolo_containers(runtime)
+    if not live:
+        return
+    for name in live:
+        try:
+            raw = _owner_pid_file(name).read_text().strip()
+        except OSError:
+            continue  # no owner recorded — can't prove orphaned
+        try:
+            pid = int(raw)
+        except ValueError:
+            continue
+        if not _pid_alive(pid):
+            console.print(
+                f"[dim]Reaping orphaned jail {name} (owner pid {pid} is gone)...[/dim]"
+            )
+            _stop_jail(name, runtime)
+
+
 def run(
     ctx: typer.Context,
     network: str = typer.Option("bridge", help="Container network mode (bridge/host)"),
@@ -1177,6 +1285,12 @@ def run(
     # Check for existing container BEFORE touching the image.
     # If one is already running we just exec into it — no rebuild needed.
     cname = container_name_for_workspace(workspace)
+    # Sweep jails orphaned by an uncatchable kill (SIGKILL / host crash)
+    # before we decide whether to attach — clean teardown is handled by
+    # the proxy's SIGHUP/SIGTERM handler; this covers what a handler
+    # can't catch, and stops us from execing a second agent into an
+    # orphan of this workspace.  See _reap_orphaned_jails.
+    _reap_orphaned_jails(runtime)
     existing_cid = None if new else find_running_container(cname, runtime=runtime)
 
     # Refresh the per-jail skills + AGENTS/CLAUDE staging on every invocation.
@@ -2696,6 +2810,10 @@ def run(
         )
 
     write_container_tracking(cname, workspace)
+    # We own this jail (started it with --rm).  Record our PID so a later
+    # yolo can reap it if we're SIGKILLed / the host crashes before the
+    # proxy's teardown handler can stop it.
+    _write_owner_pid(cname)
     _tmux_rename_window("JAIL")
 
     # Start host-side port forwarding BEFORE the container so socket files
@@ -2738,8 +2856,29 @@ def run(
             _time.sleep(LOCK_RELEASE_POLL_INTERVAL_SECONDS)
         lock_file.close()
 
+    # Host-side teardown for window close (SIGHUP) / kill (SIGTERM).  The
+    # proxy would otherwise die WITHOUT stopping the container (conmon
+    # supervises PID 1 independently), orphaning the jail.  As its owner
+    # we stop it — --rm then removes it — and tear down the same host-side
+    # services the normal-exit path below cleans up.  Best-effort: this
+    # runs from a signal handler, on the way out.
+    def _on_terminate():
+        _stop_jail(cname, runtime)
+        cleanup_port_forwarding(socat_procs, socket_dir)
+        try:
+            lock_file.close()
+        except Exception:
+            pass
+        stop_loopholes(
+            host_services, host_services_sockets_dir, cname=cname, runtime=runtime
+        )
+
     try:
-        rc = run_with_proxy(run_cmd, on_started=_release_lock_when_started)
+        rc = run_with_proxy(
+            run_cmd,
+            on_started=_release_lock_when_started,
+            on_terminate=_on_terminate,
+        )
     except FileNotFoundError:
         console.print(
             f"[bold red]Configured runtime '{runtime}' not found on PATH.[/bold red]"
@@ -2755,6 +2894,7 @@ def run(
         stop_loopholes(
             host_services, host_services_sockets_dir, cname=cname, runtime=runtime
         )
+        _clear_owner_pid(cname)
         sys.exit(1)
     # Clean up host-side socat processes, host services (incl. cgroup
     # delegate), and their per-jail socket directory.  cname/runtime arm
@@ -2766,6 +2906,9 @@ def run(
     stop_loopholes(
         host_services, host_services_sockets_dir, cname=cname, runtime=runtime
     )
+    # The container exited on its own (--rm removed it); drop our
+    # owner-PID marker so a later yolo doesn't try to reap a dead name.
+    _clear_owner_pid(cname)
 
     _maybe_warn_about_oom_killer(rc, runtime)
 

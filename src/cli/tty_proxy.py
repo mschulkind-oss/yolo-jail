@@ -83,6 +83,7 @@ def _get_winsize(fd: int) -> Optional[tuple]:
 def run_with_proxy(
     cmd: List[str],
     on_started: Optional[Callable[[subprocess.Popen], None]] = None,
+    on_terminate: Optional[Callable[[], None]] = None,
 ) -> int:
     """Spawn ``cmd`` under a TTY proxy, returning its exit code.
 
@@ -95,6 +96,18 @@ def run_with_proxy(
     the child is spawned so the caller can do post-launch work (e.g.
     wait for the container to be visible, then release a lock)
     without blocking the proxy loop.
+
+    ``on_terminate`` is host-side teardown to run when the proxy is
+    *killed* rather than exiting on its own — window close (SIGHUP) or
+    ``kill`` (SIGTERM).  This matters because the wrapped ``podman
+    run`` supervises PID 1 inside the jail via a conmon that is NOT in
+    our session: the window-close SIGHUP hits us and the podman client
+    but never crosses into the container, so with the default signal
+    disposition we'd die and orphan the jail (``--rm`` never fires
+    because PID 1 keeps running).  The handler restores the host TTY,
+    runs ``on_terminate`` (e.g. ``podman stop``), then exits 128+signum.
+    Only wired on the TTY path — a non-TTY invocation isn't a window
+    that can be closed.
     """
     try:
         in_fd = sys.stdin.fileno()
@@ -166,14 +179,37 @@ def run_with_proxy(
         except (OSError, termios.error):
             pass
 
+    # Window close (SIGHUP) or `kill` (SIGTERM): we were about to die
+    # anyway, and the default disposition would terminate us WITHOUT
+    # tearing the container down (conmon keeps PID 1 alive independent of
+    # us), orphaning the jail.  Restore the host TTY, run the caller's
+    # teardown, then exit.  os._exit because we're in a signal handler and
+    # cannot safely fall back into the proxy loop; the exit code follows
+    # the shell convention of 128+signum.
+    def _on_terminate(signum, _frame):
+        try:
+            termios.tcsetattr(in_fd, termios.TCSANOW, cooked_attrs)
+        except (OSError, termios.error):
+            pass
+        if on_terminate is not None:
+            try:
+                on_terminate()
+            except Exception:
+                pass
+        os._exit(128 + signum)
+
     prev_winch = signal.signal(signal.SIGWINCH, _on_winch)
     prev_cont = signal.signal(signal.SIGCONT, _on_cont)
+    prev_hup = signal.signal(signal.SIGHUP, _on_terminate)
+    prev_term = signal.signal(signal.SIGTERM, _on_terminate)
 
     try:
         return _proxy_loop(in_fd, master, proc, cooked_attrs)
     finally:
         signal.signal(signal.SIGWINCH, prev_winch)
         signal.signal(signal.SIGCONT, prev_cont)
+        signal.signal(signal.SIGHUP, prev_hup)
+        signal.signal(signal.SIGTERM, prev_term)
         # Always restore the host TTY before returning so the user's
         # next prompt is in cooked mode.
         try:
