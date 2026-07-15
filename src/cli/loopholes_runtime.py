@@ -1296,7 +1296,8 @@ def _start_host_service_builtin_cgroup(
 ) -> Optional[LoopholeDaemon]:
     """Start the built-in cgroup delegate daemon as a host service.
 
-    Listens on <sockets_dir>/cgroup.sock.  Returns a LoopholeDaemon handle, or
+    Listens on <sockets_dir>/cgroup-delegate.sock (the name the jail's
+    entrypoint probes for).  Returns a LoopholeDaemon handle, or
     None if cgroup v2 is not available (macOS or Linux without cgroup v2).
 
     This is functionally identical to the pre-refactor `start_cgroup_delegate`

@@ -877,7 +877,9 @@ def test_cgroup_delegation_available(tmp_path):
     """Verify cgroup delegation via host-side daemon works inside the jail.
 
     Tests that:
-    1. The cgroup delegate socket exists at /tmp/yolo-cgd/cgroup.sock
+    1. The cgroup delegate socket exists at
+       /run/yolo-services/cgroup-delegate.sock (the path the entrypoint
+       and yolo-cglimit probe for)
     2. yolo-cglimit can communicate with the host daemon
     3. The daemon can create child cgroups and set limits
     """
@@ -893,7 +895,7 @@ def test_cgroup_delegation_available(tmp_path):
         project_dir,
         "set -e; "
         # Check the delegate socket exists
-        'test -S /tmp/yolo-cgd/cgroup.sock && echo "SOCKET_EXISTS"; '
+        'test -S /run/yolo-services/cgroup-delegate.sock && echo "SOCKET_EXISTS"; '
         # Use yolo-cglimit to run a trivial command with CPU limit
         "yolo-cglimit --cpu 75 --name test-cgd -- "
         'echo "DELEGATION_OK"; '

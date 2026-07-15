@@ -53,7 +53,11 @@ BUILTIN_CGROUP_LOOPHOLE_NAME = "cgroup-delegate"
 BUILTIN_JOURNAL_LOOPHOLE_NAME = "journal"
 JOURNAL_SOCKET_NAME = "journal.sock"
 
-# Legacy name used by the cgroup daemon when it was hard-coded at
-# /tmp/yolo-cgd/cgroup.sock.  Kept as a constant for the refactor so the
-# existing handler can be reused without changes.
-CGD_SOCKET_NAME = "cgroup.sock"
+# Socket filename for the builtin cgroup delegate.  MUST be
+# "<BUILTIN_CGROUP_LOOPHOLE_NAME>.sock": the entrypoint (baked into the
+# image) and the YOLO_SERVICE_CGROUP_DELEGATE_SOCKET env var both expect
+# /run/yolo-services/cgroup-delegate.sock.  A refactor once kept the
+# legacy "cgroup.sock" name here, so the daemon bound a file the jail
+# never looked at and every jail reported "cgroup delegate: not
+# available" while the daemon listened one filename away.
+CGD_SOCKET_NAME = f"{BUILTIN_CGROUP_LOOPHOLE_NAME}.sock"

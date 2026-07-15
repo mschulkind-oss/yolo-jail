@@ -3101,8 +3101,14 @@ class TestCgroupDaemonSocket:
         assert isinstance(handle, LoopholeDaemon)
         assert handle.name == BUILTIN_CGROUP_LOOPHOLE_NAME
         assert handle.host_socket_path.exists()
-        assert handle.host_socket_path == sockets_dir / "cgroup.sock"
+        # The jail sees the sockets dir bind-mounted at /run/yolo-services,
+        # so the host-side basename IS the in-jail basename — and the
+        # entrypoint (baked into the image) probes for cgroup-delegate.sock.
+        # These two must agree or the daemon listens on a file the jail
+        # never looks at (the pre-fix state).
+        assert handle.host_socket_path == sockets_dir / "cgroup-delegate.sock"
         assert handle.jail_socket_path == "/run/yolo-services/cgroup-delegate.sock"
+        assert handle.host_socket_path.name == Path(handle.jail_socket_path).name
         # Stop via the unified machinery
         stop_loopholes([handle], sockets_dir)
         assert not sockets_dir.exists()
