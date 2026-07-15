@@ -1791,8 +1791,22 @@ def run(
             "MISE_CACHE_DIR=/tmp/mise-cache",
             "-e",
             # Explicitly request the non-freethreaded prebuilt to avoid
-            # "missing lib directory" errors from freethreaded builds.
-            "MISE_PYTHON_PRECOMPILED_FLAVOR=install_only_stripped",
+            # "missing lib directory" errors from freethreaded builds
+            # (exact flavor match excludes freethreaded+install_only).
+            # install_only, NOT install_only_stripped: stripped assets only
+            # exist for python-build-standalone releases from mid-2024 on,
+            # so a project pinning an older patch version (e.g. 3.11.7 /
+            # 20240107) got no precompiled match and mise fell back to a
+            # from-source python-build — which fails in the toolchain-less
+            # jail.  install_only exists for every release.
+            "MISE_PYTHON_PRECOMPILED_FLAVOR=install_only",
+            "-e",
+            # Old python-build-standalone releases also predate GitHub
+            # artifact attestations, and mise hard-fails when the expected
+            # attestation is absent ("No GitHub artifact attestations
+            # found") — same old-pin breakage as the flavor above.  Disable
+            # the attestation layer; mise still checksums the artifact.
+            "MISE_PYTHON_GITHUB_ATTESTATIONS=false",
             "-e",
             # Blanket trust for every mise config under the workspace —
             # recursive-downward and path-component-aware, which no
