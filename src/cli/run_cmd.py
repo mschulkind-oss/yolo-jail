@@ -1519,6 +1519,14 @@ def run(
         # the agent-side logs under ~/.local/share/yolo-jail/logs/ and in
         # the nix build output.  Drop it on the floor.
         run_flags.extend(["--log-driver", "none"])
+        # Unmask /proc/sys (OCI default marks it read-only): the jail's own
+        # podman needs to write netns-scoped sysctls when netavark sets up
+        # bridge networking (net/ipv4/conf/<bridge>/route_localnet et al.) —
+        # with the default mask, `podman run` inside the jail dies with
+        # "set sysctl ...: Read-only file system".  Safe for a rootless
+        # jail: the kernel still rejects writes to non-namespaced sysctls,
+        # so only the jail's private netns/ipc knobs actually open up.
+        run_flags.extend(["--security-opt", "unmask=/proc/sys"])
     if sys.stdout.isatty():
         run_flags.append("-t")
 

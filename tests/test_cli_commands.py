@@ -2866,6 +2866,14 @@ class TestRunPodman:
         run_cmd = mock_popen.call_args[0][0]
         caps = {run_cmd[i + 1] for i, a in enumerate(run_cmd[:-1]) if a == "--cap-add"}
         assert {"NET_ADMIN", "NET_RAW", "SYS_ADMIN"} <= caps
+        # Caps alone aren't enough: the OCI default mounts /proc/sys
+        # read-only, which kills netavark's netns sysctl writes.  The
+        # unmask must ride along or bridge networking still fails with
+        # "set sysctl ...: Read-only file system".
+        sec_opts = {
+            run_cmd[i + 1] for i, a in enumerate(run_cmd[:-1]) if a == "--security-opt"
+        }
+        assert "unmask=/proc/sys" in sec_opts
 
 
 class TestRunDevicePassthrough:
