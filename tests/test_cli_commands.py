@@ -103,8 +103,9 @@ class TestAutoLoadImage:
         mock_build.return_value = (None, ["error: something broke"])
         mock_run.return_value = MagicMock(returncode=0)  # Image exists
         with patch("cli.image.BUILD_DIR", tmp_path):
-            auto_load_image(tmp_path, runtime="podman")
-        # Should have checked for existing image
+            ok = auto_load_image(tmp_path, runtime="podman")
+        # Build failed but a usable image is already loaded → runnable.
+        assert ok is True
         mock_run.assert_called()
 
     @patch("cli.image._build_image_store_path")
@@ -113,7 +114,10 @@ class TestAutoLoadImage:
         mock_build.return_value = (None, ["error: nope"])
         mock_run.return_value = MagicMock(returncode=1)  # No image
         with patch("cli.image.BUILD_DIR", tmp_path):
-            auto_load_image(tmp_path, runtime="podman")
+            ok = auto_load_image(tmp_path, runtime="podman")
+        # No image and can't build one → NOT runnable; caller must abort
+        # (rather than fall through to a registry-pull 401).
+        assert ok is False
 
     @patch("cli.image._build_image_store_path")
     @patch("cli.image._read_loaded_paths", return_value=set())

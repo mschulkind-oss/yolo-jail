@@ -1431,7 +1431,15 @@ def run(
     host_claude_files = config.get("host_claude_files", DEFAULT_HOST_CLAUDE_FILES)
     user_env = _resolve_env_sources(workspace, config)
     mise_disabled_tools = _merge_mise_disabled_tools(user_env.get("MISE_DISABLE_TOOLS"))
-    auto_load_image(repo_root, extra_packages=extra_packages or None, runtime=runtime)
+    if not auto_load_image(
+        repo_root, extra_packages=extra_packages or None, runtime=runtime
+    ):
+        # No runnable image and we can't build/load one — auto_load_image has
+        # already printed the actionable reason (e.g. macOS needs a Linux
+        # builder / a published cache).  Stop cleanly instead of falling
+        # through to a doomed container launch that ends in a registry-pull
+        # 401.
+        sys.exit(1)
 
     # Jail-land mise store — shared by all jails, never by the host, and
     # mounted at the fixed neutral path /mise in every jail (see

@@ -429,8 +429,17 @@ def auto_load_image(
     repo_root: Path,
     extra_packages: Optional[List[Union[str, dict]]] = None,
     runtime: str = "podman",
-):
-    """Cheaply check if the nix image needs to be reloaded into the container runtime."""
+) -> bool:
+    """Ensure the nix jail image is built + loaded into the container runtime.
+
+    Returns ``True`` when an image is ready to run (freshly loaded, already
+    loaded, or an existing/cached image is usable), ``False`` when no image
+    could be made available (build failed with no fallback, or the load
+    failed).  The caller MUST NOT launch the jail on ``False`` — on macOS a
+    ``False`` typically means "needs a Linux builder / a published cache",
+    which this function has already explained to the user; proceeding would
+    fall through to a confusing registry-pull error.
+    """
     # Per-runtime sentinel tracks all store paths loaded into this runtime
     sentinel = BUILD_DIR / f"last-load-{runtime}"
     # Use a PID-unique out-link to avoid races when multiple jails build concurrently
@@ -444,13 +453,8 @@ def auto_load_image(
     )
 
     if current_path is None:
-        err_summary = (
-            "\n".join(build_stderr_tail[-10:]) if build_stderr_tail else "unknown error"
-        )
-        console.print(
-            f"[yellow]Warning: nix build failed:[/yellow]\n[dim]{err_summary}[/dim]"
-        )
-        # If the image already exists in the runtime, proceed.
+        # If the image already exists in the runtime, proceed — a build failure
+        # doesn't matter when there's already a usable image loaded.
         image_name = _jail_image(runtime)
         check = subprocess.run(
             _image_inspect_cmd(runtime, image_name),
@@ -458,7 +462,7 @@ def auto_load_image(
         )
         if check.returncode == 0:
             console.print(f"[yellow]Using existing {image_name} image.[/yellow]")
-            return
+            return True
         # No image in runtime — try loading from the most recent cached tar.
         # This handles nested jails where nix build fails but the host already
         # cached the image tar in the shared GLOBAL_CACHE.
@@ -476,7 +480,7 @@ def auto_load_image(
                         console.print(
                             "[bold green]Done: loaded image from cache[/bold green]"
                         )
-                        return
+                        return True
                 else:
                     cache_load_result = subprocess.run(
                         _image_load_cmd(runtime, str(tar_file)),
@@ -486,11 +490,19 @@ def auto_load_image(
                         console.print(
                             "[bold green]Done: loaded image from cache[/bold green]"
                         )
-                        return
-        console.print(
-            f"[bold red]No existing {image_name} image found. Cannot start jail.[/bold red]"
-        )
-        return
+                        return True
+        # Genuinely no image and can't build one.  Turn nix's opaque "1
+        # dependency failed" into the actionable diagnosis (on macOS this is
+        # almost always "needs a Linux builder / a published cache") — the
+        # same logic `yolo check` uses — instead of a bare warning that lets
+        # `run` fall through to a doomed registry pull.
+        from .check_cmd import _diagnose_nix_build_failure
+
+        title, remedy = _diagnose_nix_build_failure(build_stderr_tail or [])
+        console.print(f"[bold red]Cannot start jail: {title}.[/bold red]")
+        if remedy:
+            console.print(f"[dim]{remedy}[/dim]")
+        return False
 
     # 2. Check if this store path has already been loaded into the runtime.
     # The sentinel can lie: podman storage may have been pruned, reset, or
@@ -539,7 +551,7 @@ def auto_load_image(
                             "[bold red]Error streaming image to cache.[/bold red]"
                         )
                         out_link.unlink(missing_ok=True)
-                        return
+                        return False
                     mb = total_bytes / (1024 * 1024)
                     size_str = f"{mb / 1024:.1f} GB" if mb >= 1024 else f"{mb:.0f} MB"
                     console.print(f"  [dim]Cached image: {size_str}[/dim]")
@@ -567,11 +579,15 @@ def auto_load_image(
                     stderr = load_result.stderr.decode().strip()
                     if stderr:
                         console.print(f"  [dim]{stderr}[/dim]")
-            else:
-                _add_loaded_path(sentinel, current_path)
-                console.print("[bold green]Done: loaded image[/bold green]")
+                out_link.unlink(missing_ok=True)
+                return False
+            _add_loaded_path(sentinel, current_path)
+            console.print("[bold green]Done: loaded image[/bold green]")
         except Exception as e:
             console.print(f"[bold red]Error streaming image: {e}[/bold red]")
+            out_link.unlink(missing_ok=True)
+            return False
 
-    # Cleanup temp link
+    # Image was built and is present (freshly loaded above, or already loaded).
     out_link.unlink(missing_ok=True)
+    return True
