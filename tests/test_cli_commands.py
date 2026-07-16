@@ -2128,8 +2128,15 @@ class TestDoctorBrokerRelayProbe:
         monkeypatch.setattr(
             "cli.check_cmd._detect_runtime_for_listing", lambda: "podman"
         )
-        ps_result = MagicMock(stdout=ps_stdout, stderr="boom", returncode=ps_rc)
-        monkeypatch.setattr("cli.check_cmd.subprocess.run", lambda *a, **kw: ps_result)
+        # The probe lists jails via runtime.list_running_jail_names (imported
+        # into check_cmd); stub it to a (names, error) tuple.  A non-zero rc
+        # models a listing failure that must warn, not read as "no jails".
+        names = [n.strip() for n in ps_stdout.splitlines() if n.strip()]
+        err = "boom" if ps_rc != 0 else None
+        monkeypatch.setattr(
+            "cli.check_cmd.list_running_jail_names",
+            lambda *a, **kw: ([], err) if err else (names, None),
+        )
         sockets_dir = sockets_base / "sockets"
         sockets_dir.mkdir()
         monkeypatch.setattr(
@@ -2168,7 +2175,7 @@ class TestDoctorBrokerRelayProbe:
         events, ok, warn, fail = self._events()
         cli._check_host_service_liveness(ok, warn, fail)
         assert [k for k, _ in events] == ["warn"], events
-        assert "could not list containers" in events[0][1]
+        assert "could not list running jails" in events[0][1]
 
 
 # ═══════════════════════════════════════════════════════════════════════════════

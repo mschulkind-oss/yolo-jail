@@ -70,6 +70,7 @@ from .runtime import (
     _podman_machine_resize_hint,
     _runtime_for_check,
     cleanup_container_tracking,
+    list_running_jail_names,
 )
 from .storage import (
     _detect_nix_daemon_label,
@@ -477,47 +478,17 @@ def _check_host_service_liveness(ok, warn, fail) -> None:
     if detected_runtime is None:
         warn("no container runtime found — skipping liveness probe")
         return
-    try:
-        result = subprocess.run(
-            [
-                detected_runtime,
-                "ps",
-                "--filter",
-                "name=^yolo-",
-                "--format",
-                "{{.Names}}",
-            ],
-            capture_output=True,
-            text=True,
-            timeout=5,
+    # List running jails with the runtime-correct command (Apple Container
+    # has no `ps`/`--filter`; it lists via `container ls`).  A failed listing
+    # must warn, not read as "no jails running" (that would false-pass every
+    # per-jail probe below).
+    cnames, list_err = list_running_jail_names(detected_runtime)
+    if list_err is not None:
+        warn(
+            f"could not list running jails via {detected_runtime}",
+            list_err.splitlines()[0] if list_err else "",
         )
-    except Exception as e:
-        warn(f"could not list containers: {e}")
         return
-    if result.returncode != 0:
-        stderr = (result.stderr or "").strip()
-        # Old Apple Container CLIs don't ship the `ps` plugin the newer
-        # ones do (`container-ps` not found, exit 64).  Don't dump the raw
-        # plugin-help wall of text — say plainly it's a too-old CLI and how
-        # to fix it.  A failed `ps` must not read as "no jails running"
-        # (that would false-pass every per-jail probe below).
-        if detected_runtime == "container" and (
-            "container-ps" in stderr or "plugin" in stderr.lower()
-        ):
-            warn(
-                "Apple Container CLI too old for the per-jail liveness probe",
-                "Your `container` CLI lacks the `ps` plugin this probe uses. "
-                "Upgrade it: `brew upgrade container` (then `container system "
-                "start`).  This only affects the liveness probe, not running jails.",
-            )
-        else:
-            warn(
-                f"could not list containers: `{detected_runtime} ps` exited "
-                f"{result.returncode}",
-                stderr.splitlines()[0] if stderr else "",
-            )
-        return
-    cnames = [c.strip() for c in result.stdout.splitlines() if c.strip()]
     if not cnames:
         ok("no jails running — nothing to probe")
         return

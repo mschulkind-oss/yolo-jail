@@ -220,6 +220,44 @@ def find_running_container(name: str, runtime: str = "podman") -> Optional[str]:
     return cid if cid else None
 
 
+def list_running_jail_names(
+    runtime: str = "podman",
+) -> "tuple[list[str], Optional[str]]":
+    """Names of running ``yolo-*`` containers, using the runtime-correct list
+    command.
+
+    Apple Container has no ``ps`` (that's podman's verb) and no ``--filter``/
+    ``--format`` — it lists with ``container ls`` and a fixed table.  Podman
+    uses ``ps --filter name=^yolo- --format {{.Names}}``.  Returns
+    ``(names, error)``; ``error`` is a human string when listing genuinely
+    failed (so the caller can warn rather than false-pass "no jails").
+    """
+    try:
+        if runtime == "container":
+            result = subprocess.run(
+                ["container", "ls"], capture_output=True, text=True, timeout=5
+            )
+            if result.returncode != 0:
+                return [], (result.stderr or "").strip() or "container ls failed"
+            names = []
+            for line in result.stdout.strip().splitlines()[1:]:  # skip header
+                parts = line.split()
+                if parts and parts[0].startswith("yolo-"):
+                    names.append(parts[0])
+            return names, None
+        result = subprocess.run(
+            [runtime, "ps", "--filter", "name=^yolo-", "--format", "{{.Names}}"],
+            capture_output=True,
+            text=True,
+            timeout=5,
+        )
+        if result.returncode != 0:
+            return [], (result.stderr or "").strip() or f"{runtime} ps failed"
+        return [n.strip() for n in result.stdout.splitlines() if n.strip()], None
+    except Exception as e:  # noqa: BLE001 — surface any listing failure as a string
+        return [], str(e)
+
+
 def find_existing_container(name: str, runtime: str = "podman") -> Optional[str]:
     """Return container ID if a container with this name exists (running OR stopped)."""
     try:

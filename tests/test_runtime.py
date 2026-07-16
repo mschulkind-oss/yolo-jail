@@ -101,6 +101,68 @@ def test_generated_agents_md_mentions_yolo_check(tmp_path, monkeypatch):
     assert "ALWAYS run `yolo check` after every config edit" in content
 
 
+# --- list_running_jail_names tests (per-jail liveness probe) ---
+
+
+def _fake_completed(stdout="", stderr="", returncode=0):
+    return subprocess.CompletedProcess(
+        args=[], returncode=returncode, stdout=stdout, stderr=stderr
+    )
+
+
+def test_list_jails_apple_container_scans_ls_table():
+    """Apple Container has no `ps`/`--filter`; the probe must scan the
+    `container ls` table for names starting with `yolo-`.  Regression guard
+    for the false "Apple Container CLI too old" WARN."""
+    from cli.runtime import list_running_jail_names
+
+    table = (
+        "ID              IMAGE        STATE    ADDR\n"
+        "yolo-ws-abc123  yolo:latest  running  1.2.3.4\n"
+        "some-other      alpine       running  1.2.3.5\n"
+        "yolo-app-def456 yolo:latest  running  1.2.3.6\n"
+    )
+    with patch("cli.runtime.subprocess.run") as run:
+        run.return_value = _fake_completed(stdout=table)
+        names, err = list_running_jail_names("container")
+    assert err is None
+    assert names == ["yolo-ws-abc123", "yolo-app-def456"]
+    # Must use `container ls`, never `container ps`.
+    assert run.call_args.args[0] == ["container", "ls"]
+
+
+def test_list_jails_podman_uses_ps_filter():
+    from cli.runtime import list_running_jail_names
+
+    with patch("cli.runtime.subprocess.run") as run:
+        run.return_value = _fake_completed(stdout="yolo-ws-abc123\nyolo-app-def456\n")
+        names, err = list_running_jail_names("podman")
+    assert err is None
+    assert names == ["yolo-ws-abc123", "yolo-app-def456"]
+    assert run.call_args.args[0][:2] == ["podman", "ps"]
+
+
+def test_list_jails_nonzero_returns_error_not_empty():
+    """A failed listing must surface an error string so the caller warns
+    rather than false-passing "no jails running"."""
+    from cli.runtime import list_running_jail_names
+
+    with patch("cli.runtime.subprocess.run") as run:
+        run.return_value = _fake_completed(stderr="daemon down", returncode=1)
+        names, err = list_running_jail_names("container")
+    assert names == []
+    assert err == "daemon down"
+
+
+def test_list_jails_exception_returns_error():
+    from cli.runtime import list_running_jail_names
+
+    with patch("cli.runtime.subprocess.run", side_effect=OSError("no binary")):
+        names, err = list_running_jail_names("podman")
+    assert names == []
+    assert "no binary" in err
+
+
 # --- ensure_global_storage tests ---
 
 
