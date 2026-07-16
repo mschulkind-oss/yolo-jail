@@ -567,11 +567,7 @@ def _diagnose_nix_build_failure(stderr_tail: List[str]) -> "tuple[str, str]":
     # never cacheable by construction; a bad nixpkgs pin misses the cache).
     ambiguous_mac = IS_MACOS and "dependency failed" in low and not explicit_cross
 
-    # Fill the daemon-restart label for whichever Nix installer is present
-    # (Determinate vs official) so the copy-pasteable step is correct.
-    remedy = _LINUX_BUILDER_REMEDY.replace(
-        "NIX_DAEMON_LABEL", _detect_nix_daemon_label() or "org.nixos.nix-daemon"
-    )
+    remedy = _linux_builder_remedy()
     if explicit_cross:
         return (
             "Image build needs a Linux builder",
@@ -697,7 +693,7 @@ def _has_linux_builder() -> bool:
     return False
 
 
-_LINUX_BUILDER_REMEDY = (
+_LINUX_BUILDER_REMEDY_TEMPLATE = (
     "The jail image is a Linux image; part of it must be built from source, "
     "and macOS can't build Linux locally — it offloads to a small Linux VM "
     "(the standard Nix tool for this).  Do this ONCE:\n"
@@ -720,6 +716,17 @@ _LINUX_BUILDER_REMEDY = (
     "is never cached, so a rebuild is unavoidable; a {nixpkgs:<commit>} pin "
     "may just need a released revision that IS in the cache.)"
 )
+
+
+def _linux_builder_remedy() -> str:
+    """The builder remedy with the daemon-restart label filled in for the
+    installer actually present (Determinate vs official).  A function, not a
+    constant, so the label probe runs at call time — and so EVERY caller gets
+    the substituted text (a raw-constant use would leak the NIX_DAEMON_LABEL
+    placeholder into user output)."""
+    return _LINUX_BUILDER_REMEDY_TEMPLATE.replace(
+        "NIX_DAEMON_LABEL", _detect_nix_daemon_label() or "org.nixos.nix-daemon"
+    )
 
 
 def _preflight_builder_needs(
@@ -773,7 +780,7 @@ def _preflight_builder_needs(
     # Emit ONE actionable FAIL and tell the caller to skip the real build.
     fail(
         f"Image needs a Linux builder — a package must be built from source{named}",
-        _LINUX_BUILDER_REMEDY,
+        _linux_builder_remedy(),
     )
     return False
 
