@@ -695,23 +695,26 @@ def _has_linux_builder() -> bool:
 
 _LINUX_BUILDER_REMEDY_TEMPLATE = (
     "The jail image is a Linux image; part of it must be built from source, "
-    "and macOS can't build Linux locally — it offloads to a small Linux VM "
-    "(the standard Nix tool for this).  Do this ONCE:\n"
+    "and macOS can't build Linux locally — it offloads to a small Linux VM.  "
+    "Set that up ONCE, then yolo starts/stops it for you on demand (no VM to "
+    "babysit):\n"
     "\n"
-    "  1. Allow YOUR user to tell the Nix daemon to use that builder.\n"
-    "     (Nix runs builds via a root daemon; only 'trusted' users may hand\n"
-    "      it a builder to offload to.  This grants nix-build trust to your\n"
-    "      login user — NOT general admin.  The `sudo` is only because\n"
-    "      /etc/nix/nix.conf is root-owned; the line just adds your username\n"
-    "      to trusted-users, and the restart applies it.)\n"
+    "  1. Run:  yolo builder setup\n"
+    "     (It prints the one privileged step — wiring the Nix daemon to the\n"
+    "      builder VM — for you to review and run.)\n"
+    "  2. Ensure YOUR user is trusted by the Nix daemon (only 'trusted' users\n"
+    "     may hand it a builder to offload to; this grants nix-build trust to\n"
+    "     your login user, NOT general admin — the `sudo` is only because\n"
+    "     /etc/nix/nix.conf is root-owned):\n"
     '       echo "trusted-users = root $(whoami)" | sudo tee -a /etc/nix/nix.conf\n'
     "       sudo launchctl kickstart -k system/NIX_DAEMON_LABEL\n"
-    "  2. Start the Linux builder VM and LEAVE IT RUNNING in its own terminal:\n"
-    "       nix run nixpkgs#darwin.linux-builder\n"
-    "  3. In this terminal, run `yolo` again — it will build + start the jail.\n"
+    "  3. Run `yolo` again — it auto-starts the builder, builds, and starts "
+    "the jail.\n"
     "\n"
-    "Step 1 is one-time (verified by `yolo check`).  Keep the step-2 VM "
-    "running while you use yolo, or re-run it when you need it.\n"
+    "Steps 1–2 are one-time (verified by `yolo check` / `yolo builder "
+    "status`).  From then on the builder is on-demand: yolo brings it up "
+    "before a build and a launchd idle-timer stops it, so it doesn't hold "
+    "RAM while you're not building.\n"
     "(If you added a custom `packages` entry: a {version,url,hash} override "
     "is never cached, so a rebuild is unavoidable; a {nixpkgs:<commit>} pin "
     "may just need a released revision that IS in the cache.)"
@@ -776,7 +779,27 @@ def _preflight_builder_needs(
             f"A package will be built from source{named}; a Linux builder will handle it"
         )
         return True
-    # Known-doomed: a from-source Linux build on macOS with no builder.
+    # No builder registered in nix.conf/machines — but the yolo-managed
+    # on-demand builder may just be set-up-and-idle.  If setup is done, start
+    # it now (frictionless: no "go run a VM in a terminal") and proceed; only
+    # FAIL if setup was never run or the VM won't come up.
+    from .builder import builder_setup_state, ensure_builder
+
+    if builder_setup_state()["done"]:
+        started, err = ensure_builder(on_progress=lambda m: console.print(f"  [dim]- {m}[/dim]"))
+        if started:
+            ok(
+                f"A package will be built from source{named}; started the "
+                "on-demand Linux builder to handle it"
+            )
+            return True
+        fail(
+            f"Image needs a Linux builder — a package must be built from source{named}",
+            f"The on-demand builder is set up but wouldn't start ({err}).  "
+            "Try `yolo builder start`, or see `yolo builder status`.",
+        )
+        return False
+    # Known-doomed: a from-source Linux build on macOS with no builder set up.
     # Emit ONE actionable FAIL and tell the caller to skip the real build.
     fail(
         f"Image needs a Linux builder — a package must be built from source{named}",

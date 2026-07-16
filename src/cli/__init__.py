@@ -391,6 +391,16 @@ from .broker_cmd import broker_app  # noqa: E402
 app.add_typer(broker_app, name="broker")
 
 
+# ---------------------------------------------------------------------------
+# yolo builder — manage the on-demand macOS Linux builder VM.
+# Subcommand definitions live in cli/builder_cmd.py.
+# ---------------------------------------------------------------------------
+
+from .builder_cmd import builder_app  # noqa: E402
+
+app.add_typer(builder_app, name="builder")
+
+
 def main():
     """Entry point for the `yolo` console script.
 
@@ -425,6 +435,8 @@ def main():
         "ps",
         "doctor",
         "loopholes",
+        "broker",
+        "builder",
     }
     args = sys.argv[1:]
     if args and "--" in args:

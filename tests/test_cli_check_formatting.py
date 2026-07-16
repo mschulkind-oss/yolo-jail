@@ -70,8 +70,8 @@ def test_diagnose_explicit_cross_build_leads_to_linux_builder(monkeypatch):
     ]
     title, note = _diagnose_nix_build_failure(tail)
     assert "Linux builder" in title
-    # nix-darwin linux-builder is the recommended remedy.
-    assert "linux-builder" in note.lower()
+    # `yolo builder setup` is now the recommended, frictionless remedy.
+    assert "yolo builder setup" in note
 
 
 def test_diagnose_ambiguous_mac_dependency_failure(monkeypatch):
@@ -80,7 +80,7 @@ def test_diagnose_ambiguous_mac_dependency_failure(monkeypatch):
         ["error: Build failed due to failed dependency", "1 dependency failed"]
     )
     assert "Linux builder (or a cached package)" in title
-    assert "linux-builder" in note.lower()
+    assert "yolo builder setup" in note
     # names the custom-package cause too
     assert "override" in note.lower()
 
@@ -176,11 +176,15 @@ def test_preflight_state_a_quiet_when_all_cached(monkeypatch):
 def test_preflight_state_c_fails_and_skips_build_without_builder(monkeypatch):
     # "Needs a Linux builder" is a macOS-only verdict — force macOS so the
     # test exercises it regardless of the host running the suite.
+    import src.cli.builder as _b
+
     monkeypatch.setattr(_cc, "IS_MACOS", True)
     monkeypatch.setattr(
         _cc, "_nix_dry_run_will_build", lambda *a: (True, ["yolo-jail-conf.json.drv"])
     )
     monkeypatch.setattr(_cc, "_has_linux_builder", lambda: False)
+    # Builder not set up → the fallback remedy FAIL (host-independent).
+    monkeypatch.setattr(_b, "builder_setup_state", lambda: {"done": False})
     failed = []
     result = _cc._preflight_builder_needs(
         Path("/repo"),
@@ -193,7 +197,55 @@ def test_preflight_state_c_fails_and_skips_build_without_builder(monkeypatch):
     # skip the doomed build.
     assert result is False
     assert failed and "Linux builder" in failed[0][0]
-    assert "linux-builder" in failed[0][1].lower()  # nix-darwin remedy
+    assert "yolo builder setup" in failed[0][1]  # frictionless remedy
+
+
+def test_preflight_autostarts_ondemand_builder_when_set_up(monkeypatch):
+    """macOS, will build, no nix.conf builder — but the on-demand builder is
+    set up.  Preflight starts it and PASSES instead of FAILing (the
+    frictionless path: no "go run a VM in a terminal")."""
+    import src.cli.builder as _b
+
+    monkeypatch.setattr(_cc, "IS_MACOS", True)
+    monkeypatch.setattr(_cc, "_nix_dry_run_will_build", lambda *a: (True, ["x.drv"]))
+    monkeypatch.setattr(_cc, "_has_linux_builder", lambda: False)
+    monkeypatch.setattr(_b, "builder_setup_state", lambda: {"done": True})
+    monkeypatch.setattr(_b, "ensure_builder", lambda **k: (True, None))
+    passed, failed = [], []
+    result = _cc._preflight_builder_needs(
+        Path("/repo"),
+        None,
+        ok=lambda m: passed.append(m),
+        warn=lambda m, n="": None,
+        fail=lambda m, n="": failed.append((m, n)),
+    )
+    assert result is True
+    assert failed == []
+    assert passed and "on-demand Linux builder" in passed[0]
+
+
+def test_preflight_fails_pointing_at_builder_setup_when_not_set_up(monkeypatch):
+    """macOS, will build, no builder, and setup NOT done → FAIL whose remedy
+    leads with `yolo builder setup` (not the old babysit-a-terminal text)."""
+    import src.cli.builder as _b
+
+    monkeypatch.setattr(_cc, "IS_MACOS", True)
+    monkeypatch.setattr(_cc, "_nix_dry_run_will_build", lambda *a: (True, ["x.drv"]))
+    monkeypatch.setattr(_cc, "_has_linux_builder", lambda: False)
+    monkeypatch.setattr(_b, "builder_setup_state", lambda: {"done": False})
+    failed = []
+    result = _cc._preflight_builder_needs(
+        Path("/repo"),
+        None,
+        ok=lambda m: None,
+        warn=lambda m, n="": None,
+        fail=lambda m, n="": failed.append((m, n)),
+    )
+    assert result is False
+    assert failed and "Linux builder" in failed[0][0]
+    assert "yolo builder setup" in failed[0][1]
+    # The old "leave it running in a terminal" instruction is gone.
+    assert "LEAVE IT RUNNING" not in failed[0][1]
 
 
 def test_preflight_state_b_pass_with_builder(monkeypatch):
