@@ -140,25 +140,47 @@ now fixed:
   goes through `auto_load_image`, which now calls `_preflight_builder_needs`
   on macOS before the real build.
 
+### Correction after the SECOND Mac run (90s hang → "wouldn't start")
+
+Root cause found (nixpkgs darwin-builder docs): the FIRST `nix run
+nixpkgs#darwin.linux-builder` runs `sudo --reset-timestamp
+/nix/store/…-install-credentials.sh` to install the VM ssh key — an
+**interactive sudo that forces a password even when sudo is warm**. Our
+`start_builder` spawned it detached with `stdin=DEVNULL` and no TTY, so that
+sudo could never be answered → the VM never booted → 90s of silence → timeout.
+
+Fixes:
+- **Split first boot (interactive) from steady-state (detached).**
+  `ensure_builder` now returns `"needs first-boot"` when the ssh key is absent
+  instead of attempting a doomed headless start. `yolo builder start` handles
+  that case with `first_boot_interactive()` — runs `nix run …` in the
+  FOREGROUND (inherits the TTY) so the sudo prompt + `builder@…` login reach
+  the user; treats Ctrl-C as success once the key is installed. After the key
+  exists, all starts are detached and silent (the original design).
+- **Diagnostics.** `start_builder` returns the Popen handle; `_poll_until_
+  reachable` short-circuits on a dead child and surfaces `builder_log_tail()`
+  (last lines of `GLOBAL_STORAGE/logs/linux-builder.log`) in the error, and
+  emits a per-second `on_progress` heartbeat so there's no more silent 90s.
+- The `check`/run FAIL for `"needs first-boot"` prints the exact one-time
+  `nix run nixpkgs#darwin.linux-builder` command with what to expect.
+
 **Must be verified on the NEXT Mac run:**
-- That `start_builder`'s detached `nix run` actually boots the VM, the daemon
-  offloads, and `nix build .#ociImage` succeeds end-to-end from `yolo`.
-- Poll-until-ready timing (spawn → SSH-answers) → tune `BUILDER_START_TIMEOUT_S`
-  (currently 90s) + the "starting builder…" progress UX. First boot also does
-  the key-install sudo, so first-ever build may prompt once more — confirm.
+- `yolo builder start` first-boot: the interactive `nix run` installs the key,
+  the VM comes up, and a subsequent `yolo` builds via the now-detached builder.
+- Tune `BUILDER_START_TIMEOUT_S` (90s) once real spawn→reachable timing is seen
+  (now visible via the heartbeat + log tail).
 - The idle-stop watchdog is NOT built yet (the VM stays up until `yolo builder
   stop` / reboot). Add it: yolo stamps a "last build" time; a small timer
   (launchd `StartInterval` agent or a lightweight daemon) calls `stop_builder`
-  when stale. Design the watchdog here once VM behavior is confirmed.
-- `resident` lifecycle knob (`macos.builder.lifecycle`) not wired yet — add if
-  wanted after the on-demand path is proven.
+  when stale.
+- `resident` lifecycle knob (`macos.builder.lifecycle`) not wired yet.
 
 ## Open questions for the Mac session
 
-1. Does the detached `nix run nixpkgs#darwin.linux-builder` stay up cleanly
-   with stdin=DEVNULL and no TTY (it auto-logs-in as `builder` interactively
-   in the manual)? If it needs a pty, wrap it like tty_proxy or use the
-   `create-builder` installer's non-interactive form.
+1. After the interactive first boot installs the key, does the DETACHED
+   `nix run` (stdin=DEVNULL, no TTY) start cleanly on later boots — i.e. is the
+   key install truly the only interactive step? The log tail will show if a
+   second interactive prompt appears.
 2. Idle detection mechanism (see above) — simplest reliable approach on macOS.
 3. Does `builder_setup_state`/`yolo check` correctly report state once the
    ssh-ng builder is wired (so `Linux builder configured` reflects reality)?

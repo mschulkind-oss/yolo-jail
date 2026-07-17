@@ -192,7 +192,7 @@ def test_ensure_builder_not_set_up_points_at_setup(monkeypatch):
 
 def test_ensure_builder_starts_and_polls_to_ready(monkeypatch):
     monkeypatch.setattr(b, "IS_MACOS", True)
-    monkeypatch.setattr(b, "builder_setup_state", lambda: {"done": True})
+    monkeypatch.setattr(b, "builder_setup_state", lambda: {"done": True, "key": True})
     # Not reachable at first; reachable after start (poll succeeds).
     calls = {"n": 0}
 
@@ -202,33 +202,77 @@ def test_ensure_builder_starts_and_polls_to_ready(monkeypatch):
         return calls["n"] > 1
 
     monkeypatch.setattr(b, "builder_reachable", reachable)
-    monkeypatch.setattr(b, "start_builder", lambda: (True, None))
+    monkeypatch.setattr(b, "start_builder", lambda: (True, None, None))
     progressed = []
     ok, err = b.ensure_builder(on_progress=progressed.append)
     assert ok is True and err is None
     assert progressed  # user saw a "starting…" message
 
 
+def test_ensure_builder_needs_first_boot_when_key_missing(monkeypatch):
+    # Key not yet installed → don't try headless (interactive sudo can't be
+    # answered); signal "needs first-boot" so the caller points at the manual
+    # one-time boot.
+    monkeypatch.setattr(b, "IS_MACOS", True)
+    monkeypatch.setattr(b, "builder_reachable", lambda *a, **k: False)
+    monkeypatch.setattr(b, "builder_setup_state", lambda: {"done": True, "key": False})
+
+    def no_start():
+        raise AssertionError("must not attempt a headless start without the key")
+
+    monkeypatch.setattr(b, "start_builder", no_start)
+    ok, err = b.ensure_builder()
+    assert ok is False and err == "needs first-boot"
+
+
+def test_first_boot_interactive_ok_when_key_appears(monkeypatch):
+    ran = {}
+    monkeypatch.setattr(b.subprocess, "run", lambda cmd: ran.setdefault("cmd", cmd))
+    monkeypatch.setattr(b.Path, "is_file", lambda self: True)  # key present after
+    ok, err = b.first_boot_interactive(_run=lambda cmd: ran.setdefault("cmd", cmd))
+    assert ok is True and err is None
+    assert ran["cmd"] == ["nix", "run", "nixpkgs#darwin.linux-builder"]
+
+
+def test_first_boot_interactive_ctrl_c_is_success_if_key_installed(monkeypatch):
+    def raise_kbd(cmd):
+        raise KeyboardInterrupt
+
+    monkeypatch.setattr(b.Path, "is_file", lambda self: True)
+    monkeypatch.setattr(b, "builder_reachable", lambda *a, **k: False)
+    ok, err = b.first_boot_interactive(_run=raise_kbd)
+    assert ok is True and err is None  # Ctrl-C out of the login shell, key present
+
+
+def test_first_boot_interactive_fails_if_no_key(monkeypatch):
+    monkeypatch.setattr(b.Path, "is_file", lambda self: False)
+    monkeypatch.setattr(b, "builder_reachable", lambda *a, **k: False)
+    ok, err = b.first_boot_interactive(_run=lambda cmd: None)
+    assert ok is False and "key still not installed" in err
+
+
 def test_ensure_builder_start_failure_surfaces_error(monkeypatch):
     monkeypatch.setattr(b, "IS_MACOS", True)
     monkeypatch.setattr(b, "builder_reachable", lambda *a, **k: False)
-    monkeypatch.setattr(b, "builder_setup_state", lambda: {"done": True})
-    monkeypatch.setattr(b, "start_builder", lambda: (False, "launchd boom"))
+    monkeypatch.setattr(b, "builder_setup_state", lambda: {"done": True, "key": True})
+    monkeypatch.setattr(b, "start_builder", lambda: (False, "launchd boom", None))
     ok, err = b.ensure_builder()
     assert ok is False
     assert "launchd boom" in err
 
 
-def test_ensure_builder_times_out_if_never_reachable(monkeypatch):
+def test_ensure_builder_times_out_with_log_tail(monkeypatch):
     monkeypatch.setattr(b, "IS_MACOS", True)
     monkeypatch.setattr(b, "builder_reachable", lambda *a, **k: False)
-    monkeypatch.setattr(b, "builder_setup_state", lambda: {"done": True})
-    monkeypatch.setattr(b, "start_builder", lambda: (True, None))
-    # Drive the poll clock so it "times out" without real sleeping.
-    monkeypatch.setattr(b, "_poll_until_reachable", lambda *a, **k: False)
+    monkeypatch.setattr(b, "builder_setup_state", lambda: {"done": True, "key": True})
+    monkeypatch.setattr(b, "start_builder", lambda: (True, None, None))
+    # Poll reports its own reason (incl. log tail); ensure_builder passes through.
+    monkeypatch.setattr(
+        b, "_poll_until_reachable", lambda **k: (False, "not reachable within 90s")
+    )
     ok, err = b.ensure_builder()
     assert ok is False
-    assert "did not become reachable" in err
+    assert "not reachable" in err
 
 
 # ── _poll_until_reachable with injected clock (no real waits) ─────────────────
@@ -245,14 +289,15 @@ def test_poll_returns_true_as_soon_as_reachable(monkeypatch):
     def sleep(dt):
         t["v"] += dt
 
-    assert (
-        b._poll_until_reachable(timeout_s=10, interval_s=1, _sleep=sleep, _now=now)
-        is True
+    ok, reason = b._poll_until_reachable(
+        timeout_s=10, interval_s=1, _sleep=sleep, _now=now
     )
+    assert ok is True and reason is None
 
 
 def test_poll_times_out_when_never_reachable(monkeypatch):
     monkeypatch.setattr(b, "builder_reachable", lambda *a, **k: False)
+    monkeypatch.setattr(b, "builder_log_tail", lambda *a, **k: "")
     t = {"v": 0.0}
 
     def now():
@@ -261,10 +306,33 @@ def test_poll_times_out_when_never_reachable(monkeypatch):
     def sleep(dt):
         t["v"] += dt
 
-    assert (
-        b._poll_until_reachable(timeout_s=3, interval_s=1, _sleep=sleep, _now=now)
-        is False
+    ok, reason = b._poll_until_reachable(
+        timeout_s=3, interval_s=1, _sleep=sleep, _now=now
     )
+    assert ok is False and "not reachable" in reason
+
+
+def test_poll_short_circuits_on_dead_child(monkeypatch):
+    # A dead VM process must abort the poll immediately with the log tail,
+    # not burn the whole timeout.
+    monkeypatch.setattr(b, "builder_reachable", lambda *a, **k: False)
+    monkeypatch.setattr(b, "builder_log_tail", lambda *a, **k: "error: sudo required")
+
+    class DeadProc:
+        def poll(self):
+            return 1  # already exited
+
+    t = {"v": 0.0}
+    ok, reason = b._poll_until_reachable(
+        timeout_s=90,
+        interval_s=1,
+        proc=DeadProc(),
+        _sleep=lambda dt: t.__setitem__("v", t["v"] + dt),
+        _now=lambda: t["v"],
+    )
+    assert ok is False
+    assert "exited early" in reason and "sudo required" in reason
+    assert t["v"] == 0.0  # never slept — short-circuited
 
 
 # ── start/stop: detached VM process + PID file ───────────────────────────────
@@ -289,8 +357,9 @@ def test_start_builder_spawns_detached_and_writes_pid(monkeypatch, tmp_path):
         captured["kwargs"] = kwargs
         return FakeProc()
 
-    ok, err = b.start_builder(_popen=fake_popen)
+    ok, err, proc = b.start_builder(_popen=fake_popen)
     assert ok is True and err is None
+    assert proc is not None  # handle returned so the caller can watch it
     assert captured["cmd"] == ["nix", "run", "nixpkgs#darwin.linux-builder"]
     assert captured["kwargs"]["start_new_session"] is True  # survives yolo exit
     assert (tmp_path / "linux-builder.pid").read_text().strip() == "4242"
@@ -304,8 +373,20 @@ def test_start_builder_noop_when_already_reachable(monkeypatch, tmp_path):
     def no_popen(*a, **k):
         raise AssertionError("must not spawn when already reachable")
 
-    ok, err = b.start_builder(_popen=no_popen)
-    assert ok is True and err is None
+    ok, err, proc = b.start_builder(_popen=no_popen)
+    assert ok is True and err is None and proc is None
+
+
+def test_builder_log_tail_reads_last_lines(monkeypatch, tmp_path):
+    log = tmp_path / "linux-builder.log"
+    log.write_text("line1\nline2\nline3\nline4\n")
+    monkeypatch.setattr(b, "BUILDER_LOG_FILE", log)
+    assert b.builder_log_tail(n=2) == "line3\nline4"
+
+
+def test_builder_log_tail_missing_is_empty(monkeypatch, tmp_path):
+    monkeypatch.setattr(b, "BUILDER_LOG_FILE", tmp_path / "nope.log")
+    assert b.builder_log_tail() == ""
 
 
 def test_stop_builder_terminates_process_group(monkeypatch, tmp_path):

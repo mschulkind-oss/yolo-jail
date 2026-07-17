@@ -792,6 +792,19 @@ def _preflight_builder_needs(
                 "Linux builder is up to handle it"
             )
             return True
+        if err == "needs first-boot":
+            # The VM's one-time ssh-key install is an interactive sudo we
+            # can't do headless — point at the single manual boot, after
+            # which yolo manages the builder on demand.
+            fail(
+                f"Linux builder needs a one-time first boot — a package must be built from source{named}",
+                "Run this ONCE (it asks for sudo to install the builder's ssh "
+                "key, then boots the VM):\n"
+                "    nix run nixpkgs#darwin.linux-builder\n"
+                "Wait for the `builder@…` login prompt, then Ctrl-C and re-run "
+                "`yolo` — from then on yolo starts/stops the builder for you.",
+            )
+            return False
         fail(
             f"Image needs a Linux builder — a package must be built from source{named}",
             f"The on-demand builder is set up but wouldn't start ({err}).  "

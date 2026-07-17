@@ -78,23 +78,46 @@ def builder_status_cmd():
 
 @builder_app.command("start")
 def builder_start_cmd():
-    """Start the builder VM now (yolo does this automatically before a build)."""
+    """Start the builder VM now (yolo does this automatically before a build).
+
+    On the very first boot the VM installs its ssh key via an interactive
+    sudo, which can't be done in the background — so this command runs that
+    one boot in the foreground (it has your terminal), then backgrounds the
+    VM.  Later starts are silent and detached.
+    """
     _require_macos()
     if builder.builder_reachable():
         console.print("[green]Builder already running.[/green]")
         raise typer.Exit(0)
+    if not builder.builder_setup_state()["done"]:
+        console.print(
+            "[yellow]Builder not set up.[/yellow]  Run "
+            "[cyan]yolo builder setup[/cyan] first."
+        )
+        raise typer.Exit(1)
+
+    # First boot: install the ssh key interactively (foreground, real TTY).
+    if not builder.builder_setup_state()["key"]:
+        console.print(
+            "[bold]First boot:[/bold] installing the builder's ssh key (sudo) "
+            "and booting the VM.  When you see a [cyan]builder@…[/cyan] login "
+            "prompt, the builder is up — press [cyan]Ctrl-C[/cyan] to return.\n"
+        )
+        ok, err = builder.first_boot_interactive()
+        if not ok:
+            console.print(f"[red]First boot failed:[/red] {err}")
+            raise typer.Exit(1)
+        if builder.builder_reachable():
+            console.print("[green]Builder is up.[/green]")
+            raise typer.Exit(0)
+        # Key now installed; fall through to a normal detached start.
+
     ok, err = builder.ensure_builder(
         on_progress=lambda m: console.print(f"[dim]{m}[/dim]")
     )
     if ok:
         console.print("[green]Builder is up.[/green]")
         raise typer.Exit(0)
-    if err == "not set up":
-        console.print(
-            "[yellow]Builder not set up.[/yellow]  Run "
-            "[cyan]yolo builder setup[/cyan] first."
-        )
-        raise typer.Exit(1)
     console.print(f"[red]Could not start builder:[/red] {err}")
     raise typer.Exit(1)
 
@@ -184,10 +207,9 @@ def builder_setup_cmd(
         raise typer.Exit(0)
 
     console.print(
-        "[dim]The builder VM itself isn't started here — yolo boots it on "
-        "demand ([cyan]nix run nixpkgs#darwin.linux-builder[/cyan]) the first "
-        "time a build needs it, which also installs its ssh key (one more sudo "
-        "that first time only).[/dim]\n"
+        "[dim]After this, run [cyan]yolo builder start[/cyan] once for the "
+        "interactive first boot (one more sudo, to install the VM's ssh key). "
+        "From then on yolo starts/stops the builder for you on demand.[/dim]\n"
     )
 
     if not yes:
@@ -202,5 +224,10 @@ def builder_setup_cmd(
     if not ok:
         console.print(f"[red]Setup failed:[/red] {err}")
         raise typer.Exit(1)
-    console.print("[green]Builder wired up.[/green]  yolo will start it on demand.")
+    console.print("[green]Builder wired up.[/green]")
+    console.print(
+        "[dim]Next, run [cyan]yolo builder start[/cyan] once for the interactive "
+        "first boot (installs the VM ssh key via sudo).  After that yolo starts "
+        "and stops the builder for you on demand.[/dim]"
+    )
     raise typer.Exit(0)

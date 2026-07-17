@@ -308,6 +308,21 @@ def _builder_start_cmd() -> list[str]:
 
 
 BUILDER_PID_FILE = GLOBAL_STORAGE / "linux-builder.pid"
+BUILDER_LOG_FILE = GLOBAL_STORAGE / "logs" / "linux-builder.log"
+
+
+def builder_log_tail(n: int = 12) -> str:
+    """Last *n* lines of the builder VM's log, for surfacing on failure.
+
+    The detached VM's stdout/stderr go here; when start/poll fails this is the
+    only window into WHY (missing key, sudo prompt on a headless run, port
+    conflict, nix error).  Returns "" if the log doesn't exist yet.
+    """
+    try:
+        lines = BUILDER_LOG_FILE.read_text(errors="replace").splitlines()
+    except OSError:
+        return ""
+    return "\n".join(lines[-n:]).strip()
 
 
 def _read_builder_pid() -> Optional[int]:
@@ -326,24 +341,50 @@ def _pid_is_live(pid: int) -> bool:
         return False
 
 
-def start_builder(_popen=None) -> tuple[bool, Optional[str]]:
+def first_boot_interactive(_run=None) -> tuple[bool, Optional[str]]:
+    """Run the VM's one-time first boot in the FOREGROUND (real TTY).
+
+    The first `nix run nixpkgs#darwin.linux-builder` installs the ssh key via
+    `sudo --reset-timestamp` (forces a password) and then boots the VM with an
+    auto-login shell — inherently interactive.  We inherit stdio so the sudo
+    prompt and login reach the user's terminal.  The user presses Ctrl-C once
+    the builder is up (or the login prompt appears); we treat KeyboardInterrupt
+    as success if the key got installed.  Returns ``(ok, error)``.
+    """
+    run = _run or subprocess.run
+    try:
+        run(_builder_start_cmd())  # inherits stdin/stdout/stderr (the TTY)
+    except KeyboardInterrupt:
+        pass  # expected — user Ctrl-C's out of the VM login shell
+    except (OSError, subprocess.SubprocessError) as e:
+        return False, str(e)
+    # Success is measured by the artifact the boot was supposed to produce:
+    # the ssh key (and ideally reachability).  Either means first boot worked.
+    if Path(BUILDER_KEY_PATH).is_file() or builder_reachable():
+        return True, None
+    return False, "ssh key still not installed after first boot"
+
+
+def start_builder(_popen=None) -> "tuple[bool, Optional[str], object]":
     """Boot the builder VM detached (survives this process), like the broker.
 
     Spawns ``nix run nixpkgs#darwin.linux-builder`` in its own session with
     output to a logfile and records a PID file, so the VM keeps running after
     ``yolo`` exits and the idle-watchdog (Mac TODO) can later stop it.  Does
     NOT block on readiness — the caller polls ``builder_reachable``.
-    Returns ``(started_ok, error)``.
+
+    Returns ``(started_ok, error, proc)`` — ``proc`` is the Popen handle (or
+    None when already running / on error) so the caller can detect an early
+    death while polling.
     """
     popen = _popen or subprocess.Popen
     # Already running? (live PID or something already answering the port)
     pid = _read_builder_pid()
     if (pid and _pid_is_live(pid)) or builder_reachable():
-        return True, None
+        return True, None, None
     try:
-        log_dir = GLOBAL_STORAGE / "logs"
-        log_dir.mkdir(parents=True, exist_ok=True)
-        log_file = open(log_dir / "linux-builder.log", "ab")
+        BUILDER_LOG_FILE.parent.mkdir(parents=True, exist_ok=True)
+        log_file = open(BUILDER_LOG_FILE, "ab")
         proc = popen(
             _builder_start_cmd(),
             stdout=log_file,
@@ -353,18 +394,21 @@ def start_builder(_popen=None) -> tuple[bool, Optional[str]]:
             close_fds=True,
         )
     except (OSError, subprocess.SubprocessError) as e:
-        return False, str(e)
+        return False, str(e), None
     try:
         BUILDER_PID_FILE.write_text(f"{proc.pid}\n")
     except OSError:
         pass
     # A corpse within the first moment means the launch itself failed.
     if proc.poll() is not None and proc.returncode not in (0, None):
+        tail = builder_log_tail()
+        detail = f" — {tail.splitlines()[-1]}" if tail else ""
         return (
             False,
-            f"builder process exited {proc.returncode} (see linux-builder.log)",
+            f"builder process exited {proc.returncode}{detail}",
+            proc,
         )
-    return True, None
+    return True, None, proc
 
 
 def stop_builder() -> tuple[bool, Optional[str]]:
@@ -388,19 +432,37 @@ def stop_builder() -> tuple[bool, Optional[str]]:
 def _poll_until_reachable(
     timeout_s: float = BUILDER_START_TIMEOUT_S,
     interval_s: float = BUILDER_POLL_INTERVAL_S,
+    proc=None,
+    on_progress=None,
     _sleep=time.sleep,
     _now=time.monotonic,
-) -> bool:
-    """Block until the builder answers on its SSH port or timeout elapses.
+) -> tuple[bool, Optional[str]]:
+    """Poll the builder's SSH port until it answers, the child dies, or timeout.
 
-    ``_sleep``/``_now`` are injectable so tests drive it without real waits.
+    Returns ``(reachable, reason)``.  When ``proc`` (the spawned VM process) is
+    given, a dead child short-circuits with the log tail — no point burning the
+    whole 90s on a corpse.  ``on_progress`` gets a heartbeat each interval so
+    the user isn't staring at a frozen line.  ``_sleep``/``_now`` are injectable
+    so tests drive it without real waits.
     """
     deadline = _now() + timeout_s
+    waited = 0
     while _now() < deadline:
         if builder_reachable():
-            return True
+            return True, None
+        if proc is not None and proc.poll() is not None:
+            tail = builder_log_tail()
+            last = tail.splitlines()[-1] if tail else "no output"
+            return False, f"builder process exited early ({last})"
+        if on_progress:
+            on_progress(f"waiting for Linux builder VM to boot… ({waited}s)")
         _sleep(interval_s)
-    return builder_reachable()
+        waited += int(interval_s) or 1
+    if builder_reachable():
+        return True, None
+    tail = builder_log_tail()
+    hint = f"; last log line: {tail.splitlines()[-1]}" if tail else ""
+    return False, f"not reachable within {int(timeout_s)}s{hint}"
 
 
 def ensure_builder(on_progress=None) -> tuple[bool, Optional[str]]:
@@ -414,7 +476,8 @@ def ensure_builder(on_progress=None) -> tuple[bool, Optional[str]]:
       * not macOS → (False, "not macOS") — there is no darwin builder to start.
 
     ``on_progress(msg)`` is an optional callback for user-facing status while
-    the VM boots.
+    the VM boots.  On failure the error carries the builder log tail so the
+    user (and we) can see WHY instead of a bare "didn't start".
     """
     if not IS_MACOS:
         return False, "not macOS"
@@ -423,14 +486,23 @@ def ensure_builder(on_progress=None) -> tuple[bool, Optional[str]]:
     state = builder_setup_state()
     if not state["done"]:
         return False, "not set up"
+    # First-boot credential install is an INTERACTIVE sudo (the VM's
+    # install-credentials.sh runs `sudo --reset-timestamp`, which forces a
+    # password even if sudo is warm — nixpkgs darwin-builder docs).  A
+    # detached, stdin=DEVNULL start can't answer it, so it would hang until
+    # timeout.  If the key isn't installed yet, don't try headless — tell the
+    # user to do the one interactive boot.
+    if not state["key"]:
+        return False, "needs first-boot"
     if on_progress:
-        on_progress("starting Linux builder VM…")
-    started, err = start_builder()
+        on_progress("starting Linux builder VM (first boot downloads it)…")
+    started, err, proc = start_builder()
     if not started:
         return False, f"could not start builder: {err}"
-    if _poll_until_reachable():
+    ok, reason = _poll_until_reachable(proc=proc, on_progress=on_progress)
+    if ok:
         return True, None
-    return False, f"builder did not become reachable within {BUILDER_START_TIMEOUT_S}s"
+    return False, reason
 
 
 def builder_status() -> dict:
