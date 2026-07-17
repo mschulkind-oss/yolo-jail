@@ -429,6 +429,40 @@ class TestMacosLogHelper:
         assert "yolo-log" in s
         assert "/usr/bin/log show" in s  # the user-mode helper body is embedded
 
+    def test_bootstrap_writes_login_rc_reprepending_path(self):
+        # macOS path_helper (login/interactive shells) reorders PATH so
+        # /usr/local/bin shadows the nix-store packages; the bootstrap must
+        # write login rc files that re-prepend the sandbox PATH (incl. the
+        # darwin store dirs) AFTER path_helper.  Regression for the real-HW
+        # `which jq` → /usr/local/bin/jq failure.
+        s = m.entrypoint_bootstrap_script(
+            Path("/opt/yolo-jail/src"),
+            workspace=Path("/Users/Shared/proj"),
+            sandbox_home=m.SANDBOX_HOME,
+            agents=["claude"],
+            path_prefix=["/nix/store/abc-jq/bin"],
+        )
+        # the generated python must be valid + write all three login rc files
+        compile(s, "<bootstrap>", "exec")
+        for rc in (".zprofile", ".zshrc", ".bash_profile"):
+            assert rc in s
+        # the store bin dir is in the re-prepended PATH, and it's a prepend
+        assert "/nix/store/abc-jq/bin" in s
+        assert ':$PATH"' in s
+
+    def test_bootstrap_login_rc_omits_store_when_no_packages(self):
+        # dry-run / no packages → path_prefix None → rc still written (shims/
+        # mise/system) but no darwin store dir.  Must still be valid python.
+        s = m.entrypoint_bootstrap_script(
+            Path("/opt/yolo-jail/src"),
+            workspace=Path("/Users/Shared/proj"),
+            sandbox_home=m.SANDBOX_HOME,
+            agents=["claude"],
+        )
+        compile(s, "<bootstrap>", "exec")
+        assert ".zprofile" in s
+        assert "/nix/store/" not in s.split("_login_path")[1].split("\n")[0]
+
 
 class TestBrokerSocketGrant:
     def test_grants_group_access_to_socket_and_parent(self):

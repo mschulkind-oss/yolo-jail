@@ -575,6 +575,7 @@ def entrypoint_bootstrap_script(
     macos_log: str = "off",
     git_identity: Optional[Dict[str, str]] = None,
     bootstrap_env: Optional[Dict[str, str]] = None,
+    path_prefix: Optional[List[str]] = None,
     staged_dir: Path = STATE_DIR,
 ) -> str:
     """A Python script the sandbox user runs to generate its jail config.
@@ -608,6 +609,13 @@ def entrypoint_bootstrap_script(
 
     log_helper = macos_log_wrapper_script(macos_log)
     import_path = staged_entrypoint_dir(staged_dir).parent
+    # The SAME PATH baked into launch_argv (shims → darwin store dirs → system).
+    # A login/interactive shell the agent spawns (the default REPL is `zsh -l`,
+    # and the runbook used `bash -lc`) re-runs macOS path_helper via
+    # /etc/zprofile /etc/profile, which prepends /usr/local/bin (Homebrew) AHEAD
+    # of our baked PATH — shadowing the nix-store packages.  So we also write
+    # login rc files that RE-prepend this PATH *after* path_helper runs.
+    login_path = sandbox_path(sandbox_home, path_prefix)
     # Bake git identity AND the config-derived env the entrypoint generators
     # read (YOLO_BLOCK_CONFIG for security.blocked_tools → generate_shims;
     # YOLO_MISE_TOOLS → generate_mise_config; YOLO_MCP_* / YOLO_LSP_* → the
@@ -675,6 +683,17 @@ _bin.mkdir(parents=True, exist_ok=True)
 _ylog = _bin / "yolo-log"
 _ylog.write_text({json.dumps(log_helper)})
 _ylog.chmod(_ylog.stat().st_mode | stat.S_IEXEC)
+
+# Re-prepend the sandbox PATH in the login rc files.  macOS path_helper
+# (/etc/zprofile for zsh -l, /etc/profile for bash -lc) reorders PATH to put
+# /usr/local/bin (Homebrew) first; these rc files run AFTER it, so the
+# nix-store packages + agent shims win again.  Covers login zsh (the default
+# REPL), interactive zsh, and login bash.  Bare binaries / plain `-c` shells
+# don't read these and keep the correct baked env -i PATH.
+_login_path = {json.dumps(login_path)}
+_rc = f'# yolo-jail: re-prepend the sandbox PATH AFTER macOS path_helper\\nexport PATH="{{_login_path}}:$PATH"\\n'
+for _f in (".zprofile", ".zshrc", ".bash_profile"):
+    (home / _f).write_text(_rc)
 
 print("yolo-jail macos-user bootstrap ok")
 """
@@ -915,6 +934,7 @@ def build_run_plan(
         macos_log=str(config.get("macos_log", "off")),
         git_identity=git_identity,
         bootstrap_env=bootstrap_env,
+        path_prefix=darwin_prefix,
     )
     return RunPlan(
         workspace=workspace,
