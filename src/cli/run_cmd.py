@@ -1271,7 +1271,7 @@ def run(
     if dry_run:
         console.print(
             "[bold red]--dry-run is only supported for the macos-user "
-            "runtime.[/bold red]  Set runtime: \"macos-user\" (or "
+            'runtime.[/bold red]  Set runtime: "macos-user" (or '
             "YOLO_RUNTIME=macos-user) to use it."
         )
         sys.exit(1)

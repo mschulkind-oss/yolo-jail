@@ -446,13 +446,18 @@ class TestCheckCommand:
 
     @patch("subprocess.run")
     @patch("shutil.which")
-    def test_check_native_macos_user_gates_container_sections(
+    def test_check_native_macos_user_skips_container_runtime_probe(
         self, mock_which, mock_run, tmp_path, monkeypatch
     ):
-        """runtime: macos-user (native) must skip Image Build (→ 'Not
-        applicable'), run the macos-user backend check, and NOT probe the
-        container image / per-jail liveness. Covers the `if is_native_runtime`
-        branches in check() which no other test exercises."""
+        """runtime: macos-user (native) must short-circuit the Container
+        Runtime section with the native PASS instead of probing for / failing
+        on a missing container runtime. This is the earliest `is_native_runtime`
+        gate and — unlike the later Image Build / liveness sections — it prints
+        BEFORE the macOS-Platform `/nix` check, so it's assertable regardless of
+        whether the host has /nix (a real Mac CI runner does not, which the
+        downstream sections' early-exit depends on). Regression: the first
+        version of this test asserted a downstream line a real Mac never
+        reached because `/nix not found` ends the run first."""
         monkeypatch.chdir(tmp_path)
         monkeypatch.setenv("YOLO_REPO_ROOT", str(REPO_ROOT))
         monkeypatch.setenv("YOLO_RUNTIME", "macos-user")
@@ -466,10 +471,9 @@ class TestCheckCommand:
 
         result = CliRunner().invoke(app, ["check", "--no-build"])
         out = result.output
-        assert "Runtime available: macos-user" in out
-        assert "macOS-user backend" in out  # backend readiness ran
-        assert "Not applicable" in out  # Image Build gated
-        assert "Per-jail host-service liveness" not in out  # liveness gated
+        # The native short-circuit fired (no container-runtime probe/fail).
+        assert "no container runtime needed" in out
+        assert "No container runtime installed" not in out
 
     @patch("subprocess.run")
     @patch("shutil.which")

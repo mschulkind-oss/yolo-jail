@@ -654,14 +654,10 @@ class TestDarwinPackagesInPlan:
         assert m.plan_invariants(plan) == []
 
     def test_store_bin_reaches_launch_path(self):
-        plan = self._plan(
-            darwin=self._FakeDarwin(path_prefix=["/nix/store/a-jq/bin"])
-        )
+        plan = self._plan(darwin=self._FakeDarwin(path_prefix=["/nix/store/a-jq/bin"]))
         assert plan.darwin_materialized is True
         assert plan.darwin_path_prefix == ["/nix/store/a-jq/bin"]
-        path = next(
-            a for a in plan.launch_argv if a.startswith("PATH=")
-        )
+        path = next(a for a in plan.launch_argv if a.startswith("PATH="))
         assert "/nix/store/a-jq/bin" in path
         assert m.plan_invariants(plan) == []  # wiring guard satisfied
 
@@ -672,9 +668,7 @@ class TestDarwinPackagesInPlan:
                 env={"PKG_CONFIG_PATH": "/nix/store/a/lib/pkgconfig"},
             )
         )
-        assert (
-            "PKG_CONFIG_PATH=/nix/store/a/lib/pkgconfig" in plan.launch_argv
-        )
+        assert "PKG_CONFIG_PATH=/nix/store/a/lib/pkgconfig" in plan.launch_argv
 
     def test_skipped_names_carried(self):
         plan = self._plan(darwin=self._FakeDarwin(skipped=["nolinux"]))
@@ -684,9 +678,7 @@ class TestDarwinPackagesInPlan:
         # If launch_argv somehow drops the store bin dir (a wiring regression),
         # plan_invariants must catch it — the silent-missing-tools failure.
         monkeypatch.setattr(m, "launch_argv", lambda *a, **k: ["sudo", "env", "-i"])
-        plan = self._plan(
-            darwin=self._FakeDarwin(path_prefix=["/nix/store/a-jq/bin"])
-        )
+        plan = self._plan(darwin=self._FakeDarwin(path_prefix=["/nix/store/a-jq/bin"]))
         probs = m.plan_invariants(plan)
         assert any("did not reach the launch PATH" in p for p in probs)
 
@@ -724,9 +716,7 @@ class TestDryRun:
             _cfg, "_resolve_env_sources", lambda ws, cfg: {"ANTHROPIC_API_KEY": "sk-x"}
         )
         printed = []
-        monkeypatch.setattr(
-            m, "_print_plan", lambda plan, probs: printed.append(plan)
-        )
+        monkeypatch.setattr(m, "_print_plan", lambda plan, probs: printed.append(plan))
         rc = m.run_macos_user(
             Path("/Users/Shared/yolo/proj"),
             {"env_sources": ["some"]},
