@@ -5,6 +5,30 @@
 **Privilege:** needs `sudo` (creates a hidden macOS user, writes root-owned
 `/var/yolo-jail`, installs a Seatbelt profile). All bounded + reversible.
 
+> ⚠️ **REVIEWER NOTE (2026-07-17, from a runbook dry-read against
+> `src/cli/macos_user.py`): the `sudo yolo …` invocations below are WRONG —
+> they should be plain `yolo …`.** Reasons, from the code:
+> - `macos-setup`/`macos-teardown`/`macos-unshare` **self-escalate**: every
+>   privileged step is `subprocess.run(["sudo", *cmd])` internally
+>   (`create_user_commands`, `shared_root_provision_commands`,
+>   `delete_user_commands`, `_install_root_file`, `stage_commands`,
+>   `launch_argv`). There is no `geteuid()==0` check anywhere — the design is
+>   "run as your normal admin user; sudo prompts per privileged op."
+> - Prefixing `sudo` yourself is **actively harmful**, not just redundant:
+>   `macos-setup` calls `_host_user()` → `getpass.getuser()` to pick which
+>   account to add to the `_yolojail` group for the shared-workspace ACL
+>   (`create_user_commands` → `dseditgroup -a <host_user> … _yolojail`). Under
+>   `sudo` that returns **`root`**, so `root` (not you) gets the group grant
+>   and the host↔sandbox rw-on-same-inodes sharing silently doesn't apply to
+>   your user. `macos-teardown` has the mirror bug (`dseditgroup -d root`).
+> - The doc is already self-contradictory: §"Likely rough edges" and
+>   `macos-setup`'s own output say "sudo prompts per run" — i.e. the *tool*
+>   prompts you, which only holds if you did NOT wrap it in `sudo`.
+>
+> **Fix for tidying:** drop the `sudo` prefix from every `yolo` command in this
+> runbook — §0 rollback, §3 setup, §7 teardown. `macos-unshare` (§7) is already
+> written without `sudo` and is correct. Run everything as plain `yolo`.
+
 **What it proves:** the native no-VM backend actually runs an agent as the
 hidden `_yolojail` user under Seatbelt, with `packages:` materialized via native
 aarch64-darwin nix — the acceptance bar. Everything up to the real launch is

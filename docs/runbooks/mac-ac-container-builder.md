@@ -1,10 +1,12 @@
 # RUNBOOK — prove the Apple Container Linux builder (zero sudo)
 
-> **STATUS 2026-07-17: the builder image is PUBLISHED + PUBLIC — you're clear to go.**
-> `ghcr.io/mschulkind-oss/yolo-jail-builder:latest` (and `:0.6.0`) verified:
-> anonymous pull → HTTP 200, `architecture: arm64, os: linux`, `ExposedPorts
-> 22/tcp`, cacert baked. So §2a (pull from GHCR) works TODAY — no build, no scp.
-> Go straight to §2a → §5 → §6.
+> **STATUS 2026-07-17: ✅ PROVEN on real hardware — this test PASSED.**
+> Run on macOS 26.5 arm64, AC 0.12.3, nix 2.34.7. §2a pull from GHCR worked
+> (no build/scp). AC ran the container with an internal-network IP
+> `192.168.64.2:22`; host nix `store info` → **`Trusted: 1`**; the proof build
+> returned **`AC-CONTAINER-BUILDER-WORKS`**. AC is a supported container-builder
+> path. The steps below are kept as the repeatable procedure (with the fixes
+> found during that run applied inline).
 
 **Who runs this:** a host agent (or you) on the Mac, in a checkout of yolo-jail.
 **Privilege:** NONE. No sudo, no `/etc` writes, no daemon restart. Everything is
@@ -25,6 +27,7 @@ not a failure of the session.
 ## Prereqs (report versions, don't fix)
 ```
 container --version && container system status     # AC installed + running
+                                                   # NOTE: images list = `container image ls` (no `container images`)
 nix --version                                      # host nix present
 command -v skopeo || echo "NO skopeo — needed for AC OCI conversion (brew install skopeo)"
 sw_vers -productVersion ; uname -m                 # macOS version + arm64
@@ -50,7 +53,7 @@ The image is `aarch64-linux` — a Mac can't build it without a Linux builder
 ```
 REPO=ghcr.io/mschulkind-oss/yolo-jail-builder
 container image pull "$REPO:latest"       # AC pulls OCI straight from GHCR (arm64, public)
-container images | grep yolo-jail-builder
+container image ls | grep yolo-jail-builder
 ```
 Confirmed working: anonymous pull returns the arm64/linux image with sshd on
 :22. If AC's pull specifically can't handle a GHCR OCI image (early-stage CLI),
@@ -72,7 +75,7 @@ STREAMER=$(nix $NIXFLAGS build --no-link --print-out-paths .#packages.aarch64-li
 skopeo copy "docker-archive:builder.tar" "oci:$WORK/oci:latest"
 tar cf "$WORK/builder.oci.tar" -C "$WORK/oci" .
 container image load -i "$WORK/builder.oci.tar"
-container images | grep yolo-jail-builder
+container image ls | grep yolo-jail-builder
 ```
 Report WHICH path (2a pull vs 2b tar) you used.
 
@@ -84,11 +87,14 @@ container's sshd. Try, in order, and REPORT which works:
 # IMG = whatever §2 gave you: "$REPO:latest" (2a pull) or yolo-jail-builder:latest (2b load)
 IMG="${REPO:-}:latest"; [ "$IMG" = ":latest" ] && IMG="yolo-jail-builder:latest"
 
-# (a) AC gives each container an IP on its internal network:
+# (a) AC gives each container an IP on its internal network — VERIFIED path:
 CID=$(container run -d --rm -e YOLO_BUILDER_PUBKEY="$YOLO_BUILDER_PUBKEY" "$IMG")
-container ls                                   # note the container's ADDR column
-ADDR=$(container inspect "$CID" | grep -i '"address"\|ipv4\|gateway' | head)
-echo "container network info: $ADDR"
+# `container run -d` prints progress lines then the ID last; re-read the ID
+# cleanly from the listing rather than trusting $CID:
+CID=$(container ls | awk '/yolo-jail-builder/{print $1}')
+container ls                                   # ADDR column shows e.g. 192.168.64.2/24
+ADDR=$(container ls | awk '/yolo-jail-builder/{print $5}' | cut -d/ -f1)
+echo "container IP: $ADDR"                     # this is <HOST>; port is 22
 
 # (b) does AC support publishing a port to the host? (may not — report the error)
 #   container run -d --rm -p 127.0.0.1:31122:22 -e YOLO_BUILDER_PUBKEY=... "$IMG"
@@ -96,20 +102,29 @@ echo "container network info: $ADDR"
 ```
 container logs "$CID" 2>&1 | tail          # expect: "Server listening on ... port 22"
 ```
+> A benign `Couldn't create pid file "/run/sshd.pid": No such file or
+> directory` line may appear — sshd still listens on :22 regardless. Cosmetic.
+
 **Report:** the container's reachable address (its VM IP, or a published
 127.0.0.1 port if AC supports `-p`). Call it `<HOST>:<PORT>` below.
+(Verified 2026-07-17: `192.168.64.2:22`, AC's internal-network IP, no `-p` needed.)
 
 ## 6. ⭐ THE GATING TEST — host nix builds THROUGH the AC container
 ```
 export NIX_SSHOPTS="-o StrictHostKeyChecking=no -o UserKnownHostsFile=/dev/null"
+NIXFLAGS="--extra-experimental-features nix-command --extra-experimental-features flakes"
 STORE="ssh-ng://root@<HOST>?ssh-key=$WORK/builder_key"      # add :<PORT> / &port= if published
 
 # 6a. protocol handshake — does nix see a trusted store?
+# NOTE: `store info` rejects --impure — don't pass it here.
 nix $NIXFLAGS store info --store "$STORE"          # expect: "Trusted: 1"
 
-# 6b. THE PROOF — build a Linux derivation inside the AC container, read it back
+# 6b. THE PROOF — build an aarch64-linux derivation inside the AC container.
+# Hardcode system="aarch64-linux" (NOT builtins.currentSystem — that needs
+# --impure AND resolves to the host's aarch64-darwin, which the Linux builder
+# can't build). Note the comma in args=[...].
 OUT=$(nix $NIXFLAGS build --no-link --print-out-paths --store "$STORE" \
-  --expr 'derivation { name="ac-proof"; system=builtins.currentSystem; builder="/bin/sh"; args=["-c" "echo AC-CONTAINER-BUILDER-WORKS > $out"]; }' | tail -1)
+  --expr 'derivation { name="ac-proof"; system="aarch64-linux"; builder="/bin/sh"; args=["-c", "echo AC-CONTAINER-BUILDER-WORKS > $out"]; }' | tail -1)
 nix $NIXFLAGS store cat --store "$STORE" "$OUT"    # expect: AC-CONTAINER-BUILDER-WORKS
 ```
 If 6a says `Trusted: 1` and 6b prints `AC-CONTAINER-BUILDER-WORKS`, **the AC

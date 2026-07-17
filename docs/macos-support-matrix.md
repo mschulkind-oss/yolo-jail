@@ -30,7 +30,7 @@ question exists only for podman/AC.
 |---|---|---|---|
 | **Cachix / prebuilt download** | any | 🔜 | THE happy path — wired, account deferred (handoff-cachix-cache.md). No build → no builder needed. |
 | **Container builder** (nix+sshd container on the runtime) | **podman** | ✅ [L] | **proven end-to-end in-jail**: image built, `ssh-ng` build ran inside container, result read back. `packages.builderImage` in flake. |
-| **Container builder** | **Apple Container** | 🟡 [M] | image PUBLISHED + public on GHCR (arm64, verified); mechanism identical to podman (proven). UNVERIFIED that AC can pull/run it + expose a reachable sshd port to the host nix daemon. **The gating Mac test → docs/runbooks/mac-ac-container-builder.md.** |
+| **Container builder** | **Apple Container** | ✅ [M] | **PROVEN on real HW 2026-07-17** (macOS 26.5 arm64, AC 0.12.3, nix 2.34.7): AC pulled the GHCR image, ran it with internal-network IP `192.168.64.2:22`, host nix `store info` → `Trusted: 1`, proof build returned `AC-CONTAINER-BUILDER-WORKS`. No `-p` needed — AC's per-container VM IP is directly reachable. **Runbook → docs/runbooks/mac-ac-container-builder.md.** |
 | **QEMU `darwin.linux-builder`** | any container rt | 🔜 (roadmap/fallback) | standard nix tool; launchd daemon. Fallback if the container builder can't host on a given runtime. builder.py currently half-implements a worse version (detached Popen) — to be reworked. |
 | nix-darwin `linux-builder` | any | ⬜ | user-side; only if they already run nix-darwin. Documented, not ours to install. |
 
@@ -40,7 +40,7 @@ question exists only for podman/AC.
 |---|---|---|---|
 | Run agent in jail | ✅ [L] | 🟡 [M] | 🟡 [L] |
 | `packages:` (nix) | ✅ via image | 🟡 via image | 🟡 native darwin buildEnv [L] |
-| Build when uncached | ✅ container builder [L] | 🟡 container builder [M] | ⬜ (native, no build offload) |
+| Build when uncached | ✅ container builder [L] | ✅ container builder [M] | ⬜ (native, no build offload) |
 | `/ctx/` mounts read-only | ✅ (`:ro` honored) | ❌ AC ignores `:ro` → **skipped w/ warning** [L] | 🟡 Seatbelt subpath deny [L] |
 | `workspace_readonly` | ✅ | ❌ not enforced → **warns** [L] | 🟡 Seatbelt [L] |
 | `env_sources` (API keys) | ✅ | ✅ | ✅ [L] (fixed this session) |
@@ -61,19 +61,21 @@ question exists only for podman/AC.
 - All the wiring/config-surface for macos-user (runtime select, dispatch, check
   gating, env_sources, blocked_tools, mcp/lsp). [L] + 1481 unit tests.
 
-**The single most important Mac test (unblocks the AC column):**
-> Can Apple Container OCI-convert `builderImage` and run it with its sshd port
-> reachable by the host nix daemon over ssh-ng? If yes, the AC container-builder
-> cell goes ✅ and AC becomes a fully-supported build path. If no, AC falls back
-> to QEMU `darwin.linux-builder`.
+**The single most important Mac test — ✅ DONE (2026-07-17), AC column unblocked:**
+> Can Apple Container run `builderImage` with its sshd reachable by the host nix
+> daemon over ssh-ng? **YES.** AC pulled the GHCR image directly (no OCI-convert
+> needed), ran it with an internal-network IP, and host nix built through it
+> (`Trusted: 1` → `AC-CONTAINER-BUILDER-WORKS`). AC is now a fully-supported
+> container-builder path alongside podman. Next: wire the CLI orchestration
+> (roadmap #3).
 
 **Other Mac-only gates:** macos-user end-to-end (Seatbelt launch, real agent
 run); the whole "run agent in jail" row for AC under current session's fixes.
 
 ## 5. Roadmap (ordered)
 
-1. **[M] Prove the AC container builder** — the gating test above. (podman side
-   already ✅.)
+1. ✅ **[M] Prove the AC container builder** — DONE 2026-07-17 (real HW, see §4
+   and the runbook). AC joins podman as a proven container-builder path.
 2. **[M] macos-user end-to-end** on real hardware (Seatbelt + darwin nix build).
 3. Wire the container builder into the CLI run/check path (currently only the
    image + the ssh remote-builder setup exist; the "start builder container +
