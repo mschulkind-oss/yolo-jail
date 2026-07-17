@@ -16,26 +16,32 @@ single password prompt) via a generated root script.  This is an interactive
 per-run prompt, not a sudo-policy change — it never installs NOPASSWD rules
 and never silently mutates files (it prints the exact script first).
 
+The VM is started DETACHED (``nix run nixpkgs#darwin.linux-builder`` in its own
+session with a PID file, the broker_relay pattern), so it survives ``yolo``
+exiting and can be stopped later by an idle watchdog.
+
 Split of concerns:
   * **Pure / verifiable-on-Linux** — reachability (``builder_reachable``),
     setup-state probing (``builder_setup_state``), the ensure-orchestration
     (``ensure_builder``), status, trusted-users merge, and the nix.conf /
-    ssh_config / launchd-plist / root-script generators.  All
-    string/socket/subprocess-mockable; unit-tested.
-  * **Privileged / macOS-only apply** — actually running the root script and
-    the VM-credential install.  The script content is testable; running it
-    (and the VM bring-up it enables) is verified on a Mac (see the handoff).
+    ssh_config / root-script generators.  All string/socket/subprocess/
+    Popen-mockable; unit-tested.
+  * **Privileged / macOS-only apply** — actually running the root script under
+    sudo and booting the VM.  The script content + spawn args are testable;
+    the real VM bring-up is verified on a Mac (see the handoff).
 """
 
 from __future__ import annotations
 
+import os
+import signal
 import socket
 import subprocess
 import time
 from pathlib import Path
 from typing import Optional
 
-from .paths import IS_MACOS
+from .paths import GLOBAL_STORAGE, IS_MACOS
 from .storage import _detect_nix_daemon_label, _nix_custom_conf_included
 
 # ── Fixed coordinates of the darwin.linux-builder VM ────────────────────────
@@ -48,17 +54,6 @@ BUILDER_PORT = 31022
 BUILDER_USER = "builder"
 BUILDER_KEY_PATH = "/etc/nix/builder_ed25519"
 SSH_CONFIG_PATH = Path("/etc/ssh/ssh_config.d/100-linux-builder.conf")
-
-# launchd service label for the yolo-managed builder.  Distinct from the
-# nix-daemon label (that's separate, and its restart uses
-# _detect_nix_daemon_label()).
-BUILDER_LAUNCHD_LABEL = "org.yolo-jail.linux-builder"
-
-# The command the launchd service runs to boot the VM.  darwin.linux-builder
-# builds a `create-builder` program; we resolve its store path at setup time
-# (`nix build nixpkgs#darwin.linux-builder`) and substitute it into the plist.
-# This placeholder is what the plist generator emits until resolved.
-BUILDER_INSTALLER_BIN = "/run/current-system/sw/bin/create-builder"
 
 # How long to wait for the VM to answer SSH after we start it.  A cache-served
 # VM boots in a few seconds; give generous headroom.  Tune once measured on a
@@ -91,8 +86,11 @@ def builder_setup_state() -> dict:
       * ``nix_builder``  — the daemon's nix.conf has a ``builders =`` line
         naming ``aarch64-linux`` (checked via the same conf file the setup
         writes to: nix.custom.conf on Determinate, else nix.conf).
-      * ``key``          — the ssh identity file exists.
-      * ``done``         — all of the above (setup is complete).
+      * ``key``          — the ssh identity file exists (installed by the VM on
+        its FIRST boot — so it is NOT part of ``done``, or setup could never
+        register complete before a build).
+      * ``done``         — the daemon is WIRED to offload (nix.conf +
+        ssh_config).  This is the gate for "may we start the VM on demand?".
 
     Best-effort: unreadable/absent files count as missing, never raise.
     """
@@ -103,7 +101,7 @@ def builder_setup_state() -> dict:
         "ssh_config": ssh_ok,
         "nix_builder": nix_ok,
         "key": key_ok,
-        "done": ssh_ok and key_ok and nix_ok,
+        "done": ssh_ok and nix_ok,
     }
 
 
@@ -207,39 +205,6 @@ def trusted_users_line(current: list[str], me: str) -> Optional[str]:
     return "trusted-users = " + " ".join(merged)
 
 
-def launchd_plist(idle_timeout_min: int = 30, resident: bool = False) -> str:
-    """The launchd plist for the on-demand builder service.
-
-    ``resident=False`` (default): the service is demand-started (yolo
-    kickstarts it) and NOT kept alive, so it exits when the VM is shut down
-    by the idle watchdog.  ``resident=True``: ``KeepAlive`` for users who
-    build so constantly that even a warm-session boot annoys them.
-
-    The idle-stop watchdog itself is a separate concern (a timer that stops
-    the VM after no builds for ``idle_timeout_min``); this plist just defines
-    the service launchd manages.  The ``create-builder`` command comes from
-    the darwin.linux-builder installer at ``BUILDER_INSTALLER_BIN``.
-    """
-    keepalive = "<true/>" if resident else "<false/>"
-    return (
-        '<?xml version="1.0" encoding="UTF-8"?>\n'
-        '<!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" '
-        '"http://www.apple.com/DTDs/PropertyList-1.0.dtd">\n'
-        '<plist version="1.0">\n'
-        "<dict>\n"
-        f"  <key>Label</key><string>{BUILDER_LAUNCHD_LABEL}</string>\n"
-        "  <key>ProgramArguments</key>\n"
-        f"  <array><string>{BUILDER_INSTALLER_BIN}</string></array>\n"
-        f"  <key>KeepAlive</key>{keepalive}\n"
-        "  <key>RunAtLoad</key><false/>\n"
-        "  <key>StandardOutPath</key><string>/var/log/yolo-linux-builder.log</string>\n"
-        "  <key>StandardErrorPath</key><string>/var/log/yolo-linux-builder.log</string>\n"
-        f"  <!-- idle timeout: {idle_timeout_min} min (watchdog stops the VM) -->\n"
-        "</dict>\n"
-        "</plist>\n"
-    )
-
-
 def setup_root_script(
     max_jobs: int, me: str, current_trusted: list[str], conf_path: Path
 ) -> str:
@@ -248,18 +213,17 @@ def setup_root_script(
     Batches every privileged mutation so the user sees one password prompt:
       1. append the ``builders`` line to the daemon conf (idempotent guard);
       2. merge-in trusted-users if *me* isn't already trusted;
-      3. write the ssh_config block;
-      4. install the launchd service plist;
-      5. restart the nix-daemon to apply.
+      3. write the ssh_config host alias;
+      4. restart the nix-daemon to apply.
 
-    Pure string builder — no side effects — so it's fully unit-testable; the
-    caller runs it via ``sudo bash``.  Uses heredocs/guards so re-running is
-    safe (won't duplicate lines).
+    The VM itself is NOT started here — yolo boots it on demand (``nix run
+    nixpkgs#darwin.linux-builder``, which also installs the ssh key on first
+    run).  Pure string builder — no side effects — so it's fully
+    unit-testable; the caller runs it via ``sudo bash``.  Uses heredocs/guards
+    so re-running is safe (won't duplicate lines).
     """
     label = _detect_nix_daemon_label() or "org.nixos.nix-daemon"
     tu_line = trusted_users_line(current_trusted, me)
-    plist_dir = "/Library/LaunchDaemons"
-    plist_path = f"{plist_dir}/{BUILDER_LAUNCHD_LABEL}.plist"
     lines = [
         "set -euo pipefail",
         "",
@@ -286,12 +250,7 @@ def setup_root_script(
         ssh_config_block().rstrip("\n"),
         "YOLO_EOF",
         "",
-        "# 4. launchd service for the on-demand builder.",
-        f"cat > {plist_path} <<'YOLO_EOF'",
-        launchd_plist().rstrip("\n"),
-        "YOLO_EOF",
-        "",
-        "# 5. Apply: restart the nix-daemon.",
+        "# 4. Apply: restart the nix-daemon.",
         f"launchctl kickstart -k system/{label}",
     ]
     return "\n".join(lines) + "\n"
@@ -337,35 +296,92 @@ def run_setup(
 # ── Lifecycle (launchctl command construction is testable; apply is Mac) ────
 
 
-def _start_cmd() -> list[str]:
-    """launchctl command to start the managed builder service."""
-    return ["launchctl", "kickstart", f"system/{BUILDER_LAUNCHD_LABEL}"]
+def _builder_start_cmd() -> list[str]:
+    """The command that boots the darwin.linux-builder VM.
+
+    This is nixpkgs' own flake app — the same thing the manual tells users to
+    run, and the same thing that installs the VM ssh key on first run.  We use
+    it (rather than a nix-darwin launchd service) so setup needs no nix-darwin
+    and no pre-resolved store path: it works on any Mac with flakes enabled.
+    """
+    return ["nix", "run", "nixpkgs#darwin.linux-builder"]
 
 
-def _stop_cmd() -> list[str]:
-    """launchctl command to stop the managed builder service."""
-    return ["launchctl", "kill", "SIGTERM", f"system/{BUILDER_LAUNCHD_LABEL}"]
+BUILDER_PID_FILE = GLOBAL_STORAGE / "linux-builder.pid"
 
 
-def start_builder() -> tuple[bool, Optional[str]]:
-    """Ask launchd to start the builder VM. Returns (started_ok, error)."""
+def _read_builder_pid() -> Optional[int]:
     try:
-        r = subprocess.run(_start_cmd(), capture_output=True, text=True, timeout=15)
+        return int(BUILDER_PID_FILE.read_text().strip())
+    except (OSError, ValueError):
+        return None
+
+
+def _pid_is_live(pid: int) -> bool:
+    """``os.kill(pid, 0)`` liveness check (same idiom as the broker)."""
+    try:
+        os.kill(pid, 0)
+        return True
+    except OSError:
+        return False
+
+
+def start_builder(_popen=None) -> tuple[bool, Optional[str]]:
+    """Boot the builder VM detached (survives this process), like the broker.
+
+    Spawns ``nix run nixpkgs#darwin.linux-builder`` in its own session with
+    output to a logfile and records a PID file, so the VM keeps running after
+    ``yolo`` exits and the idle-watchdog (Mac TODO) can later stop it.  Does
+    NOT block on readiness — the caller polls ``builder_reachable``.
+    Returns ``(started_ok, error)``.
+    """
+    popen = _popen or subprocess.Popen
+    # Already running? (live PID or something already answering the port)
+    pid = _read_builder_pid()
+    if (pid and _pid_is_live(pid)) or builder_reachable():
+        return True, None
+    try:
+        log_dir = GLOBAL_STORAGE / "logs"
+        log_dir.mkdir(parents=True, exist_ok=True)
+        log_file = open(log_dir / "linux-builder.log", "ab")
+        proc = popen(
+            _builder_start_cmd(),
+            stdout=log_file,
+            stderr=log_file,
+            stdin=subprocess.DEVNULL,
+            start_new_session=True,
+            close_fds=True,
+        )
     except (OSError, subprocess.SubprocessError) as e:
         return False, str(e)
-    if r.returncode != 0:
-        return False, (r.stderr or "").strip() or f"launchctl exited {r.returncode}"
+    try:
+        BUILDER_PID_FILE.write_text(f"{proc.pid}\n")
+    except OSError:
+        pass
+    # A corpse within the first moment means the launch itself failed.
+    if proc.poll() is not None and proc.returncode not in (0, None):
+        return (
+            False,
+            f"builder process exited {proc.returncode} (see linux-builder.log)",
+        )
     return True, None
 
 
 def stop_builder() -> tuple[bool, Optional[str]]:
-    """Ask launchd to stop the builder VM. Returns (stopped_ok, error)."""
+    """Stop the detached builder VM by terminating its process group."""
+    pid = _read_builder_pid()
+    if not pid or not _pid_is_live(pid):
+        BUILDER_PID_FILE.unlink(missing_ok=True)
+        return True, None
     try:
-        r = subprocess.run(_stop_cmd(), capture_output=True, text=True, timeout=15)
-    except (OSError, subprocess.SubprocessError) as e:
-        return False, str(e)
-    if r.returncode != 0:
-        return False, (r.stderr or "").strip() or f"launchctl exited {r.returncode}"
+        os.killpg(os.getpgid(pid), signal.SIGTERM)
+    except OSError as e:
+        # Fall back to a plain kill; report only if that also fails.
+        try:
+            os.kill(pid, signal.SIGTERM)
+        except OSError:
+            return False, str(e)
+    BUILDER_PID_FILE.unlink(missing_ok=True)
     return True, None
 
 

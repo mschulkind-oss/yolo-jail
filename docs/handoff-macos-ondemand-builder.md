@@ -104,45 +104,64 @@ shaving the common case.
 - `yolo builder` typer group (`setup`/`start`/`stop`/`status`), macОS-gated.
 - `builder_reachable()` (TCP :31022 probe), `ensure_builder()` (start +
   poll-until-ready with an INJECTABLE clock so tests don't sleep),
-  `builder_status()`, `start_builder`/`stop_builder` (launchctl).
+  `builder_status()`, `start_builder` (detached `nix run` + PID file) /
+  `stop_builder` (SIGTERM the process group).
 - Content generators (pure, tested): `nix_builders_line`, `ssh_config_block`,
-  `launchd_plist(resident=)`, and — the batched-sudo core —
-  `setup_root_script()` + `run_setup()` (pipes the script to a single
-  `sudo bash -s`). `trusted_users_line()` MERGES via `nix config show`.
+  and — the batched-sudo core — `setup_root_script()` + `run_setup()` (pipes
+  the script to a single `sudo bash -s`). `trusted_users_line()` MERGES via
+  `nix config show`.
 - `_preflight_builder_needs`: on macOS, build-needed + no static builder + setup
   done → `ensure_builder()` and PASS instead of FAIL. FAIL only if setup absent
   or the VM won't come up.
 - `_LINUX_BUILDER_REMEDY_TEMPLATE` reworded: leads with `yolo builder setup`;
   the "leave it running in a terminal" instruction is gone.
 
-**Must be verified on a Mac (unrunnable from Linux):**
-- **`BUILDER_INSTALLER_BIN` is a PLACEHOLDER** (`/run/current-system/sw/bin/
-  create-builder`). The real path is the store path from
-  `nix build nixpkgs#darwin.linux-builder` (its `create-builder` output).
-  `setup` must resolve that at run time and substitute it into the plist —
-  wire this on the Mac where the build actually resolves.
-- That `run_setup()`'s single-sudo script applies cleanly and the daemon
-  actually offloads (`nix build .#ociImage` succeeds with the VM auto-started).
-- Poll-until-ready timing (kickstart → SSH-answers) → tune `BUILDER_START_
-  TIMEOUT_S` + the "starting builder…" progress UX.
-- launchd idle-stop actually fires and reclaims RAM; resident vs on-demand knob.
-- Both Determinate and official Nix daemon labels through the real restart.
-- `_has_linux_builder()` currently only recognizes `/etc/nix/machines` +
-  inline `builders`; confirm it (or `builder_setup_state`) recognizes the
-  yolo-written ssh-ng builder so `yolo check` shows the right state.
+### Correction after first Mac run (the `[PASS]…will handle it` → `[FAIL]` bug)
+
+The first Mac test surfaced a real logic bug and a wrong start mechanism, both
+now fixed:
+- **Preflight gated on CONFIGURATION, not REACHABILITY.** `_has_linux_builder()`
+  only checks a `builders` line exists — so right after `setup` wrote it,
+  preflight PASSed ("a Linux builder will handle it") and returned WITHOUT
+  starting the VM; the real build then offloaded to a dead `:31022` and FAILed.
+  Fix: on macOS, if `builder_setup_state()["done"]`, call `ensure_builder()`
+  (start + poll-until-reachable) and PASS only when the VM actually answers.
+  `_has_linux_builder()` is now only a fallback for a *static* builder
+  (nix-darwin / remote `/etc/nix/machines`).
+- **Start mechanism was a launchd plist pointing at a placeholder store path.**
+  Dropped entirely. `start_builder()` now spawns `nix run
+  nixpkgs#darwin.linux-builder` **detached** (`start_new_session=True`, log to
+  `GLOBAL_STORAGE/logs/linux-builder.log`, PID in
+  `GLOBAL_STORAGE/linux-builder.pid`) — the broker_relay pattern. No
+  nix-darwin, no pre-resolved path; works on any Mac with flakes. This is also
+  what installs the ssh key on first boot, so the key is NOT part of
+  `done` (else setup could never complete before a build).
+- **Run path now ensures the builder too.** `yolo` (not just `yolo check`)
+  goes through `auto_load_image`, which now calls `_preflight_builder_needs`
+  on macOS before the real build.
+
+**Must be verified on the NEXT Mac run:**
+- That `start_builder`'s detached `nix run` actually boots the VM, the daemon
+  offloads, and `nix build .#ociImage` succeeds end-to-end from `yolo`.
+- Poll-until-ready timing (spawn → SSH-answers) → tune `BUILDER_START_TIMEOUT_S`
+  (currently 90s) + the "starting builder…" progress UX. First boot also does
+  the key-install sudo, so first-ever build may prompt once more — confirm.
+- The idle-stop watchdog is NOT built yet (the VM stays up until `yolo builder
+  stop` / reboot). Add it: yolo stamps a "last build" time; a small timer
+  (launchd `StartInterval` agent or a lightweight daemon) calls `stop_builder`
+  when stale. Design the watchdog here once VM behavior is confirmed.
+- `resident` lifecycle knob (`macos.builder.lifecycle`) not wired yet — add if
+  wanted after the on-demand path is proven.
 
 ## Open questions for the Mac session
 
-1. Does `create-builder`/`run-linux-builder` daemonize cleanly under launchd
-   (stdout to the logfile, no controlling TTY)? The plist assumes yes
-   (`RunAtLoad=false`, demand-started via `launchctl kickstart`).
-2. Idle detection: does the builder expose an idle signal, or do we implement
-   the watchdog ourselves (e.g. stop if no ssh connection for N min)? Simplest:
-   yolo stamps a "last build" file and a launchd timer stops the VM if stale.
-   The plist has an idle-timeout comment but NO watchdog yet — add it here.
-3. First-run key install sudo: fold `create-builder`'s credential install into
-   `yolo builder setup`'s single prompt so there's no surprise second sudo.
-   (Currently setup notes it as a separate nixpkgs-installer prompt.)
+1. Does the detached `nix run nixpkgs#darwin.linux-builder` stay up cleanly
+   with stdin=DEVNULL and no TTY (it auto-logs-in as `builder` interactively
+   in the manual)? If it needs a pty, wrap it like tty_proxy or use the
+   `create-builder` installer's non-interactive form.
+2. Idle detection mechanism (see above) — simplest reliable approach on macOS.
+3. Does `builder_setup_state`/`yolo check` correctly report state once the
+   ssh-ng builder is wired (so `Linux builder configured` reflects reality)?
 
 ## Cross-refs
 

@@ -175,9 +175,6 @@ def builder_setup_cmd(
     console.print(
         f"  • write the ssh host alias [cyan]{builder.SSH_CONFIG_PATH}[/cyan]"
     )
-    console.print(
-        f"  • install the launchd service [cyan]{builder.BUILDER_LAUNCHD_LABEL}[/cyan]"
-    )
     console.print("  • restart the Nix daemon to apply\n")
 
     console.print("[dim]The exact root script:[/dim]")
@@ -187,11 +184,10 @@ def builder_setup_cmd(
         raise typer.Exit(0)
 
     console.print(
-        "[yellow]NOTE:[/yellow] the builder VM's ssh key is installed by "
-        "nixpkgs' own installer, which prompts for sudo separately the first "
-        "time you build.  Run [cyan]nix run nixpkgs#darwin.linux-builder[/cyan] "
-        "once if you haven't — or just run [cyan]yolo[/cyan] and it'll guide "
-        "you.\n"
+        "[dim]The builder VM itself isn't started here — yolo boots it on "
+        "demand ([cyan]nix run nixpkgs#darwin.linux-builder[/cyan]) the first "
+        "time a build needs it, which also installs its ssh key (one more sudo "
+        "that first time only).[/dim]\n"
     )
 
     if not yes:

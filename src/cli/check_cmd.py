@@ -774,23 +774,22 @@ def _preflight_builder_needs(
             f"(native Linux build; not served from the binary cache).[/dim]"
         )
         return True
-    if _has_linux_builder():
-        ok(
-            f"A package will be built from source{named}; a Linux builder will handle it"
-        )
-        return True
-    # No builder registered in nix.conf/machines — but the yolo-managed
-    # on-demand builder may just be set-up-and-idle.  If setup is done, start
-    # it now (frictionless: no "go run a VM in a terminal") and proceed; only
-    # FAIL if setup was never run or the VM won't come up.
+    # On macOS the gate is REACHABILITY, not mere configuration: a `builders`
+    # line in nix.conf is useless if the VM isn't running (the daemon would
+    # try to ssh a dead :31022 and the build fails).  So if the daemon is
+    # wired (setup done), make the VM actually reachable — starting it on
+    # demand — before we PASS.  ensure_builder returns True immediately when
+    # it's already up.
     from .builder import builder_setup_state, ensure_builder
 
     if builder_setup_state()["done"]:
-        started, err = ensure_builder(on_progress=lambda m: console.print(f"  [dim]- {m}[/dim]"))
+        started, err = ensure_builder(
+            on_progress=lambda m: console.print(f"  [dim]- {m}[/dim]")
+        )
         if started:
             ok(
-                f"A package will be built from source{named}; started the "
-                "on-demand Linux builder to handle it"
+                f"A package will be built from source{named}; the on-demand "
+                "Linux builder is up to handle it"
             )
             return True
         fail(
@@ -799,6 +798,13 @@ def _preflight_builder_needs(
             "Try `yolo builder start`, or see `yolo builder status`.",
         )
         return False
+    # A statically-configured builder (nix-darwin, remote /etc/nix/machines)
+    # that isn't the yolo-managed one — trust it's reachable and proceed.
+    if _has_linux_builder():
+        ok(
+            f"A package will be built from source{named}; a Linux builder will handle it"
+        )
+        return True
     # Known-doomed: a from-source Linux build on macOS with no builder set up.
     # Emit ONE actionable FAIL and tell the caller to skip the real build.
     fail(

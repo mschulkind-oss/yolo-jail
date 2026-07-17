@@ -445,6 +445,29 @@ def auto_load_image(
     # Use a PID-unique out-link to avoid races when multiple jails build concurrently
     out_link = BUILD_DIR / f"run-result-{os.getpid()}"
     pkg_json = json.dumps(extra_packages) if extra_packages else ""
+
+    # macOS: a from-source build needs the Linux builder VM up first.  The
+    # run path doesn't go through `yolo check`, so ensure it here — same
+    # preflight logic, with console callbacks — before the real build tries
+    # to offload to a possibly-dead builder.  Returns False → build is doomed
+    # and the preflight already explained why; abort cleanly.
+    if IS_MACOS:
+        from .check_cmd import _preflight_builder_needs
+
+        if (
+            _preflight_builder_needs(
+                repo_root,
+                extra_packages,
+                ok=lambda m: console.print(f"[dim]- {m}[/dim]"),
+                warn=lambda m, n="": console.print(f"[yellow]- {m}[/yellow]"),
+                fail=lambda m, n="": console.print(
+                    f"[bold red]{m}[/bold red]" + (f"\n{n}" if n else "")
+                ),
+            )
+            is False
+        ):
+            return False
+
     current_path, build_stderr_tail = _build_image_store_path(
         repo_root,
         extra_packages=extra_packages,

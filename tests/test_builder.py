@@ -60,8 +60,7 @@ def test_setup_root_script_batches_all_steps_and_guards():
     assert "grep -qs" in script  # idempotency guard on the builders line
     assert "trusted-users = root matt" in script  # merged trust
     assert "100-linux-builder.conf" in script  # ssh config
-    assert ".plist" in script  # launchd service
-    assert "launchctl kickstart -k system/" in script  # apply
+    assert "launchctl kickstart -k system/" in script  # apply (daemon restart)
 
 
 def test_setup_root_script_omits_trusted_users_when_already_trusted():
@@ -97,25 +96,6 @@ def test_run_setup_reports_nonzero_exit(monkeypatch):
     monkeypatch.setattr(b, "_builder_conf_path", lambda: Path("/etc/nix/nix.conf"))
     ok, err = b.run_setup(4, "matt", _run=lambda *a, **k: SimpleNamespace(returncode=3))
     assert ok is False and "exited 3" in err
-
-
-def test_launchd_plist_resident_toggles_keepalive():
-    assert "<key>KeepAlive</key><false/>" in b.launchd_plist(resident=False)
-    assert "<key>KeepAlive</key><true/>" in b.launchd_plist(resident=True)
-
-
-def test_launchctl_commands():
-    assert b._start_cmd() == [
-        "launchctl",
-        "kickstart",
-        f"system/{b.BUILDER_LAUNCHD_LABEL}",
-    ]
-    assert b._stop_cmd() == [
-        "launchctl",
-        "kill",
-        "SIGTERM",
-        f"system/{b.BUILDER_LAUNCHD_LABEL}",
-    ]
 
 
 # ── reachability ─────────────────────────────────────────────────────────────
@@ -163,6 +143,21 @@ def test_builder_setup_state_incomplete_is_not_done(monkeypatch):
     st = b.builder_setup_state()
     assert st["done"] is False
     assert st["nix_builder"] is False
+
+
+def test_builder_setup_state_done_without_key(monkeypatch):
+    # The ssh KEY is installed only on the VM's first boot, so `done` must NOT
+    # require it — otherwise setup could never register complete before a
+    # build, and ensure_builder would never start the VM.  nix.conf +
+    # ssh_config present, key absent → still done.
+    def is_file(self):
+        return str(self) != b.BUILDER_KEY_PATH  # key missing
+
+    monkeypatch.setattr(b.Path, "is_file", is_file)
+    monkeypatch.setattr(b, "_nix_conf_has_builder", lambda: True)
+    st = b.builder_setup_state()
+    assert st["key"] is False
+    assert st["done"] is True  # gate is the daemon wiring, not the key
 
 
 # ── ensure_builder orchestration ─────────────────────────────────────────────
@@ -272,27 +267,66 @@ def test_poll_times_out_when_never_reachable(monkeypatch):
     )
 
 
-# ── start/stop error handling ────────────────────────────────────────────────
+# ── start/stop: detached VM process + PID file ───────────────────────────────
 
 
-def test_start_builder_nonzero_returns_error(monkeypatch):
-    from types import SimpleNamespace
+def test_start_builder_spawns_detached_and_writes_pid(monkeypatch, tmp_path):
+    # No existing builder; start must Popen `nix run …` detached and record a PID.
+    monkeypatch.setattr(b, "BUILDER_PID_FILE", tmp_path / "linux-builder.pid")
+    monkeypatch.setattr(b, "GLOBAL_STORAGE", tmp_path)
+    monkeypatch.setattr(b, "_read_builder_pid", lambda: None)
+    monkeypatch.setattr(b, "builder_reachable", lambda *a, **k: False)
+    captured = {}
 
+    class FakeProc:
+        pid = 4242
+
+        def poll(self):
+            return None  # still running
+
+    def fake_popen(cmd, **kwargs):
+        captured["cmd"] = cmd
+        captured["kwargs"] = kwargs
+        return FakeProc()
+
+    ok, err = b.start_builder(_popen=fake_popen)
+    assert ok is True and err is None
+    assert captured["cmd"] == ["nix", "run", "nixpkgs#darwin.linux-builder"]
+    assert captured["kwargs"]["start_new_session"] is True  # survives yolo exit
+    assert (tmp_path / "linux-builder.pid").read_text().strip() == "4242"
+
+
+def test_start_builder_noop_when_already_reachable(monkeypatch, tmp_path):
+    monkeypatch.setattr(b, "BUILDER_PID_FILE", tmp_path / "pid")
+    monkeypatch.setattr(b, "_read_builder_pid", lambda: None)
+    monkeypatch.setattr(b, "builder_reachable", lambda *a, **k: True)
+
+    def no_popen(*a, **k):
+        raise AssertionError("must not spawn when already reachable")
+
+    ok, err = b.start_builder(_popen=no_popen)
+    assert ok is True and err is None
+
+
+def test_stop_builder_terminates_process_group(monkeypatch, tmp_path):
+    pid_file = tmp_path / "linux-builder.pid"
+    pid_file.write_text("9001\n")
+    monkeypatch.setattr(b, "BUILDER_PID_FILE", pid_file)
+    monkeypatch.setattr(b, "_read_builder_pid", lambda: 9001)
+    monkeypatch.setattr(b, "_pid_is_live", lambda pid: True)
+    killed = {}
+    monkeypatch.setattr(b.os, "getpgid", lambda pid: pid)
     monkeypatch.setattr(
-        b.subprocess,
-        "run",
-        lambda *a, **k: SimpleNamespace(
-            returncode=1, stdout="", stderr="no such service"
-        ),
+        b.os, "killpg", lambda pgid, sig: killed.update(pgid=pgid, sig=sig)
     )
-    ok, err = b.start_builder()
-    assert ok is False and "no such service" in err
-
-
-def test_stop_builder_oserror_returns_error(monkeypatch):
-    def boom(*a, **k):
-        raise OSError("launchctl missing")
-
-    monkeypatch.setattr(b.subprocess, "run", boom)
     ok, err = b.stop_builder()
-    assert ok is False and "launchctl missing" in err
+    assert ok is True and err is None
+    assert killed["pgid"] == 9001
+    assert not pid_file.exists()  # PID file cleared
+
+
+def test_stop_builder_noop_when_not_running(monkeypatch, tmp_path):
+    monkeypatch.setattr(b, "BUILDER_PID_FILE", tmp_path / "pid")
+    monkeypatch.setattr(b, "_read_builder_pid", lambda: None)
+    ok, err = b.stop_builder()
+    assert ok is True and err is None
