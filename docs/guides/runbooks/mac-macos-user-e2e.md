@@ -86,9 +86,22 @@ Add a package to the workspace config: `"packages": ["jq"]`, then:
 YOLO_RUNTIME=macos-user yolo -- bash -lc 'which jq && jq --version'
 ```
 Expect: `jq` resolves from a `/nix/store/...` path (the native aarch64-darwin
-buildEnv), NOT `/usr/bin`. **Report the path `which jq` prints** — a
-`/nix/store/*/bin/jq` is the acceptance bar met on real hardware. First run may
-build/download the darwin closure (slow once); note if it did.
+buildEnv), NOT `/usr/local/bin` (Homebrew) or `/usr/bin`. **Report the path
+`which jq` prints** — a `/nix/store/*/bin/jq` is the acceptance bar met on real
+hardware.
+
+> **Fixed since the first run (2026-07-17):** the first attempt returned
+> `/usr/local/bin/jq` because a login shell (`bash -lc`, and the default `zsh
+> -l` REPL) re-runs macOS `path_helper`, which shoved Homebrew's PATH ahead of
+> the nix store. The bootstrap now writes `~/.zprofile`/`~/.zshrc`/
+> `~/.bash_profile` that re-prepend the sandbox PATH *after* path_helper, so the
+> nix-store jq wins. If it STILL shows `/usr/local/bin/jq`, paste
+> `echo $PATH` from inside the sandbox — that's a real remaining bug.
+
+> **Build progress is now visible:** the first run showed no nix output
+> (silent `capture_output`); materialize now streams `--print-build-logs` to
+> the terminal, so a from-source darwin build shows phases/fetches. First run
+> may build/download the closure (slow once) — you'll now see it happen.
 
 ## 6. Real agent (optional, once 4–5 pass)
 ```
