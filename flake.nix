@@ -657,11 +657,117 @@
         ociImage = mkOciImage { minimal = false; };
         ociImageMinimal = mkOciImage { minimal = true; };
 
+        # ── Container-based Linux builder (macOS container-runtime path) ────
+        # On the container runtime (podman/Apple Container), when a `packages:`
+        # build isn't cached, nix must offload to Linux.  Instead of a separate
+        # QEMU VM (darwin.linux-builder — on the roadmap as a fallback), run a
+        # tiny nix+sshd container ON THE RUNTIME THAT'S ALREADY UP: ephemeral,
+        # no second hypervisor, zero idle RAM.  nix's ssh-ng remote-builder
+        # protocol just runs `nix-daemon --stdio` over ssh, so the image needs
+        # exactly: nix, openssh sshd, a `builder` user, and an authorized key.
+        #
+        # Built with imagePkgs (Linux target: aarch64-linux on a Mac, native in
+        # CI) so no Mac ever builds it — CI publishes it to GHCR and the Mac
+        # pulls it (no chicken-and-egg).  The builder's authorized key is baked
+        # from YOLO_BUILDER_PUBKEY (--impure), so the host daemon's private key
+        # is generated per-setup and never in the image.
+        builderImage =
+          let
+            ip = imagePkgs;
+            pubkey = builtins.getEnv "YOLO_BUILDER_PUBKEY";
+            # sshd config: key-only, force `nix-daemon --stdio` (ssh-ng), no
+            # TTY/agent/forwarding — a build-only endpoint, nothing else.
+            sshdConfig = ip.writeText "sshd_config" ''
+              Port 22
+              Protocol 2
+              HostKey /etc/ssh/ssh_host_ed25519_key
+              # Key-only root login: the build endpoint runs nix-daemon as root
+              # (which owns /nix/store).  This matches the reference nix-builder
+              # images (LnL7/nix:ssh) and sidesteps drop-privs key-read issues.
+              PermitRootLogin prohibit-password
+              PasswordAuthentication no
+              KbdInteractiveAuthentication no
+              PubkeyAuthentication yes
+              AuthorizedKeysFile /etc/ssh/authorized_keys.d/%u
+              AllowTcpForwarding no
+              X11Forwarding no
+              AllowAgentForwarding no
+              PermitTTY no
+              # Every session is a nix-daemon build channel; nothing else runs.
+              ForceCommand ${ip.nix}/bin/nix-daemon --stdio
+              Subsystem sftp /dev/null
+            '';
+            # Entry script: generate a host key on first boot, drop the baked
+            # authorized key for root, then exec sshd in the foreground.
+            entrypoint = ip.writeShellScript "yolo-builder-entrypoint" ''
+              set -eu
+              mkdir -p /etc/ssh/authorized_keys.d /nix/var/nix/{profiles,gcroots}
+              [ -f /etc/ssh/ssh_host_ed25519_key ] || \
+                ${ip.openssh}/bin/ssh-keygen -q -t ed25519 -N "" \
+                  -f /etc/ssh/ssh_host_ed25519_key
+              printf '%s\n' "$YOLO_BUILDER_PUBKEY" > /etc/ssh/authorized_keys.d/root
+              chmod 600 /etc/ssh/authorized_keys.d/root
+              exec ${ip.openssh}/bin/sshd -D -e -f ${sshdConfig}
+            '';
+          in
+          ociTools.streamLayeredImage {
+            name = "yolo-jail-builder";
+            tag = "latest";
+            # Contents: nix (the builder), sshd, a shell + coreutils for build
+            # steps, and CA certs for substituter fetches.  This closure IS the
+            # size floor — a nix builder must contain nix; no base distro
+            # (alpine included) gets under it.
+            contents = [
+              ip.nix
+              ip.openssh
+              ip.bashInteractive
+              ip.coreutils
+              ip.cacert
+              # /etc/passwd + /etc/group with root + a `builder` user so sshd
+              # has a real account to run the forced command as.
+              (ip.runCommand "yolo-builder-etc" { } ''
+                mkdir -p $out/etc/nix $out/etc/ssh/authorized_keys.d \
+                         $out/var/empty $out/tmp $out/root $out/home/builder
+                cat > $out/etc/passwd <<EOF
+                root:x:0:0:root:/root:${ip.bashInteractive}/bin/bash
+                builder:x:1000:1000:nix builder:/home/builder:${ip.bashInteractive}/bin/bash
+                sshd:x:74:74:sshd privsep:/var/empty:/sbin/nologin
+                EOF
+                cat > $out/etc/group <<EOF
+                root:x:0:
+                builder:x:1000:
+                nixbld:x:30000:builder
+                sshd:x:74:
+                EOF
+                # A trusted builder user so it may run nix-daemon --stdio.
+                cat > $out/etc/nix/nix.conf <<EOF
+                experimental-features = nix-command flakes
+                trusted-users = root builder
+                sandbox = false
+                build-users-group =
+                EOF
+              '')
+            ];
+            config = {
+              Cmd = [ "${entrypoint}" ];
+              ExposedPorts = { "22/tcp" = { }; };
+              Env = [
+                "NIX_PATH=nixpkgs=${ip.path}"
+                "USER=root"
+                "HOME=/root"
+                # CA bundle so substituter fetches (builders-use-substitutes)
+                # don't fail with "Problem with the SSL CA cert" during builds.
+                "NIX_SSL_CERT_FILE=${ip.cacert}/etc/ssl/certs/ca-bundle.crt"
+                "SSL_CERT_FILE=${ip.cacert}/etc/ssl/certs/ca-bundle.crt"
+              ];
+            };
+          };
       in
       {
         packages.default = ociImage;
         packages.ociImage = ociImage;
         packages.ociImageMinimal = ociImageMinimal;
+        packages.builderImage = builderImage;
         # The /lib symlink farm alone — buildable in seconds, so tests and
         # humans can assert lib discovery (e.g. that a "foo.dev" package
         # spec still lands libfoo.so in /lib) without building an image.
