@@ -1,5 +1,11 @@
 # RUNBOOK — prove the Apple Container Linux builder (zero sudo)
 
+> **STATUS 2026-07-17: the builder image is PUBLISHED + PUBLIC — you're clear to go.**
+> `ghcr.io/mschulkind-oss/yolo-jail-builder:latest` (and `:0.6.0`) verified:
+> anonymous pull → HTTP 200, `architecture: arm64, os: linux`, `ExposedPorts
+> 22/tcp`, cacert baked. So §2a (pull from GHCR) works TODAY — no build, no scp.
+> Go straight to §2a → §5 → §6.
+
 **Who runs this:** a host agent (or you) on the Mac, in a checkout of yolo-jail.
 **Privilege:** NONE. No sudo, no `/etc` writes, no daemon restart. Everything is
 a throwaway container + local nix calls. Cleanup = `container rm`.
@@ -40,15 +46,15 @@ The image is `aarch64-linux` — a Mac can't build it without a Linux builder
 (the very thing it IS). So the real path is **pull the prebuilt one from GHCR**
 (CI builds it natively on an arm-Linux runner and publishes it).
 
-### 2a. Preferred — pull from GHCR (once the publish job has run on a release)
+### 2a. Preferred — pull from GHCR ✅ LIVE + PUBLIC (verified 2026-07-17)
 ```
 REPO=ghcr.io/mschulkind-oss/yolo-jail-builder
-container image pull "$REPO:latest"       # AC pulls OCI straight from GHCR
+container image pull "$REPO:latest"       # AC pulls OCI straight from GHCR (arm64, public)
 container images | grep yolo-jail-builder
 ```
-If the pull 404s / auth-fails, the publish job hasn't run yet (it's
-release-gated) or the package is still private — see the fallback, and flip it
-public in GHCR package settings.
+Confirmed working: anonymous pull returns the arm64/linux image with sshd on
+:22. If AC's pull specifically can't handle a GHCR OCI image (early-stage CLI),
+fall through to 2b.
 
 > **AC can `pull` an OCI registry image directly** — no skopeo-convert or
 > `image load` of a tar needed. That's the whole ergonomic win of GHCR over

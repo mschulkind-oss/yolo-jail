@@ -30,7 +30,7 @@ question exists only for podman/AC.
 |---|---|---|---|
 | **Cachix / prebuilt download** | any | 🔜 | THE happy path — wired, account deferred (handoff-cachix-cache.md). No build → no builder needed. |
 | **Container builder** (nix+sshd container on the runtime) | **podman** | ✅ [L] | **proven end-to-end in-jail**: image built, `ssh-ng` build ran inside container, result read back. `packages.builderImage` in flake. |
-| **Container builder** | **Apple Container** | 🟡 [M] | image + mechanism identical; UNVERIFIED that AC can OCI-convert it + expose a reachable sshd port to the host nix daemon. **The gating Mac test.** |
+| **Container builder** | **Apple Container** | 🟡 [M] | image PUBLISHED + public on GHCR (arm64, verified); mechanism identical to podman (proven). UNVERIFIED that AC can pull/run it + expose a reachable sshd port to the host nix daemon. **The gating Mac test → docs/runbooks/mac-ac-container-builder.md.** |
 | **QEMU `darwin.linux-builder`** | any container rt | 🔜 (roadmap/fallback) | standard nix tool; launchd daemon. Fallback if the container builder can't host on a given runtime. builder.py currently half-implements a worse version (detached Popen) — to be reworked. |
 | nix-darwin `linux-builder` | any | ⬜ | user-side; only if they already run nix-darwin. Documented, not ours to install. |
 
@@ -79,11 +79,13 @@ run); the whole "run agent in jail" row for AC under current session's fixes.
    image + the ssh remote-builder setup exist; the "start builder container +
    publish port + point nix at it" orchestration is the next code step — reuses
    builder.py's nix.conf/ssh/trusted-users wiring).
-4. ✅ **Publish `builderImage` to GHCR** — WIRED (`push-builder-image` job in
-   publish.yml, release-gated, builds native on `ubuntu-24.04-arm`, pushes
-   `ghcr.io/mschulkind-oss/yolo-jail-builder:{version,latest}` via skopeo).
-   Fires on the next release; first push may need a manual public-visibility
-   flip in GHCR settings. The Mac then `container image pull`s it.
+4. ✅ **Publish `builderImage` to GHCR** — DONE + LIVE + PUBLIC. The
+   `push-builder-image` job ran on the v0.6.0 release and pushed
+   `ghcr.io/mschulkind-oss/yolo-jail-builder:{0.6.0,latest}` (arm64/linux,
+   verified: anonymous pull HTTP 200, sshd :22). The auto-visibility PATCH
+   404'd (GITHUB_TOKEN lacks org-package-admin) → flipped public MANUALLY in
+   GHCR settings. TODO: make the visibility step reliable (a PAT with
+   `packages` scope, or accept the one-time manual flip per new package).
 5. **Rework builder.py off the detached-Popen/`nix run` model** → either the
    container builder (primary) or a launchd plist for the QEMU fallback.
 6. **Turn on Cachix** (deferred) — removes the builder entirely for cached images.
