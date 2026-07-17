@@ -446,6 +446,33 @@ class TestCheckCommand:
 
     @patch("subprocess.run")
     @patch("shutil.which")
+    def test_check_native_macos_user_gates_container_sections(
+        self, mock_which, mock_run, tmp_path, monkeypatch
+    ):
+        """runtime: macos-user (native) must skip Image Build (→ 'Not
+        applicable'), run the macos-user backend check, and NOT probe the
+        container image / per-jail liveness. Covers the `if is_native_runtime`
+        branches in check() which no other test exercises."""
+        monkeypatch.chdir(tmp_path)
+        monkeypatch.setenv("YOLO_REPO_ROOT", str(REPO_ROOT))
+        monkeypatch.setenv("YOLO_RUNTIME", "macos-user")
+        # macos-user is macOS-only; force the native runtime to resolve.
+        monkeypatch.setattr("cli.runtime.IS_MACOS", True)
+        monkeypatch.setattr("cli.check_cmd.IS_MACOS", True)
+        mock_which.side_effect = lambda x: (
+            f"/usr/bin/{x}" if x in ("nix", "sandbox-exec") else None
+        )
+        mock_run.side_effect = self._mock_subprocess_run
+
+        result = CliRunner().invoke(app, ["check", "--no-build"])
+        out = result.output
+        assert "Runtime available: macos-user" in out
+        assert "macOS-user backend" in out  # backend readiness ran
+        assert "Not applicable" in out  # Image Build gated
+        assert "Per-jail host-service liveness" not in out  # liveness gated
+
+    @patch("subprocess.run")
+    @patch("shutil.which")
     def test_check_reports_missing_runtime(
         self, mock_which, mock_run, tmp_path, monkeypatch
     ):

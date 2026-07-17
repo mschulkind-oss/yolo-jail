@@ -52,10 +52,12 @@ from .paths import (
     BUILD_DIR,
     BUILTIN_CGROUP_LOOPHOLE_NAME,
     CONTAINER_DIR,
+    ALL_RUNTIMES,
     GLOBAL_HOME,
     GLOBAL_MISE,
     GLOBAL_STORAGE,
     IS_MACOS,
+    NATIVE_RUNTIMES,
     SUPPORTED_RUNTIMES,
     USER_CONFIG_PATH,
 )
@@ -893,6 +895,85 @@ def _check_rocm_enumeration(ok, warn) -> None:
         )
 
 
+def _check_macos_user_backend(ok, warn, fail) -> None:
+    """Probe readiness of the native macos-user backend.
+
+    Reports the OS, Apple Seatbelt (``sandbox-exec``), the dedicated sandbox
+    account, a runnable interpreter, and — since the native nix layer is now
+    load-bearing — ``nix`` on PATH + a readable ``flake.lock``.  Never runs
+    inside a jail (host-side state).
+
+    IMPORTANT: EXPERIMENTAL — these checks validate *readiness* (config +
+    preconditions), not *runnability*.  A fully green result does NOT mean a
+    run will succeed; the honest gate is ``yolo run --dry-run`` (builds the
+    full plan + checks its invariants), and the definitive test is a real run
+    on a Mac (docs/macos-no-vm-direction.md).
+    """
+    from .macos_user import SANDBOX_USER, _sandbox_user_exists, resolve_python
+    from .run_cmd import _resolve_repo_root
+
+    console.print("[bold]macOS-user backend[/bold] [dim](experimental)[/dim]")
+    if os.environ.get("YOLO_VERSION") is not None:
+        ok("Inside jail — macos-user checks skipped (host-side backend)")
+        return
+    warn(
+        "Experimental backend — readiness only, NOT verified end-to-end",
+        "A green check here means the preconditions are in place, not that a "
+        "run will succeed on this hardware.  Inspect the full plan with "
+        "`yolo --dry-run`; the definitive test is a real run on a Mac "
+        "(docs/macos-no-vm-direction.md).",
+    )
+    if not IS_MACOS:
+        fail(
+            "runtime 'macos-user' requires macOS",
+            "It isolates via a dedicated macOS user account; use 'podman' "
+            "or 'container' on this host.  `yolo --dry-run` still prints the "
+            "plan here for inspection.",
+        )
+        return
+    if shutil.which("sandbox-exec"):
+        ok("Apple Seatbelt (sandbox-exec) available")
+    else:
+        fail(
+            "sandbox-exec not found",
+            "Seatbelt ships with macOS; a missing binary means an unusual PATH.",
+        )
+    if _sandbox_user_exists():
+        ok(f"Sandbox user '{SANDBOX_USER}' exists")
+    else:
+        warn(
+            f"Sandbox user '{SANDBOX_USER}' not provisioned",
+            "Run `yolo macos-setup` to create it.",
+        )
+    interp = resolve_python()
+    if interp is None:
+        fail(
+            "no python3 interpreter found for the sandbox user",
+            "Install one (`brew install python` or `xcode-select --install`); "
+            "the bare /usr/bin/python3 stub can't run as a service account.",
+        )
+    else:
+        ok(f"Interpreter for sandbox user: {interp}")
+    # The native nix layer materializes `packages:` as aarch64-darwin builds.
+    if shutil.which("nix"):
+        ok("nix available (native darwin package materialization)")
+    else:
+        fail(
+            "nix not found",
+            "The macos-user backend materializes `packages:` via native nix; "
+            "install it (https://nixos.org/download) or the agent gets no "
+            "declared tools.",
+        )
+    if (_resolve_repo_root() / "flake.lock").is_file():
+        ok("flake.lock present (pinned nixpkgs for darwin packages)")
+    else:
+        warn(
+            "flake.lock not found at the repo root",
+            "Native darwin packages resolve against the repo's pinned "
+            "nixpkgs; without the lock they can't be pinned.",
+        )
+
+
 def _check_podman_machine_resources(workspace, *, ok, warn) -> None:
     """Surface Podman Machine VM memory in `yolo check` output and warn if
     it's below a sensible floor or below the workspace's
@@ -1002,95 +1083,109 @@ def check(
 
     console.print("[bold]Container Runtime[/bold]")
     detected_runtime = None
-    # Each entry: (name, version_cmd, liveness_cmd, liveness_hint)
-    # Apple Container's daemon check is `container system status`, not
-    # `container info` — the latter returns usage text even without a
-    # running apiserver.
-    runtime_probes = [
-        (
-            "podman",
-            ["podman", "--version"],
-            ["podman", "info"],
-            "Run 'podman info' to diagnose",
-        ),
-        (
-            "container",
-            ["container", "--version"],
-            ["container", "system", "status"],
-            "Start with: container system start",
-        ),
-    ]
-    # Only warn about an offline runtime if the user explicitly selected
-    # it (YOLO_RUNTIME).  The merged-config runtime pick happens later
-    # and emits its own error via ``_runtime_for_check``.
-    selected_runtime = os.environ.get("YOLO_RUNTIME")
-    if selected_runtime not in SUPPORTED_RUNTIMES:
-        selected_runtime = None
-    # First pass: collect probe results so we know whether anything is
-    # live before deciding severity on the rest.  ``offline`` = installed
-    # but its daemon/VM isn't running (fixable with a start command);
-    # tracked separately from "not installed at all" so the final guidance
-    # doesn't tell you to INSTALL something that's already installed.
-    offline: list[tuple[str, str, str]] = []  # (rt, version, start_hint)
-    for rt, version_cmd, liveness_cmd, liveness_hint in runtime_probes:
-        path = shutil.which(rt)
-        if not path:
-            continue
+    # A native (macos-user) selection builds no container — don't probe for /
+    # fail on a missing container runtime.  Cheap early read of the effective
+    # runtime (env wins; else the workspace/user config's `runtime`); the
+    # authoritative pick + validation still happen at _runtime_for_check below.
+    _early_runtime = os.environ.get("YOLO_RUNTIME")
+    if _early_runtime not in ALL_RUNTIMES:
         try:
-            result = subprocess.run(
-                version_cmd, capture_output=True, text=True, timeout=5
-            )
-            version = result.stdout.strip().split("\n")[0]
-            # Verify the daemon/apiserver is actually reachable, not just the CLI
-            ping = subprocess.run(
-                liveness_cmd, capture_output=True, text=True, timeout=10
-            )
-            ping_ok = ping.returncode == 0
-            if rt == "container" and ping_ok:
-                # `container system status` succeeds even when the apiserver
-                # is stopped — the real signal is "running" in stdout.
-                ping_ok = "running" in ping.stdout.lower()
-            if ping_ok:
-                ok(f"{rt}: {version}")
-                if detected_runtime is None:
-                    detected_runtime = rt
+            _early_runtime = load_config(Path.cwd(), strict=False).get("runtime")
+        except Exception:
+            _early_runtime = None
+    if _early_runtime in NATIVE_RUNTIMES:
+        ok(f"Native runtime '{_early_runtime}' — no container runtime needed")
+        console.print()
+    else:
+        # Each entry: (name, version_cmd, liveness_cmd, liveness_hint)
+        # Apple Container's daemon check is `container system status`, not
+        # `container info` — the latter returns usage text even without a
+        # running apiserver.
+        runtime_probes = [
+            (
+                "podman",
+                ["podman", "--version"],
+                ["podman", "info"],
+                "Run 'podman info' to diagnose",
+            ),
+            (
+                "container",
+                ["container", "--version"],
+                ["container", "system", "status"],
+                "Start with: container system start",
+            ),
+        ]
+        # Only warn about an offline runtime if the user explicitly selected
+        # it (YOLO_RUNTIME).  The merged-config runtime pick happens later
+        # and emits its own error via ``_runtime_for_check``.
+        selected_runtime = os.environ.get("YOLO_RUNTIME")
+        if selected_runtime not in SUPPORTED_RUNTIMES:
+            selected_runtime = None
+        # First pass: collect probe results so we know whether anything is
+        # live before deciding severity on the rest.  ``offline`` = installed
+        # but its daemon/VM isn't running (fixable with a start command);
+        # tracked separately from "not installed at all" so the final guidance
+        # doesn't tell you to INSTALL something that's already installed.
+        offline: list[tuple[str, str, str]] = []  # (rt, version, start_hint)
+        for rt, version_cmd, liveness_cmd, liveness_hint in runtime_probes:
+            path = shutil.which(rt)
+            if not path:
+                continue
+            try:
+                result = subprocess.run(
+                    version_cmd, capture_output=True, text=True, timeout=5
+                )
+                version = result.stdout.strip().split("\n")[0]
+                # Verify the daemon/apiserver is actually reachable, not just the CLI
+                ping = subprocess.run(
+                    liveness_cmd, capture_output=True, text=True, timeout=10
+                )
+                ping_ok = ping.returncode == 0
+                if rt == "container" and ping_ok:
+                    # `container system status` succeeds even when the apiserver
+                    # is stopped — the real signal is "running" in stdout.
+                    ping_ok = "running" in ping.stdout.lower()
+                if ping_ok:
+                    ok(f"{rt}: {version}")
+                    if detected_runtime is None:
+                        detected_runtime = rt
+                else:
+                    offline.append((rt, version, liveness_hint))
+            except Exception as e:
+                fail(f"{rt} found but not working: {e}")
+        # Grade the offline runtimes after all probes finish.  If the user
+        # explicitly selected one and it's offline, that's a real problem.
+        # If another runtime is live, dormant siblings are just clutter —
+        # print them as dim info so the signal is there without a warning.
+        for rt, version, hint in offline:
+            if rt == selected_runtime or detected_runtime is None:
+                warn(f"{rt}: {version} (not connected)", hint)
             else:
-                offline.append((rt, version, liveness_hint))
-        except Exception as e:
-            fail(f"{rt} found but not working: {e}")
-    # Grade the offline runtimes after all probes finish.  If the user
-    # explicitly selected one and it's offline, that's a real problem.
-    # If another runtime is live, dormant siblings are just clutter —
-    # print them as dim info so the signal is there without a warning.
-    for rt, version, hint in offline:
-        if rt == selected_runtime or detected_runtime is None:
-            warn(f"{rt}: {version} (not connected)", hint)
-        else:
-            console.print(
-                f"  [dim]- {rt}: {version} (not connected, not selected)[/dim]"
-            )
-    # Final verdict when nothing is live.  Distinguish "installed but not
-    # started" (just start it — the common case that misleadingly read as
-    # "install something" before) from "genuinely nothing installed".
-    if detected_runtime is None:
-        if offline:
-            # At least one runtime is installed; it just needs starting.
-            names = ", ".join(rt for rt, _, _ in offline)
-            starts = "; ".join(f"{rt}: {hint}" for rt, _, hint in offline)
-            fail(
-                f"Container runtime installed but not started ({names})",
-                f"It's installed — you just need to START it.\n{starts}",
-            )
-        else:
-            fail(
-                "No container runtime installed",
-                "Install one:\n"
-                "  Linux:  your package manager, e.g. `sudo apt install podman`\n"
-                "  macOS:  `brew install podman` then `podman machine init "
-                "&& podman machine start`,\n"
-                "          or `brew install container` then `container system start`",
-            )
-    console.print()
+                console.print(
+                    f"  [dim]- {rt}: {version} (not connected, not selected)[/dim]"
+                )
+        # Final verdict when nothing is live.  Distinguish "installed but not
+        # started" (just start it — the common case that misleadingly read as
+        # "install something" before) from "genuinely nothing installed".
+        if detected_runtime is None:
+            if offline:
+                # At least one runtime is installed; it just needs starting.
+                names = ", ".join(rt for rt, _, _ in offline)
+                starts = "; ".join(f"{rt}: {hint}" for rt, _, hint in offline)
+                fail(
+                    f"Container runtime installed but not started ({names})",
+                    f"It's installed — you just need to START it.\n{starts}",
+                )
+            else:
+                fail(
+                    "No container runtime installed",
+                    "Install one:\n"
+                    "  Linux:  your package manager, e.g. `sudo apt install podman`\n"
+                    "  macOS:  `brew install podman` then `podman machine init "
+                    "&& podman machine start`,\n"
+                    "          or `brew install container` then `container system start`",
+                )
+        console.print()
 
     console.print("[bold]Nix[/bold]")
     nix_path = shutil.which("nix")
@@ -1370,6 +1465,9 @@ def check(
         errors.append(runtime_error)
     elif runtime:
         ok(f"Runtime available: {runtime}")
+    # Native (macos-user) runtimes build no container / image — the Image
+    # Build, container, and per-jail-liveness sections below are gated off it.
+    is_native_runtime = runtime in NATIVE_RUNTIMES
 
     if workspace_config_path.exists() and "repo_path" in workspace_config:
         warnings.append(
@@ -1412,6 +1510,11 @@ def check(
     except (ConfigError, SystemExit) as e:
         fail("Entrypoint preflight failed", str(e))
     console.print()
+
+    # --- macos-user backend readiness (native runtime only) ---
+    if is_native_runtime:
+        _check_macos_user_backend(ok, warn, fail)
+        console.print()
 
     # --- GPU Checks ---
 
@@ -1737,7 +1840,10 @@ def check(
     image_build_skipped = False
     _not_loaded_hint = "Run 'yolo' once to build and load the image"
     console.print("[bold]Image Build[/bold]")
-    if build:
+    if is_native_runtime:
+        # Native macOS backend runs no Linux image — nothing to build/load.
+        ok("Not applicable — native macOS backend builds no Linux image")
+    elif build:
         out_link = BUILD_DIR / "check-result"
         if repo_root is None:
             fail("Skipped nix build", "repo root resolution failed")
@@ -1785,7 +1891,7 @@ def check(
             "cache is published."
         )
 
-    if detected_runtime:
+    if not is_native_runtime and detected_runtime:
         console.print("[bold]Container Image[/bold]")
         # Skip image check when running inside a jail — the nested podman
         # won't have the image loaded (it's on the host's runtime).
@@ -1929,8 +2035,10 @@ def check(
     # They don't catch the case where the per-jail daemon was spawned
     # but immediately crashed.  This probe connects to each running
     # jail's host-service socket and reports any that aren't listening.
-    console.print("[bold]Per-jail host-service liveness[/bold]")
-    _check_host_service_liveness(ok, warn, fail)
+    # Native macos-user runs no per-jail container/socket, so skip it.
+    if not is_native_runtime:
+        console.print("[bold]Per-jail host-service liveness[/bold]")
+        _check_host_service_liveness(ok, warn, fail)
     console.print()
 
     # --- Disk usage (nudges toward `yolo prune` when large) ---
