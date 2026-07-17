@@ -295,6 +295,118 @@ def test_exec_path_no_unbound_errors(tmp_path, monkeypatch):
     )
 
 
+def test_native_runtime_check_rejects_off_macos():
+    from cli.runtime import _native_runtime_check
+
+    with patch("cli.runtime.IS_MACOS", False):
+        rt, err = _native_runtime_check("macos-user", "YOLO_RUNTIME")
+    assert rt is None
+    assert "macOS-only" in err
+
+
+def test_native_runtime_check_accepts_on_macos():
+    from cli.runtime import _native_runtime_check
+
+    with patch("cli.runtime.IS_MACOS", True):
+        assert _native_runtime_check("macos-user", "cfg") == ("macos-user", None)
+
+
+def test_native_runtime_check_defers_for_container():
+    from cli.runtime import _native_runtime_check
+
+    # Not a native runtime → None so the caller continues normal resolution.
+    assert _native_runtime_check("podman", "env") is None
+
+
+def test_runtime_for_check_returns_macos_user_on_macos():
+    import os
+    from cli.runtime import _runtime_for_check
+
+    with (
+        patch("cli.runtime.IS_MACOS", True),
+        patch.dict(os.environ, {"YOLO_RUNTIME": "macos-user"}),
+    ):
+        rt, err = _runtime_for_check({})
+    assert rt == "macos-user" and err is None
+
+
+def test_macos_user_runtime_dispatches_to_run_macos_user(tmp_path, monkeypatch):
+    """runtime=='macos-user' must route to run_macos_user and NEVER touch the
+    container path (no auto_load_image, no stale-jail reap)."""
+    import sys
+
+    sys.path.insert(0, str(REPO_ROOT / "src"))
+    import cli
+    from unittest.mock import patch
+
+    monkeypatch.chdir(tmp_path)
+    image_load_called = []
+    macos_called = []
+
+    with (
+        patch.object(cli.run_cmd, "load_config", return_value={}),
+        patch.object(cli.run_cmd, "ensure_global_storage"),
+        patch.object(cli.run_cmd, "_runtime", return_value="macos-user"),
+        patch.object(cli.run_cmd, "_tmux_rename_window"),
+        patch.object(
+            cli.run_cmd,
+            "auto_load_image",
+            side_effect=lambda *a, **k: image_load_called.append(True) or True,
+        ),
+        patch(
+            "cli.macos_user.run_macos_user",
+            side_effect=lambda *a, **k: macos_called.append((a, k)) or 0,
+        ),
+    ):
+        from typer.testing import CliRunner
+
+        try:
+            CliRunner().invoke(
+                cli.app, ["run", "--", "echo", "hi"], catch_exceptions=False
+            )
+        except SystemExit:
+            pass
+
+    assert macos_called, "run_macos_user should have been called for macos-user"
+    assert not image_load_called, "native path must NOT build/load a container image"
+    # dry_run threaded through (bare invocation → False, not the truthy default)
+    _, kw = macos_called[0]
+    assert kw.get("dry_run") is False
+
+
+def test_dry_run_rejected_for_container_runtime(tmp_path, monkeypatch):
+    """--dry-run is macos-user-only; on a container runtime it must error out
+    before doing any container work."""
+    import sys
+
+    sys.path.insert(0, str(REPO_ROOT / "src"))
+    import cli
+    from unittest.mock import patch
+
+    monkeypatch.chdir(tmp_path)
+    image_load_called = []
+
+    with (
+        patch.object(cli.run_cmd, "load_config", return_value={}),
+        patch.object(cli.run_cmd, "ensure_global_storage"),
+        patch.object(cli.run_cmd, "_runtime", return_value="podman"),
+        patch.object(cli.run_cmd, "find_running_container", return_value=None),
+        patch.object(cli.run_cmd, "_tmux_rename_window"),
+        patch.object(
+            cli.run_cmd,
+            "auto_load_image",
+            side_effect=lambda *a, **k: image_load_called.append(True) or True,
+        ),
+    ):
+        from typer.testing import CliRunner
+
+        result = CliRunner().invoke(cli.app, ["run", "--dry-run", "--", "echo", "hi"])
+
+    assert result.exit_code == 1
+    assert "only supported for the macos-user" in result.output
+    assert not image_load_called
+
+
 AVAILABLE_RUNTIMES = []
 if shutil.which("podman"):
     # On macOS, podman requires a running VM (Podman Machine).  Only include
