@@ -32,10 +32,14 @@ def config_ref():
 [bold cyan]FIELDS[/bold cyan]
 
   [bold]runtime[/bold] (string): Isolation backend.
-    Values: "podman" or "container".
+    Values: "podman", "container", or "macos-user".
     Override: YOLO_RUNTIME env var takes priority.
     Auto-detect: macOS prefers "container" then "podman"; Linux uses "podman".
     On Apple Silicon the container is native arm64 (no emulation).
+    "macos-user" (macOS only, EXPLICIT opt-in — never auto-detected) runs the
+    agent as a dedicated macOS user under Seatbelt: NO VM, no Linux image,
+    "packages:" materialized via native aarch64-darwin nix. Fastest startup,
+    but a WEAKER isolation boundary than a container/VM.
 
   [bold]agents[/bold] (array of strings): Which coding agents to install in the jail.
     Only the listed agents are installed and configured — a lean jail with

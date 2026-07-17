@@ -660,7 +660,9 @@ def _validate_config(
             "use 'podman' (Linux) or 'container' (macOS Apple Container)"
         )
     elif runtime is not None and runtime not in ALL_RUNTIMES:
-        errors.append("config.runtime: expected 'podman' or 'container'")
+        errors.append(
+            "config.runtime: expected 'podman', 'container', or 'macos-user'"
+        )
 
     repo_path = config.get("repo_path")
     if repo_path is not None and not isinstance(repo_path, str):

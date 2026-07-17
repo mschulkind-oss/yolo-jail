@@ -227,6 +227,11 @@ def _default(
         "--profile",
         help="Show detailed startup performance timing after command exits",
     ),
+    dry_run: bool = typer.Option(
+        False,
+        "--dry-run",
+        help="macos-user only: print the full native run plan without executing it.",
+    ),
     version: bool = typer.Option(
         False,
         "--version",
@@ -323,7 +328,9 @@ def _default(
         # No subcommand → default to `run` (interactive shell).  Forward every
         # option explicitly: a param omitted here would keep its OptionInfo
         # default (which is truthy) rather than the intended False.
-        ctx.invoke(run, ctx=ctx, network=network, new=new, profile=profile)
+        ctx.invoke(
+            run, ctx=ctx, network=network, new=new, profile=profile, dry_run=dry_run
+        )
 
 
 from .console import console
@@ -369,6 +376,25 @@ app.command(
 )(run)
 app.command()(ps)
 app.command()(doctor)
+
+
+# ---------------------------------------------------------------------------
+# yolo macos-* — provision/inspect the native macos-user backend (macOS only).
+# Definitions live in cli/macos_user.py.  These are inert on non-macOS hosts
+# (each command fails closed with a "requires macOS" message).
+# ---------------------------------------------------------------------------
+
+from .macos_user import (  # noqa: E402
+    macos_fix_permissions,
+    macos_setup,
+    macos_teardown,
+    macos_unshare,
+)
+
+app.command("macos-setup")(macos_setup)
+app.command("macos-teardown")(macos_teardown)
+app.command("macos-unshare")(macos_unshare)
+app.command("macos-fix-permissions")(macos_fix_permissions)
 
 
 # ---------------------------------------------------------------------------
@@ -437,6 +463,10 @@ def main():
         "loopholes",
         "broker",
         "builder",
+        "macos-setup",
+        "macos-teardown",
+        "macos-unshare",
+        "macos-fix-permissions",
     }
     args = sys.argv[1:]
     if args and "--" in args:

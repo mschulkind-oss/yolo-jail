@@ -93,7 +93,14 @@ def test_validate_config_rejects_unknown_agent():
 
 def test_validate_config_rejects_unknown_runtime():
     errors, _ = _validate_config({"runtime": "bogus"}, workspace=Path.cwd())
-    assert any("expected 'podman' or 'container'" in e for e in errors)
+    assert any(
+        "expected 'podman', 'container', or 'macos-user'" in e for e in errors
+    )
+
+
+def test_validate_config_accepts_macos_user_runtime():
+    errors, _ = _validate_config({"runtime": "macos-user"}, workspace=Path.cwd())
+    assert not any("config.runtime" in e for e in errors)
 
 
 def test_validate_config_rejects_non_list_agents():

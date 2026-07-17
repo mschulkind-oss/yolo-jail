@@ -32,6 +32,7 @@ from .paths import (
     ALL_RUNTIMES,
     CONTAINER_DIR,
     IS_MACOS,
+    NATIVE_RUNTIMES,
     SUPPORTED_RUNTIMES,
 )
 
@@ -75,6 +76,30 @@ def _runtime_is_connectable(rt: str) -> bool:
         return False
 
 
+def _native_runtime_check(
+    rt: Optional[str], source: str
+) -> "Optional[tuple[Optional[str], Optional[str]]]":
+    """Resolve a native (non-container) runtime selection, or None to defer.
+
+    Returns:
+      * ``None`` when ``rt`` is not a native runtime — the caller continues its
+        normal container-runtime resolution.
+      * ``(rt, None)`` when ``rt`` is a valid native runtime on macOS — a native
+        runtime needs no daemon/CLI probe (it runs the agent as a macOS user),
+        so we short-circuit BEFORE any ``shutil.which`` check.
+      * ``(None, <error>)`` when a native runtime was selected off macOS.
+    """
+    if rt not in NATIVE_RUNTIMES:
+        return None
+    if not IS_MACOS:
+        return (
+            None,
+            f"Runtime '{rt}' from {source} is macOS-only "
+            "(native user + Seatbelt); this host is not macOS.",
+        )
+    return rt, None
+
+
 def _runtime(config: Optional[Dict[str, Any]] = None) -> str:
     """Return the resolved runtime: 'podman' or 'container'.
 
@@ -91,7 +116,8 @@ def _runtime(config: Optional[Dict[str, Any]] = None) -> str:
         cfg = config.get("runtime")
         if cfg and cfg in ALL_RUNTIMES:
             return cfg
-    # Platform-aware auto-detection.
+    # Platform-aware auto-detection.  Native runtimes are opt-in only and never
+    # enter this candidate list, so auto-detect stays container-only.
     candidates: tuple[str, ...]
     if IS_MACOS:
         candidates = ("container", "podman")
@@ -122,6 +148,9 @@ def _runtime_for_check(config: Dict[str, Any]) -> tuple[Optional[str], Optional[
     """
     env = os.environ.get("YOLO_RUNTIME")
     if env and env in ALL_RUNTIMES:
+        native = _native_runtime_check(env, "YOLO_RUNTIME")
+        if native is not None:
+            return native
         if shutil.which(env):
             if _runtime_is_connectable(env):
                 return env, None
@@ -133,6 +162,9 @@ def _runtime_for_check(config: Dict[str, Any]) -> tuple[Optional[str], Optional[
 
     cfg = config.get("runtime")
     if cfg and cfg in ALL_RUNTIMES:
+        native = _native_runtime_check(cfg, "yolo-jail.jsonc")
+        if native is not None:
+            return native
         if shutil.which(cfg):
             if _runtime_is_connectable(cfg):
                 return cfg, None
