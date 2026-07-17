@@ -3,6 +3,29 @@
 12 CONFIRMED (verified against real nix where applicable) + 1 uncertain, from a
 parallel multi-dimension review workflow over commits 73d30c6..HEAD.
 
+## Resolution status (all addressed)
+
+- **#1/#3/#9 (HIGH) full-stdenv PATH leak** — FIXED (4751f05): materialize via a
+  `buildEnv` profile + `nix build --print-out-paths`, not a devShell PATH
+  scrape. Verified end-to-end with real nix: `packages: ["jq"]` → profile bin
+  is exactly `["jq"]`, no toolchain.
+- **#4 env_sources dropped** — FIXED (022e081): resolved into the launch env.
+- **#5/#10 config surface (blocked_tools/mise/mcp/lsp)** — FIXED (022e081):
+  baked into the bootstrap env via `bootstrap_env=`.
+- **#6 precondition ordering** — FIXED (022e081): sandbox checks before build.
+- **#2/#7 pinned-rev/bad-hash eval abort** — DOCUMENTED (022e081): uncatchable
+  eval-time limitation; pinned/override specs are all-or-nothing like the image
+  path. Lock-time fix is future work.
+- **#8 contradictory early PASS off-macOS** — FIXED (ef6ccea): gated on IS_MACOS.
+- **#11 typo'd package silently skipped** — MITIGATED (ef6ccea): notice flags
+  likely typos.
+- **#12 no GC root** — DOCUMENTED (ef6ccea): low severity; per-workspace GC root
+  is the fix when needed.
+- **UNCERTAIN (dry-run can't fire the wiring guard)** — by design: dry-run is
+  pure (darwin=None); the guard fires on the real materialized path.
+
+---
+
 ## 1. [HIGH] split_env keeps the entire nix stdenv toolchain, not just declared packages, shadowing the macOS system userland
 - **where:** `src/cli/darwin_packages.py:142`  (correctness)
 - **detail:** split_env partitions PATH by keeping every entry that startswith('/nix/store/'). But the PATH it is fed comes from `nix print-dev-env .#devShells.aarch64-darwin.yoloDarwinPackages`, and the devShell is a plain `pkgs.mkShell { packages = darwinPackages; }` (flake.nix:672-674). `print-dev-env` reproduces the full `nix develop` build environment, so its PATH contains the entire aarch64-darwin stdenv toolchain — the clang cc-wrapper, cctools `ld`, GNU coreutils, gnused, gnugrep, gawk, gnumake, findutils, tar/gzip/xz, patch, diffutils, etc. — ALL under /nix/store, IN ADDITION to the declared package bin dirs. split_env therefore keeps all of them. The module comment (lines 138-140) and docstring claim it contributes 'only the package store dirs', and the unit tests (tests/test_darwin_packages.py:87, :135) encode that wrong mental model with only 1-2 clean package bin dirs, so they pass while the real behavior is a full-toolchain PATH injection. Because sandbox_path() inserts this prefix BEFORE /usr/bin AND /bin (macos_user.py:488-501), the nix GNU/clang toolchain shadows the macOS system userland for the agent. Compounding it: ENV_WHITELIST (line 53) deliberately strips NIX_CFLAGS_COMPILE / NIX_LDFLAGS / NIX_CC etc., so the nix cc-wrapper that now shadows /usr/bin/cc is left without the env it depends on. A correct implementation must subtract the empty-devShell (stdenv) PATH baseline — as `nix develop` itself does when computing added entries — or read the declared buildInputs' bin dirs directly, rather than keep every /nix/store PATH entry.
