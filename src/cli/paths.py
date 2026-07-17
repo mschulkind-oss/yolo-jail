@@ -23,8 +23,16 @@ IS_MACOS = sys.platform == "darwin"
 # see docs/macos-backend-direction.md.
 SUPPORTED_RUNTIMES = ("podman", "container")
 
+# Native (non-container) runtimes.  macos-user runs the agent as a dedicated
+# macOS user under Seatbelt — NO VM, no Linux image, packages via native
+# aarch64-darwin nix.  It is EXPLICIT opt-in only (never auto-detected) and
+# does NOT build a container argv / load an image / answer `<rt> ps` — so
+# container-side code must iterate SUPPORTED_RUNTIMES, never ALL_RUNTIMES.
+# See docs/macos-no-vm-direction.md (## Decision).
+NATIVE_RUNTIMES = ("macos-user",)
+
 # Every value the `runtime` config key / YOLO_RUNTIME may take.
-ALL_RUNTIMES = SUPPORTED_RUNTIMES
+ALL_RUNTIMES = SUPPORTED_RUNTIMES + NATIVE_RUNTIMES
 
 JAIL_IMAGE = "localhost/yolo-jail:latest"
 # Apple Container CLI doesn't recognize the localhost/ prefix

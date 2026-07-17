@@ -162,6 +162,67 @@
         extraPackages = builtins.concatMap
           (r: selectOutputs r.drv r.outputs) resolvedPackageSpecs;
 
+        # ── Native aarch64-darwin resolution (macos-user backend) ──────────
+        # Mirror resolvedPackageSpecs but resolve against `pkgs` (the flake's
+        # own `system` — aarch64-darwin on a Mac) instead of imagePkgs, and
+        # thread `system` (NOT imageSystem) into the pinned/version branches.
+        # Each spec is wrapped in tryEval + guarded by lib.meta.availableOn so
+        # a package with no darwin build is SKIPPED (warn-and-skip) instead of
+        # failing the whole shell.  Same YOLO_EXTRA_PACKAGES contract as the
+        # image path.  Only NEW outputs are added below; the image path is
+        # untouched, so Linux eval stays safe (empty specs → empty results).
+        darwinSpecName = spec:
+          if builtins.isString spec then (parseDottedSpec spec).base
+          else spec.name;
+        darwinResolved = map (spec:
+          let
+            name = darwinSpecName spec;
+            parsed = if builtins.isString spec then parseDottedSpec spec else null;
+            # Source attrset for the base attr: pinned specs fetch their own
+            # nixpkgs (system = darwin), everything else resolves from `pkgs`.
+            src =
+              if (!builtins.isString spec) && spec ? nixpkgs then
+                import (builtins.fetchTarball {
+                  url = "https://github.com/NixOS/nixpkgs/archive/${spec.nixpkgs}.tar.gz";
+                }) { inherit system; }
+              else pkgs;
+            attr = if builtins.isString spec then parsed.base else spec.name;
+            # `?` membership NEVER throws for a missing attr (tryEval can't
+            # catch attribute-missing errors — only `throw`/`assert`), so this
+            # guard, not tryEval, is what makes an unknown package skippable.
+            present = src ? ${attr};
+            baseDrv = if present then src.${attr} else null;
+            drv =
+              if !present then null
+              else if (!builtins.isString spec)
+                   && spec ? version && spec ? url && spec ? hash then
+                baseDrv.overrideAttrs (old: {
+                  version = spec.version;
+                  src = pkgs.fetchurl { url = spec.url; hash = spec.hash; };
+                })
+              else baseDrv;
+            outputs =
+              if builtins.isString spec then
+                (if parsed.output == null then null else [ parsed.output ])
+              else spec.outputs or null;
+            # availableOn reads meta.platforms/badPlatforms (never builds).
+            # Wrap in tryEval to absorb a package whose meta itself throws.
+            okAttempt =
+              if !present then { success = true; value = false; }
+              else builtins.tryEval
+                (pkgs.lib.meta.availableOn { inherit system; } drv);
+          in {
+            inherit name outputs drv;
+            available = present && okAttempt.success && okAttempt.value;
+          }
+        ) extraPackageSpecs;
+
+        darwinKept = builtins.filter (r: r.available) darwinResolved;
+        darwinSkippedNames =
+          map (r: r.name) (builtins.filter (r: !r.available) darwinResolved);
+        darwinPackages =
+          builtins.concatMap (r: selectOutputs r.drv r.outputs) darwinKept;
+
         # Runtime-library derivations for the /lib farm.  getLib is applied
         # to the BASE derivation of each spec, never the selected outputs:
         # getLib is a no-op on an output-specified entry, so deriving the
@@ -600,6 +661,18 @@
             pkgs.just
           ];
         };
+
+        # ── macos-user backend: native darwin package materialization ──────
+        # yoloDarwinPackages is a devShell whose closure is the aarch64-darwin
+        # build of `packages:` (from YOLO_EXTRA_PACKAGES).  The CLI realizes it
+        # with `nix print-dev-env --impure --json` and puts its store bin dirs
+        # on the sandboxed agent's PATH — no VM, no Linux image.  Packages with
+        # no darwin build are filtered out here and surfaced via
+        # darwinUnavailablePackages (warn-and-skip).  See src/cli/darwin_packages.py.
+        devShells.yoloDarwinPackages = pkgs.mkShell {
+          packages = darwinPackages;
+        };
+        darwinUnavailablePackages = darwinSkippedNames;
       }
     );
 }
