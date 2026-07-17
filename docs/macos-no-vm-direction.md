@@ -1,15 +1,65 @@
 # The macOS "no-VM" problem: what we actually want, what we missed
 
-**Status:** OPEN QUESTION — reframing after we excised `macos-user`. This doc
-supersedes the framing in
+**Status:** DECIDED (2026-07-16) — **pursue BOTH, as ONE composed product**,
+not two competing backends. See "## Decision" below. Supersedes the framing in
 [macos-backend-direction.md](macos-backend-direction.md), which argued for
 excision on a premise ("no emulation") that turns out not to be the
-maintainer's real concern ("no VM"). No code decision is committed by this
-doc; it exists to get the goal right before we build again.
-**Date:** 2026-07-14
+maintainer's real concern ("no VM").
+**Date:** 2026-07-14 (reframe) → 2026-07-16 (decision)
 **Reads with:** [macos-backend-direction.md](macos-backend-direction.md) (the
 prior, narrower decision), [happy-path-principle.md](happy-path-principle.md),
 [jail-version-predictability.md](jail-version-predictability.md).
+
+## Decision — three orthogonal axes, don't blur them
+
+The recurring confusion is treating "runtime", "builder", and "packages" as
+one choice. They are independent:
+
+| Axis | Decides | Options |
+|------|---------|---------|
+| **1. Runtime** (*where the agent runs*) | VM or not | **(a) Container** (Apple Container / Podman) — Linux container in a VM, runs the Linux nix image • **(b) macos-user** — native macOS user + Seatbelt, **NO VM, no Linux image** |
+| **2. Builder** (*how you get the Linux image*) | **exists ONLY for runtime 1(a)** | Cachix download (no VM) • nix-darwin linux-builder (transient VM, on-demand) • ~~Colima~~ (rejected — see below) |
+| **3. Packages** (*how `packages:` is materialized*) | per runtime | Container → baked into the aarch64-**linux** image • macos-user → native `nix profile`, aarch64-**darwin** (the piece that was never built) |
+
+**Key insight that un-blurs it:** the *builder only exists for the container
+runtime*. **macos-user needs no builder at all** — it runs native darwin
+binaries, so there is no Linux image to produce. "Which builder?" is a
+question *inside* Track A only.
+
+**These are NOT competing — they compose into one product:**
+- **macos-user is the fast native default** (no VM, `packages:` via darwin nix).
+- **The AC container is the fallback cell** for what native darwin can't cover:
+  a `packages:` entry with no darwin build, or when the user wants VM-grade
+  isolation over Seatbelt. This satisfies
+  [happy-path-principle.md](happy-path-principle.md) — one path per matrix
+  cell, container is the "needs real Linux" escape hatch.
+
+So "pursue both" = **Track A (container, measured + Cachix-on) as the fallback,
+Track B (macos-user + native nix) as the fast default** — one product.
+
+### Colima: rejected (answering the recurring question)
+
+Colima keeps coming up as "just run the Linux builds and shut down after." It
+loses on every axis:
+- It is a **builder** question (axis 2), and it's **still a VM** — zero help for
+  the no-VM goal.
+- It's a **Docker/containerd VM, not a nix builder**: building nix in it means
+  installing nix *inside* Colima and copying closures — strictly MORE setup
+  than `nix-darwin linux-builder` (the one-command purpose-built tool). Fails
+  happy-path criterion 2 (least per-user infra); it's the doc's canonical
+  "NOT supported" example.
+- **"Shut down after"** is the idle-stop we already designed for the nix-darwin
+  on-demand builder (`src/cli/builder.py`). The capability you want exists; it
+  isn't Colima.
+
+### Acceptance bar for Track B (do not repeat the first mistake)
+
+macos-user was excised because it delivered SandVault's sandbox and dropped
+yolo's nix layer. The revive is only worth it if, **from day one**, it honors
+`packages:` via native **aarch64-darwin** `nix profile`. If it can't carry the
+nix layer, don't ship it — that's the line between "a yolo backend" and "an SV
+clone." Recoverable at git tag `macos-user-experiment` (1471-line
+`src/cli/macos_user.py` + tests), excision unpushed.
 
 ## The one-paragraph problem statement
 
