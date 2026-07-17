@@ -248,27 +248,40 @@ def _build_image_store_path(
     *,
     out_link: Path,
     status_message: str,
+    builders: Optional[str] = None,
 ) -> tuple[Optional[str], list[str]]:
-    """Run the nix image build and return the resulting store path on success."""
+    """Run the nix image build and return the resulting store path on success.
+
+    ``builders`` (a nix ``--builders`` spec, e.g. from
+    ``container_builder.builder_session``) offloads from-source builds to a
+    remote/container builder — used on macOS container runtimes.  None → build
+    locally (native Linux hosts + fully-cached macOS).
+    """
     build_env = os.environ.copy()
     pkg_json = json.dumps(extra_packages) if extra_packages else ""
     if extra_packages:
         build_env["YOLO_EXTRA_PACKAGES"] = pkg_json
 
+    argv = [
+        "nix",
+        "--extra-experimental-features",
+        "nix-command flakes",
+        "build",
+        ".#ociImage",
+        "--impure",
+        "--out-link",
+        str(out_link),
+        "--print-build-logs",
+    ]
+    if builders:
+        # Offload to the container/remote builder; --max-jobs 0 forces even the
+        # eval-produced drvs to build there (a Mac can't build aarch64-linux).
+        argv += ["--builders", builders, "--max-jobs", "0"]
+
     build_stderr_tail: list[str] = []
     try:
         process = subprocess.Popen(
-            [
-                "nix",
-                "--extra-experimental-features",
-                "nix-command flakes",
-                "build",
-                ".#ociImage",
-                "--impure",
-                "--out-link",
-                str(out_link),
-                "--print-build-logs",
-            ],
+            argv,
             cwd=repo_root,
             env=build_env,
             stdout=subprocess.DEVNULL,
@@ -278,6 +291,10 @@ def _build_image_store_path(
     except FileNotFoundError:
         return None, ["nix command not found"]
 
+    # Show real build progress.  `--print-build-logs` streams nix's build
+    # output on stderr; surface a live one-line status (derivation being
+    # built / fetched / % done) instead of a silent spinner — significant work
+    # should be visible.  The full tail is retained for failure diagnosis.
     with console.status(status_message, spinner="dots") as status:
         if process.stderr:
             for line in iter(process.stderr.readline, ""):
@@ -446,34 +463,50 @@ def auto_load_image(
     out_link = BUILD_DIR / f"run-result-{os.getpid()}"
     pkg_json = json.dumps(extra_packages) if extra_packages else ""
 
-    # macOS: a from-source build needs the Linux builder VM up first.  The
-    # run path doesn't go through `yolo check`, so ensure it here — same
-    # preflight logic, with console callbacks — before the real build tries
-    # to offload to a possibly-dead builder.  Returns False → build is doomed
-    # and the preflight already explained why; abort cleanly.
-    if IS_MACOS:
-        from .check_cmd import _preflight_builder_needs
+    # macOS: a from-source build must offload to Linux.  On a container
+    # runtime, spin the on-demand container builder (ephemeral nix+sshd on the
+    # same runtime) and hand nix its --builders line — no VM, no idle RAM.
+    # Only when a build is actually needed (dry-run says so); a fully-cached
+    # image substitutes with no builder at all.  builder_session yields None if
+    # the builder couldn't start → fall through to a plain build (which will
+    # fail with the actionable "needs a builder" diagnosis below).
+    if IS_MACOS and runtime in ("podman", "container"):
+        from .check_cmd import _nix_dry_run_will_build
+        from .container_builder import builder_session
 
-        if (
-            _preflight_builder_needs(
-                repo_root,
-                extra_packages,
-                ok=lambda m: console.print(f"[dim]- {m}[/dim]"),
-                warn=lambda m, n="": console.print(f"[yellow]- {m}[/yellow]"),
-                fail=lambda m, n="": console.print(
-                    f"[bold red]{m}[/bold red]" + (f"\n{n}" if n else "")
-                ),
+        will_build, _ = _nix_dry_run_will_build(repo_root, extra_packages)
+        if will_build:
+            console.print(
+                "[dim]- A package must be built from source; starting the "
+                "on-demand Linux builder container…[/dim]"
             )
-            is False
-        ):
-            return False
-
-    current_path, build_stderr_tail = _build_image_store_path(
-        repo_root,
-        extra_packages=extra_packages,
-        out_link=out_link,
-        status_message="[bold blue]Checking jail image...",
-    )
+            with builder_session(runtime) as builders:
+                if builders is None:
+                    console.print(
+                        "[yellow]- Could not start the container builder; "
+                        "attempting the build anyway.[/yellow]"
+                    )
+                current_path, build_stderr_tail = _build_image_store_path(
+                    repo_root,
+                    extra_packages=extra_packages,
+                    out_link=out_link,
+                    status_message="[bold blue]Building jail image on the Linux builder…",
+                    builders=builders,
+                )
+        else:
+            current_path, build_stderr_tail = _build_image_store_path(
+                repo_root,
+                extra_packages=extra_packages,
+                out_link=out_link,
+                status_message="[bold blue]Checking jail image...",
+            )
+    else:
+        current_path, build_stderr_tail = _build_image_store_path(
+            repo_root,
+            extra_packages=extra_packages,
+            out_link=out_link,
+            status_message="[bold blue]Checking jail image...",
+        )
 
     if current_path is None:
         # If the image already exists in the runtime, proceed — a build failure

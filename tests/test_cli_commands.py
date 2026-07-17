@@ -119,6 +119,48 @@ class TestAutoLoadImage:
         # (rather than fall through to a registry-pull 401).
         assert ok is False
 
+    def test_macos_container_runtime_builds_via_container_builder(
+        self, tmp_path, monkeypatch
+    ):
+        """On macOS + a container runtime, a from-source build must open the
+        on-demand container builder and hand its --builders line to the nix
+        build (roadmap #3). Regression guard for the wiring."""
+        import contextlib
+
+        import cli.image as im
+
+        seen = {}
+
+        @contextlib.contextmanager
+        def fake_session(runtime):
+            seen["runtime"] = runtime
+            yield "ssh-ng://root@127.0.0.1:31022 aarch64-linux /k 4"
+
+        def fake_build(
+            repo_root, extra_packages=None, *, out_link, status_message, builders=None
+        ):
+            seen["builders"] = builders
+            return "/nix/store/fake-ociImage", []
+
+        monkeypatch.setattr(im, "IS_MACOS", True)
+        monkeypatch.setattr(
+            "cli.check_cmd._nix_dry_run_will_build", lambda *a: (True, ["x.drv"])
+        )
+        monkeypatch.setattr("cli.container_builder.builder_session", fake_session)
+        monkeypatch.setattr(im, "_build_image_store_path", fake_build)
+        # short-circuit the load path after the build so we only test the build wiring
+        monkeypatch.setattr(
+            im, "_read_loaded_paths", lambda *a: {"/nix/store/fake-ociImage"}
+        )
+        monkeypatch.setattr(
+            im.subprocess, "run", lambda *a, **k: MagicMock(returncode=0)
+        )
+        with patch("cli.image.BUILD_DIR", tmp_path):
+            auto_load_image(tmp_path, extra_packages=["jq"], runtime="container")
+
+        assert seen["runtime"] == "container"  # session opened for the AC runtime
+        assert seen["builders"].startswith("ssh-ng://root@")  # line threaded to build
+
     @patch("cli.image._build_image_store_path")
     @patch("cli.image._read_loaded_paths", return_value=set())
     @patch("cli.image._add_loaded_path")
