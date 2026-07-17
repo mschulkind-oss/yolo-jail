@@ -84,10 +84,11 @@ run); the whole "run agent in jail" row for AC under current session's fixes.
 4. ✅ **Publish `builderImage` to GHCR** — DONE + LIVE + PUBLIC. The
    `push-builder-image` job ran on the v0.6.0 release and pushed
    `ghcr.io/mschulkind-oss/yolo-jail-builder:{0.6.0,latest}` (arm64/linux,
-   verified: anonymous pull HTTP 200, sshd :22). The auto-visibility PATCH
-   404'd (GITHUB_TOKEN lacks org-package-admin) → flipped public MANUALLY in
-   GHCR settings. TODO: make the visibility step reliable (a PAT with
-   `packages` scope, or accept the one-time manual flip per new package).
+   verified: anonymous pull HTTP 200, sshd :22). Package was flipped Public
+   once in GHCR settings — visibility is a persistent per-PACKAGE property, so
+   every future release's tags inherit it; no per-release action needed. (The
+   auto-PATCH step was removed: it 404'd on the one case that mattered — first
+   creation, which the default token can't admin — and was a no-op otherwise.)
 5. **Rework builder.py off the detached-Popen/`nix run` model** → either the
    container builder (primary) or a launchd plist for the QEMU fallback.
 6. **Turn on Cachix** (deferred) — removes the builder entirely for cached images.

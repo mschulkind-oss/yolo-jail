@@ -280,16 +280,11 @@ jobs:
           skopeo copy "docker-archive:/tmp/builder.tar" \
             "docker://${REPO}:latest"
           echo "Pushed ${REPO}:${VERSION} and :latest"
-
-      - name: Make the package public (best-effort)
-        continue-on-error: true
-        run: |
-          # Public = no-auth pull for macOS users.  A first-time push creates
-          # a PRIVATE package; flip it public.  Best-effort — the initial
-          # release may need a manual visibility flip in GHCR settings.
-          gh api -X PATCH \
-            "/orgs/${GITHUB_REPOSITORY_OWNER}/packages/container/yolo-jail-builder/visibility" \
-            -f visibility=public 2>/dev/null \
-            || echo "Could not auto-set visibility; flip yolo-jail-builder to public in GHCR settings once."
-        env:
-          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          # Visibility is a persistent, per-PACKAGE property — set ONCE (already
+          # done for yolo-jail-builder) and inherited by every future tag push.
+          # No per-release flip needed.  If the package is ever renamed, the new
+          # name is created PRIVATE by the first push; flip it to Public once in
+          # GHCR → Packages → yolo-jail-builder → Settings → Change visibility.
+          # (No auto-PATCH here: the default GITHUB_TOKEN can't admin a
+          # just-created org package, so it always 404'd — the step was a no-op
+          # after the one-time manual flip and dead weight on every release.)
