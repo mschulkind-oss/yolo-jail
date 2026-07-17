@@ -10,14 +10,21 @@ when idle.  Running jails never touch the builder — it's a build-time-only
 dependency — so keeping it resident would waste ~3 GB for a thing used minutes
 a day.  See ``docs/handoff-macos-ondemand-builder.md`` for the decision.
 
+``yolo builder setup`` does the wiring FOR the user: it explains what will
+happen, then runs every privileged mutation in ONE ``sudo`` invocation (a
+single password prompt) via a generated root script.  This is an interactive
+per-run prompt, not a sudo-policy change — it never installs NOPASSWD rules
+and never silently mutates files (it prints the exact script first).
+
 Split of concerns:
   * **Pure / verifiable-on-Linux** — reachability (``builder_reachable``),
     setup-state probing (``builder_setup_state``), the ensure-orchestration
-    (``ensure_builder``), status, and the nix.conf / ssh_config content
-    generators.  All socket/subprocess-mockable; unit-tested.
-  * **Privileged / macOS-only apply** — writing ``/etc/nix`` + ``/etc/ssh``
-    and (re)starting the launchd service.  Command construction is testable;
-    the actual apply must be verified on a Mac (see the handoff).
+    (``ensure_builder``), status, trusted-users merge, and the nix.conf /
+    ssh_config / launchd-plist / root-script generators.  All
+    string/socket/subprocess-mockable; unit-tested.
+  * **Privileged / macOS-only apply** — actually running the root script and
+    the VM-credential install.  The script content is testable; running it
+    (and the VM bring-up it enables) is verified on a Mac (see the handoff).
 """
 
 from __future__ import annotations
@@ -47,6 +54,12 @@ SSH_CONFIG_PATH = Path("/etc/ssh/ssh_config.d/100-linux-builder.conf")
 # _detect_nix_daemon_label()).
 BUILDER_LAUNCHD_LABEL = "org.yolo-jail.linux-builder"
 
+# The command the launchd service runs to boot the VM.  darwin.linux-builder
+# builds a `create-builder` program; we resolve its store path at setup time
+# (`nix build nixpkgs#darwin.linux-builder`) and substitute it into the plist.
+# This placeholder is what the plist generator emits until resolved.
+BUILDER_INSTALLER_BIN = "/run/current-system/sw/bin/create-builder"
+
 # How long to wait for the VM to answer SSH after we start it.  A cache-served
 # VM boots in a few seconds; give generous headroom.  Tune once measured on a
 # Mac (see handoff open-question #2).
@@ -54,8 +67,9 @@ BUILDER_START_TIMEOUT_S = 90
 BUILDER_POLL_INTERVAL_S = 1.0
 
 
-def builder_reachable(host: str = "127.0.0.1", port: int = BUILDER_PORT,
-                      timeout: float = 1.0) -> bool:
+def builder_reachable(
+    host: str = "127.0.0.1", port: int = BUILDER_PORT, timeout: float = 1.0
+) -> bool:
     """True if something is accepting TCP on the builder's SSH port.
 
     A cheap liveness signal — the VM forwards guest sshd to
@@ -156,6 +170,170 @@ def nix_builders_line(max_jobs: int = 4) -> str:
     )
 
 
+def _current_trusted_users() -> list[str]:
+    """The daemon's effective ``trusted-users`` (via ``nix config show``).
+
+    Reading the *effective* value (not just grepping one conf file) is what
+    lets us MERGE rather than clobber — Nix is last-line-wins across all its
+    conf files, so a naive append could silently drop ``@admin`` or another
+    user someone set elsewhere.  Best-effort: empty list if nix is
+    unavailable.
+    """
+    try:
+        r = subprocess.run(
+            ["nix", "config", "show"], capture_output=True, text=True, timeout=10
+        )
+    except (OSError, subprocess.SubprocessError):
+        return []
+    if r.returncode != 0:
+        return []
+    for line in r.stdout.splitlines():
+        if line.startswith("trusted-users") and "=" in line:
+            return line.split("=", 1)[1].split()
+    return []
+
+
+def trusted_users_line(current: list[str], me: str) -> Optional[str]:
+    """A merged ``trusted-users`` line adding *me*, or None if already trusted.
+
+    Preserves ``root`` and every existing entry (incl. ``@admin`` groups);
+    returns None when *me* (or a group that covers it, ``@admin``/``@wheel``)
+    is already present, so setup skips a redundant write.
+    """
+    have = set(current)
+    if me in have or "@admin" in have or "@wheel" in have:
+        return None
+    merged = list(dict.fromkeys(["root", *current, me]))  # dedup, keep order
+    return "trusted-users = " + " ".join(merged)
+
+
+def launchd_plist(idle_timeout_min: int = 30, resident: bool = False) -> str:
+    """The launchd plist for the on-demand builder service.
+
+    ``resident=False`` (default): the service is demand-started (yolo
+    kickstarts it) and NOT kept alive, so it exits when the VM is shut down
+    by the idle watchdog.  ``resident=True``: ``KeepAlive`` for users who
+    build so constantly that even a warm-session boot annoys them.
+
+    The idle-stop watchdog itself is a separate concern (a timer that stops
+    the VM after no builds for ``idle_timeout_min``); this plist just defines
+    the service launchd manages.  The ``create-builder`` command comes from
+    the darwin.linux-builder installer at ``BUILDER_INSTALLER_BIN``.
+    """
+    keepalive = "<true/>" if resident else "<false/>"
+    return (
+        '<?xml version="1.0" encoding="UTF-8"?>\n'
+        '<!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" '
+        '"http://www.apple.com/DTDs/PropertyList-1.0.dtd">\n'
+        '<plist version="1.0">\n'
+        "<dict>\n"
+        f"  <key>Label</key><string>{BUILDER_LAUNCHD_LABEL}</string>\n"
+        "  <key>ProgramArguments</key>\n"
+        f"  <array><string>{BUILDER_INSTALLER_BIN}</string></array>\n"
+        f"  <key>KeepAlive</key>{keepalive}\n"
+        "  <key>RunAtLoad</key><false/>\n"
+        "  <key>StandardOutPath</key><string>/var/log/yolo-linux-builder.log</string>\n"
+        "  <key>StandardErrorPath</key><string>/var/log/yolo-linux-builder.log</string>\n"
+        f"  <!-- idle timeout: {idle_timeout_min} min (watchdog stops the VM) -->\n"
+        "</dict>\n"
+        "</plist>\n"
+    )
+
+
+def setup_root_script(
+    max_jobs: int, me: str, current_trusted: list[str], conf_path: Path
+) -> str:
+    """The ONE root script ``yolo builder setup`` runs under a single sudo.
+
+    Batches every privileged mutation so the user sees one password prompt:
+      1. append the ``builders`` line to the daemon conf (idempotent guard);
+      2. merge-in trusted-users if *me* isn't already trusted;
+      3. write the ssh_config block;
+      4. install the launchd service plist;
+      5. restart the nix-daemon to apply.
+
+    Pure string builder — no side effects — so it's fully unit-testable; the
+    caller runs it via ``sudo bash``.  Uses heredocs/guards so re-running is
+    safe (won't duplicate lines).
+    """
+    label = _detect_nix_daemon_label() or "org.nixos.nix-daemon"
+    tu_line = trusted_users_line(current_trusted, me)
+    plist_dir = "/Library/LaunchDaemons"
+    plist_path = f"{plist_dir}/{BUILDER_LAUNCHD_LABEL}.plist"
+    lines = [
+        "set -euo pipefail",
+        "",
+        "# 1. Offload aarch64-linux builds to the builder VM (guard: skip if present).",
+        f"if ! grep -qs 'ssh-ng://{BUILDER_USER}@{BUILDER_SSH_HOST}' {conf_path}; then",
+        f"  cat >> {conf_path} <<'YOLO_EOF'",
+        nix_builders_line(max_jobs).rstrip("\n"),
+        "YOLO_EOF",
+        "fi",
+    ]
+    if tu_line is not None:
+        lines += [
+            "",
+            "# 2. Trust this user to hand the daemon a builder (merged, not clobbered).",
+            f"cat >> {conf_path} <<'YOLO_EOF'",
+            tu_line,
+            "YOLO_EOF",
+        ]
+    lines += [
+        "",
+        "# 3. ssh host alias so the daemon can reach the VM.",
+        f"mkdir -p {SSH_CONFIG_PATH.parent}",
+        f"cat > {SSH_CONFIG_PATH} <<'YOLO_EOF'",
+        ssh_config_block().rstrip("\n"),
+        "YOLO_EOF",
+        "",
+        "# 4. launchd service for the on-demand builder.",
+        f"cat > {plist_path} <<'YOLO_EOF'",
+        launchd_plist().rstrip("\n"),
+        "YOLO_EOF",
+        "",
+        "# 5. Apply: restart the nix-daemon.",
+        f"launchctl kickstart -k system/{label}",
+    ]
+    return "\n".join(lines) + "\n"
+
+
+def run_setup(
+    max_jobs: int,
+    me: str,
+    on_output=None,
+    _run=None,
+) -> tuple[bool, Optional[str]]:
+    """Do the whole privileged wiring in ONE ``sudo`` (single password prompt).
+
+    Pipes ``setup_root_script`` to ``sudo bash -s`` with the terminal
+    inherited so the sudo password prompt is visible and the user types it
+    once.  ``sudo`` may already be warm (recent prompt) → zero prompts.  This
+    is an interactive per-run prompt, NOT a sudo-policy change.
+
+    ``_run`` is injectable for tests (defaults to ``subprocess.run``);
+    ``on_output`` is unused for the piped form but kept for symmetry.
+    Returns ``(ok, error)``.
+    """
+    run = _run or subprocess.run
+    script = setup_root_script(
+        max_jobs, me, _current_trusted_users(), _builder_conf_path()
+    )
+    try:
+        # `sudo bash -s` reads the script on stdin; the tty stays attached for
+        # the password prompt.  A single sudo authenticates the whole script.
+        r = run(
+            ["sudo", "bash", "-s"],
+            input=script,
+            text=True,
+            timeout=120,
+        )
+    except (OSError, subprocess.SubprocessError) as e:
+        return False, str(e)
+    if getattr(r, "returncode", 1) != 0:
+        return False, f"privileged setup exited {r.returncode}"
+    return True, None
+
+
 # ── Lifecycle (launchctl command construction is testable; apply is Mac) ────
 
 
@@ -172,9 +350,7 @@ def _stop_cmd() -> list[str]:
 def start_builder() -> tuple[bool, Optional[str]]:
     """Ask launchd to start the builder VM. Returns (started_ok, error)."""
     try:
-        r = subprocess.run(
-            _start_cmd(), capture_output=True, text=True, timeout=15
-        )
+        r = subprocess.run(_start_cmd(), capture_output=True, text=True, timeout=15)
     except (OSError, subprocess.SubprocessError) as e:
         return False, str(e)
     if r.returncode != 0:
@@ -185,9 +361,7 @@ def start_builder() -> tuple[bool, Optional[str]]:
 def stop_builder() -> tuple[bool, Optional[str]]:
     """Ask launchd to stop the builder VM. Returns (stopped_ok, error)."""
     try:
-        r = subprocess.run(
-            _stop_cmd(), capture_output=True, text=True, timeout=15
-        )
+        r = subprocess.run(_stop_cmd(), capture_output=True, text=True, timeout=15)
     except (OSError, subprocess.SubprocessError) as e:
         return False, str(e)
     if r.returncode != 0:

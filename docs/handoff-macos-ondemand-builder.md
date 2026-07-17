@@ -44,23 +44,34 @@ shaving the common case.
 
 ## The frictionless UX (what replaces today's FAIL-and-babysit)
 
-1. **`yolo builder setup`** — ONE sudo prompt. Writes the whole offload wiring
-   the user currently copy-pastes:
+1. **`yolo builder setup`** — explains what will change, shows the exact root
+   script, then RUNS the whole offload wiring in **ONE `sudo`** (a single
+   interactive password prompt; `--yes` to skip the confirm, `--show` to print
+   without running). This is an interactive per-run prompt, NOT a sudo-policy
+   change — no NOPASSWD, nothing silent (the script is printed first). The
+   batched script (`builder.setup_root_script`, piped to `sudo bash -s`):
    - the `builders = ssh-ng://builder@linux-builder aarch64-linux
-     /etc/nix/builder_ed25519 <maxjobs> - - - <base64hostkey>` line +
+     /etc/nix/builder_ed25519 <maxjobs> - - - -` line +
      `builders-use-substitutes = true` into the daemon's nix.conf
-     (`/etc/nix/nix.custom.conf` on Determinate, else `/etc/nix/nix.conf`);
-   - the ssh key install (`install-credentials.sh`) — the sudo the manual
-     mentions;
+     (`/etc/nix/nix.custom.conf` on Determinate, else `/etc/nix/nix.conf`),
+     guarded by a `grep` so re-running never duplicates it;
    - `/etc/ssh/ssh_config.d/100-linux-builder.conf` `Host linux-builder` block
      (Hostname localhost, HostKeyAlias linux-builder, Port 31022, User builder,
      IdentityFile /etc/nix/builder_ed25519);
-   - a launchd service definition for on-demand start (NOT `KeepAlive=true`);
+   - a launchd service plist for on-demand start (NOT `KeepAlive=true`);
    - daemon restart (`launchctl kickstart -k system/<label>`, label from
      `_detect_nix_daemon_label()`).
-   - trusted-users: still required; setup checks it and, if missing, shows the
-     exact one-liner (do NOT silently mutate — that policy decision is the
-     user's, per prior session constraint). If already trusted, silent.
+   - **trusted-users: MERGED, not clobbered.** `builder.trusted_users_line`
+     reads the *effective* set via `nix config show` and rewrites `root + …
+     existing … + me`, skipping the write entirely if the user is already
+     trusted (directly or via `@admin`/`@wheel`). This is safe to auto-run
+     because it preserves what's there — the prior "don't silently mutate"
+     constraint was about *hidden* changes and *sudo-policy* changes, neither
+     of which applies to a visible, script-printed, password-prompted merge.
+   - **VM ssh-key install** (`install-credentials.sh`) is done by nixpkgs' own
+     `create-builder`/`darwin.linux-builder` installer, which prompts for sudo
+     separately the first time. Setup notes this; folding it into the same
+     single prompt is a Mac-verification open item (see below).
 
 2. **Auto-ensure on build.** On any `yolo` / `yolo check` / `yolo build` where
    the dry-run says "will build" on macOS: if the builder isn't reachable,
@@ -86,49 +97,52 @@ shaving the common case.
   defaults (3072 MB) — **warn** in `yolo check` that changing these means the VM
   is no longer cache-served and must build once.
 
-## What can be done on Linux (this dev jail) vs must wait for a Mac
+## What is DONE (implemented + unit-tested on Linux) vs must wait for a Mac
 
-**Implement + unit-test here (no VM):**
-- `yolo builder` typer group (`setup`/`start`/`stop`/`status`) — arg parsing,
-  dispatch, and the pure logic (which files it *would* write, which commands it
-  *would* run), with subprocess/sudo mocked (mirror the existing
-  `monkeypatch.setattr(_cc.subprocess, "run", …)` test pattern).
-- A `builder.py` module (host-side) with: `builder_reachable()` (TCP connect to
-  127.0.0.1:31022 or `ssh -o BatchMode linux-builder true`), `ensure_builder()`
-  (start + poll-until-ready with timeout), `builder_status()`, launchd
-  plist/label constants, and the nix.conf/ssh_config content generators (pure
-  string builders — unit-testable).
-- Rewire `_preflight_builder_needs`: on macOS, when a build is needed and no
-  builder is reachable but setup HAS been done, call `ensure_builder()` and
-  re-check instead of FAILing. Only FAIL if setup is absent or start times out.
-- Update `_has_linux_builder()` to also recognize the yolo-managed builder
-  (ssh-ng ssh config entry / reachable port), not just `/etc/nix/machines`.
-- Reword `_LINUX_BUILDER_REMEDY_TEMPLATE`: lead with `yolo builder setup` as THE
-  step; drop the "leave it running in a terminal" instruction entirely.
-- Docs: rewrite `docs/macos.md` "Building the image" section around
-  `yolo builder setup` + on-demand; keep Cachix as the optional optimization.
+**Done — `src/cli/builder.py`, `src/cli/builder_cmd.py`, `tests/test_builder.py`
+(25 cases), preflight rewire in `check_cmd.py`:**
+- `yolo builder` typer group (`setup`/`start`/`stop`/`status`), macОS-gated.
+- `builder_reachable()` (TCP :31022 probe), `ensure_builder()` (start +
+  poll-until-ready with an INJECTABLE clock so tests don't sleep),
+  `builder_status()`, `start_builder`/`stop_builder` (launchctl).
+- Content generators (pure, tested): `nix_builders_line`, `ssh_config_block`,
+  `launchd_plist(resident=)`, and — the batched-sudo core —
+  `setup_root_script()` + `run_setup()` (pipes the script to a single
+  `sudo bash -s`). `trusted_users_line()` MERGES via `nix config show`.
+- `_preflight_builder_needs`: on macOS, build-needed + no static builder + setup
+  done → `ensure_builder()` and PASS instead of FAIL. FAIL only if setup absent
+  or the VM won't come up.
+- `_LINUX_BUILDER_REMEDY_TEMPLATE` reworded: leads with `yolo builder setup`;
+  the "leave it running in a terminal" instruction is gone.
 
 **Must be verified on a Mac (unrunnable from Linux):**
-- That `yolo builder setup` writes correct files and the daemon actually
-  offloads (`nix build .#ociImage` succeeds with the VM auto-started).
-- Poll-until-ready timing (how long from kickstart to SSH-answers) → tune the
-  timeout + the "starting builder…" progress UX.
+- **`BUILDER_INSTALLER_BIN` is a PLACEHOLDER** (`/run/current-system/sw/bin/
+  create-builder`). The real path is the store path from
+  `nix build nixpkgs#darwin.linux-builder` (its `create-builder` output).
+  `setup` must resolve that at run time and substitute it into the plist —
+  wire this on the Mac where the build actually resolves.
+- That `run_setup()`'s single-sudo script applies cleanly and the daemon
+  actually offloads (`nix build .#ociImage` succeeds with the VM auto-started).
+- Poll-until-ready timing (kickstart → SSH-answers) → tune `BUILDER_START_
+  TIMEOUT_S` + the "starting builder…" progress UX.
 - launchd idle-stop actually fires and reclaims RAM; resident vs on-demand knob.
-- Interaction with both Determinate and official Nix daemon labels.
-- Whether `create-builder` needs sudo every start or just once (key install is
-  one-time; VM start should not need sudo if the service is a system daemon).
+- Both Determinate and official Nix daemon labels through the real restart.
+- `_has_linux_builder()` currently only recognizes `/etc/nix/machines` +
+  inline `builders`; confirm it (or `builder_setup_state`) recognizes the
+  yolo-written ssh-ng builder so `yolo check` shows the right state.
 
 ## Open questions for the Mac session
 
-1. Does `create-builder`/`run-linux-builder` need a controlling TTY, or does it
-   daemonize cleanly under launchd with stdout to a logfile? (Manual shows both
-   the interactive `nix run` form and the launchd form — confirm the launchd
-   form needs no login shell.)
+1. Does `create-builder`/`run-linux-builder` daemonize cleanly under launchd
+   (stdout to the logfile, no controlling TTY)? The plist assumes yes
+   (`RunAtLoad=false`, demand-started via `launchctl kickstart`).
 2. Idle detection: does the builder expose an idle signal, or do we implement
    the watchdog ourselves (e.g. stop if no ssh connection for N min)? Simplest:
    yolo stamps a "last build" file and a launchd timer stops the VM if stale.
-3. First-run key install sudo: fold into `yolo builder setup` so it's the same
-   single prompt, not a surprise second one.
+   The plist has an idle-timeout comment but NO watchdog yet — add it here.
+3. First-run key install sudo: fold `create-builder`'s credential install into
+   `yolo builder setup`'s single prompt so there's no surprise second sudo.
+   (Currently setup notes it as a separate nixpkgs-installer prompt.)
 
 ## Cross-refs
 

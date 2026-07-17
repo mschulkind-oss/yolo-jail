@@ -36,6 +36,74 @@ def test_nix_builders_line_names_aarch64_and_substitutes():
     assert "builders-use-substitutes = true" in line
 
 
+def test_trusted_users_line_merges_preserving_existing():
+    # Adds `me`, keeps root + any existing entries, dedups, root first.
+    line = b.trusted_users_line(["root", "alice"], "matt")
+    assert line == "trusted-users = root alice matt"
+
+
+def test_trusted_users_line_none_when_already_trusted():
+    assert b.trusted_users_line(["root", "matt"], "matt") is None
+
+
+def test_trusted_users_line_none_when_admin_group_covers():
+    # @admin / @wheel group membership already covers the user.
+    assert b.trusted_users_line(["root", "@admin"], "matt") is None
+    assert b.trusted_users_line(["@wheel"], "matt") is None
+
+
+def test_setup_root_script_batches_all_steps_and_guards():
+    script = b.setup_root_script(4, "matt", ["root"], Path("/etc/nix/nix.conf"))
+    # one script, all privileged steps present
+    assert "set -euo pipefail" in script
+    assert "ssh-ng://builder@linux-builder" in script  # builders line
+    assert "grep -qs" in script  # idempotency guard on the builders line
+    assert "trusted-users = root matt" in script  # merged trust
+    assert "100-linux-builder.conf" in script  # ssh config
+    assert ".plist" in script  # launchd service
+    assert "launchctl kickstart -k system/" in script  # apply
+
+
+def test_setup_root_script_omits_trusted_users_when_already_trusted():
+    script = b.setup_root_script(
+        4, "matt", ["root", "@admin"], Path("/etc/nix/nix.conf")
+    )
+    assert "trusted-users" not in script  # nothing to change → not written
+
+
+def test_run_setup_pipes_script_to_single_sudo(monkeypatch):
+    from types import SimpleNamespace
+
+    captured = {}
+
+    def fake_run(cmd, input=None, text=None, timeout=None):
+        captured["cmd"] = cmd
+        captured["input"] = input
+        return SimpleNamespace(returncode=0)
+
+    monkeypatch.setattr(b, "_current_trusted_users", lambda: ["root"])
+    monkeypatch.setattr(b, "_builder_conf_path", lambda: Path("/etc/nix/nix.conf"))
+    ok, err = b.run_setup(4, "matt", _run=fake_run)
+    assert ok is True and err is None
+    # exactly one sudo, script on stdin (single password prompt)
+    assert captured["cmd"] == ["sudo", "bash", "-s"]
+    assert "ssh-ng://builder@linux-builder" in captured["input"]
+
+
+def test_run_setup_reports_nonzero_exit(monkeypatch):
+    from types import SimpleNamespace
+
+    monkeypatch.setattr(b, "_current_trusted_users", lambda: ["root"])
+    monkeypatch.setattr(b, "_builder_conf_path", lambda: Path("/etc/nix/nix.conf"))
+    ok, err = b.run_setup(4, "matt", _run=lambda *a, **k: SimpleNamespace(returncode=3))
+    assert ok is False and "exited 3" in err
+
+
+def test_launchd_plist_resident_toggles_keepalive():
+    assert "<key>KeepAlive</key><false/>" in b.launchd_plist(resident=False)
+    assert "<key>KeepAlive</key><true/>" in b.launchd_plist(resident=True)
+
+
 def test_launchctl_commands():
     assert b._start_cmd() == [
         "launchctl",
@@ -162,9 +230,7 @@ def test_ensure_builder_times_out_if_never_reachable(monkeypatch):
     monkeypatch.setattr(b, "builder_setup_state", lambda: {"done": True})
     monkeypatch.setattr(b, "start_builder", lambda: (True, None))
     # Drive the poll clock so it "times out" without real sleeping.
-    monkeypatch.setattr(
-        b, "_poll_until_reachable", lambda *a, **k: False
-    )
+    monkeypatch.setattr(b, "_poll_until_reachable", lambda *a, **k: False)
     ok, err = b.ensure_builder()
     assert ok is False
     assert "did not become reachable" in err
@@ -184,7 +250,10 @@ def test_poll_returns_true_as_soon_as_reachable(monkeypatch):
     def sleep(dt):
         t["v"] += dt
 
-    assert b._poll_until_reachable(timeout_s=10, interval_s=1, _sleep=sleep, _now=now) is True
+    assert (
+        b._poll_until_reachable(timeout_s=10, interval_s=1, _sleep=sleep, _now=now)
+        is True
+    )
 
 
 def test_poll_times_out_when_never_reachable(monkeypatch):
@@ -197,7 +266,10 @@ def test_poll_times_out_when_never_reachable(monkeypatch):
     def sleep(dt):
         t["v"] += dt
 
-    assert b._poll_until_reachable(timeout_s=3, interval_s=1, _sleep=sleep, _now=now) is False
+    assert (
+        b._poll_until_reachable(timeout_s=3, interval_s=1, _sleep=sleep, _now=now)
+        is False
+    )
 
 
 # ── start/stop error handling ────────────────────────────────────────────────
@@ -209,7 +281,9 @@ def test_start_builder_nonzero_returns_error(monkeypatch):
     monkeypatch.setattr(
         b.subprocess,
         "run",
-        lambda *a, **k: SimpleNamespace(returncode=1, stdout="", stderr="no such service"),
+        lambda *a, **k: SimpleNamespace(
+            returncode=1, stdout="", stderr="no such service"
+        ),
     )
     ok, err = b.start_builder()
     assert ok is False and "no such service" in err
