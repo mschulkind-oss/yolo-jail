@@ -87,6 +87,8 @@ run); the whole "run agent in jail" row for AC under current session's fixes.
 7. QEMU `darwin.linux-builder` as the documented fallback (roadmap).
 
 ## 6. Cross-refs
+- **[runbooks/mac-ac-container-builder.md](runbooks/mac-ac-container-builder.md)** — Mac test (zero-sudo) for the gating AC-builder cell.
+- **[runbooks/mac-macos-user-e2e.md](runbooks/mac-macos-user-e2e.md)** — Mac test (you-drive) for the macos-user backend.
 - [macos-container-builder-exploration.md](macos-container-builder-exploration.md) — why container-builder, image sourcing, AC risk.
 - [macos-linux-builder-explained.md](macos-linux-builder-explained.md) — the Linux-person's explainer of the whole builder question.
 - [macos-no-vm-direction.md](macos-no-vm-direction.md) — the "pursue both backends" decision.
