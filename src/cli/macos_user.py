@@ -6,9 +6,10 @@ Seatbelt (``sandbox-exec``) profile — no Linux container, no VM, no arch
 switch.  It is the yolo-jail port of SandVault's design
 (github.com/webcoyote/sandvault); we deliberately match SandVault's
 security posture so there is a concrete standard to point at.  See
-``docs/macos-native-user-sandbox-design.md`` for the honest security delta
-vs. the container backend (weaker: shared kernel, deprecated sandbox-exec,
-no resource caps) and why it's opt-in only.
+``docs/macos-no-vm-direction.md`` for the honest security delta vs. the
+container backend (weaker: shared kernel, deprecated sandbox-exec, no
+resource caps) and why it's opt-in only.  ``packages:`` is materialized as
+native aarch64-darwin nix — see ``src/cli/darwin_packages.py``.
 
 **Design of this module.**  Everything that produces an *artifact* — the
 account-provisioning command lists, the workspace ACL grant, the Seatbelt
@@ -24,7 +25,7 @@ import os
 import shutil
 import subprocess
 import sys
-from dataclasses import dataclass
+from dataclasses import dataclass, field
 from pathlib import Path
 from typing import Any, Dict, List, Optional
 
@@ -470,7 +471,7 @@ def seatbelt_profile(workspace: Path, sandbox_home: Path = SANDBOX_HOME) -> str:
 # ---------------------------------------------------------------------------
 
 
-def sandbox_path(home: Path = SANDBOX_HOME) -> str:
+def sandbox_path(home: Path = SANDBOX_HOME, prefix: Optional[List[str]] = None) -> str:
     """PATH for the sandboxed agent — its own bin dirs first, then system.
 
     Mirrors the jail's PATH ordering (shims → .local/bin → npm-global →
@@ -478,6 +479,10 @@ def sandbox_path(home: Path = SANDBOX_HOME) -> str:
     (``~/.yolo-shims/claude`` etc.) and mise-managed tools are found, then
     system binaries.  Without this the scrubbed ``env -i`` PATH wouldn't
     include the agent binaries at all.
+
+    ``prefix`` (the native darwin ``packages:`` store bin dirs) is inserted
+    AFTER the agent/tool dirs but BEFORE the system dirs — so declared
+    packages shadow ``/usr/bin`` while the agent shim launchers still win.
     """
     h = str(home)
     return ":".join(
@@ -487,6 +492,7 @@ def sandbox_path(home: Path = SANDBOX_HOME) -> str:
             f"{h}/.npm-global/bin",
             f"{h}/.local/share/mise/shims",
             f"{h}/go/bin",
+            *(prefix or []),
             "/usr/bin",
             "/bin",
             "/usr/sbin",
@@ -503,6 +509,7 @@ def launch_argv(
     workspace: Path,
     user: str = SANDBOX_USER,
     home: Path = SANDBOX_HOME,
+    path_prefix: Optional[List[str]] = None,
 ) -> List[str]:
     """Build the ``sudo -u … env -i … sandbox-exec -f … -- <agent>`` argv.
 
@@ -525,7 +532,7 @@ def launch_argv(
         f"HOME={home}",
         f"USER={user}",
         "SHELL=/bin/zsh",
-        f"PATH={sandbox_path(home)}",
+        f"PATH={sandbox_path(home, path_prefix)}",
     ]
     for k, v in sandbox_env.items():
         if k in protected:
@@ -804,6 +811,14 @@ class RunPlan:
     # The home dir the workspace lives inside, or None when it's on neutral
     # ground.  Non-None is a hard error (the run refuses).
     offending_home: Optional[Path] = None
+    # Native aarch64-darwin ``packages:`` materialization results (populated by
+    # the caller after nix realizes the devShell; empty on the dry-run/no-nix
+    # path).  darwin_path_prefix rides into launch_argv's PATH; darwin_env is
+    # merged into sandbox_env; darwin_skipped names had no darwin build.
+    darwin_path_prefix: List[str] = field(default_factory=list)
+    darwin_env: Dict[str, str] = field(default_factory=dict)
+    darwin_skipped: List[str] = field(default_factory=list)
+    darwin_materialized: bool = False
 
 
 def _bootstrap_argv(
@@ -828,6 +843,7 @@ def build_run_plan(
     repo_src: Path,
     sandbox_env: Dict[str, str],
     interp: Optional[str],
+    darwin: Optional[Any] = None,
 ) -> RunPlan:
     """Assemble the full :class:`RunPlan` (pure — no shelling out).
 
@@ -837,7 +853,21 @@ def build_run_plan(
     lifted out of ``sandbox_env`` and baked into the bootstrap script too, so
     ``configure_git``/``configure_jj`` write the right identity under the
     bootstrap's scrubbed env.
+
+    ``darwin`` (a ``darwin_packages.DarwinPackages``, or None) carries the
+    already-materialized native ``packages:`` result — this function stays
+    PURE (the nix build happened in the caller).  When present its store bin
+    dirs are threaded into the launch PATH and its whitelisted env is merged
+    into the sandbox env.
     """
+    darwin_prefix = list(darwin.path_prefix) if darwin else []
+    darwin_env = dict(darwin.env) if darwin else {}
+    darwin_skipped = list(darwin.skipped) if darwin else []
+    if darwin_env:
+        # Merge non-PATH darwin build vars (e.g. PKG_CONFIG_PATH) into the
+        # launch env; the store PATH rides the separate path_prefix channel
+        # (launch_argv's protected quartet drops any PATH key in sandbox_env).
+        sandbox_env = {**sandbox_env, **darwin_env}
     cname = _cname(workspace)
     profile_path = session_profile_path(cname)
     bootstrap_path = STATE_DIR / f"bootstrap-{cname}.py"
@@ -875,9 +905,14 @@ def build_run_plan(
             profile_path=profile_path,
             sandbox_env=sandbox_env,
             workspace=workspace,
+            path_prefix=darwin_prefix,
         ),
         git_identity=git_identity,
         offending_home=home_containing(workspace),
+        darwin_path_prefix=darwin_prefix,
+        darwin_env=darwin_env,
+        darwin_skipped=darwin_skipped,
+        darwin_materialized=darwin is not None,
     )
 
 
@@ -928,6 +963,20 @@ def plan_invariants(plan: RunPlan) -> List[str]:
         if k not in plan.bootstrap:
             problems.append(f"git identity {k} not baked into the bootstrap env")
 
+    # Acceptance-bar guard: catch the WIRING bug where darwin materialization
+    # produced store bin dirs but they never reached the launch PATH — a green
+    # run with the declared tools silently absent is the exact failure that got
+    # the first macos-user attempt excised.  Checks the actual launch_argv, so
+    # it can't false-fire on a legitimately-empty prefix (all packages skipped,
+    # or library-only packages with no bin output).
+    launch_str = " ".join(plan.launch_argv)
+    for store_bin in plan.darwin_path_prefix:
+        if store_bin not in launch_str:
+            problems.append(
+                f"darwin package bin dir {store_bin} did not reach the launch "
+                "PATH — declared tools would be silently missing"
+            )
+
     return problems
 
 
@@ -943,8 +992,22 @@ def _print_plan(plan: RunPlan, problems: List[str]) -> None:
     console.print(f"profile:     {plan.profile_path}")
     console.print(f"staged src:  {staged_entrypoint_dir(plan.staged_dir)}")
     console.print(
-        f"git identity: {plan.git_identity or '(none — commits use no identity)'}\n"
+        f"git identity: {plan.git_identity or '(none — commits use no identity)'}"
     )
+    if plan.darwin_materialized:
+        console.print(
+            f"darwin pkgs: {len(plan.darwin_path_prefix)} store bin dir(s) on PATH"
+        )
+        if plan.darwin_skipped:
+            console.print(
+                f"  [yellow]skipped (no darwin build):[/yellow] "
+                f"{', '.join(plan.darwin_skipped)}"
+            )
+    else:
+        console.print(
+            "darwin pkgs: [dim]not materialized (dry-run — nix build skipped)[/dim]"
+        )
+    console.print()
 
     def _section(title: str, body: str) -> None:
         console.print(f"[bold]── {title} ──[/bold]")
@@ -1039,7 +1102,7 @@ def run_macos_user(
     from .console import console
     from .tty_proxy import run_with_proxy
 
-    def _plan() -> "RunPlan":
+    def _plan(darwin=None) -> "RunPlan":
         env = macos_sandbox_env(config)
         if sandbox_env:
             env.update(sandbox_env)
@@ -1051,10 +1114,12 @@ def run_macos_user(
             repo_src=repo_src,
             sandbox_env=env,
             interp=resolve_python(),
+            darwin=darwin,
         )
 
     # 0. Dry-run: build the plan, print it + its invariants, execute nothing.
-    # Pure, so CI and a Mac agent can both inspect it pre-launch on any OS.
+    # Pure (darwin=None → no nix build), so CI and a Mac agent can both inspect
+    # it pre-launch on any OS.  The Packages section shows the intent.
     if dry_run:
         plan = _plan()
         problems = plan_invariants(plan)
@@ -1071,7 +1136,33 @@ def run_macos_user(
         )
         return 1
 
-    plan = _plan()
+    # Materialize `packages:` as native aarch64-darwin nix (the acceptance
+    # bar).  Runs nix on the HOST user before any sandbox; on failure abort
+    # with an actionable message pointing at the Apple Container fallback
+    # rather than launch a sandbox missing the declared tools.
+    from .config import _effective_packages
+    from . import darwin_packages
+
+    darwin = None
+    pkgs = _effective_packages(config)
+    if pkgs:
+        try:
+            darwin = darwin_packages.materialize(repo_src.parent, pkgs)
+        except darwin_packages.DarwinPackagesError as e:
+            console.print(
+                f"[bold red]Could not materialize packages natively:[/bold red] {e}\n"
+                "[dim]Fix the package, or use the Apple Container runtime "
+                '(runtime: "container") which builds them in a Linux VM.[/dim]'
+            )
+            return 1
+        if darwin.skipped:
+            console.print(
+                "[yellow]Skipped packages with no aarch64-darwin build:[/yellow] "
+                f"{', '.join(darwin.skipped)}  "
+                "[dim](use the container runtime for these)[/dim]"
+            )
+
+    plan = _plan(darwin)
     problems = plan_invariants(plan)
     if problems:
         console.print("[bold red]macos-user run plan is not viable:[/bold red]")
@@ -1091,7 +1182,7 @@ def run_macos_user(
         console.print(
             f"[bold red]Sandbox user '{SANDBOX_USER}' does not exist.[/bold red]\n"
             "Run the one-time setup to create it (`yolo macos-setup`; see "
-            "`docs/macos-native-user-sandbox-design.md`)."
+            "`docs/macos-no-vm-direction.md`)."
         )
         return 1
 
@@ -1303,6 +1394,18 @@ def macos_setup() -> None:
         console.print("• Apple Seatbelt (sandbox-exec): [yellow]not found[/yellow]")
     else:
         console.print("• Apple Seatbelt (sandbox-exec): [green]available[/green]")
+
+    # nix + flake.lock: the backend materializes `packages:` as native
+    # aarch64-darwin nix, so both are load-bearing for any config with packages.
+    if shutil.which("nix") is None:
+        warnings.append(
+            "nix not found on PATH — the backend materializes `packages:` via "
+            "native nix; install it (https://nixos.org/download) or configs "
+            "with packages get no declared tools."
+        )
+        console.print("• nix (native darwin packages): [yellow]not found[/yellow]")
+    else:
+        console.print("• nix (native darwin packages): [green]available[/green]")
 
     # 3. One clear verdict + next steps.  Green ✓ only when nothing is
     #    outstanding; otherwise a yellow ⚠ that lists exactly what to fix.

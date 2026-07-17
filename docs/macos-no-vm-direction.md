@@ -19,7 +19,7 @@ one choice. They are independent:
 |------|---------|---------|
 | **1. Runtime** (*where the agent runs*) | VM or not | **(a) Container** (Apple Container / Podman) — Linux container in a VM, runs the Linux nix image • **(b) macos-user** — native macOS user + Seatbelt, **NO VM, no Linux image** |
 | **2. Builder** (*how you get the Linux image*) | **exists ONLY for runtime 1(a)** | Cachix download (no VM) • nix-darwin linux-builder (transient VM, on-demand) • ~~Colima~~ (rejected — see below) |
-| **3. Packages** (*how `packages:` is materialized*) | per runtime | Container → baked into the aarch64-**linux** image • macos-user → native `nix profile`, aarch64-**darwin** (the piece that was never built) |
+| **3. Packages** (*how `packages:` is materialized*) | per runtime | Container → baked into the aarch64-**linux** image • macos-user → native **aarch64-darwin nix devShell** (`nix print-dev-env`), NOT `nix profile` (see [macos-nix-shell-backend-proposal.md](macos-nix-shell-backend-proposal.md); the imperative profile path was rejected as drift-prone) |
 
 **Key insight that un-blurs it:** the *builder only exists for the container
 runtime*. **macos-user needs no builder at all** — it runs native darwin
@@ -56,7 +56,9 @@ loses on every axis:
 
 macos-user was excised because it delivered SandVault's sandbox and dropped
 yolo's nix layer. The revive is only worth it if, **from day one**, it honors
-`packages:` via native **aarch64-darwin** `nix profile`. If it can't carry the
+`packages:` via native **aarch64-darwin** nix (a devShell realized with
+`nix print-dev-env` — see
+[macos-nix-shell-backend-proposal.md](macos-nix-shell-backend-proposal.md)). If it can't carry the
 nix layer, don't ship it — that's the line between "a yolo backend" and "an SV
 clone." Recoverable at git tag `macos-user-experiment` (1471-line
 `src/cli/macos_user.py` + tests), excision unpushed.

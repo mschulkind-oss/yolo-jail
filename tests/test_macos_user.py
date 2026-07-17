@@ -110,6 +110,17 @@ class TestLaunchArgv:
         assert path.startswith("PATH=/Users/_yolojail/.yolo-shims:")
         assert "/Users/_yolojail/.npm-global/bin" in path
 
+    def test_path_prefix_after_tool_dirs_before_system(self):
+        # Native darwin package store bin dirs shadow /usr/bin but the agent
+        # shim launchers (.yolo-shims) still win.
+        argv = self._argv(path_prefix=["/nix/store/a-jq/bin"])
+        path = next(a for a in argv if a.startswith("PATH=")).removeprefix("PATH=")
+        dirs = path.split(":")
+        assert dirs.index("/Users/_yolojail/.yolo-shims") < dirs.index(
+            "/nix/store/a-jq/bin"
+        )
+        assert dirs.index("/nix/store/a-jq/bin") < dirs.index("/usr/bin")
+
     def test_identity_and_path_not_overridable_by_caller(self):
         argv = self._argv(
             sandbox_env={
@@ -592,6 +603,71 @@ class TestRunPlan:
     def test_home_workspace_is_a_plan_violation(self):
         probs = m.plan_invariants(self._plan(ws="/Users/matt/code/proj"))
         assert any("inside the home directory" in p for p in probs)
+
+
+class TestDarwinPackagesInPlan:
+    """U11: the native `packages:` layer threaded into the RunPlan → launch."""
+
+    class _FakeDarwin:
+        def __init__(self, path_prefix=None, env=None, skipped=None):
+            self.path_prefix = path_prefix or []
+            self.env = env or {}
+            self.skipped = skipped or []
+
+    def _plan(self, darwin=None):
+        return m.build_run_plan(
+            Path("/Users/Shared/yolo/proj"),
+            {},
+            ["claude"],
+            ["claude"],
+            repo_src=Path("/opt/yolo-jail/src"),
+            sandbox_env={"TERM": "xterm"},
+            interp="/opt/homebrew/bin/python3",
+            darwin=darwin,
+        )
+
+    def test_no_darwin_is_inert(self):
+        plan = self._plan(darwin=None)
+        assert plan.darwin_materialized is False
+        assert plan.darwin_path_prefix == []
+        assert m.plan_invariants(plan) == []
+
+    def test_store_bin_reaches_launch_path(self):
+        plan = self._plan(
+            darwin=self._FakeDarwin(path_prefix=["/nix/store/a-jq/bin"])
+        )
+        assert plan.darwin_materialized is True
+        assert plan.darwin_path_prefix == ["/nix/store/a-jq/bin"]
+        path = next(
+            a for a in plan.launch_argv if a.startswith("PATH=")
+        )
+        assert "/nix/store/a-jq/bin" in path
+        assert m.plan_invariants(plan) == []  # wiring guard satisfied
+
+    def test_non_path_env_merged_into_sandbox_env(self):
+        plan = self._plan(
+            darwin=self._FakeDarwin(
+                path_prefix=["/nix/store/a/bin"],
+                env={"PKG_CONFIG_PATH": "/nix/store/a/lib/pkgconfig"},
+            )
+        )
+        assert (
+            "PKG_CONFIG_PATH=/nix/store/a/lib/pkgconfig" in plan.launch_argv
+        )
+
+    def test_skipped_names_carried(self):
+        plan = self._plan(darwin=self._FakeDarwin(skipped=["nolinux"]))
+        assert plan.darwin_skipped == ["nolinux"]
+
+    def test_wiring_bug_guard_fires(self, monkeypatch):
+        # If launch_argv somehow drops the store bin dir (a wiring regression),
+        # plan_invariants must catch it — the silent-missing-tools failure.
+        monkeypatch.setattr(m, "launch_argv", lambda *a, **k: ["sudo", "env", "-i"])
+        plan = self._plan(
+            darwin=self._FakeDarwin(path_prefix=["/nix/store/a-jq/bin"])
+        )
+        probs = m.plan_invariants(plan)
+        assert any("did not reach the launch PATH" in p for p in probs)
 
 
 class TestDryRun:
