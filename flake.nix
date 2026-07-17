@@ -668,13 +668,14 @@
         #
         # Built with imagePkgs (Linux target: aarch64-linux on a Mac, native in
         # CI) so no Mac ever builds it — CI publishes it to GHCR and the Mac
-        # pulls it (no chicken-and-egg).  The builder's authorized key is baked
-        # from YOLO_BUILDER_PUBKEY (--impure), so the host daemon's private key
-        # is generated per-setup and never in the image.
+        # pulls it (no chicken-and-egg).  The image is KEYLESS: the builder's
+        # authorized key is injected at container-run time via the
+        # YOLO_BUILDER_PUBKEY env var (see the entrypoint), NOT baked in — so
+        # the same published image serves every user and the host daemon's
+        # private key is generated per-setup and never in the image.
         builderImage =
           let
             ip = imagePkgs;
-            pubkey = builtins.getEnv "YOLO_BUILDER_PUBKEY";
             # sshd config: key-only, force `nix-daemon --stdio` (ssh-ng), no
             # TTY/agent/forwarding — a build-only endpoint, nothing else.
             sshdConfig = ip.writeText "sshd_config" ''

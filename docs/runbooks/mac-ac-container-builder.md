@@ -34,60 +34,58 @@ export YOLO_BUILDER_PUBKEY="$(cat "$WORK/builder_key.pub")"
 echo "pubkey: $YOLO_BUILDER_PUBKEY"
 ```
 
-## 2. Build the builder image (native aarch64-darwin→aarch64-linux)
-On a Mac this needs a Linux builder itself (chicken-and-egg) UNLESS the closure
-is cached. Two ways — try substitution first:
+## 2. Get the builder image onto the Mac
+
+The image is `aarch64-linux` — a Mac can't build it without a Linux builder
+(the very thing it IS). So the real path is **pull the prebuilt one from GHCR**
+(CI builds it natively on an arm-Linux runner and publishes it).
+
+### 2a. Preferred — pull from GHCR (once the publish job has run on a release)
 ```
+REPO=ghcr.io/mschulkind-oss/yolo-jail-builder
+container image pull "$REPO:latest"       # AC pulls OCI straight from GHCR
+container images | grep yolo-jail-builder
+```
+If the pull 404s / auth-fails, the publish job hasn't run yet (it's
+release-gated) or the package is still private — see the fallback, and flip it
+public in GHCR package settings.
+
+> **AC can `pull` an OCI registry image directly** — no skopeo-convert or
+> `image load` of a tar needed. That's the whole ergonomic win of GHCR over
+> shipping a tarball. If your AC version can't pull, fall through to 2b.
+
+### 2b. Fallback — build on a Linux box + copy the tar (no GHCR yet)
+Build the streamer on this repo's Linux dev jail / CI (native aarch64-linux),
+copy the tar, convert to OCI, and `image load` (mirrors image.py's skopeo path):
+```
+# ON A LINUX MACHINE (or arm CI):
 NIXFLAGS="--extra-experimental-features 'nix-command flakes' --impure"
-# Streamer build. If this needs a Linux builder and you don't have one yet,
-# that's expected — see the NOTE below.
-STREAMER=$(nix $NIXFLAGS build --no-link --print-out-paths .#packages.aarch64-darwin.builderImage 2>&1 | tail -1)
-echo "streamer: $STREAMER"
-```
-> **NOTE / expected snag:** building `builderImage` on a Mac is itself an
-> aarch64-linux build — the very thing we need a builder for. For THIS test,
-> get the image without a Mad build one of these ways, in order:
->   (a) if the closure substitutes from cache.nixos.org, the build above just
->       works (most deps are stock; only sshd_config/entrypoint are tiny local
->       derivations — may still need a builder).
->   (b) **build the streamer on this Linux dev jail / CI and copy the resulting
->       image tar to the Mac** (the intended production flow — CI publishes to
->       GHCR, Mac pulls). For the test, `scp` the tar over.
->   (c) if a QEMU `darwin.linux-builder` is already running, it'll build it.
-> Report WHICH path worked — it tells us how much the chicken-and-egg bites
-> before Cachix/GHCR is live.
-
-## 3. Produce a plain image tar, then convert to OCI for AC
-The flake output is a *streamer* script that writes a docker-archive tar to
-stdout. Convert it to the OCI layout AC wants (this is exactly what
-image.py `_convert_via_skopeo` does):
-```
-"$STREAMER" > "$WORK/builder.tar"
-OCI="$WORK/oci"
-skopeo copy "docker-archive:$WORK/builder.tar" "oci:$OCI:latest"
-tar cf "$WORK/builder.oci.tar" -C "$OCI" .
-```
-
-## 4. Load into Apple Container
-```
+STREAMER=$(nix $NIXFLAGS build --no-link --print-out-paths .#packages.aarch64-linux.builderImage | tail -1)
+"$STREAMER" > builder.tar        # then scp builder.tar to the Mac
+# ON THE MAC:
+skopeo copy "docker-archive:builder.tar" "oci:$WORK/oci:latest"
+tar cf "$WORK/builder.oci.tar" -C "$WORK/oci" .
 container image load -i "$WORK/builder.oci.tar"
-container images | grep yolo-jail-builder     # confirm it's there
+container images | grep yolo-jail-builder
 ```
+Report WHICH path (2a pull vs 2b tar) you used.
 
 ## 5. Run it — and CAPTURE THE ADDRESS/PORT (the AC-specific unknown)
 podman used `--network=host`; AC has **no `--net=host`** and networks each
 container in its own VM. So we must discover how the host reaches the
 container's sshd. Try, in order, and REPORT which works:
 ```
+# IMG = whatever §2 gave you: "$REPO:latest" (2a pull) or yolo-jail-builder:latest (2b load)
+IMG="${REPO:-}:latest"; [ "$IMG" = ":latest" ] && IMG="yolo-jail-builder:latest"
+
 # (a) AC gives each container an IP on its internal network:
-CID=$(container run -d --rm -e YOLO_BUILDER_PUBKEY="$YOLO_BUILDER_PUBKEY" \
-      yolo-jail-builder:latest)
+CID=$(container run -d --rm -e YOLO_BUILDER_PUBKEY="$YOLO_BUILDER_PUBKEY" "$IMG")
 container ls                                   # note the container's ADDR column
 ADDR=$(container inspect "$CID" | grep -i '"address"\|ipv4\|gateway' | head)
 echo "container network info: $ADDR"
 
 # (b) does AC support publishing a port to the host? (may not — report the error)
-#   container run -d --rm -p 127.0.0.1:31122:22 -e YOLO_BUILDER_PUBKEY=... yolo-jail-builder:latest
+#   container run -d --rm -p 127.0.0.1:31122:22 -e YOLO_BUILDER_PUBKEY=... "$IMG"
 ```
 ```
 container logs "$CID" 2>&1 | tail          # expect: "Server listening on ... port 22"

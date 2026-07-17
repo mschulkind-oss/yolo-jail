@@ -79,8 +79,11 @@ run); the whole "run agent in jail" row for AC under current session's fixes.
    image + the ssh remote-builder setup exist; the "start builder container +
    publish port + point nix at it" orchestration is the next code step — reuses
    builder.py's nix.conf/ssh/trusted-users wiring).
-4. **Publish `builderImage` to GHCR** from arm Linux CI (we already build
-   aarch64-linux images on ubuntu-24.04-arm) so the Mac pulls, never builds.
+4. ✅ **Publish `builderImage` to GHCR** — WIRED (`push-builder-image` job in
+   publish.yml, release-gated, builds native on `ubuntu-24.04-arm`, pushes
+   `ghcr.io/mschulkind-oss/yolo-jail-builder:{version,latest}` via skopeo).
+   Fires on the next release; first push may need a manual public-visibility
+   flip in GHCR settings. The Mac then `container image pull`s it.
 5. **Rework builder.py off the detached-Popen/`nix run` model** → either the
    container builder (primary) or a launchd plist for the QEMU fallback.
 6. **Turn on Cachix** (deferred) — removes the builder entirely for cached images.

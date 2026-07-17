@@ -13,6 +13,7 @@ on:
 permissions:
   contents: read
   id-token: write
+  packages: write  # push the container builder image to GHCR
 
 jobs:
   build:
@@ -235,3 +236,60 @@ jobs:
           nix build --impure .#ociImage
           nix build --impure .#ociImageMinimal
           echo "Pushed image closures to ${{ vars.CACHIX_CACHE }}.cachix.org"
+
+  # Build the macOS container-Linux-builder image and push it to GHCR, so
+  # macOS users (Apple Container / Podman) `pull` a ready nix+sshd builder
+  # instead of building an aarch64-linux image on a Mac (chicken-and-egg: a
+  # Mac needs a Linux builder to build the builder).  Built natively on the
+  # arm-Linux runner — Apple Silicon consumes the SAME aarch64-linux image.
+  # See docs/macos-container-builder-exploration.md + the AC runbook.
+  push-builder-image:
+    if: github.event_name == 'release'
+    runs-on: ubuntu-24.04-arm  # native aarch64-linux for Apple Silicon Macs
+    steps:
+      - uses: actions/checkout@v7
+        with:
+          fetch-depth: 0
+
+      - name: Install Nix
+        uses: cachix/install-nix-action@v31
+        with:
+          extra_nix_config: |
+            experimental-features = nix-command flakes
+
+      - name: Log in to GHCR
+        run: |
+          echo "${{ secrets.GITHUB_TOKEN }}" | \
+            skopeo login ghcr.io -u "${{ github.actor }}" --password-stdin
+
+      # The flake output is a *streamer* that writes a docker-archive tar to
+      # stdout (KEYLESS — the ssh key is injected at container-run time).
+      # skopeo copies that tar straight to GHCR, tagged by release version +
+      # `latest`.  aarch64-linux only: it's the arch Apple Silicon runs; an
+      # x86_64 mac (rare, and Podman-only) can build locally or use QEMU.
+      - name: Build + push builder image to GHCR
+        run: |
+          set -euo pipefail
+          VERSION="${GITHUB_REF_NAME#v}"
+          REPO="ghcr.io/${GITHUB_REPOSITORY_OWNER,,}/yolo-jail-builder"
+          STREAMER=$(nix build --impure --no-link --print-out-paths \
+            .#packages.aarch64-linux.builderImage)
+          "$STREAMER" > /tmp/builder.tar
+          skopeo copy "docker-archive:/tmp/builder.tar" \
+            "docker://${REPO}:${VERSION}"
+          skopeo copy "docker-archive:/tmp/builder.tar" \
+            "docker://${REPO}:latest"
+          echo "Pushed ${REPO}:${VERSION} and :latest"
+
+      - name: Make the package public (best-effort)
+        continue-on-error: true
+        run: |
+          # Public = no-auth pull for macOS users.  A first-time push creates
+          # a PRIVATE package; flip it public.  Best-effort — the initial
+          # release may need a manual visibility flip in GHCR settings.
+          gh api -X PATCH \
+            "/orgs/${GITHUB_REPOSITORY_OWNER}/packages/container/yolo-jail-builder/visibility" \
+            -f visibility=public 2>/dev/null \
+            || echo "Could not auto-set visibility; flip yolo-jail-builder to public in GHCR settings once."
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
