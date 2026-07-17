@@ -1,33 +1,19 @@
 # RUNBOOK — macos-user backend end-to-end (you-drive, agent-advises)
 
-**Who runs this:** YOU, on the Mac. The agent interprets output; **you run every
-`sudo` line** so you gate the account-creation ops on your real machine.
-**Privilege:** needs `sudo` (creates a hidden macOS user, writes root-owned
-`/var/yolo-jail`, installs a Seatbelt profile). All bounded + reversible.
+**Who runs this:** YOU, on the Mac. The agent interprets output; **you run each
+`yolo` command** (they self-escalate — each privileged step prompts for your
+password). **Run them as your normal admin user, NOT under `sudo`.**
+**Privilege:** the commands need admin (they create a hidden macOS user, write
+root-owned `/var/yolo-jail`, install a Seatbelt profile) — but they escalate
+per-op themselves. All bounded + reversible.
 
-> ⚠️ **REVIEWER NOTE (2026-07-17, from a runbook dry-read against
-> `src/cli/macos_user.py`): the `sudo yolo …` invocations below are WRONG —
-> they should be plain `yolo …`.** Reasons, from the code:
-> - `macos-setup`/`macos-teardown`/`macos-unshare` **self-escalate**: every
->   privileged step is `subprocess.run(["sudo", *cmd])` internally
->   (`create_user_commands`, `shared_root_provision_commands`,
->   `delete_user_commands`, `_install_root_file`, `stage_commands`,
->   `launch_argv`). There is no `geteuid()==0` check anywhere — the design is
->   "run as your normal admin user; sudo prompts per privileged op."
-> - Prefixing `sudo` yourself is **actively harmful**, not just redundant:
->   `macos-setup` calls `_host_user()` → `getpass.getuser()` to pick which
->   account to add to the `_yolojail` group for the shared-workspace ACL
->   (`create_user_commands` → `dseditgroup -a <host_user> … _yolojail`). Under
->   `sudo` that returns **`root`**, so `root` (not you) gets the group grant
->   and the host↔sandbox rw-on-same-inodes sharing silently doesn't apply to
->   your user. `macos-teardown` has the mirror bug (`dseditgroup -d root`).
-> - The doc is already self-contradictory: §"Likely rough edges" and
->   `macos-setup`'s own output say "sudo prompts per run" — i.e. the *tool*
->   prompts you, which only holds if you did NOT wrap it in `sudo`.
->
-> **Fix for tidying:** drop the `sudo` prefix from every `yolo` command in this
-> runbook — §0 rollback, §3 setup, §7 teardown. `macos-unshare` (§7) is already
-> written without `sudo` and is correct. Run everything as plain `yolo`.
+> ⚠️ **Do NOT prefix `yolo` with `sudo`.** These commands self-escalate; running
+> the whole command as root makes `getpass.getuser()` return `root`, so the
+> shared-workspace group ACL would be granted to `root` instead of you and
+> host↔sandbox file sharing would silently break. The CLI now **refuses to run
+> under sudo** (`_refuse_if_root`, added 2026-07-17 in response to this runbook's
+> review) with a clear message — so this is enforced, not just advised. Run
+> everything as plain `yolo`.
 
 **What it proves:** the native no-VM backend actually runs an agent as the
 hidden `_yolojail` user under Seatbelt, with `packages:` materialized via native
@@ -40,7 +26,7 @@ already unit-tested on Linux; this is the real-hardware confirmation.
 Everything this creates is removed by ONE command. If anything looks wrong at
 any step, stop and run:
 ```
-sudo yolo macos-teardown          # deletes the _yolojail user + group + home
+yolo macos-teardown               # deletes the _yolojail user + group + home
 ```
 Blast radius, for your peace of mind (from the code):
 - creates a **hidden** service user `_yolojail` (uid ≥600, `IsHidden 1`, stripped
@@ -75,11 +61,11 @@ violations.** A clean dry-run is the gate before touching sudo.
 > If the workspace is under your home dir, the plan will (correctly) refuse —
 > the backend only shares neutral ground like `/Users/Shared/yolo`. Move it.
 
-## 3. One-time setup — THE sudo step (you run it)
+## 3. One-time setup — the privileged step (plain `yolo`, NOT `sudo`)
 ```
-sudo yolo macos-setup
+yolo macos-setup                    # do NOT prefix with sudo — it self-escalates
 ```
-Expect prompts for your admin password. It: picks a free uid/gid, creates the
+Expect prompts for your admin password (per privileged op). It: picks a free uid/gid, creates the
 hidden `_yolojail` user, sets a random password (piped, never in argv),
 provisions the shared root with an inheriting ACL, and prints readiness checks
 (python3, sandbox-exec, nix). **Report the full output + the final verdict
@@ -113,7 +99,7 @@ does NOT see your host `~/.gitconfig`/`~/.ssh` (scrubbed HOME). Report.
 
 ## 7. Cleanup
 ```
-sudo yolo macos-teardown           # removes the _yolojail user + home
+yolo macos-teardown                # removes the _yolojail user + home
 # if you ACL'd a workspace and want it plain again:
 yolo macos-unshare /Users/Shared/yolo/some-test-project
 ```

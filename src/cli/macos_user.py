@@ -1174,6 +1174,17 @@ def run_macos_user(
             "[dim]Tip: `yolo run --dry-run` prints the full plan on any OS.[/dim]"
         )
         return 1
+    # Must NOT be run under sudo — the launch self-escalates (sudo -u sandbox),
+    # and running as root makes _host_user() → 'root', misassigning the git
+    # identity + ACL grant.  (dry-run above already returned; this only gates
+    # the real launch.)
+    if os.geteuid() == 0:
+        console.print(
+            "[bold red]Don't run `yolo` under sudo for the macos-user "
+            "backend.[/bold red]  It escalates each step itself; running as "
+            "root breaks the per-user identity/ACL."
+        )
+        return 1
 
     # Cheap preconditions FIRST — before the (potentially slow) nix build, so a
     # host missing Seatbelt or the sandbox user is rejected in milliseconds
@@ -1287,6 +1298,34 @@ def _host_user() -> str:
         return os.environ.get("USER", "")
 
 
+def _refuse_if_root() -> None:
+    """Fail fast if invoked as root (i.e. under ``sudo``).
+
+    The macos-* commands SELF-ESCALATE: every privileged step shells out via
+    ``sudo`` internally, and the design is "run as your normal admin user, get
+    prompted per op."  Running the whole command under ``sudo`` is actively
+    harmful, not just redundant: ``_host_user()`` (``getpass.getuser()``) would
+    return ``root``, so the shared-workspace group grant
+    (``dseditgroup -a <host_user> … _yolojail``) would go to ``root`` instead
+    of you — silently breaking host↔sandbox rw-on-the-same-inodes sharing for
+    your account.  So we reject euid 0 with a clear message instead of doing
+    the wrong thing quietly.
+    """
+    import typer
+
+    from .console import console
+
+    if os.geteuid() == 0:
+        console.print(
+            "[bold red]Don't run this under sudo.[/bold red]  Run it as your "
+            "normal admin user — it escalates each privileged step itself "
+            "(prompting for your password).  Running the whole command as root "
+            "would grant the shared-workspace ACL to 'root' instead of you and "
+            "silently break host↔sandbox file sharing."
+        )
+        raise typer.Exit(1)
+
+
 def _install_root_file(path: Path, content: str, mode: str = "0444") -> bool:
     """Write ``content`` to a root-owned file at ``path`` (mode ``0444``).
 
@@ -1379,6 +1418,7 @@ def macos_setup() -> None:
     if not _is_macos():
         console.print("[bold red]yolo macos-setup requires macOS.[/bold red]")
         raise typer.Exit(1)
+    _refuse_if_root()  # self-escalates; running under sudo misassigns the ACL
 
     # 1. Account — create if missing, otherwise reuse (idempotent).  BOTH
     #    outcomes are success; report which one so the operator isn't left
@@ -1495,6 +1535,7 @@ def macos_teardown() -> None:
     if not _is_macos():
         console.print("[bold red]yolo macos-teardown requires macOS.[/bold red]")
         raise typer.Exit(1)
+    _refuse_if_root()  # self-escalates; under sudo it'd `dseditgroup -d root`
     if not _sandbox_user_exists():
         console.print(f"Sandbox user '{SANDBOX_USER}' does not exist — nothing to do.")
         return
@@ -1519,6 +1560,7 @@ def macos_unshare(workspace: str) -> None:
     if not _is_macos():
         console.print("[bold red]yolo macos-unshare requires macOS.[/bold red]")
         raise typer.Exit(1)
+    _refuse_if_root()  # self-escalates via sudo per op
     ws = Path(workspace).resolve()
     if not ws.is_dir():
         console.print(f"[bold red]Not a directory:[/bold red] {ws}")
@@ -1552,6 +1594,7 @@ def macos_fix_permissions(path: Optional[str] = None) -> None:
     if not _is_macos():
         console.print("[bold red]yolo macos-fix-permissions requires macOS.[/bold red]")
         raise typer.Exit(1)
+    _refuse_if_root()  # self-escalates via sudo per op
     target = Path(path).resolve() if path else SHARED_ROOT_DEFAULT
     if not target.is_dir():
         console.print(f"[bold red]Not a directory:[/bold red] {target}")

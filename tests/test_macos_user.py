@@ -324,6 +324,25 @@ class TestOrchestratorGuards:
         assert str(p).startswith("/var/yolo-jail/")
         assert p.name == "profile-yolo-proj-abcd1234.sb"
 
+    def test_run_macos_user_refuses_root(self, monkeypatch):
+        # Under sudo (euid 0) the launch would self-escalate AND misassign the
+        # per-user identity/ACL (host_user → 'root').  Must refuse, no subprocess.
+        monkeypatch.setattr(m, "_is_macos", lambda: True)
+        monkeypatch.setattr(m.os, "geteuid", lambda: 0)
+        called = []
+        monkeypatch.setattr(
+            m.subprocess, "run", lambda *a, **k: called.append(a) or None
+        )
+        rc = m.run_macos_user(
+            Path("/Users/Shared/yolo/ws"),
+            {},
+            ["claude"],
+            ["claude"],
+            repo_src=Path("/opt/yolo-jail/src"),
+        )
+        assert rc == 1
+        assert called == []  # refused before any privileged op
+
 
 class TestSetup:
     def test_next_free_id_skips_taken(self):
@@ -347,6 +366,26 @@ class TestSetup:
             raised = True
         assert raised
         assert called == []  # no provisioning shelled out off-macОS
+
+    def test_setup_refuses_root(self, monkeypatch):
+        # `sudo yolo macos-setup` is the harmful footgun: it self-escalates, so
+        # under sudo host_user → 'root' and the shared-group ACL grant goes to
+        # root not you.  Must refuse before any provisioning.
+        import typer
+
+        monkeypatch.setattr(m, "_is_macos", lambda: True)
+        monkeypatch.setattr(m.os, "geteuid", lambda: 0)
+        called = []
+        monkeypatch.setattr(
+            m.subprocess, "run", lambda *a, **k: called.append(a) or None
+        )
+        try:
+            m.macos_setup()
+            raised = False
+        except typer.Exit:
+            raised = True
+        assert raised
+        assert called == []  # refused before any sudo op
 
     def test_teardown_requires_macos(self, monkeypatch):
         import typer
