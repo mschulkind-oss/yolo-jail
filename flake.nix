@@ -663,14 +663,21 @@
         };
 
         # ── macos-user backend: native darwin package materialization ──────
-        # yoloDarwinPackages is a devShell whose closure is the aarch64-darwin
-        # build of `packages:` (from YOLO_EXTRA_PACKAGES).  The CLI realizes it
-        # with `nix print-dev-env --impure --json` and puts its store bin dirs
-        # on the sandboxed agent's PATH — no VM, no Linux image.  Packages with
-        # no darwin build are filtered out here and surfaced via
+        # yoloDarwinPackages is a buildEnv (profile) whose single `/bin` holds
+        # EXACTLY the aarch64-darwin build of `packages:` (from
+        # YOLO_EXTRA_PACKAGES) — NOT a devShell.  A devShell's `print-dev-env`
+        # would dump the whole stdenv toolchain (clang, GNU coreutils/sed/grep,
+        # make, …) onto the agent PATH ahead of the macOS BSD userland; a
+        # buildEnv contains only the declared packages.  The CLI realizes it
+        # with `nix build --print-out-paths` and puts `<out>/bin` on the
+        # sandboxed agent's PATH — no VM, no Linux image.  Packages with no
+        # darwin build are filtered out and surfaced via
         # darwinUnavailablePackages (warn-and-skip).  See src/cli/darwin_packages.py.
-        devShells.yoloDarwinPackages = pkgs.mkShell {
-          packages = darwinPackages;
+        packages.yoloDarwinPackages = pkgs.buildEnv {
+          name = "yolo-darwin-packages";
+          paths = darwinPackages;
+          # Merge pkg-config metadata so PKG_CONFIG_PATH can point at one dir.
+          extraOutputsToInstall = [ "bin" "lib" "dev" ];
         };
         darwinUnavailablePackages = darwinSkippedNames;
       }
