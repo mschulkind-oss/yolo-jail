@@ -180,6 +180,17 @@
             parsed = if builtins.isString spec then parseDottedSpec spec else null;
             # Source attrset for the base attr: pinned specs fetch their own
             # nixpkgs (system = darwin), everything else resolves from `pkgs`.
+            #
+            # LIMITATION (warn-and-skip covers PLATFORM availability only): a
+            # pinned {nixpkgs:<rev>} whose fetchTarball fails (bad/deleted rev,
+            # offline) or a {version,url,hash} override with a bad hash aborts
+            # the WHOLE eval — builtins fetch/IO errors are NOT catchable by
+            # tryEval (verified).  So pinned/override specs are all-or-nothing,
+            # same as the image path; only plain-string specs get graceful
+            # skip.  The CLI (darwin_packages.materialize) translates the raw
+            # nix abort into an actionable message.  A lock-time fix (pinned
+            # nixpkgs as flake inputs) is future work — see
+            # docs/macos-user-review-findings.md #2/#7.
             src =
               if (!builtins.isString spec) && spec ? nixpkgs then
                 import (builtins.fetchTarball {

@@ -595,6 +595,27 @@ class TestRunPlan:
         assert plan.git_identity == {"YOLO_GIT_NAME": "Ada"}
         assert "YOLO_GIT_NAME" in plan.bootstrap
 
+    def test_config_surface_baked_into_bootstrap(self):
+        # blocked_tools / mise / mcp config must reach the bootstrap env so the
+        # native backend enforces the same surface as the container (review
+        # #5/#10). The default grep/find blocks come from _normalize_blocked.
+        plan = m.build_run_plan(
+            Path("/Users/Shared/yolo/proj"),
+            {
+                "security": {"blocked_tools": ["curl"]},
+                "mcp_servers": {"srv": {"command": "x"}},
+            },
+            ["claude"],
+            ["claude"],
+            repo_src=Path("/opt/yolo-jail/src"),
+            sandbox_env={"TERM": "xterm"},
+            interp="/opt/homebrew/bin/python3",
+        )
+        assert "YOLO_BLOCK_CONFIG" in plan.bootstrap
+        assert "curl" in plan.bootstrap  # the configured block
+        assert "YOLO_MCP_SERVERS" in plan.bootstrap
+        assert "YOLO_MISE_TOOLS" in plan.bootstrap
+
     def test_launch_uses_sandbox_exec_with_session_profile(self):
         plan = self._plan()
         assert "/usr/bin/sandbox-exec" in plan.launch_argv
@@ -690,6 +711,32 @@ class TestDryRun:
         )
         assert rc == 0  # clean plan
         assert called == []  # nothing executed
+
+    def test_env_sources_reach_launch_env(self, monkeypatch):
+        # Provider keys from env_sources must land in the launch env (review
+        # #4) — without this the native agent silently has no credentials.
+        monkeypatch.setattr(m, "_is_macos", lambda: False)
+        monkeypatch.setattr(m, "resolve_python", lambda: "/opt/homebrew/bin/python3")
+        monkeypatch.setattr(m, "_git_config", lambda key: None)
+        import cli.config as _cfg
+
+        monkeypatch.setattr(
+            _cfg, "_resolve_env_sources", lambda ws, cfg: {"ANTHROPIC_API_KEY": "sk-x"}
+        )
+        printed = []
+        monkeypatch.setattr(
+            m, "_print_plan", lambda plan, probs: printed.append(plan)
+        )
+        rc = m.run_macos_user(
+            Path("/Users/Shared/yolo/proj"),
+            {"env_sources": ["some"]},
+            ["claude"],
+            ["claude"],
+            repo_src=Path("/opt/yolo-jail/src"),
+            dry_run=True,
+        )
+        assert rc == 0
+        assert "ANTHROPIC_API_KEY=sk-x" in printed[0].launch_argv
 
     def test_dry_run_nonzero_when_plan_broken(self, monkeypatch):
         monkeypatch.setattr(m, "_is_macos", lambda: False)

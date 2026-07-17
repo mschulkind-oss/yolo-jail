@@ -574,6 +574,7 @@ def entrypoint_bootstrap_script(
     agents: List[str],
     macos_log: str = "off",
     git_identity: Optional[Dict[str, str]] = None,
+    bootstrap_env: Optional[Dict[str, str]] = None,
     staged_dir: Path = STATE_DIR,
 ) -> str:
     """A Python script the sandbox user runs to generate its jail config.
@@ -607,8 +608,15 @@ def entrypoint_bootstrap_script(
 
     log_helper = macos_log_wrapper_script(macos_log)
     import_path = staged_entrypoint_dir(staged_dir).parent
+    # Bake git identity AND the config-derived env the entrypoint generators
+    # read (YOLO_BLOCK_CONFIG for security.blocked_tools → generate_shims;
+    # YOLO_MISE_TOOLS → generate_mise_config; YOLO_MCP_* / YOLO_LSP_* → the
+    # mcp/lsp generators) into the bootstrap's scrubbed env, so the native
+    # backend enforces the SAME per-workspace config surface as the container.
+    baked = dict(git_identity or {})
+    baked.update(bootstrap_env or {})
     identity_lines = "".join(
-        f"os.environ[{k!r}] = {v!r}\n" for k, v in sorted((git_identity or {}).items())
+        f"os.environ[{k!r}] = {v!r}\n" for k, v in sorted(baked.items())
     )
     return f"""\
 #!/usr/bin/env python3
@@ -880,6 +888,25 @@ def build_run_plan(
     # plan is still printable/inspectable; the invariant check fails the plan
     # when interp is None.
     interp_str = interp or _PYTHON_CANDIDATES[-1]
+    # Config-derived env the entrypoint generators read, mirroring the
+    # container path's _entrypoint_preflight block — so the native backend
+    # enforces the same per-workspace surface: blocked_tools (incl. the
+    # default grep/find recursive blocks), mise tools, mcp servers/presets,
+    # and lsp servers.  Reuses the container-side resolvers (no duplication).
+    from .config import _merge_mise_tools, _normalize_blocked_tools
+
+    import json as _json
+
+    bootstrap_env = {
+        "YOLO_HOST_DIR": str(workspace.resolve()),
+        "YOLO_BLOCK_CONFIG": _json.dumps(
+            _normalize_blocked_tools(config.get("security"))
+        ),
+        "YOLO_MISE_TOOLS": _json.dumps(_merge_mise_tools(config)),
+        "YOLO_LSP_SERVERS": _json.dumps(config.get("lsp_servers", {})),
+        "YOLO_MCP_SERVERS": _json.dumps(config.get("mcp_servers", {})),
+        "YOLO_MCP_PRESETS": _json.dumps(config.get("mcp_presets", [])),
+    }
     boot = entrypoint_bootstrap_script(
         repo_src,
         workspace=workspace,
@@ -887,6 +914,7 @@ def build_run_plan(
         agents=agents,
         macos_log=str(config.get("macos_log", "off")),
         git_identity=git_identity,
+        bootstrap_env=bootstrap_env,
     )
     return RunPlan(
         workspace=workspace,
@@ -1104,6 +1132,17 @@ def run_macos_user(
 
     def _plan(darwin=None) -> "RunPlan":
         env = macos_sandbox_env(config)
+        # Provider API keys etc. the agent needs to authenticate — resolved
+        # from the config's `env_sources` (files/host vars the user opted in
+        # to), exactly as the container path does.  Without this the native
+        # agent silently has no keys.  launch_argv protects the HOME/USER/
+        # SHELL/PATH quartet, so user keys can't shadow the identity/PATH.
+        from .config import _resolve_env_sources
+
+        try:
+            env.update(_resolve_env_sources(workspace, config))
+        except Exception:
+            pass  # a bad env_sources entry must not crash the plan
         if sandbox_env:
             env.update(sandbox_env)
         return build_run_plan(
@@ -1133,6 +1172,23 @@ def run_macos_user(
             "[bold red]runtime 'macos-user' requires macOS.[/bold red] "
             "Use 'podman' or 'container' on this host.\n"
             "[dim]Tip: `yolo run --dry-run` prints the full plan on any OS.[/dim]"
+        )
+        return 1
+
+    # Cheap preconditions FIRST — before the (potentially slow) nix build, so a
+    # host missing Seatbelt or the sandbox user is rejected in milliseconds
+    # rather than after a multi-minute darwin package build.
+    if shutil.which("sandbox-exec") is None:
+        console.print(
+            "[bold red]sandbox-exec not found[/bold red] — the macos-user "
+            "backend needs Apple Seatbelt (built into macOS)."
+        )
+        return 1
+    if not _sandbox_user_exists():
+        console.print(
+            f"[bold red]Sandbox user '{SANDBOX_USER}' does not exist.[/bold red]\n"
+            "Run the one-time setup to create it (`yolo macos-setup`; see "
+            "`docs/macos-no-vm-direction.md`)."
         )
         return 1
 
@@ -1171,20 +1227,8 @@ def run_macos_user(
         console.print("\n[dim]Run `yolo run --dry-run` to inspect the full plan.[/dim]")
         return 1
 
-    # 1. Preconditions — fail closed with actionable messages.
-    if shutil.which("sandbox-exec") is None:
-        console.print(
-            "[bold red]sandbox-exec not found[/bold red] — the macos-user "
-            "backend needs Apple Seatbelt (built into macOS)."
-        )
-        return 1
-    if not _sandbox_user_exists():
-        console.print(
-            f"[bold red]Sandbox user '{SANDBOX_USER}' does not exist.[/bold red]\n"
-            "Run the one-time setup to create it (`yolo macos-setup`; see "
-            "`docs/macos-no-vm-direction.md`)."
-        )
-        return 1
+    # (Seatbelt + sandbox-user preconditions already checked above, before the
+    # nix build, so a misconfigured host fails fast.)
 
     # The setup steps below run under sudo.  We deliberately do NOT install a
     # passwordless-sudo rule (changing the host's sudo policy is the user's
