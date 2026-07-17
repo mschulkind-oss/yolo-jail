@@ -100,6 +100,7 @@ def build_profile_argv(system: str = DARWIN_SYSTEM) -> List[str]:
         "--impure",
         "--no-link",
         "--print-out-paths",
+        "--print-build-logs",  # stream real build progress (not silent)
         f".#packages.{system}.{PROFILE_ATTR}",
     ]
 
@@ -184,25 +185,53 @@ def materialize(
     """
     env = build_env(packages)
     skipped = _skipped_names(repo_root, env, system)
+    # Stream stderr (nix's `--print-build-logs` progress) straight to the
+    # terminal so a from-source darwin build is VISIBLE — not a silent hang.
+    # stdout (the store out-path) is captured; a stderr tail is kept for the
+    # error message.  (A prior version used capture_output=True and showed
+    # nothing, which read as "no build happened" on real hardware.)
+    stderr_tail: List[str] = []
     try:
-        proc = subprocess.run(
+        proc = subprocess.Popen(
             build_profile_argv(system),
             cwd=repo_root,
             env=env,
-            capture_output=True,
+            stdout=subprocess.PIPE,
+            stderr=subprocess.PIPE,
             text=True,
-            timeout=1800,  # a cold from-source darwin build can be slow
         )
     except FileNotFoundError as e:
         raise DarwinPackagesError("nix command not found on PATH") from e
     except (OSError, subprocess.SubprocessError) as e:
         raise DarwinPackagesError(f"nix build failed to run: {e}") from e
+
+    # Drain stderr live in a thread (so a long build streams) while the main
+    # thread collects stdout; join both before inspecting the result.
+    import sys as _sys
+    import threading
+
+    def _pump_stderr() -> None:
+        assert proc.stderr is not None
+        for line in iter(proc.stderr.readline, ""):
+            _sys.stderr.write(line)
+            _sys.stderr.flush()
+            clean = line.rstrip()
+            if clean:
+                stderr_tail.append(clean)
+                if len(stderr_tail) > 30:
+                    stderr_tail.pop(0)
+
+    t = threading.Thread(target=_pump_stderr, daemon=True)
+    t.start()
+    stdout, _ = proc.communicate()
+    t.join(timeout=5)
+
     if proc.returncode != 0:
         raise DarwinPackagesError(
-            (proc.stderr or "").strip() or "nix build of darwin packages failed"
+            "\n".join(stderr_tail).strip() or "nix build of darwin packages failed"
         )
     # --print-out-paths may emit multiple lines; the profile is the last one.
-    out_lines = [ln for ln in proc.stdout.splitlines() if ln.strip()]
+    out_lines = [ln for ln in (stdout or "").splitlines() if ln.strip()]
     if not out_lines:
         raise DarwinPackagesError("nix build produced no store path")
     path_prefix, extra = profile_paths(out_lines[-1])

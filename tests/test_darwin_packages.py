@@ -109,30 +109,51 @@ def test_locked_nixpkgs_rev_matches_repo_lock():
 _OUT = "/nix/store/abc-yolo-darwin-packages"
 
 
+class _FakeProc:
+    """Minimal Popen stand-in: streams stderr lines, returns stdout via
+    communicate(), reports returncode.  materialize now uses Popen (to stream
+    build progress live), so the build step is mocked here, not subprocess.run.
+    """
+
+    def __init__(self, stdout="", stderr="", returncode=0):
+        import io
+
+        self._stdout = stdout
+        self.stderr = io.StringIO(stderr)
+        self.returncode = returncode
+
+    def communicate(self):
+        return self._stdout, ""
+
+
+def _mock_build(
+    monkeypatch, *, stdout="", stderr="", returncode=0, skip="[]", raise_exc=None
+):
+    """Mock the eval skip-list (subprocess.run) + the build (subprocess.Popen)."""
+    monkeypatch.setattr(
+        dp.subprocess,
+        "run",
+        lambda argv, **kw: SimpleNamespace(returncode=0, stdout=skip, stderr=""),
+    )
+
+    def fake_popen(argv, **kw):
+        if raise_exc:
+            raise raise_exc
+        return _FakeProc(stdout=stdout, stderr=stderr, returncode=returncode)
+
+    monkeypatch.setattr(dp.subprocess, "Popen", fake_popen)
+
+
 def test_materialize_success(monkeypatch):
-    calls = []
-
-    def fake_run(argv, **kw):
-        calls.append(argv)
-        if "eval" in argv:  # skip-list read
-            return SimpleNamespace(returncode=0, stdout='["nolinux"]', stderr="")
-        return SimpleNamespace(returncode=0, stdout=_OUT + "\n", stderr="")
-
-    monkeypatch.setattr(dp.subprocess, "run", fake_run)
+    _mock_build(monkeypatch, stdout=_OUT + "\n", skip='["nolinux"]')
     # No pkgconfig dir on the fake out path → env stays empty.
     result = dp.materialize(Path("/repo"), ["jq"])
     assert result.path_prefix == [f"{_OUT}/bin"]  # exactly the profile bin
     assert result.skipped == ["nolinux"]
-    # both nix invocations happened
-    assert any("build" in c for c in calls)
-    assert any("eval" in c for c in calls)
 
 
 def test_materialize_raises_when_nix_missing(monkeypatch):
-    def boom(argv, **kw):
-        raise FileNotFoundError("nix")
-
-    monkeypatch.setattr(dp.subprocess, "run", boom)
+    _mock_build(monkeypatch, raise_exc=FileNotFoundError("nix"))
     try:
         dp.materialize(Path("/repo"), ["jq"])
         assert False, "expected DarwinPackagesError"
@@ -141,14 +162,7 @@ def test_materialize_raises_when_nix_missing(monkeypatch):
 
 
 def test_materialize_raises_on_build_failure(monkeypatch):
-    def fake_run(argv, **kw):
-        if "eval" in argv:
-            return SimpleNamespace(returncode=0, stdout="[]", stderr="")
-        return SimpleNamespace(
-            returncode=1, stdout="", stderr="error: build of jq failed"
-        )
-
-    monkeypatch.setattr(dp.subprocess, "run", fake_run)
+    _mock_build(monkeypatch, returncode=1, stderr="error: build of jq failed\n")
     try:
         dp.materialize(Path("/repo"), ["jq"])
         assert False, "expected DarwinPackagesError"
@@ -157,12 +171,7 @@ def test_materialize_raises_on_build_failure(monkeypatch):
 
 
 def test_materialize_raises_on_empty_out(monkeypatch):
-    def fake_run(argv, **kw):
-        if "eval" in argv:
-            return SimpleNamespace(returncode=0, stdout="[]", stderr="")
-        return SimpleNamespace(returncode=0, stdout="\n", stderr="")
-
-    monkeypatch.setattr(dp.subprocess, "run", fake_run)
+    _mock_build(monkeypatch, stdout="\n")
     try:
         dp.materialize(Path("/repo"), ["jq"])
         assert False, "expected DarwinPackagesError"
@@ -172,12 +181,14 @@ def test_materialize_raises_on_empty_out(monkeypatch):
 
 def test_materialize_skip_list_failure_is_nonfatal(monkeypatch):
     # A failed skip-list read must not abort — just yields no skipped names.
-    def fake_run(argv, **kw):
-        if "eval" in argv:
-            return SimpleNamespace(returncode=1, stdout="", stderr="eval boom")
-        return SimpleNamespace(returncode=0, stdout=_OUT + "\n", stderr="")
-
-    monkeypatch.setattr(dp.subprocess, "run", fake_run)
+    monkeypatch.setattr(
+        dp.subprocess,
+        "run",
+        lambda argv, **kw: SimpleNamespace(returncode=1, stdout="", stderr="eval boom"),
+    )
+    monkeypatch.setattr(
+        dp.subprocess, "Popen", lambda argv, **kw: _FakeProc(stdout=_OUT + "\n")
+    )
     result = dp.materialize(Path("/repo"), ["jq"])
     assert result.skipped == []
     assert result.path_prefix == [f"{_OUT}/bin"]
