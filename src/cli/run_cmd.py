@@ -355,7 +355,7 @@ def _resolve_repo_root() -> Path:
 
 
 def _workspace_readonly_mount_args(
-    workspace: Path, config: Dict[str, Any]
+    workspace: Path, config: Dict[str, Any], runtime: str = "podman"
 ) -> List[str]:
     """Build the ``-v …:ro`` arguments for ``config.workspace_readonly``.
 
@@ -366,10 +366,25 @@ def _workspace_readonly_mount_args(
 
     Entries that escape the workspace or don't exist are skipped with a
     warning rather than failing the run.
+
+    On Apple Container the ``:ro`` suffix is silently ignored
+    (apple/container#889), so this protection does NOT hold — unlike the
+    ``mounts`` case we can't skip it (the paths are inside the writable
+    ``/workspace`` and would still be present), so we WARN loudly that the
+    read-only guarantee isn't enforced and point at podman.
     """
     readonly_entries = config.get("workspace_readonly", []) or []
     if not readonly_entries:
         return []
+
+    if runtime == "container":
+        console.print(
+            "[bold yellow]Warning: workspace_readonly is NOT enforced on Apple "
+            "Container[/bold yellow] — it ignores read-only bind mounts "
+            "(apple/container#889), so these paths stay writable inside the "
+            "jail. Use `YOLO_RUNTIME=podman` to actually protect host-executed "
+            f"source: {', '.join(readonly_entries)}"
+        )
 
     args: List[str] = []
     ws_config_file = workspace / "yolo-jail.jsonc"
@@ -1470,8 +1485,17 @@ def run(
     blocked_config_json = json.dumps(normalized_blocked)
 
     # Process Extra Mounts
+    #
+    # `mounts` are meant to be READ-ONLY context (`/ctx/…`).  Apple Container
+    # does NOT honor the `:ro` suffix on `-v` (per-mount read-only is still
+    # unimplemented upstream — apple/container#889; only the whole-rootfs
+    # `--read-only` shipped), so the mount would silently be read-WRITE — the
+    # agent could clobber the user's source.  Rather than hand out unintended
+    # write access, we SKIP these mounts on Apple Container and tell the user
+    # to switch to podman for read-only context mounts.
     mount_args = []
     mount_descriptions = []
+    ctx_mounts_unsafe = runtime == "container"
     for mount in config.get("mounts", []):
         # Support "host:container" syntax — split on the LAST colon that precedes
         # an absolute container path (starts with /).  Plain host-only paths like
@@ -1487,6 +1511,13 @@ def run(
         if not Path(host_path).exists():
             console.print(
                 f"[yellow]Warning: mount path does not exist, skipping: {host_path}[/yellow]"
+            )
+            continue
+        if ctx_mounts_unsafe:
+            console.print(
+                f"[yellow]Skipping mount {host_path} → {container_path}: Apple "
+                "Container ignores read-only (:ro), so it would be writable. "
+                "Use `YOLO_RUNTIME=podman` for read-only context mounts.[/yellow]"
             )
             continue
         mount_args.extend(["-v", f"{host_path}:{container_path}:ro"])
@@ -2593,7 +2624,7 @@ def run(
 
     # Overlay workspace sub-paths as read-only to protect host-executed code.
     # Mounted after the rw workspace volume so they shadow it for those paths.
-    run_cmd.extend(_workspace_readonly_mount_args(workspace, config))
+    run_cmd.extend(_workspace_readonly_mount_args(workspace, config, runtime))
 
     # Per-side venv shadows — mounted after the rw workspace volume so
     # each jail sees its own backing at /workspace/.venv (and friends)

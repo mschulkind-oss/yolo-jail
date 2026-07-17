@@ -1791,6 +1791,18 @@ class TestWorkspaceReadonlyMountArgs:
         assert "/workspace/does-not-exist" not in container_paths
         assert "does not exist" in capsys.readouterr().out
 
+    def test_apple_container_warns_readonly_not_enforced(self, tmp_path, capsys):
+        # Apple Container ignores :ro (apple/container#889): the mount still
+        # happens (paths are inside writable /workspace) but we must WARN that
+        # the read-only guarantee doesn't hold.
+        (tmp_path / "src").mkdir()
+        _workspace_readonly_mount_args(
+            tmp_path, {"workspace_readonly": ["src"]}, "container"
+        )
+        out = capsys.readouterr().out
+        assert "NOT enforced on Apple Container" in out
+        assert "podman" in out
+
     def test_traversal_escape_rejected_at_runtime(self, tmp_path, capsys):
         # The validator already blocks '..' syntactically, but the runtime
         # check is a second layer for symlink-based escapes. Simulate by
