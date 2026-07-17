@@ -1093,7 +1093,11 @@ def check(
             _early_runtime = load_config(Path.cwd(), strict=False).get("runtime")
         except Exception:
             _early_runtime = None
-    if _early_runtime in NATIVE_RUNTIMES:
+    # Only skip the container probe for a native runtime that's actually valid
+    # HERE (macOS) — off macOS, macos-user is invalid, so fall through to the
+    # normal probe and let the authoritative _runtime_for_check emit the single
+    # "macOS-only" FAIL rather than printing a contradictory green PASS first.
+    if _early_runtime in NATIVE_RUNTIMES and IS_MACOS:
         ok(f"Native runtime '{_early_runtime}' — no container runtime needed")
         console.print()
     else:

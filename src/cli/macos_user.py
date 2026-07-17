@@ -1214,8 +1214,10 @@ def run_macos_user(
         if darwin.skipped:
             console.print(
                 "[yellow]Skipped packages with no aarch64-darwin build:[/yellow] "
-                f"{', '.join(darwin.skipped)}  "
-                "[dim](use the container runtime for these)[/dim]"
+                f"{', '.join(darwin.skipped)}\n"
+                "[dim](use the container runtime for these — or, if a name is "
+                "unexpected, check for a typo: an unknown attr is skipped, not "
+                "errored, because a hard error would abort the whole eval.)[/dim]"
             )
 
     plan = _plan(darwin)

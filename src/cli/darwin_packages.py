@@ -175,6 +175,12 @@ def materialize(
     IMPURE (runs nix; macOS-only in practice).  Raises ``DarwinPackagesError``
     when nix is missing or the build fails — the caller aborts with an
     actionable message rather than launching a half-provisioned sandbox.
+
+    FUTURE (review #12): the realized profile has no GC root, so a
+    ``nix-collect-garbage`` between materialize and a later reattach could reap
+    it while the agent's baked PATH still points at it.  Low severity (needs an
+    external GC trigger mid-session); a per-workspace indirect GC root under
+    GLOBAL_STORAGE (``nix build --out-link <root>``) is the fix when needed.
     """
     env = build_env(packages)
     skipped = _skipped_names(repo_root, env, system)
