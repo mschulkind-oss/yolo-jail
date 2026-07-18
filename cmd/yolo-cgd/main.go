@@ -10,9 +10,9 @@
 package main
 
 import (
-	"bufio"
 	"flag"
 	"fmt"
+	"log"
 	"net"
 	"os"
 	"os/signal"
@@ -25,11 +25,13 @@ import (
 func main() {
 	socket := flag.String("socket", "", "Unix socket to bind")
 	containerCgroup := flag.String("container-cgroup", "", "container cgroup v2 path on the host")
+	logFile := flag.String("log-file", "", "append per-request audit log here (default: stderr)")
 	flag.Parse()
 	if *socket == "" || *containerCgroup == "" {
 		fmt.Fprintln(os.Stderr, "yolo-cgd: --socket and --container-cgroup are required")
 		os.Exit(2)
 	}
+	setupLog(*logFile)
 
 	_ = os.Remove(*socket)
 	ln, err := net.ListenUnix("unix", &net.UnixAddr{Name: *socket, Net: "unix"})
@@ -60,24 +62,84 @@ func handleConn(conn *net.UnixConn, containerCgroup string) {
 
 	peerPID := peerCredPID(conn)
 
-	// Read a single line (up to 4096 bytes), matching the Python recv loop.
-	reader := bufio.NewReaderSize(conn, 4096)
-	line, err := reader.ReadBytes('\n')
-	if len(line) == 0 && err != nil {
+	// Read the request, capped at 4096 bytes, matching the Python recv loop
+	// (`while b"\n" not in data and len(data) < 4096`): stop at the first
+	// newline OR the cap, then decode whatever accumulated. An unbounded read
+	// would let a newline-less client grow daemon memory.
+	line := readCapped(conn, 4096)
+	if len(line) == 0 {
 		return // empty request — Python returns without responding
 	}
-	// Strip the trailing newline for the JSON decode.
+	// Strip a trailing newline for the JSON decode (json5 tolerates it, but
+	// match Python which splits it off).
 	if n := len(line); n > 0 && line[n-1] == '\n' {
 		line = line[:n-1]
 	}
 
+	// Per-request audit log (the module map freezes this for cgd): one line
+	// with op + peer_pid + the raw request, then the response.
+	logf("op=%s peer_pid=%d request=%s", cgd.RequestOp(line), peerPID, string(line))
+
 	req, ok := cgd.ParseRequest(line)
 	if !ok {
-		writeResp(conn, errShape("invalid request"))
+		resp := errShape("invalid request")
+		writeResp(conn, resp)
+		logResp(resp)
 		return
 	}
 	resp := cgd.Handle(req, containerCgroup, peerPID)
 	writeResp(conn, resp)
+	logResp(resp)
+}
+
+// logging plumbing (audit trail; the daemon supervisor also captures stderr).
+var auditLog *log.Logger
+
+func setupLog(path string) {
+	out := os.Stderr
+	if path != "" {
+		if f, err := os.OpenFile(path, os.O_WRONLY|os.O_CREATE|os.O_APPEND, 0o644); err == nil {
+			out = f
+		}
+	}
+	auditLog = log.New(out, "", log.LstdFlags)
+}
+
+func logf(format string, args ...any) {
+	if auditLog != nil {
+		auditLog.Printf(format, args...)
+	}
+}
+
+func logResp(resp *jsonx.OrderedMap) {
+	s, _ := jsonx.DumpsCompact(resp)
+	logf("  response=%s", s)
+}
+
+// readCapped reads until the first '\n' or `cap` bytes, whichever comes first,
+// returning the accumulated bytes (Python: recv-4096-chunks until a newline is
+// seen or len >= cap). The newline, if any, is included (the caller strips it).
+func readCapped(conn *net.UnixConn, cap int) []byte {
+	buf := make([]byte, 0, 256)
+	chunk := make([]byte, 4096)
+	for len(buf) < cap {
+		n, err := conn.Read(chunk)
+		if n > 0 {
+			buf = append(buf, chunk[:n]...)
+			for _, b := range chunk[:n] {
+				if b == '\n' {
+					return buf
+				}
+			}
+		}
+		if err != nil {
+			break
+		}
+	}
+	if len(buf) > cap {
+		buf = buf[:cap]
+	}
+	return buf
 }
 
 func writeResp(conn *net.UnixConn, resp *jsonx.OrderedMap) {
@@ -95,20 +157,6 @@ func errShape(msg string) *jsonx.OrderedMap {
 	return m
 }
 
-// peerCredPID returns the connecting peer's PID via SO_PEERCRED (Linux), or 0
-// if unavailable. Mirrors the SO_PEERCRED read in _cgroup_delegate_handler
-// (only the PID is used; uid/gid are ignored).
-func peerCredPID(conn *net.UnixConn) int {
-	raw, err := conn.SyscallConn()
-	if err != nil {
-		return 0
-	}
-	var pid int
-	_ = raw.Control(func(fd uintptr) {
-		ucred, cerr := syscall.GetsockoptUcred(int(fd), syscall.SOL_SOCKET, syscall.SO_PEERCRED)
-		if cerr == nil && ucred != nil {
-			pid = int(ucred.Pid)
-		}
-	})
-	return pid
-}
+// peerCredPID is defined per-GOOS: peercred_linux.go reads SO_PEERCRED;
+// peercred_other.go is a stub returning 0 (the daemon is Linux-only, but the
+// whole Go tree must still build on darwin — macos-user is a supported host).

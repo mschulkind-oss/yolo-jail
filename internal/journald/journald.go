@@ -20,6 +20,20 @@ import (
 	"github.com/mschulkind-oss/yolo-jail/internal/jsonx"
 )
 
+// ArgsJSON renders args the way the Python log line does — json.dumps(clean_args)
+// (compact, default separators). Used only for the audit log.
+func ArgsJSON(args []string) string {
+	arr := make([]any, len(args))
+	for i, a := range args {
+		arr[i] = a
+	}
+	s, err := jsonx.DumpsCompact(arr)
+	if err != nil {
+		return "[]"
+	}
+	return s
+}
+
 // Journal stream IDs — 1/2/3, NOT frameproto's 0/1/2.
 const (
 	FrameStdout = 1
@@ -28,6 +42,10 @@ const (
 
 	MaxArgs   = 64
 	MaxArgLen = 1024
+	// MaxHeaderBytes caps the request-header accumulation (Python:
+	// `while b"\n" not in data and len(data) < 16384`), so a newline-less or
+	// runaway client can't grow daemon memory unbounded.
+	MaxHeaderBytes = 16384
 )
 
 // WriteFrame writes a journal frame: ">BI" header (stream, length) + payload.

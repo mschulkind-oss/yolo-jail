@@ -75,6 +75,21 @@ type Request struct {
 	raw *jsonx.OrderedMap
 }
 
+// RequestOp extracts the "op" field from a raw request line for the audit log,
+// or "" if unparseable. Best-effort (logging only — never affects dispatch).
+func RequestOp(line []byte) string {
+	r, ok := ParseRequest(line)
+	if !ok {
+		return ""
+	}
+	if v, ok := r.raw.Get("op"); ok {
+		if s, ok := v.(string); ok {
+			return s
+		}
+	}
+	return ""
+}
+
 // ParseRequest decodes a single-line JSON request. Mirrors json.loads of the
 // first line; returns (nil, false) on empty/invalid.
 func ParseRequest(line []byte) (*Request, bool) {
