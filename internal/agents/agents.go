@@ -234,6 +234,63 @@ func ResolveAgents(names []string) []AgentSpec {
 	return out
 }
 
+// InjectYoloFlags returns fullCommand with the leading agent's YOLO flags
+// injected right after the binary, mirroring _inject_agent_yolo_flags. The
+// agent is matched by fullCommand[0] == its Install.Bin; a non-agent head is
+// returned unchanged. Flags are inserted so their relative order is preserved
+// (Python inserts each at index 1 in reverse); a flag already present — or a
+// known alias (e.g. -y for --yolo) — is skipped. The input slice is not mutated;
+// a new slice is returned (Go idiom over Python's in-place mutation).
+func InjectYoloFlags(fullCommand []string) []string {
+	if len(fullCommand) == 0 {
+		return fullCommand
+	}
+	head := fullCommand[0]
+	var spec *AgentSpec
+	for i := range specs {
+		if specs[i].Install.Bin == head {
+			spec = &specs[i]
+			break
+		}
+	}
+	if spec == nil {
+		return fullCommand
+	}
+	out := append([]string{}, fullCommand...)
+	// Insert in reverse so relative order is preserved (each at index 1).
+	for i := len(spec.YoloFlags) - 1; i >= 0; i-- {
+		flag := spec.YoloFlags[i]
+		if containsStr(out, flag) {
+			continue
+		}
+		skip := false
+		for _, a := range YoloFlagAliases[flag] {
+			if containsStr(out, a) {
+				skip = true
+				break
+			}
+		}
+		if skip {
+			continue
+		}
+		// Insert flag at index 1 without aliasing the backing array.
+		inserted := make([]string, 0, len(out)+1)
+		inserted = append(inserted, out[0], flag)
+		inserted = append(inserted, out[1:]...)
+		out = inserted
+	}
+	return out
+}
+
+func containsStr(xs []string, target string) bool {
+	for _, x := range xs {
+		if x == target {
+			return true
+		}
+	}
+	return false
+}
+
 // sortStrings is a tiny insertion sort to avoid importing "sort" for these
 // short, fixed slices (keeps the package dependency-free like the Python one).
 func sortStrings(s []string) {
