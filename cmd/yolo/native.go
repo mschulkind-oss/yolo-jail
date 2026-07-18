@@ -4,8 +4,10 @@ import (
 	"fmt"
 	"os"
 	"os/exec"
+	"strconv"
 	"strings"
 
+	"github.com/mschulkind-oss/yolo-jail/internal/brokercmd"
 	"github.com/mschulkind-oss/yolo-jail/internal/checkcmd"
 	"github.com/mschulkind-oss/yolo-jail/internal/configref"
 	"github.com/mschulkind-oss/yolo-jail/internal/initcmd"
@@ -30,6 +32,57 @@ var nativeDispatch = map[string]func(args []string) int{
 	"config-ref":       runConfigRef,
 	"init":             runInit,
 	"init-user-config": runInitUserConfig,
+	"broker":           runBroker,
+}
+
+// runBroker dispatches `yolo broker {status,stop,restart,logs}`. args is the
+// rewritten argv[1:] (args[0]=="broker"). Gated behind YOLO_IMPL=go; info-parity
+// output, exact exit codes + paths + tail argv.
+func runBroker(args []string) int {
+	var sub string
+	var rest []string
+	if len(args) > 1 {
+		sub = args[1]
+		rest = args[2:]
+	}
+	deps := brokercmd.RealDeps()
+	switch sub {
+	case "status":
+		return brokercmd.Status(deps)
+	case "stop":
+		return brokercmd.Stop(deps)
+	case "restart":
+		return brokercmd.Restart(deps)
+	case "logs":
+		// -n/--lines (default 50) and -f/--follow.
+		lines, follow := 50, false
+		for i := 0; i < len(rest); i++ {
+			a := rest[i]
+			switch {
+			case a == "-f" || a == "--follow":
+				follow = true
+			case a == "-n" || a == "--lines":
+				if i+1 < len(rest) {
+					i++
+					if n, err := strconv.Atoi(rest[i]); err == nil {
+						lines = n
+					}
+				}
+			case strings.HasPrefix(a, "-n"):
+				if n, err := strconv.Atoi(a[2:]); err == nil {
+					lines = n
+				}
+			case strings.HasPrefix(a, "--lines="):
+				if n, err := strconv.Atoi(a[len("--lines="):]); err == nil {
+					lines = n
+				}
+			}
+		}
+		return brokercmd.Logs(deps, lines, follow)
+	default:
+		// Unknown/absent sub-subcommand → Python (typer prints group help).
+		return delegateToPython(args)
+	}
 }
 
 // runInit runs `yolo init` (scaffold yolo-jail.jsonc + briefing). Parses
