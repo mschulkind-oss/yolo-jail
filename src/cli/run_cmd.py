@@ -185,7 +185,9 @@ def _go_bin_arch() -> str:
     machines fall through verbatim (so the path is at least inspectable).
     """
     machine = os.uname().machine
-    return {"x86_64": "amd64", "aarch64": "arm64", "arm64": "arm64"}.get(machine, machine)
+    return {"x86_64": "amd64", "aarch64": "arm64", "arm64": "arm64"}.get(
+        machine, machine
+    )
 
 
 def _resolve_repo_root() -> Path:
