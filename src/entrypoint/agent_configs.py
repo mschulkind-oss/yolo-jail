@@ -834,6 +834,20 @@ def configure_opencode():
         print(f"Error configuring opencode: {e}", file=sys.stderr)
 
 
+def _load_host_pi_settings() -> dict:
+    """Load host settings.json from /ctx/host-pi/ if available."""
+    host_pi_files = json.loads(os.environ.get("YOLO_HOST_PI_FILES", "[]"))
+    if "settings.json" not in host_pi_files:
+        return {}
+    host_settings_path = Path("/ctx/host-pi/settings.json")
+    if not host_settings_path.exists():
+        return {}
+    try:
+        return json.loads(host_settings_path.read_text())
+    except (ValueError, OSError):
+        return {}
+
+
 def configure_pi():
     """Set up the pi (pi.dev) coding agent: ~/.pi/agent/settings.json.
 
@@ -845,14 +859,22 @@ def configure_pi():
     boundary.  ``PI_TELEMETRY=0`` is set as a jail env var elsewhere, not
     here.
 
-    Merges into any existing settings.json, preserving user keys.
+    A user's host ``~/.pi/agent/settings.json`` (mounted at
+    ``/ctx/host-pi/settings.json`` when ``pi`` is selected) is merged in via
+    the same three-way host→jail merge Claude uses — host keys are added,
+    updated, AND removed as the host file changes, while keys the jail
+    modified locally are preserved.  The yolo-managed ``defaultProjectTrust``
+    is asserted last so it always wins.  Merges into any existing
+    settings.json, preserving user keys.
     """
-    from . import PI_DIR
+    from . import PI_DIR, PI_HOST_SETTINGS_SNAPSHOT_PATH
 
     PI_DIR.mkdir(parents=True, exist_ok=True)
     settings_path = PI_DIR / "settings.json"
 
     try:
+        host_settings = _load_host_pi_settings()
+
         if settings_path.exists():
             try:
                 settings = json.loads(settings_path.read_text())
@@ -863,7 +885,23 @@ def configure_pi():
         else:
             settings = {}
 
-        # Unattended: trust project-local config without prompting.
+        # Three-way merge against the last-synced snapshot so host changes
+        # propagate AND roll back, while jail-local edits are preserved.
+        # Reuses the agent-agnostic merge Claude uses.  See
+        # _sync_host_settings for the per-key rules.
+        try:
+            prev_synced = json.loads(PI_HOST_SETTINGS_SNAPSHOT_PATH.read_text())
+            if not isinstance(prev_synced, dict):
+                prev_synced = {}
+        except (FileNotFoundError, json.JSONDecodeError, OSError):
+            prev_synced = {}
+        _sync_host_settings(settings, host_settings, prev_synced)
+        PI_HOST_SETTINGS_SNAPSHOT_PATH.write_text(
+            json.dumps(host_settings, indent=2) + "\n"
+        )
+
+        # Unattended: trust project-local config without prompting.  Asserted
+        # after the host merge so the jail-managed key always wins.
         settings["defaultProjectTrust"] = "always"
 
         settings_path.write_text(json.dumps(settings, indent=2) + "\n")

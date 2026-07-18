@@ -93,6 +93,10 @@ CODEX_DIR = HOME / ".codex"
 # agent_configs._sync_host_settings).
 CLAUDE_HOST_SETTINGS_SNAPSHOT_PATH = CLAUDE_DIR / "yolo-host-synced-settings.json"
 CLAUDE_SHARED_CREDENTIALS_DIR = HOME / ".claude-shared-credentials"
+# Snapshot of host ~/.pi/agent/settings.json as of the last sync — the
+# baseline for the three-way host→jail settings merge (see
+# agent_configs._sync_host_settings), mirroring the claude one above.
+PI_HOST_SETTINGS_SNAPSHOT_PATH = PI_DIR / "yolo-host-synced-settings.json"
 MISE_CONFIG_DIR = HOME / ".config" / "mise"
 # Workspace mount point — fixed across all jails.  A module constant so
 # tests can redirect it to a tmp dir.
