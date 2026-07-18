@@ -1,0 +1,353 @@
+{
+ "group": "cli-run",
+ "purpose": "The heart of the yolo CLI: `yolo run` (also the default `yolo -- cmd` path) assembles the full podman / Apple Container argv \u2014 mounts, env vars, networking, GPU/KVM/devices, host services \u2014 then launches a fresh jail or execs into an existing one via the tty proxy. runtime.py owns runtime detection (podman vs Apple `container` vs macos-user), deterministic container naming, and container lookup/removal/inspection wrappers. network.py is the host half of forward_host_ports: socat UNIX-LISTEN\u2192TCP tunnels whose sockets are bind-mounted into the jail.",
+ "files": [
+  {
+   "path": "/workspace/src/cli/run_cmd.py",
+   "role": "run()/ps()/doctor() Typer commands; container argv assembly (3147 lines); repo-root resolution; workspace-readonly + venv-shadow + scratch mount builders; entrypoint preflight dry-run; agent YOLO-flag injection; orphan-jail reaping via owner-PID files; embedded bash provisioning script"
+  },
+  {
+   "path": "/workspace/src/cli/runtime.py",
+   "role": "Runtime detection/selection (_runtime, _runtime_for_check, _is_apple_container, _runtime_is_connectable); container_name_for_workspace; find_running/existing_container; stale removal; tracking files; cgroup resolution; stuck-container heuristic; Podman Machine memory advisory"
+  },
+  {
+   "path": "/workspace/src/cli/network.py",
+   "role": "Host-side socat port forwarding: _parse_port_forwards, start_host_port_forwarding, cleanup_port_forwarding"
+  }
+ ],
+ "public_surface": [
+  {
+   "kind": "cli-command",
+   "name": "yolo run / yolo -- <cmd>",
+   "detail": "Options: --network bridge|host (default bridge), --new (force fresh container), --profile (timing report), --dry-run (macos-user runtime only, else exit 1). Extra args (allow_extra_args + ignore_unknown_options) become the in-jail command; empty \u2192 bash. Leading binary matching an agent registry bin gets yolo flags auto-injected at index 1 (gemini\u2192--yolo, copilot\u2192--yolo --no-auto-update, claude\u2192--dangerously-skip-permissions; skipped if flag or alias e.g. -y already present).",
+   "consumers": "end users; registered in cli/__init__.py app.command()"
+  },
+  {
+   "kind": "cli-command",
+   "name": "yolo ps",
+   "detail": "Lists yolo-* containers as a fixed-width table CONTAINER/STATUS/WORKSPACE; podman: `ps --filter name=^yolo- --format {{.Names}}\\t{{.Status}}\\t{{.RunningFor}}`; AC: parses `container ls` table skipping header. Prints 'No running jails.' and prunes ALL tracking files when empty; prunes stale tracking files otherwise; appends '\u26a0 N problem jail(s)' block (workspace gone / stuck-in-provisioning via `<rt> top <name> -eo comm`).",
+   "consumers": "end users, docs"
+  },
+  {
+   "kind": "cli-command",
+   "name": "yolo doctor [--build/--no-build]",
+   "detail": "Alias delegating to check_cmd.check(build=...).",
+   "consumers": "end users"
+  },
+  {
+   "kind": "env-var",
+   "name": "YOLO_RUNTIME (read)",
+   "detail": "Overrides runtime selection if in ALL_RUNTIMES=('podman','container','macos-user'). Auto-detect order: macOS container\u2192podman (binary must pass _is_apple_container version-banner check AND daemon connectable \u2014 `container system status` contains 'running' / `<rt> info` rc=0); Linux podman only. No runtime \u2192 red error + exit 1.",
+   "consumers": "runtime.py; users; nested jails (set to podman by run_cmd)"
+  },
+  {
+   "kind": "env-var",
+   "name": "YOLO_REPO_ROOT (read)",
+   "detail": "Repo-root resolution step 1; only honored if flake.nix or src/entrypoint/__init__.py exists under it. Fallbacks: source-checkout detection via cli/__init__.py path parents; installed-wheel staging into ~/.local/share/yolo-jail/nix-build-root (mtime-gated repopulate; rename-aside to nix-build-root.old.<uuid>, never rmtree \u2014 live podman binds pin inodes); user config repo_path; else exit 1 with fix hint.",
+   "consumers": "jails (set to /opt/yolo-jail), CI"
+  },
+  {
+   "kind": "env-var",
+   "name": "YOLO_VERSION (read as in-jail sentinel)",
+   "detail": "Presence means 'running inside a jail': suppresses _retire_jail_made_venv and the YOLO_STORE_PRUNE_OK grant + relay orphan reaping.",
+   "consumers": "run_cmd on nested invocations"
+  },
+  {
+   "kind": "env-var",
+   "name": "YOLO_DEBUG (read)",
+   "detail": "If set, prints the full shlex-quoted container run argv to stderr before launch \u2014 the natural golden-output parity hook.",
+   "consumers": "debugging, parity tests"
+  },
+  {
+   "kind": "env-var",
+   "name": "YOLO_NIX_HOST_DAEMON (read)",
+   "detail": "Opt-in on macOS to mount host /nix daemon socket + /nix/store:ro + NIX_REMOTE=daemon (gated by _should_mount_host_nix; automatic on Linux when both paths exist and runtime != container).",
+   "consumers": "run_cmd"
+  },
+  {
+   "kind": "env-var",
+   "name": "TERM (read\u2192forwarded)",
+   "detail": "Forwarded verbatim as -e TERM=... when present.",
+   "consumers": "container TUI apps"
+  },
+  {
+   "kind": "socket-protocol",
+   "name": "container env block (-e contract)",
+   "detail": "Fixed env set the entrypoint depends on: JAIL_HOME=/home/agent, NPM_CONFIG_PREFIX=/home/agent/.npm-global, NPM_CONFIG_CACHE=/home/agent/.cache/npm, GOPATH=/home/agent/go, MISE_DATA_DIR=/mise, MISE_CACHE_DIR=/tmp/mise-cache, MISE_PYTHON_PRECOMPILED_FLAVOR=install_only, MISE_PYTHON_GITHUB_ATTESTATIONS=false, MISE_TRUSTED_CONFIG_PATHS=/workspace, MISE_ENV=jail, RUSTUP_HOME=/mise/rustup, CARGO_HOME=/mise/cargo, MISE_YES=1, COPILOT_ALLOW_ALL=true, IS_SANDBOX=1, LD_LIBRARY_PATH=/lib:/usr/lib:/usr/lib/<multilib>, HOME=/home/agent, EDITOR=cat, VISUAL=nvim, PI_TELEMETRY=0, PAGER=cat, GIT_PAGER=cat, YOLO_BLOCK_CONFIG=<json>, TZ=<host tz, optional>, YOLO_HOST_DIR=<workspace>, YOLO_VERSION=<git describe|unknown>, OVERMIND_SOCKET=/tmp/overmind.sock, YOLO_MISE_TOOLS/<LSP_SERVERS>/<LSP_NPM_INSTALL newline-sep>/<LSP_GO_INSTALL>/<MCP_SERVERS>/<MCP_PRESETS>/<AGENTS> all JSON, YOLO_RUNTIME=podman (always), YOLO_REPO_ROOT=/opt/yolo-jail, MISE_DISABLE_TOOLS=<merged>.",
+   "consumers": "src/entrypoint (jail init), bootstrap scripts"
+  },
+  {
+   "kind": "socket-protocol",
+   "name": "conditional container env vars",
+   "detail": "YOLO_GIT_NAME/YOLO_GIT_EMAIL (from `git config --get user.name/email`), YOLO_JJ_NAME/YOLO_JJ_EMAIL (from `jj config get`, quotes stripped) \u2014 also on the exec/attach path; YOLO_GLOBAL_GITIGNORE=/home/agent/.config/git/ignore; YOLO_PUBLISHED_PORTS=<json '[\"port/proto\",...]'> (podman+publish only); YOLO_FORWARD_HOST_PORTS=<json>; YOLO_FWD_HOST_GATEWAY=host.containers.internal (macOS podman); YOLO_HOST_CLAUDE_FILES=<json list>; YOLO_STORE_PRUNE_OK=1 (only when host CLI proves zero other live jails); YOLO_PROFILE=1; NVIDIA_VISIBLE_DEVICES / NVIDIA_DRIVER_CAPABILITIES; ROCR_VISIBLE_DEVICES / HIP_VISIBLE_DEVICES (only when devices != 'all'); HSA_OVERRIDE_GFX_VERSION; LIBVA_DRIVERS_PATH=/lib/dri:/usr/lib/dri; NIX_REMOTE=daemon; TERM; YOLO_SERVICE_<NAME>_SOCKET per host service (inserted just before image arg).",
+   "consumers": "entrypoint, agents, loophole clients"
+  },
+  {
+   "kind": "cli-command",
+   "name": "podman run argv contract (fresh launch)",
+   "detail": "podman run --rm -i --init --cgroupns=private --read-only --name <cname> [--read-only-tmpfs=false Linux-only] --pull=never --log-driver none --security-opt unmask=/proc/sys [-t if stdout tty] + mounts + env + --workdir /workspace ... <image=localhost/yolo-jail:latest> yolo-entrypoint '<final_internal_cmd bash script>'. Userns branches: in-container(nested): --security-opt label=disable --userns host --cap-add SYS_ADMIN,MKNOD,NET_ADMIN,NET_RAW + --device /dev/fuse,/dev/net/tun if present; NVIDIA GPU: label=disable --uidmap 0:0:1 --uidmap 1:1:65536 --gidmap 0:0:1 --gidmap 1:1:65536 --runtime runc --cap-add SYS_ADMIN,NET_ADMIN,NET_RAW; default host: label=disable --device /dev/fuse --uidmap/--gidmap identity pairs --cap-add SYS_ADMIN,MKNOD,NET_ADMIN,NET_RAW + /dev/net/tun if exists. Net: nested\u2192--net=host, non-bridge\u2192--net=<mode>, bridge\u2192no flag (pasta default). --pids-limit 32768 default (config override); --memory/--cpus only if configured (AC gets defaults half-host, min 4g/2cpu). GPU: --ulimit memlock=<host hard cap or -1:-1>, --device nvidia.com/gpu=all|N or amd.com/gpu=... or /dev/kfd+/dev/dri, AMD adds --group-add keep-groups; kvm: --device /dev/kvm + keep-groups; publish: -p <spec> + --sysctl net.ipv4.conf.all.route_localnet=1.",
+   "consumers": "podman/crun/runc; parity-test golden surface via YOLO_DEBUG"
+  },
+  {
+   "kind": "cli-command",
+   "name": "podman mount contract (fresh launch, ordered)",
+   "detail": "-v <workspace>:/workspace; GLOBAL_HOME:/home/agent:ro; per-workspace overlays from <ws>/.yolo/home: npm-global, local, go, yolo-shims, config \u2192 /home/agent/.<same>; GLOBAL_CACHE:/home/agent/.cache; file overlays yolo-bootstrap.sh, yolo-venv-precreate.sh, yolo-perf.log, yolo-socat.log, yolo-entrypoint.lock, yolo-ca-bundle.crt, yolo-installed-lsps \u2192 /home/agent/.<name>; bash_history; ssh dir (0700); mise store <GLOBAL>/mise-or named volume yolo-mise-data-v2 (macOS) \u2192 /mise; scratch (_scratch_mount_args: volume mode = anonymous -v /tmp,/var/tmp,/var/lib/containers,/var/cache/containers + --tmpfs /run + --tmpfs /dev/shm:size=2g; tmpfs mode = --tmpfs with exec,mode=1777); per-selected-agent overlay dirs (spec.overlay_dirs) \u2192 /home/agent/.<dir>; claude \u2192 GLOBAL_HOME/.claude-shared-credentials rw; yolo-user-env.sh \u2192 /home/agent/.config/yolo-user-env.sh; repo \u2192 /opt/yolo-jail:ro (workspace itself if it IS a yolo source tree); nix socket/store; git global ignore file:ro (deref if bind-mountpoint via ws_state copy); publish/mounts (:ro /ctx/... \u2014 SKIPPED on AC with warning since :ro is ignored, apple/container#889); host-services dir \u2192 /run/yolo-services:rw; port-forward dir \u2192 /tmp/yolo-fwd:rw; ~/.config/nvim \u2192 /ctx/host-nvim-config:ro; /dev/null shadows over /workspace/.vscode/mcp.json and /workspace/.overmind.sock; workspace_readonly overlays (+ yolo-jail.jsonc:ro lock); venv shadow mounts (ws_state/venv-shadows/<rel with / \u2192 __> \u2192 /workspace/<rel>); user config \u2192 /home/agent/.config/yolo-jail/config.jsonc:ro; skills staging per agent :ro; briefing files (AGENTS-*.md/CLAUDE.md) :ro; host-claude files \u2192 /ctx/host-claude/<f>:ro. AC variant: ws_state as single writable /home/agent (~22 virtiofs device limit), all --tmpfs bare paths, single-file mounts materialized by copy into ws_state (_ac_materialize_under_ws_state), --publish-socket <host.sock>:/tmp/yolo-fwd/port-N.sock.",
+   "consumers": "container runtime; entrypoint expects these exact in-jail paths"
+  },
+  {
+   "kind": "cli-command",
+   "name": "exec/attach argv contract",
+   "detail": "<runtime> exec -i [-t if stdout tty] [-e YOLO_GIT_NAME=... etc] <cname> yolo-entrypoint '<shlex.join(cmd)>' \u2014 used when find_running_container hits (and on the post-lock race re-check). Wrapped in run_with_proxy; exit code propagated via sys.exit(rc).",
+   "consumers": "podman/container; entrypoint's exec mode"
+  },
+  {
+   "kind": "file-format",
+   "name": "final_internal_cmd embedded bash script",
+   "detail": "Byte-exact bash passed as last argv element after 'yolo-entrypoint': provisioning header printf \u2192 setup_script (YOLO_BYPASS_SHIMS=1 sh -c 'mise trust --all --quiet; conditional dangling-symlink store prune when YOLO_STORE_PRUNE_OK=1; mise install --quiet; mise upgrade --yes with grep -v \"^mise WARN\" filter preserving real rc; ~/.yolo-bootstrap.sh; ~/.yolo-venv-precreate.sh') teed into /workspace/.yolo/startup.log with PIPESTATUS[0] rc capture; on failure writes 'PROVISIONING FAILED (exit N)' to log, red banner, interactive [Y/n] continue prompt (tty only; YOLO_PROVISION_PROMPT=0 bypasses; n \u2192 exit rc); then mise_activate ('. $HOME/.config/yolo-user-env.sh; eval \"$(mise env -s bash)\"; PATH=$HOME/.yolo-shims:$PATH'); '\u26a1 Executing: <cmd>' banner; target_cmd. --profile variant adds nanosecond timing instrumentation + perf-log awk extraction + node shim comparison on fd 3.",
+   "consumers": "entrypoint (execs bash -c), in-jail mise/bootstrap"
+  },
+  {
+   "kind": "file-format",
+   "name": "~/.config/yolo-user-env.sh (via ws_state/yolo-user-env.sh)",
+   "detail": "Generated sourceable sh: two comment lines then `export KEY=${KEY:-'val'}` per env_sources var, single-quote-escaped ('\\''). Launch-env-wins precedence mirrored by entrypoint._hydrate_env_from_user_env_file \u2014 must stay in sync. Always exists (touched empty).",
+   "consumers": "mise_activate line, entrypoint"
+  },
+  {
+   "kind": "path",
+   "name": "<workspace>/.yolo/home (ws_state)",
+   "detail": "Per-workspace overlay tree created host-side: subdirs npm-global,local,go,yolo-shims,config,ssh(0700),<agent overlay dirs>,venv-shadows/; touched files bash_history, yolo-bootstrap.sh, yolo-venv-precreate.sh, yolo-perf.log, yolo-socat.log, yolo-entrypoint.lock, yolo-ca-bundle.crt, yolo-installed-lsps, yolo-user-env.sh; deref copies for nested-jail single-file mounts (.config/git/ignore, .config/yolo-jail/*, ctx-host-claude/*). Agent auth seeded from GLOBAL_HOME (_seed_agent_dir), claude.json two-way sync, legacy overlay migrations (claude-projects\u2192claude/projects etc.).",
+   "consumers": "container mounts, entrypoint, disk accounting"
+  },
+  {
+   "kind": "path",
+   "name": "~/.local/share/yolo-jail/containers/<cname>",
+   "detail": "Tracking file: absolute workspace path + trailing newline (write_container_tracking). Read by _get_container_workspace/ps; removed by cleanup_container_tracking / stale removal.",
+   "consumers": "ps, doctor, prune"
+  },
+  {
+   "kind": "path",
+   "name": "~/.local/share/yolo-jail/owners/<cname>",
+   "detail": "Owner-PID file: '<pid>\\n' of the yolo run that started the jail. _reap_orphaned_jails on every run: for each live yolo-* container with a recorded dead owner PID (os.kill(pid,0) semantics: ESRCH=dead, EPERM=alive, other=assume alive) \u2192 `podman stop -t 5` (AC: `container stop`, 30s) + file removal. No file \u2192 never reaped.",
+   "consumers": "subsequent yolo invocations"
+  },
+  {
+   "kind": "path",
+   "name": "~/.local/share/yolo-jail/locks/<cname>.lock",
+   "detail": "Workspace launch lock: open + fcntl.flock LOCK_EX (blocking); flock failure only warns. Post-acquire re-check attaches if raced. Released by on_started callback after polling find_running_container 20\u00d70.25s, or on error paths.",
+   "consumers": "concurrent yolo invocations"
+  },
+  {
+   "kind": "path",
+   "name": "/tmp/yolo-fwd-<cname>/port-<port>.sock (macOS: /tmp resolved to /private/tmp)",
+   "detail": "Host-side socat sockets, one per forward_host_ports entry; dir bind-mounted at /tmp/yolo-fwd in-jail (Linux) or bridged via --publish-socket (AC). socat argv: `socat UNIX-LISTEN:<sock>,fork,mode=777 TCP:127.0.0.1:<host_port>`; stderr \u2192 ~/.local/share/yolo-jail/logs/<cname>-socat.log (append). Startup waits \u22642s at 5ms poll for socket files. Cleanup: terminate(2s)\u2192kill, rmtree socket dir.",
+   "consumers": "container-side socat in entrypoint"
+  },
+  {
+   "kind": "config-key",
+   "name": "yolo-jail.jsonc keys consumed by run",
+   "detail": "runtime, network.mode/ports/forward_host_ports, security (blocked tools), mounts ('host[:container]' \u2014 last-colon-before-/ split, default /ctx/<basename>), workspace_readonly, per_side_paths, ephemeral_storage ('volume'|'tmpfs'), devices (str path | {usb: 'vid:pid', description} | {cgroup_rule}), gpu.{enabled,vendor(nvidia|amd),devices,capabilities,mode(devices|cdi),hsa_override_gfx_version,seccomp_unconfined,vaapi}, kvm, resources.{memory,cpus,pids_limit}, lsp_servers (recipes: python\u2192pyright npm, typescript\u2192typescript-language-server+typescript, go\u2192gopls; any LSP adds github.com/isaacphi/mcp-language-server@latest go pkg), mcp_servers, mcp_presets, host_claude_files, agents, loopholes, env sources, packages, mise tools, agents_md_extra, repo_path (user config).",
+   "consumers": "users via yolo-jail.jsonc / ~/.config/yolo-jail/config.jsonc"
+  },
+  {
+   "kind": "other",
+   "name": "container naming scheme",
+   "detail": "yolo-<sanitized dirname lowercase [^a-z0-9-]\u2192'-' strip('-') [:40], fallback 'jail'>-<sha256(resolved path)[:8]>. Deterministic; the join key for tracking files, owner PIDs, locks, socket dirs, skills staging (AGENTS_DIR/<cname>).",
+   "consumers": "everything host-side + docs + humans"
+  },
+  {
+   "kind": "exit-code",
+   "name": "run exit codes",
+   "detail": "Propagates container/exec rc via sys.exit(rc). Exit 1: config load/validate errors, --dry-run off macos-user, _check_config_changes declined, auto_load_image failure, runtime binary FileNotFoundError. Exit 137 on macOS+podman triggers advisory OOM hint if Podman Machine memory < 4096MB floor.",
+   "consumers": "shell scripts, CI"
+  },
+  {
+   "kind": "signal",
+   "name": "SIGHUP/SIGTERM teardown (via tty_proxy callbacks)",
+   "detail": "run supplies on_terminate to run_with_proxy: _stop_jail (podman stop -t 5, timeout+5), cleanup_port_forwarding, lock close, stop_loopholes. Normal exit path does the same minus stop. SIGKILL/host-crash covered by owner-PID reaping on next run. ^Z handled by proxy (out of scope here).",
+   "consumers": "terminal window close, kill"
+  },
+  {
+   "kind": "cli-command",
+   "name": "runtime-CLI probe/inspect invocations",
+   "detail": "Contracts with podman/AC CLIs: `<rt> ps -q --filter name=^/<name>$` (running), `ps -a -q` (existing), `ps -a --format '{{.Names}} {{.State}}'` (_live_yolo_containers, states running/paused/restarting), `<rt> rm <name>` / `container rm --force`, `container ls [--all]` whitespace-table parse skip header, `container system status`, `<rt> info`, `<rt> top <name> -eo comm` (stuck heuristic: all procs in {uv,mise,pip,npm}+infra set), `<rt> inspect --format {{.State.CgroupPath}}/{{.State.Pid}}/{{range .Config.Env}}{{println .}}{{end}}`, `container inspect` JSON (.config.env list), `podman machine inspect` JSON ([].Resources.Memory, .State, .Name).",
+   "consumers": "podman/docker-compatible CLIs, Apple container CLI"
+  },
+  {
+   "kind": "other",
+   "name": "host subprocess probes",
+   "detail": "git config --get user.name/user.email; git config --global --get core.excludesFile (fallback ~/.config/git/ignore); jj config get user.name/user.email; lsusb -d <vid:pid> (parse 'Bus 001 Device 004:' \u2192 /dev/bus/usb/BBB/DDD); sysctl -n hw.memsize (macOS AC memory default); sys.executable -c <entrypoint dry-run code> for preflight.",
+   "consumers": "host tools"
+  },
+  {
+   "kind": "file-format",
+   "name": "/workspace/.yolo/startup.log (in-jail)",
+   "detail": "Provision log: '=== yolo provisioning <ISO8601> ===' header, teed provisioning output, 'PROVISIONING FAILED (exit N)' marker on failure. Fresh per container start.",
+   "consumers": "users, doctor, in-jail debugging"
+  },
+  {
+   "kind": "env-var",
+   "name": "YOLO_PROVISION_PROMPT (in-jail, read by generated script)",
+   "detail": "'0' disables the interactive continue/abort prompt after provisioning failure; default continue on Enter, n aborts with provisioning rc.",
+   "consumers": "generated bash script"
+  },
+  {
+   "kind": "path",
+   "name": "~/.local/share/yolo-jail/nix-build-root[.old.<uuid>]",
+   "detail": "Staged repo copy for wheel installs: flake.nix+flake.lock+src/ copied via mkdtemp\u2192rename swap; old tree renamed aside (mtime stamped to now) for the prune sweeper, never deleted inline (live podman binds pin inodes).",
+   "consumers": "nix builds, yolo prune sweeper"
+  },
+  {
+   "kind": "config-key",
+   "name": "mise config venv discovery (mise.toml/.mise.toml/mise.jail.toml/.mise.jail.toml)",
+   "detail": "Reads env._.python.venv (str, or dict.path default '.venv'); later file wins in that fixed order; strips leading '{{config_root}}/'; feeds the venv shadow set (.venv \u222a mise venv \u222a per_side_paths) and jail-made-venv retirement (pyvenv.cfg 'home =' pointing at /workspace/, /mise/, or host ~/.local/share/mise and nonexistent \u2192 rmtree).",
+   "consumers": "run fresh-container path"
+  },
+  {
+   "kind": "other",
+   "name": "MISE_STORE_VOLUME='yolo-mise-data-v2'",
+   "detail": "Named volume for /mise on macOS (both podman and AC). Versioned name is a contract \u2014 renaming orphans user state.",
+   "consumers": "podman/AC volume store"
+  }
+ ],
+ "internal_deps": [
+  "src/loopholes.py",
+  "src/entrypoint/agent_registry.py (dual-try import: src.entrypoint | entrypoint)",
+  "cli/agents_md.py (_prepare_skills, _workspace_is_yolo_source_tree, generate_agents_md)",
+  "cli/config.py (load_config, _validate_config, _normalize_blocked_tools, _effective_packages, _merge_mise_tools, _resolve_env_sources, _check_config_changes, selected_agents, ...)",
+  "cli/console.py",
+  "cli/image.py (_jail_image, auto_load_image)",
+  "cli/loopholes_runtime.py (start/stop_loopholes, _broker_ensure, _relay_ensure/_relay_reap_orphans, _gpu_host_available, _rocm_host_available, _should_mount_host_nix, _host_service_sockets_dir/_env_var)",
+  "cli/paths.py (all path constants, IS_LINUX/IS_MACOS, SUPPORTED/ALL/NATIVE_RUNTIMES)",
+  "cli/storage.py (ensure_global_storage, _seed_agent_dir, _sync_claude_json_seed, _migrate_old_overlay, _detect_host_timezone, _jail_mise_store_dir, _linux_multilib, _ac_materialize_under_ws_state)",
+  "cli/terminal.py (_print_startup_banner, _tmux_rename_window)",
+  "cli/tty_proxy.py (run_with_proxy \u2014 the launch/exec execution boundary)",
+  "cli/version.py",
+  "cli/macos_user.py (lazy import for macos-user runtime dispatch)",
+  "cli/check_cmd.py (lazy, doctor alias)"
+ ],
+ "third_party_deps": [
+  {
+   "pkg": "typer",
+   "used_for": "CLI command/option parsing, ctx.args pass-through, typer.Exit",
+   "go_equivalent": "cobra or urfave/cli (must replicate allow_extra_args/ignore_unknown_options `--` semantics)"
+  },
+  {
+   "pkg": "rich",
+   "used_for": "console.print markup ([bold red] etc.), stderr Console for profile output",
+   "go_equivalent": "fatih/color / charmbracelet/lipgloss; markup strings become the parity-sensitive part only if tests assert on them"
+  },
+  {
+   "pkg": "pyjson5",
+   "used_for": "parsing ~/.config/yolo-jail/config.jsonc in _resolve_repo_root step 4",
+   "go_equivalent": "tailscale/hujson or tidwall/jsonc (JSON5 leniency differences are a hazard)"
+  }
+ ],
+ "side_effects": [
+  "spawns podman/container/docker-CLI subprocesses (run, exec, ps, stop, rm, inspect, top, machine inspect, system status, ls)",
+  "creates/updates <workspace>/.yolo/home tree (dirs, touched files, seeded agent auth, migrations, deref copies)",
+  "deletes workspace venvs matching jail-made heuristic (_retire_jail_made_venv rmtree)",
+  "writes tracking file, owner-PID file, workspace flock file under ~/.local/share/yolo-jail/",
+  "stages/renames ~/.local/share/yolo-jail/nix-build-root* trees",
+  "spawns detached socat processes + appends to logs/<cname>-socat.log; rmtrees /tmp/yolo-fwd-<cname> on cleanup",
+  "starts/stops host-side loophole services + oauth-broker relay (via loopholes_runtime)",
+  "runs sys.executable -c entrypoint dry-run in a TemporaryDirectory (yolo-check-*)",
+  "stops orphaned containers (reaping) and removes stale ones",
+  "renames tmux window to 'JAIL'",
+  "reads /proc/self/mountinfo, /proc/<pid>/cgroup, /dev/* existence checks",
+  "sys.exit throughout (process-terminating control flow)"
+ ],
+ "python_specifics": [
+  "fcntl.flock(LOCK_EX) on an open file object; lock lifetime tied to FD, released by close() from the tty-proxy on_started callback (possibly another thread) \u2014 Go: syscall.Flock with careful fd ownership",
+  "resource.getrlimit(RLIMIT_MEMLOCK) + RLIM_INFINITY sentinel \u2192 x/sys/unix.Getrlimit (Rlimit.Max uint64 ^0 semantics differ from Python's -1)",
+  "os.kill(pid, 0) tri-state liveness (ProcessLookupError/PermissionError/other-OSError) \u2014 Go: unix.Kill(pid,0) errno mapping must preserve fail-safe polarity",
+  "dynamic module reflection: sys.modules[__name__.rpartition('.')[0]].__file__ to locate cli/__init__.py \u2014 exists solely so tests can monkeypatch cli.__file__; Go needs an injectable path resolver",
+  "dual-try import of entrypoint.agent_registry under src.entrypoint vs entrypoint identities (in-jail vs host import path)",
+  "tests monkeypatch module-level names (cli.run_cmd.GLOBAL_MISE, LOCK_RELEASE_POLL_ATTEMPTS, SOCKET_WAIT_DEADLINE_SECONDS...) \u2014 the F401 re-imports in run_cmd exist only for this; Go port needs DI/config struct and test rewrite at the process boundary",
+  "shlex.join / shlex.quote exact quoting semantics \u2014 target_cmd is re-parsed by in-jail bash; Go has no stdlib shlex (use a vetted port, e.g. kballard/go-shellquote, and golden-test against Python output)",
+  "subprocess.Popen detached socat children inherited past process exit; log file FD deliberately leaked open",
+  "tempfile.TemporaryDirectory / mkdtemp + os.utime + copytree + atomic double-rename swap in _resolve_repo_root",
+  "tomllib for mise.toml, pyjson5 for JSONC \u2014 parser-leniency parity risk",
+  "typer ctx.args with allow_extra_args+ignore_unknown_options: unknown flags flow into the jail command untouched",
+  "sys.executable -c '<generated python>' preflight \u2014 Python-runs-Python; a Go CLI must either locate a Python interpreter + the repo src/ or call the (future) Go entrypoint's dry-run mode",
+  "in-place list surgery: run_cmd.index(image) to insert -e pairs before the image arg (ordering is a hard podman contract: flags before image); _inject_agent_yolo_flags mutates argv at index 1 in reverse",
+  "% -formatting with dict for the sh export template; '\\''-style single-quote escaping",
+  "rich markup strings embedded in user-visible output"
+ ],
+ "seams": [
+  {
+   "name": "container-runtime argv boundary (the big one)",
+   "contract": "run() is ultimately a pure-ish function: (workspace, config, env, host probes) \u2192 ordered podman/container argv + host-side FS mutations + service startups, then delegates execution to run_with_proxy(argv). YOLO_DEBUG=1 already prints the exact shlex-quoted argv.",
+   "swap_mechanism": "Replace the `yolo run` subcommand with a Go binary (or Python dispatches to `yolo-run-go` when YOLO_IMPL=go); everything downstream (image, entrypoint, tty proxy semantics) is unchanged because the interface is an argv exec.",
+   "parity_test": "Golden-compare YOLO_DEBUG argv output (Python vs Go) across a config matrix (agents, gpu, devices, ports, forward_host_ports, workspace_readonly, per_side_paths, ephemeral_storage, nested-jail env, macOS/Linux path stubs) with a fake `podman` shim on PATH recording argv; plus diff the ws_state tree and tracking/owner/lock files produced."
+  },
+  {
+   "name": "runtime.py probe layer",
+   "contract": "Thin subprocess wrappers over podman/AC CLIs with fixed argv and parse rules (filters, --format templates, AC table parsing); pure inputs/outputs, no state beyond tracking files.",
+   "swap_mechanism": "Port first as a standalone Go package/binary; Python could shell out to `yolo-runtime-probe <verb>` returning JSON, or just port atomically with run \u2014 it has no cross-module state.",
+   "parity_test": "Record/replay: fake runtime CLI shims emitting canned podman/AC outputs; assert identical returns for find_running/existing, _live_yolo_containers (incl. None-vs-empty-set polarity), stuck heuristic, machine memory parse."
+  },
+  {
+   "name": "network.py socat forwarder",
+   "contract": "Given (forward_host_ports list, cname, socket_dir): spawn `socat UNIX-LISTEN:<dir>/port-N.sock,fork,mode=777 TCP:127.0.0.1:M` per entry, log to logs/<cname>-socat.log, wait \u22642s for sockets; cleanup = terminate + rmtree.",
+   "swap_mechanism": "Smallest first-port candidate: a `yolo-fwd` Go helper (could even replace socat itself with native Go proxying) invoked by Python run(); or port with run_cmd. Process boundary already exists (Popen handles are opaque).",
+   "parity_test": "Start Python and Go versions against a listener on 127.0.0.1:N; connect through each unix socket, assert byte-for-byte tunnel + socket perms/paths + log file location + cleanup removes dir."
+  },
+  {
+   "name": "entrypoint preflight subprocess",
+   "contract": "Spawn python -c <fixed code> with env {JAIL_HOME/HOME=tmp, MISE_DATA_DIR=/mise, YOLO_HOST_DIR, YOLO_BLOCK_CONFIG, YOLO_MISE_TOOLS, YOLO_LSP_SERVERS, YOLO_MCP_SERVERS, YOLO_MCP_PRESETS, YOLO_AGENTS, env_sources, PYTHONPATH dropped}; rc!=0 \u2192 ConfigError with combined stdout+stderr.",
+   "swap_mechanism": "Go keeps shelling to python3 -c against repo_root/src while entrypoint stays Python; when entrypoint is ported, switch to `<go-entrypoint> --dry-run` behind the same env contract.",
+   "parity_test": "Same env + same broken/valid configs \u2192 same pass/fail and same error text propagated."
+  },
+  {
+   "name": "in-jail provisioning script string",
+   "contract": "The bash text of setup_script/provision_script/mise_activate/final_internal_cmd handed to `yolo-entrypoint` \u2014 consumed by in-jail bash, writes /workspace/.yolo/startup.log, honors YOLO_PROVISION_PROMPT/YOLO_STORE_PRUNE_OK.",
+   "swap_mechanism": "Keep the generated string byte-identical in Go (extract to shared golden fixtures); the jail side never knows which language generated it.",
+   "parity_test": "String-equality golden test of the generated script for profile/non-profile \u00d7 prune-ok/not, plus a live nested-jail run comparing startup.log structure."
+  },
+  {
+   "name": "host-services env + socket dir",
+   "contract": "-e YOLO_SERVICE_<NAME>_SOCKET=/run/yolo-services/<name>.sock inserted before image arg; host dir /tmp-based per-jail sockets dir mounted at /run/yolo-services.",
+   "swap_mechanism": "Owned by loopholes_runtime module group; run_cmd only consumes \u2014 port order-independent as long as env names/paths match.",
+   "parity_test": "In-jail `env | grep YOLO_SERVICE` + socket connect test identical under both CLIs."
+  }
+ ],
+ "test_coverage": {
+  "existing": [
+   "tests/test_cli_commands.py (4151 lines \u2014 heavy monkeypatch-based coverage of run() branches, mount assembly, env vars, flag injection, orphan reaping, preflight)",
+   "tests/test_cli_unit.py (5400 lines \u2014 helpers: _resolve_repo_root, _scratch_mount_args, _workspace_readonly_mount_args, _resolve_lsp_installs, port parsing, etc.)",
+   "tests/test_runtime.py (701 lines \u2014 runtime detection, naming, find/remove, AC table parsing)",
+   "tests/test_state_separation.py (760 lines \u2014 venv shadows, mise store, per-side paths, _retire_jail_made_venv)",
+   "tests/test_podman_machine_advisory.py (OOM hint + machine memory parse)",
+   "tests/test_jail.py (956 lines \u2014 integration-flavored)",
+   "tests/test_macos_paths.py, tests/conftest.py fixtures"
+  ],
+  "gaps": [
+   "no automated end-to-end container launch (repo convention: verify via nested jail manually \u2014 startup mount/permission errors only surface at real `podman run`)",
+   "signal-path teardown (_on_terminate, SIGHUP/SIGTERM) and lock-release-on-started timing largely untested",
+   "Apple Container branches only testable via parsing fakes, not real AC",
+   "GPU/KVM/USB device branches depend on host hardware \u2014 fake-probe coverage only",
+   "the generated bash script strings are asserted piecemeal, not as a full golden \u2014 Go port should add one"
+  ],
+  "assessment": "Unusually deep unit coverage (~12k test lines against ~3.8k module lines) but almost all of it is monkeypatch-at-module-attribute style, which does NOT transfer to Go \u2014 parity work should pivot to the process boundary: fake runtime shims on PATH + YOLO_DEBUG argv goldens + ws_state tree diffs, then a real nested-jail smoke run."
+ },
+ "porting_hazards": [
+  "Argv ORDER is a contract: all flags/env before the image arg, image then 'yolo-entrypoint' then the script; host-service -e pairs are inserted at index(image); mount ordering matters semantically (rw /workspace first, then :ro/shadow overlays that must shadow it). Golden tests must compare ordered argv, not sets.",
+  "shlex.quote/join parity: target_cmd round-trips through bash in-jail; a Go shellquote lib with different quoting (e.g. always-quote vs minimal) changes display_cmd escaping and could break the '\u26a1 Executing' printf and prompt-injection-safe quoting.",
+  "The embedded bash scripts must stay byte-identical (PIPESTATUS is bash-only in the outer shell; inner sh -c is POSIX; grep -v '^mise WARN' rc-preservation dance; ${VAR:-'default'} escaping).",
+  "Tests monkeypatch module globals (GLOBAL_MISE, LOCK_RELEASE_POLL_ATTEMPTS, SOCKET_WAIT_DEADLINE_SECONDS, cli.__file__) \u2014 the F401 keep-imports comment documents this; none of it ports. Plan a test rewrite, not a translation.",
+  "_resolve_repo_root's installed-wheel staging assumes flake.nix ships as package data next to src/ \u2014 a single Go binary has no package dir; must embed flake.nix+src or redefine step 3 while keeping steps 1/2/4 and the rename-aside (never-delete) invariant that protects live podman bind inodes.",
+  "_entrypoint_preflight requires a Python interpreter (sys.executable) and the repo's src/ on disk; Go port must pick an interpreter (python3 from PATH? bundled?) \u2014 behavior divergence risk in exotic envs.",
+  "None-vs-empty-set polarity in _live_yolo_containers (unknown \u2260 nothing live) gates both YOLO_STORE_PRUNE_OK and relay reaping \u2014 easy to flatten to nil==empty in Go and silently grant unsafe prunes.",
+  "macOS /tmp\u2192/private/tmp resolution (Path('/tmp').resolve()) affects socket-dir paths seen by Podman Machine; Go filepath.EvalSymlinks needed in the same spots only.",
+  "Apple Container divergences are scattered special cases (no :ro, no --filter/--format/top/-t-grace/--pids-limit/--cgroupns, ~22 mount limit, bare --tmpfs, --publish-socket, table parsing) \u2014 enumerate as a runtime-capability struct rather than re-scattering if-chains, but keep observable behavior identical incl. warning texts if tests assert them.",
+  "fcntl flock + FD lifetime + on_started callback releasing the lock from tty_proxy context \u2014 Go goroutine/fd ownership must not close early (releases lock) or leak (blocks concurrent yolo forever).",
+  "resource.RLIM_INFINITY (-1) vs Go's unix.RLIM_INFINITY (^uint64(0)) in the memlock --ulimit formatting ('memlock=-1:-1' literal).",
+  "pyjson5 vs Go JSONC parser leniency (unquoted keys, trailing commas, comments) for user config; tomllib vs BurntSushi/toml for mise config edge cases.",
+  "typer's `--` and ignore_unknown_options semantics: `yolo --profile -- claude --weird-flag` must split identically; agent flag injection at argv[1] with alias suppression (YOLO_FLAG_ALIASES).",
+  "Rich markup in output: if any test/doc asserts exact strings (warnings like the AC :ro skip message), the Go port needs matching plain-text renderings.",
+  "Time-based behaviors: 20\u00d70.25s lock-release poll, 2s/5ms socket wait, 5s stop timeout, mtime-based nix-build-root staleness \u2014 keep constants and default values identical (tests shrink them by patching)."
+ ],
+ "complexity": "very-high",
+ "est_go_loc": 4800,
+ "notes": "This group is the integration hub: it imports from 13 sibling cli modules plus src/loopholes and the entrypoint agent registry, so it should be ported LAST among cli modules (or behind the argv seam with the siblings still Python via a JSON-over-exec bridge). The cleanest incremental strategy is bottom-up within the group: network.py first (149 lines, pure process boundary), runtime.py second (probe layer, replayable), run_cmd.py last with YOLO_DEBUG argv goldens as the primary parity harness plus a fake-podman PATH shim, finishing with a real nested-jail run (`yolo -- bash` from inside a jail) per the repo's testing convention. macos_user dispatch (runtime == 'macos-user') branches out of run() early and belongs to the macos module group. Registration surface lives in src/cli/__init__.py lines 354-378 (run/ps/doctor + the run command's allow_extra_args context settings)."
+}

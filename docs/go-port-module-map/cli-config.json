@@ -1,0 +1,279 @@
+{
+ "group": "cli-config",
+ "purpose": "Owns the yolo-jail configuration lifecycle on the host: JSON5/JSONC parsing and hierarchical merging (user config \u2192 workspace yolo-jail.jsonc \u2192 auto-merged yolo-jail.local.jsonc \u2192 include_if_found chains), the full schema validation with human-readable error strings, env_sources dotenv resolution, the config-change safety snapshot/diff/approve flow, the `yolo check` doctor (runtime/nix/GPU/KVM/image/loophole/socket/disk probes), `yolo init`/`init-user-config` scaffolding, the `yolo config-ref` reference text, and generation of per-jail AGENTS.md/CLAUDE.md briefings plus per-agent skills staging dirs that get bind-mounted into containers.",
+ "files": [
+  {
+   "path": "/workspace/src/cli/config.py",
+   "role": "JSONC load/merge/validate core: _load_jsonc_file (pyjson5), merge_config, _load_jsonc_with_includes, load_workspace_config, load_config, schema constants (KNOWN_*_KEYS, regexes), _validate_config (+helpers), _parse_dotenv/_resolve_env_sources, _config_snapshot_path/_check_config_changes, derived helpers (_effective_packages, _normalize_blocked_tools, _merge_mise_tools/_merge_mise_disabled_tools, selected_agents, _effective_mcp_server_names, _filter_mcp_servers_by_env), ConfigError"
+  },
+  {
+   "path": "/workspace/src/cli/check_cmd.py",
+   "role": "yolo check (2105 lines): environment/doctor probes \u2014 container runtime liveness, nix daemon + trust, macOS platform, global storage, strict config parse + merged validation, entrypoint dry-run, GPU (NVIDIA CDI / AMD ROCm device nodes), KVM, nix image build preflight (_nix_dry_run_will_build, _has_linux_builder, _preflight_builder_needs, _diagnose_nix_build_failure), image loaded/running-jails/orphan cleanup, loophole self-checks + broker creds freshness + per-jail relay socket probes, disk usage, inline-loophole exec checks; PASS/FAIL/WARN badge output; exit 1 on any fail"
+  },
+  {
+   "path": "/workspace/src/cli/config_ref_cmd.py",
+   "role": "yolo config-ref: one giant rich-markup string documenting every config field, merge rules, env vars, commands, in-jail layout. Pure static output"
+  },
+  {
+   "path": "/workspace/src/cli/init_cmd.py",
+   "role": "yolo init (writes commented yolo-jail.jsonc template, honors repeatable --mount/-m, appends .yolo/ to .gitignore, prints agent-briefing block) and yolo init-user-config (writes ~/.config/yolo-jail/config.jsonc template)"
+  },
+  {
+   "path": "/workspace/src/cli/agents_md.py",
+   "role": "generate_agents_md (per-agent briefing files in AGENTS_DIR/<cname>/: jail-managed markdown + agents_md_extra + host briefing prepended; provisioning-failure breadcrumb from .yolo/startup.log; yolo-source-tree detection via pyproject.toml), _write_briefing (hardlink-safe inode-preserving truncate), _prepare_skills/_copy_skill_subdirs (per-agent skills-<agent>/ staging with built-in jail-startup SKILL.md; clears dir CONTENTS only to keep the bind-mounted inode)"
+  }
+ ],
+ "public_surface": [
+  {
+   "kind": "cli-command",
+   "name": "yolo check",
+   "detail": "Flags: --build/--no-build (default on; --no-build skips nix build preflight). Sections printed in fixed order: Container Runtime, Nix, (macOS Platform), Global Storage, Config Files, Merged Configuration, Entrypoint Dry-Run, (macos-user backend), (GPU NVIDIA/AMD), (KVM), Image Build, Container Image, Running Jails (interactive 'Stop N orphaned jail(s)? [y/N]' prompt with `<runtime> rm -f`), Loopholes, Per-jail host-service liveness, Disk usage, Loopholes \u2014 inline daemons, Summary. Badges are literal text '[PASS]'/'[FAIL]'/'[WARN]' (rich-colored, 6 cols); multi-line notes indented with '       -> ' first line then 10 spaces. Exit 1 if any FAIL (early-exits after Config Files or Merged Configuration failures), else 0.",
+   "consumers": "humans + agents after every config edit; run_cmd.py:3144 invokes check; docs mandate it"
+  },
+  {
+   "kind": "cli-command",
+   "name": "yolo init",
+   "detail": "--mount/-m repeatable ('HOST' or 'HOST:/ctx/NAME'). Writes commented yolo-jail.jsonc template to cwd (baking mounts array if -m given); no-op + briefing if file exists ('yolo-jail.jsonc already exists.'). Appends '\\n# YOLO Jail workspace state\\n.yolo/\\n' to .gitignore if '.yolo/' absent (creates .gitignore if missing). Prints 'Created yolo-jail.jsonc' then a long AGENT BRIEFING block (handover.md mandate, jail-startup skill hint).",
+   "consumers": "humans/agents bootstrapping a project"
+  },
+  {
+   "kind": "cli-command",
+   "name": "yolo init-user-config",
+   "detail": "Creates ~/.config/yolo-jail/config.jsonc (mkdir -p parent) from a commented template; prints 'Created <path>' or '<path> already exists.'",
+   "consumers": "humans"
+  },
+  {
+   "kind": "cli-command",
+   "name": "yolo config-ref",
+   "detail": "Prints the full static configuration reference (rich markup). Agents parse it as documentation; AGENTS.md and shims point at it.",
+   "consumers": "agents in-jail, humans"
+  },
+  {
+   "kind": "file-format",
+   "name": "yolo-jail.jsonc / yolo-jail.local.jsonc / ~/.config/yolo-jail/config.jsonc",
+   "detail": "JSON5 (pyjson5): comments, trailing commas, single quotes, unquoted keys all accepted. Must be a top-level object (else strict ConfigError 'X must contain a top-level JSON object' / non-strict stderr Warning + {}). Merge order: user \u2192 workspace \u2192 workspace local (auto-merged, shared include-cycle seen-set so an explicit include of the local file doesn't double-merge). include_if_found: list of RELATIVE paths (absolute/'~' rejected), resolved against the including file's dir, missing silently skipped, recursive with cycle detection (resolved-Path seen set), key consumed by loader (never in merged config).",
+   "consumers": "whole CLI via load_config; entrypoint indirectly via env vars run_cmd derives"
+  },
+  {
+   "kind": "config-key",
+   "name": "merge semantics",
+   "detail": "merge_config: dicts deep-merge (override wins per key); lists UNION-dedup preserving base order, dedup key = json.dumps(item, sort_keys=True, default=str) \u2014 EXCEPT 'agents' which is replace-not-union (_OVERRIDE_LIST_KEYS); scalars/mismatched types: override replaces. Parity-critical: canonical-JSON dedup equality for dict list items.",
+   "consumers": "every config consumer"
+  },
+  {
+   "kind": "config-key",
+   "name": "schema (KNOWN_TOP_LEVEL_CONFIG_KEYS)",
+   "detail": "runtime ('podman'|'container'|'macos-user'; 'docker' \u2192 dedicated removal error), repo_path (str, user-config only \u2014 workspace use warns), agents (list from VALID_AGENTS: claude,copilot,gemini,opencode,pi,codex; default ['claude']; empty list warns), packages (str matching ^[a-zA-Z0-9_-]+(\\.[a-zA-Z0-9_-]+)?$ or object {name,nixpkgs|version+url+hash|outputs} \u2014 nixpkgs XOR version-override; dotted name string-only), mounts ('host' or 'host:/abs' \u2014 nonexistent host path warns), workspace_readonly / per_side_paths (relative, no '..'; per_side rejects ''/'.'), network {mode bridge|host, ports ['h:c'|'ip:h:c' opt '/tcp|udp', 1-65535], forward_host_ports [int|'l:h']} (host mode + ports \u2192 warn ignored), security.blocked_tools (str | {name,message,suggestion,block_flags}; default ['grep','find'] with built-in messages/block_flags; dict form merges defaults, user wins), mise_tools {name:version} (default {'neovim':'stable'}), lsp_servers {name:{command,args,fileExtensions(required)}}, mcp_presets (chrome-devtools|sequential-thinking), mcp_servers {name: null|{command,args,env(str:str),requires_env([A-Za-z_][A-Za-z0-9_]*)}}, devices (str path \u2014 missing warns \u2014 or {usb 'hhhh:hhhh' XOR cgroup_rule, description}), gpu {enabled,vendor nvidia|amd,devices str,mode(amd: devices|cdi),capabilities(nvidia only: compute,utility,graphics,video,display,compat32),hsa_override_gfx_version(amd),seccomp_unconfined(amd),vaapi(amd, implies mesa+libva-utils packages)}, resources {memory ^\\d+[bkmgBKMG]?$, cpus positive number/numeric str, pids_limit positive int}, env_sources (ordered list: str path | inline {KEY:val}, key regex enforced; legacy 'env' key \u2192 removal error), host_claude_files (filenames only, no '/'), loopholes {name ^[a-zA-Z][a-zA-Z0-9_-]{0,63}$; 'cgroup-delegate' reserved; override-of-known-loophole shape = enabled/env/jail_env only ('command' \u2192 dedicated error; 'env' without host_daemon \u2192 error); override-shaped-but-unknown \u2192 validate + warn no-op; else inline service {command non-empty str list required, env str:str, jail_socket must start '/run/yolo-services/'}}, host_processes {visible,fields str lists}, journal (bool or 'off'|'user'|'full'), kvm (bool), prune (warn_threshold_gb consumed by check), ephemeral_storage ('volume'|'tmpfs'), include_if_found, agents_md_extra (str). Error style: 'config.<dotted.path>[idx]: <message>' \u2014 exact strings are parity surface (tests assert substrings). Same-file mcp_presets+null conflict checked per-file, not on merged config.",
+   "consumers": "_validate_config callers: check, run_cmd:1211"
+  },
+  {
+   "kind": "file-format",
+   "name": "<workspace>/.yolo/config-snapshot.json",
+   "detail": "Normalized merged config: json.dumps(config, indent=2, sort_keys=True) + '\\n'. First run: written silently, proceed. Unchanged (compared after rstrip of old): proceed. Changed: colored unified diff (difflib.unified_diff, fromfile='previous config', tofile='current config') + prompt 'Accept these config changes? [y/N] ' (y/yes accepts+rewrites; anything else/EOF/SIGINT aborts, returns False \u2192 jail not started). Non-tty stdin: auto-accept with yellow warning. Go must write byte-identical normalization or every port swap triggers a spurious approval diff.",
+   "consumers": "run_cmd:1397 on new-container start; docs/config-safety.md"
+  },
+  {
+   "kind": "file-format",
+   "name": "AGENTS_DIR/<cname>/ briefing files",
+   "detail": "~/.local/share/yolo-jail/agents/<cname>/{CLAUDE.md, AGENTS-copilot.md, AGENTS-gemini.md, ...} (staging name per agent spec). Content = optional host briefing (~/.claude/CLAUDE.md etc.) + '\\n---\\n\\n' + jail-managed markdown ('# YOLO Jail Environment' with workspace path, network line, forwarded ports, resource limits, loopholes list, blocked tools, context mounts, Limitations, Packages & Resource Limits, Skills, optional 'Testing Changes to yolo-jail' when workspace is the yolo-jail source tree, optional agents_md_extra appended). Provisioning-failure breadcrumb inserted when .yolo/startup.log contains 'PROVISIONING FAILED'. Write must preserve inode when nlink==1 (in-place truncate keeps running jails' bind mounts live) but unlink first when nlink>1 (hardlink-dedup fusion hazard).",
+   "consumers": "run_cmd mounts these :ro over ~/.claude/CLAUDE.md etc.; refreshed on every yolo invocation"
+  },
+  {
+   "kind": "path",
+   "name": "AGENTS_DIR/<cname>/skills-<agent>/",
+   "detail": "Per-agent skills staging: built-in jail-startup/SKILL.md (verbatim constant) + 1:1 copy of ~/.<agent>/skills/ subdirs (copytree, symlinks followed). MUST clear contents inside the dir, never rmtree the dir itself (bind mounts pin the inode). Mounted :ro at /home/agent/.<agent>/skills.",
+   "consumers": "run_cmd:872"
+  },
+  {
+   "kind": "env-var",
+   "name": "YOLO_VERSION",
+   "detail": "Read as in-jail sentinel: presence skips host-only checks (disk usage, loopholes, image, amdgpu/kvm/device nodes, inline-loophole exec checks, macos-user probes, host-service liveness).",
+   "consumers": "check_cmd (set by entrypoint inside jails)"
+  },
+  {
+   "kind": "env-var",
+   "name": "YOLO_RUNTIME",
+   "detail": "Read in check for early runtime pick and offline-runtime grading (only warns about a non-live runtime if explicitly selected). Overrides config 'runtime'.",
+   "consumers": "check_cmd, runtime.py"
+  },
+  {
+   "kind": "env-var",
+   "name": "YOLO_EXTRA_PACKAGES",
+   "detail": "SET (json.dumps of effective packages list) in the env of the `nix build .#ociImage --impure --dry-run` subprocess; same contract as the real build in image.py.",
+   "consumers": "flake.nix reads it impurely"
+  },
+  {
+   "kind": "exit-code",
+   "name": "yolo check exit status",
+   "detail": "typer.Exit(1) when failed>0 \u2014 raised early after Config Files parse errors, after Merged Configuration errors, or at the end; 0 otherwise. Warnings never affect exit code.",
+   "consumers": "scripts, agents gating restarts"
+  },
+  {
+   "kind": "file-format",
+   "name": "env_sources dotenv",
+   "detail": "_parse_dotenv: '#' comments and blanks skipped; 'export ' prefix stripped; no '=' \u2192 skip; key must match ^[A-Za-z_][A-Za-z0-9_]*$ else skip; value stripped then matching outer single/double quotes removed (only if len>=2 and first==last). _resolve_env_sources: entries in order, inline dicts apply directly, later wins; string paths ~-expanded, relative resolved against workspace; missing/unreadable file \u2192 yellow console warning + skip (never fatal).",
+   "consumers": "run_cmd:1479 (jail env), macos_user:1140"
+  },
+  {
+   "kind": "socket-protocol",
+   "name": "check-time unix socket probes",
+   "detail": "Per running jail, per external-daemon loophole: connect(AF_UNIX SOCK_STREAM, timeout 2.0) to <sockets_dir>/<name>.sock \u2014 accept=PASS, refuse=FAIL. Broker relay gets 4-layer diagnosis: socket-file-absent | connect-refused | connected-but-broker-ping-fails (_broker_ping) | host-pong-but-invisible-in-jail (via `<runtime> exec <cname> sh -c 'test -S <jail_sock>'`, rc0=visible, rc1=absent, else inconclusive).",
+   "consumers": "check_cmd only (probing loopholes_runtime's protocol)"
+  },
+  {
+   "kind": "file-format",
+   "name": "shared creds freshness read",
+   "detail": "check reads ~/.local/share/yolo-jail/home/.claude-shared-credentials/.credentials.json \u2192 int(data['claudeAiOauth']['expiresAt']) ms; absent/zero-byte = pre-login (silent); unreadable = warn; expired = fail; <1h = warn; formats durations as 'Nm'/'NhMm'; mtime age reported as 'last write X ago'.",
+   "consumers": "check_cmd (file owned by oauth broker)"
+  },
+  {
+   "kind": "other",
+   "name": "nix build dry-run stderr parsing",
+   "detail": "_WILL_BUILD_RE = ^(this derivation|these \\d+ derivations) will be built: (MULTILINE) against `nix --extra-experimental-features 'nix-command flakes' build .#ociImage --impure --dry-run` STDERR; collects trailing *.drv basenames. None (inconclusive) on subprocess error or nonzero-exit-without-plan \u2014 callers must never treat None as a cache miss. _has_linux_builder parses `nix config show` 'builders =' line incl. '@/etc/nix/machines' files, requires exact 'aarch64-linux' in systems field with max_jobs != '0'.",
+   "consumers": "check_cmd + image.py:455,522 (imports _preflight_builder_needs/_diagnose_nix_build_failure)"
+  }
+ ],
+ "internal_deps": [
+  "src/cli/console.py (rich Console singleton)",
+  "src/cli/paths.py (USER_CONFIG_PATH, GLOBAL_STORAGE/HOME/MISE, AGENTS_DIR, CONTAINER_DIR, BUILD_DIR, ALL_RUNTIMES/NATIVE_RUNTIMES/SUPPORTED_RUNTIMES, IS_MACOS, JAIL_HOST_SERVICES_DIR, BUILTIN_CGROUP_LOOPHOLE_NAME)",
+  "src/cli/image.py (_build_image_store_path, _jail_image)",
+  "src/cli/loopholes_runtime.py (BROKER_LOOPHOLE_NAME, _broker_ping/_broker_status, _host_service_sockets_dir, _host_service_default_jail_socket, _parse_memory_value)",
+  "src/cli/runtime.py (_detect_runtime*, _runtime_for_check, _check_container_stuck, _get_container_workspace, list_running_jail_names, cleanup_container_tracking, PODMAN_MACHINE_*)",
+  "src/cli/storage.py (ensure_global_storage, _detect_nix_daemon_label, _nix_custom_conf_included)",
+  "src/cli/prune_cmd.py (_fmt_bytes)",
+  "src/cli/version.py (_git_describe_version)",
+  "src/cli/builder.py (builder_setup_state, ensure_builder \u2014 lazy)",
+  "src/cli/macos_user.py (lazy: SANDBOX_USER, _sandbox_user_exists, resolve_python)",
+  "src/cli/run_cmd.py (lazy circular: _resolve_repo_root, _entrypoint_preflight)",
+  "src/loopholes.py (discover_loopholes, validate_loopholes, run_doctor_checks, loopholes_dir \u2014 lazy)",
+  "src/prune.py (_find_yolo_workspaces, _disk_usage_report \u2014 lazy)",
+  "src/entrypoint/agent_registry.py (DEFAULT_AGENTS, VALID_AGENTS, resolve_agents \u2014 dual-identity import, shared with the in-image entrypoint package)"
+ ],
+ "third_party_deps": [
+  {
+   "pkg": "pyjson5",
+   "used_for": "parsing all config files (full JSON5: comments, trailing commas, single quotes, unquoted keys, hex numbers)",
+   "go_equivalent": "github.com/titanous/json5 or yosuke-furukawa/json5 port; MUST fuzz-compare acceptance against pyjson5 \u2014 leniency differences are a silent config-drop hazard"
+  },
+  {
+   "pkg": "typer",
+   "used_for": "command registration, --build/--no-build bool flag, repeatable --mount, typer.echo, typer.Exit(1)",
+   "go_equivalent": "cobra/urfave-cli; replicate exit code + stderr Warning: prefix"
+  },
+  {
+   "pkg": "rich (console)",
+   "used_for": "all check/init/config-ref output markup, colored diff, console.input prompt",
+   "go_equivalent": "manual ANSI or lipgloss; parity should be tested on NO_COLOR/plain text \u2014 badge text '[PASS]'/'[FAIL]'/'[WARN]' and indentation are the stable surface"
+  },
+  {
+   "pkg": "difflib (stdlib)",
+   "used_for": "unified_diff of config snapshot with 'previous config'/'current config' headers",
+   "go_equivalent": "port of Myers unified diff (e.g. pkg/diff); hunk headers need not be byte-identical for correctness but should be for golden tests"
+  },
+  {
+   "pkg": "tomllib (stdlib)",
+   "used_for": "agents_md pyproject.toml project.name check",
+   "go_equivalent": "github.com/BurntSushi/toml"
+  }
+ ],
+ "side_effects": [
+  "writes <workspace>/.yolo/config-snapshot.json (creates .yolo/)",
+  "writes yolo-jail.jsonc, ~/.config/yolo-jail/config.jsonc, appends/creates .gitignore (yolo init*)",
+  "creates/clears/writes AGENTS_DIR/<cname>/ briefings + skills-<agent>/ (rmtree of dir CONTENTS, copytree from ~/.<agent>/skills/)",
+  "reads <workspace>/.yolo/startup.log, ~/.claude/CLAUDE.md & per-agent host briefings, host skills dirs",
+  "check: ensure_global_storage() (creates ~/.local/share/yolo-jail tree), runs nix build (creates+unlinks BUILD_DIR/check-result out-link), execs podman/container/nix/nvidia-smi/rocminfo/mount/runc-which/sandbox-exec probes, connects unix sockets, reads /etc/cdi/*.yaml|json, /sys/module/amdgpu, /dev/kfd, /dev/dri/renderD*, /dev/kvm, /etc/nix/*",
+  "check interactive: may `<runtime> rm -f <cname>` orphaned jails + cleanup_container_tracking after y/N prompt",
+  "prompts on stdin (config-change approval; orphan cleanup); auto-accepts config changes when stdin is not a tty"
+ ],
+ "python_specifics": [
+  "pyjson5 leniency defines the accepted config dialect \u2014 no Go lib is guaranteed bit-compatible; needs a corpus differential test",
+  "list dedup identity via json.dumps(item, sort_keys=True, default=str) \u2014 Go needs canonical-JSON marshaling with recursive key sort AND a default=str fallback for non-JSON types (rare in practice since input came from JSON5, but numbers: Python renders 4 vs 4.0 distinctly; pyjson5 may parse 4 as int, 4.0 as float)",
+  "snapshot normalization json.dumps(indent=2, sort_keys=True): int/float repr, unicode escaping (ensure_ascii=True default \u2192 non-ASCII escaped as \\uXXXX), key sort \u2014 must match byte-for-byte or the y/N approval prompt fires spuriously on Python\u2194Go swap",
+  "dual-identity import (src.entrypoint vs entrypoint) and lazy circular imports (from . import _resolve_repo_root inside check(), from .config inside macos_user) \u2014 Go package layout must break the cycle structurally",
+  "sys.stdin.isatty() gate + input() with EOFError/KeyboardInterrupt \u2192 abort; rich console.input for orphan prompt",
+  "closures ok/warn/fail mutating nonlocal counters thread the whole 1000-line check() body \u2014 Go port wants a reporter struct",
+  "rich markup embedded in nearly every user-facing string incl. config_ref's 660-line literal; rf-strings escaping '\\[PASS]' so rich doesn't eat the bracket",
+  "os.access(node, R_OK|W_OK), grp.getgrgid, os.getgroups for device-node grading \u2014 Go: golang.org/x/sys/unix (Access, Getgroups) + user.LookupGroupId",
+  "Path.lstat().st_nlink>1 hardlink check + in-place write_text to preserve bind-mounted inode (agents_md._write_briefing)",
+  "shutil.copytree(symlinks=False) FOLLOWS symlinks \u2014 Go filepath.WalkDir must dereference",
+  "subprocess.run with timeouts everywhere (5/10/15/120s); nix dry-run plan parsed from STDERR; `nix store info` output read from stdout+stderr combined",
+  "Path.resolve() (symlink-resolving) for include-cycle detection and env-source paths \u2014 Go filepath.EvalSymlinks differs on nonexistent paths (Python 3.13 resolve() is non-strict)",
+  "value.replace(',',' ').split() tolerant tokenizing in _merge_mise_disabled_tools; str.rfind-based 'host:container' mount split requiring ':/ ' lookahead (mount[colon_idx+1:colon_idx+2]=='/')"
+ ],
+ "seams": [
+  {
+   "name": "config loader/validator as helper binary",
+   "contract": "stdin/argv: workspace path (+ optional strict flag) \u2192 stdout: merged config as normalized JSON + JSON arrays of error/warning strings, exit 0/1. Covers _load_jsonc_with_includes, merge_config, load_config, _validate_config, _resolve_env_sources. Error strings must match Python's 'config.<path>: ...' text exactly.",
+   "swap_mechanism": "env var (e.g. YOLO_CONFIG_HELPER=/path/to/go-binary) checked in load_config/_validate_config wrappers; Python execs the Go binary and json.loads the result, falls back to native when unset",
+   "parity_test": "corpus of real+synthetic jsonc trees (incl. includes, local files, cycles, every validation error branch from tests/test_config_merge.py): assert byte-identical merged JSON, identical ordered error/warning lists from both implementations"
+  },
+  {
+   "name": "config-snapshot.json file format",
+   "contract": "json.dumps(merged, indent=2, sort_keys=True)+'\\n' at <workspace>/.yolo/config-snapshot.json; comparison after rstrip; identical bytes \u21d2 no prompt",
+   "swap_mechanism": "file protocol \u2014 whichever implementation runs last wrote it; both must produce identical bytes for the same merged config",
+   "parity_test": "generate snapshot with Python, re-run with Go (and vice versa) on unchanged config: no diff prompt may appear"
+  },
+  {
+   "name": "yolo check subcommand",
+   "contract": "CLI: `yolo check [--no-build]`; exit 0/1; PASS/FAIL/WARN badge lines + section headers on stdout; probes are all subprocess/file/socket-based (no in-process state shared with the rest of the CLI except merged config + repo root)",
+   "swap_mechanism": "dispatch in cli/__init__.py: if a Go `yolo-check` binary exists (or YOLO_GO_CHECK=1), os.exec it with argv passthrough",
+   "parity_test": "run both against fixture hosts (no runtime, podman live, in-jail YOLO_VERSION set, invalid configs): compare exit codes and normalized (ANSI-stripped) output; tests/test_cli_check_formatting.py golden style"
+  },
+  {
+   "name": "AGENTS.md / skills staging generation",
+   "contract": "inputs: cname, workspace, blocked_tools, mounts, net_mode, runtime, forward_host_ports, loopholes, resources, agents_md_extra, agents \u2192 files under AGENTS_DIR/<cname>/ with exact markdown content, inode-preserving writes, skills-<agent>/ dirs with jail-startup + host skill copies",
+   "swap_mechanism": "helper binary invoked by run_cmd at generate-briefings time (all inputs JSON-serializable); or port together with run_cmd later",
+   "parity_test": "golden-file compare of every staged briefing/skill for a fixture config (tests/test_agents_briefing.py already asserts content fragments); verify inode stability across regeneration with a running bind mount"
+  },
+  {
+   "name": "yolo init / init-user-config / config-ref",
+   "contract": "pure output: template file bytes + stdout text; no reads of existing config beyond existence checks",
+   "swap_mechanism": "per-subcommand dispatch to Go binary; lowest-risk first port",
+   "parity_test": "byte-compare generated yolo-jail.jsonc / user config / .gitignore append and ANSI-stripped stdout between implementations"
+  },
+  {
+   "name": "nix dry-run / builder preflight parsing",
+   "contract": "same `nix build .#ociImage --impure --dry-run` invocation (YOLO_EXTRA_PACKAGES in env) and stderr grammar; tri-state result (build-needed / cached / inconclusive) + offending .drv names",
+   "swap_mechanism": "internal to check; ports with the check seam",
+   "parity_test": "replay captured nix stderr corpora (cache hit, miss, offline, cross-build refusal) through both parsers"
+  }
+ ],
+ "test_coverage": {
+  "existing": [
+   "tests/test_config_merge.py (80 tests): merge_config union/dedup/agents-replace, selected_agents, _validate_config branches (agents, runtime, env_sources incl. legacy 'env' error, ephemeral_storage, lsp fileExtensions, requires_env, workspace_readonly/per_side_paths, includes strict rejections), include_if_found (missing/relative/recursive/cycle/absolute/tilde), yolo-jail.local.jsonc auto-merge + no-double-merge + user-override, _filter_mcp_servers_by_env, preset/null same-file vs cross-hierarchy",
+   "tests/test_cli_unit.py (459 tests, large share on this group): _normalize_blocked_tools default merging, _merge_mise_*, _parse_dotenv/_resolve_env_sources, _effective_packages/vaapi, snapshot _check_config_changes, many check helpers (_split_self_check_problems, _diagnose_nix_build_failure, _nix_dry_run_will_build parsing, _has_linux_builder, broker relay grading)",
+   "tests/test_cli_check_formatting.py (25): badge/note rendering",
+   "tests/test_agents_briefing.py (11): generate_agents_md content, hardlink-safe write, skills staging inode preservation",
+   "tests/test_cli_commands.py (194 incl. init/init-user-config template + gitignore behavior)"
+  ],
+  "gaps": [
+   "config_ref text essentially untested (pure constant \u2014 golden-snapshot it before porting)",
+   "check()'s full section ordering/exit-code flow only partially covered (subprocess probes mostly mocked; no end-to-end golden of a whole check run)",
+   "interactive paths: config-change y/N prompt EOF/SIGINT, orphan-jail cleanup prompt",
+   "snapshot byte-format itself has no golden (indent/sort/ensure_ascii) \u2014 add one before the Go swap",
+   "exact validation-message strings asserted only by substring in places; a full error-corpus golden would harden the parity surface",
+   "_check_broker_creds_freshness time formatting edge cases"
+  ],
+  "assessment": "Strong unit coverage on merge/validate/dedup/includes (the critical parity surface); weak on whole-command output goldens and interactive flows \u2014 build golden corpora (merged-config JSON, error lists, snapshot bytes, check output, config-ref text, init templates) as the Go parity harness before porting."
+ },
+ "porting_hazards": [
+  "JSON5 dialect fidelity: pyjson5 vs any Go json5 lib (comments, trailing commas, single quotes, unquoted keys, +/-Infinity, hex) \u2014 a stricter Go parser silently changes which configs load; a laxer one accepts garbage Python rejects. Differential-fuzz before swap.",
+  "Byte-identical snapshot normalization (json.dumps indent=2 sort_keys ensure_ascii, int-vs-float repr): mismatch causes spurious y/N approval prompts on every Python\u2194Go transition \u2014 this is the single most user-visible regression risk.",
+  "List-dedup canonical key (json.dumps sort_keys default=str): Go must produce equivalent equality classes for dict list items (mounts, packages objects, blocked_tools dicts) or merged configs diverge.",
+  "Validation error/warning STRINGS are contract (tests + agents read them): port verbatim, including reprs like (got 'x') using Python repr quoting style \u2014 Go %q differs from Python !r for strings with quotes.",
+  "check() output is consumed by humans/agents mid-workflow: keep '[PASS]'/'[FAIL]'/'[WARN]' badges, '       -> ' note indent, section names, and exit-code semantics stable; rich color codes can differ but plain text must not.",
+  "Early-exit ordering in check (parse errors \u2192 exit before merged validation; merged errors \u2192 exit before dry-run) affects which messages appear \u2014 replicate control flow, not just checks.",
+  "_check_config_changes rstrip-compare asymmetry (old rstripped, current not) and non-tty auto-accept must match exactly.",
+  "agents_md inode semantics: in-place truncate when nlink==1, unlink-first when nlink>1; skills staging clears CONTENTS not the dir \u2014 Go os.WriteFile is O_TRUNC on existing file (ok) but any create-temp-and-rename pattern breaks live bind mounts.",
+  "Lazy/circular imports (check\u2192run_cmd._entrypoint_preflight, config\u2192src.loopholes) hide a real dependency web; the Go module graph must be designed up front (registry constants VALID_AGENTS/DEFAULT_AGENTS are shared with the entrypoint package baked into the image \u2014 duplication risk).",
+  "_validate_config consults the local filesystem (mounts/devices existence warnings, _known_loopholes discovery) \u2014 validation output is machine-dependent; parity tests need fixture filesystems.",
+  "pyjson5 may return non-str dict keys? (JSON5 keys are strings, but int-like unquoted keys) \u2014 Python code assumes str keys in several loops; verify Go decoder behavior.",
+  "Python float(cpus) accepts 'inf'/'nan'/'1e3' strings; Go strconv.ParseFloat matches inf/nan too but exact accept-set for resources.cpus should be pinned by tests.",
+  "Path semantics: Path.resolve() non-strict vs filepath.EvalSymlinks (errors on missing); os.path.expanduser('~user') form; rfind-based mount split ('C:\\' style strings never occur but 'a:b' without leading / on container path is passed through unvalidated).",
+  "nix stderr parsing regex is version-sensitive ('this derivation|these N derivations will be built:'); pin nix versions in parity fixtures.",
+  "config_ref/init templates are ~1000 lines of literal text with rich markup \u2014 transcribe mechanically and golden-test, don't re-type."
+ ],
+ "complexity": "high",
+ "est_go_loc": 5500,
+ "notes": "Absolute paths: /workspace/src/cli/config.py, /workspace/src/cli/check_cmd.py, /workspace/src/cli/config_ref_cmd.py, /workspace/src/cli/init_cmd.py, /workspace/src/cli/agents_md.py; design docs /workspace/docs/config-safety.md and /workspace/docs/storage-and-config.md (note: storage-and-config.md \u00a76 'merge order incl. workspace skills' is stale \u2014 agents_md._prepare_skills deliberately does NOT copy workspace skills anymore). Suggested port order within this group: (1) config-ref + init (pure output goldens), (2) config load/merge/validate + env_sources + snapshot as a helper binary behind an env-var seam, (3) agents_md generation, (4) check last (it depends on runtime/image/loopholes/storage/builder modules from other groups \u2014 _preflight_builder_needs and _diagnose_nix_build_failure are also imported BY image.py, so the check port must either export them or image.py ports concurrently). config.py is the leaf module of the whole CLI: nearly every other group (run_cmd, macos_user, loopholes_cmd, image) consumes it, so its Go form should be the first library milestone with the parity corpus derived from tests/test_config_merge.py and tests/test_cli_unit.py."
+}

@@ -1,0 +1,326 @@
+{
+ "group": "entrypoint",
+ "purpose": "In-container bootstrap that runs as PID 1 via `python3 -m entrypoint` (baked into the Nix image at /lib/python/entrypoint, launched by the /bin/yolo-entrypoint shell wrapper). Reads the YOLO_* env contract set by the host CLI, then generates everything a jail session needs \u2014 PATH shims, agent launchers, per-agent MCP/LSP configs (claude/copilot/gemini/opencode/pi/codex), bashrc, mise config, CA bundle, timezone/ld.so.cache, helper scripts \u2014 spawns socat port-forwarders and the jail-daemon supervisor, and finally execs bash with the requested command. Also imported as a plain Python library by the host CLI (`yolo check` dry-run, macos-user bootstrap, agent_registry data).",
+ "complexity": "high",
+ "est_go_loc": 5200,
+ "files": [
+  {
+   "path": "/workspace/src/entrypoint/__init__.py",
+   "role": "main() orchestration; path constants from env (HOME/JAIL_HOME, NPM_CONFIG_PREFIX, GOPATH, MISE_DATA_DIR); perf log ~/.yolo-perf.log; user-env hydration (regex parse of yolo-user-env.sh); YOLO_LSP_SERVERS/YOLO_AGENTS loaders; cgroup-delegate socket check; nvim config copy; mise trust; exec_bash (final os.execvp)"
+  },
+  {
+   "path": "/workspace/src/entrypoint/__main__.py",
+   "role": "python -m entrypoint shim \u2192 main()"
+  },
+  {
+   "path": "/workspace/src/entrypoint/agent_configs.py",
+   "role": "Per-agent config writers: copilot/gemini/claude/opencode/pi/codex; shared MCP-server resolution (presets + YOLO_MCP_SERVERS merge, requires_env gating, ${VAR} interpolation); claude extras (3-way settings merge, host-file sync, history isolation, credentials symlink+harvest, plugin install); minimal TOML emitter for codex; CONFIG_WRITERS map"
+  },
+  {
+   "path": "/workspace/src/entrypoint/agent_registry.py",
+   "role": "Pure-data registry (AgentSpec/InstallSpec/BriefingSpec) for 6 agents; DEFAULT_AGENTS=[claude]; ALL_MISE_RETIRE/ALL_OVERLAY_DIRS; resolve_agents(). Stdlib-only ON PURPOSE \u2014 imported by host CLI too"
+  },
+  {
+   "path": "/workspace/src/entrypoint/identity.py",
+   "role": "git config --global user.name/email/core.excludesFile and jj config set --user from YOLO_GIT_*/YOLO_JJ_* (best-effort subprocess)"
+  },
+  {
+   "path": "/workspace/src/entrypoint/mcp_wrappers.py",
+   "role": "Writes 3 static bash wrappers: chrome-devtools-mcp-wrapper (headless chromium autostart on :9222), mcp-wrappers/node, mcp-wrappers/npx (mise-shim bypass)"
+  },
+  {
+   "path": "/workspace/src/entrypoint/mise.py",
+   "role": "~/.config/mise/config.toml generation via regex surgery on existing TOML text: dedupe keys, retire agent tools (also edits /workspace/mise.toml!), 'system'\u2192real version rewrite, YOLO_MISE_TOOLS injection; mise uninstall --all of retired tools"
+  },
+  {
+   "path": "/workspace/src/entrypoint/runtime.py",
+   "role": "iptables DNAT for YOLO_PUBLISHED_PORTS; socat spawns for YOLO_FORWARD_HOST_PORTS (unix-socket vs TCP-gateway mode); jail-daemon supervisor singleton fork (python -m src.jail_daemon_supervisor, PID file /tmp/yolo-jail-supervisor.pid, kill(pid,0) liveness)"
+  },
+  {
+   "path": "/workspace/src/entrypoint/scripts.py",
+   "role": "Emits standalone Python helper scripts as string literals: yolo-cglimit (unix-socket JSON client), yolo-journalctl (framed stream client), yolo-ps (src.yolo_ps wrapper), yolo shim (~/.yolo-shims/yolo + _yolo_bootstrap.py via uv run)"
+  },
+  {
+   "path": "/workspace/src/entrypoint/shell.py",
+   "role": "generate_bashrc (prompt, PATH, CA env, aliases, mise activate interactive-only); .yolo-bootstrap.sh (MCP/LSP npm+go install/uninstall w/ ~/.yolo-installed-lsps sentinel); .yolo-venv-precreate.sh (mise deadlock workaround, inline python3 tomllib parser)"
+  },
+  {
+   "path": "/workspace/src/entrypoint/shims.py",
+   "role": "~/.yolo-shims: blocked-tool shims from YOLO_BLOCK_CONFIG (case-glob argv filtering, exit 127, YOLO_BYPASS_SHIMS escape); lazy-update agent launchers (npm + native curl|bash kinds, 3600s stamp); pnpm lazy launcher"
+  },
+  {
+   "path": "/workspace/src/entrypoint/system.py",
+   "role": "configure_timezone (/run/localtime symlink + /run/timezone from $TZ/$TZDIR); generate_ld_cache (ldconfig -C /run/ld.so.cache); generate_ca_bundle (~/.yolo-ca-bundle.crt from SSL_CERT_FILE baseline + NODE_EXTRA_CA_CERTS extras, exports 4 trust env vars)"
+  }
+ ],
+ "public_surface": [
+  {
+   "kind": "cli-command",
+   "name": "yolo-entrypoint [args...]",
+   "detail": "argv[1:] joined with spaces \u2192 command string (default 'bash'). Runs full setup then execs `bash --rcfile ~/.bashrc -c '<source yolo-user-env.sh>; eval \"$(mise env -s bash)\" 2>/dev/null; <cmd>'`. Prints '\u26a1 Executing: <cmd>' to stderr unless cmd=='bash' or contains 'yolo-bootstrap'. Set as image Cmd AND re-invoked on every `podman exec <cname> yolo-entrypoint <cmd>` (must be idempotent).",
+   "consumers": "flake.nix /bin/yolo-entrypoint wrapper (PYTHONPATH=/lib/python; exec python3 -m entrypoint); cli/run_cmd.py container create + all exec paths"
+  },
+  {
+   "kind": "env-var",
+   "name": "JAIL_HOME / HOME / NPM_CONFIG_PREFIX / GOPATH / MISE_DATA_DIR",
+   "detail": "Path roots read AT IMPORT TIME into module constants (HOME, SHIM_DIR, NPM_BIN, GO_BIN, MISE_SHIMS=$MISE_DATA_DIR/shims fallback ~/.local/share/mise/shims). MISE_DATA_DIR=/mise in jails, absent on host \u2014 import must not crash without it.",
+   "consumers": "cli sets JAIL_HOME=tmp for `yolo check`; macos_user sets before import"
+  },
+  {
+   "kind": "env-var",
+   "name": "YOLO_AGENTS",
+   "detail": "JSON list of agent names; unknown names dropped; unset/garbage \u2192 [\"claude\"]. Gates launcher generation, bashrc aliases, and which configure_* run.",
+   "consumers": "cli/run_cmd selected_agents()"
+  },
+  {
+   "kind": "env-var",
+   "name": "YOLO_BLOCK_CONFIG",
+   "detail": "JSON list of {name, message, suggestion, block_flags:[case-glob patterns]}. name in (grep,find) \u2192 passthrough shim to /bin/<name>; block_flags present \u2192 argv-filtered block (long-exact patterns first, then --* skip, then short patterns); absent \u2192 unconditional exit 127. YOLO_BYPASS_SHIMS=1 bypasses.",
+   "consumers": "cli _normalize_blocked_tools"
+  },
+  {
+   "kind": "env-var",
+   "name": "YOLO_MCP_PRESETS / YOLO_MCP_SERVERS",
+   "detail": "PRESETS: JSON array from {chrome-devtools, sequential-thinking}. SERVERS: JSON object merged on top; null value removes; `requires_env:[VARS]` gates on non-empty env (key stripped before agents see it); env values get ${VAR} interpolation against startup env (undefined \u2192 literal + stderr warning).",
+   "consumers": "all 6 agent config writers"
+  },
+  {
+   "kind": "env-var",
+   "name": "YOLO_LSP_SERVERS",
+   "detail": "JSON object name\u2192{command,args,fileExtensions}; merged over empty defaults. Drives copilot lsp-config.json, gemini <name>-lsp MCP wrap via mcp-language-server, claude plugin install/uninstall + enabledPlugins + ENABLE_LSP_TOOL env.",
+   "consumers": "cli from yolo-jail.jsonc lsp_servers"
+  },
+  {
+   "kind": "env-var",
+   "name": "YOLO_MISE_TOOLS",
+   "detail": "JSON object tool\u2192version merged over base {node:22, python:3.13, go:latest} into ~/.config/mise/config.toml (injected always override; base add-if-missing).",
+   "consumers": "cli _merge_mise_tools"
+  },
+  {
+   "kind": "env-var",
+   "name": "YOLO_GIT_NAME / YOLO_GIT_EMAIL / YOLO_GLOBAL_GITIGNORE / YOLO_JJ_NAME / YOLO_JJ_EMAIL",
+   "detail": "Identity injection via `git config --global` / `jj config set --user`; GLOBAL_GITIGNORE is a path (must be existing file) \u2192 core.excludesFile.",
+   "consumers": "cli identity_env block"
+  },
+  {
+   "kind": "env-var",
+   "name": "YOLO_HOST_DIR",
+   "detail": "Host workspace path; shown in PS1 banner; sha256[:12] keys claude per-jail history file.",
+   "consumers": "cli"
+  },
+  {
+   "kind": "env-var",
+   "name": "YOLO_HOST_CLAUDE_FILES",
+   "detail": "JSON list of filenames mounted at /ctx/host-claude/; all copied to ~/.claude/ except settings.json which gets the 3-way merge.",
+   "consumers": "cli host-claude mount block"
+  },
+  {
+   "kind": "env-var",
+   "name": "YOLO_PUBLISHED_PORTS",
+   "detail": "JSON array of 'PORT/PROTO' \u2192 iptables -t nat PREROUTING DNAT to 127.0.0.1:PORT (needs route_localnet sysctl set by cli; silent skip w/o iptables).",
+   "consumers": "cli publish config"
+  },
+  {
+   "kind": "env-var",
+   "name": "YOLO_FORWARD_HOST_PORTS / YOLO_FWD_HOST_GATEWAY",
+   "detail": "JSON array (int | 'p' | 'p:x'); per port spawn `socat TCP-LISTEN:p,bind=127.0.0.1,fork,reuseaddr <target>`; target = TCP:$GATEWAY:p when gateway set (macOS), else UNIX-CONNECT:/tmp/yolo-fwd/port-p.sock (host socat side in cli/network.py). Skips already-bound ports (exec idempotency). stderr \u2192 ~/.yolo-socat.log.",
+   "consumers": "cli/network.py host half"
+  },
+  {
+   "kind": "env-var",
+   "name": "YOLO_JAIL_DAEMONS",
+   "detail": "Non-empty \u2192 fork `sys.executable -m src.jail_daemon_supervisor` once (PYTHONPATH=$YOLO_REPO_ROOT, stdout/err DEVNULL, same process group); singleton via /tmp/yolo-jail-supervisor.pid + kill(pid,0).",
+   "consumers": "src/loopholes.py sets; src/jail_daemon_supervisor.py reads"
+  },
+  {
+   "kind": "env-var",
+   "name": "YOLO_REPO_ROOT",
+   "detail": "Default /opt/yolo-jail. Baked into generated yolo-ps, _yolo_bootstrap.py (yolo wrapper), and supervisor PYTHONPATH \u2014 the in-jail bridge to the Python src/ tree.",
+   "consumers": "generated scripts, nested jails"
+  },
+  {
+   "kind": "env-var",
+   "name": "TZ / TZDIR",
+   "detail": "\u2192 /run/localtime symlink to $TZDIR/$TZ + /run/timezone text (image symlinks /etc/{localtime,timezone} \u2192 /run/*; root fs is ro). No-op if TZ unset or zone file missing.",
+   "consumers": "Go time pkg, date, anything reading /etc/localtime"
+  },
+  {
+   "kind": "env-var",
+   "name": "SSL_CERT_FILE / NODE_EXTRA_CA_CERTS (in) \u2192 SSL_CERT_FILE, REQUESTS_CA_BUNDLE, CURL_CA_BUNDLE, GIT_SSL_CAINFO (out)",
+   "detail": "generate_ca_bundle concatenates baseline + colon-separated loophole CAs into ~/.yolo-ca-bundle.crt (0644, always written even if empty), then rewrites the 4 vars in os.environ so every child (supervisor, socat, bash) inherits them; bashrc re-exports for interactive shells.",
+   "consumers": "all TLS clients in jail; cli assembles NODE_EXTRA_CA_CERTS"
+  },
+  {
+   "kind": "file-format",
+   "name": "~/.config/yolo-user-env.sh hydration",
+   "detail": "Entrypoint parses `export KEY=${KEY:-'value'}` (plus bare/'sq'/\"dq\" forms, '\\'' unescape) into os.environ, launch-env-wins precedence \u2014 MUST stay in sync with the writer in cli/run_cmd.py (~line 1991). Needed so MCP ${VAR} interpolation sees env_sources values before bash sources the file.",
+   "consumers": "written by cli, sourced by bashrc + exec_bash"
+  },
+  {
+   "kind": "path",
+   "name": "~/.yolo-shims/ (first on PATH)",
+   "detail": "Blocked-tool shims; lazy agent launchers (npm kind: install/update via `npm install -g PKG@latest --prefer-online`, jq version probe, 3600s stamp in ~/.cache/yolo-agent-stamps; native kind (claude): `curl -fsSL https://claude.ai/install.sh | bash`, self-update via `$REAL_BIN install`); pnpm launcher (failure-throttled); `yolo` wrapper \u2192 `uv run --no-project --with typer --with rich --with pyjson5 -- python ~/.yolo-shims/_yolo_bootstrap.py` (sys.path.insert repo_root; argv[0]='yolo'). generate_shims rmtree+recreates SHIM_DIR every boot; launchers skip names already shimmed (block order matters). Also deletes stale ~/.local/bin/yolo.",
+   "consumers": "every PATH lookup in jail; nested-jail yolo CLI"
+  },
+  {
+   "kind": "file-format",
+   "name": "agent config outputs",
+   "detail": "copilot: ~/.copilot/{config.json ('{\"yolo\": true}' if absent), mcp-config.json (full rewrite), lsp-config.json}. gemini: ~/.gemini/settings.json merge (approvalMode:yolo, enablePermanentToolApproval, enableAutoUpdate:false) + yolo-managed-mcp-servers.json sidecar (managed-set reconciliation; legacy migration heuristics). claude: ~/.claude/settings.json (3-way host merge w/ snapshot yolo-host-synced-settings.json; permissions allow=[]/deny=[]/defaultMode=acceptEdits/additionalDirectories=[\"/\"]; skipDangerousModePermissionPrompt; autoUpdaterStatus=disabled; enabledPlugins per LSP; env.ENABLE_LSP_TOOL) + ~/.claude.json (mcpServers w/ managed sidecar; projects./workspace enableAllProjectMcpServers+hasTrustDialogAccepted). opencode: ~/.config/opencode/opencode.json ($schema, permission:\"allow\", mcp entries {type:local, command:argv-array, environment}) + sidecar. pi: ~/.pi/agent/settings.json defaultProjectTrust:\"always\". codex: ~/.codex/config.toml (approval_policy=\"never\", sandbox_mode=\"danger-full-access\", [mcp_servers.*]; custom TOML emitter drops non-mcp nested user tables with warning) + sidecar. All JSON written json.dumps(indent=2)+\"\\n\", user keys preserved.",
+   "consumers": "the 6 agent CLIs; yolo check re-parses these"
+  },
+  {
+   "kind": "file-format",
+   "name": "claude credentials symlink + harvest",
+   "detail": "~/.claude/.credentials.json must be symlink \u2192 ../.claude-shared-credentials/.credentials.json. A regular file found there (post-/login) is harvested into the shared file: metadata keys (scopes/subscriptionType/rateLimitTier) grafted if truthy; token trio (accessToken/refreshToken/expiresAt) adopted only if expiresAt strictly newer; atomic mkstemp+fchmod(0600)+os.replace. Coordinates with host oauth broker (src/oauth_broker.py) without cross-boundary locking.",
+   "consumers": "claude CLI, claude-oauth-broker loophole"
+  },
+  {
+   "kind": "socket-protocol",
+   "name": "/run/yolo-services/cgroup-delegate.sock (client in generated yolo-cglimit)",
+   "detail": "Newline-delimited JSON request {op:\"create_and_join\", name, cpu_pct?, memory?, pids?} \u2192 response {ok, error?, warnings?[]}; then execvp of the command (daemon already moved caller via SO_PEERCRED). Entrypoint itself only checks socket existence and prints availability to stderr. Exit 1 on missing socket/error.",
+   "consumers": "host cgroup_delegate daemon"
+  },
+  {
+   "kind": "socket-protocol",
+   "name": "journal bridge (generated yolo-journalctl)",
+   "detail": "Socket from YOLO_SERVICE_JOURNAL_SOCKET (default /run/yolo-services/journal.sock). Sends {\"args\":[...]}\\n; reads frames: 5-byte header struct '>BI' (type 1=stdout, 2=stderr, 3=exit w/ 4-byte '>i' code); unknown types ignored. Exits with host code; 130 on KeyboardInterrupt; 1 + hint when socket absent. -h/--help prints own doc unless YOLO_JOURNALCTL_PASSTHROUGH_HELP=1.",
+   "consumers": "host journal daemon"
+  },
+  {
+   "kind": "path",
+   "name": "Boot-written files (parity-diff surface)",
+   "detail": "~/.bashrc, ~/.yolo-bootstrap.sh, ~/.yolo-venv-precreate.sh, ~/.yolo-ca-bundle.crt, ~/.yolo-perf.log (append, trimmed to 50 runs), ~/.yolo-socat.log, ~/.config/mise/config.toml, ~/.config/nvim (copytree from /ctx/host-nvim-config, SameFile-tolerant), ~/.local/bin/{chrome-devtools-mcp-wrapper,yolo-cglimit,yolo-ps,yolo-journalctl}, ~/.local/bin/mcp-wrappers/{node,npx}, /run/{localtime,timezone,ld.so.cache}, /tmp/yolo-jail-supervisor.pid, ~/.claude/jail-history/<sha256[:12]>.jsonl (+history.jsonl symlink). MUTATES /workspace/mise.toml (strips retired agent tool lines). Many are single-file bind mounts pre-touched by cli (writes must be in-place, not rename!).",
+   "consumers": "cli/storage.py ws_state mounts, bash, agents"
+  },
+  {
+   "kind": "env-var",
+   "name": "YOLO_LSP_NPM_INSTALL / YOLO_LSP_GO_INSTALL (consumed by generated ~/.yolo-bootstrap.sh, not by python)",
+   "detail": "Newline-separated package lists; bootstrap installs missing, uninstalls entries present in ~/.yolo-installed-lsps sentinel ('kind:pkg' lines) but no longer desired; also installs chrome-devtools-mcp + sequential-thinking npm pkgs if missing, pip install showboat, fc-cache -f.",
+   "consumers": "cli setup_script runs bootstrap after mise install"
+  },
+  {
+   "kind": "other",
+   "name": "subprocess side-invocations",
+   "detail": "mise trust --all --quiet (cwd=/workspace); mise uninstall --all <retired> (timeout 30); git/jj config; claude plugins install|uninstall <id> (timeout 30, YOLO_BYPASS_SHIMS=1); ldconfig; socat; python -m src.jail_daemon_supervisor. All best-effort, output swallowed.",
+   "consumers": "in-image binaries"
+  },
+  {
+   "kind": "exit-code",
+   "name": "shim exit codes",
+   "detail": "Blocked-tool shims exit 127; launchers exit 1 when binary unavailable after install attempt; yolo-cglimit/journalctl exit 1 on missing socket; entrypoint main itself never exits normally (execs bash).",
+   "consumers": "agents hitting shims"
+  }
+ ],
+ "internal_deps": [
+  "src.jail_daemon_supervisor (spawned via python -m, not imported)",
+  "src.yolo_ps (imported by generated yolo-ps script at runtime)",
+  "src.cli (imported by generated yolo wrapper via _yolo_bootstrap.py)",
+  "REVERSE deps \u2014 host CLI imports THIS package: src/cli/run_cmd.py (AGENTS, YOLO_FLAG_ALIASES, full dry-run of generate_*/CONFIG_WRITERS in `yolo check`), src/cli/config.py + storage.py + agents_md.py (agent_registry data), src/cli/macos_user.py (imports entrypoint, rebinds entrypoint.WORKSPACE, runs subset of generators on native macOS)"
+ ],
+ "third_party_deps": [
+  {
+   "pkg": "(none \u2014 stdlib only, by hard design constraint)",
+   "used_for": "package must run from the bare Nix python313 before any pip install; imports: json, os, re, shutil, subprocess, sys, time, pathlib, hashlib, tempfile, stat, shlex, socket, tomllib, dataclasses, typing",
+   "go_equivalent": "Go stdlib covers all of it; TOML parse needs BurntSushi/toml or pelletier/go-toml (tomllib equivalent)"
+  }
+ ],
+ "side_effects": [
+  "Writes ~30 files/scripts under $HOME (see public_surface); rmtree+recreates ~/.yolo-shims every boot",
+  "Mutates /workspace/mise.toml in the user's live-mounted repo (retired-tool strip)",
+  "Mutates os.environ (PATH, 4 CA vars, hydrated user-env keys) \u2014 inherited by all spawned children",
+  "Spawns long-lived children of PID 1: socat forwarders, jail-daemon supervisor (kernel-reaped on PID 1 exit)",
+  "iptables NAT table mutation (PREROUTING DNAT, appended per exec \u2014 duplicate rules on re-exec are latent but harmless today)",
+  "Runs mise uninstall / mise trust / git config --global / jj config / claude plugins subprocesses",
+  "Symlink surgery: /run/localtime, ~/.claude/history.jsonl, ~/.claude/.credentials.json",
+  "Appends to ~/.yolo-perf.log and ~/.yolo-socat.log",
+  "Terminal output: stderr status lines (cgroup delegate availability, warnings, '\u26a1 Executing: \u2026' in cyan ANSI)",
+  "Final os.execvp replaces the process with bash (never returns)"
+ ],
+ "python_specifics": [
+  "Import-time module constants from env (HOME, SHIM_DIR, MISE_SHIMS\u2026) + tests/host callers REBIND them after import (entrypoint.HOME = tmp_path, entrypoint.WORKSPACE = \u2026); submodules deliberately use lazy `from . import HOME` inside functions to honor rebinding \u2014 Go needs an explicit config struct built at startup instead, and the host-side rebinding call sites break entirely",
+  "Host CLI imports this package as a LIBRARY (yolo check dry-run subprocess, macos_user bootstrap) and calls individual generate_*/configure_* \u2014 a Go binary can't be imported; port needs a step-selection CLI mode (e.g. `yolo-entrypoint --only shims,bashrc --home DIR`) or those callers stay on Python",
+  "Dict insertion-order preservation is observable: merged JSON configs keep user key order + append new keys; Go encoding/json sorts map keys \u2014 byte-level parity requires an ordered-map JSON encoder (or relaxed structural parity tests)",
+  "json.dumps(indent=2) exact formatting (space after colon, no trailing spaces) must be matched for golden-file diffs; same for the hand-rolled TOML emitters (_dump_codex_toml, mise config)",
+  "tomllib (read) + custom minimal TOML writers; mise.toml updated via MULTILINE regexes on raw text, not parse/serialize \u2014 port regexes as-is (RE2-safe, no backrefs)",
+  "Verbose regex with named groups (_EXPORT_RE) incl. '\\'' unescaping \u2014 translate carefully",
+  "os.execvp final exec (syscall.Exec in Go \u2014 fine, but no libc PATH search: use exec.LookPath first)",
+  "os.kill(pid, 0) liveness probe distinguishing ProcessLookupError vs PermissionError (EPERM counts as alive) \u2014 Go: syscall.Kill(pid,0) errno check",
+  "subprocess.Popen with start_new_session=False (same process group as PID 1), close_fds, DEVNULL \u2014 Go default matches but be explicit",
+  "shutil.copytree(dirs_exist_ok, ignore_dangling_symlinks) + shutil.Error/SameFileError swallow for nested-jail same-inode \u2014 hand-roll in Go with inode comparison",
+  "tempfile.mkstemp + os.fchmod(0600) + os.replace atomic write pattern (credentials harvest)",
+  "Broad `except Exception` best-effort wrappers around every configure step \u2014 Go port must preserve 'never abort boot' semantics per step",
+  "Generated helper scripts ARE Python (yolo-cglimit, yolo-journalctl, yolo-ps, _yolo_bootstrap.py) and depend on in-image python3 + the mounted Python repo (src.yolo_ps, src.cli) \u2014 Go entrypoint can emit them byte-identically at first; replacing the scripts themselves is a separate later unit",
+  "int(entry) parsing of YOLO_FORWARD_HOST_PORTS raises uncaught ValueError on garbage string (crashes boot) \u2014 parity quirk to decide on, don't silently 'fix'",
+  "hashlib.sha256(...)[:12] history key; time.monotonic perf log format ('%7.3fs' alignment) if byte-parity of perf log matters (it shouldn't)"
+ ],
+ "seams": [
+  {
+   "name": "/bin/yolo-entrypoint image wrapper (THE seam)",
+   "contract": "argv \u2192 same file tree under $HOME + /run + /tmp, same children spawned, same final exec of `bash --rcfile ~/.bashrc -c <wrapped cmd>`; full YOLO_*/TZ/CA env contract above; idempotent across repeated `podman exec cname yolo-entrypoint <cmd>`",
+   "swap_mechanism": "flake.nix's writeTextFile wrapper currently does `exec python3 -m entrypoint`. Ship a static Go binary in the image alongside the Python pkg and branch in the wrapper on an env var (e.g. YOLO_ENTRYPOINT_IMPL=go|python, forwarded by cli via -e) \u2014 both impls in one image enables per-jail A/B with zero host changes. NOTE: any change here requires image rebuild + `just load && just install` on the host; src/cli changes do not.",
+   "parity_test": "Boot two jails (impl=python vs impl=go) with identical config; diff the ws_state overlay trees + `podman exec` env; run tests/test_entrypoint.py-derived golden fixtures. The `yolo check` dry-run harness (run_cmd.py ~l.900) is already exactly this: run generators into a tmp HOME with a synthetic env and parse outputs \u2014 point it at both impls and diff"
+  },
+  {
+   "name": "yolo check dry-run + macos_user bootstrap (host-side library import)",
+   "contract": "Host CLI runs generate_shims/agent_launchers/bashrc/bootstrap/venv_precreate/mise_config/mcp_wrappers + selected CONFIG_WRITERS against a temp/sandbox HOME, then re-parses the JSON/TOML outputs",
+   "swap_mechanism": "Replace the inline `python -c` code block with `yolo-entrypoint-go --dry-run --home $TMP --steps \u2026` subprocess; env contract is unchanged (JAIL_HOME etc. already passed via env). macos_user needs an equivalent --native mode (skips Linux-only steps, overrides WORKSPACE)",
+   "parity_test": "Run both against same tmp HOME+env, diff output trees byte-for-byte; existing test_cli_check_formatting / test_macos_user tests"
+  },
+  {
+   "name": "agent_registry data (imported by 4 host CLI modules)",
+   "contract": "AGENTS map (install kind/bin/package/flags/installer_url, config_writer name, briefing paths, overlay_dirs, skills, yolo_flags, alias, mise_retire), DEFAULT_AGENTS, YOLO_FLAG_ALIASES, ALL_MISE_RETIRE, ALL_OVERLAY_DIRS",
+   "swap_mechanism": "Pure data \u2014 extract to a checked-in JSON/embedded spec consumed by both Python (until cli ports) and Go; or port last, after cli. Keep the Python module as generated-from-JSON during transition",
+   "parity_test": "Dump registry to JSON from both impls, diff"
+  },
+  {
+   "name": "generated helper scripts (yolo-cglimit, yolo-journalctl, yolo-ps, yolo wrapper, bootstrap/venv/bashrc, shims, launchers)",
+   "contract": "Exact script text (they run out-of-process; agents/tests grep their behavior); socket protocols they speak (cgroup JSON-line, journal '>BI' frames)",
+   "swap_mechanism": "Go emits identical byte strings (embed via //go:embed) \u2014 zero behavioral risk. Later, individually swap script bodies for small Go binaries (each is its own process boundary; e.g. a Go yolo-cglimit only has to honor the JSON-line protocol)",
+   "parity_test": "sha256 of every generated file, python vs go"
+  },
+  {
+   "name": "jail-daemon supervisor spawn",
+   "contract": "Spawn `<python> -m src.jail_daemon_supervisor` w/ PYTHONPATH=$YOLO_REPO_ROOT, DEVNULL stdio, same pgroup, write PID to /tmp/yolo-jail-supervisor.pid; singleton via PID-file liveness",
+   "swap_mechanism": "Go entrypoint keeps exec'ing the Python supervisor unchanged (process boundary); supervisor ports independently later",
+   "parity_test": "boot, repeated podman exec, assert exactly one supervisor and broker port bound"
+  },
+  {
+   "name": "container-side socat forwarding",
+   "contract": "socat TCP-LISTEN:p,bind=127.0.0.1,fork,reuseaddr \u2192 UNIX-CONNECT:/tmp/yolo-fwd/port-p.sock | TCP:gateway:p; host half in cli/network.py untouched",
+   "swap_mechanism": "Go spawns identical socat argv (or later replaces socat with native Go proxy \u2014 separate unit)",
+   "parity_test": "curl through forwarded port in both impls; test class TestContainerPortForwarding"
+  }
+ ],
+ "test_coverage": {
+  "existing": [
+   "tests/test_entrypoint.py \u2014 197 tests / 31 classes covering essentially every function: shim generation (argv-filter matrix), bashrc, CA bundle, ld cache, timezone, all 6 agent configs (incl. 3-way claude settings merge, credentials harvest/symlink, managed-MCP reconciliation, codex TOML round-trip), mcp wrappers, mise config update/dedupe/retire, bootstrap + venv-precreate script content, agent/package-manager launchers, port forwarding, _port_in_use, perf logging, exec_bash, cglimit script, cgroup delegation, main() sequencing, supervisor singleton, user-env hydration",
+   "tests/test_cli_unit.py \u2014 host `import entrypoint` without MISE_DATA_DIR must not crash",
+   "tests/test_macos_user.py \u2014 JAIL_HOME-set-before-import ordering, native bootstrap subset",
+   "`yolo check` itself is a runtime smoke of all writers + output parse"
+  ],
+  "gaps": [
+   "No golden-file byte-level fixtures \u2014 tests assert structurally (json.loads), so a Go port with different key order/whitespace would pass Python tests but produce different files; add sha256 goldens before porting",
+   "No real-container end-to-end test in CI (repo docs mandate manual nested-jail verification: `yolo -- bash` from inside a jail); mount/EROFS/single-file-bind-mount write semantics only surface there",
+   "iptables DNAT and socat behavior only unit-mocked; duplicate-DNAT-rule accumulation on re-exec untested",
+   "Generated Python helper scripts' runtime behavior (yolo-cglimit/journalctl socket protocol) tested lightly vs their daemons",
+   "Concurrent-boot races (shared-HOME rmtree of SHIM_DIR, credentials harvest race) not exercised",
+   "chrome-devtools wrapper chromium startup untested"
+  ],
+  "assessment": "Unusually strong unit coverage for a bootstrap module \u2014 the porting risk is not logic regressions but byte-format and mount-semantics parity, which current tests don't pin."
+ },
+ "porting_hazards": [
+  "Single-file bind mounts (.bashrc? no \u2014 but yolo-bootstrap.sh, yolo-venv-precreate.sh, yolo-perf.log, yolo-socat.log, yolo-ca-bundle.crt, yolo-installed-lsps, yolo-user-env.sh, yolo-entrypoint.lock are pre-touched host files mounted 1:1): writes MUST be in-place truncate+write, never tmp+rename (EBUSY/EXDEV on bind mounts) \u2014 Python's write_text is in-place; a Go 'atomic write' habit would break boot. The credentials fix history in agent_configs is the cautionary tale",
+  "JSON key ordering: Python preserves insertion order when merging user configs; Go map+encoding/json sorts keys \u2192 every merged config file (gemini settings.json, claude settings.json/.claude.json, opencode.json) would be rewritten with reordered user keys. Need ordered-JSON (e.g. custom decoder keeping order) for true no-functional-change parity",
+  "Dual-role package: same code is container PID-1 bootstrap AND host-importable library (yolo check, macos_user, agent_registry consumers). Go can replace the container role first; host callers need either a subprocess CLI shim or must port together \u2014 plan the dependency order",
+  "Image rebuild required for every iteration (flake.nix bakes the package; `just load && just install`), and Go binary must be cross-built for the Linux image on macOS hosts too (flake builds the farm on darwin \u2014 same constraint that forced generate_ld_cache to runtime)",
+  "exec_bash PATH string, bashrc content, and launcher bodies are consumed by agents and greppable docs \u2014 treat all generated text as frozen byte contracts (embed, don't re-template)",
+  "MISE_SHIMS fallback logic and JAIL_HOME-vs-HOME precedence are import-time in Python; Go must evaluate at process start with identical precedence (JAIL_HOME > HOME > /home/agent)",
+  "_hydrate_env_from_user_env_file must stay in lockstep with the writer format in cli/run_cmd.py (export KEY=${KEY:-'val'}, '\\'' escaping) \u2014 cross-language now means the sync comment spans repos/languages",
+  "Idempotency under repeated `podman exec \u2026 yolo-entrypoint`: every step re-runs on each exec (shims rmtree'd, configs re-merged, DNAT re-appended, ports skipped-if-bound, supervisor PID-file-guarded) \u2014 subtle invariants, verify each in the nested-jail live test, not just unit tests",
+  "Three-way settings merge (_sync_settings_level) is one-level-deep-only by design with asymmetric deep flag on adds vs rollbacks \u2014 easy to 'improve' accidentally in a rewrite; port mechanically",
+  "Best-effort philosophy: nearly every failure path is swallowed (warn + continue) \u2014 Go's explicit error handling invites accidental fail-fast; boot must never abort",
+  "mise.toml regex surgery targets quoted tokens like '\"npm:@github/copilot\"' verbatim (token includes the quotes) \u2014 the re.escape of a quoted token is deliberate; replicate exactly",
+  "Mutating /workspace/mise.toml touches the user's live host checkout \u2014 a Go bug here corrupts user files, highest-blast-risk single write in the module"
+ ],
+ "notes": "Boot order in main() is load-bearing: hydrate user-env \u2192 timezone \u2192 ld cache \u2192 shims \u2192 agent launchers \u2192 pkg-mgr launchers \u2192 CA bundle (before bashrc, and before any child spawn so os.environ exports propagate) \u2192 bashrc \u2192 bootstrap/venv scripts \u2192 mise config \u2192 nvim copy \u2192 mcp wrappers \u2192 git/jj \u2192 per-agent writers (YOLO_AGENTS order) \u2192 cgroup check \u2192 helper scripts \u2192 DNAT \u2192 socat \u2192 supervisor \u2192 PATH set \u2192 mise trust \u2192 perf dump \u2192 exec bash. Deliberate non-call of `mise hook-env` (flock deadlock) is documented in three places \u2014 preserve. Recommended port sequencing: (1) freeze byte goldens from Python, (2) Go binary behind YOLO_ENTRYPOINT_IMPL in the flake wrapper, (3) leave generated Python helper scripts + supervisor spawn as-is, (4) convert yolo-check/macos_user callers to the subprocess dry-run mode, (5) port helper scripts individually against their socket protocols. All file paths absolute under /workspace/src/entrypoint/; primary consumers: /workspace/flake.nix (l.468-528), /workspace/src/cli/run_cmd.py, /workspace/src/cli/macos_user.py, /workspace/tests/test_entrypoint.py."
+}

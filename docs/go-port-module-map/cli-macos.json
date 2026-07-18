@@ -1,0 +1,236 @@
+{
+ "group": "cli-macos",
+ "purpose": "Native macOS backend (`runtime: \"macos-user\"`): runs the agent as a dedicated hidden macOS service user (_yolojail) under an Apple Seatbelt (sandbox-exec) profile \u2014 no container, no VM. macos_user.py builds all artifacts (dscl/dseditgroup provisioning argv, inheriting-ACL ACE strings, SBPL profile text, sudo/env-i/sandbox-exec launch argv, a generated Python bootstrap script) as pure data, then a thin macOS-only orchestrator executes them via sudo. darwin_packages.py materializes the config's `packages:` as a native aarch64-darwin nix buildEnv and hands its /nix/store bin dir to the launch PATH.",
+ "files": [
+  {
+   "path": "/workspace/src/cli/macos_user.py",
+   "role": "core: pure artifact builders (user provisioning cmds, ACLs, Seatbelt profile, launch argv, bootstrap script, RunPlan + invariants) + macOS-only orchestrator run_macos_user + 4 CLI commands (macos-setup/teardown/unshare/fix-permissions); 1664 lines"
+  },
+  {
+   "path": "/workspace/src/cli/darwin_packages.py",
+   "role": "native darwin `packages:` materialization: nix eval (skip list) + nix build --print-out-paths of flake attr yoloDarwinPackages; pure argv/env builders + one impure materialize(); 209 lines"
+  }
+ ],
+ "public_surface": [
+  {
+   "kind": "cli-command",
+   "name": "yolo macos-setup",
+   "detail": "One-time: creates hidden user/group _yolojail (dscl, uid/gid >=600 first-free, IsHidden 1, de-staffed, home /Users/_yolojail 0750, random pw via openssl rand piped through env var YOLO_SBPW \u2014 never argv), provisions shared root /Users/Shared/yolo (chown host:_yolojail, chmod 2770, two inheriting `chmod +a` ACEs), prints readiness checks (python3 candidates, sandbox-exec, nix). Idempotent. Refuses root (euid 0 \u2192 exit 1). macOS only (exit 1 elsewhere).",
+   "consumers": "registered in src/cli/__init__.py:394; human operator"
+  },
+  {
+   "kind": "cli-command",
+   "name": "yolo macos-teardown",
+   "detail": "dseditgroup -d host_user, dscl -delete user+group, rm -rf home. Refuses root; macOS only. No-op message if user absent.",
+   "consumers": "src/cli/__init__.py:395"
+  },
+  {
+   "kind": "cli-command",
+   "name": "yolo macos-unshare <workspace>",
+   "detail": "Runs bash script `find $ws -exec chmod -h -N {} +` stripping ALL ACLs from tree. Exit 1 if not a dir or script fails.",
+   "consumers": "src/cli/__init__.py:396"
+  },
+  {
+   "kind": "cli-command",
+   "name": "yolo macos-fix-permissions [path]",
+   "detail": "Batched find/chmod +a retrofit of the 3 split ACEs (dir / file_inherit / file) onto a tree; default target = /Users/Shared/yolo; refuses paths inside a user home (home_containing). Exit 1 on failure.",
+   "consumers": "src/cli/__init__.py:397"
+  },
+  {
+   "kind": "cli-command",
+   "name": "yolo run --dry-run (macos-user only)",
+   "detail": "Builds RunPlan purely (no nix, no exec) and prints: workspace, cname, interpreter+candidates, profile path, staged src, git identity, darwin pkgs summary, privileged sudo commands, full Seatbelt profile text, full bootstrap script text, launch argv, invariant violations. Exit 0 iff invariants clean, else 1. Works on ANY OS \u2014 this is the CI/parity gate.",
+   "consumers": "run_cmd.py:1257-1277 dispatch; tests"
+  },
+  {
+   "kind": "config-key",
+   "name": "runtime: \"macos-user\"",
+   "detail": "Selects this backend; validated in config.py:663 ('podman'|'container'|'macos-user'). Also settable via YOLO_RUNTIME=macos-user. run_cmd.py branches BEFORE any container machinery.",
+   "consumers": "run_cmd.py, config.py, check_cmd.py"
+  },
+  {
+   "kind": "config-key",
+   "name": "macos_log",
+   "detail": "off|user|full (default off) \u2014 gates the generated ~/.local/bin/yolo-log wrapper around /usr/bin/log installed by the bootstrap (off=stub exit 1; user=defaults `log show --last 5m --style compact`, passthrough for show/stream/collect/config/help; full=exec /usr/bin/log \"$@\").",
+   "consumers": "build_run_plan \u2192 entrypoint_bootstrap_script"
+  },
+  {
+   "kind": "config-key",
+   "name": "macos_shared_root",
+   "detail": "Documented override of /Users/Shared/yolo (any non-home path) \u2014 but NOT yet wired into config.py (revive-plan item pending). Only appears in docstrings/error text. Porting hazard: surface incomplete.",
+   "consumers": "none yet (planned)"
+  },
+  {
+   "kind": "config-key",
+   "name": "packages / security.blocked_tools / mise tools / mcp_servers / mcp_presets / lsp_servers / env_sources",
+   "detail": "Consumed indirectly: packages \u2192 darwin nix materialization; others JSON-encoded into bootstrap env (YOLO_BLOCK_CONFIG, YOLO_MISE_TOOLS, YOLO_MCP_SERVERS, YOLO_MCP_PRESETS, YOLO_LSP_SERVERS) via config.py resolvers so the native backend enforces the same per-workspace surface as the container.",
+   "consumers": "build_run_plan; entrypoint generators inside sandbox"
+  },
+  {
+   "kind": "env-var",
+   "name": "bootstrap baked env (generated script)",
+   "detail": "Generated Python script sets os.environ before importing entrypoint: JAIL_HOME, HOME (=/Users/_yolojail), YOLO_AGENTS (json list, double-encoded via json.dumps(json.dumps())), YOLO_HOST_DIR (=workspace), plus baked YOLO_GIT_NAME/YOLO_GIT_EMAIL/YOLO_JJ* and the 5 YOLO_* config JSON vars above. Exact repr()-embedded literals \u2014 byte-level contract for parity.",
+   "consumers": "staged entrypoint package (Python) run as sandbox user"
+  },
+  {
+   "kind": "env-var",
+   "name": "launch env (env -i scrub)",
+   "detail": "launch_argv builds `sudo --login --set-home --user=_yolojail /usr/bin/env -i HOME=\u2026 USER=_yolojail SHELL=/bin/zsh PATH=<sandbox_path> [extras] /usr/bin/sandbox-exec -f <profile> -- /bin/zsh -c 'cd <ws> && exec <agent\u2026>'`. HOME/USER/SHELL/PATH quartet is NOT caller-overridable. Extras: TERM, COLORTERM, YOLO_GIT_NAME/EMAIL (from host `git config --get`), env_sources-resolved keys, darwin env (PKG_CONFIG_PATH). PATH order: ~/.yolo-shims:~/.local/bin:~/.npm-global/bin:~/.local/share/mise/shims:~/go/bin:<darwin store bins>:/usr/bin:/bin:/usr/sbin:/sbin.",
+   "consumers": "agent process; SandVault-parity tests"
+  },
+  {
+   "kind": "env-var",
+   "name": "YOLO_EXTRA_PACKAGES",
+   "detail": "JSON-encoded packages list set (or popped) in nix subprocess env; flake reads it via builtins.getEnv (hence --impure). Same contract as the Linux image build.",
+   "consumers": "flake.nix (yoloDarwinPackages buildEnv, darwinSkippedNames)"
+  },
+  {
+   "kind": "path",
+   "name": "/var/yolo-jail (STATE_DIR)",
+   "detail": "Root-owned state dir. Contains: profile-<cname>.sb (Seatbelt, 0444 via sudo mkdir/tee/chmod), bootstrap-<cname>.py (0444), entrypoint/ (recursive cp -R of src/entrypoint, chmod -R a+rX, refreshed every run). cname = runtime.container_name_for_workspace(workspace) \u2014 shared naming scheme with container backend.",
+   "consumers": "sandbox-exec -f; sandbox user's python3"
+  },
+  {
+   "kind": "path",
+   "name": "/Users/_yolojail",
+   "detail": "Sandbox home: owner _yolojail:_yolojail, 0750; populated by bootstrap with ~/.yolo-shims, agent configs (~/.claude etc.), ~/.local/bin/yolo-log (0755+x).",
+   "consumers": "agent; entrypoint generators"
+  },
+  {
+   "kind": "path",
+   "name": "/Users/Shared/yolo",
+   "detail": "Neutral shared root: host_user:_yolojail, mode 2770 (setgid), carries 2 inheriting ACEs (`group:_yolojail allow <dir-rights\u2026,directory_inherit>` and `<file-rights\u2026,file_inherit,directory_inherit,only_inherit>`) so children inherit at create time \u2014 no per-run ACL walk. Workspaces MUST be outside any /Users/<name> home (home_containing check = plan invariant, hard refusal).",
+   "consumers": "host user + sandbox user; macos-fix-permissions"
+  },
+  {
+   "kind": "file-format",
+   "name": "Seatbelt SBPL profile",
+   "detail": "(version 1)(allow default) + ordered denies/re-allows: deny file-write* / re-allow ws+home+/tmp+/private/tmp+/var/folders+/private/var/folders+/dev; deny /Volumes reads except \"/Volumes/Macintosh HD\"; deny regex ^/dev/r?disk, ^/dev/bpf; deny /Users reads re-allow literal /Users, /Users/Shared + ws + home subpaths; deny /Library/Keychains; allow process-info*, sysctl-read. Paths SBPL-escaped (backslash+quote). Last-match-wins ordering is load-bearing.",
+   "consumers": "/usr/bin/sandbox-exec"
+  },
+  {
+   "kind": "file-format",
+   "name": "generated bash scripts",
+   "detail": "fix_permissions_script (find -type d/-exec chmod -h +a \u2026 {} + batched, echo progress), workspace_acl_strip_script (find -exec chmod -h -N {} +), macos_log_wrapper_script (3 modes). All returned as text, run via `bash -c` \u2014 golden-testable byte-for-byte.",
+   "consumers": "bash on macOS; unit tests"
+  },
+  {
+   "kind": "exit-code",
+   "name": "run_macos_user return",
+   "detail": "Agent's exit code from tty_proxy.run_with_proxy on success; 1 on: dry-run with invariant violations, non-macOS, euid 0, sandbox-exec missing, sandbox user missing, DarwinPackagesError, invariant failure, profile/stage/bootstrap install failure. sys.exit()ed by run_cmd.py.",
+   "consumers": "shell/caller"
+  },
+  {
+   "kind": "other",
+   "name": "nix flake attrs (darwin)",
+   "detail": "`nix build --extra-experimental-features 'nix-command flakes' --impure --no-link --print-out-paths .#packages.aarch64-darwin.yoloDarwinPackages` (last stdout line = store path; <out>/bin \u2192 PATH prefix; <out>/lib/pkgconfig \u2192 PKG_CONFIG_PATH) and `nix eval --impure --json .#darwinUnavailablePackages.aarch64-darwin` (skip list, non-fatal on failure). cwd=repo_root; timeouts 1800s/120s.",
+   "consumers": "flake.nix:784-800"
+  },
+  {
+   "kind": "other",
+   "name": "broker_socket_grant_commands",
+   "detail": "chgrp/chmod argv (parent 0750, socket 0660, group _yolojail) letting the sandbox uid reach the claude-oauth-broker's local unix socket directly \u2014 pure builder, wiring status unclear (no caller found in src outside this module).",
+   "consumers": "planned: oauth-broker integration"
+  }
+ ],
+ "internal_deps": [
+  "cli.config (_normalize_blocked_tools, _merge_mise_tools, _resolve_env_sources, _effective_packages \u2014 private helpers imported inside functions)",
+  "cli.console (rich console)",
+  "cli.tty_proxy (run_with_proxy \u2014 final launch, forwards stdin for sudo password)",
+  "cli.runtime (container_name_for_workspace)",
+  "cli.check_cmd imports SANDBOX_USER/_sandbox_user_exists/resolve_python (yolo check integration)",
+  "cli.__init__ registers the 4 macos-* commands",
+  "cli.run_cmd dispatches runtime=='macos-user' \u2192 run_macos_user",
+  "src/entrypoint package: staged by cp -R and imported by the GENERATED bootstrap script (generate_shims, generate_agent_launchers, generate_bashrc, generate_mise_config, generate_mcp_wrappers, configure_git, configure_jj, _load_agents, agent_configs.CONFIG_WRITERS, agent_registry.AGENTS, module attr WORKSPACE)"
+ ],
+ "third_party_deps": [
+  {
+   "pkg": "typer",
+   "used_for": "typer.Exit(1) in the 4 CLI commands + registration",
+   "go_equivalent": "cobra/urfave-cli + os.Exit"
+  },
+  {
+   "pkg": "rich (via cli.console)",
+   "used_for": "all user-facing output incl. --dry-run plan rendering with markup ([bold red] etc.)",
+   "go_equivalent": "lipgloss/fatih-color; exact dry-run text parity requires reproducing rich's rendering or defining parity on stripped text"
+  }
+ ],
+ "side_effects": [
+  "Creates/deletes macOS directory-services records (dscl/dseditgroup/createhomedir) and the /Users/_yolojail home",
+  "Sets random account password (openssl rand \u2192 sudo sh -c dscl -passwd, value only in env YOLO_SBPW)",
+  "Provisions /Users/Shared/yolo (mkdir/chown/chmod 2770/chmod +a inheriting ACEs)",
+  "Writes root-owned 0444 files under /var/yolo-jail (Seatbelt profile, bootstrap-<cname>.py) via sudo mkdir/tee/chmod; recursively copies src/entrypoint there every run",
+  "Applies/strips ACLs across whole workspace trees (find \u2026 chmod +a / -N)",
+  "Runs nix build/eval on the host (writes to /nix/store; no GC root \u2014 documented FUTURE gap)",
+  "Reads host `git config --get user.name/user.email` and TERM/COLORTERM",
+  "Bootstrap (as sandbox user) writes shims/agent configs/yolo-log into sandbox home",
+  "Launches interactive sudo (password prompts through the TTY proxy)"
+ ],
+ "python_specifics": [
+  "CODE GENERATION OF PYTHON: entrypoint_bootstrap_script emits a Python program using repr()/!r embedding of paths and json.dumps(json.dumps(agents)) double-encoding; it rebinds entrypoint import-time constants by setting os.environ BEFORE `import entrypoint`, does sys.path.insert to the staged dir, and monkeypatches `entrypoint.WORKSPACE = Path(...)` post-import. A Go port must still emit this exact Python text as long as src/entrypoint stays Python \u2014 the generated script is a cross-language contract, and Go must replicate Python repr() escaping of arbitrary paths exactly",
+  "Injectable-function test seams: resolve_python(exists=os.path.exists) \u2014 Go needs an fs interface",
+  "Tests monkeypatch subprocess.run and cli-module attributes (e.g. cli.macos_user.run_macos_user swapped in test_runtime.py) \u2014 Go needs an exec/runner abstraction for the same coverage",
+  "Deferred/inline imports (from .config import _private_helpers, import typer inside functions) to dodge import cycles and keep non-macOS import cheap",
+  "typer.Exit exception-based exit; dataclass RunPlan with field(default_factory=\u2026)",
+  "getpass.getuser() fallback to $USER; os.geteuid() root refusal",
+  "_sh_quote (single-quote bash escaping) and _sbpl_str (SBPL double-quote escaping) are hand-rolled and byte-contractual",
+  "rich markup strings throughout output"
+ ],
+ "seams": [
+  {
+   "name": "runtime dispatch (whole-backend swap)",
+   "contract": "run_cmd.py:1257 `if runtime == 'macos-user': run_macos_user(workspace, config, agents, agent_argv, repo_src=\u2026, dry_run=\u2026) \u2192 sys.exit(rc)`. Entire backend behind one function taking (workspace path, parsed config dict, agents list, agent argv) and returning an exit code.",
+   "swap_mechanism": "Replace the call with exec of a Go binary (e.g. `yolo-macos-user run --config <json> --workspace <p> -- <agent argv>`), selected by env var YOLO_MACOS_IMPL=go; Python remains the CLI front.",
+   "parity_test": "`yolo run --dry-run` output: it renders EVERY artifact (sudo command list, full SBPL text, full bootstrap script text, launch argv, invariants) and runs on any OS with no side effects \u2014 diff Python vs Go dry-run output for a matrix of configs/workspaces. This is the designed-in parity gate."
+  },
+  {
+   "name": "pure artifact builders (golden-text seam)",
+   "contract": "create_user_commands/delete_user_commands/shared_root_provision_commands (List[List[str]] argv), workspace_acl_aces (3 ACE strings), seatbelt_profile / fix_permissions_script / workspace_acl_strip_script / macos_log_wrapper_script / entrypoint_bootstrap_script (exact text), launch_argv/sandbox_path/_bootstrap_argv (argv), plan_invariants (message list)",
+   "swap_mechanism": "Port builders to Go first as a library + tiny CLI that prints each artifact for given inputs; Python can shell out to it, or run both and assert equality during transition.",
+   "parity_test": "Byte-for-byte golden comparison Python vs Go for identical inputs (incl. paths with quotes/backslashes to exercise _sh_quote/_sbpl_str/repr escaping). tests/test_macos_user.py (~60 tests) already encodes the contracts and translates directly."
+  },
+  {
+   "name": "darwin_packages / nix boundary",
+   "contract": "Two subprocess invocations with fixed argv (build_profile_argv / unavailable_eval_argv), cwd=repo_root, env=os.environ\u00b1YOLO_EXTRA_PACKAGES(json); output contract: last non-empty stdout line = store path; skip list = JSON array; DarwinPackagesError semantics (nix missing / build fail / empty out \u2192 abort run; skip-list failure \u2192 non-fatal []).",
+   "swap_mechanism": "Standalone Go binary or package; process boundary is nix itself so Go is a drop-in. Flag/env-select `materialize` implementation in run_macos_user.",
+   "parity_test": "tests/test_darwin_packages.py (15 tests) port 1:1; plus compare DarwinPackages{path_prefix,env,skipped} JSON between implementations against a real flake on a Mac."
+  },
+  {
+   "name": "macos-* setup commands",
+   "contract": "Each is `sudo <argv>` sequences from the pure builders + a handful of queries (id, dscl -list, openssl rand, git config). No sockets, no state beyond the OS itself.",
+   "swap_mechanism": "Individual Go subcommands registered in the Python typer app as passthrough execs (yolo macos-setup \u2192 exec yolo-macos setup).",
+   "parity_test": "Dry-run/echo mode printing the sudo command list; diff against Python's builders. Real-Mac smoke: run setup+teardown, assert dscl state identical."
+  }
+ ],
+ "test_coverage": {
+  "existing": [
+   "tests/test_macos_user.py (803 lines, ~60 tests): Seatbelt profile content/ordering/escaping, launch argv (env -i scrub, protected quartet, PATH order, darwin prefix position, cd-into-workspace), user create/delete cmd lists (hidden, de-staffed, no password in argv, 0750 home), ACE splits + batched fix-permissions script, bootstrap script (reused generators, Linux-only steps skipped, HOME rebind, yolo-log install), fail-closed off-macOS + refuses-root (run/setup/teardown), next_free_id, macos_log modes, broker socket grant, git-identity-only env, RunPlan invariants incl. darwin-PATH wiring guard",
+   "tests/test_darwin_packages.py (15 tests): argv shapes, YOLO_EXTRA_PACKAGES marshaling, profile_paths (bin-only, pkgconfig), locked rev vs real flake.lock, materialize success/nix-missing/build-fail/empty-out/skip-list-nonfatal via subprocess.run monkeypatch",
+   "tests/test_runtime.py: macos-user dispatch never touches podman; runtime_for_check on macOS",
+   "tests/test_cli_commands.py: yolo check skips container probe for macos-user; tests/test_config_merge.py: runtime validation accepts macos-user"
+  ],
+  "gaps": [
+   "ZERO real-macOS execution coverage \u2014 support matrix marks macos-user \ud83d\udfe1 'never tested on real macOS'; all orchestrator paths past the preconditions (sudo tee, dscl execution, sandbox-exec launch, tty_proxy interaction) are untested",
+   "--dry-run printed output has no golden test (rich markup) \u2014 the natural cross-impl parity artifact is unpinned",
+   "macos_setup/teardown/unshare/fix-permissions happy paths only tested for refusals, not command execution ordering",
+   "_taken_ids parsing, _set_random_password, _install_root_file untested",
+   "broker_socket_grant_commands has a unit test but no integration/caller"
+  ],
+  "assessment": "Excellent Linux-runnable unit coverage of every PURE builder (deliberate design: 'everything that produces an artifact is a pure function'), making a Go port highly test-drivable; but the impure macOS orchestration layer has no ground truth at all, so parity there can only be established on real Mac hardware."
+ },
+ "porting_hazards": [
+  "HIGHLY IN FLUX \u2014 port LAST or defer. docs/macos-backend-direction.md (2026-07-14) is 'Status: DECISION PENDING' on whether macos-user survives at all ('worried we bolted on an SV clone'); docs/macos.md currently states the backend 'was prototyped and then removed (recoverable at git tag macos-user-experiment)' while the code is fully present (revived per docs/handoff-macos-user-revive-plan.md) \u2014 docs and code actively disagree. Recent commits (refuse-sudo fix 6534519, AC container-builder proven on real HW 2026-07-17) show the macOS strategy tilting toward the container/Apple-Container path. Porting this module now risks porting dead code.",
+  "macos_shared_root config key is documented in docstrings and error messages but NOT wired into config.py (revive-plan item U4 pending) \u2014 the surface is incomplete; SHARED_ROOT_DEFAULT is effectively hardcoded today.",
+  "Generated-Python contract: entrypoint_bootstrap_script emits Python source that imports and monkeypatches the src/entrypoint package (env-before-import constant rebinding, entrypoint.WORKSPACE assignment, CONFIG_WRITERS/_load_agents loop). Go must emit byte-identical Python (repr() escaping, json.dumps(json.dumps()) nesting) until/unless entrypoint is ported \u2014 sequencing dependency on the entrypoint group.",
+  "Deep reach into cli.config PRIVATE helpers (_normalize_blocked_tools, _merge_mise_tools, _resolve_env_sources, _effective_packages) \u2014 a Go swap of this module alone needs those semantics duplicated or an IPC/CLI shim; note _resolve_env_sources failures are swallowed (bare except) \u2014 replicate that leniency.",
+  "Exact-text contracts everywhere: _sh_quote single-quote escaping, _sbpl_str SBPL escaping, SBPL last-match-wins ordering, ACE right-lists, bash script bodies, PATH join order \u2014 a one-character drift changes security posture; use golden tests.",
+  "Interactive sudo through tty_proxy (stdin-forwarded password prompts, --login zsh, controlling TTY preservation via sudo -u not launchctl asuser) \u2014 TTY semantics must be preserved by any Go launcher.",
+  "--dry-run exit-code contract (0 clean / 1 violations) and its rich-markup output are the de facto parity surface but aren't golden-pinned; pin them before porting.",
+  "run_macos_user\u2019s ordering is behavioral: dry-run returns BEFORE the macOS/root gates (so it works on Linux CI); cheap preconditions before the up-to-30-min nix build; plan built only after gates (it reads host git config). Reordering breaks tests and UX.",
+  "nix store path has no GC root (documented FUTURE review #12) \u2014 replicate the gap, don't 'fix' it during a no-functionality-change port.",
+  "macos_user.py truncation trap for future readers: file is 1664 lines; orchestrator + setup commands live past line 1255."
+ ],
+ "complexity": "medium",
+ "est_go_loc": 2200,
+ "notes": "Files: /workspace/src/cli/macos_user.py, /workspace/src/cli/darwin_packages.py; tests /workspace/tests/test_macos_user.py, /workspace/tests/test_darwin_packages.py; flake attrs at /workspace/flake.nix:784-800; dispatch /workspace/src/cli/run_cmd.py:1252-1277; command registration /workspace/src/cli/__init__.py:383-397; check integration /workspace/src/cli/check_cmd.py:898. The module was DESIGNED for exactly this kind of port: everything observable is a pure data-returning function with Linux unit tests, and --dry-run renders the full artifact set \u2014 so mechanical portability is high. The real risk is strategic, not technical: the backend's existence is under an explicit pending decision and docs already describe it as removed, while the container/Apple-Container path (separate module group) is where verified-on-real-HW momentum is. Recommend sequencing: port the container backend groups first; revisit cli-macos only after the direction decision lands. If ported, do darwin_packages first (small, stable nix boundary), then the pure builders with golden tests, and keep the generated-Python bootstrap emission until the entrypoint group is ported."
+}
