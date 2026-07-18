@@ -1975,6 +1975,19 @@ def run(
             "YOLO_RUNTIME=podman",
             "-e",
             "YOLO_REPO_ROOT=/opt/yolo-jail",
+            # Seam #10 (Stage 10): forward the entrypoint-impl selector into the
+            # jail so the baked /bin/yolo-entrypoint wrapper can A/B the Go boot
+            # (YOLO_ENTRYPOINT_IMPL=go) against the default Python one. Only
+            # forwarded when explicitly set on the host — an unset var leaves the
+            # wrapper on its Python default, keeping this a reversible, opt-in
+            # seam like the daemon/relay ones (which are read host-side and need
+            # no forward). Paired with $YOLO_GO_BIN_DIR / the dist-go live-mount
+            # so a Go entrypoint binary is actually resolvable in-jail.
+            *(
+                ["-e", f"YOLO_ENTRYPOINT_IMPL={os.environ['YOLO_ENTRYPOINT_IMPL']}"]
+                if os.environ.get("YOLO_ENTRYPOINT_IMPL")
+                else []
+            ),
         ]
     )
 
