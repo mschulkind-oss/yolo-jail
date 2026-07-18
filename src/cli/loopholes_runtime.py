@@ -228,6 +228,39 @@ BROKER_SINGLETON_LOCK = Path("/tmp/yolo-claude-oauth-broker.lock")
 # bundled manifest's ``name`` field.
 BROKER_LOOPHOLE_NAME = "claude-oauth-broker"
 
+
+# go-port seam #2 (daemon resolution). During the soak, a host daemon is
+# swapped to its Go port by listing its name in YOLO_GO_DAEMONS and pointing
+# YOLO_GO_BIN_DIR at the dist-go dir. The Go binary carries the SAME name as
+# the Python console script, so resolution is by explicit DIR (never PATH —
+# PATH shadowing would defeat per-daemon gating). A listed-but-missing binary
+# falls back to the console script (availability beats the A/B preference;
+# dist-go/ is gitignored + wiped by ``just clean``). Introduced here for the
+# OAuth broker (Stage 6); Stage 5 reuses it at _start_host_service_external.
+def _go_daemon_enabled(name: str) -> bool:
+    """True iff ``name`` is listed (comma-separated) in YOLO_GO_DAEMONS."""
+    listed = os.environ.get("YOLO_GO_DAEMONS", "")
+    return name in {n.strip() for n in listed.split(",") if n.strip()}
+
+
+def _daemon_launcher(console_name: str) -> "List[str]":
+    """The argv[0:1] launcher for a host daemon: the Go binary at
+    $YOLO_GO_BIN_DIR/<console_name> when the daemon is gated on via
+    YOLO_GO_DAEMONS and that binary exists+executable, else the Python
+    console-script name resolved on PATH (the default)."""
+    if _go_daemon_enabled(console_name):
+        bin_dir = os.environ.get("YOLO_GO_BIN_DIR")
+        if bin_dir:
+            candidate = Path(bin_dir) / console_name
+            if os.access(candidate, os.X_OK):
+                return [str(candidate)]
+            console.print(
+                f"[yellow]{console_name}: YOLO_GO_DAEMONS lists it but "
+                f"{candidate} is missing/not executable — using the Python "
+                f"daemon. Run `just build-go`.[/yellow]"
+            )
+    return [console_name]
+
 # --- Timing knobs ----------------------------------------------------------
 # Condition-polling pattern: TIGHT poll interval, GENEROUS deadline — waits
 # return as soon as the condition holds and only burn the full deadline on
@@ -392,8 +425,12 @@ def _broker_spawn() -> Path:
         log_dir.mkdir(parents=True, exist_ok=True)
         log_path = log_dir / "host-service-claude-oauth-broker.log"
         log_file = open(log_path, "ab")
+        # go-port seam #2: launcher is the Python console script by default, or
+        # the Go binary from $YOLO_GO_BIN_DIR when gated on via YOLO_GO_DAEMONS.
+        # Same binary name either way, so _broker_pgrep_strays matches both.
+        launcher = _daemon_launcher("yolo-claude-oauth-broker-host")
         proc = subprocess.Popen(
-            ["yolo-claude-oauth-broker-host", "--socket", str(BROKER_SINGLETON_SOCKET)],
+            [*launcher, "--socket", str(BROKER_SINGLETON_SOCKET)],
             stdout=log_file,
             stderr=log_file,
             start_new_session=True,

@@ -3576,6 +3576,55 @@ class TestBrokerSingleton:
         )
         return sock, pidf, cli
 
+    def test_daemon_launcher_default_is_console_script(self, monkeypatch):
+        """go-port seam #2: with no YOLO_GO_DAEMONS, the launcher is the Python
+        console script name (resolved on PATH)."""
+        from cli.loopholes_runtime import _daemon_launcher
+
+        monkeypatch.delenv("YOLO_GO_DAEMONS", raising=False)
+        assert _daemon_launcher("yolo-claude-oauth-broker-host") == [
+            "yolo-claude-oauth-broker-host"
+        ]
+
+    def test_daemon_launcher_uses_go_binary_when_gated(self, monkeypatch, tmp_path):
+        """Gated on via YOLO_GO_DAEMONS + a real binary at $YOLO_GO_BIN_DIR ->
+        the launcher is that explicit path (never PATH, to avoid shadowing)."""
+        from cli.loopholes_runtime import _daemon_launcher
+
+        go_bin = tmp_path / "yolo-claude-oauth-broker-host"
+        go_bin.write_text("#!/bin/sh\n")
+        go_bin.chmod(0o755)
+        monkeypatch.setenv("YOLO_GO_DAEMONS", "host-processes,yolo-claude-oauth-broker-host")
+        monkeypatch.setenv("YOLO_GO_BIN_DIR", str(tmp_path))
+        assert _daemon_launcher("yolo-claude-oauth-broker-host") == [str(go_bin)]
+
+    def test_daemon_launcher_falls_back_when_go_binary_missing(
+        self, monkeypatch, tmp_path
+    ):
+        """Gated on but the binary is absent (dist-go/ wiped) -> fall back to
+        the Python console script; never spawn a broken daemon."""
+        from cli.loopholes_runtime import _daemon_launcher
+
+        monkeypatch.setenv("YOLO_GO_DAEMONS", "yolo-claude-oauth-broker-host")
+        monkeypatch.setenv("YOLO_GO_BIN_DIR", str(tmp_path))  # empty dir
+        assert _daemon_launcher("yolo-claude-oauth-broker-host") == [
+            "yolo-claude-oauth-broker-host"
+        ]
+
+    def test_daemon_launcher_not_gated_ignores_bin_dir(self, monkeypatch, tmp_path):
+        """A binary present at $YOLO_GO_BIN_DIR is NOT used unless the daemon is
+        explicitly listed in YOLO_GO_DAEMONS (per-daemon gating)."""
+        from cli.loopholes_runtime import _daemon_launcher
+
+        go_bin = tmp_path / "yolo-claude-oauth-broker-host"
+        go_bin.write_text("#!/bin/sh\n")
+        go_bin.chmod(0o755)
+        monkeypatch.setenv("YOLO_GO_DAEMONS", "some-other-daemon")
+        monkeypatch.setenv("YOLO_GO_BIN_DIR", str(tmp_path))
+        assert _daemon_launcher("yolo-claude-oauth-broker-host") == [
+            "yolo-claude-oauth-broker-host"
+        ]
+
     def test_is_alive_false_without_pid_file(self, monkeypatch, tmp_path):
         _, _, cli = self._patch_paths(monkeypatch, tmp_path)
         assert cli._broker_is_alive() is False

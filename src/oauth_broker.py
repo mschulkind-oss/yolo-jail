@@ -55,8 +55,13 @@ except ImportError:  # pragma: no cover — running as a script
 
 # Writable state dir for the broker loophole — CA + leaf + refresh lock.
 # Manifest lives in the bundled_loopholes directory (read-only in the
-# installed wheel); generated state can't live there.
-BROKER_DIR = _loopholes.state_dir_for("claude-oauth-broker")
+# installed wheel); generated state can't live there.  YOLO_BROKER_STATE_DIR
+# is a test-only override (parity harness), mirrored in the Go broker, so
+# black-box tests don't touch the real ~/.local state.
+BROKER_DIR = Path(
+    os.environ.get("YOLO_BROKER_STATE_DIR")
+    or _loopholes.state_dir_for("claude-oauth-broker")
+)
 CA_CRT = BROKER_DIR / "ca.crt"
 CA_KEY = BROKER_DIR / "ca.key"
 SERVER_CRT = BROKER_DIR / "server.crt"
@@ -71,6 +76,20 @@ UPSTREAM_HOST = "platform.claude.com"
 TOKEN_URL = "https://platform.claude.com/v1/oauth/token"
 CLIENT_ID = "9d1c250a-e61b-44d9-88ed-5944d1962f5e"
 OAUTH_BETA_HEADER = "oauth-2025-04-20"
+
+
+def _token_url() -> str:
+    """Upstream token endpoint, honoring a test-only override.
+
+    ``TOKEN_URL`` is a hardcoded production constant; black-box parity testing
+    (and the Go port's identical ``YOLO_BROKER_UPSTREAM_URL`` hook) needs a way
+    to point the refresh flow at an httptest/local upstream. This env var is
+    the ONLY sanctioned override and exists in both implementations (go-port
+    plan Stage 6). Unset in production → the real endpoint.
+    """
+    import os as _os
+
+    return _os.environ.get("YOLO_BROKER_UPSTREAM_URL") or TOKEN_URL
 
 
 # Cloudflare's bot-signature filter on platform.claude.com returns
@@ -365,7 +384,7 @@ def _refresh_upstream(refresh_token: str) -> Dict[str, Any]:
         }
     ).encode()
     req = urllib.request.Request(
-        TOKEN_URL,
+        _token_url(),
         data=body,
         method="POST",
         headers={
