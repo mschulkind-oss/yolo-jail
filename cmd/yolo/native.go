@@ -1,9 +1,12 @@
 package main
 
 import (
+	"fmt"
+	"os"
 	"os/exec"
 
 	"github.com/mschulkind-oss/yolo-jail/internal/checkcmd"
+	"github.com/mschulkind-oss/yolo-jail/internal/loopholescmd"
 	"github.com/mschulkind-oss/yolo-jail/internal/pscmd"
 	"github.com/mschulkind-oss/yolo-jail/internal/runcmd"
 	"github.com/mschulkind-oss/yolo-jail/internal/runtime"
@@ -15,10 +18,42 @@ import (
 // gates them on via YOLO_IMPL=go — dispatchNative is only reached for a
 // subcommand IsNative already approved, so a plain map entry is correct.
 var nativeDispatch = map[string]func(args []string) int{
-	"check":  runCheck,
-	"doctor": runCheck, // doctor is an alias for check (same body + flag).
-	"run":    runRun,
-	"ps":     runPs,
+	"check":     runCheck,
+	"doctor":    runCheck, // doctor is an alias for check (same body + flag).
+	"run":       runRun,
+	"ps":        runPs,
+	"loopholes": runLoopholes,
+}
+
+// runLoopholes dispatches the `yolo loopholes {list,status,enable,disable}`
+// group. args is the rewritten argv[1:], so args[0] == "loopholes" and args[1]
+// is the sub-subcommand. Gated behind YOLO_IMPL=go; plain typer.echo output
+// (byte-parity with Python).
+func runLoopholes(args []string) int {
+	// args: ["loopholes", <sub>, <rest>...]
+	var sub string
+	var rest []string
+	if len(args) > 1 {
+		sub = args[1]
+		rest = args[2:]
+	}
+	deps := loopholescmd.RealDeps()
+	switch sub {
+	case "", "list":
+		return loopholescmd.List(deps)
+	case "status":
+		return loopholescmd.Status(deps)
+	case "enable", "disable":
+		if len(rest) < 1 {
+			fmt.Fprintf(os.Stderr, "Usage: yolo loopholes %s <name>\n", sub)
+			return 1
+		}
+		return loopholescmd.SetEnabled(deps, rest[0], sub == "enable")
+	default:
+		// Unknown sub-subcommand: fall back to Python (typer prints the group
+		// help / error). Delegation keeps behavior faithful for edge cases.
+		return delegateToPython(args)
+	}
 }
 
 // runPs runs the native `yolo ps` (list running jails). Gated behind
