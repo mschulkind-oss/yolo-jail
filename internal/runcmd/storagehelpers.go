@@ -26,12 +26,6 @@ func jailMiseStoreDir(inJail bool) string {
 	return paths.GlobalMise()
 }
 
-// runmountBindTargets returns the current mount-ns bind mountpoints
-// (_bind_mount_targets), used to dereference nested single-file :ro mounts.
-func runmountBindTargets() map[string]struct{} {
-	return runmount.BindMountTargets()
-}
-
 // yoloVersion ports _git_describe_version() or "unknown" (the YOLO_VERSION env
 // value baked into the container). version.Get resolves YOLO_VERSION → git
 // describe → baked → "unknown".

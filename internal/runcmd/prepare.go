@@ -11,7 +11,6 @@ import (
 	"github.com/mschulkind-oss/yolo-jail/internal/jsonx"
 	"github.com/mschulkind-oss/yolo-jail/internal/loopholes"
 	"github.com/mschulkind-oss/yolo-jail/internal/paths"
-	"github.com/mschulkind-oss/yolo-jail/internal/storage"
 )
 
 // refreshJailBriefings ports _refresh_jail_briefings: rebuild the per-jail
@@ -191,40 +190,6 @@ func lspServerNames(cfg *jsonx.OrderedMap) []string {
 		return nil
 	}
 	return m.Keys()
-}
-
-// buildAssembleInput assembles the argv-assembly input for a fresh launch: the
-// selected agents, briefings staging dir, ws_state overlay dirs, mise store,
-// LSP installs, host TZ, version, mount targets, and identity env. It performs
-// the ws_state + briefings side effects Python does inline before assembling the
-// argv. cname is the container name; repoRoot the resolved repo.
-func (o *Options) buildAssembleInput(cfg *jsonx.OrderedMap, rt, cname, repoRoot, agentsPath, wsState string, identityEnv []string) *assembleInput {
-	agentsList := config.SelectedAgents(cfg)
-	specs := agents.ResolveAgents(agentsList)
-
-	npm, goPkgs := resolveLSPInstalls(cfg)
-	hostTZ := ""
-	if tz, ok := storage.DetectHostTimezone(); ok {
-		hostTZ = tz
-	}
-
-	return &assembleInput{
-		cfg:           cfg,
-		rt:            rt,
-		cname:         cname,
-		repoRoot:      repoRoot,
-		agentsList:    agentsList,
-		agentSpecs:    specs,
-		agentsPath:    agentsPath,
-		wsState:       wsState,
-		miseStore:     jailMiseStoreDir(o.inJail()),
-		identityEnv:   identityEnv,
-		hostTZ:        hostTZ,
-		yoloVersion:   o.yoloVersion(repoRoot),
-		mountTargets:  runmountBindTargets(),
-		lspNPMInstall: npm,
-		lspGoInstall:  goPkgs,
-	}
 }
 
 var _ = strings.Join

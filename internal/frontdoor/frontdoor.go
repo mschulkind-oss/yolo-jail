@@ -42,10 +42,14 @@ var nativeSubcommands = map[string]struct{}{
 // gatedNativeSubcommands are subcommands with a native Go implementation that
 // runs ONLY when explicitly opted in via YOLO_IMPL=go — the default still
 // delegates to Python, keeping the flip reversible and the default unchanged
-// (go-port plan §4 / Stage 15). check + its doctor alias land here first.
+// (go-port plan §4 / Stage 15+16). check + its doctor alias landed at Stage 15;
+// run (the default subcommand — bare `yolo -- cmd` rewrites to `run`) lands at
+// Stage 16. The gate defaults OFF, so a bare `yolo -- cmd` still delegates to
+// Python unless YOLO_IMPL=go is explicitly exported.
 var gatedNativeSubcommands = map[string]struct{}{
 	"check":  {},
 	"doctor": {},
+	"run":    {},
 }
 
 // goImplEnabled reports whether YOLO_IMPL=go is set (the Stage-15 gate). It is a

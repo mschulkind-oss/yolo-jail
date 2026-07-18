@@ -54,29 +54,29 @@ func TestSubcommand(t *testing.T) {
 
 // TestCheckGate asserts the Stage-15 YOLO_IMPL gate: check/doctor are native
 // ONLY when YOLO_IMPL=go, and delegate to Python by default. Unrelated
-// subcommands (run) are never native regardless of the gate.
+// subcommands (prune) are never native regardless of the gate.
 func TestCheckGate(t *testing.T) {
 	orig := goImplEnabled
 	defer func() { goImplEnabled = orig }()
 
-	// Gate OFF (default): check/doctor delegate.
+	// Gate OFF (default): check/doctor/run delegate.
 	goImplEnabled = func() bool { return false }
-	for _, sub := range []string{"check", "doctor"} {
+	for _, sub := range []string{"check", "doctor", "run"} {
 		if IsNative(sub) {
 			t.Errorf("gate off: IsNative(%q) = true, want false (delegate to Python)", sub)
 		}
 	}
 
-	// Gate ON: check/doctor native.
+	// Gate ON: check/doctor/run native.
 	goImplEnabled = func() bool { return true }
-	for _, sub := range []string{"check", "doctor"} {
+	for _, sub := range []string{"check", "doctor", "run"} {
 		if !IsNative(sub) {
 			t.Errorf("gate on: IsNative(%q) = false, want true (native Go)", sub)
 		}
 	}
 	// A non-gated, non-native subcommand stays delegated even with the gate on.
-	if IsNative("run") {
-		t.Error("gate on: IsNative(\"run\") = true, want false")
+	if IsNative("prune") {
+		t.Error("gate on: IsNative(\"prune\") = true, want false")
 	}
 }
 

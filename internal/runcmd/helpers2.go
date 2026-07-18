@@ -22,18 +22,23 @@ const (
 	brokerLoopholeName    = "claude-oauth-broker"
 )
 
+// sha1Hex8 returns the first 8 hex chars of sha1(s) — the per-jail hash keying
+// the sockets dir + relay pid/lock files.
+func sha1Hex8(s string) string {
+	sum := sha1.Sum([]byte(s))
+	return hex.EncodeToString(sum[:])[:8]
+}
+
 // hostServiceSocketsDir ports _host_service_sockets_dir: /tmp/yolo-host-services-<8hex>
 // keyed by sha1(cname)[:8]. macOS resolves /tmp → /private/tmp.
 func hostServiceSocketsDir(cname string, isMacOS bool) string {
-	sum := sha1.Sum([]byte(cname))
-	shortHash := hex.EncodeToString(sum[:])[:8]
 	base := "/tmp"
 	if isMacOS {
 		if r, err := filepath.EvalSymlinks(base); err == nil {
 			base = r
 		}
 	}
-	return filepath.Join(base, "yolo-host-services-"+shortHash)
+	return filepath.Join(base, "yolo-host-services-"+sha1Hex8(cname))
 }
 
 var nonAlnumRe = regexp.MustCompile(`[^A-Za-z0-9]+`)
