@@ -75,31 +75,49 @@ var nowFunc = func() int64 { return time.Now().UnixMilli() }
 func nowMS() int64 { return nowFunc() }
 
 // oauthFromCreds reads the creds file and returns the claudeAiOauth object as
-// an OrderedMap, or (nil, false) on any read/parse error or missing section.
-func oauthFromCreds(credsPath string) (*jsonx.OrderedMap, bool) {
+// an OrderedMap. err is non-nil ONLY on a read/JSON-parse failure (Python's
+// `except (OSError, json.JSONDecodeError)`); a readable, valid-JSON file with a
+// MISSING or non-object claudeAiOauth key returns an empty OrderedMap + nil err
+// (Python's `data.get("claudeAiOauth") or {}`). Callers distinguish "creds
+// unreadable" (err != nil) from "no refresh token" (empty object).
+func oauthFromCreds(credsPath string) (*jsonx.OrderedMap, error) {
 	data, err := os.ReadFile(credsPath)
 	if err != nil {
-		return nil, false
+		return nil, err
 	}
 	decoded, err := jsonx.Decode(data)
 	if err != nil {
-		return nil, false
+		return nil, err
 	}
 	root, ok := decoded.(*jsonx.OrderedMap)
 	if !ok {
-		return nil, false
+		// Valid JSON but not an object (e.g. `[]`): .get would raise
+		// AttributeError in Python -> caught as... no, list has no .get, so
+		// Python raises AttributeError which is NOT in the except tuple and
+		// propagates. Treat as a parse-shaped error to be safe (unreachable
+		// with a real creds file).
+		return nil, errNotObject
 	}
 	v, ok := root.Get("claudeAiOauth")
-	if !ok {
-		return nil, false
+	if !ok || v == nil {
+		// Missing/null key -> `or {}` -> empty object, NOT an error.
+		return jsonx.NewOrderedMap(), nil
 	}
 	oauth, ok := v.(*jsonx.OrderedMap)
 	if !ok {
-		// Python `data.get("claudeAiOauth") or {}` treats a non-object as {}.
-		return jsonx.NewOrderedMap(), true
+		// Non-object value -> `or {}` also yields {} when falsy; a truthy
+		// non-object (e.g. a string) would make Python's later .get raise, but
+		// that's unreachable with a real creds file. Treat as empty.
+		return jsonx.NewOrderedMap(), nil
 	}
-	return oauth, true
+	return oauth, nil
 }
+
+var errNotObject = errStr("creds file is not a JSON object")
+
+type errStr string
+
+func (e errStr) Error() string { return string(e) }
 
 // asInt64 extracts an integer-ish value from a decoded jsonx value. jsonx
 // decodes integers as an internal type re-encoded via DumpsCompact; here we
@@ -126,9 +144,9 @@ func asInt64(v any) (int64, bool) {
 // CachedTokens returns the on-disk oauth object iff the access token has >= 90s
 // headroom, else nil. Mirrors _cached_tokens.
 func CachedTokens(credsPath string) *jsonx.OrderedMap {
-	oauth, ok := oauthFromCreds(credsPath)
-	if !ok {
-		return nil
+	oauth, err := oauthFromCreds(credsPath)
+	if err != nil {
+		return nil // Python _cached_tokens returns None on read/parse error.
 	}
 	var expiresAtMS int64
 	if v, ok := oauth.Get("expiresAt"); ok {

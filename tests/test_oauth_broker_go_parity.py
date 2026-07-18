@@ -201,6 +201,24 @@ def test_go_broker_cached_none_when_missing(broker_env, upstream):
         _terminate(proc)
 
 
+def test_go_broker_refresh_missing_oauth_key_is_no_refresh_token(broker_env, upstream):
+    """Audit fix: a readable, valid-JSON creds file WITHOUT the claudeAiOauth
+    key ('{}') must return {'error': 'no_refresh_token'} (Python's
+    `.get('claudeAiOauth') or {}` then missing refreshToken), NOT
+    creds_unreadable."""
+    from src import oauth_broker_jail
+
+    sock = broker_env / "b.sock"
+    creds = broker_env / "creds.json"
+    creds.write_text("{}")
+    proc = _start_go_broker(sock, creds, upstream, broker_env / "b.log")
+    try:
+        resp = oauth_broker_jail.ask_host_broker(str(sock), {"action": "refresh"})
+        assert resp == {"error": "no_refresh_token"}, resp
+    finally:
+        _terminate(proc)
+
+
 def test_go_broker_refresh_writes_creds_and_returns_tokens(broker_env, upstream):
     from src import oauth_broker_jail
 

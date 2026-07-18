@@ -76,6 +76,12 @@ func refreshUpstream(refreshToken string) (*jsonx.OrderedMap, error) {
 	req.Header.Set("Content-Type", "application/json")
 	req.Header.Set("anthropic-beta", OAuthBetaHeader)
 	req.Header.Set("User-Agent", userAgent)
+	// Python's http.client always sends "Accept-Encoding: identity" — it
+	// actively FORBIDS a compressed response (the 2026-05-12 logout-loop fix).
+	// DisableCompression only avoids REQUESTING gzip; without an explicit
+	// identity, upstream/Cloudflare may still choose an encoding we can't
+	// decode. Set it explicitly to match Python on the wire.
+	req.Header.Set("Accept-Encoding", "identity")
 
 	resp, err := httpClient.Do(req)
 	if err != nil {
@@ -88,11 +94,22 @@ func refreshUpstream(refreshToken string) (*jsonx.OrderedMap, error) {
 	}
 	decoded, err := jsonx.Decode(respBody)
 	if err != nil {
-		return nil, &urlError{msg: "unparseable upstream response: " + err.Error()}
+		// A 200 with an unparseable body: Python's json.loads raises
+		// JSONDecodeError, which is NOT in do_refresh's except tuple, so it
+		// propagates (handler-error frame) and the bg tick's catch-all stays on
+		// the NORMAL cadence. Use parseError so DoRefresh does NOT map it to
+		// upstream_unreachable (which would wrongly fast-retry 12×5s).
+		return nil, &parseError{msg: "unparseable upstream response: " + err.Error()}
 	}
 	m, ok := decoded.(*jsonx.OrderedMap)
 	if !ok {
-		return nil, &urlError{msg: "upstream response not a JSON object"}
+		return nil, &parseError{msg: "upstream response not a JSON object"}
+	}
+	// Python does out["accessToken"] = resp["access_token"] — a REQUIRED key.
+	// A 200 lacking it raises KeyError (loud, no write). Match: reject so
+	// DoRefresh never silently writes a stale token with a fresh expiresAt.
+	if _, ok := m.Get("access_token"); !ok {
+		return nil, &parseError{msg: "upstream 200 response missing access_token"}
 	}
 	return m, nil
 }
@@ -104,6 +121,13 @@ type httpError struct {
 }
 
 func (e *httpError) Error() string { return fmt.Sprintf("upstream HTTP %d", e.code) }
+
+// parseError models a 200 with a malformed/insufficient body — Python raises
+// (JSONDecodeError/KeyError) rather than returning an error dict, so this is
+// NOT classified transient/fast-retried.
+type parseError struct{ msg string }
+
+func (e *parseError) Error() string { return e.msg }
 
 // urlError models urllib.error.URLError / OSError (transport failure).
 type urlError struct{ msg string }
@@ -147,6 +171,9 @@ func DoProxy(method, path string, headers map[string]string, body []byte) ProxyR
 		return errResult("error", "upstream_unreachable", "message", err.Error())
 	}
 	req.Header = fwd
+	// Match Python's on-the-wire "Accept-Encoding: identity" (forbid a
+	// compressed response the mirror can't decode) — see refreshUpstream.
+	req.Header.Set("Accept-Encoding", "identity")
 
 	resp, err := httpClient.Do(req)
 	if err != nil {
@@ -156,11 +183,16 @@ func DoProxy(method, path string, headers map[string]string, body []byte) ProxyR
 	respBody, _ := io.ReadAll(resp.Body)
 
 	respHeaders := jsonx.NewOrderedMap()
-	for k := range resp.Header {
+	for k, vals := range resp.Header {
 		if _, hop := hopByHop[strings.ToLower(k)]; hop {
 			continue
 		}
-		respHeaders.Set(k, resp.Header.Get(k))
+		// Python builds the dict from resp.headers.items(), so duplicate
+		// headers (multiple Set-Cookie) collapse to the LAST value. Go's
+		// resp.Header[k] is []string in receive order — take the last.
+		// (Header-NAME canonicalization by net/http is an accepted residue,
+		// ledgered D5: the jail-side terminator re-canonicalizes anyway.)
+		respHeaders.Set(k, vals[len(vals)-1])
 	}
 	out := jsonx.NewOrderedMap()
 	out.Set("status", jsonx.IntValue(int64(resp.StatusCode)))

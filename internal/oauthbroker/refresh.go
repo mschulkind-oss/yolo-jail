@@ -29,7 +29,13 @@ func withRefreshLock(fn func() RefreshResult) RefreshResult {
 		return errResult("error", "creds_unreadable", "message", err.Error())
 	}
 	defer f.Close()
-	_ = syscall.Flock(int(f.Fd()), syscall.LOCK_EX)
+	// The flock is the load-bearing single-use-refresh-token serialization
+	// contract. Python's fcntl.flock RAISES on failure; we must NOT silently
+	// proceed unlocked (that would let concurrent jails burn the token). Treat
+	// a Flock failure as a hard error.
+	if err := syscall.Flock(int(f.Fd()), syscall.LOCK_EX); err != nil {
+		return errResult("error", "creds_unreadable", "message", "refresh lock failed: "+err.Error())
+	}
 	defer syscall.Flock(int(f.Fd()), syscall.LOCK_UN)
 	return fn()
 }
@@ -46,11 +52,15 @@ func DoRefresh(credsPath string) RefreshResult {
 		if cached := CachedTokens(credsPath); cached != nil {
 			return AsOAuthResponse(cached)
 		}
-		current, ok := oauthFromCreds(credsPath)
-		if !ok {
-			// creds file unreadable / bad JSON.
-			return errResult("error", "creds_unreadable", "message", "creds file unreadable")
+		current, err := oauthFromCreds(credsPath)
+		if err != nil {
+			// creds file unreadable / bad JSON — thread the real error text
+			// (Python emits str(e): "[Errno 2] ...", "Expecting value: ...").
+			return errResult("error", "creds_unreadable", "message", err.Error())
 		}
+		// A readable file with a MISSING claudeAiOauth key (e.g. "{}") yields
+		// an empty object here and falls through to no_refresh_token — matching
+		// Python's `.get("claudeAiOauth") or {}` then missing refreshToken.
 		refreshToken, _ := stringField(current, "refreshToken")
 		if refreshToken == "" {
 			return errResult("error", "no_refresh_token")
@@ -64,6 +74,13 @@ func DoRefresh(credsPath string) RefreshResult {
 					body = body[:200]
 				}
 				return errResult("error", "upstream_http", "status", jsonx.IntValue(int64(e.code)), "body", body)
+			case *parseError:
+				// Python raises JSONDecodeError/KeyError here — NOT an
+				// upstream_unreachable dict. Surface a distinct error that the
+				// bg tick does NOT fast-retry (RefreshDue check on
+				// upstream_unreachable only). Byte-shape: reuse creds_unreadable
+				// is wrong; use a dedicated code.
+				return errResult("error", "upstream_bad_response", "message", e.msg)
 			default:
 				return errResult("error", "upstream_unreachable", "message", err.Error())
 			}
@@ -83,8 +100,8 @@ func RefreshDue(credsPath string, leadSeconds int, now int64) bool {
 	if now == 0 {
 		now = nowMS()
 	}
-	oauth, ok := oauthFromCreds(credsPath)
-	if !ok {
+	oauth, err := oauthFromCreds(credsPath)
+	if err != nil {
 		return false
 	}
 	v, ok := oauth.Get("expiresAt")

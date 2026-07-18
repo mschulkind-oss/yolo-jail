@@ -150,8 +150,8 @@ func maybePropagateTokenResponse(credsPath string, decoded proxyRequest, respons
 		return
 	}
 	withRefreshLock(func() RefreshResult {
-		previous, ok := oauthFromCreds(credsPath)
-		if !ok {
+		previous, err := oauthFromCreds(credsPath)
+		if err != nil {
 			previous = jsonx.NewOrderedMap()
 		}
 		newOAuth := NormalizeOAuth(upstreamResp, previous)
