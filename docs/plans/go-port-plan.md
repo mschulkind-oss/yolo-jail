@@ -106,7 +106,7 @@ Plus processes that are *not* console scripts:
 | cli-run (run_cmd, runtime, network) | 3 | ~3,860 | very-high | ~4,800 | St. 16 |
 | cli-config (config, check, config_ref, init, agents_md) | 5 | ~5,070 | high | ~5,500 | St. 12, 13, 15, 16 (agents_md) |
 | cli-image (image, builder×2, storage, prune×2) | 6 | ~3,300 | high | ~4,800 | St. 14 (all six slices incl. storage+image) |
-| cli-macos (macos_user, darwin_packages, container_builder) | 3 | ~2,690 | medium | ~3,100 | **delegated** (§13); 3 pure check-probe helpers carved into St. 15. NOTE: grew this session — see §13 for the full in-flight state (container builder, builderImage flake output + GHCR job, path_helper fix). |
+| cli-macos (macos_user, darwin_packages, container_builder) | 3 | ~2,690 | medium | ~3,100 | **St. 16b — port as-is** (§13; user decision 2026-07-18: port the CURRENT state, warts included, to reach Go-only sooner). darwinpkg + containerbuilder already landed in St. 14; macos_user + the 4 macos-* commands remain. 3 pure check-probe helpers carved into St. 15. NOTE: grew this session — see §13 for the full in-flight state (container builder, builderImage flake output + GHCR job, path_helper fix). |
 | loopholes (registry, cmd, runtime) | 3 | ~3,110 | high | ~4,500 | St. 3, 7, 14, 16 |
 | host-services (broker, relay, host_service, host_processes, yolo_ps, supervisor, jail TLS) | 7 | ~2,830 | high | ~4,500 | St. 3–7, 11 |
 | entrypoint (12 modules) | 12 | ~3,620 | high | ~5,200 | St. 9–11 |
@@ -204,7 +204,7 @@ slices. A nil-flattening bug here silently grants unsafe prunes/reaps.
 | 5 | **Dual-impl image wrapper** (entrypoint + jail side) | flake.nix `/bin/yolo-entrypoint` wrapper branches on `YOLO_ENTRYPOINT_IMPL` (default python); BOTH implementations baked into every image; the CLI forwards the flag via `-e`. Dev override: wrapper prefers `/opt/yolo-jail/dist-go/linux-<arch>/yolo-entrypoint` when present (live-mount iteration, no rebuilds — and safe from `just build`'s `rm -rf dist/`). | St. 10–11 |
 | 6 | **Frozen interop contracts** (the coexistence substrate) | Not a swap point — the reason mixed states are safe. Versioned as tested fixtures, never re-typed: frame protocol v1 (+ the journal bridge's distinct 1/2/3 stream IDs — deliberately ≠ protocol v1's 0/1/2), `/tmp` pid+lock+sock naming (`sha1(cname)[:8]`), `refresh.lock` kernel flock, creds-file JSON + atomic-write pattern, `container_name_for_workspace`, tracking/owner/lock files, `last-load-*` LRU sentinels + tar cache keys, config-snapshot bytes, the `-e YOLO_*` container env contract, ordered runtime argv, `YOLO_JAIL_DAEMONS` JSON, **and the `yolo-user-env.sh` export-line grammar** (`export K=${K:-'v'}` with `'\''` escaping — writer in run_cmd.py:~1984, reader in entrypoint `_hydrate_env_from_user_env_file`; cross-language from Stage 10 to Stage 16, so it gets a writer→reader round-trip corpus in both directions). | St. 1 |
 | 7 | **Parity instrumentation** | `YOLO_DEBUG` ordered-argv dump (run_cmd.py:2966 — fresh-launch path only; attach-path argv is captured via PATH shims, not YOLO_DEBUG); fake `podman`/`container`/`tmux`/`kitten`/`ps` PATH shims that record or replay argv; env-var path-override hooks (storage root, tmp roots, **test-only upstream URL override** in both broker impls) designed into every Go binary from day one — Python monkeypatch hermeticity does not port; `just parity <suite>` dual-run diff runner; CI gains an `impl` matrix dimension. | St. 0–1 |
-| 8 | **macos-user delegation** | Go `run` dispatch keeps `runtime == macos-user → exec python -m src.cli run …` (and the four `macos-*` commands delegated) until the backend direction decision lands (docs/plans/macos-backend-direction.md is DECISION PENDING). Note this seam's interaction with Stage 17 retirement — see §13 and the Open Question. | St. 12, 16 |
+| 8 | **macos-user delegation (TEMPORARY — retired at St. 16b)** | Go `run` dispatch keeps `runtime == macos-user → exec python -m src.cli run …` (and the four `macos-*` commands delegated) ONLY until Stage 16b ports those modules. Originally scoped as a permanent seam pending the backend decision; the decision landed (keep both backends) and the user has since directed porting the current macOS state as-is (§13), so this seam is now a short-lived bridge, not an end state. Deleting it is a Stage 16b exit criterion. | St. 12, 16 → removed St. 16b |
 
 ### Flag registry
 
@@ -645,7 +645,7 @@ lifecycle+locks → e2e+burn-in)*
 - AC divergences consolidated into a runtime-capability struct (no `:ro`, ~22-mount cap,
   `--publish-socket`, bare `--tmpfs`, table parsing) with observable behavior incl.
   warning texts identical.
-- macos-user branch: `exec python -m src.cli run …` — delegation seam (§13).
+- macos-user branch: `exec python -m src.cli run …` — delegation seam (§13), TEMPORARY: Stage 16b replaces this with a native Go dispatch.
 - Frozen host-state contracts: tracking files, owner-PID reaping polarity, lock lifetime
   through `--started-fd`, nix-build-root rename-aside never-delete invariant, sentinels,
   `yolo-user-env.sh` writer (Go-writer/Python-reader round-trip closes the Stage 9
@@ -672,22 +672,59 @@ lifecycle+locks → e2e+burn-in)*
   `test_jail.py` + `test_runtime.py` through the Go front door on both CI arches, twice
   (human-confirmed); burn-in week clean; nested-jail gate.
 
+**Stage 16b — macOS backend port (as-is)** *(3–4 sessions)*
+- **Scope:** `src/cli/macos_user.py` (~1,680 LOC) → `internal/macosuser` + the four
+  `macos-setup/teardown/unshare/fix-permissions` commands, plus native `runtime ==
+  macos-user` dispatch in Go `run` (deleting seam #8). `darwin_packages.py` and
+  `container_builder.py` already landed as `internal/darwinpkg` /
+  `internal/containerbuilder` in Stage 14 — verify they are wired, don't re-port.
+- **Port as-is (§13 directive):** reproduce current behavior including
+  known-broken/unfinished paths. No macOS bug fixes in port commits; repairs are
+  separate `fix(macos):` commits afterward. List every deliberately-reproduced
+  known-broken behavior in the handoff.
+- **The module is built for this** — every artifact producer in `macos_user.py` is a
+  pure data-returning function that is unit-testable on Linux. Port those first and
+  gate them on byte-exact goldens: SBPL profile text, `dscl`/`dseditgroup`
+  provisioning argv, inheriting-ACL ACE strings, `sudo -u … env -i … sandbox-exec`
+  launch argv (incl. `env -i` ordering), the generated Python bootstrap script
+  (repr escaping + nested `json.dumps(json.dumps())`), login rc-file content
+  (`.zprofile`/`.zshrc`/`.bash_profile` PATH re-prepend after macOS `path_helper` —
+  load-bearing), and the batched root setup script.
+- **Frozen semantics to preserve exactly:** `_refuse_if_root` (the module
+  self-escalates via internal `sudo` and MUST refuse to run under sudo — running as
+  root misassigns the shared-group ACL); `run_macos_user`'s ordering (dry-run
+  returns BEFORE the macOS/root gates so it works on Linux CI; cheap preconditions
+  before the up-to-30-min nix build; plan built only after gates because it reads
+  host git config); `_sh_quote`/`_sbpl_str` escaping; SBPL last-match-wins ordering;
+  PATH join order; the swallowed-exception leniency in `_resolve_env_sources`.
+- **Dependency note:** the Python bootstrap script imports and monkeypatches the
+  `src/entrypoint` package. Stage 10 ported the entrypoint, so decide deliberately
+  whether the Go path emits the same Python bootstrap (byte-identical, keeping the
+  Python entrypoint alive on macOS) or calls the Go entrypoint — this choice gates
+  whether Stage 17 can delete `src/entrypoint`. Record it as a decision in the
+  handoff.
+- **Parity gate:** the `yolo run --dry-run` full artifact dump (SBPL text, sudo argv
+  lists, bootstrap script, launch argv) diffed Go vs Python — Linux-runnable, which
+  is the whole reason the backend was designed this way. Plus the four `macos-*`
+  commands' generated command lists.
+- **Exit:** dry-run artifact dump byte-identical across the fixture matrix; the four
+  macos-* commands' argv byte-identical; seam #8 deleted from Go `run` dispatch and
+  the flag registry; `GOOS=darwin go build ./...` green; Python macos modules NOT
+  deleted (that is Stage 17). **Explicitly NOT required:** the backend working
+  end-to-end on real hardware — real-Mac verification stays the human runbook step
+  it is today, and it is no worse than the Python status quo.
+
 **Stage 17 — Cutover, soak, retirement, distribution** *(2 sessions + calendar soak)*
 - Defaults flip (console-script shim, flake yoloCli wrapper, entrypoint yolo shim,
   `YOLO_ENTRYPOINT_IMPL=go`); ≥2 weeks all-defaults-go soak with flags as escape hatches;
   weekly CI + nightly-macos green ×2 (human-confirmed).
-- **Retirement scope is decided AT Stage 17** (user decision, deliberately deferred —
-  see Answered questions). The constraint to honor when deciding: the macos-user
-  delegation seam needs `python -m src.cli run`, which transitively needs
-  typer/pyjson5/rich, config, loopholes, run_cmd, macos_user, AND the Python entrypoint
-  package (macos_user imports it as a library). The two candidate paths:
-  - *macos decision landed, backend removed:* full retirement — per-module
-    `refactor(go): remove src/cli/<x>.py` commits; Python tests deleted only WITH their
-    modules; pyjson5/typer/rich leave runtime deps.
-  - *macos decision pending or backend kept:* flip all defaults and cut Go distribution,
-    but RETAIN the enumerated Python subtree as the macos-user carrier; only modules
-    outside that closure are removed. Record the surviving set explicitly in the
-    Stage 17 handoff.
+- **Retirement is now UNCONDITIONAL** (user decision 2026-07-18): with Stage 16b
+  porting the macOS backend as-is, no Python subtree stays pinned alive, so Stage 17
+  performs full retirement — per-module `refactor(go): remove src/cli/<x>.py` commits;
+  Python tests deleted only WITH their modules; pyjson5/typer/rich leave runtime deps.
+  (This supersedes the earlier two-path conditional, which existed only because the
+  macos-user delegation seam would have needed `python -m src.cli run` and its whole
+  closure. Stage 16b removes that dependency — that is its main strategic payoff.)
 - `YOLO_GO_DISABLE` and the other seam flags die WITH retirement (they need the Python
   target); the drift suite, `cmd/yolo-parity`, and the flag registry are deleted last.
 - Distribution: goreleaser + tag-driven versions (`-ldflags -X`), Homebrew binary formula
@@ -760,7 +797,7 @@ lifecycle+locks → e2e+burn-in)*
 | Idiomatic-Go habits break live containers (tmp+rename onto bind mounts, rmtree of mount anchors, nil-slice tri-state flattening) | `internal/fsx`/`execx` codify the incident history in types + lint rules; polarity check is a standing stage-review item |
 | Entrypoint rebuild cadence throttles iteration; agent can't run `just load` | dual-impl image = ONE human rebuild per wave; `dist-go/` dev override on the live mount; handoffs state exactly when the human must rebuild |
 | Stale transition-era binaries during multi-week soaks (compiled Go loses edit-is-live) | `dist-go/` on the live mount, rebuildable in-jail; rebuild step in every flip/revert procedure; drift suite catches constant-level skew at commit time |
-| macOS in flux (macos-user DECISION PENDING; AC quirks only verifiable on real Macs) | delegation seam; --dry-run artifact goldens frozen at St. 1; AC behavior in a replay-tested capability struct; Mac runbooks stay the final gate; Stage 17 retirement explicitly conditional |
+| macOS ports as-is while parts are unfinished/broken on real HW (AC quirks + macos-user paths verifiable only on Macs) | port CURRENT behavior verbatim (broken stays broken — fixes are separate post-port commits); --dry-run artifact goldens are the Linux-runnable parity gate; AC behavior in a replay-tested capability struct; Mac runbooks stay the final human gate; Stage 16b's exit explicitly does NOT require the backend to work end-to-end on hardware |
 | Coverage cliff: ~12k lines of monkeypatch tests can't gate Go binaries | process-level replacement tests land BEFORE each flip; Python tests deleted only with their modules; both nets active throughout |
 | Flag sprawl | single registry (§4); CI profiles: all-default + current-soak-state; `yolo check` reports active impls; flags deleted at cutover |
 | Golden rot on a live main | the freeze rule (§1.9) + continuous drift suite on every commit |
@@ -819,9 +856,11 @@ Per session:
   GC-rooting the darwin packages store path. (The `prune` argv-rewrite quirk was fixed
   pre-port by user decision, commit 3ad7353; the stdin-EOF semantics are decided —
   see Answered questions.)
-- Porting `macos_user`/`darwin_packages` while docs/plans/macos-backend-direction.md is
-  DECISION PENDING (delegation seam instead; --dry-run goldens keep both outcomes cheap;
-  sole exception: the three pure check-probe helpers in Stage 15).
+- ~~Porting `macos_user`/`darwin_packages`~~ — **NO LONGER OUT OF SCOPE** (user
+  decision 2026-07-18): the macOS modules port as-is at Stage 16b. What remains out of
+  scope is FIXING them during the port: known-broken macOS behavior is ported
+  faithfully as broken, under ground rule §1.1; repairs land as separate post-port
+  commits so a Go bug is never confused with a ported Python bug.
 - New features, new flags (beyond the seam registry), and Python refactors — EXCEPT the
   enumerated seam-introduction edits, which are in scope by design: the Stage 7
   thread→subprocess carve-out; the front-door prelude + `YOLO_GO_DELEGATED` check; the
@@ -832,23 +871,42 @@ Per session:
 
 ## 13. macOS posture
 
-> **⚠ IN FLIGHT (2026-07-17): the macOS backend work moved substantially AFTER
-> this plan's first draft.** The "DECISION PENDING / delegated, might die"
-> framing below is stale in one key respect: the direction was DECIDED — **pursue
-> BOTH backends as one product** (macos-user native default + Apple Container
-> fallback). See the decision record in §14 Answered ("macOS backend direction").
-> The delegation-seam PORT STRATEGY still holds (delegate to Python until the
-> stages that port these modules land); what changed is that macos-user is now
-> **staying**, not maybe-dying, and it grew new pieces. Full current state below.
+> **DIRECTIVE (2026-07-18, user): port the CURRENT state of ALL the macOS work
+> to Go — even the parts that are broken right now — because we want to reach
+> Go-only sooner.** This supersedes the earlier delegate-and-wait posture. Two
+> earlier framings are now dead: "DECISION PENDING / might die" (the direction was
+> decided — **pursue BOTH backends as one product**, macos-user native default +
+> Apple Container fallback) and "delegate until some later stage" (the delegation
+> seam is now a short bridge that **Stage 16b deletes**).
+>
+> **What "port as-is, even if broken" means concretely** — it is ground rule §1.1
+> applied without an escape hatch: port the behavior that is in `src/` today,
+> including behavior known to be wrong or unfinished on real hardware. Do NOT fix
+> macOS bugs during the port; a repair mixed into a port commit makes it
+> impossible to tell a Go regression from a faithfully-ported Python bug. File
+> repairs as separate `fix(macos):` commits AFTER the port lands, and record any
+> known-broken behavior you deliberately reproduced in the stage handoff so the
+> next person knows it is intentional. **Stage 16b's exit criteria do NOT include
+> the macOS backend working end-to-end on hardware** — they include the Go
+> producing byte-identical artifacts to today's Python.
+>
+> **Strategic payoff:** this is what makes Stage 17 retirement unconditional. The
+> macos-user delegation seam was the single thing pinning the whole Python
+> subtree (typer, pyjson5, rich, config, run_cmd, loopholes, entrypoint) alive
+> past cutover. Porting it deletes that dependency.
 
 - **Apple Container (podman-alternative runtime):** ported as part of run/runtime stages
   behind the capability struct; parsing/argv covered by replay fixtures; final
   verification stays a Mac-runbook step (no CI coverage exists today either).
-- **macos-user (Seatbelt backend):** delegated through seam #8 until its port stage.
-  Ports through the front-door slice pattern against the frozen `--dry-run` goldens.
-  Now DECIDED to stay (§14), so Stage 17 does NOT retire it — but the Python subtree
-  it pins alive (typer, pyjson5, config, run_cmd, macos_user, darwin_packages,
-  container_builder, entrypoint) stays until macos-user itself is ported.
+- **macos-user (Seatbelt backend):** ported at **Stage 16b**, as-is. Delegated
+  through seam #8 only until then. Decided to stay (§14), and now decided to port
+  now rather than later — so the Python subtree it was pinning alive
+  (typer, pyjson5, rich, config, run_cmd, loopholes, entrypoint) is released at
+  Stage 16b, making Stage 17 retirement unconditional.
+- **Already ported (Stage 14):** `internal/darwinpkg` (nix argv, buildEnv env,
+  profile paths) and `internal/containerbuilder` (pull/run argv, ssh-ng URI,
+  builders line, AC address parse). Stage 16b's remaining scope is therefore
+  `macos_user.py` + the four `macos-*` commands + native runtime dispatch.
 - **nightly-macos** workflow unchanged throughout; it becomes an `impl` matrix consumer
   only when defaults flip.
 
@@ -944,8 +1002,9 @@ Stage 1.
 | 13 | Config engine | 2 | **landed** (internal/config: load+merge, includes, full _validate_config byte-for-byte incl. loopholes via a LoopholeResolver seam, difflib SequenceMatcher+unified_diff port, snapshot writer + strict bidirectional cross-write gate, env_sources, repr; 243-case differential oracle + Go-native unit tests; hidden `yolo internal config-dump` differential subcommand) | — |
 | 14 | Command slices ×6 | ~8 | **all engine cores landed** (prune; **runtime** probe layer [ps/ls parsers, live-set tri-state, stuck detector, tracking-file ops, baked-version]; **storage** [host probes, claude.json 2-way sync, ensure/symlink/migrate]; **image** [cmd builders, nix summarizer, progress, sentinel LRU, cache path incl. preserved size-file quirk]; **builder** [ssh/nix/trusted-users/root-script]; **network** [socat argv]; **darwinpkg** [nix argv/buildEnv/profile]; **containerbuilder** [pull/run argv, ssh-ng URI, builders line, AC addr parse]; **loopholes** [internal/loopholes: full registry — manifest parse w/ byte-exact error strings, discovery/merge precedence, runtime_args_for argv, comment-loss set_enabled rewrite, _expand_env empty-collapse, doctor checks; supplies config's LoopholeResolver w/ compile-time assertion; real bundled-manifest parity; ledger D9/D10] — all byte-goldened vs live Python); **command wiring (front-door native dispatch) pending — the engines are ready** | [stage-14](../implementation/go-port-stage-14.md) |
 | 15 | check native | 2 | **landed** (internal/checkcmd: full `check()` orchestration — exact section sequence, PASS/WARN/FAIL badges + counts, exit 0/1, parse-error/merged-validation/dry-run control flow; reuses checkdiag/config/loopholes+resolver/storage/runtime/image/version/cgd/prune engines; every probe an injectable seam incl. injected clock for creds-freshness; sanctioned 3-helper macos_user carve-out; Linux-only device syscalls behind //go:build; image.BuildOCIImage added. Wired behind **YOLO_IMPL=go** gate — default delegates to Python (seam #1 forward in __init__.py, silent fall-through if binary absent). **Nested-jail verified BOTH arms: byte-identical ANSI-stripped output + exit code.** Go-native golden + live-Python differential parity tests) | [stage-15](../implementation/go-port-stage-15.md) |
-| 16 | run native (5 sub-phases) | 6–8 | **LANDED — all 5 sub-phases** (internal/runcmd + image.AutoLoadImage). (1) probes: `_resolve_repo_root` incl. the installed-wheel staging w/ the FROZEN rename-aside-never-delete invariant, config load+validate+preset-null+approval prompt, `_runtime` pick, identity env. (2) network/storage/image: socat lifecycle (identical argv), storage ensure, `auto_load_image` ported into internal/image (sentinel LRU, cache materialize, reload reasons, macOS build-offload narrowed w/ diagnosis). (3) argv assembly: the ordered container argv byte-IDENTICAL to live Python over a 10-fixture matrix (hermetic argv oracle) + a static golden. (4) lifecycle+locks: attach/raced-attach, orphan reap polarity, blocking flock + post-lock re-check, stale removal, `_retire_jail_made_venv`, in-process cgroup-delegate (goroutine, lazy cgroup, reuses internal/cgd), broker+relay ensure, FROZEN stop_loopholes guard stack (flock→running-check→relay-kill-before-rmtree), `yolo-user-env.sh` writer (Go-writer/Python-reader round-trip), `final_internal_cmd` byte-golden. (5) e2e: **nested-jail verified BOTH arms boot; container argv BYTE-IDENTICAL (219 elts); cross-impl attach both directions; 3-way flock race elects one starter; orphan reaping on dead owner PID.** Wired behind **YOLO_IMPL=go** gate (frontdoor gatedNativeSubcommands += run; default delegates to Python). macos-user = delegation seam (not ported). 5 e2e fixes: isatty ioctl, runRun arg parse, in-proc cgd, no-timeout Exec, raw debug dump | [stage-16](../implementation/go-port-stage-16.md) |
-| 17 | Cutover (conditional retirement) | 2 + soak | not started | — |
+| 16 | run native (5 sub-phases) | 6–8 | **LANDED — all 5 sub-phases** (internal/runcmd + image.AutoLoadImage). (1) probes: `_resolve_repo_root` incl. the installed-wheel staging w/ the FROZEN rename-aside-never-delete invariant, config load+validate+preset-null+approval prompt, `_runtime` pick, identity env. (2) network/storage/image: socat lifecycle (identical argv), storage ensure, `auto_load_image` ported into internal/image (sentinel LRU, cache materialize, reload reasons, macOS build-offload narrowed w/ diagnosis). (3) argv assembly: the ordered container argv byte-IDENTICAL to live Python over a 10-fixture matrix (hermetic argv oracle) + a static golden. (4) lifecycle+locks: attach/raced-attach, orphan reap polarity, blocking flock + post-lock re-check, stale removal, `_retire_jail_made_venv`, in-process cgroup-delegate (goroutine, lazy cgroup, reuses internal/cgd), broker+relay ensure, FROZEN stop_loopholes guard stack (flock→running-check→relay-kill-before-rmtree), `yolo-user-env.sh` writer (Go-writer/Python-reader round-trip), `final_internal_cmd` byte-golden. (5) e2e: **nested-jail verified BOTH arms boot; container argv BYTE-IDENTICAL (219 elts); cross-impl attach both directions; 3-way flock race elects one starter; orphan reaping on dead owner PID.** Wired behind **YOLO_IMPL=go** gate (frontdoor gatedNativeSubcommands += run; default delegates to Python). macos-user = delegation seam (not ported). 5 e2e fixes: isatty ioctl, runRun arg parse, in-proc cgd, no-timeout Exec, raw debug dump. **⚠ 2026-07-18 AUDIT: NOT host-safe — see audit addendum in [stage-16](../implementation/go-port-stage-16.md); the argv/loophole/repo-root parity holds IN-JAIL only, and host-side `YOLO_IMPL=go` has confirmed blockers (broken Python delegation, host repo-root hijack, dropped bundled loopholes, missing banner/indicator). Do NOT export YOLO_IMPL=go on a host until those clear.** | [stage-16](../implementation/go-port-stage-16.md) |
+| 16b | macOS backend port (as-is) | 3–4 | not started — **unblocks unconditional St. 17 retirement** (user directive 2026-07-18: port current macOS state incl. broken parts) | — |
+| 17 | Cutover (**unconditional** retirement) | 2 + soak | not started | — |
 
 ### Open Questions
 
@@ -967,6 +1026,26 @@ raised during execution go here with a `_Leaning:_`, and the stage handoff must
 point the human at them.)_
 
 ### Answered
+
+#### Do the macOS modules port now, or stay delegated until they stabilize?
+Earlier revisions kept `macos_user`/`darwin_packages` out of scope and delegated
+`runtime == macos-user` to Python (seam #8) because the backend direction was
+pending, then because parts remain unverified on real hardware. That seam was the
+single dependency forcing Stage 17's retirement to be conditional — it pins the
+entire Python subtree (typer, pyjson5, rich, config, run_cmd, loopholes,
+entrypoint) alive past cutover.
+_Leaning (superseded):_ delegate until the macOS work stabilizes.
+**Answer (2026-07-18, user):**
+> Port the current state of all of the Mac work, even if it is broken right now,
+> because I'd like to transition to Go-only sooner than later.
+> (⇒ **Stage 16b added**: ports `macos_user.py` + the four `macos-*` commands
+> as-is under ground rule §1.1 — broken behavior reproduced faithfully, repairs
+> deferred to separate post-port `fix(macos):` commits. Seam #8 becomes a
+> temporary bridge deleted at 16b; **Stage 17 retirement becomes unconditional**;
+> §12's macOS exclusion is removed; the parity gate is the Linux-runnable
+> `--dry-run` artifact dump, and hardware verification is explicitly NOT a 16b
+> exit criterion.)
+
 
 #### Which Go JSON5/JSONC parser to adapt for `internal/json5`
 pyjson5 accepts full JSON5 (comments, trailing commas, single quotes, unquoted keys, hex,
