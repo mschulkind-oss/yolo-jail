@@ -338,3 +338,23 @@ func containsStr(list []string, s string) bool {
 	}
 	return false
 }
+
+// TestRepoRootHostModeFindsBundled is the audit §B3 regression: with
+// YOLO_REPO_ROOT unset (host mode, no shim), repoRoot() must walk up to the real
+// yolo-jail checkout and resolve bundled_loopholes there — NOT fall back to the
+// in-jail /opt/yolo-jail (which is empty on a host) and drop every bundled
+// loophole. Does NOT monkeypatch BundledLoopholesDir (per the audit).
+func TestRepoRootHostModeFindsBundled(t *testing.T) {
+	t.Setenv("YOLO_REPO_ROOT", "")
+	os.Unsetenv("YOLO_REPO_ROOT")
+	// cwd during `go test` is the package dir (a descendant of the repo), so the
+	// walk should reach the real checkout.
+	rr := repoRoot()
+	if !fileExists(filepath.Join(rr, "src", "entrypoint", "__init__.py")) {
+		t.Fatalf("repoRoot()=%q is not a yolo-jail checkout (host-mode B3 regression)", rr)
+	}
+	got := Discover(DiscoverOptions{IncludeDisabled: true, IncludeBundled: true})
+	if len(got) == 0 {
+		t.Fatal("host-mode discovery found ZERO loopholes — audit §B3 regression")
+	}
+}

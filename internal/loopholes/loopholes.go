@@ -49,14 +49,42 @@ const (
 	SourceConfig  = "config"
 )
 
-// repoRoot mirrors the jail's YOLO_REPO_ROOT (default /opt/yolo-jail), which is
-// where the wheel's src/ tree is mounted. Python resolves bundled_loopholes via
-// Path(__file__).parent; the Go binary ships/locates them under src/.
+// repoRoot resolves where the wheel's src/ tree (and thus bundled_loopholes)
+// lives. Python resolves it via Path(__file__).parent; the Go binary has no
+// __file__, so: (1) trust YOLO_REPO_ROOT when set (jail shim / go-front-door.sh),
+// (2) else walk up from cwd for a YOLO-JAIL checkout (flake.nix AND
+// src/entrypoint/__init__.py — the same marker the CLI repo-root resolver uses),
+// (3) else the in-jail default /opt/yolo-jail.
+//
+// Before the audit §B3 fix this returned /opt/yolo-jail whenever YOLO_REPO_ROOT
+// was unset, so a HOST-mode `yolo run` (no env) discovered ZERO bundled
+// loopholes — no broker CA, no --add-host, no audio/host-processes — and the
+// jail booted looking healthy while Claude auth failed. The cwd-walk restores
+// host discovery; the /opt fallback still serves the in-jail case.
 func repoRoot() string {
 	if r := os.Getenv("YOLO_REPO_ROOT"); r != "" {
 		return r
 	}
+	if dir, err := os.Getwd(); err == nil {
+		for {
+			if fileExists(filepath.Join(dir, "flake.nix")) &&
+				fileExists(filepath.Join(dir, "src", "entrypoint", "__init__.py")) {
+				return dir
+			}
+			parent := filepath.Dir(dir)
+			if parent == dir {
+				break
+			}
+			dir = parent
+		}
+	}
 	return "/opt/yolo-jail"
+}
+
+// fileExists reports whether path exists (a file or dir).
+func fileExists(path string) bool {
+	_, err := os.Stat(path)
+	return err == nil
 }
 
 // BundledLoopholesDir returns the loopholes that ship with the wheel. It is a
