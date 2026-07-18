@@ -30,6 +30,13 @@ func run(argv []string) int {
 		_ = os.Chdir(cwd)
 	}
 
+	// Hidden `internal` command family — Go-only differential/debug tooling
+	// (never in the Python _SUBCOMMANDS set, deleted at cutover). Intercepted
+	// before the frozen argv rewrite so it can't perturb it.
+	if len(argv) >= 1 && argv[0] == "internal" {
+		return runInternal(argv[1:])
+	}
+
 	args := frontdoor.RewriteArgv(argv)
 	sub := frontdoor.Subcommand(args)
 
