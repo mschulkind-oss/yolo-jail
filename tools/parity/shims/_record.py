@@ -29,17 +29,26 @@ from pathlib import Path
 
 
 def main() -> int:
-    tool = Path(sys.argv[0]).name
+    # install_shims.py sets YOLO_PARITY_TOOL; fall back to argv[0]'s basename
+    # for a shim invoked directly (e.g. a symlink) rather than via the wrapper.
+    tool = os.environ.get("YOLO_PARITY_TOOL") or Path(sys.argv[0]).name
 
     capture = os.environ.get("YOLO_PARITY_CAPTURE")
     if capture:
         # Only forward a stable subset of the environment: the full env is
         # noisy (PID-specific, tmpdir-specific) and would defeat a byte diff.
         keep_prefixes = ("YOLO_",)
+        # Exclude the parity harness's own control vars — they're test
+        # scaffolding, not part of the CLI's spawn contract.
+        internal = {
+            "YOLO_PARITY_CAPTURE",
+            "YOLO_PARITY_REPLAY_DIR",
+            "YOLO_PARITY_TOOL",
+        }
         env = {
             k: v
             for k, v in os.environ.items()
-            if k.startswith(keep_prefixes) and k != "YOLO_PARITY_CAPTURE"
+            if k.startswith(keep_prefixes) and k not in internal
         }
         line = json.dumps(
             {"tool": tool, "argv": sys.argv[1:], "env": env},

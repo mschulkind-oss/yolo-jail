@@ -28,8 +28,10 @@ def install(dest: Path, tools: "list[str]") -> None:
     py = sys.executable
     for tool in tools:
         wrapper = dest / tool
+        # The shim reads the tool name from YOLO_PARITY_TOOL (not sys.argv[0],
+        # which Python sets to the script path regardless of exec -a).
         wrapper.write_text(
-            f'#!/usr/bin/env bash\nexec -a "{tool}" "{py}" "{record}" "$@"\n'
+            f'#!/usr/bin/env bash\nexec env YOLO_PARITY_TOOL="{tool}" "{py}" "{record}" "$@"\n'
         )
         wrapper.chmod(
             wrapper.stat().st_mode | stat.S_IEXEC | stat.S_IXGRP | stat.S_IXOTH
