@@ -53,6 +53,44 @@ func (o *Options) hostClaudeFileArgs(cfg *jsonx.OrderedMap, rt string, in *assem
 	return args
 }
 
+// hostPiFileArgs ports the host ~/.pi/agent file mounting (run_cmd.py:2851-2871):
+// mount each configured host_pi_files entry (default ["settings.json"]) verbatim.
+// Unlike claude, pi has no hooks/statusLine/fileSuggestion, so there is NO script
+// auto-discovery — the settings.json three-way merge happens jail-side in
+// configure_pi. Pi only.
+func (o *Options) hostPiFileArgs(cfg *jsonx.OrderedMap, in *assembleInput) []string {
+	if !inStrSlice(in.agentsList, "pi") {
+		return nil
+	}
+	hostPiDir := filepath.Join(homeDir(), ".pi", "agent")
+
+	var effective []string
+	if v, ok := cfg.Get("host_pi_files"); ok {
+		for _, e := range asAnyList(v) {
+			if s, ok := e.(string); ok {
+				effective = append(effective, s)
+			}
+		}
+	} else {
+		effective = append(effective, config.DefaultHostPiFiles...)
+	}
+
+	var args []string
+	var mounted []string
+	for _, fname := range effective {
+		hostFile := filepath.Join(hostPiDir, fname)
+		if isFile(hostFile) {
+			args = append(args, runmount.ROFileMountArg(
+				hostFile, "/ctx/host-pi/"+fname, in.wsState, "ctx-host-pi/"+fname, in.mountTargets, nil)...)
+			mounted = append(mounted, fname)
+		}
+	}
+	if len(mounted) > 0 {
+		args = append(args, "-e", "YOLO_HOST_PI_FILES="+jsonDumpsStrings(mounted))
+	}
+	return args
+}
+
 // appendSettingsScripts walks settings.json for command paths
 // (fileSuggestion.command, statusLine.command, hooks[*][*].hooks[*].command)
 // that resolve under host_claude_dir, appending their basenames (dedup).

@@ -2312,5 +2312,44 @@
   {
     "op": "parse_dotenv",
     "text": "just a line\nFOO=bar\n"
+  },
+  {
+    "op": "validate",
+    "config": {
+      "host_pi_files": [
+        "settings.json",
+        "memory.json"
+      ]
+    }
+  },
+  {
+    "op": "validate",
+    "config": {
+      "host_pi_files": "settings.json"
+    }
+  },
+  {
+    "op": "validate",
+    "config": {
+      "host_pi_files": [
+        42
+      ]
+    }
+  },
+  {
+    "op": "validate",
+    "config": {
+      "host_pi_files": [
+        "dir/file.json"
+      ]
+    }
+  },
+  {
+    "op": "validate",
+    "config": {
+      "host_pi_files": [
+        "a\\b.json"
+      ]
+    }
   }
 ]

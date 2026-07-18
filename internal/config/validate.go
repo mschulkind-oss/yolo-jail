@@ -324,21 +324,32 @@ func validatePerSidePaths(config *jsonx.OrderedMap, errs *[]string) {
 }
 
 func validateHostClaudeFiles(config *jsonx.OrderedMap, errs *[]string) {
-	v, present := config.Get("host_claude_files")
+	// Python validates host_claude_files then host_pi_files as two identical
+	// blocks in sequence (config.py:818-843); mirror both, in that order.
+	validateHostAgentFiles(config, "host_claude_files", errs)
+	validateHostAgentFiles(config, "host_pi_files", errs)
+}
+
+// validateHostAgentFiles checks a `<agent>_files` key: absent → skip; present
+// but not a list → "expected a list of strings"; each entry must be a string
+// with no path separator ("must be a filename, not a path"). Byte-identical
+// messages to Python's per-key blocks.
+func validateHostAgentFiles(config *jsonx.OrderedMap, key string, errs *[]string) {
+	v, present := config.Get(key)
 	if !present || v == nil {
 		return
 	}
 	list, ok := asList(v)
 	if !ok {
-		add(errs, "config.host_claude_files: expected a list of strings")
+		add(errs, fmt.Sprintf("config.%s: expected a list of strings", key))
 		return
 	}
 	for idx, entryV := range list {
 		entry, ok := asStr(entryV)
 		if !ok {
-			add(errs, fmt.Sprintf("config.host_claude_files[%d]: expected a string", idx))
+			add(errs, fmt.Sprintf("config.%s[%d]: expected a string", key, idx))
 		} else if strings.Contains(entry, "/") || strings.Contains(entry, "\\") {
-			add(errs, fmt.Sprintf("config.host_claude_files[%d]: must be a filename, not a path", idx))
+			add(errs, fmt.Sprintf("config.%s[%d]: must be a filename, not a path", key, idx))
 		}
 	}
 }

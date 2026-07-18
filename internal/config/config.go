@@ -46,13 +46,16 @@ const (
 // DefaultHostClaudeFiles mirrors DEFAULT_HOST_CLAUDE_FILES.
 var DefaultHostClaudeFiles = []string{"settings.json"}
 
+// DefaultHostPiFiles mirrors DEFAULT_HOST_PI_FILES.
+var DefaultHostPiFiles = []string{"settings.json"}
+
 // knownTopLevelConfigKeys mirrors KNOWN_TOP_LEVEL_CONFIG_KEYS.
 var knownTopLevelConfigKeys = set(
 	"runtime", "repo_path", "agents", "packages", "mounts", "workspace_readonly",
 	"per_side_paths", "network", "security", "mise_tools", "lsp_servers",
 	"mcp_servers", "mcp_presets", "devices", "gpu", "resources", "env_sources",
-	"host_claude_files", "loopholes", "host_processes", "journal", "kvm", "prune",
-	"ephemeral_storage", "include_if_found", "agents_md_extra",
+	"host_claude_files", "host_pi_files", "loopholes", "host_processes", "journal",
+	"kvm", "prune", "ephemeral_storage", "include_if_found", "agents_md_extra",
 )
 
 // journalModes mirrors JOURNAL_MODES.

@@ -319,6 +319,9 @@ func (o *Options) assembleRunCmd(in *assembleInput) []string {
 	// --- host ~/.claude files (claude only) ---
 	runCmd = append(runCmd, o.hostClaudeFileArgs(cfg, rt, in)...)
 
+	// --- host ~/.pi/agent files (pi only) ---
+	runCmd = append(runCmd, o.hostPiFileArgs(cfg, in)...)
+
 	// --- per-agent briefings ---
 	for _, spec := range in.agentSpecs {
 		staged := filepath.Join(in.agentsPath, spec.Briefing.Staging)
