@@ -35,3 +35,6 @@ src/_version.py
 .DS_Store
 .research/
 yolo-jail.local.jsonc
+
+# audit/test scratch artifacts (reviewer-created; never commit)
+/scratchpad/
