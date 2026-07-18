@@ -42,10 +42,15 @@ const (
 func AskHostBroker(socketPath string, request *jsonx.OrderedMap) (*jsonx.OrderedMap, error) {
 	conn, err := net.DialTimeout("unix", socketPath, 30*time.Second)
 	if err != nil {
-		// Relay layer: the socket is missing (never started / dir recreated)
-		// or present-but-refused (no relay behind it). Distinct from the
-		// broker being down behind a live relay (handled below).
-		return nil, errors.New("relay unreachable — " + err.Error())
+		// Relay layer ONLY for ENOENT (socket missing) / ECONNREFUSED (no relay
+		// behind the file) — matching Python's errno gate. Any OTHER connect
+		// error (EACCES, timeout, ...) is the generic "host broker socket …"
+		// form, NOT mis-attributed to the relay layer.
+		if isRelayLayerDialErr(err) {
+			return nil, errors.New("relay unreachable — the host-side relay for this jail " +
+				"is down (" + socketPath + ": " + err.Error() + ")")
+		}
+		return nil, errors.New("host broker socket " + socketPath + ": " + err.Error())
 	}
 	defer conn.Close()
 	_ = conn.SetDeadline(time.Now().Add(30 * time.Second))
@@ -56,7 +61,7 @@ func AskHostBroker(socketPath string, request *jsonx.OrderedMap) (*jsonx.Ordered
 	}
 	// Frame the request: 4-byte BE length + body.
 	if err := writeFramed(conn, []byte(body)); err != nil {
-		return nil, brokerMidRequestErr(err)
+		return nil, brokerMidRequestErr(socketPath, err)
 	}
 
 	var stdout []byte
@@ -64,15 +69,24 @@ func AskHostBroker(socketPath string, request *jsonx.OrderedMap) (*jsonx.Ordered
 	haveRC := false
 	for {
 		header := make([]byte, 5)
-		if _, err := io.ReadFull(conn, header); err != nil {
-			// EOF/short read before an exit frame -> broker layer (below).
+		if _, rerr := io.ReadFull(conn, header); rerr != nil {
+			// A reset/EPIPE mid-read is the broker layer caught in the recv
+			// phase (relay accepted, failed its dial, tore the conn down) — name
+			// it that way. A clean EOF falls through to the "closed without an
+			// exit frame" broker-layer message below.
+			if isConnReset(rerr) {
+				return nil, brokerMidRequestErr(socketPath, rerr)
+			}
 			break
 		}
 		streamID := header[0]
 		length := binary.BigEndian.Uint32(header[1:])
 		payload := make([]byte, length)
 		if length > 0 {
-			if _, err := io.ReadFull(conn, payload); err != nil {
+			if _, rerr := io.ReadFull(conn, payload); rerr != nil {
+				if isConnReset(rerr) {
+					return nil, brokerMidRequestErr(socketPath, rerr)
+				}
 				break
 			}
 		}
@@ -121,15 +135,24 @@ func writeFramed(conn net.Conn, body []byte) error {
 	return err
 }
 
-// brokerMidRequestErr maps a send-phase EPIPE/ECONNRESET/ENOTCONN to the
+// brokerMidRequestErr maps a send/recv-phase EPIPE/ECONNRESET/ENOTCONN to the
 // broker-layer message (the relay accepted, failed its dial, and tore the
-// connection down mid-write). Mirrors the OSError errno branch.
-func brokerMidRequestErr(err error) error {
+// connection down mid-request). Mirrors the OSError errno branch in
+// ask_host_broker; the generic branch includes the socket path like Python's
+// "host broker socket {path}: {e}".
+func brokerMidRequestErr(socketPath string, err error) error {
 	if isConnReset(err) {
 		return errors.New("host broker unreachable through the relay " +
 			"(connection reset mid-request: " + err.Error() + ")")
 	}
-	return errors.New("host broker socket: " + err.Error())
+	return errors.New("host broker socket " + socketPath + ": " + err.Error())
+}
+
+// isRelayLayerDialErr reports whether a connect error is the relay layer:
+// ENOENT (socket missing) or ECONNREFUSED (no relay behind the file). Matches
+// Python's `if e.errno in (errno.ENOENT, errno.ECONNREFUSED)`.
+func isRelayLayerDialErr(err error) bool {
+	return errors.Is(err, syscall.ENOENT) || errors.Is(err, syscall.ECONNREFUSED)
 }
 
 func isConnReset(err error) bool {

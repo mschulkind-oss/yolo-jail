@@ -132,9 +132,12 @@ func (s *Session) ExecAllowlisted(
 	stdout, _ := cmd.StdoutPipe()
 	stderr, _ := cmd.StderrPipe()
 	if err := cmd.Start(); err != nil {
-		s.Stderr("exec_allowlisted: " + err.Error() + "\n")
-		s.Exit(1)
-		return 1
+		// Python's Popen RAISES here (FileNotFoundError etc.), which _handle_one
+		// catches -> "handler error: <e>\n" stderr frame + exit(1) + access-log
+		// rc=1. Panic so handleOne's recover reproduces that exact path (byte
+		// text of <e> differs — Go's "fork/exec ...: no such file" vs Python's
+		// "[Errno 2] ..." — which is a ledgered-acceptable OS-string residue).
+		panic(err)
 	}
 
 	var wg sync.WaitGroup
@@ -292,13 +295,20 @@ func handleOne(handler Handler, conn net.Conn) {
 	}()
 }
 
-// exitCodeFromErr extracts a process exit code from cmd.Wait's error.
+// exitCodeFromErr extracts a process exit code from cmd.Wait's error, mapping
+// a signal death to -N — the value Python's proc.wait() returns and
+// Session.exit packs into the signed exit frame (e.g. -11 for SIGSEGV). Go's
+// exec.ExitError.ExitCode() returns -1 for ANY signal, which would make
+// yolo-ps exit 255 instead of 245.
 func exitCodeFromErr(err error) int {
 	if err == nil {
 		return 0
 	}
 	var ee *exec.ExitError
 	if errors.As(err, &ee) {
+		if ws, ok := ee.Sys().(syscall.WaitStatus); ok && ws.Signaled() {
+			return -int(ws.Signal())
+		}
 		return ee.ExitCode()
 	}
 	return 1

@@ -11,6 +11,7 @@ import (
 	"time"
 
 	"github.com/mschulkind-oss/yolo-jail/internal/frameproto"
+	"github.com/mschulkind-oss/yolo-jail/internal/jsonx"
 )
 
 // TestConformancePythonServerGoClient replays the frame protocol against the
@@ -207,6 +208,53 @@ func TestConformanceHandlerErrorFrame(t *testing.T) {
 	rc, _ := frameproto.ExitCode(f.Payload)
 	if f.StreamID != frameproto.StreamExit || rc != 1 {
 		t.Errorf("exit frame = stream %d rc %d, want exit(1)", f.StreamID, rc)
+	}
+}
+
+// TestExecAllowlistedSignalDeathExitCode: a child killed by a signal must
+// round-trip as -N (e.g. SIGTERM -> -15), matching Python's proc.wait(), NOT
+// the -1 that exec.ExitError.ExitCode() returns for any signal.
+func TestExecAllowlistedSignalDeathExitCode(t *testing.T) {
+	dir, err := os.MkdirTemp("/tmp", "yj-conf-")
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer os.RemoveAll(dir)
+	sock := filepath.Join(dir, "sig.sock")
+
+	stop := make(chan struct{})
+	done := make(chan struct{})
+	go func() {
+		_ = Serve(func(s *Session) {
+			// A child that kills ITSELF with SIGTERM (via sh): exit is signal 15.
+			s.ExecAllowlisted(
+				func(*jsonx.OrderedMap) []string { return []string{"sh", "-c", "kill -TERM $$"} },
+				map[string]struct{}{"sh": {}, "-c": {}, "kill -TERM $$": {}},
+				nil, 5*1e9,
+			)
+		}, sock, stop)
+		close(done)
+	}()
+	waitForSocket(t, sock)
+	defer func() { close(stop); <-done }()
+
+	conn, _ := net.DialTimeout("unix", sock, 5*time.Second)
+	defer conn.Close()
+	conn.SetDeadline(time.Now().Add(5 * time.Second))
+	_ = frameproto.WriteRequest(conn, []byte(`{"jail_id":"j"}`))
+	// Drain to the exit frame.
+	for {
+		f, err := frameproto.ReadFrame(conn)
+		if err != nil {
+			t.Fatal("no exit frame")
+		}
+		if f.StreamID == frameproto.StreamExit {
+			rc, _ := frameproto.ExitCode(f.Payload)
+			if rc != -15 {
+				t.Errorf("signal-death rc = %d, want -15 (SIGTERM)", rc)
+			}
+			return
+		}
 	}
 }
 

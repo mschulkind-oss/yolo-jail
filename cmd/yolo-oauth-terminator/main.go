@@ -16,6 +16,7 @@
 package main
 
 import (
+	"crypto/tls"
 	"flag"
 	"fmt"
 	"io"
@@ -53,6 +54,11 @@ func run() int {
 	srv := &http.Server{
 		Addr:    *host + ":" + itoa(*port),
 		Handler: makeHandler(*hostSocket),
+		// Pin HTTP/1.1: an empty TLSNextProto disables ALPN 'h2' negotiation.
+		// Python's ssl context offers no ALPN (HTTP/1.x only); auto-negotiated
+		// HTTP/2 would strip Connection: close, force lowercase headers, and
+		// multiplex — voiding the keep-alive-disabled parity below.
+		TLSNextProto: map[string]func(*http.Server, *tls.Conn, http.Handler){},
 	}
 	// HTTP/1.0-style per-request close, matching BaseHTTPRequestHandler +
 	// Claude Code's reconnect-each-time behavior.
@@ -94,6 +100,7 @@ func flattenHeaders(h http.Header) map[string]string {
 }
 
 func writeResult(w http.ResponseWriter, res oauthterminator.ProxyResult) {
+	hdr := w.Header()
 	sentCT := false
 	for k, v := range res.Headers {
 		if strings.EqualFold(k, "content-length") {
@@ -102,12 +109,17 @@ func writeResult(w http.ResponseWriter, res oauthterminator.ProxyResult) {
 		if strings.EqualFold(k, "content-type") {
 			sentCT = true
 		}
-		w.Header().Set(k, v)
+		// Write header names VERBATIM (the plan/module-map-frozen hazard):
+		// net/http emits a key stored via direct map assignment without
+		// CanonicalMIMEHeaderKey, so an upstream 'x-request-id' survives to the
+		// client byte-for-byte, matching Python's send_header. w.Header().Set
+		// would canonicalize it to 'X-Request-Id'.
+		hdr[k] = []string{v}
 	}
 	if !sentCT {
-		w.Header().Set("Content-Type", "application/json")
+		hdr["Content-Type"] = []string{"application/json"}
 	}
-	w.Header().Set("Connection", "close")
+	hdr["Connection"] = []string{"close"}
 	w.WriteHeader(res.Status)
 	_, _ = w.Write(res.Body)
 }
