@@ -10,7 +10,7 @@ findings are listed. Each row is `fix` or `ledger` (accept + record in
 | # | Package | Divergence | Input | Go | Python | Disposition |
 |---|---|---|---|---|---|---|
 | 1 | naming | `strings.ToLower` vs Python `.lower()` special-casing of U+0130 (Turkish İ) → different segments after sanitize | workspace basename `aİb` | `yolo-aib-…` | `yolo-ai-b-…` | **fix** — frozen interop contract (mixed-era jails must compute the same name) |
-| 2 | jsonx | `Infinity`/`NaN`/`-Infinity` literals rejected on decode (Go can *encode* them but not round-trip) | `Decode("Infinity")` | error | `inf`→`Infinity` | **fix** — accept the constants Python's json accepts |
+| 2 | jsonx | `Infinity`/`NaN`/`-Infinity` literals rejected on decode (Go can *encode* them but not round-trip) | `Decode("Infinity")` | error | `inf`→`Infinity` | **ledger (D1)** — corrected 2026-07-18: this row previously said "fix", but what shipped is the opposite (decode still rejects, asserted by a test) and the divergence was ledgered as D1, status *proposed* |
 | 3 | jsonx | float overflow literal kept verbatim instead of →Infinity | `Decode("1e400")` | `1e400` | `Infinity` | **fix** — overflow →Infinity like Python |
 | 4 | jsonx | negative-zero int literal round-trips as `-0` | `Decode("-0")` | `-0` | `0` | **fix** — `-0` integer → `0` |
 | 5 | jsonx | lone surrogate replaced with U+FFFD on decode | `"\ud800"` | `"�"` | `"\ud800"` | **ledger** — encoding/json is lenient; no config carries lone surrogates; document |

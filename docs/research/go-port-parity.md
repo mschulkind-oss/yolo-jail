@@ -61,7 +61,8 @@ when the first TOML-consuming slice lands.
 ## Byte-parity divergences found + fixed (Stage 2 audit)
 
 See `docs/qa/go-port-batch-1.md` (findings) and
-`docs/design/go-port-divergences.md` (D1–D3 accepted). Fixed, not ledgered:
+`docs/design/go-port-divergences.md` (D1–D3 **proposed** — awaiting human
+sign-off; do NOT treat them as approved). Fixed, not ledgered:
 jsonx `-0`→0 + overflow→Infinity; paths HOME pwd-fallback; naming U+0130
 `.lower()` special-case. Ledgered: jsonx bare `Infinity`/`NaN` decode (D1),
 lone surrogate → U+FFFD (D2), pytext unicode-table version skew (D3).
