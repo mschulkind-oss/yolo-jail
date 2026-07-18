@@ -33,9 +33,7 @@ def main() -> int:
     for v in cases:
         out.append(
             {
-                "snapshot": json.dumps(
-                    v, indent=2, sort_keys=True, ensure_ascii=True
-                ),
+                "snapshot": json.dumps(v, indent=2, sort_keys=True, ensure_ascii=True),
                 "compact": json.dumps(v),
             }
         )

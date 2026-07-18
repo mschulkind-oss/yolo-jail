@@ -48,7 +48,9 @@ def _go_parity_binary() -> "Path | None":
         return None
     build = REPO_ROOT / "scripts" / "build-go.sh"
     try:
-        subprocess.run(["bash", str(build)], cwd=REPO_ROOT, check=True, capture_output=True)
+        subprocess.run(
+            ["bash", str(build)], cwd=REPO_ROOT, check=True, capture_output=True
+        )
     except (subprocess.CalledProcessError, OSError):
         return None
     return binpath if binpath.is_file() else None
