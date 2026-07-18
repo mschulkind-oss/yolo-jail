@@ -1,10 +1,16 @@
 package runtime
 
 import (
+	"encoding/json"
 	"fmt"
 	"strings"
 	"unicode/utf8"
 )
+
+// jsonUnmarshal is a thin wrapper so the inspect-JSON parsers read cleanly.
+func jsonUnmarshal(s string, v any) error {
+	return json.Unmarshal([]byte(s), v)
+}
 
 // WorkspaceFromInspectEnv extracts the YOLO_HOST_DIR value from a runtime
 // inspect's env lines. Mirrors _get_container_workspace's fallback: scan lines
@@ -18,6 +24,38 @@ func WorkspaceFromInspectEnv(envLines []string) (string, bool) {
 		}
 	}
 	return "", false
+}
+
+// WorkspaceFromContainerInspectJSON parses Apple Container's `container inspect`
+// JSON output for the YOLO_HOST_DIR env var. AC emits a JSON document (no
+// --format); the env lives at config.env (a list of "K=V" strings). Mirrors the
+// container branch of _get_container_workspace: json.loads → config.env → scan
+// for "YOLO_HOST_DIR=". Returns ("", false) on any parse error or absence.
+func WorkspaceFromContainerInspectJSON(stdout string) (string, bool) {
+	var docs []struct {
+		Config struct {
+			Env []string `json:"env"`
+		} `json:"config"`
+	}
+	// AC inspect may return a single object or a list; try list first, then a
+	// single object. Python does json.loads then .get("config") on the top
+	// value, so it expects a dict — model that as the single-object form, but
+	// tolerate the list form too (some AC versions wrap in a list).
+	if err := jsonUnmarshal(stdout, &docs); err == nil && len(docs) > 0 {
+		if ws, ok := WorkspaceFromInspectEnv(docs[0].Config.Env); ok {
+			return ws, true
+		}
+		return "", false
+	}
+	var doc struct {
+		Config struct {
+			Env []string `json:"env"`
+		} `json:"config"`
+	}
+	if err := jsonUnmarshal(stdout, &doc); err != nil {
+		return "", false
+	}
+	return WorkspaceFromInspectEnv(doc.Config.Env)
 }
 
 // BakedYoloVersionFromInspectEnv extracts the YOLO_VERSION baked into a

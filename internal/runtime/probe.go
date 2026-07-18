@@ -9,7 +9,10 @@
 // Source of truth: src/cli/runtime.py and src/cli/run_cmd.py:_live_yolo_containers.
 package runtime
 
-import "strings"
+import (
+	"os"
+	"strings"
+)
 
 // LiveSet is the tri-state result of enumerating live yolo-* containers. Known
 // distinguishes "enumerated (maybe empty)" from "could not enumerate" — the
@@ -23,6 +26,19 @@ type LiveSet struct {
 	Known bool
 	// Names holds the live yolo-* container names.
 	Names map[string]struct{}
+}
+
+// DetectRuntime returns the container runtime for prune / ps / check use: the
+// YOLO_RUNTIME env var if set, else "podman". Mirrors _detect_runtime (the
+// shallow variant — no connectivity probe or sys.exit). ps() in Python uses the
+// richer _runtime() which also probes connectivity and can exit(1) on a missing
+// runtime; the native ps narrows to this shallow detect (documented divergence
+// D11) because the connectivity probe + process-exit is the run path's concern.
+func DetectRuntime() string {
+	if rt := os.Getenv("YOLO_RUNTIME"); rt != "" {
+		return rt
+	}
+	return "podman"
 }
 
 // livePodmanStates are the container states podman reports that count as a live

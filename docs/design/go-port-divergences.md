@@ -286,3 +286,34 @@ mean deliberately re-introducing an unhandled-exception path.
 in `loadManifest` (and the mirror in `SetEnabled`). No parity test asserts the
 crash (it is the accepted improvement); the skippable-error path shares the same
 `LoopholeError` plumbing that `TestValidateParity` covers for other shapes.
+
+## D11 — ps: native `yolo ps` uses the shallow runtime detect, not `_runtime()`
+
+**Status:** proposed (awaiting sign-off).
+**Reachable only under `YOLO_IMPL=go`** (the gate defaults to Python).
+
+Python's `ps()` resolves the runtime via `_runtime()`, which probes daemon
+connectivity (`podman info` / `container system status`), rejects a
+non-Apple `container` binary, and `sys.exit(1)` with a red message when no
+runtime is reachable. The native Go `ps` (internal/pscmd) resolves via
+`runtime.DetectRuntime` — the shallow `_detect_runtime` variant (YOLO_RUNTIME
+env or "podman"), with no connectivity probe and no process-exit.
+
+**Effect.** On a host with no reachable runtime, Python `yolo ps` exits 1 with
+"No container runtime found…"; the Go arm instead runs the probe (`podman ps …`)
+which fails to spawn, the RunCmd seam returns an error → empty output → "No
+running jails." + exit 0.
+
+**Why accepted (proposed).** The connectivity-probe + process-exit machinery is
+the `run` path's concern (`_runtime()` is shared, but its exit-on-missing
+semantics matter for launching a container, not for listing them). For a
+read-only `ps`, "no reachable runtime" and "no running jails" are observationally
+close, and the Go arm never crashes. The full `_runtime()` port (with
+`_is_apple_container` + `_runtime_is_connectable` + sys.exit) lands with the
+broader runtime-selection slice; until then this narrowing is documented rather
+than papered over. `ps` is gated behind `YOLO_IMPL=go`, so the default path is
+unaffected.
+
+**Guard.** Documented; `internal/pscmd` behavior tests cover the empty-output →
+"No running jails." path. The table/stuck/workspace rendering is byte-parity
+(internal/runtime parity tests).

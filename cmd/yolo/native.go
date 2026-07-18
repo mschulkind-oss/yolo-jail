@@ -1,8 +1,12 @@
 package main
 
 import (
+	"os/exec"
+
 	"github.com/mschulkind-oss/yolo-jail/internal/checkcmd"
+	"github.com/mschulkind-oss/yolo-jail/internal/pscmd"
 	"github.com/mschulkind-oss/yolo-jail/internal/runcmd"
+	"github.com/mschulkind-oss/yolo-jail/internal/runtime"
 )
 
 // nativeDispatch maps a subcommand to its native Go handler. Unconditionally
@@ -14,6 +18,26 @@ var nativeDispatch = map[string]func(args []string) int{
 	"check":  runCheck,
 	"doctor": runCheck, // doctor is an alias for check (same body + flag).
 	"run":    runRun,
+	"ps":     runPs,
+}
+
+// runPs runs the native `yolo ps` (list running jails). Gated behind
+// YOLO_IMPL=go; plain typer.echo output, byte-parity with Python. args is
+// ignored (ps takes no flags).
+func runPs(_ []string) int {
+	return pscmd.Run(pscmd.RealDeps(psRunCmd, runtime.DetectRuntime))
+}
+
+// psRunCmd runs a container-runtime probe and returns stdout (stderr discarded),
+// matching Python's capture_output=True, text=True. A spawn error yields ""; the
+// caller degrades (empty output → no jails / unknown workspace), never crashes.
+func psRunCmd(argv []string) (string, error) {
+	cmd := exec.Command(argv[0], argv[1:]...)
+	out, err := cmd.Output()
+	if err != nil {
+		return "", err
+	}
+	return string(out), nil
 }
 
 // runRun parses the run flags (--network, --new, --profile, --dry-run) and the

@@ -50,6 +50,7 @@ var gatedNativeSubcommands = map[string]struct{}{
 	"check":  {},
 	"doctor": {},
 	"run":    {},
+	"ps":     {},
 }
 
 // goImplEnabled reports whether YOLO_IMPL=go is set (the Stage-15 gate). It is a
