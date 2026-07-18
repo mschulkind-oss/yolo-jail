@@ -1,0 +1,138 @@
+// Package network is the Go port of the PURE host-side pieces of
+// src/cli/network.py — the forward_host_ports config parser and the socat
+// UNIX-LISTEN→TCP argv the run path spawns per forwarded port. The process
+// lifecycle (spawn, socket-wait poll, teardown) stays in the run wiring; the
+// plan requires Go to spawn IDENTICAL socat argv, so the argv builder and the
+// config parse are ported byte-exact and tested against live Python.
+//
+// Source of truth: src/cli/network.py.
+package network
+
+import (
+	"fmt"
+	"path/filepath"
+	"strconv"
+	"time"
+
+	"github.com/mschulkind-oss/yolo-jail/internal/jsonx"
+)
+
+// Socket-wait tuning (host side polls for socat's socket files before the
+// container starts). Production defaults must stay 2s / 5ms — mirrors
+// SOCKET_WAIT_DEADLINE_SECONDS / SOCKET_WAIT_POLL_INTERVAL_SECONDS.
+const (
+	SocketWaitDeadline     = 2 * time.Second
+	SocketWaitPollInterval = 5 * time.Millisecond
+)
+
+// PortForward is one parsed forward: the port inside the jail (localPort) and
+// the host 127.0.0.1 port it bridges to (hostPort).
+type PortForward struct {
+	LocalPort int
+	HostPort  int
+}
+
+// ParsePortForwards parses forward_host_ports config entries into
+// (localPort, hostPort) pairs, mirroring _parse_port_forwards's isinstance
+// dispatch:
+//
+//   - a JSON integer      → (n, n)
+//   - a string "a:b"      → (int(a), int(b))   [split once]
+//   - a plain string "n"  → (n, n)
+//   - anything else       → a warning (returned via the warn callback), skipped
+//
+// A non-numeric string port raises ValueError in Python (uncaught, propagates);
+// here that surfaces as a returned error, aborting the parse — the caller
+// decides. warn receives the exact "Warning: invalid port forward entry: %v"
+// text Python prints to stderr for non-int/str entries; pass nil to ignore.
+func ParsePortForwards(entries []any, warn func(string)) ([]PortForward, error) {
+	var result []PortForward
+	for _, entry := range entries {
+		// A JSON integer literal (jsonx decodes ints as jsonInt).
+		if jsonx.IsInt(entry) {
+			n, _ := jsonx.AsInt(entry)
+			result = append(result, PortForward{int(n), int(n)})
+			continue
+		}
+		// A raw Go int (callers that build entries directly).
+		if n, ok := entry.(int); ok {
+			result = append(result, PortForward{n, n})
+			continue
+		}
+		s, ok := entry.(string)
+		if !ok {
+			if warn != nil {
+				warn(fmt.Sprintf("Warning: invalid port forward entry: %v", entry))
+			}
+			continue
+		}
+		if idx := indexByte(s, ':'); idx >= 0 {
+			a, err := strconv.Atoi(s[:idx])
+			if err != nil {
+				return nil, fmt.Errorf("invalid port forward %q: %w", s, err)
+			}
+			b, err := strconv.Atoi(s[idx+1:])
+			if err != nil {
+				return nil, fmt.Errorf("invalid port forward %q: %w", s, err)
+			}
+			result = append(result, PortForward{a, b})
+			continue
+		}
+		p, err := strconv.Atoi(s)
+		if err != nil {
+			return nil, fmt.Errorf("invalid port forward %q: %w", s, err)
+		}
+		result = append(result, PortForward{p, p})
+	}
+	return result, nil
+}
+
+// indexByte returns the index of the first b in s, or -1. Mirrors Python's
+// split(":", 1): only the first ':' splits, so we need its first index.
+func indexByte(s string, b byte) int {
+	for i := 0; i < len(s); i++ {
+		if s[i] == b {
+			return i
+		}
+	}
+	return -1
+}
+
+// SocketPath returns the host-side socket file path for a local port under
+// socketDir: "port-<localPort>.sock". Mirrors socket_dir / f"port-{lp}.sock".
+func SocketPath(socketDir string, localPort int) string {
+	return filepath.Join(socketDir, fmt.Sprintf("port-%d.sock", localPort))
+}
+
+// SocatArgv returns the host-side socat argv bridging a Unix listen socket to a
+// host TCP port, byte-identical to start_host_port_forwarding's Popen argv:
+//
+//	socat UNIX-LISTEN:<sock>,fork,mode=777 TCP:127.0.0.1:<hostPort>
+func SocatArgv(sockPath string, hostPort int) []string {
+	return []string{
+		"socat",
+		fmt.Sprintf("UNIX-LISTEN:%s,fork,mode=777", sockPath),
+		fmt.Sprintf("TCP:127.0.0.1:%d", hostPort),
+	}
+}
+
+// SocketNotReadyWarning is the exact stderr text emitted when socat's socket
+// files don't appear before the deadline. Mirrors the format string in
+// start_host_port_forwarding.
+func SocketNotReadyWarning(missing []string) string {
+	return fmt.Sprintf(
+		"Warning: socat socket(s) not ready after %.1fs: %s",
+		SocketWaitDeadline.Seconds(), joinComma(missing),
+	)
+}
+
+func joinComma(xs []string) string {
+	out := ""
+	for i, x := range xs {
+		if i > 0 {
+			out += ", "
+		}
+		out += x
+	}
+	return out
+}
