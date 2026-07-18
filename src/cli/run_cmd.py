@@ -57,6 +57,7 @@ from .agents_md import (
 from .config import (
     ConfigError,
     DEFAULT_HOST_CLAUDE_FILES,
+    DEFAULT_HOST_PI_FILES,
     _check_config_changes,
     _check_preset_null_conflicts,
     _effective_packages,
@@ -1476,6 +1477,7 @@ def run(
     mcp_servers = config.get("mcp_servers", {})
     mcp_presets = config.get("mcp_presets", [])
     host_claude_files = config.get("host_claude_files", DEFAULT_HOST_CLAUDE_FILES)
+    host_pi_files = config.get("host_pi_files", DEFAULT_HOST_PI_FILES)
     user_env = _resolve_env_sources(workspace, config)
     mise_disabled_tools = _merge_mise_disabled_tools(user_env.get("MISE_DISABLE_TOOLS"))
     if not auto_load_image(
@@ -1606,8 +1608,9 @@ def run(
     ws_state.mkdir(parents=True, exist_ok=True)
     (ws_state / "ssh").mkdir(exist_ok=True, mode=0o700)
     # Snapshot the current mount table once: single-file :ro host mounts
-    # (git ignore, user config, host-claude files) dereference their source
-    # through this when it's itself a bind mountpoint (nested-jail case).
+    # (git ignore, user config, host-claude / host-pi files) dereference
+    # their source through this when it's itself a bind mountpoint
+    # (nested-jail case).
     mount_targets = _bind_mount_targets()
     # Per-workspace writable overlays — isolate cross-jail writes.
     # These sit on top of the :ro GLOBAL_HOME base so each jail has its
@@ -2795,6 +2798,33 @@ def run(
         run_cmd.extend(
             ["-e", f"YOLO_HOST_CLAUDE_FILES={json.dumps(mounted_claude_files)}"]
         )
+
+    # Mount host ~/.pi/agent/ files for syncing into the jail (pi only).
+    # Unlike claude, pi has no hooks / statusLine / fileSuggestion, so there
+    # are no referenced scripts to auto-discover — the configured filenames
+    # are mounted verbatim.  settings.json gets the same three-way host→jail
+    # merge in configure_pi() (see agent_configs._sync_host_settings).
+    host_pi_dir = Path.home() / ".pi" / "agent"
+    effective_pi_files = list(host_pi_files) if "pi" in agents else []
+    mounted_pi_files = []
+    for fname in effective_pi_files:
+        host_file = host_pi_dir / fname
+        if host_file.exists() and host_file.is_file():
+            # Dereference if the source is itself a bind mountpoint (nested
+            # jail).  Staged under ctx-host-pi/ in ws_state so the copy
+            # doesn't collide with the agent's own overlay files.
+            run_cmd.extend(
+                _ro_file_mount_arg(
+                    host_file,
+                    f"/ctx/host-pi/{fname}",
+                    ws_state,
+                    f"ctx-host-pi/{fname}",
+                    mount_targets,
+                )
+            )
+            mounted_pi_files.append(fname)
+    if mounted_pi_files:
+        run_cmd.extend(["-e", f"YOLO_HOST_PI_FILES={json.dumps(mounted_pi_files)}"])
 
     # Per-workspace briefing files already generated at the top of `run` by
     # `_refresh_jail_briefings` (so attach-to-running picks up host
