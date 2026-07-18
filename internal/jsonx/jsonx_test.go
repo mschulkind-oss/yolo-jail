@@ -139,6 +139,54 @@ func TestIntValueEncodesAsInt(t *testing.T) {
 	}
 }
 
+func TestIntInspection(t *testing.T) {
+	// Decoded integer literals are Python ints -> IsInt true.
+	v, err := Decode([]byte(`{"n": 42, "neg": -7, "f": 1.5, "b": true, "s": "x"}`))
+	if err != nil {
+		t.Fatalf("decode: %v", err)
+	}
+	m := v.(*OrderedMap)
+	nv, _ := m.Get("n")
+	if !IsInt(nv) {
+		t.Errorf("IsInt(42) = false, want true")
+	}
+	if got, ok := AsInt(nv); !ok || got != 42 {
+		t.Errorf("AsInt(42) = %d,%v want 42,true", got, ok)
+	}
+	negv, _ := m.Get("neg")
+	if got, ok := AsInt(negv); !ok || got != -7 {
+		t.Errorf("AsInt(-7) = %d,%v want -7,true", got, ok)
+	}
+	// float, bool, string are NOT ints (bool decodes to Go bool, not jsonInt).
+	for _, key := range []string{"f", "b", "s"} {
+		val, _ := m.Get(key)
+		if IsInt(val) {
+			t.Errorf("IsInt(%s) = true, want false", key)
+		}
+		if _, ok := AsInt(val); ok {
+			t.Errorf("AsInt(%s) ok = true, want false", key)
+		}
+	}
+}
+
+func TestDeleteRemovesKeyAndOrder(t *testing.T) {
+	m := NewOrderedMap()
+	m.Set("a", 1)
+	m.Set("b", 2)
+	m.Set("c", 3)
+	m.Delete("b")
+	if got := m.Keys(); len(got) != 2 || got[0] != "a" || got[1] != "c" {
+		t.Errorf("keys after delete = %v, want [a c]", m.Keys())
+	}
+	if _, ok := m.Get("b"); ok {
+		t.Errorf("Get(b) still present after Delete")
+	}
+	m.Delete("missing") // no-op
+	if m.Len() != 2 {
+		t.Errorf("Len after no-op delete = %d, want 2", m.Len())
+	}
+}
+
 func TestUpdateKeepsPosition(t *testing.T) {
 	m := NewOrderedMap()
 	m.Set("a", 1)

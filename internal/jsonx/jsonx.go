@@ -139,6 +139,29 @@ func IntLiteral(decimal string) (any, bool) {
 	return jsonInt(decimal), true
 }
 
+// IsInt reports whether v is a decoded JSON integer (a Python int) — an integer
+// literal preserved by Decode. A Python bool decodes to Go bool, NOT jsonInt,
+// so IsInt is false for bools; callers mirroring Python's "bool is a subclass
+// of int" semantics test bool explicitly.
+func IsInt(v any) bool {
+	_, ok := v.(jsonInt)
+	return ok
+}
+
+// AsInt returns the int64 value of a decoded JSON integer and true, or
+// (0, false) when v is not an integer literal or does not fit in int64.
+func AsInt(v any) (int64, bool) {
+	ji, ok := v.(jsonInt)
+	if !ok {
+		return 0, false
+	}
+	n, err := strconv.ParseInt(string(ji), 10, 64)
+	if err != nil {
+		return 0, false
+	}
+	return n, true
+}
+
 func (e *encoder) newlineIndent(depth int) {
 	if e.indent == 0 {
 		return
