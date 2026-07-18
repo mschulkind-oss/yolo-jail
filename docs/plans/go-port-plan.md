@@ -929,12 +929,12 @@ Stage 1.
 | Stage | Title | Sessions (est.) | Status | Handoff |
 |---|---|---|---|---|
 | 0 | Scaffold + walking skeleton | 2 | **landed** (in-jail; CI human-confirm pending) | [stage-0](../implementation/go-port-stage-0.md) |
-| 1 | Characterization wave A | 3 | partial (goldens fold into per-stage parity; drift suite live) | — |
+| 1 | Characterization wave A | 3 | partial (drift suite live; broker wire fixtures landed via the Stage 6 oracle; pty harness + ordered-argv matrix pending) | — |
 | 2 | Foundations + spikes | 3 | **landed** (12 pkgs + drift suite; Spike A json5 in progress, Spike B tty not started) | [stage-2](../implementation/go-port-stage-2.md) |
 | 3 | Broker relay | 1 | **landed** (behind YOLO_BROKER_RELAY_BIN; soaking) | [stage-3](../implementation/go-port-stage-3.md) |
 | 4 | frameproto | 1 | **landed** (conformance both directions) | [stage-4](../implementation/go-port-stage-4.md) |
 | 5 | host-processes | 1 | in progress (blocked on Spike A json5) | — |
-| 6 | OAuth broker | 2 + soak | not started | — |
+| 6 | OAuth broker | 2 + soak | **landed** (behind YOLO_GO_DAEMONS; soak/real-login human-gated) | [stage-6](../implementation/go-port-stage-6.md) |
 | 7 | Builtin daemons | 2 | not started | — |
 | 8 | TTY proxy | 2 | not started | — |
 | 9 | Characterization wave B | 1 | not started | — |
