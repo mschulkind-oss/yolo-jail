@@ -105,11 +105,25 @@ each with a regression test and a `fix(go):`/`test(go):` commit:
 | §C mise `$`-version corruption | `ReplaceAllLiteralString` (Python `re.sub` never expands `$`) | `TestMiseInjectedVersionWithDollar` |
 | §B#2 storage migration dead (nil hook) | `run`+`check` wire `MigrateStorageLayout` (canReclaim=false fail-safe) | build + storage tests |
 
-**Still OPEN after this round** (tracked, not yet done): AC 2-of-4
-`_ac_materialize` calls (yolo-user-env.sh + briefings on `runtime=container`);
-native `run` startup banner + tmux/kitty jail indicator; `ca_cert` absolute-path
-`filepath.Join`; terminator `HTTP/1.1`+`Connection` wire bytes; tree-timeout
-stderr text; malformed-200 invented code; stdin-EOF; `YOLO_GO_DISABLE` valve; the
-14 undrifted config-schema constants. **Human-owned:** ledger sign-off (D1–D13
-all proposed; D8/D10 shipped pre-signoff), versioned pre-commit hook, Stage-1
-freeze/CI, author email, soak confirmation.
+## Second round (2026-07-18) — remaining OPEN items closed
+
+The OPEN list above is now cleared. Each item is either FIXED (regression test +
+`fix(go):` commit) or LEDGERED as a decided/defensible divergence for human
+sign-off:
+
+| Item | Resolution | Commit / guard |
+|---|---|---|
+| AC 2-of-4 `_ac_materialize` (yolo-user-env.sh + briefings) | FIXED — `acMaterialize` branch added at both `runtime=container` sites | `TestAppleContainerMaterializesSingleFiles` |
+| native `run` startup banner + tmux/kitty indicator | FIXED earlier this session — `emitStartupBanner` + `SetupJailIndicator` | run.go / native.go |
+| `ca_cert` absolute-path `filepath.Join` | FIXED — `filepath.IsAbs` guard (pathlib `/` discards base) | `TestRuntimeArgsAbsoluteCACert` |
+| tree-timeout stderr text | FIXED — byte-match `str(TimeoutExpired)` via `pyReprStrList` | `TestTreeTimeoutStderrMatchesPython` (live oracle) |
+| `YOLO_GO_DISABLE` valve | FIXED — wired into `IsNative` as top-priority delegate | `TestGoDisableValve` |
+| pi host-file mount + `host_pi_files` key | FIXED — `hostPiFileArgs` + `knownTopLevelConfigKeys` (27 keys match) | config parity corpus + `TestHostPiFileArgs` |
+| 14 undrifted config-schema constants | FIXED — 26 constants now in the cross-language drift dump | `tests/test_go_drift.py` (byte-identical) |
+| terminator `HTTP/1.1`+`Connection` wire bytes | LEDGERED **D16** — cosmetic metadata; per-request-close + code + body + header names all match | ledger D16 |
+| malformed-200 invented code | LEDGERED **D17** — Go typed `upstream_bad_response`→400 vs Python crash→502; better operability | ledger D17 |
+| stdin-EOF | LEDGERED **D15** — Go keeps master open (the DECIDED Stage-1 semantics); Python closes it | ledger D15 |
+
+**Human-owned (unchanged):** ledger sign-off (D1–D17 all proposed; D8/D10
+shipped pre-signoff), versioned pre-commit hook, Stage-1 freeze/CI, author email,
+soak confirmation.
