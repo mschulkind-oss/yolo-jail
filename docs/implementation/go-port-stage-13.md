@@ -126,3 +126,9 @@ One integration seam is stubbed for those stages to fill:
   write gates are the CI-runnable proof.
 - No nested-jail step required: config-consuming commands still delegate to
   Python (the library isn't wired into a native command until Stage 15/16).
+
+---
+
+## Re-audit 2026-07-18
+
+This stage has confirmed blocker/major findings in the consolidated re-audit: [`go-port-audit-2026-07-18.md`](go-port-audit-2026-07-18.md). Fix or ledger the items attributed to this stage before its `YOLO_IMPL=go` gate is recommended for dogfood.

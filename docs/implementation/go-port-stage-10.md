@@ -97,3 +97,9 @@ Python's per-step `try/except`.
   dimension), repeated-`podman exec` idempotency, two-concurrent-boots race —
   all human/CI-gated, need a real multi-jail host.
 - Manual `yolo -- claude` smoke under `YOLO_ENTRYPOINT_IMPL=go`.
+
+---
+
+## Re-audit 2026-07-18
+
+This stage has confirmed blocker/major findings in the consolidated re-audit: [`go-port-audit-2026-07-18.md`](go-port-audit-2026-07-18.md). Fix or ledger the items attributed to this stage before its `YOLO_IMPL=go` gate is recommended for dogfood.

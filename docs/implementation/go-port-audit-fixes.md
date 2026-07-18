@@ -5,11 +5,29 @@ f2b9cc0, a4a787d) landed on the stage handoffs; this session incorporated every
 confirmed finding, then continued the port toward "everything runnable in pure
 Go."
 
-## Audit findings — all confirmed blockers/majors FIXED
+## Audit findings — confirmed blockers/majors TRIAGED (not all fixed)
 
-Each fix landed as a `fix(go): ...` commit with a regression test; accepted
-residues are ledgered (D5–D7). Verified green: `just lint-ci` + `go test ./...`
-+ the cross-language parity pytests.
+> **CORRECTION (2026-07-18 re-audit, `docs/implementation/go-port-audit-2026-07-18.md` §B/§D):**
+> the original heading "all confirmed blockers/majors FIXED" was **false**. The
+> table below records the fixes that DID land, but **six findings were never
+> touched and are still open**, and several "fixed" rows regressed or were
+> incomplete. Treat this table as a partial record, not a closure artifact.
+>
+> **Still OPEN (not in the table below):** the pre-commit-hook blocker (still
+> unversioned, still not firing — 4th occurrence); the Stage 6 cross-language
+> flock test (still Python-vs-Python, Go broker never started); Go broker
+> logging; terminator logging; the Stage 4 conformance gaps (1-req/conn,
+> concurrency); the §5.3 drift-suite gaps (dedup keys, shlex, canonical JSON).
+>
+> **Fixed-but-regressed/incomplete (see §D of the re-audit):** the journald
+> truncation regression test does not catch its bug; the tree-mode timeout fix
+> emits different stderr bytes than Python (unledgered); the malformed-200 fix
+> invents an error code Python never emits; the Stage 5 black-box suite is
+> missing the 124 and exit-1 cases it claims.
+
+Each fix below landed as a `fix(go): ...` commit; accepted residues are ledgered
+(D5–D7, all still **proposed** — not human-approved). The "verified green" claim
+does not cover the OPEN items above.
 
 | Finding (stage) | Fix commit | What changed |
 |---|---|---|

@@ -317,3 +317,30 @@ unaffected.
 **Guard.** Documented; `internal/pscmd` behavior tests cover the empty-output →
 "No running jails." path. The table/stuck/workspace rendering is byte-parity
 (internal/runtime parity tests).
+
+---
+
+## Re-audit challenges (2026-07-18) — human adjudication needed
+
+The 2026-07-18 re-audit (`docs/implementation/go-port-audit-2026-07-18.md`) flags
+issues with the entries above and lists divergences that were never ledgered.
+
+**D11 is UNSOUND as written** (audit §B1). Its acceptance rests on two false
+premises: (1) it calls `ps` "read-only", but `ps` calls
+`PruneStaleTrackingFiles` and DELETES tracking files; (2) it scopes the effect to
+"no reachable runtime", but on macOS with Apple Container running and
+`YOLO_RUNTIME` unset the shallow `DetectRuntime()` picks `podman`, which is
+reachable, returns empty, prints "No running jails" while AC jails are live, and
+then prunes their tracking files. Reject or rewrite D11; do not sign it off as-is.
+
+**Unledgered behavior divergences the audit confirmed (need proposed entries or
+fixes):** repo-root cwd-walk + `YOLO_REPO_ROOT`-required vs Python `__file__`
+anchoring (audit §A B2); bundled-loopholes `/opt/yolo-jail` fallback (§A B3);
+`ca_cert` absolute-path `filepath.Join` vs pathlib `/` (§C); tree-mode timeout
+stderr text; the malformed-200 `upstream_bad_response` invented error code;
+stdin-EOF (the plan required a ledger entry if observable behavior differs — it
+does); terminator `HTTP/1.1`+`Connection` vs Python `HTTP/1.0`+`Server`;
+`hostPlatform` `arm64→aarch64` on macOS; the `host_pi_files` config-key rejection.
+
+**Process note:** D8 and D10 are behavior changes that shipped before the human
+sign-off §1.1 requires *first*; all of D1–D11 remain `proposed`.

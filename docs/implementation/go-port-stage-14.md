@@ -93,3 +93,9 @@ quirk, network ValueError-on-bad-port, storage claude.json reverse-sync
 allowlist); `GOOS=darwin GOARCH=arm64 go build ./...` clean; offline vendored
 build (`GOPROXY=off -mod=vendor`) clean — no new external deps; every slice
 gofmt/vet/staticcheck clean; conventional commits, no AI trailers, no amends.
+
+---
+
+## Re-audit 2026-07-18
+
+This stage has confirmed blocker/major findings in the consolidated re-audit: [`go-port-audit-2026-07-18.md`](go-port-audit-2026-07-18.md). Fix or ledger the items attributed to this stage before its `YOLO_IMPL=go` gate is recommended for dogfood.

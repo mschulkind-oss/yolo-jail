@@ -211,3 +211,9 @@ YOLO_IMPL=go … yolo --new -- bash -lc 'echo AFTER-REAP-OK'
   `startLoopholes` (only cgroup-delegate + external services); a small follow-up.
 - `test_jail.py` / `test_runtime.py` through the Go front door on both CI arches
   is the human-gated CI exit criterion (the in-jail agent has no CI visibility).
+
+---
+
+## Re-audit 2026-07-18
+
+This stage has confirmed blocker/major findings in the consolidated re-audit: [`go-port-audit-2026-07-18.md`](go-port-audit-2026-07-18.md). Fix or ledger the items attributed to this stage before its `YOLO_IMPL=go` gate is recommended for dogfood.

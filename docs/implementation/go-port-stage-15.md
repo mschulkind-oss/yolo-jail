@@ -154,3 +154,9 @@ from the already-ported engines and ARE byte-exact.
   a reasonable next increment (the seams already support them via `IsMacOS` +
   `Exec` stubs); the differential-parity test already covers the live in-jail
   host state end-to-end.
+
+---
+
+## Re-audit 2026-07-18
+
+This stage has confirmed blocker/major findings in the consolidated re-audit: [`go-port-audit-2026-07-18.md`](go-port-audit-2026-07-18.md). Fix or ledger the items attributed to this stage before its `YOLO_IMPL=go` gate is recommended for dogfood.
