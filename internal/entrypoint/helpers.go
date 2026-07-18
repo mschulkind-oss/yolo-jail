@@ -43,6 +43,13 @@ func writeMode(path, content string, mode os.FileMode) error {
 	return os.Chmod(path, mode)
 }
 
+// writeInPlaceString writes content with mode 0o644, truncate-in-place. For
+// non-executable config files whose Python writer uses plain write_text (no
+// chmod), so the file keeps the mode it had (0o644 on first create).
+func writeInPlaceString(path, content string) error {
+	return fsx.WriteStringInPlace(path, content, 0o644)
+}
+
 func pathExists(path string) bool {
 	_, err := os.Lstat(path)
 	return err == nil
