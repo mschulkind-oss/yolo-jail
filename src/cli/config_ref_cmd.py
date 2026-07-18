@@ -142,6 +142,16 @@ def config_ref():
     and synced (if it lives under ~/.claude/) — no need to list it explicitly.
     Default: ["settings.json"]
     Set to [] to disable host claude file syncing.
+
+  [bold]host_pi_files[/bold] (array of strings): Host ~/.pi/agent/ files to sync into the jail.
+    Each entry is a filename (not a path) relative to ~/.pi/agent/.
+    Files are mounted read-only at /ctx/host-pi/ on startup. settings.json gets
+    the same three-way merge as host_claude_files: host keys are added, updated,
+    AND removed as the host file changes, but keys the jail modified locally are
+    preserved. The yolo-managed defaultProjectTrust always wins. Unlike claude,
+    pi has no hooks/statusLine scripts to auto-discover.
+    Default: ["settings.json"]
+    Set to [] to disable host pi file syncing.
     Example: ["settings.json", "keybindings.json"]
 
   [bold]host_services[/bold] (object): Host-side services exposed inside the jail via Unix sockets.
