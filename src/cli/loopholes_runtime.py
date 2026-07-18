@@ -660,6 +660,8 @@ def _relay_pid_cmdline_matches(pid: int) -> bool:
     can't positively identify.  Linux: /proc cmdline; macOS (no /proc):
     ``ps`` fallback.
     """
+    # go-port seam #2: match BOTH the Python relay (broker_relay.py) and the
+    # Go relay (yolo-broker-relay) so a mixed-era yolo can reap either.
     try:
         cmdline = Path(f"/proc/{pid}/cmdline").read_bytes()
     except OSError:
@@ -672,8 +674,10 @@ def _relay_pid_cmdline_matches(pid: int) -> bool:
             )
         except (OSError, subprocess.SubprocessError):
             return False
-        return probe.returncode == 0 and "broker_relay.py" in probe.stdout
-    return b"broker_relay.py" in cmdline
+        return probe.returncode == 0 and (
+            "broker_relay.py" in probe.stdout or "yolo-broker-relay" in probe.stdout
+        )
+    return b"broker_relay.py" in cmdline or b"yolo-broker-relay" in cmdline
 
 
 def _relay_pgrep(socket_path: Path) -> List[int]:
@@ -682,9 +686,18 @@ def _relay_pgrep(socket_path: Path) -> List[int]:
     (e.g. systemd-tmpfiles aged it out of /tmp).  ``_relay_is_alive``
     deliberately keeps such a relay ALIVE on the strength of its
     connectable socket; this keeps it REAPABLE at jail exit."""
+    # go-port seam #2: pgrep pattern matches BOTH relay impls. Both argvs share
+    # the identical ``--socket <path>`` tail (see _relay_spawn_argv), so an
+    # alternation on the launcher token finds either. pgrep -f uses an extended
+    # regex; the socket path is interpolated raw exactly as before (paths here
+    # are controlled — no new escaping, which would be a behavior change).
     try:
         result = subprocess.run(
-            ["pgrep", "-f", f"broker_relay.py --socket {socket_path}"],
+            [
+                "pgrep",
+                "-f",
+                f"(broker_relay.py|yolo-broker-relay) --socket {socket_path}",
+            ],
             capture_output=True,
             text=True,
             timeout=2,
@@ -762,6 +775,53 @@ def _relay_kill(
         pass
 
 
+# go-port seam #2: the relay binary is Python by default, or the Go port when
+# YOLO_BROKER_RELAY_BIN points at it (dist-go/<goos>-<goarch>/yolo-broker-relay
+# during the soak). Both take the identical --socket/--broker/--jail argv, so
+# _relay_pgrep's pattern and the identity guard below match either — but the
+# guards MUST recognize both cmdlines or a mixed-era invocation can't reap the
+# other impl's relay (the orphan-relay incident class). Kept in the SAME commit
+# as this env branch, per the plan's non-negotiable rider.
+def _relay_binary_marker() -> str:
+    """The substring that identifies a broker-relay process in its cmdline,
+    covering BOTH implementations. Python launches ``… broker_relay.py …``;
+    the Go binary's argv[0] basename is ``yolo-broker-relay``."""
+    # Not used directly (the matchers check both tokens); kept as documentation
+    # of the identity contract.
+    return "broker_relay.py|yolo-broker-relay"
+
+
+def _relay_spawn_argv(
+    socket_path: Path, broker_socket: Path, cname: str
+) -> "List[str]":
+    """Build the relay spawn argv, selecting the implementation.
+
+    Default: the Python relay, launched by ABSOLUTE FILE PATH (not
+    ``-m src.broker_relay``): ``python -m`` prepends the child's cwd to
+    sys.path, and yolo runs from arbitrary workspaces — one with its own
+    ``src`` package would shadow ours and the relay would never bind.
+    broker_relay.py is stdlib-only precisely so a by-path launch needs no
+    importable package context.
+
+    When ``YOLO_BROKER_RELAY_BIN`` is set (go-port Stage 3 soak), spawn that
+    binary instead. The trailing --socket/--broker/--jail argv is IDENTICAL so
+    _relay_pgrep's ``--socket <path>`` match still finds either impl.
+    """
+    tail = [
+        "--socket",
+        str(socket_path),
+        "--broker",
+        str(broker_socket),
+        "--jail",
+        cname,
+    ]
+    go_bin = os.environ.get("YOLO_BROKER_RELAY_BIN")
+    if go_bin:
+        return [go_bin, *tail]
+    relay_script = Path(__file__).resolve().parent.parent / "broker_relay.py"
+    return [sys.executable, str(relay_script), *tail]
+
+
 def _relay_ensure(
     cname: str,
     sockets_dir: Path,
@@ -803,25 +863,10 @@ def _relay_ensure(
         log_dir = GLOBAL_STORAGE / "logs"
         log_dir.mkdir(parents=True, exist_ok=True)
         log_path = log_dir / f"broker-relay-{short_hash}.log"
-        # Launch by absolute file path, not ``-m src.broker_relay``:
-        # ``python -m`` prepends the child's cwd to sys.path, and yolo
-        # runs from arbitrary workspaces — one with its own ``src``
-        # package would shadow ours and the relay would never bind.
-        # broker_relay.py is stdlib-only precisely so a by-path launch
-        # needs no importable package context.
-        relay_script = Path(__file__).resolve().parent.parent / "broker_relay.py"
+        argv = _relay_spawn_argv(socket_path, broker_socket, cname)
         with open(log_path, "ab") as log_file:
             proc = subprocess.Popen(
-                [
-                    sys.executable,
-                    str(relay_script),
-                    "--socket",
-                    str(socket_path),
-                    "--broker",
-                    str(broker_socket),
-                    "--jail",
-                    cname,
-                ],
+                argv,
                 stdout=log_file,
                 stderr=log_file,
                 start_new_session=True,

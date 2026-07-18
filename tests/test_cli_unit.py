@@ -3977,6 +3977,57 @@ class TestBrokerRelay:
         assert sockets_dir.is_dir()
         assert pidf.read_text().strip() == "4242"
 
+    def test_ensure_uses_go_binary_when_env_set(self, monkeypatch, tmp_path):
+        """go-port seam #2: YOLO_BROKER_RELAY_BIN selects the Go relay.
+
+        The spawn argv leads with the Go binary path (no python/script pair)
+        and keeps the IDENTICAL --socket/--broker/--jail tail, so _relay_pgrep
+        and the identity guard still match. Default (env unset) stays the
+        Python script — asserted by the sibling argv test above."""
+        _, _, cli = self._patch_paths(monkeypatch, tmp_path)
+        go_bin = tmp_path / "yolo-broker-relay"
+        go_bin.write_text("#!/bin/sh\n")
+        monkeypatch.setenv("YOLO_BROKER_RELAY_BIN", str(go_bin))
+        monkeypatch.setattr("cli.loopholes_runtime._relay_is_alive", lambda *a: False)
+        monkeypatch.setattr(
+            "cli.loopholes_runtime._broker_wait_for_socket", lambda *a, **kw: True
+        )
+        calls = {}
+
+        class FakePopen:
+            def __init__(self, argv, **kw):
+                calls["argv"] = argv
+                self.pid = 4245
+
+        monkeypatch.setattr(cli.subprocess, "Popen", FakePopen)
+        sockets_dir = tmp_path / "sockets"
+        _relay_ensure("jail-go", sockets_dir)
+        argv = calls["argv"]
+        assert argv[0] == str(go_bin), "Go relay must be argv[0], no python prefix"
+        assert "broker_relay.py" not in " ".join(argv)
+        assert argv[argv.index("--socket") + 1] == str(
+            sockets_dir / "claude-oauth-broker.sock"
+        )
+        assert argv[argv.index("--jail") + 1] == "jail-go"
+
+    def test_relay_identity_guard_matches_go_binary(self, monkeypatch):
+        """The cmdline identity guard recognizes the Go relay's argv[0]
+        basename (yolo-broker-relay), not just broker_relay.py — else a
+        mixed-era yolo couldn't reap a Go-spawned relay."""
+        from cli.loopholes_runtime import _relay_pid_cmdline_matches
+
+        # /proc/<pid>/cmdline is NUL-separated; fake it via ps fallback by
+        # pointing at a pid whose /proc read fails, then stubbing ps. Simpler:
+        # exercise the byte check directly through a tiny /proc shim.
+        import cli.loopholes_runtime as lr
+
+        monkeypatch.setattr(
+            lr.Path,
+            "read_bytes",
+            lambda self: b"/dist-go/linux-amd64/yolo-broker-relay\x00--socket\x00/x",
+        )
+        assert _relay_pid_cmdline_matches(12345) is True
+
     def test_ensure_honors_broker_socket_override(self, monkeypatch, tmp_path):
         _, _, cli = self._patch_paths(monkeypatch, tmp_path)
         monkeypatch.setattr("cli.loopholes_runtime._relay_is_alive", lambda *a: False)
