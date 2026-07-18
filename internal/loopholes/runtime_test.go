@@ -66,6 +66,42 @@ func TestRuntimeArgsInterceptAndCA(t *testing.T) {
 	}
 }
 
+// TestRuntimeArgsAbsoluteCACert is the regression for the filepath.Join-vs-
+// pathlib trap: an ABSOLUTE ca_cert must be used verbatim (pathlib `module_path
+// / abs` discards module_path), NOT concatenated as "<module>/<abs>". A bogus
+// concatenated path would fail HasCA() and silently drop the CA mount + env.
+func TestRuntimeArgsAbsoluteCACert(t *testing.T) {
+	unsetJail(t)
+	md := modsDir(t)
+	mod := mkdir(t, filepath.Join(md, "broker"))
+	// The CA lives OUTSIDE the module dir, referenced by an absolute path.
+	caDir := t.TempDir()
+	absCA := filepath.Join(caDir, "shared-ca.crt")
+	if err := os.WriteFile(absCA, []byte("-----FAKE CA-----\n"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	writeManifest(t, mod, map[string]any{
+		"name": "broker", "description": "x",
+		"intercepts": []any{map[string]any{"host": "example.test"}},
+		"broker_ip":  "10.0.0.1",
+		"ca_cert":    absCA,
+	})
+	args := argsFor(md, "")
+	// Host side of the CA mount is the absolute path verbatim (resolved); the
+	// container side is always the fixed name ca.crt (Python: f"{dir}/ca.crt").
+	want := resolvePath(absCA) + ":/etc/yolo-jail/loopholes/broker/ca.crt:ro"
+	if !containsArg(args, want) {
+		t.Errorf("absolute CA mount missing (join trap?): want %q in %v", want, args)
+	}
+	// And the concatenated-path bug must NOT appear.
+	bogus := resolvePath(filepath.Join(mod, absCA))
+	for _, a := range args {
+		if strings.HasPrefix(a, bogus+":") {
+			t.Errorf("found concatenated <module>/<abs> path (the bug): %q", a)
+		}
+	}
+}
+
 func TestRuntimeArgsNoCANoEnv(t *testing.T) {
 	unsetJail(t)
 	md := modsDir(t)

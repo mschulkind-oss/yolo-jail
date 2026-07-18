@@ -103,7 +103,16 @@ func loadManifest(modulePath string) (*Loophole, error) {
 			if containsSubstr(s, "{state}") {
 				caCert = replaceAll(s, "{state}", StateDirFor(name))
 			} else {
-				caCert = resolvePath(filepath.Join(modulePath, s))
+				// Python: (module_path / ca_cert_raw).resolve(). pathlib `/`
+				// DISCARDS module_path when ca_cert_raw is absolute; Go's
+				// filepath.Join would concatenate ("<module>/<abs>"), producing a
+				// bogus path that then fails HasCA() and silently drops the CA
+				// mount + NODE_EXTRA_CA_CERTS. Guard on IsAbs to match pathlib.
+				if filepath.IsAbs(s) {
+					caCert = resolvePath(s)
+				} else {
+					caCert = resolvePath(filepath.Join(modulePath, s))
+				}
 			}
 			caCertSet = true
 		}
