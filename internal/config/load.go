@@ -1,0 +1,242 @@
+package config
+
+import (
+	"fmt"
+	"os"
+	"path/filepath"
+	"strings"
+
+	"github.com/mschulkind-oss/yolo-jail/internal/json5"
+	"github.com/mschulkind-oss/yolo-jail/internal/jsonx"
+	"github.com/mschulkind-oss/yolo-jail/internal/paths"
+	"github.com/mschulkind-oss/yolo-jail/internal/pytext"
+)
+
+// Warn is called for non-strict warnings that config.py emits via
+// typer.echo(..., err=True) / console.print. The Go loader factors this out so
+// callers (yolo check, run) can route them to the same stderr/console. Nil
+// means discard (parity tests only compare the returned config/error, not
+// side-channel warnings).
+//
+// The default writes "Warning: <msg>" to stderr (typer.echo err=True form).
+type Warn func(msg string)
+
+func defaultWarn(msg string) {
+	fmt.Fprintln(os.Stderr, "Warning: "+msg)
+}
+
+// LoadJSONCFile ports _load_jsonc_file. Missing file -> empty map. A parse
+// error or a non-object top level is a ConfigError in strict mode, else warns
+// and returns an empty map.
+func LoadJSONCFile(path, label string, strict bool, warn Warn) (*jsonx.OrderedMap, error) {
+	if warn == nil {
+		warn = defaultWarn
+	}
+	data, err := os.ReadFile(path)
+	if err != nil {
+		if os.IsNotExist(err) {
+			return jsonx.NewOrderedMap(), nil
+		}
+		// A read error other than not-exist is surfaced through the same path
+		// Python's read_text() exception takes (caught by the broad except).
+		return handleParseFailure(label, err, strict, warn)
+	}
+	parsed, perr := json5.Decode(data)
+	if perr != nil {
+		return handleParseFailure(label, perr, strict, warn)
+	}
+	m, ok := asMap(parsed)
+	if !ok {
+		msg := label + " must contain a top-level JSON object"
+		if strict {
+			return nil, configErr("%s", msg)
+		}
+		warn(msg)
+		return jsonx.NewOrderedMap(), nil
+	}
+	return m, nil
+}
+
+func handleParseFailure(label string, err error, strict bool, warn Warn) (*jsonx.OrderedMap, error) {
+	msg := "Failed to parse " + label + ": " + err.Error()
+	if strict {
+		return nil, configErr("%s", msg)
+	}
+	warn(msg)
+	return jsonx.NewOrderedMap(), nil
+}
+
+// mergeLists ports _merge_lists: append override items not already present,
+// with equality by the canonical dedup key (json.dumps(item, sort_keys=True,
+// default=str)). The base list is copied; order is base-then-new-override.
+func mergeLists(base, override []any) []any {
+	merged := make([]any, len(base))
+	copy(merged, base)
+	seen := make(map[string]struct{}, len(merged))
+	for _, item := range merged {
+		seen[dedupKey(item)] = struct{}{}
+	}
+	for _, item := range override {
+		k := dedupKey(item)
+		if _, ok := seen[k]; !ok {
+			merged = append(merged, item)
+			seen[k] = struct{}{}
+		}
+	}
+	return merged
+}
+
+// overrideListKeys mirrors _OVERRIDE_LIST_KEYS: keys whose list value a
+// workspace REPLACES wholesale rather than union-merging.
+var overrideListKeys = set("agents")
+
+// MergeConfig ports merge_config: recursive dict merge, list union-merge
+// (except _OVERRIDE_LIST_KEYS), scalar/type-mismatch override. Returns a new
+// OrderedMap; base's order is preserved, override-only keys are appended in
+// override order (Python: result = dict(base) then assignment).
+func MergeConfig(base, override *jsonx.OrderedMap) *jsonx.OrderedMap {
+	result := jsonx.NewOrderedMap()
+	for _, k := range base.Keys() {
+		v, _ := base.Get(k)
+		result.Set(k, v)
+	}
+	for _, key := range override.Keys() {
+		value, _ := override.Get(key)
+		existing, present := result.Get(key)
+		if present {
+			if em, ok := asMap(existing); ok {
+				if vm, ok := asMap(value); ok {
+					result.Set(key, MergeConfig(em, vm))
+					continue
+				}
+			}
+			if _, isOverrideKey := overrideListKeys[key]; !isOverrideKey {
+				if el, ok := asList(existing); ok {
+					if vl, ok := asList(value); ok {
+						result.Set(key, mergeLists(el, vl))
+						continue
+					}
+				}
+			}
+		}
+		result.Set(key, value)
+	}
+	return result
+}
+
+// LoadJSONCWithIncludes ports _load_jsonc_with_includes. Include entries are
+// relative paths resolved against the including file's directory; missing files
+// skip; overrides win (later wins); cycles are detected via the shared seen set.
+// The include_if_found key is consumed and removed from the returned config.
+func LoadJSONCWithIncludes(path, label string, strict bool, warn Warn, seen map[string]struct{}) (*jsonx.OrderedMap, error) {
+	if warn == nil {
+		warn = defaultWarn
+	}
+	if seen == nil {
+		seen = map[string]struct{}{}
+	}
+	resolved := resolvePathForSeen(path)
+	if _, ok := seen[resolved]; ok {
+		return jsonx.NewOrderedMap(), nil
+	}
+	seen[resolved] = struct{}{}
+
+	raw, err := LoadJSONCFile(path, label, strict, warn)
+	if err != nil {
+		return nil, err
+	}
+	if raw.Len() == 0 {
+		// Python: `if not raw: return raw` — an empty dict is falsy, so we
+		// return it directly WITHOUT consuming includes.
+		return raw, nil
+	}
+
+	includesVal, hasIncludes := raw.Get("include_if_found")
+	raw.Delete("include_if_found") // Python: raw.pop("include_if_found", None)
+	if !hasIncludes || includesVal == nil {
+		return raw, nil
+	}
+
+	includes, ok := asList(includesVal)
+	if !ok {
+		msg := label + ".include_if_found: expected a list of strings"
+		if strict {
+			return nil, configErr("%s", msg)
+		}
+		warn(msg)
+		return raw, nil
+	}
+
+	baseDir := filepath.Dir(path)
+	result := raw
+	for idx, entry := range includes {
+		entryLabel := fmt.Sprintf("%s.include_if_found[%d]", label, idx)
+		s, ok := asStr(entry)
+		if !ok {
+			msg := entryLabel + ": expected a string path"
+			if strict {
+				return nil, configErr("%s", msg)
+			}
+			warn(msg)
+			continue
+		}
+		if s == "" {
+			continue
+		}
+		if strings.HasPrefix(s, "/") || strings.HasPrefix(s, "~") {
+			msg := fmt.Sprintf("%s: must be a relative path (got %s); "+
+				"absolute paths and '~' are not supported", entryLabel, pytext.Repr(s))
+			if strict {
+				return nil, configErr("%s", msg)
+			}
+			warn(msg)
+			continue
+		}
+		incPath := resolveJoin(baseDir, s)
+		if !pathExists(incPath) {
+			continue
+		}
+		included, err := LoadJSONCWithIncludes(incPath, incPath, strict, warn, seen)
+		if err != nil {
+			return nil, err
+		}
+		result = MergeConfig(result, included)
+	}
+	return result, nil
+}
+
+// LoadWorkspaceConfig ports load_workspace_config: yolo-jail.jsonc plus
+// yolo-jail.local.jsonc (local wins), sharing the seen set so a config that
+// also includes the local file doesn't merge it twice.
+func LoadWorkspaceConfig(workspace string, strict bool, warn Warn) (*jsonx.OrderedMap, error) {
+	if workspace == "" {
+		workspace = cwd()
+	}
+	seen := map[string]struct{}{}
+	wsCfg, err := LoadJSONCWithIncludes(
+		filepath.Join(workspace, WorkspaceConfigName), WorkspaceConfigName, strict, warn, seen)
+	if err != nil {
+		return nil, err
+	}
+	localCfg, err := LoadJSONCWithIncludes(
+		filepath.Join(workspace, WorkspaceLocalConfigName), WorkspaceLocalConfigName, strict, warn, seen)
+	if err != nil {
+		return nil, err
+	}
+	return MergeConfig(wsCfg, localCfg), nil
+}
+
+// LoadConfig ports load_config: user-level config merged under the workspace
+// config.
+func LoadConfig(workspace string, strict bool, warn Warn) (*jsonx.OrderedMap, error) {
+	userCfg, err := LoadJSONCWithIncludes(
+		paths.UserConfigPath(), paths.UserConfigPath(), strict, warn, nil)
+	if err != nil {
+		return nil, err
+	}
+	wsCfg, err := LoadWorkspaceConfig(workspace, strict, warn)
+	if err != nil {
+		return nil, err
+	}
+	return MergeConfig(userCfg, wsCfg), nil
+}
