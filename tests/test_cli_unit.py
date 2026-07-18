@@ -186,15 +186,8 @@ class TestArgvRouting:
 
     def _simulate_argv_rewrite(self, argv: list[str]) -> list[str]:
         """Simulate the argv rewriting logic from main() without calling app()."""
-        _SUBCOMMANDS = {
-            "init",
-            "init-user-config",
-            "config-ref",
-            "check",
-            "run",
-            "ps",
-            "doctor",
-        }
+        from cli import _SUBCOMMANDS
+
         args = argv[1:]
         result = list(argv)
         if args and "--" in args:
@@ -253,6 +246,24 @@ class TestArgvRouting:
     def test_yolo_doctor(self):
         result = self._simulate_argv_rewrite(["yolo", "doctor"])
         assert result == ["yolo", "doctor"]
+
+    def test_yolo_prune_double_dash_not_rewritten(self):
+        """Regression: `prune` was missing from _SUBCOMMANDS, so
+        `yolo prune -- x` got mangled to `yolo prune run -- x`."""
+        result = self._simulate_argv_rewrite(["yolo", "prune", "--", "x"])
+        assert result == ["yolo", "prune", "--", "x"]
+
+    def test_subcommand_set_matches_registrations(self):
+        """_SUBCOMMANDS must stay in lockstep with the typer app: a
+        registered command missing from the set makes `yolo <cmd> -- x`
+        misroute to `run` (the prune regression)."""
+        from cli import _SUBCOMMANDS, app
+
+        registered = {
+            cmd.name or cmd.callback.__name__.replace("_", "-")
+            for cmd in app.registered_commands
+        } | {group.name for group in app.registered_groups}
+        assert registered == _SUBCOMMANDS
 
 
 class TestBareYoloForwardsOptions:

@@ -426,6 +426,28 @@ from .builder_cmd import builder_app  # noqa: E402
 
 app.add_typer(builder_app, name="builder")
 
+# Every registered subcommand name.  main() consults this to decide whether
+# `yolo <args> -- cmd` already names a subcommand or needs `run` inserted
+# before the `--`.  Must stay in lockstep with the registrations above —
+# tests cross-assert it against the typer app.
+_SUBCOMMANDS = {
+    "init",
+    "init-user-config",
+    "config-ref",
+    "prune",
+    "check",
+    "run",
+    "ps",
+    "doctor",
+    "loopholes",
+    "broker",
+    "builder",
+    "macos-setup",
+    "macos-teardown",
+    "macos-unshare",
+    "macos-fix-permissions",
+}
+
 
 def main():
     """Entry point for the `yolo` console script.
@@ -452,22 +474,6 @@ def main():
     # Typer groups resolve the first positional arg as a subcommand name, so
     # extra args after `--` that aren't subcommands would fail with "No such
     # command".  We detect this and insert `run` before `--`.
-    _SUBCOMMANDS = {
-        "init",
-        "init-user-config",
-        "config-ref",
-        "check",
-        "run",
-        "ps",
-        "doctor",
-        "loopholes",
-        "broker",
-        "builder",
-        "macos-setup",
-        "macos-teardown",
-        "macos-unshare",
-        "macos-fix-permissions",
-    }
     args = sys.argv[1:]
     if args and "--" in args:
         pre_dash = args[: args.index("--")]
