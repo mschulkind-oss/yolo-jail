@@ -108,6 +108,19 @@ def _run(case) -> dict:
     if op == "parse_dotenv":
         result = cfg._parse_dotenv(case["text"])
         return {"compact": _compact(result)}
+    if op == "write_snapshot":
+        # Reproduce _check_config_changes's first-run write: current + "\n".
+        current = json.dumps(case["config"], indent=2, sort_keys=True)
+        p = Path(case["path"])
+        p.parent.mkdir(parents=True, exist_ok=True)
+        p.write_text(current + "\n")
+        return {"ok": True}
+    if op == "check_unchanged":
+        # Reproduce _check_config_changes's unchanged branch condition exactly:
+        # old_json = read_text().rstrip(); old_json == current.
+        current = json.dumps(case["config"], indent=2, sort_keys=True)
+        old = Path(case["path"]).read_text().rstrip()
+        return {"unchanged": old == current}
     raise ValueError(f"unknown op: {op}")
 
 
