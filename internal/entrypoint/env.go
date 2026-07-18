@@ -176,6 +176,12 @@ func (e *Env) ClaudeHostSettingsSnapshotPath() string {
 	return filepath.Join(e.ClaudeDir(), "yolo-host-synced-settings.json")
 }
 
+// PiHostSettingsSnapshotPath is HOME/.pi/agent/yolo-host-synced-settings.json
+// (mirrors PI_HOST_SETTINGS_SNAPSHOT_PATH).
+func (e *Env) PiHostSettingsSnapshotPath() string {
+	return filepath.Join(e.PiDir(), "yolo-host-synced-settings.json")
+}
+
 // ClaudeSharedCredentialsDir is HOME/.claude-shared-credentials.
 func (e *Env) ClaudeSharedCredentialsDir() string {
 	return filepath.Join(e.Home, ".claude-shared-credentials")

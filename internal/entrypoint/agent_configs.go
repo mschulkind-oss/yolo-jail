@@ -163,8 +163,53 @@ func ConfigurePi(e *Env) error {
 	}
 	settingsPath := filepath.Join(dir, "settings.json")
 	settings := loadObject(settingsPath)
+
+	// Host→jail three-way merge (mirrors agent_configs.configure_pi): fill from
+	// the host's ~/.pi/agent/settings.json, reusing the SAME agent-agnostic
+	// merge the claude path uses, against the pi snapshot. The jail-managed
+	// defaultProjectTrust is forced AFTER the merge so it always wins.
+	hostSettings := e.loadHostPiSettings()
+	prevSynced := loadObject(e.PiHostSettingsSnapshotPath())
+	syncHostSettings(settings, hostSettings, prevSynced)
+	if err := writeInPlaceString(e.PiHostSettingsSnapshotPath(), dumpJSONIndent2(hostSettings)); err != nil {
+		return err
+	}
+
 	settings.Set("defaultProjectTrust", "always")
 	return writeInPlaceString(settingsPath, dumpJSONIndent2(settings))
+}
+
+// loadHostPiSettings mirrors agent_configs._load_host_pi_settings: reads
+// /ctx/host-pi/settings.json only when YOLO_HOST_PI_FILES lists it.
+func (e *Env) loadHostPiSettings() *jsonx.OrderedMap {
+	files := e.hostPiFiles()
+	if !contains(files, "settings.json") {
+		return jsonx.NewOrderedMap()
+	}
+	return loadObject("/ctx/host-pi/settings.json")
+}
+
+// hostPiFiles parses YOLO_HOST_PI_FILES (a JSON list, default []).
+func (e *Env) hostPiFiles() []string {
+	raw := e.Getenv("YOLO_HOST_PI_FILES")
+	if raw == "" {
+		raw = "[]"
+	}
+	decoded, err := jsonx.Decode([]byte(raw))
+	if err != nil {
+		return nil
+	}
+	arr, ok := decoded.([]any)
+	if !ok {
+		return nil
+	}
+	var out []string
+	for _, v := range arr {
+		if s, ok := v.(string); ok {
+			out = append(out, s)
+		}
+	}
+	return out
 }
 
 // ConfigureOpencode mirrors agent_configs.configure_opencode.
