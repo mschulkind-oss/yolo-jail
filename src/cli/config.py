@@ -3,8 +3,8 @@
 Owns:
   * file/dict loading: _load_jsonc_file, _merge_lists, merge_config, load_config
   * schema constants: KNOWN_*_KEYS, *_RE patterns, JOURNAL_MODES,
-    DEFAULT_HOST_CLAUDE_FILES, VALID_MCP_PRESETS, DEFAULT_MISE_TOOLS,
-    DEFAULT_MISE_DISABLED_TOOLS
+    DEFAULT_HOST_CLAUDE_FILES, DEFAULT_HOST_PI_FILES, VALID_MCP_PRESETS,
+    DEFAULT_MISE_TOOLS, DEFAULT_MISE_DISABLED_TOOLS
   * validation entry point: _validate_config and its small helpers
     (_report_unknown_keys, _validate_string_list, _validate_port_number,
     _validate_publish_port, _validate_forward_host_port,
@@ -73,6 +73,7 @@ WORKSPACE_LOCAL_CONFIG_NAME = "yolo-jail.local.jsonc"
 # ---------------------------------------------------------------------------
 
 DEFAULT_HOST_CLAUDE_FILES = ["settings.json"]
+DEFAULT_HOST_PI_FILES = ["settings.json"]
 
 KNOWN_TOP_LEVEL_CONFIG_KEYS = {
     "runtime",
@@ -93,6 +94,7 @@ KNOWN_TOP_LEVEL_CONFIG_KEYS = {
     "resources",
     "env_sources",
     "host_claude_files",
+    "host_pi_files",
     "loopholes",
     "host_processes",
     "journal",
@@ -824,6 +826,19 @@ def _validate_config(
                 elif "/" in entry or "\\" in entry:
                     errors.append(
                         f"config.host_claude_files[{idx}]: must be a filename, not a path"
+                    )
+
+    host_pi_files = config.get("host_pi_files")
+    if host_pi_files is not None:
+        if not isinstance(host_pi_files, list):
+            errors.append("config.host_pi_files: expected a list of strings")
+        else:
+            for idx, entry in enumerate(host_pi_files):
+                if not isinstance(entry, str):
+                    errors.append(f"config.host_pi_files[{idx}]: expected a string")
+                elif "/" in entry or "\\" in entry:
+                    errors.append(
+                        f"config.host_pi_files[{idx}]: must be a filename, not a path"
                     )
 
     host_services = config.get("loopholes")

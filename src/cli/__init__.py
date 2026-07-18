@@ -86,6 +86,7 @@ from .runtime import (
 )
 from .config import (
     DEFAULT_HOST_CLAUDE_FILES,
+    DEFAULT_HOST_PI_FILES,
     DEFAULT_MISE_DISABLED_TOOLS,
     DEFAULT_MISE_TOOLS,
     HOST_SERVICE_NAME_RE,
