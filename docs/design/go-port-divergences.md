@@ -410,3 +410,40 @@ log-path-hint outcome (via a spawn that never binds), and
 `internal/brokerlifecycle.TestBrokerSpawn*` cover the spawn-error /
 already-alive / stale-socket / dead-child branches. The byte-exact spawn argv is
 parity-tested against live Python (`TestParityVsLivePython`).
+
+---
+
+## D14 — prune: TIED disk-breakdown display lines are name-ordered, not iterdir-ordered
+
+**Status:** proposed (Stage 14 prune — `internal/prunecmd`).
+
+**Divergence.** `prune_cmd` renders the global-storage breakdown and the cache
+top-5 with `sorted(items, key=lambda kv: kv[1], reverse=True)` — a STABLE sort
+keyed only on the byte value, so entries with EQUAL byte totals keep their
+relative order from the source dict, which was built by iterating
+`Path.iterdir()` (filesystem-arbitrary, non-reproducible across hosts/runs).
+The Go `sortByValueDesc` sorts by value descending and breaks exact-value ties
+by NAME ascending (deterministic), because Go map iteration is randomized and an
+unbroken tie would render nondeterministically.
+
+- Input: a `GLOBAL_STORAGE` whose two direct children have byte-identical
+  totals (e.g. `cache` and `home` both exactly N bytes) — only the two display
+  lines' ORDER can differ.
+- Python: whatever order `iterdir()` yielded them (arbitrary, run-dependent).
+- Go: the tied pair is ordered by name (`cache` before `home`).
+
+**Why accepted.** This is display-order ONLY, strictly inside the Stage 14/15
+prune output contract (the byte-exact obligations are the reclaim DECISIONS, the
+`FmtBytes` numbers, and the removed-NAME lists — all of which are unaffected: a
+tie means equal bytes, and the same set of names is printed either way). Python's
+own order is non-deterministic (a re-run can reorder the tied lines), so there is
+no stable Python behavior to match; the Go order is a deterministic
+tie-break that makes the report reproducible. Byte totals in each line are
+identical. Distinct-value breakdowns (the overwhelmingly common case) sort
+identically in both impls and ARE covered by the differential parity test.
+
+**Guard.** Documented; `internal/prunecmd.TestParityVsLivePython` drives the live
+`prune_cmd` body over a shared tree with DISTINCT breakdown values and asserts
+byte-identical ANSI-stripped output (a tied fixture is deliberately avoided
+there because Python's order is unstable). The tie-break itself is a pure,
+value-preserving reordering in `sortByValueDesc`.
