@@ -22,7 +22,6 @@ import (
 	"os/exec"
 	"path/filepath"
 	"regexp"
-	"strconv"
 	"strings"
 
 	"github.com/mschulkind-oss/yolo-jail/internal/jsonx"
@@ -250,6 +249,26 @@ func pathExists(p string) bool {
 	return err == nil
 }
 
+// stat is os.Stat, aliased so the parser reads like the Python source.
+func stat(p string) (os.FileInfo, error) { return os.Stat(p) }
+
+// readFile is os.ReadFile.
+func readFile(p string) ([]byte, error) { return os.ReadFile(p) }
+
+// resolvePath mirrors pathlib.Path.resolve() (non-strict): make absolute, then
+// resolve symlinks + ".." as far as the filesystem allows, falling back to a
+// lexical clean when the path doesn't exist. Matches internal/config's resolve.
+func resolvePath(p string) string {
+	abs, err := filepath.Abs(p)
+	if err != nil {
+		return filepath.Clean(p)
+	}
+	if evaled, err := filepath.EvalSymlinks(abs); err == nil {
+		return evaled
+	}
+	return filepath.Clean(abs)
+}
+
 // pyStr renders a decoded-JSON scalar the way Python's str() does inside an
 // f-string / dict comprehension: string as-is, bool -> True/False, int ->
 // decimal, float -> repr.
@@ -317,6 +336,3 @@ func pyListRepr(items []string) string {
 	}
 	return "[" + strings.Join(parts, ", ") + "]"
 }
-
-// itoa is a tiny helper for index interpolation in error strings.
-func itoa(i int) string { return strconv.Itoa(i) }
