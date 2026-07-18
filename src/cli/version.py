@@ -80,7 +80,7 @@ def _git_describe_version() -> "str | None":
 
     # git format: 0.1.0-3-gabcdef1-dirty  ->  0.1.0+3.gabcdef1.dirty
     # Exactly on tag: 0.1.0              ->  0.1.0
-    # Dirty on tag:   0.1.0-dirty        ->  0.1.0.dirty
+    # Dirty on tag:   0.1.0-dirty        ->  0.1.0+dirty
     parts = raw.split("-")
 
     dirty = False
