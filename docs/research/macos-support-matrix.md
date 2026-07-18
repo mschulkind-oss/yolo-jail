@@ -1,5 +1,11 @@
 # macOS support matrix — every runtime × builder × config
 
+> **PORT NOTE (2026-07-17):** this describes the **Python** implementation, which
+> is IN FLIGHT and will be ported to Go — the port is not yet aware of most of
+> this (see `docs/plans/go-port-plan.md` §13a for how it's tracked). Treat this
+> matrix as the authoritative state-of-the-macOS-backend to carry across the
+> port; keep it updated as the source of truth for what's built/proven/pending.
+
 **Purpose:** track macOS coverage across the whole cross-product so nothing
 ships half-done. yolo's rule (happy-path-principle.md) is "fill the matrix, one
 path per cell." This is that matrix, with honest status. Update it as cells go
@@ -76,11 +82,19 @@ run); the whole "run agent in jail" row for AC under current session's fixes.
 
 1. ✅ **[M] Prove the AC container builder** — DONE 2026-07-17 (real HW, see §4
    and the runbook). AC joins podman as a proven container-builder path.
-2. **[M] macos-user end-to-end** on real hardware (Seatbelt + darwin nix build).
-3. Wire the container builder into the CLI run/check path (currently only the
-   image + the ssh remote-builder setup exist; the "start builder container +
-   publish port + point nix at it" orchestration is the next code step — reuses
-   builder.py's nix.conf/ssh/trusted-users wiring).
+2. **[M] macos-user end-to-end** on real hardware (Seatbelt launch + darwin nix
+   build). Specifically the **path_helper login-shell PATH fix** (2026-07-17):
+   the bootstrap now writes `.zprofile`/`.zshrc`/`.bash_profile` re-prepending
+   the sandbox PATH after macOS path_helper, so `which jq` → `/nix/store/…/bin/jq`
+   (not Homebrew's `/usr/local/bin/jq`). Cannot be tested on Linux; runbook
+   `mac-macos-user-e2e` §5 is the gate. Tracked as go-port OQ-1.
+3. ✅ **Wire the container builder into the CLI run/check path** — DONE
+   2026-07-17. `src/cli/container_builder.py` (`builder_session`: pull → run →
+   wait-reachable → yield nix `--builders` line → ephemeral teardown) +
+   `image.auto_load_image` opens a session on macOS+container-runtime and
+   threads the line into `_build_image_store_path(builders=…)`. Proven
+   end-to-end against real podman + nix in-jail (build ran in-container, result
+   copied back). Runtime-agnostic: podman `-p`, AC per-container VM IP.
 4. ✅ **Publish `builderImage` to GHCR** — DONE + LIVE + PUBLIC. The
    `push-builder-image` job ran on the v0.6.0 release and pushed
    `ghcr.io/mschulkind-oss/yolo-jail-builder:{0.6.0,latest}` (arm64/linux,

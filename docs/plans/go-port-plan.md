@@ -106,7 +106,7 @@ Plus processes that are *not* console scripts:
 | cli-run (run_cmd, runtime, network) | 3 | ~3,860 | very-high | ~4,800 | St. 16 |
 | cli-config (config, check, config_ref, init, agents_md) | 5 | ~5,070 | high | ~5,500 | St. 12, 13, 15, 16 (agents_md) |
 | cli-image (image, builder×2, storage, prune×2) | 6 | ~3,300 | high | ~4,800 | St. 14 (all six slices incl. storage+image) |
-| cli-macos (macos_user, darwin_packages) | 2 | ~1,870 | medium | ~2,200 | **delegated** (§13); 3 pure check-probe helpers carved into St. 15 |
+| cli-macos (macos_user, darwin_packages, container_builder) | 3 | ~2,690 | medium | ~3,100 | **delegated** (§13); 3 pure check-probe helpers carved into St. 15. NOTE: grew this session — see §13 for the full in-flight state (container builder, builderImage flake output + GHCR job, path_helper fix). |
 | loopholes (registry, cmd, runtime) | 3 | ~3,110 | high | ~4,500 | St. 3, 7, 14, 16 |
 | host-services (broker, relay, host_service, host_processes, yolo_ps, supervisor, jail TLS) | 7 | ~2,830 | high | ~4,500 | St. 3–7, 11 |
 | entrypoint (12 modules) | 12 | ~3,620 | high | ~5,200 | St. 9–11 |
@@ -832,16 +832,95 @@ Per session:
 
 ## 13. macOS posture
 
+> **⚠ IN FLIGHT (2026-07-17): the macOS backend work moved substantially AFTER
+> this plan's first draft.** The "DECISION PENDING / delegated, might die"
+> framing below is stale in one key respect: the direction was DECIDED — **pursue
+> BOTH backends as one product** (macos-user native default + Apple Container
+> fallback). See the decision record in §14 Answered ("macOS backend direction").
+> The delegation-seam PORT STRATEGY still holds (delegate to Python until the
+> stages that port these modules land); what changed is that macos-user is now
+> **staying**, not maybe-dying, and it grew new pieces. Full current state below.
+
 - **Apple Container (podman-alternative runtime):** ported as part of run/runtime stages
   behind the capability struct; parsing/argv covered by replay fixtures; final
   verification stays a Mac-runbook step (no CI coverage exists today either).
-- **macos-user (Seatbelt backend):** delegated through seam #8 until the direction
-  decision. If it survives, it ports later through the same front-door slice pattern
-  against the already-frozen --dry-run goldens; if it dies, nothing was wasted. The
-  delegation pins a Python runtime subtree alive — which is why Stage 17's retirement
-  scope is decided at Stage 17 (see Answered questions).
+- **macos-user (Seatbelt backend):** delegated through seam #8 until its port stage.
+  Ports through the front-door slice pattern against the frozen `--dry-run` goldens.
+  Now DECIDED to stay (§14), so Stage 17 does NOT retire it — but the Python subtree
+  it pins alive (typer, pyjson5, config, run_cmd, macos_user, darwin_packages,
+  container_builder, entrypoint) stays until macos-user itself is ported.
 - **nightly-macos** workflow unchanged throughout; it becomes an `impl` matrix consumer
   only when defaults flip.
+
+### 13a. In-flight macOS backend state — what a porting agent must know
+
+The Python side of the macOS backend is PARTIALLY BUILT + UNIT-TESTED ON LINUX,
+with real-hardware verification split into "done" and "pending". Port it only
+after reading these docs (the authoritative state):
+`docs/plans/macos-nix-shell-backend-proposal.md`, `docs/plans/macos-backend-direction.md`,
+`docs/design/macos-no-vm-direction.md` (the "pursue both" decision),
+`docs/implementation/handoff-macos-user-revive-plan.md`,
+`docs/research/macos-support-matrix.md` (the runtime × builder × feature grid),
+and the runbooks `docs/guides/runbooks/mac-ac-container-builder.md` +
+`docs/guides/runbooks/mac-macos-user-e2e.md`.
+
+**The three cli-macos modules (all pure-data-first, so port cleanly):**
+- `src/cli/macos_user.py` (~1,680 LOC) — the Seatbelt backend: dedicated `_yolojail`
+  user, SBPL profile, `sudo -u … env -i … sandbox-exec` launch, the in-process
+  entrypoint bootstrap, and `macos-setup/teardown/unshare/fix-permissions`. Every
+  artifact producer is a pure function (unit-tested on Linux). **Self-escalates via
+  internal `sudo`; refuses to run under sudo (`_refuse_if_root`)** — a Go port must
+  keep that guard (running as root misassigns the shared-group ACL). Writes login
+  rc files (`.zprofile`/`.zshrc`/`.bash_profile`) that re-prepend the sandbox PATH
+  after macOS `path_helper` — load-bearing (see path_helper note below).
+- `src/cli/darwin_packages.py` (~240 LOC) — materializes `packages:` as a native
+  **aarch64-darwin nix buildEnv** (`nix build --print-out-paths` of
+  `packages.<sys>.yoloDarwinPackages`), returns `<out>/bin` (NOT a devShell PATH
+  scrape — that leaked the whole stdenv toolchain; the buildEnv is the fix).
+  Streams build progress (`--print-build-logs`). This is the acceptance-bar piece.
+- `src/cli/container_builder.py` (~255 LOC, NEW this session) — on-demand
+  container Linux builder: runs the `builderImage` (nix+sshd) on the running
+  runtime (podman/AC), yields a nix `--builders` ssh-ng line via `builder_session`,
+  ephemeral teardown. `builder.py` (~516 LOC, the QEMU `darwin.linux-builder`
+  path) is the ROADMAP FALLBACK, not primary.
+
+**Flake + CI additions (must port/keep together with the above):**
+- `flake.nix` `packages.builderImage` — a keyless nix+sshd streamLayeredImage built
+  with `imagePkgs` (Linux target). `packages.<sys>.yoloDarwinPackages` — the darwin
+  buildEnv + `darwinUnavailablePackages` (warn-and-skip list). These are Nix, not Go
+  — they survive the port unchanged; the Go `run`/`check`/`darwin_packages` port must
+  keep invoking the same attrs.
+- `.github/workflows/publish.yml` `push-builder-image` job — builds `builderImage`
+  on `ubuntu-24.04-arm`, pushes `ghcr.io/mschulkind-oss/yolo-jail-builder:{version,
+  latest}`. GHCR package is PUBLIC (manual one-time flip). Unchanged by the Go port.
+
+**Integration seam (already wired, Python side):** `image.auto_load_image` on
+macOS + a container runtime opens `container_builder.builder_session(runtime)` and
+threads its `--builders` line into `_build_image_store_path`. `check_cmd` gates the
+container/image/liveness sections on `is_native_runtime` (macos-user builds no
+image). The Go `run`/`check` ports (St. 16/15) must reproduce this dispatch.
+
+**PROVEN vs. PENDING (carry into the port's test plan — don't re-litigate):**
+- ✅ PROVEN on real HW: Apple Container hosts the container builder end-to-end
+  (`nix build --store ssh-ng://root@<vm-ip>` → build ran in-container → result
+  back). Container builder proven on podman in-jail too.
+- ✅ PROVEN with real nix (Linux): darwin buildEnv yields exactly the declared
+  packages; the container-builder orchestration (`builder_session` → build →
+  teardown).
+- 🟡 PENDING real Mac: macos-user end-to-end (Seatbelt launch, real agent run);
+  the **path_helper login-shell PATH fix** (`.zprofile`/`.zshrc`/`.bash_profile`
+  re-prepend) — path_helper doesn't exist on Linux, so this can ONLY be verified
+  on a Mac. Runbook `mac-macos-user-e2e` §5 is its test.
+
+**The path_helper hazard (a Go port must preserve, and it's the most subtle):**
+the default agent launch is a LOGIN shell (`zsh -l`, `run_cmd.py`), and macOS
+`path_helper` (from `/etc/zprofile`, `/etc/profile`) reorders PATH to prepend
+`/usr/local/bin` (Homebrew) — shadowing the nix-store packages the backend
+materialized. The fix is the login rc files the bootstrap writes. A Go
+reimplementation of the launch that drops those rc files would silently
+reintroduce "declared tool resolves to the wrong (Homebrew) binary" — a
+green-run-wrong-binary bug. Golden the launch argv AND the generated rc files at
+Stage 1.
 
 ## 14. Living state
 
@@ -870,10 +949,22 @@ Per session:
 
 ### Open Questions
 
-None active. All nine initial questions were answered by the user in the 2026-07-17
-review (recorded below, never deleted — they are decision records). New questions raised
-during execution go here with a `_Leaning:_`, and the stage handoff must point the human
-at them.
+**OQ-1 (macOS, raised 2026-07-17): path_helper login-shell PATH fix is unverified on a Mac.**
+The macos-user backend materializes `packages:` into the nix store, but a LOGIN
+shell (the default `zsh -l` launch) re-runs macOS `path_helper`, which prepends
+`/usr/local/bin` (Homebrew) and shadows the nix-store binary. Python fix: the
+bootstrap writes `.zprofile`/`.zshrc`/`.bash_profile` that re-prepend the sandbox
+PATH after path_helper (commit on 2026-07-17). This cannot be tested on Linux
+(no path_helper). _Leaning:_ the fix is correct; verify via runbook
+`mac-macos-user-e2e` §5 (`which jq` → `/nix/store/…/bin/jq`) on the next Mac
+session BEFORE porting `macos_user`'s launch to Go — the Go port must reproduce
+the rc-file writes and should golden them. Not blocking the port's early stages
+(macos-user is delegated until its port stage).
+
+_(All nine initial questions were answered by the user in the 2026-07-17
+review, recorded below, never deleted — they are decision records. New questions
+raised during execution go here with a `_Leaning:_`, and the stage handoff must
+point the human at them.)_
 
 ### Answered
 
@@ -906,6 +997,29 @@ macos decision.
 **Answer:**
 > We'll decide when we get there. (⇒ Stage 17 keeps both candidate paths and the
 > decision is made at that stage.)
+>
+> **UPDATE 2026-07-17 — the direction was DECIDED (supersedes "undecided"):**
+> pursue BOTH macOS backends as one composed product — **macos-user (native user
+> + Seatbelt, no VM) as the fast default; Apple Container as the fallback** for
+> what native darwin can't cover. So macos-user is STAYING (not maybe-dying), and
+> Stage 17 retires the Python subtree only after macos-user is itself ported to
+> Go — NOT at cutover. The `--dry-run` goldens frozen at Stage 1 must include the
+> macos-user plan (SBPL, launch argv, generated login rc files). See §13a for the
+> full in-flight module/flake/CI state, and `docs/plans/macos-backend-direction.md`
+> + `docs/plans/macos-nix-shell-backend-proposal.md` for the decision rationale.
+
+#### macOS backend direction — one backend or two?
+Whether to build the native no-VM `macos-user` backend, the Apple Container path,
+or both — and whether macos-user survives at all (it was excised once, then
+revived).
+_Leaning:_ (at plan draft) delegate + defer; decide at Stage 17.
+**Answer:**
+> Pursue BOTH, support both regardless (2026-07-17). macos-user native is the
+> fast default; AC container is the fallback. Acceptance bar for macos-user:
+> honor `packages:` via native aarch64-darwin nix (met — the buildEnv). This is
+> now a firm requirement, not a maybe: the port must carry all three cli-macos
+> modules + the flake `builderImage`/`yoloDarwinPackages` outputs + the GHCR
+> publish job. (⇒ §13/§13a rewritten; the Stage 17 answer above updated.)
 
 #### Fix or preserve the `prune` argv-rewrite quirk
 `prune` was registered as a subcommand but missing from `main()`'s `_SUBCOMMANDS` rewrite
