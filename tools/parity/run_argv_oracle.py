@@ -36,8 +36,14 @@ def main() -> int:
     home, workspace = sys.argv[1], sys.argv[2]
     network = sys.argv[3] if len(sys.argv) > 3 else "bridge"
     os.environ["HOME"] = home
-    for k in ("YOLO_RUNTIME", "YOLO_VERSION", "YOLO_ENTRYPOINT_IMPL", "TZ",
-              "TERM", "YOLO_NIX_HOST_DAEMON"):
+    for k in (
+        "YOLO_RUNTIME",
+        "YOLO_VERSION",
+        "YOLO_ENTRYPOINT_IMPL",
+        "TZ",
+        "TERM",
+        "YOLO_NIX_HOST_DAEMON",
+    ):
         os.environ.pop(k, None)
     os.environ["YOLO_REPO_ROOT"] = "/repo-none"
 
@@ -90,9 +96,15 @@ def main() -> int:
 
     def fake_exists(self):
         s = str(self)
-        if s in ("/run/.containerenv", "/.dockerenv",
-                 "/nix/var/nix/daemon-socket", "/nix/store",
-                 "/dev/net/tun", "/dev/kvm", "/dev/kfd"):
+        if s in (
+            "/run/.containerenv",
+            "/.dockerenv",
+            "/nix/var/nix/daemon-socket",
+            "/nix/store",
+            "/dev/net/tun",
+            "/dev/kvm",
+            "/dev/kfd",
+        ):
             return False
         return real_exists(self)
 
