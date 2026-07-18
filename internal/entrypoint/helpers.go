@@ -201,6 +201,17 @@ func pyStr(v any) string {
 	}
 }
 
+// writeBytesMode writes bytes truncate-in-place then forces mode.
+func writeBytesMode(path string, data []byte, mode os.FileMode) error {
+	if err := os.MkdirAll(filepath.Dir(path), 0o755); err != nil {
+		return err
+	}
+	if err := fsx.WriteInPlace(path, data, mode); err != nil {
+		return err
+	}
+	return os.Chmod(path, mode)
+}
+
 func pathExists(path string) bool {
 	_, err := os.Lstat(path)
 	return err == nil
