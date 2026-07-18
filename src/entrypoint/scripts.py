@@ -369,7 +369,9 @@ from src.cli import main
 main()
 ''')
     bootstrap_py.chmod(0o755)
-    uv_cli = 'uv run --no-project --with typer --with rich --with "pyjson5>=2.0.0" -- python'
+    uv_cli = (
+        'uv run --no-project --with typer --with rich --with "pyjson5>=2.0.0" -- python'
+    )
     script_path.write_text(f"""#!/bin/bash
 exec {uv_cli} "{bootstrap_py}" "$@"
 """)
