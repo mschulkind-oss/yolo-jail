@@ -447,3 +447,117 @@ identically in both impls and ARE covered by the differential parity test.
 byte-identical ANSI-stripped output (a tied fixture is deliberately avoided
 there because Python's order is unstable). The tie-break itself is a pure,
 value-preserving reordering in `sortByValueDesc`.
+
+---
+
+## D15 — tty proxy: host-stdin EOF does NOT close the pty master (the DECIDED semantics; Python differs)
+
+**Status:** proposed (Stage 1 harness decision; §"Answered questions").
+
+**Divergence.** On host-stdin EOF, Python's `tty_proxy.py` (~278-288) does
+`os.close(master)` — closing the write end so the wrapped child sees EOF on its
+own stdin too — then sets a `master = -1` sentinel and keeps pumping until child
+exit. The Go `internal/ttyproxy` (ttyproxy.go:216-224) instead sets
+`stdinClosed = true`, stops polling stdin, and **keeps the master OPEN**, pumping
+it until the child exits. So a wrapped child blocked on `read(stdin)` receives
+EOF under Python but NOT under Go (its stdin simply goes quiet).
+
+- Input: `yolo -- some-cmd </dev/null` (or any invocation where host stdin hits
+  EOF while the child is still running and reading stdin).
+- Python: child's stdin sees EOF (master closed).
+- Go: child's stdin stays open-but-idle; the child keeps running until it exits
+  for another reason, then the proxy tears down.
+
+**Why accepted (this is the DECIDED behavior, not an accident).** The go-port
+plan's Stage-1 harness question was explicitly Answered (changelog 70a0ede9):
+"stop reading stdin on EOF, keep pumping the master until child exit — pin it in
+the harness for BOTH implementations, ledger note if Python's observable
+behavior differs." Closing the master on EOF risks killing an interactive child
+prematurely (the common `yolo` case is an interactive agent REPL, where a
+transient stdin EOF must NOT tear down the session). The Go behavior is the
+intended target semantics; Python's `os.close(master)` is the observable
+difference this entry records. The Stage-1 harness pins the decided behavior for
+both impls, so Python is expected to converge to it (its close-on-EOF path is
+the near-dead `-1`-sentinel branch the plan calls out).
+
+**Guard.** Documented; the ttyproxy code comment (ttyproxy.go:219-222) cites the
+decided semantics. The Stage-1 job-control harness exercises the proxy's
+master-pump lifecycle; the EOF-does-not-teardown behavior is what scenario (c)
+(child keeps running while the proxy is quiescent) protects.
+
+---
+
+## D16 — oauth terminator: response status-line version + Server header (net/http vs BaseHTTPRequestHandler)
+
+**Status:** proposed (audit 2026-07-18, Stage 11).
+
+**Divergence.** The in-jail terminator's HTTP response METADATA differs from
+Python's `BaseHTTPRequestHandler` in three cosmetic ways:
+
+1. **Status line version.** Go's `net/http` server writes `HTTP/1.1 <code>`;
+   Python's handler defaults `protocol_version = "HTTP/1.0"`, so it writes
+   `HTTP/1.0 <code>`.
+2. **Connection header.** Go sends `Connection: close` explicitly (+
+   `SetKeepAlivesEnabled(false)`) to force per-request close; Python's HTTP/1.0
+   default closes with NO `Connection` header on the wire.
+3. **Server header.** Python's `send_response` emits `Server:` (and `Date:`)
+   headers; Go omits `Server:`.
+
+The observable CONNECTION BEHAVIOR — the client sees the socket close after each
+response and reconnects — is IDENTICAL; only these header/status-line bytes
+differ. The client-visible header NAMES and the JSON body are byte-exact (the
+Stage 11 BLOCKER fix — D5's verbatim-name path).
+
+- Input: any refresh/proxy request to the terminator.
+- Go: `HTTP/1.1 200`, `Connection: close`, no `Server:`.
+- Python: `HTTP/1.0 200`, no `Connection`, `Server: BaseHTTP/… Python/…`.
+
+**Why accepted.** Claude Code parses the status CODE and the JSON body, not the
+HTTP version token, the `Connection` header, or `Server:`. Emitting an HTTP/1.0
+status line + suppressing the auto `Connection` management would require
+bypassing `net/http`'s response writer with a custom raw-socket writer — a large
+surface for a difference the client never acts on. Matching Python's
+version-specific `Server: BaseHTTP/0.6 Python/3.13.x` string is actively
+undesirable (it would leak the interpreter version and drift per Python build).
+The per-request-close semantics, status code, JSON body, and header names all
+match.
+
+**Guard.** Documented; the terminator's verbatim-header wire test pins the
+client-visible header names + body. The connection-close behavior is enforced by
+`SetKeepAlivesEnabled(false)` + the explicit `Connection: close`.
+
+---
+
+## D17 — oauth broker: malformed-200 upstream body → typed `upstream_bad_response`, not an unhandled crash → 502
+
+**Status:** proposed (audit 2026-07-18, Stage 6).
+
+**Divergence.** When the upstream token endpoint returns a 200 whose body is
+not valid JSON (or lacks `access_token`), Python's `do_refresh` has no `except`
+for `JSONDecodeError`/`KeyError` around `_refresh_upstream`'s
+`json.loads(resp.read())` (oauth_broker.py:517-527 catches only
+`HTTPError`/`URLError`/`OSError`). The exception therefore propagates OUT of
+`do_refresh` as an unhandled handler exception: the session tears down, and the
+in-jail terminator's `ask_host_broker` raises `RuntimeError` → HTTP **502**
+`broker_unavailable`. The Go broker instead detects the parse failure and returns
+a typed `{"error": "upstream_bad_response", "message": …}` dict, which the
+terminator maps to HTTP **400**.
+
+- Input: upstream 200 with body `not json` (or `{}` with no `access_token`).
+- Python: unhandled exception → session teardown → terminator 502
+  `broker_unavailable`.
+- Go: `{error: upstream_bad_response}` → terminator 400.
+
+**Why accepted.** Python's outcome is an accidental crash path, not a designed
+response: a malformed upstream 200 is a distinct, diagnosable condition, and the
+Go code makes it explicit (a typed error the background refresh tick does NOT
+fast-retry — only `upstream_unreachable` is retried, matching Python's retry
+gate). Reproducing the crash would mean deliberately NOT handling a parse error
+so the handler dies — worse operability for a byte-match on an error path that
+only fires on a broken/hostile upstream. The error CODE (`upstream_bad_response`)
+is Go-introduced by necessity: Python emits no code here because it never returns
+a value on this path.
+
+**Guard.** Documented; `internal/oauthbroker` refresh tests cover the
+parse-failure branch. The status difference (400 vs 502) is confined to the
+malformed-upstream-200 path.
