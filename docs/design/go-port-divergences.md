@@ -107,3 +107,70 @@ Recorded here only to note it was a **fix**, not an accepted divergence: with
 for empty `HOME`), keeping paths absolute; the initial Go port returned relative
 paths. Fixed in `internal/paths` (see the fix commit). Listed so the audit
 trail is complete.
+
+---
+
+## D5 — oauth broker/terminator: proxied response header NAME casing
+
+**Status:** proposed (audit addendum, Stage 6 + Stage 11)
+
+**Divergence.** The OAuth broker's `DoProxy` reads upstream response headers via
+Go's `net/http`, which stores header keys canonicalized (`CanonicalMIMEHeaderKey`:
+`x-request-id` → `X-Request-Id`). Python builds the dict from
+`resp.headers.items()` with names byte-verbatim as upstream sent them. Duplicate
+values ARE now matched (both take the last; fixed). Only the NAME casing of the
+broker→relay proxy dict differs.
+
+- Input: upstream sends `x-request-id: abc`.
+- Go broker dict: `{"X-Request-Id": "abc"}`.
+- Python broker dict: `{"x-request-id": "abc"}`.
+
+**Why accepted.** The jail-side terminator (`cmd/yolo-oauth-terminator`) now
+writes response header NAMES verbatim to the client (the Stage 11 BLOCKER fix,
+via direct map assignment), so what Claude Code ultimately sees is governed by
+the terminator, not this intermediate broker dict. Capturing raw upstream header
+names in Go requires bypassing `net/http`'s reader (a custom response parser)
+for a difference that doesn't reach the client. The values (incl. duplicate
+collapse) match; only the intermediate dict's key casing differs.
+
+**Guard.** The terminator's verbatim-header wire test pins the client-visible
+behavior; a broker-side proxy-shape oracle scenario is a follow-up.
+
+---
+
+## D6 — broker relay: first-message read timeout is whole-frame, not per-recv
+
+**Status:** proposed (audit addendum, Stage 3)
+
+**Divergence.** Python's `_read_first_message` sets `settimeout(5.0)`, which
+applies PER `recv()`; a client dripping bytes slower than one per 5s never times
+out and still gets its `jail_id` stamped. Go sets a single absolute
+`SetReadDeadline(now+5s)` for the whole frame, so a slow-dripping client is
+downgraded to verbatim-unstamped forwarding after 5s total.
+
+**Why accepted.** Real clients (the jail-side terminator) send the framed
+request in ONE write; a byte-dripping client is not a real corridor. The only
+consequence is losing host-side `jail_id` attribution in the broker log for such
+a client — no traffic is dropped (the relay forwards verbatim and keeps working).
+
+**Guard.** Documented; the relay parity suite covers the one-shot path.
+
+---
+
+## D7 — hostservice: exec spawn-failure stderr text (OS-string residue)
+
+**Status:** proposed (audit addendum, Stage 4)
+
+**Divergence.** When `ExecAllowlisted`'s child binary can't be started, both
+impls now emit a `handler error: <e>\n` stderr frame + exit(1) + access-log
+rc=1 (the Go port panics so `handleOne`'s recover reproduces Python's
+Popen-raises path — fixed). The residue is the `<e>` TEXT: Go's
+`fork/exec …: no such file or directory` vs Python's `[Errno 2] No such file or
+directory: …`.
+
+**Why accepted.** The exit code, frame shape, stream, and access-log rc all
+match; only the human-readable OS-error string differs, and it's reachable only
+via a missing/broken daemon-controlled `argv[0]` (e.g. `ps` absent). Matching
+CPython's exact `[Errno N]` text is not worth a translation layer.
+
+**Guard.** Documented; the handler-error frame shape is conformance-tested.
