@@ -4,6 +4,13 @@ package runcmd
 
 import "golang.org/x/sys/unix"
 
+// isattyFD reports whether fd is a terminal (a TCGETS ioctl succeeds), matching
+// Python's os.isatty.
+func isattyFD(fd int) bool {
+	_, err := unix.IoctlGetTermios(fd, unix.TCGETS)
+	return err == nil
+}
+
 // sysconfPhysMem returns total physical memory in bytes. Python uses
 // SC_PAGE_SIZE * SC_PHYS_PAGES; unix.Sysinfo's Totalram*Unit is the equivalent
 // total-RAM figure. ok=false on error. This feeds only the Apple-Container

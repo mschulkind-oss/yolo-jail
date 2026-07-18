@@ -191,8 +191,14 @@ func realExec(argv []string, dir string, env []string, timeout time.Duration) Ex
 	}
 	done := make(chan error, 1)
 	go func() { done <- cmd.Wait() }()
+	// timeout <= 0 means "no deadline" (mirrors the Python subprocess.run calls
+	// that pass no timeout, e.g. find_running_container / find_existing_container).
+	var timer <-chan time.Time
+	if timeout > 0 {
+		timer = time.After(timeout)
+	}
 	select {
-	case <-time.After(timeout):
+	case <-timer:
 		_ = cmd.Process.Kill()
 		<-done
 		return ExecResult{Stdout: stdout.String(), Stderr: stderr.String(), Ran: true, Timeout: true}
@@ -206,13 +212,12 @@ func realExec(argv []string, dir string, env []string, timeout time.Duration) Ex
 	}
 }
 
-// isTTY reports whether f is a character device (a terminal).
+// isTTY reports whether f is a real terminal, mirroring Python's os.isatty /
+// file.isatty() (a TCGETS ioctl), NOT a character-device mode check —
+// /dev/null is a char device but not a tty, and a mode check would wrongly add
+// the container `-t` flag (observed divergence). See isattyFD (platform split).
 func isTTY(f *os.File) bool {
-	fi, err := f.Stat()
-	if err != nil {
-		return false
-	}
-	return (fi.Mode() & os.ModeCharDevice) != 0
+	return isattyFD(int(f.Fd()))
 }
 
 // NewDefaultOptions returns Options with the real platform predicate — the

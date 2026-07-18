@@ -1,6 +1,7 @@
 package runcmd
 
 import (
+	"fmt"
 	"os"
 	"os/exec"
 	"path/filepath"
@@ -237,7 +238,10 @@ func (o *Options) runContainer(cfg *jsonx.OrderedMap, rt, repoRoot string) int {
 	runCmd = append(runCmd, buildFinalInternalCmd(targetCmd, o.Profile))
 
 	if o.Getenv("YOLO_DEBUG") != "" {
-		printer{w: o.Stderr}.print(shquoteJoinDebug(runCmd))
+		// Write RAW (not via the rich-stripping printer): the argv contains
+		// literal bracket sequences (e.g. the grep block_flags "-*[rR]*", the
+		// "[path]" suggestion) that the rich-tag regex would eat.
+		fmt.Fprintln(o.Stderr, shquoteJoinDebug(runCmd))
 	}
 
 	// Launch under the TTY proxy. on_started releases the lock once the

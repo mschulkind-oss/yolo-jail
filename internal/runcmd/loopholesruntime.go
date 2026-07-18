@@ -156,50 +156,16 @@ func (o *Options) stopLoopholes(handles []loopholeDaemon, socketsDir, cname, rt 
 	}
 }
 
-// startCgroupDelegate ports _start_host_service_builtin_cgroup: spawn the Go
-// cgroup-delegate daemon (cmd/yolo-cgd) bound to <sockets_dir>/cgroup-delegate.sock.
+// startCgroupDelegate ports _start_host_service_builtin_cgroup: start the
+// builtin cgroup delegate as an IN-PROCESS goroutine (matching Python's thread
+// model — no external binary), bound to <sockets_dir>/cgroup-delegate.sock.
 // Skipped on macOS and non-cgroup-v2 Linux. The container cgroup is resolved
-// lazily by the daemon, so we pass the container name + runtime through a small
-// wrapper: since the daemon needs the host cgroup path, we resolve it here (best
-// effort) — a nil path still lets the daemon answer "not yet available".
+// lazily on the first request. See startCgroupDelegateInProc.
 func (o *Options) startCgroupDelegate(cname, rt, socketsDir string) (loopholeDaemon, bool) {
-	if o.IsMacOS {
-		return loopholeDaemon{}, false
-	}
-	if !o.PathExists("/sys/fs/cgroup/cgroup.controllers") {
-		return loopholeDaemon{}, false
-	}
 	sockPath := filepath.Join(socketsDir, paths.CgdSocketName)
-	_ = os.Remove(sockPath)
-	containerCgroup := o.resolveContainerCgroup(cname, rt)
-	// The daemon binary: prefer the Go yolo-cgd from $YOLO_GO_BIN_DIR, else PATH.
-	launcher := o.daemonLauncher("yolo-cgd")
-	if launcher == nil {
+	stop, ok := o.startCgroupDelegateInProc(cname, rt, sockPath)
+	if !ok {
 		return loopholeDaemon{}, false
-	}
-	logDir := filepath.Join(paths.GlobalStorage(), "logs")
-	_ = os.MkdirAll(logDir, 0o755)
-	argv := append(append([]string{}, launcher...),
-		"--socket", sockPath, "--container-cgroup", containerCgroup)
-	cmd := exec.Command(argv[0], argv[1:]...)
-	if lf, err := os.OpenFile(filepath.Join(logDir, cname+"-cgd.log"), os.O_APPEND|os.O_CREATE|os.O_WRONLY, 0o644); err == nil {
-		cmd.Stdout, cmd.Stderr = lf, lf
-	}
-	cmd.SysProcAttr = &syscall.SysProcAttr{Setsid: true}
-	if err := cmd.Start(); err != nil {
-		return loopholeDaemon{}, false
-	}
-	stop := func() {
-		if cmd.Process != nil {
-			_ = cmd.Process.Signal(syscall.SIGTERM)
-			done := make(chan struct{})
-			go func() { _, _ = cmd.Process.Wait(); close(done) }()
-			select {
-			case <-done:
-			case <-time.After(3 * time.Second):
-				_ = cmd.Process.Kill()
-			}
-		}
 	}
 	return loopholeDaemon{
 		name:           paths.BuiltinCgroupLoopholeName,

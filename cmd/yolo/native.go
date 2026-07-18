@@ -17,47 +17,47 @@ var nativeDispatch = map[string]func(args []string) int{
 }
 
 // runRun parses the run flags (--network, --new, --profile, --dry-run) and the
-// post-`--` command from args (the rewritten argv[1:], leading token "run") and
-// runs the native Go container-launch. Gated behind YOLO_IMPL=go.
+// post-`--` command from args (the rewritten argv[1:]) and runs the native Go
+// container-launch. Gated behind YOLO_IMPL=go.
+//
+// The front-door RewriteArgv inserts "run" at the `--` position, so flags that
+// preceded `--` end up BEFORE the "run" token (e.g. `yolo --new -- true` →
+// [--new, run, --, true]). We therefore scan the WHOLE args: skip the "run"
+// token wherever it appears, parse flags until `--`, and take everything after
+// `--` as the command (ctx.args).
 func runRun(args []string) int {
 	opts := runcmd.NewDefaultOptions()
 	opts.Color = true
-	// args[0] is "run". Options precede an optional "--"; everything after "--"
-	// is the command (ctx.args). Typer also accepts options anywhere before the
-	// command, but the front-door rewrite always puts "run" first and the app's
-	// flags before "--", so a simple scan suffices.
-	i := 1
-	rest := args[1:]
 	afterDashDash := false
+	sawRun := false
 	var cmdArgs []string
-	for i = 0; i < len(rest); i++ {
-		a := rest[i]
+	for i := 0; i < len(args); i++ {
+		a := args[i]
 		if afterDashDash {
 			cmdArgs = append(cmdArgs, a)
 			continue
 		}
-		switch a {
-		case "--":
+		switch {
+		case a == "--":
 			afterDashDash = true
-		case "--new":
+		case a == "run" && !sawRun:
+			sawRun = true // the injected/leading subcommand token
+		case a == "--new":
 			opts.New = true
-		case "--profile":
+		case a == "--profile":
 			opts.Profile = true
-		case "--dry-run":
+		case a == "--dry-run":
 			opts.DryRun = true
-		case "--network":
-			if i+1 < len(rest) {
+		case a == "--network":
+			if i+1 < len(args) {
 				i++
-				opts.Network = rest[i]
+				opts.Network = args[i]
 			}
+		case len(a) > len("--network=") && a[:len("--network=")] == "--network=":
+			opts.Network = a[len("--network="):]
 		default:
-			if len(a) > len("--network=") && a[:len("--network=")] == "--network=" {
-				opts.Network = a[len("--network="):]
-				continue
-			}
-			// An unrecognized bare token before "--" is treated as the start of
-			// the command (typer would error, but the front door already
-			// classified this as run; be lenient).
+			// An unrecognized bare token before `--` starts the command (typer
+			// would error, but the front door already classified this as run).
 			cmdArgs = append(cmdArgs, a)
 			afterDashDash = true
 		}
