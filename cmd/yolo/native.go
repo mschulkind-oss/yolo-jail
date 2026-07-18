@@ -6,6 +6,7 @@ import (
 	"os/exec"
 
 	"github.com/mschulkind-oss/yolo-jail/internal/checkcmd"
+	"github.com/mschulkind-oss/yolo-jail/internal/configref"
 	"github.com/mschulkind-oss/yolo-jail/internal/loopholescmd"
 	"github.com/mschulkind-oss/yolo-jail/internal/pscmd"
 	"github.com/mschulkind-oss/yolo-jail/internal/runcmd"
@@ -18,11 +19,18 @@ import (
 // gates them on via YOLO_IMPL=go — dispatchNative is only reached for a
 // subcommand IsNative already approved, so a plain map entry is correct.
 var nativeDispatch = map[string]func(args []string) int{
-	"check":     runCheck,
-	"doctor":    runCheck, // doctor is an alias for check (same body + flag).
-	"run":       runRun,
-	"ps":        runPs,
-	"loopholes": runLoopholes,
+	"check":      runCheck,
+	"doctor":     runCheck, // doctor is an alias for check (same body + flag).
+	"run":        runRun,
+	"ps":         runPs,
+	"loopholes":  runLoopholes,
+	"config-ref": runConfigRef,
+}
+
+// runConfigRef prints the full configuration reference. Gated behind
+// YOLO_IMPL=go; info-parity Go-native output (color on a TTY). args ignored.
+func runConfigRef(_ []string) int {
+	return configref.RunStdout()
 }
 
 // runLoopholes dispatches the `yolo loopholes {list,status,enable,disable}`

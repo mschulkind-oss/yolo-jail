@@ -47,11 +47,12 @@ var nativeSubcommands = map[string]struct{}{
 // Stage 16. The gate defaults OFF, so a bare `yolo -- cmd` still delegates to
 // Python unless YOLO_IMPL=go is explicitly exported.
 var gatedNativeSubcommands = map[string]struct{}{
-	"check":     {},
-	"doctor":    {},
-	"run":       {},
-	"ps":        {},
-	"loopholes": {},
+	"check":      {},
+	"doctor":     {},
+	"run":        {},
+	"ps":         {},
+	"loopholes":  {},
+	"config-ref": {},
 }
 
 // goImplEnabled reports whether YOLO_IMPL=go is set (the Stage-15 gate). It is a

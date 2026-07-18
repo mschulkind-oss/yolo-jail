@@ -1,0 +1,106 @@
+// Package configref is the Go port of `yolo config-ref` — the full
+// configuration reference document. The Python command is a single
+// console.print of a static rich-markup string; per the go-port plan's answered
+// Open Question, reference/help output is INFO-parity with purposeful color (a
+// Go-native golden), NOT byte-parity with rich's exact rendering. The content is
+// embedded verbatim from the Python source (so it can never drift in wording)
+// and the closed set of rich tags is rendered to ANSI.
+//
+// Source of truth: src/cli/config_ref_cmd.py.
+package configref
+
+import (
+	_ "embed"
+	"io"
+	"os"
+	"strings"
+)
+
+//go:embed config_ref.txt
+var content string
+
+// ANSI codes matching rich's default styles for the tags this document uses.
+const (
+	ansiReset  = "\x1b[0m"
+	ansiBold   = "\x1b[1m"
+	ansiCyan   = "\x1b[36m"
+	ansiYellow = "\x1b[33m"
+)
+
+// tagReplacer maps the closed set of rich tags in the reference to ANSI. rich
+// nests styles, but this document never nests beyond one level, so a flat
+// open→code / close→reset mapping renders identically to the eye. Order is
+// irrelevant (tags are distinct literals). `[5432]` in the text is literal
+// content, not a tag, so it is left untouched.
+var tagReplacer = strings.NewReplacer(
+	"[bold cyan]", ansiBold+ansiCyan,
+	"[/bold cyan]", ansiReset,
+	"[bold yellow]", ansiBold+ansiYellow,
+	"[/bold yellow]", ansiReset,
+	"[bold]", ansiBold,
+	"[/bold]", ansiReset,
+	"[cyan]", ansiCyan,
+	"[/cyan]", ansiReset,
+	"[yellow]", ansiYellow,
+	"[/yellow]", ansiReset,
+)
+
+// Render returns the reference document with rich tags rendered to ANSI when
+// color is true, or with the tags stripped to plain text when false.
+func Render(color bool) string {
+	if color {
+		return tagReplacer.Replace(content)
+	}
+	return stripTags(content)
+}
+
+// Run prints the reference to w (color-on when w is a terminal, per the caller)
+// and returns the exit code (always 0). Mirrors config_ref().
+func Run(w io.Writer, color bool) int {
+	io.WriteString(w, Render(color))
+	return 0
+}
+
+// RunStdout is the front-door entry: prints to stdout with color when stdout is
+// a TTY.
+func RunStdout() int {
+	return Run(os.Stdout, isTTY(os.Stdout))
+}
+
+// stripTags removes every rich tag, leaving plain text (for non-TTY output).
+func stripTags(s string) string {
+	var b strings.Builder
+	for i := 0; i < len(s); {
+		if s[i] == '[' {
+			if end := strings.IndexByte(s[i:], ']'); end >= 0 {
+				tag := s[i : i+end+1]
+				if isRichTag(tag) {
+					i += end + 1
+					continue
+				}
+			}
+		}
+		b.WriteByte(s[i])
+		i++
+	}
+	return b.String()
+}
+
+// isRichTag reports whether tok is one of the document's known rich tags (so
+// literal bracketed text like `[5432]` is preserved).
+func isRichTag(tok string) bool {
+	switch tok {
+	case "[bold cyan]", "[/bold cyan]", "[bold yellow]", "[/bold yellow]",
+		"[bold]", "[/bold]", "[cyan]", "[/cyan]", "[yellow]", "[/yellow]":
+		return true
+	}
+	return false
+}
+
+func isTTY(f *os.File) bool {
+	info, err := f.Stat()
+	if err != nil {
+		return false
+	}
+	return info.Mode()&os.ModeCharDevice != 0
+}
