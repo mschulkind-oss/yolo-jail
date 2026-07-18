@@ -8,12 +8,32 @@ import (
 
 // WorkspaceFromInspectEnv extracts the YOLO_HOST_DIR value from a runtime
 // inspect's env lines. Mirrors _get_container_workspace's fallback: scan lines
-// for the "YOLO_HOST_DIR=" prefix and return the value after the first '='.
-// Returns ("", false) when absent (caller then reports "unknown").
+// for the "YOLO_HOST_DIR=" prefix and return the value after the first '='
+// VERBATIM (no strip). Returns ("", false) when absent (caller then reports
+// "unknown").
 func WorkspaceFromInspectEnv(envLines []string) (string, bool) {
 	for _, line := range envLines {
 		if strings.HasPrefix(line, "YOLO_HOST_DIR=") {
 			return line[len("YOLO_HOST_DIR="):], true
+		}
+	}
+	return "", false
+}
+
+// BakedYoloVersionFromInspectEnv extracts the YOLO_VERSION baked into a
+// container's inspect env lines. Mirrors _container_baked_yolo_version's parse:
+// the value after "YOLO_VERSION=" is STRIPPED, and an empty-after-strip value
+// reads as absent (Python's `... .strip() or None`). Returns ("", false) when
+// absent or empty. The subprocess (inspect --format) stays in the caller; this
+// is the pure line parse.
+func BakedYoloVersionFromInspectEnv(envLines []string) (string, bool) {
+	for _, line := range envLines {
+		if strings.HasPrefix(line, "YOLO_VERSION=") {
+			v := strings.TrimSpace(line[len("YOLO_VERSION="):])
+			if v == "" {
+				return "", false
+			}
+			return v, true
 		}
 	}
 	return "", false

@@ -95,6 +95,22 @@ func TestWorkspaceFromInspectEnv(t *testing.T) {
 	}
 }
 
+func TestBakedYoloVersionFromInspectEnv(t *testing.T) {
+	// Present + stripped.
+	env := []string{"PATH=/bin", "YOLO_VERSION= 1.2.3 ", "TERM=xterm"}
+	if v, ok := BakedYoloVersionFromInspectEnv(env); !ok || v != "1.2.3" {
+		t.Errorf("version = %q, %v (want 1.2.3 stripped)", v, ok)
+	}
+	// Empty-after-strip reads as absent.
+	if _, ok := BakedYoloVersionFromInspectEnv([]string{"YOLO_VERSION=   "}); ok {
+		t.Error("empty-after-strip should read as absent")
+	}
+	// Truly absent.
+	if _, ok := BakedYoloVersionFromInspectEnv([]string{"PATH=/bin"}); ok {
+		t.Error("absent YOLO_VERSION should return ok=false")
+	}
+}
+
 func TestRenderPsTable(t *testing.T) {
 	containers := []PsContainer{
 		{"yolo-a-1", "Up 2 hours", "/home/matt/a"},
