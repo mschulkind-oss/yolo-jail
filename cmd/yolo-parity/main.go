@@ -16,8 +16,10 @@ package main
 import (
 	"fmt"
 	"os"
+	"sort"
 
 	"github.com/mschulkind-oss/yolo-jail/internal/agents"
+	"github.com/mschulkind-oss/yolo-jail/internal/config"
 	"github.com/mschulkind-oss/yolo-jail/internal/jsonx"
 	"github.com/mschulkind-oss/yolo-jail/internal/naming"
 	"github.com/mschulkind-oss/yolo-jail/internal/paths"
@@ -154,12 +156,32 @@ func agentsSection() *jsonx.OrderedMap {
 	)
 }
 
+// configSchemaSection dumps the config-schema constants (config.go ↔
+// config.py:75-148) so a drift in any known-key set / mode list / validation
+// regex is a red build. Each value is a sorted []string (order-insensitive for
+// the Python set/dict literals). The map is emitted key-sorted by om via the
+// canonical serializer.
+func configSchemaSection() *jsonx.OrderedMap {
+	sc := config.SchemaConstants()
+	keys := make([]string, 0, len(sc))
+	for k := range sc {
+		keys = append(keys, k)
+	}
+	sort.Strings(keys)
+	m := jsonx.NewOrderedMap()
+	for _, k := range keys {
+		m.Set(k, strAny(sc[k]))
+	}
+	return m
+}
+
 func buildDump() *jsonx.OrderedMap {
 	return om(
 		"paths", pathsSection(),
 		"version_normalizations", versionSection(),
 		"container_names", containerNamesSection(),
 		"agents", agentsSection(),
+		"config_schema", configSchemaSection(),
 	)
 }
 

@@ -207,12 +207,54 @@ def _agent_registry() -> "dict[str, object]":
     }
 
 
+def _config_schema_constants() -> "dict[str, object]":
+    """The config-schema constants (config.py:75-148) as sorted string lists.
+
+    Order-insensitive (Python set/dict literals iterate arbitrarily); regexes
+    are dumped by their pattern source; DEFAULT_MISE_TOOLS as sorted "k=v"
+    pairs. Must match internal/config.SchemaConstants() exactly — the audit
+    (2026-07-18 §7) found NO config constants were drift-covered, which let
+    host_pi_files silently drop out of KNOWN_TOP_LEVEL_CONFIG_KEYS.
+    """
+    from cli import config as c
+
+    return {
+        "DEFAULT_HOST_CLAUDE_FILES": sorted(c.DEFAULT_HOST_CLAUDE_FILES),
+        "DEFAULT_HOST_PI_FILES": sorted(c.DEFAULT_HOST_PI_FILES),
+        "KNOWN_TOP_LEVEL_CONFIG_KEYS": sorted(c.KNOWN_TOP_LEVEL_CONFIG_KEYS),
+        "JOURNAL_MODES": sorted(c.JOURNAL_MODES),
+        "EPHEMERAL_STORAGE_MODES": sorted(c.EPHEMERAL_STORAGE_MODES),
+        "KNOWN_NETWORK_KEYS": sorted(c.KNOWN_NETWORK_KEYS),
+        "KNOWN_SECURITY_KEYS": sorted(c.KNOWN_SECURITY_KEYS),
+        "KNOWN_BLOCKED_TOOL_KEYS": sorted(c.KNOWN_BLOCKED_TOOL_KEYS),
+        "KNOWN_HOST_PROCESSES_KEYS": sorted(c.KNOWN_HOST_PROCESSES_KEYS),
+        "KNOWN_PACKAGE_KEYS": sorted(c.KNOWN_PACKAGE_KEYS),
+        "KNOWN_LSP_SERVER_KEYS": sorted(c.KNOWN_LSP_SERVER_KEYS),
+        "KNOWN_MCP_SERVER_KEYS": sorted(c.KNOWN_MCP_SERVER_KEYS),
+        "KNOWN_DEVICE_KEYS": sorted(c.KNOWN_DEVICE_KEYS),
+        "KNOWN_GPU_KEYS": sorted(c.KNOWN_GPU_KEYS),
+        "KNOWN_RESOURCES_KEYS": sorted(c.KNOWN_RESOURCES_KEYS),
+        "KNOWN_HOST_SERVICE_KEYS": sorted(c.KNOWN_HOST_SERVICE_KEYS),
+        "KNOWN_LOOPHOLE_OVERRIDE_KEYS": sorted(c.KNOWN_LOOPHOLE_OVERRIDE_KEYS),
+        "VAAPI_PACKAGES": sorted(c.VAAPI_PACKAGES),
+        "VALID_MCP_PRESETS": sorted(c.VALID_MCP_PRESETS),
+        "DEFAULT_MISE_DISABLED_TOOLS": sorted(c.DEFAULT_MISE_DISABLED_TOOLS),
+        "DEFAULT_MISE_TOOLS": sorted(f"{k}={v}" for k, v in c.DEFAULT_MISE_TOOLS.items()),
+        "PACKAGE_NAME_RE": [c.PACKAGE_NAME_RE.pattern],
+        "PACKAGE_OUTPUT_RE": [c.PACKAGE_OUTPUT_RE.pattern],
+        "HOST_SERVICE_NAME_RE": [c.HOST_SERVICE_NAME_RE.pattern],
+        "USB_ID_RE": [c.USB_ID_RE.pattern],
+        "MEMORY_RE": [c.MEMORY_RE.pattern],
+    }
+
+
 def build_dump() -> "dict[str, object]":
     return {
         "paths": _paths_constants(),
         "version_normalizations": _version_normalizations(),
         "container_names": _container_name_cases(),
         "agents": _agent_registry(),
+        "config_schema": _config_schema_constants(),
     }
 
 
