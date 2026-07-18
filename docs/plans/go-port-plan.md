@@ -935,7 +935,7 @@ Stage 1.
 | 4 | frameproto | 1 | **landed** (conformance both directions) | [stage-4](../implementation/go-port-stage-4.md) |
 | 5 | host-processes | 1 | in progress (blocked on Spike A json5) | — |
 | 6 | OAuth broker | 2 + soak | **landed** (behind YOLO_GO_DAEMONS; soak/real-login human-gated) | [stage-6](../implementation/go-port-stage-6.md) |
-| 7 | Builtin daemons | 2 | not started | — |
+| 7 | Builtin daemons | 2 | partial (Commit B Go daemons landed+tested; Commit A Python carve-out pending) | [stage-7](../implementation/go-port-stage-7.md) |
 | 8 | TTY proxy | 2 | not started | — |
 | 9 | Characterization wave B | 1 | not started | — |
 | 10 | Go entrypoint (dual image) | 3 | not started | — |
