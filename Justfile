@@ -217,15 +217,16 @@ format:
 build-go:
     ./scripts/build-go.sh
 
-# Enable the Go front door in the CURRENT shell (both host + jail; `yolo` stays
-# `yolo`). Builds the binaries, then eval's the gate env. Unset YOLO_IMPL to
-# revert to 100% Python. See scripts/go-front-door.sh for the mechanism.
-yolo-go: build-go
-    @echo 'Run:  eval "$(just --quiet go-front-door-env)"   # enable in this shell'
+# Install `yolo-go` as a standalone host command (no env flip): `yolo` stays
+# Python, `yolo-go` runs Go. Inside a jail the command is always `yolo` — Go
+# when the jail was launched via `yolo-go`, Python via `yolo`. Rebuilds first.
+install-go: build-go
+    ./scripts/go-front-door.sh
 
-# Print the export lines that enable the Go front door (eval target for yolo-go).
+# Alternative: print export lines to enable Go in the CURRENT shell (eval them),
+# instead of installing the standalone command.
 go-front-door-env:
-    @./scripts/go-front-door.sh
+    @./scripts/go-front-door.sh --env
 
 # Run a go-port parity suite (drift, ...) against both implementations.
 parity suite:
