@@ -261,6 +261,7 @@ def _daemon_launcher(console_name: str) -> "List[str]":
             )
     return [console_name]
 
+
 # --- Timing knobs ----------------------------------------------------------
 # Condition-polling pattern: TIGHT poll interval, GENEROUS deadline — waits
 # return as soon as the condition holds and only burn the full deadline on

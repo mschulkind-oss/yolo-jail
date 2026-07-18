@@ -3594,7 +3594,9 @@ class TestBrokerSingleton:
         go_bin = tmp_path / "yolo-claude-oauth-broker-host"
         go_bin.write_text("#!/bin/sh\n")
         go_bin.chmod(0o755)
-        monkeypatch.setenv("YOLO_GO_DAEMONS", "host-processes,yolo-claude-oauth-broker-host")
+        monkeypatch.setenv(
+            "YOLO_GO_DAEMONS", "host-processes,yolo-claude-oauth-broker-host"
+        )
         monkeypatch.setenv("YOLO_GO_BIN_DIR", str(tmp_path))
         assert _daemon_launcher("yolo-claude-oauth-broker-host") == [str(go_bin)]
 

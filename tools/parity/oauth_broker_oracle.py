@@ -34,11 +34,6 @@ sys.path.insert(0, str(REPO_ROOT / "src"))
 FIXED_NOW_MS = 1_700_000_000_000
 
 
-def _patch_now(monkeypatch_time):
-    """oauth_broker uses int(time.time()*1000); pin it."""
-    monkeypatch_time(FIXED_NOW_MS / 1000.0)
-
-
 def build_scenarios():
     import oauth_broker as ob  # src/oauth_broker.py via sys.path
 
@@ -81,8 +76,12 @@ def build_scenarios():
         # 3. normalize when previous lacks scopes and upstream carries scope.
         results["normalize_oauth_synth_scopes"] = json.dumps(
             ob._normalize_oauth(
-                {"access_token": "A", "refresh_token": "R", "expires_in": 3600,
-                 "scope": "a b c"},
+                {
+                    "access_token": "A",
+                    "refresh_token": "R",
+                    "expires_in": 3600,
+                    "scope": "a b c",
+                },
                 previous={"expiresAt": 0},
             )
         )
@@ -111,12 +110,9 @@ def build_scenarios():
         # 6. ping response (pid varies, so freeze only the shape sans pid).
         results["ping_shape"] = json.dumps({"pong": True})
 
-        # 7. bad_path proxy error (embeds Python repr of the path).
-        bad = ob._decode_proxy_request(
-            {"method": "GET", "path": "no-leading-slash", "headers": {}, "body_b64": ""}
-        )
-        # _decode_proxy_request validates method/path exist; the leading-slash
-        # check is in do_proxy. Emit the do_proxy bad_path dict directly.
+        # 7. bad_path proxy error (embeds Python repr of the path). The
+        # leading-slash check lives in do_proxy (not _decode_proxy_request), so
+        # emit the do_proxy bad_path dict shape directly.
         results["error_bad_path"] = json.dumps(
             {
                 "error": "bad_path",
@@ -125,7 +121,10 @@ def build_scenarios():
         )
 
         # 8. _write_tokens byte output (the creds file blob).
-        blob = json.dumps({"claudeAiOauth": ob._normalize_oauth(upstream, previous=previous)}, indent=2)
+        blob = json.dumps(
+            {"claudeAiOauth": ob._normalize_oauth(upstream, previous=previous)},
+            indent=2,
+        )
         results["write_tokens_blob"] = blob
 
         return results
