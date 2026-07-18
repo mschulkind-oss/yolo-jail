@@ -537,12 +537,37 @@
         # string transitively pulls Linux bash into the wrapper's closure
         # (fetched from the binary cache) so the wrapper is self-contained
         # and doesn't rely on PATH or /usr/bin/env existing in the image.
+        # Go port of the entrypoint (Stage 10), cross-compiled into the image by
+        # the goBinaries derivation above.  Baked alongside the Python package so
+        # the wrapper below can A/B between them per-jail with no image rebuild.
+        goEntrypoint = "${goBinaries}/bin/yolo-entrypoint";
+
+        # Dual-impl seam wrapper (go-port plan §3, seam #5).  Branches on
+        # YOLO_ENTRYPOINT_IMPL (default: python — this is a REVERSIBLE seam, Go
+        # is opt-in until the Stage-17 default flip).  Both implementations are
+        # baked into every image, so A/B and rollback are per-jail `-e` flips
+        # with zero host changes.
+        #
+        # Resolution order for the Go arm:
+        #   1. Dev override: /opt/yolo-jail/dist-go/linux-<arch>/yolo-entrypoint
+        #      when present (live-mount iteration — `just build-go` refreshes it,
+        #      no image rebuild; safe from `just build`'s `rm -rf dist/`).
+        #   2. The baked ${goBinaries} binary.
+        # The Python arm is unchanged: run the /lib/python/entrypoint package as
+        # a module (relative imports resolve via PYTHONPATH).
         entrypoint = pkgs.writeTextFile {
           name = "yolo-entrypoint";
           executable = true;
           destination = "/bin/yolo-entrypoint";
           text = ''
             #!${imagePkgs.bashInteractive}/bin/bash
+            if [ "''${YOLO_ENTRYPOINT_IMPL:-python}" = "go" ]; then
+              dev_override="/opt/yolo-jail/dist-go/linux-${goArch}/yolo-entrypoint"
+              if [ -x "$dev_override" ]; then
+                exec "$dev_override" "$@"
+              fi
+              exec ${goEntrypoint} "$@"
+            fi
             # The entrypoint package lives at /lib/python/entrypoint/
             # inside the image (see entrypointPkg above).  Put the
             # parent ``python`` dir on PYTHONPATH and run as a module
