@@ -939,7 +939,7 @@ Stage 1.
 | 8 | TTY proxy | 2 | not started | — |
 | 9 | Characterization wave B | 1 | not started | — |
 | 10 | Go entrypoint (dual image) | 3 | not started | — |
-| 11 | Jail-side wave | 2 | not started | — |
+| 11 | Jail-side wave | 2 | partial (yolo-ps, jail-supervisor, oauth-terminator ported+tested; cglimit/journalctl + image bake pending) | [stage-11](../implementation/go-port-stage-11.md) |
 | 12 | Front door + slices | 2 | not started | — |
 | 13 | Config engine | 2 | not started | — |
 | 14 | Command slices ×6 | ~8 | not started | — |
