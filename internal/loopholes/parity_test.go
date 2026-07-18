@@ -132,6 +132,20 @@ func TestRuntimeArgsParity(t *testing.T) {
 				manifest: map[string]any{"name": "real", "description": "x", "intercepts": []any{map[string]any{"host": "r.test"}}},
 			}},
 		},
+		{
+			// broker_ip int -> str("123"); jail_env non-string values ->
+			// str-coerced (1->"1", true->"True", 1.5->"1.5").
+			name: "scalar_coercion",
+			specs: []manifestSpec{{
+				dir: "coerce",
+				manifest: map[string]any{
+					"name": "coerce", "description": "x",
+					"intercepts": []any{map[string]any{"host": "h.test"}},
+					"broker_ip":  123,
+					"jail_env":   map[string]any{"A": 1, "B": true, "C": 1.5},
+				},
+			}},
+		},
 	}
 
 	for _, tc := range cases {
