@@ -110,3 +110,29 @@ func PodmanMachineResizeHint() string {
 		PodmanMachineMemoryFloorMB,
 	)
 }
+
+// OOMKillerWarning returns the exit-137-looks-like-OOM hint, or ("", false) when
+// the conditions don't fire. Mirrors _maybe_warn_about_oom_killer's pure core:
+// fire only on macOS + podman + exit 137, when the podman machine's memory is
+// below the floor. isMacOS / machineName / machineMemMB are injected (the caller
+// runs `podman machine inspect` and supplies memMB<0 / ok=false when the machine
+// is unavailable — in which case this returns no warning). 137 isn't only OOM
+// (kill -9 also yields it), hence "often means".
+func OOMKillerWarning(exitCode int, runtime string, isMacOS bool, machineName string, machineMemMB int, machineOK bool) (string, bool) {
+	if !(isMacOS && runtime == "podman" && exitCode == 137) {
+		return "", false
+	}
+	if !machineOK {
+		return "", false
+	}
+	if machineMemMB >= PodmanMachineMemoryFloorMB {
+		return "", false
+	}
+	return fmt.Sprintf(
+		"Exit 137 is SIGKILL.  On Podman Machine this often means "+
+			"the VM's OOM-killer fired — '%s' has only %d MB "+
+			"(below the %d MB recommended floor "+
+			"for running an agent).  %s",
+		machineName, machineMemMB, PodmanMachineMemoryFloorMB, PodmanMachineResizeHint(),
+	), true
+}
