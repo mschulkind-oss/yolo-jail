@@ -216,3 +216,73 @@ both sides.
 `internal/entrypoint/boot.go`. The happy-path tree parity (Stage 9 golden +
 in-jail dual-arm byte compare) proves no divergence when generators succeed,
 which is every real boot.
+
+---
+
+## D9 — loopholes: JSON-syntax-error message body differs (json5 vs pyjson5 text)
+
+**Status:** proposed (Stage 14, internal/loopholes)
+
+**Divergence.** `_load_manifest` wraps a parse failure as
+`LoopholeError(f"{manifest_path}: {e}")` where `{e}` is the underlying parser's
+exception string. Python uses `pyjson5.Json5Exception`; the Go port uses
+`internal/json5`. The file-path prefix is byte-identical, but the trailing
+parser-error TEXT differs.
+
+- Input: a malformed `manifest.jsonc` (e.g. `"{not valid json"`), surfaced via
+  `validate_loopholes` (the third tuple element).
+- Python: `…/manifest.jsonc: ("Expected b'colon' near 6, found U+0076", {}, 'v')`.
+- Go: `…/manifest.jsonc: json5: expected ':' after object key at offset 5`.
+
+**Why accepted.** This is exactly the `internal/json5`-vs-`pyjson5` error-text
+gap already ledgered in spirit for the config path — the two hand-written
+parsers report syntax errors in their own words. `discover_loopholes` and
+`_load_from_dir` SKIP malformed manifests silently (they only catch
+`LoopholeError` to drop the entry), so the differing text is user-visible only
+through `yolo loopholes` diagnostics (`validate_loopholes`), never in the
+runtime wiring path. Real bundled/user manifests parse cleanly on both sides
+(proven by the bundled-manifest parity tests); matching pyjson5's exact
+tuple-repr wording would require reimplementing its error format solely for
+manifests an author is actively fixing.
+
+**Guard.** `TestValidateParity` compares the full error string for every
+*structural* (post-parse) validation failure byte-for-byte — those DO match; it
+deliberately does not assert on raw JSON-syntax bodies. The bundled manifests'
+clean-parse parity is guarded by `TestBundledManifestsParse` +
+`TestBundledAudioParity`/`TestBundledBrokerParity`.
+
+---
+
+## D10 — loopholes: a non-object manifest is a skippable error, not an AttributeError crash
+
+**Status:** proposed (Stage 14, internal/loopholes)
+
+**Divergence.** After a successful parse, `_load_manifest` calls
+`data.get("name")` with no check that the top-level JSON value is an object. A
+manifest whose top-level value is a list/number/string/bool parses fine, then
+`data.get(...)` raises an uncaught `AttributeError` ('list' object has no
+attribute 'get') — which is NOT a `LoopholeError`, so it propagates out of
+`discover_loopholes` / `validate_loopholes` and aborts the whole scan. The Go
+port type-asserts the decoded value to `*jsonx.OrderedMap` and, on failure,
+returns a `LoopholeError` ("manifest must be a JSON object"), so the entry is
+skipped (discover) or reported (validate) like any other malformed manifest.
+
+- Input: `manifest.jsonc` containing e.g. `[1, 2, 3]`.
+- Python: `AttributeError` escapes → `discover_loopholes` raises → the scan
+  aborts (every other loophole in the dir is lost too).
+- Go: the offending dir yields a skippable/reportable `LoopholeError`; sibling
+  loopholes still load.
+
+**Why accepted.** The Go behavior is strictly more robust and matches Python's
+INTENT for every other malformed-manifest shape (skip silently in discovery,
+report in validate). A top-level non-object manifest cannot occur in a real
+authored loophole (the schema is an object with a required `name`); the only way
+to hit it is hand-writing a syntactically-valid-but-wrong-shape manifest, at
+which point "skip the bad one, keep the rest" beats "crash the entire loophole
+scan and take down `yolo run`/`yolo loopholes`". Reproducing the crash would
+mean deliberately re-introducing an unhandled-exception path.
+
+**Guard.** Documented; the guard is the `decoded.(*jsonx.OrderedMap)` assertion
+in `loadManifest` (and the mirror in `SetEnabled`). No parity test asserts the
+crash (it is the accepted improvement); the skippable-error path shares the same
+`LoopholeError` plumbing that `TestValidateParity` covers for other shapes.
