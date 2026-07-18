@@ -1,0 +1,77 @@
+{
+  "_comment": "Stage 9 entrypoint tree-golden env matrix (go-port plan §9). The SINGLE committed source of truth for the scenarios both the Python oracle (entrypoint_oracle.py) and the Go test (entrypoint_parity_test.go) drive. @HOME@ is the fake-HOME token: substituted with the actual temp dir in env values and seed-file bodies on the way IN, and substituted back OUT of emitted file bodies + symlink targets so the two languages agree regardless of temp dir. Add scenarios here and both sides pick them up.",
+  "home_token": "@HOME@",
+  "scenarios": {
+    "default_claude": {
+      "env": {}
+    },
+    "all_agents_presets_lsp": {
+      "env": {
+        "YOLO_AGENTS": "[\"claude\",\"copilot\",\"gemini\",\"opencode\",\"pi\",\"codex\"]",
+        "YOLO_MCP_PRESETS": "[\"chrome-devtools\",\"sequential-thinking\"]",
+        "YOLO_LSP_SERVERS": "{\"python\":{\"command\":\"/x/pyright-langserver\",\"args\":[\"--stdio\"],\"fileExtensions\":{\".py\":\"python\",\".pyi\":\"python\"}},\"go\":{\"command\":\"/x/gopls\",\"args\":[],\"fileExtensions\":{\".go\":\"go\"}}}",
+        "YOLO_HOST_DIR": "/home/user/kitchen",
+        "YOLO_MISE_TOOLS": "{\"typst\":\"latest\"}"
+      }
+    },
+    "blocked_tools_matrix": {
+      "env": {
+        "YOLO_BLOCK_CONFIG": "[{\"name\":\"grep\",\"message\":\"grep -r is blocked\",\"suggestion\":\"Use rg\",\"block_flags\":[\"--recursive\",\"-r\",\"-R\",\"-*[rR]*\"]},{\"name\":\"find\",\"message\":\"find is blocked\",\"suggestion\":\"Use fd\"},{\"name\":\"curl\",\"message\":\"curl is blocked in this project.\"}]"
+      }
+    },
+    "block_shadows_agent_launcher": {
+      "env": {
+        "YOLO_AGENTS": "[\"gemini\",\"copilot\",\"claude\"]",
+        "YOLO_BLOCK_CONFIG": "[{\"name\":\"gemini\",\"message\":\"blocked\"},{\"name\":\"pnpm\",\"message\":\"blocked\"}]"
+      }
+    },
+    "mcp_servers_env_interp": {
+      "env": {
+        "YOLO_AGENTS": "[\"copilot\",\"gemini\",\"claude\",\"opencode\",\"codex\"]",
+        "CEREBRAS_API_KEY": "csk-from-launch-env",
+        "YOLO_MCP_SERVERS": "{\"cerebras-mcp\":{\"command\":\"npx\",\"args\":[\"-y\",\"cerebras-code-mcp\"],\"env\":{\"CEREBRAS_API_KEY\":\"${CEREBRAS_API_KEY}\",\"CEREBRAS_MCP_IDE\":\"claude\"}},\"tavily\":{\"command\":\"npx\",\"args\":[\"-y\",\"tavily-mcp\"],\"env\":{\"TAVILY_API_KEY\":\"${TAVILY_API_KEY}\"},\"requires_env\":[\"TAVILY_API_KEY\"]},\"probe-mcp\":{\"command\":\"/workspace/probe-mcp.py\",\"args\":[\"--stdio\"]}}"
+      }
+    },
+    "mise_ca_seeded": {
+      "env": {
+        "YOLO_MISE_TOOLS": "{\"node\":\"23\"}",
+        "SSL_CERT_FILE": "@HOME@/baseline.crt",
+        "NODE_EXTRA_CA_CERTS": "@HOME@/broker.crt:@HOME@/other.crt"
+      },
+      "files": {
+        "baseline.crt": "-----BEGIN CERTIFICATE-----\nBASELINE\n-----END CERTIFICATE-----\n",
+        "broker.crt": "-----BEGIN CERTIFICATE-----\nBROKERCA\n-----END CERTIFICATE-----\n",
+        "other.crt": "-----BEGIN CERTIFICATE-----\nOTHERCA\n-----END CERTIFICATE-----\n",
+        ".config/mise/config.toml": "[tools]\nnode = \"20\"\npython = \"3.12\"\ngemini = \"latest\"\n"
+      }
+    },
+    "claude_history_and_existing": {
+      "env": {
+        "YOLO_AGENTS": "[\"claude\"]",
+        "YOLO_HOST_DIR": "/home/user/proj-xyz"
+      },
+      "files": {
+        ".claude/settings.json": "{\"myCustomKey\": true, \"env\": {\"ENABLE_LSP_TOOL\": \"1\", \"OTHER\": \"keep\"}}",
+        ".claude.json": "{\"hasCompletedOnboarding\": true, \"mcpServers\": {\"custom\": {\"command\": \"foo\"}}}"
+      }
+    },
+    "gemini_migration_fallback": {
+      "env": {
+        "YOLO_AGENTS": "[\"gemini\"]",
+        "YOLO_MCP_SERVERS": "{\"other-mcp\":{\"command\":\"/workspace/other.py\",\"args\":[]}}"
+      },
+      "files": {
+        ".gemini/settings.json": "{\"mcpServers\": {\"my-server\": {\"command\": \"foo\"}, \"probe-mcp\": {\"command\": \"/workspace/probe_mcp.py\", \"args\": []}}}"
+      }
+    },
+    "codex_userkeys_preserved": {
+      "env": {
+        "YOLO_AGENTS": "[\"codex\"]",
+        "YOLO_MCP_SERVERS": "{\"probe\":{\"command\":\"/bin/probe\",\"args\":[],\"env\":{\"K\":\"v\"}}}"
+      },
+      "files": {
+        ".codex/config.toml": "model = \"gpt-5\"\napproval_policy = \"on-request\"\n"
+      }
+    }
+  }
+}
