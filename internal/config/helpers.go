@@ -3,10 +3,25 @@ package config
 import (
 	"fmt"
 	"os"
+	"os/user"
 	"path/filepath"
+	"sort"
+	"strconv"
+	"strings"
 
 	"github.com/mschulkind-oss/yolo-jail/internal/jsonx"
+	"github.com/mschulkind-oss/yolo-jail/internal/pytext"
 )
+
+// userHomeDir returns the passwd-database home dir (Python's
+// pwd.getpwuid(getuid()).pw_dir), used by expanduser when HOME is unset.
+func userHomeDir() (string, error) {
+	u, err := user.Current()
+	if err != nil {
+		return "", err
+	}
+	return u.HomeDir, nil
+}
 
 // dedupKey reproduces _merge_lists' canonical key,
 // json.dumps(item, sort_keys=True, default=str). jsonx.DumpsSnapshot is
@@ -98,3 +113,184 @@ func cwd() string {
 	}
 	return "."
 }
+
+// ---------------------------------------------------------------------------
+// validation helpers
+// ---------------------------------------------------------------------------
+
+// isStr mirrors isinstance(v, str).
+func isStr(v any) bool {
+	_, ok := v.(string)
+	return ok
+}
+
+// isStrList mirrors `isinstance(v, list) and all(isinstance(x, str) for x in v)`.
+func isStrList(v any) bool {
+	l, ok := asList(v)
+	if !ok {
+		return false
+	}
+	for _, x := range l {
+		if !isStr(x) {
+			return false
+		}
+	}
+	return true
+}
+
+// inStrList reports whether v (any) equals a string in list. Mirrors
+// `v in list` for a runtime value compared against a []string.
+func inStrList(list []string, v any) bool {
+	s, ok := v.(string)
+	if !ok {
+		return false
+	}
+	return inStrSlice(list, s)
+}
+
+func inStrSlice(list []string, s string) bool {
+	for _, x := range list {
+		if x == s {
+			return true
+		}
+	}
+	return false
+}
+
+// pyInt mirrors int(value) for validate_port_number: accept an int literal or a
+// string that Python's int() parses (base-10, optional sign, surrounding
+// whitespace, underscores between digits). Returns (n, true) on success. A bool
+// is an int in Python (True->1, False->0). A float raises TypeError? No —
+// int(3.5)==3, but validate_port_number receives already-decoded JSON where a
+// port is an int or a string; int(float) truncates. Mirror that: floats
+// truncate toward zero.
+func pyInt(value any) (int64, bool) {
+	switch t := value.(type) {
+	case bool:
+		if t {
+			return 1, true
+		}
+		return 0, true
+	case float64:
+		// int(float) truncates toward zero.
+		return int64(t), true
+	case string:
+		return pyIntFromString(t)
+	default:
+		if n, ok := jsonx.AsInt(value); ok {
+			return n, true
+		}
+		// A very large int literal beyond int64 still parses in Python; for
+		// port validation it will fail the 1..65535 range anyway. Try literal.
+		if lit, ok := jsonx.AsIntLiteral(value); ok {
+			return pyIntFromString(lit)
+		}
+		return 0, false
+	}
+}
+
+// pyIntFromString mirrors Python int(str) base 10: optional surrounding
+// whitespace, optional +/- sign, digits with single underscores allowed between
+// digits. Returns (0,false) on any malformed input.
+func pyIntFromString(s string) (int64, bool) {
+	str := strings.TrimSpace(s)
+	if str == "" {
+		return 0, false
+	}
+	neg := false
+	if str[0] == '+' || str[0] == '-' {
+		neg = str[0] == '-'
+		str = str[1:]
+	}
+	if str == "" {
+		return 0, false
+	}
+	// Underscores allowed only between digits.
+	var digits strings.Builder
+	prevDigit := false
+	for i := 0; i < len(str); i++ {
+		c := str[i]
+		if c == '_' {
+			if !prevDigit || i+1 >= len(str) || str[i+1] < '0' || str[i+1] > '9' {
+				return 0, false
+			}
+			prevDigit = false
+			continue
+		}
+		if c < '0' || c > '9' {
+			return 0, false
+		}
+		digits.WriteByte(c)
+		prevDigit = true
+	}
+	n, err := strconv.ParseInt(digits.String(), 10, 64)
+	if err != nil {
+		return 0, false
+	}
+	if neg {
+		n = -n
+	}
+	return n, true
+}
+
+// pyListRepr mirrors repr(list(...)) for a slice of strings, e.g.
+// ['off', 'user', 'full'].
+func pyListRepr(items []string) string {
+	parts := make([]string, len(items))
+	for i, it := range items {
+		parts[i] = pytext.Repr(it)
+	}
+	return "[" + strings.Join(parts, ", ") + "]"
+}
+
+// joinSorted mirrors ", ".join(sorted(SET)) for a Go set.
+func joinSorted(m map[string]struct{}) string {
+	keys := make([]string, 0, len(m))
+	for k := range m {
+		keys = append(keys, k)
+	}
+	sortStrs(keys)
+	return strings.Join(keys, ", ")
+}
+
+func sortStrs(s []string) {
+	sort.Strings(s)
+}
+
+// containsDotDot mirrors `".." in entry.split("/")`.
+func containsDotDot(entry string) bool {
+	for _, part := range strings.Split(entry, "/") {
+		if part == ".." {
+			return true
+		}
+	}
+	return false
+}
+
+// expandAndResolve mirrors Path(host_path).expanduser().resolve().
+func expandAndResolve(hostPath string) string {
+	expanded := expandUser(hostPath)
+	if r, err := resolve(expanded); err == nil {
+		return r
+	}
+	return expanded
+}
+
+func hasKey(m *jsonx.OrderedMap, key string) bool {
+	_, ok := m.Get(key)
+	return ok
+}
+
+// keysSubsetOf mirrors `set(spec) <= allowed`.
+func keysSubsetOf(m *jsonx.OrderedMap, allowed map[string]struct{}) bool {
+	for _, k := range m.Keys() {
+		if _, ok := allowed[k]; !ok {
+			return false
+		}
+	}
+	return true
+}
+
+func hasPrefix(s, prefix string) bool { return strings.HasPrefix(s, prefix) }
+
+func itoa(n int) string { return strconv.Itoa(n) }

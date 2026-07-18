@@ -147,11 +147,6 @@ func isBool(v any) bool {
 	return ok
 }
 
-// get is m.get(key) with a Python-None default: returns (value, present).
-func get(m *jsonx.OrderedMap, key string) (any, bool) {
-	return m.Get(key)
-}
-
 // getOr is m.get(key, default): returns the value if present, else def.
 func getOr(m *jsonx.OrderedMap, key string, def any) any {
 	if v, ok := m.Get(key); ok {
