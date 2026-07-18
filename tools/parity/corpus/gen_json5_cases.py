@@ -61,6 +61,20 @@ CASES = [
     '{"escapes": "tab\\tnl\\nquote\\""}',
     '{"astral": "\\ud83d\\ude00"}',
     r'{"hexesc": "\x41\x42"}',
+    # Big hex -> arbitrary-precision int (pyjson5 gives bigints; the Go port
+    # must NOT int64-wrap 0xFFFF...FF to -1).
+    '{"h64": 0xFFFFFFFFFFFFFFFF}',
+    '{"hbig": 0x10000000000000000}',
+    '{"hneg": -0xff}',
+    # Audit-confirmed divergence cases — both sides must AGREE (accept/reject).
+    # These were all found by probing bytes the original corpus never had.
+    "012",  # leading-zero int -> pyjson5 REJECTS
+    "{} /* unterminated",  # unterminated block comment -> REJECT
+    "{😀:1}",  # emoji ident-start -> REJECT (not a Unicode letter)
+    r'"a\1b"',  # digit escape -> REJECT
+    "1e999",  # float overflow -> REJECT (unlike stdlib json's Infinity)
+    "-1e999",  # negative overflow -> REJECT
+    "{unicodé:1}",  # accented-LETTER ident-start -> ACCEPT (is a letter)
     # Real repo configs are added at test time (read from disk).
     # A few malformed docs pyjson5 REJECTS — both sides must agree on reject.
     '{"a": 1',  # unterminated object

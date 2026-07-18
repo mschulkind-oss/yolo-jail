@@ -36,12 +36,7 @@ func WarnLine(msg string) string { return "  " + badgeWarn + " " + msg }
 // string per output line (no trailing newline). An empty note yields a single
 // line (mirrors Python's `note.splitlines() or [note]`).
 func NoteLines(note string) []string {
-	lines := strings.Split(note, "\n")
-	// Python's str.splitlines() drops a single trailing newline; emulate by
-	// trimming one trailing empty element from a trailing "\n".
-	if len(lines) > 1 && lines[len(lines)-1] == "" {
-		lines = lines[:len(lines)-1]
-	}
+	lines := splitlines(note)
 	if len(note) == 0 {
 		lines = []string{note}
 	}
@@ -54,4 +49,44 @@ func NoteLines(note string) []string {
 		}
 	}
 	return out
+}
+
+// splitlines mirrors Python's str.splitlines() for the boundaries realistic in
+// check notes (subprocess stderr surfaced in a note): \n, \r\n, \r, \v, \f,
+// \x1c-\x1e, \x85, U+2028, U+2029. A single trailing terminator does NOT
+// produce a trailing empty element (Python drops it).
+func splitlines(s string) []string {
+	if s == "" {
+		return nil
+	}
+	var out []string
+	var cur strings.Builder
+	rs := []rune(s)
+	for i := 0; i < len(rs); i++ {
+		r := rs[i]
+		if isLineBoundary(r) {
+			// \r\n counts as ONE boundary.
+			if r == '\r' && i+1 < len(rs) && rs[i+1] == '\n' {
+				i++
+			}
+			out = append(out, cur.String())
+			cur.Reset()
+			continue
+		}
+		cur.WriteRune(r)
+	}
+	// A non-empty trailing segment (no terminator at EOF) is its own line;
+	// a trailing terminator already flushed and leaves nothing to add.
+	if cur.Len() > 0 {
+		out = append(out, cur.String())
+	}
+	return out
+}
+
+func isLineBoundary(r rune) bool {
+	switch r {
+	case '\n', '\r', '\v', '\f', 0x1c, 0x1d, 0x1e, 0x85, 0x2028, 0x2029:
+		return true
+	}
+	return false
 }

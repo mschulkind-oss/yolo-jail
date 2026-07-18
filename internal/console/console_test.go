@@ -41,4 +41,15 @@ func TestNoteLines(t *testing.T) {
 	if got := NoteLines("only\n"); !reflect.DeepEqual(got, []string{"       -> only"}) {
 		t.Errorf("trailing-nl NoteLines = %q", got)
 	}
+	// \r\n (realistic tool stderr) splits like Python's splitlines(), not into
+	// one line with a trailing \r.
+	gotCRLF := NoteLines("a\r\nb\r\nc")
+	wantCRLF := []string{"       -> a", "          b", "          c"}
+	if !reflect.DeepEqual(gotCRLF, wantCRLF) {
+		t.Errorf("CRLF NoteLines =\n%q\nwant\n%q", gotCRLF, wantCRLF)
+	}
+	// bare \r also splits.
+	if got := NoteLines("x\ry"); !reflect.DeepEqual(got, []string{"       -> x", "          y"}) {
+		t.Errorf("CR NoteLines = %q", got)
+	}
 }

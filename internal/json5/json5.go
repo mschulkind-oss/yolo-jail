@@ -34,11 +34,17 @@ import (
 func Decode(data []byte) (any, error) {
 	p := &parser{s: string(data)}
 	p.skipWS()
+	if p.wsErr != nil {
+		return nil, p.wsErr
+	}
 	v, err := p.parseValue()
 	if err != nil {
 		return nil, err
 	}
 	p.skipWS()
+	if p.wsErr != nil {
+		return nil, p.wsErr
+	}
 	if p.pos < len(p.s) {
 		return nil, p.errf("trailing data after top-level value")
 	}
@@ -46,8 +52,9 @@ func Decode(data []byte) (any, error) {
 }
 
 type parser struct {
-	s   string
-	pos int
+	s     string
+	pos   int
+	wsErr error // set by skipWS on an unterminated block comment
 }
 
 func (p *parser) errf(format string, args ...any) error {
@@ -72,13 +79,22 @@ func (p *parser) skipWS() {
 		case c == '/' && p.pos+1 < len(p.s) && p.s[p.pos+1] == '*':
 			// block comment to */
 			p.pos += 2
-			for p.pos+1 < len(p.s) && !(p.s[p.pos] == '*' && p.s[p.pos+1] == '/') {
+			closed := false
+			for p.pos+1 < len(p.s) {
+				if p.s[p.pos] == '*' && p.s[p.pos+1] == '/' {
+					p.pos += 2
+					closed = true
+					break
+				}
 				p.pos++
 			}
-			if p.pos+1 < len(p.s) {
-				p.pos += 2 // consume */
-			} else {
+			if !closed {
+				// pyjson5 REJECTS an unterminated block comment ('/* ...' with
+				// no closing '*/' -> Json5EOF); a truncated config must error,
+				// not load silently. Record it; Decode surfaces it.
 				p.pos = len(p.s)
+				p.wsErr = p.errf("unterminated block comment")
+				return
 			}
 		case c >= 0x80:
 			// Possible unicode whitespace (NBSP, etc.); decode a rune.

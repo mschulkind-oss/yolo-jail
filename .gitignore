@@ -16,6 +16,20 @@ probe.log
 dist/
 dist-go/
 build/
+# Stray root-level Go build artifacts (a bare `go build ./cmd/<x>` drops the
+# binary here). The real build channel is dist-go/; these should never be
+# tracked (a stale root yolo-parity was committed once — see the audit).
+/goprobe
+/yolo
+/yolo-parity
+/yolo-broker-relay
+/yolo-host-processes
+/yolo-ps
+/yolo-cgd
+/yolo-journald
+/yolo-jail-supervisor
+/yolo-oauth-terminator
+/yolo-claude-oauth-broker-host
 src/_version.py
 .DS_Store
 .research/

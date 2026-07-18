@@ -37,22 +37,24 @@ def _goos() -> str:
 
 
 def _go_parity_binary() -> "Path | None":
-    """Return the built yolo-parity binary, building dist-go/ if needed.
+    """Return a FRESHLY-built yolo-parity binary.
 
-    Returns None when the Go toolchain isn't available (skip, don't fail).
+    ALWAYS rebuilds when `go` is on PATH (seconds; the Go build cache makes it
+    cheap) — a stale prebuilt binary would let a wrong Go-side change pass green
+    locally, or fail a legitimate same-commit Python+Go change spuriously.
+    Returns None only when the Go toolchain is absent (skip, don't fail).
     """
     binpath = REPO_ROOT / "dist-go" / f"{_goos()}-{_goarch()}" / "yolo-parity"
-    if binpath.is_file():
-        return binpath
     if shutil.which("go") is None:
-        return None
+        # No toolchain: use an existing binary if present, else skip.
+        return binpath if binpath.is_file() else None
     build = REPO_ROOT / "scripts" / "build-go.sh"
     try:
         subprocess.run(
             ["bash", str(build)], cwd=REPO_ROOT, check=True, capture_output=True
         )
     except (subprocess.CalledProcessError, OSError):
-        return None
+        return binpath if binpath.is_file() else None
     return binpath if binpath.is_file() else None
 
 

@@ -111,6 +111,18 @@ func IntValue(n int64) any {
 	return jsonInt(strconv.FormatInt(n, 10))
 }
 
+// IntLiteral wraps an arbitrary-precision decimal integer literal (e.g. from a
+// big hex conversion) as a JSON integer value that re-encodes verbatim —
+// matching Python's arbitrary-precision int. The literal must be a valid
+// integer string (optional leading '-', then digits); returns (nil,false)
+// otherwise.
+func IntLiteral(decimal string) (any, bool) {
+	if !looksNumeric(decimal) {
+		return nil, false
+	}
+	return jsonInt(decimal), true
+}
+
 func (e *encoder) newlineIndent(depth int) {
 	if e.indent == 0 {
 		return
