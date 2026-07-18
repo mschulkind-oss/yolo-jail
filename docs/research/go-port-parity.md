@@ -42,14 +42,38 @@ panics. No divergences surfaced → no ledger entry needed for json5.
 and `internal/config` (Stage 13) — both can call `json5.Decode(path bytes)` and
 get the jsonx value model.
 
-## Spike B — Go tty proxy prototype (NOT STARTED)
+## Spike B — Go tty proxy (RESOLVED: library form)
 
-The plan's Stage 2 Spike B (naked-Go tty prototype run under the Stage 1 pty
-harness) is **not done**. It gates the Stage 8 binary-vs-library decision and
-needs the Stage 1 pty harness first (also not built). Deferred — flagged in the
-Stage 8 task. The decision (targeted-suspend two-process design vs library
-fallback) must be made on harness evidence, per the plan, before Stage 8 is
-scheduled.
+**Decision: the LIBRARY form** (`internal/ttyproxy`, consumed in-process by
+`run` at Stage 16) — the plan's pre-decided fallback — NOT the two-process
+Go-child/Python-parent split (seam #4).
+
+**Rationale.** A pure-Go `run` (Stage 16) runs entirely in one Go process, so
+the two-process split (which existed only to let a Go proxy child coexist with
+a Python parent during the transition) is unnecessary — the library runs the
+proxy loop in the same process that does the `podman run` supervision, exactly
+as Python's `run_with_proxy` does today. This is simpler and keeps all signal
+teardown in one place, avoiding the double-delivery/four-step-teardown hazards
+seam #4 was designed to manage.
+
+**Ported behavior (from tty_proxy.py + docs/design/ctrl-z-and-the-tty-proxy.md):**
+non-TTY plain-spawn fallback; ^Z (0x1A) → TARGETED `Kill(getpid(), SIGTSTP)`
+(never pgroup-wide — that would stop podman), byte withheld from the child,
+post-^Z bytes queued + flushed on resume; NO Setsid; NO `signal.Notify(SIGTSTP)`
+(default disposition must stop us); SIGCONT → re-raw; SIGWINCH → TIOCSWINSZ;
+SIGHUP/SIGTERM → restore cooked termios + onTerminate + exit 128+n; stdin-EOF →
+stop reading stdin, keep pumping master until child exit (the decided
+semantics). `//go:build linux` (uses termios/pty syscalls); the darwin tree
+still builds (the file is excluded there).
+
+**Verification.** `internal/ttyproxy` tests: non-TTY fallback + exit code,
+onStarted callback, REAL-pty passthrough (openPty → raw → bidirectional pump →
+child exit), and a targeted-suspend guard (selfSuspend with SIGTSTP ignored
+returns promptly, proving it's a self-targeted signal not a broadcast). The
+INTERACTIVE ^Z/`fg`/resize/window-close scenarios (Stage 1's three job-control
+cases) still need a real controlling-terminal session — recorded as the
+manual nested-jail gate for Stage 16's run integration, since `go test` has no
+controlling TTY to exercise a real suspend/resume cycle.
 
 ## internal/tomlx (NOT STARTED)
 
