@@ -368,3 +368,45 @@ Python's `__file__` does — it relies on `YOLO_REPO_ROOT` (set by the jail shim
 is why `YOLO_IMPL=go` is only safe via the four-var `go-front-door.sh`, not a bare
 export. Accept (with the shim as the documented enablement) or require a Python-
 equivalent `os.Executable`-relative self-resolve before default flip.
+
+---
+
+## D13 — broker restart: an unlaunchable broker binary degrades to exit 1, not a crash
+
+**Status:** proposed (Stage broker — `internal/brokercmd` / `internal/brokerlifecycle`).
+
+**Divergence.** Python's `_broker_spawn` calls `subprocess.Popen([*launcher,
+"--socket", ...])` with **no** surrounding `try/except`. If the launcher token
+cannot be executed — the console script isn't on PATH, or a `YOLO_GO_DAEMONS`-
+gated Go binary was resolved but is unexecutable between the `os.access` check
+and the `Popen` — `Popen` raises `FileNotFoundError`/`OSError`, which propagates
+out of `_broker_spawn` → `broker_restart_cmd`, so `yolo broker restart` exits
+with an **uncaught-exception traceback** (non-zero, but not the graded exit 1).
+The Go `BrokerSpawn` treats a spawn error as best-effort: it returns the socket
+path, `BrokerIsAlive` then reports the broker did not come up, and `Restart`
+prints `Broker failed to become live after spawn.  Check <log>` and returns the
+graded **exit 1**.
+
+- Input: `yolo broker restart` when the broker launcher (`yolo-claude-oauth-
+  broker-host`) is absent/unexecutable.
+- Python: `Popen` raises → traceback, no health-hint line.
+- Go: exit 1 + the `Check <log-path>` hint line (the same message Python prints
+  only when the process launched but failed to bind).
+
+**Why accepted.** The Go path is strictly more graceful and lands on the SAME
+graded outcome the restart command already documents for the launch-but-no-bind
+case (exit 1 + the log-path hint) — it just also absorbs the never-launched
+case, which in Python is an unhandled crash. In real operation the broker binary
+is always present (it ships in the wheel / the console-scripts entry point, and
+the Go-gated path only fires when `YOLO_GO_DAEMONS` lists it AND
+`$YOLO_GO_BIN_DIR/<name>` is executable), so neither impl hits this outside a
+broken install. `DaemonLauncher` already prints the "using the Python daemon"
+warning for the missing-gated-binary sub-case, matching Python. Reproducing the
+crash would mean deliberately re-introducing an unhandled-exception path in a
+command whose whole job is operational hygiene.
+
+**Guard.** Documented; `internal/brokercmd.TestRestartFailure` pins the exit 1 +
+log-path-hint outcome (via a spawn that never binds), and
+`internal/brokerlifecycle.TestBrokerSpawn*` cover the spawn-error /
+already-alive / stale-socket / dead-child branches. The byte-exact spawn argv is
+parity-tested against live Python (`TestParityVsLivePython`).
