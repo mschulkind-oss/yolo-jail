@@ -344,3 +344,27 @@ does); terminator `HTTP/1.1`+`Connection` vs Python `HTTP/1.0`+`Server`;
 
 **Process note:** D8 and D10 are behavior changes that shipped before the human
 sign-off §1.1 requires *first*; all of D1–D11 remain `proposed`.
+
+---
+
+## D12 — repo-root resolution: cwd-walk requires the yolo-jail marker (audit §B2 fix)
+
+**Status:** proposed (the FIX is landed; the residual behavior needs sign-off).
+
+Python's `_resolve_repo_root` anchors to the package `__file__`. The Go binary has
+no `__file__`, so it (1) trusts `YOLO_REPO_ROOT` when set, then (2) walks up from
+cwd. The audit found the cwd-walk matched ANY `flake.nix`, which would hijack a
+user's own flake workspace as the yolo-jail repo (the `nix build .#ociImage`
+target, bind-mounted `:ro`). **Fixed** (`internal/runcmd/probes.go`,
+`internal/checkcmd/probes.go`): the cwd-walk now requires BOTH `flake.nix` AND
+`src/entrypoint/__init__.py` (the same yolo-jail marker the env-var + staging
+branches use), with a regression test (`TestResolveRepoRootDoesNotHijackBareFlake`).
+
+**Residual divergence (this ledger entry):** off a source checkout and without
+`YOLO_REPO_ROOT`, the Go binary cannot self-locate its bundled source the way
+Python's `__file__` does — it relies on `YOLO_REPO_ROOT` (set by the jail shim /
+`go-front-door.sh`) or the installed-wheel staging. A Go distribution must ship
+`share/yolo-jail/` beside the binary (step 3) or the shim must set the env. This
+is why `YOLO_IMPL=go` is only safe via the four-var `go-front-door.sh`, not a bare
+export. Accept (with the shim as the documented enablement) or require a Python-
+equivalent `os.Executable`-relative self-resolve before default flip.

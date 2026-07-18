@@ -328,12 +328,15 @@ func resolveRepoRoot(getenv func(string) string) (string, bool) {
 			return env, true
 		}
 	}
-	// Source-checkout detection: walk up from cwd looking for flake.nix (the Go
-	// binary has no __file__; cwd is the workspace or repo during dev/CI).
+	// Source-checkout detection: walk up from cwd for a YOLO-JAIL flake —
+	// requiring BOTH flake.nix AND src/entrypoint/__init__.py, else a user's own
+	// flake workspace would be hijacked as the yolo-jail repo (audit 2026-07-18
+	// §A/B2). Mirrors the runcmd fix.
 	dir, err := os.Getwd()
 	if err == nil {
 		for {
-			if fileExists(filepath.Join(dir, "flake.nix")) {
+			if fileExists(filepath.Join(dir, "flake.nix")) &&
+				fileExists(filepath.Join(dir, "src", "entrypoint", "__init__.py")) {
 				if r, e := filepath.Abs(dir); e == nil {
 					return r, true
 				}

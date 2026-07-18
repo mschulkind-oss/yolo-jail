@@ -120,6 +120,35 @@ func TestResolveRepoRootError(t *testing.T) {
 	}
 }
 
+// TestResolveRepoRootDoesNotHijackBareFlake is the audit §B2 regression: a
+// user's own flake workspace (flake.nix present, but NO src/entrypoint/__init__.py)
+// must NOT be resolved as the yolo-jail repo when YOLO_REPO_ROOT is unset. Before
+// the fix, the cwd-walk matched any flake.nix and picked the stub.
+func TestResolveRepoRootDoesNotHijackBareFlake(t *testing.T) {
+	// A stub user flake with NO yolo-jail markers.
+	stub := t.TempDir()
+	if err := os.WriteFile(filepath.Join(stub, "flake.nix"), []byte("{ outputs = _: {}; }\n"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	t.Chdir(stub)
+	home := t.TempDir()
+	t.Setenv("HOME", home) // empty HOME → no user-config repo_path
+	got, ok := resolveRepoRoot(func(string) string { return "" }, discardBuf(), false)
+	if ok && got == stub {
+		t.Fatalf("hijacked the bare user flake as the repo root: %q", got)
+	}
+	// It's fine to resolve to the REAL repo (an ancestor of the test binary's
+	// build dir) — just never the stub. The point is the stub is rejected.
+	if ok && !fileExistsTest(filepath.Join(got, "src", "entrypoint", "__init__.py")) {
+		t.Errorf("resolved a non-yolo-jail dir %q (missing src/entrypoint/__init__.py)", got)
+	}
+}
+
+func fileExistsTest(p string) bool {
+	_, err := os.Stat(p)
+	return err == nil
+}
+
 func TestCollectIdentityEnv(t *testing.T) {
 	o := Options{
 		Exec: fakeExec(map[string]ExecResult{
