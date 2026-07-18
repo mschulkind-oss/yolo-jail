@@ -161,6 +161,13 @@ func fillDefaults(o *Options) {
 	}
 }
 
+// inJail mirrors `os.environ.get("YOLO_VERSION") is not None`. The host always
+// sets YOLO_VERSION to a real (non-empty) version string inside a jail, so a
+// non-empty read is the faithful, test-injectable signal.
+func (o *Options) inJail() bool {
+	return o.Getenv("YOLO_VERSION") != ""
+}
+
 // realExec runs argv with a timeout, capturing stdout/stderr as text. A missing
 // binary or start failure yields Ran=false; a deadline overrun yields
 // Timeout=true. dir sets the working directory (""=inherit); env entries are

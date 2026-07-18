@@ -83,13 +83,19 @@ func runContainer(o *Options, cfg *jsonx.OrderedMap, rt, repoRoot string) int {
 	identityEnv := o.collectIdentityEnv()
 	_ = identityEnv
 
-	// The lifecycle+locks and argv+mount sub-phases wire the remaining flow;
-	// reference the Phase-2 seams so the compiler keeps them live.
+	// The lifecycle+locks sub-phase wires the fresh-launch flow (attach
+	// decision, locks, tracking, teardown). Until it lands, reference the
+	// Phase-2/3 seams so the compiler keeps them live.
 	if false {
 		_ = o.checkConfigChanges(cfg)
 		_ = o.autoLoadImage(cfg, rt, repoRoot)
 		procs := o.startHostPortForwarding(nil, "", "")
 		cleanupPortForwarding(procs, "")
+		cname := ""
+		agentsPath, _ := o.refreshJailBriefings(cname, cfg, rt)
+		wsState := o.prepareWsState(cfg, nil, nil)
+		in := o.buildAssembleInput(cfg, rt, cname, repoRoot, agentsPath, wsState, identityEnv)
+		_ = o.assembleRunCmd(in)
 	}
 	_ = rt
 	_ = repoRoot
