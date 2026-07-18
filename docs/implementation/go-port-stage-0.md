@@ -116,3 +116,69 @@ console,frameproto,agents}` + the drift suite (`cmd/yolo-parity`) wired into
 `just check-ci`. Stage 1 (characterization goldens) is interleaved — the drift
 suite is the first piece of parity CI. Stages 3–5 (broker relay, frameproto,
 host-processes) are the first production swaps and also fully in-jail testable.
+
+---
+
+## Review addendum (2026-07-18, planning agent) — READ BEFORE THE NEXT SESSION
+
+Stages 2 (partial), 3, and 4 landed after this handoff was written
+(`13331aa`/`7ea2562`/`ef5073e`, `b46f400`+`568e633`, `51a6ffd`) **without
+handoff docs of their own and without updating the plan's §14 stage table**
+(it still reads "not started" for everything). This addendum is the review of
+that work and the corrective queue; it lives here because this is the only
+handoff the next session will find.
+
+### Quality verdict on what landed
+
+High. Keep doing this:
+- The Stage 3 relay swap hit every mapped hazard (per-connection dial,
+  SHUT_WR + bounded-drain clean EOF, dev/ino-guarded unlink, jail_id override
+  via order-preserving reframe) and widened the identity matchers in the SAME
+  commit per the seam-#2 rider, with a dual-impl harness
+  (`tests/test_broker_relay_go_parity.py`).
+- The drift suite is wired into the fast tier (pre-commit gates every commit)
+  and already caught a real divergence: the U+0130 (İ) lowercasing mismatch
+  (`568e633`) — exactly the container-naming incident class it exists for.
+
+### Deviations to correct, in priority order
+
+1. **Stage 1 was skipped, so the freeze rule is NOT live** (there are no
+   goldens to freeze). Stages 3–4 self-insured with per-stage harnesses, so no
+   damage yet — but Stage 6 (OAuth broker) consumes Stage 1's wire fixtures
+   (broker action shapes, error dicts) and Stage 8 depends on the pty harness.
+   **Land Stage 1 (or at minimum: wire-protocol fixtures + config/UX byte
+   goldens + freeze-rule CI job) before starting Stage 5/6.** "Interleaved"
+   (this doc's What's-next) is not license to defer it past the stages that
+   consume it.
+2. **The two Stage 2 risk spikes did not run.** No `internal/json5`, no
+   `internal/tomlx`, no naked-Go tty prototype verdict. Spike A (json5
+   differential oracle) gates every config-consuming slice; Spike B (tty)
+   exists to make the binary-vs-library decision BEFORE Stage 8 is scheduled,
+   and needs the Stage 1 pty harness first. Stage 2 is *partial* until both
+   spike verdicts are recorded in `docs/research/go-port-parity.md`.
+3. **Backfill the living state:** write
+   `docs/implementation/go-port-stage-{2,3,4}.md` (what landed, verification
+   commands + observed output, what's unverified) and update the plan §14
+   table (0: landed, CI arms pending human confirmation; 2: partial — spikes
+   outstanding; 3: landed — soak state UNKNOWN, see below; 4: landed).
+4. **Stage 3's exit criteria are unrecorded and partly unmet on this host:**
+   no record of the nested-jail claude-token smoke, no record of whether
+   `YOLO_BROKER_RELAY_BIN` is exported on the dev host — and `dist-go/` does
+   not currently exist, so if the flag IS exported, the next relay ensure
+   spawns a nonexistent path. Related footgun: `just clean` now
+   `rm -rf dist-go/`, which can yank a soaking binary out from under a live
+   env flag. **Fix in the Stage 3 backfill: verify/record the host flag
+   state, rebuild `dist-go/`, and add a missing-binary guard at
+   `_relay_spawn_argv` (warn + fall back to the Python relay when the
+   flag's path doesn't exist) — propose it as a seam-hardening commit.**
+5. Housekeeping: delete `cmd/goprobe` once the human confirms the CI arms
+   (per this doc's own note), and the human still owes an answer to this
+   doc's Open Question above (image-bake sufficiency — the Leaning is
+   reasonable; it was never surfaced for an answer).
+
+### Standing reminders that were missed this round
+
+Per plan §6/§10: every stage ends with its handoff written and §14 updated —
+a stage without a handoff is not done, no matter how good the code is. New
+Open Questions must be pointed out to the human in the session summary, not
+just left in a doc.
