@@ -87,3 +87,29 @@ Stage 14 prune (internal/prune).
 Push + CI both arches; image rebuilds (10/11); soaks + default flips; real
 `claude` login smoke (broker); nested-jail kill-9 (Stage 7 Commit A);
 interactive ^Z/fg/resize (ttyproxy, Stage 16); Mac runbooks.
+
+---
+
+## Re-audit (2026-07-18) fixes landed this round
+
+The confirmed CORRECTNESS findings from `go-port-audit-2026-07-18.md` fixed here,
+each with a regression test and a `fix(go):`/`test(go):` commit:
+
+| Finding | Fix | Guard |
+|---|---|---|
+| §B5 golden gate fails OPEN | parity oracles `t.Fatalf` (not skip) when the oracle RAN but errored; `t.Skip` kept only for python-absent; argv-oracle presence canary | `TestArgvOraclePresent` + fail-closed in runcmd/config/checkcmd/loopholes/entrypoint |
+| §A/B2 repo-root cwd-walk hijack | cwd-walk requires `flake.nix` AND `src/entrypoint/__init__.py` (runcmd + checkcmd) | `TestResolveRepoRootDoesNotHijackBareFlake`; ledger D12 |
+| §A/B3 bundled loopholes dropped | `loopholes.repoRoot()` walks to the yolo-jail checkout in host mode instead of the `/opt` fallback | `TestRepoRootHostModeFindsBundled` (non-monkeypatched) |
+| §B/D11 `ps` destroys tracking files on macOS | platform-aware `PsRuntime` + tri-state enumeration (never prune on unconfirmed-empty) | `TestPsEnumerationFailureDoesNotPrune`, `TestPsRuntimePlatformAware`; **D11 WITHDRAWN** (was a bug, not a divergence) |
+| §C `hostPlatform` arm64→aarch64 on macOS | keep `arm64` on darwin (Python `platform.machine()` parity); fixed the bug-locking test | `TestHostPlatformNaming` (platform-correct) |
+| §C mise `$`-version corruption | `ReplaceAllLiteralString` (Python `re.sub` never expands `$`) | `TestMiseInjectedVersionWithDollar` |
+| §B#2 storage migration dead (nil hook) | `run`+`check` wire `MigrateStorageLayout` (canReclaim=false fail-safe) | build + storage tests |
+
+**Still OPEN after this round** (tracked, not yet done): AC 2-of-4
+`_ac_materialize` calls (yolo-user-env.sh + briefings on `runtime=container`);
+native `run` startup banner + tmux/kitty jail indicator; `ca_cert` absolute-path
+`filepath.Join`; terminator `HTTP/1.1`+`Connection` wire bytes; tree-timeout
+stderr text; malformed-200 invented code; stdin-EOF; `YOLO_GO_DISABLE` valve; the
+14 undrifted config-schema constants. **Human-owned:** ledger sign-off (D1–D13
+all proposed; D8/D10 shipped pre-signoff), versioned pre-commit hook, Stage-1
+freeze/CI, author email, soak confirmation.
