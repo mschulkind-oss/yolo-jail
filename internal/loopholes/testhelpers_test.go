@@ -2,6 +2,10 @@ package loopholes
 
 import "github.com/mschulkind-oss/yolo-jail/internal/jsonx"
 
+// jsonxDump renders a value via jsonx.DumpsCompact (Python json.dumps default
+// separators), for comparing OrderedMap payloads in tests.
+func jsonxDump(v any) (string, error) { return jsonx.DumpsCompact(v) }
+
 // orderedFromPairs builds a *jsonx.OrderedMap from an even-length list of
 // key(string), value(any) pairs, deep-converting nested map[string]any into
 // *jsonx.OrderedMap and []any recursively so the value model matches what
