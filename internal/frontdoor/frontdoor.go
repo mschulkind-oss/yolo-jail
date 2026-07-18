@@ -31,11 +31,28 @@ var Subcommands = map[string]struct{}{
 	"macos-unshare": {}, "macos-fix-permissions": {},
 }
 
-// nativeSubcommands are the subcommands the Go binary handles itself (no
-// delegation). Grows as slices land; everything else delegates to Python.
+// nativeSubcommands are the subcommands the Go binary handles itself
+// UNCONDITIONALLY (no gate, no delegation). Grows as slices land; everything
+// else delegates to Python.
 var nativeSubcommands = map[string]struct{}{
 	// Stage 12 native slices are pure-output; wired in native.go. Start empty
 	// so behavior is unchanged until each slice is byte-goldened.
+}
+
+// gatedNativeSubcommands are subcommands with a native Go implementation that
+// runs ONLY when explicitly opted in via YOLO_IMPL=go — the default still
+// delegates to Python, keeping the flip reversible and the default unchanged
+// (go-port plan §4 / Stage 15). check + its doctor alias land here first.
+var gatedNativeSubcommands = map[string]struct{}{
+	"check":  {},
+	"doctor": {},
+}
+
+// goImplEnabled reports whether YOLO_IMPL=go is set (the Stage-15 gate). It is a
+// package var so the front door and tests share one definition; a nil/empty
+// value means "default to Python".
+var goImplEnabled = func() bool {
+	return os.Getenv("YOLO_IMPL") == "go"
 }
 
 // RewriteArgv applies the `yolo <args> -- cmd` → `yolo run <args> -- cmd`
@@ -79,9 +96,16 @@ func Subcommand(args []string) string {
 }
 
 // IsNative reports whether the Go binary handles sub natively (no delegation).
+// A subcommand is native when it is unconditionally native, OR it is gated and
+// the YOLO_IMPL=go gate is set. Everything else delegates to Python.
 func IsNative(sub string) bool {
-	_, ok := nativeSubcommands[sub]
-	return ok
+	if _, ok := nativeSubcommands[sub]; ok {
+		return true
+	}
+	if _, ok := gatedNativeSubcommands[sub]; ok {
+		return goImplEnabled()
+	}
+	return false
 }
 
 // InvocationCWD pops YOLO_INVOCATION_CWD and returns it (the jail shim sets it

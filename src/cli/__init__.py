@@ -458,6 +458,26 @@ def main():
     """
     import atexit
 
+    # go-port seam #1 (front-door forward): when YOLO_IMPL=go is exported and we
+    # were NOT re-invoked by the Go binary (YOLO_GO_DELEGATED unset), hand the
+    # whole invocation to the Go front door at $YOLO_GO_BIN_DIR/yolo.  The Go
+    # binary handles the ported subcommands natively (Stage 15: check + its
+    # doctor alias) and, for everything else, sets YOLO_GO_DELEGATED=1 and execs
+    # `python -m src.cli` right back here — the marker breaks the loop.  This
+    # runs BEFORE any terminal-indicator setup so Python never brands the
+    # terminal and then execs away; the Go binary owns indicators for the calls
+    # it keeps and leaves them alone when delegating.  A listed gate with a
+    # missing/absent binary silently falls through to the normal Python path
+    # (availability beats the A/B preference; dist-go/ is gitignored + wiped).
+    if os.environ.get("YOLO_IMPL") == "go" and not os.environ.get(
+        "YOLO_GO_DELEGATED"
+    ):
+        _go_bin_dir = os.environ.get("YOLO_GO_BIN_DIR")
+        if _go_bin_dir:
+            _go_bin = Path(_go_bin_dir) / "yolo"
+            if os.access(_go_bin, os.X_OK):
+                os.execv(str(_go_bin), [str(_go_bin), *sys.argv[1:]])
+
     # The jail-side shim chdirs into the repo root so ``python -m
     # src.cli`` can find the ``src`` package (uv run doesn't honor
     # PYTHONPATH).  Chdir back to the real invocation CWD here so

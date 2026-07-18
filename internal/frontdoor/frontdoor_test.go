@@ -52,6 +52,50 @@ func TestSubcommand(t *testing.T) {
 	}
 }
 
+// TestCheckGate asserts the Stage-15 YOLO_IMPL gate: check/doctor are native
+// ONLY when YOLO_IMPL=go, and delegate to Python by default. Unrelated
+// subcommands (run) are never native regardless of the gate.
+func TestCheckGate(t *testing.T) {
+	orig := goImplEnabled
+	defer func() { goImplEnabled = orig }()
+
+	// Gate OFF (default): check/doctor delegate.
+	goImplEnabled = func() bool { return false }
+	for _, sub := range []string{"check", "doctor"} {
+		if IsNative(sub) {
+			t.Errorf("gate off: IsNative(%q) = true, want false (delegate to Python)", sub)
+		}
+	}
+
+	// Gate ON: check/doctor native.
+	goImplEnabled = func() bool { return true }
+	for _, sub := range []string{"check", "doctor"} {
+		if !IsNative(sub) {
+			t.Errorf("gate on: IsNative(%q) = false, want true (native Go)", sub)
+		}
+	}
+	// A non-gated, non-native subcommand stays delegated even with the gate on.
+	if IsNative("run") {
+		t.Error("gate on: IsNative(\"run\") = true, want false")
+	}
+}
+
+// TestGoImplEnabledEnv checks the real env reader honors YOLO_IMPL=go only.
+func TestGoImplEnabledEnv(t *testing.T) {
+	t.Setenv("YOLO_IMPL", "go")
+	if !goImplEnabled() {
+		t.Error("YOLO_IMPL=go should enable the gate")
+	}
+	t.Setenv("YOLO_IMPL", "python")
+	if goImplEnabled() {
+		t.Error("YOLO_IMPL=python should NOT enable the gate")
+	}
+	t.Setenv("YOLO_IMPL", "")
+	if goImplEnabled() {
+		t.Error("unset YOLO_IMPL should NOT enable the gate")
+	}
+}
+
 func TestHostPlatformNaming(t *testing.T) {
 	// The banner must use x86_64/aarch64 (platform.machine()), never Go's
 	// amd64/arm64.
