@@ -70,7 +70,10 @@ CASES: list = [
         {"env_sources": [{"A": "1", "B": "2"}]},
         {"env_sources": [{"B": "override", "C": "3"}]},
     ),
-    merge({"per_side_paths": [".cargo", ".venv-x"]}, {"per_side_paths": [".venv-x", "models"]}),
+    merge(
+        {"per_side_paths": [".cargo", ".venv-x"]},
+        {"per_side_paths": [".venv-x", "models"]},
+    ),
     # dedup with dict entries + nested objects (canonical-key equality classes).
     merge(
         {"security": {"blocked_tools": [{"name": "grep", "block_flags": ["-r"]}]}},
@@ -96,7 +99,11 @@ CASES: list = [
     validate({"packages": ["postgresql", "gtk4.dev"]}),
     validate({"packages": [{"name": "freetype", "nixpkgs": "abc123"}]}),
     validate(
-        {"packages": [{"name": "f", "version": "2.1", "url": "mirror://x", "hash": "sha256-y"}]}
+        {
+            "packages": [
+                {"name": "f", "version": "2.1", "url": "mirror://x", "hash": "sha256-y"}
+            ]
+        }
     ),
     validate({"packages": [{"name": "gtk4", "outputs": ["out", "dev"]}]}),
     validate(
@@ -148,7 +155,15 @@ CASES: list = [
     validate({"resources": {"cpus": 2.5}}),
     validate({"host_processes": {"visible": ["nginx"], "fields": ["pid", "comm"]}}),
     validate(
-        {"lsp_servers": {"python": {"command": "/p", "args": ["--stdio"], "fileExtensions": {".py": "python"}}}}
+        {
+            "lsp_servers": {
+                "python": {
+                    "command": "/p",
+                    "args": ["--stdio"],
+                    "fileExtensions": {".py": "python"},
+                }
+            }
+        }
     ),
     validate({"devices": [{"usb": "0bda:2838", "description": "sdr"}]}),
     validate({"devices": [{"cgroup_rule": "c 189:* rwm"}]}),
@@ -208,14 +223,24 @@ CASES: list = [
     validate({"network": {"forward_host_ports": "notlist"}}),
     validate({"network": {"forward_host_ports": [{}]}}),
     validate({"network": {"forward_host_ports": ["1:2:3"]}}),
-    validate({"network": {"mode": "host", "ports": ["8000:8000"], "forward_host_ports": [8080]}}),
+    validate(
+        {
+            "network": {
+                "mode": "host",
+                "ports": ["8000:8000"],
+                "forward_host_ports": [8080],
+            }
+        }
+    ),
     validate({"security": "notobj"}),
     validate({"security": {"badkey": 1}}),
     validate({"security": {"blocked_tools": "notlist"}}),
     validate({"security": {"blocked_tools": [42]}}),
     validate({"security": {"blocked_tools": [{"name": 5}]}}),
     validate({"security": {"blocked_tools": [{"name": "x", "message": 5}]}}),
-    validate({"security": {"blocked_tools": [{"name": "x", "block_flags": "notlist"}]}}),
+    validate(
+        {"security": {"blocked_tools": [{"name": "x", "block_flags": "notlist"}]}}
+    ),
     validate({"security": {"blocked_tools": [{"name": "x", "badkey": 1}]}}),
     validate({"host_processes": "notobj"}),
     validate({"host_processes": {"badkey": 1}}),
@@ -225,10 +250,20 @@ CASES: list = [
     validate({"mise_tools": {"typst": 5}}),
     validate({"lsp_servers": "notobj"}),
     validate({"lsp_servers": {"python": "notobj"}}),
-    validate({"lsp_servers": {"python": {"command": 5, "args": "x", "fileExtensions": {}}}}),
+    validate(
+        {"lsp_servers": {"python": {"command": 5, "args": "x", "fileExtensions": {}}}}
+    ),
     validate({"lsp_servers": {"python": {"command": "/p"}}}),
-    validate({"lsp_servers": {"python": {"command": "/p", "fileExtensions": {".py": 5}}}}),
-    validate({"lsp_servers": {"python": {"command": "/p", "badkey": 1, "fileExtensions": {}}}}),
+    validate(
+        {"lsp_servers": {"python": {"command": "/p", "fileExtensions": {".py": 5}}}}
+    ),
+    validate(
+        {
+            "lsp_servers": {
+                "python": {"command": "/p", "badkey": 1, "fileExtensions": {}}
+            }
+        }
+    ),
     validate({"mcp_presets": "notlist"}),
     validate({"mcp_presets": [42]}),
     validate({"mcp_presets": ["bogus"]}),
@@ -292,7 +327,11 @@ CASES: list = [
     # ---- validate: loopholes (hermetic known set) ----
     validate({"loopholes": {"audio": {"enabled": False}}}, known={"audio": {}}),
     validate(
-        {"loopholes": {"my-hole": {"enabled": False, "env": {"F": "b"}, "jail_env": {"B": "q"}}}},
+        {
+            "loopholes": {
+                "my-hole": {"enabled": False, "env": {"F": "b"}, "jail_env": {"B": "q"}}
+            }
+        },
         known={"my-hole": {"has_host_daemon": True}, "no-daemon-hole": {}},
     ),
     validate(
@@ -324,8 +363,12 @@ CASES: list = [
         known={"no-daemon-hole": {}},
     ),
     validate({"loopholes": {"other-svc": {}}}, known={}),
-    validate({"loopholes": {"other-svc": {"command": ["run"], "env": {"F": 1}}}}, known={}),
-    validate({"loopholes": {"other-svc": {"command": ["run"], "jail_env": {}}}}, known={}),
+    validate(
+        {"loopholes": {"other-svc": {"command": ["run"], "env": {"F": 1}}}}, known={}
+    ),
+    validate(
+        {"loopholes": {"other-svc": {"command": ["run"], "jail_env": {}}}}, known={}
+    ),
     validate({"loopholes": {"host-only-hole": {"enabled": False}}}, known={}),
     validate({"loopholes": {"host-only-hole": {"enabled": "yes"}}}, known={}),
     validate({"loopholes": "notobj"}),
@@ -335,16 +378,26 @@ CASES: list = [
     validate({"loopholes": {"svc": {"command": "notlist"}}}, known={}),
     validate({"loopholes": {"svc": {"command": []}}}, known={}),
     validate({"loopholes": {"svc": {"command": ["ok", 5]}}}, known={}),
-    validate({"loopholes": {"svc": {"command": ["ok"], "jail_socket": "/bad/path"}}}, known={}),
     validate(
-        {"loopholes": {"svc": {"command": ["ok"], "jail_socket": "/run/yolo-services/x.sock"}}},
+        {"loopholes": {"svc": {"command": ["ok"], "jail_socket": "/bad/path"}}},
+        known={},
+    ),
+    validate(
+        {
+            "loopholes": {
+                "svc": {"command": ["ok"], "jail_socket": "/run/yolo-services/x.sock"}
+            }
+        },
         known={},
     ),
     validate({"loopholes": {"svc": {"badkey": 1}}}, known={}),
     # ---- derived helpers ----
     {"op": "normalize_blocked_tools", "security": None},
     {"op": "normalize_blocked_tools", "security": {"blocked_tools": ["grep"]}},
-    {"op": "normalize_blocked_tools", "security": {"blocked_tools": [{"name": "grep"}]}},
+    {
+        "op": "normalize_blocked_tools",
+        "security": {"blocked_tools": [{"name": "grep"}]},
+    },
     {
         "op": "normalize_blocked_tools",
         "security": {"blocked_tools": [{"name": "grep", "message": "custom msg"}]},
@@ -357,24 +410,41 @@ CASES: list = [
     {"op": "normalize_blocked_tools", "security": {"blocked_tools": None}},
     {
         "op": "normalize_blocked_tools",
-        "security": {"blocked_tools": [{"name": "curl", "message": "Use wget", "suggestion": "wget URL"}]},
+        "security": {
+            "blocked_tools": [
+                {"name": "curl", "message": "Use wget", "suggestion": "wget URL"}
+            ]
+        },
     },
     {"op": "effective_packages", "config": {}},
     {"op": "effective_packages", "config": {"packages": ["a", "b"]}},
     {
         "op": "effective_packages",
-        "config": {"packages": ["a"], "gpu": {"enabled": True, "vaapi": True, "vendor": "amd"}},
+        "config": {
+            "packages": ["a"],
+            "gpu": {"enabled": True, "vaapi": True, "vendor": "amd"},
+        },
     },
     {
         "op": "effective_packages",
-        "config": {"packages": ["mesa"], "gpu": {"enabled": True, "vaapi": True, "vendor": "amd"}},
+        "config": {
+            "packages": ["mesa"],
+            "gpu": {"enabled": True, "vaapi": True, "vendor": "amd"},
+        },
     },
     {
         "op": "effective_packages",
-        "config": {"packages": ["a"], "gpu": {"enabled": True, "vaapi": True, "vendor": "nvidia"}},
+        "config": {
+            "packages": ["a"],
+            "gpu": {"enabled": True, "vaapi": True, "vendor": "nvidia"},
+        },
     },
     {"op": "effective_mcp_server_names", "mcp_servers": None, "mcp_presets": None},
-    {"op": "effective_mcp_server_names", "mcp_servers": None, "mcp_presets": ["chrome-devtools"]},
+    {
+        "op": "effective_mcp_server_names",
+        "mcp_servers": None,
+        "mcp_presets": ["chrome-devtools"],
+    },
     {
         "op": "effective_mcp_server_names",
         "mcp_servers": {"chrome-devtools": None, "extra": {"command": "c"}},
@@ -386,7 +456,10 @@ CASES: list = [
         "mcp_presets": [],
     },
     {"op": "selected_agents", "config": {}},
-    {"op": "selected_agents", "config": {"agents": ["gemini", "gemini", "bogus", "pi"]}},
+    {
+        "op": "selected_agents",
+        "config": {"agents": ["gemini", "gemini", "bogus", "pi"]},
+    },
     {"op": "selected_agents", "config": {"agents": []}},
     {"op": "selected_agents", "config": {"agents": ["claude", "codex"]}},
     {"op": "merge_mise_tools", "config": {}},
@@ -402,7 +475,7 @@ CASES: list = [
     {"op": "parse_dotenv", "text": "FOO=bar\nBAZ=qux\n"},
     {"op": "parse_dotenv", "text": "# a comment\n\nFOO=bar\n   # indented\nBAZ=qux\n"},
     {"op": "parse_dotenv", "text": "export FOO=bar\n"},
-    {"op": "parse_dotenv", "text": 'A="double"\nB=\'single\'\nC=no_quotes\n'},
+    {"op": "parse_dotenv", "text": "A=\"double\"\nB='single'\nC=no_quotes\n"},
     {"op": "parse_dotenv", "text": "TOKEN=a=b=c\n"},
     {"op": "parse_dotenv", "text": "EMPTY=\n"},
     {"op": "parse_dotenv", "text": "123BAD=x\nGOOD=y\nalso-bad=z\n"},

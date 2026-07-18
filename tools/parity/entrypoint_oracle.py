@@ -165,14 +165,17 @@ def _run_scenario(name: str, spec: dict) -> dict:
     entrypoint.generate_mise_config()
     entrypoint.generate_mcp_wrappers()
     for agent in entrypoint._load_agents():
-        writer = getattr(entrypoint, {
-            "claude": "configure_claude",
-            "copilot": "configure_copilot",
-            "gemini": "configure_gemini",
-            "opencode": "configure_opencode",
-            "pi": "configure_pi",
-            "codex": "configure_codex",
-        }[agent])
+        writer = getattr(
+            entrypoint,
+            {
+                "claude": "configure_claude",
+                "copilot": "configure_copilot",
+                "gemini": "configure_gemini",
+                "opencode": "configure_opencode",
+                "pi": "configure_pi",
+                "codex": "configure_codex",
+            }[agent],
+        )
         writer()
     entrypoint.generate_cglimit_script()
     entrypoint.generate_journalctl_script()
