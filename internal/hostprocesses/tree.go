@@ -8,7 +8,19 @@ import (
 	"time"
 
 	"github.com/mschulkind-oss/yolo-jail/internal/hostservice"
+	"github.com/mschulkind-oss/yolo-jail/internal/pytext"
 )
+
+// pyReprStrList renders a []string the way Python's repr(list) does:
+// [<repr(e0)>, <repr(e1)>, …] with each element single-quoted via repr. Used to
+// byte-match str(subprocess.TimeoutExpired), whose message embeds the argv list.
+func pyReprStrList(xs []string) string {
+	parts := make([]string, len(xs))
+	for i, x := range xs {
+		parts[i] = pytext.Repr(x)
+	}
+	return "[" + strings.Join(parts, ", ") + "]"
+}
 
 // handleTree runs `ps -eo pid,ppid,comm,args --forest` (15s timeout, matching
 // Python's subprocess.run(timeout=15)), then filters to allowlisted comms +
@@ -27,7 +39,10 @@ func handleTree(s *hostservice.Session, visible map[string]struct{}) {
 	cmd := exec.CommandContext(ctx, argv[0], argv[1:]...)
 	out, err := cmd.Output()
 	if ctx.Err() == context.DeadlineExceeded {
-		s.Stderr("tree mode failed: timed out\n")
+		// Byte-match Python's str(subprocess.TimeoutExpired): "Command '<argv
+		// list repr>' timed out after 15 seconds" (the `f"...{e}..."` in the
+		// except). A hardcoded "timed out" diverged from the wire bytes.
+		s.Stderr("tree mode failed: Command '" + pyReprStrList(argv) + "' timed out after 15 seconds\n")
 		s.Exit(1)
 		return
 	}
