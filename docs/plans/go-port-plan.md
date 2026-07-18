@@ -1,6 +1,6 @@
 # Go Port Plan — yolo-jail, module by module, zero functionality change
 
-**Status:** APPROVED PENDING OPEN QUESTIONS · 2026-07-17 (rev 2, post-adversarial-review)
+**Status:** APPROVED — all Open Questions answered · 2026-07-17 (rev 3)
 **Audience:** the coding agent executing the port (many small sessions), and the human approving flips.
 **Scope:** port all ~25k lines of Python (`src/`) to Go, incrementally, with every swap
 independently shippable, A/B-testable, and revertible by one env var. Test coverage must
@@ -22,8 +22,8 @@ stage first carves it in Python with parity proven, then swaps the binary.
 1. **Zero functionality change per swap.** If Python behavior looks like a bug, preserve it
    and file an Open Question — never "fix while porting." Intentional changes require
    human sign-off first and are recorded in the **divergence ledger,
-   `docs/go-port-divergences.md`** (the single authoritative list; QA batch docs *propose*
-   entries, the ledger *records* approved ones).
+   `docs/design/go-port-divergences.md`** (the single authoritative list; QA batch docs
+   *propose* entries, the ledger *records* approved ones).
 2. **Every seam defaults to Python** until its soak completes. Flips and reverts are env-var
    or one-line fix-forward commits.
 3. **Python code is never deleted before Stage 17 (cutover).** Both nets stay active.
@@ -197,7 +197,7 @@ slices. A nil-flattening bug here silently grants unsafe prunes/reaps.
 
 | # | Seam | Mechanism | Introduced |
 |---|---|---|---|
-| 1 | **Front-door exec** (whole CLI) | Python `src/cli` `main()` prelude: if `YOLO_IMPL=go` **and `YOLO_GO_DELEGATED` is unset** → `os.execv("$YOLO_GO_BIN_DIR/yolo", sys.argv)`. The Go binary handles ported subcommands natively; for everything else it sets `YOLO_GO_DELEGATED=1` in the child env and execs `python -m src.cli` (setting `YOLO_INVOCATION_CWD`) — the marker breaks the exec loop (without it, Python's prelude would bounce straight back to Go, forever). `YOLO_GO_DISABLE=<cmd,…>` forces delegation per-subcommand — surgical rollback until Stage 17 retirement. **Delegation is decided BEFORE terminal-indicator setup, and the Go front door must not touch indicators when delegating** (otherwise Python saves the already-branded state as its restore target and the terminal stays branded after exit). Argv-rewrite parity oracle: Python's **literal `_SUBCOMMANDS` set** (cli/__init__.py:455-470), byte-frozen — including its known quirk that `prune` is registered but absent from the set (so `yolo prune -- x` misroutes today; preserved, filed as an Open Question). A separate *advisory* check compares the set against registered commands with the prune delta pre-recorded. | St. 12 |
+| 1 | **Front-door exec** (whole CLI) | Python `src/cli` `main()` prelude: if `YOLO_IMPL=go` **and `YOLO_GO_DELEGATED` is unset** → `os.execv("$YOLO_GO_BIN_DIR/yolo", sys.argv)`. The Go binary handles ported subcommands natively; for everything else it sets `YOLO_GO_DELEGATED=1` in the child env and execs `python -m src.cli` (setting `YOLO_INVOCATION_CWD`) — the marker breaks the exec loop (without it, Python's prelude would bounce straight back to Go, forever). `YOLO_GO_DISABLE=<cmd,…>` forces delegation per-subcommand — surgical rollback until Stage 17 retirement. **Delegation is decided BEFORE terminal-indicator setup, and the Go front door must not touch indicators when delegating** (otherwise Python saves the already-branded state as its restore target and the terminal stays branded after exit). Argv-rewrite parity oracle: Python's module-level `_SUBCOMMANDS` set — its `prune` gap was FIXED 2026-07-17 (commit 3ad7353, before any goldens froze) and `tests/test_cli_unit.py::test_subcommand_set_matches_registrations` now cross-asserts the set against the registered typer commands, so the Go table mirrors a set that provably matches registrations. | St. 12 |
 | 2 | **Spawn-argv env** (host daemons/relay) | `YOLO_BROKER_RELAY_BIN=/path` (St. 3, explicit path) and `YOLO_GO_DAEMONS=<name,…>` + **`YOLO_GO_BIN_DIR=<dir>`** (St. 5+): the Python spawn sites (`_relay_ensure`, `_broker_ensure`, `_start_host_service_external`) resolve a listed daemon's binary as `$YOLO_GO_BIN_DIR/<name>` instead of the console-script name on PATH. (Resolution must be by explicit dir — the Go binary carries the same name as the Python console script, so PATH shadowing would defeat per-daemon gating.) **Non-negotiable rider:** the cmdline/pgrep identity guards (`'broker_relay.py'`, console-script names) are widened to match BOTH implementations in the SAME commit — otherwise mixed-era invocations can't reap each other's processes (the 2026 orphan-relay incident class). | St. 3–6 |
 | 3 | **Thread→subprocess carve-out** (cgd/journal) | Two commits: (A) behavior-preserving Python refactor moves the in-run threads to spawned subprocesses matching the external-service lifecycle **with `PR_SET_PDEATHSIG(SIGTERM)`** so the daemons still die when `yolo run` dies by any means, including SIGKILL — preserving today's thread crash-lifetime semantics (these daemons are Linux-only, so PDEATHSIG is available); (B) binary swap rides seam #2. Socket names/perms/protocols byte-frozen throughout. | St. 7 |
 | 4 | **TTY proxy env + `--started-fd` hook** | `YOLO_TTY_PROXY=/path` in `run_with_proxy` (call sites run_cmd.py:1383/1439/3000, macos_user.py:1288). ONE hook crosses the boundary: `--started-fd N` (proxy writes a readiness byte post-spawn; the Python parent's existing thread runs on_started — the workspace-lock FD never leaves Python). **All SIGHUP/SIGTERM teardown stays in the Python parent**: when the proxy is external, Python installs its own SIGHUP/SIGTERM handlers that wait for the proxy child, then run today's full closure chain (_stop_jail, cleanup_port_forwarding, lock close, stop_loopholes) and exit 128+n; the Go proxy's only signal duty is cooked-termios restore before exiting. (An exec'd `--on-terminate` argv cannot express the four-step Python teardown — rejected in review.) Double-delivery is inherent (both processes share the session and receive the signal); the parent's handler must tolerate the proxy already being dead. | St. 8 |
@@ -253,16 +253,16 @@ affected daemons.
    cross-language flock contention (two brokers racing on `refresh.lock` serialize);
    Python-started jail attached/stopped/pruned by Go run and vice versa.
 6. **QA batches** — parity scope decisions and divergence candidates reviewed by the human
-   one batch at a time in `docs/go-port-qa-batch-<N>.md`; approved entries are then
-   recorded in `docs/go-port-divergences.md` (byte-exact: badges, errors, banner,
+   one batch at a time in `docs/qa/go-port-batch-<N>.md`; approved entries are then
+   recorded in `docs/design/go-port-divergences.md` (byte-exact: badges, errors, banner,
    templates, generated bash, config files; re-pin allowed: rich `--help` rendering).
 
 ## 6. Stage ladder
 
 Effort: ~45 focused agent sessions + calendar soak. Every stage ends with: goldens/tests
 green, conventional commits on main, working tree clean, nested-jail verification recorded
-(where applicable), and `docs/handoff-go-port-stage-<N>.md` written (repo's live handoff
-convention) stating what landed, what's verified, what the human must do (if anything),
+(where applicable), and `docs/implementation/go-port-stage-<N>.md` written (the handoff
+doc) stating what landed, what's verified, what the human must do (if anything),
 and what's next. Update the status table in §14 as stages land. A stage that will exceed
 its session budget splits at a named sub-phase boundary with its own handoff — never a
 silent overrun.
@@ -299,9 +299,10 @@ coverage improves first)*
   proxy is suspended** (output produced during suspension is delivered after `fg`).
   Scenarios (b)/(c) pin what today's code actually does — `tty_proxy.py:350` is a SELF-only
   SIGTSTP; podman in the same pgroup is never signaled and keeps working — and they are
-  the assertions a wrong pgroup-wide Go design would fail. Pin the near-dead
-  stdin-EOF/-1-sentinel path's intended behavior as an Open Question, not a
-  transliteration.
+  the assertions a wrong pgroup-wide Go design would fail. The near-dead
+  stdin-EOF/-1-sentinel path's intended behavior is DECIDED (see Answered questions):
+  stop reading stdin on EOF, keep pumping the master until child exit — pin it in the
+  harness for BOTH implementations, ledger note if Python's observable behavior differs.
 - **Ordered-argv golden corpus:** full `podman`/`container` argv + complete `-e` env block
   + embedded provisioning bash (extracted, `bash -n`-validated) + ws_state tree +
   tracking/owner/lock bytes, across a **≥20-config matrix**: default, gpu nvidia/amd/cdi,
@@ -326,7 +327,7 @@ coverage improves first)*
   outcome stays mechanical (Linux-runnable, cheap).
 - **Freeze rule goes live** with the first golden; parity CI job added.
 - Exit: all suites green against Python; scope decisions reviewed in
-  `docs/go-port-qa-batch-1.md`.
+  `docs/qa/go-port-batch-1.md`.
 
 **Stage 2 — Foundations + the two risk spikes** *(3 sessions)*
 - `internal/jsonx` + `internal/shquote` + `internal/pytext` with a ≥10k-case
@@ -347,8 +348,11 @@ coverage improves first)*
   matrix (comments, trailing commas, single quotes, unquoted keys, hex, ±Infinity) +
   ≥4 CPU-hours background fuzz through pyjson5 (stdin/stdout oracle bridge) and the Go
   candidate(s). Divergences fixed or recorded in the quirk ledger — never silently
-  absorbed. Feeds the parser Open Question with evidence. Config-consuming commands stay
-  delegated until this corpus is green (the front door makes that sequencing free).
+  absorbed. **Hard requirement (user decision): comments and trailing commas must be
+  supported; beyond that the bar is observed equivalence, and divergence on exotic
+  JSON5-isms (hex, ±Infinity, single quotes, unquoted keys) may be ledger-accepted if the
+  oracle shows no real config uses them.** Config-consuming commands stay delegated until
+  this corpus is green (the front door makes that sequencing free).
 - **Spike B — naked Go tty prototype (~150 lines)** run under the Stage 1 harness.
   Today's behavior (which the split design must reproduce OBSERVABLY): a single process
   self-SIGTSTPs (`tty_proxy.py:350`) after restoring cooked termios; the shell sees its
@@ -363,7 +367,7 @@ coverage improves first)*
   Stage 1 are the gate. **Decision point:** binary seam (Stage 8) vs
   library-consumed-at-run-port fallback — decided on harness evidence now. If the
   two-process suspend proves unreproducible after 2 sessions: stop, write findings to
-  `docs/go-port-parity.md`, pick the library fallback.
+  `docs/research/go-port-parity.md`, pick the library fallback.
 - Exit: corpora zero-divergence; drift suite live in check-ci; both spike verdicts
   recorded.
 
@@ -458,7 +462,7 @@ coverage improves first)*
   to parent + self (never pgroup-wide); no `Notify(SIGTSTP)`; no `Setsid`; on
   SIGHUP/SIGTERM restore termios and exit 128+n (teardown is the parent's job);
   atexit-skip semantics replicated (terminal indicators are NOT restored on kill today —
-  preserve, don't fix); stdin-EOF behavior per the Stage 1 Open Question decision.
+  preserve, don't fix); stdin-EOF behavior per the decided semantics (Answered questions).
 - Exit: Stage 1 harness (incl. all three job-control scenarios) 100% green on both
   impls; `go test -race` clean; **SIGHUP-path leak assertions: no surviving socat
   processes, `/tmp/yolo-fwd` forward dir removed, loophole daemons stopped** — under
@@ -490,7 +494,7 @@ coverage improves first)*
   `json.loads` — a Go port with different key order would pass them while rewriting every
   file on disk.
 - Exit: Python-vs-Python empty diff demonstrated (after normalization); divergence
-  candidates proposed via `docs/go-port-qa-batch-2.md`, approved ones recorded in the
+  candidates proposed via `docs/qa/go-port-batch-2.md`, approved ones recorded in the
   ledger.
 
 **Stage 10 — Go entrypoint in a dual-impl image** *(3 sessions: generators lib →
@@ -540,8 +544,8 @@ orchestration/boot → image wiring + e2e)*
 **Stage 12 — Front door + first native slices** *(2 sessions)*
 - Go `yolo` (built to `dist-go/`, invoked via `$YOLO_GO_BIN_DIR/yolo` — nothing is
   installed on host PATH until Stage 17): argv `--`→`run` rewrite frozen to Python's
-  literal `_SUBCOMMANDS` set incl. the prune quirk (seam #1; advisory
-  registration-drift check separate), `YOLO_INVOCATION_CWD` pop+chdir, version lib,
+  `_SUBCOMMANDS` set (prune fix already landed; the Go table is cross-asserted against
+  Python's set and registrations — seam #1), `YOLO_INVOCATION_CWD` pop+chdir, version lib,
   banner byte-identical (verify `platform.machine()` naming: x86_64/aarch64, not Go's
   amd64/arm64), tmux/kitten indicator sequences + restore batching, `<runtime> inspect`
   baked-version probe. Everything else execs `python -m src.cli` with
@@ -552,8 +556,11 @@ orchestration/boot → image wiring + e2e)*
   produce zero indicator calls when delegating; Go-front-door vs pure-Python logs must
   be identical); **delegation executes exactly one Python process** (asserted via
   PATH-shim/pid count — proves the loop breaker works); passthrough proof:
-  `yolo check --no-build` output unchanged (still Python underneath); `--help` re-pinned
-  per QA batch 1 decision.
+  `yolo check --no-build` output unchanged (still Python underneath). `--help` is out of
+  byte scope by decision: the Go help must carry the SAME information (every command,
+  option, and semantic note present in the Python help) and be colorful and friendly,
+  using color purposefully to organize information — re-pinned as a Go-native golden
+  with an info-parity checklist reviewed in a QA batch.
 - Exit: with `YOLO_IMPL=go` exported, a full day of normal jail usage behaves
   identically; unset reverts instantly; `YOLO_GO_DISABLE` demonstrated.
 
@@ -669,22 +676,28 @@ lifecycle+locks → e2e+burn-in)*
 - Defaults flip (console-script shim, flake yoloCli wrapper, entrypoint yolo shim,
   `YOLO_ENTRYPOINT_IMPL=go`); ≥2 weeks all-defaults-go soak with flags as escape hatches;
   weekly CI + nightly-macos green ×2 (human-confirmed).
-- **Retirement is CONDITIONAL on the macos-user direction decision** (see §13 and the
-  Open Question): the delegation seam needs `python -m src.cli run`, which transitively
-  needs typer/pyjson5/rich, config, loopholes, run_cmd, macos_user, AND the Python
-  entrypoint package (macos_user imports it as a library). Two paths:
-  - *Decision landed, backend removed:* full retirement — per-module
+- **Retirement scope is decided AT Stage 17** (user decision, deliberately deferred —
+  see Answered questions). The constraint to honor when deciding: the macos-user
+  delegation seam needs `python -m src.cli run`, which transitively needs
+  typer/pyjson5/rich, config, loopholes, run_cmd, macos_user, AND the Python entrypoint
+  package (macos_user imports it as a library). The two candidate paths:
+  - *macos decision landed, backend removed:* full retirement — per-module
     `refactor(go): remove src/cli/<x>.py` commits; Python tests deleted only WITH their
-    modules; pyjson5/typer/rich leave runtime deps; wheel retired.
-  - *Decision pending or backend kept:* flip all defaults and cut Go distribution, but
-    RETAIN the enumerated Python subtree + the wheel as the macos-user carrier; only the
-    modules outside that closure are removed. Record the surviving set explicitly in the
+    modules; pyjson5/typer/rich leave runtime deps.
+  - *macos decision pending or backend kept:* flip all defaults and cut Go distribution,
+    but RETAIN the enumerated Python subtree as the macos-user carrier; only modules
+    outside that closure are removed. Record the surviving set explicitly in the
     Stage 17 handoff.
 - `YOLO_GO_DISABLE` and the other seam flags die WITH retirement (they need the Python
   target); the drift suite, `cmd/yolo-parity`, and the flag registry are deleted last.
 - Distribution: goreleaser + tag-driven versions (`-ldflags -X`), Homebrew binary formula
   replacing the poet pipeline, `go install github.com/mschulkind-oss/yolo-jail@latest`,
-  README Install rewrite; any interim PyPI-wheel deviation recorded per distribution.md.
+  README Install rewrite — **and PyPI remains a PERMANENT channel** (user decision):
+  per-platform wheels embedding the Go binary, built with `uvx go-to-wheel` in
+  publish.yml and published via `uv publish` — the pattern proven in
+  `mschulkind-oss/swarf` (its publish.yml is the reference implementation, incl.
+  `--set-version-var` for stamping the version into the binary). `pipx install
+  yolo-jail` / `uv tool install yolo-jail` keep working forever.
 - Upgrade-in-place test: a host with live Python-started jails upgrades to Go defaults
   and can attach/stop/prune them.
 - Housekeeping: fix `/workspace/CLAUDE.md` drift (empty → `@AGENTS.md` one-liner) as a
@@ -755,7 +768,7 @@ lifecycle+locks → e2e+burn-in)*
 ## 10. Execution protocol (for the porting agent)
 
 Per session:
-1. Read this plan's stage entry, the previous `docs/handoff-go-port-stage-*.md`, the
+1. Read this plan's stage entry, the previous `docs/implementation/go-port-stage-*.md`, the
    relevant `docs/research/go-port-module-map/*.json`, and the design docs the stage names
    (they are dense with load-bearing contracts: docs/design/ctrl-z-and-the-tty-proxy.md,
    docs/design/loophole-protocol.md, docs/design/config-safety.md, docs/design/storage-and-config.md,
@@ -770,9 +783,11 @@ Per session:
 5. End of stage: `just format`; tree clean; nested-jail verification recorded; handoff
    doc written (what landed, verification commands + output, human actions needed, and
    what's next); stage status updated in §14; new findings appended to
-   `docs/go-port-parity.md` (flat docs/ per repo convention).
+   `docs/research/go-port-parity.md`.
 6. If blocked on a decision: add it to Open Questions (§14) with a Leaning, proceed on
-   non-blocked work. Never switch a stage's scope mid-session.
+   non-blocked work, **and point the human at the question in your handoff/summary** —
+   questions live in this doc only (no root OPEN_QUESTIONS.md, no swarf mirror; user
+   decision). Never switch a stage's scope mid-session.
 7. Human-in-the-loop moments: approving QA-batch divergence waivers; running
    `just load && just install`; restarting host daemons (`yolo broker restart`);
    exporting/unsetting soak flags on the dev host; **pushing to origin and reporting CI
@@ -788,8 +803,9 @@ Per session:
 - `cmd/` + `internal/`, no `pkg/`; static entrypoint mirrors Python's stdlib-only rule.
 - Pure-Go logic, generated-bash-as-content only; shquote as the vetted quoting seam.
 - Conventional commits to main; never amend; no AI trailers; canonical author.
-- Heavy-track structure: this plan (RFC) → per-stage handoffs → QA batches →
-  `docs/go-port-parity.md` evergreen doc → post-cutover ADR distilling the decisions.
+- Heavy-track structure in the standard docs/ layout (migrated 2026-07-17): this plan
+  (docs/plans/) → per-stage handoffs (docs/implementation/) → QA batches (docs/qa/) →
+  `docs/research/go-port-parity.md` evergreen doc → post-cutover ADR in docs/design/.
 - Happy path: one build path (`just build-go` → `dist-go/`), one parser choice (ADR'd),
   one distribution story at cutover; the port ultimately DELETES the
   editable-install/finder-patch machinery rather than translating it — the static binary
@@ -798,10 +814,11 @@ Per session:
 ## 12. What is explicitly out of scope
 
 - Any behavior change not in the human-approved divergence ledger. This includes
-  "obvious" fixes: the near-dead stdin-EOF path, atexit-skip on kill, comment loss on
-  loophole enable/disable, the `prune`-missing-from-`_SUBCOMMANDS` routing quirk, the
+  "obvious" fixes: atexit-skip on kill, comment loss on loophole enable/disable, the
   openssl exec (x509 migration is post-port), replacing socat with native proxying,
-  GC-rooting the darwin packages store path.
+  GC-rooting the darwin packages store path. (The `prune` argv-rewrite quirk was fixed
+  pre-port by user decision, commit 3ad7353; the stdin-EOF semantics are decided —
+  see Answered questions.)
 - Porting `macos_user`/`darwin_packages` while docs/plans/macos-backend-direction.md is
   DECISION PENDING (delegation seam instead; --dry-run goldens keep both outcomes cheap;
   sole exception: the three pure check-probe helpers in Stage 15).
@@ -821,8 +838,8 @@ Per session:
 - **macos-user (Seatbelt backend):** delegated through seam #8 until the direction
   decision. If it survives, it ports later through the same front-door slice pattern
   against the already-frozen --dry-run goldens; if it dies, nothing was wasted. The
-  delegation pins a Python runtime subtree alive — which is why Stage 17 retirement is
-  conditional (see the Open Question).
+  delegation pins a Python runtime subtree alive — which is why Stage 17's retirement
+  scope is decided at Stage 17 (see Answered questions).
 - **nightly-macos** workflow unchanged throughout; it becomes an `impl` matrix consumer
   only when defaults flip.
 
@@ -853,7 +870,14 @@ Per session:
 
 ### Open Questions
 
-### Which Go JSON5/JSONC parser to adapt for `internal/json5`
+None active. All nine initial questions were answered by the user in the 2026-07-17
+review (recorded below, never deleted — they are decision records). New questions raised
+during execution go here with a `_Leaning:_`, and the stage handoff must point the human
+at them.
+
+### Answered
+
+#### Which Go JSON5/JSONC parser to adapt for `internal/json5`
 pyjson5 accepts full JSON5 (comments, trailing commas, single quotes, unquoted keys, hex,
 ±Infinity). Candidates: `titanous/json5`, `yosuke-furukawa/json5` ports, or adapting
 `tailscale/hujson` (JSONC-only — likely insufficient). The Stage 2 differential oracle
@@ -861,83 +885,83 @@ decides on evidence, not taste.
 _Leaning:_ adapt the closest JSON5 (not JSONC) library and drive it to observed
 equivalence under the oracle; vendor it so quirk fixes are local.
 **Answer:**
->
+> Comments and trailing commas are the hard requirement; beyond that, don't care much.
+> (⇒ oracle still picks the parser; divergence on exotic JSON5-isms may be
+> ledger-accepted if unused by real configs. Stage 2 updated.)
 
-### Is rich `--help` output in or out of byte-parity scope
-Typer renders rich-markup help; a Go CLI (cobra or hand-rolled) cannot reproduce it
-byte-for-byte without absurd effort. Agents do read `--help`.
-_Leaning:_ out of byte scope — re-pin Go help output as a NEW golden at Stage 12, keep
-all option names/semantics identical, and hold badges/errors/banner/templates byte-exact.
+#### Is rich `--help` output in or out of byte-parity scope
+Typer renders rich-markup help; a Go CLI cannot reproduce it byte-for-byte without absurd
+effort. Agents do read `--help`.
+_Leaning:_ out of byte scope — re-pin Go help output as a NEW golden at Stage 12.
 **Answer:**
->
+> Doesn't need byte-for-byte. Needs the same info, and should be colorful and friendly
+> and use colors well for information. (⇒ Stage 12: info-parity checklist + purposeful
+> color design, re-pinned as a Go-native golden.)
 
-### What survives Stage 17 if the macos-user direction is still undecided
+#### What survives Stage 17 if the macos-user direction is still undecided
 The delegation seam needs `python -m src.cli run` and its full closure (typer, pyjson5,
-rich, config, loopholes, run_cmd, macos_user, the entrypoint package) plus a shipping
-vehicle (the wheel). Full retirement while the seam is live is impossible.
-_Leaning:_ Stage 17 flips defaults and cuts Go distribution regardless; full Python
-retirement is gated on the macos decision, with the surviving subtree enumerated in the
-Stage 17 handoff if we cut over before it lands.
+rich, config, loopholes, run_cmd, macos_user, the entrypoint package).
+_Leaning:_ flip defaults and cut Go distribution regardless; gate full retirement on the
+macos decision.
 **Answer:**
->
+> We'll decide when we get there. (⇒ Stage 17 keeps both candidate paths and the
+> decision is made at that stage.)
 
-### Fix or preserve the `prune` argv-rewrite quirk
-`prune` is registered as a subcommand but missing from `main()`'s `_SUBCOMMANDS` rewrite
-set (cli/__init__.py:455-470), so `yolo prune -- x` misroutes to `run` today. The Go
-front door freezes the quirk for parity.
-_Leaning:_ preserve during the port (parity oracle = the literal set); fix in Python
-first (with regenerated goldens, per the freeze rule) only if it bites someone before
-cutover; otherwise fix post-cutover in Go and note it in the ledger.
+#### Fix or preserve the `prune` argv-rewrite quirk
+`prune` was registered as a subcommand but missing from `main()`'s `_SUBCOMMANDS` rewrite
+set, so `yolo prune -- x` misrouted.
+_Leaning:_ preserve during the port; fix post-cutover.
 **Answer:**
->
+> Fix. (⇒ FIXED 2026-07-17, commit 3ad7353 — `prune` added to the module-level set, the
+> stale test copy replaced with an import of the real set, and a lockstep test
+> cross-asserts the set against the registered typer commands. Landed before any goldens
+> froze, so no regeneration was needed.)
 
-### Front-door binary shape: one `cmd/yolo` + separate daemon binaries, or multi-call
+#### Front-door binary shape: one `cmd/yolo` + separate daemon binaries, or multi-call
 Separate binaries are playbook-idiomatic and simplest for seams; ~10 static binaries in
 the jail image could add ~50–100MB.
-_Leaning:_ separate `cmd/` binaries first; measure the image delta at Stage 10; if it
-matters, consolidate only the jail-side set into one multi-call binary with symlinks
-under the contract names (spawn-argv seams are path-based, so nothing else changes).
+_Leaning:_ separate `cmd/` binaries first; measure the image delta at Stage 10.
 **Answer:**
->
+> Yes — for seams, do whatever; we can decide to combine later. (⇒ separate binaries
+> now; consolidation is a Stage 10 measurement-driven follow-up.)
 
-### Where do go-port Open Questions sync
-agent-standards says active questions sync to a root `OPEN_QUESTIONS.md`; this repo keeps
-its (resolved) questions in untracked `swarf/OPEN_QUESTIONS.md` and has no root file.
-_Leaning:_ keep them here (this section is the canonical list) and mirror any BLOCKING
-question into `swarf/OPEN_QUESTIONS.md`; don't add a root file to the public repo without
-a nod.
+#### Where do go-port Open Questions sync
+agent-standards says active questions sync to a root `OPEN_QUESTIONS.md`; this repo has
+no root file.
+_Leaning:_ keep them here; mirror blocking ones into swarf/.
 **Answer:**
->
+> Don't use swarf for this. Just put them in the relevant doc and point me to them.
+> (⇒ this section is the only home; handoffs/summaries must point the human at any new
+> question. §10.6 updated.)
 
-### Migrate docs/ to the standard subdir layout (plans/design/research/tasks/qa)
-This plan follows the repo's live flat convention (`docs/go-port-*.md`,
-`docs/handoff-go-port-stage-N.md`, `docs/go-port-parity.md`). The standard layout would
-put it under docs/plans/ with ADRs in docs/design/.
-_Leaning:_ don't migrate mid-port; revisit at cutover when the plan's decisions distill
-into an ADR anyway.
+#### Migrate docs/ to the standard subdir layout (plans/design/research/tasks/qa)
+The plan originally followed the repo's flat convention.
+_Leaning:_ don't migrate mid-port; revisit at cutover.
 **Answer:**
->
+> You can do this now. (⇒ DONE 2026-07-17: 38 moves into
+> plans/design/research/implementation/qa/guides, 51 files' references updated, 63
+> relative links re-pointed; this plan now lives at docs/plans/go-port-plan.md and all
+> go-port artifact paths in it use the new layout.)
 
-### Keep PyPI/wheel shipping during the transition
-publish.yml ships a pure wheel today. Once Go binaries are the product, the wheel either
-grows embedded binaries (packaging churn) or PyPI users lag behind.
-_Leaning:_ keep the wheel pure-Python and current until Stage 17, then cut over to
-goreleaser + tap + `go install` in one release, recording the deviation per
-distribution.md. No wheel-embedded-binary interim. (If macos-user survives undecided,
-the wheel also stays as its carrier — see the Stage 17 question.)
+#### Keep PyPI/wheel shipping during the transition
+publish.yml ships a pure wheel today.
+_Leaning:_ keep the wheel pure-Python until Stage 17, then goreleaser-only; no
+wheel-embedded-binary interim.
 **Answer:**
->
+> We will always have PyPI even with pure Go — see github.com/mschulkind-oss/swarf for
+> how this is done. (⇒ Stage 17 distribution updated: PyPI is a permanent channel via
+> `uvx go-to-wheel` per-platform wheels embedding the Go binary, published with
+> `uv publish` — swarf's publish.yml is the reference implementation.)
 
-### Intended behavior of the tty proxy's stdin-EOF path
+#### Intended behavior of the tty proxy's stdin-EOF path
 `tty_proxy.py` sets `master=-1` after stdin EOF and would pass it to `select()` →
-`ValueError`; effectively dead code on real TTYs. The Go port must do something
-deliberate.
-_Leaning:_ treat stdin-EOF as "stop reading stdin, keep pumping master until child
-exit" (what the non-TTY path effectively does), pin it in the harness for BOTH
-implementations, and note the Python quirk in the divergence ledger if its observable
-behavior differs.
+`ValueError`; effectively dead code on real TTYs.
+_Leaning:_ stdin-EOF = stop reading stdin, keep pumping master until child exit.
 **Answer:**
->
+> You decide. (⇒ DECIDED per the leaning: on stdin EOF, stop reading stdin and keep
+> pumping the master until the child exits — pinned in the Stage 1 harness for both
+> implementations; if Python's observable behavior differs, it goes in the divergence
+> ledger.)
 
 ## 15. Provenance
 
@@ -965,3 +989,24 @@ design with targeted suspend + child-not-stopped harness scenarios, added the
 Stage 17 retirement conditional on the macos decision, assigned storage.py/image.py to a
 Stage 14 slice ahead of check-native, added the user-env.sh and TOML parity surfaces,
 and re-sized Stages 14/16.
+
+Rev 3 (same day) folds in the user's review answers on all nine Open Questions (now in
+§14 Answered): the `prune` argv-rewrite fix landed in source (3ad7353), docs/ was
+migrated to the standard subdir layout (this plan moved to docs/plans/), PyPI became a
+permanent distribution channel via the swarf `go-to-wheel` pattern, the JSON5 floor was
+set at comments + trailing commas, `--help` parity was defined as info + good color
+design, the stdin-EOF semantics were decided, Stage 17 retirement scope was deferred to
+Stage 17, and Open Questions now live in this doc alone. Execution from Stage 0 onward
+is deliberately left to the porting agent — nothing beyond these decisions has been
+implemented.
+
+<!-- changelog -->
+- [35528c9c] Set comments + trailing commas as the hard parser requirement in Stage 2; exotic JSON5-isms may be ledger-accepted. Question moved to Answered.
+- [d753b2f6] Redefined `--help` parity in Stage 12 as same-info + colorful, purposeful color design (not bytes). Question moved to Answered.
+- [39f1921d] Reworded Stage 17: retirement scope is decided at Stage 17, both candidate paths kept. Question moved to Answered.
+- [df5589ba] Fixed in source (commit 3ad7353): added `prune` to `_SUBCOMMANDS` + lockstep registration test; plan's seam #1/Stage 12/§12 updated to a strict cross-assert oracle.
+- [29187e2b] Recorded: separate binaries now, consolidation decided at Stage 10 from measured image delta. Question moved to Answered.
+- [4bfee8ce] Removed swarf mirroring; questions live in this doc only and handoffs must point the human at them (§10.6).
+- [5c12e6f4] Migrated docs/ to the standard layout (38 moves, 51 files' references + 63 relative links updated); plan now at docs/plans/go-port-plan.md with all artifact paths updated.
+- [66e3b26f] Made PyPI a permanent channel in Stage 17 via go-to-wheel per-platform wheels embedding the Go binary (swarf publish.yml pattern).
+- [70a0ede9] Decided stdin-EOF: stop reading stdin, keep pumping master until child exit; pinned in the Stage 1 harness for both implementations.
