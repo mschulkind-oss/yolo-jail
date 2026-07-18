@@ -3,6 +3,7 @@ package entrypoint
 import (
 	"os"
 	"path/filepath"
+	"runtime"
 
 	"github.com/mschulkind-oss/yolo-jail/internal/pytext"
 )
@@ -69,15 +70,36 @@ func GenerateYoloWrapper(e *Env) error {
 		return err
 	}
 
-	// The exec line has a Python line-continuation (`\` + newline + 2-space
-	// indent) inside a triple-quoted string, which collapses to a single run of
-	// spaces: `"pyjson5>=2.0.0"` + space + (removed newline) + 2-space indent =
-	// three spaces before `-- python`.
+	// Single-line uv incantation shared by the yolo / _yolo_python / yolo-go
+	// shims (mirrors scripts.py's uv_cli).
+	const uvCLI = `uv run --no-project --with typer --with rich --with "pyjson5>=2.0.0" -- python`
 	shimContent := "#!/bin/bash\n" +
-		"exec uv run --no-project --with typer --with rich --with \"pyjson5>=2.0.0\"   -- python \"" +
-		bootstrapPy + "\" \"$@\"\n"
+		"exec " + uvCLI + " \"" + bootstrapPy + "\" \"$@\"\n"
 	scriptPath := filepath.Join(shimDir, "yolo")
 	if err := writeMode(scriptPath, shimContent, 0o755); err != nil {
+		return err
+	}
+
+	// _yolo_python: a single-executable python shim for the Go binary's
+	// delegate-to-Python path (it execs YOLO_PYTHON as one argv[0]). Mirrors
+	// scripts.py's py_shim.
+	pyShim := filepath.Join(shimDir, "_yolo_python")
+	pyShimContent := "#!/bin/bash\n" +
+		"exec " + uvCLI + " \"$@\"\n"
+	if err := writeMode(pyShim, pyShimContent, 0o755); err != nil {
+		return err
+	}
+
+	// yolo-go: same bootstrap with the Go gate baked in (Python main() re-execs
+	// $YOLO_GO_BIN_DIR/yolo). Mirrors scripts.py's go_script_path.
+	goBinDir := "/opt/yolo-jail/dist-go/linux-" + goBinArch()
+	goShim := filepath.Join(shimDir, "yolo-go")
+	goShimContent := "#!/bin/bash\n" +
+		"export YOLO_IMPL=go\n" +
+		"export YOLO_GO_BIN_DIR=\"" + goBinDir + "\"\n" +
+		"export YOLO_PYTHON=\"" + pyShim + "\"\n" +
+		"exec " + uvCLI + " \"" + bootstrapPy + "\" \"$@\"\n"
+	if err := writeMode(goShim, goShimContent, 0o755); err != nil {
 		return err
 	}
 
@@ -87,6 +109,13 @@ func GenerateYoloWrapper(e *Env) error {
 		_ = os.Remove(stale)
 	}
 	return nil
+}
+
+// goBinArch maps the jail's arch to the dist-go GOARCH suffix (mirrors
+// scripts.py's os.uname().machine map). The entrypoint runs in-jail (Linux,
+// native arch), so runtime.GOARCH is that value.
+func goBinArch() string {
+	return runtime.GOARCH
 }
 
 // cglimitScript is the byte-exact body of scripts.generate_cglimit_script's

@@ -399,7 +399,7 @@ func (o *Options) commonEnvBlock(in *assembleInput, blockedConfigJSON, netMode s
 		env = append(env,
 			"-e", "YOLO_IMPL=go",
 			"-e", "YOLO_GO_BIN_DIR=/opt/yolo-jail/dist-go/linux-"+goBinArch(),
-			"-e", "YOLO_PYTHON=python3",
+			"-e", "YOLO_PYTHON=/home/agent/.yolo-shims/_yolo_python",
 			"-e", "PYTHONPATH=/opt/yolo-jail",
 		)
 	}

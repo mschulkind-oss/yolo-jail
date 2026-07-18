@@ -369,11 +369,43 @@ from src.cli import main
 main()
 ''')
     bootstrap_py.chmod(0o755)
+    uv_cli = 'uv run --no-project --with typer --with rich --with "pyjson5>=2.0.0" -- python'
     script_path.write_text(f"""#!/bin/bash
-exec uv run --no-project --with typer --with rich --with "pyjson5>=2.0.0" \
-  -- python "{bootstrap_py}" "$@"
+exec {uv_cli} "{bootstrap_py}" "$@"
 """)
     script_path.chmod(0o755)
+
+    # A single-executable python shim for the Go binary's delegate-to-Python
+    # path (which execs YOLO_PYTHON as ONE argv[0], so it can't be a multi-word
+    # `uv run …` string). This wraps the same uv incantation as `yolo`, so
+    # delegated subcommands get the CLI deps a bare python3 may lack on a fresh
+    # jail. It forwards to `python "$@"` (Go calls it as `<shim> -m src.cli …`).
+    py_shim = shim_dir / "_yolo_python"
+    py_shim.write_text(f"""#!/bin/bash
+exec {uv_cli} "$@"
+""")
+    py_shim.chmod(0o755)
+
+    # Sibling `yolo-go` shim: same bootstrap, but with the Go gate baked in so
+    # `yolo-go` inside the jail runs the Go front door (Python main() re-execs
+    # $YOLO_GO_BIN_DIR/yolo). `yolo` stays transparent (Go iff the jail was
+    # launched via host `yolo-go`, which forwards YOLO_IMPL=go — seam #11);
+    # `yolo-go` lets an in-jail agent pick Go explicitly regardless. The Go
+    # binaries ride the live-mounted dist-go dir under /opt/yolo-jail; delegated
+    # subcommands fall back to Python via the _yolo_python shim above.
+    machine = os.uname().machine
+    go_arch = {"x86_64": "amd64", "aarch64": "arm64", "arm64": "arm64"}.get(
+        machine, machine
+    )
+    go_bin_dir = f"/opt/yolo-jail/dist-go/linux-{go_arch}"
+    go_script_path = shim_dir / "yolo-go"
+    go_script_path.write_text(f"""#!/bin/bash
+export YOLO_IMPL=go
+export YOLO_GO_BIN_DIR="{go_bin_dir}"
+export YOLO_PYTHON="{py_shim}"
+exec {uv_cli} "{bootstrap_py}" "$@"
+""")
+    go_script_path.chmod(0o755)
 
     # Remove stale yolo wrapper from .local/bin if present — it was generated
     # by older entrypoint versions and lacks the --no-project fix.

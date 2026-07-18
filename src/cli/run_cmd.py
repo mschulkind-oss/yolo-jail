@@ -2023,8 +2023,12 @@ def run(
                     "YOLO_IMPL=go",
                     "-e",
                     f"YOLO_GO_BIN_DIR=/opt/yolo-jail/dist-go/linux-{_go_bin_arch()}",
+                    # Delegated subcommands re-enter Python via the entrypoint's
+                    # _yolo_python shim (a single-executable uv wrapper carrying
+                    # the CLI deps — bare python3 may lack them on a fresh jail);
+                    # PYTHONPATH makes `src` importable for its `-m src.cli`.
                     "-e",
-                    "YOLO_PYTHON=python3",
+                    "YOLO_PYTHON=/home/agent/.yolo-shims/_yolo_python",
                     "-e",
                     "PYTHONPATH=/opt/yolo-jail",
                 ]
