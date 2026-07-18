@@ -56,6 +56,7 @@ var gatedNativeSubcommands = map[string]struct{}{
 	"init":             {},
 	"init-user-config": {},
 	"broker":           {},
+	"prune":            {},
 }
 
 // goImplEnabled reports whether YOLO_IMPL=go is set (the Stage-15 gate). It is a

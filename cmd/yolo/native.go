@@ -14,6 +14,7 @@ import (
 	"github.com/mschulkind-oss/yolo-jail/internal/initcmd"
 	"github.com/mschulkind-oss/yolo-jail/internal/loopholescmd"
 	"github.com/mschulkind-oss/yolo-jail/internal/paths"
+	"github.com/mschulkind-oss/yolo-jail/internal/prunecmd"
 	"github.com/mschulkind-oss/yolo-jail/internal/pscmd"
 	"github.com/mschulkind-oss/yolo-jail/internal/runcmd"
 	"github.com/mschulkind-oss/yolo-jail/internal/runtime"
@@ -34,6 +35,55 @@ var nativeDispatch = map[string]func(args []string) int{
 	"init":             runInit,
 	"init-user-config": runInitUserConfig,
 	"broker":           runBroker,
+	"prune":            runPrune,
+}
+
+// runPrune runs the native `yolo prune` (disk reclaim). Parses the prune flags
+// (default dry-run; --apply reclaims). Gated behind YOLO_IMPL=go; ANSI-stripped
+// output contract, byte-exact reclaim decisions.
+func runPrune(args []string) int {
+	opts := prunecmd.NewDefaultOptions()
+	opts.Color = true
+	// args: ["prune", <flags>...]
+	for i := 1; i < len(args); i++ {
+		a := args[i]
+		nextInt := func(def int) int {
+			if i+1 < len(args) {
+				i++
+				if n, err := strconv.Atoi(args[i]); err == nil {
+					return n
+				}
+			}
+			return def
+		}
+		switch {
+		case a == "--apply":
+			opts.Apply = true
+		case a == "--no-hardlink":
+			opts.NoHardlink = true
+		case a == "--dedup-global":
+			opts.DedupGlobal = true
+		case a == "--no-containers":
+			opts.NoContainers = true
+		case a == "--no-images":
+			opts.NoImages = true
+		case a == "--keep-images":
+			opts.KeepImages = nextInt(opts.KeepImages)
+		case a == "--no-image-cache":
+			opts.NoImageCache = true
+		case a == "--no-build-roots":
+			opts.NoBuildRoots = true
+		case a == "--no-shadowed-home":
+			opts.NoShadowedHome = true
+		case a == "--image-cache-keep":
+			opts.ImageCacheKeep = nextInt(opts.ImageCacheKeep)
+		case a == "--cache-age":
+			opts.CacheAge = nextInt(opts.CacheAge)
+		case a == "--purge-heavy-caches":
+			opts.PurgeHeavyCaches = true
+		}
+	}
+	return prunecmd.Run(opts)
 }
 
 // runBroker dispatches `yolo broker {status,stop,restart,logs}`. args is the

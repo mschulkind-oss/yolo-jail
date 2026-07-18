@@ -76,8 +76,9 @@ func TestCheckGate(t *testing.T) {
 		}
 	}
 	// A non-gated, non-native subcommand stays delegated even with the gate on.
-	if IsNative("prune") {
-		t.Error("gate on: IsNative(\"prune\") = true, want false")
+	// (macos-setup is delegated until Stage 16b's dispatch wiring lands.)
+	if IsNative("macos-setup") {
+		t.Error("gate on: IsNative(\"macos-setup\") = true, want false")
 	}
 }
 
