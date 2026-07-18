@@ -124,7 +124,12 @@ func GenerateMiseConfig(e *Env) error {
 		tk := miseTomlKey(tool)
 		pattern := regexp.MustCompile(`(?m)^"?` + regexp.QuoteMeta(tool) + `"?\s*=\s*"[^"]*"`)
 		if pattern.MatchString(content) {
-			newContent := pattern.ReplaceAllString(content, tk+` = "`+version+`"`)
+			// ReplaceAllLiteralString, NOT ReplaceAllString: Go's ReplaceAllString
+			// expands `$1`/`$name` in the replacement, corrupting a mise version
+			// (or tool key) containing `$`. Python's re.sub inserts this literal
+			// f-string verbatim (it expands backslash refs, never `$`), so the
+			// literal replacement is the faithful match (audit 2026-07-18 §C).
+			newContent := pattern.ReplaceAllLiteralString(content, tk+` = "`+version+`"`)
 			if newContent != content {
 				content = newContent
 				changed = true
