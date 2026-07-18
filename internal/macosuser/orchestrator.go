@@ -110,7 +110,12 @@ func MacosSandboxEnv(deps Deps, cfg *jsonx.OrderedMap) *jsonx.OrderedMap {
 func buildPlan(deps Deps, opts Options, darwin *Darwin) RunPlan {
 	env := MacosSandboxEnv(deps, opts.Config)
 	// try: env.update(_resolve_env_sources(...)) except Exception: pass
-	resolved := config.ResolveEnvSources(opts.Workspace, opts.Config, func(string) {})
+	// The resolver's warnings (e.g. "env_sources file not found") go to the
+	// console in Python (config.py console.print) — route them to deps.Out via
+	// the rich-stripping printer so the plan output matches (the container path
+	// wires the same warn callback; a no-op here silently dropped the line).
+	out := printer{w: deps.Out}
+	resolved := config.ResolveEnvSources(opts.Workspace, opts.Config, func(msg string) { out.print(msg) })
 	for _, k := range resolved.Keys() {
 		v, _ := resolved.Get(k)
 		env.Set(k, v)
