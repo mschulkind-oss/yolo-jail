@@ -3987,6 +3987,7 @@ class TestBrokerRelay:
         _, _, cli = self._patch_paths(monkeypatch, tmp_path)
         go_bin = tmp_path / "yolo-broker-relay"
         go_bin.write_text("#!/bin/sh\n")
+        go_bin.chmod(0o755)  # must be executable — the guard falls back otherwise
         monkeypatch.setenv("YOLO_BROKER_RELAY_BIN", str(go_bin))
         monkeypatch.setattr("cli.loopholes_runtime._relay_is_alive", lambda *a: False)
         monkeypatch.setattr(
@@ -4009,6 +4010,35 @@ class TestBrokerRelay:
             sockets_dir / "claude-oauth-broker.sock"
         )
         assert argv[argv.index("--jail") + 1] == "jail-go"
+
+    def test_ensure_falls_back_to_python_when_go_binary_missing(
+        self, monkeypatch, tmp_path
+    ):
+        """go-port seam-hardening: YOLO_BROKER_RELAY_BIN points into dist-go/,
+        which is gitignored + wiped by `just clean`, so it can vanish out from
+        under a still-exported flag. A missing/non-executable path must fall
+        back to the Python relay (availability beats the A/B preference), not
+        spawn a broken relay that 502s every jail."""
+        _, _, cli = self._patch_paths(monkeypatch, tmp_path)
+        missing = tmp_path / "dist-go" / "linux-amd64" / "yolo-broker-relay"
+        monkeypatch.setenv("YOLO_BROKER_RELAY_BIN", str(missing))  # never created
+        monkeypatch.setattr("cli.loopholes_runtime._relay_is_alive", lambda *a: False)
+        monkeypatch.setattr(
+            "cli.loopholes_runtime._broker_wait_for_socket", lambda *a, **kw: True
+        )
+        calls = {}
+
+        class FakePopen:
+            def __init__(self, argv, **kw):
+                calls["argv"] = argv
+                self.pid = 4246
+
+        monkeypatch.setattr(cli.subprocess, "Popen", FakePopen)
+        _relay_ensure("jail-fb", tmp_path / "sockets")
+        argv = calls["argv"]
+        assert argv[0] == sys.executable, "must fall back to the Python interpreter"
+        assert argv[1].endswith("/broker_relay.py")
+        assert str(missing) not in " ".join(argv)
 
     def test_relay_identity_guard_matches_go_binary(self, monkeypatch):
         """The cmdline identity guard recognizes the Go relay's argv[0]

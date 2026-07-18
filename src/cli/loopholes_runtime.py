@@ -817,7 +817,20 @@ def _relay_spawn_argv(
     ]
     go_bin = os.environ.get("YOLO_BROKER_RELAY_BIN")
     if go_bin:
-        return [go_bin, *tail]
+        # Seam-hardening (go-port): the soak flag points into dist-go/, which is
+        # gitignored and wiped by ``just clean`` — so it can vanish out from
+        # under a still-exported flag (fresh clone, cleaned tree, un-rebuilt
+        # binary). A missing/non-executable path would spawn a broken relay and
+        # 502 every jail. Warn once and FALL BACK to the Python relay instead,
+        # which always exists in the source tree — availability beats the
+        # A/B preference. Rebuild with ``just build-go`` to re-engage the Go relay.
+        if os.access(go_bin, os.X_OK):
+            return [go_bin, *tail]
+        console.print(
+            f"[yellow]YOLO_BROKER_RELAY_BIN={go_bin} is missing or not "
+            f"executable — falling back to the Python relay. Run "
+            f"`just build-go` to rebuild dist-go/.[/yellow]"
+        )
     relay_script = Path(__file__).resolve().parent.parent / "broker_relay.py"
     return [sys.executable, str(relay_script), *tail]
 
