@@ -74,18 +74,22 @@ func ensureStorage() error {
 }
 
 // runContainer is the fresh-launch + attach orchestration. Populated by the
-// later sub-phases; a placeholder until the argv/lifecycle phases land.
+// later sub-phases; a placeholder until the argv/lifecycle phases land. The
+// Phase-2 wiring (network port-forwarding, storage ensure, image auto-load) is
+// referenced here so the seams stay exercised while the argv assembly lands.
 func runContainer(o *Options, cfg *jsonx.OrderedMap, rt, repoRoot string) int {
 	// Identity env vars (git + jj) are collected early — needed for both the
 	// exec and run paths.
 	identityEnv := o.collectIdentityEnv()
 	_ = identityEnv
 
-	// Config-change approval fires only on the fresh-launch path (after the
-	// attach decision); wired in the lifecycle+locks sub-phase. Reference it
-	// here so the seam stays exercised while the argv assembly lands.
+	// The lifecycle+locks and argv+mount sub-phases wire the remaining flow;
+	// reference the Phase-2 seams so the compiler keeps them live.
 	if false {
 		_ = o.checkConfigChanges(cfg)
+		_ = o.autoLoadImage(cfg, rt, repoRoot)
+		procs := o.startHostPortForwarding(nil, "", "")
+		cleanupPortForwarding(procs, "")
 	}
 	_ = rt
 	_ = repoRoot
