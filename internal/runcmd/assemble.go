@@ -166,8 +166,14 @@ func (o *Options) assembleRunCmd(in *assembleInput) []string {
 	runCmd = append(runCmd, o.commonEnvBlock(in, blockedConfigJSON, netMode)...)
 
 	// --- yolo-user-env.sh (written by the lifecycle phase; mounted here) ---
+	// Apple Container can't do single-file mounts under the ws_state parent
+	// mount without dropping it, so it materializes the file into ws_state
+	// instead (run_cmd.py:2063). Skipping the container branch silently dropped
+	// every env_sources var (the file is sourced with 2>/dev/null).
 	userEnvFile := filepath.Join(in.wsState, "yolo-user-env.sh")
-	if rt != "container" {
+	if rt == "container" {
+		acMaterialize(userEnvFile, ".config/yolo-user-env.sh", in.wsState)
+	} else {
 		runCmd = append(runCmd, "-v", userEnvFile+":/home/agent/.config/yolo-user-env.sh")
 	}
 
@@ -323,9 +329,15 @@ func (o *Options) assembleRunCmd(in *assembleInput) []string {
 	runCmd = append(runCmd, o.hostPiFileArgs(cfg, in)...)
 
 	// --- per-agent briefings ---
+	// Same Apple-Container single-file-mount limitation as yolo-user-env.sh: AC
+	// materializes the staged briefing into ws_state (run_cmd.py:2881). Skipping
+	// the container branch silently dropped every selected agent's AGENTS.md /
+	// CLAUDE.md briefing.
 	for _, spec := range in.agentSpecs {
 		staged := filepath.Join(in.agentsPath, spec.Briefing.Staging)
-		if rt != "container" {
+		if rt == "container" {
+			acMaterialize(staged, spec.Briefing.Mount, in.wsState)
+		} else {
 			runCmd = append(runCmd, "-v", staged+":/home/agent/"+spec.Briefing.Mount+":ro")
 		}
 	}
