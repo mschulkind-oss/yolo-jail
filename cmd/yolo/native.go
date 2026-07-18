@@ -10,6 +10,7 @@ import (
 	"github.com/mschulkind-oss/yolo-jail/internal/configref"
 	"github.com/mschulkind-oss/yolo-jail/internal/initcmd"
 	"github.com/mschulkind-oss/yolo-jail/internal/loopholescmd"
+	"github.com/mschulkind-oss/yolo-jail/internal/paths"
 	"github.com/mschulkind-oss/yolo-jail/internal/pscmd"
 	"github.com/mschulkind-oss/yolo-jail/internal/runcmd"
 	"github.com/mschulkind-oss/yolo-jail/internal/runtime"
@@ -108,21 +109,30 @@ func runLoopholes(args []string) int {
 
 // runPs runs the native `yolo ps` (list running jails). Gated behind
 // YOLO_IMPL=go; plain typer.echo output, byte-parity with Python. args is
-// ignored (ps takes no flags).
+// ignored (ps takes no flags). Uses PLATFORM-AWARE runtime resolution (audit
+// §B/D11): on macOS with Apple Container running, `podman ps` would be empty and
+// the tracking-prune would delete live jails' files.
 func runPs(_ []string) int {
-	return pscmd.Run(pscmd.RealDeps(psRunCmd, runtime.DetectRuntime))
+	detect := func() string {
+		return runtime.PsRuntime(paths.IsMacOS, func(bin string) bool {
+			_, err := exec.LookPath(bin)
+			return err == nil
+		})
+	}
+	return pscmd.Run(pscmd.RealDeps(psRunCmd, detect))
 }
 
-// psRunCmd runs a container-runtime probe and returns stdout (stderr discarded),
-// matching Python's capture_output=True, text=True. A spawn error yields ""; the
-// caller degrades (empty output → no jails / unknown workspace), never crashes.
-func psRunCmd(argv []string) (string, error) {
+// psRunCmd runs a container-runtime probe and returns (stdout, ok). ok=false on
+// a spawn error OR non-zero exit — the tri-state "could not enumerate" that
+// pscmd must NOT collapse to "no jails" (else it prunes live jails' tracking
+// files, audit §D11).
+func psRunCmd(argv []string) (string, bool) {
 	cmd := exec.Command(argv[0], argv[1:]...)
 	out, err := cmd.Output()
 	if err != nil {
-		return "", err
+		return "", false
 	}
-	return string(out), nil
+	return string(out), true
 }
 
 // runRun parses the run flags (--network, --new, --profile, --dry-run) and the

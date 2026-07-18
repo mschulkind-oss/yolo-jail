@@ -28,15 +28,38 @@ type LiveSet struct {
 	Names map[string]struct{}
 }
 
-// DetectRuntime returns the container runtime for prune / ps / check use: the
+// DetectRuntime returns the container runtime for prune / check use: the
 // YOLO_RUNTIME env var if set, else "podman". Mirrors _detect_runtime (the
-// shallow variant — no connectivity probe or sys.exit). ps() in Python uses the
-// richer _runtime() which also probes connectivity and can exit(1) on a missing
-// runtime; the native ps narrows to this shallow detect (documented divergence
-// D11) because the connectivity probe + process-exit is the run path's concern.
+// shallow variant — no connectivity probe or sys.exit).
 func DetectRuntime() string {
 	if rt := os.Getenv("YOLO_RUNTIME"); rt != "" {
 		return rt
+	}
+	return "podman"
+}
+
+// PsRuntime resolves the runtime for `yolo ps` PLATFORM-AWARELY, closing the
+// audit §B/D11 bug where the shallow DetectRuntime picked "podman" on a macOS
+// host running Apple Container (YOLO_RUNTIME unset) → `podman ps` empty → the
+// stale-tracking prune deleted LIVE AC jails' files. Priority mirrors Python's
+// _runtime() candidate order: YOLO_RUNTIME override, else on macOS
+// container→podman (native Apple Container preferred), else podman on Linux.
+// hasBinary reports whether a runtime CLI is on PATH (inject exec.LookPath!=nil;
+// pass nil to assume present). No connectivity probe / sys.exit — the ps prune
+// guard is now the tri-state enumeration check, not a hard runtime gate.
+func PsRuntime(isMacOS bool, hasBinary func(string) bool) string {
+	if rt := os.Getenv("YOLO_RUNTIME"); rt != "" {
+		return rt
+	}
+	if hasBinary == nil {
+		hasBinary = func(string) bool { return true }
+	}
+	if isMacOS {
+		for _, rt := range []string{"container", "podman"} {
+			if hasBinary(rt) {
+				return rt
+			}
+		}
 	}
 	return "podman"
 }

@@ -19,13 +19,14 @@ import (
 	"github.com/mschulkind-oss/yolo-jail/internal/runtime"
 )
 
-// Deps are the injectable seams. RunCmd runs argv and returns stdout (stderr
-// discarded, matching capture_output + text); a spawn error yields ("", err) and
-// the caller degrades. DetectRuntime returns the effective runtime ("podman" /
-// "container"). PathIsDir reports whether a workspace path is an existing dir.
+// Deps are the injectable seams. RunCmd runs argv and returns (stdout, ok):
+// ok=false means the probe could NOT enumerate (spawn/exec failure or non-zero
+// exit) — the tri-state that must never be collapsed to "no jails" (D11).
+// DetectRuntime returns the effective runtime ("podman" / "container"),
+// platform-aware for ps. PathIsDir reports whether a workspace path exists.
 type Deps struct {
 	DetectRuntime func() string
-	RunCmd        func(argv []string) (string, error)
+	RunCmd        func(argv []string) (string, bool)
 	PathIsDir     func(path string) bool
 	Out           io.Writer
 }
@@ -36,18 +37,38 @@ type Deps struct {
 func Run(deps Deps) int {
 	rt := deps.DetectRuntime()
 
+	// The runtime probe is TRI-STATE (audit 2026-07-18 §B / D11): a spawn/exec
+	// error means "could not enumerate", which must NEVER be read as "no jails"
+	// — pruning the tracking dir on an unconfirmed-empty set deletes the files
+	// for LIVE jails (the destructive macOS-AC bug). Only a probe that actually
+	// ran (ok=true) authorizes the stale-tracking prune.
 	var rows []runtime.PsRow
+	var enumerated bool
 	if rt == "container" {
-		out, _ := deps.RunCmd([]string{"container", "ls"})
-		rows = runtime.ParseContainerLsRows(out)
+		out, ok := deps.RunCmd([]string{"container", "ls"})
+		enumerated = ok
+		if ok {
+			rows = runtime.ParseContainerLsRows(out)
+		}
 	} else {
-		out, _ := deps.RunCmd([]string{rt, "ps", "--filter", "name=^yolo-", "--format", "{{.Names}}\t{{.Status}}\t{{.RunningFor}}"})
-		rows = runtime.ParsePodmanPsRows(out)
+		out, ok := deps.RunCmd([]string{rt, "ps", "--filter", "name=^yolo-", "--format", "{{.Names}}\t{{.Status}}\t{{.RunningFor}}"})
+		enumerated = ok
+		if ok {
+			rows = runtime.ParsePodmanPsRows(out)
+		}
+	}
+
+	if !enumerated {
+		// Could not talk to the runtime — decline to prune (fail-safe), and say
+		// so rather than the misleading "No running jails."
+		fmt.Fprintf(deps.Out, "Could not query the %s runtime for running jails.\n", rt)
+		return 0
 	}
 
 	if len(rows) == 0 {
 		fmt.Fprintln(deps.Out, "No running jails.")
-		// Clean up ALL stale tracking files (nothing is running).
+		// Enumeration succeeded and returned nothing → safe to prune all stale
+		// tracking files.
 		runtime.PruneStaleTrackingFiles(map[string]struct{}{})
 		return 0
 	}
@@ -108,16 +129,16 @@ func getContainerWorkspace(deps Deps, name, rt string) string {
 		// Apple Container inspect emits JSON (no --format). The env lives under
 		// config.env; ReadContainerWorkspace already covered the tracking file,
 		// so parse the inspect JSON for YOLO_HOST_DIR here.
-		out, err := deps.RunCmd([]string{"container", "inspect", name})
-		if err == nil {
+		out, ok := deps.RunCmd([]string{"container", "inspect", name})
+		if ok {
 			if ws, ok := runtime.WorkspaceFromContainerInspectJSON(out); ok {
 				return ws
 			}
 		}
 		return "unknown"
 	}
-	out, err := deps.RunCmd([]string{rt, "inspect", name, "--format", "{{range .Config.Env}}{{println .}}{{end}}"})
-	if err == nil {
+	out, ok := deps.RunCmd([]string{rt, "inspect", name, "--format", "{{range .Config.Env}}{{println .}}{{end}}"})
+	if ok {
 		if ws, ok := runtime.WorkspaceFromInspectEnv(strings.Split(out, "\n")); ok {
 			return ws
 		}
@@ -133,15 +154,17 @@ func stuckReason(deps Deps, name, rt string) string {
 	if rt == "container" {
 		return ""
 	}
-	out, err := deps.RunCmd([]string{rt, "top", name, "-eo", "comm"})
-	if err != nil {
+	out, ok := deps.RunCmd([]string{rt, "top", name, "-eo", "comm"})
+	if !ok {
 		return ""
 	}
 	return runtime.StuckReasonFromTop(out)
 }
 
-// RealDeps returns Deps backed by real subprocesses / filesystem.
-func RealDeps(runCmd func(argv []string) (string, error), detectRuntime func() string) Deps {
+// RealDeps returns Deps backed by real subprocesses / filesystem. runCmd must
+// return (stdout, ok) where ok=false signals an enumeration failure (spawn error
+// or non-zero exit).
+func RealDeps(runCmd func(argv []string) (string, bool), detectRuntime func() string) Deps {
 	return Deps{
 		DetectRuntime: detectRuntime,
 		RunCmd:        runCmd,

@@ -287,36 +287,36 @@ in `loadManifest` (and the mirror in `SetEnabled`). No parity test asserts the
 crash (it is the accepted improvement); the skippable-error path shares the same
 `LoopholeError` plumbing that `TestValidateParity` covers for other shapes.
 
-## D11 — ps: native `yolo ps` uses the shallow runtime detect, not `_runtime()`
+## D11 — ps: runtime detection + never-prune-on-unconfirmed-empty (WITHDRAWN — the bug was FIXED)
 
-**Status:** proposed (awaiting sign-off).
-**Reachable only under `YOLO_IMPL=go`** (the gate defaults to Python).
+**Status:** WITHDRAWN. The original D11 proposed *accepting* a shallow-runtime
+narrowing; the 2026-07-18 re-audit (§B/D11) correctly found that unsound (it was
+destructive, not benign), so it is not a divergence to accept — it was a BUG,
+now fixed. No divergence remains to sign off.
 
-Python's `ps()` resolves the runtime via `_runtime()`, which probes daemon
-connectivity (`podman info` / `container system status`), rejects a
-non-Apple `container` binary, and `sys.exit(1)` with a red message when no
-runtime is reachable. The native Go `ps` (internal/pscmd) resolves via
-`runtime.DetectRuntime` — the shallow `_detect_runtime` variant (YOLO_RUNTIME
-env or "podman"), with no connectivity probe and no process-exit.
+**The bug (audit §B/D11, confirmed live).** Native `yolo ps` resolved the runtime
+via the shallow `runtime.DetectRuntime` (`YOLO_RUNTIME` or literal "podman"), with
+no platform awareness. On a macOS host running Apple Container with `YOLO_RUNTIME`
+unset, it ran `podman ps` → empty → then `PruneStaleTrackingFiles(empty)`,
+**deleting the tracking files of live AC jails** while printing "No running
+jails." The original D11 text wrongly called `ps` "read-only" and scoped the
+effect to "no reachable runtime".
 
-**Effect.** On a host with no reachable runtime, Python `yolo ps` exits 1 with
-"No container runtime found…"; the Go arm instead runs the probe (`podman ps …`)
-which fails to spawn, the RunCmd seam returns an error → empty output → "No
-running jails." + exit 0.
+**Fix (landed).**
+1. **Platform-aware runtime** — `runtime.PsRuntime(isMacOS, hasBinary)` mirrors
+   Python `_runtime()`'s candidate order (macOS: container→podman; Linux: podman;
+   `YOLO_RUNTIME` overrides), so ps talks to the runtime that actually has the
+   jails. `DetectRuntime` (shallow) stays for prune/check.
+2. **Tri-state enumeration** — the ps probe seam now returns `(out, ok)`; `ok=false`
+   ("could not enumerate", the None-vs-empty polarity) makes ps DECLINE to prune
+   and print "Could not query the <rt> runtime…" instead of "No running jails."
+   Pruning happens ONLY on a confirmed-empty enumeration.
 
-**Why accepted (proposed).** The connectivity-probe + process-exit machinery is
-the `run` path's concern (`_runtime()` is shared, but its exit-on-missing
-semantics matter for launching a container, not for listing them). For a
-read-only `ps`, "no reachable runtime" and "no running jails" are observationally
-close, and the Go arm never crashes. The full `_runtime()` port (with
-`_is_apple_container` + `_runtime_is_connectable` + sys.exit) lands with the
-broader runtime-selection slice; until then this narrowing is documented rather
-than papered over. `ps` is gated behind `YOLO_IMPL=go`, so the default path is
-unaffected.
-
-**Guard.** Documented; `internal/pscmd` behavior tests cover the empty-output →
-"No running jails." path. The table/stuck/workspace rendering is byte-parity
-(internal/runtime parity tests).
+**Guard.** `internal/pscmd` regression tests: `TestPsEnumerationFailureDoesNotPrune`
+(a failed probe never deletes tracking files, never claims "No running jails") and
+`TestPsRuntimePlatformAware` (macOS prefers container). The full `_runtime()`
+connectivity-probe + `sys.exit` is still the run path's concern (unrelated to ps
+safety); if a future ps needs it, that is a separate, non-destructive follow-up.
 
 ---
 
