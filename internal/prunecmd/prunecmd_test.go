@@ -401,6 +401,70 @@ func TestParityVsLivePython(t *testing.T) {
 // oracle splits on \x00). JSON can carry \x00 in strings, so pass through.
 func mappingForPython(m map[string]string) map[string]string { return m }
 
+// TestLiveHostVsPythonPrune is the nested-jail / real-host verification: it runs
+// the native Go Run with REAL seams (real runtime probes + real GLOBAL_STORAGE)
+// and the live Python `yolo prune`, both dry-run, and asserts the reclaim-
+// DECISION lines match. Rich soft-wraps long lines at the terminal width, so we
+// compare the graded numeric lines (the "would remove …" verbs, the DRY-RUN
+// summary, the total-usage line, and the breakdown byte totals) after undoing
+// rich's soft-wrap — NOT the incidentally-wrapped hint/targets prose. Gated
+// behind YOLO_PRUNE_LIVE_VERIFY=1 (reads real storage; never runs in CI).
+func TestLiveHostVsPythonPrune(t *testing.T) {
+	if os.Getenv("YOLO_PRUNE_LIVE_VERIFY") != "1" {
+		t.Skip("set YOLO_PRUNE_LIVE_VERIFY=1 to run the real-host prune differential")
+	}
+	root := repoRoot(t)
+
+	// Live Python `yolo prune` (dry-run) via the shim on PATH.
+	pyCmd := exec.Command("yolo", "prune")
+	pyCmd.Dir = root
+	pyCmd.Env = append(os.Environ(), "COLUMNS=10000") // suppress rich soft-wrap
+	pyOut, err := pyCmd.CombinedOutput()
+	if err != nil {
+		t.Fatalf("yolo prune failed: %v\n%s", err, pyOut)
+	}
+
+	// Native Go with real seams.
+	var goBuf bytes.Buffer
+	o := NewDefaultOptions()
+	o.Out = &goBuf
+	Run(o)
+
+	pyDecisions := decisionLines(string(pyOut))
+	goDecisions := decisionLines(goBuf.String())
+	if len(pyDecisions) != len(goDecisions) {
+		t.Fatalf("decision-line count go=%d py=%d\n--- GO ---\n%v\n--- PY ---\n%v", len(goDecisions), len(pyDecisions), goDecisions, pyDecisions)
+	}
+	for i := range pyDecisions {
+		if pyDecisions[i] != goDecisions[i] {
+			t.Errorf("decision line %d differs:\n go=%q\n py=%q", i, goDecisions[i], pyDecisions[i])
+		}
+	}
+	t.Logf("verified %d reclaim-decision lines identical", len(pyDecisions))
+}
+
+// decisionLines extracts the reclaim-DECISION lines whose exact text is under
+// the byte-parity contract (numbers, verbs, summary), dropping the incidental
+// prose (headers, hints, targets) that rich may soft-wrap.
+func decisionLines(s string) []string {
+	var out []string
+	for _, l := range strings.Split(s, "\n") {
+		t := strings.TrimRight(l, " ")
+		switch {
+		case strings.HasPrefix(t, "Current usage "),
+			strings.Contains(t, "would remove:"),
+			strings.Contains(t, "would save:"),
+			strings.Contains(t, "removed:"),
+			strings.Contains(t, "saved:"),
+			strings.HasPrefix(t, "DRY-RUN: would reclaim"),
+			strings.HasPrefix(t, "Reclaimed "),
+			strings.TrimSpace(t) == "none":
+			out = append(out, strings.TrimSpace(t))
+		}
+	}
+	return out
+}
+
 // --- test file helpers ---
 
 func mustMkdir(t *testing.T, p string) {
