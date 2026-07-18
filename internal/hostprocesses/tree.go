@@ -1,30 +1,50 @@
 package hostprocesses
 
 import (
+	"context"
+	"errors"
 	"os/exec"
 	"strings"
+	"time"
 
 	"github.com/mschulkind-oss/yolo-jail/internal/hostservice"
 )
 
-// handleTree runs `ps -eo pid,ppid,comm,args --forest`, then filters to
-// allowlisted comms + their children (two passes). Mirrors the tree branch of
-// host_processes.py exactly, including the comm lstrip of "\_ " forest glyphs
-// and the two-pass keep logic.
+// handleTree runs `ps -eo pid,ppid,comm,args --forest` (15s timeout, matching
+// Python's subprocess.run(timeout=15)), then filters to allowlisted comms +
+// their children (two passes). Mirrors the tree branch of host_processes.py
+// exactly, including the comm lstrip of "\_ " forest glyphs, the two-pass keep
+// logic, and the failure paths:
+//   - timeout -> "tree mode failed: ..." + exit 1
+//   - Python reads out.stdout REGARDLESS of ps's return code, so a non-zero ps
+//     with EMPTY stdout yields exit 0 (empty), NOT an error. Go's
+//     exec.Command.Output() errors on non-zero exit; we deliberately IGNORE
+//     that error and use whatever stdout we captured, mirroring Python.
 func handleTree(s *hostservice.Session, visible map[string]struct{}) {
+	ctx, cancel := context.WithTimeout(context.Background(), 15*time.Second)
+	defer cancel()
 	argv := []string{"ps", "-eo", "pid,ppid,comm,args", "--forest"}
-	out, err := exec.Command(argv[0], argv[1:]...).Output()
+	cmd := exec.CommandContext(ctx, argv[0], argv[1:]...)
+	out, err := cmd.Output()
+	if ctx.Err() == context.DeadlineExceeded {
+		s.Stderr("tree mode failed: timed out\n")
+		s.Exit(1)
+		return
+	}
 	if err != nil {
-		// Python catches any exception -> stderr + exit 1. A non-zero ps still
-		// yields stdout via .stdout; exec.Command.Output only errors on
-		// non-zero exit or spawn failure. Match: treat spawn/other failure as
-		// the exception path, but if we got output use it (Python reads
-		// out.stdout regardless of returncode).
-		if len(out) == 0 {
+		// Distinguish a spawn failure (ps absent — Python's subprocess.run
+		// raises FileNotFoundError -> the except -> exit 1) from a non-zero
+		// exit (Python reads out.stdout anyway -> may be exit 0). exec's
+		// *ExitError means ps ran but exited non-zero; anything else is a
+		// spawn/other failure.
+		var ee *exec.ExitError
+		if !errors.As(err, &ee) {
 			s.Stderr("tree mode failed: " + err.Error() + "\n")
 			s.Exit(1)
 			return
 		}
+		// ps ran and exited non-zero: fall through and use its stdout (which
+		// may be empty -> the exit-0 empty path below), exactly like Python.
 	}
 	lines := strings.Split(strings.TrimRight(string(out), "\n"), "\n")
 	if len(lines) == 0 || (len(lines) == 1 && lines[0] == "") {

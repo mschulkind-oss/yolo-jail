@@ -135,12 +135,11 @@ func BuildHandler(configPath string) hostservice.Handler {
 			visible[c] = struct{}{}
 		}
 		fields := cfg.Fields
-		mode := "list"
-		if v, ok := s.Get("mode"); ok {
-			if str, ok := v.(string); ok && str != "" {
-				mode = str
-			}
-		}
+		// Python: mode = str(request.get("mode") or "list"). A truthy NON-string
+		// (e.g. 5, {...}) is stringified and falls through to the unknown-mode
+		// exit-2 branch — it must NOT silently run list mode. Falsy (absent, "",
+		// 0, null, false, []) -> "list".
+		mode := pyStrOrList(func() (any, bool) { return s.Get("mode") })
 
 		if len(visible) == 0 {
 			s.Stderr("host_processes.visible is empty in yolo-jail.jsonc — nothing to show\n")
@@ -159,6 +158,63 @@ func BuildHandler(configPath string) hostservice.Handler {
 			s.Stderr("unknown mode: " + pytext.Repr(mode) + "\n")
 			s.Exit(2)
 		}
+	}
+}
+
+// pyStrOrList mirrors Python's str(request.get("mode") or "list"): if the
+// value is falsy (absent, "", 0, 0.0, false, null, empty list/dict) -> "list";
+// otherwise str(value). For a string that's str(value)==value; for other
+// truthy types we produce Python's str() form so a bogus mode still routes to
+// the unknown-mode exit-2 branch (e.g. 5 -> "5", true -> "True").
+func pyStrOrList(get func() (any, bool)) string {
+	v, ok := get()
+	if !ok || !pyTruthy(v) {
+		return "list"
+	}
+	return pyStr(v)
+}
+
+// pyTruthy mirrors Python bool(x) for the jsonx value model.
+func pyTruthy(v any) bool {
+	switch t := v.(type) {
+	case nil:
+		return false
+	case bool:
+		return t
+	case string:
+		return t != ""
+	case float64:
+		return t != 0
+	case []any:
+		return len(t) != 0
+	case *jsonx.OrderedMap:
+		return t.Len() != 0
+	default:
+		// jsonx integer literal: truthy unless it's zero.
+		s, _ := jsonx.DumpsCompact(v)
+		s = strings.TrimSpace(s)
+		return s != "0" && s != "-0" && s != ""
+	}
+}
+
+// pyStr mirrors Python str(x) for the types a JSON "mode" could decode to.
+func pyStr(v any) string {
+	switch t := v.(type) {
+	case string:
+		return t
+	case bool:
+		if t {
+			return "True"
+		}
+		return "False"
+	case nil:
+		return "None"
+	default:
+		// int / float literal -> its literal text; containers -> the compact
+		// JSON form (close enough to route to unknown-mode; real clients never
+		// send these).
+		s, _ := jsonx.DumpsCompact(v)
+		return s
 	}
 }
 

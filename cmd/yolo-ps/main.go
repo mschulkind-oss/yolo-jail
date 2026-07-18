@@ -15,7 +15,6 @@ import (
 	"fmt"
 	"net"
 	"os"
-	"time"
 
 	"github.com/mschulkind-oss/yolo-jail/internal/frameproto"
 )
@@ -68,13 +67,19 @@ func run() int {
 // Mirrors yolo_ps._call: connect (ENOENT/refused -> exit 2), stamp jail_id,
 // stream stdout/stderr, return the exit-frame code.
 func call(socketPath string, request map[string]any) int {
-	conn, err := net.DialTimeout("unix", socketPath, 30*time.Second)
+	// Python yolo-ps uses a plain blocking socket with NO timeout after
+	// connect (yolo_ps._call): it streams until the exit frame arrives. A
+	// whole-session deadline here would break the canonical 124 path (the
+	// daemon's 30s ExecAllowlisted timeout sends exit-frame 124 just after
+	// 30s; a client deadline started at connect would fire first) and abort
+	// any legitimately long stream. So: no dial timeout, no read deadline —
+	// match Python's blocking-until-exit-frame behavior.
+	conn, err := net.Dial("unix", socketPath)
 	if err != nil {
 		fmt.Fprintf(os.Stderr, "yolo-ps: cannot reach loophole socket %s: %v\n", socketPath, err)
 		return 2
 	}
 	defer conn.Close()
-	_ = conn.SetDeadline(time.Now().Add(30 * time.Second))
 
 	jailID := os.Getenv("YOLO_JAIL_ID")
 	if jailID == "" {
