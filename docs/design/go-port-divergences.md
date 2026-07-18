@@ -174,3 +174,45 @@ via a missing/broken daemon-controlled `argv[0]` (e.g. `ps` absent). Matching
 CPython's exact `[Errno N]` text is not worth a translation layer.
 
 **Guard.** Documented; the handler-error frame shape is conformance-tested.
+
+---
+
+## D8 — entrypoint boot: a failing content generator warns-and-continues instead of aborting
+
+**Status:** proposed (Stage 10)
+
+**Divergence.** Python's `entrypoint.main()` calls the `generate_*` functions
+(shims, bashrc, bootstrap, venv-precreate, mise config, mcp-wrappers, the four
+helper scripts) WITHOUT a surrounding `try/except`. An exception from any of
+them (e.g. an `OSError` writing a file) therefore propagates out of `main()`,
+the process exits non-zero, and boot ABORTS before `exec_bash` — the jail never
+gets a shell. (The `configure_*` agent writers, by contrast, already swallow
+their own exceptions internally in Python and print `Error configuring X`.)
+
+The Go `Main()` wraps every generator in `genStep`, which prints a
+`Warning: <label>: <err>` line to stderr and CONTINUES to the final
+`exec_bash`. So where a mid-boot generator IO error kills the Python jail, the
+Go jail warns and still drops the user into bash (with that one artifact
+possibly missing).
+
+- Input: a generator returns a non-nil error mid-boot (e.g. `$HOME` read-only,
+  ENOSPC, a bind-mounted target that has become unwritable).
+- Python: exception propagates → boot aborts, no shell.
+- Go: warn to stderr → boot continues → shell starts anyway.
+
+**Why accepted.** This is the plan's explicit, bolded directive for Stage 10:
+"best-effort never-abort-boot semantics per step (Go's error idiom invites
+accidental fail-fast — boot must never abort)". Aborting boot on a single
+best-effort artifact is strictly worse operationally than starting the shell
+without it; the CA-bundle / PATH env is already set before the generator block,
+so the shell is usable. In real jails these generators do not fail (fresh
+per-workspace writable overlays); the divergence is only reachable under a
+genuine filesystem fault, where "give me a shell to debug it" beats "no jail".
+The two subprocess side effects Python itself makes best-effort (mise
+uninstall, claude plugins) are unaffected — they were already never-abort on
+both sides.
+
+**Guard.** Documented; the never-abort wrapper is `genStep` in
+`internal/entrypoint/boot.go`. The happy-path tree parity (Stage 9 golden +
+in-jail dual-arm byte compare) proves no divergence when generators succeed,
+which is every real boot.
