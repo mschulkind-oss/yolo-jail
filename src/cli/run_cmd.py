@@ -175,6 +175,19 @@ TEARDOWN_STOP_TIMEOUT_SECONDS = 5
 OWNER_PID_DIR = GLOBAL_STORAGE / "owners"
 
 
+def _go_bin_arch() -> str:
+    """Return the dist-go arch dir suffix (Go GOARCH) for the jail.
+
+    The jail is always Linux and its arch matches the host's native arch
+    (containers run native, not emulated).  `just build-go` writes binaries to
+    ``dist-go/linux-<goarch>/``; map the running machine to that GOARCH so seam
+    #11 can point YOLO_GO_BIN_DIR at the right live-mounted dir.  Unknown
+    machines fall through verbatim (so the path is at least inspectable).
+    """
+    machine = os.uname().machine
+    return {"x86_64": "amd64", "aarch64": "arm64", "arm64": "arm64"}.get(machine, machine)
+
+
 def _resolve_repo_root() -> Path:
     """Find the yolo-jail repo root for nix image builds.
 
@@ -1989,6 +2002,31 @@ def run(
             *(
                 ["-e", f"YOLO_ENTRYPOINT_IMPL={os.environ['YOLO_ENTRYPOINT_IMPL']}"]
                 if os.environ.get("YOLO_ENTRYPOINT_IMPL")
+                else []
+            ),
+            # Seam #11: forward the CLI-impl selector so the in-jail `yolo`
+            # command runs the Go front door too — TRANSPARENTLY, still named
+            # `yolo`. The in-jail shim (~/.yolo-shims/yolo) runs Python's
+            # main(), whose prelude re-execs $YOLO_GO_BIN_DIR/yolo when
+            # YOLO_IMPL=go; the jailed agent types `yolo` and can't tell it's
+            # Go. YOLO_GO_BIN_DIR is pinned to the live-mounted dist-go path
+            # (/opt/yolo-jail is the repo bind mount inside the jail), so the
+            # host and jail share one rebuildable binary set. Only forwarded
+            # when YOLO_IMPL=go on the host — unset leaves the jail on Python,
+            # keeping this a reversible, opt-in seam. Unported subcommands
+            # delegate back to the in-jail Python via YOLO_PYTHON below.
+            *(
+                [
+                    "-e",
+                    "YOLO_IMPL=go",
+                    "-e",
+                    f"YOLO_GO_BIN_DIR=/opt/yolo-jail/dist-go/linux-{_go_bin_arch()}",
+                    "-e",
+                    "YOLO_PYTHON=python3",
+                    "-e",
+                    "PYTHONPATH=/opt/yolo-jail",
+                ]
+                if os.environ.get("YOLO_IMPL") == "go"
                 else []
             ),
         ]
