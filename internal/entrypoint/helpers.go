@@ -2,6 +2,7 @@ package entrypoint
 
 import (
 	"os"
+	"path/filepath"
 
 	"github.com/mschulkind-oss/yolo-jail/internal/fsx"
 	"github.com/mschulkind-oss/yolo-jail/internal/jsonx"
@@ -19,6 +20,9 @@ import (
 // 0o755. We follow each generator's exact Python chmod below; this helper is
 // the "OR in owner-execute" variant used by shims and mcp_wrappers.
 func writeExecutable(path, content string) error {
+	if err := os.MkdirAll(filepath.Dir(path), 0o755); err != nil {
+		return err
+	}
 	if err := fsx.WriteStringInPlace(path, content, 0o644); err != nil {
 		return err
 	}
@@ -35,6 +39,9 @@ func writeExecutable(path, content string) error {
 // writeMode writes content to path (truncate-in-place) with an explicit mode,
 // mirroring generators that call chmod(0o755) outright (scripts.py).
 func writeMode(path, content string, mode os.FileMode) error {
+	if err := os.MkdirAll(filepath.Dir(path), 0o755); err != nil {
+		return err
+	}
 	if err := fsx.WriteStringInPlace(path, content, mode); err != nil {
 		return err
 	}
