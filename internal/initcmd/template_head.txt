@@ -1,0 +1,59 @@
+{
+  // ───────────────────────────────────────────────────────────────
+  // YOLO Jail workspace config.  First-time agents: run `yolo --help`
+  // for an overview of commands, `yolo config-ref` for the full field
+  // reference, and `yolo check` after every edit to this file.
+  // ───────────────────────────────────────────────────────────────
+
+  // Container runtime: "podman" or "container" (Apple)
+  // (also settable via YOLO_RUNTIME env var)
+  // "runtime": "podman",
+
+  // Coding agents to install in the jail (only these are installed).
+  // Available: claude, copilot, gemini, opencode, pi.  Default: ["claude"].
+  // A workspace list REPLACES the user-level default (it does not union),
+  // so you can narrow to just the agents this project uses.
+  // "agents": ["claude", "opencode"],
+
+  // Extra nix packages to include in the jail image.
+  // Names must match nixpkgs attribute names (search at https://search.nixos.org/packages).
+  // The image rebuilds only when this list changes.
+  // Supports plain strings (latest), dotted output selection, pinned nixpkgs
+  // commits, version overrides, and explicit multi-output objects:
+  // "packages": [
+  //   "postgresql",
+  //   "gtk4.dev",                                       // single non-default output
+  //   {"name": "gtk4", "outputs": ["out", "dev"]},      // multiple outputs
+  //   {"name": "freetype", "nixpkgs": "<commit-hash>"},
+  //   {"name": "freetype", "version": "2.14.1",
+  //    "url": "mirror://savannah/freetype/freetype-2.14.1.tar.xz",
+  //    "hash": "sha256-..."}
+  // ],
+  // Common output names: out (default), dev (headers + pkg-config), bin, lib, man, doc.
+  // Find nixpkgs commits for specific versions at: https://lazamar.co.uk/nix-versions/
+
+  // security: tool shims injected into the jail's PATH.  Defaults (no
+  // config needed): grep is blocked only for recursive usage (``-r``,
+  // ``-R``, ``--recursive``, ``-rn`` etc. — pipe filters and
+  // single-file greps pass through); find is blocked unconditionally.
+  // Override only if you want custom rules — the defaults are sane.
+  // "security": {
+  //   "blocked_tools": [
+  //     {
+  //       "name": "grep",
+  //       // Only block when argv contains one of these shell-glob
+  //       // patterns.  Omit to block unconditionally.
+  //       "block_flags": ["--recursive", "-r", "-R", "-*[rR]*"]
+  //     },
+  //     "find",           // string form → unconditional block
+  //     "curl"            // add your own tools here
+  //   ]
+  // },
+  "network": {
+    // "bridge" (default) or "host"
+    "mode": "bridge",
+    // Ports to publish in bridge mode ["Host:Container"]
+    // "ports": ["8000:8000"]
+    // Forward host ports into the jail (appear on localhost inside container)
+    // "forward_host_ports": [5432, "8080:9090"]
+  },

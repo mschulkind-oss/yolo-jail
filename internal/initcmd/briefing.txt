@@ -1,0 +1,106 @@
+
+[bold green]✓ Config ready:[/bold green] {config_path}
+
+[bold]═══════════════════════════════════════════════════════════[/bold]
+[bold]  YOLO JAIL — AGENT BRIEFING                              [/bold]
+[bold]═══════════════════════════════════════════════════════════[/bold]
+
+You are about to be launched inside a YOLO Jail — an isolated container
+that protects the host system from unintended changes. Here is what you
+need to know.
+
+[bold cyan]WHAT YOU KEEP (shared with the host)[/bold cyan]
+
+  • [bold]Your workspace[/bold] is bind-mounted at [bold]/workspace[/bold] (read-write).
+    Every file edit you make is visible on the host immediately.
+    This is the SAME directory, not a copy.
+
+  • [bold]Internet access[/bold] is available (bridge networking by default).
+    You can curl, pip install, npm install, go get, etc.
+
+  • [bold]Git/jj identity[/bold] is injected from the host (name + email).
+    GitHub CLI (gh) is pre-authenticated.
+
+  • [bold]Mise tool data[/bold] is shared with the host. Python, Node, Go, and
+    other runtimes installed via mise are available at the same paths.
+    Venvs created on the host resolve inside the jail.
+
+[bold cyan]WHAT CHANGES (different from the host)[/bold cyan]
+
+  • [bold]Home directory[/bold] is /home/agent. This is a [bold]shared home[/bold] — the same
+    across ALL jail workspaces. Auth tokens, tool caches, shell configs,
+    and installed tools all persist here across restarts. It is separate
+    from the host home directory.
+
+  • [bold]Per-workspace state[/bold]: Some things are isolated per-workspace
+    (not shared across jails): SSH keys, bash history, copilot sessions,
+    gemini history. These live in <workspace>/.yolo/.
+
+  • [bold]Workspace path[/bold] is /workspace (not the host's absolute path).
+    Venv scripts with absolute host path shebangs may need fixing.
+
+  • [bold]Some tools are blocked[/bold] (e.g., grep → rg, find → fd).
+    Set YOLO_BYPASS_SHIMS=1 in scripts that need the originals.
+
+[bold cyan]TOOLS AVAILABLE INSIDE[/bold cyan]
+
+  Runtimes:  Node.js 22, Python 3.13, Go (managed by mise)
+  Editors:   nvim (stable by default, configurable via mise_tools)
+  CLI tools: rg, fd, bat, jq, git, jj, gh, curl, strace, uv, tmux
+  Agents:    the ones in your `agents` config (default: claude). Available:
+             claude, copilot, gemini, opencode, pi (auto-approve wired up).
+  The 'yolo' command itself is available inside for nested jailing.
+
+  [bold]Mise[/bold] manages all runtimes and supports thousands of tools from
+  multiple registries (aqua, asdf, cargo, go, npm, pipx, ubi, and more).
+  Run 'mise registry' inside the jail to browse. Add tools to the
+  "mise_tools" config or to /workspace/mise.toml for the workspace.
+  Examples: rust, zig, terraform, kubectl, typst, pixi, conda.
+
+[bold cyan]WHAT TO DO NOW — TRANSITION QUICKLY[/bold cyan]
+
+  [bold]Your goal is to get inside the jail as fast as possible.[/bold]
+  Do only what's needed outside, then hand off. All real work happens
+  inside the jail where you have full tool access.
+
+  1. [bold]Review yolo-jail.jsonc[/bold] — edit it [bold]only[/bold] if you need extra packages.
+     • "packages": nix packages baked into the image (rebuilds on change).
+       Search: https://search.nixos.org/packages
+     • "mise_tools": tools installed via mise (no rebuild needed).
+       For tools with binary releases — fast, no compilation.
+     Most tasks need NO config changes. Skip this step if unsure.
+
+  2. [bold]Run `yolo check`[/bold] after [bold]EVERY[/bold] `yolo-jail.jsonc` edit to validate
+     the config and preflight the build. Use `yolo check --no-build` inside a
+     running jail if you only need config/entrypoint validation. Do this before
+     asking the human to restart you into the jail.
+
+  3. [bold](MANDATORY) Write a handover document[/bold] at:
+     [bold yellow].yolo/handover.md[/bold yellow]
+
+     This file is [bold]required[/bold]. Your jail instance will be a completely
+     fresh agent session with NO access to this conversation. Without
+     this document, the inner agent starts blind. Include:
+     • What you were working on and the current state
+     • What remains to be done (specific tasks, not vague goals)
+     • Key decisions made and why
+     • Files to look at first
+     • Any gotchas or context the inner agent needs
+
+  4. [bold]Ask the human to restart you inside the jail[/bold]:
+     Tell them to run: yolo -- claude  (or copilot / gemini / opencode / pi,
+     whichever is in the `agents` config)
+
+     The inner agent has a built-in [bold]jail-startup[/bold] skill that reads
+     your handover doc automatically. The human just needs to say:
+     [bold yellow]"invoke the jail-startup skill"[/bold yellow]
+     and the inner agent will pick up your handover and continue.
+
+  Do NOT spend time on implementation outside the jail. Write the
+  handover doc, request the restart, and stop. The inner agent has
+  the same tools and full internet access — it can do everything.
+
+[bold cyan]CONFIGURATION REFERENCE[/bold cyan]
+
+  Run 'yolo config-ref' for the full field reference.
+  Run 'yolo --help' for usage examples.

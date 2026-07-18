@@ -1,0 +1,62 @@
+
+  // Environment variables set inside the jail.
+  // Ordered list: strings are KEY=VALUE file paths, objects are inline maps.
+  // Later entries override earlier ones; workspace config appends to user config.
+  // File paths: ~ expanded, relative paths resolve against the workspace root.
+  // Missing files warn and skip; keep secrets out of the dotfiles-synced config.
+  // "env_sources": [
+  //   "~/.config/yolo-jail/defaults.env",
+  //   {"DEBUG": "1"},
+  //   ".secrets/claude.env"
+  // ]
+
+  // Extra tools to install via mise (key: tool name, value: version string).
+  // Default: {"neovim": "stable"} — override in user or workspace config.
+  // "mise_tools": {"neovim": "nightly", "typst": "latest"}
+
+  // Additional language servers for Copilot and Gemini.
+  // Defaults (always present): python (pyright), typescript, go (gopls).
+  // Add new servers or override defaults. Binary must be on PATH (e.g., via mise_tools).
+  // "lsp_servers": {
+  //   "rust": {
+  //     "command": "rust-analyzer",
+  //     "args": [],
+  //     "fileExtensions": {".rs": "rust"}
+  //   }
+  // }
+  //
+  // Enable built-in MCP server presets by name.
+  // Available presets: chrome-devtools, sequential-thinking
+  // "mcp_presets": ["chrome-devtools", "sequential-thinking"]
+
+  // Additional custom MCP servers for Copilot and Gemini.
+  // Add custom servers or set a preset/inherited server to null to disable it.
+  // Binary must be on PATH or absolute.
+  // "mcp_servers": {
+  //   "my-custom": {
+  //     "command": "/workspace/scripts/my-mcp-server.py",
+  //     "args": []
+  //   }
+  // }
+
+  // NVIDIA GPU passthrough (podman + CDI).  Safe to commit: when
+  // enabled on a host without NVIDIA drivers/CDI, yolo warns and
+  // starts without passthrough instead of erroring, so the same
+  // config works on a GPU box and a GPU-less laptop.
+  // Run "yolo check" on the GPU machine to verify readiness.
+  // "gpu": {
+  //   "enabled": true,
+  //   "devices": "all",          // "all", "0", "0,1", or "GPU-<uuid>"
+  //   "capabilities": "compute,utility"
+  // }
+
+  // Container resource limits.
+  // On Apple Container: applied as VM hardware limits (defaults: half host CPUs/RAM).
+  // On Podman: applied as --cpus/--memory flags (no defaults — inherits VM limits).
+  // On Linux: also feeds cgroup delegation for in-container yolo-cglimit.
+  // "resources": {
+  //   "memory": "8g",            // Max memory (b/k/m/g suffix). OOM-killed if exceeded.
+  //   "cpus": 4,                 // CPU limit (decimal). e.g. 4, 2.5, "0.5"
+  //   "pids_limit": 4096         // Max processes (podman only). Prevents fork bombs.
+  // }
+}

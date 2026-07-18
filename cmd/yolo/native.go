@@ -4,9 +4,11 @@ import (
 	"fmt"
 	"os"
 	"os/exec"
+	"strings"
 
 	"github.com/mschulkind-oss/yolo-jail/internal/checkcmd"
 	"github.com/mschulkind-oss/yolo-jail/internal/configref"
+	"github.com/mschulkind-oss/yolo-jail/internal/initcmd"
 	"github.com/mschulkind-oss/yolo-jail/internal/loopholescmd"
 	"github.com/mschulkind-oss/yolo-jail/internal/pscmd"
 	"github.com/mschulkind-oss/yolo-jail/internal/runcmd"
@@ -19,12 +21,52 @@ import (
 // gates them on via YOLO_IMPL=go — dispatchNative is only reached for a
 // subcommand IsNative already approved, so a plain map entry is correct.
 var nativeDispatch = map[string]func(args []string) int{
-	"check":      runCheck,
-	"doctor":     runCheck, // doctor is an alias for check (same body + flag).
-	"run":        runRun,
-	"ps":         runPs,
-	"loopholes":  runLoopholes,
-	"config-ref": runConfigRef,
+	"check":            runCheck,
+	"doctor":           runCheck, // doctor is an alias for check (same body + flag).
+	"run":              runRun,
+	"ps":               runPs,
+	"loopholes":        runLoopholes,
+	"config-ref":       runConfigRef,
+	"init":             runInit,
+	"init-user-config": runInitUserConfig,
+}
+
+// runInit runs `yolo init` (scaffold yolo-jail.jsonc + briefing). Parses
+// repeatable --mount/-m. Gated behind YOLO_IMPL=go; written file is byte-exact,
+// briefing is info-parity Go-native color.
+func runInit(args []string) int {
+	var mounts []string
+	for i := 1; i < len(args); i++ {
+		a := args[i]
+		switch {
+		case a == "--mount" || a == "-m":
+			if i+1 < len(args) {
+				i++
+				mounts = append(mounts, args[i])
+			}
+		case strings.HasPrefix(a, "--mount="):
+			mounts = append(mounts, a[len("--mount="):])
+		}
+	}
+	cwd, err := os.Getwd()
+	if err != nil {
+		fmt.Fprintf(os.Stderr, "cannot resolve cwd: %v\n", err)
+		return 1
+	}
+	return initcmd.Init(cwd, mounts, os.Stdout, isTTYStdout())
+}
+
+// runInitUserConfig runs `yolo init-user-config`. Gated behind YOLO_IMPL=go.
+func runInitUserConfig(_ []string) int {
+	return initcmd.InitUserConfig(os.Stdout)
+}
+
+func isTTYStdout() bool {
+	info, err := os.Stdout.Stat()
+	if err != nil {
+		return false
+	}
+	return info.Mode()&os.ModeCharDevice != 0
 }
 
 // runConfigRef prints the full configuration reference. Gated behind

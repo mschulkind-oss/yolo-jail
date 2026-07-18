@@ -1,0 +1,29 @@
+{
+  // ───────────────────────────────────────────────────────────────
+  // YOLO Jail user-level defaults.  First-time agents: run `yolo --help`
+  // for an overview of commands, `yolo config-ref` for the full field
+  // reference, and `yolo check` after every edit to this file.
+  // ───────────────────────────────────────────────────────────────
+  //
+  // User-level defaults merged into every project config.
+  // Lists are merged (deduplicated), scalars are overridden by workspace config.
+  //
+  // Container runtime: "podman" or "container" (Apple)
+  // (also settable via YOLO_RUNTIME env var)
+  // "runtime": "podman",
+  // "packages": ["sqlite", "postgresql"],
+  // "mounts": ["~/code/shared-lib:/ctx/shared-lib"],
+  // "security": {
+  //   "blocked_tools": ["wget"]
+  // },
+
+  // Expose `journalctl` from the host inside the jail as `yolo-journalctl`.
+  // "off"  (default) — disabled, no shim generated
+  // "user" — forces --user on every invocation (safe for unprivileged agents)
+  // "full" — passes args through unchanged (needs host journal read access)
+  // "journal": "user",
+
+  // Expose /dev/kvm inside the jail for nested hardware-accelerated VMs.
+  // Requires your host user to be in the kvm group.  Linux only.
+  // "kvm": true
+}
