@@ -46,12 +46,24 @@ func Run(opts Options) int {
 		return 1
 	}
 
-	// macos-user is a DELEGATION seam (handled by the front door before the
-	// native path); decline if we somehow reach here.
-	if inStrSlice([]string{"macos-user"}, rt) {
-		printer{w: o.Stdout}.print(
-			"[bold red]macos-user runtime must be handled by the Python delegation seam.[/bold red]")
-		return 1
+	// macos-user native branch (Stage 16b): route to the injected handler,
+	// which wires internal/macosuser (SBPL sandbox, dscl provisioning, the
+	// sandbox-exec launch) + the darwinpkg streaming-build materialize adapter.
+	// Falls back to an actionable error if the front door didn't inject it.
+	if rt == "macos-user" {
+		if o.MacosUserRun == nil {
+			printer{w: o.Stdout}.print(
+				"[bold red]macos-user runtime handler not wired.[/bold red]  " +
+					"This build cannot launch the native macOS backend.")
+			return 1
+		}
+		// Mirror run_cmd.py: `agent_argv = full_command or ["/bin/zsh", "-l"]`
+		// (a bare `yolo` opens an interactive login zsh in the sandbox).
+		agentArgv := o.Args
+		if len(agentArgv) == 0 {
+			agentArgv = []string{"/bin/zsh", "-l"}
+		}
+		return o.MacosUserRun(cfg, o.Workspace, config.SelectedAgents(cfg), agentArgv, repoRoot, o.DryRun)
 	}
 	if o.DryRun {
 		printer{w: o.Stdout}.print(

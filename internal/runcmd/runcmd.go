@@ -28,12 +28,14 @@
 package runcmd
 
 import (
+	"fmt"
 	"io"
 	"os"
 	"os/exec"
 	"strings"
 	"time"
 
+	"github.com/mschulkind-oss/yolo-jail/internal/jsonx"
 	"github.com/mschulkind-oss/yolo-jail/internal/paths"
 )
 
@@ -104,6 +106,13 @@ type Options struct {
 	// prompt, the tty-proxy fallback). nil => real isatty.
 	IsTTYStdout func() bool
 	IsTTYStdin  func() bool
+	// MacosUserRun handles the runtime==macos-user native branch (Stage 16b —
+	// replaces the seam #8 Python delegation). It receives the resolved config,
+	// workspace, selected agents, the post-`--` argv, the repo root, and the
+	// dry-run flag, returning the process exit code. nil => the branch prints an
+	// actionable "not wired" error (keeps runcmd free of the macosuser +
+	// darwinpkg deps; the front door injects the real handler).
+	MacosUserRun func(cfg *jsonx.OrderedMap, workspace string, agents, agentArgv []string, repoRoot string, dryRun bool) int
 }
 
 func fillDefaults(o *Options) {
@@ -224,4 +233,19 @@ func isTTY(f *os.File) bool {
 // shape the CLI front door passes (then overrides the flags).
 func NewDefaultOptions() Options {
 	return Options{Network: "bridge", IsMacOS: paths.IsMacOS}
+}
+
+// RunWithProxy launches argv under the platform-appropriate TTY proxy (Linux:
+// internal/ttyproxy; other: a plain foreground exec) and returns the child exit
+// code, or 1 on a launch error. It is the run-proxy seam the front door injects
+// into macosuser (whose RunWithProxy field is `func([]string) int`), so the
+// macos-user path never imports the Linux-only ttyproxy package directly (which
+// would break the GOOS=darwin build).
+func RunWithProxy(argv []string) int {
+	rc, err := runWithProxy(argv, nil, nil)
+	if err != nil {
+		fmt.Fprintf(os.Stderr, "launch failed: %v\n", err)
+		return 1
+	}
+	return rc
 }

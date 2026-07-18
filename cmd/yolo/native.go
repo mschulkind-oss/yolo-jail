@@ -4,6 +4,8 @@ import (
 	"fmt"
 	"os"
 	"os/exec"
+	"path/filepath"
+	"sort"
 	"strconv"
 	"strings"
 
@@ -11,8 +13,10 @@ import (
 	"github.com/mschulkind-oss/yolo-jail/internal/buildercmd"
 	"github.com/mschulkind-oss/yolo-jail/internal/checkcmd"
 	"github.com/mschulkind-oss/yolo-jail/internal/configref"
+	"github.com/mschulkind-oss/yolo-jail/internal/darwinpkg"
 	"github.com/mschulkind-oss/yolo-jail/internal/frontdoor"
 	"github.com/mschulkind-oss/yolo-jail/internal/initcmd"
+	"github.com/mschulkind-oss/yolo-jail/internal/jsonx"
 	"github.com/mschulkind-oss/yolo-jail/internal/loopholescmd"
 	"github.com/mschulkind-oss/yolo-jail/internal/macosuser"
 	"github.com/mschulkind-oss/yolo-jail/internal/paths"
@@ -326,6 +330,13 @@ func runRun(args []string) int {
 		}
 	}
 	opts.Args = cmdArgs
+	// Wire the macos-user native branch (Stage 16b seam #8 deletion). runcmd
+	// stays free of the macosuser + darwinpkg deps; the front door injects the
+	// handler that assembles macosuser.RealDeps with the two impure adapters:
+	//   - runProxy: the real TTY-proxy launcher (ttyproxy.RunWithProxy).
+	//   - materialize: darwinpkg.Materialize (streaming native aarch64-darwin
+	//     nix build), converting its result to macosuser.Darwin.
+	opts.MacosUserRun = macosUserRun
 	// Set the tmux/kitty jail indicator (how the user knows a terminal is inside
 	// a jail — a safety affordance) around the run, restoring on exit. This is
 	// the native run path (never a delegation), so Go owns the indicator here —
@@ -335,6 +346,47 @@ func runRun(args []string) int {
 		defer restore()
 	}
 	return runcmd.Run(opts)
+}
+
+// macosUserRun is the runcmd.Options.MacosUserRun seam impl: it assembles the
+// real macosuser deps (TTY proxy + native darwin nix materialize) and runs the
+// Seatbelt-sandboxed launch. repoRoot is the yolo-jail repo root; RepoSrc is
+// repoRoot/src (Python passes repo_src=repo_root/"src"). macos-hardware-gated;
+// on Linux macosuser fails closed at its IsMacOS precondition (dry-run works
+// anywhere).
+func macosUserRun(cfg *jsonx.OrderedMap, workspace string, agents, agentArgv []string, repoRoot string, dryRun bool) int {
+	runProxy := runcmd.RunWithProxy
+	materialize := func(nixRoot string, packages []any) (*macosuser.Darwin, bool, error) {
+		pkgs, err := darwinpkg.Materialize(nixRoot, packages, "", os.Stderr)
+		if err != nil {
+			return nil, false, err
+		}
+		env := jsonx.NewOrderedMap()
+		// darwinpkg env is a small map (at most PKG_CONFIG_PATH); sort for a
+		// deterministic OrderedMap ordering.
+		keys := make([]string, 0, len(pkgs.Env))
+		for k := range pkgs.Env {
+			keys = append(keys, k)
+		}
+		sort.Strings(keys)
+		for _, k := range keys {
+			env.Set(k, pkgs.Env[k])
+		}
+		return &macosuser.Darwin{
+			PathPrefix: pkgs.PathPrefix,
+			Env:        env,
+			Skipped:    pkgs.Skipped,
+		}, true, nil
+	}
+	deps := macosuser.RealDeps(runProxy, materialize)
+	return macosuser.RunMacosUser(deps, macosuser.Options{
+		Workspace: workspace,
+		Config:    cfg,
+		Agents:    agents,
+		AgentArgv: agentArgv,
+		RepoSrc:   filepath.Join(repoRoot, "src"),
+		DryRun:    dryRun,
+	})
 }
 
 // runCheck parses the check/doctor flags (--build/--no-build) from args and runs
