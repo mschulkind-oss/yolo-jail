@@ -177,15 +177,20 @@ func runQuiet(name string, args ...string) {
 	_ = c.Run()
 }
 
-// hostPlatform returns "<goos>/<machine>" with the PYTHON machine spelling
-// (x86_64/aarch64), NOT Go's amd64/arm64 — the banner byte contract.
+// hostPlatform returns "<goos>/<machine>" matching Python's
+// f"{sys.platform}/{platform.machine()}". The machine spelling is Python's, NOT
+// Go's amd64/arm64: amd64→x86_64 everywhere; arm64→aarch64 ONLY on Linux — on
+// macOS/Apple Silicon platform.machine() is "arm64" (audit 2026-07-18 §C: the
+// unconditional arm64→aarch64 map was wrong on macOS and a test locked the bug).
 func hostPlatform() string {
 	machine := runtime.GOARCH
 	switch machine {
 	case "amd64":
 		machine = "x86_64"
 	case "arm64":
-		machine = "aarch64"
+		if runtime.GOOS != "darwin" {
+			machine = "aarch64" // Linux uname; macOS keeps arm64
+		}
 	}
 	return runtime.GOOS + "/" + machine
 }

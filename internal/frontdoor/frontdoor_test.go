@@ -5,6 +5,7 @@ import (
 	"os/exec"
 	"path/filepath"
 	"reflect"
+	"runtime"
 	"strings"
 	"testing"
 )
@@ -97,11 +98,16 @@ func TestGoImplEnabledEnv(t *testing.T) {
 }
 
 func TestHostPlatformNaming(t *testing.T) {
-	// The banner must use x86_64/aarch64 (platform.machine()), never Go's
-	// amd64/arm64.
+	// The banner uses Python's platform.machine() spelling: amd64→x86_64 always;
+	// arm64→aarch64 ONLY on Linux — macOS/Apple Silicon reports "arm64" (audit
+	// 2026-07-18 §C). So "amd64" must NEVER appear; "arm64" is forbidden only off
+	// darwin.
 	p := hostPlatform()
-	if strings.Contains(p, "amd64") || strings.Contains(p, "arm64") {
-		t.Errorf("hostPlatform() = %q, must not contain Go arch names", p)
+	if strings.Contains(p, "amd64") {
+		t.Errorf("hostPlatform() = %q, must not contain Go's amd64 (want x86_64)", p)
+	}
+	if runtime.GOOS != "darwin" && strings.Contains(p, "arm64") {
+		t.Errorf("hostPlatform() = %q on %s, arm64 must map to aarch64 off macOS", p, runtime.GOOS)
 	}
 }
 
