@@ -1,6 +1,8 @@
 package checkcmd
 
 import (
+	"fmt"
+	"os"
 	"path/filepath"
 	"strings"
 	"time"
@@ -28,7 +30,15 @@ func Check(opts Options) int {
 	// errors, but check should still run the probes, so we ignore the error the
 	// same way a caller would surface it (it never fails in normal operation).
 	if !o.SkipEnsureStorage {
-		_ = storage.EnsureGlobalStorage(nil)
+		// Wire the v2 layout migration (audit §B#2: nil left it dead). canReclaim
+		// returns false — the fail-safe defer (the full live-jail probe is the run
+		// path's concern; declining never harms).
+		_ = storage.EnsureGlobalStorage(func() {
+			insideJail := os.Getenv("YOLO_VERSION") != ""
+			storage.MigrateStorageLayout(insideJail, func() bool { return false }, func(msg string) {
+				fmt.Fprintln(os.Stderr, msg)
+			})
+		})
 	}
 
 	workspace := o.Workspace

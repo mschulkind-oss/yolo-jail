@@ -58,9 +58,20 @@ func Run(opts Options) int {
 	return o.runContainer(cfg, rt, repoRoot)
 }
 
-// ensureStorage wraps storage.EnsureGlobalStorage with the nil migrate hook.
+// ensureStorage wraps storage.EnsureGlobalStorage, wiring the v2 layout
+// migration (audit 2026-07-18 §B#2: passing nil left the dangling-mise-symlink
+// heal + layout-version stamp as dead code that never ran under the gate).
+// canReclaim returns false — the conservative fail-safe (Python DEFERS the heal
+// when it can't confirm no live jail holds the store, leaving the marker
+// unstamped to retry); the full live-container probe is the run-slice's concern,
+// and declining is always safe. insideJail short-circuits (never scans /mise).
 func ensureStorage() error {
-	return storage.EnsureGlobalStorage(nil)
+	return storage.EnsureGlobalStorage(func() {
+		insideJail := os.Getenv("YOLO_VERSION") != ""
+		storage.MigrateStorageLayout(insideJail, func() bool { return false }, func(msg string) {
+			fmt.Fprintln(os.Stderr, msg)
+		})
+	})
 }
 
 // runContainer ports run()'s post-config flow: the attach-to-existing decision
