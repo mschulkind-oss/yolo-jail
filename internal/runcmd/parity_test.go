@@ -5,6 +5,7 @@ import (
 	"os"
 	"os/exec"
 	"path/filepath"
+	"strings"
 	"testing"
 	"time"
 
@@ -36,27 +37,33 @@ func TestAssembleRunCmdLivePythonParity(t *testing.T) {
 		name    string
 		config  string
 		network string
+		env     string // comma-separated KEY=VALUE env overrides (seam gates)
 	}{
-		{"claude_minimal", `{ "agents": ["claude"], "security": { "blocked_tools": [] } }`, "bridge"},
-		{"default_config", `{}`, "bridge"},
-		{"multi_agent", `{ "agents": ["claude", "copilot", "gemini"] }`, "bridge"},
-		{"ports_and_forward", `{ "agents": ["claude"], "network": { "ports": ["8000:8000", "3000:3000"], "forward_host_ports": [5432, "6000:6001"] } }`, "bridge"},
-		{"resources", `{ "agents": ["claude"], "resources": { "memory": "8g", "cpus": 4, "pids_limit": 4096 } }`, "bridge"},
-		{"mounts", `{ "agents": ["claude"], "mounts": ["/etc:/ctx/etc"] }`, "bridge"},
-		{"per_side_paths", `{ "agents": ["claude"], "per_side_paths": ["node_modules", "target"] }`, "bridge"},
-		{"network_host", `{ "agents": ["claude"] }`, "host"},
-		{"lsp_and_mcp", `{ "agents": ["claude"], "lsp_servers": { "python": { "command": "pyright-langserver", "args": ["--stdio"], "fileExtensions": {".py": "python"} }, "go": { "command": "gopls", "args": [], "fileExtensions": {".go": "go"} } }, "mcp_presets": ["sequential-thinking"] }`, "bridge"},
-		{"kvm_ephemeral_tmpfs", `{ "agents": ["claude"], "kvm": true, "ephemeral_storage": "tmpfs" }`, "bridge"},
+		{"claude_minimal", `{ "agents": ["claude"], "security": { "blocked_tools": [] } }`, "bridge", ""},
+		{"default_config", `{}`, "bridge", ""},
+		{"multi_agent", `{ "agents": ["claude", "copilot", "gemini"] }`, "bridge", ""},
+		{"ports_and_forward", `{ "agents": ["claude"], "network": { "ports": ["8000:8000", "3000:3000"], "forward_host_ports": [5432, "6000:6001"] } }`, "bridge", ""},
+		{"resources", `{ "agents": ["claude"], "resources": { "memory": "8g", "cpus": 4, "pids_limit": 4096 } }`, "bridge", ""},
+		{"mounts", `{ "agents": ["claude"], "mounts": ["/etc:/ctx/etc"] }`, "bridge", ""},
+		{"per_side_paths", `{ "agents": ["claude"], "per_side_paths": ["node_modules", "target"] }`, "bridge", ""},
+		{"network_host", `{ "agents": ["claude"] }`, "host", ""},
+		{"lsp_and_mcp", `{ "agents": ["claude"], "lsp_servers": { "python": { "command": "pyright-langserver", "args": ["--stdio"], "fileExtensions": {".py": "python"} }, "go": { "command": "gopls", "args": [], "fileExtensions": {".go": "go"} } }, "mcp_presets": ["sequential-thinking"] }`, "bridge", ""},
+		{"kvm_ephemeral_tmpfs", `{ "agents": ["claude"], "kvm": true, "ephemeral_storage": "tmpfs" }`, "bridge", ""},
+		// Seam #11: YOLO_IMPL=go must inject the 4 in-jail Go-CLI forward vars,
+		// byte-identically on both sides.
+		{"go_impl_forward", `{ "agents": ["claude"] }`, "bridge", "YOLO_IMPL=go"},
+		// Seam #10: YOLO_ENTRYPOINT_IMPL=go forwards the entrypoint selector.
+		{"entrypoint_impl_forward", `{ "agents": ["claude"] }`, "bridge", "YOLO_ENTRYPOINT_IMPL=go"},
 	}
 
 	for _, tc := range cases {
 		t.Run(tc.name, func(t *testing.T) {
-			assertArgvParity(t, pyRun, oracle, tc.config, tc.network)
+			assertArgvParity(t, pyRun, oracle, tc.config, tc.network, tc.env)
 		})
 	}
 }
 
-func assertArgvParity(t *testing.T, pyRun func(...string) *exec.Cmd, oracle, wsConfig, network string) {
+func assertArgvParity(t *testing.T, pyRun func(...string) *exec.Cmd, oracle, wsConfig, network, envOverride string) {
 	t.Helper()
 	home := t.TempDir()
 	ws := t.TempDir()
@@ -68,7 +75,7 @@ func assertArgvParity(t *testing.T, pyRun func(...string) *exec.Cmd, oracle, wsC
 		t.Fatal(err)
 	}
 
-	out, err := pyRun(oracle, home, ws, network).Output()
+	out, err := pyRun(oracle, home, ws, network, envOverride).Output()
 	if err != nil {
 		t.Skipf("oracle failed: %v", err)
 	}
@@ -94,7 +101,10 @@ func assertArgvParity(t *testing.T, pyRun func(...string) *exec.Cmd, oracle, wsC
 		Stderr:      discardBuf(),
 	}
 	fillDefaults(o)
-	o.Getenv = func(string) string { return "" }
+	// Mirror the oracle's env overrides on the Go side so env-gated argv blocks
+	// (seam #10/#11) are exercised identically.
+	envOver := parseEnvOverride(envOverride)
+	o.Getenv = func(k string) string { return envOver[k] }
 	o.LookPath = func(string) (string, bool) { return "", false }
 	o.Exec = func([]string, string, []string, time.Duration) ExecResult { return ExecResult{Ran: false} }
 	o.PathExists = hermeticPathExists
@@ -226,4 +236,19 @@ func repoRootForTest(t *testing.T) string {
 		}
 		dir = parent
 	}
+}
+
+// parseEnvOverride turns a comma-separated "KEY=VALUE,KEY2=VALUE2" string into a
+// map, matching the oracle's 4th-arg parsing so both sides see identical env.
+func parseEnvOverride(s string) map[string]string {
+	out := map[string]string{}
+	if s == "" {
+		return out
+	}
+	for _, pair := range strings.Split(s, ",") {
+		if k, v, ok := strings.Cut(pair, "="); ok {
+			out[k] = v
+		}
+	}
+	return out
 }

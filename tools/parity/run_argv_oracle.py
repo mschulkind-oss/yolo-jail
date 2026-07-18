@@ -40,11 +40,20 @@ def main() -> int:
         "YOLO_RUNTIME",
         "YOLO_VERSION",
         "YOLO_ENTRYPOINT_IMPL",
+        "YOLO_IMPL",
         "TZ",
         "TERM",
         "YOLO_NIX_HOST_DAEMON",
     ):
         os.environ.pop(k, None)
+    # Optional 4th arg: comma-separated KEY=VALUE env overrides applied AFTER the
+    # hermetic pop, so a fixture can exercise env-gated argv blocks (e.g. seam
+    # #11's YOLO_IMPL=go forward). Kept last so the Go side can mirror it exactly.
+    if len(sys.argv) > 4 and sys.argv[4]:
+        for pair in sys.argv[4].split(","):
+            if "=" in pair:
+                key, _, val = pair.partition("=")
+                os.environ[key] = val
     os.environ["YOLO_REPO_ROOT"] = "/repo-none"
 
     import cli.run_cmd as rc

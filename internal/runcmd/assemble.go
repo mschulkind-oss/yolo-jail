@@ -2,6 +2,7 @@ package runcmd
 
 import (
 	"path/filepath"
+	"runtime"
 	"strconv"
 	"strings"
 
@@ -391,8 +392,27 @@ func (o *Options) commonEnvBlock(in *assembleInput, blockedConfigJSON, netMode s
 	if impl := o.Getenv("YOLO_ENTRYPOINT_IMPL"); impl != "" {
 		env = append(env, "-e", "YOLO_ENTRYPOINT_IMPL="+impl)
 	}
+	// Seam #11: forward the CLI-impl selector so the in-jail `yolo` runs Go too,
+	// transparently (still named `yolo`). Byte-identical to run_cmd.py's block
+	// (the argv-parity gate). Only when YOLO_IMPL=go on the host.
+	if o.Getenv("YOLO_IMPL") == "go" {
+		env = append(env,
+			"-e", "YOLO_IMPL=go",
+			"-e", "YOLO_GO_BIN_DIR=/opt/yolo-jail/dist-go/linux-"+goBinArch(),
+			"-e", "YOLO_PYTHON=python3",
+			"-e", "PYTHONPATH=/opt/yolo-jail",
+		)
+	}
 	_ = netMode
 	return env
+}
+
+// goBinArch returns the dist-go arch suffix (GOARCH) for the jail — always
+// Linux, native arch. Mirrors run_cmd._go_bin_arch (os.uname().machine mapped to
+// GOARCH); the Go binary is compiled for the jail's native arch, so
+// runtime.GOARCH is that value directly.
+func goBinArch() string {
+	return runtime.GOARCH
 }
 
 // jailImageRef mirrors _jail_image.
