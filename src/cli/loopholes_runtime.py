@@ -1799,6 +1799,15 @@ def _start_host_service_external(
         str(host_socket),
     )
 
+    # go-port seam #2: if cmd[0] is a console-script daemon gated on via
+    # YOLO_GO_DAEMONS, swap it for the Go binary at $YOLO_GO_BIN_DIR (resolved
+    # by explicit dir; missing -> falls back to the console script). Only the
+    # launcher token is replaced; the substituted --socket/... tail is kept.
+    if cmd:
+        launcher = _daemon_launcher(cmd[0])
+        if launcher != [cmd[0]]:
+            cmd = [*launcher, *cmd[1:]]
+
     env = {**os.environ}
     for k, v in (spec.get("env") or {}).items():
         if not isinstance(k, str) or not isinstance(v, str):

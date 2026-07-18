@@ -3429,6 +3429,41 @@ class TestHostServices:
 
                 _sh.rmtree(sockets_dir, ignore_errors=True)
 
+    def test_external_service_gated_swaps_to_go_binary(self, tmp_path, monkeypatch):
+        """go-port seam #2: with the daemon gated on via YOLO_GO_DAEMONS and a
+        real binary at $YOLO_GO_BIN_DIR, _start_host_service_external swaps
+        cmd[0] (the console-script name) for the Go binary, keeping the
+        substituted --socket tail. A Go binary that binds the socket proves the
+        launcher swap end to end."""
+        go_bin = tmp_path / "yolo-host-processes"
+        # A tiny shell binary that binds the socket arg and idles.
+        go_bin.write_text(
+            "#!/usr/bin/env python3\n"
+            "import socket, sys, time\n"
+            "i = sys.argv.index('--socket') + 1\n"
+            "s = socket.socket(socket.AF_UNIX, socket.SOCK_STREAM)\n"
+            "s.bind(sys.argv[i]); s.listen(1)\n"
+            "sys.stderr.write('GO-BINARY-RAN\\n'); sys.stderr.flush()\n"
+            "time.sleep(60)\n"
+        )
+        go_bin.chmod(0o755)
+        monkeypatch.setenv("YOLO_GO_DAEMONS", "yolo-host-processes")
+        monkeypatch.setenv("YOLO_GO_BIN_DIR", str(tmp_path))
+        sockets_dir = _host_service_sockets_dir("yolo-test-svc-gated")
+        try:
+            spec = {"command": ["yolo-host-processes", "--socket", "{socket}"]}
+            handle = _start_host_service_external(
+                "yolo-host-processes", spec, sockets_dir
+            )
+            assert handle is not None, "gated Go binary should bind the socket"
+            assert handle.host_socket_path.exists()
+            stop_loopholes([handle], sockets_dir)
+        finally:
+            if sockets_dir.exists():
+                import shutil as _sh
+
+                _sh.rmtree(sockets_dir, ignore_errors=True)
+
     def test_external_service_command_not_found(self):
         """Bad command path → returns None, doesn't raise."""
         sockets_dir = _host_service_sockets_dir("yolo-test-svc-notfound")
