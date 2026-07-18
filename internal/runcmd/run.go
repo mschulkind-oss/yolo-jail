@@ -5,15 +5,19 @@ import (
 	"os"
 	"os/exec"
 	"path/filepath"
+	"strings"
 	"time"
 
 	"github.com/mschulkind-oss/yolo-jail/internal/agents"
 	"github.com/mschulkind-oss/yolo-jail/internal/config"
+	"github.com/mschulkind-oss/yolo-jail/internal/frontdoor"
 	"github.com/mschulkind-oss/yolo-jail/internal/jsonx"
 	"github.com/mschulkind-oss/yolo-jail/internal/naming"
 	"github.com/mschulkind-oss/yolo-jail/internal/paths"
 	"github.com/mschulkind-oss/yolo-jail/internal/runmount"
+	"github.com/mschulkind-oss/yolo-jail/internal/runtime"
 	"github.com/mschulkind-oss/yolo-jail/internal/storage"
+	"github.com/mschulkind-oss/yolo-jail/internal/version"
 )
 
 // Run ports run(): validate config, resolve the runtime, then either exec into
@@ -273,6 +277,10 @@ func (o *Options) runContainer(cfg *jsonx.OrderedMap, rt, repoRoot string) int {
 		o.stopLoopholes(hostServices, socketsDir, cname, rt)
 	}
 
+	// Fresh-launch startup banner (with resource parts) to stderr for log
+	// capture (audit §B#4; mirrors run_cmd.py:2698).
+	o.emitStartupBanner(rt, cname, resPartsFor(cfg, rt), "")
+
 	rc, runErr := runWithProxy(runCmd, onStarted, onTerminate)
 	if runErr != nil {
 		out.printf("[bold red]Configured runtime '%s' not found on PATH.[/bold red]", rt)
@@ -303,6 +311,10 @@ func (o *Options) runContainer(cfg *jsonx.OrderedMap, rt, repoRoot string) int {
 // raced-attach twin). raced selects the second banner text.
 func (o *Options) attachExisting(cname, rt, targetCmd string, identityEnv []string, raced bool) int {
 	out := printer{w: o.Stdout}
+	// Startup banner to stderr — surfaces the jail's BAKED version so a host CLI
+	// upgrade attaching to a pre-upgrade container (stale shims/mounts/entrypoint)
+	// is visible at a glance (audit §B#4; mirrors run_cmd.py:1372).
+	o.emitStartupBanner(rt, cname, nil, o.bakedJailVersion(rt, cname))
 	if raced {
 		out.printf("[bold cyan]Attaching to jail started by another process [dim](%s)[/dim]...[/bold cyan]", cname)
 	} else {
@@ -345,4 +357,72 @@ func lspGoOf(cfg *jsonx.OrderedMap) string  { _, g := resolveLSPInstalls(cfg); r
 func runtimeWriteTracking(cname, workspace string) error {
 	resolved := resolvePath(workspace)
 	return writeTracking(cname, resolved)
+}
+
+// emitStartupBanner writes the start-of-run banner to stderr (audit §B#4). It
+// reuses frontdoor.StartupBanner for byte-identical formatting. version is
+// _get_yolo_version() (version.Get); jailVersion is the container's baked
+// YOLO_VERSION (attach path only, else "").
+func (o *Options) emitStartupBanner(rt, cname string, resParts []string, jailVersion string) {
+	banner := frontdoor.StartupBanner(version.Get(o.RepoRootForBanner()), rt, cname, resParts, jailVersion)
+	fmt.Fprint(o.Stderr, banner)
+}
+
+// RepoRootForBanner returns the repo root env hint for version resolution
+// (YOLO_REPO_ROOT); version.Get falls back to git-describe / "unknown".
+func (o *Options) RepoRootForBanner() string {
+	if o.Getenv != nil {
+		return o.Getenv("YOLO_REPO_ROOT")
+	}
+	return ""
+}
+
+// bakedJailVersion reads the YOLO_VERSION baked into a running container via
+// `<rt> inspect`, or "" (mirrors _container_baked_yolo_version). Shown in the
+// attach banner only when it differs from the host version.
+func (o *Options) bakedJailVersion(rt, cname string) string {
+	if o.Exec == nil {
+		return ""
+	}
+	res := o.Exec([]string{rt, "inspect", "--format", "{{range .Config.Env}}{{println .}}{{end}}", cname}, "", nil, 3*time.Second)
+	if !res.Ran || res.RC != 0 {
+		return ""
+	}
+	if v, ok := runtime.BakedYoloVersionFromInspectEnv(strings.Split(res.Stdout, "\n")); ok {
+		return v
+	}
+	return ""
+}
+
+// resPartsFor reconstructs the banner's resource-limit parts (memory/cpus/pids)
+// from the resources config, mirroring the res_parts list run_cmd.py builds
+// during argv assembly. Podman path: pids defaults to 32768. Apple Container's
+// half-host defaults are the run-slice's concern; here only explicit config is
+// surfaced (the native run path is podman/Linux).
+func resPartsFor(cfg *jsonx.OrderedMap, rt string) []string {
+	var parts []string
+	res, _ := cfg.Get("resources")
+	rm, _ := res.(*jsonx.OrderedMap)
+	get := func(k string) (any, bool) {
+		if rm == nil {
+			return nil, false
+		}
+		return rm.Get(k)
+	}
+	if mem, ok := get("memory"); ok {
+		if s, ok := mem.(string); ok && s != "" {
+			parts = append(parts, "memory="+s)
+		}
+	}
+	if cpus, ok := get("cpus"); ok && cpus != nil {
+		parts = append(parts, "cpus="+pyStrCoerce(cpus))
+	}
+	if rt != "container" {
+		pids := "32768"
+		if p, ok := get("pids_limit"); ok && p != nil {
+			pids = pyStrCoerce(p)
+		}
+		parts = append(parts, "pids="+pids)
+	}
+	return parts
 }
