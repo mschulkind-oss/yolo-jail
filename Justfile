@@ -173,31 +173,53 @@ cachix-push CACHE="yolo-jail":
     nix --extra-experimental-features 'nix-command flakes' build .#ociImageMinimal --print-out-paths --no-link | cachix push {{CACHE}}
     @echo "Pushed both image variants to https://{{CACHE}}.cachix.org"
 
-# Run all tests
+# Run all tests (Python full suite incl. containers + Go full suite)
 test:
     uv run --group dev python -m pytest tests/
+    go test ./...
 
 # Run fast tests only (skip container integration tests).
 # -n 4 (not auto): measured no gain past 4 workers — the tail is a few long
 # tests; worksteal rebalances that tail.  The slow/full `test` target stays
 # serial: slow tests spin real containers and the session-scoped image
 # build/load must never run once per worker.
+# Go half runs with -short so container-touching Go tests (build-tagged/
+# -short-gated) stay out of the fast tier, mirroring the Python `slow` marker.
 test-fast:
     uv run --group dev python -m pytest tests/ -m "not slow" -n 4 --dist worksteal
+    go test -short ./...
 
-# Run linter
+# Run linter (Python: ruff; Go: vet + staticcheck)
 lint:
     uv run ruff check .
+    go vet ./...
+    staticcheck ./...
 
-# Lint without auto-fix (CI mode — fails on violations, doesn't modify files)
+# Lint without auto-fix (CI mode — fails on violations, doesn't modify files).
+# Go half additionally fails on any gofmt-dirty file (playbook lint-ci rule).
+# gofmt is scoped to tracked *.go files: in-jail GOMODCACHE lives under the
+# workspace (.yolo/), so `gofmt -l .` would walk the module cache.
 lint-ci:
     uv run ruff check .
     uv run ruff format --check .
+    go vet ./...
+    staticcheck ./...
+    @dirty="$(gofmt -l $(git ls-files --cached --others --exclude-standard '*.go'))"; test -z "$dirty" || { echo "gofmt needs to run on:"; echo "$dirty"; exit 1; }
 
-# Format code
+# Format code (Python: ruff; Go: gofmt on tracked files)
 format:
     uv run ruff check --fix .
     uv run ruff format .
+    gofmt -w $(git ls-files --cached --others --exclude-standard '*.go')
+
+# Build every cmd/ binary into dist-go/<goos>-<goarch>/ (go-port transition
+# channel — NOT dist/, which `just build` wipes). Pass GOOS/GOARCH to cross.
+build-go:
+    ./scripts/build-go.sh
+
+# Run a go-port parity suite (drift, ...) against both implementations.
+parity suite:
+    uv run python tools/parity/run.py {{suite}}
 
 # Quality checks (interactive use)
 check: format lint test-fast
@@ -211,5 +233,5 @@ check-all: format lint test
 # Clean up build artifacts
 clean:
     rm -f result
-    rm -rf dist/ build/
+    rm -rf dist/ build/ dist-go/
 

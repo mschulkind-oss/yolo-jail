@@ -9,3 +9,10 @@ updates:
     directory: "/"
     schedule:
       interval: "weekly"
+
+  # go-port: Go module dependencies (vendored, vendorHash=null — see
+  # docs/plans/go-port-plan.md §3).
+  - package-ecosystem: "gomod"
+    directory: "/"
+    schedule:
+      interval: "weekly"

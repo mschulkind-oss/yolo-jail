@@ -49,6 +49,61 @@
           else if imageSystem == "aarch64-linux" then "aarch64-linux-gnu"
           else "${builtins.head (builtins.split "-" imageSystem)}-linux-gnu";
 
+        # ── Go-port binary cross-compile (go-port plan §3) ─────────────────
+        # Static, CGO-free cross-compile of every cmd/ binary to the image's
+        # Linux target arch, using the HOST Go toolchain (pkgs.go, not
+        # imagePkgs).  This is the deployment-mechanics tripwire the Stage 0
+        # walking skeleton exists to prove: Go cross-compiles natively
+        # (aarch64-darwin -> aarch64-linux) with zero Linux builder, so a Mac
+        # can bake jail-side Go binaries into the image the same way it bakes
+        # the Python entrypoint — preserving the flake's no-Linux-builder
+        # property.  vendorHash=null + committed vendor/ (once deps exist)
+        # keeps the --impure eval reproducible; at Stage 0 the tree is
+        # stdlib-only, so the build is fully offline in the sandbox.
+        goArch =
+          if imageSystem == "x86_64-linux" then "amd64"
+          else if imageSystem == "aarch64-linux" then "arm64"
+          else builtins.head (builtins.split "-" imageSystem);
+        # Only the files that affect a Go build — keeps the derivation from
+        # rebuilding when unrelated repo files (docs, Python) change.
+        goSrc = pkgs.lib.fileset.toSource {
+          root = ./.;
+          fileset = pkgs.lib.fileset.unions (
+            [ ./go.mod ]
+            ++ pkgs.lib.optionals (builtins.pathExists ./go.sum) [ ./go.sum ]
+            ++ pkgs.lib.optionals (builtins.pathExists ./vendor) [ ./vendor ]
+            ++ pkgs.lib.optionals (builtins.pathExists ./cmd) [ ./cmd ]
+            ++ pkgs.lib.optionals (builtins.pathExists ./internal) [ ./internal ]
+          );
+        };
+        goBinaries = pkgs.stdenv.mkDerivation {
+          pname = "yolo-jail-go";
+          version = "0-dev";
+          src = goSrc;
+          nativeBuildInputs = [ pkgs.go ];
+          # Hermetic: no network in the Nix sandbox. Vendored deps (or an
+          # empty module graph) satisfy `-mod` without a proxy fetch.
+          buildPhase = ''
+            runHook preBuild
+            export HOME=$TMPDIR
+            export GOCACHE=$TMPDIR/go-cache
+            export GOFLAGS=''${GOFLAGS:-}
+            export CGO_ENABLED=0
+            export GOOS=linux
+            export GOARCH=${goArch}
+            [ -d vendor ] && export GOFLAGS="-mod=vendor $GOFLAGS" || export GOPROXY=off
+            mkdir -p $out/bin
+            for d in cmd/*/; do
+              name="$(basename "$d")"
+              echo "go build $name -> $out/bin/$name (linux/${goArch})"
+              go build -trimpath -o "$out/bin/$name" "./$d"
+            done
+            runHook postBuild
+          '';
+          dontInstall = true;
+          dontFixup = true;
+        };
+
         # Extra packages from project config (passed via YOLO_EXTRA_PACKAGES env var).
         # String forms:
         #   "strace"           → latest, default output
@@ -769,6 +824,10 @@
         packages.ociImage = ociImage;
         packages.ociImageMinimal = ociImageMinimal;
         packages.builderImage = builderImage;
+        # go-port Stage 0 walking skeleton: static Linux Go binaries,
+        # cross-compiled with no Linux builder. Buildable in-jail today to
+        # prove the channel; baked into the image at Stage 10/11.
+        packages.goBinaries = goBinaries;
         # The /lib symlink farm alone — buildable in seconds, so tests and
         # humans can assert lib discovery (e.g. that a "foo.dev" package
         # spec still lands libfoo.so in /lib) without building an image.

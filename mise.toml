@@ -3,3 +3,5 @@ node = "22"
 python = "3.13"
 go = "latest"
 uv = "latest"
+# go-port: staticcheck is the Go lint gate (playbook: lint = go vet + staticcheck).
+"go:honnef.co/go/tools/cmd/staticcheck" = "latest"
