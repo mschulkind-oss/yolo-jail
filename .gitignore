@@ -30,6 +30,7 @@ build/
 /yolo-jail-supervisor
 /yolo-oauth-terminator
 /yolo-claude-oauth-broker-host
+/yolo-entrypoint
 src/_version.py
 .DS_Store
 .research/

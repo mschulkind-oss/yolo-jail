@@ -1,0 +1,352 @@
+package entrypoint
+
+import (
+	"encoding/json"
+	"os"
+	"os/exec"
+	"path/filepath"
+	"reflect"
+	"sort"
+	"strconv"
+	"strings"
+	"testing"
+
+	"github.com/mschulkind-oss/yolo-jail/internal/jsonx"
+)
+
+// hydrationCorpus is the writer->reader round-trip corpus for the
+// yolo-user-env.sh export-line grammar (go-port plan section 1.1 frozen
+// contract). It exercises the ${KEY:-'value'} default form (launch env wins),
+// the embedded single-quote escape, bare/single/double forms, comments, and
+// blank lines. Both the Go hydrator and the LIVE Python
+// _hydrate_env_from_user_env_file are driven over this same input and their
+// resulting env maps compared.
+const hydrationCorpus = `# Auto-generated from yolo-jail.jsonc env config.
+# Override by editing this file or workspace .env (mise).
+export FOO=${FOO:-'bar baz'}
+export QUOTED=${QUOTED:-'it'\''s a test'}
+export EMPTY=${EMPTY:-''}
+export SINGLE='literal single'
+export SINGLE_ESC='a'\''b'
+export DOUBLE="double val"
+export BARE=bareword
+export BARE_EMPTY=
+export MULTI=${MULTI:-'x'\''y'\''z'}
+
+not an export line
+export = malformed
+`
+
+// TestHydrateEnvFromUserEnvFileParity drives the Go hydrator and the LIVE Python
+// hydrator over the same corpus and asserts the resulting key→value maps match.
+// Skips (does not fail) when python3/uv is unavailable, mirroring the tree
+// parity harness.
+func TestHydrateEnvFromUserEnvFileParity(t *testing.T) {
+	// --- Python side (LIVE oracle) FIRST ---
+	// The Go hydrator calls os.Setenv for each key it sets, mutating THIS
+	// process's real environment; the oracle subprocess inherits os.Environ(),
+	// so we must capture the Python delta before the Go side pollutes the env
+	// (otherwise Python sees the corpus keys already set and reports no delta).
+	pyVals, ok := runHydrateOracle(t, hydrationCorpus, map[string]string{"FOO": "LAUNCH_WINS"})
+	if !ok {
+		t.Skip("python oracle unavailable (uv/python3 not found or failed)")
+	}
+
+	// --- Go side ---
+	home := t.TempDir()
+	cfgDir := filepath.Join(home, ".config")
+	if err := os.MkdirAll(cfgDir, 0o755); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(filepath.Join(cfgDir, "yolo-user-env.sh"), []byte(hydrationCorpus), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	// A pre-set launch-time value must beat the file's default for that key.
+	e := NewEnv(map[string]string{"JAIL_HOME": home, "FOO": "LAUNCH_WINS"})
+	// Snapshot values so we compare the DELTA (new/changed keys), matching the
+	// Python oracle's delta semantics — FOO stays LAUNCH_WINS (launch env wins)
+	// so it is unchanged and appears in neither delta.
+	before := map[string]string{}
+	for k, v := range e.Vars {
+		before[k] = v
+	}
+	hydrateEnvFromUserEnvFile(e)
+	goVals := map[string]string{}
+	for k, v := range e.Vars {
+		if bv, existed := before[k]; existed && bv == v {
+			continue
+		}
+		goVals[k] = v
+	}
+
+	// The Python oracle reports exactly the keys _hydrate_env_from_user_env_file
+	// set (delta against the pre-hydration env). Compare those maps.
+	if !reflect.DeepEqual(goVals, pyVals) {
+		t.Errorf("hydration mismatch\n  go: %#v\n  py: %#v", goVals, pyVals)
+	}
+}
+
+// runHydrateOracle writes the corpus to a temp HOME, then runs the LIVE Python
+// entrypoint._hydrate_env_from_user_env_file with the given pre-set launch env,
+// and returns the delta (keys the hydrator added/changed) as a map.
+func runHydrateOracle(t *testing.T, corpus string, launchEnv map[string]string) (map[string]string, bool) {
+	t.Helper()
+	repoRoot := findRepoRoot(t)
+
+	home := t.TempDir()
+	cfgDir := filepath.Join(home, ".config")
+	if err := os.MkdirAll(cfgDir, 0o755); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(filepath.Join(cfgDir, "yolo-user-env.sh"), []byte(corpus), 0o644); err != nil {
+		t.Fatal(err)
+	}
+
+	script := `
+import json, os, sys
+sys.path.insert(0, os.path.join(os.environ["REPO_ROOT"], "src"))
+import entrypoint
+entrypoint.HOME = __import__("pathlib").Path(os.environ["JAIL_HOME"])
+launch = json.loads(os.environ["LAUNCH_ENV"])
+before = dict(os.environ)
+for k, v in launch.items():
+    os.environ[k] = v
+    before[k] = v
+entrypoint._hydrate_env_from_user_env_file()
+delta = {}
+for k, v in os.environ.items():
+    if k not in before or before[k] != v:
+        delta[k] = v
+json.dump(delta, sys.stdout)
+`
+	launchJSON, _ := json.Marshal(launchEnv)
+
+	var cmd *exec.Cmd
+	if _, err := exec.LookPath("uv"); err == nil {
+		cmd = exec.Command("uv", "run", "python", "-c", script)
+	} else if _, err := exec.LookPath("python3"); err == nil {
+		cmd = exec.Command("python3", "-c", script)
+	} else {
+		return nil, false
+	}
+	cmd.Dir = repoRoot
+	// Override (not append): inside a jail os.Environ() already carries a
+	// JAIL_HOME, and glibc getenv returns the FIRST duplicate — so a plain
+	// append would be shadowed. envWith replaces in place.
+	env := os.Environ()
+	env = envWith(env, "REPO_ROOT", repoRoot)
+	env = envWith(env, "JAIL_HOME", home)
+	env = envWith(env, "LAUNCH_ENV", string(launchJSON))
+	cmd.Env = env
+	var stdout, stderr strings.Builder
+	cmd.Stdout = &stdout
+	cmd.Stderr = &stderr
+	if err := cmd.Run(); err != nil {
+		t.Logf("python hydrate oracle failed: %v\nstderr:\n%s", err, stderr.String())
+		return nil, false
+	}
+	var delta map[string]string
+	if err := json.Unmarshal([]byte(stdout.String()), &delta); err != nil {
+		t.Logf("decode hydrate oracle output: %v\n%s", err, stdout.String())
+		return nil, false
+	}
+	return delta, true
+}
+
+func TestForwardEntryPort(t *testing.T) {
+	// JSON integers decode to jsonInt; strings stay strings; floats/bools/nil
+	// are invalid (warn + skip).
+	cases := []struct {
+		raw       string // JSON array with one element
+		wantPort  int
+		wantOK    bool
+		wantPanic bool
+	}{
+		{`[8080]`, 8080, true, false},
+		{`["8080"]`, 8080, true, false},
+		{`["8080:80"]`, 8080, true, false},
+		{`["127.0.0.1:5000:5000"]`, 0, true, true}, // "127.0.0.1" head -> int() crashes
+		{`["nope"]`, 0, true, true},                // bare non-numeric -> boot crash quirk
+		{`[3.5]`, 0, false, false},                 // float -> invalid
+		{`[true]`, 0, false, false},                // bool -> invalid
+		{`[null]`, 0, false, false},                // null -> invalid
+	}
+	for _, c := range cases {
+		// Decode through jsonx so integers are jsonInt (matching runtime).
+		entry := decodeFirst(t, c.raw)
+		if c.wantPanic {
+			assertPanics(t, func() { forwardEntryPort(entry) }, c.raw)
+			continue
+		}
+		got, ok := forwardEntryPort(entry)
+		if ok != c.wantOK || got != c.wantPort {
+			t.Errorf("forwardEntryPort(%s) = (%d, %v), want (%d, %v)", c.raw, got, ok, c.wantPort, c.wantOK)
+		}
+	}
+}
+
+func TestEnvWith(t *testing.T) {
+	base := []string{"A=1", "B=2", "PYTHONPATH=old"}
+	got := envWith(base, "PYTHONPATH", "new")
+	want := []string{"A=1", "B=2", "PYTHONPATH=new"}
+	if !reflect.DeepEqual(got, want) {
+		t.Errorf("envWith override: got %v want %v", got, want)
+	}
+	got2 := envWith([]string{"A=1"}, "NEW", "v")
+	want2 := []string{"A=1", "NEW=v"}
+	if !reflect.DeepEqual(got2, want2) {
+		t.Errorf("envWith append: got %v want %v", got2, want2)
+	}
+}
+
+func TestSplitLines(t *testing.T) {
+	if got := splitLines("a\nb\n"); !reflect.DeepEqual(got, []string{"a", "b"}) {
+		t.Errorf("trailing newline dropped: %v", got)
+	}
+	if got := splitLines("a\nb"); !reflect.DeepEqual(got, []string{"a", "b"}) {
+		t.Errorf("no trailing newline: %v", got)
+	}
+	if got := splitLines(""); len(got) != 0 {
+		t.Errorf("empty: %v", got)
+	}
+}
+
+func TestCopyTree(t *testing.T) {
+	src := t.TempDir()
+	dst := filepath.Join(t.TempDir(), "nvim")
+	if err := os.MkdirAll(filepath.Join(src, "lua"), 0o755); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(filepath.Join(src, "init.lua"), []byte("-- init"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(filepath.Join(src, "lua", "opts.lua"), []byte("-- opts"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	if err := copyTree(src, dst); err != nil {
+		t.Fatal(err)
+	}
+	got, err := os.ReadFile(filepath.Join(dst, "lua", "opts.lua"))
+	if err != nil || string(got) != "-- opts" {
+		t.Errorf("nested file not copied: %q %v", got, err)
+	}
+}
+
+func TestSupervisorIsAliveMissing(t *testing.T) {
+	if supervisorIsAlive(filepath.Join(t.TempDir(), "nope.pid")) {
+		t.Error("missing pid file should be not-alive")
+	}
+	// Our own PID is alive.
+	pidFile := filepath.Join(t.TempDir(), "self.pid")
+	if err := os.WriteFile(pidFile, []byte(strconv.Itoa(os.Getpid())+"\n"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	if !supervisorIsAlive(pidFile) {
+		t.Error("own pid should be alive")
+	}
+	// Garbage content -> not alive.
+	if err := os.WriteFile(pidFile, []byte("not-a-pid"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	if supervisorIsAlive(pidFile) {
+		t.Error("garbage pid should be not-alive")
+	}
+}
+
+func TestSetupCgroupDelegationMessages(t *testing.T) {
+	prev := cgdSocket
+	t.Cleanup(func() { cgdSocket = prev })
+
+	// Absent socket.
+	cgdSocket = filepath.Join(t.TempDir(), "nope.sock")
+	var sb strings.Builder
+	setupCgroupDelegation(&sb)
+	if got := sb.String(); got != "  cgroup delegate: not available (no host daemon socket)\n" {
+		t.Errorf("absent socket message: %q", got)
+	}
+
+	// Present socket (a regular file suffices for the Stat existence check).
+	present := filepath.Join(t.TempDir(), "cgd.sock")
+	if err := os.WriteFile(present, nil, 0o644); err != nil {
+		t.Fatal(err)
+	}
+	cgdSocket = present
+	sb.Reset()
+	setupCgroupDelegation(&sb)
+	if got := sb.String(); got != "  cgroup delegate: available (host-side daemon)\n" {
+		t.Errorf("present socket message: %q", got)
+	}
+}
+
+func TestHydrationCorpusKeysDeterministic(t *testing.T) {
+	// Guard: the Go hydrator must set exactly these keys (excluding FOO which is
+	// launch-preset, and excluding the malformed lines).
+	home := t.TempDir()
+	cfgDir := filepath.Join(home, ".config")
+	if err := os.MkdirAll(cfgDir, 0o755); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(filepath.Join(cfgDir, "yolo-user-env.sh"), []byte(hydrationCorpus), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	e := NewEnv(map[string]string{"JAIL_HOME": home, "FOO": "LAUNCH_WINS"})
+	before := map[string]struct{}{}
+	for k := range e.Vars {
+		before[k] = struct{}{}
+	}
+	hydrateEnvFromUserEnvFile(e)
+
+	got := map[string]string{}
+	var keys []string
+	for k, v := range e.Vars {
+		if _, existed := before[k]; existed && k != "FOO" {
+			continue
+		}
+		got[k] = v
+		keys = append(keys, k)
+	}
+	sort.Strings(keys)
+
+	want := map[string]string{
+		"FOO":        "LAUNCH_WINS", // launch env beats the file default
+		"QUOTED":     "it's a test",
+		"EMPTY":      "",
+		"SINGLE":     "literal single",
+		"SINGLE_ESC": "a'b",
+		"DOUBLE":     "double val",
+		"BARE":       "bareword",
+		"BARE_EMPTY": "",
+		"MULTI":      "x'y'z",
+	}
+	if !reflect.DeepEqual(got, want) {
+		t.Errorf("hydration keys/values mismatch\n  got:  %#v\n  want: %#v", got, want)
+	}
+}
+
+// --- small test helpers ---
+
+// decodeFirst decodes a one-element JSON array through jsonx (so integers are
+// jsonInt, matching what start_container_port_forwarding feeds forwardEntryPort)
+// and returns the first element.
+func decodeFirst(t *testing.T, arrJSON string) any {
+	t.Helper()
+	dec, err := jsonx.Decode([]byte(arrJSON))
+	if err != nil {
+		t.Fatalf("jsonx.Decode(%q): %v", arrJSON, err)
+	}
+	arr, ok := dec.([]any)
+	if !ok || len(arr) == 0 {
+		t.Fatalf("bad array json %q", arrJSON)
+	}
+	return arr[0]
+}
+
+func assertPanics(t *testing.T, fn func(), label string) {
+	t.Helper()
+	defer func() {
+		if r := recover(); r == nil {
+			t.Errorf("expected panic for %s, got none", label)
+		}
+	}()
+	fn()
+}
