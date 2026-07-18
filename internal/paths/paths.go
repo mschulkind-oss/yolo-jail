@@ -9,6 +9,7 @@ package paths
 
 import (
 	"os"
+	"os/user"
 	"path/filepath"
 	"runtime"
 )
@@ -87,10 +88,29 @@ func BuildDir() string { return filepath.Join(GlobalStorage(), "build") }
 // UserConfigPath returns $HOME/.config/yolo-jail/config.jsonc.
 func UserConfigPath() string { return filepath.Join(home(), userConfigSuffix) }
 
+// home mirrors Python's Path.home() / os.path.expanduser("~") resolution,
+// which the paths constants depend on — NOT Go's os.UserHomeDir(), which reads
+// only $HOME and errors when it is unset (audit finding: that made every path
+// helper return a RELATIVE path in a stripped environment). Python's rules:
+//
+//   - $HOME set and non-empty  -> $HOME
+//   - $HOME set but empty       -> "/"  (expanduser: userhome="" then `or "/"`)
+//   - $HOME unset               -> pwd.getpwuid(getuid()).pw_dir (the passwd
+//     database home), and if THAT is empty, "/"
+//
+// This keeps the paths absolute in cron/systemd/subprocess contexts where the
+// CLI may run without $HOME, matching Python.
 func home() string {
-	h, err := os.UserHomeDir()
-	if err != nil {
-		return ""
+	h, ok := os.LookupEnv("HOME")
+	if ok {
+		if h == "" {
+			return "/" // Python expanduser: empty HOME -> "/"
+		}
+		return h
 	}
-	return h
+	// HOME unset: fall back to the passwd database (Python's pwd.getpwuid).
+	if u, err := user.Current(); err == nil && u.HomeDir != "" {
+		return u.HomeDir
+	}
+	return "/"
 }

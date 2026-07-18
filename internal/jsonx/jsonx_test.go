@@ -54,6 +54,64 @@ func TestDecodeRejectsTrailingData(t *testing.T) {
 	}
 }
 
+// TestDecodeNumberNormalizations pins the audit-confirmed Python json parity:
+// integer -0 collapses to 0, and a float literal that overflows float64
+// re-encodes as Infinity (Python json.loads("1e400") == inf).
+func TestDecodeNumberNormalizations(t *testing.T) {
+	cases := []struct {
+		in   string
+		want string // DumpsCompact of the decoded value
+	}{
+		{`-0`, `0`},             // integer negative zero -> 0
+		{`0`, `0`},              //
+		{`-0.0`, `-0.0`},        // FLOAT negative zero is preserved
+		{`1e400`, `Infinity`},   // overflow -> Infinity
+		{`-1e400`, `-Infinity`}, // overflow -> -Infinity
+		{`2e308`, `Infinity`},   //
+		{`{"a": -0, "b": 1e400}`, `{"a": 0, "b": Infinity}`},
+		{`[-0, 1e400, -1e400]`, `[0, Infinity, -Infinity]`},
+	}
+	for _, tc := range cases {
+		v, err := Decode([]byte(tc.in))
+		if err != nil {
+			t.Errorf("Decode(%q) error: %v", tc.in, err)
+			continue
+		}
+		got, err := DumpsCompact(v)
+		if err != nil {
+			t.Errorf("DumpsCompact after Decode(%q): %v", tc.in, err)
+			continue
+		}
+		if got != tc.want {
+			t.Errorf("Decode(%q) re-encoded = %q, want %q", tc.in, got, tc.want)
+		}
+	}
+}
+
+// TestLedgeredDivergences documents (and guards the current behavior of) the
+// accepted divergences in docs/design/go-port-divergences.md. If any of these
+// starts matching Python, revisit the ledger entry.
+func TestLedgeredDivergences(t *testing.T) {
+	// D1: bare non-finite literals are not decoded (encoding/json rejects them).
+	for _, lit := range []string{"Infinity", "-Infinity", "NaN", "[NaN, Infinity]"} {
+		if _, err := Decode([]byte(lit)); err == nil {
+			t.Errorf("Decode(%q): expected error (ledger D1); if now supported, update the ledger", lit)
+		}
+	}
+	// D2: lone surrogate -> U+FFFD, re-encoded as the escaped replacement char.
+	v, err := Decode([]byte(`"\ud800"`))
+	if err != nil {
+		t.Fatalf("Decode lone surrogate errored: %v", err)
+	}
+	got, _ := DumpsCompact(v)
+	// encoding/json substitutes the lone surrogate with U+FFFD on decode;
+	// ensure_ascii then emits it as the 6-char escape � (<= 0xffff).
+	want := "\"" + "\\ufffd" + "\""
+	if got != want {
+		t.Errorf("lone surrogate re-encoded = %q, want %q (ledger D2)", got, want)
+	}
+}
+
 func TestUpdateKeepsPosition(t *testing.T) {
 	m := NewOrderedMap()
 	m.Set("a", 1)

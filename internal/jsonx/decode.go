@@ -5,6 +5,7 @@ import (
 	"encoding/json"
 	"fmt"
 	"io"
+	"math"
 	"strings"
 )
 
@@ -107,15 +108,31 @@ func decodeArray(dec *json.Decoder) (any, error) {
 }
 
 // numberToValue keeps integer literals as jsonInt (so they re-encode without
-// a ".0") and everything else as float64.
+// a ".0") and everything else as float64, matching Python's int/float split
+// and its normalizations:
+//   - "-0" (integer) parses to int 0 and re-encodes as "0" (Python:
+//     json.loads("-0") == 0). Note "-0.0" (float) is preserved as -0.0.
+//   - a float literal that overflows float64 (e.g. "1e400") parses to ±Inf,
+//     which re-encodes to "Infinity"/"-Infinity" (Python: json.loads("1e400")
+//     == inf). strconv.ParseFloat returns ±Inf WITH an ErrRange error, so we
+//     must keep the ±Inf value rather than falling back to the literal.
 func numberToValue(n json.Number) any {
 	s := n.String()
 	if isIntegerLiteral(s) {
+		// Python normalizes the integer -0 to 0.
+		if isNegativeZeroInt(s) {
+			return jsonInt("0")
+		}
 		return jsonInt(s)
 	}
 	f, err := n.Float64()
 	if err != nil {
-		// Fall back to the raw literal — better than dropping precision.
+		// Overflow to ±Inf still yields the right float value (ErrRange);
+		// keep it so it re-encodes as Infinity like Python. Only a genuine
+		// syntax error (not ErrRange) should fall back to the raw literal.
+		if math.IsInf(f, 0) {
+			return f
+		}
 		return jsonInt(s)
 	}
 	return f
@@ -123,4 +140,18 @@ func numberToValue(n json.Number) any {
 
 func isIntegerLiteral(s string) bool {
 	return !strings.ContainsAny(s, ".eE")
+}
+
+// isNegativeZeroInt reports whether s is an integer literal equal to negative
+// zero ("-0", "-00", ...). Python's int parse collapses these to 0.
+func isNegativeZeroInt(s string) bool {
+	if len(s) < 2 || s[0] != '-' {
+		return false
+	}
+	for _, c := range s[1:] {
+		if c != '0' {
+			return false
+		}
+	}
+	return true
 }
