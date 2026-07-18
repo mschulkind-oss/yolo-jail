@@ -46,9 +46,11 @@ func TestDifferentialParityInJail(t *testing.T) {
 	pyCmd.Stdout = &pyOut
 	pyCmd.Stderr = nil
 	if err := pyCmd.Run(); err != nil {
-		// exit 1 is a valid graded outcome; only a spawn failure skips.
+		// exit 1 is a valid graded outcome (ExitError); a spawn failure after
+		// python is confirmed present is real drift → FAIL, not skip (audit
+		// 2026-07-18 §B5: live oracles fail closed).
 		if _, ok := err.(*exec.ExitError); !ok {
-			t.Skipf("python check failed to run: %v", err)
+			t.Fatalf("python check failed to run: %v", err)
 		}
 	}
 

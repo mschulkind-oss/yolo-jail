@@ -60,7 +60,13 @@ func TestConfigParity(t *testing.T) {
 	cmd.Stdin = f
 	out, err := cmd.Output()
 	if err != nil {
-		t.Skipf("python oracle failed to run (%v) — skipping cross-language parity", err)
+		// Oracle RAN (python present) but errored → FAIL, don't skip: this is
+		// the config-drift the gate exists to catch (audit 2026-07-18 §B5).
+		stderr := ""
+		if ee, ok := err.(*exec.ExitError); ok {
+			stderr = string(ee.Stderr)
+		}
+		t.Fatalf("config oracle failed to run: %v\n%s", err, stderr)
 	}
 	expDecoded, err := jsonx.Decode(out)
 	if err != nil {

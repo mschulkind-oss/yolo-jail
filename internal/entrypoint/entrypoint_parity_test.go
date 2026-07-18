@@ -242,6 +242,10 @@ func diffMap(t *testing.T, label string, py, gm map[string]string) {
 
 // --- python oracle runner ---
 
+// runPythonOracle returns (output, true) on success. It SKIPS the test only when
+// python/uv is genuinely absent; if the oracle is present but ERRORS, it FAILS
+// (audit 2026-07-18 §B5: a live oracle must fail closed, else a Python change
+// that breaks the oracle silently disarms the tree-parity gate).
 func runPythonOracle(t *testing.T, repoRoot string) ([]byte, bool) {
 	t.Helper()
 	oracle := filepath.Join(repoRoot, "tools", "parity", "entrypoint_oracle.py")
@@ -251,15 +255,14 @@ func runPythonOracle(t *testing.T, repoRoot string) ([]byte, bool) {
 	} else if _, err := exec.LookPath("python3"); err == nil {
 		cmd = exec.Command("python3", oracle)
 	} else {
-		return nil, false
+		return nil, false // python/uv absent — the ONE legitimate skip.
 	}
 	cmd.Dir = repoRoot
 	var stdout, stderr bytes.Buffer
 	cmd.Stdout = &stdout
 	cmd.Stderr = &stderr
 	if err := cmd.Run(); err != nil {
-		t.Logf("python oracle failed: %v\nstderr:\n%s", err, stderr.String())
-		return nil, false
+		t.Fatalf("entrypoint oracle failed to run: %v\nstderr:\n%s", err, stderr.String())
 	}
 	return stdout.Bytes(), true
 }

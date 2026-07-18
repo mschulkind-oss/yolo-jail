@@ -136,7 +136,9 @@ func runOracle(t *testing.T, py func(...string) *exec.Cmd, req map[string]any) m
 	cmd.Stdout = &stdout
 	cmd.Stderr = &stderr
 	if err := cmd.Run(); err != nil {
-		t.Skipf("python oracle failed (%v): %s", err, stderr.String())
+		// Python is present (the caller skipped on a nil runner); an oracle error
+		// here is real drift → FAIL, not skip (audit 2026-07-18 §B5).
+		t.Fatalf("python oracle failed (%v): %s", err, stderr.String())
 	}
 	var out map[string]any
 	if err := json.Unmarshal(stdout.Bytes(), &out); err != nil {

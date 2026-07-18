@@ -77,7 +77,15 @@ func assertArgvParity(t *testing.T, pyRun func(...string) *exec.Cmd, oracle, wsC
 
 	out, err := pyRun(oracle, home, ws, network, envOverride).Output()
 	if err != nil {
-		t.Skipf("oracle failed: %v", err)
+		// The oracle RAN (python/uv present — that precondition is checked in
+		// the caller via pythonRunner) but errored: that is exactly the drift
+		// this gate exists to catch, so FAIL, never skip (audit 2026-07-18 §B5:
+		// live oracles must fail closed, like committed goldens).
+		stderr := ""
+		if ee, ok := err.(*exec.ExitError); ok {
+			stderr = string(ee.Stderr)
+		}
+		t.Fatalf("argv oracle failed to run: %v\n%s", err, stderr)
 	}
 	var pyArgv []string
 	if err := json.Unmarshal(out, &pyArgv); err != nil {
@@ -251,4 +259,15 @@ func parseEnvOverride(s string) map[string]string {
 		}
 	}
 	return out
+}
+
+// TestArgvOraclePresent is the audit's canary (2026-07-18 §B5): the parity gate
+// skips only when python/uv is ABSENT, never when the oracle file is missing. If
+// the oracle ever disappears from the repo, this fails loudly instead of the
+// whole parity suite silently green-skipping.
+func TestArgvOraclePresent(t *testing.T) {
+	oracle := filepath.Join(repoRootForTest(t), "tools", "parity", "run_argv_oracle.py")
+	if _, err := os.Stat(oracle); err != nil {
+		t.Fatalf("argv oracle missing from repo (%s): %v — the parity gate would silently skip", oracle, err)
+	}
 }
