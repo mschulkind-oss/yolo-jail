@@ -929,17 +929,17 @@ Stage 1.
 | Stage | Title | Sessions (est.) | Status | Handoff |
 |---|---|---|---|---|
 | 0 | Scaffold + walking skeleton | 2 | **landed** (in-jail; CI human-confirm pending) | [stage-0](../implementation/go-port-stage-0.md) |
-| 1 | Characterization wave A | 3 | partial (drift suite live; broker wire fixtures landed via the Stage 6 oracle; pty harness + ordered-argv matrix pending) | — |
-| 2 | Foundations + spikes | 3 | **landed** (13 pkgs + drift suite; Spike A json5 DONE, Spike B tty not started) | [stage-2](../implementation/go-port-stage-2.md) |
-| 3 | Broker relay | 1 | **landed** (behind YOLO_BROKER_RELAY_BIN; soaking) | [stage-3](../implementation/go-port-stage-3.md) |
-| 4 | frameproto | 1 | **landed** (conformance both directions) | [stage-4](../implementation/go-port-stage-4.md) |
-| 5 | host-processes | 1 | **landed** (daemon + yolo-ps + seam wiring; behind YOLO_GO_DAEMONS) | [stage-5](../implementation/go-port-stage-5.md) |
-| 6 | OAuth broker | 2 + soak | **landed** (behind YOLO_GO_DAEMONS; soak/real-login human-gated) | [stage-6](../implementation/go-port-stage-6.md) |
-| 7 | Builtin daemons | 2 | partial (Commit B Go daemons landed+tested; Commit A Python carve-out pending) | [stage-7](../implementation/go-port-stage-7.md) |
-| 8 | TTY proxy | 2 | not started | — |
+| 1 | Characterization wave A | 3 | **NOT STARTED — next session, hard gate** (only a broker-wire slice exists inside Stage 6's oracle; no tests/golden/, no pty harness, no ordered-argv matrix, no config/UX goldens, **no parity-CI freeze job — §1.9 freeze rule is dormant**) | — |
+| 2 | Foundations + spikes | 3 | **partial** (13 pkgs + drift suite, audited strong; Spike A json5 done but 9 unledgered divergences incl. 1 blocker; **Spike B tty NOT started — gates St. 8**; tomlx, ≥10k corpus, cross-write skip-test, lint rules outstanding) | [stage-2](../implementation/go-port-stage-2.md) |
+| 3 | Broker relay | 1 | **landed** (behind YOLO_BROKER_RELAY_BIN + missing-binary fallback); **soak state UNCONFIRMED** (never recorded); nested-jail claude-token smoke not done | [stage-3](../implementation/go-port-stage-3.md) |
+| 4 | frameproto | 1 | **landed** (conformance both directions); suite missing plan-enumerated cases (1-req/conn, concurrency, cross-lang negative exit, access-log) | [stage-4](../implementation/go-port-stage-4.md) |
+| 5 | host-processes | 1 | landed but **NOT flip-ready** — 1 blocker (tree-mode timeout drop + inverted exit) + 2 unledgered divergences; plan's fake-ps black-box suite never committed; §1.5 nested-jail record missing | [stage-5](../implementation/go-port-stage-5.md) |
+| 6 | OAuth broker | 2 + soak | landed but **NOT soak-ready** — flock exit-test never drives the Go broker; **all incident-derived logging dropped** (no forensics); 4 unledgered error/edge divergences | [stage-6](../implementation/go-port-stage-6.md) |
+| 7 | Builtin daemons | 2 | partial (Commit B landed out of order; Commit A pending) — **journald output-truncation race confirmed live**; yolo-cgd can't be wired as-is (needs lazy cgroup resolution) and **breaks the darwin build** | [stage-7](../implementation/go-port-stage-7.md) |
+| 8 | TTY proxy | 2 | not started — **blocked on St. 1 pty harness + St. 2 Spike B** | — |
 | 9 | Characterization wave B | 1 | not started | — |
 | 10 | Go entrypoint (dual image) | 3 | not started | — |
-| 11 | Jail-side wave | 2 | partial (yolo-ps, jail-supervisor, oauth-terminator ported+tested; cglimit/journalctl + image bake pending) | [stage-11](../implementation/go-port-stage-11.md) |
+| 11 | Jail-side wave | 2 | partial, dormant (3 binaries; cglimit/journalctl + image bake pending) — **NOT bake-ready**: terminator canonicalizes headers (frozen hazard), negotiates HTTP/2, no logging, 502 strings drift | [stage-11](../implementation/go-port-stage-11.md) |
 | 12 | Front door + slices | 2 | not started | — |
 | 13 | Config engine | 2 | not started | — |
 | 14 | Command slices ×6 | ~8 | not started | — |

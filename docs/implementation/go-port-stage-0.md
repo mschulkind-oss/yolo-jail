@@ -182,3 +182,85 @@ Per plan §6/§10: every stage ends with its handoff written and §14 updated �
 a stage without a handoff is not done, no matter how good the code is. New
 Open Questions must be pointed out to the human in the session summary, not
 just left in a doc.
+
+---
+
+## Audit addendum #2 (2026-07-18, planning agent) — process review of the 16-commit burst
+
+An 8-auditor review with adversarial verification (2 independent refuters per
+blocker/major) audited commits `f057d96..5f811ee`. **No finding was refuted.**
+Per-stage technical findings are in each stage's own handoff addendum; this
+section covers cross-cutting process and the status of the first addendum's
+corrective queue.
+
+### What the audit confirmed as done well
+
+- **Corrective item 3 (backfills) honored**, and the discipline stuck: every
+  subsequent stage commit was paired with a docs commit updating §14.
+- **Corrective item 4 partly honored**: the relay missing-binary fallback landed
+  (`7b8d743`, `os.access(X_OK)` guard + operator warning + test) and `dist-go/`
+  was rebuilt (all 10 binaries present).
+- **Spike A landed before its consumer** (json5 `ebfd7f1` precedes Stage 5
+  `a5b7751`) with its verdict recorded in `docs/research/go-port-parity.md`.
+- **The drift suite is genuinely bidirectional** — verifiers reproduced it going
+  red on a perturbed Python constant and green on restore.
+- **Git hygiene**: all 16 messages conventional, no AI trailers, no amends, tree
+  clean. Ledger entries correctly left `proposed`.
+
+### [BLOCKER · confirmed] The `check-ci` pre-commit gate was not in force for the burst
+
+Plan §1.4 makes the hook the ONLY mechanical gate and forbids `--no-verify`. At
+`8ccde4b`/`4bfcc3e`/`5d1cc37`/`608ddf0`, `ruff check` and `ruff format --check`
+both fail — the hook would have blocked all four. They landed anyway. Root cause
+found by the auditor: the reflog shows the burst arrived here via
+`pull: Fast-forward` at 2026-07-18 09:59:34, i.e. **the commits were authored in a
+different clone**, where the unversioned `.git/hooks/pre-commit` does not exist
+and nothing in the repo installs it. Corroborating: consecutive commits 33–67s
+apart cannot fit `check-ci`'s test tier. This is the second occurrence of the
+class (`edb7c6b` cleaned up after `ef5073e`).
+
+*Fix:* version the hook (`.githooks/pre-commit` + `core.hooksPath`, or a
+`just init-hooks` recipe) and add "hook installed and firing" to §10's
+per-session preconditions. **Human:** confirm which clone produced the burst and
+that its hook now runs.
+
+### Corrective queue (supersedes addendum #1's)
+
+1. **Stage 1 is now a hard gate — it must be the next session.** Item 1 of the
+   first addendum was not honored: Stages 5, 6, 7-B and most of 11 landed with
+   no Stage 1 session (only the broker-wire slice was folded into Stage 6).
+   There is still no `tests/golden/`, no pty harness, no ordered-argv matrix, no
+   config/UX byte goldens, and **no parity-CI freeze job — so the freeze rule
+   (§1.9) remains dormant** while Python keeps moving.
+2. **Fix the six confirmed blockers before any seam flag is flipped** (each in
+   its stage's addendum): json5 hex int64 wraparound (St. 2); host-processes
+   tree-mode timeout drop + inverted exit path (St. 5); the flock "cross-language"
+   test that never starts the Go broker (St. 6); yolo-journald's output-truncation
+   race (St. 7); terminator header canonicalization (St. 11); and this hook gap.
+3. **Spike B (tty prototype) is still not started and gates Stage 8** — it needs
+   the Stage 1 pty harness first, which is another reason Stage 1 comes next.
+4. **Stop over-claiming in §14 and in handoffs.** Corrected this session: Stage 2
+   → partial, Stage 3 soak → unconfirmed, Stage 5/6/7/11 → caveated. Going
+   forward, handoffs must embed **literal command transcripts** (§6/§10.5) as
+   stage-0 did — the burst's handoffs used prose "Verified" bullets and stage-3
+   admits its output was "recorded in the session", i.e. lost.
+5. **§1.5 nested-jail records are missing for Stages 3/5/6** (all edited
+   `src/cli/loopholes_runtime.py`). Run and transcribe them.
+6. **Forward-fix the "accepted" wording**: `f057d96`'s message and
+   `docs/research/go-port-parity.md` call D1–D3 accepted; the ledger correctly
+   says `proposed`. Also `docs/qa/go-port-batch-1.md` row #2 records disposition
+   "fix" when the opposite shipped (ledgered as D1).
+
+### Human decisions still owed
+
+- The **unanswered Open Question above** (image-bake sufficiency for Stage 0) —
+  still the only empty `**Answer:**` in any go-port handoff.
+- **Divergence ledger D1–D3** need accept/reject.
+- **Stage 3 soak state**: is `YOLO_BROKER_RELAY_BIN` actually exported on the dev
+  host? Nothing in the repo records it, and §14 asserted it.
+- **CI confirmations** for Stages 0–7/11 (none recorded yet); `cmd/goprobe`
+  deletion is gated on the Stage 0 one.
+- **Commit authorship**: the whole burst is authored as
+  `matt.schulkind@hyperscience.com`, not the canonical
+  `mschulkind@gmail.com` (§11). Permanent — history is never rewritten — but
+  worth fixing the porting clone's `user.email` now.
