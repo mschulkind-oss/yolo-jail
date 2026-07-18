@@ -92,6 +92,25 @@ func DumpsCompact(v any) (string, error) {
 	return e.sb.String(), nil
 }
 
+// DumpsIndent renders v as json.dumps(v, indent=n) — pretty-printed but
+// WITHOUT sort_keys (insertion order preserved), ensure_ascii=True. This is the
+// form src/oauth_broker.py:_write_tokens uses (indent=2, no sort_keys), where
+// key order must follow the oauth object's insertion order, not sorted order.
+func DumpsIndent(v any, n int) (string, error) {
+	e := &encoder{sortKeys: false, indent: n, itemSep: ",", keySep: ": "}
+	if err := e.encode(v, 0); err != nil {
+		return "", err
+	}
+	return e.sb.String(), nil
+}
+
+// IntValue constructs a JSON integer value (re-encodes with no ".0", matching
+// Python's int). Use this to inject computed integers (timestamps, expires_in)
+// into an OrderedMap so they serialize like Python ints, not floats.
+func IntValue(n int64) any {
+	return jsonInt(strconv.FormatInt(n, 10))
+}
+
 func (e *encoder) newlineIndent(depth int) {
 	if e.indent == 0 {
 		return

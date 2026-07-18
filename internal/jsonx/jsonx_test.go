@@ -112,6 +112,33 @@ func TestLedgeredDivergences(t *testing.T) {
 	}
 }
 
+func TestDumpsIndentNoSortKeys(t *testing.T) {
+	// indent=2 but insertion order preserved (NOT sorted) — the
+	// _write_tokens form. Keys z, a, m must stay in that order.
+	m := NewOrderedMap()
+	m.Set("z", IntValue(1))
+	m.Set("a", IntValue(2))
+	m.Set("m", IntValue(3))
+	got, err := DumpsIndent(m, 2)
+	if err != nil {
+		t.Fatal(err)
+	}
+	want := "{\n  \"z\": 1,\n  \"a\": 2,\n  \"m\": 3\n}"
+	if got != want {
+		t.Errorf("DumpsIndent =\n%q\nwant\n%q", got, want)
+	}
+}
+
+func TestIntValueEncodesAsInt(t *testing.T) {
+	m := NewOrderedMap()
+	m.Set("ts", IntValue(1700000000000))
+	m.Set("n", IntValue(-5))
+	got, _ := DumpsCompact(m)
+	if got != `{"ts": 1700000000000, "n": -5}` {
+		t.Errorf("IntValue encode = %q", got)
+	}
+}
+
 func TestUpdateKeepsPosition(t *testing.T) {
 	m := NewOrderedMap()
 	m.Set("a", 1)
