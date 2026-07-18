@@ -10,6 +10,7 @@ import (
 	"github.com/mschulkind-oss/yolo-jail/internal/brokercmd"
 	"github.com/mschulkind-oss/yolo-jail/internal/checkcmd"
 	"github.com/mschulkind-oss/yolo-jail/internal/configref"
+	"github.com/mschulkind-oss/yolo-jail/internal/frontdoor"
 	"github.com/mschulkind-oss/yolo-jail/internal/initcmd"
 	"github.com/mschulkind-oss/yolo-jail/internal/loopholescmd"
 	"github.com/mschulkind-oss/yolo-jail/internal/paths"
@@ -235,6 +236,14 @@ func runRun(args []string) int {
 		}
 	}
 	opts.Args = cmdArgs
+	// Set the tmux/kitty jail indicator (how the user knows a terminal is inside
+	// a jail — a safety affordance) around the run, restoring on exit. This is
+	// the native run path (never a delegation), so Go owns the indicator here —
+	// mirrors Python's _tmux_rename_window / kitty tab branding (audit §B#4).
+	restore := frontdoor.SetupJailIndicator()
+	if restore != nil {
+		defer restore()
+	}
 	return runcmd.Run(opts)
 }
 
