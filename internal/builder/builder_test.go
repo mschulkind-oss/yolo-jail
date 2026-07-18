@@ -17,6 +17,12 @@ func TestSSHConfigBlock(t *testing.T) {
 	}
 }
 
+func TestSSHConfigPath(t *testing.T) {
+	if got := SSHConfigPath(); got != "/etc/ssh/ssh_config.d/100-linux-builder.conf" {
+		t.Errorf("SSHConfigPath = %q", got)
+	}
+}
+
 func TestNixBuildersLine(t *testing.T) {
 	want := "builders = ssh-ng://builder@linux-builder aarch64-linux /etc/nix/builder_ed25519 4 - - - -\n" +
 		"builders-use-substitutes = true\n"

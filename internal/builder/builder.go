@@ -12,7 +12,10 @@
 package builder
 
 import (
+	"path/filepath"
 	"strings"
+
+	"github.com/mschulkind-oss/yolo-jail/internal/paths"
 )
 
 // Frozen constants (byte-identical to builder.py).
@@ -23,6 +26,23 @@ const (
 	BuilderKeyPath = "/etc/nix/builder_ed25519"
 	sshConfigPath  = "/etc/ssh/ssh_config.d/100-linux-builder.conf"
 )
+
+// SSHConfigPath returns the ssh_config.d file the builder host alias is written
+// to (builder.py's SSH_CONFIG_PATH). Exported so the buildercmd command bodies
+// can name it in their output.
+func SSHConfigPath() string { return sshConfigPath }
+
+// BuilderPIDFilePath returns GLOBAL_STORAGE/linux-builder.pid (builder.py's
+// BUILDER_PID_FILE). The detached VM's PID is recorded here.
+func BuilderPIDFilePath() string {
+	return filepath.Join(paths.GlobalStorage(), "linux-builder.pid")
+}
+
+// BuilderLogFilePath returns GLOBAL_STORAGE/logs/linux-builder.log (builder.py's
+// BUILDER_LOG_FILE). The detached VM's stdout/stderr go here.
+func BuilderLogFilePath() string {
+	return filepath.Join(paths.GlobalStorage(), "logs", "linux-builder.log")
+}
 
 // SSHConfigBlock is the /etc/ssh/ssh_config.d block letting the daemon ssh the
 // VM. Mirrors ssh_config_block byte-for-byte.
