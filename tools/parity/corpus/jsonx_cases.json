@@ -1,0 +1,169 @@
+[
+  {},
+  [],
+  {
+    "b": 1,
+    "a": 2,
+    "c": 3
+  },
+  {
+    "z": {
+      "y": {
+        "x": 1
+      }
+    }
+  },
+  [
+    1,
+    2,
+    3
+  ],
+  [
+    1,
+    "two",
+    3.5,
+    true,
+    false,
+    null
+  ],
+  {
+    "nested": {
+      "list": [
+        {
+          "k": "v"
+        },
+        {
+          "k2": "v2"
+        }
+      ]
+    }
+  },
+  "plain string",
+  "unicode: caf\u00e9 m\u00fcnchen \u2603 \u65e5\u672c\u8a9e",
+  "html-ish: <tag> & \"quote\" 'apos'",
+  "escapes: \n\t\r\b\f\\ and slash /",
+  "control: \u0000\u0001\u001f",
+  "astral: \ud83d\ude00 \ud83c\udf89 \ud83d\ude00",
+  {
+    "packages": [
+      "strace",
+      "gtk4.dev"
+    ]
+  },
+  {
+    "YOLO_JAIL_DAEMONS": [
+      {
+        "name": "claude-oauth-broker",
+        "cmd": [
+          "python3",
+          "-m",
+          "src.oauth_broker_jail"
+        ],
+        "restart": "on-failure"
+      }
+    ]
+  },
+  {
+    "int": 42,
+    "negint": -7,
+    "zero": 0,
+    "big": 9007199254740992
+  },
+  {
+    "float": 3.14,
+    "negfloat": -0.5,
+    "exp": 10000000000.0,
+    "smallexp": 1.5e-08,
+    "intfloat": 2.0
+  },
+  [
+    0.0,
+    -0.0,
+    1.0,
+    100.0,
+    1e+16,
+    1e+17,
+    0.0001,
+    1e-05,
+    1234567890123456.0,
+    1.2345678901234568e+16,
+    0.1,
+    0.0001,
+    1e-05,
+    123.456,
+    -0.000123,
+    1e+100,
+    1e-100,
+    1e+23
+  ],
+  {
+    "empty_obj": {},
+    "empty_arr": [],
+    "empty_str": ""
+  },
+  {
+    "mixed": [
+      {
+        "a": 1
+      },
+      [
+        2,
+        3
+      ],
+      "s",
+      null,
+      true
+    ]
+  },
+  {
+    "key with spaces": 1,
+    "key/with/slashes": 2,
+    "unicode-key-caf\u00e9": 3
+  },
+  {
+    "deep": [
+      [
+        [
+          [
+            [
+              1
+            ]
+          ]
+        ]
+      ]
+    ]
+  },
+  {
+    "bools": [
+      true,
+      false
+    ],
+    "nulls": [
+      null,
+      null
+    ]
+  },
+  "line1\nline2\nline3",
+  {
+    "a": 1,
+    "z": 2,
+    "m": 3,
+    "b": 4
+  },
+  [
+    [],
+    [
+      []
+    ],
+    [
+      [],
+      []
+    ]
+  ],
+  {
+    "sortcheck_Z": 1,
+    "sortcheck_a": 2,
+    "sortcheck_A": 3,
+    "sortcheck_0": 4
+  }
+]
