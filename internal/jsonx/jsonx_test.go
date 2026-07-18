@@ -169,6 +169,27 @@ func TestIntInspection(t *testing.T) {
 	}
 }
 
+func TestAsIntLiteralAndFloatRepr(t *testing.T) {
+	v, err := Decode([]byte(`{"n": 123456789012345678, "f": 2.5}`))
+	if err != nil {
+		t.Fatalf("decode: %v", err)
+	}
+	m := v.(*OrderedMap)
+	nv, _ := m.Get("n")
+	if lit, ok := AsIntLiteral(nv); !ok || lit != "123456789012345678" {
+		t.Errorf("AsIntLiteral = %q,%v want the literal,true", lit, ok)
+	}
+	if _, ok := AsIntLiteral("nope"); ok {
+		t.Errorf("AsIntLiteral(string) ok = true, want false")
+	}
+	if got := FormatFloatRepr(2.5); got != "2.5" {
+		t.Errorf("FormatFloatRepr(2.5) = %q, want 2.5", got)
+	}
+	if got := FormatFloatRepr(1.0); got != "1.0" {
+		t.Errorf("FormatFloatRepr(1.0) = %q, want 1.0", got)
+	}
+}
+
 func TestDeleteRemovesKeyAndOrder(t *testing.T) {
 	m := NewOrderedMap()
 	m.Set("a", 1)

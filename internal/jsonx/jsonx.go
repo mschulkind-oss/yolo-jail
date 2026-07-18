@@ -162,6 +162,24 @@ func AsInt(v any) (int64, bool) {
 	return n, true
 }
 
+// AsIntLiteral returns the verbatim decimal string of a decoded JSON integer
+// (Python's arbitrary-precision int repr) and true, or ("", false) when v is
+// not an integer literal. Use this to render {x!r} for integer config values
+// that may exceed int64 (e.g. a hex literal from JSON5).
+func AsIntLiteral(v any) (string, bool) {
+	ji, ok := v.(jsonInt)
+	if !ok {
+		return "", false
+	}
+	return string(ji), true
+}
+
+// FormatFloatRepr renders f as Python's repr(float) — the shortest
+// round-tripping decimal, matching json.dumps's float rendering. Exported so
+// internal/config can reproduce Python's {x!r} for non-string config values
+// (validation error strings embed them).
+func FormatFloatRepr(f float64) string { return formatFloat(f) }
+
 func (e *encoder) newlineIndent(depth int) {
 	if e.indent == 0 {
 		return
