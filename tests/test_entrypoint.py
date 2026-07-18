@@ -27,6 +27,7 @@ def jail_home(tmp_path, monkeypatch):
         "YOLO_MISE_TOOLS",
         "YOLO_HOST_DIR",
         "YOLO_HOST_CLAUDE_FILES",
+        "YOLO_HOST_PI_FILES",
         "YOLO_AGENTS",
     ):
         monkeypatch.delenv(var, raising=False)
@@ -50,6 +51,7 @@ def jail_home(tmp_path, monkeypatch):
         "CLAUDE_SHARED_CREDENTIALS_DIR",
         "OPENCODE_DIR",
         "PI_DIR",
+        "PI_HOST_SETTINGS_SNAPSHOT_PATH",
         "CODEX_DIR",
         "MISE_CONFIG_DIR",
     ]
@@ -79,6 +81,9 @@ def jail_home(tmp_path, monkeypatch):
     entrypoint.CLAUDE_SHARED_CREDENTIALS_DIR = tmp_path / ".claude-shared-credentials"
     entrypoint.OPENCODE_DIR = tmp_path / ".config" / "opencode"
     entrypoint.PI_DIR = tmp_path / ".pi" / "agent"
+    entrypoint.PI_HOST_SETTINGS_SNAPSHOT_PATH = (
+        tmp_path / ".pi" / "agent" / "yolo-host-synced-settings.json"
+    )
     entrypoint.CODEX_DIR = tmp_path / ".codex"
     entrypoint.MISE_CONFIG_DIR = tmp_path / ".config" / "mise"
 
@@ -1934,6 +1939,91 @@ class TestPiConfig:
         cfg = json.loads((entrypoint.PI_DIR / "settings.json").read_text())
         assert cfg["thinkingLevel"] == "high"
         assert cfg["defaultProjectTrust"] == "always"
+
+    def _set_host_settings(self, monkeypatch, host: dict):
+        """Make configure_pi see ``host`` as /ctx/host-pi/settings.json."""
+        monkeypatch.setattr(
+            entrypoint.agent_configs,
+            "_load_host_pi_settings",
+            lambda: dict(host),
+        )
+
+    def _jail_settings(self) -> dict:
+        return json.loads((entrypoint.PI_DIR / "settings.json").read_text())
+
+    def test_host_settings_synced_and_snapshot_written(self, jail_home, monkeypatch):
+        """A host key lands in the jail and the snapshot records the host state."""
+        self._set_host_settings(monkeypatch, {"thinkingLevel": "high"})
+        entrypoint.configure_pi()
+        cfg = self._jail_settings()
+        assert cfg["thinkingLevel"] == "high"
+        # The jail-managed key is always forced on, host merge or not.
+        assert cfg["defaultProjectTrust"] == "always"
+        snapshot = json.loads(entrypoint.PI_HOST_SETTINGS_SNAPSHOT_PATH.read_text())
+        assert snapshot == {"thinkingLevel": "high"}
+
+    def test_default_project_trust_wins_over_host(self, jail_home, monkeypatch):
+        """A host defaultProjectTrust never overrides the jail-managed value."""
+        self._set_host_settings(monkeypatch, {"defaultProjectTrust": "never"})
+        entrypoint.configure_pi()
+        assert self._jail_settings()["defaultProjectTrust"] == "always"
+
+    def test_host_key_removal_rolls_back(self, jail_home, monkeypatch):
+        """A key the host drops is removed from the jail when unmodified."""
+        self._set_host_settings(monkeypatch, {"thinkingLevel": "high"})
+        entrypoint.configure_pi()
+        assert "thinkingLevel" in self._jail_settings()
+
+        self._set_host_settings(monkeypatch, {})
+        entrypoint.configure_pi()
+        cfg = self._jail_settings()
+        assert "thinkingLevel" not in cfg
+        # The jail-managed key survives the rollback.
+        assert cfg["defaultProjectTrust"] == "always"
+
+    def test_host_value_change_propagates(self, jail_home, monkeypatch):
+        """A changed host value overwrites the jail copy when unmodified."""
+        self._set_host_settings(monkeypatch, {"thinkingLevel": "high"})
+        entrypoint.configure_pi()
+
+        self._set_host_settings(monkeypatch, {"thinkingLevel": "low"})
+        entrypoint.configure_pi()
+        assert self._jail_settings()["thinkingLevel"] == "low"
+
+    def test_jail_local_edit_wins(self, jail_home, monkeypatch):
+        """A key the jail modified locally is never clobbered by the host."""
+        self._set_host_settings(monkeypatch, {"thinkingLevel": "high"})
+        entrypoint.configure_pi()
+
+        # User (or pi) changes it inside the jail.
+        cfg = self._jail_settings()
+        cfg["thinkingLevel"] = "medium"
+        (entrypoint.PI_DIR / "settings.json").write_text(json.dumps(cfg))
+
+        # Host changes the value — jail divergence wins.
+        self._set_host_settings(monkeypatch, {"thinkingLevel": "low"})
+        entrypoint.configure_pi()
+        assert self._jail_settings()["thinkingLevel"] == "medium"
+
+    def test_gap_fill_from_host(self, jail_home, monkeypatch):
+        """Host fills gaps: a key absent in the jail is added from the host."""
+        entrypoint.PI_DIR.mkdir(parents=True)
+        (entrypoint.PI_DIR / "settings.json").write_text(
+            json.dumps({"existingKey": "keep"})
+        )
+        self._set_host_settings(monkeypatch, {"newKey": "fromHost"})
+        entrypoint.configure_pi()
+        cfg = self._jail_settings()
+        assert cfg["existingKey"] == "keep"
+        assert cfg["newKey"] == "fromHost"
+        assert cfg["defaultProjectTrust"] == "always"
+
+    def test_no_host_files_env_is_noop_merge(self, jail_home):
+        """With YOLO_HOST_PI_FILES unset, only the jail-managed key is written."""
+        # _load_host_pi_settings returns {} (env unset by the fixture).
+        entrypoint.configure_pi()
+        cfg = self._jail_settings()
+        assert cfg == {"defaultProjectTrust": "always"}
 
 
 # -- codex config --

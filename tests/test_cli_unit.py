@@ -1322,6 +1322,45 @@ class TestValidateConfig:
         errors, _ = _validate_config(config, workspace=tmp_path)
         assert any("env_sources[0]" in e for e in errors)
 
+    def test_host_claude_files_valid(self, tmp_path):
+        config = {"host_claude_files": ["settings.json", "CLAUDE.md"]}
+        errors, _ = _validate_config(config, workspace=tmp_path)
+        assert errors == []
+
+    def test_host_claude_files_not_list(self, tmp_path):
+        config = {"host_claude_files": "settings.json"}
+        errors, _ = _validate_config(config, workspace=tmp_path)
+        assert any("host_claude_files" in e and "list" in e for e in errors)
+
+    def test_host_claude_files_rejects_path(self, tmp_path):
+        config = {"host_claude_files": ["sub/dir/settings.json"]}
+        errors, _ = _validate_config(config, workspace=tmp_path)
+        assert any(
+            "host_claude_files[0]" in e and "filename, not a path" in e for e in errors
+        )
+
+    def test_host_pi_files_valid(self, tmp_path):
+        config = {"host_pi_files": ["settings.json"]}
+        errors, _ = _validate_config(config, workspace=tmp_path)
+        assert errors == []
+
+    def test_host_pi_files_not_list(self, tmp_path):
+        config = {"host_pi_files": "settings.json"}
+        errors, _ = _validate_config(config, workspace=tmp_path)
+        assert any("host_pi_files" in e and "list" in e for e in errors)
+
+    def test_host_pi_files_non_string_entry(self, tmp_path):
+        config = {"host_pi_files": [123]}
+        errors, _ = _validate_config(config, workspace=tmp_path)
+        assert any("host_pi_files[0]" in e and "string" in e for e in errors)
+
+    def test_host_pi_files_rejects_path(self, tmp_path):
+        config = {"host_pi_files": ["sub/settings.json"]}
+        errors, _ = _validate_config(config, workspace=tmp_path)
+        assert any(
+            "host_pi_files[0]" in e and "filename, not a path" in e for e in errors
+        )
+
     def test_publish_port_valid(self, tmp_path):
         config = {"network": {"ports": ["8000:8000"]}}
         errors, _ = _validate_config(config, workspace=tmp_path)
