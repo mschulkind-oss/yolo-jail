@@ -469,9 +469,7 @@ def main():
     # it keeps and leaves them alone when delegating.  A listed gate with a
     # missing/absent binary silently falls through to the normal Python path
     # (availability beats the A/B preference; dist-go/ is gitignored + wiped).
-    if os.environ.get("YOLO_IMPL") == "go" and not os.environ.get(
-        "YOLO_GO_DELEGATED"
-    ):
+    if os.environ.get("YOLO_IMPL") == "go" and not os.environ.get("YOLO_GO_DELEGATED"):
         _go_bin_dir = os.environ.get("YOLO_GO_BIN_DIR")
         if _go_bin_dir:
             _go_bin = Path(_go_bin_dir) / "yolo"
