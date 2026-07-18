@@ -57,6 +57,30 @@ func writeInPlaceString(path, content string) error {
 	return fsx.WriteStringInPlace(path, content, 0o644)
 }
 
+// pyStr renders a decoded JSON scalar the way Python's str() would inside an
+// f-string: bool -> "True"/"False", int -> decimal, float -> repr, str -> as-is.
+// jsonx.Decode yields bool, string, jsonInt (via IntLiteral wrapper) or float64
+// for numbers; we render each accordingly.
+func pyStr(v any) string {
+	switch t := v.(type) {
+	case string:
+		return t
+	case bool:
+		if t {
+			return "True"
+		}
+		return "False"
+	case float64:
+		// Reuse jsonx's Python-repr(float) via DumpsCompact of the float.
+		s, _ := jsonx.DumpsCompact(t)
+		return s
+	default:
+		// jsonInt and any other numeric literal re-encode as their integer text.
+		s, _ := jsonx.DumpsCompact(t)
+		return s
+	}
+}
+
 func pathExists(path string) bool {
 	_, err := os.Lstat(path)
 	return err == nil

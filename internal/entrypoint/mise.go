@@ -1,0 +1,211 @@
+package entrypoint
+
+import (
+	"os"
+	"path/filepath"
+	"regexp"
+	"strings"
+
+	"github.com/mschulkind-oss/yolo-jail/internal/agents"
+	"github.com/mschulkind-oss/yolo-jail/internal/jsonx"
+)
+
+// miseTomlKey mirrors mise._toml_key: quote a key only if it contains chars
+// that aren't valid in a bare key (anything outside [A-Za-z0-9_-]).
+var miseBareKeyRe = regexp.MustCompile(`^[A-Za-z0-9_-]+$`)
+
+func miseTomlKey(key string) string {
+	if miseBareKeyRe.MatchString(key) {
+		return key
+	}
+	return `"` + key + `"`
+}
+
+// miseBaseTools is the ordered base tool set (Python dict literal order).
+var miseBaseTools = []struct{ tool, version string }{
+	{"node", "22"},
+	{"python", "3.13"},
+	{"go", "latest"},
+}
+
+// GenerateMiseConfig mirrors mise.generate_mise_config's FILE-GENERATION logic.
+// It does NOT run the `mise uninstall` subprocesses (that is a side effect, not
+// content generation — Stage 10 orchestration). It DOES perform the workspace
+// /workspace/mise.toml retired-tool surgery when that file exists, matching the
+// Python writer's in-place edits.
+//
+// injected tools come from YOLO_MISE_TOOLS (a JSON object); retired tools come
+// from agents.AllMiseRetire.
+func GenerateMiseConfig(e *Env) error {
+	configPath := filepath.Join(e.MiseConfigDir(), "config.toml")
+
+	injected := loadInjectedTools(e)
+	retired := agents.AllMiseRetire
+
+	if !pathExists(configPath) {
+		if err := os.MkdirAll(e.MiseConfigDir(), 0o755); err != nil {
+			return err
+		}
+		// merged = {**base_tools, **injected_tools}: base order first, then any
+		// injected keys not already present appended in injected order; an
+		// injected key that matches a base key updates in place.
+		merged := jsonx.NewOrderedMap()
+		for _, bt := range miseBaseTools {
+			merged.Set(bt.tool, bt.version)
+		}
+		for _, k := range injected.Keys() {
+			v, _ := injected.Get(k)
+			merged.Set(k, v)
+		}
+		lines := []string{"[tools]"}
+		for _, tool := range merged.Keys() {
+			v, _ := merged.Get(tool)
+			lines = append(lines, miseTomlKey(tool)+" = \""+miseValueString(v)+"\"")
+		}
+		content := strings.Join(lines, "\n") + "\n"
+		return writeInPlaceString(configPath, content)
+	}
+
+	// Update existing config.
+	raw, err := os.ReadFile(configPath)
+	if err != nil {
+		return err
+	}
+	content := string(raw)
+	changed := false
+
+	// Self-heal: drop duplicate tool-key lines (keep first).
+	keyRe := regexp.MustCompile(`^\s*"?([^"\s=]+)"?\s*=`)
+	seen := map[string]struct{}{}
+	var deduped []string
+	for _, line := range splitKeepNL(content) {
+		if m := keyRe.FindStringSubmatch(line); m != nil {
+			key := m[1]
+			if _, ok := seen[key]; ok {
+				changed = true
+				continue
+			}
+			seen[key] = struct{}{}
+		}
+		deduped = append(deduped, line)
+	}
+	if changed {
+		content = strings.Join(deduped, "")
+	}
+
+	// Remove retired tools.
+	for _, tool := range retired {
+		pattern := regexp.MustCompile(`(?m)^` + regexp.QuoteMeta(tool) + `\s*=\s*"[^"]*"\n?`)
+		newContent := pattern.ReplaceAllString(content, "")
+		if newContent != content {
+			content = newContent
+			changed = true
+		}
+	}
+
+	// Ensure base tools present and not "system".
+	for _, bt := range miseBaseTools {
+		tk := miseTomlKey(bt.tool)
+		pattern := regexp.MustCompile(`(?m)^"?` + regexp.QuoteMeta(bt.tool) + `"?\s*=\s*"[^"]*"`)
+		loc := pattern.FindStringIndex(content)
+		if loc == nil {
+			content = strings.TrimRight(content, "\n") + "\n" + tk + " = \"" + bt.version + "\"\n"
+			changed = true
+		} else if strings.Contains(content[loc[0]:loc[1]], `"system"`) {
+			content = content[:loc[0]] + tk + " = \"" + bt.version + "\"" + content[loc[1]:]
+			changed = true
+		}
+	}
+
+	// Injected tools always override.
+	for _, tool := range injected.Keys() {
+		v, _ := injected.Get(tool)
+		version := miseValueString(v)
+		tk := miseTomlKey(tool)
+		pattern := regexp.MustCompile(`(?m)^"?` + regexp.QuoteMeta(tool) + `"?\s*=\s*"[^"]*"`)
+		if pattern.MatchString(content) {
+			newContent := pattern.ReplaceAllString(content, tk+` = "`+version+`"`)
+			if newContent != content {
+				content = newContent
+				changed = true
+			}
+		} else {
+			content = strings.TrimRight(content, "\n") + "\n" + tk + " = \"" + version + "\"\n"
+			changed = true
+		}
+	}
+
+	if changed {
+		if err := writeInPlaceString(configPath, content); err != nil {
+			return err
+		}
+	}
+
+	// Retire from /workspace/mise.toml if present.
+	wsMise := "/workspace/mise.toml"
+	if pathExists(wsMise) {
+		wsRaw, err := os.ReadFile(wsMise)
+		if err == nil {
+			wsContent := string(wsRaw)
+			wsChanged := false
+			for _, tool := range retired {
+				pattern := regexp.MustCompile(`(?m)^` + regexp.QuoteMeta(tool) + `\s*=\s*"[^"]*"\n?`)
+				newWs := pattern.ReplaceAllString(wsContent, "")
+				if newWs != wsContent {
+					wsContent = newWs
+					wsChanged = true
+				}
+			}
+			if wsChanged {
+				if err := writeInPlaceString(wsMise, wsContent); err != nil {
+					return err
+				}
+			}
+		}
+	}
+	return nil
+}
+
+// loadInjectedTools parses YOLO_MISE_TOOLS as a JSON object (default {}).
+func loadInjectedTools(e *Env) *jsonx.OrderedMap {
+	raw := e.Getenv("YOLO_MISE_TOOLS")
+	if raw == "" {
+		raw = "{}"
+	}
+	decoded, err := jsonx.Decode([]byte(raw))
+	if err != nil {
+		return jsonx.NewOrderedMap()
+	}
+	m, ok := decoded.(*jsonx.OrderedMap)
+	if !ok {
+		return jsonx.NewOrderedMap()
+	}
+	return m
+}
+
+// miseValueString renders an injected tool's version value as Python's f-string
+// interpolation would (str(value)); versions are always strings in practice, so
+// non-strings fall back to pyStr for completeness.
+func miseValueString(v any) string {
+	if s, ok := v.(string); ok {
+		return s
+	}
+	return pyStr(v)
+}
+
+// splitKeepNL splits into lines keeping the trailing newline on each, mirroring
+// Python's str.splitlines(keepends=True).
+func splitKeepNL(s string) []string {
+	var out []string
+	start := 0
+	for i := 0; i < len(s); i++ {
+		if s[i] == '\n' {
+			out = append(out, s[start:i+1])
+			start = i + 1
+		}
+	}
+	if start < len(s) {
+		out = append(out, s[start:])
+	}
+	return out
+}
