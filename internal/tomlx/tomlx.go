@@ -17,6 +17,7 @@ import (
 	"os"
 
 	"github.com/BurntSushi/toml"
+	"github.com/mschulkind-oss/yolo-jail/internal/jsonx"
 )
 
 // Decode parses TOML bytes into a generic map, matching tomllib.load's shape:
@@ -40,6 +41,141 @@ func DecodeFile(path string) (map[string]any, error) {
 		return nil, err
 	}
 	return Decode(data)
+}
+
+// DecodeOrdered parses TOML into a *jsonx.OrderedMap that preserves the
+// document's key order (top-level keys in file order; nested tables likewise),
+// matching what Python's tomllib.load + dict insertion order yields. Scalars
+// map to Go bool/int64/float64/string; tables to nested *jsonx.OrderedMap;
+// arrays to []any. Used by codex's config.toml round-trip where top-level user
+// key order must be preserved on re-emit.
+//
+// Note tomllib preserves the ORDER a key first appears in the source; BurntSushi
+// MetaData.Keys() reports keys in that same document order, which we replay.
+func DecodeOrdered(data []byte) (*jsonx.OrderedMap, error) {
+	var raw map[string]any
+	md, err := toml.Decode(string(data), &raw)
+	if err != nil {
+		return nil, err
+	}
+	keys := md.Keys()
+
+	// A key is a TABLE (built incrementally as its children are visited) if any
+	// other reported key has it as a strict prefix; otherwise it is a
+	// scalar/array LEAF. BurntSushi reports inline-table subkeys too, so an
+	// inline table like env = {K="v"} shows up as a table with a child key.
+	isPrefix := make(map[string]bool, len(keys))
+	for i := range keys {
+		for j := range keys {
+			if i == j {
+				continue
+			}
+			if hasPrefix(keys[j], keys[i]) {
+				isPrefix[joinKey(keys[i])] = true
+				break
+			}
+		}
+	}
+
+	root := jsonx.NewOrderedMap()
+	for _, key := range keys {
+		parts := []string(key)
+		cur := root
+		var srcCur any = raw
+		for i, p := range parts {
+			sm, ok := srcCur.(map[string]any)
+			if !ok {
+				break
+			}
+			val, present := sm[p]
+			if !present {
+				break
+			}
+			if i == len(parts)-1 {
+				if isPrefix[joinKey(key)] {
+					// Table node: ensure it exists (children fill it in order).
+					ensureChild(cur, p)
+				} else {
+					cur.Set(p, convertTOMLValue(val))
+				}
+			} else {
+				cur = ensureChild(cur, p)
+				srcCur = val
+			}
+		}
+	}
+	return root, nil
+}
+
+func hasPrefix(key, prefix toml.Key) bool {
+	if len(prefix) >= len(key) {
+		return false
+	}
+	for i := range prefix {
+		if key[i] != prefix[i] {
+			return false
+		}
+	}
+	return true
+}
+
+func joinKey(k toml.Key) string {
+	return "\x00" + join(k, "\x00")
+}
+
+func join(parts []string, sep string) string {
+	out := ""
+	for i, p := range parts {
+		if i > 0 {
+			out += sep
+		}
+		out += p
+	}
+	return out
+}
+
+// ensureChild returns the *jsonx.OrderedMap at key, creating it if absent.
+func ensureChild(m *jsonx.OrderedMap, key string) *jsonx.OrderedMap {
+	if v, ok := m.Get(key); ok {
+		if om, isMap := v.(*jsonx.OrderedMap); isMap {
+			return om
+		}
+	}
+	child := jsonx.NewOrderedMap()
+	m.Set(key, child)
+	return child
+}
+
+// convertTOMLValue converts a BurntSushi-decoded value into the ordered model:
+// nested map[string]any -> *jsonx.OrderedMap is NOT done here (tables are built
+// via MetaData.Keys ordering in DecodeOrdered); this handles leaf scalars and
+// arrays. An inline table appears as map[string]any and is converted with its
+// own MetaData-less order — but codex only reads inline tables it wrote (env
+// maps), which the writer re-serializes from jsonx anyway; for the round-trip
+// we preserve Go map order via a stable fallback (rare for user keys).
+func convertTOMLValue(v any) any {
+	switch t := v.(type) {
+	case map[string]any:
+		om := jsonx.NewOrderedMap()
+		for k, val := range t {
+			om.Set(k, convertTOMLValue(val))
+		}
+		return om
+	case []map[string]any:
+		arr := make([]any, len(t))
+		for i, e := range t {
+			arr[i] = convertTOMLValue(e)
+		}
+		return arr
+	case []any:
+		arr := make([]any, len(t))
+		for i, e := range t {
+			arr[i] = convertTOMLValue(e)
+		}
+		return arr
+	default:
+		return v
+	}
 }
 
 // VenvValue extracts env._.python.venv from a parsed mise config, walking the
