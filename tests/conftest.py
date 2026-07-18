@@ -14,7 +14,7 @@ import pytest
 
 # The entrypoint requires MISE_DATA_DIR to be set at import time (it has no
 # built-in default).  In real jails the CLI sets MISE_DATA_DIR=/mise, the
-# jail-land store mount (see docs/jail-state-separation-design.md).
+# jail-land store mount (see docs/design/jail-state-separation-design.md).
 # Tests only need a syntactically valid path; the value isn't exercised.
 os.environ.setdefault("MISE_DATA_DIR", "/tmp/yolo-test-mise")
 

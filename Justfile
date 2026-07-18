@@ -66,7 +66,7 @@ deploy: install
 
     # --- Retire pre-broker Claude token refresher install ---
     # The refresher daemon was removed — the broker refreshes on demand
-    # now (see docs/claude-token-logouts.md).  If an older `just deploy`
+    # now (see docs/research/claude-token-logouts.md).  If an older `just deploy`
     # installed the systemd --user timer, tear it down so it doesn't run
     # against a binary that no longer exists.
     if command -v systemctl >/dev/null 2>&1; then
@@ -166,7 +166,7 @@ load: build-image
 # `cachix authtoken <write-token>` (or CACHIX_AUTH_TOKEN in the env).  Run on
 # a Linux box (this repo's CI does the same on release).  CACHE defaults to
 # the flake's cache name — override: `just cachix-push CACHE=my-cache`.
-# See docs/handoff-cachix-cache.md for signup + verification.
+# See docs/implementation/handoff-cachix-cache.md for signup + verification.
 cachix-push CACHE="yolo-jail":
     @command -v cachix >/dev/null || {{ '{ echo "cachix not found: nix profile install nixpkgs#cachix"; exit 1; }' }}
     nix --extra-experimental-features 'nix-command flakes' build .#ociImage --print-out-paths --no-link | cachix push {{CACHE}}

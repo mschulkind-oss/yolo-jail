@@ -41,7 +41,7 @@ Core requirements (both platforms):
 Platform specifics (in priority order):
 
 - **Linux / x86_64** — any modern distribution with Podman. No extra setup. The primary target.
-- **macOS / Apple Silicon** — via a native **arm64** Linux container (Apple Container or Podman Machine); no emulation. See [docs/macos.md](docs/macos.md).
+- **macOS / Apple Silicon** — via a native **arm64** Linux container (Apple Container or Podman Machine); no emulation. See [docs/guides/macos.md](docs/guides/macos.md).
 - **Linux / arm64 (aarch64-linux)** — supported and CI-tested (image built + integration-tested natively on `ubuntu-24.04-arm`); same nix image as x86_64, no arch switch.
 - **macOS / Intel** — also supported (x86_64 Linux container).
 
@@ -95,7 +95,7 @@ podman machine init --cpus 4 --memory 8192 --disk-size 50
 podman machine start
 ```
 
-On macOS, image builds use the NixOS binary cache by default — no remote Linux builder required. See [docs/macos.md](docs/macos.md) if you need to add packages that aren't in the cache (or want to build offline).
+On macOS, image builds use the NixOS binary cache by default — no remote Linux builder required. See [docs/guides/macos.md](docs/guides/macos.md) if you need to add packages that aren't in the cache (or want to build offline).
 
 For development, see [CONTRIBUTING.md](https://github.com/mschulkind-oss/.github/blob/main/CONTRIBUTING.md).
 
@@ -234,7 +234,7 @@ The `runtime` config picks how the agent is isolated:
 - **`podman`** (Linux, default) / **`container`** (macOS, Apple Container) —
   the agent runs in a Linux container. Strongest boundary (kernel/VM
   isolation, resource caps). On macOS this means a lightweight Linux VM —
-  **native arm64 on Apple Silicon (no emulation)**; see [docs/macos.md](docs/macos.md).
+  **native arm64 on Apple Silicon (no emulation)**; see [docs/guides/macos.md](docs/guides/macos.md).
 
 ## Security
 
@@ -242,7 +242,7 @@ The `runtime` config picks how the agent is isolated:
 - **Separate Auth**: Run `gh auth login`, `gemini login`, etc. inside the jail once
 - **User Mapping**: Files created in the jail are owned by your host user (matching UID/GID)
 - **Blocked Tools**: Configurable list of tools that return clear error messages
-- **Config Safety**: Changes to `yolo-jail.jsonc` require human confirmation at next startup — agents cannot silently modify the jail environment. See [docs/config-safety.md](docs/config-safety.md).
+- **Config Safety**: Changes to `yolo-jail.jsonc` require human confirmation at next startup — agents cannot silently modify the jail environment. See [docs/design/config-safety.md](docs/design/config-safety.md).
 - **Read-Only Mounts**: Extra mounts are read-only by default
 
 ## Troubleshooting
@@ -263,12 +263,12 @@ See [CONTRIBUTING.md](https://github.com/mschulkind-oss/.github/blob/main/CONTRI
 
 ## Documentation
 
-- [User Guide](docs/USER_GUIDE.md) — Detailed setup, configuration, and troubleshooting
-- [macOS Setup](docs/macos.md) — macOS-specific installation and setup guide
-- [Platform Comparison](docs/platform-comparison.md) — Feature matrix: Linux vs macOS
-- [Config Safety](docs/config-safety.md) — How config change approval works
-- [Storage & Config](docs/storage-and-config.md) — Storage hierarchy and mount layout
-- [Happy-path principle](docs/happy-path-principle.md) — fill the matrix, support one tool per capability
+- [User Guide](docs/guides/USER_GUIDE.md) — Detailed setup, configuration, and troubleshooting
+- [macOS Setup](docs/guides/macos.md) — macOS-specific installation and setup guide
+- [Platform Comparison](docs/research/platform-comparison.md) — Feature matrix: Linux vs macOS
+- [Config Safety](docs/design/config-safety.md) — How config change approval works
+- [Storage & Config](docs/design/storage-and-config.md) — Storage hierarchy and mount layout
+- [Happy-path principle](docs/design/happy-path-principle.md) — fill the matrix, support one tool per capability
 
 ## License
 

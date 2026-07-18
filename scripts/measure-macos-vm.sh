@@ -1,5 +1,5 @@
 #!/usr/bin/env bash
-# measure-macos-vm.sh — Option A measurement for docs/macos-no-vm-direction.md
+# measure-macos-vm.sh — Option A measurement for docs/design/macos-no-vm-direction.md
 #
 # Answers the three questions that gate the macOS "no-VM" decision, on real
 # hardware (they can't be measured from a Linux dev jail):
@@ -16,7 +16,7 @@
 # and reads host memory stats. Cleans up after itself. No sudo. No yolo state.
 #
 # Usage:  bash scripts/measure-macos-vm.sh [--mem 8]   # --mem = ceiling in GiB
-# Paste the final "RESULTS" block into docs/macos-no-vm-direction.md.
+# Paste the final "RESULTS" block into docs/design/macos-no-vm-direction.md.
 
 set -uo pipefail
 
@@ -124,9 +124,9 @@ else
 fi
 
 # ===========================================================================
-# RESULTS — paste this block into docs/macos-no-vm-direction.md
+# RESULTS — paste this block into docs/design/macos-no-vm-direction.md
 # ===========================================================================
-say "RESULTS (paste into docs/macos-no-vm-direction.md → ## Option A measurements)"
+say "RESULTS (paste into docs/design/macos-no-vm-direction.md → ## Option A measurements)"
 say ""
 say "Host: ${HOST_MEM_GIB} GiB, macOS $(sw_vers -productVersion), ceiling ${MEM_GIB}g"
 say ""

@@ -1,0 +1,143 @@
+# Claude token logouts — diagnosis & fix
+
+Entry point when a jail (or host) prompts `Please run /login · API Error: 401 {"type":"authentication_error"}` more often than once a month.
+
+This doc is user-facing and operational. Background:
+
+- [`docs/research/claude-oauth-refresh-mechanics.md`](claude-oauth-refresh-mechanics.md) — how Claude's OAuth refresh actually works (bundle-level mechanics + the architectural reasoning behind the broker's proactive refresher).
+- [`src/bundled_loopholes/claude-oauth-broker/README.md`](go-port-module-map/README.md) — broker architecture + operator ops.
+- [`docs/plans/claude-oauth-mitm-proxy-plan.md`](../plans/claude-oauth-mitm-proxy-plan.md) — historical design notes for the broker split.
+
+## Architecture (post-`cb6e850`, post-`e7b7073`)
+
+Host and jail are **independent identities** by design.
+
+- **Host** Claude reads/writes `~/.claude/.credentials.json` and talks to Anthropic directly.
+- **Jails** share `~/.local/share/yolo-jail/home/.claude-shared-credentials/.credentials.json`. Each jail's `~/.claude/.credentials.json` is a relative symlink into the shared dir (resolves only inside the jail).
+- A **singleton** `yolo-claude-oauth-broker-host` daemon serves every jail. PID file at `/tmp/yolo-claude-oauth-broker.pid`, socket at `/tmp/yolo-claude-oauth-broker.sock`, log at `~/.local/share/yolo-jail/logs/host-service-claude-oauth-broker.log`.
+- Jails never touch the singleton's socket directly. Each running jail has a **per-jail relay** — a supervised host-side process listening at `/tmp/yolo-host-services-<hash>/claude-oauth-broker.sock` (in-jail: `/run/yolo-services/claude-oauth-broker.sock`) that dials the singleton **per connection** and stamps each request with the jail's identity for the broker log. The relay is re-ensured on every `yolo` invocation that targets the jail.
+
+Implication for triage: **divergence between host and shared creds is the design**, not a bug. Don't try to "re-converge" them — that re-introduces the refresh-token race the split was designed to eliminate.
+
+## TL;DR
+
+Repeated logouts almost always mean one of:
+
+1. **Broker singleton not running** — never spawned, or crashed.
+2. **Shared creds expired without a refresh landing** — the symptom the new doctor check surfaces.
+3. **Refresh token was server-side revoked** — even with `expiresAt` in the future, Anthropic can invalidate. Re-`/login` from inside a jail is the only fix.
+
+All three are diagnosable in seconds with `yolo doctor` and `yolo broker status` on the host.
+
+## Symptoms
+
+- A jail session returns `API Error: 401 ... Please run /login` mid-task.
+- Host `claude` outside a jail prompts for `/login` after you've just logged in recently. (Host and jail are independent — re-`/login` on the host does **not** revive the jail.)
+- `stat ~/.local/share/yolo-jail/home/.claude-shared-credentials/.credentials.json` shows `expiresAt` has passed and the file hasn't been touched in hours.
+
+## Step 1 — run `yolo doctor` on the host
+
+```bash
+yolo doctor
+```
+
+Scan the Loopholes section for the `claude-oauth-broker` lines.
+
+| Symptom | What it means | Fix |
+|---|---|---|
+| `claude-oauth-broker: inactive — requires.command_on_path 'claude' not met` | `claude` isn't on the host PATH. Broker never activates. | Install Claude Code, or set `loopholes.claude-oauth-broker.enabled: false` if intentional. |
+| `NOTE: ca.crt not yet generated` | Fresh install, state dir is empty. | `just deploy` (or `yolo-claude-oauth-broker-host --init-ca` directly). |
+| `loophole claude-oauth-broker: daemon not running` | Singleton hasn't been started. | `yolo broker restart` (or just run a jail — first `yolo run` spawns it). |
+| `loophole claude-oauth-broker: stale PID file …` | Previous singleton crashed. | `yolo broker restart`. |
+| `loophole claude-oauth-broker: daemon unresponsive …` | Process exists but doesn't answer ping. | `yolo broker restart` — typical after a wheel upgrade left old code in memory. |
+| **One jail 502s (`broker_unavailable`) / `Connection refused` in its terminator log while doctor says the broker is healthy.** Post-relay terminator logs name the layer: `relay unreachable — the host-side relay for this jail is down`. | That jail's per-jail relay is dead — the singleton can be perfectly healthy while one jail's relay socket answers nothing. On pre-relay installs (socket-file bind mount), the same symptom means the jail is holding a dead socket inode from a broker restart. | Check the per-jail relay lines in `yolo doctor` — they name the jail. Any `yolo` command targeting that workspace heals the relay (`_relay_ensure` runs on every invocation). Pre-relay installs: relaunch the jail. |
+| `shared creds expired Nm ago` | Refreshes are not landing. | Re-`/login` from inside a jail; tail the broker log to see what's happening. |
+| `shared creds expire in Nm` | Approaching expiry without a refresh. | Watch — if it ticks down without a refresh landing, escalate. |
+| `loophole claude-oauth-broker: daemon live (pid=…, ping ok)` and `shared creds valid for Xh Ym` | All good. | — |
+
+### Step 1b — patterns doctor can't see (all fixed 2026-07-03)
+
+| Symptom | What it means | Fix |
+|---|---|---|
+| **Every jail relaunch demands `/login` after a claude-cli update.** Jails that logged in earlier the same day prompt `/login` on every relaunch; broker log shows repeated `is_refresh=False` (real login) entries, no refresh failures. | Claude ≥ 2.1.200 refuses to treat a creds file as logged-in unless it carries `scopes`/`subscriptionType` alongside the token trio (A/B proven 2026-07-03 on 2.1.201: identical tokens fail with 3 keys, work with the metadata grafted on). The broker-written shared file held only the 3 token keys, and at boot `_ensure_credentials_symlink` discarded the full record Claude writes after `/login` — so every relaunch re-linked to a metadata-less file and the login never stuck. | Fixed, two defenses: the broker maps the token response's `scope` string into a `scopes` list and never drops metadata the previous record had (Fix A, `_normalize_oauth` in `src/oauth_broker.py`); the entrypoint harvests metadata + any newer token trio from the post-`/login` regular file into the shared file before restoring the symlink (Fix B, `_ensure_credentials_symlink` in `src/entrypoint/agent_configs.py`). A one-time host-side repair on 2026-07-03 grafted the metadata onto the existing shared file, so deployed installs are healthy without a fresh `/login`. |
+| **Fresh workspace prompts `/login` despite valid shared creds.** First `yolo run` in a never-jailed repo demands `/login` even though `yolo doctor` says creds are healthy. | Claude decides "am I logged in" partly from `~/.claude.json` (`oauthAccount`, `hasCompletedOnboarding`), not just `.credentials.json`. New workspaces inherit that state from the `GLOBAL_HOME` seed (`~/.local/share/yolo-jail/home/.claude/claude.json`) — which never existed on installs that first logged in after the read-only refactor, because jails write only to their per-workspace overlay. | Fixed: `yolo run` now back-propagates the allowlisted login keys (`oauthAccount`, `hasCompletedOnboarding`) from the workspace overlay into the seed (`_sync_claude_json_seed` in `src/cli/storage.py`). One run of any already-logged-in workspace repairs the seed; workspaces created afterwards boot logged in. A truly fresh install still needs exactly one `/login` — expected. |
+| **Logout right after laptop wake.** A running jail 401s within a minute of resume from suspend; broker log shows `bg_refresh` failing with `upstream_unreachable` / `Temporary failure in name resolution` at wake, succeeding a tick later. | The token expired during sleep. At wake the refresher fires before DNS is up, fails, and used to wait a full 60-s tick — Claude exhausts its 5 retries inside that window and demands `/login`. | Fixed: a transient (`upstream_unreachable`) failure while the token is due now retries every ~5 s (`BACKGROUND_REFRESH_FAST_RETRY_SECONDS`, capped at 12 consecutive) instead of waiting the full tick, shrinking the stale window to ~5–10 s. Residual race: Claude can still 401 in the first seconds before the NIC is up at all — rare, and a plain retry of the request recovers; only re-`/login` if it persists. |
+
+## Step 2 — broker status + log
+
+```bash
+yolo broker status
+yolo broker logs -n 50
+```
+
+`yolo broker restart` is safe under running jails: each jail's relay dials the singleton per connection, so the next request lands on the new socket automatically — no jail relaunch needed. A request in flight at the instant of restart fails once and recovers on retry. (Pre-relay installs bind-mounted the socket *file* and pinned the dead inode — there, a broker restart requires relaunching every running jail.)
+
+The log shows every `POST /v1/oauth/token` proxied from a jail. Healthy refresh cadence is one `is_refresh=True` request every ~7–8h per active jail. If the log shows only `is_refresh=False` (PKCE `authorization_code`, i.e. `/login`) entries — Claude inside the jail is not sending refresh-token grants. That's the open architectural question; see the handoff doc.
+
+```bash
+# Last 20 entries with grant type + status
+grep -E 'is_refresh=|status=' \
+  ~/.local/share/yolo-jail/logs/host-service-claude-oauth-broker.log \
+  | tail -20
+```
+
+## Step 3 — server-side revocation
+
+Even with `expiresAt` in the future, Anthropic can invalidate a refresh token. Symptom: broker log shows `400 invalid_grant` on a refresh attempt. Only fix: re-`/login` from inside a jail. The new creds will replace the shared file via the broker's mirror-on-/login path.
+
+## Step 4 — broker bypassed (jail reaching Anthropic directly)
+
+Possible causes:
+
+- `NODE_EXTRA_CA_CERTS` not set in the jail (TLS to intercepted `platform.claude.com` fails, Claude falls back).
+- `--add-host platform.claude.com:127.0.0.1` missing from the container runtime invocation.
+- The in-jail `oauth-broker-jail` daemon crashed — `cat ~/.local/state/yolo-jail-daemons/claude-oauth-broker.log` inside a jail.
+
+Watch shared file mtime while a jail makes an authed request:
+
+```bash
+# Terminal 1: inside a running jail
+claude -p 'reply OK'
+
+# Terminal 2: on the host
+watch -n 1 'stat -c "mtime=%y" \
+  ~/.local/share/yolo-jail/home/.claude-shared-credentials/.credentials.json'
+```
+
+If the mtime advances but the broker log has nothing around that timestamp, the jail wrote the file by another path (host-side script, cb6e850-era bandaid). Investigate before relying on the broker again.
+
+## Manual checks cheat sheet
+
+```bash
+# Broker state — CA, leaf, lock
+ls ~/.local/share/yolo-jail/state/claude-oauth-broker/
+
+# Broker self-check (singleton ping + parseable creds + …)
+yolo-claude-oauth-broker-host --self-check
+
+# Singleton log (one file, all jails)
+tail -F ~/.local/share/yolo-jail/logs/host-service-claude-oauth-broker.log
+
+# In-jail TLS terminator log (run inside a jail)
+cat ~/.local/state/yolo-jail-daemons/claude-oauth-broker.log
+
+# Shared creds state
+stat ~/.local/share/yolo-jail/home/.claude-shared-credentials/.credentials.json
+python3 - <<'PY'
+import json, os, datetime
+p = os.path.expanduser(
+    "~/.local/share/yolo-jail/home/.claude-shared-credentials/.credentials.json"
+)
+d = json.load(open(p))["claudeAiOauth"]
+exp = datetime.datetime.fromtimestamp(d["expiresAt"] / 1000, tz=datetime.timezone.utc)
+now = datetime.datetime.now(datetime.timezone.utc)
+print(f"refreshToken[:16] = {d['refreshToken'][:16]}")
+print(f"expiresAt         = {exp.isoformat()} ({(exp - now).total_seconds() / 3600:+.2f}h)")
+PY
+```
+
+## When to update this doc
+
+- A new Claude Code version moves the token endpoint → update `TOKEN_URL` in `src/oauth_broker.py` and note it here.
+- A failure mode shows up that doesn't map to Step 1–4 → add it as a new row in Step 1 or a subsection here.
+- Singleton paths or the symptom-check thresholds change in `cli.py` → mirror them here.

@@ -907,7 +907,7 @@ def _check_macos_user_backend(ok, warn, fail) -> None:
     preconditions), not *runnability*.  A fully green result does NOT mean a
     run will succeed; the honest gate is ``yolo run --dry-run`` (builds the
     full plan + checks its invariants), and the definitive test is a real run
-    on a Mac (docs/macos-no-vm-direction.md).
+    on a Mac (docs/design/macos-no-vm-direction.md).
     """
     from .macos_user import SANDBOX_USER, _sandbox_user_exists, resolve_python
     from .run_cmd import _resolve_repo_root
@@ -921,7 +921,7 @@ def _check_macos_user_backend(ok, warn, fail) -> None:
         "A green check here means the preconditions are in place, not that a "
         "run will succeed on this hardware.  Inspect the full plan with "
         "`yolo --dry-run`; the definitive test is a real run on a Mac "
-        "(docs/macos-no-vm-direction.md).",
+        "(docs/design/macos-no-vm-direction.md).",
     )
     if not IS_MACOS:
         fail(

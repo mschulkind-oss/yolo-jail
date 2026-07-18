@@ -1,6 +1,6 @@
 # claude-oauth-broker loophole (bundled)
 
-Ships with the yolo-jail wheel. Serializes Claude OAuth refreshes so multi-jail setups don't burn the single-use refresh token. See [`docs/claude-oauth-mitm-proxy-plan.md`](../../../docs/claude-oauth-mitm-proxy-plan.md) for design rationale, [`docs/claude-token-logouts.md`](../../../docs/claude-token-logouts.md) for operator triage, [`docs/loopholes.md`](../../../docs/loopholes.md) for the loophole system.
+Ships with the yolo-jail wheel. Serializes Claude OAuth refreshes so multi-jail setups don't burn the single-use refresh token. See [`docs/plans/claude-oauth-mitm-proxy-plan.md`](../../../docs/plans/claude-oauth-mitm-proxy-plan.md) for design rationale, [`docs/research/claude-token-logouts.md`](../../../docs/research/claude-token-logouts.md) for operator triage, [`docs/guides/loopholes.md`](../../../docs/guides/loopholes.md) for the loophole system.
 
 ## Architecture — two daemons + a per-jail relay, no privileged ports
 

@@ -6,7 +6,7 @@ Seatbelt (``sandbox-exec``) profile — no Linux container, no VM, no arch
 switch.  It is the yolo-jail port of SandVault's design
 (github.com/webcoyote/sandvault); we deliberately match SandVault's
 security posture so there is a concrete standard to point at.  See
-``docs/macos-no-vm-direction.md`` for the honest security delta vs. the
+``docs/design/macos-no-vm-direction.md`` for the honest security delta vs. the
 container backend (weaker: shared kernel, deprecated sandbox-exec, no
 resource caps) and why it's opt-in only.  ``packages:`` is materialized as
 native aarch64-darwin nix — see ``src/cli/darwin_packages.py``.
@@ -1199,7 +1199,7 @@ def run_macos_user(
         console.print(
             f"[bold red]Sandbox user '{SANDBOX_USER}' does not exist.[/bold red]\n"
             "Run the one-time setup to create it (`yolo macos-setup`; see "
-            "`docs/macos-no-vm-direction.md`)."
+            "`docs/design/macos-no-vm-direction.md`)."
         )
         return 1
 

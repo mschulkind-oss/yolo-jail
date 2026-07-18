@@ -1,0 +1,306 @@
+{
+ "group": "cli-image",
+ "purpose": "Owns the host-side image pipeline (nix build .#ociImage \u2192 cached tar materialization \u2192 podman/Apple-Container load with sentinel-based staleness detection), the on-demand macOS Linux-builder VM lifecycle (yolo builder setup/start/stop/status), the global storage layout bootstrap under ~/.local/share/yolo-jail (mountpoint pre-creation, symlink migrations, versioned layout migrations, per-workspace overlay seeding), and disk reclaim via yolo prune (hardlink dedup, container/image/tar-cache/build-root/shadowed-seed/age-based sweeps). The separate container-builder (nix+sshd builder image for macOS container runtimes) is a flake.nix output (builderImage) published to GHCR by publish.yml and driven manually per docs/guides/runbooks/mac-ac-container-builder.md \u2014 no CLI code in this group runs it yet.",
+ "files": [
+  {
+   "path": "src/cli/image.py",
+   "role": "nix build \u2192 tar cache \u2192 runtime load pipeline; sentinel bookkeeping; Apple Container OCI conversion (skopeo/podman); macOS remote-builder streaming via /etc/nix/machines"
+  },
+  {
+   "path": "src/cli/builder.py",
+   "role": "macOS darwin.linux-builder VM: reachability probe (TCP 31022), setup-state probing, root-script generation (nix.conf builders line + trusted-users merge + ssh_config), detached start w/ PID file, poll-until-reachable, stop via killpg"
+  },
+  {
+   "path": "src/cli/builder_cmd.py",
+   "role": "Typer group `yolo builder {setup,start,stop,status}`; UX + exit codes only, logic delegated to builder.py"
+  },
+  {
+   "path": "src/cli/storage.py",
+   "role": "ensure_global_storage (mountpoint/file/symlink shape of GLOBAL_HOME), credential migration, _seed_agent_dir/_sync_claude_json_seed/_migrate_old_overlay overlay seeding, _ac_materialize_under_ws_state AC workaround, versioned layout migration (layout-version marker, v2 mise-store heal), host probes (_detect_host_timezone, _linux_multilib, _nix_custom_conf_included, _detect_nix_daemon_label)"
+  },
+  {
+   "path": "src/cli/prune_cmd.py",
+   "role": "Typer body for `yolo prune`: flag surface, rich progress UI, orchestration + report; delegates to src/prune.py primitives"
+  },
+  {
+   "path": "src/prune.py",
+   "role": "pure prune primitives: workspace discovery via runtime ps/inspect, hardlink dedup (size\u2192sha256 grouping, link+rename atomic), stopped-container rm, old-image rmi (keep N), image-tar cache prune, orphan build-root sweep w/ liveness gate, shadowed-seed purge, age-based cache purge"
+  }
+ ],
+ "public_surface": [
+  {
+   "kind": "cli-command",
+   "name": "yolo prune",
+   "detail": "Flags: --apply (default dry-run), --no-hardlink, --dedup-global, --no-containers, --no-images, --keep-images N (default 2), --no-image-cache, --image-cache-keep N (default 3), --no-build-roots, --no-shadowed-home, --cache-age DAYS (default 30, 0=skip), --purge-heavy-caches. Prints usage report (total/workspaces/global + per-subdir breakdown + cache top-5 + \u226520GiB images hint), per-pass would/did lines, final summary. Always exits 0.",
+   "consumers": "operator; check_cmd imports _fmt_bytes"
+  },
+  {
+   "kind": "cli-command",
+   "name": "yolo builder status",
+   "detail": "Read-only. Prints set-up (nix.conf/ssh config/ssh key marks + conf path) and reachable state. Exit 1 if not set up, else 0.",
+   "consumers": "operator; docs/guides/runbooks"
+  },
+  {
+   "kind": "cli-command",
+   "name": "yolo builder start",
+   "detail": "First boot (no key at /etc/nix/builder_ed25519): runs `nix run nixpkgs#darwin.linux-builder` foreground w/ TTY (interactive sudo), Ctrl-C treated as success if key installed. Otherwise detached start + poll. Exit 0 up / 1 fail.",
+   "consumers": "operator; auto path via ensure_builder from check_cmd/_preflight_builder_needs"
+  },
+  {
+   "kind": "cli-command",
+   "name": "yolo builder stop",
+   "detail": "SIGTERM the VM's process group from PID file; removes PID file. Exit 0/1.",
+   "consumers": "operator; future launchd idle-timer"
+  },
+  {
+   "kind": "cli-command",
+   "name": "yolo builder setup",
+   "detail": "Flags: --max-jobs N (default 4), --show (print root script, don't run), --yes/-y. Prints exact root script, confirms, then pipes it to `sudo bash -s` (timeout 120s). Exit 0 done/already, 1 aborted/failed.",
+   "consumers": "operator (macOS only; exits 0 with message on Linux)"
+  },
+  {
+   "kind": "env-var",
+   "name": "YOLO_EXTRA_PACKAGES",
+   "detail": "SET by _build_image_store_path: JSON list (strings or dicts) of extra packages, passed into `nix build .#ociImage --impure` env.",
+   "consumers": "flake.nix impure eval"
+  },
+  {
+   "kind": "env-var",
+   "name": "YOLO_VERSION",
+   "detail": "READ (presence only) by storage.py as the in-jail marker: _jail_mise_store_dir returns /mise instead of GLOBAL_MISE, and _migrate_storage_layout becomes a no-op.",
+   "consumers": "nested-jail CLI invocations (set by entrypoint)"
+  },
+  {
+   "kind": "env-var",
+   "name": "TZ",
+   "detail": "READ by _detect_host_timezone (priority 1), then /etc/timezone, then /etc/localtime symlink suffix after '/zoneinfo/'. None \u2192 leave container UTC.",
+   "consumers": "run_cmd passes result as jail TZ"
+  },
+  {
+   "kind": "path",
+   "name": "~/.local/share/yolo-jail/ (GLOBAL_STORAGE)",
+   "detail": "Layout created by ensure_global_storage: home/ (GLOBAL_HOME, :ro seed), cache/ (GLOBAL_CACHE), mise/ (GLOBAL_MISE), containers/, agents/, build/, plus logs/linux-builder.log, linux-builder.pid, layout-version (text int, currently '2\\n'), nix-build-root + nix-build-root.old.<uuid> generations (created by run_cmd, swept by prune).",
+   "consumers": "run_cmd, check_cmd, prune, entrypoint mounts"
+  },
+  {
+   "kind": "file-format",
+   "name": "build/last-load-<runtime>",
+   "detail": "Sentinel: newline-separated nix store paths loaded into that runtime, LRU-ordered, capped at 10 (re-add moves to end), trailing newline. Read as a set; missing file = empty.",
+   "consumers": "image.py only (per-runtime staleness check)"
+  },
+  {
+   "kind": "file-format",
+   "name": "build/last-load-size",
+   "detail": "Single integer (bytes) of last streamed image, plain text. Used as progress estimate; fallback is `nix path-info --closure-size` (5s timeout).",
+   "consumers": "image.py"
+  },
+  {
+   "kind": "path",
+   "name": "build/run-result-<pid>",
+   "detail": "PID-unique nix --out-link symlink to the built image store path; unlinked (missing_ok) after load or on failure. PID uniqueness prevents concurrent-build races.",
+   "consumers": "image.py; nix GC roots while present"
+  },
+  {
+   "kind": "file-format",
+   "name": "cache/images/<sha256(store_path)[:16]>.tar",
+   "detail": "Materialized docker-archive tar keyed by hex sha256 of the store path string (first 16 chars). Written as sibling '<hash>.tmp' then rename. Transient '<tar>.oci.tar' created/deleted during Apple Container conversion. Prune keeps newest N tars by mtime and always sweeps *.tmp.",
+   "consumers": "image.py load path; nested-jail fallback loads newest tar when nix build fails; prune"
+  },
+  {
+   "kind": "path",
+   "name": "GLOBAL_HOME shape (home/)",
+   "detail": "Dirs pre-created: ALL_OVERLAY_DIRS from agent_registry (.claude,.codex,.copilot,.gemini,.pi), .claude-shared-credentials (with touched .credentials.json), .config/git, .npm-global, .local, go, .yolo-shims, .config, .cache, .ssh. Files touched: .bash_history, .yolo-bootstrap.sh, .yolo-venv-precreate.sh, .yolo-perf.log, .yolo-socat.log, .yolo-entrypoint.lock, .yolo-ca-bundle.crt, .yolo-installed-lsps. Symlinks (relative): .claude.json\u2192.claude/claude.json, .gitconfig\u2192.config/git/config, .bashrc\u2192.config/bashrc. One-time migration: .claude/.credentials.json \u2192 .claude-shared-credentials/.credentials.json.",
+   "consumers": "run_cmd bind mounts; entrypoint; jails (mounted :ro at /home/agent)"
+  },
+  {
+   "kind": "file-format",
+   "name": "claude.json seed sync",
+   "detail": "_sync_claude_json_seed: forward-merge seed keys missing in workspace claude.json (indent=2 + trailing newline on write); reverse-propagate allowlist only (oauthAccount, hasCompletedOnboarding) when workspace has oauthAccount and seed lacks it. Parse errors degrade to {}.",
+   "consumers": "run_cmd per-workspace boot"
+  },
+  {
+   "kind": "cli-command",
+   "name": "nix build invocation (contract)",
+   "detail": "`nix --extra-experimental-features 'nix-command flakes' build .#ociImage --impure --out-link <BUILD_DIR>/run-result-<pid> --print-build-logs`, cwd=repo_root, stderr streamed for status summarization (30-line tail kept for diagnosis).",
+   "consumers": "nix; check_cmd reuses _build_image_store_path"
+  },
+  {
+   "kind": "cli-command",
+   "name": "runtime load/inspect (contract)",
+   "detail": "podman: `podman load -i <tar>`, `podman image inspect localhost/yolo-jail:latest`. Apple Container: `container image load -i <tar>`, image name `yolo-jail:latest` (no localhost/ prefix); tar first converted docker-archive\u2192OCI via `skopeo copy docker-archive:X oci:DIR:yolo-jail:latest` + `tar cf`, or fallback `podman load` + `podman save --format oci-archive`.",
+   "consumers": "podman / container / skopeo binaries"
+  },
+  {
+   "kind": "cli-command",
+   "name": "prune runtime queries (contract)",
+   "detail": "`<rt> ps -a --format '{{.Names}}'` and '{{.Names}} {{.State}}' (yolo-* prefix filter; live = running/paused/restarting case-insensitive); `<rt> inspect --format '{{json .Mounts}}' <name>` matching Destination==/workspace or /opt/yolo-jail; `<rt> rm <name>`; `<rt> images --format '{{.ID}} {{.Repository}}:{{.Tag}} {{.CreatedAt}}' yolo-jail` sorted lexically by CreatedAt; `<rt> rmi -f <id>`. Timeouts 5-15s; any failure \u2192 empty/None (None = decline-to-sweep).",
+   "consumers": "podman/container CLIs"
+  },
+  {
+   "kind": "socket-protocol",
+   "name": "builder reachability TCP probe",
+   "detail": "Bare TCP connect to 127.0.0.1:31022 (darwin.linux-builder's fixed guest-sshd forward), 1s timeout; accept = up. No data exchanged.",
+   "consumers": "builder.py, check_cmd preflight"
+  },
+  {
+   "kind": "path",
+   "name": "macOS builder wiring files",
+   "detail": "Reads/writes (via sudo script): /etc/nix/nix.custom.conf if included by /etc/nix/nix.conf ('!include /etc/nix/nix.custom.conf'), else /etc/nix/nix.conf \u2014 appends `builders = ssh-ng://builder@linux-builder aarch64-linux /etc/nix/builder_ed25519 <max_jobs> - - - -` + `builders-use-substitutes = true` + merged trusted-users; writes /etc/ssh/ssh_config.d/100-linux-builder.conf (Host linux-builder / Hostname localhost / HostKeyAlias / Port 31022 / User builder / IdentityFile); `launchctl kickstart -k system/<label>` where label from /Library/LaunchDaemons/*nix-daemon.plist stem. Probes /etc/nix/builder_ed25519 existence.",
+   "consumers": "nix-daemon, sshd config, launchd"
+  },
+  {
+   "kind": "path",
+   "name": "/etc/nix/machines (macOS stream offload)",
+   "detail": "image.py parses it for a line whose 2nd field contains 'linux'; uses field 1 as ssh-ng:// URI: `nix copy --to <uri> <store_path>` (300s timeout) then streams via `ssh <host> <store_path>`. Missing/failed \u2192 local exec fallback.",
+   "consumers": "nix remote builders"
+  },
+  {
+   "kind": "file-format",
+   "name": "linux-builder.pid + logs/linux-builder.log",
+   "detail": "PID file: '<pid>\\n' of detached `nix run nixpkgs#darwin.linux-builder` (start_new_session). Log: appended stdout+stderr of the VM; last-line surfaced in errors. stop = killpg(SIGTERM) then unlink PID file.",
+   "consumers": "builder start/stop; future idle watchdog"
+  },
+  {
+   "kind": "exit-code",
+   "name": "builder command exit codes",
+   "detail": "status: 1 not-set-up, 0 otherwise. start/stop/setup: 0 success/no-op, 1 failure or user abort. Linux: all builder cmds exit 0 with a notice.",
+   "consumers": "scripts, runbooks"
+  },
+  {
+   "kind": "other",
+   "name": "prune safety invariants",
+   "detail": "Dedup scope: <ws>/.yolo/home/{npm-global,local,go}; --dedup-global adds GLOBAL_STORAGE/{cache,mise,home}. Shadowed-seed purge list: .cache,.npm,.npm-global,.local,go \u2014 contents deleted, dirs preserved (mount anchors). Age purge default subdirs: uv,pip,npm,go-build,mise,pex,pants,node-gyp,gopls; heavy opt-in: ms-playwright,huggingface; hard-forbidden even if named: chromium,google-chrome,chrome,mozilla,firefox,thunderbird,copilot. Build-root sweep: only nix-build-root.old.* dirs, not referenced by live jails, mtime older than 3600s; referenced==None (runtime unenumerable) \u2192 decline entirely.",
+   "consumers": "tests/test_prune.py drift-check greps cli source to enforce shadow list matches mounts"
+  },
+  {
+   "kind": "file-format",
+   "name": "layout-version marker",
+   "detail": "GLOBAL_STORAGE/layout-version: integer text; current 2. Migration below 2: remove dangling symlinks under host ~/.local/share/mise/installs/*/* \u2014 only when zero live yolo containers (else defer, marker unstamped, retried next invocation). Never runs in-jail.",
+   "consumers": "storage.py only"
+  },
+  {
+   "kind": "signal",
+   "name": "SIGTERM / SIGINT handling",
+   "detail": "stop_builder: os.killpg(getpgid(pid), SIGTERM), fallback os.kill. first_boot_interactive: KeyboardInterrupt (Ctrl-C) is the expected success path, success judged by key file existence or port reachability.",
+   "consumers": "builder lifecycle"
+  },
+  {
+   "kind": "other",
+   "name": "container-builder (GHCR image)",
+   "detail": "flake.nix output `builderImage` (packages.aarch64-linux): keyless nix+sshd streamer tar; published as ghcr.io/<owner>/yolo-jail-builder:{version,latest} by publish.yml on release; consumed manually per docs/guides/runbooks/mac-ac-container-builder.md (container pull/run, ssh key injected at run time). No src/cli code drives it yet \u2014 a future porting target, not current CLI surface.",
+   "consumers": "macOS operators via runbook; CI publish.yml"
+  }
+ ],
+ "internal_deps": [
+  "cli.paths (all constants: GLOBAL_STORAGE/HOME/MISE/CACHE, BUILD_DIR, CONTAINER_DIR, AGENTS_DIR, JAIL_IMAGE(_SHORT), IS_MACOS)",
+  "cli.console (shared rich Console)",
+  "cli.check_cmd (lazy: _preflight_builder_needs, _diagnose_nix_build_failure; reverse dep: check_cmd imports _build_image_store_path/_jail_image and prune_cmd._fmt_bytes)",
+  "cli.runtime (_detect_runtime, _runtime_for_check)",
+  "cli.run_cmd (lazy: _live_yolo_containers; reverse dep: run_cmd imports auto_load_image + all storage helpers)",
+  "cli.loopholes_runtime (lazy: _relay_reap_orphans)",
+  "entrypoint.agent_registry (ALL_OVERLAY_DIRS \u2014 shared constant with the image-baked package, dual-try import)",
+  "src.prune (imported lazily by prune_cmd)"
+ ],
+ "third_party_deps": [
+  {
+   "pkg": "typer",
+   "used_for": "CLI option parsing, confirm prompts, Exit codes (builder_cmd, prune_cmd)",
+   "go_equivalent": "spf13/cobra + survey/huh for confirm"
+  },
+  {
+   "pkg": "rich",
+   "used_for": "console markup, console.status spinners (dots/bouncingBar), Progress bars (transient) in prune; live status.update during nix build stderr streaming",
+   "go_equivalent": "charmbracelet/bubbles or briandowns/spinner; or plain-text output with parity-relaxed formatting"
+  }
+ ],
+ "side_effects": [
+  "Runs nix build/copy/path-info/config-show/run as subprocesses; sets YOLO_EXTRA_PACKAGES in build env",
+  "Writes/renames multi-GiB tars under cache/images/ (tmp+rename)",
+  "Appends/rewrites sentinel files under build/",
+  "Loads images into podman / Apple Container (mutates runtime image store)",
+  "Removes containers (rm), images (rmi -f), files/dirs across GLOBAL_STORAGE and workspace .yolo trees (prune --apply)",
+  "Creates hardlinks replacing duplicate files (link tmp + os.replace)",
+  "mkdir/touch/symlink the whole GLOBAL_HOME seed shape on every run; copies credential/auth files between seed and per-workspace overlays",
+  "sudo bash -s root script: appends to /etc/nix/*.conf, writes /etc/ssh/ssh_config.d/100-linux-builder.conf, restarts nix-daemon via launchctl (macOS)",
+  "Spawns detached VM process (start_new_session) with PID+log files; kills its process group on stop",
+  "Deletes dangling host mise-store symlinks during v2 layout migration (stderr log lines)"
+ ],
+ "python_specifics": [
+  "rich console.status context-manager with live status.update while iterating Popen.stderr line-by-line (readline iterator) \u2014 Go needs a scanner goroutine + terminal spinner",
+  "Injectable test hooks as default-None params (_run, _popen, _sleep, _now) \u2014 Go should use interfaces/func fields",
+  "Lazy in-function imports to break circular deps (image\u2194check_cmd, storage\u2194run_cmd, prune_cmd\u2194run_cmd/loopholes_runtime); the Go port must restructure package boundaries instead",
+  "Dual-identity import try (src.entrypoint.agent_registry vs entrypoint.agent_registry) \u2014 ALL_OVERLAY_DIRS must become a shared constant available to both host binary and image build",
+  "KeyboardInterrupt caught as SUCCESS signal in first_boot_interactive (Ctrl-C out of VM login shell)",
+  "os.kill(pid,0) liveness idiom; os.killpg(os.getpgid(pid), SIGTERM); Popen(start_new_session=True) detach \u2014 Go: syscall.Kill(pid,0), Setsid via SysProcAttr",
+  "shutil.copytree(dirs_exist_ok=True, copy_function=_copy_if_missing) \u2014 custom merge-without-overwrite walk in Go",
+  "Pathlib symlink semantics relied on precisely: is_symlink() && !exists() = dangling; os.readlink string-compared (not resolved) in _ensure_symlink; relative symlink targets",
+  "typer.confirm interactive y/N prompt; typer.Exit codes raised as exceptions",
+  "subprocess timeouts (5/10/15/120/300s) with TimeoutExpired swallowed \u2192 empty result; exact timeout parity matters for hang behavior",
+  "rich markup strings embedded in every user-facing message \u2014 output parity tests would need markup-stripped comparison",
+  "getpass.getuser() for the trusted-users merge",
+  "hashlib.sha256 streaming file hash in 1 MiB chunks; sha256 of the store-path STRING for cache key"
+ ],
+ "seams": [
+  {
+   "name": "yolo prune (whole command)",
+   "contract": "CLI flags listed above; only reads runtime via podman/container CLI subprocesses and the documented paths; dry-run must mutate nothing; --apply invariants (yolo-* prefix only, forbidden cache subdirs, dirs-preserved shadowed purge, None-referenced decline). Output format is human-oriented (rich) \u2014 treat counts/bytes as the parity surface, not exact text.",
+   "swap_mechanism": "Replace the typer registration in cli/__init__.py (app.command('prune')) with an os.exec to a Go `yolo-prune` binary, gated by env var YOLO_GO_PRUNE=1; check_cmd only needs _fmt_bytes (trivially reimplemented).",
+   "parity_test": "Build a fixture GLOBAL_STORAGE + fake workspace trees + a mocked runtime shim script on PATH emitting canned ps/inspect/images output; run Python and Go in dry-run and --apply; diff (a) parsed would/did counts+bytes, (b) resulting file trees (fd -H + stat inode/size)."
+  },
+  {
+   "name": "image materialize+load (auto_load_image tail)",
+   "contract": "Inputs: store path, runtime, sentinel dir. Behavior: cache tar at cache/images/<sha256[:16]>.tar via tmp+rename; run runtime-appropriate load command; on AC convert via skopeo (preferred) or podman; update last-load-<runtime> (LRU-10) and last-load-size; return ready/not-ready. The nix build front half stays Python (needs check_cmd diagnosis callbacks) initially.",
+   "swap_mechanism": "Extract a `yolo-image-load <store-path> --runtime <rt>` Go helper; Python calls it as a subprocess when YOLO_GO_IMAGE=1, else runs the inline path. Sentinel/cache file formats are the shared contract.",
+   "parity_test": "Given a fake store path (a script printing a small tar) and a stub podman on PATH, compare sentinel file contents byte-for-byte, cache filename, tmp-file cleanup on failure, and exit disposition across both implementations."
+  },
+  {
+   "name": "yolo builder subcommand group",
+   "contract": "State probes (files at fixed paths + TCP 127.0.0.1:31022), pure-string generators (ssh_config block, builders line, root script \u2014 byte-exact, unit tests pin them), PID/log file protocol, `sudo bash -s` piping, `nix run nixpkgs#darwin.linux-builder` spawn args, exit codes.",
+   "swap_mechanism": "builder_cmd is self-contained (only console+paths+storage probes); register a passthrough that execs `yolo-builder <subcmd>` Go binary. _preflight_builder_needs in check_cmd calls ensure_builder in-process \u2014 expose a `yolo-builder ensure --json` mode for that caller.",
+   "parity_test": "Port tests/test_builder.py (33 tests, all string/probe-level and Linux-runnable) to table-driven Go tests asserting byte-identical script/config output; TCP probe tested against a local listener; final VM verification stays a Mac runbook step."
+  },
+  {
+   "name": "ensure_global_storage (pre-start FS bootstrap)",
+   "contract": "Idempotent: exact dir/file/symlink shape of GLOBAL_STORAGE + GLOBAL_HOME (see public_surface), credential migration rule, three relative symlinks, layout-version gate \u22652 with the mise-heal + live-jail defer semantics.",
+   "swap_mechanism": "Standalone `yolo-storage-ensure` Go binary invoked by run_cmd/check_cmd before anything else (subprocess), selected by env var; pure filesystem contract, no return data needed beyond exit code.",
+   "parity_test": "Run both implementations against (a) empty HOME, (b) pre-v2 layout with dangling mise symlinks + fake live/idle runtime, (c) legacy regular-file .claude.json/.gitconfig; diff resulting trees incl. symlink targets (readlink) and marker content."
+  }
+ ],
+ "test_coverage": {
+  "existing": [
+   "tests/test_builder.py \u2014 33 tests: reachability, setup-state, conf-path selection, generators (ssh_config/builders line/trusted-users merge/root script), run_setup with injected _run, start/stop/poll with injected popen/sleep",
+   "tests/test_prune.py \u2014 86 tests: all primitives incl. dedup atomicity, forbidden subdirs, shadowed-home dirs-preserved rule, build-root liveness gate/None polarity, tmp sweep, plus a drift-check that greps CLI source to keep SHADOWED_HOME_PATHS in sync with actual overlay mounts",
+   "tests/test_cli_commands.py \u2014 auto_load_image branches (sentinel hit/miss, image-missing reload, cache fallback, build failure), _build_image_store_path (env, out-link, stderr tail), check_cmd integration",
+   "tests/test_macos_paths.py \u2014 Apple Container naming/conversion paths with auto_load_image mocked at run_cmd seam",
+   "tests/test_state_separation.py \u2014 mise store dir selection, layout migration"
+  ],
+  "gaps": [
+   "No end-to-end skopeo/podman OCI conversion test (subprocess mocked; real conversion only exercised on a Mac per runbook)",
+   "_stream_image_command /etc/nix/machines parsing + nix copy fallback untested",
+   "ensure_global_storage full-shape snapshot not asserted as a tree (individual behaviors tested piecemeal)",
+   "rich output text not snapshot-tested \u2014 human report format is unpinned (helpful freedom for the port)",
+   "first_boot_interactive KeyboardInterrupt path and real launchctl/sudo effects untestable on Linux CI",
+   "_summarize_nix_line regexes lightly covered"
+  ],
+  "assessment": "Strong unit coverage of the pure logic (prune primitives, builder generators, load-decision branches) via injected subprocess/popen mocks \u2014 a good parity harness template. The genuinely macOS/privileged surfaces (sudo script apply, VM boot, AC load) are verified only by runbooks on real hardware; Go port must preserve the byte-exact generated scripts so those runbooks remain valid."
+ },
+ "porting_hazards": [
+  "Sentinel formats are load-bearing across versions: last-load-<runtime> LRU-10 newline list (re-add moves entry to end, trailing newline) and cache key = hex(sha256(store_path_utf8))[:16] + '.tar' \u2014 any deviation invalidates every user's cache/sentinel state",
+  "Fail-safe polarity distinctions: referenced build-roots set vs None (None = runtime unenumerable = delete nothing); same None-vs-empty for _live_yolo_containers gates in relay reap and layout migration \u2014 easy to flatten to nil-slice in Go and silently delete in the unsafe case",
+  "_prune_shadowed_home must delete directory CONTENTS but never the dirs themselves (mount anchors for live jails \u2014 regression observed 2026-07-04); rmtree-of-dir is the natural but wrong Go translation",
+  "Hardlink dedup atomicity: os.link to '<name>.yolo-dedup-tmp' then os.replace; never unlink original before link confirmed; skip same-inode+dev pairs; size-first bucketing before hashing (perf on ~1M files)",
+  "Image prune sorts CreatedAt strings lexically (podman ISO-ish format) \u2014 do not parse timestamps; format differences across runtimes could reorder",
+  "_ensure_symlink compares os.readlink output as a raw string to the relative target (no resolution); symlinks must be created RELATIVE",
+  "circular-import-driven lazy imports define the current module graph; Go packages must be re-cut (paths/probes \u2192 storage \u2192 image \u2192 commands) without changing call-time side-effect ordering (e.g. _migrate_storage_layout runs at end of ensure_global_storage)",
+  "Root script for builder setup must stay byte-identical (heredoc guards, grep -qs idempotence check, launchctl label detection fallback 'org.nixos.nix-daemon') \u2014 users review it via --show and tests pin it",
+  "auto_load_image failure semantics: caller MUST NOT launch on False; the three fallback tiers (existing runtime image \u2192 newest cached tar(s) in mtime order \u2192 diagnosed failure) and their exact console-visible decision reasons are relied on for macOS UX",
+  "subprocess timeout swallowing: TimeoutExpired/FileNotFoundError \u2192 empty result everywhere; Go exec must replicate 'tool absent = graceful no-op', not error out",
+  "YOLO_EXTRA_PACKAGES JSON must serialize identically (list of strings/objects, json.dumps default separators) since it feeds --impure nix eval and changes the store path (cache key)",
+  "_add_loaded_path/_read_loaded_paths tolerate blank lines and strip whitespace; progress percent capped at 99 until done; MB/GB formatting thresholds (1024 MB) appear in user-visible output",
+  "macOS-only branches (IS_MACOS) cannot be integration-tested in CI \u2014 keep them behind the same pure-function seams so unit parity carries the confidence",
+  "ALL_OVERLAY_DIRS comes from the entrypoint package baked into the image \u2014 Go host binary and Python entrypoint must agree; needs a generated/shared source of truth during the incremental port"
+ ],
+ "complexity": "high",
+ "est_go_loc": 4800,
+ "notes": "Python source: ~3,300 lines across 6 files (image 617, builder 517, builder_cmd 234, storage 509, prune_cmd 417, prune 1006). Best first swap: `yolo prune` \u2014 self-contained, huge existing test matrix, subprocess-only runtime interaction, and its output format is unpinned. Second: builder generators (byte-exact string tests port directly). The 'container-builder' named in the task brief is flake.nix's builderImage + publish.yml + docs/guides/runbooks/mac-ac-container-builder.md \u2014 currently runbook-driven with zero CLI code; if it gets CLI automation it will land near builder.py and should be scoped into this group's port. Cross-boundary contracts to watch: check_cmd imports _build_image_store_path/_jail_image/_fmt_bytes, run_cmd imports auto_load_image + eight storage helpers \u2014 these in-process call sites are the reason image.py/storage.py should be ported together with (or via subprocess seams from) run_cmd/check_cmd rather than piecemeal."
+}

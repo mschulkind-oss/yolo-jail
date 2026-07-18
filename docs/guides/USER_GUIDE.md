@@ -1,0 +1,1163 @@
+# YOLO Jail User Guide
+
+This guide covers everything you need to get started with YOLO Jail and make the most of its features. For quick-start instructions, see the [README](../research/go-port-module-map/README.md).
+
+**YOLO Jail runs on Linux and macOS as first-class platforms.** Every section below shows instructions for both where they differ. Linux uses Podman; macOS uses Podman Machine or Apple Container. For the full macOS-specific setup, see [docs/guides/macos.md](macos.md); for a feature-by-feature comparison, see [docs/research/platform-comparison.md](../research/platform-comparison.md).
+
+---
+
+## Table of Contents
+
+- [Installation](#installation)
+- [First Run](#first-run)
+- [Authentication](#authentication)
+- [CLI Commands](#cli-commands)
+- [Configuration](#configuration)
+- [Network & Ports](#network--ports)
+- [MCP Presets](#mcp-presets)
+- [LSP Servers](#lsp-servers)
+- [Package Management](#package-management)
+- [Blocked Tools](#blocked-tools)
+- [Device Passthrough](#device-passthrough)
+- [GPU Passthrough (NVIDIA)](#gpu-passthrough-nvidia)
+- [Loopholes (spawned host services)](#loopholes-spawned-host-services)
+- [Storage & Persistence](#storage--persistence)
+- [Container Reuse](#container-reuse)
+- [Config Safety](#config-safety)
+- [Platform Differences Reference](#platform-differences-reference)
+- [Troubleshooting](#troubleshooting)
+
+---
+
+## Installation
+
+### Prerequisites (both platforms)
+
+| Tool | Purpose | Install |
+|------|---------|---------|
+| [uv](https://docs.astral.sh/uv/) | Python package manager | `curl -LsSf https://astral.sh/uv/install.sh \| sh` |
+| [Nix](https://nixos.org/download/) | Image builder (with flakes) | [Determinate Nix Installer](https://github.com/DeterminateSystems/nix-installer) recommended |
+| [just](https://github.com/casey/just) | Task runner for `just deploy` | `cargo install just`, `brew install just`, or your package manager |
+| Container runtime | Podman or Apple Container | See platform-specific setup below |
+
+**Supported platforms:** Linux (x86_64, aarch64) and macOS (Apple Silicon and Intel). On macOS, containers run in a lightweight Linux VM managed by Podman Machine or Apple Container.
+
+### Container Runtime Setup
+
+Pick the runtime that fits your platform. YOLO Jail auto-detects whichever is available; the env var `YOLO_RUNTIME` (or the `runtime` key in config) forces a specific one.
+
+#### Linux
+
+```bash
+# Podman (rootless by default, no daemon)
+sudo apt-get install podman          # Debian/Ubuntu
+sudo dnf install podman              # Fedora/RHEL
+sudo pacman -S podman                # Arch
+```
+
+Auto-detect priority on Linux: **podman**.
+
+#### macOS
+
+You have two runtime choices. Pick one based on your needs:
+
+**Option A — Apple Container (native, recommended for desktop Macs on macOS 15+):**
+
+```bash
+brew install container skopeo
+container system start
+```
+
+Native per-container CPU/memory limits, native Unix socket port forwarding, smallest footprint (no separate VM daemon). Has a ~22 bind mount limit — YOLO Jail works around this by consolidating workspace state into one mount. `skopeo` is used to convert Nix's streamed image tarballs to OCI for Apple Container.
+
+**Option B — Podman Machine:**
+
+```bash
+brew install podman
+podman machine init --cpus 4 --memory 8192 --disk-size 50
+podman machine start
+```
+
+Good if you already use Podman on Linux and want the same CLI on macOS. Requires a GUI session on some versions.
+
+Auto-detect priority on macOS: **container → podman**.
+
+#### Nix remote Linux builder (macOS, optional)
+
+The container image is a Linux image, but most of its content downloads directly from the NixOS binary cache. A few derivations are built from yolo-jail's own source and aren't cached, so building the image on macOS needs a Linux builder — **unless you download the prebuilt image from yolo-jail's cache** (the intended happy path; no builder at all). A local Linux builder is the fallback, needed only before that cache is published or if you add a custom uncached package. See [docs/guides/macos.md § Building the image on macOS](macos.md#building-the-image-on-macos-cache-vs-linux-builder) for setup.
+
+### Install YOLO Jail
+
+Two install paths, pick whichever fits:
+
+#### Option A — Homebrew (easiest, both macOS and Linux)
+
+```bash
+brew tap mschulkind-oss/tap
+brew install mschulkind-oss/tap/yolo-jail
+```
+
+| Pros | Cons |
+|---|---|
+| Single command | No refresher auto-install |
+| Auto-upgrades via `brew upgrade` | No source checkout available for hacking |
+| No `just`, no source, no build tools | |
+| Works on macOS and Linuxbrew identically | |
+
+This is the recommended path for users who just want to run yolo-jail. The Homebrew formula is published to [mschulkind-oss/homebrew-tap](https://github.com/mschulkind-oss/homebrew-tap) automatically on every release via the `brew` job in `.github/workflows/publish.yml`.
+
+**Note:** the Homebrew install skips the Claude OAuth broker state init. If you run many jails in parallel against one Claude account, install from source (Option B) so `just deploy` can prime the broker's CA + leaf certs.
+
+#### Option B — Install from source
+
+Required if you want the Claude OAuth broker primed via `just deploy`, or if you're hacking on yolo-jail. Identical on Linux and macOS:
+
+```bash
+git clone https://github.com/mschulkind-oss/yolo-jail.git
+cd yolo-jail
+just deploy      # builds + installs yolo CLI + primes claude-oauth-broker state
+```
+
+`just deploy` is idempotent and safe to re-run.
+
+To upgrade later:
+
+```bash
+cd yolo-jail && git pull && just deploy
+```
+
+### Set Up User Defaults (Optional)
+
+```bash
+yolo init-user-config
+# Edit: ~/.config/yolo-jail/config.jsonc
+```
+
+Same path and merge semantics on Linux and macOS. User-level defaults apply to all projects and are merged under workspace config.
+
+---
+
+## First Run
+
+Navigate to any repository and run:
+
+```bash
+cd ~/code/my-project
+yolo
+```
+
+On first run, YOLO Jail will:
+
+1. **Build the Linux container image** via `nix build`:
+   - **Linux:** Nix downloads prebuilt packages from the binary cache (~2–5 minutes).
+   - **macOS:** Nix downloads the same Linux packages from the binary cache (~2–5 minutes the first time, instant on subsequent runs thanks to caching). A remote Linux builder is only needed if you've added non-cached packages.
+2. **Load the image** into your container runtime:
+   - Podman: `podman load` from the cached tarball
+   - Apple Container: the tarball is converted to OCI via `skopeo` (or `podman` as fallback) and then `container image load`ed
+3. **Install tools** — MCP servers, LSP servers, and utilities are installed into persistent storage (`~/.local/share/yolo-jail/home/`).
+4. **Start your command** — by default, an interactive shell.
+
+Subsequent runs skip steps 1–3 (everything is cached) and start in seconds on both platforms.
+
+---
+
+## Authentication
+
+Inside the jail, authenticate with your tools once:
+
+```bash
+gh auth login          # GitHub CLI
+gemini login           # Google Gemini CLI
+claude                 # Runs /login on first launch
+```
+
+Tokens are stored in `~/.local/share/yolo-jail/home/` on the host (same path on Linux and macOS) and persist across jail restarts. You do **not** need to re-authenticate each time, and on podman a `/login` in any jail propagates to every other jail automatically.
+
+### Claude OAuth broker (refresh serialization)
+
+Anthropic uses single-use refresh tokens — when multiple jails share the same `.credentials.json` and two of them try to refresh in the same window, one loses the race and gets logged out. YOLO Jail ships the **claude-oauth-broker** loophole: a host-side daemon that serializes refreshes behind a flock. Jails route their refresh requests through it instead of calling Anthropic directly.
+
+The broker refreshes on demand — when a jail asks for a refresh, if the on-disk token has headroom we return it cached, otherwise we refresh upstream once and hand the result back. No background timer, no proactive refresh, no wasted refresh-token rotations.
+
+`just deploy` primes the broker's CA + leaf certs into `~/.local/share/yolo-jail/state/claude-oauth-broker/`. Jails activate the loophole automatically when `claude` is on PATH. `yolo doctor` includes a broker self-check covering cert state and credentials parseability.
+
+> **Security note:** Auth tokens are stored separately from your host credentials. The jail never accesses your host `~/.ssh/`, `~/.gitconfig`, or cloud credentials. The broker refreshes `~/.local/share/yolo-jail/home/.claude/.credentials.json` and, when it shares the same refresh token as your host `~/.claude/.credentials.json`, mirrors the new tokens there too so host Claude Code stays logged in.
+
+---
+
+## CLI Commands
+
+### `yolo` — Start a Jail
+
+```bash
+yolo                       # Interactive shell
+yolo -- claude             # Start Claude Code in YOLO mode
+yolo -- copilot            # Start Copilot (--yolo auto-injected)
+yolo -- gemini             # Start Gemini (--yolo auto-injected)
+yolo -- bash -c "make"     # Run a specific command
+```
+
+**Options:**
+- `--new` — Force a new container even if one exists for this workspace
+- `--network bridge|host` — Override network mode for this run
+- `--profile` — Show detailed startup performance timing
+
+### `yolo init` — Initialize a Project
+
+```bash
+cd ~/code/my-project
+yolo init
+```
+
+Creates a `yolo-jail.jsonc` config with documented defaults and adds `.yolo/` to `.gitignore`.
+
+### `yolo check` — Validate Everything
+
+```bash
+yolo check              # Full check including nix build
+yolo check --no-build   # Quick check (skip nix build)
+```
+
+**Run this after every edit to `yolo-jail.jsonc`.** It validates:
+- Container runtime availability
+- Nix installation and flakes support
+- Config file syntax and schema
+- Entrypoint dry-run (shims, MCP, LSP generation)
+- Nix image build (unless `--no-build`)
+
+Inside a running jail, use `yolo check --no-build` for a fast preflight before asking for a restart.
+
+### `yolo doctor` — Alias for Check
+
+```bash
+yolo doctor             # Same as yolo check
+```
+
+### `yolo ps` — List Running Jails
+
+```bash
+yolo ps
+```
+
+Shows container names, status, uptime, and workspace mappings.
+
+### `yolo config-ref` — Full Configuration Reference
+
+```bash
+yolo config-ref
+```
+
+Prints the complete reference for all `yolo-jail.jsonc` fields with types, defaults, and examples.
+
+### `yolo init-user-config` — Create User Defaults
+
+```bash
+yolo init-user-config
+```
+
+Creates `~/.config/yolo-jail/config.jsonc` with the same template as `yolo init`.
+
+---
+
+## Configuration
+
+YOLO Jail is configured via JSONC (JSON with comments) files:
+
+| File | Scope | Purpose |
+|------|-------|---------|
+| `yolo-jail.jsonc` | Workspace | Per-project settings |
+| `yolo-jail.local.jsonc` | Workspace (untracked) | Per-machine overrides, auto-merged over `yolo-jail.jsonc` when present — gitignore it (a global gitignore entry works well) |
+| `~/.config/yolo-jail/config.jsonc` | User | Global defaults for all projects |
+
+**Merge rules:** Workspace config merges over user defaults, and `yolo-jail.local.jsonc` merges over the workspace config. Lists are merged and deduplicated; scalars and objects in later layers override earlier values.
+
+### Minimal Example
+
+```jsonc
+{
+  "runtime": "podman",
+  "packages": ["postgresql", "redis"],
+  "mcp_presets": ["chrome-devtools"]
+}
+```
+
+### Full Example
+
+```jsonc
+{
+  // Container runtime: "podman" or "container" (Apple Container)
+  "runtime": "podman",
+
+  // Extra nix packages baked into the image
+  "packages": ["postgresql", "htop", "strace"],
+
+  // Network configuration
+  "network": {
+    "mode": "bridge",
+    "ports": ["8000:8000", "3000:3000"],
+    "forward_host_ports": [5432, 6379]
+  },
+
+  // Security settings
+  "security": {
+    "blocked_tools": [
+      {"name": "grep", "message": "Use rg", "suggestion": "rg <pattern>"},
+      {"name": "find", "message": "Use fd"},
+      "curl"
+    ]
+  },
+
+  // Extra read-only mounts
+  "mounts": ["~/code/shared-lib"],
+
+  // MCP presets (opt-in)
+  "mcp_presets": ["chrome-devtools", "sequential-thinking"],
+
+  // Custom MCP servers
+  "mcp_servers": {
+    "my-custom": {
+      "command": "/workspace/scripts/my-mcp-server.py",
+      "args": []
+    }
+  },
+
+  // Extra tools via mise
+  "mise_tools": {"neovim": "stable", "typst": "latest"},
+
+  // Additional LSP servers
+  "lsp_servers": {
+    "rust": {
+      "command": "rust-analyzer",
+      "args": [],
+      "fileExtensions": {".rs": "rust"}
+    }
+  }
+}
+```
+
+Run `yolo config-ref` for the complete field reference.
+
+---
+
+## Network & Ports
+
+### Bridge Mode (Default)
+
+The jail runs in an isolated network. Use `ports` to publish container services to the host:
+
+```jsonc
+{
+  "network": {
+    "mode": "bridge",
+    "ports": ["8000:8000"]
+  }
+}
+```
+
+A service running on port 8000 inside the jail is accessible at `localhost:8000` on the host.
+
+### Host Mode
+
+Share the host's network stack directly:
+
+```jsonc
+{
+  "network": {
+    "mode": "host"
+  }
+}
+```
+
+All ports work as if running on the host. No port mapping needed.
+
+### Host Port Forwarding
+
+Make host services appear on `localhost` inside the jail — useful for databases, APIs, or other services already running on your machine:
+
+```jsonc
+{
+  "network": {
+    "forward_host_ports": [5432, 6379, "8080:9090"]
+  }
+}
+```
+
+- **Integer** (`5432`): Same port on both sides — host `127.0.0.1:5432` appears as jail `127.0.0.1:5432`
+- **String** (`"8080:9090"`): Port remapping — host `127.0.0.1:9090` appears as jail `127.0.0.1:8080`
+
+This uses socat via Unix sockets (requires `socat` on the host). Only works in bridge mode.
+
+---
+
+## MCP Presets
+
+MCP (Model Context Protocol) servers extend agent capabilities. YOLO Jail includes built-in presets that can be enabled by name — **none are enabled by default**.
+
+### Available Presets
+
+| Preset | Description |
+|--------|-------------|
+| `chrome-devtools` | Headless Chromium automation via Chrome DevTools Protocol |
+| `sequential-thinking` | Chain-of-thought reasoning MCP server |
+
+### Enable Presets
+
+```jsonc
+{
+  "mcp_presets": ["chrome-devtools", "sequential-thinking"]
+}
+```
+
+### Custom MCP Servers
+
+Add your own MCP servers alongside or instead of presets:
+
+```jsonc
+{
+  "mcp_servers": {
+    "my-server": {
+      "command": "/workspace/scripts/my-mcp.py",
+      "args": ["--port", "3333"]
+    }
+  }
+}
+```
+
+### Disable a Preset
+
+Set a preset server to `null` in `mcp_servers` to disable it even when listed in `mcp_presets`:
+
+```jsonc
+{
+  "mcp_presets": ["chrome-devtools", "sequential-thinking"],
+  "mcp_servers": {
+    "sequential-thinking": null
+  }
+}
+```
+
+---
+
+## LSP Servers
+
+YOLO Jail configures LSP (Language Server Protocol) servers for Claude Code, Copilot, and Gemini. Three servers are always available:
+
+| Language | Server | Extensions |
+|----------|--------|------------|
+| Python | Pyright | `.py`, `.pyi` |
+| TypeScript/JavaScript | typescript-language-server | `.ts`, `.tsx`, `.js`, `.jsx` |
+| Go | gopls | `.go` |
+
+### Adding Servers
+
+Add language servers via `lsp_servers` in your config. The binary must be on PATH (install via `mise_tools` or `packages`):
+
+```jsonc
+{
+  "lsp_servers": {
+    "rust": {
+      "command": "rust-analyzer",
+      "args": [],
+      "fileExtensions": {".rs": "rust"}
+    }
+  }
+}
+```
+
+Workspace servers are merged with defaults — you can add new ones or override existing ones.
+
+### How It Works
+
+- **Claude Code** receives LSP servers via plugins or MCP
+- **Copilot** receives native LSP config via `~/.copilot/lsp-config.json`
+- **Gemini** receives LSP servers wrapped as MCP servers via `mcp-language-server`
+- Servers are spawned on-demand when agents analyze matching file types
+
+---
+
+## Package Management
+
+### Nix Packages (Image-Level)
+
+Add system packages via the `packages` config array. These are baked into the container image:
+
+```jsonc
+{
+  "packages": ["postgresql", "strace", "htop"]
+}
+```
+
+Package names must match [nixpkgs attributes](https://search.nixos.org/packages). The image only rebuilds when this list changes.
+
+**Non-default outputs (`.dev` for headers + `pkg-config`):** Nixpkgs splits many libraries into outputs — the default output ships only the runtime `.so`, while `.dev` carries headers and `.pc` files. For cgo / FFI builds, request the `.dev` output with a dotted shorthand or an explicit `outputs` array:
+
+```jsonc
+{
+  "packages": [
+    "gtk4.dev",                                      // dotted shorthand
+    {"name": "gtk4", "outputs": ["out", "dev"]}      // explicit form
+  ]
+}
+```
+
+When a `.dev` output is selected, the image also pulls in the `.dev` outputs of every transitively propagated build input — so `pkg-config --cflags gtk4` resolves `pango → harfbuzz → fontconfig → …` without listing each by hand. `PKG_CONFIG_PATH` is preset so the `.pc` files are found out of the box. The package's runtime libraries (and those of its propagated closure) are linked into `/lib` as well, so binaries built against a `.dev` request also run — a bare `"gtk4.dev"` covers both compile and runtime.
+
+Common outputs: `out` (default), `dev` (headers + pkg-config), `bin`, `lib`, `man`, `doc`.
+
+**Pinned versions:** Pin to a specific nixpkgs commit for reproducibility. `outputs` works alongside pinning:
+
+```jsonc
+{
+  "packages": [
+    "postgresql",
+    {"name": "freetype", "nixpkgs": "e6f23dc0..."},
+    {"name": "gtk4", "nixpkgs": "e6f23dc0...", "outputs": ["out", "dev"]}
+  ]
+}
+```
+
+Find nixpkgs commits for specific versions at [lazamar.co.uk/nix-versions](https://lazamar.co.uk/nix-versions/).
+
+### Mise Tools (Runtime-Level)
+
+Add tools to your workspace's `mise.toml` for workspace-specific runtimes:
+
+```toml
+# mise.toml
+[tools]
+typst = "latest"
+rust = "1.80"
+```
+
+On jail startup, `mise install` fetches declared tools. They persist across restarts in the jail-land mise store mounted at `/mise` — shared by every jail, fully independent of the host's own mise installation.
+
+To inject tools into all jails globally, use `mise_tools` in your config:
+
+```jsonc
+{
+  "mise_tools": {"neovim": "stable", "typst": "latest"}
+}
+```
+
+---
+
+## Blocked Tools
+
+YOLO Jail blocks certain tools by default and suggests faster alternatives:
+
+| Blocked | Suggestion |
+|---------|-----------|
+| `grep` | Use `rg` (ripgrep) |
+| `find` | Use `fd` |
+| `apt` / `apt-get` | Use `packages` in `yolo-jail.jsonc` |
+| `pip` | Use `uv` |
+
+### Customize Blocked Tools
+
+```jsonc
+{
+  "security": {
+    "blocked_tools": [
+      {"name": "grep", "message": "Use rg", "suggestion": "rg <pattern>"},
+      {"name": "curl", "message": "Network access blocked"}
+    ]
+  }
+}
+```
+
+### Bypass
+
+Set `YOLO_BYPASS_SHIMS=1` in scripts that need blocked tools:
+
+```bash
+YOLO_BYPASS_SHIMS=1 grep -r "pattern" .
+```
+
+---
+
+## Device Passthrough
+
+**Platform support:** Device passthrough (USB, serial, cgroup rules) is a **Linux-only** feature. It relies on the host kernel exposing `/dev/bus/usb/`, `/dev/tty*`, and `--device-cgroup-rule` — none of which exist on macOS where containers run inside a VM. On macOS, device entries in `yolo-jail.jsonc` are parsed, logged as skipped with a warning, and do not prevent the jail from starting.
+
+On Linux, pass host devices (USB, serial, etc.) into the jail:
+
+```jsonc
+{
+  "devices": [
+    {"usb": "0bda:2838", "description": "RTL-SDR"},
+    "/dev/ttyUSB0",
+    {"cgroup_rule": "c 189:* rwm"}
+  ]
+}
+```
+
+**Formats:**
+- **USB by vendor:product ID** (preferred — stable across reboots): `{"usb": "0bda:2838"}`
+- **Raw device path** (changes on replug): `"/dev/bus/usb/001/004"`
+- **Cgroup rule** (broad access): `{"cgroup_rule": "c 189:* rwm"}`
+
+Missing devices produce a warning but don't prevent the jail from starting. Device changes are subject to [config safety](#config-safety) approval.
+
+---
+
+## GPU Passthrough (NVIDIA)
+
+**Platform support:** GPU passthrough is **Linux-only**. Apple Silicon Macs use Metal, not CUDA/OpenCL, and Apple's Virtualization.framework doesn't expose the GPU to the guest Linux kernel. If `"gpu": {"enabled": true}` appears in `yolo-jail.jsonc` on macOS, it is parsed, logged as skipped with a warning, and does not prevent the jail from starting. For GPU workflows on macOS, run on a Linux box (local or EC2 `g5`/`p3` instance) instead.
+
+On Linux, train deep learning models inside the jail using NVIDIA GPUs. Requires the NVIDIA Container Toolkit on the host.
+
+### Host Setup
+
+1. **Verify your GPU driver:**
+   ```bash
+   nvidia-smi
+   ```
+
+2. **Install the NVIDIA Container Toolkit:**
+   ```bash
+   curl -fsSL https://nvidia.github.io/libnvidia-container/gpgkey \
+     | sudo gpg --dearmor -o /usr/share/keyrings/nvidia-container-toolkit-keyring.gpg
+   curl -s -L https://nvidia.github.io/libnvidia-container/stable/deb/nvidia-container-toolkit.list \
+     | sed 's#deb https://#deb [signed-by=/usr/share/keyrings/nvidia-container-toolkit-keyring.gpg] https://#g' \
+     | sudo tee /etc/apt/sources.list.d/nvidia-container-toolkit.list
+   sudo apt-get update && sudo apt-get install -y nvidia-container-toolkit
+   ```
+
+3. **Configure the container runtime:**
+   ```bash
+   # Podman (CDI)
+   sudo nvidia-ctk cdi generate --output=/etc/cdi/nvidia.yaml
+   ```
+
+4. **Validate:**
+   ```bash
+   yolo check   # GPU section will show nvidia-smi, nvidia-ctk, CDI spec status
+   ```
+
+### Jail Configuration
+
+```jsonc
+// yolo-jail.jsonc
+{
+  "gpu": {
+    "enabled": true,
+    "devices": "all",
+    "capabilities": "compute,utility"
+  }
+}
+```
+
+| Key | Default | Description |
+|-----|---------|-------------|
+| `enabled` | `false` | Enable GPU passthrough |
+| `devices` | `"all"` | `"all"`, or specific GPUs: `"0"`, `"0,1"`, `"GPU-<uuid>"` |
+| `capabilities` | `"compute,utility"` | NVIDIA driver capabilities to expose |
+
+### Installing PyTorch
+
+Once inside the GPU-enabled jail:
+
+```bash
+pip install torch torchvision
+python -c "import torch; print(torch.cuda.is_available(), torch.cuda.get_device_name(0))"
+```
+
+### Runtime Details
+
+| Runtime | Mechanism | Notes |
+|---------|-----------|-------|
+| **Podman** | `--device nvidia.com/gpu=all` (CDI) | Requires CDI spec at `/etc/cdi/nvidia.yaml` |
+
+- **Podman rootless:** GPU passthrough uses `--userns=keep-id` and `--runtime=runc` (crun has CDI bugs). Nested podman-in-podman is not available when GPU is active.
+- **Shared memory:** The jail uses `--shm-size=2g` for PyTorch multi-process data loading.
+- **CUDA forward compatibility:** CUDA in the container can be newer than the host driver, but not the reverse.
+
+### AWS EC2
+
+Use an AWS Deep Learning AMI (DLAMI) — drivers and toolkit come pre-installed.
+
+| Instance | GPU | VRAM | Use Case | $/hr (approx) |
+|----------|-----|------|----------|----------------|
+| g4dn.xlarge | 1× T4 | 16 GB | Inference, light training | ~$0.53 |
+| g5.xlarge | 1× A10G | 24 GB | Training + inference | ~$1.01 |
+| p3.2xlarge | 1× V100 | 16 GB | Training | ~$3.06 |
+
+### Troubleshooting GPU
+
+- **`conmon bytes "": readObjectStart` error (Podman):** Caused by `crun` OCI runtime's CDI handling bug ([podman#27483](https://github.com/containers/podman/issues/27483)). The jail automatically uses `--runtime runc` when GPU is enabled to work around this. If you see this, update your `yolo-jail` installation.
+- **`nvidia-smi` not found inside jail:** The NVIDIA Container Toolkit injects driver libs at container start. Check the toolkit is installed and configured on the host.
+- **CUDA out of memory:** Reduce batch size, or limit which GPUs are exposed with `"devices": "0"`.
+
+---
+
+## AMD GPU Passthrough (ROCm)
+
+**Platform support:** Like NVIDIA, AMD/ROCm passthrough is **Linux-only**. Apple Silicon Macs have no ROCm path, and Apple's Virtualization.framework doesn't expose the GPU to the guest. If `"gpu": {"enabled": true, "vendor": "amd"}` appears in `yolo-jail.jsonc` on macOS, it is parsed, logged as skipped with a warning, and does not prevent the jail from starting.
+
+On Linux, run ROCm compute workloads inside the jail using AMD GPUs. Unlike NVIDIA, the default path needs **no host container toolkit** — just the `amdgpu` kernel driver and the right group membership. ROCm passthrough works on both AMD Instinct and consumer Radeon hardware.
+
+> **Note:** ROCm userspace (HIP, rocm-smi, math libs) is **not** injected from the host. Unlike the NVIDIA toolkit, AMD's device-node and CDI paths inject **only kernel device nodes** (`/dev/kfd`, `/dev/dri/renderD*`). Your container image must ship its own ROCm userspace — use a `rocm/*` base image (see the PyTorch example below).
+
+### Host Setup
+
+> Verified end-to-end on real AMD hardware (Radeon 8060S / gfx1151, ROCm 7.2, rootless podman + crun) — both the default device-node mode and CDI mode run ROCm PyTorch inside the jail. Package names and exact group names still vary by distribution, so adapt the commands below to yours.
+
+1. **Install the `amdgpu` kernel driver.** On Ubuntu, AMD ships `amdgpu-dkms` via the ROCm `amdgpu-install` tooling (other distros package it directly, e.g. Arch's `linux*-headers` + mainline `amdgpu`):
+   ```bash
+   sudo amdgpu-install --usecase=dkms
+   ```
+   Confirm the module is loaded:
+   ```bash
+   ls /sys/module/amdgpu        # present when the driver is loaded
+   ls /dev/kfd /dev/dri/renderD*  # compute + render device nodes
+   ```
+
+2. **Ensure your host user can open the device nodes.** `/dev/kfd` and `/dev/dri/renderD*` are commonly owned by the `render` group (`/dev/dri/card*` by `video`), in which case your host user must be a member:
+   ```bash
+   sudo usermod -aG render,video "$USER"
+   # log out and back in (or `newgrp render`) for the new groups to take effect
+   ```
+   Some distributions instead ship these nodes world-readable/writable (mode `0666`), in which case no group membership is needed — `yolo check` reports whether the nodes are openable by the current user either way. `--group-add keep-groups` (which yolo always adds) preserves whatever host groups you already hold into the rootless container.
+
+3. **(Optional) AMD Container Toolkit for CDI mode.** The default `mode: "devices"` needs no toolkit. Only if you want CDI-style per-GPU selection (`mode: "cdi"`), install the AMD Container Toolkit and generate a spec:
+   ```bash
+   sudo amd-ctk cdi generate --output=/etc/cdi/amd.json
+   amd-ctk cdi list   # should list amd.com/gpu=all, amd.com/gpu=0, ...
+   ```
+   The generated spec injects **only device nodes** (no env vars, hooks, or host-library mounts — verified), and CDI mode runs ROCm correctly under the default crun runtime (no `runc` workaround needed). On a single-GPU host CDI offers no advantage over the default device-node mode.
+
+4. **Validate:**
+   ```bash
+   yolo check   # GPU section shows amdgpu module, rocminfo, device nodes, group membership
+   ```
+
+### Jail Configuration
+
+```jsonc
+// yolo-jail.jsonc
+{
+  "gpu": {
+    "enabled": true,
+    "vendor": "amd",
+    "devices": "all"
+  }
+}
+```
+
+| Key | Default | Description |
+|-----|---------|-------------|
+| `vendor` | `"nvidia"` | Set to `"amd"` for ROCm passthrough. Absent ⇒ NVIDIA (backward-compatible). |
+| `enabled` | `false` | Enable GPU passthrough |
+| `devices` | `"all"` | `"all"`, or specific GPUs: `"0"`, `"0,1"` |
+| `mode` | `"devices"` | AMD only. `"devices"` = raw device nodes (no host toolkit); `"cdi"` = `amd.com/gpu` via the AMD Container Toolkit |
+| `hsa_override_gfx_version` | _(unset)_ | AMD only, optional. Override the gfx target for unsupported/consumer GPUs (e.g. `"11.0.0"`) |
+| `seccomp_unconfined` | `false` | AMD only, optional. Opt-in `--security-opt seccomp=unconfined` (only needed for some HPC/numactl workloads; widens the syscall surface) |
+
+> `capabilities` is **NVIDIA-only** — ROCm has no driver-capabilities concept, so it is rejected for `vendor: "amd"`.
+
+### Installing PyTorch (ROCm)
+
+ROCm userspace ships in the image, so start from a `rocm/*` base image that already includes a ROCm-built PyTorch (for example a `rocm/pytorch` image), or install the ROCm wheels from AMD's index inside such an image (pick the `rocmX.Y` index matching the image's ROCm version):
+
+```bash
+# inside a rocm/* based jail image
+pip install torch --index-url https://download.pytorch.org/whl/rocm6.2
+python -c "import torch; print(torch.cuda.is_available(), torch.cuda.get_device_name(0))"
+# verified output on a Radeon 8060S (gfx1151): True Radeon 8060S Graphics
+```
+
+ROCm exposes the AMD GPU through PyTorch's `torch.cuda` API, so `torch.cuda.is_available()` returning `True` means ROCm is working. A generic (non-ROCm) image will get working device nodes but **no working HIP/rocm-smi**.
+
+### Runtime Details
+
+| Runtime | Mechanism | Notes |
+|---------|-----------|-------|
+| **Podman** | `--device /dev/kfd` + `--device /dev/dri/renderD*` (or `--device /dev/dri` for `all`) + `--group-add keep-groups` | Default `mode: "devices"`; no host toolkit required |
+| **Podman (CDI)** | `--device amd.com/gpu=all` + `--group-add keep-groups` | `mode: "cdi"`; requires `/etc/cdi/amd.json` from `amd-ctk` |
+
+- **Runtime:** AMD stays on the default **crun** runtime. `--group-add keep-groups` is crun-only — it preserves the host `render`/`video` GID so `/dev/kfd` is openable rootless. AMD does **not** use NVIDIA's `--runtime runc` workaround.
+- **`/dev/kfd` is shared:** the Kernel Fusion Driver node is a single interface shared by all GPUs and is always passed in. Per-GPU restriction comes from which `/dev/dri/renderD*` nodes you select via `devices`.
+- **Locked-memory limit:** whenever GPU passthrough is active, yolo lifts the container's locked-memory *soft* limit to the host's hard cap (`--ulimit memlock=<host-hard>:<host-hard>`, or `-1` if the host is already unlimited). A rootless container can't raise the *hard* cap above the host's, so this gives GPU runtimes the most they can pin. Current ROCm (verified on gfx1151 / ROCm 7.2) runs GPU compute fine at the common 8 MB rootless cap — no host change is needed. (Older ROCm builds pinned a larger queue ring buffer; see the troubleshooting note below if you ever hit `AMDKFD_IOC_CREATE_QUEUE EINVAL`.)
+- **In-container GPU selection:** for an explicit `devices` selection (e.g. `"0"` or `"0,1"`), yolo sets `ROCR_VISIBLE_DEVICES` and `HIP_VISIBLE_DEVICES` to that value. For the default `devices: "all"` it leaves them **unset** — unlike NVIDIA's `NVIDIA_VISIBLE_DEVICES`, the ROCr/HSA selector does **not** accept the literal `"all"` (it matches no device and hides every GPU), and ROCm's own default is "all GPUs visible". These env vars are **not a security boundary** — real isolation comes from which render nodes are passed in.
+
+### Troubleshooting AMD GPU
+
+- **`Unable to open /dev/kfd read-write: Permission denied`:** The container process lacks the owning group. Make sure your host user is in the `render` group (`sudo usermod -aG render "$USER"`, then re-login) — `--group-add keep-groups` only preserves groups the host user already holds.
+- **GPU detected but ROCm errors out on a consumer Radeon:** Consumer/unsupported GPUs often need `HSA_OVERRIDE_GFX_VERSION` to be recognized as a supported gfx target (e.g. `"11.0.0"` for gfx1100, `"10.3.0"` for gfx1030, `"9.0.0"` for gfx900). Set it via `hsa_override_gfx_version` in the config. This is best-effort, same-architecture-family only, and unsupported by AMD.
+- **`rocminfo`/`rocm-smi` not found inside jail:** ROCm userspace is **not** injected from the host — it must ship inside the image. Use a `rocm/*` base image instead of a generic one.
+- **GPU enumerates and `hipMalloc` works, but any kernel launch segfaults (trace shows `AMDKFD_IOC_CREATE_QUEUE … EINVAL`):** an older ROCm userspace needs to pin a larger (~13 MB) queue ring buffer than the rootless default `RLIMIT_MEMLOCK` (often 8 MB) allows. Current ROCm (7.2+) does **not** hit this — first try a newer `rocm/*` image. If you're pinned to an older ROCm build, raise the **host's** memlock hard cap (a rootless jail can't exceed it): `limits.conf` `<user> hard memlock unlimited`, systemd `LimitMEMLOCK=infinity`, or podman `containers.conf` `default_ulimits = ["memlock=-1:-1"]`, then restart the jail.
+- **`torch.cuda.is_available()` is `False` / `rocminfo` shows only the CPU agent, but the device nodes are present:** if you set `ROCR_VISIBLE_DEVICES=all` (or `HIP_VISIBLE_DEVICES=all`) yourself, ROCm sees zero GPUs — the selector does not accept `"all"`. Leave it unset for all GPUs, or use explicit indices (`0`, `0,1`). yolo handles this for you (it omits the env vars when `devices: "all"`), so this only bites if you override them manually inside the container.
+
+---
+
+## Loopholes (spawned host services)
+
+**A way to split the jail boundary cleanly.** A *spawned* loophole is a process that runs on the host (outside the jail) and exposes a Unix socket that gets bind-mounted into the jail at `/run/yolo-services/<name>.sock`. The agent inside the jail can talk to the loophole without ever holding its secrets, credentials, or privileges. See [docs/guides/loopholes.md](loopholes.md) for the broader loophole system (including `tls-intercept` loopholes for things like the Claude OAuth broker).
+
+This is exactly the pattern used by the built-in cgroup delegate daemon: a host-side process performs privileged cgroup operations on behalf of the container so the jail itself doesn't need `CAP_SYS_ADMIN` or rw cgroup mounts. The `loopholes` config block lets you define your own in the same shape.
+
+### When to use it
+
+- **Auth / credential brokers.** A service holds API keys, OAuth tokens, or signed JWTs and answers scoped requests from the agent. The jail never sees the raw credentials.
+- **Access control proxies.** A service fronts an internal API and enforces "agent X may only call endpoint Y with payload Z" rules outside the jail.
+- **Audit / logging sinks.** A service receives structured events from the agent and writes them to a host-side log the jail can't tamper with.
+- **Resource brokers.** Anything where you want a small piece of host-side trust without pulling the entire dependency into the jail.
+
+### Configuration
+
+```jsonc
+{
+  "loopholes": {
+    "auth-broker": {
+      // Command to launch on the host when the jail starts.
+      // "{socket}" is substituted with the host-side socket path the
+      // service should bind.
+      "command": ["~/code/auth-broker/serve.py", "--socket", "{socket}"],
+
+      // Optional environment variables for the host daemon (NOT the jail).
+      "env": {
+        "KEYS_FILE": "~/secrets/broker-keys.json",
+        "LOG_LEVEL": "info"
+      },
+
+      // Optional override of where the socket appears inside the jail.
+      // Must start with /run/yolo-services/ — that's the only directory
+      // that gets bind-mounted in.  Default: /run/yolo-services/<name>.sock
+      "jail_socket": "/run/yolo-services/auth-broker.sock"
+    }
+  }
+}
+```
+
+The service name (`auth-broker` above) must match `^[a-zA-Z][a-zA-Z0-9_-]{0,63}$`. The name `cgroup-delegate` is reserved for the built-in.
+
+### Lifecycle
+
+For each service, on `yolo run`:
+
+1. Per-jail directory `<workspace>/.yolo/host-services/` is created on the host and bind-mounted into the jail at `/run/yolo-services/`.
+2. yolo substitutes `{socket}` in the service's command with the host-side path, e.g. `<workspace>/.yolo/host-services/auth-broker.sock`.
+3. yolo launches the command as a child process. The service is expected to bind the socket at the substituted path.
+4. yolo waits up to 5 seconds for the socket file to appear. If the service exits early or doesn't bind in time, yolo logs the failure and continues without that service.
+5. The container starts. The agent inside sees `/run/yolo-services/auth-broker.sock` and can connect.
+6. When the container exits, yolo sends `SIGTERM` to each service, waits 5 seconds, then `SIGKILL`.
+7. The per-jail sockets directory is removed.
+
+Service stdout and stderr are captured to `~/.local/share/yolo-jail/logs/host-service-<name>.log` for debugging.
+
+### Discovering the socket from inside the jail
+
+For each service, yolo injects an env var so the agent doesn't need to hard-code the path:
+
+```
+YOLO_SERVICE_AUTH_BROKER_SOCKET=/run/yolo-services/auth-broker.sock
+```
+
+The variable name is `YOLO_SERVICE_<UPPERCASED-NAME>_SOCKET`, with non-alphanumeric characters replaced by underscores.
+
+### Minimal example service
+
+A trivial Python broker that hands out a single secret. The service runs on the host, holds the secret, and never reveals it to the jail — the jail just gets the resolved value for the key it asks about.
+
+```python
+# ~/code/auth-broker/serve.py
+import json, os, socket, sys
+
+KEYS = json.load(open(os.environ["KEYS_FILE"]))
+
+sock_path = sys.argv[sys.argv.index("--socket") + 1]
+srv = socket.socket(socket.AF_UNIX, socket.SOCK_STREAM)
+srv.bind(sock_path)
+srv.listen(8)
+
+while True:
+    conn, _ = srv.accept()
+    try:
+        line = b""
+        while not line.endswith(b"\n"):
+            chunk = conn.recv(4096)
+            if not chunk:
+                break
+            line += chunk
+        req = json.loads(line)
+        # Toy access control: the agent can only ask for keys in an allowlist.
+        key = req.get("key")
+        if key in {"OPENAI_API_KEY", "STRIPE_SECRET"}:
+            conn.sendall(json.dumps({"value": KEYS[key]}).encode() + b"\n")
+        else:
+            conn.sendall(json.dumps({"error": "key not allowed"}).encode() + b"\n")
+    finally:
+        conn.close()
+```
+
+Hook it up in your workspace config:
+
+```jsonc
+{
+  "loopholes": {
+    "auth-broker": {
+      "command": ["python3", "~/code/auth-broker/serve.py", "--socket", "{socket}"],
+      "env": {"KEYS_FILE": "~/secrets/keys.json"}
+    }
+  }
+}
+```
+
+Inside the jail, the agent uses `$YOLO_SERVICE_AUTH_BROKER_SOCKET`:
+
+```bash
+echo '{"key": "OPENAI_API_KEY"}' | nc -U "$YOLO_SERVICE_AUTH_BROKER_SOCKET"
+# {"value": "sk-..."}
+```
+
+The secret never enters the jail filesystem, env vars, or any bind mount.
+
+### Security model
+
+- Each service's socket lives in a per-jail directory bind-mounted to `/run/yolo-services/`. Other jails can't see it.
+- On Linux, services can use `SO_PEERCRED` on accepted connections to attest the caller's host PID — same mechanism the cgroup delegate uses.
+- What the service does with secrets, scopes, audit logging, and rate limiting is entirely up to the service. yolo just wires the plumbing.
+- The cgroup delegate daemon is one of these services internally — proof that the pattern is enough to support privileged operations safely.
+
+### Validation
+
+`yolo check` verifies that each configured service's command exists and is executable. Catches typos before the next jail start.
+
+### Apple Container caveat
+
+Apple Container doesn't bind-mount Unix sockets through virtiofs, so host services are skipped entirely on the `container` runtime. Use `podman` if you need this feature on macOS.
+
+---
+
+## Storage & Persistence
+
+All paths below use the same layout on Linux and macOS (`~/.local/share/yolo-jail/` resolves to `/home/$USER/.local/share/yolo-jail/` on Linux and `/Users/$USER/.local/share/yolo-jail/` on macOS). On macOS with Podman Machine, make sure `$HOME` is in the VM's shared folders list.
+
+### Timezone
+
+The host's timezone is passed into the jail via the `TZ` env var, so `date`, log timestamps, cron expressions, and file mtimes inside the jail report the same wall-clock time as the host. Detection order:
+
+1. `$TZ` on the host (if you've explicitly set one, it wins)
+2. `/etc/timezone` plain-text zone name (Debian, Ubuntu, Arch)
+3. `/etc/localtime` symlink target suffix (Fedora, macOS — `/var/db/timezone/zoneinfo/<zone>`)
+
+If none of these resolve, the jail falls back to UTC. Override per-jail by exporting `TZ` in the shell you use to launch `yolo`, or by setting it in `env` inside `yolo-jail.jsonc`.
+
+### What Persists Across Restarts
+
+| Data | Location (Host) | Shared? |
+|------|-----------------|---------|
+| Auth tokens (gh, gemini, claude) | `~/.local/share/yolo-jail/home/` | All jails |
+| Installed tools (npm, go) | `~/.local/share/yolo-jail/home/` | All jails |
+| Mise tools & runtimes | `~/.local/share/yolo-jail/mise/` on Linux (bind-mounted at `/mise` inside the jail); podman named volume `yolo-mise-data-v2` on macOS and Apple Container, also mounted at `/mise` | All jails |
+| Bash history | `<workspace>/.yolo/home/bash_history` | Per workspace |
+| Claude sessions | `<workspace>/.yolo/home/claude-projects/` | Per workspace |
+| Copilot sessions | `<workspace>/.yolo/home/copilot-sessions/` | Per workspace |
+| Gemini history | `<workspace>/.yolo/home/gemini-history/` | Per workspace |
+| SSH keys | `<workspace>/.yolo/home/ssh/` | Per workspace |
+
+**Mise storage is jail-land only:** the host's `~/.local/share/mise/` is never mounted — jails and the host maintain fully independent mise installations, so neither side can break the other's tool installs and host↔jail mise version skew doesn't matter. Every jail sees the same store at the same path, `/mise`; only the backing differs per platform (a yolo-owned host directory on Linux, the `yolo-mise-data-v2` named volume on macOS and Apple Container). In-jail behavior is identical everywhere, and the store persists across jail restarts.
+
+### What Gets Regenerated
+
+On every jail start, the entrypoint regenerates:
+- `.bashrc` — prompt, aliases, PATH, mise integration
+- Shim scripts — blocked tool interceptors
+- MCP config — `mcp-config.json` / `settings.json`
+- LSP config — `lsp-config.json`
+- Bootstrap script — tool installation (idempotent)
+
+---
+
+## Container Reuse
+
+By default, `yolo` reuses an existing container for the same workspace:
+
+```bash
+yolo             # Creates container yolo-<hash>
+yolo             # Reuses yolo-<hash> via exec
+yolo --new       # Forces a new container
+```
+
+Containers are named deterministically based on the workspace path. Use `yolo ps` to see running containers.
+
+---
+
+## Config Safety
+
+When `yolo-jail.jsonc` changes between jail startups, the CLI shows a normalized diff and asks for confirmation:
+
+```
+Config has changed since last confirmed session.
+Diff:
+  + "packages": ["postgresql"]
+
+Accept this config? [y/N]:
+```
+
+This prevents agents from silently adding packages, mounts, or devices. The human must approve every change.
+
+### Workflow for Config Changes
+
+**From outside the jail (handoff to agent):**
+1. Edit `yolo-jail.jsonc`
+2. Run `yolo check` to validate
+3. Fix any errors
+4. Run `yolo` to start the jail (will see diff and prompt for approval)
+
+**From inside the jail (agent edits mid-session):**
+1. Agent edits `yolo-jail.jsonc`
+2. Agent runs `yolo check --no-build` for fast validation
+3. Agent fixes any reported problems
+4. Agent asks human to restart: _"I've updated the config. Please restart the jail."_
+5. Human exits and runs `yolo` again (sees diff, approves)
+
+See [docs/design/config-safety.md](../design/config-safety.md) for the full workflow.
+
+---
+
+## Platform Differences Reference
+
+YOLO Jail runs on Linux and macOS as first-class platforms. Everything in this guide works on both unless explicitly noted. The table below summarizes what differs; see [docs/research/platform-comparison.md](../research/platform-comparison.md) for the full feature matrix and architecture diagrams.
+
+| Feature | Linux | macOS Podman | macOS Apple Container |
+|---------|-------|------------------------|----------------------|
+| Container isolation | ✅ native | ✅ via VM | ✅ per-container VM |
+| Workspace mount (`/workspace`) | Native bind | VirtioFS | VirtioFS |
+| Auto-detect priority | podman | container → podman (via VM) | same |
+| Cgroup limits (`yolo-cglimit`) | ✅ | ❌ — use VM resource controls | ✅ (own kernel) |
+| Per-container CPU/memory | Via cgroups | VM-level only | ✅ native (`--cpus`, `--memory`) |
+| GPU passthrough (NVIDIA) | ✅ | ❌ (no CUDA on Apple Silicon) | ❌ |
+| USB / serial device passthrough | ✅ | ❌ | ❌ |
+| Port publishing (`network.ports`) | ✅ | ✅ | ✅ |
+| Port forwarding (`forward_host_ports`) | Unix sockets | TCP gateway (auto) | Native Unix sockets |
+| `--network host` | ✅ | ✅ | ❌ (not supported) |
+| UID mapping | `-u UID:GID` | VM handles automatically | VM per container |
+| `mise` tool storage (at `/mise` in-jail) | yolo-owned dir bind mount | podman named volume | podman named volume |
+| Max bind mounts | Unlimited | Unlimited | ~22 (VZ.framework) |
+| Image format | OCI | OCI | OCI (auto-converted via skopeo) |
+| `yolo doctor` runtime checks | Linux | macOS / VM | `container system status` |
+| Token refresher install | systemd `--user` | launchd or cron (see [scripts/README.md](../research/go-port-module-map/README.md)) | same |
+
+---
+
+## Troubleshooting
+
+Start with `yolo check` — it validates your entire setup on both platforms: runtime (podman/container), nix, config, image, running containers, GPU (Linux only), macOS VM backend (macOS only), and the Claude OAuth broker loophole.
+
+```bash
+yolo check                    # full check including nix build
+yolo check --no-build         # fast — skip nix build
+```
+
+### Common Issues (both platforms)
+
+**"Cannot find yolo-jail repo root"** — The CLI needs the source for nix image builds. Either clone the repo and run `just deploy` from inside it, or add `repo_path` to your user config:
+
+```jsonc
+// ~/.config/yolo-jail/config.jsonc
+{ "repo_path": "~/code/yolo-jail" }
+```
+
+**Image build fails**
+
+- Check nix is installed with flakes: `nix --version`
+- Ensure flakes are enabled in `~/.config/nix/nix.conf`:
+  ```
+  experimental-features = nix-command flakes
+  ```
+- On macOS: if you configured a remote Linux builder, verify it — `nix store info --store ssh-ng://nix-builder` should respond within a few seconds. (No builder is required for the default binary-cache build path.)
+- Run `yolo check` for detailed diagnostics
+
+**Container won't start**
+
+- Linux: check `podman --version`
+- macOS: check that your runtime's VM/daemon is up:
+  - Podman Machine: `podman machine list`
+  - Apple Container: `container system status`
+- Try forcing a new container: `yolo --new`
+- Check for leftover containers: `yolo ps`
+
+**MCP server not working**
+
+- Verify the preset is enabled in `mcp_presets`
+- Check logs (same paths on Linux and macOS): `~/.copilot/logs/` (Copilot), `~/.cache/gemini-cli/logs/` (Gemini), `~/.claude/logs/` (Claude)
+- Inside jail, view logs: `tail -100 ~/.copilot/logs/$(ls -1t ~/.copilot/logs | head -1)`
+
+**LSP not responding**
+
+- LSP servers are spawned on-demand, not as background services
+- Ensure the language server binary is installed (`mise ls`)
+- TypeScript LSP requires `tsconfig.json` or `jsconfig.json` in the workspace root
+
+**Tools missing after restart**
+
+- `eval "$(mise hook-env -s bash)"` to refresh PATH
+- Or restart the jail: `yolo --new`
+
+**Permission errors on files**
+
+
+- Linux + Podman: Rootless UID mapping handles ownership automatically
+- macOS (any runtime): File ownership is mediated by the VM's virtiofs layer; files inside `/workspace` appear as the jail user and on the host appear as you
+- If persistent, check `ls -la ~/.local/share/yolo-jail/home/`
+
+**Claude keeps logging out across jails**
+
+- Full triage walkthrough: [docs/research/claude-token-logouts.md](../research/claude-token-logouts.md). It maps each `yolo doctor` symptom to a fix.
+- Background: Anthropic rotates refresh tokens single-use, so multiple jails refreshing simultaneously race each other. The `claude-oauth-broker` loophole (bundled, active by default when `claude` is on PATH) serializes refreshes behind an `flock` on the host so jails can't race — eliminating the class entirely.
+- Run `yolo check` and look at the Loopholes section for broker health. Common recoveries: `yolo-claude-oauth-broker-host --init-ca` if certs are missing, then restart your jail.
+
+### Linux-Specific Issues
+
+**NVIDIA GPU not visible in jail**
+
+- Check `nvidia-smi` on the host works
+- Verify NVIDIA Container Toolkit: `nvidia-ctk --version`
+- For Podman, ensure the CDI spec exists: `/etc/cdi/nvidia.yaml`
+- See [GPU Passthrough](#gpu-passthrough-nvidia) for the full setup
+
+**Podman rootless permission denied on `/dev/dri` or devices**
+
+- Some device passthrough paths need `--cap-add` which Podman rootless may restrict
+- Run Podman rootful (`sudo podman`) for these workloads
+
+### macOS-Specific Issues
+
+**Podman Machine won't start on headless Mac (EC2, CI)**
+
+- Apple's Hypervisor.framework may require a GUI session
+
+- Set `export YOLO_RUNTIME=container` for Apple Container (or drop `YOLO_RUNTIME` — auto-detect will pick it up)
+
+**Nix build hangs or times out**
+
+- Check `nix store info` responds within 2 seconds
+- If it hangs, kill determinate-nixd and use the vanilla daemon:
+  ```bash
+  sudo pkill determinate-nixd
+  sudo /nix/var/nix/profiles/default/bin/nix-daemon &
+  ```
+- If you configured a Linux builder, verify it: `nix store info --store ssh-ng://nix-builder` (or `darwin.linux-builder` — see [docs/guides/macos.md](macos.md))
+
+**Port forwarding not working**
+
+- Podman on macOS: YOLO Jail uses a TCP gateway (`host.containers.internal`) instead of Unix sockets because virtiofs rejects sockets. This is automatic.
+- Apple Container: uses native `--publish-socket` — no TCP gateway needed.
+- Ensure `socat` is in the container (it's in the default image)
+
+**Apple Container: "virtual machine failed to start"**
+
+- VZ.framework caps bind mounts at ~22. YOLO Jail consolidates the workspace state into a single `/home/agent` mount to stay under this, but if you add many custom `mounts` entries you may still hit it.
+- Try `YOLO_RUNTIME=podman` to sidestep the limit.
+
+**Apple Container: image load fails**
+
+- Apple Container requires OCI-format images. YOLO Jail converts via `skopeo` first (no daemon needed), or `podman` as fallback.
+- If you don't have `skopeo` installed, install it: `brew install skopeo`.
+
+**`/tmp` bind mounts fail**
+
+- macOS `/tmp` → `/private/tmp` is a symlink. `cli.py` resolves this automatically.
+
+See [docs/guides/macos.md](macos.md) for the full macOS-specific reference, and [docs/research/platform-comparison.md](../research/platform-comparison.md) for the complete Linux-vs-macOS feature matrix.

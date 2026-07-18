@@ -32,7 +32,7 @@ dependencies = [
 [project.urls]
 Homepage = "https://github.com/mschulkind-oss/yolo-jail"
 Repository = "https://github.com/mschulkind-oss/yolo-jail"
-Documentation = "https://github.com/mschulkind-oss/yolo-jail/blob/main/docs/USER_GUIDE.md"
+Documentation = "https://github.com/mschulkind-oss/yolo-jail/blob/main/docs/guides/USER_GUIDE.md"
 Issues = "https://github.com/mschulkind-oss/yolo-jail/issues"
 
 [project.scripts]

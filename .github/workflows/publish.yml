@@ -174,7 +174,7 @@ jobs:
   # so macOS users download the prebuilt image instead of needing a Linux
   # builder.  Release-gated only.
   #
-  # NO-OP UNTIL SET UP (see docs/handoff-cachix-cache.md): the job skips
+  # NO-OP UNTIL SET UP (see docs/implementation/handoff-cachix-cache.md): the job skips
   # entirely unless the CACHIX_AUTH_TOKEN secret AND CACHIX_CACHE variable
   # are configured — so releases stay green before the Cachix account exists.
   push-image-cache:
@@ -196,7 +196,7 @@ jobs:
             echo "enabled=true" >> "$GITHUB_OUTPUT"
           else
             echo "enabled=false" >> "$GITHUB_OUTPUT"
-            echo "Cachix not configured (CACHIX_AUTH_TOKEN secret + CACHIX_CACHE var). Skipping — see docs/handoff-cachix-cache.md."
+            echo "Cachix not configured (CACHIX_AUTH_TOKEN secret + CACHIX_CACHE var). Skipping — see docs/implementation/handoff-cachix-cache.md."
           fi
 
       - uses: actions/checkout@v7
@@ -242,7 +242,7 @@ jobs:
   # instead of building an aarch64-linux image on a Mac (chicken-and-egg: a
   # Mac needs a Linux builder to build the builder).  Built natively on the
   # arm-Linux runner — Apple Silicon consumes the SAME aarch64-linux image.
-  # See docs/macos-container-builder-exploration.md + the AC runbook.
+  # See docs/research/macos-container-builder-exploration.md + the AC runbook.
   push-builder-image:
     if: github.event_name == 'release'
     runs-on: ubuntu-24.04-arm  # native aarch64-linux for Apple Silicon Macs

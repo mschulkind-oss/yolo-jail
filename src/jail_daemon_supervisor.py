@@ -19,7 +19,7 @@ operation (e.g. ``systemctl stop <service>`` on the host).
 
 The protocol between host and jail is deliberately tiny (one env var) so
 out-of-tree loopholes don't need to know about the supervisor's
-implementation.  See ``docs/loopholes.md`` and ``src/loopholes.py`` for
+implementation.  See ``docs/guides/loopholes.md`` and ``src/loopholes.py`` for
 the manifest side.
 """
 

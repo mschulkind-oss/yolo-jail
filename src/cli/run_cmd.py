@@ -148,7 +148,7 @@ from .version import (
 # path string, so path-embedding installs in it (pipx-backend venv
 # shebangs, pyvenv.cfg homes) would break if the same content were
 # remounted at /mise — v2 starts a fresh store cold instead (the
-# designed migration; see docs/jail-state-separation-design.md).
+# designed migration; see docs/design/jail-state-separation-design.md).
 MISE_STORE_VOLUME = "yolo-mise-data-v2"
 
 # _release_lock_when_started polls `find_running_container` until the
@@ -1490,7 +1490,7 @@ def run(
 
     # Jail-land mise store — shared by all jails, never by the host, and
     # mounted at the fixed neutral path /mise in every jail (see
-    # docs/jail-state-separation-design.md).  Nested jails re-mount the
+    # docs/design/jail-state-separation-design.md).  Nested jails re-mount the
     # /mise they already see.
     mise_store = _jail_mise_store_dir()
 
@@ -1726,7 +1726,7 @@ def run(
             # Jail-land mise store at the fixed neutral path /mise —
             # shared across jails only, never with the host, so no host
             # path string leaks into the jail (see
-            # docs/jail-state-separation-design.md).  Backed by a named
+            # docs/design/jail-state-separation-design.md).  Backed by a named
             # volume: the macOS host filesystem couldn't hold the Linux
             # toolchains anyway.  See MISE_STORE_VOLUME for why the name
             # is versioned; reclaim the old volume with
@@ -1809,7 +1809,7 @@ def run(
             # crossing the host↔jail boundary is the workspace itself.
             # Host-created venvs no longer resolve in-jail by design —
             # the per-side venv shadow mounts below give each side its
-            # own.  See docs/jail-state-separation-design.md.
+            # own.  See docs/design/jail-state-separation-design.md.
             #
             # macOS podman keeps a named volume: the host tree has
             # Mach-O binaries that cannot execute in the Linux container.

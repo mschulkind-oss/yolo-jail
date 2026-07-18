@@ -19,7 +19,7 @@ The one protocol-aware trick: the loophole protocol is exactly one
 client-first (``src/host_service.py``).  The relay reads that first
 message, stamps ``request["jail_id"]`` with the jail's container name
 (host-side injection — trustworthy, unlike an in-jail self-report;
-docs/loophole-protocol.md: daemons must not trust a client-supplied
+docs/design/loophole-protocol.md: daemons must not trust a client-supplied
 value), re-frames it, and then degrades to a dumb bidirectional pipe.
 Attribution is best-effort: an unparseable, oversized, or slow first
 message is forwarded verbatim and the connection keeps working — the

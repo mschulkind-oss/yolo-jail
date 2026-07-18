@@ -3,7 +3,7 @@
 Everything except materialize()'s real nix calls is pure; materialize is
 tested by monkeypatching subprocess.run (mirrors test_macos_user.py). The only
 thing NOT Linux-testable is a real `nix print-dev-env` of a darwin closure
-(deferred to a Mac — see docs/handoff-macos-user-revive-plan.md §5).
+(deferred to a Mac — see docs/implementation/handoff-macos-user-revive-plan.md §5).
 """
 
 from __future__ import annotations

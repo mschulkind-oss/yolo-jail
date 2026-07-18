@@ -20,7 +20,7 @@ IS_MACOS = sys.platform == "darwin"
 # These are the runtimes that build a container argv, load an image, and
 # answer `<rt> ps`.  On Apple Silicon the container is native arm64
 # (aarch64-darwin -> aarch64-linux), so there is no emulation to avoid —
-# see docs/macos-backend-direction.md.
+# see docs/plans/macos-backend-direction.md.
 SUPPORTED_RUNTIMES = ("podman", "container")
 
 # Native (non-container) runtimes.  macos-user runs the agent as a dedicated
@@ -28,7 +28,7 @@ SUPPORTED_RUNTIMES = ("podman", "container")
 # aarch64-darwin nix.  It is EXPLICIT opt-in only (never auto-detected) and
 # does NOT build a container argv / load an image / answer `<rt> ps` — so
 # container-side code must iterate SUPPORTED_RUNTIMES, never ALL_RUNTIMES.
-# See docs/macos-no-vm-direction.md (## Decision).
+# See docs/design/macos-no-vm-direction.md (## Decision).
 NATIVE_RUNTIMES = ("macos-user",)
 
 # Every value the `runtime` config key / YOLO_RUNTIME may take.

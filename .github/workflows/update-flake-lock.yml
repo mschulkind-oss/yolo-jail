@@ -4,7 +4,7 @@ on:
   schedule:
     # Weekly, Mondays 06:00 UTC.  The jail image's entire toolchain
     # (mise, node, python, go, …) rides flake.lock — see
-    # docs/jail-version-predictability.md for why this must not drift.
+    # docs/design/jail-version-predictability.md for why this must not drift.
     - cron: "0 6 * * 1"
   workflow_dispatch: # Allow manual trigger
 
@@ -49,7 +49,7 @@ jobs:
             Automated weekly `flake.lock` refresh.
 
             The jail image's toolchain (mise, node, python, go, …) rides
-            this lock — see docs/jail-version-predictability.md. Merging
+            this lock — see docs/design/jail-version-predictability.md. Merging
             picks up current nixpkgs on the next image rebuild
             (`just load && just install` on the host).
           pr-labels: |

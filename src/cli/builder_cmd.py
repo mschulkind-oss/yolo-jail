@@ -1,7 +1,7 @@
 """Typer subcommand group: ``yolo builder {setup,start,stop,status}``.
 
 Manages the on-demand macOS Linux builder VM (see ``builder.py`` and
-``docs/handoff-macos-ondemand-builder.md``).  The frictionless replacement
+``docs/implementation/handoff-macos-ondemand-builder.md``).  The frictionless replacement
 for "run and babysit ``nix run nixpkgs#darwin.linux-builder`` in a terminal":
 
   * ``setup``  — one-time: wire the Nix daemon to offload aarch64-linux builds

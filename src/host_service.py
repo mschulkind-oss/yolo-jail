@@ -32,7 +32,7 @@ Usage — the whole API surface is ``serve`` + ``Session``:
 Design notes
 ------------
 
-* **Frame protocol v1** — see ``docs/loophole-protocol.md`` for the wire
+* **Frame protocol v1** — see ``docs/design/loophole-protocol.md`` for the wire
   spec.  Briefly: each frame is ``<1-byte stream_id><4-byte big-endian
   length><length bytes>``; stream_id ∈ {0=stdout, 1=stderr, 2=exit}.
   The exit frame's payload is a single big-endian int32 return code.

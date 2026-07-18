@@ -205,7 +205,7 @@ class TestMacosMiseVolume:
             # Named volume backs the mount (Mach-O binaries in the host
             # mise dir can't run in Linux), mounted at the fixed neutral
             # path /mise — the same jail-land store location as every
-            # other runtime (see docs/jail-state-separation-design.md).
+            # other runtime (see docs/design/jail-state-separation-design.md).
             # v2 name: the pre-split volume held content laid out for
             # the old host-path mount target.
             assert "yolo-mise-data-v2:/mise" in cmd_str, (

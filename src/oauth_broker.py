@@ -12,7 +12,7 @@ TLS termination stays inside the jail (unprivileged port 443 in the
 container namespace), so we never need to bind :443 on the host.
 
 Protocol: one JSON request per connection (framed per the loophole
-protocol — see ``docs/loophole-protocol.md``).  Request shapes:
+protocol — see ``docs/design/loophole-protocol.md``).  Request shapes:
 
   {"action": "refresh"}   → runs the refresh flow; returns
                             {access_token, refresh_token, expires_in,
@@ -268,7 +268,7 @@ def ensure_ca_and_leaf(force: bool = False) -> None:
             f"Searched PATH={spawn_path!r} and fallback locations "
             f"({searched}). Install openssl, or symlink it into one "
             "of the fallback locations. "
-            "(See docs/claude-oauth-mitm-proxy-plan.md)"
+            "(See docs/plans/claude-oauth-mitm-proxy-plan.md)"
         )
 
     if force or not have_ca:

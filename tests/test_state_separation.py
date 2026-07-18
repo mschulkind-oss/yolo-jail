@@ -1,4 +1,4 @@
-"""Host↔jail state separation (docs/jail-state-separation-design.md).
+"""Host↔jail state separation (docs/design/jail-state-separation-design.md).
 
 Covers the split mise store (/mise mount + env contract), the
 nested-jail store rule, per-side venv shadow mounts, the layout-v2

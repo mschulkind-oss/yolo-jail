@@ -24,9 +24,9 @@ uv.lock
 .python-version
 
 # Public documentation
-docs/config-safety.md
-docs/storage-and-config.md
-docs/USER_GUIDE.md
+docs/design/config-safety.md
+docs/design/storage-and-config.md
+docs/guides/USER_GUIDE.md
 
 # Community & governance
 README.md

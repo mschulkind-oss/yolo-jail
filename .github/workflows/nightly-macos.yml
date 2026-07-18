@@ -56,7 +56,7 @@ jobs:
 
       # The CLI expects nix on the macOS host (yolo check gates on it, and
       # per-workspace images with extra packages are nix-built locally,
-      # substituting from the NixOS binary cache — see docs/macos.md).
+      # substituting from the NixOS binary cache — see docs/guides/macos.md).
       - name: Install Nix
         uses: cachix/install-nix-action@v31
         with:

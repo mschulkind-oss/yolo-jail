@@ -8,7 +8,7 @@ This module makes it **on-demand**: yolo starts the builder only when a build
 is actually needed, polls until it answers, and lets a launchd timer stop it
 when idle.  Running jails never touch the builder — it's a build-time-only
 dependency — so keeping it resident would waste ~3 GB for a thing used minutes
-a day.  See ``docs/handoff-macos-ondemand-builder.md`` for the decision.
+a day.  See ``docs/implementation/handoff-macos-ondemand-builder.md`` for the decision.
 
 ``yolo builder setup`` does the wiring FOR the user: it explains what will
 happen, then runs every privileged mutation in ONE ``sudo`` invocation (a

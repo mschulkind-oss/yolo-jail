@@ -1,0 +1,255 @@
+{
+ "group": "cli-entry",
+ "purpose": "Top-level `yolo` CLI entry: builds the Typer app, registers all subcommands (defined in sibling cli/* modules), rewrites argv so `yolo -- cmd` routes to `yolo run -- cmd`, sets kitty-tab/tmux-pane \"JAIL\" indicators with atexit restore, and prints the startup banner. Also owns the version-string discovery stack, the shared rich Console singleton, the path/runtime constants used by every other cli module, and the host-side TTY proxy that intercepts Ctrl-Z (0x1A) before it reaches the jail so Claude Code can't wedge PID 1.",
+ "files": [
+  {
+   "path": "/workspace/src/cli/__init__.py",
+   "role": "Typer app + top-level callback (global options, rich help text), ~200 lines of re-exports from all cli/* submodules (test/monkeypatch surface), main() entry: YOLO_INVOCATION_CWD chdir, argv `--`\u2192`run` rewrite, kitty/tmux indicator setup + atexit restore, app() dispatch"
+  },
+  {
+   "path": "/workspace/src/cli/__main__.py",
+   "role": "`python -m src.cli` shim \u2192 main()"
+  },
+  {
+   "path": "/workspace/src/cli/console.py",
+   "role": "Shared rich Console singleton (standalone to avoid circular imports)"
+  },
+  {
+   "path": "/workspace/src/cli/terminal.py",
+   "role": "tmux window/pane-border and kitty tab-title/color jail indicators (save/set/restore via subprocess to tmux/kitten), startup banner to stderr"
+  },
+  {
+   "path": "/workspace/src/cli/tty_proxy.py",
+   "role": "run_with_proxy(): pty-based host TTY proxy; raw mode, ^Z self-suspend, SIGCONT re-raw, SIGWINCH forwarding, SIGHUP/SIGTERM teardown hook, non-TTY plain-Popen fallback"
+  },
+  {
+   "path": "/workspace/src/cli/version.py",
+   "role": "Version discovery: YOLO_VERSION env > git describe (normalized) > setuptools-scm src/_version.py > importlib.metadata; --version eager callback; container-baked YOLO_VERSION via `<runtime> inspect`"
+  },
+  {
+   "path": "/workspace/src/cli/paths.py",
+   "role": "Constants: IS_LINUX/IS_MACOS, SUPPORTED_RUNTIMES=(podman,container), NATIVE_RUNTIMES=(macos-user,), image names, ~/.local/share/yolo-jail tree, user config path, /run/yolo-services, cgroup-delegate.sock / journal.sock names"
+  }
+ ],
+ "public_surface": [
+  {
+   "kind": "cli-command",
+   "name": "yolo (console script)",
+   "detail": "pyproject [project.scripts] yolo = \"src.cli:main\". Global options on root callback: --network (default \"bridge\"), --new, --profile, --dry-run (macos-user only), --version (eager, prints \"yolo-jail <ver>\" and exits 0). No subcommand \u2192 invokes `run` with forwarded options. Root help is rich-markup text (user-visible doc).",
+   "consumers": "host users, agents in-jail via generated wrapper (~/.yolo-shims/yolo and flake.nix yoloCli both do `from src.cli import main; main()` against /opt/yolo-jail)"
+  },
+  {
+   "kind": "cli-command",
+   "name": "argv rewrite: `yolo -- CMD` \u2192 `yolo run -- CMD`",
+   "detail": "main() scans sys.argv; if `--` present and nothing before it is in the hardcoded subcommand set {init, init-user-config, config-ref, check, run, ps, doctor, loopholes, broker, builder, macos-setup, macos-teardown, macos-unshare, macos-fix-permissions}, inserts \"run\" before `--`. Go port must keep this exact set in sync with registered commands.",
+   "consumers": "every `yolo -- <agent>` invocation, docs, tests"
+  },
+  {
+   "kind": "cli-command",
+   "name": "subcommand registration",
+   "detail": "app.command(): init, init-user-config, config-ref, prune, check, run (allow_extra_args + ignore_unknown_options), ps, doctor, macos-setup/teardown/unshare/fix-permissions; add_typer: loopholes, broker, builder. Implementations live in other module groups; this group only wires dispatch.",
+   "consumers": "all users"
+  },
+  {
+   "kind": "cli-command",
+   "name": "python -m src.cli",
+   "detail": "__main__.py calls main(); flake.nix in-jail wrapper uses `python3 -c \"from src.cli import main; main()\"` under uv with --with typer --with rich --with pyjson5>=2.0.0",
+   "consumers": "in-jail yolo wrapper, dev invocations"
+  },
+  {
+   "kind": "env-var",
+   "name": "YOLO_INVOCATION_CWD",
+   "detail": "main() pops it from os.environ and chdirs there (best-effort) before anything else \u2014 jail-side shim compensation so workspace/config resolution uses the user's real CWD. Popped, so never propagates to children.",
+   "consumers": "jail-side yolo shim (historically); main()"
+  },
+  {
+   "kind": "env-var",
+   "name": "YOLO_VERSION",
+   "detail": "Read by _git_describe_version() as highest-priority version override (host CLI sets it before spawning containers so in-jail banner matches host); _container_baked_yolo_version() greps it out of `<runtime> inspect .Config.Env`.",
+   "consumers": "version.py, run_cmd (setter), entrypoint image bake"
+  },
+  {
+   "kind": "env-var",
+   "name": "KITTY_PID / KITTY_WINDOW_ID / TMUX / TMUX_PANE",
+   "detail": "Terminal detection. Priority: KITTY_PID set AND TMUX unset \u2192 kitty tab path; else tmux path. KITTY_WINDOW_ID picks `--match id:<id>` (else `recent:0`).",
+   "consumers": "main(), terminal.py"
+  },
+  {
+   "kind": "env-var",
+   "name": "YOLO_NO_TMUX",
+   "detail": "\"1\" disables all tmux interactions (_tmux_rename_window, _tmux_setup_jail_pane no-op).",
+   "consumers": "terminal.py"
+  },
+  {
+   "kind": "env-var",
+   "name": "SM_PROJECT",
+   "detail": "Overrides project label (else cwd basename) used in kitty tab title / tmux pane border text.",
+   "consumers": "_get_project_name()"
+  },
+  {
+   "kind": "other",
+   "name": "terminal side-band protocol",
+   "detail": "subprocess to `tmux` (rename-window, show-option -pt, set-option -pt/-put, show-window-option, set-window-option automatic-rename off, display-message -p, batched restore with `;` separators) and `kitten @` (get-tab-title/set-tab-title/set-tab-color --match id:N). Sets title \"\ud83d\udd12 JAIL <project>\", pane border \" \ud83d\udd12 JAIL <dir> \", red border/tab colors (#cc0000/#880000); restore on atexit resets to saved values (title fallback \"bash\", colors \"none\").",
+   "consumers": "user's terminal emulator"
+  },
+  {
+   "kind": "other",
+   "name": "startup banner (stderr)",
+   "detail": "`yolo-jail <ver> | <sys.platform>/<machine> | <runtime> | <cname>` \u2014 ver becomes `yolo-jail <ver> (attached to jail built at <jail_ver>)` when container-baked YOLO_VERSION differs. Optional second line `Resource limits: a, b, c`. Users paste this into bug reports; keep byte-identical.",
+   "consumers": "humans, log sharing"
+  },
+  {
+   "kind": "file-format",
+   "name": "version string normalization",
+   "detail": "git describe `v0.1.0-3-gabcdef1-dirty` \u2192 `0.1.0+3.gabcdef1.dirty`; exactly-on-tag \u2192 `0.1.0`; dirty-on-tag `v0.1.0-dirty` \u2192 `0.1.0.dirty` (note: NO `+` in that case); leading `v` stripped. Fallback chain: YOLO_VERSION env \u2192 git describe (cwd=repo root, 5s timeout) \u2192 src/_version.py (setuptools-scm) \u2192 importlib.metadata(\"yolo-jail\") \u2192 \"unknown\".",
+   "consumers": "banner, --version, YOLO_VERSION propagation into containers"
+  },
+  {
+   "kind": "cli-command",
+   "name": "<runtime> inspect for baked version",
+   "detail": "`<runtime> inspect --format '{{range .Config.Env}}{{println .}}{{end}}' <cname>` with 3s timeout; parses YOLO_VERSION= line; any failure \u2192 None (never fatal).",
+   "consumers": "_print_startup_banner callers in run_cmd"
+  },
+  {
+   "kind": "signal",
+   "name": "tty_proxy signals",
+   "detail": "Installs handlers while proxying (restores previous on exit): SIGWINCH \u2192 read TIOCGWINSZ from host stdin, TIOCSWINSZ onto master pty; SIGCONT \u2192 tty.setraw(stdin) (re-raw after fg); SIGHUP/SIGTERM \u2192 restore cooked termios, run on_terminate() (e.g. podman stop), os._exit(128+signum); self-delivered SIGTSTP (default disposition) on ^Z byte after restoring cooked mode. Non-TTY path installs NO handlers.",
+   "consumers": "host shell job control, window-close teardown"
+  },
+  {
+   "kind": "exit-code",
+   "name": "run_with_proxy exit codes",
+   "detail": "Returns wrapped child's exit code verbatim (both TTY and non-TTY paths); 128+signum via os._exit on SIGHUP/SIGTERM; FileNotFoundError propagates if cmd missing (after closing pty fds).",
+   "consumers": "run_cmd (yolo run exit status), macos_user"
+  },
+  {
+   "kind": "socket-protocol",
+   "name": "TTY byte protocol",
+   "detail": "Host stdin raw (tty.setraw); 4096-byte chunks; 0x1A splits chunk: pre-bytes forwarded, proxy self-suspends, post-bytes flushed after SIGCONT; child gets slave pty as stdin+stdout+stderr; initial winsize copied from host TTY; select() 0.1s timeout poll loop; drain of master after child exit so final output isn't truncated; stdin EOF \u2192 close master (sets sentinel -1).",
+   "consumers": "podman run/exec, macos-user launch argv"
+  },
+  {
+   "kind": "path",
+   "name": "paths.py constants",
+   "detail": "GLOBAL_STORAGE=~/.local/share/yolo-jail (+ /home /mise /cache /containers /agents /build), USER_CONFIG_PATH=~/.config/yolo-jail/config.jsonc, JAIL_HOST_SERVICES_DIR=/run/yolo-services, CGD_SOCKET_NAME=\"cgroup-delegate.sock\" (MUST match entrypoint + YOLO_SERVICE_CGROUP_DELEGATE_SOCKET), JOURNAL_SOCKET_NAME=\"journal.sock\", JAIL_IMAGE=localhost/yolo-jail:latest, JAIL_IMAGE_SHORT=yolo-jail:latest (Apple Container can't parse localhost/ prefix), SUPPORTED_RUNTIMES=(podman,container), NATIVE_RUNTIMES=(macos-user,).",
+   "consumers": "every cli/* module, entrypoint expectations, daemons"
+  }
+ ],
+ "internal_deps": [
+  "src/cli/image.py",
+  "src/cli/runtime.py",
+  "src/cli/config.py",
+  "src/cli/storage.py",
+  "src/cli/network.py",
+  "src/cli/agents_md.py",
+  "src/cli/loopholes_runtime.py",
+  "src/cli/init_cmd.py",
+  "src/cli/config_ref_cmd.py",
+  "src/cli/prune_cmd.py",
+  "src/cli/check_cmd.py",
+  "src/cli/run_cmd.py",
+  "src/cli/macos_user.py",
+  "src/cli/loopholes_cmd.py",
+  "src/cli/broker_cmd.py",
+  "src/cli/builder_cmd.py",
+  "src/loopholes",
+  "src/_version.py (optional, setuptools-scm bake)"
+ ],
+ "third_party_deps": [
+  {
+   "pkg": "typer",
+   "used_for": "app construction, options, eager --version callback, ctx.invoke forwarding, rich_markup_mode help",
+   "go_equivalent": "cobra (or urfave/cli); help text must be re-rendered \u2014 rich markup tags don't translate"
+  },
+  {
+   "pkg": "rich",
+   "used_for": "Console singleton (styled output used by all subcommands)",
+   "go_equivalent": "fatih/color or charmbracelet/lipgloss; or plain ANSI"
+  },
+  {
+   "pkg": "stdlib pty/termios/tty/fcntl/select/signal",
+   "used_for": "tty_proxy raw-mode pumping",
+   "go_equivalent": "creack/pty + golang.org/x/term (MakeRaw/Restore) + x/sys/unix (IoctlGetWinsize/SetWinsize, Kill, signal.Notify)"
+  }
+ ],
+ "side_effects": [
+  "os.chdir to YOLO_INVOCATION_CWD (popped from env)",
+  "mutates sys.argv in place (inserts \"run\")",
+  "spawns tmux/kitten subprocesses; changes user's terminal tab title/colors and tmux pane borders/window name; atexit restore",
+  "tty_proxy: puts host TTY in raw mode, installs/restores 4 signal handlers, opens/closes a pty pair, spawns the runtime process, self-delivers SIGTSTP, may os._exit",
+  "version: runs `git describe` (cwd=repo root, 5s timeout) and `<runtime> inspect` (3s timeout)",
+  "prints banner to stderr"
+ ],
+ "python_specifics": [
+  "cli/__init__.py re-exports ~150 private symbols from every submodule so tests can `from cli import X` and patch('cli.foo') \u2014 this monkeypatch identity is the de-facto test contract; a Go port breaks it, so parity must move to process-level tests",
+  "dual import identity: package is importable as both `cli` and `src.cli` (conftest/agent_registry rely on it)",
+  "typer ctx.invoke(run, ...) forwards root-callback options into the run command; comment warns un-forwarded params would keep truthy OptionInfo defaults \u2014 subtle Typer artifact, don't replicate",
+  "lazy circular import in version.py (`from . import _resolve_repo_root` inside function) with fallback to Path(__file__).parent^3 as repo root",
+  "importlib.metadata / setuptools-scm src/_version.py fallbacks \u2014 Go should use ldflags -X baked version instead, but must keep YOLO_VERSION env override and git-describe normalization identical",
+  "tty.setraw mutates termios; cooked attrs captured once and restored with TCSANOW at suspend/exit/signal-teardown",
+  "os.kill(getpid(), SIGTSTP) with DEFAULT disposition to stop whole process incl. daemon threads (doc: chosen over raise_signal; POSIX stops all threads). Go: runtime installs no SIGTSTP handler by default so syscall.Kill(pid, SIGTSTP) works, but any signal.Notify(SIGTSTP) would break stop semantics \u2014 must leave disposition default",
+  "signal handlers call tty.setraw/tcsetattr and os._exit(128+signum) from handler context; Go equivalent is a signal goroutine \u2014 ordering with the pump loop must be reasoned out (Python handlers interrupt the main thread; goroutines race)",
+  "deliberately NO start_new_session on Popen \u2014 child must share the session so bash job control and pty allocation work (doc: setsid broke -it)",
+  "on_started runs on a daemon thread post-spawn (releases workspace lock while proxy pumps); SIGTSTP stopping all threads is what makes this race-free \u2014 Go needs an explicit story",
+  "select() loop with 0.1s timeout + proc.poll() polling; stdin-EOF sets master=-1 sentinel expecting select to skip it, but Python select() actually raises ValueError on negative fd \u2014 near-dead code path (raw TTY rarely EOFs); do NOT copy literally, decide correct EOF semantics and test",
+  "atexit.register(restore) for terminal cleanup \u2014 Go needs defer in main + signal-path invocation",
+  "emoji (\ud83d\udd12) and rich markup in user-visible strings; banner uses sys.platform values ('linux','darwin') \u2014 Go GOOS matches but keep exact banner text"
+ ],
+ "seams": [
+  {
+   "name": "tty-proxy binary",
+   "contract": "exec-style: proxy(argv, on_started?, on_terminate?) \u2192 child exit code. Behavior: non-TTY stdin \u2192 plain spawn inheriting stdio; TTY stdin \u2192 pty pair, raw mode, 0x1A intercept + self-SIGTSTP, SIGCONT re-raw, SIGWINCH \u2192 TIOCSWINSZ, SIGHUP/SIGTERM \u2192 restore TTY + teardown + exit 128+n, drain master on child exit. Hardest part: on_started/on_terminate are Python closures (lock release, `podman stop`); a standalone Go binary needs them expressed as sub-commands/argv hooks (e.g. --on-terminate 'podman stop <cname>'), or the Go proxy stays a library until run_cmd itself ports",
+   "swap_mechanism": "env var (e.g. YOLO_TTY_PROXY=/path/to/go-proxy) checked in run_with_proxy: if set, os.exec/subprocess the Go binary with the wrapped argv and hook args; else Python path. Call sites: run_cmd.py:1383,1439,3000 and macos_user.py:1288",
+   "parity_test": "scripted pty harness (Python pexpect or script(1)): run `<proxy> -- cat` on a real pty; assert ^Z stops the proxy (WIFSTOPPED, child cat got no signal), fg/SIGCONT resumes and pre/post-^Z byte split is exact; SIGWINCH propagates (check stty size inside); SIGTERM \u2192 exit 143 + termios restored; `echo hi | proxy -- cat` \u2192 'hi', exit 0; exit-code passthrough for exit 7"
+  },
+  {
+   "name": "whole-CLI front door",
+   "contract": "`yolo` binary: argv rewrite rules, subcommand set, global flags, --version output `yolo-jail <ver>`, terminal indicator setup/restore, then dispatch. A Go front-end can parse/dispatch and exec `python -m src.cli <argv>` (with YOLO_INVOCATION_CWD semantics) for not-yet-ported subcommands",
+   "swap_mechanism": "replace the installed console script / the two wrapper generators (flake.nix yoloCli, entrypoint/scripts.py generate_yolo_wrapper) to point at the Go binary; Go binary execs Python for unported commands",
+   "parity_test": "golden tests: `yolo --version`, `yolo --help` (text will differ \u2014 pin new golden), `yolo -- echo hi` argv rewrite (observe child argv via strace/echo), `yolo check --no-build` passthrough unchanged; banner line byte-compare with YOLO_VERSION pinned"
+  },
+  {
+   "name": "version discovery",
+   "contract": "pure function: (YOLO_VERSION env, git describe output, baked version, metadata) \u2192 normalized string per the rules above; plus `<runtime> inspect` env grep",
+   "swap_mechanism": "trivially portable library; or a `yolo-version` helper binary compared side-by-side during transition",
+   "parity_test": "table test over describe outputs {v0.1.0, v0.1.0-dirty, v0.1.0-3-gabc-dirty, abc1234 (no tag)} \u2192 identical strings from both implementations; run in a repo checked out at a tag / dirty / detached"
+  },
+  {
+   "name": "terminal indicators",
+   "contract": "exact tmux/kitten argv sequences (set/save/restore) listed in public_surface; all best-effort/silent-failure",
+   "swap_mechanism": "port with the front door; A/B by recording subprocess argvs (PATH-shim fake tmux/kitten that logs calls) under both implementations",
+   "parity_test": "fake tmux/kitten shims write invoked argv to a log; diff logs Python vs Go for setup+restore in tmux env, kitty env, YOLO_NO_TMUX=1, non-TTY"
+  }
+ ],
+ "test_coverage": {
+  "existing": [
+   "tests/test_cli_unit.py: TestRunWithProxy \u2014 non-TTY fallback (exit code, on_started sync call, exception swallow, on_terminate unused on non-TTY); banner formatting incl. jail-version mismatch/match/missing; version git-describe + pkg-metadata fallback",
+   "tests/test_cli_commands.py: TestMainFunction \u2014 kitty-vs-tmux priority, argv `--`\u2192run insertion, no-rewrite when subcommand present; TestTmuxRenameWindow/TestTmuxSetupJailPane/TestKittySetupJailTab \u2014 no-op guards (no TMUX, YOLO_NO_TMUX, not-a-tty), set+restore call shapes, kitten failure tolerance",
+   "tests/test_state_separation.py + test_cli_commands.py exec-path tests patch cli.run_cmd.run_with_proxy (proxy is mocked, not exercised)"
+  ],
+  "gaps": [
+   "PARTIAL coverage of the real TTY proxy loop (CORRECTED 2026-07-17): TestRunWithProxy covers the non-TTY fallback and TestProxyTeardownSignal (tests/test_cli_unit.py:5125, commit b09c9f1) drives the real loop behind a real pty asserting SIGHUP/SIGTERM -> teardown callback + exit 128+n. Still uncovered: ^Z byte-split math + pending-flush after resume, bash job-control (outer shell sees Stopped; wrapped child receives no signal and keeps running), SIGWINCH forwarding, SIGCONT re-raw, master drain-on-exit, stdin-EOF/-1 sentinel",
+   "version normalization edge cases (dirty-on-tag \u2192 `0.1.0+dirty` (CORRECTED 2026-07-17: earlier map text said `0.1.0.dirty` no-`+`, copied from a stale comment; the code at version.py:99-108 emits `0.1.0+dirty`); hash-only describe) untested",
+   "_container_baked_yolo_version parsing untested",
+   "YOLO_INVOCATION_CWD chdir behavior untested",
+   "tmux restore batching (single `tmux cmd \\; cmd` invocation) argv shape untested"
+  ],
+  "assessment": "Dispatch and no-TTY paths are well covered via monkeypatching; the highest-risk code (raw pty proxy) has zero automated coverage. Before porting, build a pty-driven black-box harness (pexpect/script) against the Python proxy first, then reuse it as the Go parity gate. The mock-based tests won't survive a Go port \u2014 the parity surface must be process-level (argv, env, exit codes, subprocess call logs)."
+ },
+ "porting_hazards": [
+  "tty_proxy is the top hazard: raw termios save/restore, self-SIGTSTP with default disposition (Go runtime must not Notify SIGTSTP), signal-handler-context TTY restore + os._exit(128+n), pty winsize ioctls, and the child sharing the proxy's session (no setsid \u2014 doc records that setsid broke podman -it). Go's signal model (goroutine, not interrupting handler) changes suspend/resume ordering; needs careful design + real-pty tests",
+  "on_started/on_terminate are in-process Python closures crossing the proxy boundary (lock release, podman stop with captured cname) \u2014 cannot swap the proxy to a Go binary without redesigning these as argv-passed hooks or porting run_cmd's call sites simultaneously",
+  "the ~150-symbol re-export block in cli/__init__.py is the test suite's patch surface; incremental porting silently breaks dozens of @patch('cli.X') tests per module moved \u2014 plan test migration per module",
+  "argv rewrite subcommand set is hardcoded and must stay in lockstep with registered commands (adding a Go subcommand without updating the set makes `yolo newcmd -- x` misroute to run)",
+  "Typer help text is rich-markup and part of the UX (agents read it); Go help output will differ \u2014 decide whether help text is in or out of parity scope",
+  "version normalization quirk: dirty-on-exact-tag yields `0.1.0+dirty` (CORRECTED 2026-07-17: an earlier stale code comment claimed `0.1.0.dirty` with no `+`; the code emits `0.1.0+dirty` \u2014 generate goldens from observed output, never comments)",
+  "stdin-EOF path sets master=-1 then would pass it to select() \u2192 ValueError in Python; effectively dead on real TTYs. Decide intended behavior; don't transliterate",
+  "banner `sys.platform` values ('linux'/'darwin') happen to equal GOOS \u2014 verify platform.machine() vs runtime.GOARCH naming (x86_64 vs amd64, arm64 vs aarch64) for byte-identical banner",
+  "kitty/tmux restore relies on atexit \u2014 but the SIGHUP/SIGTERM handler in tty_proxy calls os._exit, which SKIPS atexit: terminal indicators are NOT restored on kill/window-close today; replicate (or consciously fix) in Go",
+  "emoji + UTF-8 in tab titles/pane formats \u2014 keep exact bytes for parity diffing of tmux/kitten argv logs",
+  "paths.py CGD_SOCKET_NAME comment records a real regression (renamed socket broke the cgroup delegate silently) \u2014 socket filenames are cross-image contracts baked into the Nix entrypoint; constants must be shared/generated, not re-typed, in the Go tree"
+ ],
+ "complexity": "high",
+ "est_go_loc": 1400,
+ "notes": "Files: /workspace/src/cli/{__init__,__main__,console,terminal,tty_proxy,version,paths}.py; design doc /workspace/docs/ctrl-zand-the-tty-proxy.md (actual path: /workspace/docs/design/ctrl-z-and-the-tty-proxy.md) is required reading for the proxy port. Recommended order: (1) paths constants as a shared Go package generated or cross-checked against Python, (2) version library with table-driven parity tests, (3) pty harness for the Python proxy, (4) Go proxy behind YOLO_TTY_PROXY env swap, (5) front-door dispatch last since it must exec Python for unported subcommands. Console singleton is trivial but its rich styling leaks into every subcommand's output \u2014 output-parity scope decision needed early."
+}
