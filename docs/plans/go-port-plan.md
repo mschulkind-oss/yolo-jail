@@ -937,8 +937,8 @@ Stage 1.
 | 6 | OAuth broker | 2 + soak | **landed** (audit fixes: creds missing-key, Accept-Encoding identity, dup headers, malformed-200, flock hard-fail; logging is a follow-up); soak human-gated | [stage-6](../implementation/go-port-stage-6.md) |
 | 7 | Builtin daemons | 2 | **Commit B landed** (audit fixes: truncation race, darwin build, Setsid/SIGTERM/-N, header caps, --log-file audit logging); **Commit A** (Python carve-out + lazy cgroup resolve) pending | [stage-7](../implementation/go-port-stage-7.md) |
 | 8 | TTY proxy | 2 | **landed** (internal/ttyproxy library form; Spike B resolved→library; interactive ^Z/fg is the Stage 16 nested-jail gate) | — |
-| 9 | Characterization wave B | 1 | in progress (delegated — entrypoint tree goldens) | — |
-| 10 | Go entrypoint (dual image) | 3 | in progress (delegated — generators lib; orchestration/boot/image-wiring pending) | — |
+| 9 | Characterization wave B | 1 | **landed** (entrypoint tree-diff/sha256 golden harness: Python oracle + Go test over a committed 9-scenario env matrix; all surfaces byte-identical; `bash -n` + shim-contract behavioral tests; dynamic-output exclusion list committed; QA batch 2) | — |
+| 10 | Go entrypoint (dual image) | 3 | **generators-lib landed** (all pure content generators in internal/entrypoint byte-verified vs live Python: shims, launchers, .bashrc, bootstrap/venv-precreate/cglimit/journalctl/yolo-ps/yolo-wrapper, MCP wrappers, mise config.toml, 6 agent configs + sidecars incl. codex TOML + claude 3-way merge/creds-harvest, CA bundle); **orchestration/boot + image-wiring pending** (main() ordering, subprocess side effects, os.environ export, flake wrapper) | — |
 | 11 | Jail-side wave | 2 | partial (yolo-ps/supervisor/terminator + cgd/journald ported+audit-fixed: verbatim headers, HTTP/1.1 pinned, 502 layers; cglimit/journalctl + image bake pending) | [stage-11](../implementation/go-port-stage-11.md) |
 | 12 | Front door + slices | 2 | **landed** (cmd/yolo dispatch + seam #1 delegation; native slices delegate until byte-goldened) | — |
 | 13 | Config engine | 2 | in progress (delegated) | — |
