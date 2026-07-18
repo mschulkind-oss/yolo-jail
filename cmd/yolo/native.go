@@ -8,11 +8,13 @@ import (
 	"strings"
 
 	"github.com/mschulkind-oss/yolo-jail/internal/brokercmd"
+	"github.com/mschulkind-oss/yolo-jail/internal/buildercmd"
 	"github.com/mschulkind-oss/yolo-jail/internal/checkcmd"
 	"github.com/mschulkind-oss/yolo-jail/internal/configref"
 	"github.com/mschulkind-oss/yolo-jail/internal/frontdoor"
 	"github.com/mschulkind-oss/yolo-jail/internal/initcmd"
 	"github.com/mschulkind-oss/yolo-jail/internal/loopholescmd"
+	"github.com/mschulkind-oss/yolo-jail/internal/macosuser"
 	"github.com/mschulkind-oss/yolo-jail/internal/paths"
 	"github.com/mschulkind-oss/yolo-jail/internal/prunecmd"
 	"github.com/mschulkind-oss/yolo-jail/internal/pscmd"
@@ -26,16 +28,54 @@ import (
 // gates them on via YOLO_IMPL=go — dispatchNative is only reached for a
 // subcommand IsNative already approved, so a plain map entry is correct.
 var nativeDispatch = map[string]func(args []string) int{
-	"check":            runCheck,
-	"doctor":           runCheck, // doctor is an alias for check (same body + flag).
-	"run":              runRun,
-	"ps":               runPs,
-	"loopholes":        runLoopholes,
-	"config-ref":       runConfigRef,
-	"init":             runInit,
-	"init-user-config": runInitUserConfig,
-	"broker":           runBroker,
-	"prune":            runPrune,
+	"check":                 runCheck,
+	"doctor":                runCheck, // doctor is an alias for check (same body + flag).
+	"run":                   runRun,
+	"ps":                    runPs,
+	"loopholes":             runLoopholes,
+	"config-ref":            runConfigRef,
+	"init":                  runInit,
+	"init-user-config":      runInitUserConfig,
+	"broker":                runBroker,
+	"prune":                 runPrune,
+	"builder":               runBuilder,
+	"macos-setup":           runMacosSetup,
+	"macos-teardown":        runMacosTeardown,
+	"macos-unshare":         runMacosUnshare,
+	"macos-fix-permissions": runMacosFixPermissions,
+}
+
+// runBuilder dispatches `yolo builder {setup,start,stop,status}` (macOS-only
+// on-demand Linux builder VM). Gated behind YOLO_IMPL=go.
+func runBuilder(args []string) int {
+	var sub string
+	var rest []string
+	if len(args) > 1 {
+		sub = args[1]
+		rest = args[2:]
+	}
+	return buildercmd.RunBuilder(buildercmd.RealDeps(), sub, rest)
+}
+
+// runMacosSetup/Teardown/Unshare/FixPermissions dispatch the four macos-*
+// commands (macOS-only; refuse/no-op on Linux). Gated behind YOLO_IMPL=go.
+func runMacosSetup(_ []string) int    { return macosuser.MacosSetup(macosuser.RealDeps(nil, nil)) }
+func runMacosTeardown(_ []string) int { return macosuser.MacosTeardown(macosuser.RealDeps(nil, nil)) }
+
+func runMacosUnshare(args []string) int {
+	ws := ""
+	if len(args) > 1 {
+		ws = args[1]
+	}
+	return macosuser.MacosUnshare(macosuser.RealDeps(nil, nil), ws)
+}
+
+func runMacosFixPermissions(args []string) int {
+	path := ""
+	if len(args) > 1 {
+		path = args[1]
+	}
+	return macosuser.MacosFixPermissions(macosuser.RealDeps(nil, nil), path)
 }
 
 // runPrune runs the native `yolo prune` (disk reclaim). Parses the prune flags

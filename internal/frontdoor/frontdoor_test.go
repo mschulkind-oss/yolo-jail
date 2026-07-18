@@ -75,10 +75,10 @@ func TestCheckGate(t *testing.T) {
 			t.Errorf("gate on: IsNative(%q) = false, want true (native Go)", sub)
 		}
 	}
-	// A non-gated, non-native subcommand stays delegated even with the gate on.
-	// (macos-setup is delegated until Stage 16b's dispatch wiring lands.)
-	if IsNative("macos-setup") {
-		t.Error("gate on: IsNative(\"macos-setup\") = true, want false")
+	// A subcommand that is neither unconditionally-native nor gated stays
+	// delegated even with the gate on (e.g. an unrecognized token).
+	if IsNative("not-a-subcommand") {
+		t.Error("gate on: IsNative(\"not-a-subcommand\") = true, want false")
 	}
 }
 
