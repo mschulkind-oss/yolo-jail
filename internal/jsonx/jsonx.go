@@ -56,6 +56,22 @@ func (m *OrderedMap) Get(key string) (any, bool) {
 	return v, ok
 }
 
+// Delete removes key if present, preserving the order of the remaining keys.
+// A missing key is a no-op. Mirrors Python's dict.pop(key, None) as used by the
+// MCP-server reconcile logic (drop-stale-then-update).
+func (m *OrderedMap) Delete(key string) {
+	if _, ok := m.values[key]; !ok {
+		return
+	}
+	delete(m.values, key)
+	for i, k := range m.keys {
+		if k == key {
+			m.keys = append(m.keys[:i], m.keys[i+1:]...)
+			break
+		}
+	}
+}
+
 // Keys returns the keys in insertion order (do not mutate).
 func (m *OrderedMap) Keys() []string { return m.keys }
 
