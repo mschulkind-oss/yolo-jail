@@ -82,6 +82,42 @@ func TestCheckGate(t *testing.T) {
 	}
 }
 
+// TestGoDisableValve asserts the YOLO_GO_DISABLE rollback valve: a named
+// subcommand force-delegates even with the gate ON, and the valve tolerates
+// whitespace / multi-entry lists. An unnamed subcommand is unaffected.
+func TestGoDisableValve(t *testing.T) {
+	origGate, origDisable := goImplEnabled, goDisabled
+	defer func() { goImplEnabled, goDisabled = origGate, origDisable }()
+	goImplEnabled = func() bool { return true } // gate ON: gated subs are native…
+
+	// …until YOLO_GO_DISABLE names them.
+	goDisabled = func(sub string) bool { return sub == "check" || sub == "run" }
+	if IsNative("check") {
+		t.Error("YOLO_GO_DISABLE=check should force check to delegate even with gate on")
+	}
+	if IsNative("run") {
+		t.Error("YOLO_GO_DISABLE=run should force run to delegate")
+	}
+	// A gated sub NOT in the list stays native.
+	if !IsNative("ps") {
+		t.Error("ps not disabled: should stay native with gate on")
+	}
+
+	// The real env reader: trims whitespace, honors multi-entry lists.
+	goDisabled = origDisable
+	t.Setenv("YOLO_GO_DISABLE", " check , run ")
+	if !goDisabled("check") || !goDisabled("run") {
+		t.Error("whitespace-padded comma list should match check and run")
+	}
+	if goDisabled("ps") {
+		t.Error("ps not in list should not be disabled")
+	}
+	t.Setenv("YOLO_GO_DISABLE", "")
+	if goDisabled("check") {
+		t.Error("empty YOLO_GO_DISABLE should disable nothing")
+	}
+}
+
 // TestGoImplEnabledEnv checks the real env reader honors YOLO_IMPL=go only.
 func TestGoImplEnabledEnv(t *testing.T) {
 	t.Setenv("YOLO_IMPL", "go")

@@ -114,12 +114,41 @@ func Subcommand(args []string) string {
 // IsNative reports whether the Go binary handles sub natively (no delegation).
 // A subcommand is native when it is unconditionally native, OR it is gated and
 // the YOLO_IMPL=go gate is set. Everything else delegates to Python.
+//
+// The YOLO_GO_DISABLE=<cmd,…> rollback valve (plan §12 flag registry) wins over
+// everything: a subcommand named there force-delegates to Python, the surgical
+// per-subcommand rollback that stays live until Stage 17 retirement. This is
+// the ONLY escape hatch that overrides an unconditionally-native slice, so a
+// newly-goldened slice can be reverted in the field without a rebuild.
 func IsNative(sub string) bool {
+	if goDisabled(sub) {
+		return false
+	}
 	if _, ok := nativeSubcommands[sub]; ok {
 		return true
 	}
 	if _, ok := gatedNativeSubcommands[sub]; ok {
 		return goImplEnabled()
+	}
+	return false
+}
+
+// goDisabled reports whether sub appears in the YOLO_GO_DISABLE comma list (the
+// per-subcommand rollback valve). Whitespace around each name is trimmed; empty
+// entries are ignored. An empty/unset var disables nothing. It is a package var
+// so tests can substitute the env reader (mirrors goImplEnabled).
+var goDisabled = func(sub string) bool {
+	if sub == "" {
+		return false
+	}
+	raw := os.Getenv("YOLO_GO_DISABLE")
+	if raw == "" {
+		return false
+	}
+	for _, name := range strings.Split(raw, ",") {
+		if strings.TrimSpace(name) == sub {
+			return true
+		}
 	}
 	return false
 }
