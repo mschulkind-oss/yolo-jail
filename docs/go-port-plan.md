@@ -1,34 +1,39 @@
 # Go Port Plan — yolo-jail, module by module, zero functionality change
 
-**Status:** APPROVED PENDING OPEN QUESTIONS · 2026-07-17
+**Status:** APPROVED PENDING OPEN QUESTIONS · 2026-07-17 (rev 2, post-adversarial-review)
 **Audience:** the coding agent executing the port (many small sessions), and the human approving flips.
 **Scope:** port all ~25k lines of Python (`src/`) to Go, incrementally, with every swap
 independently shippable, A/B-testable, and revertible by one env var. Test coverage must
 end strictly better than it started.
 
-This plan was synthesized from a contract-level map of every module (raw maps:
-`swarf/go-port/module-map/*.json` — local-only, not committed; regenerate by re-running the
-mapping described in §15) plus three competing staging strategies scored by a judge pass.
-The backbone is a **strangler at process boundaries** — yolo-jail is already a federation of
-processes talking over argv, env vars, unix sockets, and pid/lock/sentinel files, so the port
-never crosses a language boundary in-process. Where a process boundary doesn't exist yet,
-a stage first carves it in Python with parity proven, then swaps the binary.
+This plan was synthesized from a contract-level map of every module
+(`docs/go-port-module-map/*.json` — committed, mandatory per-stage reading) plus three
+competing staging strategies scored by a judge pass, then hardened by a four-lens
+adversarial review (rev 2 fixes are woven in below; see §15). The backbone is a
+**strangler at process boundaries** — yolo-jail is already a federation of processes
+talking over argv, env vars, unix sockets, and pid/lock/sentinel files, so the port never
+crosses a language boundary in-process. Where a process boundary doesn't exist yet, a
+stage first carves it in Python with parity proven, then swaps the binary.
 
 ---
 
 ## 1. Ground rules (non-negotiable)
 
 1. **Zero functionality change per swap.** If Python behavior looks like a bug, preserve it
-   and file an Open Question — never "fix while porting." Approved intentional changes go in
-   the divergence ledger (`docs/go-port-divergences.md`) with human sign-off first.
+   and file an Open Question — never "fix while porting." Intentional changes require
+   human sign-off first and are recorded in the **divergence ledger,
+   `docs/go-port-divergences.md`** (the single authoritative list; QA batch docs *propose*
+   entries, the ledger *records* approved ones).
 2. **Every seam defaults to Python** until its soak completes. Flips and reverts are env-var
    or one-line fix-forward commits.
 3. **Python code is never deleted before Stage 17 (cutover).** Both nets stay active.
-4. **Commit discipline** (repo standards, mechanically enforced): conventional commits
-   straight to main (`feat(go): …`, `test(go): …`); commit after every logical change;
-   **never amend** — always fix forward; `just format` before committing; the pre-commit
-   hook runs `just check-ci` — if it rejects, fix and retry, never `--no-verify`;
-   **no AI attribution trailers of any kind** (this overrides any harness default footer).
+4. **Commit discipline** (repo standards — self-enforced; only `just check-ci` via the
+   pre-commit hook is mechanical): conventional commits straight to main (`feat(go): …`,
+   `test(go): …`); commit after every logical change; **never amend** — always fix
+   forward; `just format` before committing; if the hook rejects, fix and retry, never
+   `--no-verify`; **no AI attribution trailers of any kind** (this overrides any harness
+   default footer). Stage 0 may optionally add the playbook's commit-msg attribution hook
+   to make this mechanical.
 5. **Nested-jail verification is the definition of done** for any stage touching cli or
    entrypoint code paths: run `yolo -- bash` from inside the jail exercising the changed
    path, and record commands + observed output in the stage handoff doc. Unit tests are
@@ -45,6 +50,10 @@ a stage first carves it in Python with parity proven, then swaps the binary.
 9. **The freeze rule** (in force from the first golden, Stage 1): any commit that changes
    Python behavior must regenerate the affected goldens in the same commit, or parity CI
    is red. Main is live and moving; goldens that rot are worse than no goldens.
+10. **Port from code, never from summaries.** This plan and the module maps tell you what
+    to hold stable; the Python source + its tests tell you what the behavior *is*. Where
+    they disagree, the source wins (a stale code comment already poisoned one byte
+    contract in rev 1 — see §15).
 
 ## 2. Current architecture snapshot
 
@@ -52,7 +61,7 @@ Four host-side console scripts (pyproject `[project.scripts]`):
 
 | Entry point | Source | Role |
 |---|---|---|
-| `yolo` | `src/cli/` (~13.6k LOC) | host CLI: run/check/init/prune/loopholes/broker/builder/macos-* |
+| `yolo` | `src/cli/` (~16.7k LOC total) | host CLI: run/check/init/prune/loopholes/broker/builder/macos-* |
 | `yolo-claude-oauth-broker-host` | `src/oauth_broker.py` | host singleton daemon: serializes Claude OAuth refreshes (flock + creds file) |
 | `yolo-host-processes` | `src/host_processes.py` | host daemon: allowlisted `ps` view over unix socket |
 | `yolo-ps` | `src/yolo_ps.py` | in-jail client for the above |
@@ -74,32 +83,39 @@ Plus processes that are *not* console scripts:
 
 - Host CLI runs live from source (editable install / `/opt/yolo-jail` live mount): changes
   take effect on the next `yolo` invocation. Host-side swaps are cheap and instantly
-  revertible.
+  revertible. **Go loses the edit-is-live property** — see the `dist-go/` build channel
+  in §3, which restores it (binaries on the live mount, rebuildable from inside the jail).
 - The entrypoint is baked into the Nix image: shipping new in-jail bytes requires the human
   to run `just load && just install` on the host. Stage 10 makes the image **dual-impl** so
   after ONE rebuild, A/B and rollback are per-jail `-e YOLO_ENTRYPOINT_IMPL=…` flips with
   zero further rebuilds — plus a live-mount dev override that makes Go entrypoint iteration
   *better* than today's rebuild-per-edit loop.
-- Long-lived daemons pin stale code (2026-04-24 incident): every daemon seam's flip AND
-  revert procedure includes the restart step (`yolo broker restart`, relay re-ensure).
+- Long-lived daemons have TWO distinct staleness failure modes, both encoded in incident
+  history: (a) stale *code* in memory after an upgrade (docs/claude-token-logouts.md,
+  wheel-upgrade case) — every flip AND revert includes the restart step (`yolo broker
+  restart`, relay re-ensure); (b) stale bind-mounted socket *inodes* after a daemon
+  restart (e7b7073, latent 2026-04-24 → bit 2026-07-03, fixed by the per-jail relay's
+  per-connection dial) — why relay re-ensure, not just broker restart, is in every revert
+  procedure.
 
 ### Module inventory
 
 | Group | Files | Py LOC | Complexity | Est. Go LOC | Ported in |
 |---|---|---|---|---|---|
-| cli-entry (dispatch, console, terminal, tty_proxy, version, paths) | 7 | ~1,650 | high | ~1,400 | St. 8, 12 |
+| cli-entry (dispatch, console, terminal, tty_proxy, version, paths) | 7 | ~1,330 | high | ~1,400 | St. 8, 12 |
 | cli-run (run_cmd, runtime, network) | 3 | ~3,860 | very-high | ~4,800 | St. 16 |
-| cli-config (config, check, config_ref, init, agents_md) | 5 | ~5,070 | high | ~5,500 | St. 12, 13, 15 |
-| cli-image (image, builder×2, storage, prune×2) | 6 | ~3,300 | high | ~4,800 | St. 14 |
-| cli-macos (macos_user, darwin_packages) | 2 | ~1,870 | medium | ~2,200 | **delegated** (§13) |
+| cli-config (config, check, config_ref, init, agents_md) | 5 | ~5,070 | high | ~5,500 | St. 12, 13, 15, 16 (agents_md) |
+| cli-image (image, builder×2, storage, prune×2) | 6 | ~3,300 | high | ~4,800 | St. 14 (all six slices incl. storage+image) |
+| cli-macos (macos_user, darwin_packages) | 2 | ~1,870 | medium | ~2,200 | **delegated** (§13); 3 pure check-probe helpers carved into St. 15 |
 | loopholes (registry, cmd, runtime) | 3 | ~3,110 | high | ~4,500 | St. 3, 7, 14, 16 |
 | host-services (broker, relay, host_service, host_processes, yolo_ps, supervisor, jail TLS) | 7 | ~2,830 | high | ~4,500 | St. 3–7, 11 |
 | entrypoint (12 modules) | 12 | ~3,620 | high | ~5,200 | St. 9–11 |
 
-Per-module contracts, hazards, and test gaps live in `swarf/go-port/module-map/<group>.json`.
+Per-module contracts, hazards, and test gaps live in `docs/go-port-module-map/<group>.json`.
 **Read the relevant map file before starting any stage** — it lists the exact public surface
 (CLI flags, env vars, socket message shapes, file formats, exit codes) that stage must hold
-byte-stable, with `file:line` references.
+byte-stable, with `file:line` references (line numbers drift as main moves; when a map
+disagrees with the source, the source wins).
 
 ## 3. Target Go architecture
 
@@ -117,23 +133,39 @@ byte-stable, with `file:line` references.
   (container-touching Go tests behind `-short`/build tag, mirroring the `slow` marker).
   dependabot gains the `gomod` ecosystem.
 
+### The `dist-go/` build channel (transition-era binary staging — decided up front)
+
+- `just build-go` builds every `cmd/` binary into **`dist-go/<goos>-<goarch>/`** at the
+  repo root. `dist-go/` is gitignored (Stage 0 adds the entry). **Never stage Go binaries
+  in `dist/`** — `just build` starts with `rm -rf dist/` (Justfile), so anything there is
+  deleted by the very `just install` the plan mandates at Stages 10/11.
+- All transition-era seam flags point into `dist-go/` (see the flag registry). Because the
+  workspace is live-mounted, the executing agent can rebuild host-consumable Linux
+  binaries **from inside the jail** (`just build-go`) and the host sees them immediately —
+  artifact staleness during multi-week soaks is fixed by rebuilding, not by human action
+  (daemon *restarts* remain a human action).
+- The in-jail dev override for the entrypoint is
+  `/opt/yolo-jail/dist-go/linux-<arch>/yolo-entrypoint` (seam #5).
+- At Stage 17, distribution moves to goreleaser artifacts; `dist-go/` remains the dev
+  channel.
+
 ### Binaries (`cmd/`)
 
 | Binary | Replaces | Notes |
 |---|---|---|
 | `cmd/goprobe` | — | Stage 0 throwaway deployment probe; deleted after |
 | `cmd/yolo-parity` | — | drift-suite dump tool (§5); deleted at cutover |
-| `cmd/yolo-broker-relay` | `src/broker_relay.py` | |
-| `cmd/yolo-host-processes` | `src/host_processes.py` | keeps exec'ing real `ps` — output format is the contract |
-| `cmd/yolo-claude-oauth-broker-host` | `src/oauth_broker.py` | name = console-script name = manifest/doctor contract |
-| `cmd/yolo-ps` | `src/yolo_ps.py` | in-jail client |
-| `cmd/yolo-cgd`, `cmd/yolo-journald` | run_cmd threads | after Stage 7 carve-out |
-| `cmd/yolo-ttyproxy` | `src/cli/tty_proxy.py` | OR library-in-`cmd/yolo` — decided by the Stage 2 spike |
-| `cmd/yolo-entrypoint` | `src/entrypoint/` | static, stdlib-lean (mirrors Python's stdlib-only constraint) |
-| `cmd/yolo-jail-supervisor` | `src/jail_daemon_supervisor.py` | |
-| `cmd/yolo-oauth-terminator` | `src/oauth_broker_jail.py` | |
-| `cmd/yolo-cglimit`, `cmd/yolo-journalctl` | generated Python helper scripts | Stage 11 |
-| `cmd/yolo` | `src/cli/` | the front door (Stage 12); dispatches native slices, execs `python -m src.cli` for the rest |
+| `cmd/yolo-broker-relay` | `src/broker_relay.py` | St. 3 |
+| `cmd/yolo-host-processes` | `src/host_processes.py` | St. 5; keeps exec'ing real `ps` — output format is the contract |
+| `cmd/yolo-claude-oauth-broker-host` | `src/oauth_broker.py` | St. 6; binary name = console-script name = manifest/doctor contract (resolved via `YOLO_GO_BIN_DIR` during transition, installed under the contract name at cutover) |
+| `cmd/yolo-ps` | `src/yolo_ps.py` | St. 11 (in-jail client; baked with the jail-side wave) |
+| `cmd/yolo-cgd`, `cmd/yolo-journald` | run_cmd threads | St. 7, after the carve-out |
+| `cmd/yolo-ttyproxy` | `src/cli/tty_proxy.py` | St. 8 — OR library-in-`cmd/yolo`, decided by the Stage 2 spike |
+| `cmd/yolo-entrypoint` | `src/entrypoint/` | St. 10; static, stdlib-lean (mirrors Python's stdlib-only constraint) |
+| `cmd/yolo-jail-supervisor` | `src/jail_daemon_supervisor.py` | St. 11 |
+| `cmd/yolo-oauth-terminator` | `src/oauth_broker_jail.py` | St. 11 |
+| `cmd/yolo-cglimit`, `cmd/yolo-journalctl` | generated Python helper scripts | St. 11 |
+| `cmd/yolo` | `src/cli/` | the front door (St. 12); built into `dist-go/`, invoked via `$YOLO_GO_BIN_DIR/yolo` during transition (never needs host PATH until cutover); dispatches native slices, execs `python -m src.cli` for the rest |
 
 Image-size note: if the sum of static jail-side binaries bloats the image measurably
 (check at Stage 10), consolidate jail-side binaries into one multi-call binary dispatching
@@ -144,16 +176,17 @@ on `argv[0]` with symlinks under the contract names. Don't pre-optimize; measure
 | Package | Source of truth | Why it exists |
 |---|---|---|
 | `internal/paths` | `src/cli/paths.py` | constants (socket names are cross-image contracts — `CGD_SOCKET_NAME`'s comment records a real regression from re-typing one). Pinned by the drift suite. |
-| `internal/version` | `src/cli/version.py` | normalization incl. the dirty-on-tag `0.1.0.dirty` (no `+`) quirk |
+| `internal/version` | `src/cli/version.py` | normalization incl. dirty-on-tag → **`0.1.0+dirty`** (WITH `+`; a stale code comment claimed `0.1.0.dirty` and poisoned rev 1 of this plan — goldens are generated from observed Python output, never comments) |
 | `internal/jsonx` | `json.dumps` semantics | canonical encoder byte-compatible with Python for BOTH `indent=2,sort_keys,ensure_ascii` (snapshot format) and default-separators (`YOLO_EXTRA_PACKAGES`, `YOLO_JAIL_DAEMONS`) forms; **order-preserving decode** (Python dicts are insertion-ordered; Go maps are not); the list-dedup canonical key (`json.dumps sort_keys default=str` equality classes); int-vs-float repr |
 | `internal/json5` | pyjson5 observed behavior | JSONC/JSON5 decode driven to observed equivalence via the differential oracle (Stage 2) |
+| `internal/tomlx` | `tomllib` observed behavior | TOML parse parity — silently load-bearing in three places: host-side mise.toml/mise.jail.toml venv discovery (feeds the venv-shadow mount set and a jail-made-venv **rmtree**), agents_md's pyproject.toml read, and codex's `~/.codex/config.toml` (the one agent config that is TOML, not JSON). Parser choice pinned by a fixture corpus over the real shapes (str vs dict entries, `{{config_root}}` prefixes, later-file-wins) |
 | `internal/shquote` | `shlex.join`/`quote` | quoting golden table over adversarial argv — correctness-critical (commands round-trip through `bash -c` in-jail) |
 | `internal/pytext` | Python `repr()` | validation error strings embed Python-repr quoting (`(got 'x')`); Go `%q` differs |
 | `internal/fsx` | incident history | `WriteInPlace` (truncate+write, **never** tmp+rename — bind-mounted single files break on rename; docs/agent-briefings.md documents the inode-preservation trap); clear-contents-not-dir (mount anchors, 2026-07-04 regression); relative-symlink create/compare; hardlink-dedup atomicity |
 | `internal/execx` | subprocess patterns | timeout/`FileNotFoundError` → graceful empty result ("tool absent = no-op", never error); tri-state liveness `kill(pid,0)`: ESRCH=dead, **EPERM=alive**, other=alive; flock helpers that mutually exclude with Python's `fcntl.flock` on the same paths |
 | `internal/console` | rich output | badges `[PASS]`/`[FAIL]`/`[WARN]`, `       -> ` note indent; parity defined on ANSI-stripped text |
 | `internal/frameproto` | `src/host_service.py` | frame protocol v1: `>BI` header, **signed** `>i` exit payload; `handler error: <e>\n`; access-log line format |
-| `internal/agents` | `entrypoint/agent_registry.py` | pure data shared by host CLI and entrypoint — extract to one source, consumed by both languages during transition |
+| `internal/agents` | `entrypoint/agent_registry.py` | pure data (6 agents: claude, copilot, gemini, opencode, pi, codex) — **hand-ported to Go and pinned by the drift suite** (no Python-side refactor; §12) |
 
 **Tri-state rule (standing review item for every stage):** `None` ≠ empty collection.
 `None`/unknown means "decline to act" in `_live_yolo_containers`, relay orphan reaping,
@@ -164,37 +197,48 @@ slices. A nil-flattening bug here silently grants unsafe prunes/reaps.
 
 | # | Seam | Mechanism | Introduced |
 |---|---|---|---|
-| 1 | **Front-door exec** (whole CLI) | Python `src/cli` `main()` prelude: if `YOLO_IMPL=go` and `yolo-go` on PATH → `os.execvp` it with argv. Go binary handles ported subcommands natively and execs `python -m src.cli` (setting `YOLO_INVOCATION_CWD`) for the rest. `YOLO_GO_DISABLE=<cmd,…>` forces delegation per-subcommand — surgical, permanent rollback. The argv-rewrite subcommand set is generated into one table cross-asserted against Python's registration at test time so the two can never drift. | St. 12 |
-| 2 | **Spawn-argv env** (host daemons/relay) | `YOLO_BROKER_RELAY_BIN=/path` and `YOLO_GO_DAEMONS=<name,…>` checked at the Python spawn sites (`_relay_ensure`, `_broker_ensure`, `_start_host_service_external`). **Non-negotiable rider:** the cmdline/pgrep identity guards (`'broker_relay.py'`, console-script names) are widened to match BOTH names in the SAME commit — otherwise mixed-era invocations can't reap each other's processes (the 2026 orphan-relay incident class). | St. 3–6 |
-| 3 | **Thread→subprocess carve-out** (cgd/journal) | Two commits: (A) behavior-preserving Python refactor moves the in-run threads to spawned subprocesses matching the external-service lifecycle; (B) binary swap rides seam #2. Socket names/perms/protocols byte-frozen throughout. | St. 7 |
-| 4 | **TTY proxy env + hook protocol** | `YOLO_TTY_PROXY=/path` in `run_with_proxy` (call sites run_cmd.py:1383/1439/3000, macos_user.py:1288). Python closures become executable-friendly hooks: `--started-fd N` (readiness byte; the workspace-lock FD stays owned by Python) and `--on-terminate '<argv…>'` (exec'd post-termios-restore on SIGHUP/SIGTERM, e.g. `podman stop -t 5 <cname>`). | St. 8 |
-| 5 | **Dual-impl image wrapper** (entrypoint + jail side) | flake.nix `/bin/yolo-entrypoint` wrapper branches on `YOLO_ENTRYPOINT_IMPL` (default python); BOTH implementations baked into every image; the CLI forwards the flag via `-e`. Dev override: wrapper prefers `/opt/yolo-jail/dist/yolo-entrypoint-dev` when present (live-mount iteration, no rebuilds). | St. 10–11 |
-| 6 | **Frozen interop contracts** (the coexistence substrate) | Not a swap point — the reason mixed states are safe. Versioned as tested fixtures, never re-typed: frame protocol v1 (+ the journal bridge's distinct 1/2/3 stream IDs — deliberately ≠ protocol v1's 0/1/2), `/tmp` pid+lock+sock naming (`sha1(cname)[:8]`), `refresh.lock` kernel flock, creds-file JSON + atomic-write pattern, `container_name_for_workspace`, tracking/owner/lock files, `last-load-*` LRU sentinels + tar cache keys, config-snapshot bytes, the `-e YOLO_*` container env contract, ordered runtime argv, `YOLO_JAIL_DAEMONS` JSON. | St. 1 |
-| 7 | **Parity instrumentation** | `YOLO_DEBUG` ordered-argv dump (run_cmd.py:2966); fake `podman`/`container`/`tmux`/`kitten` PATH shims that record argv; env-var path-override hooks (storage root, tmp roots, **test-only upstream URL override** in both broker impls) designed into every Go binary from day one — Python monkeypatch hermeticity does not port; `just parity <suite>` dual-run diff runner; CI gains an `impl={python,go}` matrix dimension. | St. 0–1 |
-| 8 | **macos-user permanent delegation** | Go `run` dispatch keeps `runtime == macos-user → exec python -m src.cli run …` (and the four `macos-*` commands delegated) until the backend direction decision lands (docs/macos-backend-direction.md is DECISION PENDING). | St. 12, 16 |
+| 1 | **Front-door exec** (whole CLI) | Python `src/cli` `main()` prelude: if `YOLO_IMPL=go` **and `YOLO_GO_DELEGATED` is unset** → `os.execv("$YOLO_GO_BIN_DIR/yolo", sys.argv)`. The Go binary handles ported subcommands natively; for everything else it sets `YOLO_GO_DELEGATED=1` in the child env and execs `python -m src.cli` (setting `YOLO_INVOCATION_CWD`) — the marker breaks the exec loop (without it, Python's prelude would bounce straight back to Go, forever). `YOLO_GO_DISABLE=<cmd,…>` forces delegation per-subcommand — surgical rollback until Stage 17 retirement. **Delegation is decided BEFORE terminal-indicator setup, and the Go front door must not touch indicators when delegating** (otherwise Python saves the already-branded state as its restore target and the terminal stays branded after exit). Argv-rewrite parity oracle: Python's **literal `_SUBCOMMANDS` set** (cli/__init__.py:455-470), byte-frozen — including its known quirk that `prune` is registered but absent from the set (so `yolo prune -- x` misroutes today; preserved, filed as an Open Question). A separate *advisory* check compares the set against registered commands with the prune delta pre-recorded. | St. 12 |
+| 2 | **Spawn-argv env** (host daemons/relay) | `YOLO_BROKER_RELAY_BIN=/path` (St. 3, explicit path) and `YOLO_GO_DAEMONS=<name,…>` + **`YOLO_GO_BIN_DIR=<dir>`** (St. 5+): the Python spawn sites (`_relay_ensure`, `_broker_ensure`, `_start_host_service_external`) resolve a listed daemon's binary as `$YOLO_GO_BIN_DIR/<name>` instead of the console-script name on PATH. (Resolution must be by explicit dir — the Go binary carries the same name as the Python console script, so PATH shadowing would defeat per-daemon gating.) **Non-negotiable rider:** the cmdline/pgrep identity guards (`'broker_relay.py'`, console-script names) are widened to match BOTH implementations in the SAME commit — otherwise mixed-era invocations can't reap each other's processes (the 2026 orphan-relay incident class). | St. 3–6 |
+| 3 | **Thread→subprocess carve-out** (cgd/journal) | Two commits: (A) behavior-preserving Python refactor moves the in-run threads to spawned subprocesses matching the external-service lifecycle **with `PR_SET_PDEATHSIG(SIGTERM)`** so the daemons still die when `yolo run` dies by any means, including SIGKILL — preserving today's thread crash-lifetime semantics (these daemons are Linux-only, so PDEATHSIG is available); (B) binary swap rides seam #2. Socket names/perms/protocols byte-frozen throughout. | St. 7 |
+| 4 | **TTY proxy env + `--started-fd` hook** | `YOLO_TTY_PROXY=/path` in `run_with_proxy` (call sites run_cmd.py:1383/1439/3000, macos_user.py:1288). ONE hook crosses the boundary: `--started-fd N` (proxy writes a readiness byte post-spawn; the Python parent's existing thread runs on_started — the workspace-lock FD never leaves Python). **All SIGHUP/SIGTERM teardown stays in the Python parent**: when the proxy is external, Python installs its own SIGHUP/SIGTERM handlers that wait for the proxy child, then run today's full closure chain (_stop_jail, cleanup_port_forwarding, lock close, stop_loopholes) and exit 128+n; the Go proxy's only signal duty is cooked-termios restore before exiting. (An exec'd `--on-terminate` argv cannot express the four-step Python teardown — rejected in review.) Double-delivery is inherent (both processes share the session and receive the signal); the parent's handler must tolerate the proxy already being dead. | St. 8 |
+| 5 | **Dual-impl image wrapper** (entrypoint + jail side) | flake.nix `/bin/yolo-entrypoint` wrapper branches on `YOLO_ENTRYPOINT_IMPL` (default python); BOTH implementations baked into every image; the CLI forwards the flag via `-e`. Dev override: wrapper prefers `/opt/yolo-jail/dist-go/linux-<arch>/yolo-entrypoint` when present (live-mount iteration, no rebuilds — and safe from `just build`'s `rm -rf dist/`). | St. 10–11 |
+| 6 | **Frozen interop contracts** (the coexistence substrate) | Not a swap point — the reason mixed states are safe. Versioned as tested fixtures, never re-typed: frame protocol v1 (+ the journal bridge's distinct 1/2/3 stream IDs — deliberately ≠ protocol v1's 0/1/2), `/tmp` pid+lock+sock naming (`sha1(cname)[:8]`), `refresh.lock` kernel flock, creds-file JSON + atomic-write pattern, `container_name_for_workspace`, tracking/owner/lock files, `last-load-*` LRU sentinels + tar cache keys, config-snapshot bytes, the `-e YOLO_*` container env contract, ordered runtime argv, `YOLO_JAIL_DAEMONS` JSON, **and the `yolo-user-env.sh` export-line grammar** (`export K=${K:-'v'}` with `'\''` escaping — writer in run_cmd.py:~1984, reader in entrypoint `_hydrate_env_from_user_env_file`; cross-language from Stage 10 to Stage 16, so it gets a writer→reader round-trip corpus in both directions). | St. 1 |
+| 7 | **Parity instrumentation** | `YOLO_DEBUG` ordered-argv dump (run_cmd.py:2966 — fresh-launch path only; attach-path argv is captured via PATH shims, not YOLO_DEBUG); fake `podman`/`container`/`tmux`/`kitten`/`ps` PATH shims that record or replay argv; env-var path-override hooks (storage root, tmp roots, **test-only upstream URL override** in both broker impls) designed into every Go binary from day one — Python monkeypatch hermeticity does not port; `just parity <suite>` dual-run diff runner; CI gains an `impl` matrix dimension. | St. 0–1 |
+| 8 | **macos-user delegation** | Go `run` dispatch keeps `runtime == macos-user → exec python -m src.cli run …` (and the four `macos-*` commands delegated) until the backend direction decision lands (docs/macos-backend-direction.md is DECISION PENDING). Note this seam's interaction with Stage 17 retirement — see §13 and the Open Question. | St. 12, 16 |
 
-### Flag registry (all default Python; deleted at Stage 17)
+### Flag registry
 
-| Flag | Selects | Introduced | Flip gate |
-|---|---|---|---|
-| `YOLO_BROKER_RELAY_BIN=/path` | Go broker relay | St. 3 | relay harness green both impls + nested-jail smoke |
-| `YOLO_GO_DAEMONS=<name,…>` | Go host daemons (host-processes, oauth-broker, cgd, journald) | St. 5 | per-daemon black-box suite + soak |
-| `YOLO_TTY_PROXY=/path` | Go tty proxy | St. 8 | pty harness 100% incl. job-control scenario + manual session |
-| `YOLO_ENTRYPOINT_IMPL=go\|python` (+ dev override file) | in-jail entrypoint | St. 10 | tree-diff empty/waived + slow suite green both arms ×2 |
-| `YOLO_IMPL=go` | Go front door | St. 12 | goldens + full-day dogfood |
-| `YOLO_GO_DISABLE=<cmd,…>` | force-delegate subcommands | St. 12 | (rollback valve, always available) |
+| Flag | Selects | Introduced | Where the default lives / when it flips | Flip gate |
+|---|---|---|---|---|
+| `YOLO_GO_BIN_DIR=<dir>` | where Python resolves Go binaries (default: unset → repo `dist-go/<goos>-<goarch>`) | St. 0 | convention, not a flip | — |
+| `YOLO_BROKER_RELAY_BIN=/path` | Go broker relay | St. 3 | host env export by the human during soak; code default flips at St. 17 | relay harness green both impls + nested-jail smoke |
+| `YOLO_GO_DAEMONS=<name,…>` | Go host daemons (host-processes, oauth-broker, cgd, journald) | St. 5 | host env export during soak; code default flips at St. 17 | per-daemon black-box suite + soak |
+| `YOLO_TTY_PROXY=/path` | Go tty proxy | St. 8 | host env export during soak; code default flips at St. 17 | pty harness 100% incl. job-control + child-not-stopped scenarios + manual session |
+| `YOLO_ENTRYPOINT_IMPL=go\|python` (+ dev override file) | in-jail entrypoint | St. 10 | wrapper default stays `python`; flips at St. 17 (one flake commit) | tree-diff empty/waived + slow suite green both arms ×2 |
+| `YOLO_IMPL=go` | Go front door | St. 12 | host env export during dogfood; console-script/wrapper defaults flip at St. 17 | goldens + full-day dogfood |
+| `YOLO_GO_DISABLE=<cmd,…>` | force-delegate subcommands | St. 12 | rollback valve, live until St. 17 retirement removes the Python target | — |
 
-Rules: **CI tests exactly two profiles** (all-default and all-go) plus the current stage's
-single flip — no combinatorial flag matrix. `yolo check` gains a one-line "active
-implementations" report so operators can always see what's live.
+Rules: during the transition there is no code-level default flip outside Stage 17 —
+"soaking a seam" means the human exports the flag on the dev host. **CI tests exactly two
+standing profiles:** *all-default* and *the current dev-host soak state* (i.e., every flag
+flipped so far — this is the mixed state users actually inhabit, e.g. Go CLI + Python
+entrypoint between Stages 12 and 17); an *all-go* profile replaces the soak profile at
+Stage 17. Plus the current stage's single new flip. No combinatorial flag matrix.
+`yolo check` gains a one-line "active implementations" report so operators can always see
+what's live. Every flip/revert procedure includes: rebuild `dist-go/` if stale, restart
+affected daemons.
 
 ## 5. Parity infrastructure (built before anything ports)
 
 1. **Golden corpus** (`tests/golden/`) — language-agnostic files; regenerated only via
    `just parity-freeze`; governed by the freeze rule (§1.9).
 2. **`just parity <suite>`** — runs a suite against both implementations and diffs:
-   byte-exact for argv/files/templates/banners/errors; ANSI-stripped for rich output;
-   parsed-JSON only where whitespace legitimately differs.
+   byte-exact for argv/files/templates/banners/errors; ANSI-stripped for rich output.
+   Parsed-JSON comparison is allowed ONLY for wire-protocol bodies whose consumers are
+   order-insensitive, and even then the diff runner uses an order-preserving decode and
+   compares key sequences as well as values — plain `json.loads` comparison is exactly the
+   blindness that lets a reordered Go port pass while rewriting every file (the reason
+   Stage 9 exists).
 3. **Continuous drift suite** — `cmd/yolo-parity` dumps Go-side constants and pure-function
    outputs (paths constants, container naming, version normalization, agent registry,
    canonical-JSON bytes, shlex quoting, dedup keys) as JSON; a fast-suite pytest byte-diffs
@@ -208,52 +252,64 @@ implementations" report so operators can always see what's live.
 5. **Mixed-mode tests, mandatory per seam:** Python spawns / Go reaps and vice versa;
    cross-language flock contention (two brokers racing on `refresh.lock` serialize);
    Python-started jail attached/stopped/pruned by Go run and vice versa.
-6. **QA batches** — parity scope decisions and deliberate divergences reviewed by the human
-   one batch at a time in `docs/go-port-qa-batch-<N>.md` (byte-exact: badges, errors,
-   banner, templates, generated bash, config files; re-pin allowed: rich `--help`
-   rendering).
+6. **QA batches** — parity scope decisions and divergence candidates reviewed by the human
+   one batch at a time in `docs/go-port-qa-batch-<N>.md`; approved entries are then
+   recorded in `docs/go-port-divergences.md` (byte-exact: badges, errors, banner,
+   templates, generated bash, config files; re-pin allowed: rich `--help` rendering).
 
 ## 6. Stage ladder
 
-Effort: ~40 focused agent sessions + calendar soak. Every stage ends with: goldens/tests
+Effort: ~45 focused agent sessions + calendar soak. Every stage ends with: goldens/tests
 green, conventional commits on main, working tree clean, nested-jail verification recorded
 (where applicable), and `docs/handoff-go-port-stage-<N>.md` written (repo's live handoff
 convention) stating what landed, what's verified, what the human must do (if anything),
-and what's next. Update the status table in §14 as stages land.
+and what's next. Update the status table in §14 as stages land. A stage that will exceed
+its session budget splits at a named sub-phase boundary with its own handoff — never a
+silent overrun.
 
 ---
 
 **Stage 0 — Scaffold + walking skeleton** *(2 sessions)*
-- `go.mod`, `cmd/`, `internal/`, vendored deps; Justfile mixed recipes; dependabot gomod;
-  CI check-job Go half.
+- `go.mod`, `cmd/`, `internal/`, vendored deps; Justfile mixed recipes **+ `build-go`
+  emitting to `dist-go/<goos>-<goarch>/` (gitignore entry added)**; dependabot gomod;
+  CI check-job Go half. Optionally add the playbook's commit-msg attribution hook (§1.4).
 - **Walking skeleton (deployment-mechanics tripwire, day 1):** throwaway `cmd/goprobe`
   built via `CGO_ENABLED=0` cross-compile in a Nix derivation, baked into
-  `.#ociImageMinimal` on both CI arches AND run from the live-mount `dist/` path in a
+  `.#ociImageMinimal` on both CI arches AND run from the live-mount `dist-go/` path in a
   nested jail. Proves nix build → image bake → `just load` → nested jail → live-mount
-  channels before any real port. Darwin-host cross-compile to linux verified.
+  channels before any real port. Darwin-host cross-compile to linux verified (via CI
+  artifacts; see §10.7 for how CI-gated criteria are confirmed).
 - `tools/parity/`: fake `podman`/`tmux`/`kitten` PATH shims + `just parity` runner;
   self-test: Python-vs-Python empty diff; shim-captured argv byte-matches `YOLO_DEBUG`
   output for one config.
-- Exit: CI green both halves; probe run recorded; vendoring/cross-compile ADR;
-  this plan + flag registry committed.
+- Exit: CI green both halves (human-confirmed, §10.7); probe run recorded;
+  vendoring/cross-compile ADR; this plan + flag registry current.
 
 **Stage 1 — Characterization wave A (host contracts)** *(3 sessions — this is where
 coverage improves first)*
-- **pty black-box harness** against the Python tty proxy (pexpect/`script(1)`), closing its
-  current zero-coverage gap: ^Z byte-split + pending flush after `fg`, SIGWINCH→TIOCSWINSZ,
-  SIGCONT re-raw, SIGHUP/SIGTERM → cooked termios restore + exit 128+n, master drain,
-  exit-code passthrough, non-TTY pipe fallback. **Mandatory scenario: bash job control** —
-  the OUTER shell must print `Stopped`, `jobs` must list it, `fg` must resume with the
-  exact byte split. (A harness that only asserts WIFSTOPPED on the proxy would pass a
-  broken Go child design.) Pin the near-dead stdin-EOF/-1-sentinel path's intended
-  behavior as an Open Question, not a transliteration.
+- **pty black-box harness** against the Python tty proxy (pexpect/`script(1)`). Existing
+  coverage is partial, not zero: `TestRunWithProxy` covers the non-TTY fallback and
+  `TestProxyTeardownSignal` (tests/test_cli_unit.py:5125) already drives the real loop
+  behind a real pty for SIGHUP/SIGTERM teardown + exit 128+n — the harness *subsumes*
+  those and closes what's genuinely uncovered: ^Z byte-split + pending flush after `fg`,
+  SIGWINCH→TIOCSWINSZ, SIGCONT re-raw, master drain, exit-code passthrough, stdin-EOF.
+  **Three mandatory job-control scenarios:** (a) the OUTER shell prints `Stopped`, `jobs`
+  lists it, `fg` resumes with the exact byte split; (b) **the wrapped child receives no
+  SIGTSTP/SIGCONT across a ^Z/fg cycle**; (c) **the wrapped child keeps running while the
+  proxy is suspended** (output produced during suspension is delivered after `fg`).
+  Scenarios (b)/(c) pin what today's code actually does — `tty_proxy.py:350` is a SELF-only
+  SIGTSTP; podman in the same pgroup is never signaled and keeps working — and they are
+  the assertions a wrong pgroup-wide Go design would fail. Pin the near-dead
+  stdin-EOF/-1-sentinel path's intended behavior as an Open Question, not a
+  transliteration.
 - **Ordered-argv golden corpus:** full `podman`/`container` argv + complete `-e` env block
   + embedded provisioning bash (extracted, `bash -n`-validated) + ws_state tree +
   tracking/owner/lock bytes, across a **≥20-config matrix**: default, gpu nvidia/amd/cdi,
   kvm, usb devices, bridge+ports, `forward_host_ports`, host net, `workspace_readonly`,
   `per_side_paths`, `ephemeral_storage` volume/tmpfs, agents variants, loopholes on/off,
-  nested-jail (`YOLO_VERSION` set), macOS/AC stubs, **and the exec/attach path**. Learn the
-  path/uid/tmpdir normalization rules with an argv-normalization dry run first.
+  nested-jail (`YOLO_VERSION` set), macOS/AC stubs, **and the exec/attach path** (captured
+  via PATH shims — `YOLO_DEBUG` only fires on fresh launches). Learn the path/uid/tmpdir
+  normalization rules with an argv-normalization dry run first.
 - Wire-protocol byte fixtures: frame protocol v1 (signed int32 exit), broker action
   request/response shapes incl. error dicts, journal 1/2/3 framing, cgd JSON-line ops,
   relay clean-EOF semantics.
@@ -262,8 +318,9 @@ coverage improves first)*
 - Config/UX byte goldens: config-snapshot bytes (`indent=2, sort_keys, ensure_ascii` +
   `\n`); full validation error/warning strings (not substrings); `yolo check --no-build`
   full output under `NO_COLOR`/`TERM=dumb` incl. early-exit ordering; `config-ref`, `init`
-  templates, `--help`, `--version`, startup banner; AGENTS.md briefings incl. a
-  live-bind-mount inode-preservation test (nlink==1 truncate-in-place vs nlink>1
+  templates, `--help`, `--version` (normalization table generated from observed Python
+  output — includes `v0.1.0-dirty → 0.1.0+dirty`), startup banner; AGENTS.md briefings
+  incl. a live-bind-mount inode-preservation test (nlink==1 truncate-in-place vs nlink>1
   unlink-first); **macos-user `yolo run --dry-run` full artifact dump** (SBPL text, sudo
   argv lists, bootstrap script, launch argv) — frozen NOW so either backend-decision
   outcome stays mechanical (Linux-runnable, cheap).
@@ -275,35 +332,43 @@ coverage improves first)*
 - `internal/jsonx` + `internal/shquote` + `internal/pytext` with a ≥10k-case
   cross-language corpus (unicode, nesting, int/float boundaries, key ordering) byte-diffed
   against Python; the **bidirectional snapshot cross-write test** (Python writes → Go
-  reads → zero approval prompt, and reverse) becomes a permanent fast-suite gate
-  (red-until-Go-config-exists is expected).
+  reads → zero approval prompt, and reverse) lands as **skip-with-reason** (a hard-red
+  gate would block every commit for ~10 stages against §1.4) and flips to strict as a
+  Stage 13 entry commit.
 - `internal/fsx` + `internal/execx` + `internal/console` with incident-derived property
   tables (tri-state polarity, EPERM=alive, in-place writes verified against a real bind
   mount in a nested jail); lint rules: ban raw `encoding/json` map-marshal for
   config-typed data (ordered map only) and rename-based writes outside `fsx`.
-- `internal/paths` + `internal/version`; **drift suite (`cmd/yolo-parity`) wired into
-  `just check-ci`** and proven to fail when a Python constant changes.
+- `internal/paths` + `internal/version` + `internal/tomlx` (parser choice + fixture corpus
+  over mise venv-discovery shapes, codex config.toml, pyproject reads); **drift suite
+  (`cmd/yolo-parity`) wired into `just check-ci`** and proven to fail when a Python
+  constant changes.
 - **Spike A — json5 differential oracle:** every `.jsonc` in the repo + synthetic dialect
   matrix (comments, trailing commas, single quotes, unquoted keys, hex, ±Infinity) +
   ≥4 CPU-hours background fuzz through pyjson5 (stdin/stdout oracle bridge) and the Go
   candidate(s). Divergences fixed or recorded in the quirk ledger — never silently
   absorbed. Feeds the parser Open Question with evidence. Config-consuming commands stay
   delegated until this corpus is green (the front door makes that sequencing free).
-- **Spike B — naked Go tty prototype (~150 lines)** run under the Stage 1 harness:
-  child shares the session (NO `Setsid` — setsid broke `podman -it`, see
-  docs/ctrl-z-and-the-tty-proxy.md); NEVER `signal.Notify(SIGTSTP)` (default disposition
-  required so the whole process stops); on ^Z restore cooked termios then SIGTSTP the
-  **shared process group** (Python parent AND itself) so the outer shell sees its
-  foreground job stop, matching today's `tty_proxy.py:350` semantics. **Decision point:**
-  binary seam (Stage 8) vs library-consumed-at-run-port fallback — decided on harness
-  evidence now, before Stage 8 is scheduled. If pgroup-suspend semantics prove
-  unreproducible after 2 sessions: stop, write findings to
-  `docs/research/go-port-parity.md` (create the evergreen doc), pick the library fallback.
+- **Spike B — naked Go tty prototype (~150 lines)** run under the Stage 1 harness.
+  Today's behavior (which the split design must reproduce OBSERVABLY): a single process
+  self-SIGTSTPs (`tty_proxy.py:350`) after restoring cooked termios; the shell sees its
+  foreground job stop; **the podman child in the same pgroup is never signaled and keeps
+  running**. With the proxy as a Go child of Python, the suspend target is **the Python
+  parent and the Go proxy ONLY — targeted kills (`kill(getppid(), SIGTSTP)` +
+  `raise(SIGTSTP)`), NEVER the whole process group** (pgroup-wide SIGTSTP would newly
+  stop podman — a jail-visible behavior change; podman can even forward caught signals
+  into the container, the exact regression this module exists to prevent). Constraints:
+  NO `Setsid` (setsid broke `podman -it`, see docs/ctrl-z-and-the-tty-proxy.md); NEVER
+  `signal.Notify(SIGTSTP)` (default disposition required); harness scenarios (a)–(c) from
+  Stage 1 are the gate. **Decision point:** binary seam (Stage 8) vs
+  library-consumed-at-run-port fallback — decided on harness evidence now. If the
+  two-process suspend proves unreproducible after 2 sessions: stop, write findings to
+  `docs/go-port-parity.md`, pick the library fallback.
 - Exit: corpora zero-divergence; drift suite live in check-ci; both spike verdicts
   recorded.
 
 **Stage 3 — First production swap: broker relay** *(1 session)*
-- `src/broker_relay.py` (~300 lines, stdlib-only, pure socket semantics) →
+- `src/broker_relay.py` (~320 lines, stdlib-only, pure socket semantics) →
   `cmd/yolo-broker-relay` behind `YOLO_BROKER_RELAY_BIN`; matcher widening
   (loopholes_runtime.py:649-687) in the SAME commit.
 - Parity: implementation-agnostic harness from `test_broker_relay.py` against BOTH:
@@ -313,7 +378,9 @@ coverage improves first)*
   the jail terminator's layer attribution); SIGTERM unlinks own socket only if dev/ino
   still match; no fd growth. Mixed-mode reap tests both directions.
 - Exit: nested-jail smoke (claude token ping through the Go relay); **flag left ON on the
-  dev host** — production soak starts week 1; revert = unset, zero residue.
+  dev host** — production soak starts week 1; revert = unset, zero residue. Flip/revert
+  procedure notes: rebuild `dist-go/` when main moves; relay re-ensure picks up the new
+  binary on the next `yolo` invocation.
 
 **Stage 4 — frameproto library + conformance suite** *(1 session)*
 - `src/host_service.py` → `internal/frameproto`; keep the unlink asymmetry (host_service
@@ -326,14 +393,20 @@ coverage improves first)*
   Stages 5–7 and 11.
 
 **Stage 5 — host-processes daemon** *(1 session)*
-- `src/host_processes.py` → `cmd/yolo-host-processes` behind `YOLO_GO_DAEMONS`; the
-  Python `yolo-ps` client stays — the socket protocol is the proof of coexistence.
-- Parity: black-box over the socket: list/tree/pid modes line-for-line, exit codes
-  0/1/2/3/124, per-request config re-read (edit config between requests, no restart),
-  pyjson5-vs-`internal/json5` differential on the `host_processes` config section,
-  empty-allowlist → stderr + exit 3.
-- Exit: `yolo-ps`, `yolo-ps -t`, `yolo-ps --pid N` byte-identical stdout/stderr/rc under
-  both daemons in a nested jail; `yolo check` daemon probes identical.
+- `src/host_processes.py` → `cmd/yolo-host-processes` behind `YOLO_GO_DAEMONS` +
+  `YOLO_GO_BIN_DIR` (this stage lands the resolution rule at
+  `_start_host_service_external`); the Python `yolo-ps` client stays — the socket
+  protocol is the proof of coexistence.
+- Parity: black-box over the socket. Byte-equality runs use a **PATH-shimmed fake `ps`
+  replaying canned output** (live `ps` output contains etime/%cpu/%mem/rss that change
+  between invocations — a naive byte gate would be flaky); one live-`ps` run is compared
+  structurally (columns, headers, exit codes). Cases: list/tree/pid modes line-for-line,
+  exit codes 0/1/2/3/124, per-request config re-read (edit config between requests, no
+  restart), pyjson5-vs-`internal/json5` differential on the `host_processes` config
+  section, empty-allowlist → stderr + exit 3.
+- Exit: `yolo-ps`, `yolo-ps -t`, `yolo-ps --pid N` identical under both daemons in a
+  nested jail (byte-identical under fake-ps; structurally under live ps); `yolo check`
+  daemon probes identical.
 
 **Stage 6 — OAuth broker** *(2 sessions + ≥1 week soak)*
 - `src/oauth_broker.py` → `cmd/yolo-claude-oauth-broker-host`. Frozen to the byte:
@@ -348,60 +421,84 @@ coverage improves first)*
   migration is a LATER flagged change, not part of a no-change port.
 - Add a test-only upstream-URL override env to BOTH implementations (upstream is a
   hardcoded constant today; black-box parity is impossible without it).
-- Flip/revert procedure includes `yolo broker restart` (stale-code-in-memory incident).
+- Flip/revert procedure includes `yolo broker restart` (human action).
 - Exit: black-box suite vs httptest upstream green both impls; cross-language flock
   contention test; creds-file byte compare after refresh; real `claude` login + refresh
-  in a live jail on the Go broker; ≥1 week dev-host soak before default flip.
+  in a live jail on the Go broker; ≥1 week dev-host soak.
 
 **Stage 7 — Builtin daemons: carve out, then swap** *(2 sessions)*
 - Commit A (Python, behavior-preserving): cgroup-delegate + journal threads
   (loopholes_runtime.py:1334-1620) → spawned subprocesses matching the
-  `_start_host_service_external` lifecycle (SIGTERM→5s→SIGKILL; log names unchanged).
-  Existing tests + nested-jail e2e (cglimit CPU enforcement, journalctl passthrough)
-  prove the carve-out changed nothing.
+  `_start_host_service_external` lifecycle (SIGTERM→5s→SIGKILL; log names unchanged),
+  **with `PR_SET_PDEATHSIG(SIGTERM)`** so crash-lifetime semantics survive the carve-out:
+  today these are threads that die instantly with `yolo run` on ANY death including
+  SIGKILL; a plain subprocess would outlive a SIGKILLed run and leak its 0777 sockets
+  (no orphan sweep exists for these). Exit criteria for commit A include a **kill -9
+  test in thread-mode and subprocess-mode diffing surviving processes/sockets** — the
+  monkeypatch-style existing tests cannot prove this (§5.4), so the e2e checks are the
+  actual proof. Belt-and-braces: extend the relay orphan-sweep pattern to these daemons;
+  any residual lifetime divergence goes to the ledger.
 - Commit B: `cmd/yolo-cgd` + `cmd/yolo-journald` behind `YOLO_GO_DAEMONS`. Frozen:
   socket names (paths.py constants), chmod 0777 (container-mapped UID needs it), cgd
   JSON-line ops incl. SO_PEERCRED peer PID, journal `>BI` framing with stream IDs
   **1/2/3** (≠ protocol v1's 0/1/2 — do not conflate).
-- Exit: nested jail green in python-daemons and go-daemons modes; cgroup writes
-  (`cpu.max`/`memory.max`/`pids.max`) diffed identical; per-daemon revert flag verified.
+- Exit: nested jail green in python-daemons and go-daemons modes (cglimit CPU
+  enforcement, journalctl stream/exit passthrough); cgroup writes
+  (`cpu.max`/`memory.max`/`pids.max`) diffed identical; kill -9 lifetime parity in both
+  modes; per-daemon revert flag verified.
 
 **Stage 8 — TTY proxy** *(2 sessions, design fixed by the Stage 2 spike)*
 - `src/cli/tty_proxy.py` → `cmd/yolo-ttyproxy` behind `YOLO_TTY_PROXY` with the
-  `--started-fd` / `--on-terminate` hook protocol (workspace-lock FD ownership stays in
-  Python; `--started-fd` ordering race tested against the 20×0.25s lock-release poll).
-- Design constraints (from the spike + docs): no `signal.Notify(SIGTSTP)`; no `Setsid`;
-  suspend = restore cooked termios → SIGTSTP the shared pgroup; SIGHUP/SIGTERM → termios
-  restore → exec on-terminate argv → exit 128+n; atexit-skip semantics replicated
-  (terminal indicators are NOT restored on kill today — preserve, don't fix); stdin-EOF
-  behavior per the Stage 1 Open Question decision.
-- Exit: Stage 1 harness (incl. bash job-control scenario) 100% green on both impls;
-  `go test -race` clean; manual nested-jail session (^Z, `fg`, resize, window-close
+  `--started-fd` hook (workspace-lock FD ownership stays in Python; ordering race tested
+  against the 20×0.25s lock-release poll). `run_with_proxy` gains the env-gated
+  spawn-a-child mode **and the parent-side SIGHUP/SIGTERM handling** per seam #4 — the
+  full teardown chain (stop jail, cleanup port forwarding, lock close, stop_loopholes)
+  runs in Python exactly as today; the parent mirrors the proxy's 128+n exit.
+- Go proxy design (from the spike): suspend = restore cooked termios → targeted SIGTSTP
+  to parent + self (never pgroup-wide); no `Notify(SIGTSTP)`; no `Setsid`; on
+  SIGHUP/SIGTERM restore termios and exit 128+n (teardown is the parent's job);
+  atexit-skip semantics replicated (terminal indicators are NOT restored on kill today —
+  preserve, don't fix); stdin-EOF behavior per the Stage 1 Open Question decision.
+- Exit: Stage 1 harness (incl. all three job-control scenarios) 100% green on both
+  impls; `go test -race` clean; **SIGHUP-path leak assertions: no surviving socat
+  processes, `/tmp/yolo-fwd` forward dir removed, loophole daemons stopped** — under
+  both implementations; manual nested-jail session (^Z, `fg`, resize, window-close
   teardown) recorded; revert = unset.
 - **Fallback (pre-decided):** if the spike chose library mode, this stage instead lands
   `internal/ttyproxy` + its Go-native tests, consumed in-process at Stage 16.
 
 **Stage 9 — Characterization wave B (entrypoint tree goldens)** *(1 session)*
 - sha256 golden of EVERY generated file for a fixed `YOLO_*` env matrix: shims (blocked-
-  tool argv-filter matrix incl. message/suggestion text + exit code), `.bashrc`, all six
-  agent config JSONs + managed-MCP sidecars, mise `config.toml`, CA bundle, bootstrap/
-  venv-precreate/cglimit/journalctl/yolo-wrapper script bodies, MCP wrappers.
+  tool argv-filter matrix incl. message/suggestion text + exit code), `.bashrc`, **all six
+  agents' config files (5 JSON + codex's `~/.codex/config.toml` — TOML byte-stability is
+  its own pin, distinct from ordered-JSON)** + managed-MCP sidecars, mise `config.toml`,
+  CA bundle, bootstrap/venv-precreate/cglimit/journalctl/yolo-wrapper script bodies, MCP
+  wrappers.
+- **Hydration fixtures:** adversarial `yolo-user-env.sh` file contents (single quotes,
+  `'\''` sequences, bare/double-quoted forms) — hydration input is a mounted FILE, not
+  env, so the env matrix alone would miss a Go parse divergence that silently changes
+  MCP `${VAR}` interpolation and every child's env. Writer→reader round-trip corpus
+  (Python-writer/Go-reader here; Go-writer/Python-reader added at Stage 16).
 - Invariant pins: ordered-JSON key preservation on merge; in-place truncate writes for
   bind-mounted files; boot-order sequence; `/workspace/mise.toml` regex-surgery output
   (quoted-token matching is deliberate); `bash -n` on all generated shell.
 - Tree-diff harness: run any two entrypoint implementations into fake HOMEs with identical
-  env; diff trees + hashes. (Required because current tests assert structurally via
+  env; diff trees + hashes. **Dynamic-output normalization list committed explicitly**
+  (perf-log timings, launcher stamp files, startup.log timestamps, history files —
+  enumerated and reviewed in QA batch 2 so every exclusion is a deliberate parity-scope
+  decision, not ad-hoc). Required because current tests assert structurally via
   `json.loads` — a Go port with different key order would pass them while rewriting every
-  file on disk.)
-- Exit: Python-vs-Python empty diff demonstrated; divergence ledger opened in
-  `docs/go-port-qa-batch-2.md`.
+  file on disk.
+- Exit: Python-vs-Python empty diff demonstrated (after normalization); divergence
+  candidates proposed via `docs/go-port-qa-batch-2.md`, approved ones recorded in the
+  ledger.
 
 **Stage 10 — Go entrypoint in a dual-impl image** *(3 sessions: generators lib →
 orchestration/boot → image wiring + e2e)*
 - `src/entrypoint/*` (PID-1 role only) → `cmd/yolo-entrypoint`, static cross-compile in a
   host-side Nix derivation. flake.nix wrapper branches on `YOLO_ENTRYPOINT_IMPL`
   (default python); Python package stays in the image; dev override
-  `/opt/yolo-jail/dist/yolo-entrypoint-dev` honored first.
+  `/opt/yolo-jail/dist-go/linux-<arch>/yolo-entrypoint` honored first.
 - Go entrypoint emits the Python helper scripts byte-identically via `go:embed`; keeps
   spawning `python -m src.jail_daemon_supervisor`; ordered-JSON everywhere; in-place
   writes for bind-mounted files; best-effort never-abort-boot semantics per step
@@ -412,21 +509,27 @@ orchestration/boot → image wiring + e2e)*
   keep importing the Python package until Stage 15 (process-boundary purity: only the
   PID-1 executable swaps).
 - **Human action (flagged in handoff): ONE `just load && just install`** ships the dual
-  image; all A/B and rollback after that is per-jail env.
+  image; all A/B and rollback after that is per-jail env. (Note: `just install` runs
+  `just build` which `rm -rf dist/` — `dist-go/` is unaffected by design.)
 - Parity: Stage 9 tree harness on real booted jails (ws_state overlay + `$HOME` trees +
   `podman exec env` + startup.log structure); full `test_jail.py` slow suite on both CI
   matrix arms (`impl` dimension); repeated `podman exec … yolo-entrypoint` idempotency
   (shims rmtree'd, DNAT not duplicated beyond today, supervisor PID-file singleton,
-  bound-port skip); manual `yolo -- claude` smoke.
-- Exit: tree diff empty or human-waived line-by-line; slow suite green both arms twice;
-  image-size delta measured (multi-call consolidation decision, §3).
+  bound-port skip); **two concurrent boots against a shared HOME** (SHIM_DIR rmtree race,
+  credentials-harvest race — behavior need not be *nice*, it must be *unchanged*);
+  manual `yolo -- claude` smoke.
+- Exit: tree diff empty or human-waived line-by-line; slow suite green both arms twice
+  (human-confirmed CI); image-size delta measured (multi-call consolidation decision, §3).
 
 **Stage 11 — Jail-side wave (one image rebuild)** *(2 sessions)*
 - `cmd/yolo-jail-supervisor` (env-in/files-out contract: `YOLO_JAIL_DAEMONS` JSON, log
   dir + 5MB rotate-once, 1s→30s backoff, TERM/5s/KILL); `cmd/yolo-oauth-terminator`
   (hazards: Go header canonicalization vs Python verbatim passthrough, duplicate-header
   collapse last-wins, DisableCompression, 502 shapes + layer-attribution strings
-  distinguishing relay-ENOENT vs broker-EOF); generated cglimit/journalctl/ps scripts →
+  distinguishing relay-ENOENT vs broker-EOF, **and HTTP/1.0 no-keep-alive: today's
+  BaseHTTPRequestHandler closes per request and Claude Code reconnects each time — the Go
+  server must disable keep-alives or the connection behavior change goes to the
+  ledger**); `cmd/yolo-ps` (in-jail client); generated cglimit/journalctl scripts →
   Go binaries with entrypoint-emitted thin exec-wrappers.
 - Both variants baked; per-component flags correlated with `YOLO_ENTRYPOINT_IMPL`;
   ONE image rebuild for the whole wave (human action).
@@ -435,99 +538,150 @@ orchestration/boot → image wiring + e2e)*
   and all-Python jail-side modes; per-component revert without rebuild verified.
 
 **Stage 12 — Front door + first native slices** *(2 sessions)*
-- Go `yolo`: argv `--`→`run` rewrite (generated table cross-asserted against Python's
-  registration), `YOLO_INVOCATION_CWD` pop+chdir, version lib, banner byte-identical
-  (verify `platform.machine()` naming: x86_64/aarch64, not Go's amd64/arm64), tmux/kitten
-  indicator sequences + restore batching, `<runtime> inspect` baked-version probe.
-  Everything else execs `python -m src.cli`.
+- Go `yolo` (built to `dist-go/`, invoked via `$YOLO_GO_BIN_DIR/yolo` — nothing is
+  installed on host PATH until Stage 17): argv `--`→`run` rewrite frozen to Python's
+  literal `_SUBCOMMANDS` set incl. the prune quirk (seam #1; advisory
+  registration-drift check separate), `YOLO_INVOCATION_CWD` pop+chdir, version lib,
+  banner byte-identical (verify `platform.machine()` naming: x86_64/aarch64, not Go's
+  amd64/arm64), tmux/kitten indicator sequences + restore batching, `<runtime> inspect`
+  baked-version probe. Everything else execs `python -m src.cli` with
+  `YOLO_GO_DELEGATED=1` set (the loop breaker).
 - Native slices: `config-ref`, `init`, `init-user-config` (pure output, byte-goldened).
 - Parity: `--version` byte-identical; indicator argv logs via PATH shims diffed across
-  {tmux, kitty, `YOLO_NO_TMUX=1`, non-TTY}; passthrough proof: `yolo check --no-build`
-  unchanged (still Python underneath); `--help` re-pinned per QA batch 1 decision.
-- Exit: with `YOLO_IMPL=go`, a full day of normal jail usage behaves identically;
-  unset reverts instantly; `YOLO_GO_DISABLE` demonstrated.
+  {tmux, kitty, `YOLO_NO_TMUX=1`, non-TTY} **and for a DELEGATED subcommand** (Go must
+  produce zero indicator calls when delegating; Go-front-door vs pure-Python logs must
+  be identical); **delegation executes exactly one Python process** (asserted via
+  PATH-shim/pid count — proves the loop breaker works); passthrough proof:
+  `yolo check --no-build` output unchanged (still Python underneath); `--help` re-pinned
+  per QA batch 1 decision.
+- Exit: with `YOLO_IMPL=go` exported, a full day of normal jail usage behaves
+  identically; unset reverts instantly; `YOLO_GO_DISABLE` demonstrated.
 
 **Stage 13 — Config engine** *(2 sessions)*
+- Entry commit: flip the Stage 2 bidirectional snapshot cross-write gate from
+  skip-with-reason to strict (it must be green to exit this stage).
 - `src/cli/config.py` core → `internal/config` on top of `internal/json5`/`jsonx`;
   hidden `yolo-go internal config-dump <ws>` for differential testing.
 - Byte-critical: snapshot writer; canonical dedup key equality classes; agents
   replace-not-union; mcpServers merge + null-disable; env_sources user-then-workspace
   concat; include chains/cycles; validation error strings verbatim (pytext);
   rstrip-compare asymmetry + non-tty auto-accept in `_check_config_changes`.
-- THE regression test (from Stage 2, now green): snapshot cross-impl round-trip fires
-  zero approval prompts in both directions.
 - Exit: differential corpus green (byte-identical merged JSON + identically-ordered
-  error/warning lists across every rejection branch); parser Open Question closed with
-  evidence; error-string golden corpus committed.
+  error/warning lists across every rejection branch); snapshot cross-write strict gate
+  green both directions (zero approval prompts on Python↔Go switches); parser Open
+  Question closed with evidence; error-string golden corpus committed.
 
-**Stage 14 — Command slices, one session each: prune → builder → loopholes → broker → ps**
-*(5 sessions)*
-- `prune`: hardlink-dedup atomicity (link to `.yolo-dedup-tmp` then replace; never unlink
-  original first; skip same-inode pairs; size-first bucketing); forbidden cache subdirs;
-  shadowed-home purge deletes CONTENTS never dirs; None-referenced → decline-to-sweep as
-  explicit tri-state; CreatedAt sorted lexically (never parse timestamps).
-- `builder`: byte-exact root script/ssh_config/builders-line generators (Mac runbooks
-  depend on them); TCP 31022 probe; PID/killpg lifecycle.
-- `loopholes`: `src/loopholes.py` registry as `internal/loopholes` (reused by run later);
-  enable/disable rewrite byte-golden incl. the comments-lost-on-rewrite degradation
-  (reproduce exactly); bundled manifests shipped ON DISK, not just embedded —
+**Stage 14 — Command slices in dependency order: prune → builder → loopholes → broker →
+ps → storage+image** *(6 slices, ~8 sessions)*
+- `prune` *(2 sessions: port+tests, then flip+goldens)*: src/prune.py alone is ~1,000
+  lines of deletion logic — hardlink-dedup atomicity (link to `.yolo-dedup-tmp` then
+  replace; never unlink original first; skip same-inode pairs; size-first bucketing);
+  forbidden cache subdirs; shadowed-home purge deletes CONTENTS never dirs;
+  None-referenced → decline-to-sweep as explicit tri-state; CreatedAt sorted lexically
+  (never parse timestamps).
+- `builder` *(1)*: byte-exact root script/ssh_config/builders-line generators (Mac
+  runbooks depend on them); TCP 31022 probe; PID/killpg lifecycle.
+- `loopholes` *(1)*: `src/loopholes.py` registry as `internal/loopholes` (reused by run
+  later); enable/disable rewrite byte-golden incl. the comments-lost-on-rewrite
+  degradation (reproduce exactly); bundled manifests shipped ON DISK, not just embedded —
   `runtime_args_for` bind-mounts the real directory and the path appears in argv;
   `_expand_env`: unresolved `${VAR}` → empty string, not passthrough; insertion-ordered
-  `jail_env` maps.
-- `broker` subcommands (against live daemons, both impls — supervision files frozen since
-  St. 3/6).
-- `ps` + runtime probe layer (canned podman/AC output replay; None-vs-empty polarity of
-  `_live_yolo_containers`; tracking-file prune behavior).
+  `jail_env` maps; **doctor timeout path covered** (mapped gap).
+- `broker` subcommands *(1)* (against live daemons, both impls — supervision files frozen
+  since St. 3/6).
+- `ps` + runtime probe layer *(1)* (canned podman/AC output replay; None-vs-empty polarity
+  of `_live_yolo_containers`; tracking-file prune behavior).
+- **`storage+image` *(1–2)*: `storage.py` (ensure_global_storage bootstrap, overlay
+  seeding, layout migrations) and `image.py` (nix build → tar cache → load pipeline,
+  staleness sentinels)** — explicitly a slice here because Stage 15's native check
+  hard-depends on both (`check_cmd` imports `_build_image_store_path`/`_jail_image` and
+  calls `ensure_global_storage()`). Goldens: `last-load-*` LRU sentinel bytes,
+  `sha256(store_path)[:16].tar` cache keys, `YOLO_EXTRA_PACKAGES` JSON serialization
+  (feeds `--impure` nix eval — byte-identical or the store path changes),
+  **ensure_global_storage tree-diff over fixtures (empty HOME / pre-v2 layout /
+  legacy-file migrations, incl. readlink targets — symlinks are created RELATIVE and
+  compared as raw strings)**, `_stream_image_command` /etc/nix/machines parsing corpus,
+  auto_load_image three-tier fallback decision reasons.
 - Each slice ports its Python test matrix to Go table tests BEFORE the flip; flip +
   revert both demonstrated; 56-fixture `runtime_args_for` ordered-argv goldens.
 
-**Stage 15 — `yolo check` native** *(2 sessions)*
+**Stage 15 — `yolo check` native** *(2 sessions; requires Stage 14's storage+image
+slice)*
 - Section ordering, early-exit control flow (parse errors exit before merged validation
   before dry-run), badges + note indent, exit 0/1, nix dry-run stderr grammar
-  (`_WILL_BUILD_RE`, version-pinned fixtures) with tri-state result, broker 4-layer relay
-  diagnosis, in-jail `YOLO_VERSION` gating, `--no-build` agent workflow.
+  (`_WILL_BUILD_RE`, version-pinned fixtures) with tri-state result, `--build` path via
+  the ported image pipeline (St. 14 slice 6), broker 4-layer relay diagnosis, in-jail
+  `YOLO_VERSION` gating, `--no-build` agent workflow, `_check_broker_creds_freshness`
+  duration formatting **with an injected clock** (time-dependent output that fixture
+  goldens can't otherwise pin).
+- **macos-user carve-out:** check's "macos-user backend" section imports three pure,
+  Linux-testable probe helpers from macos_user.py (`SANDBOX_USER`,
+  `_sandbox_user_exists`, `resolve_python`) — these three port with this stage as an
+  explicit exception to the macos delegation (§13); the golden fixture set gains a
+  macOS-stubbed host (the St. 1 stub pattern).
 - Entrypoint preflight keeps spawning `python3 -c` against repo src until
   `YOLO_ENTRYPOINT_IMPL` defaults to go, then switches to `yolo-entrypoint --dry-run`
   under the same env contract.
 - Exit: ANSI-stripped full-output goldens over fixture hosts (no runtime; podman live;
-  in-jail; invalid configs; missing flake); interactive prompts (config approval, orphan
-  cleanup) via the pty harness; identical inside a nested jail under both impls.
+  in-jail; invalid configs; missing flake; macOS-stubbed); interactive prompts (config
+  approval, orphan cleanup) via the pty harness; identical inside a nested jail under
+  both impls.
 
-**Stage 16 — `yolo run` native (the finale)** *(4 sessions: probes → network/storage →
-argv+mount assembly → lifecycle+e2e)*
+**Stage 16 — `yolo run` native (the finale)** *(6–8 sessions in five named sub-phases,
+EACH with its own handoff: probes → network/storage wiring → argv+mount assembly →
+lifecycle+locks → e2e+burn-in)*
 - run_cmd + runtime + network (Go spawns identical socat argv — native proxying is
-  explicitly out of scope) + storage/image/agents_md call paths + loopholes_runtime
-  lifecycle (guard-stack order frozen: non-blocking flock → running-container check →
-  relay kill BEFORE rmtree).
+  explicitly out of scope) + **agents_md briefing generation/skills staging** (its
+  parity gate: the St. 1 briefing goldens + inode-preservation tests) +
+  storage/image call paths (ported in St. 14) + loopholes_runtime lifecycle (guard-stack
+  order frozen: non-blocking flock → running-container check → relay kill BEFORE rmtree).
 - AC divergences consolidated into a runtime-capability struct (no `:ro`, ~22-mount cap,
   `--publish-socket`, bare `--tmpfs`, table parsing) with observable behavior incl.
   warning texts identical.
-- macos-user branch: `exec python -m src.cli run …` — permanent seam (§13).
+- macos-user branch: `exec python -m src.cli run …` — delegation seam (§13).
 - Frozen host-state contracts: tracking files, owner-PID reaping polarity, lock lifetime
-  through `--started-fd`, nix-build-root rename-aside never-delete invariant, sentinels.
+  through `--started-fd`, nix-build-root rename-aside never-delete invariant, sentinels,
+  `yolo-user-env.sh` writer (Go-writer/Python-reader round-trip closes the Stage 9
+  corpus).
 - Known design decisions to make deliberately (each is a mapped hazard):
   `_resolve_repo_root`'s installed-wheel staging (Go binary must embed flake.nix+src or
   redefine step 3 while keeping the rename-aside invariant); `_entrypoint_preflight`
   interpreter choice; `RLIM_INFINITY` formatting (`memlock=-1:-1` literal); macOS
-  `/tmp→/private/tmp` resolution points.
-- **Shadow-diff burn-in (graft):** once Go run exists, log Python-vs-Go `YOLO_DEBUG` argv
-  diffs on every real dev launch for ~a week before the flip — real-world configs become
-  free parity evidence beyond the fixture matrix. (This is instrumentation only — no
-  invented serialization bridge.)
+  `/tmp→/private/tmp` resolution points; TOML venv-discovery via `internal/tomlx`.
+- **Shadow burn-in (defined mechanism, instrumentation-only, deleted at cutover):**
+  `yolo-go internal run-shadow -- <argv>` — a read-only assembly mode that computes the
+  full argv/env/mount plan with ALL host mutations suppressed and NO locks taken (the
+  real run path takes a blocking exclusive workspace flock and fires the config-approval
+  prompt — a naive dual-run would deadlock or prompt twice). A Python-side post-launch
+  hook invokes it after each real dev launch and logs the diff vs the Python argv for
+  ~a week before the flip. Fresh-launch path only; attach-path argv is compared via the
+  PATH-shim corpus instead. If shadow mode proves invasive to build, the fallback is
+  replaying the dev host's real configs through the fixture harness — decide in the
+  first e2e session, don't drift.
 - Exit: ordered-argv goldens byte-identical over the full matrix (flags-before-image,
   `-e` at index(image), mount order); ws_state + tracking/owner/lock diffs clean;
   shlex-quoting golden table vs the chosen Go quoting lib; cross-impl lifecycle (Python-
   started jail attached/reaped by Go and reverse); concurrent-launch flock race; full
-  `test_jail.py` + `test_runtime.py` through the Go front door on both CI arches, twice;
-  burn-in week clean; nested-jail gate.
+  `test_jail.py` + `test_runtime.py` through the Go front door on both CI arches, twice
+  (human-confirmed); burn-in week clean; nested-jail gate.
 
 **Stage 17 — Cutover, soak, retirement, distribution** *(2 sessions + calendar soak)*
 - Defaults flip (console-script shim, flake yoloCli wrapper, entrypoint yolo shim,
   `YOLO_ENTRYPOINT_IMPL=go`); ≥2 weeks all-defaults-go soak with flags as escape hatches;
-  weekly CI + nightly-macos green ×2.
-- Retirement: per-module `refactor(go): remove src/cli/<x>.py` commits; Python tests
-  deleted only WITH their modules; pyjson5/typer/rich leave runtime deps; drift suite +
-  flag registry + `cmd/yolo-parity` deleted last.
+  weekly CI + nightly-macos green ×2 (human-confirmed).
+- **Retirement is CONDITIONAL on the macos-user direction decision** (see §13 and the
+  Open Question): the delegation seam needs `python -m src.cli run`, which transitively
+  needs typer/pyjson5/rich, config, loopholes, run_cmd, macos_user, AND the Python
+  entrypoint package (macos_user imports it as a library). Two paths:
+  - *Decision landed, backend removed:* full retirement — per-module
+    `refactor(go): remove src/cli/<x>.py` commits; Python tests deleted only WITH their
+    modules; pyjson5/typer/rich leave runtime deps; wheel retired.
+  - *Decision pending or backend kept:* flip all defaults and cut Go distribution, but
+    RETAIN the enumerated Python subtree + the wheel as the macos-user carrier; only the
+    modules outside that closure are removed. Record the surviving set explicitly in the
+    Stage 17 handoff.
+- `YOLO_GO_DISABLE` and the other seam flags die WITH retirement (they need the Python
+  target); the drift suite, `cmd/yolo-parity`, and the flag registry are deleted last.
 - Distribution: goreleaser + tag-driven versions (`-ldflags -X`), Homebrew binary formula
   replacing the poet pipeline, `go install github.com/mschulkind-oss/yolo-jail@latest`,
   README Install rewrite; any interim PyPI-wheel deviation recorded per distribution.md.
@@ -541,13 +695,16 @@ argv+mount assembly → lifecycle+e2e)*
 
 1. **Characterization BEFORE** (Stages 1, 9 — budgeted as first-class work, ~4 of the
    first 12 sessions): everything in §6 St.1/St.9. This is the "improve testing" half of
-   the mandate — the named gaps it closes: tty proxy zero-coverage; argv asserted only as
-   flag-membership (never ordered/complete); zero golden/snapshot tests anywhere;
-   container naming reimplemented in tests; no wire-format contract fixtures; entrypoint
-   asserted structurally not byte-wise; no broker upstream injection point; validation
-   errors substring-checked; macos --dry-run artifacts unpinned.
+   the mandate — the named gaps it closes: tty proxy ^Z/job-control/SIGWINCH/stdin-EOF
+   coverage (teardown was already covered by TestProxyTeardownSignal — the harness
+   subsumes it); argv asserted only as flag-membership (never ordered/complete); zero
+   golden/snapshot tests anywhere; container naming reimplemented in tests; no
+   wire-format contract fixtures; entrypoint asserted structurally not byte-wise; no
+   broker upstream injection point; validation errors substring-checked; macos --dry-run
+   artifacts unpinned; user-env.sh round-trip untested.
 2. **Parity harness DURING**: `just parity`, drift suite in check-ci, mixed-mode tests
-   per seam, CI `impl={python,go}` matrix, QA batches for human-waived divergences.
+   per seam, CI `impl` matrix (all-default + current-soak-state profiles), QA batches for
+   human-waived divergences.
 3. **Go-native AFTER**: each stage transcribes its module's Python test matrix into
    table-driven Go tests before the flip (the ~12k lines of monkeypatch tests are a spec
    to transcribe at the process boundary, not code to translate); `go vet` + `staticcheck`
@@ -564,7 +721,8 @@ argv+mount assembly → lifecycle+e2e)*
 
 1. **Flag level:** revert any swap by unsetting one env var — host seams take effect on
    the next `yolo` invocation (CLI runs live from source). Flipped defaults revert by a
-   one-line fix-forward commit. `YOLO_GO_DISABLE` gives per-subcommand rollback forever.
+   one-line fix-forward commit. `YOLO_GO_DISABLE` gives per-subcommand rollback **until
+   Stage 17 retirement removes its Python target**.
 2. **Image level:** from Stage 10 every image carries BOTH implementations — in-jail
    rollback is `-e YOLO_ENTRYPOINT_IMPL=python`, no rebuild. Full image rollback is
    `podman load` of the prior tar from `cache/images/` (sentinel formats frozen).
@@ -572,51 +730,57 @@ argv+mount assembly → lifecycle+e2e)*
    Go-written state is mutually readable — rollback never strands running jails, locks,
    caches, creds, or approval snapshots. Cross-impl tests prove it per stage.
 4. **Daemon level:** every flip AND revert includes the restart step (stale code in
-   long-lived processes).
-5. **Code level:** Python deleted only at Stage 17 after soak; linear never-rewritten
-   history means handoff docs can cite SHAs that stay valid.
+   long-lived processes) and a `dist-go/` rebuild when main has moved (stale artifacts —
+   the compiled-binary analog of the same incident class).
+5. **Code level:** Python deleted only at Stage 17 after soak (conditionally — §6 St.17);
+   linear never-rewritten history means handoff docs can cite SHAs that stay valid.
 
 ## 9. Risk register (top items; mitigations are stage-gated, not aspirational)
 
 | Risk | Mitigation |
 |---|---|
 | pyjson5 dialect divergence silently changes which configs load | Stage 2 differential oracle + fuzz before ANY config-consuming command goes native; quirk ledger; parser ADR with evidence |
-| Config-snapshot byte drift fires spurious approval prompts on every Python↔Go switch (most user-visible regression) | jsonx corpus + bidirectional cross-write gate (St. 2, permanent); hard exit criterion at St. 13 |
+| Config-snapshot byte drift fires spurious approval prompts on every Python↔Go switch (most user-visible regression) | jsonx corpus + bidirectional cross-write gate (skip-with-reason from St. 2, strict from St. 13 entry); hard exit criterion at St. 13 |
 | Mixed-version supervision leaks (guards match `broker_relay.py`) reintroduce orphan-relay incidents | matcher widening in the same commit as every spawn swap; mixed-mode reap tests both directions as exit criteria |
-| TTY signal-model divergence breaks job control; `Notify(SIGTSTP)` or `Setsid` breaks it subtly | harness with the outer-shell `Stopped` scenario BEFORE any Go; week-1 prototype spike with a pre-named library fallback; 2-session tripwire |
+| TTY signal-model divergence breaks job control — or "fixing" it freezes podman (pgroup-wide SIGTSTP is a behavior change, not parity) | harness scenarios (a)–(c) incl. child-not-stopped BEFORE any Go; week-1 prototype spike with targeted-kill design and a pre-named library fallback; 2-session tripwire |
 | Ordered-output drift (argv order, JSON key order) — semantic contracts Go defaults destroy | all goldens compare ordered sequences; ordered-JSON encoder + insertion-ordered maps mandated; tree-hash harness catches reordering as byte diffs |
 | Idiomatic-Go habits break live containers (tmp+rename onto bind mounts, rmtree of mount anchors, nil-slice tri-state flattening) | `internal/fsx`/`execx` codify the incident history in types + lint rules; polarity check is a standing stage-review item |
-| Entrypoint rebuild cadence throttles iteration; agent can't run `just load` | dual-impl image = ONE human rebuild per wave; dev override on the live mount; handoffs state exactly when the human must rebuild |
-| macOS in flux (macos-user DECISION PENDING; AC quirks only verifiable on real Macs) | permanent delegation seam; --dry-run artifact goldens frozen at St. 1; AC behavior in a replay-tested capability struct; Mac runbooks stay the final gate |
+| Entrypoint rebuild cadence throttles iteration; agent can't run `just load` | dual-impl image = ONE human rebuild per wave; `dist-go/` dev override on the live mount; handoffs state exactly when the human must rebuild |
+| Stale transition-era binaries during multi-week soaks (compiled Go loses edit-is-live) | `dist-go/` on the live mount, rebuildable in-jail; rebuild step in every flip/revert procedure; drift suite catches constant-level skew at commit time |
+| macOS in flux (macos-user DECISION PENDING; AC quirks only verifiable on real Macs) | delegation seam; --dry-run artifact goldens frozen at St. 1; AC behavior in a replay-tested capability struct; Mac runbooks stay the final gate; Stage 17 retirement explicitly conditional |
 | Coverage cliff: ~12k lines of monkeypatch tests can't gate Go binaries | process-level replacement tests land BEFORE each flip; Python tests deleted only with their modules; both nets active throughout |
-| Flag sprawl | single registry (§4); CI tests two profiles only; `yolo check` reports active impls; flags deleted at cutover |
+| Flag sprawl | single registry (§4); CI profiles: all-default + current-soak-state; `yolo check` reports active impls; flags deleted at cutover |
 | Golden rot on a live main | the freeze rule (§1.9) + continuous drift suite on every commit |
 
 ## 10. Execution protocol (for the porting agent)
 
 Per session:
 1. Read this plan's stage entry, the previous `docs/handoff-go-port-stage-*.md`, the
-   relevant `swarf/go-port/module-map/*.json`, and the design docs the stage names
+   relevant `docs/go-port-module-map/*.json`, and the design docs the stage names
    (they are dense with load-bearing contracts: docs/ctrl-z-and-the-tty-proxy.md,
    docs/loophole-protocol.md, docs/config-safety.md, docs/storage-and-config.md,
    docs/agent-briefings.md, docs/jail-state-separation-design.md).
 2. Read the Python source AND its tests before writing Go — port from the code, never
-   from memory or from this plan's summaries. The plan tells you what to hold stable;
-   the source tells you what the behavior is.
+   from memory, from this plan's summaries, or from code comments (§1.10). The plan tells
+   you what to hold stable; the source tells you what the behavior is.
 3. Work in ≤1-hour task increments; commit each logical change immediately (the nix image
    builds from the working tree — never leave it dirty/broken between tasks).
 4. Timing constants, error strings, and "weird" behaviors are frozen contracts. Surprising
    Python behavior → preserve + Open Question; never fix-while-porting.
 5. End of stage: `just format`; tree clean; nested-jail verification recorded; handoff
-   doc written (what landed, verification commands + output, human actions needed —
-   `just load && just install`, `yolo broker restart`, soak flips — and what's next);
-   stage status updated in §14; new findings appended to
-   `docs/research/go-port-parity.md`.
+   doc written (what landed, verification commands + output, human actions needed, and
+   what's next); stage status updated in §14; new findings appended to
+   `docs/go-port-parity.md` (flat docs/ per repo convention).
 6. If blocked on a decision: add it to Open Questions (§14) with a Leaning, proceed on
    non-blocked work. Never switch a stage's scope mid-session.
-7. Human-in-the-loop moments (only these): approving QA-batch divergence waivers,
-   running `just load && just install`, approving default flips after soak, answering
-   Open Questions, and Mac-runbook verifications.
+7. Human-in-the-loop moments: approving QA-batch divergence waivers; running
+   `just load && just install`; restarting host daemons (`yolo broker restart`);
+   exporting/unsetting soak flags on the dev host; **pushing to origin and reporting CI
+   status** (the in-jail agent has no push credentials or CI visibility — every CI-gated
+   exit criterion in §6 is human-confirmed and recorded as such in the handoff);
+   approving default flips after soak; answering Open Questions; Mac-runbook
+   verifications. (`dist-go/` rebuilds are NOT on this list — the agent does those
+   in-jail via the live mount.)
 
 ## 11. Standards compliance map
 
@@ -625,31 +789,40 @@ Per session:
 - Pure-Go logic, generated-bash-as-content only; shquote as the vetted quoting seam.
 - Conventional commits to main; never amend; no AI trailers; canonical author.
 - Heavy-track structure: this plan (RFC) → per-stage handoffs → QA batches →
-  `docs/research/go-port-parity.md` evergreen doc → post-cutover ADR distilling the
-  decisions (docs/design/ if the docs-layout question lands that way).
-- Happy path: one build path (`just`), one parser choice (ADR'd), one distribution story
-  at cutover; the port ultimately DELETES the editable-install/finder-patch machinery
-  rather than translating it — the static binary is the happy-path win.
+  `docs/go-port-parity.md` evergreen doc → post-cutover ADR distilling the decisions.
+- Happy path: one build path (`just build-go` → `dist-go/`), one parser choice (ADR'd),
+  one distribution story at cutover; the port ultimately DELETES the
+  editable-install/finder-patch machinery rather than translating it — the static binary
+  is the happy-path win.
 
 ## 12. What is explicitly out of scope
 
 - Any behavior change not in the human-approved divergence ledger. This includes
   "obvious" fixes: the near-dead stdin-EOF path, atexit-skip on kill, comment loss on
-  loophole enable/disable, the openssl exec (x509 migration is post-port), replacing
-  socat with native proxying, GC-rooting the darwin packages store path.
+  loophole enable/disable, the `prune`-missing-from-`_SUBCOMMANDS` routing quirk, the
+  openssl exec (x509 migration is post-port), replacing socat with native proxying,
+  GC-rooting the darwin packages store path.
 - Porting `macos_user`/`darwin_packages` while docs/macos-backend-direction.md is
-  DECISION PENDING (delegation seam instead; --dry-run goldens keep both outcomes cheap).
-- New features, new flags (beyond the seam registry), refactors of Python code except
-  the Stage 7 carve-out and the 3-line front-door prelude.
+  DECISION PENDING (delegation seam instead; --dry-run goldens keep both outcomes cheap;
+  sole exception: the three pure check-probe helpers in Stage 15).
+- New features, new flags (beyond the seam registry), and Python refactors — EXCEPT the
+  enumerated seam-introduction edits, which are in scope by design: the Stage 7
+  thread→subprocess carve-out; the front-door prelude + `YOLO_GO_DELEGATED` check; the
+  spawn-site env branches + identity-matcher widening (seam #2); `run_with_proxy`'s
+  env-gated child-spawn mode + parent-side signal handling (seam #4); the test-only
+  upstream-URL override in the Python broker (St. 6); and the Stage 16 shadow-mode
+  post-launch hook (instrumentation, deleted at cutover).
 
 ## 13. macOS posture
 
 - **Apple Container (podman-alternative runtime):** ported as part of run/runtime stages
   behind the capability struct; parsing/argv covered by replay fixtures; final
   verification stays a Mac-runbook step (no CI coverage exists today either).
-- **macos-user (Seatbelt backend):** permanently delegated through seam #8 until the
-  direction decision. If it survives, it ports later through the same front-door slice
-  pattern against the already-frozen --dry-run goldens; if it dies, nothing was wasted.
+- **macos-user (Seatbelt backend):** delegated through seam #8 until the direction
+  decision. If it survives, it ports later through the same front-door slice pattern
+  against the already-frozen --dry-run goldens; if it dies, nothing was wasted. The
+  delegation pins a Python runtime subtree alive — which is why Stage 17 retirement is
+  conditional (see the Open Question).
 - **nightly-macos** workflow unchanged throughout; it becomes an `impl` matrix consumer
   only when defaults flip.
 
@@ -657,26 +830,26 @@ Per session:
 
 ### Stage status
 
-| Stage | Title | Status | Handoff |
-|---|---|---|---|
-| 0 | Scaffold + walking skeleton | not started | — |
-| 1 | Characterization wave A | not started | — |
-| 2 | Foundations + spikes | not started | — |
-| 3 | Broker relay | not started | — |
-| 4 | frameproto | not started | — |
-| 5 | host-processes | not started | — |
-| 6 | OAuth broker | not started | — |
-| 7 | Builtin daemons | not started | — |
-| 8 | TTY proxy | not started | — |
-| 9 | Characterization wave B | not started | — |
-| 10 | Go entrypoint (dual image) | not started | — |
-| 11 | Jail-side wave | not started | — |
-| 12 | Front door + slices | not started | — |
-| 13 | Config engine | not started | — |
-| 14 | Command slices ×5 | not started | — |
-| 15 | check native | not started | — |
-| 16 | run native | not started | — |
-| 17 | Cutover | not started | — |
+| Stage | Title | Sessions (est.) | Status | Handoff |
+|---|---|---|---|---|
+| 0 | Scaffold + walking skeleton | 2 | not started | — |
+| 1 | Characterization wave A | 3 | not started | — |
+| 2 | Foundations + spikes | 3 | not started | — |
+| 3 | Broker relay | 1 | not started | — |
+| 4 | frameproto | 1 | not started | — |
+| 5 | host-processes | 1 | not started | — |
+| 6 | OAuth broker | 2 + soak | not started | — |
+| 7 | Builtin daemons | 2 | not started | — |
+| 8 | TTY proxy | 2 | not started | — |
+| 9 | Characterization wave B | 1 | not started | — |
+| 10 | Go entrypoint (dual image) | 3 | not started | — |
+| 11 | Jail-side wave | 2 | not started | — |
+| 12 | Front door + slices | 2 | not started | — |
+| 13 | Config engine | 2 | not started | — |
+| 14 | Command slices ×6 | ~8 | not started | — |
+| 15 | check native | 2 | not started | — |
+| 16 | run native (5 sub-phases) | 6–8 | not started | — |
+| 17 | Cutover (conditional retirement) | 2 + soak | not started | — |
 
 ### Open Questions
 
@@ -695,6 +868,26 @@ Typer renders rich-markup help; a Go CLI (cobra or hand-rolled) cannot reproduce
 byte-for-byte without absurd effort. Agents do read `--help`.
 _Leaning:_ out of byte scope — re-pin Go help output as a NEW golden at Stage 12, keep
 all option names/semantics identical, and hold badges/errors/banner/templates byte-exact.
+**Answer:**
+>
+
+### What survives Stage 17 if the macos-user direction is still undecided
+The delegation seam needs `python -m src.cli run` and its full closure (typer, pyjson5,
+rich, config, loopholes, run_cmd, macos_user, the entrypoint package) plus a shipping
+vehicle (the wheel). Full retirement while the seam is live is impossible.
+_Leaning:_ Stage 17 flips defaults and cuts Go distribution regardless; full Python
+retirement is gated on the macos decision, with the surviving subtree enumerated in the
+Stage 17 handoff if we cut over before it lands.
+**Answer:**
+>
+
+### Fix or preserve the `prune` argv-rewrite quirk
+`prune` is registered as a subcommand but missing from `main()`'s `_SUBCOMMANDS` rewrite
+set (cli/__init__.py:455-470), so `yolo prune -- x` misroutes to `run` today. The Go
+front door freezes the quirk for parity.
+_Leaning:_ preserve during the port (parity oracle = the literal set); fix in Python
+first (with regenerated goldens, per the freeze rule) only if it bites someone before
+cutover; otherwise fix post-cutover in Go and note it in the ledger.
 **Answer:**
 >
 
@@ -718,8 +911,8 @@ a nod.
 
 ### Migrate docs/ to the standard subdir layout (plans/design/research/tasks/qa)
 This plan follows the repo's live flat convention (`docs/go-port-*.md`,
-`docs/handoff-go-port-stage-N.md`). The standard layout would put it under docs/plans/
-with ADRs in docs/design/.
+`docs/handoff-go-port-stage-N.md`, `docs/go-port-parity.md`). The standard layout would
+put it under docs/plans/ with ADRs in docs/design/.
 _Leaning:_ don't migrate mid-port; revisit at cutover when the plan's decisions distill
 into an ADR anyway.
 **Answer:**
@@ -730,7 +923,8 @@ publish.yml ships a pure wheel today. Once Go binaries are the product, the whee
 grows embedded binaries (packaging churn) or PyPI users lag behind.
 _Leaning:_ keep the wheel pure-Python and current until Stage 17, then cut over to
 goreleaser + tap + `go install` in one release, recording the deviation per
-distribution.md. No wheel-embedded-binary interim.
+distribution.md. No wheel-embedded-binary interim. (If macos-user survives undecided,
+the wheel also stays as its carrier — see the Stage 17 question.)
 **Answer:**
 >
 
@@ -749,13 +943,25 @@ behavior differs.
 
 Produced 2026-07-17 from: (a) an 11-agent contract-level map of every module group, the
 test suite, the build/deploy pipeline, and the applicable engineering standards
-(`swarf/go-port/module-map/*.json`); (b) three competing staging strategies
-(exec-seam strangler / foundation-first / freeze-then-strike) independently designed
-against that map; (c) a judge pass that picked the strangler backbone and named the
-specific grafts adopted here: the day-1 walking skeleton, the bash-job-control tty
-scenario + pgroup-suspend design + library fallback, the golden freeze rule, the
-continuous drift suite, early `internal/jsonx`/`fsx`/`execx` foundations with the json5
-oracle, the ≥20-config argv matrix, the run-stage shadow burn-in, and the frozen
-macos --dry-run goldens — and the specific rejections: no resolved-inputs JSON bridge for
+(committed at `docs/go-port-module-map/`; regenerated maps would describe a moved main
+and are not equivalent to the ones this plan was scored against); (b) three competing
+staging strategies (exec-seam strangler / foundation-first / freeze-then-strike)
+independently designed against that map; (c) a judge pass that picked the strangler
+backbone and named the grafts adopted here: the day-1 walking skeleton, the
+bash-job-control tty scenarios + targeted-suspend design + library fallback, the golden
+freeze rule, the continuous drift suite, early `internal/jsonx`/`fsx`/`execx` foundations
+with the json5 oracle, the ≥20-config argv matrix, the run-stage shadow burn-in, and the
+frozen macos --dry-run goldens — and the rejections: no resolved-inputs JSON bridge for
 run, no wheel-embedded-binary packaging mid-port, no library-first ordering that defers
 deployment-channel proof.
+
+Rev 2 (same day) incorporates a four-lens adversarial review (executability, parity
+rigor, completeness, factual accuracy — 33 verified findings), which among other fixes:
+corrected the dirty-version byte contract (`0.1.0+dirty` — the stale source comment that
+caused the error is now fixed in `src/cli/version.py`), replaced the pgroup-SIGTSTP tty
+design with targeted suspend + child-not-stopped harness scenarios, added the
+`YOLO_GO_DELEGATED` exec-loop breaker, moved binary staging off `dist/` (which
+`just build` deletes) to `dist-go/`, defined the `YOLO_GO_BIN_DIR` resolution rule, made
+Stage 17 retirement conditional on the macos decision, assigned storage.py/image.py to a
+Stage 14 slice ahead of check-native, added the user-env.sh and TOML parity surfaces,
+and re-sized Stages 14/16.
