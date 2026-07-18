@@ -98,6 +98,8 @@ var containerNameCorpus = []string{
 	"/srv/dir.with.dots",
 	"/srv/CAP-Mixed_Case",
 	"/srv/café-münchen",
+	// U+0130 (Turkish İ) — the naming.pyLower special-case; see py_drift_dump.py.
+	"/home/matt/aİb",
 	"/srv/" + repeat("x", 60),
 	"/srv/---",
 	"/",

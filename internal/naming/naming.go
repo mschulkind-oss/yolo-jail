@@ -45,7 +45,7 @@ func FromResolved(resolved string) string {
 		}
 	}
 
-	safe := sanitizeRe.ReplaceAllString(strings.ToLower(name), "-")
+	safe := sanitizeRe.ReplaceAllString(pyLower(name), "-")
 	safe = strings.Trim(safe, "-")
 	safe = truncateRunes(safe, 40)
 	if safe == "" {
@@ -75,12 +75,30 @@ func FromWorkspace(workspace string) string {
 	return FromResolved(resolved)
 }
 
+// pyLower matches Python's str.lower() for the purpose of this algorithm.
+// Go's strings.ToLower uses simple 1:1 case folding, but Python's .lower()
+// applies Unicode full case folding, which for exactly ONE code point in all
+// of Unicode EXPANDS to multiple runes in a way that survives the
+// [^a-z0-9-] sanitize with a different result:
+//
+//	U+0130 (İ, LATIN CAPITAL LETTER I WITH DOT ABOVE) -> "i" + U+0307
+//	(COMBINING DOT ABOVE); the combining mark then sanitizes to "-", so
+//	Python yields "...i-..." where Go's ToLower ("i") yields "...i...".
+//
+// This is a FROZEN INTEROP CONTRACT (the Python and Go CLIs must compute the
+// same container name for the same workspace), so we special-case U+0130 to
+// match, verified by an exhaustive all-code-points scan showing it is the only
+// sanitize-affecting divergence. (The full audit is in the naming test.)
+func pyLower(s string) string {
+	if !strings.ContainsRune(s, 'İ') {
+		return strings.ToLower(s)
+	}
+	// Expand U+0130 -> "i̇" first, then lower the rest normally.
+	return strings.ToLower(strings.ReplaceAll(s, "İ", "i̇"))
+}
+
 // truncateRunes returns the first n runes of s (Python str[:n] semantics),
-// not the first n bytes. NOTE: Python's .lower() and Go's strings.ToLower may
-// disagree on some non-ASCII runes, but after sanitization every non-[a-z0-9-]
-// rune (which is where any casing disagreement would live) has already become
-// "-", so the two agree on the sanitized output. See the drift-suite corpus,
-// which includes accented input, for the pin.
+// not the first n bytes.
 func truncateRunes(s string, n int) string {
 	runes := []rune(s)
 	if len(runes) <= n {

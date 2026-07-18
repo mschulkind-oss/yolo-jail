@@ -153,6 +153,10 @@ def _container_name_cases() -> "dict[str, str]":
         "/srv/dir.with.dots",
         "/srv/CAP-Mixed_Case",
         "/srv/café-münchen",
+        # U+0130 (Turkish İ): Python .lower() expands to "i"+combining-dot; the
+        # Go port must special-case it (naming.pyLower) or the frozen container
+        # name diverges. Pinned here cross-language.
+        "/home/matt/aİb",
         "/srv/" + "x" * 60,
         "/srv/---",
         "/",
