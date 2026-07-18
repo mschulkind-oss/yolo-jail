@@ -1,0 +1,322 @@
+// Package loopholes is the Go port of src/loopholes.py — the host-side
+// registry that discovers, validates, and translates "loophole" manifests into
+// container-runtime flags. A loophole is a single declared host<->jail
+// permeability point (Claude OAuth broker TLS intercept, host-process viewer,
+// audio socket pass-through).
+//
+// Byte-exact parity with src/loopholes.py is the bar: every validation error
+// string, the surprising empty-env-collapse in _expand_env, the
+// comments-lost-on-rewrite degradation in set_enabled, the merge precedence
+// (bundled < user < workspace config), and the exact ordering + JSON payloads
+// runtime_args_for emits are all reproduced and tested against live Python.
+//
+// This package intentionally covers only the pure + deterministic registry
+// (loopholes.py). The process-lifecycle machinery (loopholes_runtime.py) ports
+// separately.
+//
+// Source of truth: src/loopholes.py.
+package loopholes
+
+import (
+	"os"
+	"os/exec"
+	"path/filepath"
+	"regexp"
+	"strconv"
+	"strings"
+
+	"github.com/mschulkind-oss/yolo-jail/internal/jsonx"
+	"github.com/mschulkind-oss/yolo-jail/internal/paths"
+	"github.com/mschulkind-oss/yolo-jail/internal/pytext"
+)
+
+// DefaultBrokerIP mirrors DEFAULT_BROKER_IP. The container runtime translates
+// the literal "host-gateway" into the right host-reachable address for the
+// active runtime.
+const DefaultBrokerIP = "host-gateway"
+
+// Valid enum values. Kept as ordered slices whose sort matches Python's
+// sorted(set) so the "not in [...]" error strings render identically.
+var (
+	validTransports = []string{"tls-intercept", "unix-socket", "none"}
+	validLifecycles = []string{"external", "spawned"}
+	validRestarts   = []string{"always", "on-failure", "no"}
+)
+
+// Source labels, ordered weakest -> strongest: bundled < user < config.
+const (
+	SourceBundled = "bundled"
+	SourceUser    = "user"
+	SourceConfig  = "config"
+)
+
+// repoRoot mirrors the jail's YOLO_REPO_ROOT (default /opt/yolo-jail), which is
+// where the wheel's src/ tree is mounted. Python resolves bundled_loopholes via
+// Path(__file__).parent; the Go binary ships/locates them under src/.
+func repoRoot() string {
+	if r := os.Getenv("YOLO_REPO_ROOT"); r != "" {
+		return r
+	}
+	return "/opt/yolo-jail"
+}
+
+// BundledLoopholesDir returns the loopholes that ship with the wheel. It is a
+// package var so tests can point it at the repo's real src/bundled_loopholes.
+// Mirrors bundled_loopholes_dir().
+var BundledLoopholesDir = func() string {
+	return filepath.Join(repoRoot(), "src", "bundled_loopholes")
+}
+
+// UserLoopholesDir returns the third-party loopholes dir (overrides bundled on
+// name collision). Mirrors user_loopholes_dir().
+var UserLoopholesDir = func() string {
+	return filepath.Join(paths.GlobalStorage(), "loopholes")
+}
+
+// StateDirFor returns the writable per-loophole state directory. Package var so
+// tests can monkeypatch it (mirrors src.loopholes.state_dir_for). Mirrors
+// state_dir_for(name).
+var StateDirFor = func(name string) string {
+	return filepath.Join(paths.GlobalStorage(), "state", name)
+}
+
+// Intercept mirrors the Intercept dataclass.
+type Intercept struct {
+	Host string
+}
+
+// JailDaemon mirrors the JailDaemon dataclass. Restart defaults to "on-failure".
+type JailDaemon struct {
+	Cmd     []string
+	Restart string
+}
+
+// HostDaemon mirrors the HostDaemon dataclass. Env is insertion-ordered.
+type HostDaemon struct {
+	Cmd []string
+	Env *EnvMap
+}
+
+// HostBindMount mirrors the HostBindMount dataclass. Readonly defaults true.
+type HostBindMount struct {
+	Host      string
+	Container string
+	Readonly  bool
+}
+
+// Requires mirrors the Requires dataclass. A nil-valued field means "absent"
+// (Python None); we track presence with the *Set booleans so an explicit value
+// is distinguishable from an unset one.
+type Requires struct {
+	CommandOnPath    string
+	CommandOnPathSet bool
+	FileExists       string
+	FileExistsSet    bool
+}
+
+// Loophole mirrors the Loophole dataclass — a loaded, validated manifest.
+type Loophole struct {
+	Name          string
+	Description   string
+	Path          string
+	Enabled       bool
+	Transport     string
+	Lifecycle     string
+	Intercepts    []Intercept
+	BrokerIP      string
+	CACert        string // "" == None
+	CACertSet     bool
+	JailEnv       *EnvMap
+	DoctorCmd     []string // nil == None
+	DoctorCmdSet  bool
+	HostDaemon    *HostDaemon
+	JailDaemon    *JailDaemon
+	HostBindMount []HostBindMount
+	HostDevices   []string
+	Requires      Requires
+	Source        string
+}
+
+// FromConfig reports whether this loophole came from a yolo-jail.jsonc
+// loopholes: entry (no manifest file). Mirrors the from_config property.
+func (l *Loophole) FromConfig() bool { return l.Source == SourceConfig }
+
+// HasCA mirrors the has_ca property: ca_cert is set and points at a regular
+// file.
+func (l *Loophole) HasCA() bool {
+	if !l.CACertSet || l.CACert == "" {
+		return false
+	}
+	fi, err := os.Stat(l.CACert)
+	return err == nil && fi.Mode().IsRegular()
+}
+
+// StateDir mirrors the state_dir property.
+func (l *Loophole) StateDir() string { return StateDirFor(l.Name) }
+
+// inJail reports whether YOLO_VERSION is present in the environment (Python's
+// os.environ.get("YOLO_VERSION") is not None — an empty value still counts).
+func inJail() bool {
+	_, ok := os.LookupEnv("YOLO_VERSION")
+	return ok
+}
+
+// RequirementsMet mirrors the requirements_met property.
+func (l *Loophole) RequirementsMet() bool {
+	if inJail() {
+		return l.inJailActive()
+	}
+	req := l.Requires
+	if req.CommandOnPathSet {
+		if _, err := exec.LookPath(req.CommandOnPath); err != nil {
+			return false
+		}
+	}
+	if req.FileExistsSet {
+		expanded := expandEnv(req.FileExists)
+		if expanded == "" || !pathExists(expanded) {
+			return false
+		}
+	}
+	return true
+}
+
+// inJailActive mirrors _in_jail_active.
+func (l *Loophole) inJailActive() bool {
+	if len(l.HostBindMount) == 0 {
+		return true
+	}
+	for _, bm := range l.HostBindMount {
+		if pathExists(bm.Container) {
+			return true
+		}
+	}
+	return false
+}
+
+// Active mirrors the active property.
+func (l *Loophole) Active() bool { return l.Enabled && l.RequirementsMet() }
+
+// InactiveReason mirrors the inactive_reason property. Returns "" for None.
+func (l *Loophole) InactiveReason() (string, bool) {
+	if !l.Enabled {
+		return "disabled", true
+	}
+	if inJail() {
+		if len(l.HostBindMount) > 0 && !l.inJailActive() {
+			return "host-side wiring not visible in this jail", true
+		}
+		return "", false
+	}
+	req := l.Requires
+	if req.CommandOnPathSet {
+		if _, err := exec.LookPath(req.CommandOnPath); err != nil {
+			return pytext.Repr(req.CommandOnPath) + " not on PATH", true
+		}
+	}
+	if req.FileExistsSet {
+		expanded := expandEnv(req.FileExists)
+		if expanded == "" || !pathExists(expanded) {
+			raw := req.FileExists
+			shown := expanded
+			if shown == "" {
+				shown = "<empty after env expansion>"
+			}
+			return "host path " + pytext.Repr(raw) + " missing (resolved to " + pytext.Repr(shown) + ")", true
+		}
+	}
+	return "", false
+}
+
+// _ENV_REF: \$\{([^}]+)\}|\$([A-Za-z_][A-Za-z0-9_]*)
+var envRef = regexp.MustCompile(`\$\{([^}]+)\}|\$([A-Za-z_][A-Za-z0-9_]*)`)
+
+// expandEnv mirrors _expand_env: ${VAR}/$VAR expand against the environment,
+// and UNRESOLVED refs collapse to the empty string (deliberately unlike shell).
+func expandEnv(s string) string {
+	return envRef.ReplaceAllStringFunc(s, func(m string) string {
+		sub := envRef.FindStringSubmatch(m)
+		name := sub[1]
+		if name == "" {
+			name = sub[2]
+		}
+		return os.Getenv(name)
+	})
+}
+
+// pathExists mirrors Path.exists() (follows symlinks; any stat error -> false).
+func pathExists(p string) bool {
+	_, err := os.Stat(p)
+	return err == nil
+}
+
+// pyStr renders a decoded-JSON scalar the way Python's str() does inside an
+// f-string / dict comprehension: string as-is, bool -> True/False, int ->
+// decimal, float -> repr.
+func pyStr(v any) string {
+	switch t := v.(type) {
+	case nil:
+		return "None"
+	case string:
+		return t
+	case bool:
+		if t {
+			return "True"
+		}
+		return "False"
+	case float64:
+		return jsonx.FormatFloatRepr(t)
+	default:
+		if lit, ok := jsonx.AsIntLiteral(v); ok {
+			return lit
+		}
+		s, _ := jsonx.DumpsCompact(v)
+		return s
+	}
+}
+
+// pyTruthy mirrors Python's bool(v) for decoded-JSON values.
+func pyTruthy(v any) bool {
+	switch t := v.(type) {
+	case nil:
+		return false
+	case bool:
+		return t
+	case string:
+		return len(t) > 0
+	case float64:
+		return t != 0
+	case []any:
+		return len(t) > 0
+	case *jsonx.OrderedMap:
+		return t.Len() > 0
+	default:
+		if lit, ok := jsonx.AsIntLiteral(v); ok {
+			return !isZeroIntLiteral(lit)
+		}
+		return true
+	}
+}
+
+func isZeroIntLiteral(lit string) bool {
+	s := strings.TrimPrefix(lit, "-")
+	s = strings.TrimPrefix(s, "+")
+	for _, c := range s {
+		if c != '0' {
+			return false
+		}
+	}
+	return len(s) > 0
+}
+
+// pyListRepr renders repr() of a Python list of strings: ['a', 'b'].
+func pyListRepr(items []string) string {
+	parts := make([]string, len(items))
+	for i, s := range items {
+		parts[i] = pytext.Repr(s)
+	}
+	return "[" + strings.Join(parts, ", ") + "]"
+}
+
+// itoa is a tiny helper for index interpolation in error strings.
+func itoa(i int) string { return strconv.Itoa(i) }
