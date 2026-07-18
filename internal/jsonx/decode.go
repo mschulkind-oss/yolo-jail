@@ -6,6 +6,7 @@ import (
 	"fmt"
 	"io"
 	"math"
+	"strconv"
 	"strings"
 )
 
@@ -136,6 +137,56 @@ func numberToValue(n json.Number) any {
 		return jsonInt(s)
 	}
 	return f
+}
+
+// NumberValue converts a JSON number LITERAL string to the same value model
+// numberToValue produces (jsonInt for integers with the -0→0 normalization;
+// float64 otherwise, overflow→±Inf). Exported so internal/json5's hand-written
+// parser reuses the exact int/float parity logic rather than duplicating it.
+// The literal must be a valid JSON/JSON5 number (the caller's lexer guarantees
+// this); a bad literal returns (nil, false).
+func NumberValue(literal string) (any, bool) {
+	if literal == "" {
+		return nil, false
+	}
+	if isIntegerLiteral(literal) {
+		if isNegativeZeroInt(literal) {
+			return jsonInt("0"), true
+		}
+		// Validate it's actually an integer literal.
+		if !looksNumeric(literal) {
+			return nil, false
+		}
+		return jsonInt(literal), true
+	}
+	f, err := strconv.ParseFloat(literal, 64)
+	if err != nil {
+		if math.IsInf(f, 0) {
+			return f, true // overflow -> ±Inf, re-encodes as Infinity
+		}
+		return nil, false
+	}
+	return f, true
+}
+
+// looksNumeric is a cheap guard for integer literals: optional leading '-'
+// then all digits.
+func looksNumeric(s string) bool {
+	if s == "" {
+		return false
+	}
+	if s[0] == '-' {
+		s = s[1:]
+	}
+	if s == "" {
+		return false
+	}
+	for _, c := range s {
+		if c < '0' || c > '9' {
+			return false
+		}
+	}
+	return true
 }
 
 func isIntegerLiteral(s string) bool {
