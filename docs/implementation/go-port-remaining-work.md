@@ -39,12 +39,14 @@ kept). This checklist is ordered around that.
 These were handed to background agents; confirm each landed with RED-then-GREEN
 tests before trusting:
 
-- [ ] **journald truncation guard bites** — the fix is correct but the test
-  passed with the race reintroduced. Make it force the race window / assert the
-  full byte count.
-- [ ] **`TestHostPlatformNaming` covers darwin** — refactor the OS→machine map
-  to a pure function and table-test linux/darwin × amd64/arm64 (the
-  darwin/arm64→arm64 case is where the bug lives; the test skipped it).
+- [x] **journald truncation guard bites** (`e2da469`) — test rewritten to size
+  the payload past the AF_UNIX send-buffer + a delayed-read client so the pump
+  blocks with the tail unread; end-of-stream marker makes truncation a precise
+  assertion. Verified RED with the race reintroduced, GREEN with the fix (3× each).
+- [x] **`TestHostPlatformNaming` covers darwin** (`497055e`) — extracted a pure
+  `platformMachine(goos, goarch)` and table-tested all four combos incl.
+  darwin/arm64→arm64 (the bug's home). Verified RED with the unconditional
+  arm64→aarch64 map reintroduced.
 - [x] **broker-relay orphan reap on the Go `run` path** (`5c3f6df`) — ported
   host-only, piggybacking the live-container enumeration, declining on unknown
   liveness, reusing the byte-verified `prune.ReapRelayOrphans` engine. Regressions
