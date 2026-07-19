@@ -31,8 +31,8 @@ var willBuildRe = regexp.MustCompile(`(?m)^(this derivation|these \d+ derivation
 
 // ParseDryRunWillBuild classifies `nix build --dry-run` output. returncode is
 // the process exit; stderr is its captured stderr; ok reports whether the
-// subprocess ran at all (false → the caller already returned Unknown). Mirrors
-// _nix_dry_run_will_build's stderr handling:
+// subprocess ran at all (false → the caller already returned Unknown). Stderr
+// handling:
 //   - subprocess failed to run (ok=false) → (Unknown, nil)
 //   - non-zero exit AND no "will be built" header → (Unknown, nil)
 //   - no header → (No, nil)
@@ -109,8 +109,8 @@ func DiagnoseNixBuildFailure(stderrTail []string, isMacOS bool, remedy string) (
 
 // HasLinuxBuilderFromConfig parses `nix config show` output plus any
 // @/etc/nix/machines files (supplied via readMachines) to decide whether a
-// usable aarch64-linux builder with a non-zero job slot is configured. Mirrors
-// _has_linux_builder's parse. readMachines(path) returns the file's lines and
+// usable aarch64-linux builder with a non-zero job slot is configured.
+// readMachines(path) returns the file's lines and
 // whether it was readable; pass a loader that reads real files (or a stub).
 func HasLinuxBuilderFromConfig(nixConfigShow string, readMachines func(path string) ([]string, bool)) bool {
 	var builderLines []string
@@ -161,9 +161,8 @@ func contains(xs []string, target string) bool {
 	return false
 }
 
-// FmtDuration formats a second count the way _check_broker_creds_freshness's
-// nested _fmt does: negative → "?"; < 3600 → "<m>m"; else "<h>h<m>m". Mirrors
-// _fmt exactly (integer division; no zero-padding).
+// FmtDuration formats a second count: negative → "?"; < 3600 → "<m>m"; else
+// "<h>h<m>m" (integer division; no zero-padding).
 func FmtDuration(seconds int) string {
 	if seconds < 0 {
 		return "?"
@@ -226,8 +225,7 @@ const linuxBuilderRemedyTemplate = "The jail image is a Linux image; part of it 
 
 // LinuxBuilderRemedy returns the remedy with the daemon-restart label filled in.
 // label is the resolved nix-daemon launchd label (caller passes
-// storage.DetectNixDaemonLabel() or "org.nixos.nix-daemon"). Mirrors
-// _linux_builder_remedy.
+// storage.DetectNixDaemonLabel() or "org.nixos.nix-daemon").
 func LinuxBuilderRemedy(label string) string {
 	if label == "" {
 		label = "org.nixos.nix-daemon"
