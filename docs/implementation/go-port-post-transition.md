@@ -46,9 +46,11 @@ Do it as its own sequenced change with nested-jail validation at each gate.
 - [ ] Validation: `env -i` smoke suite in a nested jail (mise node, claude
   binary, copilot addons, an MCP spawn, a ctypes dlopen) + one aarch64 run.
 
-**Safe-to-do-now sliver** (independent of the image change; could pull forward if
-useful): add `env -i /mise/installs/node/*/bin/node --version` as a `yolo check`
-diagnostic so loader drift surfaces as a clear message, not a cryptic MCP fail.
+**Deferred in full** (2026-07-19 directive: pull nothing forward — transition
+first). Even the independent sliver (a `yolo check` loader-drift probe) waits; it
+would only add a Python+Go twin to maintain through the cutover, which is exactly
+what we're avoiding. Do the whole of §1 after the Go-only world exists, as a
+single Go implementation.
 
 ---
 
@@ -112,18 +114,19 @@ post-transition.
   wrapping the Go binary behind a console entry point. `uv publish` via **PyPI
   Trusted Publishing (OIDC, no token)** — 🔒 maintainer configures the trusted
   publisher.
-- [ ] **Decide whether PyPI even stays a channel** post-transition. It's the
-  `pipx`/`uvx` audience; go-to-wheel makes it near-free, but yolo-jail (unlike
-  swarf) needs podman/nix on the host anyway, so `pipx install yolo-jail` is
-  arguably a weaker fit than for a self-contained daemon. Maintainer call.
+- **DECIDED (2026-07-19): keep PyPI.** yolo-jail stays a 4-channel project
+  (Homebrew + `go install` + PyPI-via-go-to-wheel + source). The go-to-wheel
+  path makes it near-free and preserves the existing `pipx install yolo-jail` /
+  `uvx` audience through the cutover. License: **Apache-2.0 everywhere** (resolve
+  swarf's Apache/MIT inconsistency in our copy).
 
 ### 2d. `internal/version` — the injection target
 - [ ] Confirm `internal/version` exposes `Version`/`GitCommit`(/`Dirty`) vars
   settable by `-X` (swarf's exact pattern). Today's Go version resolution is
   git-describe/`YOLO_REPO_ROOT` based — reconcile so a tagged goreleaser build
   reports the tag, and a bare `go install …@latest` reports a sane default
-  (swarf accepts `dev` there). This is the one code change in §2 that's safe to
-  do pre-cutover.
+  (swarf accepts `dev` there). **Deferred with the rest of §2** (2026-07-19: pull
+  nothing forward) — done as part of the distribution cutover, not before.
 
 ### 2e. Justfile + README + go.mod
 - [ ] Justfile: local `build`/`install`/`deploy` with git-derived ldflags (incl.
@@ -186,6 +189,10 @@ cutover (wipe Python)  ──┬─→ §2 distribution cutover (needs Go binary
                          ├─→ §3 module consolidation (also feeds §2a builds: set)
                          └─→ §4 OSS-hygiene sweep
 
-nix-ld (§1)  ── independent image change; do whenever, host-gated
-version ldflags (§2d) + check probe (§1 sliver)  ── safe to pull forward pre-cutover
+nix-ld (§1)  ── independent image change; post-cutover, host-gated
+
+2026-07-19 directive: PULL NOTHING FORWARD. Everything above is post-cutover.
+The version-ldflags reconcile (§2d) and the check probe (§1 sliver) COULD be done
+now but are deliberately deferred — pulling them forward means maintaining a
+Python+Go twin through the cutover, which defeats "transition ASAP".
 ```
