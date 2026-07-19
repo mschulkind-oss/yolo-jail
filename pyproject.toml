@@ -1,62 +1,11 @@
 [tool.uv]
-package = true
+package = false
 
 [project]
 name = "yolo-jail"
-dynamic = ["version"]
-description = "Secure container jail for AI coding agents — run Claude Code, Copilot, Gemini, opencode, or pi in YOLO mode safely"
-readme = "README.md"
+version = "0.0.0"
+description = "Secure container jail for AI coding agents"
 requires-python = ">=3.13"
-license = "Apache-2.0"
-authors = [
-    {name = "Matt Schulkind"},
-]
-keywords = ["ai", "agents", "podman", "sandbox", "claude", "copilot", "gemini", "opencode", "pi", "security", "nix"]
-classifiers = [
-    "Development Status :: 3 - Alpha",
-    "Environment :: Console",
-    "Intended Audience :: Developers",
-    "Operating System :: POSIX :: Linux",
-    "Operating System :: MacOS",
-    "Programming Language :: Python :: 3.13",
-    "Topic :: Security",
-    "Topic :: Software Development :: Build Tools",
-    "Topic :: Software Development :: Testing",
-]
-dependencies = [
-    "pyjson5>=2.0.0",
-    "rich>=14.3.2",
-    "typer>=0.23.1",
-]
-
-[project.urls]
-Homepage = "https://github.com/mschulkind-oss/yolo-jail"
-Repository = "https://github.com/mschulkind-oss/yolo-jail"
-Documentation = "https://github.com/mschulkind-oss/yolo-jail/blob/main/docs/guides/USER_GUIDE.md"
-Issues = "https://github.com/mschulkind-oss/yolo-jail/issues"
-
-[project.scripts]
-yolo = "src.cli:main"
-yolo-claude-oauth-broker-host = "src.oauth_broker:main"
-yolo-host-processes = "src.host_processes:main"
-yolo-ps = "src.yolo_ps:main"
-
-[build-system]
-requires = ["setuptools>=64", "setuptools-scm>=8"]
-build-backend = "setuptools.build_meta"
-
-[tool.setuptools-scm]
-version_file = "src/_version.py"
-
-[tool.vcs-versioning]
-version_file = "src/_version.py"
-
-[tool.setuptools]
-packages = ["src", "src.bundled_loopholes", "src.cli", "src.entrypoint"]
-
-[tool.setuptools.package-data]
-src = ["flake.nix", "flake.lock", "shims/*"]
-"src.bundled_loopholes" = ["**/*"]
 
 [dependency-groups]
 dev = [
