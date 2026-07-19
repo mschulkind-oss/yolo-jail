@@ -186,6 +186,56 @@ func TestExitCodeCleanInJail(t *testing.T) {
 	}
 }
 
+// TestCheckAccumulatedFailEarlyExit is the regression for the re-audit §C gap:
+// when config is VALID (passes the Merged-Configuration validation gate) but a
+// prior non-validation failure occurred (repo-root unresolved), Check() must
+// short-circuit right after Merged Configuration — matching Python's second
+// `if failed:` gate — instead of proceeding into the Entrypoint Dry-Run and the
+// Image section's real `nix build`. Before the fix, Go ran those sections on an
+// unhealthy host that Python would never reach.
+func TestCheckAccumulatedFailEarlyExit(t *testing.T) {
+	t.Setenv("HOME", t.TempDir())
+	var out bytes.Buffer
+	opts := baseOptions(t, &out)
+
+	// Valid config path: a live podman so the Merged-Configuration validation
+	// produces NO errors (no "runtime not found" fail)...
+	opts.LookPath = func(name string) (string, bool) {
+		if name == "podman" || name == "nix" {
+			return "/usr/bin/" + name, true
+		}
+		return "", false
+	}
+	opts.Exec = fakeExec(map[string]ExecResult{
+		"podman --version": {Stdout: "podman version 5.0.0", Ran: true, RC: 0},
+		"podman info":      {Stdout: "host: {}", Ran: true, RC: 0},
+	})
+	// ...but repo root is UNRESOLVED → a non-validation FAIL accumulates before
+	// the gate. (baseOptions already sets RepoRoot -> ("", false).)
+
+	exit := Check(opts)
+	got := stripANSI(out.String())
+
+	if exit != 1 {
+		t.Errorf("exit = %d, want 1 (accumulated fail)", exit)
+	}
+	// The repo-root fail must be present...
+	if !strings.Contains(got, "Could not resolve the yolo-jail repo root") {
+		t.Errorf("expected the repo-root FAIL in output:\n%s", got)
+	}
+	// ...and the run must STOP at the Summary right after Merged Configuration —
+	// never reaching the Entrypoint Dry-Run or the Image/nix-build sections.
+	for _, forbidden := range []string{"Entrypoint Dry-Run", "Image", "nix build"} {
+		if strings.Contains(got, forbidden) {
+			t.Errorf("check reached %q section — accumulated-fail gate did not short-circuit:\n%s", forbidden, got)
+		}
+	}
+	// The tail must be the fail summary.
+	if !strings.Contains(got, "Summary") || !strings.Contains(got, "failed") {
+		t.Errorf("expected a fail Summary at the tail:\n%s", got)
+	}
+}
+
 func must(t *testing.T, err error) {
 	t.Helper()
 	if err != nil {

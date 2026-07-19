@@ -105,6 +105,18 @@ func Check(opts Options) int {
 		return 1
 	}
 
+	// Accumulated-fail gate (parity with check_cmd.py's second `if failed:`
+	// after Merged Configuration). Python short-circuits here on ANY failure so
+	// far — not just config-validation errors — so a failed repo-root resolution
+	// or flake check (added above) stops the run BEFORE the Entrypoint Dry-Run
+	// and the real `nix build` / orphan-cleanup prompt in the Image section.
+	// Without this the Go check does destructive-ish work (a surprise nix build)
+	// on an unhealthy host that Python would never reach (re-audit §C).
+	if r.failed > 0 {
+		r.summaryFailWarn()
+		return 1
+	}
+
 	runtimeSel, _ := o.runtimeForCheck(merged)
 	isNativeRuntime := inStrSlice(paths.NativeRuntimes, runtimeSel)
 
