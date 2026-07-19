@@ -3330,6 +3330,73 @@ class TestRunRocm:
     @patch("subprocess.run")
     @patch("subprocess.check_output")
     @patch("shutil.which")
+    def test_rocm_plus_kvm_emits_keep_groups_exactly_once(
+        self,
+        mock_which,
+        mock_check_output,
+        mock_run,
+        mock_find,
+        mock_config_changes,
+        mock_auto_load,
+        mock_popen,
+        tmp_path,
+        monkeypatch,
+    ):
+        # Regression (2026-07-19, hit on a real host the moment kvm was first
+        # enabled next to AMD passthrough): the ROCm block AND the kvm block
+        # each appended --group-add keep-groups, and podman hard-errors when
+        # keep-groups is combined with any other --group-add value — INCLUDING
+        # a duplicate of itself: "the '--group-add keep-groups' option is not
+        # allowed with any other --group-add options".
+        _run_monkeypatch(monkeypatch, tmp_path)
+        _mock_runtimes(mock_which)
+        (tmp_path / "yolo-jail.jsonc").write_text(
+            '{"gpu": {"enabled": true, "vendor": "amd"}, "kvm": true}'
+        )
+        mock_check_output.side_effect = FileNotFoundError
+
+        mock_proc = MagicMock()
+        mock_proc.wait.return_value = None
+        mock_proc.returncode = 0
+        mock_popen.return_value = mock_proc
+
+        import cli as _cli
+
+        original_exists = _cli.Path.exists
+        original_glob = _cli.Path.glob
+
+        def fake_exists(self):
+            if str(self) in ("/dev/kfd", "/dev/dri", "/sys/module/amdgpu", "/dev/kvm"):
+                return True
+            return original_exists(self)
+
+        def fake_glob(self, pattern):
+            if str(self) == "/dev/dri" and pattern == "renderD*":
+                return iter([_cli.Path("/dev/dri/renderD128")])
+            return original_glob(self, pattern)
+
+        with (
+            patch.object(_cli.Path, "exists", fake_exists),
+            patch.object(_cli.Path, "glob", fake_glob),
+        ):
+            runner = CliRunner()
+            runner.invoke(app, ["run", "--", "bash"])
+
+        assert mock_popen.called
+        run_cmd = mock_popen.call_args[0][0]
+        # Both features are live...
+        assert "/dev/kfd" in run_cmd
+        assert "/dev/kvm" in run_cmd
+        # ...but keep-groups appears exactly once.
+        assert run_cmd.count("keep-groups") == 1
+
+    @patch("subprocess.Popen")
+    @patch("cli.run_cmd.auto_load_image")
+    @patch("cli.run_cmd._check_config_changes", return_value=True)
+    @patch("cli.run_cmd.find_running_container", return_value=None)
+    @patch("subprocess.run")
+    @patch("subprocess.check_output")
+    @patch("shutil.which")
     def test_rocm_vaapi_adds_libva_env_and_image_packages(
         self,
         mock_which,

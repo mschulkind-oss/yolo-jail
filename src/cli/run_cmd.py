@@ -2639,8 +2639,11 @@ def run(
             # Rootless podman drops supplementary groups by default, so even
             # after --device the in-container process can't open /dev/kvm
             # unless we explicitly preserve the invoking user's kvm group.
-            # `keep-groups` is a podman-specific convenience flag.
-            if runtime == "podman":
+            # `keep-groups` is a podman-specific convenience flag — and podman
+            # rejects it combined with any other --group-add value, INCLUDING
+            # a duplicate of itself, so skip it when the ROCm block above
+            # already added it (AMD GPU + kvm together).
+            if runtime == "podman" and "keep-groups" not in run_cmd:
                 run_cmd.extend(["--group-add", "keep-groups"])
             console.print("[dim]KVM passthrough: /dev/kvm[/dim]")
 

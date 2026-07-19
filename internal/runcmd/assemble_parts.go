@@ -269,8 +269,12 @@ func (o *Options) resolveUSBDevice(usbID, desc string) []string {
 	return []string{"--device", devPath}
 }
 
-// kvmArgs ports the KVM passthrough block (2581-2598).
-func (o *Options) kvmArgs(cfg *jsonx.OrderedMap, rt string) []string {
+// kvmArgs ports the KVM passthrough block (2581-2598). keepGroupsAlready
+// reports whether the assembled command already carries --group-add
+// keep-groups (the ROCm block adds it on podman): podman rejects keep-groups
+// combined with any other --group-add value, INCLUDING a duplicate of itself,
+// so the kvm block must not add a second copy (AMD GPU + kvm together).
+func (o *Options) kvmArgs(cfg *jsonx.OrderedMap, rt string, keepGroupsAlready bool) []string {
 	if !cfgTrue(cfg, "kvm") {
 		return nil
 	}
@@ -284,7 +288,7 @@ func (o *Options) kvmArgs(cfg *jsonx.OrderedMap, rt string) []string {
 		return nil
 	}
 	args := []string{"--device", "/dev/kvm"}
-	if rt == "podman" {
+	if rt == "podman" && !keepGroupsAlready {
 		args = append(args, "--group-add", "keep-groups")
 	}
 	out.print("[dim]KVM passthrough: /dev/kvm[/dim]")

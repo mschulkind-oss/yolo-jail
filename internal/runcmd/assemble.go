@@ -3,6 +3,7 @@ package runcmd
 import (
 	"path/filepath"
 	"runtime"
+	"slices"
 	"strconv"
 	"strings"
 
@@ -276,7 +277,7 @@ func (o *Options) assembleRunCmd(in *assembleInput) []string {
 	runCmd = append(runCmd, o.gpuArgs(cfg, rt, gpuEnabled, gpuVendor)...)
 
 	// --- KVM ---
-	runCmd = append(runCmd, o.kvmArgs(cfg, rt)...)
+	runCmd = append(runCmd, o.kvmArgs(cfg, rt, slices.Contains(runCmd, "keep-groups"))...)
 
 	// --- resources ---
 	runCmd = append(runCmd, o.resourceArgs(cfg, rt)...)
