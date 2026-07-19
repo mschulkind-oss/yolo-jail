@@ -64,6 +64,23 @@ def _simulate_linux_for_unit_tests(request, monkeypatch):
     # every unit test; in-jail-mode tests already opt back in via
     # monkeypatch.setenv("YOLO_VERSION", ...).
     monkeypatch.delenv("YOLO_VERSION", raising=False)
+    # go-port seam env: inside a `yolo-go` jail (or after eval-ing
+    # scripts/go-front-door.sh) these are all exported.  YOLO_IMPL=go in
+    # particular makes cli.main()'s seam-#1 prelude os.execv() into the Go
+    # binary — which REPLACES the pytest(-xdist) worker process mid-test and
+    # crashes it.  Scrub the whole seam set so the Python unit tests always
+    # exercise the Python path regardless of the ambient (host or in-jail) env.
+    # Tests that specifically exercise the seam opt back in with their own
+    # monkeypatch.setenv.
+    for _seam_var in (
+        "YOLO_IMPL",
+        "YOLO_GO_DELEGATED",
+        "YOLO_GO_BIN_DIR",
+        "YOLO_GO_DAEMONS",
+        "YOLO_ENTRYPOINT_IMPL",
+        "YOLO_PYTHON",
+    ):
+        monkeypatch.delenv(_seam_var, raising=False)
     if sys.platform == "darwin":
         # Lazily import — cli may not be on sys.path yet for conftest itself
         try:

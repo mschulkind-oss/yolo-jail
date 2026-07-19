@@ -1701,6 +1701,32 @@ class TestMainFunction:
         main()
         assert sys.argv == ["yolo", "check", "--no-build"]
 
+    @patch("cli.os.execv")
+    @patch("cli.app")
+    @patch("cli._tmux_setup_jail_pane", return_value=None)
+    def test_main_ambient_yolo_impl_go_does_not_exec_away(
+        self, mock_tmux, mock_app, mock_execv, monkeypatch
+    ):
+        """Regression: a `yolo-go` jail exports YOLO_IMPL=go into the env.  The
+        seam-#1 prelude would os.execv() into the Go binary — which, under
+        pytest(-xdist), REPLACES the worker process and crashes the whole suite.
+        The autouse conftest fixture must scrub the seam env for unit tests, so
+        main() takes the normal Python path (reaches app(), never execs).
+        """
+        # Simulate the in-jail environment AFTER the conftest scrub has run:
+        # the scrub deleted these, so re-setting them here would defeat it —
+        # instead assert the scrub already cleared YOLO_IMPL, and that main()
+        # does not exec even if a stray value slipped through.
+        assert os.environ.get("YOLO_IMPL") is None, "conftest must scrub YOLO_IMPL"
+        monkeypatch.delenv("KITTY_PID", raising=False)
+        monkeypatch.delenv("TMUX", raising=False)
+        monkeypatch.setattr("sys.argv", ["yolo", "check"])
+        from cli import main
+
+        main()
+        mock_execv.assert_not_called()
+        mock_app.assert_called_once()
+
 
 # ═══════════════════════════════════════════════════════════════════════════════
 # Test: _runtime() missing paths
