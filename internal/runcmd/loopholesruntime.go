@@ -198,6 +198,20 @@ func (o *Options) startExternalService(name string, spec *jsonx.OrderedMap, sock
 		}
 		cmdArgs = append(cmdArgs, strings.ReplaceAll(s, "{socket}", hostSocket))
 	}
+	// go-port seam #2 (_daemon_launcher): if cmd[0] is a console-script daemon
+	// gated on via YOLO_GO_DAEMONS, swap it for the Go binary at
+	// $YOLO_GO_BIN_DIR. Only the launcher token is replaced; the substituted
+	// --socket/... tail is kept. Missing/ungated → falls back to the console
+	// script on PATH. Without this the full-Go path tried to exec the Python
+	// console script `yolo-host-processes`, which isn't on the jail agent's PATH
+	// (observed: "Failed to launch host service 'host-processes'").
+	if len(cmdArgs) > 0 {
+		launcher := o.daemonLauncher(cmdArgs[0])
+		swapped := len(launcher) != 1 || launcher[0] != cmdArgs[0]
+		if launcher != nil && swapped {
+			cmdArgs = append(append([]string{}, launcher...), cmdArgs[1:]...)
+		}
+	}
 	logDir := filepath.Join(paths.GlobalStorage(), "logs")
 	_ = os.MkdirAll(logDir, 0o755)
 	cmd := exec.Command(cmdArgs[0], cmdArgs[1:]...)
