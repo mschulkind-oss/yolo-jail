@@ -25,31 +25,51 @@ kept). This checklist is ordered around that.
 
 ---
 
-## ★ Transition path — do these IN ORDER (2026-07-19: "transition ASAP")
+## ★ Transition path — do these IN ORDER (2026-07-19: "transition ASAP, fast-follow")
 
-**Every deferrable code fix is already committed this session** (§A, §A′). The
-critical path to a Go-only world is now almost entirely maintainer-gated steps.
-Do them in this order; nothing below is blocked on more in-jail code work.
+**Every deferrable code fix is already committed this session** (§A, §A′), and
+the code tree is green on both platforms. The critical path to a Go-only world is
+now just **three maintainer-gated steps + the wipe.**
 
-**Directive: pull nothing forward.** All post-cutover work (distribution config,
-nix-ld, module consolidation, OSS sweep) is deferred to
-[go-port-post-transition.md](go-port-post-transition.md) so we don't maintain
-Python+Go twins during the transition. The exception is unavoidable: the
-distribution pipeline (step 3) must EXIST before Python can be removed, because
-Python is currently the only shipped `yolo`.
+**2026-07-19 directives that shortened this path:**
+- **No soak.** Removed as a gate — fast-follow with fixes instead.
+- **Mac verification → fast-follow.** Temporary macOS breakage is acceptable, so
+  full Mac hardware verification AND the macos-user bootstrap-repoint move to
+  *after* the wipe (§I). This removes the `src/entrypoint` deletion gate that
+  used to block §H.
+- **Pull nothing forward.** All post-cutover work (distribution config beyond the
+  minimum, nix-ld, consolidation, OSS sweep) is in
+  [go-port-post-transition.md](go-port-post-transition.md) — no Python+Go twins
+  during the transition.
 
-| # | Step | Owner | Blocks cutover? | Detail |
-|---|---|---|---|---|
-| 1 | **Cursory test the Go path works** (Linux, via `scripts/go-front-door.sh`) — run a real `yolo-go -- claude` session, `check`, `ps`, `prune --dry-run`. | you | yes | §"safe to use now" below |
-| 2 | **Mac hardware verification** — hand the Mac agent [the runbook](../guides/runbooks/mac-go-port-verification.md). Certifies macos-user launch (OQ-1), Apple Container, builder, `check`. | Mac agent | yes | blocker F.2 |
-| 3 | **Build the distribution pipeline** — goreleaser + release.yml + publish.yml (go-to-wheel, PyPI KEPT) so the Go binary is the shipped `yolo`. Copy swarf verbatim. | you | yes (F.1) | post-transition §2 — but this ONE piece must precede the wipe |
-| 4 | **Stage-1 parity-CI freeze running** — the safety net that makes deletion irreversible-safe. | you | yes | §D |
-| 5 | **Soak confirmations** — broker single-use token, real `claude` login smoke. | you/CI | yes | §F.4 |
-| 6 | **Ledger sign-off** — accept/reject D1–D17. | you | yes | §E |
-| 7 | **macos-user bootstrap repoint** — point it at the Go entrypoint so macOS boot survives the wipe. | you+Mac | yes | §F.7 |
-| 8 | **WIPE PYTHON** — the manifest in §H. | you | — | §H |
-| 9 | **Consolidate modules + strip parity scaffolding + always-Go cosmetics.** | you | — | §G, post-transition §3 |
-| — | Housekeeping (pre-commit hook, author email) — anytime, non-blocking. | you | no | §D |
+### The critical path
+
+| # | Step | Owner | Detail |
+|---|---|---|---|
+| 1 | **Cursory-test the Go path on Linux** via `scripts/go-front-door.sh`: a real `yolo-go -- claude` session, `check`, `ps`, `prune --dry-run`. Go/no-go smoke. | you | §"safe to use now" below |
+| 2 | **Build the distribution pipeline** — goreleaser + release.yml + publish.yml (go-to-wheel, PyPI kept), so the Go binary IS the shipped `yolo`. Copy swarf verbatim. **The one hard pre-wipe blocker:** deleting the Python console-script with no Go release = users have no `yolo`. | you | post-transition §2 |
+| 3 | **WIPE PYTHON** — the manifest in §H. `src/entrypoint/` is now deletable (Mac deferred). | you | §H |
+| 4 | **Consolidate modules + strip parity scaffolding + always-Go cosmetics.** | you | §G, post-transition §3 |
+
+### Fast-follow (post-wipe — temporary breakage accepted)
+
+| Step | Owner | Note |
+|---|---|---|
+| **Full Mac hardware verification** — [the runbook](../guides/runbooks/mac-go-port-verification.md) (macos-user OQ-1, Apple Container, builder, `check`). | Mac agent | was blocker F.2 |
+| **macos-user bootstrap repoint** — point it at the Go entrypoint so the native macOS backend works again. **macos-user launch is BROKEN between the wipe and this** (see §H note). Apple Container on macOS is unaffected (uses the image's Go entrypoint). | you+Mac | was F.7 |
+| **Ledger sign-off** — record accept/reject of D1–D17 (they're already live; this is formal acceptance, not a functional gate). | you | §E |
+| **nix-ld, deep consolidation, OSS-hygiene sweep** | you | post-transition §1/§3/§4 |
+
+### Optional / your call (not gating, given the fast-follow posture)
+
+- **Stage-1 parity-CI freeze** (§D) — was "the safety net that makes deletion
+  irreversible-safe." With history kept (Python is `git revert`-recoverable) and
+  a fast-follow posture, its value drops: once Python is deleted there's no
+  Python left to drift against, and the live-Python oracles already cover
+  argv/config/prune/check pre-wipe. **Skippable** — but if you want a
+  characterization snapshot captured *before* the reference disappears, do it
+  before step 3. Recommended, not required.
+- **Housekeeping** (pre-commit hook, author email) — anytime, non-blocking.
 
 ---
 
@@ -156,28 +176,30 @@ dogfooding:
 - **D5/D6/D7** broker/relay/hostservice residues.
 See `docs/design/go-port-divergences.md` for the full set + rationale.
 
-## F. Blockers to actually DELETING Python (Stage 17) — the bar rises
+## F. Cutover gates — RECLASSIFIED (2026-07-19: fast-follow posture)
 
-Once bail-back is gone, every "open but low-risk-with-Python-present" item above
-becomes must-fix. Plus these hard blockers:
+The single source of truth for ordering is the ★ table at the top. This section
+records why each former "hard blocker" was reclassified — the fast-follow +
+no-soak + Mac-deferred directives collapsed the bar to essentially one gate.
 
-1. [ ] 🔒 **Go binary distribution** — no goreleaser today; the Python
-   console-script is still the only `yolo` entry point. **Python cannot be
-   removed until the Go binary IS the shipped `yolo`.** This is the #1 blocker
-   for the maintainer's "wipe Python" goal — build the release/install path first.
-2. [ ] 🔒 **macOS verified on real hardware** — see the Mac runbook. macos-user
-   launch, OQ-1 path_helper, builder VM. Un-verifiable from Linux/in-jail.
-3. [ ] 🔒 **Stage 1 freeze actually running** (§D) — the irreversibility of
-   deletion is only safe behind it.
-4. [ ] 🔒 **Soak confirmations** — broker single-use refresh token (Stage 3/6),
-   real `claude` login smoke.
+1. [ ] 🔒 **Go binary distribution — THE hard pre-wipe gate (still #1).** No
+   goreleaser today; the Python console-script is the only shipped `yolo`.
+   Python cannot be removed until the Go binary IS the shipped `yolo`. (★ step 2.)
+2. [ ] 🔒 **macOS hardware verification — MOVED to fast-follow.** Temporary macOS
+   breakage accepted; certify after the wipe. (No longer gates cutover.)
+3. [ ] **Stage-1 parity-CI freeze — OPTIONAL now** (§D / ★ "optional"). History
+   keeps Python `git revert`-recoverable and the posture is fast-follow, so it's
+   a recommended-not-required pre-wipe snapshot, not a gate.
+4. [x] ~~**Soak confirmations**~~ — **DROPPED** per directive. Fast-follow with
+   fixes instead of a soak period.
 5. [x] **Broker operational logging** (§A′, `af21e83`/`d1d7493`) — landed +
-   verified this session. (Was blocker F.5.)
-6. [ ] 🔒 **Ledger sign-off** (§E).
-7. [ ] **macos-user bootstrap repoint** — the macos-user path currently emits the
-   *Python* entrypoint bootstrap (Stage 16b decision). Deleting `src/entrypoint`
-   requires first repointing it at the Go entrypoint (`cmd/yolo-entrypoint`),
-   verified on a Mac. Otherwise macOS boot breaks at cutover.
+   verified this session.
+6. [ ] **Ledger sign-off — MOVED to fast-follow.** D1–D17 are already live in
+   code; formal accept/reject is bookkeeping, not a functional gate. (§E.)
+7. [ ] **macos-user bootstrap repoint — MOVED to fast-follow.** With Mac deferred,
+   `src/entrypoint/` is deleted at the wipe and macos-user launch breaks until
+   this lands (see §H gate note). Repoint the bootstrap at the Go entrypoint
+   (`cmd/yolo-entrypoint`) and verify on a Mac. Linux + Apple Container unaffected.
 
 ## G. The "restabilize in a Go world" endgame (maintainer-owned)
 
@@ -214,17 +236,22 @@ it (retiring the PyPI→poet→formula chain) is post-Python.
 
 ---
 
-## H. The Python-wipe manifest (step 8 — mechanical, but NOT `rm -rf src/`)
+## H. The Python-wipe manifest (★ step 3 — mechanical, but NOT `rm -rf src/`)
 
 ⚠ **`src/` is not all Python.** The Go binary still reads data + build assets
 under `src/` at runtime and build time. A naive `rm -rf src/` breaks the Go
 build and the image. Delete surgically, in this order, verifying the build stays
 green after each group.
 
-**Hard ordering gate:** `src/entrypoint/` CANNOT be deleted until **F.7** lands
-(the macos-user bootstrap still generates a Python script that imports the
-`entrypoint` package — `internal/macosuser/bootstrap.go`). Do F.7 first, or macOS
-boot breaks at cutover.
+**`src/entrypoint/` — delete it now, accept the macOS breakage** (2026-07-19:
+Mac deferred to fast-follow). The macos-user bootstrap still generates a Python
+script that imports the `entrypoint` package (`internal/macosuser/bootstrap.go`),
+so **the `runtime: "macos-user"` launch path breaks the moment `src/entrypoint/`
+is gone** — it stays broken until the fast-follow bootstrap-repoint. Two things
+that are NOT affected: (a) Apple Container on macOS (`runtime: "container"`) uses
+the Go entrypoint baked into the nix image, not this bootstrap; (b) Linux is
+entirely unaffected. So the blast radius of deleting it early is *only* the
+native macos-user backend on Apple Silicon, which the fast-follow restores.
 
 ### Delete (pure Python, no Go/runtime dep)
 - [ ] `src/cli/` — the whole Python CLI (run/check/config/prune/loopholes_runtime/…).
@@ -237,13 +264,15 @@ boot breaks at cutover.
   `py_drift_dump.py`, `*_oracle.py`, `config_cases.json`). The drift suite dies
   with Python.
 - [ ] `pyproject.toml` `[project.scripts]` (the 4 console scripts) + the
-  `setuptools`/`setuptools-scm` build-system — replaced by goreleaser (step 3).
+  `setuptools`/`setuptools-scm` build-system — replaced by goreleaser (★ step 2).
   Decide the whole `pyproject.toml`'s fate with go-to-wheel (post-transition §2c
   generates the wheel metadata from CLI flags — swarf has NO pyproject.toml).
 - [ ] `tests/test_*.py` for the deleted Python (config_merge, cli_commands,
   entrypoint, jail, oauth_broker_*, host_processes, etc.) — the Go regression
   tests are the surviving spec.
-- [ ] `src/entrypoint/` — **ONLY after F.7.**
+- [ ] `src/entrypoint/` — delete now; breaks macos-user launch until the
+  fast-follow repoint (see the gate note above). Linux + Apple Container
+  unaffected.
 
 ### KEEP (Go reads/builds these — relocate later in §G, don't delete)
 - `src/bundled_loopholes/` — **Go reads it at runtime** (`internal/loopholes/
@@ -276,8 +305,13 @@ boot breaks at cutover.
 - [ ] `go build ./...` + `GOOS=darwin GOARCH=arm64 go build ./...` green.
 - [ ] `go test ./...` green (the parity oracles are gone; pure Go tests remain).
 - [ ] `staticcheck ./...` clean; `just check-ci` green (now Go-only).
-- [ ] Nested-jail smoke: `yolo -- bash -lc 'yolo internal | head -1'` shows the
-  Go usage; a real `yolo -- claude` session boots.
+- [ ] Nested-jail smoke (Linux): `yolo -- bash -lc 'yolo internal | head -1'`
+  shows the Go usage; a real `yolo -- claude` session boots.
+- [ ] **Expected-broken (fast-follow):** `runtime: "macos-user"` launch on Apple
+  Silicon — the deleted Python entrypoint bootstrap. NOT a regression to chase;
+  it's restored by the fast-follow repoint. `GOOS=darwin` *build* still passes;
+  it's only the runtime macos-user path that's down. Apple Container on macOS and
+  all of Linux keep working.
 
 ---
 
@@ -289,8 +323,9 @@ Per the review's per-command risk table:
 - **CAUTION:** `prune` — destructive; `diff` against `uv run python -m src.cli
   prune` once before trusting the reclaim decisions.
 - **USABLE:** `broker` — operational logging now landed (§A′); forensics on par
-  with Python. Still soak-gated (single-use refresh token) before fully
-  unattended use.
-- **DEFER:** `builder`, `macos-*` — certify on a real Mac.
+  with Python. Soak dropped as a gate (fast-follow); the single-use-refresh-token
+  edge is now watched via the new logging rather than gated behind a soak.
+- **DEFER (fast-follow):** `builder`, `macos-*` — certify on a real Mac *after*
+  the wipe; macos-user launch is temporarily broken post-wipe by design.
 - **NEVER bare:** always use `scripts/go-front-door.sh` (four-var shim). Bare
   `YOLO_IMPL=go` drops bundled loopholes → silent TLS/auth failure.
