@@ -178,21 +178,30 @@ func runQuiet(name string, args ...string) {
 }
 
 // hostPlatform returns "<goos>/<machine>" matching Python's
-// f"{sys.platform}/{platform.machine()}". The machine spelling is Python's, NOT
-// Go's amd64/arm64: amd64→x86_64 everywhere; arm64→aarch64 ONLY on Linux — on
-// macOS/Apple Silicon platform.machine() is "arm64" (audit 2026-07-18 §C: the
-// unconditional arm64→aarch64 map was wrong on macOS and a test locked the bug).
+// f"{sys.platform}/{platform.machine()}", using the running GOOS/GOARCH.
 func hostPlatform() string {
-	machine := runtime.GOARCH
-	switch machine {
+	return runtime.GOOS + "/" + platformMachine(runtime.GOOS, runtime.GOARCH)
+}
+
+// platformMachine maps Go's GOARCH to Python's platform.machine() spelling for
+// the given GOOS. It is a pure function of (goos, goarch) so every OS/arch combo
+// is unit-testable, not just the one the tests happen to run on. The spelling is
+// Python's, NOT Go's amd64/arm64: amd64→x86_64 everywhere; arm64→aarch64 ONLY on
+// Linux — on macOS/Apple Silicon platform.machine() is "arm64" (audit 2026-07-18
+// §C: the unconditional arm64→aarch64 map was wrong on macOS and a test locked
+// the bug). Any other GOARCH passes through unchanged.
+func platformMachine(goos, goarch string) string {
+	switch goarch {
 	case "amd64":
-		machine = "x86_64"
+		return "x86_64"
 	case "arm64":
-		if runtime.GOOS != "darwin" {
-			machine = "aarch64" // Linux uname; macOS keeps arm64
+		if goos != "darwin" {
+			return "aarch64" // Linux uname; macOS keeps arm64
 		}
+		return "arm64"
+	default:
+		return goarch
 	}
-	return runtime.GOOS + "/" + machine
 }
 
 // StartupBanner formats the start-of-run banner line(s) exactly as

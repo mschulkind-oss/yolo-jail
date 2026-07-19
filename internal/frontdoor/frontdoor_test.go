@@ -137,9 +137,32 @@ func TestGoImplEnabledEnv(t *testing.T) {
 func TestHostPlatformNaming(t *testing.T) {
 	// The banner uses Python's platform.machine() spelling: amd64→x86_64 always;
 	// arm64→aarch64 ONLY on Linux — macOS/Apple Silicon reports "arm64" (audit
-	// 2026-07-18 §C). So "amd64" must NEVER appear; "arm64" is forbidden only off
-	// darwin.
+	// 2026-07-18 §C). Table-test all four combos through the pure mapper so the
+	// darwin/arm64 case — where the bug lives — is exercised even on a Linux CI
+	// host. If the unconditional arm64→aarch64 map were reintroduced, the
+	// darwin/arm64 row below would fail (got "aarch64", want "arm64").
+	cases := []struct {
+		goos, goarch string
+		want         string
+	}{
+		{"linux", "amd64", "x86_64"},
+		{"linux", "arm64", "aarch64"},
+		{"darwin", "arm64", "arm64"}, // NOT aarch64 — macOS platform.machine()
+		{"darwin", "amd64", "x86_64"},
+	}
+	for _, tc := range cases {
+		if got := platformMachine(tc.goos, tc.goarch); got != tc.want {
+			t.Errorf("platformMachine(%q, %q) = %q, want %q", tc.goos, tc.goarch, got, tc.want)
+		}
+	}
+
+	// hostPlatform() must compose "<goos>/<machine>" for the running platform and
+	// never leak Go's amd64/arm64 spelling.
 	p := hostPlatform()
+	wantMachine := platformMachine(runtime.GOOS, runtime.GOARCH)
+	if want := runtime.GOOS + "/" + wantMachine; p != want {
+		t.Errorf("hostPlatform() = %q, want %q", p, want)
+	}
 	if strings.Contains(p, "amd64") {
 		t.Errorf("hostPlatform() = %q, must not contain Go's amd64 (want x86_64)", p)
 	}
