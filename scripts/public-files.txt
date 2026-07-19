@@ -3,17 +3,16 @@
 # Add a path here to make it public. Remove it to keep it private.
 
 # Application code
-src/cli.py
-src/entrypoint.py
-src/shims/
-src/__init__.py
-src/flake.nix
-src/flake.lock
+cmd/
+internal/
+bundled_loopholes/
 
 # Tests
 tests/
 
 # Build configuration
+go.mod
+go.sum
 pyproject.toml
 Justfile
 flake.nix
