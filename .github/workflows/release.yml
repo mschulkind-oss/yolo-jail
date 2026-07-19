@@ -1,0 +1,143 @@
+# Release — tag-triggered goreleaser + homebrew tap update (★ step 2 of the Go
+# transition; shape copied from mschulkind-oss/swarf).
+#
+# Releasing = pushing a v* tag. goreleaser builds the four host-facing
+# binaries, creates the GitHub release, and uploads archives; the
+# release-published event then triggers publish.yml (PyPI wheels via
+# go-to-wheel + image cache pushes). The homebrew formula is a SOURCE-BUILD
+# formula (depends_on go), regenerated here by hand — no homebrew-pypi-poet,
+# no PyPI dependency.
+#
+# Divergences from swarf, on purpose:
+#   - four binaries, not one (mirrors the 4 console scripts of the Python era);
+#   - no Utils.git_short_head in the formula ldflags — the source tarball has
+#     no .git, so only the version is stamped (internal/version.GitCommit
+#     stays empty for brew builds; goreleaser archives carry it);
+#   - workflow_dispatch backfill input kept from the old publish.yml brew job
+#     so a formula push can be re-run without re-releasing.
+name: Release
+
+on:
+  push:
+    tags:
+      - "v*"
+  workflow_dispatch:
+    inputs:
+      version:
+        description: "Existing release version to re-run the homebrew formula push for, e.g. 0.7.0. The goreleaser job is skipped — the GitHub release must already exist."
+        required: true
+        type: string
+
+permissions:
+  contents: write
+
+jobs:
+  goreleaser:
+    if: github.event_name == 'push'
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v7
+        with:
+          fetch-depth: 0
+
+      - uses: actions/setup-go@v6
+        with:
+          go-version-file: go.mod
+
+      - uses: goreleaser/goreleaser-action@v7
+        with:
+          version: "~> v2"
+          args: release --clean
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+
+  update-homebrew:
+    # `always()` so the job still runs when goreleaser is skipped (manual
+    # dispatch); the inner condition then gates on either the release having
+    # succeeded, or the event being manual.
+    if: |
+      always() &&
+      (github.event_name == 'workflow_dispatch' ||
+       needs.goreleaser.result == 'success')
+    needs: [goreleaser]
+    runs-on: ubuntu-latest
+    steps:
+      - name: Determine version
+        id: version
+        run: |
+          if [ "$GITHUB_EVENT_NAME" = "push" ]; then
+            VERSION="${GITHUB_REF_NAME#v}"
+          else
+            VERSION="${{ github.event.inputs.version }}"
+          fi
+          echo "version=${VERSION}" >> "$GITHUB_OUTPUT"
+          echo "Updating homebrew formula for yolo-jail ${VERSION}"
+
+      - name: Generate formula
+        run: |
+          set -euo pipefail
+          VERSION="${{ steps.version.outputs.version }}"
+          TAG="v${VERSION}"
+          TARBALL="https://github.com/mschulkind-oss/yolo-jail/archive/refs/tags/${TAG}.tar.gz"
+          SHA256=$(curl -sL "$TARBALL" | sha256sum | cut -d' ' -f1)
+
+          cat > yolo-jail.rb <<FORMULA
+          class YoloJail < Formula
+            desc "Secure container jail for AI agents — run Claude Code, Copilot, and Gemini in YOLO mode safely"
+            homepage "https://github.com/mschulkind-oss/yolo-jail"
+            url "${TARBALL}"
+            sha256 "${SHA256}"
+            license "Apache-2.0"
+
+            depends_on "go" => :build
+
+            def install
+              ldflags = %W[
+                -s -w
+                -X github.com/mschulkind-oss/yolo-jail/internal/version.buildVersion=#{version}
+              ]
+              %w[yolo yolo-claude-oauth-broker-host yolo-ps yolo-host-processes].each do |cmd|
+                system "go", "build", *std_go_args(output: bin/cmd, ldflags: ldflags.join(" ")), "./cmd/#{cmd}"
+              end
+            end
+
+            def caveats
+              <<~EOS
+                The first \`yolo\` run in a workspace builds or pulls the jail's
+                container image (nix), which takes a while; later runs reuse it.
+                The host-side Claude OAuth token refresher timer is NOT installed
+                by this formula — see the yolo-jail README if you run many jails
+                against one Claude account.
+              EOS
+            end
+
+            test do
+              assert_match "yolo-jail #{version}", shell_output("#{bin}/yolo --version")
+            end
+          end
+          FORMULA
+
+          # Remove leading whitespace from heredoc
+          sed -i 's/^          //' yolo-jail.rb
+          echo "--- Generated formula ---"
+          cat yolo-jail.rb
+
+      - name: Push to tap
+        env:
+          HOMEBREW_TAP_TOKEN: ${{ secrets.HOMEBREW_TAP_TOKEN }}
+        run: |
+          set -euo pipefail
+          VERSION="${{ steps.version.outputs.version }}"
+          git clone "https://x-access-token:${HOMEBREW_TAP_TOKEN}@github.com/mschulkind-oss/homebrew-tap.git" tap
+          mkdir -p tap/Formula
+          cp yolo-jail.rb tap/Formula/yolo-jail.rb
+          cd tap
+          git config user.name "yolo-jail release bot"
+          git config user.email "noreply@github.com"
+          git add Formula/yolo-jail.rb
+          if git diff --cached --quiet; then
+            echo "Formula unchanged; nothing to commit."
+            exit 0
+          fi
+          git commit -m "yolo-jail ${VERSION}"
+          git push

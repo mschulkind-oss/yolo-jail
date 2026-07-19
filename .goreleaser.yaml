@@ -1,0 +1,78 @@
+# goreleaser config — ★ step 2 of the Go transition (docs/implementation/
+# go-port-remaining-work.md). Shape copied from mschulkind-oss/swarf, adapted:
+# swarf is a single root-package binary; yolo-jail ships the FOUR host-facing
+# binaries that mirror pyproject's [project.scripts] console scripts. The
+# in-jail daemons (yolo-entrypoint, yolo-cgd, yolo-journald, yolo-broker-relay,
+# yolo-jail-supervisor, yolo-oauth-terminator) ship inside the NIX IMAGE and
+# must NOT be listed here; goprobe/yolo-parity are dev-only.
+#
+# Releasing = pushing a v* tag (.github/workflows/release.yml). No local
+# `just release` recipe by design.
+#
+# Version stamping: internal/version resolves a baked stamp before live
+# `git describe` (divergence D18), so these ldflags are what a released binary
+# reports. buildVersion is intentionally unexported — -X reaches it fine.
+version: 2
+
+before:
+  hooks:
+    - go mod tidy
+    - go vet ./...
+
+builds:
+  - id: yolo
+    main: ./cmd/yolo
+    binary: yolo
+    ldflags: &ldflags
+      - -s -w
+      - -X github.com/mschulkind-oss/yolo-jail/internal/version.buildVersion={{.Version}}
+      - -X github.com/mschulkind-oss/yolo-jail/internal/version.GitCommit={{.ShortCommit}}
+    env: &buildenv
+      - CGO_ENABLED=0
+    goos: &oses
+      - linux
+      - darwin
+    goarch: &arches
+      - amd64
+      - arm64
+
+  - id: yolo-claude-oauth-broker-host
+    main: ./cmd/yolo-claude-oauth-broker-host
+    binary: yolo-claude-oauth-broker-host
+    ldflags: *ldflags
+    env: *buildenv
+    goos: *oses
+    goarch: *arches
+
+  - id: yolo-ps
+    main: ./cmd/yolo-ps
+    binary: yolo-ps
+    ldflags: *ldflags
+    env: *buildenv
+    goos: *oses
+    goarch: *arches
+
+  - id: yolo-host-processes
+    main: ./cmd/yolo-host-processes
+    binary: yolo-host-processes
+    ldflags: *ldflags
+    env: *buildenv
+    goos: *oses
+    goarch: *arches
+
+# One archive per platform containing all four binaries (goreleaser default
+# when no per-archive `ids:` filter is set).
+archives:
+  - formats: ["tar.gz"]
+    name_template: "yolo-jail_{{ .Version }}_{{ .Os }}_{{ .Arch }}"
+
+checksum:
+  name_template: "checksums.txt"
+
+changelog:
+  sort: asc
+  filters:
+    exclude:
+      - "^docs:"
+      - "^chore:"
+      - "^test:"

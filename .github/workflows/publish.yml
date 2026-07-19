@@ -1,14 +1,17 @@
+# Publish — fires on the GitHub release that goreleaser (release.yml) creates.
+# ★ step 2 of the Go transition: the PyPI package is now per-platform wheels
+# wrapping the Go host binaries (scripts/build_wheels.py, go-to-wheel-derived),
+# preserving the pipx/uvx audience and the 4 console-script contract. The
+# homebrew tap update moved to release.yml (source-build formula, no poet).
+# Image-cache + builder-image pushes are unchanged.
+#
+# PyPI auth is Trusted Publishing (OIDC): pinned to THIS workflow filename +
+# the `pypi` environment — renaming either breaks the publisher config.
 name: Publish to PyPI
 
 on:
   release:
     types: [published]
-  workflow_dispatch:
-    inputs:
-      version:
-        description: "Version to (re)publish to the homebrew tap, e.g. 0.4.0. PyPI upload is skipped — must already be on PyPI."
-        required: true
-        type: string
 
 permissions:
   contents: read
@@ -16,21 +19,19 @@ permissions:
   packages: write  # push the container builder image to GHCR
 
 jobs:
-  build:
-    # Skip on workflow_dispatch — dispatch only re-runs the brew job to
-    # backfill or recover, the package must already be on PyPI.
-    if: github.event_name == 'release'
+  build-wheels:
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v7
+
+      - uses: actions/setup-go@v6
         with:
-          fetch-depth: 0
+          go-version-file: go.mod
 
-      - name: Install uv
-        uses: astral-sh/setup-uv@v7
-
-      - name: Build package
-        run: uv build
+      - name: Build wheels (Go binaries, all platforms)
+        run: |
+          version="${GITHUB_REF_NAME#v}"
+          python3 scripts/build_wheels.py --version "$version" --output-dir dist
 
       - name: Upload build artifacts
         uses: actions/upload-artifact@v7
@@ -39,8 +40,7 @@ jobs:
           path: dist/
 
   publish:
-    if: github.event_name == 'release'
-    needs: build
+    needs: build-wheels
     runs-on: ubuntu-latest
     environment: pypi
     steps:
@@ -55,120 +55,6 @@ jobs:
 
       - name: Publish to PyPI
         run: uv publish dist/* --check-url https://pypi.org/simple/
-
-  brew:
-    # Run after publish on release events, or standalone on workflow_dispatch.
-    # `always()` is required so the job still runs when build/publish are
-    # skipped (manual dispatch); the inner condition then gates on either the
-    # publish having succeeded, or the event being manual.
-    if: |
-      always() &&
-      (github.event_name == 'workflow_dispatch' ||
-       needs.publish.result == 'success')
-    needs: [publish]
-    runs-on: ubuntu-latest
-    steps:
-      - name: Determine version
-        id: version
-        run: |
-          if [ "$GITHUB_EVENT_NAME" = "release" ]; then
-            VERSION="${GITHUB_REF_NAME#v}"
-          else
-            VERSION="${{ github.event.inputs.version }}"
-          fi
-          echo "version=${VERSION}" >> "$GITHUB_OUTPUT"
-          echo "Publishing yolo-jail ${VERSION} to homebrew tap"
-
-      - name: Check out homebrew tap
-        uses: actions/checkout@v7
-        with:
-          repository: mschulkind-oss/homebrew-tap
-          token: ${{ secrets.HOMEBREW_TAP_TOKEN }}
-          path: tap
-
-      - name: Set up Python
-        uses: actions/setup-python@v6
-        with:
-          python-version: "3.13"
-
-      - name: Install homebrew-pypi-poet + yolo-jail from PyPI
-        run: |
-          python -m venv /tmp/poet-venv
-          # poet still uses the deprecated pkg_resources API, which was removed
-          # in setuptools 81.  Pin below that for the lifetime of this job.
-          /tmp/poet-venv/bin/pip install --quiet 'setuptools<81' homebrew-pypi-poet
-          # Retry the yolo-jail install in case PyPI index replication lags
-          # behind the publish step (rare but documented).
-          VERSION="${{ steps.version.outputs.version }}"
-          for i in 1 2 3 4 5 6; do
-            if /tmp/poet-venv/bin/pip install --quiet "yolo-jail==${VERSION}"; then
-              echo "Installed yolo-jail==${VERSION}"
-              break
-            fi
-            echo "PyPI not ready yet, retrying in 15s..."
-            sleep 15
-          done
-
-      - name: Generate + patch formula
-        run: |
-          set -euo pipefail
-          VERSION="${{ steps.version.outputs.version }}"
-          /tmp/poet-venv/bin/poet -f yolo-jail > /tmp/formula.rb
-
-          # Poet leaves placeholder fields — patch them here instead of
-          # maintaining a separate template that could drift from poet's output.
-          python3 <<'PY'
-          from pathlib import Path
-
-          f = Path("/tmp/formula.rb")
-          text = f.read_text()
-
-          # desc / homepage / license
-          text = text.replace(
-              'desc "Shiny new formula"',
-              'desc "Secure container jail for AI agents — run Claude Code, Copilot, and Gemini in YOLO mode safely"',
-          )
-          text = text.replace(
-              'homepage "None"',
-              'homepage "https://github.com/mschulkind-oss/yolo-jail"\n  license "Apache-2.0"',
-          )
-
-          # Pin to python@3.13 — yolo-jail's pyproject.toml requires >=3.13.
-          text = text.replace(
-              'depends_on "python3"',
-              'depends_on "python@3.13"',
-          )
-
-          # Replace poet's `false` test stub with a real smoke test.
-          # `yolo --help` exits 0 without needing podman/container/nix and emits
-          # the distinctive "YOLO Jail" banner via typer.
-          text = text.replace(
-              "  test do\n    false\n  end",
-              '  test do\n    assert_match "YOLO Jail", shell_output("#{bin}/yolo --help")\n  end',
-          )
-
-          f.write_text(text)
-          PY
-
-          echo "--- Generated formula ---"
-          cat /tmp/formula.rb
-
-      - name: Commit and push to tap
-        run: |
-          set -euo pipefail
-          VERSION="${{ steps.version.outputs.version }}"
-          mkdir -p tap/Formula
-          cp /tmp/formula.rb tap/Formula/yolo-jail.rb
-          cd tap
-          git config user.name "yolo-jail release bot"
-          git config user.email "noreply@github.com"
-          git add Formula/yolo-jail.rb
-          if git diff --cached --quiet; then
-            echo "Formula unchanged; nothing to commit."
-            exit 0
-          fi
-          git commit -m "yolo-jail ${VERSION}"
-          git push
 
   # Build both OCI image variants on Linux and push them to the Cachix cache
   # so macOS users download the prebuilt image instead of needing a Linux
