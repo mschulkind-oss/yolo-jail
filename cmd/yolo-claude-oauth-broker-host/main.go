@@ -36,9 +36,17 @@ func main() {
 	forceInitCA := flag.Bool("force-init-ca", false, "Regenerate CA + leaf even if they exist")
 	selfCheck := flag.Bool("self-check", false, "Emit status and exit")
 	noBgRefresh := flag.Bool("no-background-refresh", false, "Disable the proactive refresh loop")
-	flag.Bool("verbose", false, "Verbose logging")
-	flag.Bool("v", false, "Verbose logging")
+	logFile := flag.String("log-file", "", "append the operational log here (default: stderr)")
+	verbose := flag.Bool("verbose", false, "Verbose logging")
+	verboseShort := flag.Bool("v", false, "Verbose logging")
 	flag.Parse()
+
+	// Configure the operational log. Matches the cgd/journald --log-file
+	// convention (commit ec888c6): empty path -> stderr (captured by the
+	// loophole supervisor); -v -> DEBUG. Set up before any broker call so the
+	// incident-forensics lines (refresh attempts, token fingerprints, upstream
+	// status codes) are captured for an unattended soak.
+	oauthbroker.SetupLog(*logFile, *verbose || *verboseShort)
 
 	// Stamp the versioned User-Agent (Python-urllib's default UA triggers
 	// Cloudflare 1010 on platform.claude.com).
@@ -74,6 +82,10 @@ func main() {
 	// The refresh flock lives in the broker state dir — SAME path as Python's
 	// REFRESH_LOCK, so a Python and Go broker mutually exclude during rollout.
 	oauthbroker.RefreshLockPath = filepath.Join(oauthbroker.BrokerDir(), "refresh.lock")
+
+	// Startup snapshot of the shared creds file — lets tomorrow's debugger see
+	// the starting state and cross-reference it with do_refresh's drift lines.
+	oauthbroker.LogStartup(*credsFile)
 
 	stop := make(chan struct{})
 	if !*noBgRefresh {

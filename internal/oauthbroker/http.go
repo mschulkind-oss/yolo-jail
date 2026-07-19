@@ -143,6 +143,7 @@ type ProxyResult = *jsonx.OrderedMap
 // stripping both directions, and the "inject UA only if caller sent none".
 func DoProxy(method, path string, headers map[string]string, body []byte) ProxyResult {
 	if !strings.HasPrefix(path, "/") {
+		logWarn("do_proxy rejected: bad path %s", pyReprPath(path))
 		return errResult("error", "bad_path", "message", "path must start with '/': "+pyReprPath(path))
 	}
 	url := "https://" + UpstreamHost + path
@@ -162,12 +163,19 @@ func DoProxy(method, path string, headers map[string]string, body []byte) ProxyR
 		fwd.Set("User-Agent", userAgent)
 	}
 
+	fwdUA := fwd.Get("User-Agent")
+	if fwdUA == "" {
+		fwdUA = "(none)"
+	}
+	logInfo("do_proxy -> %s %s body_len=%d ua=%s", method, path, len(body), pytext.Repr(fwdUA))
+
 	var reqBody io.Reader
 	if len(body) > 0 {
 		reqBody = strings.NewReader(string(body))
 	}
 	req, err := http.NewRequest(method, url, reqBody)
 	if err != nil {
+		logError("proxy upstream error for %s %s: %s", method, path, err)
 		return errResult("error", "upstream_unreachable", "message", err.Error())
 	}
 	req.Header = fwd
@@ -177,6 +185,7 @@ func DoProxy(method, path string, headers map[string]string, body []byte) ProxyR
 
 	resp, err := httpClient.Do(req)
 	if err != nil {
+		logError("proxy upstream error for %s %s: %s", method, path, err)
 		return errResult("error", "upstream_unreachable", "message", err.Error())
 	}
 	defer resp.Body.Close()
@@ -194,6 +203,7 @@ func DoProxy(method, path string, headers map[string]string, body []byte) ProxyR
 		// ledgered D5: the jail-side terminator re-canonicalizes anyway.)
 		respHeaders.Set(k, vals[len(vals)-1])
 	}
+	logInfo("do_proxy <- %s %s status=%d body_len=%d", method, path, resp.StatusCode, len(respBody))
 	out := jsonx.NewOrderedMap()
 	out.Set("status", jsonx.IntValue(int64(resp.StatusCode)))
 	out.Set("headers", respHeaders)
