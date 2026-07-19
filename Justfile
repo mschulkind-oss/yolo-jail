@@ -8,6 +8,80 @@ default:
 build-go:
     ./scripts/build-go.sh
 
+# Install the 4 host binaries (yolo + daemons) to $GOBIN or $GOPATH/bin
+install:
+    #!/usr/bin/env bash
+    set -euo pipefail
+    VERSION="$(git describe --tags --always --dirty 2>/dev/null || echo unknown)"
+    COMMIT="$(git rev-parse --short HEAD 2>/dev/null || echo unknown)"
+    LDFLAGS="-X github.com/mschulkind-oss/yolo-jail/internal/version.buildVersion=${VERSION} -X github.com/mschulkind-oss/yolo-jail/internal/version.GitCommit=${COMMIT}"
+    go install -ldflags "$LDFLAGS" ./cmd/yolo ./cmd/yolo-claude-oauth-broker-host ./cmd/yolo-host-processes ./cmd/yolo-ps
+    echo "Installed to $(go env GOBIN 2>/dev/null || echo "$(go env GOPATH)/bin")"
+
+# Install yolo CLI and prime the Claude OAuth broker state. Safe to re-run.
+deploy: install
+    #!/usr/bin/env bash
+    set -euo pipefail
+
+    # --- Retire pre-broker Claude token refresher install ---
+    if command -v systemctl >/dev/null 2>&1; then
+        for unit in claude-token-refresher.timer claude-token-refresher.service; do
+            if systemctl --user is-enabled "$unit" >/dev/null 2>&1 \
+              || systemctl --user is-active "$unit" >/dev/null 2>&1; then
+                systemctl --user disable --now "$unit" 2>/dev/null || true
+                echo "  retired legacy $unit"
+            fi
+        done
+        rm -f "$HOME/.config/systemd/user/claude-token-refresher.service"
+        rm -f "$HOME/.config/systemd/user/claude-token-refresher.timer"
+        systemctl --user daemon-reload 2>/dev/null || true
+    fi
+
+    # --- Claude OAuth broker loophole (bundled) ---
+    if ! command -v openssl >/dev/null 2>&1; then
+        echo "⚠ openssl not found — skipping claude-oauth-broker state init"
+    else
+        BROKER_BIN="$(command -v yolo-claude-oauth-broker-host || true)"
+        if [ -z "$BROKER_BIN" ]; then
+            echo "ERROR: yolo-claude-oauth-broker-host not on PATH after install" >&2
+            exit 1
+        fi
+
+        # Retire stale copies of the manifest from pre-bundled installs.
+        rm -rf "$HOME/.local/share/yolo-jail/modules/claude-oauth-broker"
+        if [ -d "$HOME/.local/share/yolo-jail/loopholes/claude-oauth-broker" ]; then
+            STATE_DIR="$HOME/.local/share/yolo-jail/state/claude-oauth-broker"
+            mkdir -p "$STATE_DIR"
+            for f in ca.crt ca.key server.crt server.key refresh.lock; do
+                src_f="$HOME/.local/share/yolo-jail/loopholes/claude-oauth-broker/$f"
+                [ -f "$src_f" ] && mv "$src_f" "$STATE_DIR/$f" 2>/dev/null || true
+            done
+            rm -rf "$HOME/.local/share/yolo-jail/loopholes/claude-oauth-broker"
+            echo "  migrated legacy loopholes/claude-oauth-broker → bundled + state split"
+        fi
+        # Retire the pre-split systemd unit if present.
+        if command -v systemctl >/dev/null 2>&1; then
+            if systemctl --user is-enabled claude-oauth-broker.service >/dev/null 2>&1; then
+                systemctl --user disable --now claude-oauth-broker.service 2>/dev/null || true
+                rm -f "$HOME/.config/systemd/user/claude-oauth-broker.service"
+                systemctl --user daemon-reload
+                echo "  retired pre-split claude-oauth-broker.service"
+            fi
+        fi
+
+        # Generate CA + leaf in the state dir (idempotent).
+        "$BROKER_BIN" --init-ca >/dev/null
+
+        echo "✓ claude-oauth-broker state primed at $HOME/.local/share/yolo-jail/state/claude-oauth-broker"
+    fi
+
+    # Restart the singleton broker so this deploy's binary is live immediately.
+    if command -v yolo >/dev/null 2>&1; then
+        yolo broker restart 2>&1 | sed 's/^/  /' || true
+    fi
+
+    echo "yolo-jail deployed. Verify: yolo loopholes list"
+
 # Build the container image using Nix
 build-image:
     nix --extra-experimental-features 'nix-command flakes' build .#ociImage
