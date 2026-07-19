@@ -46,7 +46,7 @@ now just **three maintainer-gated steps + the wipe.**
 
 | # | Step | Owner | Detail |
 |---|---|---|---|
-| 1 | **Cursory-test the Go path on Linux** via `scripts/go-front-door.sh`: a real `yolo-go -- claude` session, `check`, `ps`, `prune --dry-run`. Go/no-go smoke. | you | §"safe to use now" below |
+| 1 | ✅ **DONE — Go path validated on Linux.** Daily `yolo-go` use across two machines (real `run`/attach/interactive sessions — the heaviest surface), plus a diff-verified `prune` dry-run: reclaim decisions identical (0 containers / 0 images / 68 tars / 14 build-roots / 4 seeds / 1,212,406 cache files match exactly). The only diffs were benign — ledger D14 tie-ordering of two equal-size (1.8 MiB) build-roots, cosmetic blank lines, and a 5-in-206,483 (0.002%) hardlink-count drift from a 4-minute live-fs capture gap (candidate count 333,784 and byte totals 5.4/350.4 GiB identical, confirming logic parity, not a bug). | you | §"safe to use now" below |
 | 2 | **Build the distribution pipeline** — goreleaser + release.yml + publish.yml (go-to-wheel, PyPI kept), so the Go binary IS the shipped `yolo`. Copy swarf verbatim. **The one hard pre-wipe blocker:** deleting the Python console-script with no Go release = users have no `yolo`. | you | post-transition §2 |
 | 3 | **WIPE PYTHON** — the manifest in §H. `src/entrypoint/` is now deletable (Mac deferred). | you | §H |
 | 4 | **Consolidate modules + strip parity scaffolding + always-Go cosmetics.** | you | §G, post-transition §3 |
@@ -320,8 +320,9 @@ native macos-user backend on Apple Silicon, which the fast-follow restores.
 Per the review's per-command risk table:
 - **LOW:** `run` (argv byte-identical), `doctor`, `ps` (on Linux).
 - **MODERATE→now LOW:** `check` (the §C gap is fixed this session).
-- **CAUTION:** `prune` — destructive; `diff` against `uv run python -m src.cli
-  prune` once before trusting the reclaim decisions.
+- **VERIFIED (was CAUTION):** `prune` — the destructive one; dry-run diffed
+  against Python 2026-07-19, reclaim decisions identical (only D14 tie-order +
+  cosmetic + a sub-0.01% live-fs race). Safe to trust.
 - **USABLE:** `broker` — operational logging now landed (§A′); forensics on par
   with Python. Soak dropped as a gate (fast-follow); the single-use-refresh-token
   edge is now watched via the new logging rather than gated behind a soak.
