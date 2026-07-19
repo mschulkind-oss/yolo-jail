@@ -105,11 +105,25 @@ each with a regression test and a `fix(go):`/`test(go):` commit:
 | §C mise `$`-version corruption | `ReplaceAllLiteralString` (Python `re.sub` never expands `$`) | `TestMiseInjectedVersionWithDollar` |
 | §B#2 storage migration dead (nil hook) | `run`+`check` wire `MigrateStorageLayout` (canReclaim=false fail-safe) | build + storage tests |
 
-## Second round (2026-07-18) — remaining OPEN items closed
+## Second round (2026-07-18) — re-audit §A–§E findings
 
-The OPEN list above is now cleared. Each item is either FIXED (regression test +
-`fix(go):` commit) or LEDGERED as a decided/defensible divergence for human
-sign-off:
+> **CORRECTION (2026-07-18 final-pass verification):** the original heading
+> "remaining OPEN items closed / The OPEN list above is now cleared" was **false**
+> — a recurrence of the first-round false-closure. The table below genuinely
+> resolves the re-audit §A–§E findings (verified: those fixes are real and mostly
+> well-tested). But it does NOT clear the six-item OPEN list at the top of this
+> doc. Actual status of that list: **flock cross-language test — FIXED** (now
+> starts the Go broker, `tests/test_oauth_broker_go_parity.py:139`); **§5.3 drift
+> — PARTIAL** (config-schema constants added; dedup-keys / shlex / canonical-JSON
+> still absent from `cmd/yolo-parity`); **STILL OPEN:** versioned pre-commit hook
+> (4th occurrence), Go broker logging, terminator logging, Stage 4 conformance
+> (1-request-per-connection + concurrency). Two "fix landed but its test does not
+> pin the bug" cases also persist: the journald truncation guard passes with the
+> race reintroduced, and `TestHostPlatformNaming` skips the darwin case where the
+> arm64→aarch64 bug lives.
+
+The following genuinely resolve the re-audit §A–§E findings — each FIXED
+(regression test + `fix(go):` commit) or LEDGERED for human sign-off:
 
 | Item | Resolution | Commit / guard |
 |---|---|---|

@@ -267,3 +267,81 @@ Owed by you (nothing here is automatable):
 6. **Author email** on the porting clone.
 7. Unanswered Open Questions: OQ-1 (macOS path_helper, unverified on a Mac) and the Stage-0
    image-bake question remain open.
+
+---
+
+## Final-pass verification (2026-07-18, later) — go/no-go for live dogfooding
+
+A 24-agent verification pass re-checked the fixes above against current HEAD (the
+~46 commits that cite this report), vetted the fresh macOS Stage 16b code, and —
+because the maintainer is now testing Go live with a Python bail-back — specifically
+stress-tested the two things that matter for that posture: **destructive operations**
+(bugs that damage state before you would notice) and **bail-back state compatibility**
+(can Python cleanly resume state Go wrote).
+
+### Verdict: GO for live Linux dogfooding via `scripts/go-front-door.sh`, bail-back armed
+
+The fixes are **genuine this round** — unlike the first round, the destructive `ps`-prune
+bug, the fail-open golden gate, the repo-root hijack, `hostPlatform`, mise-`$`,
+storage-migration wiring, AC-materialize (2→4 sites), and `YOLO_GO_DISABLE` are all real
+code fixes with tests that actually pin behavior (each was empirically confirmed to go RED
+on the pre-fix code — except the two weak guards noted below).
+
+**No blockers in destructive-ops or bail-back-state** — the two highest-risk areas were
+verified clean by diffing Go against live Python:
+- **Destructive ops:** shadowed-home content-delete (byte-exact, relocation symlink
+  preserved), hardlink dedup (atomic, same-inode skip), build-root/store-prune tri-state
+  polarity — all correct on adversarial trees. Nothing destructive-before-noticeable on the
+  Linux gated path.
+- **Bail-back:** config-snapshot bytes are byte-identical both directions (the #1 regression
+  is genuinely closed; `TestSnapshotCrossWrite` runs live Python both ways), container-name
+  derivation identical incl. unicode/truncation, tracking/lock/broker state round-trips. The
+  seam-#1 forward falls through to Python when the Go binary is absent, so the net is intact.
+
+### Per-command risk (Linux, via the four-var shim; NOT bare `YOLO_IMPL=go`)
+
+| Command | Risk | Note |
+|---|---|---|
+| `run` | LOW | argv byte-identical (verified live); storage-migration, banner, AC-materialize wired. NOT safe bare (drops bundled loopholes → silent TLS/auth failure). |
+| `doctor` | LOW | read-only. |
+| `ps` | LOW on Linux | destructive macOS/AC prune bug fixed in code but UNVERIFIED on real macOS. |
+| `check` | MODERATE | the §C early-exit gap: on a host with an earlier probe failure it can launch a real `nix build` + the orphan-cleanup prompt Python would skip. |
+| `prune` | CAUTION | destructive; the reclaim *decisions* were not independently re-verified this pass. Diff against `uv run python -m src.cli prune` once before trusting. |
+| `init` / `init-user-config` | LOW-MOD | writes config, non-catastrophic. |
+| `broker` | USABLE but BLIND | zero production logging; handles the single-use refresh token. Fine with Python daemons present; not for unattended use. |
+| `builder`, `macos-*` | DEFER | unverifiable in-jail; certify on a real Mac. |
+
+### Still-open (do before trusting the affected surface)
+
+- **`check` §C early-exit** (major): add `if r.failed > 0 { summaryFailOnly(); return 1 }`
+  after Config Files, matching Python's accumulated-fail semantics — else a surprise
+  `nix build` + orphan prompt on an unhealthy host.
+- **journald truncation guard** (major): the fix is correct but the regression test passes
+  with the race reintroduced — make it bite (force the race window) or assert the invariant.
+- **`hostPlatform` test** (major): skips the darwin case where the bug lives; parameterize it.
+- **broker-relay orphan reap** on the Go `run` path (major): Python reaps orphaned relays on
+  every run; the Go path omits it — relays from attach-ended jails can leak.
+- **Doc honesty** (blocker, corrected this session): `audit-fixes.md` "OPEN list now cleared"
+  was false (4 of 6 still open) — corrected in place.
+
+### Blockers to deleting Python (Stage 17) — the bar rises once bail-back is gone
+
+1. **Go binary distribution** — no goreleaser today; the console-script is still the only
+   entry point. Python cannot be removed until the Go binary is the shipped `yolo`.
+2. **macOS verified on real hardware** (macos-user launch, OQ-1 path_helper, builder).
+3. **Stage 1 characterization + parity-CI freeze actually running** — what makes the
+   irreversible removal safe. Still not started; the live-Python oracles (now fail-closed
+   after §B5) are a *partial* substitute covering argv/config/prune/check, but not UX strings,
+   entrypoint boot order, tty job-control, or most config-schema constants.
+4. **Soak confirmations** (broker single-use token, Stage 3/6) — human/CI.
+5. **Broker operational logging** before it runs without a fallback.
+6. **Ledger sign-off** — D1–D17 all still `proposed`; D8/D10/D15/D16/D17 shipped before the
+   §1.1-required sign-off. (D11 correctly WITHDRAWN.)
+7. Housekeeping: versioned pre-commit hook (4th miss), author email (`hyperscience.com` on
+   the 46 commits, not the canonical `gmail.com`), the wrong-arch `execv` guard.
+
+**Bottom line:** the Go path is in genuinely good shape for supervised Linux dogfooding with
+the shim and Python kept installed. Nothing verified this pass is destructive-before-noticeable
+on that path. The gap between "good for dogfooding" and "safe to delete Python" is the list
+above — and every "open but low-risk-with-Python-present" item becomes must-fix at cutover,
+because removing the bail-back raises the bar on all of them.
