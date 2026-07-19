@@ -21,6 +21,7 @@ func (o *Options) autoLoadImage(cfg *jsonx.OrderedMap, rt, repoRoot string) bool
 		RepoRoot:      repoRoot,
 		ExtraPackages: extra,
 		Out:           o.Stdout,
+		ProgressTTY:   o.IsTTYStdout(),
 		IsMacOS:       o.IsMacOS,
 		Getpid:        o.Getpid,
 		DiagnoseFailure: func(tail []string) (string, string) {

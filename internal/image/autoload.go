@@ -29,6 +29,12 @@ type AutoLoadOptions struct {
 	// stripped by the caller's printer; here we write plain text). nil =>
 	// io.Discard.
 	Out io.Writer
+	// ProgressTTY reports whether Out is a real terminal. When true, the
+	// image-caching byte progress redraws IN PLACE (carriage return, like
+	// Python's rich status spinner) instead of one line per chunk — otherwise
+	// a multi-GB stream spams hundreds of "Caching image… 98%" lines. When
+	// false (piped/redirected), progress is suppressed to a single start line.
+	ProgressTTY bool
 	// IsMacOS overrides the platform for the build-offload branch.
 	IsMacOS bool
 	// Getpid names the PID-unique out-link. nil => os.Getpid.
@@ -76,7 +82,7 @@ func (o *AutoLoadOptions) fill() {
 	}
 	if o.Materialize == nil {
 		o.Materialize = func(storePath, cacheFile string) int64 {
-			return materializeImage(storePath, cacheFile, o.IsMacOS, o.Out)
+			return materializeImage(storePath, cacheFile, o.IsMacOS, o.Out, o.ProgressTTY)
 		}
 	}
 	if o.DiagnoseFailure == nil {
@@ -269,7 +275,7 @@ func buildImageStorePath(repoRoot string, extra []any, outLink string, out io.Wr
 
 // materializeImage ports _materialize_image: stream the nix image to cacheFile
 // (via a temp + rename), returning the byte count (0 on failure).
-func materializeImage(storePath, cacheFile string, isMacOS bool, out io.Writer) int64 {
+func materializeImage(storePath, cacheFile string, isMacOS bool, out io.Writer, progressTTY bool) int64 {
 	streamCmd := streamImageCommand(storePath, isMacOS)
 	cmd := exec.Command(streamCmd[0], streamCmd[1:]...)
 	cmd.Stderr = nil
@@ -291,10 +297,18 @@ func materializeImage(storePath, cacheFile string, isMacOS bool, out io.Writer) 
 	buf := make([]byte, 1024*1024)
 	sentinel := SizeSentinelPath()
 	estimated := estimateImageSize(storePath, sentinel)
+	// Progress rendering (mirrors Python's rich status.update — a SINGLE line
+	// that redraws): on a TTY, redraw in place with \r (throttled to whole-
+	// percent changes so a multi-GB stream doesn't emit hundreds of near-
+	// identical updates); off a TTY, emit nothing per-chunk (a redirected log
+	// must not accumulate 500 "98% 98% 99%" lines). A final newline closes the
+	// redrawn line so the next message starts cleanly.
+	prog := newProgressLine(out, progressTTY)
 	for {
 		n, rerr := stdout.Read(buf)
 		if n > 0 {
 			if _, werr := f.Write(buf[:n]); werr != nil {
+				prog.done()
 				f.Close()
 				_ = os.Remove(tmpFile)
 				_ = cmd.Process.Kill()
@@ -302,12 +316,13 @@ func materializeImage(storePath, cacheFile string, isMacOS bool, out io.Writer) 
 				return 0
 			}
 			total += int64(n)
-			fmt.Fprintln(out, "Caching image... "+FormatProgress(total, estimated))
+			prog.update(total, estimated)
 		}
 		if rerr != nil {
 			break
 		}
 	}
+	prog.done()
 	f.Close()
 	_ = cmd.Wait()
 	if cmd.ProcessState == nil || cmd.ProcessState.ExitCode() != 0 {
@@ -322,6 +337,46 @@ func materializeImage(storePath, cacheFile string, isMacOS bool, out io.Writer) 
 	// quirk on SizeFileForSentinel).
 	_ = os.WriteFile(sentinel, []byte(strconv.FormatInt(total, 10)), 0o644)
 	return total
+}
+
+// progressLine renders the image-caching byte progress as a single, in-place
+// updating line on a TTY (carriage return, like Python's rich status spinner),
+// and as nothing per-chunk when piped (so a redirected log doesn't accumulate
+// hundreds of near-identical "Caching image… 98%" lines). Updates are throttled
+// to when the RENDERED string changes (whole-percent or MB/GB rollover), so a
+// multi-GB stream produces ~100 redraws, not one per 1 MB chunk.
+type progressLine struct {
+	out    io.Writer
+	tty    bool
+	last   string
+	shown  bool
+	prefix string
+}
+
+func newProgressLine(out io.Writer, tty bool) *progressLine {
+	return &progressLine{out: out, tty: tty, prefix: "Caching image... "}
+}
+
+func (p *progressLine) update(current, estimate int64) {
+	if !p.tty {
+		return // no per-chunk spam on a pipe/redirect
+	}
+	msg := p.prefix + FormatProgress(current, estimate)
+	if msg == p.last {
+		return // throttle: nothing visibly changed
+	}
+	p.last = msg
+	p.shown = true
+	// \r returns to column 0; trailing spaces clear any shorter previous line.
+	fmt.Fprintf(p.out, "\r%s   ", msg)
+}
+
+// done closes the in-place line with a newline so the next message starts on a
+// fresh line (only when something was drawn).
+func (p *progressLine) done() {
+	if p.tty && p.shown {
+		fmt.Fprintln(p.out)
+	}
 }
 
 // estimateImageSize ports _estimate_image_size: the cached size file (read via
