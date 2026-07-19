@@ -29,7 +29,7 @@
     "cmd": ["yolo-claude-oauth-broker-host", "--socket", "{socket}"]
   },
   "jail_daemon": {
-    "cmd": ["python3", "-m", "src.oauth_broker_jail"],
+    "cmd": ["yolo-oauth-terminator"],
     "restart": "on-failure"
   },
   "doctor_cmd": ["yolo-claude-oauth-broker-host", "--self-check"]

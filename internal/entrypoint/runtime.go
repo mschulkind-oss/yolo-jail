@@ -107,15 +107,12 @@ func supervisorIsAlive(pidFile string) bool {
 	return false
 }
 
-// `python -m src.jail_daemon_supervisor` as a detached child, once, guarded by a
-// tmpfs PID file so repeated `podman exec yolo-entrypoint` calls don't stack
+// `yolo-jail-supervisor` as a detached child, once, guarded by a tmpfs PID
+// file so repeated `podman exec yolo-entrypoint` calls don't stack
 // supervisors. Absent/empty YOLO_JAIL_DAEMONS means nothing to do.
-// The seam contract (module map) keeps spawning the Python supervisor via
-// `python -m src.jail_daemon_supervisor` unchanged — the supervisor ports
-// independently later. sys.executable in Python is the interpreter running the
-// entrypoint; the Go entrypoint has no such interpreter, so it resolves python3
-// on PATH (the image's python3), which is the same interpreter the Python
-// entrypoint would have been launched under.
+// The supervisor is the baked-in Go binary (cmd/yolo-jail-supervisor),
+// resolved on PATH from the image /bin. It reads YOLO_JAIL_DAEMONS from the
+// inherited environment — no argv, no PYTHONPATH.
 func startJailDaemonSupervisor(e *Env) {
 	if strings.TrimSpace(e.Getenv("YOLO_JAIL_DAEMONS")) == "" {
 		return
@@ -123,18 +120,13 @@ func startJailDaemonSupervisor(e *Env) {
 	if supervisorIsAlive(supervisorPIDFile) {
 		return
 	}
-	repoRoot := e.Getenv("YOLO_REPO_ROOT")
-	if repoRoot == "" {
-		repoRoot = "/opt/yolo-jail"
-	}
-	python, err := exec.LookPath("python3")
+	bin, err := exec.LookPath("yolo-jail-supervisor")
 	if err != nil {
-		// No interpreter to launch the supervisor — best-effort, don't abort.
+		// Supervisor binary not on PATH — best-effort, don't abort boot.
 		return
 	}
-	cmd := exec.Command(python, "-m", "src.jail_daemon_supervisor")
-	// env={**os.environ, "PYTHONPATH": repo_root}
-	cmd.Env = envWith(os.Environ(), "PYTHONPATH", repoRoot)
+	cmd := exec.Command(bin)
+	cmd.Env = os.Environ()
 	// stdout/stderr DEVNULL, close_fds default. start_new_session=False: stay in
 	// the same process group as PID 1 (Go's default — no Setsid).
 	cmd.Stdout = nil
