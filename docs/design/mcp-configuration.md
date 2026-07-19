@@ -19,13 +19,21 @@ Source of truth for the code: `src/entrypoint/agent_configs.py` +
 
 ### What breaks without it
 
-The jail's Node is nix-built: `/bin/node` →
-`/nix/store/…-nodejs-slim-…/bin/node`. That binary is **dynamically linked** and
-finds `libstdc++.so.6` (and friends) **only** through
-`LD_LIBRARY_PATH=/lib:/usr/lib` — a path the image bakes into its process
-environment on purpose (`flake.nix` sets it in the image `Env`; see the
-`LD_LIBRARY_PATH` comments around `flake.nix:718`). The nix loader ignores the
-usual `RPATH` and leans entirely on that env var (`src/entrypoint/system.py:91`).
+> **Root cause — read this first:** the "node needs `LD_LIBRARY_PATH`" story is
+> subtler than it looks, and an earlier version of this section got it wrong. The
+> nix-built `/bin/node` runs fine with **no** `LD_LIBRARY_PATH` (it has a correct
+> `RPATH`). The problem is specific to the **mise/upstream** node, whose ELF
+> interpreter this image points at a nix `ld.so` that ignores `/etc/ld.so.cache`
+> and can't see `libstdc++` — leaving `LD_LIBRARY_PATH` as the only lookup path.
+> The full proven mechanism, why the clean structural fixes are blocked, and the
+> open direction to actually remove this manipulation live in
+> **[mise-node-dynamic-linking.md](mise-node-dynamic-linking.md)**. This section
+> covers only how the MCP wrapper mitigates it today.
+
+The mise/upstream node finds `libstdc++.so.6` **only** through
+`LD_LIBRARY_PATH=/lib:/usr/lib`, a path the image bakes into its process
+environment (`flake.nix:718`, re-exported on the container `-e`). Most processes
+inherit it and are fine.
 
 Here's the trap: **when a coding agent spawns an MCP server as a child process,
 it often sanitizes the child's environment** — building a clean env dict rather
@@ -102,15 +110,17 @@ survive), but it is exactly the fragile, unowned path the wrapper exists to fix.
 This gap is **identical in Python and Go** — a shared design gap, not a port
 regression.
 
-**Possible fix (not yet implemented):** in the shared `_load_mcp_servers()` /
-`LoadMCPServers()`, after merging custom servers, rewrite a server's `command`
-when it is a bare `node` or `npx` (basename match, not an absolute path) to the
-corresponding `~/.local/bin/mcp-wrappers/<name>` path. Narrowest safe policy:
-only `node`/`npx`; leave absolute paths, `python`, and other interpreters
-untouched. Applied once in the shared loader, it covers all MCP-enabled agents.
-Anything relying on the current verbatim behavior (e.g. a user who deliberately
-points at a non-wrapper node) would want an escape hatch, but there's no known
-such case.
+**Fix direction (not implemented — see the investigation doc):** the clean
+"remove this entirely" options are blocked by hard constraints (read-only nix
+store, a host-shared mise binary, and a nix `ld.so` that ignores the FHS cache);
+see [mise-node-dynamic-linking.md](mise-node-dynamic-linking.md) for the proof
+and the blocked-options table. The feasible *mitigation* is to generalize the
+preset pattern: in the shared `_load_mcp_servers()` / `LoadMCPServers()`, rewrite
+a custom server's bare `node`/`npx` `command` to the corresponding
+`~/.local/bin/mcp-wrappers/<name>` (which `exec`s the nix `/bin/node`, so the
+server process is self-sufficient). That closes this gap without touching the
+store, but it does not eliminate the wrapper indirection — the real elimination
+is an image-build change tracked in the investigation doc.
 
 ---
 
