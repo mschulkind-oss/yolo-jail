@@ -198,13 +198,12 @@ func (o *Options) startExternalService(name string, spec *jsonx.OrderedMap, sock
 		}
 		cmdArgs = append(cmdArgs, strings.ReplaceAll(s, "{socket}", hostSocket))
 	}
-	// go-port (_daemon_launcher): if cmd[0] is a console-script daemon
-	// gated on via YOLO_GO_DAEMONS, swap it for the Go binary at
-	// $YOLO_GO_BIN_DIR. Only the launcher token is replaced; the substituted
-	// --socket/... tail is kept. Missing/ungated → falls back to the console
-	// script on PATH. Without this the full-Go path tried to exec the Python
-	// console script `yolo-host-processes`, which isn't on the jail agent's PATH
-	// (observed: "Failed to launch host service 'host-processes'").
+	// Resolve cmd[0] (a console-script daemon name) to its Go binary on PATH.
+	// Only the launcher token is replaced; the substituted --socket/... tail is
+	// kept. Off-PATH → daemonLauncher returns nil and the original token stands.
+	// Without this the full-Go path tried to exec the Python console script
+	// `yolo-host-processes`, which isn't on the jail agent's PATH (observed:
+	// "Failed to launch host service 'host-processes'").
 	if len(cmdArgs) > 0 {
 		launcher := o.daemonLauncher(cmdArgs[0])
 		swapped := len(launcher) != 1 || launcher[0] != cmdArgs[0]
@@ -314,25 +313,13 @@ func (o *Options) resolveContainerCgroup(cname, rt string) string {
 	return ""
 }
 
-// daemonLauncher ports _daemon_launcher: the Go binary at $YOLO_GO_BIN_DIR/<name>
-// when gated via YOLO_GO_DAEMONS + present, else the console-script name on PATH.
+// daemonLauncher resolves a console-script daemon name to its launch argv via a
+// plain PATH lookup: the console script IS the Go binary on PATH now. Returns
+// nil when the name isn't on PATH (that nil-vs-bare-name difference vs
+// brokerlifecycle.DaemonLauncher is preserved pending their unification). The
+// former YOLO_GO_DAEMONS/YOLO_GO_BIN_DIR migration seam (dead — nothing set
+// those vars) was removed.
 func (o *Options) daemonLauncher(consoleName string) []string {
-	listed := o.Getenv("YOLO_GO_DAEMONS")
-	gated := false
-	for _, n := range strings.Split(listed, ",") {
-		if strings.TrimSpace(n) == consoleName {
-			gated = true
-			break
-		}
-	}
-	if gated {
-		if binDir := o.Getenv("YOLO_GO_BIN_DIR"); binDir != "" {
-			cand := filepath.Join(binDir, consoleName)
-			if info, err := os.Stat(cand); err == nil && info.Mode()&0o111 != 0 {
-				return []string{cand}
-			}
-		}
-	}
 	if _, ok := o.LookPath(consoleName); ok {
 		return []string{consoleName}
 	}

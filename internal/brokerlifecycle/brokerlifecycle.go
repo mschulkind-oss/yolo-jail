@@ -314,36 +314,14 @@ func brokerWaitForSocket(deps Deps, sock string, timeout time.Duration, exited f
 	return deps.PathExists(sock)
 }
 
-// DaemonLauncher ports _daemon_launcher: the Go binary at $YOLO_GO_BIN_DIR/<name>
-// when the daemon is gated on via YOLO_GO_DAEMONS and that binary exists and is
-// executable, else the console-script NAME (returned unconditionally — Python
-// does no PATH-existence check at the tail).
-func DaemonLauncher(deps Deps, consoleName string) []string {
-	if goDaemonEnabled(deps, consoleName) {
-		if binDir := deps.Getenv("YOLO_GO_BIN_DIR"); binDir != "" {
-			candidate := filepath.Join(binDir, consoleName)
-			if deps.IsExecX(candidate) {
-				return []string{candidate}
-			}
-			if deps.Out != nil {
-				io.WriteString(deps.Out, consoleName+": YOLO_GO_DAEMONS lists it but "+
-					candidate+" is missing/not executable — using the Python "+
-					"daemon. Run `just build-go`.\n")
-			}
-		}
-	}
+// DaemonLauncher resolves a console-script daemon name to its launch argv.
+// The console script IS the Go binary on PATH now, so this returns the name
+// unconditionally (Python did no PATH-existence check at the tail — that
+// nil-vs-bare-name difference vs runcmd's daemonLauncher is preserved pending
+// their unification). The former YOLO_GO_DAEMONS/YOLO_GO_BIN_DIR migration seam
+// (dead — nothing set those vars) was removed.
+func DaemonLauncher(_ Deps, consoleName string) []string {
 	return []string{consoleName}
-}
-
-// goDaemonEnabled ports _go_daemon_enabled: true iff name is listed
-// (comma-separated) in YOLO_GO_DAEMONS.
-func goDaemonEnabled(deps Deps, name string) bool {
-	for _, n := range strings.Split(deps.Getenv("YOLO_GO_DAEMONS"), ",") {
-		if strings.TrimSpace(n) == name && name != "" {
-			return true
-		}
-	}
-	return false
 }
 
 // BrokerPing ports _broker_ping: connect to socketPath, send the length-prefixed

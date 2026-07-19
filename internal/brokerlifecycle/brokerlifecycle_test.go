@@ -348,37 +348,11 @@ func TestBrokerSpawnDeadChildFast(t *testing.T) {
 func TestDaemonLauncherDefault(t *testing.T) {
 	st := &fakeState{}
 	deps := newFakeDeps(t, st)
-	// Not gated → console name.
+	// The console script IS the Go binary on PATH now → bare name, always.
+	// (The former YOLO_GO_DAEMONS/YOLO_GO_BIN_DIR seam was dead code, removed.)
 	got := DaemonLauncher(deps, BrokerConsoleName)
 	if !reflect.DeepEqual(got, []string{BrokerConsoleName}) {
 		t.Errorf("got %v, want [%s]", got, BrokerConsoleName)
-	}
-}
-
-func TestDaemonLauncherGatedGoBinary(t *testing.T) {
-	st := &fakeState{}
-	deps := newFakeDeps(t, st)
-	binDir := t.TempDir()
-	goBin := filepath.Join(binDir, BrokerConsoleName)
-	touch(t, goBin)
-	env := map[string]string{"YOLO_GO_DAEMONS": BrokerConsoleName, "YOLO_GO_BIN_DIR": binDir}
-	deps.Getenv = func(k string) string { return env[k] }
-	deps.IsExecX = func(p string) bool { return p == goBin }
-	got := DaemonLauncher(deps, BrokerConsoleName)
-	if !reflect.DeepEqual(got, []string{goBin}) {
-		t.Errorf("gated launcher = %v, want [%s]", got, goBin)
-	}
-}
-
-func TestDaemonLauncherGatedMissingFallsBack(t *testing.T) {
-	st := &fakeState{}
-	deps := newFakeDeps(t, st)
-	env := map[string]string{"YOLO_GO_DAEMONS": BrokerConsoleName, "YOLO_GO_BIN_DIR": "/nonexistent"}
-	deps.Getenv = func(k string) string { return env[k] }
-	deps.IsExecX = func(string) bool { return false }
-	got := DaemonLauncher(deps, BrokerConsoleName)
-	if !reflect.DeepEqual(got, []string{BrokerConsoleName}) {
-		t.Errorf("missing gated binary should fall back to console name, got %v", got)
 	}
 }
 
