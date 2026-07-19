@@ -2,7 +2,7 @@
 # go-port-remaining-work.md). Shape copied from mschulkind-oss/swarf, adapted:
 # swarf is a single root-package binary; yolo-jail ships the FOUR host-facing
 # binaries that mirror pyproject's [project.scripts] console scripts. The
-# in-jail daemons (yolo-entrypoint, yolo-cgd, yolo-journald, yolo-broker-relay,
+# in-jail daemons (yolo-entrypoint, yolo-journald, yolo-broker-relay,
 # yolo-jail-supervisor, yolo-oauth-terminator) ship inside the NIX IMAGE and
 # must NOT be listed here; goprobe is dev-only.
 #

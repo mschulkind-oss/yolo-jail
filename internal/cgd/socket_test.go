@@ -14,8 +14,9 @@ import (
 
 // TestSocketRoundTrip drives the cgd request/response over a real Unix socket
 // (the wire the daemon uses), proving the single-line-JSON protocol end to end
-// against a fake cgroup tree. This complements cmd/yolo-cgd (which adds the
-// SO_PEERCRED read + chmod that need a real nested jail to exercise).
+// against a fake cgroup tree. This complements the in-process cgd delegate in
+// yolo run (internal/runcmd/cgddaemon_linux.go, which adds the SO_PEERCRED read
+// + chmod that need a real nested jail to exercise).
 func TestSocketRoundTrip(t *testing.T) {
 	dir := t.TempDir()
 	container := filepath.Join(dir, "container")

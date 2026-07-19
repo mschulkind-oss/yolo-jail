@@ -19,7 +19,8 @@ import (
 // proxy-mirror decision path.
 //
 // Sink + level mechanics mirror the established Go daemon convention from
-// commit ec888c6 (cmd/yolo-cgd, cmd/yolo-journald): a --log-file flag that
+// commit ec888c6 (the cgd delegate — now in-process in yolo run — and
+// cmd/yolo-journald): a --log-file flag that
 // defaults to stderr (captured by the loophole supervisor), set up via
 // SetupLog. The Python broker's level + logger-name are preserved in each line
 // so the incident greps (`grep INFO`, `grep bg_refresh`, ...) still work.
@@ -34,8 +35,9 @@ var (
 )
 
 // SetupLog configures the operational logger. An empty path logs to stderr
-// (the default the loophole supervisor captures), matching cmd/yolo-cgd and
-// cmd/yolo-journald. verbose enables DEBUG lines (Python's `-v` -> level=DEBUG).
+// (the default the loophole supervisor captures), matching the in-process cgd
+// delegate and cmd/yolo-journald. verbose enables DEBUG lines (Python's `-v` ->
+// level=DEBUG).
 func SetupLog(path string, verbose bool) {
 	var out io.Writer = os.Stderr
 	if path != "" {

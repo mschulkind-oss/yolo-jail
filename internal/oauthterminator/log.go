@@ -15,7 +15,8 @@ import (
 // unattended soak keeps that forensics.
 //
 // Sink + level mechanics mirror the established Go daemon convention (commit
-// ec888c6, cmd/yolo-cgd + cmd/yolo-journald): a --log-file flag defaulting to
+// ec888c6, the cgd delegate — now in-process in yolo run — + cmd/yolo-journald):
+// a --log-file flag defaulting to
 // stderr. Here stderr is captured by the in-jail daemon supervisor into
 // ~/.local/state/yolo-jail-daemons/claude-oauth-broker.log — exactly where the
 // Python terminator's logging.basicConfig(stderr) output landed. Python's
