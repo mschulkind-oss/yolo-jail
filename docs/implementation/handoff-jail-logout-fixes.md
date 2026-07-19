@@ -218,7 +218,7 @@ in the broker log (per-jail attribution).
   healthy" → stale relay (post-fix) / stale socket inode (pre-fix,
   relaunch the jail). Remove/amend the operational rule about relaunching
   jails after `yolo broker restart` once the relay lands.
-- `src/bundled_loopholes/claude-oauth-broker/README.md`: architecture
+- `bundled_loopholes/claude-oauth-broker/README.md`: architecture
   section gains the relay hop.
 
 ## Round 3 — rust toolchains escape the mise store (provisioning fails on read-only home)

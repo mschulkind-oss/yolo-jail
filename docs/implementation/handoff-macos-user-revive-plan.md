@@ -5,15 +5,15 @@
 > pieces this doc predates (container builder, `builderImage`+GHCR, the
 > path_helper login-shell PATH fix). **For the current build/proven/pending
 > state, the live tracker is `../research/macos-support-matrix.md`** and the
-> go-port capture is `../plans/go-port-plan.md` §13a. Quick delta vs. this plan:
+> go-port plan (deleted in ★ step 4) had §13a. Quick delta vs. this plan:
 > `src/cli/macos_user.py` revived + wired (runtime select, dispatch,
 > `_refuse_if_root`, env_sources/blocked_tools threading, login rc files);
 > `src/cli/darwin_packages.py` = the native buildEnv materializer (built,
 > streams progress); `src/cli/container_builder.py` = NEW on-demand container
 > builder (proven on podman + AC); `flake.nix` gained `builderImage` +
 > `yoloDarwinPackages`; `publish.yml` gained `push-builder-image` (GHCR, live).
-> PENDING on a real Mac: macos-user end-to-end + the path_helper fix (go-port
-> OQ-1). Read this plan for the ORIGINAL design intent; read the matrix for
+> PENDING on a real Mac: macos-user end-to-end + the path_helper fix.
+> Read this plan for the ORIGINAL design intent; read the matrix for
 > what's actually done.
 
 **Status:** implementation plan (2026-07-17). Synthesized from 6 parallel

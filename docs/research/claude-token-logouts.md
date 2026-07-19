@@ -5,7 +5,7 @@ Entry point when a jail (or host) prompts `Please run /login · API Error: 401 {
 This doc is user-facing and operational. Background:
 
 - [`docs/research/claude-oauth-refresh-mechanics.md`](claude-oauth-refresh-mechanics.md) — how Claude's OAuth refresh actually works (bundle-level mechanics + the architectural reasoning behind the broker's proactive refresher).
-- [`src/bundled_loopholes/claude-oauth-broker/README.md`](go-port-module-map/README.md) — broker architecture + operator ops.
+- [`bundled_loopholes/claude-oauth-broker/README.md`](../../bundled_loopholes/claude-oauth-broker/README.md) — broker architecture + operator ops.
 - [`docs/plans/claude-oauth-mitm-proxy-plan.md`](../plans/claude-oauth-mitm-proxy-plan.md) — historical design notes for the broker split.
 
 ## Architecture (post-`cb6e850`, post-`e7b7073`)

@@ -1,10 +1,8 @@
 # macOS support matrix — every runtime × builder × config
 
-> **PORT NOTE (2026-07-17):** this describes the **Python** implementation, which
-> is IN FLIGHT and will be ported to Go — the port is not yet aware of most of
-> this (see `docs/plans/go-port-plan.md` §13a for how it's tracked). Treat this
-> matrix as the authoritative state-of-the-macOS-backend to carry across the
-> port; keep it updated as the source of truth for what's built/proven/pending.
+> **NOTE:** The Go port is complete. This matrix remains the authoritative
+> state-of-the-macOS-backend; keep it updated as the source of truth for
+> what's built/proven/pending.
 
 **Purpose:** track macOS coverage across the whole cross-product so nothing
 ships half-done. yolo's rule (happy-path-principle.md) is "fill the matrix, one
@@ -87,7 +85,7 @@ run); the whole "run agent in jail" row for AC under current session's fixes.
    the bootstrap now writes `.zprofile`/`.zshrc`/`.bash_profile` re-prepending
    the sandbox PATH after macOS path_helper, so `which jq` → `/nix/store/…/bin/jq`
    (not Homebrew's `/usr/local/bin/jq`). Cannot be tested on Linux; runbook
-   `mac-macos-user-e2e` §5 is the gate. Tracked as go-port OQ-1.
+   `mac-macos-user-e2e` §5 is the gate.
 3. ✅ **Wire the container builder into the CLI run/check path** — DONE
    2026-07-17. `src/cli/container_builder.py` (`builder_session`: pull → run →
    wait-reachable → yield nix `--builders` line → ephemeral teardown) +

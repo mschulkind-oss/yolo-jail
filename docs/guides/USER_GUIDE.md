@@ -1,6 +1,6 @@
 # YOLO Jail User Guide
 
-This guide covers everything you need to get started with YOLO Jail and make the most of its features. For quick-start instructions, see the [README](../research/go-port-module-map/README.md).
+This guide covers everything you need to get started with YOLO Jail and make the most of its features. For quick-start instructions, see the [README](../../README.md).
 
 **YOLO Jail runs on Linux and macOS as first-class platforms.** Every section below shows instructions for both where they differ. Linux uses Podman; macOS uses Podman Machine or Apple Container. For the full macOS-specific setup, see [docs/guides/macos.md](macos.md); for a feature-by-feature comparison, see [docs/research/platform-comparison.md](../research/platform-comparison.md).
 
@@ -1037,7 +1037,7 @@ YOLO Jail runs on Linux and macOS as first-class platforms. Everything in this g
 | Max bind mounts | Unlimited | Unlimited | ~22 (VZ.framework) |
 | Image format | OCI | OCI | OCI (auto-converted via skopeo) |
 | `yolo doctor` runtime checks | Linux | macOS / VM | `container system status` |
-| Token refresher install | systemd `--user` | launchd or cron (see [scripts/README.md](../research/go-port-module-map/README.md)) | same |
+| Token refresher install | systemd `--user` | launchd or cron | same |
 
 ---
 

@@ -229,8 +229,7 @@ brew install mschulkind-oss/tap/yolo-jail
 The formula is auto-generated from the PyPI release on every tag. No source
 checkout, no `just`, auto-updates via `brew upgrade`. Works on Apple Silicon
 and Intel. Does not set up the token refresher — see
-[scripts/README.md](../research/go-port-module-map/README.md) for manual launchd setup if you
-need it.
+the project README for manual launchd setup if you need it.
 
 ### Option B — Install from source
 
