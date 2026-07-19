@@ -56,6 +56,35 @@ single Go implementation.
 
 ## 2. Distribution — ship the Go binary the standard way
 
+> **STATUS 2026-07-19: DONE (pulled forward as ★ step 2), except §2e.**
+> Landed: `.goreleaser.yaml` (§2a — 4 builds, anchors, no `brews:`),
+> `release.yml` (§2b — hand-authored source-build formula; **no
+> `Utils.git_short_head`** — the source tarball has no `.git`, so only the
+> version is stamped; `curl -fsSL` + sha sanity gate), `publish.yml` (§2c),
+> `internal/version` reconcile (§2d — D18 stamp-first + native `--version` +
+> no cwd-describe for unstamped no-root binaries → "unknown").
+> Deviations from the plan as written, discovered on contact:
+> - **go-to-wheel couldn't be used**: it hard-codes `go build .` in the module
+>   root and emits ONE binary + ONE console script per wheel; yolo-jail needs
+>   4 of each from a `cmd/` layout. `scripts/build_wheels.py` is a
+>   go-to-wheel-derived builder producing the same wheel layout/tags with all
+>   4 console scripts, LICENSE/NOTICE in dist-info, exec-bit-correct binaries.
+>   No Windows wheels (unix-only syscalls don't compile).
+> - **publish.yml triggers on the v* TAG PUSH, not `release: published`**:
+>   goreleaser creates the release with the workflow-scoped GITHUB_TOKEN and
+>   GitHub's recursion guard means bot-created events never trigger workflows
+>   (swarf's own chain only ever fired because its releases were published by
+>   hand — verified via the GitHub API during review).
+> - **Accepted gap:** no sdist and no pure/off-platform wheel — an old pip on
+>   an unsupported platform (e.g. Windows) resolves the last Python-era
+>   release instead of failing loudly. Mitigate later by yanking old versions
+>   or a Requires-Python bump if it bites.
+> - Bundled loopholes are now **go:embed**ded with a materialize-on-demand
+>   fallback — a bare installed binary (brew/pipx/go install) previously
+>   discovered ZERO bundled loopholes (silent broker-CA/TLS failure).
+> §2e (Justfile + README install block) lands WITH the wipe — see the
+> wipe-commit companions in go-port-remaining-work.md §H.
+
 **The target:** once Python is gone, yolo-jail becomes a **Go CLI + container**
 (no longer "Python CLI + container"), so its channel set shifts to the org's
 Go-CLI standard. The canonical reference is **swarf** (Go CLI + daemon), whose

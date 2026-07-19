@@ -597,3 +597,14 @@ tree's. Benign, and arguably the bug fixed.
 **Guard.** `TestBuildVersionPrecedence` (runs inside the checkout, so live
 describe IS available — the stamp winning proves the order); `TestNormalize`
 byte contract unchanged.
+
+**Addendum (★ step 2 review):** two extensions landed with the distribution
+work. (1) Unstamped binaries with no repo root no longer run `git describe` in
+the process cwd at all — an unstamped `go install` binary standing in a foreign
+checkout reported THAT repo's version (reproduced with a v5.2.0-tagged
+stranger repo); they now report "unknown", the §2d sane default. (2) `yolo
+--version` is answered natively by the Go front door (byte format
+`yolo-jail {v}` — identical to Python's typer callback; the brew formula's
+`test do` depends on it). Value follows this divergence's stamp-first order,
+so a stamped binary reports its build identity, YOLO_VERSION still wins
+verbatim.

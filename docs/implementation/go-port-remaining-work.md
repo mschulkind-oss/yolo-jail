@@ -47,7 +47,7 @@ now just **three maintainer-gated steps + the wipe.**
 | # | Step | Owner | Detail |
 |---|---|---|---|
 | 1 | ✅ **DONE — Go path validated on Linux.** Daily `yolo-go` use across two machines (real `run`/attach/interactive sessions — the heaviest surface), plus a diff-verified `prune` dry-run: reclaim decisions identical (0 containers / 0 images / 68 tars / 14 build-roots / 4 seeds / 1,212,406 cache files match exactly). The only diffs were benign — ledger D14 tie-ordering of two equal-size (1.8 MiB) build-roots, cosmetic blank lines, and a 5-in-206,483 (0.002%) hardlink-count drift from a 4-minute live-fs capture gap (candidate count 333,784 and byte totals 5.4/350.4 GiB identical, confirming logic parity, not a bug). | you | §"safe to use now" below |
-| 2 | **Build the distribution pipeline** — goreleaser + release.yml + publish.yml (go-to-wheel, PyPI kept), so the Go binary IS the shipped `yolo`. Copy swarf verbatim. **The one hard pre-wipe blocker:** deleting the Python console-script with no Go release = users have no `yolo`. | you | post-transition §2 |
+| 2 | ✅ **DONE (2026-07-19) — distribution pipeline authored, validated, adversarially reviewed.** `.goreleaser.yaml` (4 host binaries), `release.yml` (goreleaser + hand-authored source-build brew formula), `publish.yml` (per-platform wheels via `scripts/build_wheels.py` — go-to-wheel couldn't do 4 binaries/entry points from a `cmd/` layout, so the builder is a derived script; linux glibc+musl + darwin, no windows). Supporting code: D18 stamp-first version + native `yolo --version`, bundled-loopholes **go:embed** fallback (bare installed binaries were silently loophole-less), ci.yml `check-go` job. ⚠ publish.yml triggers on the **tag push**, not the release event — goreleaser creates the release with `GITHUB_TOKEN` and bot-created events never trigger workflows. **Dormant until the first post-wipe tag; do NOT tag before step 3** (a released binary still delegates gated subcommands to Python). | done | post-transition §2 |
 | 3 | **WIPE PYTHON** — the manifest in §H. `src/entrypoint/` is now deletable (Mac deferred). | you | §H |
 | 4 | **Consolidate modules + strip parity scaffolding + always-Go cosmetics.** | you | §G, post-transition §3 |
 
@@ -182,9 +182,11 @@ The single source of truth for ordering is the ★ table at the top. This sectio
 records why each former "hard blocker" was reclassified — the fast-follow +
 no-soak + Mac-deferred directives collapsed the bar to essentially one gate.
 
-1. [ ] 🔒 **Go binary distribution — THE hard pre-wipe gate (still #1).** No
-   goreleaser today; the Python console-script is the only shipped `yolo`.
-   Python cannot be removed until the Go binary IS the shipped `yolo`. (★ step 2.)
+1. [x] **Go binary distribution — CLEARED 2026-07-19** (★ step 2 done). The
+   pipeline is authored + locally validated + adversarially reviewed; it
+   activates at the first post-wipe `v*` tag. No new secrets needed:
+   `HOMEBREW_TAP_TOKEN` and the PyPI trusted-publishing `pypi` environment
+   carry over (same workflow filename).
 2. [ ] 🔒 **macOS hardware verification — MOVED to fast-follow.** Temporary macOS
    breakage accepted; certify after the wipe. (No longer gates cutover.)
 3. [ ] **Stage-1 parity-CI freeze — OPTIONAL now** (§D / ★ "optional"). History
@@ -265,8 +267,11 @@ native macos-user backend on Apple Silicon, which the fast-follow restores.
   with Python.
 - [ ] `pyproject.toml` `[project.scripts]` (the 4 console scripts) + the
   `setuptools`/`setuptools-scm` build-system — replaced by goreleaser (★ step 2).
-  Decide the whole `pyproject.toml`'s fate with go-to-wheel (post-transition §2c
-  generates the wheel metadata from CLI flags — swarf has NO pyproject.toml).
+  **Fate decided:** `scripts/build_wheels.py` carries the wheel metadata, so
+  `pyproject.toml` can go entirely — EXCEPT any tool config still read from it
+  (ruff/pytest config lives there; either move to standalone config files in
+  the same commit or keep a slimmed tool-config-only pyproject until the dev
+  tooling goes Go-only).
 - [ ] `tests/test_*.py` for the deleted Python (config_merge, cli_commands,
   entrypoint, jail, oauth_broker_*, host_processes, etc.) — the Go regression
   tests are the surviving spec.
@@ -300,6 +305,23 @@ native macos-user backend on Apple Silicon, which the fast-follow restores.
   `YOLO_PYTHON`/`PYTHONPATH` `-e` block) — the whole four-var shim.
 - [ ] `tests/conftest.py` seam-env scrub (the `YOLO_IMPL`/`YOLO_GO_*` delenv
   block) — no longer needed once no Python test runs.
+
+### Wipe-commit companions (decided during ★ step 2, land WITH the wipe)
+- [ ] **§2e residuals:** rework the Justfile (`build`/`install`/`deploy` become
+  Go: install the dist binaries instead of `uv tool install`; keep the broker
+  CA + refresher steps) and the README `## Install` section (standard 4-channel
+  block: brew / go install / pipx / source). Deliberately NOT done pre-wipe —
+  installing a bare Go `yolo` on the host PATH while gated subcommands still
+  delegate to Python is the documented "NEVER bare" hazard.
+- [ ] **repoRoot() checkout marker** (`internal/loopholes/loopholes.go`,
+  `internal/frontdoor`): the sentinel is `flake.nix` + `src/entrypoint/__init__.py`;
+  the wipe deletes the latter, after which a HOST CHECKOUT no longer resolves
+  its live `src/bundled_loopholes` and silently falls back to the binary's
+  embedded copy (correct content, but edits to the tree stop being picked up).
+  Update the marker (e.g. `flake.nix` + `go.mod`) in the same pass.
+- [ ] Native `yolo --version` already exists (landed with ★ step 2 — the brew
+  formula's `test do` depends on it); the wipe only needs to keep it working
+  once delegation is gone.
 
 ### Verify after the wipe
 - [ ] `go build ./...` + `GOOS=darwin GOARCH=arm64 go build ./...` green.
