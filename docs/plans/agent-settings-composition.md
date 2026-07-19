@@ -153,20 +153,187 @@ key. Costs nothing, closes a real confidentiality gap for future secret-shaped k
 whole subsystem becomes one small library over generic JSON values, driven by data manifests
 — instead of ~50 lines of order-dependent force-sets per agent per language.
 
-## 5. Runtime overlay (what replaces the snapshot)
+## 5. Runtime edits, scope, and what lives in jail home
 
-The rendered jail file is a build product. Agent runtime edits are harvested into an explicit
-overlay sidecar:
+The build-product model raises three questions that turn out to be one question: (1) if I
+change a Claude setting *inside* the jail (via `/settings`), how does it survive the next
+regeneration? (2) what is shared across jails vs per-jail? (3) what actually lands in jail
+home? The unifying idea:
+
+> **Every piece of config has two coordinates: a *layer* (precedence — §4) and a *scope*
+> (where it is stored, and who shares it).** Get the scope model right and the rest follows.
+
+### 5.1 The second coordinate: scope
+
+| Layer | Scope | Stored where | Shared by |
+|---|---|---|---|
+| `defaults` | global | manifest data (code / image) | every jail |
+| `managed` | global | manifest data (code / image) | every jail |
+| `host` | per-host | host filesystem (`~/.claude`, `~/.pi/agent`), `:ro` mounted | every jail on this host |
+| `user` | per-workspace | `yolo-jail.jsonc` → `agent_config.<agent>` (git-committable) | that workspace (travels with the repo) |
+| `runtime` overlay | per-workspace identity | sidecar keyed on `sha256(host workspace dir)` | that workspace's jails, across restarts |
+| **render output** | per-boot | the agent's actual file in jail home | nobody — ephemeral, rebuilt each boot |
+
+That yields a clean, VS-Code-shaped contract the user can reason about without knowing the
+internals:
+
+- **Edit the host file → global.** Every jail picks it up on its next boot (they all mount
+  the same host source).
+- **Edit `yolo-jail.jsonc` → per-workspace.** Committable; travels with the repo to teammates.
+- **Edit inside the jail (`/settings`) → that workspace's jail only.** Persisted
+  per-workspace (via the agent's own user-scope file for Claude, or the overlay sidecar for
+  single-scope agents — §5.2); it does not leak to other workspaces or back to the host.
+
+### 5.2 Surviving regeneration — three ways to make `/settings` stick
+
+The build-product model only works if a live jail edit survives the rebuild. The enabling
+trick: **yolo always knows exactly what *it* wrote last time, so anything different on disk
+is definitionally your edit.** Three mechanisms, most-general to simplest:
+
+**A. Runtime overlay (capture-diff) — the universal mechanism.** Keep two sidecars the agent
+never sees: `last_render` (the exact bytes yolo wrote last boot) and `overlay` (accumulated
+jail edits). Each boot/attach:
+```
+delta   = mergeDiff(last_render, current_file)     # current = last_render + your /settings edits
+overlay = deepMerge(overlay, delta)                # accumulate (deletes recorded as null tombstones)
+render  = layers(defaults, host, user, overlay, managed)   # overlay is a LAYER, below managed
+write(render); last_render = render
+```
+So your `/settings` change is captured on the next regeneration and re-applied on every one
+after. Three details make or break it: **precedence** (overlay sits above host/user so your
+edit wins — but an entry auto-retires when the host value converges to yours, plus a
+`yolo config overlay --reset <agent>` escape hatch); **deletions** (recorded as `null`
+tombstones so the rebuild does not resurrect a key you removed — the exact bug today's merge
+has); and **managed keys** (the `managed` layer sits *above* the overlay, so an attempt to
+change a security-boundary key via `/settings` is captured but overridden on render — it
+visibly reverts, which is correct). This replaces today's fragile per-agent three-way
+snapshot with one diff-against-our-own-output, and jail edits now win at *full depth*.
+
+**B. Native scope split — the cleanest, and for Claude it removes the overlay entirely.** The
+most robust fix is to *not share a file at all*. Claude's verified precedence is
+`managed > CLI args > .claude/settings.local.json (local) > .claude/settings.json (project) >
+~/.claude/settings.json (user)`, and — the load-bearing fact — **Claude mutates the *user*
+file at runtime** (`/config` writes `model`/`theme`/`effortLevel`/`fastMode` there, permission
+approvals go to `local`) but **never writes the *project* file** (`.claude/settings.json`) — it
+only reads it. So split the scopes by who writes them:
+
+- **Security / YOLO keys → the managed file** (`/etc/claude-code/managed-settings.json` on
+  Linux; `/Library/Application Support/ClaudeCode/managed-settings.json` on macOS). Highest
+  precedence, user cannot override — genuinely *enforced*. (Caveat: writing it needs root;
+  whether the jail entrypoint can write `/etc` at boot is §11.)
+- **yolo's asserted keys (host-projected + defaults) → the project file**
+  (`.claude/settings.json`). Claude never writes it, so yolo **regenerates it freely every
+  boot with zero contention** — this is the build-product surface.
+- **The user file (`~/.claude/settings.json`) → yolo seeds it once, then never touches it, and
+  marks it `runtime-state` (persisted per-workspace).** Because Claude both writes it (via
+  `/config`) and yolo leaves it alone, **the user's in-jail `/config` changes survive
+  regeneration for free — no overlay, no capture, no merge.**
+- **Local (`.claude/settings.local.json`) → left alone** (permission approvals; irrelevant
+  since the jail is the security boundary).
+
+Now yolo's config and the user's live edits live in *different files*, and precedence does the
+composition. The one rule to respect: **only put a key in the project file that you actually
+mean to assert over the user** (project outranks user), so anything you want the user to be
+able to change in-jail is simply *absent* from yolo's project file and flows from their user
+file. This is idea C's key-ownership contract realized through native scopes — and for Claude
+it makes the overlay unnecessary.
+
+**C. Key-ownership (surgical merge) — the minimal version.** yolo declares an *ownership set*
+(the keypaths it manages — permissions, MCP, host-projected keys) and writes only those,
+leaving every other key in the file untouched. Your `/settings` addition of an unowned key
+just survives. Closest to today's code, but replaces the fuzzy three-way merge with an
+explicit "these keypaths are mine, everything else is yours" contract. Trade-off: you lose
+the clean build-product property, and removing an *owned* host key still needs tombstone
+memory.
+
+**Recommendation:** B where the agent has native scopes with a stable, yolo-writable slot —
+**Claude qualifies, and there B eliminates the overlay entirely** (verified: project scope is
+Claude-read-only, user scope is where `/config` persists edits). A (overlay) is the universal
+fallback for single-scope / contested-file agents like pi, opencode, Codex. C (key-ownership)
+is not really a third option so much as *the rule that drives B*: it is how you decide which
+keys yolo asserts (project/managed) vs leaves to the user (user scope).
+
+### 5.3 What lands in jail home — classify every file
+
+Jail home (`/home/agent`) is a *mix* of regenerated and persisted files. The model classifies
+each so regeneration knows what it may overwrite. **Regeneration only ever writes the
+`rendered` and `reflected` classes; everything else is untouched — that is what makes "rebuild
+every boot" safe.**
+
+- **rendered** — build products, rebuilt every boot, safe to blow away: `settings.json`,
+  `~/.claude.json`, `config.toml`.
+- **reflected (tree)** — staged from a host tree, rebuilt: `extensions/`, `hooks/`, `skills/`.
+- **runtime-state** — persisted, **never** regenerated, sometimes shared: credentials,
+  `auth.json`, `trust.json`, history, sessions.
+- **overlay sidecar** — yolo's private memory (`last_render` + `overlay`), hidden from the
+  agent, per-workspace.
+
+Concrete Claude layout (reflecting the verified scope facts — see §5.2 B):
+```
+/home/agent/
+  .claude/
+    settings.json          [runtime-state] ← USER scope; Claude mutates it (/config model/theme/
+                                             effort). yolo seeds once, then never touches; persisted
+                                             per-workspace so in-jail edits survive reboots.
+    .credentials.json       [runtime-state] → symlink to shared creds (GLOBAL, one login)
+    history.jsonl           [runtime-state] → per-workspace symlink (isolated by sha256(host dir))
+  ~/.claude.json           [runtime-state] ← OAuth tokens, MCP configs, per-project trust, caches;
+                                             Claude owns it. yolo's MCP entries could instead go to
+                                             project-scope .mcp.json to stop sharing this file.
+  <workspace>/.claude/
+    settings.json          [rendered]      ← PROJECT scope; Claude only READS it → yolo owns +
+                                             rebuilds freely (host-projected + asserted keys).
+    settings.local.json    [runtime-state] ← permission approvals; left alone (jail = boundary).
+  /etc/claude-code/
+    managed-settings.json  [rendered]      ← MANAGED scope; security/YOLO keys, user-uncoverride-able.
+                                             (write needs root at boot — §11.)
+  .pi/agent/
+    settings.json          [rendered]      ← pi has no stable scope split → use overlay (idea A)
+    extensions/  skills/    [reflected]     ← staged from host tree, paths preserved
+    auth.json  trust.json   [runtime-state]
+  .yolo/render/<agent>/
+    last_render.json  overlay.json   [overlay sidecar]   ← yolo memory (idea A agents), per-workspace
+```
+Note the payoff: for Claude, **no file is contested** — every file is owned by exactly one
+writer (Claude *or* yolo), so the overlay sidecar is only needed for single-scope agents like
+pi. For pi, `~/.pi/agent/settings.json` *is* contested (yolo renders it, pi may write it), so
+it takes the idea-A overlay.
+
+### 5.4 The composition tree (sources cascade; jail home is the leaf)
+
+"Composition works like a tree" in two senses that both hold: the config *value* is a tree
+(nested JSON, deep-merged), and the config *sources* cascade from broad scope to narrow, with
+jail home as the rendered leaf:
 
 ```
-overlay' = deepMerge(overlay, mergeDiff(last_render_sidecar, current_file))
+GLOBAL (every jail)          defaults + managed  (code)         ┐
+PER-HOST (every jail here)   host source ~/.claude, ~/.pi/agent ┤  deep-merge by precedence
+PER-WORKSPACE                user (yolo-jail.jsonc)             ┤  → project(host | jail, filters)
+PER-WORKSPACE                runtime overlay                    ┘  → RENDER
+                                                                     ↓
+PERSISTED (mounted/symlinked, NOT part of the render):               jail home  [rendered + reflected]
+  shared creds (GLOBAL) · per-workspace history/trust ─────────────► jail home  [runtime-state]
 ```
 
-At boot we diff the current file against *what we rendered last time* (`last_render`), and the
-difference is definitionally the agent's own edits. Those accumulate in `overlay` (the
-`runtime` layer); deletions persist as `null` tombstones; entries auto-retire when host and
-runtime values converge. Two small, inspectable sidecars replace the history-dependent
-three-way snapshot — and jail edits now win at *full depth*, not just the first level.
+So the sharing story is explicit and sensible: **host + defaults + managed + shared
+credentials are one truth across all jails; `user` + overlay + history are per-workspace;
+the rendered files are per-boot.** Nothing per-jail is invented that a scope does not already
+explain.
+
+### 5.5 Does it hold together? (reconciliation with what exists)
+
+This is not a from-scratch machine — it *names* mechanisms yolo already has, so most of it is
+re-framing, not new code:
+
+- **Shared credentials**, the **history isolation** keyed on `sha256(YOLO_HOST_DIR)`, and the
+  **ws_state overlays** are already scope+class instances (runtime-state at global and
+  per-workspace scope). The model gives them one vocabulary instead of three ad-hoc plumbings.
+- Because regeneration only touches `rendered`/`reflected`, the failure cases degrade
+  gracefully: a corrupt render is rebuilt next boot; a lost overlay costs you your accumulated
+  jail edits (recoverable via `--reset`) but never touches credentials, history, or the host.
+- The one genuinely new store is the **overlay sidecar** (per-workspace, hidden). Everything
+  else maps onto an existing mechanism — which is the point: this is a smaller, more legible
+  surface than the status quo, not a bigger one.
 
 ## 6. The Pi case, end to end
 
@@ -227,11 +394,13 @@ Even if we don't adopt Prism wholesale, these stand on their own (ranked by leve
    the order-dependent per-agent force-sets and structurally resolves the Gemini
    `setdefault`-vs-`force` ambiguity (you *declare* whether a default is user-overridable).
 6. **Native-layer offload** (graft from the conf.d design): write Claude's forced permissions/
-   YOLO block to **`/etc/claude-code/managed-settings.json`** instead of into the contested
-   `settings.json`. Strictly stronger than any boot-time enforcement — a *live* runtime rewrite
-   by Claude cannot drop the managed keys mid-session. **Independent of the whole engine**;
-   shippable now. (Open question: confirm the pinned Claude honors it and the entrypoint can
-   write `/etc` at boot — see §10.)
+   YOLO block to the **managed** scope (`/etc/claude-code/managed-settings.json` on Linux,
+   `/Library/Application Support/ClaudeCode/` on macOS) instead of into a file Claude also
+   writes. Verified strongest: managed is the top of Claude's precedence and *cannot* be
+   overridden by user/project — a live runtime rewrite by Claude cannot drop the managed keys
+   mid-session. **Independent of the whole engine**; shippable now. Caveat: the managed file
+   needs root to write — if the entrypoint can't write `/etc` at boot, put the security keys in
+   the **project** file instead (still outranks the user file; §11).
 7. **Tiny closed filter vocabulary as data** (`drop` / `dropItems` / `set`, applied
    host-side). The minimal redaction primitive, user-declarable without patching yolo in two
    languages.
@@ -264,8 +433,12 @@ Even if we don't adopt Prism wholesale, these stand on their own (ranked by leve
 ## 8. Vocabulary (adopt this in config-ref and code)
 
 - **surface** — one config destination yolo manages: a structured file or a file tree.
-- **layer** — one named, ordered source for a structured surface: `defaults < host < user <
-  runtime < managed`.
+- **layer** — one named, ordered source for a structured surface (the *precedence* coordinate):
+  `defaults < host < user < runtime < managed`.
+- **scope** — the *storage* coordinate: where a layer/file lives and who shares it — `global`
+  (all jails), `per-host` (host source, all jails here), `per-workspace` (`yolo-jail.jsonc` +
+  overlay + history), `per-boot` (the ephemeral render). Every piece of config = one layer ×
+  one scope (§5.1).
 - **projection** — the materialization of the stack for one side: `(destination, layers,
   filters, enforce)`. Host = identity over `host`; jail = all five + filters.
 - **staging** — the host-CLI step each `yolo` invocation: glob-filtered copy of an agent's host
@@ -328,9 +501,23 @@ Every stage ends with a nested-jail verification (per repo `CLAUDE.md`).
 
 ## 11. Open questions
 
-- **Claude `managed-settings.json`:** does the pinned Claude honor `/etc/claude-code/
-  managed-settings.json`, and can the entrypoint write `/etc` at boot (no sudo in-jail)? This
-  gates the strongest single win (idea 6).
+**Resolved (Claude settings mechanics, verified 2026-07-18):** the `/settings` (`/config`)
+write target *depends on the setting* — `model`/`theme`/`effortLevel`/`fastMode` go to the
+**user** file (`~/.claude/settings.json`, which Claude mutates), permission approvals go to
+**local** (`.claude/settings.local.json`), and there is no documented way to redirect this.
+The **project** file (`.claude/settings.json`) is read-only from Claude's side (it never
+writes it). Precedence: `managed > CLI args > local > project > user`. This is what §5.2 B
+builds on: yolo owns project+managed, leaves user+local to Claude, and needs no overlay for
+Claude. `~/.claude.json` is runtime-state (OAuth/MCP/trust/caches); yolo's MCP entries could
+move to project-scope `.mcp.json` to stop co-writing it.
+
+- **Claude `managed-settings.json` write-at-boot:** Claude honors
+  `/etc/claude-code/managed-settings.json` (Linux; `/Library/Application Support/ClaudeCode/`
+  on macOS, plus a `managed-settings.d/*.json` drop-in dir), and it *cannot be overridden* by
+  user/project — ideal for the YOLO/security keys. But writing it needs **root**. Does the
+  jail entrypoint (rootless-podman userns) have write access to `/etc` at boot? If yes, this
+  is the strongest single win (idea 6). If not, fall back to putting the security keys in the
+  **project** file (still outranks user; the jail is the boundary anyway).
 - **Filter boundary default:** confirm applying `jail_filters` host-side at staging (so the
   `:ro` tree in the container is already redacted), with in-jail re-enforcement as the second
   belt. Acceptable that the staged tree is always post-filter?
