@@ -10,14 +10,14 @@ import (
 	"strings"
 	"testing"
 
-	bundledloopholes "github.com/mschulkind-oss/yolo-jail/src/bundled_loopholes"
+	bundledloopholes "github.com/mschulkind-oss/yolo-jail/bundled_loopholes"
 )
 
-// repoBundledDir is the checkout's live src/bundled_loopholes (tests run in
+// repoBundledDir is the checkout's live bundled_loopholes (tests run in
 // the package directory).
 func repoBundledDir(t *testing.T) string {
 	t.Helper()
-	dir, err := filepath.Abs(filepath.Join("..", "..", "src", "bundled_loopholes"))
+	dir, err := filepath.Abs(filepath.Join("..", "..", "bundled_loopholes"))
 	if err != nil {
 		t.Fatal(err)
 	}

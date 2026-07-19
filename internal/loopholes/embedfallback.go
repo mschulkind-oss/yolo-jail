@@ -10,7 +10,7 @@ import (
 	"sort"
 	"sync"
 
-	bundledloopholes "github.com/mschulkind-oss/yolo-jail/src/bundled_loopholes"
+	bundledloopholes "github.com/mschulkind-oss/yolo-jail/bundled_loopholes"
 )
 
 // embedContentHash returns a short content hash over every embedded file

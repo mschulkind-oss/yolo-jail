@@ -25,7 +25,7 @@ func withRepoBundled(t *testing.T) string {
 	t.Helper()
 	root := repoRootDir(t)
 	orig := BundledLoopholesDir
-	dir := filepath.Join(root, "src", "bundled_loopholes")
+	dir := filepath.Join(root, "bundled_loopholes")
 	BundledLoopholesDir = func() string { return dir }
 	t.Cleanup(func() { BundledLoopholesDir = orig })
 	return dir

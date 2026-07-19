@@ -36,15 +36,9 @@ const (
 	SourceConfig  = "config"
 )
 
-// repoRoot resolves where the src/ tree (and thus bundled_loopholes) lives.
+// repoRoot resolves the repo root for bundled_loopholes discovery.
 // (1) trust YOLO_REPO_ROOT when set, (2) else walk up from cwd for a YOLO-JAIL
 // checkout (flake.nix AND go.mod), (3) else the in-jail default /opt/yolo-jail.
-//
-// Before the audit §B3 fix this returned /opt/yolo-jail whenever YOLO_REPO_ROOT
-// was unset, so a HOST-mode `yolo run` (no env) discovered ZERO bundled
-// loopholes — no broker CA, no --add-host, no audio/host-processes — and the
-// jail booted looking healthy while Claude auth failed. The cwd-walk restores
-// host discovery; the /opt fallback still serves the in-jail case.
 func repoRoot() string {
 	if r := os.Getenv("YOLO_REPO_ROOT"); r != "" {
 		return r
@@ -71,20 +65,11 @@ func fileExists(path string) bool {
 	return err == nil
 }
 
-// BundledLoopholesDir returns the loopholes that ship with the wheel. It is a
-// package var so tests can point it at the repo's real src/bundled_loopholes.
-// Mirrors bundled_loopholes_dir().
-//
-// When repoRoot() resolves to nothing real — an INSTALLED binary (brew, pipx
-// wheel, go install, goreleaser tarball) running outside any checkout and any
-// jail — fall back to the copy embedded in the binary itself (materialized to
-// a content-addressed cache dir). Before this fallback such a binary silently
-// discovered ZERO bundled loopholes: no broker CA, no --add-host, no
-// audio/host-processes — a jail that boots looking healthy while Claude auth
-// fails. In a checkout or jail the on-disk (live-editable) copy still wins, so
-// transition-era dev flows are unchanged.
+// BundledLoopholesDir returns the loopholes that ship with the binary. Package
+// var so tests can override. Falls back to the go:embed copy when no checkout
+// or in-jail copy exists (installed binary outside any repo).
 var BundledLoopholesDir = func() string {
-	dir := filepath.Join(repoRoot(), "src", "bundled_loopholes")
+	dir := filepath.Join(repoRoot(), "bundled_loopholes")
 	if fileExists(dir) {
 		return dir
 	}

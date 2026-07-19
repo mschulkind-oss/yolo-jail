@@ -21,7 +21,7 @@ func TestListParity(t *testing.T) {
 	}
 	// Hermetic: empty user/workspace config so only bundled loopholes appear,
 	// and a temp HOME so UserLoopholesDir is empty. BundledLoopholesDir already
-	// points at the repo's src/bundled_loopholes on both sides.
+	// points at the repo's bundled_loopholes on both sides.
 	home := t.TempDir()
 	t.Setenv("HOME", home)
 
