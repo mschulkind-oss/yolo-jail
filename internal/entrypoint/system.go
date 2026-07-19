@@ -13,7 +13,7 @@ import (
 //
 // The Python function also sets SSL_CERT_FILE / REQUESTS_CA_BUNDLE /
 // CURL_CA_BUNDLE / GIT_SSL_CAINFO in os.environ so children inherit the combined
-// store; that env mutation is a boot-orchestration concern (Stage 10). This
+// store; that env mutation is a boot-orchestration concern. This
 // generator returns the bundle path so the caller can set those vars; the FILE
 // content is what the golden pins. Returns the bundle path.
 func GenerateCABundle(e *Env) (string, error) {

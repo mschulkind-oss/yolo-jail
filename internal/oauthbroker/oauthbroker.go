@@ -1,8 +1,8 @@
-// Package oauthbroker is the Go port of src/oauth_broker.py — the per-host
-// Claude OAuth refresh daemon that serializes refreshes across jails so nobody
-// burns the single-use refresh token.
+// Package oauthbroker is the per-host Claude OAuth refresh daemon that
+// serializes refreshes across jails so nobody burns the single-use refresh
+// token.
 //
-// Everything here is a FROZEN byte/behavior contract (go-port plan Stage 6):
+// Everything here is a frozen byte/behavior contract:
 // the creds-file JSON shape (indent=2 via jsonx), the mkstemp+fchmod(0600)+
 // os.replace atomic write, the 90s cache headroom, the 300s/60s/5s×12 refresher
 // timing and transient-vs-permanent classification (only upstream_unreachable

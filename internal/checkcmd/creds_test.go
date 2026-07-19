@@ -24,7 +24,7 @@ func writeCreds(t *testing.T, home string, expiresAtMS int64, mtimeAgo time.Dura
 
 // TestCredsFreshnessClock exercises _check_broker_creds_freshness's three
 // branches through the INJECTED CLOCK: expired (FAIL), <1h (WARN), healthy
-// (PASS). The clock seam is what makes this time-dependent output golden-able.
+// (PASS). The clock seam is what makes this time-dependent output.
 func TestCredsFreshnessClock(t *testing.T) {
 	home := t.TempDir()
 	t.Setenv("HOME", home)

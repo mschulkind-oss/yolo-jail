@@ -21,7 +21,7 @@ const miseStoreVolume = "yolo-mise-data-v2"
 
 // assembleInput carries everything the ordered-argv assembler needs that isn't
 // on Options. It is populated by the fresh-launch path before assembly; grouping
-// it keeps assembleRunCmd a pure function of its inputs (golden-able).
+// it keeps assembleRunCmd a pure function of its inputs ().
 type assembleInput struct {
 	cfg          *jsonx.OrderedMap
 	rt           string
@@ -60,7 +60,7 @@ func (in *assembleInput) storePruneEnv() []string {
 	return nil
 }
 
-// assembleRunCmd ports the ordered container argv construction in run() (lines
+// assembleRunCmd runs the ordered container argv construction in run() (lines
 // ~1558-2831): flags-before-image, the -e env block, the mount order, network,
 // devices, GPU/KVM, resources, loopholes, then the image + "yolo-entrypoint".
 // It is a pure function of (o, in) EXCEPT for the ws_state dir/file touches and
@@ -358,7 +358,7 @@ func (o *Options) assembleRunCmd(in *assembleInput) []string {
 	return runCmd
 }
 
-// commonEnvBlock ports the big `run_cmd.extend([...])` env block (1844-1991),
+// commonEnvBlock runs the big `run_cmd.extend([...])` env block (1844-1991),
 // byte-identical in order and content.
 func (o *Options) commonEnvBlock(in *assembleInput, blockedConfigJSON, netMode string) []string {
 	cfg := in.cfg
@@ -474,7 +474,7 @@ func pyStrCoerce(v any) string {
 	return s
 }
 
-// splitMountSpec ports the "host:container" split: the LAST colon that precedes
+// splitMountSpec runs the "host:container" split: the LAST colon that precedes
 // an absolute container path (starts with /). Plain host-only paths get
 // /ctx/<resolved-name>.
 func splitMountSpec(mount string) (hostPath, containerPath string) {

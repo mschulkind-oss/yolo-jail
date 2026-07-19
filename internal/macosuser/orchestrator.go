@@ -13,7 +13,7 @@ import (
 
 // Deps are the injectable seams for the macOS-only orchestrator + the four
 // macos-* command bodies. Every subprocess / filesystem / platform probe is a
-// seam so the whole surface is unit-testable and golden-able on Linux (the
+// seam so the whole surface is unit-testable on Linux (the
 // pscmd/checkcmd precedent). RealDeps wires the production implementations.
 type Deps struct {
 	// IsMacOS reports sys.platform == "darwin".
@@ -135,12 +135,12 @@ func buildPlan(deps Deps, opts Options, darwin *Darwin) RunPlan {
 // Returns the agent exit code (or 1 on a precondition/setup failure). Mirrors
 // run_macos_user EXACTLY, including the frozen ordering:
 //
-//  0. dry-run builds + prints the plan and RETURNS before the macOS/root gates
-//     (so it runs on Linux CI);
-//  1. cheap preconditions (macOS, not-root, sandbox-exec, sandbox user) BEFORE
-//     the up-to-30-min nix build;
-//  2. the plan is built AFTER the gates (it reads host git config);
-//  3. install profile + stage entrypoint; 4. bootstrap; 5. launch.
+// 0. dry-run builds + prints the plan and RETURNS before the macOS/root gates
+// (so it runs on Linux CI);
+// 1. cheap preconditions (macOS, not-root, sandbox-exec, sandbox user) BEFORE
+// the up-to-30-min nix build;
+// 2. the plan is built AFTER the gates (it reads host git config);
+// 3. install profile + stage entrypoint; 4. bootstrap; 5. launch.
 func RunMacosUser(deps Deps, opts Options) int {
 	out := printer{w: deps.Out}
 

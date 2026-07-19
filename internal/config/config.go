@@ -1,11 +1,11 @@
-// Package config ports src/cli/config.py — yolo-jail.jsonc parsing, merging,
-// validation, env_sources resolution, and the config-snapshot diff. It is built
-// on internal/json5 (JSONC/JSON5 decode, pyjson5 parity), internal/jsonx
-// (OrderedMap + DumpsSnapshot — the config-snapshot bytes), and internal/pytext
-// (Python repr for the {x!r} bits of validation error strings).
+// Package config provides yolo-jail.jsonc parsing, merging, validation,
+// env_sources resolution, and the config-snapshot diff. It is built on
+// internal/json5 (JSONC/JSON5 decode), internal/jsonx (OrderedMap +
+// DumpsSnapshot — the config-snapshot bytes), and internal/pytext (Python repr
+// for the {x!r} bits of validation error strings).
 //
-// Byte-parity is the requirement (go-port plan §1, §13): the snapshot writer
-// bytes, the merge/dedup semantics, and every validation error/warning string
+// The snapshot writer bytes, the merge/dedup semantics, and every validation
+// error/warning string
 // (in identical order) must match the live Python, verified by the differential
 // oracle in config_parity_test.go. Surprising Python behavior is PRESERVED and
 // noted, never "fixed".

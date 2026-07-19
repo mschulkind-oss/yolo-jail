@@ -146,7 +146,7 @@ func TestHandleCreateJoinDestroy(t *testing.T) {
 	// exercisable on a REAL cgroup v2 fs, where the interface files are
 	// kernel-virtual and rmdir removes them atomically. On this regular-file
 	// tmpdir tree those files block rmdir, so that path is covered by the
-	// nested-jail verification (Stage 7 handoff), not this unit test.
+	// nested-jail verification, not this unit test.
 }
 
 // --- helpers ---

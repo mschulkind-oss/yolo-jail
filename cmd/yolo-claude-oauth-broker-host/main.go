@@ -1,11 +1,8 @@
-// Command yolo-claude-oauth-broker-host is the Go port of src/oauth_broker.py —
-// the per-host Claude OAuth refresh daemon. Selected during the go-port soak by
-// YOLO_GO_DAEMONS + YOLO_GO_BIN_DIR (the daemon resolution rule lands with
-// host-processes, Stage 5); the binary name equals the Python console-script
-// name so the manifest/doctor contract holds.
+// Command yolo-claude-oauth-broker-host is the per-host Claude OAuth refresh
+// daemon.
 //
-// CLI contract (byte-frozen against the Python argparse): --socket, --creds-file,
-// --init-ca, --force-init-ca, --self-check, --no-background-refresh, -v/--verbose.
+// CLI contract: --socket, --creds-file, --init-ca, --force-init-ca,
+// --self-check, --no-background-refresh, -v/--verbose.
 package main
 
 import (

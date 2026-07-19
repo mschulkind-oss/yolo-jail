@@ -1,9 +1,8 @@
-// Package journald is the Go port of the builtin journal-bridge daemon
-// (src/cli/loopholes_runtime.py: _journal_handle_client). It forwards an
+// Package journald is the builtin journal-bridge daemon. It forwards an
 // allowlisted `journalctl` invocation from the jail and streams its output back
 // framed.
 //
-// Frozen contract (go-port plan Stage 7): the frame format is ">BI" (like the
+// Frozen contract: the frame format is ">BI" (like the
 // loophole protocol) but the stream IDs are DELIBERATELY 1=stdout, 2=stderr,
 // 3=exit — distinct from frameproto v1's 0/1/2. Do NOT conflate them. Also
 // frozen: the newline-terminated JSON request header, the arg validation

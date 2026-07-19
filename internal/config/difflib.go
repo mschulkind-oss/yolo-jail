@@ -7,7 +7,7 @@ import (
 
 // difflib.go ports the slice of Python's difflib that _check_config_changes
 // uses: SequenceMatcher over line lists + unified_diff. The diff is shown to a
-// human at the interactive config-change prompt, so it mirrors Python's output
+// human at the interactive config-change prompt, so it output
 // format exactly (header lines, @@ hunk ranges, ' '/'+'/'-' prefixes, 3 lines
 // of context). Faithful to CPython Lib/difflib.py (SequenceMatcher,
 // get_grouped_opcodes, unified_diff) for the autojunk-disabled small inputs a

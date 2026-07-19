@@ -67,7 +67,7 @@ func acMaterialize(src, targetRel, wsState string) {
 // numCPU mirrors multiprocessing.cpu_count().
 func numCPU() int { return runtime.NumCPU() }
 
-// appleContainerDefaultMemory ports the AC default-memory block (2616-2634):
+// appleContainerDefaultMemory runs the AC default-memory block (2616-2634):
 // half of host memory, min 4 GB, formatted "<N>g"; "8g" on any probe failure.
 func (o *Options) appleContainerDefaultMemory() string {
 	var hostMemBytes int64
@@ -96,7 +96,7 @@ func (o *Options) appleContainerDefaultMemory() string {
 	return strconv.FormatInt(defaultMem/gib, 10) + "g"
 }
 
-// gpuArgs ports the GPU passthrough emission (2452-2574): memlock ulimit, then
+// gpuArgs runs the GPU passthrough emission (2452-2574): memlock ulimit, then
 // vendor-specific device + env flags.
 func (o *Options) gpuArgs(cfg *jsonx.OrderedMap, rt string, gpuEnabled bool, gpuVendor string) []string {
 	if !gpuEnabled {

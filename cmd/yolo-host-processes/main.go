@@ -1,11 +1,8 @@
-// Command yolo-host-processes is the Go port of src/host_processes.py — the
-// allowlisted host-process viewer daemon. Selected during the go-port soak by
-// YOLO_GO_DAEMONS + YOLO_GO_BIN_DIR (Stage 5); the binary name equals the
-// Python console-script name so the manifest/doctor contract holds. It keeps
-// exec'ing the real `ps` — the output format is the contract.
+// Command yolo-host-processes is the allowlisted host-process viewer daemon.
+// It keeps exec'ing the real `ps` — the output format is the contract.
 //
-// CLI contract (byte-frozen against the Python argparse): --socket, --config,
-// --self-check. Config defaults to $YOLO_HOST_PROCESSES_CONFIG or CWD/yolo-jail.jsonc.
+// CLI contract: --socket, --config, --self-check. Config defaults to
+// $YOLO_HOST_PROCESSES_CONFIG or CWD/yolo-jail.jsonc.
 package main
 
 import (

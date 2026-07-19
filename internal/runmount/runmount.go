@@ -1,9 +1,6 @@
-// Package runmount is the Go port of the PURE mount-argv builders in
-// src/cli/run_cmd.py — the read-only-rootfs scratch mounts and the nested-jail
-// bind-mountpoint dereference. `yolo run` assembles the container argv from
-// these; the plan's Stage 16 exit criteria pin the argv order byte-for-byte, so
-// these builders are ported exactly and cross-checked against live Python. The
-// full run lifecycle (spawn, locks, teardown) stays in the run wiring.
+// Package runmount provides the mount-argv builders for `yolo run` — the
+// read-only-rootfs scratch mounts and the nested-jail bind-mountpoint
+// dereference.
 package runmount
 
 import (

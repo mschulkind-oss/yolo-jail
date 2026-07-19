@@ -1,12 +1,9 @@
-// Command yolo-ps is the Go port of src/yolo_ps.py — the in-jail client for the
-// host-processes loophole. It's a pure frameproto client (no config, no json5),
-// baked into the jail image with the jail-side wave (Stage 11); ported now
-// because it exercises internal/frameproto end-to-end and pairs with the
-// host-processes daemon.
+// Command yolo-ps is the in-jail client for the host-processes loophole. It's
+// a pure frameproto client (no config, no json5), baked into the jail image.
 //
-// CLI contract (byte-frozen against the Python argparse): -t/--tree, --pid,
-// --socket. Socket resolves from $YOLO_SERVICE_HOST_PROCESSES_SOCKET.
-// jail_id from $YOLO_JAIL_ID or $HOSTNAME (default "unknown").
+// CLI contract: -t/--tree, --pid, --socket. Socket resolves from
+// $YOLO_SERVICE_HOST_PROCESSES_SOCKET. jail_id from $YOLO_JAIL_ID or $HOSTNAME
+// (default "unknown").
 package main
 
 import (

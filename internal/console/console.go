@@ -1,7 +1,6 @@
 // Package console renders the status badges and note indentation that
-// `yolo check` emits, matching src/cli/check_cmd.py. Parity is defined on the
-// ANSI-STRIPPED text (§3 internal/console), so the plain forms are the
-// contract; the styled forms carry the equivalent colors for a real terminal.
+// `yolo check` emits. The plain (ANSI-stripped) text is the contract; the
+// styled forms carry the equivalent colors for a real terminal.
 package console
 
 import "strings"
@@ -32,7 +31,7 @@ func WarnLine(msg string) string { return "  " + badgeWarn + " " + msg }
 // NoteLines renders a (possibly multi-line) note the way _print_note does:
 // the first line gets the "-> " arrow, the rest align under it. Returns one
 // string per output line (no trailing newline). An empty note yields a single
-// line (mirrors Python's `note.splitlines() or [note]`).
+// line (`note.splitlines() or [note]`).
 func NoteLines(note string) []string {
 	lines := splitlines(note)
 	if len(note) == 0 {
@@ -49,7 +48,7 @@ func NoteLines(note string) []string {
 	return out
 }
 
-// splitlines mirrors Python's str.splitlines() for the boundaries realistic in
+// splitlines str.splitlines() for the boundaries realistic in
 // check notes (subprocess stderr surfaced in a note): \n, \r\n, \r, \v, \f,
 // \x1c-\x1e, \x85, U+2028, U+2029. A single trailing terminator does NOT
 // produce a trailing empty element (Python drops it).

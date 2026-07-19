@@ -21,17 +21,17 @@ import (
 var sanitizeRe = regexp.MustCompile(`[^a-z0-9-]`)
 
 // FromResolved computes the container name from an ALREADY-RESOLVED absolute
-// path. This is the pure, host-independent core the drift suite pins. Callers
+// path. This is the pure, host-independent core the golden tests pins. Callers
 // that start from an unresolved path use FromWorkspace, which resolves first.
 //
 // Faithful to Python:
-//   - name = basename (empty for "/")
-//   - safe = sub([^a-z0-9-] -> "-", lower(name)), then strip leading/trailing
-//     "-", then truncate to the first 40 *runes* (Python str slicing is by
-//     code point, not byte)
-//   - safe = "jail" if empty
-//   - hash = sha256(resolved)[:8] hex
-//   - result = "yolo-<safe>-<hash>"
+// - name = basename (empty for "/")
+// - safe = sub([^a-z0-9-] -> "-", lower(name)), then strip leading/trailing
+// "-", then truncate to the first 40 *runes* (Python str slicing is by
+// code point, not byte)
+// - safe = "jail" if empty
+// - hash = sha256(resolved)[:8] hex
+// - result = "yolo-<safe>-<hash>"
 func FromResolved(resolved string) string {
 	var name string
 	if resolved != "/" {

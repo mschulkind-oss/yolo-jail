@@ -1,9 +1,6 @@
-// Package version mirrors src/cli/version.py's version-string discovery and
-// normalization. The normalization is a byte contract pinned by the drift
-// suite and goldens; in particular a dirty-on-tag build normalizes to
-// "0.1.0+dirty" (WITH the "+" — a stale Python code comment once claimed
-// "0.1.0.dirty" and poisoned rev 1 of the port plan; goldens are generated
-// from observed Python output, never comments).
+// Package version provides version-string discovery and normalization. The
+// normalization is a byte contract pinned by goldens; in particular a
+// dirty-on-tag build normalizes to "0.1.0+dirty" (WITH the "+").
 package version
 
 import (
@@ -32,8 +29,8 @@ var GitCommit = ""
 // form. Mirrors the tail of src/cli/version.py:_git_describe_version:
 //
 //	git format: 0.1.0-3-gabcdef1-dirty -> 0.1.0+3.gabcdef1.dirty
-//	exactly on tag: 0.1.0              -> 0.1.0
-//	dirty on tag:   0.1.0-dirty        -> 0.1.0+dirty
+//	exactly on tag: 0.1.0 -> 0.1.0
+//	dirty on tag: 0.1.0-dirty -> 0.1.0+dirty
 //	leading "v" is stripped.
 func Normalize(raw string) string {
 	raw = strings.TrimPrefix(raw, "v")

@@ -1,11 +1,7 @@
-// Package initcmd is the Go port of `yolo init` and `yolo init-user-config`
-// (src/cli/init_cmd.py) — the config scaffolders. The workspace template writes
-// yolo-jail.jsonc (with a --mount-driven mounts block), appends .yolo/ to
-// .gitignore, and prints an agent briefing; init-user-config writes the
-// user-level defaults. The static template bodies are embedded verbatim from
-// the Python source (byte-faithful); the mount-block logic + the briefing's
-// {config_path} interpolation are reproduced. Briefing output is rich-markup →
-// info-parity Go-native color (approved OQ); the WRITTEN FILE bytes are exact.
+// Package initcmd implements `yolo init` and `yolo init-user-config` — the
+// config scaffolders. The workspace template writes yolo-jail.jsonc (with a
+// --mount-driven mounts block), appends .yolo/ to .gitignore, and prints an
+// agent briefing; init-user-config writes the user-level defaults.
 package initcmd
 
 import (

@@ -1,5 +1,5 @@
-// Package brokercmd is the Go port of the `yolo broker {status,stop,restart,
-// logs}` command group (src/cli/broker_cmd.py). The Claude OAuth broker is a
+// Package brokercmd implements the `yolo broker {status,stop,restart,logs}`
+// command group. The Claude OAuth broker is a
 // host-wide singleton — one daemon for every running jail — and this group
 // manages it: inspect health, stop it, cycle it after a wheel upgrade, tail its
 // log.

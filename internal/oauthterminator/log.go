@@ -59,8 +59,7 @@ func logAt(level, format string, args ...any) {
 }
 
 // LogInfo / LogWarn / LogError are exported because the terminator's request
-// handling lives partly in the cmd (main package), which mirrors Python's
-// _handle / main() log sites.
+// handling lives partly in the cmd (main package), which // _handle / main() log sites.
 func LogInfo(format string, args ...any)  { logAt("INFO", format, args...) }
 func LogWarn(format string, args ...any)  { logAt("WARNING", format, args...) }
 func LogError(format string, args ...any) { logAt("ERROR", format, args...) }

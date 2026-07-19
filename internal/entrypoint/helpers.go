@@ -16,7 +16,7 @@ func sha256Hex(s string) string {
 	return hex.EncodeToString(sum[:])
 }
 
-// truthy mirrors Python's bool(v) for decoded JSON values: "" / 0 / 0.0 /
+// truthy bool(v) for decoded JSON values: "" / 0 / 0.0 /
 // [] / {} / false / null are falsy; everything else truthy.
 func truthy(v any) bool {
 	switch t := v.(type) {
@@ -42,7 +42,7 @@ func truthy(v any) bool {
 	}
 }
 
-// pyEqual mirrors Python's == for decoded JSON values (jsonx model): recursive
+// pyEqual == for decoded JSON values (jsonx model): recursive
 // structural equality across OrderedMap / []any / scalars. Int-vs-float equality
 // follows Python (1 == 1.0), compared via canonical compact encoding for numbers.
 func pyEqual(a, b any) bool {
@@ -154,20 +154,6 @@ func writeExecutable(path, content string) error {
 		return err
 	}
 	return os.Chmod(path, fi.Mode()|0o100)
-}
-
-// writeMode writes content to path (truncate-in-place) with an explicit mode,
-// mirroring generators that call chmod(0o755) outright (scripts.py).
-func writeMode(path, content string, mode os.FileMode) error {
-	if err := os.MkdirAll(filepath.Dir(path), 0o755); err != nil {
-		return err
-	}
-	if err := fsx.WriteStringInPlace(path, content, mode); err != nil {
-		return err
-	}
-	// WriteInPlace won't downgrade an existing file's mode to `mode`; force it
-	// so a re-run produces the exact bits Python's explicit chmod sets.
-	return os.Chmod(path, mode)
 }
 
 // writeInPlaceString writes content with mode 0o644, truncate-in-place. For

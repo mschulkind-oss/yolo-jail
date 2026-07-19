@@ -1,8 +1,8 @@
-// Package supervisor is the Go port of src/jail_daemon_supervisor.py — the
-// in-jail daemon supervisor. It reads YOLO_JAIL_DAEMONS (a JSON list of
-// {name, cmd, restart}) and supervises each entry as a subprocess.
+// Package supervisor is the in-jail daemon supervisor. It reads
+// YOLO_JAIL_DAEMONS (a JSON list of {name, cmd, restart}) and supervises each
+// entry as a subprocess.
 //
-// Frozen contracts (go-port plan Stage 11): the YOLO_JAIL_DAEMONS JSON shape +
+// Frozen contracts: the YOLO_JAIL_DAEMONS JSON shape +
 // skip-invalid-entry parsing, the restart policies (always | on-failure | no),
 // per-daemon logs at ~/.local/state/yolo-jail-daemons/<name>.log rotated once
 // at 5 MB (.log -> .log.1), the 1s→30s exponential backoff, and SIGTERM/SIGINT

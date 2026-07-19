@@ -24,7 +24,7 @@ import (
 // SetupLog. The Python broker's level + logger-name are preserved in each line
 // so the incident greps (`grep INFO`, `grep bg_refresh`, ...) still work.
 
-// loggerName mirrors Python's logging.getLogger("oauth-broker-host").
+// loggerName logging.getLogger("oauth-broker-host").
 const loggerName = "oauth-broker-host"
 
 // logger is nil until SetupLog runs (matches the daemons' nil-guarded auditLog:

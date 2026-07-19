@@ -1,10 +1,8 @@
-// Command yolo-broker-relay is the Go port of src/broker_relay.py — the
-// per-jail Claude OAuth broker relay. It is a drop-in replacement selected by
-// YOLO_BROKER_RELAY_BIN in loopholes_runtime._relay_ensure (go-port Stage 3).
+// Command yolo-broker-relay is the per-jail Claude OAuth broker relay.
 //
-// CLI contract (byte-frozen against the Python argparse): --socket, --broker,
-// --jail, all required. On SIGTERM/SIGINT it shuts the listener and unlinks
-// its own socket (only if the file is still the one it bound), then exits 0.
+// CLI contract: --socket, --broker, --jail, all required. On SIGTERM/SIGINT it
+// shuts the listener and unlinks its own socket (only if the file is still the
+// one it bound), then exits 0.
 package main
 
 import (

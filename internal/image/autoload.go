@@ -297,7 +297,7 @@ func materializeImage(storePath, cacheFile string, isMacOS bool, out io.Writer, 
 	buf := make([]byte, 1024*1024)
 	sentinel := SizeSentinelPath()
 	estimated := estimateImageSize(storePath, sentinel)
-	// Progress rendering (mirrors Python's rich status.update — a SINGLE line
+	// Progress rendering (rich status.update — a SINGLE line
 	// that redraws): on a TTY, redraw in place with \r (throttled to whole-
 	// percent changes so a multi-GB stream doesn't emit hundreds of near-
 	// identical updates); off a TTY, emit nothing per-chunk (a redirected log

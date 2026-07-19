@@ -1,5 +1,5 @@
-// Package prune is the Go port of src/prune.py — reclaiming disk from yolo-jail
-// storage (Stage 14 first slice). The byte/behavior-critical pieces are the
+// Package prune reclaims disk from yolo-jail storage. The byte/behavior-critical
+// pieces are the
 // hardlink-dedup atomicity, the tri-state orphan-build-root sweep (liveness
 // unknown → DECLINE to delete), and the lexical CreatedAt image sort.
 //

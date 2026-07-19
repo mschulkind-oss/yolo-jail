@@ -201,11 +201,11 @@ func VenvValue(cfg map[string]any) (any, bool) {
 // MiseVenvPath resolves the venv path from a set of mise config files in
 // priority order (highest-priority first, first hit wins), mirroring the
 // entrypoint's shell.py discovery:
-//   - for each file, read env._.python.venv;
-//   - the FIRST file that has a value wins;
-//   - a string value is the path directly;
-//   - a table value must have create=true (else "no venv"), then path (default
-//     ".venv"); a non-string/absent -> "no venv".
+// - for each file, read env._.python.venv;
+// - the FIRST file that has a value wins;
+// - a string value is the path directly;
+// - a table value must have create=true (else "no venv"), then path (default
+// ".venv"); a non-string/absent -> "no venv".
 //
 // Returns (path, true) when a venv should be created, or ("", false) when none.
 func MiseVenvPath(files []string) (string, bool) {

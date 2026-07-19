@@ -1,10 +1,6 @@
-// Package configref is the Go port of `yolo config-ref` — the full
-// configuration reference document. The Python command is a single
-// console.print of a static rich-markup string; per the go-port plan's answered
-// Open Question, reference/help output is INFO-parity with purposeful color (a
-// Go-native golden), NOT byte-parity with rich's exact rendering. The content is
-// embedded verbatim from the Python source (so it can never drift in wording)
-// and the closed set of rich tags is rendered to ANSI.
+// Package configref implements `yolo config-ref` — the full configuration
+// reference document. The content is an embedded static template and the closed
+// set of markup tags is rendered to ANSI.
 package configref
 
 import (

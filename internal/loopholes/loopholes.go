@@ -322,7 +322,7 @@ func pyStr(v any) string {
 	}
 }
 
-// pyTruthy mirrors Python's bool(v) for decoded-JSON values.
+// pyTruthy bool(v) for decoded-JSON values.
 func pyTruthy(v any) bool {
 	switch t := v.(type) {
 	case nil:

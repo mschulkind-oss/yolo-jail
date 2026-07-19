@@ -7,7 +7,7 @@ import (
 
 // sandboxUser is macos_user.SANDBOX_USER — the dedicated macOS sandbox account.
 // Ported here as the sanctioned 3-helper macos_user carve-out (go-port plan
-// Stage 15): SANDBOX_USER / _sandbox_user_exists / resolve_python.
+//): SANDBOX_USER / _sandbox_user_exists / resolve_python.
 const sandboxUser = "_yolojail"
 
 // pythonCandidates mirrors macos_user._PYTHON_CANDIDATES: ordered best-first,

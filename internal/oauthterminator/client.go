@@ -1,10 +1,10 @@
-// Package oauthterminator is the Go port of src/oauth_broker_jail.py — the
-// in-jail TLS terminator for Claude OAuth. Claude Code inside the jail opens
+// Package oauthterminator is the in-jail TLS terminator for Claude OAuth.
+// Claude Code inside the jail opens
 // TLS to platform.claude.com (--add-host routes it to 127.0.0.1); this daemon
 // terminates it with a jail-trusted leaf cert and forwards to the host broker
 // over the loophole Unix socket.
 //
-// Frozen contracts (go-port plan Stage 11): the ask_host_broker frame-protocol
+// Frozen contracts: the ask_host_broker frame-protocol
 // client + its TWO-LAYER 502 attribution (relay-layer connect failure vs
 // broker-layer EOF-before-exit-frame / EPIPE-mid-request), the refresh-grant
 // detection, and the proxy/refresh dispatch. HTTP hazards (header
@@ -37,9 +37,9 @@ const (
 // AskHostBroker sends a request to the host-side broker over the per-jail relay
 // socket and returns the parsed JSON response. Mirrors ask_host_broker,
 // including the two-layer error attribution:
-//   - connect failure (ENOENT/refused) -> "relay unreachable" (relay layer)
-//   - EOF before an exit frame, or EPIPE/ECONNRESET mid-request -> "host broker
-//     unreachable through the relay" (broker layer)
+// - connect failure (ENOENT/refused) -> "relay unreachable" (relay layer)
+// - EOF before an exit frame, or EPIPE/ECONNRESET mid-request -> "host broker
+// unreachable through the relay" (broker layer)
 //
 // The distinction is load-bearing: the jail log must say WHICH layer failed.
 func AskHostBroker(socketPath string, request *jsonx.OrderedMap) (*jsonx.OrderedMap, error) {

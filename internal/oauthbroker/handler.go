@@ -15,10 +15,10 @@ import (
 // the request "action" field. Mirrors oauth_broker.build_handler:
 //
 //	refresh (default) -> DoRefresh
-//	cached            -> CachedTokens or {error: no_cached_token}
-//	proxy             -> DoProxy + maybe-propagate + response
-//	ping              -> {pong: true, pid}
-//	<unknown>         -> stderr "unknown action: <a>\n" + exit(2)
+//	cached -> CachedTokens or {error: no_cached_token}
+//	proxy -> DoProxy + maybe-propagate + response
+//	ping -> {pong: true, pid}
+//	<unknown> -> stderr "unknown action: <a>\n" + exit(2)
 func BuildHandler(credsPath string) hostservice.Handler {
 	return func(s *hostservice.Session) {
 		action := "refresh"
@@ -206,8 +206,7 @@ func stringOf(v any) string {
 	return s
 }
 
-// contentEncoding mirrors Python's
-// `response.get("headers", {}).get("Content-Encoding") or .get("content-encoding")`
+// contentEncoding // `response.get("headers", {}).get("Content-Encoding") or .get("content-encoding")`
 // used in the proxy-mirror parse-failure warning. Returns "" when absent (the
 // caller reprs it, so absent -> Python's `None` repr — see the call site).
 func contentEncoding(response *jsonx.OrderedMap) string {

@@ -34,7 +34,7 @@ func gpuConfig(merged *jsonx.OrderedMap) (enabled bool, vendor string, gpu *json
 	return
 }
 
-// sectionGPUNvidia ports the GPU (NVIDIA) block.
+// sectionGPUNvidia runs the GPU (NVIDIA) block.
 func (o *Options) sectionGPUNvidia(r *reporter, merged *jsonx.OrderedMap) {
 	enabled, vendor, _, _ := gpuConfig(merged)
 	if !enabled || vendor == "amd" {
@@ -107,7 +107,7 @@ func (o *Options) sectionGPUNvidia(r *reporter, merged *jsonx.OrderedMap) {
 	r.blank()
 }
 
-// sectionGPUAmd ports the GPU (AMD/ROCm) block.
+// sectionGPUAmd runs the GPU (AMD/ROCm) block.
 func (o *Options) sectionGPUAmd(r *reporter, merged *jsonx.OrderedMap) {
 	enabled, vendor, _, mode := gpuConfig(merged)
 	if !enabled || vendor != "amd" {
@@ -175,7 +175,7 @@ func (o *Options) sectionGPUAmd(r *reporter, merged *jsonx.OrderedMap) {
 	r.blank()
 }
 
-// checkDeviceNode ports the nested _check_node closure (ROCm device nodes).
+// checkDeviceNode runs the nested _check_node closure (ROCm device nodes).
 func (o *Options) checkDeviceNode(r *reporter, node string) {
 	if !o.PathExists(node) {
 		r.fail(node+" not present", "")
@@ -207,7 +207,7 @@ func (o *Options) globRenderNodes() []string {
 	return matches
 }
 
-// sectionKVM ports the KVM Virtualization block.
+// sectionKVM runs the KVM Virtualization block.
 func (o *Options) sectionKVM(r *reporter, merged *jsonx.OrderedMap) {
 	kvmV, _ := merged.Get("kvm")
 	if b, ok := kvmV.(bool); !ok || !b {

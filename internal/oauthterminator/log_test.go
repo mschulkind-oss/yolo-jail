@@ -37,7 +37,7 @@ func TestRedactedRespRedactsBody(t *testing.T) {
 	}
 }
 
-// TestErrDetail mirrors Python's `resp.get("message") or resp.get("body") or ""`.
+// TestErrDetail `resp.get("message") or resp.get("body") or ""`.
 func TestErrDetail(t *testing.T) {
 	m := jsonx.NewOrderedMap()
 	if got := errDetail(m); got != "" {

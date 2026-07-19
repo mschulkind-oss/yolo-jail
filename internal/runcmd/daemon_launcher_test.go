@@ -6,7 +6,7 @@ import (
 	"testing"
 )
 
-// TestDaemonLauncherSeam2 covers the go-port seam #2 launcher swap
+// TestDaemonLauncherSeam2 covers the go-port launcher swap
 // (_daemon_launcher): a console-script daemon named in YOLO_GO_DAEMONS resolves
 // to the Go binary at $YOLO_GO_BIN_DIR when it exists+executable; otherwise it
 // falls back to the console-script name on PATH. This is the decision that the
@@ -54,8 +54,7 @@ func TestDaemonLauncherSeam2(t *testing.T) {
 
 // TestExternalServiceLauncherSwap asserts the swap condition used inside
 // startExternalService: a swapped launcher (len!=1 or differing token) replaces
-// only cmd[0], keeping the substituted tail. This mirrors the Python
-// `if launcher != [cmd[0]]: cmd = [*launcher, *cmd[1:]]` guard.
+// only cmd[0], keeping the substituted tail. This matches the // `if launcher != [cmd[0]]: cmd = [*launcher, *cmd[1:]]` guard.
 func TestExternalServiceLauncherSwap(t *testing.T) {
 	binDir := t.TempDir()
 	goBin := filepath.Join(binDir, "yolo-host-processes")

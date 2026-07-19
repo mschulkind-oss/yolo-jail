@@ -1,6 +1,5 @@
-// Package brokerlifecycle is the Go port of the Claude OAuth broker SINGLETON
-// lifecycle helpers from src/cli/loopholes_runtime.py (the _broker_* family and
-// the BROKER_SINGLETON_* path constants). The broker is a host-wide daemon —
+// Package brokerlifecycle provides the Claude OAuth broker singleton lifecycle
+// helpers. The broker is a host-wide daemon —
 // one per host, serving every running jail — so these helpers inspect, ping,
 // spawn, and kill that singleton.
 //
@@ -146,7 +145,7 @@ func RealDeps() Deps {
 }
 
 // BrokerLogPath returns GLOBAL_STORAGE/logs/host-service-claude-oauth-broker.log
-// — the singleton's shared log (one across every jail).
+// the singleton's shared log (one across every jail).
 func BrokerLogPath() string {
 	return filepath.Join(paths.GlobalStorage(), "logs", "host-service-claude-oauth-broker.log")
 }
@@ -395,7 +394,7 @@ func BrokerPing(socketPath string, timeout time.Duration) bool {
 // RealPgrepStrays ports _broker_pgrep_strays: PIDs of running BrokerConsoleName
 // processes the OS knows about, regardless of PID-file state, with our own PID
 // filtered out. A missing pgrep / timeout / error yields no PIDs (never an error
-// — the "tool absent = no-op" invariant).
+// the "tool absent = no-op" invariant).
 func RealPgrepStrays() []int {
 	cmd := exec.Command("pgrep", "-f", BrokerConsoleName)
 	out, err := cmd.Output()

@@ -69,7 +69,7 @@ func resolvePath(p string) string {
 	return p
 }
 
-// pySplitMax mirrors Python's str.split(maxsplit=maxsplit): leading/trailing
+// pySplitMax str.split(maxsplit=maxsplit): leading/trailing
 // whitespace is ignored, fields are separated by runs of ASCII whitespace, and
 // after `maxsplit` cuts the remainder (internal whitespace preserved, trailing
 // stripped) is the final field. Used to split the `images` line into
@@ -289,15 +289,15 @@ func relayShortHash(cname string) string {
 // ReapRelayOrphans sweeps per-jail broker-relay PID files under `base` whose jail
 // is no longer live, returning the PID-file paths reaped (or, in dry-run, that
 // WOULD be). Mirrors loopholes_runtime._relay_reap_orphans:
-//   - liveKnown==false (liveness unenumerable) → reap NOTHING (same fail-safe
-//     polarity as the build-root sweep — unknown must never read as "nothing
-//     live");
-//   - a pid file whose 8-char hash matches a live container is kept;
-//   - a pid file younger than olderThanSeconds (mtime grace floor for a jail
-//     mid-startup) is kept;
-//   - on apply, the relay is killed (via the injected relayKill seam — the
-//     signal/pgrep machinery is the caller's concern), then the .lock file and
-//     the yolo-host-services-<hash> sockets dir are removed.
+// - liveKnown==false (liveness unenumerable) → reap NOTHING (same fail-safe
+// polarity as the build-root sweep — unknown must never read as "nothing
+// live");
+// - a pid file whose 8-char hash matches a live container is kept;
+// - a pid file younger than olderThanSeconds (mtime grace floor for a jail
+// mid-startup) is kept;
+// - on apply, the relay is killed (via the injected relayKill seam — the
+// signal/pgrep machinery is the caller's concern), then the .lock file and
+// the yolo-host-services-<hash> sockets dir are removed.
 //
 // The reaped list is sorted by path (Python sorts base.glob(...)), so the
 // displayed order is deterministic.

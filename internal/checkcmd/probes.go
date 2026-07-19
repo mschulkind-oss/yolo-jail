@@ -312,12 +312,12 @@ func inStrSlice(list []string, s string) bool {
 	return false
 }
 
-// resolveRepoRoot ports the pieces of _resolve_repo_root that check() relies on:
+// resolveRepoRoot runs the pieces of _resolve_repo_root that check() relies on:
 // the YOLO_REPO_ROOT env var (validated to contain source) and a
 // source-checkout / installed-package fallback. Returns (path, ok); ok=false is
 // the Python SystemExit branch. The installed-wheel staging (step 3's rename
 // dance) is out of scope here — check() only needs a root that resolves to a
-// flake.nix, and the run slice owns the staging (Stage 16).
+// flake.nix, and the run slice owns the staging.
 func resolveRepoRoot(getenv func(string) string) (string, bool) {
 	if env := getenv("YOLO_REPO_ROOT"); env != "" {
 		if fileExists(filepath.Join(env, "flake.nix")) ||

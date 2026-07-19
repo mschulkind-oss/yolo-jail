@@ -27,11 +27,11 @@ func pyReprStrList(xs []string) string {
 // their children (two passes). Mirrors the tree branch of host_processes.py
 // exactly, including the comm lstrip of "\_ " forest glyphs, the two-pass keep
 // logic, and the failure paths:
-//   - timeout -> "tree mode failed: ..." + exit 1
-//   - Python reads out.stdout REGARDLESS of ps's return code, so a non-zero ps
-//     with EMPTY stdout yields exit 0 (empty), NOT an error. Go's
-//     exec.Command.Output() errors on non-zero exit; we deliberately IGNORE
-//     that error and use whatever stdout we captured, mirroring Python.
+// - timeout -> "tree mode failed: ..." + exit 1
+// - Python reads out.stdout REGARDLESS of ps's return code, so a non-zero ps
+// with EMPTY stdout yields exit 0 (empty), NOT an error. Go's
+// exec.Command.Output() errors on non-zero exit; we deliberately IGNORE
+// that error and use whatever stdout we captured, mirroring Python.
 func handleTree(s *hostservice.Session, visible map[string]struct{}) {
 	ctx, cancel := context.WithTimeout(context.Background(), 15*time.Second)
 	defer cancel()
@@ -105,7 +105,7 @@ func handleTree(s *hostservice.Session, visible map[string]struct{}) {
 	s.Exit(0)
 }
 
-// splitN mirrors Python's str.split(None, maxsplit): split on runs of
+// splitN str.split(None, maxsplit): split on runs of
 // whitespace, at most maxsplit splits (so the last field keeps its spaces),
 // with leading whitespace ignored.
 func splitN(s string, maxsplit int) []string {

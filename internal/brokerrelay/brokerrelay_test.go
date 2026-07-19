@@ -176,7 +176,7 @@ func framedRoundtrip(t *testing.T, path string, request map[string]any) map[stri
 	}
 }
 
-// TestJailIDStampedAndClientValueOverridden mirrors the Python test of the
+// TestJailIDStampedAndClientValueOverridden matches the test of the
 // same name: the relay stamps jail_id host-side, overriding any client value.
 func TestJailIDStampedAndClientValueOverridden(t *testing.T) {
 	d := shortDir(t)

@@ -46,7 +46,7 @@ func Run(opts Options) int {
 		return 1
 	}
 
-	// macos-user native branch (Stage 16b): route to the injected handler,
+	// macos-user native branch: route to the injected handler,
 	// which wires internal/macosuser (SBPL sandbox, dscl provisioning, the
 	// sandbox-exec launch) + the darwinpkg streaming-build materialize adapter.
 	// Falls back to an actionable error if the front door didn't inject it.
@@ -329,7 +329,7 @@ func (o *Options) runContainer(cfg *jsonx.OrderedMap, rt, repoRoot string) int {
 	return rc
 }
 
-// attachExisting ports the exec-into-existing-container branch (and the
+// attachExisting runs the exec-into-existing-container branch (and the
 // raced-attach twin). raced selects the second banner text.
 func (o *Options) attachExisting(cname, rt, targetCmd string, identityEnv []string, raced bool) int {
 	out := o.pr(o.Stdout)

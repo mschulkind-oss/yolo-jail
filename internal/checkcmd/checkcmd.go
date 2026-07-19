@@ -1,5 +1,4 @@
-// Package checkcmd is the Go port of the `yolo check` command body
-// (src/cli/check_cmd.py:check + its section helpers). It orchestrates every
+// Package checkcmd implements the `yolo check` command. It orchestrates every
 // preflight probe the doctor cares about — container runtime, nix, macOS
 // plumbing, global storage, config validation, entrypoint dry-run, GPU, KVM,
 // image build, container image presence, running jails, loopholes (+ broker
@@ -15,7 +14,7 @@
 // package supplies ONLY the orchestration and the side-effecting subprocess /
 // filesystem probes that feed those engines.
 //
-// Output contract (go-port plan Stage 15 answered Open Question): the human
+// Output contract: the human
 // output does NOT need byte-parity with Python's rich markup. It reproduces the
 // SECTION ORDERING, the PASS/WARN/FAIL badge semantics + counts, the exit code,
 // and the control flow (parse errors exit before merged validation before
@@ -50,7 +49,7 @@ type ExecResult struct {
 }
 
 // Options configures a Check run. Every side-effecting seam is injectable so
-// the whole section sequence is deterministically golden-able; nil/zero fields
+// the whole section sequence is deterministically ; nil/zero fields
 // are filled with real implementations by fillDefaults.
 type Options struct {
 	// Build mirrors the --build/--no-build flag (default true when wired).

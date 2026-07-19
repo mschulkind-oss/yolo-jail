@@ -87,7 +87,7 @@ func resolveJoin(baseDir, entry string) string {
 	return joined
 }
 
-// resolve mirrors Python's Path.resolve() (strict=False): make absolute,
+// resolve Path.resolve() (strict=False): make absolute,
 // resolve symlinks where possible, normalize lexically. filepath.EvalSymlinks
 // errors on nonexistent paths (Python does not), so fall back to the lexical
 // absolute clean — matching internal/naming.FromWorkspace's approach.

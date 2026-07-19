@@ -125,7 +125,7 @@ func orderedMapToStrAny(m *jsonx.OrderedMap) map[string]any {
 	return out
 }
 
-// prepareWsState ports the ws_state overlay preparation (1604-1697): create the
+// prepareWsState runs the ws_state overlay preparation (1604-1697): create the
 // per-workspace overlay dirs + touch the overlay files, seed selected agents'
 // config dirs, sync claude.json, and run the old-overlay migrations. Returns the
 // ws_state path (<workspace>/.yolo/home).

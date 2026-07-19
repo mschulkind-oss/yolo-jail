@@ -1,18 +1,17 @@
-// Command yolo-oauth-terminator is the Go port of src/oauth_broker_jail.py —
-// the in-jail TLS terminator for Claude OAuth (baked with the jail-side wave,
-// Stage 11). It terminates Claude Code's TLS to platform.claude.com (routed to
+// Command yolo-oauth-terminator is the in-jail TLS terminator for Claude
+// OAuth. It terminates Claude Code's TLS to platform.claude.com (routed to
 // 127.0.0.1 by --add-host), and forwards to the host broker: POST
 // /v1/oauth/token with grant_type=refresh_token -> action=refresh; everything
 // else -> action=proxy.
 //
-// Frozen hazards handled here:
-//   - KEEP-ALIVE DISABLED: Python's BaseHTTPRequestHandler closes per request
-//     (HTTP/1.0) and Claude Code reconnects each time; Go's net/http keeps
-//     connections alive by default. We SetKeepAlivesEnabled(false) + send
-//     Connection: close to preserve the observable connection behavior.
+// Hazards:
+//   - KEEP-ALIVE DISABLED: Claude Code expects per-request connections
+//     (HTTP/1.0 style); Go's net/http keeps connections alive by default. We
+//     SetKeepAlivesEnabled(false) + send Connection: close to preserve the
+//     observable connection behavior.
 //   - Content-Length is recomputed (we set it); the caller's is dropped.
 //   - The 502/400 status mapping + layer-named error detail come from
-//     internal/oauthterminator (byte-frozen against the Python handler).
+//     internal/oauthterminator.
 package main
 
 import (

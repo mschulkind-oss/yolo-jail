@@ -1,5 +1,4 @@
-// Package containerbuilder is the Go port of the PURE helpers of
-// src/cli/container_builder.py — the on-demand container-based Linux builder for
+// Package containerbuilder provides the on-demand container-based Linux builder for
 // the macOS container runtimes. When a `packages:` build isn't cached, nix must
 // offload to Linux; instead of a second hypervisor, a tiny nix+sshd builder runs
 // as a container on the runtime already up, and the host drives it via nix's

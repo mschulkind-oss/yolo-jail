@@ -1,11 +1,8 @@
-// Package darwinpkg is the Go port of the PURE functions of
-// src/cli/darwin_packages.py — the native aarch64-darwin materialization of the
-// config `packages:` for the macos-user backend (its firm acceptance bar:
-// honor `packages:` via native darwin nix). The nix argv builders, the
+// Package darwinpkg provides native aarch64-darwin materialization of the
+// config `packages:` for the macos-user backend. The nix argv builders, the
 // YOLO_EXTRA_PACKAGES env contract, the buildEnv out-path → PATH/env
-// derivation, and the flake.lock rev read are all pure and ported byte-exact;
-// materialize's actual nix invocation (streaming build) stays in the run wiring
-// until the macos_user port lands.
+// derivation, and the flake.lock rev read are pure functions; materialize's
+// actual nix invocation (streaming build) stays in the run wiring.
 package darwinpkg
 
 import (

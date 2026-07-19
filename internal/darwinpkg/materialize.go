@@ -3,7 +3,7 @@ package darwinpkg
 // materialize.go is the IMPURE half of darwin_packages.py — the actual nix
 // invocations (the skip-list eval + the streaming buildEnv build). It was the
 // last piece left in Python when the pure builders (darwinpkg.go) landed; the
-// macos-user run wiring (Stage 16b) needs it, so it is ported here now.
+// macos-user run wiring needs it, so it is ported here now.
 
 import (
 	"bufio"

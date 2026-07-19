@@ -7,7 +7,7 @@ import (
 	"github.com/mschulkind-oss/yolo-jail/internal/jsonx"
 )
 
-// sectionMacOSPlatform ports the macOS Platform block (only runs on macOS).
+// sectionMacOSPlatform runs the macOS Platform block (only runs on macOS).
 // config is loaded lazily for the podman-machine-resources sub-check via
 // load_config(strict=False) inside _check_podman_machine_resources.
 func (o *Options) sectionMacOSPlatform(r *reporter, _ *jsonx.OrderedMap) {

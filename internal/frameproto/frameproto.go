@@ -1,7 +1,5 @@
 // Package frameproto is the frame protocol v1 used by unix-socket loophole
-// daemons, ported from src/host_service.py. It is a frozen interop contract
-// (seam #6): the wire format must stay byte-identical so a Go daemon and a
-// Python client (or vice versa) interoperate during the mixed-era rollout.
+// daemons. The wire format is a frozen interop contract.
 //
 // Wire format (docs/design/loophole-protocol.md):
 //

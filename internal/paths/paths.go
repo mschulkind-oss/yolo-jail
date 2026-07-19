@@ -1,8 +1,6 @@
-// Package paths mirrors src/cli/paths.py — the module-level constants used
-// across the CLI. These are cross-image, cross-language contracts (socket
-// names especially: CGD_SOCKET_NAME's Python comment records a real
-// regression from re-typing one), so they are pinned by the drift suite and
-// must stay byte-identical to the Python source of truth.
+// Package paths provides the module-level constants used across the CLI.
+// Socket names especially are cross-image contracts (CGD_SOCKET_NAME once
+// caused a real regression from a re-typing error).
 package paths
 
 import (
@@ -55,7 +53,7 @@ const CgdSocketName = BuiltinCgroupLoopholeName + ".sock"
 
 // Home-relative storage layout. Python computes these from Path.home() at
 // import time; Go exposes the fixed suffixes plus helpers that join with the
-// caller's home dir, so the constant *strings* are what the drift suite pins
+// caller's home dir, so the constant *strings* are what the golden tests pins
 // (they don't vary by host) while the absolute paths resolve at runtime.
 const (
 	globalStorageSuffix = ".local/share/yolo-jail"
@@ -86,15 +84,15 @@ func BuildDir() string { return filepath.Join(GlobalStorage(), "build") }
 // UserConfigPath returns $HOME/.config/yolo-jail/config.jsonc.
 func UserConfigPath() string { return filepath.Join(home(), userConfigSuffix) }
 
-// home mirrors Python's Path.home() / os.path.expanduser("~") resolution,
+// home Path.home() / os.path.expanduser("~") resolution,
 // which the paths constants depend on — NOT Go's os.UserHomeDir(), which reads
 // only $HOME and errors when it is unset (audit finding: that made every path
 // helper return a RELATIVE path in a stripped environment). Python's rules:
 //
-//   - $HOME set and non-empty  -> $HOME
-//   - $HOME set but empty       -> "/"  (expanduser: userhome="" then `or "/"`)
-//   - $HOME unset               -> pwd.getpwuid(getuid()).pw_dir (the passwd
-//     database home), and if THAT is empty, "/"
+// - $HOME set and non-empty -> $HOME
+// - $HOME set but empty -> "/" (expanduser: userhome="" then `or "/"`)
+// - $HOME unset -> pwd.getpwuid(getuid()).pw_dir (the passwd
+// database home), and if THAT is empty, "/"
 //
 // This keeps the paths absolute in cron/systemd/subprocess contexts where the
 // CLI may run without $HOME, matching Python.

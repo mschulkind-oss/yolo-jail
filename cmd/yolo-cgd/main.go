@@ -1,5 +1,5 @@
-// Command yolo-cgd is the Go port of the builtin cgroup-delegate daemon
-// (go-port plan Stage 7, Commit B). It listens on a Unix socket, reads a
+// Command yolo-cgd is the cgroup-delegate daemon. It listens on a Unix socket,
+// reads a
 // single-line JSON request per connection, identifies the caller by
 // SO_PEERCRED, performs the cgroup op against the container cgroup subtree, and
 // writes a single-line JSON response.

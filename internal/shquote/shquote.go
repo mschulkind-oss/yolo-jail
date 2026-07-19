@@ -1,10 +1,9 @@
-// Package shquote mirrors Python's shlex.quote / shlex.join. This is a
-// correctness-critical seam: commands round-trip through `bash -c` in-jail, so
-// a quoting divergence can silently corrupt or inject argv. It is pinned by a
-// golden table over adversarial argv (shquote_test.go) plus a cross-language
-// oracle.
+// Package shquote implements POSIX shell quoting (shlex.quote / shlex.join).
+// This is correctness-critical: commands round-trip through `bash -c` in-jail,
+// so a quoting error can silently corrupt or inject argv. Pinned by a golden
+// table over adversarial argv (shquote_test.go).
 //
-// Source of truth: CPython Lib/shlex.py:
+// Reference: CPython Lib/shlex.py:
 //
 //	_find_unsafe = re.compile(r'[^\w@%+=:,./-]', re.ASCII).search
 //	def quote(s):

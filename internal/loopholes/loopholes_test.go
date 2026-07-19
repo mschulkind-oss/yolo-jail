@@ -29,7 +29,7 @@ func mkdir(t *testing.T, path string) string {
 	return path
 }
 
-// modsDir mirrors the Python `mods_dir` fixture: a fresh loopholes root.
+// modsDir matches the `mods_dir` fixture: a fresh loopholes root.
 func modsDir(t *testing.T) string {
 	t.Helper()
 	return mkdir(t, filepath.Join(t.TempDir(), "loopholes"))

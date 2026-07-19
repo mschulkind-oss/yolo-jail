@@ -1,24 +1,8 @@
-// Package runcmd is the Go port of the `yolo run` command body
-// (src/cli/run_cmd.py:run + its lifecycle helpers) — the container-startup
-// command and the heaviest, most side-effect-laden module in the CLI. It builds
-// the full podman / Apple-Container argv (mounts, env, network, devices, GPU,
-// kvm, loopholes), prestarts the host-side service plumbing, and either execs
-// into an existing container or launches a fresh one.
-//
-// The pure engines it orchestrates are already ported and byte-verified and are
-// REUSED here, never reimplemented: internal/runmount (mount-arg builders),
-// internal/network (port-forward argv), internal/runtime (naming, tracking,
-// liveness tri-state), internal/image (image load/build), internal/agentsmd
-// (briefings + skills), internal/storage (global storage, host probes),
-// internal/loopholes (discover + runtime args), internal/config (load, merge,
-// validate, snapshot), internal/agents (specs + yolo-flag injection),
-// internal/shquote (shell quoting), internal/ttyproxy (the TTY proxy).
-//
-// This package supplies ONLY the orchestration and the ordered-argv assembly.
-// The plan's Stage 16 exit criteria pin the ORDERED container argv byte-for-byte
-// (flags-before-image, `-e` at index(image), mount order), so the argv assembly
-// is factored into a golden-able builder (assemble.go) driven off the injected
-// seams.
+// Package runcmd implements the `yolo run` command — the container-startup
+// command and the heaviest module in the CLI. It builds the full podman /
+// Apple-Container argv (mounts, env, network, devices, GPU, kvm, loopholes),
+// prestarts the host-side service plumbing, and either execs into an existing
+// container or launches a fresh one.
 //
 // `run` is the default subcommand (bare `yolo -- cmd` → run).
 package runcmd
@@ -50,7 +34,7 @@ type ExecResult struct {
 
 // Options configures a run(). The CLI flags map to the leading fields; every
 // side-effecting seam below is injectable so the probe + argv-assembly paths
-// are deterministically unit-testable and golden-able. nil/zero fields are
+// are deterministically unit-testable. nil/zero fields are
 // filled with real implementations by fillDefaults.
 type Options struct {
 	// --- CLI surface (typer options + ctx.args) ---
@@ -102,8 +86,7 @@ type Options struct {
 	// prompt, the tty-proxy fallback). nil => real isatty.
 	IsTTYStdout func() bool
 	IsTTYStdin  func() bool
-	// MacosUserRun handles the runtime==macos-user native branch (Stage 16b —
-	// replaces the seam #8 Python delegation). It receives the resolved config,
+	// MacosUserRun handles the runtime==macos-user native branch. It receives the resolved config,
 	// workspace, selected agents, the post-`--` argv, the repo root, and the
 	// dry-run flag, returning the process exit code. nil => the branch prints an
 	// actionable "not wired" error (keeps runcmd free of the macosuser +
@@ -196,7 +179,7 @@ func realExec(argv []string, dir string, env []string, timeout time.Duration) Ex
 	}
 	done := make(chan error, 1)
 	go func() { done <- cmd.Wait() }()
-	// timeout <= 0 means "no deadline" (mirrors the Python subprocess.run calls
+	// timeout <= 0 means "no deadline" (matches the subprocess.run calls
 	// that pass no timeout, e.g. find_running_container / find_existing_container).
 	var timer <-chan time.Time
 	if timeout > 0 {

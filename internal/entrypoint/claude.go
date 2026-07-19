@@ -27,7 +27,7 @@ var oauthMetadataKeys = []string{"scopes", "subscriptionType", "rateLimitTier"}
 // managed-MCP sidecar, the credentials symlink/harvest, and per-jail history
 // isolation. The `claude plugins install/uninstall` subprocesses
 // (_install_claude_plugins) are a side effect, not content, and are deferred to
-// the Stage 10 boot sub-phase.
+// the boot sub-phase.
 func ConfigureClaude(e *Env) error {
 	dir := e.ClaudeDir()
 	if err := os.MkdirAll(dir, 0o755); err != nil {

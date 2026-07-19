@@ -30,7 +30,7 @@ var miseBaseTools = []struct{ tool, version string }{
 
 // GenerateMiseConfig mirrors mise.generate_mise_config's FILE-GENERATION logic.
 // It does NOT run the `mise uninstall` subprocesses (that is a side effect, not
-// content generation — Stage 10 orchestration). It DOES perform the workspace
+// content generation — orchestration). It DOES perform the workspace
 // /workspace/mise.toml retired-tool surgery when that file exists, matching the
 // Python writer's in-place edits.
 //

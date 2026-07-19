@@ -1,8 +1,7 @@
-// Package loopholescmd is the Go port of the `yolo loopholes {list,status,
-// enable,disable}` command group (src/cli/loopholes_cmd.py). It inspects and
-// toggles host-side loopholes. The discovery/doctor/set-enabled engines are the
-// already-ported internal/loopholes package; this is the thin command body with
-// plain typer.echo output (byte-parity with Python) behind injectable seams.
+// Package loopholescmd implements the `yolo loopholes {list,status,enable,
+// disable}` command group. It inspects and toggles host-side loopholes. The
+// discovery/doctor/set-enabled engines are in internal/loopholes; this is the
+// thin command body behind injectable seams.
 package loopholescmd
 
 import (

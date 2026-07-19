@@ -1,10 +1,7 @@
-// Package storage is the Go port of the host-side filesystem-state plumbing in
-// src/cli/storage.py — the set-up that runs before any container starts, plus
-// the pure host-state probes run() and check use. The subprocess-free probes
-// and the claude.json login-state sync carry behavior contracts (which of the
-// two nix installers is present, which timezone the jail inherits, how a fresh
-// workspace boots already-logged-in), so those are ported byte-exact and tested
-// against live Python and real temp dirs.
+// Package storage provides the host-side filesystem-state plumbing — the
+// set-up that runs before any container starts, plus the pure host-state probes
+// run() and check use (nix installer detection, timezone inheritance, workspace
+// login-state sync).
 package storage
 
 import (

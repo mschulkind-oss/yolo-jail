@@ -96,7 +96,7 @@ func loadConfigLoose(workspace string) *jsonx.OrderedMap {
 	return cfg
 }
 
-// orphanCleanupPrompt ports the console.input(...) y/N prompt in the Running
+// orphanCleanupPrompt runs the console.input(...) y/N prompt in the Running
 // Jails block. Returns true iff the user answered y/yes. No Stdin => "N".
 func (o *Options) orphanCleanupPrompt(r *reporter, n int) bool {
 	prompt := "  " + r.style(pluralOrphansPrompt(n), ansiYellow) + " "

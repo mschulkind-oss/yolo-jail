@@ -145,7 +145,7 @@ func TestSortedKeys(t *testing.T) {
 	}
 }
 
-// TestContentEncodingRepr mirrors Python's `.get(...) or .get(...)` + {!r}.
+// TestContentEncodingRepr `.get(...) or .get(...)` + {!r}.
 func TestContentEncodingRepr(t *testing.T) {
 	// Absent -> None (Python's None repr).
 	resp := jsonx.NewOrderedMap()

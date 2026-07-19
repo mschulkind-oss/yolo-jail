@@ -1,19 +1,13 @@
-// Package macosuser is the Go port (AS-IS, per go-port plan §13/Stage 16b) of
-// src/cli/macos_user.py — the native macОS backend that isolates an agent in a
+// Package macosuser is the native macOS backend that isolates an agent in a
 // dedicated hidden macOS user hardened with an Apple Seatbelt (sandbox-exec)
-// profile: no Linux container, no VM, no arch switch. It is yolo-jail's port of
-// SandVault's design (github.com/webcoyote/sandvault).
+// profile: no Linux container, no VM, no arch switch. Based on SandVault's
+// design (github.com/webcoyote/sandvault).
 //
-// Design mirror: every artifact producer here is a PURE data-returning function
-// (command lists, ACL ACE strings, the SBPL profile, launch argv, the in-process
-// entrypoint bootstrap), so its SandVault-parity security properties are fully
-// unit-testable on Linux CI without a Mac. Only RunMacosUser and the macos-*
-// command bodies shell out, guarded to macOS.
-//
-// Ported AS-IS: current behavior is reproduced faithfully, including
-// known-broken/unfinished paths (real-hardware verification stays a Mac-runbook
-// step; see the Stage 16b handoff for the list of deliberately-reproduced
-// behaviors). No macOS bug fixes live in the port commits.
+// Every artifact producer here is a pure data-returning function (command
+// lists, ACL ACE strings, the SBPL profile, launch argv, the in-process
+// entrypoint bootstrap), so the security properties are fully unit-testable on
+// Linux CI without a Mac. Only RunMacosUser and the macos-* command bodies
+// shell out, guarded to macOS.
 package macosuser
 
 import (

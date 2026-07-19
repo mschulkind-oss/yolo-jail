@@ -1,11 +1,8 @@
-// Package builder is the Go port of the PURE generators in src/cli/builder.py —
-// the ssh_config block, nix builders line, trusted-users merge, and the
-// single-sudo root script that `yolo builder setup` runs. These byte-exact
-// strings are what the Mac builder runbooks depend on (Stage 14 builder slice).
-//
-// Only the pure string/logic functions are ported here (fully unit-testable);
-// the socket probe (TCP 31022) + PID/killpg lifecycle + sudo piping stay in the
-// front-door wiring / delegated Python until the macos backend port lands
+// Package builder provides the pure generators for `yolo builder setup` — the
+// ssh_config block, nix builders line, trusted-users merge, and the single-sudo
+// root script. Only the pure string/logic functions live here (fully
+// unit-testable); the socket probe (TCP 31022) + PID/killpg lifecycle + sudo
+// piping stay in the front-door wiring.
 // (§13), since they're macOS-side and covered by the Mac runbooks.
 package builder
 

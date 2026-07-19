@@ -1,11 +1,9 @@
-// Package checkdiag is the Go port of the PURE diagnostic helpers of
-// src/cli/check_cmd.py — the nix-build-failure classifier, the dry-run
-// "will be built" stderr parser (a tri-state: build / substitutable /
-// inconclusive), the /etc/nix builders-config parser that decides whether an
-// aarch64-linux builder is reachable, the credentials-freshness duration
-// formatter, and the Linux-builder remedy template. These carry byte-exact
-// output + tri-state polarity contracts (Stage 15's check command); the
-// subprocess wrappers that feed them stay in the check wiring.
+// Package checkdiag provides diagnostic helpers for the check command — the
+// nix-build-failure classifier, the dry-run "will be built" stderr parser (a
+// tri-state: build / substitutable / inconclusive), the /etc/nix
+// builders-config parser that decides whether an aarch64-linux builder is
+// reachable, the credentials-freshness duration formatter, and the
+// Linux-builder remedy template.
 package checkdiag
 
 import (

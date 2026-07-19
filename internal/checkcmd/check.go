@@ -20,7 +20,7 @@ import (
 // Check ports check(): validate environment, config, and build. Returns the
 // process exit code (0 = no failures, 1 = any fail), matching the Python
 // typer.Exit(1) polarity. The whole section sequence is driven off the injected
-// seams so it is deterministically golden-able.
+// seams so it is deterministically.
 func Check(opts Options) int {
 	fillDefaults(&opts)
 	o := &opts
@@ -179,7 +179,7 @@ func Check(opts Options) int {
 	return 0
 }
 
-// sectionContainerRuntime ports the Container Runtime block. Returns the
+// sectionContainerRuntime runs the Container Runtime block. Returns the
 // detected (live) container runtime, or "".
 func (o *Options) sectionContainerRuntime(r *reporter) string {
 	r.section("Container Runtime")
@@ -281,7 +281,7 @@ func (o *Options) sectionContainerRuntime(r *reporter) string {
 	return detectedRuntime
 }
 
-// sectionGlobalStorage ports the Global Storage block.
+// sectionGlobalStorage runs the Global Storage block.
 func (o *Options) sectionGlobalStorage(r *reporter) {
 	r.section("Global Storage")
 	entries := []struct {
@@ -304,7 +304,7 @@ func (o *Options) sectionGlobalStorage(r *reporter) {
 	r.blank()
 }
 
-// sectionConfigFiles ports the Config Files block. Returns (userConfig,
+// sectionConfigFiles runs the Config Files block. Returns (userConfig,
 // workspaceConfig, parseFailed). A parse failure sets parseFailed so the caller
 // early-exits with the fail-only summary.
 func (o *Options) sectionConfigFiles(r *reporter, workspace string) (*jsonx.OrderedMap, *jsonx.OrderedMap, bool) {
@@ -338,7 +338,7 @@ func (o *Options) sectionConfigFiles(r *reporter, workspace string) (*jsonx.Orde
 	return userConfig, workspaceConfig, failed
 }
 
-// sectionMergedConfig ports the Merged Configuration block. Returns true when
+// sectionMergedConfig runs the Merged Configuration block. Returns true when
 // there were validation errors (the caller early-exits with fail+warn summary).
 func (o *Options) sectionMergedConfig(r *reporter, merged *jsonx.OrderedMap, workspace string, userConfig, workspaceConfig *jsonx.OrderedMap) bool {
 	r.section("Merged Configuration")
@@ -395,7 +395,7 @@ func (o *Options) sectionEntrypointDryRun(r *reporter, repoRoot string, repoRoot
 	r.blank()
 }
 
-// sectionImageBuild ports the Image Build block. Returns imageBuildSkipped.
+// sectionImageBuild runs the Image Build block. Returns imageBuildSkipped.
 func (o *Options) sectionImageBuild(r *reporter, merged *jsonx.OrderedMap, repoRoot string, repoRootOK, isNativeRuntime bool) bool {
 	r.section("Image Build")
 	imageBuildSkipped := false
@@ -430,7 +430,7 @@ func (o *Options) sectionImageBuild(r *reporter, merged *jsonx.OrderedMap, repoR
 	return imageBuildSkipped
 }
 
-// sectionContainerImage ports the Container Image block.
+// sectionContainerImage runs the Container Image block.
 func (o *Options) sectionContainerImage(r *reporter, detectedRuntime, notLoadedHint string) {
 	r.section("Container Image")
 	if o.inJail() {
@@ -464,7 +464,7 @@ func (o *Options) sectionContainerImage(r *reporter, detectedRuntime, notLoadedH
 	r.blank()
 }
 
-// sectionRunningJails ports the Running Jails block (with stuck detection and
+// sectionRunningJails runs the Running Jails block (with stuck detection and
 // the orphan-cleanup prompt).
 func (o *Options) sectionRunningJails(r *reporter, detectedRuntime string) {
 	r.section("Running Jails")
@@ -550,7 +550,7 @@ func (o *Options) sectionRunningJails(r *reporter, detectedRuntime string) {
 	r.blank()
 }
 
-// sectionInlineLoopholes ports the "Loopholes — inline daemons" block.
+// sectionInlineLoopholes runs the "Loopholes — inline daemons" block.
 func (o *Options) sectionInlineLoopholes(r *reporter, merged *jsonx.OrderedMap) {
 	loopholesV, _ := merged.Get("loopholes")
 	loopholesCfg, ok := loopholesV.(*jsonx.OrderedMap)

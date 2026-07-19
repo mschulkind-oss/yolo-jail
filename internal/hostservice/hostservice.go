@@ -1,8 +1,7 @@
 // Package hostservice is the server side of the unix-socket loophole frame
-// protocol — the Go port of src/host_service.py's serve/Session/exec_allowlisted.
-// It owns socket setup, the accept loop, per-connection threading, the access
-// log, and the command-injection-guarded exec helper, so each daemon shrinks
-// to a handler plus its allowlist.
+// protocol. It owns socket setup, the accept loop, per-connection threading,
+// the access log, and the command-injection-guarded exec helper, so each daemon
+// shrinks to a handler plus its allowlist.
 //
 // Frame wire format lives in internal/frameproto (the frozen contract);
 // this package is the request-parsing + response-emitting harness around it.

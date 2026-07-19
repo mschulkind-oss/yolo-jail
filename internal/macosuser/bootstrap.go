@@ -18,16 +18,16 @@ import (
 // baked env var. bakedOrder is git_identity updated-by bootstrap_env, emitted in
 // sorted-key order.
 //
-// Args mirror the Python keyword args:
-//   - repoSrc: the host checkout src dir (only appears in a comment).
-//   - workspace, sandboxHome: real macOS paths.
-//   - agents: the configured agent list.
-//   - macosLog: off/user/full (gates the yolo-log helper).
-//   - gitIdentity, bootstrapEnv: env baked into the script (ordered-map form so
-//     the sorted-merge is deterministic; nil is empty).
-//   - pathPrefix: darwin store bin dirs threaded into the login PATH.
-//   - stagedDir: root-owned STATE_DIR the entrypoint is imported from ("" =>
-//     default).
+// Args matches the keyword args:
+// - repoSrc: the host checkout src dir (only appears in a comment).
+// - workspace, sandboxHome: real macOS paths.
+// - agents: the configured agent list.
+// - macosLog: off/user/full (gates the yolo-log helper).
+// - gitIdentity, bootstrapEnv: env baked into the script (ordered-map form so
+// the sorted-merge is deterministic; nil is empty).
+// - pathPrefix: darwin store bin dirs threaded into the login PATH.
+// - stagedDir: root-owned STATE_DIR the entrypoint is imported from ("" =>
+// default).
 func EntrypointBootstrapScript(repoSrc, workspace, sandboxHome string, agents []string, macosLog string, gitIdentity, bootstrapEnv *jsonx.OrderedMap, pathPrefix []string, stagedDir string) string {
 	if sandboxHome == "" {
 		sandboxHome = SandboxHome()

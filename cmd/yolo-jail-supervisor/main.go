@@ -1,7 +1,6 @@
-// Command yolo-jail-supervisor is the Go port of src/jail_daemon_supervisor.py.
-// It reads YOLO_JAIL_DAEMONS from the env and supervises each daemon as a
-// subprocess (start, restart-per-policy, log-rotate, SIGTERM/SIGINT teardown).
-// Baked into the jail image with the jail-side wave (Stage 11).
+// Command yolo-jail-supervisor reads YOLO_JAIL_DAEMONS from the env and
+// supervises each daemon as a subprocess (start, restart-per-policy,
+// log-rotate, SIGTERM/SIGINT teardown). Baked into the jail image.
 package main
 
 import (

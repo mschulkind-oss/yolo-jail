@@ -7,7 +7,7 @@ import (
 	"github.com/mschulkind-oss/yolo-jail/internal/storage"
 )
 
-// sectionNix ports the Nix block: nix version, then (on macOS) the daemon store
+// sectionNix runs the Nix block: nix version, then (on macOS) the daemon store
 // connectivity check, the extra-platforms footgun warning, and the positive
 // "Linux builder configured" line.
 func (o *Options) sectionNix(r *reporter) {
@@ -32,7 +32,7 @@ func (o *Options) sectionNix(r *reporter) {
 	r.blank()
 }
 
-// nixDaemonStoreCheck ports the `nix store info` daemon-connectivity block.
+// nixDaemonStoreCheck runs the `nix store info` daemon-connectivity block.
 func (o *Options) nixDaemonStoreCheck(r *reporter) {
 	res := o.Exec([]string{"nix", "store", "info"}, "", nil, 15*time.Second)
 	if res.Timeout {
@@ -82,7 +82,7 @@ func (o *Options) nixDaemonStoreCheck(r *reporter) {
 	}
 }
 
-// nixExtraPlatformsAndBuilder ports the `nix config show` extra-platforms
+// nixExtraPlatformsAndBuilder runs the `nix config show` extra-platforms
 // warning + positive builder-present line.
 func (o *Options) nixExtraPlatformsAndBuilder(r *reporter) {
 	res := o.Exec([]string{"nix", "config", "show"}, "", nil, 10*time.Second)

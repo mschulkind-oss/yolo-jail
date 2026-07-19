@@ -8,9 +8,8 @@ import (
 	"github.com/mschulkind-oss/yolo-jail/internal/jsonx"
 )
 
-// runInternal dispatches the hidden `yolo internal <cmd>` family — Go-only
-// differential and debugging tooling that has no Python counterpart and is
-// deleted at cutover (go-port plan Stage 13 / §16 shadow burn-in family).
+// runInternal dispatches the hidden `yolo internal <cmd>` family — debugging
+// tooling for config inspection.
 func runInternal(args []string) int {
 	if len(args) == 0 {
 		fmt.Fprintln(os.Stderr, "usage: yolo internal <config-dump> [args...]")

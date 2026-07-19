@@ -2,7 +2,7 @@
 // entrypoint/agent_registry.py — the single source of truth for the coding
 // agents yolo-jail can install into a jail. Per the port plan (§3, foundation
 // packages) this is pure data hand-ported to Go with NO Python-side refactor;
-// the drift suite byte-diffs it against the live Python registry on every
+// the golden tests byte-diffs it against the live Python registry on every
 // commit, so any Python change without a matching Go change is a red build.
 package agents
 

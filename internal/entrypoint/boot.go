@@ -405,8 +405,8 @@ func execBash(e *Env, command string) error {
 // Main orchestration (mirror main())
 // ---------------------------------------------------------------------------
 
-// Main is the Go port of entrypoint.main(): the side-effecting boot sequence.
-// It reproduces the exact ordering and perf-log labels of the Python main(),
+// Main is the side-effecting boot sequence (entrypoint.main()).
+// It reproduces the exact ordering and perf-log labels,
 // wiring the pure generators together and re-attaching the two deferred
 // subprocess side effects (mise uninstall, claude plugins). On success it never
 // returns (execs bash). It returns an error only if the final exec itself fails.
@@ -492,10 +492,8 @@ func Main(args []string) error {
 	p.mark("cglimit_script")
 	genStep(e, "generate_journalctl_script", func() error { return GenerateJournalctlScript(e) })
 	p.mark("journalctl_script")
-	genStep(e, "generate_yolo_ps_script", func() error { return GenerateYoloPsScript(e) })
-	p.mark("yolo_ps_script")
-	genStep(e, "generate_yolo_wrapper", func() error { return GenerateYoloWrapper(e) })
-	p.mark("yolo_wrapper")
+	genStep(e, "cleanup_stale_wrappers", func() error { return GenerateYoloWrapper(e) })
+	p.mark("cleanup_stale_wrappers")
 
 	// Per-container runtime plumbing.
 	setupPublishedPortLocalnet(e)

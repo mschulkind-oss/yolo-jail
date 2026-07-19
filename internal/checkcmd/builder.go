@@ -11,7 +11,7 @@ import (
 	"github.com/mschulkind-oss/yolo-jail/internal/storage"
 )
 
-// Builder constants (mirror src/cli/builder.py).
+// Builder constants (.py).
 const (
 	builderSSHHost  = "linux-builder"
 	builderPort     = 31022
@@ -104,7 +104,7 @@ func ensureBuilderReal(onProgress func(string)) (bool, string) {
 	return false, "not reachable"
 }
 
-// buildImageReal ports the _build_image_store_path call check() makes: run the
+// buildImageReal runs the _build_image_store_path call check() makes: run the
 // real nix build and return (storePath, stderrTail). The out-link + streaming
 // spinner are elided (check only consumes the result); the store path is the
 // resolved out-link.

@@ -32,7 +32,7 @@ func TestFromResolvedGolden(t *testing.T) {
 // the ONLY code point whose Python .lower() differs from what pyLower produces
 // in a way that survives the [^a-z0-9-] sanitize. We can't run Python here, so
 // we assert the specific known case and that pyLower agrees with strings.ToLower
-// everywhere else that matters is covered by the drift suite's cross-language
+// everywhere else that matters is covered by the golden tests's cross-language
 // diff. This test pins the special-case itself.
 func TestPyLowerU0130(t *testing.T) {
 	san := regexp.MustCompile(`[^a-z0-9-]`)

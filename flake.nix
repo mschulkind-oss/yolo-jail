@@ -52,14 +52,10 @@
         # ── Go-port binary cross-compile (go-port plan §3) ─────────────────
         # Static, CGO-free cross-compile of every cmd/ binary to the image's
         # Linux target arch, using the HOST Go toolchain (pkgs.go, not
-        # imagePkgs).  This is the deployment-mechanics tripwire the Stage 0
-        # walking skeleton exists to prove: Go cross-compiles natively
-        # (aarch64-darwin -> aarch64-linux) with zero Linux builder, so a Mac
-        # can bake jail-side Go binaries into the image the same way it bakes
-        # the Python entrypoint — preserving the flake's no-Linux-builder
-        # property.  vendorHash=null + committed vendor/ (once deps exist)
-        # keeps the --impure eval reproducible; at Stage 0 the tree is
-        # stdlib-only, so the build is fully offline in the sandbox.
+        # imagePkgs).  Go cross-compiles natively (aarch64-darwin ->
+        # aarch64-linux) with zero Linux builder, preserving the flake's
+        # no-Linux-builder property.  vendorHash=null + committed vendor/
+        # (once deps exist) keeps the --impure eval reproducible.
         goArch =
           if imageSystem == "x86_64-linux" then "amd64"
           else if imageSystem == "aarch64-linux" then "arm64"
@@ -520,16 +516,6 @@
           withNestedPodman = false;
         };
 
-        # Derivation for the Python entrypoint package (runs inside Linux
-        # container).  src/entrypoint/ used to be a single file; the
-        # package is now a directory tree.  Copy it under
-        # /lib/python/entrypoint/ so adding /lib/python to PYTHONPATH
-        # exposes ``import entrypoint`` (matching the host-side import
-        # used by cli.run_cmd's preflight subprocess).
-        entrypointPkg = pkgs.runCommand "yolo-entrypoint-pkg" { } ''
-          mkdir -p $out/lib/python/entrypoint
-          cp -r ${./src/entrypoint}/. $out/lib/python/entrypoint/
-        '';
         # Use pkgs.writeTextFile (host) instead of imagePkgs.writeShellScriptBin
         # so building these wrappers does not require a Linux builder on macOS.
         # The shebang is hardcoded to imagePkgs.bashInteractive's Linux store
@@ -537,76 +523,61 @@
         # string transitively pulls Linux bash into the wrapper's closure
         # (fetched from the binary cache) so the wrapper is self-contained
         # and doesn't rely on PATH or /usr/bin/env existing in the image.
-        # Go port of the entrypoint (Stage 10), cross-compiled into the image by
-        # the goBinaries derivation above.  Baked alongside the Python package so
-        # the wrapper below can A/B between them per-jail with no image rebuild.
-        goEntrypoint = "${goBinaries}/bin/yolo-entrypoint";
 
-        # Dual-impl seam wrapper (go-port plan §3, seam #5).  Branches on
-        # YOLO_ENTRYPOINT_IMPL (default: python — this is a REVERSIBLE seam, Go
-        # is opt-in until the Stage-17 default flip).  Both implementations are
-        # baked into every image, so A/B and rollback are per-jail `-e` flips
-        # with zero host changes.
-        #
-        # Resolution order for the Go arm:
-        #   1. Dev override: /opt/yolo-jail/dist-go/linux-<arch>/yolo-entrypoint
-        #      when present (live-mount iteration — `just build-go` refreshes it,
-        #      no image rebuild; safe from `just build`'s `rm -rf dist/`).
-        #   2. The baked ${goBinaries} binary.
-        # The Python arm is unchanged: run the /lib/python/entrypoint package as
-        # a module (relative imports resolve via PYTHONPATH).
+        # Entrypoint wrapper — prefers the dev override at
+        # /opt/yolo-jail/dist-go/ (live-mount iteration, no image rebuild)
+        # then falls back to the baked Go binary.
         entrypoint = pkgs.writeTextFile {
           name = "yolo-entrypoint";
           executable = true;
           destination = "/bin/yolo-entrypoint";
           text = ''
             #!${imagePkgs.bashInteractive}/bin/bash
-            if [ "''${YOLO_ENTRYPOINT_IMPL:-python}" = "go" ]; then
-              dev_override="/opt/yolo-jail/dist-go/linux-${goArch}/yolo-entrypoint"
-              if [ -x "$dev_override" ]; then
-                exec "$dev_override" "$@"
-              fi
-              exec ${goEntrypoint} "$@"
+            dev_override="/opt/yolo-jail/dist-go/linux-${goArch}/yolo-entrypoint"
+            if [ -x "$dev_override" ]; then
+              exec "$dev_override" "$@"
             fi
-            # The entrypoint package lives at /lib/python/entrypoint/
-            # inside the image (see entrypointPkg above).  Put the
-            # parent ``python`` dir on PYTHONPATH and run as a module
-            # so the package's relative imports resolve.
-            export PYTHONPATH="${entrypointPkg}/lib/python''${PYTHONPATH:+:$PYTHONPATH}"
-            exec ${imagePkgs.python313}/bin/python3 -m entrypoint "$@"
+            exec ${goBinaries}/bin/yolo-entrypoint "$@"
           '';
         };
 
-        # In-jail yolo CLI wrapper — delegates to the mounted repo via uv
+        # In-jail yolo CLI — prefers the dev override, then the baked
+        # Go binary.
         yoloCli = pkgs.writeTextFile {
           name = "yolo";
           executable = true;
           destination = "/bin/yolo";
           text = ''
             #!${imagePkgs.bashInteractive}/bin/bash
-            # Use the mounted repo with uv (deps are cached in persistent ~/.cache/uv)
-            if [ -d /opt/yolo-jail/src ]; then
-              export PYTHONPATH="/opt/yolo-jail''${PYTHONPATH:+:$PYTHONPATH}"
-              exec ${imagePkgs.uv}/bin/uv run \
-                --no-project \
-                --python ${imagePkgs.python313}/bin/python3 \
-                --with typer --with rich --with "pyjson5>=2.0.0" \
-                -- python3 -c "from src.cli import main; main()" "$@"
+            dev_override="/opt/yolo-jail/dist-go/linux-${goArch}/yolo"
+            if [ -x "$dev_override" ]; then
+              exec "$dev_override" "$@"
             fi
-            echo "YOLO Jail CLI: source not mounted at /opt/yolo-jail"
-            echo "The yolo-jail repo is normally mounted automatically."
-            exit 1
+            exec ${goBinaries}/bin/yolo "$@"
           '';
         };
 
+        # Expose all Go cmd/* binaries (except yolo and yolo-entrypoint,
+        # which have their own wrappers with dev-override logic) in /bin/.
+        goBinariesLinks = pkgs.runCommand "go-bin-links" { } ''
+          mkdir -p $out/bin
+          for bin in ${goBinaries}/bin/*; do
+            name=$(basename "$bin")
+            case "$name" in
+              yolo|yolo-entrypoint) continue ;;
+            esac
+            ln -s "$bin" "$out/bin/$name"
+          done
+        '';
+
         # Core packages: everything the integration test suite in
-        # tests/test_jail.py actually touches, plus POSIX essentials that
-        # shell scripts in src/entrypoint.py and src/shims/ rely on.
+        # tests/test_jail.py actually touches, plus POSIX essentials.
         # Shared between the full and minimal image variants.
         corePackages = [
           shims
           entrypoint
           yoloCli
+          goBinariesLinks
           imagePkgs.bashInteractive
           imagePkgs.coreutils-full
           imagePkgs.git

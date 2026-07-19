@@ -1,16 +1,11 @@
 //go:build linux
 
-// Package ttyproxy is the Go port of src/cli/tty_proxy.py — the in-process TTY
-// proxy that wraps `podman run` so ^Z suspends the PROXY (not the container),
-// SIGWINCH resizes propagate, and window-close/SIGTERM tear the jail down
-// cleanly.
+// Package ttyproxy is the in-process TTY proxy that wraps `podman run` so ^Z
+// suspends the PROXY (not the container), SIGWINCH resizes propagate, and
+// window-close/SIGTERM tear the jail down cleanly. All signal teardown stays
+// in one process.
 //
-// This is the LIBRARY form (the plan's Stage 8 pre-decided fallback,
-// consumed in-process by `run` at Stage 16) — NOT the two-process
-// Go-child/Python-parent split (seam #4). The library form keeps ALL signal
-// teardown in one process and is what a pure-Go `run` needs.
-//
-// Frozen behavior (from tty_proxy.py + docs/design/ctrl-z-and-the-tty-proxy.md):
+// Frozen behavior (from docs/design/ctrl-z-and-the-tty-proxy.md):
 //   - non-TTY stdin -> transparent plain spawn (no pty).
 //   - ^Z (0x1A) suspends the PROXY via TARGETED SIGTSTP to self (NEVER a
 //     pgroup-wide signal — that would stop podman, a jail-visible change); the

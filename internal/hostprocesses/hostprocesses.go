@@ -1,9 +1,8 @@
-// Package hostprocesses is the Go port of src/host_processes.py — the
-// allowlisted host-process viewer daemon. It answers ps-style requests from the
-// jail against an allowlist configured in yolo-jail.jsonc, via
-// internal/hostservice (the frame-protocol server).
+// Package hostprocesses is the allowlisted host-process viewer daemon. It
+// answers ps-style requests from the jail against an allowlist configured in
+// yolo-jail.jsonc, via internal/hostservice (the frame-protocol server).
 //
-// Frozen contracts (go-port plan Stage 5): the config load (host_processes
+// Frozen contracts: the config load (host_processes
 // section, re-read PER REQUEST so operator edits take effect without restart),
 // the DEFAULT_FIELDS, the list/tree/pid mode argv + allowlist construction, and
 // the exit codes (3 empty-allowlist, 2 bad-mode/bad-pid/not-allowlisted).
@@ -159,7 +158,7 @@ func BuildHandler(configPath string) hostservice.Handler {
 	}
 }
 
-// pyStrOrList mirrors Python's str(request.get("mode") or "list"): if the
+// pyStrOrList str(request.get("mode") or "list"): if the
 // value is falsy (absent, "", 0, 0.0, false, null, empty list/dict) -> "list";
 // otherwise str(value). For a string that's str(value)==value; for other
 // truthy types we produce Python's str() form so a bogus mode still routes to
@@ -281,7 +280,7 @@ func sortedKeys(m map[string]struct{}) []string {
 	return out
 }
 
-// asIntStrict mirrors Python's isinstance(want_pid, int): only an actual JSON
+// asIntStrict isinstance(want_pid, int): only an actual JSON
 // integer counts (a float like 42.0 or a string "42" does NOT).
 func asIntStrict(v any) (int, bool) {
 	// jsonx decodes JSON integers to its internal integer type (re-encodes with

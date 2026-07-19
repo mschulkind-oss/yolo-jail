@@ -1,10 +1,7 @@
-// Package runtime is the Go port of the PURE / canned-output-replayable pieces
-// of src/cli/runtime.py — the container-runtime plumbing the ps command, prune,
-// and storage lean on. The subprocess invocations (which runtime binary to
-// spawn, connectivity probes) stay thin wrappers around these pure functions;
-// the parsing and the None-vs-empty liveness polarity are what carry the
-// incident history, so those are ported byte-exact and unit-tested against
-// canned podman / Apple-Container output.
+// Package runtime provides the container-runtime plumbing the ps command,
+// prune, and storage lean on. The subprocess invocations stay thin wrappers
+// around pure parsing functions; the liveness polarity (None-vs-empty) is
+// unit-tested against canned podman / Apple-Container output.
 package runtime
 
 import (
@@ -39,8 +36,7 @@ func DetectRuntime() string {
 // PsRuntime resolves the runtime for `yolo ps` PLATFORM-AWARELY, closing the
 // audit §B/D11 bug where the shallow DetectRuntime picked "podman" on a macOS
 // host running Apple Container (YOLO_RUNTIME unset) → `podman ps` empty → the
-// stale-tracking prune deleted LIVE AC jails' files. Priority mirrors Python's
-// _runtime() candidate order: YOLO_RUNTIME override, else on macOS
+// stale-tracking prune deleted LIVE AC jails' files. Priority // _runtime() candidate order: YOLO_RUNTIME override, else on macOS
 // container→podman (native Apple Container preferred), else podman on Linux.
 // hasBinary reports whether a runtime CLI is on PATH (inject exec.LookPath!=nil;
 // pass nil to assume present). No connectivity probe / sys.exit — the ps prune

@@ -1,5 +1,5 @@
-// Package prunecmd is the Go port of the `yolo prune` command body
-// (src/cli/prune_cmd.py:prune_cmd). It reclaims disk from yolo-jail storage:
+// Package prunecmd implements the `yolo prune` command. It reclaims disk from
+// yolo-jail storage:
 // hardlink-dedup across workspaces, drop stopped containers, sweep old images
 // and the image-tar cache, reap orphaned broker relays, reclaim orphan
 // build-root generations, purge overlay-shadowed seed subtrees, and age-purge
@@ -13,7 +13,7 @@
 // orchestration: it wires the sections in Python's exact order, applies the
 // flag gates, and renders the report.
 //
-// Output contract (Stage 14 approved Open Question, mirroring check/run): the
+// Output contract: the
 // human output reproduces the SECTION ORDERING, the "would remove"/"removed"
 // verbs, the disk-usage before-report, and the summary INFO — NOT the
 // byte-identical rich ANSI. Rich markup is stripped; the FmtBytes numbers,
@@ -368,7 +368,7 @@ type nameSize struct {
 // sorted(items, key=lambda kv: kv[1], reverse=True) is a STABLE sort over the
 // dict's insertion order; Go map iteration is randomized, so ties would render
 // nondeterministically. We break ties by name to keep the display deterministic
-// — the byte TOTALS and set of names are identical to Python regardless of tie
+// the byte TOTALS and set of names are identical to Python regardless of tie
 // order (parity is on the numbers, and ties carry equal bytes).
 func sortByValueDesc(m map[string]int64) []nameSize {
 	out := make([]nameSize, 0, len(m))
@@ -428,7 +428,7 @@ type printer struct {
 }
 
 // line writes one console.print line. Rich markup is stripped (parity is on the
-// text content + numbers, not the markup bytes — the Stage 14/15 output
+// text content + numbers, not the markup bytes — the/15 output
 // contract). color is accepted for symmetry with check's reporter but the
 // stripped text is the contract, so it is currently always stripped.
 func (p *printer) line(s string) {

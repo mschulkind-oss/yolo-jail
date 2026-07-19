@@ -3,123 +3,41 @@ package entrypoint
 import (
 	"os"
 	"path/filepath"
-	"runtime"
-
-	"github.com/mschulkind-oss/yolo-jail/internal/pytext"
 )
 
-// GenerateCglimitScript mirrors scripts.generate_cglimit_script: writes
-// ~/.local/bin/yolo-cglimit (a stdlib-only Python client to the host cgroup
-// daemon) and chmod's |= S_IEXEC.
+// GenerateCglimitScript writes ~/.local/bin/yolo-cglimit (a stdlib-only Python
+// client to the host cgroup daemon).
 func GenerateCglimitScript(e *Env) error {
 	return writeExecutable(filepath.Join(e.LocalBin(), "yolo-cglimit"), cglimitScript)
 }
 
-// GenerateJournalctlScript mirrors scripts.generate_journalctl_script.
+// GenerateJournalctlScript writes ~/.local/bin/yolo-journalctl.
 func GenerateJournalctlScript(e *Env) error {
 	return writeExecutable(filepath.Join(e.LocalBin(), "yolo-journalctl"), journalctlScript)
 }
 
-// repoRoot mirrors os.environ.get("YOLO_REPO_ROOT", "/opt/yolo-jail").
-func (e *Env) repoRoot() string {
-	if v, ok := e.Lookup("YOLO_REPO_ROOT"); ok {
-		return v
-	}
-	return "/opt/yolo-jail"
-}
-
-// GenerateYoloPsScript mirrors scripts.generate_yolo_ps_script: a thin wrapper
-// that invokes src.yolo_ps:main from the bind-mounted repo root. repo_root is
-// embedded via Python repr ({repo_root!r}).
-func GenerateYoloPsScript(e *Env) error {
-	repo := e.repoRoot()
-	content := "#!/usr/bin/env python3\n" +
-		"\"\"\"yolo-ps — jail-side client for the host-processes loophole.\n" +
-		"Thin wrapper that invokes src.yolo_ps:main from the bind-mounted\n" +
-		"yolo-jail repo root.\n" +
-		"\"\"\"\n" +
-		"import sys\n" +
-		"sys.path.insert(0, " + pytext.Repr(repo) + ")\n" +
-		"from src.yolo_ps import main\n" +
-		"sys.exit(main())\n"
-	return writeExecutable(filepath.Join(e.LocalBin(), "yolo-ps"), content)
-}
-
-// GenerateYoloWrapper mirrors scripts.generate_yolo_wrapper: a bootstrap .py in
-// the shim dir (chmod 0o755) plus the `yolo` bash shim (chmod 0o755), then
-// removes any stale ~/.local/bin/yolo left by older entrypoints.
+// GenerateYoloWrapper cleans up stale shim files from older
+// entrypoints. The yolo and yolo-ps Go binaries are now baked into the nix
+// image directly — no runtime wrapper generation needed.
 func GenerateYoloWrapper(e *Env) error {
-	repo := e.repoRoot()
-	shimDir := e.ShimDir()
-	if err := os.MkdirAll(shimDir, 0o755); err != nil {
-		return err
-	}
-	bootstrapPy := filepath.Join(shimDir, "_yolo_bootstrap.py")
-
-	bootstrapContent := "#!/usr/bin/env python3\n" +
-		"\"\"\"Make ``src`` importable without PYTHONPATH or cd gymnastics.\"\"\"\n" +
-		"import sys\n" +
-		"sys.path.insert(0, " + pytext.Repr(repo) + ")\n" +
-		"# Rewrite argv[0] so typer's help/usage strings read \"yolo\", not\n" +
-		"# this bootstrap path.\n" +
-		"sys.argv[0] = \"yolo\"\n" +
-		"from src.cli import main\n" +
-		"\n" +
-		"main()\n"
-	if err := writeMode(bootstrapPy, bootstrapContent, 0o755); err != nil {
-		return err
-	}
-
-	// Single-line uv incantation shared by the yolo / _yolo_python / yolo-go
-	// shims (mirrors scripts.py's uv_cli).
-	const uvCLI = `uv run --no-project --with typer --with rich --with "pyjson5>=2.0.0" -- python`
-	shimContent := "#!/bin/bash\n" +
-		"exec " + uvCLI + " \"" + bootstrapPy + "\" \"$@\"\n"
-	scriptPath := filepath.Join(shimDir, "yolo")
-	if err := writeMode(scriptPath, shimContent, 0o755); err != nil {
-		return err
-	}
-
-	// _yolo_python: a single-executable python shim for the Go binary's
-	// delegate-to-Python path (it execs YOLO_PYTHON as one argv[0]). Mirrors
-	// scripts.py's py_shim.
-	pyShim := filepath.Join(shimDir, "_yolo_python")
-	pyShimContent := "#!/bin/bash\n" +
-		"exec " + uvCLI + " \"$@\"\n"
-	if err := writeMode(pyShim, pyShimContent, 0o755); err != nil {
-		return err
-	}
-
-	// yolo-go: same bootstrap with the Go gate baked in (Python main() re-execs
-	// $YOLO_GO_BIN_DIR/yolo). Mirrors scripts.py's go_script_path.
-	goBinDir := "/opt/yolo-jail/dist-go/linux-" + goBinArch()
-	goShim := filepath.Join(shimDir, "yolo-go")
-	goShimContent := "#!/bin/bash\n" +
-		"export YOLO_IMPL=go\n" +
-		"export YOLO_GO_BIN_DIR=\"" + goBinDir + "\"\n" +
-		"export YOLO_PYTHON=\"" + pyShim + "\"\n" +
-		"exec " + uvCLI + " \"" + bootstrapPy + "\" \"$@\"\n"
-	if err := writeMode(goShim, goShimContent, 0o755); err != nil {
-		return err
-	}
-
-	// Remove stale ~/.local/bin/yolo if it's a regular file (older entrypoints).
+	// Remove stale ~/.local/bin/yolo (older entrypoints put a script here).
 	stale := filepath.Join(e.LocalBin(), "yolo")
 	if fi, err := os.Lstat(stale); err == nil && fi.Mode().IsRegular() {
 		_ = os.Remove(stale)
 	}
+	// Remove stale ~/.local/bin/yolo-ps (was a Python wrapper).
+	stalePsPath := filepath.Join(e.LocalBin(), "yolo-ps")
+	if fi, err := os.Lstat(stalePsPath); err == nil && fi.Mode().IsRegular() {
+		_ = os.Remove(stalePsPath)
+	}
+	// Remove stale shim files from the shim dir.
+	for _, name := range []string{"_yolo_bootstrap.py", "_yolo_python", "yolo", "yolo-go"} {
+		_ = os.Remove(filepath.Join(e.ShimDir(), name))
+	}
 	return nil
 }
 
-// goBinArch maps the jail's arch to the dist-go GOARCH suffix (mirrors
-// scripts.py's os.uname().machine map). The entrypoint runs in-jail (Linux,
-// native arch), so runtime.GOARCH is that value.
-func goBinArch() string {
-	return runtime.GOARCH
-}
-
-// cglimitScript is the byte-exact body of scripts.generate_cglimit_script's
-// embedded Python (a plain r”'...”' string — no interpolation).
+// cglimitScript is the embedded Python body for yolo-cglimit.
 const cglimitScript = `#!/usr/bin/env python3
 """yolo-cglimit — Run a command under cgroup v2 resource limits.
 
@@ -240,8 +158,7 @@ if __name__ == "__main__":
     main()
 `
 
-// journalctlScript is the byte-exact body of scripts.generate_journalctl_script's
-// embedded Python (a plain r”'...”' string — no interpolation).
+// journalctlScript is the embedded Python body for yolo-journalctl.
 const journalctlScript = `#!/usr/bin/env python3
 """yolo-journalctl — Run journalctl on the host via the yolo-jail journal bridge.
 

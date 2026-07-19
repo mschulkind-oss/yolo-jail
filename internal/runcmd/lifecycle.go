@@ -194,7 +194,7 @@ func (o *Options) podmanMachineMemory() (string, int, bool) {
 	return parsePodmanMachineMemory(res.Stdout)
 }
 
-// parsePodmanMachineMemory ports the JSON parse of _podman_machine_memory:
+// parsePodmanMachineMemory runs the JSON parse of _podman_machine_memory:
 // prefer a running machine, else the first; read Resources.Memory (MB).
 func parsePodmanMachineMemory(stdout string) (string, int, bool) {
 	decoded, err := jsonx.Decode([]byte(stdout))

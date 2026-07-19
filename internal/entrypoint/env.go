@@ -1,18 +1,10 @@
-// Package entrypoint is the Go port of the pure CONTENT-GENERATION functions in
-// src/entrypoint/*.py — the in-jail PID-1 bootstrap. This package ports ONLY
-// the functions that generate file CONTENT (shims, .bashrc, the six agents'
-// config files, managed-MCP sidecars, mise config.toml, MCP wrappers, and the
-// bootstrap/venv-precreate/cglimit/journalctl/yolo-ps/yolo-wrapper script
-// bodies). Boot sequencing, image wiring, and orchestration are a later Stage
-// 10 sub-phase and are NOT here.
+// Package entrypoint generates the in-jail PID-1 bootstrap content — shims,
+// .bashrc, the six agents' config files, managed-MCP sidecars, mise
+// config.toml, MCP wrappers, and the bootstrap/venv-precreate/cglimit/
+// journalctl/yolo-ps/yolo-wrapper script bodies.
 //
-// Byte-exact parity with the Python source is the requirement, verified by a
-// tree-diff/sha256 golden harness against the LIVE Python generators
-// (tools/parity/entrypoint_oracle.py + entrypoint_parity_test.go).
-//
-// Like the Python entrypoint (which is stdlib-only because it runs before any
-// pip packages are installed), this package is dependency-light: it builds only
-// on the already-vetted internal/* foundation packages (jsonx, tomlx, shquote,
+// This package is dependency-light: it builds only on internal/* foundation
+// packages (jsonx, tomlx, shquote,
 // agents, fsx) — no third-party deps beyond what those vendor.
 package entrypoint
 
@@ -65,10 +57,10 @@ func (e *Env) warn(msg string) {
 // NewEnv builds an Env from a variable map, resolving Home, MiseData, NpmPrefix,
 // and GoPath with the same defaults the Python module constants use.
 //
-//   - HOME:      JAIL_HOME || HOME || /home/agent
-//   - MISE_DATA: MISE_DATA_DIR || HOME/.local/share/mise   (shims appended)
-//   - NPM:       NPM_CONFIG_PREFIX || HOME/.npm-global
-//   - GOPATH:    GOPATH || HOME/go
+// - HOME: JAIL_HOME || HOME || /home/agent
+// - MISE_DATA: MISE_DATA_DIR || HOME/.local/share/mise (shims appended)
+// - NPM: NPM_CONFIG_PREFIX || HOME/.npm-global
+// - GOPATH: GOPATH || HOME/go
 func NewEnv(vars map[string]string) *Env {
 	if vars == nil {
 		vars = map[string]string{}
@@ -102,7 +94,7 @@ func NewEnv(vars map[string]string) *Env {
 }
 
 // EnvFromOS builds an Env from the real process environment. Used by the actual
-// PID-1 binary (Stage 10 orchestration); the generators themselves take an
+// PID-1 binary; the generators themselves take an
 // explicit *Env so tests can drive a fixed matrix.
 func EnvFromOS() *Env {
 	vars := map[string]string{}

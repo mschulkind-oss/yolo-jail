@@ -9,7 +9,7 @@ import (
 	"github.com/mschulkind-oss/yolo-jail/internal/jsonx"
 )
 
-// BuildOCIImage ports the side-effecting core of _build_image_store_path for the
+// BuildOCIImage runs the side-effecting core of _build_image_store_path for the
 // `yolo check` preflight: run `nix build .#ociImage --impure` and return the
 // resulting store path on success, plus the retained stderr tail (last 30
 // lines) for failure diagnosis via DiagnoseNixBuildFailure. storePath is "" on

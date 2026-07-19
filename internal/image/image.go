@@ -1,11 +1,7 @@
-// Package image is the Go port of the PURE / file-testable pieces of the
-// container-image build/load pipeline in src/cli/image.py — the command
+// Package image provides the container-image build/load pipeline — the command
 // builders, the nix-stderr summarizer, the byte-progress formatter, the
 // per-runtime load sentinel (LRU of store paths), the sha256-keyed cache path,
-// and the /etc/nix/machines stream-command resolution. The subprocess
-// orchestration in auto_load_image (nix build, materialize, load, Apple
-// Container OCI conversion) stays a thin wrapper around these until the run
-// slice lands; the parts that carry byte contracts are ported and tested here.
+// and the /etc/nix/machines stream-command resolution.
 package image
 
 import (

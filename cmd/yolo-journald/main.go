@@ -1,8 +1,8 @@
-// Command yolo-journald is the Go port of the builtin journal-bridge daemon
-// (go-port plan Stage 7, Commit B). It listens on a Unix socket, reads a
-// newline-terminated JSON request, validates the journalctl args, execs
-// journalctl, and streams stdout/stderr/exit back as ">BI" frames with stream
-// IDs 1/2/3 (DELIBERATELY distinct from the loophole protocol's 0/1/2).
+// Command yolo-journald is the builtin journal-bridge daemon. It listens on a
+// Unix socket, reads a newline-terminated JSON request, validates the journalctl
+// args, execs journalctl, and streams stdout/stderr/exit back as ">BI" frames
+// with stream IDs 1/2/3 (DELIBERATELY distinct from the loophole protocol's
+// 0/1/2).
 //
 // Frozen: socket chmod 0777, the arg validation + "user"-mode --user prepend,
 // the journalctl-not-found (127) / spawn-failure (1) exit codes.
@@ -131,9 +131,9 @@ func handleConn(conn *net.UnixConn, mode string) {
 	go pump(stderr, journald.FrameStderr)
 
 	// Drain the pumps to EOF BEFORE Wait: cmd.Wait closes the pipes after the
-	// child exits, discarding kernel-buffered data — the confirmed truncation
-	// race. The pumps get EOF when journalctl exits and closes its ends, so
-	// waiting on them first mirrors Python's pump-until-EOF-then-wait order.
+	// child exits, discarding kernel-buffered data. The pumps get EOF when
+	// journalctl exits and closes its ends, so waiting on them first ensures
+	// no data is lost.
 	wg.Wait()
 	rc := 0
 	if werr := cmd.Wait(); werr != nil {

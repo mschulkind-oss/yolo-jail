@@ -1,11 +1,7 @@
-// Package pscmd is the Go port of the `yolo ps` command body (src/cli/run_cmd.py
-// ps()). It lists running yolo-* jails, resolves each to its workspace, prunes
-// stale tracking files, and flags problem jails. The parsing + rendering are the
-// already-ported internal/runtime engines; this package is the thin
-// orchestration with every subprocess behind an injectable seam so the whole
-// command is unit-testable and golden-able (the check/run precedent).
-//
-// Output is plain typer.echo (not rich), so it is byte-parity with Python.
+// Package pscmd implements the `yolo ps` command. It lists running yolo-*
+// jails, resolves each to its workspace, prunes stale tracking files, and
+// flags problem jails. Every subprocess is behind an injectable seam for
+// unit-testability.
 package pscmd
 
 import (

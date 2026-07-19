@@ -204,7 +204,7 @@ func (o *Options) inspectWorkspaceMount(rt, name string) (string, bool) {
 	return "", false
 }
 
-// diskUsageTotal ports the `total` key of prune._disk_usage_report: bytes under
+// diskUsageTotal runs the `total` key of prune._disk_usage_report: bytes under
 // GLOBAL_STORAGE (dirs + stray files, symlinks skipped) plus each workspace's
 // .yolo/ size.
 func diskUsageTotal(workspaces []string, globalStorage string) int64 {

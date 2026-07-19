@@ -147,7 +147,6 @@ func generateAll(t *testing.T, e *Env) {
 	}
 	must(GenerateCglimitScript(e))
 	must(GenerateJournalctlScript(e))
-	must(GenerateYoloPsScript(e))
 	must(GenerateYoloWrapper(e))
 }
 
@@ -164,7 +163,7 @@ func checkShellScripts(t *testing.T, bash, home string) {
 	shimDir := filepath.Join(home, ".yolo-shims")
 	if entries, err := os.ReadDir(shimDir); err == nil {
 		for _, ent := range entries {
-			if ent.IsDir() || ent.Name() == "_yolo_bootstrap.py" {
+			if ent.IsDir() {
 				continue
 			}
 			rels = append(rels, filepath.Join(".yolo-shims", ent.Name()))

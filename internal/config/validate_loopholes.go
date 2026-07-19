@@ -6,7 +6,7 @@ import (
 	"github.com/mschulkind-oss/yolo-jail/internal/pytext"
 )
 
-// validateLoopholes ports the `host_services = config.get("loopholes")` block
+// validateLoopholes runs the `host_services = config.get("loopholes")` block
 // of _validate_config. Names matching a file-backed loophole are overrides
 // (enabled/env/jail_env only); unknown override-shaped names warn; everything
 // else is an inline service definition (command required).
@@ -54,7 +54,7 @@ func validateLoopholes(config *jsonx.OrderedMap, resolver LoopholeResolver, errs
 			continue
 		}
 		// Override-shaped but no loophole discoverable from here:
-		//   spec (truthy) and "command" not in spec and set(spec) <= override keys
+		// spec (truthy) and "command" not in spec and set(spec) <= override keys
 		if spec.Len() > 0 && !hasKey(spec, "command") && keysSubsetOf(spec, knownLoopholeOverrideKeys) {
 			validateLoopholeOverride(name, spec, path, errs, nil)
 			add(warns, path+": no loophole named "+pytext.Repr(name)+" is installed on "+
@@ -108,7 +108,7 @@ func validateLoopholeOverride(name string, spec *jsonx.OrderedMap, path string, 
 	}
 }
 
-// validateInlineService ports the inline-service tail of the loopholes block.
+// validateInlineService runs the inline-service tail of the loopholes block.
 func validateInlineService(spec *jsonx.OrderedMap, path string, errs *[]string) {
 	reportUnknownKeys(spec, knownHostServiceKeys, path, errs)
 	cmdV, present := spec.Get("command")

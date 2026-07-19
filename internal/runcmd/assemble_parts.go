@@ -12,7 +12,7 @@ import (
 	"github.com/mschulkind-oss/yolo-jail/internal/runmount"
 )
 
-// appleContainerBaseMounts ports the `if runtime == "container"` base run_cmd
+// appleContainerBaseMounts runs the `if runtime == "container"` base run_cmd
 // (1716-1749): single writable /home/agent (device-limit workaround), the mise
 // named volume, and bare --tmpfs scratch dirs.
 func appleContainerBaseMounts(rt string, runFlags []string, workspace, wsState string) []string {
@@ -31,7 +31,7 @@ func appleContainerBaseMounts(rt string, runFlags []string, workspace, wsState s
 	)
 }
 
-// podmanBaseMounts ports the else-branch base run_cmd (1751-1818): the :ro
+// podmanBaseMounts runs the else-branch base run_cmd (1751-1818): the :ro
 // GLOBAL_HOME base + the per-workspace writable overlays (dirs, files) + the
 // mise store mount (named volume on macOS, bind dir otherwise).
 func podmanBaseMounts(rt string, runFlags []string, workspace string, in *assembleInput) []string {
@@ -65,7 +65,7 @@ func podmanBaseMounts(rt string, runFlags []string, workspace string, in *assemb
 	return runCmd
 }
 
-// podmanNestingArgs ports the `if runtime == "podman"` nesting/GPU/device+cap
+// podmanNestingArgs runs the `if runtime == "podman"` nesting/GPU/device+cap
 // block (2071-2182). One of three branches: in-container (share parent userns),
 // GPU-nvidia (runc + identity uidmap), or the normal host branch (fuse + uidmap
 // + caps).
@@ -117,7 +117,7 @@ func (o *Options) podmanNestingArgs(inContainer, gpuEnabled bool, gpuVendor stri
 	return args
 }
 
-// gitignoreMountArgs ports the global-gitignore propagation (2228-2263): read
+// gitignoreMountArgs runs the global-gitignore propagation (2228-2263): read
 // core.excludesFile (or ~/.config/git/ignore), mount it :ro (dereferencing a
 // nested bind), and set YOLO_GLOBAL_GITIGNORE. Apple Container materializes into
 // ws_state instead of mounting.
@@ -148,7 +148,7 @@ func (o *Options) gitignoreMountArgs(rt, wsState string, mountTargets map[string
 	return args
 }
 
-// forwardHostPortsArgs ports the host-port-forwarding FLAG emission (2291-2321):
+// forwardHostPortsArgs runs the host-port-forwarding FLAG emission (2291-2321):
 // the YOLO_FORWARD_HOST_PORTS env + the platform-specific socket wiring
 // (--publish-socket for AC, TCP gateway env for macOS podman, -v socket dir for
 // Linux). The socat lifecycle itself is separate (network.go).
@@ -182,7 +182,7 @@ func (o *Options) fwdSocketDir(cname string) string {
 	return filepath.Join(base, "yolo-fwd-"+cname)
 }
 
-// hostServicesMountArgs ports the host-services sockets-dir mount + broker relay
+// hostServicesMountArgs runs the host-services sockets-dir mount + broker relay
 // env (2333-2372). The broker singleton ensure + relay spawn are side effects
 // handled by the lifecycle phase; here we emit the -v + the broker socket env
 // when the singleton socket exists.
@@ -199,7 +199,7 @@ func (o *Options) hostServicesMountArgs(rt, cname string) []string {
 	return args
 }
 
-// deviceArgs ports the device-passthrough loop (2378-2441): raw paths, USB by
+// deviceArgs runs the device-passthrough loop (2378-2441): raw paths, USB by
 // vendor:product (resolved via lsusb), and cgroup rules. macOS warns+skips.
 func (o *Options) deviceArgs(cfg *jsonx.OrderedMap) []string {
 	out := o.pr(o.Stdout)
@@ -240,7 +240,7 @@ func (o *Options) deviceArgs(cfg *jsonx.OrderedMap) []string {
 	return args
 }
 
-// resolveUSBDevice ports the lsusb resolution branch. Returns the --device args
+// resolveUSBDevice runs the lsusb resolution branch. Returns the --device args
 // (empty on any failure, warned).
 func (o *Options) resolveUSBDevice(usbID, desc string) []string {
 	out := o.pr(o.Stdout)
@@ -269,7 +269,7 @@ func (o *Options) resolveUSBDevice(usbID, desc string) []string {
 	return []string{"--device", devPath}
 }
 
-// kvmArgs ports the KVM passthrough block (2581-2598). keepGroupsAlready
+// kvmArgs runs the KVM passthrough block (2581-2598). keepGroupsAlready
 // reports whether the assembled command already carries --group-add
 // keep-groups (the ROCm block adds it on podman): podman rejects keep-groups
 // combined with any other --group-add value, INCLUDING a duplicate of itself,
@@ -295,7 +295,7 @@ func (o *Options) kvmArgs(cfg *jsonx.OrderedMap, rt string, keepGroupsAlready bo
 	return args
 }
 
-// repoMountSource ports the /opt/yolo-jail source selection (2031-2036).
+// repoMountSource runs the /opt/yolo-jail source selection (2031-2036).
 func (o *Options) repoMountSource(repoRoot string) string {
 	if workspaceIsYoloSourceTree(o.Workspace) {
 		return o.Workspace
@@ -306,7 +306,7 @@ func (o *Options) repoMountSource(repoRoot string) string {
 	return o.Workspace
 }
 
-// userConfigMountArgs ports the user-config mount for nested jails (2682-2698).
+// userConfigMountArgs runs the user-config mount for nested jails (2682-2698).
 func (o *Options) userConfigMountArgs(rt, wsState string, mountTargets map[string]struct{}) []string {
 	userPath := paths.UserConfigPath()
 	if !isFile(userPath) {
@@ -322,7 +322,7 @@ func (o *Options) userConfigMountArgs(rt, wsState string, mountTargets map[strin
 	return runmount.ROFileMountArg(userPath, containerConfig, wsState, relConfig, mountTargets, nil)
 }
 
-// loopholesRuntimeArgs ports the host-side loopholes runtime args (2823-2828):
+// loopholesRuntimeArgs runs the host-side loopholes runtime args (2823-2828):
 // --add-host, CA cert mounts, NODE_EXTRA_CA_CERTS.
 func (o *Options) loopholesRuntimeArgs(cfg *jsonx.OrderedMap, rt string) []string {
 	discovered := loopholes.Discover(loopholes.DiscoverOptions{
@@ -338,7 +338,7 @@ func hasKey(m *jsonx.OrderedMap, key string) bool {
 	return ok
 }
 
-// resourceArgs ports the resource-limits block (2600-2649): --memory/--cpus with
+// resourceArgs runs the resource-limits block (2600-2649): --memory/--cpus with
 // Apple-Container defaults, and --pids-limit (podman default 32768).
 func (o *Options) resourceArgs(cfg *jsonx.OrderedMap, rt string) []string {
 	resCfg := cfgMap(cfg, "resources")

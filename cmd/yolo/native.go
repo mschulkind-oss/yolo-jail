@@ -318,17 +318,10 @@ func runRun(args []string) int {
 		}
 	}
 	opts.Args = cmdArgs
-	// Wire the macos-user native branch (Stage 16b seam #8 deletion). runcmd
-	// stays free of the macosuser + darwinpkg deps; the front door injects the
-	// handler that assembles macosuser.RealDeps with the two impure adapters:
-	//   - runProxy: the real TTY-proxy launcher (ttyproxy.RunWithProxy).
-	//   - materialize: darwinpkg.Materialize (streaming native aarch64-darwin
-	//     nix build), converting its result to macosuser.Darwin.
+	// Wire the macos-user native branch. runcmd stays free of the macosuser +
+	// darwinpkg deps; the front door injects the handler.
 	opts.MacosUserRun = macosUserRun
-	// Set the tmux/kitty jail indicator (how the user knows a terminal is inside
-	// a jail — a safety affordance) around the run, restoring on exit. This is
-	// the native run path (never a delegation), so Go owns the indicator here —
-	// mirrors Python's _tmux_rename_window / kitty tab branding (audit §B#4).
+	// Set the tmux/kitty jail indicator around the run, restoring on exit.
 	restore := frontdoor.SetupJailIndicator()
 	if restore != nil {
 		defer restore()

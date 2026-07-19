@@ -12,7 +12,7 @@ import (
 	"github.com/mschulkind-oss/yolo-jail/internal/hostservice"
 )
 
-// The Stage-5 black-box suite (plan §Stage 5 Parity): drive the Go daemon over
+// The Stage-5 black-box suite (plan § Parity): drive the Go daemon over
 // a real socket with a PATH-shimmed fake `ps`, covering list/tree/pid, the
 // exit-code contract (0/1/2/3/124), per-request config re-read, empty-allowlist,
 // and the audit-found failure/edge paths (non-string mode, tree timeout, tree

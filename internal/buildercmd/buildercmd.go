@@ -1,4 +1,4 @@
-// Package buildercmd is the Go port (AS-IS, Stage 16b) of the on-demand macOS
+// Package buildercmd is the Go port (AS-IS,) of the on-demand macOS
 // Linux builder: src/cli/builder.py's VM lifecycle + reachability, and
 // src/cli/builder_cmd.py's `yolo builder {setup,start,stop,status}` command
 // bodies. macОS can't build the aarch64-linux image locally, so Nix offloads to
@@ -7,7 +7,7 @@
 //
 // The PURE generators (ssh_config block, nix builders line, trusted-users
 // merge, the single-sudo root script) already landed as internal/builder in
-// Stage 14 and are REUSED here, never re-ported. This package adds the
+// and are REUSED here, never re-ported. This package adds the
 // lifecycle orchestration (setup-state probing, ensure/poll/start/stop) and the
 // command bodies. Every socket / subprocess / PID-file / platform probe is an
 // injectable Deps seam so the orchestration logic is unit-testable on Linux;

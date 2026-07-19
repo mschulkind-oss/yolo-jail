@@ -1,9 +1,8 @@
-// Package cgd is the Go port of the builtin cgroup-delegate daemon
-// (src/cli/loopholes_runtime.py: _cgroup_delegate_handler + _cgd_*). It
-// performs privileged cgroup v2 operations on the host's cgroup subtree on
-// behalf of an in-jail caller, identified by SO_PEERCRED (kernel-attested PID).
+// Package cgd is the cgroup-delegate daemon. It performs privileged cgroup v2
+// operations on the host's cgroup subtree on behalf of an in-jail caller,
+// identified by SO_PEERCRED (kernel-attested PID).
 //
-// Frozen contracts (go-port plan Stage 7): the single-line-JSON request/
+// Frozen contracts: the single-line-JSON request/
 // response protocol, the cgroup-name validation regex, the human-readable
 // memory parse, the cpu.max/memory.max/pids.max writes and their range checks,
 // and the "move caller into the job cgroup by peer PID" semantics.

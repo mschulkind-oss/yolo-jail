@@ -199,7 +199,7 @@ func (o *Options) startExternalService(name string, spec *jsonx.OrderedMap, sock
 		}
 		cmdArgs = append(cmdArgs, strings.ReplaceAll(s, "{socket}", hostSocket))
 	}
-	// go-port seam #2 (_daemon_launcher): if cmd[0] is a console-script daemon
+	// go-port (_daemon_launcher): if cmd[0] is a console-script daemon
 	// gated on via YOLO_GO_DAEMONS, swap it for the Go binary at
 	// $YOLO_GO_BIN_DIR. Only the launcher token is replaced; the substituted
 	// --socket/... tail is kept. Missing/ungated → falls back to the console
@@ -525,7 +525,7 @@ func (o *Options) relayKill(pidFile, sockPath string) {
 // never reaped.
 const relayOrphanGraceSeconds = 3600.0
 
-// relayReapOrphans ports the backstop reap of _relay_reap_orphans, piggybacking
+// relayReapOrphans runs the backstop reap of _relay_reap_orphans, piggybacking
 // on the store-prune gate's live-container enumeration (run_cmd.py:2760-2771).
 // A per-jail relay outlives the yolo process that spawned it by design, and
 // stopLoopholes only reaps the current jail's relay in that original process's
