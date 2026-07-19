@@ -15,7 +15,7 @@ install:
     VERSION="$(git describe --tags --always --dirty 2>/dev/null || echo unknown)"
     COMMIT="$(git rev-parse --short HEAD 2>/dev/null || echo unknown)"
     LDFLAGS="-X github.com/mschulkind-oss/yolo-jail/internal/version.buildVersion=${VERSION} -X github.com/mschulkind-oss/yolo-jail/internal/version.GitCommit=${COMMIT}"
-    go install -ldflags "$LDFLAGS" ./cmd/yolo ./cmd/yolo-claude-oauth-broker-host ./cmd/yolo-host-processes ./cmd/yolo-ps
+    go install -ldflags "$LDFLAGS" ./cmd/yolo ./cmd/yolo-ps
     echo "Installed to $(go env GOBIN 2>/dev/null || echo "$(go env GOPATH)/bin")"
 
 # Install yolo CLI and prime the Claude OAuth broker state. Safe to re-run.

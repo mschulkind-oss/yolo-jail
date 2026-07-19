@@ -5,10 +5,9 @@ Derived from Simon Willison's go-to-wheel (Apache-2.0) — same wheel layout
 and platform tags — but yolo-jail can't use it directly: go-to-wheel runs
 ``go build .`` in the module root (yolo-jail's mains live under ``cmd/``) and
 emits exactly one binary + one console script per wheel, while the yolo-jail
-package contract is FOUR console scripts (the Python era's
-``[project.scripts]``: yolo, yolo-claude-oauth-broker-host, yolo-ps,
-yolo-host-processes — the broker name doubles as the loophole manifest/doctor
-contract, so it must stay a real command on PATH).
+package ships TWO console scripts: yolo and yolo-ps. The standalone
+host-daemon binaries were retired — their logic lives in internal/* Main funcs
+reached through the hidden ``yolo internal daemon <name>`` subcommands.
 
 Windows is deliberately absent: the Go tree uses unix-only syscalls and the
 tool has no Windows story.
@@ -43,8 +42,6 @@ IMPORT_NAME = "yolo_jail"
 # the first entry is the primary binary and backs both `main` and __main__.py.
 BINARIES: dict[str, str] = {
     "yolo": "main",
-    "yolo-claude-oauth-broker-host": "claude_oauth_broker_host",
-    "yolo-host-processes": "host_processes",
     "yolo-ps": "ps",
 }
 
