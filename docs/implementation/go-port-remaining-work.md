@@ -34,10 +34,11 @@ kept). This checklist is ordered around that.
   `os.access(X_OK)` then tracebacked on every `yolo` call; now `try/except
   OSError` → silent fall-through to Python, honoring the documented contract.
 
-## A′. Code fixes — delegated this session (verify on completion)
+## A′. Code fixes — delegated this session (ALL LANDED + VERIFIED)
 
-These were handed to background agents; confirm each landed with RED-then-GREEN
-tests before trusting:
+Handed to background agents; each landed with RED-then-GREEN tests and was
+independently re-verified (build both platforms, staticcheck clean, security
+audited where relevant):
 
 - [x] **journald truncation guard bites** (`e2da469`) — test rewritten to size
   the payload past the AF_UNIX send-buffer + a delayed-read client so the pump
@@ -51,10 +52,15 @@ tests before trusting:
   host-only, piggybacking the live-container enumeration, declining on unknown
   liveness, reusing the byte-verified `prune.ReapRelayOrphans` engine. Regressions
   `TestRelayReapOrphans{CnameFold,UnknownLivenessDeclines}`. Verified both platforms.
-- [ ] **broker operational logging** — Go broker had zero logging; port the
-  incident-derived contract (2026-04-23 invalid_grant, 2026-05-12 logout-loop)
-  matching the cgd/journald `--log-file` pattern, with token-fingerprint
-  redaction. Blocks unattended broker use.
+- [x] **broker operational logging** (`af21e83` broker, `d1d7493` terminator) —
+  ported the full incident-derived contract (2026-04-23 invalid_grant,
+  2026-05-12 logout-loop): per-request/refresh/cache/proxy-mirror log sites,
+  `--log-file` + `-v` flags matching the cgd/journald pattern, `SetupLog`.
+  **Security independently verified:** every token-bearing log line uses
+  `TokenFP`/`fpOf` fingerprints (sha256[:8]) or timestamps — no raw token bytes;
+  the terminator's malformed-proxy dump is redacted (`redactedResp`). Tests:
+  `TestTokenFP`, `TestDescribeCredsRedaction`, `TestRefreshLoggingEndToEnd`, the
+  `redactedResp` leak assertion. This clears blocker **F.5**.
 
 ## B. Findings that turned out to be NON-issues (verified, no work needed)
 
@@ -135,8 +141,8 @@ becomes must-fix. Plus these hard blockers:
    deletion is only safe behind it.
 4. [ ] 🔒 **Soak confirmations** — broker single-use refresh token (Stage 3/6),
    real `claude` login smoke.
-5. [ ] **Broker operational logging** (§A′) landed + verified — before it runs
-   with no Python fallback.
+5. [x] **Broker operational logging** (§A′, `af21e83`/`d1d7493`) — landed +
+   verified this session. (Was blocker F.5.)
 6. [ ] 🔒 **Ledger sign-off** (§E).
 7. [ ] **macos-user bootstrap repoint** — the macos-user path currently emits the
    *Python* entrypoint bootstrap (Stage 16b decision). Deleting `src/entrypoint`
@@ -176,8 +182,9 @@ Per the review's per-command risk table:
 - **MODERATE→now LOW:** `check` (the §C gap is fixed this session).
 - **CAUTION:** `prune` — destructive; `diff` against `uv run python -m src.cli
   prune` once before trusting the reclaim decisions.
-- **USABLE but BLIND→pending:** `broker` — logging being added (§A′); fine with
-  Python daemons present.
+- **USABLE:** `broker` — operational logging now landed (§A′); forensics on par
+  with Python. Still soak-gated (single-use refresh token) before fully
+  unattended use.
 - **DEFER:** `builder`, `macos-*` — certify on a real Mac.
 - **NEVER bare:** always use `scripts/go-front-door.sh` (four-var shim). Bare
   `YOLO_IMPL=go` drops bundled loopholes → silent TLS/auth failure.
