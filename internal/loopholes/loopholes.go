@@ -90,8 +90,24 @@ func fileExists(path string) bool {
 // BundledLoopholesDir returns the loopholes that ship with the wheel. It is a
 // package var so tests can point it at the repo's real src/bundled_loopholes.
 // Mirrors bundled_loopholes_dir().
+//
+// When repoRoot() resolves to nothing real — an INSTALLED binary (brew, pipx
+// wheel, go install, goreleaser tarball) running outside any checkout and any
+// jail — fall back to the copy embedded in the binary itself (materialized to
+// a content-addressed cache dir). Before this fallback such a binary silently
+// discovered ZERO bundled loopholes: no broker CA, no --add-host, no
+// audio/host-processes — a jail that boots looking healthy while Claude auth
+// fails. In a checkout or jail the on-disk (live-editable) copy still wins, so
+// transition-era dev flows are unchanged.
 var BundledLoopholesDir = func() string {
-	return filepath.Join(repoRoot(), "src", "bundled_loopholes")
+	dir := filepath.Join(repoRoot(), "src", "bundled_loopholes")
+	if fileExists(dir) {
+		return dir
+	}
+	if mat, err := materializeEmbedded(); err == nil {
+		return mat
+	}
+	return dir // cache dir unwritable etc. — degrade to the pre-embed behavior
 }
 
 // UserLoopholesDir returns the third-party loopholes dir (overrides bundled on
