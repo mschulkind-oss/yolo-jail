@@ -306,17 +306,6 @@
             ++ imagePkgs.lib.optionals devRequested propagatedLibs
         ) resolvedPackageSpecs;
 
-        # Derivation for the shim scripts (plain text — built on host, runs in container)
-        shims = pkgs.stdenv.mkDerivation {
-          name = "yolo-shims";
-          src = ./src/shims;
-          installPhase = ''
-            mkdir -p $out/bin
-            cp * $out/bin/
-            chmod +x $out/bin/*
-          '';
-        };
-
         # Derivation to provide /usr/bin/env and other standard paths.
         # `withChromium` controls whether chromium shims + font links are
         # created.  `withNestedPodman` controls rootless-podman config files
@@ -574,7 +563,6 @@
         # tests/test_jail.py actually touches, plus POSIX essentials.
         # Shared between the full and minimal image variants.
         corePackages = [
-          shims
           entrypoint
           yoloCli
           goBinariesLinks
@@ -682,9 +670,12 @@
 
             config = {
               Cmd = [ "/bin/bash" ];
-              # We explicitly place shims first in PATH
+              # Default PATH for anything that runs before the Go entrypoint
+              # resets it.  Blocked-tool shims are generated at boot by the
+              # entrypoint into $HOME/.yolo-shims (config-driven) and prepended
+              # to PATH there — there is no baked shim layer any more.
               Env = [
-                "PATH=${shims}/bin:/bin:/usr/bin"
+                "PATH=/bin:/usr/bin"
                 "SSL_CERT_FILE=${imagePkgs.cacert}/etc/ssl/certs/ca-bundle.crt"
                 "LD_LIBRARY_PATH=/lib:/usr/lib:/usr/lib/${linuxMultilib}"
                 # FHS-style pkg-config search path for .pc files laid down
@@ -845,7 +836,7 @@
         # with `nix build --print-out-paths` and puts `<out>/bin` on the
         # sandboxed agent's PATH — no VM, no Linux image.  Packages with no
         # darwin build are filtered out and surfaced via
-        # darwinUnavailablePackages (warn-and-skip).  See src/cli/darwin_packages.py.
+        # darwinUnavailablePackages (warn-and-skip).  See internal/darwinpkg.
         packages.yoloDarwinPackages = pkgs.buildEnv {
           name = "yolo-darwin-packages";
           paths = darwinPackages;
