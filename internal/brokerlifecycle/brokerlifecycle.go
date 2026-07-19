@@ -13,9 +13,6 @@
 // The socket/pid/lock PATH strings are cross-language singleton contracts: a
 // Python yolo and a Go yolo on the same host MUST agree on them or they'd spawn
 // two brokers. They are byte-identical to loopholes_runtime.BROKER_SINGLETON_*.
-//
-// Source of truth: src/cli/loopholes_runtime.py. Port from that file, never
-// from memory.
 package brokerlifecycle
 
 import (

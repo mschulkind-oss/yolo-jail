@@ -1,20 +1,7 @@
-// Package loopholes is the Go port of src/loopholes.py — the host-side
-// registry that discovers, validates, and translates "loophole" manifests into
-// container-runtime flags. A loophole is a single declared host<->jail
-// permeability point (Claude OAuth broker TLS intercept, host-process viewer,
-// audio socket pass-through).
-//
-// Byte-exact parity with src/loopholes.py is the bar: every validation error
-// string, the surprising empty-env-collapse in _expand_env, the
-// comments-lost-on-rewrite degradation in set_enabled, the merge precedence
-// (bundled < user < workspace config), and the exact ordering + JSON payloads
-// runtime_args_for emits are all reproduced and tested against live Python.
-//
-// This package intentionally covers only the pure + deterministic registry
-// (loopholes.py). The process-lifecycle machinery (loopholes_runtime.py) ports
-// separately.
-//
-// Source of truth: src/loopholes.py.
+// Package loopholes is the host-side registry that discovers, validates, and
+// translates "loophole" manifests into container-runtime flags. A loophole is
+// a single declared host<->jail permeability point (Claude OAuth broker TLS
+// intercept, host-process viewer, audio socket pass-through).
 package loopholes
 
 import (

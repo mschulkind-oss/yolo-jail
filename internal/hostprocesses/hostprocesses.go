@@ -7,8 +7,6 @@
 // section, re-read PER REQUEST so operator edits take effect without restart),
 // the DEFAULT_FIELDS, the list/tree/pid mode argv + allowlist construction, and
 // the exit codes (3 empty-allowlist, 2 bad-mode/bad-pid/not-allowlisted).
-//
-// Source of truth: src/host_processes.py + src/host_service.py.
 package hostprocesses
 
 import (

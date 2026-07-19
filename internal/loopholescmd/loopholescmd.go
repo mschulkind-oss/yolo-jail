@@ -3,8 +3,6 @@
 // toggles host-side loopholes. The discovery/doctor/set-enabled engines are the
 // already-ported internal/loopholes package; this is the thin command body with
 // plain typer.echo output (byte-parity with Python) behind injectable seams.
-//
-// Source of truth: src/cli/loopholes_cmd.py.
 package loopholescmd
 
 import (

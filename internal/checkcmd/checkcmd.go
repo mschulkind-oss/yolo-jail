@@ -23,8 +23,6 @@
 // ANSI-stripped). Where a check emits a specific diagnostic STRING that carries
 // meaning (nix remedy, config validation errors, creds-freshness messages),
 // those come from the already-ported engines and ARE byte-exact.
-//
-// Source of truth: src/cli/check_cmd.py.
 package checkcmd
 
 import (

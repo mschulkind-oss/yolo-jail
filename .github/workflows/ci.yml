@@ -33,8 +33,7 @@ jobs:
   # The Go tree gets its own job: `go vet` + the short test suite, which
   # includes guards nothing else enforces automatically (TestEmbedMatchesTree —
   # the go:embed/tree sync for bundled loopholes; the version stamp contract;
-  # the config/argv regression suites). Live-Python parity oracles skip here
-  # (no uv in this job) — they run via `just check-ci` locally.
+  # the config/argv regression suites).
   check-go:
     runs-on: ubuntu-latest
     steps:

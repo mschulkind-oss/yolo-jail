@@ -48,7 +48,7 @@ now just **three maintainer-gated steps + the wipe.**
 |---|---|---|---|
 | 1 | ✅ **DONE — Go path validated on Linux.** Daily `yolo-go` use across two machines (real `run`/attach/interactive sessions — the heaviest surface), plus a diff-verified `prune` dry-run: reclaim decisions identical (0 containers / 0 images / 68 tars / 14 build-roots / 4 seeds / 1,212,406 cache files match exactly). The only diffs were benign — ledger D14 tie-ordering of two equal-size (1.8 MiB) build-roots, cosmetic blank lines, and a 5-in-206,483 (0.002%) hardlink-count drift from a 4-minute live-fs capture gap (candidate count 333,784 and byte totals 5.4/350.4 GiB identical, confirming logic parity, not a bug). | you | §"safe to use now" below |
 | 2 | ✅ **DONE (2026-07-19) — distribution pipeline authored, validated, adversarially reviewed.** `.goreleaser.yaml` (4 host binaries), `release.yml` (goreleaser + hand-authored source-build brew formula), `publish.yml` (per-platform wheels via `scripts/build_wheels.py` — go-to-wheel couldn't do 4 binaries/entry points from a `cmd/` layout, so the builder is a derived script; linux glibc+musl + darwin, no windows). Supporting code: D18 stamp-first version + native `yolo --version`, bundled-loopholes **go:embed** fallback (bare installed binaries were silently loophole-less), ci.yml `check-go` job. ⚠ publish.yml triggers on the **tag push**, not the release event — goreleaser creates the release with `GITHUB_TOKEN` and bot-created events never trigger workflows. **Dormant until the first post-wipe tag; do NOT tag before step 3** (a released binary still delegates gated subcommands to Python). | done | post-transition §2 |
-| 3 | **WIPE PYTHON** — the manifest in §H. `src/entrypoint/` is now deletable (Mac deferred). | you | §H |
+| 3 | ✅ **DONE (2026-07-19) — Python wiped.** All Python source, tests, parity tools, and Go bail-back apparatus deleted. check.go entrypoint dry-run rewritten to native Go generators. repoRoot markers updated to flake.nix+go.mod. pyproject.toml slimmed to dev-only. Justfile reworked. `go build/test ./...` green, `GOOS=darwin` green, all pre-commit hooks pass. | done | §H |
 | 4 | **Consolidate modules + strip parity scaffolding + always-Go cosmetics.** | you | §G, post-transition §3 |
 
 ### Fast-follow (post-wipe — temporary breakage accepted)
@@ -256,26 +256,26 @@ entirely unaffected. So the blast radius of deleting it early is *only* the
 native macos-user backend on Apple Silicon, which the fast-follow restores.
 
 ### Delete (pure Python, no Go/runtime dep)
-- [ ] `src/cli/` — the whole Python CLI (run/check/config/prune/loopholes_runtime/…).
-- [ ] `src/*.py` daemons: `broker_relay.py`, `oauth_broker.py`,
+- [x] `src/cli/` — the whole Python CLI (run/check/config/prune/loopholes_runtime/…).
+- [x] `src/*.py` daemons: `broker_relay.py`, `oauth_broker.py`,
   `oauth_broker_jail.py`, `host_processes.py`, `host_service.py`,
   `jail_daemon_supervisor.py`, `yolo_ps.py`, `prune.py`, `loopholes.py`.
-- [ ] `src/__init__.py`, `src/_version.py`, `src/shims/` (verify Go doesn't read
+- [x] `src/__init__.py`, `src/_version.py`, `src/shims/` (verify Go doesn't read
   `src/shims` — grep showed only mise `/shims`, unrelated).
-- [ ] `tools/parity/` — all oracles + corpus + drift dump (`cmd/yolo-parity`,
+- [x] `tools/parity/` — all oracles + corpus + drift dump (`cmd/yolo-parity`,
   `py_drift_dump.py`, `*_oracle.py`, `config_cases.json`). The drift suite dies
   with Python.
-- [ ] `pyproject.toml` `[project.scripts]` (the 4 console scripts) + the
+- [x] `pyproject.toml` `[project.scripts]` (the 4 console scripts) + the
   `setuptools`/`setuptools-scm` build-system — replaced by goreleaser (★ step 2).
   **Fate decided:** `scripts/build_wheels.py` carries the wheel metadata, so
   `pyproject.toml` can go entirely — EXCEPT any tool config still read from it
   (ruff/pytest config lives there; either move to standalone config files in
   the same commit or keep a slimmed tool-config-only pyproject until the dev
   tooling goes Go-only).
-- [ ] `tests/test_*.py` for the deleted Python (config_merge, cli_commands,
+- [x] `tests/test_*.py` for the deleted Python (config_merge, cli_commands,
   entrypoint, jail, oauth_broker_*, host_processes, etc.) — the Go regression
   tests are the surviving spec.
-- [ ] `src/entrypoint/` — delete now; breaks macos-user launch until the
+- [x] `src/entrypoint/` — deleted; breaks macos-user launch until the
   fast-follow repoint (see the gate note above). Linux + Apple Container
   unaffected.
 
@@ -289,44 +289,44 @@ native macos-user backend on Apple Silicon, which the fast-follow restores.
 - The nix image's baked binaries are Go already (`cmd/yolo-*`); no Python there.
 
 ### Delete the Go-side bail-back apparatus (same commit or right after)
-- [ ] `internal/config/load.go` — the `_in_jail()` / `loadAssembledSnapshot`
+- [x] `internal/config/load.go` — the `_in_jail()` / `loadAssembledSnapshot`
   in-jail snapshot-copy fork (only existed to keep the shared snapshot honest
   across the Python/Go boundary; with one impl it's moot — re-evaluate, may
   simplify rather than delete).
-- [ ] `internal/frontdoor/frontdoor.go` — `goImplEnabled` (YOLO_IMPL gate),
+- [x] `internal/frontdoor/frontdoor.go` — `goImplEnabled` (YOLO_IMPL gate),
   `goDisabled` (YOLO_GO_DISABLE valve). Once Go IS `yolo`, everything is
   unconditionally native; the gate + valve are transition-only.
-- [ ] `cmd/yolo/main.go` — `delegateToPython` + the `YOLO_GO_DELEGATED` loop
+- [x] `cmd/yolo/main.go` — `delegateToPython` + the `YOLO_GO_DELEGATED` loop
   breaker + the `os.execv` forward. No Python to delegate to.
-- [ ] `cmd/yolo/native.go` — collapse `nativeDispatch`/gated-vs-unconditional
+- [x] `cmd/yolo/native.go` — collapse `nativeDispatch`/gated-vs-unconditional
   into plain dispatch (nothing to fall through to).
-- [ ] `scripts/go-front-door.sh`, `just install-go`, seam #11 forwarding in
+- [x] `scripts/go-front-door.sh`, `just install-go`, seam #11 forwarding in
   `internal/runcmd/assemble.go` (the `YOLO_IMPL=go`/`YOLO_GO_BIN_DIR`/
   `YOLO_PYTHON`/`PYTHONPATH` `-e` block) — the whole four-var shim.
-- [ ] `tests/conftest.py` seam-env scrub (the `YOLO_IMPL`/`YOLO_GO_*` delenv
+- [x] `tests/conftest.py` seam-env scrub (the `YOLO_IMPL`/`YOLO_GO_*` delenv
   block) — no longer needed once no Python test runs.
 
 ### Wipe-commit companions (decided during ★ step 2, land WITH the wipe)
-- [ ] **§2e residuals:** rework the Justfile (`build`/`install`/`deploy` become
+- [x] **§2e residuals:** rework the Justfile (`build`/`install`/`deploy` become
   Go: install the dist binaries instead of `uv tool install`; keep the broker
   CA + refresher steps) and the README `## Install` section (standard 4-channel
   block: brew / go install / pipx / source). Deliberately NOT done pre-wipe —
   installing a bare Go `yolo` on the host PATH while gated subcommands still
   delegate to Python is the documented "NEVER bare" hazard.
-- [ ] **repoRoot() checkout marker** (`internal/loopholes/loopholes.go`,
+- [x] **repoRoot() checkout marker** (`internal/loopholes/loopholes.go`,
   `internal/frontdoor`): the sentinel is `flake.nix` + `src/entrypoint/__init__.py`;
   the wipe deletes the latter, after which a HOST CHECKOUT no longer resolves
   its live `src/bundled_loopholes` and silently falls back to the binary's
   embedded copy (correct content, but edits to the tree stop being picked up).
   Update the marker (e.g. `flake.nix` + `go.mod`) in the same pass.
-- [ ] Native `yolo --version` already exists (landed with ★ step 2 — the brew
+- [x] Native `yolo --version` already exists (landed with ★ step 2 — the brew
   formula's `test do` depends on it); the wipe only needs to keep it working
   once delegation is gone.
 
 ### Verify after the wipe
-- [ ] `go build ./...` + `GOOS=darwin GOARCH=arm64 go build ./...` green.
-- [ ] `go test ./...` green (the parity oracles are gone; pure Go tests remain).
-- [ ] `staticcheck ./...` clean; `just check-ci` green (now Go-only).
+- [x] `go build ./...` + `GOOS=darwin GOARCH=arm64 go build ./...` green.
+- [x] `go test ./...` green (the parity oracles are gone; pure Go tests remain).
+- [x] `staticcheck ./...` clean; `just check-ci` green (now Go-only).
 - [ ] Nested-jail smoke (Linux): `yolo -- bash -lc 'yolo internal | head -1'`
   shows the Go usage; a real `yolo -- claude` session boots.
 - [ ] **Expected-broken (fast-follow):** `runtime: "macos-user"` launch on Apple

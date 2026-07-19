@@ -4,8 +4,6 @@
 // "0.1.0+dirty" (WITH the "+" — a stale Python code comment once claimed
 // "0.1.0.dirty" and poisoned rev 1 of the port plan; goldens are generated
 // from observed Python output, never comments).
-//
-// Source of truth: src/cli/version.py.
 package version
 
 import (

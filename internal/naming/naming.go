@@ -4,8 +4,6 @@
 // name for the same workspace, or a mixed-era invocation can't find the
 // other's container), so the sanitize+hash algorithm is pinned by the drift
 // suite.
-//
-// Source of truth: src/cli/runtime.py:container_name_for_workspace.
 package naming
 
 import (

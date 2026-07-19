@@ -25,8 +25,6 @@
 // SIGTERM unlinks the relay socket ONLY if its dev/ino still match what we
 // bound (so a successor that healed over the same path is never disturbed),
 // then exits — a stopped relay reads as "socket absent", not "socket dead".
-//
-// Source of truth: src/broker_relay.py. Port from that file, never summaries.
 package brokerrelay
 
 import (

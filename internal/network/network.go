@@ -1,11 +1,5 @@
-// Package network is the Go port of the PURE host-side pieces of
-// src/cli/network.py — the forward_host_ports config parser and the socat
-// UNIX-LISTEN→TCP argv the run path spawns per forwarded port. The process
-// lifecycle (spawn, socket-wait poll, teardown) stays in the run wiring; the
-// plan requires Go to spawn IDENTICAL socat argv, so the argv builder and the
-// config parse are ported byte-exact and tested against live Python.
-//
-// Source of truth: src/cli/network.py.
+// Package network handles the forward_host_ports config parser and the socat
+// UNIX-LISTEN→TCP argv the run path spawns per forwarded port.
 package network
 
 import (

@@ -6,8 +6,6 @@
 // orchestration in auto_load_image (nix build, materialize, load, Apple
 // Container OCI conversion) stays a thin wrapper around these until the run
 // slice lands; the parts that carry byte contracts are ported and tested here.
-//
-// Source of truth: src/cli/image.py.
 package image
 
 import (

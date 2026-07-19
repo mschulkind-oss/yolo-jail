@@ -4,8 +4,6 @@
 // packages) this is pure data hand-ported to Go with NO Python-side refactor;
 // the drift suite byte-diffs it against the live Python registry on every
 // commit, so any Python change without a matching Go change is a red build.
-//
-// Source of truth: src/entrypoint/agent_registry.py.
 package agents
 
 // InstallSpec: how an agent CLI is installed and updated inside the jail.

@@ -6,8 +6,6 @@
 //
 // Frame wire format lives in internal/frameproto (the frozen contract);
 // this package is the request-parsing + response-emitting harness around it.
-//
-// Source of truth: src/host_service.py.
 package hostservice
 
 import (

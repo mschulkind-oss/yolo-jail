@@ -5,8 +5,6 @@
 // Go-native golden), NOT byte-parity with rich's exact rendering. The content is
 // embedded verbatim from the Python source (so it can never drift in wording)
 // and the closed set of rich tags is rendered to ANSI.
-//
-// Source of truth: src/cli/config_ref_cmd.py.
 package configref
 
 import (

@@ -12,8 +12,6 @@
 //
 // Config data flows through *jsonx.OrderedMap everywhere (never a plain Go map):
 // key order is load-bearing for the snapshot bytes.
-//
-// Source of truth: src/cli/config.py. Port from that code, never from the plan.
 package config
 
 import (

@@ -6,8 +6,6 @@
 // the Python source (byte-faithful); the mount-block logic + the briefing's
 // {config_path} interpolation are reproduced. Briefing output is rich-markup →
 // info-parity Go-native color (approved OQ); the WRITTEN FILE bytes are exact.
-//
-// Source of truth: src/cli/init_cmd.py.
 package initcmd
 
 import (

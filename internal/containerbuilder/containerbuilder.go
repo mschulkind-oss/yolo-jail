@@ -8,8 +8,6 @@
 // as runbook-critical as internal/builder's); the pull/run/wait/stop lifecycle
 // and the session context manager stay in the run wiring until the macos_user
 // port lands.
-//
-// Source of truth: src/cli/container_builder.py.
 package containerbuilder
 
 import (

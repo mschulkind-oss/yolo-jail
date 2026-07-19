@@ -3,8 +3,6 @@
 // names especially: CGD_SOCKET_NAME's Python comment records a real
 // regression from re-typing one), so they are pinned by the drift suite and
 // must stay byte-identical to the Python source of truth.
-//
-// Source of truth: src/cli/paths.py. Port from that file, never from memory.
 package paths
 
 import (

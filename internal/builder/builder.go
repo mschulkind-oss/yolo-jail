@@ -7,8 +7,6 @@
 // the socket probe (TCP 31022) + PID/killpg lifecycle + sudo piping stay in the
 // front-door wiring / delegated Python until the macos backend port lands
 // (§13), since they're macOS-side and covered by the Mac runbooks.
-//
-// Source of truth: src/cli/builder.py.
 package builder
 
 import (

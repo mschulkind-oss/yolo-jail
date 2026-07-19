@@ -7,8 +7,6 @@
 // per-daemon logs at ~/.local/state/yolo-jail-daemons/<name>.log rotated once
 // at 5 MB (.log -> .log.1), the 1s→30s exponential backoff, and SIGTERM/SIGINT
 // → terminate children (5s grace → kill).
-//
-// Source of truth: src/jail_daemon_supervisor.py.
 package supervisor
 
 import (

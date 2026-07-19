@@ -9,8 +9,6 @@
 // broker-layer EOF-before-exit-frame / EPIPE-mid-request), the refresh-grant
 // detection, and the proxy/refresh dispatch. HTTP hazards (header
 // canonicalization, HTTP/1.0 no-keep-alive) are handled in the cmd's server.
-//
-// Source of truth: src/oauth_broker_jail.py.
 package oauthterminator
 
 import (

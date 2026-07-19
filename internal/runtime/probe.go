@@ -5,8 +5,6 @@
 // the parsing and the None-vs-empty liveness polarity are what carry the
 // incident history, so those are ported byte-exact and unit-tested against
 // canned podman / Apple-Container output.
-//
-// Source of truth: src/cli/runtime.py and src/cli/run_cmd.py:_live_yolo_containers.
 package runtime
 
 import (

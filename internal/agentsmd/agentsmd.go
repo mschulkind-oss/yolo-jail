@@ -1,11 +1,7 @@
-// Package agentsmd is the Go port of src/cli/agents_md.py — per-workspace
-// AGENTS.md / CLAUDE.md briefing generation and host-skill staging. The
-// briefing content is a byte-exact string contract (Stage 16's briefing-goldens
-// parity gate); _write_briefing's hardlink-breaking truncation is an
-// inode-preservation contract a running jail's bind mount depends on. Both are
-// ported faithfully and tested against live Python.
-//
-// Source of truth: src/cli/agents_md.py.
+// Package agentsmd handles per-workspace AGENTS.md / CLAUDE.md briefing
+// generation and host-skill staging. The briefing content is a byte-exact
+// string contract; WriteBriefing's hardlink-breaking truncation is an
+// inode-preservation contract a running jail's bind mount depends on.
 package agentsmd
 
 import (

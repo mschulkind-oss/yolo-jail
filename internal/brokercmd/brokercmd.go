@@ -13,8 +13,6 @@
 // Wiring is the orchestrator's job (a one-line runBroker dispatcher in
 // cmd/yolo/native.go). This package only exposes clean importable funcs
 // (Status/Stop/Restart/Logs) + RealDeps.
-//
-// Source of truth: src/cli/broker_cmd.py.
 package brokercmd
 
 import (

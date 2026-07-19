@@ -7,8 +7,6 @@
 // (output format is the contract) and is injectable for tests via the Runtime
 // interface. The pure logic (dedup, sweep decision, image sort) is
 // runtime-independent and cross-language-parity-tested.
-//
-// Source of truth: src/prune.py.
 package prune
 
 import (

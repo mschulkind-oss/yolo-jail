@@ -5,8 +5,6 @@
 // two nix installers is present, which timezone the jail inherits, how a fresh
 // workspace boots already-logged-in), so those are ported byte-exact and tested
 // against live Python and real temp dirs.
-//
-// Source of truth: src/cli/storage.py.
 package storage
 
 import (

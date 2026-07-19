@@ -13,8 +13,6 @@
 // Cert generation keeps exec'ing openssl with the byte-identical --init-ca
 // script; a crypto/x509 migration is a LATER flagged change, not part of this
 // no-change port.
-//
-// Source of truth: src/oauth_broker.py. Port from that file.
 package oauthbroker
 
 import (

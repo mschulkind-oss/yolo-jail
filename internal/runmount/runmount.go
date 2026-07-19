@@ -4,8 +4,6 @@
 // these; the plan's Stage 16 exit criteria pin the argv order byte-for-byte, so
 // these builders are ported exactly and cross-checked against live Python. The
 // full run lifecycle (spawn, locks, teardown) stays in the run wiring.
-//
-// Source of truth: src/cli/run_cmd.py.
 package runmount
 
 import (

@@ -14,9 +14,6 @@
 // known-broken/unfinished paths (real-hardware verification stays a Mac-runbook
 // step; see the Stage 16b handoff for the list of deliberately-reproduced
 // behaviors). No macOS bug fixes live in the port commits.
-//
-// Source of truth: src/cli/macos_user.py. Port from that file, never from
-// memory or summaries.
 package macosuser
 
 import (

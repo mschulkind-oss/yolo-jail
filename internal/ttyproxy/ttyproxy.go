@@ -22,8 +22,6 @@
 //   - SIGHUP/SIGTERM -> restore cooked termios, run onTerminate, exit 128+n.
 //   - stdin EOF -> stop reading stdin, keep pumping the master until child exit
 //     (the decided semantics).
-//
-// Source of truth: src/cli/tty_proxy.py.
 package ttyproxy
 
 import (

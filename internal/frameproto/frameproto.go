@@ -14,8 +14,6 @@
 // EXIT payload is ">i" (SIGNED 32-bit) — a negative rc (e.g. a signal death)
 // must round-trip. The journal bridge uses the SAME framing but DISTINCT
 // stream IDs 1/2/3 (see paths / the journal daemon) — do not conflate.
-//
-// Source of truth: src/host_service.py.
 package frameproto
 
 import (

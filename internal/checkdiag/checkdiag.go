@@ -6,8 +6,6 @@
 // formatter, and the Linux-builder remedy template. These carry byte-exact
 // output + tri-state polarity contracts (Stage 15's check command); the
 // subprocess wrappers that feed them stay in the check wiring.
-//
-// Source of truth: src/cli/check_cmd.py.
 package checkdiag
 
 import (

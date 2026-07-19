@@ -18,8 +18,6 @@
 // verbs, the disk-usage before-report, and the summary INFO — NOT the
 // byte-identical rich ANSI. Rich markup is stripped; the FmtBytes numbers,
 // reclaim decisions, and removed-name lists ARE byte-exact vs live Python.
-//
-// Source of truth: src/cli/prune_cmd.py.
 package prunecmd
 
 import (

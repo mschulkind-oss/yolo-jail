@@ -6,8 +6,6 @@
 // derivation, and the flake.lock rev read are all pure and ported byte-exact;
 // materialize's actual nix invocation (streaming build) stays in the run wiring
 // until the macos_user port lands.
-//
-// Source of truth: src/cli/darwin_packages.py.
 package darwinpkg
 
 import (

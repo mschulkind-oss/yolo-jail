@@ -14,10 +14,6 @@
 // pip packages are installed), this package is dependency-light: it builds only
 // on the already-vetted internal/* foundation packages (jsonx, tomlx, shquote,
 // agents, fsx) — no third-party deps beyond what those vendor.
-//
-// Source of truth: src/entrypoint/*.py. Port from that code, never from
-// summaries; surprising Python behavior is PRESERVED and noted as a proposed
-// ledger entry, never "fixed."
 package entrypoint
 
 import (

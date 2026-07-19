@@ -8,7 +8,6 @@
 // memory parse, the cpu.max/memory.max/pids.max writes and their range checks,
 // and the "move caller into the job cgroup by peer PID" semantics.
 //
-// Source of truth: src/cli/loopholes_runtime.py. The socket name
 // (cgroup-delegate.sock) and chmod 0777 live in the daemon wiring, not here.
 package cgd
 

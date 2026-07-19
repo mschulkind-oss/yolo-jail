@@ -9,8 +9,6 @@
 // frozen: the newline-terminated JSON request header, the arg validation
 // (≤64 args, each ≤1024 bytes), the "user" mode --user prepend, and the exit
 // codes (2 malformed/invalid, 127 journalctl-not-found, 1 spawn-failure).
-//
-// Source of truth: src/cli/loopholes_runtime.py.
 package journald
 
 import (

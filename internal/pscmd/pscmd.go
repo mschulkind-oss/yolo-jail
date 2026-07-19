@@ -6,8 +6,6 @@
 // command is unit-testable and golden-able (the check/run precedent).
 //
 // Output is plain typer.echo (not rich), so it is byte-parity with Python.
-//
-// Source of truth: src/cli/run_cmd.py:ps().
 package pscmd
 
 import (

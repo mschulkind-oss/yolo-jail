@@ -12,8 +12,6 @@
 // command bodies. Every socket / subprocess / PID-file / platform probe is an
 // injectable Deps seam so the orchestration logic is unit-testable on Linux;
 // RealDeps wires production. The real VM bring-up stays a Mac-runbook step.
-//
-// Source of truth: src/cli/builder.py + src/cli/builder_cmd.py.
 package buildercmd
 
 import (

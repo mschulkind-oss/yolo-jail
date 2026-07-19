@@ -2,8 +2,6 @@
 // `yolo check` emits, matching src/cli/check_cmd.py. Parity is defined on the
 // ANSI-STRIPPED text (§3 internal/console), so the plain forms are the
 // contract; the styled forms carry the equivalent colors for a real terminal.
-//
-// Source of truth: src/cli/check_cmd.py (ok/fail/warn/_print_note).
 package console
 
 import "strings"
