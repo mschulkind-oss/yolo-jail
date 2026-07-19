@@ -1,9 +1,11 @@
 # The mise-node / `LD_LIBRARY_PATH` problem (investigation + handoff)
 
-**Status:** open. This documents an empirically-proven root cause, why the
-obvious structural fixes are blocked, and the one feasible-but-imperfect
-direction — as a handoff for a fresh look. Nothing here is implemented; the
-current mitigation (baked `LD_LIBRARY_PATH` + MCP wrapper scripts) is unchanged.
+**Status:** RESOLVED at the design level (2026-07-19) — adopt **nix-ld** as the
+`/lib64` interpreter; empirically validated in-jail, implementation pending.
+See [Resolution](#resolution-adopt-nix-ld-as-the-lib64-interpreter-2026-07-19).
+The sections below it record the root-cause investigation and the alternatives
+that were weighed and rejected. The current mitigation (baked `LD_LIBRARY_PATH`
++ MCP wrapper scripts) is unchanged until the fix lands.
 
 **Why this doc exists:** the MCP node/npx wrapper (see
 [mcp-configuration.md](mcp-configuration.md) §1) keeps generating "just patch it
@@ -114,7 +116,7 @@ Corroborating facts:
 |---|---|---|
 | `patchelf --set-rpath`/`--set-interpreter` the mise node so it's self-contained | ❌ **Blocked** | The mise store is **bind-mounted from the host** (`~/.local/share/mise`, AGENTS.md). Rewriting the binary to nix-store paths would break node **on the host** (those paths don't exist there). Also: `patchelf` isn't in the image. |
 | Make `/run/ld.so.cache` (the FHS cache) authoritative for the mise node | ❌ **Blocked** | The nix `ld.so` reads only its **own store cache** (`.../glibc/etc/ld.so.cache`, read-only) and its store-derived search path. It **never reads `/etc/ld.so.cache`** (proven by strace). Can't be redirected at runtime. |
-| `/etc/ld.so.preload` (a file `ld.so` honors unconditionally — scrub-proof) | ❌ **Blocked** | `/etc` is **read-only**, and `ld.so.preload` is **not** a symlink to a writable target (unlike `ld.so.cache → /run`). Can't create it at runtime. |
+| `/etc/ld.so.preload` (a file `ld.so` honors unconditionally — scrub-proof) | ❌ Blocked **at runtime only** — see correction | `/etc` is **read-only** at runtime. **Correction (2026-07-19):** this verdict confused runtime with build time. `/etc` is *constructed at image build*, and the nixpkgs glibc loader reads the literal path **`/etc/ld-nix.so.preload`** (via `dont-use-system-ld-so-preload.patch`), so baking that file listing `/lib/libstdc++.so.6` is feasible today. Rejected anyway — it preloads into *every* process, including nix-built ones. See Resolution §rejected. |
 | Keep `LD_LIBRARY_PATH` in the image env (current) | ⚠️ Works, scrubbable | Baked in `config.Env`; fine except when a launcher scrubs the child env. |
 | Wrapper scripts re-asserting the var (current) | ✅ Works, scrub-proof, but **per-call-site** | The whack-a-mole surface: presets route through it; custom servers don't (the open gap). |
 
@@ -126,7 +128,7 @@ cache, **there is no runtime way to make the mise node self-sufficient.** The
 
 ---
 
-## Directions worth a fresh look
+## Directions worth a fresh look (SUPERSEDED — kept for history; see Resolution below)
 
 ### A. Route MCP servers through the nix node (feasible now, runtime-only)
 `/bin/node` needs no env. The wrappers already `exec /bin/node`. Generalize the
@@ -197,3 +199,177 @@ direction A to stop the whack-a-mole, and leave B for later.
 ( export LD_LIBRARY_PATH=/lib:/usr/lib; LD_DEBUG=libs /mise/installs/node/22/bin/node --version 2>&1 \
     | rg 'trying file=/lib/libstdc|calling init.*libstdc' )
 ```
+
+---
+
+## Resolution: adopt nix-ld as the /lib64 interpreter (2026-07-19)
+
+Produced by a multi-agent pass (repo recon, live probes, web research on
+primary sources, **in-jail empirical validation**, and three adversarial
+reviews). All load-bearing claims below were verified, not assumed.
+
+### TL;DR
+
+Replace the `/lib64/ld-linux-x86-64.so.2` symlink target — currently the raw
+nix glibc `ld.so` — with **[nix-ld](https://github.com/nix-community/nix-ld)
+2.x** (stock nixpkgs binary, ~30 KiB static-PIE, substitutable from
+cache.nixos.org). nix-ld is *designed* to sit at exactly that path as the ELF
+interpreter for FHS binaries, and since v2.0 (Rust rewrite, 2024) it has an
+**env-free fallback**: with a completely scrubbed environment it loads the real
+`ld.so` from `/run/current-system/sw/share/nix-ld/lib/ld.so` and points the
+loader at that same dir for libraries, then a per-arch entry trampoline
+**reverts the env edit before the app's entry point runs** — children inherit
+nothing. Because *every* FHS `exec` re-enters the shim at `/lib64`, the
+defaults are re-established per-process with zero env dependence. This kills
+the per-call-site whack-a-mole as a *class*: custom `mcp_servers` with bare
+`node` commands, future FHS tools, scrub-happy launchers — all covered with no
+wrapper needed.
+
+This is also the ecosystem-consensus fix: **mise's own docs recommend nix-ld**
+for precompiled binaries on NixOS, as do the NixOS wiki and NixOS-WSL docs.
+The env-scrub scenario is literally why the fallback exists (nix-ld issue #17;
+maintainer: "nix-ld now falls back to the system path since nix-ld 2.0").
+
+### Empirical validation (run in this jail, 2026-07-19)
+
+nix-ld 2.0.6 was fetched via the host daemon and tested against a
+`patchelf --set-interpreter`'d **copy** of the real mise node (real `/lib64`
+and real mise binaries untouched):
+
+| Test | Result |
+|---|---|
+| `env -i` + `NIX_LD`/`NIX_LD_LIBRARY_PATH` set → `node --version` | ✅ v22.23.1 |
+| **`env -i`, nothing set, fallback dir present** (the crux) | ✅ v22.23.1 — minimal wiring is **2 symlinks**: `/run/current-system/sw/share/nix-ld/lib/{ld.so → nix glibc ld.so, libstdc++.so.6 → gcc cc.lib}` |
+| `env -i`, fallback dir absent | ❌ `[nix-ld] FATAL: panicked … Posix(2)` + SIGABRT (exit 134) — cryptic; see amendments |
+| Grandchild env hygiene | ✅ children see only `LD_LIBRARY_PATH=""` (present-but-empty; glibc treats it exactly as unset — probed with `LD_DEBUG`), no `NIX_LD*` leakage. **Strictly cleaner than today**, where the baked `/lib:/usr/lib` is searched *before* every nix binary's `DT_RUNPATH` |
+| FHS grandchild of a scrubbed-env process | ✅ re-enters nix-ld via PT_INTERP, re-resolves env-free — the chain needs no propagated vars |
+| Regressions | ✅ nix `/bin/node` untouched (store PT_INTERP bypasses nix-ld); nix-ld **coexists** with today's baked `LD_LIBRARY_PATH` (safe staged rollout); mise nvim (never had the bug) still works |
+| `dlopen` coverage | ✅ glibc snapshots the search-path list at rtld init (`_dl_init_paths`); the trampoline's env revert cannot retract it, so later `dlopen`s from the FHS process still find farm libs |
+| Removing the fallback dir | ❌ failure returns — proves the fallback dir is the operative mechanism |
+
+Also probed: among all mise-installed tools in this jail (node, neovim,
+python 3.11–3.14, uv, just, go), **node is the only one that hits the loader
+problem** — the rest are glibc-only, static, or musl.
+
+### Implementation blueprint (amendments from adversarial review folded in)
+
+1. **flake.nix:** retarget the `/lib64` (and `/lib`) dynamic-linker symlink
+   (`flake.nix:361-364`) → `${pkgs.nix-ld}/libexec/nix-ld`. **Stock binary
+   only, no `overrideAttrs` recompile** — a recompile would break the
+   deliberate aarch64-darwin → aarch64-linux zero-Linux-builder image build
+   (`flake.nix:47-65`); stock nix-ld substitutes from cache.nixos.org for both
+   arches.
+2. **flake.nix:** bake a defaults dir at a fixed **non-store** image path
+   (e.g. `/usr/share/nix-ld/lib/`) in the `binPathLinks` derivation:
+   `ld.so → ${imagePkgs.stdenv.cc.bintools.dynamicLinker}` plus symlinks to
+   the core farm trio (glibc, `stdenv.cc.cc.lib`, zlib) lib files. Non-store
+   paths survive the host `/nix/store:ro` shadow mount exactly like `/lib64`
+   does. Keep it **minimal** — do *not* mirror the whole ~189-entry farm: the
+   injected path outranks `DT_RUNPATH` for the FHS binary itself, so a smaller
+   dir means a *smaller* shadow surface than today's. Grow on proven need.
+3. **flake.nix:** add `NIX_LD=<real ld.so store path>` to image `config.Env`
+   as belt-and-suspenders — covers any FHS exec in the window before the
+   entrypoint wires `/run` (nix-ld checks `NIX_LD` before its compiled-in
+   fallback path, and `LD_LIBRARY_PATH` **cannot** mask a missing fallback:
+   it locates *libraries*, not the loader).
+4. **entrypoint (Python + Go twins):** first thing at startup, idempotently
+   (`ln -sfn`) create
+   `/run/current-system/sw/share/nix-ld/lib → /usr/share/nix-ld/lib`
+   (`mkdir -p` parents). **Loud fail-fast**, unlike the best-effort
+   `generate_ld_cache` — the missing-fallback failure mode is a jail-wide
+   cryptic SIGABRT for every FHS binary. Must also run on container-reuse
+   `exec` paths (cf. the `_port_in_use` guard pattern).
+5. **cli (both twins):** give `--tmpfs /run` an explicit mode — under docker's
+   `-u UID:GID` a root-owned 0755 `/run` would make step 4 fail with EACCES
+   (podman rootless runs uid 0 and is unaffected).
+6. **KEEP the baked `LD_LIBRARY_PATH` (`flake.nix:718`).** Adversarial review
+   found deleting it is a feature regression, not a cleanup: it is the only
+   discovery mechanism for **dlopen-by-soname from nix-built processes**
+   (the documented user-packages contract, `src/cli/config_ref_cmd.py:89-91`,
+   and its integration test) — a class nix-ld structurally cannot reach, since
+   nix binaries never pass through `/lib64`. One baked line is not the
+   whack-a-mole; the *per-call-site re-assertions* were.
+7. **DELETE, staged (fix-forward, separate commits, per repo convention):**
+   after nested-jail validation, remove the `LD_LIBRARY_PATH` export lines in
+   the MCP wrappers (`src/entrypoint/mcp_wrappers.py` + Go twin) and evaluate
+   the cli `-e` re-export (`run_cmd.py:1937` / `assemble.go:381`) for
+   redundancy with the image env. The custom-`mcp_servers` gap (this doc's
+   original trigger) **closes for free** — bare `node` commands resolving to
+   the mise node now survive scrubbed-env spawns with no wrapper at all.
+8. **Validation gates before each deletion:** an `env -i` smoke suite in a
+   nested jail — mise node, the Claude Code native binary, `copilot --version`
+   (pty.node/keytar.node addons), an MCP spawn, a ctypes `dlopen` — plus one
+   run on aarch64. Add `env -i /mise/installs/node/*/bin/node --version` to
+   `yolo check` diagnostics so baseline drift surfaces as a clear message
+   instead of a cryptic MCP failure.
+
+### Known residuals (stated honestly)
+
+- The fix bounds the whack-a-mole; it doesn't abolish library curation.
+  Binaries needing libs missing from the farm (e.g. downloaded
+  playwright/puppeteer chromiums want libnspr4/nss) **already fail today with
+  the env var set** — that's a one-line farm/extraLibPackages addition, in one
+  place, not a call-site hunt. Nix `/usr/bin/chromium` remains the supported
+  browser.
+- glibc version coupling (mise updates a tool past the image glibc's baseline)
+  is **byte-identical to today** — same nix `ld.so`, same cc.lib libstdc++ —
+  with large measured headroom (node 22 needs GLIBC_2.28/GLIBCXX_3.4.21 vs
+  image glibc 2.42/gcc-15's 3.4.34). Periodic nixpkgs bumps cover it.
+- Descendants of FHS processes see `LD_LIBRARY_PATH=""` (the trampoline can
+  blank the value but not remove the envp entry — nix-ld README footnote b).
+  Probed: glibc treats empty exactly as unset; only presence-*tests* could
+  notice. Recorded here so a future weird bug report is greppable.
+- Container use of nix-ld outside NixOS is maintainer-blessed (issue #50:
+  "just do a symbolic link" in lieu of tmpfiles.d) but dockerTools precedent
+  is thin (issue #60 open) — yolo-jail is an early adopter; the NixOS module
+  (buildEnv of libs + ld.so symlink) is the blueprint we're mirroring.
+- No setuid FHS binaries exist in the image; nix-ld's AT_SECURE behavior is
+  unverified. Record "no setuid FHS binaries" as an image invariant.
+
+### Alternatives considered and rejected
+
+| Alternative | Why rejected |
+|---|---|
+| **Custom glibc interpreter with `user-defined-trusted-dirs=/lib /usr/lib`** (upstream make flag; semantically purest — default dirs rank *last*, zero env manipulation) | Requires compiling glibc: breaks the macOS zero-Linux-builder image build (never substitutable), and a second glibc paired with farm libs is a GLIBC_PRIVATE minefield (interpreter and `libc.so.6` are build-locked; farm core-lib symlinks would need retargeting to the variant). Purity not worth the operational cost. Recorded so it isn't re-litigated. |
+| **Cache-reading glibc interpreter** (one-hunk patch: `LD_SO_CACHE=/etc/ld.so.cache`, making the existing `generate_ld_cache` output authoritative — this doc's B.3) | Same glibc-compile + GLIBC_PRIVATE costs as above, and cache outranks default dirs (worse shadow ordering than trusted-dirs). Strictly dominated. |
+| **`/etc/ld-nix.so.preload` baked at image build** (the table's "Blocked" verdict was wrong — see correction above) | Genuinely available and zero-new-components, but preloads farm libstdc++ into **every** process including nix-built ones. Kept as a documented emergency stopgap only. |
+| **De-mise-ing infrastructure alone** (pin bootstrap npm + agent launchers + MCP to nix `/bin/node`) | Insufficient as the *only* fix: a live custom MCP server in this jail (`cerebras-mcp`, bare command → mise shims → mise node) escapes any config-layer rewrite, and any future FHS binary re-enters the class. See below for its residual value. |
+| **buildFHSEnv / steam-run** | bubblewrap needs nested user namespaces that fail in rootless podman; per-call-site anyway. |
+| **musl/static node, source-compiled node** | Breaks the host-shared `/mise` constraint (binary must load on the host too) and fixes only node, not the class. |
+| **ld-floxlib (LD_AUDIT)** | env-var-dependent — same scrub weakness we're eliminating. |
+| **autoPatchelfHook / patchelf the real binary** | Mutates the host-shared binary; forbidden (unchanged from the original analysis). |
+
+### On "maybe we rely on mise too much"
+
+Half right, and worth naming precisely: the problem was never mise-for-projects
+— it's that **jail infrastructure resolves `node` by PATH accident** (mise
+shims precede `/bin`), so npm-global installs and `#!/usr/bin/env node`
+shebangs run under the FHS node while the MCP *presets* already use nix
+`/bin/node`. With nix-ld in place this stops being a correctness issue
+entirely. Keep mise exactly where it's good: per-project tooling declared in
+`mise.toml`. Optionally, as low-priority hygiene (not a fix): pin the
+bootstrap's npm installs and agent launchers to nix `/bin/node` — four
+call-site groups, zero version-skew risk today (both nodes are 22.23.1,
+NODE_MODULE_VERSION constant across 22.x). The opposite philosophy
+("everything via nix, no foreign runtimes") has a poor maintainability record
+at scale — nixpkgs removed its entire `nodePackages` set as unmaintainable —
+and is explicitly not the direction.
+
+### Sources
+
+- nix-ld: <https://github.com/nix-community/nix-ld> (v2.0.6, Oct 2025; Rust
+  rewrite with compiled-in fallback `/run/current-system/sw/share/nix-ld/lib`;
+  `option_env!("DEFAULT_NIX_LD")` exists but recompiling is rejected above).
+  Issues #17 (env-scrub → fallback rationale), #50 (container/no-systemd use),
+  #60 (dockerTools precedent, open).
+- mise docs recommending nix-ld on NixOS:
+  <https://mise.jdx.dev/installing-mise.html> (NixOS section).
+- NixOS module blueprint: `nixos/modules/programs/nix-ld.nix` in nixpkgs.
+- nixpkgs glibc preload-path patch: `dont-use-system-ld-so-preload.patch`
+  (reads `/etc/ld-nix.so.preload`).
+- Replit's fallback-not-override custom loader (`replit_rtld_loader`) — the
+  closest precedent for the LD_LIBRARY_PATH-inheritance breakage class that
+  nix-ld's trampoline revert avoids on x86_64/aarch64.
+- Empirical artifacts from the validation run: scratch dir
+  `nixld-test/` (patched `node-test`, `nvim-test`, `nix-ld`/`patchelf`
+  out-links) — session scratchpad, not persisted.
