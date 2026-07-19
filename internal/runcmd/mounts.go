@@ -23,7 +23,7 @@ func (o *Options) workspaceReadonlyMountArgs(cfg *jsonx.OrderedMap, rt string) [
 	if len(entries) == 0 {
 		return nil
 	}
-	out := printer{w: o.Stdout}
+	out := o.pr(o.Stdout)
 	if rt == "container" {
 		out.print("[bold yellow]Warning: workspace_readonly is NOT enforced on Apple " +
 			"Container[/bold yellow] — it ignores read-only bind mounts " +
@@ -75,7 +75,7 @@ func (o *Options) venvShadowMountArgs(cfg *jsonx.OrderedMap, wsState string) []s
 	}
 	sort.Strings(sorted)
 
-	out := printer{w: o.Stdout}
+	out := o.pr(o.Stdout)
 	var args []string
 	for _, rel := range sorted {
 		if !runmount.ValidPerSideRel(rel) {

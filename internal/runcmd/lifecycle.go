@@ -153,7 +153,7 @@ func (o *Options) reapOrphanedJails(rt string) {
 	if !ok || len(live) == 0 {
 		return
 	}
-	out := printer{w: o.Stdout}
+	out := o.pr(o.Stdout)
 	for name := range live {
 		raw, err := os.ReadFile(ownerPIDFile(name))
 		if err != nil {
@@ -180,7 +180,7 @@ func (o *Options) maybeWarnAboutOOMKiller(exitCode int, rt string) {
 	name, memMB, ok := o.podmanMachineMemory()
 	msg, show := runtime.OOMKillerWarning(exitCode, rt, o.IsMacOS, name, memMB, ok)
 	if show {
-		printer{w: o.Stdout}.print("[dim]" + msg + "[/dim]")
+		o.pr(o.Stdout).print("[dim]" + msg + "[/dim]")
 	}
 }
 

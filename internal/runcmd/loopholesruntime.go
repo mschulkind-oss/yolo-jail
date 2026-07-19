@@ -38,7 +38,7 @@ func (o *Options) startLoopholes(cname, rt string, cfg *jsonx.OrderedMap) []loop
 		return nil
 	}
 
-	out := printer{w: o.Stdout}
+	out := o.pr(o.Stdout)
 	var handles []loopholeDaemon
 
 	// 1. Built-in cgroup delegate (Linux only, cgroup v2 only).
@@ -103,7 +103,7 @@ func (o *Options) startLoopholes(cname, rt string, cfg *jsonx.OrderedMap) []loop
 // them alone. Else reap the per-jail relay BEFORE rmtree'ing the sockets dir (so
 // the relay's SIGTERM socket cleanup targets a dir that still exists).
 func (o *Options) stopLoopholes(handles []loopholeDaemon, socketsDir, cname, rt string) {
-	out := printer{w: o.Stdout}
+	out := o.pr(o.Stdout)
 	for _, h := range handles {
 		func() {
 			defer func() { _ = recover() }()
@@ -187,7 +187,7 @@ func (o *Options) startExternalService(name string, spec *jsonx.OrderedMap, sock
 	_ = os.Remove(hostSocket)
 	cmdTemplate := asAnyList(mapGet(spec, "command"))
 	if len(cmdTemplate) == 0 {
-		printer{w: o.Stdout}.print("[red]Host service '" + name + "' has no command; skipping[/red]")
+		o.pr(o.Stdout).print("[red]Host service '" + name + "' has no command; skipping[/red]")
 		return loopholeDaemon{}, false
 	}
 	var cmdArgs []string
@@ -233,7 +233,7 @@ func (o *Options) startExternalService(name string, spec *jsonx.OrderedMap, sock
 		cmd.Env = env
 	}
 	if err := cmd.Start(); err != nil {
-		printer{w: o.Stdout}.print("[red]Failed to launch host service '" + name + "': " + err.Error() + "[/red]")
+		o.pr(o.Stdout).print("[red]Failed to launch host service '" + name + "': " + err.Error() + "[/red]")
 		return loopholeDaemon{}, false
 	}
 	// Wait for the socket to bind (5s).
@@ -464,7 +464,7 @@ func (o *Options) relaySpawnArgv(sockPath, brokerSocket, cname string) []string 
 		if info, err := os.Stat(goBin); err == nil && info.Mode()&0o111 != 0 {
 			return append([]string{goBin}, tail...)
 		}
-		printer{w: o.Stdout}.print("[yellow]YOLO_BROKER_RELAY_BIN=" + goBin + " is missing or not " +
+		o.pr(o.Stdout).print("[yellow]YOLO_BROKER_RELAY_BIN=" + goBin + " is missing or not " +
 			"executable — falling back to the Python relay. Run `just build-go` to rebuild dist-go/.[/yellow]")
 	}
 	// Python fallback: python3 <repo>/src/broker_relay.py.

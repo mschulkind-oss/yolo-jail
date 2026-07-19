@@ -24,7 +24,7 @@ func (o *Options) startHostPortForwarding(forwardHostPorts []any, cname string, 
 	if len(forwardHostPorts) == 0 {
 		return nil
 	}
-	out := printer{w: o.Stderr}
+	out := o.pr(o.Stderr)
 	parsed, err := network.ParsePortForwards(forwardHostPorts, out.print)
 	if err != nil || len(parsed) == 0 {
 		return nil

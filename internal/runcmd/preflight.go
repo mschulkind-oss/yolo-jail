@@ -15,7 +15,7 @@ import (
 // then print+exit on errors. Returns (config, ok). ok=false means the caller
 // must exit(1) — the messages were already printed.
 func (o *Options) loadAndValidateConfig() (*jsonx.OrderedMap, bool) {
-	out := printer{w: o.Stdout}
+	out := o.pr(o.Stdout)
 
 	cfg, err := config.LoadConfig(o.Workspace, true, func(string) {})
 	if err != nil {
@@ -112,7 +112,7 @@ func (o *Options) resolveRuntime(cfg *jsonx.OrderedMap) (string, bool) {
 		}
 		return rt, true
 	}
-	printer{w: o.Stdout}.print(
+	o.pr(o.Stdout).print(
 		"[bold red]No container runtime found. Install podman, or on macOS, Apple's container CLI.[/bold red]")
 	return "", false
 }
@@ -152,7 +152,7 @@ func (o *Options) checkConfigChanges(cfg *jsonx.OrderedMap) bool {
 		// A snapshot IO error is non-fatal in spirit; treat as proceed=false
 		// only when the write genuinely failed. Python raises; we surface and
 		// abort so the launch doesn't proceed on an unwritten snapshot.
-		printer{w: o.Stdout}.printf("[bold red]%s[/bold red]", err.Error())
+		o.pr(o.Stdout).printf("[bold red]%s[/bold red]", err.Error())
 		return false
 	}
 	return ok
@@ -163,7 +163,7 @@ func (o *Options) checkConfigChanges(cfg *jsonx.OrderedMap) bool {
 type changePrompter struct{ o *Options }
 
 func (p *changePrompter) Prompt(diffLines []string) bool {
-	out := printer{w: p.o.Stdout}
+	out := p.o.pr(p.o.Stdout)
 	out.print("\n[bold yellow]⚠  Jail config changed since last run:[/bold yellow]\n")
 	for _, line := range diffLines {
 		switch {

@@ -202,7 +202,7 @@ func (o *Options) hostServicesMountArgs(rt, cname string) []string {
 // deviceArgs ports the device-passthrough loop (2378-2441): raw paths, USB by
 // vendor:product (resolved via lsusb), and cgroup rules. macOS warns+skips.
 func (o *Options) deviceArgs(cfg *jsonx.OrderedMap) []string {
-	out := printer{w: o.Stdout}
+	out := o.pr(o.Stdout)
 	var args []string
 	for _, devAny := range cfgList(cfg, "devices") {
 		switch dev := devAny.(type) {
@@ -243,7 +243,7 @@ func (o *Options) deviceArgs(cfg *jsonx.OrderedMap) []string {
 // resolveUSBDevice ports the lsusb resolution branch. Returns the --device args
 // (empty on any failure, warned).
 func (o *Options) resolveUSBDevice(usbID, desc string) []string {
-	out := printer{w: o.Stdout}
+	out := o.pr(o.Stdout)
 	res := o.Exec([]string{"lsusb", "-d", usbID}, "", nil, 5*time.Second)
 	if !res.Ran {
 		out.print("[yellow]Warning: lsusb not found — cannot resolve USB device IDs[/yellow]")
@@ -274,7 +274,7 @@ func (o *Options) kvmArgs(cfg *jsonx.OrderedMap, rt string) []string {
 	if !cfgTrue(cfg, "kvm") {
 		return nil
 	}
-	out := printer{w: o.Stdout}
+	out := o.pr(o.Stdout)
 	if o.IsMacOS || rt == "container" {
 		out.print("[yellow]Warning: kvm passthrough is not supported on this runtime — skipping[/yellow]")
 		return nil

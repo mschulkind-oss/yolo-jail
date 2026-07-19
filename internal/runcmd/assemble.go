@@ -75,7 +75,7 @@ func (in *assembleInput) storePruneEnv() []string {
 func (o *Options) assembleRunCmd(in *assembleInput) []string {
 	cfg := in.cfg
 	rt := in.rt
-	out := printer{w: o.Stdout}
+	out := o.pr(o.Stdout)
 
 	// --- Network mode + ports ---
 	netMode := o.Network

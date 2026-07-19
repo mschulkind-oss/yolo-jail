@@ -34,7 +34,7 @@ func Run(opts Options) int {
 		return 1 // _resolve_repo_root's SystemExit(1)
 	}
 	if err := ensureStorage(); err != nil {
-		printer{w: o.Stdout}.printf("[bold red]%s[/bold red]", err.Error())
+		o.pr(o.Stdout).printf("[bold red]%s[/bold red]", err.Error())
 		return 1
 	}
 	cfg, ok := o.loadAndValidateConfig()
@@ -52,7 +52,7 @@ func Run(opts Options) int {
 	// Falls back to an actionable error if the front door didn't inject it.
 	if rt == "macos-user" {
 		if o.MacosUserRun == nil {
-			printer{w: o.Stdout}.print(
+			o.pr(o.Stdout).print(
 				"[bold red]macos-user runtime handler not wired.[/bold red]  " +
 					"This build cannot launch the native macOS backend.")
 			return 1
@@ -66,7 +66,7 @@ func Run(opts Options) int {
 		return o.MacosUserRun(cfg, o.Workspace, config.SelectedAgents(cfg), agentArgv, repoRoot, o.DryRun)
 	}
 	if o.DryRun {
-		printer{w: o.Stdout}.print(
+		o.pr(o.Stdout).print(
 			"[bold red]--dry-run is only supported for the macos-user runtime.[/bold red]  " +
 				`Set runtime: "macos-user" (or YOLO_RUNTIME=macos-user) to use it.`)
 		return 1
@@ -96,7 +96,7 @@ func ensureStorage() error {
 // assembly, host-service start, tracking/owner-PID, port forwarding, the
 // run_with_proxy launch with the FROZEN teardown guard stack).
 func (o *Options) runContainer(cfg *jsonx.OrderedMap, rt, repoRoot string) int {
-	out := printer{w: o.Stdout}
+	out := o.pr(o.Stdout)
 
 	agentsList := config.SelectedAgents(cfg)
 	agentSpecs := agents.ResolveAgents(agentsList)
@@ -157,7 +157,7 @@ func (o *Options) runContainer(cfg *jsonx.OrderedMap, rt, repoRoot string) int {
 
 	// Remove any stopped container left from an unclean shutdown.
 	if stale := o.findExistingContainer(cname, rt); stale != "" {
-		printer{w: o.Stderr}.printf("Removing stale container %s...", cname)
+		o.pr(o.Stderr).printf("Removing stale container %s...", cname)
 		o.removeStaleContainer(cname, rt)
 	}
 
@@ -313,8 +313,8 @@ func (o *Options) runContainer(cfg *jsonx.OrderedMap, rt, repoRoot string) int {
 	o.maybeWarnAboutOOMKiller(rc, rt)
 
 	if o.Profile {
-		printer{w: o.Stderr}.printf("[bold cyan]--- Host-side timing ---[/bold cyan]")
-		printer{w: o.Stderr}.printf("  Total (host-side):  %.3fs", o.Now().Sub(profileStart).Seconds())
+		o.pr(o.Stderr).printf("[bold cyan]--- Host-side timing ---[/bold cyan]")
+		o.pr(o.Stderr).printf("  Total (host-side):  %.3fs", o.Now().Sub(profileStart).Seconds())
 	}
 	return rc
 }
@@ -322,7 +322,7 @@ func (o *Options) runContainer(cfg *jsonx.OrderedMap, rt, repoRoot string) int {
 // attachExisting ports the exec-into-existing-container branch (and the
 // raced-attach twin). raced selects the second banner text.
 func (o *Options) attachExisting(cname, rt, targetCmd string, identityEnv []string, raced bool) int {
-	out := printer{w: o.Stdout}
+	out := o.pr(o.Stdout)
 	// Startup banner to stderr — surfaces the jail's BAKED version so a host CLI
 	// upgrade attaching to a pre-upgrade container (stale shims/mounts/entrypoint)
 	// is visible at a glance (audit §B#4; mirrors run_cmd.py:1372).
