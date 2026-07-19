@@ -3,49 +3,17 @@
 //
 // CLI contract: --socket, --config, --self-check. Config defaults to
 // $YOLO_HOST_PROCESSES_CONFIG or CWD/yolo-jail.jsonc.
+//
+// The daemon body lives in internal/hostprocesses.Main so it can also be
+// reached in-process via the hidden `yolo internal daemon host-processes`.
 package main
 
 import (
-	"flag"
-	"fmt"
 	"os"
-	"path/filepath"
 
 	"github.com/mschulkind-oss/yolo-jail/internal/hostprocesses"
-	"github.com/mschulkind-oss/yolo-jail/internal/hostservice"
 )
 
 func main() {
-	os.Exit(run())
-}
-
-func run() int {
-	socket := flag.String("socket", "", "Unix socket to bind")
-	config := flag.String("config", "", "yolo-jail.jsonc path (defaults to $YOLO_HOST_PROCESSES_CONFIG)")
-	selfCheck := flag.Bool("self-check", false, "Emit status and exit (used by `yolo doctor`)")
-	flag.Parse()
-
-	if *selfCheck {
-		return hostprocesses.SelfCheck()
-	}
-	if *socket == "" {
-		fmt.Fprintln(os.Stderr, "ERROR: --socket is required")
-		return 2
-	}
-	cfg := *config
-	if cfg == "" {
-		if env := os.Getenv("YOLO_HOST_PROCESSES_CONFIG"); env != "" {
-			cfg = env
-		} else {
-			cwd, _ := os.Getwd()
-			cfg = filepath.Join(cwd, "yolo-jail.jsonc")
-		}
-	}
-
-	stop := make(chan struct{})
-	if err := hostservice.Serve(hostprocesses.BuildHandler(cfg), *socket, stop); err != nil {
-		fmt.Fprintln(os.Stderr, "yolo-host-processes:", err)
-		return 1
-	}
-	return 0
+	os.Exit(hostprocesses.Main(os.Args[1:]))
 }

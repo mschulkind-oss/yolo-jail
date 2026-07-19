@@ -1,4 +1,4 @@
-package main
+package journald
 
 import (
 	"bytes"
@@ -7,13 +7,10 @@ import (
 	"io"
 	"net"
 	"os"
-	"os/exec"
 	"path/filepath"
 	"strconv"
 	"testing"
 	"time"
-
-	"github.com/mschulkind-oss/yolo-jail/internal/journald"
 )
 
 // tailMarker is journalctl's final output — the last bytes of the stream. The
@@ -43,6 +40,10 @@ const tailMarker = "===END-OF-JOURNAL-MARKER===\n"
 //
 // This made the test bite: with the drain-wait moved back after cmd.Wait it
 // fails every run (short byte count, missing marker); with the fix it passes.
+//
+// Driven in-process against journald.Serve (was: a built-and-exec'd binary) —
+// the Wait/pipe race lives entirely inside handleConn, independent of the
+// process boundary.
 func TestNoTruncationRace(t *testing.T) {
 	if testing.Short() {
 		t.Skip("spawns processes; -short")
@@ -57,17 +58,18 @@ func TestNoTruncationRace(t *testing.T) {
 	// fake journalctl: write bodyLen bytes of 'x' then the tail marker, exit 0.
 	fakeBin := filepath.Join(dir, "journalctl")
 	writeFakeJournalctlTailed(t, fakeBin, bodyLen, tailMarker)
-
-	binPath := buildJournald(t, dir)
+	// Put the fake journalctl first on PATH — handleConn resolves "journalctl"
+	// against this process's env when it spawns the child.
+	t.Setenv("PATH", dir+":"+os.Getenv("PATH"))
 
 	for i := 0; i < 5; i++ {
 		sock := filepath.Join(dir, "j.sock")
 		os.Remove(sock)
-		proc := startDaemon(t, binPath, sock, dir)
+		stop, done := startServe(t, sock, "user")
 		// Delay the first read so journalctl exits (and, with the race, cmd.Wait
 		// closes the pipe) before the client drains a single byte.
 		out, rc := driveJournalDelayedRead(t, sock, `{"args":["-n","5"]}`, 200*time.Millisecond)
-		stopDaemon(proc)
+		stopServe(stop, done)
 		if rc != 0 {
 			t.Fatalf("run %d: rc=%d, want 0", i, rc)
 		}
@@ -131,7 +133,7 @@ func measureUnixSendBuffer(t *testing.T) int {
 	return total
 }
 
-// TestHeaderCapRejectsNewlinelessFlood: a client that never sends a newline is
+// TestHeaderCapRejectsNewlineless: a client that never sends a newline is
 // rejected (exit 2) instead of growing daemon memory unbounded.
 func TestHeaderCapRejectsNewlineless(t *testing.T) {
 	if testing.Short() {
@@ -139,10 +141,10 @@ func TestHeaderCapRejectsNewlineless(t *testing.T) {
 	}
 	dir := t.TempDir()
 	writeFakeJournalctl(t, filepath.Join(dir, "journalctl"), 10)
-	binPath := buildJournald(t, dir)
+	t.Setenv("PATH", dir+":"+os.Getenv("PATH"))
 	sock := filepath.Join(dir, "j.sock")
-	proc := startDaemon(t, binPath, sock, dir)
-	defer stopDaemon(proc)
+	stop, done := startServe(t, sock, "user")
+	defer stopServe(stop, done)
 
 	c, err := net.DialTimeout("unix", sock, 3*time.Second)
 	if err != nil {
@@ -151,7 +153,7 @@ func TestHeaderCapRejectsNewlineless(t *testing.T) {
 	defer c.Close()
 	c.SetDeadline(time.Now().Add(5 * time.Second))
 	// Send > MaxHeaderBytes with no newline.
-	flood := make([]byte, journald.MaxHeaderBytes+100)
+	flood := make([]byte, MaxHeaderBytes+100)
 	for i := range flood {
 		flood[i] = 'x'
 	}
@@ -189,43 +191,36 @@ func writeFakeJournalctlTailed(t *testing.T, path string, n int, tail string) {
 	}
 }
 
-func buildJournald(t *testing.T, dir string) string {
+// startServe launches journald.Serve in a goroutine on sock and blocks until the
+// socket is dialable. It returns the stop channel and a done channel that closes
+// when Serve returns; pass both to stopServe.
+func startServe(t *testing.T, sock, mode string) (chan struct{}, chan struct{}) {
 	t.Helper()
-	bin := filepath.Join(dir, "yolo-journald.bin")
-	cmd := exec.Command("go", "build", "-o", bin, ".")
-	cmd.Env = append(os.Environ(), "CGO_ENABLED=0")
-	if out, err := cmd.CombinedOutput(); err != nil {
-		t.Fatalf("build: %v\n%s", err, out)
-	}
-	return bin
-}
-
-func startDaemon(t *testing.T, bin, sock, fakePathDir string) *exec.Cmd {
-	t.Helper()
-	cmd := exec.Command(bin, "--socket", sock, "--mode", "user")
-	// Put the fake journalctl first on PATH.
-	cmd.Env = append(os.Environ(), "PATH="+fakePathDir+":"+os.Getenv("PATH"))
-	if err := cmd.Start(); err != nil {
-		t.Fatal(err)
-	}
-	// Wait for the socket.
+	stop := make(chan struct{})
+	done := make(chan struct{})
+	go func() {
+		defer close(done)
+		if err := Serve(sock, mode, stop); err != nil {
+			t.Errorf("Serve: %v", err)
+		}
+	}()
 	deadline := time.Now().Add(5 * time.Second)
 	for time.Now().Before(deadline) {
 		if c, err := net.DialTimeout("unix", sock, time.Second); err == nil {
 			c.Close()
-			return cmd
+			return stop, done
 		}
 		time.Sleep(20 * time.Millisecond)
 	}
+	close(stop)
 	t.Fatal("daemon socket never appeared")
-	return nil
+	return nil, nil
 }
 
-func stopDaemon(cmd *exec.Cmd) {
-	if cmd != nil && cmd.Process != nil {
-		_ = cmd.Process.Kill()
-		_, _ = cmd.Process.Wait()
-	}
+// stopServe closes the listener and waits for Serve to return.
+func stopServe(stop, done chan struct{}) {
+	close(stop)
+	<-done
 }
 
 // driveJournalDelayedRead sends the request, then sleeps `preReadDelay` before
@@ -265,9 +260,9 @@ func readFrames(t *testing.T, c net.Conn) ([]byte, int) {
 			}
 		}
 		switch stream {
-		case journald.FrameStdout:
+		case FrameStdout:
 			stdout = append(stdout, payload...)
-		case journald.FrameExit:
+		case FrameExit:
 			return stdout, int(int32(binary.BigEndian.Uint32(payload)))
 		}
 	}

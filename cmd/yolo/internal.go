@@ -4,22 +4,57 @@ import (
 	"fmt"
 	"os"
 
+	"github.com/mschulkind-oss/yolo-jail/internal/brokerrelay"
 	"github.com/mschulkind-oss/yolo-jail/internal/config"
+	"github.com/mschulkind-oss/yolo-jail/internal/hostprocesses"
+	"github.com/mschulkind-oss/yolo-jail/internal/journald"
 	"github.com/mschulkind-oss/yolo-jail/internal/jsonx"
+	"github.com/mschulkind-oss/yolo-jail/internal/oauthbroker"
 )
 
 // runInternal dispatches the hidden `yolo internal <cmd>` family — debugging
-// tooling for config inspection.
+// tooling and the in-process host-daemon entry points. This group is
+// deliberately kept OUT of frontdoor.Subcommands (the documented CLI surface)
+// and intercepted before RewriteArgv, so it never participates in `--`->run
+// rewrite semantics.
 func runInternal(args []string) int {
 	if len(args) == 0 {
-		fmt.Fprintln(os.Stderr, "usage: yolo internal <config-dump> [args...]")
+		fmt.Fprintln(os.Stderr, "usage: yolo internal <config-dump|daemon> [args...]")
 		return 2
 	}
 	switch args[0] {
 	case "config-dump":
 		return runConfigDump(args[1:])
+	case "daemon":
+		return runInternalDaemon(args[1:])
 	default:
 		fmt.Fprintf(os.Stderr, "yolo internal: unknown command %q\n", args[0])
+		return 2
+	}
+}
+
+// runInternalDaemon dispatches the hidden `yolo internal daemon <name>` group —
+// the four host daemons, callable in-process so a single yolo binary can serve
+// as each one. The remaining argv is passed through verbatim, so each daemon's
+// flag surface (--socket, --self-check, --init-ca, …) is byte-identical to its
+// standalone binary.
+func runInternalDaemon(args []string) int {
+	if len(args) == 0 {
+		fmt.Fprintln(os.Stderr, "usage: yolo internal daemon <claude-oauth-broker|host-processes|broker-relay|journal> [args...]")
+		return 2
+	}
+	rest := args[1:]
+	switch args[0] {
+	case "claude-oauth-broker":
+		return oauthbroker.Main(rest)
+	case "host-processes":
+		return hostprocesses.Main(rest)
+	case "broker-relay":
+		return brokerrelay.Main(rest)
+	case "journal":
+		return journald.Main(rest)
+	default:
+		fmt.Fprintf(os.Stderr, "yolo internal daemon: unknown daemon %q\n", args[0])
 		return 2
 	}
 }
