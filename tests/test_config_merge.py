@@ -810,3 +810,66 @@ class TestLoopholeOverrides:
         )
         assert errors == []
         assert any("audio" in w for w in warnings)
+
+
+class TestInJailSnapshotCopy:
+    """Inside a jail, load_config copies the host-written snapshot instead of
+    re-assembling — the fix for the config-diff ping-pong (a machine-local
+    include_if_found override lives on the HOST, is not mounted into the jail,
+    and an in-jail re-merge would drop it and then rewrite the shared,
+    host-owned snapshot with the reduced form).
+    """
+
+    def test_in_jail_reads_snapshot_verbatim(self, tmp_path, monkeypatch):
+        # Jail-mounted config.jsonc includes an overrides.jsonc that does NOT
+        # exist in the jail, so a re-assemble would drop mcp_servers.
+        user = tmp_path / "user" / "config.jsonc"
+        user.parent.mkdir(parents=True)
+        user.write_text(
+            '{"include_if_found": ["overrides.jsonc"], '
+            '"mcp_presets": ["chrome-devtools"]}'
+        )
+        monkeypatch.setattr("cli.config.USER_CONFIG_PATH", user)
+        (tmp_path / "yolo-jail.jsonc").write_text('{"agents": ["claude"]}')
+        # Host wrote the snapshot WITH the assembled mcp_servers.
+        snap = tmp_path / ".yolo" / "config-snapshot.json"
+        snap.parent.mkdir(parents=True)
+        snap.write_text(
+            json.dumps(
+                {"agents": ["claude"], "mcp_servers": {"tavily": {"command": "npx"}}}
+            )
+        )
+        monkeypatch.setenv("YOLO_VERSION", "9.9.9-test")
+
+        cfg = load_config(tmp_path, strict=True)
+        assert "mcp_servers" in cfg, "in-jail load must copy the snapshot verbatim"
+
+    def test_host_still_assembles_ignoring_snapshot(self, tmp_path, monkeypatch):
+        monkeypatch.setattr("cli.config.USER_CONFIG_PATH", tmp_path / "no-user.jsonc")
+        (tmp_path / "yolo-jail.jsonc").write_text('{"agents": ["pi"]}')
+        snap = tmp_path / ".yolo" / "config-snapshot.json"
+        snap.parent.mkdir(parents=True)
+        snap.write_text('{"agents": ["stale-should-be-ignored"]}')
+        monkeypatch.delenv("YOLO_VERSION", raising=False)  # host
+
+        cfg = load_config(tmp_path, strict=True)
+        assert cfg["agents"] == ["pi"], "host must assemble from files, not snapshot"
+
+    def test_in_jail_falls_back_when_no_snapshot(self, tmp_path, monkeypatch):
+        monkeypatch.setattr("cli.config.USER_CONFIG_PATH", tmp_path / "no-user.jsonc")
+        (tmp_path / "yolo-jail.jsonc").write_text('{"agents": ["claude"]}')
+        monkeypatch.setenv("YOLO_VERSION", "9.9.9-test")
+        # No snapshot on disk → fall back to a normal assemble (no error).
+        cfg = load_config(tmp_path, strict=True)
+        assert cfg["agents"] == ["claude"]
+
+    def test_in_jail_ignores_non_object_snapshot(self, tmp_path, monkeypatch):
+        monkeypatch.setattr("cli.config.USER_CONFIG_PATH", tmp_path / "no-user.jsonc")
+        (tmp_path / "yolo-jail.jsonc").write_text('{"agents": ["claude"]}')
+        snap = tmp_path / ".yolo" / "config-snapshot.json"
+        snap.parent.mkdir(parents=True)
+        snap.write_text('["not", "an", "object"]')
+        monkeypatch.setenv("YOLO_VERSION", "9.9.9-test")
+
+        cfg = load_config(tmp_path, strict=True)
+        assert cfg["agents"] == ["claude"], "non-object snapshot must be ignored"

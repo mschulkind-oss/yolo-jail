@@ -313,10 +313,50 @@ def load_workspace_config(
 def load_config(
     workspace: Optional[Path] = None, *, strict: bool = False
 ) -> Dict[str, Any]:
+    # Inside a jail, do NOT re-assemble: COPY the host's already-merged config
+    # from the workspace snapshot instead.  The user-level ``include_if_found``
+    # overrides (e.g. a machine-local overrides.jsonc carrying mcp_servers) live
+    # on the HOST and are never mounted into the jail, so an in-jail re-merge
+    # silently drops them — producing a reduced config that (a) mismatches the
+    # host and (b) rewrites the bind-mounted, host-owned snapshot with the
+    # reduced form, so the host then re-prompts on every run (the ping-pong).
+    # The snapshot IS json.dumps(assembled config); reading it verbatim keeps
+    # the in-jail view identical to the host's.  Falls back to a normal assemble
+    # when the snapshot is absent/unreadable (e.g. never run through approval).
+    if _in_jail():
+        snap = _load_assembled_snapshot(workspace)
+        if snap is not None:
+            return snap
     user_config = _load_jsonc_with_includes(
         USER_CONFIG_PATH, str(USER_CONFIG_PATH), strict=strict
     )
     return merge_config(user_config, load_workspace_config(workspace, strict=strict))
+
+
+def _in_jail() -> bool:
+    """True inside a yolo jail (the host always sets a non-empty YOLO_VERSION)."""
+    return bool(os.environ.get("YOLO_VERSION"))
+
+
+def _load_assembled_snapshot(
+    workspace: Optional[Path],
+) -> Optional[Dict[str, Any]]:
+    """Read the host-written config snapshot as the merged config.
+
+    The snapshot (``<workspace>/.yolo/config-snapshot.json``) is
+    ``json.dumps(config, indent=2, sort_keys=True)``, so decoding it yields the
+    same config the host assembled (dict keys sorted — cosmetic; list order,
+    the only order that matters, is preserved).  Returns None when the file is
+    missing or not a JSON object, so the caller falls back to a re-assemble.
+    """
+    snapshot_path = _config_snapshot_path(workspace or Path.cwd())
+    try:
+        decoded = json.loads(snapshot_path.read_text())
+    except (OSError, json.JSONDecodeError):
+        return None
+    if not isinstance(decoded, dict):
+        return None
+    return decoded
 
 
 # ---------------------------------------------------------------------------

@@ -229,6 +229,21 @@ func LoadWorkspaceConfig(workspace string, strict bool, warn Warn) (*jsonx.Order
 // LoadConfig ports load_config: user-level config merged under the workspace
 // config.
 func LoadConfig(workspace string, strict bool, warn Warn) (*jsonx.OrderedMap, error) {
+	// Inside a jail, do NOT re-assemble: COPY the host's already-merged config
+	// from the workspace snapshot instead. The user-level `include_if_found`
+	// overrides (e.g. a machine-local overrides.jsonc carrying mcp_servers) live
+	// on the HOST and are never mounted into the jail, so an in-jail re-merge
+	// silently drops them — producing a reduced config that (a) mismatches the
+	// host and (b) rewrites the bind-mounted, host-owned snapshot with the
+	// reduced form, so the host then re-prompts on every run (the ping-pong).
+	// The snapshot IS json.dumps(assembled_config); reading it verbatim keeps
+	// the in-jail view identical to the host's. Falls back to a normal assemble
+	// when the snapshot is absent/unreadable (e.g. never run through approval).
+	if inJail() {
+		if snap, ok := loadAssembledSnapshot(workspace); ok {
+			return snap, nil
+		}
+	}
 	userCfg, err := LoadJSONCWithIncludes(
 		paths.UserConfigPath(), paths.UserConfigPath(), strict, warn, nil)
 	if err != nil {
@@ -239,4 +254,36 @@ func LoadConfig(workspace string, strict bool, warn Warn) (*jsonx.OrderedMap, er
 		return nil, err
 	}
 	return MergeConfig(userCfg, wsCfg), nil
+}
+
+// inJail reports whether we are executing inside a yolo jail (the host always
+// sets YOLO_VERSION to a non-empty version string in the container env).
+func inJail() bool {
+	return os.Getenv("YOLO_VERSION") != ""
+}
+
+// loadAssembledSnapshot reads the host-written config snapshot
+// (<workspace>/.yolo/config-snapshot.json) and returns it as the merged config.
+// The snapshot is json.dumps(config, indent=2, sort_keys=True), so decoding it
+// yields the same config the host assembled (dict keys sorted — cosmetic;
+// list order, which is the only order that matters, is preserved). Returns
+// ok=false when the file is missing or not a JSON object, so the caller falls
+// back to a normal re-assemble.
+func loadAssembledSnapshot(workspace string) (*jsonx.OrderedMap, bool) {
+	if workspace == "" {
+		workspace = cwd()
+	}
+	data, err := os.ReadFile(ConfigSnapshotPath(workspace))
+	if err != nil {
+		return nil, false
+	}
+	decoded, err := jsonx.Decode(data)
+	if err != nil {
+		return nil, false
+	}
+	m, ok := decoded.(*jsonx.OrderedMap)
+	if !ok {
+		return nil, false
+	}
+	return m, true
 }
