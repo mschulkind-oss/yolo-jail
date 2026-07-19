@@ -5,14 +5,11 @@ a jail (nested-container scenario), where the inner podman has its own separate 
 store that doesn't see the outer host's images.
 """
 
-import os
 import subprocess
 import shutil
 import sys
 from pathlib import Path
 import pytest
-
-os.environ.setdefault("MISE_DATA_DIR", "/tmp/yolo-test-mise")
 
 REPO_ROOT = Path(__file__).parent.parent.resolve()
 JAIL_IMAGE = "yolo-jail:latest"
