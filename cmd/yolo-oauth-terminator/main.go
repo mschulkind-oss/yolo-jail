@@ -18,13 +18,13 @@ package main
 import (
 	"crypto/tls"
 	"flag"
-	"fmt"
 	"io"
 	"net/http"
 	"os"
 	"strings"
 
 	"github.com/mschulkind-oss/yolo-jail/internal/oauthterminator"
+	"github.com/mschulkind-oss/yolo-jail/internal/pytext"
 )
 
 func main() {
@@ -38,16 +38,24 @@ func run() int {
 	key := flag.String("key", "/var/lib/yolo-jail/loopholes/claude-oauth-broker/server.key", "TLS key")
 	hostSocket := flag.String("host-socket", os.Getenv("YOLO_SERVICE_CLAUDE_OAUTH_BROKER_SOCKET"),
 		"Unix socket for the host-side broker (default: from env)")
-	flag.Bool("verbose", false, "verbose logging")
-	flag.Bool("v", false, "verbose logging")
+	logFile := flag.String("log-file", "", "append the operational log here (default: stderr)")
+	verbose := flag.Bool("verbose", false, "verbose logging")
+	verboseShort := flag.Bool("v", false, "verbose logging")
 	flag.Parse()
 
+	// Empty --log-file -> stderr, which the in-jail daemon supervisor captures
+	// into ~/.local/state/yolo-jail-daemons/claude-oauth-broker.log (the same
+	// sink the Python terminator's basicConfig(stderr) landed in).
+	oauthterminator.SetupLog(*logFile, *verbose || *verboseShort)
+
 	if *hostSocket == "" {
-		fmt.Fprintln(os.Stderr, "no host socket path available — expected YOLO_SERVICE_CLAUDE_OAUTH_BROKER_SOCKET")
+		// Python logs this via log.error (basicConfig -> stderr); the logger's
+		// default sink is stderr too, so a single LogError matches the wire.
+		oauthterminator.LogError("no host socket path available — expected YOLO_SERVICE_CLAUDE_OAUTH_BROKER_SOCKET")
 		return 2
 	}
 	if !isFile(*cert) || !isFile(*key) {
-		fmt.Fprintf(os.Stderr, "missing %s or %s — did `just deploy` run --init-ca?\n", *cert, *key)
+		oauthterminator.LogError("missing %s or %s — did `just deploy` run --init-ca?", *cert, *key)
 		return 2
 	}
 
@@ -64,8 +72,12 @@ func run() int {
 	// Claude Code's reconnect-each-time behavior.
 	srv.SetKeepAlivesEnabled(false)
 
+	// Mirrors main()'s startup log.info in oauth_broker_jail.py.
+	oauthterminator.LogInfo("listening on https://%s:%d (intercepting %s -> %s)",
+		*host, *port, oauthterminator.UpstreamHost, *hostSocket)
+
 	if err := srv.ListenAndServeTLS(*cert, *key); err != nil && err != http.ErrServerClosed {
-		fmt.Fprintln(os.Stderr, "yolo-oauth-terminator:", err)
+		oauthterminator.LogError("yolo-oauth-terminator: %s", err)
 		return 1
 	}
 	return 0
@@ -77,11 +89,24 @@ func makeHandler(hostSocket string) http.Handler {
 		_ = r.Body.Close()
 
 		isToken := r.Method == http.MethodPost && strings.HasPrefix(r.URL.Path, "/v1/oauth/token")
+		isRefresh := isToken && oauthterminator.IsRefreshGrant(body)
+		ua := r.Header.Get("User-Agent")
+		if ua == "" {
+			ua = "-"
+		}
+		// Per-request line (mirrors _handle's opening log.info). body_len/ua
+		// only — never the body (it can carry a token on the /login path).
+		oauthterminator.LogInfo("request: %s %s body_len=%d is_refresh=%t ua=%s",
+			r.Method, r.URL.RequestURI(), len(body), isRefresh, pyRepr(ua))
+
 		var result oauthterminator.ProxyResult
-		if isToken && oauthterminator.IsRefreshGrant(body) {
+		if isRefresh {
 			result = oauthterminator.Refresh(hostSocket)
 		} else {
 			result = oauthterminator.ProxyUpstream(hostSocket, r.Method, r.URL.RequestURI(), flattenHeaders(r.Header), body)
+			// Mirrors _handle's post-proxy log.info summary line.
+			oauthterminator.LogInfo("proxy: %s %s -> %d body_len=%d",
+				r.Method, r.URL.RequestURI(), result.Status, len(result.Body))
 		}
 		writeResult(w, result)
 	})
@@ -123,6 +148,10 @@ func writeResult(w http.ResponseWriter, res oauthterminator.ProxyResult) {
 	w.WriteHeader(res.Status)
 	_, _ = w.Write(res.Body)
 }
+
+// pyRepr renders the User-Agent the way Python's f-string "{ua!r}" does in the
+// per-request log line.
+func pyRepr(s string) string { return pytext.Repr(s) }
 
 func isFile(p string) bool {
 	info, err := os.Stat(p)

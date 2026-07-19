@@ -18,11 +18,16 @@ import (
 	"errors"
 	"io"
 	"net"
+	"strings"
 	"syscall"
 	"time"
 
 	"github.com/mschulkind-oss/yolo-jail/internal/jsonx"
 )
+
+// UpstreamHost is the intercepted host, named in the startup log line
+// (mirrors UPSTREAM_HOST in oauth_broker_jail.py).
+const UpstreamHost = "platform.claude.com"
 
 // Loophole frame protocol stream IDs (client side; == frameproto v1's 0/1/2).
 const (
@@ -94,7 +99,11 @@ func AskHostBroker(socketPath string, request *jsonx.OrderedMap) (*jsonx.Ordered
 		case streamStdout:
 			stdout = append(stdout, payload...)
 		case streamStderr:
-			// host broker stderr — logged by the caller; ignored here.
+			// host broker stderr — surface it (Python's ask_host_broker logs
+			// "host broker stderr: %s" at WARNING). Names a failing host broker.
+			if s := strings.TrimSpace(string(payload)); s != "" {
+				LogWarn("host broker stderr: %s", s)
+			}
 		case streamExit:
 			rc = int(int32(binary.BigEndian.Uint32(payload)))
 			haveRC = true

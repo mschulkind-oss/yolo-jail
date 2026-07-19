@@ -60,6 +60,9 @@ func ProxyUpstream(socketPath, method, path string, headers map[string]string, b
 
 	resp, err := AskHostBroker(socketPath, req)
 	if err != nil {
+		// err names the failing layer (relay vs broker) — don't prefix it
+		// (Python: log.error("proxy failed: %s", e)).
+		LogError("proxy failed: %s", err)
 		return jsonError(502, "broker_unavailable", err.Error())
 	}
 	if _, isErr := resp.Get("error"); isErr {
@@ -68,10 +71,12 @@ func ProxyUpstream(socketPath, method, path string, headers map[string]string, b
 	}
 	statusV, ok := resp.Get("status")
 	if !ok {
+		LogError("malformed proxy response from host broker: missing status (resp=%s)", redactedResp(resp))
 		return jsonError(502, "broker_bad_response", "missing status")
 	}
 	status, ok := asInt(statusV)
 	if !ok {
+		LogError("malformed proxy response from host broker: non-int status (resp=%s)", redactedResp(resp))
 		return jsonError(502, "broker_bad_response", "non-int status")
 	}
 	respHeaders := map[string]string{}
@@ -88,6 +93,7 @@ func ProxyUpstream(socketPath, method, path string, headers map[string]string, b
 		if s, ok := bv.(string); ok && s != "" {
 			b, derr := base64.StdEncoding.DecodeString(s)
 			if derr != nil {
+				LogError("malformed proxy response from host broker: %s (resp=%s)", derr, redactedResp(resp))
 				return jsonError(502, "broker_bad_response", derr.Error())
 			}
 			respBody = b
@@ -102,12 +108,21 @@ func ProxyUpstream(socketPath, method, path string, headers map[string]string, b
 func Refresh(socketPath string) ProxyResult {
 	resp, err := AskHostBroker(socketPath, singleton("action", "refresh"))
 	if err != nil {
+		// Message names the failing layer (relay vs broker).
+		LogError("refresh failed: %s", err)
 		return jsonError(502, "broker_unavailable", err.Error())
 	}
 	if _, isErr := resp.Get("error"); isErr {
+		errVal, _ := resp.Get("error")
+		LogWarn("refresh: broker returned error=%s (%s)", stringOf(errVal), errDetail(resp))
 		b, _ := jsonx.DumpsCompact(resp)
 		return ProxyResult{Status: 400, Headers: map[string]string{"Content-Type": "application/json"}, Body: []byte(b)}
 	}
+	var expiresIn string
+	if v, ok := resp.Get("expires_in"); ok {
+		expiresIn = stringOf(v)
+	}
+	LogInfo("refresh: OK expires_in=%s", expiresIn)
 	b, _ := jsonx.DumpsCompact(resp)
 	return ProxyResult{Status: 200, Headers: map[string]string{"Content-Type": "application/json"}, Body: []byte(b)}
 }
@@ -165,5 +180,38 @@ func stringOf(v any) string {
 		return s
 	}
 	s, _ := jsonx.DumpsCompact(v)
+	return s
+}
+
+// errDetail renders the broker error's message/body for the "refresh: broker
+// returned error=... (...)" line — Python's `resp.get("message") or
+// resp.get("body") or ""`.
+func errDetail(resp *jsonx.OrderedMap) string {
+	if v, ok := resp.Get("message"); ok {
+		return stringOf(v)
+	}
+	if v, ok := resp.Get("body"); ok {
+		return stringOf(v)
+	}
+	return ""
+}
+
+// redactedResp renders a proxy response for the malformed-response log line
+// WITHOUT its body_b64. Python logs the full resp dict (resp=%r), but this
+// daemon terminates Claude's TLS, so a proxied body_b64 can carry token
+// material; we redact it and keep the structural keys the triage needs (status,
+// header names, error). SECURITY: never remove this redaction.
+func redactedResp(resp *jsonx.OrderedMap) string {
+	safe := jsonx.NewOrderedMap()
+	for _, k := range resp.Keys() {
+		v, _ := resp.Get(k)
+		if k == "body_b64" {
+			s, _ := v.(string)
+			safe.Set(k, "<redacted "+itoa(len(s))+"B>")
+			continue
+		}
+		safe.Set(k, v)
+	}
+	s, _ := jsonx.DumpsCompact(safe)
 	return s
 }
