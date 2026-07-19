@@ -93,6 +93,12 @@ run); the whole "run agent in jail" row for AC under current session's fixes.
    threads the line into `_build_image_store_path(builders=…)`. Proven
    end-to-end against real podman + nix in-jail (build ran in-container, result
    copied back). Runtime-agnostic: podman `-p`, AC per-container VM IP.
+   **Go-port gap (2026-07-19):** the Go port never wired the on-demand container
+   builder into its image path — there is no Go equivalent of Python's
+   `image.auto_load_image` builder-session threading. `internal/containerbuilder`
+   was a straight port of the session logic but had zero importers, so it was
+   deleted in this commit's sweep; resurrect it from git history when the CLI
+   run/check wiring actually lands.
 4. ✅ **Publish `builderImage` to GHCR** — DONE + LIVE + PUBLIC. The
    `push-builder-image` job ran on the v0.6.0 release and pushed
    `ghcr.io/mschulkind-oss/yolo-jail-builder:{0.6.0,latest}` (arm64/linux,
