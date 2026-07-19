@@ -3,13 +3,11 @@
 // host-wide singleton — one daemon for every running jail — and this group
 // manages it: inspect health, stop it, cycle it after a wheel upgrade, tail its
 // log.
-//
 // The lifecycle engine (BrokerStatus/IsAlive/Kill/Spawn/Ping) lives in
 // internal/brokerlifecycle behind an injectable Deps seam; this package is the
 // thin command body. Output is rich-console → INFO-parity (same information,
 // Go-native color) per the approved output-contract OQ; the EXIT CODES and the
 // socket/pid/log PATH strings are byte-exact vs Python.
-//
 // Wiring is the orchestrator's job (a one-line runBroker dispatcher in
 // cmd/yolo/native.go). This package only exposes clean importable funcs
 // (Status/Stop/Restart/Logs) + RealDeps.
@@ -31,7 +29,7 @@ import (
 // Color enables ANSI markup rendering (info-parity, not rich byte-parity).
 // RunTail runs the `tail` argv attached to the terminal (logs -f blocks); a
 // test substitutes a no-op. LogIsFile reports whether the broker log exists as a
-// regular file (mirrors Path.is_file()).
+// regular file).
 type Deps struct {
 	Life      brokerlifecycle.Deps
 	Out, Err  io.Writer

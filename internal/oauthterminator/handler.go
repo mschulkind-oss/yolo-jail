@@ -9,7 +9,7 @@ import (
 
 // IsRefreshGrant reports whether body is a JSON object with
 // grant_type == "refresh_token". Anything else (authorization_code from
-// /login, unparseable, empty) is proxied untouched. Mirrors _is_refresh_grant.
+// /login, unparseable, empty) is proxied untouched.
 func IsRefreshGrant(body []byte) bool {
 	if len(body) == 0 {
 		return false
@@ -38,7 +38,7 @@ type ProxyResult struct {
 }
 
 // ProxyUpstream ships a request to the host broker with action=proxy and maps
-// the response (or failure) to an HTTP status/body. Mirrors _proxy_upstream:
+// the response (or failure) to an HTTP status/body.
 // transport failure or broker {error} -> 502 with the layer-named detail;
 // malformed proxy response -> 502 broker_bad_response; else the upstream
 // status/headers/body verbatim.
@@ -104,7 +104,6 @@ func ProxyUpstream(socketPath, method, path string, headers map[string]string, b
 
 // Refresh sends action=refresh and maps the response to an HTTP result:
 // transport failure -> 502; broker {error} -> 400; else 200 with the tokens.
-// Mirrors the is_refresh branch of _handle.
 func Refresh(socketPath string) ProxyResult {
 	resp, err := AskHostBroker(socketPath, singleton("action", "refresh"))
 	if err != nil {

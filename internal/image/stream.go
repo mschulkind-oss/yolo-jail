@@ -5,7 +5,6 @@ import "strings"
 // LinuxBuilderFromMachines parses the /etc/nix/machines contents and returns the
 // first builder whose second field names a linux system, as (builderURI,
 // sshHost, true). Returns ("", "", false) when no linux builder line is present.
-// Mirrors the parse loop in _stream_image_command: skip blank/`#` lines, require
 // >=2 fields, match "linux" in field[1]; sshHost strips the ssh-ng:// / ssh://
 // scheme from field[0].
 //

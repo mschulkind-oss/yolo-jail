@@ -156,7 +156,7 @@ func (c *child) start() error {
 }
 
 // waitAndMaybeRestart waits for the child and reports whether to restart per
-// policy. Returns false if stop fired. Mirrors wait_and_maybe_restart,
+// policy. Returns false if stop fired.
 // including the pre-return backoff sleep + doubling.
 func (c *child) waitAndMaybeRestart(stop <-chan struct{}) bool {
 	c.mu.Lock()
@@ -188,10 +188,10 @@ func (c *child) waitAndMaybeRestart(stop <-chan struct{}) bool {
 	return !isStopped(stop)
 }
 
-// terminate SIGTERMs the child, then SIGKILLs after the grace period. Mirrors
-// _Child.terminate. It only SIGNALS the process — the single cmd.Wait() lives
-// in the supervise goroutine (Go forbids a second Wait), so we poll exit via
-// exited() rather than Wait()ing here.
+// terminate SIGTERMs the child, then SIGKILLs after the grace period. It only
+// SIGNALS the process — the single cmd.Wait() lives in the supervise
+// goroutine (Go forbids a second Wait), so we poll exit via exited() rather
+// than Wait()ing here.
 func (c *child) terminate(timeout time.Duration) {
 	c.mu.Lock()
 	cmd := c.cmd
@@ -214,7 +214,7 @@ func (c *child) terminate(timeout time.Duration) {
 }
 
 // superviseOne is the per-daemon loop: start (backoff-retry on spawn failure),
-// wait, restart-or-return. Mirrors _supervise_one.
+// wait, restart-or-return.
 func (c *child) superviseOne(stop <-chan struct{}) {
 	for !isStopped(stop) {
 		if err := c.start(); err != nil {
@@ -229,7 +229,7 @@ func (c *child) superviseOne(stop <-chan struct{}) {
 }
 
 // Run supervises specs until stop is closed. Returns when all daemons have
-// settled (or stop fired + children terminated). Mirrors main's body after
+// settled (or stop fired + children terminated).
 // parsing.
 func Run(specs []Spec, stop <-chan struct{}) {
 	children := make([]*child, len(specs))
@@ -253,7 +253,6 @@ func Run(specs []Spec, stop <-chan struct{}) {
 }
 
 // --- small helpers ---
-
 func isStopped(stop <-chan struct{}) bool {
 	select {
 	case <-stop:

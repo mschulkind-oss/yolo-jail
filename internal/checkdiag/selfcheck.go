@@ -13,7 +13,7 @@ type Problem struct {
 // followed by continuation lines. Splits on "FAIL:" boundaries: the first line
 // of each chunk (after the "FAIL:" prefix, stripped) is the title, the
 // remaining non-blank lines joined by "\n" are the detail. Non-FAIL preamble is
-// dropped. Mirrors _split_self_check_problems + _finalize_problem.
+// dropped.
 func SplitSelfCheckProblems(output string) []Problem {
 	var problems []Problem
 	var current []string

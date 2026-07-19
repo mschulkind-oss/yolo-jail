@@ -6,7 +6,6 @@ import (
 	"github.com/mschulkind-oss/yolo-jail/internal/agents"
 )
 
-// agentAliases mirrors shell._agent_aliases: bashrc `alias <bin>='<rhs>'` lines
 // for the SELECTED agents that declare an alias (gemini, copilot today).
 func agentAliases(e *Env) string {
 	var lines []string
@@ -19,7 +18,6 @@ func agentAliases(e *Env) string {
 	return strings.Join(lines, "\n")
 }
 
-// Bashrc mirrors shell.generate_bashrc's content assembly. host_dir comes from
 // YOLO_HOST_DIR (default "unknown"); mise_shims is the MISE_SHIMS path.
 func Bashrc(e *Env) string {
 	// Python: os.environ.get("YOLO_HOST_DIR", "unknown") — absent key defaults
@@ -146,7 +144,6 @@ func GenerateBootstrapScript(e *Env) error {
 
 func bootstrapPath(e *Env) string { return e.Home + "/.yolo-bootstrap.sh" }
 
-// BootstrapScript mirrors shell.generate_bootstrap_script. The only
 // interpolation is the mise_shims path in the PATH export line.
 func BootstrapScript(e *Env) string {
 	return strings.Replace(bootstrapTemplate, "__YOLO_MISE_SHIMS__", e.MiseShims(), 1)

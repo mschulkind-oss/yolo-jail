@@ -2,7 +2,6 @@
 // .bashrc, the six agents' config files, managed-MCP sidecars, mise
 // config.toml, MCP wrappers, and the bootstrap/venv-precreate/cglimit/
 // journalctl/yolo-ps/yolo-wrapper script bodies.
-//
 // This package is dependency-light: it builds only on internal/* foundation
 // packages (jsonx, tomlx, shquote,
 // agents, fsx) — no third-party deps beyond what those vendor.
@@ -21,20 +20,18 @@ import (
 // generators pure functions of their inputs, which is exactly what the tree
 // golden harness needs to drive two implementations into fake HOMEs under an
 // identical, committed env matrix.
-//
 // The Vars map holds the YOLO_* / other environment variables each generator
 // consults (YOLO_BLOCK_CONFIG, YOLO_AGENTS, YOLO_MCP_*, YOLO_LSP_SERVERS,
 // YOLO_MISE_TOOLS, YOLO_HOST_DIR, YOLO_REPO_ROOT, etc.). Getenv mirrors
 // os.environ.get(key, "") and Lookup mirrors `key in os.environ`.
 type Env struct {
 	// Home is $JAIL_HOME (falling back to $HOME, then /home/agent) — the base
-	// of every path constant below. Mirrors entrypoint.HOME.
+	// of every path constant below.
 	Home string
 	// MiseData is $MISE_DATA_DIR (or $HOME/.local/share/mise) — MISE_SHIMS is
-	// MiseData/shims. Mirrors the MISE_SHIMS computation in entrypoint/__init__.
+	// MiseData/shims.
 	MiseData string
 	// NpmPrefix is $NPM_CONFIG_PREFIX (or $HOME/.npm-global). NPM_BIN is
-	// NpmPrefix/bin. Mirrors entrypoint.NPM_PREFIX / NPM_BIN.
 	NpmPrefix string
 	// GoPath is $GOPATH (or $HOME/go). GO_BIN is GoPath/bin.
 	GoPath string
@@ -56,7 +53,6 @@ func (e *Env) warn(msg string) {
 
 // NewEnv builds an Env from a variable map, resolving Home, MiseData, NpmPrefix,
 // and GoPath with the same defaults the Python module constants use.
-//
 // - HOME: JAIL_HOME || HOME || /home/agent
 // - MISE_DATA: MISE_DATA_DIR || HOME/.local/share/mise (shims appended)
 // - NPM: NPM_CONFIG_PREFIX || HOME/.npm-global
@@ -109,17 +105,15 @@ func EnvFromOS() *Env {
 	return NewEnv(vars)
 }
 
-// Getenv mirrors os.environ.get(key, "").
+// Getenv "").
 func (e *Env) Getenv(key string) string { return e.Vars[key] }
 
-// Lookup mirrors `key in os.environ` plus the value.
 func (e *Env) Lookup(key string) (string, bool) {
 	v, ok := e.Vars[key]
 	return v, ok
 }
 
 // --- Path constants (home-relative), mirroring entrypoint/__init__.py ---
-
 // ShimDir is HOME/.yolo-shims.
 func (e *Env) ShimDir() string { return filepath.Join(e.Home, ".yolo-shims") }
 
@@ -165,7 +159,7 @@ func (e *Env) ClaudeHostSettingsSnapshotPath() string {
 }
 
 // PiHostSettingsSnapshotPath is HOME/.pi/agent/yolo-host-synced-settings.json
-// (mirrors PI_HOST_SETTINGS_SNAPSHOT_PATH).
+// .
 func (e *Env) PiHostSettingsSnapshotPath() string {
 	return filepath.Join(e.PiDir(), "yolo-host-synced-settings.json")
 }

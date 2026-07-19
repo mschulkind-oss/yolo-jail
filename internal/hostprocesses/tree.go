@@ -24,7 +24,7 @@ func pyReprStrList(xs []string) string {
 
 // handleTree runs `ps -eo pid,ppid,comm,args --forest` (15s timeout, matching
 // Python's subprocess.run(timeout=15)), then filters to allowlisted comms +
-// their children (two passes). Mirrors the tree branch of host_processes.py
+// their children (two passes).
 // exactly, including the comm lstrip of "\_ " forest glyphs, the two-pass keep
 // logic, and the failure paths:
 // - timeout -> "tree mode failed: ..." + exit 1

@@ -11,7 +11,7 @@ import (
 )
 
 // ensureAgentCgroup ensures the agent cgroup subtree exists with controllers
-// enabled, returning its path or "" on failure. Mirrors _cgd_ensure_agent_cgroup:
+// enabled, returning its path or "" on failure.
 // mkdir init+agent, move existing procs to init (cgroup v2 no-internal-process
 // rule), enable cpu/memory/pids on root->agent subtree_control.
 func ensureAgentCgroup(containerCgroup string) string {
@@ -54,7 +54,7 @@ func ensureAgentCgroup(containerCgroup string) string {
 }
 
 // createAndJoin creates a child cgroup under agent/, applies limits, and moves
-// the caller (peerPID) into it. Mirrors _cgd_create_and_join, including the
+// the caller (peerPID) into it.
 // cpu.max quota formula (pct*1000*nproc / 100000 period), the 1MB memory floor,
 // the pid range (1..1000000), and the warnings collection.
 func createAndJoin(containerCgroup, name string, r *Request, peerPID int) *jsonx.OrderedMap {
@@ -128,7 +128,7 @@ func createAndJoin(containerCgroup, name string, r *Request, peerPID int) *jsonx
 	return resp
 }
 
-// destroy removes an empty child cgroup (idempotent). Mirrors _cgd_destroy:
+// destroy removes an empty child cgroup (idempotent).
 // the procs read AND the rmdir are in ONE try/except OSError, so a read error
 // takes the same "Cannot remove" path as an rmdir error (Python semantics —
 // on a real cgroup fs cgroup.procs always exists, so this only matters on the
@@ -151,7 +151,6 @@ func destroy(containerCgroup, name string) *jsonx.OrderedMap {
 	return okResp()
 }
 
-// relToCgroupRoot mirrors the job_cg.relative_to(/sys/fs/cgroup) with fallback.
 func relToCgroupRoot(jobCg string) string {
 	root := "/sys/fs/cgroup"
 	if rel, err := filepath.Rel(root, jobCg); err == nil && !strings.HasPrefix(rel, "..") {

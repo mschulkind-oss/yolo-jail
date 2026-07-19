@@ -12,7 +12,7 @@ import (
 // current jail's just-ensured relay is spared even though its cname is not in the
 // live-container set (Python folds `{cname}` into `live_jails`), a live sibling's
 // relay is spared, and only an orphan whose hash matches no live jail (and older
-// than the grace floor) is reaped. Mirrors run_cmd.py:2760-2771.
+// than the grace floor) is reaped.
 func TestRelayReapOrphansCnameFold(t *testing.T) {
 	base := t.TempDir()
 	now := time.Now()
@@ -21,7 +21,6 @@ func TestRelayReapOrphansCnameFold(t *testing.T) {
 	currentName := "yolo-current-1111" // this jail — NOT in the live set yet
 	liveSibling := "yolo-sibling-2222" // a running sibling jail
 	orphanName := "yolo-orphan-3333"   // dead jail, relay leaked
-
 	writePid := func(cname string) string {
 		p := filepath.Join(base, "yolo-broker-relay-"+relayShortHash(cname)+".pid")
 		if err := os.WriteFile(p, []byte("123\n"), 0o644); err != nil {
@@ -64,7 +63,7 @@ func TestRelayReapOrphansCnameFold(t *testing.T) {
 
 // TestRelayReapOrphansUnknownLivenessDeclines checks the fail-safe polarity: when
 // liveness cannot be enumerated (known==false), the sweep reaps nothing — unknown
-// must never read as "nothing live". Mirrors _relay_reap_orphans(None) → [].
+// must never read as "nothing live".
 func TestRelayReapOrphansUnknownLivenessDeclines(t *testing.T) {
 	base := t.TempDir()
 	now := time.Now()

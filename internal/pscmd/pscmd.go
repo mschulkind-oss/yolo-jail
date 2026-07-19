@@ -26,7 +26,7 @@ type Deps struct {
 }
 
 // Run executes `yolo ps`, writing the table to deps.Out, and returns the exit
-// code (always 0 — ps never fails the process). Mirrors ps() exactly:
+// code (always 0 — ps never fails the process).
 // list → parse → resolve workspace → prune stale tracking → render → problems.
 func Run(deps Deps) int {
 	rt := deps.DetectRuntime()
@@ -114,7 +114,7 @@ func Run(deps Deps) int {
 
 // getContainerWorkspace resolves a container's workspace: the tracking file
 // first (fast), then the runtime inspect's YOLO_HOST_DIR env; "unknown" when
-// neither yields a value. Mirrors _get_container_workspace.
+// neither yields a value.
 func getContainerWorkspace(deps Deps, name, rt string) string {
 	if ws, ok := runtime.ReadContainerWorkspace(name); ok {
 		return ws
@@ -142,7 +142,7 @@ func getContainerWorkspace(deps Deps, name, rt string) string {
 
 // stuckReason returns the stuck-in-provisioning reason for a container, or "".
 // Apple Container has no `top`, so it's never checked there (matches
-// _check_container_stuck's early return). Mirrors the exec side of
+// _check_container_stuck's early return).
 // _check_container_stuck around the ported StuckReasonFromTop analyzer.
 func stuckReason(deps Deps, name, rt string) string {
 	if rt == "container" {

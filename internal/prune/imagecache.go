@@ -9,7 +9,6 @@ import (
 // PruneImageCache keeps the `keep` newest *.tar files under imagesDir and removes
 // the rest; it ALWAYS sweeps orphan *.tmp files (leftovers from a crashed
 // materialization) regardless of keep. Returns (bytesRemoved, filesRemoved).
-// Mirrors _prune_image_cache: skip symlinks/non-files, classify by suffix
 // (.tar / .tmp via Path.suffix — the last dotted component), sort tars by mtime
 // newest-first and drop the tail beyond keep, then sweep every .tmp. apply=false
 // reports without touching disk.

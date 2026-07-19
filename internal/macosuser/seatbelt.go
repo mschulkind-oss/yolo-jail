@@ -2,7 +2,7 @@ package macosuser
 
 // SeatbeltProfile generates the SBPL sandbox profile, matching SandVault's
 // structure: (allow default) with targeted denies, last-match-wins so re-allows
-// follow their denies. Mirrors seatbelt_profile byte-for-byte.
+// follow their denies.
 //
 // The workspace + sandbox-home paths are SBPL-escaped via sbplStr. sandboxHome
 // defaults to SandboxHome() when empty.

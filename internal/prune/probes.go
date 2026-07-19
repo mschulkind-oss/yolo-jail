@@ -43,8 +43,7 @@ const (
 // isLiveState reports whether a podman State string denotes a live jail
 // (running/paused/restarting, case-insensitive). This is the single liveness
 // predicate shared by _prune_stopped_containers (skip live → remove the rest)
-// and _find_referenced_build_roots (keep live → collect their binds); mirrors
-// the identical tuple in both.
+// and _find_referenced_build_roots (keep live → collect their binds).
 func isLiveState(state string) bool {
 	switch strings.ToLower(state) {
 	case "running", "paused", "restarting":
@@ -108,7 +107,7 @@ func pySplitMax(s string, maxsplit int) []string {
 }
 
 // inspectMountSource returns the host Source bound at `dest` for container
-// `name`, or ("", false) on any inspect failure / absence. Mirrors the shared
+// `name`, or ("", false) on any inspect failure / absence.
 // body of _inspect_workspace_mount (dest=/workspace) and _inspect_build_root_mount
 // (dest=/opt/yolo-jail): run `inspect --format {{json .Mounts}}`, decode the
 // mounts array via the isinstance-guarded walk (a non-array top-level or a
@@ -142,16 +141,16 @@ func inspectMountSource(rt, name, dest string, run RunFunc) (string, bool) {
 }
 
 // InspectWorkspaceMount returns the host path bound at /workspace for `name`, or
-// ("", false). Mirrors _inspect_workspace_mount.
+// ("", false).
 func InspectWorkspaceMount(rt, name string, run RunFunc) (string, bool) {
 	return inspectMountSource(rt, name, "/workspace", run)
 }
 
 // FindYoloWorkspaces returns the deduplicated, resolved host workspace paths for
-// every yolo-* container the runtime knows about (running or stopped). Mirrors
-// _find_yolo_workspaces: `ps -a --format {{.Names}}` → keep yolo-* names →
-// inspect each's /workspace bind → resolve + dedup, preserving first-seen order.
-// A missing/failed runtime yields an empty list.
+// every yolo-* container the runtime knows about (running or stopped).
+// `ps -a --format {{.Names}}` → keep yolo-* names → inspect each's /workspace
+// bind → resolve + dedup, preserving first-seen order. A missing/failed runtime
+// yields an empty list.
 func FindYoloWorkspaces(rt string, run RunFunc) []string {
 	res := run([]string{rt, "ps", "-a", "--format", "{{.Names}}"}, psTimeout)
 	if !res.Ran || res.RC != 0 {
@@ -182,10 +181,10 @@ func FindYoloWorkspaces(rt string, run RunFunc) []string {
 }
 
 // PruneStoppedContainers removes stopped yolo-* containers and returns the names
-// removed (or, in dry-run, that WOULD be removed). Mirrors
-// _prune_stopped_containers: `ps -a --format {{.Names}} {{.State}}` → keep
-// yolo-* whose state is NOT live (running/paused/restarting) → `rm <name>` each
-// when apply. Only yolo-* names are ever touched. A missing/failed runtime
+// removed (or, in dry-run, that WOULD be removed).
+// `ps -a --format {{.Names}} {{.State}}` → keep yolo-* whose state is NOT live
+// (running/paused/restarting) → `rm <name>` each when apply. Only yolo-* names
+// are ever touched. A missing/failed runtime
 // yields an empty list.
 func PruneStoppedContainers(rt string, apply bool, run RunFunc) []string {
 	res := run([]string{rt, "ps", "-a", "--format", "{{.Names}} {{.State}}"}, psTimeout)
@@ -216,8 +215,8 @@ func PruneStoppedContainers(rt string, apply bool, run RunFunc) []string {
 }
 
 // PruneOldImages lists yolo-jail images, keeps the newest `keep`, and returns
-// the image IDs removed (or slated for removal in dry-run). Mirrors
-// _prune_old_images: `images --format {{.ID}} {{.Repository}}:{{.Tag}}
+// the image IDs removed (or slated for removal in dry-run).
+// `images --format {{.ID}} {{.Repository}}:{{.Tag}}
 // {{.CreatedAt}} yolo-jail` → parse (id, createdAt) lines (>=3 fields, split
 // maxsplit=2) → the EXISTING OldImagesToRemove lexical CreatedAt sort → `rmi -f
 // <id>` each when apply. A missing/failed runtime yields an empty list.
@@ -244,8 +243,8 @@ func PruneOldImages(rt string, keep int, apply bool, run RunFunc) []string {
 }
 
 // FindReferencedBuildRoots returns the tri-state set of resolved host paths a
-// LIVE yolo-* container binds into /opt/yolo-jail. Mirrors
-// _find_referenced_build_roots INCLUDING the None-vs-empty polarity: a missing/
+// LIVE yolo-* container binds into /opt/yolo-jail. Preserves the None-vs-empty
+// polarity: a missing/
 // failed `ps` yields Known=false (liveness unknown → the sweep declines), never
 // an empty set that would read as "nothing live". Note the inverted selection
 // vs PruneStoppedContainers: here LIVE containers are KEPT (their binds
@@ -278,7 +277,7 @@ func FindReferencedBuildRoots(rt string, run RunFunc) ReferencedSet {
 }
 
 // relayShortHash is the 8-char sha1 hash that keys a jail's broker-relay PID
-// file and sockets dir. Mirrors loopholes_runtime._relay_short_hash — kept in
+// file and sockets dir.
 // sync with the host-services-sockets-dir hash so ReapRelayOrphans can match a
 // pid file to a live container name.
 func relayShortHash(cname string) string {
@@ -288,7 +287,7 @@ func relayShortHash(cname string) string {
 
 // ReapRelayOrphans sweeps per-jail broker-relay PID files under `base` whose jail
 // is no longer live, returning the PID-file paths reaped (or, in dry-run, that
-// WOULD be). Mirrors loopholes_runtime._relay_reap_orphans:
+// WOULD be).
 // - liveKnown==false (liveness unenumerable) → reap NOTHING (same fail-safe
 // polarity as the build-root sweep — unknown must never read as "nothing
 // live");
@@ -340,7 +339,6 @@ func ReapRelayOrphans(base string, liveKnown bool, liveCnames map[string]struct{
 }
 
 // LiveYoloContainers returns the tri-state set of live yolo-* container names.
-// Mirrors run_cmd._live_yolo_containers: Apple Container uses `container ls`
 // (running only, every yolo-* row is live); podman/others use `ps -a --format
 // {{.Names}} {{.State}}` filtered to the live states. A missing/failed runtime
 // yields Known=false (liveness unknown → the relay sweep declines), never an

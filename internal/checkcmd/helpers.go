@@ -40,7 +40,7 @@ func cleanupTrackingFn(name string) {
 	runtime.CleanupContainerTracking(name)
 }
 
-// expandUserPath mirrors Path(exe_arg).expanduser(): expand a leading "~"/"~/…"
+// expandUserPath expand a leading "~"/"~/…"
 // against $HOME (or the passwd home). A bare "~user" form is left untouched.
 func expandUserPath(p string) string {
 	if len(p) == 0 || p[0] != '~' {
@@ -74,7 +74,6 @@ func userHome() string {
 	return "/"
 }
 
-// isExecutableFile mirrors `exe_path.is_file() and os.access(exe_path, os.X_OK)`.
 func isExecutableFile(p string) bool {
 	info, err := os.Stat(p)
 	if err != nil || !info.Mode().IsRegular() {

@@ -9,7 +9,6 @@ import (
 	"github.com/mschulkind-oss/yolo-jail/internal/jsonx"
 )
 
-// synthesizeConfigLoopholes mirrors _synthesize_config_loopholes: surface
 // yolo-jail.jsonc loopholes: entries as Loophole records (transport
 // unix-socket, lifecycle spawned, source config).
 func synthesizeConfigLoopholes(loopholesConfig *jsonx.OrderedMap) []*Loophole {
@@ -56,7 +55,6 @@ func synthesizeConfigLoopholes(loopholesConfig *jsonx.OrderedMap) []*Loophole {
 	return out
 }
 
-// applyWorkspaceOverrides mirrors _apply_workspace_overrides. It mutates the
 // matching entries of `existing` in place and returns the NEW inline loopholes
 // (in document order) that matched nothing.
 func applyWorkspaceOverrides(existing map[string]*Loophole, loopholesConfig *jsonx.OrderedMap) []*Loophole {
@@ -104,7 +102,6 @@ func applyWorkspaceOverrides(existing map[string]*Loophole, loopholesConfig *jso
 	return newInline
 }
 
-// loadFromDir mirrors _load_from_dir: scan dir for loophole manifests, skipping
 // hidden/non-dir children and malformed manifests silently. Returns an
 // insertion-ordered slice of names alongside the map so callers can preserve
 // Python dict order (sorted directory iteration).
@@ -154,7 +151,6 @@ type DiscoverOptions struct {
 	IncludeBundled  bool
 }
 
-// Discover mirrors discover_loopholes. Callers that want the Python defaults
 // (include_bundled=True) should set IncludeBundled=true.
 func Discover(opts DiscoverOptions) []*Loophole {
 	root := opts.Root
@@ -206,7 +202,6 @@ type ValidateEntry struct {
 	Err      string
 }
 
-// ValidateLoopholes mirrors validate_loopholes: one entry per file-backed
 // loophole dir (bundled + user), reporting parse errors instead of skipping.
 func ValidateLoopholes(root string, rootSet, includeBundled bool) []ValidateEntry {
 	out := []ValidateEntry{}

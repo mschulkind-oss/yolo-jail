@@ -91,20 +91,19 @@ type Deps struct {
 	PIDFilePath string
 	LockPath    string
 	LogPath     string // GLOBAL_STORAGE/logs/host-service-claude-oauth-broker.log
-
-	Now        func() time.Time
-	Sleep      func(time.Duration)
-	PathExists func(string) bool
+	Now         func() time.Time
+	Sleep       func(time.Duration)
+	PathExists  func(string) bool
 
 	// Ping dials socketPath and runs the frame-protocol ping (see BrokerPing).
 	Ping func(socketPath string, timeout time.Duration) bool
 	// Alive reports process liveness (kill(pid,0) tri-state collapsed to bool:
-	// EPERM counts as alive). Mirrors _broker_pid_is_live.
+	// EPERM counts as alive).
 	Alive func(pid int) bool
 	// Kill sends sig to pid (os.kill). Errors are swallowed by callers.
 	Kill func(pid int, sig syscall.Signal) error
 	// Pgrep returns PIDs of stray BrokerConsoleName processes, already
-	// self-filtered (os.getpid() excluded). Mirrors _broker_pgrep_strays.
+	// self-filtered (os.getpid() excluded).
 	Pgrep func() []int
 
 	// Getenv / accessX back DaemonLauncher (the YOLO_GO_DAEMONS resolution).
@@ -112,7 +111,7 @@ type Deps struct {
 	IsExecX func(path string) bool
 	// Spawn launches the broker daemon detached (own session, stdout+stderr to
 	// logPath, close_fds), returning its PID and a poll func reporting whether
-	// it has exited. Mirrors subprocess.Popen(start_new_session=True,
+	// it has exited.
 	// close_fds=True) + proc.poll().
 	Spawn func(argv []string, logPath string) (pid int, exited func() bool, err error)
 

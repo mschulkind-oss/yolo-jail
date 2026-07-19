@@ -49,7 +49,7 @@ func Render(color bool) string {
 }
 
 // Run prints the reference to w (color-on when w is a terminal, per the caller)
-// and returns the exit code (always 0). Mirrors config_ref().
+// and returns the exit code (always 0).
 func Run(w io.Writer, color bool) int {
 	io.WriteString(w, Render(color))
 	return 0

@@ -38,7 +38,7 @@ type AgentSpec struct {
 }
 
 // SkillsStaging returns the staging dir name for this agent's skills, or ""
-// when the agent has no skills dir. Mirrors AgentSpec.skills_staging.
+// when the agent has no skills dir.
 func (a AgentSpec) SkillsStaging() string {
 	if a.Skills == "" {
 		return ""
@@ -163,7 +163,6 @@ var Order = func() []string {
 	return o
 }()
 
-// agentsByName mirrors the AGENTS dict.
 var agentsByName = func() map[string]AgentSpec {
 	m := make(map[string]AgentSpec, len(specs))
 	for _, s := range specs {
@@ -218,7 +217,6 @@ var AllOverlayDirs = func() []string {
 
 // ResolveAgents returns the AgentSpec list for names (unknown names skipped),
 // preserving the order of names. names==nil falls back to DefaultAgents.
-// Mirrors resolve_agents.
 func ResolveAgents(names []string) []AgentSpec {
 	if names == nil {
 		names = DefaultAgents

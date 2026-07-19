@@ -6,11 +6,10 @@ import "github.com/mschulkind-oss/yolo-jail/internal/config"
 // _known_loopholes() with real file-backed discovery (bundled + user dir,
 // include_disabled=True). config.ValidateConfig consults only Name +
 // HasHostDaemon per loophole.
-//
 // This is the integration seam config declared as a stage-14 placeholder: the
 // config package owns the interface, this package supplies the implementation.
 type Resolver struct {
-	// Root overrides the user loopholes dir (mirrors discover_loopholes' root
+	// Root overrides the user loopholes dir
 	// argument). Empty => UserLoopholesDir().
 	Root string
 	// IncludeBundled toggles the bundled dir (Python default: true).
@@ -24,7 +23,6 @@ func NewResolver() *Resolver {
 	return &Resolver{IncludeBundled: true}
 }
 
-// Known mirrors _known_loopholes: {name: info} for every file-backed loophole
 // discovered with include_disabled=True. Discovery never errors (per-manifest
 // and per-dir failures are swallowed), so ok is always true — matching the
 // "empty on a truly-empty machine" branch of the OSError-degrades contract.

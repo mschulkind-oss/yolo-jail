@@ -14,22 +14,18 @@ import (
 	"github.com/mschulkind-oss/yolo-jail/internal/jsonx"
 )
 
-// workspaceDir mirrors entrypoint.WORKSPACE (the fixed /workspace mount point).
 // A package var so tests can redirect it.
 var workspaceDir = "/workspace"
 
-// cgdSocket mirrors entrypoint.CGD_SOCKET: the host-side cgroup-delegate daemon
 // socket. A package var so tests can redirect it.
 var cgdSocket = "/run/yolo-services/cgroup-delegate.sock"
 
-// hostNvimConfig mirrors the /ctx/host-nvim-config source dir copied into the
 // jail's .config overlay. A package var so tests can redirect it.
 var hostNvimConfig = "/ctx/host-nvim-config"
 
 // ---------------------------------------------------------------------------
-// Performance logging (mirrors _perf / _perf_dump)
+// Performance logging
 // ---------------------------------------------------------------------------
-
 type perfEntry struct {
 	elapsed float64
 	label   string
@@ -43,7 +39,7 @@ type perfLog struct {
 
 func newPerfLog() *perfLog { return &perfLog{start: time.Now()} }
 
-// mark records a checkpoint with elapsed time (mirrors _perf).
+// mark records a checkpoint with elapsed time.
 func (p *perfLog) mark(label string) {
 	p.entries = append(p.entries, perfEntry{
 		elapsed: time.Since(p.start).Seconds(),
@@ -51,7 +47,7 @@ func (p *perfLog) mark(label string) {
 	})
 }
 
-// dump writes the perf log to ~/.yolo-perf.log (mirrors _perf_dump). Best-
+// dump writes the perf log to ~/.yolo-perf.log. Best-
 // effort — all errors swallowed. This log is deliberately excluded from the
 // tree-parity golden (it is wall-clock timing); the format tracks Python's for
 // human readability, not byte-parity.
@@ -93,10 +89,8 @@ func (p *perfLog) dump(home string) {
 }
 
 // ---------------------------------------------------------------------------
-// User-env hydration (mirror yolo-user-env.sh into the process env)
+// User-env hydration
 // ---------------------------------------------------------------------------
-
-// exportLineRe mirrors entrypoint._EXPORT_RE. The verbose Python pattern is
 // flattened here; the writer's 4-char escape for an embedded single quote (a
 // single quote, a backslash, and two single quotes) is matched literally.
 // RE2-safe (no backrefs).
@@ -112,7 +106,6 @@ var (
 	exportGroupKey  = exportLineRe.SubexpIndex("key")
 )
 
-// hydrateEnvFromUserEnvFile mirrors _hydrate_env_from_user_env_file: merge
 // ~/.config/yolo-user-env.sh exports into the process env AND e.Vars so the
 // early agent-config writers see the same values bash will. Launch-time env
 // beats the file default (the ${KEY:-'value'} precedence). Unparseable lines
@@ -186,10 +179,8 @@ func splitLines(s string) []string {
 }
 
 // ---------------------------------------------------------------------------
-// Cgroup delegation availability check (mirror setup_cgroup_delegation)
+// Cgroup delegation availability check
 // ---------------------------------------------------------------------------
-
-// setupCgroupDelegation mirrors setup_cgroup_delegation: verify the host-side
 // cgroup-delegate socket exists and print an availability line to stderr.
 // Silent on absence beyond the notice (falls back to nice/timeout/ulimit).
 func setupCgroupDelegation(w io.Writer) {
@@ -201,10 +192,8 @@ func setupCgroupDelegation(w io.Writer) {
 }
 
 // ---------------------------------------------------------------------------
-// Workspace mise trust (mirror trust_workspace_configs)
+// Workspace mise trust
 // ---------------------------------------------------------------------------
-
-// trustWorkspaceConfigs mirrors trust_workspace_configs: `mise trust --all
 // --quiet` in /workspace when it is a directory. Output discarded. Belt-and-
 // suspenders atop MISE_TRUSTED_CONFIG_PATHS.
 func trustWorkspaceConfigs() {
@@ -219,10 +208,8 @@ func trustWorkspaceConfigs() {
 }
 
 // ---------------------------------------------------------------------------
-// nvim config copy (mirror the shutil.copytree block in main())
+// nvim config copy)
 // ---------------------------------------------------------------------------
-
-// copyHostNvimConfig mirrors the nvim copytree in main(): copy
 // /ctx/host-nvim-config into HOME/.config/nvim (symlinks followed, dangling
 // skipped, existing dirs merged). Best-effort — the nested-jail same-inode case
 // (src and dst backed by the same overlay) is swallowed.
@@ -243,7 +230,7 @@ func copyHostNvimConfig(e *Env) {
 // dangling symlinks (ignore_dangling_symlinks=True), merging into existing dirs
 // (dirs_exist_ok=True). Same-inode source/destination files (nested-jail shared
 // overlay) are skipped, mirroring Python's SameFileError swallow. All per-entry
-// errors are best-effort (mirrors shutil.Error swallow at the boot layer).
+// errors are best-effort.
 func copyTree(src, dst string) error {
 	if err := os.MkdirAll(dst, 0o755); err != nil {
 		return err
@@ -295,14 +282,11 @@ func sameFile(a, b string) (bool, error) {
 // ---------------------------------------------------------------------------
 // Deferred subprocess side effects
 // ---------------------------------------------------------------------------
-//
 // The pure content generators (GenerateMiseConfig, ConfigureClaude) deliberately
 // SKIP the two subprocess side effects their Python counterparts run inline —
 // those are boot orchestration, not content. main() re-attaches them at the same
 // ordering points the Python main() reaches them (generate_mise_config tail;
 // configure_claude tail, inside the per-agent loop).
-
-// miseUninstallRetired mirrors the tail of mise.generate_mise_config: `mise
 // uninstall --all <tool>` for each retired tool (idempotent, best-effort, 30s
 // timeout). tool_name is the registry token with surrounding quotes stripped.
 func miseUninstallRetired() {
@@ -315,10 +299,7 @@ func miseUninstallRetired() {
 	}
 }
 
-// claudeLSPPluginInstallOrder mirrors CLAUDE_LSP_PLUGIN_MAP iteration order.
 // (Reuses claudeLSPPluginOrder from claude.go, which carries the same pairs.)
-
-// installClaudePlugins mirrors agent_configs._install_claude_plugins: install/
 // uninstall Claude Code LSP plugins to match the configured LSP servers. Reads
 // ~/.claude/plugins/installed_plugins.json for the current set. All claude
 // invocations are best-effort (30s timeout, YOLO_BYPASS_SHIMS=1 in the env).
@@ -364,10 +345,9 @@ func installClaudePlugins(e *Env) {
 }
 
 // ---------------------------------------------------------------------------
-// Finalize PATH and exec bash (mirror exec_bash)
+// Finalize PATH and exec bash
 // ---------------------------------------------------------------------------
-
-// execBash mirrors exec_bash: set the final PATH, echo the command for the
+// execBash set the final PATH, echo the command for the
 // exec-into-existing path, source yolo-user-env.sh + activate mise, and exec
 // bash --rcfile ~/.bashrc -c <activated command>. Never returns on success.
 func execBash(e *Env, command string) error {
@@ -402,9 +382,8 @@ func execBash(e *Env, command string) error {
 }
 
 // ---------------------------------------------------------------------------
-// Main orchestration (mirror main())
+// Main orchestration)
 // ---------------------------------------------------------------------------
-
 // Main is the side-effecting boot sequence (entrypoint.main()).
 // It reproduces the exact ordering and perf-log labels,
 // wiring the pure generators together and re-attaching the two deferred
@@ -515,7 +494,6 @@ func Main(args []string) error {
 	p.mark("trust_workspace_configs")
 
 	// NOTE: We intentionally do NOT call `mise hook-env` here (flock deadlock).
-
 	p.dump(e.Home)
 
 	return execBash(e, command)

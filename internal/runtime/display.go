@@ -13,7 +13,7 @@ func jsonUnmarshal(s string, v any) error {
 }
 
 // WorkspaceFromInspectEnv extracts the YOLO_HOST_DIR value from a runtime
-// inspect's env lines. Mirrors _get_container_workspace's fallback: scan lines
+// inspect's env lines.
 // for the "YOLO_HOST_DIR=" prefix and return the value after the first '='
 // VERBATIM (no strip). Returns ("", false) when absent (caller then reports
 // "unknown").
@@ -28,7 +28,7 @@ func WorkspaceFromInspectEnv(envLines []string) (string, bool) {
 
 // WorkspaceFromContainerInspectJSON parses Apple Container's `container inspect`
 // JSON output for the YOLO_HOST_DIR env var. AC emits a JSON document (no
-// --format); the env lives at config.env (a list of "K=V" strings). Mirrors the
+// --format); the env lives at config.env (a list of "K=V" strings).
 // container branch of _get_container_workspace: json.loads → config.env → scan
 // for "YOLO_HOST_DIR=". Returns ("", false) on any parse error or absence.
 func WorkspaceFromContainerInspectJSON(stdout string) (string, bool) {
@@ -59,7 +59,7 @@ func WorkspaceFromContainerInspectJSON(stdout string) (string, bool) {
 }
 
 // BakedYoloVersionFromInspectEnv extracts the YOLO_VERSION baked into a
-// container's inspect env lines. Mirrors _container_baked_yolo_version's parse:
+// container's inspect env lines.
 // the value after "YOLO_VERSION=" is STRIPPED, and an empty-after-strip value
 // reads as absent (Python's `... .strip() or None`). Returns ("", false) when
 // absent or empty. The subprocess (inspect --format) stays in the caller; this
@@ -133,7 +133,7 @@ func padRunes(s string, width int) string {
 
 // PodmanMachineMemoryFloorMB is the advisory floor below which Podman Machine
 // struggles to host a single jail + one modern agent (claude's first-run native
-// install alone has OOM'd at 2 GB). Mirrors PODMAN_MACHINE_MEMORY_FLOOR_MB.
+// install alone has OOM'd at 2 GB).
 const PodmanMachineMemoryFloorMB = 4096
 
 // PodmanMachineResizeHint is the single source of truth for the
@@ -150,7 +150,7 @@ func PodmanMachineResizeHint() string {
 }
 
 // OOMKillerWarning returns the exit-137-looks-like-OOM hint, or ("", false) when
-// the conditions don't fire. Mirrors _maybe_warn_about_oom_killer's pure core:
+// the conditions don't fire.
 // fire only on macOS + podman + exit 137, when the podman machine's memory is
 // below the floor. isMacOS / machineName / machineMemMB are injected (the caller
 // runs `podman machine inspect` and supplies memMB<0 / ok=false when the machine

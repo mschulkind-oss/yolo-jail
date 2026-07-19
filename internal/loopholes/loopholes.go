@@ -16,9 +16,8 @@ import (
 	"github.com/mschulkind-oss/yolo-jail/internal/pytext"
 )
 
-// DefaultBrokerIP mirrors DEFAULT_BROKER_IP. The container runtime translates
-// the literal "host-gateway" into the right host-reachable address for the
-// active runtime.
+// DefaultBrokerIP is the container runtime's host-gateway sentinel. The
+// runtime translates it into the right host-reachable address.
 const DefaultBrokerIP = "host-gateway"
 
 // Valid enum values. Kept as ordered slices whose sort matches Python's
@@ -80,30 +79,26 @@ var BundledLoopholesDir = func() string {
 }
 
 // UserLoopholesDir returns the third-party loopholes dir (overrides bundled on
-// name collision). Mirrors user_loopholes_dir().
+// name collision).
 var UserLoopholesDir = func() string {
 	return filepath.Join(paths.GlobalStorage(), "loopholes")
 }
 
-// StateDirFor returns the writable per-loophole state directory. Package var so
-// tests can monkeypatch it (mirrors src.loopholes.state_dir_for). Mirrors
-// state_dir_for(name).
+// StateDirFor returns the writable per-loophole state directory. Package var
+// so tests can monkeypatch it.
 var StateDirFor = func(name string) string {
 	return filepath.Join(paths.GlobalStorage(), "state", name)
 }
 
-// Intercept mirrors the Intercept dataclass.
 type Intercept struct {
 	Host string
 }
 
-// JailDaemon mirrors the JailDaemon dataclass. Restart defaults to "on-failure".
 type JailDaemon struct {
 	Cmd     []string
 	Restart string
 }
 
-// HostDaemon mirrors the HostDaemon dataclass. Env is insertion-ordered.
 type HostDaemon struct {
 	Cmd []string
 	Env *EnvMap
@@ -116,9 +111,8 @@ type HostBindMount struct {
 	Readonly  bool
 }
 
-// Requires mirrors the Requires dataclass. A nil-valued field means "absent"
-// (Python None); we track presence with the *Set booleans so an explicit value
-// is distinguishable from an unset one.
+// Requires declares host-side prerequisites. A nil-valued field means absent;
+// the *Set booleans distinguish "explicitly set" from "unset".
 type Requires struct {
 	CommandOnPath    string
 	CommandOnPathSet bool
@@ -126,7 +120,6 @@ type Requires struct {
 	FileExistsSet    bool
 }
 
-// Loophole mirrors the Loophole dataclass — a loaded, validated manifest.
 type Loophole struct {
 	Name          string
 	Description   string
@@ -150,11 +143,10 @@ type Loophole struct {
 }
 
 // FromConfig reports whether this loophole came from a yolo-jail.jsonc
-// loopholes: entry (no manifest file). Mirrors the from_config property.
+// loopholes: entry (no manifest file).
 func (l *Loophole) FromConfig() bool { return l.Source == SourceConfig }
 
-// HasCA mirrors the has_ca property: ca_cert is set and points at a regular
-// file.
+// HasCA reports whether ca_cert is set and points at a regular file.
 func (l *Loophole) HasCA() bool {
 	if !l.CACertSet || l.CACert == "" {
 		return false
@@ -163,7 +155,6 @@ func (l *Loophole) HasCA() bool {
 	return err == nil && fi.Mode().IsRegular()
 }
 
-// StateDir mirrors the state_dir property.
 func (l *Loophole) StateDir() string { return StateDirFor(l.Name) }
 
 // inJail reports whether YOLO_VERSION is present in the environment (Python's
@@ -173,7 +164,6 @@ func inJail() bool {
 	return ok
 }
 
-// RequirementsMet mirrors the requirements_met property.
 func (l *Loophole) RequirementsMet() bool {
 	if inJail() {
 		return l.inJailActive()
@@ -193,7 +183,6 @@ func (l *Loophole) RequirementsMet() bool {
 	return true
 }
 
-// inJailActive mirrors _in_jail_active.
 func (l *Loophole) inJailActive() bool {
 	if len(l.HostBindMount) == 0 {
 		return true
@@ -206,7 +195,6 @@ func (l *Loophole) inJailActive() bool {
 	return false
 }
 
-// Active mirrors the active property.
 func (l *Loophole) Active() bool { return l.Enabled && l.RequirementsMet() }
 
 // InactiveReason mirrors the inactive_reason property. Returns "" for None.
@@ -243,8 +231,8 @@ func (l *Loophole) InactiveReason() (string, bool) {
 // _ENV_REF: \$\{([^}]+)\}|\$([A-Za-z_][A-Za-z0-9_]*)
 var envRef = regexp.MustCompile(`\$\{([^}]+)\}|\$([A-Za-z_][A-Za-z0-9_]*)`)
 
-// expandEnv mirrors _expand_env: ${VAR}/$VAR expand against the environment,
-// and UNRESOLVED refs collapse to the empty string (deliberately unlike shell).
+// expandEnv expands ${VAR}/$VAR references against the environment.
+// Unresolved refs collapse to the empty string (deliberately unlike shell).
 func expandEnv(s string) string {
 	return envRef.ReplaceAllStringFunc(s, func(m string) string {
 		sub := envRef.FindStringSubmatch(m)
@@ -256,7 +244,6 @@ func expandEnv(s string) string {
 	})
 }
 
-// pathExists mirrors Path.exists() (follows symlinks; any stat error -> false).
 func pathExists(p string) bool {
 	_, err := os.Stat(p)
 	return err == nil
@@ -268,7 +255,6 @@ func stat(p string) (os.FileInfo, error) { return os.Stat(p) }
 // readFile is os.ReadFile.
 func readFile(p string) ([]byte, error) { return os.ReadFile(p) }
 
-// resolvePath mirrors pathlib.Path.resolve() (non-strict): make absolute, then
 // resolve symlinks + ".." as far as the filesystem allows, falling back to a
 // lexical clean when the path doesn't exist. Matches internal/config's resolve.
 func resolvePath(p string) string {

@@ -9,10 +9,9 @@ import (
 // EntrypointBootstrapScript returns the Python script the sandbox user runs to
 // generate its jail config (shims, agent launchers, bashrc, mise, MCP wrappers,
 // git/jj identity, per-agent config writers) natively, plus the yolo-log helper
-// and the login rc files that re-prepend the sandbox PATH after macОS
+// and the login rc files that re-prepend the sandbox PATH after macOS
 // path_helper.
 //
-// Mirrors entrypoint_bootstrap_script byte-for-byte, including the two subtle
 // encodings: the nested json.dumps(json.dumps(agents)) for YOLO_AGENTS, and the
 // Python-repr escaping ({x!r}) for the workspace/home/import paths and every
 // baked env var. bakedOrder is git_identity updated-by bootstrap_env, emitted in

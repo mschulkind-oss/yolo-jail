@@ -18,7 +18,7 @@ import (
 type Deps struct {
 	// IsMacOS reports sys.platform == "darwin".
 	IsMacOS func() bool
-	// Geteuid returns the effective uid (0 under sudo). Mirrors os.geteuid.
+	// Geteuid returns the effective uid (0 under sudo).
 	Geteuid func() int
 	// Which reports whether a binary is on PATH (shutil.which is not None).
 	Which func(string) bool
@@ -32,18 +32,16 @@ type Deps struct {
 	Getenv func(string) string
 	// HostUser is the invoking (admin) user (getpass.getuser, "" on failure).
 	HostUser func() string
-	// Run runs argv (inherit stdio) and returns the returncode. Mirrors
-	// subprocess.run([...]).returncode. Used for the sudo command lists + the
-	// bootstrap launch.
+	// Run runs argv (inherit stdio) and returns the returncode. Used for the
+	// sudo command lists + the bootstrap launch.
 	Run func(argv []string) int
 	// RunBash runs `bash -c <script>` and returns the returncode (unshare /
 	// fix-permissions).
 	RunBash func(script string) int
 	// RunWithProxy launches argv under the TTY proxy and returns the agent exit
-	// code. Mirrors run_with_proxy.
+	// code.
 	RunWithProxy func(argv []string) int
 	// InstallRootFile writes content to a root-owned file (sudo mkdir+tee+chmod).
-	// Mirrors _install_root_file; mode is e.g. "0444".
 	InstallRootFile func(path, content, mode string) bool
 	// MaterializeDarwin realizes `packages:` natively (nix build). ok=false with
 	// a non-empty err aborts the run (DarwinPackagesError). A nil result with
@@ -61,8 +59,9 @@ type Deps struct {
 	Out io.Writer
 }
 
-// Options carries the run() inputs the front door resolves (workspace, config,
-// agents, agent argv, repo src). It mirrors run_macos_user's parameters.
+// Options carries the run() inputs the front door resolves (workspace,
+// config, agents, agent argv, repo src). It mirrors run_macos_user's
+// parameters.
 type Options struct {
 	Workspace string
 	Config    *jsonx.OrderedMap
@@ -85,9 +84,7 @@ func (p printer) print(msg string)          { fmt.Fprintln(p.w, richTagRe.Replac
 func (p printer) printf(f string, a ...any) { p.print(fmt.Sprintf(f, a...)) }
 
 // MacosSandboxEnv returns the extra env layered into the sandbox launch (git
-// identity + TERM/COLORTERM). Host credentials never cross. Mirrors
-// macos_sandbox_env; insertion order is TERM, COLORTERM, YOLO_GIT_NAME,
-// YOLO_GIT_EMAIL (matching the Python dict build order).
+// identity + TERM/COLORTERM). Host credentials never cross.
 func MacosSandboxEnv(deps Deps, cfg *jsonx.OrderedMap) *jsonx.OrderedMap {
 	env := jsonx.NewOrderedMap()
 	if term := deps.Getenv("TERM"); term != "" {
@@ -104,7 +101,6 @@ func MacosSandboxEnv(deps Deps, cfg *jsonx.OrderedMap) *jsonx.OrderedMap {
 	return env
 }
 
-// buildPlan mirrors the nested _plan() closure in run_macos_user: start from
 // macos_sandbox_env, merge env_sources (swallowing any error — a bad entry must
 // not crash the plan), layer the caller's sandbox_env last, then build the plan.
 func buildPlan(deps Deps, opts Options, darwin *Darwin) RunPlan {
@@ -132,15 +128,12 @@ func buildPlan(deps Deps, opts Options, darwin *Darwin) RunPlan {
 }
 
 // RunMacosUser launches agent_argv in the dedicated-user + Seatbelt sandbox.
-// Returns the agent exit code (or 1 on a precondition/setup failure). Mirrors
-// run_macos_user EXACTLY, including the frozen ordering:
-//
-// 0. dry-run builds + prints the plan and RETURNS before the macOS/root gates
-// (so it runs on Linux CI);
-// 1. cheap preconditions (macOS, not-root, sandbox-exec, sandbox user) BEFORE
-// the up-to-30-min nix build;
-// 2. the plan is built AFTER the gates (it reads host git config);
-// 3. install profile + stage entrypoint; 4. bootstrap; 5. launch.
+// Returns the agent exit code (or 1 on a precondition/setup failure). dry-run
+// builds + prints the plan and RETURNS before the macOS/root gates (so it
+// runs on Linux CI); 1. cheap preconditions (macOS, not-root, sandbox-exec,
+// sandbox user) BEFORE the up-to-30-min nix build; 2. the plan is built AFTER
+// the gates (it reads host git config); 3. install profile + stage
+// entrypoint; 4. bootstrap; 5. launch.
 func RunMacosUser(deps Deps, opts Options) int {
 	out := printer{w: deps.Out}
 
@@ -254,7 +247,7 @@ func RunMacosUser(deps Deps, opts Options) int {
 
 // PrintPlan renders a RunPlan for --dry-run (human-readable; rich markup
 // stripped — parity is on the ARTIFACTS, which are byte-pinned by the producer
-// differential). Mirrors _print_plan's structure/order.
+// differential).
 func PrintPlan(w io.Writer, plan RunPlan, problems []string) {
 	p := printer{w: w}
 	p.print("[bold]macos-user run plan[/bold] (dry-run — nothing executed)\n")

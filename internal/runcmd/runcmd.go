@@ -3,7 +3,6 @@
 // Apple-Container argv (mounts, env, network, devices, GPU, kvm, loopholes),
 // prestarts the host-side service plumbing, and either execs into an existing
 // container or launches a fresh one.
-//
 // `run` is the default subcommand (bare `yolo -- cmd` → run).
 package runcmd
 
@@ -38,10 +37,8 @@ type ExecResult struct {
 // filled with real implementations by fillDefaults.
 type Options struct {
 	// --- CLI surface (typer options + ctx.args) ---
-	// Network mirrors --network (default "bridge").
 	Network string
-	// New mirrors --new (force a fresh container).
-	New bool
+	New     bool
 	// Profile mirrors --profile (startup timing report).
 	Profile bool
 	// DryRun mirrors --dry-run (macos-user only; a hard error elsewhere).

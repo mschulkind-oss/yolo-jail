@@ -10,7 +10,7 @@ import (
 	"github.com/mschulkind-oss/yolo-jail/internal/pytext"
 )
 
-// LoopholeError is raised when a manifest is malformed. Mirrors the
+// LoopholeError is raised when a manifest is malformed.
 // LoopholeError(ValueError) type; discovery skips it silently, validate surfaces
 // its message.
 type LoopholeError struct{ msg string }
@@ -27,7 +27,6 @@ func LoadLoophole(modulePath string) (*Loophole, error) {
 	return loadManifest(modulePath)
 }
 
-// loadManifest mirrors _load_manifest.
 func loadManifest(modulePath string) (*Loophole, error) {
 	manifestPath := filepath.Join(modulePath, "manifest.jsonc")
 	if fi, err := stat(manifestPath); err != nil || !fi.Mode().IsRegular() {
@@ -187,7 +186,6 @@ func loadManifest(modulePath string) (*Loophole, error) {
 	}, nil
 }
 
-// parseIntercepts mirrors the intercepts loop of _load_manifest.
 func parseIntercepts(manifestPath string, raw any) ([]Intercept, error) {
 	list, ok := raw.([]any)
 	if !ok {
@@ -209,7 +207,6 @@ func parseIntercepts(manifestPath string, raw any) ([]Intercept, error) {
 	return out, nil
 }
 
-// parseRequires mirrors _parse_requires.
 func parseRequires(manifestPath string, raw any) (Requires, error) {
 	if raw == nil {
 		return Requires{}, nil
@@ -238,7 +235,6 @@ func parseRequires(manifestPath string, raw any) (Requires, error) {
 	return req, nil
 }
 
-// parseHostBindMounts mirrors _parse_host_bind_mounts.
 func parseHostBindMounts(manifestPath string, raw any) ([]HostBindMount, error) {
 	if raw == nil {
 		return nil, nil
@@ -282,7 +278,6 @@ func parseHostBindMounts(manifestPath string, raw any) ([]HostBindMount, error) 
 	return out, nil
 }
 
-// parseHostDevices mirrors _parse_host_devices.
 func parseHostDevices(manifestPath string, raw any) ([]string, error) {
 	if raw == nil {
 		return nil, nil
@@ -302,7 +297,6 @@ func parseHostDevices(manifestPath string, raw any) ([]string, error) {
 	return out, nil
 }
 
-// parseHostDaemon mirrors _parse_host_daemon.
 func parseHostDaemon(manifestPath string, raw any) (*HostDaemon, error) {
 	if raw == nil {
 		return nil, nil
@@ -323,7 +317,6 @@ func parseHostDaemon(manifestPath string, raw any) (*HostDaemon, error) {
 	return &HostDaemon{Cmd: toStringSlice(cmdList), Env: env}, nil
 }
 
-// parseJailDaemon mirrors _parse_jail_daemon.
 func parseJailDaemon(manifestPath string, raw any) (*JailDaemon, error) {
 	if raw == nil {
 		return nil, nil
@@ -364,7 +357,6 @@ func parseEnvMap(manifestPath string, raw any, mappingErr string) (*EnvMap, erro
 }
 
 // --- small decode helpers mirroring Python's `.get(...) or default` idioms ---
-
 // orEmptyList mirrors `data.get(key) or []`: a falsy value yields an empty list
 // (which passes the isinstance-list check); a truthy non-list stays as-is (so
 // the caller's isinstance check fires the error).
@@ -385,7 +377,6 @@ func orEmptyMap(m *jsonx.OrderedMap, key string) any {
 	return v
 }
 
-// orEmptyMapValue mirrors `X or {}` for an already-fetched value.
 func orEmptyMapValue(v any) any {
 	if !pyTruthy(v) {
 		return jsonx.NewOrderedMap()

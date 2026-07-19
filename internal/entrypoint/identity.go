@@ -5,7 +5,7 @@ import (
 	"os/exec"
 )
 
-// configureGit mirrors identity.configure_git: set git name, email, and global
+// configureGit set git name, email, and global
 // gitignore from the host-forwarded YOLO_GIT_* env vars. Best-effort — no-op if
 // git isn't on PATH. Each subprocess uses capture_output=True (stdout+stderr
 // discarded).
@@ -27,7 +27,7 @@ func configureGit(e *Env) {
 	}
 }
 
-// configureJJ mirrors identity.configure_jj: set jj user identity from the
+// configureJJ set jj user identity from the
 // host-forwarded YOLO_JJ_* env vars. Best-effort — no-op if jj isn't on PATH.
 func configureJJ(e *Env) {
 	if _, err := exec.LookPath("jj"); err != nil {

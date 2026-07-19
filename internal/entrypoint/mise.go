@@ -10,7 +10,7 @@ import (
 	"github.com/mschulkind-oss/yolo-jail/internal/jsonx"
 )
 
-// miseTomlKey mirrors mise._toml_key: quote a key only if it contains chars
+// miseTomlKey quote a key only if it contains chars
 // that aren't valid in a bare key (anything outside [A-Za-z0-9_-]).
 var miseBareKeyRe = regexp.MustCompile(`^[A-Za-z0-9_-]+$`)
 
@@ -28,12 +28,10 @@ var miseBaseTools = []struct{ tool, version string }{
 	{"go", "latest"},
 }
 
-// GenerateMiseConfig mirrors mise.generate_mise_config's FILE-GENERATION logic.
 // It does NOT run the `mise uninstall` subprocesses (that is a side effect, not
 // content generation — orchestration). It DOES perform the workspace
 // /workspace/mise.toml retired-tool surgery when that file exists, matching the
 // Python writer's in-place edits.
-//
 // injected tools come from YOLO_MISE_TOOLS (a JSON object); retired tools come
 // from agents.AllMiseRetire.
 func GenerateMiseConfig(e *Env) error {

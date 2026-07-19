@@ -9,7 +9,7 @@ import (
 )
 
 // SelfCheck is the `yolo doctor` health check. Distinguishes fail (rc=1),
-// warn (rc=0 + NOTE lines), and ok (rc=0). Mirrors self_check, including the
+// warn (rc=0 + NOTE lines), and ok (rc=0).
 // exact FAIL:/NOTE:/OK print lines and the openssl-only-fails-if-state-missing
 // logic. Prints to stdout/stderr and returns the exit code.
 func SelfCheck(credsPath string) int {

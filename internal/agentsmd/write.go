@@ -62,7 +62,7 @@ You have full capability — treat this as your primary working environment.
 // inode a running jail's bind mount captured — EXCEPT when the file is
 // multi-linked (st_nlink > 1, e.g. after a `yolo prune` hardlink-dedup), in
 // which case it unlinks first so a fresh inode is allocated (breaking the link
-// rather than clobbering every fused sibling). Mirrors _write_briefing.
+// rather than clobbering every fused sibling).
 func WriteBriefing(path, content string) error {
 	if fi, err := os.Lstat(path); err == nil {
 		if st, ok := fi.Sys().(*syscall.Stat_t); ok && st.Nlink > 1 {
@@ -73,7 +73,7 @@ func WriteBriefing(path, content string) error {
 }
 
 // ReadProvisioningFailed reports whether workspace/.yolo/startup.log exists and
-// contains "PROVISIONING FAILED". A read error → false. Mirrors the
+// contains "PROVISIONING FAILED". A read error → false.
 // provisioning-failed breadcrumb probe (errors="replace" is irrelevant to the
 // substring check — a decode-lossy read still finds the ASCII marker).
 func ReadProvisioningFailed(workspace string) bool {

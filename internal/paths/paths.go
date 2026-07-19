@@ -48,7 +48,7 @@ const (
 // (baked into the image) and YOLO_SERVICE_CGROUP_DELEGATE_SOCKET both expect
 // /run/yolo-services/cgroup-delegate.sock. A refactor once kept the legacy
 // "cgroup.sock" name here and every jail silently reported the delegate as
-// unavailable (see the Python comment in src/cli/paths.py).
+// unavailable.
 const CgdSocketName = BuiltinCgroupLoopholeName + ".sock"
 
 // Home-relative storage layout. Python computes these from Path.home() at

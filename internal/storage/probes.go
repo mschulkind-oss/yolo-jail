@@ -13,7 +13,7 @@ import (
 
 // LinuxMultilib returns the Linux multilib directory name for the current
 // architecture. The container is always Linux; the arch matches the host
-// (native, not emulated). Mirrors _linux_multilib, including the arm64→aarch64
+// (native, not emulated).
 // macOS spelling and the "<machine>-linux-gnu" fallback for unknown machines.
 //
 // Python reads platform.machine(); Go's runtime.GOARCH uses amd64/arm64, so we
@@ -46,7 +46,7 @@ func pythonMachine() string {
 // NixCustomConfIncluded reports whether /etc/nix/nix.conf includes
 // /etc/nix/nix.custom.conf. Returns (true/false, true) when nix.conf is
 // readable, (false, false) when it is not (missing file, permission error, non-
-// macOS host). Mirrors _nix_custom_conf_included's Optional[bool] — the second
+// macOS host).
 // return is the "known" flag (Python None → ok=false).
 func NixCustomConfIncluded() (included bool, ok bool) {
 	return nixCustomConfIncludedAt("/etc/nix/nix.conf")
@@ -84,7 +84,7 @@ func nixCustomConfIncludedAt(confPath string) (bool, bool) {
 
 // DetectNixDaemonLabel returns the launchd Label of the installed nix-daemon on
 // macOS (the plist filename stem), or ("", false) if none. First match wins in
-// sorted order. Mirrors _detect_nix_daemon_label.
+// sorted order.
 func DetectNixDaemonLabel() (string, bool) {
 	return detectNixDaemonLabelIn("/Library/LaunchDaemons")
 }

@@ -18,7 +18,7 @@ import (
 )
 
 // ImageLoadCmd returns the command to load a container image from a tar
-// archive. Mirrors _image_load_cmd.
+// archive.
 func ImageLoadCmd(runtime, tarPath string) []string {
 	if runtime == "container" {
 		return []string{"container", "image", "load", "-i", tarPath}
@@ -34,7 +34,6 @@ func ImageInspectCmd(runtime, image string) []string {
 
 // JailImage returns the jail image name appropriate for the runtime: the short
 // (unqualified) name for Apple Container, the fully-qualified ref otherwise.
-// Mirrors _jail_image.
 func JailImage(runtime string) string {
 	if runtime == "container" {
 		return paths.JailImageShort
@@ -49,7 +48,7 @@ var (
 )
 
 // SummarizeNixLine extracts a short human-readable summary from a nix build
-// stderr line, or "" if none applies. Mirrors _summarize_nix_line exactly,
+// stderr line, or "" if none applies.
 // including precedence: copying → building → evaluating → progress-counter.
 func SummarizeNixLine(line string) string {
 	if m := reCopyingPath.FindStringSubmatch(line); m != nil {
@@ -91,7 +90,7 @@ func FormatProgress(current, estimate int64) string {
 }
 
 // FormatImageSize formats a materialized-image byte count the way auto_load_image
-// prints it: "%.0f MB" below 1 GB, else "%.1f GB". Mirrors the size_str block.
+// prints it: "%.0f MB" below 1 GB, else "%.1f GB".
 func FormatImageSize(totalBytes int64) string {
 	mb := float64(totalBytes) / (1024 * 1024)
 	if mb >= 1024 {
@@ -101,7 +100,7 @@ func FormatImageSize(totalBytes int64) string {
 }
 
 // ReadLoadedPaths reads the set of store paths loaded into a runtime from its
-// sentinel file. Missing file → empty. Mirrors _read_loaded_paths (blank lines
+// sentinel file. Missing file → empty.
 // dropped, each line stripped).
 func ReadLoadedPaths(sentinel string) map[string]struct{} {
 	out := map[string]struct{}{}
@@ -119,7 +118,7 @@ func ReadLoadedPaths(sentinel string) map[string]struct{} {
 
 // AddLoadedPath appends storePath to the sentinel as the most-recent entry,
 // de-duplicating (move-to-end) and capping at the 10 most recent. Written as
-// "\n".join(paths) + "\n". Mirrors _add_loaded_path.
+// "\n".join(paths) + "\n".
 func AddLoadedPath(sentinel, storePath string) error {
 	var pathsList []string
 	if data, err := os.ReadFile(sentinel); err == nil {
@@ -138,7 +137,6 @@ func AddLoadedPath(sentinel, storePath string) error {
 
 // ImageCachePath returns the cached tar file path for a nix store path, keyed by
 // the first 16 hex chars of sha256(storePath), under GLOBAL_CACHE/images/.
-// Mirrors _image_cache_path (including the mkdir -p of the images dir).
 func ImageCachePath(storePath string) (string, error) {
 	cacheDir := filepath.Join(paths.GlobalCache(), "images")
 	if err := os.MkdirAll(cacheDir, 0o755); err != nil {
@@ -165,7 +163,7 @@ func SizeFileForSentinel(sentinel string) string {
 
 // ReadEstimatedSizeFile reads the cached size estimate from the given size file
 // (see SizeFileForSentinel), returning (0, false) when absent or unparseable —
-// the callsite then falls back to the nix closure-size probe. Mirrors the
+// the callsite then falls back to the nix closure-size probe.
 // size_file branch of _estimate_image_size.
 func ReadEstimatedSizeFile(sizeFile string) (int64, bool) {
 	data, err := os.ReadFile(sizeFile)

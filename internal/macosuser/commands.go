@@ -109,7 +109,6 @@ func MacosSetup(deps Deps) int {
 }
 
 // MacosTeardown deletes the sandbox account + home (needs admin). macOS only.
-// Mirrors macos_teardown.
 func MacosTeardown(deps Deps) int {
 	out := printer{w: deps.Out}
 	if !deps.IsMacOS() {
@@ -131,7 +130,7 @@ func MacosTeardown(deps Deps) int {
 }
 
 // MacosUnshare strips the yolo-jail ACLs from a shared workspace (chmod -h -N).
-// macOS only. Mirrors macos_unshare. `workspace` is resolved by the caller-side
+// macOS only.
 // resolvePathAbs to match Path(workspace).resolve().
 func MacosUnshare(deps Deps, workspace string) int {
 	out := printer{w: deps.Out}
@@ -156,7 +155,7 @@ func MacosUnshare(deps Deps, workspace string) int {
 }
 
 // MacosFixPermissions retrofits the shared-group ACL onto pre-existing files in
-// the shared area. macOS only. Mirrors macos_fix_permissions; pass path="" for
+// the shared area. macOS only.
 // the whole shared root.
 func MacosFixPermissions(deps Deps, path string) int {
 	out := printer{w: deps.Out}
@@ -193,7 +192,7 @@ func MacosFixPermissions(deps Deps, path string) int {
 // refuseIfRoot fails fast if invoked as root (under sudo). The macos-*
 // commands self-escalate; running the whole command under sudo misassigns the
 // shared-group ACL to root. Returns 1 (with the message printed) when euid==0,
-// else 0. Mirrors _refuse_if_root (which raises typer.Exit(1)).
+// else 0.
 func refuseIfRoot(deps Deps) int {
 	if deps.Geteuid() == 0 {
 		printer{w: deps.Out}.print(

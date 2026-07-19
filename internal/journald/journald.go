@@ -46,7 +46,6 @@ const (
 )
 
 // WriteFrame writes a journal frame: ">BI" header (stream, length) + payload.
-// Mirrors _journal_send_frame.
 func WriteFrame(w io.Writer, stream byte, payload []byte) error {
 	hdr := make([]byte, 5)
 	hdr[0] = stream
@@ -80,7 +79,7 @@ type ValidatedArgs struct {
 }
 
 // ParseRequest parses the newline-terminated JSON request header and validates
-// args, applying the mode-specific --user prepend. Mirrors the validation half
+// args, applying the mode-specific --user prepend.
 // of _journal_handle_client. `header` is the bytes up to (not including) the
 // first newline; mode is "user" or "full".
 func ParseRequest(header []byte, mode string) ValidatedArgs {

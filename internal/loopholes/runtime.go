@@ -20,7 +20,6 @@ var (
 	infof = func(format string, args ...any) {}
 )
 
-// RuntimeArgsFor mirrors runtime_args_for. runtime is "" for the default
 // (podman) path; pass "container" for Apple Container (skips tls-intercept
 // loopholes). It is side-effect free and idempotent.
 func RuntimeArgsFor(loopholes []*Loophole, runtime string) []string {
@@ -128,7 +127,6 @@ func RuntimeArgsFor(loopholes []*Loophole, runtime string) []string {
 	return args
 }
 
-// ManifestHostDaemonSpecs mirrors manifest_host_daemon_specs: {name: spec} for
 // every active file-backed loophole with a host_daemon, shaped like the
 // loopholes: config block. Returned as an insertion-ordered map so it serializes
 // deterministically; Python dict equality is order-insensitive anyway.
@@ -211,7 +209,6 @@ func runOne(argv []string, timeout time.Duration) (*int, string) {
 	}
 }
 
-// SetEnabled mirrors set_enabled: toggle "enabled" in the manifest, rewriting it
 // through a JSON round-trip. This deliberately DROPS JSONC comments (the parse
 // via json5 -> re-serialize as plain JSON degradation documented in the module
 // map) — do NOT "fix" this; parity depends on reproducing it.
@@ -254,7 +251,6 @@ func isDir(p string) bool {
 	return err == nil && fi.IsDir()
 }
 
-// relativeTo mirrors pathlib.PurePath.relative_to (lexical, prefix-based).
 // Returns (rel, true) when base is a path-component prefix of target, else
 // ("", false) — matching the ValueError branch. Both paths are cleaned first.
 func relativeTo(target, base string) (string, bool) {

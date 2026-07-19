@@ -1,12 +1,10 @@
 // Package cgd is the cgroup-delegate daemon. It performs privileged cgroup v2
 // operations on the host's cgroup subtree on behalf of an in-jail caller,
 // identified by SO_PEERCRED (kernel-attested PID).
-//
 // Frozen contracts: the single-line-JSON request/
 // response protocol, the cgroup-name validation regex, the human-readable
 // memory parse, the cpu.max/memory.max/pids.max writes and their range checks,
 // and the "move caller into the job cgroup by peer PID" semantics.
-//
 // (cgroup-delegate.sock) and chmod 0777 live in the daemon wiring, not here.
 package cgd
 
@@ -21,11 +19,9 @@ import (
 	"github.com/mschulkind-oss/yolo-jail/internal/jsonx"
 )
 
-// cgroupNameRe mirrors _validate_cgroup_name's regex.
 var cgroupNameRe = regexp.MustCompile(`^[a-zA-Z0-9][a-zA-Z0-9._-]{0,63}$`)
 
 // ValidateCgroupName reports whether name is a safe cgroup name (no traversal).
-// Mirrors _validate_cgroup_name.
 func ValidateCgroupName(name string) bool {
 	return cgroupNameRe.MatchString(name) && !strings.Contains(name, "..")
 }
@@ -59,7 +55,6 @@ func ParseMemoryValue(val string) (int64, bool) {
 	}
 }
 
-// cpuCount mirrors os.cpu_count() or 1.
 func cpuCount() int {
 	n := runtime.NumCPU()
 	if n < 1 {
@@ -88,7 +83,7 @@ func RequestOp(line []byte) string {
 	return ""
 }
 
-// ParseRequest decodes a single-line JSON request. Mirrors json.loads of the
+// ParseRequest decodes a single-line JSON request.
 // first line; returns (nil, false) on empty/invalid.
 func ParseRequest(line []byte) (*Request, bool) {
 	decoded, err := jsonx.Decode(line)
@@ -112,7 +107,6 @@ func (r *Request) str(key string) string {
 }
 
 // intField returns an integer request field and whether it was present as a
-// number. Mirrors request.get(key) with an int()-able value.
 func (r *Request) intField(key string) (int64, bool) {
 	v, ok := r.raw.Get(key)
 	if !ok || v == nil {
@@ -172,7 +166,7 @@ func errResp(msg string) *jsonx.OrderedMap {
 }
 
 // Handle dispatches one request against containerCgroup for the caller peerPID,
-// returning the response object. Mirrors the op switch in
+// returning the response object.
 // _cgroup_delegate_handler (status / create_and_join / destroy / unknown).
 func Handle(r *Request, containerCgroup string, peerPID int) *jsonx.OrderedMap {
 	op := ""

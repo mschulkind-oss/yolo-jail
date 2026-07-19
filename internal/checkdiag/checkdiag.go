@@ -13,7 +13,7 @@ import (
 
 // WillBuild is the tri-state result of a `nix build --dry-run` parse. Unknown
 // (inconclusive: offline / substituter unreachable / dry-run errored) must NEVER
-// be treated as a cache miss — offline makes everything look built. Mirrors the
+// be treated as a cache miss — offline makes everything look built.
 // Optional[bool] of _nix_dry_run_will_build.
 type WillBuild int
 
@@ -79,7 +79,7 @@ func ParseDryRunWillBuild(returncode int, stderr string, ok bool) (WillBuild, []
 // DiagnoseNixBuildFailure turns opaque nix build stderr into a (title,
 // remediation) pair. remedy is the resolved _linux_builder_remedy() (caller
 // substitutes the daemon label). isMacOS gates the ambiguous "dependency
-// failed" branch. Mirrors _diagnose_nix_build_failure.
+// failed" branch.
 func DiagnoseNixBuildFailure(stderrTail []string, isMacOS bool, remedy string) (title, remediation string) {
 	text := strings.Join(stderrTail, "\n")
 	low := strings.ToLower(text)

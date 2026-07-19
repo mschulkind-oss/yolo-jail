@@ -42,7 +42,7 @@ func withRefreshLock(fn func() RefreshResult) RefreshResult {
 
 // DoRefresh is the flock-serialized refresh of the shared credentials file.
 // Returns either {access_token, refresh_token, expires_in, token_type} or
-// {error, ...}. Mirrors do_refresh:
+// {error, ...}.
 //   - cache hit (>= 90s headroom) -> return cached as an oauth response
 //   - else read current oauth; missing/unreadable -> error dicts
 //   - refresh upstream; classify HTTP vs transport errors
@@ -51,7 +51,7 @@ func DoRefresh(credsPath string) RefreshResult {
 	// Pre-lock snapshot — logged regardless of what we end up doing, so
 	// tomorrow's debugger can reconstruct the state the broker saw when it was
 	// asked to refresh (the 2026-04-23 shared-identity drift was invisible for
-	// want of exactly this line). Mirrors do_refresh's first log.info.
+	// want of exactly this line).
 	logInfo("do_refresh: shared=%s", describeCreds(credsPath))
 	return withRefreshLock(func() RefreshResult {
 		if cached := CachedTokens(credsPath); cached != nil {
@@ -144,7 +144,7 @@ func RefreshDue(credsPath string, leadSeconds int, now int64) bool {
 // BackgroundRefreshTick runs one iteration. Returns true iff the refresh
 // failed TRANSIENTLY (upstream_unreachable) while still due — the loop uses
 // this to fast-retry. Anything else (success, not due, non-transient error)
-// returns false. Mirrors _background_refresh_tick.
+// returns false.
 func BackgroundRefreshTick(credsPath string, leadSeconds int) bool {
 	if !RefreshDue(credsPath, leadSeconds, 0) {
 		// DEBUG because most ticks skip (Python logs skips at DEBUG so the log
@@ -175,7 +175,7 @@ func BackgroundRefreshTick(credsPath string, leadSeconds int) bool {
 
 // RunBackgroundRefresher loops until stop is closed, ticking at tickSeconds and
 // fast-retrying at fastRetrySeconds (up to maxFastRetries consecutive) on a
-// transient-while-due failure. Mirrors _background_refresher_loop, including
+// transient-while-due failure.
 // surviving a panicking tick. Runs as a goroutine started by the daemon.
 func RunBackgroundRefresher(credsPath string, stop <-chan struct{}, tickSeconds, leadSeconds int) {
 	logInfo("bg_refresh: started (tick=%ds, lead=%ds, creds=%s)", tickSeconds, leadSeconds, credsPath)

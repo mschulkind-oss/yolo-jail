@@ -55,7 +55,7 @@ var Logger = log.New(os.Stderr, "", log.LstdFlags)
 
 // pipe copies src->dst until EOF or error, then shuts down and closes BOTH
 // sockets so fds never outlive the connection (shutdown alone doesn't release
-// the fd). The sibling goroutine's double-close is swallowed. Mirrors _pipe.
+// the fd). The sibling goroutine's double-close is swallowed.
 func pipe(src, dst *net.UnixConn, wg *sync.WaitGroup) {
 	if wg != nil {
 		defer wg.Done()
@@ -115,7 +115,6 @@ func readFirstMessage(client *net.UnixConn) (body, raw []byte) {
 // stamp OVERRIDES any client-supplied jail_id — attribution must come from the
 // host side. Re-serialization uses jsonx (Python json.dumps default separators
 // + insertion order) so the re-framed request matches what Python would emit.
-// Mirrors _stamp_jail_id.
 func stampJailID(body []byte, jailID string) ([]byte, bool) {
 	decoded, err := jsonx.Decode(body)
 	if err != nil {
@@ -138,7 +137,6 @@ func stampJailID(body []byte, jailID string) ([]byte, bool) {
 }
 
 // handle serves one client connection: dial the broker, stamp, pipe.
-// Mirrors _handle.
 func handle(client *net.UnixConn, brokerPath, jailID string) {
 	upstream, err := net.DialUnix("unix", nil, &net.UnixAddr{Name: brokerPath, Net: "unix"})
 	if err != nil {
@@ -184,7 +182,7 @@ func handle(client *net.UnixConn, brokerPath, jailID string) {
 }
 
 // drainBounded reads and discards from conn until EOF or the deadline — a
-// wedged client can't park the goroutine. Mirrors the bounded drain in _handle.
+// wedged client can't park the goroutine.
 func drainBounded(conn *net.UnixConn, budget time.Duration) {
 	deadline := time.Now().Add(budget)
 	buf := make([]byte, 65536)
@@ -202,7 +200,6 @@ func drainBounded(conn *net.UnixConn, budget time.Duration) {
 }
 
 // Serve runs the accept loop until stop is closed; one goroutine per client.
-// Mirrors serve(): bind (unlinking a stale file first), remember the bound
 // dev/ino, and on shutdown unlink the socket ONLY if it's still the file we
 // bound. Returns nil on clean shutdown.
 func Serve(socketPath, brokerPath, jailID string, stop <-chan struct{}) error {

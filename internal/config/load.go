@@ -17,7 +17,6 @@ import (
 // callers (yolo check, run) can route them to the same stderr/console. Nil
 // means discard (parity tests only compare the returned config/error, not
 // side-channel warnings).
-//
 // The default writes "Warning: <msg>" to stderr (typer.echo err=True form).
 type Warn func(msg string)
 
@@ -86,7 +85,6 @@ func mergeLists(base, override []any) []any {
 	return merged
 }
 
-// overrideListKeys mirrors _OVERRIDE_LIST_KEYS: keys whose list value a
 // workspace REPLACES wholesale rather than union-merging.
 var overrideListKeys = set("agents")
 

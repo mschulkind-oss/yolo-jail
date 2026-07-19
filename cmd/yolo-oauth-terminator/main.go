@@ -3,7 +3,6 @@
 // 127.0.0.1 by --add-host), and forwards to the host broker: POST
 // /v1/oauth/token with grant_type=refresh_token -> action=refresh; everything
 // else -> action=proxy.
-//
 // Hazards:
 //   - KEEP-ALIVE DISABLED: Claude Code expects per-request connections
 //     (HTTP/1.0 style); Go's net/http keeps connections alive by default. We
@@ -71,7 +70,6 @@ func run() int {
 	// Claude Code's reconnect-each-time behavior.
 	srv.SetKeepAlivesEnabled(false)
 
-	// Mirrors main()'s startup log.info in oauth_broker_jail.py.
 	oauthterminator.LogInfo("listening on https://%s:%d (intercepting %s -> %s)",
 		*host, *port, oauthterminator.UpstreamHost, *hostSocket)
 
@@ -93,7 +91,7 @@ func makeHandler(hostSocket string) http.Handler {
 		if ua == "" {
 			ua = "-"
 		}
-		// Per-request line (mirrors _handle's opening log.info). body_len/ua
+		// Per-request line. body_len/ua
 		// only — never the body (it can carry a token on the /login path).
 		oauthterminator.LogInfo("request: %s %s body_len=%d is_refresh=%t ua=%s",
 			r.Method, r.URL.RequestURI(), len(body), isRefresh, pyRepr(ua))
@@ -103,7 +101,6 @@ func makeHandler(hostSocket string) http.Handler {
 			result = oauthterminator.Refresh(hostSocket)
 		} else {
 			result = oauthterminator.ProxyUpstream(hostSocket, r.Method, r.URL.RequestURI(), flattenHeaders(r.Header), body)
-			// Mirrors _handle's post-proxy log.info summary line.
 			oauthterminator.LogInfo("proxy: %s %s -> %d body_len=%d",
 				r.Method, r.URL.RequestURI(), result.Status, len(result.Body))
 		}

@@ -1,6 +1,5 @@
-// Package json5 is a hand-written JSONC/JSON5 decoder driven to observed
-// equivalence with Python's pyjson5 (the parser src/cli/config.py and
-// src/host_processes.py use via pyjson5.loads). It decodes into the SAME value
+// Package json5 is a hand-written JSONC/JSON5 decoder compatible with
+// pyjson5 semantics. It decodes into the SAME value
 // model as internal/jsonx (*jsonx.OrderedMap / []any / string / bool / nil /
 // jsonx integer|float), so a json5-parsed config round-trips through
 // jsonx.DumpsSnapshot/DumpsCompact byte-identically.

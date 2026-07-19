@@ -3,13 +3,11 @@
 // internal/json5 (JSONC/JSON5 decode), internal/jsonx (OrderedMap +
 // DumpsSnapshot — the config-snapshot bytes), and internal/pytext (Python repr
 // for the {x!r} bits of validation error strings).
-//
 // The snapshot writer bytes, the merge/dedup semantics, and every validation
 // error/warning string
 // (in identical order) must match the live Python, verified by the differential
 // oracle in config_parity_test.go. Surprising Python behavior is PRESERVED and
 // noted, never "fixed".
-//
 // Config data flows through *jsonx.OrderedMap everywhere (never a plain Go map):
 // key order is load-bearing for the snapshot bytes.
 package config
@@ -41,13 +39,10 @@ const (
 // Schema constants (config.py "Schema constants" block)
 // ---------------------------------------------------------------------------
 
-// DefaultHostClaudeFiles mirrors DEFAULT_HOST_CLAUDE_FILES.
 var DefaultHostClaudeFiles = []string{"settings.json"}
 
-// DefaultHostPiFiles mirrors DEFAULT_HOST_PI_FILES.
 var DefaultHostPiFiles = []string{"settings.json"}
 
-// knownTopLevelConfigKeys mirrors KNOWN_TOP_LEVEL_CONFIG_KEYS.
 var knownTopLevelConfigKeys = set(
 	"runtime", "repo_path", "agents", "packages", "mounts", "workspace_readonly",
 	"per_side_paths", "network", "security", "mise_tools", "lsp_servers",
@@ -56,10 +51,8 @@ var knownTopLevelConfigKeys = set(
 	"kvm", "prune", "ephemeral_storage", "include_if_found", "agents_md_extra",
 )
 
-// journalModes mirrors JOURNAL_MODES.
 var journalModes = []string{"off", "user", "full"}
 
-// ephemeralStorageModes mirrors EPHEMERAL_STORAGE_MODES.
 var ephemeralStorageModes = []string{"volume", "tmpfs"}
 
 var (
@@ -91,18 +84,14 @@ var (
 	envVarNameRe    = regexp.MustCompile(`^[A-Za-z_][A-Za-z0-9_]*$`)
 )
 
-// vaapiPackages mirrors VAAPI_PACKAGES.
 var vaapiPackages = []string{"mesa", "libva-utils"}
 
-// validMCPPresets mirrors VALID_MCP_PRESETS.
 var validMCPPresets = set("chrome-devtools", "sequential-thinking")
 
-// defaultMiseTools mirrors DEFAULT_MISE_TOOLS (insertion order matters for the
 // merged result, but this default has a single entry).
 var defaultMiseToolsKeys = []string{"neovim"}
 var defaultMiseToolsVals = map[string]string{"neovim": "stable"}
 
-// defaultMiseDisabledTools mirrors DEFAULT_MISE_DISABLED_TOOLS.
 var defaultMiseDisabledTools = []string{"pnpm"}
 
 // ---------------------------------------------------------------------------

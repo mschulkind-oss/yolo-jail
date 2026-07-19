@@ -57,7 +57,6 @@ func Run(opts Options) int {
 					"This build cannot launch the native macOS backend.")
 			return 1
 		}
-		// Mirror run_cmd.py: `agent_argv = full_command or ["/bin/zsh", "-l"]`
 		// (a bare `yolo` opens an interactive login zsh in the sandbox).
 		agentArgv := o.Args
 		if len(agentArgv) == 0 {
@@ -300,7 +299,7 @@ func (o *Options) runContainer(cfg *jsonx.OrderedMap, rt, repoRoot string) int {
 	}
 
 	// Fresh-launch startup banner (with resource parts) to stderr for log
-	// capture (audit §B#4; mirrors run_cmd.py:2698).
+	// capture (audit §B#4.
 	o.emitStartupBanner(rt, cname, resPartsFor(cfg, rt), "")
 
 	rc, runErr := runWithProxy(runCmd, onStarted, onTerminate)
@@ -335,7 +334,7 @@ func (o *Options) attachExisting(cname, rt, targetCmd string, identityEnv []stri
 	out := o.pr(o.Stdout)
 	// Startup banner to stderr — surfaces the jail's BAKED version so a host CLI
 	// upgrade attaching to a pre-upgrade container (stale shims/mounts/entrypoint)
-	// is visible at a glance (audit §B#4; mirrors run_cmd.py:1372).
+	// is visible at a glance (audit §B#4.
 	o.emitStartupBanner(rt, cname, nil, o.bakedJailVersion(rt, cname))
 	if raced {
 		out.printf("[bold cyan]Attaching to jail started by another process [dim](%s)[/dim]...[/bold cyan]", cname)
@@ -400,7 +399,7 @@ func (o *Options) RepoRootForBanner() string {
 }
 
 // bakedJailVersion reads the YOLO_VERSION baked into a running container via
-// `<rt> inspect`, or "" (mirrors _container_baked_yolo_version). Shown in the
+// `<rt> inspect`, or "". Shown in the
 // attach banner only when it differs from the host version.
 func (o *Options) bakedJailVersion(rt, cname string) string {
 	if o.Exec == nil {

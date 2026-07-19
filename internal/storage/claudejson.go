@@ -10,12 +10,10 @@ import (
 // claudeJSONSeedKeys are the login-state keys back-propagated from a workspace
 // claude.json into the GLOBAL_HOME seed. Allowlist only — mcpServers, projects,
 // and other workspace-specific keys must never leak into the shared seed.
-// Mirrors _CLAUDE_JSON_SEED_KEYS.
 var claudeJSONSeedKeys = []string{"oauthAccount", "hasCompletedOnboarding"}
 
 // SyncClaudeJSONSeed performs the two-way sync of Claude login/onboarding state
 // between the GLOBAL_HOME seed and a per-workspace overlay's claude.json.
-// Mirrors _sync_claude_json_seed exactly:
 //
 //   - Forward (seed → workspace): fill keys the workspace is missing from the
 //     seed, preserving workspace-specific config; rewrite the workspace file
@@ -58,7 +56,7 @@ func SyncClaudeJSONSeed(seedPath, wsPath string) {
 }
 
 // readJSONDict reads path as a JSON object, returning an empty OrderedMap on any
-// error or when the top-level value is not an object (mirrors read_json_dict:
+// error or when the top-level value is not an object
 // "data if isinstance(data, dict) else {}").
 func readJSONDict(path string) *jsonx.OrderedMap {
 	data, err := os.ReadFile(path)

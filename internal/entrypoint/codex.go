@@ -11,7 +11,6 @@ import (
 	"github.com/mschulkind-oss/yolo-jail/internal/tomlx"
 )
 
-// codexBareKeyRe mirrors agent_configs._toml_key: bare unless it's NOT
 // [A-Za-z0-9_-]+.
 var codexBareKeyRe = regexp.MustCompile(`^[A-Za-z0-9_-]+$`)
 
@@ -22,14 +21,12 @@ func codexTomlKey(key string) string {
 	return `"` + codexTomlEscape(key) + `"`
 }
 
-// codexTomlEscape mirrors agent_configs._toml_escape.
 func codexTomlEscape(s string) string {
 	s = strings.ReplaceAll(s, `\`, `\\`)
 	s = strings.ReplaceAll(s, `"`, `\"`)
 	return s
 }
 
-// codexTomlScalar mirrors agent_configs._toml_scalar: bool -> true/false,
 // int/float -> Python str, else quoted escaped string.
 func codexTomlScalar(v any) string {
 	switch t := v.(type) {
@@ -59,7 +56,6 @@ func pyScalarStr(v any) string {
 	return pyStr(v)
 }
 
-// codexTomlInlineTable mirrors agent_configs._toml_inline_table.
 func codexTomlInlineTable(d *jsonx.OrderedMap) string {
 	parts := make([]string, 0, d.Len())
 	for _, k := range d.Keys() {
@@ -69,7 +65,6 @@ func codexTomlInlineTable(d *jsonx.OrderedMap) string {
 	return "{ " + strings.Join(parts, ", ") + " }"
 }
 
-// codexTomlArray mirrors agent_configs._toml_array.
 func codexTomlArray(values []any) string {
 	parts := make([]string, 0, len(values))
 	for _, v := range values {
@@ -78,7 +73,6 @@ func codexTomlArray(values []any) string {
 	return "[" + strings.Join(parts, ", ") + "]"
 }
 
-// dumpCodexTOML mirrors agent_configs._dump_codex_toml. Emits top-level
 // scalars/arrays first (skipping mcp_servers and dropping non-mcp_servers
 // tables with a warning), then the [mcp_servers.<name>] sub-tables.
 func (e *Env) dumpCodexTOML(doc *jsonx.OrderedMap) string {
@@ -131,7 +125,6 @@ func (e *Env) dumpCodexTOML(doc *jsonx.OrderedMap) string {
 	return strings.Join(lines, "\n") + "\n"
 }
 
-// ConfigureCodex mirrors agent_configs.configure_codex.
 func ConfigureCodex(e *Env) error {
 	dir := e.CodexDir()
 	if err := os.MkdirAll(dir, 0o755); err != nil {

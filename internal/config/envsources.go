@@ -98,7 +98,6 @@ func ResolveEnvSources(workspace string, config *jsonx.OrderedMap, warn Warn) *j
 	return merged
 }
 
-// expandUser mirrors os.path.expanduser for the leading-~ forms env_sources
 // uses. Only "~" and "~/..." are expanded (a "~user" form is left untouched
 // unless we can resolve it, matching the common case). HOME resolution follows
 // Python's expanduser: HOME if set (empty HOME -> unchanged tilde per CPython
@@ -127,7 +126,7 @@ func expandUser(p string) string {
 	return p
 }
 
-// homeForExpand mirrors posixpath.expanduser's HOME lookup: $HOME if set (even
+// homeForExpand $HOME if set (even
 // empty), else the passwd entry (pwd.getpwuid). Empty HOME with "~/x" yields
 // "/x" after the rstrip+`or "/"` in expandUser.
 func homeForExpand() string {

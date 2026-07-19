@@ -131,7 +131,6 @@ func numFloat(v any) float64 {
 // writeExecutable writes content to path (truncate-in-place via fsx.WriteInPlace
 // to preserve inodes for bind-mounted files, per docs/design/agent-briefings.md)
 // then sets the executable bit. Mirrors Python's write_text + chmod(mode|S_IEXEC).
-//
 // Python's chmod ORs S_IEXEC (owner-execute, 0o100) onto the file's current
 // mode. A freshly-created file has mode 0o644 under the default umask, giving
 // 0o744. We create with 0o644 then chmod to 0o755 to match what the golden
@@ -215,7 +214,7 @@ func stringValue(m *jsonx.OrderedMap, key string) (string, bool) {
 }
 
 // stringList returns the list at key as []string, dropping non-string elements.
-// A missing key or non-list value yields nil (mirrors `x.get(key) or []` when
+// A missing key or non-list value yields nil or []` when
 // callers treat absent as empty).
 func stringList(m *jsonx.OrderedMap, key string) []string {
 	v, ok := m.Get(key)

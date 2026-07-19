@@ -216,7 +216,7 @@ func mtimeNs(p string) (int64, bool) {
 	return info.ModTime().UnixNano(), true
 }
 
-// expandUser mirrors Path(p).expanduser(): expand a leading "~"/"~/…" against
+// expandUser expand a leading "~"/"~/…" against
 // $HOME (or the passwd home). A "~user" form is left untouched.
 func expandUser(p string) string {
 	if len(p) == 0 || p[0] != '~' {

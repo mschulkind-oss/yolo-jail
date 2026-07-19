@@ -2,7 +2,6 @@ package entrypoint
 
 import "path/filepath"
 
-// GenerateMCPWrappers mirrors mcp_wrappers.generate_mcp_wrappers: three
 // executable wrapper scripts (chrome-devtools-mcp-wrapper, mcp-wrappers/node,
 // mcp-wrappers/npx). Each is written then chmod'd |= S_IEXEC.
 func GenerateMCPWrappers(e *Env) error {

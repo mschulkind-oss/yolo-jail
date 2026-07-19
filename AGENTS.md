@@ -32,17 +32,17 @@ This project provides a secure, isolated container environment for AI agents (Ge
     - Host `~/.local/share/mise` → Container at same path + `/mise` symlink (shared mise data dir — venv paths resolve on both sides)
     - Per-workspace overlays: `<workspace>/.yolo/home/copilot-sessions` → `/home/agent/.copilot/session-state`, `<workspace>/.yolo/home/copilot-command-history` → `/home/agent/.copilot/command-history-state.json`, `<workspace>/.yolo/home/bash_history` → `/home/agent/.bash_history`, `<workspace>/.yolo/home/gemini-history` → `/home/agent/.gemini/history`, `<workspace>/.yolo/home/ssh` → `/home/agent/.ssh`, `<workspace>/.yolo/home/copilot-mcp-config.json` → `/home/agent/.copilot/mcp-config.json`, `<workspace>/.yolo/home/copilot-lsp-config.json` → `/home/agent/.copilot/lsp-config.json`, `<workspace>/.yolo/home/gemini-settings.json` → `/home/agent/.gemini/settings.json`, `<workspace>/.yolo/home/gemini-managed-mcp.json` → `/home/agent/.gemini/yolo-managed-mcp-servers.json`, `<workspace>/.yolo/home/claude-settings.json` → `/home/agent/.claude/settings.json`, `<workspace>/.yolo/home/claude-managed-mcp.json` → `/home/agent/.claude/yolo-managed-mcp-servers.json`, `<workspace>/.yolo/home/claude-projects` → `/home/agent/.claude/projects`
 
-### 3. Execution Engine (`src/cli.py` & `src/entrypoint.py`)
+### 3. Execution Engine (`cmd/yolo/` & `cmd/yolo-entrypoint/`)
 
-All logic is **pure Python** — no bash scripts with embedded heredocs. The only bash is generated *content* (shim scripts, .bashrc) written by Python.
+All logic is **Go** — no bash scripts. The only bash is generated *content* (shim scripts, .bashrc) written by Go.
 
-- **Architecture**: `cli.py` runs on the host (typer CLI). `entrypoint.py` runs inside the container at startup (stdlib-only Python, no pip deps).
-- **Self-Bootstrapping**: The jail is developed from inside itself. Changes to source files are immediately visible (bind-mounted workspace). Changes to `flake.nix` or `entrypoint.py` require a nix rebuild on the next `yolo` invocation from the host.
+- **Architecture**: `cmd/yolo/` runs on the host (CLI). `cmd/yolo-entrypoint/` runs inside the container at startup. Both are compiled Go binaries; the entrypoint has no external dependencies beyond stdlib.
+- **Self-Bootstrapping**: The jail is developed from inside itself. Changes to source files are immediately visible (bind-mounted workspace). Changes to `flake.nix` require a nix rebuild on the next `yolo` invocation from the host.
 - **Config Edits**: Any edit to `yolo-jail.jsonc` must be followed by `yolo check` before asking a human to restart into a new jail session.
 - **Direct Execution**: Commands are run via `yolo -- <command>`.
 - **Auto-YOLO**: The CLI automatically injects `--yolo` for `gemini` and `copilot` commands. Claude Code uses `settings.json` (comprehensive `permissions.allow` rules) instead of a CLI flag or `bypassPermissions` mode, because both `--dangerously-skip-permissions` and `bypassPermissions` refuse to run as UID 0 (the norm in Podman rootless containers).
 - **Container Reuse**: By default, running `yolo` in the same workspace reuses the existing container via `exec` instead of creating a new one. Containers are named deterministically (`yolo-<hash>`) based on the workspace path. Use `yolo --new -- <command>` to force a new container. Use `yolo ps` to list active jails with their workspace mappings. Tracking files are stored in `~/.local/share/yolo-jail/containers/`.
-- **Quoting**: Use `shlex.join` in Python to pass quoted arguments correctly to the container's `bash -c`.
+- **Quoting**: Use `shquote.Join` (in `internal/shquote`) to pass quoted arguments correctly to the container's `bash -c`.
 - **Self-Updating Build**: The CLI runs `nix build --impure` on every start but only executes `<runtime> load` if the resulting image hash differs from `.last-load`. The `--impure` flag allows reading the `YOLO_EXTRA_PACKAGES` env var for per-project package customization.
 - **Runtime Differences**: Docker uses `-u UID:GID` and `--net=bridge` explicitly. Podman rootless omits both (rootless UID mapping handles ownership, pasta networking avoids nftables).
 - **Nested Containers (Podman-in-Podman)**: The jail image includes `podman`, `nix`, `fuse-overlayfs`, `slirp4netns`, and `shadow`. When running with podman, the CLI automatically adds UID/GID mappings (`--uidmap`/`--gidmap`), `/dev/fuse`, and `SYS_ADMIN`+`MKNOD` capabilities for rootless nested container support — no `--privileged` needed. When already inside a container, the CLI detects this (`/run/.containerenv` or `/.dockerenv`) and uses `--userns=host` instead of UID/GID mapping to share the parent's user namespace — doubly-nested user namespaces fail on `/proc` mount. Inner containers must use `--net=host` and `--cgroups=disabled` (configured as defaults in the image's `/etc/containers/containers.conf`). The CLI also forces `--net=host` when inside a container since netavark can't create network namespaces without `NET_ADMIN`.
@@ -51,30 +51,30 @@ All logic is **pure Python** — no bash scripts with embedded heredocs. The onl
     - **Podman**: Use `host.containers.internal` (resolves to `169.254.1.2`). Automatically added to `/etc/hosts`.
     - **Docker**: Use `172.17.0.1` (default bridge gateway IP). The CLI adds this to `/etc/hosts` as `host.internal` for convenience. Useful for agents that need to access host services (e.g., pull from host git servers, reach a development API running on the host).
 - **Host Port Forwarding**: The `network.forward_host_ports` config forwards host `127.0.0.1` services into the jail via Unix socket tunneling (analogous to SSH `-L`). Architecture:
-    1. **Host side** (`cli.py`): Creates `/tmp/yolo-fwd-{cname}/` with socat processes that UNIX-LISTEN on socket files and TCP-connect to host `127.0.0.1:{port}`.
-    2. **Container side** (`entrypoint.py`): Starts socat processes that TCP-LISTEN on `127.0.0.1:{port}` and UNIX-CONNECT to the bind-mounted socket files at `/tmp/yolo-fwd/`.
+    1. **Host side** (`cmd/yolo`): Creates `/tmp/yolo-fwd-{cname}/` with socat processes that UNIX-LISTEN on socket files and TCP-connect to host `127.0.0.1:{port}`.
+    2. **Container side** (`cmd/yolo-entrypoint`): Starts socat processes that TCP-LISTEN on `127.0.0.1:{port}` and UNIX-CONNECT to the bind-mounted socket files at `/tmp/yolo-fwd/`.
     3. **Why Unix sockets**: Container networking (pasta, slirp4netns, bridge) cannot reach host `127.0.0.1` directly when ports are already bound. Unix sockets bypass all networking via a bind-mounted directory. No network exposure.
     4. **Ordering**: Host socat starts first (creates sockets) → container mounts dir → entrypoint starts container socat. No race condition.
-    5. **Cleanup**: When container exits, `cli.py` terminates host socat and removes socket dir.
-    6. **Container reuse**: `_port_in_use()` guard in entrypoint prevents duplicate listeners on `exec` into existing container.
+    5. **Cleanup**: When container exits, the CLI terminates host socat and removes socket dir.
+    6. **Container reuse**: `portInUse()` guard in entrypoint prevents duplicate listeners on `exec` into existing container.
     7. **Requires**: `socat` on the host (already in the jail image).
-- **AGENTS Injection**: Per-workspace AGENTS.md and CLAUDE.md are generated host-side by `cli.py` and stored at `~/.local/share/yolo-jail/agents/<container-name>/`. AGENTS.md is mounted read-only over `~/.copilot/AGENTS.md` and `~/.gemini/AGENTS.md`; CLAUDE.md is mounted over `~/.claude/CLAUDE.md` (Claude only reads CLAUDE.md at the user-config level). This ensures each workspace jail gets its own context without stomping the shared home directory, and outside-jail agents never see jail-specific instructions.
+- **AGENTS Injection**: Per-workspace AGENTS.md and CLAUDE.md are generated host-side by the CLI and stored at `~/.local/share/yolo-jail/agents/<container-name>/`. AGENTS.md is mounted read-only over `~/.copilot/AGENTS.md` and `~/.gemini/AGENTS.md`; CLAUDE.md is mounted over `~/.claude/CLAUDE.md` (Claude only reads CLAUDE.md at the user-config level). This ensures each workspace jail gets its own context without stomping the shared home directory, and outside-jail agents never see jail-specific instructions.
 - **Skills Auto-Mount**: Host user-level skills from `~/.gemini/skills/` (which `~/.copilot/skills` typically symlinks to) are automatically mounted and synced into the jail at `/home/agent/.copilot/skills/`, `/home/agent/.gemini/skills/`, and `/home/agent/.claude/skills/`. If a workspace has `.copilot/skills/`, `.gemini/skills/`, or `.claude/skills/`, those skills are also synced and take precedence. Symlinks in skill directories are followed automatically.
-- **Built-in Skills**: The `jail-startup` skill is auto-injected into every jail by `entrypoint.py`. It reads `.yolo/handover.md` and orients the inner agent. Priority order: built-in (lowest) → host user-level → workspace (highest). Built-in skills can be overridden by placing a skill with the same directory name in host or workspace skills.
+- **Built-in Skills**: The `jail-startup` skill is auto-injected into every jail by the entrypoint. It reads `.yolo/handover.md` and orients the inner agent. Priority order: built-in (lowest) → host user-level → workspace (highest). Built-in skills can be overridden by placing a skill with the same directory name in host or workspace skills.
 
 ## Developer Runbook
 
 ### Self-Bootstrapping Development
 This project is developed **from inside the jail itself**. The source code is bind-mounted at `/workspace`, so edits are immediately visible on the host.
-- **Source changes** (`src/cli.py`, `src/entrypoint.py`): Visible immediately, take effect on next jail start.
-- **Image changes** (`flake.nix`, `src/entrypoint.py`): Require `nix build` + image reload on next `yolo` from the host. The CLI auto-rebuilds when it detects changes.
-- **Test changes**: Run `uv run --group dev python -m pytest tests/` from inside the jail or on the host.
+- **Go source changes** (`cmd/`, `internal/`): Visible immediately via dev-override wrappers (prefer `/opt/yolo-jail/dist-go/linux-<arch>/` over baked binary). Run `just deploy` to cross-compile.
+- **Image changes** (`flake.nix`): Require `nix build` + image reload on next `yolo` from the host. The CLI auto-rebuilds when it detects changes.
+- **Test changes**: Run `just test-fast` (unit tests) or `just test` (includes integration).
 - **Always commit and push** after changes — the nix image builds from the working tree.
 
 ### Testing
-- **Host**: `uv run --group dev python -m pytest tests/` — all tests run (unit + integration).
+- **Fast tests** (`just test-fast`): Go unit tests + Python integration tests (no containers). Run by pre-commit hook.
+- **Full tests** (`just test`): Includes container integration tests. Run by GitHub CI.
 - **Inside Jail**: All tests should work. The CLI detects it's inside a container and uses `--userns=host` for nested containers instead of creating new user namespaces.
-- **Entrypoint unit tests**: `uv run --group dev python -m pytest tests/test_entrypoint.py` — tests config generation (shims, MCP, LSP, bashrc) without containers.
 
 ### First Run vs Subsequent Runs
 - **First Run**: When you run `yolo -- <command>`, the jail entrypoint automatically provisions all tools:
@@ -138,7 +138,7 @@ This project is developed **from inside the jail itself**. The source code is bi
 
 ### Tool Management
 - **Mise**: All runtimes (Node, Python, Go) are managed by `mise`. 
-- **Auto-Provisioning**: On every jail start, the CLI runs `~/.yolo-bootstrap.sh` with `YOLO_BYPASS_SHIMS=1` (to avoid shim interference) before executing the user's command. The bootstrap script and all config files (MCP, LSP, bashrc, shims) are generated by `src/entrypoint.py` (pure Python, stdlib only). Tools are installed only if missing (idempotent).
+- **Auto-Provisioning**: On every jail start, the entrypoint runs `~/.yolo-bootstrap.sh` with `YOLO_BYPASS_SHIMS=1` (to avoid shim interference) before executing the user's command. The bootstrap script and all config files (MCP, LSP, bashrc, shims) are generated by the Go entrypoint (`cmd/yolo-entrypoint`). Tools are installed only if missing (idempotent).
   - **NPM Globals**: `chrome-devtools-mcp`, `@modelcontextprotocol/server-sequential-thinking`, `pyright`, `typescript-language-server`, `typescript`, `@anthropic-ai/claude-code` (Copilot and Gemini agents)
   - **Go Binaries**: `mcp-language-server` (used by Gemini LSP), `gopls` (Go language server)
   - **Claude Code**: Installed via native installer (`curl claude.ai/install.sh | bash`), binary at `~/.local/bin/claude`
@@ -159,7 +159,7 @@ Agents inside the jail can install and manage additional tools via **`mise`**, w
 
 #### How It Works
 1. **Workspace Declaration**: Tools declared in `/workspace/mise.toml` are workspace-specific.
-2. **Installation**: At jail startup, `cli.py` runs `mise install` from the workspace, downloading all declared tools into the shared mise data dir.
+2. **Installation**: At jail startup, the CLI runs `mise install` from the workspace, downloading all declared tools into the shared mise data dir.
 3. **Persistence**: Tools are stored in `~/.local/share/mise/` on the host (shared between host and jail), surviving jail restarts.
 4. **PATH Resolution**: `mise hook-env` resolves tool directories into PATH at startup. Interactive shells also use `mise activate` with PROMPT_COMMAND hooks to keep tools available.
 5. **No Jail Config Shortcut**: If you edit `yolo-jail.jsonc` while doing package/tool setup, run `yolo check` before restart. Do not rely on the next startup prompt to discover mistakes.
@@ -288,13 +288,13 @@ yolo-cglimit --cpu 75 --memory 4g -- nice -n 10 timeout 7200 python train.py
 - **Terminal**: `TERM=xterm-256color` should be passed to maintain color support for agent parsing.
 - **Permissions**: Map host UID/GID to the container user to ensure file ownership on the host is preserved.
 - **No LD_LIBRARY_PATH Stripping**: `LD_LIBRARY_PATH=/lib:/usr/lib` is baked into the Docker image Env to survive agent environment sanitization.
-- **Tmux Window Title**: `cli.py` runs `tmux rename-window JAIL` on the host before exec'ing into the container. This sets the window name to "JAIL" and implicitly disables `automatic-rename` for that window. `PROMPT_COMMAND` inside the jail also emits title escape sequences as a fallback for interactive sessions.
+- **Tmux Window Title**: The CLI runs `tmux rename-window JAIL` on the host before exec'ing into the container. This sets the window name to "JAIL" and implicitly disables `automatic-rename` for that window. `PROMPT_COMMAND` inside the jail also emits title escape sequences as a fallback for interactive sessions.
 - **Overmind Isolation**: `OVERMIND_SOCKET=/tmp/overmind.sock` is set inside the jail so overmind processes don't conflict with host-side overmind (which defaults to `.overmind.sock` in the workspace directory).
 - **Global Gitignore**: The host's global gitignore (`core.excludesFile` or `~/.config/git/ignore`) is mounted read-only and configured via `git config --global core.excludesFile` inside the jail.
 
 ## Workflow for Modification
 1. **Change Image**: Edit `flake.nix` (e.g., add `pkgs.strace`).
-2. **Change Logic**: Edit `src/entrypoint.py` or `src/cli.py`. All Python, no bash heredocs.
+2. **Change Logic**: Edit Go source in `cmd/` or `internal/`. Run `just deploy` to cross-compile.
 3. **Manual Test**: Run `yolo -- bash -c "my-new-tool --version"`.
 4. **Enforce YOLO**: Always ensure `YOLO_BYPASS_SHIMS=1` is set when running installers inside the jail.
 5. **Commit**: The pre-commit hook runs quality checks automatically.

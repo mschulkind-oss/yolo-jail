@@ -83,7 +83,6 @@ func (o *Options) sectionMacOSPlatform(r *reporter, _ *jsonx.OrderedMap) {
 	r.blank()
 }
 
-// loadWorkspaceConfigLoose mirrors the load_config(workspace, strict=False)
 // call inside _check_podman_machine_resources. Any error → empty map.
 func (o *Options) loadWorkspaceConfigLoose() *jsonx.OrderedMap {
 	cfg := loadConfigLoose(o.Workspace)

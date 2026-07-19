@@ -7,12 +7,12 @@ import (
 	"time"
 )
 
-// tzRunDir mirrors entrypoint.TZ_RUN_DIR: the writable tmpfs (/run) that backs
+// tzRunDir the writable tmpfs (/run) that backs
 // the image's /etc/localtime + /etc/timezone symlinks (root fs is read-only).
 // A package var so tests can redirect it to a temp dir.
 var tzRunDir = "/run"
 
-// configureTimezone mirrors system.configure_timezone: populate /run/localtime
+// configureTimezone populate /run/localtime
 // and /run/timezone from $TZ so anything reading /etc/localtime directly (Go's
 // time pkg, some Java/Ruby paths, `date` after `env -i`) agrees with the host
 // wall clock. Best-effort: unset $TZ or an unresolvable zone file leaves the
@@ -50,7 +50,7 @@ func configureTimezone(e *Env) {
 	_ = os.WriteFile(filepath.Join(runDir, "timezone"), []byte(tz+"\n"), 0o644)
 }
 
-// generateLdCache mirrors system.generate_ld_cache: populate /run/ld.so.cache
+// generateLdCache populate /run/ld.so.cache
 // (target of the image's /etc/ld.so.cache symlink) from the /lib + /usr/lib
 // farm. Generation runs here rather than at image build time because the farm
 // derivation builds natively on darwin for macOS hosts, where the Linux

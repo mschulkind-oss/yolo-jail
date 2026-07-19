@@ -27,7 +27,7 @@ func runInternal(args []string) int {
 // runConfigDump loads + merges the config for a workspace (default: cwd) via
 // internal/config and prints the merged config as canonical snapshot JSON,
 // followed by the validation errors/warnings. Used for differential testing
-// against `python -m src.cli` config paths and for eyeballing the merged shape.
+// and for eyeballing the merged shape.
 //
 // Flags: --strict (raise on malformed config), positional workspace dir.
 func runConfigDump(args []string) int {

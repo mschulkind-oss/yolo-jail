@@ -12,8 +12,7 @@ import (
 )
 
 // Socket-wait tuning (host side polls for socat's socket files before the
-// container starts). Production defaults must stay 2s / 5ms — mirrors
-// SOCKET_WAIT_DEADLINE_SECONDS / SOCKET_WAIT_POLL_INTERVAL_SECONDS.
+// container starts). Production defaults must stay 2s / 5ms.
 const (
 	SocketWaitDeadline     = 2 * time.Second
 	SocketWaitPollInterval = 5 * time.Millisecond
@@ -93,7 +92,7 @@ func indexByte(s string, b byte) int {
 }
 
 // SocketPath returns the host-side socket file path for a local port under
-// socketDir: "port-<localPort>.sock". Mirrors socket_dir / f"port-{lp}.sock".
+// socketDir: "port-<localPort>.sock".
 func SocketPath(socketDir string, localPort int) string {
 	return filepath.Join(socketDir, fmt.Sprintf("port-%d.sock", localPort))
 }
@@ -111,7 +110,7 @@ func SocatArgv(sockPath string, hostPort int) []string {
 }
 
 // SocketNotReadyWarning is the exact stderr text emitted when socat's socket
-// files don't appear before the deadline. Mirrors the format string in
+// files don't appear before the deadline.
 // start_host_port_forwarding.
 func SocketNotReadyWarning(missing []string) string {
 	return fmt.Sprintf(

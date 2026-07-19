@@ -12,7 +12,6 @@ import (
 // sort_keys=True) with ensure_ascii (Python's default). This is the highest-
 // priority byte-parity gate — a single byte of drift fires a spurious config-
 // approval prompt on every Python<->Go switch.
-//
 // Note config.py uses json.dumps(config, indent=2, sort_keys=True) WITHOUT an
 // explicit ensure_ascii, so it defaults to True — exactly jsonx.DumpsSnapshot.
 func SnapshotJSON(config *jsonx.OrderedMap) (string, error) {
@@ -36,7 +35,6 @@ type ChangePrompter interface {
 
 // CheckConfigChanges ports _check_config_changes. Compares config against the
 // last-seen snapshot; returns true to proceed, false to abort.
-//
 //   - First run / no snapshot: write current + "\n", return true.
 //   - Unchanged (old.rstrip() == current, no trailing "\n" on the compare):
 //     return true.
@@ -107,7 +105,6 @@ func writeSnapshot(path, currentJSON string) error {
 	return os.WriteFile(path, []byte(currentJSON+"\n"), 0o644)
 }
 
-// pyRstrip mirrors str.rstrip() with no args: strip trailing whitespace
 // (Python's str.isspace set — the ASCII set plus a few unicode spaces). For the
 // snapshot file the only trailing whitespace is the "\n" we wrote, but match
 // Python's full set to be faithful.
@@ -132,7 +129,6 @@ func isPySpace(r rune) bool {
 	return false
 }
 
-// splitLines mirrors str.splitlines() for the JSON snapshot text (only "\n"
 // occurs, but be faithful to Python's line boundaries used by difflib).
 func splitLines(s string) []string {
 	if s == "" {

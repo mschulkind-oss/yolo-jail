@@ -14,16 +14,13 @@ import (
 	"github.com/mschulkind-oss/yolo-jail/internal/jsonx"
 )
 
-// supervisorPIDFile mirrors runtime.SUPERVISOR_PID_FILE: /tmp is a per-container
 // tmpfs on podman, so a PID file here is naturally scoped to this jail and
 // evaporates on restart. Package vars so tests can redirect them.
 var supervisorPIDFile = "/tmp/yolo-jail-supervisor.pid"
 
-// forwardSocketDir mirrors runtime.FORWARD_SOCKET_DIR: the socket directory
 // where host-side socat has already created Unix sockets.
 var forwardSocketDir = "/tmp/yolo-fwd"
 
-// setupPublishedPortLocalnet mirrors runtime.setup_published_port_localnet: add
 // iptables DNAT rules so published ports reach services bound to 127.0.0.1.
 // Reads YOLO_PUBLISHED_PORTS (JSON array of "PORT/PROTO" strings). Silently
 // skips if iptables is unavailable (e.g. when NET_ADMIN is missing).
@@ -81,7 +78,7 @@ func setupPublishedPortLocalnet(e *Env) {
 	}
 }
 
-// supervisorIsAlive mirrors runtime._supervisor_is_alive: read pid_file and
+// supervisorIsAlive read pid_file and
 // return true iff the PID it names is still a live process. Missing/unreadable/
 // corrupt file -> false. Signal 0 is the canonical Unix liveness probe (EPERM
 // counts as alive).
@@ -110,11 +107,9 @@ func supervisorIsAlive(pidFile string) bool {
 	return false
 }
 
-// startJailDaemonSupervisor mirrors runtime.start_jail_daemon_supervisor: fork
 // `python -m src.jail_daemon_supervisor` as a detached child, once, guarded by a
 // tmpfs PID file so repeated `podman exec yolo-entrypoint` calls don't stack
 // supervisors. Absent/empty YOLO_JAIL_DAEMONS means nothing to do.
-//
 // The seam contract (module map) keeps spawning the Python supervisor via
 // `python -m src.jail_daemon_supervisor` unchanged — the supervisor ports
 // independently later. sys.executable in Python is the interpreter running the
@@ -156,7 +151,7 @@ func startJailDaemonSupervisor(e *Env) {
 	go func() { _ = cmd.Wait() }()
 }
 
-// portInUse mirrors runtime._port_in_use: check if a TCP port is already bound
+// portInUse check if a TCP port is already bound
 // on localhost by attempting to bind it.
 func portInUse(port int) bool {
 	ln, err := net.Listen("tcp", "127.0.0.1:"+strconv.Itoa(port))
@@ -167,7 +162,6 @@ func portInUse(port int) bool {
 	return false
 }
 
-// startContainerPortForwarding mirrors runtime.start_container_port_forwarding:
 // start container-side socat (TCP-LISTEN on localhost -> host service) for each
 // port in YOLO_FORWARD_HOST_PORTS (JSON array). Unix-socket mode (Linux) or TCP
 // gateway mode (macOS, via YOLO_FWD_HOST_GATEWAY). Skips already-bound ports.
@@ -249,14 +243,12 @@ func startContainerPortForwarding(e *Env) {
 	}
 }
 
-// forwardEntryPort mirrors the per-entry parsing in
 // start_container_port_forwarding: an int is the port; a string with ":" takes
 // the part before the first colon; a bare string is parsed as an int; anything
 // else is invalid (warn + skip). jsonx.Decode of a JSON array yields string /
 // float64 / bool / nil / jsonInt elements — JSON integers decode to jsonInt
 // (Python's isinstance(entry, int) True); JSON floats to float64 (isinstance
 // int False, str False -> warn branch).
-//
 // PARITY QUIRK: on a bare non-numeric string, Python's int(...) raises an
 // uncaught ValueError that propagates out of main() and CRASHES boot before the
 // exec (module map flags this as a quirk to preserve, not fix). mustAtoiPort
@@ -275,7 +267,7 @@ func forwardEntryPort(entry any) (int, bool) {
 	return 0, false
 }
 
-// mustAtoiPort mirrors Python int(str): a valid integer parses; garbage raises
+// mustAtoiPort a valid integer parses; garbage raises
 // ValueError (uncaught -> boot crash). We panic to preserve the crash behavior.
 func mustAtoiPort(s string) int {
 	n, err := strconv.Atoi(strings.TrimSpace(s))

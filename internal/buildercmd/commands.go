@@ -8,7 +8,7 @@ import (
 
 // RunBuilder dispatches `yolo builder <sub> [args]` to the ported command
 // bodies and returns the process exit code. Unknown subcommands return 2 (the
-// front door validates the group, so this is a safety net). Mirrors the
+// front door validates the group, so this is a safety net).
 // builder_app typer group. `args` is the post-subcommand argv.
 func RunBuilder(deps Deps, sub string, args []string) int {
 	switch sub {
@@ -25,7 +25,6 @@ func RunBuilder(deps Deps, sub string, args []string) int {
 	}
 }
 
-// requireMacos mirrors _require_macos: on non-macOS, print the notice and
 // return (exitCode=0, handled=true). handled=false means proceed.
 func requireMacos(deps Deps) (int, bool) {
 	if !deps.IsMacOS() {
@@ -74,7 +73,7 @@ func BuilderStatusCmd(deps Deps) int {
 	return 0
 }
 
-// BuilderStartCmd starts the builder VM now. Mirrors builder_start_cmd,
+// BuilderStartCmd starts the builder VM now.
 // including the interactive first-boot fork. Returns the exit code.
 func BuilderStartCmd(deps Deps) int {
 	if rc, done := requireMacos(deps); done {
@@ -117,7 +116,7 @@ func BuilderStartCmd(deps Deps) int {
 	return 1
 }
 
-// BuilderStopCmd stops the builder VM now. Mirrors builder_stop_cmd.
+// BuilderStopCmd stops the builder VM now.
 func BuilderStopCmd(deps Deps) int {
 	if rc, done := requireMacos(deps); done {
 		return rc
@@ -136,7 +135,6 @@ func BuilderStopCmd(deps Deps) int {
 	return 1
 }
 
-// SetupFlags mirror builder_setup_cmd's options.
 type SetupFlags struct {
 	MaxJobs int
 	Show    bool

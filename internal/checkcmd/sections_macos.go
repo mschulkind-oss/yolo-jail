@@ -8,7 +8,6 @@ import (
 // sandboxUser is macos_user.SANDBOX_USER — the dedicated macOS sandbox account.
 const sandboxUser = "_yolojail"
 
-// pythonCandidates mirrors macos_user._PYTHON_CANDIDATES: ordered best-first,
 // with /usr/bin/python3 LAST (it may be the xcode-select stub).
 var pythonCandidates = []string{
 	"/opt/homebrew/bin/python3",

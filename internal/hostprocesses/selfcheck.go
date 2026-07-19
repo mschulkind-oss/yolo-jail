@@ -7,7 +7,7 @@ import (
 	"strconv"
 )
 
-// SelfCheck is the `yolo doctor` health check. Mirrors host_processes.self_check:
+// SelfCheck is the `yolo doctor` health check.
 // resolves the config from YOLO_HOST_PROCESSES_CONFIG or CWD/yolo-jail.jsonc;
 // prints one status line and returns the exit code (0 present/no-config,
 // 1 config-path-set-but-missing).

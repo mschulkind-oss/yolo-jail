@@ -10,7 +10,6 @@ import (
 )
 
 // projectName returns the jail label: $SM_PROJECT or the cwd basename.
-// Mirrors _get_project_name.
 func projectName() string {
 	if p := os.Getenv("SM_PROJECT"); p != "" {
 		return p
@@ -48,7 +47,6 @@ func kittenRun(args ...string) {
 	_ = cmd.Run()
 }
 
-// kittySetupJailTab mirrors _kitty_setup_jail_tab.
 func kittySetupJailTab() func() {
 	if os.Getenv("KITTY_PID") == "" || !isattyStdin() {
 		return nil
@@ -84,7 +82,6 @@ func kittySetupJailTab() func() {
 	}
 }
 
-// tmuxSetupJailPane mirrors _tmux_setup_jail_pane.
 func tmuxSetupJailPane() func() {
 	if os.Getenv("YOLO_NO_TMUX") == "1" {
 		return nil

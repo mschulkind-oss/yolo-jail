@@ -57,7 +57,7 @@ func tokenURL() string {
 }
 
 // TokenFP is the stable 8-hex-char sha256-prefix fingerprint used in logs
-// (non-reversible; safe to emit). Mirrors _token_fp.
+// (non-reversible; safe to emit).
 func TokenFP(tok string) string {
 	if tok == "" {
 		return "(none)"
@@ -140,7 +140,7 @@ func asInt64(v any) (int64, bool) {
 }
 
 // CachedTokens returns the on-disk oauth object iff the access token has >= 90s
-// headroom, else nil. Mirrors _cached_tokens.
+// headroom, else nil.
 func CachedTokens(credsPath string) *jsonx.OrderedMap {
 	oauth, err := oauthFromCreds(credsPath)
 	if err != nil {
@@ -185,7 +185,7 @@ func getOrNil(m *jsonx.OrderedMap, key string) any {
 
 // NormalizeOAuth converts an upstream {access_token, refresh_token,
 // expires_in, scope} response to the Claude-Code on-disk shape, preserving
-// fields from previous. Mirrors _normalize_oauth exactly, including:
+// fields from previous.
 //   - out = dict(previous) then override accessToken/expiresAt
 //   - refreshToken only overridden if present in the response
 //   - scopes only synthesized from response `scope` when absent in previous

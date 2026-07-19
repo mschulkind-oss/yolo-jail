@@ -10,7 +10,6 @@ import (
 	"github.com/mschulkind-oss/yolo-jail/internal/jsonx"
 )
 
-// LoadAgents mirrors entrypoint._load_agents: the selected agent names from
 // YOLO_AGENTS (a JSON list), falling back to agents.DefaultAgents when unset or
 // unparseable, with unknown names dropped.
 func LoadAgents(e *Env) []string {
@@ -42,7 +41,6 @@ func LoadAgents(e *Env) []string {
 	return out
 }
 
-// LoadLSPServers mirrors entrypoint._load_lsp_servers: DEFAULT_LSP_SERVERS
 // (empty) merged with the dict in YOLO_LSP_SERVERS. Returns an OrderedMap so
 // insertion order (defaults then overrides) is preserved for byte-parity.
 func LoadLSPServers(e *Env) *jsonx.OrderedMap {
@@ -68,7 +66,7 @@ func LoadLSPServers(e *Env) *jsonx.OrderedMap {
 
 var envVarPattern = regexp.MustCompile(`\$\{([A-Za-z_][A-Za-z0-9_]*)\}`)
 
-// interpolateEnv mirrors agent_configs._interpolate_env: expand ${VAR} in the
+// interpolateEnv expand ${VAR} in the
 // values of an env dict against e.Vars. Undefined vars are left literal and a
 // single sorted warning is emitted. Non-string values pass through untouched.
 // Returns a new OrderedMap preserving key order.
@@ -99,7 +97,6 @@ func (e *Env) interpolateEnv(env *jsonx.OrderedMap) *jsonx.OrderedMap {
 	return resolved
 }
 
-// chromeDevtoolsArgs mirrors agent_configs._chrome_devtools_args.
 func (e *Env) chromeDevtoolsArgs() []any {
 	npmBin := e.NpmBin()
 	return []any{
@@ -116,7 +113,7 @@ func (e *Env) chromeDevtoolsArgs() []any {
 	}
 }
 
-// LoadMCPServers mirrors agent_configs._load_mcp_servers: presets (opt-in via
+// LoadMCPServers presets (opt-in via
 // YOLO_MCP_PRESETS) merged with YOLO_MCP_SERVERS (overrides / additions /
 // null-removals), requires_env gating, then ${VAR} interpolation of env values.
 // Returns an OrderedMap whose key order matches Python dict insertion order.

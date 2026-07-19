@@ -169,7 +169,6 @@ func TestContentEncodingRepr(t *testing.T) {
 	}
 }
 
-// TestPyTypeName mirrors type(x).__name__ for the non-dict warning.
 func TestPyTypeName(t *testing.T) {
 	cases := []struct {
 		v    any

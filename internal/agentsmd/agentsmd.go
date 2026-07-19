@@ -12,7 +12,7 @@ import (
 )
 
 // BlockedTool is one entry of the "Blocked Tools" section (name + optional
-// message + optional suggestion). Mirrors the dicts generate_agents_md reads.
+// message + optional suggestion).
 type BlockedTool struct {
 	Name       string
 	Message    string
@@ -211,19 +211,18 @@ func BriefingContent(in BriefingInput) string {
 			"",
 			"The `/workspace` directory is a bind mount of the host's repo, and it also",
 			"backs `/opt/yolo-jail` — so nested jails launched from here run your edited",
-			"`src/cli` code live.",
+			"Go code live (via dev-override wrappers that prefer `/opt/yolo-jail/dist-go/`).",
 			"",
-			"When modifying `src/cli/` or `src/entrypoint/`, **always verify with a nested",
+			"When modifying `cmd/` or `internal/`, **always verify with a nested",
 			"jail** before telling the human to test on the host. Run `yolo -- bash` from",
 			"inside this jail to launch one and confirm your changes work end-to-end.",
 			"Container startup errors (mount failures, permission errors, read-only",
 			"filesystem conflicts) are only caught by actually running the container —",
 			"unit tests alone are not sufficient.",
 			"",
-			"**Important:** Changes to `src/cli/` take effect on the next `yolo` invocation",
-			"on the host (no rebuild needed). Changes to `src/entrypoint/` or `flake.nix`",
-			"require `just load && just install` on the host since the entrypoint is baked",
-			"into the Nix image.",
+			"**Important:** Run `just deploy` to cross-compile Go binaries. Changes to",
+			"`flake.nix` require `just load && just install` on the host since the image",
+			"is baked by Nix.",
 			"",
 		)
 	}
@@ -233,7 +232,7 @@ func BriefingContent(in BriefingInput) string {
 
 // ComposeBriefing appends agents_md_extra to the jail content the way
 // generate_agents_md does: jail_content + "\n" + extra.rstrip() + "\n" when
-// extra is non-empty. Mirrors the agents_md_extra block.
+// extra is non-empty.
 func ComposeBriefing(jailContent, extra string) string {
 	if extra == "" {
 		return jailContent
@@ -243,7 +242,7 @@ func ComposeBriefing(jailContent, extra string) string {
 
 // PrependHostBriefing produces one agent's final briefing: the host briefing
 // file's content + "\n---\n\n" + jailContent when the host file exists, else
-// jailContent alone. Mirrors the per-spec loop in generate_agents_md.
+// jailContent alone.
 func PrependHostBriefing(hostBriefingPath, jailContent string) string {
 	data, err := os.ReadFile(hostBriefingPath)
 	if err != nil {

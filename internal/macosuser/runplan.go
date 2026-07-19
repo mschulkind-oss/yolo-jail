@@ -10,7 +10,6 @@ import (
 )
 
 // RunPlan is the fully-resolved, ordered artifacts + commands for one session.
-// Mirrors the RunPlan dataclass. All fields are Linux-pure so --dry-run is a
 // real gate rather than a pretty-printer.
 type RunPlan struct {
 	Workspace          string
@@ -36,7 +35,7 @@ type RunPlan struct {
 }
 
 // Darwin carries the already-materialized native `packages:` result threaded
-// into a RunPlan (mirrors darwin_packages.DarwinPackages, kept minimal so the
+// into a RunPlan
 // plan builder stays pure — the nix build happened in the caller). A nil
 // *Darwin means "not materialized".
 type Darwin struct {
@@ -46,7 +45,7 @@ type Darwin struct {
 }
 
 // BootstrapArgv returns `sudo --user=<sandbox> <interp> <boot>` — run the
-// bootstrap as the sandbox. No --login/--set-home. Mirrors _bootstrap_argv.
+// bootstrap as the sandbox. No --login/--set-home.
 func BootstrapArgv(interp, bootPath, user string) []string {
 	if user == "" {
 		user = SandboxUser
@@ -57,7 +56,7 @@ func BootstrapArgv(interp, bootPath, user string) []string {
 // BuildRunPlan assembles the full RunPlan (pure — no shelling out). `config` is
 // the loaded jail config; `sandboxEnv` is the fully-resolved launch env; interp
 // is the resolved python3 ("" + interpResolved=false if none found). `darwin`
-// may be nil. Mirrors build_run_plan.
+// may be nil.
 func BuildRunPlan(workspace string, cfg *jsonx.OrderedMap, agents, agentArgv []string, repoSrc string, sandboxEnv *jsonx.OrderedMap, interp string, interpResolved bool, darwin *Darwin) RunPlan {
 	darwinPrefix := []string{}
 	darwinEnv := jsonx.NewOrderedMap()
@@ -112,7 +111,7 @@ func BuildRunPlan(workspace string, cfg *jsonx.OrderedMap, agents, agentArgv []s
 		interpStr = pythonCandidates[len(pythonCandidates)-1]
 	}
 
-	// Config-derived env the entrypoint generators read (mirrors run_cmd's
+	// Config-derived env the entrypoint generators read
 	// _entrypoint_preflight block). Reuses the container-side resolvers.
 	bootstrapEnv := jsonx.NewOrderedMap()
 	bootstrapEnv.Set("YOLO_HOST_DIR", resolvePathAbs(workspace))
@@ -166,7 +165,6 @@ func BuildRunPlan(workspace string, cfg *jsonx.OrderedMap, agents, agentArgv []s
 }
 
 // PlanInvariants returns static-check violation messages over a RunPlan (all
-// Linux-checkable). Mirrors plan_invariants EXACTLY, incl. message strings and
 // ordering.
 func PlanInvariants(plan RunPlan) []string {
 	var problems []string
@@ -229,7 +227,6 @@ func StagedEntrypointDirParent(sd string) string {
 	return sd
 }
 
-// cnameFor mirrors _cname: reuse the container-name scheme.
 func cnameFor(workspace string) string {
 	return cnameFn(workspace)
 }
@@ -239,7 +236,6 @@ func cnameFor(workspace string) string {
 var cnameFn = naming.FromWorkspace
 
 // --- config accessors (thin adapters over jsonx.OrderedMap) -----------------
-
 // securitySection returns config["security"] as an OrderedMap, or nil.
 func securitySection(cfg *jsonx.OrderedMap) *jsonx.OrderedMap {
 	if cfg == nil {
@@ -254,7 +250,7 @@ func securitySection(cfg *jsonx.OrderedMap) *jsonx.OrderedMap {
 }
 
 // getSectionOrEmptyMap returns config[key] as an OrderedMap, or an empty one
-// (mirrors config.get(key, {})). If the value is not a map, returns empty.
+// ). If the value is not a map, returns empty.
 func getSectionOrEmptyMap(cfg *jsonx.OrderedMap, key string) any {
 	if cfg != nil {
 		if v, ok := cfg.Get(key); ok {

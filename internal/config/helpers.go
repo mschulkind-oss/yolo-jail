@@ -78,7 +78,6 @@ func resolvePathForSeen(path string) string {
 	return path
 }
 
-// resolveJoin mirrors `(base_dir / entry).resolve()`.
 func resolveJoin(baseDir, entry string) string {
 	joined := filepath.Join(baseDir, entry)
 	if r, err := resolve(joined); err == nil {
@@ -118,13 +117,12 @@ func cwd() string {
 // validation helpers
 // ---------------------------------------------------------------------------
 
-// isStr mirrors isinstance(v, str).
 func isStr(v any) bool {
 	_, ok := v.(string)
 	return ok
 }
 
-// isStrList mirrors `isinstance(v, list) and all(isinstance(x, str) for x in v)`.
+// isStrList list) and all(isinstance(x, str) for x in v)`.
 func isStrList(v any) bool {
 	l, ok := asList(v)
 	if !ok {
@@ -138,8 +136,7 @@ func isStrList(v any) bool {
 	return true
 }
 
-// inStrList reports whether v (any) equals a string in list. Mirrors
-// `v in list` for a runtime value compared against a []string.
+// inStrList reports whether v (any) equals a string in list.
 func inStrList(list []string, v any) bool {
 	s, ok := v.(string)
 	if !ok {
@@ -162,7 +159,7 @@ func inStrSlice(list []string, s string) bool {
 // whitespace, underscores between digits). Returns (n, true) on success. A bool
 // is an int in Python (True->1, False->0). A float raises TypeError? No —
 // int(3.5)==3, but validate_port_number receives already-decoded JSON where a
-// port is an int or a string; int(float) truncates. Mirror that: floats
+// port is an int or a string; int(float) truncates.
 // truncate toward zero.
 func pyInt(value any) (int64, bool) {
 	switch t := value.(type) {
@@ -189,7 +186,6 @@ func pyInt(value any) (int64, bool) {
 	}
 }
 
-// pyIntFromString mirrors Python int(str) base 10: optional surrounding
 // whitespace, optional +/- sign, digits with single underscores allowed between
 // digits. Returns (0,false) on any malformed input.
 func pyIntFromString(s string) (int64, bool) {
@@ -233,7 +229,6 @@ func pyIntFromString(s string) (int64, bool) {
 	return n, true
 }
 
-// pyListRepr mirrors repr(list(...)) for a slice of strings, e.g.
 // ['off', 'user', 'full'].
 func pyListRepr(items []string) string {
 	parts := make([]string, len(items))
@@ -243,7 +238,7 @@ func pyListRepr(items []string) string {
 	return "[" + strings.Join(parts, ", ") + "]"
 }
 
-// joinSorted mirrors ", ".join(sorted(SET)) for a Go set.
+// joinSorted ".join(sorted(SET)) for a Go set.
 func joinSorted(m map[string]struct{}) string {
 	keys := make([]string, 0, len(m))
 	for k := range m {
@@ -257,7 +252,6 @@ func sortStrs(s []string) {
 	sort.Strings(s)
 }
 
-// containsDotDot mirrors `".." in entry.split("/")`.
 func containsDotDot(entry string) bool {
 	for _, part := range strings.Split(entry, "/") {
 		if part == ".." {
@@ -267,7 +261,6 @@ func containsDotDot(entry string) bool {
 	return false
 }
 
-// expandAndResolve mirrors Path(host_path).expanduser().resolve().
 func expandAndResolve(hostPath string) string {
 	expanded := expandUser(hostPath)
 	if r, err := resolve(expanded); err == nil {

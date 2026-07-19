@@ -6,11 +6,9 @@ import (
 	"path/filepath"
 )
 
-// GenerateCABundle mirrors system.generate_ca_bundle's FILE generation: combine
 // the image baseline ($SSL_CERT_FILE, unless it already IS our bundle) and each
 // path in $NODE_EXTRA_CA_CERTS (colon-separated, de-duplicated) into
 // $HOME/.yolo-ca-bundle.crt (chmod 0o644). Always writes a file, even if empty.
-//
 // The Python function also sets SSL_CERT_FILE / REQUESTS_CA_BUNDLE /
 // CURL_CA_BUNDLE / GIT_SSL_CAINFO in os.environ so children inherit the combined
 // store; that env mutation is a boot-orchestration concern. This
@@ -65,7 +63,6 @@ func GenerateCABundle(e *Env) (string, error) {
 }
 
 // readBundleBytes reads a PEM file, returning nil on any error (best-effort;
-// mirrors system._read_bundle_bytes returning b"").
 func readBundleBytes(path string) []byte {
 	data, err := os.ReadFile(path)
 	if err != nil {

@@ -1,6 +1,5 @@
 // Package frameproto is the frame protocol v1 used by unix-socket loophole
 // daemons. The wire format is a frozen interop contract.
-//
 // Wire format (docs/design/loophole-protocol.md):
 //
 //	request:  <4-byte BE length><length bytes of UTF-8 JSON>   (client-first)
@@ -35,7 +34,7 @@ const (
 var ErrClosedBeforeRequest = errors.New("frameproto: connection closed before a request")
 
 // ReadExact reads exactly n bytes, or returns ErrClosedBeforeRequest on a
-// clean EOF before n bytes (mirrors host_service._read_exact returning None).
+// clean EOF before n bytes.
 func ReadExact(r io.Reader, n int) ([]byte, error) {
 	buf := make([]byte, n)
 	_, err := io.ReadFull(r, buf)
@@ -88,7 +87,7 @@ type Frame struct {
 }
 
 // WriteFrame writes one response frame: ">BI" header (stream_id, length) then
-// payload. Mirrors Session._send_frame.
+// payload.
 func WriteFrame(w io.Writer, streamID byte, payload []byte) (int, error) {
 	var hdr [5]byte
 	hdr[0] = streamID

@@ -60,7 +60,6 @@ func RealDeps() Deps {
 	}
 }
 
-// builderReachableReal mirrors builder_reachable: TCP connect to
 // 127.0.0.1:BUILDER_PORT with a 1s timeout; any error → false.
 func builderReachableReal() bool {
 	conn, err := net.DialTimeout("tcp", "127.0.0.1:"+strconv.Itoa(builder.BuilderPort), time.Second)
@@ -84,7 +83,6 @@ func readFileTextReal(path string) (string, bool) {
 	return string(data), true
 }
 
-// currentTrustedUsersReal mirrors _current_trusted_users: `nix config show`
 // (timeout 10s), find the trusted-users line, split its value. Best-effort.
 func currentTrustedUsersReal() []string {
 	cmd := exec.Command("nix", "config", "show")
@@ -150,7 +148,7 @@ func runSetupScriptReal(script string) (int, bool) {
 	}
 }
 
-// startVMForegroundReal mirrors first_boot_interactive's run: inherit stdio.
+// startVMForegroundReal inherit stdio.
 // A Ctrl-C (SIGINT to the group) is expected — the caller treats a nil error
 // (or interrupt) as "proceed to the key check".
 func startVMForegroundReal() error {
@@ -166,7 +164,6 @@ func startVMForegroundReal() error {
 	return err
 }
 
-// startVMDetachedReal mirrors start_builder: skip if already running (live PID
 // or reachable), else spawn `nix run …` in its own session with output to the
 // log file, record the PID file, and short-circuit on an immediate corpse.
 func startVMDetachedReal() (Proc, error) {
@@ -204,7 +201,6 @@ func readBuilderPIDReal() (int, bool) {
 	return n, true
 }
 
-// pidIsLiveReal mirrors _pid_is_live: os.kill(pid, 0) success.
 func pidIsLiveReal(pid int) bool {
 	proc, err := os.FindProcess(pid)
 	if err != nil {
@@ -213,7 +209,6 @@ func pidIsLiveReal(pid int) bool {
 	return proc.Signal(syscall.Signal(0)) == nil
 }
 
-// stopVMReal mirrors stop_builder: killpg(getpgid(pid), SIGTERM) → kill(pid,
 // SIGTERM) fallback, then remove the PID file. Returns (ok, errMsg).
 func stopVMReal() (bool, string) {
 	pid, ok := readBuilderPIDReal()

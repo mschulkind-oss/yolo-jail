@@ -13,7 +13,7 @@ import (
 )
 
 // shortDir returns a short per-test dir under /tmp — AF_UNIX paths cap at 108
-// bytes on Linux, and t.TempDir() is too long. Mirrors the relay_dir fixture.
+// bytes on Linux, and t.TempDir() is too long.
 func shortDir(t *testing.T) string {
 	t.Helper()
 	d, err := os.MkdirTemp("/tmp", "yj-gorelay-")
@@ -61,7 +61,7 @@ func waitConnectable(t *testing.T, path string) {
 
 // fakeBroker is a framed-JSON broker double: reads one 4-byte-BE length-
 // prefixed JSON request per connection, records it, replies with a pong frame
-// (stream 0) + exit frame (stream 2). Mirrors the Python FakeBroker.
+// (stream 0) + exit frame (stream 2).
 type fakeBroker struct {
 	path     string
 	ln       net.Listener
@@ -358,7 +358,6 @@ func TestBrokerDownClientSeesEOF(t *testing.T) {
 	}
 }
 
-// TestBrokerRestartNewInode mirrors the Round-2 regression: the relay dials
 // the broker path PER CONNECTION, so killing the broker, re-binding the same
 // path (new inode), and sending a second request through the SAME relay must
 // succeed.
@@ -374,8 +373,7 @@ func TestBrokerRestartNewInode(t *testing.T) {
 	if reply["pong"] != true {
 		t.Fatal("ping through a fresh relay must work")
 	}
-	broker.stop() // old inode gone
-
+	broker.stop()                             // old inode gone
 	broker2 := startFakeBroker(t, brokerPath) // same path, NEW inode
 	defer broker2.stop()
 	reply = framedRoundtrip(t, relayPath, map[string]any{"action": "ping"})

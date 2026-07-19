@@ -11,10 +11,8 @@ import (
 
 // PrepareSkills stages per-agent skills dirs on the host for :ro bind mounting.
 // For each SELECTED agent that has a user-skills dir, the staging dir
-// (AGENTS_DIR/<cname>/<skills_staging>) mirrors its host counterpart 1:1 plus
 // the built-in jail-startup skill. Agents without a skills dir are skipped.
-// Returns the staging directory (AGENTS_DIR/<cname>). Mirrors _prepare_skills.
-//
+// Returns the staging directory (AGENTS_DIR/<cname>).
 // homeDir is the host home (~) whose ~/.<agent>/skills dirs are the sources;
 // agentNames is the selected set (nil → DefaultAgents). CRITICAL: entries are
 // cleared *inside* each skills_dir — the dir itself is NEVER rmtree+mkdir'd,
@@ -56,7 +54,6 @@ func PrepareSkills(cname, homeDir string, agentNames []string) (string, error) {
 }
 
 // clearDirContents removes every entry inside dir, leaving dir itself intact.
-// Mirrors the `for child in skills_dir.iterdir(): rmtree/unlink` loop.
 func clearDirContents(dir string) error {
 	entries, err := os.ReadDir(dir)
 	if err != nil {
@@ -72,7 +69,6 @@ func clearDirContents(dir string) error {
 
 // copySkillSubdirs copies skill subdirectories from src into dst, following
 // symlinks (a source that isn't a dir is a no-op). An existing target subdir is
-// replaced. Mirrors _copy_skill_subdirs (shutil.copytree symlinks=False → the
 // copy dereferences symlinks).
 func copySkillSubdirs(src, dst string) error {
 	info, err := os.Stat(src) // follows a symlinked src dir

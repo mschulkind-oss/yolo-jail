@@ -85,7 +85,6 @@ func RunWithProxy(cmd []string, onStarted func(*os.Process), onTerminate func())
 		return 0, err
 	}
 	unix.Close(slave) // parent uses only the master end
-
 	if onStarted != nil {
 		go safeCallback(onStarted, c.Process)
 	}
@@ -150,7 +149,7 @@ func runPlain(cmd []string, onStarted func(*os.Process)) (int, error) {
 }
 
 // proxyLoop pumps bytes between the host TTY and the master pty until the child
-// exits. Mirrors _proxy_loop, including the ^Z self-suspend + pending-flush and
+// exits.
 // the stdin-EOF semantics (stop reading stdin, keep pumping master).
 func proxyLoop(inFd, master int, c *exec.Cmd, cooked *unix.Termios) int {
 	outFd := int(os.Stdout.Fd())
@@ -240,7 +239,7 @@ func proxyLoop(inFd, master int, c *exec.Cmd, cooked *unix.Termios) int {
 }
 
 // selfSuspend restores cooked termios then raises SIGTSTP on OUR pid only —
-// TARGETED, never pgroup-wide (that would stop podman). Mirrors _self_suspend.
+// TARGETED, never pgroup-wide (that would stop podman).
 func selfSuspend(inFd int, cooked *unix.Termios) {
 	_ = unix.IoctlSetTermios(inFd, unix.TCSETS, cooked)
 	// SIGTSTP with the DEFAULT disposition stops us; the shell prints

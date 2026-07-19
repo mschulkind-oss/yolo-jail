@@ -1,7 +1,6 @@
 // Package hostprocesses is the allowlisted host-process viewer daemon. It
 // answers ps-style requests from the jail against an allowlist configured in
 // yolo-jail.jsonc, via internal/hostservice (the frame-protocol server).
-//
 // Frozen contracts: the config load (host_processes
 // section, re-read PER REQUEST so operator edits take effect without restart),
 // the DEFAULT_FIELDS, the list/tree/pid mode argv + allowlist construction, and
@@ -20,7 +19,6 @@ import (
 	"github.com/mschulkind-oss/yolo-jail/internal/pytext"
 )
 
-// DefaultFields mirrors DEFAULT_FIELDS.
 var DefaultFields = []string{"pid", "comm", "args", "etime", "%cpu", "%mem", "rss"}
 
 // Config is the loaded host_processes section.
@@ -31,7 +29,7 @@ type Config struct {
 
 // LoadConfig reads the host_processes section from the jsonc config at
 // configPath. A missing file or missing/unreadable section → empty allowlist
-// with DEFAULT_FIELDS (feature effectively disabled). Mirrors _load_config,
+// with DEFAULT_FIELDS (feature effectively disabled).
 // including the str-filtering of visible/fields lists.
 func LoadConfig(configPath string) Config {
 	data, err := os.ReadFile(configPath)
@@ -121,9 +119,8 @@ func strListOrDefault(m *jsonx.OrderedMap, key string, def []string) []string {
 	return out
 }
 
-// BuildHandler returns the hostservice.Handler, re-reading the config on every
-// request (cheap; operator edits take effect without a restart). Mirrors
-// build_handler + the mode dispatch in host_processes.py.
+// BuildHandler returns the hostservice.Handler, re-reading the config on
+// every request (cheap; operator edits take effect without a restart).
 func BuildHandler(configPath string) hostservice.Handler {
 	return func(s *hostservice.Session) {
 		cfg := LoadConfig(configPath)
@@ -171,7 +168,6 @@ func pyStrOrList(get func() (any, bool)) string {
 	return pyStr(v)
 }
 
-// pyTruthy mirrors Python bool(x) for the jsonx value model.
 func pyTruthy(v any) bool {
 	switch t := v.(type) {
 	case nil:
@@ -215,7 +211,7 @@ func pyStr(v any) string {
 	}
 }
 
-// handleList runs `ps -o <fields> -C <comm>...` with an allowlist. Mirrors the
+// handleList runs `ps -o <fields> -C <comm>...` with an allowlist.
 // list branch: argv = ["ps","-o",joined] + ["-C",comm] for each sorted comm;
 // allowlist = visible ∪ {"ps","-o","-C",joined}.
 func handleList(s *hostservice.Session, visible map[string]struct{}, fields []string) {
@@ -236,7 +232,7 @@ func handleList(s *hostservice.Session, visible map[string]struct{}, fields []st
 }
 
 // handlePid runs `ps -o <fields> -p <pid>` after verifying the pid's comm is
-// allowlisted. Mirrors the pid branch (all positions validated).
+// allowlisted.
 func handlePid(s *hostservice.Session, visible map[string]struct{}, fields []string) {
 	pidV, ok := s.Get("pid")
 	pid, isInt := asIntStrict(pidV)

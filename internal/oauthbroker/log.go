@@ -23,7 +23,6 @@ import (
 // defaults to stderr (captured by the loophole supervisor), set up via
 // SetupLog. The Python broker's level + logger-name are preserved in each line
 // so the incident greps (`grep INFO`, `grep bg_refresh`, ...) still work.
-
 // loggerName logging.getLogger("oauth-broker-host").
 const loggerName = "oauth-broker-host"
 
@@ -76,14 +75,12 @@ func logDebug(format string, args ...any) {
 }
 
 // LogStartup emits the daemon's startup snapshot of the shared creds file.
-// Mirrors main's `log.info("startup: shared=%s", _describe_creds(...))`.
 func LogStartup(credsPath string) {
 	logInfo("startup: shared=%s", describeCreds(credsPath))
 }
 
 // describeCreds is a one-line summary of a creds file for logging: mtime, the
 // access + refresh token FINGERPRINTS (never the tokens), and expiresAt.
-// Mirrors _describe_creds, including its exact handling of missing / unreadable
 // / malformed files (never raises).
 func describeCreds(path string) string {
 	st, err := os.Stat(path)

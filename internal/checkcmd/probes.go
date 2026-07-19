@@ -186,7 +186,6 @@ func (o *Options) getContainerWorkspace(name, rt string) string {
 	return "unknown"
 }
 
-// parseAppleInspectWorkspace mirrors the Apple-Container JSON branch of
 // _get_container_workspace: data["config"]["env"] scanned for YOLO_HOST_DIR=.
 func parseAppleInspectWorkspace(stdout string) (string, bool) {
 	decoded, err := jsonx.Decode([]byte(stdout))

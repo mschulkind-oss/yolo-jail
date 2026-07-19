@@ -348,7 +348,6 @@ func containsStr(list []string, s string) bool {
 	return false
 }
 
-// removeFirstAny mirrors list.remove(s): drop the first element equal to the
 // string s (only string elements can match), preserving order.
 func removeFirstAny(list []any, s string) []any {
 	for i, v := range list {

@@ -9,7 +9,7 @@ import (
 
 // ValidPerSideRel reports whether rel is a shadowable workspace sub-path:
 // non-empty, not ".", relative (no leading "/"), no ".." traversal component,
-// and no unresolved tera template ("{{" or "{%"). Mirrors _valid_per_side_rel.
+// and no unresolved tera template ("{{" or "{%").
 func ValidPerSideRel(rel string) bool {
 	if rel == "" || rel == "." || strings.HasPrefix(rel, "/") {
 		return false
@@ -78,8 +78,8 @@ func MiseConfigVenvPathFromDir(dir string) (string, bool) {
 	})
 }
 
-// venvNode walks data["env"]["_"]["python"]["venv"], returning the leaf (string
-// or map) or nil. Mirrors the nested .get() chain (non-dict at any level → nil).
+// venvNode walks data["env"]["_"]["python"]["venv"], returning the leaf
+// (string or map) or nil.
 func venvNode(data map[string]any) any {
 	var node any = data
 	for _, key := range []string{"env", "_", "python", "venv"} {

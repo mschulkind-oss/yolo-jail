@@ -17,7 +17,6 @@ import (
 )
 
 // loopholeDaemon is a host-side service exposing a Unix socket inside the jail.
-// Mirrors LoopholeDaemon: run() inserts `-e env_var_name=jail_socket_path` at
 // index(image), and stop() tears it down at container exit.
 type loopholeDaemon struct {
 	name           string
@@ -341,7 +340,6 @@ func (o *Options) daemonLauncher(consoleName string) []string {
 }
 
 // --- broker singleton + relay (minimal ensure; supervision keyed per jail) ---
-
 const (
 	brokerSingletonPIDFile = "/tmp/yolo-claude-oauth-broker.pid"
 	brokerSingletonLock    = "/tmp/yolo-claude-oauth-broker.lock"
@@ -519,7 +517,6 @@ func (o *Options) relayKill(pidFile, sockPath string) {
 	_ = sockPath
 }
 
-// relayOrphanGraceSeconds mirrors _relay_reap_orphans' default older_than_seconds
 // grace floor: a relay whose PID file's mtime is younger than this is spared, so
 // one spawned for a jail mid-startup (ensured before its container is visible) is
 // never reaped.

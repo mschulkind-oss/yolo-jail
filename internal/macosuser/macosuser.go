@@ -2,7 +2,6 @@
 // dedicated hidden macOS user hardened with an Apple Seatbelt (sandbox-exec)
 // profile: no Linux container, no VM, no arch switch. Based on SandVault's
 // design (github.com/webcoyote/sandvault).
-//
 // Every artifact producer here is a pure data-returning function (command
 // lists, ACL ACE strings, the SBPL profile, launch argv, the in-process
 // entrypoint bootstrap), so the security properties are fully unit-testable on
@@ -67,9 +66,8 @@ var pythonCandidates = []string{
 // ---------------------------------------------------------------------------
 // Account provisioning — command lists (pure; executed by the orchestrator)
 // ---------------------------------------------------------------------------
-
 // CreateUserCommands returns the dscl/dseditgroup argv to create the hidden
-// sandbox account. Mirrors create_user_commands. The random password is set
+// sandbox account.
 // separately (never a literal argv — it would show in `ps`), so it is
 // intentionally NOT in this list.
 func CreateUserCommands(uid, gid int, hostUser string) [][]string {
@@ -104,7 +102,7 @@ func CreateUserCommands(uid, gid int, hostUser string) [][]string {
 
 // DeleteUserCommands returns the dscl argv to tear the sandbox account down.
 // Home removal is last so a failed earlier step doesn't orphan a live session's
-// files. Mirrors delete_user_commands.
+// files.
 func DeleteUserCommands(hostUser string) [][]string {
 	user := SandboxUser
 	group := SandboxGroup
@@ -139,7 +137,6 @@ func SharedRootProvisionCommands(root, hostUser string) [][]string {
 // ---------------------------------------------------------------------------
 // Interpreter resolution — never blindly trust /usr/bin/python3
 // ---------------------------------------------------------------------------
-
 // PythonCandidates returns the ordered python3 candidates, best first (a copy).
 func PythonCandidates() []string {
 	return append([]string(nil), pythonCandidates...)
@@ -147,7 +144,7 @@ func PythonCandidates() []string {
 
 // ResolvePython returns the first existing candidate interpreter, or "" if none
 // exist. `exists` is injectable so a Linux test can assert the ordering; pass
-// nil to use os.Stat. Mirrors resolve_python (Python's None → "").
+// nil to use os.Stat.
 func ResolvePython(exists func(string) bool) (string, bool) {
 	if exists == nil {
 		exists = func(p string) bool { _, err := os.Stat(p); return err == nil }
@@ -163,9 +160,8 @@ func ResolvePython(exists func(string) bool) (string, bool) {
 // ---------------------------------------------------------------------------
 // Staging the entrypoint package into the root-owned state dir
 // ---------------------------------------------------------------------------
-
 // StagedEntrypointDir returns where the stdlib-only entrypoint package is
-// staged (importable). Mirrors staged_entrypoint_dir.
+// staged (importable).
 func StagedEntrypointDir(sd string) string {
 	if sd == "" {
 		sd = stateDir
@@ -175,7 +171,7 @@ func StagedEntrypointDir(sd string) string {
 
 // StageEntrypointCommands returns the sudo argv copying `entrypoint` into the
 // root-owned state dir (root-owned so the sandbox can't rewrite its own
-// profile; world-readable so it can import). Mirrors stage_entrypoint_commands.
+// profile; world-readable so it can import).
 func StageEntrypointCommands(repoSrc, sd string) [][]string {
 	if sd == "" {
 		sd = stateDir
@@ -195,7 +191,6 @@ func StageEntrypointCommands(repoSrc, sd string) [][]string {
 // ---------------------------------------------------------------------------
 // Workspace location — must be neutral ground, never inside a home
 // ---------------------------------------------------------------------------
-
 // HomeContaining returns the user-home dir that contains `workspace`, or ""
 // (Python None) when the workspace is on neutral ground. A "home" is a direct
 // child of /Users other than /Users/Shared. Pure and path-only. Mirrors
@@ -217,7 +212,6 @@ func HomeContaining(workspace, usersRoot string) (string, bool) {
 // ---------------------------------------------------------------------------
 // Workspace ACL — SandVault's dir/file-split inheriting ACEs
 // ---------------------------------------------------------------------------
-
 const (
 	dirRights = "read,write,append,delete,delete_child,readattr,writeattr,readextattr," +
 		"writeextattr,readsecurity,writesecurity,chown,search,list,directory_inherit"
@@ -229,7 +223,7 @@ const (
 )
 
 // WorkspaceACLAces returns the three chmod +a ACE strings (dir / file-inherit /
-// file). Mirrors workspace_acl_aces.
+// file).
 func WorkspaceACLAces(group string) map[string]string {
 	if group == "" {
 		group = SandboxGroup
@@ -243,7 +237,7 @@ func WorkspaceACLAces(group string) map[string]string {
 
 // FixPermissionsScript returns the find-based bash script that (re)applies the
 // split ACEs to a tree (the on-demand macos-fix-permissions retrofit, NOT the
-// hot path). Mirrors fix_permissions_script byte-for-byte.
+// hot path).
 func FixPermissionsScript(root, group string) string {
 	aces := WorkspaceACLAces(group)
 	r := shQuote(root)
@@ -257,7 +251,7 @@ func FixPermissionsScript(root, group string) string {
 }
 
 // WorkspaceACLStripScript returns the find-based bash script that removes ALL
-// ACLs from the workspace (chmod -h -N). Mirrors workspace_acl_strip_script.
+// ACLs from the workspace (chmod -h -N).
 func WorkspaceACLStripScript(workspace string) string {
 	return "set -euo pipefail\n" +
 		"ws=" + shQuote(workspace) + "\n" +
@@ -267,7 +261,6 @@ func WorkspaceACLStripScript(workspace string) string {
 // ---------------------------------------------------------------------------
 // Launch — sudo -u + env -i + sandbox-exec, SandVault-style
 // ---------------------------------------------------------------------------
-
 // SandboxPath returns the PATH for the sandboxed agent — its own bin dirs
 // first, then the `prefix` (darwin store bin dirs), then system. Mirrors
 // sandbox_path.
@@ -290,7 +283,6 @@ func SandboxPath(home string, prefix []string) string {
 // LaunchArgv builds the `sudo -u … env -i … sandbox-exec -f … -- <agent>` argv.
 // `sandboxEnv` is the fully-resolved launch env as an ordered map (git identity
 // + TERM + provider keys); the HOME/USER/SHELL/PATH quartet is not
-// caller-overridable. Mirrors launch_argv (incl. env -i ordering, PATH join
 // order, and the workspace-centric `cd … && exec …` inner shell).
 func LaunchArgv(agentArgv []string, profilePath string, sandboxEnv *jsonx.OrderedMap, workspace, user, home string, pathPrefix []string) []string {
 	if user == "" {
@@ -346,13 +338,11 @@ func LaunchArgv(agentArgv []string, profilePath string, sandboxEnv *jsonx.Ordere
 // ---------------------------------------------------------------------------
 // Loopholes on the native backend
 // ---------------------------------------------------------------------------
-
-// macosLogModes mirrors journal's modes: off (no helper, default), user
 // (scoped), full (passthrough).
 var macosLogModes = map[string]struct{}{"off": {}, "user": {}, "full": {}}
 
 // BrokerSocketGrantCommands returns the chmod/chgrp argv letting the sandbox
-// group reach the broker socket. Mirrors broker_socket_grant_commands.
+// group reach the broker socket.
 func BrokerSocketGrantCommands(socketPath, group string) [][]string {
 	if group == "" {
 		group = SandboxGroup
@@ -367,7 +357,6 @@ func BrokerSocketGrantCommands(socketPath, group string) [][]string {
 }
 
 // MacosLogWrapperScript returns a yolo-log helper wrapping Apple's `log`.
-// Mirrors macos_log_wrapper_script byte-for-byte.
 func MacosLogWrapperScript(mode string) string {
 	if _, ok := macosLogModes[mode]; !ok {
 		mode = "off"
@@ -397,9 +386,7 @@ func MacosLogWrapperScript(mode string) string {
 // ---------------------------------------------------------------------------
 // Helpers (small; pure)
 // ---------------------------------------------------------------------------
-
 // SessionProfilePath returns the root-owned per-session Seatbelt profile path.
-// Mirrors session_profile_path.
 func SessionProfilePath(cname, sd string) string {
 	if sd == "" {
 		sd = stateDir
@@ -407,7 +394,7 @@ func SessionProfilePath(cname, sd string) string {
 	return filepath.Join(sd, "profile-"+cname+".sb")
 }
 
-// shQuote single-quotes a string for safe bash embedding. Mirrors _sh_quote
+// shQuote single-quotes a string for safe bash embedding.
 // EXACTLY: "'" + s.replace("'", "'\”") + "'" — this is NOT shlex.quote (it
 // always wraps, and empty → "”").
 func shQuote(s string) string {
@@ -423,7 +410,6 @@ func sbplStr(s string) string {
 }
 
 // NextFreeID returns the first integer >= floor not in `existing` (SandVault's
-// picker). Mirrors next_free_id. Pass floor<=0 to use the default sandboxMinID.
 func NextFreeID(existing map[int]struct{}, floor int) int {
 	if floor <= 0 {
 		floor = sandboxMinID
@@ -464,12 +450,10 @@ func reprStr(s string) string { return pytext.Repr(s) }
 func itoa(n int) string { return strconv.Itoa(n) }
 
 // --- pathlib.PurePath helpers (path-only, matching Python semantics) ---
-//
 // Python's PurePosixPath treats trailing slashes and repeated slashes
 // distinctly from filepath.Clean in some edge cases, but for the /Users/<name>
 // membership check the inputs are always already-resolved absolute paths, so a
 // clean-based split is faithful. HomeContaining is documented as "path-only".
-
 // pathParent returns the parent of p (PurePath.parent): everything up to the
 // last slash, or "/" / p itself for roots. Uses filepath.Dir which matches
 // PurePosixPath.parent for absolute inputs.
@@ -478,7 +462,7 @@ func pathParent(p string) string { return filepath.Dir(p) }
 // pathName returns the final component of p (PurePath.name).
 func pathName(p string) string { return filepath.Base(p) }
 
-// resolvePathAbs mirrors str(Path(p).resolve()): make absolute, then resolve
+// resolvePathAbs make absolute, then resolve
 // symlinks best-effort (filepath.EvalSymlinks errors on non-existent paths;
 // Python's resolve(strict=False) does not, so fall back to the lexical abs).
 func resolvePathAbs(p string) string {

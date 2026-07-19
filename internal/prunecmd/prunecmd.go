@@ -56,7 +56,6 @@ type Options struct {
 	ImageCacheKeep   int  // --image-cache-keep (default 3)
 	CacheAge         int  // --cache-age        (default 30; 0 skips the pass)
 	PurgeHeavyCaches bool // --purge-heavy-caches
-
 	// --- seams ---
 	// Color enables ANSI styling. Parity is on the ANSI-stripped text, so the
 	// numbers/decisions/lists are identical regardless; goldens pin Color=false.
@@ -134,7 +133,7 @@ const (
 
 // Run executes `yolo prune`, writing the report to Out, and returns the exit
 // code (always 0 — prune never fails the process, matching prune_cmd which has
-// no failure exit). Mirrors prune_cmd's section flow exactly.
+// no failure exit).
 func Run(opts Options) int {
 	fillDefaults(&opts)
 	p := &printer{w: opts.Out, color: opts.Color}
@@ -348,7 +347,6 @@ func Run(opts Options) int {
 }
 
 // --- small helpers ---
-
 // verb picks the dry-run vs apply verb (the "would remove"/"removed" pattern
 // throughout prune_cmd).
 func verb(apply bool, dry, applied string) string {
@@ -419,7 +417,6 @@ func joinPath(a, b string) string {
 }
 
 // --- rich-markup-stripping printer (the runcmd/check output-contract precedent) ---
-
 var richTagRe = regexp.MustCompile(`\[/?[a-zA-Z][^\]]*\]`)
 
 type printer struct {
@@ -436,7 +433,6 @@ func (p *printer) line(s string) {
 }
 
 // --- real seams ---
-
 // realProbeExec runs a container-runtime probe with the given timeout, returning
 // captured stdout. A missing binary / start failure / timeout yields Ran=false
 // (the FileNotFoundError/OSError/TimeoutExpired degrade); a completed run yields

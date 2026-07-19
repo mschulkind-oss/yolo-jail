@@ -1,10 +1,8 @@
-// Package buildercmd is the Go port (AS-IS,) of the on-demand macOS
-// Linux builder: src/cli/builder.py's VM lifecycle + reachability, and
-// src/cli/builder_cmd.py's `yolo builder {setup,start,stop,status}` command
-// bodies. macОS can't build the aarch64-linux image locally, so Nix offloads to
+// Package buildercmd implements the on-demand macOS Linux builder:
+// VM lifecycle + reachability, and `yolo builder {setup,start,stop,status}`
+// command bodies. macOS can't build the aarch64-linux image locally, so Nix offloads to
 // a small Linux VM (nixpkgs#darwin.linux-builder); this brings it up on demand
 // and lets a launchd idle-timer stop it.
-//
 // The PURE generators (ssh_config block, nix builders line, trusted-users
 // merge, the single-sudo root script) already landed as internal/builder in
 // and are REUSED here, never re-ported. This package adds the
@@ -23,7 +21,7 @@ import (
 	"github.com/mschulkind-oss/yolo-jail/internal/builder"
 )
 
-// Proc models a spawned VM process for poll-based liveness (mirrors the Popen
+// Proc models a spawned VM process for poll-based liveness
 // handle threaded through _poll_until_reachable). Poll returns (returncode, done)
 // where done=false means still running (Python's proc.poll() is None).
 type Proc interface {
@@ -69,7 +67,7 @@ type Deps struct {
 	// PIDIsLive reports os.kill(pid, 0) success.
 	PIDIsLive func(pid int) bool
 	// StopVM terminates the detached VM (killpg → kill fallback) and removes the
-	// PID file. Returns (ok, errMsg). Mirrors stop_builder.
+	// PID file. Returns (ok, errMsg).
 	StopVM func() (bool, string)
 	// Sleep/Now drive _poll_until_reachable (injected so tests avoid real waits).
 	Sleep func(seconds float64)
@@ -80,7 +78,7 @@ type Deps struct {
 	Out io.Writer
 }
 
-// Poll timing (mirrors builder.py BUILDER_START_TIMEOUT_S / POLL_INTERVAL_S).
+// Poll timing.
 const (
 	builderStartTimeoutS = 90.0
 	builderPollIntervalS = 1.0
@@ -93,7 +91,6 @@ type printer struct{ w io.Writer }
 func (p printer) print(msg string)          { fmt.Fprintln(p.w, richTagRe.ReplaceAllString(msg, "")) }
 func (p printer) printf(f string, a ...any) { p.print(fmt.Sprintf(f, a...)) }
 
-// SetupState mirrors builder_setup_state()'s dict.
 type SetupState struct {
 	SSHConfig  bool
 	NixBuilder bool
@@ -101,7 +98,6 @@ type SetupState struct {
 	Done       bool
 }
 
-// Status mirrors builder_status()'s dict.
 type Status struct {
 	SetupState
 	Reachable   bool
@@ -109,7 +105,6 @@ type Status struct {
 	DaemonLabel string // "" when none
 }
 
-// confPath mirrors _builder_conf_path: nix.custom.conf when included, else
 // nix.conf.
 func confPath(deps Deps) string {
 	if inc, ok := deps.NixCustomConfIncluded(); ok && inc {
@@ -118,7 +113,6 @@ func confPath(deps Deps) string {
 	return "/etc/nix/nix.conf"
 }
 
-// nixConfHasBuilder mirrors _nix_conf_has_builder: the daemon conf has an
 // uncommented `builders` line naming both aarch64-linux and the ssh host alias.
 func nixConfHasBuilder(deps Deps) bool {
 	conf := confPath(deps)
@@ -155,7 +149,7 @@ func BuilderSetupState(deps Deps) SetupState {
 	}
 }
 
-// BuilderStatus is the full read-only snapshot. Mirrors builder_status.
+// BuilderStatus is the full read-only snapshot.
 func BuilderStatus(deps Deps) Status {
 	label, _ := deps.DetectNixDaemonLabel()
 	return Status{
@@ -166,7 +160,7 @@ func BuilderStatus(deps Deps) Status {
 	}
 }
 
-// RunSetup does the whole privileged wiring in ONE sudo. Mirrors run_setup:
+// RunSetup does the whole privileged wiring in ONE sudo.
 // builds the root script (reusing internal/builder + the resolved daemon label)
 // and pipes it to `sudo bash -s`. Returns (ok, errMsg).
 func RunSetup(deps Deps, maxJobs int, me string) (bool, string) {
@@ -183,7 +177,6 @@ func RunSetup(deps Deps, maxJobs int, me string) (bool, string) {
 }
 
 // FirstBootInteractive runs the VM's one-time first boot in the foreground.
-// Mirrors first_boot_interactive: success is measured by the key being
 // installed (or reachability). Returns (ok, errMsg).
 func FirstBootInteractive(deps Deps) (bool, string) {
 	if err := deps.StartVMForeground(); err != nil {
@@ -196,7 +189,7 @@ func FirstBootInteractive(deps Deps) (bool, string) {
 }
 
 // EnsureBuilder makes the builder ready to accept a build, starting it if
-// needed. Mirrors ensure_builder EXACTLY (branch order + reason strings).
+// needed.
 // onProgress is optional (nil = silent).
 func EnsureBuilder(deps Deps, onProgress func(string)) (bool, string) {
 	if !deps.IsMacOS() {
@@ -227,7 +220,7 @@ func EnsureBuilder(deps Deps, onProgress func(string)) (bool, string) {
 }
 
 // pollUntilReachable polls the builder's SSH port until it answers, the child
-// dies, or timeout. Mirrors _poll_until_reachable (incl. the dead-child
+// dies, or timeout.
 // short-circuit with a log-tail-derived reason, and the final re-check).
 func pollUntilReachable(deps Deps, proc Proc, onProgress func(string)) (bool, string) {
 	deadline := deps.Now() + builderStartTimeoutS

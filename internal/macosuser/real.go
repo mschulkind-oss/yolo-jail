@@ -19,20 +19,19 @@ import (
 
 func isMacOSReal() bool { return runtime.GOOS == "darwin" }
 
-// whichReal mirrors `shutil.which(name) is not None`.
 func whichReal(name string) bool {
 	_, err := exec.LookPath(name)
 	return err == nil
 }
 
-// sandboxUserExistsReal mirrors _sandbox_user_exists: `id <user>` returns 0
+// sandboxUserExistsReal `id <user>` returns 0
 // (timeout 5s → False).
 func sandboxUserExistsReal(user string) bool {
 	cmd := exec.Command("id", user)
 	return runWithTimeout(cmd, 5*time.Second) == 0
 }
 
-// gitConfigReal mirrors _git_config: `git config --get <key>` (timeout 5s),
+// gitConfigReal `git config --get <key>` (timeout 5s),
 // stdout trimmed; "" + false when unset/empty/error.
 func gitConfigReal(key string) (string, bool) {
 	cmd := exec.Command("git", "config", "--get", key)
@@ -47,7 +46,6 @@ func gitConfigReal(key string) (string, bool) {
 	return val, true
 }
 
-// hostUserReal mirrors _host_user: getpass.getuser() best-effort, else $USER.
 func hostUserReal() string {
 	if u := os.Getenv("USER"); u != "" {
 		return u
@@ -78,7 +76,6 @@ func runBashReal(script string) int {
 	return runReal([]string{"bash", "-c", script})
 }
 
-// installRootFileReal mirrors _install_root_file: sudo mkdir -p <parent>, sudo
 // tee <path> (content on stdin, stdout to /dev/null), sudo chmod <mode> <path>.
 // Any failure → false.
 func installRootFileReal(path, content, mode string) bool {
@@ -96,7 +93,6 @@ func installRootFileReal(path, content, mode string) bool {
 	return runReal([]string{"sudo", chmodBin, mode, path}) == 0
 }
 
-// takenIDsReal mirrors _taken_ids: union of existing UIDs (Users/UniqueID) and
 // GIDs (Groups/PrimaryGroupID) via dscl, timeout 10s each. Best-effort.
 func takenIDsReal() map[int]struct{} {
 	ids := map[int]struct{}{}
@@ -122,7 +118,6 @@ func takenIDsReal() map[int]struct{} {
 	return ids
 }
 
-// setRandomPasswordReal mirrors _set_random_password: openssl rand -base64 32,
 // then `sudo /bin/sh -c 'dscl . -passwd /Users/<u> "$YOLO_SBPW"'` with the
 // password passed via an env var (never argv, so it can't show in `ps`).
 func setRandomPasswordReal(user string) bool {
@@ -149,7 +144,6 @@ func pathExistsReal(p string) bool {
 	return err == nil
 }
 
-// parentDir mirrors Path(p).parent for the repo-src → repo-root step.
 func parentDir(p string) string { return filepath.Dir(p) }
 
 // --- small subprocess helpers ---------------------------------------------

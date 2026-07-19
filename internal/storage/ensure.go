@@ -16,11 +16,11 @@ import (
 
 // StorageLayoutVersion is the current storage layout version. v2 = split mise
 // store: jails share GLOBAL_MISE at /mise and no longer mount the host's
-// ~/.local/share/mise. Mirrors STORAGE_LAYOUT_VERSION.
+// ~/.local/share/mise.
 const StorageLayoutVersion = 2
 
 // fileMountpoints are the paths under GLOBAL_HOME that must exist as files (not
-// dirs) for single-file bind mounts. Mirrors the list in ensure_global_storage.
+// dirs) for single-file bind mounts.
 var fileMountpoints = []string{
 	".bash_history",
 	".yolo-bootstrap.sh",
@@ -34,7 +34,7 @@ var fileMountpoints = []string{
 
 // EnsureGlobalStorage makes sure ~/.local/share/yolo-jail/* and the GLOBAL_HOME
 // mountpoints exist and are the right shape (files vs dirs, symlinks for atomic-
-// write paths). Mirrors ensure_global_storage. migrate is invoked at the end
+// write paths).
 // (pass MigrateStorageLayout wired with a liveness probe, or a no-op).
 func EnsureGlobalStorage(migrate func()) error {
 	globalHome := paths.GlobalHome()
@@ -109,7 +109,7 @@ func EnsureGlobalStorage(migrate func()) error {
 
 // EnsureSymlink ensures link is a relative symlink to target (a path relative to
 // link's parent), migrating a pre-existing regular file's data into the target
-// location first. Mirrors _ensure_symlink.
+// location first.
 func EnsureSymlink(link, target string) error {
 	if isSymlink(link) {
 		cur, err := os.Readlink(link)
@@ -142,7 +142,7 @@ func EnsureSymlink(link, target string) error {
 
 // HostMiseDir returns the host's own mise data dir (~/.local/share/mise). Host-
 // only: consulted for migration/doctor accounting, never as a mount source or
-// target. May not exist. Mirrors _host_mise_dir (Path.home()/".local"/...).
+// target. May not exist.
 func HostMiseDir() string {
 	return filepath.Join(homeDir(), ".local", "share", "mise")
 }
@@ -166,7 +166,7 @@ func homeDir() string {
 // JailMiseStoreDir returns the source dir for the jail-land mise store mounted
 // at /mise. When the CLI runs inside a jail (YOLO_VERSION set), that store is
 // already at /mise; return "/mise" so every nesting depth shares one store.
-// Otherwise GLOBAL_MISE. Mirrors _jail_mise_store_dir.
+// Otherwise GLOBAL_MISE.
 func JailMiseStoreDir() string {
 	if _, ok := os.LookupEnv("YOLO_VERSION"); ok {
 		return "/mise"
@@ -175,7 +175,7 @@ func JailMiseStoreDir() string {
 }
 
 // FindDanglingMiseSymlinks scans <miseDir>/installs/<tool>/<entry> for symlinks
-// whose targets don't resolve (the v2 heal set), in sorted order. Mirrors the
+// whose targets don't resolve (the v2 heal set), in sorted order.
 // dangling-collection loop of _migrate_storage_layout. A dangling link is
 // is_symlink() AND not exists() (exists follows the link).
 func FindDanglingMiseSymlinks(miseDir string) []string {
@@ -206,7 +206,7 @@ func FindDanglingMiseSymlinks(miseDir string) []string {
 }
 
 // MigrateStorageLayout performs the one-time, versioned, marker-stamped layout
-// migration. Mirrors _migrate_storage_layout. canReclaim reports whether it is
+// migration.
 // safe to unlink dangling links (Python: rt is not None AND live == empty set) —
 // inject a probe that returns false on unknown/live siblings (fail-safe). insideJail
 // short-circuits (never runs inside a jail). Writes messages via warnf (stderr).
@@ -235,7 +235,6 @@ func MigrateStorageLayout(insideJail bool, canReclaim func() bool, warnf func(st
 }
 
 // ---- small fs helpers (Python pathlib semantics) ----
-
 func pathExists(p string) bool {
 	_, err := os.Stat(p) // follows symlinks (Path.exists)
 	return err == nil

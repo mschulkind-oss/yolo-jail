@@ -13,14 +13,13 @@ import (
 	"github.com/mschulkind-oss/yolo-jail/internal/runtime"
 )
 
-// Teardown timing (mirror run_cmd.py module constants).
+// Teardown timing.
 const (
 	teardownStopTimeoutSeconds     = 5
 	lockReleasePollAttempts        = 20
 	lockReleasePollIntervalSeconds = 0.25
 )
 
-// ownerPIDDir mirrors OWNER_PID_DIR = GLOBAL_STORAGE / "owners".
 func ownerPIDDir() string { return filepath.Join(paths.GlobalStorage(), "owners") }
 
 func ownerPIDFile(cname string) string { return filepath.Join(ownerPIDDir(), cname) }

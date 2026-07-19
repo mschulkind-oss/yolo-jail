@@ -3,7 +3,6 @@
 // TLS to platform.claude.com (--add-host routes it to 127.0.0.1); this daemon
 // terminates it with a jail-trusted leaf cert and forwards to the host broker
 // over the loophole Unix socket.
-//
 // Frozen contracts: the ask_host_broker frame-protocol
 // client + its TWO-LAYER 502 attribution (relay-layer connect failure vs
 // broker-layer EOF-before-exit-frame / EPIPE-mid-request), the refresh-grant
@@ -24,7 +23,7 @@ import (
 )
 
 // UpstreamHost is the intercepted host, named in the startup log line
-// (mirrors UPSTREAM_HOST in oauth_broker_jail.py).
+// .
 const UpstreamHost = "platform.claude.com"
 
 // Loophole frame protocol stream IDs (client side; == frameproto v1's 0/1/2).
@@ -35,12 +34,11 @@ const (
 )
 
 // AskHostBroker sends a request to the host-side broker over the per-jail relay
-// socket and returns the parsed JSON response. Mirrors ask_host_broker,
+// socket and returns the parsed JSON response.
 // including the two-layer error attribution:
 // - connect failure (ENOENT/refused) -> "relay unreachable" (relay layer)
 // - EOF before an exit frame, or EPIPE/ECONNRESET mid-request -> "host broker
 // unreachable through the relay" (broker layer)
-//
 // The distinction is load-bearing: the jail log must say WHICH layer failed.
 func AskHostBroker(socketPath string, request *jsonx.OrderedMap) (*jsonx.OrderedMap, error) {
 	conn, err := net.DialTimeout("unix", socketPath, 30*time.Second)
@@ -144,7 +142,7 @@ func writeFramed(conn net.Conn, body []byte) error {
 
 // brokerMidRequestErr maps a send/recv-phase EPIPE/ECONNRESET/ENOTCONN to the
 // broker-layer message (the relay accepted, failed its dial, and tore the
-// connection down mid-request). Mirrors the OSError errno branch in
+// connection down mid-request).
 // ask_host_broker; the generic branch includes the socket path like Python's
 // "host broker socket {path}: {e}".
 func brokerMidRequestErr(socketPath string, err error) error {

@@ -13,7 +13,7 @@
 //     write path (a lint rule bans rename-based writes outside fsx).
 //   - ClearContents: empty a directory's CONTENTS without removing the dir
 //     itself — the dir is a mount anchor; removing it detaches the mount
-//     (2026-07-04 regression). Mirrors the skills-refresh "clear inside, don't
+//     (2026-07-04 regression).
 //     recreate" pattern.
 //   - Relative symlinks: created RELATIVE and compared as raw link strings
 //     (ensure_global_storage creates relative symlinks; the drift/golden
@@ -46,7 +46,6 @@ func WriteStringInPlace(path, data string, perm os.FileMode) error {
 
 // ClearContents removes every entry INSIDE dir but leaves dir itself in place
 // (it may be a mount anchor). A missing dir is not an error (nothing to clear).
-// Mirrors the skills-refresh clear-inside pattern.
 func ClearContents(dir string) error {
 	entries, err := os.ReadDir(dir)
 	if err != nil {

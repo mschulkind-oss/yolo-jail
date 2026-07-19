@@ -9,7 +9,7 @@ import (
 
 // WriteContainerTracking writes a tracking file under CONTAINER_DIR named for
 // the container, holding the resolved workspace path + a trailing newline, so
-// `yolo ps` can map containers→workspaces. Mirrors write_container_tracking.
+// `yolo ps` can map containers→workspaces.
 // workspaceResolved must already be the resolved (absolute, symlinks-followed)
 // path — the caller resolves it the way Python's Path.resolve() does; the FS
 // side (mkdir of CONTAINER_DIR) is ensured here.
@@ -22,14 +22,13 @@ func WriteContainerTracking(name, workspaceResolved string) error {
 }
 
 // CleanupContainerTracking removes a container's tracking file (missing_ok).
-// Mirrors cleanup_container_tracking.
 func CleanupContainerTracking(name string) {
 	_ = os.Remove(filepath.Join(paths.ContainerDir(), name))
 }
 
 // ReadContainerWorkspace returns the workspace recorded in a container's
 // tracking file (trailing whitespace trimmed), or ("", false) when the file is
-// absent/empty. Mirrors the fast path of _get_container_workspace (tracking file
+// absent/empty.
 // first; the inspect fallback stays in the caller since it execs the runtime).
 func ReadContainerWorkspace(name string) (string, bool) {
 	data, err := os.ReadFile(filepath.Join(paths.ContainerDir(), name))
@@ -44,7 +43,7 @@ func ReadContainerWorkspace(name string) (string, bool) {
 }
 
 // PruneStaleTrackingFiles removes every tracking file under CONTAINER_DIR whose
-// name is not in runningNames. Mirrors the stale-cleanup loops in ps():
+// name is not in runningNames.
 // iterate CONTAINER_DIR, unlink any entry not currently running. A missing
 // CONTAINER_DIR is a no-op. Returns the names removed (in directory order).
 func PruneStaleTrackingFiles(runningNames map[string]struct{}) []string {

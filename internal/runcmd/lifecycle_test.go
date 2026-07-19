@@ -22,7 +22,7 @@ func flockNBSucceeds(f *os.File) bool {
 
 // TestReapOrphanedJailsPolarity checks the reaping polarity: a live jail whose
 // recorded owner PID is DEAD is reaped; one with a LIVE owner PID or NO owner
-// file is left alone. Mirrors _reap_orphaned_jails' conservative contract.
+// file is left alone.
 func TestReapOrphanedJailsPolarity(t *testing.T) {
 	home := t.TempDir()
 	t.Setenv("HOME", home)

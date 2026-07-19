@@ -27,7 +27,6 @@ var (
 )
 
 const hashChunkBytes = 1 << 20 // 1 MiB
-
 // Entry is a dedup candidate: a regular, non-empty, non-symlink file + its size.
 type Entry struct {
 	Path string
@@ -70,7 +69,7 @@ func WalkDedupTree(root string) []Entry {
 }
 
 // WalkDedupableWorkspaces yields entries under each workspace's
-// .yolo/home/{npm-global,local,go}. Mirrors _walk_dedupable_files.
+// .yolo/home/{npm-global,local,go}.
 func WalkDedupableWorkspaces(workspaces []string) []Entry {
 	var out []Entry
 	for _, ws := range workspaces {
@@ -83,7 +82,7 @@ func WalkDedupableWorkspaces(workspaces []string) []Entry {
 }
 
 // WalkGlobalDedupable yields entries under the global-storage dedupe subdirs
-// (cache, mise, home). Mirrors _walk_global_dedupable — never touches
+// (cache, mise, home).
 // containers/agents/state/nix scratch.
 func WalkGlobalDedupable(globalStorage string) []Entry {
 	var out []Entry
@@ -113,7 +112,6 @@ func hashFile(path string) string {
 // linked to it via the ATOMIC link-to-tmp-then-rename discipline (NEVER unlink
 // the original first). Same-inode pairs are skipped. Returns (bytesSaved,
 // linksMade); apply=false computes the same numbers without mutating.
-// Mirrors _hardlink_duplicate_files exactly.
 func HardlinkDuplicateFiles(entries []Entry, apply bool) (bytesSaved int64, linksMade int) {
 	// Bucket by size first (cheap filter; only hash colliding sizes).
 	bySize := map[int64][]Entry{}
@@ -190,7 +188,7 @@ type ImageEntry struct {
 
 // OldImagesToRemove sorts images newest-first by the CreatedAt string
 // (ISO-ish sorts LEXICALLY — never parsed) and returns the IDs beyond the
-// newest `keep`. Mirrors _prune_old_images' selection.
+// newest `keep`.
 func OldImagesToRemove(images []ImageEntry, keep int) []string {
 	sorted := append([]ImageEntry(nil), images...)
 	sort.SliceStable(sorted, func(i, j int) bool {

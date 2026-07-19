@@ -51,7 +51,7 @@ func (in *assembleInput) lspNPM() string { return in.lspNPMInstall }
 func (in *assembleInput) lspGo() string  { return in.lspGoInstall }
 
 // storePruneEnv returns the `-e YOLO_STORE_PRUNE_OK=1` pair when granted, else
-// nil. Mirrors the host-only store-prune gate (the enumeration + relay reaping
+// nil.
 // that set storePruneOK live in the lifecycle phase).
 func (in *assembleInput) storePruneEnv() []string {
 	if in.storePruneOK {
@@ -68,7 +68,6 @@ func (in *assembleInput) storePruneEnv() []string {
 // argv — those side effects are preserved (they are part of the launch, not the
 // argv), so callers pass a prepared ws_state. The final internal command and the
 // host-service -e insertion are handled by the lifecycle phase.
-//
 // The argv this returns ends at the image ref + "yolo-entrypoint" (Python then
 // appends the final_internal_cmd after inserting host-service env at
 // index(image)); see runContainer for that tail.
@@ -408,7 +407,6 @@ func (o *Options) commonEnvBlock(in *assembleInput, blockedConfigJSON, netMode s
 	return env
 }
 
-// jailImageRef mirrors _jail_image.
 func jailImageRef(rt string) string {
 	if rt == "container" {
 		return paths.JailImageShort
@@ -486,7 +484,6 @@ func splitMountSpec(mount string) (hostPath, containerPath string) {
 	return mount, "/ctx/" + filepath.Base(resolved)
 }
 
-// resolveExpand mirrors Path(p).expanduser().resolve().
 func resolveExpand(p string) string {
 	return resolvePath(expandUser(p))
 }
@@ -501,7 +498,7 @@ func insertAt(s []string, i int, v string) []string {
 }
 
 // agentOverlaySubdirs returns the bare overlay-dir names (leading dot stripped)
-// for the selected agents, in spec-then-dir order. Mirrors the list comp.
+// for the selected agents, in spec-then-dir order.
 func agentOverlaySubdirs(specs []agents.AgentSpec) []string {
 	var out []string
 	for _, spec := range specs {

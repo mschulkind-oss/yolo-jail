@@ -8,7 +8,6 @@ import (
 	"path/filepath"
 )
 
-// copyFile2 mirrors shutil.copy2: copy contents + mode (best-effort mtime not
 // required for the staging path — mtime is stamped explicitly where it matters).
 func copyFile2(src, dst string) error {
 	in, err := os.Open(src)
@@ -31,7 +30,6 @@ func copyFile2(src, dst string) error {
 	return out.Close()
 }
 
-// copyTree mirrors shutil.copytree(src, dst, symlinks=False) — recursively copy
 // src into dst, dereferencing symlinks (files and dirs).
 func copyTree(src, dst string) error {
 	info, err := os.Stat(src) // Stat follows symlinks (symlinks=False deref)

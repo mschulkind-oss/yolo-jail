@@ -26,20 +26,18 @@ const (
 )
 
 // BuilderKeyDir is the per-workspace host-daemon key dir under GLOBAL_STORAGE.
-// Mirrors BUILDER_KEY_DIR (resolved at call time, like the Python module const
 // that reads GLOBAL_STORAGE at import).
 func BuilderKeyDir() string {
 	return paths.GlobalStorage() + "/linux-builder-container"
 }
 
 // BuilderKey is the private-key path; its .pub half is authorized in the
-// container. Mirrors BUILDER_KEY.
+// container.
 func BuilderKey() string {
 	return BuilderKeyDir() + "/id_ed25519"
 }
 
 // PullArgv returns the argv to pull the builder image on the given runtime.
-// Mirrors pull_argv.
 func PullArgv(runtime, image string) []string {
 	if image == "" {
 		image = BuilderImage
@@ -80,7 +78,6 @@ func RunArgv(runtime, pubkey, image, name string, hostPort int) []string {
 }
 
 // BuilderURI is the ssh-ng store/builder URI nix uses to reach the container.
-// Mirrors builder_uri. keyPath defaults to BuilderKey() when empty.
 func BuilderURI(host string, port int, keyPath string) string {
 	if port == 0 {
 		port = BuilderHostPort
@@ -93,7 +90,7 @@ func BuilderURI(host string, port int, keyPath string) string {
 
 // BuildersLine is a nix --builders spec pointing at the container. Format:
 // "ssh-ng://user@host:port aarch64-linux key maxjobs". System is fixed to
-// aarch64-linux (the arch a Mac needs). Mirrors builders_line. keyPath defaults
+// aarch64-linux (the arch a Mac needs).
 // to BuilderKey() when empty; port 0 / maxJobs 0 fall back to defaults.
 func BuildersLine(host string, port, maxJobs int, keyPath string) string {
 	if port == 0 {
@@ -116,7 +113,7 @@ func NixSSHOpts() string {
 }
 
 // ReachableAddressFromContainerLs parses `container ls` stdout for the running
-// builder's VM IP:22 (Apple Container has no host port-publish). Mirrors the
+// builder's VM IP:22 (Apple Container has no host port-publish).
 // container branch of reachable_address: skip header, find the row whose first
 // field == name, then the first token containing exactly 3 dots is the ADDR
 // (e.g. "192.168.64.2/24"); strip the "/mask". Returns (host, port, true) or

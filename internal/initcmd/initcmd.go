@@ -53,13 +53,13 @@ func mountsBlock(mounts []string) string {
 		b.WriteString("    " + enc + ",\n")
 	}
 	b.WriteString("  ],\n")
-	// Trim the trailing comma on the last list entry (mirrors the .replace).
+	// Trim the trailing comma on the last list entry.
 	return strings.Replace(b.String(), ",\n  ],", "\n  ],", 1)
 }
 
 // Init runs `yolo init` in cwd. Writes yolo-jail.jsonc (unless it exists),
 // appends .yolo/ to .gitignore, and prints the briefing to out (color per the
-// caller). Returns the exit code (0). Mirrors init().
+// caller). Returns the exit code (0).
 func Init(cwd string, mounts []string, out io.Writer, color bool) int {
 	configPath := filepath.Join(cwd, "yolo-jail.jsonc")
 	if _, err := os.Stat(configPath); err == nil {
@@ -75,7 +75,7 @@ func Init(cwd string, mounts []string, out io.Writer, color bool) int {
 	}
 	fmt.Fprintln(out, "Created yolo-jail.jsonc")
 
-	// Append .yolo/ to .gitignore (create if absent). Mirrors the gitignore block.
+	// Append .yolo/ to .gitignore (create if absent).
 	gitignore := filepath.Join(cwd, ".gitignore")
 	if data, err := os.ReadFile(gitignore); err == nil {
 		if !strings.Contains(string(data), ".yolo/") {
@@ -90,7 +90,7 @@ func Init(cwd string, mounts []string, out io.Writer, color bool) int {
 }
 
 // InitUserConfig runs `yolo init-user-config`. Writes the user-level defaults at
-// USER_CONFIG_PATH unless it exists. Mirrors init_user_config().
+// USER_CONFIG_PATH unless it exists.
 func InitUserConfig(out io.Writer) int {
 	p := paths.UserConfigPath()
 	if err := os.MkdirAll(filepath.Dir(p), 0o755); err != nil {

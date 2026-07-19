@@ -18,7 +18,6 @@ type DiskReport struct {
 }
 
 // DiskUsageReport computes the per-category byte totals a prune might reclaim.
-// Mirrors _disk_usage_report exactly:
 //   - GlobalStorage: sum of every non-symlink direct child of globalStorage
 //     (dirs recursively; stray files rolled into Breakdown["_files"]).
 //   - Workspaces: sum of each workspace's .yolo tree size.

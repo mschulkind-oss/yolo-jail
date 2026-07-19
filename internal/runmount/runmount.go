@@ -45,7 +45,7 @@ func ScratchMountArgs(mode string) []string {
 // mount point). Used to detect the nested-jail case where a host source *file*
 // we want to bind-mount :ro is itself a bind mountpoint (rootless nested
 // podman/crun can't use such a file as a bind source). Empty set on any read
-// error (non-Linux, restricted proc). Mirrors _bind_mount_targets.
+// error (non-Linux, restricted proc).
 func BindMountTargets() map[string]struct{} {
 	return bindMountTargetsFrom("/proc/self/mountinfo")
 }
@@ -86,7 +86,6 @@ func IsBindMountpoint(path string, mountTargets map[string]struct{}) bool {
 // rootless podman can't use it as a bind source, so it's copied to a plain file
 // at wsState/rel and that stable inode is mounted instead; a copy failure falls
 // back to the direct mount. On a real host the file is plain → direct mount, no
-// copy. Mirrors _ro_file_mount_arg. copyFile is injected for testability (pass
 // nil to use the real copy).
 func ROFileMountArg(hostFile, containerPath, wsState, rel string, mountTargets map[string]struct{}, copyFile func(src, dst string) error) []string {
 	src := hostFile

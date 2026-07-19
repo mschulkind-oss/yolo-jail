@@ -8,7 +8,7 @@ import (
 )
 
 // peerCredPID returns the connecting peer's PID via SO_PEERCRED, or 0 if
-// unavailable. Mirrors the SO_PEERCRED read in _cgroup_delegate_handler (only
+// unavailable.
 // the PID is used; uid/gid are ignored).
 func peerCredPID(conn *net.UnixConn) int {
 	raw, err := conn.SyscallConn()

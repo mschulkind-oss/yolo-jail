@@ -181,7 +181,7 @@ func convertTOMLValue(v any) any {
 // VenvValue extracts env._.python.venv from a parsed mise config, walking the
 // nested tables the way the entrypoint's venv-discovery does
 // (`env -> _ -> python -> venv`). Returns (value, true) if the whole chain is
-// present, else (nil, false). Mirrors the Python venv_value walk in
+// present, else (nil, false).
 // entrypoint/shell.py.
 func VenvValue(cfg map[string]any) (any, bool) {
 	var cur any = cfg

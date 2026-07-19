@@ -82,7 +82,7 @@ func loopholesWithConfig(deps Deps, includeDisabled bool) []*loopholes.Loophole 
 	})
 }
 
-// List runs `yolo loopholes list`. Mirrors loopholes_list byte-for-byte.
+// List runs `yolo loopholes list`.
 func List(deps Deps) int {
 	all := loopholesWithConfig(deps, true)
 	if len(all) == 0 {

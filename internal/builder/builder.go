@@ -40,7 +40,7 @@ func BuilderLogFilePath() string {
 }
 
 // SSHConfigBlock is the /etc/ssh/ssh_config.d block letting the daemon ssh the
-// VM. Mirrors ssh_config_block byte-for-byte.
+// VM.
 func SSHConfigBlock() string {
 	return "Host " + BuilderSSHHost + "\n" +
 		"  Hostname localhost\n" +
@@ -51,7 +51,7 @@ func SSHConfigBlock() string {
 }
 
 // NixBuildersLine is the builders + builders-use-substitutes lines for
-// nix.conf. Mirrors nix_builders_line(maxJobs).
+// nix.conf.
 func NixBuildersLine(maxJobs int) string {
 	return "builders = ssh-ng://" + BuilderUser + "@" + BuilderSSHHost + " " +
 		"aarch64-linux " + BuilderKeyPath + " " + itoa(maxJobs) + " - - - -\n" +
@@ -81,7 +81,6 @@ func TrustedUsersLine(current []string, me string) (string, bool) {
 }
 
 // SetupRootScript builds the single-sudo root script `yolo builder setup` runs.
-// Mirrors setup_root_script exactly (guarded builders append, optional
 // trusted-users merge, ssh alias write, daemon kickstart). `label` is the
 // nix-daemon launchd label (caller resolves it; default org.nixos.nix-daemon).
 func SetupRootScript(maxJobs int, me string, currentTrusted []string, confPath, label string) string {

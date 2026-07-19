@@ -12,7 +12,7 @@ import (
 )
 
 // BuildHandler returns the hostservice.Handler for the broker, dispatching on
-// the request "action" field. Mirrors oauth_broker.build_handler:
+// the request "action" field.
 //
 //	refresh (default) -> DoRefresh
 //	cached -> CachedTokens or {error: no_cached_token}
@@ -78,7 +78,7 @@ type proxyRequest struct {
 }
 
 // decodeProxyRequest validates a proxy request, returning it or an error
-// message string. Mirrors _decode_proxy_request.
+// message string.
 func decodeProxyRequest(req *jsonx.OrderedMap) (proxyRequest, string) {
 	method, _ := stringField(req, "method")
 	if method == "" {
@@ -118,7 +118,6 @@ func decodeProxyRequest(req *jsonx.OrderedMap) (proxyRequest, string) {
 	return proxyRequest{method: method, path: path, headers: headers, body: body}, ""
 }
 
-// maybePropagateTokenResponse mirrors _maybe_propagate_token_response: on a
 // successful POST /v1/oauth/token proxy round-trip, mirror the new tokens into
 // the shared creds file (breaking the invalid_grant cascade after /login).
 // Side-effect-free on every non-success path.

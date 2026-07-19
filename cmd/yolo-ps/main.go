@@ -61,7 +61,6 @@ func run() int {
 }
 
 // call performs one request/response round trip, returning the daemon exit code.
-// Mirrors yolo_ps._call: connect (ENOENT/refused -> exit 2), stamp jail_id,
 // stream stdout/stderr, return the exit-frame code.
 func call(socketPath string, request map[string]any) int {
 	// Python yolo-ps uses a plain blocking socket with NO timeout after

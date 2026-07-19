@@ -5,9 +5,7 @@ import (
 	"testing"
 )
 
-// normalizeCases pins the byte contract. Values are the observed Python
-// output of src/cli/version.py:_git_describe_version's normalization tail
-// (see the cross-language test for the live oracle).
+// normalizeCases pins the byte contract for version normalization.
 var normalizeCases = []struct {
 	raw  string
 	want string

@@ -10,11 +10,10 @@ import (
 	"github.com/mschulkind-oss/yolo-jail/internal/shquote"
 )
 
-// GenerateShims mirrors shims.generate_shims: it rmtree's SHIM_DIR, recreates
+// GenerateShims it rmtree's SHIM_DIR, recreates
 // it, and writes one blocking/filtering shim per entry in YOLO_BLOCK_CONFIG.
 // An absent/empty/unparseable config leaves an empty SHIM_DIR (matching the
 // Python early returns).
-//
 // The shim body is the frozen argv-filter contract: message/suggestion text +
 // exit code 127. See ShimContent for the exact grammar.
 func GenerateShims(e *Env) error {
@@ -85,7 +84,6 @@ func GenerateShims(e *Env) error {
 
 // ShimContent renders the shim script body byte-for-byte as shims.generate_shims
 // does. Two flavors:
-//
 //   - Filter shim (blockFlags non-empty AND realBin set): inspect argv against
 //     the glob patterns and only exit 127 when one matches, else exec the real
 //     binary. Long-option exact matches (--foo) come first, then a `--*` skip
@@ -152,7 +150,6 @@ func ShimContent(msg, sug, realBin string, blockFlags []string) string {
 	return strings.Join(lines, "\n")
 }
 
-// GenerateAgentLaunchers mirrors shims.generate_agent_launchers: lazy-update
 // wrappers for the SELECTED agents (YOLO_AGENTS). Skips writing when a shim of
 // the same name already exists (a blocked-tool shim from GenerateShims, which
 // runs first). npm vs native launcher body is driven by the agent's InstallSpec.
@@ -189,7 +186,6 @@ func GenerateAgentLaunchers(e *Env) error {
 	return nil
 }
 
-// npmAgentLauncher mirrors shims._npm_agent_launcher.
 func npmAgentLauncher(spec agents.AgentSpec, stampDir string) string {
 	binName := spec.Install.Bin
 	pkgName := spec.Install.Package
@@ -206,7 +202,6 @@ func npmAgentLauncher(spec agents.AgentSpec, stampDir string) string {
 	return r.Replace(npmLauncherTemplate)
 }
 
-// nativeAgentLauncher mirrors shims._native_agent_launcher.
 func nativeAgentLauncher(spec agents.AgentSpec, stampDir string) string {
 	binName := spec.Install.Bin
 	installerURL := spec.Install.InstallerURL
@@ -218,7 +213,6 @@ func nativeAgentLauncher(spec agents.AgentSpec, stampDir string) string {
 	return r.Replace(nativeLauncherTemplate)
 }
 
-// GeneratePackageManagerLaunchers mirrors shims.generate_package_manager_launchers:
 // lazy npm launchers for package managers not pre-installed via mise (pnpm).
 // The stamp dir path is shlex.quote'd so a $HOME with shell metacharacters
 // doesn't break the launcher.

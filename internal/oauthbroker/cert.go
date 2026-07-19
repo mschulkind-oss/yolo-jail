@@ -8,7 +8,7 @@ import (
 )
 
 // BrokerDir returns the writable state dir for the claude-oauth-broker
-// loophole — CA + leaf + refresh lock. Mirrors _loopholes.state_dir_for.
+// loophole — CA + leaf + refresh lock.
 // YOLO_BROKER_STATE_DIR is a test-only override (parity harness), mirrored in
 // the Python broker, so black-box tests don't touch the real ~/.local state.
 func BrokerDir() string {
@@ -28,7 +28,6 @@ func caKey(dir string) string     { return filepath.Join(dir, "ca.key") }
 func serverCrt(dir string) string { return filepath.Join(dir, "server.crt") }
 func serverKey(dir string) string { return filepath.Join(dir, "server.key") }
 
-// opensslFallbackPaths mirrors _OPENSSL_FALLBACK_PATHS.
 var opensslFallbackPaths = []string{
 	"/usr/bin/openssl",
 	"/bin/openssl",
@@ -39,7 +38,6 @@ var opensslFallbackPaths = []string{
 }
 
 // resolveOpenssl finds the openssl binary by PATH or known install dirs.
-// Mirrors _resolve_openssl.
 func resolveOpenssl() string {
 	if p, err := exec.LookPath("openssl"); err == nil {
 		return p

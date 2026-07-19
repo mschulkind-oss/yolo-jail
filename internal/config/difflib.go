@@ -56,7 +56,6 @@ func (m *seqMatcher) chainB() {
 	}
 }
 
-// findLongestMatch mirrors SequenceMatcher.find_longest_match(alo,ahi,blo,bhi).
 func (m *seqMatcher) findLongestMatch(alo, ahi, blo, bhi int) (int, int, int) {
 	a, b, b2j := m.a, m.b, m.b2j
 	besti, bestj, bestsize := alo, blo, 0
@@ -102,7 +101,6 @@ func (m *seqMatcher) isBJunk(s string) bool {
 	return ok
 }
 
-// getMatchingBlocks mirrors SequenceMatcher.get_matching_blocks.
 func (m *seqMatcher) getMatchingBlocks() [][3]int {
 	la, lb := len(m.a), len(m.b)
 	type qentry struct{ alo, ahi, blo, bhi int }
@@ -152,7 +150,6 @@ func (m *seqMatcher) getMatchingBlocks() [][3]int {
 	return nonAdjacent
 }
 
-// getOpcodes mirrors SequenceMatcher.get_opcodes.
 func (m *seqMatcher) getOpcodes() []opcode {
 	i, j := 0, 0
 	var answer []opcode
@@ -177,7 +174,6 @@ func (m *seqMatcher) getOpcodes() []opcode {
 	return answer
 }
 
-// getGroupedOpcodes mirrors SequenceMatcher.get_grouped_opcodes(n=3).
 func (m *seqMatcher) getGroupedOpcodes(n int) [][]opcode {
 	codes := m.getOpcodes()
 	if len(codes) == 0 {
@@ -212,7 +208,6 @@ func (m *seqMatcher) getGroupedOpcodes(n int) [][]opcode {
 	return groups
 }
 
-// formatRangeUnified mirrors difflib._format_range_unified.
 func formatRangeUnified(start, stop int) string {
 	beginning := start + 1
 	length := stop - start
@@ -225,7 +220,6 @@ func formatRangeUnified(start, stop int) string {
 	return fmt.Sprintf("%d,%d", beginning, length)
 }
 
-// unifiedDiff mirrors difflib.unified_diff(a, b, fromfile, tofile, lineterm="")
 // with n=3. Returns the diff lines (no trailing newlines — lineterm="").
 func unifiedDiff(a, b []string, fromfile, tofile string) []string {
 	var out []string

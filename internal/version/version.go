@@ -26,7 +26,6 @@ var buildVersion = ""
 var GitCommit = ""
 
 // Normalize converts a raw git-describe/env version string to the canonical
-// form. Mirrors the tail of src/cli/version.py:_git_describe_version:
 //
 //	git format: 0.1.0-3-gabcdef1-dirty -> 0.1.0+3.gabcdef1.dirty
 //	exactly on tag: 0.1.0 -> 0.1.0
@@ -88,19 +87,12 @@ func isDigits(s string) bool {
 // the host sets it so the in-jail banner matches the host exactly, so it must
 // not be re-normalized); else the -ldflags baked version, normalized; else
 // `git describe --tags --dirty --always` in repoRoot, normalized. Returns ""
-// (the Go analog of Python None) when nothing resolves.
-//
-// Divergence D18 vs src/cli/version.py:_git_describe_version: Python asked
-// git describe BEFORE the baked fallback. For a compiled binary that order is
-// wrong twice over — `git describe --always` succeeds inside ANY git repo, so
-// an installed (brew/pipx/goreleaser) binary run from a user's project would
-// report THAT repo's describe; and a stale dist-go binary would report the
-// live checkout's version instead of its own. The stamp, when present, is the
-// binary's identity — the Go analog of Python reading the installed wheel's
-// baked version.
+// when nothing resolves. Prefers the linker-stamped version (via YOLO_VERSION
+// env or ldflags) over git describe, since an installed binary should report
+// its own version, not the describe of whatever repo it happens to be run from.
 func gitDescribe(repoRoot string) string {
 	if raw := os.Getenv("YOLO_VERSION"); raw != "" {
-		return raw // verbatim — matches Python's early return
+		return raw
 	}
 
 	// "unknown" guard: pre-D18 scripts/build-go.sh stamped the literal
@@ -137,7 +129,7 @@ func gitDescribe(repoRoot string) string {
 	return Normalize(raw)
 }
 
-// Get returns the yolo-jail version string. Mirrors _get_yolo_version: the
+// Get returns the yolo-jail version string.
 // git-describe result, or "unknown" if even the baked fallback is empty.
 func Get(repoRoot string) string {
 	v := gitDescribe(repoRoot)

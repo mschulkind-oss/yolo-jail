@@ -7,7 +7,6 @@ import (
 	"github.com/mschulkind-oss/yolo-jail/internal/jsonx"
 )
 
-// claudeLSPPluginMap mirrors agent_configs.CLAUDE_LSP_PLUGIN_MAP. Order is used
 // only for iteration where Python iterates dict.items(); the effect on
 // enabledPlugins is order-independent for distinct keys, but we keep the same
 // declaration order for faithfulness.
@@ -21,7 +20,6 @@ var claudeLSPPluginOrder = []struct{ lsp, plugin string }{
 var oauthTokenKeys = []string{"accessToken", "refreshToken", "expiresAt"}
 var oauthMetadataKeys = []string{"scopes", "subscriptionType", "rateLimitTier"}
 
-// ConfigureClaude mirrors agent_configs.configure_claude's CONTENT generation:
 // settings.json (three-way host merge + permissions + plugins + LSP tool),
 // the host-settings snapshot, ~/.claude.json (MCP + workspace project), the
 // managed-MCP sidecar, the credentials symlink/harvest, and per-jail history
@@ -117,7 +115,6 @@ func ConfigureClaude(e *Env) error {
 	return writeInPlaceString(e.ClaudeManagedMCPPath(), managedSidecar(configured.Keys()))
 }
 
-// loadHostClaudeSettings mirrors agent_configs._load_host_claude_settings.
 func (e *Env) loadHostClaudeSettings() *jsonx.OrderedMap {
 	files := e.hostClaudeFiles()
 	if !contains(files, "settings.json") {
@@ -149,7 +146,6 @@ func (e *Env) hostClaudeFiles() []string {
 	return out
 }
 
-// syncHostSettings mirrors agent_configs._sync_host_settings / _sync_settings_level.
 func syncHostSettings(jail, host, prev *jsonx.OrderedMap) {
 	syncSettingsLevel(jail, host, prev, true)
 }
@@ -210,7 +206,6 @@ func syncSettingsLevel(jail, host, prev *jsonx.OrderedMap, deep bool) {
 	}
 }
 
-// syncHostClaudeFiles mirrors agent_configs._sync_host_claude_files: copy host
 // ~/.claude/ files (except settings.json) into the jail. This is a filesystem
 // side effect that materializes real files; it belongs to content generation
 // insofar as it produces files, but its SOURCE is /ctx/host-claude which the
@@ -242,7 +237,6 @@ func (e *Env) syncHostClaudeFiles() error {
 	return nil
 }
 
-// isolateClaudeHistory mirrors agent_configs._isolate_claude_history: symlink
 // ~/.claude/history.jsonl to a per-host-workspace file. YOLO_HOST_DIR keys the
 // hash; absent -> no-op.
 func (e *Env) isolateClaudeHistory() error {
@@ -276,7 +270,6 @@ func (e *Env) isolateClaudeHistory() error {
 	return os.Symlink(perJail, historyFile)
 }
 
-// ensureCredentialsSymlink mirrors agent_configs._ensure_credentials_symlink.
 func (e *Env) ensureCredentialsSymlink() error {
 	link := filepath.Join(e.ClaudeDir(), ".credentials.json")
 	target := filepath.Join("..", ".claude-shared-credentials", ".credentials.json")
@@ -305,7 +298,6 @@ func (e *Env) ensureCredentialsSymlink() error {
 	return os.Symlink(target, link)
 }
 
-// harvestCredentialsFile mirrors agent_configs._harvest_credentials_file.
 // Returns false when the local file has no claudeAiOauth dict (caller falls
 // back to legacy copy).
 func (e *Env) harvestCredentialsFile(link, shared string) bool {
@@ -356,7 +348,7 @@ func (e *Env) harvestCredentialsFile(link, shared string) bool {
 	sharedDoc.Set("claudeAiOauth", merged)
 
 	// Atomic tmp+rename with 0o600 — this is the ONE sanctioned tmp+rename in
-	// the entrypoint (mirrors the broker's _write_tokens; the shared credentials
+	// the entrypoint
 	// dir is a rw DIRECTORY bind mount where rename works, unlike the file->file
 	// bind mounts fsx.WriteInPlace guards). Preserve it exactly.
 	blob := []byte(func() string { s, _ := jsonx.DumpsIndent(sharedDoc, 2); return s }())
@@ -386,7 +378,6 @@ func (e *Env) harvestCredentialsFile(link, shared string) bool {
 	return true
 }
 
-// expiresAtMs mirrors agent_configs._expires_at_ms: int(oauth["expiresAt"] or 0),
 // missing/garbage -> 0.
 func expiresAtMs(oauth *jsonx.OrderedMap) int64 {
 	v, ok := oauth.Get("expiresAt")

@@ -29,7 +29,7 @@ type DarwinPackages struct {
 }
 
 // nixFlags returns the experimental-features flags so the CLI works regardless
-// of the host's nix.conf. Mirrors _nix_flags.
+// of the host's nix.conf.
 func nixFlags() []string {
 	return []string{"--extra-experimental-features", "nix-command flakes"}
 }
@@ -37,7 +37,6 @@ func nixFlags() []string {
 // BuildEnv returns the environment for the nix invocations: the parent env plus
 // the YOLO_EXTRA_PACKAGES contract (compact JSON, the flake reads it via
 // builtins.getEnv — hence --impure). When packages is empty the var is removed.
-// Mirrors build_env. baseEnv is the parent environment as "K=V" strings (pass
 // os.Environ()); the return is the same form, with YOLO_EXTRA_PACKAGES set or
 // removed.
 func BuildEnv(baseEnv []string, packages []any) ([]string, error) {
@@ -58,7 +57,7 @@ func BuildEnv(baseEnv []string, packages []any) ([]string, error) {
 }
 
 // BuildProfileArgv is the argv to realize the darwin buildEnv profile and print
-// its store out path. Mirrors build_profile_argv byte-for-byte.
+// its store out path.
 func BuildProfileArgv(system string) []string {
 	if system == "" {
 		system = DarwinSystem
@@ -77,7 +76,6 @@ func BuildProfileArgv(system string) []string {
 }
 
 // UnavailableEvalArgv is the argv to read the no-darwin-build skip list as JSON.
-// Mirrors unavailable_eval_argv byte-for-byte.
 func UnavailableEvalArgv(system string) []string {
 	if system == "" {
 		system = DarwinSystem
@@ -95,7 +93,7 @@ func UnavailableEvalArgv(system string) []string {
 
 // ProfilePaths derives (PATH prefix, non-PATH env) from the buildEnv store out
 // path. The profile's bin is the only PATH entry contributed; if lib/pkgconfig
-// exists, PKG_CONFIG_PATH is exposed. Mirrors profile_paths (empty out → empty
+// exists, PKG_CONFIG_PATH is exposed.
 // results). checkPkgConfigDir reports whether <out>/lib/pkgconfig is a dir; pass
 // nil to use the real filesystem.
 func ProfilePaths(outPath string, checkPkgConfigDir func(string) bool) ([]string, map[string]string) {
@@ -120,7 +118,7 @@ func ProfilePaths(outPath string, checkPkgConfigDir func(string) bool) ([]string
 }
 
 // LockedNixpkgsRev returns the pinned nixpkgs rev from flake.lock (diagnostics/
-// dry-run only). Mirrors locked_nixpkgs_rev: data["nodes"]["nixpkgs"]["locked"]
+// dry-run only).
 // ["rev"]. Errors (missing file, bad JSON, missing keys) surface to the caller.
 func LockedNixpkgsRev(flakeLock string) (string, error) {
 	data, err := os.ReadFile(flakeLock)

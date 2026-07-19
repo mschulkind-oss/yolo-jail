@@ -4,7 +4,6 @@ package darwinpkg
 // invocations (the skip-list eval + the streaming buildEnv build). It was the
 // last piece left in Python when the pure builders (darwinpkg.go) landed; the
 // macos-user run wiring needs it, so it is ported here now.
-
 import (
 	"bufio"
 	"errors"
@@ -16,7 +15,7 @@ import (
 	"time"
 )
 
-// MaterializeError mirrors DarwinPackagesError: nix missing or the build
+// MaterializeError nix missing or the build
 // failed. The caller aborts with an actionable message rather than launching a
 // half-provisioned sandbox.
 type MaterializeError struct{ msg string }
@@ -28,7 +27,6 @@ func (e *MaterializeError) Error() string { return e.msg }
 // It streams the build's stderr (`--print-build-logs` progress) straight to the
 // process stderr so a from-source darwin build is VISIBLE, while capturing
 // stdout (the store out-path) and a 30-line stderr tail for the error message.
-// Mirrors darwin_packages.materialize byte-for-byte in behavior.
 //
 // repoRoot is the nix build cwd (the repo ROOT — parent of src). system ""
 // defaults to DarwinSystem. errStderr defaults to os.Stderr (injectable for
@@ -124,7 +122,7 @@ func ProfilePathsFromStdout(stdout string, skipped []string, checkPkgConfig func
 }
 
 // skippedNames is the best-effort read of the no-darwin-build skip list (a nix
-// eval with a 120s timeout). Non-fatal on any failure. Mirrors _skipped_names.
+// eval with a 120s timeout). Non-fatal on any failure.
 func skippedNames(repoRoot string, env []string, system string) []string {
 	argv := UnavailableEvalArgv(system)
 	cmd := exec.Command(argv[0], argv[1:]...)

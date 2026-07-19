@@ -15,7 +15,7 @@ import (
 	"github.com/mschulkind-oss/yolo-jail/internal/jsonx"
 )
 
-// Broker singleton constants (mirror loopholes_runtime.py). Kept local — the
+// Broker singleton constants. Kept local — the
 // broker lifecycle lives in the run wiring.
 const (
 	brokerSingletonSocket = "/tmp/yolo-claude-oauth-broker.sock"
@@ -64,7 +64,6 @@ func acMaterialize(src, targetRel, wsState string) {
 	_ = copyFile2(src, dst)
 }
 
-// numCPU mirrors multiprocessing.cpu_count().
 func numCPU() int { return runtime.NumCPU() }
 
 // appleContainerDefaultMemory runs the AC default-memory block (2616-2634):

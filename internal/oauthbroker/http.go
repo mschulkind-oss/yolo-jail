@@ -28,7 +28,7 @@ var httpClient = &http.Client{
 }
 
 // userAgent identifies the broker; Python-urllib's default UA triggers
-// Cloudflare error 1010 on platform.claude.com. Mirrors _broker_user_agent's
+// Cloudflare error 1010 on platform.claude.com.
 // versioned form; the version is injected by the caller (main stamps it).
 var userAgent = "yolo-jail-oauth-broker"
 
@@ -59,8 +59,8 @@ func errResult(pairs ...any) RefreshResult {
 }
 
 // refreshUpstream POSTs the refresh grant and returns the parsed JSON body as
-// an OrderedMap. Mirrors _refresh_upstream. On an HTTP error status it returns
-// an *httpError so the caller can shape {error: upstream_http, ...}.
+// an OrderedMap. On an HTTP error status it returns an *httpError so the
+// caller can shape {error: upstream_http, ...}.
 func refreshUpstream(refreshToken string) (*jsonx.OrderedMap, error) {
 	// Body built with encoding/json (server is not key-order-sensitive), same
 	// as Python's json.dumps here.
@@ -139,7 +139,6 @@ type ProxyResult = *jsonx.OrderedMap
 
 // DoProxy forwards a request to the real upstream, returning the response
 // shape verbatim (incl. 4xx/5xx) or an {error} dict on transport failure.
-// Mirrors do_proxy, including the leading-slash path guard, hop-by-hop
 // stripping both directions, and the "inject UA only if caller sent none".
 func DoProxy(method, path string, headers map[string]string, body []byte) ProxyResult {
 	if !strings.HasPrefix(path, "/") {
@@ -147,7 +146,6 @@ func DoProxy(method, path string, headers map[string]string, body []byte) ProxyR
 		return errResult("error", "bad_path", "message", "path must start with '/': "+pyReprPath(path))
 	}
 	url := "https://" + UpstreamHost + path
-
 	fwd := http.Header{}
 	hasUA := false
 	for k, v := range headers {

@@ -23,7 +23,7 @@ var ShadowedHomePaths = []string{
 // ShadowedHomePaths. Directories are EMPTIED but PRESERVED — they anchor live
 // jails' overlay mounts, so rmtree'ing the dir itself would orphan those mounts
 // in-place (observed incident 2026-07-04). Symlinks are unlinked but never
-// traversed. Returns (bytesRemoved, itemsRemoved). Mirrors _prune_shadowed_home
+// traversed. Returns (bytesRemoved, itemsRemoved).
 // exactly, including the delete-CONTENTS-never-the-dir discipline and the
 // per-child failure handling (a failed child skips counting the whole entry).
 func PruneShadowedHome(globalHome string, apply bool) (bytesRemoved int64, itemsRemoved int) {
@@ -67,7 +67,7 @@ func PruneShadowedHome(globalHome string, apply bool) (bytesRemoved int64, items
 				failed := false
 				children, err := os.ReadDir(target)
 				if err != nil {
-					// iterdir failure — mirror Python raising, which would abort
+					// iterdir failure
 					// this entry; treat as failed and skip counting.
 					continue
 				}

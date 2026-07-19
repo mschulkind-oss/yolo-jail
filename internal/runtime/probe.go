@@ -24,7 +24,7 @@ type LiveSet struct {
 }
 
 // DetectRuntime returns the container runtime for prune / check use: the
-// YOLO_RUNTIME env var if set, else "podman". Mirrors _detect_runtime (the
+// YOLO_RUNTIME env var if set, else "podman".
 // shallow variant — no connectivity probe or sys.exit).
 func DetectRuntime() string {
 	if rt := os.Getenv("YOLO_RUNTIME"); rt != "" {
@@ -59,7 +59,7 @@ func PsRuntime(isMacOS bool, hasBinary func(string) bool) string {
 }
 
 // livePodmanStates are the container states podman reports that count as a live
-// jail for the sweep-guard purpose (mirrors the tuple in _live_yolo_containers).
+// jail for the sweep-guard purpose.
 var livePodmanStates = map[string]struct{}{
 	"running":    {},
 	"paused":     {},
@@ -67,7 +67,7 @@ var livePodmanStates = map[string]struct{}{
 }
 
 // ParsePodmanLive parses `podman ps -a --format "{{.Names}} {{.State}}"` stdout
-// into the set of live yolo-* names. Mirrors the podman branch of
+// into the set of live yolo-* names.
 // _live_yolo_containers: split each line on whitespace, require >=2 fields,
 // keep yolo-* whose state (lowercased) is running/paused/restarting.
 func ParsePodmanLive(stdout string) map[string]struct{} {
@@ -89,7 +89,7 @@ func ParsePodmanLive(stdout string) map[string]struct{} {
 }
 
 // ParseContainerLsLive parses Apple Container's `container ls` stdout (running
-// only, fixed table) into the set of live yolo-* names. Mirrors the container
+// only, fixed table) into the set of live yolo-* names.
 // branch: skip the header row, take the first whitespace field, keep yolo-*.
 // Because `container ls` lists only running containers, every yolo-* row is
 // live.
@@ -105,7 +105,7 @@ func ParseContainerLsLive(stdout string) map[string]struct{} {
 }
 
 // ParseRunningJailNames parses `podman ps --filter name=^yolo- --format
-// "{{.Names}}"` stdout: one name per non-blank line, trimmed. Mirrors the
+// "{{.Names}}"` stdout: one name per non-blank line, trimmed.
 // podman branch of list_running_jail_names.
 func ParseRunningJailNames(stdout string) []string {
 	var names []string

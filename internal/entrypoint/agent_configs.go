@@ -52,7 +52,6 @@ func loadObject(path string) *jsonx.OrderedMap {
 	return m
 }
 
-// setDefaultMap mirrors dict.setdefault(key, {}) where the default is a fresh
 // object: returns the existing value if it is an OrderedMap, otherwise sets and
 // returns a new empty OrderedMap. (If the existing value is a non-object,
 // Python's later item access would raise; not reproduced — see loadObject.)
@@ -67,7 +66,6 @@ func setDefaultMap(m *jsonx.OrderedMap, key string) *jsonx.OrderedMap {
 	return sub
 }
 
-// setDefault mirrors dict.setdefault(key, default) for scalar defaults: only
 // sets (and returns) default when key is absent.
 func setDefault(m *jsonx.OrderedMap, key string, def any) any {
 	if v, ok := m.Get(key); ok {
@@ -77,7 +75,6 @@ func setDefault(m *jsonx.OrderedMap, key string, def any) any {
 	return def
 }
 
-// updateFrom mirrors dict.update(other): for each key in other (insertion
 // order), set it in m (existing key keeps position, new key appended).
 func updateFrom(m, other *jsonx.OrderedMap) {
 	for _, k := range other.Keys() {
@@ -86,7 +83,6 @@ func updateFrom(m, other *jsonx.OrderedMap) {
 	}
 }
 
-// baseName mirrors pathlib.Path(cmd).name — the final path component. An empty
 // string or a trailing-slash path follow Python's PurePosixPath.name rules.
 func baseName(p string) string {
 	return string(pathName(p))
@@ -108,7 +104,6 @@ func pathName(p string) string {
 	return p
 }
 
-// ConfigureCopilot mirrors agent_configs.configure_copilot.
 func ConfigureCopilot(e *Env) error {
 	dir := e.CopilotDir()
 	if err := os.MkdirAll(dir, 0o755); err != nil {
@@ -155,7 +150,6 @@ func getOr(m *jsonx.OrderedMap, key string, def any) any {
 	return def
 }
 
-// ConfigurePi mirrors agent_configs.configure_pi.
 func ConfigurePi(e *Env) error {
 	dir := e.PiDir()
 	if err := os.MkdirAll(dir, 0o755); err != nil {
@@ -164,7 +158,7 @@ func ConfigurePi(e *Env) error {
 	settingsPath := filepath.Join(dir, "settings.json")
 	settings := loadObject(settingsPath)
 
-	// Host→jail three-way merge (mirrors agent_configs.configure_pi): fill from
+	// Host→jail three-way merge: fill from
 	// the host's ~/.pi/agent/settings.json, reusing the SAME agent-agnostic
 	// merge the claude path uses, against the pi snapshot. The jail-managed
 	// defaultProjectTrust is forced AFTER the merge so it always wins.
@@ -179,7 +173,7 @@ func ConfigurePi(e *Env) error {
 	return writeInPlaceString(settingsPath, dumpJSONIndent2(settings))
 }
 
-// loadHostPiSettings mirrors agent_configs._load_host_pi_settings: reads
+// loadHostPiSettings reads
 // /ctx/host-pi/settings.json only when YOLO_HOST_PI_FILES lists it.
 func (e *Env) loadHostPiSettings() *jsonx.OrderedMap {
 	files := e.hostPiFiles()
@@ -212,7 +206,6 @@ func (e *Env) hostPiFiles() []string {
 	return out
 }
 
-// ConfigureOpencode mirrors agent_configs.configure_opencode.
 func ConfigureOpencode(e *Env) error {
 	dir := e.OpencodeDir()
 	if err := os.MkdirAll(dir, 0o755); err != nil {
@@ -278,7 +271,6 @@ func ConfigureOpencode(e *Env) error {
 	return writeInPlaceString(managedPath, managedSidecar(opencodeMCP.Keys()))
 }
 
-// ConfigureGemini mirrors agent_configs.configure_gemini.
 func ConfigureGemini(e *Env) error {
 	dir := e.GeminiDir()
 	if err := os.MkdirAll(dir, 0o755); err != nil {

@@ -185,7 +185,6 @@ type Handler func(*Session)
 
 // Serve listens on socketPath until a SIGTERM/SIGINT (or stop close); one
 // goroutine per connection. The socket is created 0600 and removed on exit.
-// Mirrors host_service.serve.
 func Serve(handler Handler, socketPath string, stop <-chan struct{}) error {
 	if _, err := os.Stat(socketPath); err == nil {
 		_ = os.Remove(socketPath)
@@ -229,7 +228,6 @@ func Serve(handler Handler, socketPath string, stop <-chan struct{}) error {
 }
 
 // handleOne receives one request, invokes the handler, logs the summary.
-// Mirrors host_service._handle_one.
 func handleOne(handler Handler, conn net.Conn) {
 	start := time.Now()
 	jailID := "unknown"

@@ -48,7 +48,7 @@ func (r *reporter) section(name string) {
 }
 
 // dim prints a dim informational line. The Python form is
-// `console.print("  [dim]- <msg>[/dim]")` — two leading spaces, a "- " marker.
+// `console.print(" [dim]- <msg>[/dim]")` — two leading spaces, a "- " marker.
 func (r *reporter) dim(msg string) {
 	r.line("  " + r.style("- "+msg, ansiDim))
 }
@@ -67,27 +67,27 @@ func (r *reporter) note(text string) {
 	}
 }
 
-// ok increments the pass count and prints "  [PASS] msg".
+// ok increments the pass count and prints " [PASS] msg".
 func (r *reporter) ok(msg string) {
 	r.passed++
 	r.line("  " + r.style("[PASS]", ansiBoldGreen) + " " + msg)
 }
 
-// fail increments the fail count and prints "  [FAIL] msg" + optional note.
+// fail increments the fail count and prints " [FAIL] msg" + optional note.
 func (r *reporter) fail(msg, note string) {
 	r.failed++
 	r.line("  " + r.style("[FAIL]", ansiWhiteOnRed) + " " + msg)
 	r.note(note)
 }
 
-// warn increments the warn count and prints "  [WARN] msg" + optional note.
+// warn increments the warn count and prints " [WARN] msg" + optional note.
 func (r *reporter) warn(msg, note string) {
 	r.warned++
 	r.line("  " + r.style("[WARN]", ansiBlackOnYel) + " " + msg)
 	r.note(note)
 }
 
-// warningLine prints a non-counting "Warning: <msg>" line (yellow). Mirrors the
+// warningLine prints a non-counting "Warning: <msg>" line (yellow).
 // bare console.print("[yellow]Warning: …[/yellow]") calls (e.g. env_sources file
 // not found during the preflight) — informational, NOT a graded [WARN] badge,
 // so it does NOT touch the warn count.
