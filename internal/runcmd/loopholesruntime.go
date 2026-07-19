@@ -13,6 +13,7 @@ import (
 	"github.com/mschulkind-oss/yolo-jail/internal/jsonx"
 	"github.com/mschulkind-oss/yolo-jail/internal/loopholes"
 	"github.com/mschulkind-oss/yolo-jail/internal/paths"
+	"github.com/mschulkind-oss/yolo-jail/internal/prune"
 )
 
 // loopholeDaemon is a host-side service exposing a Unix socket inside the jail.
@@ -516,6 +517,44 @@ func (o *Options) relayKill(pidFile, sockPath string) {
 	}
 	_ = os.Remove(pidFile)
 	_ = sockPath
+}
+
+// relayOrphanGraceSeconds mirrors _relay_reap_orphans' default older_than_seconds
+// grace floor: a relay whose PID file's mtime is younger than this is spared, so
+// one spawned for a jail mid-startup (ensured before its container is visible) is
+// never reaped.
+const relayOrphanGraceSeconds = 3600.0
+
+// relayReapOrphans ports the backstop reap of _relay_reap_orphans, piggybacking
+// on the store-prune gate's live-container enumeration (run_cmd.py:2760-2771).
+// A per-jail relay outlives the yolo process that spawned it by design, and
+// stopLoopholes only reaps the current jail's relay in that original process's
+// graceful tail — jails ended from attach sessions would leak their relay
+// forever otherwise. The current jail's relay (just ensured, container not yet
+// started) is excluded by folding cname into the live set. liveKnown==false
+// (liveness unenumerable) declines the sweep (unknown never reads as "nothing
+// live"). Best-effort: reuses the byte-verified prune engine and the run path's
+// own relayKill machinery, matching Python's _relay_kill(pid_file) call with no
+// socket_path.
+func (o *Options) relayReapOrphans(liveKnown bool, liveCnames map[string]struct{}, cname string) {
+	o.relayReapOrphansIn("/tmp", liveKnown, liveCnames, cname)
+}
+
+// relayReapOrphansIn is relayReapOrphans with an injectable scan base (the pid-
+// file dir). Production always passes "/tmp" (Python's hardcoded default); tests
+// pass a temp dir. Returns the pid files reaped, so the cname-fold decision is
+// assertable without touching /tmp.
+func (o *Options) relayReapOrphansIn(base string, liveKnown bool, liveCnames map[string]struct{}, cname string) []string {
+	// Fold in the current jail's cname so its freshly-ensured relay is never
+	// reaped (Python passes `live_jails | {cname}`).
+	live := map[string]struct{}{cname: {}}
+	for c := range liveCnames {
+		live[c] = struct{}{}
+	}
+	return prune.ReapRelayOrphans(
+		base, liveKnown, live, relayOrphanGraceSeconds, true, o.Now(),
+		func(pidFile string) { o.relayKill(pidFile, "") },
+	)
 }
 
 func (o *Options) waitForSocket(sockPath string, timeout time.Duration) {

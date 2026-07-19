@@ -190,16 +190,26 @@ func (o *Options) runContainer(cfg *jsonx.OrderedMap, rt, repoRoot string) int {
 		}
 	}
 
-	// Store-prune gate + orphan-relay reap (host-only).
+	// Store-prune gate + orphan-relay reap (host-only; never from inside a jail
+	// — an inner CLI can't see its siblings). Both piggyback on the single
+	// live-container enumeration, mirroring run_cmd.py:2756-2771.
 	storePruneOK := false
 	if !o.inJail() {
 		live, known := o.liveYoloContainers(rt)
 		if known && len(live) == 0 {
 			storePruneOK = true
 		}
-		// (orphan-relay reaping is a best-effort backstop; omitted from this
-		// slice — stop_loopholes reaps the current jail's relay on exit.)
-		_ = live
+		// Backstop reap of orphaned per-jail broker relays: a relay outlives the
+		// yolo process that spawned it, and stopLoopholes only reaps the current
+		// jail's relay in the original process's graceful tail — jails ended from
+		// attach sessions leak their relay otherwise. Declines when liveness is
+		// unknown (known==false); excludes the current jail's just-ensured relay.
+		if known {
+			func() {
+				defer func() { _ = recover() }() // cleanup must never block a run
+				o.relayReapOrphans(known, live, cname)
+			}()
+		}
 	}
 
 	// --- Assemble the ordered argv ---
