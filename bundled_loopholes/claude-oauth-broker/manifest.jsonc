@@ -26,11 +26,11 @@
   // pair lives there, not in the read-only bundled dir.
   "ca_cert": "{state}/ca.crt",
   "host_daemon": {
-    "cmd": ["yolo-claude-oauth-broker-host", "--socket", "{socket}"]
+    "cmd": ["yolo", "internal", "daemon", "claude-oauth-broker", "--socket", "{socket}"]
   },
   "jail_daemon": {
     "cmd": ["yolo-oauth-terminator"],
     "restart": "on-failure"
   },
-  "doctor_cmd": ["yolo-claude-oauth-broker-host", "--self-check"]
+  "doctor_cmd": ["yolo", "internal", "daemon", "claude-oauth-broker", "--self-check"]
 }

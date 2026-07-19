@@ -7,6 +7,7 @@ import (
 	"strings"
 	"time"
 
+	"github.com/mschulkind-oss/yolo-jail/internal/execx"
 	"github.com/mschulkind-oss/yolo-jail/internal/json5"
 	"github.com/mschulkind-oss/yolo-jail/internal/jsonx"
 )
@@ -182,6 +183,9 @@ func RunDoctorChecks(loopholes []*Loophole, timeout time.Duration) []DoctorResul
 }
 
 func runOne(argv []string, timeout time.Duration) (*int, string) {
+	// A doctor_cmd of the form ["yolo","internal","daemon",<name>,"--self-check"]
+	// re-execs the running yolo binary rather than resolving "yolo" on PATH.
+	argv = execx.SelfExecArgv(argv)
 	cmd := exec.Command(argv[0], argv[1:]...)
 	var stdout, stderr strings.Builder
 	cmd.Stdout = &stdout

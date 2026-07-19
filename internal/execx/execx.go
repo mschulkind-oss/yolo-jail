@@ -19,8 +19,36 @@ package execx
 
 import (
 	"errors"
+	"os"
 	"syscall"
 )
+
+// SelfExecArgv resolves a host-daemon spawn argv against the currently-running
+// executable. When argv[0] is the bare token "yolo" — the form every
+// manifest/spawn site emits for the `yolo internal daemon <name>` invocation —
+// it is replaced with the absolute path of THIS process's binary
+// (os.Executable). The running CLI then re-execs itself as the daemon, immune
+// to PATH divergence: the jail agent's PATH may not contain "yolo" at all, or
+// may resolve a different yolo than the one actually running.
+//
+// Any other argv[0] (an absolute path, or a config loophole's own command) is
+// left untouched — SelfExecArgv only ever rewrites the bare "yolo" launcher
+// token. The input slice is never mutated; a fresh slice is returned only when a
+// substitution happens. If os.Executable fails, the bare "yolo" token stands so
+// ordinary PATH resolution is still attempted rather than the spawn crashing.
+func SelfExecArgv(argv []string) []string {
+	if len(argv) == 0 || argv[0] != "yolo" {
+		return argv
+	}
+	exe, err := os.Executable()
+	if err != nil || exe == "" {
+		return argv
+	}
+	out := make([]string, len(argv))
+	copy(out, argv)
+	out[0] = exe
+	return out
+}
 
 // Liveness is the tri-state result of a kill(pid, 0) probe. None (unknown) is
 // NOT the same as "dead": callers that "decline to act" on unknown must check

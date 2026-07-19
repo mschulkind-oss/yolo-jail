@@ -41,9 +41,8 @@ deploy: install
     if ! command -v openssl >/dev/null 2>&1; then
         echo "⚠ openssl not found — skipping claude-oauth-broker state init"
     else
-        BROKER_BIN="$(command -v yolo-claude-oauth-broker-host || true)"
-        if [ -z "$BROKER_BIN" ]; then
-            echo "ERROR: yolo-claude-oauth-broker-host not on PATH after install" >&2
+        if ! command -v yolo >/dev/null 2>&1; then
+            echo "ERROR: yolo not on PATH after install" >&2
             exit 1
         fi
 
@@ -70,7 +69,7 @@ deploy: install
         fi
 
         # Generate CA + leaf in the state dir (idempotent).
-        "$BROKER_BIN" --init-ca >/dev/null
+        yolo internal daemon claude-oauth-broker --init-ca >/dev/null
 
         echo "✓ claude-oauth-broker state primed at $HOME/.local/share/yolo-jail/state/claude-oauth-broker"
     fi

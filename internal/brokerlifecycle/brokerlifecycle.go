@@ -47,9 +47,17 @@ const (
 	BrokerSingletonLock    = "/tmp/yolo-claude-oauth-broker.lock"
 	BrokerLoopholeName     = "claude-oauth-broker"
 
-	// BrokerConsoleName is the console-script / Go-binary name the singleton is
-	// spawned as; _broker_pgrep_strays matches this in a process's argv.
+	// BrokerConsoleName is the LEGACY standalone console-script / Go-binary name
+	// the singleton used to be spawned as. It is retained ONLY as a pgrep
+	// pattern (RealPgrepStrays), so a broker started by a not-yet-upgraded yolo
+	// on the same host is still discoverable for one release. The current spawn
+	// form is `yolo internal daemon claude-oauth-broker` (see BrokerSpawnArgv).
 	BrokerConsoleName = "yolo-claude-oauth-broker-host"
+
+	// BrokerDaemonPattern matches the current spawn form's argv
+	// ("<yolo> internal daemon claude-oauth-broker …") for pgrep. It is the
+	// forward half of the dual-pattern in RealPgrepStrays.
+	BrokerDaemonPattern = "internal daemon claude-oauth-broker"
 )
 
 // Timing knobs — behavior-identical to the historical hardcoded values in
@@ -102,8 +110,8 @@ type Deps struct {
 	Alive func(pid int) bool
 	// Kill sends sig to pid (os.kill). Errors are swallowed by callers.
 	Kill func(pid int, sig syscall.Signal) error
-	// Pgrep returns PIDs of stray BrokerConsoleName processes, already
-	// self-filtered (os.getpid() excluded).
+	// Pgrep returns PIDs of stray broker-host processes (current + legacy spawn
+	// forms; see RealPgrepStrays), already self-filtered (os.getpid() excluded).
 	Pgrep func() []int
 
 	// Getenv / accessX back DaemonLauncher (the YOLO_GO_DAEMONS resolution).
@@ -252,11 +260,15 @@ func liveOnly(deps Deps, pids []int) []int {
 	return out
 }
 
-// BrokerSpawnArgv builds the singleton spawn argv, byte-exact vs Python:
-// [*launcher, "--socket", <socketPath>]. launcher is DaemonLauncher's output
-// (the console-script name by default, or the gated Go binary path).
+// BrokerSpawnArgv builds the singleton spawn argv from a yolo-binary launcher
+// prefix: [*launcher, "internal", "daemon", "claude-oauth-broker", "--socket",
+// <socketPath>]. In production `launcher` is the self-exec'd running yolo (see
+// BrokerSpawn), so the broker host daemon is served by re-execing THIS binary
+// as `yolo internal daemon claude-oauth-broker`. Tests pass a literal launcher
+// to assert the expansion.
 func BrokerSpawnArgv(launcher []string, socketPath string) []string {
-	return append(append([]string{}, launcher...), "--socket", socketPath)
+	argv := append([]string{}, launcher...)
+	return append(argv, "internal", "daemon", BrokerLoopholeName, "--socket", socketPath)
 }
 
 // BrokerSpawn ports _broker_spawn: flock the lock file, re-check liveness inside
@@ -284,7 +296,10 @@ func BrokerSpawn(deps Deps) string {
 	// on a stale path fails with EADDRINUSE.
 	removeIgnoreMissing(deps.SocketPath)
 
-	launcher := DaemonLauncher(deps, BrokerConsoleName)
+	// Self-exec: the launcher is the running yolo binary, so the spawned
+	// `yolo internal daemon claude-oauth-broker` re-execs THIS process rather
+	// than resolving "yolo" on PATH.
+	launcher := execx.SelfExecArgv([]string{"yolo"})
 	argv := BrokerSpawnArgv(launcher, deps.SocketPath)
 	pid, exited, err := deps.Spawn(argv, deps.LogPath)
 	if err != nil {
@@ -368,12 +383,19 @@ func BrokerPing(socketPath string, timeout time.Duration) bool {
 	}
 }
 
-// RealPgrepStrays ports _broker_pgrep_strays: PIDs of running BrokerConsoleName
+// RealPgrepStrays ports _broker_pgrep_strays: PIDs of running broker-host
 // processes the OS knows about, regardless of PID-file state, with our own PID
 // filtered out. A missing pgrep / timeout / error yields no PIDs (never an error
 // the "tool absent = no-op" invariant).
+//
+// Dual-pattern for ONE release: the pgrep regex matches BOTH the current spawn
+// form ("<yolo> internal daemon claude-oauth-broker …", BrokerDaemonPattern) AND
+// the legacy standalone binary name (BrokerConsoleName). Without the legacy
+// alternative a broker still running from a pre-self-exec yolo on this host
+// would be invisible to `yolo broker {stop,restart}`, leaking a stray daemon.
+// Drop the legacy alternative next release.
 func RealPgrepStrays() []int {
-	cmd := exec.Command("pgrep", "-f", BrokerConsoleName)
+	cmd := exec.Command("pgrep", "-f", BrokerDaemonPattern+"|"+BrokerConsoleName)
 	out, err := cmd.Output()
 	if err != nil {
 		// Non-zero rc (no match) or spawn failure → nothing to reap.

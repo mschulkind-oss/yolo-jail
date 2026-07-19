@@ -10,6 +10,7 @@ import (
 	"syscall"
 	"time"
 
+	"github.com/mschulkind-oss/yolo-jail/internal/execx"
 	"github.com/mschulkind-oss/yolo-jail/internal/jsonx"
 	"github.com/mschulkind-oss/yolo-jail/internal/loopholes"
 	"github.com/mschulkind-oss/yolo-jail/internal/paths"
@@ -198,19 +199,14 @@ func (o *Options) startExternalService(name string, spec *jsonx.OrderedMap, sock
 		}
 		cmdArgs = append(cmdArgs, strings.ReplaceAll(s, "{socket}", hostSocket))
 	}
-	// Resolve cmd[0] (a console-script daemon name) to its Go binary on PATH.
-	// Only the launcher token is replaced; the substituted --socket/... tail is
-	// kept. Off-PATH → daemonLauncher returns nil and the original token stands.
-	// Without this the full-Go path tried to exec the Python console script
-	// `yolo-host-processes`, which isn't on the jail agent's PATH (observed:
-	// "Failed to launch host service 'host-processes'").
-	if len(cmdArgs) > 0 {
-		launcher := o.daemonLauncher(cmdArgs[0])
-		swapped := len(launcher) != 1 || launcher[0] != cmdArgs[0]
-		if launcher != nil && swapped {
-			cmdArgs = append(append([]string{}, launcher...), cmdArgs[1:]...)
-		}
-	}
+	// A manifest host_daemon.cmd of the form
+	// ["yolo","internal","daemon",<name>,"--socket",…] re-execs the running yolo
+	// binary as the daemon. Substituting os.Executable() for the bare "yolo"
+	// token makes the spawn immune to PATH divergence — the jail agent's PATH
+	// need not contain "yolo" (the old console-script name `yolo-host-processes`
+	// wasn't on it, which broke the spawn). A config loophole's own command
+	// (argv[0] != "yolo") is left untouched.
+	cmdArgs = execx.SelfExecArgv(cmdArgs)
 	logDir := filepath.Join(paths.GlobalStorage(), "logs")
 	_ = os.MkdirAll(logDir, 0o755)
 	cmd := exec.Command(cmdArgs[0], cmdArgs[1:]...)
@@ -370,13 +366,12 @@ func (o *Options) brokerSpawn() {
 		return
 	}
 	_ = os.Remove(brokerSingletonSocket)
-	launcher := o.daemonLauncher("yolo-claude-oauth-broker-host")
-	if launcher == nil {
-		return
-	}
 	logDir := filepath.Join(paths.GlobalStorage(), "logs")
 	_ = os.MkdirAll(logDir, 0o755)
-	argv := append(append([]string{}, launcher...), "--socket", brokerSingletonSocket)
+	// Self-exec'd `yolo internal daemon claude-oauth-broker --socket <sock>`: the
+	// running yolo re-execs itself as the broker host daemon (full dedup onto
+	// internal/brokerlifecycle.BrokerSpawn is a later step).
+	argv := execx.SelfExecArgv([]string{"yolo", "internal", "daemon", "claude-oauth-broker", "--socket", brokerSingletonSocket})
 	cmd := exec.Command(argv[0], argv[1:]...)
 	if l, err := os.OpenFile(filepath.Join(logDir, "host-service-claude-oauth-broker.log"), os.O_APPEND|os.O_CREATE|os.O_WRONLY, 0o644); err == nil {
 		cmd.Stdout, cmd.Stderr = l, l
@@ -401,7 +396,8 @@ func (o *Options) ensureBrokerRelay(cname, rt string) {
 }
 
 // relayEnsure ports _relay_ensure: idempotent per-jail relay supervision under a
-// flock. Spawns the Go/Python relay via YOLO_BROKER_RELAY_BIN or the script.
+// flock. Spawns the self-exec'd `yolo internal daemon broker-relay` (see
+// relaySpawnArgv).
 func (o *Options) relayEnsure(cname, socketsDir string) {
 	shortHash := relayShortHash(cname)
 	pidFile := relayPIDFile(shortHash)
@@ -441,30 +437,21 @@ func (o *Options) relayEnsure(cname, socketsDir string) {
 	o.waitForSocket(sockPath, brokerSpawnTimeout)
 }
 
-// relaySpawnArgv ports _relay_spawn_argv: the Go relay when YOLO_BROKER_RELAY_BIN
-// is set + executable, else the Python broker_relay.py by absolute path. The
-// --socket/--broker/--jail tail is identical either way.
+// relaySpawnArgv builds the per-jail broker-relay spawn argv: the running yolo
+// re-exec'd as `yolo internal daemon broker-relay --socket … --broker … --jail
+// …`. SelfExecArgv substitutes os.Executable() for the bare "yolo" launcher
+// token so the relay is tied to THIS binary regardless of PATH.
+//
+// The former YOLO_BROKER_RELAY_BIN gate and (deleted) Python broker_relay.py
+// fallback are gone. That path was effectively dead — neither YOLO_BROKER_RELAY_BIN
+// nor YOLO_REPO_ROOT was set in production, so relaySpawnArgv returned nil and
+// the relay never started. Now it always yields a runnable argv, so relayEnsure
+// actually spawns the relay whenever a broker loophole is active.
 func (o *Options) relaySpawnArgv(sockPath, brokerSocket, cname string) []string {
-	tail := []string{"--socket", sockPath, "--broker", brokerSocket, "--jail", cname}
-	if goBin := o.Getenv("YOLO_BROKER_RELAY_BIN"); goBin != "" {
-		if info, err := os.Stat(goBin); err == nil && info.Mode()&0o111 != 0 {
-			return append([]string{goBin}, tail...)
-		}
-		o.pr(o.Stdout).print("[yellow]YOLO_BROKER_RELAY_BIN=" + goBin + " is missing or not " +
-			"executable — falling back to the Python relay. Run `just build-go` to rebuild dist-go/.[/yellow]")
-	}
-	// Python fallback: python3 <repo>/src/broker_relay.py.
-	python := o.Getenv("YOLO_PYTHON")
-	if python == "" {
-		python = "python3"
-	}
-	if repo := o.Getenv("YOLO_REPO_ROOT"); repo != "" {
-		script := filepath.Join(repo, "src", "broker_relay.py")
-		if fileExists(script) {
-			return append([]string{python, script}, tail...)
-		}
-	}
-	return nil
+	return execx.SelfExecArgv([]string{
+		"yolo", "internal", "daemon", "broker-relay",
+		"--socket", sockPath, "--broker", brokerSocket, "--jail", cname,
+	})
 }
 
 func (o *Options) relayIsAlive(pidFile, sockPath string) bool {

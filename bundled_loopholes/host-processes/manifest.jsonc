@@ -17,7 +17,7 @@
   // No TLS intercept: jails reach the daemon via the ``yolo-ps``
   // client, which connects to YOLO_SERVICE_HOST_PROCESSES_SOCKET.
   "host_daemon": {
-    "cmd": ["yolo-host-processes", "--socket", "{socket}"]
+    "cmd": ["yolo", "internal", "daemon", "host-processes", "--socket", "{socket}"]
   },
-  "doctor_cmd": ["yolo-host-processes", "--self-check"]
+  "doctor_cmd": ["yolo", "internal", "daemon", "host-processes", "--self-check"]
 }

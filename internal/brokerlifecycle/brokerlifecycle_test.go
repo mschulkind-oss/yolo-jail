@@ -263,14 +263,15 @@ func TestBrokerKillPgrepFallback(t *testing.T) {
 }
 
 func TestBrokerSpawnArgv(t *testing.T) {
-	got := BrokerSpawnArgv([]string{"yolo-claude-oauth-broker-host"}, "/tmp/yolo-claude-oauth-broker.sock")
-	want := []string{"yolo-claude-oauth-broker-host", "--socket", "/tmp/yolo-claude-oauth-broker.sock"}
+	// The bare "yolo" launcher expands to the `internal daemon` invocation.
+	got := BrokerSpawnArgv([]string{"yolo"}, "/tmp/yolo-claude-oauth-broker.sock")
+	want := []string{"yolo", "internal", "daemon", "claude-oauth-broker", "--socket", "/tmp/yolo-claude-oauth-broker.sock"}
 	if !reflect.DeepEqual(got, want) {
 		t.Errorf("argv = %v, want %v", got, want)
 	}
-	// With a gated Go binary launcher (two-token launcher), the tail is preserved.
-	got2 := BrokerSpawnArgv([]string{"/opt/dist/yolo-claude-oauth-broker-host"}, "/s.sock")
-	want2 := []string{"/opt/dist/yolo-claude-oauth-broker-host", "--socket", "/s.sock"}
+	// A resolved absolute launcher (the self-exec'd yolo path) keeps the tail.
+	got2 := BrokerSpawnArgv([]string{"/opt/yolo/bin/yolo"}, "/s.sock")
+	want2 := []string{"/opt/yolo/bin/yolo", "internal", "daemon", "claude-oauth-broker", "--socket", "/s.sock"}
 	if !reflect.DeepEqual(got2, want2) {
 		t.Errorf("argv = %v, want %v", got2, want2)
 	}
@@ -286,8 +287,13 @@ func TestBrokerSpawnHappy(t *testing.T) {
 	if sock != deps.SocketPath {
 		t.Errorf("spawn returned %q, want %q", sock, deps.SocketPath)
 	}
-	// Argv is byte-exact.
-	wantArgv := []string{BrokerConsoleName, "--socket", deps.SocketPath}
+	// Argv is the self-exec'd `yolo internal daemon claude-oauth-broker`: argv[0]
+	// is THIS test binary (os.Executable), the tail is the daemon invocation.
+	exe, err := os.Executable()
+	if err != nil {
+		t.Fatalf("os.Executable: %v", err)
+	}
+	wantArgv := []string{exe, "internal", "daemon", "claude-oauth-broker", "--socket", deps.SocketPath}
 	if !reflect.DeepEqual(st.spawnArgv, wantArgv) {
 		t.Errorf("spawn argv = %v, want %v", st.spawnArgv, wantArgv)
 	}
