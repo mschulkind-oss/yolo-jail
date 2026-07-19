@@ -254,11 +254,37 @@ problem** — the rest are glibc-only, static, or musl.
 ### Implementation blueprint (amendments from adversarial review folded in)
 
 1. **flake.nix:** retarget the `/lib64` (and `/lib`) dynamic-linker symlink
-   (`flake.nix:361-364`) → `${pkgs.nix-ld}/libexec/nix-ld`. **Stock binary
-   only, no `overrideAttrs` recompile** — a recompile would break the
-   deliberate aarch64-darwin → aarch64-linux zero-Linux-builder image build
-   (`flake.nix:47-65`); stock nix-ld substitutes from cache.nixos.org for both
-   arches.
+   (`flake.nix:361-364`) → nix-ld. Two variants:
+   - **A (preferred): custom nix-ld derivation with baked defaults.**
+     `DEFAULT_NIX_LD` is a build-time `option_env!` in nix-ld's source — bake
+     it to `${imagePkgs.stdenv.cc.bintools.dynamicLinker}` so the real loader
+     always resolves with zero env vars and zero runtime wiring. This
+     eliminates the cryptic-SIGABRT class outright: the panic was an unwrap on
+     a *missing loader*; with the loader compiled in, a missing lib dir
+     degrades to the familiar readable `libstdc++.so.6: cannot open` error.
+     The default *library* dir is a hardcoded const in current source
+     (`/run/current-system/sw/share/nix-ld/lib`), so either keep the
+     entrypoint `/run` symlink (step 4) for the lib half, or add a one-line
+     `substituteInPlace` pointing it at the baked `/usr/share/nix-ld/lib` and
+     drop the runtime wiring entirely.
+   - **B (zero-build fallback): stock `pkgs.nix-ld`** — substitutable from
+     cache.nixos.org (~30 KiB) for both arches; works via the `/run` fallback
+     wiring (step 4) + baked `NIX_LD` env (step 3). Fine as a first commit or
+     if the custom-derivation plumbing ever regresses.
+
+   *Delivery note (corrected 2026-07-19):* an earlier draft mandated variant B
+   on the grounds that any recompile breaks the macOS "zero-Linux-builder"
+   image build. That premise is stale: the image **already** contains
+   repo-source `aarch64-linux` derivations that are never on cache.nixos.org
+   (`yolo-jail-conf`, the entrypoint pkg, the stream script — see
+   `handoff-cachix-cache.md`), so a custom nix-ld adds no new requirement — it
+   rides the same delivery paths as the rest of the image: the CI Linux image
+   build (`ci.yml`), the release-gated Cachix publish (`publish.yml`
+   `push-image-cache`, wired pending account), and the on-demand macOS Linux
+   builder (`handoff-macos-ondemand-builder.md`, in progress). The flake's
+   "no-Linux-builder property" comment (`flake.nix:52-60`) is specifically
+   about host-cross-compiled Go binaries, not an image-wide invariant. A
+   no_std Rust shim builds in seconds on the builder.
 2. **flake.nix:** bake a defaults dir at a fixed **non-store** image path
    (e.g. `/usr/share/nix-ld/lib/`) in the `binPathLinks` derivation:
    `ld.so → ${imagePkgs.stdenv.cc.bintools.dynamicLinker}` plus symlinks to
@@ -267,18 +293,21 @@ problem** — the rest are glibc-only, static, or musl.
    does. Keep it **minimal** — do *not* mirror the whole ~189-entry farm: the
    injected path outranks `DT_RUNPATH` for the FHS binary itself, so a smaller
    dir means a *smaller* shadow surface than today's. Grow on proven need.
-3. **flake.nix:** add `NIX_LD=<real ld.so store path>` to image `config.Env`
-   as belt-and-suspenders — covers any FHS exec in the window before the
-   entrypoint wires `/run` (nix-ld checks `NIX_LD` before its compiled-in
-   fallback path, and `LD_LIBRARY_PATH` **cannot** mask a missing fallback:
-   it locates *libraries*, not the loader).
+3. **flake.nix:** under variant B, add `NIX_LD=<real ld.so store path>` to
+   image `config.Env` as belt-and-suspenders — covers any FHS exec in the
+   window before the entrypoint wires `/run` (nix-ld checks `NIX_LD` before
+   its compiled-in fallback path, and `LD_LIBRARY_PATH` **cannot** mask a
+   missing fallback: it locates *libraries*, not the loader). Under variant A
+   this is redundant (the default is compiled in) but harmless.
 4. **entrypoint (Python + Go twins):** first thing at startup, idempotently
    (`ln -sfn`) create
    `/run/current-system/sw/share/nix-ld/lib → /usr/share/nix-ld/lib`
-   (`mkdir -p` parents). **Loud fail-fast**, unlike the best-effort
-   `generate_ld_cache` — the missing-fallback failure mode is a jail-wide
-   cryptic SIGABRT for every FHS binary. Must also run on container-reuse
-   `exec` paths (cf. the `_port_in_use` guard pattern).
+   (`mkdir -p` parents). Under variant B this is the correctness path —
+   **loud fail-fast**, unlike the best-effort `generate_ld_cache`, because
+   the missing-fallback failure mode there is a jail-wide cryptic SIGABRT.
+   Under variant A it's only needed if the lib-dir const isn't patched, and a
+   miss degrades to a readable loader error. Must run on container-reuse
+   `exec` paths too (cf. the `_port_in_use` guard pattern).
 5. **cli (both twins):** give `--tmpfs /run` an explicit mode — under docker's
    `-u UID:GID` a root-owned 0755 `/run` would make step 4 fail with EACCES
    (podman rootless runs uid 0 and is unaffected).
@@ -330,8 +359,8 @@ problem** — the rest are glibc-only, static, or musl.
 
 | Alternative | Why rejected |
 |---|---|
-| **Custom glibc interpreter with `user-defined-trusted-dirs=/lib /usr/lib`** (upstream make flag; semantically purest — default dirs rank *last*, zero env manipulation) | Requires compiling glibc: breaks the macOS zero-Linux-builder image build (never substitutable), and a second glibc paired with farm libs is a GLIBC_PRIVATE minefield (interpreter and `libc.so.6` are build-locked; farm core-lib symlinks would need retargeting to the variant). Purity not worth the operational cost. Recorded so it isn't re-litigated. |
-| **Cache-reading glibc interpreter** (one-hunk patch: `LD_SO_CACHE=/etc/ld.so.cache`, making the existing `generate_ld_cache` output authoritative — this doc's B.3) | Same glibc-compile + GLIBC_PRIVATE costs as above, and cache outranks default dirs (worse shadow ordering than trusted-dirs). Strictly dominated. |
+| **Custom glibc interpreter with `user-defined-trusted-dirs=/lib /usr/lib`** (upstream make flag; semantically purest — default dirs rank *last*, zero env manipulation) | *Buildable* — the CI/Cachix + on-demand-builder delivery (step 1 note) means a custom glibc is no longer impossible on macOS hosts — but still rejected: a second glibc paired with farm libs is a GLIBC_PRIVATE minefield (interpreter and `libc.so.6` are build-locked; farm core-lib symlinks would need retargeting to the variant), and it's a full glibc recompile on every nixpkgs pin bump versus a seconds-long Rust shim, for a marginal purity gain. Recorded so it isn't re-litigated. |
+| **Cache-reading glibc interpreter** (one-hunk patch: `LD_SO_CACHE=/etc/ld.so.cache`, making the existing `generate_ld_cache` output authoritative — this doc's B.3) | Same GLIBC_PRIVATE + recompile-cadence costs as above, and cache outranks default dirs (worse shadow ordering than trusted-dirs). Strictly dominated. |
 | **`/etc/ld-nix.so.preload` baked at image build** (the table's "Blocked" verdict was wrong — see correction above) | Genuinely available and zero-new-components, but preloads farm libstdc++ into **every** process including nix-built ones. Kept as a documented emergency stopgap only. |
 | **De-mise-ing infrastructure alone** (pin bootstrap npm + agent launchers + MCP to nix `/bin/node`) | Insufficient as the *only* fix: a live custom MCP server in this jail (`cerebras-mcp`, bare command → mise shims → mise node) escapes any config-layer rewrite, and any future FHS binary re-enters the class. See below for its residual value. |
 | **buildFHSEnv / steam-run** | bubblewrap needs nested user namespaces that fail in rootless podman; per-call-site anyway. |
