@@ -475,7 +475,16 @@ def main():
         if _go_bin_dir:
             _go_bin = Path(_go_bin_dir) / "yolo"
             if os.access(_go_bin, os.X_OK):
-                os.execv(str(_go_bin), [str(_go_bin), *sys.argv[1:]])
+                # os.access(X_OK) only checks the perm bit — a stale or
+                # wrong-arch dist-go binary passes it but os.execv then raises
+                # (e.g. OSError "Exec format error").  Unguarded, that tracebacks
+                # on EVERY yolo call, contradicting the "silent fall-through"
+                # contract.  Swallow the exec failure and fall through to the
+                # normal Python path (availability beats the A/B preference).
+                try:
+                    os.execv(str(_go_bin), [str(_go_bin), *sys.argv[1:]])
+                except OSError:
+                    pass
 
     # The jail-side shim chdirs into the repo root so ``python -m
     # src.cli`` can find the ``src`` package (uv run doesn't honor
