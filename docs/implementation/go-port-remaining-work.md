@@ -45,9 +45,10 @@ tests before trusting:
 - [ ] **`TestHostPlatformNaming` covers darwin** — refactor the OS→machine map
   to a pure function and table-test linux/darwin × amd64/arm64 (the
   darwin/arm64→arm64 case is where the bug lives; the test skipped it).
-- [ ] **broker-relay orphan reap on the Go `run` path** — Python reaps orphaned
-  relays every run; the Go path omitted it (attach-ended jails leak a relay).
-  Port host-only, piggybacking the live-container enumeration.
+- [x] **broker-relay orphan reap on the Go `run` path** (`5c3f6df`) — ported
+  host-only, piggybacking the live-container enumeration, declining on unknown
+  liveness, reusing the byte-verified `prune.ReapRelayOrphans` engine. Regressions
+  `TestRelayReapOrphans{CnameFold,UnknownLivenessDeclines}`. Verified both platforms.
 - [ ] **broker operational logging** — Go broker had zero logging; port the
   incident-derived contract (2026-04-23 invalid_grant, 2026-05-12 logout-loop)
   matching the cgd/journald `--log-file` pattern, with token-fingerprint
