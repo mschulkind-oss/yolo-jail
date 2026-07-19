@@ -138,6 +138,17 @@ func TestCheckConfigChangesFirstRunSaves(t *testing.T) {
 	}
 }
 
+type failPrompter struct {
+	t      *testing.T
+	called bool
+}
+
+func (p *failPrompter) Prompt(diffLines []string) bool {
+	p.called = true
+	p.t.Errorf("unexpected prompt with diff:\n%v", diffLines)
+	return false
+}
+
 func TestCheckConfigChangesUnchangedPasses(t *testing.T) {
 	ws := filepath.Join(t.TempDir(), "project")
 	config := decode(t, `{"packages": ["strace"]}`)

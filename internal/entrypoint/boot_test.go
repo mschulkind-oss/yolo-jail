@@ -1,9 +1,7 @@
 package entrypoint
 
 import (
-	"encoding/json"
 	"os"
-	"os/exec"
 	"path/filepath"
 	"reflect"
 	"sort"
@@ -37,22 +35,10 @@ not an export line
 export = malformed
 `
 
-// TestHydrateEnvFromUserEnvFileParity drives the Go hydrator and the LIVE Python
-// hydrator over the same corpus and asserts the resulting key→value maps match.
-// Skips (does not fail) when python3/uv is unavailable, mirroring the tree
-// parity harness.
-func TestHydrateEnvFromUserEnvFileParity(t *testing.T) {
-	// --- Python side (LIVE oracle) FIRST ---
-	// The Go hydrator calls os.Setenv for each key it sets, mutating THIS
-	// process's real environment; the oracle subprocess inherits os.Environ(),
-	// so we must capture the Python delta before the Go side pollutes the env
-	// (otherwise Python sees the corpus keys already set and reports no delta).
-	pyVals, ok := runHydrateOracle(t, hydrationCorpus, map[string]string{"FOO": "LAUNCH_WINS"})
-	if !ok {
-		t.Skip("python oracle unavailable (uv/python3 not found or failed)")
-	}
-
-	// --- Go side ---
+// TestHydrateEnvFromUserEnvFile validates the Go hydrator against the committed
+// corpus (the ${KEY:-'value'} default form, embedded quotes, bare/single/double,
+// launch-env-wins precedence).
+func TestHydrateEnvFromUserEnvFile(t *testing.T) {
 	home := t.TempDir()
 	cfgDir := filepath.Join(home, ".config")
 	if err := os.MkdirAll(cfgDir, 0o755); err != nil {
@@ -61,96 +47,42 @@ func TestHydrateEnvFromUserEnvFileParity(t *testing.T) {
 	if err := os.WriteFile(filepath.Join(cfgDir, "yolo-user-env.sh"), []byte(hydrationCorpus), 0o644); err != nil {
 		t.Fatal(err)
 	}
-	// A pre-set launch-time value must beat the file's default for that key.
 	e := NewEnv(map[string]string{"JAIL_HOME": home, "FOO": "LAUNCH_WINS"})
-	// Snapshot values so we compare the DELTA (new/changed keys), matching the
-	// Python oracle's delta semantics — FOO stays LAUNCH_WINS (launch env wins)
-	// so it is unchanged and appears in neither delta.
 	before := map[string]string{}
 	for k, v := range e.Vars {
 		before[k] = v
 	}
 	hydrateEnvFromUserEnvFile(e)
-	goVals := map[string]string{}
+	delta := map[string]string{}
 	for k, v := range e.Vars {
 		if bv, existed := before[k]; existed && bv == v {
 			continue
 		}
-		goVals[k] = v
+		delta[k] = v
 	}
 
-	// The Python oracle reports exactly the keys _hydrate_env_from_user_env_file
-	// set (delta against the pre-hydration env). Compare those maps.
-	if !reflect.DeepEqual(goVals, pyVals) {
-		t.Errorf("hydration mismatch\n  go: %#v\n  py: %#v", goVals, pyVals)
+	// FOO should NOT appear (launch env wins over the default).
+	if _, ok := delta["FOO"]; ok {
+		t.Error("FOO should not be in delta — launch env must win")
 	}
-}
-
-// runHydrateOracle writes the corpus to a temp HOME, then runs the LIVE Python
-// entrypoint._hydrate_env_from_user_env_file with the given pre-set launch env,
-// and returns the delta (keys the hydrator added/changed) as a map.
-func runHydrateOracle(t *testing.T, corpus string, launchEnv map[string]string) (map[string]string, bool) {
-	t.Helper()
-	repoRoot := findRepoRoot(t)
-
-	home := t.TempDir()
-	cfgDir := filepath.Join(home, ".config")
-	if err := os.MkdirAll(cfgDir, 0o755); err != nil {
-		t.Fatal(err)
+	// Keys from the corpus that had no launch override should appear.
+	for _, key := range []string{"QUOTED", "EMPTY", "SINGLE", "SINGLE_ESC", "DOUBLE", "BARE", "BARE_EMPTY", "MULTI"} {
+		if _, ok := delta[key]; !ok {
+			t.Errorf("expected %s in delta", key)
+		}
 	}
-	if err := os.WriteFile(filepath.Join(cfgDir, "yolo-user-env.sh"), []byte(corpus), 0o644); err != nil {
-		t.Fatal(err)
+	if delta["QUOTED"] != "it's a test" {
+		t.Errorf("QUOTED = %q, want %q", delta["QUOTED"], "it's a test")
 	}
-
-	script := `
-import json, os, sys
-sys.path.insert(0, os.path.join(os.environ["REPO_ROOT"], "src"))
-import entrypoint
-entrypoint.HOME = __import__("pathlib").Path(os.environ["JAIL_HOME"])
-launch = json.loads(os.environ["LAUNCH_ENV"])
-before = dict(os.environ)
-for k, v in launch.items():
-    os.environ[k] = v
-    before[k] = v
-entrypoint._hydrate_env_from_user_env_file()
-delta = {}
-for k, v in os.environ.items():
-    if k not in before or before[k] != v:
-        delta[k] = v
-json.dump(delta, sys.stdout)
-`
-	launchJSON, _ := json.Marshal(launchEnv)
-
-	var cmd *exec.Cmd
-	if _, err := exec.LookPath("uv"); err == nil {
-		cmd = exec.Command("uv", "run", "python", "-c", script)
-	} else if _, err := exec.LookPath("python3"); err == nil {
-		cmd = exec.Command("python3", "-c", script)
-	} else {
-		return nil, false
+	if delta["SINGLE"] != "literal single" {
+		t.Errorf("SINGLE = %q", delta["SINGLE"])
 	}
-	cmd.Dir = repoRoot
-	// Override (not append): inside a jail os.Environ() already carries a
-	// JAIL_HOME, and glibc getenv returns the FIRST duplicate — so a plain
-	// append would be shadowed. envWith replaces in place.
-	env := os.Environ()
-	env = envWith(env, "REPO_ROOT", repoRoot)
-	env = envWith(env, "JAIL_HOME", home)
-	env = envWith(env, "LAUNCH_ENV", string(launchJSON))
-	cmd.Env = env
-	var stdout, stderr strings.Builder
-	cmd.Stdout = &stdout
-	cmd.Stderr = &stderr
-	if err := cmd.Run(); err != nil {
-		t.Logf("python hydrate oracle failed: %v\nstderr:\n%s", err, stderr.String())
-		return nil, false
+	if delta["DOUBLE"] != "double val" {
+		t.Errorf("DOUBLE = %q", delta["DOUBLE"])
 	}
-	var delta map[string]string
-	if err := json.Unmarshal([]byte(stdout.String()), &delta); err != nil {
-		t.Logf("decode hydrate oracle output: %v\n%s", err, stdout.String())
-		return nil, false
+	if delta["BARE"] != "bareword" {
+		t.Errorf("BARE = %q", delta["BARE"])
 	}
-	return delta, true
 }
 
 func TestForwardEntryPort(t *testing.T) {

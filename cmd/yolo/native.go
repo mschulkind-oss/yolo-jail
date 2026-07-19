@@ -26,11 +26,7 @@ import (
 	"github.com/mschulkind-oss/yolo-jail/internal/runtime"
 )
 
-// nativeDispatch maps a subcommand to its native Go handler. Unconditionally
-// native slices (config-ref, init, …) register here as they land; gated slices
-// (check/doctor/run) register here too but only run when frontdoor.IsNative
-// gates them on via YOLO_IMPL=go — dispatchNative is only reached for a
-// subcommand IsNative already approved, so a plain map entry is correct.
+// nativeDispatch maps each subcommand to its Go handler.
 var nativeDispatch = map[string]func(args []string) int{
 	"check":                 runCheck,
 	"doctor":                runCheck, // doctor is an alias for check (same body + flag).
@@ -50,7 +46,7 @@ var nativeDispatch = map[string]func(args []string) int{
 }
 
 // runBuilder dispatches `yolo builder {setup,start,stop,status}` (macOS-only
-// on-demand Linux builder VM). Gated behind YOLO_IMPL=go.
+// on-demand Linux builder VM).
 func runBuilder(args []string) int {
 	var sub string
 	var rest []string
@@ -62,7 +58,7 @@ func runBuilder(args []string) int {
 }
 
 // runMacosSetup/Teardown/Unshare/FixPermissions dispatch the four macos-*
-// commands (macOS-only; refuse/no-op on Linux). Gated behind YOLO_IMPL=go.
+// commands (macOS-only; refuse/no-op on Linux).
 func runMacosSetup(_ []string) int    { return macosuser.MacosSetup(macosuser.RealDeps(nil, nil)) }
 func runMacosTeardown(_ []string) int { return macosuser.MacosTeardown(macosuser.RealDeps(nil, nil)) }
 
@@ -82,9 +78,7 @@ func runMacosFixPermissions(args []string) int {
 	return macosuser.MacosFixPermissions(macosuser.RealDeps(nil, nil), path)
 }
 
-// runPrune runs the native `yolo prune` (disk reclaim). Parses the prune flags
-// (default dry-run; --apply reclaims). Gated behind YOLO_IMPL=go; ANSI-stripped
-// output contract, byte-exact reclaim decisions.
+// runPrune runs `yolo prune` (disk reclaim). Default dry-run; --apply reclaims.
 func runPrune(args []string) int {
 	opts := prunecmd.NewDefaultOptions()
 	opts.Color = true
@@ -131,8 +125,7 @@ func runPrune(args []string) int {
 }
 
 // runBroker dispatches `yolo broker {status,stop,restart,logs}`. args is the
-// rewritten argv[1:] (args[0]=="broker"). Gated behind YOLO_IMPL=go; info-parity
-// output, exact exit codes + paths + tail argv.
+// rewritten argv[1:] (args[0]=="broker").
 func runBroker(args []string) int {
 	var sub string
 	var rest []string
@@ -175,14 +168,13 @@ func runBroker(args []string) int {
 		}
 		return brokercmd.Logs(deps, lines, follow)
 	default:
-		// Unknown/absent sub-subcommand → Python (typer prints group help).
-		return delegateToPython(args)
+		fmt.Fprintf(os.Stderr, "Usage: yolo broker {status|stop|restart|logs}\n")
+		return 1
 	}
 }
 
 // runInit runs `yolo init` (scaffold yolo-jail.jsonc + briefing). Parses
-// repeatable --mount/-m. Gated behind YOLO_IMPL=go; written file is byte-exact,
-// briefing is info-parity Go-native color.
+// repeatable --mount/-m.
 func runInit(args []string) int {
 	var mounts []string
 	for i := 1; i < len(args); i++ {
@@ -205,7 +197,7 @@ func runInit(args []string) int {
 	return initcmd.Init(cwd, mounts, os.Stdout, isTTYStdout())
 }
 
-// runInitUserConfig runs `yolo init-user-config`. Gated behind YOLO_IMPL=go.
+// runInitUserConfig runs `yolo init-user-config`.
 func runInitUserConfig(_ []string) int {
 	return initcmd.InitUserConfig(os.Stdout)
 }
@@ -218,16 +210,14 @@ func isTTYStdout() bool {
 	return info.Mode()&os.ModeCharDevice != 0
 }
 
-// runConfigRef prints the full configuration reference. Gated behind
-// YOLO_IMPL=go; info-parity Go-native output (color on a TTY). args ignored.
+// runConfigRef prints the full configuration reference. args ignored.
 func runConfigRef(_ []string) int {
 	return configref.RunStdout()
 }
 
 // runLoopholes dispatches the `yolo loopholes {list,status,enable,disable}`
 // group. args is the rewritten argv[1:], so args[0] == "loopholes" and args[1]
-// is the sub-subcommand. Gated behind YOLO_IMPL=go; plain typer.echo output
-// (byte-parity with Python).
+// is the sub-subcommand.
 func runLoopholes(args []string) int {
 	// args: ["loopholes", <sub>, <rest>...]
 	var sub string
@@ -249,17 +239,15 @@ func runLoopholes(args []string) int {
 		}
 		return loopholescmd.SetEnabled(deps, rest[0], sub == "enable")
 	default:
-		// Unknown sub-subcommand: fall back to Python (typer prints the group
-		// help / error). Delegation keeps behavior faithful for edge cases.
-		return delegateToPython(args)
+		fmt.Fprintf(os.Stderr, "Usage: yolo loopholes {list|status|enable|disable} [name]\n")
+		return 1
 	}
 }
 
-// runPs runs the native `yolo ps` (list running jails). Gated behind
-// YOLO_IMPL=go; plain typer.echo output, byte-parity with Python. args is
-// ignored (ps takes no flags). Uses PLATFORM-AWARE runtime resolution (audit
-// §B/D11): on macOS with Apple Container running, `podman ps` would be empty and
-// the tracking-prune would delete live jails' files.
+// runPs runs `yolo ps` (list running jails). args is ignored (ps takes no
+// flags). Uses platform-aware runtime resolution: on macOS with Apple Container
+// running, `podman ps` would be empty and the tracking-prune would delete live
+// jails' files.
 func runPs(_ []string) int {
 	detect := func() string {
 		return runtime.PsRuntime(paths.IsMacOS, func(bin string) bool {
@@ -284,8 +272,8 @@ func psRunCmd(argv []string) (string, bool) {
 }
 
 // runRun parses the run flags (--network, --new, --profile, --dry-run) and the
-// post-`--` command from args (the rewritten argv[1:]) and runs the native Go
-// container-launch. Gated behind YOLO_IMPL=go.
+// post-`--` command from args (the rewritten argv[1:]) and runs the container
+// launch.
 //
 // The front-door RewriteArgv inserts "run" at the `--` position, so flags that
 // preceded `--` end up BEFORE the "run" token (e.g. `yolo --new -- true` →

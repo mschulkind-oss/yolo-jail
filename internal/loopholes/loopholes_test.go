@@ -350,7 +350,7 @@ func TestRepoRootHostModeFindsBundled(t *testing.T) {
 	// cwd during `go test` is the package dir (a descendant of the repo), so the
 	// walk should reach the real checkout.
 	rr := repoRoot()
-	if !fileExists(filepath.Join(rr, "src", "entrypoint", "__init__.py")) {
+	if !fileExists(filepath.Join(rr, "go.mod")) {
 		t.Fatalf("repoRoot()=%q is not a yolo-jail checkout (host-mode B3 regression)", rr)
 	}
 	got := Discover(DiscoverOptions{IncludeDisabled: true, IncludeBundled: true})

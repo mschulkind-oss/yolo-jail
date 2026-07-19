@@ -321,22 +321,21 @@ func inStrSlice(list []string, s string) bool {
 func resolveRepoRoot(getenv func(string) string) (string, bool) {
 	if env := getenv("YOLO_REPO_ROOT"); env != "" {
 		if fileExists(filepath.Join(env, "flake.nix")) ||
-			fileExists(filepath.Join(env, "src", "entrypoint", "__init__.py")) {
+			fileExists(filepath.Join(env, "go.mod")) {
 			if r, err := filepath.Abs(env); err == nil {
 				return r, true
 			}
 			return env, true
 		}
 	}
-	// Source-checkout detection: walk up from cwd for a YOLO-JAIL flake —
-	// requiring BOTH flake.nix AND src/entrypoint/__init__.py, else a user's own
-	// flake workspace would be hijacked as the yolo-jail repo (audit 2026-07-18
-	// §A/B2). Mirrors the runcmd fix.
+	// Source-checkout detection: walk up from cwd for a YOLO-JAIL checkout —
+	// requiring BOTH flake.nix AND go.mod, else a user's own flake workspace
+	// would be hijacked as the yolo-jail repo.
 	dir, err := os.Getwd()
 	if err == nil {
 		for {
 			if fileExists(filepath.Join(dir, "flake.nix")) &&
-				fileExists(filepath.Join(dir, "src", "entrypoint", "__init__.py")) {
+				fileExists(filepath.Join(dir, "go.mod")) {
 				if r, e := filepath.Abs(dir); e == nil {
 					return r, true
 				}

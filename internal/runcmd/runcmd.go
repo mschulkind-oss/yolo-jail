@@ -20,11 +20,7 @@
 // is factored into a golden-able builder (assemble.go) driven off the injected
 // seams.
 //
-// Wired native ONLY behind the YOLO_IMPL=go gate (reuse frontdoor's
-// goImplEnabled); the default still delegates to Python. `run` is the default
-// subcommand (bare `yolo -- cmd` → run), so the gate defaults off with care.
-//
-// Source of truth: src/cli/run_cmd.py. Port from that file, never from memory.
+// `run` is the default subcommand (bare `yolo -- cmd` → run).
 package runcmd
 
 import (

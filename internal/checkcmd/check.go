@@ -378,18 +378,12 @@ func (o *Options) sectionMergedConfig(r *reporter, merged *jsonx.OrderedMap, wor
 	return false
 }
 
-// sectionEntrypointDryRun ports the Entrypoint Dry-Run block. Runs the Python
-// entrypoint dry-run subprocess (until YOLO_ENTRYPOINT_IMPL defaults to go; see
-// the handoff) and reports success/failure.
+// sectionEntrypointDryRun runs the Go entrypoint generators in a temp home and
+// reports success/failure.
 func (o *Options) sectionEntrypointDryRun(r *reporter, repoRoot string, repoRootOK bool, workspace string, merged *jsonx.OrderedMap) {
 	r.section("Entrypoint Dry-Run")
 	if !repoRootOK {
 		r.fail("Entrypoint preflight failed", "repo root resolution failed")
-		r.blank()
-		return
-	}
-	if !o.PathExists(filepath.Join(repoRoot, "src", "entrypoint", "__init__.py")) {
-		r.fail("Entrypoint preflight failed", "entrypoint source not found under "+repoRoot)
 		r.blank()
 		return
 	}
@@ -607,10 +601,8 @@ func (o *Options) sectionInlineLoopholes(r *reporter, merged *jsonx.OrderedMap) 
 	r.blank()
 }
 
-// entrypointPreflight ports _entrypoint_preflight for the check path. It spawns
-// `python3 -c <code>` against repo_root/src with a temp HOME and the same
-// YOLO_* env the Python builds, and returns "" on success or the failure detail.
-// (Until YOLO_ENTRYPOINT_IMPL defaults to go; see the handoff.)
+// entrypointPreflight runs the Go entrypoint generators in a temp home and
+// returns "" on success or the failure detail.
 func (o *Options) entrypointPreflight(r *reporter, repoRoot, workspace string, merged *jsonx.OrderedMap) string {
 	return o.runEntrypointPreflight(r, repoRoot, workspace, merged)
 }

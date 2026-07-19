@@ -9,11 +9,10 @@
 package agentsmd
 
 import (
+	"bytes"
 	"os"
 	"sort"
 	"strings"
-
-	"github.com/mschulkind-oss/yolo-jail/internal/tomlx"
 )
 
 // BlockedTool is one entry of the "Blocked Tools" section (name + optional
@@ -299,25 +298,15 @@ func loopholeFirst(desc string) string {
 }
 
 // WorkspaceIsYoloSourceTree reports whether workspace is a yolo-jail source
-// checkout: src/cli/__init__.py present AND pyproject.toml naming the yolo-jail
-// project. Absent/unreadable/foreign pyproject → false. Mirrors
-// _workspace_is_yolo_source_tree.
+// checkout: go.mod with the yolo-jail module path AND cmd/yolo/main.go present.
 func WorkspaceIsYoloSourceTree(workspace string) bool {
-	if _, err := os.Stat(workspace + "/src/cli/__init__.py"); err != nil {
-		return false
-	}
-	data, err := os.ReadFile(workspace + "/pyproject.toml")
+	data, err := os.ReadFile(workspace + "/go.mod")
 	if err != nil {
 		return false
 	}
-	doc, err := tomlx.Decode(data)
-	if err != nil {
+	if !bytes.Contains(data, []byte("yolo-jail")) {
 		return false
 	}
-	project, ok := doc["project"].(map[string]any)
-	if !ok {
-		return false
-	}
-	name, _ := project["name"].(string)
-	return name == "yolo-jail"
+	_, err = os.Stat(workspace + "/cmd/yolo/main.go")
+	return err == nil
 }

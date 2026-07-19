@@ -140,11 +140,10 @@ func TestExitCodeCleanInJail(t *testing.T) {
 	var out bytes.Buffer
 	opts := baseOptions(t, &out)
 
-	// Build a fake repo root with flake.nix + entrypoint source.
+	// Build a fake repo root with flake.nix + go.mod (the checkout marker).
 	repo := t.TempDir()
 	must(t, os.WriteFile(filepath.Join(repo, "flake.nix"), []byte("{}"), 0o644))
-	must(t, os.MkdirAll(filepath.Join(repo, "src", "entrypoint"), 0o755))
-	must(t, os.WriteFile(filepath.Join(repo, "src", "entrypoint", "__init__.py"), []byte(""), 0o644))
+	must(t, os.WriteFile(filepath.Join(repo, "go.mod"), []byte("module test\n"), 0o644))
 	opts.RepoRoot = func() (string, bool) { return repo, true }
 	opts.PathExists = func(p string) bool {
 		_, err := os.Stat(p)

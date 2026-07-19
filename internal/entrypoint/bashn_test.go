@@ -1,6 +1,7 @@
 package entrypoint
 
 import (
+	"encoding/json"
 	"os"
 	"os/exec"
 	"path/filepath"
@@ -8,12 +9,66 @@ import (
 	"testing"
 )
 
+type matrixDoc struct {
+	HomeToken string                  `json:"home_token"`
+	Scenarios map[string]scenarioSpec `json:"scenarios"`
+}
+
+type scenarioSpec struct {
+	Env                map[string]string `json:"env"`
+	Files              map[string]string `json:"files"`
+	HostClaudeSettings json.RawMessage   `json:"host_claude_settings"`
+}
+
+func loadMatrix(t *testing.T, path string) matrixDoc {
+	t.Helper()
+	raw, err := os.ReadFile(path)
+	if err != nil {
+		t.Fatalf("read matrix: %v", err)
+	}
+	var full struct {
+		HomeToken string                     `json:"home_token"`
+		Scenarios map[string]json.RawMessage `json:"scenarios"`
+	}
+	if err := json.Unmarshal(raw, &full); err != nil {
+		t.Fatalf("decode matrix: %v", err)
+	}
+	doc := matrixDoc{HomeToken: full.HomeToken, Scenarios: map[string]scenarioSpec{}}
+	for name, rawSpec := range full.Scenarios {
+		var spec scenarioSpec
+		if err := json.Unmarshal(rawSpec, &spec); err != nil {
+			t.Fatalf("decode scenario %q: %v", name, err)
+		}
+		doc.Scenarios[name] = spec
+	}
+	if doc.HomeToken == "" {
+		doc.HomeToken = "@HOME@"
+	}
+	return doc
+}
+
+func findRepoRoot(t *testing.T) string {
+	t.Helper()
+	dir, err := os.Getwd()
+	if err != nil {
+		t.Fatalf("getwd: %v", err)
+	}
+	for {
+		if _, err := os.Stat(filepath.Join(dir, "go.mod")); err == nil {
+			return dir
+		}
+		parent := filepath.Dir(dir)
+		if parent == dir {
+			t.Fatalf("go.mod not found walking up from test dir")
+		}
+		dir = parent
+	}
+}
+
 // TestGeneratedShellSyntax runs `bash -n` over every generated SHELL script
 // (shims, agent/pkg launchers, .bashrc, bootstrap, venv-precreate, MCP
 // wrappers, the yolo bash shim) across the committed env matrix. Generated bash
-// must stay syntactically valid (go-port plan Stage 9: "bash -n on all
-// generated shell"). The Python helper scripts (yolo-cglimit, yolo-journalctl,
-// yolo-ps, _yolo_bootstrap.py) are Python, not shell, and are excluded here.
+// must stay syntactically valid.
 //
 // Skips when bash is unavailable.
 func TestGeneratedShellSyntax(t *testing.T) {
@@ -21,7 +76,7 @@ func TestGeneratedShellSyntax(t *testing.T) {
 	if err != nil {
 		t.Skip("bash not found")
 	}
-	matrix := loadMatrix(t, filepath.Join(findRepoRoot(t), "tools", "parity", "entrypoint_matrix.json"))
+	matrix := loadMatrix(t, filepath.Join(findRepoRoot(t), "internal", "entrypoint", "testdata", "entrypoint_matrix.json"))
 
 	for name, spec := range matrix.Scenarios {
 		t.Run(name, func(t *testing.T) {
@@ -34,7 +89,6 @@ func TestGeneratedShellSyntax(t *testing.T) {
 	}
 }
 
-// scenarioVars builds the env var map for a scenario rooted at home.
 func scenarioVars(home, token string, spec scenarioSpec) map[string]string {
 	vars := map[string]string{"JAIL_HOME": home}
 	for k, v := range spec.Env {
@@ -97,8 +151,6 @@ func generateAll(t *testing.T, e *Env) {
 	must(GenerateYoloWrapper(e))
 }
 
-// shellScripts are the generated files whose bodies are bash/sh (relative to
-// HOME). Python-bodied helpers are excluded.
 func checkShellScripts(t *testing.T, bash, home string) {
 	t.Helper()
 	rels := []string{
@@ -109,9 +161,6 @@ func checkShellScripts(t *testing.T, bash, home string) {
 		".local/bin/mcp-wrappers/node",
 		".local/bin/mcp-wrappers/npx",
 	}
-	// Shims + launchers (incl. the yolo bash shim) are dynamic per scenario —
-	// walk the shim dir for present sh/bash scripts (shims are #!/bin/sh;
-	// launchers + the yolo wrapper are #!/bin/bash). Skip the Python bootstrap.
 	shimDir := filepath.Join(home, ".yolo-shims")
 	if entries, err := os.ReadDir(shimDir); err == nil {
 		for _, ent := range entries {
@@ -125,7 +174,7 @@ func checkShellScripts(t *testing.T, bash, home string) {
 	for _, rel := range rels {
 		path := filepath.Join(home, rel)
 		if _, err := os.Stat(path); err != nil {
-			continue // not generated in this scenario
+			continue
 		}
 		out, err := exec.Command(bash, "-n", path).CombinedOutput()
 		if err != nil {

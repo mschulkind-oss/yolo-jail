@@ -28,22 +28,18 @@ func resolveRepoRoot(getenv func(string) string, stderr io.Writer, color bool) (
 	// 1. Env var, validated for source.
 	if env := getenv("YOLO_REPO_ROOT"); env != "" {
 		if fileExists(filepath.Join(env, "flake.nix")) ||
-			fileExists(filepath.Join(env, "src", "entrypoint", "__init__.py")) {
+			fileExists(filepath.Join(env, "go.mod")) {
 			return absOr(env), true
 		}
 	}
 
-	// 2. Source checkout: walk up from cwd for a YOLO-JAIL flake — requiring
-	// BOTH flake.nix AND src/entrypoint/__init__.py. Python anchors to its
-	// package __file__; the Go binary has none, so it walks — but a bare
-	// flake.nix match would hijack a USER's own flake workspace as the yolo-jail
-	// repo (bind-mounted :ro into the jail; the target of `nix build .#ociImage`).
-	// The two-file predicate is the same yolo-jail marker step 1/3 use.
-	// (audit 2026-07-18 §A/B2)
+	// 2. Source checkout: walk up from cwd for a YOLO-JAIL checkout — requiring
+	// BOTH flake.nix AND go.mod. A bare flake.nix match would hijack a USER's
+	// own flake workspace as the yolo-jail repo.
 	if dir, err := os.Getwd(); err == nil {
 		for {
 			if fileExists(filepath.Join(dir, "flake.nix")) &&
-				fileExists(filepath.Join(dir, "src", "entrypoint", "__init__.py")) {
+				fileExists(filepath.Join(dir, "go.mod")) {
 				return absOr(dir), true
 			}
 			parent := filepath.Dir(dir)

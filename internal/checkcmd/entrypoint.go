@@ -3,63 +3,17 @@ package checkcmd
 import (
 	"os"
 	"path/filepath"
-	"strings"
-	"time"
 
 	"github.com/mschulkind-oss/yolo-jail/internal/config"
+	"github.com/mschulkind-oss/yolo-jail/internal/entrypoint"
 	"github.com/mschulkind-oss/yolo-jail/internal/jsonx"
+	"github.com/mschulkind-oss/yolo-jail/internal/tomlx"
 )
 
-// entrypointPreflightCode mirrors the `python3 -c` body _entrypoint_preflight
-// runs: import the repo's entrypoint package, run every generator, then validate
-// each SELECTED agent's config output.
-const entrypointPreflightCode = `
-import json
-import sys
-import tomllib
-from pathlib import Path
-
-sys.path.insert(0, %SRC%)
-import entrypoint
-from entrypoint.agent_configs import CONFIG_WRITERS
-
-entrypoint.generate_shims()
-entrypoint.generate_agent_launchers()
-entrypoint.generate_bashrc()
-entrypoint.generate_bootstrap_script()
-entrypoint.generate_venv_precreate_script()
-entrypoint.generate_mise_config()
-entrypoint.generate_mcp_wrappers()
-
-def _load_json(p):
-    json.loads(p.read_text())
-
-def _load_toml(p):
-    tomllib.loads(p.read_text())
-
-_agent_outputs = {
-    "copilot": [
-        (entrypoint.COPILOT_DIR / "mcp-config.json", _load_json),
-        (entrypoint.COPILOT_DIR / "lsp-config.json", _load_json),
-    ],
-    "gemini": [(entrypoint.GEMINI_DIR / "settings.json", _load_json)],
-    "claude": [(entrypoint.CLAUDE_DIR / "settings.json", _load_json)],
-    "opencode": [(entrypoint.OPENCODE_DIR / "opencode.json", _load_json)],
-    "pi": [(entrypoint.PI_DIR / "settings.json", _load_json)],
-    "codex": [(entrypoint.CODEX_DIR / "config.toml", _load_toml)],
-}
-for _agent in entrypoint._load_agents():
-    CONFIG_WRITERS[_agent]()
-    for _out, _parse in _agent_outputs.get(_agent, []):
-        _parse(_out)
-print("ok")
-`
-
-// runEntrypointPreflight spawns the Python entrypoint dry-run in a temp home
-// with the same YOLO_* environment _entrypoint_preflight builds. Returns "" on
-// success, or the combined stdout/stderr detail on failure.
-func (o *Options) runEntrypointPreflight(r *reporter, repoRoot, workspace string, merged *jsonx.OrderedMap) string {
-	srcDir := filepath.Join(repoRoot, "src")
+// runEntrypointPreflight runs the Go entrypoint generators in a temp home with
+// the same YOLO_* environment the real jail boot uses. Returns "" on success, or
+// the error detail on failure.
+func (o *Options) runEntrypointPreflight(r *reporter, _, workspace string, merged *jsonx.OrderedMap) string {
 	tmp, err := os.MkdirTemp("", "yolo-check-")
 	if err != nil {
 		return "could not create temp home: " + err.Error()
@@ -79,65 +33,94 @@ func (o *Options) runEntrypointPreflight(r *reporter, repoRoot, workspace string
 		workspaceResolved = r
 	}
 
-	env := []string{
-		"JAIL_HOME=" + tmp,
-		"HOME=" + tmp,
-		"NPM_CONFIG_PREFIX=" + tmp + "/.npm-global",
-		"GOPATH=" + tmp + "/go",
-		"MISE_DATA_DIR=/mise",
-		"YOLO_HOST_DIR=" + workspaceResolved,
-		"YOLO_BLOCK_CONFIG=" + blockedJSON,
-		"YOLO_MISE_TOOLS=" + miseJSON,
-		"YOLO_LSP_SERVERS=" + lspJSON,
-		"YOLO_MCP_SERVERS=" + mcpJSON,
-		"YOLO_MCP_PRESETS=" + presetsJSON,
-		"YOLO_AGENTS=" + agentsJSON,
+	vars := map[string]string{
+		"JAIL_HOME":         tmp,
+		"HOME":              tmp,
+		"NPM_CONFIG_PREFIX": filepath.Join(tmp, ".npm-global"),
+		"GOPATH":            filepath.Join(tmp, "go"),
+		"MISE_DATA_DIR":     "/mise",
+		"YOLO_HOST_DIR":     workspaceResolved,
+		"YOLO_BLOCK_CONFIG": blockedJSON,
+		"YOLO_MISE_TOOLS":   miseJSON,
+		"YOLO_LSP_SERVERS":  lspJSON,
+		"YOLO_MCP_SERVERS":  mcpJSON,
+		"YOLO_MCP_PRESETS":  presetsJSON,
+		"YOLO_AGENTS":       agentsJSON,
 	}
-	// env_sources overrides (resolved against the workspace). The resolver's
-	// warn callback surfaces missing/unreadable files as non-counting yellow
-	// "Warning:" lines, matching the console.print in _resolve_env_sources.
+
+	// env_sources overrides (resolved against the workspace).
 	resolvedEnv := config.ResolveEnvSources(workspace, merged, r.warningLine)
 	for _, k := range resolvedEnv.Keys() {
 		v, _ := resolvedEnv.Get(k)
-		env = append(env, k+"="+asString(v))
+		vars[k] = asString(v)
 	}
-	// Drop inherited PYTHONPATH so the subprocess imports entrypoint from srcDir
-	// only. The Exec seam appends env to os.Environ(); an explicit empty
-	// PYTHONPATH shadows any inherited one.
-	env = append(env, "PYTHONPATH=")
 
-	code := strings.ReplaceAll(entrypointPreflightCode, "%SRC%", pyRepr(srcDir))
-	python := o.pythonExecutable()
-	res := o.Exec([]string{python, "-c", code}, workspace, env, 120*time.Second)
-	if !res.Ran {
-		return "entrypoint dry-run could not start (" + python + " not found)"
+	e := entrypoint.NewEnv(vars)
+
+	generators := []func(*entrypoint.Env) error{
+		entrypoint.GenerateShims,
+		entrypoint.GenerateAgentLaunchers,
+		entrypoint.GenerateBashrc,
+		entrypoint.GenerateBootstrapScript,
+		entrypoint.GenerateVenvPrecreateScript,
+		entrypoint.GenerateMiseConfig,
+		entrypoint.GenerateMCPWrappers,
 	}
-	if res.Timeout {
-		return "entrypoint dry-run timed out"
-	}
-	if res.RC != 0 {
-		details := strings.TrimSpace(res.Stdout)
-		errPart := strings.TrimSpace(res.Stderr)
-		if details != "" && errPart != "" {
-			details = details + "\n" + errPart
-		} else if errPart != "" {
-			details = errPart
+	for _, gen := range generators {
+		if err := gen(e); err != nil {
+			return err.Error()
 		}
-		if details == "" {
-			details = "entrypoint dry-run failed"
-		}
-		return details
 	}
+
+	agentWriters := map[string]func(*entrypoint.Env) error{
+		"copilot":  entrypoint.ConfigureCopilot,
+		"gemini":   entrypoint.ConfigureGemini,
+		"claude":   entrypoint.ConfigureClaude,
+		"opencode": entrypoint.ConfigureOpencode,
+		"pi":       entrypoint.ConfigurePi,
+		"codex":    entrypoint.ConfigureCodex,
+	}
+	for _, agent := range entrypoint.LoadAgents(e) {
+		if writer, ok := agentWriters[agent]; ok {
+			if err := writer(e); err != nil {
+				return err.Error()
+			}
+		}
+	}
+
+	// Validate that each agent's output files are parseable.
+	type outputSpec struct {
+		path  string
+		parse func([]byte) error
+	}
+	parseJSON := func(data []byte) error {
+		_, err := jsonx.Decode(data)
+		return err
+	}
+	agentOutputs := map[string][]outputSpec{
+		"copilot": {
+			{filepath.Join(e.CopilotDir(), "mcp-config.json"), parseJSON},
+			{filepath.Join(e.CopilotDir(), "lsp-config.json"), parseJSON},
+		},
+		"gemini":   {{filepath.Join(e.GeminiDir(), "settings.json"), parseJSON}},
+		"claude":   {{filepath.Join(e.ClaudeDir(), "settings.json"), parseJSON}},
+		"opencode": {{filepath.Join(e.OpencodeDir(), "opencode.json"), parseJSON}},
+		"pi":       {{filepath.Join(e.PiDir(), "settings.json"), parseJSON}},
+		"codex":    {{filepath.Join(e.CodexDir(), "config.toml"), parseToml}},
+	}
+	for _, agent := range entrypoint.LoadAgents(e) {
+		for _, spec := range agentOutputs[agent] {
+			data, err := os.ReadFile(spec.path)
+			if err != nil {
+				return agent + ": " + err.Error()
+			}
+			if err := spec.parse(data); err != nil {
+				return agent + " config parse error: " + err.Error()
+			}
+		}
+	}
+
 	return ""
-}
-
-// pythonExecutable resolves the interpreter for the dry-run: YOLO_PYTHON (set by
-// the jail shim / front door) else python3.
-func (o *Options) pythonExecutable() string {
-	if p := o.Getenv("YOLO_PYTHON"); p != "" {
-		return p
-	}
-	return "python3"
 }
 
 func securitySection(merged *jsonx.OrderedMap) *jsonx.OrderedMap {
@@ -197,28 +180,9 @@ func jsonDumpStrings(ss []string) string {
 	return s
 }
 
-// pyRepr renders a Python string literal for embedding a path into the -c code
-// ({str_dir!r}). Reuse jsonx string encoding then swap to single quotes is
-// fragile; instead emit a repr with single quotes and backslash-escaping.
-func pyRepr(s string) string {
-	var b strings.Builder
-	b.WriteByte('\'')
-	for _, r := range s {
-		switch r {
-		case '\\':
-			b.WriteString(`\\`)
-		case '\'':
-			b.WriteString(`\'`)
-		case '\n':
-			b.WriteString(`\n`)
-		case '\r':
-			b.WriteString(`\r`)
-		case '\t':
-			b.WriteString(`\t`)
-		default:
-			b.WriteRune(r)
-		}
-	}
-	b.WriteByte('\'')
-	return b.String()
+// parseToml is a minimal TOML validity check — the codex config.toml is simple
+// enough that checking for decode errors via the tomlx package suffices.
+func parseToml(data []byte) error {
+	_, err := tomlx.Decode(data)
+	return err
 }
