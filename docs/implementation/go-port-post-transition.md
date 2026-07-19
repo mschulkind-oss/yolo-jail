@@ -159,6 +159,10 @@ here as the post-transition anchor:
   keep the regression tests, drop the live-Python comparisons.
 - [ ] Strip "ports X" docstrings, rename `*_parity_test.go` that are now plain
   unit tests, archive/delete the `go-port-*` docs.
+- [ ] Lift the color-aware rich→ANSI renderer into one shared helper as part of
+  this consolidation — see **§5** (the CLI color audit): the same strip-always
+  printer is duplicated across 4 command packages; consolidating it here fixes
+  the lost-colors bug everywhere at once.
 
 ---
 
@@ -179,6 +183,52 @@ pre-stage:
   to "Go CLI + container" and the distribution.md row + channel matrix updated.
 - [ ] No README claims a channel without a publish workflow (the standard's
   self-audit rule).
+
+---
+
+## 5. CLI color audit — every command's output, not just the config diff
+
+**Confirmed bug class.** The config-change approval diff shipped with no colors
+because its `printer` **threaded a `color` flag but always stripped** rich markup
+(`richTagRe.ReplaceAllString(s, "")`) instead of rendering it to ANSI. Fixed for
+`internal/runcmd` this session (`bdfd522` — added the color-aware `richToANSI`
+path). But the same strip-always pattern lives in **other command packages** that
+were never audited — **`prune` is confirmed to have lost its colors the same
+way** (`internal/prunecmd/prunecmd.go:437` — `line()` strips unconditionally
+despite carrying `p.color`).
+
+**Do a systematic pass over EVERY native command's output on a TTY** and confirm
+color renders (or is intentionally plain), not silently stripped:
+
+- [ ] **`prune`** (`internal/prunecmd`) — CONFIRMED broken; `printer.line`
+  ignores `p.color`. Port `runcmd`'s `richToANSI` (or extract it to a shared
+  helper — see below).
+- [ ] **`builder`** (`internal/buildercmd`) — has the same `richTagRe`
+  strip-always printer; audit.
+- [ ] **`macos-*`** (`internal/macosuser/orchestrator.go`) — same pattern; audit
+  (dry-run plan + macos-setup/teardown output).
+- [ ] **`check`/`doctor`** (`internal/checkcmd`) — has its OWN ansi path
+  (`ansiRed`/`style()`); verify it actually colors on a TTY and isn't a
+  strip-always in disguise.
+- [ ] **`config-ref`** (`internal/configref`) — already has a `tagReplacer`
+  ANSI renderer gated on a `color` bool; confirm it's wired to a real TTY check.
+- [ ] **`loopholes`, `broker`, `init`, `init-user-config`, `ps`** — audit each;
+  some are plain `typer.echo`-equivalent (byte-parity, intentionally no color),
+  some should color. Classify each: "intentionally plain" vs "lost its color."
+- [ ] **Consolidate the renderer.** Four packages now carry near-duplicate
+  `richTagRe` printers (runcmd fixed, three not). During §3 consolidation, lift
+  the color-aware rich→ANSI renderer into ONE shared helper (mirror
+  `runcmd/console.go`'s `richToANSI` + `isStyleTag` + the `Color && IsTTY` gate)
+  and route every command through it. That both fixes the bug everywhere and
+  removes the duplication.
+- [ ] Gate rule (same as runcmd): render ANSI only when `Color && IsTTYStdout()`
+  — never emit escapes to a pipe/redirect (so captured/greppable output stays
+  clean, and `NO_COLOR` is honored).
+
+Note: this is cosmetic (the byte-parity contract was always on the ANSI-*stripped*
+text, so decisions/numbers were never affected — only the on-screen color). Safe
+to defer to post-transition; do it as part of §3's consolidation so the shared
+renderer lands once.
 
 ---
 
