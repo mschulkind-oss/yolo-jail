@@ -561,3 +561,39 @@ a value on this path.
 **Guard.** Documented; `internal/oauthbroker` refresh tests cover the
 parse-failure branch. The status difference (400 vs 502) is confined to the
 malformed-upstream-200 path.
+
+---
+
+## D18 — version resolution: build-time stamp wins over live `git describe`
+
+**Status:** proposed (distribution work ★ step 2, 2026-07-19).
+
+**Divergence.** `src/cli/version.py:_git_describe_version` resolves
+YOLO_VERSION → live `git describe` → baked fallback. Go
+(`internal/version.gitDescribe`) now resolves YOLO_VERSION → **baked
+`buildVersion` stamp** → live `git describe`.
+
+- Input: a stamped binary (goreleaser release, brew formula, wheel,
+  `scripts/build-go.sh` output) run anywhere.
+- Python order (describe-first) on a compiled binary: `git describe --always`
+  succeeds inside ANY git repository, so an installed binary run from a user's
+  project reports *that repo's* hash; a stale `dist-go/` binary reports the
+  *live checkout's* version instead of its own.
+- Go order (stamp-first): the binary reports the version it was built from —
+  the compiled-binary analog of Python reading the installed wheel's baked
+  setuptools-scm version (which is exactly what an installed Python `yolo` did;
+  the describe-first order only ever served the editable-checkout case, which
+  an interpreted CLI is and a compiled one is not).
+
+YOLO_VERSION still wins unconditionally and verbatim, so the in-jail banner
+parity contract is untouched. Unstamped `go build`/`go install` binaries keep
+the live-describe → "unknown" behavior. A legacy literal-`"unknown"` stamp
+(pre-D18 `build-go.sh`) is ignored rather than shadowing describe.
+
+**Observable skew during transition:** a stale `dist-go/` binary now truthfully
+reports its build-time `+dirty`/describe suffix where Python reported the live
+tree's. Benign, and arguably the bug fixed.
+
+**Guard.** `TestBuildVersionPrecedence` (runs inside the checkout, so live
+describe IS available — the stamp winning proves the order); `TestNormalize`
+byte contract unchanged.

@@ -33,15 +33,18 @@ if [ "${#CMDS[@]}" -eq 0 ]; then
     exit 1
 fi
 
-# Version stamp for -ldflags -X (matches internal/version fallback).  Best
-# effort: git may be unavailable in some build contexts.
-VERSION="$(git describe --tags --dirty --always 2>/dev/null || echo unknown)"
+# Version + commit stamp for -ldflags -X (see internal/version).  Best effort:
+# git may be unavailable in some build contexts — stamp EMPTY then (never the
+# literal "unknown": a stamp is authoritative (D18), and an "unknown" stamp
+# would shadow the binary's live-describe fallback).
+VERSION="$(git describe --tags --dirty --always 2>/dev/null || true)"
+COMMIT="$(git rev-parse --short HEAD 2>/dev/null || true)"
 
 for cmd in "${CMDS[@]}"; do
     echo "build-go: ${cmd} -> ${OUTDIR}/${cmd} (${GOOS}/${GOARCH})"
     CGO_ENABLED="${CGO_ENABLED:-0}" GOOS="$GOOS" GOARCH="$GOARCH" \
         go build \
-        -ldflags "-X github.com/mschulkind-oss/yolo-jail/internal/version.buildVersion=${VERSION}" \
+        -ldflags "-X github.com/mschulkind-oss/yolo-jail/internal/version.buildVersion=${VERSION} -X github.com/mschulkind-oss/yolo-jail/internal/version.GitCommit=${COMMIT}" \
         -o "${OUTDIR}/${cmd}" "./cmd/${cmd}"
 done
 

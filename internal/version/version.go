@@ -16,10 +16,19 @@ import (
 	"time"
 )
 
-// buildVersion is stamped at build time via -ldflags -X (see scripts/build-go.sh).
-// It's the installed-wheel analog of setuptools-scm's baked version and the
-// last fallback when git describe is unavailable.
+// buildVersion is stamped at build time via -ldflags -X (see
+// scripts/build-go.sh, .goreleaser.yaml, the homebrew formula in
+// .github/workflows/release.yml, and go-to-wheel's --set-version-var in
+// publish.yml). It's the installed-wheel analog of setuptools-scm's baked
+// version: when present it IS the binary's version (D18) — git describe is
+// only consulted for unstamped `go build`/`go install` binaries.
 var buildVersion = ""
+
+// GitCommit is the short commit hash stamped into release builds via
+// -ldflags -X (goreleaser's {{.ShortCommit}}, scripts/build-go.sh). Empty for
+// unstamped builds. Not part of any user-facing byte contract yet — carried
+// for release forensics until the post-cutover CLI surface pass surfaces it.
+var GitCommit = ""
 
 // Normalize converts a raw git-describe/env version string to the canonical
 // form. Mirrors the tail of src/cli/version.py:_git_describe_version:
@@ -79,16 +88,31 @@ func isDigits(s string) bool {
 	return true
 }
 
-// gitDescribe mirrors src/cli/version.py:_git_describe_version's discovery
-// order: YOLO_VERSION env override wins and is returned VERBATIM (Python
-// early-returns it before the normalization block — the host sets it so the
-// in-jail banner matches the host exactly, so it must not be re-normalized);
-// else `git describe --tags --dirty --always` in repoRoot, normalized; else
-// the -ldflags baked version, normalized. Returns "" (the Go analog of
-// Python None) when nothing resolves.
+// gitDescribe resolves the version: YOLO_VERSION env override wins and is
+// returned VERBATIM (Python early-returns it before the normalization block —
+// the host sets it so the in-jail banner matches the host exactly, so it must
+// not be re-normalized); else the -ldflags baked version, normalized; else
+// `git describe --tags --dirty --always` in repoRoot, normalized. Returns ""
+// (the Go analog of Python None) when nothing resolves.
+//
+// Divergence D18 vs src/cli/version.py:_git_describe_version: Python asked
+// git describe BEFORE the baked fallback. For a compiled binary that order is
+// wrong twice over — `git describe --always` succeeds inside ANY git repo, so
+// an installed (brew/pipx/goreleaser) binary run from a user's project would
+// report THAT repo's describe; and a stale dist-go binary would report the
+// live checkout's version instead of its own. The stamp, when present, is the
+// binary's identity — the Go analog of Python reading the installed wheel's
+// baked version.
 func gitDescribe(repoRoot string) string {
 	if raw := os.Getenv("YOLO_VERSION"); raw != "" {
 		return raw // verbatim — matches Python's early return
+	}
+
+	// "unknown" guard: pre-D18 scripts/build-go.sh stamped the literal
+	// string "unknown" when describe failed at build time; never let that
+	// legacy stamp shadow a live describe.
+	if buildVersion != "" && buildVersion != "unknown" {
+		return Normalize(buildVersion)
 	}
 
 	var raw string
@@ -103,9 +127,6 @@ func gitDescribe(repoRoot string) string {
 		raw = strings.TrimSpace(string(out))
 	}
 
-	if raw == "" {
-		raw = buildVersion
-	}
 	if raw == "" {
 		return ""
 	}
