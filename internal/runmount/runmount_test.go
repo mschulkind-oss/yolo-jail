@@ -1,9 +1,7 @@
 package runmount
 
 import (
-	"encoding/json"
 	"os"
-	"os/exec"
 	"path/filepath"
 	"reflect"
 	"testing"
@@ -102,81 +100,9 @@ func TestROFileMountArgDeref(t *testing.T) {
 	}
 }
 
-// TestScratchParity byte-diffs ScratchMountArgs against live _scratch_mount_args.
-func TestScratchParity(t *testing.T) {
-	py := pythonRunner(t)
-	if py == nil {
-		t.Skip("python unavailable")
-	}
-	script := `
-import sys; sys.path.insert(0, 'src')
-import json
-from cli.run_cmd import _scratch_mount_args
-print(json.dumps({
-  "volume": _scratch_mount_args("volume"),
-  "tmpfs": _scratch_mount_args("tmpfs"),
-  "bad": _scratch_mount_args(123),
-}))
-`
-	out, err := py("-c", script).Output()
-	if err != nil {
-		t.Skipf("python run_cmd import failed: %v", err)
-	}
-	var want map[string][]string
-	if err := json.Unmarshal(out, &want); err != nil {
-		t.Fatalf("decode: %v", err)
-	}
-	if !reflect.DeepEqual(ScratchMountArgs("volume"), want["volume"]) {
-		t.Errorf("volume go=%v py=%v", ScratchMountArgs("volume"), want["volume"])
-	}
-	if !reflect.DeepEqual(ScratchMountArgs("tmpfs"), want["tmpfs"]) {
-		t.Errorf("tmpfs go=%v py=%v", ScratchMountArgs("tmpfs"), want["tmpfs"])
-	}
-	// Python passed a non-string (123) → falls back to volume; Go models that
-	// as any non-volume/tmpfs string.
-	if !reflect.DeepEqual(ScratchMountArgs(""), want["bad"]) {
-		t.Errorf("bad-mode go=%v py=%v", ScratchMountArgs(""), want["bad"])
-	}
-}
-
 func must(t *testing.T, err error) {
 	t.Helper()
 	if err != nil {
 		t.Fatal(err)
-	}
-}
-
-func pythonRunner(t *testing.T) func(args ...string) *exec.Cmd {
-	t.Helper()
-	root := repoRoot(t)
-	if _, err := exec.LookPath("uv"); err == nil {
-		return func(args ...string) *exec.Cmd {
-			c := exec.Command("uv", append([]string{"run", "python"}, args...)...)
-			c.Dir = root
-			return c
-		}
-	}
-	if _, err := exec.LookPath("python3"); err == nil {
-		return func(args ...string) *exec.Cmd {
-			c := exec.Command("python3", args...)
-			c.Dir = root
-			return c
-		}
-	}
-	return nil
-}
-
-func repoRoot(t *testing.T) string {
-	t.Helper()
-	dir, _ := os.Getwd()
-	for {
-		if _, err := os.Stat(filepath.Join(dir, "go.mod")); err == nil {
-			return dir
-		}
-		parent := filepath.Dir(dir)
-		if parent == dir {
-			t.Fatal("go.mod not found")
-		}
-		dir = parent
 	}
 }

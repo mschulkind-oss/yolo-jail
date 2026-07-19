@@ -1,10 +1,6 @@
 package runtime
 
 import (
-	"encoding/json"
-	"os"
-	"os/exec"
-	"path/filepath"
 	"reflect"
 	"sort"
 	"testing"
@@ -151,95 +147,5 @@ func TestPodmanMachineResizeHint(t *testing.T) {
 		"podman machine start`.  Note: this restarts the VM and stops every container running on it."
 	if got := PodmanMachineResizeHint(); got != want {
 		t.Errorf("hint = %q", got)
-	}
-}
-
-// TestParityVsLivePython cross-checks the parsers + hint against the live
-// runtime.py by feeding identical canned inputs to both. Skips without Python.
-func TestParityVsLivePython(t *testing.T) {
-	py := pythonRunner(t)
-	if py == nil {
-		t.Skip("python unavailable")
-	}
-	script := `
-import sys; sys.path.insert(0, 'src')
-import json
-from cli import runtime as r
-# Re-derive the pure results using the same canned inputs, mirroring the
-# parsing the subprocess branches do, so we compare parser-to-parser.
-podman_ps = "yolo-a-1111\tUp 2 hours\t2 hours ago\nyolo-b-2222\tUp 3 minutes\t3 minutes ago\nshort\trow\n"
-rows = []
-for line in (podman_ps.strip().splitlines() if podman_ps.strip() else []):
-    parts = line.split("\t")
-    if len(parts) >= 3:
-        rows.append([parts[0], parts[1], parts[2]])
-out = {
-  "hint": r._podman_machine_resize_hint(),
-  "floor": r.PODMAN_MACHINE_MEMORY_FLOOR_MB,
-  "rows": rows,
-}
-print(json.dumps(out))
-`
-	outBytes, err := py("-c", script).Output()
-	if err != nil {
-		t.Skipf("python runtime import failed: %v", err)
-	}
-	var want struct {
-		Hint  string     `json:"hint"`
-		Floor int        `json:"floor"`
-		Rows  [][]string `json:"rows"`
-	}
-	if err := json.Unmarshal(outBytes, &want); err != nil {
-		t.Fatalf("decode: %v", err)
-	}
-	if PodmanMachineResizeHint() != want.Hint {
-		t.Errorf("hint mismatch:\n go: %q\n py: %q", PodmanMachineResizeHint(), want.Hint)
-	}
-	if PodmanMachineMemoryFloorMB != want.Floor {
-		t.Errorf("floor = %d, py = %d", PodmanMachineMemoryFloorMB, want.Floor)
-	}
-	goRows := ParsePodmanPsRows("yolo-a-1111\tUp 2 hours\t2 hours ago\nyolo-b-2222\tUp 3 minutes\t3 minutes ago\nshort\trow\n")
-	if len(goRows) != len(want.Rows) {
-		t.Fatalf("row count go=%d py=%d", len(goRows), len(want.Rows))
-	}
-	for i, w := range want.Rows {
-		if goRows[i].Name != w[0] || goRows[i].Status != w[1] || goRows[i].RunningFor != w[2] {
-			t.Errorf("row %d go=%v py=%v", i, goRows[i], w)
-		}
-	}
-}
-
-func pythonRunner(t *testing.T) func(args ...string) *exec.Cmd {
-	t.Helper()
-	root := repoRoot(t)
-	if _, err := exec.LookPath("uv"); err == nil {
-		return func(args ...string) *exec.Cmd {
-			c := exec.Command("uv", append([]string{"run", "python"}, args...)...)
-			c.Dir = root
-			return c
-		}
-	}
-	if _, err := exec.LookPath("python3"); err == nil {
-		return func(args ...string) *exec.Cmd {
-			c := exec.Command("python3", args...)
-			c.Dir = root
-			return c
-		}
-	}
-	return nil
-}
-
-func repoRoot(t *testing.T) string {
-	t.Helper()
-	dir, _ := os.Getwd()
-	for {
-		if _, err := os.Stat(filepath.Join(dir, "go.mod")); err == nil {
-			return dir
-		}
-		parent := filepath.Dir(dir)
-		if parent == dir {
-			t.Fatal("go.mod not found")
-		}
-		dir = parent
 	}
 }

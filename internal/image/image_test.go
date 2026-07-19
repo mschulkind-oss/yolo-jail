@@ -1,9 +1,6 @@
 package image
 
 import (
-	"encoding/json"
-	"os"
-	"os/exec"
 	"path/filepath"
 	"reflect"
 	"testing"
@@ -138,115 +135,5 @@ func TestLinuxBuilderFromMachines(t *testing.T) {
 	}
 	if _, _, ok := LinuxBuilderFromMachines(""); ok {
 		t.Error("empty should not match")
-	}
-}
-
-// TestParityVsLivePython cross-checks the pure formatters/parsers against the
-// live image.py. Skips without Python.
-func TestParityVsLivePython(t *testing.T) {
-	py := pythonRunner(t)
-	if py == nil {
-		t.Skip("python unavailable")
-	}
-	script := `
-import sys; sys.path.insert(0, 'src')
-import json, hashlib
-from cli.image import _summarize_nix_line, _format_progress
-lines = [
-  "copying path '/nix/store/abc123-hello-1.0' from 'https://cache'",
-  "building '/nix/store/def456-foo.drv'...",
-  "evaluating derivation 'x'",
-  "[3/5 built, 2 copied (10.2 MiB)]",
-  "unrelated noise",
-]
-progress = [
-  _format_progress(50*1024*1024, 0),
-  _format_progress(50*1024*1024, 100*1024*1024),
-  _format_progress(100*1024*1024, 100*1024*1024),
-  _format_progress(2*1024*1024*1024, 0),
-]
-sp = "/nix/store/abc-jail"
-out = {
-  "summaries": [_summarize_nix_line(l) for l in lines],
-  "progress": progress,
-  "hash16": hashlib.sha256(sp.encode()).hexdigest()[:16],
-}
-print(json.dumps(out))
-`
-	outBytes, err := py("-c", script).Output()
-	if err != nil {
-		t.Skipf("python image import failed: %v", err)
-	}
-	var want struct {
-		Summaries []string `json:"summaries"`
-		Progress  []string `json:"progress"`
-		Hash16    string   `json:"hash16"`
-	}
-	if err := json.Unmarshal(outBytes, &want); err != nil {
-		t.Fatalf("decode: %v", err)
-	}
-	lines := []string{
-		"copying path '/nix/store/abc123-hello-1.0' from 'https://cache'",
-		"building '/nix/store/def456-foo.drv'...",
-		"evaluating derivation 'x'",
-		"[3/5 built, 2 copied (10.2 MiB)]",
-		"unrelated noise",
-	}
-	var goSummaries []string
-	for _, l := range lines {
-		goSummaries = append(goSummaries, SummarizeNixLine(l))
-	}
-	if !reflect.DeepEqual(goSummaries, want.Summaries) {
-		t.Errorf("summaries:\n go: %v\n py: %v", goSummaries, want.Summaries)
-	}
-	goProgress := []string{
-		FormatProgress(50*1024*1024, 0),
-		FormatProgress(50*1024*1024, 100*1024*1024),
-		FormatProgress(100*1024*1024, 100*1024*1024),
-		FormatProgress(2*1024*1024*1024, 0),
-	}
-	if !reflect.DeepEqual(goProgress, want.Progress) {
-		t.Errorf("progress:\n go: %v\n py: %v", goProgress, want.Progress)
-	}
-	// Confirm the cache-path hash prefix matches Python's sha256[:16].
-	t.Setenv("HOME", t.TempDir())
-	cp, _ := ImageCachePath("/nix/store/abc-jail")
-	if filepath.Base(cp) != want.Hash16+".tar" {
-		t.Errorf("cache hash go=%q py=%q", filepath.Base(cp), want.Hash16+".tar")
-	}
-}
-
-func pythonRunner(t *testing.T) func(args ...string) *exec.Cmd {
-	t.Helper()
-	root := repoRoot(t)
-	if _, err := exec.LookPath("uv"); err == nil {
-		return func(args ...string) *exec.Cmd {
-			c := exec.Command("uv", append([]string{"run", "python"}, args...)...)
-			c.Dir = root
-			return c
-		}
-	}
-	if _, err := exec.LookPath("python3"); err == nil {
-		return func(args ...string) *exec.Cmd {
-			c := exec.Command("python3", args...)
-			c.Dir = root
-			return c
-		}
-	}
-	return nil
-}
-
-func repoRoot(t *testing.T) string {
-	t.Helper()
-	dir, _ := os.Getwd()
-	for {
-		if _, err := os.Stat(filepath.Join(dir, "go.mod")); err == nil {
-			return dir
-		}
-		parent := filepath.Dir(dir)
-		if parent == dir {
-			t.Fatal("go.mod not found")
-		}
-		dir = parent
 	}
 }

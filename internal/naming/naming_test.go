@@ -7,8 +7,8 @@ import (
 )
 
 // goldenNames pins the container name for a corpus of already-resolved paths.
-// Values are the observed output of cli.runtime.container_name_for_workspace's
-// sanitize+hash tail (see tools/parity/py_drift_dump.py for the live oracle).
+// Values are the observed output of the Python
+// cli.runtime.container_name_for_workspace's sanitize+hash tail.
 var goldenNames = map[string]string{
 	"/home/matt/code/system/yolo-jail": "yolo-yolo-jail-a4bcac6e",
 	"/srv/App":                         "yolo-app-2fe44894",

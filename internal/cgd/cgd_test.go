@@ -1,9 +1,7 @@
 package cgd
 
 import (
-	"encoding/json"
 	"os"
-	"os/exec"
 	"path/filepath"
 	"testing"
 
@@ -53,31 +51,6 @@ func TestParseMemoryValueGolden(t *testing.T) {
 		got, ok := ParseMemoryValue(tc.in)
 		if ok != tc.ok || (ok && got != tc.want) {
 			t.Errorf("ParseMemoryValue(%q) = (%d,%v), want (%d,%v)", tc.in, got, ok, tc.want, tc.ok)
-		}
-	}
-}
-
-// TestCgdParity byte-diffs validate/parse against the live Python oracle.
-func TestCgdParity(t *testing.T) {
-	oracle := runCgdOracle(t)
-	if oracle == nil {
-		t.Skip("python oracle unavailable")
-	}
-	for name, want := range oracle.ValidateName {
-		if got := ValidateCgroupName(name); got != want {
-			t.Errorf("validate %q: go=%v py=%v", name, got, want)
-		}
-	}
-	for val, want := range oracle.ParseMemory {
-		got, ok := ParseMemoryValue(val)
-		if want == nil {
-			if ok {
-				t.Errorf("parse %q: go=%d py=null", val, got)
-			}
-			continue
-		}
-		if !ok || got != int64(*want) {
-			t.Errorf("parse %q: go=(%d,%v) py=%v", val, got, ok, *want)
 		}
 	}
 }
@@ -150,50 +123,6 @@ func TestHandleCreateJoinDestroy(t *testing.T) {
 }
 
 // --- helpers ---
-
-type cgdOracle struct {
-	ValidateName map[string]bool     `json:"validate_name"`
-	ParseMemory  map[string]*float64 `json:"parse_memory"`
-}
-
-func runCgdOracle(t *testing.T) *cgdOracle {
-	t.Helper()
-	root := repoRoot(t)
-	var cmd *exec.Cmd
-	if _, err := exec.LookPath("uv"); err == nil {
-		cmd = exec.Command("uv", "run", "python", filepath.Join(root, "tools", "parity", "cgd_oracle.py"))
-	} else if _, err := exec.LookPath("python3"); err == nil {
-		cmd = exec.Command("python3", filepath.Join(root, "tools", "parity", "cgd_oracle.py"))
-	} else {
-		return nil
-	}
-	cmd.Dir = root
-	out, err := cmd.Output()
-	if err != nil {
-		t.Logf("oracle failed: %v", err)
-		return nil
-	}
-	var o cgdOracle
-	if err := json.Unmarshal(out, &o); err != nil {
-		t.Fatalf("decode oracle: %v", err)
-	}
-	return &o
-}
-
-func repoRoot(t *testing.T) string {
-	t.Helper()
-	dir, _ := os.Getwd()
-	for {
-		if _, err := os.Stat(filepath.Join(dir, "go.mod")); err == nil {
-			return dir
-		}
-		parent := filepath.Dir(dir)
-		if parent == dir {
-			t.Fatal("go.mod not found")
-		}
-		dir = parent
-	}
-}
 
 func repeatByte(b byte, n int) string {
 	s := make([]byte, n)

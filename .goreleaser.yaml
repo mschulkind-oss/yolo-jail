@@ -4,7 +4,7 @@
 # binaries that mirror pyproject's [project.scripts] console scripts. The
 # in-jail daemons (yolo-entrypoint, yolo-cgd, yolo-journald, yolo-broker-relay,
 # yolo-jail-supervisor, yolo-oauth-terminator) ship inside the NIX IMAGE and
-# must NOT be listed here; goprobe/yolo-parity are dev-only.
+# must NOT be listed here; goprobe is dev-only.
 #
 # Releasing = pushing a v* tag (.github/workflows/release.yml). No local
 # `just release` recipe by design.

@@ -1,9 +1,6 @@
 package runmount
 
 import (
-	"encoding/json"
-	"os"
-	"path/filepath"
 	"testing"
 )
 
@@ -56,63 +53,5 @@ func TestMiseConfigVenvPath(t *testing.T) {
 	// Absent.
 	if _, ok := MiseConfigVenvPath(func(string) (map[string]any, bool) { return nil, false }); ok {
 		t.Error("no config => absent")
-	}
-}
-
-// TestMiseVenvParity byte-diffs against live _mise_config_venv_path over temp
-// workspaces. Skips without Python.
-func TestMiseVenvParity(t *testing.T) {
-	py := pythonRunner(t)
-	if py == nil {
-		t.Skip("python unavailable")
-	}
-	cases := []struct {
-		name  string
-		files map[string]string
-	}{
-		{"string_base", map[string]string{"mise.toml": "[env._.python]\nvenv = \"base-venv\"\n"}},
-		{"last_wins", map[string]string{
-			"mise.toml":      "[env._.python]\nvenv = \"base-venv\"\n",
-			"mise.jail.toml": "[env._.python]\nvenv = \"jail-venv\"\n",
-		}},
-		{"table_default", map[string]string{"mise.toml": "[env._.python.venv]\ncreate = true\n"}},
-		{"table_path", map[string]string{"mise.toml": "[env._.python.venv]\npath = \"custom\"\n"}},
-		{"config_root", map[string]string{"mise.toml": "[env._.python]\nvenv = \"{{config_root}}/v\"\n"}},
-		{"none", map[string]string{"mise.toml": "[tools]\nnode = \"20\"\n"}},
-	}
-	for _, tc := range cases {
-		t.Run(tc.name, func(t *testing.T) {
-			dir := t.TempDir()
-			for fn, content := range tc.files {
-				must(t, os.WriteFile(filepath.Join(dir, fn), []byte(content), 0o644))
-			}
-			goVal, goOk := MiseConfigVenvPathFromDir(dir)
-			script := `
-import sys; sys.path.insert(0, 'src')
-import json
-from pathlib import Path
-from cli.run_cmd import _mise_config_venv_path
-v = _mise_config_venv_path(Path(sys.argv[1]))
-print(json.dumps({"val": v}))
-`
-			out, err := py("-c", script, dir).Output()
-			if err != nil {
-				t.Skipf("python failed: %v", err)
-			}
-			var got struct {
-				Val *string `json:"val"`
-			}
-			if err := json.Unmarshal(out, &got); err != nil {
-				t.Fatalf("decode: %v", err)
-			}
-			pyOk := got.Val != nil
-			pyVal := ""
-			if got.Val != nil {
-				pyVal = *got.Val
-			}
-			if goOk != pyOk || goVal != pyVal {
-				t.Errorf("go=(%q,%v) py=(%q,%v)", goVal, goOk, pyVal, pyOk)
-			}
-		})
 	}
 }
