@@ -155,7 +155,8 @@ func ManifestHostDaemonSpecs(loopholes []*Loophole) *jsonx.OrderedMap {
 	return out
 }
 
-// DoctorResult mirrors the DoctorResult dataclass. RC is nil when doctor_cmd is
+//	RC is nil when doctor_cmd is
+//
 // absent or could not run.
 type DoctorResult struct {
 	Loophole *Loophole

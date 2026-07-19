@@ -104,7 +104,7 @@ type HostDaemon struct {
 	Env *EnvMap
 }
 
-// HostBindMount mirrors the HostBindMount dataclass. Readonly defaults true.
+// Readonly defaults true.
 type HostBindMount struct {
 	Host      string
 	Container string
@@ -197,7 +197,7 @@ func (l *Loophole) inJailActive() bool {
 
 func (l *Loophole) Active() bool { return l.Enabled && l.RequirementsMet() }
 
-// InactiveReason mirrors the inactive_reason property. Returns "" for None.
+// Returns "" for None.
 func (l *Loophole) InactiveReason() (string, bool) {
 	if !l.Enabled {
 		return "disabled", true

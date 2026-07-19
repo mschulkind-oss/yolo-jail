@@ -107,7 +107,7 @@ func detectNixDaemonLabelIn(daemonDir string) (string, bool) {
 }
 
 // DetectHostTimezone returns the host's IANA timezone name, or ("", false) if
-// none could be detected. Detection order mirrors _detect_host_timezone:
+// none could be detected. Detection order
 // $TZ → /etc/timezone → /etc/localtime symlink suffix after "/zoneinfo/".
 // getenv is injected for testability; pass os.Getenv in production.
 func DetectHostTimezone() (string, bool) {

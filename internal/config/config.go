@@ -20,7 +20,7 @@ import (
 )
 
 // ConfigError is the only error type users ever see when their yolo-jail.jsonc
-// is malformed. Mirrors Python's ConfigError(ValueError).
+// is malformed.
 type ConfigError struct{ Msg string }
 
 func (e *ConfigError) Error() string { return e.Msg }

@@ -112,8 +112,8 @@ func stringifyCmd(v any) (string, bool) {
 	}
 }
 
-// openLog opens (rotating once at 5 MB) the per-daemon log file. Mirrors
-// _open_log: rename <name>.log -> <name>.log.1 when over the limit.
+// openLog opens (rotating once at 5 MB) the per-daemon log file.
+// Rename <name>.log -> <name>.log.1 when over the limit.
 func openLog(name string) (*os.File, error) {
 	if err := os.MkdirAll(LogDir(), 0o755); err != nil {
 		return nil, err
