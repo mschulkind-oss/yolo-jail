@@ -173,6 +173,15 @@ After the above clears and cursory testing passes:
    fold the go-port docs (`docs/implementation/go-port-*`, this file) into an
    archive or delete. History stays; current state reads native.
 
+**The detailed post-transition backlog** (distribution via goreleaser+tap+
+go-to-wheel copied from swarf, the nix-ld image change, module consolidation, and
+the OSS-hygiene sweep) is queued in
+[go-port-post-transition.md](go-port-post-transition.md). Nothing there is on the
+critical path to running Go-only — it's the "restabilize in a Go world" phase.
+Note **F.1 (distribution)** and that backlog's §2 are the same work: authoring the
+goreleaser/release/publish config is safe to do pre-cutover, but *cutting over* to
+it (retiring the PyPI→poet→formula chain) is post-Python.
+
 ---
 
 ## Quick reference: what's safe to use NOW (Linux, via the shim)
