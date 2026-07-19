@@ -228,18 +228,6 @@ func stopDaemon(cmd *exec.Cmd) {
 	}
 }
 
-func driveJournal(t *testing.T, sock, request string) ([]byte, int) {
-	t.Helper()
-	c, err := net.DialTimeout("unix", sock, 3*time.Second)
-	if err != nil {
-		t.Fatal(err)
-	}
-	defer c.Close()
-	c.SetDeadline(time.Now().Add(10 * time.Second))
-	c.Write([]byte(request + "\n"))
-	return readFrames(t, c)
-}
-
 // driveJournalDelayedRead sends the request, then sleeps `preReadDelay` before
 // reading the first reply byte. The pause lets journalctl finish and exit while
 // the client is idle: the daemon's stdout pump fills the socket send buffer and

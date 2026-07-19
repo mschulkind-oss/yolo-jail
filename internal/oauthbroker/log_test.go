@@ -22,8 +22,11 @@ func TestTokenFP(t *testing.T) {
 		t.Errorf("TokenFP(\"\") = %q, want (none)", got)
 	}
 	// Equal tokens share a fingerprint (the cross-process rotation-eyeballing
-	// property); different tokens (almost surely) don't.
-	if TokenFP("same") != TokenFP("same") {
+	// property); different tokens (almost surely) don't. Build the two "equal"
+	// inputs separately so the comparison is a real stability check, not a
+	// same-expression tautology (staticcheck SA4000).
+	tok := "sa" + "me"
+	if TokenFP(tok) != TokenFP("same") {
 		t.Error("TokenFP not stable for equal tokens")
 	}
 	if TokenFP("a") == TokenFP("b") {
