@@ -239,7 +239,9 @@ def _config_schema_constants() -> "dict[str, object]":
         "VAAPI_PACKAGES": sorted(c.VAAPI_PACKAGES),
         "VALID_MCP_PRESETS": sorted(c.VALID_MCP_PRESETS),
         "DEFAULT_MISE_DISABLED_TOOLS": sorted(c.DEFAULT_MISE_DISABLED_TOOLS),
-        "DEFAULT_MISE_TOOLS": sorted(f"{k}={v}" for k, v in c.DEFAULT_MISE_TOOLS.items()),
+        "DEFAULT_MISE_TOOLS": sorted(
+            f"{k}={v}" for k, v in c.DEFAULT_MISE_TOOLS.items()
+        ),
         "PACKAGE_NAME_RE": [c.PACKAGE_NAME_RE.pattern],
         "PACKAGE_OUTPUT_RE": [c.PACKAGE_OUTPUT_RE.pattern],
         "HOST_SERVICE_NAME_RE": [c.HOST_SERVICE_NAME_RE.pattern],
