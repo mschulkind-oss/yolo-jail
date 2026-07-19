@@ -1,6 +1,9 @@
 package version
 
-import "testing"
+import (
+	"path/filepath"
+	"testing"
+)
 
 // normalizeCases pins the byte contract. Values are the observed Python
 // output of src/cli/version.py:_git_describe_version's normalization tail
@@ -54,10 +57,26 @@ func TestBuildVersionPrecedence(t *testing.T) {
 	t.Setenv("YOLO_VERSION", "")
 
 	// A literal "unknown" stamp (pre-fix scripts/build-go.sh stamped this on
-	// describe failure) must NOT shadow live git describe.
+	// describe failure) must NOT shadow live git describe in a known repo
+	// root (this checkout).
 	buildVersion = "unknown"
-	if got := gitDescribe(""); got == "unknown" || got == "" {
-		t.Errorf("legacy 'unknown' stamp shadowed live describe: gitDescribe() = %q", got)
+	repo, err := filepath.Abs(filepath.Join("..", ".."))
+	if err != nil {
+		t.Fatal(err)
+	}
+	if got := gitDescribe(repo); got == "unknown" || got == "" {
+		t.Errorf("legacy 'unknown' stamp shadowed live describe: gitDescribe(repo) = %q", got)
+	}
+
+	// Unstamped + no repo root: NEVER describe the process cwd (it could be
+	// any repo the user is standing in — the tests themselves run inside the
+	// yolo-jail checkout, so a cwd describe would return a version here).
+	buildVersion = ""
+	if got := gitDescribe(""); got != "" {
+		t.Errorf("unstamped no-root binary described the cwd: gitDescribe(\"\") = %q, want \"\"", got)
+	}
+	if got := Get(""); got != "unknown" {
+		t.Errorf("Get(\"\") = %q, want \"unknown\"", got)
 	}
 }
 

@@ -69,10 +69,12 @@ archives:
 checksum:
   name_template: "checksums.txt"
 
+# Exclude patterns cover both the scoped (docs(scope):) and unscoped (docs:)
+# conventional-commit forms this repo uses.
 changelog:
   sort: asc
   filters:
     exclude:
-      - "^docs:"
-      - "^chore:"
-      - "^test:"
+      - "^docs[:(]"
+      - "^chore[:(]"
+      - "^test[:(]"

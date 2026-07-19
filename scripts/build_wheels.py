@@ -204,13 +204,30 @@ def build_wheel(
     files[f"{dist_info}/METADATA"] = generate_metadata(version, readme).encode()
     files[f"{dist_info}/WHEEL"] = generate_wheel_metadata(platform_tag).encode()
     files[f"{dist_info}/entry_points.txt"] = generate_entry_points().encode()
+    # Apache-2.0 §4 redistribution obligations: ship the license + NOTICE text
+    # inside the wheel (same dist-info/licenses/ layout `uv build` produced
+    # for the Python-era wheels).
+    for name in ("LICENSE", "NOTICE"):
+        path = REPO_ROOT / name
+        if path.exists():
+            files[f"{dist_info}/licenses/{name}"] = path.read_bytes()
     record_path = f"{dist_info}/RECORD"
     files[record_path] = b""
     files[record_path] = generate_record(files).encode()
 
     output_dir.mkdir(parents=True, exist_ok=True)
     wheel_path = output_dir / f"{IMPORT_NAME}-{version}-py3-none-{platform_tag}.whl"
-    exec_mode = stat.S_IRWXU | stat.S_IRGRP | stat.S_IXGRP | stat.S_IROTH | stat.S_IXOTH
+    # S_IFREG matters: without the file-type bits some installers treat the
+    # external_attr as garbage and extract the binaries non-executable (the
+    # _run() wrapper self-heals with chmod, but installs should be right).
+    exec_mode = (
+        stat.S_IFREG
+        | stat.S_IRWXU
+        | stat.S_IRGRP
+        | stat.S_IXGRP
+        | stat.S_IROTH
+        | stat.S_IXOTH
+    )
     with zipfile.ZipFile(wheel_path, "w", zipfile.ZIP_DEFLATED) as whl:
         for path, content in files.items():
             if "/bin/" in path:

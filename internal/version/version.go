@@ -115,13 +115,22 @@ func gitDescribe(repoRoot string) string {
 		return Normalize(buildVersion)
 	}
 
+	// No stamp and no repo root: an unstamped `go build`/`go install` binary
+	// run from who-knows-where. Do NOT fall through to `git describe` in the
+	// process cwd — `--always` succeeds inside ANY git repository, so the
+	// binary would report the version of whatever repo the user happens to
+	// be standing in (reproduced: an unstamped yolo run inside a foreign
+	// checkout tagged v5.2.0 reported 5.2.0+…). "unknown" (via Get) is the
+	// honest answer — the §2d "sane default", swarf's "dev" analog.
+	if repoRoot == "" {
+		return ""
+	}
+
 	var raw string
 	ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
 	defer cancel()
 	cmd := exec.CommandContext(ctx, "git", "describe", "--tags", "--dirty", "--always")
-	if repoRoot != "" {
-		cmd.Dir = repoRoot
-	}
+	cmd.Dir = repoRoot
 	out, err := cmd.Output()
 	if err == nil {
 		raw = strings.TrimSpace(string(out))

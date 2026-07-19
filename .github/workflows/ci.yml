@@ -30,6 +30,28 @@ jobs:
         with:
           extra_args: --only-verified
 
+  # The Go tree gets its own job: `go vet` + the short test suite, which
+  # includes guards nothing else enforces automatically (TestEmbedMatchesTree —
+  # the go:embed/tree sync for bundled loopholes; the version stamp contract;
+  # the config/argv regression suites). Live-Python parity oracles skip here
+  # (no uv in this job) — they run via `just check-ci` locally.
+  check-go:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v7
+        with:
+          fetch-depth: 0
+
+      - uses: actions/setup-go@v6
+        with:
+          go-version-file: go.mod
+
+      - name: Vet
+        run: go vet ./...
+
+      - name: Unit tests
+        run: go test -short ./...
+
   check:
     runs-on: ubuntu-latest
     steps:

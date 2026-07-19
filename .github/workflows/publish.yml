@@ -1,15 +1,28 @@
-# Publish — fires on the GitHub release that goreleaser (release.yml) creates.
+# Publish — PyPI wheels + image-cache/builder pushes for a release.
 # ★ step 2 of the Go transition: the PyPI package is now per-platform wheels
 # wrapping the Go host binaries (scripts/build_wheels.py, go-to-wheel-derived),
 # preserving the pipx/uvx audience and the 4 console-script contract. The
 # homebrew tap update moved to release.yml (source-build formula, no poet).
 # Image-cache + builder-image pushes are unchanged.
 #
+# ⚠ Trigger: the v* TAG PUSH is the load-bearing trigger, NOT the GitHub
+# release. goreleaser (release.yml) creates the release with the
+# workflow-scoped GITHUB_TOKEN, and GitHub's recursion guard means
+# bot-token-created events NEVER trigger `on: release` workflows — a
+# release-only trigger would silently never fire on the documented
+# "releasing = push a v* tag" flow. The release trigger is kept as well so a
+# HUMAN-published release (UI/gh — e.g. re-publishing after a failure) also
+# works; `uv publish --check-url` and the image pushes are idempotent, and the
+# concurrency group collapses double-fires.
+#
 # PyPI auth is Trusted Publishing (OIDC): pinned to THIS workflow filename +
 # the `pypi` environment — renaming either breaks the publisher config.
 name: Publish to PyPI
 
 on:
+  push:
+    tags:
+      - "v*"
   release:
     types: [published]
 
@@ -17,6 +30,10 @@ permissions:
   contents: read
   id-token: write
   packages: write  # push the container builder image to GHCR
+
+concurrency:
+  group: publish-${{ github.ref_name }}
+  cancel-in-progress: false
 
 jobs:
   build-wheels:
@@ -64,7 +81,6 @@ jobs:
   # entirely unless the CACHIX_AUTH_TOKEN secret AND CACHIX_CACHE variable
   # are configured — so releases stay green before the Cachix account exists.
   push-image-cache:
-    if: github.event_name == 'release'
     # Push BOTH x86_64-linux and aarch64-linux closures — each matrix cell
     # builds + pushes its own native arch.  The aarch64-linux closure is the
     # SAME one Apple Silicon Macs consume, so this also serves the mac/arm
@@ -130,7 +146,6 @@ jobs:
   # arm-Linux runner — Apple Silicon consumes the SAME aarch64-linux image.
   # See docs/research/macos-container-builder-exploration.md + the AC runbook.
   push-builder-image:
-    if: github.event_name == 'release'
     runs-on: ubuntu-24.04-arm  # native aarch64-linux for Apple Silicon Macs
     steps:
       - uses: actions/checkout@v7

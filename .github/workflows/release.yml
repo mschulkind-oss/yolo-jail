@@ -2,11 +2,13 @@
 # transition; shape copied from mschulkind-oss/swarf).
 #
 # Releasing = pushing a v* tag. goreleaser builds the four host-facing
-# binaries, creates the GitHub release, and uploads archives; the
-# release-published event then triggers publish.yml (PyPI wheels via
-# go-to-wheel + image cache pushes). The homebrew formula is a SOURCE-BUILD
-# formula (depends_on go), regenerated here by hand — no homebrew-pypi-poet,
-# no PyPI dependency.
+# binaries, creates the GitHub release, and uploads archives. publish.yml
+# (PyPI wheels + image pushes) runs off the SAME tag push — NOT off the
+# release event: goreleaser creates the release with the workflow-scoped
+# GITHUB_TOKEN, and GitHub's recursion guard means bot-created events never
+# trigger other workflows. The homebrew formula is a SOURCE-BUILD formula
+# (depends_on go), regenerated here by hand — no homebrew-pypi-poet, no PyPI
+# dependency.
 #
 # Divergences from swarf, on purpose:
 #   - four binaries, not one (mirrors the 4 console scripts of the Python era);
@@ -79,7 +81,14 @@ jobs:
           VERSION="${{ steps.version.outputs.version }}"
           TAG="v${VERSION}"
           TARBALL="https://github.com/mschulkind-oss/yolo-jail/archive/refs/tags/${TAG}.tar.gz"
-          SHA256=$(curl -sL "$TARBALL" | sha256sum | cut -d' ' -f1)
+          # -f is load-bearing: without it a 404 (typo'd dispatch version) or
+          # transient 5xx exits 0 and the ERROR BODY's sha gets baked into a
+          # formula that every `brew install` then fails to verify.
+          SHA256=$(curl -fsSL --retry 3 "$TARBALL" | sha256sum | cut -d' ' -f1)
+          if ! echo "$SHA256" | grep -Eq '^[0-9a-f]{64}$'; then
+            echo "Bad sha256 for ${TARBALL}: ${SHA256}" >&2
+            exit 1
+          fi
 
           cat > yolo-jail.rb <<FORMULA
           class YoloJail < Formula

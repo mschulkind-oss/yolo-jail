@@ -11,11 +11,13 @@
 package main
 
 import (
+	"fmt"
 	"os"
 	"os/exec"
 	"syscall"
 
 	"github.com/mschulkind-oss/yolo-jail/internal/frontdoor"
+	"github.com/mschulkind-oss/yolo-jail/internal/version"
 )
 
 func main() {
@@ -35,6 +37,18 @@ func run(argv []string) int {
 	// before the frozen argv rewrite so it can't perturb it.
 	if len(argv) >= 1 && argv[0] == "internal" {
 		return runInternal(argv[1:])
+	}
+
+	// `yolo --version` is answered natively (byte format mirrors Python's
+	// typer callback: "yolo-jail {v}"). A shipped binary (brew/wheel/
+	// goreleaser — the formula's `test do` block runs exactly this) has no
+	// Python to delegate to, and the D18 stamp-first contract means the value
+	// is the binary's own build stamp. Only the exact leading-flag form is
+	// intercepted, matching typer's eager top-level option for the case that
+	// exists in practice.
+	if len(argv) >= 1 && argv[0] == "--version" {
+		fmt.Println("yolo-jail " + version.Get(os.Getenv("YOLO_REPO_ROOT")))
+		return 0
 	}
 
 	args := frontdoor.RewriteArgv(argv)
