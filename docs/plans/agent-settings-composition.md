@@ -120,14 +120,23 @@ level. This directly replaces the two-level merge that already caused Go parity 
 
 ### Projections (this is where the strip problem dies)
 
-A **projection** = `(destination, layer list, filter program, enforce set)`.
+A **projection** is the recipe that turns the layer stack into one side's actual config
+file. It names a **destination** (the concrete file that gets written — for the jail, the
+rendered `settings.json` in jail home), the **layers** that fold into it, a **filter list**
+applied after the fold, and the **enforce set** (the managed keys re-asserted last, as the
+second belt from §4). Its *result* is a plain JSON document, materialized at the destination
+on every boot/attach. Each structured surface has exactly two:
 
-- **Host projection:** the *identity* over the `host` layer. yolo never writes host files —
-  the host `settings.json` *is* the host layer, and host Pi keeps reading it natively. Nothing
-  on the host changes. (Defining it as a projection keeps one mental model and leaves
-  host-side materialization expressible later if ever wanted.)
-- **Jail projection:** folds all five layers, then applies a **filter program** — a tiny,
-  closed, portable vocabulary of three ops declared as data:
+- **Host projection:** the *identity* over the `host` layer — it has **no write step**.
+  yolo never writes host files; managing host dotfiles is another tool's job and permanently
+  out of scope here. The host `settings.json` *is* the host layer, and host Pi keeps reading
+  it natively. Nothing on the host changes — calling this degenerate case a "projection"
+  just keeps one mental model; read it as "the host file, unchanged."
+- **Jail projection:** folds all five layers, then applies its **filter list**. Filters are
+  *not* a language and there is no interpreter: a filter is one of three fixed, declarative
+  ops written as plain JSON data — in yolo's builtin per-agent manifest, or (optionally) by
+  the user in `yolo-jail.jsonc` under `agent_config.<agent>.jail_filters` (§6) — and applied
+  by the single `applyFilters` engine function:
   - `{op: "drop", path}` — remove a keypath (JSON Pointer, `*` wildcard segments)
   - `{op: "dropItems", path, match}` — remove glob-matching elements from an array
   - `{op: "set", path, value}` — per-side transform
