@@ -1,4 +1,4 @@
-package prunecmd
+package prune
 
 import (
 	"bytes"
@@ -7,19 +7,17 @@ import (
 	"strings"
 	"testing"
 	"time"
-
-	"github.com/mschulkind-oss/yolo-jail/internal/prune"
 )
 
-// stubExec builds a prune.RunFunc keyed by the joined argv, returning canned
+// stubExec builds a RunFunc keyed by the joined argv, returning canned
 // stdout (RC=0, Ran=true). rm/rmi calls (mutations) are recorded when a sink is
 // passed. An unmapped argv returns Ran=true, RC=0, "".
-func stubExec(mapping map[string]string, calls *[]string) prune.RunFunc {
-	return func(argv []string, _ time.Duration) prune.ProbeResult {
+func stubExec(mapping map[string]string, calls *[]string) RunFunc {
+	return func(argv []string, _ time.Duration) ProbeResult {
 		if calls != nil && len(argv) >= 2 && (argv[1] == "rm" || argv[1] == "rmi") {
 			*calls = append(*calls, strings.Join(argv, " "))
 		}
-		return prune.ProbeResult{Stdout: mapping[strings.Join(argv, "\x00")], RC: 0, Ran: true}
+		return ProbeResult{Stdout: mapping[strings.Join(argv, "\x00")], RC: 0, Ran: true}
 	}
 }
 
@@ -275,7 +273,7 @@ func TestBuildRootDeclineWhenUnknown(t *testing.T) {
 	mustWrite(t, filepath.Join(old, "f"), []byte("x"))
 	backdate(t, old, o.Now().Add(-48*time.Hour))
 
-	o.Exec = func([]string, time.Duration) prune.ProbeResult { return prune.ProbeResult{Ran: false} }
+	o.Exec = func([]string, time.Duration) ProbeResult { return ProbeResult{Ran: false} }
 	var buf bytes.Buffer
 	o.Out = &buf
 	Run(o)

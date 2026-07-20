@@ -1,4 +1,4 @@
-// Package prunecmd implements the `yolo prune` command. It reclaims disk from
+// The `yolo prune` command implementation. It reclaims disk from
 // yolo-jail storage:
 // hardlink-dedup across workspaces, drop stopped containers, sweep old images
 // and the image-tar cache, reap orphaned broker relays, reclaim orphan
@@ -18,7 +18,7 @@
 // verbs, the disk-usage before-report, and the summary INFO — NOT the
 // byte-identical rich ANSI. Rich markup is stripped; the FmtBytes numbers,
 // reclaim decisions, and removed-name lists ARE byte-exact vs live Python.
-package prunecmd
+package prune
 
 import (
 	"fmt"
@@ -32,7 +32,6 @@ import (
 	"time"
 
 	"github.com/mschulkind-oss/yolo-jail/internal/execx"
-	"github.com/mschulkind-oss/yolo-jail/internal/prune"
 	"github.com/mschulkind-oss/yolo-jail/internal/runtime"
 )
 
@@ -66,10 +65,10 @@ type Options struct {
 	// runtime.DetectRuntime (the shallow _detect_runtime — YOLO_RUNTIME or
 	// "podman", the same shallow detect prune_cmd uses).
 	DetectRuntime func() string
-	// Exec is the container-runtime probe seam consumed by internal/prune. nil =>
+	// Exec is the container-runtime probe seam. nil =>
 	// realProbeExec (capture_output, text, honoring the per-call timeout, with the
 	// FileNotFoundError/OSError/Timeout => Ran=false degrade).
-	Exec prune.RunFunc
+	Exec RunFunc
 	// Now is the clock seam (cache-age cutoff, build-root/relay grace floors).
 	// nil => time.Now.
 	Now func() time.Time
@@ -140,7 +139,7 @@ func Run(opts Options) int {
 	apply := opts.Apply
 
 	rt := opts.DetectRuntime()
-	workspaces := prune.FindYoloWorkspaces(rt, opts.Exec)
+	workspaces := FindYoloWorkspaces(rt, opts.Exec)
 
 	mode := "DRY-RUN"
 	if apply {
@@ -158,14 +157,14 @@ func Run(opts Options) int {
 	gs := opts.GlobalStorage()
 
 	// --- Pre-report ---
-	before := prune.DiskUsageReport(workspaces, gs)
+	before := DiskUsageReport(workspaces, gs)
 	p.line("")
 	p.line(fmt.Sprintf("[bold]Current usage[/bold]  total=%s  (workspaces=%s, global=%s)",
-		prune.FmtBytes(before.Total), prune.FmtBytes(before.Workspaces), prune.FmtBytes(before.GlobalStorage)))
+		FmtBytes(before.Total), FmtBytes(before.Workspaces), FmtBytes(before.GlobalStorage)))
 	if len(before.Breakdown) > 0 {
 		p.line("  [dim]global-storage breakdown (largest first):[/dim]")
 		for _, kv := range sortByValueDesc(before.Breakdown) {
-			p.line(fmt.Sprintf("    %-20s %12s", kv.name, prune.FmtBytes(kv.size)))
+			p.line(fmt.Sprintf("    %-20s %12s", kv.name, FmtBytes(kv.size)))
 		}
 	}
 	if len(before.CacheBreakdown) > 0 {
@@ -175,13 +174,13 @@ func Run(opts Options) int {
 		}
 		p.line("  [dim]cache/ top 5 (largest first):[/dim]")
 		for _, kv := range top {
-			p.line(fmt.Sprintf("    cache/%-14s %12s", kv.name, prune.FmtBytes(kv.size)))
+			p.line(fmt.Sprintf("    cache/%-14s %12s", kv.name, FmtBytes(kv.size)))
 		}
 	}
 	if imagesBytes := before.CacheBreakdown["images"]; imagesBytes >= imagesHintThreshold {
 		p.line(fmt.Sprintf("  [yellow]hint:[/yellow] cache/images holds %s of jail tarballs.  "+
 			"They're streamed once at podman load then unused — consider symlinking this subdir to HDD storage if you have it.",
-			prune.FmtBytes(imagesBytes)))
+			FmtBytes(imagesBytes)))
 	}
 
 	var totalSaved int64
@@ -195,12 +194,12 @@ func Run(opts Options) int {
 	if !opts.NoHardlink && (len(workspaces) > 0 || opts.DedupGlobal) {
 		p.line("")
 		p.line("[bold]Hardlink dedup[/bold]")
-		var entries []prune.Entry
+		var entries []Entry
 		if len(workspaces) > 0 {
-			entries = append(entries, prune.WalkDedupableWorkspaces(workspaces)...)
+			entries = append(entries, WalkDedupableWorkspaces(workspaces)...)
 		}
 		if opts.DedupGlobal {
-			entries = append(entries, prune.WalkGlobalDedupable(gs)...)
+			entries = append(entries, WalkGlobalDedupable(gs)...)
 		}
 		p.line(fmt.Sprintf("  candidate files: %s", fmtComma(len(entries))))
 		if opts.DedupGlobal {
@@ -208,8 +207,8 @@ func Run(opts Options) int {
 		} else {
 			p.line("  [dim]scope: workspaces only  (pass --dedup-global to include the shared caches)[/dim]")
 		}
-		saved, links := prune.HardlinkDuplicateFiles(entries, apply)
-		p.line(fmt.Sprintf("  %s: %s across %s hardlinks", verb(apply, "would save", "saved"), prune.FmtBytes(saved), fmtComma(links)))
+		saved, links := HardlinkDuplicateFiles(entries, apply)
+		p.line(fmt.Sprintf("  %s: %s across %s hardlinks", verb(apply, "would save", "saved"), FmtBytes(saved), fmtComma(links)))
 		totalSaved += saved
 		totalLinks += links
 	}
@@ -218,7 +217,7 @@ func Run(opts Options) int {
 	if !opts.NoContainers {
 		p.line("")
 		p.line("[bold]Stopped yolo-* containers[/bold]")
-		removedContainers = prune.PruneStoppedContainers(rt, apply, opts.Exec)
+		removedContainers = PruneStoppedContainers(rt, apply, opts.Exec)
 		if len(removedContainers) > 0 {
 			p.line(fmt.Sprintf("  %s: %d", verb(apply, "would remove", "removed"), len(removedContainers)))
 			for _, name := range removedContainers {
@@ -234,12 +233,12 @@ func Run(opts Options) int {
 	p.line("[bold]Orphaned broker relays[/bold]")
 	var live runtime.LiveSet
 	if rt != "" {
-		live = prune.LiveYoloContainers(rt, opts.Exec)
+		live = LiveYoloContainers(rt, opts.Exec)
 	}
 	if !live.Known {
 		p.line(fmt.Sprintf("  [dim]skipped — could not enumerate running jails (%s); declining to sweep[/dim]", rt))
 	} else {
-		reaped := prune.ReapRelayOrphans(opts.RelayBase, live.Known, live.Names, relayOlderThanSeconds, apply, opts.Now(), opts.RelayKill)
+		reaped := ReapRelayOrphans(opts.RelayBase, live.Known, live.Names, relayOlderThanSeconds, apply, opts.Now(), opts.RelayKill)
 		if len(reaped) > 0 {
 			p.line(fmt.Sprintf("  %s: %d relay(s)", verb(apply, "would reap", "reaped"), len(reaped)))
 			for _, pidFile := range reaped {
@@ -254,7 +253,7 @@ func Run(opts Options) int {
 	if !opts.NoImages {
 		p.line("")
 		p.line(fmt.Sprintf("[bold]Old yolo-jail images[/bold]  (keep=%d)", opts.KeepImages))
-		removedImages = prune.PruneOldImages(rt, opts.KeepImages, apply, opts.Exec)
+		removedImages = PruneOldImages(rt, opts.KeepImages, apply, opts.Exec)
 		if len(removedImages) > 0 {
 			p.line(fmt.Sprintf("  %s: %d", verb(apply, "would remove", "removed"), len(removedImages)))
 			for _, img := range removedImages {
@@ -269,9 +268,9 @@ func Run(opts Options) int {
 	if !opts.NoImageCache {
 		p.line("")
 		p.line(fmt.Sprintf("[bold]Cached image tarballs[/bold]  (keep=%d)", opts.ImageCacheKeep))
-		imageCacheBytes, imageCacheFiles = prune.PruneImageCache(joinPath(opts.GlobalCache(), "images"), opts.ImageCacheKeep, apply)
+		imageCacheBytes, imageCacheFiles = PruneImageCache(joinPath(opts.GlobalCache(), "images"), opts.ImageCacheKeep, apply)
 		if imageCacheFiles > 0 {
-			p.line(fmt.Sprintf("  %s: %s across %s file(s)", verb(apply, "would remove", "removed"), prune.FmtBytes(imageCacheBytes), fmtComma(imageCacheFiles)))
+			p.line(fmt.Sprintf("  %s: %s across %s file(s)", verb(apply, "would remove", "removed"), FmtBytes(imageCacheBytes), fmtComma(imageCacheFiles)))
 		} else {
 			p.line("  [dim]none[/dim]")
 		}
@@ -284,13 +283,13 @@ func Run(opts Options) int {
 	if !opts.NoBuildRoots {
 		p.line("")
 		p.line("[bold]Orphaned build-root generations[/bold]")
-		referenced := prune.FindReferencedBuildRoots(rt, opts.Exec)
+		referenced := FindReferencedBuildRoots(rt, opts.Exec)
 		if !referenced.Known {
 			p.line(fmt.Sprintf("  [dim]skipped — could not enumerate running jails (%s); declining to sweep[/dim]", rt))
 		} else {
-			buildRootBytes, buildRootDirs = prune.PruneOrphanBuildRoots(gs, referenced, time.Duration(buildRootOlderThanSeconds*float64(time.Second)), apply, opts.Now())
+			buildRootBytes, buildRootDirs = PruneOrphanBuildRoots(gs, referenced, time.Duration(buildRootOlderThanSeconds*float64(time.Second)), apply, opts.Now())
 			if buildRootDirs > 0 {
-				p.line(fmt.Sprintf("  %s: %s across %s generation(s)", verb(apply, "would remove", "removed"), prune.FmtBytes(buildRootBytes), fmtComma(buildRootDirs)))
+				p.line(fmt.Sprintf("  %s: %s across %s generation(s)", verb(apply, "would remove", "removed"), FmtBytes(buildRootBytes), fmtComma(buildRootDirs)))
 			} else {
 				p.line("  [dim]none[/dim]")
 			}
@@ -304,10 +303,10 @@ func Run(opts Options) int {
 	if !opts.NoShadowedHome {
 		p.line("")
 		p.line("[bold]Shadowed seed subtrees[/bold]")
-		p.line(fmt.Sprintf("  [dim]targets: %s (each overlay-masked at runtime)[/dim]", strings.Join(prune.ShadowedHomePaths, ", ")))
-		shadowedBytes, shadowedItems = prune.PruneShadowedHome(opts.GlobalHome(), apply)
+		p.line(fmt.Sprintf("  [dim]targets: %s (each overlay-masked at runtime)[/dim]", strings.Join(ShadowedHomePaths, ", ")))
+		shadowedBytes, shadowedItems = PruneShadowedHome(opts.GlobalHome(), apply)
 		if shadowedItems > 0 {
-			p.line(fmt.Sprintf("  %s: %s across %s path(s)", verb(apply, "would remove", "removed"), prune.FmtBytes(shadowedBytes), fmtComma(shadowedItems)))
+			p.line(fmt.Sprintf("  %s: %s across %s path(s)", verb(apply, "would remove", "removed"), FmtBytes(shadowedBytes), fmtComma(shadowedItems)))
 		} else {
 			p.line("  [dim]none[/dim]")
 		}
@@ -318,14 +317,14 @@ func Run(opts Options) int {
 	var cacheBytes int64
 	var cacheFiles int
 	if opts.CacheAge > 0 {
-		subdirs := append([]string{}, prune.CachePurgeDefaultSubdirs...)
+		subdirs := append([]string{}, CachePurgeDefaultSubdirs...)
 		if opts.PurgeHeavyCaches {
-			subdirs = append(subdirs, prune.CachePurgeHeavySubdirs...)
+			subdirs = append(subdirs, CachePurgeHeavySubdirs...)
 		}
 		p.line("")
 		p.line(fmt.Sprintf("[bold]Cache purge[/bold]  (subdirs=%s, age > %dd)", strings.Join(subdirs, ","), opts.CacheAge))
-		cacheBytes, cacheFiles = prune.PurgeCacheByAge(joinPath(gs, "cache"), subdirs, float64(opts.CacheAge), apply, opts.Now())
-		p.line(fmt.Sprintf("  %s: %s across %s files", verb(apply, "would remove", "removed"), prune.FmtBytes(cacheBytes), fmtComma(cacheFiles)))
+		cacheBytes, cacheFiles = PurgeCacheByAge(joinPath(gs, "cache"), subdirs, float64(opts.CacheAge), apply, opts.Now())
+		p.line(fmt.Sprintf("  %s: %s across %s files", verb(apply, "would remove", "removed"), FmtBytes(cacheBytes), fmtComma(cacheFiles)))
 		totalSaved += cacheBytes
 	}
 
@@ -334,13 +333,13 @@ func Run(opts Options) int {
 	if apply {
 		p.line(fmt.Sprintf("[bold green]Reclaimed %s[/bold green] via %s hardlinks, %d container(s), "+
 			"%d image(s), %s image tar(s), %s build-root generation(s), %s shadowed seed path(s), %s cache file(s).",
-			prune.FmtBytes(totalSaved), fmtComma(totalLinks), len(removedContainers), len(removedImages),
+			FmtBytes(totalSaved), fmtComma(totalLinks), len(removedContainers), len(removedImages),
 			fmtComma(imageCacheFiles), fmtComma(buildRootDirs), fmtComma(shadowedItems), fmtComma(cacheFiles)))
 	} else {
 		p.line(fmt.Sprintf("[bold yellow]DRY-RUN:[/bold yellow] would reclaim %s via %s hardlinks, remove "+
 			"%d container(s), %d image(s), %s image tar(s), %s build-root generation(s), %s shadowed seed path(s), %s cache file(s).  "+
 			"Re-run with [cyan]--apply[/cyan] to execute.",
-			prune.FmtBytes(totalSaved), fmtComma(totalLinks), len(removedContainers), len(removedImages),
+			FmtBytes(totalSaved), fmtComma(totalLinks), len(removedContainers), len(removedImages),
 			fmtComma(imageCacheFiles), fmtComma(buildRootDirs), fmtComma(shadowedItems), fmtComma(cacheFiles)))
 	}
 	return 0
@@ -438,15 +437,15 @@ func (p *printer) line(s string) {
 // (the FileNotFoundError/OSError/TimeoutExpired degrade); a completed run yields
 // Ran=true with the exit status in RC (Python treats non-zero RC as an
 // empty/None degrade in the engine).
-func realProbeExec(argv []string, timeout time.Duration) prune.ProbeResult {
+func realProbeExec(argv []string, timeout time.Duration) ProbeResult {
 	if len(argv) == 0 {
-		return prune.ProbeResult{}
+		return ProbeResult{}
 	}
 	cmd := exec.Command(argv[0], argv[1:]...)
 	var stdout strings.Builder
 	cmd.Stdout = &stdout
 	if err := cmd.Start(); err != nil {
-		return prune.ProbeResult{Ran: false}
+		return ProbeResult{Ran: false}
 	}
 	done := make(chan error, 1)
 	go func() { done <- cmd.Wait() }()
@@ -457,13 +456,13 @@ func realProbeExec(argv []string, timeout time.Duration) prune.ProbeResult {
 	case <-time.After(timeout):
 		_ = cmd.Process.Kill()
 		<-done
-		return prune.ProbeResult{Ran: false} // TimeoutExpired => degrade
+		return ProbeResult{Ran: false} // TimeoutExpired => degrade
 	case <-done:
 		rc := 0
 		if cmd.ProcessState != nil {
 			rc = cmd.ProcessState.ExitCode()
 		}
-		return prune.ProbeResult{Stdout: stdout.String(), RC: rc, Ran: true}
+		return ProbeResult{Stdout: stdout.String(), RC: rc, Ran: true}
 	}
 }
 

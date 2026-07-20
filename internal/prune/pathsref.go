@@ -1,4 +1,4 @@
-package prunecmd
+package prune
 
 import (
 	"syscall"

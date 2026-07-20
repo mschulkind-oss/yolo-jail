@@ -20,7 +20,7 @@ import (
 	"github.com/mschulkind-oss/yolo-jail/internal/loopholescmd"
 	"github.com/mschulkind-oss/yolo-jail/internal/macosuser"
 	"github.com/mschulkind-oss/yolo-jail/internal/paths"
-	"github.com/mschulkind-oss/yolo-jail/internal/prunecmd"
+	"github.com/mschulkind-oss/yolo-jail/internal/prune"
 	"github.com/mschulkind-oss/yolo-jail/internal/pscmd"
 	"github.com/mschulkind-oss/yolo-jail/internal/runcmd"
 	"github.com/mschulkind-oss/yolo-jail/internal/runtime"
@@ -80,7 +80,7 @@ func runMacosFixPermissions(args []string) int {
 
 // runPrune runs `yolo prune` (disk reclaim). Default dry-run; --apply reclaims.
 func runPrune(args []string) int {
-	opts := prunecmd.NewDefaultOptions()
+	opts := prune.NewDefaultOptions()
 	opts.Color = true
 	// args: ["prune", <flags>...]
 	for i := 1; i < len(args); i++ {
@@ -121,7 +121,7 @@ func runPrune(args []string) int {
 			opts.PurgeHeavyCaches = true
 		}
 	}
-	return prunecmd.Run(opts)
+	return prune.Run(opts)
 }
 
 // runBroker dispatches `yolo broker {status,stop,restart,logs}`. args is the

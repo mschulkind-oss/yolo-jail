@@ -27,7 +27,7 @@ type ProbeResult struct {
 
 // RunFunc is the injectable exec seam (the internal/pscmd Deps pattern applied
 // to the pure engine): it runs argv with a per-call timeout and returns the
-// captured stdout. The real implementation lives in internal/prunecmd; tests
+// captured stdout. The real implementation lives in this package; tests
 // stub it with canned output keyed by argv. A stub that models "runtime absent"
 // returns Ran=false; "runtime present, listing failed" returns Ran=true, RC!=0.
 type RunFunc func(argv []string, timeout time.Duration) ProbeResult
