@@ -417,8 +417,14 @@ func (o *Options) relayKill(pidFile, sockPath string) {
 	pid, ok := readPIDFile(pidFile)
 	if ok && pidAlive(pid) {
 		_ = syscall.Kill(pid, syscall.SIGTERM)
-		deadline := o.Now().Add(3 * time.Second)
-		for o.Now().Before(deadline) {
+		// Real wall clock, deliberately NOT o.Now(). o.Now is an injectable
+		// logical clock that tests freeze to make reap decisions
+		// deterministic; draining against a frozen clock never advances past
+		// the deadline, so this loop would spin until the target happens to
+		// die. internal/prune.realRelayKill uses time.Now() for the same
+		// reason.
+		deadline := time.Now().Add(3 * time.Second)
+		for time.Now().Before(deadline) {
 			if !pidAlive(pid) {
 				break
 			}

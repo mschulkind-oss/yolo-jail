@@ -2,11 +2,78 @@ package run
 
 import (
 	"os"
+	"os/exec"
 	"path/filepath"
 	"reflect"
+	"strconv"
 	"testing"
 	"time"
 )
+
+// deadPID returns the PID of a process that has already exited and been
+// reaped, so relayKill's liveness probe short-circuits before it signals
+// anything.
+//
+// Do not hardcode a low PID here. On a typical Linux host PID 123 is a live
+// kernel thread (scsi_eh_*), which this test would then SIGTERM — and on a
+// host where the test user owns that PID, `go test` would kill a real
+// process.
+func deadPID(t *testing.T) int {
+	t.Helper()
+	cmd := exec.Command("sh", "-c", "exit 0")
+	if err := cmd.Start(); err != nil {
+		t.Skipf("cannot spawn a throwaway process: %v", err)
+	}
+	pid := cmd.Process.Pid
+	_ = cmd.Wait() // reaped: the PID is now dead, not a zombie
+	return pid
+}
+
+// TestRelayKillFrozenClockTerminates pins the drain loop against a frozen
+// o.Now. relayKill's SIGTERM→wait→SIGKILL escalation must time out on the real
+// wall clock: o.Now is an injectable logical clock that tests freeze, and
+// building the deadline from it produced a loop whose condition was
+// permanently true, hanging until the target happened to die on its own.
+//
+// The target ignores SIGTERM so the drain loop is genuinely entered and has to
+// reach its deadline, which is the path that used to spin forever.
+func TestRelayKillFrozenClockTerminates(t *testing.T) {
+	cmd := exec.Command("sh", "-c", "trap '' TERM; sleep 30")
+	if err := cmd.Start(); err != nil {
+		t.Skipf("cannot spawn a throwaway process: %v", err)
+	}
+	defer func() {
+		_ = cmd.Process.Kill()
+		_ = cmd.Wait()
+	}()
+
+	pidFile := filepath.Join(t.TempDir(), "yolo-broker-relay-deadbeef.pid")
+	if err := os.WriteFile(pidFile, []byte(strconv.Itoa(cmd.Process.Pid)+"\n"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+
+	frozen := time.Now()
+	o := &Options{Now: func() time.Time { return frozen }}
+	fillDefaults(o)
+	o.Now = func() time.Time { return frozen }
+
+	done := make(chan struct{})
+	go func() {
+		o.relayKill(pidFile, "")
+		close(done)
+	}()
+
+	select {
+	case <-done:
+	case <-time.After(30 * time.Second):
+		t.Fatal("relayKill did not terminate under a frozen clock — the drain " +
+			"deadline is being built from o.Now() instead of the wall clock")
+	}
+
+	if _, err := os.Stat(pidFile); err == nil {
+		t.Error("relayKill should remove the PID file")
+	}
+}
 
 // TestRelayReapOrphansCnameFold checks the run-path backstop reap decision: the
 // current jail's just-ensured relay is spared even though its cname is not in the
@@ -21,9 +88,10 @@ func TestRelayReapOrphansCnameFold(t *testing.T) {
 	currentName := "yolo-current-1111" // this jail — NOT in the live set yet
 	liveSibling := "yolo-sibling-2222" // a running sibling jail
 	orphanName := "yolo-orphan-3333"   // dead jail, relay leaked
+	dead := deadPID(t)
 	writePid := func(cname string) string {
 		p := filepath.Join(base, "yolo-broker-relay-"+relayShortHash(cname)+".pid")
-		if err := os.WriteFile(p, []byte("123\n"), 0o644); err != nil {
+		if err := os.WriteFile(p, []byte(strconv.Itoa(dead)+"\n"), 0o644); err != nil {
 			t.Fatal(err)
 		}
 		// Age past the grace floor so mtime alone doesn't spare it.
