@@ -1,4 +1,4 @@
-package checkcmd
+package check
 
 import (
 	"strings"

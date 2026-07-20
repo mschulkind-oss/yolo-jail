@@ -11,7 +11,7 @@ import (
 
 	"github.com/mschulkind-oss/yolo-jail/internal/broker"
 	"github.com/mschulkind-oss/yolo-jail/internal/builder"
-	"github.com/mschulkind-oss/yolo-jail/internal/checkcmd"
+	"github.com/mschulkind-oss/yolo-jail/internal/cli/check"
 	"github.com/mschulkind-oss/yolo-jail/internal/cli/run"
 	"github.com/mschulkind-oss/yolo-jail/internal/darwinpkg"
 	"github.com/mschulkind-oss/yolo-jail/internal/jsonx"
@@ -351,7 +351,7 @@ func macosUserRun(cfg *jsonx.OrderedMap, workspace string, agents, agentArgv []s
 // the native Go check. args is the rewritten argv[1:] (subcommand included), so
 // the leading token is "check"/"doctor". Exit code: 0 = no failures, 1 = fail.
 func runCheck(args []string) int {
-	opts := checkcmd.NewDefaultOptions()
+	opts := check.NewDefaultOptions()
 	opts.Color = true
 	// Parse flags. Only --build/--no-build are defined for check/doctor; any
 	// stray flag is ignored (typer would error, but the front door has already
@@ -364,5 +364,5 @@ func runCheck(args []string) int {
 			opts.Build = true
 		}
 	}
-	return checkcmd.Check(opts)
+	return check.Check(opts)
 }

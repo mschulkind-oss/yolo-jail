@@ -1,4 +1,4 @@
-package checkcmd
+package check
 
 // The status badges and note indentation that `yolo check` emits. The plain
 // (ANSI-stripped) text is the contract; the styled forms carry the equivalent

@@ -14,7 +14,7 @@ import (
 // Deps are the injectable seams for the macOS-only orchestrator + the four
 // macos-* command bodies. Every subprocess / filesystem / platform probe is a
 // seam so the whole surface is unit-testable on Linux (the
-// pscmd/checkcmd precedent). RealDeps wires the production implementations.
+// cli/check + ps deps-injection precedent). RealDeps wires the production implementations.
 type Deps struct {
 	// IsMacOS reports sys.platform == "darwin".
 	IsMacOS func() bool

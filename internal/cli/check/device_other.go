@@ -1,6 +1,6 @@
 //go:build !linux
 
-package checkcmd
+package check
 
 import "os"
 

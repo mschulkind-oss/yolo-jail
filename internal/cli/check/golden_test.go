@@ -1,4 +1,4 @@
-package checkcmd
+package check
 
 // noRuntimeGolden is the pinned ANSI-stripped full output of Check() over the
 // no-runtime / not-in-jail / no-repo-root fixture (paths normalized to $HOME).

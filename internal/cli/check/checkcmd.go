@@ -1,4 +1,4 @@
-// Package checkcmd implements the `yolo check` command. It orchestrates every
+// Package check implements the `yolo check` command. It orchestrates every
 // preflight probe the doctor cares about — container runtime, nix, macOS
 // plumbing, global storage, config validation, entrypoint dry-run, GPU, KVM,
 // image build, container image presence, running jails, loopholes (+ broker
@@ -22,7 +22,7 @@
 // ANSI-stripped). Where a check emits a specific diagnostic STRING that carries
 // meaning (nix remedy, config validation errors, creds-freshness messages),
 // those come from the already-ported engines and ARE byte-exact.
-package checkcmd
+package check
 
 import (
 	"io"
