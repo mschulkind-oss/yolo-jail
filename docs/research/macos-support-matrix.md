@@ -116,4 +116,4 @@ run); the whole "run agent in jail" row for AC under current session's fixes.
 - [macos-linux-builder-explained.md](macos-linux-builder-explained.md) — the Linux-person's explainer of the whole builder question.
 - [macos-no-vm-direction.md](../design/macos-no-vm-direction.md) — the "pursue both backends" decision.
 - [macos-revival-and-distribution-plan.md](../plans/macos-revival-and-distribution-plan.md) — the current macos-user + distribution roadmap of record.
-- [handoff-cachix-cache.md](../implementation/handoff-cachix-cache.md) — the prebuilt-download happy path.
+- [handoff-cachix-cache.md](../plans/handoff-cachix-cache.md) — the prebuilt-download happy path.

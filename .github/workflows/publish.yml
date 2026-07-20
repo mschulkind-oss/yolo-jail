@@ -77,7 +77,7 @@ jobs:
   # so macOS users download the prebuilt image instead of needing a Linux
   # builder.  Release-gated only.
   #
-  # NO-OP UNTIL SET UP (see docs/implementation/handoff-cachix-cache.md): the job skips
+  # NO-OP UNTIL SET UP (see docs/plans/handoff-cachix-cache.md): the job skips
   # entirely unless the CACHIX_AUTH_TOKEN secret AND CACHIX_CACHE variable
   # are configured — so releases stay green before the Cachix account exists.
   push-image-cache:
@@ -98,7 +98,7 @@ jobs:
             echo "enabled=true" >> "$GITHUB_OUTPUT"
           else
             echo "enabled=false" >> "$GITHUB_OUTPUT"
-            echo "Cachix not configured (CACHIX_AUTH_TOKEN secret + CACHIX_CACHE var). Skipping — see docs/implementation/handoff-cachix-cache.md."
+            echo "Cachix not configured (CACHIX_AUTH_TOKEN secret + CACHIX_CACHE var). Skipping — see docs/plans/handoff-cachix-cache.md."
           fi
 
       - uses: actions/checkout@v7

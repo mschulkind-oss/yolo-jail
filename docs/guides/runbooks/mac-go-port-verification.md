@@ -196,6 +196,8 @@ and specifically:
 - Any divergence from the Python reference in a diff step — that's a real Go bug
   to file.
 
-These close blocker **F.2 (macOS verified on real hardware)** in
-[go-port-remaining-work.md](../../implementation/go-port-remaining-work.md).
-Until they pass, macOS is a hard blocker on deleting Python.
+These close the "macOS verified on real hardware" gate — now tracked as Track M
+in [../../plans/macos-revival-and-distribution-plan.md](../../plans/macos-revival-and-distribution-plan.md).
+(Python has since been deleted, so this runbook's "diff against the Python
+reference" steps are dead — use the plan/behavior assertions and the PASS
+criteria per section, not the diff mechanics.)

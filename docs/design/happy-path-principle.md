@@ -67,7 +67,7 @@ The capability: get a runnable Linux OCI image on any host.
   matrix cell identically — the user *downloads* the prebuilt image; no
   builder, no VM, no Nix knowledge. We pay the one-time cost (publish the
   cache, a release-gated CI push). This is the answer for everybody,
-  everywhere. See [handoff-cachix-cache.md](../implementation/handoff-cachix-cache.md).
+  everywhere. See [handoff-cachix-cache.md](../plans/handoff-cachix-cache.md).
 - **Single fallback (only when the cache can't help): `nix-darwin
   linux-builder`.** Needed just for a custom package that isn't cached, or
   before the cache is live. Chosen because it's the *official* Nix tool,

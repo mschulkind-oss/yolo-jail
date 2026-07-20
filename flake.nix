@@ -9,7 +9,7 @@
   # Cachix cache lets every macOS user *download* it instead (zero setup).
   #
   # NOT YET ENABLED — pending the Cachix account (see
-  # docs/implementation/handoff-cachix-cache.md).  To turn on: create the cache, then
+  # docs/plans/handoff-cachix-cache.md).  To turn on: create the cache, then
   # UNCOMMENT the block below and replace <PUBLIC_KEY> with the key Cachix
   # prints (format: yolo-jail.cachix.org-1:<base64>).  Rename `yolo-jail`
   # throughout if you claim a different cache name.

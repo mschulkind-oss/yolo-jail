@@ -116,7 +116,7 @@ Two ways to avoid that:
 **Best — download the prebuilt image (no builder at all).** When yolo-jail's
 Cachix cache is published, macOS users download the fully-built image and
 never compile anything. This is the intended happy path; see
-[docs/implementation/handoff-cachix-cache.md](../implementation/handoff-cachix-cache.md) for its status. Once
+[docs/plans/handoff-cachix-cache.md](../plans/handoff-cachix-cache.md) for its status. Once
 live, `yolo check` shows "every image path is served from the binary cache".
 CI pushes the **aarch64-linux** closure on every release (built natively on
 an arm runner), so Apple Silicon Macs pull the exact arm image they run — no

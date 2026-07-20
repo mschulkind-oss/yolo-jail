@@ -248,7 +248,7 @@ Two remaining notes:
 - **Cachix is still not enabled** (D4, human-gated). `flake.nix:4-20` has the
   `nixConfig` substituter block **commented out**, and `publish.yml`'s
   `push-image-cache` job **skips** unless `CACHIX_AUTH_TOKEN` + `CACHIX_CACHE`
-  are set (`publish.yml:80-102`). See `docs/implementation/handoff-cachix-cache.md`.
+  are set (`publish.yml:80-102`). See `docs/plans/handoff-cachix-cache.md`.
   **Even a fully-enabled Cachix cache would *not* remove the source requirement**
   — `nix build .#ociImage` against `.` must still *evaluate the local flake* to
   know which store paths to fetch. Cachix removes the *compile*, not the *flake
@@ -360,6 +360,6 @@ Python era). Key anchors:
 - Bundle producer: `scripts/stage-source-bundle.sh`, `Justfile` (`stage-bundle`)
 - Packaging: `.goreleaser.yaml` (before-hook + archives `files:`), `.github/workflows/release.yml` (brew `pkgshare`)
 - Python wheel bundling (history): `c7e210d~1:pyproject.toml`, `c7e210d~1:src/cli/run_cmd.py:193-329`
-- Cachix disabled: `flake.nix:4-20`, `publish.yml:80-102`, `docs/implementation/handoff-cachix-cache.md`
+- Cachix disabled: `flake.nix:4-20`, `publish.yml:80-102`, `docs/plans/handoff-cachix-cache.md`
 - Cache fallback: `internal/image/autoload.go:133-162,488-521`
 - Install/ldflags: `Justfile:12-40`, `internal/hostmigrate/hostmigrate.go`
