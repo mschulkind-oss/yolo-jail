@@ -70,6 +70,12 @@
             ++ pkgs.lib.optionals (builtins.pathExists ./vendor) [ ./vendor ]
             ++ pkgs.lib.optionals (builtins.pathExists ./cmd) [ ./cmd ]
             ++ pkgs.lib.optionals (builtins.pathExists ./internal) [ ./internal ]
+            # bundled_loopholes is a top-level package (embed.FS of loophole
+            # manifests) imported by internal/loopholes/embedfallback.go. It
+            # lives OUTSIDE cmd/ and internal/, so it must be listed explicitly
+            # or the hermetic -mod=vendor build fails with "cannot find module
+            # providing package .../bundled_loopholes".
+            ++ pkgs.lib.optionals (builtins.pathExists ./bundled_loopholes) [ ./bundled_loopholes ]
           );
         };
         goBinaries = pkgs.stdenv.mkDerivation {
