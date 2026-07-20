@@ -6,7 +6,7 @@ import (
 
 	"github.com/mschulkind-oss/yolo-jail/internal/config"
 	"github.com/mschulkind-oss/yolo-jail/internal/jsonx"
-	"github.com/mschulkind-oss/yolo-jail/internal/naming"
+	"github.com/mschulkind-oss/yolo-jail/internal/runtime"
 )
 
 // RunPlan is the fully-resolved, ordered artifacts + commands for one session.
@@ -232,8 +232,8 @@ func cnameFor(workspace string) string {
 }
 
 // cnameFn is a package var so the run orchestrator can share a single naming
-// definition; defaults to naming.FromWorkspace.
-var cnameFn = naming.FromWorkspace
+// definition; defaults to runtime.FromWorkspace.
+var cnameFn = runtime.FromWorkspace
 
 // --- config accessors (thin adapters over jsonx.OrderedMap) -----------------
 // securitySection returns config["security"] as an OrderedMap, or nil.

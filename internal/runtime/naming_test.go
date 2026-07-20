@@ -1,4 +1,4 @@
-package naming
+package runtime
 
 import (
 	"regexp"

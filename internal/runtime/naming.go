@@ -1,10 +1,11 @@
-// Package naming mirrors cli.runtime.container_name_for_workspace — the
-// deterministic container name derived from a workspace path. The name is a
+package runtime
+
+// Container-name derivation mirrors cli.runtime.container_name_for_workspace —
+// the deterministic container name derived from a workspace path. The name is a
 // frozen interop contract (both the Python and Go CLIs must compute the same
 // name for the same workspace, or a mixed-era invocation can't find the
 // other's container), so the sanitize+hash algorithm is pinned by the drift
 // suite.
-package naming
 
 import (
 	"crypto/sha256"

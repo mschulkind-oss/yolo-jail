@@ -12,7 +12,6 @@ import (
 	"github.com/mschulkind-oss/yolo-jail/internal/config"
 	"github.com/mschulkind-oss/yolo-jail/internal/frontdoor"
 	"github.com/mschulkind-oss/yolo-jail/internal/jsonx"
-	"github.com/mschulkind-oss/yolo-jail/internal/naming"
 	"github.com/mschulkind-oss/yolo-jail/internal/paths"
 	"github.com/mschulkind-oss/yolo-jail/internal/runtime"
 	"github.com/mschulkind-oss/yolo-jail/internal/storage"
@@ -109,7 +108,7 @@ func (o *Options) runContainer(cfg *jsonx.OrderedMap, rt, repoRoot string) int {
 
 	identityEnv := o.collectIdentityEnv()
 
-	cname := naming.FromWorkspace(o.Workspace)
+	cname := runtime.FromWorkspace(o.Workspace)
 
 	// Sweep jails orphaned by an uncatchable kill before the attach decision.
 	o.reapOrphanedJails(rt)
