@@ -8,29 +8,60 @@ import (
 	"runtime"
 	"strconv"
 	"strings"
+	"sync"
 	"syscall"
 	"time"
 
 	"github.com/mschulkind-oss/yolo-jail/internal/storage"
 )
 
-// realProc adapts an *exec.Cmd to the Proc interface for poll-based liveness.
-type realProc struct{ cmd *exec.Cmd }
+// realProc adapts an already-started *exec.Cmd to the Proc interface for
+// poll-based liveness. A dedicated goroutine calls cmd.Wait() and records the
+// exit state under a mutex, so Poll() can report done=true once the child dies.
+// The previous implementation never called Wait(): a detached child was left
+// unreaped, ProcessState stayed nil forever, and a Signal(0) probe on an
+// unreaped zombie still succeeds — so Poll() could NEVER report done, making
+// pollUntilReachable's "builder process exited early" fast-fail branch dead
+// code.
+type realProc struct {
+	cmd  *exec.Cmd
+	mu   sync.Mutex
+	done bool
+	code int
+}
+
+// newRealProc starts cmd (if not already started) and spawns the reaper
+// goroutine. cmd must have its stdio/SysProcAttr configured before the call.
+func newRealProc(cmd *exec.Cmd) (*realProc, error) {
+	if cmd.Process == nil {
+		if err := cmd.Start(); err != nil {
+			return nil, err
+		}
+	}
+	p := &realProc{cmd: cmd}
+	go func() {
+		err := cmd.Wait()
+		code := 0
+		if cmd.ProcessState != nil {
+			code = cmd.ProcessState.ExitCode()
+		} else if err != nil {
+			code = 1
+		}
+		p.mu.Lock()
+		p.done = true
+		p.code = code
+		p.mu.Unlock()
+	}()
+	return p, nil
+}
 
 // Poll reports (returncode, done). done=false while running (matches Python's
-// proc.poll() is None).
-func (p realProc) Poll() (int, bool) {
-	if p.cmd.ProcessState == nil {
-		// Not yet reaped; probe liveness via signal 0.
-		if p.cmd.Process == nil {
-			return 0, false
-		}
-		if err := p.cmd.Process.Signal(syscall.Signal(0)); err == nil {
-			return 0, false
-		}
-		return 0, false
-	}
-	return p.cmd.ProcessState.ExitCode(), true
+// proc.poll() is None); done=true with the exit code once the reaper goroutine
+// has observed the child exit.
+func (p *realProc) Poll() (int, bool) {
+	p.mu.Lock()
+	defer p.mu.Unlock()
+	return p.code, p.done
 }
 
 // RealDeps returns Deps backed by real sockets / subprocesses / filesystem,
@@ -181,11 +212,12 @@ func startVMDetachedReal() (Proc, error) {
 	cmd.Stdout, cmd.Stderr = logFile, logFile
 	cmd.Stdin = nil
 	cmd.SysProcAttr = &syscall.SysProcAttr{Setsid: true}
-	if err := cmd.Start(); err != nil {
+	proc, err := newRealProc(cmd)
+	if err != nil {
 		return nil, err
 	}
 	_ = os.WriteFile(BuilderPIDFilePath(), []byte(strconv.Itoa(cmd.Process.Pid)+"\n"), 0o644)
-	return realProc{cmd: cmd}, nil
+	return proc, nil
 }
 
 func readBuilderPIDReal() (int, bool) {
