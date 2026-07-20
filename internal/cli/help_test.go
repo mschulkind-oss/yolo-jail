@@ -34,8 +34,9 @@ func TestUsageListedCommandsAreRegistered(t *testing.T) {
 	}
 }
 
-// TestMainHelpExitsZero pins the papercut fix: --help / -h / help print usage
-// and exit 0 (before the fix they hit the "unknown command" branch → exit 1).
+// TestMainHelpExitsZero pins the papercut fix: an EXPLICIT --help / -h / help
+// prints usage and exits 0 (before the fix they hit the "unknown command"
+// branch → exit 1).
 func TestMainHelpExitsZero(t *testing.T) {
 	for _, flag := range []string{"--help", "-h", "help"} {
 		if rc := Main([]string{"yolo", flag}); rc != 0 {
@@ -44,10 +45,30 @@ func TestMainHelpExitsZero(t *testing.T) {
 	}
 }
 
-// TestMainUnknownCommandStillErrors guards that the help handling didn't turn a
-// genuinely unknown command into a success.
-func TestMainUnknownCommandStillErrors(t *testing.T) {
-	if rc := Main([]string{"yolo", "definitely-not-a-command"}); rc == 0 {
-		t.Error("Main([yolo definitely-not-a-command]) = 0, want non-zero")
+// TestRouteDecision pins how Main routes, without executing anything. The
+// load-bearing regression: a BARE `yolo` (and `yolo <flags>` with no `--`) must
+// route to `run` (interactive jail shell), NOT to help — help is only for an
+// explicit help token.
+func TestRouteDecision(t *testing.T) {
+	cases := map[string]string{
+		"":                 "run", // bare yolo → shell, NOT help
+		"--new":            "run", // flags-only, no subcommand → run
+		"-h":               "help",
+		"--help":           "help",
+		"help":             "help",
+		"check":            "dispatch:check",
+		"ps":               "dispatch:ps",
+		"-- echo hi":       "dispatch:run", // --→run rewrite
+		"--new -- bash":    "dispatch:run",
+		"definitely-bogus": "unknown", // a typo'd subcommand errors, not silent run
+	}
+	for in, want := range cases {
+		var args []string
+		if in != "" {
+			args = strings.Fields(in)
+		}
+		if got := routeDecision(args); got != want {
+			t.Errorf("routeDecision(%q) = %q, want %q", in, got, want)
+		}
 	}
 }
