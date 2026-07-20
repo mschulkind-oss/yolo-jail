@@ -1,8 +1,9 @@
-// Package loopholescmd implements the `yolo loopholes {list,status,enable,
-// disable}` command group. It inspects and toggles host-side loopholes. The
-// discovery/doctor/set-enabled engines are in internal/loopholes; this is the
-// thin command body behind injectable seams.
-package loopholescmd
+package loopholes
+
+// The `yolo loopholes {list,status,enable,disable}` command group. It inspects
+// and toggles host-side loopholes. The discovery/doctor/set-enabled engines are
+// alongside in this package; this is the thin command body behind injectable
+// seams.
 
 import (
 	"fmt"
@@ -14,7 +15,6 @@ import (
 
 	"github.com/mschulkind-oss/yolo-jail/internal/config"
 	"github.com/mschulkind-oss/yolo-jail/internal/jsonx"
-	"github.com/mschulkind-oss/yolo-jail/internal/loopholes"
 	"github.com/mschulkind-oss/yolo-jail/internal/paths"
 )
 
@@ -57,7 +57,7 @@ func RealDeps() Deps {
 // loopholesWithConfig discovers loopholes including host_services synthesized
 // from the merged user+workspace config `loopholes:` block. Mirrors
 // _loopholes_with_config: user then workspace, later wins on key collision.
-func loopholesWithConfig(deps Deps, includeDisabled bool) []*loopholes.Loophole {
+func loopholesWithConfig(deps Deps, includeDisabled bool) []*Loophole {
 	merged := jsonx.NewOrderedMap()
 	for _, cfg := range []*jsonx.OrderedMap{deps.LoadUserConfig(), deps.LoadWorkspaceConfig(deps.Cwd)} {
 		if cfg == nil {
@@ -74,8 +74,8 @@ func loopholesWithConfig(deps Deps, includeDisabled bool) []*loopholes.Loophole 
 	}
 	// include_bundled defaults to true in Python's discover_loopholes; the Go
 	// DiscoverOptions zero value is false, so set it explicitly (matches
-	// loopholes.NewResolver, which does the same).
-	return loopholes.Discover(loopholes.DiscoverOptions{
+	// NewResolver, which does the same).
+	return Discover(DiscoverOptions{
 		IncludeDisabled: includeDisabled,
 		IncludeBundled:  true,
 		LoopholesConfig: merged,
@@ -87,8 +87,8 @@ func List(deps Deps) int {
 	all := loopholesWithConfig(deps, true)
 	if len(all) == 0 {
 		fmt.Fprintln(deps.Out, "No loopholes installed.")
-		fmt.Fprintf(deps.Out, "  • bundled: %s\n", loopholes.BundledLoopholesDir())
-		fmt.Fprintf(deps.Out, "  • user: %s\n", loopholes.UserLoopholesDir())
+		fmt.Fprintf(deps.Out, "  • bundled: %s\n", BundledLoopholesDir())
+		fmt.Fprintf(deps.Out, "  • user: %s\n", UserLoopholesDir())
 		fmt.Fprintln(deps.Out, "  • workspace: yolo-jail.jsonc loopholes: block")
 		return 0
 	}
@@ -132,7 +132,7 @@ func Status(deps Deps) int {
 		fmt.Fprintln(deps.Out, "No loopholes installed.")
 		return 0
 	}
-	for _, r := range loopholes.RunDoctorChecks(all, 10*time.Second) {
+	for _, r := range RunDoctorChecks(all, 10*time.Second) {
 		var prefix string
 		switch {
 		case !r.Loophole.Enabled:
@@ -156,11 +156,11 @@ func Status(deps Deps) int {
 	return 0
 }
 
-// SetEnabled runs `yolo loopholes enable|disable <name>`. Mirrors
+// CmdSetEnabled runs `yolo loopholes enable|disable <name>`. Mirrors
 // loopholes_enable / loopholes_disable: only user-installed loopholes are
 // toggleable (a missing user manifest → the exact stderr message + exit 1).
-func SetEnabled(deps Deps, name string, enabled bool) int {
-	path := filepath.Join(loopholes.UserLoopholesDir(), name)
+func CmdSetEnabled(deps Deps, name string, enabled bool) int {
+	path := filepath.Join(UserLoopholesDir(), name)
 	if fi, err := os.Stat(filepath.Join(path, "manifest.jsonc")); err != nil || fi.IsDir() {
 		fmt.Fprintf(deps.Err,
 			"No user-installed loophole at %s.\n"+
@@ -168,7 +168,7 @@ func SetEnabled(deps Deps, name string, enabled bool) int {
 				"yolo-jail.jsonc (loopholes.<name>.enabled).\n", path)
 		return 1
 	}
-	if err := loopholes.SetEnabled(path, enabled); err != nil {
+	if err := SetEnabled(path, enabled); err != nil {
 		fmt.Fprintf(deps.Err, "%v\n", err)
 		return 1
 	}

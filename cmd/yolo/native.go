@@ -17,7 +17,7 @@ import (
 	"github.com/mschulkind-oss/yolo-jail/internal/frontdoor"
 	"github.com/mschulkind-oss/yolo-jail/internal/initcmd"
 	"github.com/mschulkind-oss/yolo-jail/internal/jsonx"
-	"github.com/mschulkind-oss/yolo-jail/internal/loopholescmd"
+	"github.com/mschulkind-oss/yolo-jail/internal/loopholes"
 	"github.com/mschulkind-oss/yolo-jail/internal/macosuser"
 	"github.com/mschulkind-oss/yolo-jail/internal/paths"
 	"github.com/mschulkind-oss/yolo-jail/internal/prune"
@@ -226,18 +226,18 @@ func runLoopholes(args []string) int {
 		sub = args[1]
 		rest = args[2:]
 	}
-	deps := loopholescmd.RealDeps()
+	deps := loopholes.RealDeps()
 	switch sub {
 	case "", "list":
-		return loopholescmd.List(deps)
+		return loopholes.List(deps)
 	case "status":
-		return loopholescmd.Status(deps)
+		return loopholes.Status(deps)
 	case "enable", "disable":
 		if len(rest) < 1 {
 			fmt.Fprintf(os.Stderr, "Usage: yolo loopholes %s <name>\n", sub)
 			return 1
 		}
-		return loopholescmd.SetEnabled(deps, rest[0], sub == "enable")
+		return loopholes.CmdSetEnabled(deps, rest[0], sub == "enable")
 	default:
 		fmt.Fprintf(os.Stderr, "Usage: yolo loopholes {list|status|enable|disable} [name]\n")
 		return 1

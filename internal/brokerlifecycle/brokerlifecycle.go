@@ -7,7 +7,7 @@
 // `yolo broker {status,stop,restart,logs}` command bodies). Every side effect
 // (process liveness, kill, spawn, socket ping, filesystem, clock) is behind an
 // injectable Deps seam so the whole lifecycle is unit-testable against a fake
-// socket/pid without a live host daemon (the pscmd/loopholescmd precedent).
+// socket/pid without a live host daemon (the pscmd/loopholes precedent).
 //
 // The socket/pid/lock PATH strings are cross-language singleton contracts: a
 // Python yolo and a Go yolo on the same host MUST agree on them or they'd spawn

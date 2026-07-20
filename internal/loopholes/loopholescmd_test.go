@@ -1,4 +1,4 @@
-package loopholescmd
+package loopholes
 
 import (
 	"bytes"
@@ -6,8 +6,6 @@ import (
 	"path/filepath"
 	"strings"
 	"testing"
-
-	"github.com/mschulkind-oss/yolo-jail/internal/loopholes"
 )
 
 func TestSetEnabledMissingUserLoophole(t *testing.T) {
@@ -15,7 +13,7 @@ func TestSetEnabledMissingUserLoophole(t *testing.T) {
 	t.Setenv("HOME", home)
 	var out, errBuf bytes.Buffer
 	deps := Deps{Out: &out, Err: &errBuf, Cwd: home}
-	rc := SetEnabled(deps, "nonexistent", true)
+	rc := CmdSetEnabled(deps, "nonexistent", true)
 	if rc != 1 {
 		t.Errorf("rc = %d, want 1", rc)
 	}
@@ -28,7 +26,7 @@ func TestSetEnabledRoundTrip(t *testing.T) {
 	home := t.TempDir()
 	t.Setenv("HOME", home)
 	// Create a user-installed loophole manifest.
-	userDir := loopholes.UserLoopholesDir()
+	userDir := UserLoopholesDir()
 	lhDir := filepath.Join(userDir, "myhole")
 	must(t, os.MkdirAll(lhDir, 0o755))
 	must(t, os.WriteFile(filepath.Join(lhDir, "manifest.jsonc"),
@@ -36,7 +34,7 @@ func TestSetEnabledRoundTrip(t *testing.T) {
 
 	var out, errBuf bytes.Buffer
 	deps := Deps{Out: &out, Err: &errBuf, Cwd: home}
-	if rc := SetEnabled(deps, "myhole", false); rc != 0 {
+	if rc := CmdSetEnabled(deps, "myhole", false); rc != 0 {
 		t.Fatalf("disable rc = %d, err=%q", rc, errBuf.String())
 	}
 	if out.String() != "disabled myhole\n" {
@@ -48,7 +46,7 @@ func TestSetEnabledRoundTrip(t *testing.T) {
 		t.Errorf("manifest not updated: %s", data)
 	}
 	out.Reset()
-	if rc := SetEnabled(deps, "myhole", true); rc != 0 {
+	if rc := CmdSetEnabled(deps, "myhole", true); rc != 0 {
 		t.Fatalf("enable rc = %d", rc)
 	}
 	if out.String() != "enabled myhole\n" {
