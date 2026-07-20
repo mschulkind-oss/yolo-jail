@@ -568,7 +568,7 @@
         '';
 
         # Core packages: everything the integration test suite in
-        # tests/test_jail.py actually touches, plus POSIX essentials.
+        # integration/ actually touches, plus POSIX essentials.
         # Shared between the full and minimal image variants.
         corePackages = [
           entrypoint

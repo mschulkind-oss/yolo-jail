@@ -72,8 +72,8 @@ This project is developed **from inside the jail itself**. The source code is bi
 - **Always commit and push** after changes — the nix image builds from the working tree.
 
 ### Testing
-- **Fast tests** (`just test-fast`): Go unit tests + Python integration tests (no containers). Run by pre-commit hook.
-- **Full tests** (`just test`): Includes container integration tests. Run by GitHub CI.
+- **Fast tests** (`just test-fast`): `go test -short ./...` — Go unit tests plus the short-gated compile of the `integration/` package, no containers. Run by pre-commit hook.
+- **Full tests** (`just test`): `go test -short ./...` then `go test -count=1 -timeout 0 ./integration` — the container jail tests in `integration/`. Run by GitHub CI.
 - **Inside Jail**: All tests should work. The CLI detects it's inside a container and uses `--userns=host` for nested containers instead of creating new user namespaces.
 
 ### First Run vs Subsequent Runs
@@ -300,7 +300,8 @@ yolo-cglimit --cpu 75 --memory 4g -- nice -n 10 timeout 7200 python train.py
 5. **Commit**: The pre-commit hook runs quality checks automatically.
 
 ## Testing Guidelines
-- **Fast tests** (`just test-fast`): Unit tests, no containers. Run by pre-commit hook.
-- **Full tests** (`just test`): Includes container integration tests. Run by GitHub CI.
+- **Fast tests** (`just test-fast`): `go test -short ./...` — unit tests, no containers. Run by pre-commit hook.
+- **Full tests** (`just test`): adds the container integration suite via `go test -count=1 -timeout 0 ./integration`. Run by GitHub CI.
+- **Integration suite** (`integration/`): container-driven jail tests, all in package `integration`, guarded by `requireJail(t)` (`testing.Short()` skips them). Do **not** add `t.Parallel()` — the package runs serially by design (real containers; the session image load must not run per worker). Each `run*` helper honors `YOLO_TEST_JAIL_TIMEOUT` (integer seconds, default 300) for its per-command deadline; the suite itself runs under `-timeout 0` so only the per-command deadlines and CI's `timeout-minutes` bound it.
 - **No Agent Tests**: Automated tests must NOT run `copilot`, `gemini`, or `claude` interactively. Tests may check they are installed (`--version`) but must never start interactive sessions or make API calls.
 - **Manual Agent Testing**: Always test agent functionality manually before committing. Use `yolo -- copilot --yolo`, `yolo -- gemini --yolo`, or `yolo -- claude` from a test project.
