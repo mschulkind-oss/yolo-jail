@@ -206,11 +206,27 @@ internals:
   per-workspace (via the agent's own user-scope file for Claude, or the overlay sidecar for
   single-scope agents — §5.2); it does not leak to other workspaces or back to the host.
 
-### 5.2 Surviving regeneration — three ways to make `/settings` stick
+### 5.2 Surviving regeneration — the mechanism per agent
 
 The build-product model only works if a live jail edit survives the rebuild. The enabling
 trick: **yolo always knows exactly what *it* wrote last time, so anything different on disk
-is definitionally your edit.** Three mechanisms, most-general to simplest:
+is definitionally your edit.**
+
+**This is not a menu to pick from — the choice is dictated by the agent.** There are three
+mechanisms, and which one applies depends on whether the agent has native settings *scopes*
+that yolo can write to independently of the user:
+
+| | Mechanism | Use it when | Cost |
+|---|---|---|---|
+| **B** | **Native scope split** (preferred) | The agent has ≥2 scopes with a clear precedence AND a slot yolo can own that the agent never writes. **Claude qualifies** (project scope is read-only to Claude; user scope is where `/config` persists). | None — precedence does the work; no sidecar, no merge. |
+| **A** | **Runtime overlay** (universal fallback) | Single-scope or contested-file agents where yolo and the agent must write the *same* file — **pi, opencode, Codex**. | A hidden per-workspace sidecar + a capture-diff on every boot. |
+| **C** | **Key-ownership** | Not really a third choice — it's *the rule that drives B*: which keys yolo asserts (→ project/managed scope) vs. leaves to the user (→ user scope). | — |
+
+**So the decision procedure is:** does the agent have a yolo-ownable native scope? → **B**
+(and C is how you decide what goes in it). If not → **A**. You never choose A *over* B for the
+same agent; B is strictly better where it's available, and A is what you fall back to when the
+agent gives you only one file. The three are described in that order below, most-general (A, the
+fallback that works for any agent) to simplest (C, the contract):
 
 **A. Runtime overlay (capture-diff) — the universal mechanism.** Keep two sidecars the agent
 never sees: `last_render` (the exact bytes yolo wrote last boot) and `overlay` (accumulated
@@ -230,6 +246,21 @@ has); and **managed keys** (the `managed` layer sits *above* the overlay, so an 
 change a security-boundary key via `/settings` is captured but overridden on render — it
 visibly reverts, which is correct). This replaces today's fragile per-agent three-way
 snapshot with one diff-against-our-own-output, and jail edits now win at *full depth*.
+
+> **Where this lives on disk (the substrate).** Yes — the settings file the agent reads/writes
+> (`.claude/settings.json`, `config.toml`, …) sits in the **per-workspace r/w overlay** that
+> backs `/home/agent`: `<workspace>/.yolo/home/…` mounted writable over the read-only global
+> home (see `docs/design/storage-and-config.md` and `jail-home.md`). So its contents *do*
+> survive to the next boot as leftover-on-disk — that's the persistence substrate every
+> mechanism here relies on. But mechanism A does **not** just "reuse whatever's on disk": the
+> agent-visible file is a *build product* yolo overwrites each boot. What persists across the
+> overwrite are the two **sidecars** (`last_render`, `overlay`) — also in `.yolo/home/` but
+> outside the agent's view — which yolo reads to re-derive the render. The distinction matters
+> because "reuse the file as-is" would let stale host/default values ride along and never let a
+> changed host value propagate; capture-diff keeps the file a clean function of
+> (defaults, host, workspace, your captured edits, managed). And yes — every file composed this
+> way (rendered products *and* the sidecars) is part of that per-workspace overlaid r/w set;
+> the read-only global home holds none of it.
 
 **B. Native scope split — the cleanest, and for Claude it removes the overlay entirely.** The
 most robust fix is to *not share a file at all*. Claude's verified precedence is
@@ -268,12 +299,10 @@ explicit "these keypaths are mine, everything else is yours" contract. Trade-off
 the clean build-product property, and removing an *owned* host key still needs tombstone
 memory.
 
-**Recommendation:** B where the agent has native scopes with a stable, yolo-writable slot —
-**Claude qualifies, and there B eliminates the overlay entirely** (verified: project scope is
-Claude-read-only, user scope is where `/config` persists edits). A (overlay) is the universal
-fallback for single-scope / contested-file agents like pi, opencode, Codex. C (key-ownership)
-is not really a third option so much as *the rule that drives B*: it is how you decide which
-keys yolo asserts (project/managed) vs leaves to the user (user scope).
+**Recommendation:** as the table above states — **B for Claude** (native scopes; eliminates the
+overlay entirely), **A for the single-scope agents** (pi, opencode, Codex), with **C** as the
+key-ownership contract that decides what B puts in each scope. The per-agent assignment is
+tabulated in §5.3's file classification.
 
 ### 5.3 What lands in jail home — classify every file
 
