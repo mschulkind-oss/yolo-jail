@@ -47,6 +47,45 @@ func TestResolveRepoRootHonorsUserConfigRepoPath(t *testing.T) {
 	}
 }
 
+// TestBundledSourceDirFrom guards check's read-only bundle probe (step 3): it
+// must find a share/yolo-jail bundle in the three shipping layouts, matching
+// run's resolver so check and run agree for a checkout-less install with a
+// bundle. Kept in parity with internal/cli/run's identically-named test.
+func TestBundledSourceDirFrom(t *testing.T) {
+	writeFlake := func(dir string) {
+		if err := os.MkdirAll(dir, 0o755); err != nil {
+			t.Fatal(err)
+		}
+		if err := os.WriteFile(filepath.Join(dir, "flake.nix"), []byte("{}"), 0o644); err != nil {
+			t.Fatal(err)
+		}
+	}
+	abs := func(p string) string { a, _ := filepath.Abs(p); return a }
+
+	// <exe>/../share/yolo-jail (Homebrew: bin/yolo, prefix/share/yolo-jail).
+	root := t.TempDir()
+	binDir := filepath.Join(root, "bin")
+	if err := os.MkdirAll(binDir, 0o755); err != nil {
+		t.Fatal(err)
+	}
+	writeFlake(filepath.Join(root, "share", "yolo-jail"))
+	if got, ok := bundledSourceDirFrom(binDir); !ok || got != abs(filepath.Join(root, "share", "yolo-jail")) {
+		t.Errorf("../share layout: got %q,%v", got, ok)
+	}
+
+	// <exe>/share/yolo-jail (release archive).
+	arch := t.TempDir()
+	writeFlake(filepath.Join(arch, "share", "yolo-jail"))
+	if got, ok := bundledSourceDirFrom(arch); !ok || got != abs(filepath.Join(arch, "share", "yolo-jail")) {
+		t.Errorf("share/ layout: got %q,%v", got, ok)
+	}
+
+	// No bundle → miss.
+	if _, ok := bundledSourceDirFrom(t.TempDir()); ok {
+		t.Error("empty dir should not resolve a bundle")
+	}
+}
+
 // TestResolveRepoRootRejectsRepoPathWithoutFlake guards that a repo_path
 // pointing at a dir with no flake.nix is NOT accepted (matches run's step 4).
 func TestResolveRepoRootRejectsRepoPathWithoutFlake(t *testing.T) {

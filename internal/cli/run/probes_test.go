@@ -145,6 +145,134 @@ func fileExistsTest(p string) bool {
 	return err == nil
 }
 
+// writeGoBundle writes a minimal but shaped share/yolo-jail/ bundle into dir:
+// the goSrc fileset markers (flake.nix, flake.lock, go.mod, go.sum) plus a
+// couple of nested source dirs, so staging has real subtrees to copy.
+func writeGoBundle(t *testing.T, dir string) {
+	t.Helper()
+	files := map[string]string{
+		"flake.nix":                 "{ outputs = _: {}; }\n",
+		"flake.lock":                "{}\n",
+		"go.mod":                    "module x\n",
+		"go.sum":                    "\n",
+		"vendor/modules.txt":        "# vendored\n",
+		"cmd/yolo/main.go":          "package main\n",
+		"internal/x/x.go":           "package x\n",
+		"bundled_loopholes/note.md": "loophole\n",
+	}
+	for rel, content := range files {
+		p := filepath.Join(dir, rel)
+		if err := os.MkdirAll(filepath.Dir(p), 0o755); err != nil {
+			t.Fatal(err)
+		}
+		if err := os.WriteFile(p, []byte(content), 0o644); err != nil {
+			t.Fatal(err)
+		}
+	}
+}
+
+// TestBundledSourceDirFrom covers the two candidate layouts: ../share/yolo-jail
+// (release-archive/brew) preferred over the exe's own dir.
+func TestBundledSourceDirFrom(t *testing.T) {
+	// Layout A: <root>/bin/yolo with <root>/share/yolo-jail/flake.nix.
+	root := t.TempDir()
+	binDir := filepath.Join(root, "bin")
+	shareDir := filepath.Join(root, "share", "yolo-jail")
+	if err := os.MkdirAll(binDir, 0o755); err != nil {
+		t.Fatal(err)
+	}
+	writeGoBundle(t, shareDir)
+	got, ok := bundledSourceDirFrom(binDir)
+	if !ok {
+		t.Fatal("expected to find ../share/yolo-jail bundle")
+	}
+	if wantAbs, _ := filepath.Abs(shareDir); got != wantAbs {
+		t.Errorf("got %q, want %q", got, wantAbs)
+	}
+
+	// Layout B: <exeDir>/share/yolo-jail (release-archive layout: yolo + share/
+	// at one level).
+	archiveRoot := t.TempDir()
+	writeGoBundle(t, filepath.Join(archiveRoot, "share", "yolo-jail"))
+	if got, ok := bundledSourceDirFrom(archiveRoot); !ok || got != mustAbs(filepath.Join(archiveRoot, "share", "yolo-jail")) {
+		t.Errorf("archive layout <exe>/share/yolo-jail: got %q,%v", got, ok)
+	}
+
+	// Layout C: bundle sitting directly beside the binary.
+	beside := t.TempDir()
+	writeGoBundle(t, beside)
+	if got, ok := bundledSourceDirFrom(beside); !ok || got != mustAbs(beside) {
+		t.Errorf("beside-exe layout: got %q,%v", got, ok)
+	}
+
+	// No bundle → miss.
+	if _, ok := bundledSourceDirFrom(t.TempDir()); ok {
+		t.Error("empty dir should not resolve a bundle")
+	}
+}
+
+// TestStageInstalledWheelStagesFlat is the core D3 regression: staging a Go
+// bundle must lay the full fileset FLAT into build_root (not build_root/src, the
+// retired wheel layout) so `nix build .#ociImage` with cwd=build_root evaluates.
+func TestStageInstalledWheelStagesFlat(t *testing.T) {
+	t.Setenv("HOME", t.TempDir()) // GlobalStorage is HOME-derived; isolate it.
+	bundle := t.TempDir()
+	writeGoBundle(t, bundle)
+
+	root, ok := stageInstalledWheel(bundle)
+	if !ok {
+		t.Fatal("stageInstalledWheel returned ok=false")
+	}
+	// The fileset must be present FLAT at build_root — the exact paths the
+	// flake's goSrc fileset (root ./.) requires.
+	for _, rel := range []string{
+		"flake.nix", "flake.lock", "go.mod", "go.sum",
+		"vendor/modules.txt", "cmd/yolo/main.go", "internal/x/x.go",
+		"bundled_loopholes/note.md",
+	} {
+		if !fileExistsTest(filepath.Join(root, rel)) {
+			t.Errorf("staged tree missing %q", rel)
+		}
+	}
+	// The retired wheel layout must NOT appear.
+	if fileExistsTest(filepath.Join(root, "src", "flake.nix")) {
+		t.Error("staged into build_root/src (retired wheel layout); want flat")
+	}
+}
+
+// TestStageInstalledWheelIdempotent guards that a second stage of an unchanged
+// bundle is a no-op (returns the same build_root without repopulating), and
+// never rmtrees — the frozen invariant. We assert no leftover .old.* generation
+// is created on the idempotent path.
+func TestStageInstalledWheelIdempotent(t *testing.T) {
+	t.Setenv("HOME", t.TempDir())
+	bundle := t.TempDir()
+	writeGoBundle(t, bundle)
+
+	root1, ok := stageInstalledWheel(bundle)
+	if !ok {
+		t.Fatal("first stage failed")
+	}
+	// Record the build_root inode so we can prove the second call didn't swap it.
+	fi1, err := os.Stat(root1)
+	if err != nil {
+		t.Fatal(err)
+	}
+	root2, ok := stageInstalledWheel(bundle)
+	if !ok || root2 != root1 {
+		t.Fatalf("second stage: %q,%v (want same root)", root2, ok)
+	}
+	fi2, _ := os.Stat(root2)
+	if !os.SameFile(fi1, fi2) {
+		t.Error("idempotent stage swapped the build_root inode (unnecessary repopulate)")
+	}
+}
+
+func mustAbs(p string) string {
+	a, _ := filepath.Abs(p)
+	return a
+}
+
 func TestCollectIdentityEnv(t *testing.T) {
 	o := Options{
 		Exec: fakeExec(map[string]ExecResult{

@@ -112,6 +112,18 @@ jobs:
               %w[yolo].each do |cmd|
                 system "go", "build", *std_go_args(output: bin/cmd, ldflags: ldflags.join(" ")), "./cmd/#{cmd}"
               end
+
+              # Ship the source bundle beside the binary so a checkout-less
+              # install can build the jail image (nix build .#ociImage). This is
+              # a source-build formula, so the goSrc fileset is right here in the
+              # extracted tarball. bundledSourceDir finds it at ../share/yolo-jail
+              # relative to bin/yolo. See internal/cli/run/probes.go.
+              %w[flake.nix flake.lock go.mod go.sum].each do |f|
+                (pkgshare).install f
+              end
+              %w[vendor cmd internal bundled_loopholes].each do |d|
+                (pkgshare).install d
+              end
             end
 
             def caveats

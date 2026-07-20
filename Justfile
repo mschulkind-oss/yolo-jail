@@ -21,6 +21,11 @@ setup:
 build-go:
     ./scripts/build-go.sh
 
+# Stage the source bundle (share/yolo-jail/) an installed binary needs to build
+# the jail image. goreleaser runs the script directly; this is for local use.
+stage-bundle DEST="dist/bundle/share/yolo-jail":
+    ./scripts/stage-source-bundle.sh {{ DEST }}
+
 # Install the host binary (yolo) to $GOBIN or $GOPATH/bin
 install:
     #!/usr/bin/env bash

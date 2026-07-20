@@ -350,6 +350,15 @@ func resolveRepoRoot(getenv func(string) string) (string, bool) {
 			dir = parent
 		}
 	}
+	// Bundled source (run's step 3), read-only: a share/yolo-jail/ bundle
+	// shipped beside the binary (Homebrew / release archive). check only needs
+	// to know the repo is FINDABLE, so — unlike run — it reports the bundle dir
+	// itself and does NOT stage it into nix-build-root (staging has side effects
+	// and is run-owned). Without this, a checkout-less install with a bundle
+	// would `run` fine but `check` would wrongly report the repo missing.
+	if bundle, ok := bundledSourceDir(); ok {
+		return bundle, true
+	}
 	// User config repo_path (run's step 4): the only path that lets an
 	// installed-only binary — no YOLO_REPO_ROOT, launched outside a checkout —
 	// resolve the repo. `just deploy` writes this (yolo internal
@@ -361,6 +370,36 @@ func resolveRepoRoot(getenv func(string) string) (string, bool) {
 		}
 		if fileExists(filepath.Join(expanded, "flake.nix")) {
 			return expanded, true
+		}
+	}
+	return "", false
+}
+
+// bundledSourceDir mirrors run's bundledSourceDir (read-only): a share/yolo-jail
+// bundle shipped beside the binary, at <exe>/../share/yolo-jail (Homebrew),
+// <exe>/share/yolo-jail (release archive), or <exe> itself. Returns (dir, true)
+// only when dir/flake.nix exists. Kept in sync with internal/cli/run/probes.go.
+func bundledSourceDir() (string, bool) {
+	exe, err := os.Executable()
+	if err != nil {
+		return "", false
+	}
+	return bundledSourceDirFrom(filepath.Dir(exe))
+}
+
+// bundledSourceDirFrom is the pure core (exeDir explicit) so it is unit-testable
+// without an installed binary. Candidate order matches run's exactly.
+func bundledSourceDirFrom(exeDir string) (string, bool) {
+	for _, cand := range []string{
+		filepath.Join(exeDir, "..", "share", "yolo-jail"),
+		filepath.Join(exeDir, "share", "yolo-jail"),
+		exeDir,
+	} {
+		if fileExists(filepath.Join(cand, "flake.nix")) {
+			if c, err := filepath.Abs(cand); err == nil {
+				return c, true
+			}
+			return cand, true
 		}
 	}
 	return "", false

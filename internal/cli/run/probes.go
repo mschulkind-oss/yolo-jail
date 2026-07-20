@@ -86,19 +86,32 @@ func resolveRepoRoot(getenv func(string) string, stderr io.Writer, color bool) (
 	return "", false
 }
 
-// bundledSourceDir discovers a bundled flake.nix+src tree shipped alongside the
-// Go binary (Go's analog of the wheel's package data). Candidates, relative to
-// the executable: ../share/yolo-jail, then the executable's own dir. Returns
-// (dir, true) only when dir/flake.nix exists. In a source checkout or jail this
-// returns ("", false), so step 3 is a no-op there.
+// bundledSourceDir discovers a bundled source tree shipped alongside the Go
+// binary (the Go-era analog of the retired Python wheel's package data — see
+// docs/research/repo-root-and-distribution.md). The bundle is share/yolo-jail/
+// holding the flake's goSrc fileset (flake.nix, flake.lock, go.mod, go.sum,
+// vendor/, cmd/, internal/, bundled_loopholes/). Candidates, relative to the
+// executable: ../share/yolo-jail (the release-archive/brew layout), then the
+// executable's own dir. Returns (dir, true) only when dir/flake.nix exists. In a
+// source checkout or jail this returns ("", false), so step 3 is a no-op there.
 func bundledSourceDir() (string, bool) {
 	exe, err := os.Executable()
 	if err != nil {
 		return "", false
 	}
-	exeDir := filepath.Dir(exe)
+	return bundledSourceDirFrom(filepath.Dir(exe))
+}
+
+// bundledSourceDirFrom is the pure core of bundledSourceDir, taking the
+// executable's directory explicitly so it is unit-testable without an installed
+// binary. Candidate order covers both shipping layouts:
+//   - <exeDir>/../share/yolo-jail — Homebrew (bin/yolo, prefix/share/yolo-jail).
+//   - <exeDir>/share/yolo-jail    — release archive (yolo + share/ at one level).
+//   - <exeDir>                    — bundle unpacked directly beside the binary.
+func bundledSourceDirFrom(exeDir string) (string, bool) {
 	for _, cand := range []string{
 		filepath.Join(exeDir, "..", "share", "yolo-jail"),
+		filepath.Join(exeDir, "share", "yolo-jail"),
 		exeDir,
 	} {
 		if fileExists(filepath.Join(cand, "flake.nix")) {
@@ -111,10 +124,12 @@ func bundledSourceDir() (string, bool) {
 	return "", false
 }
 
-// stageInstalledWheel ports step 3 of _resolve_repo_root: stage the bundled
-// source tree (pkgDir, containing flake.nix + flake.lock + the package) into
-// GLOBAL_STORAGE/nix-build-root so nix sees the expected layout and podman can
-// bind it :ro into the jail.
+// stageInstalledWheel implements step 3 of resolveRepoRoot: stage the bundled
+// source tree (pkgDir = share/yolo-jail/, the full goSrc fileset + flake.nix/
+// flake.lock) into GLOBAL_STORAGE/nix-build-root so `nix build .#ociImage`
+// evaluates and podman can bind it :ro into the jail at /opt/yolo-jail. (Named
+// for the Python wheel it once staged; it now stages the Go bundle FLAT, since
+// the flake's fileset root is `./.`.)
 //
 // FROZEN INVARIANT (do not change): NEVER rmtree the old build_root — a jail
 // launched from the previous copy may still hold that inode bind-mounted at
@@ -135,10 +150,14 @@ func stageInstalledWheel(pkgDir string) (string, bool) {
 	}
 
 	// Idempotence: skip the whole dance when the existing build_root already
-	// matches the bundled flake.nix mtime and has cli/__init__.py in place.
-	srcCli := filepath.Join(buildRoot, "src", "cli", "__init__.py")
+	// matches the bundle's flake.nix mtime and has go.mod in place. The marker
+	// is flake.nix+go.mod (the Go bundle's shape) — NOT the retired Python
+	// wheel's src/cli/__init__.py. A Go source bundle stages FLAT into
+	// build_root (the flake's fileset root is `./.`), so build_root must itself
+	// look like the repo, not the wheel-era build_root/src/ layout.
+	brGoMod := filepath.Join(buildRoot, "go.mod")
 	brFlake := filepath.Join(buildRoot, "flake.nix")
-	if isFile(srcCli) && isFile(brFlake) {
+	if isFile(brGoMod) && isFile(brFlake) {
 		if pkgMtime, ok := mtimeNs(filepath.Join(pkgDir, "flake.nix")); ok {
 			if brMtime, ok := mtimeNs(brFlake); ok && brMtime >= pkgMtime {
 				return absOr(buildRoot), true
@@ -147,18 +166,16 @@ func stageInstalledWheel(pkgDir string) (string, bool) {
 	}
 
 	// Repopulate: build the new tree in a temp dir, then swap it in with two
-	// inode-preserving renames.
+	// inode-preserving renames. The bundle (pkgDir = share/yolo-jail/) already
+	// holds the full goSrc fileset (go.mod, go.sum, vendor/, cmd/, internal/,
+	// bundled_loopholes/) plus flake.nix/flake.lock, so a single copyTree of the
+	// bundle reproduces the layout `nix build .#ociImage` expects at build_root.
 	tmpRoot, err := os.MkdirTemp(globalStorage, "nix-build-tmp-")
 	if err != nil {
 		return "", false
 	}
 	ok := func() bool {
-		for _, fname := range []string{"flake.nix", "flake.lock"} {
-			if err := copyFile2(filepath.Join(pkgDir, fname), filepath.Join(tmpRoot, fname)); err != nil {
-				return false
-			}
-		}
-		if err := copyTree(pkgDir, filepath.Join(tmpRoot, "src")); err != nil {
+		if err := copyTree(pkgDir, tmpRoot); err != nil {
 			return false
 		}
 		aside := buildRoot + ".old." + randHex()
