@@ -441,6 +441,119 @@ shared fixture corpus (idea 9), which is what makes it *less* fragile, not more.
 That is the entire feature. It generalizes: any host key you want kept out of any jail is one
 filter line.
 
+## 6.1 Aside: the filter config is too clever — should this be Lua?
+
+**The complaint (valid).** Look at what the Pi user had to write:
+
+```jsonc
+"agent_config": {
+  "pi": {
+    "host_exclude": ["extensions/permission-gate.ts"],
+    "jail_filters": [
+      { "op": "dropItems", "path": "/extensions", "match": "*permission-gate*" }
+    ]
+  }
+}
+```
+
+You cannot *intuit* this. Three problems:
+
+1. **`host_exclude` is unguessable.** Exclude what, from where? (Answer: don't
+   *copy this file* into the jail during tree staging.) The name encodes neither
+   the noun it operates on nor the verb.
+2. **It's two operations for one intent.** "The permission gate shouldn't exist
+   in the jail" requires *both* dropping the file (`host_exclude`) *and* editing
+   the array that references it (`jail_filters`). Miss one and you get a dangling
+   reference or a staged-but-unreferenced file. The model makes you say the same
+   thing twice, in two vocabularies.
+3. **`jail_filters` is a transformation language badly encoded as data.**
+   `{op, path, match}` is a verb + a JSON-Pointer + a glob — a tiny interpreter
+   whose ops (`drop`/`dropItems`/`set`) you must memorize, whose paths fail
+   silently when mistyped, and which can only ever do what the closed vocabulary
+   already supports. And an unknown key in this free-form blob is silently
+   ignored — the **exact `host_pi_files` divergence** §7 lists as a real bug.
+
+### What it looks like as Lua
+
+```lua
+-- yolo.lua  (pointed at by a `lua_config` key; one function per agent)
+-- ctx.settings : the merged host settings table (defaults < host < workspace)
+-- ctx.stage    : the file-staging handle (what gets copied into the jail)
+-- ctx.managed  : keys the jail enforces regardless (the security boundary)
+
+yolo.agent("pi", function(ctx)
+  -- The permission gate is a host-only safety net; in the jail the container
+  -- IS the boundary, so neither the extension entry nor its file should cross.
+  ctx.settings.extensions = yolo.without(ctx.settings.extensions, "*permission-gate*")
+  ctx.stage.exclude("extensions/permission-gate.ts")
+end)
+```
+
+The intent is a comment; the two edits are two named calls. `dropItems` +
+JSON-Pointer + glob collapses to `yolo.without(list, glob)`; `host_exclude`
+becomes `ctx.stage.exclude(...)`. A typo'd function or field is a **loud runtime
+error**, not a silently-ignored key. Arbitrary redaction needs no new `op` in
+yolo's vocabulary — you just write the transform.
+
+### What Lua wins vs. what it costs
+
+| | Data model (`jail_filters`) | Lua transform |
+|---|---|---|
+| Legibility of complex edits | poor (pointer+verb+glob) | **good (reads as code)** |
+| New transform without patching yolo | needs a new `op` | **just write it** |
+| Typo failure mode | **silent** (unknown key ignored) | loud (runtime error) |
+| `yolo config explain` (idea 10) | **free** — render is a fold over declared filters | must trace code / diff outputs |
+| Config-change safety diff (a shipped feature) | **strong** — diff two data blobs, "added package X" | weak on *input* (text diff of a script); must diff the *rendered output* instead |
+| Golden-fixture parity (idea 9) | **strong** — same vectors, any impl | Go-only VM (fine post-wipe; see below) |
+| New surface area | none (all JSONC) | a second language + a sandboxed interpreter |
+| Footguns | bounded (closed vocab) | infinite loops, `os.execute`, unbounded |
+
+Two nuances that move the needle:
+
+- **The parity objection is weaker than it was.** Idea 9's "run byte-identically
+  by `pytest` *and* `go test`" mattered during the Python→Go transition. Post-wipe
+  it's Go-only, so an embedded pure-Go Lua VM (e.g. `gopher-lua`, no cgo) is the
+  *only* interpreter needed — the cross-language constraint is gone. Fixtures
+  become "Lua + input → output," still fully testable.
+- **The config-safety objection is real and the strongest argument for data.**
+  The shipped config-change confirmation shows a *normalized diff* and asks y/N
+  (that's why an agent can't silently add packages). You can diff two JSON blobs;
+  you cannot meaningfully diff "what this Lua function *does*" without running it.
+  The mitigation — run the transform and diff the *rendered output* — is arguably
+  better, but it's a bigger change and it means the safety prompt can no longer
+  fire *before* executing user code.
+
+### Recommendation — narrow the blast radius, don't Lua-ify everything
+
+The confusion is concentrated in **one** of the five `agent_config` keys:
+`jail_filters`. The other four are genuinely declarative data and should stay
+data — `host_include`/`host_exclude` are globs (rename them: see below),
+`settings` is a merge patch, `overrides`/managed is enforced keys. Turning those
+into code buys nothing and loses `explain` + the safety diff.
+
+So, two options, smallest first:
+
+1. **Fix the data model (recommended first pass).** (a) **Unify the two
+   concerns** — one "keep this out of the jail" primitive that derives *both* the
+   array edit and the file exclusion from a single declaration, so the Pi case is
+   one line, not a file-exclude plus a filter. (b) **Rename for intuition** —
+   `host_exclude` → `dont_stage` (or `jail_omit`), `jail_filters` →
+   `jail_redactions`. (c) **Validate keys** — reject unknown `agent_config` keys
+   loudly, killing the `host_pi_files` silent-drop class. This keeps `explain`,
+   the safety diff, and fixtures intact and removes ~80% of the confusion.
+2. **Add Lua as an optional escape hatch for the last 20%** — an optional
+   per-agent `transform` hook (the mockup above) for redactions the closed
+   vocabulary can't express, while the declarative keys handle the common case.
+   Only worth it if real cases exceed `drop`/`dropItems`/`set`; the doc has not
+   yet found one. Gate it behind an explicit opt-in, sandbox the VM (no
+   `os`/`io`), and diff the rendered output for the safety prompt.
+
+**Verdict:** the instinct is right that `jail_filters` is too clever, but the fix
+is to *simplify and rename the data* first (option 1), and reach for Lua only if
+a genuine transform appears that the vocabulary can't name (option 2). Jumping
+straight to a Turing-complete config trades a memorization problem for an
+`explain`/safety-diff regression and a whole new language in the surface.
+
 ## 7. Idea catalog — primitives worth stealing regardless of the model
 
 Even if we don't adopt Prism wholesale, these stand on their own (ranked by leverage):
@@ -469,7 +582,9 @@ Even if we don't adopt Prism wholesale, these stand on their own (ranked by leve
    the **project** file instead (still outranks the user file; §11).
 7. **Tiny closed filter vocabulary as data** (`drop` / `dropItems` / `set`, applied
    host-side). The minimal redaction primitive, user-declarable without patching yolo in two
-   languages.
+   languages. **But see §6.1** — this is the one primitive that reads as too-clever; the
+   recommendation is to unify+rename it (and validate keys) before adding any code-based
+   transform.
 8. **Fail-closed on unparseable input** (graft from the patch-pipeline design): keep the last
    good staging (host side) or last render (jail side) with a loud warning — instead of the
    current mass-rollback on a transient typo.
