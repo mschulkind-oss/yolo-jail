@@ -1,11 +1,15 @@
 # Plan: macOS revival + source-distribution fix (post-ejection)
 
-**Date:** 2026-07-20. **Status:** PLANNED — no implementation started.
-**Inputs:** `docs/implementation/handoff-macos-post-ejection.md` (real-hardware
-state, audit findings), `docs/research/repo-root-and-distribution.md` (the
-source-access regression), `docs/design/macos-no-vm-direction.md` +
-`docs/plans/macos-nix-shell-backend-proposal.md` (settled direction),
-`docs/research/macos-support-matrix.md` (the status tracker).
+**Date:** 2026-07-20. **Status:** IN PROGRESS — Track J's small fixes (J1.1–J1.4)
++ Track D's D1 and D3 landed 2026-07-20 (see the per-item status notes below);
+J2, D2, D4, J3, and Track M remain.
+**Inputs:** `docs/research/repo-root-and-distribution.md` (the source-access
+work), `docs/design/macos-no-vm-direction.md` (the settled "compose both
+backends" direction), `docs/research/macos-support-matrix.md` (the status
+tracker). The real-hardware audit findings and the earlier nix-shell/direction
+docs that seeded this plan were archived once their conclusions landed here —
+see git history (`docs/implementation/handoff-macos-post-ejection.md`,
+`docs/plans/macos-nix-shell-backend-proposal.md`).
 
 **TL;DR:** Pick the macOS work back up in three interleaved tracks. Track J
 (Linux jail): fix the four confirmed host-agnostic audit findings, then re-port

@@ -502,7 +502,12 @@ So an unconditional `memlock=-1` is not a safe default — it would **brick `yol
 
 **Fix (landed, `run_cmd.py`) — adaptive, not unconditional:** when `gpu_enabled` (either vendor), read the host hard cap via `resource.getrlimit(RLIMIT_MEMLOCK)` (yolo runs on the host, so it sees the real ceiling) and emit `--ulimit memlock=<hard>:<hard>` — or `memlock=-1:-1` only when the host cap is already unlimited. When the host cap is below ~16 MB, `yolo run` prints a warning (the container will start, but GPU queue creation may still fail), and `yolo check` reports the same as a `warn`. Covered by `TestRunRocm` (`test_rocm_memlock_clamped_to_finite_host_cap`, `test_rocm_memlock_unlimited_when_host_allows`). Seccomp was **ruled out** as the cause (`seccomp=unconfined` → `Seccomp: 0`, still crashed identically).
 
-**Still requires host action — the jail cannot fix this itself.** Because a rootless jail can't exceed the host cap, the *actual* unblock is to **raise the host's memlock hard limit** (`limits.conf` `hard memlock unlimited`, systemd `LimitMEMLOCK=infinity`, or podman `containers.conf` `default_ulimits = ["memlock=-1:-1"]`) and update the GPU host's yolo to this branch. See `docs/implementation/rocm-memlock-handoff.md` for the step-by-step. The reported "8192 after restart" almost certainly means the GPU host was still running an **old yolo** with no memlock flag at all — the new code was never deployed there.
+**Still requires host action — the jail cannot fix this itself.** Because a rootless jail can't exceed the host cap, the *actual* unblock is to **raise the host's memlock hard limit** (`limits.conf` `hard memlock unlimited`, systemd `LimitMEMLOCK=infinity`, or podman `containers.conf` `default_ulimits = ["memlock=-1:-1"]`) and update the GPU host's yolo to this branch. (The step-by-step lived in a
+since-archived handoff, `rocm-memlock-handoff.md`, resolved 2026-06-06 and
+verified on the GPU host — see git history if you need the original notes.) The
+reported "8192 after restart" almost certainly means the GPU host was still
+running an **old yolo** with no memlock flag at all — the new code was never
+deployed there.
 
 **Resolved (see the 2026-06-06 update at the top of this section):** the end-to-end `hip_smoke` run reaches `CREATE_QUEUE` success and `RESULT: PASS` at the 8 MB cap with ROCm 7.2.4 userspace — the memlock fix is moot for current ROCm and no host change is needed. The onnxruntime execution-provider path (gfx1151 code objects / migraphx asserts-LLVM) is a separate downstream item tracked in `docs/research/rocm-gpu-jail-findings.md`.
 

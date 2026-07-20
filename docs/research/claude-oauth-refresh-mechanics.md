@@ -6,8 +6,8 @@ as "Please run /login" with zero broker activity. Companion to:
 
 - [`claude-token-logouts.md`](claude-token-logouts.md) — user-facing
   operational triage.
-- [`claude-oauth-mitm-proxy-plan.md`](../plans/claude-oauth-mitm-proxy-plan.md)
-  — historical design notes for the broker.
+- [`bundled_loopholes/claude-oauth-broker/README.md`](../../bundled_loopholes/claude-oauth-broker/README.md)
+  — the live broker architecture + operator ops.
 
 Everything below is grounded in strings extracted from
 `/home/agent/.local/share/claude/versions/2.1.143` (the 233 MB
@@ -396,10 +396,10 @@ fix, but they are worth investigating before any *next* round.
 
 1. **`ANTHROPIC_BASE_URL` for `/v1/messages` in prod.** Bundle resolves
    `BASE_API_URL` from a hardcoded constant in prod mode; would unlock
-   the cleaner "intercept `api.anthropic.com` reverse-proxy" Option B
-   in [`claude-oauth-mitm-proxy-plan.md`](../plans/claude-oauth-mitm-proxy-plan.md).
-   30-second test: set the env var, `claude -p hi`, tcpdump for outbound
-   :443 to `api.anthropic.com`.
+   the cleaner "intercept `api.anthropic.com` reverse-proxy" approach (the
+   Option B explored in the archived `claude-oauth-mitm-proxy-plan.md` — see git
+   history). 30-second test: set the env var, `claude -p hi`, tcpdump for
+   outbound :443 to `api.anthropic.com`.
 2. **Anthropic's server-side grace window past `expiresAt`.** The
    2026-05-17 incident showed Claude happy for 23 min past `expiresAt`
    client-side; could be Anthropic leniency, could be Claude idle. Test

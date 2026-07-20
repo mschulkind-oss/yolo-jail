@@ -179,5 +179,5 @@ Keeps the briefing tight and prevents drift when loopholes come and go.
 - [`internal/hostservice/`](../../internal/hostservice) — helper package.
 - [`internal/hostprocesses/`](../../internal/hostprocesses) — reference `unix-socket` consumer of the helper, reachable as `yolo internal daemon host-processes`.
 - [`internal/frameproto/`](../../internal/frameproto) — reference codec for the wire format.
-- [`docs/plans/claude-oauth-mitm-proxy-plan.md`](../plans/claude-oauth-mitm-proxy-plan.md) — design notes that shaped this architecture.
+- [`bundled_loopholes/claude-oauth-broker/README.md`](../../bundled_loopholes/claude-oauth-broker/README.md) — the broker architecture that shaped this (the older mitm-proxy design notes are in git history).
 - [`docs/research/claude-token-logouts.md`](../research/claude-token-logouts.md) — operational triage for Claude logouts; the broker loophole is Step 3's fix.

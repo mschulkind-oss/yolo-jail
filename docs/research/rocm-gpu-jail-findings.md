@@ -27,7 +27,7 @@ it.
 >
 > If a workload ever does hit `CREATE_QUEUE EINVAL` on an older ROCm build, the
 > remedy (raise the host memlock cap) is documented in
-> `docs/implementation/rocm-memlock-handoff.md` and design §7.2 — but it is not the default need.
+> [rocm-passthrough-design.md](../design/rocm-passthrough-design.md) §7.2 — but it is not the default need.
 > The onnxruntime EP work (gfx1151 code objects / migraphx asserts-LLVM) remains
 > the next item.
 >

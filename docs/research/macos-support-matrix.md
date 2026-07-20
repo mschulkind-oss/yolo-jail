@@ -86,19 +86,16 @@ run); the whole "run agent in jail" row for AC under current session's fixes.
    the sandbox PATH after macOS path_helper, so `which jq` → `/nix/store/…/bin/jq`
    (not Homebrew's `/usr/local/bin/jq`). Cannot be tested on Linux; runbook
    `mac-macos-user-e2e` §5 is the gate.
-3. ✅ **Wire the container builder into the CLI run/check path** — DONE
-   2026-07-17. `src/cli/container_builder.py` (`builder_session`: pull → run →
-   wait-reachable → yield nix `--builders` line → ephemeral teardown) +
-   `image.auto_load_image` opens a session on macOS+container-runtime and
-   threads the line into `_build_image_store_path(builders=…)`. Proven
-   end-to-end against real podman + nix in-jail (build ran in-container, result
-   copied back). Runtime-agnostic: podman `-p`, AC per-container VM IP.
+3. 🔜 **Wire the container builder into the CLI run/check path** — regressed to
+   roadmap (revival plan **J3**). It shipped in Python 2026-07-17
+   (`container_builder.py`'s `builder_session`: pull → run → wait-reachable →
+   yield nix `--builders` line → ephemeral teardown, threaded through
+   `image.auto_load_image`), proven end-to-end against real podman + nix in-jail.
    **Go-port gap (2026-07-19):** the Go port never wired the on-demand container
-   builder into its image path — there is no Go equivalent of Python's
-   `image.auto_load_image` builder-session threading. `internal/containerbuilder`
-   was a straight port of the session logic but had zero importers, so it was
-   deleted in this commit's sweep; resurrect it from git history when the CLI
-   run/check wiring actually lands.
+   builder into its image path — there is no Go equivalent of the builder-session
+   threading. `internal/containerbuilder` was a straight port of the session
+   logic but had zero importers, so it was deleted (`b3477fb`); resurrect it from
+   git history when the CLI run/check wiring lands (J3).
 4. ✅ **Publish `builderImage` to GHCR** — DONE + LIVE + PUBLIC. The
    `push-builder-image` job ran on the v0.6.0 release and pushed
    `ghcr.io/mschulkind-oss/yolo-jail-builder:{0.6.0,latest}` (arm64/linux,
@@ -118,5 +115,5 @@ run); the whole "run agent in jail" row for AC under current session's fixes.
 - [macos-container-builder-exploration.md](macos-container-builder-exploration.md) — why container-builder, image sourcing, AC risk.
 - [macos-linux-builder-explained.md](macos-linux-builder-explained.md) — the Linux-person's explainer of the whole builder question.
 - [macos-no-vm-direction.md](../design/macos-no-vm-direction.md) — the "pursue both backends" decision.
-- [handoff-macos-user-revive-plan.md](../implementation/handoff-macos-user-revive-plan.md) — the macos-user implementation.
+- [macos-revival-and-distribution-plan.md](../plans/macos-revival-and-distribution-plan.md) — the current macos-user + distribution roadmap of record.
 - [handoff-cachix-cache.md](../implementation/handoff-cachix-cache.md) — the prebuilt-download happy path.

@@ -11,11 +11,13 @@ and the runtime VM is `linux/arm64`, so it's arm-on-arm — no qemu, no Rosetta.
 The only time you hit emulation is pulling an **amd64-only image** (e.g. some
 database images); that's a property of that image, not of the backend.
 
-> A native, non-container macOS backend (`macos-user`) was prototyped and then
-> removed — on arm64 the container is already native, so it bought little at
-> the cost of dropping the nix image, per-workspace config, and isolation. See
-> [macos-backend-direction.md](../plans/macos-backend-direction.md) for the full
-> reasoning (recoverable at git tag `macos-user-experiment`).
+> A native, non-container macOS backend (`macos-user`) was prototyped, briefly
+> excised, then **revived** as part of a composed product (native macos-user +
+> Apple Container fallback). See
+> [macos-no-vm-direction.md](../design/macos-no-vm-direction.md) for the standing
+> decision and
+> [macos-revival-and-distribution-plan.md](../plans/macos-revival-and-distribution-plan.md)
+> for the current status.
 
 ## Choosing a runtime
 

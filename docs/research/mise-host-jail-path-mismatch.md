@@ -1,19 +1,29 @@
 # mise shared-state / host↔jail path mismatch — findings
 
-**Date:** 2026-07-02 · **Updated:** 2026-07-03 (re-verified from yolo-jail jail; line refs refreshed, third trust hook found, `MISE_TRUST` question answered); 2026-07-04 — **the rust residual is closed**: jails now export `RUSTUP_HOME=/mise/rustup` + `CARGO_HOME=/mise/cargo` (handoff round 3), so the rust backend both stops crashing on the read-only `~/.rustup` *and* records `installs/rust/<ver>` symlinks that resolve identically in every jail — the jail↔jail collision this doc's "Residual issue" analysis left to the boot-time prune no longer produces rust entries at all (workspace `[env]` overrides still win) · **Status:** superseded as a decision doc by
-[jail-state-separation-design.md](../design/jail-state-separation-design.md) —
-retained as the incident record. **Still live here and nowhere else:** the
-`.mise.toml` trust-hook fixes (three filename-gated sites + the no-op
-`MISE_TRUST=1`), the provisioning-should-fail-loudly question, and the
-upstream mise issue (option E). Implemented 2026-07-03: the trust fixes
-(un-gated `mise trust --all --quiet` + `MISE_TRUSTED_CONFIG_PATHS=/workspace`
-replacing the no-op `MISE_TRUST=1`) and the provisioning-failure handling
-(persisted `/workspace/.yolo/startup.log`, red banner, continue/abort
-prompt) — only the upstream mise issue remains live
-**Versions:** yolo-jail `0.4.4.dev78+g8bd1637f3`, mise `2026.6.11 linux-x64` on host / `2026.2.1` in-jail, podman, host `gauss`
-**Observed in:** `~/code/songtv` (symptom surface), `~/code/polyclav` (origin), host-global
-**Related:** [jail-version-predictability.md](../design/jail-version-predictability.md) — the host↔jail mise version skew uncovered here (2026.6.11 vs 2026.2.1) and the plan for pinning/updating jail tool versions
-**Decision surface:** [jail-state-separation-design.md](../design/jail-state-separation-design.md) — options F + F+ from this doc, bundled with per-side venvs, as the likely path; open questions consolidated there
+**Reference — incident record (2026-07-02 → 07-04).** The investigation behind
+today's host↔jail state separation: why a shared mise store with mismatched
+workspace paths corrupts `mise install`, and the `.mise.toml` trust-hook fix.
+The *design* that resolved it is
+[jail-state-separation-design.md](../design/jail-state-separation-design.md)
+(split store + neutral `/mise` path + per-side venvs); this doc is kept as the
+root-cause narrative and rejected alternatives.
+
+**All resolved:**
+- **rust residual closed (2026-07-04):** jails export `RUSTUP_HOME=/mise/rustup`
+  + `CARGO_HOME=/mise/cargo`, so the rust backend stops crashing on the
+  read-only `~/.rustup` and records `installs/rust/<ver>` symlinks that resolve
+  identically in every jail — the jail↔jail collision this doc's "Residual
+  issue" analyzed no longer produces rust entries at all.
+- **trust-hook fixes (2026-07-03):** un-gated `mise trust --all --quiet` +
+  `MISE_TRUSTED_CONFIG_PATHS=/workspace` (replacing the no-op `MISE_TRUST=1`),
+  covering the `.mise.toml` filename variant that jail auto-trust missed.
+- **provisioning fails loudly (2026-07-03):** persisted
+  `/workspace/.yolo/startup.log`, red banner, continue/abort prompt.
+- Only the upstream mise issue (option E — store key should include the target)
+  remains outside our control.
+
+**Observed in:** `~/code/songtv` (symptom surface), `~/code/polyclav` (origin),
+host-global. mise `2026.6.11` host / `2026.2.1` in-jail at the time.
 
 ## Summary
 
@@ -178,7 +188,7 @@ generated `.mise.local.toml` already exists — verified false, nothing in
 `src/` writes one, and it couldn't work anyway since the workspace is shared
 with the host. The viable channel is `MISE_ENV=jail` + a checked-in
 `mise.jail.toml`, host-inert — see
-[venv-per-side-design.md](../design/venv-per-side-design.md) S2a.)*
+[jail-state-separation-design.md](../design/jail-state-separation-design.md).)*
 
 - \+ Zero core changes; works today per-project.
 - ‒ Per-project whack-a-mole; doesn't protect the shared state dir from the
@@ -207,10 +217,9 @@ change), unifying the storage model across runtimes.
   (`/home/matt/.cargo/bin`) never enter jail-land; jail-written ones
   (`/workspace/.cargo/bin`) never break the host. Host `mise install`
   can't be broken by jails again, ever.
-- \+ Also insulates jails from the **host's mise version** (see
-  [jail-version-predictability.md](../design/jail-version-predictability.md)) — the
-  skew guard / host-pinning problem evaporates for jails; jail-land runs
-  one mise version per image.
+- \+ Also insulates jails from the **host's mise version** — the skew guard /
+  host-pinning problem evaporates for jails; jail-land runs one mise version per
+  image (managed by `flake.lock` + the weekly `update-flake-lock` CI bump).
 - \+ Keeps jail↔jail install sharing — no reinstall per jail boot.
 - \+ Seeding is possible because the path string is unchanged: one-time
   `cp --reflink=auto`/rsync of the host dir into the jail store (pruning
@@ -259,8 +268,8 @@ What it costs beyond F:
   jail-land installed the same python version. Under F+, it never does —
   and worse, the jail's venv pre-create hook (shell.py:291) sees the
   existing `.venv` dir and skips, leaving a broken venv. F+ therefore
-  needs a venv strategy — evaluated in depth in
-  [venv-per-side-design.md](../design/venv-per-side-design.md); recommendation:
+  needs a venv strategy — the shipped answer is
+  [jail-state-separation-design.md](../design/jail-state-separation-design.md):
   per-side venvs via a shadow mount (`ws_state/venv` bound over
   `/workspace/.venv`). Note venv sharing was already half-broken today:
   console-script shebangs embed the venv's own absolute path, which
@@ -344,9 +353,9 @@ and un-gate the `mise trust` calls (run without a path argument).
 ### Under F+, how do workspace venvs get recreated per side?
 
 A shared-workspace `.venv` can only point at one side's interpreter. The
-pre-create hook (shell.py:291) currently skips when the dir exists, so an
-existing host-side venv would sit broken in-jail. Full evaluation:
-[venv-per-side-design.md](../design/venv-per-side-design.md).
+pre-create hook currently skips when the dir exists, so an existing host-side
+venv would sit broken in-jail. Shipped answer:
+[jail-state-separation-design.md](../design/jail-state-separation-design.md).
 
 _Leaning (revised 2026-07-03):_ Shadow mount — bind `ws_state/venv` over
 `/workspace/.venv` so each side sees its own venv at the idiomatic path;

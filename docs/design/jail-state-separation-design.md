@@ -1,13 +1,13 @@
 # Full host↔jail state separation — split mise store + neutral path + per-side venvs
 
-**Date:** 2026-07-03 · **Status:** implemented 2026-07-03
-**Consolidates:** option F/F+ from
-[mise-host-jail-path-mismatch.md](../research/mise-host-jail-path-mismatch.md) and S2b
-from [venv-per-side-design.md](venv-per-side-design.md). Those docs hold the
-full investigation and rejected alternatives; **this doc is the decision
-surface** — the bundled design, its pros/cons, and the open questions.
+**Reference** — how host and jail keep their runtime state fully separate. This
+is the live model (shipped 2026-07-03): the split mise store, the neutral `/mise`
+path, and per-side venv shadows. Read it to understand *why* a jail never shares
+the host's mise store or `.venv` and how the boundary is drawn. The original
+per-incident investigation that motivated the mise-store split is recorded in
+[mise-host-jail-path-mismatch.md](../research/mise-host-jail-path-mismatch.md).
 
-## Implementation notes (2026-07-03)
+## What shipped (vs. the original sketch)
 
 Shipped as designed, with two deliberate deviations from the sketch:
 
@@ -84,9 +84,8 @@ source itself.**
   leaks into the jail. A jail on gauss, a Mac, or CI is the same jail.
 - One storage model across runtimes — Linux adopts what macOS already
   ships, deleting the platform fork at run_cmd.py:1163.
-- Jail-land runs exactly one mise version per image (managed by
-  `flake.lock` + weekly CI bumps per
-  [jail-version-predictability.md](jail-version-predictability.md)).
+- Jail-land runs exactly one mise version per image (managed by `flake.lock` +
+  the weekly `update-flake-lock` CI bump).
 
 **Efficiency retained:**
 
@@ -365,12 +364,12 @@ persist the startup log, breadcrumb its path + an error flag into the
 generated agents file — see the mismatch doc's Open Questions), weekly
 `flake.lock` CI.
 
-## Open Questions
+## Decisions (all settled 2026-07-03)
 
-*(Authoritative copies — the corresponding questions in the source docs
-point here.)*
+*(These were the design's open questions; each is resolved and live. Kept as the
+rationale record for the choices the code now embodies.)*
 
-### Store path: is `/mise` the right constant?
+### Store path: `/mise`
 
 `/mise` already exists as an empty mount point in the image
 (flake.nix:507) and is short and obvious. Alternatives: `/var/lib/mise`

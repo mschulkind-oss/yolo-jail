@@ -281,7 +281,7 @@ problem** — the rest are glibc-only, static, or musl.
    rides the same delivery paths as the rest of the image: the CI Linux image
    build (`ci.yml`), the release-gated Cachix publish (`publish.yml`
    `push-image-cache`, wired pending account), and the on-demand macOS Linux
-   builder (`handoff-macos-ondemand-builder.md`, in progress). The flake's
+   builder (see `../research/macos-container-builder-exploration.md`). The flake's
    "no-Linux-builder property" comment (`flake.nix:52-60`) is specifically
    about host-cross-compiled Go binaries, not an image-wide invariant. A
    no_std Rust shim builds in seconds on the builder.

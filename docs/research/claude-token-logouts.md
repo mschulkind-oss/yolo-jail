@@ -6,7 +6,7 @@ This doc is user-facing and operational. Background:
 
 - [`docs/research/claude-oauth-refresh-mechanics.md`](claude-oauth-refresh-mechanics.md) — how Claude's OAuth refresh actually works (bundle-level mechanics + the architectural reasoning behind the broker's proactive refresher).
 - [`bundled_loopholes/claude-oauth-broker/README.md`](../../bundled_loopholes/claude-oauth-broker/README.md) — broker architecture + operator ops.
-- [`docs/plans/claude-oauth-mitm-proxy-plan.md`](../plans/claude-oauth-mitm-proxy-plan.md) — historical design notes for the broker split.
+- [`bundled_loopholes/claude-oauth-broker/README.md`](../../bundled_loopholes/claude-oauth-broker/README.md) — the live broker architecture (the broker-split design notes are in git history under `docs/plans/claude-oauth-mitm-proxy-plan.md`).
 
 ## Architecture (post-`cb6e850`, post-`e7b7073`)
 

@@ -4,7 +4,7 @@ You know Linux, not macOS. This doc explains *why* macOS needs a "Linux
 builder" at all, the macOS-specific machinery involved (translated to Linux
 terms), and the real options for running it — so the choice in
 [macos-no-vm-direction.md](../design/macos-no-vm-direction.md) /
-[handoff-macos-ondemand-builder.md](../implementation/handoff-macos-ondemand-builder.md) is an
+[macos-container-builder-exploration.md](macos-container-builder-exploration.md) is an
 informed one, not a leap of faith.
 
 ---
@@ -181,9 +181,9 @@ Every "keep it" option installs a launchd service. The remaining question is
   RAM"). launchd *can* do it (demand-started service + a watchdog that stops the
   VM when no build has run for a while), but it's the less-trodden path.
 
-This is the same open decision recorded in
-[handoff-macos-ondemand-builder.md](../implementation/handoff-macos-ondemand-builder.md) — now with
-the correct implementation primitive (a launchd plist) identified.
+This on-demand-VM lifecycle is the parked-fallback path (revival plan Open
+Decision #3); the current builder direction is the container builder in
+[macos-container-builder-exploration.md](macos-container-builder-exploration.md).
 
 ---
 
