@@ -1,5 +1,5 @@
 [tools]
-node = "22"
+node = "24"
 go = "latest"
 # go-port: staticcheck is the Go lint gate (playbook: lint = go vet + staticcheck).
 "go:honnef.co/go/tools/cmd/staticcheck" = "latest"

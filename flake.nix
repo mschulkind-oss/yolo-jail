@@ -584,7 +584,7 @@
           imagePkgs.mise
           imagePkgs.findutils
           imagePkgs.which
-          imagePkgs.nodejs_22
+          imagePkgs.nodejs_24
           imagePkgs.python3
           imagePkgs.gh
           imagePkgs.gnused
