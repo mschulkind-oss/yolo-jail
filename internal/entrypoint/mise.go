@@ -21,9 +21,14 @@ func miseTomlKey(key string) string {
 	return `"` + key + `"`
 }
 
-// miseBaseTools is the ordered base tool set (Python dict literal order).
+// miseBaseTools is the ordered base tool set injected into the global mise
+// config. Keep `node` on the SAME major as the baked image node
+// (`imagePkgs.nodejs_24` in flake.nix) so a workspace that doesn't pin node
+// doesn't end up with a mise node on a different major than `/bin/node` — the
+// skew commit 230ca27 meant to close but left open one config layer down. See
+// docs/research/tool-provisioning.md.
 var miseBaseTools = []struct{ tool, version string }{
-	{"node", "22"},
+	{"node", "24"},
 	{"python", "3.13"},
 	{"go", "latest"},
 }
