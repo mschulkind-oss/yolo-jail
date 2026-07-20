@@ -245,6 +245,18 @@ options are complementary; sequence them:
      container-start behavior change.
 3. **D3: Go-era source bundle** (the only path to checkout-less installs, and
    prerequisite for Cachix being useful to them).
+   **Status (2026-07-20): DONE + committed** (`feat(dist): ship a Go source
+   bundle so checkout-less installs build the image`). `scripts/stage-source-
+   bundle.sh` (`git archive`, ~11MB tracked-tree superset) + `just stage-bundle`;
+   `stageInstalledWheel` stages FLAT with a go.mod+flake.nix marker (frozen
+   rename-aside invariant untouched); `bundledSourceDir` gains the release-
+   archive `<exe>/share/yolo-jail` candidate; goreleaser stages to `bundle/`
+   (outside the dist/ it wipes) + ships it in the archive; the source-build brew
+   formula pkgshare-installs the fileset; check gained a read-only bundle probe.
+   Verified the staged tree evaluates (`nix eval .#ociImage.drvPath`).
+   Adversarially reviewed — frozen invariant clean; a goreleaser dist/-wipe
+   packaging bug was caught (reproduced against goreleaser built from source) and
+   fixed. Only D4 (Cachix, human-gated account) remains in Track D.
    - Define the bundled layout: `share/yolo-jail/` must contain the `goSrc`
      fileset the flake needs (`flake.nix:65-80`: go.mod, go.sum, `vendor/`,
      `cmd/`, `internal/`, `bundled_loopholes/`) **plus** `flake.nix`/
