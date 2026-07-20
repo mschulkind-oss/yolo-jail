@@ -216,8 +216,9 @@ on Linux.
 
 ## Installation
 
-Two options. Homebrew is easiest; source install is required if you want the
-Claude OAuth token refresher auto-installed or if you're hacking on the CLI.
+Two options. Homebrew is easiest; the source install is for hacking on the CLI
+or running an unreleased working tree. (The README lists two more channels —
+`go install` and pipx/uvx — that work identically on macOS.)
 
 ### Option A — Homebrew (recommended for users)
 
@@ -226,17 +227,16 @@ brew tap mschulkind-oss/tap
 brew install mschulkind-oss/tap/yolo-jail
 ```
 
-The formula is auto-generated from the PyPI release on every tag. No source
-checkout, no `just`, auto-updates via `brew upgrade`. Works on Apple Silicon
-and Intel. Does not set up the token refresher — see
-the project README for manual launchd setup if you need it.
+The formula is generated on every tag by the release workflow and builds `yolo`
+from the tagged source. No source checkout, no `just`, auto-updates via `brew
+upgrade`. Works on Apple Silicon and Intel.
 
 ### Option B — Install from source
 
 ```bash
 git clone https://github.com/mschulkind-oss/yolo-jail.git
 cd yolo-jail
-just deploy          # builds, installs the yolo CLI, sets up refresher if applicable
+just deploy          # builds + installs the yolo CLI
 
 # Build the OCI image (downloads Linux packages directly from the
 # NixOS binary cache; no remote builder needed for the default install)

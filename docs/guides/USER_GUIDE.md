@@ -99,12 +99,14 @@ brew install mschulkind-oss/tap/yolo-jail
 
 | Pros | Cons |
 |---|---|
-| Single command | No refresher auto-install |
+| Single command | No claude-oauth-broker state init |
 | Auto-upgrades via `brew upgrade` | No source checkout available for hacking |
 | No `just`, no source, no build tools | |
 | Works on macOS and Linuxbrew identically | |
 
-This is the recommended path for users who just want to run yolo-jail. The Homebrew formula is published to [mschulkind-oss/homebrew-tap](https://github.com/mschulkind-oss/homebrew-tap) automatically on every release via the `brew` job in `.github/workflows/publish.yml`.
+This is the recommended path for users who just want to run yolo-jail. The Homebrew formula is published to [mschulkind-oss/homebrew-tap](https://github.com/mschulkind-oss/homebrew-tap) automatically on every release by the `update-homebrew` job in `.github/workflows/release.yml`.
+
+Two more channels ship the same binary and are documented in the README: `go install github.com/mschulkind-oss/yolo-jail/cmd/yolo@latest`, and `pipx install yolo-jail` / `uvx yolo-jail` (per-platform wheels wrapping the Go binary).
 
 **Note:** the Homebrew install skips the Claude OAuth broker state init. If you run many jails in parallel against one Claude account, install from source (Option B) so `just deploy` can prime the broker's CA + leaf certs.
 
@@ -1037,7 +1039,6 @@ YOLO Jail runs on Linux and macOS as first-class platforms. Everything in this g
 | Max bind mounts | Unlimited | Unlimited | ~22 (VZ.framework) |
 | Image format | OCI | OCI | OCI (auto-converted via skopeo) |
 | `yolo doctor` runtime checks | Linux | macOS / VM | `container system status` |
-| Token refresher install | systemd `--user` | launchd or cron | same |
 
 ---
 

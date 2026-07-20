@@ -37,7 +37,7 @@ Core requirements (both platforms):
   - **[Podman](https://podman.io/)** (preferred on Linux; Podman Machine on macOS)
   - **[Apple Container](https://github.com/apple/container)** (native macOS, `brew install container`)
 
-Additionally, to [install from source](#option-b--install-from-source):
+Additionally, to [install from source](#from-source):
 
 - **[Go](https://go.dev/dl/)** (see `go.mod` for the required version)
 - **[just](https://github.com/casey/just)**
@@ -51,27 +51,46 @@ Platform specifics (in priority order):
 
 A remote Nix Linux builder is **optional** on macOS — the standard image builds entirely from the NixOS binary cache.
 
-## Installation
+## Install
 
-Two ways to install, pick whichever fits:
+Four channels, all shipping the same single `yolo` binary. Pick whichever fits.
 
-### Option A — Homebrew (easiest, both macOS and Linux)
+### Homebrew (easiest, macOS and Linux)
 
 ```bash
 brew tap mschulkind-oss/tap
 brew install mschulkind-oss/tap/yolo-jail
 ```
 
-Works on macOS and Linuxbrew. Single command, auto-upgrades with `brew upgrade`. No source checkout, no `just` required. Does **not** install the host-side Claude OAuth token refresher — if you run many jails in parallel against one Claude account, see [Install from source](#option-b--install-from-source) instead, or follow [scripts/README.md](scripts/README.md) to install the refresher manually.
+Works on macOS and Linuxbrew. Single command, auto-upgrades with `brew upgrade`. No source checkout, no `just` required.
 
-### Option B — Install from source
+### Go
 
-Required if you want the Claude OAuth token refresher systemd timer auto-installed, or if you want to hack on yolo-jail itself. Identical on Linux and macOS:
+```bash
+go install github.com/mschulkind-oss/yolo-jail/cmd/yolo@latest
+```
+
+Builds straight from the module. Needs Go on the host; puts `yolo` in `$GOBIN` (or `$(go env GOPATH)/bin`).
+
+### pipx / uvx
+
+```bash
+pipx install yolo-jail
+# or, to run without installing:
+uvx yolo-jail
+```
+
+The PyPI distribution is per-platform wheels wrapping the same prebuilt Go binary — there is no Python code and no Python runtime dependency beyond the installer itself. It exists so the pre-Go audience keeps a working upgrade path.
+
+### From source
+
+For hacking on yolo-jail itself, or running an unreleased working tree. Identical on Linux and macOS:
 
 ```bash
 git clone https://github.com/mschulkind-oss/yolo-jail.git
 cd yolo-jail
-just deploy            # builds + installs the yolo CLI + host-side token refresher
+just setup             # pinned toolchain (mise) + Go module deps
+just deploy            # builds + installs the yolo CLI
 ```
 
 To upgrade later: `cd yolo-jail && git pull && just deploy`

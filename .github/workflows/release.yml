@@ -118,9 +118,6 @@ jobs:
               <<~EOS
                 The first \`yolo\` run in a workspace builds or pulls the jail's
                 container image (nix), which takes a while; later runs reuse it.
-                The host-side Claude OAuth token refresher timer is NOT installed
-                by this formula — see the yolo-jail README if you run many jails
-                against one Claude account.
               EOS
             end
 
