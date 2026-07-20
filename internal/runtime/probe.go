@@ -5,8 +5,9 @@
 package runtime
 
 import (
-	"os"
 	"strings"
+
+	"github.com/mschulkind-oss/yolo-jail/internal/paths"
 )
 
 // LiveSet is the tri-state result of enumerating live yolo-* containers. Known
@@ -23,27 +24,27 @@ type LiveSet struct {
 	Names map[string]struct{}
 }
 
-// DetectRuntime returns the container runtime for prune / check use: the
-// YOLO_RUNTIME env var if set, else "podman".
-// shallow variant — no connectivity probe or sys.exit).
-func DetectRuntime() string {
-	if rt := os.Getenv("YOLO_RUNTIME"); rt != "" {
-		return rt
+// ResolveRuntime resolves the effective container runtime for the tolerant
+// LISTING commands (`yolo ps` / `yolo prune`) with run()'s precedence: an
+// explicit YOLO_RUNTIME, then the config `runtime` key, then a platform-aware
+// probe. env/config are honored only when they name a known runtime
+// (paths.AllRuntimes); anything else falls through. macOS prefers Apple
+// Container then podman; Linux is always podman. hasBinary reports PATH presence
+// (nil => assume present).
+//
+// Unlike run's resolveRuntime this does NO connectivity probe and never exits:
+// the ps/prune fail-safe is the tri-state enumeration guard (a probe that
+// couldn't run declines to prune), not a hard runtime gate. This closes the
+// audit §B/D11 bug — the old config-blind resolver picked "podman" on a macOS
+// host running Apple Container, so `podman ps` came back empty and the
+// stale-tracking prune deleted LIVE AC jails' files — and finding 5 (ps never
+// consulted the config `runtime` key at all).
+func ResolveRuntime(envRuntime, configRuntime string, isMacOS bool, hasBinary func(string) bool) string {
+	if envRuntime != "" && inRuntimeSet(envRuntime) {
+		return envRuntime
 	}
-	return "podman"
-}
-
-// PsRuntime resolves the runtime for `yolo ps` PLATFORM-AWARELY, closing the
-// audit §B/D11 bug where the shallow DetectRuntime picked "podman" on a macOS
-// host running Apple Container (YOLO_RUNTIME unset) → `podman ps` empty → the
-// stale-tracking prune deleted LIVE AC jails' files. Priority // _runtime() candidate order: YOLO_RUNTIME override, else on macOS
-// container→podman (native Apple Container preferred), else podman on Linux.
-// hasBinary reports whether a runtime CLI is on PATH (inject exec.LookPath!=nil;
-// pass nil to assume present). No connectivity probe / sys.exit — the ps prune
-// guard is now the tri-state enumeration check, not a hard runtime gate.
-func PsRuntime(isMacOS bool, hasBinary func(string) bool) string {
-	if rt := os.Getenv("YOLO_RUNTIME"); rt != "" {
-		return rt
+	if configRuntime != "" && inRuntimeSet(configRuntime) {
+		return configRuntime
 	}
 	if hasBinary == nil {
 		hasBinary = func(string) bool { return true }
@@ -56,6 +57,15 @@ func PsRuntime(isMacOS bool, hasBinary func(string) bool) string {
 		}
 	}
 	return "podman"
+}
+
+func inRuntimeSet(rt string) bool {
+	for _, x := range paths.AllRuntimes {
+		if x == rt {
+			return true
+		}
+	}
+	return false
 }
 
 // livePodmanStates are the container states podman reports that count as a live

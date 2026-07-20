@@ -97,6 +97,36 @@ func TestPsPrunesStaleTracking(t *testing.T) {
 	_ = paths.ContainerDir()
 }
 
+// TestPsContainerRuntimeKeepsLiveTracking documents the end state the unified
+// resolver enables on an Apple Container host (the destructive §B/D11 bug): with
+// the runtime resolved to "container", ps enumerates via `container ls` and the
+// stale-tracking prune keeps the live jail's file while dropping the dead one —
+// rather than the old config-blind "podman" pick that saw nothing and wiped both.
+func TestPsContainerRuntimeKeepsLiveTracking(t *testing.T) {
+	t.Setenv("HOME", t.TempDir())
+	must(t, runtime.WriteContainerTracking("yolo-live", "/ws"))
+	must(t, runtime.WriteContainerTracking("yolo-dead", "/ws2"))
+
+	deps := psDeps{
+		DetectRuntime: func() string { return "container" },
+		RunCmd: func(argv []string) (string, bool) {
+			if len(argv) >= 2 && argv[0] == "container" && argv[1] == "ls" {
+				return "ID  IMAGE  STATE\nyolo-live img running\n", true
+			}
+			return "", true
+		},
+		PathIsDir: func(string) bool { return true },
+		Out:       &bytes.Buffer{},
+	}
+	psRun(deps)
+	if _, ok := runtime.ReadContainerWorkspace("yolo-dead"); ok {
+		t.Error("dead tracking file should be pruned on the container runtime")
+	}
+	if _, ok := runtime.ReadContainerWorkspace("yolo-live"); !ok {
+		t.Error("live AC jail's tracking file must survive")
+	}
+}
+
 // TestPsEnumerationFailureDoesNotPrune is the audit §D11 regression: when the
 // runtime probe FAILS (ok=false — e.g. `podman ps` on a macOS host running only
 // Apple Container), ps must NOT prune tracking files (they belong to live jails
@@ -128,22 +158,28 @@ func TestPsEnumerationFailureDoesNotPrune(t *testing.T) {
 	}
 }
 
-// TestPsRuntimePlatformAware asserts macOS prefers Apple Container (§D11).
-func TestPsRuntimePlatformAware(t *testing.T) {
+// TestDetectListingRuntimeHonorsConfig covers audit finding 5: `yolo ps` (and
+// prune) never consulted the workspace `runtime` key. detectListingRuntime now
+// loads the config and feeds runtime.ResolveRuntime, so a workspace pinned to
+// Apple Container resolves to "container" even on the Linux test host (config
+// precedence wins before the platform branch). RED before the commands.go wiring
+// (detectListingRuntime did not exist and ps loaded no config).
+func TestDetectListingRuntimeHonorsConfig(t *testing.T) {
+	t.Setenv("HOME", t.TempDir())
 	t.Setenv("YOLO_RUNTIME", "")
 	os.Unsetenv("YOLO_RUNTIME")
-	// macOS with the container CLI present → "container", not "podman".
-	if rt := runtime.PsRuntime(true, func(b string) bool { return b == "container" }); rt != "container" {
-		t.Errorf("macOS should prefer container, got %q", rt)
+	ws := t.TempDir()
+	if err := os.WriteFile(ws+"/yolo-jail.jsonc", []byte(`{"runtime":"container"}`), 0o644); err != nil {
+		t.Fatal(err)
 	}
-	// Linux → podman.
-	if rt := runtime.PsRuntime(false, func(string) bool { return true }); rt != "podman" {
-		t.Errorf("Linux should use podman, got %q", rt)
+	if got := detectListingRuntime(ws); got != "container" {
+		t.Errorf("detectListingRuntime honoring config = %q, want container", got)
 	}
-	// Explicit override wins everywhere.
-	t.Setenv("YOLO_RUNTIME", "podman")
-	if rt := runtime.PsRuntime(true, func(string) bool { return true }); rt != "podman" {
-		t.Errorf("YOLO_RUNTIME override should win, got %q", rt)
+
+	// A workspace with no config and no override → the Linux platform default.
+	empty := t.TempDir()
+	if got := detectListingRuntime(empty); got != "podman" {
+		t.Errorf("detectListingRuntime default = %q, want podman", got)
 	}
 }
 

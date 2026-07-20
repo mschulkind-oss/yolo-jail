@@ -13,6 +13,7 @@ import (
 	"github.com/mschulkind-oss/yolo-jail/internal/builder"
 	"github.com/mschulkind-oss/yolo-jail/internal/cli/check"
 	"github.com/mschulkind-oss/yolo-jail/internal/cli/run"
+	"github.com/mschulkind-oss/yolo-jail/internal/config"
 	"github.com/mschulkind-oss/yolo-jail/internal/darwinpkg"
 	"github.com/mschulkind-oss/yolo-jail/internal/jsonx"
 	"github.com/mschulkind-oss/yolo-jail/internal/loopholes"
@@ -98,6 +99,15 @@ func runPrune(args []string) int {
 			opts.PurgeHeavyCaches = true
 		}
 	}
+	// Config- and platform-aware runtime resolution (audit findings 4+5): prune
+	// otherwise defaults to the config-blind podman-only detector, so on an Apple
+	// Container host it enumerates via podman and its stale-tracking sweep could
+	// delete live jails' files.
+	ws, err := os.Getwd()
+	if err != nil {
+		ws = "."
+	}
+	opts.DetectRuntime = func() string { return detectListingRuntime(ws) }
 	return prune.Run(opts)
 }
 
@@ -226,13 +236,33 @@ func runLoopholes(args []string) int {
 // running, `podman ps` would be empty and the tracking-prune would delete live
 // jails' files.
 func runPs(_ []string) int {
-	detect := func() string {
-		return runtime.PsRuntime(paths.IsMacOS, func(bin string) bool {
-			_, err := exec.LookPath(bin)
-			return err == nil
-		})
+	ws, err := os.Getwd()
+	if err != nil {
+		ws = "."
 	}
+	detect := func() string { return detectListingRuntime(ws) }
 	return psRun(psRealDeps(psRunCmd, detect))
+}
+
+// detectListingRuntime resolves the runtime for the tolerant listing commands
+// (ps/prune): env > config `runtime` key > platform probe. Loading the config
+// is the piece `yolo ps` lacked entirely (audit finding 5). Config is loaded
+// loosely (non-strict, warnings dropped) from the given workspace; any load
+// error yields an empty config, so a malformed jsonc degrades to the platform
+// probe rather than crashing a diagnostic command.
+func detectListingRuntime(workspace string) string {
+	cfgRT := ""
+	if cfg, err := config.LoadConfig(workspace, false, func(string) {}); err == nil && cfg != nil {
+		if v, ok := cfg.Get("runtime"); ok {
+			if s, ok := v.(string); ok {
+				cfgRT = s
+			}
+		}
+	}
+	return runtime.ResolveRuntime(os.Getenv("YOLO_RUNTIME"), cfgRT, paths.IsMacOS, func(bin string) bool {
+		_, err := exec.LookPath(bin)
+		return err == nil
+	})
 }
 
 // psRunCmd runs a container-runtime probe and returns (stdout, ok). ok=false on

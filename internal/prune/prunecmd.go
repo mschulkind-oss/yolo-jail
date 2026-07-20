@@ -32,6 +32,7 @@ import (
 	"time"
 
 	"github.com/mschulkind-oss/yolo-jail/internal/execx"
+	"github.com/mschulkind-oss/yolo-jail/internal/paths"
 	"github.com/mschulkind-oss/yolo-jail/internal/runtime"
 )
 
@@ -62,8 +63,9 @@ type Options struct {
 	// Out is where the report is written. nil => os.Stdout.
 	Out io.Writer
 	// DetectRuntime returns the effective runtime ("podman"/"container"). nil =>
-	// runtime.DetectRuntime (the shallow _detect_runtime — YOLO_RUNTIME or
-	// "podman", the same shallow detect prune_cmd uses).
+	// a platform-aware runtime.ResolveRuntime (YOLO_RUNTIME > platform probe; no
+	// config here). The CLI front door (runPrune) injects a config-aware variant
+	// that also honors the workspace `runtime` key.
 	DetectRuntime func() string
 	// Exec is the container-runtime probe seam. nil =>
 	// realProbeExec (capture_output, text, honoring the per-call timeout, with the
@@ -98,7 +100,12 @@ func fillDefaults(o *Options) {
 		o.Out = os.Stdout
 	}
 	if o.DetectRuntime == nil {
-		o.DetectRuntime = runtime.DetectRuntime
+		o.DetectRuntime = func() string {
+			return runtime.ResolveRuntime(os.Getenv("YOLO_RUNTIME"), "", paths.IsMacOS, func(bin string) bool {
+				_, err := exec.LookPath(bin)
+				return err == nil
+			})
+		}
 	}
 	if o.Exec == nil {
 		o.Exec = realProbeExec

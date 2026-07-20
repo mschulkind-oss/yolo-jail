@@ -142,6 +142,35 @@ func TestStuckReasonFromTop(t *testing.T) {
 	}
 }
 
+// TestResolveRuntimeConfigAware pins the unified listing-command resolver:
+// env > config `runtime` key > platform probe, with unknown values ignored.
+// Config-awareness is the piece the old DetectRuntime/PsRuntime lacked.
+func TestResolveRuntimeConfigAware(t *testing.T) {
+	always := func(string) bool { return true }
+	cases := []struct {
+		name      string
+		env, cfg  string
+		isMacOS   bool
+		hasBinary func(string) bool
+		want      string
+	}{
+		{"config honored on darwin", "", "container", true, always, "container"},
+		{"env wins over config", "podman", "container", true, always, "podman"},
+		{"linux default", "", "", false, nil, "podman"},
+		{"darwin probe prefers AC", "", "", true, func(b string) bool { return b == "container" }, "container"},
+		{"darwin falls back to podman when no AC", "", "", true, func(b string) bool { return b == "podman" }, "podman"},
+		{"unknown config value ignored", "", "bogus", false, nil, "podman"},
+		{"unknown env value ignored", "bogus", "", false, nil, "podman"},
+		{"config honored on linux too", "", "container", false, always, "container"},
+	}
+	for _, tc := range cases {
+		if got := ResolveRuntime(tc.env, tc.cfg, tc.isMacOS, tc.hasBinary); got != tc.want {
+			t.Errorf("%s: ResolveRuntime(%q,%q,%v) = %q, want %q",
+				tc.name, tc.env, tc.cfg, tc.isMacOS, got, tc.want)
+		}
+	}
+}
+
 func TestPodmanMachineResizeHint(t *testing.T) {
 	want := "Increase the VM: `podman machine set --memory 4096 && podman machine stop && " +
 		"podman machine start`.  Note: this restarts the VM and stops every container running on it."
