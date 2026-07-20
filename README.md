@@ -1,6 +1,6 @@
 # YOLO Jail
 
-[![CI](https://github.com/mschulkind/yolo-jail/actions/workflows/ci.yml/badge.svg)](https://github.com/mschulkind/yolo-jail/actions/workflows/ci.yml)
+[![CI](https://github.com/mschulkind-oss/yolo-jail/actions/workflows/ci.yml/badge.svg)](https://github.com/mschulkind-oss/yolo-jail/actions/workflows/ci.yml)
 [![License](https://img.shields.io/badge/License-Apache_2.0-blue.svg)](LICENSE)
 
 A secure, isolated container environment for AI coding agents (Claude Code, Copilot, Gemini CLI, opencode, pi, Codex) to safely modify codebases without compromising host security or identity. Pick which agents to install per project with the [`agents` config](#agents). Runs on **Linux and macOS** (Apple Silicon and Intel) with Podman or Apple Container.
@@ -32,11 +32,15 @@ AI coding agents like Claude Code, GitHub Copilot, and Google Gemini CLI have a 
 
 Core requirements (both platforms):
 
-- **[uv](https://docs.astral.sh/uv/)** — Python package manager
 - **[Nix](https://nixos.org/download/)** (with flakes enabled)
 - A container runtime — one of:
   - **[Podman](https://podman.io/)** (preferred on Linux; Podman Machine on macOS)
   - **[Apple Container](https://github.com/apple/container)** (native macOS, `brew install container`)
+
+Additionally, to [install from source](#option-b--install-from-source):
+
+- **[Go](https://go.dev/dl/)** (see `go.mod` for the required version)
+- **[just](https://github.com/casey/just)**
 
 Platform specifics (in priority order):
 
@@ -71,6 +75,12 @@ just deploy            # builds + installs the yolo CLI + host-side token refres
 ```
 
 To upgrade later: `cd yolo-jail && git pull && just deploy`
+
+#### Upgrading from the Python version
+
+yolo-jail used to ship as a Python package installed with `uv tool install`. `just deploy` retires that install for you — it uninstalls the `yolo-jail` uv tool and clears the console scripts it left in `$GOBIN` (`yolo`, `yolo-ps`, `yolo-host-processes`, `yolo-claude-oauth-broker-host`), which otherwise make `go install` fail with `build output "…/yolo" already exists and is not an object file`.
+
+Nothing is deleted that cannot be positively identified as part of that old install. If something unrecognized is sitting at `$GOBIN/yolo`, the migration stops and asks you to look at it rather than guessing. `uv` itself is no longer a prerequisite.
 
 ### Optional — User-level defaults
 
