@@ -35,6 +35,16 @@ func Main(argv []string) int {
 		return 0
 	}
 
+	// Top-level help. Handled before RewriteArgv so a bare `yolo`, `yolo help`,
+	// `yolo --help`, or `yolo -h` prints usage and exits 0 rather than falling
+	// through to the "unknown command" error. `--`->run rewrite still owns the
+	// `yolo <flags> -- cmd` form, so a `--help` that follows a `--` is the inner
+	// command's flag, not ours.
+	if len(args) == 0 || wantsTopLevelHelp(args) {
+		fmt.Print(usageText())
+		return 0
+	}
+
 	args = RewriteArgv(args)
 	sub := Subcommand(args)
 
@@ -43,4 +53,15 @@ func Main(argv []string) int {
 		return 1
 	}
 	return dispatchNative(sub, args)
+}
+
+// wantsTopLevelHelp reports whether the leading token is a top-level help
+// request. Only the FIRST token counts, so `yolo run --help` still dispatches to
+// run and `yolo -- cmd --help` passes --help through to the inner command.
+func wantsTopLevelHelp(args []string) bool {
+	switch args[0] {
+	case "--help", "-h", "help":
+		return true
+	}
+	return false
 }
