@@ -15,13 +15,6 @@ import (
 	"github.com/mschulkind-oss/yolo-jail/internal/jsonx"
 )
 
-// Broker singleton constants. Kept local — the
-// broker lifecycle lives in the run wiring.
-const (
-	brokerSingletonSocket = "/tmp/yolo-claude-oauth-broker.sock"
-	brokerLoopholeName    = "claude-oauth-broker"
-)
-
 // sha1Hex8 returns the first 8 hex chars of sha1(s) — the per-jail hash keying
 // the sockets dir + relay pid/lock files.
 func sha1Hex8(s string) string {

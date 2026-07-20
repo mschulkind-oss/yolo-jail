@@ -10,6 +10,7 @@ import (
 	"syscall"
 	"time"
 
+	"github.com/mschulkind-oss/yolo-jail/internal/broker"
 	"github.com/mschulkind-oss/yolo-jail/internal/execx"
 	"github.com/mschulkind-oss/yolo-jail/internal/jsonx"
 	"github.com/mschulkind-oss/yolo-jail/internal/loopholes"
@@ -83,7 +84,7 @@ func (o *Options) startLoopholes(cname, rt string, cfg *jsonx.OrderedMap) []loop
 		if name == paths.BuiltinCgroupLoopholeName || name == paths.BuiltinJournalLoopholeName {
 			continue
 		}
-		if name == brokerLoopholeName {
+		if name == broker.BrokerLoopholeName {
 			// Host-wide singleton — ensure it, but no per-jail handle.
 			o.brokerEnsure()
 			continue
@@ -150,7 +151,7 @@ func (o *Options) stopLoopholes(handles []loopholeDaemon, socketsDir, cname, rt 
 	base := filepath.Base(socketsDir)
 	if strings.HasPrefix(base, prefix) {
 		shortHash := strings.TrimPrefix(base, prefix)
-		o.relayKill(relayPIDFile(shortHash), filepath.Join(socketsDir, brokerLoopholeName+".sock"))
+		o.relayKill(relayPIDFile(shortHash), filepath.Join(socketsDir, broker.BrokerLoopholeName+".sock"))
 	}
 	if fileExists(socketsDir) {
 		_ = os.RemoveAll(socketsDir)
@@ -309,86 +310,26 @@ func (o *Options) resolveContainerCgroup(cname, rt string) string {
 	return ""
 }
 
-// daemonLauncher resolves a console-script daemon name to its launch argv via a
-// plain PATH lookup: the console script IS the Go binary on PATH now. Returns
-// nil when the name isn't on PATH (that nil-vs-bare-name difference vs
-// broker.DaemonLauncher is preserved pending their unification). The
-// former YOLO_GO_DAEMONS/YOLO_GO_BIN_DIR migration seam (dead — nothing set
-// those vars) was removed.
-func (o *Options) daemonLauncher(consoleName string) []string {
-	if _, ok := o.LookPath(consoleName); ok {
-		return []string{consoleName}
-	}
-	return nil
-}
-
 // --- broker singleton + relay (minimal ensure; supervision keyed per jail) ---
-const (
-	brokerSingletonPIDFile = "/tmp/yolo-claude-oauth-broker.pid"
-	brokerSingletonLock    = "/tmp/yolo-claude-oauth-broker.lock"
-	brokerSpawnTimeout     = 5 * time.Second
-)
 
-// brokerEnsure ports _broker_ensure: if the singleton is alive, no-op; else
-// spawn it under a flock. Best-effort; never fails the caller.
+// brokerEnsure ports _broker_ensure: if the host-wide broker singleton is alive,
+// no-op; else spawn it under a flock. The spawn/liveness/launcher/path-constant
+// implementation lives ONCE in internal/broker — runcmd just drives it via
+// RealDeps (BrokerSpawn re-checks liveness inside its own flock). Best-effort;
+// never fails the caller.
 func (o *Options) brokerEnsure() {
-	if o.brokerIsAlive() {
+	deps := broker.RealDeps()
+	if broker.BrokerIsAlive(deps) {
 		return
 	}
-	o.brokerSpawn()
-}
-
-// brokerIsAlive ports _broker_is_alive: PID file live + socket present + ping.
-func (o *Options) brokerIsAlive() bool {
-	pid, ok := readPIDFile(brokerSingletonPIDFile)
-	if !ok || !pidAlive(pid) {
-		return false
-	}
-	if !o.PathExists(brokerSingletonSocket) {
-		return false
-	}
-	return brokerPing(brokerSingletonSocket, 2*time.Second)
-}
-
-// brokerSpawn ports _broker_spawn: flock, re-check liveness, clear stale socket,
-// spawn the broker host daemon, write the PID file, wait for the socket.
-func (o *Options) brokerSpawn() {
-	_ = os.MkdirAll(filepath.Dir(brokerSingletonLock), 0o755)
-	lf, err := os.OpenFile(brokerSingletonLock, os.O_CREATE|os.O_WRONLY, 0o644)
-	if err != nil {
-		return
-	}
-	defer lf.Close()
-	if syscall.Flock(int(lf.Fd()), syscall.LOCK_EX) != nil {
-		return
-	}
-	if o.brokerIsAlive() {
-		return
-	}
-	_ = os.Remove(brokerSingletonSocket)
-	logDir := filepath.Join(paths.GlobalStorage(), "logs")
-	_ = os.MkdirAll(logDir, 0o755)
-	// Self-exec'd `yolo internal daemon claude-oauth-broker --socket <sock>`: the
-	// running yolo re-execs itself as the broker host daemon (full dedup onto
-	// internal/broker.BrokerSpawn is a later step).
-	argv := execx.SelfExecArgv([]string{"yolo", "internal", "daemon", "claude-oauth-broker", "--socket", brokerSingletonSocket})
-	cmd := exec.Command(argv[0], argv[1:]...)
-	if l, err := os.OpenFile(filepath.Join(logDir, "host-service-claude-oauth-broker.log"), os.O_APPEND|os.O_CREATE|os.O_WRONLY, 0o644); err == nil {
-		cmd.Stdout, cmd.Stderr = l, l
-	}
-	cmd.SysProcAttr = &syscall.SysProcAttr{Setsid: true}
-	if err := cmd.Start(); err != nil {
-		return
-	}
-	_ = os.WriteFile(brokerSingletonPIDFile, []byte(strconv.Itoa(cmd.Process.Pid)+"\n"), 0o644)
-	o.waitForSocket(brokerSingletonSocket, brokerSpawnTimeout)
+	broker.BrokerSpawn(deps)
 }
 
 // ensureBrokerRelay ports _ensure_broker_relay: heal the per-jail relay on every
 // path that targets the jail. Skipped for Apple Container and when the singleton
 // socket is absent.
 func (o *Options) ensureBrokerRelay(cname, rt string) {
-	if rt == "container" || !o.PathExists(brokerSingletonSocket) {
+	if rt == "container" || !o.PathExists(broker.BrokerSingletonSocket) {
 		return
 	}
 	socketsDir := hostServiceSocketsDir(cname, o.IsMacOS)
@@ -401,7 +342,7 @@ func (o *Options) ensureBrokerRelay(cname, rt string) {
 func (o *Options) relayEnsure(cname, socketsDir string) {
 	shortHash := relayShortHash(cname)
 	pidFile := relayPIDFile(shortHash)
-	sockPath := filepath.Join(socketsDir, brokerLoopholeName+".sock")
+	sockPath := filepath.Join(socketsDir, broker.BrokerLoopholeName+".sock")
 	if o.relayIsAlive(pidFile, sockPath) {
 		return
 	}
@@ -419,7 +360,7 @@ func (o *Options) relayEnsure(cname, socketsDir string) {
 	o.relayKill(pidFile, sockPath)
 	_ = os.MkdirAll(socketsDir, 0o755)
 	_ = os.Remove(sockPath)
-	argv := o.relaySpawnArgv(sockPath, brokerSingletonSocket, cname)
+	argv := o.relaySpawnArgv(sockPath, broker.BrokerSingletonSocket, cname)
 	if argv == nil {
 		return
 	}
@@ -434,7 +375,7 @@ func (o *Options) relayEnsure(cname, socketsDir string) {
 		return
 	}
 	_ = os.WriteFile(pidFile, []byte(strconv.Itoa(cmd.Process.Pid)+"\n"), 0o644)
-	o.waitForSocket(sockPath, brokerSpawnTimeout)
+	o.waitForSocket(sockPath, broker.BrokerSpawnTimeout)
 }
 
 // relaySpawnArgv builds the per-jail broker-relay spawn argv: the running yolo

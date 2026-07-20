@@ -9,6 +9,7 @@ import (
 	"time"
 
 	"github.com/mschulkind-oss/yolo-jail/internal/agents"
+	"github.com/mschulkind-oss/yolo-jail/internal/broker"
 	"github.com/mschulkind-oss/yolo-jail/internal/config"
 	"github.com/mschulkind-oss/yolo-jail/internal/frontdoor"
 	"github.com/mschulkind-oss/yolo-jail/internal/jsonx"
@@ -182,7 +183,7 @@ func (o *Options) runContainer(cfg *jsonx.OrderedMap, rt, repoRoot string) int {
 	if rt != "container" {
 		_ = os.MkdirAll(socketsDir, 0o755)
 		o.brokerEnsure()
-		if o.PathExists(brokerSingletonSocket) {
+		if o.PathExists(broker.BrokerSingletonSocket) {
 			o.ensureBrokerRelay(cname, rt)
 		}
 	}

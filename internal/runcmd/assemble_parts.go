@@ -6,6 +6,7 @@ import (
 	"strings"
 	"time"
 
+	"github.com/mschulkind-oss/yolo-jail/internal/broker"
 	"github.com/mschulkind-oss/yolo-jail/internal/jsonx"
 	"github.com/mschulkind-oss/yolo-jail/internal/loopholes"
 	"github.com/mschulkind-oss/yolo-jail/internal/paths"
@@ -191,9 +192,9 @@ func (o *Options) hostServicesMountArgs(rt, cname string) []string {
 	}
 	socketsDir := hostServiceSocketsDir(cname, o.IsMacOS)
 	args := []string{"-v", socketsDir + ":" + paths.JailHostServicesDir + ":rw"}
-	if o.PathExists(brokerSingletonSocket) {
-		brokerJailSock := paths.JailHostServicesDir + "/" + brokerLoopholeName + ".sock"
-		args = append(args, "-e", hostServiceEnvVar(brokerLoopholeName)+"="+brokerJailSock)
+	if o.PathExists(broker.BrokerSingletonSocket) {
+		brokerJailSock := paths.JailHostServicesDir + "/" + broker.BrokerLoopholeName + ".sock"
+		args = append(args, "-e", hostServiceEnvVar(broker.BrokerLoopholeName)+"="+brokerJailSock)
 	}
 	return args
 }
