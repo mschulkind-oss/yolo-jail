@@ -30,12 +30,14 @@ of that read; treat them as "look here", not eternal truth.
   sit before `/bin` in PATH). MCP servers → the **baked** `/bin/node` (the wrapper
   execs it by absolute path). This split is deliberate and documented in
   `docs/design/mise-node-dynamic-linking.md`.
-- **The mise node's version differs by workspace.** The yolo-jail workspace pins
-  `node = "24"` in `mise.toml:2`, but the *global* mise default the entrypoint
-  writes is still `node = "22"` (`internal/entrypoint/mise.go:26`). So in this repo
-  the mise node matches the baked node (24), but in *any other* workspace that
-  doesn't pin node, the mise node is 22 while `/bin/node` is 24 — a latent
-  one-major skew that the "bump both together" commit did not close.
+- **The mise node's version is per-workspace on purpose.** A workspace pins node
+  in its `mise.toml` (this repo pins `24`); un-pinned workspaces fall back to the
+  entrypoint's global default. That default now tracks the baked major (`node =
+  "24"`, `internal/entrypoint/mise.go`; guarded by a flake-cross-check test) — so
+  baked and mise node agree unless a workspace *deliberately* pins a different
+  major, which is a supported override, not a conflict. See §2 "Why can node 22
+  and 24 be specified at the same time?" for the detail and the skew fixed
+  2026-07-20.
 - **Go is not baked at all.** No `imagePkgs.go` in the image; `go` inside the jail
   is always the mise one. The `pkgs.go` in `flake.nix:85` is the *host* toolchain
   that cross-compiles the yolo binaries at image-build time, not a jail runtime.
@@ -208,29 +210,41 @@ mise node, and a wrapper that points at the baked node.
 The jail even measures both at boot when profiling: it times `/bin/node` vs
 `$MISE_DATA_DIR/shims/node` back-to-back (`internal/cli/run/command.go:77-80`).
 
-### Is the version split intentional or drift?
+### Why can node 22 and 24 be specified at the same time?
 
-Both. The *routing* split (mise for users, baked for MCP) is intentional and
-documented. The *version* alignment is where drift crept in:
+Because they live in **two independent layers that serve different consumers**,
+and that separation is by design:
 
-- Commit `230ca27` ("bump baked Node.js from 22 to 24 LTS") changed **two** files:
-  `flake.nix` `nodejs_22→24` and `mise.toml` `node 22→24`, with the stated goal
-  "keep the nix-baked `/bin/node` and the mise-installed node on the same major".
-- It did **not** touch `internal/entrypoint/mise.go:26`, where the *global* mise
-  base default is still `node = "22"`.
+- The **baked `/bin/node`** (its major is set in `flake.nix`, `nodejs_24`) is the
+  jail's *substrate* node — it's what MCP servers run under (via the wrapper) and
+  what's guaranteed present offline. It moves only when the image is rebuilt.
+- The **mise node** is the *user/project* node — what bare `node`, shebangs, and
+  the agent CLIs resolve to (mise shims precede `/bin` in PATH). It's meant to be
+  **per-workspace overridable**: a project that needs node 20 (or 24, or 18) puts
+  `node = "20"` in its `mise.toml` and gets exactly that, with **no image
+  rebuild**. That's a feature, not a conflict — the whole point of the mise layer
+  is that a workspace can pin a node major different from the baked one.
 
-Consequence:
+So "22 and 24 simultaneously" is legitimate whenever a workspace *deliberately*
+pins a major other than the baked one. The layers don't fight: each consumer
+resolves the node its PATH/config points at.
 
-- **In the yolo-jail workspace:** `mise.toml` pins 24, so mise node = baked node =
-  24. Aligned. Native addons (NODE_MODULE_VERSION) match whether an addon is
-  installed under mise-node and later run under baked-node via the wrapper.
-- **In any other workspace that doesn't pin node:** mise falls back to the global
-  default (22), while `/bin/node` is 24. Now an npm-global native addon installed
-  under mise-node-22 that gets executed by a `/bin/node`-24 MCP wrapper is a
-  cross-ABI mismatch waiting to happen — precisely the skew the commit intended to
-  prevent, left open one config layer down. Treat this as an **incomplete bump**,
-  not a designed difference. The clean fix is to bump `miseBaseTools` node to `24`
-  so the global default tracks the baked major.
+**Where it was a bug (now fixed).** The one case that *isn't* a deliberate
+override is the **global default** — the version mise falls back to when a
+workspace pins nothing. That should track the baked major so an un-pinned
+workspace gets a mise node matching `/bin/node`. Commit `230ca27` ("bump baked
+Node.js from 22 to 24 LTS") bumped `flake.nix` (`nodejs_22→24`) and the repo's
+own `mise.toml` (`node 22→24`) but missed the entrypoint's global default
+(`internal/entrypoint/mise.go` `miseBaseTools`), leaving it at `22`. So an
+un-pinned workspace got mise-node-22 against baked-node-24 — a latent one-major
+skew where an npm-global native addon (NODE_MODULE_VERSION-sensitive) built under
+mise-node-22 could be executed by the `/bin/node`-24 MCP wrapper.
+
+**Fixed 2026-07-20:** `miseBaseTools` node bumped to `24`, and
+`TestMiseBaseNodeMatchesBakedImage` now reads the flake's `nodejs_<major>` and
+asserts the global default matches — so the next baked-node bump can't silently
+re-open the skew. The intentional per-workspace override (a `mise.toml` pinning a
+different major) is untouched and still supported.
 
 ---
 
