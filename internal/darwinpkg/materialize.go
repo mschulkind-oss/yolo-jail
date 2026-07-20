@@ -52,11 +52,9 @@ func Materialize(repoRoot string, packages []any, system string, errStderr io.Wr
 	cmd.Env = baseEnv
 	var stdout strings.Builder
 	cmd.Stdout = &stdout
-	stderrPipe, err := cmd.StderrPipe()
+
+	tailLines, exitCode, err := streamStderrTail(cmd, errStderr, 30)
 	if err != nil {
-		return nil, &MaterializeError{msg: fmt.Sprintf("nix build failed to run: %v", err)}
-	}
-	if err := cmd.Start(); err != nil {
 		// FileNotFoundError → "nix command not found on PATH"; other start
 		// failures → "nix build failed to run: …" (matches the Python split).
 		if errors.Is(err, exec.ErrNotFound) {
@@ -65,30 +63,8 @@ func Materialize(repoRoot string, packages []any, system string, errStderr io.Wr
 		return nil, &MaterializeError{msg: fmt.Sprintf("nix build failed to run: %v", err)}
 	}
 
-	tail := newStderrTail(30)
-	done := make(chan struct{})
-	go func() {
-		defer close(done)
-		sc := bufio.NewScanner(stderrPipe)
-		sc.Buffer(make([]byte, 0, 64*1024), 1024*1024)
-		for sc.Scan() {
-			line := sc.Text()
-			fmt.Fprintln(errStderr, line)
-			if clean := strings.TrimRight(line, " \t\r\n"); clean != "" {
-				tail.push(clean)
-			}
-		}
-	}()
-
-	waitErr := cmd.Wait()
-	// Mirror Python's t.join(timeout=5): don't block forever on a stuck pump.
-	select {
-	case <-done:
-	case <-time.After(5 * time.Second):
-	}
-
-	if waitErr != nil || (cmd.ProcessState != nil && cmd.ProcessState.ExitCode() != 0) {
-		msg := strings.TrimSpace(strings.Join(tail.lines(), "\n"))
+	if exitCode != 0 {
+		msg := strings.TrimSpace(strings.Join(tailLines, "\n"))
 		if msg == "" {
 			msg = "nix build of darwin packages failed"
 		}
@@ -146,6 +122,45 @@ func skippedNames(repoRoot string, env []string, system string) []string {
 		}
 	}
 	return ParseSkippedNames(stdout.String())
+}
+
+// streamStderrTail starts cmd, streams its stderr live to errStderr (so a
+// from-source build stays VISIBLE), and returns the last `max` non-blank lines
+// plus the child's exit code. The stderr pipe is drained SYNCHRONOUSLY before
+// cmd.Wait() — the idiom os/exec documents for StderrPipe — so the tail is
+// always complete and there is no concurrent access to the buffer. (The prior
+// code called cmd.Wait() while a pump goroutine was still draining, which could
+// truncate the tail and raced on the buffer after a 5s join timeout.)
+//
+// cmd.Stdout must already be set by the caller; err is non-nil only when the
+// process could not be started (exec.ErrNotFound / other start failure). A
+// non-zero exit is reported via the returned code, not err.
+func streamStderrTail(cmd *exec.Cmd, errStderr io.Writer, max int) (tail []string, exitCode int, err error) {
+	stderrPipe, perr := cmd.StderrPipe()
+	if perr != nil {
+		return nil, 0, perr
+	}
+	if serr := cmd.Start(); serr != nil {
+		return nil, 0, serr
+	}
+	ring := newStderrTail(max)
+	sc := bufio.NewScanner(stderrPipe)
+	sc.Buffer(make([]byte, 0, 64*1024), 1024*1024)
+	for sc.Scan() {
+		line := sc.Text()
+		fmt.Fprintln(errStderr, line)
+		if clean := strings.TrimRight(line, " \t\r\n"); clean != "" {
+			ring.push(clean)
+		}
+	}
+	waitErr := cmd.Wait()
+	code := 0
+	if cmd.ProcessState != nil {
+		code = cmd.ProcessState.ExitCode()
+	} else if waitErr != nil {
+		code = 1
+	}
+	return ring.lines(), code, nil
 }
 
 // stderrTail is a bounded ring of the last N non-blank stderr lines (the Python
