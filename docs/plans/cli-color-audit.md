@@ -3,7 +3,7 @@
 **Status:** OPEN — confirmed bug class, partially fixed. Pulled out of the
 archived `go-port-post-transition.md` §5. Jail-testable end-to-end (no host
 needed); pairs naturally with the renderer consolidation in
-[module-consolidation.md](module-consolidation.md).
+[module-consolidation-and-cleanup.md](module-consolidation-and-cleanup.md).
 
 ## The bug class
 
@@ -51,7 +51,7 @@ Still to classify (audit each — "intentionally plain" vs "lost its color"):
   helper (mirror `internal/cli/run/console.go`'s `richToANSI` + `isStyleTag` +
   the gate) and route every command through it — fixes the bug everywhere and
   removes the duplication. This is the natural intersection with
-  [module-consolidation.md](module-consolidation.md); do it there if the
+  [module-consolidation-and-cleanup.md](module-consolidation-and-cleanup.md); do it there if the
   consolidation lands first.
 - [ ] **Gate rule (same as run):** render ANSI only when `Color &&
   IsTTYStdout()` — never emit escapes to a pipe/redirect, so captured/greppable

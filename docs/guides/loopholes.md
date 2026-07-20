@@ -4,7 +4,7 @@ A **loophole** is a single controlled permeability point between the jail and th
 
 Examples:
 
-- [`claude-oauth-broker`](../loopholes/claude-oauth-broker/) — MITM proxy that serializes Claude OAuth refreshes (transport: `tls-intercept`, lifecycle: `external`).
+- [`claude-oauth-broker`](../../bundled_loopholes/claude-oauth-broker/) — MITM proxy that serializes Claude OAuth refreshes (transport: `tls-intercept`, lifecycle: `external`).
 - `host-processes` — allowlisted read-only view of host processes (transport: `unix-socket`, lifecycle: `spawned`).
 - `journal`, `cgroup-delegate` — built-in loopholes surfaced from `loopholes` in `yolo-jail.jsonc`.
 - Hypothetical future: `llm-audit` (logs every inference request), `secret-gate` (scrubs outbound traffic).
@@ -174,7 +174,7 @@ Keeps the briefing tight and prevents drift when loopholes come and go.
 ## See also
 
 - [`docs/design/loophole-protocol.md`](../design/loophole-protocol.md) — wire protocol spec.
-- [`loopholes/claude-oauth-broker/`](../loopholes/claude-oauth-broker/) — reference `tls-intercept` implementation.
+- [`bundled_loopholes/claude-oauth-broker/`](../../bundled_loopholes/claude-oauth-broker/) — reference `tls-intercept` implementation.
 - [`internal/loopholes/`](../../internal/loopholes) — loader source (`loopholes.go`'s package doc has the canonical schema).
 - [`internal/hostservice/`](../../internal/hostservice) — helper package.
 - [`internal/hostprocesses/`](../../internal/hostprocesses) — reference `unix-socket` consumer of the helper, reachable as `yolo internal daemon host-processes`.

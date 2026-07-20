@@ -1,5 +1,17 @@
 # Mac runbook — verify the Go port on real Apple hardware
 
+> ⚠️ **STALE — recommended for archival (git rm).** This runbook's method is
+> "Python is still installed; run each Go command, diff it against
+> `uv run python -m src.cli …`, bail back to Python if it misbehaves." That
+> premise is **dead**: the Python tree was wiped, so every diff step and the
+> bail-back are inoperative (the §What-to-report footer already admits this).
+> The live Mac verification gates are the other two runbooks in this directory
+> (`mac-macos-user-e2e.md` for the macos-user acceptance bar,
+> `mac-ac-container-builder.md` for the AC builder cell) plus Track M in
+> [../macos-revival-and-distribution-plan.md](../macos-revival-and-distribution-plan.md).
+> Kept only until the maintainer confirms deletion — see the ROADMAP's
+> "Runbooks" note. Do not drive a verification from this doc.
+
 **Audience:** an agent (or human) on a real Mac (Apple Silicon, macOS ≥ 14).
 **Goal:** certify the macOS-only surface of the Go `yolo` port that CANNOT be
 tested on Linux or inside a jail — so Python can eventually be deleted. Everything
@@ -197,7 +209,7 @@ and specifically:
   to file.
 
 These close the "macOS verified on real hardware" gate — now tracked as Track M
-in [../../plans/macos-revival-and-distribution-plan.md](../../plans/macos-revival-and-distribution-plan.md).
+in [../macos-revival-and-distribution-plan.md](../macos-revival-and-distribution-plan.md).
 (Python has since been deleted, so this runbook's "diff against the Python
 reference" steps are dead — use the plan/behavior assertions and the PASS
 criteria per section, not the diff mechanics.)

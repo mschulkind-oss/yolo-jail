@@ -6,6 +6,11 @@ implementing or still discussing. Reference docs (how live systems work) live in
 working docs are archived in git history (see [`doc-triage.md`](doc-triage.md)
 for the classification and `git log --follow` to recover any).
 
+> **Where to start:** [`ROADMAP.md`](ROADMAP.md) sequences every plan below into
+> one order (jail-side / host-gated / hardware-gated lanes) so "what's next?"
+> has a single answer. It's a meta-doc — the individual plans stay the source of
+> truth for their own work items.
+
 ## macOS revival + distribution
 
 | Doc | What it is | Status |
@@ -30,6 +35,19 @@ here:
 | Doc | What it is | Status |
 |---|---|---|
 | [agent-settings-composition.md](agent-settings-composition.md) | RFC for the "Prism" model — composing agent settings across host and jail layers. | **Proposed, unbuilt** — nothing implemented; its "what exists today" predates the Go port and needs re-grounding in `internal/config` + `internal/entrypoint` before execution. |
+
+## Track M verification runbooks
+
+[`runbooks/`](runbooks/) holds the Mac hardware verification procedures — they
+are the revival plan's Track M gates, not user-facing reference (they moved here
+from `docs/guides/runbooks/`). See the [ROADMAP](ROADMAP.md#runbooks) for their
+status:
+
+| Doc | What it is | Status |
+|---|---|---|
+| [runbooks/mac-macos-user-e2e.md](runbooks/mac-macos-user-e2e.md) | You-drive macos-user acceptance-bar test (the M1 anchor). | **Active** — macos-user unverified on hardware. |
+| [runbooks/mac-ac-container-builder.md](runbooks/mac-ac-container-builder.md) | Zero-sudo Apple Container builder proof; Track-M/J3-adjacent. | **Passed** (2026-07-17) — kept as the repeatable procedure. |
+| [runbooks/mac-go-port-verification.md](runbooks/mac-go-port-verification.md) | Go-vs-Python diff verification of the port. | **Stale** — recommended for `git rm` (its diff-against-Python method is dead post-wipe). |
 
 Related live tracker: [`../research/macos-support-matrix.md`](../research/macos-support-matrix.md)
 is the authoritative state-of-the-macOS-backend matrix.

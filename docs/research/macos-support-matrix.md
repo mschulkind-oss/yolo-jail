@@ -34,7 +34,7 @@ question exists only for podman/AC.
 |---|---|---|---|
 | **Cachix / prebuilt download** | any | 🔜 | THE happy path — wired, account deferred (handoff-cachix-cache.md). No build → no builder needed. |
 | **Container builder** (nix+sshd container on the runtime) | **podman** | ✅ [L] | **proven end-to-end in-jail**: image built, `ssh-ng` build ran inside container, result read back. `packages.builderImage` in flake. |
-| **Container builder** | **Apple Container** | ✅ [M] | **PROVEN on real HW 2026-07-17** (macOS 26.5 arm64, AC 0.12.3, nix 2.34.7): AC pulled the GHCR image, ran it with internal-network IP `192.168.64.2:22`, host nix `store info` → `Trusted: 1`, proof build returned `AC-CONTAINER-BUILDER-WORKS`. No `-p` needed — AC's per-container VM IP is directly reachable. **Runbook → docs/guides/runbooks/mac-ac-container-builder.md.** |
+| **Container builder** | **Apple Container** | ✅ [M] | **PROVEN on real HW 2026-07-17** (macOS 26.5 arm64, AC 0.12.3, nix 2.34.7): AC pulled the GHCR image, ran it with internal-network IP `192.168.64.2:22`, host nix `store info` → `Trusted: 1`, proof build returned `AC-CONTAINER-BUILDER-WORKS`. No `-p` needed — AC's per-container VM IP is directly reachable. **Runbook → docs/plans/runbooks/mac-ac-container-builder.md.** |
 | **QEMU `darwin.linux-builder`** | any container rt | 🔜 (roadmap/fallback) | standard nix tool; launchd daemon. Fallback if the container builder can't host on a given runtime. builder.py currently half-implements a worse version (detached Popen) — to be reworked. |
 | nix-darwin `linux-builder` | any | ⬜ | user-side; only if they already run nix-darwin. Documented, not ours to install. |
 
@@ -110,8 +110,8 @@ run); the whole "run agent in jail" row for AC under current session's fixes.
 7. QEMU `darwin.linux-builder` as the documented fallback (roadmap).
 
 ## 6. Cross-refs
-- **[runbooks/mac-ac-container-builder.md](../guides/runbooks/mac-ac-container-builder.md)** — Mac test (zero-sudo) for the gating AC-builder cell.
-- **[runbooks/mac-macos-user-e2e.md](../guides/runbooks/mac-macos-user-e2e.md)** — Mac test (you-drive) for the macos-user backend.
+- **[runbooks/mac-ac-container-builder.md](../plans/runbooks/mac-ac-container-builder.md)** — Mac test (zero-sudo) for the gating AC-builder cell.
+- **[runbooks/mac-macos-user-e2e.md](../plans/runbooks/mac-macos-user-e2e.md)** — Mac test (you-drive) for the macos-user backend.
 - [macos-container-builder-exploration.md](macos-container-builder-exploration.md) — why container-builder, image sourcing, AC risk.
 - [macos-linux-builder-explained.md](macos-linux-builder-explained.md) — the Linux-person's explainer of the whole builder question.
 - [macos-no-vm-direction.md](../design/macos-no-vm-direction.md) — the "pursue both backends" decision.
