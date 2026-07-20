@@ -1,10 +1,10 @@
-// Package checkdiag provides diagnostic helpers for the check command — the
-// nix-build-failure classifier, the dry-run "will be built" stderr parser (a
-// tri-state: build / substitutable / inconclusive), the /etc/nix
-// builders-config parser that decides whether an aarch64-linux builder is
-// reachable, the credentials-freshness duration formatter, and the
-// Linux-builder remedy template.
-package checkdiag
+// Package nixdiag provides the shared nix build-failure classifier used by both
+// the check and run slices — the nix-build-failure classifier, the dry-run
+// "will be built" stderr parser (a tri-state: build / substitutable /
+// inconclusive), the /etc/nix builders-config parser that decides whether an
+// aarch64-linux builder is reachable, the credentials-freshness duration
+// formatter, and the Linux-builder remedy template.
+package nixdiag
 
 import (
 	"regexp"

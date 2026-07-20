@@ -49,7 +49,7 @@ type AutoLoadOptions struct {
 	// failure). nil => real streaming.
 	Materialize func(storePath, cacheFile string) int64
 	// DiagnoseFailure maps a nix stderr tail to (title, remedy). nil => a plain
-	// join (the caller normally passes checkdiag.DiagnoseNixBuildFailure bound
+	// join (the caller normally passes nixdiag.DiagnoseNixBuildFailure bound
 	// with the resolved remedy).
 	DiagnoseFailure func(stderrTail []string) (title, remedy string)
 	// LoadAppleContainer converts+loads a tar into Apple Container. nil => real.

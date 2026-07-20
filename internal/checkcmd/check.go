@@ -7,11 +7,11 @@ import (
 	"strings"
 	"time"
 
-	"github.com/mschulkind-oss/yolo-jail/internal/checkdiag"
 	"github.com/mschulkind-oss/yolo-jail/internal/config"
 	"github.com/mschulkind-oss/yolo-jail/internal/image"
 	"github.com/mschulkind-oss/yolo-jail/internal/jsonx"
 	"github.com/mschulkind-oss/yolo-jail/internal/loopholes"
+	"github.com/mschulkind-oss/yolo-jail/internal/nixdiag"
 	"github.com/mschulkind-oss/yolo-jail/internal/paths"
 	"github.com/mschulkind-oss/yolo-jail/internal/storage"
 	"github.com/mschulkind-oss/yolo-jail/internal/version"
@@ -416,7 +416,7 @@ func (o *Options) sectionImageBuild(r *reporter, merged *jsonx.OrderedMap, repoR
 			} else {
 				storePath, tail := o.BuildImage(repoRoot, extraArg)
 				if storePath == "" {
-					title, note := checkdiag.DiagnoseNixBuildFailure(tail, o.IsMacOS, linuxBuilderRemedy())
+					title, note := nixdiag.DiagnoseNixBuildFailure(tail, o.IsMacOS, linuxBuilderRemedy())
 					r.fail(title, note)
 				} else {
 					r.ok("nix build succeeded: " + storePath)

@@ -7,7 +7,7 @@
 // summary (exit 0 = no failures, 1 = any fail).
 //
 // The pure diagnostic engines it leans on are already ported and byte-verified:
-// internal/checkdiag (nix-build classifier, dry-run parser, builder-config
+// internal/nixdiag (nix-build classifier, dry-run parser, builder-config
 // parser, duration formatter, self-check splitter), internal/config (load,
 // merge, validate), internal/loopholes (discovery + validation + resolver),
 // internal/storage, internal/runtime, internal/image, internal/version. This

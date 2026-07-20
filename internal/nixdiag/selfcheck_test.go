@@ -1,4 +1,4 @@
-package checkdiag
+package nixdiag
 
 import (
 	"reflect"

@@ -7,8 +7,8 @@ import (
 	"strings"
 	"time"
 
-	"github.com/mschulkind-oss/yolo-jail/internal/checkdiag"
 	"github.com/mschulkind-oss/yolo-jail/internal/jsonx"
+	"github.com/mschulkind-oss/yolo-jail/internal/nixdiag"
 	"github.com/mschulkind-oss/yolo-jail/internal/paths"
 	"github.com/mschulkind-oss/yolo-jail/internal/prune"
 )
@@ -48,12 +48,12 @@ func (o *Options) checkBrokerCredsFreshness(r *reporter) {
 
 	lastWrite := ""
 	if mtimeAgeS >= 0 {
-		lastWrite = "last write " + checkdiag.FmtDuration(mtimeAgeS) + " ago"
+		lastWrite = "last write " + nixdiag.FmtDuration(mtimeAgeS) + " ago"
 	}
 
 	switch {
 	case remainingS < 0:
-		msg := "shared creds expired " + checkdiag.FmtDuration(-remainingS) + " ago"
+		msg := "shared creds expired " + nixdiag.FmtDuration(-remainingS) + " ago"
 		if lastWrite != "" {
 			msg += " (" + lastWrite + ")"
 		}
@@ -62,7 +62,7 @@ func (o *Options) checkBrokerCredsFreshness(r *reporter) {
 				"jail to recover; check broker log at "+
 				"~/.local/share/yolo-jail/logs/host-service-claude-oauth-broker.log")
 	case remainingS < 3600:
-		msg := "shared creds expire in " + checkdiag.FmtDuration(remainingS)
+		msg := "shared creds expire in " + nixdiag.FmtDuration(remainingS)
 		if lastWrite != "" {
 			msg += " (" + lastWrite + ")"
 		}
@@ -74,7 +74,7 @@ func (o *Options) checkBrokerCredsFreshness(r *reporter) {
 		if lastWrite != "" {
 			suffix = ", " + lastWrite
 		}
-		r.ok("shared creds valid for " + checkdiag.FmtDuration(remainingS) + suffix)
+		r.ok("shared creds valid for " + nixdiag.FmtDuration(remainingS) + suffix)
 	}
 }
 

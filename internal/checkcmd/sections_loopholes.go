@@ -6,8 +6,8 @@ import (
 	"path/filepath"
 	"time"
 
-	"github.com/mschulkind-oss/yolo-jail/internal/checkdiag"
 	"github.com/mschulkind-oss/yolo-jail/internal/loopholes"
+	"github.com/mschulkind-oss/yolo-jail/internal/nixdiag"
 )
 
 // checkLoopholes ports _check_loopholes: surface loophole discovery + each
@@ -57,7 +57,7 @@ func (o *Options) checkLoopholes(r *reporter) {
 			}
 			r.warn("loophole "+lp.Name+": self-check could not run", out)
 		default:
-			problems := checkdiag.SplitSelfCheckProblems(res.Output)
+			problems := nixdiag.SplitSelfCheckProblems(res.Output)
 			if len(problems) == 0 {
 				r.fail(fmt.Sprintf("loophole %s: self-check failed (rc=%d)", lp.Name, *res.RC), "no output")
 			} else {

@@ -5,16 +5,16 @@ import (
 	"strings"
 	"time"
 
-	"github.com/mschulkind-oss/yolo-jail/internal/checkdiag"
 	"github.com/mschulkind-oss/yolo-jail/internal/jsonx"
+	"github.com/mschulkind-oss/yolo-jail/internal/nixdiag"
 	"github.com/mschulkind-oss/yolo-jail/internal/storage"
 )
 
 // nixDryRunWillBuild ports _nix_dry_run_will_build: run `nix build .#ociImage
 // --dry-run` in repoRoot and classify its stderr via
-// checkdiag.ParseDryRunWillBuild. extraPackages is JSON-encoded into
+// nixdiag.ParseDryRunWillBuild. extraPackages is JSON-encoded into
 // YOLO_EXTRA_PACKAGES for the child (the Python env["YOLO_EXTRA_PACKAGES"]).
-func (o *Options) nixDryRunWillBuild(repoRoot string, extraPackages []any) (checkdiag.WillBuild, []string) {
+func (o *Options) nixDryRunWillBuild(repoRoot string, extraPackages []any) (nixdiag.WillBuild, []string) {
 	argv := []string{
 		"nix", "--extra-experimental-features", "nix-command flakes",
 		"build", ".#ociImage", "--impure", "--dry-run",
@@ -27,9 +27,9 @@ func (o *Options) nixDryRunWillBuild(repoRoot string, extraPackages []any) (chec
 	}
 	res := o.Exec(argv, repoRoot, env, 120*time.Second)
 	if !res.Ran || res.Timeout {
-		return checkdiag.WillBuildUnknown, nil
+		return nixdiag.WillBuildUnknown, nil
 	}
-	return checkdiag.ParseDryRunWillBuild(res.RC, res.Stderr, true)
+	return nixdiag.ParseDryRunWillBuild(res.RC, res.Stderr, true)
 }
 
 // hasLinuxBuilder ports _has_linux_builder: is a usable aarch64-linux builder
@@ -40,7 +40,7 @@ func (o *Options) hasLinuxBuilder() bool {
 	if res.Ran && !res.Timeout && res.RC == 0 {
 		cfg = res.Stdout
 	}
-	return checkdiag.HasLinuxBuilderFromConfig(cfg, func(path string) ([]string, bool) {
+	return nixdiag.HasLinuxBuilderFromConfig(cfg, func(path string) ([]string, bool) {
 		data, err := os.ReadFile(path)
 		if err != nil {
 			return nil, false
@@ -56,7 +56,7 @@ func linuxBuilderRemedy() string {
 	if !ok {
 		label = ""
 	}
-	return checkdiag.LinuxBuilderRemedy(label)
+	return nixdiag.LinuxBuilderRemedy(label)
 }
 
 // preflightBuilderNeeds ports _preflight_builder_needs. Returns a tri-state:
@@ -65,11 +65,11 @@ func linuxBuilderRemedy() string {
 func (o *Options) preflightBuilderNeeds(r *reporter, repoRoot string, extraPackages []any) bool {
 	willBuild, offending := o.nixDryRunWillBuild(repoRoot, extraPackages)
 	switch willBuild {
-	case checkdiag.WillBuildUnknown:
+	case nixdiag.WillBuildUnknown:
 		r.dim("Could not check binary-cache coverage (nix dry-run " +
 			"unavailable/offline); attempting the build anyway.")
 		return true
-	case checkdiag.WillBuildNo:
+	case nixdiag.WillBuildNo:
 		r.dim("No Linux builder needed: every image path is served from " +
 			"the binary cache (nothing is built from source).")
 		return true
