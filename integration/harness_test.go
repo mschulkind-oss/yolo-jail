@@ -248,6 +248,30 @@ func jailTimeout() time.Duration {
 	return defaultJailTimeoutSeconds * time.Second
 }
 
+// childRepoRootEnv tells the spawned CLI where the yolo-jail repo is.
+//
+// The CLI needs the repo root for nix image builds, and resolves it by walking
+// UP from its working directory looking for a dir with both flake.nix and
+// go.mod. This harness deliberately defeats that walk: the binary is built into
+// an os.MkdirTemp dir and every test runs it with cmd.Dir set to a t.TempDir()
+// workspace, so the walk finds nothing and the CLI dies with "Cannot find
+// yolo-jail repo root" — which is what took out the entire Linux integration
+// job (not just the nix-building tests: `yolo check` reports it as a failed
+// check too). The Python suite never hit this because it invoked the CLI from
+// the repo.
+//
+// TestMain already knows the answer — moduleRoot() derives it from
+// runtime.Caller, independent of any cwd — so hand it to the child. A real
+// YOLO_REPO_ROOT in the environment (set inside jails and by CI) wins: it is
+// the CLI's own first-choice source and may legitimately differ from this
+// checkout, e.g. the /opt/yolo-jail bind in a nested jail.
+func childRepoRootEnv() []string {
+	if repoRoot == "" || os.Getenv("YOLO_REPO_ROOT") != "" {
+		return nil
+	}
+	return []string{"YOLO_REPO_ROOT=" + repoRoot}
+}
+
 // result is the outcome of a yolo invocation.
 type result struct {
 	rc     int
@@ -285,6 +309,7 @@ func runCommand(t *testing.T, dir string, args []string, opts ...runOption) resu
 	cmd := exec.CommandContext(ctx, yoloBin, args...)
 	cmd.Dir = dir
 	cmd.Env = append(os.Environ(), "TERM=dumb")
+	cmd.Env = append(cmd.Env, childRepoRootEnv()...)
 	var stdout, stderr bytes.Buffer
 	cmd.Stdout = &stdout
 	cmd.Stderr = &stderr
