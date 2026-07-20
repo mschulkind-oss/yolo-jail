@@ -350,7 +350,7 @@ func (e *Env) harvestCredentialsFile(link, shared string) bool {
 	// Atomic tmp+rename with 0o600 — this is the ONE sanctioned tmp+rename in
 	// the entrypoint
 	// dir is a rw DIRECTORY bind mount where rename works, unlike the file->file
-	// bind mounts fsx.WriteInPlace guards). Preserve it exactly.
+	// bind mounts WriteInPlace guards). Preserve it exactly.
 	blob := []byte(func() string { s, _ := jsonx.DumpsIndent(sharedDoc, 2); return s }())
 	tmp, err := os.CreateTemp(filepath.Dir(shared), filepath.Base(shared)+".tmp.")
 	if err != nil {

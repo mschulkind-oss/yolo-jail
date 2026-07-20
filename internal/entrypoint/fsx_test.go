@@ -1,4 +1,4 @@
-package fsx
+package entrypoint
 
 import (
 	"os"

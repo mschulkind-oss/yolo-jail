@@ -6,7 +6,6 @@ import (
 	"os"
 	"path/filepath"
 
-	"github.com/mschulkind-oss/yolo-jail/internal/fsx"
 	"github.com/mschulkind-oss/yolo-jail/internal/jsonx"
 )
 
@@ -128,7 +127,7 @@ func numFloat(v any) float64 {
 	return f
 }
 
-// writeExecutable writes content to path (truncate-in-place via fsx.WriteInPlace
+// writeExecutable writes content to path (truncate-in-place via WriteInPlace
 // to preserve inodes for bind-mounted files, per docs/design/agent-briefings.md)
 // then sets the executable bit.
 // Python's chmod ORs S_IEXEC (owner-execute, 0o100) onto the file's current
@@ -142,7 +141,7 @@ func writeExecutable(path, content string) error {
 	if err := os.MkdirAll(filepath.Dir(path), 0o755); err != nil {
 		return err
 	}
-	if err := fsx.WriteStringInPlace(path, content, 0o644); err != nil {
+	if err := WriteStringInPlace(path, content, 0o644); err != nil {
 		return err
 	}
 	// Python: path.chmod(path.stat().st_mode | stat.S_IEXEC). The current mode
@@ -159,7 +158,7 @@ func writeExecutable(path, content string) error {
 // non-executable config files whose Python writer uses plain write_text (no
 // chmod), so the file keeps the mode it had (0o644 on first create).
 func writeInPlaceString(path, content string) error {
-	return fsx.WriteStringInPlace(path, content, 0o644)
+	return WriteStringInPlace(path, content, 0o644)
 }
 
 // pyStr renders a decoded JSON scalar the way Python's str() would inside an
@@ -191,7 +190,7 @@ func writeBytesMode(path string, data []byte, mode os.FileMode) error {
 	if err := os.MkdirAll(filepath.Dir(path), 0o755); err != nil {
 		return err
 	}
-	if err := fsx.WriteInPlace(path, data, mode); err != nil {
+	if err := WriteInPlace(path, data, mode); err != nil {
 		return err
 	}
 	return os.Chmod(path, mode)

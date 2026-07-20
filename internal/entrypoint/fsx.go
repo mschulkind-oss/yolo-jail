@@ -1,6 +1,6 @@
-// Package fsx codifies the filesystem incident history from the Python code in
-// Go, so idiomatic-Go habits (tmp+rename onto bind mounts, rmtree of mount
-// anchors) can't reintroduce documented breakages (§3 internal/fsx).
+// Filesystem incident history from the Python code codified in Go, so
+// idiomatic-Go habits (tmp+rename onto bind mounts, rmtree of mount
+// anchors) can't reintroduce documented breakages.
 //
 // The load-bearing rules:
 //
@@ -21,7 +21,7 @@
 //
 // Source of truth: docs/design/agent-briefings.md + the storage/prune incident
 // history in src/.
-package fsx
+package entrypoint
 
 import (
 	"os"
