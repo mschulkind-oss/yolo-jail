@@ -38,6 +38,12 @@ func Main(argv []string) int {
 	verbose := fs.Bool("verbose", false, "verbose logging")
 	verboseShort := fs.Bool("v", false, "verbose logging")
 	if err := fs.Parse(argv); err != nil {
+		// -h/--help is not a usage error: the old standalone binary (and the
+		// ExitOnError sibling daemons) exit 0 on it. ContinueOnError surfaces it
+		// as flag.ErrHelp, so map that to a clean exit for parity.
+		if err == flag.ErrHelp {
+			return 0
+		}
 		return 2
 	}
 
