@@ -190,16 +190,29 @@ func (o *Options) inJail() bool {
 	return o.Getenv("YOLO_VERSION") != ""
 }
 
-// pythonMachine returns platform.machine()'s spelling (x86_64 / aarch64), not
-// Go's amd64/arm64.
+// pythonMachine returns platform.machine()'s spelling for the running platform,
+// NOT Go's amd64/arm64.
 func pythonMachine() string {
-	switch runtime.GOARCH {
+	return machineForPlatform(runtime.GOOS, runtime.GOARCH)
+}
+
+// machineForPlatform maps Go's GOARCH to Python's platform.machine() spelling
+// for the given GOOS. Pure so every OS/arch combo is unit-testable, not just the
+// host's: amd64→x86_64 everywhere; arm64→aarch64 ONLY off macOS — on macOS/Apple
+// Silicon platform.machine() is "arm64" (audit 2026-07-18 §C: the unconditional
+// arm64→aarch64 map reported "aarch64" on darwin, diverging from the run banner).
+// Mirrors internal/cli/run.platformMachine. Any other GOARCH passes through.
+func machineForPlatform(goos, goarch string) string {
+	switch goarch {
 	case "amd64":
 		return "x86_64"
 	case "arm64":
-		return "aarch64"
+		if goos != "darwin" {
+			return "aarch64" // Linux uname; macOS keeps arm64
+		}
+		return "arm64"
 	default:
-		return runtime.GOARCH
+		return goarch
 	}
 }
 
