@@ -1,8 +1,9 @@
 # Loophole wire protocol — v1
 
 This is the framed-socket protocol spoken between a jail-side client
-and a host-side loophole daemon that uses the `src/host_service.py`
-helper library (transport: `unix-socket`, lifecycle: `spawned`).
+and a host-side loophole daemon that uses the `internal/hostservice`
+helper package (transport: `unix-socket`, lifecycle: `spawned`).
+The frame codec itself lives in `internal/frameproto`.
 
 External loophole authors can rely on this spec: breaking changes
 will bump `PROTOCOL_VERSION` and ship a transition window.

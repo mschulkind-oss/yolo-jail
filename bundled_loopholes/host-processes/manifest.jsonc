@@ -1,6 +1,6 @@
 // Bundled yolo-jail loophole — allowlisted read-only view of host
-// processes.  See src/host_processes.py for the daemon and
-// src/yolo_ps.py for the jail-side CLI wrapper.
+// processes.  See internal/hostprocesses for the daemon and
+// cmd/yolo-ps for the jail-side CLI wrapper.
 {
   "name": "host-processes",
   "description": "Allowlisted view of host processes (yolo-ps). Workspace controls visibility via the top-level host_processes.visible list in yolo-jail.jsonc.",

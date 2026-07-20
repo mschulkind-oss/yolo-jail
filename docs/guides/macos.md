@@ -515,7 +515,7 @@ does not resolve the `/tmp` symlink itself. YOLO Jail automatically calls
 Podman Machine cannot bind-mount Unix socket *files* directly — Podman returns
 `Error: statfs ...: operation not supported` or `EOPNOTSUPP`. YOLO Jail works
 around this by running a per-jail broker relay: a supervised standalone host
-process (`src/broker_relay.py`, used on macOS *and* Linux) that listens on a
+process (`internal/brokerrelay`, used on macOS *and* Linux) that listens on a
 relay socket created *inside* the already-mounted `/run/yolo-services/`
 directory — visible to Podman through the virtiofs directory mount — and dials
 the broker singleton per connection. The relay is **not** a thread inside

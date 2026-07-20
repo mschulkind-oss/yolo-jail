@@ -59,13 +59,20 @@ The `loopholes` block is the workspace-scoped entry point. Each entry is treated
 "loopholes": {
   "host-processes": {
     "description": "Allowlisted view of host processes",
-    "command": ["yolo-host-processes", "--socket", "$SOCKET"],
-    "doctor_cmd": ["yolo-host-processes", "--self-check"]
+    "command": ["yolo", "internal", "daemon", "host-processes", "--socket", "$SOCKET"],
+    "doctor_cmd": ["yolo", "internal", "daemon", "host-processes", "--self-check"]
   }
 }
 ```
 
-Writing the daemon: use the [`src.host_service`](../src/host_service.py) helper library (see below).
+That's the real shipping shape — compare
+[`bundled_loopholes/host-processes/manifest.jsonc`](../../bundled_loopholes/host-processes/manifest.jsonc).
+The bundled daemons live behind `yolo internal daemon <name>` rather than
+separate binaries, because the host ship set is deliberately just `yolo`.
+Third-party daemons are any executable on the host's PATH.
+
+Writing the daemon: use the [`internal/hostservice`](../../internal/hostservice)
+helper package (see below).
 
 ## CLI
 
@@ -77,42 +84,65 @@ yolo loopholes disable <name>    # flip `enabled` → false
 yolo doctor                      # includes loophole self-checks in the combined report
 ```
 
-## The `host_service` helper library
+## The `hostservice` helper package
 
-Writing a `unix-socket`/`spawned` loophole used to mean reimplementing the frame protocol, signal handling, the bind/umask dance, per-connection threading, and structured logging. The library takes that off your plate. The whole API is `serve(handler)` + `Session`:
+Writing a `unix-socket`/`spawned` loophole used to mean reimplementing the frame protocol, signal handling, the bind/umask dance, per-connection concurrency, and structured logging. The package takes that off your plate. The whole API is `hostservice.Serve` + `hostservice.Session`:
 
-```python
-from src.host_service import serve, Session
+```go
+package main
 
-ALLOWED_COMMS = {"layout-manager", "sway"}
+import (
+    "os"
+    "time"
 
-def handle(session: Session) -> None:
-    comm = session.request.get("comm")
-    if comm not in ALLOWED_COMMS:
-        session.stderr(f"comm {comm!r} not allowlisted\n")
-        session.exit(2)
+    "github.com/mschulkind-oss/yolo-jail/internal/hostservice"
+    "github.com/mschulkind-oss/yolo-jail/internal/jsonx"
+)
+
+var allowedComms = map[string]struct{}{
+    "layout-manager": {},
+    "sway":           {},
+}
+
+func reqComm(req *jsonx.OrderedMap) string {
+    v, _ := req.Get("comm")
+    s, _ := v.(string)
+    return s
+}
+
+func handle(s *hostservice.Session) {
+    if _, ok := allowedComms[reqComm(s.Request)]; !ok {
+        s.Stderr("comm not allowlisted\n")
+        s.Exit(2)
         return
-    session.exec_allowlisted(
-        lambda req: ["ps", "-o", "pid,comm,args", "-C", req["comm"]],
-        allowlist=ALLOWED_COMMS,
+    }
+    s.ExecAllowlisted(
+        func(req *jsonx.OrderedMap) []string {
+            return []string{"ps", "-o", "pid,comm,args", "-C", reqComm(req)}
+        },
+        allowedComms,
+        nil,            // default: validate every argv element after argv[0]
+        30*time.Second, // child timeout
     )
+}
 
-if __name__ == "__main__":
-    import sys
-    from pathlib import Path
-    serve(handle, socket_path=Path(sys.argv[1]))
+func main() {
+    if err := hostservice.Serve(handle, os.Args[1], nil); err != nil {
+        os.Exit(1)
+    }
+}
 ```
 
-The library takes care of:
+The package takes care of:
 
 - **Frame protocol v1** — see [`docs/design/loophole-protocol.md`](../design/loophole-protocol.md).
 - **Access logging** — one structured line per request (jail id, request keys, elapsed, bytes out). No opt-in.
-- **Command-injection guard** — `Session.exec_allowlisted(argv_builder, allowlist=…)` validates argv strings against a server-owned allowlist before invoking the subprocess. Daemons that skip this and shell out manually are on their own; the helper makes the safe path the short path.
-- **JSON output convenience** — `session.json(obj)` emits one newline-terminated JSON line on stdout. Agents parse JSON; humans can use `--table` on the client side.
+- **Command-injection guard** — `Session.ExecAllowlisted(argvBuilder, allowlist, positions, timeout)` validates argv strings against a server-owned allowlist before invoking the subprocess. `positions == nil` checks everything after `argv[0]`; pass an explicit index set to validate `argv[0]` too. Daemons that skip this and shell out manually are on their own; the helper makes the safe path the short path.
+- **JSON output convenience** — `Session.JSON(obj)` emits one newline-terminated JSON line on stdout. Agents parse JSON; humans can use `--table` on the client side.
 - **Signal-safe teardown** — SIGTERM / SIGINT shut down the accept loop cleanly, the socket is removed on exit.
-- **Thread-per-connection** — cheap, stdlib-only.
+- **Goroutine-per-connection** — cheap, stdlib-only.
 
-External projects that want the library add `yolo-jail` to their deps and import `from src.host_service import serve`.
+The package is `internal/`, so it isn't importable from outside the module. External daemons in any language can still speak the protocol directly — it's a frozen, fully specified wire format ([`loophole-protocol.md`](../design/loophole-protocol.md)), and `internal/frameproto` is the reference codec.
 
 ## Example: adding a minimal smoke-test loophole
 
@@ -145,8 +175,9 @@ Keeps the briefing tight and prevents drift when loopholes come and go.
 
 - [`docs/design/loophole-protocol.md`](../design/loophole-protocol.md) — wire protocol spec.
 - [`loopholes/claude-oauth-broker/`](../loopholes/claude-oauth-broker/) — reference `tls-intercept` implementation.
-- [`src/loopholes.py`](../src/loopholes.py) — loader source (docstring has the canonical schema).
-- [`src/host_service.py`](../src/host_service.py) — helper library.
-- [`src/host_processes.py`](../src/host_processes.py) — reference `unix-socket` consumer of the library.
+- [`internal/loopholes/`](../../internal/loopholes) — loader source (`loopholes.go`'s package doc has the canonical schema).
+- [`internal/hostservice/`](../../internal/hostservice) — helper package.
+- [`internal/hostprocesses/`](../../internal/hostprocesses) — reference `unix-socket` consumer of the helper, reachable as `yolo internal daemon host-processes`.
+- [`internal/frameproto/`](../../internal/frameproto) — reference codec for the wire format.
 - [`docs/plans/claude-oauth-mitm-proxy-plan.md`](../plans/claude-oauth-mitm-proxy-plan.md) — design notes that shaped this architecture.
 - [`docs/research/claude-token-logouts.md`](../research/claude-token-logouts.md) — operational triage for Claude logouts; the broker loophole is Step 3's fix.

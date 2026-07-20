@@ -1,5 +1,5 @@
-// Bundled yolo-jail loophole — ships with the wheel.
-// See src/loopholes.py for the schema.  Generated CA + leaf state live
+// Bundled yolo-jail loophole — embedded in the yolo binary.
+// See internal/loopholes for the schema.  Generated CA + leaf state live
 // under ~/.local/share/yolo-jail/state/claude-oauth-broker/ (writable);
 // this manifest is in the read-only package dir.
 {
