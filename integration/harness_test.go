@@ -414,8 +414,6 @@ func skipIfInContainer(t *testing.T) {
 // while each step lands as its own green commit; this sink shrinks and is
 // removed as the ported tests arrive.
 var _ = []any{
-	runYolo, runYoloDirect, runYoloCLI,
-	tempProject, writeProject,
-	requireJail, skipIfCgroupReadonly, skipIfInContainer,
-	withTimeout, result.combined,
+	skipIfCgroupReadonly, skipIfInContainer,
+	withTimeout,
 }
