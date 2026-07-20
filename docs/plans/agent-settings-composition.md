@@ -106,7 +106,7 @@ destination by a **projection**.
 |---|---|---|
 | `defaults` | manifest data | yolo builtin, user-overridable (the honest home for Gemini's `setdefault` tier) |
 | `host` | staged host files, parsed fresh each boot | the user's host config |
-| `user` | `yolo-jail.jsonc` → `agent_config.<agent>.settings` | jail-only config the user declares |
+| `workspace` | `yolo-jail.jsonc` → `agent_config.<agent>.settings` | jail-only config declared in the workspace (committable, travels with the repo) |
 | `runtime` | harvested overlay sidecar | what the agent changed at runtime |
 | `managed` | manifest data | yolo's security-boundary keys — always win |
 
@@ -145,8 +145,8 @@ That is the whole redaction primitive. Deliberately **not** RFC 6902 JSON-patch 
 cover every observed need and port trivially.
 
 **Directionality is just where a value lives in the model:** host-only = present in the host
-source, filtered out of the jail projection. Jail-only = the `user` layer. Transformed-per-side
-= a `set` filter. There is no separate mechanism to build.
+source, filtered out of the jail projection. Jail-only = the `workspace` layer.
+Transformed-per-side = a `set` filter. There is no separate mechanism to build.
 
 **Correction adopted from the review:** filters apply **host-side, at staging time**, by
 default — not only at in-jail render. Otherwise the redacted value sits readable in the `:ro`
@@ -179,9 +179,20 @@ home? The unifying idea:
 | `defaults` | global | manifest data (code / image) | every jail |
 | `managed` | global | manifest data (code / image) | every jail |
 | `host` | per-host | host filesystem (`~/.claude`, `~/.pi/agent`), `:ro` mounted | every jail on this host |
-| `user` | per-workspace | `yolo-jail.jsonc` → `agent_config.<agent>` (git-committable) | that workspace (travels with the repo) |
+| `workspace` | per-workspace | `yolo-jail.jsonc` → `agent_config.<agent>` (git-committable) | that workspace (travels with the repo) |
 | `runtime` overlay | per-workspace identity | sidecar keyed on `sha256(host workspace dir)` | that workspace's jails, across restarts |
-| **render output** | per-boot | the agent's actual file in jail home | nobody — ephemeral, rebuilt each boot |
+| **render output** | per-boot *content* | the agent's actual file in jail home (see below for where that physically lives) | authoritative for nobody — rebuilt from sources each boot |
+
+A physical clarification, because "jail home" is not one thing: `/home/agent` is the **shared
+host-backed home** (`~/.local/share/yolo-jail/home`, bind-mounted into every jail), with
+**per-workspace overlay mounts** on top for specific files (e.g. Claude's `settings.json`
+comes from `<workspace>/.yolo/home/claude-settings.json`). "Per-boot" in the table describes
+the *content lifecycle* — the render is rebuilt from sources on every boot, so nothing may
+treat the file as a source of truth — not physical isolation. That forces one implementation
+requirement: **a rendered file must land on a per-workspace path** (an existing overlay
+mount, or a workspace-project file like `.claude/settings.json`) — otherwise two workspaces'
+renders would fight in the shared home. Claude's targets already satisfy this; Pi's
+`~/.pi/agent/settings.json` needs a per-workspace overlay mount added, same as Claude's.
 
 That yields a clean, VS-Code-shaped contract the user can reason about without knowing the
 internals:
@@ -205,11 +216,11 @@ jail edits). Each boot/attach:
 ```
 delta   = mergeDiff(last_render, current_file)     # current = last_render + your /settings edits
 overlay = deepMerge(overlay, delta)                # accumulate (deletes recorded as null tombstones)
-render  = layers(defaults, host, user, overlay, managed)   # overlay is a LAYER, below managed
+render  = layers(defaults, host, workspace, overlay, managed)   # overlay is a LAYER, below managed
 write(render); last_render = render
 ```
 So your `/settings` change is captured on the next regeneration and re-applied on every one
-after. Three details make or break it: **precedence** (overlay sits above host/user so your
+after. Three details make or break it: **precedence** (overlay sits above host/workspace so your
 edit wins — but an entry auto-retires when the host value converges to yours, plus a
 `yolo config overlay --reset <agent>` escape hatch); **deletions** (recorded as `null`
 tombstones so the rebuild does not resurrect a key you removed — the exact bug today's merge
@@ -317,7 +328,7 @@ jail home as the rendered leaf:
 ```
 GLOBAL (every jail)          defaults + managed  (code)         ┐
 PER-HOST (every jail here)   host source ~/.claude, ~/.pi/agent ┤  deep-merge by precedence
-PER-WORKSPACE                user (yolo-jail.jsonc)             ┤  → project(host | jail, filters)
+PER-WORKSPACE                workspace (yolo-jail.jsonc)        ┤  → project(host | jail, filters)
 PER-WORKSPACE                runtime overlay                    ┘  → RENDER
                                                                      ↓
 PERSISTED (mounted/symlinked, NOT part of the render):               jail home  [rendered + reflected]
@@ -325,7 +336,7 @@ PERSISTED (mounted/symlinked, NOT part of the render):               jail home  
 ```
 
 So the sharing story is explicit and sensible: **host + defaults + managed + shared
-credentials are one truth across all jails; `user` + overlay + history are per-workspace;
+credentials are one truth across all jails; `workspace` + overlay + history are per-workspace;
 the rendered files are per-boot.** Nothing per-jail is invented that a scope does not already
 explain.
 
@@ -443,7 +454,9 @@ Even if we don't adopt Prism wholesale, these stand on their own (ranked by leve
 
 - **surface** — one config destination yolo manages: a structured file or a file tree.
 - **layer** — one named, ordered source for a structured surface (the *precedence* coordinate):
-  `defaults < host < user < runtime < managed`.
+  `defaults < host < workspace < runtime < managed`. (The workspace layer was previously
+  drafted as "user" — renamed because it is per-workspace config, and "user" collides with
+  Claude's own user-scope terminology in §5.2.)
 - **scope** — the *storage* coordinate: where a layer/file lives and who shares it — `global`
   (all jails), `per-host` (host source, all jails here), `per-workspace` (`yolo-jail.jsonc` +
   overlay + history), `per-boot` (the ephemeral render). Every piece of config = one layer ×
