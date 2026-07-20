@@ -554,6 +554,77 @@ a genuine transform appears that the vocabulary can't name (option 2). Jumping
 straight to a Turing-complete config trades a memorization problem for an
 `explain`/safety-diff regression and a whole new language in the surface.
 
+## 6.2 `yolo config render` — run the config engine WITHOUT a jail
+
+**Requirement (load-bearing).** Whatever we land on — the overlay capture-diff
+(§5.2 A), the data filters (§6.1 option 1), or a Lua transform hook (§6.1 option
+2) — the render is *executed*, not static. So there **must** be a command that
+runs the whole engine offline, prints what it would produce, and never touches a
+container. Without it, the only way to see what your config does is to boot a
+jail and poke at `/home/agent` — a 30-second-plus loop that an agent iterating on
+a config can't use, and that can't run in a unit test or a `--dry-run` check.
+This is the developer-facing counterpart to the internal engine (§4's five pure
+functions) and it's *cheap*, because that engine is already pure and jail-free by
+construction — the render is a fold over layers on the host side.
+
+### Surface
+
+```bash
+# Render every managed surface for one agent, to stdout — no container, no writes.
+yolo config render <agent> [--workspace DIR]
+
+# Just one surface / one file.
+yolo config render claude --surface settings        # → the settings.json it WOULD write
+yolo config render pi     --surface tree             # → the staged file list + contents
+
+# Show the layer stack and who won each key (idea 10's `explain`, same engine).
+yolo config render claude --explain [KEYPATH]
+#   permissions.allow      ← managed (forced)
+#   model                  ← runtime overlay (your /settings edit, 2026-07-19)
+#   theme                  ← host (~/.claude/settings.json)
+#   extensions             ← workspace, then filter dropItems '*permission-gate*' removed 1
+
+# Feed it hypotheticals without editing your real files — the fixture path.
+yolo config render pi --host FILE --workspace FILE --overlay FILE --format json
+```
+
+Contract:
+
+- **Read-only, jail-free, side-effect-free.** It runs staging + merge + filters +
+  render **in a temp dir** (or purely in memory), prints, and exits. It never
+  starts a runtime, never writes `~/.claude`, never mutates the overlay. Safe to
+  run in a loop, in CI, in a pre-commit hook.
+- **Same engine as the real boot.** It calls the exact `render(layers)` /
+  `applyFilters` / `syncTree` the entrypoint calls — not a reimplementation — so
+  "what render prints" *is* "what the jail gets." (This is why the engine being
+  pure, §4, matters: the offline runner is nearly free.)
+- **Injectable inputs** for hypotheticals (`--host`/`--workspace`/`--overlay`
+  file overrides) so you can test a config change against fixed inputs without
+  editing your real host files. These same inputs are the golden-fixture vectors
+  (idea 9) — the debug command and the test harness are the *same code path*.
+- **`--explain`** surfaces the provenance sidecar (idea 10): which layer or
+  filter won each leaf, including *negative* provenance (host keys a filter
+  dropped). This is the "why did my host key vanish in the jail?" answer.
+
+### Why this pays for itself
+
+- **Config iteration without a jail.** An agent (or a human) editing
+  `agent_config` runs `yolo config render <agent> --explain`, sees the effect
+  instantly, adjusts, repeats — no container churn.
+- **It's the Lua safety story (§6.1).** The strongest argument *against* Lua was
+  that you can't diff "what a script does" for the config-change safety prompt.
+  `render` resolves that: diff the **output** of `render` before vs. after — that
+  works identically whether the transform is data or Lua, and it's what the
+  change-safety prompt should show.
+- **It's the test harness.** `yolo config render --format json` over the fixture
+  vectors *is* idea 9's corpus runner. One command backs dev, CI, and `--explain`.
+- **`yolo check` integration.** `check` can call the same render in-process to
+  validate a config produces a well-formed result before you ever launch.
+
+Naming note: `render` (produces the artifact) reads better than `explain`
+(idea 10 is then the `--explain` *flag* on it) or `dry-run` (overloaded with the
+run-path `--dry-run`). Pick one verb and make `--explain`/`--format` modes of it.
+
 ## 7. Idea catalog — primitives worth stealing regardless of the model
 
 Even if we don't adopt Prism wholesale, these stand on their own (ranked by leverage):
@@ -593,9 +664,12 @@ Even if we don't adopt Prism wholesale, these stand on their own (ranked by leve
    of byte-matching bespoke Python with `OrderedMap`/`pyEqual` scaffolding, both languages
    implement the same spec against the same vectors. It is the direct antidote to the
    `host_pi_files` / untested-Go-pi-merge drift class.
-10. **Provenance sidecar → `yolo config explain <agent> [keypath]`.** Free once render is a
-    fold over named layers. Answers "why is this key set?" and "where did my host key go?"
-    (*dropped by filter X*) — turning today's archaeology into a command.
+10. **Provenance sidecar → `yolo config render <agent> --explain [keypath]`.** Free once render
+    is a fold over named layers. Answers "why is this key set?" and "where did my host key go?"
+    (*dropped by filter X*) — turning today's archaeology into a command. This is the
+    `--explain` mode of the offline **`yolo config render`** command (§6.2), the jail-free
+    runner for whatever execution model we adopt — the same code path backs dev iteration, CI
+    fixtures (idea 9), and the config-change safety diff.
 11. **Per-agent file manifest** classifying every file as `rendered | reflected(mirror|seed) |
     runtime-state`. Gives one nameable home to today's ad-hoc mechanisms (credentials symlink,
     `auth.json` hands-off, blind `copy2` mirrors, seed-once configs).
@@ -721,6 +795,11 @@ move to project-scope `.mcp.json` to stop co-writing it.
 - **Migration seeding accuracy:** the old snapshot tracked only one level, so seeded overlays
   may misclassify deep divergence as jail-local edits (frozen until reset). Offer a one-time
   `yolo config overlay --reset` per agent as the escape hatch.
+- **`yolo config render` in the safety prompt:** the offline runner (§6.2) is what lets the
+  config-change confirmation diff the *rendered output* rather than the config text — the
+  mechanism that makes an execution-based model (Lua, or even the data filters) safe to prompt
+  on. Confirm the change-safety prompt should key off `render` output diffs, and whether it
+  runs pre- or post-transform-execution.
 
 ---
 
