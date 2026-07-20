@@ -12,14 +12,13 @@ import (
 	"github.com/mschulkind-oss/yolo-jail/internal/broker"
 	"github.com/mschulkind-oss/yolo-jail/internal/builder"
 	"github.com/mschulkind-oss/yolo-jail/internal/checkcmd"
+	"github.com/mschulkind-oss/yolo-jail/internal/cli/run"
 	"github.com/mschulkind-oss/yolo-jail/internal/darwinpkg"
-	"github.com/mschulkind-oss/yolo-jail/internal/frontdoor"
 	"github.com/mschulkind-oss/yolo-jail/internal/jsonx"
 	"github.com/mschulkind-oss/yolo-jail/internal/loopholes"
 	"github.com/mschulkind-oss/yolo-jail/internal/macosuser"
 	"github.com/mschulkind-oss/yolo-jail/internal/paths"
 	"github.com/mschulkind-oss/yolo-jail/internal/prune"
-	"github.com/mschulkind-oss/yolo-jail/internal/runcmd"
 	"github.com/mschulkind-oss/yolo-jail/internal/runtime"
 )
 
@@ -259,7 +258,7 @@ func psRunCmd(argv []string) (string, bool) {
 // token wherever it appears, parse flags until `--`, and take everything after
 // `--` as the command (ctx.args).
 func runRun(args []string) int {
-	opts := runcmd.NewDefaultOptions()
+	opts := run.NewDefaultOptions()
 	opts.Color = true
 	afterDashDash := false
 	sawRun := false
@@ -296,25 +295,25 @@ func runRun(args []string) int {
 		}
 	}
 	opts.Args = cmdArgs
-	// Wire the macos-user native branch. runcmd stays free of the macosuser +
+	// Wire the macos-user native branch. run stays free of the macosuser +
 	// darwinpkg deps; the front door injects the handler.
 	opts.MacosUserRun = macosUserRun
 	// Set the tmux/kitty jail indicator around the run, restoring on exit.
-	restore := frontdoor.SetupJailIndicator()
+	restore := SetupJailIndicator()
 	if restore != nil {
 		defer restore()
 	}
-	return runcmd.Run(opts)
+	return run.Run(opts)
 }
 
-// macosUserRun is the runcmd.Options.MacosUserRun seam impl: it assembles the
+// macosUserRun is the run.Options.MacosUserRun seam impl: it assembles the
 // real macosuser deps (TTY proxy + native darwin nix materialize) and runs the
 // Seatbelt-sandboxed launch. repoRoot is the yolo-jail repo root; RepoSrc is
 // repoRoot/src (Python passes repo_src=repo_root/"src"). macos-hardware-gated;
 // on Linux macosuser fails closed at its IsMacOS precondition (dry-run works
 // anywhere).
 func macosUserRun(cfg *jsonx.OrderedMap, workspace string, agents, agentArgv []string, repoRoot string, dryRun bool) int {
-	runProxy := runcmd.RunWithProxy
+	runProxy := run.RunWithProxy
 	materialize := func(nixRoot string, packages []any) (*macosuser.Darwin, bool, error) {
 		pkgs, err := darwinpkg.Materialize(nixRoot, packages, "", os.Stderr)
 		if err != nil {

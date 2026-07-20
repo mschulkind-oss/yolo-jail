@@ -470,7 +470,7 @@ func realProbeExec(argv []string, timeout time.Duration) ProbeResult {
 // briefly poll, SIGKILL a straggler, then remove the PID file. Best-effort —
 // every step tolerates a missing/dead target. The recycled-PID identity guard
 // and pgrep fallback of Python's _relay_kill are omitted here (the same
-// simplification internal/runcmd.relayKill documents): the mtime grace floor +
+// simplification internal/cli/run.relayKill documents): the mtime grace floor +
 // no-live-hash filter in ReapRelayOrphans make a genuine orphan the overwhelming
 // case, and the tri-state liveness probe bounds a misfire. This path is only
 // reached under --apply for a relay whose hash matches no live jail.

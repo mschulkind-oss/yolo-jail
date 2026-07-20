@@ -14,7 +14,7 @@ import (
 
 // runInternal dispatches the hidden `yolo internal <cmd>` family — debugging
 // tooling and the in-process host-daemon entry points. This group is
-// deliberately kept OUT of frontdoor.Subcommands (the documented CLI surface)
+// deliberately kept OUT of the dispatch registry (the documented CLI surface)
 // and intercepted before RewriteArgv, so it never participates in `--`->run
 // rewrite semantics.
 func runInternal(args []string) int {

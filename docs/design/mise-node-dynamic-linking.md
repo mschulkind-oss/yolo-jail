@@ -174,7 +174,7 @@ direction A to stop the whack-a-mole, and leave B for later.
 - Lib farm + interpreter symlinks: `flake.nix:360-399` (symlink libstdc++ etc.
   into `/lib`, `/usr/lib`; link nix `ld.so` at `/lib64`).
 - `LD_LIBRARY_PATH` baked in image env: `flake.nix:718`; re-exported on the
-  container `-e`: `src/cli/run_cmd.py:1937` / `internal/runcmd/assemble.go:381`.
+  container `-e`: `src/cli/run_cmd.py:1937` / `internal/cli/run/assemble.go:381`.
 - The "documented limitation" comment: `flake.nix:489-499`.
 - Inert FHS cache generator: `generate_ld_cache` in `src/entrypoint/system.py`
   (writes `/run/ld.so.cache`, which the nix loader never reads).

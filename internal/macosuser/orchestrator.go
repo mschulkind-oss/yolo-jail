@@ -337,7 +337,7 @@ func errStr(err error) string {
 
 // RealDeps returns Deps backed by real subprocesses / filesystem, mirroring the
 // pscmd RealDeps constructor. runProxy is the TTY-proxy launcher the front door
-// supplies (internal/runcmd's runWithProxy is Linux/macOS-specific);
+// supplies (internal/cli/run's runWithProxy is Linux/macOS-specific);
 // materialize wires internal/darwinpkg's streaming nix build. Both are passed
 // in so this package needs no build-tagged syscall dependencies.
 func RealDeps(runProxy func(argv []string) int, materialize func(repoRoot string, packages []any) (*Darwin, bool, error)) Deps {
