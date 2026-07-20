@@ -1,10 +1,29 @@
-# Why `yolo` Needs the Source Tree — and the Homebrew / uvx Distribution Story
+# Why `yolo` Needs the Source Tree — and How Installs Get It
+
+> **Status: FIXED (2026-07-20).** This doc originally described a regression from
+> the Python→Go port. That regression is now resolved by **D1** (`just deploy`
+> records the checkout path) and **D3** (a source bundle ships beside the
+> binary). The sections below describe **how it works today**; the "Historical:
+> the regression" callouts preserve why it was broken and how the Python wheel
+> did it, since that context still explains the design. Plan:
+> `docs/plans/macos-revival-and-distribution-plan.md` (Track D).
 
 **TL;DR** — `yolo` builds the jail's container image from the repo's own source
-(`nix build .#ociImage`) on first run. So every `yolo -- <cmd>` invocation must
-first locate a yolo-jail **source checkout**. An installed-only binary (Homebrew,
-`go install`, PyPI wheel) ships no source, so unless it's launched from inside a
-checkout it fails with:
+(`nix build .#ociImage`) on first run, so every `yolo -- <cmd>` invocation must
+first locate a yolo-jail **source tree**. Three ways it finds one now:
+
+1. **From a checkout** — running anywhere inside a `git clone` (the cwd walk
+   finds `flake.nix`+`go.mod`).
+2. **From `repo_path`** — `just deploy` writes the checkout path into
+   `~/.config/yolo-jail/config.jsonc`, so an installed-from-source `yolo` works
+   from *any* directory.
+3. **From a shipped bundle** — Homebrew and the GitHub release archive now carry
+   a `share/yolo-jail/` source bundle beside the binary; `yolo` stages it into
+   `~/.local/share/yolo-jail/nix-build-root` and builds from there. **No checkout
+   required.**
+
+Only if all three miss (an installed binary, no `repo_path`, no bundle) do you
+get the actionable error:
 
 ```
 Cannot find yolo-jail repo root.
@@ -14,13 +33,11 @@ Fix: add repo_path to ~/.config/yolo-jail/config.jsonc:
   { "repo_path": "~/code/yolo-jail" }
 ```
 
-This is a **regression introduced by the Python→Go port**. The old Python wheel
-bundled the source *inside itself*, so an installed `yolo` was self-contained for
-repo-root resolution. The Go binary can't carry package data the same way, and no
-replacement was wired up — so the "installed binary works from anywhere" property
-was silently lost. This doc explains the mechanism, the Python-vs-Go difference,
-every distribution channel, and what it would take to make Homebrew work
-standalone.
+> **Historical: the regression.** The old Python wheel bundled the source
+> *inside itself*, so an installed `yolo` was self-contained. The Go binary
+> can't carry setuptools package-data, and for a while nothing replaced it — so
+> the "installed binary works from anywhere" property was silently lost. D1+D3
+> restored it (D3 is the direct Go analog of the wheel bundling).
 
 ---
 
@@ -74,16 +91,16 @@ Two secondary consumers of `repoRoot`, for completeness:
 
 ---
 
-## 2. How the repo root is resolved (and which steps are dead)
+## 2. How the repo root is resolved
 
 `resolveRepoRoot` (`internal/cli/run/probes.go:27`) tries five things in order:
 
 | # | Step | Code | Works for an *installed-only* binary? |
 |---|------|------|----------------------------------------|
-| 1 | `YOLO_REPO_ROOT` env, if it contains `flake.nix` **or** `go.mod` | `probes.go:28-34` | No — only set inside jails / CI |
-| 2 | Walk up from cwd for a dir with **both** `flake.nix` **and** `go.mod` | `probes.go:39-51` | Only if you happen to `cd` into a checkout |
-| 3 | Bundled source next to the binary (`../share/yolo-jail`, then exe dir) | `probes.go:57-61, 94-112` | **Never — permanently dead** (see below) |
-| 4 | `repo_path` from `~/.config/yolo-jail/config.jsonc` (if dir has `flake.nix`) | `probes.go:63-76` | **Yes — the only functional path** |
+| 1 | `YOLO_REPO_ROOT` env, if it contains `flake.nix` **or** `go.mod` | `probes.go:28-34` | Only inside jails / CI (where it's set) |
+| 2 | Walk up from cwd for a dir with **both** `flake.nix` **and** `go.mod` | `probes.go:39-51` | Only when `cd`'d into a checkout |
+| 3 | **Bundled source** next to the binary → stage into `nix-build-root` | `probes.go:57-61, 94-135` | **Yes — Homebrew / release archive (D3)** |
+| 4 | `repo_path` from `~/.config/yolo-jail/config.jsonc` (if dir has `flake.nix`) | `probes.go:63-76` | **Yes — install-from-source, via `just deploy` (D1)** |
 | 5 | Print the error and exit 1 | `probes.go:78-86` | — |
 
 Notes on the guards, which are deliberate:
@@ -96,18 +113,27 @@ Notes on the guards, which are deliberate:
   (`probes.go:37-38`).
 - **Step 4** requires only `flake.nix` (not `go.mod`).
 
-**Step 3 is the ghost of the Python wheel.** `bundledSourceDir` looks for a
-`flake.nix` at `<exe>/../share/yolo-jail/` or beside the executable. In the
-Python days the wheel put source where the code could find it; in Go, **no
-distribution channel ever places a `flake.nix` + source tree next to the
-binary** (proven per-channel in §4), so `bundledSourceDir` always returns
-`("", false)`. The code is faithfully ported but structurally can never fire off
-a real install.
+**Step 3 now fires (D3).** `bundledSourceDir` (`probes.go:94`, pure core
+`bundledSourceDirFrom`) looks for a `flake.nix` bundle at three
+executable-relative candidates:
 
-The **`yolo check`** command has its own, shorter `resolveRepoRoot`
-(`internal/cli/check/probes.go`) that only does steps 1–2 — no bundled-source,
-no `repo_path`, no error message. So `check` and `run` can disagree about repo
-discovery.
+- `<exe>/../share/yolo-jail` — the Homebrew Cellar layout (`bin/yolo`,
+  `share/yolo-jail/…`).
+- `<exe>/share/yolo-jail` — the release-archive layout (`yolo` and `share/` at
+  one level).
+- `<exe>` itself — a bundle unpacked directly beside the binary.
+
+When one hits, `stageInstalledWheel` (§3) copies the bundle into
+`~/.local/share/yolo-jail/nix-build-root` and returns that as the repo root.
+§4 shows which channels ship the bundle. (In a source checkout or jail, step 2
+resolves first, so step 3 is a no-op there.)
+
+**`yolo check` now agrees with `run`.** check has its own `resolveRepoRoot`
+(`internal/cli/check/probes.go`); D1 extended it to also honor `repo_path`
+(step 4), and D3 added a **read-only** bundle probe (step 3 — it reports the
+bundle dir but does *not* stage it, since staging has side effects and is
+run-owned). So a checkout-less install with a bundle or `repo_path` passes
+`yolo check` instead of wrongly reporting the repo missing.
 
 ---
 
@@ -157,16 +183,47 @@ only a fallback.
 > self-contained" should always be read as *for resolution* — the build side
 > depended on when you looked.
 
-### What the Go port changed
+### What the Go port changed — and how D1+D3 restored it
 
 - `c7e210d` (*"wipe(python)"*) deleted the Python `src/` tree, `pyproject.toml`,
   and the `src/flake.*` symlinks.
 - A Go binary has no setuptools package-data mechanism. The port kept step 3's
-  *code* (`bundledSourceDir` / `stageInstalledWheel`) but **nothing populates
-  `share/yolo-jail/` next to the binary**, so it's inert.
-- Nothing else replaced the bundling: `just deploy` doesn't record the checkout
-  path, and no path is baked via ldflags (§5). So the "installed binary works
-  anywhere" property was dropped on the floor.
+  *code* (`bundledSourceDir` / `stageInstalledWheel`) but for a while **nothing
+  populated `share/yolo-jail/` next to the binary**, so it was inert — the
+  regression.
+- **D3 (2026-07-20)** made step 3 live: a `share/yolo-jail/` bundle now ships in
+  the Homebrew formula and the release archive (§4), and `stageInstalledWheel`
+  was rewritten from the wheel's `build_root/src` layout to stage the Go bundle
+  **flat** (§3). This is the direct Go analog of the wheel bundling.
+- **D1 (2026-07-20)** covers the install-from-source case the bundle doesn't:
+  `just deploy` records the checkout in `repo_path` (§5).
+
+### How bundle staging works (`stageInstalledWheel`)
+
+When step 3 finds a bundle, `stageInstalledWheel` (`probes.go:127`) copies it
+into `~/.local/share/yolo-jail/nix-build-root` and returns that dir as the repo
+root. Details that matter:
+
+- **Flat layout.** The flake's `goSrc` fileset is rooted at `./.`, so the bundle
+  (and thus `build_root`) must *be* the repo tree — `flake.nix`, `flake.lock`,
+  `go.mod`, `go.sum`, `vendor/`, `cmd/`, `internal/`, `bundled_loopholes/` at the
+  top level. D3 rewired staging from the wheel-era `build_root/src/` layout to a
+  single flat `copyTree(bundle, build_root)`.
+- **Idempotence marker.** A second launch with an unchanged bundle is a no-op:
+  it checks `build_root/go.mod` + `build_root/flake.nix` exist and the staged
+  `flake.nix` mtime is ≥ the bundle's, then returns `build_root` without
+  recopying (the marker was the Python `src/cli/__init__.py`; now go.mod+flake).
+- **FROZEN INVARIANT (unchanged by D3).** Staging **never** `rmtree`s the old
+  `build_root` — a jail launched from a previous copy may still hold that inode
+  bind-mounted read-only at `/opt/yolo-jail`, and deleting it out from under the
+  live mount serves a `//deleted` inode. Instead it renames the old tree aside to
+  a unique `nix-build-root.old.<hex>`, leaves it for the liveness-gated `prune`
+  sweeper, and mtime-stamps it (the sweeper's age floor). It also never
+  pre-creates `build_root`. D3 preserved all of this verbatim — an adversarial
+  review confirmed the invariant is intact.
+
+Once staged, the `nix build .#ociImage` runs with `cwd = build_root`, and that
+same `build_root` is bind-mounted read-only into the jail at `/opt/yolo-jail`.
 
 ---
 
@@ -174,57 +231,62 @@ only a fallback.
 
 | Channel | How | Ships source for `nix build`? | Evidence |
 |---|---|---|---|
-| **GitHub Release tar.gz** (goreleaser) | one build `id: yolo` → `binary: yolo`; archive has no `files:`/`extra_files:` | **No** — binary (+ README/LICENSE globs) only | `.goreleaser.yaml:26-46` |
-| **Homebrew tap** (`mschulkind-oss/homebrew-tap`) | external tap repo; `release.yml` clones it and copies a generated **source-build** formula (`depends_on go`, `go build ./cmd/yolo`) | **No** — installs only `bin/yolo`; never copies flake/src into `pkgshare` | `.github/workflows/release.yml:87-156` |
-| **PyPI wheel** | `tools/build-wheels` embeds only the `cmd/yolo` binary + README/LICENSE/NOTICE + two tiny launcher `.py` files | **No** — no flake.nix, no source tree | `tools/build-wheels/main.go:66-68,205-229`; `publish.yml:48-74` |
-| **From source** (`git clone` + `just deploy`) | `go install ./cmd/yolo` from inside the checkout | **Yes** — the checkout itself *is* the source | `README.md`, `Justfile:12-40` |
+| **Homebrew tap** (`mschulkind-oss/homebrew-tap`) | external tap; `release.yml` generates a **source-build** formula (`depends_on go`, `go build ./cmd/yolo`) that also **`pkgshare`-installs the goSrc fileset** | **Yes (D3)** — `flake.nix`/`flake.lock`/`go.mod`/`go.sum` + `vendor/`,`cmd/`,`internal/`,`bundled_loopholes/` at `prefix/share/yolo-jail` → `<exe>/../share/yolo-jail` | `.github/workflows/release.yml:107-129` |
+| **GitHub Release tar.gz** (goreleaser) | `before` hook stages the bundle via `scripts/stage-source-bundle.sh`; archive `files:` ships it beside the binary | **Yes (D3)** — `yolo` + `share/yolo-jail/…` → `<exe>/share/yolo-jail` | `.goreleaser.yaml` before-hook + archives `files:` |
+| **From source** (`git clone` + `just deploy`) | `go install ./cmd/yolo`; `just deploy` also writes `repo_path` | **Yes** — the checkout is the source; `repo_path` records it | `README.md`, `Justfile:12-51` |
+| **PyPI wheel** | `tools/build-wheels` embeds only the `cmd/yolo` binary + metadata | **No** — no bundle wired (D3 did brew+goreleaser; wheel not yet) | `tools/build-wheels/main.go:66-68,205-229` |
 | **GHCR builder image** | a Nix *builder helper* image, not the jail image | N/A — helps macOS build offload, not source-less launch | `.github/workflows` |
 | **Cachix binary cache** | prebuilt image closures for `nix` substitution | **Wired but disabled** (no-op today) | below |
 
-Two things that look like escape hatches but aren't (yet):
+The bundle producer is `scripts/stage-source-bundle.sh` (`just stage-bundle`):
+`git archive HEAD` of the tracked tree (~11 MB, a clean superset of the goSrc
+fileset), asserting the required members are present. The staged tree is proven
+to evaluate: `nix eval .#ociImage.drvPath` succeeds on it.
 
-- **Cachix is not enabled.** `flake.nix:4-20` has the `nixConfig` substituter
-  block **commented out** ("NOT YET ENABLED — pending the Cachix account"), and
-  `publish.yml`'s `push-image-cache` job **skips entirely** unless
-  `CACHIX_AUTH_TOKEN` + `CACHIX_CACHE` are set (`publish.yml:80-102`). See
-  `docs/implementation/handoff-cachix-cache.md`. **Crucially, even a fully-enabled
-  Cachix cache would *not* remove the source requirement** — `nix build .#ociImage`
-  against `.` must still *evaluate the local flake* to know which store paths to
-  fetch. Cachix removes the *compile*, not the *flake read*.
+Two remaining notes:
+
+- **Cachix is still not enabled** (D4, human-gated). `flake.nix:4-20` has the
+  `nixConfig` substituter block **commented out**, and `publish.yml`'s
+  `push-image-cache` job **skips** unless `CACHIX_AUTH_TOKEN` + `CACHIX_CACHE`
+  are set (`publish.yml:80-102`). See `docs/implementation/handoff-cachix-cache.md`.
+  **Even a fully-enabled Cachix cache would *not* remove the source requirement**
+  — `nix build .#ociImage` against `.` must still *evaluate the local flake* to
+  know which store paths to fetch. Cachix removes the *compile*, not the *flake
+  read* — so it composes with D3's bundle, it doesn't replace it.
 - **No prebuilt *jail* image** is pushed to any OCI registry for `podman pull`.
   The only registry image is the separate builder helper.
 
-**Bottom line:** every automated install channel except "from source" ships the
-`yolo` binary alone. A Homebrew-only (or PyPI-only) user with no separate
-checkout gets neither source nor a pullable jail image, and hits the repo-root
-error on first run.
+**Bottom line (today):** Homebrew, the release archive, and install-from-source
+all resolve the repo — the first two via the shipped bundle, the third via
+`repo_path`. The remaining gap is the **PyPI wheel** (no bundle wired) and
+**Cachix** (account not created).
 
 ---
 
-## 5. Why `just deploy` doesn't fix it either
+## 5. `just deploy` records `repo_path` (D1)
 
 `just deploy` → `just install` (`Justfile:40`, `deploy: install`):
 
-- `install` stamps **only** `buildVersion` and `GitCommit` via ldflags
-  (`Justfile:17`), runs `migrate-host`, then `go install ./cmd/yolo`. It **never
-  writes `repo_path`** and **bakes no repo path** into the binary. (A repo-wide
-  sweep confirms the *only* `-X` ldflags anywhere — `Justfile`, `build-go.sh`,
-  `.goreleaser.yaml`, `tools/build-wheels`, the brew formula — are `buildVersion`
-  and `GitCommit`.)
-- `migrate-host` (`internal/hostmigrate`) retires the *old* Python install: it
-  uninstalls the `yolo-jail` uv tool and clears stale GOBIN console scripts
-  (`yolo`, `yolo-ps`, `yolo-host-processes`,
-  `yolo-claude-oauth-broker-host`) — but only when positively identified as stale
-  (venv symlink / broken symlink / python shebang); an unidentifiable `yolo`
-  *blocks* the install rather than being deleted.
+- `install` stamps `buildVersion` + `GitCommit` via ldflags, runs
+  `migrate-host`, then `go install ./cmd/yolo`, and — **new in D1** — runs
+  `yolo internal write-repo-path <checkout>` to record the checkout path in the
+  user config (`Justfile:52-56`).
+- **`yolo internal write-repo-path`** (`internal/repopath`) does an idempotent,
+  **comment-preserving** JSONC edit: it sets `repo_path` in
+  `~/.config/yolo-jail/config.jsonc` only when absent or changed, prints what it
+  did (`Created`/`Updated`/`already set`), and refuses a dir with no `flake.nix`.
+- `migrate-host` (`internal/hostmigrate`) still retires the old Python install
+  (uninstalls the `yolo-jail` uv tool, clears stale GOBIN console scripts) — only
+  when positively identified as stale; an unidentifiable `yolo` *blocks* the
+  install rather than being deleted.
 - `deploy` then retires legacy systemd token-refresher units, primes the
   claude-oauth-broker state, and restarts the broker.
 
-So **after `just deploy` from a clean checkout, the installed binary still can't
-find the repo from any *other* directory** — nothing persisted the path. It only
-works from within the checkout (step 2's cwd walk) or once you set `repo_path`
-(step 4). This is exactly the situation that produced the error: run `yolo` from
-`~/.dotfiles` (or anywhere outside the checkout) and steps 1–3 all miss.
+So **after `just deploy`, an installed-from-source `yolo` resolves the repo from
+any directory** via `repo_path` (step 4) — the exact scenario (`yolo` run from
+`~/.dotfiles`) that first surfaced this. `repo_path` is read from the **user**
+config only; a workspace `repo_path` is ignored, and `yolo check` warns if you
+put one there (`internal/cli/check/check.go:356`).
 
 ---
 
@@ -252,59 +314,52 @@ cached image or runtime image exists, `run` *could* proceed. Today it doesn't.
 
 ---
 
-## 7. What to do
+## 7. Status and what remains
 
-### Right now (the user's case)
+**Done (2026-07-20):**
 
-You installed from source, so you have a checkout. Point `repo_path` at it — for
-this environment the host path is `~/code/system/yolo-jail`:
+- **D1** — `just deploy` records `repo_path`; `yolo check` honors it. Fixes every
+  install-from-source (`feat(install): just deploy records repo_path; check
+  honors it too`).
+- **D3** — `share/yolo-jail/` source bundle ships in Homebrew + the release
+  archive; `stageInstalledWheel` stages it flat; `check` gained a read-only
+  bundle probe. Fixes checkout-less Homebrew/release installs (`feat(dist): ship
+  a Go source bundle so checkout-less installs build the image`). Regression
+  tests: `internal/cli/run/probes_test.go` (`TestBundledSourceDirFrom`,
+  `TestStageInstalledWheelStagesFlat`, `TestStageInstalledWheelIdempotent`) and
+  `internal/cli/check/probes.go` parity test.
 
-```jsonc
-// ~/.config/yolo-jail/config.jsonc
-{ "repo_path": "~/code/system/yolo-jail" }
-```
+**Remaining (Track D of the revival plan):**
 
-Then `yolo -- claude --continue` works from any directory. Note `repo_path` is
-read from the **user** config only (workspace `repo_path` is explicitly ignored —
-`internal/cli/check/check.go:356`).
+- **PyPI wheel bundle** — D3 wired the bundle into brew + goreleaser but not the
+  wheel (`tools/build-wheels`); a wheel-only install still lacks source. Wire the
+  same bundle in if PyPI stays a supported channel.
+- **D2 — graceful degradation** — defer the repo-root hard-exit for the
+  macos-user runtime with empty `packages:` (it needs no image), and let the
+  container path fall back to a cached/runtime image when resolution fails (§6).
+- **D4 — Cachix** — human-gated: create the account, uncomment `flake.nix:17-20`.
+  Removes the compile; composes with D3 (still needs the local flake to evaluate).
 
-### To actually make installed binaries work (design options)
-
-None of these are implemented yet; listed roughly easiest → most complete:
-
-1. **`just deploy` writes `repo_path`** into the user config, pointing at the
-   checkout it built from. Fixes the from-source case (the one hit here). One
-   caveat: it silently edits user config, so it should be idempotent and visible.
-2. **Bake the source path via ldflags** (a `version.RepoRoot`-style var), read as
-   a resolution step. Fixes from-source; still nothing for Homebrew.
-3. **Ship `share/yolo-jail/` in the goreleaser archive + brew formula** so the
-   already-present step 3 (`bundledSourceDir`) fires as designed. This is the
-   Go analogue of the Python wheel bundling, and the only option that helps
-   **Homebrew users who have no checkout at all.**
-4. **Enable Cachix + let `run` fall back to a cached/registry image when
-   resolution fails.** Removes the *compile* on first run, but a bundled flake is
-   still needed for the `.#ociImage` *evaluation* — so this composes with (3),
-   it doesn't replace it.
-
-A regression test belongs in `internal/cli/run/probes_test.go`: assert that a
-binary with a bundled `share/yolo-jail/flake.nix` resolves via step 3 (guards
-whichever fix lands), and that the current no-bundle case still produces the
-actionable error.
+Fallback seam: `git clone` at any point remains the universal escape hatch, and
+`repo_path` a one-line manual fix if a bundle is ever missing.
 
 ---
 
 ## Appendix — evidence provenance
 
-Every claim above was verified by reading the current source and git history
-(`c7e210d~1` for the Python era). Key anchors:
+Verified by reading the current source and git history (`c7e210d~1` for the
+Python era). Key anchors:
 
 - Launch ordering: `internal/cli/run/run.go:30-32,167,225`
 - Nix build cwd + argv: `internal/image/autoload.go:131,234-240`
 - Image built from Go source: `flake.nix:65-107,573-661`
-- Resolution order: `internal/cli/run/probes.go:27-112`
-- Error text: `internal/cli/run/probes.go:78-86`
-- Python wheel bundling: `c7e210d~1:pyproject.toml`, `c7e210d~1:src/cli/run_cmd.py:193-329`, `c7e210d~1:src/flake.nix` (symlink)
-- Channels: `.goreleaser.yaml`, `.github/workflows/release.yml`+`publish.yml`, `tools/build-wheels/main.go`
+- Resolution order (5 steps, all live): `internal/cli/run/probes.go:27-135`
+- Bundle staging (flat, frozen invariant): `internal/cli/run/probes.go:94-190`
+- check-side resolver (repo_path + read-only bundle probe): `internal/cli/check/probes.go`
+- `write-repo-path` / repo_path writer: `internal/repopath`, `internal/cli/internal.go`
+- Bundle producer: `scripts/stage-source-bundle.sh`, `Justfile` (`stage-bundle`)
+- Packaging: `.goreleaser.yaml` (before-hook + archives `files:`), `.github/workflows/release.yml` (brew `pkgshare`)
+- Python wheel bundling (history): `c7e210d~1:pyproject.toml`, `c7e210d~1:src/cli/run_cmd.py:193-329`
 - Cachix disabled: `flake.nix:4-20`, `publish.yml:80-102`, `docs/implementation/handoff-cachix-cache.md`
 - Cache fallback: `internal/image/autoload.go:133-162,488-521`
 - Install/ldflags: `Justfile:12-40`, `internal/hostmigrate/hostmigrate.go`
