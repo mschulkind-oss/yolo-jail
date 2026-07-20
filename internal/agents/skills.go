@@ -1,11 +1,10 @@
-package agentsmd
+package agents
 
 import (
 	"io"
 	"os"
 	"path/filepath"
 
-	"github.com/mschulkind-oss/yolo-jail/internal/agents"
 	"github.com/mschulkind-oss/yolo-jail/internal/paths"
 )
 
@@ -24,7 +23,7 @@ func PrepareSkills(cname, homeDir string, agentNames []string) (string, error) {
 		return "", err
 	}
 
-	specs := agents.ResolveAgents(agentNames)
+	specs := ResolveAgents(agentNames)
 	for _, spec := range specs {
 		if spec.Skills == "" {
 			continue // agent has no user-skills dir (opencode, pi)

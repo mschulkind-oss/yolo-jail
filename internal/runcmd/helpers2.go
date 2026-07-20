@@ -11,7 +11,7 @@ import (
 	"strings"
 	"time"
 
-	"github.com/mschulkind-oss/yolo-jail/internal/agentsmd"
+	"github.com/mschulkind-oss/yolo-jail/internal/agents"
 	"github.com/mschulkind-oss/yolo-jail/internal/jsonx"
 )
 
@@ -50,9 +50,9 @@ func hostServiceEnvVar(serviceName string) string {
 	return "YOLO_SERVICE_" + strings.ToUpper(s) + "_SOCKET"
 }
 
-// workspaceIsYoloSourceTree delegates to the ported agentsmd helper.
+// workspaceIsYoloSourceTree delegates to the ported agents helper.
 func workspaceIsYoloSourceTree(workspace string) bool {
-	return agentsmd.WorkspaceIsYoloSourceTree(workspace)
+	return agents.WorkspaceIsYoloSourceTree(workspace)
 }
 
 // acMaterialize ports _ac_materialize_under_ws_state: copy src into

@@ -1,4 +1,4 @@
-package agentsmd
+package agents
 
 import (
 	"os"

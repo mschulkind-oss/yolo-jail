@@ -1,8 +1,9 @@
-// Package agentsmd handles per-workspace AGENTS.md / CLAUDE.md briefing
-// generation and host-skill staging. The briefing content is a byte-exact
-// string contract; WriteBriefing's hardlink-breaking truncation is an
-// inode-preservation contract a running jail's bind mount depends on.
-package agentsmd
+package agents
+
+// Per-workspace AGENTS.md / CLAUDE.md briefing generation and host-skill
+// staging. The briefing content is a byte-exact string contract;
+// WriteBriefing's hardlink-breaking truncation is an inode-preservation
+// contract a running jail's bind mount depends on.
 
 import (
 	"bytes"

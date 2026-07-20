@@ -6,7 +6,6 @@ import (
 	"strings"
 
 	"github.com/mschulkind-oss/yolo-jail/internal/agents"
-	"github.com/mschulkind-oss/yolo-jail/internal/agentsmd"
 	"github.com/mschulkind-oss/yolo-jail/internal/config"
 	"github.com/mschulkind-oss/yolo-jail/internal/jsonx"
 	"github.com/mschulkind-oss/yolo-jail/internal/loopholes"
@@ -31,7 +30,7 @@ func (o *Options) refreshJailBriefings(cname string, cfg *jsonx.OrderedMap, rt s
 		forwardHostPorts = asAnyList(mapGet(netSec, "forward_host_ports"))
 	}
 
-	// Blocked-tools → agentsmd.BlockedTool records.
+	// Blocked-tools → agents.BlockedTool records.
 	blocked := blockedToolRecords(config.NormalizeBlockedTools(cfgMap(cfg, "security")))
 
 	// mount_descriptions for existing config.mounts.
@@ -49,18 +48,18 @@ func (o *Options) refreshJailBriefings(cname string, cfg *jsonx.OrderedMap, rt s
 	}
 
 	// Enabled loopholes (name, description).
-	var loops []agentsmd.Loophole
+	var loops []agents.Loophole
 	for _, lo := range loopholes.Discover(loopholes.DiscoverOptions{
 		IncludeBundled:  true,
 		LoopholesConfig: cfgMap(cfg, "loopholes"),
 	}) {
-		loops = append(loops, agentsmd.Loophole{Name: lo.Name, Desc: lo.Description})
+		loops = append(loops, agents.Loophole{Name: lo.Name, Desc: lo.Description})
 	}
 
 	agentsList := config.SelectedAgents(cfg)
 
 	// Skills staging.
-	staging, err := agentsmd.PrepareSkills(cname, homeDir(), agentsList)
+	staging, err := agents.PrepareSkills(cname, homeDir(), agentsList)
 	if err != nil {
 		return "", err
 	}
@@ -68,7 +67,7 @@ func (o *Options) refreshJailBriefings(cname string, cfg *jsonx.OrderedMap, rt s
 	// Resources map (sorted-key rendering handled inside BriefingContent).
 	resources := orderedMapToStrAny(cfgMap(cfg, "resources"))
 
-	in := agentsmd.BriefingInput{
+	in := agents.BriefingInput{
 		Workspace:          o.Workspace,
 		BlockedTools:       blocked,
 		MountDescriptions:  mountDescriptions,
@@ -76,16 +75,16 @@ func (o *Options) refreshJailBriefings(cname string, cfg *jsonx.OrderedMap, rt s
 		ForwardHostPorts:   forwardHostPorts,
 		Loopholes:          loops,
 		Resources:          resources,
-		IsYoloSourceTree:   agentsmd.WorkspaceIsYoloSourceTree(o.Workspace),
-		ProvisioningFailed: agentsmd.ReadProvisioningFailed(o.Workspace),
+		IsYoloSourceTree:   agents.WorkspaceIsYoloSourceTree(o.Workspace),
+		ProvisioningFailed: agents.ReadProvisioningFailed(o.Workspace),
 	}
-	jailContent := agentsmd.BriefingContent(in)
-	jailContent = agentsmd.ComposeBriefing(jailContent, cfgStr(cfg, "agents_md_extra"))
+	jailContent := agents.BriefingContent(in)
+	jailContent = agents.ComposeBriefing(jailContent, cfgStr(cfg, "agents_md_extra"))
 
 	home := homeDir()
 	for _, spec := range agents.ResolveAgents(agentsList) {
-		content := agentsmd.PrependHostBriefing(filepath.Join(home, spec.Briefing.HostSource), jailContent)
-		if err := agentsmd.WriteBriefing(filepath.Join(staging, spec.Briefing.Staging), content); err != nil {
+		content := agents.PrependHostBriefing(filepath.Join(home, spec.Briefing.HostSource), jailContent)
+		if err := agents.WriteBriefing(filepath.Join(staging, spec.Briefing.Staging), content); err != nil {
 			return "", err
 		}
 	}
@@ -94,15 +93,15 @@ func (o *Options) refreshJailBriefings(cname string, cfg *jsonx.OrderedMap, rt s
 }
 
 // blockedToolRecords converts NormalizeBlockedTools output (a []any of ordered
-// maps) into agentsmd.BlockedTool records.
-func blockedToolRecords(blocked []any) []agentsmd.BlockedTool {
-	var out []agentsmd.BlockedTool
+// maps) into agents.BlockedTool records.
+func blockedToolRecords(blocked []any) []agents.BlockedTool {
+	var out []agents.BlockedTool
 	for _, b := range blocked {
 		m, ok := b.(*jsonx.OrderedMap)
 		if !ok {
 			continue
 		}
-		out = append(out, agentsmd.BlockedTool{
+		out = append(out, agents.BlockedTool{
 			Name:       mapStr(m, "name"),
 			Message:    mapStr(m, "message"),
 			Suggestion: mapStr(m, "suggestion"),
