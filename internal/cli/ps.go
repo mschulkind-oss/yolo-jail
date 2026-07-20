@@ -1,8 +1,8 @@
-// Package pscmd implements the `yolo ps` command. It lists running yolo-*
-// jails, resolves each to its workspace, prunes stale tracking files, and
-// flags problem jails. Every subprocess is behind an injectable seam for
+// ps.go implements the `yolo ps` command. It lists running yolo-* jails,
+// resolves each to its workspace, prunes stale tracking files, and flags
+// problem jails. Every subprocess is behind an injectable seam for
 // unit-testability.
-package pscmd
+package cli
 
 import (
 	"fmt"
@@ -13,12 +13,12 @@ import (
 	"github.com/mschulkind-oss/yolo-jail/internal/runtime"
 )
 
-// Deps are the injectable seams. RunCmd runs argv and returns (stdout, ok):
+// psDeps are the injectable seams. RunCmd runs argv and returns (stdout, ok):
 // ok=false means the probe could NOT enumerate (spawn/exec failure or non-zero
 // exit) — the tri-state that must never be collapsed to "no jails" (D11).
 // DetectRuntime returns the effective runtime ("podman" / "container"),
 // platform-aware for ps. PathIsDir reports whether a workspace path exists.
-type Deps struct {
+type psDeps struct {
 	DetectRuntime func() string
 	RunCmd        func(argv []string) (string, bool)
 	PathIsDir     func(path string) bool
@@ -28,7 +28,7 @@ type Deps struct {
 // Run executes `yolo ps`, writing the table to deps.Out, and returns the exit
 // code (always 0 — ps never fails the process).
 // list → parse → resolve workspace → prune stale tracking → render → problems.
-func Run(deps Deps) int {
+func psRun(deps psDeps) int {
 	rt := deps.DetectRuntime()
 
 	// The runtime probe is TRI-STATE (audit 2026-07-18 §B / D11): a spawn/exec
@@ -115,7 +115,7 @@ func Run(deps Deps) int {
 // getContainerWorkspace resolves a container's workspace: the tracking file
 // first (fast), then the runtime inspect's YOLO_HOST_DIR env; "unknown" when
 // neither yields a value.
-func getContainerWorkspace(deps Deps, name, rt string) string {
+func getContainerWorkspace(deps psDeps, name, rt string) string {
 	if ws, ok := runtime.ReadContainerWorkspace(name); ok {
 		return ws
 	}
@@ -144,7 +144,7 @@ func getContainerWorkspace(deps Deps, name, rt string) string {
 // Apple Container has no `top`, so it's never checked there (matches
 // _check_container_stuck's early return).
 // _check_container_stuck around the ported StuckReasonFromTop analyzer.
-func stuckReason(deps Deps, name, rt string) string {
+func stuckReason(deps psDeps, name, rt string) string {
 	if rt == "container" {
 		return ""
 	}
@@ -155,11 +155,11 @@ func stuckReason(deps Deps, name, rt string) string {
 	return runtime.StuckReasonFromTop(out)
 }
 
-// RealDeps returns Deps backed by real subprocesses / filesystem. runCmd must
-// return (stdout, ok) where ok=false signals an enumeration failure (spawn error
-// or non-zero exit).
-func RealDeps(runCmd func(argv []string) (string, bool), detectRuntime func() string) Deps {
-	return Deps{
+// psRealDeps returns psDeps backed by real subprocesses / filesystem. runCmd
+// must return (stdout, ok) where ok=false signals an enumeration failure (spawn
+// error or non-zero exit).
+func psRealDeps(runCmd func(argv []string) (string, bool), detectRuntime func() string) psDeps {
+	return psDeps{
 		DetectRuntime: detectRuntime,
 		RunCmd:        runCmd,
 		PathIsDir: func(path string) bool {

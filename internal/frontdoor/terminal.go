@@ -1,3 +1,7 @@
+// Package frontdoor renders the terminal-facing half of the `yolo` run: the
+// tmux/kitty jail indicators (SetupJailIndicator) and the start-of-run banner
+// (StartupBanner). The banner's platform naming is x86_64/aarch64
+// (platform.machine()), NOT Go's amd64/arm64.
 package frontdoor
 
 import (

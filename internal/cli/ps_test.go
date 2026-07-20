@@ -1,4 +1,4 @@
-package pscmd
+package cli
 
 import (
 	"bytes"
@@ -13,7 +13,7 @@ import (
 func TestPsNoJails(t *testing.T) {
 	t.Setenv("HOME", t.TempDir())
 	var buf bytes.Buffer
-	rc := Run(Deps{
+	rc := psRun(psDeps{
 		DetectRuntime: func() string { return "podman" },
 		RunCmd:        func([]string) (string, bool) { return "", true },
 		PathIsDir:     func(string) bool { return true },
@@ -36,7 +36,7 @@ func TestPsTableAndProblems(t *testing.T) {
 
 	psOut := "yolo-a-1111\tUp 2 hours\t2 hours ago\n" +
 		"yolo-b-2222\tUp 5 minutes\t5 minutes ago\n"
-	deps := Deps{
+	deps := psDeps{
 		DetectRuntime: func() string { return "podman" },
 		RunCmd: func(argv []string) (string, bool) {
 			if len(argv) >= 2 && argv[1] == "ps" {
@@ -54,7 +54,7 @@ func TestPsTableAndProblems(t *testing.T) {
 	}
 	var buf bytes.Buffer
 	deps.Out = &buf
-	Run(deps)
+	psRun(deps)
 	out := buf.String()
 	// Table header + both rows present.
 	if !strings.Contains(out, "CONTAINER") || !strings.Contains(out, "yolo-a-1111") || !strings.Contains(out, "yolo-b-2222") {
@@ -75,7 +75,7 @@ func TestPsPrunesStaleTracking(t *testing.T) {
 	must(t, runtime.WriteContainerTracking("yolo-live", "/ws"))
 	must(t, runtime.WriteContainerTracking("yolo-dead", "/ws2"))
 
-	deps := Deps{
+	deps := psDeps{
 		DetectRuntime: func() string { return "podman" },
 		RunCmd: func(argv []string) (string, bool) {
 			if len(argv) >= 2 && argv[1] == "ps" {
@@ -86,7 +86,7 @@ func TestPsPrunesStaleTracking(t *testing.T) {
 		PathIsDir: func(string) bool { return true },
 		Out:       &bytes.Buffer{},
 	}
-	Run(deps)
+	psRun(deps)
 	// The dead tracking file must be gone; the live one kept.
 	if _, ok := runtime.ReadContainerWorkspace("yolo-dead"); ok {
 		t.Error("stale tracking file should be pruned")
@@ -109,7 +109,7 @@ func TestPsEnumerationFailureDoesNotPrune(t *testing.T) {
 	must(t, runtime.WriteContainerTracking("yolo-live-2", "/ws2"))
 
 	var buf bytes.Buffer
-	Run(Deps{
+	psRun(psDeps{
 		DetectRuntime: func() string { return "podman" },
 		// Probe fails to enumerate (ok=false).
 		RunCmd:    func([]string) (string, bool) { return "", false },

@@ -1,8 +1,9 @@
-package initcmd
+package cli
 
 import "strings"
 
-// ANSI codes for the closed tag set the init briefing uses.
+// ANSI codes for the closed tag sets the init briefing and the config-ref
+// document render. Shared across markup.go and configref.go.
 const (
 	ansiReset  = "\x1b[0m"
 	ansiBold   = "\x1b[1m"

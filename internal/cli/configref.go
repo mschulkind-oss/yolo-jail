@@ -1,7 +1,8 @@
-// Package configref implements `yolo config-ref` — the full configuration
-// reference document. The content is an embedded static template and the closed
-// set of markup tags is rendered to ANSI.
-package configref
+// configref.go implements `yolo config-ref` — the full configuration reference
+// document. The content is an embedded static template and the closed set of
+// markup tags is rendered to ANSI. The ansi* constants it uses are shared with
+// markup.go (see the const block there).
+package cli
 
 import (
 	_ "embed"
@@ -11,15 +12,7 @@ import (
 )
 
 //go:embed config_ref.txt
-var content string
-
-// ANSI codes matching rich's default styles for the tags this document uses.
-const (
-	ansiReset  = "\x1b[0m"
-	ansiBold   = "\x1b[1m"
-	ansiCyan   = "\x1b[36m"
-	ansiYellow = "\x1b[33m"
-)
+var configRefContent string
 
 // tagReplacer maps the closed set of rich tags in the reference to ANSI. rich
 // nests styles, but this document never nests beyond one level, so a flat
@@ -43,14 +36,14 @@ var tagReplacer = strings.NewReplacer(
 // color is true, or with the tags stripped to plain text when false.
 func Render(color bool) string {
 	if color {
-		return tagReplacer.Replace(content)
+		return tagReplacer.Replace(configRefContent)
 	}
-	return stripTags(content)
+	return stripTags(configRefContent)
 }
 
-// Run prints the reference to w (color-on when w is a terminal, per the caller)
-// and returns the exit code (always 0).
-func Run(w io.Writer, color bool) int {
+// configRefRun prints the reference to w (color-on when w is a terminal, per
+// the caller) and returns the exit code (always 0).
+func configRefRun(w io.Writer, color bool) int {
 	io.WriteString(w, Render(color))
 	return 0
 }
@@ -58,7 +51,7 @@ func Run(w io.Writer, color bool) int {
 // RunStdout is the front-door entry: prints to stdout with color when stdout is
 // a TTY.
 func RunStdout() int {
-	return Run(os.Stdout, isTTY(os.Stdout))
+	return configRefRun(os.Stdout, isTTY(os.Stdout))
 }
 
 // stripTags removes every rich tag, leaving plain text (for non-TTY output).

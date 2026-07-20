@@ -1,4 +1,4 @@
-package initcmd
+package cli
 
 import (
 	"bytes"
@@ -37,12 +37,5 @@ func TestInitGitignore(t *testing.T) {
 	after, _ := os.ReadFile(filepath.Join(dir, ".gitignore"))
 	if string(after) != before {
 		t.Errorf(".gitignore changed on re-run:\n%q\n->\n%q", before, after)
-	}
-}
-
-func must(t *testing.T, err error) {
-	t.Helper()
-	if err != nil {
-		t.Fatal(err)
 	}
 }

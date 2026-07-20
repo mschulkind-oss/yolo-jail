@@ -1,4 +1,4 @@
-package main
+package cli
 
 import (
 	"fmt"
@@ -12,38 +12,16 @@ import (
 	"github.com/mschulkind-oss/yolo-jail/internal/broker"
 	"github.com/mschulkind-oss/yolo-jail/internal/builder"
 	"github.com/mschulkind-oss/yolo-jail/internal/checkcmd"
-	"github.com/mschulkind-oss/yolo-jail/internal/configref"
 	"github.com/mschulkind-oss/yolo-jail/internal/darwinpkg"
 	"github.com/mschulkind-oss/yolo-jail/internal/frontdoor"
-	"github.com/mschulkind-oss/yolo-jail/internal/initcmd"
 	"github.com/mschulkind-oss/yolo-jail/internal/jsonx"
 	"github.com/mschulkind-oss/yolo-jail/internal/loopholes"
 	"github.com/mschulkind-oss/yolo-jail/internal/macosuser"
 	"github.com/mschulkind-oss/yolo-jail/internal/paths"
 	"github.com/mschulkind-oss/yolo-jail/internal/prune"
-	"github.com/mschulkind-oss/yolo-jail/internal/pscmd"
 	"github.com/mschulkind-oss/yolo-jail/internal/runcmd"
 	"github.com/mschulkind-oss/yolo-jail/internal/runtime"
 )
-
-// nativeDispatch maps each subcommand to its Go handler.
-var nativeDispatch = map[string]func(args []string) int{
-	"check":                 runCheck,
-	"doctor":                runCheck, // doctor is an alias for check (same body + flag).
-	"run":                   runRun,
-	"ps":                    runPs,
-	"loopholes":             runLoopholes,
-	"config-ref":            runConfigRef,
-	"init":                  runInit,
-	"init-user-config":      runInitUserConfig,
-	"broker":                runBroker,
-	"prune":                 runPrune,
-	"builder":               runBuilder,
-	"macos-setup":           runMacosSetup,
-	"macos-teardown":        runMacosTeardown,
-	"macos-unshare":         runMacosUnshare,
-	"macos-fix-permissions": runMacosFixPermissions,
-}
 
 // runBuilder dispatches `yolo builder {setup,start,stop,status}` (macOS-only
 // on-demand Linux builder VM).
@@ -194,12 +172,12 @@ func runInit(args []string) int {
 		fmt.Fprintf(os.Stderr, "cannot resolve cwd: %v\n", err)
 		return 1
 	}
-	return initcmd.Init(cwd, mounts, os.Stdout, isTTYStdout())
+	return Init(cwd, mounts, os.Stdout, isTTYStdout())
 }
 
 // runInitUserConfig runs `yolo init-user-config`.
 func runInitUserConfig(_ []string) int {
-	return initcmd.InitUserConfig(os.Stdout)
+	return InitUserConfig(os.Stdout)
 }
 
 func isTTYStdout() bool {
@@ -212,7 +190,7 @@ func isTTYStdout() bool {
 
 // runConfigRef prints the full configuration reference. args ignored.
 func runConfigRef(_ []string) int {
-	return configref.RunStdout()
+	return RunStdout()
 }
 
 // runLoopholes dispatches the `yolo loopholes {list,status,enable,disable}`
@@ -255,7 +233,7 @@ func runPs(_ []string) int {
 			return err == nil
 		})
 	}
-	return pscmd.Run(pscmd.RealDeps(psRunCmd, detect))
+	return psRun(psRealDeps(psRunCmd, detect))
 }
 
 // psRunCmd runs a container-runtime probe and returns (stdout, ok). ok=false on

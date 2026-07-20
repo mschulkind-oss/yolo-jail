@@ -1,8 +1,8 @@
-// Package initcmd implements `yolo init` and `yolo init-user-config` — the
-// config scaffolders. The workspace template writes yolo-jail.jsonc (with a
+// init.go implements `yolo init` and `yolo init-user-config` — the config
+// scaffolders. The workspace template writes yolo-jail.jsonc (with a
 // --mount-driven mounts block), appends .yolo/ to .gitignore, and prints an
 // agent briefing; init-user-config writes the user-level defaults.
-package initcmd
+package cli
 
 import (
 	_ "embed"
