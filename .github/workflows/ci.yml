@@ -51,31 +51,6 @@ jobs:
       - name: Unit tests
         run: go test -short ./...
 
-  check:
-    runs-on: ubuntu-latest
-    steps:
-      - uses: actions/checkout@v7
-        with:
-          fetch-depth: 0
-
-      - name: Install uv
-        uses: astral-sh/setup-uv@v7
-
-      - name: Install Python dependencies
-        run: uv sync --group dev
-
-      - name: Lint
-        run: uv run ruff check .
-
-      - name: Format check
-        run: uv run ruff format --check .
-
-      - name: Unit tests
-        # -n 4 matches GH hosted runners' 4 vCPUs; worksteal shaves the
-        # long-test tail.  The integration job below stays serial (real
-        # containers; session image load must not run per worker).
-        run: uv run pytest tests/ -v -m "not slow" -n 4 --dist worksteal
-
   check-macos:
     runs-on: macos-latest
     if: >
@@ -86,17 +61,12 @@ jobs:
         with:
           fetch-depth: 0
 
-      - name: Install uv
-        uses: astral-sh/setup-uv@v7
-
-      - name: Install Python dependencies
-        run: uv sync --group dev
-
-      - name: Lint
-        run: uv run ruff check .
+      - uses: actions/setup-go@v6
+        with:
+          go-version-file: go.mod
 
       - name: Unit tests (macOS)
-        run: uv run pytest tests/ -v -m "not slow" -n 4 --dist worksteal
+        run: go test -short ./...
 
   build-image:
     # Build the jail image on BOTH arches natively — x86_64 and arm64 — so
@@ -112,7 +82,7 @@ jobs:
       matrix:
         os: [ubuntu-latest, ubuntu-24.04-arm]
     runs-on: ${{ matrix.os }}
-    needs: check
+    needs: check-go
     steps:
       - uses: actions/checkout@v7
         with:
@@ -143,7 +113,7 @@ jobs:
       - name: Build minimal jail image
         # The minimal variant drops chromium, the gcc toolchain, nested-podman,
         # and assorted dev/debug tools — roughly 1.6–2 GB off the streamed tar.
-        # It still contains everything tests/test_jail.py exercises.  The full
+        # It still contains everything the ./integration suite exercises.  The full
         # image builds locally via `just build-image` and runs in production.
         run: |
           nix build --impure .#ociImageMinimal
@@ -169,6 +139,7 @@ jobs:
         os: [ubuntu-latest, ubuntu-24.04-arm]
     runs-on: ${{ matrix.os }}
     needs: build-image
+    timeout-minutes: 120
     steps:
       - uses: actions/checkout@v7
         with:
@@ -187,11 +158,9 @@ jobs:
           sudo apt-get clean
           df -h /
 
-      - name: Install uv
-        uses: astral-sh/setup-uv@v7
-
-      - name: Install Python dependencies
-        run: uv sync --group dev
+      - uses: actions/setup-go@v6
+        with:
+          go-version-file: go.mod
 
       - name: Install Nix
         uses: cachix/install-nix-action@v31
@@ -212,7 +181,14 @@ jobs:
         run: podman load < /tmp/jail-image.tar
 
       - name: Integration tests
-        run: uv run pytest tests/test_jail.py -v
+        # Serial by construction: the `integration` package uses no
+        # t.Parallel(), so container tests run one at a time (real
+        # containers; session image load must not race).  -count=1
+        # defeats Go's test cache, which can't see container state;
+        # -timeout 0 disables Go's global deadline (per-command
+        # deadlines come from YOLO_TEST_JAIL_TIMEOUT; the job-level
+        # timeout-minutes backstops a hang).
+        run: go test -count=1 -timeout 0 -v ./integration
         env:
           YOLO_RUNTIME: podman
 

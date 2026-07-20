@@ -63,11 +63,9 @@ jobs:
           extra_nix_config: |
             experimental-features = nix-command flakes
 
-      - name: Install uv
-        uses: astral-sh/setup-uv@v7
-
-      - name: Install Python dependencies
-        run: uv sync --group dev
+      - uses: actions/setup-go@v6
+        with:
+          go-version-file: go.mod
 
       - name: Install Podman
         run: |
@@ -95,7 +93,7 @@ jobs:
           podman tag yolo-jail:latest localhost/yolo-jail:latest
 
       - name: Integration tests (macOS + Podman)
-        run: uv run pytest tests/test_jail.py tests/test_runtime.py -v
+        run: go test -count=1 -timeout 0 -v ./integration
         env:
           YOLO_RUNTIME: podman
           # Intel macOS runner + QEMU podman machine: cold jail starts
