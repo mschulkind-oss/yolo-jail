@@ -18,11 +18,20 @@ import (
 // exit code 127. See ShimContent for the exact grammar.
 func GenerateShims(e *Env) error {
 	shimDir := e.ShimDir()
-	// Use RemoveAll to handle races when multiple jails start concurrently and
-	// both try to rmtree the same shared home directory (Python: shutil.rmtree
-	// with ignore_errors=True).
-	_ = os.RemoveAll(shimDir)
+	// Clear the dir's CONTENTS, never the dir itself: ~/.yolo-shims is a
+	// bind-mount ANCHOR (mounted from <ws>/.yolo/home/yolo-shims) whose parent
+	// /home/agent is mounted read-only. os.RemoveAll(shimDir) tries to unlink the
+	// anchor top-down, fails EROFS on the read-only parent, and leaves every
+	// stale child shim in place — so unblocking a tool (e.g. dropping curl from
+	// blocked_tools) never takes effect on the next fresh launch. Python's
+	// shutil.rmtree(ignore_errors=True) recursed into the children first, so the
+	// stale shims WERE removed; ClearContents restores that semantic and matches
+	// the mount-anchor invariant codified in fsx.go. MkdirAll first so a
+	// first-ever run (no dir yet) still gets an empty dir.
 	if err := os.MkdirAll(shimDir, 0o755); err != nil {
+		return err
+	}
+	if err := ClearContents(shimDir); err != nil {
 		return err
 	}
 
