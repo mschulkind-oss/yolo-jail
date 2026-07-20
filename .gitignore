@@ -1,17 +1,9 @@
-# Override global ignore: check pyrightconfig.json into the repo so
-# everyone gets the same type-check setup.
-!pyrightconfig.json
-
 result
 .run-result
 .last-load
 .last-load-*
 .direnv/
-.venv/
-__pycache__/
-*.pyc
 .yolo/
-*.egg-info/
 probe.log
 dist/
 dist-go/
@@ -31,7 +23,6 @@ build/
 /yolo-oauth-terminator
 /yolo-claude-oauth-broker-host
 /yolo-entrypoint
-src/_version.py
 .DS_Store
 .research/
 yolo-jail.local.jsonc

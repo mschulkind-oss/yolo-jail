@@ -7,20 +7,14 @@ cmd/
 internal/
 bundled_loopholes/
 
-# Tests
-tests/
-
 # Build configuration
 go.mod
 go.sum
-pyproject.toml
 Justfile
 flake.nix
 flake.lock
 mise.toml
-uv.lock
 .gitignore
-.python-version
 
 # Public documentation
 docs/design/config-safety.md
