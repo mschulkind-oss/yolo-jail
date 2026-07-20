@@ -1,6 +1,15 @@
+# HISTORICAL ARTIFACT — not a live gate. No tooling reads this file.
+#
+# It recorded the allowlist used for the one-time private -> public split
+# ("Initial open source commit"). The repository has been fully public since,
+# through v0.6.0: every tracked path is public, and several that are — docs/
+# beyond the three below, integration/, tools/, .goreleaser.yaml — were never
+# added here. Do not treat an absence from this list as "private".
+#
+# Kept only as a record of what the first public cut deliberately included.
+#
 # Paths to include in the public repo (one per line).
 # Lines starting with # are comments. Blank lines are ignored.
-# Add a path here to make it public. Remove it to keep it private.
 
 # Application code
 cmd/
@@ -25,9 +34,9 @@ docs/guides/USER_GUIDE.md
 README.md
 LICENSE
 NOTICE
-CONTRIBUTING.md
-CODE_OF_CONDUCT.md
-SECURITY.md
+# CONTRIBUTING.md, CODE_OF_CONDUCT.md and SECURITY.md are NOT files in this
+# repo — they are inherited org-wide from mschulkind-oss/.github. GitHub
+# resolves them for this repo automatically; README.md links the org copy.
 
 # GitHub templates & CI
 .github/
