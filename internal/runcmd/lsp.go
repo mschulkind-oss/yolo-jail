@@ -1,6 +1,9 @@
-package runmount
+package runcmd
 
-import "strings"
+import (
+	"slices"
+	"strings"
+)
 
 // lspInstallRecipe maps a configured LSP server name to the npm + go packages
 // the bootstrap should ensure installed. Frozen from _LSP_INSTALL_RECIPES.
@@ -40,12 +43,12 @@ func ResolveLSPInstalls(serverNames []string) (npm, goPkgs string) {
 			continue
 		}
 		for _, pkg := range recipe.npm {
-			if !contains(npmList, pkg) {
+			if !slices.Contains(npmList, pkg) {
 				npmList = append(npmList, pkg)
 			}
 		}
 		for _, pkg := range recipe.go_ {
-			if !contains(goList, pkg) {
+			if !slices.Contains(goList, pkg) {
 				goList = append(goList, pkg)
 			}
 		}
@@ -54,13 +57,4 @@ func ResolveLSPInstalls(serverNames []string) (npm, goPkgs string) {
 	// go.append runs after the early empty return).
 	goList = append(goList, lspGeminiBridgeGo)
 	return strings.Join(npmList, "\n"), strings.Join(goList, "\n")
-}
-
-func contains(xs []string, target string) bool {
-	for _, x := range xs {
-		if x == target {
-			return true
-		}
-	}
-	return false
 }

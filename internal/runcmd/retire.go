@@ -7,7 +7,6 @@ import (
 	"strings"
 
 	"github.com/mschulkind-oss/yolo-jail/internal/jsonx"
-	"github.com/mschulkind-oss/yolo-jail/internal/runmount"
 )
 
 // retireJailMadeVenv ports _retire_jail_made_venv: delete workspace venvs a jail
@@ -21,7 +20,7 @@ func (o *Options) retireJailMadeVenv(cfg *jsonx.OrderedMap) {
 		return
 	}
 	rels := map[string]struct{}{".venv": {}}
-	if miseVenv, ok := runmount.MiseConfigVenvPathFromDir(o.Workspace); ok && miseVenv != "" {
+	if miseVenv, ok := MiseConfigVenvPathFromDir(o.Workspace); ok && miseVenv != "" {
 		rels[miseVenv] = struct{}{}
 	}
 	jailPrefixes := []string{
@@ -36,7 +35,7 @@ func (o *Options) retireJailMadeVenv(cfg *jsonx.OrderedMap) {
 	}
 	sort.Strings(sorted)
 	for _, rel := range sorted {
-		if !runmount.ValidPerSideRel(rel) {
+		if !ValidPerSideRel(rel) {
 			continue
 		}
 		venvDir := filepath.Join(o.Workspace, rel)

@@ -7,7 +7,6 @@ import (
 	"strings"
 
 	"github.com/mschulkind-oss/yolo-jail/internal/jsonx"
-	"github.com/mschulkind-oss/yolo-jail/internal/runmount"
 )
 
 // workspaceReadonlyMountArgs ports _workspace_readonly_mount_args: the
@@ -62,7 +61,7 @@ func (o *Options) workspaceReadonlyMountArgs(cfg *jsonx.OrderedMap, rt string) [
 // over a non-dir aborts container creation). Directory mounts only.
 func (o *Options) venvShadowMountArgs(cfg *jsonx.OrderedMap, wsState string) []string {
 	rels := map[string]struct{}{".venv": {}}
-	if miseVenv, ok := runmount.MiseConfigVenvPathFromDir(o.Workspace); ok && miseVenv != "" {
+	if miseVenv, ok := MiseConfigVenvPathFromDir(o.Workspace); ok && miseVenv != "" {
 		rels[miseVenv] = struct{}{}
 	}
 	for _, e := range cfgStrList(cfg, "per_side_paths") {
@@ -78,7 +77,7 @@ func (o *Options) venvShadowMountArgs(cfg *jsonx.OrderedMap, wsState string) []s
 	out := o.pr(o.Stdout)
 	var args []string
 	for _, rel := range sorted {
-		if !runmount.ValidPerSideRel(rel) {
+		if !ValidPerSideRel(rel) {
 			out.print("[yellow]Warning: invalid per-side path, skipping: " + pyReprStr(rel) + "[/yellow]")
 			continue
 		}

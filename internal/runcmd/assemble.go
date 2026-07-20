@@ -10,7 +10,6 @@ import (
 	"github.com/mschulkind-oss/yolo-jail/internal/config"
 	"github.com/mschulkind-oss/yolo-jail/internal/jsonx"
 	"github.com/mschulkind-oss/yolo-jail/internal/paths"
-	"github.com/mschulkind-oss/yolo-jail/internal/runmount"
 	"github.com/mschulkind-oss/yolo-jail/internal/storage"
 )
 
@@ -37,7 +36,7 @@ type assembleInput struct {
 	yoloVersion  string   // _git_describe_version() or "unknown"
 	mountTargets map[string]struct{}
 	// lspNPMInstall / lspGoInstall are the resolved YOLO_LSP_*_INSTALL values
-	// (runmount.ResolveLSPInstalls over the lsp_servers keys).
+	// (ResolveLSPInstalls over the lsp_servers keys).
 	lspNPMInstall string
 	lspGoInstall  string
 	// storePruneOK is true when the host CLI proved no other jail is live and
@@ -149,7 +148,7 @@ func (o *Options) assembleRunCmd(in *assembleInput) []string {
 	} else {
 		runCmd = podmanBaseMounts(rt, runFlags, o.Workspace, in)
 		// Ephemeral scratch dirs.
-		runCmd = append(runCmd, runmount.ScratchMountArgs(cfgStr(cfg, "ephemeral_storage"))...)
+		runCmd = append(runCmd, ScratchMountArgs(cfgStr(cfg, "ephemeral_storage"))...)
 		// Per-agent config-dir overlays (selected agents only).
 		for _, subdir := range agentOverlaySubdirs(in.agentSpecs) {
 			runCmd = append(runCmd, "-v", filepath.Join(in.wsState, subdir)+":/home/agent/."+subdir)

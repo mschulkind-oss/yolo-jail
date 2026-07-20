@@ -14,7 +14,6 @@ import (
 	"github.com/mschulkind-oss/yolo-jail/internal/jsonx"
 	"github.com/mschulkind-oss/yolo-jail/internal/naming"
 	"github.com/mschulkind-oss/yolo-jail/internal/paths"
-	"github.com/mschulkind-oss/yolo-jail/internal/runmount"
 	"github.com/mschulkind-oss/yolo-jail/internal/runtime"
 	"github.com/mschulkind-oss/yolo-jail/internal/storage"
 	"github.com/mschulkind-oss/yolo-jail/internal/version"
@@ -225,7 +224,7 @@ func (o *Options) runContainer(cfg *jsonx.OrderedMap, rt, repoRoot string) int {
 		identityEnv:   identityEnv,
 		hostTZ:        detectHostTZ(),
 		yoloVersion:   o.yoloVersion(repoRoot),
-		mountTargets:  runmount.BindMountTargets(),
+		mountTargets:  BindMountTargets(),
 		lspNPMInstall: lspNPMOf(cfg),
 		lspGoInstall:  lspGoOf(cfg),
 		storePruneOK:  storePruneOK,

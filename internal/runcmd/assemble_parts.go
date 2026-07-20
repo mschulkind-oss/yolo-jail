@@ -9,7 +9,6 @@ import (
 	"github.com/mschulkind-oss/yolo-jail/internal/jsonx"
 	"github.com/mschulkind-oss/yolo-jail/internal/loopholes"
 	"github.com/mschulkind-oss/yolo-jail/internal/paths"
-	"github.com/mschulkind-oss/yolo-jail/internal/runmount"
 )
 
 // appleContainerBaseMounts runs the `if runtime == "container"` base run_cmd
@@ -141,7 +140,7 @@ func (o *Options) gitignoreMountArgs(rt, wsState string, mountTargets map[string
 	if rt == "container" {
 		acMaterialize(excludesPath, ".config/git/ignore", wsState)
 	} else {
-		args = append(args, runmount.ROFileMountArg(
+		args = append(args, ROFileMountArg(
 			excludesPath, "/home/agent/.config/git/ignore", wsState, ".config/git/ignore", mountTargets, nil)...)
 	}
 	args = append(args, "-e", "YOLO_GLOBAL_GITIGNORE=/home/agent/.config/git/ignore")
@@ -319,7 +318,7 @@ func (o *Options) userConfigMountArgs(rt, wsState string, mountTargets map[strin
 		acMaterialize(userPath, relConfig, wsState)
 		return nil
 	}
-	return runmount.ROFileMountArg(userPath, containerConfig, wsState, relConfig, mountTargets, nil)
+	return ROFileMountArg(userPath, containerConfig, wsState, relConfig, mountTargets, nil)
 }
 
 // loopholesRuntimeArgs runs the host-side loopholes runtime args (2823-2828):

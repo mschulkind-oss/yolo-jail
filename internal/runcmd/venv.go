@@ -1,4 +1,4 @@
-package runmount
+package runcmd
 
 import (
 	"regexp"

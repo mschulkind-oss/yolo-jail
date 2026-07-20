@@ -7,7 +7,6 @@ import (
 
 	"github.com/mschulkind-oss/yolo-jail/internal/config"
 	"github.com/mschulkind-oss/yolo-jail/internal/jsonx"
-	"github.com/mschulkind-oss/yolo-jail/internal/runmount"
 )
 
 // hostClaudeFileArgs runs the host ~/.claude file mounting (2744-2797): mount
@@ -41,7 +40,7 @@ func (o *Options) hostClaudeFileArgs(cfg *jsonx.OrderedMap, rt string, in *assem
 	for _, fname := range effective {
 		hostFile := filepath.Join(hostClaudeDir, fname)
 		if isFile(hostFile) {
-			args = append(args, runmount.ROFileMountArg(
+			args = append(args, ROFileMountArg(
 				hostFile, "/ctx/host-claude/"+fname, in.wsState, "ctx-host-claude/"+fname, in.mountTargets, nil)...)
 			mounted = append(mounted, fname)
 		}
@@ -80,7 +79,7 @@ func (o *Options) hostPiFileArgs(cfg *jsonx.OrderedMap, in *assembleInput) []str
 	for _, fname := range effective {
 		hostFile := filepath.Join(hostPiDir, fname)
 		if isFile(hostFile) {
-			args = append(args, runmount.ROFileMountArg(
+			args = append(args, ROFileMountArg(
 				hostFile, "/ctx/host-pi/"+fname, in.wsState, "ctx-host-pi/"+fname, in.mountTargets, nil)...)
 			mounted = append(mounted, fname)
 		}

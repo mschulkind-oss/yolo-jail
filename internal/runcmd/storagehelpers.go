@@ -6,7 +6,6 @@ import (
 
 	"github.com/mschulkind-oss/yolo-jail/internal/jsonx"
 	"github.com/mschulkind-oss/yolo-jail/internal/paths"
-	"github.com/mschulkind-oss/yolo-jail/internal/runmount"
 	"github.com/mschulkind-oss/yolo-jail/internal/storage"
 	"github.com/mschulkind-oss/yolo-jail/internal/version"
 )
@@ -14,7 +13,7 @@ import (
 // resolveLSPInstalls ports _resolve_lsp_installs over the config's lsp_servers
 // keys, returning the newline-joined (npm, go) install lists.
 func resolveLSPInstalls(cfg *jsonx.OrderedMap) (npm, goPkgs string) {
-	return runmount.ResolveLSPInstalls(lspServerNames(cfg))
+	return ResolveLSPInstalls(lspServerNames(cfg))
 }
 
 // jailMiseStoreDir ports _jail_mise_store_dir: /mise inside a jail (nested),

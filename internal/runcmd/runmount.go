@@ -1,7 +1,8 @@
-// Package runmount provides the mount-argv builders for `yolo run` — the
+package runcmd
+
+// runmount provides the mount-argv builders for `yolo run` — the
 // read-only-rootfs scratch mounts and the nested-jail bind-mountpoint
 // dereference.
-package runmount
 
 import (
 	"os"
