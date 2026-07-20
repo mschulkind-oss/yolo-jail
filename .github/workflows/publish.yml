@@ -1,7 +1,7 @@
 # Publish — PyPI wheels + image-cache/builder pushes for a release.
 # ★ step 2 of the Go transition: the PyPI package is now per-platform wheels
-# wrapping the Go host binaries (scripts/build_wheels.py, go-to-wheel-derived),
-# preserving the pipx/uvx audience and the two console scripts (yolo, yolo-ps). The
+# wrapping the Go host binaries (built by tools/build-wheels), preserving the
+# pipx/uvx audience and the 2 console scripts (yolo, yolo-ps). The
 # homebrew tap update moved to release.yml (source-build formula, no poet).
 # Image-cache + builder-image pushes are unchanged.
 #
@@ -48,7 +48,7 @@ jobs:
       - name: Build wheels (Go binaries, all platforms)
         run: |
           version="${GITHUB_REF_NAME#v}"
-          python3 scripts/build_wheels.py --version "$version" --output-dir dist
+          go run ./tools/build-wheels --version "$version" --output-dir dist
 
       - name: Upload build artifacts
         uses: actions/upload-artifact@v7

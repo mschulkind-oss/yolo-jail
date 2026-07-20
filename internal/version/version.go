@@ -13,8 +13,8 @@ import (
 
 // buildVersion is stamped at build time via -ldflags -X (see
 // scripts/build-go.sh, .goreleaser.yaml, the homebrew formula in
-// .github/workflows/release.yml, and go-to-wheel's --set-version-var in
-// publish.yml). It's the installed-wheel analog of setuptools-scm's baked
+// .github/workflows/release.yml, and tools/build-wheels for the PyPI
+// wheels). It's the installed-wheel analog of setuptools-scm's baked
 // version: when present it IS the binary's version (D18) — git describe is
 // only consulted for unstamped `go build`/`go install` binaries.
 var buildVersion = ""
