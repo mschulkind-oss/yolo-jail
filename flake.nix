@@ -547,13 +547,15 @@
         };
 
         # Expose all Go cmd/* binaries (except yolo and yolo-entrypoint,
-        # which have their own wrappers with dev-override logic) in /bin/.
+        # which have their own wrappers with dev-override logic, and goprobe,
+        # which is a dev-only deployment tripwire and must not pollute the
+        # runtime PATH) in /bin/.
         goBinariesLinks = pkgs.runCommand "go-bin-links" { } ''
           mkdir -p $out/bin
           for bin in ${goBinaries}/bin/*; do
             name=$(basename "$bin")
             case "$name" in
-              yolo|yolo-entrypoint) continue ;;
+              yolo|yolo-entrypoint|goprobe) continue ;;
             esac
             ln -s "$bin" "$out/bin/$name"
           done

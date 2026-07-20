@@ -293,8 +293,9 @@ macOS has no cgroup filesystem. The `yolo-cglimit` helper inside the jail and
 the host-side cgroup delegation daemon are unavailable. This means:
 
 - `yolo-cglimit --cpu 50 --name job -- command` will not enforce CPU limits
-- The cgroup delegate socket (`/tmp/yolo-cgd/cgroup.sock`) is created as an
-  empty directory so the container volume mount succeeds, but no daemon listens
+- The cgroup delegate socket (`/run/yolo-services/cgroup-delegate.sock`) is not
+  created because no daemon listens; the host services directory is still mounted
+  so the container volume mount succeeds
 
 **Workaround:** Use Podman Machine's built-in resource controls to limit
 the VM's CPU/memory instead:

@@ -254,7 +254,7 @@ yolo-cglimit --cpu 75 --name training -- python train.py
 
 These limits are kernel-enforced via cgroup v2 and cannot be exceeded.
 
-**How it works**: `yolo-cglimit` sends a JSON request to the host-side daemon via a Unix socket at `/tmp/yolo-cgd/cgroup.sock`. The daemon creates a child cgroup in the container's cgroup tree on the host filesystem, sets resource limits, and moves the caller's process into it (using `SO_PEERCRED` for secure, kernel-attested PID identity). All operations are validated and logged for auditability.
+**How it works**: `yolo-cglimit` sends a JSON request to the host-side daemon via a Unix socket bind-mounted into the jail at `/run/yolo-services/cgroup-delegate.sock`. The daemon creates a child cgroup in the container's cgroup tree on the host filesystem, sets resource limits, and moves the caller's process into it (using `SO_PEERCRED` for secure, kernel-attested PID identity). All operations are validated and logged for auditability.
 
 **Security model**:
 - Cgroup names are strictly validated (alphanumeric + dash/underscore, no path traversal)
