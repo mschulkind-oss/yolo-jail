@@ -103,34 +103,28 @@ cachix-push CACHE="yolo-jail":
     nix --extra-experimental-features 'nix-command flakes' build .#ociImageMinimal --print-out-paths --no-link | cachix push {{CACHE}}
     @echo "Pushed both image variants to https://{{CACHE}}.cachix.org"
 
-# Run all tests (Python integration + Go full suite)
+# Run all tests (Go unit + Go container integration suite)
 test:
-    uv run --group dev python -m pytest tests/
-    go test ./...
+    go test -short ./...
+    go test -count=1 -timeout 0 ./integration
 
 # Run fast tests only (skip container integration tests).
 test-fast:
-    uv run --group dev python -m pytest tests/ -m "not slow" -n 4 --dist worksteal
     go test -short ./...
 
-# Run linter (Python: ruff; Go: vet + staticcheck)
+# Run linter (Go: vet + staticcheck)
 lint:
-    uv run ruff check .
     go vet ./...
     staticcheck ./...
 
 # Lint without auto-fix (CI mode — fails on violations, doesn't modify files).
 lint-ci:
-    uv run ruff check .
-    uv run ruff format --check .
     go vet ./...
     staticcheck ./...
     @dirty="$(gofmt -l $(git ls-files --cached --others --exclude-standard '*.go'))"; test -z "$dirty" || { echo "gofmt needs to run on:"; echo "$dirty"; exit 1; }
 
-# Format code (Python: ruff; Go: gofmt on tracked files)
+# Format code (Go: gofmt on tracked files)
 format:
-    uv run ruff check --fix .
-    uv run ruff format .
     gofmt -w $(git ls-files --cached --others --exclude-standard '*.go')
 
 # Quality checks (interactive use)
