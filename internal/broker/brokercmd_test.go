@@ -1,4 +1,4 @@
-package brokercmd
+package broker
 
 import (
 	"bytes"
@@ -9,11 +9,9 @@ import (
 	"syscall"
 	"testing"
 	"time"
-
-	"github.com/mschulkind-oss/yolo-jail/internal/brokerlifecycle"
 )
 
-// lifeState is a controllable brokerlifecycle.Deps backed by a temp dir.
+// lifeState is a controllable Deps backed by a temp dir.
 type lifeState struct {
 	alive     map[int]bool
 	pingOK    bool
@@ -22,13 +20,13 @@ type lifeState struct {
 	spawnBind bool // does the spawned daemon bind the socket?
 }
 
-func newLifeDeps(t *testing.T, st *lifeState) brokerlifecycle.Deps {
+func newLifeDeps(t *testing.T, st *lifeState) Deps {
 	t.Helper()
 	dir := t.TempDir()
 	if st.alive == nil {
 		st.alive = map[int]bool{}
 	}
-	return brokerlifecycle.Deps{
+	return Deps{
 		SocketPath:  filepath.Join(dir, "broker.sock"),
 		PIDFilePath: filepath.Join(dir, "broker.pid"),
 		LockPath:    filepath.Join(dir, "broker.lock"),
@@ -57,11 +55,11 @@ func newLifeDeps(t *testing.T, st *lifeState) brokerlifecycle.Deps {
 	}
 }
 
-func newDeps(t *testing.T, st *lifeState) (Deps, *bytes.Buffer) {
+func newDeps(t *testing.T, st *lifeState) (CLIDeps, *bytes.Buffer) {
 	t.Helper()
 	life := newLifeDeps(t, st)
 	var buf bytes.Buffer
-	return Deps{
+	return CLIDeps{
 		Life:      life,
 		Out:       &buf,
 		Err:       &buf,
@@ -78,7 +76,7 @@ func TestStatusHealthy(t *testing.T) {
 	// pid file + socket present.
 	_ = os.WriteFile(deps.Life.PIDFilePath, []byte("77\n"), 0o644)
 	_ = os.WriteFile(deps.Life.SocketPath, nil, 0o644)
-	rc := Status(deps)
+	rc := PrintStatus(deps)
 	if rc != 0 {
 		t.Errorf("healthy status rc = %d, want 0", rc)
 	}
@@ -100,7 +98,7 @@ func TestStatusHealthy(t *testing.T) {
 func TestStatusNotRunning(t *testing.T) {
 	st := &lifeState{}
 	deps, buf := newDeps(t, st)
-	rc := Status(deps)
+	rc := PrintStatus(deps)
 	if rc != 1 {
 		t.Errorf("not-running status rc = %d, want 1", rc)
 	}
@@ -124,7 +122,7 @@ func TestStatusDeadPIDExit1(t *testing.T) {
 	st := &lifeState{alive: map[int]bool{5: false}}
 	deps, buf := newDeps(t, st)
 	_ = os.WriteFile(deps.Life.PIDFilePath, []byte("5\n"), 0o644)
-	rc := Status(deps)
+	rc := PrintStatus(deps)
 	if rc != 1 {
 		t.Errorf("dead-pid status rc = %d, want 1", rc)
 	}
@@ -268,7 +266,7 @@ func TestColorMarkupRendersANSI(t *testing.T) {
 	deps.Color = true
 	_ = os.WriteFile(deps.Life.PIDFilePath, []byte("1\n"), 0o644)
 	_ = os.WriteFile(deps.Life.SocketPath, nil, 0o644)
-	Status(deps)
+	PrintStatus(deps)
 	out := buf.String()
 	if !strings.Contains(out, "\x1b[") {
 		t.Errorf("color mode should emit ANSI escapes:\n%q", out)

@@ -1,18 +1,19 @@
-// Package brokerlifecycle provides the Claude OAuth broker singleton lifecycle
-// helpers. The broker is a host-wide daemon —
-// one per host, serving every running jail — so these helpers inspect, ping,
-// spawn, and kill that singleton.
+// Package broker provides the Claude OAuth broker singleton — both the lifecycle
+// engine and the `yolo broker {status,stop,restart,logs}` command bodies. The
+// broker is a host-wide daemon — one per host, serving every running jail — so
+// the lifecycle helpers inspect, ping, spawn, and kill that singleton.
 //
-// This package is the lifecycle engine consumed by internal/brokercmd (the
-// `yolo broker {status,stop,restart,logs}` command bodies). Every side effect
-// (process liveness, kill, spawn, socket ping, filesystem, clock) is behind an
-// injectable Deps seam so the whole lifecycle is unit-testable against a fake
-// socket/pid without a live host daemon (the pscmd/loopholes precedent).
+// The lifecycle engine (this file) is consumed by the command layer (brokercmd.go)
+// in the same package. Every side effect (process liveness, kill, spawn, socket
+// ping, filesystem, clock) is behind an injectable Deps seam so the whole
+// lifecycle is unit-testable against a fake socket/pid without a live host daemon
+// (the pscmd/loopholes precedent). The command layer wraps that lifecycle Deps in
+// its own CLIDeps (console writers + tail runner).
 //
 // The socket/pid/lock PATH strings are cross-language singleton contracts: a
 // Python yolo and a Go yolo on the same host MUST agree on them or they'd spawn
 // two brokers. They are byte-identical to loopholes_runtime.BROKER_SINGLETON_*.
-package brokerlifecycle
+package broker
 
 import (
 	"io"

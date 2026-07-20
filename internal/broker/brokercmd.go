@@ -1,17 +1,16 @@
-// Package brokercmd implements the `yolo broker {status,stop,restart,logs}`
-// command group. The Claude OAuth broker is a
-// host-wide singleton — one daemon for every running jail — and this group
-// manages it: inspect health, stop it, cycle it after a wheel upgrade, tail its
-// log.
-// The lifecycle engine (BrokerStatus/IsAlive/Kill/Spawn/Ping) lives in
-// internal/brokerlifecycle behind an injectable Deps seam; this package is the
-// thin command body. Output is rich-console → INFO-parity (same information,
-// Go-native color) per the approved output-contract OQ; the EXIT CODES and the
-// socket/pid/log PATH strings are byte-exact vs Python.
+// The `yolo broker {status,stop,restart,logs}` command group. The Claude OAuth
+// broker is a host-wide singleton — one daemon for every running jail — and this
+// group manages it: inspect health, stop it, cycle it after a wheel upgrade,
+// tail its log.
+// The lifecycle engine (BrokerStatus/IsAlive/Kill/Spawn/Ping) lives alongside
+// these command bodies in this package, behind an injectable Deps seam; the
+// command layer is the thin body over it. Output is rich-console → INFO-parity
+// (same information, Go-native color) per the approved output-contract OQ; the
+// EXIT CODES and the socket/pid/log PATH strings are byte-exact vs Python.
 // Wiring is the orchestrator's job (a one-line runBroker dispatcher in
-// cmd/yolo/native.go). This package only exposes clean importable funcs
-// (Status/Stop/Restart/Logs) + RealDeps.
-package brokercmd
+// cmd/yolo/native.go). This file exposes clean importable funcs
+// (PrintStatus/Stop/Restart/Logs) + CLIRealDeps.
+package broker
 
 import (
 	"fmt"
@@ -20,18 +19,16 @@ import (
 	"os/exec"
 	"strconv"
 	"syscall"
-
-	"github.com/mschulkind-oss/yolo-jail/internal/brokerlifecycle"
 )
 
-// Deps are the injectable seams for the command bodies. Life is the lifecycle
+// CLIDeps are the injectable seams for the command bodies. Life is the lifecycle
 // engine's Deps; the command layer wraps it. Out/Err are the console writers;
 // Color enables ANSI markup rendering (info-parity, not rich byte-parity).
 // RunTail runs the `tail` argv attached to the terminal (logs -f blocks); a
 // test substitutes a no-op. LogIsFile reports whether the broker log exists as a
 // regular file).
-type Deps struct {
-	Life      brokerlifecycle.Deps
+type CLIDeps struct {
+	Life      Deps
 	Out, Err  io.Writer
 	Color     bool
 	LogPath   string
@@ -39,11 +36,11 @@ type Deps struct {
 	RunTail   func(argv []string) error
 }
 
-// RealDeps returns Deps backed by the real lifecycle engine, stdout/stderr, and
-// a `tail` that inherits the terminal.
-func RealDeps() Deps {
-	life := brokerlifecycle.RealDeps()
-	return Deps{
+// CLIRealDeps returns CLIDeps backed by the real lifecycle engine, stdout/stderr,
+// and a `tail` that inherits the terminal.
+func CLIRealDeps() CLIDeps {
+	life := RealDeps()
+	return CLIDeps{
 		Life:    life,
 		Out:     os.Stdout,
 		Err:     os.Stderr,
@@ -63,11 +60,11 @@ func RealDeps() Deps {
 	}
 }
 
-// Status ports broker_status_cmd: print the health snapshot, then exit 0 when
-// the broker is healthy (pid_live AND ping_ok), else print the cycle hint and
-// exit 1. The snapshot line CONTENT is info-parity; the exit code is exact.
-func Status(deps Deps) int {
-	st := brokerlifecycle.BrokerStatus(deps.Life)
+// PrintStatus ports broker_status_cmd: print the health snapshot, then exit 0
+// when the broker is healthy (pid_live AND ping_ok), else print the cycle hint
+// and exit 1. The snapshot line CONTENT is info-parity; the exit code is exact.
+func PrintStatus(deps CLIDeps) int {
+	st := BrokerStatus(deps.Life)
 	out := printer{w: deps.Out, color: deps.Color}
 
 	out.print("[bold]Claude OAuth broker (singleton)[/bold]")
@@ -104,8 +101,8 @@ func Status(deps Deps) int {
 
 // Stop ports broker_stop_cmd: kill the running singleton (if any). Next jail
 // access lazily respawns. Always exits 0 (no typer.Exit in the Python body).
-func Stop(deps Deps) int {
-	stopped := brokerlifecycle.BrokerKill(deps.Life, syscall.SIGTERM, brokerlifecycle.BrokerKillTimeout)
+func Stop(deps CLIDeps) int {
+	stopped := BrokerKill(deps.Life, syscall.SIGTERM, BrokerKillTimeout)
 	out := printer{w: deps.Out, color: deps.Color}
 	if stopped {
 		out.print("[green]Stopped broker.[/green]")
@@ -119,11 +116,11 @@ func Stop(deps Deps) int {
 // a fresh one — the canonical way to pick up a new wheel's broker code without
 // restarting every jail. Exit 0 with `socket=<path>` when the broker becomes
 // live; exit 1 with the log-path hint otherwise.
-func Restart(deps Deps) int {
-	brokerlifecycle.BrokerKill(deps.Life, syscall.SIGTERM, brokerlifecycle.BrokerKillTimeout)
-	sock := brokerlifecycle.BrokerSpawn(deps.Life)
+func Restart(deps CLIDeps) int {
+	BrokerKill(deps.Life, syscall.SIGTERM, BrokerKillTimeout)
+	sock := BrokerSpawn(deps.Life)
 	out := printer{w: deps.Out, color: deps.Color}
-	if brokerlifecycle.BrokerIsAlive(deps.Life) {
+	if BrokerIsAlive(deps.Life) {
 		out.printf("[green]Broker restarted.[/green]  socket=%s", sock)
 		return 0
 	}
@@ -136,7 +133,7 @@ func Restart(deps Deps) int {
 // doesn't exist yet, print the dim "no log" line and exit 0. Otherwise build the
 // tail argv byte-exact vs Python — ["tail", "-n<lines>", maybe "-f", <path>] —
 // and run it. KeyboardInterrupt (Ctrl-C on `-f`) is swallowed (exit 0).
-func Logs(deps Deps, lines int, follow bool) int {
+func Logs(deps CLIDeps, lines int, follow bool) int {
 	out := printer{w: deps.Out, color: deps.Color}
 	if !deps.LogIsFile(deps.LogPath) {
 		out.printf("[dim]No log file yet at %s[/dim]", deps.LogPath)

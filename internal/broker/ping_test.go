@@ -1,4 +1,4 @@
-package brokerlifecycle
+package broker
 
 import (
 	"net"

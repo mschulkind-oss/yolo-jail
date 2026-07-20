@@ -1,4 +1,4 @@
-package brokercmd
+package broker
 
 import "strings"
 

@@ -9,7 +9,7 @@ import (
 	"strconv"
 	"strings"
 
-	"github.com/mschulkind-oss/yolo-jail/internal/brokercmd"
+	"github.com/mschulkind-oss/yolo-jail/internal/broker"
 	"github.com/mschulkind-oss/yolo-jail/internal/builder"
 	"github.com/mschulkind-oss/yolo-jail/internal/checkcmd"
 	"github.com/mschulkind-oss/yolo-jail/internal/configref"
@@ -133,14 +133,14 @@ func runBroker(args []string) int {
 		sub = args[1]
 		rest = args[2:]
 	}
-	deps := brokercmd.RealDeps()
+	deps := broker.CLIRealDeps()
 	switch sub {
 	case "status":
-		return brokercmd.Status(deps)
+		return broker.PrintStatus(deps)
 	case "stop":
-		return brokercmd.Stop(deps)
+		return broker.Stop(deps)
 	case "restart":
-		return brokercmd.Restart(deps)
+		return broker.Restart(deps)
 	case "logs":
 		// -n/--lines (default 50) and -f/--follow.
 		lines, follow := 50, false
@@ -166,7 +166,7 @@ func runBroker(args []string) int {
 				}
 			}
 		}
-		return brokercmd.Logs(deps, lines, follow)
+		return broker.Logs(deps, lines, follow)
 	default:
 		fmt.Fprintf(os.Stderr, "Usage: yolo broker {status|stop|restart|logs}\n")
 		return 1

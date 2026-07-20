@@ -312,7 +312,7 @@ func (o *Options) resolveContainerCgroup(cname, rt string) string {
 // daemonLauncher resolves a console-script daemon name to its launch argv via a
 // plain PATH lookup: the console script IS the Go binary on PATH now. Returns
 // nil when the name isn't on PATH (that nil-vs-bare-name difference vs
-// brokerlifecycle.DaemonLauncher is preserved pending their unification). The
+// broker.DaemonLauncher is preserved pending their unification). The
 // former YOLO_GO_DAEMONS/YOLO_GO_BIN_DIR migration seam (dead — nothing set
 // those vars) was removed.
 func (o *Options) daemonLauncher(consoleName string) []string {
@@ -370,7 +370,7 @@ func (o *Options) brokerSpawn() {
 	_ = os.MkdirAll(logDir, 0o755)
 	// Self-exec'd `yolo internal daemon claude-oauth-broker --socket <sock>`: the
 	// running yolo re-execs itself as the broker host daemon (full dedup onto
-	// internal/brokerlifecycle.BrokerSpawn is a later step).
+	// internal/broker.BrokerSpawn is a later step).
 	argv := execx.SelfExecArgv([]string{"yolo", "internal", "daemon", "claude-oauth-broker", "--socket", brokerSingletonSocket})
 	cmd := exec.Command(argv[0], argv[1:]...)
 	if l, err := os.OpenFile(filepath.Join(logDir, "host-service-claude-oauth-broker.log"), os.O_APPEND|os.O_CREATE|os.O_WRONLY, 0o644); err == nil {
