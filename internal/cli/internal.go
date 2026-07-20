@@ -3,9 +3,11 @@ package cli
 import (
 	"fmt"
 	"os"
+	"strings"
 
 	"github.com/mschulkind-oss/yolo-jail/internal/brokerrelay"
 	"github.com/mschulkind-oss/yolo-jail/internal/config"
+	"github.com/mschulkind-oss/yolo-jail/internal/hostmigrate"
 	"github.com/mschulkind-oss/yolo-jail/internal/hostprocesses"
 	"github.com/mschulkind-oss/yolo-jail/internal/journald"
 	"github.com/mschulkind-oss/yolo-jail/internal/jsonx"
@@ -19,7 +21,7 @@ import (
 // rewrite semantics.
 func runInternal(args []string) int {
 	if len(args) == 0 {
-		fmt.Fprintln(os.Stderr, "usage: yolo internal <config-dump|daemon> [args...]")
+		fmt.Fprintln(os.Stderr, "usage: yolo internal <config-dump|daemon|migrate-host> [args...]")
 		return 2
 	}
 	switch args[0] {
@@ -27,6 +29,8 @@ func runInternal(args []string) int {
 		return runConfigDump(args[1:])
 	case "daemon":
 		return runInternalDaemon(args[1:])
+	case "migrate-host":
+		return runMigrateHost(args[1:])
 	default:
 		fmt.Fprintf(os.Stderr, "yolo internal: unknown command %q\n", args[0])
 		return 2
@@ -57,6 +61,44 @@ func runInternalDaemon(args []string) int {
 		fmt.Fprintf(os.Stderr, "yolo internal daemon: unknown daemon %q\n", args[0])
 		return 2
 	}
+}
+
+// runMigrateHost retires host-side artifacts left by the pre-Go (Python)
+// distribution, so `go install ./cmd/yolo` can land its binary. The Justfile
+// `install` recipe runs it through `go run` immediately before `go install` —
+// it cannot live in the installed binary's startup path, because the whole
+// point is to unblock the install that produces that binary.
+//
+// Flags: --gobin=DIR (default: $GOBIN, else $GOPATH/bin).
+func runMigrateHost(args []string) int {
+	gobin := ""
+	for _, a := range args {
+		switch {
+		case strings.HasPrefix(a, "--gobin="):
+			gobin = strings.TrimPrefix(a, "--gobin=")
+		case len(a) > 0 && a[0] == '-':
+			fmt.Fprintf(os.Stderr, "migrate-host: unknown flag %q\n", a)
+			return 2
+		default:
+			fmt.Fprintf(os.Stderr, "migrate-host: unexpected argument %q\n", a)
+			return 2
+		}
+	}
+
+	if gobin == "" {
+		resolved, err := hostmigrate.DefaultGOBIN()
+		if err != nil {
+			fmt.Fprintln(os.Stderr, "migrate-host:", err)
+			return 1
+		}
+		gobin = resolved
+	}
+
+	if _, err := hostmigrate.New(gobin).Preflight(); err != nil {
+		fmt.Fprintf(os.Stderr, "\nyolo-jail: cannot install over an existing file.\n  %v\n", err)
+		return 1
+	}
+	return 0
 }
 
 // runConfigDump loads + merges the config for a workspace (default: cwd) via

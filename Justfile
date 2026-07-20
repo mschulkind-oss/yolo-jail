@@ -15,8 +15,26 @@ install:
     VERSION="$(git describe --tags --always --dirty 2>/dev/null || echo unknown)"
     COMMIT="$(git rev-parse --short HEAD 2>/dev/null || echo unknown)"
     LDFLAGS="-X github.com/mschulkind-oss/yolo-jail/internal/version.buildVersion=${VERSION} -X github.com/mschulkind-oss/yolo-jail/internal/version.GitCommit=${COMMIT}"
+
+    # --- Retire the pre-Go (Python) install ---
+    # Upgrading from the uv-installed Python distribution leaves console-script
+    # symlinks in GOBIN. `go install` refuses to overwrite the one named `yolo`
+    # ("already exists and is not an object file"), so clear them first. Runs
+    # via `go run` because it has to happen before the install it unblocks.
+    go run ./cmd/yolo internal migrate-host
+
     go install -ldflags "$LDFLAGS" ./cmd/yolo
-    echo "Installed to $(go env GOBIN 2>/dev/null || echo "$(go env GOPATH)/bin")"
+    GOBIN_DIR="$(go env GOBIN 2>/dev/null || true)"
+    [ -n "$GOBIN_DIR" ] || GOBIN_DIR="$(go env GOPATH)/bin"
+    echo "Installed to $GOBIN_DIR"
+
+    # Warn if PATH resolves `yolo` to some other install (a Homebrew copy, say)
+    # — go install would have succeeded while the old binary still wins.
+    RESOLVED="$(command -v yolo 2>/dev/null || true)"
+    if [ -n "$RESOLVED" ] && [ "$RESOLVED" != "$GOBIN_DIR/yolo" ]; then
+        echo "⚠ PATH resolves yolo to $RESOLVED, not the copy just installed at $GOBIN_DIR/yolo." >&2
+        echo "  Remove the other install, or put $GOBIN_DIR earlier in PATH." >&2
+    fi
 
 # Install yolo CLI and prime the Claude OAuth broker state. Safe to re-run.
 deploy: install
