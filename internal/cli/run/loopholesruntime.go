@@ -232,9 +232,10 @@ func (o *Options) startExternalService(name string, spec *jsonx.OrderedMap, sock
 		o.pr(o.Stdout).print("[red]Failed to launch host service '" + name + "': " + err.Error() + "[/red]")
 		return loopholeDaemon{}, false
 	}
-	// Wait for the socket to bind (5s).
-	deadline := o.Now().Add(5 * time.Second)
-	for o.Now().Before(deadline) {
+	// Wait for the socket to bind (5s). Real wall clock, deliberately NOT
+	// o.Now() — see relayKill below.
+	deadline := time.Now().Add(5 * time.Second)
+	for time.Now().Before(deadline) {
 		if fileExists(hostSocket) {
 			break
 		}
@@ -400,7 +401,7 @@ func (o *Options) relayIsAlive(pidFile, sockPath string) bool {
 	if !ok {
 		return socketConnectable(sockPath, 2*time.Second)
 	}
-	if !pidAlive(pid) {
+	if !o.PIDAlive(pid) {
 		return false
 	}
 	if !o.PathExists(sockPath) {
@@ -415,7 +416,7 @@ func (o *Options) relayIsAlive(pidFile, sockPath string) bool {
 // misfire is bounded by the pidAlive check.
 func (o *Options) relayKill(pidFile, sockPath string) {
 	pid, ok := readPIDFile(pidFile)
-	if ok && pidAlive(pid) {
+	if ok && o.PIDAlive(pid) {
 		_ = syscall.Kill(pid, syscall.SIGTERM)
 		// Real wall clock, deliberately NOT o.Now(). o.Now is an injectable
 		// logical clock that tests freeze to make reap decisions
@@ -425,12 +426,12 @@ func (o *Options) relayKill(pidFile, sockPath string) {
 		// reason.
 		deadline := time.Now().Add(3 * time.Second)
 		for time.Now().Before(deadline) {
-			if !pidAlive(pid) {
+			if !o.PIDAlive(pid) {
 				break
 			}
 			time.Sleep(50 * time.Millisecond)
 		}
-		if pidAlive(pid) {
+		if o.PIDAlive(pid) {
 			_ = syscall.Kill(pid, syscall.SIGKILL)
 		}
 	}
@@ -476,8 +477,9 @@ func (o *Options) relayReapOrphansIn(base string, liveKnown bool, liveCnames map
 }
 
 func (o *Options) waitForSocket(sockPath string, timeout time.Duration) {
-	deadline := o.Now().Add(timeout)
-	for o.Now().Before(deadline) {
+	// Real wall clock, deliberately NOT o.Now() — see relayKill above.
+	deadline := time.Now().Add(timeout)
+	for time.Now().Before(deadline) {
 		if o.PathExists(sockPath) {
 			return
 		}

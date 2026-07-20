@@ -58,12 +58,16 @@ func (o *Options) startHostPortForwarding(forwardHostPorts []any, cname string, 
 
 	// Wait for the socket files (condition-poll, fast path + deadline).
 	if len(procs) > 0 {
-		deadline := o.Now().Add(SocketWaitDeadline)
+		// Real wall clock, deliberately NOT o.Now() — see relayKill's rationale
+		// in loopholesruntime.go. o.Now is an injectable logical clock that
+		// tests freeze to make decisions deterministic; a drain/poll loop built
+		// on it never advances past its deadline and spins forever.
+		deadline := time.Now().Add(SocketWaitDeadline)
 		for {
 			if allExist(expected) {
 				break
 			}
-			if !o.Now().Before(deadline) {
+			if !time.Now().Before(deadline) {
 				var missing []string
 				for _, s := range expected {
 					if !fileExists(s) {

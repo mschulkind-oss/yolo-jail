@@ -129,7 +129,7 @@ func (o *Options) assembleRunCmd(in *assembleInput) []string {
 		// insert("--cgroupns=private", 3)
 		runFlags = insertAt(runFlags, 3, "--cgroupns=private")
 	}
-	if rt == "podman" && paths.IsLinux {
+	if rt == "podman" && o.IsLinux {
 		runFlags = append(runFlags, "--read-only-tmpfs=false")
 	}
 	if rt == "podman" {
@@ -146,7 +146,7 @@ func (o *Options) assembleRunCmd(in *assembleInput) []string {
 	if rt == "container" {
 		runCmd = appleContainerBaseMounts(rt, runFlags, o.Workspace, in.wsState)
 	} else {
-		runCmd = podmanBaseMounts(rt, runFlags, o.Workspace, in)
+		runCmd = podmanBaseMounts(rt, runFlags, o.Workspace, in, o.IsMacOS)
 		// Ephemeral scratch dirs.
 		runCmd = append(runCmd, ScratchMountArgs(cfgStr(cfg, "ephemeral_storage"))...)
 		// Per-agent config-dir overlays (selected agents only).

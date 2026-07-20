@@ -34,7 +34,9 @@ func appleContainerBaseMounts(rt string, runFlags []string, workspace, wsState s
 // podmanBaseMounts runs the else-branch base run_cmd (1751-1818): the :ro
 // GLOBAL_HOME base + the per-workspace writable overlays (dirs, files) + the
 // mise store mount (named volume on macOS, bind dir otherwise).
-func podmanBaseMounts(rt string, runFlags []string, workspace string, in *assembleInput) []string {
+// isMacOS comes from the Options seam, never paths.IsMacOS, so the golden argv
+// is the same on every host.
+func podmanBaseMounts(rt string, runFlags []string, workspace string, in *assembleInput, isMacOS bool) []string {
 	ws := in.wsState
 	runCmd := append([]string{rt, "run"}, runFlags...)
 	runCmd = append(runCmd,
@@ -57,7 +59,7 @@ func podmanBaseMounts(rt string, runFlags []string, workspace string, in *assemb
 		"-v", filepath.Join(ws, "ssh")+":/home/agent/.ssh",
 	)
 	// mise store: named volume on macOS, bind dir otherwise.
-	if paths.IsMacOS {
+	if isMacOS {
 		runCmd = append(runCmd, "-v", miseStoreVolume+":/mise")
 	} else {
 		runCmd = append(runCmd, "-v", in.miseStore+":/mise")

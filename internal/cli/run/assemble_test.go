@@ -2,6 +2,7 @@ package run
 
 import (
 	"path/filepath"
+	"slices"
 	"testing"
 	"time"
 
@@ -38,10 +39,18 @@ func newConfig(pairs ...any) *jsonx.OrderedMap {
 
 // goldenOptions returns Options wired for a deterministic podman/linux fixture:
 // no binaries, no subprocesses, no tty, no device nodes present.
+//
+// Every platform/host-environment seam is pinned so the fixture describes a
+// LINUX host regardless of the host the test runs on: IsMacOS/IsLinux (the
+// compile-time platform), PathExists (device nodes, /run/.containerenv, the
+// host nix store), Getenv, LookPath and Exec (host binaries), plus the tty
+// probes. Assembly code must read these fields — never paths.IsLinux /
+// paths.IsMacOS — or the golden argv silently diverges off Linux.
 func goldenOptions(workspace, home string) *Options {
 	o := &Options{
 		Network:     "bridge",
 		IsMacOS:     false,
+		IsLinux:     true,
 		Workspace:   workspace,
 		Getenv:      func(string) string { return "" },
 		LookPath:    func(string) (string, bool) { return "", false },
@@ -106,6 +115,60 @@ func TestAssembleRunCmdPodmanLinuxGolden(t *testing.T) {
 		if got[i] != want[i] {
 			t.Errorf("argv[%d] = %q, want %q", i, got[i], want[i])
 		}
+	}
+}
+
+// TestAssemblePlatformSeamsInjectable is the regression for the host-dependent
+// golden: the argv's two platform-conditional elements must follow the Options
+// seams, so BOTH platform shapes are reachable from a single host. When the
+// assembler read paths.IsLinux/paths.IsMacOS instead, this table was
+// unwritable — every row produced the host's own answer, and the Linux golden
+// failed on the macOS runner (--read-only-tmpfs=false dropped, the mise bind
+// mount swapped for the named volume).
+func TestAssemblePlatformSeamsInjectable(t *testing.T) {
+	cases := []struct {
+		name            string
+		isLinux         bool
+		isMacOS         bool
+		wantROTmpfs     bool
+		wantMiseMountAt string
+	}{
+		{"linux", true, false, true, "/mise-store:/mise"},
+		{"macos", false, true, false, miseStoreVolume + ":/mise"},
+	}
+	for _, tc := range cases {
+		t.Run(tc.name, func(t *testing.T) {
+			home := t.TempDir()
+			t.Setenv("HOME", home)
+			emptyLoopholeDirs(t)
+			o := goldenOptions("/ws", home)
+			o.IsLinux, o.IsMacOS = tc.isLinux, tc.isMacOS
+
+			sec := jsonx.NewOrderedMap()
+			sec.Set("blocked_tools", []any{})
+			got := o.assembleRunCmd(&assembleInput{
+				cfg:          newConfig("agents", []any{"claude"}, "security", sec),
+				rt:           "podman",
+				cname:        "yolo-ws-abcd1234",
+				repoRoot:     "/repo",
+				agentsList:   []string{"claude"},
+				agentSpecs:   agents.ResolveAgents([]string{"claude"}),
+				agentsPath:   "/agents/yolo-ws-abcd1234",
+				wsState:      "/ws/.yolo/home",
+				miseStore:    "/mise-store",
+				yoloVersion:  "9.9.9-test",
+				mountTargets: map[string]struct{}{},
+			})
+
+			if slices.Contains(got, "--read-only-tmpfs=false") != tc.wantROTmpfs {
+				t.Errorf("--read-only-tmpfs=false present=%v, want %v (IsLinux=%v)",
+					!tc.wantROTmpfs, tc.wantROTmpfs, tc.isLinux)
+			}
+			if !slices.Contains(got, tc.wantMiseMountAt) {
+				t.Errorf("mise mount %q missing (IsMacOS=%v); argv: %v",
+					tc.wantMiseMountAt, tc.isMacOS, got)
+			}
+		})
 	}
 }
 

@@ -24,6 +24,7 @@ func TestAppleContainerMaterializesSingleFiles(t *testing.T) {
 	emptyLoopholeDirs(t)
 	o := goldenOptions(ws, home)
 	o.IsMacOS = true
+	o.IsLinux = false
 
 	wsState := filepath.Join(ws, ".yolo", "home")
 	if err := os.MkdirAll(wsState, 0o755); err != nil {

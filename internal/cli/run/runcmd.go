@@ -66,8 +66,16 @@ type Options struct {
 	Stdin io.Reader
 	// Color enables ANSI styling in the human output.
 	Color bool
-	// IsMacOS overrides the compile-time platform.
+	// IsMacOS / IsLinux override the compile-time platform. Both exist because
+	// the argv assembly asks two different questions ("is this a mac host?" for
+	// the mise named-volume, "is this a Linux host?" for podman's
+	// --read-only-tmpfs) and a golden test must be able to pin each one
+	// independently of the host it runs on. Reading paths.IsLinux /
+	// paths.IsMacOS directly from assembly code bypasses the seam and makes the
+	// golden argv host-dependent — that is exactly how
+	// TestAssembleRunCmdPodmanLinuxGolden started failing on the macOS runner.
 	IsMacOS bool
+	IsLinux bool
 	// Workspace is Path.cwd() — the directory whose jail is launched. "" => cwd.
 	Workspace string
 	// RepoRoot resolves the yolo-jail repo root for nix builds (with the
@@ -79,6 +87,14 @@ type Options struct {
 	// Getpid returns the current PID (owner-PID file, out-link name). nil =>
 	// os.Getpid.
 	Getpid func() int
+	// PIDAlive probes whether a recorded PID is still running — the gate in
+	// front of every kill/reap decision. nil => pidAlive. Injectable because a
+	// test that hands real PIDs to relayKill is signalling real processes: a
+	// PID reaped moments earlier can already have been RECYCLED (macOS wraps at
+	// PID_MAX 99999, four orders of magnitude below Linux's default 4194304),
+	// and the drain loop then SIGTERMs — and 3s later SIGKILLs — some unrelated
+	// process, quite possibly a sibling `go test` binary.
+	PIDAlive func(int) bool
 	// IsTTYStdout / IsTTYStdin report tty-ness (the -t flag, the approval
 	// prompt, the tty-proxy fallback). nil => real isatty.
 	IsTTYStdout func() bool
@@ -137,6 +153,9 @@ func fillDefaults(o *Options) {
 	}
 	if o.Getpid == nil {
 		o.Getpid = os.Getpid
+	}
+	if o.PIDAlive == nil {
+		o.PIDAlive = pidAlive
 	}
 	if o.IsTTYStdout == nil {
 		o.IsTTYStdout = func() bool { return isTTY(os.Stdout) }
@@ -208,7 +227,7 @@ func isTTY(f *os.File) bool {
 // NewDefaultOptions returns Options with the real platform predicate — the
 // shape the CLI front door passes (then overrides the flags).
 func NewDefaultOptions() Options {
-	return Options{Network: "bridge", IsMacOS: paths.IsMacOS}
+	return Options{Network: "bridge", IsMacOS: paths.IsMacOS, IsLinux: paths.IsLinux}
 }
 
 // RunWithProxy launches argv under the platform-appropriate TTY proxy (Linux:

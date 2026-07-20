@@ -10,24 +10,25 @@ import (
 	"time"
 )
 
-// deadPID returns the PID of a process that has already exited and been
-// reaped, so relayKill's liveness probe short-circuits before it signals
-// anything.
+// stubDeadPIDs makes every liveness probe answer "dead", so the reap sweep
+// exercises its decision logic without relayKill ever signalling a real PID.
 //
-// Do not hardcode a low PID here. On a typical Linux host PID 123 is a live
-// kernel thread (scsi_eh_*), which this test would then SIGTERM — and on a
-// host where the test user owns that PID, `go test` would kill a real
-// process.
-func deadPID(t *testing.T) int {
-	t.Helper()
-	cmd := exec.Command("sh", "-c", "exit 0")
-	if err := cmd.Start(); err != nil {
-		t.Skipf("cannot spawn a throwaway process: %v", err)
-	}
-	pid := cmd.Process.Pid
-	_ = cmd.Wait() // reaped: the PID is now dead, not a zombie
-	return pid
+// Spawning a throwaway process and reusing its PID as a known-dead one does NOT
+// work: the OS is free to recycle that PID immediately, and macOS — which wraps
+// at PID_MAX 99999, four orders of magnitude below Linux's default 4194304 —
+// does so readily on a busy `go test ./...` runner. When that happened in CI the
+// sweep took the live branch and SIGTERMed an unrelated process; before
+// relayKill's deadline was moved onto the wall clock, the drain loop then spun
+// against this test's frozen o.Now and hung the whole package until the 10m
+// test timeout fired. Never hand a real PID to kill-path code under test.
+func stubDeadPIDs(o *Options) {
+	o.PIDAlive = func(int) bool { return false }
 }
+
+// arbitraryPID is a placeholder written into the fixture pid files. It is never
+// signalled (stubDeadPIDs reports it dead), so its value is irrelevant — which
+// is precisely the property this fixture needs.
+const arbitraryPID = 424242
 
 // TestRelayKillFrozenClockTerminates pins the drain loop against a frozen
 // o.Now. relayKill's SIGTERM→wait→SIGKILL escalation must time out on the real
@@ -88,10 +89,9 @@ func TestRelayReapOrphansCnameFold(t *testing.T) {
 	currentName := "yolo-current-1111" // this jail — NOT in the live set yet
 	liveSibling := "yolo-sibling-2222" // a running sibling jail
 	orphanName := "yolo-orphan-3333"   // dead jail, relay leaked
-	dead := deadPID(t)
 	writePid := func(cname string) string {
 		p := filepath.Join(base, "yolo-broker-relay-"+relayShortHash(cname)+".pid")
-		if err := os.WriteFile(p, []byte(strconv.Itoa(dead)+"\n"), 0o644); err != nil {
+		if err := os.WriteFile(p, []byte(strconv.Itoa(arbitraryPID)+"\n"), 0o644); err != nil {
 			t.Fatal(err)
 		}
 		// Age past the grace floor so mtime alone doesn't spare it.
@@ -107,10 +107,25 @@ func TestRelayReapOrphansCnameFold(t *testing.T) {
 	o := &Options{Now: func() time.Time { return now }}
 	fillDefaults(o)
 	o.Now = func() time.Time { return now }
+	stubDeadPIDs(o)
 
 	// Live set contains only the sibling; the current jail is folded in by cname.
 	live := map[string]struct{}{liveSibling: {}}
-	reaped := o.relayReapOrphansIn(base, true, live, currentName)
+
+	// Bounded, like TestRelayKillFrozenClockTerminates: a regression in the
+	// kill path must FAIL this test, not hang the package until go test's 10m
+	// timeout — the opaque way the original frozen-clock spin presented in CI.
+	var reaped []string
+	done := make(chan struct{})
+	go func() {
+		reaped = o.relayReapOrphansIn(base, true, live, currentName)
+		close(done)
+	}()
+	select {
+	case <-done:
+	case <-time.After(30 * time.Second):
+		t.Fatal("relayReapOrphansIn did not terminate — the reap/kill path is spinning")
+	}
 
 	if !reflect.DeepEqual(reaped, []string{orphanPid}) {
 		t.Errorf("reaped %v, want [%s]", reaped, orphanPid)
@@ -137,7 +152,7 @@ func TestRelayReapOrphansUnknownLivenessDeclines(t *testing.T) {
 	now := time.Now()
 	old := now.Add(-2 * time.Hour)
 	orphan := filepath.Join(base, "yolo-broker-relay-"+relayShortHash("yolo-dead-9999")+".pid")
-	if err := os.WriteFile(orphan, []byte("123\n"), 0o644); err != nil {
+	if err := os.WriteFile(orphan, []byte(strconv.Itoa(arbitraryPID)+"\n"), 0o644); err != nil {
 		t.Fatal(err)
 	}
 	if err := os.Chtimes(orphan, old, old); err != nil {
@@ -147,6 +162,7 @@ func TestRelayReapOrphansUnknownLivenessDeclines(t *testing.T) {
 	o := &Options{Now: func() time.Time { return now }}
 	fillDefaults(o)
 	o.Now = func() time.Time { return now }
+	stubDeadPIDs(o)
 
 	reaped := o.relayReapOrphansIn(base, false, nil, "yolo-current-0000")
 	if len(reaped) != 0 {

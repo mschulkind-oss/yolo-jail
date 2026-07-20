@@ -162,7 +162,7 @@ func (o *Options) reapOrphanedJails(rt string) {
 		if err != nil {
 			continue
 		}
-		if !pidAlive(pid) {
+		if !o.PIDAlive(pid) {
 			out.printf("[dim]Reaping orphaned jail %s (owner pid %d is gone)...[/dim]", name, pid)
 			o.stopJail(name, rt)
 		}
