@@ -408,12 +408,3 @@ func skipIfInContainer(t *testing.T) {
 		t.Skip("mise has a re-entrant shim deadlock in nested containers (podman-in-podman)")
 	}
 }
-
-// The helpers below are exercised by test files added in later steps of the
-// integration-suite port. Referencing them here keeps staticcheck's U1000 quiet
-// while each step lands as its own green commit; this sink shrinks and is
-// removed as the ported tests arrive.
-var _ = []any{
-	skipIfCgroupReadonly, skipIfInContainer,
-	withTimeout,
-}
