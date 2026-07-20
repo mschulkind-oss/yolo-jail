@@ -1,17 +1,11 @@
 version: 2
 updates:
-  - package-ecosystem: "pip"
-    directory: "/"
-    schedule:
-      interval: "weekly"
-
   - package-ecosystem: "github-actions"
     directory: "/"
     schedule:
       interval: "weekly"
 
-  # go-port: Go module dependencies (vendored, vendorHash=null — see
-  # docs/plans/go-port-plan.md §3).
+  # Go module dependencies (vendored; vendorHash=null in flake.nix).
   - package-ecosystem: "gomod"
     directory: "/"
     schedule:

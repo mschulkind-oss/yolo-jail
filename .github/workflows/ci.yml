@@ -30,8 +30,13 @@ jobs:
         with:
           extra_args: --only-verified
 
-  # The Go tree gets its own job: `go vet` + the short test suite, which
-  # includes guards nothing else enforces automatically (TestEmbedMatchesTree —
+  # The Go tree gets its own job, running the SAME gate as the local
+  # pre-commit hook: `just check-ci` = go vet + staticcheck + a gofmt
+  # cleanliness check + the short test suite.  Invoking the Justfile recipe
+  # rather than inlining the commands is deliberate — it's the only way CI
+  # and the hook can't drift, and it was drift that let staticcheck/gofmt go
+  # unenforced on any push from a machine without the hook.  The short suite
+  # carries guards nothing else enforces automatically (TestEmbedMatchesTree —
   # the go:embed/tree sync for bundled loopholes; the version stamp contract;
   # the config/argv regression suites).
   check-go:
@@ -45,11 +50,21 @@ jobs:
         with:
           go-version-file: go.mod
 
-      - name: Vet
-        run: go vet ./...
+      # `just check-ci` needs `just` itself plus staticcheck.  Installed
+      # directly rather than through mise-action so this job doesn't also
+      # drag in the Node toolchain that mise.toml pins for local dev.
+      - name: Install just and staticcheck
+        run: |
+          set -euo pipefail
+          mkdir -p "$HOME/.local/bin"
+          curl --proto '=https' --tlsv1.2 -sSf https://just.systems/install.sh \
+            | bash -s -- --to "$HOME/.local/bin"
+          echo "$HOME/.local/bin" >> "$GITHUB_PATH"
+          go install honnef.co/go/tools/cmd/staticcheck@latest
+          echo "$(go env GOPATH)/bin" >> "$GITHUB_PATH"
 
-      - name: Unit tests
-        run: go test -short ./...
+      - name: Quality gate (vet + staticcheck + gofmt + short tests)
+        run: just check-ci
 
   check-macos:
     runs-on: macos-latest

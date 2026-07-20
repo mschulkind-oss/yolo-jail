@@ -4,6 +4,19 @@ runtime := env("YOLO_RUNTIME", "podman")
 default:
     @just --list
 
+# One-time developer setup: toolchain (mise) + Go module deps.
+setup:
+    #!/usr/bin/env bash
+    set -euo pipefail
+    if command -v mise >/dev/null 2>&1; then
+        mise install
+    else
+        echo "⚠ mise not found — install it (https://mise.jdx.dev) to get the" >&2
+        echo "  pinned Go/Node/just/staticcheck toolchain from mise.toml." >&2
+    fi
+    go mod download
+    echo "Setup complete. Next: just check"
+
 # Build every cmd/ binary into dist-go/<goos>-<goarch>/
 build-go:
     ./scripts/build-go.sh

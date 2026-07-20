@@ -1,5 +1,8 @@
 [tools]
 node = "24"
-go = "latest"
-# go-port: staticcheck is the Go lint gate (playbook: lint = go vet + staticcheck).
+# Pinned to the go.mod minor so local builds and CI (which resolves Go from
+# go.mod) can't silently diverge.  Bump both together.
+go = "1.26"
+just = "latest"
+# staticcheck is the Go lint gate (playbook: lint = go vet + staticcheck).
 "go:honnef.co/go/tools/cmd/staticcheck" = "latest"
