@@ -15,8 +15,10 @@ import (
 )
 
 // tmpfs on podman, so a PID file here is naturally scoped to this jail and
-// evaporates on restart. Package vars so tests can redirect them.
-var supervisorPIDFile = "/tmp/yolo-jail-supervisor.pid"
+// evaporates on restart. Package vars so tests can redirect them. Only the
+// entrypoint reads/writes this file, so its name tracks the current spawn
+// binary (yolo-jaild).
+var supervisorPIDFile = "/tmp/yolo-jaild.pid"
 
 // where host-side socat has already created Unix sockets.
 var forwardSocketDir = "/tmp/yolo-fwd"
@@ -107,12 +109,12 @@ func supervisorIsAlive(pidFile string) bool {
 	return false
 }
 
-// `yolo-jail-supervisor` as a detached child, once, guarded by a tmpfs PID
+// `yolo-jaild supervise` as a detached child, once, guarded by a tmpfs PID
 // file so repeated `podman exec yolo-entrypoint` calls don't stack
 // supervisors. Absent/empty YOLO_JAIL_DAEMONS means nothing to do.
-// The supervisor is the baked-in Go binary (cmd/yolo-jail-supervisor),
-// resolved on PATH from the image /bin. It reads YOLO_JAIL_DAEMONS from the
-// inherited environment — no argv, no PYTHONPATH.
+// The supervisor is the baked-in Go binary (cmd/yolo-jaild) invoked with the
+// `supervise` subcommand, resolved on PATH from the image /bin. It reads
+// YOLO_JAIL_DAEMONS from the inherited environment — no argv, no PYTHONPATH.
 func startJailDaemonSupervisor(e *Env) {
 	if strings.TrimSpace(e.Getenv("YOLO_JAIL_DAEMONS")) == "" {
 		return
@@ -120,12 +122,12 @@ func startJailDaemonSupervisor(e *Env) {
 	if supervisorIsAlive(supervisorPIDFile) {
 		return
 	}
-	bin, err := exec.LookPath("yolo-jail-supervisor")
+	bin, err := exec.LookPath("yolo-jaild")
 	if err != nil {
 		// Supervisor binary not on PATH — best-effort, don't abort boot.
 		return
 	}
-	cmd := exec.Command(bin)
+	cmd := exec.Command(bin, "supervise")
 	cmd.Env = os.Environ()
 	// stdout/stderr DEVNULL, close_fds default. start_new_session=False: stay in
 	// the same process group as PID 1 (Go's default — no Setsid).

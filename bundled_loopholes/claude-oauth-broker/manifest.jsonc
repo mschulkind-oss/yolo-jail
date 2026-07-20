@@ -29,7 +29,7 @@
     "cmd": ["yolo", "internal", "daemon", "claude-oauth-broker", "--socket", "{socket}"]
   },
   "jail_daemon": {
-    "cmd": ["yolo-oauth-terminator"],
+    "cmd": ["yolo-jaild", "oauth-terminator"],
     "restart": "on-failure"
   },
   "doctor_cmd": ["yolo", "internal", "daemon", "claude-oauth-broker", "--self-check"]

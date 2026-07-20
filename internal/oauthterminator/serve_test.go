@@ -1,4 +1,4 @@
-package main
+package oauthterminator
 
 import (
 	"crypto/ecdsa"
