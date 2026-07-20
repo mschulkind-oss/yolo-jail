@@ -10,7 +10,7 @@ import (
 	"strings"
 
 	"github.com/mschulkind-oss/yolo-jail/internal/brokercmd"
-	"github.com/mschulkind-oss/yolo-jail/internal/buildercmd"
+	"github.com/mschulkind-oss/yolo-jail/internal/builder"
 	"github.com/mschulkind-oss/yolo-jail/internal/checkcmd"
 	"github.com/mschulkind-oss/yolo-jail/internal/configref"
 	"github.com/mschulkind-oss/yolo-jail/internal/darwinpkg"
@@ -54,7 +54,7 @@ func runBuilder(args []string) int {
 		sub = args[1]
 		rest = args[2:]
 	}
-	return buildercmd.RunBuilder(buildercmd.RealDeps(), sub, rest)
+	return builder.RunBuilder(builder.RealDeps(), sub, rest)
 }
 
 // runMacosSetup/Teardown/Unshare/FixPermissions dispatch the four macos-*

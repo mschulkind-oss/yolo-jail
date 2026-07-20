@@ -1,9 +1,7 @@
-package buildercmd
+package builder
 
 import (
 	"strings"
-
-	"github.com/mschulkind-oss/yolo-jail/internal/builder"
 )
 
 // RunBuilder dispatches `yolo builder <sub> [args]` to the ported command
@@ -57,7 +55,7 @@ func BuilderStatusCmd(deps Deps) int {
 	out.printf("    nix.conf:   %s  (%s)", mark(st.NixBuilder), st.ConfPath)
 	out.printf("    ssh config: %s", mark(st.SSHConfig))
 	out.printf("    ssh key:    %s", mark(st.Key))
-	out.printf("  reachable:    %s  (port %d)", mark(st.Reachable), builder.BuilderPort)
+	out.printf("  reachable:    %s  (port %d)", mark(st.Reachable), BuilderPort)
 	out.print("")
 	if !st.Done {
 		out.print("[yellow]Not set up.[/yellow]  Run [cyan]yolo builder setup[/cyan] " +
@@ -188,7 +186,7 @@ func BuilderSetupCmd(deps Deps, flags SetupFlags) int {
 	conf := confPath(deps)
 	label, _ := deps.DetectNixDaemonLabel()
 	current := deps.CurrentTrustedUsers()
-	script := builder.SetupRootScript(flags.MaxJobs, me, current, conf, label)
+	script := SetupRootScript(flags.MaxJobs, me, current, conf, label)
 
 	out.print("[bold]Set up the on-demand macOS Linux builder[/bold]\n")
 	out.print("macOS can't build the Linux image locally, so Nix offloads to a small " +
@@ -197,12 +195,12 @@ func BuilderSetupCmd(deps Deps, flags SetupFlags) int {
 		"no RAM held while idle).\n")
 	out.print("[bold]It will, in one sudo:[/bold]")
 	out.printf("  • add a [cyan]builders[/cyan] line to [cyan]%s[/cyan] (offload aarch64-linux)", conf)
-	if _, ok := builder.TrustedUsersLine(current, me); ok {
+	if _, ok := TrustedUsersLine(current, me); ok {
 		out.printf("  • add [cyan]%s[/cyan] to [cyan]trusted-users[/cyan] (merged — existing entries kept)", me)
 	} else {
 		out.print("  • [dim](you're already a trusted user — no trusted-users change)[/dim]")
 	}
-	out.printf("  • write the ssh host alias [cyan]%s[/cyan]", builder.SSHConfigPath())
+	out.printf("  • write the ssh host alias [cyan]%s[/cyan]", SSHConfigPath())
 	out.print("  • restart the Nix daemon to apply\n")
 
 	out.print("[dim]The exact root script:[/dim]")

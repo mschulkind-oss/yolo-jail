@@ -23,7 +23,7 @@ const (
 )
 
 // SSHConfigPath returns the ssh_config.d file the builder host alias is written
-// to (builder.py's SSH_CONFIG_PATH). Exported so the buildercmd command bodies
+// to (builder.py's SSH_CONFIG_PATH). Exported so the command bodies
 // can name it in their output.
 func SSHConfigPath() string { return sshConfigPath }
 

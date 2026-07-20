@@ -1,4 +1,4 @@
-package buildercmd
+package builder
 
 import (
 	"bufio"
@@ -11,7 +11,6 @@ import (
 	"syscall"
 	"time"
 
-	"github.com/mschulkind-oss/yolo-jail/internal/builder"
 	"github.com/mschulkind-oss/yolo-jail/internal/storage"
 )
 
@@ -62,7 +61,7 @@ func RealDeps() Deps {
 
 // 127.0.0.1:BUILDER_PORT with a 1s timeout; any error → false.
 func builderReachableReal() bool {
-	conn, err := net.DialTimeout("tcp", "127.0.0.1:"+strconv.Itoa(builder.BuilderPort), time.Second)
+	conn, err := net.DialTimeout("tcp", "127.0.0.1:"+strconv.Itoa(BuilderPort), time.Second)
 	if err != nil {
 		return false
 	}
@@ -170,7 +169,7 @@ func startVMDetachedReal() (Proc, error) {
 	if pid, ok := readBuilderPIDReal(); (ok && pidIsLiveReal(pid)) || builderReachableReal() {
 		return nil, nil
 	}
-	logPath := builder.BuilderLogFilePath()
+	logPath := BuilderLogFilePath()
 	if err := os.MkdirAll(parentOf(logPath), 0o755); err != nil {
 		return nil, err
 	}
@@ -185,12 +184,12 @@ func startVMDetachedReal() (Proc, error) {
 	if err := cmd.Start(); err != nil {
 		return nil, err
 	}
-	_ = os.WriteFile(builder.BuilderPIDFilePath(), []byte(strconv.Itoa(cmd.Process.Pid)+"\n"), 0o644)
+	_ = os.WriteFile(BuilderPIDFilePath(), []byte(strconv.Itoa(cmd.Process.Pid)+"\n"), 0o644)
 	return realProc{cmd: cmd}, nil
 }
 
 func readBuilderPIDReal() (int, bool) {
-	data, err := os.ReadFile(builder.BuilderPIDFilePath())
+	data, err := os.ReadFile(BuilderPIDFilePath())
 	if err != nil {
 		return 0, false
 	}
@@ -213,7 +212,7 @@ func pidIsLiveReal(pid int) bool {
 func stopVMReal() (bool, string) {
 	pid, ok := readBuilderPIDReal()
 	if !ok || !pidIsLiveReal(pid) {
-		_ = os.Remove(builder.BuilderPIDFilePath())
+		_ = os.Remove(BuilderPIDFilePath())
 		return true, ""
 	}
 	pgid, err := syscall.Getpgid(pid)
@@ -225,7 +224,7 @@ func stopVMReal() (bool, string) {
 			return false, err.Error()
 		}
 	}
-	_ = os.Remove(builder.BuilderPIDFilePath())
+	_ = os.Remove(BuilderPIDFilePath())
 	return true, ""
 }
 

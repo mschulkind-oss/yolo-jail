@@ -1,4 +1,4 @@
-package buildercmd
+package builder
 
 import (
 	"bytes"

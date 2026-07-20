@@ -1,24 +1,23 @@
-// Package buildercmd implements the on-demand macOS Linux builder:
+package builder
+
+// The on-demand macOS Linux builder:
 // VM lifecycle + reachability, and `yolo builder {setup,start,stop,status}`
 // command bodies. macOS can't build the aarch64-linux image locally, so Nix offloads to
 // a small Linux VM (nixpkgs#darwin.linux-builder); this brings it up on demand
 // and lets a launchd idle-timer stop it.
 // The PURE generators (ssh_config block, nix builders line, trusted-users
-// merge, the single-sudo root script) already landed as internal/builder in
-// and are REUSED here, never re-ported. This package adds the
+// merge, the single-sudo root script) live alongside in builder.go
+// and are REUSED here, never re-ported. This adds the
 // lifecycle orchestration (setup-state probing, ensure/poll/start/stop) and the
 // command bodies. Every socket / subprocess / PID-file / platform probe is an
 // injectable Deps seam so the orchestration logic is unit-testable on Linux;
 // RealDeps wires production. The real VM bring-up stays a Mac-runbook step.
-package buildercmd
 
 import (
 	"fmt"
 	"io"
 	"regexp"
 	"strings"
-
-	"github.com/mschulkind-oss/yolo-jail/internal/builder"
 )
 
 // Proc models a spawned VM process for poll-based liveness
@@ -128,7 +127,7 @@ func nixConfHasBuilder(deps Deps) bool {
 		if strings.HasPrefix(s, "#") || !strings.HasPrefix(s, "builders") {
 			continue
 		}
-		if strings.Contains(s, "aarch64-linux") && strings.Contains(s, builder.BuilderSSHHost) {
+		if strings.Contains(s, "aarch64-linux") && strings.Contains(s, BuilderSSHHost) {
 			return true
 		}
 	}
@@ -138,8 +137,8 @@ func nixConfHasBuilder(deps Deps) bool {
 // BuilderSetupState probes setup state without touching the VM. Mirrors
 // builder_setup_state.
 func BuilderSetupState(deps Deps) SetupState {
-	sshOK := deps.FileIsFile(builder.SSHConfigPath())
-	keyOK := deps.FileIsFile(builder.BuilderKeyPath)
+	sshOK := deps.FileIsFile(SSHConfigPath())
+	keyOK := deps.FileIsFile(BuilderKeyPath)
 	nixOK := nixConfHasBuilder(deps)
 	return SetupState{
 		SSHConfig:  sshOK,
@@ -165,7 +164,7 @@ func BuilderStatus(deps Deps) Status {
 // and pipes it to `sudo bash -s`. Returns (ok, errMsg).
 func RunSetup(deps Deps, maxJobs int, me string) (bool, string) {
 	label, _ := deps.DetectNixDaemonLabel()
-	script := builder.SetupRootScript(maxJobs, me, deps.CurrentTrustedUsers(), confPath(deps), label)
+	script := SetupRootScript(maxJobs, me, deps.CurrentTrustedUsers(), confPath(deps), label)
 	rc, ok := deps.RunSetupScript(script)
 	if !ok {
 		return false, "privileged setup failed to run"
@@ -182,7 +181,7 @@ func FirstBootInteractive(deps Deps) (bool, string) {
 	if err := deps.StartVMForeground(); err != nil {
 		return false, err.Error()
 	}
-	if deps.FileIsFile(builder.BuilderKeyPath) || deps.Reachable() {
+	if deps.FileIsFile(BuilderKeyPath) || deps.Reachable() {
 		return true, ""
 	}
 	return false, "ssh key still not installed after first boot"
@@ -262,7 +261,7 @@ func pollUntilReachable(deps Deps, proc Proc, onProgress func(string)) (bool, st
 // lastLogLine returns the last non-empty line of the builder log tail (matching
 // builder_log_tail(...).splitlines()[-1] usage). "" when the log is empty.
 func lastLogLine(deps Deps) string {
-	text, ok := deps.ReadFileText(builder.BuilderLogFilePath())
+	text, ok := deps.ReadFileText(BuilderLogFilePath())
 	if !ok {
 		return ""
 	}
