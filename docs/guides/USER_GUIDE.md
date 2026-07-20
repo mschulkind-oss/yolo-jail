@@ -1106,7 +1106,7 @@ yolo check --no-build         # fast — skip nix build
 
 - Full triage walkthrough: [docs/research/claude-token-logouts.md](../research/claude-token-logouts.md). It maps each `yolo doctor` symptom to a fix.
 - Background: Anthropic rotates refresh tokens single-use, so multiple jails refreshing simultaneously race each other. The `claude-oauth-broker` loophole (bundled, active by default when `claude` is on PATH) serializes refreshes behind an `flock` on the host so jails can't race — eliminating the class entirely.
-- Run `yolo check` and look at the Loopholes section for broker health. Common recoveries: `yolo-claude-oauth-broker-host --init-ca` if certs are missing, then restart your jail.
+- Run `yolo check` and look at the Loopholes section for broker health. Common recoveries: `yolo internal daemon claude-oauth-broker --init-ca` if certs are missing, then restart your jail.
 
 ### Linux-Specific Issues
 

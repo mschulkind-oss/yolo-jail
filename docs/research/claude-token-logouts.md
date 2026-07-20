@@ -14,7 +14,7 @@ Host and jail are **independent identities** by design.
 
 - **Host** Claude reads/writes `~/.claude/.credentials.json` and talks to Anthropic directly.
 - **Jails** share `~/.local/share/yolo-jail/home/.claude-shared-credentials/.credentials.json`. Each jail's `~/.claude/.credentials.json` is a relative symlink into the shared dir (resolves only inside the jail).
-- A **singleton** `yolo-claude-oauth-broker-host` daemon serves every jail. PID file at `/tmp/yolo-claude-oauth-broker.pid`, socket at `/tmp/yolo-claude-oauth-broker.sock`, log at `~/.local/share/yolo-jail/logs/host-service-claude-oauth-broker.log`.
+- A **singleton** `yolo internal daemon claude-oauth-broker` daemon serves every jail. PID file at `/tmp/yolo-claude-oauth-broker.pid`, socket at `/tmp/yolo-claude-oauth-broker.sock`, log at `~/.local/share/yolo-jail/logs/host-service-claude-oauth-broker.log`.
 - Jails never touch the singleton's socket directly. Each running jail has a **per-jail relay** — a supervised host-side process listening at `/tmp/yolo-host-services-<hash>/claude-oauth-broker.sock` (in-jail: `/run/yolo-services/claude-oauth-broker.sock`) that dials the singleton **per connection** and stamps each request with the jail's identity for the broker log. The relay is re-ensured on every `yolo` invocation that targets the jail.
 
 Implication for triage: **divergence between host and shared creds is the design**, not a bug. Don't try to "re-converge" them — that re-introduces the refresh-token race the split was designed to eliminate.
@@ -46,7 +46,7 @@ Scan the Loopholes section for the `claude-oauth-broker` lines.
 | Symptom | What it means | Fix |
 |---|---|---|
 | `claude-oauth-broker: inactive — requires.command_on_path 'claude' not met` | `claude` isn't on the host PATH. Broker never activates. | Install Claude Code, or set `loopholes.claude-oauth-broker.enabled: false` if intentional. |
-| `NOTE: ca.crt not yet generated` | Fresh install, state dir is empty. | `just deploy` (or `yolo-claude-oauth-broker-host --init-ca` directly). |
+| `NOTE: ca.crt not yet generated` | Fresh install, state dir is empty. | `just deploy` (or `yolo internal daemon claude-oauth-broker --init-ca` directly). |
 | `loophole claude-oauth-broker: daemon not running` | Singleton hasn't been started. | `yolo broker restart` (or just run a jail — first `yolo run` spawns it). |
 | `loophole claude-oauth-broker: stale PID file …` | Previous singleton crashed. | `yolo broker restart`. |
 | `loophole claude-oauth-broker: daemon unresponsive …` | Process exists but doesn't answer ping. | `yolo broker restart` — typical after a wheel upgrade left old code in memory. |
@@ -113,7 +113,7 @@ If the mtime advances but the broker log has nothing around that timestamp, the 
 ls ~/.local/share/yolo-jail/state/claude-oauth-broker/
 
 # Broker self-check (singleton ping + parseable creds + …)
-yolo-claude-oauth-broker-host --self-check
+yolo internal daemon claude-oauth-broker --self-check
 
 # Singleton log (one file, all jails)
 tail -F ~/.local/share/yolo-jail/logs/host-service-claude-oauth-broker.log

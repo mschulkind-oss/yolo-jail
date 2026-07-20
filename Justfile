@@ -8,7 +8,7 @@ default:
 build-go:
     ./scripts/build-go.sh
 
-# Install the 4 host binaries (yolo + daemons) to $GOBIN or $GOPATH/bin
+# Install the 2 host binaries (yolo + yolo-ps) to $GOBIN or $GOPATH/bin
 install:
     #!/usr/bin/env bash
     set -euo pipefail

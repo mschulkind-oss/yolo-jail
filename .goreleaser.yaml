@@ -5,7 +5,7 @@
 # `yolo internal daemon <name>` subcommands) and yolo-ps. The standalone
 # host-daemon binaries were retired — their logic lives in internal/* Main
 # funcs reached through `yolo internal daemon <name>`. The in-jail daemons
-# (yolo-entrypoint, yolo-jail-supervisor, yolo-oauth-terminator) ship inside
+# (yolo-entrypoint, yolo-jaild) ship inside
 # the NIX IMAGE and must NOT be listed here; goprobe is dev-only.
 #
 # Releasing = pushing a v* tag (.github/workflows/release.yml). No local
