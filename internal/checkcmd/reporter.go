@@ -4,8 +4,6 @@ import (
 	"fmt"
 	"io"
 	"strings"
-
-	"github.com/mschulkind-oss/yolo-jail/internal/console"
 )
 
 // ANSI SGR sequences for the Go-native colored output. Parity is defined on the
@@ -60,8 +58,8 @@ func (r *reporter) note(text string) {
 	if text == "" {
 		return
 	}
-	for _, l := range console.NoteLines(text) {
-		// console.NoteLines already prepends the indent+arrow; style the whole
+	for _, l := range NoteLines(text) {
+		// NoteLines already prepends the indent+arrow; style the whole
 		// line dim to match Python's [dim] wrapping of each note line.
 		r.line(r.style(l, ansiDim))
 	}

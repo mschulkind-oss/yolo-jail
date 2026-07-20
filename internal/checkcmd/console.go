@@ -1,7 +1,8 @@
-// Package console renders the status badges and note indentation that
-// `yolo check` emits. The plain (ANSI-stripped) text is the contract; the
-// styled forms carry the equivalent colors for a real terminal.
-package console
+package checkcmd
+
+// The status badges and note indentation that `yolo check` emits. The plain
+// (ANSI-stripped) text is the contract; the styled forms carry the equivalent
+// colors for a real terminal.
 
 import "strings"
 
