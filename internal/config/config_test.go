@@ -8,10 +8,8 @@ import (
 	"github.com/mschulkind-oss/yolo-jail/internal/jsonx"
 )
 
-// Go-native unit tests transcribed from tests/test_config_merge.py and
-// tests/test_cli_unit.py — the behaviors the differential oracle can't drive
-// (filesystem-backed loading, includes/cycles, and the interactive
-// config-change control flow).
+// Unit tests for filesystem-backed config loading, includes/cycles, and the
+// interactive config-change control flow.
 
 func decode(t *testing.T, s string) *jsonx.OrderedMap {
 	t.Helper()

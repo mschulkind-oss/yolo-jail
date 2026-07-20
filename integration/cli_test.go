@@ -7,10 +7,9 @@ import (
 	"testing"
 )
 
-// This file ports the shim-behavior and host-CLI-surface tests from the Python
-// suite (tests/test_jail.py). Every test drives the real `yolo` binary against a
-// real runtime, so each calls requireJail(t) first — that also gates them out of
-// `go test -short`, where TestMain never builds yoloBin.
+// Shim-behavior and host-CLI-surface tests. Every test drives the real `yolo`
+// binary against a real runtime, so each calls requireJail(t) first — that also
+// gates them out of `go test -short`, where TestMain never builds yoloBin.
 //
 // Assertions were re-derived from what the Go implementation actually emits (the
 // entrypoint shim generator and the host CLI), not copied from the Python era;

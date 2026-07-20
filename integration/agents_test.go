@@ -6,10 +6,10 @@ import (
 	"testing"
 )
 
-// This file ports the agent library-model tests from the Python suite
-// (tests/test_jail.py). They prove the selectable-agent surface: each agent
-// installs on first use (lazy launcher), reports a version, and gets its config
-// and briefing generated — all credential-free (no authenticated task runs).
+// Agent library-model tests. They prove the selectable-agent surface: each
+// agent installs on first use (lazy launcher), reports a version, and gets its
+// config and briefing generated — all credential-free (no authenticated task
+// runs).
 //
 // Every test drives a real container, so each calls requireJail(t) first, which
 // also gates them out of `go test -short`. No test here calls t.Parallel():
@@ -52,8 +52,8 @@ type agentCase struct {
 	marker     string
 }
 
-// agentMatrix mirrors the Python _AGENT_MATRIX (test_jail.py): one row per
-// selectable agent. The subtest name is the agent name (the old pytest id).
+// agentMatrix has one row per selectable agent. The subtest name is the agent
+// name.
 // Markers are the auto-approve settings each agent's config generator emits
 // (claude acceptEdits, copilot yolo, gemini approvalMode, opencode allow,
 // pi defaultProjectTrust, codex danger-full-access).

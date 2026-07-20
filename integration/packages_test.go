@@ -6,8 +6,8 @@ import (
 	"testing"
 )
 
-// This file ports the lib-farm ("extra packages") tests from tests/test_jail.py.
-// Each nix-builds a per-workspace image (the `packages` config triggers an
+// Lib-farm ("extra packages") tests. Each nix-builds a per-workspace image (the
+// `packages` config triggers an
 // --impure image rebuild), so these are the slowest tests in the suite; they are
 // gated by requireJail(t) like every other container test.
 //

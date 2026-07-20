@@ -6,7 +6,7 @@ import (
 	"github.com/mschulkind-oss/yolo-jail/internal/jsonx"
 )
 
-// --- Go-native unit tests (mirror tests/test_macos_user.py assertions) ------
+// --- Unit tests for the macOS sandbox-user helpers ------
 
 func TestSeatbeltProfile(t *testing.T) {
 	p := SeatbeltProfile("/Users/Shared/proj", "")

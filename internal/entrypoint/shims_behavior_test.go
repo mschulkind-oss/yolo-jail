@@ -10,9 +10,8 @@ import (
 
 // TestShimArgvFilterContract executes the generated blocked-tool shims and
 // asserts the frozen argv-filter contract (message/suggestion text + exit code
-// 127), mirroring tests/test_entrypoint.py::TestShimGeneration. This is the
-// behavioral half of parity: the tree golden pins the shim BYTES; this pins
-// what those bytes DO when run.
+// 127). The tree golden pins the shim BYTES; this pins what those bytes DO when
+// run.
 func TestShimArgvFilterContract(t *testing.T) {
 	if _, err := exec.LookPath("sh"); err != nil {
 		t.Skip("sh not found")

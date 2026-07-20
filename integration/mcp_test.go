@@ -8,8 +8,8 @@ import (
 	"testing"
 )
 
-// This file ports the MCP-config tests from tests/test_jail.py. The in-jail
-// `python - <<'PY' ... PY` probes are kept verbatim: they parse the jail image's
+// MCP-config tests. The in-jail `python - <<'PY' ... PY` probes parse the jail
+// image's
 // generated agent config files (copilot mcp-config.json, gemini settings.json)
 // with the image's python3, unaffected by host-side Python ejection.
 

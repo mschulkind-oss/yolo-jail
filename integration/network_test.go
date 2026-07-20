@@ -8,8 +8,8 @@ import (
 	"testing"
 )
 
-// This file ports the host port-forwarding test from tests/test_jail.py. It runs
-// a real HTTP server on the host side and proves forward_host_ports carries TCP
+// Host port-forwarding test. It runs a real HTTP server on the host side and
+// proves forward_host_ports carries TCP
 // data end-to-end into the jail (in-jail curl reads back the server's marker).
 //
 // No t.Parallel(): the integration package runs serially by default, giving this

@@ -5,8 +5,8 @@ import (
 	"testing"
 )
 
-// This file ports the cgroup-delegation tests from tests/test_jail.py. They
-// exercise the host-side cgroup delegate daemon and the in-jail yolo-cglimit
+// Cgroup-delegation tests. They exercise the host-side cgroup delegate daemon
+// and the in-jail yolo-cglimit
 // helper. Tests that create a child cgroup call skipIfCgroupReadonly(t) — a
 // nested jail's cgroup filesystem is read-only, so delegation cannot run there.
 

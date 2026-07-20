@@ -8,8 +8,8 @@ import (
 	"time"
 )
 
-// This file ports the isolation tests from tests/test_jail.py: AGENTS.md
-// placement, per-side venv/mise shadowing, VS Code MCP shadowing, and Overmind
+// Isolation tests: AGENTS.md placement, per-side venv/mise shadowing, VS Code
+// MCP shadowing, and Overmind
 // socket isolation. Each asserts that host-side workspace state does not leak
 // through the /workspace bind mount into the jail (and vice versa).
 
