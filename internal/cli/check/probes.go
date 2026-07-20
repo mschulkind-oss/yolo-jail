@@ -6,6 +6,7 @@ import (
 	"strings"
 	"time"
 
+	"github.com/mschulkind-oss/yolo-jail/internal/config"
 	"github.com/mschulkind-oss/yolo-jail/internal/jsonx"
 	"github.com/mschulkind-oss/yolo-jail/internal/paths"
 	"github.com/mschulkind-oss/yolo-jail/internal/runtime"
@@ -311,12 +312,14 @@ func inStrSlice(list []string, s string) bool {
 	return false
 }
 
-// resolveRepoRoot runs the pieces of _resolve_repo_root that check() relies on:
-// the YOLO_REPO_ROOT env var (validated to contain source) and a
-// source-checkout / installed-package fallback. Returns (path, ok); ok=false is
-// the Python SystemExit branch. The installed-wheel staging (step 3's rename
-// dance) is out of scope here — check() only needs a root that resolves to a
-// flake.nix, and the run slice owns the staging.
+// resolveRepoRoot runs the pieces of _resolve_repo_root that check() relies on,
+// kept in step-parity with run's resolver (internal/cli/run/probes.go) so check
+// and run agree on where the repo is: (1) the YOLO_REPO_ROOT env var (validated
+// to contain source), (2) a source-checkout walk up from cwd, (4) the user
+// config's repo_path. Returns (path, ok); ok=false is the Python SystemExit
+// branch. Step 3 (installed-wheel/bundle staging) is deliberately omitted —
+// staging has side effects and is owned by the run slice; check only needs a
+// root that resolves to a flake.nix.
 func resolveRepoRoot(getenv func(string) string) (string, bool) {
 	if env := getenv("YOLO_REPO_ROOT"); env != "" {
 		if fileExists(filepath.Join(env, "flake.nix")) ||
@@ -346,6 +349,40 @@ func resolveRepoRoot(getenv func(string) string) (string, bool) {
 			}
 			dir = parent
 		}
+	}
+	// User config repo_path (run's step 4): the only path that lets an
+	// installed-only binary — no YOLO_REPO_ROOT, launched outside a checkout —
+	// resolve the repo. `just deploy` writes this (yolo internal
+	// write-repo-path). Accepted only when the dir has a flake.nix, matching run.
+	if p, ok := userConfigRepoPath(); ok {
+		expanded := expandUserPath(p)
+		if abs, e := filepath.Abs(expanded); e == nil {
+			expanded = abs
+		}
+		if fileExists(filepath.Join(expanded, "flake.nix")) {
+			return expanded, true
+		}
+	}
+	return "", false
+}
+
+// userConfigRepoPath reads a non-empty string repo_path from the user config,
+// or ("", false). Best-effort: a missing or malformed config yields ("", false).
+func userConfigRepoPath() (string, bool) {
+	userPath := paths.UserConfigPath()
+	if !fileExists(userPath) {
+		return "", false
+	}
+	cfg, err := config.LoadJSONCFile(userPath, userPath, false, func(string) {})
+	if err != nil || cfg == nil {
+		return "", false
+	}
+	v, present := cfg.Get("repo_path")
+	if !present {
+		return "", false
+	}
+	if s, ok := v.(string); ok && s != "" {
+		return s, true
 	}
 	return "", false
 }
