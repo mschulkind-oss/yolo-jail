@@ -1,6 +1,7 @@
-// Package network handles the forward_host_ports config parser and the socat
+package runcmd
+
+// hostports handles the forward_host_ports config parser and the socat
 // UNIX-LISTEN→TCP argv the run path spawns per forwarded port.
-package network
 
 import (
 	"fmt"

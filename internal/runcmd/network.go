@@ -7,7 +7,6 @@ import (
 	"syscall"
 	"time"
 
-	"github.com/mschulkind-oss/yolo-jail/internal/network"
 	"github.com/mschulkind-oss/yolo-jail/internal/paths"
 )
 
@@ -25,7 +24,7 @@ func (o *Options) startHostPortForwarding(forwardHostPorts []any, cname string, 
 		return nil
 	}
 	out := o.pr(o.Stderr)
-	parsed, err := network.ParsePortForwards(forwardHostPorts, out.print)
+	parsed, err := ParsePortForwards(forwardHostPorts, out.print)
 	if err != nil || len(parsed) == 0 {
 		return nil
 	}
@@ -39,9 +38,9 @@ func (o *Options) startHostPortForwarding(forwardHostPorts []any, cname string, 
 	var procs []*exec.Cmd
 	var expected []string
 	for _, pf := range parsed {
-		sockPath := network.SocketPath(socketDir, pf.LocalPort)
+		sockPath := SocketPath(socketDir, pf.LocalPort)
 		_ = os.Remove(sockPath) // remove stale socket from a previous run
-		argv := network.SocatArgv(sockPath, pf.HostPort)
+		argv := SocatArgv(sockPath, pf.HostPort)
 		cmd := exec.Command(argv[0], argv[1:]...)
 		cmd.Stdout = nil
 		if logFile != nil {
@@ -59,7 +58,7 @@ func (o *Options) startHostPortForwarding(forwardHostPorts []any, cname string, 
 
 	// Wait for the socket files (condition-poll, fast path + deadline).
 	if len(procs) > 0 {
-		deadline := o.Now().Add(network.SocketWaitDeadline)
+		deadline := o.Now().Add(SocketWaitDeadline)
 		for {
 			if allExist(expected) {
 				break
@@ -71,10 +70,10 @@ func (o *Options) startHostPortForwarding(forwardHostPorts []any, cname string, 
 						missing = append(missing, s)
 					}
 				}
-				out.print(network.SocketNotReadyWarning(missing))
+				out.print(SocketNotReadyWarning(missing))
 				break
 			}
-			time.Sleep(network.SocketWaitPollInterval)
+			time.Sleep(SocketWaitPollInterval)
 		}
 	}
 	return procs
