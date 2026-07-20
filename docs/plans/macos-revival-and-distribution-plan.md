@@ -54,6 +54,13 @@ finding 6 are jail-developable with Mac-side verification deferred to Track M.
 
 ### J1. Small confirmed fixes (independent, one commit each)
 
+> **Status (2026-07-20): all four DONE + committed.** J1.1 runtime unification
+> (`fix(runtime): unify config+platform-aware runtime resolution for ps/prune`),
+> J1.2 darwinpkg drain (`fix(darwinpkg): drain nix stderr before Wait`), J1.3
+> builder reaping (`fix(builder): reap the detached VM child`), J1.4 `--help`
+> (`feat(cli): add top-level yolo --help/-h/help usage`). Each landed with
+> RED-then-GREEN tests; J1.1 verified end-to-end in a nested jail.
+
 1. **Runtime resolution unification** (findings 4+5).
    `internal/runtime/probe.go:29` `DetectRuntime` is env-or-`podman`,
    darwin-blind; `probe.go:44` `PsRuntime` ignores the config `runtime` key.
@@ -214,6 +221,12 @@ options are complementary; sequence them:
    repo-root resolver** (`internal/cli/check/probes.go:320-351`, steps 1–2
    only) with run's five steps so check and run stop disagreeing for
    repo_path-only users.
+   **Status (2026-07-20): DONE + committed** (`feat(install): just deploy
+   records repo_path; check honors it too`). New `internal/repopath` package +
+   `yolo internal write-repo-path <dir>` (idempotent, comment-preserving),
+   wired into the install recipe; check's resolveRepoRoot gained run's step 4
+   (user-config repo_path). Step 3 (bundle staging) stays run-owned — that is
+   D3 below.
 2. **D2: make the launch path degrade gracefully.**
    - `macos-user` with empty `packages:` needs no repo at all once J2 lands
      (self-exec bootstrap): defer the repo-root hard-exit until a consumer
