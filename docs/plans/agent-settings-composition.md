@@ -106,7 +106,7 @@ destination by a **projection**.
 |---|---|---|
 | `defaults` | manifest data | yolo builtin, user-overridable (the honest home for Gemini's `setdefault` tier) |
 | `host` | staged host files, parsed fresh each boot | the user's host config |
-| `workspace` | `yolo-jail.jsonc` → `agent_config.<agent>.settings` | jail-only config declared in the workspace (committable, travels with the repo) |
+| `workspace` | merged yolo config → `agent_config.<agent>.settings` (user-level `config.jsonc` merged under `yolo-jail.jsonc`, standard rules) | jail-only config the user declares — per-workspace, or host-wide when set at user level |
 | `runtime` | harvested overlay sidecar | what the agent changed at runtime |
 | `managed` | manifest data | yolo's security-boundary keys — always win |
 
@@ -199,6 +199,8 @@ internals:
 
 - **Edit the host file → global.** Every jail picks it up on its next boot (they all mount
   the same host source).
+- **Edit `~/.config/yolo-jail/config.jsonc` → host-wide default for the `workspace` layer.**
+  Standard config merge; a workspace's `yolo-jail.jsonc` overrides it.
 - **Edit `yolo-jail.jsonc` → per-workspace.** Committable; travels with the repo to teammates.
 - **Edit inside the jail (`/settings`) → that workspace's jail only.** Persisted
   per-workspace (via the agent's own user-scope file for Claude, or the overlay sidecar for
@@ -369,7 +371,10 @@ re-framing, not new code:
 // ~/.pi/agent/extensions/permission-gate.ts  — on('tool_call') + ui.confirm; WANTED on host
 ```
 
-**What the user writes (the only per-project config):**
+**What the user writes** — shown here in the workspace file, but the same
+`agent_config` key works in the user-level `~/.config/yolo-jail/config.jsonc`
+to apply to every workspace on the host (the standard config merge: workspace
+over user):
 ```jsonc
 // /workspace/yolo-jail.jsonc
 "agent_config": {
@@ -384,6 +389,18 @@ re-framing, not new code:
 The builtin Pi manifest already declares the settings surface, the tree surface
 (`extensions/**`, `skills/**`, … with `auth.json`/`trust.json` excluded), and the managed
 layer (`defaultProjectTrust: "always"`). The user adds *one glob and one filter*.
+
+**How the manifest decides what crosses — include-first, not a blacklist.** Staging carries
+*only* what a declared surface or include glob names; a host file the manifest doesn't
+mention never enters the jail. So when an agent grows a new config file, the default is
+**fail-closed** (not staged) until the manifest — or the user, via `host_include` — says
+otherwise. The excludes are not a blocklist doing the safety work: they exist solely to
+carve `runtime-state` files (`auth.json`, `trust.json` — the file classes of §5.3) out of a
+tree that an include glob would otherwise sweep in. The per-agent curation itself is
+irreducible — *something* must know that Pi keeps extensions in `extensions/` and secrets
+in `auth.json` — but today that knowledge lives in ~50 lines of imperative per-agent code
+in two languages; the manifest moves it into one declarative data blob exercised by the
+shared fixture corpus (idea 9), which is what makes it *less* fragile, not more.
 
 **Result:**
 - **Host:** unchanged. Host Pi still loads the gate extension; every host command still
@@ -463,8 +480,9 @@ Even if we don't adopt Prism wholesale, these stand on their own (ranked by leve
   one scope (§5.1).
 - **projection** — the materialization of the stack for one side: `(destination, layers,
   filters, enforce)`. Host = identity over `host`; jail = all five + filters.
-- **staging** — the host-CLI step each `yolo` invocation: glob-filtered copy of an agent's host
-  files into `ws_state`, relative paths preserved, truncate-in-place, bind-mounted `:ro`.
+- **staging** — the host-CLI step each `yolo` invocation: include-first glob-filtered copy of
+  an agent's host files into `ws_state` (only declared includes cross; excludes carve out
+  runtime-state), relative paths preserved, truncate-in-place, bind-mounted `:ro`.
 - **filter / redaction** — a data-declared transform when config crosses host→jail: `drop` /
   `dropItems` / `set`. Default boundary is host-side.
 - **merge strategy** — how two layers combine at a keypath: `deep` (default) / `replace` /
