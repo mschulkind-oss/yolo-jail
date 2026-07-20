@@ -41,9 +41,7 @@ func newLifeDeps(t *testing.T, st *lifeState) Deps {
 			st.alive[pid] = false
 			return nil
 		},
-		Pgrep:   func() []int { return nil },
-		Getenv:  func(string) string { return "" },
-		IsExecX: func(string) bool { return false },
+		Pgrep: func() []int { return nil },
 		Spawn: func(argv []string, _ string) (int, func() bool, error) {
 			if st.spawnBind {
 				_ = os.WriteFile(filepath.Join(dir, "broker.sock"), nil, 0o644)

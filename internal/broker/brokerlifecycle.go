@@ -115,9 +115,6 @@ type Deps struct {
 	// forms; see RealPgrepStrays), already self-filtered (os.getpid() excluded).
 	Pgrep func() []int
 
-	// Getenv / accessX back DaemonLauncher (the YOLO_GO_DAEMONS resolution).
-	Getenv  func(string) string
-	IsExecX func(path string) bool
 	// Spawn launches the broker daemon detached (own session, stdout+stderr to
 	// logPath, close_fds), returning its PID and a poll func reporting whether
 	// it has exited.
@@ -142,13 +139,8 @@ func RealDeps() Deps {
 		Alive:      execx.IsAlive,
 		Kill:       func(pid int, sig syscall.Signal) error { return syscall.Kill(pid, sig) },
 		Pgrep:      RealPgrepStrays,
-		Getenv:     os.Getenv,
-		IsExecX: func(p string) bool {
-			info, err := os.Stat(p)
-			return err == nil && !info.IsDir() && info.Mode()&0o111 != 0
-		},
-		Spawn: realSpawn,
-		Out:   os.Stdout,
+		Spawn:      realSpawn,
+		Out:        os.Stdout,
 	}
 }
 
@@ -328,16 +320,6 @@ func brokerWaitForSocket(deps Deps, sock string, timeout time.Duration, exited f
 		deps.Sleep(SocketPollInterval)
 	}
 	return deps.PathExists(sock)
-}
-
-// DaemonLauncher resolves a console-script daemon name to its launch argv.
-// The console script IS the Go binary on PATH now, so this returns the name
-// unconditionally (Python did no PATH-existence check at the tail — that
-// nil-vs-bare-name difference vs runcmd's daemonLauncher is preserved pending
-// their unification). The former YOLO_GO_DAEMONS/YOLO_GO_BIN_DIR migration seam
-// (dead — nothing set those vars) was removed.
-func DaemonLauncher(_ Deps, consoleName string) []string {
-	return []string{consoleName}
 }
 
 // BrokerPing ports _broker_ping: connect to socketPath, send the length-prefixed

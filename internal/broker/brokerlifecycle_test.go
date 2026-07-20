@@ -58,9 +58,7 @@ func newFakeDeps(t *testing.T, st *fakeState) Deps {
 			}{pid, sig})
 			return nil
 		},
-		Pgrep:   func() []int { return st.pgrep },
-		Getenv:  func(string) string { return "" },
-		IsExecX: func(string) bool { return false },
+		Pgrep: func() []int { return st.pgrep },
 		Spawn: func(argv []string, _ string) (int, func() bool, error) {
 			st.spawnArgv = argv
 			if st.spawnErr != nil {
@@ -348,17 +346,6 @@ func TestBrokerSpawnDeadChildFast(t *testing.T) {
 	// most one poll interval elapsed.
 	if deps.Now().Sub(start) > SocketPollInterval {
 		t.Errorf("dead child should short-circuit; elapsed %v", deps.Now().Sub(start))
-	}
-}
-
-func TestDaemonLauncherDefault(t *testing.T) {
-	st := &fakeState{}
-	deps := newFakeDeps(t, st)
-	// The console script IS the Go binary on PATH now → bare name, always.
-	// (The former YOLO_GO_DAEMONS/YOLO_GO_BIN_DIR seam was dead code, removed.)
-	got := DaemonLauncher(deps, BrokerConsoleName)
-	if !reflect.DeepEqual(got, []string{BrokerConsoleName}) {
-		t.Errorf("got %v, want [%s]", got, BrokerConsoleName)
 	}
 }
 
