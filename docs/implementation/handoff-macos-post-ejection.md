@@ -76,6 +76,13 @@ native (non-container, no `/workspace`, no `/mise`) home.
 I deliberately did **not** attempt this — per the owner, the in-flight macOS
 work stays as-is for now.
 
+> **Plan forward (2026-07-20):** the pickup this section describes is now
+> sequenced in `docs/plans/macos-revival-and-distribution-plan.md` — jail-side
+> re-port of the bootstrap to native Go (self-exec `yolo internal
+> darwin-bootstrap`), the audit-finding fixes below, the repo-root/source-
+> distribution fix, and SandVault-wrapped Mac verification sessions. Start
+> there.
+
 ---
 
 ## PROVEN on real hardware (this pass)
