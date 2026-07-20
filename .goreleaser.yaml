@@ -1,12 +1,14 @@
 # goreleaser config — ★ step 2 of the Go transition (docs/implementation/
 # go-port-remaining-work.md). Shape copied from mschulkind-oss/swarf, adapted:
-# swarf is a single root-package binary; yolo-jail ships TWO host-facing
-# binaries: yolo (host CLI, which also hosts the daemons via the hidden
-# `yolo internal daemon <name>` subcommands) and yolo-ps. The standalone
-# host-daemon binaries were retired — their logic lives in internal/* Main
-# funcs reached through `yolo internal daemon <name>`. The in-jail daemons
-# (yolo-entrypoint, yolo-jaild) ship inside
-# the NIX IMAGE and must NOT be listed here; goprobe is dev-only.
+# like swarf, yolo-jail ships ONE host-facing binary: yolo (host CLI, which
+# also hosts the daemons via the hidden `yolo internal daemon <name>`
+# subcommands). The standalone host-daemon binaries were retired — their logic
+# lives in internal/* Main funcs reached through `yolo internal daemon <name>`.
+# yolo-ps is the in-jail client for the host-processes loophole; it ships only
+# inside the NIX IMAGE (inert on the host — no service socket) and so is NOT
+# distributed through the host channels. The in-jail daemons (yolo-entrypoint,
+# yolo-jaild) also ship inside the NIX IMAGE and must NOT be listed here;
+# goprobe is dev-only.
 #
 # Releasing = pushing a v* tag (.github/workflows/release.yml). No local
 # `just release` recipe by design.
@@ -38,16 +40,7 @@ builds:
       - amd64
       - arm64
 
-  - id: yolo-ps
-    main: ./cmd/yolo-ps
-    binary: yolo-ps
-    ldflags: *ldflags
-    env: *buildenv
-    goos: *oses
-    goarch: *arches
-
-# One archive per platform containing both binaries (goreleaser default
-# when no per-archive `ids:` filter is set).
+# One archive per platform containing the yolo binary.
 archives:
   - formats: ["tar.gz"]
     name_template: "yolo-jail_{{ .Version }}_{{ .Os }}_{{ .Arch }}"

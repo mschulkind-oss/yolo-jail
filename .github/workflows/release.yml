@@ -1,8 +1,8 @@
 # Release — tag-triggered goreleaser + homebrew tap update (★ step 2 of the Go
 # transition; shape copied from mschulkind-oss/swarf).
 #
-# Releasing = pushing a v* tag. goreleaser builds the two host-facing
-# binaries (yolo + yolo-ps), creates the GitHub release, and uploads archives.
+# Releasing = pushing a v* tag. goreleaser builds the host-facing yolo
+# binary, creates the GitHub release, and uploads archives.
 # publish.yml
 # (PyPI wheels + image pushes) runs off the SAME tag push — NOT off the
 # release event: goreleaser creates the release with the workflow-scoped
@@ -12,9 +12,10 @@
 # dependency.
 #
 # Divergences from swarf, on purpose:
-#   - two binaries, not one (yolo + yolo-ps; the standalone host-daemon
-#     binaries were retired — their logic is reached via the hidden
-#     `yolo internal daemon <name>` subcommands);
+#   - the standalone host-daemon binaries were retired — their logic is reached
+#     via the hidden `yolo internal daemon <name>` subcommands; yolo-ps (the
+#     in-jail host-processes client) ships only in the nix image, not the host
+#     channels, so the host ship set is just yolo;
 #   - no Utils.git_short_head in the formula ldflags — the source tarball has
 #     no .git, so only the version is stamped (internal/version.GitCommit
 #     stays empty for brew builds; goreleaser archives carry it);
@@ -108,7 +109,7 @@ jobs:
                 -s -w
                 -X github.com/mschulkind-oss/yolo-jail/internal/version.buildVersion=#{version}
               ]
-              %w[yolo yolo-ps].each do |cmd|
+              %w[yolo].each do |cmd|
                 system "go", "build", *std_go_args(output: bin/cmd, ldflags: ldflags.join(" ")), "./cmd/#{cmd}"
               end
             end

@@ -1,7 +1,7 @@
 # Publish — PyPI wheels + image-cache/builder pushes for a release.
 # ★ step 2 of the Go transition: the PyPI package is now per-platform wheels
 # wrapping the Go host binaries (built by tools/build-wheels), preserving the
-# pipx/uvx audience and the 2 console scripts (yolo, yolo-ps). The
+# pipx/uvx audience and the one console script (yolo). The
 # homebrew tap update moved to release.yml (source-build formula, no poet).
 # Image-cache + builder-image pushes are unchanged.
 #

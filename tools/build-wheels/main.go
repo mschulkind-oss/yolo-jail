@@ -1,8 +1,9 @@
 // Command build-wheels builds per-platform PyPI wheels that wrap the Go host
 // binaries. Byte-faithful Go port of scripts/build_wheels.py (itself derived
 // from Simon Willison's go-to-wheel, Apache-2.0 — same wheel layout and
-// platform tags). The yolo-jail package ships TWO console scripts (yolo and
-// yolo-ps), so this cannot use go-to-wheel directly.
+// platform tags). The wheel-building machinery stays list-driven (see the
+// binaries slice) even though the yolo-jail package currently ships a single
+// console script (yolo).
 //
 // Windows is deliberately absent: the Go tree uses unix-only syscalls and the
 // tool has no Windows story.
@@ -64,7 +65,6 @@ type binary struct {
 
 var binaries = []binary{
 	{"yolo", "main"},
-	{"yolo-ps", "ps"},
 }
 
 type platform struct {

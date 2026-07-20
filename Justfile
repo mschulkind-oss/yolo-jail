@@ -8,14 +8,14 @@ default:
 build-go:
     ./scripts/build-go.sh
 
-# Install the 2 host binaries (yolo + yolo-ps) to $GOBIN or $GOPATH/bin
+# Install the host binary (yolo) to $GOBIN or $GOPATH/bin
 install:
     #!/usr/bin/env bash
     set -euo pipefail
     VERSION="$(git describe --tags --always --dirty 2>/dev/null || echo unknown)"
     COMMIT="$(git rev-parse --short HEAD 2>/dev/null || echo unknown)"
     LDFLAGS="-X github.com/mschulkind-oss/yolo-jail/internal/version.buildVersion=${VERSION} -X github.com/mschulkind-oss/yolo-jail/internal/version.GitCommit=${COMMIT}"
-    go install -ldflags "$LDFLAGS" ./cmd/yolo ./cmd/yolo-ps
+    go install -ldflags "$LDFLAGS" ./cmd/yolo
     echo "Installed to $(go env GOBIN 2>/dev/null || echo "$(go env GOPATH)/bin")"
 
 # Install yolo CLI and prime the Claude OAuth broker state. Safe to re-run.
