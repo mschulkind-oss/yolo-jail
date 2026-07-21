@@ -4,11 +4,11 @@ import (
 	"fmt"
 	"io"
 	"os"
-	"regexp"
 	"strings"
 
 	"github.com/mschulkind-oss/yolo-jail/internal/config"
 	"github.com/mschulkind-oss/yolo-jail/internal/jsonx"
+	"github.com/mschulkind-oss/yolo-jail/internal/richtext"
 )
 
 // Deps are the injectable seams for the macOS-only orchestrator + the four
@@ -55,8 +55,14 @@ type Deps struct {
 	PathIsDir func(string) bool
 	// PathExists reports whether a path exists (broker socket, etc.).
 	PathExists func(string) bool
-	// Out receives the human output (rich markup stripped, parity on text).
+	// Out receives the human output. Rich markup is rendered to ANSI when
+	// Color is set, else stripped to plain text.
 	Out io.Writer
+	// Color is the resolved color capability (the caller's requested color AND
+	// stdout is a real TTY). When false the printer strips rich markup. It is
+	// forced OFF for the dry-run plan render (byte-pinned goldens) and any
+	// non-TTY path — only interactive chatter gains color.
+	Color bool
 }
 
 // Options carries the run() inputs the front door resolves (workspace,
@@ -74,13 +80,16 @@ type Options struct {
 	DryRun     bool
 }
 
-// richTagRe strips rich console markup (parity is on text content — the
-// runcmd/check precedent; the dry-run ARTIFACTS are byte-pinned separately).
-var richTagRe = regexp.MustCompile(`\[/?[a-zA-Z][^\]]*\]`)
+// printer wraps the shared richtext renderer. When color is set the rich markup
+// ([bold red]…[/bold red], [dim]…) is rendered to ANSI; otherwise it is stripped
+// to plain text (the runcmd/check precedent; the dry-run ARTIFACTS are byte-
+// pinned separately, and the dry-run plan render forces color=false).
+type printer struct {
+	w     io.Writer
+	color bool
+}
 
-type printer struct{ w io.Writer }
-
-func (p printer) print(msg string)          { fmt.Fprintln(p.w, richTagRe.ReplaceAllString(msg, "")) }
+func (p printer) print(msg string)          { fmt.Fprintln(p.w, richtext.Render(msg, p.color)) }
 func (p printer) printf(f string, a ...any) { p.print(fmt.Sprintf(f, a...)) }
 
 // MacosSandboxEnv returns the extra env layered into the sandbox launch (git
@@ -110,7 +119,7 @@ func buildPlan(deps Deps, opts Options, darwin *Darwin) RunPlan {
 	// console in Python (config.py console.print) — route them to deps.Out via
 	// the rich-stripping printer so the plan output matches (the container path
 	// wires the same warn callback; a no-op here silently dropped the line).
-	out := printer{w: deps.Out}
+	out := printer{w: deps.Out, color: deps.Color}
 	resolved := config.ResolveEnvSources(opts.Workspace, opts.Config, func(msg string) { out.print(msg) })
 	for _, k := range resolved.Keys() {
 		v, _ := resolved.Get(k)
@@ -135,12 +144,17 @@ func buildPlan(deps Deps, opts Options, darwin *Darwin) RunPlan {
 // the gates (it reads host git config); 3. install profile + stage
 // entrypoint; 4. bootstrap; 5. launch.
 func RunMacosUser(deps Deps, opts Options) int {
-	out := printer{w: deps.Out}
+	out := printer{w: deps.Out, color: deps.Color}
 
 	// 0. Dry-run: build the plan, print it + invariants, execute nothing. Pure
 	// (darwin=nil → no nix build), so CI and a Mac agent can both inspect it.
+	// The plan (and the env-source warnings intermixed with it) is byte-pinned
+	// by the goldens, so force color OFF for the whole dry-run render — only
+	// interactive live chatter gains color.
 	if opts.DryRun {
-		plan := buildPlan(deps, opts, nil)
+		plainDeps := deps
+		plainDeps.Color = false
+		plan := buildPlan(plainDeps, opts, nil)
 		problems := PlanInvariants(plan)
 		PrintPlan(deps.Out, plan, problems)
 		if len(problems) > 0 {
@@ -247,9 +261,10 @@ func RunMacosUser(deps Deps, opts Options) int {
 
 // PrintPlan renders a RunPlan for --dry-run (human-readable; rich markup
 // stripped — parity is on the ARTIFACTS, which are byte-pinned by the producer
-// differential).
+// differential). Color is deliberately OFF here: the plan output is byte-pinned
+// by the goldens, so it must stay plain text on every path.
 func PrintPlan(w io.Writer, plan RunPlan, problems []string) {
-	p := printer{w: w}
+	p := printer{w: w, color: false}
 	p.print("[bold]macos-user run plan[/bold] (dry-run — nothing executed)\n")
 	p.printf("workspace:   %s", plan.Workspace)
 	p.printf("session:     %s", plan.Cname)
@@ -339,8 +354,10 @@ func errStr(err error) string {
 // pscmd RealDeps constructor. runProxy is the TTY-proxy launcher the front door
 // supplies (internal/cli/run's runWithProxy is Linux/macOS-specific);
 // materialize wires internal/darwinpkg's streaming nix build. Both are passed
-// in so this package needs no build-tagged syscall dependencies.
-func RealDeps(runProxy func(argv []string) int, materialize func(repoRoot string, packages []any) (*Darwin, bool, error)) Deps {
+// in so this package needs no build-tagged syscall dependencies. color is the
+// resolved color capability (the caller's requested color AND a real TTY —
+// mirroring run's `Color && IsTTYStdout()`); it drives ANSI vs. plain output.
+func RealDeps(runProxy func(argv []string) int, materialize func(repoRoot string, packages []any) (*Darwin, bool, error), color bool) Deps {
 	return Deps{
 		IsMacOS:           func() bool { return isMacOSReal() },
 		Geteuid:           os.Geteuid,
@@ -360,5 +377,6 @@ func RealDeps(runProxy func(argv []string) int, materialize func(repoRoot string
 		PathIsDir:         pathIsDirReal,
 		PathExists:        pathExistsReal,
 		Out:               os.Stdout,
+		Color:             color,
 	}
 }

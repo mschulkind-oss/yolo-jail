@@ -271,6 +271,41 @@ func TestMacosFixPermissionsDefaultRoot(t *testing.T) {
 	}
 }
 
+// TestPrinterColorRendersANSI verifies the printer routes through the shared
+// richtext renderer: color=true renders known style tags to ANSI escapes,
+// color=false strips them to plain text, and a literal bracketed token (not a
+// style tag) is preserved verbatim in both modes.
+func TestPrinterColorRendersANSI(t *testing.T) {
+	const ansiGreen = "\x1b[32m"
+	const ansiReset = "\x1b[0m"
+
+	var col bytes.Buffer
+	printer{w: &col, color: true}.print("[green]ok[/green] see [y/N] and [path]")
+	got := col.String()
+	if !strings.Contains(got, ansiGreen) || !strings.Contains(got, ansiReset) {
+		t.Errorf("color=true should emit ANSI escapes, got %q", got)
+	}
+	if !strings.Contains(got, "[y/N]") || !strings.Contains(got, "[path]") {
+		t.Errorf("color=true must preserve literal bracketed tokens verbatim, got %q", got)
+	}
+	if strings.Contains(got, "[green]") || strings.Contains(got, "[/green]") {
+		t.Errorf("color=true must consume known style tags, got %q", got)
+	}
+
+	var plain bytes.Buffer
+	printer{w: &plain, color: false}.print("[green]ok[/green] see [y/N] and [path]")
+	gotPlain := plain.String()
+	if strings.Contains(gotPlain, "\x1b[") {
+		t.Errorf("color=false must not emit ANSI escapes, got %q", gotPlain)
+	}
+	if strings.Contains(gotPlain, "[green]") || strings.Contains(gotPlain, "[/green]") {
+		t.Errorf("color=false must strip known style tags, got %q", gotPlain)
+	}
+	if gotPlain != "ok see [y/N] and [path]\n" {
+		t.Errorf("color=false plain text mismatch, got %q", gotPlain)
+	}
+}
+
 type errFake string
 
 func (e errFake) Error() string { return string(e) }

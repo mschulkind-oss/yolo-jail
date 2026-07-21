@@ -9,7 +9,7 @@ import (
 // macos_setup (which raises typer.Exit; here the exit code is returned so the
 // front door maps it to a process exit).
 func MacosSetup(deps Deps) int {
-	out := printer{w: deps.Out}
+	out := printer{w: deps.Out, color: deps.Color}
 	if !deps.IsMacOS() {
 		out.print("[bold red]yolo macos-setup requires macOS.[/bold red]")
 		return 1
@@ -110,7 +110,7 @@ func MacosSetup(deps Deps) int {
 
 // MacosTeardown deletes the sandbox account + home (needs admin). macOS only.
 func MacosTeardown(deps Deps) int {
-	out := printer{w: deps.Out}
+	out := printer{w: deps.Out, color: deps.Color}
 	if !deps.IsMacOS() {
 		out.print("[bold red]yolo macos-teardown requires macOS.[/bold red]")
 		return 1
@@ -133,7 +133,7 @@ func MacosTeardown(deps Deps) int {
 // macOS only.
 // resolvePathAbs to match Path(workspace).resolve().
 func MacosUnshare(deps Deps, workspace string) int {
-	out := printer{w: deps.Out}
+	out := printer{w: deps.Out, color: deps.Color}
 	if !deps.IsMacOS() {
 		out.print("[bold red]yolo macos-unshare requires macOS.[/bold red]")
 		return 1
@@ -158,7 +158,7 @@ func MacosUnshare(deps Deps, workspace string) int {
 // the shared area. macOS only.
 // the whole shared root.
 func MacosFixPermissions(deps Deps, path string) int {
-	out := printer{w: deps.Out}
+	out := printer{w: deps.Out, color: deps.Color}
 	if !deps.IsMacOS() {
 		out.print("[bold red]yolo macos-fix-permissions requires macOS.[/bold red]")
 		return 1
@@ -195,7 +195,7 @@ func MacosFixPermissions(deps Deps, path string) int {
 // else 0.
 func refuseIfRoot(deps Deps) int {
 	if deps.Geteuid() == 0 {
-		printer{w: deps.Out}.print(
+		printer{w: deps.Out, color: deps.Color}.print(
 			"[bold red]Don't run this under sudo.[/bold red]  Run it as your " +
 				"normal admin user — it escalates each privileged step itself " +
 				"(prompting for your password).  Running the whole command as root " +

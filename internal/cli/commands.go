@@ -37,15 +37,19 @@ func runBuilder(args []string) int {
 
 // runMacosSetup/Teardown/Unshare/FixPermissions dispatch the four macos-*
 // commands (macOS-only; refuse/no-op on Linux).
-func runMacosSetup(_ []string) int    { return macosuser.MacosSetup(macosuser.RealDeps(nil, nil)) }
-func runMacosTeardown(_ []string) int { return macosuser.MacosTeardown(macosuser.RealDeps(nil, nil)) }
+func runMacosSetup(_ []string) int {
+	return macosuser.MacosSetup(macosuser.RealDeps(nil, nil, isTTYStdout()))
+}
+func runMacosTeardown(_ []string) int {
+	return macosuser.MacosTeardown(macosuser.RealDeps(nil, nil, isTTYStdout()))
+}
 
 func runMacosUnshare(args []string) int {
 	ws := ""
 	if len(args) > 1 {
 		ws = args[1]
 	}
-	return macosuser.MacosUnshare(macosuser.RealDeps(nil, nil), ws)
+	return macosuser.MacosUnshare(macosuser.RealDeps(nil, nil, isTTYStdout()), ws)
 }
 
 func runMacosFixPermissions(args []string) int {
@@ -53,7 +57,7 @@ func runMacosFixPermissions(args []string) int {
 	if len(args) > 1 {
 		path = args[1]
 	}
-	return macosuser.MacosFixPermissions(macosuser.RealDeps(nil, nil), path)
+	return macosuser.MacosFixPermissions(macosuser.RealDeps(nil, nil, isTTYStdout()), path)
 }
 
 // runPrune runs `yolo prune` (disk reclaim). Default dry-run; --apply reclaims.
@@ -366,7 +370,11 @@ func macosUserRun(cfg *jsonx.OrderedMap, workspace string, agents, agentArgv []s
 			Skipped:    pkgs.Skipped,
 		}, true, nil
 	}
-	deps := macosuser.RealDeps(runProxy, materialize)
+	// Mirror run's `Color && IsTTYStdout()`: color is requested for the
+	// interactive front door, gated on a real TTY. The dry-run plan render
+	// forces color OFF internally (byte-pinned goldens), so this only affects
+	// the live setup/teardown chatter.
+	deps := macosuser.RealDeps(runProxy, materialize, isTTYStdout())
 	return macosuser.RunMacosUser(deps, macosuser.Options{
 		Workspace: workspace,
 		Config:    cfg,
