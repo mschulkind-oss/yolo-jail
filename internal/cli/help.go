@@ -24,15 +24,20 @@ var commandHelp = []struct{ name, blurb string }{
 
 // usageText renders the top-level `yolo` usage string. Pure (no I/O) so it is
 // unit-testable.
+// usageText renders the top-level `yolo` usage string with rich markup
+// ([bold] section headers, [cyan] command names). It is PURE (no I/O, no TTY
+// probe) so it stays unit-testable; the caller renders it to ANSI on a TTY or
+// strips the tags off a pipe (usageStripped mirrors the strip for tests). The
+// literal command names + blurbs are unchanged text, so stripping is byte-stable.
 func usageText() string {
 	var b strings.Builder
-	b.WriteString("yolo — a sandboxed container jail for AI coding agents\n\n")
-	b.WriteString("Usage:\n")
-	b.WriteString("  yolo -- <command> [args...]     Run <command> inside the jail\n")
-	b.WriteString("  yolo <subcommand> [args...]     Run a management subcommand\n")
-	b.WriteString("  yolo --version                  Print the version\n")
-	b.WriteString("  yolo --help                     Show this help\n\n")
-	b.WriteString("Commands:\n")
+	b.WriteString("[bold]yolo[/bold] — a sandboxed container jail for AI coding agents\n\n")
+	b.WriteString("[bold]Usage:[/bold]\n")
+	b.WriteString("  [cyan]yolo -- <command>[/cyan] [args...]     Run <command> inside the jail\n")
+	b.WriteString("  [cyan]yolo <subcommand>[/cyan] [args...]     Run a management subcommand\n")
+	b.WriteString("  [cyan]yolo --version[/cyan]                  Print the version\n")
+	b.WriteString("  [cyan]yolo --help[/cyan]                     Show this help\n\n")
+	b.WriteString("[bold]Commands:[/bold]\n")
 	width := 0
 	for _, c := range commandHelp {
 		if len(c.name) > width {
@@ -40,8 +45,8 @@ func usageText() string {
 		}
 	}
 	for _, c := range commandHelp {
-		b.WriteString("  " + c.name + strings.Repeat(" ", width-len(c.name)+2) + c.blurb + "\n")
+		b.WriteString("  [cyan]" + c.name + "[/cyan]" + strings.Repeat(" ", width-len(c.name)+2) + c.blurb + "\n")
 	}
-	b.WriteString("\nRun 'yolo <subcommand> --help' where supported, or see 'yolo config-ref'.\n")
+	b.WriteString("\nRun '[cyan]yolo <subcommand> --help[/cyan]' where supported, or see '[cyan]yolo config-ref[/cyan]'.\n")
 	return b.String()
 }

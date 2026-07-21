@@ -17,6 +17,7 @@ import (
 	"fmt"
 	"os"
 
+	"github.com/mschulkind-oss/yolo-jail/internal/richtext"
 	"github.com/mschulkind-oss/yolo-jail/internal/version"
 )
 
@@ -45,7 +46,7 @@ func Main(argv []string) int {
 	// + no_args_is_help=False. `--`->run rewrite still owns `yolo <flags> -- cmd`,
 	// so a `--help` after `--` is the inner command's flag, not ours.
 	if wantsTopLevelHelp(args) {
-		fmt.Print(usageText())
+		fmt.Print(richtext.Render(usageText(), isTTY(os.Stdout)))
 		return 0
 	}
 

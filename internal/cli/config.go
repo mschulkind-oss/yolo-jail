@@ -20,6 +20,7 @@ import (
 	"github.com/mschulkind-oss/yolo-jail/internal/agentcfg/luahook"
 	"github.com/mschulkind-oss/yolo-jail/internal/agentcfg/manifest"
 	"github.com/mschulkind-oss/yolo-jail/internal/paths"
+	"github.com/mschulkind-oss/yolo-jail/internal/richtext"
 )
 
 // configUsage is the `yolo config` help, printed on `--help`, `help`, or misuse.
@@ -64,7 +65,7 @@ func configRunW(args []string, out, errw io.Writer) int {
 	}
 	switch args[0] {
 	case "render":
-		return configRender(args[1:], out, errw)
+		return configRender(args[1:], out, errw, colorForWriter(out))
 	default:
 		fmt.Fprintf(errw, "yolo config: unknown subcommand %q\n\n%s\n", args[0], configUsage)
 		return 2
@@ -76,8 +77,16 @@ func isHelpToken(tok string) bool {
 	return tok == "--help" || tok == "-h" || tok == "help"
 }
 
+// colorForWriter reports whether to emit ANSI: only when out is os.Stdout AND a
+// real terminal. A bytes.Buffer (tests) or a pipe/redirect yields false, so the
+// rendered/explain output stays plain and byte-stable off a TTY.
+func colorForWriter(out io.Writer) bool {
+	f, ok := out.(*os.File)
+	return ok && isTTY(f)
+}
+
 // configRender implements `yolo config render <agent> [--surface s] [--explain]`.
-func configRender(args []string, out, errw io.Writer) int {
+func configRender(args []string, out, errw io.Writer, color bool) int {
 	var agent, surface string
 	var explain bool
 	for i := 0; i < len(args); i++ {
@@ -140,7 +149,7 @@ func configRender(args []string, out, errw io.Writer) int {
 		if surface != "" && s.Name != surface {
 			continue
 		}
-		if err := renderSurface(s, script, vm, explain, out); err != nil {
+		if err := renderSurface(s, script, vm, explain, out, color); err != nil {
 			fmt.Fprintf(errw, "yolo config render: %s/%s: %v\n", s.Agent, s.Name, err)
 			rc = 1
 		}
@@ -150,7 +159,7 @@ func configRender(args []string, out, errw io.Writer) int {
 
 // renderSurface composes one surface and writes either the rendered file or the
 // --explain provenance to out.
-func renderSurface(s manifest.Surface, script string, vm luahook.LuaVM, explain bool, out io.Writer) error {
+func renderSurface(s manifest.Surface, script string, vm luahook.LuaVM, explain bool, out io.Writer, color bool) error {
 	hostBytes, _ := os.ReadFile(expandHome(s.Path)) // absent host file => empty layer
 
 	res, err := agentcfg.Compose(agentcfg.Inputs{
@@ -163,19 +172,47 @@ func renderSurface(s manifest.Surface, script string, vm luahook.LuaVM, explain 
 		return err
 	}
 
-	header := fmt.Sprintf("# %s/%s → %s", s.Agent, s.Name, s.Path)
+	pr := richtext.Printer{W: out, Color: color}
+	header := fmt.Sprintf("[bold]# %s/%s → %s[/bold]", s.Agent, s.Name, s.Path)
 	if explain {
-		fmt.Fprintf(out, "%s (layer that set each key)\n", header)
+		pr.Printf("%s [dim](layer that set each key)[/dim]", header)
+		// ProvenanceLines is sorted "key\tlayer"; color the key cyan and the
+		// layer by its distinct hue.
 		for _, line := range res.ProvenanceLines() {
-			fmt.Fprintf(out, "  %s\n", line)
+			key, layer, _ := strings.Cut(line, "\t")
+			pr.Printf("  [cyan]%s[/cyan]\t%s", key, colorLayer(layer))
 		}
 		if len(res.Excluded) > 0 {
-			fmt.Fprintf(out, "  (staged files excluded: %s)\n", strings.Join(res.Excluded, ", "))
+			pr.Printf("  [dim](staged files excluded: %s)[/dim]", strings.Join(res.Excluded, ", "))
 		}
 		return nil
 	}
-	fmt.Fprintf(out, "%s\n%s\n", header, res.Encoded)
+	pr.Print(header)
+	fmt.Fprintf(out, "%s\n", res.Encoded)
 	return nil
+}
+
+// colorLayer wraps a provenance layer name in its distinct hue so --explain
+// reads like syntax-highlighted provenance: one hue per composition layer
+// (docs/plans/cli-visual-polish.md). The value may be "transform (dropped)";
+// the hue keys on the leading word.
+func colorLayer(layer string) string {
+	tag := map[string]string{
+		"defaults":  "dim",     // lowest precedence — muted
+		"host":      "blue",    // the host mirror
+		"workspace": "cyan",    // workspace layer
+		"overlay":   "magenta", // capture-diff overlay (in-jail edits)
+		"transform": "yellow",  // the Lua hook touched it
+		"managed":   "green",   // yolo-enforced, wins
+	}
+	word := layer
+	if i := strings.IndexByte(word, ' '); i >= 0 {
+		word = word[:i]
+	}
+	if t, ok := tag[word]; ok {
+		return "[" + t + "]" + layer + "[/" + t + "]"
+	}
+	return layer
 }
 
 // loadTransformScript concatenates the user then workspace config.lua (§3.4),

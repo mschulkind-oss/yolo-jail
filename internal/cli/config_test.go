@@ -103,6 +103,36 @@ func TestConfigRenderExplain(t *testing.T) {
 	}
 }
 
+// TestConfigRenderExplainColor: with color forced, --explain wraps each layer
+// in its distinct hue (managed=green, transform=yellow, host=blue) and the key
+// in cyan — the syntax-highlight-provenance from cli-visual-polish. With color
+// off the output is plain (the byte-stable path the other tests assert).
+func TestConfigRenderExplainColor(t *testing.T) {
+	home, repo := withHomeAndCwd(t)
+	writeFile(t, filepath.Join(home, ".pi/agent/settings.json"), piHostSettings)
+	writeFile(t, filepath.Join(repo, "yolo-jail.config.lua"), piGateTransform)
+
+	var out bytes.Buffer
+	// Drive configRender with color=true (the front door gates this on a real
+	// TTY; here we force it to assert the ANSI mapping).
+	rc := configRender([]string{"pi", "--explain"}, &out, &bytes.Buffer{}, true)
+	if rc != 0 {
+		t.Fatalf("rc=%d", rc)
+	}
+	got := out.String()
+	// Green for managed, yellow for transform, blue for host, cyan for the key.
+	for _, want := range []string{
+		"\x1b[32mmanaged\x1b[0m",   // green
+		"\x1b[33mtransform\x1b[0m", // yellow
+		"\x1b[34mhost\x1b[0m",      // blue
+		"\x1b[36m",                 // cyan (keys)
+	} {
+		if !strings.Contains(got, want) {
+			t.Errorf("--explain color output missing %q:\n%q", want, got)
+		}
+	}
+}
+
 // TestConfigRenderNoTransform: with no config.lua present, render is a plain
 // merge+enforce and both extensions survive.
 func TestConfigRenderNoTransform(t *testing.T) {

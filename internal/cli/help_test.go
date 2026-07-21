@@ -3,13 +3,18 @@ package cli
 import (
 	"strings"
 	"testing"
+
+	"github.com/mschulkind-oss/yolo-jail/internal/richtext"
 )
 
 // TestUsageTextListsCommands guards that the usage text enumerates the
 // user-facing commands from the registry (so a new command shows up in help
 // automatically) and omits the hidden `internal` namespace.
 func TestUsageTextListsCommands(t *testing.T) {
-	got := usageText()
+	// Assert on the STRIPPED form: usageText carries rich markup ([bold]/[cyan]),
+	// rendered on a TTY and stripped off a pipe. The command names/blurbs are
+	// unchanged text, so stripping is byte-stable.
+	got := richtext.Strip(usageText())
 	for _, want := range []string{"run", "check", "ps", "prune", "broker", "loopholes"} {
 		if !strings.Contains(got, want) {
 			t.Errorf("usageText() missing command %q\n%s", want, got)
@@ -20,6 +25,18 @@ func TestUsageTextListsCommands(t *testing.T) {
 	}
 	if !strings.Contains(got, "yolo") {
 		t.Errorf("usageText() should mention the program name\n%s", got)
+	}
+}
+
+// TestUsageTextStripsToStableText: the rendered-off-TTY form contains no ANSI
+// and no leftover style tags (a parity guard for the help output).
+func TestUsageTextStripsToStableText(t *testing.T) {
+	stripped := richtext.Strip(usageText())
+	if strings.Contains(stripped, "\x1b[") {
+		t.Error("stripped usage should contain no ANSI escapes")
+	}
+	if strings.Contains(stripped, "[bold]") || strings.Contains(stripped, "[cyan]") {
+		t.Errorf("stripped usage leaked a style tag:\n%s", stripped)
 	}
 }
 
