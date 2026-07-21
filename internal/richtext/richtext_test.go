@@ -36,3 +36,27 @@ func TestRenderColorGate(t *testing.T) {
 		t.Errorf("Render(color=true) = %q, want ANSI", got)
 	}
 }
+
+// TestFullPalette covers all six foreground hues plus bold/dim — the palette the
+// visual-polish plan relies on (one hue per composition layer in --explain).
+func TestFullPalette(t *testing.T) {
+	cases := map[string]string{
+		"bold":    ansiBold,
+		"dim":     ansiDim,
+		"red":     ansiRed,
+		"green":   ansiGreen,
+		"yellow":  ansiYellow,
+		"blue":    ansiBlue,
+		"magenta": ansiMagenta,
+		"cyan":    ansiCyan,
+	}
+	for tag, code := range cases {
+		in := "[" + tag + "]x[/" + tag + "]"
+		if got := ToANSI(in); got != code+"x"+ansiReset {
+			t.Errorf("ToANSI(%q) = %q, want %q", in, got, code+"x"+ansiReset)
+		}
+		if got := Strip(in); got != "x" {
+			t.Errorf("Strip(%q) = %q, want %q", in, got, "x")
+		}
+	}
+}

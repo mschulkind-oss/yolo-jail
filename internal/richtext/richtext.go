@@ -20,20 +20,25 @@ import (
 var tagRe = regexp.MustCompile(`\[/?[a-zA-Z][^\]]*\]`)
 
 const (
-	ansiReset  = "\x1b[0m"
-	ansiBold   = "\x1b[1m"
-	ansiDim    = "\x1b[2m"
-	ansiRed    = "\x1b[31m"
-	ansiGreen  = "\x1b[32m"
-	ansiYellow = "\x1b[33m"
-	ansiCyan   = "\x1b[36m"
+	ansiReset   = "\x1b[0m"
+	ansiBold    = "\x1b[1m"
+	ansiDim     = "\x1b[2m"
+	ansiRed     = "\x1b[31m"
+	ansiGreen   = "\x1b[32m"
+	ansiYellow  = "\x1b[33m"
+	ansiBlue    = "\x1b[34m"
+	ansiMagenta = "\x1b[35m"
+	ansiCyan    = "\x1b[36m"
 )
 
 // ansiForTag maps a rich open-tag word (lowercased) to its ANSI code. Compound
-// styles ("bold red") concatenate; closing tags all reset.
+// styles ("bold red") concatenate; closing tags all reset. blue+magenta round
+// out the foreground palette to six hues, enough to give each composition layer
+// (defaults/host/workspace/overlay/transform/managed) a distinct color in
+// `yolo config render --explain` (docs/plans/cli-visual-polish.md).
 var ansiForTag = map[string]string{
 	"bold": ansiBold, "dim": ansiDim, "red": ansiRed, "green": ansiGreen,
-	"yellow": ansiYellow, "cyan": ansiCyan,
+	"yellow": ansiYellow, "blue": ansiBlue, "magenta": ansiMagenta, "cyan": ansiCyan,
 }
 
 // isStyleTag reports whether the bracketed token is a known STYLE tag — every
