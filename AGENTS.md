@@ -52,7 +52,18 @@ there is no sync step.
   two iterate with `just build-go` alone. `yolo-jaild` and `yolo-ps` are plain
   symlinks to the baked build (`goBinariesLinks` in `flake.nix`) — **editing
   them requires a full image rebuild** (`just load` on the host).
-- `flake.nix` changes require `just load` (build + `<runtime> load`) on the host.
+- `flake.nix` changes: the **build** is NOT host-gated — `nix build .#ociImage
+  --impure` works from inside the jail (nix delegates to the host daemon; see
+  "Nix inside the jail" below), so you can and should build the image in-jail to
+  catch flake eval/build errors before handing off. What IS host-gated is
+  **loading + running** the new image: `just load` (`build + <runtime> load`)
+  loads the tar into the **host's** container runtime, which is where `yolo`
+  launches jails — the in-jail podman is a separate nested instance, and a
+  running jail can't hot-swap its own base image. So a nested `yolo -- bash`
+  from in here reuses the *current* baked image, not your freshly-built one:
+  the built image's runtime *behavior* (e.g. a newly-baked package appearing on
+  PATH) is only observable after a host `just load`. Rule of thumb: **build +
+  eval in-jail; load + run-the-new-image on the host.**
 - **The `goSrc` fileset trap** (`flake.nix`): the hermetic image build only sees
   `go.mod`, `go.sum`, `vendor/`, `cmd/`, `internal/`, and `bundled_loopholes/`.
   A Go package outside that set **silently vanishes from the image**; the moment
@@ -152,7 +163,10 @@ Agent logs, for debugging: `~/.copilot/logs/`, `~/.cache/gemini-cli/logs/`,
 
 ## Workflow
 
-1. Image change → edit `flake.nix`, then `just load` on the host.
+1. Image change → edit `flake.nix`, build in-jail to catch eval/build errors
+   (`nix build .#ociImage --impure`), then `just load` on the **host** to
+   actually load + run the new image (the in-jail build proves it compiles; only
+   a host load makes the change take effect for launched jails).
 2. Logic change → edit `cmd/`/`internal/`, `just build-go`, verify in a nested
    jail (`yolo -- bash`).
 3. `just format` (gofmt) before committing.
