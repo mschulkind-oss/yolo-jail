@@ -1,8 +1,9 @@
 # Plan: CLI color audit — render rich markup, don't strip it
 
-**Status:** OPEN — confirmed bug class, partially fixed. Pulled out of the
-archived `go-port-post-transition.md` §5. Jail-testable end-to-end (no host
-needed); pairs naturally with the renderer consolidation in
+**Status:** OPEN — confirmed bug class, `prune`/`builder`/`macosuser` fixed
+(2026-07-20). Pulled out of the archived `go-port-post-transition.md` §5.
+Jail-testable end-to-end (no host needed); pairs naturally with the renderer
+consolidation in
 [module-consolidation-and-cleanup.md](module-consolidation-and-cleanup.md).
 
 ## The bug class
@@ -19,18 +20,19 @@ worth closing.
 
 ## Current state (verified 2026-07-20)
 
-Confirmed still strip-always:
+The shared renderer landed as `internal/richtext` (`ToANSI`/`Strip`/`Render` +
+`Printer{W, Color}`), extracted from `run`'s `console.go`. The three
+strip-always printers were routed through it:
 
-- [ ] **`prune`** (`internal/prune/prunecmd.go:437` — `printer.line` does
-  `richTagRe.ReplaceAllString(s, "")` despite carrying `p.color`).
-- [ ] **`builder`** (`internal/builder/buildercmd.go:90` — `printer.print` same
-  pattern).
-- [ ] **`macos-*`** (`internal/macosuser/orchestrator.go:83` — `printer.print`
-  same pattern; dry-run plan + macos-setup/teardown output).
+- [x] **`prune`** — printer embeds `richtext.Printer`; ANSI gated on
+  `Color && IsTTYStdout()` (genuine TCGETS/TIOCGETA ioctl). (`5abc09c`)
+- [x] **`builder`** — printer wraps `richtext.Printer`; `Deps` gained
+  `Color` + `IsTTYStdout`; `newPrinter` resolves the gate. (`36af30e`)
+- [x] **`macos-*`** — printer gains a `color` field; dry-run plan render forced
+  color-OFF (byte-pinned goldens), only live chatter colors. (`20e73c0`)
 
-Reference (already correct): `internal/cli/run/console.go:57-99` — `richToANSI`
-renders known style tags to ANSI, `stripRich` for the no-color path, gated on
-`Color && IsTTYStdout()`.
+Reference (already correct): `internal/cli/run/console.go` delegates to
+`internal/richtext`; the gate is `Color && IsTTYStdout()`.
 
 Still to classify (audit each — "intentionally plain" vs "lost its color"):
 
@@ -43,16 +45,20 @@ Still to classify (audit each — "intentionally plain" vs "lost its color"):
 
 ## The work
 
-- [ ] Port `run`'s `richToANSI` path to `prune`, `builder`, `macosuser` (or,
-  better, route them through a shared renderer — see below).
+- [x] Port `run`'s render path to `prune`, `builder`, `macosuser` via the shared
+  `internal/richtext` renderer.
+- [x] **Consolidate the renderer.** The color-aware rich→ANSI renderer now lives
+  in ONE place (`internal/richtext`); `run`, `prune`, `builder`, and `macosuser`
+  all route through it. Remaining duplicate `richTagRe` printers (e.g.
+  `internal/broker`) still need routing — the natural intersection with
+  [module-consolidation-and-cleanup.md](module-consolidation-and-cleanup.md).
 - [ ] Audit + classify the remaining commands; fix the ones that lost color.
-- [ ] **Consolidate the renderer.** Four+ packages carry near-duplicate
-  `richTagRe` printers. Lift the color-aware rich→ANSI renderer into ONE shared
-  helper (mirror `internal/cli/run/console.go`'s `richToANSI` + `isStyleTag` +
-  the gate) and route every command through it — fixes the bug everywhere and
-  removes the duplication. This is the natural intersection with
-  [module-consolidation-and-cleanup.md](module-consolidation-and-cleanup.md); do it there if the
-  consolidation lands first.
+- [ ] **Unify the TTY probe.** Two conventions now coexist: the ioctl
+  (`TCGETS`/`TIOCGETA`, used by `internal/cli/run` and now `prune`) vs. the
+  `os.ModeCharDevice` char-device check (used by `internal/cli/commands.go`,
+  `terminal.go`, `configref.go`, and now `builder`/`macosuser`). The ioctl is
+  more correct (a char-device check false-positives on the container `-t` flag
+  and on `/dev/null`); fold everything onto one shared `isTTY(fd)` helper.
 - [ ] **Gate rule (same as run):** render ANSI only when `Color &&
   IsTTYStdout()` — never emit escapes to a pipe/redirect, so captured/greppable
   output stays clean and `NO_COLOR` is honored.
