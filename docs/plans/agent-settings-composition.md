@@ -366,24 +366,35 @@ Layered regeneration + a Lua transform + the ownership principle collapse all of
 these into one engine driven by per-agent manifests, with the reshaping expressed
 once, in a real language, on yolo's own output.
 
-## 8. Migration (each stage independently shippable)
+## 8. Migration — serial foundation, then parallel fan-out
 
-1. **Engine as a leaf library, no callers** — decode/merge/enforce/render + the
-   Lua VM sandbox + the manifest schema, with a fixture corpus (`inputs → render`)
-   run by `go test`. This corpus is the spec.
-2. **pi** — the motivating surface: builtin manifest + the workspace/user
-   transform; deletes `host_pi_files` and the pi three-way merge.
-3. **Claude, then the remaining agents** — migrate `settings.json` (+ `.claude.json`
-   classified as runtime-state), then the rest get host reflection via the same
-   engine.
-4. **Non-agent surfaces** — fold MCP (`mcp.go`), LSP, and the global mise config
-   (`mise.go`) onto the same pipeline once the agent surfaces prove it out. They
-   already compose config-layer input (§1.1); moving them here retires their
-   bespoke merge code and gives them the Lua transform + `render` for free. Do
-   this only after the agent surfaces are stable — no reason to migrate them
-   speculatively.
-5. **Deletion** — remove the bespoke merges, snapshot constants, per-agent mount
-   blocks, and the `host_*_files` keys.
+Structured as three phases; the parallelism is called out because it maps to how
+this gets built (see ROADMAP "Config-composition build").
+
+**Phase A — engine (serial gate).** A leaf library with **no callers**, fully
+testable in isolation. Pin the interfaces (`layer`/`surface`/`manifest`/`ctx`)
+first, then these four parallelize:
+1. pure functions — `decode`/`deepMerge`/`enforce`/`render`/`mergeDiff` over
+   generic values, per-codec (JSON + TOML first);
+2. the Lua VM sandbox (`gopher-lua`, locked down) + the `ctx` bridge;
+3. the manifest schema + loader;
+4. the fixture corpus (`inputs → render`, `go test`) — **this is the spec.**
+Cap Phase A with `yolo config render` (host-side + in-jail, §6) so every later
+surface is verifiable.
+
+**Phase B — surfaces (fan out; mutually independent on the frozen engine).**
+- **pi first** as the proof-of-concept — exercises tree staging + a transform +
+  the overlay; deletes `host_pi_files` and the pi three-way merge.
+- then in parallel, one commit each: **Claude** (widest — `settings.json` +
+  `.claude.json` as runtime-state), **gemini**, **copilot**, **opencode**,
+  **Codex** (TOML codec), and the non-agent surfaces **MCP** (`mcp.go`), **LSP**,
+  **mise** (`mise.go`). Each already composes config-layer input (§1.1); moving it
+  onto the engine retires its bespoke merge and grants it the Lua transform +
+  `render` for free. Each lands + verifies in a nested jail on its own.
+
+**Phase C — deletion (serial, last).** Remove the bespoke merges, snapshot
+constants, per-agent mount blocks, and the `host_*_files` keys once every surface
+is off them.
 
 Each stage ends with a nested-jail verification (per repo `CLAUDE.md`).
 

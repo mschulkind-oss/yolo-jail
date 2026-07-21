@@ -21,7 +21,7 @@ post-Go-port backlog (nix-ld, color audit, consolidation) into the same picture.
 | [nix-ld-dynamic-linking.md](nix-ld-dynamic-linking.md) | Replace the `LD_LIBRARY_PATH` whack-a-mole with nix-ld; closes the custom-`mcp_servers` startup gap. | host-gated |
 | [cli-color-audit.md](cli-color-audit.md) | Make `prune`/`builder`/`macos-*` render rich markup instead of stripping it; consolidate the duplicated printers. | jail-side |
 | [module-consolidation-and-cleanup.md](module-consolidation-and-cleanup.md) | Collapse the ~34 Python-mirroring `internal/*` packages; drop parity machinery; §4 OSS-hygiene remnants. | jail-side, last |
-| [agent-settings-composition.md](agent-settings-composition.md) | Layered regeneration of any generated config (agent settings, MCP, LSP, mise, identity) + a Lua transform (design of record). | jail-side, unbuilt |
+| [agent-settings-composition.md](agent-settings-composition.md) | Layered regeneration of any generated config (agent settings, MCP, LSP, mise, identity) + a Lua transform. **Design FINALIZED 2026-07-20.** | jail-side, ready to build (see §Config-composition build) |
 | [integration-parallelism.md](integration-parallelism.md) | Bounded `t.Parallel()` for the container suite (needs per-test GlobalStorage first). | parked (test speed) |
 | [runbooks/](runbooks/) | Track M verification procedures (see [Runbooks](#runbooks) below). | hardware-gated |
 
@@ -32,9 +32,10 @@ other two are gated on a resource an in-jail agent doesn't have.
 
 - **Jail-side (agent-completable).** Developable and testable from inside a
   jail; `internal/` changes still get a nested-jail sanity run per AGENTS.md.
-  Members: the in-flight **CI fix**, **cli-color-audit**, most of **J2**
-  (native-Go macos-user bootstrap re-port — Mac verification deferred to M1),
-  **D2**, **J3**, and **module-consolidation**.
+  Members: **cli-color-audit**, most of **J2** (native-Go macos-user bootstrap
+  re-port — Mac verification deferred to M1), **D2**, **J3**,
+  **module-consolidation**, and the whole **config-composition** thread. (The CI
+  fix that was blocking this lane has landed — CI is green.)
 - **Host-gated (needs a human at a host with nix).** A `flake.nix` / image
   change that AGENTS.md says needs `just load && just install` on a real host
   and **cannot be validated in-jail**. Members: **nix-ld**, and any future image
@@ -57,10 +58,10 @@ Marked here so the "start here" arrow points at the real next item.
   Verified: `internal/repopath/` exists, wired into the install recipe.
 - ✅ **D3** (2026-07-20) — Go-era source bundle ships so checkout-less installs
   build the image. Verified the staged tree evaluates.
-- ⏳ **CI fix — in flight** (separate agent, `integration/`, `internal/config`,
-  `internal/entrypoint`). The tree-green precondition for the J2 thread, which
-  reopens `internal/entrypoint`. Do not start anything that touches those files
-  until it lands.
+- ✅ **CI green** (2026-07-20) — the `TestShimPersistence` failure (shim
+  mount-anchor / `ClearContents`) is fixed and the four test-merges landed; the
+  full CI run (both arches, integration incl.) passed. `internal/entrypoint` is
+  free again, so the J2 thread is unblocked.
 
 Everything else below is **open**.
 
@@ -71,8 +72,8 @@ The jail-side lane is the spine. The revival plan's own sequencing —
 live remainder is **J2 (+D2) → J3 → consolidation**, plus the two backlog items
 slotted where their coupling puts them.
 
-1. **cli-color-audit** — *do now, in parallel with the CI fix.* It is the one
-   standalone jail item that does **not** collide with the in-flight CI files:
+1. **cli-color-audit** — *do now; fully standalone.* It is the one jail item that
+   collides with nothing else in flight:
    its targets are `internal/prune/prunecmd.go:438`, `internal/builder/
    buildercmd.go:90`, and `internal/macosuser/orchestrator.go:83` — all three
    confirmed still `richTagRe.ReplaceAllString(s, "")` (strip-always), against
@@ -82,16 +83,16 @@ slotted where their coupling puts them.
    inherits it; if not, consolidation lands it (see coupling note).
 
 2. **J2 — native-Go macos-user bootstrap re-port (J2.1 → J2.4) + D2.** *The
-   critical-path Mac-backend item; start once the CI fix clears
-   `internal/entrypoint`.* The dead piece is real: `internal/cli/commands.go:375`
+   critical-path Mac-backend item; now unblocked (the CI fix cleared
+   `internal/entrypoint`).* The dead piece is real: `internal/cli/commands.go:375`
    still sets `RepoSrc = repoRoot/src` and `internal/macosuser/runplan.go:152,175`
    still stage/require a `python3` interpreter — and the tracked `src/` tree no
    longer exists (`git ls-files src/` → empty; the untracked `src/` +
    `yolo_jail.egg-info/` in the tree are stale Python build artifacts, not the
    shipped source). J2.1 threads container literals through `*entrypoint.Env`
-   and J2.2 adds a darwin-native generation entry — **both touch
-   `internal/entrypoint`, so J2 is gated on the CI fix.** D2 (graceful repo-root
-   degradation) pairs naturally with J2 step 3 — both touch the run front door
+   and J2.2 adds a darwin-native generation entry — both touch
+   `internal/entrypoint` (which the landed CI fix left green). D2 (graceful
+   repo-root degradation) pairs naturally with J2 step 3 — both touch the run front door
    and the `RepoSrc` contract; land them together. J2's Mac-side behavior
    (password apply, path_helper OQ-1, fresh-inode re-exec) is verified in **M1**,
    not the jail.
@@ -119,6 +120,44 @@ at the other. Rule: whichever runs first lands the shared helper. If
 consolidation runs first, do the renderer there; if the color audit lands first
 (recommended — it's item 1), it lands the renderer and consolidation just
 inherits it. Don't build it twice.
+
+## Config-composition build (own self-contained thread)
+
+[agent-settings-composition.md](agent-settings-composition.md) is **finalized**
+and jail-side, independent of the macOS J/D/M tracks — it can proceed on its own
+clock. Its shape is **serial foundation, then parallel fan-out**:
+
+**Phase A — the engine (serial gate; everything below needs it).** Build it as a
+leaf library with NO callers, so it's fully testable in isolation. *Within* Phase
+A these four pieces parallelize once the interfaces (`layer`, `surface`,
+`manifest`, `ctx`) are pinned in a first commit:
+1. pure functions — `decode`/`deepMerge`/`enforce`/`render`/`mergeDiff` over
+   generic values, per-codec (json/toml first);
+2. the Lua VM sandbox — `gopher-lua`, locked down (no os/io/require/net/fs), the
+   `ctx` bridge (config table, `stage`, read-only `managed`);
+3. the manifest schema + loader (per-agent surface/codec/defaults/managed data);
+4. the fixture corpus (`inputs → render`) run by `go test` — **this is the spec**,
+   write it alongside #1–#3.
+`yolo config render` (host-side + in-jail, read-only) is a thin CLI over the
+engine — build it at the end of Phase A so every later surface is verifiable.
+
+**Phase B — surface migrations (fan out; mutually independent once A lands).**
+Each is a separate manifest + wiring commit against the frozen engine, and they
+**do not depend on each other** — different agents, different files:
+- pi (do first as the proof-of-concept: exercises tree staging + a transform +
+  the overlay; deletes `host_pi_files`);
+- then, in parallel: Claude (widest — `settings.json` + `.claude.json`), gemini,
+  copilot, opencode, Codex (TOML codec), and the non-agent surfaces MCP / LSP /
+  mise. Each lands + verifies (nested jail) on its own.
+
+**Phase C — deletion (serial, last).** Remove the bespoke merges, snapshot
+constants, per-agent mount blocks, and `host_*_files` keys once every surface is
+migrated off them.
+
+So: **A is a barrier** (a moving engine can't have surfaces built on it), **B is
+wide parallelism** (one worker per agent/surface — the big fan-out), **C is a
+single cleanup pass after B**. See "Parallelization" below for what this means
+across the whole roadmap.
 
 ## What unblocks the gated lanes
 
@@ -152,34 +191,50 @@ inherits it. Don't build it twice.
 ```
  DONE ──────────────────────────────►│ now │──────────────────────────────────────►
 
- jail    J1.1–J1.4 ✓   D1 ✓   D3 ✓
- (agent)                                 [CI fix ⏳ in flight: config/entrypoint/integration]
-                                              │ (unblocks the entrypoint-touching J2 thread)
-         cli-color-audit ───────────────────►│ (1) standalone, non-colliding — do in parallel
-                                              ▼
-                                   J2.1 J2.2 J2.3 J2.4  +  D2  ──► J3 ──► module-consolidation
-                                   (2, gated on CI fix)   (w/J2.3)  (3)     (4, settles the tree;
-                                              │                             folds in color renderer)
- host    nix-ld  ── ready ANY host session (independent image layer; closes custom-mcp_servers gap) ─►
- (human) D4 Cachix ── needs account (composes with D3 ✓; not a blocker) ─────────────────────────────►
+ jail    J1.1–J1.4 ✓  D1 ✓  D3 ✓  CI-fix ✓ (shim anchor)  test-merges ✓
+ (agent)  cli-color-audit ─────────────────────────────────► (standalone, non-colliding)
+                                   J2.1 J2.2 J2.3 J2.4 + D2 ──► J3 ──► module-consolidation
+                                   (J2 reopens internal/entrypoint) (w/J2.3)   (last; folds in renderer)
+
+ config   Phase A: engine (leaf lib) ──► Phase B: pi ─┬─► Claude ┐
+ (agent)  [4 pieces || once ifaces set]                ├─► gemini ┤  (all || on frozen engine)
+          own thread, independent of J/D/M             ├─► copilot┤ ──► Phase C: deletion
+                                                        ├─► codex  ┤
+                                                        └─► MCP/LSP/mise ┘
+
+ host    nix-ld  ── ready ANY host session (image layer; closes custom-mcp_servers gap) ─►
+ (human) D4 Cachix ── needs account (composes with D3 ✓; not a blocker) ─────────────────►
 
  mac     M0 (SandVault bootstrap, startable now) ── M1 (e2e verify, gated on J2) ──► M2 (dogfood + docs)
  (hw)                                                    ▲ consumes J2 output; sole home of OQ-1 verify
 ```
 
-Everything on the jail row left of J3 is quota-light, self-contained commits in
-this jail. The host and mac rows are gated lanes that run on their own clock.
+## Parallelization — what can run concurrently right now
+
+Five lanes advance independently; within a lane, the fan-out points are where
+extra hands help most:
+
+- **jail (macOS-revival thread):** `cli-color-audit` is standalone and
+  non-colliding — do it in parallel with anything. `J2` is the critical Mac-side
+  item but touches `internal/entrypoint`; it's now unblocked (the CI fix landed).
+- **config-composition (its own jail thread):** independent of the macOS tracks.
+  **Phase A is a barrier** — a moving engine can't have surfaces built on it — but
+  its four pieces (pure funcs / Lua sandbox / manifest schema / fixture corpus)
+  parallelize once the interfaces are pinned. **Phase B is the big fan-out:** after
+  pi proves the engine, Claude + gemini + copilot + codex + MCP/LSP/mise are one
+  worker each, mutually independent. **Phase C** (deletion) is a single pass after B.
+- **host (nix-ld), human (D4 Cachix), hardware (Track M):** each on its own clock;
+  none blocks the two agent lanes.
+
+**Best concurrent slice today:** `cli-color-audit` + config-composition **Phase A**
+(both jail-side, non-overlapping files) + kick off **nix-ld** whenever a host
+session is free. Once Phase A lands, config **Phase B** becomes a wide fan-out
+(one agent surface per worker) that dwarfs everything else in parallel width.
+The one hard barrier inside a lane is config Phase A; the one cross-lane
+dependency is M1 needing J2's output.
 
 ## Parked
 
-- **agent-settings-composition** — **decided design, unbuilt.** Layered
-  regeneration + a format-agnostic Lua transform, written into the jail user
-  scope only (never host/workspace), with a capture-diff overlay for in-jail
-  edits and `yolo config render` for offline runs. It has its own staged
-  migration (engine-as-leaf-library → Claude managed offload → pi → the rest).
-  Jail-side and independent of the macOS tracks; slot it in when config
-  composition becomes the priority. Left off the numbered J/D thread because it's
-  a self-contained subsystem, not part of the macОS-revival critical path.
 - **integration-parallelism** — bounded `t.Parallel()` for the container suite.
   Parked on purpose: CI is free (wall time is only a convenience) and the fast
   local loop (`just test-fast`, `-short`) skips every container test, so this only
