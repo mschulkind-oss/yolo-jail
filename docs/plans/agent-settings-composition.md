@@ -173,7 +173,13 @@ JSON text. Each surface's builtin manifest declares its **codec** —
   formats yolo won't structurally round-trip. The escape hatch that keeps "don't
   assume JSON" honest.
 - **Tree surfaces** (`extensions/`, `skills/`, `hooks/`): the hook gets no table,
-  just `ctx.stage` (include/exclude by relative-path glob, paths preserved).
+  just `ctx.stage` (include/exclude by relative-path glob, paths preserved). A
+  tree surface can also carry a yolo-shipped `defaults` layer: the `skills/`
+  surface stages a **built-in skill suite** (`internal/agents/builtinskills`,
+  embedded in the binary) *under* the host skills, so a same-named host skill
+  overrides the built-in — the ordinary `defaults` < `host` precedence, applied
+  to a tree. When this surface moves onto the engine (Phase B), that staging
+  order is the behavior to preserve; `PrepareSkills` already implements it.
 
 This is why the design is generic over "anything we generate this way": adding an
 agent whose config is TOML or line-based needs a codec entry, not a new transform

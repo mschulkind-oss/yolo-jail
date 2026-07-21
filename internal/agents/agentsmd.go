@@ -43,10 +43,12 @@ type BriefingInput struct {
 }
 
 // BriefingContent renders the jail-managed briefing body (before any host-level
-// user content is prepended and before agents_md_extra is appended). Frozen
-// contract: the exact bytes are the briefing lines joined with "\n" plus a
-// trailing newline, and golden tests pin them — they must not drift. NetMode
-// defaults to "bridge" when empty.
+// user content is prepended and before agents_md_extra is appended). The body
+// is assembled from BriefingInput — the briefing lines joined with "\n" plus a
+// trailing newline. NOTE: this is NOT golden-pinned; no test asserts the full
+// output (agentsmd_test.go covers only the helpers), so sections can be added
+// or removed without regenerating a golden. NetMode defaults to "bridge" when
+// empty.
 func BriefingContent(in BriefingInput) string {
 	netMode := in.NetMode
 	if netMode == "" {
@@ -205,26 +207,16 @@ func BriefingContent(in BriefingInput) string {
 		"(kernel-enforced); workspace-level ones (`/workspace/.<agent>/skills/`) are",
 		"writable — develop there, then ask the human to promote to the host.",
 		"",
+		"On-demand skills are staged for you: read **configuring-the-jail** before",
+		"editing `yolo-jail.jsonc`, and **diagnosing-the-jail** when a command",
+		"misbehaves. Their bodies load only when invoked — they cost nothing until then.",
+		"",
 	)
 
 	if in.IsYoloSourceTree {
 		lines = append(lines,
-			"## Testing Changes to yolo-jail",
-			"",
-			"The `/workspace` directory is a bind mount of the host's repo, and it also",
-			"backs `/opt/yolo-jail` — so nested jails launched from here run your edited",
-			"Go code live (via dev-override wrappers that prefer `/opt/yolo-jail/dist-go/`).",
-			"",
-			"When modifying `cmd/` or `internal/`, **always verify with a nested",
-			"jail** before telling the human to test on the host. Run `yolo -- bash` from",
-			"inside this jail to launch one and confirm your changes work end-to-end.",
-			"Container startup errors (mount failures, permission errors, read-only",
-			"filesystem conflicts) are only caught by actually running the container —",
-			"unit tests alone are not sufficient.",
-			"",
-			"**Important:** Run `just deploy` to cross-compile Go binaries. Changes to",
-			"`flake.nix` require `just load && just install` on the host since the image",
-			"is baked by Nix.",
+			"When editing this repo's own Go code (`cmd/`/`internal/`) or `flake.nix`,",
+			"read the **developing-yolo-jail** skill for the build/deploy/verify traps.",
 			"",
 		)
 	}
