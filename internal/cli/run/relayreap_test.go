@@ -57,6 +57,11 @@ func TestRelayKillFrozenClockTerminates(t *testing.T) {
 	o := &Options{Now: func() time.Time { return frozen }}
 	fillDefaults(o)
 	o.Now = func() time.Time { return frozen }
+	// Shrink the drain grace so this test isn't 3s of real sleep. The regression
+	// it guards is the clock SOURCE (deadline built from the real wall clock, not
+	// the frozen o.Now); the grace MAGNITUDE is orthogonal, and the 30s detector
+	// below still catches a reintroduced frozen-clock spin regardless of grace.
+	o.RelayKillGrace = 200 * time.Millisecond
 
 	done := make(chan struct{})
 	go func() {

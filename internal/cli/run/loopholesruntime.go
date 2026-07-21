@@ -414,6 +414,10 @@ func (o *Options) relayIsAlive(pidFile, sockPath string) bool {
 // straggler), then remove the PID file. Identity/pgrep-fallback guards are
 // omitted in this port slice — the PID file is the common case; a recycled-PID
 // misfire is bounded by the pidAlive check.
+// relayKillGraceDefault is the production SIGTERM→SIGKILL drain window. Tests
+// override it via Options.RelayKillGrace to avoid a real 3s sleep.
+const relayKillGraceDefault = 3 * time.Second
+
 func (o *Options) relayKill(pidFile, sockPath string) {
 	pid, ok := readPIDFile(pidFile)
 	if ok && o.PIDAlive(pid) {
@@ -423,8 +427,11 @@ func (o *Options) relayKill(pidFile, sockPath string) {
 		// deterministic; draining against a frozen clock never advances past
 		// the deadline, so this loop would spin until the target happens to
 		// die. internal/prune.realRelayKill uses time.Now() for the same
-		// reason.
-		deadline := time.Now().Add(3 * time.Second)
+		// reason. The grace MAGNITUDE is a separate seam (o.RelayKillGrace,
+		// default relayKillGraceDefault): tests shrink it so this isn't 3s of
+		// real sleep in the unit suite, but the clock SOURCE stays the wall
+		// clock so the frozen-clock regression is still caught.
+		deadline := time.Now().Add(o.RelayKillGrace)
 		for time.Now().Before(deadline) {
 			if !o.PIDAlive(pid) {
 				break

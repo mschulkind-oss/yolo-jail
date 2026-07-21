@@ -49,6 +49,11 @@ type Options struct {
 	// --- seams ---
 	// Now is the clock seam. nil => time.Now.
 	Now func() time.Time
+	// RelayKillGrace is the SIGTERM→SIGKILL drain window in relayKill. 0 =>
+	// relayKillGraceDefault (3s). Injectable ONLY to shrink it in tests (the
+	// drain always waits the real wall clock, so 3s of real sleep otherwise
+	// dominates the unit suite); production always uses the default.
+	RelayKillGrace time.Duration
 	// Getenv reads environment variables. nil => os.Getenv.
 	Getenv func(string) string
 	// LookPath resolves an executable on PATH (shutil.which). nil => real.
@@ -113,6 +118,9 @@ func fillDefaults(o *Options) {
 	}
 	if o.Now == nil {
 		o.Now = time.Now
+	}
+	if o.RelayKillGrace == 0 {
+		o.RelayKillGrace = relayKillGraceDefault
 	}
 	if o.Getenv == nil {
 		o.Getenv = os.Getenv
