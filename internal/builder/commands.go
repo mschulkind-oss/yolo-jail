@@ -26,7 +26,7 @@ func RunBuilder(deps Deps, sub string, args []string) int {
 // return (exitCode=0, handled=true). handled=false means proceed.
 func requireMacos(deps Deps) (int, bool) {
 	if !deps.IsMacOS() {
-		printer{w: deps.Out}.print(
+		newPrinter(deps).print(
 			"[yellow]The Linux builder is a macOS-only concept.[/yellow]  " +
 				"On Linux the image builds natively — no builder VM needed.")
 		return 0, true
@@ -47,7 +47,7 @@ func BuilderStatusCmd(deps Deps) int {
 	if rc, done := requireMacos(deps); done {
 		return rc
 	}
-	out := printer{w: deps.Out}
+	out := newPrinter(deps)
 	st := BuilderStatus(deps)
 
 	out.print("[bold]macOS Linux builder[/bold]")
@@ -77,7 +77,7 @@ func BuilderStartCmd(deps Deps) int {
 	if rc, done := requireMacos(deps); done {
 		return rc
 	}
-	out := printer{w: deps.Out}
+	out := newPrinter(deps)
 	if deps.Reachable() {
 		out.print("[green]Builder already running.[/green]")
 		return 0
@@ -119,7 +119,7 @@ func BuilderStopCmd(deps Deps) int {
 	if rc, done := requireMacos(deps); done {
 		return rc
 	}
-	out := printer{w: deps.Out}
+	out := newPrinter(deps)
 	if !deps.Reachable() {
 		out.print("[dim]Builder not running.[/dim]")
 		return 0
@@ -173,7 +173,7 @@ func BuilderSetupCmd(deps Deps, flags SetupFlags) int {
 	if rc, done := requireMacos(deps); done {
 		return rc
 	}
-	out := printer{w: deps.Out}
+	out := newPrinter(deps)
 	st := BuilderSetupState(deps)
 	if st.Done {
 		out.print("[green]Builder already set up.[/green]")

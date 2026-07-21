@@ -87,7 +87,19 @@ func RealDeps() Deps {
 		Now:                   func() float64 { return float64(time.Now().UnixNano()) / 1e9 },
 		Confirm:               confirmReal,
 		Out:                   os.Stdout,
+		Color:                 true,
+		IsTTYStdout:           isTTYStdoutReal,
 	}
+}
+
+// isTTYStdoutReal reports whether os.Stdout is a real terminal (char device),
+// so color is emitted only to a terminal and never to a pipe/file.
+func isTTYStdoutReal() bool {
+	info, err := os.Stdout.Stat()
+	if err != nil {
+		return false
+	}
+	return info.Mode()&os.ModeCharDevice != 0
 }
 
 // 127.0.0.1:BUILDER_PORT with a 1s timeout; any error → false.

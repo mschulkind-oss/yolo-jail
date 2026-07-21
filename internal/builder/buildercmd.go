@@ -16,8 +16,9 @@ package builder
 import (
 	"fmt"
 	"io"
-	"regexp"
 	"strings"
+
+	"github.com/mschulkind-oss/yolo-jail/internal/richtext"
 )
 
 // Proc models a spawned VM process for poll-based liveness
@@ -73,8 +74,17 @@ type Deps struct {
 	Now   func() float64
 	// Confirm prompts (typer.confirm) for the setup step.
 	Confirm func(prompt string) bool
-	// Out receives the human output (rich markup stripped, parity on text).
+	// Out receives the human output. Rich console markup ([bold], [red], …) is
+	// rendered to ANSI when Color is set, else stripped — via internal/richtext,
+	// the shared renderer.
 	Out io.Writer
+	// Color requests ANSI color. The command bodies emit color only when Color
+	// AND IsTTYStdout() are true (a pipe/file stays clean). RealDeps gates it on
+	// a stdout char-device check; the front door may override.
+	Color bool
+	// IsTTYStdout reports whether Out is a real terminal. RealDeps wires the
+	// os.Stdout char-device probe; nil is treated as "not a TTY".
+	IsTTYStdout func() bool
 }
 
 // Poll timing.
@@ -83,12 +93,21 @@ const (
 	builderPollIntervalS = 1.0
 )
 
-var richTagRe = regexp.MustCompile(`\[/?[a-zA-Z][^\]]*\]`)
+// printer wraps the shared richtext renderer: color mode emits ANSI, otherwise
+// known style tags are stripped (literal brackets like [y/N] are preserved in
+// both modes). Lowercase method names keep the many call sites unchanged.
+type printer struct{ rt richtext.Printer }
 
-type printer struct{ w io.Writer }
+func (p printer) print(msg string)          { p.rt.Print(msg) }
+func (p printer) printf(f string, a ...any) { p.rt.Printf(f, a...) }
 
-func (p printer) print(msg string)          { fmt.Fprintln(p.w, richTagRe.ReplaceAllString(msg, "")) }
-func (p printer) printf(f string, a ...any) { p.print(fmt.Sprintf(f, a...)) }
+// newPrinter builds a printer for deps.Out, resolving the color gate: ANSI is
+// emitted only when deps.Color is set AND stdout is a real terminal, so
+// redirected output stays clean.
+func newPrinter(deps Deps) printer {
+	color := deps.Color && deps.IsTTYStdout != nil && deps.IsTTYStdout()
+	return printer{rt: richtext.Printer{W: deps.Out, Color: color}}
+}
 
 type SetupState struct {
 	SSHConfig  bool

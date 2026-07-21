@@ -333,6 +333,46 @@ func TestEnsureBuilderReasons(t *testing.T) {
 	}
 }
 
+// TestPrinterColorGate verifies the printer routes through internal/richtext:
+// color mode renders known style tags to ANSI, non-color mode strips them, and
+// a literal bracket token like [y/N] survives verbatim in BOTH modes.
+func TestPrinterColorGate(t *testing.T) {
+	const ansiReset = "\x1b[0m"
+	const ansiGreen = "\x1b[32m"
+
+	// Color: TTY + Color both true → ANSI escapes emitted.
+	var colBuf bytes.Buffer
+	col := newPrinter(Deps{Out: &colBuf, Color: true, IsTTYStdout: func() bool { return true }})
+	col.print("[green]ok[/green] continue? [y/N]")
+	got := colBuf.String()
+	if !strings.Contains(got, ansiGreen+"ok"+ansiReset) {
+		t.Errorf("color mode did not render ANSI: %q", got)
+	}
+	if !strings.Contains(got, "[y/N]") {
+		t.Errorf("color mode mangled literal [y/N]: %q", got)
+	}
+
+	// No color: Color false → tags stripped, no ANSI, literal preserved.
+	var plainBuf bytes.Buffer
+	plain := newPrinter(Deps{Out: &plainBuf, Color: false, IsTTYStdout: func() bool { return true }})
+	plain.printf("[green]%s[/green] continue? [y/N]", "ok")
+	got = plainBuf.String()
+	if strings.Contains(got, "\x1b[") {
+		t.Errorf("no-color mode leaked ANSI: %q", got)
+	}
+	if got != "ok continue? [y/N]\n" {
+		t.Errorf("no-color mode = %q, want %q", got, "ok continue? [y/N]\n")
+	}
+
+	// Color requested but not a TTY → strips (redirected output stays clean).
+	var pipeBuf bytes.Buffer
+	pipe := newPrinter(Deps{Out: &pipeBuf, Color: true, IsTTYStdout: func() bool { return false }})
+	pipe.print("[green]ok[/green]")
+	if pipeBuf.String() != "ok\n" {
+		t.Errorf("color-but-not-tty = %q, want %q", pipeBuf.String(), "ok\n")
+	}
+}
+
 func contains(sl []string, x string) bool {
 	for _, v := range sl {
 		if v == x {
