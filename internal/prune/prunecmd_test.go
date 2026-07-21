@@ -7,6 +7,8 @@ import (
 	"strings"
 	"testing"
 	"time"
+
+	"github.com/mschulkind-oss/yolo-jail/internal/richtext"
 )
 
 // stubExec builds a RunFunc keyed by the joined argv, returning canned
@@ -283,6 +285,78 @@ func TestBuildRootDeclineWhenUnknown(t *testing.T) {
 	}
 	if _, err := os.Stat(old); err != nil {
 		t.Error("declined sweep must not delete the orphan generation")
+	}
+}
+
+// TestPrinterColorGate: the prune printer routes through internal/richtext —
+// color=true renders known style tags ([bold], [green]) to ANSI escapes;
+// color=false strips them to plain text; a literal like [y/N] is preserved in
+// both modes (it is not a known style tag, so the renderer must not touch it).
+func TestPrinterColorGate(t *testing.T) {
+	const (
+		esc   = "\x1b["
+		bold  = "\x1b[1m"
+		green = "\x1b[32m"
+		reset = "\x1b[0m"
+	)
+
+	t.Run("color renders ANSI", func(t *testing.T) {
+		var buf bytes.Buffer
+		p := &printer{richtext.Printer{W: &buf, Color: true}}
+		p.line("[bold]hi[/bold] [green]ok[/green] keep [y/N]")
+		got := buf.String()
+		for _, want := range []string{bold, green, reset, "[y/N]"} {
+			if !strings.Contains(got, want) {
+				t.Errorf("color output %q missing %q", got, want)
+			}
+		}
+		if strings.Contains(got, "[bold]") || strings.Contains(got, "[green]") {
+			t.Errorf("color output should not contain raw style tags: %q", got)
+		}
+	})
+
+	t.Run("no color strips to plain", func(t *testing.T) {
+		var buf bytes.Buffer
+		p := &printer{richtext.Printer{W: &buf, Color: false}}
+		p.line("[bold]hi[/bold] [green]ok[/green] keep [y/N]")
+		got := buf.String()
+		if strings.Contains(got, esc) {
+			t.Errorf("no-color output must not contain ANSI escapes: %q", got)
+		}
+		if want := "hi ok keep [y/N]\n"; got != want {
+			t.Errorf("no-color output = %q, want %q", got, want)
+		}
+	})
+}
+
+// TestRunColorGateHonorsTTY: the Run-level gate emits ANSI only when Color is
+// requested AND stdout is a TTY. Piped output (IsTTYStdout=false) stays byte-
+// identical stripped text — the output-parity contract — even with Color=true.
+func TestRunColorGateHonorsTTY(t *testing.T) {
+	render := func(color, tty bool) string {
+		o, _ := baseOpts(t)
+		o.Color = color
+		o.IsTTYStdout = func() bool { return tty }
+		var buf bytes.Buffer
+		o.Out = &buf
+		Run(o)
+		return buf.String()
+	}
+
+	// The bold "yolo prune (DRY-RUN)" header is the first rich line.
+	color := render(true, true)
+	if !strings.Contains(color, "\x1b[1m") {
+		t.Errorf("Color+TTY should emit ANSI bold in header:\n%q", color)
+	}
+
+	// Color requested but piped: no ANSI, and byte-identical to the color-off run.
+	piped := render(true, false)
+	plain := render(false, false)
+	if strings.Contains(piped, "\x1b[") {
+		t.Errorf("Color without a TTY must not emit ANSI:\n%q", piped)
+	}
+	if piped != plain {
+		t.Errorf("piped Color output must be byte-identical to color-off output\ncolor:\n%q\nplain:\n%q", piped, plain)
 	}
 }
 

@@ -25,7 +25,6 @@ import (
 	"io"
 	"os"
 	"os/exec"
-	"regexp"
 	"sort"
 	"strconv"
 	"strings"
@@ -33,6 +32,7 @@ import (
 
 	"github.com/mschulkind-oss/yolo-jail/internal/execx"
 	"github.com/mschulkind-oss/yolo-jail/internal/paths"
+	"github.com/mschulkind-oss/yolo-jail/internal/richtext"
 	"github.com/mschulkind-oss/yolo-jail/internal/runtime"
 )
 
@@ -57,9 +57,15 @@ type Options struct {
 	CacheAge         int  // --cache-age        (default 30; 0 skips the pass)
 	PurgeHeavyCaches bool // --purge-heavy-caches
 	// --- seams ---
-	// Color enables ANSI styling. Parity is on the ANSI-stripped text, so the
-	// numbers/decisions/lists are identical regardless; goldens pin Color=false.
+	// Color requests ANSI styling. It is honored ONLY when stdout is a real
+	// terminal (Color && IsTTYStdout()): piped/redirected output stays byte-
+	// identical stripped text, so parity is on the ANSI-stripped text and the
+	// numbers/decisions/lists are identical regardless (goldens pin Color=false).
 	Color bool
+	// IsTTYStdout reports whether stdout is a real terminal. nil => a real
+	// os.Stdout isatty probe (the same TCGETS ioctl the run package uses, NOT a
+	// char-device mode check). Injectable so tests drive the color gate directly.
+	IsTTYStdout func() bool
 	// Out is where the report is written. nil => os.Stdout.
 	Out io.Writer
 	// DetectRuntime returns the effective runtime ("podman"/"container"). nil =>
@@ -98,6 +104,9 @@ func NewDefaultOptions() Options {
 func fillDefaults(o *Options) {
 	if o.Out == nil {
 		o.Out = os.Stdout
+	}
+	if o.IsTTYStdout == nil {
+		o.IsTTYStdout = func() bool { return isTTY(os.Stdout) }
 	}
 	if o.DetectRuntime == nil {
 		o.DetectRuntime = func() string {
@@ -142,7 +151,9 @@ const (
 // no failure exit).
 func Run(opts Options) int {
 	fillDefaults(&opts)
-	p := &printer{w: opts.Out, color: opts.Color}
+	// Honest color gate: ANSI only when requested AND stdout is a real terminal,
+	// so piped output stays byte-identical stripped text (the output contract).
+	p := &printer{richtext.Printer{W: opts.Out, Color: opts.Color && opts.IsTTYStdout()}}
 	apply := opts.Apply
 
 	rt := opts.DetectRuntime()
@@ -422,21 +433,19 @@ func joinPath(a, b string) string {
 	return a + "/" + b
 }
 
-// --- rich-markup-stripping printer (the runcmd/check output-contract precedent) ---
-var richTagRe = regexp.MustCompile(`\[/?[a-zA-Z][^\]]*\]`)
-
+// --- color-aware printer (delegates to the shared internal/richtext renderer) ---
+// printer wraps richtext.Printer so prune's report lines route through the one
+// shared renderer instead of a local strip-always regex. Construct with Color
+// already resolved to (requested && on a TTY) — see Run: color renders ANSI on a
+// terminal, and stays byte-identical stripped text when piped (the output
+// contract; parity is on the ANSI-stripped text).
 type printer struct {
-	w     io.Writer
-	color bool
+	richtext.Printer
 }
 
-// line writes one console.print line. Rich markup is stripped (parity is on the
-// text content + numbers, not the markup bytes — the/15 output
-// contract). color is accepted for symmetry with check's reporter but the
-// stripped text is the contract, so it is currently always stripped.
-func (p *printer) line(s string) {
-	fmt.Fprintln(p.w, richTagRe.ReplaceAllString(s, ""))
-}
+// line writes one console.print line, rendering known style tags to ANSI when
+// color is on and stripping them otherwise (literals like [y/N] survive both).
+func (p *printer) line(s string) { p.Print(s) }
 
 // --- real seams ---
 // realProbeExec runs a container-runtime probe with the given timeout, returning
