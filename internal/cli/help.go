@@ -17,6 +17,7 @@ var commandHelp = []struct{ name, blurb string }{
 	{"loopholes", "List/enable/disable host-capability loopholes"},
 	{"init", "Scaffold yolo-jail.jsonc in the current workspace"},
 	{"init-user-config", "Write user-level defaults at ~/.config/yolo-jail/config.jsonc"},
+	{"config", "Inspect generated config: 'config render <agent>' (composition pipeline)"},
 	{"config-ref", "Print the full configuration reference"},
 	{"macos-setup", "Provision the native macOS sandbox user (macos-user backend)"},
 }

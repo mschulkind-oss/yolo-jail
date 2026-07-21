@@ -84,6 +84,11 @@ func BuildDir() string { return filepath.Join(GlobalStorage(), "build") }
 // UserConfigPath returns $HOME/.config/yolo-jail/config.jsonc.
 func UserConfigPath() string { return filepath.Join(home(), userConfigSuffix) }
 
+// Home returns the resolved home directory (see home() for the Python-parity
+// resolution rules). Exported for callers that must expand a leading "~/" in a
+// user-scope path, e.g. a surface manifest's Path.
+func Home() string { return home() }
+
 // home Path.home() / os.path.expanduser("~") resolution,
 // which the paths constants depend on — NOT Go's os.UserHomeDir(), which reads
 // only $HOME and errors when it is unset (audit finding: that made every path
