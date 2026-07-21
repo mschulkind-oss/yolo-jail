@@ -62,6 +62,25 @@ Marked here so the "start here" arrow points at the real next item.
   mount-anchor / `ClearContents`) is fixed and the four test-merges landed; the
   full CI run (both arches, integration incl.) passed. `internal/entrypoint` is
   free again, so the J2 thread is unblocked.
+- ✅ **cli-color-audit** (2026-07-20) — the shared `internal/richtext` renderer
+  landed and `run`/`prune`/`builder`/`macosuser`/`broker` all route through it
+  with a TTY gate. Remaining: unify the two TTY-probe conventions + the
+  concept-`--help` work (folded into self-documenting-cli / consolidation).
+- ✅ **go baked into the image** (2026-07-20) — `imagePkgs.go` in corePackages,
+  `miseBaseTools` now empty (all default runtimes baked). Built + evaluated
+  in-jail AND green on both CI `build-image` arches; runtime `/bin/go` behavior
+  is the one host-`just load` observation left.
+- ✅ **Cachix D4 enabled** (2026-07-20) — `nixConfig` substituter + key live,
+  CI gates on the auth-token secret alone (name defaults to `yolo-jail`). First
+  push + Mac download proof remain (Linux box / Mac gated).
+- ✅ **config-composition Phase A + B(pi)** (2026-07-20) — engine + codecs +
+  manifest + real gopher-lua sandbox VM landed; the exported `Compose`
+  orchestrator + `yolo config render <agent> [--surface|--explain]` CLI + the pi
+  builtin surface make the §6.5 pi permission-gate example runnable end to end.
+  This also closes the composed-config half of the self-documenting-CLI gap
+  ([self-documenting-cli.md](../design/self-documenting-cli.md)). Phase B for the
+  other agents (claude/gemini/copilot/opencode/codex + MCP/LSP/mise) is the
+  remaining fan-out.
 
 Everything else below is **open**.
 
