@@ -32,8 +32,14 @@ func MacosSetup(deps Deps) int {
 				return 1
 			}
 		}
-		// Random password, piped via stdin (never argv).
-		deps.SetRandomPassword()
+		// Random password, piped via stdin (never argv). Finding 6: the return
+		// value was previously dropped, so even a failed set was silent — check
+		// it and fail loud (an unset/empty password is a security hole).
+		if !deps.SetRandomPassword() {
+			out.print("[bold red]✗ could not set a random password on " + SandboxUser +
+				"[/bold red] — the account may have no password. Aborting setup.")
+			return 1
+		}
 		out.printf("  [green]created[/green] %s.", SandboxUser)
 	}
 

@@ -220,6 +220,24 @@ func TestMacosSetupCreatesWhenMissing(t *testing.T) {
 	}
 }
 
+// TestMacosSetupAbortsOnPasswordFailure is the finding-6 fix: a failed
+// SetRandomPassword must abort setup loudly (was silently dropped, leaving the
+// account potentially password-less).
+func TestMacosSetupAbortsOnPasswordFailure(t *testing.T) {
+	var rec []string
+	d := mockDeps(&rec)
+	d.SandboxUserExists = func() bool { return false }
+	d.SetRandomPassword = func() bool { return false } // password apply fails
+	var buf bytes.Buffer
+	d.Out = &buf
+	if rc := MacosSetup(d); rc != 1 {
+		t.Errorf("password failure should abort setup (rc=1), got %d", rc)
+	}
+	if !strings.Contains(buf.String(), "could not set a random password") {
+		t.Errorf("expected a loud password-failure message:\n%s", buf.String())
+	}
+}
+
 func TestMacosTeardownNoUser(t *testing.T) {
 	var rec []string
 	d := mockDeps(&rec)

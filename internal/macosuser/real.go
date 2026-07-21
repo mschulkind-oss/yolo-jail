@@ -137,10 +137,16 @@ func setRandomPasswordReal(user string) bool {
 		return false
 	}
 	pw := strings.TrimSpace(pwOut)
+	// Finding 6: pass the password via STDIN to the root shell, never via
+	// cmd.Env — sudo's env_reset strips arbitrary env vars, so the previous
+	// YOLO_SBPW-on-env approach set an EMPTY password. `read -r pw` on stdin is
+	// the same pattern installRootFileReal uses (strings.NewReader stdin), and
+	// keeps the secret off argv (which would leak in `ps`). NOTE: the actual
+	// password-apply + dscl empty-string semantics are M1-verified on hardware.
 	cmd := exec.Command("sudo", "/bin/sh", "-c",
-		"dscl . -passwd /Users/"+user+" \"$YOLO_SBPW\"")
-	cmd.Env = []string{"YOLO_SBPW=" + pw, "PATH=/usr/bin:/bin:/usr/sbin:/sbin"}
-	cmd.Stdin, cmd.Stdout, cmd.Stderr = os.Stdin, os.Stdout, os.Stderr
+		"read -r pw; dscl . -passwd /Users/"+user+" \"$pw\"")
+	cmd.Stdin = strings.NewReader(pw + "\n")
+	cmd.Stdout, cmd.Stderr = os.Stdout, os.Stderr
 	return cmd.Run() == nil
 }
 
