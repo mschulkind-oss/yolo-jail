@@ -124,17 +124,15 @@ slotted where their coupling puts them.
    byte-parity risk. If you land the shared renderer here, module-consolidation
    inherits it; if not, consolidation lands it (see coupling note).
 
-2. **cache-relocation** — *off the Mac critical path; take it whenever a
-   jail-side slot opens.* Standalone and small (one new config loader, one
-   nested `-v`, prune accounting), and it answers a real incident: a 948 GiB
-   root filesystem at 100% with 185 GiB of it `cache/huggingface`. The design is
-   settled and the podman behavior it rests on was proven empirically
-   (2026-07-21), so it is implementation, not investigation. Phases 1+2 ship
-   together — Phase 1 alone makes `yolo prune` blind to the relocated bytes.
-   Minor coupling: work items 7–9 edit `internal/prune/prunecmd.go` and
-   `report.go`, which **cli-color-audit** (`prunecmd.go:438`) and
-   **module-consolidation** also touch; different lines, no conflict, but land
-   whichever is in flight first rather than interleaving.
+2. ~~**cache-relocation**~~ — **DONE 2026-07-21.** Work items 1–10 landed
+   (user-scope-only `cache_relocations`, nested rw bind mount, prune/purge
+   accounting, docs) and were verified end to end in a nested jail: a write to
+   `~/.cache/<subdir>` inside the jail lands on the relocated target and the
+   host-side stub stays empty. `yolo cache relocate` (item 11) stays deferred;
+   the plan's one host-gated acceptance step — a real cross-filesystem move
+   confirming root-fs `df` drops — is still outstanding. Note for whoever picks
+   up **cli-color-audit** or **module-consolidation**: this touched
+   `internal/prune/prunecmd.go` and `report.go`, so rebase before starting there.
 
 3. **J2 — native-Go macos-user bootstrap re-port (J2.1 → J2.4) + D2.** *The
    critical-path Mac-backend item; now unblocked (the CI fix cleared

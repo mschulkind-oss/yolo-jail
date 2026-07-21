@@ -1,8 +1,9 @@
 # Cache relocation — let a cache subdir live on other storage
 
-**Status:** Open — designed, proven, ready to implement. **Filed:** 2026-07-21.
-**Lane:** jail-side to build (podman path is fully testable in a nested jail);
-one host-gated acceptance step (a real cross-filesystem move).
+**Status:** **Implemented 2026-07-21** — work items 1–10 landed; item 11
+(`yolo cache relocate`) remains deliberately deferred. One host-gated acceptance
+step is still outstanding: a real cross-filesystem move (see Test plan).
+**Filed:** 2026-07-21.
 
 ## The problem
 
@@ -149,7 +150,7 @@ locations could carry the key; two are jail-writable:
 |---|---|---|
 | Workspace `yolo-jail.jsonc` / `.local.jsonc` | **Yes** — `/workspace` is bind-mounted rw | Rejected as a validation error |
 | `<workspace>/.yolo/config-snapshot.json` | **Yes** — same mount; read verbatim in-jail (`config/load.go:225-236`, `snapshot.go:19`) | Never consulted for this key |
-| Host `~/.config/yolo-jail/config.jsonc` | **No** — the jail's `~/.config` is a per-workspace overlay (`assemble_parts.go:49`), not the host's | **The only source** |
+| Host `~/.config/yolo-jail/config.jsonc` | **No** — mounted into the jail **read-only** (`userConfigMountArgs`, `assemble_parts.go`) | **The only source** |
 
 Hence: **`cache_relocations` is read directly from `paths.UserConfigPath()` at
 assemble time and never from the merged config.** Workspace scope becomes
@@ -158,10 +159,26 @@ silent no-ops, not the security boundary. This is the *mechanism* the Lua
 transform uses (fixed path, `internal/cli/config.go:224`) — note it is not the
 same *policy*, since that loader deliberately reads both scopes.
 
-Residual: inside a jail, a nested `yolo` reads the jail's own (agent-writable)
-user config. Accepted — a nested container can only mount what is already
-visible in the parent's mount namespace, so it grants nothing the agent did not
-already have.
+**Correction (found in review, 2026-07-21).** An earlier draft of this table
+claimed the jail's `~/.config` is purely a per-workspace overlay, so the host
+user config was unreachable in-jail. That is wrong: `userConfigMountArgs`
+(`internal/cli/run/assemble_parts.go`) additionally bind-mounts the host's
+`config.jsonc` over that overlay, **read-only** — confirmed in a jail's
+`/proc/self/mountinfo`. The security conclusion is unchanged and in fact
+stronger (read-only, so never agent-writable), but the key *is* visible inside a
+jail, and that had a sharp consequence: the validator's "target's parent must
+exist" probe ran in-jail against host paths that are deliberately not in the
+jail's mount namespace, turning a valid host config into a fatal
+`Invalid jail config` on **every nested `yolo` run and every in-jail
+`yolo check`**. Two independent routes carried the key in (this mount, and the
+host-written `config-snapshot.json` that `LoadConfig` prefers in-jail).
+
+Resolution: relocation is a **host-side-only** feature. `LoadCacheRelocations`
+returns nothing in-jail (a nested container cannot mount a host path it cannot
+see, and its `GlobalCache()` is its own per-workspace dir anyway), and
+`validateCacheRelocations` gates only the *filesystem* probe on `inJail()` —
+shape, scope and duplicate rules still apply everywhere, so host-side typo
+protection is untouched.
 
 ## Work items
 
@@ -263,9 +280,28 @@ stub. So prune does not over-report freed bytes — it goes **blind**.
 - **Prune** (`internal/prune`): a report with a relocated subdir shows it in the
   new section at its real size and excludes it from the primary total; the heavy
   purge walks the relocated target.
-- **Integration** (`integration/`, `requireJail`): set a relocation to a
-  `t.TempDir()`, start a jail, write to `~/.cache/<key>/`, assert the bytes land
-  in the host target and that `GlobalCache()/<key>` stays empty.
+- **Integration** (`integration/`, `requireJail`): **NOT WRITTEN — deliberately
+  omitted.** The test would have to place a `cache_relocations` key where the
+  loader reads it, and the loader reads exactly one path: `paths.UserConfigPath()`
+  = `$HOME/.config/yolo-jail/config.jsonc`. That is the whole point of the
+  [threat model](#threat-model-why-user-scope-is-the-whole-design) — the key is
+  unreachable from the workspace config a test can create — and the harness does
+  not isolate `$HOME`: `runCommand` builds the child env as
+  `append(os.Environ(), "TERM=dumb")` (`integration/harness_test.go`), so the
+  spawned CLI sees the *real* user's home. A test that wrote that file would
+  mutate the developer's own config. Overriding `HOME` for the child is not an
+  escape either: `paths.GlobalStorage()` is `$HOME/.local/share/yolo-jail`, so
+  moving `HOME` moves the whole storage root and the jail launch itself becomes a
+  different (cold, unprovisioned) thing. Adding a test-only env seam to redirect
+  the user-config path would widen the one surface this feature deliberately
+  keeps narrow. Coverage instead comes from the argv-level unit tests
+  (`internal/cli/run/assemble_test.go` asserts the emitted
+  `-v <target>:/home/agent/.cache/<subdir>` pairs, the sorted order, the
+  byte-identical no-relocation golden, and the Apple Container warn-and-skip),
+  `internal/storage` (both ends provisioned, missing parent refused),
+  `internal/config` (loader + validator), `internal/prune` (accounting + purge),
+  and the manual host acceptance step below. Revisit if a hermetic
+  `HOME`-isolated harness ever lands.
 - **Manual host acceptance** (cannot be done in-jail): a real cross-filesystem
   relocation of `huggingface`, confirming `df` on the root filesystem drops and
   an in-jail HF download lands on the HDD.
@@ -286,12 +322,16 @@ stub. So prune does not over-report freed bytes — it goes **blind**.
 _Leaning was:_ implement for podman, warn-and-skip on `container`.
 
 **Answer:**
-> **Adopted as designed** (work item 6). `appleContainerBaseMounts` is a
-> distinct code path built around a device-limit workaround, and `container`
-> already needs a special case because it ignores `:ro`. Half-applying a
-> relocation there would be worse than not having it. The motivating hardware is
-> Linux; revisit when a Mac user asks. `macos-user` needs nothing — it has no
-> bind mounts, so a plain symlink works.
+> **Skipped on `container`, but the question in the title is still open.**
+> Review found the original rationale overstated: `appleContainerBaseMounts`
+> *already* nests a bind mount at the required depth — it mounts `GlobalCache()`
+> at `/home/agent/.cache` inside its `/home/agent` mount — so "cannot nest" was
+> never established. The honest reason is that it is a separate mount path built
+> around a device limit and **nobody has run a relocation on real Apple Container
+> hardware**. Skipping loudly beats half-applying, so the skip stands (work item
+> 6), but it is an untested-therefore-unimplemented, not a limitation. The
+> warning text and `docs/guides/macos.md` were corrected to say so. `macos-user`
+> genuinely needs nothing — it has no bind mounts, so a plain symlink works.
 
 ### Whether relocation should be per-subdir or a whole-cache root override
 
