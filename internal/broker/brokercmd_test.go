@@ -262,6 +262,7 @@ func TestColorMarkupRendersANSI(t *testing.T) {
 	st := &lifeState{alive: map[int]bool{1: true}, pingOK: true}
 	deps, buf := newDeps(t, st)
 	deps.Color = true
+	deps.IsTTYStdout = func() bool { return true }
 	_ = os.WriteFile(deps.Life.PIDFilePath, []byte("1\n"), 0o644)
 	_ = os.WriteFile(deps.Life.SocketPath, nil, 0o644)
 	PrintStatus(deps)
@@ -272,5 +273,47 @@ func TestColorMarkupRendersANSI(t *testing.T) {
 	// No raw markup tags should leak through.
 	if strings.Contains(out, "[green]") || strings.Contains(out, "[/green]") {
 		t.Errorf("raw markup leaked:\n%q", out)
+	}
+}
+
+// TestColorGate exercises the TTY gate on the printer directly: markup renders
+// to ANSI only when Color AND IsTTYStdout() are both true; otherwise style tags
+// are stripped to plain text with NO escapes, and literal brackets like [y/N]
+// survive verbatim in both modes.
+func TestColorGate(t *testing.T) {
+	const msg = "[green]ready[/green] proceed? [y/N]"
+	cases := []struct {
+		name     string
+		color    bool
+		tty      func() bool
+		wantANSI bool
+	}{
+		{"color+tty", true, func() bool { return true }, true},
+		{"color-no-tty", true, func() bool { return false }, false},
+		{"no-color-tty", false, func() bool { return true }, false},
+		{"nil-tty-seam", true, nil, false}, // zero-value gate = not a TTY = stripped
+	}
+	for _, c := range cases {
+		t.Run(c.name, func(t *testing.T) {
+			var buf bytes.Buffer
+			out := newPrinter(CLIDeps{Out: &buf, Color: c.color, IsTTYStdout: c.tty})
+			out.print(msg)
+			got := buf.String()
+			hasANSI := strings.Contains(got, "\x1b[")
+			if hasANSI != c.wantANSI {
+				t.Errorf("ANSI present = %v, want %v:\n%q", hasANSI, c.wantANSI, got)
+			}
+			// Style tags must never leak literally.
+			if strings.Contains(got, "[green]") || strings.Contains(got, "[/green]") {
+				t.Errorf("style tag leaked:\n%q", got)
+			}
+			// The literal [y/N] bracket is preserved in every mode.
+			if !strings.Contains(got, "[y/N]") {
+				t.Errorf("literal [y/N] not preserved:\n%q", got)
+			}
+			if !c.wantANSI && !strings.Contains(got, "ready proceed? [y/N]") {
+				t.Errorf("stripped plain text wrong:\n%q", got)
+			}
+		})
 	}
 }

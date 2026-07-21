@@ -13,12 +13,13 @@
 package broker
 
 import (
-	"fmt"
 	"io"
 	"os"
 	"os/exec"
 	"strconv"
 	"syscall"
+
+	"github.com/mschulkind-oss/yolo-jail/internal/richtext"
 )
 
 // CLIDeps are the injectable seams for the command bodies. Life is the lifecycle
@@ -27,13 +28,19 @@ import (
 // RunTail runs the `tail` argv attached to the terminal (logs -f blocks); a
 // test substitutes a no-op. LogIsFile reports whether the broker log exists as a
 // regular file).
+//
+// Color requests ANSI markup, but it only reaches the writer when IsTTYStdout()
+// is also true — a pipe/redirect stays clean. IsTTYStdout is an injectable seam:
+// CLIRealDeps wires the os.Stdout char-device probe (mirroring builder/macosuser
+// real-Deps); nil is treated as "not a TTY", so zero-value CLIDeps strips.
 type CLIDeps struct {
-	Life      Deps
-	Out, Err  io.Writer
-	Color     bool
-	LogPath   string
-	LogIsFile func(path string) bool
-	RunTail   func(argv []string) error
+	Life        Deps
+	Out, Err    io.Writer
+	Color       bool
+	IsTTYStdout func() bool
+	LogPath     string
+	LogIsFile   func(path string) bool
+	RunTail     func(argv []string) error
 }
 
 // CLIRealDeps returns CLIDeps backed by the real lifecycle engine, stdout/stderr,
@@ -41,11 +48,12 @@ type CLIDeps struct {
 func CLIRealDeps() CLIDeps {
 	life := RealDeps()
 	return CLIDeps{
-		Life:    life,
-		Out:     os.Stdout,
-		Err:     os.Stderr,
-		Color:   true,
-		LogPath: life.LogPath,
+		Life:        life,
+		Out:         os.Stdout,
+		Err:         os.Stderr,
+		Color:       true,
+		IsTTYStdout: isTTYStdoutReal,
+		LogPath:     life.LogPath,
 		LogIsFile: func(p string) bool {
 			info, err := os.Stat(p)
 			return err == nil && info.Mode().IsRegular()
@@ -65,7 +73,7 @@ func CLIRealDeps() CLIDeps {
 // and exit 1. The snapshot line CONTENT is info-parity; the exit code is exact.
 func PrintStatus(deps CLIDeps) int {
 	st := BrokerStatus(deps.Life)
-	out := printer{w: deps.Out, color: deps.Color}
+	out := newPrinter(deps)
 
 	out.print("[bold]Claude OAuth broker (singleton)[/bold]")
 	if !st.PIDPresent {
@@ -103,7 +111,7 @@ func PrintStatus(deps CLIDeps) int {
 // access lazily respawns. Always exits 0 (no typer.Exit in the Python body).
 func Stop(deps CLIDeps) int {
 	stopped := BrokerKill(deps.Life, syscall.SIGTERM, BrokerKillTimeout)
-	out := printer{w: deps.Out, color: deps.Color}
+	out := newPrinter(deps)
 	if stopped {
 		out.print("[green]Stopped broker.[/green]")
 	} else {
@@ -119,7 +127,7 @@ func Stop(deps CLIDeps) int {
 func Restart(deps CLIDeps) int {
 	BrokerKill(deps.Life, syscall.SIGTERM, BrokerKillTimeout)
 	sock := BrokerSpawn(deps.Life)
-	out := printer{w: deps.Out, color: deps.Color}
+	out := newPrinter(deps)
 	if BrokerIsAlive(deps.Life) {
 		out.printf("[green]Broker restarted.[/green]  socket=%s", sock)
 		return 0
@@ -134,7 +142,7 @@ func Restart(deps CLIDeps) int {
 // tail argv byte-exact vs Python — ["tail", "-n<lines>", maybe "-f", <path>] —
 // and run it. KeyboardInterrupt (Ctrl-C on `-f`) is swallowed (exit 0).
 func Logs(deps CLIDeps, lines int, follow bool) int {
-	out := printer{w: deps.Out, color: deps.Color}
+	out := newPrinter(deps)
 	if !deps.LogIsFile(deps.LogPath) {
 		out.printf("[dim]No log file yet at %s[/dim]", deps.LogPath)
 		return 0
@@ -177,17 +185,28 @@ func BuildTailArgv(lines int, follow bool, logPath string) []string {
 	return append(argv, logPath)
 }
 
-// printer renders one console line. In color mode the closed markup tag set is
-// rendered to ANSI; otherwise tags are stripped (info-parity — same text).
-type printer struct {
-	w     io.Writer
-	color bool
+// printer wraps the shared richtext renderer: color mode emits ANSI, otherwise
+// known style tags are stripped (literal brackets like [y/N] are preserved in
+// both modes — info-parity, same text). Lowercase methods keep call sites terse.
+type printer struct{ rt richtext.Printer }
+
+func (p printer) print(msg string)               { p.rt.Print(msg) }
+func (p printer) printf(format string, a ...any) { p.rt.Printf(format, a...) }
+
+// newPrinter builds a printer for deps.Out, resolving the color gate: ANSI is
+// emitted only when deps.Color is set AND stdout is a real terminal, so a
+// pipe/redirect stays clean.
+func newPrinter(deps CLIDeps) printer {
+	color := deps.Color && deps.IsTTYStdout != nil && deps.IsTTYStdout()
+	return printer{rt: richtext.Printer{W: deps.Out, Color: color}}
 }
 
-func (p printer) print(msg string) {
-	fmt.Fprintln(p.w, renderMarkup(msg, p.color))
-}
-
-func (p printer) printf(format string, args ...any) {
-	fmt.Fprintln(p.w, renderMarkup(fmt.Sprintf(format, args...), p.color))
+// isTTYStdoutReal reports whether os.Stdout is a real terminal (char device),
+// mirroring builder/macosuser real-Deps, so color reaches only a terminal.
+func isTTYStdoutReal() bool {
+	info, err := os.Stdout.Stat()
+	if err != nil {
+		return false
+	}
+	return info.Mode()&os.ModeCharDevice != 0
 }
