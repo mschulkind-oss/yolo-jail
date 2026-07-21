@@ -22,26 +22,28 @@ func miseTomlKey(key string) string {
 }
 
 // miseBaseTools is the ordered base tool set injected into the global mise
-// config. It lists ONLY runtimes that are NOT baked into the image, so the
-// default setup (no workspace `mise_tools`) has exactly one of each runtime:
+// config. It lists ONLY runtimes that are NOT baked into the image. As of
+// 2026-07-20 ALL default runtimes (node, python, AND go) are baked, so this is
+// now EMPTY — mise is the override-only path, never the source of a default
+// runtime:
 //
-//   - node and python are BAKED (flake.nix `imagePkgs.nodejs_24` + `python3`),
-//     RPATH-self-contained, so mise must NOT install a second copy — a duplicate
-//     mise node/python is the non-nix binary behind the LD_LIBRARY_PATH / MCP
-//     wrapper whack-a-mole (docs/design/mise-node-dynamic-linking.md) and the
-//     host↔baked version skew. Bare `node`/`python` resolve to the baked
-//     `/bin/…`, the same binary the MCP wrappers target — one node, one python.
-//   - go is NOT baked (`pkgs.go` in the flake is only the host cross-compiler),
-//     so it genuinely comes from mise.
+//   - node, python, and go are ALL BAKED (flake.nix `imagePkgs.nodejs_24`,
+//     `python3`, and `imagePkgs.go`), RPATH-self-contained, so mise must NOT
+//     install a second copy — a duplicate mise runtime is the non-nix binary
+//     behind the LD_LIBRARY_PATH / MCP wrapper whack-a-mole
+//     (docs/design/mise-node-dynamic-linking.md) and the host↔baked version
+//     skew. Bare `node`/`python`/`go` resolve to the baked `/bin/…`, the same
+//     binaries the MCP wrappers and Go tooling target — one of each.
+//   - NOTE: the flake's `pkgs.go` (flake.nix:85, nativeBuildInputs) is still
+//     ONLY the host cross-compiler for the yolo-jail-go derivation; the JAIL's
+//     go is the separate `imagePkgs.go` added to corePackages.
 //
-// A workspace may still pin its own `node`/`python` in `mise.toml` (the
+// A workspace may still pin its own `node`/`python`/`go` in `mise.toml` (the
 // intentional per-workspace override); mise then installs that non-nix version
 // and its shim wins. That override is the ONLY case that reintroduces a non-nix
 // runtime — exactly the case nix-ld makes robust (env-free libstdc++). See
 // docs/research/tool-provisioning.md §2.
-var miseBaseTools = []struct{ tool, version string }{
-	{"go", "latest"},
-}
+var miseBaseTools = []struct{ tool, version string }{}
 
 // It does NOT run the `mise uninstall` subprocesses (that is a side effect, not
 // content generation — orchestration). It DOES perform the workspace

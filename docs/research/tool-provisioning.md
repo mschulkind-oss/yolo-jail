@@ -19,10 +19,12 @@ of that read; treat them as "look here", not eternal truth.
   changes": (1) baked into the Nix OCI image, (2) mise, (3) npm globals, (4) Go
   `go install` + native curl installers. PATH is wired so the *mise* copies win
   for bare commands; the *baked* copies are reached only by absolute path.
-- **By default there is ONE `node`, not two.** The Nix-baked `/bin/node`
-  (v24.16.0, RPATH-self-contained). mise no longer installs node by default
-  (2026-07-20), so a mise-managed node exists *only* when a workspace pins one in
-  `mise.toml`. The thing people miscount as a node — `~/.local/bin/mcp-wrappers/node`
+- **By default there is ONE of each runtime, not two.** node, python, AND go
+  are now all Nix-baked (`/bin/node` v24.16.0, `/bin/python3`, `/bin/go` — all
+  RPATH-self-contained). mise no longer installs any of them by default
+  (2026-07-20 for node/python; go baked shortly after), so a mise-managed copy
+  exists *only* when a workspace pins one in `mise.toml`. The thing people
+  miscount as a node — `~/.local/bin/mcp-wrappers/node`
   — is **not a node**; it's a 4-line shell wrapper that sets `LD_LIBRARY_PATH` and then `exec /bin/node`
   (`internal/entrypoint/mcp_wrappers.go:64`). So "three Nodes" = two binaries + one
   router-to-the-baked-one.
@@ -32,18 +34,23 @@ of that read; treat them as "look here", not eternal truth.
   PATH-resolved commands (mise shims sit before `/bin`); MCP servers → the **baked** `/bin/node` (the wrapper
   execs it by absolute path). This split is deliberate and documented in
   `docs/design/mise-node-dynamic-linking.md`.
-- **A mise node is a per-workspace opt-in, not a default.** yolo's mise defaults
-  (`miseBaseTools`) no longer include node or python — they're baked, so
-  installing a second copy is pure duplication (and was the source of the
-  `LD_LIBRARY_PATH`/skew problems). A workspace that needs a specific version pins
-  it in `mise.toml`; that override is the only case with two nodes, and it's what
-  nix-ld makes robust. A guard test asserts baked runtimes never re-enter the mise
-  defaults. See §2 "one by default, two only on override" for the detail and the
-  history
-  2026-07-20.
-- **Go is not baked at all.** No `imagePkgs.go` in the image; `go` inside the jail
-  is always the mise one. The `pkgs.go` in `flake.nix:85` is the *host* toolchain
-  that cross-compiles the yolo binaries at image-build time, not a jail runtime.
+- **A mise runtime is a per-workspace opt-in, not a default.** yolo's mise
+  defaults (`miseBaseTools`) are now **empty** — node, python, and go are all
+  baked, so installing a second copy is pure duplication (and was the source of
+  the `LD_LIBRARY_PATH`/skew problems). A workspace that needs a specific version
+  pins it in `mise.toml`; that override is the only case with two copies, and
+  it's what nix-ld makes robust. A guard test asserts baked runtimes never
+  re-enter the mise defaults. See §2 "one by default, two only on override" for
+  the detail and the history 2026-07-20.
+- **Go is now baked too** (`imagePkgs.go` in `corePackages`, added 2026-07-20).
+  `go` inside the jail is the baked `/bin/go`, RPATH-self-contained like node and
+  python; there is no default mise go. The separate `pkgs.go` in `flake.nix:85`
+  (`nativeBuildInputs`) is the *host* cross-compiler for the yolo-jail-go
+  derivation at image-build time, NOT the jail runtime — a distinct thing.
+  `GOTOOLCHAIN=auto` (the default) keeps offline `go build` working because the
+  nixos-unstable go is ≥ the `go 1.26` in `go.mod`, so no toolchain download is
+  triggered; staticcheck's mise `go:` backend still installs because it shells out
+  to the baked `go` on PATH.
 
 ---
 
@@ -59,12 +66,12 @@ tool substrate baked in:
 |---|---|---|
 | `nodejs_24` | `:587` | Resolves to **24.16.0** in the pinned nixpkgs (per commit `230ca27`). Becomes `/bin/node`. |
 | `python3` | `:588` | nixpkgs default python3. Becomes `/bin/python3`. |
-| `uv` | `:605` | venv creation (`~/.yolo-venv-precreate.sh`). |
+| `go` | `:589` | nixpkgs go (nixos-unstable, ≥ go.mod's `go 1.26`). Becomes `/bin/go`, RPATH-self-contained. Baked 2026-07-20. |
+| `uv` | `:606` | venv creation (`~/.yolo-venv-precreate.sh`). |
 | `mise` | `:584` | The version manager itself must be baked so it can install everything else. |
 | `chromium` | `:628` (fullPackages) | Substrate for chrome-devtools MCP + Playwright. |
 | `fontconfig`, `noto-fonts-color-emoji` | `:629-630` | Chromium rendering. |
 | `git`, `ripgrep`, `fd`, `curl`, `jq`, `gh`, coreutils, … | `:579-604` | POSIX + tooling essentials. |
-| **No `go`** | — | Deliberately absent — see §"Go" below. |
 
 `corePackages` is explicitly scoped to "everything the integration test suite …
 actually touches, plus POSIX essentials" (`flake.nix:570-572`); `fullPackages` is
@@ -87,18 +94,16 @@ mise manages the *interactive* / *project* toolchains. Two config scopes:
 
 - **Global** `~/.config/mise/config.toml` — generated by the entrypoint's
   `GenerateMiseConfig` (`internal/entrypoint/mise.go:37`). Its base tool set
-  (`miseBaseTools`) is now just:
+  (`miseBaseTools`) is now **empty** — `[tools]` with no default entries.
 
-  ```
-  go = "latest"
-  ```
-
-  **node and python were removed (2026-07-20):** both are baked into the image
-  (`flake nodejs_24` + `python3`), so listing them in the mise defaults installed
-  a duplicate non-nix copy — the source of the `LD_LIBRARY_PATH`/MCP-wrapper
-  problems and the version skew (§2). `go` stays because it is *not* baked. A
-  workspace can still pin node/python in its own `mise.toml` (an explicit
-  override), which is the only way a second copy appears.
+  **node, python, AND go are all removed (2026-07-20):** all three are baked into
+  the image (`flake nodejs_24` + `python3` + `imagePkgs.go`), so listing any of
+  them in the mise defaults installed a duplicate non-nix copy — the source of
+  the `LD_LIBRARY_PATH`/MCP-wrapper problems and the version skew (§2). With go
+  baked too, `miseBaseTools` has no reason to list anything: mise is now purely an
+  **override** path. A workspace can still pin node/python/go in its own
+  `mise.toml` (an explicit override), which is the only way a second copy
+  appears.
 
   plus any injected `mise_tools` from config (default `{"neovim": "stable"}` —
   `internal/config/config.go:92-93`), merged in via `YOLO_MISE_TOOLS`
@@ -284,26 +289,27 @@ shim** and falls through PATH to the baked `/bin`:
 | `node` | **baked** `/bin/node` (no mise shim) — 24.16.0 | `$MISE_SHIMS/node` — the pinned version |
 | `npx` / `npm` | baked node's npm/npx | mise node's |
 | `python` / `python3` | **baked** `/bin/python3` (no mise shim) | `$MISE_SHIMS/python[3]` |
-| `go` | `$MISE_SHIMS/go` — **always mise** (`go` is a mise default; not baked) | pinned version |
+| `go` | **baked** `/bin/go` (no mise shim) — nixos-unstable go | `$MISE_SHIMS/go` — the pinned version |
 | `gopls`, `staticcheck`, `mcp-language-server` | `$GOPATH/bin/…` (go install / mise `go:`) | — |
 | `pyright`, `tsserver`, `copilot`, `gemini` | `$NPM_CONFIG_PREFIX/bin/…` (npm global) | — |
 | `claude` | `~/.local/bin/claude` (via `~/.yolo-shims/claude` launcher) | — |
-| `/bin/node`, `/bin/python3` | absolute → **baked** Nix binaries | image (node 24.16.0) |
+| `/bin/node`, `/bin/python3`, `/bin/go` | absolute → **baked** Nix binaries | image (node 24.16.0) |
 
-(This repo's own `mise.toml` pins `node`, so *inside the yolo-jail workspace* the
-"pins it" column applies to node; most workspaces don't pin, so the default
-column is the norm.)
+(This repo's own `mise.toml` pins `node` and `go`, so *inside the yolo-jail
+workspace* the "pins it" column applies to those two; most workspaces don't pin,
+so the default column is the norm.)
 
 Key consequences of the ordering:
 
 - **mise wins over baked *only for tools mise actually installs*** — a shim
-  exists just for installed tools, and `$MISE_SHIMS` precedes `/bin`. Since node
-  and python are no longer mise defaults, in the default setup there's no
-  `node`/`python` shim and the baked `/bin/node`,`/bin/python3` win by PATH
-  fall-through — *and* are still reached by absolute path where it matters (the
-  MCP wrapper's `/bin/node`, the venv-precreate script's `/bin/python3`,
-  `shell.go:284`). A workspace that pins node/python reintroduces the shim and
-  mise wins again for those.
+  exists just for installed tools, and `$MISE_SHIMS` precedes `/bin`. Since node,
+  python, and go are no longer mise defaults, in the default setup there's no
+  `node`/`python`/`go` shim and the baked `/bin/node`,`/bin/python3`,`/bin/go`
+  win by PATH fall-through — *and* are still reached by absolute path where it
+  matters (the MCP wrapper's `/bin/node`, the venv-precreate script's
+  `/bin/python3`, `shell.go:284`). A workspace that pins node/python/go
+  reintroduces the shim and mise wins again for those. The baked `go` on PATH is
+  also what mise's `go:` backend (staticcheck) shells out to for `go install`.
 - **`$SHIM_DIR` (`~/.yolo-shims`) is first**, so blocked-tool shims and the lazy
   agent launchers intercept before anything else.
 - **`~/.local/bin/mcp-wrappers/` is NOT on PATH** — only `~/.local/bin` is. The
@@ -351,7 +357,7 @@ arrangement is the mitigation.
 | Newer/older **Node/Python/Go for my project** | `[tools]` in workspace `mise.toml` (e.g. `node = "24"`) | repo root | No — `mise install` on next boot |
 | A tool for **this workspace only** (typst, terraform, …) | `[tools]` in workspace `mise.toml` | repo root | No |
 | A tool for **all my jails** (cross-workspace) | `[tools]` in `~/.config/mise/config.toml`, or `"mise_tools"` in user `yolo-jail.jsonc` | user config | No |
-| Change the jail's **global default Node/Python/Go** major | `miseBaseTools` in `internal/entrypoint/mise.go:25-29` | source | No (regenerated at boot) — but it's source, needs a rebuild/deploy of the entrypoint |
+| Change the jail's **global default Node/Python/Go** major | now the **baked** version — bump `imagePkgs.nodejs_*`/`python3`/`go` in `flake.nix` `corePackages` (`miseBaseTools` is empty; mise is override-only) | source | **Yes** — image rebuild (`just load && just install`) |
 | A **native package baked for every jail** (a CLI, a library `.so`) | `"packages"` array in `yolo-jail.jsonc` (nixpkgs attr names) | workspace/user config | **Yes** — image rebuilds when the list changes |
 | Change the **baked runtime version** (`/bin/node`, chromium, …) | `imagePkgs.*` in `flake.nix` `corePackages`/`fullPackages` | source | **Yes** — `just load && just install` on the host |
 | Add an **MCP server** | `"mcp_presets"` / `"mcp_servers"` in `yolo-jail.jsonc` | config | No (installed via bootstrap/npm) |
@@ -370,8 +376,9 @@ before restarting.
 - Baked packages: `flake.nix:573-615` (core), `:620-648` (full), `:686-688` (image
   Env / PATH / `LD_LIBRARY_PATH`), `:118-121` (extra-packages `--impure` injection).
 - Baked Node bump: commit `230ca27` (`flake.nix` `nodejs_22→24`, `mise.toml`
-  `22→24`).
-- mise global config generator + base tools: `internal/entrypoint/mise.go:25-29,37`.
+  `22→24`). Baked `go` added to `corePackages` 2026-07-20 (`imagePkgs.go`).
+- mise global config generator + base tools: `internal/entrypoint/mise.go:37`
+  (`miseBaseTools` is now an empty slice — all default runtimes baked).
 - mise default injected tools (`neovim`): `internal/config/config.go:92-93`,
   `internal/config/derived.go:142`.
 - Workspace mise pins: `mise.toml:2,5,6,8`.

@@ -586,6 +586,7 @@
           imagePkgs.which
           imagePkgs.nodejs_24
           imagePkgs.python3
+          imagePkgs.go            # baked so the default go is RPATH-self-contained like node/python — no LD_LIBRARY_PATH dependency, no mise download on first use
           imagePkgs.gh
           imagePkgs.gnused
           imagePkgs.gnugrep
