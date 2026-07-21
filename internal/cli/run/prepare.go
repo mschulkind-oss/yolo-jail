@@ -58,8 +58,12 @@ func (o *Options) refreshJailBriefings(cname string, cfg *jsonx.OrderedMap, rt s
 
 	agentsList := config.SelectedAgents(cfg)
 
+	// Source-tree gating: staged skills + the briefing's dev section both key
+	// off this. Derived from the stable workspace, so launch and attach agree.
+	isSrc := agents.WorkspaceIsYoloSourceTree(o.Workspace)
+
 	// Skills staging.
-	staging, err := agents.PrepareSkills(cname, homeDir(), agentsList)
+	staging, err := agents.PrepareSkills(cname, homeDir(), agentsList, isSrc)
 	if err != nil {
 		return "", err
 	}
@@ -75,7 +79,7 @@ func (o *Options) refreshJailBriefings(cname string, cfg *jsonx.OrderedMap, rt s
 		ForwardHostPorts:   forwardHostPorts,
 		Loopholes:          loops,
 		Resources:          resources,
-		IsYoloSourceTree:   agents.WorkspaceIsYoloSourceTree(o.Workspace),
+		IsYoloSourceTree:   isSrc,
 		ProvisioningFailed: agents.ReadProvisioningFailed(o.Workspace),
 	}
 	jailContent := agents.BriefingContent(in)

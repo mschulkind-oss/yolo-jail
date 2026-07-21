@@ -2,61 +2,66 @@ package agents
 
 import (
 	"fmt"
+	"io/fs"
 	"os"
 	"path/filepath"
 	"strconv"
 	"syscall"
 
+	"github.com/mschulkind-oss/yolo-jail/internal/agents/builtinskills"
 	"github.com/mschulkind-oss/yolo-jail/internal/jsonx"
 )
 
-// BuiltinJailStartupSkill is the built-in jail-startup skill written into every
-// agent's staging dir.
-const BuiltinJailStartupSkill = `---
-name: jail-startup
-description: First-run skill for agents entering a YOLO Jail. Reads the handover document left by the outer agent and orients you to the jail environment. Invoke this skill immediately when starting a new session inside a jail.
----
+// gatedSkills are built-in skills staged only when the workspace is the
+// yolo-jail source tree (includeDev). The keys are top-level dir names in
+// builtinskills.FS.
+var gatedSkills = map[string]bool{
+	"developing-yolo-jail": true,
+}
 
-# Jail Startup
+// writeBuiltinSkills copies the embedded built-in skill trees into dst,
+// skipping gated skills unless includeDev is true. dst is an agent's already-
+// cleared skills-staging dir; existing entries are not removed here (the caller
+// clears inside dst first, preserving its inode for the live bind mount).
+//
+// NOTE: returning nil for a directory in fs.WalkDir does NOT prune it — a gated
+// subtree must be skipped with fs.SkipDir.
+func writeBuiltinSkills(dst string, includeDev bool) error {
+	return fs.WalkDir(builtinskills.FS, ".", func(p string, d fs.DirEntry, walkErr error) error {
+		if walkErr != nil {
+			return walkErr
+		}
+		if p == "." {
+			return nil
+		}
+		// Top-level dir == a skill name; gate the whole subtree.
+		if d.IsDir() && !filepath.IsAbs(p) && !containsSep(p) {
+			if gatedSkills[p] && !includeDev {
+				return fs.SkipDir
+			}
+		}
+		target := filepath.Join(dst, p)
+		if d.IsDir() {
+			return os.MkdirAll(target, 0o755)
+		}
+		data, err := builtinskills.FS.ReadFile(p)
+		if err != nil {
+			return err
+		}
+		return os.WriteFile(target, data, 0o644)
+	})
+}
 
-You are running inside a **YOLO Jail** — an isolated container environment.
-This skill helps you pick up where the previous (outer) agent left off.
-
-## Step 1: Read the Handover Document
-
-The outer agent was REQUIRED to write a handover document before you were
-launched. Read it now:
-
-**Primary location:** ` + "`.yolo/handover.md`" + ` (i.e., ` + "`/workspace/.yolo/handover.md`" + `)
-
-If it exists, read it carefully — it contains:
-- What the outer agent was working on
-- What remains to be done
-- Key decisions and rationale
-- Files to look at first
-- Gotchas and context you need
-
-If the file does NOT exist, tell the human:
-> "No handover document found at ` + "`.yolo/handover.md`" + `. The outer agent should
-> have created one. Can you tell me what I should be working on?"
-
-## Step 2: Orient Yourself
-
-Key facts about your environment:
-- **Workspace** is at ` + "`/workspace`" + ` — this is the SAME directory as on the host (bind-mounted read-write). Changes you make are immediately visible on the host.
-- **Internet** is available. You can curl, pip install, npm install, etc.
-- **Home** is ` + "`/home/agent`" + ` — shared across ALL jail workspaces. Auth tokens, tool caches, and configs persist here.
-- **Tools**: git, rg, fd, bat, jq, nvim, curl, gh, uv, mise, tmux, and more.
-- **Runtimes**: Node.js, Python, Go (managed by mise).
-- **Blocked tools**: Some tools may be shimmed (e.g., grep → rg). Check AGENTS.md or run ` + "`ls ~/.yolo-shims/`" + ` if you hit unexpected blocks. Set ` + "`YOLO_BYPASS_SHIMS=1`" + ` for scripts that need originals.
-- **No pagers**: ` + "`PAGER=cat`" + `. Never pipe to ` + "`less`" + ` or ` + "`more`" + `.
-- Run ` + "`yolo config-ref`" + ` for full configuration and environment reference.
-
-## Step 3: Execute
-
-After reading the handover document, proceed with the tasks described in it.
-You have full capability — treat this as your primary working environment.
-`
+// containsSep reports whether p contains a path separator (embed.FS always uses
+// "/"), i.e. p is nested rather than a top-level skill dir.
+func containsSep(p string) bool {
+	for i := 0; i < len(p); i++ {
+		if p[i] == '/' {
+			return true
+		}
+	}
+	return false
+}
 
 // WriteBriefing writes content to path, truncating in place to preserve the
 // inode a running jail's bind mount captured — EXCEPT when the file is

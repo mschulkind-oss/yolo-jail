@@ -9,15 +9,18 @@ import (
 )
 
 // PrepareSkills stages per-agent skills dirs on the host for :ro bind mounting.
-// For each SELECTED agent that has a user-skills dir, the staging dir
-// the built-in jail-startup skill. Agents without a skills dir are skipped.
-// Returns the staging directory (AGENTS_DIR/<cname>).
+// For each SELECTED agent that has a user-skills dir, the staging dir gets the
+// built-in skill suite (builtinskills.FS) plus a mirror of the host's
+// per-agent user skills. Agents without a skills dir are skipped. Returns the
+// staging directory (AGENTS_DIR/<cname>).
 // homeDir is the host home (~) whose ~/.<agent>/skills dirs are the sources;
-// agentNames is the selected set (nil → DefaultAgents). CRITICAL: entries are
-// cleared *inside* each skills_dir — the dir itself is NEVER rmtree+mkdir'd,
-// because a running jail's bind mount captured its inode and a fresh inode would
-// silently detach attach-time refreshes.
-func PrepareSkills(cname, homeDir string, agentNames []string) (string, error) {
+// agentNames is the selected set (nil → DefaultAgents). includeDev stages the
+// source-tree-only skills (e.g. developing-yolo-jail) — pass
+// WorkspaceIsYoloSourceTree(workspace). CRITICAL: entries are cleared *inside*
+// each skills_dir — the dir itself is NEVER rmtree+mkdir'd, because a running
+// jail's bind mount captured its inode and a fresh inode would silently detach
+// attach-time refreshes.
+func PrepareSkills(cname, homeDir string, agentNames []string, includeDev bool) (string, error) {
 	staging := filepath.Join(paths.AgentsDir(), cname)
 	if err := os.MkdirAll(staging, 0o755); err != nil {
 		return "", err
@@ -36,15 +39,12 @@ func PrepareSkills(cname, homeDir string, agentNames []string) (string, error) {
 		if err := clearDirContents(skillsDir); err != nil {
 			return "", err
 		}
-		// 1. Built-in jail-startup skill (every skills-bearing agent gets it).
-		builtin := filepath.Join(skillsDir, "jail-startup")
-		if err := os.Mkdir(builtin, 0o755); err != nil {
-			return "", err
-		}
-		if err := os.WriteFile(filepath.Join(builtin, "SKILL.md"), []byte(BuiltinJailStartupSkill), 0o644); err != nil {
+		// 1. Built-in skill suite (every skills-bearing agent gets it).
+		if err := writeBuiltinSkills(skillsDir, includeDev); err != nil {
 			return "", err
 		}
 		// 2. Host user-level skills — strictly per-agent, no cross-agent merge.
+		//    Written after the built-ins so a same-named host skill overrides.
 		if err := copySkillSubdirs(filepath.Join(homeDir, spec.Skills), skillsDir); err != nil {
 			return "", err
 		}
