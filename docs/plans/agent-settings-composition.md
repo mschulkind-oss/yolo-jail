@@ -55,6 +55,19 @@ otherwise it stays a plain generator. The manifest (§3.3) is where a surface is
 declared, so widening coverage later is adding a manifest entry, not new
 machinery.
 
+**Corollary — trivial merges are the default, so special-cased "merge this config
+key" plumbing retires.** Several current surfaces exist *only* to deep-merge a
+defaults set with a config key: the global mise config merges `miseBaseTools`
+(defaults) with `mise_tools` (config) via a bespoke `MergeMiseTools` +
+`YOLO_MISE_TOOLS` env pathway; MCP/LSP do the same with `mcp_servers`/`lsp_servers`.
+Under the prism these are **not** special cases: the config key *is* the
+`workspace` layer, the builtin set *is* the `defaults` layer, and the engine's
+deep-merge composes them — no per-key merge function, no dedicated env var. A Lua
+transform is needed only when a surface wants *more* than a merge (drop a default,
+rewrite a value); the plain "merge my config over the defaults" case needs zero
+code beyond declaring the surface. So adopting the prism deletes those hand-rolled
+merges rather than adding a parallel path.
+
 ## 2. Six principles (the line in the sand)
 
 1. **Regenerate, don't reconcile.** Each generated config file (agent settings,

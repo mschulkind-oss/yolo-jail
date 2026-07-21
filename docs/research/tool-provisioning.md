@@ -87,7 +87,7 @@ mise manages the *interactive* / *project* toolchains. Two config scopes:
   (`miseBaseTools`, `mise.go:25-29`) is:
 
   ```
-  node   = "22"
+  node   = "24"   # tracks the baked image node (flake nodejs_24); see §2
   python = "3.13"
   go     = "latest"
   ```
@@ -95,6 +95,22 @@ mise manages the *interactive* / *project* toolchains. Two config scopes:
   plus any injected `mise_tools` from config (default `{"neovim": "stable"}` —
   `internal/config/config.go:92-93`), merged in via `YOLO_MISE_TOOLS`
   (`mise.go:172-187`, populated by `MergeMiseTools`, `internal/config/derived.go:142`).
+
+  > **This is a generated config surface, and it's slated to move onto the config
+  > prism** ([../plans/agent-settings-composition.md](../plans/agent-settings-composition.md),
+  > Phase B). The global mise config is nothing but `miseBaseTools` (the
+  > `defaults` layer) deep-merged with `mise_tools` from config (the `workspace`
+  > layer) — exactly the prism's default composition. So `MergeMiseTools` +
+  > `GenerateMiseConfig` + the special-cased `YOLO_MISE_TOOLS` env plumbing
+  > **retire** into: a TOML-codec mise surface whose layers merge generically, and
+  > the `mise_tools` config key becomes just "the workspace layer for that
+  > surface." A user who needs more than a merge (drop a default tool, rewrite a
+  > version) uses a Lua transform instead of yolo growing another special key.
+  > **The base-tool defaults themselves still have to live somewhere** — they're
+  > the `defaults` layer's data — but the *merge machinery* and the env-var
+  > plumbing are what the prism replaces. This is the direct answer to "why do we
+  > need this / can prism replace it": the *mechanism* yes, the *default values*
+  > no.
 
 - **Workspace** `/workspace/mise.toml` — checked into each repo. This repo's
   (`mise.toml`) pins:
