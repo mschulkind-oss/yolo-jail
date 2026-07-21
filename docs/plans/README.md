@@ -41,6 +41,7 @@ here:
 | Doc | What it is | Status |
 |---|---|---|
 | [agent-settings-composition.md](agent-settings-composition.md) | Design of record: layered regeneration of any generated config (agent settings + MCP/LSP/mise/identity) + a Lua transform (format-agnostic, user-scope-only, no source mutation). | **Decided, unbuilt** — engine not yet written; migration sequenced in the doc. |
+| [cache-relocation.md](cache-relocation.md) | User-scope-only `cache_relocations` so a large cold cache subdir (`huggingface`, 185 GiB) can live on other storage, mounted read-write nested inside `.cache`. Read straight from the user config — never the merged config or the jail-writable snapshot. Also unblinds `prune`/`purge` and fixes the hint that recommends the symlink trick that dangles in-jail. | **Open** — designed + podman behavior proven (2026-07-21), ready to implement; jail-side to build, one host-gated acceptance step. |
 
 ## Track M verification runbooks
 

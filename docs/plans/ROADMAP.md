@@ -22,6 +22,7 @@ post-Go-port backlog (nix-ld, color audit, consolidation) into the same picture.
 | [cli-color-audit.md](cli-color-audit.md) | Make `prune`/`builder`/`macos-*` render rich markup instead of stripping it; consolidate the duplicated printers. | jail-side |
 | [module-consolidation-and-cleanup.md](module-consolidation-and-cleanup.md) | Collapse the ~34 Python-mirroring `internal/*` packages; drop parity machinery; §4 OSS-hygiene remnants. | jail-side, last |
 | [agent-settings-composition.md](agent-settings-composition.md) | Layered regeneration of any generated config (agent settings, MCP, LSP, mise, identity) + a Lua transform. **Design FINALIZED 2026-07-20.** | jail-side, ready to build (see §Config-composition build) |
+| [cache-relocation.md](cache-relocation.md) | User-scope-only `cache_relocations` so a huge cold cache subdir can live on other storage; unblinds `prune`/`purge`. Podman behavior proven 2026-07-21. | jail-side (one host-gated acceptance step) |
 | [integration-parallelism.md](integration-parallelism.md) | Bounded `t.Parallel()` for the container suite (needs per-test GlobalStorage first). | parked (test speed) |
 | [runbooks/](runbooks/) | Track M verification procedures (see [Runbooks](#runbooks) below). | hardware-gated |
 
@@ -123,7 +124,19 @@ slotted where their coupling puts them.
    byte-parity risk. If you land the shared renderer here, module-consolidation
    inherits it; if not, consolidation lands it (see coupling note).
 
-2. **J2 — native-Go macos-user bootstrap re-port (J2.1 → J2.4) + D2.** *The
+2. **cache-relocation** — *off the Mac critical path; take it whenever a
+   jail-side slot opens.* Standalone and small (one new config loader, one
+   nested `-v`, prune accounting), and it answers a real incident: a 948 GiB
+   root filesystem at 100% with 185 GiB of it `cache/huggingface`. The design is
+   settled and the podman behavior it rests on was proven empirically
+   (2026-07-21), so it is implementation, not investigation. Phases 1+2 ship
+   together — Phase 1 alone makes `yolo prune` blind to the relocated bytes.
+   Minor coupling: work items 7–9 edit `internal/prune/prunecmd.go` and
+   `report.go`, which **cli-color-audit** (`prunecmd.go:438`) and
+   **module-consolidation** also touch; different lines, no conflict, but land
+   whichever is in flight first rather than interleaving.
+
+3. **J2 — native-Go macos-user bootstrap re-port (J2.1 → J2.4) + D2.** *The
    critical-path Mac-backend item; now unblocked (the CI fix cleared
    `internal/entrypoint`).* The dead piece is real: `internal/cli/commands.go:375`
    still sets `RepoSrc = repoRoot/src` and `internal/macosuser/runplan.go:152,175`
@@ -138,7 +151,7 @@ slotted where their coupling puts them.
    (password apply, path_helper OQ-1, fresh-inode re-exec) is verified in **M1**,
    not the jail.
 
-3. **J3 — container-builder rewiring.** After J2 (macos-user needs no builder at
+4. **J3 — container-builder rewiring.** After J2 (macos-user needs no builder at
    all). Resurrect `internal/containerbuilder` from git history (verified GONE —
    deleted with zero importers) and wire it into `internal/image/autoload.go`.
    Jail-developable; its verification runbook
@@ -146,7 +159,7 @@ slotted where their coupling puts them.
    is zero-sudo and agent-runnable, so Track M can confirm it from inside a
    sandbox — and that cell already **PASSED** on real HW (2026-07-17).
 
-4. **module-consolidation-and-cleanup** — *last, by its own admission.* Collapse
+5. **module-consolidation-and-cleanup** — *last, by its own admission.* Collapse
    the Python-mirroring `internal/*` split and drop the parity machinery only
    **after** J2/J3 land, so it consolidates a settled tree rather than a moving
    one. This is where the shared rich→ANSI renderer belongs if cli-color-audit
