@@ -82,6 +82,21 @@ Marked here so the "start here" arrow points at the real next item.
   other agents (claude/gemini/copilot/opencode/codex + MCP/LSP/mise) is the
   remaining fan-out.
 
+- ✅ **J2 — native-Go macos-user bootstrap re-port** (2026-07-21) — all four
+  items: (§1) platform literals threaded through `*Env`; (§2) `RunDarwinBootstrap`
+  native generation entry + Go writers (yolo-log, login-rc); (§3) `yolo internal
+  darwin-bootstrap` self-exec subcommand + launch-path swap (fresh-inode binary
+  staging, Python machinery deleted, `RepoSrc`→`RepoRoot`); (finding 6) password
+  via stdin + fail-loud. Jail exit criteria all met (test-fast, GOOS=darwin
+  cross-build, grep-gate, nested-jail). **Mac RUNTIME behavior is M1-verified** —
+  under-sudo staging, fresh-inode exec, path_helper, password apply are checklist
+  items on real hardware, not in-jail.
+- ✅ **config-composition Phase B** (2026-07-20/21) — all agent surfaces
+  (claude/gemini/copilot/opencode/codex) in the builtin manifest;
+  `yolo config render <agent>` covers them; `mergeAccumulate` tombstone fix.
+- ✅ **mise migration fix** (2026-07-20) — stale unpinned baked-runtime lines
+  stripped on upgrade, workspace/injected pins preserved (nested-jail verified).
+
 Everything else below is **open**.
 
 ## Recommended order (jail-side thread)
