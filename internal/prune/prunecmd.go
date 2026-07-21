@@ -6,18 +6,16 @@
 // re-downloadable cache subdirs. Defaults to DRY-RUN; --apply actually reclaims.
 //
 // The byte/behavior-critical pieces — the reclaim decisions, FmtBytes numbers,
-// and removed-name lists — live in the already-ported, parity-tested
-// internal/prune engine (dedup atomicity, tri-state build-root liveness,
-// shadowed-home delete-contents-not-dirs, CreatedAt lexical image sort, the
-// runtime probes behind the RunFunc seam). This package is the thin
-// orchestration: it wires the sections in Python's exact order, applies the
-// flag gates, and renders the report.
+// and removed-name lists — live in the parity-tested internal/prune engine
+// (dedup atomicity, tri-state build-root liveness, shadowed-home
+// delete-contents-not-dirs, CreatedAt lexical image sort, the runtime probes
+// behind the RunFunc seam). This package is the thin orchestration: it wires the
+// sections in order, applies the flag gates, and renders the report.
 //
-// Output contract: the
-// human output reproduces the SECTION ORDERING, the "would remove"/"removed"
-// verbs, the disk-usage before-report, and the summary INFO — NOT the
-// byte-identical rich ANSI. Rich markup is stripped; the FmtBytes numbers,
-// reclaim decisions, and removed-name lists ARE byte-exact vs live Python.
+// Output contract: the human output reproduces the SECTION ORDERING, the
+// "would remove"/"removed" verbs, the disk-usage before-report, and the summary
+// INFO. Rich markup is stripped when piped; the FmtBytes numbers, reclaim
+// decisions, and removed-name lists are the stable output contract.
 package prune
 
 import (
@@ -36,14 +34,13 @@ import (
 	"github.com/mschulkind-oss/yolo-jail/internal/runtime"
 )
 
-// Options configures a prune Run. The flag fields mirror prune_cmd's typer
-// options 1:1; the seams (Exec, Now, DetectRuntime, path getters, RelayBase,
-// RelayKill, Out) are injectable so the whole command is deterministically
-// testable — apply tests point Storage/Home/Cache at a temp root and never
-// touch real storage. nil/zero seams are filled with real implementations by
-// fillDefaults.
+// Options configures a prune Run. The seams (Exec, Now, DetectRuntime, path
+// getters, RelayBase, RelayKill, Out) are injectable so the whole command is
+// deterministically testable — apply tests point Storage/Home/Cache at a temp
+// root and never touch real storage. nil/zero seams are filled with real
+// implementations by fillDefaults.
 type Options struct {
-	// --- flags (prune_cmd typer options) ---
+	// --- flags ---
 	Apply            bool // --apply           (default false: dry-run)
 	NoHardlink       bool // --no-hardlink
 	DedupGlobal      bool // --dedup-global
@@ -74,8 +71,8 @@ type Options struct {
 	// that also honors the workspace `runtime` key.
 	DetectRuntime func() string
 	// Exec is the container-runtime probe seam. nil =>
-	// realProbeExec (capture_output, text, honoring the per-call timeout, with the
-	// FileNotFoundError/OSError/Timeout => Ran=false degrade).
+	// realProbeExec (captures stdout, honors the per-call timeout, with a
+	// missing-binary/start-failure/timeout => Ran=false degrade).
 	Exec RunFunc
 	// Now is the clock seam (cache-age cutoff, build-root/relay grace floors).
 	// nil => time.Now.
@@ -86,15 +83,15 @@ type Options struct {
 	GlobalHome    func() string
 	GlobalCache   func() string
 	// RelayBase is the dir scanned for orphaned broker-relay PID files. "" =>
-	// "/tmp" (Python's default base in _relay_reap_orphans).
+	// "/tmp" (the default base).
 	RelayBase string
 	// RelayKill reaps one relay by PID file (SIGTERM/SIGKILL + pid-file removal).
 	// nil => realRelayKill. Only invoked on --apply for an orphaned relay.
 	RelayKill func(pidFile string)
 }
 
-// NewDefaultOptions returns Options with prune_cmd's flag defaults (keep-images
-// 2, image-cache-keep 3, cache-age 30) and every seam left nil (filled at Run).
+// NewDefaultOptions returns Options with the flag defaults (keep-images 2,
+// image-cache-keep 3, cache-age 30) and every seam left nil (filled at Run).
 // The front door constructs this, sets Color, overrides flags from argv, then
 // calls Run.
 func NewDefaultOptions() Options {
@@ -139,20 +136,19 @@ func fillDefaults(o *Options) {
 	}
 }
 
-// Grace floors + relay defaults, frozen from prune_cmd.py.
+// Grace floors + relay defaults.
 const (
-	buildRootOlderThanSeconds = 3600.0 // older_than_seconds=3600 for the sweep
-	relayOlderThanSeconds     = 3600.0 // _relay_reap_orphans default grace floor
+	buildRootOlderThanSeconds = 3600.0 // build-root sweep grace floor
+	relayOlderThanSeconds     = 3600.0 // relay reap default grace floor
 	imagesHintThreshold       = 20 * (1 << 30)
 )
 
 // Run executes `yolo prune`, writing the report to Out, and returns the exit
-// code (always 0 — prune never fails the process, matching prune_cmd which has
-// no failure exit).
+// code (always 0 — prune never fails the process).
 func Run(opts Options) int {
 	fillDefaults(&opts)
 	// Honest color gate: ANSI only when requested AND stdout is a real terminal,
-	// so piped output stays byte-identical stripped text (the output contract).
+	// so piped output stays plain stripped text (the output contract).
 	p := &printer{richtext.Printer{W: opts.Out, Color: opts.Color && opts.IsTTYStdout()}}
 	apply := opts.Apply
 
@@ -365,7 +361,7 @@ func Run(opts Options) int {
 
 // --- small helpers ---
 // verb picks the dry-run vs apply verb (the "would remove"/"removed" pattern
-// throughout prune_cmd).
+// used throughout the report).
 func verb(apply bool, dry, applied string) string {
 	if apply {
 		return applied
@@ -379,12 +375,10 @@ type nameSize struct {
 	size int64
 }
 
-// sortByValueDesc sorts a {name: bytes} breakdown largest-first. Python's
-// sorted(items, key=lambda kv: kv[1], reverse=True) is a STABLE sort over the
-// dict's insertion order; Go map iteration is randomized, so ties would render
-// nondeterministically. We break ties by name to keep the display deterministic
-// the byte TOTALS and set of names are identical to Python regardless of tie
-// order (parity is on the numbers, and ties carry equal bytes).
+// sortByValueDesc sorts a {name: bytes} breakdown largest-first. Go map
+// iteration is randomized, so ties would render nondeterministically; we break
+// ties by name to keep the display deterministic (the byte totals and set of
+// names are unaffected — tied entries carry equal bytes).
 func sortByValueDesc(m map[string]int64) []nameSize {
 	out := make([]nameSize, 0, len(m))
 	for k, v := range m {
@@ -399,7 +393,7 @@ func sortByValueDesc(m map[string]int64) []nameSize {
 	return out
 }
 
-// fmtComma renders an int with thousands separators, matching Python's `{n:,}`.
+// fmtComma renders an int with thousands separators (e.g. 1234567 → "1,234,567").
 func fmtComma(n int) string {
 	s := strconv.Itoa(n)
 	neg := strings.HasPrefix(s, "-")
@@ -437,8 +431,7 @@ func joinPath(a, b string) string {
 // printer wraps richtext.Printer so prune's report lines route through the one
 // shared renderer instead of a local strip-always regex. Construct with Color
 // already resolved to (requested && on a TTY) — see Run: color renders ANSI on a
-// terminal, and stays byte-identical stripped text when piped (the output
-// contract; parity is on the ANSI-stripped text).
+// terminal, and stays plain stripped text when piped (the output contract).
 type printer struct {
 	richtext.Printer
 }
@@ -449,10 +442,9 @@ func (p *printer) line(s string) { p.Print(s) }
 
 // --- real seams ---
 // realProbeExec runs a container-runtime probe with the given timeout, returning
-// captured stdout. A missing binary / start failure / timeout yields Ran=false
-// (the FileNotFoundError/OSError/TimeoutExpired degrade); a completed run yields
-// Ran=true with the exit status in RC (Python treats non-zero RC as an
-// empty/None degrade in the engine).
+// captured stdout. A missing binary / start failure / timeout yields Ran=false;
+// a completed run yields Ran=true with the exit status in RC (the engine treats
+// a non-zero RC as an empty degrade).
 func realProbeExec(argv []string, timeout time.Duration) ProbeResult {
 	if len(argv) == 0 {
 		return ProbeResult{}
@@ -472,7 +464,7 @@ func realProbeExec(argv []string, timeout time.Duration) ProbeResult {
 	case <-time.After(timeout):
 		_ = cmd.Process.Kill()
 		<-done
-		return ProbeResult{Ran: false} // TimeoutExpired => degrade
+		return ProbeResult{Ran: false} // timeout => degrade
 	case <-done:
 		rc := 0
 		if cmd.ProcessState != nil {
@@ -485,11 +477,11 @@ func realProbeExec(argv []string, timeout time.Duration) ProbeResult {
 // realRelayKill reaps one orphaned broker relay: read its PID, SIGTERM it,
 // briefly poll, SIGKILL a straggler, then remove the PID file. Best-effort —
 // every step tolerates a missing/dead target. The recycled-PID identity guard
-// and pgrep fallback of Python's _relay_kill are omitted here (the same
-// simplification internal/cli/run.relayKill documents): the mtime grace floor +
-// no-live-hash filter in ReapRelayOrphans make a genuine orphan the overwhelming
-// case, and the tri-state liveness probe bounds a misfire. This path is only
-// reached under --apply for a relay whose hash matches no live jail.
+// and pgrep fallback are omitted here (the same simplification
+// internal/cli/run.relayKill documents): the mtime grace floor + no-live-hash
+// filter in ReapRelayOrphans make a genuine orphan the overwhelming case, and
+// the tri-state liveness probe bounds a misfire. This path is only reached under
+// --apply for a relay whose hash matches no live jail.
 func realRelayKill(pidFile string) {
 	raw, err := os.ReadFile(pidFile)
 	if err == nil {

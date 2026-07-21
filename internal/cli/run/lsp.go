@@ -6,7 +6,8 @@ import (
 )
 
 // lspInstallRecipe maps a configured LSP server name to the npm + go packages
-// the bootstrap should ensure installed. Frozen from _LSP_INSTALL_RECIPES.
+// the bootstrap should ensure installed. Frozen contract (recipe values must not
+// drift — the bootstrap installer depends on them).
 type lspInstallRecipe struct {
 	npm []string
 	go_ []string
@@ -19,19 +20,19 @@ var lspInstallRecipes = map[string]lspInstallRecipe{
 }
 
 // lspGeminiBridgeGo is pulled whenever ANY LSP is configured (Gemini wraps every
-// LSP through it). Frozen from _LSP_GEMINI_BRIDGE_GO.
+// LSP through it). Frozen contract (must not drift).
 const lspGeminiBridgeGo = "github.com/isaacphi/mcp-language-server@latest"
 
 // ResolveLSPInstalls translates a configured lsp_servers set into newline-joined
-// npm + go install lists (parser-free for the bash side). Mirrors
-// _resolve_lsp_installs, including the quirk that the Gemini bridge is appended
+// npm + go install lists (parser-free for the bash side),
+// including the quirk that the Gemini bridge is appended
 // only when lsp_servers is NON-EMPTY (an empty set returns two empty strings and
 // skips the bridge entirely). Server names outside the recipe table contribute
 // nothing but still count toward "non-empty" (so a custom-only LSP set still
 // pulls the bridge). Dedup preserves first-seen order.
 //
-// serverNames is the set of configured LSP server names, in the iteration order
-// Python's dict would yield (config load order); pass them in that order.
+// serverNames is the set of configured LSP server names, in config load order;
+// pass them in that order.
 func ResolveLSPInstalls(serverNames []string) (npm, goPkgs string) {
 	if len(serverNames) == 0 {
 		return "", ""
@@ -53,8 +54,8 @@ func ResolveLSPInstalls(serverNames []string) (npm, goPkgs string) {
 			}
 		}
 	}
-	// Bridge appended unconditionally for a non-empty set (matches Python:
-	// go.append runs after the early empty return).
+	// Bridge appended unconditionally for a non-empty set (after the early
+	// empty return above).
 	goList = append(goList, lspGeminiBridgeGo)
 	return strings.Join(npmList, "\n"), strings.Join(goList, "\n")
 }

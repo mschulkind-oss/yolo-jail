@@ -7,25 +7,24 @@ import (
 	"github.com/mschulkind-oss/yolo-jail/internal/jsonx"
 )
 
-// only for iteration where Python iterates dict.items(); the effect on
-// enabledPlugins is order-independent for distinct keys, but we keep the same
-// declaration order for faithfulness.
+// claudeLSPPluginOrder pins the iteration order used when enabling LSP plugins;
+// the effect on enabledPlugins is order-independent for distinct keys, but the
+// order is fixed for deterministic output.
 var claudeLSPPluginOrder = []struct{ lsp, plugin string }{
 	{"python", "pyright-lsp@claude-plugins-official"},
 	{"typescript", "typescript-lsp@claude-plugins-official"},
 	{"go", "gopls-lsp@claude-plugins-official"},
 }
 
-// oauthTokenKeys / oauthMetadataKeys mirror the module constants.
+// oauthTokenKeys / oauthMetadataKeys are the OAuth credential field names.
 var oauthTokenKeys = []string{"accessToken", "refreshToken", "expiresAt"}
 var oauthMetadataKeys = []string{"scopes", "subscriptionType", "rateLimitTier"}
 
 // settings.json (three-way host merge + permissions + plugins + LSP tool),
 // the host-settings snapshot, ~/.claude.json (MCP + workspace project), the
 // managed-MCP sidecar, the credentials symlink/harvest, and per-jail history
-// isolation. The `claude plugins install/uninstall` subprocesses
-// (_install_claude_plugins) are a side effect, not content, and are deferred to
-// the boot sub-phase.
+// isolation. The `claude plugins install/uninstall` subprocesses are a side
+// effect, not content, and are deferred to the boot sub-phase.
 func ConfigureClaude(e *Env) error {
 	dir := e.ClaudeDir()
 	if err := os.MkdirAll(dir, 0o755); err != nil {
@@ -46,9 +45,8 @@ func ConfigureClaude(e *Env) error {
 		return err
 	}
 
-	// The whole settings/claude.json block is wrapped in try/except in Python
-	// (prints "Error configuring Claude: {e}" on failure). We surface IO errors
-	// as returned errors, matching best-effort-never-abort at the boot layer.
+	// We surface IO errors as returned errors; the boot layer keeps this
+	// best-effort and never aborts on a Claude-config failure.
 	hostSettings := e.loadHostClaudeSettings()
 
 	settings := loadObject(settingsPath)
@@ -227,8 +225,8 @@ func (e *Env) syncHostClaudeFiles() error {
 			e.warn("Warning: could not copy host claude file " + fname + ": " + err.Error())
 			continue
 		}
-		// shutil.copy2 preserves mode; we mirror content (mode preservation is a
-		// best-effort detail not exercised by the golden's env matrix).
+		// Copy the file content; mode preservation is a best-effort detail not
+		// exercised by the golden's env matrix.
 		if err := os.MkdirAll(filepath.Dir(dst), 0o755); err != nil {
 			return err
 		}
@@ -260,8 +258,7 @@ func (e *Env) isolateClaudeHistory() error {
 	historyFile := filepath.Join(e.ClaudeDir(), "history.jsonl")
 	// If it's already the right symlink, nothing to do.
 	if target, err := os.Readlink(historyFile); err == nil {
-		// Python compares resolved paths; perJail is absolute so a matching
-		// absolute symlink target means done.
+		// perJail is absolute, so a matching absolute symlink target means done.
 		if target == perJail {
 			return nil
 		}
@@ -388,8 +385,8 @@ func expiresAtMs(oauth *jsonx.OrderedMap) int64 {
 	case float64:
 		return int64(t)
 	case string:
-		// int("...") in Python would raise on non-numeric -> caught -> 0. A
-		// numeric string parses. Real records store an integer, so this is rare.
+		// A non-numeric string yields 0; a numeric string parses. Real records
+		// store an integer, so this is rare.
 		var n int64
 		neg := false
 		s := t

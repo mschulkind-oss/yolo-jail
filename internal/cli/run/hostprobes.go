@@ -7,7 +7,7 @@ import (
 	"time"
 )
 
-// shouldMountHostNix ports _should_mount_host_nix: decide whether run() should
+// shouldMountHostNix decides whether run() should
 // bind-mount the host's Nix daemon socket + store. Linux: mount when both paths
 // exist and the runtime supports it. macOS: skip by default (the runtime VM
 // doesn't share /nix), opt back in via a truthy YOLO_NIX_HOST_DAEMON. Apple
@@ -29,7 +29,7 @@ func shouldMountHostNix(rt string, nixSocketExists, nixStoreExists, isMacOS bool
 	return false
 }
 
-// gpuHostAvailable ports _gpu_host_available: probe whether NVIDIA GPU
+// gpuHostAvailable probes whether NVIDIA GPU
 // passthrough will work. Returns (ok, reason); reason is a one-line phrase when
 // not ok.
 func (o *Options) gpuHostAvailable(rt string) (bool, string) {
@@ -56,7 +56,7 @@ func (o *Options) gpuHostAvailable(rt string) (bool, string) {
 	return true, ""
 }
 
-// rocmHostAvailable ports _rocm_host_available: probe whether AMD ROCm
+// rocmHostAvailable probes whether AMD ROCm
 // passthrough will work (amdgpu module + /dev/kfd + a render node; functional
 // rocminfo when present).
 func (o *Options) rocmHostAvailable(rt string) (bool, string) {

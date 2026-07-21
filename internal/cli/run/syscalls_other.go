@@ -4,8 +4,7 @@ package run
 
 import "golang.org/x/sys/unix"
 
-// isattyFD reports whether fd is a terminal (TIOCGETA on darwin/BSD), matching
-// Python's os.isatty.
+// isattyFD reports whether fd is a terminal (TIOCGETA on darwin/BSD).
 func isattyFD(fd int) bool {
 	_, err := unix.IoctlGetTermios(fd, unix.TIOCGETA)
 	return err == nil

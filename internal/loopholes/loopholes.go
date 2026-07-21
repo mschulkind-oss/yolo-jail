@@ -20,8 +20,8 @@ import (
 // runtime translates it into the right host-reachable address.
 const DefaultBrokerIP = "host-gateway"
 
-// Valid enum values. Kept as ordered slices whose sort matches Python's
-// sorted(set) so the "not in [...]" error strings render identically.
+// Valid enum values. Kept as ordered slices in sorted order so the
+// "not in [...]" error strings render deterministically.
 var (
 	validTransports = []string{"tls-intercept", "unix-socket", "none"}
 	validLifecycles = []string{"external", "spawned"}
@@ -157,8 +157,8 @@ func (l *Loophole) HasCA() bool {
 
 func (l *Loophole) StateDir() string { return StateDirFor(l.Name) }
 
-// inJail reports whether YOLO_VERSION is present in the environment (Python's
-// os.environ.get("YOLO_VERSION") is not None — an empty value still counts).
+// inJail reports whether YOLO_VERSION is present in the environment (an empty
+// value still counts).
 func inJail() bool {
 	_, ok := os.LookupEnv("YOLO_VERSION")
 	return ok
@@ -249,7 +249,7 @@ func pathExists(p string) bool {
 	return err == nil
 }
 
-// stat is os.Stat, aliased so the parser reads like the Python source.
+// stat is os.Stat.
 func stat(p string) (os.FileInfo, error) { return os.Stat(p) }
 
 // readFile is os.ReadFile.
@@ -268,9 +268,8 @@ func resolvePath(p string) string {
 	return filepath.Clean(abs)
 }
 
-// pyStr renders a decoded-JSON scalar the way Python's str() does inside an
-// f-string / dict comprehension: string as-is, bool -> True/False, int ->
-// decimal, float -> repr.
+// pyStr renders a decoded-JSON scalar: string as-is, bool -> True/False,
+// int -> decimal, float -> repr.
 func pyStr(v any) string {
 	switch t := v.(type) {
 	case nil:
@@ -327,7 +326,7 @@ func isZeroIntLiteral(lit string) bool {
 	return len(s) > 0
 }
 
-// pyListRepr renders repr() of a Python list of strings: ['a', 'b'].
+// pyListRepr renders a list of strings as ['a', 'b'].
 func pyListRepr(items []string) string {
 	parts := make([]string, len(items))
 	for i, s := range items {

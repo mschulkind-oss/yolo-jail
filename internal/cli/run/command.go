@@ -4,7 +4,7 @@ import "strings"
 
 // setupScript is the provisioning core (mise trust/prune/install/upgrade,
 // bootstrap, venv-precreate) run under `YOLO_BYPASS_SHIMS=1 sh -c '…'`. Frozen
-// byte-for-byte with run_cmd.py's setup_script.
+// contract (must not drift — the in-jail entrypoint depends on the exact bytes).
 const setupScript = "YOLO_BYPASS_SHIMS=1 sh -c '" +
 	"(mise trust --all --quiet 2>/dev/null || true) && " +
 	`if [ "${YOLO_STORE_PRUNE_OK:-0}" = "1" ]; then ` +
@@ -26,12 +26,12 @@ const setupScript = "YOLO_BYPASS_SHIMS=1 sh -c '" +
 const startupLog = "/workspace/.yolo/startup.log"
 
 // miseActivate is the one-time mise activation + yolo-shims re-prepend that runs
-// after provisioning. Frozen with run_cmd.py's mise_activate.
+// after provisioning. Frozen contract (must not drift — the exact bytes matter).
 const miseActivate = `. "$HOME/.config/yolo-user-env.sh" 2>/dev/null; ` +
 	`eval "$(mise env -s bash)" 2>/dev/null; export PATH="$HOME/.yolo-shims:$PATH"`
 
 // provisionScript wraps setupScript with the tee-to-log + PROVISIONING FAILED
-// banner + continue/abort prompt. Frozen with run_cmd.py's provision_script.
+// banner + continue/abort prompt. Frozen contract (must not drift — the exact bytes matter).
 var provisionScript = "" +
 	`printf "=== yolo provisioning %s ===\n" "$(date "+%Y-%m-%dT%H:%M:%S%z")" ` +
 	">" + startupLog + "; " +
@@ -46,11 +46,11 @@ var provisionScript = "" +
 	`read -r _ans; case "$_ans" in [nN]*) exit "$_prc";; esac; ` +
 	"fi; fi"
 
-// buildFinalInternalCmd ports run()'s final_internal_cmd assembly (2899-2946):
+// buildFinalInternalCmd assembles the final_internal_cmd:
 // the provisioning message → provision_script → mise activate → executing
 // message → target command. displayCmd is target_cmd with single quotes escaped
 // as '\”. profile wraps each phase with timing (the profile branch). Frozen
-// byte-for-byte.
+// contract (must not drift — the exact bytes matter).
 func buildFinalInternalCmd(targetCmd string, profile bool) string {
 	displayCmd := strings.ReplaceAll(targetCmd, "'", `'\''`)
 	if profile {

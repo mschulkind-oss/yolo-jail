@@ -16,20 +16,21 @@ import (
 	"github.com/mschulkind-oss/yolo-jail/internal/paths"
 )
 
-// Broker singleton socket / pid file locations (mirrors
-// loopholes_runtime.BROKER_SINGLETON_SOCKET / _PID_FILE and BROKER_LOOPHOLE_NAME).
+// Broker singleton socket / pid file locations. Frozen contract (must not
+// drift — the broker daemon in internal/loopholes writes/binds these exact
+// paths; both sides must agree byte-for-byte).
 const (
 	brokerLoopholeName    = "claude-oauth-broker"
 	brokerSingletonSocket = "/tmp/yolo-claude-oauth-broker.sock"
 	brokerSingletonPIDFil = "/tmp/yolo-claude-oauth-broker.pid"
 )
 
-// hostServiceDefaultJailSocket ports _host_service_default_jail_socket.
+// hostServiceDefaultJailSocket returns the in-jail socket path for a host service.
 func hostServiceDefaultJailSocket(name string) string {
 	return paths.JailHostServicesDir + "/" + name + ".sock"
 }
 
-// hostServiceSocketsDir ports _host_service_sockets_dir: the per-jail host-side
+// hostServiceSocketsDir returns the per-jail host-side
 // dir under /tmp keyed by an 8-hex sha1 of the container name. On macOS /tmp
 // resolves to /private/tmp; the resolved form is used so socket paths match
 // what the kernel sees.
@@ -45,7 +46,7 @@ func hostServiceSocketsDir(cname string, isMacOS bool) string {
 	return filepath.Join(base, "yolo-host-services-"+shortHash)
 }
 
-// brokerStatus ports _broker_status: pid, pid_live, socket_exists, ping_ok.
+// brokerStatus holds the broker liveness snapshot: pid, pid_live, socket_exists, ping_ok.
 type brokerStatus struct {
 	pid          int
 	pidPresent   bool
@@ -68,7 +69,7 @@ func (o *Options) brokerStatus() brokerStatus {
 	}
 }
 
-// brokerReadPID ports _broker_read_pid: (pid, present).
+// brokerReadPID returns (pid, present).
 func brokerReadPID() (int, bool) {
 	data, err := os.ReadFile(brokerSingletonPIDFil)
 	if err != nil {
@@ -81,7 +82,7 @@ func brokerReadPID() (int, bool) {
 	return n, true
 }
 
-// brokerPing ports _broker_ping: connect to socketPath, send a length-prefixed
+// brokerPing connects to socketPath, sends a length-prefixed
 // {"action":"ping"} request, and expect a data frame (stream 0) whose JSON has
 // pong:true, before the exit frame (stream 2). Any error → false.
 func brokerPing(socketPath string, timeout time.Duration) bool {
@@ -145,8 +146,8 @@ func readFull(conn net.Conn, buf []byte) (int, error) {
 	return total, nil
 }
 
-// relaySocketVisibleInJail ports _relay_socket_visible_in_jail: does the RUNNING
-// container see the relay socket? Returns tri-state: visible=true, absent=false,
+// relaySocketVisibleInJail reports whether the RUNNING
+// container sees the relay socket. Returns tri-state: visible=true, absent=false,
 // unknown=nil (exec unavailable / exec-level failure). Represented as (*bool).
 func (o *Options) relaySocketVisibleInJail(rt, cname string) *bool {
 	if rt == "" || cname == "" {

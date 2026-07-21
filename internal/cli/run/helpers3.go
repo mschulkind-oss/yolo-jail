@@ -24,7 +24,7 @@ func indexOfSlice(s []string, target string) int {
 	return -1
 }
 
-// insertStrsAt inserts vs at index i (run_cmd[image_idx:image_idx] = [...]).
+// insertStrsAt inserts vs at index i.
 func insertStrsAt(s []string, i int, vs []string) []string {
 	out := make([]string, 0, len(s)+len(vs))
 	out = append(out, s[:i]...)

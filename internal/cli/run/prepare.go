@@ -12,8 +12,8 @@ import (
 	"github.com/mschulkind-oss/yolo-jail/internal/paths"
 )
 
-// refreshJailBriefings ports _refresh_jail_briefings: rebuild the per-jail
-// skills staging + each selected agent's AGENTS.md/CLAUDE.md briefing. Called on
+// refreshJailBriefings rebuilds the per-jail skills staging + each selected
+// agent's AGENTS.md/CLAUDE.md briefing. Called on
 // every invocation (incl. attach) so host-side skill/briefing edits propagate to
 // a live jail via inode-preserving writes. Returns the staging dir
 // (AGENTS_DIR/<cname>).
@@ -124,7 +124,7 @@ func orderedMapToStrAny(m *jsonx.OrderedMap) map[string]any {
 	return out
 }
 
-// prepareWsState runs the ws_state overlay preparation (1604-1697): create the
+// prepareWsState prepares the ws_state overlay: create the
 // per-workspace overlay dirs + touch the overlay files, seed selected agents'
 // config dirs, sync claude.json, and run the old-overlay migrations. Returns the
 // ws_state path (<workspace>/.yolo/home).

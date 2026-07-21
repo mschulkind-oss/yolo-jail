@@ -9,9 +9,9 @@ import (
 )
 
 // SelfCheck is the `yolo doctor` health check. Distinguishes fail (rc=1),
-// warn (rc=0 + NOTE lines), and ok (rc=0).
-// exact FAIL:/NOTE:/OK print lines and the openssl-only-fails-if-state-missing
-// logic. Prints to stdout/stderr and returns the exit code.
+// warn (rc=0 + NOTE lines), and ok (rc=0). Emits FAIL:/NOTE:/OK lines; openssl
+// is only a failure when CA/leaf state is missing. Prints to stdout/stderr and
+// returns the exit code.
 func SelfCheck(credsPath string) int {
 	dir := BrokerDir()
 	var warnings, failures []string

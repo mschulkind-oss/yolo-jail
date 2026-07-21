@@ -12,21 +12,18 @@ import (
 	"github.com/mschulkind-oss/yolo-jail/internal/pytext"
 )
 
-// Warn is called for non-strict warnings that config.py emits via
-// typer.echo(..., err=True) / console.print. The Go loader factors this out so
+// Warn is called for non-strict warnings. The loader factors this out so
 // callers (yolo check, run) can route them to the same stderr/console. Nil
-// means discard (parity tests only compare the returned config/error, not
-// side-channel warnings).
-// The default writes "Warning: <msg>" to stderr (typer.echo err=True form).
+// means discard. The default writes "Warning: <msg>" to stderr.
 type Warn func(msg string)
 
 func defaultWarn(msg string) {
 	fmt.Fprintln(os.Stderr, "Warning: "+msg)
 }
 
-// LoadJSONCFile ports _load_jsonc_file. Missing file -> empty map. A parse
-// error or a non-object top level is a ConfigError in strict mode, else warns
-// and returns an empty map.
+// LoadJSONCFile loads a JSONC file. Missing file -> empty map. A parse error or
+// a non-object top level is a ConfigError in strict mode, else warns and returns
+// an empty map.
 func LoadJSONCFile(path, label string, strict bool, warn Warn) (*jsonx.OrderedMap, error) {
 	if warn == nil {
 		warn = defaultWarn
@@ -36,8 +33,7 @@ func LoadJSONCFile(path, label string, strict bool, warn Warn) (*jsonx.OrderedMa
 		if os.IsNotExist(err) {
 			return jsonx.NewOrderedMap(), nil
 		}
-		// A read error other than not-exist is surfaced through the same path
-		// Python's read_text() exception takes (caught by the broad except).
+		// A read error other than not-exist is surfaced as a parse failure.
 		return handleParseFailure(label, err, strict, warn)
 	}
 	parsed, perr := json5.Decode(data)
@@ -65,9 +61,9 @@ func handleParseFailure(label string, err error, strict bool, warn Warn) (*jsonx
 	return jsonx.NewOrderedMap(), nil
 }
 
-// mergeLists ports _merge_lists: append override items not already present,
-// with equality by the canonical dedup key (json.dumps(item, sort_keys=True,
-// default=str)). The base list is copied; order is base-then-new-override.
+// mergeLists appends override items not already present, with equality by the
+// canonical dedup key (sorted-key JSON of the item). The base list is copied;
+// order is base-then-new-override.
 func mergeLists(base, override []any) []any {
 	merged := make([]any, len(base))
 	copy(merged, base)
@@ -85,13 +81,14 @@ func mergeLists(base, override []any) []any {
 	return merged
 }
 
-// workspace REPLACES wholesale rather than union-merging.
+// overrideListKeys names list keys that REPLACE wholesale rather than
+// union-merging.
 var overrideListKeys = set("agents")
 
-// MergeConfig ports merge_config: recursive dict merge, list union-merge
-// (except _OVERRIDE_LIST_KEYS), scalar/type-mismatch override. Returns a new
-// OrderedMap; base's order is preserved, override-only keys are appended in
-// override order (Python: result = dict(base) then assignment).
+// MergeConfig recursively merges override onto base: recursive dict merge, list
+// union-merge (except overrideListKeys), scalar/type-mismatch override. Returns
+// a new OrderedMap; base's order is preserved, override-only keys are appended
+// in override order.
 func MergeConfig(base, override *jsonx.OrderedMap) *jsonx.OrderedMap {
 	result := jsonx.NewOrderedMap()
 	for _, k := range base.Keys() {
@@ -122,7 +119,7 @@ func MergeConfig(base, override *jsonx.OrderedMap) *jsonx.OrderedMap {
 	return result
 }
 
-// LoadJSONCWithIncludes ports _load_jsonc_with_includes. Include entries are
+// LoadJSONCWithIncludes loads a JSONC file and its includes. Include entries are
 // relative paths resolved against the including file's directory; missing files
 // skip; overrides win (later wins); cycles are detected via the shared seen set.
 // The include_if_found key is consumed and removed from the returned config.
@@ -144,13 +141,12 @@ func LoadJSONCWithIncludes(path, label string, strict bool, warn Warn, seen map[
 		return nil, err
 	}
 	if raw.Len() == 0 {
-		// Python: `if not raw: return raw` — an empty dict is falsy, so we
-		// return it directly WITHOUT consuming includes.
+		// An empty (falsy) map is returned directly WITHOUT consuming includes.
 		return raw, nil
 	}
 
 	includesVal, hasIncludes := raw.Get("include_if_found")
-	raw.Delete("include_if_found") // Python: raw.pop("include_if_found", None)
+	raw.Delete("include_if_found") // consumed; not part of the returned config
 	if !hasIncludes || includesVal == nil {
 		return raw, nil
 	}
@@ -203,8 +199,8 @@ func LoadJSONCWithIncludes(path, label string, strict bool, warn Warn, seen map[
 	return result, nil
 }
 
-// LoadWorkspaceConfig ports load_workspace_config: yolo-jail.jsonc plus
-// yolo-jail.local.jsonc (local wins), sharing the seen set so a config that
+// LoadWorkspaceConfig loads yolo-jail.jsonc plus yolo-jail.local.jsonc (local
+// wins), sharing the seen set so a config that
 // also includes the local file doesn't merge it twice.
 func LoadWorkspaceConfig(workspace string, strict bool, warn Warn) (*jsonx.OrderedMap, error) {
 	if workspace == "" {
@@ -224,8 +220,7 @@ func LoadWorkspaceConfig(workspace string, strict bool, warn Warn) (*jsonx.Order
 	return MergeConfig(wsCfg, localCfg), nil
 }
 
-// LoadConfig ports load_config: user-level config merged under the workspace
-// config.
+// LoadConfig merges the user-level config under the workspace config.
 func LoadConfig(workspace string, strict bool, warn Warn) (*jsonx.OrderedMap, error) {
 	// Inside a jail, do NOT re-assemble: COPY the host's already-merged config
 	// from the workspace snapshot instead. The user-level `include_if_found`
@@ -234,7 +229,7 @@ func LoadConfig(workspace string, strict bool, warn Warn) (*jsonx.OrderedMap, er
 	// silently drops them — producing a reduced config that (a) mismatches the
 	// host and (b) rewrites the bind-mounted, host-owned snapshot with the
 	// reduced form, so the host then re-prompts on every run (the ping-pong).
-	// The snapshot IS json.dumps(assembled_config); reading it verbatim keeps
+	// The snapshot IS the assembled config serialized; reading it verbatim keeps
 	// the in-jail view identical to the host's. Falls back to a normal assemble
 	// when the snapshot is absent/unreadable (e.g. never run through approval).
 	if inJail() {
@@ -262,7 +257,7 @@ func inJail() bool {
 
 // loadAssembledSnapshot reads the host-written config snapshot
 // (<workspace>/.yolo/config-snapshot.json) and returns it as the merged config.
-// The snapshot is json.dumps(config, indent=2, sort_keys=True), so decoding it
+// The snapshot is the config serialized with sorted keys, so decoding it
 // yields the same config the host assembled (dict keys sorted — cosmetic;
 // list order, which is the only order that matters, is preserved). Returns
 // ok=false when the file is missing or not a JSON object, so the caller falls

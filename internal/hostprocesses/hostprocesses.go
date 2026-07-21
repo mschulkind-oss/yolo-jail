@@ -29,8 +29,8 @@ type Config struct {
 
 // LoadConfig reads the host_processes section from the jsonc config at
 // configPath. A missing file or missing/unreadable section → empty allowlist
-// with DEFAULT_FIELDS (feature effectively disabled).
-// including the str-filtering of visible/fields lists.
+// with DEFAULT_FIELDS (feature effectively disabled). The visible/fields lists
+// are filtered to their string elements.
 func LoadConfig(configPath string) Config {
 	data, err := os.ReadFile(configPath)
 	if err != nil {
@@ -38,7 +38,7 @@ func LoadConfig(configPath string) Config {
 	}
 	decoded, err := json5.Decode(data)
 	if err != nil {
-		// Python logs "unreadable" and treats as empty.
+		// Unreadable config is treated as empty (feature disabled).
 		return Config{Visible: []string{}, Fields: append([]string(nil), DefaultFields...)}
 	}
 	root, ok := decoded.(*jsonx.OrderedMap)
@@ -66,8 +66,8 @@ func getMap(m *jsonx.OrderedMap, key string) *jsonx.OrderedMap {
 	return sub
 }
 
-// strListOrEmpty returns the string elements of m[key], or [] (Python
-// `hp.get("visible") or []` then filter to str).
+// strListOrEmpty returns the string elements of m[key], or [] if absent,
+// null, or not a list.
 func strListOrEmpty(m *jsonx.OrderedMap, key string) []string {
 	if m == nil {
 		return []string{}
@@ -89,11 +89,10 @@ func strListOrEmpty(m *jsonx.OrderedMap, key string) []string {
 	return out
 }
 
-// strListOrDefault mirrors `[str(x) for x in (hp.get("fields") or DEFAULT) if
-// isinstance(x, str)]`: the `or DEFAULT` applies to the RAW value, so an
-// absent/empty/non-list value → DEFAULT (then filtered, a no-op); a NON-EMPTY
-// list → filtered to its str elements (which may be []). Verified against the
-// live _load_config.
+// strListOrDefault returns the string elements of m[key], defaulting to def.
+// The default applies to the RAW value, so an absent/empty/non-list value →
+// def (then filtered, a no-op); a NON-EMPTY list → filtered to its str
+// elements (which may be []).
 func strListOrDefault(m *jsonx.OrderedMap, key string, def []string) []string {
 	var raw []any
 	if m != nil {
@@ -103,7 +102,7 @@ func strListOrDefault(m *jsonx.OrderedMap, key string, def []string) []string {
 			}
 		}
 	}
-	// `or DEFAULT`: empty/absent/non-list raw is falsy -> use DEFAULT.
+	// empty/absent/non-list raw -> use the default.
 	if len(raw) == 0 {
 		raw = make([]any, len(def))
 		for i, d := range def {
@@ -129,10 +128,10 @@ func BuildHandler(configPath string) hostservice.Handler {
 			visible[c] = struct{}{}
 		}
 		fields := cfg.Fields
-		// Python: mode = str(request.get("mode") or "list"). A truthy NON-string
-		// (e.g. 5, {...}) is stringified and falls through to the unknown-mode
-		// exit-2 branch — it must NOT silently run list mode. Falsy (absent, "",
-		// 0, null, false, []) -> "list".
+		// mode = str(request["mode"] or "list"). A truthy NON-string (e.g. 5,
+		// {...}) is stringified and falls through to the unknown-mode exit-2
+		// branch — it must NOT silently run list mode. Falsy (absent, "", 0,
+		// null, false, []) -> "list".
 		mode := pyStrOrList(func() (any, bool) { return s.Get("mode") })
 
 		if len(visible) == 0 {
@@ -155,11 +154,11 @@ func BuildHandler(configPath string) hostservice.Handler {
 	}
 }
 
-// pyStrOrList str(request.get("mode") or "list"): if the
-// value is falsy (absent, "", 0, 0.0, false, null, empty list/dict) -> "list";
-// otherwise str(value). For a string that's str(value)==value; for other
-// truthy types we produce Python's str() form so a bogus mode still routes to
-// the unknown-mode exit-2 branch (e.g. 5 -> "5", true -> "True").
+// pyStrOrList implements str(mode or "list"): if the value is falsy (absent,
+// "", 0, 0.0, false, null, empty list/dict) -> "list"; otherwise str(value).
+// For a string that's str(value)==value; for other truthy types we produce the
+// str() form so a bogus mode still routes to the unknown-mode exit-2 branch
+// (e.g. 5 -> "5", true -> "True").
 func pyStrOrList(get func() (any, bool)) string {
 	v, ok := get()
 	if !ok || !pyTruthy(v) {
@@ -190,7 +189,7 @@ func pyTruthy(v any) bool {
 	}
 }
 
-// pyStr mirrors Python str(x) for the types a JSON "mode" could decode to.
+// pyStr renders str(x) for the types a JSON "mode" could decode to.
 func pyStr(v any) string {
 	switch t := v.(type) {
 	case string:
@@ -259,7 +258,7 @@ func handlePid(s *hostservice.Session, visible map[string]struct{}, fields []str
 	allow := map[string]struct{}{
 		"ps": {}, "-o": {}, joined: {}, "-p": {}, pidStr: {}, comm: {},
 	}
-	// argv_positions = all positions (Python passes set(range(len(argv)))).
+	// argv_positions = all positions.
 	positions := map[int]struct{}{}
 	for i := range argv {
 		positions[i] = struct{}{}
@@ -276,8 +275,8 @@ func sortedKeys(m map[string]struct{}) []string {
 	return out
 }
 
-// asIntStrict isinstance(want_pid, int): only an actual JSON
-// integer counts (a float like 42.0 or a string "42" does NOT).
+// asIntStrict accepts only an actual JSON integer (a float like 42.0 or a
+// string "42" does NOT count).
 func asIntStrict(v any) (int, bool) {
 	// jsonx decodes JSON integers to its internal integer type (re-encodes with
 	// no "."); a float decodes to float64. Distinguish by re-encoding.
@@ -285,7 +284,7 @@ func asIntStrict(v any) (int, bool) {
 		return 0, false
 	}
 	if _, isFloat := v.(float64); isFloat {
-		return 0, false // Python: 42.0 is not an int
+		return 0, false // 42.0 is a float, not an int
 	}
 	if _, isStr := v.(string); isStr {
 		return 0, false

@@ -12,9 +12,8 @@ import (
 	"github.com/mschulkind-oss/yolo-jail/internal/jsonx"
 )
 
-// warnf/infof are the package's log sinks, mirroring log.warning/log.info in
-// src/loopholes.py. Default to no-ops: runtime_args_for's parity contract is the
-// emitted argv, not log output, but the side effect (one info per in-jail
+// warnf/infof are the package's log sinks. Default to no-ops: the contract is
+// the emitted argv, not log output, but the side effect (one info per in-jail
 // device skip) is preserved for callers that install a sink.
 var (
 	warnf = func(format string, args ...any) {}
@@ -130,7 +129,7 @@ func RuntimeArgsFor(loopholes []*Loophole, runtime string) []string {
 
 // every active file-backed loophole with a host_daemon, shaped like the
 // loopholes: config block. Returned as an insertion-ordered map so it serializes
-// deterministically; Python dict equality is order-insensitive anyway.
+// deterministically.
 func ManifestHostDaemonSpecs(loopholes []*Loophole) *jsonx.OrderedMap {
 	out := jsonx.NewOrderedMap()
 	for _, m := range loopholes {
@@ -165,7 +164,7 @@ type DoctorResult struct {
 	Output   string
 }
 
-// RunDoctorChecks mirrors run_doctor_checks. timeout defaults to 10s when zero.
+// RunDoctorChecks runs each loophole's doctor_cmd. timeout defaults to 10s when zero.
 func RunDoctorChecks(loopholes []*Loophole, timeout time.Duration) []DoctorResult {
 	if timeout == 0 {
 		timeout = 10 * time.Second
@@ -216,7 +215,7 @@ func runOne(argv []string, timeout time.Duration) (*int, string) {
 
 // through a JSON round-trip. This deliberately DROPS JSONC comments (the parse
 // via json5 -> re-serialize as plain JSON degradation documented in the module
-// map) — do NOT "fix" this; parity depends on reproducing it.
+// map) — do NOT "fix" this; the round-trip behavior is intentional.
 func SetEnabled(modulePath string, enabled bool) error {
 	manifestPath := filepath.Join(modulePath, "manifest.jsonc")
 	text, err := os.ReadFile(manifestPath)
@@ -229,8 +228,8 @@ func SetEnabled(modulePath string, enabled bool) error {
 	}
 	decoded, ok := decodedAny.(*jsonx.OrderedMap)
 	if !ok {
-		// Python would raise TypeError on data["enabled"]=...; only a
-		// non-object manifest reaches here, which never occurs in practice.
+		// Only a non-object manifest reaches here, which never occurs in
+		// practice.
 		return &LoopholeError{msg: manifestPath + ": manifest must be a JSON object"}
 	}
 	decoded.Set("enabled", enabled)

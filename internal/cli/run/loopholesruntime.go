@@ -28,8 +28,8 @@ type loopholeDaemon struct {
 	stop           func()
 }
 
-// startLoopholes ports start_loopholes: start all host services for this jail
-// and return handles. Apple Container gets none (no socket bind-mount there).
+// startLoopholes starts all host services for this jail and returns handles.
+// Apple Container gets none (no socket bind-mount there).
 // Otherwise: the builtin cgroup delegate (Linux + cgroup v2 only), the journal
 // bridge (opt-in), and external services from config.loopholes. The broker
 // singleton is ensured but returns NO handle (host-wide, not per-jail).
@@ -98,7 +98,7 @@ func (o *Options) startLoopholes(cname, rt string, cfg *jsonx.OrderedMap) []loop
 	return handles
 }
 
-// stopLoopholes ports stop_loopholes WITH THE FROZEN GUARD STACK (do not
+// stopLoopholes tears down handles WITH THE FROZEN GUARD STACK (do not
 // reorder): stop each handle, then — when cname/rt are given — take the
 // per-workspace flock NON-BLOCKING; if busy, a relaunch is mid-flight → leave
 // the relay + sockets dir alone. Else, if the container is STILL RUNNING, leave
@@ -158,9 +158,8 @@ func (o *Options) stopLoopholes(handles []loopholeDaemon, socketsDir, cname, rt 
 	}
 }
 
-// startCgroupDelegate ports _start_host_service_builtin_cgroup: start the
-// builtin cgroup delegate as an IN-PROCESS goroutine (matching Python's thread
-// model — no external binary), bound to <sockets_dir>/cgroup-delegate.sock.
+// startCgroupDelegate starts the builtin cgroup delegate as an IN-PROCESS
+// goroutine (no external binary), bound to <sockets_dir>/cgroup-delegate.sock.
 // Skipped on macOS and non-cgroup-v2 Linux. The container cgroup is resolved
 // lazily on the first request. See startCgroupDelegateInProc.
 func (o *Options) startCgroupDelegate(cname, rt, socketsDir string) (loopholeDaemon, bool) {
@@ -178,8 +177,8 @@ func (o *Options) startCgroupDelegate(cname, rt, socketsDir string) (loopholeDae
 	}, true
 }
 
-// startExternalService ports _start_host_service_external (the common path):
-// substitute {socket}, expand ~, spawn, wait for the socket to bind. Returns the
+// startExternalService is the common host-service path: substitute {socket},
+// expand ~, spawn, wait for the socket to bind. Returns the
 // handle on success.
 func (o *Options) startExternalService(name string, spec *jsonx.OrderedMap, socketsDir string) (loopholeDaemon, bool) {
 	if spec == nil {
@@ -270,8 +269,8 @@ func (o *Options) startExternalService(name string, spec *jsonx.OrderedMap, sock
 	}, true
 }
 
-// resolveContainerCgroup ports _resolve_container_cgroup: the host-side cgroup v2
-// path for a running container, or "" (macOS → always ""). Best-effort.
+// resolveContainerCgroup returns the host-side cgroup v2 path for a running
+// container, or "" (macOS → always ""). Best-effort.
 func (o *Options) resolveContainerCgroup(cname, rt string) string {
 	if o.IsMacOS {
 		return ""
@@ -313,8 +312,8 @@ func (o *Options) resolveContainerCgroup(cname, rt string) string {
 
 // --- broker singleton + relay (minimal ensure; supervision keyed per jail) ---
 
-// brokerEnsure ports _broker_ensure: if the host-wide broker singleton is alive,
-// no-op; else spawn it under a flock. The spawn/liveness/launcher/path-constant
+// brokerEnsure is a no-op if the host-wide broker singleton is alive; else it
+// spawns it under a flock. The spawn/liveness/launcher/path-constant
 // implementation lives ONCE in internal/broker — run just drives it via
 // RealDeps (BrokerSpawn re-checks liveness inside its own flock). Best-effort;
 // never fails the caller.
@@ -326,8 +325,8 @@ func (o *Options) brokerEnsure() {
 	broker.BrokerSpawn(deps)
 }
 
-// ensureBrokerRelay ports _ensure_broker_relay: heal the per-jail relay on every
-// path that targets the jail. Skipped for Apple Container and when the singleton
+// ensureBrokerRelay heals the per-jail relay on every path that targets the
+// jail. Skipped for Apple Container and when the singleton
 // socket is absent.
 func (o *Options) ensureBrokerRelay(cname, rt string) {
 	if rt == "container" || !o.PathExists(broker.BrokerSingletonSocket) {
@@ -337,7 +336,7 @@ func (o *Options) ensureBrokerRelay(cname, rt string) {
 	o.relayEnsure(cname, socketsDir)
 }
 
-// relayEnsure ports _relay_ensure: idempotent per-jail relay supervision under a
+// relayEnsure is idempotent per-jail relay supervision under a
 // flock. Spawns the self-exec'd `yolo internal daemon broker-relay` (see
 // relaySpawnArgv).
 func (o *Options) relayEnsure(cname, socketsDir string) {
@@ -384,8 +383,8 @@ func (o *Options) relayEnsure(cname, socketsDir string) {
 // …`. SelfExecArgv substitutes os.Executable() for the bare "yolo" launcher
 // token so the relay is tied to THIS binary regardless of PATH.
 //
-// The former YOLO_BROKER_RELAY_BIN gate and (deleted) Python broker_relay.py
-// fallback are gone. That path was effectively dead — neither YOLO_BROKER_RELAY_BIN
+// The former YOLO_BROKER_RELAY_BIN gate and its script fallback are gone. That
+// path was effectively dead — neither YOLO_BROKER_RELAY_BIN
 // nor YOLO_REPO_ROOT was set in production, so relaySpawnArgv returned nil and
 // the relay never started. Now it always yields a runnable argv, so relayEnsure
 // actually spawns the relay whenever a broker loophole is active.
@@ -410,10 +409,9 @@ func (o *Options) relayIsAlive(pidFile, sockPath string) bool {
 	return socketConnectable(sockPath, 2*time.Second)
 }
 
-// relayKill ports _relay_kill (simplified): SIGTERM the relay PID (SIGKILL
-// straggler), then remove the PID file. Identity/pgrep-fallback guards are
-// omitted in this port slice — the PID file is the common case; a recycled-PID
-// misfire is bounded by the pidAlive check.
+// relayKill SIGTERMs the relay PID (SIGKILL straggler), then removes the PID
+// file. Identity/pgrep-fallback guards are omitted — the PID file is the common
+// case; a recycled-PID misfire is bounded by the pidAlive check.
 // relayKillGraceDefault is the production SIGTERM→SIGKILL drain window. Tests
 // override it via Options.RelayKillGrace to avoid a real 3s sleep.
 const relayKillGraceDefault = 3 * time.Second
@@ -451,8 +449,8 @@ func (o *Options) relayKill(pidFile, sockPath string) {
 // never reaped.
 const relayOrphanGraceSeconds = 3600.0
 
-// relayReapOrphans runs the backstop reap of _relay_reap_orphans, piggybacking
-// on the store-prune gate's live-container enumeration (run_cmd.py:2760-2771).
+// relayReapOrphans runs the backstop reap, piggybacking on the store-prune
+// gate's live-container enumeration.
 // A per-jail relay outlives the yolo process that spawned it by design, and
 // stopLoopholes only reaps the current jail's relay in that original process's
 // graceful tail — jails ended from attach sessions would leak their relay
@@ -460,19 +458,18 @@ const relayOrphanGraceSeconds = 3600.0
 // started) is excluded by folding cname into the live set. liveKnown==false
 // (liveness unenumerable) declines the sweep (unknown never reads as "nothing
 // live"). Best-effort: reuses the byte-verified prune engine and the run path's
-// own relayKill machinery, matching Python's _relay_kill(pid_file) call with no
-// socket_path.
+// own relayKill machinery, called with no socket path.
 func (o *Options) relayReapOrphans(liveKnown bool, liveCnames map[string]struct{}, cname string) {
 	o.relayReapOrphansIn("/tmp", liveKnown, liveCnames, cname)
 }
 
 // relayReapOrphansIn is relayReapOrphans with an injectable scan base (the pid-
-// file dir). Production always passes "/tmp" (Python's hardcoded default); tests
+// file dir). Production always passes "/tmp" (the hardcoded default); tests
 // pass a temp dir. Returns the pid files reaped, so the cname-fold decision is
 // assertable without touching /tmp.
 func (o *Options) relayReapOrphansIn(base string, liveKnown bool, liveCnames map[string]struct{}, cname string) []string {
 	// Fold in the current jail's cname so its freshly-ensured relay is never
-	// reaped (Python passes `live_jails | {cname}`).
+	// reaped (the live set is `live_jails | {cname}`).
 	live := map[string]struct{}{cname: {}}
 	for c := range liveCnames {
 		live[c] = struct{}{}
@@ -514,7 +511,7 @@ func readPIDFile(p string) (int, bool) {
 	return pid, true
 }
 
-// socketConnectable ports _relay_socket_connectable: a plain connect() probe.
+// socketConnectable is a plain connect() probe.
 func socketConnectable(sockPath string, timeout time.Duration) bool {
 	conn, err := net.DialTimeout("unix", sockPath, timeout)
 	if err != nil {

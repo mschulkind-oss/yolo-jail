@@ -10,16 +10,16 @@ import (
 	"golang.org/x/sys/unix"
 )
 
-// accessRW ports os.access(path, R_OK|W_OK): can the current process open the
-// node for read+write? Uses the real access(2) so it honors the effective
-// uid/gid the way Python's os.access does.
+// accessRW reports whether the current process can open the
+// node for read+write. Uses the real access(2) so it honors the effective
+// uid/gid.
 func accessRW(path string) bool {
 	return unix.Access(path, unix.R_OK|unix.W_OK) == nil
 }
 
-// nodeGIDReal ports node.stat().st_gid + grp.getgrgid(gid).gr_name. ok=false
-// when the node can't be stat'd (the OSError branch). A gid with no group entry
-// falls back to its decimal string (Python's KeyError → str(gid)).
+// nodeGIDReal returns the node's owning gid and group name. ok=false
+// when the node can't be stat'd. A gid with no group entry
+// falls back to its decimal string.
 func nodeGIDReal(path string) (int, string, bool) {
 	var st syscall.Stat_t
 	if err := syscall.Stat(path, &st); err != nil {
@@ -33,7 +33,7 @@ func nodeGIDReal(path string) (int, string, bool) {
 	return gid, name, true
 }
 
-// inUserGroupsReal ports `gid in set(os.getgroups())`.
+// inUserGroupsReal reports whether gid is in the process's supplementary groups.
 func inUserGroupsReal(gid int) bool {
 	groups, err := unix.Getgroups()
 	if err != nil {
@@ -47,7 +47,7 @@ func inUserGroupsReal(gid int) bool {
 	return false
 }
 
-// isExecutable ports os.access(path, os.X_OK).
+// isExecutable reports whether path is executable by the current process.
 func isExecutable(path string) bool {
 	return unix.Access(path, unix.X_OK) == nil
 }

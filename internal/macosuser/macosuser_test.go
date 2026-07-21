@@ -161,7 +161,7 @@ func TestMacosLogModes(t *testing.T) {
 }
 
 func TestShQuoteNotShlex(t *testing.T) {
-	// _sh_quote always wraps and uses '\'' escaping, unlike shlex.quote.
+	// shQuote always wraps in single quotes and uses '\'' escaping.
 	if got := shQuote("abc"); got != "'abc'" {
 		t.Errorf("shQuote always wraps: %q", got)
 	}

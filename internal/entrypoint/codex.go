@@ -27,7 +27,8 @@ func codexTomlEscape(s string) string {
 	return s
 }
 
-// int/float -> Python str, else quoted escaped string.
+// codexTomlScalar renders a scalar as TOML: bool -> true/false, int/float as
+// their literal, else a quoted escaped string.
 func codexTomlScalar(v any) string {
 	switch t := v.(type) {
 	case bool:
@@ -38,7 +39,7 @@ func codexTomlScalar(v any) string {
 	case float64:
 		return pyStr(t)
 	default:
-		// jsonInt and other integer literals: Python str(int) == the digits.
+		// jsonInt and other integer literals render as their digits.
 		if isJSONInt(v) {
 			return pyStr(v)
 		}
@@ -46,9 +47,9 @@ func codexTomlScalar(v any) string {
 	}
 }
 
-// pyScalarStr renders str(v) for the scalar path in _toml_scalar: a Python str
-// stays itself; anything reaching here that isn't int/float/bool is coerced via
-// str() — in practice always a string.
+// pyScalarStr renders a scalar value as a string: a string stays itself;
+// anything reaching here that isn't int/float/bool is stringified — in practice
+// always a string.
 func pyScalarStr(v any) string {
 	if s, ok := v.(string); ok {
 		return s

@@ -83,7 +83,7 @@ func TestRelayKillFrozenClockTerminates(t *testing.T) {
 
 // TestRelayReapOrphansCnameFold checks the run-path backstop reap decision: the
 // current jail's just-ensured relay is spared even though its cname is not in the
-// live-container set (Python folds `{cname}` into `live_jails`), a live sibling's
+// live-container set (cname is folded into the live set), a live sibling's
 // relay is spared, and only an orphan whose hash matches no live jail (and older
 // than the grace floor) is reaped.
 func TestRelayReapOrphansCnameFold(t *testing.T) {

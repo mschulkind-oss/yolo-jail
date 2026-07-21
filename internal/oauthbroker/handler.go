@@ -29,8 +29,7 @@ func BuildHandler(credsPath string) hostservice.Handler {
 		}
 		// Per-request line: which action, and the proxy method/path (the
 		// 2026-05-12 logout-loop triage keys off this — one line per jail
-		// request so `is_refresh`/proxy activity is greppable). Mirrors
-		// build_handler's opening log.info.
+		// request so `is_refresh`/proxy activity is greppable).
 		logInfo("action=%s method=%s path=%s", action, sessionField(s, "method"), sessionField(s, "path"))
 		switch action {
 		case "refresh":
@@ -61,7 +60,6 @@ func BuildHandler(credsPath string) hostservice.Handler {
 			out.Set("pid", jsonx.IntValue(int64(os.Getpid())))
 			_ = s.JSON(out)
 		default:
-			// Python: f"unknown action: {action!r}\n"
 			logWarn("unknown action: %s (req keys: %s)", pytext.Repr(action), sortedKeys(s.Request))
 			s.Stderr("unknown action: " + pytext.Repr(action) + "\n")
 			s.Exit(2)
@@ -148,8 +146,8 @@ func maybePropagateTokenResponse(credsPath string, decoded proxyRequest, respons
 			"shared creds not updated; next refresh will likely 401")
 		return
 	}
-	// Python catches base64 + JSON decode in ONE try/except with a single
-	// "not parseable JSON" warning; match that message for both failures.
+	// base64 + JSON decode share a single "not parseable JSON" warning; the
+	// same message covers both failures.
 	body, err := base64.StdEncoding.DecodeString(bodyB64)
 	if err == nil {
 		var decodedBody any
@@ -200,14 +198,14 @@ func stringOf(v any) string {
 	if s, ok := v.(string); ok {
 		return s
 	}
-	// Python str(v) for non-strings; headers are always strings in practice.
+	// Stringify non-strings; headers are always strings in practice.
 	s, _ := jsonx.DumpsCompact(v)
 	return s
 }
 
-// contentEncoding // `response.get("headers", {}).get("Content-Encoding") or .get("content-encoding")`
-// used in the proxy-mirror parse-failure warning. Returns "" when absent (the
-// caller reprs it, so absent -> Python's `None` repr — see the call site).
+// contentEncoding returns the response's Content-Encoding header (canonical or
+// lowercase), used in the proxy-mirror parse-failure warning. Returns "" when
+// absent (the caller renders that as None — see the call site).
 func contentEncoding(response *jsonx.OrderedMap) string {
 	hv, ok := response.Get("headers")
 	if !ok {
@@ -228,9 +226,9 @@ func contentEncoding(response *jsonx.OrderedMap) string {
 	return ""
 }
 
-// contentEncodingRepr renders contentEncoding the way Python's f-string embeds
-// the `.get(...) or .get(...)` expression: a present value as repr('gzip'),
-// absent as None (Python's `None` when both header lookups miss / are empty).
+// contentEncodingRepr renders contentEncoding for the warning message: a
+// present value as repr('gzip'), and "None" when both header lookups miss or
+// are empty.
 func contentEncodingRepr(response *jsonx.OrderedMap) string {
 	ce := contentEncoding(response)
 	if ce == "" {
@@ -239,8 +237,8 @@ func contentEncodingRepr(response *jsonx.OrderedMap) string {
 	return pytext.Repr(ce)
 }
 
-// pyTypeName renders a decoded JSON value's Python type name, matching
-// type(x).__name__ in the "decoded to non-dict %s" warning.
+// pyTypeName renders a decoded JSON value's Python-style type name for the
+// "decoded to non-dict %s" warning.
 func pyTypeName(v any) string {
 	switch v.(type) {
 	case nil:
@@ -256,13 +254,13 @@ func pyTypeName(v any) string {
 	case *jsonx.OrderedMap:
 		return "dict"
 	default:
-		// jsonx integer literal -> Python int.
+		// jsonx integer literal.
 		return "int"
 	}
 }
 
 // sessionField returns req[key] as a string for the per-request log line,
-// defaulting to "-" when absent (Python's req.get("method", "-")).
+// defaulting to "-" when absent.
 func sessionField(s *hostservice.Session, key string) string {
 	v, ok := s.Get(key)
 	if !ok {
@@ -271,8 +269,8 @@ func sessionField(s *hostservice.Session, key string) string {
 	return stringOf(v)
 }
 
-// sortedKeys renders a request's keys the way Python's f-string embeds
-// sorted(req.keys()) — a Python-repr list, e.g. "['action', 'method']".
+// sortedKeys renders a request's sorted keys as a Python-repr list, e.g.
+// "['action', 'method']".
 func sortedKeys(req *jsonx.OrderedMap) string {
 	keys := append([]string(nil), req.Keys()...)
 	sort.Strings(keys)

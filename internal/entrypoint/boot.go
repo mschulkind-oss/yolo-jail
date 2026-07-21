@@ -31,7 +31,7 @@ type perfEntry struct {
 	label   string
 }
 
-// perfLog accumulates checkpoints like the Python _PERF_LOG global.
+// perfLog accumulates boot checkpoints.
 type perfLog struct {
 	start   time.Time
 	entries []perfEntry
@@ -49,8 +49,8 @@ func (p *perfLog) mark(label string) {
 
 // dump writes the perf log to ~/.yolo-perf.log. Best-
 // effort — all errors swallowed. This log is deliberately excluded from the
-// tree-parity golden (it is wall-clock timing); the format tracks Python's for
-// human readability, not byte-parity.
+// tree-parity golden (it is wall-clock timing); the format is for human
+// readability, not byte-parity.
 func (p *perfLog) dump(home string) {
 	if len(p.entries) == 0 {
 		return
@@ -148,10 +148,9 @@ func hydrateEnvFromUserEnvFile(e *Env) {
 	}
 }
 
-// groupParticipated reports whether the named subgroup at index gi matched
-// (Python's `m.group(name) is not None`). A non-participating group has index
-// pair (-1, -1) in FindStringSubmatchIndex; an empty match has a valid,
-// possibly zero-width, index pair.
+// groupParticipated reports whether the named subgroup at index gi matched.
+// A non-participating group has index pair (-1, -1) in FindStringSubmatchIndex;
+// an empty match has a valid, possibly zero-width, index pair.
 func groupParticipated(loc []int, gi int) bool {
 	if gi < 0 || 2*gi+1 >= len(loc) {
 		return false
@@ -168,8 +167,8 @@ func groupStr(s string, loc []int, gi int) string {
 	return s[loc[2*gi]:loc[2*gi+1]]
 }
 
-// splitLines mirrors str.splitlines() for the writer's \n-terminated format:
-// splits on \n and drops a trailing empty element from a final newline.
+// splitLines splits on \n and drops a trailing empty element from a final
+// newline.
 func splitLines(s string) []string {
 	parts := strings.Split(s, "\n")
 	if n := len(parts); n > 0 && parts[n-1] == "" {
@@ -228,9 +227,9 @@ func copyHostNvimConfig(e *Env) {
 
 // copyTree copies src into dst, following symlinks (symlinks=False), skipping
 // dangling symlinks (ignore_dangling_symlinks=True), merging into existing dirs
-// (dirs_exist_ok=True). Same-inode source/destination files (nested-jail shared
-// overlay) are skipped, mirroring Python's SameFileError swallow. All per-entry
-// errors are best-effort.
+// (merging into existing dirs). Same-inode source/destination files
+// (nested-jail shared overlay) are skipped. All per-entry errors are
+// best-effort.
 func copyTree(src, dst string) error {
 	if err := os.MkdirAll(dst, 0o755); err != nil {
 		return err
@@ -283,10 +282,9 @@ func sameFile(a, b string) (bool, error) {
 // Deferred subprocess side effects
 // ---------------------------------------------------------------------------
 // The pure content generators (GenerateMiseConfig, ConfigureClaude) deliberately
-// SKIP the two subprocess side effects their Python counterparts run inline —
-// those are boot orchestration, not content. main() re-attaches them at the same
-// ordering points the Python main() reaches them (generate_mise_config tail;
-// configure_claude tail, inside the per-agent loop).
+// SKIP the two subprocess side effects — those are boot orchestration, not
+// content. main() re-attaches them at the matching ordering points
+// (generate_mise_config tail; configure_claude tail, inside the per-agent loop).
 // uninstall --all <tool>` for each retired tool (idempotent, best-effort, 30s
 // timeout). tool_name is the registry token with surrounding quotes stripped.
 func miseUninstallRetired() {
@@ -370,9 +368,8 @@ func execBash(e *Env, command string) error {
 	}
 	activatedCommand := sourceUserEnv + `eval "$(mise env -s bash)" 2>/dev/null; ` + command
 
-	// os.execvp("bash", ["bash", "--rcfile", BASHRC, "-c", activated]). Go has no
-	// execvp; resolve bash on PATH (no libc search in syscall.Exec) then exec
-	// with argv[0]="bash".
+	// exec bash --rcfile BASHRC -c activated. syscall.Exec does no PATH search,
+	// so resolve bash on PATH first, then exec with argv[0]="bash".
 	bashPath, err := exec.LookPath("bash")
 	if err != nil {
 		return err
@@ -415,7 +412,7 @@ func Main(args []string) error {
 	p.mark("generate_ld_cache")
 
 	// Generators (each best-effort — never abort boot; a generator error is
-	// warned and boot continues, matching Python's per-step try/except).
+	// warned and boot continues).
 	genStep(e, "generate_shims", func() error { return GenerateShims(e) })
 	p.mark("generate_shims")
 	genStep(e, "generate_agent_launchers", func() error { return GenerateAgentLaunchers(e) })
@@ -456,7 +453,7 @@ func Main(args []string) error {
 	p.mark("configure_git")
 	configureJJ(e)
 	p.mark("configure_jj")
-	// Skills are mounted :ro by cli.py — no entrypoint action needed.
+	// Skills are mounted :ro by the CLI — no entrypoint action needed.
 	p.mark("skills_skipped")
 
 	// Configure only the selected agents (YOLO_AGENTS), in order.
@@ -499,8 +496,7 @@ func Main(args []string) error {
 	return execBash(e, command)
 }
 
-// configureAgent resolves and runs the content writer for a selected agent (the
-// Go equivalent of Python's globals()[spec.config_writer]()), then re-attaches
+// configureAgent runs the content writer for a selected agent, then re-attaches
 // any deferred subprocess side effect for that agent. Unknown agents are no-ops.
 func configureAgent(e *Env, agent string) {
 	switch agent {
@@ -521,9 +517,8 @@ func configureAgent(e *Env, agent string) {
 	}
 }
 
-// genStep runs a generator, warning (never aborting) on error. Python wraps each
-// generate_*/configure_* step so a failure prints a warning and boot continues;
-// this preserves that never-abort-boot semantic in Go's explicit-error idiom.
+// genStep runs a generator, warning (never aborting) on error: a failed step
+// prints a warning and boot continues.
 func genStep(e *Env, label string, fn func() error) {
 	if err := fn(); err != nil {
 		e.warn("Warning: " + label + ": " + err.Error())
@@ -531,8 +526,7 @@ func genStep(e *Env, label string, fn func() error) {
 }
 
 // setEnvBoth sets key=val in both the process env (so children inherit) and
-// e.Vars (so later generators reading e.Getenv agree), mirroring Python's
-// single os.environ mutation.
+// e.Vars (so later generators reading e.Getenv agree).
 func setEnvBoth(e *Env, key, val string) {
 	e.Vars[key] = val
 	_ = os.Setenv(key, val)

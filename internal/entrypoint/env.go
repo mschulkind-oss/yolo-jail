@@ -13,17 +13,15 @@ import (
 	"path/filepath"
 )
 
-// Env captures the container environment the pure generators read. In Python
-// these come from module-level path constants (computed from $HOME/$JAIL_HOME
-// at import time) plus os.environ lookups inside each generator. Modeling them
-// as an explicit struct — instead of reading os.Getenv globally — makes the
-// generators pure functions of their inputs, which is exactly what the tree
-// golden harness needs to drive two implementations into fake HOMEs under an
-// identical, committed env matrix.
+// Env captures the container environment the pure generators read. Modeling the
+// path constants and env lookups as an explicit struct — instead of reading
+// os.Getenv globally — makes the generators pure functions of their inputs,
+// which is exactly what the tree golden harness needs to drive two
+// implementations into fake HOMEs under an identical, committed env matrix.
 // The Vars map holds the YOLO_* / other environment variables each generator
 // consults (YOLO_BLOCK_CONFIG, YOLO_AGENTS, YOLO_MCP_*, YOLO_LSP_SERVERS,
-// YOLO_MISE_TOOLS, YOLO_HOST_DIR, YOLO_REPO_ROOT, etc.). Getenv mirrors
-// os.environ.get(key, "") and Lookup mirrors `key in os.environ`.
+// YOLO_MISE_TOOLS, YOLO_HOST_DIR, YOLO_REPO_ROOT, etc.). Getenv returns "" for
+// an absent key; Lookup reports presence.
 type Env struct {
 	// Home is $JAIL_HOME (falling back to $HOME, then /home/agent) — the base
 	// of every path constant below.
@@ -51,14 +49,14 @@ type Env struct {
 	GNUStat bool
 	// Vars is the environment-variable matrix the generators consult.
 	Vars map[string]string
-	// Stderr receives the warning/notice lines the Python generators print to
-	// sys.stderr (undefined-var warnings, requires_env skips, dropped codex
-	// tables, "Error configuring X" lines). Nil discards them. These are NOT
-	// part of the file-content golden but ARE part of behavioral parity.
+	// Stderr receives the warning/notice lines the generators emit
+	// (undefined-var warnings, requires_env skips, dropped codex tables, "Error
+	// configuring X" lines). Nil discards them. These are NOT part of the
+	// file-content golden but ARE part of behavioral parity.
 	Stderr io.Writer
 }
 
-// warn writes a line to e.Stderr (if set), mirroring print(..., file=sys.stderr).
+// warn writes a line to e.Stderr (if set).
 func (e *Env) warn(msg string) {
 	if e.Stderr != nil {
 		_, _ = io.WriteString(e.Stderr, msg+"\n")
@@ -66,7 +64,7 @@ func (e *Env) warn(msg string) {
 }
 
 // NewEnv builds an Env from a variable map, resolving Home, MiseData, NpmPrefix,
-// and GoPath with the same defaults the Python module constants use.
+// and GoPath with these defaults:
 // - HOME: JAIL_HOME || HOME || /home/agent
 // - MISE_DATA: MISE_DATA_DIR || HOME/.local/share/mise (shims appended)
 // - NPM: NPM_CONFIG_PREFIX || HOME/.npm-global
@@ -76,16 +74,14 @@ func NewEnv(vars map[string]string) *Env {
 		vars = map[string]string{}
 	}
 	home := firstNonEmpty(vars["JAIL_HOME"], vars["HOME"], "/home/agent")
-	// Python: Path(MISE_DATA_DIR or HOME/.local/share/mise). Note the `or`
-	// treats an empty string the same as unset — an empty MISE_DATA_DIR falls
-	// back to the HOME default.
+	// An empty MISE_DATA_DIR is treated the same as unset — it falls back to
+	// the HOME default.
 	miseData := vars["MISE_DATA_DIR"]
 	if miseData == "" {
 		miseData = filepath.Join(home, ".local", "share", "mise")
 	}
-	// Python: Path(os.environ.get("NPM_CONFIG_PREFIX", HOME/.npm-global)). The
-	// `.get` default only fires when the key is ABSENT (an explicit empty value
-	// would be used verbatim); we mirror that with a presence check.
+	// The default only fires when NPM_CONFIG_PREFIX is ABSENT — an explicit
+	// empty value is used verbatim, so we branch on presence.
 	npmPrefix, ok := vars["NPM_CONFIG_PREFIX"]
 	if !ok {
 		npmPrefix = filepath.Join(home, ".npm-global")
@@ -152,7 +148,7 @@ func (e *Env) Lookup(key string) (string, bool) {
 	return v, ok
 }
 
-// --- Path constants (home-relative), mirroring entrypoint/__init__.py ---
+// --- Path constants (home-relative) ---
 // ShimDir is HOME/.yolo-shims.
 func (e *Env) ShimDir() string { return filepath.Join(e.Home, ".yolo-shims") }
 

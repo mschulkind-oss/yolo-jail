@@ -59,8 +59,8 @@ var workspaceMisePath = "/workspace/mise.toml"
 
 // It does NOT run the `mise uninstall` subprocesses (that is a side effect, not
 // content generation — orchestration). It DOES perform the workspace
-// /workspace/mise.toml retired-tool surgery when that file exists, matching the
-// Python writer's in-place edits.
+// /workspace/mise.toml retired-tool surgery, editing that file in place when it
+// exists.
 // injected tools come from YOLO_MISE_TOOLS (a JSON object); retired tools come
 // from agents.AllMiseRetire.
 func GenerateMiseConfig(e *Env) error {
@@ -180,9 +180,9 @@ func GenerateMiseConfig(e *Env) error {
 		if pattern.MatchString(content) {
 			// ReplaceAllLiteralString, NOT ReplaceAllString: Go's ReplaceAllString
 			// expands `$1`/`$name` in the replacement, corrupting a mise version
-			// (or tool key) containing `$`. Python's re.sub inserts this literal
-			// f-string verbatim (it expands backslash refs, never `$`), so the
-			// literal replacement is the faithful match (audit 2026-07-18 §C).
+			// (or tool key) containing `$`. The replacement must be inserted
+			// verbatim, so the literal replacement is the correct choice
+			// (audit 2026-07-18 §C).
 			newContent := pattern.ReplaceAllLiteralString(content, tk+` = "`+version+`"`)
 			if newContent != content {
 				content = newContent
@@ -257,9 +257,9 @@ func loadInjectedTools(e *Env) *jsonx.OrderedMap {
 	return m
 }
 
-// miseValueString renders an injected tool's version value as Python's f-string
-// interpolation would (str(value)); versions are always strings in practice, so
-// non-strings fall back to pyStr for completeness.
+// miseValueString renders an injected tool's version value as a string;
+// versions are always strings in practice, so non-strings fall back to pyStr
+// for completeness.
 func miseValueString(v any) string {
 	if s, ok := v.(string); ok {
 		return s
@@ -267,8 +267,7 @@ func miseValueString(v any) string {
 	return pyStr(v)
 }
 
-// splitKeepNL splits into lines keeping the trailing newline on each, mirroring
-// Python's str.splitlines(keepends=True).
+// splitKeepNL splits into lines keeping the trailing newline on each.
 func splitKeepNL(s string) []string {
 	var out []string
 	start := 0

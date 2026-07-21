@@ -79,8 +79,7 @@ func normHome(s string) string {
 }
 
 // TestCheckNoRuntimeGolden pins the ANSI-stripped full output for the
-// no-runtime, not-in-jail, no-repo-root host state. This is the Go-native
-// golden (not a diff against Python) per the Stage-15 output contract.
+// no-runtime, not-in-jail, no-repo-root host state.
 func TestCheckNoRuntimeGolden(t *testing.T) {
 	t.Setenv("HOME", t.TempDir())
 	var out bytes.Buffer
@@ -188,10 +187,9 @@ func TestExitCodeCleanInJail(t *testing.T) {
 // TestCheckAccumulatedFailEarlyExit is the regression for the re-audit §C gap:
 // when config is VALID (passes the Merged-Configuration validation gate) but a
 // prior non-validation failure occurred (repo-root unresolved), Check() must
-// short-circuit right after Merged Configuration — matching Python's second
-// `if failed:` gate — instead of proceeding into the Entrypoint Dry-Run and the
-// Image section's real `nix build`. Before the fix, Go ran those sections on an
-// unhealthy host that Python would never reach.
+// short-circuit right after Merged Configuration instead of proceeding into the
+// Entrypoint Dry-Run and the Image section's real `nix build`. Before the fix,
+// check ran those sections on an unhealthy host.
 func TestCheckAccumulatedFailEarlyExit(t *testing.T) {
 	t.Setenv("HOME", t.TempDir())
 	var out bytes.Buffer

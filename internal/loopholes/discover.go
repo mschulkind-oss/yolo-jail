@@ -104,7 +104,7 @@ func applyWorkspaceOverrides(existing map[string]*Loophole, loopholesConfig *jso
 
 // hidden/non-dir children and malformed manifests silently. Returns an
 // insertion-ordered slice of names alongside the map so callers can preserve
-// Python dict order (sorted directory iteration).
+// discovery order (sorted directory iteration).
 func loadFromDir(dirPath, source string) (map[string]*Loophole, []string) {
 	out := map[string]*Loophole{}
 	var order []string
@@ -140,9 +140,8 @@ func loadFromDir(dirPath, source string) (map[string]*Loophole, []string) {
 	return out, order
 }
 
-// DiscoverOptions carries the keyword arguments of discover_loopholes. The zero
-// value corresponds to the Python defaults with IncludeBundled defaulting true
-// via the Discover entry point.
+// DiscoverOptions carries the discovery parameters. The zero value uses the
+// defaults, with IncludeBundled defaulting true via the Discover entry point.
 type DiscoverOptions struct {
 	Root            string // "" => UserLoopholesDir()
 	RootSet         bool

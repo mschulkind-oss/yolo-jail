@@ -7,8 +7,8 @@ import (
 
 // darwin.go is the native-macOS generation entry (J2 §2): the analog of the
 // Linux boot loop's content-generation steps, run in-process by the sandbox
-// user via `yolo internal darwin-bootstrap` instead of the old generated-Python
-// script that imported the (now-deleted) `src/` tree.
+// user via `yolo internal darwin-bootstrap`, run in-process rather than via a
+// generated bootstrap script.
 //
 // It runs the SAME pure generators the container boot runs — they are already
 // pure functions of *Env (env.go), so pointing Env.Home/Workspace at the
@@ -41,7 +41,7 @@ type DarwinBootstrapOptions struct {
 // shims/launchers/bashrc/mise/MCP/identity/per-agent writers the container runs,
 // plus the two macOS-only pieces (yolo-log helper, login-rc PATH re-prepend).
 // Each generator is best-effort — a failure is warned to e.Stderr and the rest
-// continue, matching the Linux boot loop's per-step try/except.
+// continue, matching the Linux boot loop's per-step error isolation.
 func RunDarwinBootstrap(e *Env, opts DarwinBootstrapOptions) {
 	genStep(e, "generate_shims", func() error { return GenerateShims(e) })
 	genStep(e, "generate_agent_launchers", func() error { return GenerateAgentLaunchers(e) })
@@ -55,7 +55,7 @@ func RunDarwinBootstrap(e *Env, opts DarwinBootstrapOptions) {
 		configureAgent(e, agent)
 	}
 
-	// macOS-only writers (the two pieces the old Python bootstrap emitted inline).
+	// macOS-only writers (the two pieces unique to the native-macOS bootstrap).
 	genStep(e, "install_yolo_log", func() error { return InstallYoloLog(e, opts.YoloLogScript) })
 	genStep(e, "write_login_rc", func() error { return WriteLoginRC(e, opts.LoginPath) })
 }

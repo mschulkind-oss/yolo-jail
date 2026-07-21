@@ -7,8 +7,8 @@ import (
 	"github.com/mschulkind-oss/yolo-jail/internal/pytext"
 )
 
-// pyReprValue reproduces Python's repr() for the decoded-JSON value types that
-// reach a "{x!r}" validation error where x may be non-string (journal, kvm,
+// pyReprValue renders the repr form embedded in a "{x!r}" validation error for
+// the decoded-JSON value types where x may be non-string (journal, kvm,
 // gpu.enabled, ephemeral_storage, an env var name that failed the type check).
 //
 //	None      -> "None"

@@ -7,14 +7,12 @@ import (
 	"github.com/mschulkind-oss/yolo-jail/internal/jsonx"
 )
 
-// EffectivePackages ports _effective_packages: config `packages` plus
-// gpu.vaapi-implied extras (mesa, libva-utils) when gpu is AMD + enabled +
-// vaapi. Returns a copy; does not mutate config. Order is package order then
-// the appended extras (skipping any already present, by string identity —
-// Python's `if pkg not in packages`, which is value equality; here the extras
-// are strings, and `pkg not in packages` compares against ALL package entries,
-// including dict entries, but a string never equals a dict, so string-only
-// comparison is faithful).
+// EffectivePackages returns config `packages` plus gpu.vaapi-implied extras
+// (mesa, libva-utils) when gpu is AMD + enabled + vaapi. Returns a copy; does
+// not mutate config. Order is package order then the appended extras (skipping
+// any already present). Extras are strings and dedup compares against all
+// package entries; a string never equals a dict entry, so string-only
+// comparison is correct.
 func EffectivePackages(config *jsonx.OrderedMap) []any {
 	packages := listCopy(getListOrNilFalsy(config, "packages"))
 
@@ -30,8 +28,8 @@ func EffectivePackages(config *jsonx.OrderedMap) []any {
 	return packages
 }
 
-// FilterMCPServersByEnv ports _filter_mcp_servers_by_env: drop MCP servers whose
-// requires_env gate isn't satisfied by envMap. Non-dict input returns unchanged.
+// FilterMCPServersByEnv drops MCP servers whose requires_env gate isn't
+// satisfied by envMap. Non-dict input returns unchanged.
 // Null entries (preset removals) pass through. Preserves insertion order.
 func FilterMCPServersByEnv(mcpServers any, envMap map[string]string) any {
 	m, ok := asMap(mcpServers)
@@ -61,11 +59,10 @@ func FilterMCPServersByEnv(mcpServers any, envMap map[string]string) any {
 	return filtered
 }
 
-// EffectiveMCPServerNames ports _effective_mcp_server_names: preset names, then
-// config servers added (append if new) or removed (null drops from the list).
-// Returns []any to preserve non-string preset entries exactly as Python's
-// `list(mcp_presets or [])` does (they never match a server name, so they are
-// inert but must not be dropped).
+// EffectiveMCPServerNames returns preset names, then config servers added
+// (append if new) or removed (null drops from the list). Returns []any to
+// preserve non-string preset entries (they never match a server name, so they
+// are inert but must not be dropped).
 func EffectiveMCPServerNames(mcpServers, mcpPresets any) []any {
 	var names []any
 	if truthy(mcpPresets) {
@@ -90,9 +87,9 @@ func EffectiveMCPServerNames(mcpServers, mcpPresets any) []any {
 	return names
 }
 
-// SelectedAgents ports selected_agents: agent names from config (default
-// DEFAULT_AGENTS), filtered to VALID_AGENTS, de-duplicated, order preserved.
-// An explicit empty list is honored.
+// SelectedAgents returns agent names from config (default DefaultAgents),
+// filtered to ValidAgents, de-duplicated, order preserved. An explicit empty
+// list is honored.
 func SelectedAgents(config *jsonx.OrderedMap) []string {
 	rawVal, present := config.Get("agents")
 	var raw []any
@@ -103,9 +100,8 @@ func SelectedAgents(config *jsonx.OrderedMap) []string {
 	} else if l, ok := asList(rawVal); ok {
 		raw = l
 	} else {
-		// Python iterates `raw` directly; a non-list, non-None raw would raise
-		// on iteration. selected_agents is only called after _validate_config,
-		// so this is unreachable for real input; treat as empty (no agents).
+		// SelectedAgents is only called after ValidateConfig, so a non-list,
+		// non-nil raw is unreachable for real input; treat as empty (no agents).
 		raw = nil
 	}
 	seen := map[string]struct{}{}
@@ -135,10 +131,9 @@ var validAgentSet = func() map[string]struct{} {
 	return m
 }()
 
-// MergeMiseTools ports _merge_mise_tools: {**DEFAULT_MISE_TOOLS,
-// **config.mise_tools}. Returns an OrderedMap so the result serializes with
-// stable key order (defaults first, then config keys not already present,
-// updates keeping position — Python dict-unpacking semantics).
+// MergeMiseTools merges config.mise_tools over the defaults. Returns an
+// OrderedMap so the result serializes with stable key order: defaults first,
+// then config keys not already present, updates keeping position.
 func MergeMiseTools(config *jsonx.OrderedMap) *jsonx.OrderedMap {
 	out := jsonx.NewOrderedMap()
 	for _, k := range defaultMiseToolsKeys {
@@ -153,9 +148,9 @@ func MergeMiseTools(config *jsonx.OrderedMap) *jsonx.OrderedMap {
 	return out
 }
 
-// MergeMiseDisabledTools ports _merge_mise_disabled_tools: yolo-managed package
-// managers (pnpm) plus user-supplied tools (comma/space separated), deduped,
-// comma-joined. Non-string userValue is ignored.
+// MergeMiseDisabledTools combines yolo-managed package managers (pnpm) with
+// user-supplied tools (comma/space separated), deduped, comma-joined.
+// Non-string userValue is ignored.
 func MergeMiseDisabledTools(userValue any) string {
 	var tools []string
 	for _, tool := range defaultMiseDisabledTools {
@@ -173,9 +168,9 @@ func MergeMiseDisabledTools(userValue any) string {
 	return strings.Join(tools, ",")
 }
 
-// grepDefault / findDefault mirror the default_messages dict in
-// _normalize_blocked_tools. Built as ordered maps so the normalized entries
-// serialize with Python's dict insertion order (name, then merged defaults).
+// grepDefaults / findDefaults supply the default block messages for
+// NormalizeBlockedTools. Built as ordered maps so the normalized entries
+// serialize in insertion order (name, then merged defaults).
 func grepDefaults() *jsonx.OrderedMap {
 	m := jsonx.NewOrderedMap()
 	m.Set("message", "grep's recursive mode is blocked. Use ripgrep (rg) for recursive searches; pipe filters and single-file greps pass through.")
@@ -191,8 +186,8 @@ func findDefaults() *jsonx.OrderedMap {
 	return m
 }
 
-// NormalizeBlockedTools ports _normalize_blocked_tools: turn security section's
-// blocked_tools (default ["grep","find"]) into the list-of-dict form the
+// NormalizeBlockedTools turns the security section's blocked_tools (default
+// ["grep","find"]) into the list-of-dict form the
 // entrypoint consumes. String entries get default_messages merged in; dict
 // entries (with "name") merge defaults-under-user.
 func NormalizeBlockedTools(securitySection *jsonx.OrderedMap) []any {
@@ -205,8 +200,8 @@ func NormalizeBlockedTools(securitySection *jsonx.OrderedMap) []any {
 	}
 	rawBlocked, ok := asList(rawBlockedVal)
 	if !ok {
-		// Python would iterate the value; a non-list raw would raise. Only
-		// reached with an already-validated config, so treat non-list as empty.
+		// Only reached with an already-validated config, so treat a non-list
+		// value as empty.
 		return []any{}
 	}
 
@@ -265,9 +260,9 @@ func defaultBlockedList() []any { return []any{"grep", "find"} }
 // value-model utilities
 // ---------------------------------------------------------------------------
 
-// truthy reproduces Python truthiness for the config value types that gate
-// branches (gpu.enabled/vaapi): bool, non-empty containers/strings, nonzero
-// numbers. nil is falsy.
+// truthy reports truthiness for the config value types that gate branches
+// (gpu.enabled/vaapi): bool, non-empty containers/strings, nonzero numbers.
+// nil is falsy.
 func truthy(v any) bool {
 	switch t := v.(type) {
 	case nil:
@@ -295,8 +290,8 @@ func strEq(v any, s string) bool {
 	return ok && got == s
 }
 
-// getListOrNilFalsy mirrors `list(config.get(key, []) or [])` — a present-but-
-// falsy value (None, empty list) yields an empty list.
+// getListOrNilFalsy returns the list at key, treating a present-but-falsy value
+// (nil, empty list) as no list.
 func getListOrNilFalsy(m *jsonx.OrderedMap, key string) []any {
 	v, ok := m.Get(key)
 	if !ok || !truthy(v) {
@@ -308,9 +303,8 @@ func getListOrNilFalsy(m *jsonx.OrderedMap, key string) []any {
 	return nil
 }
 
-// getMapOrEmpty mirrors `config.get(key) or {}` for a dict-typed field: returns
-// the map when present and truthy, else an empty OrderedMap. Returned as any so
-// callers can asMap it.
+// getMapOrEmpty returns the map at key when present and truthy, else an empty
+// OrderedMap. Returned as any so callers can asMap it.
 func getMapOrEmpty(m *jsonx.OrderedMap, key string) any {
 	v, ok := m.Get(key)
 	if !ok || !truthy(v) {
@@ -328,8 +322,8 @@ func listCopy(in []any) []any {
 	return out
 }
 
-// containsAny reports whether s (a string) equals any element of list. Mirrors
-// Python `s in list` for a string needle over a mixed list.
+// containsAny reports whether s equals any string element of list (a mixed
+// list; non-string elements never match).
 func containsAny(list []any, s string) bool {
 	for _, v := range list {
 		if vs, ok := v.(string); ok && vs == s {
@@ -348,7 +342,8 @@ func containsStr(list []string, s string) bool {
 	return false
 }
 
-// string s (only string elements can match), preserving order.
+// removeFirstAny removes the first element equal to string s (only string
+// elements can match), preserving order.
 func removeFirstAny(list []any, s string) []any {
 	for i, v := range list {
 		if vs, ok := v.(string); ok && vs == s {

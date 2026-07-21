@@ -11,9 +11,10 @@ import (
 	"github.com/mschulkind-oss/yolo-jail/internal/pytext"
 )
 
-// pyReprStrList renders a []string the way Python's repr(list) does:
-// [<repr(e0)>, <repr(e1)>, …] with each element single-quoted via repr. Used to
-// byte-match str(subprocess.TimeoutExpired), whose message embeds the argv list.
+// pyReprStrList renders a []string as [<repr(e0)>, <repr(e1)>, …] with each
+// element single-quoted via repr. The timeout stderr embeds the argv list in
+// this form — Frozen contract (must not drift — the tree-timeout wire message
+// depends on the exact bytes).
 func pyReprStrList(xs []string) string {
 	parts := make([]string, len(xs))
 	for i, x := range xs {
@@ -22,16 +23,14 @@ func pyReprStrList(xs []string) string {
 	return "[" + strings.Join(parts, ", ") + "]"
 }
 
-// handleTree runs `ps -eo pid,ppid,comm,args --forest` (15s timeout, matching
-// Python's subprocess.run(timeout=15)), then filters to allowlisted comms +
-// their children (two passes).
-// exactly, including the comm lstrip of "\_ " forest glyphs, the two-pass keep
-// logic, and the failure paths:
+// handleTree runs `ps -eo pid,ppid,comm,args --forest` (15s timeout), then
+// filters to allowlisted comms + their children (two passes). It lstrips the
+// "\_ " forest glyphs from each comm. Failure paths:
 // - timeout -> "tree mode failed: ..." + exit 1
-// - Python reads out.stdout REGARDLESS of ps's return code, so a non-zero ps
-// with EMPTY stdout yields exit 0 (empty), NOT an error. Go's
-// exec.Command.Output() errors on non-zero exit; we deliberately IGNORE
-// that error and use whatever stdout we captured, mirroring Python.
+// - stdout is read REGARDLESS of ps's return code, so a non-zero ps with EMPTY
+// stdout yields exit 0 (empty), NOT an error. Go's exec.Command.Output()
+// errors on non-zero exit; we deliberately IGNORE that error and use
+// whatever stdout we captured.
 func handleTree(s *hostservice.Session, visible map[string]struct{}) {
 	ctx, cancel := context.WithTimeout(context.Background(), 15*time.Second)
 	defer cancel()
@@ -39,19 +38,17 @@ func handleTree(s *hostservice.Session, visible map[string]struct{}) {
 	cmd := exec.CommandContext(ctx, argv[0], argv[1:]...)
 	out, err := cmd.Output()
 	if ctx.Err() == context.DeadlineExceeded {
-		// Byte-match Python's str(subprocess.TimeoutExpired): "Command '<argv
-		// list repr>' timed out after 15 seconds" (the `f"...{e}..."` in the
-		// except). A hardcoded "timed out" diverged from the wire bytes.
+		// Frozen contract (must not drift — the wire message is
+		// "Command '<argv list repr>' timed out after 15 seconds"; a hardcoded
+		// "timed out" diverged from the expected bytes).
 		s.Stderr("tree mode failed: Command '" + pyReprStrList(argv) + "' timed out after 15 seconds\n")
 		s.Exit(1)
 		return
 	}
 	if err != nil {
-		// Distinguish a spawn failure (ps absent — Python's subprocess.run
-		// raises FileNotFoundError -> the except -> exit 1) from a non-zero
-		// exit (Python reads out.stdout anyway -> may be exit 0). exec's
-		// *ExitError means ps ran but exited non-zero; anything else is a
-		// spawn/other failure.
+		// Distinguish a spawn failure (ps absent -> exit 1) from a non-zero
+		// exit (stdout is still read -> may be exit 0). exec's *ExitError means
+		// ps ran but exited non-zero; anything else is a spawn/other failure.
 		var ee *exec.ExitError
 		if !errors.As(err, &ee) {
 			s.Stderr("tree mode failed: " + err.Error() + "\n")
@@ -59,7 +56,7 @@ func handleTree(s *hostservice.Session, visible map[string]struct{}) {
 			return
 		}
 		// ps ran and exited non-zero: fall through and use its stdout (which
-		// may be empty -> the exit-0 empty path below), exactly like Python.
+		// may be empty -> the exit-0 empty path below).
 	}
 	lines := strings.Split(strings.TrimRight(string(out), "\n"), "\n")
 	if len(lines) == 0 || (len(lines) == 1 && lines[0] == "") {
@@ -105,9 +102,8 @@ func handleTree(s *hostservice.Session, visible map[string]struct{}) {
 	s.Exit(0)
 }
 
-// splitN str.split(None, maxsplit): split on runs of
-// whitespace, at most maxsplit splits (so the last field keeps its spaces),
-// with leading whitespace ignored.
+// splitN splits on runs of whitespace, at most maxsplit splits (so the last
+// field keeps its spaces), with leading whitespace ignored.
 func splitN(s string, maxsplit int) []string {
 	var out []string
 	i := 0

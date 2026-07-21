@@ -12,7 +12,7 @@ type Resolver struct {
 	// Root overrides the user loopholes dir
 	// argument). Empty => UserLoopholesDir().
 	Root string
-	// IncludeBundled toggles the bundled dir (Python default: true).
+	// IncludeBundled toggles the bundled dir (default: true).
 	IncludeBundled bool
 }
 

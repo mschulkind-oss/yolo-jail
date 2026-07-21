@@ -7,7 +7,7 @@ import (
 	"testing"
 )
 
-// TestHostPiFileArgs covers the host ~/.pi/agent file mount (run_cmd.py:2851):
+// TestHostPiFileArgs covers the host ~/.pi/agent file mount:
 // mounted only when pi is a selected agent, defaulting to settings.json, with
 // the YOLO_HOST_PI_FILES env carrying the JSON list of mounted names. No script
 // auto-discovery (unlike claude).

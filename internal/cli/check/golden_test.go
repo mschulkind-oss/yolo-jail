@@ -2,8 +2,7 @@ package check
 
 // noRuntimeGolden is the pinned ANSI-stripped full output of Check() over the
 // no-runtime / not-in-jail / no-repo-root fixture (paths normalized to $HOME).
-// This is a Go-native golden (not a diff against Python) per the Stage-15
-// output contract: it fixes the section ordering, badge semantics, note indent,
+// This golden fixes the section ordering, badge semantics, note indent,
 // and the pass/warn/fail counts. Regenerate only via a deliberate golden bump.
 const noRuntimeGolden = `
 YOLO Jail Check

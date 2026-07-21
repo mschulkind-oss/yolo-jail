@@ -20,7 +20,7 @@ import (
 
 // Deps are the injectable seams: Out/Err writers, the workspace cwd, and the
 // in-jail flag (YOLO_VERSION set). LoadUserConfig / LoadWorkspaceConfig return
-// the merged config maps (nil on any error, mirroring the Python try/except).
+// the merged config maps (nil on any error).
 type Deps struct {
 	Out, Err            io.Writer
 	Cwd                 string
@@ -55,8 +55,8 @@ func RealDeps() Deps {
 }
 
 // loopholesWithConfig discovers loopholes including host_services synthesized
-// from the merged user+workspace config `loopholes:` block. Mirrors
-// _loopholes_with_config: user then workspace, later wins on key collision.
+// from the merged user+workspace config `loopholes:` block: user then
+// workspace, later wins on key collision.
 func loopholesWithConfig(deps Deps, includeDisabled bool) []*Loophole {
 	merged := jsonx.NewOrderedMap()
 	for _, cfg := range []*jsonx.OrderedMap{deps.LoadUserConfig(), deps.LoadWorkspaceConfig(deps.Cwd)} {
@@ -72,9 +72,8 @@ func loopholesWithConfig(deps Deps, includeDisabled bool) []*Loophole {
 			}
 		}
 	}
-	// include_bundled defaults to true in Python's discover_loopholes; the Go
-	// DiscoverOptions zero value is false, so set it explicitly (matches
-	// NewResolver, which does the same).
+	// include_bundled defaults to true; the DiscoverOptions zero value is
+	// false, so set it explicitly (matches NewResolver, which does the same).
 	return Discover(DiscoverOptions{
 		IncludeDisabled: includeDisabled,
 		IncludeBundled:  true,
@@ -120,8 +119,8 @@ func List(deps Deps) int {
 	return 0
 }
 
-// Status runs `yolo loopholes status` (each loophole's doctor_cmd). Mirrors
-// loopholes_status, including the in-jail short-circuit.
+// Status runs `yolo loopholes status` (each loophole's doctor_cmd), including
+// the in-jail short-circuit.
 func Status(deps Deps) int {
 	if deps.InJail {
 		fmt.Fprintln(deps.Out, "Inside jail — doctor checks are host-side.  From the host: yolo loopholes status")
@@ -156,9 +155,9 @@ func Status(deps Deps) int {
 	return 0
 }
 
-// CmdSetEnabled runs `yolo loopholes enable|disable <name>`. Mirrors
-// loopholes_enable / loopholes_disable: only user-installed loopholes are
-// toggleable (a missing user manifest → the exact stderr message + exit 1).
+// CmdSetEnabled runs `yolo loopholes enable|disable <name>`. Only
+// user-installed loopholes are toggleable (a missing user manifest → the exact
+// stderr message + exit 1).
 func CmdSetEnabled(deps Deps, name string, enabled bool) int {
 	path := filepath.Join(UserLoopholesDir(), name)
 	if fi, err := os.Stat(filepath.Join(path, "manifest.jsonc")); err != nil || fi.IsDir() {
@@ -180,8 +179,7 @@ func CmdSetEnabled(deps Deps, name string, enabled bool) int {
 	return 0
 }
 
-// rcStr renders an *int rc the way Python's f"rc={r.returncode}" does: the int,
-// or "None" when nil.
+// rcStr renders an *int rc as the int, or "None" when nil.
 func rcStr(rc *int) string {
 	if rc == nil {
 		return "None"

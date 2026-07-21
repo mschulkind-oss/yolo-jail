@@ -12,12 +12,11 @@ import (
 	"github.com/mschulkind-oss/yolo-jail/internal/jsonx"
 )
 
-// startCgroupDelegateInProc ports _start_host_service_builtin_cgroup as an
-// IN-PROCESS goroutine (matching Python's threading model): bind the socket,
-// chmod 0777, and serve single-line JSON requests, LAZILY resolving the
-// container cgroup on the first request (the container is up by then). Reuses
-// the ported internal/cgd handler. Returns a stop func + true, or false when
-// cgroup v2 is unavailable.
+// startCgroupDelegateInProc runs the builtin cgroup delegate as an IN-PROCESS
+// goroutine: bind the socket, chmod 0777, and serve single-line JSON requests,
+// LAZILY resolving the container cgroup on the first request (the container is
+// up by then). Reuses the internal/cgd handler. Returns a stop func + true, or
+// false when cgroup v2 is unavailable.
 func (o *Options) startCgroupDelegateInProc(cname, rt, sockPath string) (func(), bool) {
 	if o.IsMacOS || !o.PathExists("/sys/fs/cgroup/cgroup.controllers") {
 		return nil, false

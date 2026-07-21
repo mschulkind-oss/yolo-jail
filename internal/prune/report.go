@@ -5,10 +5,10 @@ import (
 	"path/filepath"
 )
 
-// DiskReport is the per-category byte accounting produced by DiskUsageReport,
-// mirroring the dict returned by _disk_usage_report. Breakdown/CacheBreakdown
-// map a direct-child name to its byte total; stray top-level files roll into the
-// "_files" key so the breakdown sum equals the top-level total exactly.
+// DiskReport is the per-category byte accounting produced by DiskUsageReport.
+// Breakdown/CacheBreakdown map a direct-child name to its byte total; stray
+// top-level files roll into the "_files" key so the breakdown sum equals the
+// top-level total exactly.
 type DiskReport struct {
 	GlobalStorage  int64
 	Workspaces     int64
@@ -25,8 +25,8 @@ type DiskReport struct {
 //   - Breakdown: {child-name: bytes} for every direct child of globalStorage.
 //   - CacheBreakdown: {child-name: bytes} for every direct child of
 //     globalStorage/cache (empty when cache/ is absent). Its stray files roll
-//     into CacheBreakdown["_files"] but are NOT added to any total (matching
-//     Python, which only records the cache breakdown for display).
+//     into CacheBreakdown["_files"] but are NOT added to any total (the cache
+//     breakdown is recorded for display only).
 func DiskUsageReport(workspaces []string, globalStorage string) DiskReport {
 	breakdown := map[string]int64{}
 	var gsBytes int64

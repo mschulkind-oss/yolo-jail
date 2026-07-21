@@ -5,9 +5,8 @@ import (
 )
 
 // MacosSetup creates the dedicated sandbox account (one-time, needs admin).
-// Idempotent. Returns the exit code (0 success; 1 on failure/refusal). Mirrors
-// macos_setup (which raises typer.Exit; here the exit code is returned so the
-// front door maps it to a process exit).
+// Idempotent. Returns the exit code (0 success; 1 on failure/refusal) so the
+// front door maps it to a process exit.
 func MacosSetup(deps Deps) int {
 	out := printer{w: deps.Out, color: deps.Color}
 	if !deps.IsMacOS() {
@@ -54,10 +53,9 @@ func MacosSetup(deps Deps) int {
 		}
 	}
 
-	// 2. Readiness checks — report each; neither fatal to setup.
-	// (The old python3 readiness check was removed with the native-Go bootstrap
-	// re-port — the sandbox now self-execs the staged yolo binary, no interpreter
-	// required; J2 §3.)
+	// 2. Readiness checks — report each; neither fatal to setup. No interpreter
+	// readiness check is needed: the sandbox self-execs the staged yolo binary
+	// (J2 §3).
 	var warnings []string
 
 	if !deps.Which("sandbox-exec") {
@@ -128,8 +126,7 @@ func MacosTeardown(deps Deps) int {
 }
 
 // MacosUnshare strips the yolo-jail ACLs from a shared workspace (chmod -h -N).
-// macOS only.
-// resolvePathAbs to match Path(workspace).resolve().
+// macOS only. The workspace path is resolved (abs + symlinks) first.
 func MacosUnshare(deps Deps, workspace string) int {
 	out := printer{w: deps.Out, color: deps.Color}
 	if !deps.IsMacOS() {
@@ -153,8 +150,7 @@ func MacosUnshare(deps Deps, workspace string) int {
 }
 
 // MacosFixPermissions retrofits the shared-group ACL onto pre-existing files in
-// the shared area. macOS only.
-// the whole shared root.
+// the shared area. macOS only. With no path it defaults to the whole shared root.
 func MacosFixPermissions(deps Deps, path string) int {
 	out := printer{w: deps.Out, color: deps.Color}
 	if !deps.IsMacOS() {

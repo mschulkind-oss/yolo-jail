@@ -8,17 +8,17 @@ import (
 	"github.com/mschulkind-oss/yolo-jail/internal/loopholes"
 )
 
-// loopholeResolver returns the config.LoopholeResolver backing _validate_config
+// loopholeResolver returns the config.LoopholeResolver backing config validation
 // (file-backed discovery, include_disabled=True).
 func loopholeResolver() config.LoopholeResolver {
 	return loopholes.NewResolver()
 }
 
-// collectIdentityEnv ports run()'s identity-env block (lines 1280-1330): the
+// collectIdentityEnv builds the identity-env block: the
 // `-e YOLO_GIT_NAME/EMAIL` and `-e YOLO_JJ_NAME/EMAIL` flags, from `git config
 // --get user.name/email` and `jj config get user.name/email`. Missing tool /
-// empty value / any error is silently skipped (the Python `except Exception:
-// pass`). jj values are additionally stripped of surrounding double quotes.
+// empty value / any error is silently skipped. jj values are additionally
+// stripped of surrounding double quotes.
 func (o *Options) collectIdentityEnv() []string {
 	var env []string
 	add := func(varName string, argv []string, stripQuotes bool) {

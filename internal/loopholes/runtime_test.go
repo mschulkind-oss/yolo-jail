@@ -88,7 +88,7 @@ func TestRuntimeArgsAbsoluteCACert(t *testing.T) {
 	})
 	args := argsFor(md, "")
 	// Host side of the CA mount is the absolute path verbatim (resolved); the
-	// container side is always the fixed name ca.crt (Python: f"{dir}/ca.crt").
+	// container side is always the fixed name ca.crt ("{dir}/ca.crt").
 	want := resolvePath(absCA) + ":/etc/yolo-jail/loopholes/broker/ca.crt:ro"
 	if !containsArg(args, want) {
 		t.Errorf("absolute CA mount missing (join trap?): want %q in %v", want, args)

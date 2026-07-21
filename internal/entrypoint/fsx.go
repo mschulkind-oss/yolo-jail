@@ -1,6 +1,6 @@
-// Filesystem incident history from the Python code codified in Go, so
-// idiomatic-Go habits (tmp+rename onto bind mounts, rmtree of mount
-// anchors) can't reintroduce documented breakages.
+// Filesystem incident history codified in Go, so idiomatic-Go habits
+// (tmp+rename onto bind mounts, rmtree of mount anchors) can't reintroduce
+// documented breakages.
 //
 // The load-bearing rules:
 //
@@ -20,7 +20,7 @@
 //     compares readlink targets as strings, not resolved paths).
 //
 // Source of truth: docs/design/agent-briefings.md + the storage/prune incident
-// history in src/.
+// history.
 package entrypoint
 
 import (
@@ -66,8 +66,7 @@ func ClearContents(dir string) error {
 // target (a relative string, as ensure_global_storage creates them). If
 // linkPath already exists as a symlink with the identical raw target, it is a
 // no-op; if it exists with a different target (or as a non-symlink), it is
-// replaced. The stored target is compared as a raw string — never resolved —
-// matching the Python golden's readlink comparison.
+// replaced. The stored target is compared as a raw string — never resolved.
 func EnsureRelativeSymlink(target, linkPath string) error {
 	if cur, err := os.Readlink(linkPath); err == nil {
 		if cur == target {
@@ -78,7 +77,7 @@ func EnsureRelativeSymlink(target, linkPath string) error {
 		}
 	} else if !os.IsNotExist(err) {
 		// linkPath exists but isn't a symlink (Readlink returns EINVAL) — or
-		// another error. Remove a non-symlink so we can create the link;
+		// hit another error. Remove a non-symlink so we can create the link;
 		// propagate genuine errors.
 		if _, statErr := os.Lstat(linkPath); statErr == nil {
 			if err := os.Remove(linkPath); err != nil {

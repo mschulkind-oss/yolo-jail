@@ -11,7 +11,7 @@ import (
 )
 
 // BuiltinJailStartupSkill is the built-in jail-startup skill written into every
-// agent's staging dir (verbatim from _BUILTIN_JAIL_STARTUP_SKILL).
+// agent's staging dir.
 const BuiltinJailStartupSkill = `---
 name: jail-startup
 description: First-run skill for agents entering a YOLO Jail. Reads the handover document left by the outer agent and orients you to the jail environment. Invoke this skill immediately when starting a new session inside a jail.
@@ -66,7 +66,7 @@ You have full capability — treat this as your primary working environment.
 func WriteBriefing(path, content string) error {
 	if fi, err := os.Lstat(path); err == nil {
 		if st, ok := fi.Sys().(*syscall.Stat_t); ok && st.Nlink > 1 {
-			_ = os.Remove(path) // except OSError: pass
+			_ = os.Remove(path) // best-effort: ignore removal errors
 		}
 	}
 	return os.WriteFile(path, []byte(content), 0o644)
@@ -74,8 +74,6 @@ func WriteBriefing(path, content string) error {
 
 // ReadProvisioningFailed reports whether workspace/.yolo/startup.log exists and
 // contains "PROVISIONING FAILED". A read error → false.
-// provisioning-failed breadcrumb probe (errors="replace" is irrelevant to the
-// substring check — a decode-lossy read still finds the ASCII marker).
 func ReadProvisioningFailed(workspace string) bool {
 	data, err := os.ReadFile(filepath.Join(workspace, ".yolo", "startup.log"))
 	if err != nil {
@@ -99,8 +97,8 @@ func indexOf(s, sub string) int {
 }
 
 // intString returns the base-10 string of v when v is an integer value (a
-// jsonx-decoded int or a native Go int/int64), matching Python's isinstance(x,
-// int) branch for a forward_host_ports entry.
+// jsonx-decoded int or a native Go int/int64) — used to classify a
+// forward_host_ports entry.
 func intString(v any) (string, bool) {
 	if jsonx.IsInt(v) {
 		n, _ := jsonx.AsInt(v)
@@ -115,9 +113,8 @@ func intString(v any) (string, bool) {
 	return "", false
 }
 
-// pyValue renders a resources map value the way Python's f"{v}" does for the
-// scalars that appear there (strings verbatim; ints without ".0"; other via a
-// plain format).
+// pyValue renders a resources map value as it appears in the briefing: strings
+// verbatim; ints without ".0"; anything else via a plain format.
 func pyValue(v any) string {
 	if s, ok := v.(string); ok {
 		return s

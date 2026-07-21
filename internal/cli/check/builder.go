@@ -11,7 +11,7 @@ import (
 	"github.com/mschulkind-oss/yolo-jail/internal/storage"
 )
 
-// Builder constants (.py).
+// Builder constants.
 const (
 	builderSSHHost  = "linux-builder"
 	builderPort     = 31022
@@ -22,7 +22,7 @@ const (
 	nixDaemonLabelD = "org.nixos.nix-daemon"
 )
 
-// builderConfPath ports _builder_conf_path: nix.custom.conf when nix.conf
+// builderConfPath returns nix.custom.conf when nix.conf
 // includes it (Determinate layout), else nix.conf.
 func builderConfPath() string {
 	if included, ok := storage.NixCustomConfIncluded(); ok && included {
@@ -31,8 +31,8 @@ func builderConfPath() string {
 	return nixConfPath
 }
 
-// nixConfHasBuilder ports _nix_conf_has_builder: does the daemon's conf already
-// offload aarch64-linux builds to linux-builder?
+// nixConfHasBuilder reports whether the daemon's conf already
+// offloads aarch64-linux builds to linux-builder.
 func nixConfHasBuilder() bool {
 	conf := builderConfPath()
 	data, err := os.ReadFile(conf)
@@ -51,7 +51,7 @@ func nixConfHasBuilder() bool {
 	return false
 }
 
-// builderSetupState ports builder_setup_state["done"]: ssh_config block present
+// builderSetupDone reports whether the ssh_config block is present
 // AND nix.conf offloads. Real default for Options.BuilderSetupDone.
 func builderSetupDone() bool {
 	sshOK := fileExists(builderSSHConf)
@@ -64,7 +64,7 @@ func builderKeyInstalled() bool {
 	return fileExists(builderKeyPath)
 }
 
-// builderReachable ports builder_reachable: something accepting TCP on the
+// builderReachable reports whether something is accepting TCP on the
 // builder SSH port.
 func builderReachable() bool {
 	conn, err := net.DialTimeout("tcp", net.JoinHostPort("127.0.0.1", itoa(builderPort)), time.Second)
@@ -75,7 +75,7 @@ func builderReachable() bool {
 	return true
 }
 
-// ensureBuilderReal ports ensure_builder for the macOS check path: already
+// ensureBuilderReal handles the macOS check path: already
 // reachable → (true,""); setup not done → (false,"not set up"); key missing →
 // (false,"needs first-boot"). The actual VM start (start_builder + poll) is
 // deferred to the run slice — check only needs the reachable/setup/first-boot
@@ -104,8 +104,8 @@ func ensureBuilderReal(onProgress func(string)) (bool, string) {
 	return false, "not reachable"
 }
 
-// buildImageReal runs the _build_image_store_path call check() makes: run the
-// real nix build and return (storePath, stderrTail). The out-link + streaming
+// buildImageReal runs the real nix build check() needs and returns
+// (storePath, stderrTail). The out-link + streaming
 // spinner are elided (check only consumes the result); the store path is the
 // resolved out-link.
 func buildImageReal(repoRoot string, extraPackages []any) (string, []string) {

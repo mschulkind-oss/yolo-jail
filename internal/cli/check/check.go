@@ -17,18 +17,17 @@ import (
 	"github.com/mschulkind-oss/yolo-jail/internal/version"
 )
 
-// Check ports check(): validate environment, config, and build. Returns the
-// process exit code (0 = no failures, 1 = any fail), matching the Python
-// typer.Exit(1) polarity. The whole section sequence is driven off the injected
-// seams so it is deterministically.
+// Check validates environment, config, and build. Returns the
+// process exit code (0 = no failures, 1 = any fail). The whole section sequence
+// is driven off the injected seams so it is deterministic.
 func Check(opts Options) int {
 	fillDefaults(&opts)
 	o := &opts
 	r := newReporter(o.Stdout, o.Color)
 
-	// ensure_global_storage() — best-effort; the Python raises on hard fs
-	// errors, but check should still run the probes, so we ignore the error the
-	// same way a caller would surface it (it never fails in normal operation).
+	// Ensure global storage — best-effort; check should still run the probes
+	// even on a hard fs error, so the error is ignored (it never fails in normal
+	// operation).
 	if !o.SkipEnsureStorage {
 		// Wire the v2 layout migration (audit §B#2: nil left it dead). canReclaim
 		// returns false — the fail-safe defer (the full live-jail probe is the run
@@ -70,7 +69,7 @@ func Check(opts Options) int {
 
 	// --- macOS Platform ---
 	if o.IsMacOS {
-		o.sectionMacOSPlatform(r, nil) // config not yet loaded; matches Python (uses workspace)
+		o.sectionMacOSPlatform(r, nil) // config not yet loaded; uses workspace
 	}
 
 	// --- Global Storage ---
@@ -105,13 +104,12 @@ func Check(opts Options) int {
 		return 1
 	}
 
-	// Accumulated-fail gate (parity with check_cmd.py's second `if failed:`
-	// after Merged Configuration). Python short-circuits here on ANY failure so
-	// far — not just config-validation errors — so a failed repo-root resolution
-	// or flake check (added above) stops the run BEFORE the Entrypoint Dry-Run
-	// and the real `nix build` / orphan-cleanup prompt in the Image section.
-	// Without this the Go check does destructive-ish work (a surprise nix build)
-	// on an unhealthy host that Python would never reach (re-audit §C).
+	// Accumulated-fail gate: short-circuit here on ANY failure so far — not just
+	// config-validation errors — so a failed repo-root resolution or flake check
+	// (above) stops the run BEFORE the Entrypoint Dry-Run and the real `nix
+	// build` / orphan-cleanup prompt in the Image section. Without this, check
+	// would do destructive-ish work (a surprise nix build) on an unhealthy host
+	// (re-audit §C).
 	if r.failed > 0 {
 		r.summaryFailWarn()
 		return 1
@@ -579,8 +577,8 @@ func (o *Options) sectionInlineLoopholes(r *reporter, merged *jsonx.OrderedMap) 
 		}
 		exeArg := asString(cmd[0])
 		if exeArg == "" {
-			// str(cmd[0]) of a non-string — Python str()s it; rare/never for
-			// real config. Skip resolution (would be a nonsense path).
+			// A non-string cmd[0]; rare/never for real config. Render it and
+			// skip resolution (would be a nonsense path).
 			exeArg = pyStrOf(cmd[0])
 		}
 		exePath := expandUserPath(exeArg)
@@ -607,13 +605,12 @@ func (o *Options) entrypointPreflight(r *reporter, repoRoot, workspace string, m
 	return o.runEntrypointPreflight(r, repoRoot, workspace, merged)
 }
 
-// pluralJails / pluralOrphans render the count phrases byte-identically to
-// Python's f-strings ("N jail(s) running", "N orphaned jail(s)").
+// pluralJails / pluralOrphans render the count phrases
+// ("N jail(s) running", "N orphaned jail(s)").
 func pluralJails(n int) string   { return itoa(n) + " jail(s) running" }
 func pluralOrphans(n int) string { return itoa(n) + " orphaned jail(s)" }
 
-// cleanupTracking removes a container's tracking file (cleanup_container_tracking).
+// cleanupTracking removes a container's tracking file.
 func cleanupTracking(name string) {
-	// runtime.CleanupContainerTracking is the byte-faithful port.
 	cleanupTrackingFn(name)
 }

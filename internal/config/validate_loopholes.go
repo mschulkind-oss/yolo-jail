@@ -32,8 +32,8 @@ func validateLoopholes(config *jsonx.OrderedMap, resolver LoopholeResolver, errs
 	for _, name := range hostServices.Keys() {
 		specV, _ := hostServices.Get(name)
 		path := "config.loopholes." + name
-		// name is always a string key from a decoded JSON object; the
-		// isinstance(name,str) half is always true, so only the regex matters.
+		// name is always a string key from a decoded JSON object, so only the
+		// regex needs checking.
 		if !hostServiceName.MatchString(name) {
 			add(errs, "config.loopholes: service name "+pytext.Repr(name)+
 				" must match ^[a-zA-Z][a-zA-Z0-9_-]{0,63}$")
@@ -68,15 +68,16 @@ func validateLoopholes(config *jsonx.OrderedMap, resolver LoopholeResolver, errs
 	}
 }
 
-// validateLoopholeOverride ports _validate_loophole_override. info is nil when
-// the target is not resolvable on this machine (manifest-dependent checks skip).
+// validateLoopholeOverride validates a single loophole override. info is nil
+// when the target is not resolvable on this machine (manifest-dependent checks
+// skip).
 func validateLoopholeOverride(name string, spec *jsonx.OrderedMap, path string, errs *[]string, info *LoopholeInfo) {
 	if hasKey(spec, "command") {
 		add(errs, path+".command: not overridable — "+pytext.Repr(name)+" is an existing "+
 			"loophole whose command is fixed by its manifest; only "+
 			"'enabled', 'env', and 'jail_env' may be overridden")
 	}
-	// _report_unknown_keys(spec, KNOWN_LOOPHOLE_OVERRIDE_KEYS | {"command"}, ...)
+	// "command" is allowed through here (it gets its own dedicated error above).
 	allowed := set("enabled", "env", "jail_env", "command")
 	reportUnknownKeys(spec, allowed, path, errs)
 	if enabledV, ok := spec.Get("enabled"); ok && !isBool(enabledV) {

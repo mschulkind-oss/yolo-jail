@@ -11,8 +11,8 @@
 // (the 2026-05-12 logout-loop fix — Go's transparent gzip would regress it).
 //
 // Cert generation keeps exec'ing openssl with the byte-identical --init-ca
-// script; a crypto/x509 migration is a LATER flagged change, not part of this
-// no-change port.
+// script; a crypto/x509 migration is a LATER flagged change, deliberately
+// deferred.
 package oauthbroker
 
 import (
@@ -27,10 +27,10 @@ import (
 	"github.com/mschulkind-oss/yolo-jail/internal/jsonx"
 )
 
-// Upstream OAuth endpoint constants (byte-frozen; extracted from the Claude
+// Upstream OAuth endpoint constants. Frozen contract (must not drift — the
+// Claude Code auth flow depends on the exact values, extracted from the Claude
 // Code binary). TokenURL is overridable via YOLO_BROKER_UPSTREAM_URL for
-// black-box parity testing (the test-only override the plan mandates in BOTH
-// impls) — Python gets the same env hook.
+// black-box parity testing.
 const (
 	UpstreamHost    = "platform.claude.com"
 	defaultTokenURL = "https://platform.claude.com/v1/oauth/token"
@@ -38,8 +38,8 @@ const (
 	OAuthBetaHeader = "oauth-2025-04-20"
 )
 
-// Background refresher cadence (seconds). Byte-frozen against the Python
-// constants.
+// Background refresher cadence (seconds). Frozen contract (must not drift — the
+// refresh timing and transient-retry behavior depend on the exact values).
 const (
 	BackgroundRefreshLeadSeconds      = 300
 	BackgroundRefreshTickSeconds      = 60
@@ -48,7 +48,7 @@ const (
 )
 
 // tokenURL returns the upstream token endpoint, honoring the test-only
-// override env var (must match the Python broker's override).
+// override env var.
 func tokenURL() string {
 	if v := os.Getenv("YOLO_BROKER_UPSTREAM_URL"); v != "" {
 		return v
@@ -66,18 +66,17 @@ func TokenFP(tok string) string {
 	return hex.EncodeToString(sum[:])[:8]
 }
 
-// nowFunc returns the current unix time in milliseconds (Python
-// int(time.time()*1000)). A package var so tests can pin it deterministically.
+// nowFunc returns the current unix time in milliseconds. A package var so tests
+// can pin it deterministically.
 var nowFunc = func() int64 { return time.Now().UnixMilli() }
 
 func nowMS() int64 { return nowFunc() }
 
 // oauthFromCreds reads the creds file and returns the claudeAiOauth object as
-// an OrderedMap. err is non-nil ONLY on a read/JSON-parse failure (Python's
-// `except (OSError, json.JSONDecodeError)`); a readable, valid-JSON file with a
-// MISSING or non-object claudeAiOauth key returns an empty OrderedMap + nil err
-// (Python's `data.get("claudeAiOauth") or {}`). Callers distinguish "creds
-// unreadable" (err != nil) from "no refresh token" (empty object).
+// an OrderedMap. err is non-nil ONLY on a read/JSON-parse failure; a readable,
+// valid-JSON file with a MISSING or non-object claudeAiOauth key returns an
+// empty OrderedMap + nil err. Callers distinguish "creds unreadable" (err !=
+// nil) from "no refresh token" (empty object).
 func oauthFromCreds(credsPath string) (*jsonx.OrderedMap, error) {
 	data, err := os.ReadFile(credsPath)
 	if err != nil {
@@ -89,23 +88,19 @@ func oauthFromCreds(credsPath string) (*jsonx.OrderedMap, error) {
 	}
 	root, ok := decoded.(*jsonx.OrderedMap)
 	if !ok {
-		// Valid JSON but not an object (e.g. `[]`): .get would raise
-		// AttributeError in Python -> caught as... no, list has no .get, so
-		// Python raises AttributeError which is NOT in the except tuple and
-		// propagates. Treat as a parse-shaped error to be safe (unreachable
-		// with a real creds file).
+		// Valid JSON but not an object (e.g. `[]`). Treat as a parse-shaped
+		// error to be safe (unreachable with a real creds file).
 		return nil, errNotObject
 	}
 	v, ok := root.Get("claudeAiOauth")
 	if !ok || v == nil {
-		// Missing/null key -> `or {}` -> empty object, NOT an error.
+		// Missing/null key -> empty object, NOT an error.
 		return jsonx.NewOrderedMap(), nil
 	}
 	oauth, ok := v.(*jsonx.OrderedMap)
 	if !ok {
-		// Non-object value -> `or {}` also yields {} when falsy; a truthy
-		// non-object (e.g. a string) would make Python's later .get raise, but
-		// that's unreachable with a real creds file. Treat as empty.
+		// Non-object value: treat as empty (unreachable with a real creds
+		// file).
 		return jsonx.NewOrderedMap(), nil
 	}
 	return oauth, nil
@@ -144,7 +139,7 @@ func asInt64(v any) (int64, bool) {
 func CachedTokens(credsPath string) *jsonx.OrderedMap {
 	oauth, err := oauthFromCreds(credsPath)
 	if err != nil {
-		return nil // Python _cached_tokens returns None on read/parse error.
+		return nil // no cached tokens on read/parse error.
 	}
 	var expiresAtMS int64
 	if v, ok := oauth.Get("expiresAt"); ok {
@@ -157,8 +152,8 @@ func CachedTokens(credsPath string) *jsonx.OrderedMap {
 }
 
 // AsOAuthResponse shapes on-disk tokens back into an upstream-style response
-// body: {access_token, refresh_token, expires_in, token_type}. Mirrors
-// _as_oauth_response (expires_in floored at 0; integer-divided by 1000).
+// body: {access_token, refresh_token, expires_in, token_type}. expires_in is
+// floored at 0 and integer-divided by 1000.
 func AsOAuthResponse(oauth *jsonx.OrderedMap) *jsonx.OrderedMap {
 	var expiresAtMS int64
 	if v, ok := oauth.Get("expiresAt"); ok {
@@ -197,7 +192,7 @@ func NormalizeOAuth(upstream, previous *jsonx.OrderedMap) *jsonx.OrderedMap {
 			expiresIn = n
 		}
 	}
-	// out = dict(previous) — copy preserving key order.
+	// Copy previous, preserving key order, then override below.
 	out := jsonx.NewOrderedMap()
 	for _, k := range previous.Keys() {
 		v, _ := previous.Get(k)
@@ -230,10 +225,9 @@ func NormalizeOAuth(upstream, previous *jsonx.OrderedMap) *jsonx.OrderedMap {
 }
 
 // WriteTokens atomically writes the shared credentials file via
-// mkstemp+fchmod(0600)+rename, matching _write_tokens. The blob is
-// json.dumps({"claudeAiOauth": oauth}, indent=2) — jsonx snapshot form WITHOUT
-// sort_keys (Python's _write_tokens does NOT pass sort_keys), so key order is
-// the insertion order of oauth. NOTE: unlike bind-mounted single files, this
+// mkstemp+fchmod(0600)+rename. The blob is {"claudeAiOauth": oauth} as indent=2
+// JSON WITHOUT sort_keys, so key order is the insertion order of oauth. NOTE:
+// unlike bind-mounted single files, this
 // creds file lives in a DIRECTORY-mounted dir, so tmp+rename IS correct here
 // (in-jail readers take no flock; an in-place O_TRUNC would expose a torn file).
 func WriteTokens(credsPath string, oauth *jsonx.OrderedMap) error {

@@ -5,17 +5,18 @@ import (
 	"time"
 )
 
-// sandboxUser is macos_user.SANDBOX_USER — the dedicated macOS sandbox account.
+// sandboxUser is the dedicated macOS sandbox account.
 const sandboxUser = "_yolojail"
 
-// with /usr/bin/python3 LAST (it may be the xcode-select stub).
+// pythonCandidates are the interpreters probed for the sandbox user, in
+// preference order — with /usr/bin/python3 LAST (it may be the xcode-select stub).
 var pythonCandidates = []string{
 	"/opt/homebrew/bin/python3",
 	"/usr/local/bin/python3",
 	"/usr/bin/python3",
 }
 
-// sandboxUserExists ports macos_user._sandbox_user_exists: `id <user>` returns 0.
+// sandboxUserExists reports whether `id <user>` returns 0.
 func (o *Options) sandboxUserExists() bool {
 	res := o.Exec([]string{"id", sandboxUser}, "", nil, 5*time.Second)
 	if !res.Ran || res.Timeout {
@@ -24,7 +25,7 @@ func (o *Options) sandboxUserExists() bool {
 	return res.RC == 0
 }
 
-// resolvePython ports macos_user.resolve_python: the first existing candidate
+// resolvePython returns the first existing candidate
 // interpreter, or "" if none exist.
 func (o *Options) resolvePython() string {
 	for _, cand := range pythonCandidates {
@@ -35,7 +36,7 @@ func (o *Options) resolvePython() string {
 	return ""
 }
 
-// checkMacosUserBackend ports _check_macos_user_backend: probe readiness of the
+// checkMacosUserBackend probes readiness of the
 // native macos-user backend (OS, Seatbelt, sandbox account, interpreter, nix +
 // flake.lock). Never runs inside a jail.
 func (o *Options) checkMacosUserBackend(r *reporter) {

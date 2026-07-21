@@ -16,23 +16,23 @@ import (
 // seam so the whole surface is unit-testable on Linux (the
 // cli/check + ps deps-injection precedent). RealDeps wires the production implementations.
 type Deps struct {
-	// IsMacOS reports sys.platform == "darwin".
+	// IsMacOS reports whether the host OS is darwin.
 	IsMacOS func() bool
 	// Geteuid returns the effective uid (0 under sudo).
 	Geteuid func() int
-	// Which reports whether a binary is on PATH (shutil.which is not None).
+	// Which reports whether a binary is on PATH.
 	Which func(string) bool
 	// SandboxUserExists reports `id <SANDBOX_USER>` returned 0.
 	SandboxUserExists func() bool
 	// SelfExe returns the path to the running yolo binary (os.Executable()),
 	// staged into the root-owned state dir for the sandbox to self-exec as the
-	// bootstrap (J2 §3, replacing the old python-interpreter resolution).
+	// bootstrap (J2 §3).
 	SelfExe func() string
 	// GitConfig reads a host git config value best-effort ("" + false if unset).
 	GitConfig func(key string) (string, bool)
 	// Getenv reads an environment variable.
 	Getenv func(string) string
-	// HostUser is the invoking (admin) user (getpass.getuser, "" on failure).
+	// HostUser is the invoking (admin) user ("" on failure).
 	HostUser func() string
 	// Run runs argv (inherit stdio) and returns the returncode. Used for the
 	// sudo command lists + the bootstrap launch.
@@ -68,20 +68,18 @@ type Deps struct {
 }
 
 // Options carries the run() inputs the front door resolves (workspace,
-// config, agents, agent argv, repo src). It mirrors run_macos_user's
-// parameters.
+// config, agents, agent argv, repo src).
 type Options struct {
 	Workspace string
 	Config    *jsonx.OrderedMap
 	Agents    []string
 	AgentArgv []string
 	// RepoRoot is the yolo-jail checkout root — passed to MaterializeDarwin as
-	// the nix build root when `packages:` is non-empty. (Formerly RepoSrc =
-	// repoRoot/src, which pointed at the now-deleted Python tree; the native
-	// bootstrap needs no source tree, only the flake root for darwin packages.)
+	// the nix build root when `packages:` is non-empty. The native bootstrap
+	// needs no source tree, only the flake root for darwin packages.
 	RepoRoot string
-	// SandboxEnv is an optional caller-supplied env layered LAST (the Python
-	// sandbox_env kwarg); nil is the common case.
+	// SandboxEnv is an optional caller-supplied env layered LAST; nil is the
+	// common case.
 	SandboxEnv *jsonx.OrderedMap
 	DryRun     bool
 }
@@ -116,15 +114,15 @@ func MacosSandboxEnv(deps Deps, cfg *jsonx.OrderedMap) *jsonx.OrderedMap {
 	return env
 }
 
-// macos_sandbox_env, merge env_sources (swallowing any error — a bad entry must
-// not crash the plan), layer the caller's sandbox_env last, then build the plan.
+// buildPlan starts from the sandbox env, merges env_sources (swallowing any
+// error — a bad entry must not crash the plan), layers the caller's sandbox_env
+// last, then builds the plan.
 func buildPlan(deps Deps, opts Options, darwin *Darwin) RunPlan {
 	env := MacosSandboxEnv(deps, opts.Config)
-	// try: env.update(_resolve_env_sources(...)) except Exception: pass
-	// The resolver's warnings (e.g. "env_sources file not found") go to the
-	// console in Python (config.py console.print) — route them to deps.Out via
-	// the rich-stripping printer so the plan output matches (the container path
-	// wires the same warn callback; a no-op here silently dropped the line).
+	// The resolver's warnings (e.g. "env_sources file not found") must reach
+	// deps.Out via the rich-stripping printer so the plan output includes them
+	// (the container path wires the same warn callback; a no-op here would
+	// silently drop the line).
 	out := printer{w: deps.Out, color: deps.Color}
 	resolved := config.ResolveEnvSources(opts.Workspace, opts.Config, func(msg string) { out.print(msg) })
 	for _, k := range resolved.Keys() {
@@ -319,8 +317,8 @@ func PrintPlan(w io.Writer, plan RunPlan, problems []string) {
 	}
 }
 
-// gitIdentityRepr renders the git-identity map the way _print_plan does:
-// Python's `plan.git_identity or '(none …)'` — a dict repr, or the fallback.
+// gitIdentityRepr renders the git-identity map as a dict repr, or a fallback
+// string when there is no identity.
 func gitIdentityRepr(m *jsonx.OrderedMap) string {
 	if m == nil || m.Len() == 0 {
 		return "(none — commits use no identity)"
@@ -328,8 +326,8 @@ func gitIdentityRepr(m *jsonx.OrderedMap) string {
 	return pyDictRepr(m)
 }
 
-// pyDictRepr renders an OrderedMap as Python's dict repr ({'k': 'v', …}), which
-// _print_plan embeds for the git identity. Keys/values are string reprs.
+// pyDictRepr renders an OrderedMap as a dict repr ({'k': 'v', …}), embedded in
+// the dry-run plan for the git identity. Keys/values are string reprs.
 func pyDictRepr(m *jsonx.OrderedMap) string {
 	var b strings.Builder
 	b.WriteByte('{')
@@ -353,13 +351,13 @@ func errStr(err error) string {
 	return err.Error()
 }
 
-// RealDeps returns Deps backed by real subprocesses / filesystem, mirroring the
-// pscmd RealDeps constructor. runProxy is the TTY-proxy launcher the front door
+// RealDeps returns Deps backed by real subprocesses / filesystem. runProxy is
+// the TTY-proxy launcher the front door
 // supplies (internal/cli/run's runWithProxy is Linux/macOS-specific);
 // materialize wires internal/darwinpkg's streaming nix build. Both are passed
 // in so this package needs no build-tagged syscall dependencies. color is the
-// resolved color capability (the caller's requested color AND a real TTY —
-// mirroring run's `Color && IsTTYStdout()`); it drives ANSI vs. plain output.
+// resolved color capability (the caller's requested color AND a real TTY);
+// it drives ANSI vs. plain output.
 func RealDeps(runProxy func(argv []string) int, materialize func(repoRoot string, packages []any) (*Darwin, bool, error), color bool) Deps {
 	return Deps{
 		IsMacOS:           func() bool { return isMacOSReal() },

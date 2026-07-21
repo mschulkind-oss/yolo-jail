@@ -9,12 +9,11 @@ import (
 )
 
 // RefreshLockPath is the flock file serializing refreshes. Set by the daemon
-// from the broker state dir; the SAME path as Python's REFRESH_LOCK so a Python
-// and Go broker mutually exclude during rollout (kernel flock).
+// from the broker state dir. Frozen contract (must not drift — the exact path
+// is the kernel-flock rendezvous every broker instance must agree on).
 var RefreshLockPath string
 
-// withRefreshLock runs fn while holding an exclusive flock on RefreshLockPath,
-// mirroring Python's `with open(REFRESH_LOCK, "w") as lockf: flock(LOCK_EX)`.
+// withRefreshLock runs fn while holding an exclusive flock on RefreshLockPath.
 func withRefreshLock(fn func() RefreshResult) RefreshResult {
 	if RefreshLockPath == "" {
 		return fn() // no lock configured (unit tests) — behave as if uncontended
@@ -24,15 +23,14 @@ func withRefreshLock(fn func() RefreshResult) RefreshResult {
 	}
 	f, err := os.OpenFile(RefreshLockPath, os.O_WRONLY|os.O_CREATE|os.O_TRUNC, 0o644)
 	if err != nil {
-		// Match Python: if we can't open the lock the refresh still proceeds
-		// under the mkdir above having failed is unusual; return an error dict.
+		// Can't open the lock (the mkdir above having failed is unusual);
+		// return an error dict rather than proceeding unlocked.
 		return errResult("error", "creds_unreadable", "message", err.Error())
 	}
 	defer f.Close()
 	// The flock is the load-bearing single-use-refresh-token serialization
-	// contract. Python's fcntl.flock RAISES on failure; we must NOT silently
-	// proceed unlocked (that would let concurrent jails burn the token). Treat
-	// a Flock failure as a hard error.
+	// contract. We must NOT silently proceed unlocked (that would let
+	// concurrent jails burn the token). Treat a Flock failure as a hard error.
 	if err := syscall.Flock(int(f.Fd()), syscall.LOCK_EX); err != nil {
 		return errResult("error", "creds_unreadable", "message", "refresh lock failed: "+err.Error())
 	}
@@ -62,13 +60,13 @@ func DoRefresh(credsPath string) RefreshResult {
 		current, err := oauthFromCreds(credsPath)
 		if err != nil {
 			// creds file unreadable / bad JSON — thread the real error text
-			// (Python emits str(e): "[Errno 2] ...", "Expecting value: ...").
+			// (e.g. "[Errno 2] ...", "Expecting value: ...") into the reply.
 			logError("creds file unreadable: %s", err)
 			return errResult("error", "creds_unreadable", "message", err.Error())
 		}
 		// A readable file with a MISSING claudeAiOauth key (e.g. "{}") yields
-		// an empty object here and falls through to no_refresh_token — matching
-		// Python's `.get("claudeAiOauth") or {}` then missing refreshToken.
+		// an empty object here and falls through to no_refresh_token (empty
+		// claudeAiOauth, then a missing refreshToken).
 		refreshToken, _ := stringField(current, "refreshToken")
 		if refreshToken == "" {
 			logError("no_refresh_token: shared creds missing refreshToken")
@@ -90,13 +88,12 @@ func DoRefresh(credsPath string) RefreshResult {
 				logError("upstream %d for rt=%s: %s", e.code, TokenFP(refreshToken), body)
 				return errResult("error", "upstream_http", "status", jsonx.IntValue(int64(e.code)), "body", body)
 			case *parseError:
-				// Python raises JSONDecodeError/KeyError here — NOT an
-				// upstream_unreachable dict. Surface a distinct error that the
-				// bg tick does NOT fast-retry (RefreshDue check on
-				// upstream_unreachable only). Byte-shape: reuse creds_unreadable
-				// is wrong; use a dedicated code. Python's exception propagates
-				// unlogged from do_refresh; we log it (a 200 with a garbage body
-				// is a forensic event a soak must not lose).
+				// A malformed 200 body is NOT an upstream_unreachable dict.
+				// Surface a distinct error that the bg tick does NOT fast-retry
+				// (the fast-retry check is on upstream_unreachable only);
+				// reusing creds_unreadable would be wrong, so use a dedicated
+				// code. Log it — a 200 with a garbage body is a forensic event a
+				// soak must not lose.
 				logError("upstream bad response for rt=%s: %s", TokenFP(refreshToken), e.msg)
 				return errResult("error", "upstream_bad_response", "message", e.msg)
 			default:
@@ -106,9 +103,8 @@ func DoRefresh(credsPath string) RefreshResult {
 		}
 		newOAuth := NormalizeOAuth(resp, current)
 		if err := WriteTokens(credsPath, newOAuth); err != nil {
-			// Python's _write_tokens raises OSError, propagating unlogged; the Go
-			// port returns an error dict, so log it — a failed shared-creds write
-			// silently strands every jail on the stale token.
+			// Log a failed shared-creds write — it silently strands every jail
+			// on the stale token.
 			logError("creds write failed: %s", err)
 			return errResult("error", "creds_unreadable", "message", err.Error())
 		}
@@ -121,7 +117,7 @@ func DoRefresh(credsPath string) RefreshResult {
 
 // RefreshDue reports whether the creds file's access token is within
 // leadSeconds of expiry (or past it). False on any read/parse error or missing
-// file — matches _refresh_due (a missing/unprimed broker is a no-op).
+// file (a missing/unprimed broker is a no-op).
 func RefreshDue(credsPath string, leadSeconds int, now int64) bool {
 	if now == 0 {
 		now = nowMS()
@@ -147,8 +143,8 @@ func RefreshDue(credsPath string, leadSeconds int, now int64) bool {
 // returns false.
 func BackgroundRefreshTick(credsPath string, leadSeconds int) bool {
 	if !RefreshDue(credsPath, leadSeconds, 0) {
-		// DEBUG because most ticks skip (Python logs skips at DEBUG so the log
-		// isn't a wall of "not due" lines under normal INFO operation).
+		// DEBUG because most ticks skip; logging skips at DEBUG keeps the log
+		// from becoming a wall of "not due" lines under normal INFO operation.
 		logDebug("bg_refresh: skip (not due) shared=%s", describeCreds(credsPath))
 		return false
 	}
@@ -190,8 +186,7 @@ func RunBackgroundRefresher(credsPath string, stop <-chan struct{}, tickSeconds,
 		transient := func() (t bool) {
 			defer func() {
 				if r := recover(); r != nil {
-					// loop must survive any tick error (Python's
-					// `except Exception ... log.error(..., exc_info=True)`).
+					// loop must survive any tick error.
 					logError("bg_refresh: tick crashed: %v", r)
 				}
 			}()

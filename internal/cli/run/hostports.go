@@ -27,18 +27,16 @@ type PortForward struct {
 }
 
 // ParsePortForwards parses forward_host_ports config entries into
-// (localPort, hostPort) pairs, mirroring _parse_port_forwards's isinstance
-// dispatch:
+// (localPort, hostPort) pairs:
 //
 //   - a JSON integer      → (n, n)
 //   - a string "a:b"      → (int(a), int(b))   [split once]
 //   - a plain string "n"  → (n, n)
 //   - anything else       → a warning (returned via the warn callback), skipped
 //
-// A non-numeric string port raises ValueError in Python (uncaught, propagates);
-// here that surfaces as a returned error, aborting the parse — the caller
-// decides. warn receives the exact "Warning: invalid port forward entry: %v"
-// text Python prints to stderr for non-int/str entries; pass nil to ignore.
+// A non-numeric string port surfaces as a returned error, aborting the parse —
+// the caller decides. warn receives the "Warning: invalid port forward entry:
+// %v" text for non-int/str entries; pass nil to ignore.
 func ParsePortForwards(entries []any, warn func(string)) ([]PortForward, error) {
 	var result []PortForward
 	for _, entry := range entries {
@@ -81,8 +79,8 @@ func ParsePortForwards(entries []any, warn func(string)) ([]PortForward, error) 
 	return result, nil
 }
 
-// indexByte returns the index of the first b in s, or -1. Mirrors Python's
-// split(":", 1): only the first ':' splits, so we need its first index.
+// indexByte returns the index of the first b in s, or -1. Only the first ':'
+// splits (like split(":", 1)), so we need its first index.
 func indexByte(s string, b byte) int {
 	for i := 0; i < len(s); i++ {
 		if s[i] == b {
@@ -99,7 +97,8 @@ func SocketPath(socketDir string, localPort int) string {
 }
 
 // SocatArgv returns the host-side socat argv bridging a Unix listen socket to a
-// host TCP port, byte-identical to start_host_port_forwarding's Popen argv:
+// host TCP port. Frozen contract (argv must not drift — the container-side socat
+// depends on the exact form):
 //
 //	socat UNIX-LISTEN:<sock>,fork,mode=777 TCP:127.0.0.1:<hostPort>
 func SocatArgv(sockPath string, hostPort int) []string {
@@ -110,9 +109,8 @@ func SocatArgv(sockPath string, hostPort int) []string {
 	}
 }
 
-// SocketNotReadyWarning is the exact stderr text emitted when socat's socket
+// SocketNotReadyWarning is the stderr text emitted when socat's socket
 // files don't appear before the deadline.
-// start_host_port_forwarding.
 func SocketNotReadyWarning(missing []string) string {
 	return fmt.Sprintf(
 		"Warning: socat socket(s) not ready after %.1fs: %s",

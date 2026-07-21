@@ -26,8 +26,8 @@ type Loophole struct {
 	Desc string
 }
 
-// BriefingInput carries everything generate_agents_md's jail-managed content
-// depends on. Workspace is the host workspace path (rendered verbatim);
+// BriefingInput carries everything the jail-managed briefing content depends
+// on. Workspace is the host workspace path (rendered verbatim);
 // ProvisioningFailed is true when the last boot's .yolo/startup.log contained
 // "PROVISIONING FAILED" (the caller reads the log — see ReadProvisioningFailed).
 type BriefingInput struct {
@@ -43,9 +43,10 @@ type BriefingInput struct {
 }
 
 // BriefingContent renders the jail-managed briefing body (before any host-level
-// user content is prepended and before agents_md_extra is appended). This is
-// the byte-exact string generate_agents_md builds via its `lines` list joined
-// with "\n" plus a trailing newline. NetMode defaults to "bridge" when empty.
+// user content is prepended and before agents_md_extra is appended). Frozen
+// contract: the exact bytes are the briefing lines joined with "\n" plus a
+// trailing newline, and golden tests pin them — they must not drift. NetMode
+// defaults to "bridge" when empty.
 func BriefingContent(in BriefingInput) string {
 	netMode := in.NetMode
 	if netMode == "" {
@@ -231,9 +232,8 @@ func BriefingContent(in BriefingInput) string {
 	return strings.Join(lines, "\n") + "\n"
 }
 
-// ComposeBriefing appends agents_md_extra to the jail content the way
-// generate_agents_md does: jail_content + "\n" + extra.rstrip() + "\n" when
-// extra is non-empty.
+// ComposeBriefing appends agents_md_extra to the jail content:
+// jailContent + "\n" + rstrip(extra) + "\n" when extra is non-empty.
 func ComposeBriefing(jailContent, extra string) string {
 	if extra == "" {
 		return jailContent
@@ -261,10 +261,10 @@ const (
 	portPlain
 )
 
-// portEntry classifies a forward_host_ports entry the way generate_agents_md's
-// isinstance ladder does, returning the rendered local/host port strings. An
-// int → (n, n, portInt); a string "a:b" → (a, b, portMapped) [split once]; a
-// plain string → (s, s, portPlain); anything else → portNone.
+// portEntry classifies a forward_host_ports entry, returning the rendered
+// local/host port strings. An int → (n, n, portInt); a string "a:b" →
+// (a, b, portMapped) [split once]; a plain string → (s, s, portPlain);
+// anything else → portNone.
 func portEntry(entry any) (local, host string, kind portKind) {
 	// jsonx decodes ints as jsonInt; accept both that and native ints.
 	if s, ok := intString(entry); ok {
@@ -279,8 +279,9 @@ func portEntry(entry any) (local, host string, kind portKind) {
 	return "", "", portNone
 }
 
-// loopholeFirst extracts the first-sentence summary of a loophole description,
-// mirroring: (desc or "").split(". ")[0].split("\n")[0].strip().rstrip(".").
+// loopholeFirst extracts the first-sentence summary of a loophole description:
+// the text up to the first ". " or newline, trimmed and with a trailing "."
+// stripped.
 func loopholeFirst(desc string) string {
 	s := desc
 	if i := strings.Index(s, ". "); i >= 0 {

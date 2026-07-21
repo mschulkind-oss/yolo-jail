@@ -10,13 +10,13 @@ import (
 	"github.com/mschulkind-oss/yolo-jail/internal/jsonx"
 )
 
-// TestTokenFP pins the fingerprint algorithm to Python's _token_fp: an 8-char
-// sha256-hex prefix, "(none)" for empty. SECURITY: a full token must never
-// appear; the fingerprint must be non-reversible and stable.
+// TestTokenFP pins the fingerprint algorithm: an 8-char sha256-hex prefix,
+// "(none)" for empty. SECURITY: a full token must never appear; the fingerprint
+// must be non-reversible and stable.
 func TestTokenFP(t *testing.T) {
-	// sha256("RT_test_secret")[:8], computed independently from CPython.
+	// sha256("RT_test_secret")[:8], computed independently.
 	if got, want := TokenFP("RT_test_secret"), "5e661e46"; got != want {
-		t.Errorf("TokenFP = %q, want %q (must match Python hashlib.sha256[:8])", got, want)
+		t.Errorf("TokenFP = %q, want %q (must be sha256-hex[:8])", got, want)
 	}
 	if got := TokenFP(""); got != "(none)" {
 		t.Errorf("TokenFP(\"\") = %q, want (none)", got)
@@ -84,8 +84,8 @@ func TestDescribeCredsRedaction(t *testing.T) {
 	}
 }
 
-// TestDescribeExpiresAtNone: a creds object without expiresAt renders "None"
-// (Python str(None)), never a raw/garbage value.
+// TestDescribeExpiresAtNone: a creds object without expiresAt renders "None",
+// never a raw/garbage value.
 func TestDescribeExpiresAtNone(t *testing.T) {
 	if got := describeExpiresAt(jsonx.NewOrderedMap()); got != "None" {
 		t.Errorf("describeExpiresAt(empty) = %q, want None", got)
@@ -132,7 +132,7 @@ func TestLogNilIsNoop(t *testing.T) {
 	logDebug("still fine")
 }
 
-// TestSortedKeys renders request keys as a Python-repr sorted list.
+// TestSortedKeys renders request keys as a sorted Python-repr list.
 func TestSortedKeys(t *testing.T) {
 	m := jsonx.NewOrderedMap()
 	m.Set("method", "GET")
@@ -145,9 +145,10 @@ func TestSortedKeys(t *testing.T) {
 	}
 }
 
-// TestContentEncodingRepr `.get(...) or .get(...)` + {!r}.
+// TestContentEncodingRepr checks the canonical/lowercase header lookup plus
+// repr rendering.
 func TestContentEncodingRepr(t *testing.T) {
-	// Absent -> None (Python's None repr).
+	// Absent -> None.
 	resp := jsonx.NewOrderedMap()
 	if got := contentEncodingRepr(resp); got != "None" {
 		t.Errorf("no headers: %q, want None", got)

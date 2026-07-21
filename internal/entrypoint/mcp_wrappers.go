@@ -14,7 +14,7 @@ func GenerateMCPWrappers(e *Env) error {
 	return writeExecutable(filepath.Join(e.McpWrappersBin(), "npx"), npxWrapper)
 }
 
-// chromeWrapper is the byte-exact chrome-devtools-mcp-wrapper body.
+// chromeWrapper is the chrome-devtools-mcp-wrapper body.
 const chromeWrapper = `#!/bin/bash
 # Self-contained wrapper: sets its own env since agents sanitize child processes.
 export LD_LIBRARY_PATH="/lib:/usr/lib${LD_LIBRARY_PATH:+:$LD_LIBRARY_PATH}"
@@ -60,7 +60,7 @@ exec "$MCP_WRAPPERS_BIN/node" "$NPM_BIN/chrome-devtools-mcp" \
     "$@"
 `
 
-// nodeWrapper is the byte-exact mcp-wrappers/node body.
+// nodeWrapper is the mcp-wrappers/node body.
 const nodeWrapper = `#!/bin/bash
 export LD_LIBRARY_PATH="/lib:/usr/lib${LD_LIBRARY_PATH:+:$LD_LIBRARY_PATH}"
 export FONTCONFIG_FILE="${FONTCONFIG_FILE:-/etc/fonts/fonts.conf}"
@@ -68,7 +68,7 @@ export FONTCONFIG_PATH="${FONTCONFIG_PATH:-/etc/fonts}"
 exec /bin/node "$@"
 `
 
-// npxWrapper is the byte-exact mcp-wrappers/npx body.
+// npxWrapper is the mcp-wrappers/npx body.
 const npxWrapper = `#!/bin/bash
 export LD_LIBRARY_PATH="/lib:/usr/lib${LD_LIBRARY_PATH:+:$LD_LIBRARY_PATH}"
 export FONTCONFIG_FILE="${FONTCONFIG_FILE:-/etc/fonts/fonts.conf}"

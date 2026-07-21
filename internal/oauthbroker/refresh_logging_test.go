@@ -14,8 +14,8 @@ import (
 
 // TestRefreshLoggingEndToEnd drives a full DoRefresh against a fake upstream
 // and asserts the operational log lines fire with fingerprints (no raw tokens)
-// — the incident-forensics contract this port restores. Regression guard: the
-// broker must never log a raw access/refresh token.
+// — the incident-forensics contract. Regression guard: the broker must never
+// log a raw access/refresh token.
 func TestRefreshLoggingEndToEnd(t *testing.T) {
 	var buf bytes.Buffer
 	setupLogWriter(&buf, true)

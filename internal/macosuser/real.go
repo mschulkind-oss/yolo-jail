@@ -11,11 +11,9 @@ import (
 )
 
 // This file holds the production ("real") backing for the Deps seams —
-// subprocess / filesystem / platform probes. They mirror the private helpers in
-// macos_user.py (_is_macos, _host_user, _sandbox_user_exists, _git_config,
-// _install_root_file, _taken_ids, _set_random_password) and the run path's
-// subprocess.run calls. All are macOS-relevant at runtime but COMPILE on every
-// GOOS (pure os/exec), so `GOOS=darwin go build ./...` and Linux CI both pass.
+// subprocess / filesystem / platform probes. All are macOS-relevant at runtime
+// but COMPILE on every GOOS (pure os/exec), so `GOOS=darwin go build ./...` and
+// Linux CI both pass.
 
 func isMacOSReal() bool { return runtime.GOOS == "darwin" }
 
@@ -66,9 +64,8 @@ func hostUserReal() string {
 	return ""
 }
 
-// runReal runs argv inheriting stdio and returns the returncode (subprocess.run
-// with no capture). A start failure yields 1 (Python would raise; the call
-// sites treat non-zero as failure).
+// runReal runs argv inheriting stdio and returns the returncode. A start
+// failure yields 1 (the call sites treat non-zero as failure).
 func runReal(argv []string) int {
 	if len(argv) == 0 {
 		return 1
@@ -95,7 +92,7 @@ func installRootFileReal(path, content, mode string) bool {
 	}
 	tee := exec.Command("sudo", teeBin, path)
 	tee.Stdin = strings.NewReader(content)
-	tee.Stdout = nil // subprocess.DEVNULL
+	tee.Stdout = nil // discard tee's stdout echo
 	tee.Stderr = os.Stderr
 	if err := tee.Run(); err != nil {
 		return false

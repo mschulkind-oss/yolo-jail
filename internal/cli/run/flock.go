@@ -12,11 +12,10 @@ type workspaceLock struct {
 	closed bool
 }
 
-// acquireWorkspaceLock opens lockPath and takes a BLOCKING exclusive flock,
-// mirroring run()'s `fcntl.flock(lock_file, LOCK_EX)`. A flock error is
-// non-fatal (race protection disabled) — the file handle is still returned so
-// the lifetime matches Python (the fd is held until on_started releases it).
-// warn receives the exact Python warning text on flock failure.
+// acquireWorkspaceLock opens lockPath and takes a BLOCKING exclusive flock.
+// A flock error is non-fatal (race protection disabled) — the file handle is
+// still returned so the fd is held until on_started releases it.
+// warn receives the warning text on flock failure.
 func acquireWorkspaceLock(lockPath string, warn func(string)) (*workspaceLock, error) {
 	f, err := os.OpenFile(lockPath, os.O_CREATE|os.O_WRONLY|os.O_TRUNC, 0o644)
 	if err != nil {
@@ -30,9 +29,8 @@ func acquireWorkspaceLock(lockPath string, warn func(string)) (*workspaceLock, e
 	return &workspaceLock{f: f}, nil
 }
 
-// Close releases the flock and closes the fd. Idempotent (matches Python's
-// lock_file.close() being safe to call once; guarded here for the multiple
-// teardown paths).
+// Close releases the flock and closes the fd. Idempotent (guarded here for the
+// multiple teardown paths).
 func (l *workspaceLock) Close() {
 	if l == nil || l.closed {
 		return

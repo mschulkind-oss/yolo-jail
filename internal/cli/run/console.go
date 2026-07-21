@@ -8,12 +8,10 @@ import (
 )
 
 // richTagRe matches rich console markup ([bold red]…[/bold red], [dim]…[/dim]).
-// run_cmd's human chatter is NOT under the byte-parity contract (only the
-// ordered argv, yolo-user-env.sh bytes, shlex-quoting, and frozen host-state
-// contracts are); we reproduce the TEXT content and either RENDER the markup to
-// ANSI (color on a TTY — the Stage-12 "info-parity WITH color" decision, so a
-// config diff shows green/red like Python's rich console) or strip it (piped
-// output / color off), matching the Stage-15 output-contract precedent.
+// Human chatter is NOT under the byte-parity contract (only the ordered argv,
+// yolo-user-env.sh bytes, shell-quoting, and frozen host-state contracts are);
+// we either RENDER the markup to ANSI (color on a TTY, so a config diff shows
+// green/red) or strip it (piped output / color off).
 var richTagRe = regexp.MustCompile(`\[/?[a-zA-Z][^\]]*\]`)
 
 const (
@@ -111,7 +109,7 @@ func (p printer) printf(format string, args ...any) {
 
 // pr builds a color-aware printer for w. Color is emitted only when the run
 // requested it (o.Color) AND stdout is a real terminal — never to a pipe/file,
-// so redirected output stays clean (matches rich's auto-detect).
+// so redirected output stays clean.
 func (o *Options) pr(w io.Writer) printer {
 	return printer{w: w, color: o.Color && o.IsTTYStdout()}
 }

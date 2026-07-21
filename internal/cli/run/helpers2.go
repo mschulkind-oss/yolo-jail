@@ -22,7 +22,7 @@ func sha1Hex8(s string) string {
 	return hex.EncodeToString(sum[:])[:8]
 }
 
-// hostServiceSocketsDir ports _host_service_sockets_dir: /tmp/yolo-host-services-<8hex>
+// hostServiceSocketsDir returns /tmp/yolo-host-services-<8hex>
 // keyed by sha1(cname)[:8]. macOS resolves /tmp → /private/tmp.
 func hostServiceSocketsDir(cname string, isMacOS bool) string {
 	base := "/tmp"
@@ -36,19 +36,19 @@ func hostServiceSocketsDir(cname string, isMacOS bool) string {
 
 var nonAlnumRe = regexp.MustCompile(`[^A-Za-z0-9]+`)
 
-// hostServiceEnvVar ports _host_service_env_var: YOLO_SERVICE_<SANITIZED>_SOCKET.
+// hostServiceEnvVar returns YOLO_SERVICE_<SANITIZED>_SOCKET.
 func hostServiceEnvVar(serviceName string) string {
 	s := nonAlnumRe.ReplaceAllString(serviceName, "_")
 	s = strings.Trim(s, "_")
 	return "YOLO_SERVICE_" + strings.ToUpper(s) + "_SOCKET"
 }
 
-// workspaceIsYoloSourceTree delegates to the ported agents helper.
+// workspaceIsYoloSourceTree delegates to the agents helper.
 func workspaceIsYoloSourceTree(workspace string) bool {
 	return agents.WorkspaceIsYoloSourceTree(workspace)
 }
 
-// acMaterialize ports _ac_materialize_under_ws_state: copy src into
+// acMaterialize copies src into
 // ws_state/target_rel for Apple Container (single-file mounts trip
 // apple/container#1089). is_dir=false here (all callers pass files).
 func acMaterialize(src, targetRel, wsState string) {
@@ -59,7 +59,7 @@ func acMaterialize(src, targetRel, wsState string) {
 
 func numCPU() int { return runtime.NumCPU() }
 
-// appleContainerDefaultMemory runs the AC default-memory block (2616-2634):
+// appleContainerDefaultMemory returns the AC default memory:
 // half of host memory, min 4 GB, formatted "<N>g"; "8g" on any probe failure.
 func (o *Options) appleContainerDefaultMemory() string {
 	var hostMemBytes int64
@@ -88,7 +88,7 @@ func (o *Options) appleContainerDefaultMemory() string {
 	return strconv.FormatInt(defaultMem/gib, 10) + "g"
 }
 
-// gpuArgs runs the GPU passthrough emission (2452-2574): memlock ulimit, then
+// gpuArgs builds the GPU passthrough args: memlock ulimit, then
 // vendor-specific device + env flags.
 func (o *Options) gpuArgs(cfg *jsonx.OrderedMap, rt string, gpuEnabled bool, gpuVendor string) []string {
 	if !gpuEnabled {

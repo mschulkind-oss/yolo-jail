@@ -1,9 +1,7 @@
-// Package agents is a hand-ported, drift-suite-pinned copy of
-// entrypoint/agent_registry.py — the single source of truth for the coding
-// agents yolo-jail can install into a jail. Per the port plan (§3, foundation
-// packages) this is pure data hand-ported to Go with NO Python-side refactor;
-// the golden tests byte-diffs it against the live Python registry on every
-// commit, so any Python change without a matching Go change is a red build.
+// Package agents is the single source of truth for the coding agents yolo-jail
+// can install into a jail: pure registry data plus the helpers that derive the
+// ordered/sorted views over it. Golden tests pin the exact bytes, so any drift
+// in this table is a red build.
 package agents
 
 // InstallSpec: how an agent CLI is installed and updated inside the jail.
@@ -11,9 +9,9 @@ package agents
 type InstallSpec struct {
 	Kind         string   // "npm" | "native"
 	Bin          string   // binary name on PATH (also the launcher/shim filename)
-	Package      string   // npm package name (kind == "npm"); "" == Python None
+	Package      string   // npm package name (kind == "npm"); "" == unset
 	InstallFlags []string // extra npm flags
-	InstallerURL string   // curl installer (kind == "native"); "" == Python None
+	InstallerURL string   // curl installer (kind == "native"); "" == unset
 }
 
 // BriefingSpec: where an agent's AGENTS.md/CLAUDE.md briefing is staged/mounted.
@@ -23,17 +21,17 @@ type BriefingSpec struct {
 	HostSource string
 }
 
-// AgentSpec is the full per-agent record. Optional string fields use "" for
-// Python None; optional slices use nil for the Python default_factory=list.
+// AgentSpec is the full per-agent record. Optional string fields use "" when
+// unset; optional slices use nil for an empty default.
 type AgentSpec struct {
 	Name         string
 	Install      InstallSpec
-	ConfigWriter string // function name in entrypoint.agent_configs
+	ConfigWriter string // config-writer function name
 	Briefing     BriefingSpec
 	OverlayDirs  []string
-	Skills       string // "" == Python None
+	Skills       string // "" == no skills dir
 	YoloFlags    []string
-	Alias        string // "" == Python None
+	Alias        string // "" == no alias
 	MiseRetire   []string
 }
 
@@ -50,8 +48,8 @@ func (a AgentSpec) SkillsStaging() string {
 // must not add --yolo when the user already passed -y.
 var YoloFlagAliases = map[string][]string{"--yolo": {"-y"}}
 
-// specs preserves the exact declaration order of Python's _SPECS list. Order
-// is load-bearing (Order/ALL_MISE_RETIRE follow it).
+// specs is the agent registry. Declaration order is load-bearing (Order and
+// AllMiseRetire follow it).
 var specs = []AgentSpec{
 	{
 		Name: "claude",
@@ -154,7 +152,7 @@ var specs = []AgentSpec{
 	},
 }
 
-// Order is the agent names in declaration order (Python: list(AGENTS.keys())).
+// Order is the agent names in declaration order.
 var Order = func() []string {
 	o := make([]string, len(specs))
 	for i, s := range specs {
@@ -180,7 +178,7 @@ func Get(name string) (AgentSpec, bool) {
 // DefaultAgents is the agent set when a config omits `agents` — claude only.
 var DefaultAgents = []string{"claude"}
 
-// ValidAgents is the sorted set of known agent names (Python: sorted(VALID_AGENTS)).
+// ValidAgents is the sorted set of known agent names.
 var ValidAgents = func() []string {
 	v := make([]string, len(Order))
 	copy(v, Order)
@@ -189,7 +187,7 @@ var ValidAgents = func() []string {
 }()
 
 // AllMiseRetire is every agent's mise-retire tokens, unioned in declaration
-// order (Python: [token for spec in _SPECS for token in spec.mise_retire]).
+// order.
 var AllMiseRetire = func() []string {
 	var out []string
 	for _, s := range specs {
@@ -198,8 +196,7 @@ var AllMiseRetire = func() []string {
 	return out
 }()
 
-// AllOverlayDirs is the sorted unique union of every agent's overlay dirs
-// (Python: sorted({d for spec in _SPECS for d in spec.overlay_dirs})).
+// AllOverlayDirs is the sorted unique union of every agent's overlay dirs.
 var AllOverlayDirs = func() []string {
 	seen := map[string]struct{}{}
 	var out []string
@@ -231,12 +228,11 @@ func ResolveAgents(names []string) []AgentSpec {
 }
 
 // InjectYoloFlags returns fullCommand with the leading agent's YOLO flags
-// injected right after the binary, mirroring _inject_agent_yolo_flags. The
-// agent is matched by fullCommand[0] == its Install.Bin; a non-agent head is
-// returned unchanged. Flags are inserted so their relative order is preserved
-// (Python inserts each at index 1 in reverse); a flag already present — or a
-// known alias (e.g. -y for --yolo) — is skipped. The input slice is not mutated;
-// a new slice is returned (Go idiom over Python's in-place mutation).
+// injected right after the binary. The agent is matched by fullCommand[0] ==
+// its Install.Bin; a non-agent head is returned unchanged. Flags are inserted
+// in reverse (each at index 1) so their relative order is preserved; a flag
+// already present — or a known alias (e.g. -y for --yolo) — is skipped. The
+// input slice is not mutated; a new slice is returned.
 func InjectYoloFlags(fullCommand []string) []string {
 	if len(fullCommand) == 0 {
 		return fullCommand
@@ -288,7 +284,7 @@ func containsStr(xs []string, target string) bool {
 }
 
 // sortStrings is a tiny insertion sort to avoid importing "sort" for these
-// short, fixed slices (keeps the package dependency-free like the Python one).
+// short, fixed slices.
 func sortStrings(s []string) {
 	for i := 1; i < len(s); i++ {
 		for j := i; j > 0 && s[j-1] > s[j]; j-- {

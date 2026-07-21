@@ -2,10 +2,10 @@ package check
 
 import "testing"
 
-// TestMachineForPlatform pins the platform.machine() spelling per OS/arch.
+// TestMachineForPlatform pins the uname machine spelling per OS/arch.
 // The load-bearing case is darwin/arm64 → "arm64" (audit §C): an unconditional
 // arm64→aarch64 map made `yolo check` report "aarch64" on Apple Silicon,
-// diverging from the run banner and from Python's platform.machine().
+// diverging from the run banner.
 func TestMachineForPlatform(t *testing.T) {
 	cases := []struct{ goos, goarch, want string }{
 		{"darwin", "arm64", "arm64"},    // Apple Silicon keeps arm64

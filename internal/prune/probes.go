@@ -15,9 +15,8 @@ import (
 
 // ProbeResult is the outcome of a container-runtime subprocess probe. Ran is
 // false when the binary was absent, could not be started, or the call timed out
-// (Python's FileNotFoundError / OSError / subprocess.TimeoutExpired branch — all
-// degrade to the empty/None result). RC carries the exit status when Ran is
-// true; Python treats any non-zero RC as an empty/None degrade, exactly like a
+// (all degrade to the empty result). RC carries the exit status when Ran is
+// true; the engine treats any non-zero RC as an empty degrade, exactly like a
 // spawn failure.
 type ProbeResult struct {
 	Stdout string
@@ -28,11 +27,11 @@ type ProbeResult struct {
 // RunFunc is the injectable exec seam (the internal/pscmd Deps pattern applied
 // to the pure engine): it runs argv with a per-call timeout and returns the
 // captured stdout. The real implementation lives in this package; tests
-// stub it with canned output keyed by argv. A stub that models "runtime absent"
+// stubs it with canned output keyed by argv. A stub that models "runtime absent"
 // returns Ran=false; "runtime present, listing failed" returns Ran=true, RC!=0.
 type RunFunc func(argv []string, timeout time.Duration) ProbeResult
 
-// probe timeouts, frozen from src/prune.py (the subprocess.run timeout= args).
+// probe timeouts (per-call deadlines for each runtime subprocess).
 const (
 	psTimeout      = 10 * time.Second
 	inspectTimeout = 5 * time.Second
@@ -42,8 +41,8 @@ const (
 
 // isLiveState reports whether a podman State string denotes a live jail
 // (running/paused/restarting, case-insensitive). This is the single liveness
-// predicate shared by _prune_stopped_containers (skip live → remove the rest)
-// and _find_referenced_build_roots (keep live → collect their binds).
+// predicate shared by PruneStoppedContainers (skip live → remove the rest) and
+// FindReferencedBuildRoots (keep live → collect their binds).
 func isLiveState(state string) bool {
 	switch strings.ToLower(state) {
 	case "running", "paused", "restarting":
@@ -52,10 +51,9 @@ func isLiveState(state string) bool {
 	return false
 }
 
-// resolvePath mirrors pathlib.Path.resolve() closely enough for our inputs
-// (existing container bind sources): resolve symlinks to an absolute path, and
-// on failure fall back to an absolute-cleaned path (Python's resolve() never
-// raises for strict=False). Used to dedup workspace paths and to key the
+// resolvePath resolves symlinks to an absolute path for our inputs (existing
+// container bind sources), and on failure falls back to an absolute-cleaned
+// path (it never errors out). Used to dedup workspace paths and to key the
 // referenced-build-root set — both sides of a comparison run through this, so
 // equality is preserved.
 func resolvePath(p string) string {
@@ -68,12 +66,12 @@ func resolvePath(p string) string {
 	return p
 }
 
-// pySplitMax str.split(maxsplit=maxsplit): leading/trailing
-// whitespace is ignored, fields are separated by runs of ASCII whitespace, and
-// after `maxsplit` cuts the remainder (internal whitespace preserved, trailing
+// pySplitMax splits on whitespace with a cap: leading/trailing whitespace is
+// ignored, fields are separated by runs of ASCII whitespace, and after
+// `maxsplit` cuts the remainder (internal whitespace preserved, trailing
 // stripped) is the final field. Used to split the `images` line into
 // (id, repo:tag, createdAt) so the CreatedAt sort key keeps its internal spaces
-// exactly as Python's split(maxsplit=2) would.
+// intact.
 func pySplitMax(s string, maxsplit int) []string {
 	isWS := func(b byte) bool {
 		switch b {
@@ -92,8 +90,8 @@ func pySplitMax(s string, maxsplit int) []string {
 			break
 		}
 		if len(out) == maxsplit {
-			// Remainder field: leading whitespace already skipped above; Python
-			// keeps everything to the end verbatim (trailing whitespace PRESERVED).
+			// Remainder field: leading whitespace already skipped above; keep
+			// everything to the end verbatim (trailing whitespace PRESERVED).
 			out = append(out, s[i:n])
 			break
 		}
@@ -107,12 +105,12 @@ func pySplitMax(s string, maxsplit int) []string {
 }
 
 // inspectMountSource returns the host Source bound at `dest` for container
-// `name`, or ("", false) on any inspect failure / absence.
-// body of _inspect_workspace_mount (dest=/workspace) and _inspect_build_root_mount
-// (dest=/opt/yolo-jail): run `inspect --format {{json .Mounts}}`, decode the
-// mounts array via the isinstance-guarded walk (a non-array top-level or a
-// non-object element is skipped, never crashes), and return the first matching
-// non-empty Source.
+// `name`, or ("", false) on any inspect failure / absence. It runs
+// `inspect --format {{json .Mounts}}` and decodes the mounts array via a
+// type-guarded walk (a non-array top-level or a non-object element is skipped,
+// never crashes), returning the first matching non-empty Source. Callers pass
+// dest=/workspace for the workspace mount and dest=/opt/yolo-jail for the
+// build-root mount.
 func inspectMountSource(rt, name, dest string, run RunFunc) (string, bool) {
 	res := run([]string{rt, "inspect", "--format", "{{json .Mounts}}", name}, inspectTimeout)
 	if !res.Ran || res.RC != 0 {
@@ -243,10 +241,10 @@ func PruneOldImages(rt string, keep int, apply bool, run RunFunc) []string {
 }
 
 // FindReferencedBuildRoots returns the tri-state set of resolved host paths a
-// LIVE yolo-* container binds into /opt/yolo-jail. Preserves the None-vs-empty
-// polarity: a missing/
-// failed `ps` yields Known=false (liveness unknown → the sweep declines), never
-// an empty set that would read as "nothing live". Note the inverted selection
+// LIVE yolo-* container binds into /opt/yolo-jail. Preserves the unknown-vs-empty
+// polarity: a missing/failed `ps` yields Known=false (liveness unknown → the
+// sweep declines), never an empty set that would read as "nothing live". Note
+// the inverted selection
 // vs PruneStoppedContainers: here LIVE containers are KEPT (their binds
 // collected) so the sweep never unlinks an in-use inode.
 func FindReferencedBuildRoots(rt string, run RunFunc) ReferencedSet {
@@ -298,8 +296,7 @@ func relayShortHash(cname string) string {
 // signal/pgrep machinery is the caller's concern), then the .lock file and
 // the yolo-host-services-<hash> sockets dir are removed.
 //
-// The reaped list is sorted by path (Python sorts base.glob(...)), so the
-// displayed order is deterministic.
+// The reaped list is sorted by path, so the displayed order is deterministic.
 func ReapRelayOrphans(base string, liveKnown bool, liveCnames map[string]struct{}, olderThanSeconds float64, apply bool, now time.Time, relayKill func(pidFile string)) []string {
 	reaped := []string{}
 	if !liveKnown {

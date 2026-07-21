@@ -4,13 +4,13 @@ package check
 
 import "os"
 
-// The KVM and ROCm device-node sections only ever execute on Linux (Python
-// gates them behind `not IS_MACOS` and the enclosing gpu/kvm config, and the
-// device nodes are Linux kernel features). On non-Linux builds these are never
-// reached at runtime, but the orchestration references them, so provide inert
-// stubs that keep `GOOS=darwin GOARCH=arm64 go build ./...` green. If a caller
-// ever did reach them off-Linux, the conservative answers below (no access, no
-// group) match "device not usable", never a false PASS.
+// The KVM and ROCm device-node sections only ever execute on Linux (gated
+// behind `not IS_MACOS` and the enclosing gpu/kvm config, and the device nodes
+// are Linux kernel features). On non-Linux builds these are never reached at
+// runtime, but the orchestration references them, so provide inert stubs that
+// keep `GOOS=darwin GOARCH=arm64 go build ./...` green. If a caller ever did
+// reach them off-Linux, the conservative answers below (no access, no group)
+// match "device not usable", never a false PASS.
 
 func accessRW(string) bool { return false }
 

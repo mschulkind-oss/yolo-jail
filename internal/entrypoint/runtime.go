@@ -39,12 +39,8 @@ func setupPublishedPortLocalnet(e *Env) {
 	}
 	ports, ok := decoded.([]any)
 	if !ok {
-		// Python: json.loads of a non-array yields a value that the `if not
-		// ports` guard / for-loop handles. A JSON object/scalar that decodes
-		// without error but isn't a list: `for entry in ports` would iterate
-		// dict keys or raise. Real input is always a list; treat non-list as
-		// empty (nothing to do), which matches `if not ports: return` for the
-		// common empty cases.
+		// Real input is always a JSON array; a non-list decode has nothing to
+		// forward, so treat it as empty.
 		return
 	}
 	if len(ports) == 0 {
@@ -139,9 +135,8 @@ func startJailDaemonSupervisor(e *Env) {
 	// Best-effort PID-file write; losing it just risks a redundant supervisor.
 	_ = os.WriteFile(supervisorPIDFile, []byte(strconv.Itoa(cmd.Process.Pid)+"\n"), 0o644)
 	// Reap the child asynchronously so it doesn't linger as a zombie if it
-	// exits while PID 1 is still alive (Python's Popen leaves reaping to the OS
-	// on PID-1 exit; a background Wait matches "detached, kernel-reaped" without
-	// blocking boot).
+	// exits while PID 1 is still alive; a background Wait keeps the supervisor
+	// detached without blocking boot.
 	go func() { _ = cmd.Wait() }()
 }
 
@@ -183,8 +178,7 @@ func startContainerPortForwarding(e *Env) {
 	logPath := filepath.Join(e.Home, ".yolo-socat.log")
 	logFile, err := os.OpenFile(logPath, os.O_APPEND|os.O_CREATE|os.O_WRONLY, 0o644)
 	if err != nil {
-		// Python opens unconditionally; a failure to open would raise. Best-
-		// effort: without a log sink we can't fork socat safely, so bail.
+		// Without a log sink we can't fork socat safely, so bail.
 		return
 	}
 	// Keep logFile open for the lifetime of the spawned socats (they inherit the
@@ -222,8 +216,8 @@ func startContainerPortForwarding(e *Env) {
 		cmd.Stdout = nil
 		cmd.Stderr = logFile
 		if err := cmd.Start(); err != nil {
-			// Python catches FileNotFoundError (socat missing) and returns,
-			// closing the log; any other exception warns and continues.
+			// A missing socat binary is fatal to forwarding: close the log and
+			// return. Any other error warns and continues to the next port.
 			if errors.Is(err, exec.ErrNotFound) || errors.Is(err, os.ErrNotExist) {
 				e.warn("Warning: socat not found, cannot forward host ports")
 				_ = logFile.Close()
@@ -237,17 +231,13 @@ func startContainerPortForwarding(e *Env) {
 	}
 }
 
-// start_container_port_forwarding: an int is the port; a string with ":" takes
-// the part before the first colon; a bare string is parsed as an int; anything
-// else is invalid (warn + skip). jsonx.Decode of a JSON array yields string /
-// float64 / bool / nil / jsonInt elements — JSON integers decode to jsonInt
-// (Python's isinstance(entry, int) True); JSON floats to float64 (isinstance
-// int False, str False -> warn branch).
-// PARITY QUIRK: on a bare non-numeric string, Python's int(...) raises an
-// uncaught ValueError that propagates out of main() and CRASHES boot before the
-// exec (module map flags this as a quirk to preserve, not fix). mustAtoiPort
-// panics on the same input to preserve the "boot aborts, never execs bash"
-// behavior.
+// forwardEntryPort resolves a port-forward entry: an int is the port; a string
+// with ":" takes the part before the first colon; a bare string is parsed as an
+// int; anything else is invalid (warn + skip). jsonx.Decode of a JSON array
+// yields string / float64 / bool / nil / jsonInt elements — JSON integers
+// decode to jsonInt, JSON floats to float64 (which hits the warn branch).
+// INVARIANT: a bare non-numeric string is a hard error — mustAtoiPort panics so
+// boot aborts before the exec rather than starting bash with a broken forward.
 func forwardEntryPort(entry any) (int, bool) {
 	if isJSONInt(entry) {
 		return mustAtoiPort(pyStr(entry)), true
@@ -261,20 +251,19 @@ func forwardEntryPort(entry any) (int, bool) {
 	return 0, false
 }
 
-// mustAtoiPort a valid integer parses; garbage raises
-// ValueError (uncaught -> boot crash). We panic to preserve the crash behavior.
+// mustAtoiPort parses a valid integer; garbage panics, aborting boot rather
+// than proceeding with an invalid forward.
 func mustAtoiPort(s string) int {
 	n, err := strconv.Atoi(strings.TrimSpace(s))
 	if err != nil {
-		// Match Python's uncaught ValueError crashing the entrypoint.
+		// A non-numeric port literal aborts the entrypoint.
 		panic("invalid literal for int(): " + strconv.Quote(s))
 	}
 	return n
 }
 
-// runWithTimeoutSeconds runs cmd, killing it after `secs` seconds, mirroring
-// subprocess.run(..., timeout=secs). A timeout returns an error so callers can
-// warn like Python's TimeoutExpired path.
+// runWithTimeoutSeconds runs cmd, killing it after `secs` seconds. A timeout
+// returns an error so callers can warn.
 func runWithTimeoutSeconds(cmd *exec.Cmd, secs int) error {
 	if err := cmd.Start(); err != nil {
 		return err

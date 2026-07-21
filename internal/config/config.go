@@ -1,13 +1,12 @@
 // Package config provides yolo-jail.jsonc parsing, merging, validation,
 // env_sources resolution, and the config-snapshot diff. It is built on
 // internal/json5 (JSONC/JSON5 decode), internal/jsonx (OrderedMap +
-// DumpsSnapshot — the config-snapshot bytes), and internal/pytext (Python repr
+// DumpsSnapshot — the config-snapshot bytes), and internal/pytext (repr
 // for the {x!r} bits of validation error strings).
 // The snapshot writer bytes, the merge/dedup semantics, and every validation
-// error/warning string
-// (in identical order) must match the live Python, verified by the differential
-// oracle in config_parity_test.go. Surprising Python behavior is PRESERVED and
-// noted, never "fixed".
+// error/warning string are emitted in a fixed order that is a frozen contract
+// (must not drift — the differential oracle in config_parity_test.go verifies
+// it). Non-obvious edge-case behavior is PRESERVED and noted, never "fixed".
 // Config data flows through *jsonx.OrderedMap everywhere (never a plain Go map):
 // key order is load-bearing for the snapshot bytes.
 package config
@@ -29,14 +28,14 @@ func configErr(format string, args ...any) *ConfigError {
 	return &ConfigError{Msg: fmt.Sprintf(format, args...)}
 }
 
-// Config file names (config.py:WORKSPACE_CONFIG_NAME / WORKSPACE_LOCAL_CONFIG_NAME).
+// Config file names.
 const (
 	WorkspaceConfigName      = "yolo-jail.jsonc"
 	WorkspaceLocalConfigName = "yolo-jail.local.jsonc"
 )
 
 // ---------------------------------------------------------------------------
-// Schema constants (config.py "Schema constants" block)
+// Schema constants
 // ---------------------------------------------------------------------------
 
 var DefaultHostClaudeFiles = []string{"settings.json"}
@@ -73,8 +72,8 @@ var (
 	)
 )
 
-// PACKAGE_NAME_RE / PACKAGE_OUTPUT_RE and friends. Go's regexp is RE2 (no
-// backtracking) which is sufficient for these simple anchored patterns.
+// Package/name/id validation patterns. Go's regexp is RE2 (no backtracking),
+// sufficient for these simple anchored patterns.
 var (
 	packageNameRe   = regexp.MustCompile(`^[a-zA-Z0-9_-]+(\.[a-zA-Z0-9_-]+)?$`)
 	packageOutputRe = regexp.MustCompile(`^[a-zA-Z][a-zA-Z0-9_]*$`)
@@ -88,7 +87,7 @@ var vaapiPackages = []string{"mesa", "libva-utils"}
 
 var validMCPPresets = set("chrome-devtools", "sequential-thinking")
 
-// merged result, but this default has a single entry).
+// Default mise tools, merged under any user overrides.
 var defaultMiseToolsKeys = []string{"neovim"}
 var defaultMiseToolsVals = map[string]string{"neovim": "stable"}
 
@@ -99,9 +98,8 @@ var defaultMiseDisabledTools = []string{"pnpm"}
 // ---------------------------------------------------------------------------
 
 // set builds a Go set from string literals. Membership only — never iterated
-// for output, so ordering does not matter (matches Python `set` literals which
-// config.py only tests membership on; the one place it iterates a known-key set
-// for output — _report_unknown_keys — sorts the MAPPING keys, not the set).
+// for output, so ordering does not matter (the one place a known-key set feeds
+// output — reportUnknownKeys — sorts the MAPPING keys, not the set).
 func set(items ...string) map[string]struct{} {
 	m := make(map[string]struct{}, len(items))
 	for _, it := range items {
@@ -110,28 +108,26 @@ func set(items ...string) map[string]struct{} {
 	return m
 }
 
-// asMap returns v as *jsonx.OrderedMap and true, mirroring Python
-// isinstance(v, dict).
+// asMap returns v as *jsonx.OrderedMap and true, for a JSON-object value.
 func asMap(v any) (*jsonx.OrderedMap, bool) {
 	m, ok := v.(*jsonx.OrderedMap)
 	return m, ok
 }
 
-// asList returns v as []any and true, mirroring isinstance(v, list).
+// asList returns v as []any and true, for a JSON-array value.
 func asList(v any) ([]any, bool) {
 	l, ok := v.([]any)
 	return l, ok
 }
 
-// asStr returns v as string and true, mirroring isinstance(v, str).
+// asStr returns v as string and true, for a JSON-string value.
 func asStr(v any) (string, bool) {
 	s, ok := v.(string)
 	return s, ok
 }
 
-// isBool mirrors isinstance(v, bool). Python bool is a subclass of int, but a
-// decoded JSON bool is a Go bool (jsonx decodes true/false to bool), so this is
-// exact.
+// isBool reports whether v is a JSON boolean (jsonx decodes true/false to a Go
+// bool).
 func isBool(v any) bool {
 	_, ok := v.(bool)
 	return ok

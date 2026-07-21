@@ -116,7 +116,7 @@ func (e *Env) chromeDevtoolsArgs() []any {
 // LoadMCPServers presets (opt-in via
 // YOLO_MCP_PRESETS) merged with YOLO_MCP_SERVERS (overrides / additions /
 // null-removals), requires_env gating, then ${VAR} interpolation of env values.
-// Returns an OrderedMap whose key order matches Python dict insertion order.
+// Returns an OrderedMap whose key order follows insertion order.
 func (e *Env) LoadMCPServers() *jsonx.OrderedMap {
 	mcpWrappers := e.McpWrappersBin()
 	npmBin := e.NpmBin()
@@ -169,8 +169,8 @@ func (e *Env) LoadMCPServers() *jsonx.OrderedMap {
 		}
 	}
 
-	// Conditional loading: requires_env gate. Iterate a snapshot of the keys
-	// (Python: `for name in list(servers)`), mutating servers as we go.
+	// Conditional loading: requires_env gate. Iterate a snapshot of the keys,
+	// mutating servers as we go.
 	for _, name := range append([]string(nil), servers.Keys()...) {
 		v, _ := servers.Get(name)
 		cfg, ok := v.(*jsonx.OrderedMap)
@@ -210,9 +210,8 @@ func (e *Env) LoadMCPServers() *jsonx.OrderedMap {
 		}
 	}
 
-	// Expand ${VAR} in env values. Python: `servers[name] = {**cfg, "env": ...}`
-	// which appends "env" at the END if it wasn't already a key — but since env
-	// IS already a key when this fires, its position is preserved.
+	// Expand ${VAR} in env values, preserving the position of the existing
+	// "env" key.
 	for _, name := range servers.Keys() {
 		v, _ := servers.Get(name)
 		cfg, ok := v.(*jsonx.OrderedMap)

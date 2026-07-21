@@ -8,11 +8,11 @@ import (
 	"github.com/mschulkind-oss/yolo-jail/internal/jsonx"
 )
 
-// ParseDotenv ports _parse_dotenv: parse KEY=VALUE dotenv content into an
-// ordered map. Comment/blank lines ignored; `export ` prefix stripped; matching
+// ParseDotenv parses KEY=VALUE dotenv content into an ordered map.
+// Comment/blank lines ignored; `export ` prefix stripped; matching
 // single/double quote wrappers removed; malformed lines (no `=`, invalid var
 // name) silently skipped. Returns keys in first-seen order (later assignment to
-// an existing key updates value, keeps position — Python dict semantics).
+// an existing key updates value, keeps position).
 func ParseDotenv(text string) *jsonx.OrderedMap {
 	out := jsonx.NewOrderedMap()
 	for _, raw := range splitLines(text) {
@@ -41,8 +41,8 @@ func ParseDotenv(text string) *jsonx.OrderedMap {
 	return out
 }
 
-// ResolveEnvSourcePath ports _resolve_env_source_path: ~ expansion, absolute
-// paths pass through, relative paths resolve against the workspace root.
+// ResolveEnvSourcePath expands ~, passes absolute paths through, and resolves
+// relative paths against the workspace root.
 func ResolveEnvSourcePath(entry, workspace string) string {
 	expanded := expandUser(entry)
 	if filepath.IsAbs(expanded) {
@@ -55,13 +55,13 @@ func ResolveEnvSourcePath(entry, workspace string) string {
 	return joined
 }
 
-// ResolveEnvSources ports _resolve_env_sources: iterate env_sources in order —
-// inline dicts apply directly; string entries read as dotenv files; later
+// ResolveEnvSources iterates env_sources in order — inline dicts apply
+// directly; string entries read as dotenv files; later
 // entries override earlier; missing/unreadable files warn (via warn) and skip.
 // Returns the final env map as an OrderedMap (later-wins on key, position kept).
 func ResolveEnvSources(workspace string, config *jsonx.OrderedMap, warn Warn) *jsonx.OrderedMap {
 	if warn == nil {
-		warn = func(string) {} // console.print warnings; discarded by default here
+		warn = func(string) {} // discard warnings by default
 	}
 	merged := jsonx.NewOrderedMap()
 	entries := getListOrNilFalsy(config, "env_sources")
@@ -69,8 +69,8 @@ func ResolveEnvSources(workspace string, config *jsonx.OrderedMap, warn Warn) *j
 		if em, ok := asMap(entry); ok {
 			for _, k := range em.Keys() {
 				v, _ := em.Get(k)
-				// Python: `if isinstance(k, str) and isinstance(v, str)`. Decoded
-				// JSON keys are always strings, so only the value type gates.
+				// Decoded JSON keys are always strings, so only the value type
+				// gates: apply the entry only when the value is a string.
 				if vs, vok := asStr(v); vok {
 					merged.Set(k, vs)
 				}
@@ -98,11 +98,10 @@ func ResolveEnvSources(workspace string, config *jsonx.OrderedMap, warn Warn) *j
 	return merged
 }
 
-// uses. Only "~" and "~/..." are expanded (a "~user" form is left untouched
-// unless we can resolve it, matching the common case). HOME resolution follows
-// Python's expanduser: HOME if set (empty HOME -> unchanged tilde per CPython
-// posixpath? — actually posixpath uses pwd when HOME unset). We reuse the same
-// HOME/pwd logic internal/paths uses.
+// expandUser expands a leading "~". Only "~" and "~/..." are expanded (a
+// "~user" form is left untouched, matching the common case). HOME resolution
+// uses $HOME when set, else the passwd entry — the same HOME/pwd logic
+// internal/paths uses.
 func expandUser(p string) string {
 	if len(p) == 0 || p[0] != '~' {
 		return p
@@ -113,8 +112,8 @@ func expandUser(p string) string {
 		i++
 	}
 	if i == 1 {
-		// bare "~" or "~/..." — posixpath: userhome.rstrip('/') + path[i:],
-		// or '/' when that is empty.
+		// bare "~" or "~/..." — home with trailing slashes stripped + the rest,
+		// or "/" when that is empty.
 		home := strings.TrimRight(homeForExpand(), "/")
 		res := home + p[i:]
 		if res == "" {
@@ -126,9 +125,8 @@ func expandUser(p string) string {
 	return p
 }
 
-// homeForExpand $HOME if set (even
-// empty), else the passwd entry (pwd.getpwuid). Empty HOME with "~/x" yields
-// "/x" after the rstrip+`or "/"` in expandUser.
+// homeForExpand returns $HOME if set (even empty), else the passwd entry. Empty
+// HOME with "~/x" yields "/x" after the rstrip+`or "/"` in expandUser.
 func homeForExpand() string {
 	if h, ok := os.LookupEnv("HOME"); ok {
 		return h

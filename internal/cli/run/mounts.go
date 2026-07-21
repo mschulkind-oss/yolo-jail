@@ -9,7 +9,7 @@ import (
 	"github.com/mschulkind-oss/yolo-jail/internal/jsonx"
 )
 
-// workspaceReadonlyMountArgs ports _workspace_readonly_mount_args: the
+// workspaceReadonlyMountArgs builds the
 // `-v …:ro` overlays for config.workspace_readonly. Each configured sub-path is
 // overlaid onto the writable /workspace mount; when any entry is active the
 // yolo-jail.jsonc config file itself is also locked. Entries that escape the
@@ -52,7 +52,7 @@ func (o *Options) workspaceReadonlyMountArgs(cfg *jsonx.OrderedMap, rt string) [
 	return args
 }
 
-// venvShadowMountArgs ports _venv_shadow_mount_args: per-side shadow mounts over
+// venvShadowMountArgs builds per-side shadow mounts over
 // /workspace so derived state (venvs) never crosses the host↔jail boundary. The
 // shadow set is `.venv` ∪ the mise-config venv path ∪ config per_side_paths.
 // Backing dirs live under wsState/venv-shadows/ ("/" → "__"). Entries must be
@@ -107,8 +107,7 @@ func resolvePath(p string) string {
 	return p
 }
 
-// isUnderOrEqual reports whether child is base or a descendant of base (Python's
-// Path.relative_to not raising ValueError).
+// isUnderOrEqual reports whether child is base or a descendant of base.
 func isUnderOrEqual(child, base string) bool {
 	if child == base {
 		return true
@@ -130,8 +129,8 @@ func isDir(p string) bool {
 	return err == nil && fi.IsDir()
 }
 
-// pyReprStr renders a Python repr() of a string ({rel!r}) — single-quoted with
-// backslash escapes. Matches the {rel!r} in the skip warnings.
+// pyReprStr renders a string single-quoted with backslash escapes, matching the
+// {rel!r} form used in the skip warnings.
 func pyReprStr(s string) string {
 	var b strings.Builder
 	b.WriteByte('\'')

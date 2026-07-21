@@ -7,7 +7,7 @@ package check
 import "strings"
 
 // Plain badge lines (ANSI-stripped). Two leading spaces, a 6-column "[BADGE]"
-// tag, then a space and the message — the alignment the Python code documents.
+// tag, then a space and the message.
 const (
 	badgePass = "[PASS]"
 	badgeFail = "[FAIL]"
@@ -29,10 +29,10 @@ func FailLine(msg string) string { return "  " + badgeFail + " " + msg }
 // WarnLine returns the plain-text WARN line for msg.
 func WarnLine(msg string) string { return "  " + badgeWarn + " " + msg }
 
-// NoteLines renders a (possibly multi-line) note the way _print_note does:
+// NoteLines renders a (possibly multi-line) note:
 // the first line gets the "-> " arrow, the rest align under it. Returns one
 // string per output line (no trailing newline). An empty note yields a single
-// line (`note.splitlines() or [note]`).
+// line.
 func NoteLines(note string) []string {
 	lines := splitlines(note)
 	if len(note) == 0 {
@@ -49,10 +49,10 @@ func NoteLines(note string) []string {
 	return out
 }
 
-// splitlines str.splitlines() for the boundaries realistic in
+// splitlines splits s on the line boundaries realistic in
 // check notes (subprocess stderr surfaced in a note): \n, \r\n, \r, \v, \f,
 // \x1c-\x1e, \x85, U+2028, U+2029. A single trailing terminator does NOT
-// produce a trailing empty element (Python drops it).
+// produce a trailing empty element.
 func splitlines(s string) []string {
 	if s == "" {
 		return nil

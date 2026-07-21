@@ -11,8 +11,8 @@ import (
 // the container, holding the resolved workspace path + a trailing newline, so
 // `yolo ps` can map containers→workspaces.
 // workspaceResolved must already be the resolved (absolute, symlinks-followed)
-// path — the caller resolves it the way Python's Path.resolve() does; the FS
-// side (mkdir of CONTAINER_DIR) is ensured here.
+// path — the caller resolves it; the FS side (mkdir of CONTAINER_DIR) is
+// ensured here.
 func WriteContainerTracking(name, workspaceResolved string) error {
 	dir := paths.ContainerDir()
 	if err := os.MkdirAll(dir, 0o755); err != nil {
@@ -28,8 +28,8 @@ func CleanupContainerTracking(name string) {
 
 // ReadContainerWorkspace returns the workspace recorded in a container's
 // tracking file (trailing whitespace trimmed), or ("", false) when the file is
-// absent/empty.
-// first; the inspect fallback stays in the caller since it execs the runtime).
+// absent/empty. The inspect fallback stays in the caller since it execs the
+// runtime.
 func ReadContainerWorkspace(name string) (string, bool) {
 	data, err := os.ReadFile(filepath.Join(paths.ContainerDir(), name))
 	if err != nil {
@@ -43,9 +43,9 @@ func ReadContainerWorkspace(name string) (string, bool) {
 }
 
 // PruneStaleTrackingFiles removes every tracking file under CONTAINER_DIR whose
-// name is not in runningNames.
-// iterate CONTAINER_DIR, unlink any entry not currently running. A missing
-// CONTAINER_DIR is a no-op. Returns the names removed (in directory order).
+// name is not in runningNames: iterate CONTAINER_DIR, unlink any entry not
+// currently running. A missing CONTAINER_DIR is a no-op. Returns the names
+// removed (in directory order).
 func PruneStaleTrackingFiles(runningNames map[string]struct{}) []string {
 	dir := paths.ContainerDir()
 	entries, err := os.ReadDir(dir)
@@ -64,9 +64,8 @@ func PruneStaleTrackingFiles(runningNames map[string]struct{}) []string {
 	return removed
 }
 
-// trimTrailingSpace strips trailing ASCII whitespace (matches the .strip() the
-// Python readers apply to the tracking-file contents; only trailing matters
-// since the file is "<path>\n").
+// trimTrailingSpace strips surrounding ASCII whitespace from the tracking-file
+// contents; only trailing matters in practice since the file is "<path>\n".
 func trimTrailingSpace(s string) string {
 	end := len(s)
 	for end > 0 {
@@ -77,7 +76,7 @@ func trimTrailingSpace(s string) string {
 		}
 		break
 	}
-	// Also strip leading whitespace to match Python str.strip() fully.
+	// Also strip leading whitespace for a full strip.
 	start := 0
 	for start < end {
 		c := s[start]

@@ -10,7 +10,7 @@ import (
 	"github.com/mschulkind-oss/yolo-jail/internal/nixdiag"
 )
 
-// checkLoopholes ports _check_loopholes: surface loophole discovery + each
+// checkLoopholes surfaces loophole discovery + each
 // loophole's own self-check. Bad manifests warn; non-zero self-checks fail.
 func (o *Options) checkLoopholes(r *reporter) {
 	if o.inJail() {
@@ -69,8 +69,8 @@ func (o *Options) checkLoopholes(r *reporter) {
 	}
 }
 
-// reportBrokerDaemon reproduces the broker liveness block inside _check_loopholes
-// (after a green self-check): live / not running / stale PID / unresponsive.
+// reportBrokerDaemon reports the broker liveness block (after a green
+// self-check): live / not running / stale PID / unresponsive.
 func (o *Options) reportBrokerDaemon(r *reporter) {
 	status := o.brokerStatus()
 	switch {
@@ -95,7 +95,7 @@ func (o *Options) reportBrokerDaemon(r *reporter) {
 	}
 }
 
-// checkBrokerRelay ports _check_broker_relay: probe one jail's broker relay
+// checkBrokerRelay probes one jail's broker relay
 // socket end-to-end, naming the failing LAYER.
 func (o *Options) checkBrokerRelay(r *reporter, label, sockPath, rt, cname string) {
 	if !o.PathExists(sockPath) {
@@ -133,8 +133,8 @@ func (o *Options) checkBrokerRelay(r *reporter, label, sockPath, rt, cname strin
 	}
 }
 
-// checkHostServiceLiveness ports _check_host_service_liveness: for each running
-// jail, verify each external host_daemon's socket is alive.
+// checkHostServiceLiveness verifies, for each running
+// jail, that each external host_daemon's socket is alive.
 func (o *Options) checkHostServiceLiveness(r *reporter) {
 	if o.inJail() {
 		return // inside jail — host sockets aren't reachable
@@ -195,7 +195,7 @@ func (o *Options) checkHostServiceLiveness(r *reporter) {
 	}
 }
 
-// firstLine returns the first line of s (Python's `s.splitlines()[0] if s else ""`).
+// firstLine returns the first line of s, or "" when s is empty.
 func firstLine(s string) string {
 	if s == "" {
 		return ""

@@ -21,8 +21,7 @@ func loopholeErrorf(format string, args ...any) *LoopholeError {
 	return &LoopholeError{msg: fmt.Sprintf(format, args...)}
 }
 
-// LoadLoophole loads a single loophole from its directory. Mirrors
-// load_loophole.
+// LoadLoophole loads a single loophole from its directory.
 func LoadLoophole(modulePath string) (*Loophole, error) {
 	return loadManifest(modulePath)
 }
@@ -39,16 +38,14 @@ func loadManifest(modulePath string) (*Loophole, error) {
 	}
 	decoded, err := json5.Decode(raw)
 	if err != nil {
-		// pyjson5's exception text is not byte-reproducible; the prefix
-		// matches and no parity test compares the JSON-syntax-error body
-		// (discovery skips malformed manifests silently). See ledger.
+		// The decoder's exception text is not stable, but only the prefix
+		// matters here: discovery skips malformed manifests silently.
 		return nil, loopholeErrorf("%s: %s", manifestPath, err)
 	}
 	data, ok := decoded.(*jsonx.OrderedMap)
 	if !ok {
-		// A non-object manifest makes Python's data.get(...) raise an
-		// uncaught AttributeError (crash); unreachable for authored
-		// manifests. We degrade to a skippable LoopholeError. See ledger.
+		// A non-object manifest is unreachable for authored manifests.
+		// We degrade to a skippable LoopholeError rather than crashing.
 		return nil, loopholeErrorf("%s: manifest must be a JSON object", manifestPath)
 	}
 
@@ -102,11 +99,11 @@ func loadManifest(modulePath string) (*Loophole, error) {
 			if containsSubstr(s, "{state}") {
 				caCert = replaceAll(s, "{state}", StateDirFor(name))
 			} else {
-				// Python: (module_path / ca_cert_raw).resolve(). pathlib `/`
-				// DISCARDS module_path when ca_cert_raw is absolute; Go's
-				// filepath.Join would concatenate ("<module>/<abs>"), producing a
-				// bogus path that then fails HasCA() and silently drops the CA
-				// mount + NODE_EXTRA_CA_CERTS. Guard on IsAbs to match pathlib.
+				// An absolute ca_cert must be used as-is, discarding
+				// module_path. filepath.Join would instead concatenate
+				// ("<module>/<abs>"), producing a bogus path that then fails
+				// HasCA() and silently drops the CA mount + NODE_EXTRA_CA_CERTS.
+				// Guard on IsAbs to resolve the absolute path directly.
 				if filepath.IsAbs(s) {
 					caCert = resolvePath(s)
 				} else {
@@ -340,9 +337,9 @@ func parseJailDaemon(manifestPath string, raw any) (*JailDaemon, error) {
 	return &JailDaemon{Cmd: toStringSlice(cmdList), Restart: restart}, nil
 }
 
-// parseEnvMap builds an insertion-ordered EnvMap from a JSON object, mirroring
-// {str(k): str(v) for k, v in raw.items()}. raw must already be resolved to a
-// value that is either an *jsonx.OrderedMap or an empty-map sentinel.
+// parseEnvMap builds an insertion-ordered EnvMap from a JSON object, coercing
+// each key and value to a string. raw must already be resolved to a value that
+// is either an *jsonx.OrderedMap or an empty-map sentinel.
 func parseEnvMap(manifestPath string, raw any, mappingErr string) (*EnvMap, error) {
 	m, ok := raw.(*jsonx.OrderedMap)
 	if !ok {
@@ -356,10 +353,10 @@ func parseEnvMap(manifestPath string, raw any, mappingErr string) (*EnvMap, erro
 	return out, nil
 }
 
-// --- small decode helpers mirroring Python's `.get(...) or default` idioms ---
-// orEmptyList mirrors `data.get(key) or []`: a falsy value yields an empty list
-// (which passes the isinstance-list check); a truthy non-list stays as-is (so
-// the caller's isinstance check fires the error).
+// --- small decode helpers for `get(key) or default` idioms ---
+// orEmptyList implements `get(key) or []`: a falsy value yields an empty list
+// (which passes the list type check); a truthy non-list stays as-is (so the
+// caller's type check fires the error).
 func orEmptyList(m *jsonx.OrderedMap, key string) any {
 	v, ok := m.Get(key)
 	if !ok || !pyTruthy(v) {
@@ -368,7 +365,7 @@ func orEmptyList(m *jsonx.OrderedMap, key string) any {
 	return v
 }
 
-// orEmptyMap mirrors `data.get(key) or {}` for the jail_env path.
+// orEmptyMap implements `get(key) or {}` for the jail_env path.
 func orEmptyMap(m *jsonx.OrderedMap, key string) any {
 	v, ok := m.Get(key)
 	if !ok || !pyTruthy(v) {
@@ -384,7 +381,7 @@ func orEmptyMapValue(v any) any {
 	return v
 }
 
-// getOrNil returns m[key] or nil (Python dict.get default None).
+// getOrNil returns m[key] or nil when absent.
 func getOrNil(m *jsonx.OrderedMap, key string) any {
 	v, ok := m.Get(key)
 	if !ok {
@@ -419,8 +416,7 @@ func inList(s string, list []string) bool {
 	return false
 }
 
-// sortedListRepr renders repr(sorted(set)) — a Python list literal of the
-// sorted values.
+// sortedListRepr renders a list literal of the sorted values.
 func sortedListRepr(values []string) string {
 	sorted := append([]string(nil), values...)
 	sort.Strings(sorted)

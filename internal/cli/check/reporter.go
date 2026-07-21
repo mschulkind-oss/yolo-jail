@@ -6,10 +6,9 @@ import (
 	"strings"
 )
 
-// ANSI SGR sequences for the Go-native colored output. Parity is defined on the
-// ANSI-STRIPPED text (the plan's Stage-15 exit criteria: goldens pin the
-// stripped bytes), so these are cosmetic — a test asserts stripping them yields
-// the Color=false output verbatim.
+// ANSI SGR sequences for the colored output. The contract is defined on the
+// ANSI-STRIPPED text (goldens pin the stripped bytes), so these are cosmetic —
+// a test asserts stripping them yields the Color=false output verbatim.
 const (
 	ansiReset      = "\x1b[0m"
 	ansiBold       = "\x1b[1m"
@@ -22,8 +21,7 @@ const (
 	ansiBlackOnYel = "\x1b[1;30;43m"
 )
 
-// reporter accumulates the pass/warn/fail counts and writes the report. It is
-// the Go analog of the nested ok/fail/warn/_print_note closures in check().
+// reporter accumulates the pass/warn/fail counts and writes the report.
 type reporter struct {
 	w      io.Writer
 	color  bool
@@ -40,27 +38,25 @@ func (r *reporter) line(s string) { fmt.Fprintln(r.w, s) }
 
 func (r *reporter) blank() { fmt.Fprintln(r.w) }
 
-// section prints a bold section header (console.print("[bold]NAME[/bold]")).
+// section prints a bold section header.
 func (r *reporter) section(name string) {
 	r.line(r.style(name, ansiBold))
 }
 
-// dim prints a dim informational line. The Python form is
-// `console.print(" [dim]- <msg>[/dim]")` — two leading spaces, a "- " marker.
+// dim prints a dim informational line: two leading spaces, a "- " marker.
 func (r *reporter) dim(msg string) {
 	r.line("  " + r.style("- "+msg, ansiDim))
 }
 
-// note renders a (possibly multi-line) remediation note the way check()'s
-// _print_note does: first line prefixed with "-> ", continuation lines aligned.
-// The note text itself is dim.
+// note renders a (possibly multi-line) remediation note: first line prefixed
+// with "-> ", continuation lines aligned. The note text itself is dim.
 func (r *reporter) note(text string) {
 	if text == "" {
 		return
 	}
 	for _, l := range NoteLines(text) {
 		// NoteLines already prepends the indent+arrow; style the whole
-		// line dim to match Python's [dim] wrapping of each note line.
+		// line dim.
 		r.line(r.style(l, ansiDim))
 	}
 }
@@ -85,10 +81,9 @@ func (r *reporter) warn(msg, note string) {
 	r.note(note)
 }
 
-// warningLine prints a non-counting "Warning: <msg>" line (yellow).
-// bare console.print("[yellow]Warning: …[/yellow]") calls (e.g. env_sources file
-// not found during the preflight) — informational, NOT a graded [WARN] badge,
-// so it does NOT touch the warn count.
+// warningLine prints a non-counting "Warning: <msg>" line (yellow), e.g. an
+// env_sources file not found during the preflight — informational, NOT a graded
+// [WARN] badge, so it does NOT touch the warn count.
 func (r *reporter) warningLine(msg string) {
 	r.line(r.style("Warning: "+msg, ansiYellow))
 }
@@ -108,7 +103,7 @@ func (r *reporter) styledCount(n int, label, sgr string) string {
 }
 
 // summaryFailOnly renders the Config-Files early-exit summary: just the fail
-// count (check() line 1449-1451 — warnings are NOT shown here even if present).
+// count (warnings are NOT shown here even if present).
 func (r *reporter) summaryFailOnly() {
 	r.section("Summary")
 	r.line("  " + r.styledCount(r.failed, "failed", ansiRed))
@@ -116,7 +111,7 @@ func (r *reporter) summaryFailOnly() {
 }
 
 // summaryFailWarn renders the merged-validation early-exit summary: fail count
-// plus warnings when any (check() line 1495-1499).
+// plus warnings when any.
 func (r *reporter) summaryFailWarn() {
 	r.section("Summary")
 	parts := []string{r.styledCount(r.failed, "failed", ansiRed)}
@@ -128,7 +123,7 @@ func (r *reporter) summaryFailWarn() {
 }
 
 // summaryFinal renders the end-of-run summary: passed + optional failed +
-// optional warnings (check() line 2095-2101).
+// optional warnings.
 func (r *reporter) summaryFinal() {
 	r.section("Summary")
 	parts := []string{r.styledCount(r.passed, "passed", ansiGreen)}

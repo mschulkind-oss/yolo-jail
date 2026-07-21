@@ -44,8 +44,8 @@ func Main(argv []string) int {
 	// status codes) are captured for an unattended soak.
 	SetupLog(*logFile, *verbose || *verboseShort)
 
-	// Stamp the versioned User-Agent (Python-urllib's default UA triggers
-	// Cloudflare 1010 on platform.claude.com).
+	// Stamp the versioned User-Agent (a generic client UA triggers Cloudflare
+	// 1010 on platform.claude.com).
 	if v := version.Get(""); v != "" && v != "unknown" {
 		SetUserAgent("yolo-jail-oauth-broker/" + v)
 	}
@@ -75,8 +75,8 @@ func Main(argv []string) int {
 		return 1
 	}
 
-	// The refresh flock lives in the broker state dir — SAME path as Python's
-	// REFRESH_LOCK, so a Python and Go broker mutually exclude during rollout.
+	// The refresh flock lives in the broker state dir — the fixed rendezvous
+	// path every broker instance agrees on for kernel-flock serialization.
 	RefreshLockPath = filepath.Join(BrokerDir(), "refresh.lock")
 
 	// Startup snapshot of the shared creds file — lets tomorrow's debugger see

@@ -10,10 +10,9 @@ import (
 	"github.com/mschulkind-oss/yolo-jail/internal/shquote"
 )
 
-// GenerateShims it rmtree's SHIM_DIR, recreates
-// it, and writes one blocking/filtering shim per entry in YOLO_BLOCK_CONFIG.
-// An absent/empty/unparseable config leaves an empty SHIM_DIR (matching the
-// Python early returns).
+// GenerateShims clears the contents of SHIM_DIR and writes one
+// blocking/filtering shim per entry in YOLO_BLOCK_CONFIG.
+// An absent/empty/unparseable config leaves an empty SHIM_DIR.
 // The shim body is the frozen argv-filter contract: message/suggestion text +
 // exit code 127. See ShimContent for the exact grammar.
 func GenerateShims(e *Env) error {
@@ -23,10 +22,9 @@ func GenerateShims(e *Env) error {
 	// /home/agent is mounted read-only. os.RemoveAll(shimDir) tries to unlink the
 	// anchor top-down, fails EROFS on the read-only parent, and leaves every
 	// stale child shim in place — so unblocking a tool (e.g. dropping curl from
-	// blocked_tools) never takes effect on the next fresh launch. Python's
-	// shutil.rmtree(ignore_errors=True) recursed into the children first, so the
-	// stale shims WERE removed; ClearContents restores that semantic and matches
-	// the mount-anchor invariant codified in fsx.go. MkdirAll first so a
+	// blocked_tools) never takes effect on the next fresh launch. ClearContents
+	// recurses into the children so the stale shims ARE removed, matching the
+	// mount-anchor invariant codified in fsx.go. MkdirAll first so a
 	// first-ever run (no dir yet) still gets an empty dir.
 	if err := os.MkdirAll(shimDir, 0o755); err != nil {
 		return err
@@ -41,29 +39,28 @@ func GenerateShims(e *Env) error {
 	}
 	decoded, err := jsonx.Decode([]byte(blockJSON))
 	if err != nil {
-		// json.JSONDecodeError / TypeError -> return (no shims).
+		// Unparseable config -> no shims.
 		return nil
 	}
 	config, ok := decoded.([]any)
 	if !ok {
-		// Python would iterate a dict's keys and then crash on .get; a non-list
-		// config never occurs in real YOLO_BLOCK_CONFIG (always a JSON array),
-		// so we decline to act rather than reproduce a crash.
+		// A non-list config never occurs in real YOLO_BLOCK_CONFIG (always a
+		// JSON array), so we decline to act on it.
 		return nil
 	}
 
 	for _, item := range config {
 		cfg, ok := item.(*jsonx.OrderedMap)
 		if !ok {
-			// Non-object entry: Python's tool_cfg.get would AttributeError.
-			// Real configs are arrays of objects; skip defensively.
+			// Non-object entry: real configs are arrays of objects; skip
+			// defensively.
 			continue
 		}
 		name, ok := stringValue(cfg, "name")
 		if !ok || name == "" {
-			continue // Python: `if not name: continue`
+			continue // a nameless entry has no shim to write
 		}
-		// Python default: f"Error: tool {name} is blocked in this project."
+		// Default message when the entry supplies none.
 		msg := "Error: tool " + name + " is blocked in this project."
 		if v, present := cfg.Get("message"); present {
 			if s, isStr := v.(string); isStr {
@@ -91,8 +88,7 @@ func GenerateShims(e *Env) error {
 	return nil
 }
 
-// ShimContent renders the shim script body byte-for-byte as shims.generate_shims
-// does. Two flavors:
+// ShimContent renders the shim script body. Two flavors:
 //   - Filter shim (blockFlags non-empty AND realBin set): inspect argv against
 //     the glob patterns and only exit 127 when one matches, else exec the real
 //     binary. Long-option exact matches (--foo) come first, then a `--*` skip
@@ -100,8 +96,8 @@ func GenerateShims(e *Env) error {
 //   - Unconditional block: exit 127 with the message (and exec realBin after,
 //     only if realBin is set).
 //
-// msg/sug are embedded verbatim inside `echo "..."` — no shell escaping, exactly
-// as Python's f-strings do (the frozen contract).
+// msg/sug are embedded verbatim inside `echo "..."` — no shell escaping (the
+// frozen contract).
 func ShimContent(msg, sug, realBin string, blockFlags []string) string {
 	var lines []string
 	if len(blockFlags) > 0 && realBin != "" {
@@ -233,7 +229,7 @@ func GeneratePackageManagerLaunchers(e *Env) error {
 	stampDir := filepath.Join(e.Home, ".cache", "yolo-package-manager-stamps")
 	stampDirLiteral := shquote.Quote(stampDir)
 
-	// Python: npm_package_managers = {"pnpm": "pnpm"} (single entry).
+	// The only lazily-installed package manager is pnpm.
 	for _, pm := range []struct{ bin, pkg string }{{"pnpm", "pnpm"}} {
 		shimPath := filepath.Join(shimDir, pm.bin)
 		if pathExists(shimPath) {
@@ -251,8 +247,8 @@ func GeneratePackageManagerLaunchers(e *Env) error {
 	return nil
 }
 
-// npmLauncherTemplate is the byte-exact body of shims._npm_agent_launcher with
-// the f-string fields replaced by __YOLO_*__ sentinels.
+// npmLauncherTemplate is the npm agent launcher body, with the per-agent
+// fields replaced by __YOLO_*__ sentinels.
 const npmLauncherTemplate = `#!/bin/bash
 # Lazy-update launcher for __YOLO_BIN__ — installs/updates on first use, not at boot.
 set -euo pipefail
@@ -309,7 +305,7 @@ else
 fi
 `
 
-// nativeLauncherTemplate is the byte-exact body of shims._native_agent_launcher.
+// nativeLauncherTemplate is the native agent launcher body.
 const nativeLauncherTemplate = `#!/bin/bash
 # Lazy-update launcher for __YOLO_BIN__ — installs/updates on first use, not at boot.
 set -euo pipefail
@@ -348,8 +344,7 @@ else
 fi
 `
 
-// pkgManagerLauncherTemplate is the byte-exact body of
-// shims.generate_package_manager_launchers' per-manager launcher.
+// pkgManagerLauncherTemplate is the per-manager package-manager launcher body.
 const pkgManagerLauncherTemplate = `#!/bin/bash
 set -euo pipefail
 export NPM_CONFIG_PREFIX="${NPM_CONFIG_PREFIX:-$HOME/.npm-global}"

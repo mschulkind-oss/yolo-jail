@@ -11,7 +11,7 @@ import (
 )
 
 // TestAppleContainerMaterializesSingleFiles is the regression for the AC
-// single-file-mount workaround (run_cmd.py:2063 + 2881): on runtime=container,
+// single-file-mount workaround: on runtime=container,
 // yolo-user-env.sh and each agent's briefing must be COPIED into ws_state (so
 // the ws_state:/home/agent parent mount exposes them) rather than bind-mounted
 // as single files (which Apple Container silently drops). A prior version only

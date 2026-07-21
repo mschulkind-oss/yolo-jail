@@ -6,7 +6,7 @@ import (
 )
 
 func TestBadgeLines(t *testing.T) {
-	// ANSI-stripped forms from check_cmd.py: "  [PASS] msg" etc.
+	// ANSI-stripped forms: "  [PASS] msg" etc.
 	if got := PassLine("ok thing"); got != "  [PASS] ok thing" {
 		t.Errorf("PassLine = %q", got)
 	}
@@ -33,15 +33,15 @@ func TestNoteLines(t *testing.T) {
 	if !reflect.DeepEqual(got, want) {
 		t.Errorf("multi NoteLines =\n%q\nwant\n%q", got, want)
 	}
-	// Empty note: one arrow line with empty content (Python `or [note]`).
+	// Empty note: one arrow line with empty content.
 	if got := NoteLines(""); !reflect.DeepEqual(got, []string{"       -> "}) {
 		t.Errorf("empty NoteLines = %q", got)
 	}
-	// Trailing newline dropped like str.splitlines().
+	// A single trailing newline is dropped.
 	if got := NoteLines("only\n"); !reflect.DeepEqual(got, []string{"       -> only"}) {
 		t.Errorf("trailing-nl NoteLines = %q", got)
 	}
-	// \r\n (realistic tool stderr) splits like Python's splitlines(), not into
+	// \r\n (realistic tool stderr) splits on the boundary, not into
 	// one line with a trailing \r.
 	gotCRLF := NoteLines("a\r\nb\r\nc")
 	wantCRLF := []string{"       -> a", "          b", "          c"}

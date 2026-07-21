@@ -27,7 +27,7 @@ func configureTimezone(e *Env) {
 		tzdir = "/usr/share/zoneinfo"
 	}
 	zoneFile := filepath.Join(tzdir, tz)
-	// Python: zone_file.is_file() — a regular file (follows symlinks).
+	// Require a regular file (following symlinks).
 	if fi, err := os.Stat(zoneFile); err != nil || !fi.Mode().IsRegular() {
 		return
 	}
@@ -36,8 +36,7 @@ func configureTimezone(e *Env) {
 		return
 	}
 	localtime := filepath.Join(runDir, "localtime")
-	// Python: if localtime.is_symlink() or localtime.exists(): unlink().
-	// os.Remove drops either a symlink or a regular file; ignore ENOENT.
+	// Remove any existing localtime (symlink or regular file); ignore ENOENT.
 	if _, err := os.Lstat(localtime); err == nil {
 		if err := os.Remove(localtime); err != nil {
 			return

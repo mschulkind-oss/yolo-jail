@@ -9,8 +9,8 @@ import (
 
 // BrokerDir returns the writable state dir for the claude-oauth-broker
 // loophole — CA + leaf + refresh lock.
-// YOLO_BROKER_STATE_DIR is a test-only override (parity harness), mirrored in
-// the Python broker, so black-box tests don't touch the real ~/.local state.
+// YOLO_BROKER_STATE_DIR is a test-only override (parity harness) so black-box
+// tests don't touch the real ~/.local state.
 func BrokerDir() string {
 	if v := os.Getenv("YOLO_BROKER_STATE_DIR"); v != "" {
 		return v
@@ -50,7 +50,7 @@ func resolveOpenssl() string {
 	return ""
 }
 
-// runOpenssl execs openssl with args (byte-identical to Python's _openssl).
+// runOpenssl execs openssl with args.
 func runOpenssl(args ...string) error {
 	binary := resolveOpenssl()
 	if binary == "" {
@@ -65,8 +65,7 @@ func runOpenssl(args ...string) error {
 }
 
 // EnsureCAAndLeaf creates the CA + leaf cert pair on first run (idempotent).
-// The openssl invocations are byte-identical to ensure_ca_and_leaf — crypto/x509
-// migration is a LATER flagged change, not part of this no-change port.
+// A crypto/x509 migration is a LATER flagged change, deliberately deferred.
 func EnsureCAAndLeaf(force bool) error {
 	dir := BrokerDir()
 	if err := os.MkdirAll(dir, 0o755); err != nil {

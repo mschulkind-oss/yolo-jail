@@ -20,8 +20,8 @@ func agentAliases(e *Env) string {
 
 // YOLO_HOST_DIR (default "unknown"); mise_shims is the MISE_SHIMS path.
 func Bashrc(e *Env) string {
-	// Python: os.environ.get("YOLO_HOST_DIR", "unknown") — absent key defaults
-	// to "unknown"; an explicit (even empty) value is used verbatim.
+	// An absent YOLO_HOST_DIR defaults to "unknown"; an explicit (even empty)
+	// value is used verbatim.
 	hostDir, ok := e.Lookup("YOLO_HOST_DIR")
 	if !ok {
 		hostDir = "unknown"
@@ -48,8 +48,7 @@ func GenerateBashrc(e *Env) error {
 }
 
 // The bashrc template is split at the two interpolation points (host_dir and
-// mise_shims) and the conditional agent-aliases block, byte-exact with
-// shell.generate_bashrc.
+// mise_shims) and the conditional agent-aliases block.
 
 const bashrcPart1 = `# YOLO Jail Prompt
 YELLOW='\[\033[1;33m\]'
@@ -88,7 +87,7 @@ export PI_TELEMETRY=0
 # (ssl, requests, httpx), curl, and git all verify the same roots the
 # in-jail broker leafs are signed by.  NODE_EXTRA_CA_CERTS is set by
 # the container launcher to just the extras (Node adds them to its own
-# bundled roots).  See generate_ca_bundle() in entrypoint.py.
+# bundled roots).  See GenerateCABundle in system.go.
 if [ -f "$HOME/.yolo-ca-bundle.crt" ]; then
     export SSL_CERT_FILE="$HOME/.yolo-ca-bundle.crt"
     export REQUESTS_CA_BUNDLE="$HOME/.yolo-ca-bundle.crt"
@@ -129,7 +128,7 @@ alias ll='ls -alF'
 `
 
 const bashrcPart4 = `# Agent YOLO flags: gemini/copilot get a --yolo alias above (when selected);
-# claude gets --dangerously-skip-permissions injected by cli.py (with
+# claude gets --dangerously-skip-permissions injected by the CLI (with
 # IS_SANDBOX=1 to bypass the root check); opencode/pi auto-approve via their
 # own config files.
 alias vi='nvim'
@@ -149,8 +148,7 @@ func BootstrapScript(e *Env) string {
 	return strings.Replace(bootstrapTemplate, "__YOLO_MISE_SHIMS__", e.MiseShims(), 1)
 }
 
-// bootstrapTemplate is the byte-exact body of shell.generate_bootstrap_script
-// (an rf"""...""" string). Python-doubled braces {{ }} become literal { } here.
+// bootstrapTemplate is the body of the bootstrap script.
 const bootstrapTemplate = `#!/bin/bash
 export NPM_CONFIG_PREFIX="${NPM_CONFIG_PREFIX:-$HOME/.npm-global}"
 export NPM_CONFIG_CACHE="${NPM_CONFIG_CACHE:-$HOME/.cache/npm}"
@@ -260,8 +258,7 @@ func GenerateVenvPrecreateScript(e *Env) error {
 	return writeExecutable(e.Home+"/.yolo-venv-precreate.sh", venvPrecreateScript)
 }
 
-// venvPrecreateScript is the byte-exact body of shell.generate_venv_precreate_script
-// (a plain r"""...""" string — no interpolation).
+// venvPrecreateScript is the venv-precreate script body (no interpolation).
 const venvPrecreateScript = `#!/bin/bash
 # Pre-create python venvs to avoid a mise shim deadlock.
 # When _.python.venv={create:true} is configured, mise hook-env spawns

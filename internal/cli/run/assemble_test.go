@@ -74,8 +74,8 @@ func goldenOptions(workspace, home string) *Options {
 
 // TestAssembleRunCmdPodmanLinuxGolden pins the ordered container argv for a
 // minimal podman/linux launch (single claude agent, empty security, no
-// network/mounts/devices). The whole argv must be byte-identical to the Python
-// run() assembly.
+// network/mounts/devices). The whole argv is a frozen contract — it must not
+// drift, since the entrypoint depends on the exact flags and env.
 func TestAssembleRunCmdPodmanLinuxGolden(t *testing.T) {
 	ws := "/ws"
 	home := t.TempDir()
@@ -172,7 +172,7 @@ func TestAssemblePlatformSeamsInjectable(t *testing.T) {
 	}
 }
 
-// podmanLinuxGolden is the expected ordered argv, derived by reading run_cmd.py.
+// podmanLinuxGolden is the expected ordered argv.
 func podmanLinuxGolden(home string) []string {
 	ws := "/ws"
 	wsState := "/ws/.yolo/home"

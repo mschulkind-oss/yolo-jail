@@ -16,13 +16,13 @@ var infraCommands = map[string]struct{}{
 }
 
 // StuckReasonFromTop analyzes `podman top <name> -eo comm` stdout and returns a
-// reason string if the container is stuck, or "" if healthy.
-// logic of _check_container_stuck: drop the header row, strip blanks; no
-// processes => "no processes"; if every remaining process is provisioning or
-// infra (no genuine user command) => "stuck in provisioning".
+// reason string if the container is stuck, or "" if healthy: drop the header
+// row, strip blanks; no processes => "no processes"; if every remaining process
+// is provisioning or infra (no genuine user command) => "stuck in
+// provisioning".
 //
 // This is Apple-Container-agnostic: the caller skips it for the container
-// runtime (which has no `top`), matching the Python early-return.
+// runtime (which has no `top`).
 func StuckReasonFromTop(stdout string) string {
 	var procs []string
 	for _, line := range tableRows(stdout) {

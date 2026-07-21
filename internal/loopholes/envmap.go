@@ -1,9 +1,9 @@
 package loopholes
 
-// EnvMap is an insertion-ordered string->string map, mirroring a Python dict
-// built from a JSON object (jail_env, host_daemon.env). Order matters: Python
-// dict iteration order is the manifest's key order, and runtime_args_for emits
-// `-e K=V` in that order, so argv byte-parity depends on preserving it.
+// EnvMap is an insertion-ordered string->string map built from a JSON object
+// (jail_env, host_daemon.env). Order matters: iteration order is the manifest's
+// key order, and runtime_args_for emits `-e K=V` in that order, so argv
+// byte-stability depends on preserving it.
 type EnvMap struct {
 	keys   []string
 	values map[string]string
@@ -15,7 +15,7 @@ func NewEnvMap() *EnvMap {
 }
 
 // Set inserts or updates key. A new key is appended; updating an existing key
-// keeps its position (Python dict semantics).
+// keeps its position.
 func (m *EnvMap) Set(key, value string) {
 	if _, ok := m.values[key]; !ok {
 		m.keys = append(m.keys, key)
@@ -44,9 +44,9 @@ func (m *EnvMap) Clone() *EnvMap {
 	return out
 }
 
-// MergedWith returns {**m, **other}: m's entries in order, then other's entries
-// (new keys appended, existing keys updated in place — matching Python's
-// dict-unpack merge where the left operand's key order wins for shared keys).
+// MergedWith returns the merge of m and other: m's entries in order, then
+// other's entries (new keys appended, existing keys updated in place — the
+// left operand's key order wins for shared keys).
 func (m *EnvMap) MergedWith(other *EnvMap) *EnvMap {
 	out := m.Clone()
 	if other != nil {

@@ -12,12 +12,12 @@ import (
 	"github.com/mschulkind-oss/yolo-jail/internal/hostservice"
 )
 
-// The Stage-5 black-box suite (plan § Parity): drive the Go daemon over
-// a real socket with a PATH-shimmed fake `ps`, covering list/tree/pid, the
-// exit-code contract (0/1/2/3/124), per-request config re-read, empty-allowlist,
-// and the audit-found failure/edge paths (non-string mode, tree timeout, tree
-// ps-nonzero-empty -> exit 0). Byte-level where the fake ps makes output
-// deterministic. The daemon runs in-process (BuildHandler + hostservice.Serve).
+// The black-box suite: drive the daemon over a real socket with a
+// PATH-shimmed fake `ps`, covering list/tree/pid, the exit-code contract
+// (0/1/2/3/124), per-request config re-read, empty-allowlist, and the
+// failure/edge paths (non-string mode, tree timeout, tree ps-nonzero-empty ->
+// exit 0). Byte-level where the fake ps makes output deterministic. The daemon
+// runs in-process (BuildHandler + hostservice.Serve).
 
 func startDaemon(t *testing.T, configPath, fakePSDir string) (sock string, stop func()) {
 	t.Helper()
@@ -190,14 +190,14 @@ func TestBlackboxTreeNonzeroEmptyExit0(t *testing.T) {
 	}
 	cfgDir := t.TempDir()
 	cfg := writeConfig(t, cfgDir, `{"host_processes":{"visible":["sway"]}}`)
-	// fake ps exits 1 with EMPTY stdout -> Python reads stdout regardless ->
+	// fake ps exits 1 with EMPTY stdout -> stdout is read regardless ->
 	// exit 0 empty, NOT an error.
 	ps := fakePS(t, "exit 1\n")
 	sock, stop := startDaemon(t, cfg, ps)
 	defer stop()
 	out, stderr, rc := query(t, sock, map[string]any{"mode": "tree"})
 	if rc != 0 {
-		t.Errorf("tree ps-nonzero-empty rc=%d, want 0 (Python reads stdout regardless)", rc)
+		t.Errorf("tree ps-nonzero-empty rc=%d, want 0 (stdout read regardless of exit)", rc)
 	}
 	if len(out) != 0 || len(stderr) != 0 {
 		t.Errorf("tree ps-nonzero-empty out=%q stderr=%q, want empty", out, stderr)

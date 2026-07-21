@@ -37,10 +37,10 @@ func clearOwnerPID(cname string) {
 	_ = os.Remove(ownerPIDFile(cname))
 }
 
-// pidAlive ports _pid_alive: True if a process with pid exists (owned by
-// anyone). ProcessLookupError → dead; PermissionError → alive; any other error →
-// assume alive (never reap a jail we can't prove is orphaned). execx's tri-state
-// maps LivenessUnknown → alive here (the conservative _pid_alive polarity).
+// pidAlive is true if a process with pid exists (owned by anyone). Process not
+// found → dead; permission denied → alive; any other error → assume alive
+// (never reap a jail we can't prove is orphaned). execx's tri-state maps
+// LivenessUnknown → alive here (the conservative polarity).
 func pidAlive(pid int) bool {
 	switch execx.ProcessLiveness(pid) {
 	case execx.LivenessDead:
@@ -50,8 +50,8 @@ func pidAlive(pid int) bool {
 	}
 }
 
-// findRunningContainer ports find_running_container: the container ID/name if a
-// container with this name is running, else "". Uses the Exec seam.
+// findRunningContainer returns the container ID/name if a container with this
+// name is running, else "". Uses the Exec seam.
 func (o *Options) findRunningContainer(cname, rt string) string {
 	if rt == "container" {
 		res := o.Exec([]string{"container", "ls"}, "", nil, 0)
@@ -73,7 +73,8 @@ func (o *Options) findRunningContainer(cname, rt string) string {
 	return strings.TrimSpace(res.Stdout)
 }
 
-// findExistingContainer ports find_existing_container: running OR stopped.
+// findExistingContainer returns the container ID/name if it exists, running OR
+// stopped.
 func (o *Options) findExistingContainer(cname, rt string) string {
 	if rt == "container" {
 		res := o.Exec([]string{"container", "ls", "--all"}, "", nil, 0)
@@ -95,7 +96,7 @@ func (o *Options) findExistingContainer(cname, rt string) string {
 	return strings.TrimSpace(res.Stdout)
 }
 
-// removeStaleContainer ports _remove_stale_container.
+// removeStaleContainer force-removes a container and clears its tracking.
 func (o *Options) removeStaleContainer(cname, rt string) bool {
 	var res ExecResult
 	if rt == "container" {
@@ -110,7 +111,7 @@ func (o *Options) removeStaleContainer(cname, rt string) bool {
 	return false
 }
 
-// liveYoloContainers ports _live_yolo_containers: names of yolo-* containers
+// liveYoloContainers returns the names of yolo-* containers
 // running/paused/restarting, or (nil, false) when the runtime can't be
 // enumerated ("liveness unknown" — never read as "nothing live").
 func (o *Options) liveYoloContainers(rt string) (map[string]struct{}, bool) {
@@ -128,8 +129,8 @@ func (o *Options) liveYoloContainers(rt string) (map[string]struct{}, bool) {
 	return runtime.ParsePodmanLive(res.Stdout), true
 }
 
-// stopJail ports _stop_jail: best-effort stop (--rm removes it), then drop the
-// owner-PID file. Bounded timeout so teardown can't hang.
+// stopJail does a best-effort stop (--rm removes it), then drops the owner-PID
+// file. Bounded timeout so teardown can't hang.
 func (o *Options) stopJail(cname, rt string) {
 	if rt == "container" {
 		o.Exec([]string{"container", "stop", cname}, "", nil, 30*time.Second)
@@ -140,8 +141,8 @@ func (o *Options) stopJail(cname, rt string) {
 	clearOwnerPID(cname)
 }
 
-// reapOrphanedJails ports _reap_orphaned_jails: stop running jails whose owning
-// yolo-run process is gone. Conservative — only reaps what it can prove orphaned
+// reapOrphanedJails stops running jails whose owning yolo-run process is gone.
+// Conservative — only reaps what it can prove orphaned
 // (a live jail with a dead recorded owner PID). Apple Container has no owner-PID
 // lifecycle yet, so it's a no-op there.
 func (o *Options) reapOrphanedJails(rt string) {
@@ -169,8 +170,8 @@ func (o *Options) reapOrphanedJails(rt string) {
 	}
 }
 
-// maybeWarnAboutOOMKiller ports _maybe_warn_about_oom_killer: on macOS+podman
-// exit 137 with a Podman Machine under the recommended memory floor, print the
+// maybeWarnAboutOOMKiller: on macOS+podman exit 137 with a Podman Machine under
+// the recommended memory floor, print the
 // OOM hint. A single `podman machine inspect` probe.
 func (o *Options) maybeWarnAboutOOMKiller(exitCode int, rt string) {
 	if !(o.IsMacOS && rt == "podman" && exitCode == 137) {
@@ -183,7 +184,7 @@ func (o *Options) maybeWarnAboutOOMKiller(exitCode int, rt string) {
 	}
 }
 
-// podmanMachineMemory ports _podman_machine_memory via the Exec seam + the
+// podmanMachineMemory probes the Podman Machine via the Exec seam + the
 // runtime parser. Returns (name, memMB, ok).
 func (o *Options) podmanMachineMemory() (string, int, bool) {
 	res := o.Exec([]string{"podman", "machine", "inspect"}, "", nil, 5*time.Second)
@@ -193,8 +194,8 @@ func (o *Options) podmanMachineMemory() (string, int, bool) {
 	return parsePodmanMachineMemory(res.Stdout)
 }
 
-// parsePodmanMachineMemory runs the JSON parse of _podman_machine_memory:
-// prefer a running machine, else the first; read Resources.Memory (MB).
+// parsePodmanMachineMemory parses `podman machine inspect` JSON: prefer a
+// running machine, else the first; read Resources.Memory (MB).
 func parsePodmanMachineMemory(stdout string) (string, int, bool) {
 	decoded, err := jsonx.Decode([]byte(stdout))
 	if err != nil {
@@ -246,7 +247,7 @@ func parsePodmanMachineMemory(stdout string) (string, int, bool) {
 }
 
 // tableBody returns the non-header lines of a runtime `ls` table (skip the first
-// line), matching splitlines()[1:] with the empty-input guard.
+// line), with an empty-input guard.
 func tableBody(stdout string) []string {
 	trimmed := strings.TrimSpace(stdout)
 	if trimmed == "" {

@@ -5,12 +5,11 @@ import (
 	"sort"
 )
 
-// difflib.go ports the slice of Python's difflib that _check_config_changes
-// uses: SequenceMatcher over line lists + unified_diff. The diff is shown to a
-// human at the interactive config-change prompt, so it output
-// format exactly (header lines, @@ hunk ranges, ' '/'+'/'-' prefixes, 3 lines
-// of context). Faithful to CPython Lib/difflib.py (SequenceMatcher,
-// get_grouped_opcodes, unified_diff) for the autojunk-disabled small inputs a
+// difflib.go implements the slice of unified-diff machinery that
+// CheckConfigChanges uses: SequenceMatcher over line lists + unified_diff. The
+// diff is shown to a human at the interactive config-change prompt, so it
+// reproduces the standard unified-diff output format (header lines, @@ hunk
+// ranges, ' '/'+'/'-' prefixes, 3 lines of context) for the small inputs a
 // config snapshot produces.
 
 type opcode struct {
@@ -31,8 +30,8 @@ func newSeqMatcher(a, b []string) *seqMatcher {
 	return m
 }
 
-// chainB builds b2j and the autojunk popular-element set, mirroring
-// SequenceMatcher.__chain_b (isjunk=None; autojunk=True default).
+// chainB builds b2j and the autojunk popular-element set (isjunk=none;
+// autojunk enabled).
 func (m *seqMatcher) chainB() {
 	b := m.b
 	m.b2j = map[string][]int{}

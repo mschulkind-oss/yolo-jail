@@ -7,10 +7,9 @@ import (
 	"github.com/mschulkind-oss/yolo-jail/internal/jsonx"
 )
 
-// writeUserEnvFile ports run()'s yolo-user-env.sh writer (1997-2012) — a FROZEN
-// cross-language contract (Go-writer / Python-reader round-trip; the reader is
-// entrypoint._hydrate_env_from_user_env_file). When userEnv is non-empty it
-// writes the two header comment lines then one
+// writeUserEnvFile writes yolo-user-env.sh. Frozen contract (must not drift —
+// the in-jail entrypoint reads this file back and depends on the exact format).
+// When userEnv is non-empty it writes the two header comment lines then one
 //
 //	export K=${K:-'v'}
 //

@@ -8,7 +8,7 @@ import (
 	"github.com/mschulkind-oss/yolo-jail/internal/storage"
 )
 
-// autoLoadImage ports run()'s auto_load_image call path: build/load the nix jail
+// autoLoadImage builds/loads the nix jail
 // image, returning false when no runnable image could be made available (the
 // caller must exit(1) instead of a doomed launch). The failure diagnosis uses
 // the same nixdiag classifier + Linux-builder remedy the check slice uses, so
@@ -30,7 +30,7 @@ func (o *Options) autoLoadImage(cfg *jsonx.OrderedMap, rt, repoRoot string) bool
 	})
 }
 
-// linuxBuilderRemedy resolves _linux_builder_remedy: the remedy template with
+// linuxBuilderRemedy resolves the remedy template with
 // the detected nix-daemon launchd label substituted (macOS), else a default.
 func linuxBuilderRemedy() string {
 	label := "org.nixos.nix-daemon"

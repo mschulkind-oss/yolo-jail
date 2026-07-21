@@ -8,17 +8,14 @@ import (
 	"github.com/mschulkind-oss/yolo-jail/internal/jsonx"
 )
 
-// SnapshotJSON returns the config-snapshot bytes: json.dumps(config, indent=2,
-// sort_keys=True) with ensure_ascii (Python's default). This is the highest-
-// priority byte-parity gate — a single byte of drift fires a spurious config-
-// approval prompt on every Python<->Go switch.
-// Note config.py uses json.dumps(config, indent=2, sort_keys=True) WITHOUT an
-// explicit ensure_ascii, so it defaults to True — exactly jsonx.DumpsSnapshot.
+// SnapshotJSON returns the config-snapshot bytes: 2-space indent, sorted keys,
+// ASCII-escaped (jsonx.DumpsSnapshot). Frozen contract (must not drift — a
+// single byte of drift fires a spurious config-approval prompt).
 func SnapshotJSON(config *jsonx.OrderedMap) (string, error) {
 	return jsonx.DumpsSnapshot(config)
 }
 
-// ConfigSnapshotPath ports _config_snapshot_path: <workspace>/.yolo/config-snapshot.json.
+// ConfigSnapshotPath is <workspace>/.yolo/config-snapshot.json.
 func ConfigSnapshotPath(workspace string) string {
 	return filepath.Join(workspace, ".yolo", "config-snapshot.json")
 }
@@ -33,8 +30,8 @@ type ChangePrompter interface {
 	Prompt(diffLines []string) bool
 }
 
-// CheckConfigChanges ports _check_config_changes. Compares config against the
-// last-seen snapshot; returns true to proceed, false to abort.
+// CheckConfigChanges compares config against the last-seen snapshot; returns
+// true to proceed, false to abort.
 //   - First run / no snapshot: write current + "\n", return true.
 //   - Unchanged (old.rstrip() == current, no trailing "\n" on the compare):
 //     return true.
@@ -42,7 +39,7 @@ type ChangePrompter interface {
 //   - Changed + tty: delegate to prompter; on accept rewrite snapshot + return
 //     true, else return false (snapshot NOT rewritten).
 //
-// The rstrip-compare asymmetry is preserved: the stored file has a trailing
+// The rstrip-compare asymmetry is deliberate: the stored file has a trailing
 // "\n" (written as current+"\n"), but the comparison rstrips the OLD text and
 // compares to current (which has NO trailing "\n"). isTTY and prompter are
 // injected so this is testable without a real terminal.
@@ -65,7 +62,6 @@ func CheckConfigChanges(workspace string, config *jsonx.OrderedMap, isTTY bool, 
 		return false, readErr
 	}
 
-	// Python: old_json = snapshot_path.read_text().rstrip()
 	oldJSON := pyRstrip(string(oldBytes))
 	if oldJSON == currentJSON {
 		return true, nil
@@ -105,9 +101,10 @@ func writeSnapshot(path, currentJSON string) error {
 	return os.WriteFile(path, []byte(currentJSON+"\n"), 0o644)
 }
 
-// (Python's str.isspace set — the ASCII set plus a few unicode spaces). For the
-// snapshot file the only trailing whitespace is the "\n" we wrote, but match
-// Python's full set to be faithful.
+// pyRstrip trims trailing whitespace using the same whitespace set as
+// str.strip() (the ASCII set plus a few unicode spaces). For the snapshot file
+// the only trailing whitespace is the "\n" we wrote, but the full set keeps the
+// rstrip-compare robust.
 func pyRstrip(s string) string {
 	return strings.TrimRightFunc(s, isPySpace)
 }
@@ -119,7 +116,7 @@ func isPySpace(r rune) bool {
 		0x2028, 0x2029:
 		return true
 	}
-	// Broader unicode whitespace Python's str.strip() also removes.
+	// Broader unicode whitespace also removed by str.strip().
 	switch {
 	case r >= 0x2000 && r <= 0x200a:
 		return true
@@ -129,7 +126,7 @@ func isPySpace(r rune) bool {
 	return false
 }
 
-// occurs, but be faithful to Python's line boundaries used by difflib).
+// splitLines splits on the same line boundaries difflib uses.
 func splitLines(s string) []string {
 	if s == "" {
 		return nil

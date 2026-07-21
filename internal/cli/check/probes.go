@@ -12,7 +12,7 @@ import (
 	"github.com/mschulkind-oss/yolo-jail/internal/runtime"
 )
 
-// runtimeForCheck ports _runtime_for_check: resolve the effective runtime
+// runtimeForCheck resolves the effective runtime
 // without exiting. Returns (runtime, errorMessage). A native (macos-user)
 // selection short-circuits before any which/probe. Only returns container
 // runtimes whose daemon is actually reachable.
@@ -67,7 +67,7 @@ func (o *Options) runtimeForCheck(config *jsonx.OrderedMap) (string, string) {
 	return "", "No container runtime found on PATH"
 }
 
-// nativeRuntimeCheck ports _native_runtime_check. The third return is true when
+// nativeRuntimeCheck reports whether rt is a native runtime. The third return is true when
 // rt is a native runtime (the caller should use the returned rt/errMsg); false
 // means "not native, continue normal resolution".
 func (o *Options) nativeRuntimeCheck(rt, source string) (string, string, bool) {
@@ -81,7 +81,7 @@ func (o *Options) nativeRuntimeCheck(rt, source string) (string, string, bool) {
 	return rt, "", true
 }
 
-// runtimeIsConnectable ports _runtime_is_connectable: does the daemon answer?
+// runtimeIsConnectable reports whether the daemon answers.
 func (o *Options) runtimeIsConnectable(rt string) bool {
 	if rt == "container" {
 		res := o.Exec([]string{"container", "system", "status"}, "", nil, 5*time.Second)
@@ -97,8 +97,8 @@ func (o *Options) runtimeIsConnectable(rt string) bool {
 	return res.RC == 0
 }
 
-// isAppleContainer ports _is_apple_container: is the binary Apple's container
-// CLI (not some other `container`)?
+// isAppleContainer reports whether the binary is Apple's container
+// CLI (not some other `container`).
 func (o *Options) isAppleContainer(path string) bool {
 	res := o.Exec([]string{path, "--version"}, "", nil, 5*time.Second)
 	if !res.Ran || res.Timeout {
@@ -108,7 +108,7 @@ func (o *Options) isAppleContainer(path string) bool {
 	return strings.Contains(out, "Apple") || strings.Contains(out, "container CLI version")
 }
 
-// detectRuntimeForListing ports _detect_runtime_for_listing: first SUPPORTED
+// detectRuntimeForListing returns the first SUPPORTED
 // runtime on PATH, or "".
 func (o *Options) detectRuntimeForListing() string {
 	for _, rt := range paths.SupportedRuntimes {
@@ -119,7 +119,7 @@ func (o *Options) detectRuntimeForListing() string {
 	return ""
 }
 
-// detectRuntime ports _detect_runtime: YOLO_RUNTIME or "podman".
+// detectRuntime returns YOLO_RUNTIME or "podman".
 func (o *Options) detectRuntime() string {
 	if v := o.Getenv("YOLO_RUNTIME"); v != "" {
 		return v
@@ -127,7 +127,7 @@ func (o *Options) detectRuntime() string {
 	return "podman"
 }
 
-// listRunningJailNames ports list_running_jail_names: (names, errorMessage).
+// listRunningJailNames returns (names, errorMessage).
 // errorMessage is non-empty only when listing genuinely failed.
 func (o *Options) listRunningJailNames(rt string) ([]string, string) {
 	if rt == "container" {
@@ -162,7 +162,7 @@ func (o *Options) listRunningJailNames(rt string) ([]string, string) {
 	return runtime.ParseRunningJailNames(res.Stdout), ""
 }
 
-// getContainerWorkspace ports _get_container_workspace: the tracking file first
+// getContainerWorkspace consults the tracking file first
 // (fast), then the runtime inspect env fallback, else "unknown".
 func (o *Options) getContainerWorkspace(name, rt string) string {
 	if ws, ok := runtime.ReadContainerWorkspace(name); ok {
@@ -187,7 +187,7 @@ func (o *Options) getContainerWorkspace(name, rt string) string {
 	return "unknown"
 }
 
-// _get_container_workspace: data["config"]["env"] scanned for YOLO_HOST_DIR=.
+// parseAppleInspectWorkspace scans data["config"]["env"] for YOLO_HOST_DIR=.
 func parseAppleInspectWorkspace(stdout string) (string, bool) {
 	decoded, err := jsonx.Decode([]byte(stdout))
 	if err != nil {
@@ -215,7 +215,7 @@ func parseAppleInspectWorkspace(stdout string) (string, bool) {
 	return "", false
 }
 
-// checkContainerStuck ports _check_container_stuck: returns a reason string if
+// checkContainerStuck returns a reason string if
 // stuck, "" if healthy (or the runtime has no `top`).
 func (o *Options) checkContainerStuck(name, rt string) string {
 	if rt == "container" {
@@ -228,7 +228,7 @@ func (o *Options) checkContainerStuck(name, rt string) string {
 	return runtime.StuckReasonFromTop(res.Stdout)
 }
 
-// podmanMachineMemory ports _podman_machine_memory: (name, memMB, ok).
+// podmanMachineMemory returns (name, memMB, ok).
 func (o *Options) podmanMachineMemory() (string, int, bool) {
 	res := o.Exec([]string{"podman", "machine", "inspect"}, "", nil, 5*time.Second)
 	if !res.Ran || res.Timeout || res.RC != 0 || strings.TrimSpace(res.Stdout) == "" {
@@ -265,8 +265,8 @@ func (o *Options) podmanMachineMemory() (string, int, bool) {
 	resV, _ := machine.Get("Resources")
 	resources, ok := resV.(*jsonx.OrderedMap)
 	if !ok {
-		// `machine.get("Resources") or {}` — a missing/None Resources yields no
-		// Memory, so this is not a valid reading.
+		// A missing/absent Resources yields no Memory, so this is not a valid
+		// reading.
 		return "", 0, false
 	}
 	memV, _ := resources.Get("Memory")
@@ -316,8 +316,8 @@ func inStrSlice(list []string, s string) bool {
 // kept in step-parity with run's resolver (internal/cli/run/probes.go) so check
 // and run agree on where the repo is: (1) the YOLO_REPO_ROOT env var (validated
 // to contain source), (2) a source-checkout walk up from cwd, (4) the user
-// config's repo_path. Returns (path, ok); ok=false is the Python SystemExit
-// branch. Step 3 (installed-wheel/bundle staging) is deliberately omitted —
+// config's repo_path. Returns (path, ok); ok=false means the repo could not be
+// located. Step 3 (installed-wheel/bundle staging) is deliberately omitted —
 // staging has side effects and is owned by the run slice; check only needs a
 // root that resolves to a flake.nix.
 func resolveRepoRoot(getenv func(string) string) (string, bool) {

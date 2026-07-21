@@ -10,10 +10,10 @@ import (
 	"github.com/mschulkind-oss/yolo-jail/internal/storage"
 )
 
-// nixDryRunWillBuild ports _nix_dry_run_will_build: run `nix build .#ociImage
-// --dry-run` in repoRoot and classify its stderr via
+// nixDryRunWillBuild runs `nix build .#ociImage
+// --dry-run` in repoRoot and classifies its stderr via
 // nixdiag.ParseDryRunWillBuild. extraPackages is JSON-encoded into
-// YOLO_EXTRA_PACKAGES for the child (the Python env["YOLO_EXTRA_PACKAGES"]).
+// YOLO_EXTRA_PACKAGES for the child.
 func (o *Options) nixDryRunWillBuild(repoRoot string, extraPackages []any) (nixdiag.WillBuild, []string) {
 	argv := []string{
 		"nix", "--extra-experimental-features", "nix-command flakes",
@@ -32,8 +32,8 @@ func (o *Options) nixDryRunWillBuild(repoRoot string, extraPackages []any) (nixd
 	return nixdiag.ParseDryRunWillBuild(res.RC, res.Stderr, true)
 }
 
-// hasLinuxBuilder ports _has_linux_builder: is a usable aarch64-linux builder
-// reachable per `nix config show` + @/etc/nix/machines?
+// hasLinuxBuilder reports whether a usable aarch64-linux builder
+// is reachable per `nix config show` + @/etc/nix/machines.
 func (o *Options) hasLinuxBuilder() bool {
 	res := o.Exec([]string{"nix", "config", "show"}, "", nil, 10*time.Second)
 	cfg := ""
@@ -49,7 +49,7 @@ func (o *Options) hasLinuxBuilder() bool {
 	})
 }
 
-// linuxBuilderRemedy resolves _linux_builder_remedy: the remedy template with
+// linuxBuilderRemedy returns the remedy template with
 // the daemon label filled in.
 func linuxBuilderRemedy() string {
 	label, ok := storage.DetectNixDaemonLabel()
@@ -59,7 +59,7 @@ func linuxBuilderRemedy() string {
 	return nixdiag.LinuxBuilderRemedy(label)
 }
 
-// preflightBuilderNeeds ports _preflight_builder_needs. Returns a tri-state:
+// preflightBuilderNeeds returns a tri-state:
 // true  → the build is viable (fully cached, builder present, or inconclusive);
 // false → known-doomed (skip the real build, one clear message already emitted).
 func (o *Options) preflightBuilderNeeds(r *reporter, repoRoot string, extraPackages []any) bool {

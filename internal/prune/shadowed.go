@@ -9,8 +9,8 @@ import (
 // ShadowedHomePaths is the frozen registry of :ro GLOBAL_HOME seed subtrees that
 // are fully overlay-masked at jail runtime, so their contents can never be read
 // by a live jail but accumulate tens of GiB from pre-cache-split installs.
-// Frozen from prune.py:SHADOWED_HOME_PATHS. The Python drift-check greps cli.py
-// to enforce every entry is genuinely shadowed by an overlay mount.
+// Frozen contract (must not drift — every entry must be genuinely shadowed by an
+// overlay mount declared in the run package's mount assembly).
 var ShadowedHomePaths = []string{
 	".cache",
 	".npm",
@@ -23,9 +23,8 @@ var ShadowedHomePaths = []string{
 // ShadowedHomePaths. Directories are EMPTIED but PRESERVED — they anchor live
 // jails' overlay mounts, so rmtree'ing the dir itself would orphan those mounts
 // in-place (observed incident 2026-07-04). Symlinks are unlinked but never
-// traversed. Returns (bytesRemoved, itemsRemoved).
-// exactly, including the delete-CONTENTS-never-the-dir discipline and the
-// per-child failure handling (a failed child skips counting the whole entry).
+// traversed. Returns (bytesRemoved, itemsRemoved). A failed child skips counting
+// the whole entry.
 func PruneShadowedHome(globalHome string, apply bool) (bytesRemoved int64, itemsRemoved int) {
 	info, err := os.Stat(globalHome)
 	if err != nil || !info.IsDir() {
@@ -33,8 +32,9 @@ func PruneShadowedHome(globalHome string, apply bool) (bytesRemoved int64, items
 	}
 
 	for _, rel := range ShadowedHomePaths {
-		// Refuse suspicious registry entries defensively (compile-time constant,
-		// but matches Python's guard exactly).
+		// Refuse suspicious registry entries defensively (a compile-time
+		// constant today, but guard against a bad edit that would escape
+		// globalHome).
 		suspicious := rel == "" || strings.HasPrefix(rel, "/")
 		for _, part := range strings.Split(rel, "/") {
 			if part == ".." {

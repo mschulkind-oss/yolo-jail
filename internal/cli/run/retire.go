@@ -9,7 +9,7 @@ import (
 	"github.com/mschulkind-oss/yolo-jail/internal/jsonx"
 )
 
-// retireJailMadeVenv ports _retire_jail_made_venv: delete workspace venvs a jail
+// retireJailMadeVenv deletes workspace venvs a jail
 // materialized under the old shared-store model. Host-side only (skip in-jail),
 // only on the fresh-container path. Detection: pyvenv.cfg's `home =` names a
 // jail-flavored interpreter dir (/workspace/, /mise/, or the old shared

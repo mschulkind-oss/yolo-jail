@@ -9,7 +9,7 @@ import (
 	"github.com/mschulkind-oss/yolo-jail/internal/jsonx"
 )
 
-// hostClaudeFileArgs runs the host ~/.claude file mounting (2744-2797): mount
+// hostClaudeFileArgs builds the host ~/.claude file mounts: mount
 // each configured host_claude_files entry (default ["settings.json"]) plus any
 // scripts referenced by settings.json (fileSuggestion/statusLine/hooks) that
 // live under ~/.claude/. Claude only.
@@ -52,7 +52,7 @@ func (o *Options) hostClaudeFileArgs(cfg *jsonx.OrderedMap, rt string, in *assem
 	return args
 }
 
-// hostPiFileArgs runs the host ~/.pi/agent file mounting (run_cmd.py:2851-2871):
+// hostPiFileArgs builds the host ~/.pi/agent file mounts:
 // mount each configured host_pi_files entry (default ["settings.json"]) verbatim.
 // Unlike claude, pi has no hooks/statusLine/fileSuggestion, so there is NO script
 // auto-discovery — the settings.json three-way merge happens jail-side in

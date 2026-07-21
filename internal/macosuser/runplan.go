@@ -17,8 +17,7 @@ type RunPlan struct {
 	Seatbelt    string
 	// StagedDir is the root-owned state dir; StagedYolo is the staged yolo
 	// binary the sandbox self-execs. StageCommands stage that binary
-	// (fresh-inode copy). The Python interpreter/bootstrap-script fields were
-	// dropped in the J2 native re-port.
+	// (fresh-inode copy).
 	StagedDir          string
 	StagedYolo         string
 	StageCommands      [][]string
@@ -26,7 +25,7 @@ type RunPlan struct {
 	LaunchArgv         []string
 	GitIdentity        *jsonx.OrderedMap
 	OffendingHome      string // "" when on neutral ground
-	OffendingHomeSet   bool   // Python's offending_home is not None
+	OffendingHomeSet   bool   // true when a home contains the workspace
 	DarwinPathPrefix   []string
 	DarwinEnv          *jsonx.OrderedMap
 	DarwinSkipped      []string
@@ -45,13 +44,11 @@ type Darwin struct {
 
 // DarwinBootstrapArgv returns the self-exec bootstrap argv (J2 §3): run the
 // staged yolo binary AS the sandbox user via `sudo --user=<sb> /usr/bin/env -i
-// K=V… <stagedYolo> internal darwin-bootstrap`. This replaces the old
-// BootstrapArgv, which ran a python interpreter over a generated .py file.
+// K=V… <stagedYolo> internal darwin-bootstrap`.
 //
 // The env is baked onto the argv the same way LaunchArgv bakes the launch env
-// (env -i K=V…, matching the existing exposure — the previous bootstrap baked
-// the same vars into a 0444 root-owned file; secrets normally ride ${VAR}
-// placeholders). HOME/JAIL_HOME point the entrypoint generators at the sandbox
+// (env -i K=V…; secrets normally ride ${VAR} placeholders).
+// HOME/JAIL_HOME point the entrypoint generators at the sandbox
 // home; the generator contract (git identity + YOLO_*) and the three
 // YOLO_DARWIN_* extras (workspace, macos-log, login-path) ride verbatim. No
 // --set-home: the subcommand self-sets HOME/JAIL_HOME, and env -i controls the
@@ -107,8 +104,7 @@ func BuildRunPlan(workspace string, cfg *jsonx.OrderedMap, agents, agentArgv []s
 		darwinSkipped = append([]string{}, darwin.Skipped...)
 	}
 	// Merge non-PATH darwin build vars into the launch env (the store PATH rides
-	// the separate path_prefix channel). Python: sandbox_env = {**sandbox_env,
-	// **darwin_env}.
+	// the separate path_prefix channel); darwin vars win on conflict.
 	if darwinEnv.Len() > 0 {
 		merged := jsonx.NewOrderedMap()
 		if sandboxEnv != nil {
@@ -127,7 +123,7 @@ func BuildRunPlan(workspace string, cfg *jsonx.OrderedMap, agents, agentArgv []s
 	cname := cnameFor(workspace)
 	profilePath := SessionProfilePath(cname, "")
 
-	// git_identity = {k:v for k,v in sandbox_env if k startswith YOLO_GIT/YOLO_JJ}
+	// Git/jj identity = the sandbox-env keys prefixed YOLO_GIT / YOLO_JJ.
 	gitIdentity := jsonx.NewOrderedMap()
 	if sandboxEnv != nil {
 		for _, k := range sandboxEnv.Keys() {
@@ -317,8 +313,8 @@ func securitySection(cfg *jsonx.OrderedMap) *jsonx.OrderedMap {
 	return m
 }
 
-// getSectionOrEmptyMap returns config[key] as an OrderedMap, or an empty one
-// ). If the value is not a map, returns empty.
+// getSectionOrEmptyMap returns config[key] as an OrderedMap, or an empty one.
+// If the value is present but not a map, returns empty.
 func getSectionOrEmptyMap(cfg *jsonx.OrderedMap, key string) any {
 	if cfg != nil {
 		if v, ok := cfg.Get(key); ok {
@@ -330,7 +326,7 @@ func getSectionOrEmptyMap(cfg *jsonx.OrderedMap, key string) any {
 	return jsonx.NewOrderedMap()
 }
 
-// getSectionOrEmptyList returns config[key] as a list, or [] (config.get(key, [])).
+// getSectionOrEmptyList returns config[key] as a list, or an empty list.
 func getSectionOrEmptyList(cfg *jsonx.OrderedMap, key string) any {
 	if cfg != nil {
 		if v, ok := cfg.Get(key); ok {
@@ -342,14 +338,14 @@ func getSectionOrEmptyList(cfg *jsonx.OrderedMap, key string) any {
 	return []any{}
 }
 
-// macosLogMode returns str(config.get("macos_log", "off")).
+// macosLogMode returns config["macos_log"] as a string, defaulting to "off".
 func macosLogMode(cfg *jsonx.OrderedMap) string {
 	if cfg != nil {
 		if v, ok := cfg.Get("macos_log"); ok {
 			if s, ok := v.(string); ok {
 				return s
 			}
-			// str(x) of a non-string config value — rare; fall back to off, but
+			// Non-string config value — rare; fall back to off, but
 			// the container path only ever writes strings here.
 		}
 	}

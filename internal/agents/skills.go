@@ -79,8 +79,7 @@ func copySkillSubdirs(src, dst string) error {
 		return nil
 	}
 	for _, e := range entries {
-		// Stat (not Lstat) so a symlink to a dir counts as a dir, matching
-		// Python's item.is_dir() which follows symlinks.
+		// Stat (not Lstat) so a symlink to a dir counts as a dir.
 		srcItem := filepath.Join(src, e.Name())
 		si, err := os.Stat(srcItem)
 		if err != nil || !si.IsDir() {
@@ -98,7 +97,7 @@ func copySkillSubdirs(src, dst string) error {
 }
 
 // copyTreeDeref recursively copies src→dst, dereferencing symlinks (files and
-// dirs), matching shutil.copytree(symlinks=False).
+// dirs).
 func copyTreeDeref(src, dst string) error {
 	info, err := os.Stat(src)
 	if err != nil {

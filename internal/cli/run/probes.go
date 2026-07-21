@@ -11,15 +11,15 @@ import (
 	"github.com/mschulkind-oss/yolo-jail/internal/paths"
 )
 
-// resolveRepoRoot ports _resolve_repo_root: locate the yolo-jail repo root for
-// nix image builds. Returns (path, ok); ok=false is the Python
-// SystemExit(1) branch (with the same actionable message printed to stderr).
+// resolveRepoRoot locates the yolo-jail repo root for nix image builds. Returns
+// (path, ok); ok=false is the exit(1) branch (with an actionable message
+// printed to stderr).
 //
 // Resolution order:
 //  1. YOLO_REPO_ROOT env var (set inside jails and CI), validated to actually
 //     contain source (nested jails' /opt/yolo-jail bind may be empty).
-//  2. Source-checkout detection (walk up from cwd for flake.nix — the Go binary
-//     has no __file__; during dev/CI the cwd is the workspace or repo).
+//  2. Source-checkout detection (walk up from cwd for flake.nix; during dev/CI
+//     the cwd is the workspace or repo).
 //  3. Installed-package staging (a bundled flake.nix+src tree staged into
 //     GLOBAL_STORAGE/nix-build-root with the FROZEN rename-aside invariant).
 //  4. User config repo_path field.
@@ -87,8 +87,7 @@ func resolveRepoRoot(getenv func(string) string, stderr io.Writer, color bool) (
 }
 
 // bundledSourceDir discovers a bundled source tree shipped alongside the Go
-// binary (the Go-era analog of the retired Python wheel's package data — see
-// docs/research/repo-root-and-distribution.md). The bundle is share/yolo-jail/
+// binary (see docs/research/repo-root-and-distribution.md). The bundle is share/yolo-jail/
 // holding the flake's goSrc fileset (flake.nix, flake.lock, go.mod, go.sum,
 // vendor/, cmd/, internal/, bundled_loopholes/). Candidates, relative to the
 // executable: ../share/yolo-jail (the release-archive/brew layout), then the
@@ -127,9 +126,8 @@ func bundledSourceDirFrom(exeDir string) (string, bool) {
 // stageInstalledWheel implements step 3 of resolveRepoRoot: stage the bundled
 // source tree (pkgDir = share/yolo-jail/, the full goSrc fileset + flake.nix/
 // flake.lock) into GLOBAL_STORAGE/nix-build-root so `nix build .#ociImage`
-// evaluates and podman can bind it :ro into the jail at /opt/yolo-jail. (Named
-// for the Python wheel it once staged; it now stages the Go bundle FLAT, since
-// the flake's fileset root is `./.`.)
+// evaluates and podman can bind it :ro into the jail at /opt/yolo-jail. Stages
+// the Go bundle FLAT, since the flake's fileset root is `./.`.
 //
 // FROZEN INVARIANT (do not change): NEVER rmtree the old build_root — a jail
 // launched from the previous copy may still hold that inode bind-mounted at
@@ -151,10 +149,9 @@ func stageInstalledWheel(pkgDir string) (string, bool) {
 
 	// Idempotence: skip the whole dance when the existing build_root already
 	// matches the bundle's flake.nix mtime and has go.mod in place. The marker
-	// is flake.nix+go.mod (the Go bundle's shape) — NOT the retired Python
-	// wheel's src/cli/__init__.py. A Go source bundle stages FLAT into
-	// build_root (the flake's fileset root is `./.`), so build_root must itself
-	// look like the repo, not the wheel-era build_root/src/ layout.
+	// is flake.nix+go.mod (the Go bundle's shape). A Go source bundle stages
+	// FLAT into build_root (the flake's fileset root is `./.`), so build_root
+	// must itself look like the repo.
 	brGoMod := filepath.Join(buildRoot, "go.mod")
 	brFlake := filepath.Join(buildRoot, "flake.nix")
 	if isFile(brGoMod) && isFile(brFlake) {
@@ -206,7 +203,7 @@ func stageInstalledWheel(pkgDir string) (string, bool) {
 	return absOr(buildRoot), true
 }
 
-// --- small filesystem helpers (Python Path methods) ---
+// --- small filesystem helpers ---
 
 func fileExists(p string) bool {
 	_, err := os.Stat(p)

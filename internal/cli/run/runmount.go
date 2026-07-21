@@ -15,8 +15,8 @@ import (
 // mode selects the backing for the first four: "volume" (default; anonymous
 // podman volumes, disk-backed, --rm-wiped) or "tmpfs" (RAM-backed). /run and
 // /dev/shm are always tmpfs. Any non-"volume"/"tmpfs" value (including a
-// non-string, modeled here as "") falls back to "volume". Mirrors
-// _scratch_mount_args byte-for-byte incl. argv order.
+// non-string, modeled here as "") falls back to "volume". Frozen contract (argv
+// order must not drift).
 func ScratchMountArgs(mode string) []string {
 	if mode != "volume" && mode != "tmpfs" {
 		mode = "volume"
@@ -67,9 +67,8 @@ func bindMountTargetsFrom(mountinfoPath string) map[string]struct{} {
 }
 
 // IsBindMountpoint reports whether path (or its realpath) is itself a bind
-// mountpoint. os.path.ismount only detects directory mountpoints, not single-
-// file binds, so we match against the /proc/self/mountinfo targets. Mirrors
-// _is_bind_mountpoint.
+// mountpoint. A plain directory-mountpoint check misses single-file binds, so
+// we match against the /proc/self/mountinfo targets.
 func IsBindMountpoint(path string, mountTargets map[string]struct{}) bool {
 	rp, err := filepath.EvalSymlinks(path)
 	if err != nil {
@@ -130,8 +129,8 @@ func splitLines(s string) []string {
 	return out
 }
 
-// fields splits on runs of ASCII whitespace, like Python's str.split() with no
-// args (which is what mountinfo parsing uses — field 5 is the mount point).
+// fields splits on runs of ASCII whitespace (mountinfo parsing uses this —
+// field 5 is the mount point).
 func fields(s string) []string {
 	var out []string
 	i := 0

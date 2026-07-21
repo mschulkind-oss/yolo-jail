@@ -20,9 +20,8 @@ import (
 
 // ExecResult is the outcome of a short subprocess probe (git/jj identity,
 // lsusb, runtime lookups). Ran is false when the binary was absent or the
-// process could not be started (the Python FileNotFoundError branch); Timeout
-// is true when the call exceeded its deadline. Both degrade gracefully — the
-// Python `except` clauses swallow them.
+// process could not be started; Timeout is true when the call exceeded its
+// deadline. Both degrade gracefully — callers swallow them.
 type ExecResult struct {
 	Stdout  string
 	Stderr  string
@@ -39,9 +38,9 @@ type Options struct {
 	// --- CLI surface (typer options + ctx.args) ---
 	Network string
 	New     bool
-	// Profile mirrors --profile (startup timing report).
+	// Profile is --profile (startup timing report).
 	Profile bool
-	// DryRun mirrors --dry-run (macos-user only; a hard error elsewhere).
+	// DryRun is --dry-run (macos-user only; a hard error elsewhere).
 	DryRun bool
 	// Args is ctx.args — the command after `--` (empty → interactive bash).
 	Args []string
@@ -85,7 +84,7 @@ type Options struct {
 	Workspace string
 	// RepoRoot resolves the yolo-jail repo root for nix builds (with the
 	// installed-wheel staging invariant). Returns (path, ok); ok=false is the
-	// Python SystemExit(1) branch. nil => default resolver.
+	// exit(1) branch. nil => default resolver.
 	RepoRoot func() (string, bool)
 	// PathExists tests filesystem presence. nil => os.Stat.
 	PathExists func(string) bool
@@ -173,9 +172,9 @@ func fillDefaults(o *Options) {
 	}
 }
 
-// inJail mirrors `os.environ.get("YOLO_VERSION") is not None`. The host always
-// sets YOLO_VERSION to a real (non-empty) version string inside a jail, so a
-// non-empty read is the faithful, test-injectable signal.
+// inJail reports whether YOLO_VERSION is set. The host always sets
+// YOLO_VERSION to a real (non-empty) version string inside a jail, so a
+// non-empty read is the test-injectable signal.
 func (o *Options) inJail() bool {
 	return o.Getenv("YOLO_VERSION") != ""
 }
@@ -224,8 +223,8 @@ func realExec(argv []string, dir string, env []string, timeout time.Duration) Ex
 	}
 }
 
-// isTTY reports whether f is a real terminal, mirroring Python's os.isatty /
-// file.isatty() (a TCGETS ioctl), NOT a character-device mode check —
+// isTTY reports whether f is a real terminal via a TCGETS ioctl, NOT a
+// character-device mode check —
 // /dev/null is a char device but not a tty, and a mode check would wrongly add
 // the container `-t` flag (observed divergence). See isattyFD (platform split).
 func isTTY(f *os.File) bool {

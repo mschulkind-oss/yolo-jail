@@ -27,12 +27,12 @@ func ValidPerSideRel(rel string) bool {
 
 var configRootRe = regexp.MustCompile(`^\{\{\s*config_root\s*\}\}/`)
 
-// miseVenvConfigFiles is the fixed 4-file order _mise_config_venv_path parses,
-// LAST hit wins (base then jail-env, plain then dotted).
+// miseVenvConfigFiles is the fixed 4-file parse order, LAST hit wins (base then
+// jail-env, plain then dotted).
 var miseVenvConfigFiles = []string{"mise.toml", ".mise.toml", "mise.jail.toml", ".mise.jail.toml"}
 
-// MiseConfigVenvPath resolves env._.python.venv from a workspace's mise configs,
-// mirroring run_cmd._mise_config_venv_path — DISTINCT from tomlx.MiseVenvPath
+// MiseConfigVenvPath resolves env._.python.venv from a workspace's mise configs
+// — DISTINCT from tomlx.MiseVenvPath
 // (the entrypoint's first-hit-wins/create-gated discovery). Here: parse the 4
 // files in fixed order, LAST hit wins; a string value is the path; a table's
 // "path" (default ".venv") is used with NO create requirement; a leading

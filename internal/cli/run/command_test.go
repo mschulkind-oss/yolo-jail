@@ -7,9 +7,8 @@ import (
 )
 
 // TestBuildFinalInternalCmdBashGolden pins the non-profile final_internal_cmd
-// bytes for target_cmd="bash" against a golden captured from the live Python
-// run_cmd.py assembly (testdata/final_cmd_bash.txt). This is a frozen host-state
-// contract — the bash -c payload the container runs.
+// bytes for target_cmd="bash" against a golden (testdata/final_cmd_bash.txt).
+// This is a frozen host-state contract — the bash -c payload the container runs.
 func TestBuildFinalInternalCmdBashGolden(t *testing.T) {
 	want, err := os.ReadFile(filepath.Join("testdata", "final_cmd_bash.txt"))
 	if err != nil {

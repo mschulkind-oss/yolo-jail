@@ -14,8 +14,8 @@ import (
 )
 
 // MISE_STORE_VOLUME is the named volume backing the jail-land mise store on
-// macOS (podman + Apple Container), mounted at /mise. Versioned name — see the
-// Python comment on MISE_STORE_VOLUME.
+// macOS (podman + Apple Container), mounted at /mise. Versioned name (bump the
+// suffix to force a fresh store).
 const miseStoreVolume = "yolo-mise-data-v2"
 
 // assembleInput carries everything the ordered-argv assembler needs that isn't
@@ -59,17 +59,17 @@ func (in *assembleInput) storePruneEnv() []string {
 	return nil
 }
 
-// assembleRunCmd runs the ordered container argv construction in run() (lines
-// ~1558-2831): flags-before-image, the -e env block, the mount order, network,
-// devices, GPU/KVM, resources, loopholes, then the image + "yolo-entrypoint".
+// assembleRunCmd builds the ordered container argv: flags-before-image, the -e
+// env block, the mount order, network, devices, GPU/KVM, resources, loopholes,
+// then the image + "yolo-entrypoint".
 // It is a pure function of (o, in) EXCEPT for the ws_state dir/file touches and
-// venv-shadow backing mkdirs that Python performs inline while building the
-// argv — those side effects are preserved (they are part of the launch, not the
-// argv), so callers pass a prepared ws_state. The final internal command and the
+// venv-shadow backing mkdirs performed inline while building the argv — those
+// side effects are preserved (they are part of the launch, not the argv), so
+// callers pass a prepared ws_state. The final internal command and the
 // host-service -e insertion are handled by the lifecycle phase.
-// The argv this returns ends at the image ref + "yolo-entrypoint" (Python then
-// appends the final_internal_cmd after inserting host-service env at
-// index(image)); see runContainer for that tail.
+// The argv this returns ends at the image ref + "yolo-entrypoint"; the
+// final_internal_cmd is appended after inserting host-service env at
+// index(image); see runContainer for that tail.
 func (o *Options) assembleRunCmd(in *assembleInput) []string {
 	cfg := in.cfg
 	rt := in.rt
@@ -160,14 +160,14 @@ func (o *Options) assembleRunCmd(in *assembleInput) []string {
 		}
 	}
 
-	// --- Common env block (identical order to run_cmd.py 1844-1991) ---
+	// --- Common env block (frozen order) ---
 	runCmd = append(runCmd, o.commonEnvBlock(in, blockedConfigJSON, netMode)...)
 
 	// --- yolo-user-env.sh (written by the lifecycle phase; mounted here) ---
 	// Apple Container can't do single-file mounts under the ws_state parent
 	// mount without dropping it, so it materializes the file into ws_state
-	// instead (run_cmd.py:2063). Skipping the container branch silently dropped
-	// every env_sources var (the file is sourced with 2>/dev/null).
+	// instead. Skipping the container branch silently dropped every env_sources
+	// var (the file is sourced with 2>/dev/null).
 	userEnvFile := filepath.Join(in.wsState, "yolo-user-env.sh")
 	if rt == "container" {
 		acMaterialize(userEnvFile, ".config/yolo-user-env.sh", in.wsState)
@@ -328,7 +328,7 @@ func (o *Options) assembleRunCmd(in *assembleInput) []string {
 
 	// --- per-agent briefings ---
 	// Same Apple-Container single-file-mount limitation as yolo-user-env.sh: AC
-	// materializes the staged briefing into ws_state (run_cmd.py:2881). Skipping
+	// materializes the staged briefing into ws_state. Skipping
 	// the container branch silently dropped every selected agent's AGENTS.md /
 	// CLAUDE.md briefing.
 	for _, spec := range in.agentSpecs {
@@ -356,8 +356,8 @@ func (o *Options) assembleRunCmd(in *assembleInput) []string {
 	return runCmd
 }
 
-// commonEnvBlock runs the big `run_cmd.extend([...])` env block (1844-1991),
-// byte-identical in order and content.
+// commonEnvBlock builds the big -e env block. Frozen contract (order and
+// content must not drift — yolo-entrypoint reads these exact vars).
 func (o *Options) commonEnvBlock(in *assembleInput, blockedConfigJSON, netMode string) []string {
 	cfg := in.cfg
 	env := []string{
@@ -413,7 +413,7 @@ func jailImageRef(rt string) string {
 	return paths.JailImage
 }
 
-// jsonDumps renders json.dumps(v) with Python's default separators.
+// jsonDumps renders v as compact JSON.
 func jsonDumps(v any) string {
 	s, _ := jsonx.DumpsCompact(v)
 	return s
@@ -449,7 +449,7 @@ func asAnyList(v any) []any {
 	return nil
 }
 
-// pyStrCoerce renders str(x) for a config port entry (int/str). Ints render
+// pyStrCoerce renders a config port entry (int/str) as a string. Ints render
 // without ".0"; strings verbatim.
 func pyStrCoerce(v any) string {
 	switch t := v.(type) {
@@ -487,7 +487,7 @@ func resolveExpand(p string) string {
 	return resolvePath(expandUser(p))
 }
 
-// insertAt inserts v at index i (Python list.insert).
+// insertAt inserts v at index i.
 func insertAt(s []string, i int, v string) []string {
 	out := make([]string, 0, len(s)+1)
 	out = append(out, s[:i]...)

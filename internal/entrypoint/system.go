@@ -9,11 +9,10 @@ import (
 // the image baseline ($SSL_CERT_FILE, unless it already IS our bundle) and each
 // path in $NODE_EXTRA_CA_CERTS (colon-separated, de-duplicated) into
 // $HOME/.yolo-ca-bundle.crt (chmod 0o644). Always writes a file, even if empty.
-// The Python function also sets SSL_CERT_FILE / REQUESTS_CA_BUNDLE /
-// CURL_CA_BUNDLE / GIT_SSL_CAINFO in os.environ so children inherit the combined
-// store; that env mutation is a boot-orchestration concern. This
-// generator returns the bundle path so the caller can set those vars; the FILE
-// content is what the golden pins. Returns the bundle path.
+// Setting SSL_CERT_FILE / REQUESTS_CA_BUNDLE / CURL_CA_BUNDLE / GIT_SSL_CAINFO
+// so children inherit the combined store is a boot-orchestration concern; this
+// generator returns the bundle path so the caller can set those vars, and the
+// FILE content is what the golden pins.
 func GenerateCABundle(e *Env) (string, error) {
 	bundlePath := filepath.Join(e.Home, ".yolo-ca-bundle.crt")
 
@@ -42,8 +41,8 @@ func GenerateCABundle(e *Env) (string, error) {
 		}
 	}
 
-	// body = b"\n".join(c.rstrip(b"\n") for c in chunks); ensure trailing NL if
-	// non-empty and not already ending in one.
+	// Join the chunks with "\n" (each right-trimmed of newlines); ensure a
+	// trailing NL if non-empty and not already ending in one.
 	trimmed := make([][]byte, len(chunks))
 	for i, c := range chunks {
 		trimmed[i] = bytes.TrimRight(c, "\n")
@@ -55,7 +54,7 @@ func GenerateCABundle(e *Env) (string, error) {
 	if err := os.MkdirAll(e.Home, 0o755); err != nil {
 		return "", err
 	}
-	// write_bytes then chmod 0o644 (WriteInPlace truncates in place).
+	// Write the body then chmod 0o644 (WriteInPlace truncates in place).
 	if err := writeBytesMode(bundlePath, body, 0o644); err != nil {
 		return "", err
 	}
@@ -71,8 +70,8 @@ func readBundleBytes(path string) []byte {
 	return data
 }
 
-// splitPathList splits on os.pathsep (":" on Linux). Python uses os.pathsep;
-// the entrypoint always runs on Linux, so ":" is correct. Kept explicit.
+// splitPathList splits on the path separator. The entrypoint always runs on
+// Linux, so ":" is correct.
 func splitPathList(s string) []string {
 	return splitByte(s, ':')
 }
@@ -90,8 +89,8 @@ func splitByte(s string, sep byte) []string {
 	return out
 }
 
-// trimSpace trims ASCII whitespace like Python's str.strip() (for the common
-// PEM-path case; the paths never contain exotic unicode whitespace).
+// trimSpace trims ASCII whitespace (for the common PEM-path case; the paths
+// never contain exotic unicode whitespace).
 func trimSpace(s string) string {
 	start := 0
 	for start < len(s) && isSpace(s[start]) {

@@ -18,7 +18,8 @@ import (
 	"github.com/mschulkind-oss/yolo-jail/internal/pytext"
 )
 
-// Dedicated account constants (byte-identical to macos_user.py).
+// Dedicated account constants. Frozen contract (must not drift — the run-path
+// argv builders, ACLs, and teardown all key off these exact names/paths).
 const (
 	// SandboxUser is the hidden service account (`_` prefix + IsHidden) so it
 	// never shows on the login window, mirroring SandVault's hidden user.
@@ -106,8 +107,7 @@ func DeleteUserCommands(hostUser string) [][]string {
 
 // SharedRootProvisionCommands returns the mkdir/chown/chmod argv to provision
 // the neutral shared root — owned by the host user, group _yolojail, mode 2770
-// (setgid), plus the inheriting ACL ACEs applied to the root itself. Mirrors
-// shared_root_provision_commands.
+// (setgid), plus the inheriting ACL ACEs applied to the root itself.
 func SharedRootProvisionCommands(root, hostUser string) [][]string {
 	if root == "" {
 		root = SharedRootDefault()
@@ -166,14 +166,14 @@ func StageBinaryCommands(selfExe, sd string) [][]string {
 // Workspace location — must be neutral ground, never inside a home
 // ---------------------------------------------------------------------------
 // HomeContaining returns the user-home dir that contains `workspace`, or ""
-// (Python None) when the workspace is on neutral ground. A "home" is a direct
-// child of /Users other than /Users/Shared. Pure and path-only. Mirrors
-// home_containing. The bool is false when no home contains the workspace.
+// when the workspace is on neutral ground. A "home" is a direct
+// child of /Users other than /Users/Shared. Pure and path-only. The bool is
+// false when no home contains the workspace.
 func HomeContaining(workspace, usersRoot string) (string, bool) {
 	if usersRoot == "" {
 		usersRoot = "/Users"
 	}
-	// candidates = [workspace, *workspace.parents]
+	// Check the workspace itself, then each ancestor up to the root.
 	for _, p := range append([]string{workspace}, pathParents(workspace)...) {
 		parent := pathParent(p)
 		if parent == usersRoot && pathName(p) != "Shared" {
@@ -236,8 +236,7 @@ func WorkspaceACLStripScript(workspace string) string {
 // Launch — sudo -u + env -i + sandbox-exec, SandVault-style
 // ---------------------------------------------------------------------------
 // SandboxPath returns the PATH for the sandboxed agent — its own bin dirs
-// first, then the `prefix` (darwin store bin dirs), then system. Mirrors
-// sandbox_path.
+// first, then the `prefix` (darwin store bin dirs), then system.
 func SandboxPath(home string, prefix []string) string {
 	if home == "" {
 		home = SandboxHome()
@@ -368,15 +367,16 @@ func SessionProfilePath(cname, sd string) string {
 	return filepath.Join(sd, "profile-"+cname+".sb")
 }
 
-// shQuote single-quotes a string for safe bash embedding.
-// EXACTLY: "'" + s.replace("'", "'\”") + "'" — this is NOT shlex.quote (it
-// always wraps, and empty → "”").
+// shQuote single-quotes a string for safe bash embedding: it ALWAYS wraps in
+// single quotes (an empty string becomes an empty quoted pair), escaping any
+// embedded quote by closing, adding an escaped quote, and reopening. The
+// unconditional wrapping is deliberate — the SBPL/argv builders depend on it.
 func shQuote(s string) string {
 	return "'" + strings.ReplaceAll(s, "'", "'\\''") + "'"
 }
 
-// sbplStr quotes a path as an SBPL double-quoted string literal. Mirrors
-// _sbpl_str: escape backslash then double-quote.
+// sbplStr quotes a path as an SBPL double-quoted string literal: escape
+// backslash then double-quote.
 func sbplStr(s string) string {
 	s = strings.ReplaceAll(s, "\\", "\\\\")
 	s = strings.ReplaceAll(s, "\"", "\\\"")
@@ -406,28 +406,26 @@ func asStr(v any) string {
 	return ""
 }
 
-// reprStr is Python repr() for a string (used by the bootstrap generator).
+// reprStr renders a string as a repr()-style quoted literal (used by the
+// git-identity dict repr in the dry-run plan).
 func reprStr(s string) string { return pytext.Repr(s) }
 
 // itoa formats an int in base 10.
 func itoa(n int) string { return strconv.Itoa(n) }
 
-// --- pathlib.PurePath helpers (path-only, matching Python semantics) ---
-// Python's PurePosixPath treats trailing slashes and repeated slashes
-// distinctly from filepath.Clean in some edge cases, but for the /Users/<name>
-// membership check the inputs are always already-resolved absolute paths, so a
-// clean-based split is faithful. HomeContaining is documented as "path-only".
-// pathParent returns the parent of p (PurePath.parent): everything up to the
-// last slash, or "/" / p itself for roots. Uses filepath.Dir which matches
-// PurePosixPath.parent for absolute inputs.
+// --- path helpers (path-only, purely lexical) ---
+// The /Users/<name> membership check always runs on already-resolved absolute
+// paths, so a clean-based split is faithful and HomeContaining stays path-only.
+// pathParent returns the parent of p: everything up to the last slash, or "/" /
+// p itself for roots.
 func pathParent(p string) string { return filepath.Dir(p) }
 
-// pathName returns the final component of p (PurePath.name).
+// pathName returns the final component of p.
 func pathName(p string) string { return filepath.Base(p) }
 
-// resolvePathAbs make absolute, then resolve
-// symlinks best-effort (filepath.EvalSymlinks errors on non-existent paths;
-// Python's resolve(strict=False) does not, so fall back to the lexical abs).
+// resolvePathAbs makes absolute, then resolves symlinks best-effort.
+// filepath.EvalSymlinks errors on non-existent paths, so fall back to the
+// lexical abs (a non-existent workspace must still resolve for the plan).
 func resolvePathAbs(p string) string {
 	abs, err := filepath.Abs(p)
 	if err != nil {
@@ -439,8 +437,8 @@ func resolvePathAbs(p string) string {
 	return abs
 }
 
-// pathParents returns p's ancestor chain (PurePath.parents): parent, grandparent,
-// … up to the root, in that order.
+// pathParents returns p's ancestor chain: parent, grandparent, … up to the
+// root, in that order.
 func pathParents(p string) []string {
 	var out []string
 	cur := p

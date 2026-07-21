@@ -19,10 +19,9 @@ type ReferencedSet struct {
 }
 
 // PruneOrphanBuildRoots reclaims nix-build-root.old.* generations that are
-// BOTH (a) not referenced by a live jail AND (b) older than olderThan. Mirrors
-// _prune_orphan_build_roots including the FAIL-SAFE: referenced.Known==false
-// (liveness unknown) → delete NOTHING. Returns (bytesRemoved, dirsRemoved);
-// apply=false reports without touching disk.
+// BOTH (a) not referenced by a live jail AND (b) older than olderThan. FAIL-SAFE:
+// referenced.Known==false (liveness unknown) → delete NOTHING. Returns
+// (bytesRemoved, dirsRemoved); apply=false reports without touching disk.
 func PruneOrphanBuildRoots(globalStorage string, referenced ReferencedSet, olderThan time.Duration, apply bool, now time.Time) (bytesRemoved int64, dirsRemoved int) {
 	info, err := os.Stat(globalStorage)
 	if err != nil || !info.IsDir() {
@@ -53,8 +52,8 @@ func PruneOrphanBuildRoots(globalStorage string, referenced ReferencedSet, older
 			continue
 		}
 		// (a) liveness gate — skip anything a running jail still binds. Compare
-		// both the resolved and raw path (Python checks resolved in referenced
-		// OR child in referenced).
+		// both the resolved and raw path (a match on either means the generation
+		// is in use).
 		resolved := child
 		if r, err := filepath.EvalSymlinks(child); err == nil {
 			resolved = r
@@ -81,8 +80,8 @@ func PruneOrphanBuildRoots(globalStorage string, referenced ReferencedSet, older
 	return bytesRemoved, dirsRemoved
 }
 
-// dirSizeBytes sums regular-file sizes under p (missing → 0). Mirrors
-// _dir_size_bytes (lstat, follow no symlinks).
+// dirSizeBytes sums regular-file sizes under p (missing → 0), via lstat so
+// symlinks are never followed.
 func dirSizeBytes(p string) int64 {
 	var total int64
 	_ = filepath.WalkDir(p, func(path string, d os.DirEntry, err error) error {

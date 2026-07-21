@@ -18,9 +18,9 @@ import (
 	"github.com/mschulkind-oss/yolo-jail/internal/version"
 )
 
-// Run ports run(): validate config, resolve the runtime, then either exec into
-// an existing container or launch a fresh one. Returns the process exit code
-// (mirroring the Python sys.exit codes). The whole flow is driven off the
+// Run validates config, resolves the runtime, then either execs into
+// an existing container or launches a fresh one. Returns the process exit code.
+// The whole flow is driven off the
 // injected seams so the probe + argv-assembly paths are unit-testable.
 func Run(opts Options) int {
 	fillDefaults(&opts)
@@ -29,7 +29,7 @@ func Run(opts Options) int {
 	// --- Phase 1: probes (repo root, storage, config, runtime) ---
 	repoRoot, ok := o.RepoRoot()
 	if !ok {
-		return 1 // _resolve_repo_root's SystemExit(1)
+		return 1 // repo root not found
 	}
 	if err := ensureStorage(); err != nil {
 		o.pr(o.Stdout).printf("[bold red]%s[/bold red]", err.Error())
@@ -74,7 +74,7 @@ func Run(opts Options) int {
 // ensureStorage wraps storage.EnsureGlobalStorage, wiring the v2 layout
 // migration (audit 2026-07-18 §B#2: passing nil left the dangling-mise-symlink
 // heal + layout-version stamp as dead code that never ran under the gate).
-// canReclaim returns false — the conservative fail-safe (Python DEFERS the heal
+// canReclaim returns false — the conservative fail-safe (DEFER the heal
 // when it can't confirm no live jail holds the store, leaving the marker
 // unstamped to retry); the full live-container probe is the run-slice's concern,
 // and declining is always safe. insideJail short-circuits (never scans /mise).
@@ -87,7 +87,7 @@ func ensureStorage() error {
 	})
 }
 
-// runContainer ports run()'s post-config flow: the attach-to-existing decision
+// runContainer is the post-config flow: the attach-to-existing decision
 // (with orphan reaping), then the fresh-launch path (config-change approval,
 // workspace flock + raced re-check, stale-container removal, image load, argv
 // assembly, host-service start, tracking/owner-PID, port forwarding, the
@@ -189,7 +189,7 @@ func (o *Options) runContainer(cfg *jsonx.OrderedMap, rt, repoRoot string) int {
 
 	// Store-prune gate + orphan-relay reap (host-only; never from inside a jail
 	// — an inner CLI can't see its siblings). Both piggyback on the single
-	// live-container enumeration, mirroring run_cmd.py:2756-2771.
+	// live-container enumeration.
 	storePruneOK := false
 	if !o.inJail() {
 		live, known := o.liveYoloContainers(rt)
@@ -372,15 +372,15 @@ func lspNPMOf(cfg *jsonx.OrderedMap) string { n, _ := resolveLSPInstalls(cfg); r
 func lspGoOf(cfg *jsonx.OrderedMap) string  { _, g := resolveLSPInstalls(cfg); return g }
 
 // runtimeWriteTracking wraps runtime.WriteContainerTracking with the resolved
-// workspace (Python resolves the path).
+// workspace path.
 func runtimeWriteTracking(cname, workspace string) error {
 	resolved := resolvePath(workspace)
 	return writeTracking(cname, resolved)
 }
 
 // emitStartupBanner writes the start-of-run banner to stderr (audit §B#4). It
-// reuses StartupBanner for byte-identical formatting. version is
-// _get_yolo_version() (version.Get); jailVersion is the container's baked
+// reuses StartupBanner for consistent formatting. version is
+// version.Get; jailVersion is the container's baked
 // YOLO_VERSION (attach path only, else "").
 func (o *Options) emitStartupBanner(rt, cname string, resParts []string, jailVersion string) {
 	banner := StartupBanner(version.Get(o.RepoRootForBanner()), rt, cname, resParts, jailVersion)
@@ -414,7 +414,7 @@ func (o *Options) bakedJailVersion(rt, cname string) string {
 }
 
 // resPartsFor reconstructs the banner's resource-limit parts (memory/cpus/pids)
-// from the resources config, mirroring the res_parts list run_cmd.py builds
+// from the resources config, matching the res_parts built
 // during argv assembly. Podman path: pids defaults to 32768. Apple Container's
 // half-host defaults are the run-slice's concern; here only explicit config is
 // surfaced (the native run path is podman/Linux).

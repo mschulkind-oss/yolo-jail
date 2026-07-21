@@ -9,8 +9,8 @@ import (
 	"github.com/mschulkind-oss/yolo-jail/internal/jsonx"
 )
 
-// Operational logging — the incident-derived forensics contract ported from
-// src/oauth_broker.py. The shared-identity bug on 2026-04-23 (host Claude
+// Operational logging — the incident-derived forensics contract. The
+// shared-identity bug on 2026-04-23 (host Claude
 // rotated the shared refresh token out from under the broker) and the
 // 2026-05-12 logout loop (silent proxy-mirror failures) were both invisible
 // because the broker logged too little. These lines let a soak reconstruct
@@ -18,13 +18,12 @@ import (
 // themselves — see TokenFP), upstream status codes, cache hits/misses, and the
 // proxy-mirror decision path.
 //
-// Sink + level mechanics mirror the established Go daemon convention from
+// Sink + level mechanics follow the established Go daemon convention from
 // commit ec888c6 (the cgd delegate — now in-process in yolo run — and
 // `yolo internal daemon journal`): a --log-file flag that
 // defaults to stderr (captured by the loophole supervisor), set up via
-// SetupLog. The Python broker's level + logger-name are preserved in each line
-// so the incident greps (`grep INFO`, `grep bg_refresh`, ...) still work.
-// loggerName logging.getLogger("oauth-broker-host").
+// SetupLog. Each line carries the level + logger-name so the incident greps
+// (`grep INFO`, `grep bg_refresh`, ...) work.
 const loggerName = "oauth-broker-host"
 
 // logger is nil until SetupLog runs (matches the daemons' nil-guarded auditLog:
@@ -36,8 +35,7 @@ var (
 
 // SetupLog configures the operational logger. An empty path logs to stderr
 // (the default the loophole supervisor captures), matching the in-process cgd
-// delegate and `yolo internal daemon journal`. verbose enables DEBUG lines (Python's `-v` ->
-// level=DEBUG).
+// delegate and `yolo internal daemon journal`. verbose enables DEBUG lines.
 func SetupLog(path string, verbose bool) {
 	var out io.Writer = os.Stderr
 	if path != "" {
@@ -54,9 +52,9 @@ func setupLogWriter(w io.Writer, verbose bool) {
 	logVerbose = verbose
 }
 
-// logAt emits one line as "<LEVEL> <name>: <message>", carrying Python's
-// levelname + logger name so the incident greps keep working. log.LstdFlags
-// prepends the timestamp (the cgd/journald convention).
+// logAt emits one line as "<LEVEL> <name>: <message>", carrying the level +
+// logger name so the incident greps keep working. log.LstdFlags prepends the
+// timestamp (the cgd/journald convention).
 func logAt(level, format string, args ...any) {
 	if logger == nil {
 		return
@@ -68,7 +66,7 @@ func logInfo(format string, args ...any)  { logAt("INFO", format, args...) }
 func logWarn(format string, args ...any)  { logAt("WARNING", format, args...) }
 func logError(format string, args ...any) { logAt("ERROR", format, args...) }
 
-// logDebug is gated on verbose (Python only emits DEBUG lines under `-v`).
+// logDebug is gated on verbose (DEBUG lines are emitted only under `-v`).
 func logDebug(format string, args ...any) {
 	if !logVerbose {
 		return
@@ -83,7 +81,7 @@ func LogStartup(credsPath string) {
 
 // describeCreds is a one-line summary of a creds file for logging: mtime, the
 // access + refresh token FINGERPRINTS (never the tokens), and expiresAt.
-// / malformed files (never raises).
+// Tolerates absent / malformed files (never raises).
 func describeCreds(path string) string {
 	st, err := os.Stat(path)
 	if err != nil {
@@ -101,7 +99,7 @@ func describeCreds(path string) string {
 	if jerr != nil {
 		return fmt.Sprintf("%s: mtime=%d read_error=%s", path, mtime, jerr)
 	}
-	// oa = data.get("claudeAiOauth") or {}
+	// claudeAiOauth object, or empty when absent/non-object.
 	oa := jsonx.NewOrderedMap()
 	if root, ok := decoded.(*jsonx.OrderedMap); ok {
 		if v, ok := root.Get("claudeAiOauth"); ok {
@@ -116,8 +114,8 @@ func describeCreds(path string) string {
 		path, mtime, TokenFP(at), TokenFP(rt), describeExpiresAt(oa))
 }
 
-// describeExpiresAt renders oa.get("expiresAt") the way Python's f-string would:
-// the integer literal when present, "None" when absent (matching str(None)).
+// describeExpiresAt renders the oauth object's expiresAt field: the integer
+// literal when present, "None" when absent.
 func describeExpiresAt(oa *jsonx.OrderedMap) string {
 	v, ok := oa.Get("expiresAt")
 	if !ok || v == nil {
@@ -138,5 +136,5 @@ func fpOf(m *jsonx.OrderedMap, key string) string {
 }
 
 // expiresAtStr renders an oauth object's expiresAt field for a log line (the
-// "exp=%s" / "old_exp=%s" fields Python passes current.get("expiresAt") to).
+// "exp=%s" / "old_exp=%s" fields).
 func expiresAtStr(m *jsonx.OrderedMap) string { return describeExpiresAt(m) }

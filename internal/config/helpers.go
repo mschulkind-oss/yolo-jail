@@ -13,8 +13,8 @@ import (
 	"github.com/mschulkind-oss/yolo-jail/internal/pytext"
 )
 
-// userHomeDir returns the passwd-database home dir (Python's
-// pwd.getpwuid(getuid()).pw_dir), used by expanduser when HOME is unset.
+// userHomeDir returns the passwd-database home dir, used by expandUser when HOME
+// is unset.
 func userHomeDir() (string, error) {
 	u, err := user.Current()
 	if err != nil {
@@ -23,14 +23,12 @@ func userHomeDir() (string, error) {
 	return u.HomeDir, nil
 }
 
-// dedupKey reproduces _merge_lists' canonical key,
-// json.dumps(item, sort_keys=True, default=str). jsonx.DumpsSnapshot is
-// json.dumps(item, indent=2, sort_keys=True, ensure_ascii=True): it differs
-// from the compact form only in whitespace, which is a pure function of the
-// value's structure — so it induces the IDENTICAL equality partition. Two items
-// dedup together iff Python's json.dumps(sort_keys=True) forms are equal, which
-// is exactly what _merge_lists needs. default=str never fires for decoded JSON
-// values (all are natively serializable), so no fallback is needed.
+// dedupKey is mergeLists' canonical equality key: the sorted-key JSON form of
+// the item. jsonx.DumpsSnapshot differs from a compact encoding only in
+// whitespace, which is a pure function of the value's structure — so it induces
+// the same equality partition. Two items dedup together iff their sorted-key
+// JSON forms are equal, which is exactly what mergeLists needs. Every decoded
+// JSON value is natively serializable, so no fallback is needed.
 func dedupKey(item any) string {
 	s, err := jsonx.DumpsSnapshot(item)
 	if err != nil {
@@ -41,10 +39,9 @@ func dedupKey(item any) string {
 	return s
 }
 
-// typeName reproduces Python's type(x).__name__ for the value types that reach
-// the two "got {type(...).__name__}" error strings in _validate_config. Decoded
-// JSON values map to: dict->*OrderedMap, list->[]any, str->string,
-// int->jsonx int, float->float64, bool->bool, None->nil.
+// typeName is the type name used in the two "got <type>" validation error
+// strings. Decoded JSON values map to: dict->*OrderedMap, list->[]any,
+// str->string, int->jsonx int, float->float64, bool->bool, None->nil.
 func typeName(v any) string {
 	switch v.(type) {
 	case nil:
@@ -67,8 +64,8 @@ func typeName(v any) string {
 	}
 }
 
-// resolvePathForSeen mirrors `path.resolve() if path.exists() else path`
-// (wrapped in try/except OSError -> path) for the include cycle-detection key.
+// resolvePathForSeen resolves an existing path (falling back to the path itself
+// on error or when it does not exist) for the include cycle-detection key.
 func resolvePathForSeen(path string) string {
 	if pathExists(path) {
 		if r, err := resolve(path); err == nil {
@@ -86,10 +83,10 @@ func resolveJoin(baseDir, entry string) string {
 	return joined
 }
 
-// resolve Path.resolve() (strict=False): make absolute,
-// resolve symlinks where possible, normalize lexically. filepath.EvalSymlinks
-// errors on nonexistent paths (Python does not), so fall back to the lexical
-// absolute clean — matching internal/runtime.FromWorkspace's approach.
+// resolve makes path absolute, resolves symlinks where possible, and normalizes
+// lexically. filepath.EvalSymlinks errors on nonexistent paths, so fall back to
+// the lexical absolute clean — matching internal/runtime.FromWorkspace's
+// approach.
 func resolve(path string) (string, error) {
 	abs, err := filepath.Abs(path)
 	if err != nil {
@@ -122,7 +119,7 @@ func isStr(v any) bool {
 	return ok
 }
 
-// isStrList list) and all(isinstance(x, str) for x in v)`.
+// isStrList reports whether v is a list of only strings.
 func isStrList(v any) bool {
 	l, ok := asList(v)
 	if !ok {
@@ -154,13 +151,10 @@ func inStrSlice(list []string, s string) bool {
 	return false
 }
 
-// pyInt mirrors int(value) for validate_port_number: accept an int literal or a
-// string that Python's int() parses (base-10, optional sign, surrounding
-// whitespace, underscores between digits). Returns (n, true) on success. A bool
-// is an int in Python (True->1, False->0). A float raises TypeError? No —
-// int(3.5)==3, but validate_port_number receives already-decoded JSON where a
-// port is an int or a string; int(float) truncates.
-// truncate toward zero.
+// pyInt coerces value to an integer for validatePortNumber: accept an int
+// literal or a numeric string (base-10, optional sign, surrounding whitespace,
+// underscores between digits). Returns (n, true) on success. A bool coerces
+// (true->1, false->0) and a float truncates toward zero.
 func pyInt(value any) (int64, bool) {
 	switch t := value.(type) {
 	case bool:
@@ -177,8 +171,8 @@ func pyInt(value any) (int64, bool) {
 		if n, ok := jsonx.AsInt(value); ok {
 			return n, true
 		}
-		// A very large int literal beyond int64 still parses in Python; for
-		// port validation it will fail the 1..65535 range anyway. Try literal.
+		// A very large int literal beyond int64 will fail the 1..65535 range
+		// anyway; try it as a literal string.
 		if lit, ok := jsonx.AsIntLiteral(value); ok {
 			return pyIntFromString(lit)
 		}
@@ -274,7 +268,7 @@ func hasKey(m *jsonx.OrderedMap, key string) bool {
 	return ok
 }
 
-// keysSubsetOf mirrors `set(spec) <= allowed`.
+// keysSubsetOf reports whether every key of m is in allowed.
 func keysSubsetOf(m *jsonx.OrderedMap, allowed map[string]struct{}) bool {
 	for _, k := range m.Keys() {
 		if _, ok := allowed[k]; !ok {

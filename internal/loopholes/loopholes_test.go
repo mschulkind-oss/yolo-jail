@@ -8,8 +8,8 @@ import (
 	"testing"
 )
 
-// writeManifest writes a manifest.jsonc built from a Go map (json.Marshal, like
-// the Python fixtures' json.dumps(data, indent=2)).
+// writeManifest writes a manifest.jsonc built from a Go map via
+// json.MarshalIndent.
 func writeManifest(t *testing.T, dir string, data map[string]any) {
 	t.Helper()
 	b, err := json.MarshalIndent(data, "", "  ")

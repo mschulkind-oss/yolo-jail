@@ -10,7 +10,7 @@ import (
 	"github.com/mschulkind-oss/yolo-jail/internal/runtime"
 )
 
-// checkRocmEnumeration ports _check_rocm_enumeration: enumerate AMD GPUs via
+// checkRocmEnumeration enumerates AMD GPUs via
 // rocminfo for the report. Informational only — NEVER a fail.
 func (o *Options) checkRocmEnumeration(r *reporter) {
 	rocminfoNote := "Optional: rocminfo is only used to list GPU models in this " +
@@ -64,7 +64,7 @@ func (o *Options) checkRocmEnumeration(r *reporter) {
 	}
 }
 
-// checkPodmanMachineResources ports _check_podman_machine_resources: surface the
+// checkPodmanMachineResources surfaces the
 // Podman Machine VM memory and warn if it's below the floor or below the
 // workspace's resources.memory request. Best-effort; never gating.
 func (o *Options) checkPodmanMachineResources(r *reporter, config *jsonx.OrderedMap) {

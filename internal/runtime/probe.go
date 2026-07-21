@@ -12,10 +12,9 @@ import (
 
 // LiveSet is the tri-state result of enumerating live yolo-* containers. Known
 // distinguishes "enumerated (maybe empty)" from "could not enumerate" — the
-// SAME fail-safe polarity as prune.ReferencedSet and Python's
-// _live_yolo_containers returning None (NOT an empty set) when the runtime
-// can't be probed. Callers that decline to act on unknown MUST check Known,
-// never collapse it to "nothing live".
+// SAME fail-safe polarity as prune.ReferencedSet: unknown (NOT an empty set)
+// when the runtime can't be probed. Callers that decline to act on unknown
+// MUST check Known, never collapse it to "nothing live".
 type LiveSet struct {
 	// Known is false when the runtime couldn't be enumerated (missing binary,
 	// timeout, non-zero exit). True even for an empty Names.
@@ -77,9 +76,8 @@ var livePodmanStates = map[string]struct{}{
 }
 
 // ParsePodmanLive parses `podman ps -a --format "{{.Names}} {{.State}}"` stdout
-// into the set of live yolo-* names.
-// _live_yolo_containers: split each line on whitespace, require >=2 fields,
-// keep yolo-* whose state (lowercased) is running/paused/restarting.
+// into the set of live yolo-* names: split each line on whitespace, require >=2
+// fields, keep yolo-* whose state (lowercased) is running/paused/restarting.
 func ParsePodmanLive(stdout string) map[string]struct{} {
 	live := map[string]struct{}{}
 	for _, line := range strings.Split(stdout, "\n") {
@@ -99,10 +97,9 @@ func ParsePodmanLive(stdout string) map[string]struct{} {
 }
 
 // ParseContainerLsLive parses Apple Container's `container ls` stdout (running
-// only, fixed table) into the set of live yolo-* names.
-// branch: skip the header row, take the first whitespace field, keep yolo-*.
-// Because `container ls` lists only running containers, every yolo-* row is
-// live.
+// only, fixed table) into the set of live yolo-* names: skip the header row,
+// take the first whitespace field, keep yolo-*. Because `container ls` lists
+// only running containers, every yolo-* row is live.
 func ParseContainerLsLive(stdout string) map[string]struct{} {
 	live := map[string]struct{}{}
 	for _, line := range tableRows(stdout) {
@@ -116,7 +113,6 @@ func ParseContainerLsLive(stdout string) map[string]struct{} {
 
 // ParseRunningJailNames parses `podman ps --filter name=^yolo- --format
 // "{{.Names}}"` stdout: one name per non-blank line, trimmed.
-// podman branch of list_running_jail_names.
 func ParseRunningJailNames(stdout string) []string {
 	var names []string
 	for _, line := range strings.Split(stdout, "\n") {
@@ -127,9 +123,8 @@ func ParseRunningJailNames(stdout string) []string {
 	return names
 }
 
-// ParseContainerLsNames parses `container ls` stdout for yolo-* names (Apple
-// Container branch of list_running_jail_names): skip header, first field,
-// yolo-* prefix.
+// ParseContainerLsNames parses `container ls` stdout for yolo-* names: skip
+// header, first field, yolo-* prefix.
 func ParseContainerLsNames(stdout string) []string {
 	var names []string
 	for _, line := range tableRows(stdout) {
@@ -150,9 +145,9 @@ type PsRow struct {
 }
 
 // ParsePodmanPsRows parses `podman ps --filter name=^yolo- --format
-// "{{.Names}}\t{{.Status}}\t{{.RunningFor}}"` stdout into rows, mirroring the
-// podman branch of ps(): strip, split lines, then split each on tab and keep
-// rows with >=3 fields. A blank stdout yields no rows.
+// "{{.Names}}\t{{.Status}}\t{{.RunningFor}}"` stdout into rows: strip, split
+// lines, then split each on tab and keep rows with >=3 fields. A blank stdout
+// yields no rows.
 func ParsePodmanPsRows(stdout string) []PsRow {
 	var rows []PsRow
 	trimmed := strings.TrimSpace(stdout)
@@ -169,10 +164,9 @@ func ParsePodmanPsRows(stdout string) []PsRow {
 }
 
 // ParseContainerLsRows parses Apple Container `container ls` stdout into ps
-// rows, mirroring the container branch of ps(): skip header, first field is the
-// name, the remaining fields joined by a single space are the status, and
-// RunningFor is always empty (the Python builds "{cname}\t{status}\t" then
-// re-splits on tab, yielding an empty third field).
+// rows: skip header, first field is the name, the remaining fields joined by a
+// single space are the status, and RunningFor is always empty (Apple Container
+// does not report an uptime column).
 func ParseContainerLsRows(stdout string) []PsRow {
 	var rows []PsRow
 	for _, line := range tableRows(stdout) {
@@ -190,9 +184,7 @@ func ParseContainerLsRows(stdout string) []PsRow {
 }
 
 // tableRows returns the data rows of a fixed-table CLI output: strip the whole
-// blob, split on newline, drop the header row. Mirrors
-// `stdout.strip().splitlines()[1:]`. A blank blob yields no rows (Python's
-// "".splitlines() is [], and [1:] of [] is []).
+// blob, split on newline, drop the header row. A blank blob yields no rows.
 func tableRows(stdout string) []string {
 	trimmed := strings.TrimSpace(stdout)
 	if trimmed == "" {

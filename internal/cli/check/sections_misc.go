@@ -13,9 +13,9 @@ import (
 	"github.com/mschulkind-oss/yolo-jail/internal/prune"
 )
 
-// checkBrokerCredsFreshness ports _check_broker_creds_freshness with an INJECTED
-// CLOCK (Options.Now). Grades the shared Claude credentials' expiry against
-// wall-clock now, using the file mtime as a "time since last refresh" proxy.
+// checkBrokerCredsFreshness grades the shared Claude credentials' expiry against
+// wall-clock now (Options.Now is the injected clock), using the file mtime as a
+// "time since last refresh" proxy.
 func (o *Options) checkBrokerCredsFreshness(r *reporter) {
 	credsPath := filepath.Join(paths.GlobalHome(), ".claude-shared-credentials", ".credentials.json")
 	info, err := os.Stat(credsPath)
@@ -106,8 +106,8 @@ func parseCredsExpiresAt(data []byte) (int64, bool) {
 	return 0, false
 }
 
-// checkDiskUsage ports _check_disk_usage: surface yolo-jail's total on-disk
-// footprint and nudge toward `yolo prune` over threshold. Never a fail.
+// checkDiskUsage surfaces yolo-jail's total on-disk
+// footprint and nudges toward `yolo prune` over threshold. Never a fail.
 func (o *Options) checkDiskUsage(r *reporter, config *jsonx.OrderedMap) {
 	if o.inJail() {
 		r.ok("Inside jail — disk-usage check skipped (runs host-side)")
@@ -138,7 +138,7 @@ func (o *Options) checkDiskUsage(r *reporter, config *jsonx.OrderedMap) {
 	}
 }
 
-// findYoloWorkspaces ports prune._find_yolo_workspaces: resolved workspace paths
+// findYoloWorkspaces returns resolved workspace paths
 // for every yolo-* container the runtime knows about (running or stopped). Any
 // probe error → empty (check() swallows it).
 func (o *Options) findYoloWorkspaces(rt string) []string {
@@ -175,7 +175,7 @@ func (o *Options) findYoloWorkspaces(rt string) []string {
 	return found
 }
 
-// inspectWorkspaceMount ports prune._inspect_workspace_mount: the host path
+// inspectWorkspaceMount returns the host path
 // bound into /workspace for name.
 func (o *Options) inspectWorkspaceMount(rt, name string) (string, bool) {
 	res := o.Exec([]string{rt, "inspect", "--format", "{{json .Mounts}}", name}, "", nil, 5*time.Second)
@@ -204,7 +204,7 @@ func (o *Options) inspectWorkspaceMount(rt, name string) (string, bool) {
 	return "", false
 }
 
-// diskUsageTotal runs the `total` key of prune._disk_usage_report: bytes under
+// diskUsageTotal returns bytes under
 // GLOBAL_STORAGE (dirs + stray files, symlinks skipped) plus each workspace's
 // .yolo/ size.
 func diskUsageTotal(workspaces []string, globalStorage string) int64 {
@@ -236,8 +236,8 @@ func diskUsageTotal(workspaces []string, globalStorage string) int64 {
 	return gs + ws
 }
 
-// dirSizeBytes ports prune._dir_size_bytes: sum of regular-file lstat sizes under
-// p (followlinks=false). Missing path → 0.
+// dirSizeBytes returns the sum of regular-file lstat sizes under
+// p (symlinks not followed). Missing path → 0.
 func dirSizeBytes(p string) int64 {
 	info, err := os.Stat(p)
 	if err != nil || !info.IsDir() {
@@ -251,8 +251,8 @@ func dirSizeBytes(p string) int64 {
 		if fi.IsDir() {
 			return nil
 		}
-		// os.walk sums filenames' lstat sizes; symlinks are counted (lstat), not
-		// followed. filepath.Walk uses Lstat, so fi is already the link's info.
+		// Symlinks are counted at their own size (lstat), not followed:
+		// filepath.Walk uses Lstat, so fi is already the link's info.
 		total += fi.Size()
 		return nil
 	})
@@ -264,10 +264,9 @@ func isDir(p string) bool {
 	return err == nil && info.IsDir()
 }
 
-// numberFloat mirrors `isinstance(raw, (int, float))`: returns the float value
-// for a decoded JSON int or float. A bool is NOT accepted (Python's
-// isinstance(True,(int,float)) is True, but warn_threshold_gb is never a bool in
-// practice; matching int/float only is faithful for real config).
+// numberFloat returns the float value
+// for a decoded JSON int or float. A bool is NOT accepted (warn_threshold_gb is
+// never a bool in practice; matching int/float only is correct for real config).
 func numberFloat(v any) (float64, bool) {
 	switch t := v.(type) {
 	case float64:

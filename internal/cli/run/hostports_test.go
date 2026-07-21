@@ -26,7 +26,7 @@ func TestParsePortForwards(t *testing.T) {
 	if len(warnings) != 1 || warnings[0] != "Warning: invalid port forward entry: [nope]" {
 		t.Errorf("warnings = %v", warnings)
 	}
-	// Non-numeric string aborts (Python raises ValueError).
+	// Non-numeric string aborts with an error.
 	if _, err := ParsePortForwards([]any{"abc"}, nil); err == nil {
 		t.Error("non-numeric string should error")
 	}

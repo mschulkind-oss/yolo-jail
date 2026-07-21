@@ -6,7 +6,7 @@
 // The runtime-probe layer (podman/container ps+inspect) execs the real runtime
 // (output format is the contract) and is injectable for tests via the Runtime
 // interface. The pure logic (dedup, sweep decision, image sort) is
-// runtime-independent and cross-language-parity-tested.
+// runtime-independent and parity-tested.
 package prune
 
 import (
@@ -19,8 +19,7 @@ import (
 )
 
 // Dedup subtrees (per-workspace .yolo/home/<sub>) and global-storage subdirs
-// that are safe to hardlink-dedup. Frozen from prune.py:_DEDUPE_SUBTREES /
-// _GLOBAL_DEDUPE_SUBDIRS.
+// that are safe to hardlink-dedup.
 var (
 	dedupeSubtrees      = []string{"npm-global", "local", "go"}
 	globalDedupeSubdirs = []string{"cache", "mise", "home"}
@@ -34,8 +33,8 @@ type Entry struct {
 }
 
 // WalkDedupTree yields dedup entries for regular, non-empty, non-symlink files
-// under root (recursively). Missing root yields nothing. Mirrors
-// _walk_dedup_tree (lstat; skip symlinks, non-regular, zero-byte).
+// under root (recursively). Missing root yields nothing. Uses lstat; skips
+// symlinks, non-regular files, and zero-byte files.
 func WalkDedupTree(root string) []Entry {
 	var out []Entry
 	info, err := os.Lstat(root)
@@ -82,8 +81,7 @@ func WalkDedupableWorkspaces(workspaces []string) []Entry {
 }
 
 // WalkGlobalDedupable yields entries under the global-storage dedupe subdirs
-// (cache, mise, home).
-// containers/agents/state/nix scratch.
+// (cache, mise, home) — never the containers/agents/state/nix scratch subdirs.
 func WalkGlobalDedupable(globalStorage string) []Entry {
 	var out []Entry
 	for _, sub := range globalDedupeSubdirs {

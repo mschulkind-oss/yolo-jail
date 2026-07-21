@@ -41,9 +41,8 @@ func configureJJ(e *Env) {
 	}
 }
 
-// runQuiet runs argv with stdout/stderr discarded, mirroring Python's
-// subprocess.run(..., capture_output=True) best-effort calls. Errors are
-// swallowed (the identity setters are best-effort and never abort boot).
+// runQuiet runs argv with stdout/stderr discarded. Errors are swallowed (the
+// identity setters are best-effort and never abort boot).
 func runQuiet(name string, args ...string) {
 	cmd := exec.Command(name, args...)
 	cmd.Stdout = nil

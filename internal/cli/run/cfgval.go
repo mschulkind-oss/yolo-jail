@@ -37,8 +37,8 @@ func cfgStr(cfg *jsonx.OrderedMap, key string) string {
 	return ""
 }
 
-// cfgStrList returns config[key] as a []string, coercing string elements (Python
-// iterates the list; non-strings are rare/never for the keys we read).
+// cfgStrList returns config[key] as a []string, coercing string elements
+// (non-strings are rare/never for the keys we read).
 func cfgStrList(cfg *jsonx.OrderedMap, key string) []string {
 	var out []string
 	for _, e := range cfgList(cfg, key) {
@@ -49,8 +49,7 @@ func cfgStrList(cfg *jsonx.OrderedMap, key string) []string {
 	return out
 }
 
-// cfgTrue reports whether config[key] is exactly the JSON boolean true (Python's
-// `config.get(key) is True`).
+// cfgTrue reports whether config[key] is exactly the JSON boolean true.
 func cfgTrue(cfg *jsonx.OrderedMap, key string) bool {
 	v, _ := cfgGet(cfg, key)
 	b, ok := v.(bool)

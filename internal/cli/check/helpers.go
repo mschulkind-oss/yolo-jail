@@ -10,7 +10,7 @@ import (
 	"github.com/mschulkind-oss/yolo-jail/internal/runtime"
 )
 
-// checkPresetNullConflicts ports _check_preset_null_conflicts: report same-file
+// checkPresetNullConflicts reports same-file
 // preset/null contradictions (a preset enabled in mcp_presets but null-removed
 // in mcp_servers within the SAME config file).
 func checkPresetNullConflicts(config *jsonx.OrderedMap, label string) []string {
@@ -40,7 +40,7 @@ func cleanupTrackingFn(name string) {
 	runtime.CleanupContainerTracking(name)
 }
 
-// expandUserPath expand a leading "~"/"~/…"
+// expandUserPath expands a leading "~"/"~/…"
 // against $HOME (or the passwd home). A bare "~user" form is left untouched.
 func expandUserPath(p string) string {
 	if len(p) == 0 || p[0] != '~' {
@@ -85,8 +85,8 @@ func isExecutableFile(p string) bool {
 // readFileBytes reads a file (used by CDI-spec matching). Wrapper for testing.
 func readFileBytes(p string) ([]byte, error) { return os.ReadFile(p) }
 
-// loadConfigLoose ports load_config(workspace, strict=False): user + workspace
-// merged, non-strict. Any error → nil (the caller substitutes {}).
+// loadConfigLoose returns the user + workspace configs merged, non-strict.
+// Any error → nil (the caller substitutes {}).
 func loadConfigLoose(workspace string) *jsonx.OrderedMap {
 	cfg, err := config.LoadConfig(workspace, false, func(string) {})
 	if err != nil {
@@ -95,7 +95,7 @@ func loadConfigLoose(workspace string) *jsonx.OrderedMap {
 	return cfg
 }
 
-// orphanCleanupPrompt runs the console.input(...) y/N prompt in the Running
+// orphanCleanupPrompt runs the y/N prompt in the Running
 // Jails block. Returns true iff the user answered y/yes. No Stdin => "N".
 func (o *Options) orphanCleanupPrompt(r *reporter, n int) bool {
 	prompt := "  " + r.style(pluralOrphansPrompt(n), ansiYellow) + " "
@@ -115,8 +115,8 @@ func pluralOrphansPrompt(n int) string {
 	return "Stop " + itoa(n) + " orphaned jail(s)? [y/N]"
 }
 
-// pyStrOf renders str(v) for a non-string cmd[0] element (rare/never for real
-// config). Booleans → True/False, numbers → decimal, else JSON.
+// pyStrOf renders a human string for a non-string cmd[0] element (rare/never
+// for real config). Booleans → True/False, numbers → decimal, else JSON.
 func pyStrOf(v any) string {
 	switch t := v.(type) {
 	case string:

@@ -10,12 +10,11 @@ import (
 	"github.com/mschulkind-oss/yolo-jail/internal/paths"
 )
 
-// startHostPortForwarding ports start_host_port_forwarding: spawn one
+// startHostPortForwarding spawns one
 // `socat UNIX-LISTEN:<sock>,fork,mode=777 TCP:127.0.0.1:<hostPort>` per parsed
-// forward, wait (condition-poll) for the socket files to appear, and return the
-// live process handles. Go spawns the IDENTICAL socat argv (native proxying is
-// out of scope). Must run BEFORE the container so the socket files exist when
-// the container-side socat connects.
+// forward, waits (condition-poll) for the socket files to appear, and returns the
+// live process handles (native proxying is out of scope). Must run BEFORE the
+// container so the socket files exist when the container-side socat connects.
 //
 // forwardHostPorts are the raw config entries; cname keys the socat log; socketDir
 // is the per-jail /tmp/yolo-fwd-<cname> dir. Returns the socat *exec.Cmd handles.
@@ -47,7 +46,7 @@ func (o *Options) startHostPortForwarding(forwardHostPorts []any, cname string, 
 			cmd.Stderr = logFile
 		}
 		if err := cmd.Start(); err != nil {
-			// socat absent → warn once and stop (FileNotFoundError branch).
+			// socat absent → warn once and stop.
 			out.print("Warning: socat not found on host, cannot forward ports. " +
 				"Install socat (e.g., nix-shell -p socat, apt install socat).")
 			break
@@ -83,8 +82,8 @@ func (o *Options) startHostPortForwarding(forwardHostPorts []any, cname string, 
 	return procs
 }
 
-// cleanupPortForwarding ports cleanup_port_forwarding: SIGTERM each socat
-// (SIGKILL on timeout) and rmtree the socket dir. Best-effort.
+// cleanupPortForwarding SIGTERMs each socat (SIGKILL on timeout) and removes the
+// socket dir. Best-effort.
 func cleanupPortForwarding(procs []*exec.Cmd, socketDir string) {
 	for _, cmd := range procs {
 		if cmd == nil || cmd.Process == nil {

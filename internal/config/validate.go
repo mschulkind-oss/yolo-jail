@@ -12,32 +12,30 @@ import (
 )
 
 // LoopholeInfo is the subset of a discovered loophole that
-// _validate_loophole_override consults. HasHostDaemon mirrors
-// (loophole.host_daemon is not None).
+// validateLoopholeOverride consults. HasHostDaemon is true when the loophole
+// declares a host daemon.
 type LoopholeInfo struct {
 	Name          string
 	HasHostDaemon bool
 }
 
-// LoopholeResolver supplies the file-backed loophole set for validation,
-// mirroring config.py's _known_loopholes() (which calls
-// loopholes.discover_loopholes(include_disabled=True)). It is injected because
-// the loopholes registry is a separate Stage-14 port; a nil resolver means
-// "no known loopholes" (the OSError-degrades-to-empty branch).
+// LoopholeResolver supplies the file-backed loophole set (including disabled
+// ones) for validation. It is injected; a nil resolver means "no known
+// loopholes" (discovery degraded to empty).
 //
 // Known returns the map of name->info and a boolean that is false when
-// discovery failed (Python's `except OSError: return {}`). A false ok on a
-// truly-empty machine and a false ok on a discovery error are indistinguishable
-// to _validate_config — both yield the empty known set — so callers may simply
-// return (nil, true) for "empty" or (nil, false) for "discovery errored"; both
-// behave identically downstream.
+// discovery failed. A false ok on a truly-empty machine and a false ok on a
+// discovery error are indistinguishable to ValidateConfig — both yield the
+// empty known set — so callers may simply return (nil, true) for "empty" or
+// (nil, false) for "discovery errored"; both behave identically downstream.
 type LoopholeResolver interface {
 	Known() (map[string]LoopholeInfo, bool)
 }
 
-// ValidateConfig ports _validate_config. Returns (errors, warnings) in the
-// exact order Python appends them. workspace is used for mount-path existence
-// checks (config.mounts). resolver supplies known loopholes (nil => none).
+// ValidateConfig returns (errors, warnings) in a fixed append order (a frozen
+// contract — the order must not drift). workspace is used for mount-path
+// existence checks (config.mounts). resolver supplies known loopholes
+// (nil => none).
 func ValidateConfig(config *jsonx.OrderedMap, workspace string, resolver LoopholeResolver) (errors []string, warnings []string) {
 	if workspace == "" {
 		workspace = cwd()
@@ -86,8 +84,8 @@ func ValidateConfig(config *jsonx.OrderedMap, workspace string, resolver Loophol
 
 func add(list *[]string, s string) { *list = append(*list, s) }
 
-// reportUnknownKeys ports _report_unknown_keys: iterate sorted mapping keys,
-// append "<path>.<key>: unknown key" for each not in allowed.
+// reportUnknownKeys iterates the mapping's keys in sorted order and appends
+// "<path>.<key>: unknown key" for each not in allowed.
 func reportUnknownKeys(m *jsonx.OrderedMap, allowed map[string]struct{}, path string, errs *[]string) {
 	keys := append([]string(nil), m.Keys()...)
 	sort.Strings(keys)
@@ -324,16 +322,15 @@ func validatePerSidePaths(config *jsonx.OrderedMap, errs *[]string) {
 }
 
 func validateHostClaudeFiles(config *jsonx.OrderedMap, errs *[]string) {
-	// Python validates host_claude_files then host_pi_files as two identical
-	// blocks in sequence (config.py:818-843); mirror both, in that order.
+	// host_claude_files and host_pi_files are validated as two identical blocks
+	// in that fixed order.
 	validateHostAgentFiles(config, "host_claude_files", errs)
 	validateHostAgentFiles(config, "host_pi_files", errs)
 }
 
 // validateHostAgentFiles checks a `<agent>_files` key: absent → skip; present
 // but not a list → "expected a list of strings"; each entry must be a string
-// with no path separator ("must be a filename, not a path"). Byte-identical
-// messages to Python's per-key blocks.
+// with no path separator ("must be a filename, not a path").
 func validateHostAgentFiles(config *jsonx.OrderedMap, key string, errs *[]string) {
 	v, present := config.Get(key)
 	if !present || v == nil {
@@ -478,7 +475,7 @@ func validatePublishPort(value any, path string, errs *[]string) {
 
 func validateForwardHostPort(value any, path string, errs *[]string) {
 	if isBool(value) {
-		// Python: isinstance(value, int) is TRUE for bool (bool subclasses int).
+		// A bool counts as an integer port here.
 		validatePortNumber(value, path, errs)
 		return
 	}
@@ -583,9 +580,8 @@ func validateMiseTools(config *jsonx.OrderedMap, errs *[]string) {
 	}
 	for _, key := range mt.Keys() {
 		value, _ := mt.Get(key)
-		// Python iterates .items(); keys of a decoded JSON object are always
-		// strings, so the "tool names must be strings" branch is unreachable
-		// for real input but preserved for fidelity via the value check.
+		// Keys of a decoded JSON object are always strings, so only the value
+		// (version) type is checked here.
 		if _, ok := asStr(value); !ok {
 			add(errs, "config.mise_tools."+key+": expected a version string")
 		}
@@ -867,7 +863,7 @@ func validateResources(config *jsonx.OrderedMap, errs *[]string) {
 	cpusV, _ := resources.Get("cpus")
 	if cpusV != nil {
 		if isBool(cpusV) {
-			// bool is an int in Python: True(1)>0 ok, False(0)<=0 -> error.
+			// A bool counts as an int: true(1)>0 ok, false(0)<=0 -> error.
 			n := int64(0)
 			if cpusV.(bool) {
 				n = 1
@@ -895,7 +891,7 @@ func validateResources(config *jsonx.OrderedMap, errs *[]string) {
 	}
 	pidsV, _ := resources.Get("pids_limit")
 	if pidsV != nil {
-		// isinstance(pids_limit, int) — True for bool. Non-int, or <=0 -> error.
+		// A bool counts as an int. Non-int, or <=0 -> error.
 		if isBool(pidsV) {
 			n := int64(0)
 			if pidsV.(bool) {
@@ -972,8 +968,7 @@ func validateEnvSources(config *jsonx.OrderedMap, errs *[]string) {
 		if entry, ok := asMap(entryV); ok {
 			for _, key := range entry.Keys() {
 				value, _ := entry.Get(key)
-				// Decoded JSON keys are always non-empty? No — "" is a valid
-				// JSON key. Python checks `not isinstance(key,str) or not key`.
+				// "" is a valid JSON key, so an empty key is rejected here.
 				if key == "" {
 					add(errs, path+": inline map keys must be non-empty strings")
 				} else if !envVarNameRe.MatchString(key) {
@@ -991,7 +986,7 @@ func validateEnvSources(config *jsonx.OrderedMap, errs *[]string) {
 	}
 }
 
-// validateStringList ports _validate_string_list.
+// validateStringList checks that values is a list of strings.
 func validateStringList(values any, path string, errs *[]string) {
 	list, ok := asList(values)
 	if !ok {

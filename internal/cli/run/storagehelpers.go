@@ -10,14 +10,13 @@ import (
 	"github.com/mschulkind-oss/yolo-jail/internal/version"
 )
 
-// resolveLSPInstalls ports _resolve_lsp_installs over the config's lsp_servers
-// keys, returning the newline-joined (npm, go) install lists.
+// resolveLSPInstalls resolves the config's lsp_servers keys into the
+// newline-joined (npm, go) install lists.
 func resolveLSPInstalls(cfg *jsonx.OrderedMap) (npm, goPkgs string) {
 	return ResolveLSPInstalls(lspServerNames(cfg))
 }
 
-// jailMiseStoreDir ports _jail_mise_store_dir: /mise inside a jail (nested),
-// else GLOBAL_MISE.
+// jailMiseStoreDir returns /mise inside a jail (nested), else GLOBAL_MISE.
 func jailMiseStoreDir(inJail bool) string {
 	if inJail {
 		return "/mise"
@@ -25,14 +24,13 @@ func jailMiseStoreDir(inJail bool) string {
 	return paths.GlobalMise()
 }
 
-// yoloVersion ports _git_describe_version() or "unknown" (the YOLO_VERSION env
-// value baked into the container). version.Get resolves YOLO_VERSION → git
-// describe → baked → "unknown".
+// yoloVersion resolves the yolo-jail version. version.Get resolves
+// YOLO_VERSION → git describe → baked → "unknown".
 func (o *Options) yoloVersion(repoRoot string) string {
 	return version.Get(repoRoot)
 }
 
-// seedAgentDir ports _seed_agent_dir: copy auth-related files from a GLOBAL_HOME
+// seedAgentDir copies auth-related files from a GLOBAL_HOME
 // agent dir into a per-workspace overlay, only when the target doesn't already
 // exist. Subdirectories are skipped (the entrypoint recreates them). Errors on
 // individual files are swallowed.
@@ -50,7 +48,7 @@ func seedAgentDir(src, dst string) {
 			continue
 		}
 		// os.ReadDir returns DirEntry; a symlink to a file is not a regular
-		// file — Python's item.is_file() follows symlinks, so Stat it.
+		// file — follow symlinks (include their targets), so Stat it.
 		srcItem := filepath.Join(src, e.Name())
 		si, err := os.Stat(srcItem)
 		if err != nil || !si.Mode().IsRegular() {
@@ -64,12 +62,12 @@ func seedAgentDir(src, dst string) {
 	}
 }
 
-// syncClaudeJSONSeed delegates to the ported storage.SyncClaudeJSONSeed.
+// syncClaudeJSONSeed delegates to storage.SyncClaudeJSONSeed.
 func syncClaudeJSONSeed(seed, ws string) {
 	storage.SyncClaudeJSONSeed(seed, ws)
 }
 
-// migrateOldOverlay ports _migrate_old_overlay: copy files from a pre-refactor
+// migrateOldOverlay copies files from a pre-refactor
 // overlay dir into the new location, never overwriting an existing target. No-op
 // when the old dir is missing or empty.
 func migrateOldOverlay(oldDir, newDir string) {
@@ -86,8 +84,7 @@ func migrateOldOverlay(oldDir, newDir string) {
 }
 
 // copyTreeIfMissing recursively copies src→dst, skipping any file that already
-// exists at the destination (shutil.copytree with dirs_exist_ok + a copy
-// function that skips existing files).
+// exists at the destination.
 func copyTreeIfMissing(src, dst string) {
 	entries, err := os.ReadDir(src)
 	if err != nil {

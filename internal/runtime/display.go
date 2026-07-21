@@ -13,10 +13,9 @@ func jsonUnmarshal(s string, v any) error {
 }
 
 // WorkspaceFromInspectEnv extracts the YOLO_HOST_DIR value from a runtime
-// inspect's env lines.
-// for the "YOLO_HOST_DIR=" prefix and return the value after the first '='
-// VERBATIM (no strip). Returns ("", false) when absent (caller then reports
-// "unknown").
+// inspect's env lines: scan for the "YOLO_HOST_DIR=" prefix and return the
+// value after the first '=' VERBATIM (no strip). Returns ("", false) when
+// absent (caller then reports "unknown").
 func WorkspaceFromInspectEnv(envLines []string) (string, bool) {
 	for _, line := range envLines {
 		if strings.HasPrefix(line, "YOLO_HOST_DIR=") {
@@ -28,9 +27,9 @@ func WorkspaceFromInspectEnv(envLines []string) (string, bool) {
 
 // WorkspaceFromContainerInspectJSON parses Apple Container's `container inspect`
 // JSON output for the YOLO_HOST_DIR env var. AC emits a JSON document (no
-// --format); the env lives at config.env (a list of "K=V" strings).
-// container branch of _get_container_workspace: json.loads → config.env → scan
-// for "YOLO_HOST_DIR=". Returns ("", false) on any parse error or absence.
+// --format); the env lives at config.env (a list of "K=V" strings). Scan
+// config.env for "YOLO_HOST_DIR=". Returns ("", false) on any parse error or
+// absence.
 func WorkspaceFromContainerInspectJSON(stdout string) (string, bool) {
 	var docs []struct {
 		Config struct {
@@ -38,9 +37,8 @@ func WorkspaceFromContainerInspectJSON(stdout string) (string, bool) {
 		} `json:"config"`
 	}
 	// AC inspect may return a single object or a list; try list first, then a
-	// single object. Python does json.loads then .get("config") on the top
-	// value, so it expects a dict — model that as the single-object form, but
-	// tolerate the list form too (some AC versions wrap in a list).
+	// single object. Some AC versions wrap the document in a list, others emit
+	// a bare object — tolerate both.
 	if err := jsonUnmarshal(stdout, &docs); err == nil && len(docs) > 0 {
 		if ws, ok := WorkspaceFromInspectEnv(docs[0].Config.Env); ok {
 			return ws, true
@@ -59,9 +57,8 @@ func WorkspaceFromContainerInspectJSON(stdout string) (string, bool) {
 }
 
 // BakedYoloVersionFromInspectEnv extracts the YOLO_VERSION baked into a
-// container's inspect env lines.
-// the value after "YOLO_VERSION=" is STRIPPED, and an empty-after-strip value
-// reads as absent (Python's `... .strip() or None`). Returns ("", false) when
+// container's inspect env lines: the value after "YOLO_VERSION=" is STRIPPED,
+// and an empty-after-strip value reads as absent. Returns ("", false) when
 // absent or empty. The subprocess (inspect --format) stays in the caller; this
 // is the pure line parse.
 func BakedYoloVersionFromInspectEnv(envLines []string) (string, bool) {
@@ -87,8 +84,8 @@ type PsContainer struct {
 
 // RenderPsTable renders the `yolo ps` table byte-exactly like ps(): a header
 // then one line per container, with the name and status columns left-padded to
-// the widest value (measured in Unicode code points, matching Python's len()
-// and :< padding), two spaces between columns. Returns "" for no containers
+// the widest value (measured in Unicode code points), two spaces between
+// columns. Returns "" for no containers
 // (the caller prints "No running jails." instead). No trailing newline on the
 // final row (each line is joined by "\n").
 func RenderPsTable(containers []PsContainer) string {
@@ -120,9 +117,8 @@ func RenderPsTable(containers []PsContainer) string {
 	return b.String()
 }
 
-// padRunes left-justifies s to width code points with trailing spaces, matching
-// Python's f"{s:<{width}}". If s is already >= width runes, it is returned
-// unchanged (Python does not truncate).
+// padRunes left-justifies s to width code points with trailing spaces. If s is
+// already >= width runes, it is returned unchanged (never truncated).
 func padRunes(s string, width int) string {
 	n := utf8.RuneCountInString(s)
 	if n >= width {
@@ -137,8 +133,7 @@ func padRunes(s string, width int) string {
 const PodmanMachineMemoryFloorMB = 4096
 
 // PodmanMachineResizeHint is the single source of truth for the
-// `podman machine set` advice, including the VM-restart caveat. Mirrors
-// _podman_machine_resize_hint byte-for-byte.
+// `podman machine set` advice, including the VM-restart caveat.
 func PodmanMachineResizeHint() string {
 	return fmt.Sprintf(
 		"Increase the VM: `podman machine set --memory "+

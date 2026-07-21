@@ -7,29 +7,25 @@ import (
 )
 
 // CachePurgeDefaultSubdirs are the ~/.cache subdirs safe to purge by age —
-// content is pure CAS with a fast re-download/recompute path. Frozen from
-// prune.py:CACHE_PURGE_DEFAULT_SUBDIRS.
+// content is pure CAS with a fast re-download/recompute path.
 var CachePurgeDefaultSubdirs = []string{
 	"uv", "pip", "npm", "go-build", "mise", "pex", "pants", "node-gyp", "gopls",
 }
 
 // CachePurgeHeavySubdirs are opt-in age-purge subdirs with a meaningful re-fetch
-// cost (playwright browsers ~400 MiB each; HF models GiBs). Frozen from
-// prune.py:CACHE_PURGE_HEAVY_SUBDIRS.
+// cost (playwright browsers ~400 MiB each; HF models GiBs).
 var CachePurgeHeavySubdirs = []string{"ms-playwright", "huggingface"}
 
-// cachePurgeForbidden are subdirs _purge_cache_by_age refuses to touch even when
+// cachePurgeForbidden are subdirs PurgeCacheByAge refuses to touch even when
 // explicitly named — they carry live user profile state (cookies, IndexedDB,
 // extensions) or the installed binaries of a tool, not regenerable cache.
-// Frozen from prune.py:_CACHE_PURGE_FORBIDDEN.
 var cachePurgeForbidden = map[string]struct{}{
 	"chromium": {}, "google-chrome": {}, "chrome": {}, "mozilla": {},
 	"firefox": {}, "thunderbird": {}, "copilot": {},
 }
 
 // PurgeCacheByAge removes regular files older than olderThanDays under each named
-// subdir of cacheRoot. Returns (bytesRemoved, filesRemoved). Mirrors
-// _purge_cache_by_age exactly:
+// subdir of cacheRoot. Returns (bytesRemoved, filesRemoved):
 //   - only the caller-named subdirs are scanned (no glob, no recursion into the
 //     allowlist);
 //   - forbidden browser-profile subdirs are hard-excluded even if named;
@@ -37,8 +33,7 @@ var cachePurgeForbidden = map[string]struct{}{
 //   - staleness is keyed off mtime (>= cutoff is kept), not atime;
 //   - apply=false returns accurate counts without mutating.
 //
-// now is the clock seam (Python uses time.time()); the cutoff is
-// now - olderThanDays*86400.
+// now is the clock seam; the cutoff is now - olderThanDays*86400.
 func PurgeCacheByAge(cacheRoot string, subdirs []string, olderThanDays float64, apply bool, now time.Time) (bytesRemoved int64, filesRemoved int) {
 	cutoff := now.Add(-time.Duration(olderThanDays * 86400 * float64(time.Second)))
 
@@ -68,7 +63,7 @@ func PurgeCacheByAge(cacheRoot string, subdirs []string, olderThanDays float64, 
 			if !st.Mode().IsRegular() {
 				return nil
 			}
-			// Kept when mtime >= cutoff (matches Python's `>=` skip).
+			// Kept when mtime >= cutoff.
 			if !st.ModTime().Before(cutoff) {
 				return nil
 			}

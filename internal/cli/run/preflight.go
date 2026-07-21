@@ -10,7 +10,7 @@ import (
 	"github.com/mschulkind-oss/yolo-jail/internal/paths"
 )
 
-// loadAndValidateConfig ports run()'s config gate (lines 1205-1237): load
+// loadAndValidateConfig is run()'s config gate: load
 // strict, validate, gather same-file preset/null conflicts, print warnings,
 // then print+exit on errors. Returns (config, ok). ok=false means the caller
 // must exit(1) — the messages were already printed.
@@ -20,8 +20,8 @@ func (o *Options) loadAndValidateConfig() (*jsonx.OrderedMap, bool) {
 	cfg, err := config.LoadConfig(o.Workspace, true, func(string) {})
 	if err != nil {
 		// ConfigError → print the message; any other load error also surfaces
-		// (Python only catches ConfigError, but LoadConfig only returns
-		// ConfigError in strict mode for malformed config).
+		// (LoadConfig only returns ConfigError in strict mode for malformed
+		// config).
 		out.printf("[bold red]%s[/bold red]", err.Error())
 		return nil, false
 	}
@@ -57,7 +57,7 @@ func (o *Options) loadAndValidateConfig() (*jsonx.OrderedMap, bool) {
 	return cfg, true
 }
 
-// checkPresetNullConflicts ports _check_preset_null_conflicts: same-file
+// checkPresetNullConflicts detects a same-file
 // preset/null contradiction (a preset enabled in mcp_presets but null-removed in
 // mcp_servers within the same file).
 func checkPresetNullConflicts(cfg *jsonx.OrderedMap, label string) []string {
@@ -82,9 +82,9 @@ func checkPresetNullConflicts(cfg *jsonx.OrderedMap, label string) []string {
 	return errs
 }
 
-// resolveRuntime ports _runtime(config): the resolved container runtime
-// ('podman' or 'container'), or ("", false) when none is reachable (the Python
-// prints the actionable message and exits(1)). YOLO_RUNTIME / config.runtime win
+// resolveRuntime returns the resolved container runtime
+// ('podman' or 'container'), or ("", false) when none is reachable (prints the
+// actionable message; the caller exits 1). YOLO_RUNTIME / config.runtime win
 // (validated against ALL_RUNTIMES) before platform auto-detection.
 func (o *Options) resolveRuntime(cfg *jsonx.OrderedMap) (string, bool) {
 	if env := o.Getenv("YOLO_RUNTIME"); env != "" && inStrSlice(paths.AllRuntimes, env) {
@@ -117,7 +117,7 @@ func (o *Options) resolveRuntime(cfg *jsonx.OrderedMap) (string, bool) {
 	return "", false
 }
 
-// isAppleContainer ports _is_apple_container.
+// isAppleContainer reports whether the runtime at path is Apple's container CLI.
 func (o *Options) isAppleContainer(path string) bool {
 	res := o.Exec([]string{path, "--version"}, "", nil, 5*time.Second)
 	if !res.Ran || res.Timeout {
@@ -127,7 +127,7 @@ func (o *Options) isAppleContainer(path string) bool {
 	return strings.Contains(out, "Apple") || strings.Contains(out, "container CLI version")
 }
 
-// runtimeIsConnectable ports _runtime_is_connectable.
+// runtimeIsConnectable reports whether the runtime's daemon is reachable.
 func (o *Options) runtimeIsConnectable(rt string) bool {
 	if rt == "container" {
 		res := o.Exec([]string{"container", "system", "status"}, "", nil, 5*time.Second)
@@ -143,14 +143,14 @@ func (o *Options) runtimeIsConnectable(rt string) bool {
 	return res.RC == 0
 }
 
-// checkConfigChanges ports _check_config_changes via config.CheckConfigChanges,
+// checkConfigChanges delegates to config.CheckConfigChanges,
 // wiring the diff-printing prompter. Returns true to proceed, false to abort.
 func (o *Options) checkConfigChanges(cfg *jsonx.OrderedMap) bool {
 	pr := &changePrompter{o: o}
 	ok, err := config.CheckConfigChanges(o.Workspace, cfg, o.IsTTYStdin(), pr)
 	if err != nil {
 		// A snapshot IO error is non-fatal in spirit; treat as proceed=false
-		// only when the write genuinely failed. Python raises; we surface and
+		// only when the write genuinely failed. Surface it and
 		// abort so the launch doesn't proceed on an unwritten snapshot.
 		o.pr(o.Stdout).printf("[bold red]%s[/bold red]", err.Error())
 		return false
@@ -158,8 +158,7 @@ func (o *Options) checkConfigChanges(cfg *jsonx.OrderedMap) bool {
 	return ok
 }
 
-// changePrompter renders the config diff and reads the y/N answer, mirroring the
-// _check_config_changes console block.
+// changePrompter renders the config diff and reads the y/N answer.
 type changePrompter struct{ o *Options }
 
 func (p *changePrompter) Prompt(diffLines []string) bool {
