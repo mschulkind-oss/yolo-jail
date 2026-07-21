@@ -20,7 +20,6 @@
 package main
 
 import (
-	"archive/zip"
 	"bytes"
 	"crypto/sha256"
 	"encoding/base64"
@@ -363,40 +362,6 @@ func buildWheel(bins map[string][]byte, version, platformTag, outputDir, root st
 	return wheelPath, nil
 }
 
-// writeWheel zips the ordered file list. Each entry is stamped with the Unix
-// host byte; entries under bin/ carry an executable mode (0o755 + S_IFREG) and
-// are STORED uncompressed, all others carry 0o600 and are Deflate-compressed —
-// exactly matching build_wheels.py, which passed a bare ZipInfo (default
-// compress_type ZIP_STORED) for the binaries and a plain arcname (inheriting
-// the archive's ZIP_DEFLATED) for everything else. Storing the multi-MB
-// binaries also keeps the archive's aggregate size byte-for-byte comparable.
-func writeWheel(files []fileEntry, wheelPath string) error {
-	f, err := os.Create(wheelPath)
-	if err != nil {
-		return err
-	}
-	defer f.Close()
-
-	zw := zip.NewWriter(f)
-	for _, fe := range files {
-		hdr := &zip.FileHeader{Name: fe.path, Method: zip.Deflate}
-		hdr.CreatorVersion = creatorUnix << 8
-		if strings.Contains(fe.path, "/bin/") {
-			hdr.Method = zip.Store
-			hdr.ExternalAttrs = uint32(execMode) << 16
-		} else {
-			hdr.ExternalAttrs = uint32(dataMode) << 16
-		}
-		w, err := zw.CreateHeader(hdr)
-		if err != nil {
-			return err
-		}
-		if _, err := w.Write(fe.content); err != nil {
-			return err
-		}
-	}
-	if err := zw.Close(); err != nil {
-		return err
-	}
-	return f.Close()
-}
+// writeWheel lives in zipwheel.go — it hand-rolls the ZIP so no data-descriptor
+// is emitted (PyPI rejects those). The bin/ STORE + exec, DEFLATE-otherwise, and
+// Unix creator/external-attr metadata match the former archive/zip writer.
