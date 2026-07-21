@@ -217,6 +217,39 @@
     "host:container" → custom container path
     Example: ["/path/to/repo", "~/lib:/ctx/lib"]
 
+  [bold]cache_relocations[/bold] (object): Put a jail cache subdir on other storage.
+    Keys are cache SUBDIR NAMES, not paths — a single path segment, no "/",
+    not "." or "..".  Values are absolute host directories ("~" expanded).
+    Each entry is bind-mounted [bold]read-write[/bold] at /home/agent/.cache/<subdir>,
+    nested inside the usual cache mount, so nothing downstream has to know:
+    HF_HOME and every other tool's cache path stay exactly as they are.
+    Worth it for large, cold, write-once/read-sequential caches — huggingface
+    (model repos), ms-playwright (browser bundles) — that you want on a big
+    slow disk.  NOT worth it for uv, go-build or pip: those are hit on every
+    build and are latency-sensitive, so a slow disk makes every build worse.
+    [bold yellow]Scope: this key is read from ~/.config/yolo-jail/config.jsonc ONLY[/bold yellow]
+    (plus that file's include_if_found files, which are host-side too).  In
+    yolo-jail.jsonc it is a `yolo check` error, not an override — the
+    workspace is bind-mounted read-write into the jail, so a workspace config
+    is agent-editable and must never be able to hand out read-write host
+    mounts.  The mount is built from the user config alone; the merged config
+    is read only to VALIDATE the key (which is how a workspace-scoped one gets
+    reported), never to decide what gets mounted.
+    The target's [bold]parent must already exist[/bold]; only the last path component is
+    created for you.  A missing parent means a typo (/data/relcoated/...), and
+    creating it silently would leave the bytes on the very disk you were
+    trying to get off.
+    Runtime support: podman only.  "container" (Apple Container) warns and
+    skips it.  "macos-user" has no container and no bind mounts, so a plain
+    host symlink already does the job there.
+    Moving an EXISTING cache: stop all jails first, copy the bytes, then set
+    the key — a running jail keeps its old, now-empty mount until restart.
+    Full procedure: docs/guides/USER_GUIDE.md, "Storage & Persistence".
+    Example (~/.config/yolo-jail/config.jsonc):
+      "cache_relocations": {
+        "huggingface": "/data/relocated/yolo-jail/cache/huggingface"
+      }
+
   [bold]workspace_readonly[/bold] (array of strings): Workspace sub-paths to overlay as read-only.
     Each entry is a relative path inside the workspace (no leading /, no ..).
     Mounted on top of the writable /workspace volume so agents cannot modify

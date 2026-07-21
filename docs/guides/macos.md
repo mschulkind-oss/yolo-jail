@@ -410,6 +410,28 @@ is skipped with a warning.
 `--device-cgroup-rule` flags are a Linux kernel feature. Any `"cgroup_rule"`
 entries in the devices config are skipped on macOS.
 
+### Cache Relocation (`cache_relocations`)
+
+Moving a cache subdir onto other storage (see
+[USER_GUIDE — Relocating a Cache Subdir](USER_GUIDE.md#relocating-a-cache-subdir-to-other-storage))
+is **not implemented on Apple Container**. Not because the backend can't nest a
+bind mount — it already mounts the shared cache at `/home/agent/.cache` inside
+its writable `/home/agent` mount, which is the same nesting a relocation needs —
+but because that backend takes a separate mount path built around a device
+limit, and relocation has never been verified on real Apple Container hardware.
+Rather than half-apply it, `yolo` prints one warning naming the skipped subdirs
+and starts the jail with the cache on its original filesystem. Use
+`YOLO_RUNTIME=podman` if you need it, and open an issue if you want it on Apple
+Container.
+
+On **Podman Machine** the mechanism itself should work, but the target has to be
+a path the VM can see. Podman Machine shares your home directory into the VM, so
+a target under `$HOME` ought to be fine while one on an unshared volume
+(`/Volumes/...`) should fail at startup the same way any missing bind source
+does. **Untested** — nobody has run this on a Mac; if you try it, the result is
+worth reporting. Add the volume to the machine's mounts first if you need a
+target outside `$HOME`.
+
 ### SO_PEERCRED Socket Authentication
 
 The cgroup delegation daemon uses `SO_PEERCRED` on Linux to verify the

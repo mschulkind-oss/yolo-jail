@@ -209,10 +209,25 @@ Create a per-project config in `yolo-jail.jsonc`:
   "security": {
     "blocked_tools": ["curl", "wget"]
   }
+  // "cache_relocations" exists too, but NOT here — user scope only, see below
 }
 ```
 
 Workspace config merges over user defaults (`~/.config/yolo-jail/config.jsonc`), and a sibling `yolo-jail.local.jsonc` — meant to be gitignored for per-machine overrides — auto-merges over the workspace config. Lists merge and dedupe, scalars override.
+
+**One key opts out of that merge: `cache_relocations` is user-scope only.** It moves a subdir of the jail cache onto other storage, bind-mounted **read-write**, so it is read straight from `~/.config/yolo-jail/config.jsonc` and nowhere else — a workspace config lives inside the jail's writable mount, so an agent could otherwise grant itself a read-write host mount. `yolo check` errors if the key appears in `yolo-jail.jsonc`. Podman only.
+
+```jsonc
+// ~/.config/yolo-jail/config.jsonc — never yolo-jail.jsonc
+{
+  "cache_relocations": {
+    // cache subdir name → absolute host path (the parent must already exist)
+    "huggingface": "/data/relocated/yolo-jail/cache/huggingface"
+  }
+}
+```
+
+Moving an existing cache needs a stop-copy-configure-restart dance — see [Storage & Persistence](docs/guides/USER_GUIDE.md#relocating-a-cache-subdir-to-other-storage) in the user guide.
 
 Run `yolo check` after **every** edit to `yolo-jail.jsonc` to validate the merged config, dry-run the generated jail agent configs, and preflight the image build before restarting into the jail. Inside a running jail, `yolo check --no-build` is the fast way to validate config changes mid-session before asking for a restart.
 
