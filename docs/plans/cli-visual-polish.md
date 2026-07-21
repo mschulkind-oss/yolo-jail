@@ -1,7 +1,14 @@
 # Plan: CLI visual polish — color to guide the eye
 
-**Status:** OPEN — audit complete (2026-07-20), no code written yet. This is the
-*content* follow-on to
+**Status:** IN PROGRESS — audit complete (2026-07-20); top surfaces landed
+(2026-07-21): the richtext palette gained blue+magenta; `yolo --help` routes
+through the renderer (bold headers, cyan command names); `config render
+--explain` is syntax-highlighted provenance (one hue per layer); `yolo ps` is
+colored (dim/red/yellow, bold header, TTY-gated, byte-parity locked). `check`
+keeps its own richer private ANSI (background/inverse badges richtext lacks) —
+left as-is per the palette-gaps note. Remaining: `init`/`init-user-config`
+status lines, `broker`/`builder` polish, and the run-boot frozen lines (golden
+updates needing sign-off). This is the *content* follow-on to
 [cli-color-audit.md](cli-color-audit.md): that plan fixed the color-*rendering*
 mechanism (rich markup now renders to ANSI on a TTY via `internal/richtext`
 instead of being stripped unconditionally); this plan spends that capability by
