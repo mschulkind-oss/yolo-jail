@@ -21,7 +21,7 @@ post-Go-port backlog (nix-ld, color audit, consolidation) into the same picture.
 | [nix-ld-dynamic-linking.md](nix-ld-dynamic-linking.md) | Replace the `LD_LIBRARY_PATH` whack-a-mole with nix-ld; closes the custom-`mcp_servers` startup gap. | host-gated |
 | [cli-color-audit.md](cli-color-audit.md) | Make `prune`/`builder`/`macos-*` render rich markup instead of stripping it; consolidate the duplicated printers. | jail-side |
 | [module-consolidation-and-cleanup.md](module-consolidation-and-cleanup.md) | Collapse the ~34 Python-mirroring `internal/*` packages; drop parity machinery; §4 OSS-hygiene remnants. | jail-side, last |
-| [agent-settings-composition.md](agent-settings-composition.md) | Layered regeneration of agent config + a Lua transform (design of record). | jail-side, unbuilt |
+| [agent-settings-composition.md](agent-settings-composition.md) | Layered regeneration of any generated config (agent settings, MCP, LSP, mise, identity) + a Lua transform (design of record). | jail-side, unbuilt |
 | [integration-parallelism.md](integration-parallelism.md) | Bounded `t.Parallel()` for the container suite (needs per-test GlobalStorage first). | parked (test speed) |
 | [runbooks/](runbooks/) | Track M verification procedures (see [Runbooks](#runbooks) below). | hardware-gated |
 

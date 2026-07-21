@@ -1,23 +1,28 @@
-# Agent config composition — layered regeneration + Lua transforms
+# Generated-config composition — layered regeneration + Lua transforms
 
 **Status:** Design of record (decided 2026-07-20). Supersedes the exploratory
 RFC that carried a menu of models and a data-filter vocabulary — this is the line
 in the sand. **Not started** (no engine code yet); sequenced in
 [ROADMAP.md](ROADMAP.md).
 
-yolo generates each coding agent's in-jail config (Claude's `settings.json`,
-Codex's `config.toml`, pi's `settings.json`, …) from host + jail sources. This
-doc fixes **how** that generation composes and how a user reshapes it.
+yolo generates a number of config files inside the jail from host + jail sources
+— coding-agent settings (Claude's `settings.json`, Codex's `config.toml`, pi's
+`settings.json`, …), but **also** the MCP-server config, LSP config, the global
+mise config, and git/jj identity. This doc fixes **how** any such generated
+config composes and how a user reshapes it. Agent config is the motivating and
+widest case; the model is deliberately generic over **every file yolo generates
+this way** (see §1.1 for the inventory).
 
 ---
 
 ## 1. The decision, in one paragraph
 
-Each agent config is a **build product yolo regenerates every boot** from an
+Each generated config is a **build product yolo regenerates every boot** from an
 ordered stack of layers. yolo writes it only into the jail **user scope** (never
 the host, never the workspace). A user reshapes what crosses into the jail with a
-**Lua transform** — one sandboxed function per surface that receives the composed
-config as a decoded value and returns the transformed one. Lua is the *only*
+**Lua transform** — one sandboxed function per **surface** (a surface = one file
+yolo generates) that receives the composed config as a decoded value and returns
+the transformed one. Lua is the *only*
 transform mechanism: it is format-agnostic (the config need not be JSON),
 Turing-complete enough to express any redaction without yolo growing a
 vocabulary, and it operates on yolo's generated artifact, so **it never requires
@@ -25,10 +30,36 @@ modifying — or even being able to write — the source config.** In-jail edits
 survive regeneration via a capture-diff overlay, and `yolo config render` runs
 the whole pipeline offline so you can see and diff the result without a jail.
 
+### 1.1 What yolo generates this way (the surfaces)
+
+The pipeline applies to every file yolo composes from host/config sources. From
+the current entrypoint (`internal/entrypoint`), these are:
+
+| Surface | Generator | Codec | Composes from |
+|---|---|---|---|
+| Claude `settings.json` (+ `.claude.json`) | `claude.go` | json | host `~/.claude` + config + managed |
+| Copilot / Gemini / opencode / pi / Codex settings | `agent_configs.go`, `codex.go` | json / **toml** (Codex) | host files + config |
+| **MCP servers** (per-agent config) | `mcp.go` | json | `mcp_servers` + `mcp_presets` (config) + builtin presets |
+| **LSP servers** | `lsp.go` / `agent_configs.go` | json | `lsp_servers` (config) + defaults |
+| **Global mise config** (`~/.config/mise/config.toml`) | `mise.go` | **toml** | `mise_tools` (config) + `miseBaseTools` defaults |
+| **git / jj identity** | `identity.go` | (git config kv) | `YOLO_GIT_*` / `YOLO_JJ_*` env |
+
+All of these are *composed from user-influenceable input* and are the pipeline's
+domain. **Not** in scope (yolo-authored artifacts with no user-config layer to
+compose or redact — they are generated *code/data*, not composed *config*):
+generated shell scripts (bashrc, shims, agent/pkg launchers, MCP node wrappers,
+`yolo-cglimit`/`journalctl` helpers, bootstrap), and fixed system files (CA
+bundle, `/etc/timezone`, PID files). A surface earns the pipeline when there's a
+host or config layer to merge and a reason a user might want to reshape it;
+otherwise it stays a plain generator. The manifest (§3.3) is where a surface is
+declared, so widening coverage later is adding a manifest entry, not new
+machinery.
+
 ## 2. Six principles (the line in the sand)
 
-1. **Regenerate, don't reconcile.** The agent's config file is rebuilt from
-   sources on every boot, not edited in place. Host-key removal needs zero
+1. **Regenerate, don't reconcile.** Each generated config file (agent settings,
+   MCP, LSP, mise, identity — §1.1) is rebuilt from sources on every boot, not
+   edited in place. Host-key removal needs zero
    memory: a dropped host key is simply absent from the next render. (This alone
    deletes today's snapshot/rollback three-way merge and its poison-on-typo
    failure — see §7.)
@@ -249,7 +280,13 @@ once, in a real language, on yolo's own output.
 4. **Claude, then the remaining agents** — migrate `settings.json` (+ `.claude.json`
    classified as runtime-state), then the rest get host reflection via the same
    engine.
-5. **Deletion** — remove the bespoke merges, snapshot constants, per-agent mount
+5. **Non-agent surfaces** — fold MCP (`mcp.go`), LSP, and the global mise config
+   (`mise.go`) onto the same pipeline once the agent surfaces prove it out. They
+   already compose config-layer input (§1.1); moving them here retires their
+   bespoke merge code and gives them the Lua transform + `render` for free. Do
+   this only after the agent surfaces are stable — no reason to migrate them
+   speculatively.
+6. **Deletion** — remove the bespoke merges, snapshot constants, per-agent mount
    blocks, and the `host_*_files` keys.
 
 Each stage ends with a nested-jail verification (per repo `CLAUDE.md`).

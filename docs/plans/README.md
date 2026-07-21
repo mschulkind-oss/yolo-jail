@@ -40,7 +40,7 @@ here:
 
 | Doc | What it is | Status |
 |---|---|---|
-| [agent-settings-composition.md](agent-settings-composition.md) | Design of record: layered regeneration of agent config + a Lua transform (format-agnostic, user-scope-only, no source mutation). | **Decided, unbuilt** — engine not yet written; migration sequenced in the doc. |
+| [agent-settings-composition.md](agent-settings-composition.md) | Design of record: layered regeneration of any generated config (agent settings + MCP/LSP/mise/identity) + a Lua transform (format-agnostic, user-scope-only, no source mutation). | **Decided, unbuilt** — engine not yet written; migration sequenced in the doc. |
 
 ## Track M verification runbooks
 

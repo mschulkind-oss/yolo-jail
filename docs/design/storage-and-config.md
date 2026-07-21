@@ -31,20 +31,22 @@ per-machine overrides kept out of version control: add the name to your
 global gitignore and use it for tweaks that don't belong in the tracked
 config.
 
-### 1.1 Config-ownership principle (agent config)
+### 1.1 Config-ownership principle (generated config)
 
 The rules above govern *yolo's own* config (`yolo-jail.jsonc`). A separate,
-load-bearing principle governs the config yolo generates *for the coding agents*
-(Claude/Copilot/Gemini/pi/opencode/Codex — `.claude/settings.json`,
-`~/.pi/agent/settings.json`, `config.toml`, …):
+load-bearing principle governs **every config file yolo generates inside the
+jail** — coding-agent settings (Claude/Copilot/Gemini/pi/opencode/Codex —
+`.claude/settings.json`, `~/.pi/agent/settings.json`, `config.toml`, …), but
+equally the MCP-server config, LSP config, the global mise config, and git/jj
+identity:
 
-> **yolo composes agent config into the jail USER scope only. The workspace tree
-> is the operating agent's, and mirrors the host.**
+> **yolo composes generated config into the jail USER scope only. The workspace
+> tree is the operating agent's, and mirrors the host.**
 
 Concretely:
 
-- **User scope (yolo-owned).** yolo writes each agent's user-level config under
-  `/home/agent/…` (a per-workspace r/w overlay; §3–§4). This is the *only* agent
+- **User scope (yolo-owned).** yolo writes each generated config under
+  `/home/agent/…` (a per-workspace r/w overlay; §3–§4). This is the *only*
   config surface yolo regenerates.
 - **Workspace scope (agent-owned, host-mirrored).** yolo does **not** write any
   agent's project/workspace config (e.g. `$CWD/.claude/settings.json`). `/workspace`
