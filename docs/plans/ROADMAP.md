@@ -91,6 +91,13 @@ Marked here so the "start here" arrow points at the real next item.
   cross-build, grep-gate, nested-jail). **Mac RUNTIME behavior is M1-verified** —
   under-sudo staging, fresh-inode exec, path_helper, password apply are checklist
   items on real hardware, not in-jail.
+- ✅ **J3 — container-builder rewiring** (2026-07-21) — resurrected
+  `internal/containerbuilder` (deleted unwired in b3477fb), added the builder
+  Session lifecycle (pull/run/wait-reachable/stop, podman + Apple Container),
+  and wired the offload into `AutoLoadImage`: a failed macOS from-source build
+  now retries over a container builder via ssh-ng before falling back. No longer
+  orphaned; hermetic in-jail image build verified. Behavioral e2e is the
+  mac-ac-container-builder runbook (Track M — PASSED on HW).
 - ✅ **config-composition Phase B** (2026-07-20/21) — all agent surfaces
   (claude/gemini/copilot/opencode/codex) in the builtin manifest;
   `yolo config render <agent>` covers them; `mergeAccumulate` tombstone fix.
