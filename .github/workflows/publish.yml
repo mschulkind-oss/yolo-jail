@@ -130,7 +130,7 @@ jobs:
 
       - name: Set up Cachix
         if: steps.gate.outputs.enabled == 'true'
-        uses: cachix/cachix-action@v15
+        uses: cachix/cachix-action@v17
         with:
           name: ${{ steps.gate.outputs.cache }}
           authToken: ${{ secrets.CACHIX_AUTH_TOKEN }}
