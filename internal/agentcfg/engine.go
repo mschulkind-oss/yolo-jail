@@ -89,6 +89,44 @@ func mergeValue(target, patch any) any {
 	return result
 }
 
+// mergeAccumulate composes over onto base like deepMerge, but PRESERVES null
+// tombstones even when the key is absent in base. It is the §5 overlay
+// accumulation primitive (docs/design/config-migration-to-prism.md §3.4):
+//
+//	overlay = mergeAccumulate(overlay, delta)   # deletions persist across boots
+//
+// deepMerge (RFC 7386) is correct for the render FOLD — there a null means
+// "delete this key from the composed output", so a null over an absent key is
+// rightly a no-op. But the OVERLAY is not the output: it is a durable patch that
+// is re-applied every boot, so a captured deletion (delta carries `key: null`)
+// must be STORED even if the accumulator does not yet hold key — otherwise the
+// next boot resurrects the key. mergeAccumulate stores the null instead of
+// dropping it. Everything else matches deepMerge (objects merge recursively,
+// arrays/scalars replace, non-mutating). It never mutates its arguments.
+func mergeAccumulate(base, over map[string]any) map[string]any {
+	result := make(map[string]any, len(base))
+	for k, v := range base {
+		result[k] = v
+	}
+	for k, v := range over {
+		if v == nil {
+			result[k] = nil // preserve the tombstone even when k is absent in base
+			continue
+		}
+		if ov, ok := result[k]; ok {
+			// Recurse only when BOTH sides are objects; otherwise over replaces.
+			if om, oOK := ov.(map[string]any); oOK {
+				if nm, nOK := v.(map[string]any); nOK {
+					result[k] = mergeAccumulate(om, nm)
+					continue
+				}
+			}
+		}
+		result[k] = v
+	}
+	return result
+}
+
 // render folds the layers left-to-right with deepMerge, so the LAST argument
 // wins any leaf conflict. Callers pass layers in ascending precedence —
 // defaults, host, workspace, overlay, managed (§4) — so managed keys win and

@@ -340,3 +340,59 @@ func TestCapturedOverlaySurvivesRegeneration(t *testing.T) {
 		t.Fatalf("regenerated render\n got = %#v\nwant = %#v (b stays deleted, theme=light)", got, want)
 	}
 }
+
+// TestMergeAccumulatePreservesTombstoneOnAbsentKey is the §3.4 correctness fix:
+// mergeAccumulate must STORE a null tombstone even when the key is absent in the
+// accumulator, whereas deepMerge (rightly, for the render fold) drops it.
+func TestMergeAccumulatePreservesTombstoneOnAbsentKey(t *testing.T) {
+	overlay := map[string]any{"theme": "light"} // no "b" yet
+	delta := map[string]any{"b": nil}           // a captured deletion of a key not in overlay
+
+	// deepMerge would DROP the tombstone (no-op delete on an absent key)...
+	if _, present := deepMerge(overlay, delta)["b"]; present {
+		t.Fatal("precondition: deepMerge unexpectedly kept the tombstone")
+	}
+	// ...mergeAccumulate must KEEP it.
+	acc := mergeAccumulate(overlay, delta)
+	v, present := acc["b"]
+	if !present || v != nil {
+		t.Errorf("mergeAccumulate dropped the tombstone: got present=%v value=%#v, want present=true nil", present, v)
+	}
+	if acc["theme"] != "light" {
+		t.Errorf("mergeAccumulate lost unrelated key: %#v", acc)
+	}
+}
+
+// TestMergeAccumulateMultiBootDeletion is the steady-state bug the fix prevents:
+// a deletion captured on boot N must survive to boot N+2 through the accumulator.
+func TestMergeAccumulateMultiBootDeletion(t *testing.T) {
+	// Boot 1: agent deletes "gate"; overlay starts empty.
+	overlay := map[string]any{}
+	overlay = mergeAccumulate(overlay, map[string]any{"gate": nil})
+	// Boot 2: agent changes theme; the "gate" tombstone must persist.
+	overlay = mergeAccumulate(overlay, map[string]any{"theme": "solarized"})
+
+	if v, ok := overlay["gate"]; !ok || v != nil {
+		t.Errorf("tombstone lost across boots: overlay=%#v", overlay)
+	}
+	// Applying the accumulated overlay keeps gate deleted and theme set.
+	defaults := map[string]any{"gate": true, "theme": "dark", "keep": 1}
+	got := render(defaults, overlay)
+	want := map[string]any{"theme": "solarized", "keep": 1}
+	if !reflect.DeepEqual(got, want) {
+		t.Errorf("multi-boot render\n got = %#v\nwant = %#v (gate stays deleted)", got, want)
+	}
+}
+
+// TestMergeAccumulateDoesNotMutateInputs guards the non-mutation contract.
+func TestMergeAccumulateDoesNotMutateInputs(t *testing.T) {
+	base := map[string]any{"a": map[string]any{"x": 1}}
+	over := map[string]any{"a": map[string]any{"y": 2}, "b": nil}
+	_ = mergeAccumulate(base, over)
+	if len(base["a"].(map[string]any)) != 1 {
+		t.Errorf("base mutated: %#v", base)
+	}
+	if _, ok := over["a"].(map[string]any)["x"]; ok {
+		t.Errorf("over mutated: %#v", over)
+	}
+}
