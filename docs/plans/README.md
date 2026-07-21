@@ -40,7 +40,7 @@ here:
 
 | Doc | What it is | Status |
 |---|---|---|
-| [agent-settings-composition.md](agent-settings-composition.md) | RFC for the "Prism" model — composing agent settings across host and jail layers. | **Proposed, unbuilt** — nothing implemented; its "what exists today" predates the Go port and needs re-grounding in `internal/config` + `internal/entrypoint` before execution. |
+| [agent-settings-composition.md](agent-settings-composition.md) | Design of record: layered regeneration of agent config + a Lua transform (format-agnostic, user-scope-only, no source mutation). | **Decided, unbuilt** — engine not yet written; migration sequenced in the doc. |
 
 ## Track M verification runbooks
 

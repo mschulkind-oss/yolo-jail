@@ -65,8 +65,9 @@ Concretely:
 regeneration needs a capture-diff overlay at the user scope, uniformly across
 agents. No agent gets a "yolo owns a separate file" shortcut, because the only
 separate file (project scope) is a workspace file yolo won't touch. The full
-mechanism is [`../plans/agent-settings-composition.md`](../plans/agent-settings-composition.md)
-§5.2; this section is the durable statement of the ownership rule that constrains it.
+mechanism — layered regeneration, a Lua transform, and the overlay — is
+[`../plans/agent-settings-composition.md`](../plans/agent-settings-composition.md);
+this section is the durable statement of the ownership rule that constrains it.
 
 ### Create configs
 

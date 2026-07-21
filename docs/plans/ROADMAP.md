@@ -21,7 +21,7 @@ post-Go-port backlog (nix-ld, color audit, consolidation) into the same picture.
 | [nix-ld-dynamic-linking.md](nix-ld-dynamic-linking.md) | Replace the `LD_LIBRARY_PATH` whack-a-mole with nix-ld; closes the custom-`mcp_servers` startup gap. | host-gated |
 | [cli-color-audit.md](cli-color-audit.md) | Make `prune`/`builder`/`macos-*` render rich markup instead of stripping it; consolidate the duplicated printers. | jail-side |
 | [module-consolidation-and-cleanup.md](module-consolidation-and-cleanup.md) | Collapse the ~34 Python-mirroring `internal/*` packages; drop parity machinery; §4 OSS-hygiene remnants. | jail-side, last |
-| [agent-settings-composition.md](agent-settings-composition.md) | Unbuilt "Prism" RFC for composing agent settings across host/jail. | parked (needs re-grounding) |
+| [agent-settings-composition.md](agent-settings-composition.md) | Layered regeneration of agent config + a Lua transform (design of record). | jail-side, unbuilt |
 | [integration-parallelism.md](integration-parallelism.md) | Bounded `t.Parallel()` for the container suite (needs per-test GlobalStorage first). | parked (test speed) |
 | [runbooks/](runbooks/) | Track M verification procedures (see [Runbooks](#runbooks) below). | hardware-gated |
 
@@ -172,13 +172,14 @@ this jail. The host and mac rows are gated lanes that run on their own clock.
 
 ## Parked
 
-- **agent-settings-composition (Prism RFC)** — proposed, unbuilt. Verified its
-  "what exists today" (§2) is grounded in the deleted Python
-  (`config.py`/`agent_configs.py` line refs) and needs a **re-grounding pass in
-  `internal/config` + `internal/entrypoint`** before any execution. Not blocked
-  by the others, but should not be started until a maintainer commits to
-  building Prism and someone re-bases §2 on the Go tree. Left out of the numbered
-  order deliberately.
+- **agent-settings-composition** — **decided design, unbuilt.** Layered
+  regeneration + a format-agnostic Lua transform, written into the jail user
+  scope only (never host/workspace), with a capture-diff overlay for in-jail
+  edits and `yolo config render` for offline runs. It has its own staged
+  migration (engine-as-leaf-library → Claude managed offload → pi → the rest).
+  Jail-side and independent of the macOS tracks; slot it in when config
+  composition becomes the priority. Left off the numbered J/D thread because it's
+  a self-contained subsystem, not part of the macОS-revival critical path.
 - **integration-parallelism** — bounded `t.Parallel()` for the container suite.
   Parked on purpose: CI is free (wall time is only a convenience) and the fast
   local loop (`just test-fast`, `-short`) skips every container test, so this only
