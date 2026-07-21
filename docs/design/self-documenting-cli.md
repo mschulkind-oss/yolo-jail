@@ -130,10 +130,12 @@ config pipeline) must be operable from the CLI, not only from `docs/`.
   `docs/design/*`), it has real key drift (it omits the accepted top-level keys
   `repo_path`, `host_processes`, and `prune`, and titles the loopholes section
   with the stale name `host_services`), and — most important for this doc — it
-  is **completely silent on the composed-config / Lua pipeline** (zero hits for
-  `lua|transform|compose|config.lua|overlay|managed`). There is no
-  `yolo help <topic>` mechanism at all for backends/mounts/cgroups. See the
-  dedicated section below.
+  is **completely silent on the composed-config / Lua pipeline** (zero hits in
+  `config_ref.txt` for `lua`, `transform`, or `compose`; the words `overlay`
+  and `managed` do appear, but only in unrelated contexts — MCP per-workspace
+  overlays and "yolo-managed section" / version-managed runtimes — never the
+  composition layer stack). There is no `yolo help <topic>` mechanism at all
+  for backends/mounts/cgroups. See the dedicated section below.
 
 ### 7. State-reporting surfaces offer `--format json` (or `-o json`)
 
@@ -141,10 +143,11 @@ Anything that reports state — `ps`, `check`, `loopholes list`, `prune` plan,
 `broker status`, `--version` — must emit stable, ANSI-free, machine-readable
 output on request.
 
-- **State: UNMET.** No command anywhere accepts `--format json`/`--json`. Every
-  reporting command emits ANSI-decorated prose only; the only `json.Marshal`/
-  `--format` in `internal/cli` is a `podman inspect` call
-  (`check/sections_misc.go:181`), not a yolo output flag. An agent cannot
+- **State: UNMET.** No command anywhere accepts `--format json`/`--json` as an
+  *output* flag. Every reporting command emits ANSI-decorated prose only. There
+  is no `json.Marshal` in `internal/cli` at all, and the ~12 `--format`
+  occurrences there are all `podman`/container Go-template args (e.g.
+  `check/sections_misc.go:181`), never a yolo output flag. An agent cannot
   machine-read jail state, check results, or loophole status — it must scrape
   formatted text.
 
@@ -198,8 +201,9 @@ must exist:
 2. **`yolo config render <agent>`** — runs the pipeline (stage → merge → Lua
    transform → enforce → encode), prints what it *would* write, touches no live
    config. Runs host-side *and* in-jail (§6). This needs an **exported** engine
-   entrypoint (the fold/render/mergeDiff funcs are all unexported today) plus
-   shipped manifest data for pi/claude (only test fixtures exist). UNBUILT.
+   entrypoint (`render()` — which implements the left-to-right layer fold — and
+   `mergeDiff()` are both unexported today) plus shipped manifest data for
+   pi/claude (only test fixtures exist). UNBUILT.
 3. **`yolo config render pi --explain [KEYPATH]`** — shows which layer/hook won
    each leaf, *including dropped host keys* (§6.5: `host -> [git-helper,
    permission-gate]`, then the transform dropped `permission-gate`). The engine
