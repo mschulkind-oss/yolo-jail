@@ -84,8 +84,9 @@ The single deepest simplification, which every design in the exploration converg
 Once the file is *rebuilt* from an ordered stack of sources, host-key removal needs **zero
 memory**: if the host drops a key, it is simply absent from the next render. That deletes the
 snapshot/rollback machinery and its poison-on-typo failure mode outright. The only thing we
-must still remember is *what the agent itself changed at runtime* — and that is a small,
-explicit overlay (§5), not an inferred diff against a full-file snapshot.
+must still remember is *what changed in-jail* — by any means: a settings command, a permission
+approval, or a plain file edit in the session — and that is a small, explicit overlay (§5),
+not an inferred diff against a full-file snapshot.
 
 ## 4. Proposed model: Prism (layers in, per-side projections out)
 
@@ -225,17 +226,25 @@ It does **not** write any agent's *project* / workspace-level config: the worksp
 
 That single constraint collapses what earlier drafts split into a per-agent decision:
 
-- Because yolo may only write the **user** scope, and every agent that persists in-jail edits
-  (`/config`, `/settings`, permission approvals) writes them into **that same user scope**,
-  yolo's regenerated config and the user's live edits **always share one file**. There is no
-  agent for which yolo owns a separate, uncontended file — so the capture-diff overlay
-  (mechanism **A**) is the **universal mechanism**, for Claude exactly as for pi/opencode/Codex.
+- Because yolo may only write the **user** scope, and that scope lives in a writable overlay
+  the agent's session can also edit, yolo's regenerated config and any in-jail edit **always
+  share one file** — for every agent. There is no agent for which yolo owns a separate,
+  uncontended user-scope file, so the capture-diff overlay (mechanism **A**) is the
+  **universal mechanism**, for Claude exactly as for pi/opencode/Codex.
+- **The contention does not depend on the agent having a settings *command*.** Whether the
+  change arrives via Claude's `/config`, a `/settings` UI, a permission approval, or the agent
+  simply running `Edit`/`$EDITOR`/`echo >` on its own config file, the result is the same: a
+  user-scope file that differs from what yolo wrote last boot. Every agent has a shell and file
+  tools, so "this agent has no `/config` command" does **not** mean "its config never changes
+  in-jail." An earlier draft carved out opencode as a "no runtime writes → empty overlay"
+  degenerate case; that was wrong — an opencode session can rewrite its own config with a file
+  edit, and that edit must survive regeneration like any other. The overlay is keyed on *what
+  differs on disk*, not on *how it got there*, precisely so it is agent- and mechanism-agnostic.
 - The one genuine exception is the **managed** scope (`/etc/claude-code/managed-settings.json`
   and analogs) — it lives *outside* both the user home and the workspace, so yolo can own it
-  outright for security-boundary keys with no contention. That's mechanism **C**'s home.
-- An agent that writes *none* of its config at runtime (opencode, verified) is a trivial case
-  of A: the overlay is always empty, so yolo just regenerates the user file freely. No special
-  path needed — same mechanism, degenerate input.
+  outright for security-boundary keys with no contention. That's mechanism **C**'s home. (Even
+  there, "the user can't edit it" holds only because it's root-owned outside the writable
+  overlay — not because the agent lacks a command for it.)
 
 > **Rejected: "native scope split" (own the project scope).** An earlier draft proposed yolo
 > own Claude's *project* file (`.claude/settings.json`) — read-only to Claude, so precedence
@@ -252,13 +261,15 @@ and **C** (managed keys, the security-boundary exception):
 never sees: `last_render` (the exact bytes yolo wrote last boot) and `overlay` (accumulated
 jail edits). Each boot/attach:
 ```
-delta   = mergeDiff(last_render, current_file)     # current = last_render + your /settings edits
+delta   = mergeDiff(last_render, current_file)     # current = last_render + ANY in-jail edit
 overlay = deepMerge(overlay, delta)                # accumulate (deletes recorded as null tombstones)
 render  = layers(defaults, host, workspace, overlay, managed)   # overlay is a LAYER, below managed
 write(render); last_render = render
 ```
-So your `/settings` change is captured on the next regeneration and re-applied on every one
-after. Three details make or break it: **precedence** (overlay sits above host/workspace so your
+The diff is taken against *the bytes on disk*, so it captures the edit **however it was made** —
+a `/config`/`/settings` command, a permission approval, or the session running `$EDITOR`/`Edit`
+on the config file directly. That is what makes A agent-agnostic. Your change is captured on the
+next regeneration and re-applied on every one after. Three details make or break it: **precedence** (overlay sits above host/workspace so your
 edit wins — but an entry auto-retires when the host value converges to yours, plus a
 `yolo config overlay --reset <agent>` escape hatch); **deletions** (recorded as `null`
 tombstones so the rebuild does not resurrect a key you removed — the exact bug today's merge
