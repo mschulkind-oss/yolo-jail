@@ -134,14 +134,16 @@
 
   [bold]host_pi_files[/bold] (array of strings): Host ~/.pi/agent/ files to sync into the jail.
     Each entry is a filename (not a path) relative to ~/.pi/agent/.
-    Files are mounted read-only at /ctx/host-pi/ on startup. settings.json gets
-    the same three-way merge as host_claude_files: host keys are added, updated,
-    AND removed as the host file changes, but keys the jail modified locally are
-    preserved. The yolo-managed defaultProjectTrust always wins. Unlike claude,
-    pi has no hooks/statusLine scripts to auto-discover.
+    Files are mounted read-only at /ctx/host-pi/ and, like host_claude_files,
+    copied into the jail's ~/.pi/agent/ on startup (so pi reads them where it
+    expects — e.g. models.json for provider definitions). settings.json is the
+    exception: it gets the same three-way merge as host_claude_files — host keys
+    are added, updated, AND removed as the host file changes, but keys the jail
+    modified locally are preserved. The yolo-managed defaultProjectTrust always
+    wins. Unlike claude, pi has no hooks/statusLine scripts to auto-discover.
     Default: ["settings.json"]
     Set to [] to disable host pi file syncing.
-    Example: ["settings.json", "keybindings.json"]
+    Example: ["settings.json", "models.json"]
 
   [bold]host_services[/bold] (object): Host-side services exposed inside the jail via Unix sockets.
     Each key is a service name (must match ^[a-zA-Z][a-zA-Z0-9_-]{0,63}$).

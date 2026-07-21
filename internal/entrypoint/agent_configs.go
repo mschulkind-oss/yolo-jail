@@ -149,9 +149,20 @@ func getOr(m *jsonx.OrderedMap, key string, def any) any {
 	return def
 }
 
+// hostPiDir is the read-only mount of the host's ~/.pi/agent/ (a var so tests
+// can point it at a temp dir; mirrors boot.go's hostNvimConfig).
+var hostPiDir = "/ctx/host-pi"
+
 func ConfigurePi(e *Env) error {
 	dir := e.PiDir()
 	if err := os.MkdirAll(dir, 0o755); err != nil {
+		return err
+	}
+	// Install every host_pi_files entry except settings.json into ~/.pi/agent/
+	// (settings.json is instead three-way merged below). This mirrors claude's
+	// syncHostClaudeFiles — without it, a listed file like models.json is
+	// mounted at /ctx/host-pi/ but never lands where pi reads it.
+	if err := e.syncHostPiFiles(); err != nil {
 		return err
 	}
 	settingsPath := filepath.Join(dir, "settings.json")
@@ -179,7 +190,35 @@ func (e *Env) loadHostPiSettings() *jsonx.OrderedMap {
 	if !contains(files, "settings.json") {
 		return jsonx.NewOrderedMap()
 	}
-	return loadObject("/ctx/host-pi/settings.json")
+	return loadObject(filepath.Join(hostPiDir, "settings.json"))
+}
+
+// syncHostPiFiles copies each host_pi_files entry (except settings.json, which
+// is three-way merged in ConfigurePi) from the read-only /ctx/host-pi mount
+// into the jail's ~/.pi/agent/. Mirrors claude's syncHostClaudeFiles;
+// best-effort per file.
+func (e *Env) syncHostPiFiles() error {
+	files := e.hostPiFiles()
+	for _, fname := range files {
+		if fname == "settings.json" {
+			continue
+		}
+		src := filepath.Join(hostPiDir, fname)
+		dst := filepath.Join(e.PiDir(), fname)
+		if !pathExists(src) {
+			continue
+		}
+		data, err := os.ReadFile(src)
+		if err != nil {
+			e.warn("Warning: could not copy host pi file " + fname + ": " + err.Error())
+			continue
+		}
+		if err := os.MkdirAll(filepath.Dir(dst), 0o755); err != nil {
+			return err
+		}
+		_ = os.WriteFile(dst, data, 0o644)
+	}
+	return nil
 }
 
 // hostPiFiles parses YOLO_HOST_PI_FILES (a JSON list, default []).
