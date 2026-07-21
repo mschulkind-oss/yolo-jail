@@ -22,14 +22,24 @@ func miseTomlKey(key string) string {
 }
 
 // miseBaseTools is the ordered base tool set injected into the global mise
-// config. Keep `node` on the SAME major as the baked image node
-// (`imagePkgs.nodejs_24` in flake.nix) so a workspace that doesn't pin node
-// doesn't end up with a mise node on a different major than `/bin/node` — the
-// skew commit 230ca27 meant to close but left open one config layer down. See
-// docs/research/tool-provisioning.md.
+// config. It lists ONLY runtimes that are NOT baked into the image, so the
+// default setup (no workspace `mise_tools`) has exactly one of each runtime:
+//
+//   - node and python are BAKED (flake.nix `imagePkgs.nodejs_24` + `python3`),
+//     RPATH-self-contained, so mise must NOT install a second copy — a duplicate
+//     mise node/python is the non-nix binary behind the LD_LIBRARY_PATH / MCP
+//     wrapper whack-a-mole (docs/design/mise-node-dynamic-linking.md) and the
+//     host↔baked version skew. Bare `node`/`python` resolve to the baked
+//     `/bin/…`, the same binary the MCP wrappers target — one node, one python.
+//   - go is NOT baked (`pkgs.go` in the flake is only the host cross-compiler),
+//     so it genuinely comes from mise.
+//
+// A workspace may still pin its own `node`/`python` in `mise.toml` (the
+// intentional per-workspace override); mise then installs that non-nix version
+// and its shim wins. That override is the ONLY case that reintroduces a non-nix
+// runtime — exactly the case nix-ld makes robust (env-free libstdc++). See
+// docs/research/tool-provisioning.md §2.
 var miseBaseTools = []struct{ tool, version string }{
-	{"node", "24"},
-	{"python", "3.13"},
 	{"go", "latest"},
 }
 
