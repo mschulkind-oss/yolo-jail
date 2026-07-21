@@ -1,9 +1,9 @@
 # Generated-config composition — layered regeneration + Lua transforms
 
-**Status:** Design of record (decided 2026-07-20). Supersedes the exploratory
-RFC that carried a menu of models and a data-filter vocabulary — this is the line
-in the sand. **Not started** (no engine code yet); sequenced in
-[ROADMAP.md](ROADMAP.md).
+**Status:** Design of record — **FINALIZED 2026-07-20** (all §9 questions
+resolved). Supersedes the exploratory RFC that carried a menu of models and a
+data-filter vocabulary — this is the line in the sand. **Not started** (no engine
+code yet); implementation sequenced in §8 and [ROADMAP.md](ROADMAP.md).
 
 yolo generates a number of config files inside the jail from host + jail sources
 — coding-agent settings (Claude's `settings.json`, Codex's `config.toml`, pi's
@@ -245,12 +245,15 @@ removed key isn't resurrected — the exact bug in today's merge); **managed**
 in-jail is captured but visibly reverts on render — correct; note this governs
 the generated file only, not the security boundary, which is the container — §9).
 
-## 6. `yolo config render` — run the pipeline without a jail
+## 6. `yolo config render` — run the pipeline on demand
 
 The render is *executed*, not static — so there must be a command that runs the
-whole pipeline (stage → merge → Lua transform → enforce → encode) offline, in a
-temp dir, and prints what it would write, touching no container. It's cheap
-because the engine is pure and jail-free by construction.
+whole pipeline (stage → merge → Lua transform → enforce → encode), prints what it
+would write, and touches no live agent config. It runs **both** host-side (the
+edit-before-launch loop, no container needed) **and inside the jail** (the
+operating agent's "what is my config, and why?" aid — §9). It's cheap because the
+engine is pure: host-side it renders in a temp dir; in-jail it renders from the
+same layers the boot render used, read-only.
 
 ```bash
 yolo config render <agent>                 # every surface, to stdout — no writes
@@ -384,7 +387,7 @@ once, in a real language, on yolo's own output.
 
 Each stage ends with a nested-jail verification (per repo `CLAUDE.md`).
 
-## 9. Decisions and open questions
+## 9. Decisions (all settled)
 
 **Settled (2026-07-20):**
 
@@ -426,12 +429,19 @@ Each stage ends with a nested-jail verification (per repo `CLAUDE.md`).
   live in-jail resync and no `yolo config sync` — a running jail keeps the config
   it booted with; restart to pick up host changes. Simple and predictable; matches
   how the rest of the jail treats host state.
+- **`yolo config render` runs INSIDE the jail too, not just host-side.** It's the
+  in-jail "what is my config, and why?" aid the operating agent needs while
+  working — `render`/`--explain` on demand, read-only (no boundary concern). The
+  in-jail `yolo` already ships (mounted from `/opt/yolo-jail`), so this is wiring,
+  not a new surface — with one requirement to honor: the render's *inputs* must be
+  reachable in the jail. The composed layers (defaults+managed from the image, the
+  staged host layer, the workspace config, and the overlay sidecar) are all
+  already present in the jail per §4–§5, so an in-jail render reproduces the boot
+  render without reaching back to the host. Host-side `render` stays too (for the
+  edit-before-launch loop); same engine, same output, both places.
 
-**Still open:**
-
-- **In-jail `yolo config render`.** Worth exposing `render`/`--explain` (§6)
-  inside the jail as a read-only "what would my config be" aid, or keep it
-  host-side only? (Read-only, so no boundary concern either way.)
+*(No open questions remain — the design is settled. Implementation is sequenced
+in §8.)*
 
 ---
 
