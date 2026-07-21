@@ -24,8 +24,10 @@ type Deps struct {
 	Which func(string) bool
 	// SandboxUserExists reports `id <SANDBOX_USER>` returned 0.
 	SandboxUserExists func() bool
-	// ResolvePython resolves the sandbox interpreter ("" + false if none).
-	ResolvePython func() (string, bool)
+	// SelfExe returns the path to the running yolo binary (os.Executable()),
+	// staged into the root-owned state dir for the sandbox to self-exec as the
+	// bootstrap (J2 §3, replacing the old python-interpreter resolution).
+	SelfExe func() string
 	// GitConfig reads a host git config value best-effort ("" + false if unset).
 	GitConfig func(key string) (string, bool)
 	// Getenv reads an environment variable.
@@ -73,7 +75,11 @@ type Options struct {
 	Config    *jsonx.OrderedMap
 	Agents    []string
 	AgentArgv []string
-	RepoSrc   string
+	// RepoRoot is the yolo-jail checkout root — passed to MaterializeDarwin as
+	// the nix build root when `packages:` is non-empty. (Formerly RepoSrc =
+	// repoRoot/src, which pointed at the now-deleted Python tree; the native
+	// bootstrap needs no source tree, only the flake root for darwin packages.)
+	RepoRoot string
 	// SandboxEnv is an optional caller-supplied env layered LAST (the Python
 	// sandbox_env kwarg); nil is the common case.
 	SandboxEnv *jsonx.OrderedMap
@@ -131,9 +137,12 @@ func buildPlan(deps Deps, opts Options, darwin *Darwin) RunPlan {
 			env.Set(k, v)
 		}
 	}
-	interp, resolvedInterp := deps.ResolvePython()
+	selfExe := ""
+	if deps.SelfExe != nil {
+		selfExe = deps.SelfExe()
+	}
 	return BuildRunPlan(opts.Workspace, opts.Config, opts.Agents, opts.AgentArgv,
-		opts.RepoSrc, env, interp, resolvedInterp, darwin)
+		selfExe, env, darwin)
 }
 
 // RunMacosUser launches agent_argv in the dedicated-user + Seatbelt sandbox.
@@ -197,9 +206,8 @@ func RunMacosUser(deps Deps, opts Options) int {
 	var darwin *Darwin
 	pkgs := config.EffectivePackages(opts.Config)
 	if len(pkgs) > 0 {
-		// Python: darwin_packages.materialize(repo_src.parent, pkgs) — the nix
-		// build runs from the repo ROOT (parent of src).
-		d, ok, err := deps.MaterializeDarwin(parentDir(opts.RepoSrc), pkgs)
+		// The nix build runs from the repo ROOT (the flake dir).
+		d, ok, err := deps.MaterializeDarwin(opts.RepoRoot, pkgs)
 		if !ok {
 			out.printf("[bold red]Could not materialize packages natively:[/bold red] %s\n"+
 				"[dim]Fix the package, or use the Apple Container runtime "+
@@ -243,11 +251,10 @@ func RunMacosUser(deps Deps, opts Options) int {
 		}
 	}
 
-	// 3. Bootstrap the sandbox user's home; ABORT on failure.
-	if !deps.InstallRootFile(plan.BootstrapPath, plan.Bootstrap, "0444") {
-		out.printf("[bold red]Could not write bootstrap %s", plan.BootstrapPath)
-		return 1
-	}
+	// 3. Bootstrap the sandbox user's home via the staged-yolo self-exec; ABORT
+	// on failure. The binary was staged (fresh inode) by the StageCommands above;
+	// no bootstrap FILE to install — the sandbox runs `yolo internal
+	// darwin-bootstrap` with the generator env baked onto the argv.
 	if deps.Run(plan.BootstrapArgv) != 0 {
 		out.print("[bold red]entrypoint bootstrap failed[/bold red] — the sandbox " +
 			"user's shims/agent configs were not generated, so the agent " +
@@ -268,14 +275,8 @@ func PrintPlan(w io.Writer, plan RunPlan, problems []string) {
 	p.print("[bold]macos-user run plan[/bold] (dry-run — nothing executed)\n")
 	p.printf("workspace:   %s", plan.Workspace)
 	p.printf("session:     %s", plan.Cname)
-	interp := plan.Interp
-	if !plan.InterpResolved {
-		interp = "[red]<unresolved>[/red]"
-	}
-	p.printf("interpreter: %s", interp)
-	p.printf("  candidates: %s", strings.Join(plan.InterpCandidates, ", "))
 	p.printf("profile:     %s", plan.ProfilePath)
-	p.printf("staged src:  %s", StagedEntrypointDir(plan.StagedDir))
+	p.printf("staged yolo: %s", plan.StagedYolo)
 	p.printf("git identity: %s", gitIdentityRepr(plan.GitIdentity))
 	if plan.DarwinMaterialized {
 		p.printf("darwin pkgs: %d store bin dir(s) on PATH", len(plan.DarwinPathPrefix))
@@ -302,7 +303,9 @@ func PrintPlan(w io.Writer, plan RunPlan, problems []string) {
 		p.print("")
 	}
 	section("Seatbelt profile", plan.Seatbelt)
-	section("bootstrap script", plan.Bootstrap)
+	p.print("[bold]── bootstrap argv (self-exec as sandbox) ──[/bold]")
+	p.print("  " + strings.Join(plan.BootstrapArgv, " "))
+	p.print("")
 	p.print("[bold]── launch argv ──[/bold]")
 	p.print("  " + strings.Join(plan.LaunchArgv, " "))
 	p.print("")
@@ -363,7 +366,7 @@ func RealDeps(runProxy func(argv []string) int, materialize func(repoRoot string
 		Geteuid:           os.Geteuid,
 		Which:             whichReal,
 		SandboxUserExists: func() bool { return sandboxUserExistsReal(SandboxUser) },
-		ResolvePython:     func() (string, bool) { return ResolvePython(nil) },
+		SelfExe:           selfExeReal,
 		GitConfig:         gitConfigReal,
 		Getenv:            os.Getenv,
 		HostUser:          hostUserReal,

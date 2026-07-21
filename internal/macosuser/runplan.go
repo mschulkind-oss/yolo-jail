@@ -1,7 +1,6 @@
 package macosuser
 
 import (
-	"path/filepath"
 	"strings"
 
 	"github.com/mschulkind-oss/yolo-jail/internal/config"
@@ -12,17 +11,17 @@ import (
 // RunPlan is the fully-resolved, ordered artifacts + commands for one session.
 // real gate rather than a pretty-printer.
 type RunPlan struct {
-	Workspace          string
-	Cname              string
-	ProfilePath        string
-	Seatbelt           string
-	Interp             string // "" when unresolved
-	InterpResolved     bool   // Python's interp is not None
-	InterpCandidates   []string
+	Workspace   string
+	Cname       string
+	ProfilePath string
+	Seatbelt    string
+	// StagedDir is the root-owned state dir; StagedYolo is the staged yolo
+	// binary the sandbox self-execs. StageCommands stage that binary
+	// (fresh-inode copy). The Python interpreter/bootstrap-script fields were
+	// dropped in the J2 native re-port.
 	StagedDir          string
+	StagedYolo         string
 	StageCommands      [][]string
-	Bootstrap          string
-	BootstrapPath      string
 	BootstrapArgv      []string
 	LaunchArgv         []string
 	GitIdentity        *jsonx.OrderedMap
@@ -44,20 +43,56 @@ type Darwin struct {
 	Skipped    []string
 }
 
-// BootstrapArgv returns `sudo --user=<sandbox> <interp> <boot>` — run the
-// bootstrap as the sandbox. No --login/--set-home.
-func BootstrapArgv(interp, bootPath, user string) []string {
+// DarwinBootstrapArgv returns the self-exec bootstrap argv (J2 §3): run the
+// staged yolo binary AS the sandbox user via `sudo --user=<sb> /usr/bin/env -i
+// K=V… <stagedYolo> internal darwin-bootstrap`. This replaces the old
+// BootstrapArgv, which ran a python interpreter over a generated .py file.
+//
+// The env is baked onto the argv the same way LaunchArgv bakes the launch env
+// (env -i K=V…, matching the existing exposure — the previous bootstrap baked
+// the same vars into a 0444 root-owned file; secrets normally ride ${VAR}
+// placeholders). HOME/JAIL_HOME point the entrypoint generators at the sandbox
+// home; the generator contract (git identity + YOLO_*) and the three
+// YOLO_DARWIN_* extras (workspace, macos-log, login-path) ride verbatim. No
+// --set-home: the subcommand self-sets HOME/JAIL_HOME, and env -i controls the
+// environment precisely.
+func DarwinBootstrapArgv(stagedYolo, home string, bootstrapEnv *jsonx.OrderedMap, user string) []string {
 	if user == "" {
 		user = SandboxUser
 	}
-	return []string{"sudo", "--user=" + user, interp, bootPath}
+	if home == "" {
+		home = SandboxHome()
+	}
+	protected := map[string]struct{}{"HOME": {}, "JAIL_HOME": {}}
+	envPairs := []string{
+		"HOME=" + home,
+		"JAIL_HOME=" + home,
+	}
+	if bootstrapEnv != nil {
+		for _, k := range bootstrapEnv.Keys() {
+			if _, ok := protected[k]; ok {
+				continue
+			}
+			v, _ := bootstrapEnv.Get(k)
+			envPairs = append(envPairs, k+"="+asStr(v))
+		}
+	}
+	out := []string{
+		"sudo",
+		"--user=" + user,
+		"/usr/bin/env",
+		"-i",
+	}
+	out = append(out, envPairs...)
+	out = append(out, stagedYolo, "internal", "darwin-bootstrap")
+	return out
 }
 
 // BuildRunPlan assembles the full RunPlan (pure — no shelling out). `config` is
-// the loaded jail config; `sandboxEnv` is the fully-resolved launch env; interp
-// is the resolved python3 ("" + interpResolved=false if none found). `darwin`
-// may be nil.
-func BuildRunPlan(workspace string, cfg *jsonx.OrderedMap, agents, agentArgv []string, repoSrc string, sandboxEnv *jsonx.OrderedMap, interp string, interpResolved bool, darwin *Darwin) RunPlan {
+// the loaded jail config; `sandboxEnv` is the fully-resolved launch env;
+// `selfExe` is the running yolo binary (os.Executable()) staged for the sandbox
+// to self-exec as the bootstrap. `darwin` may be nil.
+func BuildRunPlan(workspace string, cfg *jsonx.OrderedMap, agents, agentArgv []string, selfExe string, sandboxEnv *jsonx.OrderedMap, darwin *Darwin) RunPlan {
 	darwinPrefix := []string{}
 	darwinEnv := jsonx.NewOrderedMap()
 	darwinSkipped := []string{}
@@ -91,7 +126,6 @@ func BuildRunPlan(workspace string, cfg *jsonx.OrderedMap, agents, agentArgv []s
 
 	cname := cnameFor(workspace)
 	profilePath := SessionProfilePath(cname, "")
-	bootstrapPath := filepath.Join(stateDir, "bootstrap-"+cname+".py")
 
 	// git_identity = {k:v for k,v in sandbox_env if k startswith YOLO_GIT/YOLO_JJ}
 	gitIdentity := jsonx.NewOrderedMap()
@@ -104,15 +138,11 @@ func BuildRunPlan(workspace string, cfg *jsonx.OrderedMap, agents, agentArgv []s
 		}
 	}
 
-	// A concrete interpreter string for the argv even when unresolved
-	// (Python: interp or _PYTHON_CANDIDATES[-1]).
-	interpStr := interp
-	if !interpResolved {
-		interpStr = pythonCandidates[len(pythonCandidates)-1]
-	}
-
-	// Config-derived env the entrypoint generators read
-	// _entrypoint_preflight block). Reuses the container-side resolvers.
+	// The bootstrap env baked onto the self-exec argv: the generator contract
+	// the entrypoint reads (YOLO_HOST_DIR/BLOCK_CONFIG/MISE_TOOLS/LSP/MCP), the
+	// git/jj identity, YOLO_AGENTS (which agents to configure), and the three
+	// YOLO_DARWIN_* extras the darwin-bootstrap subcommand consumes (workspace,
+	// macos-log mode, and the login-rc PATH). Reuses the container-side resolvers.
 	bootstrapEnv := jsonx.NewOrderedMap()
 	bootstrapEnv.Set("YOLO_HOST_DIR", resolvePathAbs(workspace))
 	blockJSON, _ := jsonx.DumpsCompact(config.NormalizeBlockedTools(securitySection(cfg)))
@@ -125,19 +155,25 @@ func BuildRunPlan(workspace string, cfg *jsonx.OrderedMap, agents, agentArgv []s
 	bootstrapEnv.Set("YOLO_MCP_SERVERS", mcpSrvJSON)
 	mcpPresetsJSON, _ := jsonx.DumpsCompact(getSectionOrEmptyList(cfg, "mcp_presets"))
 	bootstrapEnv.Set("YOLO_MCP_PRESETS", mcpPresetsJSON)
+	// YOLO_AGENTS = compact JSON list, matching the container's -e contract.
+	agentsAny := make([]any, len(agents))
+	for i, a := range agents {
+		agentsAny[i] = a
+	}
+	agentsJSON, _ := jsonx.DumpsCompact(agentsAny)
+	bootstrapEnv.Set("YOLO_AGENTS", agentsJSON)
+	// git/jj identity rides verbatim (the subcommand's Env.Vars carries it into
+	// configureGit/JJ).
+	for _, k := range gitIdentity.Keys() {
+		v, _ := gitIdentity.Get(k)
+		bootstrapEnv.Set(k, v)
+	}
+	// Darwin extras consumed by `yolo internal darwin-bootstrap`.
+	bootstrapEnv.Set("YOLO_DARWIN_WORKSPACE", workspace)
+	bootstrapEnv.Set("YOLO_DARWIN_MACOS_LOG", macosLogMode(cfg))
+	bootstrapEnv.Set("YOLO_DARWIN_LOGIN_PATH", SandboxPath(SandboxHome(), darwinPrefix))
 
-	boot := EntrypointBootstrapScript(
-		repoSrc,
-		workspace,
-		SandboxHome(),
-		agents,
-		macosLogMode(cfg),
-		gitIdentity,
-		bootstrapEnv,
-		darwinPrefix,
-		"",
-	)
-
+	stagedYolo := StagedYoloPath("")
 	offendingHome, offendingSet := HomeContaining(workspace, "")
 
 	return RunPlan{
@@ -145,14 +181,10 @@ func BuildRunPlan(workspace string, cfg *jsonx.OrderedMap, agents, agentArgv []s
 		Cname:              cname,
 		ProfilePath:        profilePath,
 		Seatbelt:           SeatbeltProfile(workspace, SandboxHome()),
-		Interp:             interp,
-		InterpResolved:     interpResolved,
-		InterpCandidates:   PythonCandidates(),
 		StagedDir:          stateDir,
-		StageCommands:      StageEntrypointCommands(repoSrc, ""),
-		Bootstrap:          boot,
-		BootstrapPath:      bootstrapPath,
-		BootstrapArgv:      BootstrapArgv(interpStr, bootstrapPath, ""),
+		StagedYolo:         stagedYolo,
+		StageCommands:      StageBinaryCommands(selfExe, ""),
+		BootstrapArgv:      DarwinBootstrapArgv(stagedYolo, SandboxHome(), bootstrapEnv, ""),
 		LaunchArgv:         LaunchArgv(agentArgv, profilePath, sandboxEnv, workspace, "", "", darwinPrefix),
 		GitIdentity:        gitIdentity,
 		OffendingHome:      offendingHome,
@@ -169,23 +201,34 @@ func BuildRunPlan(workspace string, cfg *jsonx.OrderedMap, agents, agentArgv []s
 func PlanInvariants(plan RunPlan) []string {
 	var problems []string
 
-	// B2: a real interpreter must resolve, and never the bare stub first.
-	if !plan.InterpResolved {
+	// B2 (Go): the staged yolo binary must live under the root-owned state dir,
+	// and the bootstrap argv must self-exec THAT staged path — never the host
+	// checkout (unreadable to the sandbox uid) or a bare "yolo" off PATH.
+	if !strings.HasPrefix(plan.StagedYolo, plan.StagedDir+"/") {
 		problems = append(problems,
-			"no python3 interpreter resolved for the sandbox user "+
-				"(install Command Line Tools or a Homebrew/Nix python3)")
+			"staged yolo "+plan.StagedYolo+" is not under the root-owned state dir "+
+				plan.StagedDir+"; the sandbox could rewrite its own launch binary")
 	}
-	if len(plan.InterpCandidates) > 0 && plan.InterpCandidates[0] == "/usr/bin/python3" {
+	if !containsArg(plan.BootstrapArgv, plan.StagedYolo) {
 		problems = append(problems,
-			"/usr/bin/python3 (the xcode-select stub risk) must not be the "+
-				"first interpreter candidate")
+			"bootstrap argv does not self-exec the staged yolo ("+plan.StagedYolo+
+				"); it would run an unstaged/unreadable binary")
+	}
+	// The stage step must have a real source binary to copy — an empty selfExe
+	// (os.Executable failed) would stage nothing and the self-exec would fail.
+	if stageCopySourceEmpty(plan.StageCommands) {
+		problems = append(problems,
+			"no source yolo binary resolved to stage (os.Executable failed); "+
+				"the sandbox would have no bootstrap binary to exec")
 	}
 
-	// B3: the bootstrap must import from the root-owned staged dir.
-	if !strings.Contains(plan.Bootstrap, StagedEntrypointDirParent(plan.StagedDir)) {
+	// B3 (Go): the stage commands must produce a FRESH inode (copy-to-temp + mv),
+	// not overwrite in place — macOS caches Mach-O signatures per vnode, so an
+	// in-place overwrite gets the next exec SIGKILLed.
+	if !stageCommandsUseFreshInode(plan.StageCommands) {
 		problems = append(problems,
-			"bootstrap does not import entrypoint from the staged state dir "+
-				"("+plan.StagedDir+"); it would fail to import from a 0750 home")
+			"stage commands overwrite the staged binary in place; macOS signature "+
+				"caching requires a fresh inode (copy-to-temp then mv)")
 	}
 
 	// The workspace must be neutral ground — never inside a user's home.
@@ -197,9 +240,10 @@ func PlanInvariants(plan RunPlan) []string {
 				"config `macos_shared_root` to another non-home path).")
 	}
 
-	// Git identity must reach the BOOTSTRAP env.
+	// Git identity must reach the BOOTSTRAP env (baked onto the self-exec argv).
+	bootStr := strings.Join(plan.BootstrapArgv, " ")
 	for _, k := range plan.GitIdentity.Keys() {
-		if !strings.Contains(plan.Bootstrap, k) {
+		if !strings.Contains(bootStr, k) {
 			problems = append(problems, "git identity "+k+" not baked into the bootstrap env")
 		}
 	}
@@ -217,14 +261,38 @@ func PlanInvariants(plan RunPlan) []string {
 	return problems
 }
 
-// StagedEntrypointDirParent returns staged_entrypoint_dir(sd).parent, which is
-// sd itself (used by the B3 invariant, matching the Python
-// `str(staged_entrypoint_dir(...).parent) not in plan.bootstrap`).
-func StagedEntrypointDirParent(sd string) string {
-	if sd == "" {
-		sd = stateDir
+// containsArg reports whether argv contains the exact arg.
+func containsArg(argv []string, arg string) bool {
+	for _, a := range argv {
+		if a == arg {
+			return true
+		}
 	}
-	return sd
+	return false
+}
+
+// stageCommandsUseFreshInode reports whether the stage commands end with an
+// `mv` (the atomic rename that guarantees a fresh inode) rather than a bare
+// in-place `cp` to the final path — the macOS signature-caching guard (J2 §3).
+func stageCommandsUseFreshInode(cmds [][]string) bool {
+	for _, c := range cmds {
+		if len(c) > 0 && c[0] == mvBin {
+			return true
+		}
+	}
+	return false
+}
+
+// stageCopySourceEmpty reports whether the cp stage command has an empty source
+// argument (StageBinaryCommands built from an empty selfExe) — i.e. nothing to
+// stage. The cp argv is {cp, -f, <src>, <tmp>}, so the source is arg index 2.
+func stageCopySourceEmpty(cmds [][]string) bool {
+	for _, c := range cmds {
+		if len(c) >= 4 && c[0] == cpBin && c[2] == "" {
+			return true
+		}
+	}
+	return false
 }
 
 func cnameFor(workspace string) string {

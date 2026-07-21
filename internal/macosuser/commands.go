@@ -49,18 +49,10 @@ func MacosSetup(deps Deps) int {
 	}
 
 	// 2. Readiness checks — report each; neither fatal to setup.
+	// (The old python3 readiness check was removed with the native-Go bootstrap
+	// re-port — the sandbox now self-execs the staged yolo binary, no interpreter
+	// required; J2 §3.)
 	var warnings []string
-	interp, ok := deps.ResolvePython()
-	if !ok {
-		warnings = append(warnings,
-			"No Homebrew/Nix python3 found — the run path would fall back to "+
-				"/usr/bin/python3, which is the xcode-select stub unless the "+
-				"Command Line Tools are installed. Fix: `brew install python` or "+
-				"`xcode-select --install`.")
-		out.print("• python3 for the sandbox: [yellow]not found[/yellow]")
-	} else {
-		out.printf("• python3 for the sandbox: [green]%s[/green]", interp)
-	}
 
 	if !deps.Which("sandbox-exec") {
 		warnings = append(warnings,

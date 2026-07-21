@@ -19,6 +19,16 @@ import (
 
 func isMacOSReal() bool { return runtime.GOOS == "darwin" }
 
+// selfExeReal returns the running yolo binary path (os.Executable), staged for
+// the sandbox to self-exec as the bootstrap. Falls back to "yolo" (resolved off
+// PATH) only if os.Executable fails — the plan invariant flags an unstaged path.
+func selfExeReal() string {
+	if p, err := os.Executable(); err == nil {
+		return p
+	}
+	return "yolo"
+}
+
 func whichReal(name string) bool {
 	_, err := exec.LookPath(name)
 	return err == nil
@@ -143,8 +153,6 @@ func pathExistsReal(p string) bool {
 	_, err := os.Stat(p)
 	return err == nil
 }
-
-func parentDir(p string) string { return filepath.Dir(p) }
 
 // --- small subprocess helpers ---------------------------------------------
 

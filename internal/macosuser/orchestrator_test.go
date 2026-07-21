@@ -17,7 +17,7 @@ func mockDeps(rec *[]string) Deps {
 		Geteuid:           func() int { return 501 },
 		Which:             func(string) bool { return true },
 		SandboxUserExists: func() bool { return true },
-		ResolvePython:     func() (string, bool) { return "/opt/homebrew/bin/python3", true },
+		SelfExe:           func() string { return "/opt/yolo-jail/dist-go/darwin-arm64/yolo" },
 		GitConfig:         func(string) (string, bool) { return "", false },
 		Getenv:            func(string) string { return "" },
 		HostUser:          func() string { return "matt" },
@@ -59,7 +59,7 @@ func newOpts(ws string) Options {
 		Config:    jsonx.NewOrderedMap(),
 		Agents:    []string{"claude"},
 		AgentArgv: []string{"claude"},
-		RepoSrc:   "/opt/yolo-jail/src",
+		RepoRoot:  "/opt/yolo-jail",
 	}
 }
 
@@ -113,7 +113,9 @@ func TestDryRunPrintsAndExecutesNothing(t *testing.T) {
 func TestDryRunNonzeroWhenPlanBroken(t *testing.T) {
 	d := mockDeps(nil)
 	d.IsMacOS = func() bool { return false }
-	d.ResolvePython = func() (string, bool) { return "", false } // no interpreter
+	// An empty SelfExe yields an unstaged bootstrap binary — the B2 plan
+	// invariant fires, so the dry-run exits non-zero.
+	d.SelfExe = func() string { return "" }
 	var buf bytes.Buffer
 	d.Out = &buf
 	opts := newOpts("/Users/Shared/yolo/proj")

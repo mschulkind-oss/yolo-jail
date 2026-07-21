@@ -10,9 +10,7 @@
 package macosuser
 
 import (
-	"os"
 	"path/filepath"
-	"sort"
 	"strconv"
 	"strings"
 
@@ -43,6 +41,7 @@ const (
 	teeBin   = "/usr/bin/tee"
 	chmodBin = "/bin/chmod"
 	cpBin    = "/bin/cp"
+	mvBin    = "/bin/mv"
 )
 
 // SandboxHome is /Users/_yolojail.
@@ -52,16 +51,6 @@ func SandboxHome() string { return "/Users/" + SandboxUser }
 // A NEUTRAL directory outside every user's home — the crux of the model's
 // "clear semantics".
 func SharedRootDefault() string { return "/Users/Shared/yolo" }
-
-// pythonCandidates are the ordered python3 interpreters for the sandbox user,
-// best first. The bare /usr/bin/python3 is LAST and only a fallback: with the
-// Command Line Tools absent it is the xcode-select stub, which triggers a GUI
-// install flow instead of running Python.
-var pythonCandidates = []string{
-	"/opt/homebrew/bin/python3", // arm64 Homebrew (0755, world-runnable)
-	"/usr/local/bin/python3",    // Intel Homebrew / python.org
-	"/usr/bin/python3",          // CLT/system — LAST (may be the xcode-select stub)
-}
 
 // ---------------------------------------------------------------------------
 // Account provisioning — command lists (pure; executed by the orchestrator)
@@ -135,56 +124,41 @@ func SharedRootProvisionCommands(root, hostUser string) [][]string {
 }
 
 // ---------------------------------------------------------------------------
-// Interpreter resolution — never blindly trust /usr/bin/python3
+// Staging the yolo binary into the root-owned state dir
 // ---------------------------------------------------------------------------
-// PythonCandidates returns the ordered python3 candidates, best first (a copy).
-func PythonCandidates() []string {
-	return append([]string(nil), pythonCandidates...)
-}
-
-// ResolvePython returns the first existing candidate interpreter, or "" if none
-// exist. `exists` is injectable so a Linux test can assert the ordering; pass
-// nil to use os.Stat.
-func ResolvePython(exists func(string) bool) (string, bool) {
-	if exists == nil {
-		exists = func(p string) bool { _, err := os.Stat(p); return err == nil }
-	}
-	for _, cand := range PythonCandidates() {
-		if exists(cand) {
-			return cand, true
-		}
-	}
-	return "", false
-}
-
-// ---------------------------------------------------------------------------
-// Staging the entrypoint package into the root-owned state dir
-// ---------------------------------------------------------------------------
-// StagedEntrypointDir returns where the stdlib-only entrypoint package is
-// staged (importable).
-func StagedEntrypointDir(sd string) string {
+// StagedYoloPath returns where the running yolo binary is staged for the sandbox
+// user to self-exec (root-owned so the sandbox can't rewrite the launch binary;
+// world-readable+executable so it can run).
+func StagedYoloPath(sd string) string {
 	if sd == "" {
 		sd = stateDir
 	}
-	return filepath.Join(sd, "entrypoint")
+	return filepath.Join(sd, "yolo")
 }
 
-// StageEntrypointCommands returns the sudo argv copying `entrypoint` into the
-// root-owned state dir (root-owned so the sandbox can't rewrite its own
-// profile; world-readable so it can import).
-func StageEntrypointCommands(repoSrc, sd string) [][]string {
+// StageBinaryCommands returns the sudo argv that stage the running yolo binary
+// (selfExe = os.Executable()) into the root-owned state dir for the sandbox user
+// to self-exec as `yolo internal darwin-bootstrap` (J2 §3). This replaces the
+// old StageEntrypointCommands, which copied the deleted src/entrypoint tree.
+//
+// Staging goes copy-to-temp then atomic mv, guaranteeing a FRESH INODE: macOS
+// caches Mach-O code signatures per vnode, so overwriting a previously staged
+// binary in place gets the next exec SIGKILLed (invalid signature). A rename
+// over the old path drops the old vnode. The staged copy is chmod a+rX so the
+// sandbox uid can read+exec it, and the host checkout (which may be unreadable
+// to the sandbox uid) is never on the launch path — self-staging serves Track D
+// too (an installed-only Mac has no checkout).
+func StageBinaryCommands(selfExe, sd string) [][]string {
 	if sd == "" {
 		sd = stateDir
 	}
-	// Python: src = repo_src / "entrypoint"; then f"{src}/." — path-join then
-	// append "/." literally (NOT filepath.Clean, which would drop the trailing
-	// "/."). Reproduce the literal.
-	src := filepath.Join(repoSrc, "entrypoint")
-	dst := StagedEntrypointDir(sd)
+	dst := StagedYoloPath(sd)
+	tmp := dst + ".new"
 	return [][]string{
 		{mkdirBin, "-p", sd},
-		{cpBin, "-R", src + "/.", dst},
-		{chmodBin, "-R", "a+rX", dst},
+		{cpBin, "-f", selfExe, tmp},
+		{chmodBin, "a+rX", tmp},
+		{mvBin, "-f", tmp, dst}, // atomic rename → fresh inode, drops the cached-signature vnode
 	}
 }
 
@@ -430,17 +404,6 @@ func asStr(v any) string {
 		return s
 	}
 	return ""
-}
-
-// sortedKeys returns the sorted keys of a string map (for the bootstrap's
-// `sorted(baked.items())`).
-func sortedKeys(m map[string]string) []string {
-	out := make([]string, 0, len(m))
-	for k := range m {
-		out = append(out, k)
-	}
-	sort.Strings(out)
-	return out
 }
 
 // reprStr is Python repr() for a string (used by the bootstrap generator).

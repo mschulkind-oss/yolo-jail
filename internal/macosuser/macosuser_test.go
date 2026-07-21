@@ -100,19 +100,24 @@ func TestLaunchArgv(t *testing.T) {
 	}
 }
 
-func TestResolvePython(t *testing.T) {
-	if got, _ := ResolvePython(func(string) bool { return true }); got != "/opt/homebrew/bin/python3" {
-		t.Errorf("homebrew must win: %q", got)
+// TestStageBinaryFreshInode: the stage commands must copy-to-temp then mv (a
+// fresh inode), never overwrite the staged binary in place — the macOS Mach-O
+// signature-caching guard (J2 §3).
+func TestStageBinaryFreshInode(t *testing.T) {
+	cmds := StageBinaryCommands("/opt/yolo-jail/dist/yolo", "")
+	last := cmds[len(cmds)-1]
+	if last[0] != mvBin {
+		t.Errorf("stage must END with mv (fresh inode), got %v", last)
 	}
-	if got, _ := ResolvePython(func(p string) bool { return p == "/usr/bin/python3" }); got != "/usr/bin/python3" {
-		t.Errorf("fallback: %q", got)
+	// The mv target is the final staged path; the cp target is a temp (.new).
+	dst := StagedYoloPath("")
+	if last[len(last)-1] != dst {
+		t.Errorf("mv target = %q, want staged path %q", last[len(last)-1], dst)
 	}
-	if _, ok := ResolvePython(func(string) bool { return false }); ok {
-		t.Error("none exist => not ok")
-	}
-	c := PythonCandidates()
-	if c[len(c)-1] != "/usr/bin/python3" {
-		t.Error("stub must be last")
+	for _, c := range cmds {
+		if c[0] == cpBin && c[len(c)-1] == dst {
+			t.Errorf("cp must NOT write the final path in place (defeats fresh inode): %v", c)
+		}
 	}
 }
 
