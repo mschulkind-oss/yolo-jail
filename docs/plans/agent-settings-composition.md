@@ -99,10 +99,12 @@ encode(final)                       →  bytes → write to the jail user-scope 
 
 The Lua hook sits between the merge and the managed-enforce step. It sees the
 fully-composed config (defaults + host + jail-declared + captured in-jail edits)
-and returns the version that should be written into the jail. Managed
-(security-boundary) keys are re-asserted *after* the hook, so a transform can
-never weaken the jail's boundary — it's given `ctx.managed` read-only so it can
-see them, but yolo has the last write.
+and returns the version that should be written into the jail. The `managed` layer
+(yolo's asserted keys) is re-applied *after* the hook, so a transform can't
+silently drop yolo's keys from the *generated file* — it gets `ctx.managed`
+read-only so it can see them, but yolo has the last write. This is a
+composition-precedence guarantee, **not** the security boundary — the container +
+the injected YOLO flag are (see §9); `managed` never becomes an OS-level file.
 
 ### 3.2 What the hook receives (a taste — full worked example in §6.5)
 
@@ -110,7 +112,7 @@ The user points `config_transform` at a Lua file (§3.4); it registers a functio
 per agent (or per surface):
 
 ```lua
--- .yolo/config.lua
+-- yolo-jail.config.lua (workspace) or ~/.config/yolo-jail/config.lua (user) — §3.4
 -- ctx.config  : the composed config, PARSED to a Lua table (yolo did the decode)
 -- ctx.stage   : the file-tree staging handle (what gets copied into the jail)
 -- ctx.managed : read-only view of the keys the jail will enforce regardless
@@ -166,11 +168,20 @@ mechanism.
 
 ### 3.4 Placement in config, sandbox, and safety
 
-- **Placement:** a top-level `config_transform` key in `yolo-jail.jsonc` naming a
-  Lua file (default: auto-load `.yolo/config.lua` if present). It merges across
-  config levels like everything else: a user-level `~/.config/yolo-jail/config.jsonc`
-  transform applies host-wide; a workspace one is committable and travels with the
-  repo. Absent → identity (pass-through).
+- **Placement:** two fixed, auto-loaded locations, parallel to the two config
+  files — **not** under `.yolo/` (that dir is gitignored working state, so a
+  committed transform can't live there):
+  - **Workspace:** `yolo-jail.config.lua` at the repo root, beside
+    `yolo-jail.jsonc`. Tracked, committable, travels with the repo.
+  - **User:** `~/.config/yolo-jail/config.lua`, beside the user `config.jsonc`.
+    Host-wide, per-user. **This is the primary case** — a user's personal
+    redactions that apply to every workspace they jail.
+
+  Both auto-load if present (no config key needed); both run when both exist —
+  **user first, then workspace**, each a `yolo.transform(...)` registration, so a
+  workspace transform composes on top of (and can override) the user one. Neither
+  present → identity (pass-through). An explicit `config_transform` key in
+  `yolo-jail.jsonc` may still point elsewhere for the unusual case.
 - **Sandbox:** a pure-Go Lua VM (e.g. `gopher-lua`, no cgo — the Go-only world
   post-wipe means no cross-language interpreter is needed). The environment is
   **locked down: no `os`, `io`, `require`, network, or filesystem** beyond the
@@ -197,7 +208,7 @@ precedence):
 | `host` | staged host files, parsed fresh each boot (`:ro`) | per-host | the user's host config |
 | `workspace` | `agent_config.<agent>` in `yolo-jail.jsonc` (user cfg merged under workspace cfg) | per-workspace | jail-only config the user declares |
 | `runtime` overlay | capture-diff sidecar (§5) | per-workspace | what changed in-jail |
-| `managed` | manifest data (image) | global | security-boundary keys — always win, applied after the Lua hook |
+| `managed` | manifest data (image) | global | yolo's asserted keys — win the merge, applied after the Lua hook (a precedence guarantee in the generated file, not an OS enforcement — §9) |
 
 Deep-merge semantics: objects merge at every depth, `null` deletes a key, arrays
 replace by default; a surface's manifest may pin `append` (with dedupe) for a
@@ -230,8 +241,9 @@ details: **precedence** (overlay outranks host/workspace so your edit wins; an
 entry auto-retires when the host value converges to it; `yolo config overlay
 --reset <agent>` is the escape hatch); **deletions** (null tombstones, so a
 removed key isn't resurrected — the exact bug in today's merge); **managed**
-(applied after both the overlay and the Lua hook, so a security key changed
-in-jail is captured but visibly reverts on render — correct).
+(applied after both the overlay and the Lua hook, so a yolo-managed key changed
+in-jail is captured but visibly reverts on render — correct; note this governs
+the generated file only, not the security boundary, which is the container — §9).
 
 ## 6. `yolo config render` — run the pipeline without a jail
 
@@ -280,7 +292,7 @@ The builtin pi manifest (yolo-shipped data) declares the surface + its enforced 
 **② The user's transform** — the *only* thing the user writes:
 
 ```lua
--- .yolo/config.lua   (committed with the repo; runs in the workspace trust domain)
+-- yolo-jail.config.lua  (repo root, committed; runs in the workspace trust domain)
 yolo.transform("pi", function(ctx)
   local kept = {}
   for _, ext in ipairs(ctx.config.extensions) do
@@ -356,22 +368,18 @@ once, in a real language, on yolo's own output.
 1. **Engine as a leaf library, no callers** — decode/merge/enforce/render + the
    Lua VM sandbox + the manifest schema, with a fixture corpus (`inputs → render`)
    run by `go test`. This corpus is the spec.
-2. **Claude managed offload** — write the security/YOLO keys to Claude's
-   *managed* scope (`/etc/claude-code/managed-settings.json`), the one scope yolo
-   owns outright (neither user nor workspace). Independent; ship early. (Open
-   question: can the rootless entrypoint write `/etc` at boot? — §9.)
-3. **pi** — the motivating surface: builtin manifest + the `config.lua` transform;
-   deletes `host_pi_files` and the pi three-way merge.
-4. **Claude, then the remaining agents** — migrate `settings.json` (+ `.claude.json`
+2. **pi** — the motivating surface: builtin manifest + the workspace/user
+   transform; deletes `host_pi_files` and the pi three-way merge.
+3. **Claude, then the remaining agents** — migrate `settings.json` (+ `.claude.json`
    classified as runtime-state), then the rest get host reflection via the same
    engine.
-5. **Non-agent surfaces** — fold MCP (`mcp.go`), LSP, and the global mise config
+4. **Non-agent surfaces** — fold MCP (`mcp.go`), LSP, and the global mise config
    (`mise.go`) onto the same pipeline once the agent surfaces prove it out. They
    already compose config-layer input (§1.1); moving them here retires their
    bespoke merge code and gives them the Lua transform + `render` for free. Do
    this only after the agent surfaces are stable — no reason to migrate them
    speculatively.
-6. **Deletion** — remove the bespoke merges, snapshot constants, per-agent mount
+5. **Deletion** — remove the bespoke merges, snapshot constants, per-agent mount
    blocks, and the `host_*_files` keys.
 
 Each stage ends with a nested-jail verification (per repo `CLAUDE.md`).
@@ -401,22 +409,29 @@ Each stage ends with a nested-jail verification (per repo `CLAUDE.md`).
   over the sources it composes. The config-change safety prompt diffs the
   *rendered output* (post-execution in the sandbox, which is side-effect-free), so
   you approve the effect, not the opaque script.
+- **The security model does NOT rely on an OS-managed config file.** yolo's YOLO
+  enforcement is the injected `--dangerously-skip-permissions`-class flag
+  (`internal/agents/agents.go`), and the container is the security boundary — the
+  jail runs unconfined *by design*, so there is nothing in-jail to lock down via
+  config. The `managed` **layer** in this doc is just "yolo's keys are applied
+  last in the composition, so a transform or overlay can't silently drop them
+  from the *generated* file" — a composition-precedence guarantee, not a
+  tamper-proof OS mechanism. An earlier draft proposed writing Claude's
+  `/etc/claude-code/managed-settings.json` for true OS-level enforcement;
+  **dropped** — that file is `rw` in the jail (the jail user is root), so it
+  guarantees nothing a normal render layer doesn't, and treating it as a security
+  tier would be misleading. `managed` stays a layer, never an OS file.
+- **Live host edits → jail restart, always.** A host config change is picked up
+  on the next `yolo` invocation (staging + full re-render at boot). There is **no**
+  live in-jail resync and no `yolo config sync` — a running jail keeps the config
+  it booted with; restart to pick up host changes. Simple and predictable; matches
+  how the rest of the jail treats host state.
 
 **Still open:**
 
-- **Managed write-at-boot — needs a test.** Can the rootless-podman entrypoint
-  write `/etc/claude-code/managed-settings.json` at boot? **Consequence if not:**
-  the *strongest* enforcement tier (a scope Claude cannot override even at
-  runtime) is unavailable, so yolo's security/YOLO keys fall back to the top of
-  the **jail-user scope** — still above the user's own edits (managed is applied
-  last on every render; §3.1), and the jail is the security boundary regardless,
-  so this is defence-in-depth, not the primary lever (the injected
-  `--dangerously-skip-permissions`-class flag is — §7). **Yes, this gets tested**
-  during migration stage 2 (§8): a nested-jail probe writing the managed file at
-  boot as the entrypoint uid; the fallback ships only if the probe fails. Not a
-  blocker for the rest of the design.
-- **Live host edits:** staging refreshes per `yolo` invocation; is attach-time
-  re-render enough, or is an in-jail `yolo config sync` wanted?
+- **In-jail `yolo config render`.** Worth exposing `render`/`--explain` (§6)
+  inside the jail as a read-only "what would my config be" aid, or keep it
+  host-side only? (Read-only, so no boundary concern either way.)
 
 ---
 
