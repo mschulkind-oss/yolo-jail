@@ -45,6 +45,18 @@ func miseTomlKey(key string) string {
 // docs/research/tool-provisioning.md §2.
 var miseBaseTools = []struct{ tool, version string }{}
 
+// bakedRuntimes are the runtimes now baked into the image (flake.nix
+// corePackages: nodejs_24, python3, go). yolo used to write these into the
+// global mise config as base tools; the migration cleanup in GenerateMiseConfig
+// strips a leftover default line for any of these UNLESS it is an intentional
+// per-workspace/injected pin. See docs/design/config-migration-to-prism.md §4.1.
+var bakedRuntimes = []string{"node", "python", "go"}
+
+// workspaceMisePath is the workspace mise.toml consulted for intentional
+// per-workspace runtime pins (and the retire surgery). A package var so tests
+// can point it at a fixture; production is always the live bind mount.
+var workspaceMisePath = "/workspace/mise.toml"
+
 // It does NOT run the `mise uninstall` subprocesses (that is a side effect, not
 // content generation — orchestration). It DOES perform the workspace
 // /workspace/mise.toml retired-tool surgery when that file exists, matching the
@@ -118,6 +130,33 @@ func GenerateMiseConfig(e *Env) error {
 		}
 	}
 
+	// Migration cleanup (docs/design/config-migration-to-prism.md §4.1): the
+	// baked runtimes (node, python, go) used to be written here as base tools;
+	// now that they are all baked into the image, an existing jail's persistent
+	// config.toml still carries a stale `node = "22"` / `python = "3.13"` /
+	// `go = "latest"` line that shadows the baked /bin/<tool> — the exact
+	// version-skew the bake was meant to end. Strip that yolo-written default,
+	// but ONLY when the tool is not an intentional pin: an entry in
+	// YOLO_MISE_TOOLS (injected) or /workspace/mise.toml is a deliberate
+	// per-workspace override and MUST be preserved (mise then installs it and
+	// its shim wins — the one supported case). The injected-tools re-application
+	// below re-adds any YOLO_MISE_TOOLS pin after this pass as a second safety
+	// net.
+	for _, tool := range bakedRuntimes {
+		if _, pinned := injected.Get(tool); pinned {
+			continue // intentional YOLO_MISE_TOOLS override — keep it
+		}
+		if workspacePinsTool(tool) {
+			continue // intentional /workspace/mise.toml override — keep it
+		}
+		pattern := regexp.MustCompile(`(?m)^"?` + regexp.QuoteMeta(tool) + `"?\s*=\s*"[^"]*"\n?`)
+		newContent := pattern.ReplaceAllString(content, "")
+		if newContent != content {
+			content = newContent
+			changed = true
+		}
+	}
+
 	// Ensure base tools present and not "system".
 	for _, bt := range miseBaseTools {
 		tk := miseTomlKey(bt.tool)
@@ -161,8 +200,8 @@ func GenerateMiseConfig(e *Env) error {
 		}
 	}
 
-	// Retire from /workspace/mise.toml if present.
-	wsMise := "/workspace/mise.toml"
+	// Retire from the workspace mise.toml if present.
+	wsMise := workspaceMisePath
 	if pathExists(wsMise) {
 		wsRaw, err := os.ReadFile(wsMise)
 		if err == nil {
@@ -184,6 +223,21 @@ func GenerateMiseConfig(e *Env) error {
 		}
 	}
 	return nil
+}
+
+// workspacePinsTool reports whether /workspace/mise.toml pins the given tool in
+// its [tools] table — an intentional per-workspace override the migration
+// cleanup must never strip. A missing/unreadable workspace mise.toml means no
+// pin (false). It matches a bare or quoted key at line start, e.g. `node = ` or
+// `"node" = ` (mirroring the retire surgery's key handling), so it does not
+// false-match a substring like `nodejs`.
+func workspacePinsTool(tool string) bool {
+	raw, err := os.ReadFile(workspaceMisePath)
+	if err != nil {
+		return false
+	}
+	pattern := regexp.MustCompile(`(?m)^"?` + regexp.QuoteMeta(tool) + `"?\s*=`)
+	return pattern.Match(raw)
 }
 
 // loadInjectedTools parses YOLO_MISE_TOOLS as a JSON object (default {}).
