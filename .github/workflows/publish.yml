@@ -78,8 +78,10 @@ jobs:
   # builder.  Release-gated only.
   #
   # NO-OP UNTIL SET UP (see docs/plans/handoff-cachix-cache.md): the job skips
-  # entirely unless the CACHIX_AUTH_TOKEN secret AND CACHIX_CACHE variable
-  # are configured — so releases stay green before the Cachix account exists.
+  # entirely unless the CACHIX_AUTH_TOKEN secret is configured — so releases
+  # stay green before the Cachix account exists. The cache NAME is not a secret
+  # and defaults to `yolo-jail` (the CACHIX_CACHE variable only overrides it,
+  # e.g. for a fork pushing to its own cache).
   push-image-cache:
     # Push BOTH x86_64-linux and aarch64-linux closures — each matrix cell
     # builds + pushes its own native arch.  The aarch64-linux closure is the
@@ -94,11 +96,14 @@ jobs:
       - name: Check Cachix is configured
         id: gate
         run: |
-          if [ -n "${{ secrets.CACHIX_AUTH_TOKEN }}" ] && [ -n "${{ vars.CACHIX_CACHE }}" ]; then
+          # Gate on the auth token alone — the cache NAME is not a secret and
+          # defaults to `yolo-jail`. Publish the resolved name for later steps.
+          if [ -n "${{ secrets.CACHIX_AUTH_TOKEN }}" ]; then
             echo "enabled=true" >> "$GITHUB_OUTPUT"
+            echo "cache=${{ vars.CACHIX_CACHE || 'yolo-jail' }}" >> "$GITHUB_OUTPUT"
           else
             echo "enabled=false" >> "$GITHUB_OUTPUT"
-            echo "Cachix not configured (CACHIX_AUTH_TOKEN secret + CACHIX_CACHE var). Skipping — see docs/plans/handoff-cachix-cache.md."
+            echo "Cachix not configured (no CACHIX_AUTH_TOKEN secret). Skipping — see docs/plans/handoff-cachix-cache.md."
           fi
 
       - uses: actions/checkout@v7
@@ -127,7 +132,7 @@ jobs:
         if: steps.gate.outputs.enabled == 'true'
         uses: cachix/cachix-action@v15
         with:
-          name: ${{ vars.CACHIX_CACHE }}
+          name: ${{ steps.gate.outputs.cache }}
           authToken: ${{ secrets.CACHIX_AUTH_TOKEN }}
 
       # cachix-action auto-pushes every path built while it's active, so a
@@ -137,7 +142,7 @@ jobs:
         run: |
           nix build --impure .#ociImage
           nix build --impure .#ociImageMinimal
-          echo "Pushed image closures to ${{ vars.CACHIX_CACHE }}.cachix.org"
+          echo "Pushed image closures to ${{ steps.gate.outputs.cache }}.cachix.org"
 
   # Build the macOS container-Linux-builder image and push it to GHCR, so
   # macOS users (Apple Container / Podman) `pull` a ready nix+sshd builder

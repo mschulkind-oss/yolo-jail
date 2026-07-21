@@ -41,11 +41,15 @@ rare fallback (custom uncached packages only).
    };
    ```
 
-3. **Add the CI credentials** (GitHub → repo Settings):
+3. **Add the CI credential** (GitHub → repo Settings → Secrets and variables →
+   Actions):
    - **Secret** `CACHIX_AUTH_TOKEN` = a **write** auth token from Cachix
-     (cache → Settings → Auth Tokens, or `cachix authtoken`).
-   - **Variable** `CACHIX_CACHE` = the cache name (`yolo-jail`).
-   Once both exist, the `push-image-cache` job runs on the next release.
+     (cache → Settings → Auth Tokens, or `cachix authtoken`). This is the ONLY
+     thing CI gates on — once it exists, `push-image-cache` runs on the next
+     release.
+   - **Variable** `CACHIX_CACHE` (optional) = the cache name. Defaults to
+     `yolo-jail` when unset; only set it to push to a differently-named cache
+     (e.g. a fork's).
 
 4. **First push (prove it), from a Linux box:**
    ```sh
@@ -57,7 +61,8 @@ rare fallback (custom uncached packages only).
 
 5. **If you chose a different cache name than `yolo-jail`:** rename it in
    three places — the `flake.nix` `nixConfig` URLs+key, the `just cachix-push`
-   `CACHE` default, and set the `CACHIX_CACHE` repo variable accordingly.
+   `CACHE` default, and set the `CACHIX_CACHE` repo variable (which otherwise
+   defaults to `yolo-jail` in CI).
 
 ## Final test (on a Mac, no Linux builder configured)
 
