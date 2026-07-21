@@ -8,16 +8,12 @@
   # macOS otherwise needs a Linux builder.  Publishing the built image to a
   # Cachix cache lets every macOS user *download* it instead (zero setup).
   #
-  # NOT YET ENABLED — pending the Cachix account (see
-  # docs/plans/handoff-cachix-cache.md).  To turn on: create the cache, then
-  # UNCOMMENT the block below and replace <PUBLIC_KEY> with the key Cachix
-  # prints (format: yolo-jail.cachix.org-1:<base64>).  Rename `yolo-jail`
-  # throughout if you claim a different cache name.
-  #
-  # nixConfig = {
-  #   extra-substituters = [ "https://yolo-jail.cachix.org" ];
-  #   extra-trusted-public-keys = [ "yolo-jail.cachix.org-1:<PUBLIC_KEY>" ];
-  # };
+  # ENABLED (2026-07-20).  Rename `yolo-jail` throughout if you claim a
+  # different cache name (see docs/plans/handoff-cachix-cache.md).
+  nixConfig = {
+    extra-substituters = [ "https://yolo-jail.cachix.org" ];
+    extra-trusted-public-keys = [ "yolo-jail.cachix.org-1:6SMCmaSd8DsVfj5EHAdpgIZi0RE14zyYrAWnV8WxFLM=" ];
+  };
 
   inputs = {
     nixpkgs.url = "github:nixos/nixpkgs/nixos-unstable";

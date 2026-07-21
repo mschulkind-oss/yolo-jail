@@ -1,7 +1,10 @@
 # Handoff — publish the prebuilt image to a Cachix cache
 
-**Status:** wired, **not yet enabled** — pending a Cachix account (deferred
-by the maintainer; will be done on another setup).
+**Status:** **ENABLED** (2026-07-20) — the `yolo-jail` cache exists, the
+`nixConfig` substituter + public key are live in `flake.nix`, and the
+`CACHIX_AUTH_TOKEN` secret is set, so the release-gated push job now runs.
+Remaining: the first push + the Mac-side download proof (steps 4 and "Final
+test" below), which need a Linux box and a Mac respectively.
 **Why:** the OCI image contains a few `aarch64-linux` derivations built from
 *this repo's* source (`yolo-jail-conf`, the entrypoint pkg, the stream
 script) that are **never** on `cache.nixos.org`. So building the image on
@@ -10,18 +13,20 @@ binary cache that macOS users can download from. Publishing = the "everybody,
 zero setup, at any point" happy path; a per-machine Linux builder becomes the
 rare fallback (custom uncached packages only).
 
-## What's already wired (works the moment the cache exists)
+## What's wired (all live as of 2026-07-20)
 
-- **flake.nix** — a commented `nixConfig` block with the substituter +
-  trusted-public-key. Enabling = uncomment + paste the key.
+- **flake.nix** — the `nixConfig` block is **enabled** with the substituter
+  `https://yolo-jail.cachix.org` and the public key
+  `yolo-jail.cachix.org-1:6SMCmaSd8DsVfj5EHAdpgIZi0RE14zyYrAWnV8WxFLM=`.
 - **Justfile** — `just cachix-push` builds both image variants on a Linux
   host and pushes their closures.
-- **.github/workflows/publish.yml** — a `push-image-cache` job (release-gated)
-  that builds + pushes on every published release. It **no-ops** until the
-  secret + variable below exist, so releases stay green in the meantime.
+- **.github/workflows/publish.yml** — the `push-image-cache` job (release-gated)
+  builds + pushes on every published release. It gates on the
+  `CACHIX_AUTH_TOKEN` **secret alone** (set ✅); the cache name defaults to
+  `yolo-jail`, overridable by the optional `CACHIX_CACHE` variable.
 - **Proven:** the image builds cleanly on Linux here (`nix build .#ociImageMinimal`
-  → exit 0), so the build/publish-from-Linux path is validated; only the
-  Cachix account + push remain.
+  → exit 0), so the build/publish-from-Linux path is validated; the first
+  actual push + the Mac download proof remain.
 
 ## Do this once (the deferred signup + wiring)
 
