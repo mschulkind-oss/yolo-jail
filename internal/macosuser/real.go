@@ -125,8 +125,10 @@ func takenIDsReal() map[int]struct{} {
 	return ids
 }
 
-// then `sudo /bin/sh -c 'dscl . -passwd /Users/<u> "$YOLO_SBPW"'` with the
-// password passed via an env var (never argv, so it can't show in `ps`).
+// setRandomPasswordReal generates a random password and applies it via
+// `sudo /bin/sh -c 'read -r pw; dscl . -passwd /Users/<u> "$pw"'`, feeding the
+// password on STDIN (never argv, so it can't show in `ps`; never env, which
+// sudo's env_reset strips — see the finding-6 fix below).
 func setRandomPasswordReal(user string) bool {
 	rand := exec.Command("openssl", "rand", "-base64", "32")
 	pwOut, rc := outputWithTimeout(rand, 5*time.Second)
