@@ -360,6 +360,115 @@ func TestRunColorGateHonorsTTY(t *testing.T) {
 	}
 }
 
+// TestRelocatedCacheSection: a relocated subdir gets its own labelled section
+// showing the real size, the target and its backing filesystem — and its bytes
+// stay out of the "Current usage" totals (they are on another device, so a
+// prune here cannot free them). The heavy purge announces the real target too.
+func TestRelocatedCacheSection(t *testing.T) {
+	o, gs := baseOpts(t)
+	target := t.TempDir()
+	o.CacheRelocations = map[string]string{"huggingface": target}
+	o.PurgeHeavyCaches = true
+
+	// The host-side stub podman mounts over: present, empty.
+	mustMkdir(t, filepath.Join(gs, "cache", "huggingface"))
+	// 8 KiB of "model" on the relocation target, plus 1 KiB that really is on
+	// the storage filesystem so the totals are visibly different numbers.
+	mustWrite(t, filepath.Join(target, "model.safetensors"), bytes.Repeat([]byte("m"), 8192))
+	mustMkdir(t, filepath.Join(gs, "cache", "uv"))
+	mustWrite(t, filepath.Join(gs, "cache", "uv", "wheel.whl"), bytes.Repeat([]byte("x"), 1024))
+
+	var buf bytes.Buffer
+	o.Out = &buf
+	Run(o)
+
+	if !hasLine(&buf, "  relocated cache subdirs (cache_relocations — on other filesystems, NOT in the totals above):") {
+		t.Errorf("missing relocated section header:\n%s", buf.String())
+	}
+	var row string
+	for _, l := range lines(&buf) {
+		if strings.HasPrefix(l, "    cache/huggingface") {
+			row = l
+		}
+	}
+	if row == "" {
+		t.Fatalf("no relocated row for huggingface:\n%s", buf.String())
+	}
+	for _, want := range []string{"8.0 KiB", "→ " + target, "(fs "} {
+		if !strings.Contains(row, want) {
+			t.Errorf("relocated row %q missing %q", row, want)
+		}
+	}
+	// Totals see the 1 KiB wheel only — never the relocated 8 KiB.
+	if !hasLine(&buf, "Current usage  total=1.0 KiB  (workspaces=0 B, global=1.0 KiB)") {
+		t.Errorf("relocated bytes leaked into the totals:\n%s", buf.String())
+	}
+	// The purge pass says which real directory it is about to walk.
+	if !hasLine(&buf, "  huggingface is relocated — purging "+target) {
+		t.Errorf("missing relocated-purge note:\n%s", buf.String())
+	}
+}
+
+// TestNoRelocatedSectionWhenUnset: with no cache_relocations the report is
+// exactly what it was before the feature — no empty section, no stray header.
+func TestNoRelocatedSectionWhenUnset(t *testing.T) {
+	o, _ := baseOpts(t)
+	var buf bytes.Buffer
+	o.Out = &buf
+	Run(o)
+	for _, l := range lines(&buf) {
+		if strings.Contains(l, "relocated") {
+			t.Errorf("unexpected relocation line with no relocations configured: %q", l)
+		}
+	}
+}
+
+// TestImagesHintNamesCacheRelocations: the over-threshold cache/images hint must
+// NOT read as a general "symlink your cache subdirs" technique — that breaks
+// every subdir the jail actually uses. It stays true for images (host-side
+// reads only) and points at cache_relocations for everything else.
+func TestImagesHintNamesCacheRelocations(t *testing.T) {
+	o, gs := baseOpts(t)
+	imagesDir := filepath.Join(gs, "cache", "images")
+	mustMkdir(t, imagesDir)
+	// Sparse: the hint threshold is 20 GiB and dirSizeBytes reads st_size, so
+	// no real bytes are written.
+	f, err := os.Create(filepath.Join(imagesDir, "yolo-jail.tar"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := f.Truncate(imagesHintThreshold + 1); err != nil {
+		f.Close()
+		t.Fatal(err)
+	}
+	f.Close()
+
+	var buf bytes.Buffer
+	o.Out = &buf
+	Run(o)
+
+	var hint, follow string
+	for _, l := range lines(&buf) {
+		if strings.HasPrefix(l, "  hint: cache/images") {
+			hint = l
+		}
+		if strings.HasPrefix(l, "  cache/images is only ever read host-side") {
+			follow = l
+		}
+	}
+	if hint == "" || follow == "" {
+		t.Fatalf("images hint missing:\n%s", buf.String())
+	}
+	if strings.Contains(hint, "symlink") {
+		t.Errorf("the headline hint must not sell symlinking as the technique: %q", hint)
+	}
+	for _, want := range []string{"cache_relocations", "dangles", "~/.config/yolo-jail/config.jsonc"} {
+		if !strings.Contains(follow, want) {
+			t.Errorf("hint follow-up %q missing %q", follow, want)
+		}
+	}
+}
+
 func TestFmtComma(t *testing.T) {
 	cases := map[int]string{0: "0", 5: "5", 999: "999", 1000: "1,000", 1234567: "1,234,567", -1500: "-1,500"}
 	for in, want := range cases {

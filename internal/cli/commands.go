@@ -111,6 +111,28 @@ func runPrune(args []string) int {
 		ws = "."
 	}
 	opts.DetectRuntime = func() string { return detectListingRuntime(ws) }
+	// cache_relocations is user-scope only (config.LoadCacheRelocations owns the
+	// threat model), and internal/prune deliberately does not import
+	// internal/config — so the front door resolves the pairs and hands them over
+	// as plain data. Without this prune goes blind on a relocated subdir: the
+	// host-side cache/<subdir> is an empty bind mountpoint, so the machine's
+	// largest consumer vanishes from the report and the heavy purge walks the
+	// stub while reporting success.
+	//
+	// A load error is ignored rather than failing the command: prune's job is
+	// reclaiming disk, and it can still do all of that with a stale or
+	// unparseable user config. Loader warnings go to stderr so a skipped entry
+	// explains the subdir that is missing from the report, without polluting the
+	// report's own (stdout, contract-stable) output.
+	if rels, err := config.LoadCacheRelocations(func(msg string) {
+		fmt.Fprintln(os.Stderr, "Warning: "+msg)
+	}); err == nil && len(rels) > 0 {
+		m := make(map[string]string, len(rels))
+		for _, r := range rels {
+			m[r.Subdir] = r.Target
+		}
+		opts.CacheRelocations = m
+	}
 	return prune.Run(opts)
 }
 

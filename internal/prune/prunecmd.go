@@ -82,6 +82,19 @@ type Options struct {
 	GlobalStorage func() string
 	GlobalHome    func() string
 	GlobalCache   func() string
+	// CacheRelocations maps a cache subdir name to the absolute host directory
+	// that actually holds its bytes (the `cache_relocations` user-config key).
+	// nil => nothing relocated, which is the pre-feature behavior exactly.
+	//
+	// Plain data, not a loader seam: prune deliberately does not import
+	// internal/config — the same decoupling pathsref.go keeps for the storage
+	// roots — so the CLI front door reads the user config (the key is
+	// user-scope only for security reasons; see config.LoadCacheRelocations)
+	// and hands prune the resolved pairs. Without it prune goes blind: the
+	// host-side cache/<subdir> is an empty bind mountpoint, so the largest
+	// consumer on the machine vanishes from the report and the heavy purge
+	// no-ops while claiming success.
+	CacheRelocations map[string]string
 	// RelayBase is the dir scanned for orphaned broker-relay PID files. "" =>
 	// "/tmp" (the default base).
 	RelayBase string
@@ -171,7 +184,7 @@ func Run(opts Options) int {
 	gs := opts.GlobalStorage()
 
 	// --- Pre-report ---
-	before := DiskUsageReport(workspaces, gs)
+	before := DiskUsageReport(workspaces, gs, opts.CacheRelocations)
 	p.line("")
 	p.line(fmt.Sprintf("[bold]Current usage[/bold]  total=%s  (workspaces=%s, global=%s)",
 		FmtBytes(before.Total), FmtBytes(before.Workspaces), FmtBytes(before.GlobalStorage)))
@@ -191,10 +204,33 @@ func Run(opts Options) int {
 			p.line(fmt.Sprintf("    cache/%-14s %12s", kv.name, FmtBytes(kv.size)))
 		}
 	}
+	if len(before.CacheRelocated) > 0 {
+		// Its own section, never folded into the totals above: these bytes are
+		// on another device, so counting them would misreport what a prune on
+		// THIS filesystem can free. The mount point is printed so the user can
+		// see at a glance that the relocation actually landed elsewhere.
+		p.line("  [dim]relocated cache subdirs (cache_relocations — on other filesystems, NOT in the totals above):[/dim]")
+		for _, r := range before.CacheRelocated {
+			fs := r.Filesystem
+			if fs == "" {
+				fs = "unknown"
+			}
+			p.line(fmt.Sprintf("    cache/%-14s %12s  → %s  (fs %s)", r.Subdir, FmtBytes(r.Bytes), r.Target, fs))
+		}
+	}
 	if imagesBytes := before.CacheBreakdown["images"]; imagesBytes >= imagesHintThreshold {
 		p.line(fmt.Sprintf("  [yellow]hint:[/yellow] cache/images holds %s of jail tarballs.  "+
-			"They're streamed once at podman load then unused — consider symlinking this subdir to HDD storage if you have it.",
+			"They're streamed once at image load then unused — worth moving to HDD storage if you have it.",
 			FmtBytes(imagesBytes)))
+		// The old hint said "symlink this subdir" full stop, which is true for
+		// cache/images (read only host-side, before any container exists) and
+		// actively breaks anything else: the cache is bind-mounted into the
+		// jail as ONE unit and podman resolves only that source path, so a
+		// symlinked subdir arrives in the container pointing at a path that
+		// does not exist there. Name the supported mechanism instead.
+		p.line("  [dim]cache/images is only ever read host-side, so a symlink is safe HERE.  " +
+			"Other cache subdirs are bind-mounted into the jail, where a symlink dangles — " +
+			"relocate those with cache_relocations in ~/.config/yolo-jail/config.jsonc.[/dim]")
 	}
 
 	var totalSaved int64
@@ -337,7 +373,18 @@ func Run(opts Options) int {
 		}
 		p.line("")
 		p.line(fmt.Sprintf("[bold]Cache purge[/bold]  (subdirs=%s, age > %dd)", strings.Join(subdirs, ","), opts.CacheAge))
-		cacheBytes, cacheFiles = PurgeCacheByAge(joinPath(gs, "cache"), subdirs, float64(opts.CacheAge), apply, opts.Now())
+		// Each purged subdir that is relocated is named with its real target:
+		// the walk goes there, not to the empty stub under cache/, and a purge
+		// that deletes files outside the storage root should say so.
+		for _, sub := range subdirs {
+			if _, forbidden := cachePurgeForbidden[sub]; forbidden {
+				continue // the engine refuses it; don't announce a purge that won't happen
+			}
+			if target := opts.CacheRelocations[sub]; target != "" {
+				p.line(fmt.Sprintf("  [dim]%s is relocated — purging %s[/dim]", sub, target))
+			}
+		}
+		cacheBytes, cacheFiles = PurgeCacheByAge(joinPath(gs, "cache"), subdirs, opts.CacheRelocations, float64(opts.CacheAge), apply, opts.Now())
 		p.line(fmt.Sprintf("  %s: %s across %s files", verb(apply, "would remove", "removed"), FmtBytes(cacheBytes), fmtComma(cacheFiles)))
 		totalSaved += cacheBytes
 	}
