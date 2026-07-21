@@ -22,6 +22,7 @@ post-Go-port backlog (nix-ld, color audit, consolidation) into the same picture.
 | [cli-color-audit.md](cli-color-audit.md) | Make `prune`/`builder`/`macos-*` render rich markup instead of stripping it; consolidate the duplicated printers. | jail-side |
 | [module-consolidation-and-cleanup.md](module-consolidation-and-cleanup.md) | Collapse the ~34 Python-mirroring `internal/*` packages; drop parity machinery; §4 OSS-hygiene remnants. | jail-side, last |
 | [agent-settings-composition.md](agent-settings-composition.md) | Unbuilt "Prism" RFC for composing agent settings across host/jail. | parked (needs re-grounding) |
+| [integration-parallelism.md](integration-parallelism.md) | Bounded `t.Parallel()` for the container suite (needs per-test GlobalStorage first). | parked (test speed) |
 | [runbooks/](runbooks/) | Track M verification procedures (see [Runbooks](#runbooks) below). | hardware-gated |
 
 ## Lanes — not everything is one linear sequence
@@ -178,6 +179,16 @@ this jail. The host and mac rows are gated lanes that run on their own clock.
   by the others, but should not be started until a maintainer commits to
   building Prism and someone re-bases §2 on the Go tree. Left out of the numbered
   order deliberately.
+- **integration-parallelism** — bounded `t.Parallel()` for the container suite.
+  Parked on purpose: CI is free (wall time is only a convenience) and the fast
+  local loop (`just test-fast`, `-short`) skips every container test, so this only
+  pays off for a full local `just test`. It also needs real work first — per-test
+  `GlobalStorage` isolation to unstick the shared `last-load` sentinel race
+  (`autoload.go:122`) — before `t.Parallel()` is safe; N is bound by memory (each
+  jail is a VM/container), not the 32 cores. The 2026-07-20 launch-merges
+  (zbar/cli/isolation/cgroup → single launches) already recovered ~120s/arch with
+  zero parallelism risk; do more of those before investing here. See
+  [integration-parallelism.md](integration-parallelism.md).
 
 ## Runbooks
 
