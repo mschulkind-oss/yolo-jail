@@ -1,31 +1,26 @@
-// Package luahook is a Phase-A greenfield spike for the config-composition
-// Lua transform sandbox described in docs/plans/agent-settings-composition.md
-// §3 (the "Lua transform — the abstraction"). It has NO callers yet; its job is
-// to PIN two things so the rest of Phase A can build against a frozen shape:
+// Package luahook implements the config-composition Lua transform sandbox
+// described in docs/plans/agent-settings-composition.md §3 (the "Lua transform
+// — the abstraction"). It is a leaf library with NO callers yet (Phase A of the
+// build in §8); the surfaces in Phase B call it. It provides:
 //
 //  1. the ctx bridge — the decoded value + handles a transform sees
-//     (§3.2: ctx.config / ctx.stage / ctx.managed / ctx.agent / ctx.surface); and
+//     (§3.2: ctx.config / ctx.stage / ctx.managed / ctx.agent / ctx.surface);
 //  2. the sandbox contract — the guarantees a transform runs under
 //     (§3.4 / §9: no os/io/require/network/filesystem, pure function of its
-//     inputs, deterministic, and a Lua error surfaces as a loud Go error).
+//     inputs, deterministic, and a Lua error surfaces as a loud Go error); and
+//  3. GopherLuaVM (vm.go) — the real, github.com/yuin/gopher-lua-backed
+//     implementation of the LuaVM interface. gopher-lua is a pure-Go, cgo-free
+//     Lua 5.1 VM (§3.4, §8 A.2), vendored so the hermetic nix image build works
+//     offline.
 //
-// # Why an interface and not gopher-lua
+// # The LuaVM interface
 //
-// The design (§3.4, §8 step A.2) names github.com/yuin/gopher-lua — a pure-Go,
-// cgo-free Lua 5.1 VM — as the intended implementation. As of this spike that
-// module is NOT a dependency of this repo (not in go.mod, not vendored), and
-// adding it would touch go.mod/go.sum + vendor/ and require network — out of
-// scope for a leaf spike that must touch no shared files. So the spike defines
-// the VM boundary as a one-method interface (LuaVM) and exercises the contract
-// with a hand-rolled fake in the tests. The ctx bridge, the Apply pipeline
-// step, and the sandbox contract are all real; only the VM behind LuaVM is
-// stubbed.
-//
-// TODO(config-composition Phase A.2): replace the fake LuaVM in the tests with
-// a gopher-lua-backed implementation once gopher-lua is vendored. That impl
-// must (a) expose ctx as a Lua table per §3.2, (b) strip the globals listed in
-// ForbiddenGlobals from the sandbox environment, and (c) map any lua.ApiError
-// to a Go error carrying file/line/message (§3.4 "loud failure").
+// The VM boundary is a one-method interface (LuaVM) so the pipeline and its
+// tests can depend on the contract rather than gopher-lua directly. GopherLuaVM
+// is the production implementation; the tests also keep a hand-rolled fakeVM
+// that exercises the same contract without real Lua, and add GopherLuaVM tests
+// (vm_test.go) that prove the sandbox end to end (forbidden globals absent,
+// fail-closed on error/timeout, ctx.managed read-only, list/nested round-trip).
 package luahook
 
 import "fmt"
