@@ -8,10 +8,12 @@ import (
 
 	"github.com/mschulkind-oss/yolo-jail/internal/brokerrelay"
 	"github.com/mschulkind-oss/yolo-jail/internal/config"
+	"github.com/mschulkind-oss/yolo-jail/internal/entrypoint"
 	"github.com/mschulkind-oss/yolo-jail/internal/hostmigrate"
 	"github.com/mschulkind-oss/yolo-jail/internal/hostprocesses"
 	"github.com/mschulkind-oss/yolo-jail/internal/journald"
 	"github.com/mschulkind-oss/yolo-jail/internal/jsonx"
+	"github.com/mschulkind-oss/yolo-jail/internal/macosuser"
 	"github.com/mschulkind-oss/yolo-jail/internal/oauthbroker"
 	"github.com/mschulkind-oss/yolo-jail/internal/paths"
 	"github.com/mschulkind-oss/yolo-jail/internal/repopath"
@@ -24,7 +26,7 @@ import (
 // rewrite semantics.
 func runInternal(args []string) int {
 	if len(args) == 0 {
-		fmt.Fprintln(os.Stderr, "usage: yolo internal <config-dump|daemon|migrate-host|write-repo-path> [args...]")
+		fmt.Fprintln(os.Stderr, "usage: yolo internal <config-dump|daemon|darwin-bootstrap|migrate-host|write-repo-path> [args...]")
 		return 2
 	}
 	switch args[0] {
@@ -32,6 +34,8 @@ func runInternal(args []string) int {
 		return runConfigDump(args[1:])
 	case "daemon":
 		return runInternalDaemon(args[1:])
+	case "darwin-bootstrap":
+		return runDarwinBootstrap(args[1:])
 	case "migrate-host":
 		return runMigrateHost(args[1:])
 	case "write-repo-path":
@@ -40,6 +44,59 @@ func runInternal(args []string) int {
 		fmt.Fprintf(os.Stderr, "yolo internal: unknown command %q\n", args[0])
 		return 2
 	}
+}
+
+// runDarwinBootstrap is the self-exec target the macos-user launch stages and
+// runs AS the sandbox user (J2 §3): `sudo --user=_yolojail … /var/yolo-jail/yolo
+// internal darwin-bootstrap`. It replaces the old generated-Python bootstrap
+// that imported the deleted src/ tree. It self-sets JAIL_HOME/HOME (sudo without
+// --set-home is not a reliable HOME source), builds an *entrypoint.Env pointed
+// at the sandbox home + real workspace, and runs the native generation entry.
+//
+// Inputs arrive as env vars the launcher bakes into the `env -i K=V…` argv
+// (matching how the launch env already crosses into the sandbox): the git/jj
+// identity + YOLO_* generator contract ride through verbatim; the three darwin
+// extras are YOLO_DARWIN_WORKSPACE, YOLO_DARWIN_MACOS_LOG, and
+// YOLO_DARWIN_LOGIN_PATH.
+func runDarwinBootstrap(_ []string) int {
+	home := firstNonEmptyEnv("JAIL_HOME", "HOME")
+	if home == "" {
+		home = macosuser.SandboxHome()
+	}
+	// Rebind HOME/JAIL_HOME before Env resolves its home-derived paths.
+	os.Setenv("JAIL_HOME", home)
+	os.Setenv("HOME", home)
+
+	e := entrypoint.EnvFromOS()
+	e.Stderr = os.Stderr
+	e.Home = home
+	// Native platform values (J2 §1 seams): real workspace, macOS shim bin,
+	// BSD stat.
+	if ws := os.Getenv("YOLO_DARWIN_WORKSPACE"); ws != "" {
+		e.Workspace = ws
+	}
+	e.ShimBinDir = "/usr/bin"
+	e.GNUStat = false
+
+	opts := entrypoint.DarwinBootstrapOptions{
+		MacosLog:      os.Getenv("YOLO_DARWIN_MACOS_LOG"),
+		LoginPath:     os.Getenv("YOLO_DARWIN_LOGIN_PATH"),
+		YoloLogScript: macosuser.MacosLogWrapperScript(os.Getenv("YOLO_DARWIN_MACOS_LOG")),
+	}
+	entrypoint.RunDarwinBootstrap(e, opts)
+	fmt.Println("yolo-jail macos-user bootstrap ok")
+	return 0
+}
+
+// firstNonEmptyEnv returns the first environment variable in keys with a
+// non-empty value, or "".
+func firstNonEmptyEnv(keys ...string) string {
+	for _, k := range keys {
+		if v := os.Getenv(k); v != "" {
+			return v
+		}
+	}
+	return ""
 }
 
 // runInternalDaemon dispatches the hidden `yolo internal daemon <name>` group —
