@@ -31,6 +31,43 @@ per-machine overrides kept out of version control: add the name to your
 global gitignore and use it for tweaks that don't belong in the tracked
 config.
 
+### 1.1 Config-ownership principle (agent config)
+
+The rules above govern *yolo's own* config (`yolo-jail.jsonc`). A separate,
+load-bearing principle governs the config yolo generates *for the coding agents*
+(Claude/Copilot/Gemini/pi/opencode/Codex — `.claude/settings.json`,
+`~/.pi/agent/settings.json`, `config.toml`, …):
+
+> **yolo composes agent config into the jail USER scope only. The workspace tree
+> is the operating agent's, and mirrors the host.**
+
+Concretely:
+
+- **User scope (yolo-owned).** yolo writes each agent's user-level config under
+  `/home/agent/…` (a per-workspace r/w overlay; §3–§4). This is the *only* agent
+  config surface yolo regenerates.
+- **Workspace scope (agent-owned, host-mirrored).** yolo does **not** write any
+  agent's project/workspace config (e.g. `$CWD/.claude/settings.json`). `/workspace`
+  is bind-mounted from the host and belongs to the operating agent; yolo leaves it
+  as-is. The *only* exceptions are narrow **"internal details" shadow mounts** yolo
+  owns for isolation — currently `.vscode/mcp.json` and `.overmind.sock`, each
+  shadowed with `/dev/null` (see §4 mount map / `assemble.go`). These are
+  isolation-boundary artifacts, not agent config, and are the deliberate, enumerated
+  exception to "workspace mirrors host."
+- **Managed scope (yolo-owned, outside both).** Security-boundary keys go to an
+  agent's *managed* config where one exists (e.g. Claude's
+  `/etc/claude-code/managed-settings.json`) — neither user nor workspace, so yolo
+  owns it outright with no contention.
+
+**Why it matters for regeneration:** because yolo and the agent both write the
+*same* user-scope file (yolo regenerates it each boot; the agent persists in-jail
+`/config`/`/settings` edits there), that file is a shared surface — so surviving
+regeneration needs a capture-diff overlay at the user scope, uniformly across
+agents. No agent gets a "yolo owns a separate file" shortcut, because the only
+separate file (project scope) is a workspace file yolo won't touch. The full
+mechanism is [`../plans/agent-settings-composition.md`](../plans/agent-settings-composition.md)
+§5.2; this section is the durable statement of the ownership rule that constrains it.
+
 ### Create configs
 
 ```bash

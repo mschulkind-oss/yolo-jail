@@ -189,10 +189,12 @@ host-backed home** (`~/.local/share/yolo-jail/home`, bind-mounted into every jai
 comes from `<workspace>/.yolo/home/claude-settings.json`). "Per-boot" in the table describes
 the *content lifecycle* — the render is rebuilt from sources on every boot, so nothing may
 treat the file as a source of truth — not physical isolation. That forces one implementation
-requirement: **a rendered file must land on a per-workspace path** (an existing overlay
-mount, or a workspace-project file like `.claude/settings.json`) — otherwise two workspaces'
-renders would fight in the shared home. Claude's targets already satisfy this; Pi's
-`~/.pi/agent/settings.json` needs a per-workspace overlay mount added, same as Claude's.
+requirement: **a rendered file must land on a per-workspace overlay path** under
+`<workspace>/.yolo/home/…` (mounted into the jail's user home) — otherwise two workspaces'
+renders would fight in the shared home. yolo renders only into these **user-scope** overlays,
+never into a workspace-project file like `$CWD/.claude/settings.json` (§5.2's ownership rule).
+Claude's user `settings.json` already satisfies this; Pi's `~/.pi/agent/settings.json` needs a
+per-workspace overlay mount added, same as Claude's.
 
 That yields a clean, VS-Code-shaped contract the user can reason about without knowing the
 internals:
@@ -206,27 +208,45 @@ internals:
   per-workspace (via the agent's own user-scope file for Claude, or the overlay sidecar for
   single-scope agents — §5.2); it does not leak to other workspaces or back to the host.
 
-### 5.2 Surviving regeneration — the mechanism per agent
+### 5.2 Surviving regeneration — the mechanism
 
 The build-product model only works if a live jail edit survives the rebuild. The enabling
 trick: **yolo always knows exactly what *it* wrote last time, so anything different on disk
 is definitionally your edit.**
 
-**This is not a menu to pick from — the choice is dictated by the agent.** There are three
-mechanisms, and which one applies depends on whether the agent has native settings *scopes*
-that yolo can write to independently of the user:
+**The scope yolo owns is fixed by the ownership rule, not chosen per agent.** yolo composes
+config into the jail **user scope** only — `~/.claude/settings.json`, `~/.pi/agent/settings.json`,
+`~/.gemini/settings.json`, `config.toml`, … under `/home/agent` (a per-workspace r/w overlay).
+It does **not** write any agent's *project* / workspace-level config: the workspace tree
+(`/workspace`) is owned by the operating agent and mirrors the host, except the narrow
+"internal details" shadow mounts yolo owns for isolation (`.vscode/mcp.json`, `.overmind.sock`
+→ `/dev/null`). See the **config-ownership principle** in
+[../design/storage-and-config.md](../design/storage-and-config.md).
 
-| | Mechanism | Use it when | Cost |
-|---|---|---|---|
-| **B** | **Native scope split** (preferred) | The agent has ≥2 scopes with a clear precedence AND a slot yolo can own that the agent never writes. **Claude qualifies** (project scope is read-only to Claude; user scope is where `/config` persists). | None — precedence does the work; no sidecar, no merge. |
-| **A** | **Runtime overlay** (universal fallback) | Single-scope or contested-file agents where yolo and the agent must write the *same* file — **pi, opencode, Codex**. | A hidden per-workspace sidecar + a capture-diff on every boot. |
-| **C** | **Key-ownership** | Not really a third choice — it's *the rule that drives B*: which keys yolo asserts (→ project/managed scope) vs. leaves to the user (→ user scope). | — |
+That single constraint collapses what earlier drafts split into a per-agent decision:
 
-**So the decision procedure is:** does the agent have a yolo-ownable native scope? → **B**
-(and C is how you decide what goes in it). If not → **A**. You never choose A *over* B for the
-same agent; B is strictly better where it's available, and A is what you fall back to when the
-agent gives you only one file. The three are described in that order below, most-general (A, the
-fallback that works for any agent) to simplest (C, the contract):
+- Because yolo may only write the **user** scope, and every agent that persists in-jail edits
+  (`/config`, `/settings`, permission approvals) writes them into **that same user scope**,
+  yolo's regenerated config and the user's live edits **always share one file**. There is no
+  agent for which yolo owns a separate, uncontended file — so the capture-diff overlay
+  (mechanism **A**) is the **universal mechanism**, for Claude exactly as for pi/opencode/Codex.
+- The one genuine exception is the **managed** scope (`/etc/claude-code/managed-settings.json`
+  and analogs) — it lives *outside* both the user home and the workspace, so yolo can own it
+  outright for security-boundary keys with no contention. That's mechanism **C**'s home.
+- An agent that writes *none* of its config at runtime (opencode, verified) is a trivial case
+  of A: the overlay is always empty, so yolo just regenerates the user file freely. No special
+  path needed — same mechanism, degenerate input.
+
+> **Rejected: "native scope split" (own the project scope).** An earlier draft proposed yolo
+> own Claude's *project* file (`.claude/settings.json`) — read-only to Claude, so precedence
+> would compose it with no overlay. It's rejected because **project scope is a workspace file**
+> (`$CWD/.claude/`), and yolo does not write the workspace. Owning it would violate the
+> ownership rule for a mechanism that A already covers. Claude is therefore **not special**: it
+> uses the user-scope overlay like every other agent, and its own `/config` writes (also user
+> scope) are captured by the same diff.
+
+The two mechanisms that survive are described below — **A** (the universal user-scope overlay)
+and **C** (managed keys, the security-boundary exception):
 
 **A. Runtime overlay (capture-diff) — the universal mechanism.** Keep two sidecars the agent
 never sees: `last_render` (the exact bytes yolo wrote last boot) and `overlay` (accumulated
@@ -262,34 +282,24 @@ snapshot with one diff-against-our-own-output, and jail edits now win at *full d
 > way (rendered products *and* the sidecars) is part of that per-workspace overlaid r/w set;
 > the read-only global home holds none of it.
 
-**B. Native scope split — the cleanest, and for Claude it removes the overlay entirely.** The
-most robust fix is to *not share a file at all*. Claude's verified precedence is
+**B. Native scope split — REJECTED (violates the config-ownership rule).** An earlier draft
+proposed dodging the overlay by having yolo own Claude's *project* file (`.claude/settings.json`)
+and letting native precedence compose it with the user file. This is rejected: **the project
+scope is a workspace file** (`$CWD/.claude/`), and yolo does not write the workspace (see 5.2's
+ownership constraint + [../design/storage-and-config.md](../design/storage-and-config.md)).
+Owning it to save an overlay would trade the ownership boundary for a mechanism **A** already
+provides at the user scope.
+
+The verified Claude facts that drove the draft still hold and still matter (for the managed
+exception and for understanding the contention): precedence is
 `managed > CLI args > .claude/settings.local.json (local) > .claude/settings.json (project) >
-~/.claude/settings.json (user)`, and — the load-bearing fact — **Claude mutates the *user*
-file at runtime** (`/config` writes `model`/`theme`/`effortLevel`/`fastMode` there, permission
-approvals go to `local`) but **never writes the *project* file** (`.claude/settings.json`) — it
-only reads it. So split the scopes by who writes them:
-
-- **Security / YOLO keys → the managed file** (`/etc/claude-code/managed-settings.json` on
-  Linux; `/Library/Application Support/ClaudeCode/managed-settings.json` on macOS). Highest
-  precedence, user cannot override — genuinely *enforced*. (Caveat: writing it needs root;
-  whether the jail entrypoint can write `/etc` at boot is §11.)
-- **yolo's asserted keys (host-projected + defaults) → the project file**
-  (`.claude/settings.json`). Claude never writes it, so yolo **regenerates it freely every
-  boot with zero contention** — this is the build-product surface.
-- **The user file (`~/.claude/settings.json`) → yolo seeds it once, then never touches it, and
-  marks it `runtime-state` (persisted per-workspace).** Because Claude both writes it (via
-  `/config`) and yolo leaves it alone, **the user's in-jail `/config` changes survive
-  regeneration for free — no overlay, no capture, no merge.**
-- **Local (`.claude/settings.local.json`) → left alone** (permission approvals; irrelevant
-  since the jail is the security boundary).
-
-Now yolo's config and the user's live edits live in *different files*, and precedence does the
-composition. The one rule to respect: **only put a key in the project file that you actually
-mean to assert over the user** (project outranks user), so anything you want the user to be
-able to change in-jail is simply *absent* from yolo's project file and flows from their user
-file. This is idea C's key-ownership contract realized through native scopes — and for Claude
-it makes the overlay unnecessary.
+~/.claude/settings.json (user)`; **Claude mutates the *user* file at runtime** (`/config` writes
+`model`/`theme`/`effortLevel`/`fastMode`; permission approvals go to *local*) but **never writes
+the *project* file** — it only reads it. The consequence under our ownership rule: yolo writes
+the **user** scope (the only scope it owns), which is *also* where Claude's `/config` lands — so
+the two share one file and need the capture-diff overlay (A). Claude's read-only project scope
+is real, but it's off-limits to yolo because it's a workspace file. Security keys still go to the
+**managed** scope (mechanism C), which is neither user nor workspace.
 
 **C. Key-ownership (surgical merge) — the minimal version.** yolo declares an *ownership set*
 (the keypaths it manages — permissions, MCP, host-projected keys) and writes only those,
@@ -299,10 +309,11 @@ explicit "these keypaths are mine, everything else is yours" contract. Trade-off
 the clean build-product property, and removing an *owned* host key still needs tombstone
 memory.
 
-**Recommendation:** as the table above states — **B for Claude** (native scopes; eliminates the
-overlay entirely), **A for the single-scope agents** (pi, opencode, Codex), with **C** as the
-key-ownership contract that decides what B puts in each scope. The per-agent assignment is
-tabulated in §5.3's file classification.
+**Recommendation:** **A (user-scope capture-diff overlay) for every agent** — because yolo owns
+only the user scope, which every agent also writes, there is no agent for which a cleaner
+single-file split is available. **C (managed scope)** carries the security-boundary keys, the one
+place yolo owns outright. B is rejected (above). C is not a per-agent choice but the
+key-ownership contract layered on top of A. The per-file classification is in §5.3.
 
 ### 5.3 What lands in jail home — classify every file
 
