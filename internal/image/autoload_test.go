@@ -113,6 +113,69 @@ func TestAutoLoadImageBuildFailsUsesExisting(t *testing.T) {
 	}
 }
 
+// TestAutoLoadOffloadInvokedOnMacOS: when the plain build fails on macOS, the
+// container-builder offload (J3) is tried; its success feeds the normal load
+// path. On Linux the offload must NOT be consulted.
+func TestAutoLoadOffloadInvokedOnMacOS(t *testing.T) {
+	withBuildDir(t)
+	var out bytes.Buffer
+	offloadCalled := false
+	opts := AutoLoadOptions{
+		Runtime: "podman",
+		IsMacOS: true,
+		Out:     &out,
+		BuildStorePath: func(string, []any, string) (string, []string) {
+			return "", []string{"needs linux"} // plain build fails
+		},
+		BuildOffload: func(string, []any, string) (string, []string) {
+			offloadCalled = true
+			return "/nix/store/offloaded", nil // offload succeeds
+		},
+		Run: func(argv []string) (int, bool) {
+			if len(argv) >= 2 && argv[1] == "load" {
+				return 0, true // load succeeds
+			}
+			return 1, true // inspect: not present
+		},
+		Materialize: func(storePath, cacheFile string) int64 {
+			_ = os.WriteFile(cacheFile, []byte("tar"), 0o644)
+			return 12 * 1024 * 1024
+		},
+	}
+	if !AutoLoadImage(opts) {
+		t.Fatalf("AutoLoadImage = false; want true (offload built the image)\n%s", out.String())
+	}
+	if !offloadCalled {
+		t.Error("BuildOffload was not invoked on a macOS build failure")
+	}
+}
+
+func TestAutoLoadOffloadSkippedOnLinux(t *testing.T) {
+	withBuildDir(t)
+	var out bytes.Buffer
+	offloadCalled := false
+	opts := AutoLoadOptions{
+		Runtime: "podman",
+		IsMacOS: false, // Linux
+		Out:     &out,
+		BuildStorePath: func(string, []any, string) (string, []string) {
+			return "", []string{"boom"}
+		},
+		BuildOffload: func(string, []any, string) (string, []string) {
+			offloadCalled = true
+			return "/nix/store/x", nil
+		},
+		Run:             func(argv []string) (int, bool) { return 1, true },
+		DiagnoseFailure: func([]string) (string, string) { return "t", "r" },
+	}
+	if AutoLoadImage(opts) {
+		t.Fatal("AutoLoadImage = true; want false on Linux (no offload)")
+	}
+	if offloadCalled {
+		t.Error("BuildOffload must NOT be invoked on Linux")
+	}
+}
+
 func TestAutoLoadImageBuildFailsNoImage(t *testing.T) {
 	withBuildDir(t)
 	var out bytes.Buffer

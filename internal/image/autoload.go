@@ -10,6 +10,7 @@ import (
 	"strconv"
 	"strings"
 
+	"github.com/mschulkind-oss/yolo-jail/internal/containerbuilder"
 	"github.com/mschulkind-oss/yolo-jail/internal/jsonx"
 	"github.com/mschulkind-oss/yolo-jail/internal/paths"
 )
@@ -42,6 +43,12 @@ type AutoLoadOptions struct {
 	// BuildStorePath runs the nix build and returns (storePath, stderrTail).
 	// nil => the real nix build. Injected for tests.
 	BuildStorePath func(repoRoot string, extra []any, outLink string) (string, []string)
+	// BuildOffload attempts the macOS container-builder offload after a plain
+	// build fails: it starts a Linux builder container and retries the nix build
+	// with a --builders line pointing at it. Returns (storePath, stderrTail);
+	// "" if the offload is unavailable or also failed. nil => the real offload
+	// (containerbuilder session); a nil-returning stub disables it (Linux, tests).
+	BuildOffload func(repoRoot string, extra []any, outLink string) (string, []string)
 	// Run runs a subprocess (image inspect / load), returning (rc, ran). nil =>
 	// real exec. Used for the runtime-side probes only.
 	Run func(argv []string) (rc int, ran bool)
@@ -66,6 +73,11 @@ func (o *AutoLoadOptions) fill() {
 	if o.BuildStorePath == nil {
 		o.BuildStorePath = func(repoRoot string, extra []any, outLink string) (string, []string) {
 			return buildImageStorePath(repoRoot, extra, outLink, o.Out)
+		}
+	}
+	if o.BuildOffload == nil {
+		o.BuildOffload = func(repoRoot string, extra []any, outLink string) (string, []string) {
+			return buildImageWithContainerBuilder(o.Runtime, repoRoot, extra, outLink, o.Out)
 		}
 	}
 	if o.Run == nil {
@@ -110,10 +122,11 @@ func (o *AutoLoadOptions) fill() {
 // when none could be made available (the caller MUST NOT launch the jail on
 // false — the actionable reason was already printed).
 //
-// The macOS from-source build-offload (container builder session) is a
-// documented narrowing: this port takes the plain-build path on macOS and
-// relies on the failure diagnosis, mirroring the check slice's builder
-// narrowing. The Linux path is byte-faithful.
+// The macOS from-source build-offload is wired (J3): when the plain build fails
+// on macOS, BuildOffload starts a Linux builder container and retries the build
+// over ssh-ng before falling back to a cached tar / failure diagnosis. On Linux
+// the offload is never consulted. The behavioral end-to-end (real container +
+// remote build) is the mac-ac-container-builder runbook (Track M).
 func AutoLoadImage(opts AutoLoadOptions) bool {
 	opts.fill()
 	o := &opts
@@ -129,6 +142,18 @@ func AutoLoadImage(opts AutoLoadOptions) bool {
 	}
 
 	currentPath, buildTail := o.BuildStorePath(o.RepoRoot, o.ExtraPackages, outLink)
+
+	// macOS build-offload (J3): a from-source `packages:` build needs Linux. If
+	// the plain build failed on macOS, start a container builder and retry the
+	// build over ssh-ng before falling back to a stale cache. On Linux (or when
+	// the offload is disabled) BuildOffload is a nil-returning stub.
+	if currentPath == "" && o.IsMacOS {
+		if off, offTail := o.BuildOffload(o.RepoRoot, o.ExtraPackages, outLink); off != "" {
+			currentPath, buildTail = off, offTail
+		} else if len(offTail) > 0 {
+			buildTail = offTail
+		}
+	}
 
 	if currentPath == "" {
 		// Build failed. If the image already exists in the runtime, proceed.
@@ -225,17 +250,27 @@ func AutoLoadImage(opts AutoLoadOptions) bool {
 // repoRoot, streaming a summary and retaining the last 30 stderr lines. Returns
 // (resolvedStorePath, stderrTail); storePath "" on failure.
 func buildImageStorePath(repoRoot string, extra []any, outLink string, out io.Writer) (string, []string) {
+	return buildImageStorePathArgs(repoRoot, extra, outLink, out, nil, nil)
+}
+
+// buildImageStorePathArgs is buildImageStorePath with extra nix args
+// (e.g. --builders "…") and extra env (e.g. NIX_SSHOPTS) appended — the seam the
+// macOS container-builder offload uses to retry the build against a remote
+// builder. extraArgs/extraEnv nil => the plain build.
+func buildImageStorePathArgs(repoRoot string, extra []any, outLink string, out io.Writer, extraArgs, extraEnv []string) (string, []string) {
 	buildEnv := os.Environ()
 	if len(extra) > 0 {
 		if pkgJSON, err := jsonx.DumpsCompact(extra); err == nil {
 			buildEnv = append(buildEnv, "YOLO_EXTRA_PACKAGES="+pkgJSON)
 		}
 	}
+	buildEnv = append(buildEnv, extraEnv...)
 	argv := []string{
 		"nix", "--extra-experimental-features", "nix-command flakes",
 		"build", ".#ociImage", "--impure",
 		"--out-link", outLink, "--print-build-logs",
 	}
+	argv = append(argv, extraArgs...)
 	cmd := exec.Command(argv[0], argv[1:]...)
 	cmd.Dir = repoRoot
 	cmd.Env = buildEnv
@@ -271,6 +306,39 @@ func buildImageStorePath(repoRoot string, extra []any, outLink string, out io.Wr
 		return resolved, tail
 	}
 	return outLink, tail
+}
+
+// buildImageWithContainerBuilder is the macOS build-offload (J3): start a Linux
+// builder container and retry the nix build with a --builders line pointing at
+// it over ssh-ng. Returns (storePath, stderrTail); "" if the builder couldn't be
+// started or the offloaded build failed. The builder is stopped before return.
+//
+// The ssh key management (generate the ed25519 keypair under BuilderKeyDir,
+// authorize the .pub in the container via the RunArgv pubkey env) and the actual
+// remote build are behaviorally verified by the mac-ac-container-builder runbook
+// (Track M); here the lifecycle is driven through the containerbuilder.Session
+// seams so the decision + argv construction are exercised in unit tests.
+func buildImageWithContainerBuilder(runtime, repoRoot string, extra []any, outLink string, out io.Writer) (string, []string) {
+	pubkey, err := ensureBuilderKey()
+	if err != nil {
+		return "", []string{"container builder: " + err.Error()}
+	}
+	sess := &containerbuilder.Session{
+		Runtime: runtime,
+		Pubkey:  pubkey,
+		Deps:    realSessionDeps(out),
+	}
+	fmt.Fprintln(out, "Starting the Linux builder container for the from-source build…")
+	host, port, ok := sess.Start()
+	if !ok {
+		return "", []string{"container builder did not start"}
+	}
+	defer sess.Stop()
+
+	buildersLine := sess.BuildersLine(host, port, 4)
+	extraArgs := []string{"--builders", buildersLine, "--max-jobs", "0"}
+	extraEnv := []string{"NIX_SSHOPTS=" + containerbuilder.NixSSHOpts()}
+	return buildImageStorePathArgs(repoRoot, extra, outLink, out, extraArgs, extraEnv)
 }
 
 // materializeImage ports _materialize_image: stream the nix image to cacheFile
