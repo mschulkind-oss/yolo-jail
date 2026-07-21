@@ -104,35 +104,45 @@ and returns the version that should be written into the jail. Managed
 never weaken the jail's boundary — it's given `ctx.managed` read-only so it can
 see them, but yolo has the last write.
 
-### 3.2 What the hook receives, and the Pi example
+### 3.2 What the hook receives (a taste — full worked example in §6.5)
 
 The user points `config_transform` at a Lua file (§3.4); it registers a function
 per agent (or per surface):
 
 ```lua
 -- .yolo/config.lua
--- ctx.config  : the composed config as a Lua table (decoded, format-independent)
+-- ctx.config  : the composed config, PARSED to a Lua table (yolo did the decode)
 -- ctx.stage   : the file-tree staging handle (what gets copied into the jail)
 -- ctx.managed : read-only view of the keys the jail will enforce regardless
 -- ctx.agent   : "pi" | "claude" | … ;  ctx.surface : "settings" | "config" | …
+-- Return value (or the mutated ctx.config) is re-encoded by yolo. No yolo helper
+-- lib — it's plain Lua over a plain table.
 
 yolo.transform("pi", function(ctx)
   -- The permission gate is a host-only safety net; in the jail the container IS
   -- the boundary, so neither the extension entry nor its file should cross.
-  ctx.config.extensions = yolo.reject(ctx.config.extensions, "*permission-gate*")
+  local kept = {}
+  for _, ext in ipairs(ctx.config.extensions) do
+    if not ext:find("permission%-gate") then kept[#kept + 1] = ext end
+  end
+  ctx.config.extensions = kept
   ctx.stage.exclude("extensions/permission-gate.ts")
 end)
 ```
 
-The intent is a comment; the two edits are two named calls. Compare the whole
-mechanism this replaces — a `{op, path, match}` mini-interpreter encoded as JSON
-data, plus a separate file-exclude key, where a typo is silently ignored. Here a
-typo'd field or function is a **loud runtime error**, arbitrary reshaping needs
-no new yolo op, and "keep this out of the jail" is one place, not two vocabularies.
+The intent is a comment; the reshaping is plain Lua over a plain table. Compare
+the whole mechanism this replaces — a `{op, path, match}` mini-interpreter
+encoded as JSON data, plus a separate file-exclude key, where a typo is silently
+ignored. Here a typo'd field is a **loud runtime error**, arbitrary reshaping
+needs no new yolo op, and "keep this out of the jail" is one place.
 
-yolo provides a small helper library (`yolo.reject(list, glob)`,
-`yolo.get/set(tbl, path)`, …) as sugar, but the transform is ordinary Lua over an
-ordinary table — anything expressible in Lua is expressible here.
+**No helper library.** yolo's *only* contribution to the transform is
+**parsing**: for a surface in a known structured format (JSON, YAML, TOML), yolo
+decodes the config and hands the hook the parsed table (and re-encodes the return
+value). It ships **no** `reject`/`get`/`set`/`merge` sugar — those are one-liners
+in stock Lua (`string.find`, table iteration), and every helper is API to
+maintain and version. The contract is deliberately tiny: *parse → your function →
+re-encode*.
 
 ### 3.3 Format-agnostic by construction
 
@@ -243,6 +253,81 @@ the jail gets." It is simultaneously: the **dev-iteration loop** (edit
 source** (§3.4), the **test harness** (fixture vectors: `inputs → render`,
 byte-checked in `go test`), and the `yolo check` config validator.
 
+## 6.5 Worked example — the pi permission gate, end to end
+
+One concrete change followed through every stage. **Goal:** the host pi keeps its
+`permission-gate` extension (approval prompts on the host), but the jail — where
+the container *is* the boundary — should not load it.
+
+**① Sources.** The host file yolo never writes:
+
+```jsonc
+// ~/.pi/agent/settings.json   (host — read-only to yolo)
+{ "theme": "dark",
+  "defaultModel": "claude-fable-5",
+  "extensions": ["extensions/permission-gate.ts", "extensions/git-helper.ts"] }
+```
+
+The builtin pi manifest (yolo-shipped data) declares the surface + its enforced keys:
+
+```jsonc
+// manifest: agent=pi, surface=settings, codec=json
+{ "path": "~/.pi/agent/settings.json",
+  "defaults": { "theme": "system" },
+  "managed":  { "defaultProjectTrust": "always" } }   // jail-enforced, wins last
+```
+
+**② The user's transform** — the *only* thing the user writes:
+
+```lua
+-- .yolo/config.lua   (committed with the repo; runs in the workspace trust domain)
+yolo.transform("pi", function(ctx)
+  local kept = {}
+  for _, ext in ipairs(ctx.config.extensions) do
+    if not ext:find("permission%-gate") then kept[#kept + 1] = ext end
+  end
+  ctx.config.extensions = kept          -- drop it from the settings array
+  ctx.stage.exclude("extensions/permission-gate.ts")   -- and don't stage the file
+end)
+```
+
+**③ Pipeline** (§3.1), for the `pi/settings` surface:
+
+```
+decode(host json) ─┐
+defaults ──────────┤ deepMerge → { theme:"dark", defaultModel:"claude-fable-5",
+overlay (empty) ───┘              extensions:[permission-gate, git-helper] }
+        │  transform(merged, ctx)      → extensions:[git-helper]   (+ stage.exclude)
+        │  enforce(managed)            → + defaultProjectTrust:"always"
+        ▼  encode(json) → write /home/agent/.pi/agent/settings.json (user scope)
+```
+
+**④ What lands in the jail** — and what `yolo config render pi` prints, no
+container needed:
+
+```jsonc
+{ "theme": "dark",
+  "defaultModel": "claude-fable-5",
+  "extensions": ["extensions/git-helper.ts"],   // gate gone
+  "defaultProjectTrust": "always" }              // managed, enforced
+// extensions/permission-gate.ts — never staged into the jail tree
+```
+
+`yolo config render pi --explain extensions` shows the provenance:
+`host → [git-helper, permission-gate]`, then `transform dropped permission-gate`.
+
+**⑤ An in-jail edit survives.** Inside the jail you set `theme` to `"light"` (via
+pi's UI or by editing the file). Next boot: `mergeDiff(last_render, current)` →
+`{theme:"light"}` captured into the overlay; the render now has `theme:"light"`,
+and it **stays** every boot after — until you `--reset` or set it back to the host
+`"dark"` (§5, §9). The host's `dark` no longer wins because the overlay outranks
+the host layer.
+
+Note what did **not** happen: the host `settings.json` was never modified; nothing
+was written to `/workspace`; yolo needed no ability to parse or round-trip pi's
+extension `.ts` files (they're a *tree* surface — staged/excluded, never decoded);
+and the whole result was previewable with `render` before any jail started.
+
 ## 7. Why (the problems this replaces — verified 2026-07-18)
 
 The current mechanism, from the code:
@@ -291,21 +376,47 @@ once, in a real language, on yolo's own output.
 
 Each stage ends with a nested-jail verification (per repo `CLAUDE.md`).
 
-## 9. Open questions
+## 9. Decisions and open questions
 
-- **Managed write-at-boot:** can the rootless-podman entrypoint write
-  `/etc/claude-code/managed-settings.json` at boot? If not, security keys fall
-  back to the highest jail-user-scope precedence yolo can own (still above the
-  user's own edits since the jail is the boundary).
-- **Lua helper surface:** which sugar to ship (`yolo.reject/get/set/merge`) vs.
-  leave to raw Lua — keep it minimal; every helper is API to maintain.
-- **Overlay UX:** does a jail edit pin its keypath over host updates until values
-  converge (with `--reset`), or age out?
-- **Codec coverage:** JSON + TOML are needed day one (Claude, Codex). YAML/lines
-  only if an agent needs them; `raw` covers the rest.
-- **Safety-prompt timing:** the render-diff must run the transform to produce the
-  diff, so the confirmation is *post-execution* of user Lua (in the sandbox) —
-  confirm that's acceptable (it is, given the sandbox has no side effects).
+**Settled (2026-07-20):**
+
+- **No Lua helper library.** yolo's only contribution to a transform is *parsing*:
+  a surface in a known structured format (JSON/YAML/TOML) is decoded to a table,
+  passed to the user function, and re-encoded on return. No `reject`/`get`/`set`/
+  `merge` sugar — those are stock-Lua one-liners, and every helper is API to
+  maintain (§3.2).
+- **Overlay: no aging, only reset.** A captured jail edit **stays forever** until
+  the user either runs `yolo config overlay --reset <agent>` or sets the value
+  in-jail back to the host value (at which point the delta is empty and the entry
+  auto-drops — the natural convergence, nothing timer-based). "Aging out" is not a
+  thing; there's no principled clock for it and it would silently resurrect host
+  values. (§5.)
+- **Codecs: minimal.** JSON + TOML day one (Claude, Codex). YAML/lines only when
+  an agent actually needs them; `raw` (string in/out) covers everything else.
+- **Sandbox is mandatory, same safety domain as the source.** The transform is
+  arbitrary unvalidated user code, so it runs in the locked-down VM (no `os`/`io`/
+  `require`/net/fs — §3.4). It stays in the **same trust domain as the config it
+  transforms**: a workspace-committed `config.lua` runs with the workspace's
+  authority, a user-level one with the user's — a transform never gains privilege
+  over the sources it composes. The config-change safety prompt diffs the
+  *rendered output* (post-execution in the sandbox, which is side-effect-free), so
+  you approve the effect, not the opaque script.
+
+**Still open:**
+
+- **Managed write-at-boot — needs a test.** Can the rootless-podman entrypoint
+  write `/etc/claude-code/managed-settings.json` at boot? **Consequence if not:**
+  the *strongest* enforcement tier (a scope Claude cannot override even at
+  runtime) is unavailable, so yolo's security/YOLO keys fall back to the top of
+  the **jail-user scope** — still above the user's own edits (managed is applied
+  last on every render; §3.1), and the jail is the security boundary regardless,
+  so this is defence-in-depth, not the primary lever (the injected
+  `--dangerously-skip-permissions`-class flag is — §7). **Yes, this gets tested**
+  during migration stage 2 (§8): a nested-jail probe writing the managed file at
+  boot as the entrypoint uid; the fallback ships only if the probe fails. Not a
+  blocker for the rest of the design.
+- **Live host edits:** staging refreshes per `yolo` invocation; is attach-time
+  re-render enough, or is an in-jail `yolo config sync` wanted?
 
 ---
 
