@@ -3,7 +3,11 @@ package storage
 import (
 	"os"
 	"path/filepath"
+	"strings"
 	"testing"
+
+	"github.com/mschulkind-oss/yolo-jail/internal/config"
+	"github.com/mschulkind-oss/yolo-jail/internal/paths"
 )
 
 func must(t *testing.T, err error) {
@@ -139,6 +143,56 @@ func TestFindDanglingMiseSymlinks(t *testing.T) {
 	got := FindDanglingMiseSymlinks(dir)
 	if len(got) != 1 || filepath.Base(got[0]) != "18.0.0" {
 		t.Errorf("dangling = %v, want only 18.0.0", got)
+	}
+}
+
+func TestEnsureCacheRelocations(t *testing.T) {
+	home := t.TempDir()
+	t.Setenv("HOME", home)
+	other := t.TempDir()
+
+	// The target's last component is missing (the supported fresh-host case);
+	// the mountpoint under GLOBAL_CACHE does not exist at all.
+	target := filepath.Join(other, "huggingface")
+	must(t, EnsureCacheRelocations([]config.CacheRelocation{{Subdir: "huggingface", Target: target}}))
+	if st, err := os.Stat(target); err != nil || !st.IsDir() {
+		t.Errorf("target %s not created: %v", target, err)
+	}
+	mountpoint := filepath.Join(paths.GlobalCache(), "huggingface")
+	if st, err := os.Stat(mountpoint); err != nil || !st.IsDir() {
+		t.Errorf("mountpoint %s not created: %v", mountpoint, err)
+	}
+
+	// Idempotent: a second call over the now-existing dirs succeeds.
+	must(t, EnsureCacheRelocations([]config.CacheRelocation{{Subdir: "huggingface", Target: target}}))
+
+	// Nothing configured => nothing created, no error.
+	must(t, EnsureCacheRelocations(nil))
+}
+
+// TestEnsureCacheRelocationsRefusesMissingParent pins the asymmetry that makes
+// the feature safe: the last component is created, a missing PARENT is a typo
+// and must fail loudly instead of materializing an empty dir on the very
+// filesystem the user is trying to move bytes off.
+func TestEnsureCacheRelocationsRefusesMissingParent(t *testing.T) {
+	home := t.TempDir()
+	t.Setenv("HOME", home)
+	target := filepath.Join(t.TempDir(), "relcoated", "huggingface")
+
+	err := EnsureCacheRelocations([]config.CacheRelocation{{Subdir: "huggingface", Target: target}})
+	if err == nil {
+		t.Fatal("missing parent must be an error")
+	}
+	if !strings.Contains(err.Error(), "parent directory of the target does not exist") {
+		t.Errorf("error = %q, want the missing-parent wording", err)
+	}
+	if _, statErr := os.Stat(filepath.Dir(target)); statErr == nil {
+		t.Errorf("%s was created despite the missing parent", filepath.Dir(target))
+	}
+	// The mountpoint must not be created either — a half-provisioned relocation
+	// leaves an empty stub in the cache that looks like real (lost) data.
+	if _, statErr := os.Stat(filepath.Join(paths.GlobalCache(), "huggingface")); statErr == nil {
+		t.Error("mountpoint created for a rejected relocation")
 	}
 }
 

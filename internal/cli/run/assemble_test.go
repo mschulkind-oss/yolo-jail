@@ -1,12 +1,15 @@
 package run
 
 import (
+	"bytes"
 	"path/filepath"
 	"slices"
+	"strings"
 	"testing"
 	"time"
 
 	"github.com/mschulkind-oss/yolo-jail/internal/agents"
+	"github.com/mschulkind-oss/yolo-jail/internal/config"
 	"github.com/mschulkind-oss/yolo-jail/internal/jsonx"
 	"github.com/mschulkind-oss/yolo-jail/internal/loopholes"
 	"github.com/mschulkind-oss/yolo-jail/internal/storage"
@@ -169,6 +172,133 @@ func TestAssemblePlatformSeamsInjectable(t *testing.T) {
 					tc.wantMiseMountAt, tc.isMacOS, got)
 			}
 		})
+	}
+}
+
+// cacheRelocationMounts returns the relocation mounts in argv order. It matches
+// on the -v FLAG, not on the string alone, so the NPM_CONFIG_CACHE env value
+// (/home/agent/.cache/npm) can never be mistaken for a mount.
+func cacheRelocationMounts(argv []string) []string {
+	var out []string
+	for i := 0; i+1 < len(argv); i++ {
+		if argv[i] == "-v" && strings.Contains(argv[i+1], ":/home/agent/.cache/") {
+			out = append(out, argv[i+1])
+		}
+	}
+	return out
+}
+
+// relocationInput builds the minimal assembleInput used by the cache-relocation
+// cases (same fixture shape as the golden, minus the pieces they don't touch).
+func relocationInput(rt, wsState string, rels []config.CacheRelocation) *assembleInput {
+	sec := jsonx.NewOrderedMap()
+	sec.Set("blocked_tools", []any{})
+	return &assembleInput{
+		cfg:              newConfig("agents", []any{"claude"}, "security", sec),
+		rt:               rt,
+		cname:            "yolo-ws-abcd1234",
+		repoRoot:         "/repo",
+		agentsList:       []string{"claude"},
+		agentSpecs:       agents.ResolveAgents([]string{"claude"}),
+		agentsPath:       "/agents/yolo-ws-abcd1234",
+		wsState:          wsState,
+		miseStore:        "/mise-store",
+		yoloVersion:      "9.9.9-test",
+		mountTargets:     map[string]struct{}{},
+		cacheRelocations: rels,
+	}
+}
+
+// TestAssembleCacheRelocations covers the emitted -v pairs. It asserts the pairs
+// are PRESENT, never their position relative to the .cache mount: podman sorts
+// mounts by destination depth (proven on 5.8.4), so argv order is not an
+// invariant and pinning it would freeze a non-contract. What IS ours to
+// guarantee is that two relocations come out in a deterministic (sorted) order.
+func TestAssembleCacheRelocations(t *testing.T) {
+	cases := []struct {
+		name string
+		rels []config.CacheRelocation
+		want []string
+	}{
+		{"none", nil, nil},
+		{
+			"one",
+			[]config.CacheRelocation{{Subdir: "huggingface", Target: "/data/relocated/huggingface"}},
+			[]string{"/data/relocated/huggingface:/home/agent/.cache/huggingface"},
+		},
+		{
+			// Deliberately reverse-ordered: the emitter sorts, so the argv does
+			// not depend on how the caller collected the map.
+			"two sorted by subdir",
+			[]config.CacheRelocation{
+				{Subdir: "uv", Target: "/data/relocated/uv"},
+				{Subdir: "huggingface", Target: "/data/relocated/huggingface"},
+			},
+			[]string{
+				"/data/relocated/huggingface:/home/agent/.cache/huggingface",
+				"/data/relocated/uv:/home/agent/.cache/uv",
+			},
+		},
+	}
+	for _, tc := range cases {
+		t.Run(tc.name, func(t *testing.T) {
+			home := t.TempDir()
+			t.Setenv("HOME", home)
+			emptyLoopholeDirs(t)
+			o := goldenOptions("/ws", home)
+
+			got := cacheRelocationMounts(o.assembleRunCmd(relocationInput("podman", "/ws/.yolo/home", tc.rels)))
+			if !slices.Equal(got, tc.want) {
+				t.Errorf("relocation mounts = %v, want %v", got, tc.want)
+			}
+		})
+	}
+}
+
+// TestAssembleCacheRelocationsNoneMatchesGolden pins the no-relocations case
+// against the frozen argv: adding the feature must be a pure no-op for every
+// user who has not configured it.
+func TestAssembleCacheRelocationsNoneMatchesGolden(t *testing.T) {
+	home := t.TempDir()
+	t.Setenv("HOME", home)
+	emptyLoopholeDirs(t)
+	o := goldenOptions("/ws", home)
+
+	got := o.assembleRunCmd(relocationInput("podman", "/ws/.yolo/home", nil))
+	if !slices.Equal(got, podmanLinuxGolden(home)) {
+		t.Errorf("argv drifted from the golden with no relocations:\ngot:  %v\nwant: %v", got, podmanLinuxGolden(home))
+	}
+}
+
+// TestAssembleCacheRelocationsAppleContainerSkips is work item 6: the Apple
+// Container path must emit no relocation mount at all and say so once —
+// half-applying one would leave the jail writing to the filesystem the user
+// moved the cache off, silently.
+func TestAssembleCacheRelocationsAppleContainerSkips(t *testing.T) {
+	home := t.TempDir()
+	t.Setenv("HOME", home)
+	emptyLoopholeDirs(t)
+	o := goldenOptions("/ws", home)
+	var buf bytes.Buffer
+	o.Stdout = &buf
+
+	// A real ws_state dir: the Apple Container branch materializes files into it.
+	got := o.assembleRunCmd(relocationInput("container", t.TempDir(), []config.CacheRelocation{
+		{Subdir: "uv", Target: "/data/relocated/uv"},
+		{Subdir: "huggingface", Target: "/data/relocated/huggingface"},
+	}))
+
+	if mounts := cacheRelocationMounts(got); mounts != nil {
+		t.Errorf("Apple Container emitted relocation mounts: %v", mounts)
+	}
+	warning := buf.String()
+	if strings.Count(warning, "Skipping cache_relocations") != 1 {
+		t.Errorf("want exactly one skip warning, got:\n%s", warning)
+	}
+	for _, want := range []string{"huggingface, uv", "YOLO_RUNTIME=podman"} {
+		if !strings.Contains(warning, want) {
+			t.Errorf("warning missing %q; got:\n%s", want, warning)
+		}
 	}
 }
 

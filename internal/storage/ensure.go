@@ -11,6 +11,7 @@ import (
 	"strings"
 
 	"github.com/mschulkind-oss/yolo-jail/internal/agents"
+	"github.com/mschulkind-oss/yolo-jail/internal/config"
 	"github.com/mschulkind-oss/yolo-jail/internal/paths"
 )
 
@@ -103,6 +104,41 @@ func EnsureGlobalStorage(migrate func()) error {
 
 	if migrate != nil {
 		migrate()
+	}
+	return nil
+}
+
+// EnsureCacheRelocations provisions both ends of every cache-relocation bind
+// mount: the host target directory and the mountpoint at GlobalCache()/<subdir>
+// that the target is mounted over. Separate from EnsureGlobalStorage, which
+// stays config-free.
+//
+// Both ends are created because podman gets each one wrong on its own. It WILL
+// create the missing mountpoint itself — but on the host side, inside the parent
+// bind source, root-owned and mode drwxr-xr-t; we want the same ownership and
+// perms as every other dir we hand the jail. And a missing TARGET is not a skip:
+// podman fails the whole container with a bare
+// "Error: statfs <path>: no such file or directory" and nothing ever starts.
+//
+// Only the target's LAST path component is created. Its parent must already
+// exist (config.LoadCacheRelocations validates that, and this re-checks so the
+// rule holds for any caller): MkdirAll-ing the whole path would turn a typo like
+// /data/relcoated/... into a silently-wrong empty directory back on the root
+// filesystem — the exact failure relocation exists to prevent.
+func EnsureCacheRelocations(relocations []config.CacheRelocation) error {
+	for _, rel := range relocations {
+		parent := filepath.Dir(rel.Target)
+		if st, err := os.Stat(parent); err != nil || !st.IsDir() {
+			return fmt.Errorf("cache_relocations.%s: parent directory of the target does not exist: %s "+
+				"(only the last path component is created for you)", rel.Subdir, parent)
+		}
+		if err := os.MkdirAll(rel.Target, 0o755); err != nil {
+			return fmt.Errorf("cache_relocations.%s: creating target %s: %w", rel.Subdir, rel.Target, err)
+		}
+		mountpoint := filepath.Join(paths.GlobalCache(), rel.Subdir)
+		if err := os.MkdirAll(mountpoint, 0o755); err != nil {
+			return fmt.Errorf("cache_relocations.%s: creating mountpoint %s: %w", rel.Subdir, mountpoint, err)
+		}
 	}
 	return nil
 }

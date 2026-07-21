@@ -209,24 +209,52 @@ func (o *Options) runContainer(cfg *jsonx.OrderedMap, rt, repoRoot string) int {
 		}
 	}
 
+	// Cache relocations: read from the HOST user config only (never the merged
+	// config — see config.LoadCacheRelocations for the threat model) and
+	// provisioned BEFORE the argv is assembled. Both halves of the ordering
+	// matter: podman kills the whole container with a bare
+	// "statfs …: no such file or directory" when a bind source is missing, and
+	// the mountpoint it would otherwise invent for us is root-owned. A failure
+	// here is fatal rather than a warning — continuing would start a jail whose
+	// cache silently sits back on the filesystem the user moved it off.
+	relocations, relErr := config.LoadCacheRelocations(func(msg string) {
+		out.printf("[yellow]Warning: %s[/yellow]", msg)
+	})
+	if relErr != nil {
+		out.printf("[bold red]%s[/bold red]", relErr.Error())
+		lock.Close()
+		return 1
+	}
+	// Apple Container gets the list (assembly warns that it is skipping them) but
+	// not the directories: provisioning a mountpoint nothing will mount over just
+	// leaves an empty stub in the cache that reads like lost data.
+	if rt != "container" {
+		if err := storage.EnsureCacheRelocations(relocations); err != nil {
+			out.printf("[bold red]%s[/bold red]", err.Error())
+			lock.Close()
+			return 1
+		}
+	}
+
 	// --- Assemble the ordered argv ---
 	in := &assembleInput{
-		cfg:           cfg,
-		rt:            rt,
-		cname:         cname,
-		repoRoot:      repoRoot,
-		agentsList:    agentsList,
-		agentSpecs:    agentSpecs,
-		agentsPath:    agentsPath,
-		wsState:       wsState,
-		miseStore:     jailMiseStoreDir(o.inJail()),
-		identityEnv:   identityEnv,
-		hostTZ:        detectHostTZ(),
-		yoloVersion:   o.yoloVersion(repoRoot),
-		mountTargets:  BindMountTargets(),
-		lspNPMInstall: lspNPMOf(cfg),
-		lspGoInstall:  lspGoOf(cfg),
-		storePruneOK:  storePruneOK,
+		cfg:              cfg,
+		rt:               rt,
+		cname:            cname,
+		repoRoot:         repoRoot,
+		agentsList:       agentsList,
+		agentSpecs:       agentSpecs,
+		agentsPath:       agentsPath,
+		wsState:          wsState,
+		miseStore:        jailMiseStoreDir(o.inJail()),
+		identityEnv:      identityEnv,
+		hostTZ:           detectHostTZ(),
+		yoloVersion:      o.yoloVersion(repoRoot),
+		mountTargets:     BindMountTargets(),
+		lspNPMInstall:    lspNPMOf(cfg),
+		lspGoInstall:     lspGoOf(cfg),
+		storePruneOK:     storePruneOK,
+		cacheRelocations: relocations,
 	}
 	runCmd := o.assembleRunCmd(in)
 

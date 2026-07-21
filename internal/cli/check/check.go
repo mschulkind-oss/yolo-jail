@@ -118,6 +118,26 @@ func Check(opts Options) int {
 	runtimeSel, _ := o.runtimeForCheck(merged)
 	isNativeRuntime := inStrSlice(paths.NativeRuntimes, runtimeSel)
 
+	// Cache relocations are provisioned here — after the runtime is known — so
+	// that check leaves a fresh host ready for the next run (target dir + the
+	// GLOBAL_CACHE mountpoint), because a relocation that cannot be provisioned
+	// is a jail podman refuses to start ("statfs …: no such file or directory").
+	// Gated on the runtime for the same reason run.go gates it: only podman
+	// mounts them, and creating a mountpoint nothing will ever mount over just
+	// leaves an empty dir in the cache that reads like lost data.
+	// Silent on a load error (the Config Files section above reports a bad user
+	// config with far better context) and silent when nothing is configured. The
+	// loader's own warnings ARE surfaced: the "target directory does not exist"
+	// skip is the loader's alone, and it is the one problem that makes a run
+	// quietly leave the cache where it was.
+	if !isNativeRuntime && runtimeSel != "container" {
+		if rels, err := config.LoadCacheRelocations(r.warningLine); err == nil && len(rels) > 0 {
+			if err := storage.EnsureCacheRelocations(rels); err != nil {
+				r.fail(err.Error(), "Fix the path or drop the key from "+paths.UserConfigPath())
+			}
+		}
+	}
+
 	// --- Entrypoint Dry-Run ---
 	o.sectionEntrypointDryRun(r, repoRoot, repoRootOK, workspace, merged)
 

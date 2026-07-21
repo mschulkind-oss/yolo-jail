@@ -2,11 +2,13 @@ package run
 
 import (
 	"path/filepath"
+	"sort"
 	"strconv"
 	"strings"
 	"time"
 
 	"github.com/mschulkind-oss/yolo-jail/internal/broker"
+	"github.com/mschulkind-oss/yolo-jail/internal/config"
 	"github.com/mschulkind-oss/yolo-jail/internal/jsonx"
 	"github.com/mschulkind-oss/yolo-jail/internal/loopholes"
 	"github.com/mschulkind-oss/yolo-jail/internal/paths"
@@ -15,7 +17,24 @@ import (
 // appleContainerBaseMounts builds the Apple Container base mounts: single
 // writable /home/agent (device-limit workaround), the mise named volume, and
 // bare --tmpfs scratch dirs.
-func appleContainerBaseMounts(rt string, runFlags []string, workspace, wsState string) []string {
+//
+// cache_relocations are skipped here (one warning for the whole set, not one per
+// entry). Not because the backend cannot nest a bind mount — this very function
+// mounts GlobalCache() at /home/agent/.cache inside the wsState → /home/agent
+// mount, which is the same nesting depth a relocation needs — but because it is
+// a separate mount path built around the single-writable-/home/agent device
+// limit and nobody has verified relocation on real Apple Container hardware.
+// Skipping loudly beats half-applying: a relocation that silently did not take
+// leaves the jail writing the very bytes the user moved back onto the filesystem
+// they moved them off.
+func appleContainerBaseMounts(rt string, runFlags []string, workspace string, in *assembleInput, out printer) []string {
+	wsState := in.wsState
+	if len(in.cacheRelocations) > 0 {
+		out.print("[yellow]Skipping cache_relocations (" + cacheRelocationSubdirs(in.cacheRelocations) +
+			"): cache_relocations are not implemented on Apple Container, " +
+			"so the cache stays on its original filesystem. " +
+			"Use `YOLO_RUNTIME=podman` for cache relocation.[/yellow]")
+	}
 	runCmd := append([]string{rt, "run"}, runFlags...)
 	return append(runCmd,
 		"-v", workspace+":/workspace",
@@ -48,6 +67,19 @@ func podmanBaseMounts(rt string, runFlags []string, workspace string, in *assemb
 		"-v", filepath.Join(ws, "yolo-shims")+":/home/agent/.yolo-shims",
 		"-v", filepath.Join(ws, "config")+":/home/agent/.config",
 		"-v", paths.GlobalCache()+":/home/agent/.cache",
+	)
+	// Cache relocations: a rw bind nested INSIDE the .cache mount above, so
+	// ~/.cache/<subdir> in the jail is an ordinary writable dir backed by other
+	// storage. Emitted here purely for readability — podman sorts mounts by
+	// destination depth, so being adjacent to (or after) the parent .cache mount
+	// is not what makes it work; reversing the two args behaves identically.
+	// Sorted so the argv is deterministic whatever order the caller collected
+	// them in (config.LoadCacheRelocations already sorts; this keeps the argv's
+	// guarantee local to the emitter).
+	for _, rel := range sortedCacheRelocations(in.cacheRelocations) {
+		runCmd = append(runCmd, "-v", rel.Target+":/home/agent/.cache/"+rel.Subdir)
+	}
+	runCmd = append(runCmd,
 		"-v", filepath.Join(ws, "yolo-bootstrap.sh")+":/home/agent/.yolo-bootstrap.sh",
 		"-v", filepath.Join(ws, "yolo-venv-precreate.sh")+":/home/agent/.yolo-venv-precreate.sh",
 		"-v", filepath.Join(ws, "yolo-perf.log")+":/home/agent/.yolo-perf.log",
@@ -65,6 +97,23 @@ func podmanBaseMounts(rt string, runFlags []string, workspace string, in *assemb
 		runCmd = append(runCmd, "-v", in.miseStore+":/mise")
 	}
 	return runCmd
+}
+
+// sortedCacheRelocations returns the relocations ordered by subdir, without
+// mutating the caller's slice (assembleRunCmd is a pure function of its input).
+func sortedCacheRelocations(rels []config.CacheRelocation) []config.CacheRelocation {
+	out := append([]config.CacheRelocation(nil), rels...)
+	sort.Slice(out, func(i, j int) bool { return out[i].Subdir < out[j].Subdir })
+	return out
+}
+
+// cacheRelocationSubdirs renders the relocated subdir names for a warning line.
+func cacheRelocationSubdirs(rels []config.CacheRelocation) string {
+	names := make([]string, 0, len(rels))
+	for _, rel := range sortedCacheRelocations(rels) {
+		names = append(names, rel.Subdir)
+	}
+	return strings.Join(names, ", ")
 }
 
 // podmanNestingArgs builds the podman nesting/GPU/device+cap block. One of three

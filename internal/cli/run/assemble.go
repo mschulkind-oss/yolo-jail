@@ -43,6 +43,11 @@ type assembleInput struct {
 	// grants the in-jail store prune (`-e YOLO_STORE_PRUNE_OK=1`). Set by the
 	// lifecycle phase; false leaves the env unset.
 	storePruneOK bool
+	// cacheRelocations are the user-scope cache subdir → host dir relocations,
+	// already loaded, validated and provisioned by the run pipeline (assembly
+	// only emits the -v pairs, and must stay free of the fs access + the
+	// user-config read that producing them requires).
+	cacheRelocations []config.CacheRelocation
 }
 
 // lspNPM / lspGo return the resolved YOLO_LSP_*_INSTALL values.
@@ -144,7 +149,7 @@ func (o *Options) assembleRunCmd(in *assembleInput) []string {
 	// --- base run_cmd (mounts) ---
 	var runCmd []string
 	if rt == "container" {
-		runCmd = appleContainerBaseMounts(rt, runFlags, o.Workspace, in.wsState)
+		runCmd = appleContainerBaseMounts(rt, runFlags, o.Workspace, in, out)
 	} else {
 		runCmd = podmanBaseMounts(rt, runFlags, o.Workspace, in, o.IsMacOS)
 		// Ephemeral scratch dirs.
