@@ -35,6 +35,20 @@ type Env struct {
 	NpmPrefix string
 	// GoPath is $GOPATH (or $HOME/go). GO_BIN is GoPath/bin.
 	GoPath string
+	// Workspace is the mounted workspace root. In the container this is the
+	// literal "/workspace"; the native macOS (macos-user) bootstrap sets it to
+	// the real host workspace path. Generators that used to hardcode "/workspace"
+	// read this instead so the same code is correct on both platforms (J2 §1).
+	// Empty resolves to "/workspace" (the container default) via WorkspaceDir().
+	Workspace string
+	// ShimBinDir is the directory a generated shim exec's the real tool from —
+	// "/bin" in the Linux container, "/usr/bin" on macOS. Empty resolves to
+	// "/bin" via ShimBinPath(). (J2 §1: shims.go hardcoded "/bin/".)
+	ShimBinDir string
+	// GNUStat reports whether `stat` takes GNU flags (`-c`, Linux container) vs
+	// BSD flags (`-f`, macOS). Generated launcher templates branch on this.
+	// Defaults to true (the container) via the zero value + StatIsGNU().
+	GNUStat bool
 	// Vars is the environment-variable matrix the generators consult.
 	Vars map[string]string
 	// Stderr receives the warning/notice lines the Python generators print to
@@ -85,8 +99,33 @@ func NewEnv(vars map[string]string) *Env {
 		MiseData:  miseData,
 		NpmPrefix: npmPrefix,
 		GoPath:    goPath,
-		Vars:      vars,
+		// Container defaults; the macos-user bootstrap overrides these. GNUStat
+		// defaults true (the Linux container) so an Env built the normal way is
+		// unchanged — the darwin path explicitly sets GNUStat=false.
+		Workspace:  firstNonEmpty(vars["YOLO_WORKSPACE"], "/workspace"),
+		ShimBinDir: "/bin",
+		GNUStat:    true,
+		Vars:       vars,
 	}
+}
+
+// WorkspaceDir returns the workspace root, defaulting to the container's
+// "/workspace" when Workspace is unset. Generators call this instead of
+// hardcoding the literal so they are correct on a native macOS home too.
+func (e *Env) WorkspaceDir() string {
+	if e.Workspace == "" {
+		return "/workspace"
+	}
+	return e.Workspace
+}
+
+// ShimBinPath returns the directory a shim exec's the real tool from, defaulting
+// to "/bin" (the container) when unset.
+func (e *Env) ShimBinPath() string {
+	if e.ShimBinDir == "" {
+		return "/bin"
+	}
+	return e.ShimBinDir
 }
 
 // EnvFromOS builds an Env from the real process environment. Used by the actual

@@ -105,7 +105,7 @@ func ConfigureClaude(e *Env) error {
 	updateFrom(mcpServers, configured)
 
 	projects := setDefaultMap(claudeJSON, "projects")
-	workspaceProject := setDefaultMap(projects, "/workspace")
+	workspaceProject := setDefaultMap(projects, e.WorkspaceDir())
 	workspaceProject.Set("enableAllProjectMcpServers", true)
 	setDefault(workspaceProject, "hasTrustDialogAccepted", true)
 

@@ -289,7 +289,7 @@ func ConfigureGemini(e *Env) error {
 		cfg, _ := v.(*jsonx.OrderedMap)
 		cmd, _ := stringValue(cfg, "command")
 		bareCmd := baseName(cmd)
-		mcpArgs := []any{"-lsp", bareCmd, "-workspace", "/workspace"}
+		mcpArgs := []any{"-lsp", bareCmd, "-workspace", e.WorkspaceDir()}
 		if lspArgs, ok := cfg.Get("args"); ok {
 			if arr, isArr := lspArgs.([]any); isArr && len(arr) > 0 {
 				mcpArgs = append(mcpArgs, "--")
@@ -325,7 +325,7 @@ func ConfigureGemini(e *Env) error {
 			if strings.HasSuffix(name, "-lsp") && command == filepath.Join(goBin, "mcp-language-server") {
 				previousManaged[name] = struct{}{}
 			}
-			if strings.HasPrefix(command, "/workspace/") {
+			if strings.HasPrefix(command, e.WorkspaceDir()+"/") {
 				previousManaged[name] = struct{}{}
 			}
 		}

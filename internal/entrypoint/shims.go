@@ -78,7 +78,7 @@ func GenerateShims(e *Env) error {
 		}
 		realBin := ""
 		if name == "grep" || name == "find" {
-			realBin = "/bin/" + name
+			realBin = e.ShimBinPath() + "/" + name
 		}
 		blockFlags := stringList(cfg, "block_flags")
 
