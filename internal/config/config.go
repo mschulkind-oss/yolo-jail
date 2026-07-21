@@ -48,6 +48,7 @@ var knownTopLevelConfigKeys = set(
 	"mcp_servers", "mcp_presets", "devices", "gpu", "resources", "env_sources",
 	"host_claude_files", "host_pi_files", "loopholes", "host_processes", "journal",
 	"kvm", "prune", "ephemeral_storage", "include_if_found", "agents_md_extra",
+	"cache_relocations",
 )
 
 var journalModes = []string{"off", "user", "full"}

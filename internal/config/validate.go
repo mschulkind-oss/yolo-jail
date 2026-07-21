@@ -70,6 +70,7 @@ func ValidateConfig(config *jsonx.OrderedMap, workspace string, resolver Loophol
 	validateIncludeIfFound(config, errs)
 	validateAgentsMdExtra(config, errs)
 	validateEnvSources(config, errs)
+	validateCacheRelocations(config, workspace, errs, warns)
 
 	errors = *errs
 	warnings = *warns
@@ -983,6 +984,62 @@ func validateEnvSources(config *jsonx.OrderedMap, errs *[]string) {
 		}
 		add(errs, fmt.Sprintf("%s: expected a string (file path) or object (inline map), got %s",
 			path, typeName(entryV)))
+	}
+}
+
+// validateCacheRelocations enforces the two cache_relocations rules: the key is
+// user-scope only, and every entry is shape-valid.
+//
+// The scope rule exists because a relocation is a read-write host mount and a
+// workspace config is agent-editable (see LoadCacheRelocations for the full
+// threat model). LoadCacheRelocations already ignores workspace scope entirely,
+// so this check is defense-in-depth: without it, a workspace-scoped key is a
+// silent no-op that looks like a broken feature.
+//
+// ValidateConfig only ever receives the MERGED map (cli/run/preflight.go,
+// cli/check/check.go; merged in LoadConfig), and the merge carries no
+// provenance — so the only way to tell where the key came from is to re-read
+// the workspace config. That is one extra file read on a cold path, and much
+// cheaper than threading provenance through every caller of the merge.
+//
+// warns is unused on purpose: a misconfigured relocation is always an error.
+// Downgrading any of these to a warning would let the run proceed with the
+// cache silently un-relocated, which is the exact failure mode the feature
+// exists to prevent.
+func validateCacheRelocations(config *jsonx.OrderedMap, workspace string, errs, warns *[]string) {
+	v, present := config.Get(cacheRelocationsKey)
+	if !present {
+		// Every workspace key survives into the merged map, so an absent key
+		// here proves the workspace config has none either — no re-read needed.
+		return
+	}
+	// Warnings from the re-read are discarded: this same file was already
+	// loaded (and any parse problem already reported) by whoever produced the
+	// merged config we were handed.
+	if wsCfg, err := LoadWorkspaceConfig(workspace, false, func(string) {}); err == nil && wsCfg != nil {
+		if _, atWorkspace := wsCfg.Get(cacheRelocationsKey); atWorkspace {
+			add(errs, "config."+cacheRelocationsKey+": user-scope only — move it to "+
+				"~/.config/yolo-jail/config.jsonc (a workspace config is "+
+				"agent-editable, so it cannot grant read-write host mounts)")
+		}
+	}
+	if v == nil {
+		return
+	}
+	// The target-parent check is skipped inside a jail. Unlike the loader, this
+	// runs against the MERGED config, which in a jail is the host-written
+	// snapshot (LoadConfig prefers <workspace>/.yolo/config-snapshot.json) or
+	// the host user config bind-mounted read-only — either way it carries the
+	// host's cache_relocations, whose targets are host paths deliberately not
+	// present in the jail's mount namespace. Stat'ing them here would turn a
+	// perfectly valid host config into a fatal "parent directory of the target
+	// does not exist" on every nested `yolo` run and every in-jail `yolo check`.
+	// The shape, scope and duplicate rules still apply everywhere; only the
+	// filesystem probe is host-only, and the host run has already done it for
+	// real before writing the snapshot.
+	_, problems := checkCacheRelocations(v, !inJail())
+	for _, p := range problems {
+		add(errs, p)
 	}
 }
 
