@@ -401,6 +401,28 @@ func tempProject(t *testing.T) string {
 	return writeProject(t, tempProjectConfig)
 }
 
+// section returns the slice of s strictly between the first occurrence of start
+// and the next occurrence of end (end=="" means "to the end of s"). Empty if
+// start is absent. Used by the merged multi-probe integration tests: one jail
+// launch runs several fenced probes (each preceded by `echo "=== NAME ==="`),
+// and section splits the combined stdout back into per-probe chunks so each
+// assertion stays independent.
+func section(s, start, end string) string {
+	i := strings.Index(s, start)
+	if i < 0 {
+		return ""
+	}
+	i += len(start)
+	if end == "" {
+		return s[i:]
+	}
+	j := strings.Index(s[i:], end)
+	if j < 0 {
+		return s[i:]
+	}
+	return s[i : i+j]
+}
+
 // requireJail skips the calling test under `go test -short`. Every test that
 // creates a container must call it first.
 func requireJail(t *testing.T) {

@@ -16,47 +16,45 @@ import (
 // where a message string differs from the old test, the expectation was fixed,
 // never the implementation.
 
-// TestBlockedToolCurl confirms the entrypoint installs a blocking shim for a
-// tool with no custom message: the default text from internal/entrypoint.ShimContent
-// ("Error: tool <name> is blocked in this project.") is printed to stderr and the
-// shim exits 127.
-func TestBlockedToolCurl(t *testing.T) {
+// TestBlockedTools confirms the entrypoint's blocked-tool shims in ONE jail
+// launch (the three checks share the tempProject fixture — curl blocked with the
+// DEFAULT message, grep blocked with a CUSTOM message, everything else allowed —
+// so they exercise the identical image; merged to pay the container cold-start
+// once instead of three times). Each command runs independently (NO `set -e`),
+// tagging its own exit code so per-check assertions are preserved:
+//
+//   - curl  → rc 127 + default "Error: tool curl is blocked" (no custom message).
+//   - grep  → rc 127 + the fixture's custom "NO GREP ALLOWED" (the exhaustive
+//     block-only-recursive matrix lives in internal/entrypoint/shims_behavior_test.go;
+//     here we only confirm the wiring fires + surfaces the custom text).
+//   - ls    → rc 0 + /workspace (an unblocked tool runs normally).
+func TestBlockedTools(t *testing.T) {
 	requireJail(t)
 	dir := tempProject(t)
-	r := runYolo(t, dir, "curl --version")
-	if r.rc != 127 {
-		t.Fatalf("expected rc 127, got %d\n%s", r.rc, r.combined())
-	}
-	if !strings.Contains(r.stderr, "Error: tool curl is blocked") {
-		t.Fatalf("expected blocked-tool message in stderr, got:\n%s", r.stderr)
-	}
-}
+	r := runYolo(t, dir, strings.Join([]string{
+		`curl --version; echo "CURL rc=$?"`,
+		`grep -r 'foo' .; echo "GREP rc=$?"`,
+		`ls -d /workspace; echo "LS rc=$?"`,
+	}, "\n"))
+	out := r.combined() // block messages go to stderr, ls to stdout; check both.
 
-// TestBlockedToolGrep confirms a blocked tool with a custom message honors that
-// message. The fixture blocks grep with message "NO GREP ALLOWED" and no
-// block_flags, so every grep invocation is blocked (the exhaustive
-// block-only-recursive matrix lives in
-// internal/entrypoint/shims_behavior_test.go); here we only confirm the
-// integration wiring fires the block and surfaces the custom text.
-func TestBlockedToolGrep(t *testing.T) {
-	requireJail(t)
-	dir := tempProject(t)
-	r := runYolo(t, dir, "grep -r 'foo' .")
-	if r.rc != 127 {
-		t.Fatalf("expected rc 127, got %d\n%s", r.rc, r.combined())
+	// curl: default blocked-tool message + rc 127.
+	if !strings.Contains(out, "CURL rc=127") {
+		t.Fatalf("expected curl blocked (rc 127), got:\n%s", out)
 	}
-	if !strings.Contains(r.stderr, "NO GREP ALLOWED") {
-		t.Fatalf("expected custom grep message in stderr, got:\n%s", r.stderr)
+	if !strings.Contains(out, "Error: tool curl is blocked") {
+		t.Fatalf("expected default blocked-tool message for curl, got:\n%s", out)
 	}
-}
-
-// TestAllowedTool confirms an unblocked tool runs normally inside the jail.
-func TestAllowedTool(t *testing.T) {
-	requireJail(t)
-	dir := tempProject(t)
-	r := runYolo(t, dir, "ls -d /workspace")
-	if r.rc != 0 {
-		t.Fatalf("expected rc 0, got %d\n%s", r.rc, r.combined())
+	// grep: custom message + rc 127.
+	if !strings.Contains(out, "GREP rc=127") {
+		t.Fatalf("expected grep blocked (rc 127), got:\n%s", out)
+	}
+	if !strings.Contains(out, "NO GREP ALLOWED") {
+		t.Fatalf("expected custom grep message, got:\n%s", out)
+	}
+	// ls: allowed, rc 0, prints the workspace path.
+	if !strings.Contains(out, "LS rc=0") {
+		t.Fatalf("expected ls allowed (rc 0), got:\n%s", out)
 	}
 	if !strings.Contains(r.stdout, "/workspace") {
 		t.Fatalf("expected /workspace in stdout, got:\n%s", r.stdout)

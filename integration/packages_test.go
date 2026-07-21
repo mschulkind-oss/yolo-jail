@@ -30,75 +30,64 @@ func lastNonEmptyLine(s string) string {
 	return ""
 }
 
-// TestExtraPackageLibInLibFarm confirms a package added to `packages` for its
-// shared library is symlinked into /lib and /usr/lib so it is dlopen-able.
+// TestExtraPackageLibFarm confirms three properties of a user `packages:` lib in
+// ONE jail launch (the three checks share the identical `{"packages":["zbar"]}`
+// config, so they build/boot the same --impure image; merged to pay the ~12-13s
+// nix-rebuild + container cold-start ONCE instead of three times). Each check
+// keeps its own marker and independent assertion, so failure attribution and
+// every original coverage claim are preserved:
 //
-// zbar is the canonical split-output case: its .so lives in a separate `-lib`
-// output (the default output has binaries, no lib/), so this also guards against
-// a naive `${pkg}/lib` implementation that would miss it.
-func TestExtraPackageLibInLibFarm(t *testing.T) {
+//  1. LIB-FARM SYMLINK — the .so is linked into /lib + /usr/lib, resolving into
+//     the nix store. zbar is the canonical split-output case (its .so lives in a
+//     separate `-lib` output), guarding against a naive `${pkg}/lib` impl.
+//  2. DLOPEN-BY-SONAME — the image's python3/ctypes can dlopen it by bare soname
+//     (the real consumer path, e.g. pyzbar). Works via LD_LIBRARY_PATH=/lib:/usr/lib
+//     (the loader does NOT read /etc/ld.so.cache here — that's the mechanism).
+//  3. FHS LD.SO.CACHE — build-time ldconfig populated /etc/ld.so.cache and it is
+//     NOT empty. Regression guard for the `ldconfig -r $out` bug that produced a
+//     0-entry cache. (`-C /etc/ld.so.cache` because bare `ldconfig -p` reads
+//     $glibc/etc/ld.so.cache.)
+//
+// The in-jail `python3 -c 'ctypes.CDLL(...)'` probe is kept verbatim from the
+// Python era on purpose (see file header); do not "clean" it into a Go loader.
+func TestExtraPackageLibFarm(t *testing.T) {
 	requireJail(t)
 	dir := writeProject(t, `{"network": {"mode": "bridge"}, "packages": ["zbar"]}`)
-	r := runYolo(t, dir, "ls -l /lib/libzbar.so.0 /usr/lib/libzbar.so.0")
+	// One launch, three probes, each fenced by a marker so we assert independently.
+	r := runYolo(t, dir, strings.Join([]string{
+		`echo "=== SYMLINK ==="; ls -l /lib/libzbar.so.0 /usr/lib/libzbar.so.0`,
+		`echo "=== DLOPEN ==="; python3 -c 'import ctypes; ctypes.CDLL("libzbar.so.0"); print("dlopen-ok")'`,
+		`echo "=== LDCACHE ==="; ldconfig -C /etc/ld.so.cache -p | grep -c libzbar || true`,
+	}, "\n"))
 	if r.rc != 0 {
-		t.Fatalf("libzbar.so.0 not linked into /lib or /usr/lib (rc %d)\nstdout=%q\nstderr=%q",
+		t.Fatalf("zbar lib-farm probe script failed (rc %d)\nstdout=%q\nstderr=%q",
 			r.rc, r.stdout, r.stderr)
 	}
-	// The symlink must resolve into the nix store (the -lib output).
-	if !strings.Contains(r.stdout, "/nix/store") {
-		t.Fatalf("expected /lib symlink to resolve into /nix/store, got:\n%s", r.stdout)
-	}
-}
 
-// TestExtraPackageLibDlopenByName confirms a user `packages:` lib is dlopen-able
-// by bare soname — the real consumer path (e.g. pyzbar's
-// ctypes.CDLL("libzbar.so.0")).
-//
-// This works via LD_LIBRARY_PATH=/lib:/usr/lib (set in the image env + entrypoint),
-// which is how the nixpkgs glibc loader finds the symlinked libs. The loader does
-// NOT consult /etc/ld.so.cache in this image (it reads its cache from
-// $glibc/etc/ld.so.cache, a read-only store path), so LD_LIBRARY_PATH is the
-// mechanism under test here.
-func TestExtraPackageLibDlopenByName(t *testing.T) {
-	requireJail(t)
-	dir := writeProject(t, `{"network": {"mode": "bridge"}, "packages": ["zbar"]}`)
-	r := runYolo(t, dir,
-		`python3 -c 'import ctypes; ctypes.CDLL("libzbar.so.0"); print("dlopen-ok")'`)
-	if r.rc != 0 {
-		t.Fatalf("ctypes.CDLL(libzbar.so.0) failed (rc %d)\nstdout=%q\nstderr=%q",
-			r.rc, r.stdout, r.stderr)
-	}
-	if !strings.Contains(r.stdout, "dlopen-ok") {
-		t.Fatalf("expected dlopen-ok in stdout, got:\n%s", r.stdout)
-	}
-}
+	symlink := section(r.stdout, "=== SYMLINK ===", "=== DLOPEN ===")
+	dlopen := section(r.stdout, "=== DLOPEN ===", "=== LDCACHE ===")
+	ldcache := section(r.stdout, "=== LDCACHE ===", "")
 
-// TestExtraPackageLibInFhsLdcache confirms the build-time ldconfig populates
-// /etc/ld.so.cache (the FHS path) so tools that read it explicitly see the lib —
-// and, critically, that the cache is NOT empty. Regression guard for the prior
-// `ldconfig -r $out` bug, which chrooted into $out where the farm symlinks' store
-// targets didn't resolve, producing a 0-entry cache (no libc, nothing).
-//
-// Note: bare `ldconfig -p` reads $glibc/etc/ld.so.cache, not the FHS path, so we
-// point -C at /etc/ld.so.cache explicitly.
-func TestExtraPackageLibInFhsLdcache(t *testing.T) {
-	requireJail(t)
-	dir := writeProject(t, `{"network": {"mode": "bridge"}, "packages": ["zbar"]}`)
-	r := runYolo(t, dir, "ldconfig -C /etc/ld.so.cache -p | grep -c libzbar || true")
-	if r.rc != 0 {
-		t.Fatalf("ldconfig probe failed (rc %d): %s", r.rc, r.stderr)
+	// 1. Lib-farm symlink resolves into the nix store (the -lib output).
+	if !strings.Contains(symlink, "libzbar.so.0") || !strings.Contains(symlink, "/nix/store") {
+		t.Fatalf("libzbar.so.0 not linked into /lib //usr/lib resolving to /nix/store:\n%s", symlink)
 	}
-	line := lastNonEmptyLine(r.stdout)
+	// 2. dlopen-by-soname works (the real consumer path).
+	if !strings.Contains(dlopen, "dlopen-ok") {
+		t.Fatalf("ctypes.CDLL(libzbar.so.0) by bare soname failed:\n%s", dlopen)
+	}
+	// 3. FHS /etc/ld.so.cache has libzbar and is not empty (the -r $out regression).
+	line := lastNonEmptyLine(ldcache)
 	if line == "" {
 		line = "0"
 	}
 	count, err := strconv.Atoi(line)
 	if err != nil {
-		t.Fatalf("could not parse libzbar count from stdout:\n%s", r.stdout)
+		t.Fatalf("could not parse libzbar count from ldcache section:\n%s", ldcache)
 	}
 	if count < 1 {
-		t.Fatalf("libzbar not in /etc/ld.so.cache (count=%d); the cache may be empty "+
-			"(the -r $out regression)\nstdout=%q", count, r.stdout)
+		t.Fatalf("libzbar not in /etc/ld.so.cache (count=%d); cache may be empty "+
+			"(the -r $out regression)\nstdout=%q", count, ldcache)
 	}
 }
 
