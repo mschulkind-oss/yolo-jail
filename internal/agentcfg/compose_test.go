@@ -237,12 +237,37 @@ func TestComposeClaudeSettingsEnforcesManaged(t *testing.T) {
 	}
 }
 
+// TestComposeDeepEnforcePreservesHostSibling proves the deep-merge Enforce fix:
+// a host key UNDER the same object as a managed key survives (yolo forces
+// permissions.allow=[] but the host's permissions.ask stays), instead of the
+// whole permissions object being clobbered. This is the closed fidelity gap.
+func TestComposeDeepEnforcePreservesHostSibling(t *testing.T) {
+	s, ok := BuiltinManifest().Lookup("claude", "settings")
+	if !ok {
+		t.Fatal("builtin manifest missing claude/settings")
+	}
+	host := `{"permissions": {"allow": ["X"], "ask": ["Bash(git push)"]}}`
+	res, err := Compose(Inputs{Surface: s, HostBytes: []byte(host)})
+	if err != nil {
+		t.Fatalf("Compose error: %v", err)
+	}
+	perms := res.Config["permissions"].(map[string]any)
+	// Managed key wins...
+	if !reflect.DeepEqual(perms["allow"], []any{}) {
+		t.Errorf("managed permissions.allow should win as []: %#v", perms["allow"])
+	}
+	// ...but the host sibling with no managed counterpart survives (the fix).
+	if !reflect.DeepEqual(perms["ask"], []any{"Bash(git push)"}) {
+		t.Errorf("host sibling permissions.ask should survive deep Enforce, got %#v", perms["ask"])
+	}
+}
+
 // TestComposeClaudeConfigEnforcesManaged proves the builtin claude/config
-// (.claude.json) surface enforces the workspace-project MCP-enable key. It also
-// pins the documented fidelity gap: because the current Enforce is a shallow
-// top-level set, the managed "projects" object REPLACES the default one, so the
-// hasTrustDialogAccepted default does NOT survive alongside it (a deep-merge
-// Enforce would fix this with no manifest change).
+// (.claude.json) surface enforces the workspace-project MCP-enable key AND, now
+// that Enforce deep-merges, preserves the sibling hasTrustDialogAccepted default
+// under the SAME projects["/workspace"] object — the fidelity gap the shallow
+// Enforce used to have (managed nested object clobbering its default sibling) is
+// closed.
 func TestComposeClaudeConfigEnforcesManaged(t *testing.T) {
 	s, ok := BuiltinManifest().Lookup("claude", "config")
 	if !ok {
@@ -266,10 +291,10 @@ func TestComposeClaudeConfigEnforcesManaged(t *testing.T) {
 	if res.Provenance["projects"] != layerManaged {
 		t.Errorf("provenance projects = %q, want %q", res.Provenance["projects"], layerManaged)
 	}
-	// Documented fidelity gap: shallow Enforce clobbers the sibling default.
-	if _, present := ws["hasTrustDialogAccepted"]; present {
-		t.Errorf("shallow Enforce unexpectedly preserved hasTrustDialogAccepted; " +
-			"the documented fidelity gap no longer holds — revisit builtin.go's claudeConfig comment")
+	// Deep-merge Enforce now preserves the sibling default alongside the managed
+	// key under the same object — both coexist.
+	if ws["hasTrustDialogAccepted"] != true {
+		t.Errorf("deep Enforce should preserve the sibling default hasTrustDialogAccepted=true, got %v", ws["hasTrustDialogAccepted"])
 	}
 }
 

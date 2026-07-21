@@ -40,21 +40,17 @@ var piSettings = manifest.Surface{
 // cannot yet express these, so they are deliberately omitted rather than
 // misrepresented):
 //
-//  1. Shallow-Enforce subtree clobber. luahook.Ctx.Enforce is a SHALLOW
-//     top-level set (Config[k]=managed[k]); a managed nested object therefore
-//     REPLACES the whole top-level key. The bespoke code instead merges into the
-//     existing "permissions"/"preferences" objects via setDefaultMap+.Set,
-//     preserving any OTHER host keys under them (e.g. a host permissions.ask).
-//     Under this manifest those host siblings are dropped. Faithful only when
-//     the host carries no extra keys under permissions/preferences (the common
-//     case); a deep-merge Enforce (noted as TODO in luahook.go / engine.go §4)
-//     closes this with zero manifest change.
+//  1. (CLOSED) Subtree preservation. luahook.Ctx.Enforce now DEEP-merges: a
+//     managed nested object merges key-by-key into the existing
+//     "permissions"/"preferences" object, so host siblings survive (e.g. a host
+//     permissions.ask is kept while yolo forces permissions.allow) — matching
+//     the bespoke setDefaultMap+.Set behavior. This was formerly a shallow-set
+//     clobber gap; the deep Enforce closed it with no manifest change.
 //  2. mcpServers deletion is inexpressible. ConfigureClaude does
 //     settings.Delete("mcpServers") to strip a host-provided block. The managed
-//     layer can only SET (a managed null yields a literal null via the shallow
-//     Enforce, which is WRONG — worse than omitting), so this removal is NOT
-//     modeled here. It belongs to the dedicated MCP surface (mcp.go, a separate
-//     Phase B item) anyway.
+//     layer can only SET (a managed null would merge in as a literal null, which
+//     is WRONG — worse than omitting), so this removal is NOT modeled here. It
+//     belongs to the dedicated MCP surface (mcp.go, a separate Phase B item).
 //  3. Dynamic (computed, not static) keys are omitted: enabledPlugins.* is
 //     derived from which LSP servers are present, and env.ENABLE_LSP_TOOL is
 //     "1" iff any LSP server is configured (else the key/env block is pruned).
@@ -89,16 +85,12 @@ var claudeSettings = manifest.Surface{
 //
 // FIDELITY GAPS:
 //
-//  1. Nested default+managed on the SAME object cannot coexist under the current
-//     shallow Enforce. Defaults deep-merges projects["/workspace"] =
-//     {hasTrustDialogAccepted:true}, but then Enforce REPLACES the whole
-//     top-level "projects" key with the managed value
-//     {"/workspace":{enableAllProjectMcpServers:true}} — so hasTrustDialogAccepted
-//     (and any host projects entries) are dropped from the rendered output. The
-//     bespoke code keeps both because it forces one key and setDefaults the other
-//     on the SAME live sub-map. Faithful composition of both needs a deep-merge
-//     Enforce; the Defaults entry is declared to record the intent and lands
-//     correctly the moment Enforce merges instead of replaces.
+//  1. (CLOSED) Nested default+managed on the SAME object now coexist: Defaults
+//     deep-merges projects["/workspace"].hasTrustDialogAccepted=true, and the
+//     deep-merge Enforce then merges the managed
+//     projects["/workspace"].enableAllProjectMcpServers=true into the SAME
+//     sub-object rather than replacing "projects" — so both survive, matching
+//     the bespoke force-one/setDefault-other behavior on the live sub-map.
 //  2. mcpServers is DYNAMIC: ConfigureClaude reconciles it from LoadMCPServers()
 //     minus the managed-MCP sidecar. Not static data — omitted here; it is the
 //     MCP surface's job (mcp.go, separate Phase B item).
@@ -143,12 +135,10 @@ var claudeConfig = manifest.Surface{
 //
 // FIDELITY GAPS (documented, not faked):
 //
-//  1. Shallow-Enforce subtree clobber (same as claude). The managed "general"
-//     object REPLACES the whole top-level "general" key via the shallow Enforce,
-//     dropping any OTHER host keys under general. The bespoke code merges into
-//     the live general sub-map via setDefaultMap+.Set, preserving host siblings.
-//     Faithful when the host carries no extra general keys (the common case); a
-//     deep-merge Enforce closes this with zero manifest change.
+//  1. (CLOSED) Subtree preservation (same as claude). The deep-merge Enforce
+//     merges the managed "general" object key-by-key into the existing general
+//     object, so host siblings under general survive — matching the bespoke
+//     setDefaultMap+.Set on the live sub-map. Formerly a shallow-clobber gap.
 //  2. mcpServers is DYNAMIC: ConfigureGemini reconciles it from LoadMCPServers()
 //     plus LSP-as-MCP wrappers, minus the managed sidecar. Not static data —
 //     omitted here; it belongs to the dedicated MCP surface (mcp.go, a separate

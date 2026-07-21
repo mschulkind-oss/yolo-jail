@@ -130,12 +130,38 @@ func NewCtx(agent, surface string, config, managed map[string]any) *Ctx {
 // winning (§3.1 enforce step, run AFTER the Lua hook). It uses the ORIGINAL
 // enforced layer captured in NewCtx, not the Managed view the transform could
 // have scribbled on — that is what makes ctx.managed effectively read-only.
-// A shallow top-level merge is enough for the spike's fixtures; the real engine
-// uses the §4 deep-merge with append/null semantics.
+//
+// The merge is DEEP: a managed OBJECT merges key-by-key into the existing
+// Config object rather than replacing it wholesale, so host/transform siblings
+// under the same top-level key survive (e.g. a host `permissions.ask` is kept
+// while yolo forces `permissions.allow`). A managed scalar/array still replaces.
+// This closes the "shallow-Enforce subtree clobber" fidelity gap the Phase B
+// surfaces documented (claude/gemini managed nested objects). Managed values are
+// deep-copied in, so Config never shares mutable structure with the enforced
+// layer.
 func (c *Ctx) Enforce() {
 	for k, v := range c.enforced {
-		c.Config[k] = deepCopyValue(v)
+		c.Config[k] = enforceValue(c.Config[k], v)
 	}
+}
+
+// enforceValue merges an enforced value over the current one, managed winning.
+// Two objects merge recursively (so siblings survive); anything else — a scalar,
+// an array, or a type mismatch — is replaced by a deep copy of the managed value.
+func enforceValue(cur, managed any) any {
+	mMap, mIsObj := managed.(map[string]any)
+	cMap, cIsObj := cur.(map[string]any)
+	if !mIsObj || !cIsObj {
+		return deepCopyValue(managed)
+	}
+	out := make(map[string]any, len(cMap)+len(mMap))
+	for k, v := range cMap {
+		out[k] = v
+	}
+	for k, v := range mMap {
+		out[k] = enforceValue(cMap[k], v)
+	}
+	return out
 }
 
 // Apply runs one transform over ctx and returns the mutated config, or an
