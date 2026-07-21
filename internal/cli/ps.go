@@ -10,6 +10,7 @@ import (
 	"os"
 	"strings"
 
+	"github.com/mschulkind-oss/yolo-jail/internal/richtext"
 	"github.com/mschulkind-oss/yolo-jail/internal/runtime"
 )
 
@@ -18,17 +19,22 @@ import (
 // exit) — the tri-state that must never be collapsed to "no jails" (D11).
 // DetectRuntime returns the effective runtime ("podman" / "container"),
 // platform-aware for ps. PathIsDir reports whether a workspace path exists.
+// Color enables ANSI on the framing lines (idle notice / problem section /
+// doctor tip); the caller resolves it to (requested && os.Stdout is a TTY), so
+// a bytes.Buffer or a pipe yields byte-identical plain output.
 type psDeps struct {
 	DetectRuntime func() string
 	RunCmd        func(argv []string) (string, bool)
 	PathIsDir     func(path string) bool
 	Out           io.Writer
+	Color         bool
 }
 
 // Run executes `yolo ps`, writing the table to deps.Out, and returns the exit
 // code (always 0 — ps never fails the process).
 // list → parse → resolve workspace → prune stale tracking → render → problems.
 func psRun(deps psDeps) int {
+	pr := richtext.Printer{W: deps.Out, Color: deps.Color}
 	rt := deps.DetectRuntime()
 
 	// The runtime probe is TRI-STATE (audit 2026-07-18 §B / D11): a spawn/exec
@@ -55,12 +61,12 @@ func psRun(deps psDeps) int {
 	if !enumerated {
 		// Could not talk to the runtime — decline to prune (fail-safe), and say
 		// so rather than the misleading "No running jails."
-		fmt.Fprintf(deps.Out, "Could not query the %s runtime for running jails.\n", rt)
+		pr.Printf("[red]Could not query the %s runtime for running jails.[/red]", rt)
 		return 0
 	}
 
 	if len(rows) == 0 {
-		fmt.Fprintln(deps.Out, "No running jails.")
+		pr.Print("[dim]No running jails.[/dim]")
 		// Enumeration succeeded and returned nothing → safe to prune all stale
 		// tracking files.
 		runtime.PruneStaleTrackingFiles(map[string]struct{}{})
@@ -88,7 +94,15 @@ func psRun(deps psDeps) int {
 		pcs[i] = runtime.PsContainer{Name: c.name, Status: c.status, Workspace: c.workspace}
 	}
 	if table := runtime.RenderPsTable(pcs); table != "" {
-		fmt.Fprintln(deps.Out, table)
+		// Bold only the header row (the first line); the aligned body cells are
+		// left verbatim so color never fights column alignment. Splitting on the
+		// first "\n" is safe — RenderPsTable always emits a header, and body rows
+		// (if any) follow after newlines.
+		header, body, hasBody := strings.Cut(table, "\n")
+		pr.Print("[bold]" + header + "[/bold]")
+		if hasBody {
+			fmt.Fprintln(deps.Out, body)
+		}
 	}
 
 	// Problem jails: workspace-gone or stuck-in-provisioning.
@@ -103,11 +117,11 @@ func psRun(deps psDeps) int {
 		}
 	}
 	if len(problems) > 0 {
-		fmt.Fprintf(deps.Out, "\n⚠  %d problem jail(s):\n", len(problems))
+		pr.Printf("\n[yellow]⚠  %d problem jail(s):[/yellow]", len(problems))
 		for _, p := range problems {
-			fmt.Fprintf(deps.Out, "  %s  (%s)\n", p[0], p[1])
+			pr.Printf("  [red]%s  (%s)[/red]", p[0], p[1])
 		}
-		fmt.Fprintln(deps.Out, "\n  Run 'yolo doctor' to clean up")
+		pr.Print("\n  [dim]Run 'yolo doctor' to clean up[/dim]")
 	}
 	return 0
 }
@@ -166,6 +180,7 @@ func psRealDeps(runCmd func(argv []string) (string, bool), detectRuntime func() 
 			info, err := os.Stat(path)
 			return err == nil && info.IsDir()
 		},
-		Out: os.Stdout,
+		Out:   os.Stdout,
+		Color: colorForWriter(os.Stdout),
 	}
 }

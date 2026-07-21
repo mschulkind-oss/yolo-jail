@@ -183,6 +183,107 @@ func TestDetectListingRuntimeHonorsConfig(t *testing.T) {
 	}
 }
 
+// TestPsColorParity locks the additive-color contract: with Color=false the
+// output is byte-identical to the pre-change raw-fmt bytes (no ESC anywhere),
+// and with Color=true the idle / problem / doctor-tip framing lines carry ANSI.
+func TestPsColorParity(t *testing.T) {
+	t.Run("idle plain is byte-exact", func(t *testing.T) {
+		t.Setenv("HOME", t.TempDir())
+		var buf bytes.Buffer
+		psRun(psDeps{
+			DetectRuntime: func() string { return "podman" },
+			RunCmd:        func([]string) (string, bool) { return "", true },
+			PathIsDir:     func(string) bool { return true },
+			Out:           &buf,
+			Color:         false,
+		})
+		if got := buf.String(); got != "No running jails.\n" {
+			t.Errorf("plain idle output = %q, want the pre-change bytes", got)
+		}
+	})
+
+	t.Run("idle color emits ANSI", func(t *testing.T) {
+		t.Setenv("HOME", t.TempDir())
+		var buf bytes.Buffer
+		psRun(psDeps{
+			DetectRuntime: func() string { return "podman" },
+			RunCmd:        func([]string) (string, bool) { return "", true },
+			PathIsDir:     func(string) bool { return true },
+			Out:           &buf,
+			Color:         true,
+		})
+		got := buf.String()
+		if !strings.Contains(got, "\x1b[") {
+			t.Errorf("colored idle output has no ANSI: %q", got)
+		}
+		if !strings.Contains(got, "No running jails.") {
+			t.Errorf("colored idle output lost its literal text: %q", got)
+		}
+	})
+
+	t.Run("problems: plain byte-exact, color has ANSI", func(t *testing.T) {
+		mkDeps := func(out *bytes.Buffer, color bool) psDeps {
+			return psDeps{
+				DetectRuntime: func() string { return "podman" },
+				RunCmd: func(argv []string) (string, bool) {
+					if len(argv) >= 2 && argv[1] == "ps" {
+						return "yolo-b-2222\tUp 5 minutes\t5 minutes ago\n", true
+					}
+					return "", true
+				},
+				PathIsDir: func(string) bool { return false }, // workspace gone
+				Out:       out,
+				Color:     color,
+			}
+		}
+
+		home := t.TempDir()
+		t.Setenv("HOME", home)
+		must(t, runtime.WriteContainerTracking("yolo-b-2222", "/gone"))
+		var plain bytes.Buffer
+		psRun(mkDeps(&plain, false))
+		if strings.Contains(plain.String(), "\x1b[") {
+			t.Errorf("plain problem output leaked ANSI: %q", plain.String())
+		}
+		// The stripped bytes match the current raw-fmt rendering exactly.
+		wantTail := "\n⚠  1 problem jail(s):\n" +
+			"  yolo-b-2222  (workspace gone)\n" +
+			"\n  Run 'yolo doctor' to clean up\n"
+		if !strings.HasSuffix(plain.String(), wantTail) {
+			t.Errorf("plain problem tail = %q, want suffix %q", plain.String(), wantTail)
+		}
+
+		home2 := t.TempDir()
+		t.Setenv("HOME", home2)
+		must(t, runtime.WriteContainerTracking("yolo-b-2222", "/gone"))
+		var col bytes.Buffer
+		psRun(mkDeps(&col, true))
+		if !strings.Contains(col.String(), "\x1b[") {
+			t.Errorf("colored problem output has no ANSI: %q", col.String())
+		}
+		// Stripping the color must reproduce the plain bytes exactly.
+		if got := stripANSI(col.String()); got != plain.String() {
+			t.Errorf("color-stripped != plain:\n color=%q\n plain=%q", got, plain.String())
+		}
+	})
+}
+
+// stripANSI removes CSI SGR escape sequences for the parity assertion.
+func stripANSI(s string) string {
+	var b strings.Builder
+	for i := 0; i < len(s); i++ {
+		if s[i] == '\x1b' && i+1 < len(s) && s[i+1] == '[' {
+			i += 2
+			for i < len(s) && s[i] != 'm' {
+				i++
+			}
+			continue
+		}
+		b.WriteByte(s[i])
+	}
+	return b.String()
+}
+
 func must(t *testing.T, err error) {
 	t.Helper()
 	if err != nil {
