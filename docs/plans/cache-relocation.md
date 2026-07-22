@@ -1,8 +1,13 @@
 # Cache relocation — let a cache subdir live on other storage
 
-**Status:** **Implemented 2026-07-21** — work items 1–10 landed; item 11
-(`yolo cache relocate`) remains deliberately deferred. One host-gated acceptance
-step is still outstanding: a real cross-filesystem move (see Test plan).
+**Status:** **Implemented 2026-07-21** — work items 1–10 landed. The host-gated
+acceptance step is now **done**: a real cross-filesystem HuggingFace-cache move
+to cold storage was verified on the maintainer's host (2026-07-22). Item 11
+(`yolo cache relocate`) is **held pending a design question, not merely
+deferred** — the maintainer flagged a worry that the whole `cache_relocations`
+mechanism may sit at the wrong level of abstraction. Do not build item 11 until
+that is resolved; see [Is `cache_relocations` the right
+level?](#is-cache_relocations-the-right-level-held) under Open Questions.
 **Filed:** 2026-07-21.
 
 ## The problem
@@ -259,13 +264,19 @@ stub. So prune does not over-report freed bytes — it goes **blind**.
     latency-sensitive), and the **manual migration procedure** — stop all jails,
     `rsync -aH --remove-source-files`, verify, then set the config.
 
-### Deferred
+### Deferred (held pending a design question — do not build yet)
 
 11. `yolo cache relocate <subdir> <target>` — copy-verify-swap as one command,
-    refusing to run while any jail is up and naming the offenders. Worth doing
-    once the manual procedure has been walked at least once; a jail left running
-    across a relocation keeps its old empty mount until restart (podman bind
-    mounts are `rprivate`), which reads exactly like cache corruption.
+    refusing to run while any jail is up and naming the offenders. The manual
+    procedure has now been walked (host acceptance done 2026-07-22), which would
+    normally clear this to build. **It is held instead:** the maintainer is not
+    sure `cache_relocations` sits at the right level of abstraction, and does not
+    want a command locked around it until that resolves — see [Is
+    `cache_relocations` the right level?](#is-cache_relocations-the-right-level-held).
+    (Design note for whenever it does land: a jail left running across a
+    relocation keeps its old empty mount until restart — podman bind mounts are
+    `rprivate` — which reads exactly like cache corruption, so the command must
+    refuse while any jail is up.)
 
 ## Test plan
 
@@ -304,7 +315,9 @@ stub. So prune does not over-report freed bytes — it goes **blind**.
   `HOME`-isolated harness ever lands.
 - **Manual host acceptance** (cannot be done in-jail): a real cross-filesystem
   relocation of `huggingface`, confirming `df` on the root filesystem drops and
-  an in-jail HF download lands on the HDD.
+  an in-jail HF download lands on the HDD. **Done 2026-07-22** — the maintainer
+  moved a HuggingFace cache to cold storage on another machine successfully; the
+  manual procedure (work items 1–10) is proven end to end.
 
 ## Answered
 
@@ -357,6 +370,51 @@ _Leaning was:_ refuse to relocate while jails are up.
 
 ## Open Questions
 
+### Is `cache_relocations` the right level? (held)
+
+**This one gates item 11 — do not build `yolo cache relocate` until it is
+answered.** The maintainer is not yet convinced the mechanism sits at the right
+level of abstraction, and would rather sit with that than lock a command around
+it.
+
+The unease: `cache_relocations` is a yolo-specific, per-subdir map that only the
+container knows about. It solves the immediate problem (get `huggingface` off the
+root filesystem — done, verified 2026-07-22), but it does so by teaching *yolo*
+about storage layout rather than letting the host's own storage layer express
+it. Plausible "lower" levels the same need might be better served at:
+
+- **Filesystem / mount level on the host.** The subdir is just a directory; a
+  host-side bind mount or a dataset/subvolume (ZFS/btrfs) at
+  `cache/<subdir>` would move the bytes with zero yolo involvement, and every
+  host tool (`du`, backups, the container runtime) would see one truth. This is
+  the same fork as [the host-side-reflection
+  question](#whether-the-relocation-should-also-be-reflected-host-side) below —
+  the two are really one decision. The blocker is the [threat
+  model](#threat-model-why-user-scope-is-the-whole-design): a *yolo-managed*
+  host symlink is the rejected arbitrary-path primitive, and a *yolo-managed*
+  host mount unit is a lifecycle yolo would then own. But a symlink/mount the
+  **human** creates and yolo merely consumes sidesteps both — which suggests the
+  real primitive might be "yolo follows whatever `cache/<subdir>` already is"
+  rather than "yolo relocates it."
+- **Cache-tool level.** `HF_HOME` / `HUGGINGFACE_HUB_CACHE`, `UV_CACHE_DIR`,
+  `GOCACHE`, `PIP_CACHE_DIR` are all env-addressable. Pointing the tool at cold
+  storage directly (and mounting that path) would not need a bespoke relocation
+  map at all — though it fragments across tools and loses the single `.cache`
+  story.
+
+Nothing here is decided. The immediate win is already banked (the manual move
+works and is documented, work items 1–10), so there is no pressure to pick. The
+open question is whether item 11 should exist *as designed* — a yolo command
+that owns the copy-verify-swap — or whether the honest primitive is one level
+down (host filesystem) or one level out (per-tool env), in which case yolo's job
+shrinks to *consuming* a host-declared layout rather than *managing* one.
+
+_Leaning:_ genuinely undecided — this is a real fork, not a formality. Revisit
+alongside the host-side-reflection question; they resolve together.
+
+**Answer:**
+> _(empty — held for further consideration; see above)_
+
 ### Whether the relocation should also be reflected host-side
 
 Today's design is container-only: host `cache/<subdir>` is an empty stub and
@@ -370,10 +428,14 @@ model](#threat-model-why-user-scope-is-the-whole-design) rejects, and a host bin
 mount means yolo owns a mount unit with a lifecycle (survive reboot? unmount on
 uninstall?) — a large step up in responsibility for a cosmetic gain. Teaching
 prune is ~30 lines. But it does mean third-party tools stay wrong, so this is a
-real fork rather than an obvious call.
+real fork rather than an obvious call. **Now folded into the larger held
+question** — [Is `cache_relocations` the right
+level?](#is-cache_relocations-the-right-level-held) — because "yolo consumes a
+host-declared layout" is exactly this reflection done by the human instead of by
+yolo. They resolve together.
 
 **Answer:**
-> _(empty — fill in when decided)_
+> _(empty — held; resolves with the level-of-abstraction question above)_
 
 ### Whether `cache_relocations` should accept a per-workspace override for read-only sharing
 

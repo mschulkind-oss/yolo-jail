@@ -1,10 +1,29 @@
 # ROADMAP — sequencing the active plans
 
-**Date:** 2026-07-21. **Purpose:** one ordering for everything under
+**Date:** 2026-07-22. **Purpose:** one ordering for everything under
 `docs/plans/`, so "what do I work on next?" has a single answer. Every
 dependency below was checked against the plan docs **and** the code they cite
-(re-verified 2026-07-21, after the Jul-21 J2/J3/consolidation/Track-M wave and
-D2 landed) — where a claim rests on the tree, the file:line is named.
+(re-verified 2026-07-22, after the agent-config prism cutover + agy landed and
+the cache-relocation host acceptance step was discharged) — where a claim rests
+on the tree, the file:line is named.
+
+## Open work at a glance
+
+Everything not marked done below reduces to **four** open items. In priority /
+lane order:
+
+| # | Open item | Lane | Blocker |
+|---|---|---|---|
+| 1 | **config-composition — non-agent surface ports** (mise, standalone MCP/LSP, git/jj identity onto the prism, then delete their bespoke generators) | jail-side | none — the main remaining agent-completable thread |
+| 2 | **cli-color-audit tail** (migrate `run/console.go` off its private printer + unify the TTY probe) | jail-side | none — small, standalone |
+| 3 | **nix-ld** (retarget the image dynamic linker so mise node + custom MCP servers link env-free; **closes the custom-`mcp_servers` startup gap**) | host-gated | needs a maintainer at a host with nix (`just load && just install`); cannot be validated in-jail |
+| 4 | **D4 Cachix** (create account/token, first push, one Mac download proof) | human-gated | substituter already enabled; needs the human account step |
+
+Not on this list because they are **done or held**: J1–J3, D1/D2/D3, Track M
+M0–M2, module-consolidation, the agent-config prism cutover, and agy are all
+**done**; `cache-relocation` work items 1–10 are **done** (host acceptance step
+discharged 2026-07-22) and item 11 (`yolo cache relocate`) is **held** pending a
+level-of-abstraction design question, not scheduled.
 
 This is a **meta-doc**: it sequences the plans, it does not restate them. Each
 plan remains the source of truth for its own work items. The
@@ -21,7 +40,7 @@ post-Go-port backlog (nix-ld, color audit, consolidation) into the same picture.
 | [handoff-cachix-cache.md](handoff-cachix-cache.md) | The revival plan's **D4**: publish the OCI image to a Cachix cache. | human-gated — substituter ENABLED (flake.nix:13-16, 730c258); only account + first push + Mac download proof left |
 | [nix-ld-dynamic-linking.md](nix-ld-dynamic-linking.md) | Replace the `LD_LIBRARY_PATH` whack-a-mole with nix-ld; closes the custom-`mcp_servers` startup gap. | host-gated — **not started** |
 | [agent-settings-composition.md](agent-settings-composition.md) | Layered regeneration of any generated config (agent settings, MCP, LSP, mise, identity) + a Lua transform. **Design FINALIZED 2026-07-20.** | jail-side — **agent-config surfaces DONE 2026-07-22: prism is the sole boot config path (gate retired, bespoke writers deleted); non-agent surfaces (mise/MCP/LSP/identity) still to port** |
-| [cache-relocation.md](cache-relocation.md) | User-scope-only `cache_relocations` so a huge cold cache subdir can live on other storage; unblinds `prune`/`purge`. Podman behavior proven 2026-07-21. | jail-side (one host-gated acceptance step) |
+| [cache-relocation.md](cache-relocation.md) | User-scope-only `cache_relocations` so a huge cold cache subdir can live on other storage; unblinds `prune`/`purge`. Podman behavior proven 2026-07-21; host acceptance discharged 2026-07-22. | **DONE (items 1–10); item 11 held on a design question** |
 | [cli-color-audit.md](cli-color-audit.md) | Shared rich→ANSI renderer + TTY gate across commands. | jail-side — **bug class fixed**; tail: migrate `run/console.go` off its private duplicate + unify the TTY probe |
 | [antigravity-agy-support.md](antigravity-agy-support.md) | Support Google Antigravity CLI (`agy`) as a native agent inside `yolo-jail`. | jail-side — **DONE 2026-07-22** (born on the prism; all eight touchpoints landed) |
 | [module-consolidation-and-cleanup.md](module-consolidation-and-cleanup.md) | Collapse the parity-era `internal/*` split; drop parity machinery; §4 OSS-hygiene remnants. | **DONE 2026-07-21** (package-merge declined) |
@@ -141,13 +160,17 @@ longer a critical-path chain:
    nuance lives — see the [config-composition build](#config-composition-build-own-self-contained-thread)
    section and `agent-settings-composition.md`.
 
-2. ~~**cache-relocation**~~ — **DONE 2026-07-21.** Work items 1–10 landed
-   (user-scope-only `cache_relocations`, nested rw bind mount, prune/purge
-   accounting, docs) and were verified end to end in a nested jail: a write to
-   `~/.cache/<subdir>` inside the jail lands on the relocated target and the
-   host-side stub stays empty. `yolo cache relocate` (item 11) stays deferred;
-   the plan's one host-gated acceptance step — a real cross-filesystem move
-   confirming root-fs `df` drops — is still outstanding. Note for whoever picks
+2. ~~**cache-relocation**~~ — **DONE 2026-07-21; host acceptance discharged
+   2026-07-22.** Work items 1–10 landed (user-scope-only `cache_relocations`,
+   nested rw bind mount, prune/purge accounting, docs) and were verified end to
+   end in a nested jail: a write to `~/.cache/<subdir>` inside the jail lands on
+   the relocated target and the host-side stub stays empty. The host-gated
+   acceptance step is now done too — the maintainer moved a HuggingFace cache to
+   cold storage on another machine successfully (2026-07-22). `yolo cache
+   relocate` (item 11) is **held**, not merely deferred: the maintainer is not
+   sure `cache_relocations` sits at the right level of abstraction and does not
+   want a command locked around it until that resolves (see the plan's "Is
+   `cache_relocations` the right level?" open question). Note for whoever picks
    up **cli-color-audit** or **module-consolidation**: this touched
    `internal/prune/prunecmd.go` and `report.go`, so rebase before starting there.
 
