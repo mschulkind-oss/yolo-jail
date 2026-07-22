@@ -3,7 +3,11 @@
 **Date:** 2026-07-22. **Status:** Proposed / Planned.
 **Purpose:** Define the design, requirements, touchpoints, and execution plan for adding support for Google Antigravity CLI (`agy`) as an agent in `yolo-jail`.
 
+> [!NOTE]
+> **Config System Status:** The `yolo-jail` config generation system is currently in flux as part of the config-composition migration ([`agent-settings-composition.md`](agent-settings-composition.md) Phase C: wiring `internal/agentcfg` to boot and deprecating bespoke writers). This design reflects the current touchpoint structure and will need a review pass once the config-composition work lands to align with the new surface manifest and composition engine wiring.
+
 ---
+
 
 ## 1. Overview & Context
 
