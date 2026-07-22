@@ -146,7 +146,8 @@ func fileExistsTest(p string) bool {
 func TestResolveRuntimeEnvWins(t *testing.T) {
 	o := Options{
 		Getenv:   func(k string) string { return map[string]string{"YOLO_RUNTIME": "podman"}[k] },
-		LookPath: func(string) (string, bool) { return "", false },
+		LookPath: func(string) (string, bool) { return "/usr/bin/podman", true },
+		Exec:     fakeExec(map[string]ExecResult{"podman info": {Ran: true, RC: 0}}),
 		Stdout:   discardBuf(),
 	}
 	fillDefaults(&o)
@@ -159,6 +160,81 @@ func TestResolveRuntimeEnvWins(t *testing.T) {
 	rt, ok := o.resolveRuntime(nil)
 	if !ok || rt != "podman" {
 		t.Errorf("resolveRuntime = %q,%v; want podman,true", rt, ok)
+	}
+}
+
+// Podman installed but the machine VM not started: distinct from not-installed;
+// the message must tell the user to START it, not to install it.
+func TestResolveRuntimeExplicitNotStarted(t *testing.T) {
+	var buf bytes.Buffer
+	o := Options{
+		Getenv:   func(k string) string { return map[string]string{"YOLO_RUNTIME": "podman"}[k] },
+		LookPath: func(string) (string, bool) { return "/usr/bin/podman", true },
+		Exec:     fakeExec(map[string]ExecResult{"podman info": {Ran: true, RC: 1}}),
+		Stdout:   &buf,
+	}
+	fillDefaults(&o)
+	o.Getenv = func(k string) string {
+		if k == "YOLO_RUNTIME" {
+			return "podman"
+		}
+		return ""
+	}
+	rt, ok := o.resolveRuntime(nil)
+	if ok || rt != "" {
+		t.Errorf("resolveRuntime = %q,%v; want '',false", rt, ok)
+	}
+	if !strings.Contains(buf.String(), "installed but not started") ||
+		!strings.Contains(buf.String(), "podman machine start") {
+		t.Errorf("missing not-started message: %q", buf.String())
+	}
+}
+
+// An explicit YOLO_RUNTIME=podman with no podman on PATH must fail early with an
+// actionable message, not sail into the image build. Regression for the report
+// where a missing podman surfaced as an opaque nix/builder failure.
+func TestResolveRuntimeExplicitNotInstalled(t *testing.T) {
+	var buf bytes.Buffer
+	o := Options{
+		Getenv:   func(k string) string { return map[string]string{"YOLO_RUNTIME": "podman"}[k] },
+		LookPath: func(string) (string, bool) { return "", false },
+		Stdout:   &buf,
+	}
+	fillDefaults(&o)
+	o.Getenv = func(k string) string {
+		if k == "YOLO_RUNTIME" {
+			return "podman"
+		}
+		return ""
+	}
+	rt, ok := o.resolveRuntime(nil)
+	if ok || rt != "" {
+		t.Errorf("resolveRuntime = %q,%v; want '',false", rt, ok)
+	}
+	if !strings.Contains(buf.String(), "is not installed") ||
+		!strings.Contains(buf.String(), "YOLO_RUNTIME") {
+		t.Errorf("missing not-installed message: %q", buf.String())
+	}
+}
+
+// A native runtime (macos-user) is never on PATH — its availability is a
+// downstream concern — so validation must let it pass through.
+func TestResolveRuntimeNativePassesThrough(t *testing.T) {
+	o := Options{
+		Getenv:   func(k string) string { return map[string]string{"YOLO_RUNTIME": "macos-user"}[k] },
+		LookPath: func(string) (string, bool) { return "", false },
+		Stdout:   discardBuf(),
+	}
+	fillDefaults(&o)
+	o.Getenv = func(k string) string {
+		if k == "YOLO_RUNTIME" {
+			return "macos-user"
+		}
+		return ""
+	}
+	rt, ok := o.resolveRuntime(nil)
+	if !ok || rt != "macos-user" {
+		t.Errorf("resolveRuntime = %q,%v; want macos-user,true", rt, ok)
 	}
 }
 
@@ -178,6 +254,29 @@ func TestResolveRuntimeNoneFound(t *testing.T) {
 	}
 	if !strings.Contains(buf.String(), "No container runtime found") {
 		t.Errorf("missing no-runtime message: %q", buf.String())
+	}
+}
+
+// Auto-detect (no explicit runtime) with podman installed but not started must
+// say so — not the misleading "install podman" (it IS installed).
+func TestResolveRuntimeAutoDetectNotStarted(t *testing.T) {
+	var buf bytes.Buffer
+	o := Options{
+		Getenv:   func(string) string { return "" },
+		LookPath: func(string) (string, bool) { return "/usr/bin/podman", true },
+		Exec:     fakeExec(map[string]ExecResult{"podman info": {Ran: true, RC: 1}}),
+		Stdout:   &buf,
+		IsMacOS:  false,
+	}
+	fillDefaults(&o)
+	o.Stdout = &buf
+	rt, ok := o.resolveRuntime(nil)
+	if ok || rt != "" {
+		t.Errorf("resolveRuntime = %q,%v; want '',false", rt, ok)
+	}
+	if !strings.Contains(buf.String(), "installed but not started") ||
+		!strings.Contains(buf.String(), "podman machine start") {
+		t.Errorf("missing not-started message: %q", buf.String())
 	}
 }
 

@@ -88,10 +88,10 @@ func checkPresetNullConflicts(cfg *jsonx.OrderedMap, label string) []string {
 // (validated against ALL_RUNTIMES) before platform auto-detection.
 func (o *Options) resolveRuntime(cfg *jsonx.OrderedMap) (string, bool) {
 	if env := o.Getenv("YOLO_RUNTIME"); env != "" && inStrSlice(paths.AllRuntimes, env) {
-		return env, true
+		return o.validateExplicitRuntime(env, "YOLO_RUNTIME")
 	}
 	if rt := configRuntime(cfg); rt != "" && inStrSlice(paths.AllRuntimes, rt) {
-		return rt, true
+		return o.validateExplicitRuntime(rt, "yolo-jail.jsonc")
 	}
 	var candidates []string
 	if o.IsMacOS {
@@ -99,6 +99,7 @@ func (o *Options) resolveRuntime(cfg *jsonx.OrderedMap) (string, bool) {
 	} else {
 		candidates = []string{"podman"}
 	}
+	var offline []string // installed but daemon/VM not up
 	for _, rt := range candidates {
 		path, ok := o.LookPath(rt)
 		if !ok {
@@ -108,13 +109,61 @@ func (o *Options) resolveRuntime(cfg *jsonx.OrderedMap) (string, bool) {
 			continue
 		}
 		if !o.runtimeIsConnectable(rt) {
+			offline = append(offline, rt)
 			continue
 		}
 		return rt, true
 	}
+	// A runtime that is installed but not started is a distinct, actionable case
+	// from nothing installed — mirror `yolo check` rather than the misleading
+	// "install podman" (it IS installed; it just needs starting).
+	if len(offline) > 0 {
+		out := o.pr(o.Stdout)
+		out.printf("[bold red]Container runtime installed but not started (%s).[/bold red]",
+			strings.Join(offline, ", "))
+		for _, rt := range offline {
+			out.printf("[dim]%s[/dim]", runtimeStartHint(rt))
+		}
+		return "", false
+	}
 	o.pr(o.Stdout).print(
 		"[bold red]No container runtime found. Install podman, or on macOS, Apple's container CLI.[/bold red]")
 	return "", false
+}
+
+// validateExplicitRuntime gates an explicitly-selected runtime (YOLO_RUNTIME or
+// config.runtime, source names the origin). Native runtimes (macos-user) aren't
+// on PATH — their availability is checked downstream — so they pass through.
+// Container runtimes must be installed AND started: without this catch a
+// `YOLO_RUNTIME=podman` with no podman (or a stopped `podman machine`) sails
+// past into the image build and only surfaces as an opaque nix/builder failure
+// three layers deep.
+func (o *Options) validateExplicitRuntime(rt, source string) (string, bool) {
+	if inStrSlice(paths.NativeRuntimes, rt) {
+		return rt, true
+	}
+	out := o.pr(o.Stdout)
+	if _, ok := o.LookPath(rt); !ok {
+		out.printf("[bold red]Configured runtime '%s' (from %s) is not installed.[/bold red]", rt, source)
+		out.printf("[dim]Install it, or unset %s to auto-detect. Run `yolo check` to validate.[/dim]", source)
+		return "", false
+	}
+	if !o.runtimeIsConnectable(rt) {
+		out.printf("[bold red]Configured runtime '%s' (from %s) is installed but not started.[/bold red]", rt, source)
+		out.printf("[dim]%s[/dim]", runtimeStartHint(rt))
+		return "", false
+	}
+	return rt, true
+}
+
+// runtimeStartHint is the "it's installed, just start it" one-liner for a
+// container runtime, kept in step with `yolo check`'s liveness hints.
+func runtimeStartHint(rt string) string {
+	if rt == "container" {
+		return "Start it: `container system start`"
+	}
+	return "Start it: `podman machine start` " +
+		"(first time: `podman machine init && podman machine start`)"
 }
 
 // isAppleContainer reports whether the runtime at path is Apple's container CLI.
