@@ -254,15 +254,15 @@ func (e *Env) hostPiFiles() []string {
 	return out
 }
 
-func ConfigureOpencode(e *Env) error {
-	dir := e.OpencodeDir()
-	if err := os.MkdirAll(dir, 0o755); err != nil {
-		return err
-	}
-	configPath := filepath.Join(dir, "opencode.json")
-	managedPath := filepath.Join(dir, "yolo-managed-mcp-servers.json")
-
-	// Translate shared MCP servers into opencode's native schema.
+// buildOpencodeMCPServers translates the live shared MCP servers
+// (LoadMCPServers) into opencode's NATIVE mcp schema: each server becomes an
+// object {type:"local", command:[cmd, ...args], enabled:true, environment:{...}}
+// (environment omitted when empty). This is the raw yolo-owned table BEFORE any
+// sidecar/overlay reconciliation — shared by the bespoke ConfigureOpencode
+// (which reconciles it against the yolo-managed sidecar) and
+// ConfigureOpencodePrism (which hands it to the engine as the computed layer,
+// where the last_render anchor makes the sidecar reconcile unnecessary).
+func buildOpencodeMCPServers(e *Env) *jsonx.OrderedMap {
 	configured := e.LoadMCPServers()
 	opencodeMCP := jsonx.NewOrderedMap()
 	for _, name := range configured.Keys() {
@@ -288,6 +288,19 @@ func ConfigureOpencode(e *Env) error {
 		}
 		opencodeMCP.Set(name, entry)
 	}
+	return opencodeMCP
+}
+
+func ConfigureOpencode(e *Env) error {
+	dir := e.OpencodeDir()
+	if err := os.MkdirAll(dir, 0o755); err != nil {
+		return err
+	}
+	configPath := filepath.Join(dir, "opencode.json")
+	managedPath := filepath.Join(dir, "yolo-managed-mcp-servers.json")
+
+	// Translate shared MCP servers into opencode's native schema.
+	opencodeMCP := buildOpencodeMCPServers(e)
 
 	current := loadObject(configPath)
 	setDefault(current, "$schema", "https://opencode.ai/config.json")

@@ -517,7 +517,11 @@ func configureAgent(e *Env, agent string) {
 			genStep(e, "configure_gemini", func() error { return ConfigureGemini(e) })
 		}
 	case "opencode":
-		genStep(e, "configure_opencode", func() error { return ConfigureOpencode(e) })
+		if prismEnabledFor(e, "opencode") {
+			genStep(e, "configure_opencode", func() error { return ConfigureOpencodePrism(e) })
+		} else {
+			genStep(e, "configure_opencode", func() error { return ConfigureOpencode(e) })
+		}
 	case "pi":
 		if prismEnabledFor(e, "pi") {
 			genStep(e, "configure_pi", func() error { return ConfigurePiPrism(e) })
