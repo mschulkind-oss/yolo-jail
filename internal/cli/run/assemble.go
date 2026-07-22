@@ -398,6 +398,14 @@ func (o *Options) commonEnvBlock(in *assembleInput, blockedConfigJSON, netMode s
 		"-e", "MISE_YES=1",
 		"-e", "COPILOT_ALLOW_ALL=true",
 		"-e", "IS_SANDBOX=1",
+		// Retained deliberately (not redundant cleanup): this mirrors the value
+		// baked into the OCI image's config.Env (flake.nix), but re-asserting it
+		// on -e makes the launch env self-describing and independent of whichever
+		// image tag podman resolves — a `yolo run` that (mis)loads an image
+		// without the baked env still gets a correct LD_LIBRARY_PATH. It is the
+		// dlopen-by-soname discovery path for nix-built processes (which never
+		// traverse /lib64 and so are unreachable by nix-ld); nix-ld handles the
+		// FHS-binary case. See docs/design/mise-node-dynamic-linking.md step 6/7.
 		"-e", "LD_LIBRARY_PATH=/lib:/usr/lib:/usr/lib/" + storage.LinuxMultilib(),
 		"-e", "HOME=/home/agent",
 		"-e", "EDITOR=cat",
