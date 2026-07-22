@@ -1,11 +1,22 @@
 # The mise-node / `LD_LIBRARY_PATH` problem (investigation + handoff)
 
-**Status:** RESOLVED at the design level (2026-07-19) — adopt **nix-ld** as the
-`/lib64` interpreter; empirically validated in-jail, implementation pending.
-See [Resolution](#resolution-adopt-nix-ld-as-the-lib64-interpreter-2026-07-19).
-The sections below it record the root-cause investigation and the alternatives
-that were weighed and rejected. The current mitigation (baked `LD_LIBRARY_PATH`
-+ MCP wrapper scripts) is unchanged until the fix lands.
+**Status:** IMPLEMENTED (2026-07-22) — **nix-ld** is the `/lib64` interpreter
+(variant A, fully env-free). Landed across four commits: the flake wiring
+(`e05666a`), the MCP-wrapper `LD_LIBRARY_PATH` deletion (`1d614e1`), the
+`-e LD_LIBRARY_PATH` re-export documented-as-kept (`d38463a`), and the
+`yolo check` baseline-drift tripwire (`d6d2e65`). Verified end-to-end in a
+nested jail on the new image: an FHS mise node runs under `env -i`
+(v22.20.0/v22.23.1), and the `yolo check` tripwire FAILs on the old image /
+PASSes on the new one. The originally-designed steps 4–5 (runtime `/run`
+fallback wiring, explicit `--tmpfs /run`) **collapsed to nothing** under
+variant A — the loader default is compiled into the shim and the library dir
+is baked at `/usr/share/nix-ld/lib`, so there is no runtime `/run` symlink to
+create. See [Resolution](#resolution-adopt-nix-ld-as-the-lib64-interpreter-2026-07-19).
+The step 6 baked `LD_LIBRARY_PATH` (image env + the `-e` re-export) is
+retained deliberately — it is the dlopen-by-soname discovery path for
+nix-built processes, which never traverse `/lib64` and so are structurally
+unreachable by nix-ld. The sections below record the root-cause investigation
+and the alternatives that were weighed and rejected.
 
 **Why this doc exists:** the MCP node/npx wrapper (see
 [mcp-configuration.md](mcp-configuration.md) §1) keeps generating "just patch it
@@ -299,18 +310,18 @@ problem** — the rest are glibc-only, static, or musl.
    its compiled-in fallback path, and `LD_LIBRARY_PATH` **cannot** mask a
    missing fallback: it locates *libraries*, not the loader). Under variant A
    this is redundant (the default is compiled in) but harmless.
-4. **entrypoint (Python + Go twins):** first thing at startup, idempotently
-   (`ln -sfn`) create
-   `/run/current-system/sw/share/nix-ld/lib → /usr/share/nix-ld/lib`
-   (`mkdir -p` parents). Under variant B this is the correctness path —
-   **loud fail-fast**, unlike the best-effort `generate_ld_cache`, because
-   the missing-fallback failure mode there is a jail-wide cryptic SIGABRT.
-   Under variant A it's only needed if the lib-dir const isn't patched, and a
-   miss degrades to a readable loader error. Must run on container-reuse
-   `exec` paths too (cf. the `_port_in_use` guard pattern).
-5. **cli (both twins):** give `--tmpfs /run` an explicit mode — under docker's
-   `-u UID:GID` a root-owned 0755 `/run` would make step 4 fail with EACCES
-   (podman rootless runs uid 0 and is unaffected).
+4. **entrypoint (Python + Go twins):** ~~idempotently create
+   `/run/current-system/sw/share/nix-ld/lib → /usr/share/nix-ld/lib`~~
+   **NOT NEEDED under variant A (as shipped).** The flake patches the lib-dir
+   const to the baked `/usr/share/nix-ld/lib` (a `substituteInPlace` on the
+   `const`) *and* bakes `DEFAULT_NIX_LD` to the real glibc `ld.so` — verified
+   the built binary has **zero** `/run/current-system` references. So there is
+   no runtime symlink to create on any boot path. This step existed only for
+   variant B's `/run` fallback.
+5. **cli (both twins):** ~~give `--tmpfs /run` an explicit mode~~ **moot for
+   nix-ld under variant A** (no `/run` dependency). `--tmpfs /run` is already
+   unconditional in both mount modes (`internal/cli/run/runmount.go`) for
+   unrelated reasons, so nothing changed here.
 6. **KEEP the baked `LD_LIBRARY_PATH` (`flake.nix:718`).** Adversarial review
    found deleting it is a feature regression, not a cleanup: it is the only
    discovery mechanism for **dlopen-by-soname from nix-built processes**
@@ -318,19 +329,31 @@ problem** — the rest are glibc-only, static, or musl.
    and its integration test) — a class nix-ld structurally cannot reach, since
    nix binaries never pass through `/lib64`. One baked line is not the
    whack-a-mole; the *per-call-site re-assertions* were.
-7. **DELETE, staged (fix-forward, separate commits, per repo convention):**
-   after nested-jail validation, remove the `LD_LIBRARY_PATH` export lines in
-   the MCP wrappers (`src/entrypoint/mcp_wrappers.py` + Go twin) and evaluate
-   the cli `-e` re-export (`run_cmd.py:1937` / `assemble.go:381`) for
-   redundancy with the image env. The custom-`mcp_servers` gap (this doc's
-   original trigger) **closes for free** — bare `node` commands resolving to
-   the mise node now survive scrubbed-env spawns with no wrapper at all.
-8. **Validation gates before each deletion:** an `env -i` smoke suite in a
-   nested jail — mise node, the Claude Code native binary, `copilot --version`
-   (pty.node/keytar.node addons), an MCP spawn, a ctypes `dlopen` — plus one
-   run on aarch64. Add `env -i /mise/installs/node/*/bin/node --version` to
-   `yolo check` diagnostics so baseline drift surfaces as a clear message
-   instead of a cryptic MCP failure.
+7. **DELETE, staged — DONE (`1d614e1`, `d38463a`).** Removed the
+   `LD_LIBRARY_PATH` export lines from all three MCP wrappers
+   (`internal/entrypoint/mcp_wrappers.go`: node, npx, chrome); `FONTCONFIG_*`
+   stay (chromium font config, unrelated to the loader). Nested-jail verified:
+   the wrappers regenerate without the line and the node wrapper still runs
+   under `env -i`. The cli `-e` re-export (`assemble.go`) was **evaluated and
+   kept** — it is byte-identical to the baked `config.Env` (confirmed via
+   `podman image inspect`), so it is redundant on the podman path, but it is
+   retained (with a comment) to keep the launch env self-describing and as the
+   dlopen-by-soname path for nix processes. The custom-`mcp_servers` gap
+   **closed for free** — bare `node` commands now survive scrubbed-env spawns
+   with no wrapper. (Note: `keytar.node` still fails env-free, but that is a
+   pre-existing **farm gap** — `libsecret-1.so.0` is not in the farm at all,
+   and it failed *with* the wrapper `LD_LIBRARY_PATH` too — not a regression
+   from this deletion. See "Known residuals".)
+8. **Validation gate — DONE (`d6d2e65`).** Added an in-jail-only `yolo check`
+   section that runs `env -i <mise node> --version` and reports PASS (nix-ld
+   intact) / FAIL-with-remedy (regressed). Scrubbing is in the argv (`env -i`),
+   not the check `Exec` env slice — `realExec` appends to `os.Environ()` and
+   cannot scrub, so an empty env slice would falsely pass. Verified it FAILs on
+   the old baked image and PASSes on the new nix-ld image. The broader `env -i`
+   smoke matrix (Claude native binary, `copilot --version`, an MCP spawn, a
+   ctypes `dlopen`, aarch64) remains a **host-gated acceptance step** before the
+   maintainer ships the image via `just load` — the core mise-node crux is
+   proven in-jail.
 
 ### Known residuals (stated honestly)
 
