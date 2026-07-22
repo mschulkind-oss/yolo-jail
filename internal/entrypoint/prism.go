@@ -26,6 +26,7 @@ import (
 
 	"github.com/mschulkind-oss/yolo-jail/internal/agentcfg"
 	"github.com/mschulkind-oss/yolo-jail/internal/agentcfg/luahook"
+	"github.com/mschulkind-oss/yolo-jail/internal/jsonx"
 )
 
 // prismEnabledFor reports whether boot should render agent's surfaces through
@@ -265,4 +266,39 @@ func ConfigureCopilotPrism(e *Env) error {
 	}
 	// Dynamic siblings stay bespoke, shared with ConfigureCopilot.
 	return writeCopilotDynamicConfigs(e, e.CopilotDir())
+}
+
+// ConfigureAgyPrism configures the Google Antigravity CLI (agy). AGY is a
+// brand-new agent with zero legacy bespoke state, so — unlike the migrating
+// agents that sit behind the YOLO_PRISM_SURFACES gate while their bespoke
+// writers are retired — it is born DIRECTLY on the prism: there is no bespoke
+// ConfigureAgy and no gate. boot.go calls this unconditionally. It:
+//
+//  1. renders ~/.gemini/antigravity-cli/settings.json through the engine with §5
+//     overlay capture and the §3.2 first-migration bootstrap. agy has NO host
+//     mount (yolo owns the file, like copilot's config.json — §4.6), so
+//     hostBytes is nil and the render is defaults<overlay<managed; the sole
+//     managed key permissionMode="allow" is the YOLO posture (agy never
+//     re-prompts — the container is the sandbox), so a user edit reverts;
+//  2. writes the dynamic mcp_config.json sibling from live MCP config — a pure
+//     per-boot overwrite (no in-jail edits preserved), exactly like copilot's
+//     mcp-config.json. The prism owns only the static settings.json.
+//
+// There is no orphan-file cleanup: agy never had a bespoke snapshot sidecar
+// (nothing to migrate away from) — the same zero-stale property that made
+// copilot the first non-agent-config port.
+func ConfigureAgyPrism(e *Env) error {
+	if err := os.MkdirAll(e.AgyDir(), 0o755); err != nil {
+		return err
+	}
+	// settings.json: no host source (yolo owns it outright).
+	if _, err := renderSurfaceStateful(e, "agy", "settings", nil); err != nil {
+		return err
+	}
+	// Dynamic mcp_config.json sibling: a pure overwrite regenerated from live MCP
+	// config every boot (no in-jail edits preserved), mirroring copilot's
+	// mcp-config.json.
+	mcpConfig := jsonx.NewOrderedMap()
+	mcpConfig.Set("mcpServers", e.LoadMCPServers())
+	return writeInPlaceString(filepath.Join(e.AgyDir(), "mcp_config.json"), dumpJSONIndent2(mcpConfig))
 }

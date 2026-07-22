@@ -180,6 +180,11 @@ func (e *Env) GeminiManagedMCPPath() string {
 	return filepath.Join(e.GeminiDir(), "yolo-managed-mcp-servers.json")
 }
 
+// AgyDir is HOME/.gemini/antigravity-cli — the Google Antigravity CLI's state
+// dir. It shares the ~/.gemini tree with gemini but is a distinct subdir, so
+// the two agents never collide (see the agy AgentSpec / agySettings surface).
+func (e *Env) AgyDir() string { return filepath.Join(e.GeminiDir(), "antigravity-cli") }
+
 // ClaudeDir is HOME/.claude.
 func (e *Env) ClaudeDir() string { return filepath.Join(e.Home, ".claude") }
 

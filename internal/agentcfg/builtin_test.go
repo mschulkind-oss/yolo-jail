@@ -279,3 +279,36 @@ func TestBuiltinCodexConfigSurface(t *testing.T) {
 		t.Error("codex/config must NOT bake mcp_servers into managed (it is a dynamic transform)")
 	}
 }
+
+// TestBuiltinAgySettingsSurface asserts agy/settings (settings.json) is in the
+// manifest with the json codec at agy's antigravity-cli path, and the single
+// force-managed key permissionMode="allow" (the YOLO posture). agy has NO host
+// mount and no bespoke writer — it is born on the prism (docs/plans/
+// antigravity-agy-support.md) — so Defaults is empty and the dynamic
+// mcp_config.json (a separate sibling) must not leak into either static layer.
+func TestBuiltinAgySettingsSurface(t *testing.T) {
+	m := BuiltinManifest()
+	s, ok := m.Lookup("agy", "settings")
+	if !ok {
+		t.Fatal("builtin manifest missing agy/settings")
+	}
+	if s.Codec != "json" {
+		t.Errorf("agy/settings codec = %q, want json", s.Codec)
+	}
+	if s.Path != "~/.gemini/antigravity-cli/settings.json" {
+		t.Errorf("agy/settings path = %q, want ~/.gemini/antigravity-cli/settings.json", s.Path)
+	}
+	// permissionMode is FORCE-MANAGED (the container is the sandbox).
+	if s.Managed["permissionMode"] != "allow" {
+		t.Errorf("agy/settings should enforce permissionMode=allow, got %v", s.Managed["permissionMode"])
+	}
+	// No setDefault keys — Defaults is empty (yolo owns the file outright).
+	if len(s.Defaults) != 0 {
+		t.Errorf("agy/settings Defaults should be empty, got %#v", s.Defaults)
+	}
+	// The dynamic mcp_config.json is a separate pure-overwrite sibling, not a
+	// manifest layer — it must not be baked into settings.
+	if _, present := s.Managed["mcpServers"]; present {
+		t.Error("agy/settings must NOT bake mcpServers into managed (it is a separate dynamic sibling)")
+	}
+}

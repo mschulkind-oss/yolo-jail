@@ -1,10 +1,34 @@
 # AGY (Google Antigravity CLI) Support Plan
 
-**Date:** 2026-07-22. **Status:** Proposed / Planned.
+**Date:** 2026-07-22. **Status:** In progress — born directly on the prism.
 **Purpose:** Define the design, requirements, touchpoints, and execution plan for adding support for Google Antigravity CLI (`agy`) as an agent in `yolo-jail`.
 
 > [!NOTE]
-> **Config System Status:** The `yolo-jail` config generation system is currently in flux as part of the config-composition migration ([`agent-settings-composition.md`](agent-settings-composition.md) Phase C: wiring `internal/agentcfg` to boot and deprecating bespoke writers). This design reflects the current touchpoint structure and will need a review pass once the config-composition work lands to align with the new surface manifest and composition engine wiring.
+> **Prism-native by construction.** This plan was revised (2026-07-22) to align
+> with the config-composition ("prism") migration
+> ([`agent-settings-composition.md`](agent-settings-composition.md),
+> [`config-migration-to-prism.md`](../design/config-migration-to-prism.md)).
+> AGY has **zero legacy bespoke state** to migrate — it is a brand-new agent —
+> so it is the cleanest possible surface to be born *directly on the prism*
+> rather than as yet another bespoke `Configure*` writer that Phase C would then
+> have to delete. Concretely:
+>
+> - `agy`'s `settings.json` is a **manifest surface** (`agySettings` in
+>   `internal/agentcfg/builtin.go`), rendered by the shared composition engine
+>   through the §5 capture-diff overlay loop — identical to how pi and copilot
+>   already boot.
+> - Its writer is **`ConfigureAgyPrism`** (in `internal/entrypoint/prism.go`),
+>   modeled on `ConfigureCopilotPrism` (no host mount — yolo owns the file
+>   outright). There is **no** bespoke `ConfigureAgy`; the §4C sketch that an
+>   earlier draft carried is intentionally dropped.
+> - AGY is **always** rendered through the prism. Unlike the existing agents,
+>   which sit behind the `YOLO_PRISM_SURFACES` cutover gate while their bespoke
+>   writers are retired, `agy` has no bespoke path to fall back to, so it needs
+>   no gate — it is the first agent to live *only* in the unified config system.
+> - The dynamic `mcp_config.json` is a pure per-boot overwrite (regenerated from
+>   live MCP config, no in-jail edits preserved), so it stays a bespoke sibling
+>   exactly like copilot's `mcp-config.json` — the prism owns only the static
+>   `settings.json`.
 
 ---
 
@@ -47,18 +71,22 @@ In `internal/agents/agents.go`, `agy` will be registered with `Kind: "native"` (
 
 ## 3. Codebase Touchpoint Inventory
 
-Adding `agy` requires modifications across 8 core areas of the `yolo-jail` codebase:
+Adding `agy` requires modifications across these core areas of the `yolo-jail`
+codebase. Two of them (storage, config-validation) **auto-derive** from the
+registry — adding the `AgentSpec` is enough; they are listed for completeness.
 
 | Touchpoint Area | Target Files | Key Change |
 |---|---|---|
-| **1. Agent Registry** | [`internal/agents/agents.go`](../../internal/agents/agents.go) | Add `AgentSpec` entry for `"agy"` in `specs` array. |
-| **2. Surface Manifests** | [`internal/agentcfg/builtin.go`](../../internal/agentcfg/builtin.go) | Declare `manifest.Surface` for `agySettings`. |
-| **3. Path & Env Helpers** | [`internal/entrypoint/env.go`](../../internal/entrypoint/env.go) | Add `(e *Env) AgyDir()` helper (`filepath.Join(e.Home, ".gemini", "antigravity-cli")`). |
-| **4. Provisioning & MCP** | [`internal/entrypoint/agent_configs.go`](../../internal/entrypoint/agent_configs.go) | Implement `ConfigureAgy(e *Env) error` (settings + `mcp_config.json`). |
-| **5. Container Boot** | [`internal/entrypoint/boot.go`](../../internal/entrypoint/boot.go) | Add `case "agy":` in `configureAgent`. |
-| **6. Global Storage** | [`internal/storage/ensure.go`](../../internal/storage/ensure.go) | Include `.gemini/antigravity-cli` in overlay directory creation. |
-| **7. Preflight Validation** | [`internal/cli/check/entrypoint.go`](../../internal/cli/check/entrypoint.go) | Add `agentWriters["agy"]` and output validation in `agentOutputs`. |
-| **8. Documentation & Tests** | `docs/`, `internal/cli/config_ref.txt`, `*_test.go` | Update docs and golden test suites for `agy`. |
+| **1. Agent Registry** | [`internal/agents/agents.go`](../../internal/agents/agents.go) | Add `AgentSpec` entry for `"agy"` in `specs` array (native install, overlay `.gemini/antigravity-cli`). |
+| **2. Surface Manifest** | [`internal/agentcfg/builtin.go`](../../internal/agentcfg/builtin.go) | Declare `agySettings` `manifest.Surface`; add it to `BuiltinManifest()`. |
+| **3. Path & Env Helper** | [`internal/entrypoint/env.go`](../../internal/entrypoint/env.go) | Add `(e *Env) AgyDir()` (`filepath.Join(e.Home, ".gemini", "antigravity-cli")`). |
+| **4. Prism Writer** | [`internal/entrypoint/prism.go`](../../internal/entrypoint/prism.go) | Implement `ConfigureAgyPrism(e *Env) error` — renders `settings.json` through `renderSurfaceStateful` (no host mount) + writes the dynamic `mcp_config.json` sibling. **No bespoke `ConfigureAgy`.** |
+| **5. Container Boot** | [`internal/entrypoint/boot.go`](../../internal/entrypoint/boot.go) | Add `case "agy":` in `configureAgent` calling `ConfigureAgyPrism` unconditionally (no gate). |
+| **6. Preflight Validation** | [`internal/cli/check/entrypoint.go`](../../internal/cli/check/entrypoint.go) | Add `agentWriters["agy"] = ConfigureAgyPrism` and an `agentOutputs["agy"]` entry validating `settings.json` + `mcp_config.json` parse. |
+| **7. Documentation** | [`internal/cli/config_ref.txt`](../../internal/cli/config_ref.txt), `docs/` | Add the `agy` bullet to the valid-agents list; note it in the MCP/briefing docs. |
+| **8. Tests** | `*_test.go` | Registry/inject/agentsmd, a `ConfigureAgyPrism` first-migration + idempotent test (mirrors `prism_copilot_test.go`), a `builtin_test.go` `agySettings` assertion. |
+| _(auto)_ **Global Storage** | [`internal/storage/ensure.go`](../../internal/storage/ensure.go) | No change — `.gemini/antigravity-cli` flows in via `agents.AllOverlayDirs` once the registry entry lands. |
+| _(auto)_ **Config Validation** | [`internal/config/derived.go`](../../internal/config/derived.go) | No change — `validAgentSet` derives from `agents.ValidAgents`, so `"agy"` is accepted automatically. |
 
 ---
 
@@ -99,50 +127,83 @@ var agySettings = manifest.Surface{
 }
 ```
 
-### C. Entrypoint Writer (`internal/entrypoint/agent_configs.go`)
-```go
-func ConfigureAgy(e *Env) error {
-    dir := e.AgyDir()
-    if err := os.MkdirAll(dir, 0o755); err != nil {
-        return err
-    }
-    
-    // Reconcile shared MCP servers -> mcp_config.json
-    configured := e.LoadMCPServers()
-    mcpConfig := jsonx.NewOrderedMap()
-    mcpConfig.Set("mcpServers", configured)
-    if err := writeInPlaceString(filepath.Join(dir, "mcp_config.json"), dumpJSONIndent2(mcpConfig)); err != nil {
-        return err
-    }
+### C. Prism Writer (`internal/entrypoint/prism.go`)
 
-    // Write settings.json with forced permissionMode: allow
-    settingsPath := filepath.Join(dir, "settings.json")
-    current := loadObject(settingsPath)
-    current.Set("permissionMode", "allow")
-    return writeInPlaceString(settingsPath, dumpJSONIndent2(current))
+AGY is born on the prism, so its writer is a thin sibling of
+`ConfigureCopilotPrism`: render `settings.json` through the shared engine (no
+host mount — yolo owns the file), then write the dynamic `mcp_config.json`
+sibling. The `permissionMode: "allow"` posture lives in the `agySettings`
+manifest's **Managed** layer (§4B), so the writer never hand-sets it.
+
+```go
+// ConfigureAgyPrism configures the Google Antigravity CLI (agy). AGY is a
+// brand-new agent with zero legacy bespoke state, so it is born directly on the
+// prism — there is no bespoke ConfigureAgy and no YOLO_PRISM_SURFACES gate. It:
+//
+//  1. renders ~/.gemini/antigravity-cli/settings.json through the engine with
+//     §5 overlay capture and the §3.2 first-migration bootstrap. AGY has NO host
+//     mount (yolo owns the file), so hostBytes is nil and the render is
+//     defaults<overlay<managed (the managed permissionMode:"allow" is the YOLO
+//     posture);
+//  2. writes the dynamic mcp_config.json sibling from live MCP config — a pure
+//     per-boot overwrite (no in-jail edits preserved), exactly like copilot's
+//     mcp-config.json. The prism owns only the static settings.json.
+func ConfigureAgyPrism(e *Env) error {
+    if err := os.MkdirAll(e.AgyDir(), 0o755); err != nil {
+        return err
+    }
+    // settings.json: no host source (yolo owns it outright).
+    if _, err := renderSurfaceStateful(e, "agy", "settings", nil); err != nil {
+        return err
+    }
+    // Dynamic mcp_config.json sibling (pure overwrite, regenerated every boot).
+    mcpConfig := jsonx.NewOrderedMap()
+    mcpConfig.Set("mcpServers", e.LoadMCPServers())
+    return writeInPlaceString(filepath.Join(e.AgyDir(), "mcp_config.json"), dumpJSONIndent2(mcpConfig))
 }
 ```
+
+### D. Boot Wiring (`internal/entrypoint/boot.go`)
+
+```go
+case "agy":
+    genStep(e, "configure_agy", func() error { return ConfigureAgyPrism(e) })
+```
+
+No `prismEnabledFor` branch — AGY has no bespoke fallback, so it renders through
+the prism unconditionally.
 
 ---
 
 ## 5. Execution Roadmap & Phases
 
-- **Phase 1: Agent Registry & Validation**
-  * Update `internal/agents/agents.go` with the `agy` `AgentSpec`.
-  * Update `agents_test.go` and golden assertions.
-  * Verify `yolo check` and `internal/config/validate.go` accept `"agy"` in `agents` array.
+- **Phase 1: Registry, manifest, env helper**
+  * Add the `agy` `AgentSpec` to `internal/agents/agents.go` (native install,
+    overlay `.gemini/antigravity-cli`, briefing `AGENTS.md`, YOLO flag
+    `--dangerously-skip-permissions`).
+  * Add `agySettings` to `internal/agentcfg/builtin.go` and to
+    `BuiltinManifest()`; add a `builtin_test.go` assertion.
+  * Add `(e *Env) AgyDir()` to `internal/entrypoint/env.go`.
+  * Verify `internal/config` accepts `"agy"` (auto — `validAgentSet` derives from
+    the registry).
 
-- **Phase 2: Entrypoint & Shims**
-  * Add `AgyDir()` to `internal/entrypoint/env.go`.
-  * Add `ConfigureAgy` to `internal/entrypoint/agent_configs.go`.
-  * Wire `case "agy":` in `boot.go`.
-  * Verify lazy native shim creation in `~/.yolo-shims/agy`.
+- **Phase 2: Prism writer + boot**
+  * Add `ConfigureAgyPrism` to `internal/entrypoint/prism.go`.
+  * Wire `case "agy":` in `boot.go` (unconditional — no gate).
+  * TDD: a first-migration + idempotent test mirroring `prism_copilot_test.go`
+    (config lands with `permissionMode:"allow"`, sidecars seeded, overlay `{}`,
+    `mcp_config.json` written).
+  * Verify lazy native shim creation in `~/.yolo-shims/agy`
+    (`GenerateAgentLaunchers` already handles `Kind:"native"`).
 
-- **Phase 3: Storage & Check Integration**
-  * Add `.gemini/antigravity-cli` to `EnsureGlobalStorage` in `internal/storage/ensure.go`.
-  * Update `internal/cli/check/entrypoint.go` to include `agy` validation.
+- **Phase 3: Check integration**
+  * Add `agentWriters["agy"] = ConfigureAgyPrism` and an `agentOutputs["agy"]`
+    entry (`settings.json` + `mcp_config.json` parse) in
+    `internal/cli/check/entrypoint.go`.
 
-- **Phase 4: Documentation & Test Suite Consolidation**
-  * Update `docs/design/agent-briefings.md` and `docs/design/mcp-configuration.md`.
-  * Update `docs/guides/USER_GUIDE.md` and `internal/cli/config_ref.txt`.
-  * Run `just test-fast` and nested-jail verification (`yolo -- bash`).
+- **Phase 4: Docs & verification**
+  * Add the `agy` bullet to `internal/cli/config_ref.txt`; note it in
+    `docs/design/agent-briefings.md` and `docs/design/mcp-configuration.md` and
+    `docs/guides/USER_GUIDE.md`.
+  * Run `just test-fast`; nested-jail verify (a throwaway `{"agents":["agy"]}`
+    workspace, two boots to prove the §5 capture loop).

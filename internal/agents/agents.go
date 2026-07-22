@@ -150,6 +150,37 @@ var specs = []AgentSpec{
 		Alias:       "",
 		MiseRetire:  nil,
 	},
+	{
+		// agy is Google's Antigravity CLI — a native Go binary installed to
+		// ~/.local/bin/agy via a curl|bash installer. It shares the ~/.gemini
+		// tree with gemini but lives in its own antigravity-cli/ subdir, so its
+		// overlay is scoped to .gemini/antigravity-cli (zero collision with
+		// gemini's .gemini overlay — both are seeded/persisted independently).
+		// Born directly on the prism: settings.json is the agySettings surface
+		// (internal/agentcfg/builtin.go), configured by ConfigureAgyPrism with no
+		// bespoke fallback (docs/plans/antigravity-agy-support.md).
+		//
+		// NOTE: InstallerURL is the plan's PLACEHOLDER pending confirmation of
+		// the real Antigravity installer endpoint — the config plumbing is
+		// URL-agnostic; only first-use `agy` install fetches it.
+		Name: "agy",
+		Install: InstallSpec{
+			Kind:         "native",
+			Bin:          "agy",
+			InstallerURL: "https://antigravity.google.com/install.sh",
+		},
+		ConfigWriter: "configure_agy",
+		Briefing: BriefingSpec{
+			Staging:    "AGENTS-agy.md",
+			Mount:      ".gemini/antigravity-cli/AGENTS.md",
+			HostSource: ".gemini/antigravity-cli/AGENTS.md",
+		},
+		OverlayDirs: []string{".gemini/antigravity-cli"},
+		Skills:      ".gemini/antigravity-cli/skills",
+		YoloFlags:   []string{"--dangerously-skip-permissions"},
+		Alias:       "",
+		MiseRetire:  nil,
+	},
 }
 
 // Order is the agent names in declaration order.

@@ -46,6 +46,11 @@ func (o *Options) runEntrypointPreflight(r *reporter, _, workspace string, merge
 		"YOLO_MCP_SERVERS":  mcpJSON,
 		"YOLO_MCP_PRESETS":  presetsJSON,
 		"YOLO_AGENTS":       agentsJSON,
+		// Point prism writers' §5 sidecars (<workspace>/.yolo/prism/) at the temp
+		// home, not the real workspace — the preflight is a dry run and must not
+		// touch the live workspace. agy (born on the prism) is the first writer
+		// here that emits sidecars.
+		"YOLO_WORKSPACE": filepath.Join(tmp, "workspace"),
 	}
 
 	// env_sources overrides (resolved against the workspace).
@@ -79,6 +84,9 @@ func (o *Options) runEntrypointPreflight(r *reporter, _, workspace string, merge
 		"opencode": entrypoint.ConfigureOpencode,
 		"pi":       entrypoint.ConfigurePi,
 		"codex":    entrypoint.ConfigureCodex,
+		// agy is born on the prism — no bespoke writer, so the preflight exercises
+		// its real boot path (ConfigureAgyPrism) directly.
+		"agy": entrypoint.ConfigureAgyPrism,
 	}
 	for _, agent := range entrypoint.LoadAgents(e) {
 		if writer, ok := agentWriters[agent]; ok {
@@ -107,6 +115,10 @@ func (o *Options) runEntrypointPreflight(r *reporter, _, workspace string, merge
 		"opencode": {{filepath.Join(e.OpencodeDir(), "opencode.json"), parseJSON}},
 		"pi":       {{filepath.Join(e.PiDir(), "settings.json"), parseJSON}},
 		"codex":    {{filepath.Join(e.CodexDir(), "config.toml"), parseToml}},
+		"agy": {
+			{filepath.Join(e.AgyDir(), "settings.json"), parseJSON},
+			{filepath.Join(e.AgyDir(), "mcp_config.json"), parseJSON},
+		},
 	}
 	for _, agent := range entrypoint.LoadAgents(e) {
 		for _, spec := range agentOutputs[agent] {

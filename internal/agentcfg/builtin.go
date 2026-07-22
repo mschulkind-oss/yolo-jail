@@ -295,10 +295,32 @@ var codexConfig = manifest.Surface{
 	},
 }
 
+// agySettings is agy's (Google Antigravity CLI) settings.json surface. Unlike
+// the other agents, agy has NO bespoke writer to migrate away from — it is a
+// brand-new agent born directly on the prism (docs/plans/antigravity-agy-support.md).
+// The YOLO posture is a single force-managed key:
+//
+//   - permissionMode="allow" — agy never re-prompts for tool approval (the
+//     container is the sandbox). Managed, so a user edit reverts next boot.
+//
+// agy has no host mount (yolo owns the file outright, like copilot's
+// config.json — §4.6), so there is no host layer and no Defaults. Its dynamic
+// mcp_config.json is a separate pure-overwrite sibling (ConfigureAgyPrism),
+// exactly as copilot's mcp-config.json — the prism owns only this settings.json.
+var agySettings = manifest.Surface{
+	Agent: "agy",
+	Name:  "settings",
+	Path:  "~/.gemini/antigravity-cli/settings.json",
+	Codec: "json",
+	Managed: map[string]any{
+		"permissionMode": "allow",
+	},
+}
+
 // BuiltinManifest returns the yolo-shipped manifest of all surfaces yolo knows
 // how to compose. Phase B grows this list (mcp, lsp, mise remain); it
 // currently carries pi, claude (settings + config), gemini, copilot, opencode,
-// and codex. It panics on
+// codex, and agy. It panics on
 // a malformed builtin (a programming error in this file, caught by tests), never
 // at runtime for user input.
 func BuiltinManifest() *manifest.Manifest {
@@ -310,6 +332,7 @@ func BuiltinManifest() *manifest.Manifest {
 		copilotConfig,
 		opencodeConfig,
 		codexConfig,
+		agySettings,
 	)
 	if err != nil {
 		panic("agentcfg: malformed builtin manifest: " + err.Error())

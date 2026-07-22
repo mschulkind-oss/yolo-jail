@@ -522,6 +522,9 @@ func configureAgent(e *Env, agent string) {
 		}
 	case "codex":
 		genStep(e, "configure_codex", func() error { return ConfigureCodex(e) })
+	case "agy":
+		// agy is born on the prism — no bespoke fallback, so no prismEnabledFor gate.
+		genStep(e, "configure_agy", func() error { return ConfigureAgyPrism(e) })
 	}
 }
 
