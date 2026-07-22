@@ -194,6 +194,9 @@ func Check(opts Options) int {
 	// --- Loopholes (config-inline daemons) ---
 	o.sectionInlineLoopholes(r, merged)
 
+	// --- FHS loader (nix-ld) baseline-drift tripwire (in-jail only) ---
+	o.sectionNixLD(r)
+
 	// --- Summary ---
 	r.summaryFinal()
 

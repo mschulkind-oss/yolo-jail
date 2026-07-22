@@ -64,6 +64,11 @@ type Options struct {
 	Getenv func(string) string
 	// LookPath resolves an executable on PATH. nil => real.
 	LookPath func(string) (string, bool)
+	// MiseNode returns the path to a mise-installed node binary (for the nix-ld
+	// env-free tripwire), or "" if none is present. nil => a real glob of
+	// /mise/installs/node/*/bin/node. Injected so the drift-detection branches
+	// are unit-testable without a real mise install.
+	MiseNode func() string
 	// Exec runs a subprocess with a timeout in the given working directory (""
 	// = inherit the current dir) and extra environment entries ("KEY=VALUE",
 	// appended to the parent env). nil => real. Tests install a stub that
@@ -136,6 +141,9 @@ func fillDefaults(o *Options) {
 			p, err := exec.LookPath(name)
 			return p, err == nil
 		}
+	}
+	if o.MiseNode == nil {
+		o.MiseNode = realFirstMiseNode
 	}
 	if o.Exec == nil {
 		o.Exec = realExec
