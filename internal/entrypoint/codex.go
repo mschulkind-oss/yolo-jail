@@ -126,15 +126,15 @@ func (e *Env) dumpCodexTOML(doc *jsonx.OrderedMap) string {
 	return strings.Join(lines, "\n") + "\n"
 }
 
-func ConfigureCodex(e *Env) error {
-	dir := e.CodexDir()
-	if err := os.MkdirAll(dir, 0o755); err != nil {
-		return err
-	}
-	configPath := filepath.Join(dir, "config.toml")
-	managedPath := filepath.Join(dir, "yolo-managed-mcp-servers.json")
-
-	// Translate shared MCP servers into Codex's TOML table shape.
+// buildCodexMCPServers translates the live shared MCP servers (LoadMCPServers)
+// into codex's config.toml table shape: one OrderedMap per server of
+// {command, args, [env]} keyed by server name, ready to sit under the
+// mcp_servers key. This is the raw yolo-owned set BEFORE any sidecar/overlay
+// reconciliation — shared by the bespoke ConfigureCodex (which reconciles it
+// against the managed sidecar) and ConfigureCodexPrism (which hands it to the
+// engine as the computed layer, where the last_render anchor makes the sidecar
+// reconcile unnecessary). Mirrors buildGeminiMCPServers.
+func buildCodexMCPServers(e *Env) *jsonx.OrderedMap {
 	configured := e.LoadMCPServers()
 	codexMCP := jsonx.NewOrderedMap()
 	for _, name := range configured.Keys() {
@@ -159,6 +159,19 @@ func ConfigureCodex(e *Env) error {
 		}
 		codexMCP.Set(name, entry)
 	}
+	return codexMCP
+}
+
+func ConfigureCodex(e *Env) error {
+	dir := e.CodexDir()
+	if err := os.MkdirAll(dir, 0o755); err != nil {
+		return err
+	}
+	configPath := filepath.Join(dir, "config.toml")
+	managedPath := filepath.Join(dir, "yolo-managed-mcp-servers.json")
+
+	// Translate shared MCP servers into Codex's TOML table shape.
+	codexMCP := buildCodexMCPServers(e)
 
 	// Load current config (order-preserving).
 	var current *jsonx.OrderedMap
