@@ -319,18 +319,17 @@ func ConfigureOpencode(e *Env) error {
 	return writeInPlaceString(managedPath, managedSidecar(opencodeMCP.Keys()))
 }
 
-func ConfigureGemini(e *Env) error {
-	dir := e.GeminiDir()
-	if err := os.MkdirAll(dir, 0o755); err != nil {
-		return err
-	}
-	configPath := filepath.Join(dir, "settings.json")
-	managedPath := e.GeminiManagedMCPPath()
+// buildGeminiMCPServers builds the full MCP-server table gemini owns each boot:
+// the live shared MCP servers (LoadMCPServers) plus every configured LSP server
+// wrapped as an MCP server via mcp-language-server (keyed "<lsp>-lsp"). This is
+// the raw yolo-owned set BEFORE any sidecar/overlay reconciliation — shared by
+// the bespoke ConfigureGemini (which reconciles it against the managed sidecar)
+// and ConfigureGeminiPrism (which hands it to the engine as the computed layer,
+// where the last_render anchor makes the sidecar reconcile unnecessary).
+func buildGeminiMCPServers(e *Env) *jsonx.OrderedMap {
 	goBin := e.GoBin()
-
 	configured := e.LoadMCPServers()
 
-	// Add LSP servers wrapped as MCP via mcp-language-server.
 	lspServers := LoadLSPServers(e)
 	for _, name := range lspServers.Keys() {
 		v, _ := lspServers.Get(name)
@@ -349,6 +348,19 @@ func ConfigureGemini(e *Env) error {
 		entry.Set("args", mcpArgs)
 		configured.Set(name+"-lsp", entry)
 	}
+	return configured
+}
+
+func ConfigureGemini(e *Env) error {
+	dir := e.GeminiDir()
+	if err := os.MkdirAll(dir, 0o755); err != nil {
+		return err
+	}
+	configPath := filepath.Join(dir, "settings.json")
+	managedPath := e.GeminiManagedMCPPath()
+	goBin := e.GoBin()
+
+	configured := buildGeminiMCPServers(e)
 
 	current := loadObject(configPath)
 	currentMCP := setDefaultMap(current, "mcpServers")

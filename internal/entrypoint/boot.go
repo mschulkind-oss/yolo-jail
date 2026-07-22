@@ -511,7 +511,11 @@ func configureAgent(e *Env, agent string) {
 			genStep(e, "configure_copilot", func() error { return ConfigureCopilot(e) })
 		}
 	case "gemini":
-		genStep(e, "configure_gemini", func() error { return ConfigureGemini(e) })
+		if prismEnabledFor(e, "gemini") {
+			genStep(e, "configure_gemini", func() error { return ConfigureGeminiPrism(e) })
+		} else {
+			genStep(e, "configure_gemini", func() error { return ConfigureGemini(e) })
+		}
 	case "opencode":
 		genStep(e, "configure_opencode", func() error { return ConfigureOpencode(e) })
 	case "pi":

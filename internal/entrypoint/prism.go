@@ -117,10 +117,17 @@ func loadPrismTransformScript(e *Env) string {
 // everything back. It returns the StatefulOutput so the caller can act on
 // FirstMigration (e.g. the §4.7 orphan cleanup).
 //
+// computed is yolo's per-boot DYNAMIC layer (§4 computed slot) — the reconciled
+// MCP-server table and any LSP-derived toggles — already deep-converted to the
+// engine's plain value model via prismMap. It merges ABOVE the captured overlay
+// and BELOW the transform + managed, so yolo's freshly regenerated data wins
+// over a stale in-jail edit (regenerate-don't-reconcile) yet a managed key still
+// wins the floor. Pass nil for a static-only surface (copilot/agy/pi settings).
+//
 // A recoverable on-disk condition never aborts boot (ComposeStateful self-heals
 // corrupt/absent sidecars); only a genuine error (unknown codec, Lua failure)
 // propagates, and boot's genStep downgrades even that to a warning.
-func renderSurfaceStateful(e *Env, agent, name string, hostBytes []byte) (*agentcfg.StatefulOutput, error) {
+func renderSurfaceStateful(e *Env, agent, name string, hostBytes []byte, computed map[string]any) (*agentcfg.StatefulOutput, error) {
 	surface, ok := agentcfg.BuiltinManifest().Lookup(agent, name)
 	if !ok {
 		return nil, &missingSurfaceError{agent: agent, name: name}
@@ -143,6 +150,7 @@ func renderSurfaceStateful(e *Env, agent, name string, hostBytes []byte) (*agent
 		Base: agentcfg.Inputs{
 			Surface:   surface,
 			HostBytes: hostBytes,
+			Computed:  computed,
 			Script:    script,
 			VM:        vm,
 		},
@@ -229,7 +237,7 @@ func ConfigurePiPrism(e *Env) error {
 		hostBytes, _ = os.ReadFile(filepath.Join(hostPiDir, "settings.json"))
 	}
 
-	out, err := renderSurfaceStateful(e, "pi", "settings", hostBytes)
+	out, err := renderSurfaceStateful(e, "pi", "settings", hostBytes, nil)
 	if err != nil {
 		return err
 	}
@@ -260,12 +268,59 @@ func ConfigureCopilotPrism(e *Env) error {
 	if err := os.MkdirAll(e.CopilotDir(), 0o755); err != nil {
 		return err
 	}
-	// config.json: no host source (yolo owns it outright).
-	if _, err := renderSurfaceStateful(e, "copilot", "config", nil); err != nil {
+	// config.json: no host source (yolo owns it outright), no computed layer.
+	if _, err := renderSurfaceStateful(e, "copilot", "config", nil, nil); err != nil {
 		return err
 	}
 	// Dynamic siblings stay bespoke, shared with ConfigureCopilot.
 	return writeCopilotDynamicConfigs(e, e.CopilotDir())
+}
+
+// ConfigureGeminiPrism is the prism-backed replacement for ConfigureGemini —
+// the REFERENCE PORT for the computed layer (§4). Gemini's settings.json is the
+// first ported surface that carries a DYNAMIC mcpServers table, not just static
+// managed keys, so it is where the computed-layer seam is proven:
+//
+//  1. the static security defaults + general force-offs come from the manifest
+//     surface (geminiSettings), exactly as for pi/copilot;
+//  2. the mcpServers table — live shared MCP servers plus LSP-as-MCP wrappers
+//     (buildGeminiMCPServers, shared with the bespoke path) — is handed to the
+//     engine as the COMPUTED layer. It merges above the captured overlay and
+//     below transform+managed, so yolo's freshly regenerated servers win over a
+//     stale in-jail edit to the same server, while a server the USER adds (never
+//     in last_render) is captured into the overlay and survives.
+//
+// The bespoke path's yolo-managed-mcp-servers.json sidecar is UNNECESSARY here:
+// the §5 last_render sidecar is itself the "what yolo owned last boot" anchor,
+// so a yolo server dropped from config between boots never resurrects (it always
+// matched last_render → never captured into the overlay → simply absent from the
+// computed layer this boot). The obsolete sidecar is deleted on the first
+// migration (§4.7 orphan cleanup), mirroring pi's snapshot deletion.
+//
+// Gemini has NO host mount (its settings.json is not in any host_*_files
+// allow-list — yolo owns the MCP/security posture), so hostBytes is nil.
+func ConfigureGeminiPrism(e *Env) error {
+	if err := os.MkdirAll(e.GeminiDir(), 0o755); err != nil {
+		return err
+	}
+
+	// Computed layer: the full yolo-owned mcpServers table, deep-converted from
+	// jsonx to the engine's plain value model.
+	computed := map[string]any{
+		"mcpServers": prismMap(buildGeminiMCPServers(e)),
+	}
+
+	out, err := renderSurfaceStateful(e, "gemini", "settings", nil, computed)
+	if err != nil {
+		return err
+	}
+
+	// §4.7: the bespoke managed-MCP sidecar is dead under the prism (last_render
+	// is the anchor now). Delete it once, on the migration boot.
+	if out.FirstMigration {
+		_ = os.Remove(e.GeminiManagedMCPPath())
+	}
+	return nil
 }
 
 // ConfigureAgyPrism configures the Google Antigravity CLI (agy). AGY is a
@@ -291,8 +346,8 @@ func ConfigureAgyPrism(e *Env) error {
 	if err := os.MkdirAll(e.AgyDir(), 0o755); err != nil {
 		return err
 	}
-	// settings.json: no host source (yolo owns it outright).
-	if _, err := renderSurfaceStateful(e, "agy", "settings", nil); err != nil {
+	// settings.json: no host source (yolo owns it outright), no computed layer.
+	if _, err := renderSurfaceStateful(e, "agy", "settings", nil, nil); err != nil {
 		return err
 	}
 	// Dynamic mcp_config.json sibling: a pure overwrite regenerated from live MCP
