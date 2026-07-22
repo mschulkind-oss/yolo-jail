@@ -308,6 +308,31 @@
             ++ imagePkgs.lib.optionals devRequested propagatedLibs
         ) resolvedPackageSpecs;
 
+        # nix-ld as the FHS ELF interpreter (replaces the raw glibc ld.so at
+        # /lib64).  Variant A of docs/design/mise-node-dynamic-linking.md: a
+        # custom build with the real loader baked into DEFAULT_NIX_LD (an
+        # option_env! in nix-ld's source) so a fully-scrubbed environment still
+        # resolves the loader with zero runtime wiring — this is what closes the
+        # env-scrub crash class (a mise/FHS node losing libstdc++ when a launcher
+        # scrubs LD_LIBRARY_PATH).  The library-path default is a plain source
+        # const (NOT an option_env!), so it is retargeted with substituteInPlace
+        # to the baked non-store dir /usr/share/nix-ld/lib (laid down in
+        # mkBinPathLinks below).  Both defaults are compiled in, so no NIX_LD*
+        # env vars and no entrypoint /run wiring are needed.  --replace-fail
+        # hard-errors at build time if the upstream const string ever drifts.
+        # Nix-built binaries keep their store-path PT_INTERP and never pass
+        # through /lib64, so this only affects FHS binaries — a broken nix-ld
+        # cannot brick jail boot.
+        nixLd = imagePkgs.nix-ld.overrideAttrs (o: {
+          env = (o.env or {}) // {
+            DEFAULT_NIX_LD = "${imagePkgs.stdenv.cc.bintools.dynamicLinker}";
+          };
+          postPatch = (o.postPatch or "") + ''
+            substituteInPlace src/main.rs \
+              --replace-fail '/run/current-system/sw/share/nix-ld/lib' '/usr/share/nix-ld/lib'
+          '';
+        });
+
         # Derivation to provide /usr/bin/env and other standard paths.
         # `withChromium` controls whether chromium shims + font links are
         # created.  `withNestedPodman` controls rootless-podman config files
@@ -315,7 +340,7 @@
         # variant can skip the bulky and/or unused plumbing.
         mkBinPathLinks = { withChromium ? true, withNestedPodman ? true }:
           pkgs.runCommand "bin-path-links" {} (''
-          mkdir -p $out/usr/bin $out/bin $out/lib64 $out/lib $out/usr/lib $out/etc $out/usr/share/fonts $out/usr/share
+          mkdir -p $out/usr/bin $out/bin $out/lib64 $out/lib $out/usr/lib $out/etc $out/usr/share/fonts $out/usr/share $out/usr/share/nix-ld/lib
           ln -s ${imagePkgs.coreutils}/bin/env $out/usr/bin/env
           ln -s ${imagePkgs.bashInteractive}/bin/bash $out/bin/bash
           ln -s ${imagePkgs.bashInteractive}/bin/sh $out/bin/sh
@@ -345,10 +370,18 @@
           ln -s ${imagePkgs.fontconfig.out}/etc/fonts $out/etc/fonts
         '' + ''
 
-          # Link the dynamic linker at conventional paths (architecture-aware)
+          # The FHS ELF interpreter at the conventional paths (architecture-aware)
+          # is nix-ld, NOT the raw glibc ld.so.  nix-ld sits here as the PT_INTERP
+          # for stock/FHS binaries (mise node, downloaded tools); it loads the real
+          # loader from its baked DEFAULT_NIX_LD and points the library search at
+          # the baked /usr/share/nix-ld/lib dir below, so an FHS binary resolves
+          # its libs even under a fully scrubbed environment (see the nixLd
+          # derivation above).  Redundant /lib + /lib64 placement is kept so the
+          # basename resolves on both x86_64 (lib64/ld-linux-x86-64.so.2) and
+          # aarch64 (lib/ld-linux-aarch64.so.1).
           LINKER_BASENAME=$(basename "${imagePkgs.stdenv.cc.bintools.dynamicLinker}")
-          ln -sf ${imagePkgs.stdenv.cc.bintools.dynamicLinker} $out/lib/$LINKER_BASENAME
-          ln -sf ${imagePkgs.stdenv.cc.bintools.dynamicLinker} $out/lib64/$LINKER_BASENAME
+          ln -sf ${nixLd}/libexec/nix-ld $out/lib/$LINKER_BASENAME
+          ln -sf ${nixLd}/libexec/nix-ld $out/lib64/$LINKER_BASENAME
 
           # Link shared libraries to /lib and /usr/lib for LD_LIBRARY_PATH discovery.
           # Iterates over all packages with lib outputs, including split-output packages
@@ -357,7 +390,15 @@
           # is "bin" (no lib/). Must use .out explicitly to get the libraries.
           # Non-nix binaries (node, npm/pip packages) rely on LD_LIBRARY_PATH=/lib:/usr/lib
           # since they lack RPATH entries pointing into the nix store.
-          for dir in $out/lib $out/usr/lib; do
+          # The same core trio also populates the baked nix-ld fallback lib dir
+          # (/usr/share/nix-ld/lib): this is the ONLY library search path an FHS
+          # binary gets under a fully scrubbed environment (nix-ld sets
+          # LD_LIBRARY_PATH to its compiled-in default — substituted to this dir —
+          # when the env carries none).  Keeping it to exactly the trio (glibc,
+          # libstdc++/libgcc_s from stdenv.cc.cc.lib, zlib) keeps the shadow
+          # surface smaller than the full /lib farm, per the blueprint; grow only
+          # on proven need.  ld.so itself is added just below.
+          for dir in $out/lib $out/usr/lib $out/usr/share/nix-ld/lib; do
             for pkg in ${imagePkgs.glibc} \
                        ${imagePkgs.stdenv.cc.cc.lib} \
                        ${imagePkgs.zlib}; do
@@ -370,6 +411,12 @@
               fi
             done
           done
+
+          # The real glibc loader in the nix-ld fallback dir under the name
+          # `ld.so`.  DEFAULT_NIX_LD is already baked to this same store path, so
+          # this is belt-and-suspenders (and matches the dir nix-ld is named for);
+          # harmless and cheap.
+          ln -sf ${imagePkgs.stdenv.cc.bintools.dynamicLinker} $out/usr/share/nix-ld/lib/ld.so
 
           # Link shared libraries from user-added packages (yolo-jail.jsonc
           # "packages", resolved into extraLibPackages above) so a package
