@@ -1,12 +1,14 @@
 # Plan: CLI color audit — render rich markup, don't strip it
 
-**Status:** OPEN (cleanup only) — the confirmed bug class is closed:
-`prune`/`builder`/`macosuser` fixed (2026-07-20), and `broker` (`8e5302f`) and
-`ps` (`d71dba3`) folded in since. The only remaining work is consolidating the
-last rich→ANSI duplicate (`run/console.go`) onto `internal/richtext` and
-unifying the TTY probe. Pulled out of the archived `go-port-post-transition.md`
-§5. Jail-testable end-to-end (no host needed); pairs naturally with the renderer
-consolidation in
+**Status:** OPEN (final classification only) — the confirmed bug class is
+closed: `prune`/`builder`/`macosuser` fixed (2026-07-20), `broker` (`8e5302f`)
+and `ps` (`d71dba3`) folded in since, the last rich→ANSI duplicate
+(`run/console.go`) consolidated onto `internal/richtext` (`67454a8`), the TTY
+probe unified onto `internal/tty` (`b76b2ba`), and a genuine `check`/`doctor`
+ANSI-leak-to-a-pipe closed (`c9ea5e8`). The only remaining work is classifying
+`loopholes`/`init`/`init-user-config` (intentionally plain vs. lost-its-color).
+Pulled out of the archived `go-port-post-transition.md` §5. Jail-testable
+end-to-end (no host needed); pairs naturally with the renderer consolidation in
 [module-consolidation-and-cleanup.md](module-consolidation-and-cleanup.md).
 
 ## The bug class
@@ -34,24 +36,26 @@ strip-always printers were routed through it:
 - [x] **`macos-*`** — printer gains a `color` field; dry-run plan render forced
   color-OFF (byte-pinned goldens), only live chatter colors. (`20e73c0`)
 
-The last unconsolidated duplicate: `internal/cli/run/console.go` still carries
-its own `richTagRe`/`richToANSI`/`stripRich` (it is the file `internal/richtext`
-was extracted *from*, and it does **not** import `internal/richtext`). Its
-color-aware behavior and gate are correct — `pr` builds the printer with
-`color: o.Color && o.IsTTYStdout()` (console.go ~line 114) — but the renderer
-code is a copy, so migrating it onto `internal/richtext` is the remaining
-consolidation step.
+The last unconsolidated duplicate is gone: `internal/cli/run/console.go` now
+wraps `internal/richtext` (`67454a8`) — its `printer` embeds a
+`richtext.Printer` and `pr` builds it with `Color: o.Color && o.IsTTYStdout()`,
+so the color-aware behavior and gate are unchanged but the renderer code is no
+longer a copy.
 
-Still to classify (audit each — "intentionally plain" vs "lost its color"):
+Classification of the remaining commands:
 
-- [ ] **`check`/`doctor`** (`internal/cli/check`) — has its own ANSI path;
-  verify it actually colors on a TTY and isn't a strip-always in disguise.
-- [ ] **`config-ref`** (`internal/cli/configref.go` — a single file in package
+- [x] **`check`/`doctor`** (`internal/cli/check`) — colors on a TTY (verified: a
+  pty run emits ANSI, e.g. `[1;32m[PASS]`), but it was a genuine
+  **leak-to-a-pipe** bug: `Color` was requested unconditionally with no TTY gate,
+  so a piped/redirected run spilled 35 SGR escapes. Fixed by the same
+  `Color && IsTTYStdout()` gate as run, with an injectable `IsTTYStdout` seam
+  (`c9ea5e8`); regression `TestColorGatedOnTTY`.
+- [x] **`config-ref`** (`internal/cli/configref.go` — a single file in package
   `cli`, not a `configref/` package/dir) — has a `tagReplacer` ANSI renderer
   gated on a `color` bool. TTY wiring is **confirmed**: `RunStdout` calls
-  `configRefRun(os.Stdout, isTTY(os.Stdout))`. Its `isTTY` is the char-device
-  check, not the ioctl — the char-device-vs-ioctl concern is tracked under
-  "Unify the TTY probe" below.
+  `configRefRun(os.Stdout, isTTY(os.Stdout))`, and its `isTTY` now delegates to
+  the shared `internal/tty` ioctl probe (`b76b2ba`) — no longer the char-device
+  check.
 - [ ] **`loopholes`, `init`, `init-user-config`** — some are intentionally plain
   (byte-parity, no color), some should color. Classify each. (`broker` and `ps`
   are done — see status above.)
@@ -60,21 +64,22 @@ Still to classify (audit each — "intentionally plain" vs "lost its color"):
 
 - [x] Port `run`'s render path to `prune`, `builder`, `macosuser` via the shared
   `internal/richtext` renderer.
-- [~] **Consolidate the renderer.** The color-aware rich→ANSI renderer now lives
-  in essentially ONE place (`internal/richtext`); `prune`, `builder`,
-  `macosuser`, `broker` (`8e5302f`), and `ps` (`d71dba3`) all route through it.
-  It still lives in TWO places pending one conversion: `internal/cli/run/console.go`
-  is the last duplicate `richTagRe`/`richToANSI`/`stripRich` printer (the copy
-  richtext was extracted from) and still needs routing — the natural
-  intersection with
+- [x] **Consolidate the renderer.** The color-aware rich→ANSI renderer now lives
+  in exactly ONE place (`internal/richtext`); `prune`, `builder`, `macosuser`,
+  `broker` (`8e5302f`), `ps` (`d71dba3`), and finally `internal/cli/run/console.go`
+  (`67454a8` — the copy richtext was extracted *from*) all route through it. The
+  natural intersection with
   [module-consolidation-and-cleanup.md](module-consolidation-and-cleanup.md).
-- [ ] Audit + classify the remaining commands; fix the ones that lost color.
-- [ ] **Unify the TTY probe.** Two conventions now coexist: the ioctl
-  (`TCGETS`/`TIOCGETA`, used by `internal/cli/run` and now `prune`) vs. the
-  `os.ModeCharDevice` char-device check (used by `internal/cli/commands.go`,
-  `terminal.go`, `configref.go`, and now `builder`/`macosuser`). The ioctl is
-  more correct (a char-device check false-positives on the container `-t` flag
-  and on `/dev/null`); fold everything onto one shared `isTTY(fd)` helper.
+- [~] Audit + classify the remaining commands; fix the ones that lost color.
+  `check`/`doctor` and `config-ref` done (see above); `loopholes`/`init`/
+  `init-user-config` remain.
+- [x] **Unify the TTY probe.** The two conventions were folded onto one shared
+  `internal/tty` helper (`IsTerminal(fd)` / `IsTerminalFile(*os.File)`, the
+  `TCGETS`/`TIOCGETA` ioctl) in `b76b2ba`. The old `os.ModeCharDevice`
+  char-device check (which false-positived on the container `-t` flag and on
+  `/dev/null`) is gone from `commands.go`, `terminal.go`, `configref.go`,
+  `runcmd.go`, `broker`, and `builder`; the dead `isattyFD` copies were deleted.
+  Regression tests cover the nil, pipe, and `/dev/null` cases.
 - [ ] **Gate rule (same as run):** render ANSI only when `Color &&
   IsTTYStdout()` — never emit escapes to a pipe/redirect, so captured/greppable
   output stays clean and `NO_COLOR` is honored.
