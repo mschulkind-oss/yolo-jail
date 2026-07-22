@@ -15,9 +15,14 @@ func GenerateMCPWrappers(e *Env) error {
 }
 
 // chromeWrapper is the chrome-devtools-mcp-wrapper body.
+//
+// No LD_LIBRARY_PATH export: nix-ld (the /lib64 interpreter) resolves libstdc++
+// env-free for the FHS mise node, and the nix /bin/node this wrapper execs is
+// RPATH-self-contained — so the scrubbed-child-env case the old export guarded
+// against is now covered structurally. See docs/design/mise-node-dynamic-linking.md
+// (step 7). FONTCONFIG_* stay: they are chromium font config, unrelated to the loader.
 const chromeWrapper = `#!/bin/bash
 # Self-contained wrapper: sets its own env since agents sanitize child processes.
-export LD_LIBRARY_PATH="/lib:/usr/lib${LD_LIBRARY_PATH:+:$LD_LIBRARY_PATH}"
 export FONTCONFIG_FILE="${FONTCONFIG_FILE:-/etc/fonts/fonts.conf}"
 export FONTCONFIG_PATH="${FONTCONFIG_PATH:-/etc/fonts}"
 
@@ -60,17 +65,18 @@ exec "$MCP_WRAPPERS_BIN/node" "$NPM_BIN/chrome-devtools-mcp" \
     "$@"
 `
 
-// nodeWrapper is the mcp-wrappers/node body.
+// nodeWrapper is the mcp-wrappers/node body. No LD_LIBRARY_PATH export — nix-ld
+// covers the FHS mise node env-free and this wrapper execs the RPATH-self-contained
+// nix /bin/node (see chromeWrapper's note and step 7 of the design doc).
 const nodeWrapper = `#!/bin/bash
-export LD_LIBRARY_PATH="/lib:/usr/lib${LD_LIBRARY_PATH:+:$LD_LIBRARY_PATH}"
 export FONTCONFIG_FILE="${FONTCONFIG_FILE:-/etc/fonts/fonts.conf}"
 export FONTCONFIG_PATH="${FONTCONFIG_PATH:-/etc/fonts}"
 exec /bin/node "$@"
 `
 
-// npxWrapper is the mcp-wrappers/npx body.
+// npxWrapper is the mcp-wrappers/npx body. No LD_LIBRARY_PATH export — same
+// rationale as nodeWrapper (nix-ld + RPATH-self-contained nix /bin/npx).
 const npxWrapper = `#!/bin/bash
-export LD_LIBRARY_PATH="/lib:/usr/lib${LD_LIBRARY_PATH:+:$LD_LIBRARY_PATH}"
 export FONTCONFIG_FILE="${FONTCONFIG_FILE:-/etc/fonts/fonts.conf}"
 export FONTCONFIG_PATH="${FONTCONFIG_PATH:-/etc/fonts}"
 exec /bin/npx "$@"
