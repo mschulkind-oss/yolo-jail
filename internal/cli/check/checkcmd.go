@@ -31,6 +31,7 @@ import (
 	"time"
 
 	"github.com/mschulkind-oss/yolo-jail/internal/paths"
+	"github.com/mschulkind-oss/yolo-jail/internal/tty"
 )
 
 // ExecResult is the outcome of a subprocess probe. Ran is false when the
@@ -74,8 +75,13 @@ type Options struct {
 	// (treated as "N").
 	Stdin io.Reader
 	// Color enables ANSI styling. The ANSI-stripped output is identical to the
-	// Color=false output (verified by test), so goldens pin Color=false.
+	// Color=false output (verified by test), so goldens pin Color=false. It is
+	// only honored when IsTTYStdout() is also true (never leak ANSI to a pipe).
 	Color bool
+	// IsTTYStdout reports whether Stdout is a real terminal — the color gate, so
+	// ANSI reaches only a terminal. nil => the shared internal/tty ioctl probe on
+	// os.Stdout. Tests inject a constant to force color on/off over a buffer.
+	IsTTYStdout func() bool
 	// SkipEnsureStorage suppresses the ensure_global_storage() side effect (dir
 	// creation). Production leaves it false; tests set it so repeated runs over
 	// a shared HOME see a stable Global Storage section.
@@ -136,6 +142,9 @@ func fillDefaults(o *Options) {
 	}
 	if o.Stdout == nil {
 		o.Stdout = os.Stdout
+	}
+	if o.IsTTYStdout == nil {
+		o.IsTTYStdout = func() bool { return tty.IsTerminalFile(os.Stdout) }
 	}
 	if o.Machine == "" {
 		o.Machine = pythonMachine()

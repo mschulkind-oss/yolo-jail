@@ -23,7 +23,13 @@ import (
 func Check(opts Options) int {
 	fillDefaults(&opts)
 	o := &opts
-	r := newReporter(o.Stdout, o.Color)
+	// Gate color on a real terminal: o.Color merely requests it, but ANSI must
+	// never leak to a pipe/redirect (the cli-color-audit gate rule). The
+	// injectable IsTTYStdout seam defaults to the shared ioctl probe on
+	// os.Stdout; a test buffer or a redirect reports false, so goldens stay
+	// Color=false. Mirrors run's `Color && IsTTYStdout()`.
+	color := o.Color && o.IsTTYStdout()
+	r := newReporter(o.Stdout, color)
 
 	// Ensure global storage — best-effort; check should still run the probes
 	// even on a hard fs error, so the error is ignored (it never fails in normal

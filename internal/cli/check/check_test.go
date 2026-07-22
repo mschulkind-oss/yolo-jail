@@ -44,15 +44,18 @@ func baseOptions(t *testing.T, out *bytes.Buffer) Options {
 	t.Helper()
 	ws := t.TempDir()
 	return Options{
-		Build:               false,
-		SkipEnsureStorage:   true,
-		Version:             "9.9.9-test",
-		Now:                 func() time.Time { return time.Unix(1_700_000_000, 0).UTC() },
-		Getenv:              func(k string) string { return "" },
-		LookPath:            func(string) (string, bool) { return "", false },
-		Exec:                func([]string, string, []string, time.Duration) ExecResult { return ExecResult{Ran: false} },
-		Stdout:              out,
-		Color:               false,
+		Build:             false,
+		SkipEnsureStorage: true,
+		Version:           "9.9.9-test",
+		Now:               func() time.Time { return time.Unix(1_700_000_000, 0).UTC() },
+		Getenv:            func(k string) string { return "" },
+		LookPath:          func(string) (string, bool) { return "", false },
+		Exec:              func([]string, string, []string, time.Duration) ExecResult { return ExecResult{Ran: false} },
+		Stdout:            out,
+		Color:             false,
+		// Force the TTY gate open so the Color field alone governs styling over
+		// the test buffer (Color=false stays plain; a Color=true case gets ANSI).
+		IsTTYStdout:         func() bool { return true },
 		IsMacOS:             false,
 		Machine:             "x86_64",
 		Workspace:           ws,
@@ -125,6 +128,22 @@ func TestColorStripsToPlain(t *testing.T) {
 	}
 	if !strings.Contains(colored.String(), "\x1b[") {
 		t.Error("colored output has no ANSI sequences")
+	}
+}
+
+// TestColorGatedOnTTY is the regression for the cli-color-audit leak: Color=true
+// must NOT emit ANSI when Stdout is not a terminal (a pipe/redirect), so
+// captured/greppable `yolo check` output stays clean. The IsTTYStdout seam
+// reports false → the reporter strips.
+func TestColorGatedOnTTY(t *testing.T) {
+	t.Setenv("HOME", t.TempDir())
+	var out bytes.Buffer
+	o := baseOptions(t, &out)
+	o.Color = true                               // color requested…
+	o.IsTTYStdout = func() bool { return false } // …but not a terminal.
+	Check(o)
+	if strings.Contains(out.String(), "\x1b[") {
+		t.Errorf("Color=true + non-TTY leaked ANSI to a pipe:\n%q", out.String())
 	}
 }
 
