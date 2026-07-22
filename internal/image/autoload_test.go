@@ -201,3 +201,102 @@ func TestAutoLoadImageBuildFailsNoImage(t *testing.T) {
 		t.Errorf("missing remedy: %q", s)
 	}
 }
+
+// TestAutoLoadSkipBuildUsesExisting is the D2 (graceful launch degradation)
+// regression: when repo-root resolution fails, the run slice sets SkipBuild so
+// AutoLoadImage never shells out to `nix build` in an empty cwd (which would
+// error or, worse, build against the process's own cwd). With an image already
+// present in the runtime it must proceed on it — never invoking BuildStorePath.
+func TestAutoLoadSkipBuildUsesExisting(t *testing.T) {
+	withBuildDir(t)
+	var out bytes.Buffer
+	buildCalled := false
+	opts := AutoLoadOptions{
+		Runtime:   "podman",
+		SkipBuild: true,
+		Out:       &out,
+		BuildStorePath: func(string, []any, string) (string, []string) {
+			buildCalled = true
+			return "/nix/store/should-not-happen", nil
+		},
+		Run: func(argv []string) (int, bool) { return 0, true }, // inspect present
+	}
+	if !AutoLoadImage(opts) {
+		t.Fatalf("AutoLoadImage = false; want true (existing image on degraded launch)\n%s", out.String())
+	}
+	if buildCalled {
+		t.Error("BuildStorePath must NOT run when SkipBuild is set")
+	}
+	if !strings.Contains(out.String(), "Using existing") {
+		t.Errorf("expected using-existing message, got %q", out.String())
+	}
+}
+
+// TestAutoLoadSkipBuildLoadsCachedTar: degraded launch with no runtime image
+// but a cached tar present must load the cache — again without building.
+func TestAutoLoadSkipBuildLoadsCachedTar(t *testing.T) {
+	bd := withBuildDir(t)
+	// Drop a cached tar into GlobalCache()/images (sibling of the build dir).
+	cacheImages := filepath.Join(filepath.Dir(bd), "cache", "images")
+	if err := os.MkdirAll(cacheImages, 0o755); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(filepath.Join(cacheImages, "jail.tar"), []byte("tar"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	var out bytes.Buffer
+	buildCalled, loaded := false, false
+	opts := AutoLoadOptions{
+		Runtime:   "podman",
+		SkipBuild: true,
+		Out:       &out,
+		BuildStorePath: func(string, []any, string) (string, []string) {
+			buildCalled = true
+			return "", nil
+		},
+		Run: func(argv []string) (int, bool) {
+			if len(argv) >= 2 && argv[1] == "load" {
+				loaded = true
+				return 0, true
+			}
+			return 1, true // inspect: not present
+		},
+	}
+	if !AutoLoadImage(opts) {
+		t.Fatalf("AutoLoadImage = false; want true (cached tar on degraded launch)\n%s", out.String())
+	}
+	if buildCalled {
+		t.Error("BuildStorePath must NOT run when SkipBuild is set")
+	}
+	if !loaded {
+		t.Error("expected a load command for the cached tar")
+	}
+}
+
+// TestAutoLoadSkipBuildNoImageFails: degraded launch with neither a runtime
+// image nor a cached tar can't conjure one — must fail with the degraded
+// diagnosis (not a nix-build diagnosis, since no build was attempted).
+func TestAutoLoadSkipBuildNoImageFails(t *testing.T) {
+	withBuildDir(t)
+	var out bytes.Buffer
+	buildCalled := false
+	opts := AutoLoadOptions{
+		Runtime:   "podman",
+		SkipBuild: true,
+		Out:       &out,
+		BuildStorePath: func(string, []any, string) (string, []string) {
+			buildCalled = true
+			return "", nil
+		},
+		Run: func(argv []string) (int, bool) { return 1, true }, // inspect: not present
+	}
+	if AutoLoadImage(opts) {
+		t.Fatal("AutoLoadImage = true; want false (degraded, no image available)")
+	}
+	if buildCalled {
+		t.Error("BuildStorePath must NOT run when SkipBuild is set")
+	}
+	if !strings.Contains(out.String(), "Cannot start jail") {
+		t.Errorf("expected a cannot-start diagnosis, got %q", out.String())
+	}
+}

@@ -17,8 +17,11 @@ func (o *Options) autoLoadImage(cfg *jsonx.OrderedMap, rt, repoRoot string) bool
 	extra := config.EffectivePackages(cfg)
 	remedy := linuxBuilderRemedy()
 	return image.AutoLoadImage(image.AutoLoadOptions{
-		Runtime:       rt,
-		RepoRoot:      repoRoot,
+		Runtime:  rt,
+		RepoRoot: repoRoot,
+		// D2: a degraded launch (repoRoot=="") has no flake to build from — skip
+		// the build and run whatever image is loaded/cached.
+		SkipBuild:     repoRoot == "",
 		ExtraPackages: extra,
 		Out:           o.Stdout,
 		ProgressTTY:   o.IsTTYStdout(),

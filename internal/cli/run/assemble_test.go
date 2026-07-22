@@ -302,6 +302,49 @@ func TestAssembleCacheRelocationsAppleContainerSkips(t *testing.T) {
 	}
 }
 
+// TestAssembleDegradedLaunchOmitsRepoBind is the D2 (graceful launch
+// degradation) regression: when repo-root resolution failed (in.repoRoot ==
+// ""), the argv must NOT bind a bogus /opt/yolo-jail source tree and must NOT
+// set YOLO_REPO_ROOT — otherwise the in-jail CLI would trust an empty/foreign
+// mount as the repo. --workdir /workspace stays (it's the container cwd, not
+// the source bind).
+func TestAssembleDegradedLaunchOmitsRepoBind(t *testing.T) {
+	ws := "/ws"
+	home := t.TempDir()
+	t.Setenv("HOME", home)
+	emptyLoopholeDirs(t)
+	o := goldenOptions(ws, home)
+
+	sec := jsonx.NewOrderedMap()
+	sec.Set("blocked_tools", []any{})
+	got := o.assembleRunCmd(&assembleInput{
+		cfg:          newConfig("agents", []any{"claude"}, "security", sec),
+		rt:           "podman",
+		cname:        "yolo-ws-abcd1234",
+		repoRoot:     "", // degraded: no source tree resolved
+		agentsList:   []string{"claude"},
+		agentSpecs:   agents.ResolveAgents([]string{"claude"}),
+		agentsPath:   "/agents/yolo-ws-abcd1234",
+		wsState:      "/ws/.yolo/home",
+		miseStore:    "/mise-store",
+		yoloVersion:  "unknown",
+		mountTargets: map[string]struct{}{},
+	})
+
+	if slices.Contains(got, "YOLO_REPO_ROOT=/opt/yolo-jail") {
+		t.Error("degraded launch set YOLO_REPO_ROOT=/opt/yolo-jail; want omitted")
+	}
+	for _, a := range got {
+		if strings.HasSuffix(a, ":/opt/yolo-jail:ro") {
+			t.Errorf("degraded launch bound a repo source at %q; want no /opt bind", a)
+		}
+	}
+	// --workdir /workspace must still be present.
+	if i := slices.Index(got, "--workdir"); i < 0 || i+1 >= len(got) || got[i+1] != "/workspace" {
+		t.Errorf("--workdir /workspace missing on degraded launch; argv: %v", got)
+	}
+}
+
 // podmanLinuxGolden is the expected ordered argv.
 func podmanLinuxGolden(home string) []string {
 	ws := "/ws"

@@ -27,10 +27,14 @@ func Run(opts Options) int {
 	o := &opts
 
 	// --- Phase 1: probes (repo root, storage, config, runtime) ---
-	repoRoot, ok := o.RepoRoot()
-	if !ok {
-		return 1 // repo root not found
-	}
+	// D2 (graceful launch degradation): repo-root resolution is no longer a hard
+	// gate. When it fails, repoRoot is "" and the launch proceeds DEGRADED — no
+	// nix build, no /opt/yolo-jail source bind, no YOLO_REPO_ROOT — running
+	// whatever image is already loaded or cached. The degraded consumers
+	// (autoLoadImage's SkipBuild, the assembler's repoBound gate) each handle the
+	// empty repoRoot; only a truly imageless host still fails, with an actionable
+	// message. macos-user with empty `packages:` never needs a repo at all.
+	repoRoot, _ := o.RepoRoot()
 	if err := ensureStorage(); err != nil {
 		o.pr(o.Stdout).printf("[bold red]%s[/bold red]", err.Error())
 		return 1
@@ -67,6 +71,14 @@ func Run(opts Options) int {
 			"[bold red]--dry-run is only supported for the macos-user runtime.[/bold red]  " +
 				`Set runtime: "macos-user" (or YOLO_RUNTIME=macos-user) to use it.`)
 		return 1
+	}
+	// D2: warn once when launching degraded (no source tree). autoLoadImage then
+	// runs on a cached/loaded image; if none exists it fails with an actionable
+	// message. This is a notice, not an error — the launch continues.
+	if repoRoot == "" {
+		o.pr(o.Stderr).print("[yellow]No yolo-jail source tree found — launching on the " +
+			"cached image (no rebuild). Set `repo_path` in ~/.config/yolo-jail/config.jsonc " +
+			"to enable image rebuilds.[/yellow]")
 	}
 	return o.runContainer(cfg, rt, repoRoot)
 }

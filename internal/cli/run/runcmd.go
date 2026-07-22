@@ -156,7 +156,10 @@ func fillDefaults(o *Options) {
 		}
 	}
 	if o.RepoRoot == nil {
-		o.RepoRoot = func() (string, bool) { return resolveRepoRoot(o.Getenv, o.Stderr, o.Color) }
+		// stderr is nil: repo-root resolution is no longer fatal (D2 degraded
+		// launch), so the resolver must not print its "Cannot find repo root" fix
+		// hint. Run() emits a softer degraded notice when repoRoot comes back "".
+		o.RepoRoot = func() (string, bool) { return resolveRepoRoot(o.Getenv, nil, o.Color) }
 	}
 	if o.Getpid == nil {
 		o.Getpid = os.Getpid

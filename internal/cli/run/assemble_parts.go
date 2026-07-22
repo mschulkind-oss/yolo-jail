@@ -346,15 +346,22 @@ func (o *Options) kvmArgs(cfg *jsonx.OrderedMap, rt string, keepGroupsAlready bo
 	return args
 }
 
-// repoMountSource selects the /opt/yolo-jail source.
-func (o *Options) repoMountSource(repoRoot string) string {
+// repoMountSource selects the /opt/yolo-jail source, returning ok=false on a
+// DEGRADED launch (D2) where there is no source tree to bind: repoRoot=="" AND
+// the workspace isn't itself a yolo-jail checkout. In that case the caller omits
+// both the /opt bind and YOLO_REPO_ROOT so the in-jail CLI doesn't trust an
+// empty/foreign mount as the repo.
+func (o *Options) repoMountSource(repoRoot string) (string, bool) {
 	if workspaceIsYoloSourceTree(o.Workspace) {
-		return o.Workspace
+		return o.Workspace, true
+	}
+	if repoRoot == "" {
+		return "", false
 	}
 	if fileExists(filepath.Join(repoRoot, "flake.nix")) {
-		return repoRoot
+		return repoRoot, true
 	}
-	return o.Workspace
+	return o.Workspace, true
 }
 
 // userConfigMountArgs builds the user-config mount for nested jails.

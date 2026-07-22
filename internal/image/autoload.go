@@ -23,6 +23,14 @@ type AutoLoadOptions struct {
 	Runtime string
 	// RepoRoot is the nix build cwd.
 	RepoRoot string
+	// SkipBuild suppresses the nix build (and the macOS build-offload) entirely,
+	// jumping straight to the existing-image / cached-tar fallback. Set by the
+	// run slice on a DEGRADED launch (D2): when repo-root resolution failed there
+	// is no flake to build from, so building would either error in an empty cwd
+	// or — worse — evaluate against the process's own cwd. A cached image is the
+	// only honest option; if none exists AutoLoadImage fails with a degraded
+	// diagnosis rather than a nix-build one.
+	SkipBuild bool
 	// ExtraPackages is the config `packages` list (JSON-encoded into
 	// YOLO_EXTRA_PACKAGES). nil/empty → unset.
 	ExtraPackages []any
@@ -141,22 +149,27 @@ func AutoLoadImage(opts AutoLoadOptions) bool {
 		}
 	}
 
-	currentPath, buildTail := o.BuildStorePath(o.RepoRoot, o.ExtraPackages, outLink)
+	var currentPath string
+	var buildTail []string
+	if !o.SkipBuild {
+		currentPath, buildTail = o.BuildStorePath(o.RepoRoot, o.ExtraPackages, outLink)
 
-	// macOS build-offload (J3): a from-source `packages:` build needs Linux. If
-	// the plain build failed on macOS, start a container builder and retry the
-	// build over ssh-ng before falling back to a stale cache. On Linux (or when
-	// the offload is disabled) BuildOffload is a nil-returning stub.
-	if currentPath == "" && o.IsMacOS {
-		if off, offTail := o.BuildOffload(o.RepoRoot, o.ExtraPackages, outLink); off != "" {
-			currentPath, buildTail = off, offTail
-		} else if len(offTail) > 0 {
-			buildTail = offTail
+		// macOS build-offload (J3): a from-source `packages:` build needs Linux. If
+		// the plain build failed on macOS, start a container builder and retry the
+		// build over ssh-ng before falling back to a stale cache. On Linux (or when
+		// the offload is disabled) BuildOffload is a nil-returning stub.
+		if currentPath == "" && o.IsMacOS {
+			if off, offTail := o.BuildOffload(o.RepoRoot, o.ExtraPackages, outLink); off != "" {
+				currentPath, buildTail = off, offTail
+			} else if len(offTail) > 0 {
+				buildTail = offTail
+			}
 		}
 	}
 
 	if currentPath == "" {
-		// Build failed. If the image already exists in the runtime, proceed.
+		// No fresh build (it failed, or SkipBuild suppressed it). If the image
+		// already exists in the runtime, proceed.
 		imageName := JailImage(o.Runtime)
 		if rc, ran := o.Run(ImageInspectCmd(o.Runtime, imageName)); ran && rc == 0 {
 			fmt.Fprintln(out, "Using existing "+imageName+" image.")
@@ -178,7 +191,16 @@ func AutoLoadImage(opts AutoLoadOptions) bool {
 				}
 			}
 		}
-		// Genuinely no image and can't build one.
+		// Genuinely no image available. On a degraded (SkipBuild) launch no build
+		// was attempted, so a nix-build diagnosis would be a lie — emit a
+		// degraded-specific message instead.
+		if o.SkipBuild {
+			fmt.Fprintln(out, "Cannot start jail: no jail image is loaded or cached, "+
+				"and the yolo-jail source tree could not be located to build one.")
+			fmt.Fprintln(out, "Fix: run `yolo` once from a yolo-jail checkout, or set "+
+				"`repo_path` in ~/.config/yolo-jail/config.jsonc, to build + cache the image.")
+			return false
+		}
 		title, remedy := o.DiagnoseFailure(buildTail)
 		fmt.Fprintln(out, "Cannot start jail: "+title+".")
 		if remedy != "" {
