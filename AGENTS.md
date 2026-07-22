@@ -52,18 +52,26 @@ there is no sync step.
   two iterate with `just build-go` alone. `yolo-jaild` and `yolo-ps` are plain
   symlinks to the baked build (`goBinariesLinks` in `flake.nix`) — **editing
   them requires a full image rebuild** (`just load` on the host).
-- `flake.nix` changes: the **build** is NOT host-gated — `nix build .#ociImage
-  --impure` works from inside the jail (nix delegates to the host daemon; see
-  "Nix inside the jail" below), so you can and should build the image in-jail to
-  catch flake eval/build errors before handing off. What IS host-gated is
-  **loading + running** the new image: `just load` (`build + <runtime> load`)
-  loads the tar into the **host's** container runtime, which is where `yolo`
-  launches jails — the in-jail podman is a separate nested instance, and a
-  running jail can't hot-swap its own base image. So a nested `yolo -- bash`
-  from in here reuses the *current* baked image, not your freshly-built one:
-  the built image's runtime *behavior* (e.g. a newly-baked package appearing on
-  PATH) is only observable after a host `just load`. Rule of thumb: **build +
-  eval in-jail; load + run-the-new-image on the host.**
+- `flake.nix` changes are **fully verifiable in-jail**, runtime behavior
+  included. A nested `yolo -- bash` runs the CLI's own `AutoLoadImage`, which
+  builds the flake (`nix build` delegates to the host daemon; see "Nix inside
+  the jail"), notices the nix store path changed, materializes + loads the new
+  image into the **nested** podman, and runs *that* — not the current baked
+  image. Verified 2026-07-22: adding `imagePkgs.hello` to `corePackages` made
+  `hello` resolve to `/bin/hello` and run inside the very next nested
+  `yolo -- bash`. So a newly-baked package on PATH, a changed `Env`, a new shim —
+  all observable from in here. Do the whole edit → build → run-the-new-image
+  loop in-jail. (The confusing part: the nested run BUILDS a fresh image every
+  time the flake changes; it only prints "loaded image from cache" when the
+  store path is unchanged from a prior build. "Building yolo-jail-…" + "Image
+  load needed: nix store path changed" is the fresh-build path.)
+  - Two real caveats remain. (1) **A failed nix build does not stop the jail** —
+    `AutoLoadImage` silently falls back to the loaded/cached image, so a broken
+    flake looks like a working jail on **stale** code (see the bullet below);
+    watch the build output, don't just trust that the jail came up. (2) The
+    *host's own* jails keep running the host-loaded image until a host `just
+    load` — so host-gating is real for **shipping** a flake change to the
+    maintainer's day-to-day jails, not for **validating** it.
 - **The `goSrc` fileset trap** (`flake.nix`): the hermetic image build only sees
   `go.mod`, `go.sum`, `vendor/`, `cmd/`, `internal/`, and `bundled_loopholes/`.
   A Go package outside that set **silently vanishes from the image**; the moment
@@ -163,10 +171,12 @@ Agent logs, for debugging: `~/.copilot/logs/`, `~/.cache/gemini-cli/logs/`,
 
 ## Workflow
 
-1. Image change → edit `flake.nix`, build in-jail to catch eval/build errors
-   (`nix build .#ociImage --impure`), then `just load` on the **host** to
-   actually load + run the new image (the in-jail build proves it compiles; only
-   a host load makes the change take effect for launched jails).
+1. Image change → edit `flake.nix`, then verify end-to-end in a nested jail
+   (`yolo -- bash`): the nested run rebuilds the flake and runs the NEW image, so
+   runtime behavior is observable in-jail (see "Build & deploy"). Watch the build
+   output — a failed build silently falls back to stale code. A host `just load`
+   is only needed to ship the change to the maintainer's own jails, not to
+   validate it.
 2. Logic change → edit `cmd/`/`internal/`, `just build-go`, verify in a nested
    jail (`yolo -- bash`).
 3. `just format` (gofmt) before committing.

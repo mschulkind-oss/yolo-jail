@@ -16,8 +16,8 @@ lane order:
 |---|---|---|---|
 | 1 | **config-composition — non-agent surface ports** (mise, standalone MCP/LSP, git/jj identity onto the prism, then delete their bespoke generators) | jail-side | none — the main remaining agent-completable thread |
 | 2 | **cli-color-audit tail** (migrate `run/console.go` off its private printer + unify the TTY probe) | jail-side | none — small, standalone |
-| 3 | **nix-ld** (retarget the image dynamic linker so mise node + custom MCP servers link env-free; **closes the custom-`mcp_servers` startup gap**) | host-gated | needs a maintainer at a host with nix (`just load && just install`); cannot be validated in-jail |
-| 4 | **D4 Cachix** (create account/token, first push, one Mac download proof) | human-gated | substituter already enabled; needs the human account step |
+| 3 | **nix-ld** (retarget the image dynamic linker so mise node + custom MCP servers link env-free; **closes the custom-`mcp_servers` startup gap**) | jail-side | none for validation — a nested `yolo -- bash` rebuilds the flake and runs the new image (verified 2026-07-22); a host `just load` only ships it to the maintainer's own jails |
+| 4 | **D4 Cachix** (one Mac download proof) | hardware-gated | substituter enabled + account/cache/CI-push all done (2026-07-22); needs only a real Mac to prove the download path |
 
 Not on this list because they are **done or held**: J1–J3, D1/D2/D3, Track M
 M0–M2, module-consolidation, the agent-config prism cutover, and agy are all
@@ -36,9 +36,9 @@ post-Go-port backlog (nix-ld, color audit, consolidation) into the same picture.
 
 | Plan | One-liner | Lane / status |
 |---|---|---|
-| [macos-revival-and-distribution-plan.md](macos-revival-and-distribution-plan.md) | Tracks J (Linux-jail fixes), D (distribution/source-access), M (Mac hardware). Roadmap of record. | **J1–J3 + D1/D2/D3 done, Track M M0/M1/M2 PROVEN on HW 2026-07-21; only D4-account remains.** |
-| [handoff-cachix-cache.md](handoff-cachix-cache.md) | The revival plan's **D4**: publish the OCI image to a Cachix cache. | human-gated — substituter ENABLED (flake.nix:13-16, 730c258); only account + first push + Mac download proof left |
-| [nix-ld-dynamic-linking.md](nix-ld-dynamic-linking.md) | Replace the `LD_LIBRARY_PATH` whack-a-mole with nix-ld; closes the custom-`mcp_servers` startup gap. | host-gated — **not started** |
+| [macos-revival-and-distribution-plan.md](macos-revival-and-distribution-plan.md) | Tracks J (Linux-jail fixes), D (distribution/source-access), M (Mac hardware). Roadmap of record. | **J1–J3 + D1/D2/D3 done, Track M M0/M1/M2 PROVEN on HW 2026-07-21; only D4 Mac-download proof remains.** |
+| [handoff-cachix-cache.md](handoff-cachix-cache.md) | The revival plan's **D4**: publish the OCI image to a Cachix cache. | human-gated — substituter ENABLED (flake.nix:13-16, 730c258); Cachix account + cache exist and CI has pushed data; only the Mac download proof remains |
+| [nix-ld-dynamic-linking.md](nix-ld-dynamic-linking.md) | Replace the `LD_LIBRARY_PATH` whack-a-mole with nix-ld; closes the custom-`mcp_servers` startup gap. | jail-side — **not started**; flake change is nested-jail validatable, only the host-jail ship is host-gated |
 | [agent-settings-composition.md](agent-settings-composition.md) | Layered regeneration of any generated config (agent settings, MCP, LSP, mise, identity) + a Lua transform. **Design FINALIZED 2026-07-20.** | jail-side — **agent-config surfaces DONE 2026-07-22: prism is the sole boot config path (gate retired, bespoke writers deleted); non-agent surfaces (mise/MCP/LSP/identity) still to port** |
 | [cache-relocation.md](cache-relocation.md) | User-scope-only `cache_relocations` so a huge cold cache subdir can live on other storage; unblinds `prune`/`purge`. Podman behavior proven 2026-07-21; host acceptance discharged 2026-07-22. | **DONE (items 1–10); item 11 held on a design question** |
 | [cli-color-audit.md](cli-color-audit.md) | Shared rich→ANSI renderer + TTY gate across commands. | jail-side — **bug class fixed**; tail: migrate `run/console.go` off its private duplicate + unify the TTY probe |
@@ -61,16 +61,20 @@ two are gated on a resource an in-jail agent doesn't have.
   (migrate `run/console.go` off its private printer + unify the TTY probe). J2,
   J3, D2, cli-color-audit's bug-class fix, module-consolidation, the
   agent-config prism cutover, and agy have all landed.
-- **Host-gated (needs a human at a host with nix).** A `flake.nix` / image
-  change that AGENTS.md says needs `just load && just install` on a real host
-  and **cannot be validated in-jail**. Members: **nix-ld**, and any future image
-  rebuild. Not a blocker on jail-side work — schedule it whenever a maintainer
-  next has a host session.
-- **Hardware/human-gated (needs a real Mac or a maintainer action).** No
-  in-jail agent can complete these. Members: **D4 Cachix** (needs an account +
-  the first push + one Mac download proof). Track M's M0/M1/M2 are already
-  PROVEN on real Apple Silicon (2026-07-21), so the hardware gate is discharged
-  for the current scope.
+- **Host-gated (needs a human at a host with nix) — for SHIPPING, not
+  validating.** A nested `yolo -- bash` rebuilds the flake and runs the new
+  image, so a `flake.nix` / image change (including **nix-ld**) is fully
+  validated in-jail, runtime behavior included (verified 2026-07-22; AGENTS.md
+  "Build & deploy"). What still needs a host session is loading the proven image
+  into the maintainer's OWN day-to-day jails (`just load`) — that's shipping, and
+  it never blocks jail-side development or verification. The one genuinely
+  hardware-gated remnant is **D4's Mac download proof** (see the next bullet),
+  which needs real Mac hardware, not just a host with nix.
+- **Hardware-gated (needs a real Mac).** No in-jail agent can complete these.
+  Members: **D4 Cachix** — as of 2026-07-22 the account + cache + CI push are
+  done, so only the one Mac download proof remains. Track M's M0/M1/M2 are
+  already PROVEN on real Apple Silicon (2026-07-21), so the hardware gate is
+  discharged for the current scope.
 
 ## Current state — what's already done
 
@@ -143,8 +147,9 @@ Marked here so the "start here" arrow points at the real next item.
   stripped on upgrade, workspace/injected pins preserved (nested-jail verified).
 
 Everything else below is **open**: config-composition non-agent surfaces
-(mise/MCP/LSP/identity ports), the cli-color-audit tail, nix-ld (host-gated), and
-the D4-account human step.
+(mise/MCP/LSP/identity ports), the cli-color-audit tail, nix-ld (flake change,
+nested-jail validatable; host `just load` only ships it), and the D4-download
+human step.
 
 ## Recommended order (jail-side thread)
 
@@ -251,21 +256,26 @@ cleanup pass with nested-jail parity verification per surface.
 
 ## What unblocks the gated lanes
 
-- **nix-ld (host-gated).** Independent of the jail-side thread — it's an
-  image-layer change (`flake.nix` interpreter retarget + an `internal/entrypoint`
-  `/run` symlink). Verified not started (`rg nix-ld flake.nix` → nothing;
-  `LD_LIBRARY_PATH=/lib:/usr/lib` still live at `flake.nix:685`,
-  `assemble.go:379`, and `mcp_wrappers.go:20,65,73`). **Ready any time a
-  maintainer has a host with nix** — it needs `just load && just install`, so an
-  in-jail agent can't finish it. **User-visible payoff worth flagging:** this is
-  what finally lets *custom* `mcp_servers` start without the wrapper
-  `LD_LIBRARY_PATH` hack — the open gap where an MCP server that bypasses the
-  node wrapper silently fails to load `libstdc++` under a scrubbed env.
-- **D4 Cachix (human-gated).** The `flake.nix` `nixConfig` substituter is
-  already enabled (flake.nix:13-16, 730c258); the CI push job self-enables once
-  the `CACHIX_AUTH_TOKEN` secret exists. What remains is the human step: create
-  the Cachix account/token, land the first push, and prove one Mac download.
-  Composes with D3 (done) to give checkout-less Mac installs the image by
+- **nix-ld (jail-side to validate; host to ship).** Independent of the other
+  jail-side thread — it's an image-layer change (`flake.nix` interpreter retarget
+  + an `internal/entrypoint` `/run` symlink). Verified not started
+  (`rg nix-ld flake.nix` → nothing; `LD_LIBRARY_PATH=/lib:/usr/lib` still live at
+  `flake.nix:685`, `assemble.go:379`, and `mcp_wrappers.go:20,65,73`). **An
+  in-jail agent CAN build and validate it end-to-end**: a nested `yolo -- bash`
+  rebuilds the flake and runs the new image, so the node/MCP `env -i` smoke gates
+  run in-jail (verified 2026-07-22, AGENTS.md "Build & deploy"). The only host
+  step is `just load` to ship the proven image to the maintainer's own jails.
+  **User-visible payoff worth flagging:** this is what finally lets *custom*
+  `mcp_servers` start without the wrapper `LD_LIBRARY_PATH` hack — the open gap
+  where an MCP server that bypasses the node wrapper silently fails to load
+  `libstdc++` under a scrubbed env.
+- **D4 Cachix (hardware-gated now).** The `flake.nix` `nixConfig` substituter is
+  enabled (flake.nix:13-16, 730c258) and the CI push job self-enables with the
+  `CACHIX_AUTH_TOKEN` secret. **As of 2026-07-22 the Cachix account and cache
+  exist and already hold image data pushed from CI runs** — so account/token and
+  first push are DONE. The ONLY remaining gate is hardware: prove one real Mac
+  *downloads* the prebuilt image (substituter hit) instead of building from
+  source. Composes with D3 (done) to give checkout-less Mac installs the image by
   download. See [handoff-cachix-cache.md](handoff-cachix-cache.md).
 
 ## The whole picture
@@ -278,8 +288,8 @@ cleanup pass with nested-jail parity verification per surface.
           config Phase A ✓  B ✓  agent-config cutover ✓ ─► non-agent surface ports
           cli-color-audit tail (migrate run/console.go + unify TTY probe) ──────►
 
- host    nix-ld  ── ready ANY host session (image layer; closes custom-mcp_servers gap) ─►
- (human) D4 Cachix ── substituter enabled ✓; needs account + first push + Mac download ──►
+ jail    nix-ld  ── validatable in nested jail NOW (image layer; closes custom-mcp_servers gap); host just-load only to ship ─►
+ (hw)    D4 Cachix ── substituter enabled ✓  account + cache + CI push ✓; needs only a Mac download proof ──►
 
  mac     M0 ✓  M1 ✓  M2 ✓  ── PROVEN on real Apple Silicon 2026-07-21 ────────────────────
  (hw)          (OQ-1 path_helper + finding-6 password observed and passing)
@@ -289,16 +299,19 @@ cleanup pass with nested-jail parity verification per surface.
 
 The lanes have thinned out; the concurrency picture is simpler than it was:
 
-- **jail:** the config-composition **non-agent surface ports** thread and the
-  **cli-color-audit tail** are independent (different files) and can run
-  concurrently. Each non-agent port is a wire-then-delete cleanup pass, verifying
-  the surface in a nested jail.
-- **host (nix-ld), human (D4 Cachix account):** each on its own clock; neither
-  blocks the jail lane.
+- **jail:** the config-composition **non-agent surface ports** thread, the
+  **cli-color-audit tail**, and **nix-ld** are independent (different files) and
+  can all run concurrently. Each non-agent port is a wire-then-delete cleanup
+  pass, verifying the surface in a nested jail; nix-ld is an image-layer change
+  that a nested `yolo -- bash` validates end-to-end.
+- **hardware (D4 Cachix Mac-download proof):** on its own clock; does not block
+  the jail lane.
 
 **Best concurrent slice today:** config-composition non-agent ports + the
-cli-color-audit tail (both jail-side, non-overlapping files), plus kicking off **nix-ld**
-whenever a host session is free. There is no longer a hard cross-lane
+cli-color-audit tail + **nix-ld** — all three jail-side with non-overlapping
+files, all nested-jail validatable. The only host step nix-ld still needs is a
+`just load` to ship the proven image to the maintainer's own jails, which never
+blocks the build/validate loop. There is no longer a hard cross-lane
 dependency — M1's dependency on J2 is discharged (both landed).
 
 ## Parked

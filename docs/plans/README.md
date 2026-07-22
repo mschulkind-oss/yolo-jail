@@ -16,7 +16,7 @@ for the classification and `git log --follow` to recover any).
 | Doc | What it is | Status |
 |---|---|---|
 | [macos-revival-and-distribution-plan.md](macos-revival-and-distribution-plan.md) | The macOS-backend revival + source-distribution roadmap (Tracks J/D/M). | **In progress** — J1.1–J1.4, D1, D2, D3, J2, J3 landed; Track M M0/M1/M2 verified on real HW 2026-07-21; only D4's human-gated push/download proof remains. |
-| [handoff-cachix-cache.md](handoff-cachix-cache.md) | Procedure to publish the prebuilt OCI image to a Cachix binary cache (= revival plan **D4**). | **Human-gated** — Substituter enabled (2026-07-20, `flake.nix:13-16`); only account + first push + one Mac download proof remain. |
+| [handoff-cachix-cache.md](handoff-cachix-cache.md) | Procedure to publish the prebuilt OCI image to a Cachix binary cache (= revival plan **D4**). | **Human-gated** — Substituter enabled (2026-07-20, `flake.nix:13-16`); Cachix account + cache exist and CI has already pushed data; only one Mac download proof remains. |
 
 ## Post-Go-port backlog
 
@@ -26,7 +26,7 @@ here:
 
 | Doc | What it is | Status |
 |---|---|---|
-| [nix-ld-dynamic-linking.md](nix-ld-dynamic-linking.md) | Replace the `LD_LIBRARY_PATH=/lib:/usr/lib` whack-a-mole with nix-ld so the mise node + MCP servers link env-free (closes the custom-`mcp_servers` startup gap). | **Open** — decided, not started; host-gated image change. |
+| [nix-ld-dynamic-linking.md](nix-ld-dynamic-linking.md) | Replace the `LD_LIBRARY_PATH=/lib:/usr/lib` whack-a-mole with nix-ld so the mise node + MCP servers link env-free (closes the custom-`mcp_servers` startup gap). | **Open** — decided, not started; flake change, nested-jail validatable (host `just load` only ships it). |
 | [cli-color-audit.md](cli-color-audit.md) | Make `prune`/`builder`/`macos-*` render rich markup to ANSI instead of stripping it; consolidate the duplicated printers. | **Open** — bug class fixed: prune/builder/macosuser/broker + top-level cli commands route through the shared richtext renderer with a TTY gate; remaining: migrate `run/console.go` off its private duplicate + unify the TTY probe. |
 | [module-consolidation-and-cleanup.md](module-consolidation-and-cleanup.md) | Collapse the ~34 Python-mirroring `internal/*` packages into native-Go structure; drop parity machinery; §4 OSS-hygiene remnants. | **Done** (2026-07-21); package-merge declined. |
 

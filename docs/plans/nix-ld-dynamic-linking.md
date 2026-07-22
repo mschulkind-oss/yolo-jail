@@ -2,9 +2,12 @@
 
 **Status:** OPEN — decided, not started. Pulled out of the archived
 `go-port-post-transition.md` §1 (the Go-only cutover it was gated behind has
-landed, so it's now actionable). Host-gated: it's a `flake.nix` + entrypoint
-image change that needs a host `nix build` + `just load && just install` and
-**cannot be built or validated from inside a jail**.
+landed, so it's now actionable). It's a `flake.nix` + entrypoint image change,
+which is **fully validatable in a nested jail** (`yolo -- bash` rebuilds the
+flake and runs the new image — runtime behavior included; verified 2026-07-22,
+see AGENTS.md "Build & deploy"). A host `just load` is only needed to ship it to
+the maintainer's own day-to-day jails, not to prove it works. Watch the build
+output: a failed nix build silently falls back to the stale image.
 
 **Design + empirical validation:**
 [../design/mise-node-dynamic-linking.md](../design/mise-node-dynamic-linking.md)
@@ -66,6 +69,8 @@ nix-ld replaces the `/lib64` FHS interpreter with a loader that resolves
 
 Independent image change; do it as its own sequenced PR with a nested-jail gate
 after each mutation (flake change → rebuild → verify node/MCP start env-free →
-delete a wrapper export → re-verify). Per AGENTS.md, `flake.nix` changes need
-`just load && just install` on the host and can't be proven from inside a jail —
-so this needs a host session, not just the dev-override path.
+delete a wrapper export → re-verify). Per AGENTS.md, a nested `yolo -- bash`
+rebuilds the flake and runs the new image, so every one of those gates runs
+in-jail on the dev-override path — no host session needed to validate. The
+final host `just load` only ships the proven change to the maintainer's own
+jails.

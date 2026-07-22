@@ -357,9 +357,9 @@ arrangement is the mitigation.
 | Newer/older **Node/Python/Go for my project** | `[tools]` in workspace `mise.toml` (e.g. `node = "24"`) | repo root | No — `mise install` on next boot |
 | A tool for **this workspace only** (typst, terraform, …) | `[tools]` in workspace `mise.toml` | repo root | No |
 | A tool for **all my jails** (cross-workspace) | `[tools]` in `~/.config/mise/config.toml`, or `"mise_tools"` in user `yolo-jail.jsonc` | user config | No |
-| Change the jail's **global default Node/Python/Go** major | now the **baked** version — bump `imagePkgs.nodejs_*`/`python3`/`go` in `flake.nix` `corePackages` (`miseBaseTools` is empty; mise is override-only) | source | **Yes** — image rebuild (`just load && just install`) |
+| Change the jail's **global default Node/Python/Go** major | now the **baked** version — bump `imagePkgs.nodejs_*`/`python3`/`go` in `flake.nix` `corePackages` (`miseBaseTools` is empty; mise is override-only) | source | **Yes** — image rebuild; validate in a nested `yolo -- bash`, `just load` on the host to ship |
 | A **native package baked for every jail** (a CLI, a library `.so`) | `"packages"` array in `yolo-jail.jsonc` (nixpkgs attr names) | workspace/user config | **Yes** — image rebuilds when the list changes |
-| Change the **baked runtime version** (`/bin/node`, chromium, …) | `imagePkgs.*` in `flake.nix` `corePackages`/`fullPackages` | source | **Yes** — `just load && just install` on the host |
+| Change the **baked runtime version** (`/bin/node`, chromium, …) | `imagePkgs.*` in `flake.nix` `corePackages`/`fullPackages` | source | **Yes** — image rebuild; nested `yolo -- bash` validates it, host `just load` ships it |
 | Add an **MCP server** | `"mcp_presets"` / `"mcp_servers"` in `yolo-jail.jsonc` | config | No (installed via bootstrap/npm) |
 | Add an **LSP server** | `"lsp_servers"` in `yolo-jail.jsonc` | config | No (bootstrap installs pyright/tsserver/gopls as needed) |
 | Add/enable a **coding agent** (copilot, gemini, …) | `"agents"` in `yolo-jail.jsonc` | config | No (lazy-installed on first use) |
