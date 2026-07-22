@@ -309,6 +309,11 @@ inside SandVault** edits, builds, tests, runs `--dry-run`/`yolo check`, and
 runs the zero-sudo AC-builder runbook; the **human outside** runs the few
 privileged one-shots and pastes output back.
 
+**Track M status (2026-07-21): M0 ✅ · M1 ✅ · M2 ✅ — all verified on real
+Apple Silicon (macOS 26.5).** Recipe + e2e results:
+[runbooks/mac-sandvault-session.md](runbooks/mac-sandvault-session.md) (§6b).
+The bullets below are the original plan; see that runbook for what actually ran.
+
 - **M0 — bootstrap (human, ~30 min):** on the Mac: nix (flakes) + a git
   checkout with its own push credentials (deploy key — host creds stay
   invisible, same rule as jails) + `just deploy` + `repo_path` set (D1 makes
@@ -366,7 +371,11 @@ Everything left of M1 is quota-light, self-contained commits in this jail.
    §0) — the written decision says error + per-platform `packages` overrides;
    the shipped code warn-and-skips and the overrides were never built. Either
    bless warn-and-skip retroactively (doc-hygiene fix) or add a J-track item
-   implementing the decision as written, with M1 verifying whichever wins.
+   implementing the decision as written.
+   **Still OPEN after M1 (2026-07-21):** M1 exercised only packages *with* a
+   darwin build (`jq`, `just`), so the no-darwin-build path was never observed
+   on hardware — this decision is unchanged by the e2e run. Resolve it as a
+   deliberate choice, not via M1.
 
 ## Risks / watch items
 
