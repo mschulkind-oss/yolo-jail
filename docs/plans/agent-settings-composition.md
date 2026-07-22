@@ -5,8 +5,11 @@ resolved). Supersedes the exploratory RFC that carried a menu of models and a
 data-filter vocabulary — this is the line in the sand. **Per-phase status:**
 **Phase A complete** — the engine is built + tested (`internal/agentcfg`, with
 `compose.go`/`engine.go`/`manifest`/`codec`/`luahook` and their tests). **Phase
-B complete** — all surfaces are in the manifest and reachable via `yolo config
-render`. **Phase C complete (2026-07-22)** — every surface renders through the
+B complete** — all **agent** surfaces are in the manifest and reachable via
+`yolo config render` (the non-agent surfaces — mise, standalone MCP/LSP, git/jj
+identity — are *not* yet manifest-modeled; `yolo config render mise` reports "no
+surfaces", and only `pi/claude/gemini/copilot/opencode/codex/agy` are known).
+**Phase C complete (2026-07-22)** — every surface renders through the
 prism at boot: `internal/entrypoint`'s `Configure*Prism` functions are the sole
 config path (`boot.go` calls them unconditionally; the `YOLO_PRISM_SURFACES`
 cutover gate is retired), the six bespoke `Configure*` writers and their
