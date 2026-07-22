@@ -269,47 +269,6 @@ func (o *Options) startExternalService(name string, spec *jsonx.OrderedMap, sock
 	}, true
 }
 
-// resolveContainerCgroup returns the host-side cgroup v2 path for a running
-// container, or "" (macOS → always ""). Best-effort.
-func (o *Options) resolveContainerCgroup(cname, rt string) string {
-	if o.IsMacOS {
-		return ""
-	}
-	if rt == "podman" {
-		res := o.Exec([]string{"podman", "inspect", "--format", "{{.State.CgroupPath}}", cname}, "", nil, 5*time.Second)
-		if res.Ran && !res.Timeout && res.RC == 0 {
-			if cg := strings.TrimSpace(res.Stdout); cg != "" {
-				cand := filepath.Join("/sys/fs/cgroup", cg)
-				if o.PathExists(cand) {
-					return cand
-				}
-			}
-		}
-	}
-	res := o.Exec([]string{rt, "inspect", "--format", "{{.State.Pid}}", cname}, "", nil, 5*time.Second)
-	if !res.Ran || res.Timeout || res.RC != 0 {
-		return ""
-	}
-	pid, err := strconv.Atoi(strings.TrimSpace(res.Stdout))
-	if err != nil || pid <= 0 {
-		return ""
-	}
-	data, err := os.ReadFile("/proc/" + strconv.Itoa(pid) + "/cgroup")
-	if err != nil {
-		return ""
-	}
-	for _, line := range strings.Split(string(data), "\n") {
-		parts := strings.SplitN(line, ":", 3)
-		if len(parts) == 3 && parts[0] == "0" {
-			cand := filepath.Join("/sys/fs/cgroup", strings.TrimPrefix(parts[2], "/"))
-			if o.PathExists(cand) {
-				return cand
-			}
-		}
-	}
-	return ""
-}
-
 // --- broker singleton + relay (minimal ensure; supervision keyed per jail) ---
 
 // brokerEnsure is a no-op if the host-wide broker singleton is alive; else it
