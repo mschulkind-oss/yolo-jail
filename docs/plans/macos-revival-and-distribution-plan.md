@@ -1,8 +1,9 @@
 # Plan: macOS revival + source-distribution fix (post-ejection)
 
-**Date:** 2026-07-20. **Status:** IN PROGRESS — Track J's small fixes (J1.1–J1.4)
-+ Track D's D1 and D3 landed 2026-07-20 (see the per-item status notes below);
-J2, D2, D4, J3, and Track M remain.
+**Date:** 2026-07-21. **Status:** J1.1–J1.4, D1, D2, D3, J2, J3, Track M
+(M0/M1/M2) landed; D4 substituter enabled (`flake.nix:13-16`, `730c258`), only
+the Cachix account/token + first push + Mac download human-gated; nothing
+engineering-side fully open.
 **Inputs:** `docs/research/repo-root-and-distribution.md` (the source-access
 work), `docs/design/macos-no-vm-direction.md` (the settled "compose both
 backends" direction), `docs/research/macos-support-matrix.md` (the status
@@ -96,6 +97,9 @@ run (`yolo -- bash`) before it's called done — unit tests don't catch
 container-start regressions.
 
 ### J2. The core re-port: native Go bootstrap for macos-user (finding 1)
+
+> **Status (2026-07-21): DONE + committed.** J2.1 `12d27cb`, J2.2 `731dbe5`,
+> J2.3 `1e68e24`+`544a806`, J2.4/finding-6 `e65993a`.
 
 The dead piece: `internal/macosuser/bootstrap.go` emits a `#!/usr/bin/env
 python3` script (`:77`) that `import entrypoint`s (`:101-102`) a tree staged by
@@ -199,6 +203,9 @@ container path shares.
 
 ### J3. Container-builder rewiring (AC fallback cell, lower priority)
 
+> **Status (2026-07-21): DONE + committed.** Resurrected `8abb67c`; wired into
+> AutoLoadImage `c2f0b94`.
+
 The Go port dropped the on-demand container-builder session from the image
 path; `internal/containerbuilder` was deleted with zero importers
 (support-matrix "roadmap" section). Resurrect it from git history and wire it
@@ -232,6 +239,15 @@ options are complementary; sequence them:
    (user-config repo_path). Step 3 (bundle staging) stays run-owned — that is
    D3 below.
 2. **D2: make the launch path degrade gracefully.**
+   **Status (2026-07-21): DONE + committed** (`8f1d612`). Repo-root resolution is
+   no longer a hard gate: `run.go` resolves it, and on a miss the launch proceeds
+   degraded. `image.AutoLoadOptions.SkipBuild` (set when `repoRoot==""`) skips the
+   nix build and jumps straight to the existing-image / cached-tar fallback
+   (`autoload.go:133-167`, now reachable in this scenario); the assembler drops
+   the `/opt/yolo-jail:ro` bind + `YOLO_REPO_ROOT` env behind one `repoBound`
+   gate; `Run` prints a soft notice instead of exiting 1. Nested-jail verified
+   both paths (normal binds + rebuild; degraded → cached image with neither). The
+   design as originally planned:
    - `macos-user` with empty `packages:` needs no repo at all once J2 lands
      (self-exec bootstrap): defer the repo-root hard-exit until a consumer
      actually needs the tree (image build, darwinpkg materialize, `/opt`
@@ -260,7 +276,8 @@ options are complementary; sequence them:
    Verified the staged tree evaluates (`nix eval .#ociImage.drvPath`).
    Adversarially reviewed — frozen invariant clean; a goreleaser dist/-wipe
    packaging bug was caught (reproduced against goreleaser built from source) and
-   fixed. Only D4 (Cachix, human-gated account) remains in Track D.
+   fixed. D2 landed 2026-07-21 (`8f1d612`); only D4's human-gated Cachix
+   account/push/download remains in Track D.
    - Define the bundled layout: `share/yolo-jail/` must contain the `goSrc`
      fileset the flake needs (`flake.nix:65-80`: go.mod, go.sum, `vendor/`,
      `cmd/`, `internal/`, `bundled_loopholes/`) **plus** `flake.nix`/
@@ -282,12 +299,12 @@ options are complementary; sequence them:
    - Regression tests per the research doc's recommendation
      (`internal/cli/run/probes_test.go`): a bundled `share/yolo-jail/`
      resolves via step 3; the no-bundle case still errors actionably.
-4. **D4 (gated on the Cachix account): enable the substituter**
-   (`flake.nix:17-20`, commented out). The `publish.yml` cache-push job
+4. **D4 (gated on the Cachix account): the substituter is enabled**
+   (`flake.nix:13-16`, `730c258`). The `publish.yml` cache-push job
    already exists and self-enables once `CACHIX_AUTH_TOKEN`/`CACHIX_CACHE`
-   are configured (`publish.yml:83-102`), so D4 is account creation + the
-   uncomment. Removes the compile; composes with D3 (flake evaluation still
-   needs a local tree).
+   are configured (`publish.yml:83-102`), so remaining D4 = human Cachix
+   account + `CACHIX_AUTH_TOKEN` secret + first push + Mac download. Removes
+   the compile; composes with D3 (flake evaluation still needs a local tree).
 
 D1 is a today-sized commit. D2 pairs naturally with J2 step 3 (both touch the
 run front door and the RepoSrc contract). D3 is independent and jail-testable
@@ -340,8 +357,9 @@ The bullets below are the original plan; see that runbook for what actually ran.
   with the nix layer. Retire SandVault from the loop. Update the support
   matrix cells (macos-user "run agent" [M], AC "run agent in jail" [M] if
   exercised), then rewrite `docs/guides/macos.md` (it still says macos-user
-  "was removed", lists uv/cli.py-era prerequisites) — deliberately **after**
-  the launch works, so the guide never advertises a broken backend.
+  "was removed", lists uv/cli.py-era prerequisites — done in `43bd846`) —
+  deliberately **after** the launch works, so the guide never advertises a
+  broken backend.
 
 ---
 

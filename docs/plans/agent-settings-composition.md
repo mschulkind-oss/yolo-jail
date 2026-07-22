@@ -2,8 +2,14 @@
 
 **Status:** Design of record — **FINALIZED 2026-07-20** (all §9 questions
 resolved). Supersedes the exploratory RFC that carried a menu of models and a
-data-filter vocabulary — this is the line in the sand. **Not started** (no engine
-code yet); implementation sequenced in §8 and [ROADMAP.md](ROADMAP.md).
+data-filter vocabulary — this is the line in the sand. **Per-phase status:**
+**Phase A complete** — the engine is built + tested (`internal/agentcfg`, with
+`compose.go`/`engine.go`/`manifest`/`codec`/`luahook` and their tests). **Phase
+B modeled** — all surfaces are in the manifest and reachable via `yolo config
+render`, but **not wired to boot**: boot still runs the bespoke `Configure*`
+writers in `internal/entrypoint` (nothing there imports `agentcfg`), and no
+`host_*_files` keys have been deleted. **Phase C not started.** Implementation
+sequenced in §8 and [ROADMAP.md](ROADMAP.md).
 
 yolo generates a number of config files inside the jail from host + jail sources
 — coding-agent settings (Claude's `settings.json`, Codex's `config.toml`, pi's
@@ -40,7 +46,7 @@ the current entrypoint (`internal/entrypoint`), these are:
 | Claude `settings.json` (+ `.claude.json`) | `claude.go` | json | host `~/.claude` + config + managed |
 | Copilot / Gemini / opencode / pi / Codex settings | `agent_configs.go`, `codex.go` | json / **toml** (Codex) | host files + config |
 | **MCP servers** (per-agent config) | `mcp.go` | json | `mcp_servers` + `mcp_presets` (config) + builtin presets |
-| **LSP servers** | `lsp.go` / `agent_configs.go` | json | `lsp_servers` (config) + defaults |
+| **LSP servers** | `mcp.go` (`LoadLSPServers`) / `agent_configs.go` | json | `lsp_servers` (config) + defaults |
 | **Global mise config** (`~/.config/mise/config.toml`) | `mise.go` | **toml** | `mise_tools` (config) + `miseBaseTools` defaults |
 | **git / jj identity** | `identity.go` | (git config kv) | `YOLO_GIT_*` / `YOLO_JJ_*` env |
 
@@ -71,8 +77,11 @@ merges rather than adding a parallel path.
 ## 2. Six principles (the line in the sand)
 
 1. **Regenerate, don't reconcile.** Each generated config file (agent settings,
-   MCP, LSP, mise, identity — §1.1) is rebuilt from sources on every boot, not
-   edited in place. Host-key removal needs zero
+   MCP, LSP, mise, identity — §1.1) *will be* rebuilt from sources on every boot
+   by the engine, not edited in place. (Target model — the engine exists and is
+   tested, but is **not yet wired to boot**: today boot still runs the bespoke
+   `Configure*` writers in `internal/entrypoint`. See the Phase B/C status in the
+   header.) Host-key removal needs zero
    memory: a dropped host key is simply absent from the next render. (This alone
    deletes today's snapshot/rollback three-way merge and its poison-on-typo
    failure — see §7.)
@@ -272,7 +281,8 @@ would write, and touches no live agent config. It runs **both** host-side (the
 edit-before-launch loop, no container needed) **and inside the jail** (the
 operating agent's "what is my config, and why?" aid — §9). It's cheap because the
 engine is pure: host-side it renders in a temp dir; in-jail it renders from the
-same layers the boot render used, read-only.
+same layers a boot render would use (once boot is on the engine — Phase B/C),
+read-only.
 
 ```bash
 yolo config render <agent>                 # every surface, to stdout — no writes
@@ -281,11 +291,20 @@ yolo config render pi --explain [KEYPATH]  # which layer/hook won each leaf (inc
 yolo config render pi --host F --workspace F --overlay F --format json   # hypotheticals / fixtures
 ```
 
-It calls the *same* engine the entrypoint calls — "what render prints" is "what
-the jail gets." It is simultaneously: the **dev-iteration loop** (edit
+It calls the engine that boot **will** use once Phase B/C wire it (see the
+header status) — so *when wired*, "what render prints" is "what the jail gets."
+**Today it is a read-only preview**, not on the boot path: the engine's only
+caller is `internal/cli/config.go` (`yolo config render`); boot still runs the
+bespoke `Configure*` writers in `internal/entrypoint`, which do not import
+`agentcfg`. Render is already simultaneously: the **dev-iteration loop** (edit
 `config.lua`, `render --explain`, repeat — no container churn), the **safety-diff
-source** (§3.4), the **test harness** (fixture vectors: `inputs → render`,
-byte-checked in `go test`), and the `yolo check` config validator.
+source** (§3.4), and the **test harness** (fixture vectors: `inputs → render`,
+byte-checked in `go test`).
+
+*Phase-B/C follow-up:* once the engine drives boot, wire `yolo config render`
+into the `yolo check` config validator too. Today `yolo check` calls the same
+bespoke `entrypoint.Configure*` writers boot uses (it does not import
+`agentcfg`), so it validates the current generators, not the engine's output.
 
 ## 6.5 Worked example — the pi permission gate, end to end
 
@@ -368,7 +387,8 @@ The current mechanism, from the code:
 
 - **A shared mutable file.** The agent rewrites the same `settings.json` yolo
   writes, forcing a bespoke **one-level-deep snapshot three-way merge**
-  (`_sync_host_settings`); nested objects/arrays compare atomically, and the
+  (`syncHostSettings`, `claude.go` / `agent_configs.go`); nested objects/arrays
+  compare atomically, and the
   snapshot loader returns `{}` on *any* error — so one boot with a host JSON typo
   looks identical to "host removed all keys" and rolls the jail back.
 - **No transform step.** A host key stays out of the jail only if it collides

@@ -275,7 +275,7 @@ dependency — M1's dependency on J2 is discharged (both landed).
   local loop (`just test-fast`, `-short`) skips every container test, so this only
   pays off for a full local `just test`. It also needs real work first — per-test
   `GlobalStorage` isolation to unstick the shared `last-load` sentinel race
-  (`autoload.go:135`) — before `t.Parallel()` is safe; N is bound by memory (each
+  (`autoload.go:143`) — before `t.Parallel()` is safe; N is bound by memory (each
   jail is a VM/container), not the 32 cores. The 2026-07-20 launch-merges
   (zbar/cli/isolation/cgroup → single launches, landed in c4ae68a) already
   recovered ~120s/arch with zero parallelism risk. See

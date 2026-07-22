@@ -28,35 +28,32 @@ rare fallback (custom uncached packages only).
   → exit 0), so the build/publish-from-Linux path is validated; the first
   actual push + the Mac download proof remain.
 
-## Do this once (the deferred signup + wiring)
+## Setup runbook (wiring done; first push + Mac proof remain)
 
-1. **Create the cache.** Sign in at <https://app.cachix.org>, create a cache.
-   Cache names are **global** — the wiring assumes **`yolo-jail`**; if that's
-   taken, pick another and see step 5. Make it **public** (so users read
-   without auth).
+1. **Create the cache.** ✅ Done — the **public** `yolo-jail` cache exists at
+   <https://app.cachix.org>. (Cache names are **global**; the wiring assumes
+   **`yolo-jail`**. If a fork needs a different name, see step 5.)
 
-2. **Enable the substituter in `flake.nix`.** Uncomment the `nixConfig` block
-   near the top and replace `<PUBLIC_KEY>` with the key Cachix shows on the
-   cache's "Settings → Public key" (format
-   `yolo-jail.cachix.org-1:AAAA…=`):
+2. **Enable the substituter in `flake.nix`.** ✅ Done — the `nixConfig` block is
+   live at `flake.nix:13-16` with the committed public key:
    ```nix
    nixConfig = {
      extra-substituters = [ "https://yolo-jail.cachix.org" ];
-     extra-trusted-public-keys = [ "yolo-jail.cachix.org-1:<PUBLIC_KEY>" ];
+     extra-trusted-public-keys = [ "yolo-jail.cachix.org-1:6SMCmaSd8DsVfj5EHAdpgIZi0RE14zyYrAWnV8WxFLM=" ];
    };
    ```
 
 3. **Add the CI credential** (GitHub → repo Settings → Secrets and variables →
-   Actions):
+   Actions). ✅ Done:
    - **Secret** `CACHIX_AUTH_TOKEN` = a **write** auth token from Cachix
      (cache → Settings → Auth Tokens, or `cachix authtoken`). This is the ONLY
-     thing CI gates on — once it exists, `push-image-cache` runs on the next
+     thing CI gates on — now that it exists, `push-image-cache` runs on the next
      release.
    - **Variable** `CACHIX_CACHE` (optional) = the cache name. Defaults to
      `yolo-jail` when unset; only set it to push to a differently-named cache
      (e.g. a fork's).
 
-4. **First push (prove it), from a Linux box:**
+4. **First push (prove it) — still TODO, from a Linux box:**
    ```sh
    nix profile install nixpkgs#cachix     # if cachix isn't installed
    cachix authtoken <write-token>          # or: export CACHIX_AUTH_TOKEN=…
@@ -89,9 +86,12 @@ cacheable by construction).
 
 ## Notes / decisions already made
 
-- **Cadence:** push on **published releases** only (the `push-image-cache`
-  job in `publish.yml`), not on every `main` merge. Change the job's `if:`
-  if you want per-merge freshness.
+- **Cadence:** set by the `on:` triggers of `publish.yml` (`push.tags: v*` at
+  ~lines 22-25 + `release.types: [published]` at ~lines 26-27) — the
+  load-bearing trigger is the tag push. The `push-image-cache` job (~line 85)
+  has **no** job-level `if:`; it gates per-step on the `CACHIX_AUTH_TOKEN` secret
+  (a `gate` step at ~line 101). For per-merge freshness, add
+  `push: branches: [main]` to `on:`, not a job `if:`.
 - **Fallback builder** for users who add custom uncached packages:
   **nix-darwin `linux-builder`** (persistent, launchd-managed) — the single
   documented builder in `docs/guides/macos.md`, per the

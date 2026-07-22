@@ -31,13 +31,15 @@ consolidation for consolidation's sake, I want clean up"):
   `*_parity_test.go` files, no `divergences.md`, no live oracle/drift refs in
   Justfile/scripts; removed the stale `tools/parity/` pycache remnant.
 - [x] **Shared rich→ANSI renderer** — done with cli-color-audit
-  (`internal/richtext`; run/prune/builder/macosuser/broker all route through it).
+  (`internal/richtext`; prune/builder/macosuser/broker (and the top-level cli
+  commands) route through it; run itself still carries the private
+  `richToANSI`/`stripRich` that richtext was extracted from).
 
 **Deliberately NOT done — would be churn that loses meaning:**
 
-- **Package "consolidation."** Assessed all 42 `internal/*` packages: none are
+- **Package "consolidation."** Assessed all 43 `internal/*` packages: none are
   Python-boundary shims. They're cohesive Go packages split by concept (the
-  36-file `cli/run` is split by-topic — assemble/mounts/network/lsp/identity/… —
+  37-file `cli/run` is split by-topic — assemble/mounts/network/lsp/identity/… —
   exactly as a large Go package built directly would be; single-file packages
   like `shquote`/`pytext`/`paths`/`version` are legit utilities, à la stdlib
   `path/filepath`). Package/dir names all match; no mismatch smells. Merging them

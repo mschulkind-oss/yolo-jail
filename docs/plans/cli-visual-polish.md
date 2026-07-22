@@ -20,7 +20,7 @@ making every `yolo` CLI surface actually colorful, scannable, and eye-friendly
 Every human-facing `yolo` surface uses color to guide the eye — status
 vocabulary (ok/fail/warn) is colored, headers are bold, identifiers and paths
 are distinct from prose, and action hints stand out — following ONE consistent
-semantic convention across all commands. Today three surfaces already hit this
+semantic convention across all commands. Today five surfaces already hit this
 bar (`check`, `broker status`, `builder status`, `prune`, `macos-*`); several
 others emit textbook color-mappable content as flat monochrome.
 
@@ -48,7 +48,7 @@ rule for every edit below:
 
 ## Semantic color convention (apply everywhere)
 
-One grammar for the whole CLI, expressible entirely in the current 6-tag palette:
+One grammar for the whole CLI, expressible entirely in the current 8-tag palette:
 
 | Meaning | Tag | Used for |
 |---|---|---|
@@ -65,45 +65,43 @@ scan target (e.g. `--help` command names).
 
 ## Palette gaps (enabling dependency — do FIRST if needed)
 
-`internal/richtext` offers 6 tags: `bold`, `dim`, `red`, `green`, `yellow`,
-`cyan` (`ansiForTag`, richtext.go:34-37) — 4 true hues plus 2 modifiers, no
-background/inverse. Two audited surfaces want more than that:
+`internal/richtext` offers 8 tags: `bold`, `dim`, `red`, `green`, `yellow`,
+`blue`, `magenta`, `cyan` (`ansiForTag`, richtext.go:39-42) — 6 true hues plus 2
+modifiers, no background/inverse. One audited surface still wants more than that:
 
-1. **`config render --explain` — 6 provenance layers, 4 hues.** The layer column
-   (`defaults`/`host`/`workspace`/`overlay`/`transform`/`managed`) is a closed
-   set that begs for one-hue-per-layer, but 6 layers can't each get a distinct
-   hue. **Options:** (a) extend richtext with `magenta` (ANSI 35) + `blue`
-   (ANSI 34) so each layer gets its own hue; or (b) map by semantic *role*
-   within the current palette — e.g. `managed`→`[bold red]` (authoritative/
-   locked), `transform`→`[yellow]` (computed), `host`→`[cyan]`,
-   `workspace`→`[bold cyan]`, `overlay`→`[green]`, `defaults`→`[dim]`. Option (b)
-   ships today with no renderer change; (a) is the cleaner long-term key.
-2. **`check` badges use background/inverse video.** `reporter.go:20-23` renders
-   `[FAIL]` white-on-red and `[WARN]` black-on-yellow via its own ANSI constants
-   — backgrounds richtext cannot express. This is only relevant *if* `check` is
-   ever unified onto richtext; today check keeps its private, strictly-richer
-   ANSI set (recommended). If unification is ever desired, richtext must gain
-   background/inverse tags first, else the badges degrade to plain fg red/yellow.
+1. **`config render --explain` — 6 provenance layers, 6 hues. RESOLVED.**
+   Option (a) shipped: richtext gained `magenta` (ANSI 35) + `blue` (ANSI 34) in
+   6be7884, and `--explain` took the one-hue-per-layer route in 59568e4 —
+   `colorLayer` (config.go) maps `defaults`→`[dim]`, `host`→`[blue]`,
+   `workspace`→`[cyan]`, `overlay`→`[magenta]`, `transform`→`[yellow]`,
+   `managed`→`[green]`, so the closed layer set now gets one distinct color each.
+2. **`check` badges use background/inverse video. (still open.)**
+   `reporter.go:20-21` renders `[FAIL]` white-on-red and `[WARN]` black-on-yellow
+   via its own ANSI constants — backgrounds richtext cannot express. This is only
+   relevant *if* `check` is ever unified onto richtext; today check keeps its
+   private, strictly-richer ANSI set (recommended). If unification is ever
+   desired, richtext must gain background/inverse tags first, else the badges
+   degrade to plain fg red/yellow.
 
-**Richtext-extension task (small, optional, unblocks the above):** add
-`magenta`/`blue` hues (and, only if check is ever unified, background/inverse
-tags) to `ansiForTag`. Until then, prefer the role-mapping fallback for
-`--explain`. Everything else in this plan fits the existing 6 tags.
+**Richtext-extension task (background/inverse only, still open):** the
+`magenta`/`blue` hues already landed (6be7884). Only if check is ever unified
+would `ansiForTag` need background/inverse tags. Everything else in this plan
+fits the existing 8 tags.
 
-## The one structural change — `yolo --help`
+## The one structural change — `yolo --help` (DONE)
 
 Unlike the other items (which just wrap existing tags around existing text),
-`yolo --help` needs a **mechanism** change. `usageText()` (help.go:27-47) returns
-a *pure plain string* printed via `fmt.Print` at cli.go:48 with **no color and no
-TTY gate**, and `help_test.go` asserts on the raw text. Coloring it means routing
-it through the renderer:
+`yolo --help` needed a **mechanism** change, now landed in 59568e4. `usageText()`
+(help.go:32-52) emits rich tags (`[bold]` section headers, `[cyan]` command
+names) and is rendered at the print site via
+`richtext.Render(usageText(), isTTY(os.Stdout))` (cli.go, in the
+`wantsTopLevelHelp` branch) — the plain path strips the tags so `help_test.go`'s
+substring assertions keep passing.
 
-- Have `usageText` emit rich tags, then render at the print site gated on
-  `Color && isTTY(os.Stdout)` — mirror `configref.go`'s `Render(color)` / `isTTY`
-  pattern. Substring-presence tests keep passing because the plain path strips
-  the tags. Same mechanism cost applies to `config --help` / `configUsage`
-  (config.go:26-44, written via `io.WriteString` with no color path) and the
-  whole of `config.go`, which has no color path at all today.
+- **Still plain:** the same mechanism cost applies to `config --help` /
+  `configUsage` (config.go:27-45, a pure-plain string written via `io.WriteString`
+  with no color path). `config.go` otherwise has a color path now (`colorForWriter`
+  + a `richtext.Printer` in `renderSurface`); only the usage string is uncolored.
 
 ## Per-command checklist
 
@@ -129,30 +127,31 @@ Highest value, low risk (text stays byte-identical after strip).
   loophole Name so each row anchors; dim the `(source/transport/lifecycle)` tags
   and the `transport=`/`intercepts=` metadata; dim the description continuation
   (L117); bold the `• bundled/user/workspace` empty-state bullet labels.
-- [ ] **`yolo ps`** (ps.go + runtime/display.go RenderPsTable) —
-  **Impact: high · Effort: med.** No color plumbing at all today; `RenderPsTable`
-  has no golden/parity test. Add a color gate + `Printer` into `psDeps.Out`
-  first. Then: bold the header row (`CONTAINER STATUS WORKSPACE`); color the
-  STATUS column by state (green Up/running, red/yellow otherwise — thread the
-  color flag into `RenderPsTable`, or color at the ps.go layer); make the
-  problem-jails block red (`[red]⚠  %d problem jail(s):[/red]`, `(reason)` in
-  red/yellow); cyan the `yolo doctor` remediation hint (L110) and the
-  "Could not query…" runtime-error line (L58), matching broker/builder.
+- [x] **`yolo ps`** (ps.go + runtime/display.go RenderPsTable) — **DONE
+  (d71dba3), listed in the Status header.** A color gate + `richtext.Printer`
+  are now wired into `psDeps` (ps.go: `richtext.Printer{W: deps.Out, Color:
+  deps.Color}`), TTY-resolved via `colorForWriter(os.Stdout)`. The framing lines
+  are colored — bold header row, `[dim]No running jails.[/dim]`, the
+  `[yellow]⚠  %d problem jail(s):[/yellow]` block with `[red]` reason rows, the
+  `[dim]Run 'yolo doctor' to clean up[/dim]` hint, and the `[red]Could not
+  query…[/red]` runtime-error line. `TestPsColorParity` (ps_test.go) locks the
+  additive-color/byte-parity contract.
 
 ### Group B — YELLOW: partial or plain, mostly additive
 
-- [ ] **`config render --explain` layer column** (config.go renderSurface
-  L167-176 + agentcfg/compose.go ProvenanceLines L216) —
-  **Impact: high · Effort: med** (needs the config.go color path, see structural
-  change; and see palette gap #1 for the hue decision). Color the LAYER token so
-  the output scans like syntax highlighting — which keys `managed` clobbered vs
-  came from `host`/`transform`. Also pad the key column to a common width (it's
-  tab-separated + ragged today) — that helps scannability even before color.
-- [ ] **`yolo --help`** (help.go usageText) — **Impact: high · Effort: med**
-  (the structural change above). Headers `Usage:`/`Commands:`→bold; each command
-  NAME (left column, L43)→`[bold cyan]` (the scan target); highlight the literal
-  `yolo --` / subcommand tokens (L31-32)→cyan, description dim; trailing pointer
-  line (L45)→dim; tagline (L29)→dim.
+- [x] **`config render --explain` layer column** (config.go renderSurface
+  L162-193, colorLayer L199-216 + agentcfg/compose.go ProvenanceLines L216) —
+  **DONE (59568e4).** `renderSurface` builds a `richtext.Printer{W: out, Color:
+  color}`, cyans each key, and runs the LAYER token through `colorLayer`, which
+  gives one hue per layer (palette gap #1 resolved via the extended palette). The
+  output now scans like syntax highlighting — which keys `managed` clobbered vs
+  came from `host`/`transform`.
+- [x] **`yolo --help`** (help.go usageText L32-52, rendered at cli.go via
+  `richtext.Render(usageText(), isTTY(os.Stdout))`) — **DONE (59568e4).**
+  `usageText` emits `[bold]` headers (`Usage:`/`Commands:`), `[cyan]` on each
+  command NAME (the scan target, L48), the literal `yolo --`/subcommand usage
+  tokens (L36-39), and the trailing `yolo <subcommand> --help` pointer (L50). The
+  print site is TTY-gated so stripped output stays byte-identical.
 - [ ] **`config --help` / `configUsage`** (config.go L26-44) —
   **Impact: med · Effort: med** (same config.go color path). Headers
   `Usage:`/`Subcommands:`/`render flags:`→bold; `render <agent>` token and each
@@ -227,12 +226,13 @@ golden update — call it out for human sign-off, don't fold it in silently.
 
 ## Suggested order
 
-1. Richtext palette extension (magenta/blue) — only if `--explain` takes the
-   one-hue-per-layer route; otherwise skip and use role-mapping.
+1. ~~Richtext palette extension (magenta/blue)~~ **SHIPPED (6be7884)** — and
+   `--explain` took the one-hue-per-layer route (59568e4).
 2. Group A (loopholes status → loopholes list → ps): highest value, self-
-   contained plumbing, no goldens.
-3. `--help` + config surfaces (the structural renderer-routing change), then
-   `--explain`.
+   contained plumbing, no goldens. (`ps` done — d71dba3.)
+3. ~~`--help`~~ + config surfaces (the structural renderer-routing change), then
+   ~~`--explain`~~ — `--help` and `--explain` both landed (59568e4); the
+   `config --help`/`configUsage` string remains plain.
 4. init status lines (resolve the markup.go red gap or route to richtext).
 5. Group C polish + cross-cutting path/glyph passes.
 6. Frozen-byte surfaces (run sub-steps, banner) last, each with human sign-off.

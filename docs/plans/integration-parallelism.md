@@ -1,12 +1,13 @@
 # Plan: bounded parallelism for the integration suite
 
-**Status:** OPEN — parked (do the launch-merges first). Deferred deliberately:
+**Status:** OPEN — only the bounded-parallelism refactor remains (the
+launch-merges landed in `c4ae68a`). Deferred deliberately:
 CI is free (open-source runners), so integration wall time is a convenience, not
 a cost; and the fast **local** dev loop (`just test-fast`) never runs these
 container tests at all (they're `requireJail`-gated, skipped under
 `testing.Short()`). So this only pays off when someone runs the FULL `just test`
 (container suite) locally and wants it faster than serial. Pick it up if that
-becomes a real friction; otherwise the launch-merges (below) are the cheaper win.
+becomes a real friction; the launch-merges (below) already landed.
 
 ## Why the suite is serial today (and why it can't just flip)
 
@@ -15,7 +16,7 @@ stated reason ("the session image load must not run per worker") is only half of
 it; the real blocker is **shared global state that every `yolo run` touches**:
 
 - The image-load **sentinel** `last-load-<runtime>` lives at a single global path
-  `paths.BuildDir()` = `GlobalStorage()/build` (`internal/image/autoload.go:122`),
+  `paths.BuildDir()` = `GlobalStorage()/build` (`internal/image/autoload.go:143`),
   and **every** `yolo run` reads/writes it via `AutoLoadImage` — not just
   `TestMain`'s one-time `ensureJailImage()`. Tests with `packages:` configs
   (zbar, libsodium in `packages_test.go`) trigger *additional* per-run `--impure`
@@ -54,13 +55,15 @@ parallelism: the per-test rebuilds re-enter the shared load path.
 4. **Verify** in a nested jail at N>1: no sentinel/build-root races, no container
    name collisions, no OOM. Re-run several times (races are probabilistic).
 
-## Cheaper win to do FIRST (mostly done)
+## Cheaper win (landed in `c4ae68a`)
 
 The launch-merges from the timing analysis cut container *count* with zero
-parallelism risk and are landing separately (zbar trio, cli blocked-tool trio,
-six isolation probes, gated cgroup pair). Those recover a big chunk of the wall
-time without touching the shared-state hazard — do them before investing in the
-parallelism refactor, and re-measure whether parallelism is still worth it.
+parallelism risk and landed in commit `c4ae68a` (zbar trio, cli blocked-tool
+trio, six isolation probes, gated cgroup pair — merged into
+`packages_test.go`, `cli_test.go`, `isolation_test.go`, `cgroup_test.go`; the
+old per-check tests are gone). Those recovered a big chunk of the wall time
+without touching the shared-state hazard — re-measure whether the parallelism
+refactor is still worth it before investing in it.
 
 ## Risks
 

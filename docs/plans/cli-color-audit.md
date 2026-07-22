@@ -1,8 +1,11 @@
 # Plan: CLI color audit — render rich markup, don't strip it
 
-**Status:** OPEN — confirmed bug class, `prune`/`builder`/`macosuser` fixed
-(2026-07-20). Pulled out of the archived `go-port-post-transition.md` §5.
-Jail-testable end-to-end (no host needed); pairs naturally with the renderer
+**Status:** OPEN (cleanup only) — the confirmed bug class is closed:
+`prune`/`builder`/`macosuser` fixed (2026-07-20), and `broker` (`8e5302f`) and
+`ps` (`d71dba3`) folded in since. The only remaining work is consolidating the
+last rich→ANSI duplicate (`run/console.go`) onto `internal/richtext` and
+unifying the TTY probe. Pulled out of the archived `go-port-post-transition.md`
+§5. Jail-testable end-to-end (no host needed); pairs naturally with the renderer
 consolidation in
 [module-consolidation-and-cleanup.md](module-consolidation-and-cleanup.md).
 
@@ -31,26 +34,39 @@ strip-always printers were routed through it:
 - [x] **`macos-*`** — printer gains a `color` field; dry-run plan render forced
   color-OFF (byte-pinned goldens), only live chatter colors. (`20e73c0`)
 
-Reference (already correct): `internal/cli/run/console.go` delegates to
-`internal/richtext`; the gate is `Color && IsTTYStdout()`.
+The last unconsolidated duplicate: `internal/cli/run/console.go` still carries
+its own `richTagRe`/`richToANSI`/`stripRich` (it is the file `internal/richtext`
+was extracted *from*, and it does **not** import `internal/richtext`). Its
+color-aware behavior and gate are correct — `pr` builds the printer with
+`color: o.Color && o.IsTTYStdout()` (console.go ~line 114) — but the renderer
+code is a copy, so migrating it onto `internal/richtext` is the remaining
+consolidation step.
 
 Still to classify (audit each — "intentionally plain" vs "lost its color"):
 
 - [ ] **`check`/`doctor`** (`internal/cli/check`) — has its own ANSI path;
   verify it actually colors on a TTY and isn't a strip-always in disguise.
-- [ ] **`config-ref`** (`internal/cli/configref`) — has a `tagReplacer` ANSI
-  renderer gated on a `color` bool; confirm it's wired to a real TTY check.
-- [ ] **`loopholes`, `broker`, `init`, `init-user-config`, `ps`** — some are
-  intentionally plain (byte-parity, no color), some should color. Classify each.
+- [ ] **`config-ref`** (`internal/cli/configref.go` — a single file in package
+  `cli`, not a `configref/` package/dir) — has a `tagReplacer` ANSI renderer
+  gated on a `color` bool. TTY wiring is **confirmed**: `RunStdout` calls
+  `configRefRun(os.Stdout, isTTY(os.Stdout))`. Its `isTTY` is the char-device
+  check, not the ioctl — the char-device-vs-ioctl concern is tracked under
+  "Unify the TTY probe" below.
+- [ ] **`loopholes`, `init`, `init-user-config`** — some are intentionally plain
+  (byte-parity, no color), some should color. Classify each. (`broker` and `ps`
+  are done — see status above.)
 
 ## The work
 
 - [x] Port `run`'s render path to `prune`, `builder`, `macosuser` via the shared
   `internal/richtext` renderer.
-- [x] **Consolidate the renderer.** The color-aware rich→ANSI renderer now lives
-  in ONE place (`internal/richtext`); `run`, `prune`, `builder`, and `macosuser`
-  all route through it. Remaining duplicate `richTagRe` printers (e.g.
-  `internal/broker`) still need routing — the natural intersection with
+- [~] **Consolidate the renderer.** The color-aware rich→ANSI renderer now lives
+  in essentially ONE place (`internal/richtext`); `prune`, `builder`,
+  `macosuser`, `broker` (`8e5302f`), and `ps` (`d71dba3`) all route through it.
+  It still lives in TWO places pending one conversion: `internal/cli/run/console.go`
+  is the last duplicate `richTagRe`/`richToANSI`/`stripRich` printer (the copy
+  richtext was extracted from) and still needs routing — the natural
+  intersection with
   [module-consolidation-and-cleanup.md](module-consolidation-and-cleanup.md).
 - [ ] Audit + classify the remaining commands; fix the ones that lost color.
 - [ ] **Unify the TTY probe.** Two conventions now coexist: the ioctl

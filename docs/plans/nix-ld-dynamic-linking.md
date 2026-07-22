@@ -14,7 +14,7 @@ image change that needs a host `nix build` + `just load && just install` and
 
 Non-nix binaries (the mise node, npm/pip packages, downloaded tools) find their
 shared libs only via `LD_LIBRARY_PATH=/lib:/usr/lib`, which the jail sets in
-every process (`flake.nix:688` baked Env, `internal/cli/run/assemble.go:379` the
+every process (`flake.nix:685` baked Env, `internal/cli/run/assemble.go:379` the
 `-e` re-export). Any consumer that **scrubs the environment** then can't load
 `libstdc++` — so we paper over it with per-call-site wrapper hacks. The worst
 offenders are the **MCP node wrappers**
@@ -28,9 +28,12 @@ nix-ld replaces the `/lib64` FHS interpreter with a loader that resolves
 
 ## Current state (verified 2026-07-20)
 
-- No nix-ld anywhere in the tree (`rg nix-ld flake.nix` → nothing).
+- No nix-ld anywhere in the tree (`rg nix-ld flake.nix` → nothing). The sole
+  mention is an aspirational forward-reference comment at
+  `internal/entrypoint/mise.go:44` (added `743e053`) — cosmetic, nix-ld is still
+  unimplemented, and the doc's own `rg nix-ld flake.nix → nothing` check holds.
 - `LD_LIBRARY_PATH=/lib:/usr/lib[:/usr/lib/<multilib>]` is live in: the baked
-  image Env (`flake.nix:688`), the CLI `-e` injection (`assemble.go:379`), and
+  image Env (`flake.nix:685`), the CLI `-e` injection (`assemble.go:379`), and
   the three MCP wrapper scripts (`mcp_wrappers.go:20,65,73`).
 - So the "custom-`mcp_servers` wrapper gap" (an MCP server that bypasses the
   node wrapper can't find libstdc++ under a scrubbed env) is still open.
@@ -47,7 +50,7 @@ nix-ld replaces the `/lib64` FHS interpreter with a loader that resolves
   `/run/current-system/sw/share/nix-ld/lib` symlink at startup, including on the
   reuse-`exec` paths. (One implementation now — the Python twin is gone.)
 - [ ] **cli:** explicit mode on `--tmpfs /run` (Docker `-u` EACCES guard).
-- [ ] **KEEP the baked `LD_LIBRARY_PATH`** (`flake.nix:688`) — it's the only
+- [ ] **KEEP the baked `LD_LIBRARY_PATH`** (`flake.nix:685`) — it's the only
   dlopen-by-soname discovery path for *nix-built* processes (the user-packages
   contract). nix-ld replaces the *interpreter*, not soname discovery.
 - [ ] **Staged DELETE (separate commits, each after nested-jail validation):**

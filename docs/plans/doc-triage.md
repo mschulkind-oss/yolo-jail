@@ -1,9 +1,12 @@
 # Documentation triage — proposed reorganization (for review)
 
 **Purpose:** classify every doc under `docs/` so obsolete/done working-docs get
-archived while the reference + active-design docs stay. **Nothing has been moved
-or deleted yet** — this is the plan for your sign-off. Once you approve, I execute
-the "Action" column and patch every cross-reference listed in §4.
+archived while the reference + active-design docs stay. **The reorg has been
+executed**: commit `5eb1643` git-rm'd the 12 C-bucket docs and repointed every
+cross-reference; commit `9721660` moved `handoff-cachix-cache.md` into
+`docs/plans/`, removed the now-empty `docs/implementation/`, and added
+`docs/plans/README.md`. The "Action" column and the §4 patch plan below record
+what was done.
 
 ## The three buckets (your taxonomy)
 
@@ -51,9 +54,9 @@ those out and propose keeping the durable part.
 |---|---|---|---|
 | `claude-oauth-refresh-mechanics.md` | **A** | How Claude OAuth refresh works — live, referenced by the operational logout doc. | keep |
 | `claude-token-logouts.md` | **A** | User-facing operational runbook for 401 loops — live. | keep |
-| `macos-container-builder-exploration.md` | **B** | Open-questions doc for the AC-based Linux builder = revival plan **J3** (resurrect `internal/containerbuilder`). Still an implementation-navigation tool. | keep (active) |
+| `macos-container-builder-exploration.md` | **B** | Open-questions doc for the AC-based Linux builder = revival plan **J3** (resurrect `internal/containerbuilder`). J3 shipped (`8abb67c`/`c2f0b94`); now reference for a shipped subsystem. | keep (active) |
 | `macos-linux-builder-explained.md` | **A** | Explains the macOS Linux-builder concept for a Linux reader — mental model, still accurate. | keep |
-| `macos-support-matrix.md` | **A** | **The live tracker** (revival plan §0 names it authoritative). Never archive. Has 2 stale Python-path cells to fix (§4). | keep + fix refs |
+| `macos-support-matrix.md` | **A** | **The live tracker** (revival plan §0 names it authoritative). Never archive. | keep |
 | `mise-host-jail-path-mismatch.md` | **A** (hybrid) | "superseded as a decision doc … retained as the incident record." Explicitly still the *only* home for the `.mise.toml` trust-hook fixes. Durable incident/reference record. | keep |
 | `platform-comparison.md` | **A** | Linux vs macOS architecture comparison — mental model. | keep |
 | `repo-root-and-distribution.md` | **A** | Updated this session to describe live resolution + distribution. | keep |
@@ -67,9 +70,9 @@ those out and propose keeping the durable part.
 
 | Doc | Bucket | Why | Action |
 |---|---|---|---|
-| `plans/macos-revival-and-distribution-plan.md` | **B** | Roadmap of record (2026-07-20). J1/D1/D3 done; J2/D2/D4/J3/Track-M open. | keep (active) |
-| `plans/agent-settings-composition.md` | **B** | Unbuilt RFC (Prism engine); problem persists in Go. Its "what exists today" is Python-grounded — needs re-basing before execution (§4 note). | keep (active) |
-| `implementation/handoff-cachix-cache.md` | **B** | Human-gated procedure = revival plan **D4** (Cachix still commented in `flake.nix`). | keep (active) |
+| `plans/macos-revival-and-distribution-plan.md` | **B** | Roadmap of record (2026-07-20). J1/D1/D2/D3/J2/J3/Track-M done; D4 enabled, first-push/Mac-download human-gated; nothing macos-revival-side fully open. | keep (active) |
+| `plans/agent-settings-composition.md` | **B** | Finalized design of record; engine built but NOT wired to boot — only `yolo config render` (`internal/cli/config.go`) calls `agentcfg.Compose`; boot + check still run bespoke `Configure*`; re-basing note obsolete. | keep (active) |
+| `plans/handoff-cachix-cache.md` | **B** | Human-gated procedure = revival plan **D4**. Cachix substituter enabled `flake.nix:13-16`; first-push/Mac-download human-gated. | keep (active) |
 | `plans/claude-oauth-mitm-proxy-plan.md` | **C** | Self-declared "preserved for design rationale"; Python refs deleted; broker/terminator shipped in Go; the refresher it centered on was removed (`51f07ea`). | **archive** |
 | `plans/macos-backend-direction.md` | **C** | Its "excise macos-user?" premise was *reversed* (macos-user revived). Superseded by `macos-no-vm-direction.md`. | **archive** |
 | `plans/macos-nix-shell-backend-proposal.md` | **C** | devShell mechanism superseded by buildEnv (revival plan §0); decisions folded into revival plan. | **archive** |
@@ -98,7 +101,7 @@ that dir is a stale Python-build artifact (untracked, not shipped).
 |---|---|---|
 | `docs/design/macos-no-vm-direction.md` (×3) | `plans/macos-backend-direction.md`, `plans/macos-nix-shell-backend-proposal.md` | `plans/macos-revival-and-distribution-plan.md` §0 (the standing decision), drop the "reads with" line for the excised doc |
 | `docs/plans/macos-revival-and-distribution-plan.md` (Inputs header) | `handoff-macos-post-ejection.md`, `macos-nix-shell-backend-proposal.md` | reword to "(archived — see git history)"; the plan already contains their conclusions |
-| `docs/research/macos-support-matrix.md` | `handoff-macos-user-revive-plan.md`; 2 stale `src/cli/*.py` cells | repoint to the revival plan; fix the `.py` cells to the Go paths |
+| `docs/research/macos-support-matrix.md` | `handoff-macos-user-revive-plan.md` | repointed to the revival plan |
 | `docs/research/macos-linux-builder-explained.md` (×2) | `handoff-macos-ondemand-builder.md` | `research/macos-container-builder-exploration.md` (the live builder direction) |
 | `docs/design/mise-node-dynamic-linking.md` | `handoff-macos-ondemand-builder.md` | same as above |
 | `docs/research/claude-token-logouts.md`, `claude-oauth-refresh-mechanics.md` (×3) | `plans/claude-oauth-mitm-proxy-plan.md` | `bundled_loopholes/claude-oauth-broker/README.md` (live broker architecture) |
@@ -115,7 +118,10 @@ that dir is a stale Python-build artifact (untracked, not shipped).
 we're currently navigating). Concretely:
 
 - `docs/plans/macos-revival-and-distribution-plan.md` — stays (roadmap of record).
-- `docs/plans/agent-settings-composition.md` — stays (unbuilt Prism RFC).
+- `docs/plans/agent-settings-composition.md` — stays (finalized design of
+  record; engine built in `internal/agentcfg` but NOT wired to boot — only `yolo
+  config render` calls `agentcfg.Compose`, boot + check still run bespoke
+  `Configure*`).
 - `docs/plans/handoff-cachix-cache.md` — **moved here** from
   `docs/implementation/` (it's the active D4 procedure). `docs/implementation/`
   is then empty and removed — a "handoffs" dir was a Python-era working-doc
@@ -143,7 +149,7 @@ record," open-questions sections converted to settled-decisions, and their links
 to archived docs repointed. They no longer read as in-flight work.
 
 <!-- changelog -->
-- [7e141d4a] Rewrote jail-state-separation-design header + "Open Questions"→"Decisions (settled)" so it's firmly Reference, not a hybrid decision-surface; repointed its archived-doc links.
-- [08b44cda] Proposed + executed the reorg: docs/plans/ is the single active home, moved handoff-cachix-cache there, removed the empty docs/implementation/, added docs/plans/README.md index; research builder-exploration stays put.
-- [a7a3528f] Archived the 12 done/obsolete docs via git rm (repo precedent 2c229fb), not a docs/archive/ move.
-- [76183c15] De-hybridized both flagged docs (jail-state-separation-design, mise-host-jail-path-mismatch): rewritten as Reference/incident records, not "plan/decision surface" framing.
+- [5eb1643] Rewrote jail-state-separation-design header + "Open Questions"→"Decisions (settled)" so it's firmly Reference, not a hybrid decision-surface; repointed its archived-doc links.
+- [9721660] Proposed + executed the reorg: docs/plans/ is the single active home, moved handoff-cachix-cache there, removed the empty docs/implementation/, added docs/plans/README.md index; research builder-exploration stays put.
+- [5eb1643] Archived the 12 done/obsolete docs via git rm (repo precedent 2c229fb), not a docs/archive/ move.
+- [5eb1643] De-hybridized both flagged docs (jail-state-separation-design, mise-host-jail-path-mismatch): rewritten as Reference/incident records, not "plan/decision surface" framing.
