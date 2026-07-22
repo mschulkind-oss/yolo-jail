@@ -1,19 +1,26 @@
 # macOS Setup Guide
 
-YOLO Jail supports macOS (Apple Silicon and Intel) in addition to Linux.
-The agent runs in a **Linux container** — Podman Machine or Apple Container
-transparently runs a lightweight Linux VM, so the jail experience is nearly
-identical to a native Linux host.
+YOLO Jail supports macOS (Apple Silicon and Intel) in addition to Linux, with
+two flavors of backend:
 
-**On Apple Silicon this is native arm64 — there is no emulation.** The image
-is built as `aarch64-linux` (the flake maps `aarch64-darwin → aarch64-linux`)
-and the runtime VM is `linux/arm64`, so it's arm-on-arm — no qemu, no Rosetta.
-The only time you hit emulation is pulling an **amd64-only image** (e.g. some
-database images); that's a property of that image, not of the backend.
+- **Linux container** (`podman`, `container`) — Podman Machine or Apple
+  Container transparently runs a lightweight Linux VM, so the jail experience is
+  nearly identical to a native Linux host.
+- **Native, no-VM** (`macos-user`) — the agent runs directly on macOS as a
+  hidden service user (`_yolojail`) confined by Apple Seatbelt, with `packages:`
+  materialized via native `aarch64-darwin` nix. No VM, no Linux image. Verified
+  end-to-end on real Apple Silicon (macOS 26.5, 2026-07-21).
 
-> A native, non-container macOS backend (`macos-user`) was prototyped, briefly
-> excised, then **revived** as part of a composed product (native macos-user +
-> Apple Container fallback). See
+**On Apple Silicon the container path is native arm64 — there is no emulation.**
+The image is built as `aarch64-linux` (the flake maps `aarch64-darwin →
+aarch64-linux`) and the runtime VM is `linux/arm64`, so it's arm-on-arm — no
+qemu, no Rosetta. The only time you hit emulation is pulling an **amd64-only
+image** (e.g. some database images); that's a property of that image, not of the
+backend.
+
+> `macos-user` was prototyped, briefly excised, then **revived** as a composed
+> product (native macos-user + Apple Container fallback) and is now verified on
+> hardware. See
 > [macos-no-vm-direction.md](../design/macos-no-vm-direction.md) for the standing
 > decision and
 > [macos-revival-and-distribution-plan.md](../plans/macos-revival-and-distribution-plan.md)
@@ -25,14 +32,31 @@ database images); that's a property of that image, not of the backend.
 |---------|------------|---------------|
 | **Podman** | Linux container in a Podman Machine VM | The portable default; Podman-in-Podman; parity with Linux hosts |
 | **Apple Container** | Linux container, one lightweight VM per container | Per-container CPU/memory limits, native socket forwarding (macOS 15+) |
+| **macos-user** | Native macOS user + Seatbelt, **no VM, no image** | Fastest startup; no container runtime to install; `packages:` via native darwin nix. Weaker isolation than a VM (Seatbelt, no cgroups) — see [Trade-offs](#macos-user-trade-offs) |
 
-Both are native arm64 on Apple Silicon. Set the runtime with
-`YOLO_RUNTIME=podman` or `container` (or the `runtime` key in
+The container runtimes are native arm64 on Apple Silicon. Set the runtime with
+`YOLO_RUNTIME=podman`, `container`, or `macos-user` (or the `runtime` key in
 `yolo-jail.jsonc`).
 
 Auto-detection priority:
-- **macOS:** Apple Container → Podman (native-first)
+- **macOS:** Apple Container → Podman (native-first). `macos-user` is
+  **opt-in** — select it explicitly; it is not auto-detected.
 - **Linux:** Podman
+
+### macos-user trade-offs
+
+`macos-user` swaps VM isolation for native speed. What you gain: no runtime to
+install, no Linux image to build, instant startup, and `packages:` built
+directly as `aarch64-darwin` nix. What you give up:
+
+- **Weaker isolation** — Seatbelt (`sandbox-exec`) confinement, not a VM. No
+  cgroups, so no resource limits.
+- **Neutral-ground workspaces only** — the sandbox user can share a project
+  under a non-home root like `/Users/Shared/yolo/<name>`, never a path inside
+  your home. yolo refuses a home-dir workspace.
+- **One-time setup** — `yolo macos-setup` creates the hidden `_yolojail` user
+  (self-escalates; do **not** run under `sudo`). `yolo macos-teardown` reverses
+  it. See [The macos-user backend](#the-macos-user-backend) below.
 
 ## Prerequisites
 
@@ -40,8 +64,10 @@ Auto-detection priority:
 
 | Tool | Install | Notes |
 |------|---------|-------|
-| **[uv](https://docs.astral.sh/uv/)** | `curl -LsSf https://astral.sh/uv/install.sh \| sh` | Python package manager |
-| **[Nix](https://nixos.org/download/)** | [Determinate Nix Installer](https://github.com/DeterminateSystems/nix-installer) recommended | Flakes must be enabled; builds the jail image |
+| **[Nix](https://nixos.org/download/)** | [Determinate Nix Installer](https://github.com/DeterminateSystems/nix-installer) recommended | Flakes must be enabled. Builds the jail image (container runtimes) or the native `aarch64-darwin` `packages:` (macos-user). Your user must be a **trusted** nix user — `yolo check` flags it if not. |
+
+`yolo` is the only binary you install (`go install ./cmd/yolo`, `brew`, or a
+release archive); everything else it provisions itself.
 
 **Plus a runtime — pick ONE** (see [Choosing a runtime](#choosing-a-runtime)):
 
@@ -49,6 +75,7 @@ Auto-detection priority:
 |---------|---------|-------|
 | **[Podman](https://podman.io/)** | `brew install podman` | The portable default; requires Podman Machine (setup below) |
 | **[Apple Container](https://github.com/apple/container)** | `brew install container` | Native per-container VM; macOS 15+ |
+| **macos-user** | *(nothing to install)* | Native, no VM. Needs only Nix + `yolo macos-setup` (see [The macos-user backend](#the-macos-user-backend)) |
 
 ### Podman Machine Setup
 
@@ -101,6 +128,51 @@ container system kernel set --recommended
 auto-converts from Nix's streamed image tar using (in priority order):
 1. **skopeo** (recommended — no daemon needed): `brew install skopeo`
 2. **podman** (needs running daemon as fallback)
+
+### The macos-user backend
+
+`macos-user` runs the agent **natively on macOS** — no VM, no Linux image. The
+agent executes as a hidden service user (`_yolojail`) confined by Apple Seatbelt
+(`sandbox-exec`); `packages:` from your config are built as native
+`aarch64-darwin` nix. It needs no container runtime — just Nix (with your user
+trusted) and a one-time account setup.
+
+**One-time setup** (run as your normal admin user — it self-escalates per
+privileged step; do **NOT** prefix with `sudo`):
+
+```bash
+yolo macos-setup      # creates the hidden _yolojail user + shared root ACL
+```
+
+This provisions the neutral shared root at `/Users/Shared/yolo`. Put projects
+you want to run under it (`/Users/Shared/yolo/<name>`) — the sandbox user can
+only share neutral ground, never a path inside your home.
+
+**Run:**
+
+```bash
+cd /Users/Shared/yolo/my-project
+YOLO_RUNTIME=macos-user yolo -- claude       # or set runtime: "macos-user" in yolo-jail.jsonc
+```
+
+`sudo` prompts once per run to enter the sandbox — that's expected; yolo does
+not change your sudo policy.
+
+**Teardown** (fully reverses setup; idempotent):
+
+```bash
+yolo macos-teardown                          # removes the _yolojail user + home
+yolo macos-unshare /Users/Shared/yolo/my-project   # strip the shared ACL from a workspace
+```
+
+**Preflight without changing anything:** `yolo check` reports the macos-user
+readiness (Seatbelt, sandbox user, nix trusted), and
+`YOLO_RUNTIME=macos-user yolo --dry-run` prints the full plan (Seatbelt profile,
+bootstrap argv, launch argv) and runs its invariant checks — both zero-sudo.
+
+See [Choosing a runtime](#macos-user-trade-offs) for when to pick it, and the
+runbook [mac-macos-user-e2e.md](../plans/runbooks/mac-macos-user-e2e.md) for the
+full verification procedure.
 
 ### Building the image on macOS (cache vs. Linux builder)
 
@@ -219,8 +291,9 @@ on Linux.
 ## Installation
 
 Two options. Homebrew is easiest; the source install is for hacking on the CLI
-or running an unreleased working tree. (The README lists two more channels —
-`go install` and pipx/uvx — that work identically on macOS.)
+or running an unreleased working tree. (`go install
+github.com/mschulkind-oss/yolo-jail/cmd/yolo@latest` also works identically on
+macOS.)
 
 ### Option A — Homebrew (recommended for users)
 
@@ -283,6 +356,10 @@ Everything that works on Linux works on macOS **except** the items listed in
 - ✅ `yolo ps`, `yolo stop`, `yolo clean` commands
 - ✅ Network modes (bridge, host, none)
 - ✅ Read-only root filesystem and tmpfs mounts
+- ✅ **Native no-VM backend** (`macos-user`): agent under Seatbelt as
+  `_yolojail`, `packages:` via native `aarch64-darwin` nix, host creds invisible
+  — verified end-to-end on real Apple Silicon (see
+  [The macos-user backend](#the-macos-user-backend))
 
 ## Limitations
 
@@ -348,8 +425,8 @@ this has no practical impact.
 ┌─────────────────────────────────────────┐
 │  macOS Host                              │
 │  ┌───────────────┐  ┌────────────────┐  │
-│  │  yolo (cli.py) │  │ Nix (devShell) │  │
-│  │  Python 3.13   │  │ macOS packages │  │
+│  │  yolo (Go CLI) │  │ Nix (devShell) │  │
+│  │                │  │ macOS packages │  │
 │  └───────┬───────┘  └────────────────┘  │
 │          │                               │
 │  ┌───────▼──────────────────────────┐   │
@@ -358,7 +435,7 @@ this has no practical impact.
 │  │  ┌────────────────────────────┐  │   │
 │  │  │  yolo-jail container        │  │   │
 │  │  │  ┌──────────────────────┐  │  │   │
-│  │  │  │  entrypoint.py       │  │  │   │
+│  │  │  │  yolo-entrypoint     │  │  │   │
 │  │  │  │  (always Linux)      │  │  │   │
 │  │  │  │  AI agent runs here  │  │  │   │
 │  │  │  └──────────────────────┘  │  │   │
@@ -373,8 +450,8 @@ this has no practical impact.
 ┌─────────────────────────────────────────┐
 │  macOS Host                              │
 │  ┌───────────────┐  ┌────────────────┐  │
-│  │  yolo (cli.py) │  │ Nix (devShell) │  │
-│  │  Python 3.13   │  │ macOS packages │  │
+│  │  yolo (Go CLI) │  │ Nix (devShell) │  │
+│  │                │  │ macOS packages │  │
 │  └───────┬───────┘  └────────────────┘  │
 │          │                               │
 │  ┌───────▼──────────────────────────┐   │
@@ -383,7 +460,7 @@ this has no practical impact.
 │  │  ┌────────────────────────────┐  │   │
 │  │  │  yolo-jail container/VM     │  │   │
 │  │  │  ┌──────────────────────┐  │  │   │
-│  │  │  │  entrypoint.py       │  │  │   │
+│  │  │  │  yolo-entrypoint     │  │  │   │
 │  │  │  │  (always Linux)      │  │  │   │
 │  │  │  │  --cpus / --memory   │  │  │   │
 │  │  │  │  native limits       │  │  │   │
@@ -393,13 +470,39 @@ this has no practical impact.
 └─────────────────────────────────────────┘
 ```
 
-Key insight: `cli.py` runs on the macOS host and is platform-aware.
-`entrypoint.py` runs inside the Linux container and needs no macOS changes.
-The Nix flake uses `pkgs` (native macOS) for all build-time derivations
-(image-layer tooling, `writeShellScriptBin`, `stdenv.mkDerivation`, etc.) and
-`imagePkgs` (Linux target) only for the *content* of the image (chromium, bash,
-python, etc.). This means the image can be built on macOS using the NixOS
-binary cache — no cross-compilation or remote Linux builder required.
+### macos-user (native, no VM)
+
+```
+┌─────────────────────────────────────────┐
+│  macOS Host                              │
+│  ┌───────────────┐  ┌────────────────┐  │
+│  │  yolo (Go CLI) │  │ Nix (daemon)   │  │
+│  │  as your user  │  │ aarch64-darwin │  │
+│  └───────┬───────┘  └────────────────┘  │
+│          │ stages yolo → /var/yolo-jail  │
+│          │ sudo --user=_yolojail         │
+│  ┌───────▼──────────────────────────┐   │
+│  │  sandbox-exec (Seatbelt profile)  │   │
+│  │  ┌────────────────────────────┐  │   │
+│  │  │  _yolojail (hidden user)    │  │   │
+│  │  │  yolo internal              │  │   │
+│  │  │    darwin-bootstrap         │  │   │
+│  │  │  AI agent runs here         │  │   │
+│  │  │  packages: native darwin nix│  │   │
+│  │  └────────────────────────────┘  │   │
+│  └──────────────────────────────────┘   │
+└─────────────────────────────────────────┘
+```
+
+Key insight: `yolo` runs on the macOS host and is platform-aware.
+`yolo-entrypoint` runs inside the Linux container (podman/AC) and needs no macOS
+changes; on the macos-user path the host `yolo` self-execs `yolo internal
+darwin-bootstrap` as `_yolojail` instead, running the same config generators
+natively. The Nix flake uses `pkgs` (native macOS) for all build-time
+derivations (image-layer tooling, `writeShellScriptBin`, `stdenv.mkDerivation`,
+etc.) and `imagePkgs` (Linux target) only for the *content* of the image
+(chromium, bash, python, etc.). This means the image can be built on macOS using
+the NixOS binary cache — no cross-compilation or remote Linux builder required.
 
 ## Troubleshooting
 
@@ -458,7 +561,7 @@ compilation time.
 
 On macOS, Podman Machine handles file ownership mapping via virtiofs so
 containers see your host-side files correctly. This is handled automatically
-by `cli.py`.
+by `yolo`.
 
 ### Port forwarding not working
 

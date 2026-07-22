@@ -23,7 +23,7 @@ nix+podman) · **[M]** needs a real Mac · **[CI]** covered by CI.
 |---|---|---|---|
 | **podman** | container in one shared podman-machine VM | ✅ [L/CI] | first-class; the reference macOS container path |
 | **Apple Container (AC)** | one lightweight VM per container | 🟡 [M] | default macOS runtime; early-stage — hit limits this session (bind-mount cap, `:ro` ignored, no `--net=host`, OCI convert) |
-| **macos-user** | native macOS user + Seatbelt, NO VM | 🟡 [L] | built + unit-tested; `packages:` via native darwin nix (buildEnv); **never tested on real macOS** |
+| **macos-user** | native macOS user + Seatbelt, NO VM | ✅ [M] | **PROVEN on real HW 2026-07-21** (macOS 26.5 arm64): Seatbelt launch runs the agent as `_yolojail`, `packages:` via native darwin nix (buildEnv) with `which just` → `/nix/store/…` (OQ-1 path_helper fix holds), finding-6 password set, fresh-inode re-exec (no SIGKILL), host creds invisible, teardown idempotent. **Runbook → docs/plans/runbooks/mac-macos-user-e2e.md; results → mac-sandvault-session.md §6b.** |
 
 ## 2. Builder (how the Linux image / packages get built) — CONTAINER RUNTIMES ONLY
 
@@ -42,8 +42,8 @@ question exists only for podman/AC.
 
 | Capability | podman | Apple Container | macos-user |
 |---|---|---|---|
-| Run agent in jail | ✅ [L] | 🟡 [M] | 🟡 [L] |
-| `packages:` (nix) | ✅ via image | 🟡 via image | 🟡 native darwin buildEnv [L] |
+| Run agent in jail | ✅ [L] | 🟡 [M] | ✅ [M] |
+| `packages:` (nix) | ✅ via image | 🟡 via image | ✅ native darwin buildEnv [M] |
 | Build when uncached | ✅ container builder [L] | ✅ container builder [M] | ⬜ (native, no build offload) |
 | `/ctx/` mounts read-only | ✅ (`:ro` honored) | ❌ AC ignores `:ro` → **skipped w/ warning** [L] | 🟡 Seatbelt subpath deny [L] |
 | `workspace_readonly` | ✅ | ❌ not enforced → **warns** [L] | 🟡 Seatbelt [L] |
@@ -73,19 +73,28 @@ question exists only for podman/AC.
 > container-builder path alongside podman. Next: wire the CLI orchestration
 > (roadmap #3).
 
-**Other Mac-only gates:** macos-user end-to-end (Seatbelt launch, real agent
-run); the whole "run agent in jail" row for AC under current session's fixes.
+**macos-user end-to-end — ✅ DONE (2026-07-21), macos-user column unblocked:**
+> Does the native no-VM backend run an agent as `_yolojail` under Seatbelt with
+> `packages:` materialized via native aarch64-darwin nix? **YES.** All four J2
+> behaviors (fresh-inode re-exec, Go bootstrap self-exec, finding-6 password,
+> OQ-1 path_helper acceptance bar — `which just` → `/nix/store/…`), plus
+> creds-invisible and teardown idempotence, observed on real HW (macOS 26.5
+> arm64). Results in mac-sandvault-session.md §6b.
+
+**Other Mac-only gates:** the whole "run agent in jail" row for AC under current
+session's fixes.
 
 ## 5. Roadmap (ordered)
 
 1. ✅ **[M] Prove the AC container builder** — DONE 2026-07-17 (real HW, see §4
    and the runbook). AC joins podman as a proven container-builder path.
-2. **[M] macos-user end-to-end** on real hardware (Seatbelt launch + darwin nix
-   build). Specifically the **path_helper login-shell PATH fix** (2026-07-17):
-   the bootstrap now writes `.zprofile`/`.zshrc`/`.bash_profile` re-prepending
-   the sandbox PATH after macOS path_helper, so `which jq` → `/nix/store/…/bin/jq`
-   (not Homebrew's `/usr/local/bin/jq`). Cannot be tested on Linux; runbook
-   `mac-macos-user-e2e` §5 is the gate.
+2. ✅ **[M] macos-user end-to-end** — DONE 2026-07-21 (real HW, see §4 and
+   mac-sandvault-session.md §6b). The **path_helper login-shell PATH fix**
+   (`.zprofile`/`.zshrc`/`.bash_profile` re-prepend the sandbox PATH after macOS
+   path_helper) holds: `which just` → `/nix/store/…/bin/just`, not Homebrew's
+   `/usr/local/bin`. Two jail-side fixes landed from the run: `--accept-flake-config`
+   in `darwinpkg.nixFlags()` (honor the flake's own cachix substituter) and a
+   linux-tag move of `resolveContainerCgroup` (darwin staticcheck FP).
 3. 🔜 **Wire the container builder into the CLI run/check path** — regressed to
    roadmap (revival plan **J3**). It shipped in Python 2026-07-17
    (`container_builder.py`'s `builder_session`: pull → run → wait-reachable →
