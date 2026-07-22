@@ -13,6 +13,7 @@ import (
 	"time"
 
 	"github.com/mschulkind-oss/yolo-jail/internal/storage"
+	"github.com/mschulkind-oss/yolo-jail/internal/tty"
 )
 
 // realProc adapts an already-started *exec.Cmd to the Proc interface for
@@ -92,14 +93,11 @@ func RealDeps() Deps {
 	}
 }
 
-// isTTYStdoutReal reports whether os.Stdout is a real terminal (char device),
-// so color is emitted only to a terminal and never to a pipe/file.
+// isTTYStdoutReal reports whether os.Stdout is a real terminal (the shared
+// internal/tty ioctl probe), so color is emitted only to a terminal and never
+// to a pipe/file.
 func isTTYStdoutReal() bool {
-	info, err := os.Stdout.Stat()
-	if err != nil {
-		return false
-	}
-	return info.Mode()&os.ModeCharDevice != 0
+	return tty.IsTerminalFile(os.Stdout)
 }
 
 // 127.0.0.1:BUILDER_PORT with a 1s timeout; any error → false.

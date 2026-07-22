@@ -4,12 +4,6 @@ package run
 
 import "golang.org/x/sys/unix"
 
-// isattyFD reports whether fd is a terminal (a TCGETS ioctl succeeds).
-func isattyFD(fd int) bool {
-	_, err := unix.IoctlGetTermios(fd, unix.TCGETS)
-	return err == nil
-}
-
 // sysconfPhysMem returns total physical memory in bytes via unix.Sysinfo
 // (Totalram*Unit). ok=false on error. This feeds only the Apple-Container
 // default-memory path's non-macOS branch, which is effectively unreachable (AC

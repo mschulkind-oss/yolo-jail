@@ -20,6 +20,7 @@ import (
 	"github.com/mschulkind-oss/yolo-jail/internal/paths"
 	"github.com/mschulkind-oss/yolo-jail/internal/prune"
 	"github.com/mschulkind-oss/yolo-jail/internal/runtime"
+	"github.com/mschulkind-oss/yolo-jail/internal/tty"
 )
 
 // runBuilder dispatches `yolo builder {setup,start,stop,status}` (macOS-only
@@ -215,11 +216,7 @@ func runInitUserConfig(_ []string) int {
 }
 
 func isTTYStdout() bool {
-	info, err := os.Stdout.Stat()
-	if err != nil {
-		return false
-	}
-	return info.Mode()&os.ModeCharDevice != 0
+	return tty.IsTerminalFile(os.Stdout)
 }
 
 // runConfigRef prints the full configuration reference. args ignored.

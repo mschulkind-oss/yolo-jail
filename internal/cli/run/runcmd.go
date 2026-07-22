@@ -16,6 +16,7 @@ import (
 
 	"github.com/mschulkind-oss/yolo-jail/internal/jsonx"
 	"github.com/mschulkind-oss/yolo-jail/internal/paths"
+	"github.com/mschulkind-oss/yolo-jail/internal/tty"
 )
 
 // ExecResult is the outcome of a short subprocess probe (git/jj identity,
@@ -227,11 +228,11 @@ func realExec(argv []string, dir string, env []string, timeout time.Duration) Ex
 }
 
 // isTTY reports whether f is a real terminal via a TCGETS ioctl, NOT a
-// character-device mode check —
-// /dev/null is a char device but not a tty, and a mode check would wrongly add
-// the container `-t` flag (observed divergence). See isattyFD (platform split).
+// character-device mode check — /dev/null is a char device but not a tty, and a
+// mode check would wrongly add the container `-t` flag (observed divergence).
+// The ioctl lives in the shared internal/tty package (platform split there).
 func isTTY(f *os.File) bool {
-	return isattyFD(int(f.Fd()))
+	return tty.IsTerminalFile(f)
 }
 
 // NewDefaultOptions returns Options with the real platform predicate — the

@@ -9,6 +9,8 @@ import (
 	"io"
 	"os"
 	"strings"
+
+	"github.com/mschulkind-oss/yolo-jail/internal/tty"
 )
 
 //go:embed config_ref.txt
@@ -84,10 +86,9 @@ func isRichTag(tok string) bool {
 	return false
 }
 
+// isTTY reports whether f is a real terminal, via the shared ioctl probe
+// (internal/tty) — not an os.ModeCharDevice stat, which false-positives on the
+// container `-t` flag and /dev/null.
 func isTTY(f *os.File) bool {
-	info, err := f.Stat()
-	if err != nil {
-		return false
-	}
-	return info.Mode()&os.ModeCharDevice != 0
+	return tty.IsTerminalFile(f)
 }

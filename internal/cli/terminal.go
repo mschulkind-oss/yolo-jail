@@ -5,6 +5,8 @@ import (
 	"os/exec"
 	"path/filepath"
 	"strings"
+
+	"github.com/mschulkind-oss/yolo-jail/internal/tty"
 )
 
 // This file holds the terminal-facing jail indicators (tmux/kitty) that wrap a
@@ -36,11 +38,7 @@ func SetupJailIndicator() func() {
 }
 
 func isattyStdin() bool {
-	fi, err := os.Stdin.Stat()
-	if err != nil {
-		return false
-	}
-	return (fi.Mode() & os.ModeCharDevice) != 0
+	return tty.IsTerminalFile(os.Stdin)
 }
 
 func kittenRun(args ...string) {

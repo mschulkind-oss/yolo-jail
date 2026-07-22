@@ -20,6 +20,7 @@ import (
 	"syscall"
 
 	"github.com/mschulkind-oss/yolo-jail/internal/richtext"
+	"github.com/mschulkind-oss/yolo-jail/internal/tty"
 )
 
 // CLIDeps are the injectable seams for the command bodies. Life is the lifecycle
@@ -201,12 +202,9 @@ func newPrinter(deps CLIDeps) printer {
 	return printer{rt: richtext.Printer{W: deps.Out, Color: color}}
 }
 
-// isTTYStdoutReal reports whether os.Stdout is a real terminal (char device),
-// mirroring builder/macosuser real-Deps, so color reaches only a terminal.
+// isTTYStdoutReal reports whether os.Stdout is a real terminal (the shared
+// internal/tty ioctl probe), mirroring builder/macosuser real-Deps, so color
+// reaches only a terminal.
 func isTTYStdoutReal() bool {
-	info, err := os.Stdout.Stat()
-	if err != nil {
-		return false
-	}
-	return info.Mode()&os.ModeCharDevice != 0
+	return tty.IsTerminalFile(os.Stdout)
 }
