@@ -115,6 +115,16 @@ func ConfigureCopilot(e *Env) error {
 			return err
 		}
 	}
+	return writeCopilotDynamicConfigs(e, dir)
+}
+
+// writeCopilotDynamicConfigs writes the two dynamic sibling files —
+// mcp-config.json and lsp-config.json — that copilot regenerates from the live
+// mcp_servers / lsp_servers config every boot. They are pure overwrites (no
+// in-jail edits are preserved), so they stay bespoke even under the prism, which
+// owns only the static config.json. Shared by ConfigureCopilot and
+// ConfigureCopilotPrism so the siblings are byte-identical on either path.
+func writeCopilotDynamicConfigs(e *Env, dir string) error {
 	// mcp-config.json.
 	mcpConfig := jsonx.NewOrderedMap()
 	mcpConfig.Set("mcpServers", e.LoadMCPServers())

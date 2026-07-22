@@ -240,3 +240,29 @@ func ConfigurePiPrism(e *Env) error {
 	}
 	return nil
 }
+
+// ConfigureCopilotPrism is the prism-backed replacement for ConfigureCopilot
+// (§4.6, the zero-stale surface — the cleanest first non-agent-config port). It:
+//
+//  1. renders ~/.copilot/config.json through the engine with §5 overlay capture
+//     and the §3.2 first-migration bootstrap. Copilot has NO host mount — the
+//     file is purely yolo-owned — so hostBytes is nil and the render is
+//     defaults<overlay<managed (the sole default being {"yolo": true});
+//  2. writes the dynamic mcp-config.json / lsp-config.json siblings exactly as
+//     the bespoke path does (they are pure overwrites regenerated from live
+//     config every boot — the prism owns only the static config.json).
+//
+// There is no orphan-file cleanup here: copilot never had a snapshot sidecar
+// (nothing to migrate away from), which is precisely why it is the zero-stale
+// first porting target.
+func ConfigureCopilotPrism(e *Env) error {
+	if err := os.MkdirAll(e.CopilotDir(), 0o755); err != nil {
+		return err
+	}
+	// config.json: no host source (yolo owns it outright).
+	if _, err := renderSurfaceStateful(e, "copilot", "config", nil); err != nil {
+		return err
+	}
+	// Dynamic siblings stay bespoke, shared with ConfigureCopilot.
+	return writeCopilotDynamicConfigs(e, e.CopilotDir())
+}

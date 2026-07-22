@@ -505,7 +505,11 @@ func configureAgent(e *Env, agent string) {
 		// Deferred side effect: claude plugins install/uninstall (configure_claude tail).
 		installClaudePlugins(e)
 	case "copilot":
-		genStep(e, "configure_copilot", func() error { return ConfigureCopilot(e) })
+		if prismEnabledFor(e, "copilot") {
+			genStep(e, "configure_copilot", func() error { return ConfigureCopilotPrism(e) })
+		} else {
+			genStep(e, "configure_copilot", func() error { return ConfigureCopilot(e) })
+		}
 	case "gemini":
 		genStep(e, "configure_gemini", func() error { return ConfigureGemini(e) })
 	case "opencode":
