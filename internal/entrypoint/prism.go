@@ -117,12 +117,18 @@ func loadPrismTransformScript(e *Env) string {
 // everything back. It returns the StatefulOutput so the caller can act on
 // FirstMigration (e.g. the §4.7 orphan cleanup).
 //
-// computed is yolo's per-boot DYNAMIC layer (§4 computed slot) — the reconciled
-// MCP-server table and any LSP-derived toggles — already deep-converted to the
-// engine's plain value model via prismMap. It merges ABOVE the captured overlay
-// and BELOW the transform + managed, so yolo's freshly regenerated data wins
-// over a stale in-jail edit (regenerate-don't-reconcile) yet a managed key still
-// wins the floor. Pass nil for a static-only surface (copilot/agy/pi settings).
+// computed is yolo's per-boot DYNAMIC layer (§4 computed slot) — content derived
+// from live config rather than the static manifest: the reconciled MCP-server
+// table (gemini/codex/opencode), claude's LSP-driven enabledPlugins toggles and
+// env.ENABLE_LSP_TOOL, and the mcpServers tombstone that strips a host block.
+// jsonx-sourced content (the MCP tables) is deep-converted to the engine's plain
+// value model via prismMap first; claude builds its layer as native map[string]any
+// directly. It merges ABOVE the captured overlay and BELOW the transform +
+// managed, so yolo's freshly regenerated data wins over a stale in-jail edit
+// (regenerate-don't-reconcile) yet a managed key still wins the floor. A nil
+// value inside it is an RFC-7386 tombstone: the key is deleted from the render
+// and omitted from the output. Pass nil for a static-only surface (copilot/agy/pi
+// settings).
 //
 // A recoverable on-disk condition never aborts boot (ComposeStateful self-heals
 // corrupt/absent sidecars); only a genuine error (unknown codec, Lua failure)

@@ -501,7 +501,11 @@ func Main(args []string) error {
 func configureAgent(e *Env, agent string) {
 	switch agent {
 	case "claude":
-		genStep(e, "configure_claude", func() error { return ConfigureClaude(e) })
+		if prismEnabledFor(e, "claude") {
+			genStep(e, "configure_claude", func() error { return ConfigureClaudePrism(e) })
+		} else {
+			genStep(e, "configure_claude", func() error { return ConfigureClaude(e) })
+		}
 		// Deferred side effect: claude plugins install/uninstall (configure_claude tail).
 		installClaudePlugins(e)
 	case "copilot":

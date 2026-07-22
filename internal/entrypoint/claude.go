@@ -20,6 +20,11 @@ var claudeLSPPluginOrder = []struct{ lsp, plugin string }{
 var oauthTokenKeys = []string{"accessToken", "refreshToken", "expiresAt"}
 var oauthMetadataKeys = []string{"scopes", "subscriptionType", "rateLimitTier"}
 
+// hostClaudeDir is the read-only mount of the host's ~/.claude/ (a var so tests
+// can point it at a temp dir, mirroring hostPiDir). The prism reads the host
+// settings source from here, gated by the host_claude_files allow-list.
+var hostClaudeDir = "/ctx/host-claude"
+
 // settings.json (three-way host merge + permissions + plugins + LSP tool),
 // the host-settings snapshot, ~/.claude.json (MCP + workspace project), the
 // managed-MCP sidecar, the credentials symlink/harvest, and per-jail history
@@ -31,17 +36,10 @@ func ConfigureClaude(e *Env) error {
 		return err
 	}
 	settingsPath := filepath.Join(dir, "settings.json")
-	claudeJSONPath := e.ClaudeJSONPath()
 
 	configured := e.LoadMCPServers()
 
-	if err := e.ensureCredentialsSymlink(); err != nil {
-		return err
-	}
-	if err := e.syncHostClaudeFiles(); err != nil {
-		return err
-	}
-	if err := e.isolateClaudeHistory(); err != nil {
+	if err := configureClaudeSideEffects(e); err != nil {
 		return err
 	}
 
@@ -94,7 +92,40 @@ func ConfigureClaude(e *Env) error {
 		return err
 	}
 
-	// ~/.claude.json: user-scoped MCP servers.
+	return writeClaudeJSON(e, configured)
+}
+
+// configureClaudeSideEffects runs the three non-content side effects that BOTH
+// the bespoke ConfigureClaude and the prism ConfigureClaudePrism must perform,
+// in the same order: the credentials symlink (harvest/link
+// ~/.claude/.credentials.json into the shared dir), the host-file staging
+// (copy every host_claude_files entry EXCEPT settings.json into ~/.claude/),
+// and per-jail history isolation (symlink history.jsonl to a per-workspace
+// file). These are runtime-state / filesystem side effects, NOT surface
+// content, so they stay bespoke under the prism — only settings.json is
+// prism-rendered. Extracted so the two configure paths share one definition and
+// cannot drift.
+func configureClaudeSideEffects(e *Env) error {
+	if err := e.ensureCredentialsSymlink(); err != nil {
+		return err
+	}
+	if err := e.syncHostClaudeFiles(); err != nil {
+		return err
+	}
+	return e.isolateClaudeHistory()
+}
+
+// writeClaudeJSON builds ~/.claude.json (the user-scoped MCP + workspace-project
+// surface) and its managed-MCP sidecar from the reconciled MCP-server table.
+// This is claude's RUNTIME-STATE config file — the AGENTS.md invariant is that
+// it must NEVER be wiped — so it stays BESPOKE under the prism: the mcpServers
+// block is reconciled against the yolo-managed-mcp-servers.json sidecar (prune
+// previously-managed names, then re-add the freshly configured set) and the
+// workspace project is force-trusted. Extracted so ConfigureClaude and
+// ConfigureClaudePrism share exactly one implementation of the .claude.json
+// write. `configured` is the LoadMCPServers() table the caller already loaded.
+func writeClaudeJSON(e *Env, configured *jsonx.OrderedMap) error {
+	claudeJSONPath := e.ClaudeJSONPath()
 	claudeJSON := loadObject(claudeJSONPath)
 	mcpServers := setDefaultMap(claudeJSON, "mcpServers")
 	for _, name := range loadManagedSet(e.ClaudeManagedMCPPath()) {
@@ -118,7 +149,7 @@ func (e *Env) loadHostClaudeSettings() *jsonx.OrderedMap {
 	if !contains(files, "settings.json") {
 		return jsonx.NewOrderedMap()
 	}
-	return loadObject("/ctx/host-claude/settings.json")
+	return loadObject(filepath.Join(hostClaudeDir, "settings.json"))
 }
 
 // hostClaudeFiles parses YOLO_HOST_CLAUDE_FILES (a JSON list, default []).
@@ -210,7 +241,7 @@ func syncSettingsLevel(jail, host, prev *jsonx.OrderedMap, deep bool) {
 // tree golden's env matrix controls. Best-effort per file.
 func (e *Env) syncHostClaudeFiles() error {
 	files := e.hostClaudeFiles()
-	hostDir := "/ctx/host-claude"
+	hostDir := hostClaudeDir
 	for _, fname := range files {
 		if fname == "settings.json" {
 			continue
