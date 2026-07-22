@@ -10,6 +10,7 @@ import (
 func TestBuildProfileArgv(t *testing.T) {
 	want := []string{
 		"nix", "--extra-experimental-features", "nix-command flakes",
+		"--accept-flake-config",
 		"build", "--impure", "--no-link", "--print-out-paths", "--print-build-logs",
 		".#packages.aarch64-darwin.yoloDarwinPackages",
 	}
@@ -25,6 +26,7 @@ func TestBuildProfileArgv(t *testing.T) {
 func TestUnavailableEvalArgv(t *testing.T) {
 	want := []string{
 		"nix", "--extra-experimental-features", "nix-command flakes",
+		"--accept-flake-config",
 		"eval", "--impure", "--json", ".#darwinUnavailablePackages.aarch64-darwin",
 	}
 	if got := UnavailableEvalArgv(""); !reflect.DeepEqual(got, want) {

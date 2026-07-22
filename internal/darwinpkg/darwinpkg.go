@@ -28,10 +28,21 @@ type DarwinPackages struct {
 	Skipped    []string          // names with no darwin build
 }
 
-// nixFlags returns the experimental-features flags so the CLI works regardless
-// of the host's nix.conf.
+// nixFlags returns the flags shared by every darwin nix invocation:
+//   - experimental-features so the CLI works regardless of the host's nix.conf;
+//   - --accept-flake-config so nix honors THIS flake's own declared binary
+//     cache (flake.nix nixConfig: yolo-jail.cachix.org). Without it nix prints
+//     "ignoring untrusted flake configuration setting 'extra-substituters'" on
+//     every run and never consults the cache — forcing a from-source darwin
+//     build even when a cached closure exists. Trusting the project's own flake
+//     config from the project's own build step is the happy path; it mutates no
+//     system nix.conf (a trusted user still gates whether the substituter is
+//     actually used).
 func nixFlags() []string {
-	return []string{"--extra-experimental-features", "nix-command flakes"}
+	return []string{
+		"--extra-experimental-features", "nix-command flakes",
+		"--accept-flake-config",
+	}
 }
 
 // BuildEnv returns the environment for the nix invocations: the parent env plus
