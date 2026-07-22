@@ -1,14 +1,15 @@
 # Plan: CLI color audit — render rich markup, don't strip it
 
-**Status:** OPEN (final classification only) — the confirmed bug class is
-closed: `prune`/`builder`/`macosuser` fixed (2026-07-20), `broker` (`8e5302f`)
-and `ps` (`d71dba3`) folded in since, the last rich→ANSI duplicate
-(`run/console.go`) consolidated onto `internal/richtext` (`67454a8`), the TTY
-probe unified onto `internal/tty` (`b76b2ba`), and a genuine `check`/`doctor`
-ANSI-leak-to-a-pipe closed (`c9ea5e8`). The only remaining work is classifying
-`loopholes`/`init`/`init-user-config` (intentionally plain vs. lost-its-color).
-Pulled out of the archived `go-port-post-transition.md` §5. Jail-testable
-end-to-end (no host needed); pairs naturally with the renderer consolidation in
+**Status:** DONE (2026-07-22). The confirmed bug class is closed and every
+command is classified: `prune`/`builder`/`macosuser` fixed (2026-07-20),
+`broker` (`8e5302f`) and `ps` (`d71dba3`) folded in since, the last rich→ANSI
+duplicate (`run/console.go`) consolidated onto `internal/richtext` (`67454a8`),
+the TTY probe unified onto `internal/tty` (`b76b2ba`), a genuine `check`/`doctor`
+ANSI-leak-to-a-pipe closed (`c9ea5e8`), and the last three commands
+(`loopholes`/`init`/`init-user-config`) classified — `init` already colors
+correctly, the other two are intentionally plain (no leaked markup). Pulled out
+of the archived `go-port-post-transition.md` §5. Was jail-testable end-to-end
+(no host needed); paired with the renderer consolidation in
 [module-consolidation-and-cleanup.md](module-consolidation-and-cleanup.md).
 
 ## The bug class
@@ -56,9 +57,16 @@ Classification of the remaining commands:
   `configRefRun(os.Stdout, isTTY(os.Stdout))`, and its `isTTY` now delegates to
   the shared `internal/tty` ioctl probe (`b76b2ba`) — no longer the char-device
   check.
-- [ ] **`loopholes`, `init`, `init-user-config`** — some are intentionally plain
-  (byte-parity, no color), some should color. Classify each. (`broker` and `ps`
-  are done — see status above.)
+- [x] **`loopholes`, `init`, `init-user-config`** — classified:
+  - **`init`** *colors* — its `printBriefing` calls `renderMarkup(text, color)`
+    with `color = isTTYStdout()` (`commands.go:210`, the shared ioctl gate), so
+    the briefing's `[bold …]` tags render to ANSI on a terminal and strip on a
+    pipe. Correct as-is.
+  - **`init-user-config`** is *intentionally plain* — it emits only status lines
+    (`Created %s`, `%s already exists`) with no rich markup and no color seam.
+  - **`loopholes`** is *intentionally plain* — `List`/`Status`/`CmdSetEnabled`
+    are pure `fmt.Fprintln`/`Fprintf` (bullets, `[PASS]`-style prefixes) with no
+    ANSI, no color flag, and — verified — no leaked literal `[bold …]` tags.
 
 ## The work
 
@@ -70,9 +78,10 @@ Classification of the remaining commands:
   (`67454a8` — the copy richtext was extracted *from*) all route through it. The
   natural intersection with
   [module-consolidation-and-cleanup.md](module-consolidation-and-cleanup.md).
-- [~] Audit + classify the remaining commands; fix the ones that lost color.
-  `check`/`doctor` and `config-ref` done (see above); `loopholes`/`init`/
-  `init-user-config` remain.
+- [x] Audit + classify the remaining commands; fix the ones that lost color.
+  `check`/`doctor` (leak fixed) and `config-ref` done; `loopholes`/`init`/
+  `init-user-config` classified — `init` colors, the other two are intentionally
+  plain.
 - [x] **Unify the TTY probe.** The two conventions were folded onto one shared
   `internal/tty` helper (`IsTerminal(fd)` / `IsTerminalFile(*os.File)`, the
   `TCGETS`/`TIOCGETA` ioctl) in `b76b2ba`. The old `os.ModeCharDevice`

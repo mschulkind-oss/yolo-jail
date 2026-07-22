@@ -9,15 +9,14 @@ on the tree, the file:line is named.
 
 ## Open work at a glance
 
-Everything not marked done below reduces to **four** open items. In priority /
+Everything not marked done below reduces to **three** open items. In priority /
 lane order:
 
 | # | Open item | Lane | Blocker |
 |---|---|---|---|
 | 1 | **config-composition — non-agent surface ports** (mise, standalone MCP/LSP, git/jj identity onto the prism, then delete their bespoke generators) | jail-side | none — the main remaining agent-completable thread |
-| 2 | **cli-color-audit tail** (migrate `run/console.go` off its private printer + unify the TTY probe) | jail-side | none — small, standalone |
-| 3 | **nix-ld** (retarget the image dynamic linker so mise node + custom MCP servers link env-free; **closes the custom-`mcp_servers` startup gap**) | jail-side | none for validation — a nested `yolo -- bash` rebuilds the flake and runs the new image (verified 2026-07-22); a host `just load` only ships it to the maintainer's own jails |
-| 4 | **D4 Cachix** (one Mac download proof) | hardware-gated | substituter enabled + account/cache/CI-push all done (2026-07-22); needs only a real Mac to prove the download path |
+| 2 | **nix-ld** (retarget the image dynamic linker so mise node + custom MCP servers link env-free; **closes the custom-`mcp_servers` startup gap**) | jail-side | none for validation — a nested `yolo -- bash` rebuilds the flake and runs the new image (verified 2026-07-22); a host `just load` only ships it to the maintainer's own jails |
+| 3 | **D4 Cachix** (one Mac download proof) | hardware-gated | substituter enabled + account/cache/CI-push all done (2026-07-22); needs only a real Mac to prove the download path |
 
 Not on this list because they are **done or held**: J1–J3, D1/D2/D3, Track M
 M0–M2, module-consolidation, the agent-config prism cutover, and agy are all
@@ -41,7 +40,7 @@ post-Go-port backlog (nix-ld, color audit, consolidation) into the same picture.
 | [nix-ld-dynamic-linking.md](nix-ld-dynamic-linking.md) | Replace the `LD_LIBRARY_PATH` whack-a-mole with nix-ld; closes the custom-`mcp_servers` startup gap. | jail-side — **not started**; flake change is nested-jail validatable, only the host-jail ship is host-gated |
 | [agent-settings-composition.md](agent-settings-composition.md) | Layered regeneration of any generated config (agent settings, MCP, LSP, mise, identity) + a Lua transform. **Design FINALIZED 2026-07-20.** | jail-side — **agent-config surfaces DONE 2026-07-22: prism is the sole boot config path (gate retired, bespoke writers deleted); non-agent surfaces (mise/MCP/LSP/identity) still to port** |
 | [cache-relocation.md](cache-relocation.md) | User-scope-only `cache_relocations` so a huge cold cache subdir can live on other storage; unblinds `prune`/`purge`. Podman behavior proven 2026-07-21; host acceptance discharged 2026-07-22. | **DONE (items 1–10); item 11 held on a design question** |
-| [cli-color-audit.md](cli-color-audit.md) | Shared rich→ANSI renderer + TTY gate across commands. | jail-side — **bug class fixed**; tail: migrate `run/console.go` off its private duplicate + unify the TTY probe |
+| [cli-color-audit.md](cli-color-audit.md) | Shared rich→ANSI renderer + TTY gate across commands. | jail-side — **DONE 2026-07-22** (renderer consolidated, TTY probe unified, check/doctor leak fixed, all commands classified) |
 | [antigravity-agy-support.md](antigravity-agy-support.md) | Support Google Antigravity CLI (`agy`) as a native agent inside `yolo-jail`. | jail-side — **DONE 2026-07-22** (born on the prism; all eight touchpoints landed) |
 | [module-consolidation-and-cleanup.md](module-consolidation-and-cleanup.md) | Collapse the parity-era `internal/*` split; drop parity machinery; §4 OSS-hygiene remnants. | **DONE 2026-07-21** (package-merge declined) |
 
@@ -57,9 +56,9 @@ two are gated on a resource an in-jail agent doesn't have.
   jail; `internal/` changes still get a nested-jail sanity run per AGENTS.md.
   With the Jul-21/22 wave landed, the jail-side work left is the **non-agent
   config-composition surfaces** (porting mise/MCP/LSP/identity onto the prism —
-  the agent-config surfaces and `agy` are done) and the **cli-color-audit tail**
-  (migrate `run/console.go` off its private printer + unify the TTY probe). J2,
-  J3, D2, cli-color-audit's bug-class fix, module-consolidation, the
+  the agent-config surfaces and `agy` are done) and **nix-ld**. J2, J3, D2,
+  cli-color-audit (now fully DONE — renderer consolidated, TTY probe unified,
+  check/doctor leak fixed, all commands classified), module-consolidation, the
   agent-config prism cutover, and agy have all landed.
 - **Host-gated (needs a human at a host with nix) — for SHIPPING, not
   validating.** A nested `yolo -- bash` rebuilds the flake and runs the new
@@ -97,13 +96,13 @@ Marked here so the "start here" arrow points at the real next item.
 - ✅ **CI green** (2026-07-20) — the `TestShimPersistence` failure (shim
   mount-anchor / `ClearContents`) is fixed and the four test-merges landed; the
   full CI run (both arches, integration incl.) passed.
-- ✅ **cli-color-audit — bug class fixed** (2026-07-20/21) — the shared
-  `internal/richtext` renderer landed and `prune`/`builder`/`macosuser`/`broker`
-  (plus the top-level `cli`/`config`/`ps` commands) route through it with a TTY
-  gate. **Not fully done:** `internal/cli/run/console.go` still carries the
-  private `richTagRe`/`richToANSI`/`stripRich` that richtext was *extracted
-  from* (it does not import richtext) — migrating it + unifying the two
-  TTY-probe conventions is the remaining tail.
+- ✅ **cli-color-audit — DONE** (2026-07-20/22) — the shared `internal/richtext`
+  renderer landed and `prune`/`builder`/`macosuser`/`broker` (plus the top-level
+  `cli`/`config`/`ps` commands) route through it with a TTY gate. The tail closed
+  2026-07-22: `internal/cli/run/console.go` migrated onto `internal/richtext`
+  (`67454a8`), the two TTY-probe conventions unified onto `internal/tty`
+  (`b76b2ba`), a `check`/`doctor` ANSI-leak-to-a-pipe fixed (`c9ea5e8`), and the
+  last commands (`loopholes`/`init`/`init-user-config`) classified.
 - ✅ **go baked into the image** (2026-07-20) — `imagePkgs.go` in corePackages,
   `miseBaseTools` now empty (all default runtimes baked). Built + evaluated
   in-jail AND green on both CI `build-image` arches.
@@ -147,9 +146,9 @@ Marked here so the "start here" arrow points at the real next item.
   stripped on upgrade, workspace/injected pins preserved (nested-jail verified).
 
 Everything else below is **open**: config-composition non-agent surfaces
-(mise/MCP/LSP/identity ports), the cli-color-audit tail, nix-ld (flake change,
-nested-jail validatable; host `just load` only ships it), and the D4-download
-human step.
+(mise/MCP/LSP/identity ports), nix-ld (flake change, nested-jail validatable;
+host `just load` only ships it), and the D4-download human step. (cli-color-audit
+is now fully DONE — see above.)
 
 ## Recommended order (jail-side thread)
 
@@ -175,9 +174,9 @@ longer a critical-path chain:
    relocate` (item 11) is **held**, not merely deferred: the maintainer is not
    sure `cache_relocations` sits at the right level of abstraction and does not
    want a command locked around it until that resolves (see the plan's "Is
-   `cache_relocations` the right level?" open question). Note for whoever picks
-   up **cli-color-audit** or **module-consolidation**: this touched
-   `internal/prune/prunecmd.go` and `report.go`, so rebase before starting there.
+   `cache_relocations` the right level?" open question). Note for whoever revisits
+   **module-consolidation**: this touched `internal/prune/prunecmd.go` and
+   `report.go`, so rebase before starting there.
 
 3. **J2 — native-Go macos-user bootstrap re-port (J2.1 → J2.4) + D2.** *The
    critical-path Mac-backend item; now unblocked (the CI fix cleared
@@ -208,24 +207,21 @@ longer a critical-path chain:
    one. This is where the shared rich→ANSI renderer belongs if cli-color-audit
    didn't already lift it.
 
-### Coupling: cli-color-audit ↔ module-consolidation
+### Coupling: cli-color-audit ↔ module-consolidation (resolved)
 
-Verified overlap — both plans call for the *same* shared color-aware rich→ANSI
-renderer to replace the four+ near-duplicate `richTagRe` printers. They are
-**deliberately the same deliverable seen from two angles**, and each doc points
-at the other. Rule: whichever runs first lands the shared helper. If
-consolidation runs first, do the renderer there; if the color audit lands first
-(recommended — it's item 1), it lands the renderer and consolidation just
-inherits it. Don't build it twice.
+Verified overlap — both plans called for the *same* shared color-aware rich→ANSI
+renderer to replace the four+ near-duplicate `richTagRe` printers. cli-color-audit
+ran first and landed the shared helper (`internal/richtext`), so if
+module-consolidation is ever revisited it simply inherits it — don't build it
+twice.
 
-### cli-color-audit tail
+### cli-color-audit tail — DONE (2026-07-22)
 
-**cli-color-audit tail** — *small, standalone.* Migrate
-`internal/cli/run/console.go` off its private `richTagRe`/`richToANSI`/
-`stripRich` (the last un-consolidated duplicate — richtext was extracted from
-it) onto `internal/richtext`, and unify the two TTY-probe conventions. The
-bug class is already fixed everywhere else; this is cleanup, no byte-parity
-risk.
+The tail closed: `internal/cli/run/console.go` migrated off its private
+`richTagRe`/`richToANSI`/`stripRich` onto `internal/richtext` (`67454a8`), the
+two TTY-probe conventions unified onto `internal/tty` (`b76b2ba`), a genuine
+`check`/`doctor` ANSI-leak-to-a-pipe fixed (`c9ea5e8`), and the remaining
+commands (`loopholes`/`init`/`init-user-config`) classified. Nothing left.
 
 ## Config-composition build (own self-contained thread)
 
@@ -284,10 +280,9 @@ cleanup pass with nested-jail parity verification per surface.
 ```
  DONE ─────────────────────────────────────────────────►│ now │──────────────►
 
- jail    J1.1–J1.4 ✓  D1 ✓  D2 ✓  D3 ✓  CI ✓  cli-color-audit (bug class) ✓
+ jail    J1.1–J1.4 ✓  D1 ✓  D2 ✓  D3 ✓  CI ✓  cli-color-audit (FULLY DONE) ✓
  (agent)  J2.1–J2.4 ✓  J3 ✓  module-consolidation ✓  agy ✓
           config Phase A ✓  B ✓  agent-config cutover ✓ ─► non-agent surface ports
-          cli-color-audit tail (migrate run/console.go + unify TTY probe) ──────►
 
  jail    nix-ld  ── validatable in nested jail NOW (image layer; closes custom-mcp_servers gap); host just-load only to ship ─►
  (hw)    D4 Cachix ── substituter enabled ✓  account + cache + CI push ✓; needs only a Mac download proof ──►
@@ -300,20 +295,20 @@ cleanup pass with nested-jail parity verification per surface.
 
 The lanes have thinned out; the concurrency picture is simpler than it was:
 
-- **jail:** the config-composition **non-agent surface ports** thread, the
-  **cli-color-audit tail**, and **nix-ld** are independent (different files) and
-  can all run concurrently. Each non-agent port is a wire-then-delete cleanup
-  pass, verifying the surface in a nested jail; nix-ld is an image-layer change
-  that a nested `yolo -- bash` validates end-to-end.
+- **jail:** the config-composition **non-agent surface ports** thread and
+  **nix-ld** are independent (different files) and can run concurrently. Each
+  non-agent port is a wire-then-delete cleanup pass, verifying the surface in a
+  nested jail; nix-ld is an image-layer change that a nested `yolo -- bash`
+  validates end-to-end.
 - **hardware (D4 Cachix Mac-download proof):** on its own clock; does not block
   the jail lane.
 
-**Best concurrent slice today:** config-composition non-agent ports + the
-cli-color-audit tail + **nix-ld** — all three jail-side with non-overlapping
-files, all nested-jail validatable. The only host step nix-ld still needs is a
-`just load` to ship the proven image to the maintainer's own jails, which never
-blocks the build/validate loop. There is no longer a hard cross-lane
-dependency — M1's dependency on J2 is discharged (both landed).
+**Best concurrent slice today:** config-composition non-agent ports + **nix-ld**
+— both jail-side with non-overlapping files, both nested-jail validatable. The
+only host step nix-ld still needs is a `just load` to ship the proven image to
+the maintainer's own jails, which never blocks the build/validate loop. There is
+no longer a hard cross-lane dependency — M1's dependency on J2 is discharged
+(both landed).
 
 ## Parked
 
