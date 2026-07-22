@@ -157,6 +157,35 @@ when claude is selected (non-AC). The dir and its `.credentials.json` are
 ensured/migrated host-side (ensure.go:69-80); the OAuth broker reads the same
 host file. How the jail's `~/.claude/.credentials.json` reaches it: §4.2.
 
+### 2.7 Writable home dirs (config `writable_home_dirs`)
+
+Extra `$HOME` subpaths the user declares writable, for agent extensions that
+hardcode a home path yolo doesn't manage (motivating case: pi-lens writing
+`~/.pi-lens`). Each entry `<p>` is bound `ws/writable-home/<p>` →
+`/home/agent/<p>` **rw**, nested inside the `:ro` base — podman auto-creates the
+nested mountpoint under the read-only parent, so nothing has to pre-exist in
+`GLOBAL_HOME`. Backing dirs are created in `prepareWsState`
+(prepare.go); mounts emitted in `podmanBaseMounts` (assemble_parts.go), sorted.
+Derived by `config.WritableHomeDirs` from the **merged** config (safe at any
+scope — see below); validated by `validateWritableHomeDirs`.
+
+Guard rules (`checkWritableHomeDir`, internal/config/writablehome.go): reject
+absolute paths, `..` escapes, `:` (podman mount-option footgun), and any first
+segment yolo already manages (the base overlays, single-file mounts, `:ro`-base
+symlinks, and every agent overlay dir — those are already rw, so the key would
+only shadow a yolo mount there).
+
+**Scope contrast with `cache_relocations`:** cache_relocations is user-scope-
+ONLY because it mounts an arbitrary HOST path rw (an escalation primitive if a
+jail-editable config could set it). writable_home_dirs confines the destination
+under `/home/agent` and backs it into the workspace's own `.yolo/home`, so a
+jail editing its workspace config gains nothing it couldn't get by writing to
+`/workspace` — hence it is safe at any scope and read from the merged config.
+
+**Other backends:** no-op. Apple Container mounts all of `ws` → `/home/agent`
+rw in one bind (§2.2), and macos-user's Seatbelt profile allows writes to the
+whole sandbox home, so every declared path is already writable there.
+
 ### 2.7 Remaining mounts, in assembly order
 
 Only the home-relevant ones expanded; the rest one-lined for orientation.
