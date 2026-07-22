@@ -60,6 +60,44 @@ func TestConfigurePiCopiesNonSettingsHostFiles(t *testing.T) {
 	}
 }
 
+// TestConfigurePiCopiesHostFilesInSubdirs is the FR regression (scratch/yolo-fr-
+// host-pi-files-subdirs.md): a provider whose models.json references a helper
+// script under a subdir (e.g. "mantle/mint-token.mjs", a Bedrock token minter)
+// must be installed into ~/.pi/agent/mantle/. The validator now permits the
+// subpath; syncHostPiFiles MkdirAll's the intermediate dir.
+func TestConfigurePiCopiesHostFilesInSubdirs(t *testing.T) {
+	home := t.TempDir()
+	ctx := t.TempDir()
+	orig := hostPiDir
+	hostPiDir = ctx
+	t.Cleanup(func() { hostPiDir = orig })
+
+	rel := filepath.Join("mantle", "mint-token.mjs")
+	body := "export const mint = () => 'token'\n"
+	if err := os.MkdirAll(filepath.Join(ctx, "mantle"), 0o755); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(filepath.Join(ctx, rel), []byte(body), 0o644); err != nil {
+		t.Fatal(err)
+	}
+
+	e := &Env{
+		Home: home,
+		Vars: map[string]string{"YOLO_HOST_PI_FILES": `["mantle/mint-token.mjs"]`},
+	}
+	if err := ConfigurePi(e); err != nil {
+		t.Fatal(err)
+	}
+
+	got, err := os.ReadFile(filepath.Join(home, ".pi", "agent", rel))
+	if err != nil {
+		t.Fatalf("subdir helper not installed into ~/.pi/agent/mantle/: %v", err)
+	}
+	if string(got) != body {
+		t.Errorf("mint-token.mjs content = %q, want %q", got, body)
+	}
+}
+
 // TestConfigurePiSkipsAbsentHostFiles confirms a listed-but-missing file is a
 // best-effort no-op (mirrors claude's syncHostClaudeFiles).
 func TestConfigurePiSkipsAbsentHostFiles(t *testing.T) {

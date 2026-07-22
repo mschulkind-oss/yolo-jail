@@ -331,7 +331,12 @@ func validateHostClaudeFiles(config *jsonx.OrderedMap, errs *[]string) {
 
 // validateHostAgentFiles checks a `<agent>_files` key: absent → skip; present
 // but not a list → "expected a list of strings"; each entry must be a string
-// with no path separator ("must be a filename, not a path").
+// naming a file relative to the agent home (~/.pi/agent or ~/.claude). Relative
+// subpaths are allowed ("mantle/mint-token.mjs" — a provider's helper script
+// under a subdir); the mount (ROFileMountArg) and sync (syncHost*Files) sides
+// already create intermediate dirs. Fail-closed on escapes, mirroring the
+// workspace_readonly / per_side_paths guard: reject absolute paths, `..`
+// traversal, and Windows-style `\` separators (the container is Linux).
 func validateHostAgentFiles(config *jsonx.OrderedMap, key string, errs *[]string) {
 	v, present := config.Get(key)
 	if !present || v == nil {
@@ -343,11 +348,19 @@ func validateHostAgentFiles(config *jsonx.OrderedMap, key string, errs *[]string
 		return
 	}
 	for idx, entryV := range list {
+		path := fmt.Sprintf("config.%s[%d]", key, idx)
 		entry, ok := asStr(entryV)
-		if !ok {
-			add(errs, fmt.Sprintf("config.%s[%d]: expected a string", key, idx))
-		} else if strings.Contains(entry, "/") || strings.Contains(entry, "\\") {
-			add(errs, fmt.Sprintf("config.%s[%d]: must be a filename, not a path", key, idx))
+		switch {
+		case !ok:
+			add(errs, path+": expected a string")
+		case entry == "" || entry == ".":
+			add(errs, path+": must name a file")
+		case strings.HasPrefix(entry, "/"):
+			add(errs, path+": must be a relative path, not absolute")
+		case strings.Contains(entry, "\\"):
+			add(errs, path+": must use '/' separators, not '\\'")
+		case containsDotDot(entry):
+			add(errs, path+": must not contain '..' components")
 		}
 	}
 }

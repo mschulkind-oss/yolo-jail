@@ -120,7 +120,9 @@
       "agents_md_extra": "## Cerebras MCP\\n\\nUse cerebras-mcp for X."
 
   [bold]host_claude_files[/bold] (array of strings): Host ~/.claude/ files to sync into the jail.
-    Each entry is a filename (not a path) relative to ~/.claude/.
+    Each entry is a path relative to ~/.claude/ — a bare filename or a
+    subdirectory path ("agents/reviewer.md"). Absolute paths and ".." are
+    rejected.
     Files are mounted read-only at /ctx/host-claude/ and copied into the jail's
     ~/.claude/ on startup. settings.json gets a three-way merge against a
     last-synced snapshot: host keys are added, updated, AND removed as the
@@ -133,7 +135,9 @@
     Set to [] to disable host claude file syncing.
 
   [bold]host_pi_files[/bold] (array of strings): Host ~/.pi/agent/ files to sync into the jail.
-    Each entry is a filename (not a path) relative to ~/.pi/agent/.
+    Each entry is a path relative to ~/.pi/agent/ — a bare filename or a
+    subdirectory path ("mantle/mint-token.mjs", a provider's helper script
+    referenced by models.json). Absolute paths and ".." are rejected.
     Files are mounted read-only at /ctx/host-pi/ and, like host_claude_files,
     copied into the jail's ~/.pi/agent/ on startup (so pi reads them where it
     expects — e.g. models.json for provider definitions). settings.json is the
