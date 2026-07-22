@@ -302,6 +302,54 @@ func TestAssembleCacheRelocationsAppleContainerSkips(t *testing.T) {
 	}
 }
 
+// writableHomeDirMounts extracts the -v pairs that bind a writable-home backing
+// dir over a /home/agent path (the writable-home subdir on the source side is
+// the discriminator, so this never catches the base overlays).
+func writableHomeDirMounts(argv []string) []string {
+	var out []string
+	for i := 0; i+1 < len(argv); i++ {
+		if argv[i] == "-v" && strings.Contains(argv[i+1], "/writable-home/") {
+			out = append(out, argv[i+1])
+		}
+	}
+	return out
+}
+
+// TestAssembleWritableHomeDirs covers the emitted -v pairs: each declared path
+// binds <wsState>/writable-home/<path> over /home/agent/<path>, sorted.
+func TestAssembleWritableHomeDirs(t *testing.T) {
+	home := t.TempDir()
+	t.Setenv("HOME", home)
+	emptyLoopholeDirs(t)
+	o := goldenOptions("/ws", home)
+
+	in := relocationInput("podman", "/ws/.yolo/home", nil)
+	// Deliberately reverse-ordered: the emitter sorts.
+	in.writableHomeDirs = []string{".pi-lens", ".foo/bar"}
+	got := writableHomeDirMounts(o.assembleRunCmd(in))
+	want := []string{
+		"/ws/.yolo/home/writable-home/.foo/bar:/home/agent/.foo/bar",
+		"/ws/.yolo/home/writable-home/.pi-lens:/home/agent/.pi-lens",
+	}
+	if !slices.Equal(got, want) {
+		t.Errorf("writable-home mounts = %v, want %v", got, want)
+	}
+}
+
+// TestAssembleWritableHomeDirsNoneMatchesGolden pins the empty case against the
+// frozen argv: the feature must be a pure no-op for anyone not using it.
+func TestAssembleWritableHomeDirsNoneMatchesGolden(t *testing.T) {
+	home := t.TempDir()
+	t.Setenv("HOME", home)
+	emptyLoopholeDirs(t)
+	o := goldenOptions("/ws", home)
+
+	got := o.assembleRunCmd(relocationInput("podman", "/ws/.yolo/home", nil))
+	if !slices.Equal(got, podmanLinuxGolden(home)) {
+		t.Errorf("argv drifted from the golden with no writable_home_dirs:\ngot:  %v\nwant: %v", got, podmanLinuxGolden(home))
+	}
+}
+
 // TestAssembleDegradedLaunchOmitsRepoBind is the D2 (graceful launch
 // degradation) regression: when repo-root resolution failed (in.repoRoot ==
 // ""), the argv must NOT bind a bogus /opt/yolo-jail source tree and must NOT

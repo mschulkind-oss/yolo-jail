@@ -48,6 +48,12 @@ type assembleInput struct {
 	// only emits the -v pairs, and must stay free of the fs access + the
 	// user-config read that producing them requires).
 	cacheRelocations []config.CacheRelocation
+	// writableHomeDirs are extra home-relative paths (config writable_home_dirs)
+	// mounted read-write off <wsState>/writable-home, letting an agent extension
+	// that hardcodes a $HOME path (e.g. ~/.pi-lens) write through the :ro base.
+	// Already derived + validated by the run pipeline; prepareWsState created
+	// each backing dir, so assembly only emits the -v pairs.
+	writableHomeDirs []string
 }
 
 // lspNPM / lspGo return the resolved YOLO_LSP_*_INSTALL values.

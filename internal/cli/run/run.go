@@ -267,6 +267,7 @@ func (o *Options) runContainer(cfg *jsonx.OrderedMap, rt, repoRoot string) int {
 		lspGoInstall:     lspGoOf(cfg),
 		storePruneOK:     storePruneOK,
 		cacheRelocations: relocations,
+		writableHomeDirs: config.WritableHomeDirs(cfg),
 	}
 	runCmd := o.assembleRunCmd(in)
 

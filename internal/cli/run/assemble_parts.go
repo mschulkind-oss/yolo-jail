@@ -27,6 +27,11 @@ import (
 // Skipping loudly beats half-applying: a relocation that silently did not take
 // leaves the jail writing the very bytes the user moved back onto the filesystem
 // they moved them off.
+// writable_home_dirs needs no handling here: Apple Container mounts the whole
+// wsState at /home/agent read-write in one bind, so every declared home path is
+// already writable and its writes already land in wsState. It is a silent
+// SUCCESS, not a silent failure, so — unlike cache_relocations — there is
+// nothing to skip or warn about.
 func appleContainerBaseMounts(rt string, runFlags []string, workspace string, in *assembleInput, out printer) []string {
 	wsState := in.wsState
 	if len(in.cacheRelocations) > 0 {
@@ -90,6 +95,17 @@ func podmanBaseMounts(rt string, runFlags []string, workspace string, in *assemb
 		"-v", filepath.Join(ws, "bash_history")+":/home/agent/.bash_history",
 		"-v", filepath.Join(ws, "ssh")+":/home/agent/.ssh",
 	)
+	// Writable home dirs: extra $HOME subpaths (config writable_home_dirs) made
+	// read-write by nesting a bind INSIDE the :ro GLOBAL_HOME base. podman
+	// auto-creates the nested mountpoint under the :ro parent (verified 5.8.4),
+	// so nothing has to pre-exist in the base; only the backing dir under
+	// wsState needs creating, which prepareWsState does. Sorted for a
+	// deterministic argv (the deriver already sorts; this keeps the guarantee
+	// local to the emitter, matching the cache-relocation block above).
+	for _, rel := range sortedWritableHomeDirs(in.writableHomeDirs) {
+		runCmd = append(runCmd, "-v",
+			filepath.Join(ws, config.WritableHomeBackingSubdir, rel)+":/home/agent/"+rel)
+	}
 	// mise store: named volume on macOS, bind dir otherwise.
 	if isMacOS {
 		runCmd = append(runCmd, "-v", miseStoreVolume+":/mise")
@@ -97,6 +113,14 @@ func podmanBaseMounts(rt string, runFlags []string, workspace string, in *assemb
 		runCmd = append(runCmd, "-v", in.miseStore+":/mise")
 	}
 	return runCmd
+}
+
+// sortedWritableHomeDirs returns the paths sorted, without mutating the
+// caller's slice (assembleRunCmd is a pure function of its input).
+func sortedWritableHomeDirs(dirs []string) []string {
+	out := append([]string(nil), dirs...)
+	sort.Strings(out)
+	return out
 }
 
 // sortedCacheRelocations returns the relocations ordered by subdir, without

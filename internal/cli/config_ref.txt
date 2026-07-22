@@ -256,6 +256,28 @@
         "huggingface": "/data/relocated/yolo-jail/cache/huggingface"
       }
 
+  [bold]writable_home_dirs[/bold] (array of strings): Extra $HOME paths made writable.
+    Each entry is a path relative to /home/agent (no leading /, no "..").  The
+    jail's home is mounted read-only except for the dirs yolo manages; an agent
+    extension that hardcodes a home path yolo doesn't know about (e.g. pi-lens
+    writing ~/.pi-lens) hits that read-only base and its mkdir fails.  List the
+    path here and it becomes an ordinary writable dir, backed by
+    <workspace>/.yolo/home/writable-home/<path> — so it persists per workspace
+    and survives restarts, exactly like the built-in overlays.
+    You do NOT need this for anything already writable: ~/.config, ~/.local,
+    ~/.cache, ~/go, ~/.ssh and every selected agent's own dir (~/.claude, …)
+    are read-write already — listing one is a `yolo check` error, since the key
+    would only shadow yolo's own mount.
+    Unlike cache_relocations this is safe at ANY scope (workspace or user): the
+    destination is always under /home/agent and the backing dir is inside the
+    workspace, so it hands out no host access a jail didn't already have.
+    Runtime support: podman needs (and does) this — its home base is the only
+    one mounted read-only.  Apple Container ("container") mounts all of
+    /home/agent writable in one bind, and macos-user's Seatbelt profile allows
+    writes to the whole sandbox home, so on both of those every home path is
+    already writable and the key is a harmless no-op.
+    Example: [".pi-lens", ".config-that-isnt-mine/state"]
+
   [bold]workspace_readonly[/bold] (array of strings): Workspace sub-paths to overlay as read-only.
     Each entry is a relative path inside the workspace (no leading /, no ..).
     Mounted on top of the writable /workspace volume so agents cannot modify

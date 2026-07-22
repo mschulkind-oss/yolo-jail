@@ -141,6 +141,17 @@ func (o *Options) prepareWsState(cfg *jsonx.OrderedMap, agentSpecs []agents.Agen
 	for _, subdir := range append([]string{"npm-global", "local", "go", "yolo-shims", "config"}, overlaySubdirs...) {
 		_ = os.MkdirAll(filepath.Join(wsState, subdir), 0o755)
 	}
+
+	// Writable home dirs (config writable_home_dirs): create the backing dir for
+	// each declared $HOME path under <wsState>/writable-home/<path>. podman binds
+	// this over /home/agent/<path> (nesting inside the :ro base); the mountpoint
+	// there is auto-created, but the backing SOURCE must exist first or podman
+	// fails the whole container with "statfs …: no such file or directory". The
+	// paths are already validated (relative, no '..', no reserved segment), so
+	// MkdirAll can never escape wsState.
+	for _, rel := range config.WritableHomeDirs(cfg) {
+		_ = os.MkdirAll(filepath.Join(wsState, config.WritableHomeBackingSubdir, rel), 0o755)
+	}
 	for _, fname := range []string{
 		"bash_history", "yolo-bootstrap.sh", "yolo-venv-precreate.sh",
 		"yolo-perf.log", "yolo-socat.log", "yolo-entrypoint.lock",

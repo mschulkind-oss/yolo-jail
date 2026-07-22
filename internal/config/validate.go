@@ -71,6 +71,7 @@ func ValidateConfig(config *jsonx.OrderedMap, workspace string, resolver Loophol
 	validateAgentsMdExtra(config, errs)
 	validateEnvSources(config, errs)
 	validateCacheRelocations(config, workspace, errs, warns)
+	validateWritableHomeDirs(config, errs)
 
 	errors = *errs
 	warnings = *warns
