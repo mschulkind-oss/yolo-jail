@@ -5,33 +5,16 @@ import (
 	"testing"
 )
 
-// TestRichToANSIStyleTags verifies known style tags render to ANSI while literal
-// bracketed tokens ([path], [y/N], [rR]) are preserved verbatim.
-func TestRichToANSIStyleTags(t *testing.T) {
-	cases := []struct{ in, want string }{
-		{"[green]+added[/green]", ansiGreen + "+added" + ansiReset},
-		{"[red]-removed[/red]", ansiRed + "-removed" + ansiReset},
-		{"[bold cyan]@@ hunk @@[/bold cyan]", ansiBold + ansiCyan + "@@ hunk @@" + ansiReset},
-		{"[dim]--- a[/dim]", ansiDim + "--- a" + ansiReset},
-		// Literal brackets must survive untouched.
-		{"Try: rg <pattern> [path]", "Try: rg <pattern> [path]"},
-		{"Accept these config changes? [y/N] ", "Accept these config changes? [y/N] "},
-		{"block -*[rR]* here", "block -*[rR]* here"},
-	}
-	for _, c := range cases {
-		if got := richToANSI(c.in); got != c.want {
-			t.Errorf("richToANSI(%q) = %q, want %q", c.in, got, c.want)
-		}
-	}
-}
-
-// TestStripRichPreservesLiterals confirms stripping removes style tags but keeps
-// literal bracketed tokens (so plain-mode output still reads correctly).
-func TestStripRichPreservesLiterals(t *testing.T) {
-	if got := stripRich("[green]ok[/green] [path]"); got != "ok [path]" {
-		t.Errorf("stripRich = %q, want %q", got, "ok [path]")
-	}
-}
+// ANSI escapes the shared internal/richtext renderer emits — mirrored here so
+// these run-package wiring tests can assert on rendered output without reaching
+// into richtext's unexported constants. The renderer itself (tag → ANSI, literal
+// preservation) is unit-tested in internal/richtext; these tests only cover the
+// run package's color-gating and diff-coloring wiring.
+const (
+	ansiRed   = "\x1b[31m"
+	ansiGreen = "\x1b[32m"
+	ansiCyan  = "\x1b[36m"
+)
 
 // TestPrinterColorGating verifies o.pr() emits ANSI only when Color AND a TTY,
 // and strips otherwise — so redirected output never carries escape codes.

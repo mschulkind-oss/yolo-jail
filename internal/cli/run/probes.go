@@ -9,6 +9,7 @@ import (
 	"github.com/mschulkind-oss/yolo-jail/internal/config"
 	"github.com/mschulkind-oss/yolo-jail/internal/jsonx"
 	"github.com/mschulkind-oss/yolo-jail/internal/paths"
+	"github.com/mschulkind-oss/yolo-jail/internal/richtext"
 )
 
 // resolveRepoRoot locates the yolo-jail repo root for nix image builds. Returns
@@ -77,7 +78,7 @@ func resolveRepoRoot(getenv func(string) string, stderr io.Writer, color bool) (
 
 	// 5. Error.
 	if stderr != nil {
-		pr := printer{w: stderr}
+		pr := printer{rt: richtext.Printer{W: stderr}}
 		pr.print("[bold red]Cannot find yolo-jail repo root.[/bold red]\n" +
 			"The yolo CLI needs the repo for nix image builds.\n\n" +
 			"Fix: add [bold]repo_path[/bold] to ~/.config/yolo-jail/config.jsonc:\n" +
