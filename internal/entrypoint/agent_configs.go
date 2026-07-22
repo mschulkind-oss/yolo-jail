@@ -103,27 +103,11 @@ func pathName(p string) string {
 	return p
 }
 
-func ConfigureCopilot(e *Env) error {
-	dir := e.CopilotDir()
-	if err := os.MkdirAll(dir, 0o755); err != nil {
-		return err
-	}
-	// config.json: write {"yolo": true}\n only if missing (literal string).
-	configJSON := filepath.Join(dir, "config.json")
-	if !pathExists(configJSON) {
-		if err := writeInPlaceString(configJSON, "{\"yolo\": true}\n"); err != nil {
-			return err
-		}
-	}
-	return writeCopilotDynamicConfigs(e, dir)
-}
-
 // writeCopilotDynamicConfigs writes the two dynamic sibling files —
 // mcp-config.json and lsp-config.json — that copilot regenerates from the live
 // mcp_servers / lsp_servers config every boot. They are pure overwrites (no
 // in-jail edits are preserved), so they stay bespoke even under the prism, which
-// owns only the static config.json. Shared by ConfigureCopilot and
-// ConfigureCopilotPrism so the siblings are byte-identical on either path.
+// owns only the static config.json (rendered by ConfigureCopilotPrism).
 func writeCopilotDynamicConfigs(e *Env, dir string) error {
 	// mcp-config.json.
 	mcpConfig := jsonx.NewOrderedMap()
@@ -163,48 +147,8 @@ func getOr(m *jsonx.OrderedMap, key string, def any) any {
 // can point it at a temp dir; mirrors boot.go's hostNvimConfig).
 var hostPiDir = "/ctx/host-pi"
 
-func ConfigurePi(e *Env) error {
-	dir := e.PiDir()
-	if err := os.MkdirAll(dir, 0o755); err != nil {
-		return err
-	}
-	// Install every host_pi_files entry except settings.json into ~/.pi/agent/
-	// (settings.json is instead three-way merged below). This mirrors claude's
-	// syncHostClaudeFiles — without it, a listed file like models.json is
-	// mounted at /ctx/host-pi/ but never lands where pi reads it.
-	if err := e.syncHostPiFiles(); err != nil {
-		return err
-	}
-	settingsPath := filepath.Join(dir, "settings.json")
-	settings := loadObject(settingsPath)
-
-	// Host→jail three-way merge: fill from
-	// the host's ~/.pi/agent/settings.json, reusing the SAME agent-agnostic
-	// merge the claude path uses, against the pi snapshot. The jail-managed
-	// defaultProjectTrust is forced AFTER the merge so it always wins.
-	hostSettings := e.loadHostPiSettings()
-	prevSynced := loadObject(e.PiHostSettingsSnapshotPath())
-	syncHostSettings(settings, hostSettings, prevSynced)
-	if err := writeInPlaceString(e.PiHostSettingsSnapshotPath(), dumpJSONIndent2(hostSettings)); err != nil {
-		return err
-	}
-
-	settings.Set("defaultProjectTrust", "always")
-	return writeInPlaceString(settingsPath, dumpJSONIndent2(settings))
-}
-
-// loadHostPiSettings reads
-// /ctx/host-pi/settings.json only when YOLO_HOST_PI_FILES lists it.
-func (e *Env) loadHostPiSettings() *jsonx.OrderedMap {
-	files := e.hostPiFiles()
-	if !contains(files, "settings.json") {
-		return jsonx.NewOrderedMap()
-	}
-	return loadObject(filepath.Join(hostPiDir, "settings.json"))
-}
-
 // syncHostPiFiles copies each host_pi_files entry (except settings.json, which
-// is three-way merged in ConfigurePi) from the read-only /ctx/host-pi mount
+// is prism-rendered by ConfigurePiPrism) from the read-only /ctx/host-pi mount
 // into the jail's ~/.pi/agent/. Mirrors claude's syncHostClaudeFiles;
 // best-effort per file.
 func (e *Env) syncHostPiFiles() error {
@@ -291,47 +235,6 @@ func buildOpencodeMCPServers(e *Env) *jsonx.OrderedMap {
 	return opencodeMCP
 }
 
-func ConfigureOpencode(e *Env) error {
-	dir := e.OpencodeDir()
-	if err := os.MkdirAll(dir, 0o755); err != nil {
-		return err
-	}
-	configPath := filepath.Join(dir, "opencode.json")
-	managedPath := filepath.Join(dir, "yolo-managed-mcp-servers.json")
-
-	// Translate shared MCP servers into opencode's native schema.
-	opencodeMCP := buildOpencodeMCPServers(e)
-
-	current := loadObject(configPath)
-	setDefault(current, "$schema", "https://opencode.ai/config.json")
-	current.Set("permission", "allow")
-
-	// Reconcile yolo-managed MCP servers.
-	var mcp *jsonx.OrderedMap
-	if v, ok := current.Get("mcp"); ok {
-		if m, isMap := v.(*jsonx.OrderedMap); isMap {
-			mcp = m
-		}
-	}
-	if mcp == nil {
-		mcp = jsonx.NewOrderedMap()
-	}
-	for _, name := range loadManagedSet(managedPath) {
-		mcp.Delete(name)
-	}
-	updateFrom(mcp, opencodeMCP)
-	if mcp.Len() > 0 {
-		current.Set("mcp", mcp)
-	} else if _, ok := current.Get("mcp"); ok {
-		current.Delete("mcp")
-	}
-
-	if err := writeInPlaceString(configPath, dumpJSONIndent2(current)); err != nil {
-		return err
-	}
-	return writeInPlaceString(managedPath, managedSidecar(opencodeMCP.Keys()))
-}
-
 // buildGeminiMCPServers builds the full MCP-server table gemini owns each boot:
 // the live shared MCP servers (LoadMCPServers) plus every configured LSP server
 // wrapped as an MCP server via mcp-language-server (keyed "<lsp>-lsp"). This is
@@ -362,63 +265,6 @@ func buildGeminiMCPServers(e *Env) *jsonx.OrderedMap {
 		configured.Set(name+"-lsp", entry)
 	}
 	return configured
-}
-
-func ConfigureGemini(e *Env) error {
-	dir := e.GeminiDir()
-	if err := os.MkdirAll(dir, 0o755); err != nil {
-		return err
-	}
-	configPath := filepath.Join(dir, "settings.json")
-	managedPath := e.GeminiManagedMCPPath()
-	goBin := e.GoBin()
-
-	configured := buildGeminiMCPServers(e)
-
-	current := loadObject(configPath)
-	currentMCP := setDefaultMap(current, "mcpServers")
-
-	// previous_managed: the sidecar list, or the migration fallback.
-	previousManaged, ok := loadManagedSetOK(managedPath)
-	if !ok {
-		previousManaged = map[string]struct{}{
-			"chrome-devtools":     {},
-			"sequential-thinking": {},
-		}
-		for _, name := range currentMCP.Keys() {
-			v, _ := currentMCP.Get(name)
-			cfg, isMap := v.(*jsonx.OrderedMap)
-			if !isMap {
-				continue
-			}
-			command := ""
-			if cv, ok := cfg.Get("command"); ok {
-				command = pyStr(cv)
-			}
-			if strings.HasSuffix(name, "-lsp") && command == filepath.Join(goBin, "mcp-language-server") {
-				previousManaged[name] = struct{}{}
-			}
-			if strings.HasPrefix(command, e.WorkspaceDir()+"/") {
-				previousManaged[name] = struct{}{}
-			}
-		}
-	}
-	for name := range previousManaged {
-		currentMCP.Delete(name)
-	}
-	updateFrom(currentMCP, configured)
-
-	security := setDefaultMap(current, "security")
-	setDefault(security, "approvalMode", "yolo")
-	setDefault(security, "enablePermanentToolApproval", true)
-	general := setDefaultMap(current, "general")
-	general.Set("enableAutoUpdate", false)
-	general.Set("enableAutoUpdateNotification", false)
-
-	if err := writeInPlaceString(configPath, dumpJSONIndent2(current)); err != nil {
-		return err
-	}
-	return writeInPlaceString(managedPath, managedSidecar(configured.Keys()))
 }
 
 // loadManagedSet returns the sidecar's server names as a set, or an empty set

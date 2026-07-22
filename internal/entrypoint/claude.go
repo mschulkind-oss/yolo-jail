@@ -25,86 +25,14 @@ var oauthMetadataKeys = []string{"scopes", "subscriptionType", "rateLimitTier"}
 // settings source from here, gated by the host_claude_files allow-list.
 var hostClaudeDir = "/ctx/host-claude"
 
-// settings.json (three-way host merge + permissions + plugins + LSP tool),
-// the host-settings snapshot, ~/.claude.json (MCP + workspace project), the
-// managed-MCP sidecar, the credentials symlink/harvest, and per-jail history
-// isolation. The `claude plugins install/uninstall` subprocesses are a side
-// effect, not content, and are deferred to the boot sub-phase.
-func ConfigureClaude(e *Env) error {
-	dir := e.ClaudeDir()
-	if err := os.MkdirAll(dir, 0o755); err != nil {
-		return err
-	}
-	settingsPath := filepath.Join(dir, "settings.json")
-
-	configured := e.LoadMCPServers()
-
-	if err := configureClaudeSideEffects(e); err != nil {
-		return err
-	}
-
-	// We surface IO errors as returned errors; the boot layer keeps this
-	// best-effort and never aborts on a Claude-config failure.
-	hostSettings := e.loadHostClaudeSettings()
-
-	settings := loadObject(settingsPath)
-
-	prevSynced := loadObject(e.ClaudeHostSettingsSnapshotPath())
-	syncHostSettings(settings, hostSettings, prevSynced)
-	if err := writeInPlaceString(e.ClaudeHostSettingsSnapshotPath(), dumpJSONIndent2(hostSettings)); err != nil {
-		return err
-	}
-
-	settings.Delete("mcpServers")
-
-	permissions := setDefaultMap(settings, "permissions")
-	permissions.Set("allow", []any{})
-	permissions.Set("deny", []any{})
-	permissions.Set("defaultMode", "acceptEdits")
-	permissions.Set("additionalDirectories", []any{"/"})
-	settings.Set("skipDangerousModePermissionPrompt", true)
-
-	setDefaultMap(settings, "preferences").Set("autoUpdaterStatus", "disabled")
-
-	lspServers := LoadLSPServers(e)
-	enabledPlugins := setDefaultMap(settings, "enabledPlugins")
-	for _, pm := range claudeLSPPluginOrder {
-		if _, ok := lspServers.Get(pm.lsp); ok {
-			enabledPlugins.Set(pm.plugin, true)
-		} else {
-			enabledPlugins.Delete(pm.plugin)
-		}
-	}
-
-	// ENABLE_LSP_TOOL handling.
-	if lspServers.Len() > 0 {
-		setDefaultMap(settings, "env").Set("ENABLE_LSP_TOOL", "1")
-	} else if v, ok := settings.Get("env"); ok {
-		if envBlock, isMap := v.(*jsonx.OrderedMap); isMap {
-			envBlock.Delete("ENABLE_LSP_TOOL")
-			if envBlock.Len() == 0 {
-				settings.Delete("env")
-			}
-		}
-	}
-
-	if err := writeInPlaceString(settingsPath, dumpJSONIndent2(settings)); err != nil {
-		return err
-	}
-
-	return writeClaudeJSON(e, configured)
-}
-
-// configureClaudeSideEffects runs the three non-content side effects that BOTH
-// the bespoke ConfigureClaude and the prism ConfigureClaudePrism must perform,
-// in the same order: the credentials symlink (harvest/link
-// ~/.claude/.credentials.json into the shared dir), the host-file staging
-// (copy every host_claude_files entry EXCEPT settings.json into ~/.claude/),
-// and per-jail history isolation (symlink history.jsonl to a per-workspace
-// file). These are runtime-state / filesystem side effects, NOT surface
-// content, so they stay bespoke under the prism — only settings.json is
-// prism-rendered. Extracted so the two configure paths share one definition and
-// cannot drift.
+// configureClaudeSideEffects runs the three non-content side effects that
+// ConfigureClaudePrism must perform, in order: the credentials symlink
+// (harvest/link ~/.claude/.credentials.json into the shared dir), the host-file
+// staging (copy every host_claude_files entry EXCEPT settings.json into
+// ~/.claude/), and per-jail history isolation (symlink history.jsonl to a
+// per-workspace file). These are runtime-state / filesystem side effects, NOT
+// surface content, so they stay bespoke under the prism — only settings.json is
+// prism-rendered.
 func configureClaudeSideEffects(e *Env) error {
 	if err := e.ensureCredentialsSymlink(); err != nil {
 		return err
@@ -144,14 +72,6 @@ func writeClaudeJSON(e *Env, configured *jsonx.OrderedMap) error {
 	return writeInPlaceString(e.ClaudeManagedMCPPath(), managedSidecar(configured.Keys()))
 }
 
-func (e *Env) loadHostClaudeSettings() *jsonx.OrderedMap {
-	files := e.hostClaudeFiles()
-	if !contains(files, "settings.json") {
-		return jsonx.NewOrderedMap()
-	}
-	return loadObject(filepath.Join(hostClaudeDir, "settings.json"))
-}
-
 // hostClaudeFiles parses YOLO_HOST_CLAUDE_FILES (a JSON list, default []).
 func (e *Env) hostClaudeFiles() []string {
 	raw := e.Getenv("YOLO_HOST_CLAUDE_FILES")
@@ -173,66 +93,6 @@ func (e *Env) hostClaudeFiles() []string {
 		}
 	}
 	return out
-}
-
-func syncHostSettings(jail, host, prev *jsonx.OrderedMap) {
-	syncSettingsLevel(jail, host, prev, true)
-}
-
-func syncSettingsLevel(jail, host, prev *jsonx.OrderedMap, deep bool) {
-	// Roll back keys we synced before that the host no longer has.
-	for _, key := range prev.Keys() {
-		prevVal, _ := prev.Get(key)
-		if _, inHost := host.Get(key); inHost {
-			continue
-		}
-		jailVal, inJail := jail.Get(key)
-		if !inJail {
-			continue
-		}
-		if pyEqual(jailVal, prevVal) {
-			jail.Delete(key)
-		} else if deep {
-			prevMap, pOk := prevVal.(*jsonx.OrderedMap)
-			jailMap, jOk := jailVal.(*jsonx.OrderedMap)
-			if pOk && jOk {
-				for _, k := range prevMap.Keys() {
-					v, _ := prevMap.Get(k)
-					if jv, ok := jailMap.Get(k); ok && pyEqual(jv, v) {
-						jailMap.Delete(k)
-					}
-				}
-			}
-		}
-	}
-	// Adds + updates from the current host file.
-	for _, key := range host.Keys() {
-		hostVal, _ := host.Get(key)
-		jailVal, inJail := jail.Get(key)
-		if !inJail {
-			jail.Set(key, hostVal)
-			continue
-		}
-		hostMap, hOk := hostVal.(*jsonx.OrderedMap)
-		jailMap, jOk := jailVal.(*jsonx.OrderedMap)
-		if deep && hOk && jOk {
-			var prevSub *jsonx.OrderedMap
-			if pv, ok := prev.Get(key); ok {
-				if pm, isMap := pv.(*jsonx.OrderedMap); isMap {
-					prevSub = pm
-				}
-			}
-			if prevSub == nil {
-				prevSub = jsonx.NewOrderedMap()
-			}
-			syncSettingsLevel(jailMap, hostMap, prevSub, false)
-			continue
-		}
-		// elif key in prev and jail[key] == prev[key] and jail[key] != host_val
-		if prevVal, inPrev := prev.Get(key); inPrev && pyEqual(jailVal, prevVal) && !pyEqual(jailVal, hostVal) {
-			jail.Set(key, hostVal)
-		}
-	}
 }
 
 // ~/.claude/ files (except settings.json) into the jail. This is a filesystem

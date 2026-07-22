@@ -7,11 +7,12 @@ import (
 )
 
 // TestConfigurePiCopiesNonSettingsHostFiles is the regression test for the
-// host_pi_files asymmetry: claude's ConfigureClaude copies every
-// host_claude_files entry except settings.json into ~/.claude/, but ConfigurePi
-// historically only read settings.json — so a host_pi_files entry like
-// models.json was mounted at /ctx/host-pi/ yet never installed into
-// ~/.pi/agent/, where pi actually reads it. This asserts parity with claude.
+// host_pi_files asymmetry: claude's side effects copy every host_claude_files
+// entry except settings.json into ~/.claude/, but the pi path historically only
+// read settings.json — so a host_pi_files entry like models.json was mounted at
+// /ctx/host-pi/ yet never installed into ~/.pi/agent/, where pi actually reads
+// it. This asserts parity with claude (syncHostPiFiles, called by
+// ConfigurePiPrism).
 func TestConfigurePiCopiesNonSettingsHostFiles(t *testing.T) {
 	home := t.TempDir()
 	ctx := t.TempDir()
