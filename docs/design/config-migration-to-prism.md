@@ -449,28 +449,34 @@ before any surface ports:**
   render **drops it** and the overlay stays empty. This proves the seed path (not
   the naïve diff) is wired, and is the guard against regressing §3.
 
-**Phase B (surface fan-out) — per-surface migration lands with each port:**
+**Phase B (surface fan-out) — per-surface migration lands with each port.**
+✅ **Done for the agent-config surfaces (2026-07-22).**
 
 - **pi** (the proof-of-concept, first): exercises the §3 bootstrap + orphan
-  cleanup (§4.3, §4.7) end-to-end.
-- **copilot** early: the zero-stale surface, cleanest bootstrap smoke test (§4.6).
-- **mise**: carries the §4.1 pre-render scrub. **But ship the §4.1 mise cleanup
-  independently and now** — it is a live bug fix to `GenerateMiseConfig`, does not
-  depend on the engine, and should not wait for the mise port. When mise ports, the
-  scrub is expressed declaratively (empty defaults + `mise_tools` workspace layer)
-  and the standalone scrub retires in Phase C.
-- **git/jj identity**: the scoped git-kv codec (§4.2), owned-keyspace reconcile.
+  cleanup (§4.3, §4.7) end-to-end. ✅
+- **copilot** early: the zero-stale surface, cleanest bootstrap smoke test (§4.6). ✅
 - **Claude/gemini/opencode/codex**: each carries its orphan-sidecar cleanup (§4.7)
   and its pre-existing-bug fix (gemini `setDefault`→managed §4.5; codex
-  table-preservation §4.4) as part of the port.
+  table-preservation §4.4) as part of the port. ✅ (plus **agy**, born on the prism.)
+- **mise**: carries the §4.1 pre-render scrub. **The §4.1 mise cleanup shipped
+  independently** — a live bug fix to `GenerateMiseConfig` that did not depend on
+  the engine. The mise *port* onto the prism is still pending; when it lands, the
+  scrub becomes declarative (empty defaults + `mise_tools` workspace layer) and the
+  standalone scrub retires. ⏳
+- **git/jj identity**: the scoped git-kv codec (§4.2), owned-keyspace reconcile. ⏳
 
-**Phase C (deletion, serial, last):**
+**Phase C (deletion, serial, last).** ✅ **Done for the agent-config surfaces
+(2026-07-22).**
 
-- Delete the standalone §4.1 mise scrub (subsumed by the declarative render).
-- Delete the bespoke merges, snapshot constants, `host_*_files` keys, and the
-  now-obsolete sidecar-writing code once every surface is off it.
-- The orphan-file cleanup (§4.7) can also retire here once we are confident every
-  jail has migrated (or fold it into a longer-lived `yolo config migrate`).
+- Deleted the bespoke agent-config merges (`syncHostSettings`/`syncSettingsLevel`),
+  the six `Configure*` writers, the codex TOML dumper, and the now-orphaned helper
+  clusters; retired the `YOLO_PRISM_SURFACES` cutover gate so the prism is
+  unconditional. The `host_*_files` keys survive (the prism host layer reads
+  through them). ✅
+- The obsolete snapshot/managed-MCP sidecars are removed on each surface's
+  first-migration boot (§4.7). ⏳ still pending: delete the standalone §4.1 mise
+  scrub and the remaining non-agent bespoke generators once mise/MCP/LSP/identity
+  are ported.
 
 The **clear-and-rebuild** command (§5) can land any time in Phase A/B as an
 operator tool; it is not on the critical path — the automatic §3 bootstrap is.

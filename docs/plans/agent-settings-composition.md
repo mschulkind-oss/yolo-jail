@@ -5,11 +5,16 @@ resolved). Supersedes the exploratory RFC that carried a menu of models and a
 data-filter vocabulary — this is the line in the sand. **Per-phase status:**
 **Phase A complete** — the engine is built + tested (`internal/agentcfg`, with
 `compose.go`/`engine.go`/`manifest`/`codec`/`luahook` and their tests). **Phase
-B modeled** — all surfaces are in the manifest and reachable via `yolo config
-render`, but **not wired to boot**: boot still runs the bespoke `Configure*`
-writers in `internal/entrypoint` (nothing there imports `agentcfg`), and no
-`host_*_files` keys have been deleted. **Phase C not started.** Implementation
-sequenced in §8 and [ROADMAP.md](ROADMAP.md).
+B complete** — all surfaces are in the manifest and reachable via `yolo config
+render`. **Phase C complete (2026-07-22)** — every surface renders through the
+prism at boot: `internal/entrypoint`'s `Configure*Prism` functions are the sole
+config path (`boot.go` calls them unconditionally; the `YOLO_PRISM_SURFACES`
+cutover gate is retired), the six bespoke `Configure*` writers and their
+dead helpers are deleted, and `agy` was born directly on the prism. The obsolete
+snapshot/managed-MCP sidecars are cleaned up on each surface's first-migration
+boot. Remaining non-agent surfaces (mise, MCP/LSP standalone, git/jj identity)
+still have bespoke generators; folding them onto the prism is tracked separately
+in §8 / [ROADMAP.md](ROADMAP.md).
 
 yolo generates a number of config files inside the jail from host + jail sources
 — coding-agent settings (Claude's `settings.json`, Codex's `config.toml`, pi's
@@ -77,11 +82,12 @@ merges rather than adding a parallel path.
 ## 2. Six principles (the line in the sand)
 
 1. **Regenerate, don't reconcile.** Each generated config file (agent settings,
-   MCP, LSP, mise, identity — §1.1) *will be* rebuilt from sources on every boot
-   by the engine, not edited in place. (Target model — the engine exists and is
-   tested, but is **not yet wired to boot**: today boot still runs the bespoke
-   `Configure*` writers in `internal/entrypoint`. See the Phase B/C status in the
-   header.) Host-key removal needs zero
+   MCP, LSP, mise, identity — §1.1) is rebuilt from sources on every boot
+   by the engine, not edited in place. (For the agent-config surfaces this is now
+   live: boot runs the `Configure*Prism` writers in `internal/entrypoint`, which
+   compose through `agentcfg`. The remaining non-agent surfaces — mise, standalone
+   MCP/LSP, identity — still use bespoke generators pending their fold-in; see the
+   Phase-C status in the header.) Host-key removal needs zero
    memory: a dropped host key is simply absent from the next render. (This alone
    deletes today's snapshot/rollback three-way merge and its poison-on-typo
    failure — see §7.)
@@ -291,20 +297,18 @@ yolo config render pi --explain [KEYPATH]  # which layer/hook won each leaf (inc
 yolo config render pi --host F --workspace F --overlay F --format json   # hypotheticals / fixtures
 ```
 
-It calls the engine that boot **will** use once Phase B/C wire it (see the
-header status) — so *when wired*, "what render prints" is "what the jail gets."
-**Today it is a read-only preview**, not on the boot path: the engine's only
-caller is `internal/cli/config.go` (`yolo config render`); boot still runs the
-bespoke `Configure*` writers in `internal/entrypoint`, which do not import
-`agentcfg`. Render is already simultaneously: the **dev-iteration loop** (edit
+It calls the same engine boot now uses for the agent-config surfaces (Phase C —
+see the header status), so for those surfaces "what render prints" is "what the
+jail gets": boot's `Configure*Prism` writers and `yolo config render` both drive
+`agentcfg`. Render is simultaneously: the **dev-iteration loop** (edit
 `config.lua`, `render --explain`, repeat — no container churn), the **safety-diff
 source** (§3.4), and the **test harness** (fixture vectors: `inputs → render`,
 byte-checked in `go test`).
 
-*Phase-B/C follow-up:* once the engine drives boot, wire `yolo config render`
-into the `yolo check` config validator too. Today `yolo check` calls the same
-bespoke `entrypoint.Configure*` writers boot uses (it does not import
-`agentcfg`), so it validates the current generators, not the engine's output.
+The `yolo check` config validator's entrypoint preflight also exercises the real
+boot path now: it calls the `Configure*Prism` writers (pointing their §5 sidecars
+at a temp workspace so the dry run never touches the live one), so it validates
+the engine's output, not a stale parallel generator.
 
 ## 6.5 Worked example — the pi permission gate, end to end
 
@@ -381,16 +385,18 @@ was written to `/workspace`; yolo needed no ability to parse or round-trip pi's
 extension `.ts` files (they're a *tree* surface — staged/excluded, never decoded);
 and the whole result was previewable with `render` before any jail started.
 
-## 7. Why (the problems this replaces — verified 2026-07-18)
+## 7. Why (the problems this replaced — verified 2026-07-18, retired 2026-07-22)
 
-The current mechanism, from the code:
+The mechanism the prism replaced, from the code as it stood pre-cutover (the
+`Configure*` writers and `syncHostSettings` are now deleted — see the Phase-C
+status):
 
-- **A shared mutable file.** The agent rewrites the same `settings.json` yolo
+- **A shared mutable file.** The agent rewrote the same `settings.json` yolo
   writes, forcing a bespoke **one-level-deep snapshot three-way merge**
   (`syncHostSettings`, `claude.go` / `agent_configs.go`); nested objects/arrays
-  compare atomically, and the
-  snapshot loader returns `{}` on *any* error — so one boot with a host JSON typo
-  looks identical to "host removed all keys" and rolls the jail back.
+  compared atomically, and the
+  snapshot loader returned `{}` on *any* error — so one boot with a host JSON typo
+  looked identical to "host removed all keys" and rolled the jail back.
 - **No transform step.** A host key stays out of the jail only if it collides
   with a hardcoded force-managed key. Redaction (pi's permission gate) is
   inexpressible.
@@ -422,18 +428,26 @@ Cap Phase A with `yolo config render` (host-side + in-jail, §6) so every later
 surface is verifiable.
 
 **Phase B — surfaces (fan out; mutually independent on the frozen engine).**
+✅ **Done for the agent-config surfaces.**
 - **pi first** as the proof-of-concept — exercises tree staging + a transform +
   the overlay; deletes `host_pi_files` and the pi three-way merge.
 - then in parallel, one commit each: **Claude** (widest — `settings.json` +
   `.claude.json` as runtime-state), **gemini**, **copilot**, **opencode**,
-  **Codex** (TOML codec), and the non-agent surfaces **MCP** (`mcp.go`), **LSP**,
-  **mise** (`mise.go`). Each already composes config-layer input (§1.1); moving it
-  onto the engine retires its bespoke merge and grants it the Lua transform +
-  `render` for free. Each lands + verifies in a nested jail on its own.
+  **Codex** (TOML codec), plus **agy**, which was born directly on the prism (no
+  bespoke writer ever existed). Each `Configure*Prism` retires its bespoke merge
+  and gains the Lua transform + `render` for free; each landed + verified in a
+  nested jail on its own. The non-agent surfaces — **MCP** (`mcp.go`), **LSP**,
+  **mise** (`mise.go`), **identity** — are not yet ported and keep their bespoke
+  generators for now.
 
-**Phase C — deletion (serial, last).** Remove the bespoke merges, snapshot
-constants, per-agent mount blocks, and the `host_*_files` keys once every surface
-is off them.
+**Phase C — deletion (serial, last).** ✅ **Done (2026-07-22) for the agent-config
+surfaces.** The `YOLO_PRISM_SURFACES` cutover gate is retired, `boot.go` calls the
+`Configure*Prism` writers unconditionally, and the six bespoke `Configure*`
+writers plus their now-dead helpers (the three-way merge, the codex TOML dumper,
+the numeric-equality cluster) are deleted. The obsolete snapshot/managed-MCP
+sidecars are removed on each surface's first-migration boot. The `host_*_files`
+keys survive (the prism host layer reads through them). Deletion of the non-agent
+bespoke generators waits on their Phase-B port.
 
 Each stage ends with a nested-jail verification (per repo `CLAUDE.md`).
 

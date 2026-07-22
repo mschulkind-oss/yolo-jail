@@ -71,7 +71,7 @@ those out and propose keeping the durable part.
 | Doc | Bucket | Why | Action |
 |---|---|---|---|
 | `plans/macos-revival-and-distribution-plan.md` | **B** | Roadmap of record (2026-07-20). J1/D1/D2/D3/J2/J3/Track-M done; D4 enabled, first-push/Mac-download human-gated; nothing macos-revival-side fully open. | keep (active) |
-| `plans/agent-settings-composition.md` | **B** | Finalized design of record; engine built but NOT wired to boot — only `yolo config render` (`internal/cli/config.go`) calls `agentcfg.Compose`; boot + check still run bespoke `Configure*`; re-basing note obsolete. | keep (active) |
+| `plans/agent-settings-composition.md` | **B** | Design of record; **Phase C complete (2026-07-22)** — the prism is the unconditional config path at boot + check, and the bespoke agent-config `Configure*` writers are deleted. mise/identity surfaces still deferred. | keep (active) |
 | `plans/handoff-cachix-cache.md` | **B** | Human-gated procedure = revival plan **D4**. Cachix substituter enabled `flake.nix:13-16`; first-push/Mac-download human-gated. | keep (active) |
 | `plans/claude-oauth-mitm-proxy-plan.md` | **C** | Self-declared "preserved for design rationale"; Python refs deleted; broker/terminator shipped in Go; the refresher it centered on was removed (`51f07ea`). | **archive** |
 | `plans/macos-backend-direction.md` | **C** | Its "excise macos-user?" premise was *reversed* (macos-user revived). Superseded by `macos-no-vm-direction.md`. | **archive** |
@@ -118,10 +118,9 @@ that dir is a stale Python-build artifact (untracked, not shipped).
 we're currently navigating). Concretely:
 
 - `docs/plans/macos-revival-and-distribution-plan.md` — stays (roadmap of record).
-- `docs/plans/agent-settings-composition.md` — stays (finalized design of
-  record; engine built in `internal/agentcfg` but NOT wired to boot — only `yolo
-  config render` calls `agentcfg.Compose`, boot + check still run bespoke
-  `Configure*`).
+- `docs/plans/agent-settings-composition.md` — stays (design of record; Phase C
+  complete 2026-07-22 — the prism is the unconditional boot + check config path
+  and the bespoke agent-config `Configure*` writers are deleted).
 - `docs/plans/handoff-cachix-cache.md` — **moved here** from
   `docs/implementation/` (it's the active D4 procedure). `docs/implementation/`
   is then empty and removed — a "handoffs" dir was a Python-era working-doc

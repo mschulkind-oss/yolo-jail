@@ -1,6 +1,8 @@
 # AGY (Google Antigravity CLI) Support Plan
 
-**Date:** 2026-07-22. **Status:** In progress — born directly on the prism.
+**Date:** 2026-07-22. **Status:** ✅ Done — born directly on the prism; all eight
+touchpoints landed (registry, manifest surface, `AgyDir`, `ConfigureAgyPrism`,
+boot wiring, preflight, docs, tests).
 **Purpose:** Define the design, requirements, touchpoints, and execution plan for adding support for Google Antigravity CLI (`agy`) as an agent in `yolo-jail`.
 
 > [!NOTE]
@@ -21,10 +23,10 @@
 >   modeled on `ConfigureCopilotPrism` (no host mount — yolo owns the file
 >   outright). There is **no** bespoke `ConfigureAgy`; the §4C sketch that an
 >   earlier draft carried is intentionally dropped.
-> - AGY is **always** rendered through the prism. Unlike the existing agents,
->   which sit behind the `YOLO_PRISM_SURFACES` cutover gate while their bespoke
->   writers are retired, `agy` has no bespoke path to fall back to, so it needs
->   no gate — it is the first agent to live *only* in the unified config system.
+> - AGY is **always** rendered through the prism. It was the first agent to live
+>   *only* in the unified config system, with no bespoke path to fall back to;
+>   the migrating agents have since caught up — the `YOLO_PRISM_SURFACES` cutover
+>   gate is retired and every agent now renders through the prism unconditionally.
 > - The dynamic `mcp_config.json` is a pure per-boot overwrite (regenerated from
 >   live MCP config, no in-jail edits preserved), so it stays a bespoke sibling
 >   exactly like copilot's `mcp-config.json` — the prism owns only the static
@@ -138,13 +140,13 @@ manifest's **Managed** layer (§4B), so the writer never hand-sets it.
 ```go
 // ConfigureAgyPrism configures the Google Antigravity CLI (agy). AGY is a
 // brand-new agent with zero legacy bespoke state, so it is born directly on the
-// prism — there is no bespoke ConfigureAgy and no YOLO_PRISM_SURFACES gate. It:
+// prism — there is no bespoke ConfigureAgy. It:
 //
 //  1. renders ~/.gemini/antigravity-cli/settings.json through the engine with
 //     §5 overlay capture and the §3.2 first-migration bootstrap. AGY has NO host
-//     mount (yolo owns the file), so hostBytes is nil and the render is
-//     defaults<overlay<managed (the managed permissionMode:"allow" is the YOLO
-//     posture);
+//     mount (yolo owns the file), so hostBytes is nil and there is no computed
+//     layer, so the render is defaults<overlay<managed (the managed
+//     permissionMode:"allow" is the YOLO posture);
 //  2. writes the dynamic mcp_config.json sibling from live MCP config — a pure
 //     per-boot overwrite (no in-jail edits preserved), exactly like copilot's
 //     mcp-config.json. The prism owns only the static settings.json.
@@ -152,8 +154,8 @@ func ConfigureAgyPrism(e *Env) error {
     if err := os.MkdirAll(e.AgyDir(), 0o755); err != nil {
         return err
     }
-    // settings.json: no host source (yolo owns it outright).
-    if _, err := renderSurfaceStateful(e, "agy", "settings", nil); err != nil {
+    // settings.json: no host source (yolo owns it outright), no computed layer.
+    if _, err := renderSurfaceStateful(e, "agy", "settings", nil, nil); err != nil {
         return err
     }
     // Dynamic mcp_config.json sibling (pure overwrite, regenerated every boot).
@@ -170,8 +172,8 @@ case "agy":
     genStep(e, "configure_agy", func() error { return ConfigureAgyPrism(e) })
 ```
 
-No `prismEnabledFor` branch — AGY has no bespoke fallback, so it renders through
-the prism unconditionally.
+`configureAgent` calls every agent's `Configure*Prism` writer unconditionally —
+there is one config path now, so AGY needs no special-casing.
 
 ---
 

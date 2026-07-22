@@ -20,10 +20,10 @@ post-Go-port backlog (nix-ld, color audit, consolidation) into the same picture.
 | [macos-revival-and-distribution-plan.md](macos-revival-and-distribution-plan.md) | Tracks J (Linux-jail fixes), D (distribution/source-access), M (Mac hardware). Roadmap of record. | **J1–J3 + D1/D2/D3 done, Track M M0/M1/M2 PROVEN on HW 2026-07-21; only D4-account remains.** |
 | [handoff-cachix-cache.md](handoff-cachix-cache.md) | The revival plan's **D4**: publish the OCI image to a Cachix cache. | human-gated — substituter ENABLED (flake.nix:13-16, 730c258); only account + first push + Mac download proof left |
 | [nix-ld-dynamic-linking.md](nix-ld-dynamic-linking.md) | Replace the `LD_LIBRARY_PATH` whack-a-mole with nix-ld; closes the custom-`mcp_servers` startup gap. | host-gated — **not started** |
-| [agent-settings-composition.md](agent-settings-composition.md) | Layered regeneration of any generated config (agent settings, MCP, LSP, mise, identity) + a Lua transform. **Design FINALIZED 2026-07-20.** | jail-side — **engine BUILT (`internal/agentcfg`), Phase A+B done; NOT wired to boot; Phase C (deletion) + boot-wiring remain** |
+| [agent-settings-composition.md](agent-settings-composition.md) | Layered regeneration of any generated config (agent settings, MCP, LSP, mise, identity) + a Lua transform. **Design FINALIZED 2026-07-20.** | jail-side — **agent-config surfaces DONE 2026-07-22: prism is the sole boot config path (gate retired, bespoke writers deleted); non-agent surfaces (mise/MCP/LSP/identity) still to port** |
 | [cache-relocation.md](cache-relocation.md) | User-scope-only `cache_relocations` so a huge cold cache subdir can live on other storage; unblinds `prune`/`purge`. Podman behavior proven 2026-07-21. | jail-side (one host-gated acceptance step) |
 | [cli-color-audit.md](cli-color-audit.md) | Shared rich→ANSI renderer + TTY gate across commands. | jail-side — **bug class fixed**; tail: migrate `run/console.go` off its private duplicate + unify the TTY probe |
-| [antigravity-agy-support.md](antigravity-agy-support.md) | Support Google Antigravity CLI (`agy`) as a native agent inside `yolo-jail`. | jail-side — **proposed** (architecture & touchpoints doc added 2026-07-22) |
+| [antigravity-agy-support.md](antigravity-agy-support.md) | Support Google Antigravity CLI (`agy`) as a native agent inside `yolo-jail`. | jail-side — **DONE 2026-07-22** (born on the prism; all eight touchpoints landed) |
 | [module-consolidation-and-cleanup.md](module-consolidation-and-cleanup.md) | Collapse the parity-era `internal/*` split; drop parity machinery; §4 OSS-hygiene remnants. | **DONE 2026-07-21** (package-merge declined) |
 
 | [integration-parallelism.md](integration-parallelism.md) | Bounded `t.Parallel()` for the container suite (needs per-test GlobalStorage first). | parked (test speed) |
@@ -36,11 +36,12 @@ two are gated on a resource an in-jail agent doesn't have.
 
 - **Jail-side (agent-completable).** Developable and testable from inside a
   jail; `internal/` changes still get a nested-jail sanity run per AGENTS.md.
-  With the Jul-21 wave landed, the only jail-side work left is the whole
-  **config-composition** thread (Phase C + wiring the engine to boot) and the
-  **cli-color-audit tail** (migrate `run/console.go` off its private printer +
-  unify the TTY probe). J2, J3, D2, cli-color-audit's bug-class fix, and
-  module-consolidation have all landed.
+  With the Jul-21/22 wave landed, the jail-side work left is the **non-agent
+  config-composition surfaces** (porting mise/MCP/LSP/identity onto the prism —
+  the agent-config surfaces and `agy` are done) and the **cli-color-audit tail**
+  (migrate `run/console.go` off its private printer + unify the TTY probe). J2,
+  J3, D2, cli-color-audit's bug-class fix, module-consolidation, the
+  agent-config prism cutover, and agy have all landed.
 - **Host-gated (needs a human at a host with nix).** A `flake.nix` / image
   change that AGENTS.md says needs `just load && just install` on a real host
   and **cannot be validated in-jail**. Members: **nix-ld**, and any future image
@@ -91,13 +92,16 @@ Marked here so the "start here" arrow points at the real next item.
   agentcfg`) + codecs + real gopher-lua sandbox VM + manifest landed; the
   exported `Compose` orchestrator + `yolo config render <agent> [--surface|
   --explain]` CLI cover every agent surface (pi/claude/gemini/copilot/opencode/
-  codex) plus MCP/LSP/mise; `mergeAccumulate` tombstone fix. **Load-bearing
-  caveat:** the engine is BUILT but **NOT wired to boot** — the only caller of
-  `agentcfg.Compose` is `internal/cli/config.go` (the `yolo config render`
-  preview). Boot still runs the bespoke `Configure*` writers in
-  `internal/entrypoint` (nothing there imports agentcfg), and `yolo check` still
-  validates via those same bespoke writers. No `host_*_files` key has been
-  deleted. Phase C (deletion) + boot-wiring is the remaining work.
+  codex) plus MCP/LSP/mise; `mergeAccumulate` tombstone fix.
+- ✅ **config-composition — agent-config surfaces wired + cut over** (2026-07-22) —
+  boot (`internal/entrypoint`) and `yolo check` now render the agent-config
+  surfaces through `agentcfg` via the `Configure*Prism` writers; the
+  `YOLO_PRISM_SURFACES` cutover gate is retired (prism is unconditional), and the
+  six bespoke `Configure*` writers plus their dead helpers are deleted. `agy` was
+  born directly on the prism. Obsolete snapshot/managed-MCP sidecars self-clean on
+  each surface's first-migration boot. **Remaining:** the non-agent surfaces
+  (mise/MCP/LSP/identity) still use bespoke generators; `host_*_files` keys stay
+  (the prism host layer reads through them).
 - ✅ **J2 — native-Go macos-user bootstrap re-port** (2026-07-21) — all four
   items (12d27cb/731dbe5/1e68e24/544a806/e65993a): platform literals threaded
   through `*Env`; darwin-native generation entry + Go writers; `yolo internal
@@ -119,19 +123,21 @@ Marked here so the "start here" arrow points at the real next item.
 - ✅ **mise migration fix** (2026-07-20) — stale unpinned baked-runtime lines
   stripped on upgrade, workspace/injected pins preserved (nested-jail verified).
 
-Everything else below is **open**: config-composition Phase C + boot-wiring,
-the cli-color-audit tail, nix-ld (host-gated), and the D4-account human step.
+Everything else below is **open**: config-composition non-agent surfaces
+(mise/MCP/LSP/identity ports), the cli-color-audit tail, nix-ld (host-gated), and
+the D4-account human step.
 
 ## Recommended order (jail-side thread)
 
-With J1/D1/D2/D3/J2/J3/consolidation all done, the jail-side lane has collapsed
-to two independent items — there is no longer a critical-path chain:
+With J1/D1/D2/D3/J2/J3/consolidation, the agent-config prism cutover, and agy all
+done, the jail-side lane has collapsed to two independent items — there is no
+longer a critical-path chain:
 
-1. **config-composition — Phase C + boot-wiring** — *the main remaining jail
-   work; its own self-contained thread (see below).* The engine is built and
-   fan-out (Phase B) is complete; what remains is wiring `agentcfg.Compose` into
-   boot (`internal/entrypoint`) and `yolo check`, then the Phase C deletion of
-   the bespoke merges and `host_*_files` keys. This is where the real design
+1. **config-composition — non-agent surface ports** — *the main remaining jail
+   work; its own self-contained thread (see below).* The engine drives boot for
+   the agent-config surfaces already; what remains is folding the non-agent
+   surfaces (mise, standalone MCP/LSP, git/jj identity) onto the prism and then
+   deleting their bespoke generators. This is where the real design
    nuance lives — see the [config-composition build](#config-composition-build-own-self-contained-thread)
    section and `agent-settings-composition.md`.
 
@@ -205,18 +211,20 @@ foundation, then parallel fan-out, then deletion** — and Phases A and B have
 VM + `ctx` bridge, the manifest schema + loader, and the fixture corpus that is
 the spec. `yolo config render` is the thin read-only CLI over it.
 
-**Phase B — surface migrations (DONE).** Every agent surface (pi/claude/gemini/
-copilot/opencode/codex) plus MCP/LSP/mise is modeled in the builtin manifest and
-covered by `yolo config render`.
+**Phase B — surface migrations (DONE for agent configs).** Every agent surface
+(pi/claude/gemini/copilot/opencode/codex, plus `agy` born on the prism) renders
+through `agentcfg` at boot via its `Configure*Prism` writer, each verified at
+parity in a nested jail. MCP/LSP/mise/identity are modeled in the manifest and
+covered by `yolo config render` but **not yet boot-wired** — their ports remain.
 
-**Phase C — deletion + boot-wiring (OPEN — the remaining work).** The engine is
-built but **not yet wired to boot**: boot runs the bespoke `Configure*` writers
-in `internal/entrypoint`, `yolo check` validates through those same writers, and
-nothing outside `internal/cli/config.go` imports `agentcfg`. Phase C wires
-`Compose` into the boot + check paths, then removes the bespoke merges, snapshot
-constants, per-agent mount blocks, and `host_*_files` keys once every surface is
-migrated off them. This is a serial cleanup pass — do it once, carefully, with
-nested-jail parity verification per surface.
+**Phase C — deletion + boot-wiring (DONE for agent configs, 2026-07-22).** Boot
+and `yolo check` render the agent-config surfaces through `Compose`; the
+`YOLO_PRISM_SURFACES` cutover gate is retired (prism unconditional), and the six
+bespoke `Configure*` writers plus their dead helpers (the three-way merge, codex
+TOML dumper, numeric-equality cluster) are deleted. `host_*_files` keys stay (the
+prism host layer reads through them). **Remaining:** wire + cut over the non-agent
+surfaces (mise/MCP/LSP/identity), then delete their bespoke generators — a serial
+cleanup pass with nested-jail parity verification per surface.
 
 ## What unblocks the gated lanes
 
@@ -243,8 +251,8 @@ nested-jail parity verification per surface.
  DONE ─────────────────────────────────────────────────►│ now │──────────────►
 
  jail    J1.1–J1.4 ✓  D1 ✓  D2 ✓  D3 ✓  CI ✓  cli-color-audit (bug class) ✓
- (agent)  J2.1–J2.4 ✓  J3 ✓  module-consolidation ✓
-          config Phase A ✓  Phase B ✓ ───────────────────► Phase C + boot-wiring
+ (agent)  J2.1–J2.4 ✓  J3 ✓  module-consolidation ✓  agy ✓
+          config Phase A ✓  B ✓  agent-config cutover ✓ ─► non-agent surface ports
           cli-color-audit tail (migrate run/console.go + unify TTY probe) ──────►
 
  host    nix-ld  ── ready ANY host session (image layer; closes custom-mcp_servers gap) ─►
@@ -258,15 +266,15 @@ nested-jail parity verification per surface.
 
 The lanes have thinned out; the concurrency picture is simpler than it was:
 
-- **jail:** the config-composition **Phase C + boot-wiring** thread and the
+- **jail:** the config-composition **non-agent surface ports** thread and the
   **cli-color-audit tail** are independent (different files) and can run
-  concurrently. Phase C itself is a serial cleanup pass (wire, then delete,
-  verifying each surface).
+  concurrently. Each non-agent port is a wire-then-delete cleanup pass, verifying
+  the surface in a nested jail.
 - **host (nix-ld), human (D4 Cachix account):** each on its own clock; neither
   blocks the jail lane.
 
-**Best concurrent slice today:** config-composition Phase C + the cli-color-audit
-tail (both jail-side, non-overlapping files), plus kicking off **nix-ld**
+**Best concurrent slice today:** config-composition non-agent ports + the
+cli-color-audit tail (both jail-side, non-overlapping files), plus kicking off **nix-ld**
 whenever a host session is free. There is no longer a hard cross-lane
 dependency — M1's dependency on J2 is discharged (both landed).
 
