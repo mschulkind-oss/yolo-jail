@@ -295,11 +295,17 @@ the end of boot) when `mise install` errors, instead of scrolling past.
 
 ## Immediate remediation (host, no code changes)
 
-Still **not applied** as of 2026-07-03 — both symlinks remain on disk.
+**Resolved (2026-07-22) — host `mise install` works fine.** The state-separation
+bundle (neutral `/mise` path + split store, shipped 2026-07-04) means jails no
+longer write workspace-derived rust entries into the host's
+`~/.local/share/mise`, so the dangling-symlink class cannot recur. The
+maintainer confirms `mise` on the host is healthy; the one-time leftover cleanup
+below is no longer outstanding and is kept only as the historical repro command.
 
 ```bash
-rm ~/.local/share/mise/installs/rust/1.95.0   # unblocks `mise install` everywhere on host
-# optional: rm .../rust/1.96.0 inside a jail if the in-jail side complains
+# Historical — the one-time cleanup that unblocked the host before separation
+# shipped. No longer needed; kept for the incident record.
+rm ~/.local/share/mise/installs/rust/1.95.0   # unblocked `mise install` on host
 ```
 
 ## Open Questions
