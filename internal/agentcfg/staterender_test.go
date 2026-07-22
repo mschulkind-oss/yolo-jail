@@ -304,3 +304,47 @@ func TestComposeStatefulUnknownCodecFailsLoud(t *testing.T) {
 		t.Fatal("expected error for unknown codec, got nil")
 	}
 }
+
+// TestComposeStatefulComputedBeatsCapturedEdit proves the computed layer flows
+// through the stateful harness (via Base.Computed, which the harness does NOT
+// overwrite — only Base.Overlay is) AND that its precedence holds in steady
+// state: yolo's per-boot regenerated value wins over a captured in-jail edit to
+// the SAME key. This is the exact claude scenario — an agent flips a
+// yolo-computed dynamic key (an LSP toggle), the edit is captured into the
+// overlay, and the next boot's fresh computation must still win (§2 principle
+// 1). Meanwhile a genuine user edit to a NON-computed key survives via overlay.
+func TestComposeStatefulComputedBeatsCapturedEdit(t *testing.T) {
+	// Last boot: defaults<computed<managed → theme:system, dynamicKey:"on", dpt.
+	lastRender := `{"defaultProjectTrust":"always","dynamicKey":"on","theme":"system"}`
+	// Agent flipped the computed key AND edited a plain key in-jail.
+	current := `{"defaultProjectTrust":"always","dynamicKey":"off","theme":"solarized"}`
+
+	out, err := ComposeStateful(StatefulInputs{
+		Base: Inputs{
+			Surface:  piSurface(),
+			Computed: map[string]any{"dynamicKey": "on"}, // yolo recomputes it "on" this boot
+		},
+		CurrentBytes:      []byte(current),
+		LastRenderPresent: true,
+		LastRenderBytes:   []byte(lastRender),
+		OverlayJSON:       []byte(`{}`),
+	})
+	if err != nil {
+		t.Fatalf("ComposeStateful error: %v", err)
+	}
+	// Computed beats the captured edit: the dynamic key reverts to yolo's value.
+	if out.Result.Config["dynamicKey"] != "on" {
+		t.Errorf("dynamicKey = %v, want on (computed must beat captured edit)", out.Result.Config["dynamicKey"])
+	}
+	// The plain in-jail edit still survives (computed doesn't touch it).
+	if out.Result.Config["theme"] != "solarized" {
+		t.Errorf("theme = %v, want solarized (non-computed edit survives)", out.Result.Config["theme"])
+	}
+	// Both edits are still CAPTURED in the overlay (capture is layer-agnostic; the
+	// overlay records what changed on disk — precedence is decided at render, so
+	// the dynamicKey delta is stored yet out-ranked by computed on the next fold).
+	got := jsonObj(t, string(out.OverlayJSON))
+	if got["dynamicKey"] != "off" || got["theme"] != "solarized" {
+		t.Errorf("overlay = %v, want both edits captured {dynamicKey:off,theme:solarized}", got)
+	}
+}

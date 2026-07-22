@@ -46,6 +46,19 @@ type Inputs struct {
 	// transform + managed. nil = absent.
 	Overlay map[string]any
 
+	// Computed is the runtime-computed layer: yolo's per-boot DYNAMIC content that
+	// is derived from live config rather than declared statically in the manifest
+	// — e.g. the reconciled MCP-server table, or the LSP-plugin enable toggles and
+	// ENABLE_LSP_TOOL env that depend on which LSP servers are configured. The
+	// boot caller computes it and hands it in already decoded. It merges ABOVE
+	// overlay and BELOW the transform + managed (§4 slot: it is yolo's freshly
+	// regenerated data, so it wins over a stale in-jail edit to the same key —
+	// §2 principle 1 "regenerate, don't reconcile" — but a config.lua transform
+	// may still reshape it and managed still wins the floor). A null value is an
+	// RFC-7386 tombstone (deletes the key), so a dynamic entry that is gone this
+	// boot simply is not emitted — no sidecar memory needed. nil = absent.
+	Computed map[string]any
+
 	// Script is the concatenated config.lua source (user-then-workspace, §3.4),
 	// or "" for the identity transform. VM is required iff Script is non-empty.
 	Script string
@@ -75,6 +88,7 @@ const (
 	layerHost      = "host"
 	layerWorkspace = "workspace"
 	layerOverlay   = "overlay"
+	layerComputed  = "computed"
 	layerTransform = "transform"
 	layerManaged   = "managed"
 )
@@ -117,6 +131,7 @@ func Compose(in Inputs) (*Result, error) {
 		{layerHost, host},
 		{layerWorkspace, in.Workspace},
 		{layerOverlay, in.Overlay},
+		{layerComputed, in.Computed},
 	}
 	orderedLayers := make([]map[string]any, 0, len(preLayers))
 	for _, l := range preLayers {

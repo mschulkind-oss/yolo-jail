@@ -152,6 +152,89 @@ func TestComposeOverlayLayer(t *testing.T) {
 	}
 }
 
+// TestComposeComputedLayer: the runtime-computed layer (yolo's per-boot dynamic
+// content — MCP tables, LSP-plugin toggles) merges ABOVE overlay and BELOW the
+// transform+managed. This is the mechanism that lets a surface carrying static
+// managed keys ALSO carry yolo-regenerated dynamic keys in the same file: the
+// caller computes the dynamic map from live config and hands it in as Computed.
+// Its precedence embodies §2 principle 1 (regenerate, don't reconcile): the
+// fresh computation wins over a stale in-jail edit to the SAME key.
+func TestComposeComputedLayer(t *testing.T) {
+	res, err := Compose(Inputs{
+		Surface:   piSurface(),
+		HostBytes: []byte(piHostJSON),
+		Overlay:   map[string]any{"theme": "solarized", "defaultModel": "stale-edit"},
+		Computed:  map[string]any{"defaultModel": "computed-wins"},
+	})
+	if err != nil {
+		t.Fatalf("Compose error: %v", err)
+	}
+	// Computed wins over the overlay's stale edit to the same key...
+	if res.Config["defaultModel"] != "computed-wins" {
+		t.Errorf("computed should override overlay: got %v", res.Config["defaultModel"])
+	}
+	if res.Provenance["defaultModel"] != layerComputed {
+		t.Errorf("provenance defaultModel = %q, want %q", res.Provenance["defaultModel"], layerComputed)
+	}
+	// ...but an overlay key the computed layer does NOT touch still survives.
+	if res.Config["theme"] != "solarized" {
+		t.Errorf("overlay-only key should survive: got %v", res.Config["theme"])
+	}
+	if res.Provenance["theme"] != layerOverlay {
+		t.Errorf("provenance theme = %q, want %q", res.Provenance["theme"], layerOverlay)
+	}
+}
+
+// TestComposeComputedBelowManagedAndTransform: managed still wins over computed
+// (the hard floor), and a transform can still reshape a computed value (computed
+// is below the transform, same as every pre-transform layer).
+func TestComposeComputedBelowManagedAndTransform(t *testing.T) {
+	script := `
+yolo.transform("pi", function(ctx)
+  ctx.config.defaultModel = ctx.config.defaultModel .. "-reshaped"
+end)
+`
+	res, err := Compose(Inputs{
+		Surface:  piSurface(),
+		Computed: map[string]any{"defaultModel": "computed", "defaultProjectTrust": "never"},
+		Script:   script,
+		VM:       &luahook.GopherLuaVM{},
+	})
+	if err != nil {
+		t.Fatalf("Compose error: %v", err)
+	}
+	// The transform saw the computed value and reshaped it.
+	if res.Config["defaultModel"] != "computed-reshaped" {
+		t.Errorf("transform should reshape computed value: got %v", res.Config["defaultModel"])
+	}
+	// Managed still stomps a computed attempt to loosen the managed key.
+	if res.Config["defaultProjectTrust"] != "always" {
+		t.Errorf("managed must win over computed: got %v", res.Config["defaultProjectTrust"])
+	}
+}
+
+// TestComposeComputedTombstone: a null in the computed layer deletes the key
+// from the render (RFC-7386), so a computed layer can prune a key an earlier
+// layer set — e.g. removing an LSP plugin that is no longer configured. This is
+// how the computed layer expresses "this dynamic entry is gone this boot"
+// without any sidecar memory (§2 principle 1: absence is deletion).
+func TestComposeComputedTombstone(t *testing.T) {
+	res, err := Compose(Inputs{
+		Surface:  piSurface(),
+		Overlay:  map[string]any{"defaultModel": "was-here"},
+		Computed: map[string]any{"defaultModel": nil}, // prune it this boot
+	})
+	if err != nil {
+		t.Fatalf("Compose error: %v", err)
+	}
+	if _, present := res.Config["defaultModel"]; present {
+		t.Errorf("computed null should delete the key, still present: %v", res.Config["defaultModel"])
+	}
+	if _, present := res.Provenance["defaultModel"]; present {
+		t.Errorf("provenance should not claim a tombstoned key is present: %v", res.Provenance["defaultModel"])
+	}
+}
+
 // TestComposeUnknownCodec fails loud.
 func TestComposeUnknownCodec(t *testing.T) {
 	s := piSurface()
