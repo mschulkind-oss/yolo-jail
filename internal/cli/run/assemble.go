@@ -364,16 +364,6 @@ func (o *Options) assembleRunCmd(in *assembleInput) []string {
 		runCmd = append(runCmd, "-e", "YOLO_PROFILE=1")
 	}
 
-	// --- prism cutover gate (surface-by-surface) ---
-	// Forward YOLO_PRISM_SURFACES from the launch env so an operator can opt a
-	// surface onto the composition engine (internal/agentcfg) per boot without an
-	// image rebuild — the config-composition cutover control
-	// (docs/plans/agent-settings-composition.md §6). Empty/unset => bespoke
-	// writers (unchanged); the entrypoint's prismEnabledFor parses the list.
-	if v := o.Getenv("YOLO_PRISM_SURFACES"); v != "" {
-		runCmd = append(runCmd, "-e", "YOLO_PRISM_SURFACES="+v)
-	}
-
 	// --- host-side loopholes runtime args (--add-host, CA mounts, env) ---
 	runCmd = append(runCmd, o.loopholesRuntimeArgs(cfg, rt)...)
 

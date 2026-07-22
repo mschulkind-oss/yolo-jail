@@ -91,6 +91,10 @@ func TestGeneratedShellSyntax(t *testing.T) {
 
 func scenarioVars(home, token string, spec scenarioSpec) map[string]string {
 	vars := map[string]string{"JAIL_HOME": home}
+	// Isolate the prism §5 sidecars (<workspace>/.yolo/prism/) under the temp
+	// home so the shell-syntax generation never writes into the real /workspace
+	// (WorkspaceDir defaults to /workspace when YOLO_WORKSPACE is unset).
+	vars["YOLO_WORKSPACE"] = filepath.Join(home, "workspace")
 	for k, v := range spec.Env {
 		vars[k] = replaceAll(v, token, home)
 	}
@@ -132,17 +136,19 @@ func generateAll(t *testing.T, e *Env) {
 	for _, agent := range LoadAgents(e) {
 		switch agent {
 		case "claude":
-			must(ConfigureClaude(e))
+			must(ConfigureClaudePrism(e))
 		case "copilot":
-			must(ConfigureCopilot(e))
+			must(ConfigureCopilotPrism(e))
 		case "gemini":
-			must(ConfigureGemini(e))
+			must(ConfigureGeminiPrism(e))
 		case "opencode":
-			must(ConfigureOpencode(e))
+			must(ConfigureOpencodePrism(e))
 		case "pi":
-			must(ConfigurePi(e))
+			must(ConfigurePiPrism(e))
 		case "codex":
-			must(ConfigureCodex(e))
+			must(ConfigureCodexPrism(e))
+		case "agy":
+			must(ConfigureAgyPrism(e))
 		}
 	}
 	must(GenerateCglimitScript(e))

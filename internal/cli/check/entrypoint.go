@@ -77,16 +77,18 @@ func (o *Options) runEntrypointPreflight(r *reporter, _, workspace string, merge
 		}
 	}
 
+	// Every agent renders through the prism now (the bespoke Configure* writers
+	// are gone). The preflight exercises the real boot path — Configure*Prism —
+	// for each. These write §5 sidecars under YOLO_WORKSPACE, pointed at the temp
+	// home above so the dry run never touches the live workspace.
 	agentWriters := map[string]func(*entrypoint.Env) error{
-		"copilot":  entrypoint.ConfigureCopilot,
-		"gemini":   entrypoint.ConfigureGemini,
-		"claude":   entrypoint.ConfigureClaude,
-		"opencode": entrypoint.ConfigureOpencode,
-		"pi":       entrypoint.ConfigurePi,
-		"codex":    entrypoint.ConfigureCodex,
-		// agy is born on the prism — no bespoke writer, so the preflight exercises
-		// its real boot path (ConfigureAgyPrism) directly.
-		"agy": entrypoint.ConfigureAgyPrism,
+		"copilot":  entrypoint.ConfigureCopilotPrism,
+		"gemini":   entrypoint.ConfigureGeminiPrism,
+		"claude":   entrypoint.ConfigureClaudePrism,
+		"opencode": entrypoint.ConfigureOpencodePrism,
+		"pi":       entrypoint.ConfigurePiPrism,
+		"codex":    entrypoint.ConfigureCodexPrism,
+		"agy":      entrypoint.ConfigureAgyPrism,
 	}
 	for _, agent := range entrypoint.LoadAgents(e) {
 		if writer, ok := agentWriters[agent]; ok {

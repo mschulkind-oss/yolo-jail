@@ -499,47 +499,28 @@ func Main(args []string) error {
 // configureAgent runs the content writer for a selected agent, then re-attaches
 // any deferred subprocess side effect for that agent. Unknown agents are no-ops.
 func configureAgent(e *Env, agent string) {
+	// Every surface renders through the prism (the agentcfg composition engine):
+	// the surface-by-surface cutover is complete, so there is one config path, not
+	// a gated pair — the bespoke Configure* writers are gone. Each Configure*Prism
+	// owns its static surface plus any dynamic siblings/side effects (claude's
+	// .claude.json + credentials + history, copilot's mcp/lsp siblings, pi's
+	// host-file staging).
 	switch agent {
 	case "claude":
-		if prismEnabledFor(e, "claude") {
-			genStep(e, "configure_claude", func() error { return ConfigureClaudePrism(e) })
-		} else {
-			genStep(e, "configure_claude", func() error { return ConfigureClaude(e) })
-		}
+		genStep(e, "configure_claude", func() error { return ConfigureClaudePrism(e) })
 		// Deferred side effect: claude plugins install/uninstall (configure_claude tail).
 		installClaudePlugins(e)
 	case "copilot":
-		if prismEnabledFor(e, "copilot") {
-			genStep(e, "configure_copilot", func() error { return ConfigureCopilotPrism(e) })
-		} else {
-			genStep(e, "configure_copilot", func() error { return ConfigureCopilot(e) })
-		}
+		genStep(e, "configure_copilot", func() error { return ConfigureCopilotPrism(e) })
 	case "gemini":
-		if prismEnabledFor(e, "gemini") {
-			genStep(e, "configure_gemini", func() error { return ConfigureGeminiPrism(e) })
-		} else {
-			genStep(e, "configure_gemini", func() error { return ConfigureGemini(e) })
-		}
+		genStep(e, "configure_gemini", func() error { return ConfigureGeminiPrism(e) })
 	case "opencode":
-		if prismEnabledFor(e, "opencode") {
-			genStep(e, "configure_opencode", func() error { return ConfigureOpencodePrism(e) })
-		} else {
-			genStep(e, "configure_opencode", func() error { return ConfigureOpencode(e) })
-		}
+		genStep(e, "configure_opencode", func() error { return ConfigureOpencodePrism(e) })
 	case "pi":
-		if prismEnabledFor(e, "pi") {
-			genStep(e, "configure_pi", func() error { return ConfigurePiPrism(e) })
-		} else {
-			genStep(e, "configure_pi", func() error { return ConfigurePi(e) })
-		}
+		genStep(e, "configure_pi", func() error { return ConfigurePiPrism(e) })
 	case "codex":
-		if prismEnabledFor(e, "codex") {
-			genStep(e, "configure_codex", func() error { return ConfigureCodexPrism(e) })
-		} else {
-			genStep(e, "configure_codex", func() error { return ConfigureCodex(e) })
-		}
+		genStep(e, "configure_codex", func() error { return ConfigureCodexPrism(e) })
 	case "agy":
-		// agy is born on the prism — no bespoke fallback, so no prismEnabledFor gate.
 		genStep(e, "configure_agy", func() error { return ConfigureAgyPrism(e) })
 	}
 }

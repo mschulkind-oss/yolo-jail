@@ -1,6 +1,7 @@
 package entrypoint
 
 import (
+	"path/filepath"
 	"strings"
 	"testing"
 )
@@ -23,17 +24,20 @@ func TestEnvPlatformDefaults(t *testing.T) {
 
 // TestEnvWorkspaceOverride: a non-container workspace (the macos-user case)
 // flows through to a generator that reads WorkspaceDir — proving the literal is
-// no longer hardcoded. Uses the .claude.json projects key as the witness.
+// no longer hardcoded. Uses the .claude.json projects key as the witness. The
+// workspace is a real temp dir (not a bare /Users path) because the prism now
+// materializes §5 sidecars under <workspace>/.yolo/prism/ during the render.
 func TestEnvWorkspaceOverride(t *testing.T) {
 	home := t.TempDir()
+	ws := filepath.Join(t.TempDir(), "Users", "dev", "proj")
 	e := NewEnv(map[string]string{"HOME": home})
-	e.Workspace = "/Users/dev/proj"
+	e.Workspace = ws
 
-	if err := ConfigureClaude(e); err != nil {
+	if err := ConfigureClaudePrism(e); err != nil {
 		t.Fatal(err)
 	}
 	got := string(mustRead(t, e.ClaudeJSONPath()))
-	if !strings.Contains(got, `"/Users/dev/proj"`) {
+	if !strings.Contains(got, ws) {
 		t.Errorf(".claude.json should key projects on the overridden workspace:\n%s", got)
 	}
 	if strings.Contains(got, `"/workspace"`) {

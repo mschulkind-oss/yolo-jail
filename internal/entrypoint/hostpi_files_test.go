@@ -31,12 +31,13 @@ func TestConfigurePiCopiesNonSettingsHostFiles(t *testing.T) {
 	}
 
 	e := &Env{
-		Home: home,
+		Home:      home,
+		Workspace: t.TempDir(),
 		Vars: map[string]string{
 			"YOLO_HOST_PI_FILES": `["settings.json", "models.json"]`,
 		},
 	}
-	if err := ConfigurePi(e); err != nil {
+	if err := ConfigurePiPrism(e); err != nil {
 		t.Fatal(err)
 	}
 
@@ -82,10 +83,11 @@ func TestConfigurePiCopiesHostFilesInSubdirs(t *testing.T) {
 	}
 
 	e := &Env{
-		Home: home,
-		Vars: map[string]string{"YOLO_HOST_PI_FILES": `["mantle/mint-token.mjs"]`},
+		Home:      home,
+		Workspace: t.TempDir(),
+		Vars:      map[string]string{"YOLO_HOST_PI_FILES": `["mantle/mint-token.mjs"]`},
 	}
-	if err := ConfigurePi(e); err != nil {
+	if err := ConfigurePiPrism(e); err != nil {
 		t.Fatal(err)
 	}
 
@@ -108,10 +110,11 @@ func TestConfigurePiSkipsAbsentHostFiles(t *testing.T) {
 	t.Cleanup(func() { hostPiDir = orig })
 
 	e := &Env{
-		Home: home,
-		Vars: map[string]string{"YOLO_HOST_PI_FILES": `["settings.json", "absent.json"]`},
+		Home:      home,
+		Workspace: t.TempDir(),
+		Vars:      map[string]string{"YOLO_HOST_PI_FILES": `["settings.json", "absent.json"]`},
 	}
-	if err := ConfigurePi(e); err != nil {
+	if err := ConfigurePiPrism(e); err != nil {
 		t.Fatal(err)
 	}
 	if _, err := os.Stat(filepath.Join(home, ".pi", "agent", "absent.json")); !os.IsNotExist(err) {

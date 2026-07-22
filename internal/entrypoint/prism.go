@@ -29,46 +29,6 @@ import (
 	"github.com/mschulkind-oss/yolo-jail/internal/jsonx"
 )
 
-// prismEnabledFor reports whether boot should render agent's surfaces through
-// the prism engine (Configure*Prism) instead of the bespoke Configure* writer.
-// It reads YOLO_PRISM_SURFACES — the surface-by-surface cutover control:
-//
-//   - ""            => bespoke for everything (the safe default; nothing changes)
-//   - "all"         => prism for every agent that has a Configure*Prism port
-//   - "pi,claude"   => prism for those agents' ported surfaces
-//   - "pi/settings" => prism for that one surface (the agent matches on the
-//     leading "agent" segment; per-surface granularity is honored by the
-//     Configure*Prism dispatch, which only ports specific surfaces anyway)
-//
-// Entries are comma-separated, surrounding whitespace trimmed, empty entries
-// (e.g. a trailing comma) ignored. This lets a surface be flipped on and
-// parity-verified in a nested jail before its bespoke writer is deleted in
-// Phase C — and flipped back instantly if the render diverges.
-func prismEnabledFor(e *Env, agent string) bool {
-	raw := strings.TrimSpace(e.Getenv("YOLO_PRISM_SURFACES"))
-	if raw == "" {
-		return false
-	}
-	for _, entry := range strings.Split(raw, ",") {
-		entry = strings.TrimSpace(entry)
-		if entry == "" {
-			continue
-		}
-		if entry == "all" {
-			return true
-		}
-		// Match on the agent segment ("agent" or "agent/name").
-		if a, _, found := strings.Cut(entry, "/"); found {
-			if a == agent {
-				return true
-			}
-		} else if entry == agent {
-			return true
-		}
-	}
-	return false
-}
-
 // prismSidecarDir is the per-workspace directory holding the §5 capture-diff
 // sidecars (last_render + overlay). It lives under the workspace's gitignored
 // .yolo/ — the overlay is per-workspace scope (§4) and the agent never sees it.
