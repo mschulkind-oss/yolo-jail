@@ -233,7 +233,7 @@ macOS has no cgroup filesystem, and there is no VM to size.
 - **`devices` / `cgroup_rule`** → Linux device paths and
   `--device-cgroup-rule`; not applicable.
 
-### 3.5 Loopholes — two moot, one genuine gap
+### 3.5 Loopholes — mostly moot here; the framework still ports
 
 The loophole host-services (`audio`, `host-processes`, `claude-oauth-broker`) and
 the per-jail **broker relay** are started/stopped in `runContainer`
@@ -257,12 +257,40 @@ three have **no boundary to punch through** on a native process:
   container-only control, so on macos-user the agent sees the *full* host process
   table, not a filtered view. That is a widening of the surface, not a missing
   feature.
-- **`claude-oauth-broker`** — **the one genuine port gap.** Serializing OAuth
-  refreshes across jails is not a container artifact; it is useful on any backend.
-  `macosuser.BrokerSocketGrantCommands` *exists* (it would chmod/chgrp the broker
-  socket for the sandbox group) but **is not called anywhere**, so the broker
-  loophole is effectively off on macos-user today. If multi-jail OAuth
-  serialization is needed here, this is the wiring to add — see Open item #3.
+- **`claude-oauth-broker`** — **mostly moot on macos-user; skip it by default.**
+  The broker bundles two jobs. (1) *Keep one shared credentials file* so jails
+  don't diverge and burn the single-use refresh token — on containers this needs
+  the `.claude-shared-credentials` bind (`assemble.go:157-160`). (2) *Serialize the
+  refresh HTTP call* via a host-side `flock` (`internal/oauthbroker/refresh.go`
+  `RefreshLockPath`); the TLS-intercept exists **only** because Claude Code does
+  the refresh itself and will never voluntarily take our lock, so the terminator
+  routes `platform.claude.com → 127.0.0.1` and inserts the flock on its behalf.
+  On macos-user **job 1 is free**: every session shares the one real
+  `/Users/_yolojail` home, hence one real `~/.claude/.credentials.json` — the
+  shared home *is* the shared-creds mechanism. **Job 2 only bites with multiple
+  *concurrent* Claude sessions** (both read the same single-use token and race);
+  a shared file does not fix that, but porting the interception is genuinely hard
+  natively (no `--add-host`; redirection would need root-global DNS/hosts control).
+  So for the normal single-session case the broker is unneeded, and the awkward
+  concurrent case is exactly the one to defer. `macosuser.BrokerSocketGrantCommands`
+  *exists* (it would chmod/chgrp the broker socket for the sandbox group) but is
+  **not called anywhere**. Recommendation: leave it off; wire it only if concurrent
+  macos-user Claude sessions become a real need — see Open item #3.
+
+**The framework itself is worth keeping, and macos-user is arguably a *better*
+fit than containers.** A loophole is just "a host-side daemon mediates the jail's
+access to a resource" — nothing about that needs a container; only the *transport*
+differs. On containers it's a bind-mounted socket + `--add-host` redirection; on
+macos-user a native jailed process reaches host `localhost` sockets/ports
+**directly** (the Seatbelt profile is `(allow default)` for network) and yolo
+already injects the launch env, so a loophole collapses to *host daemon on a
+localhost socket/port + a launch-env var pointing the jail's clients at it* — no
+mount, no redirection plumbing. An **access-scoping / auditing proxy** (e.g. a
+host-side daemon that filters and token-scopes the jail's GitHub traffic) fits
+this cleanly: set `HTTPS_PROXY=http://127.0.0.1:PORT` in the launch env and
+`git`/`gh`/`curl` all honor it. The *only* loophole shape that doesn't port
+cheaply is transparent interception of an opaque client that ignores proxy vars
+and pins its host — which is precisely the oauth-broker's awkward case above.
 
 ### 3.6 The container-launch preamble (config-diff prompt, image load, etc.)
 
@@ -326,7 +354,8 @@ workspace-location check. Captured as Open item #1.
 | `gpu` | Linux only | off | Metal, no CUDA/ROCm |
 | `devices` / `cgroup_rule` | Linux only | off | Linux kernel feature |
 | loopholes: audio / host-processes | yes | **moot** | native process reaches CoreAudio / host procs directly |
-| loopholes: claude-oauth-broker | yes | **not wired** (gap) | useful on any backend; `BrokerSocketGrantCommands` uncalled |
+| loopholes: claude-oauth-broker | yes | **skip** | shared home = shared creds; serialization only matters for concurrent sessions |
+| loophole *framework* (new host-mediated access) | via mount + `--add-host` | ✅ (localhost socket + launch env) | native process reaches host localhost directly |
 | config-diff approval prompt | yes | **not reached** | `runContainer`-only (gap) |
 | `security.blocked_tools` shims | yes | ✅ | pure generator |
 | `mise_tools` / `lsp_servers` | yes | ✅ | pure generators |
@@ -349,9 +378,14 @@ workspace-location check. Captured as Open item #1.
    runs unconfined on this backend. **Decided: fix it** by hoisting
    `checkConfigChanges` ahead of the runtime split. Tracked as
    [J4 in the revival plan](../plans/macos-revival-and-distribution-plan.md).
-3. **`claude-oauth-broker` on macos-user** (§3.5): `BrokerSocketGrantCommands` is
-   dead code until the loophole is wired into the native launch. Wire it or note
-   the loophole is container-only.
+3. **`claude-oauth-broker` on macos-user** (§3.5): **decided — leave off.** The
+   shared `/Users/_yolojail` home already gives one shared credentials file (the
+   broker's main job on containers); refresh serialization only matters for
+   *concurrent* Claude sessions and would need hard-to-port host redirection. Note
+   `BrokerSocketGrantCommands` as dead-until-needed; revisit only if concurrent
+   macos-user sessions become real. The loophole *framework* itself does port
+   (localhost socket + launch env) — an access-scoping/audit proxy is the
+   motivating future case.
 4. **Skip-list policy** (§1.3) — *the actual open question:* when a `packages:`
    entry has **no aarch64-darwin build**, should the run **warn and continue**
    (what ships today) or **hard-error**? The written design
