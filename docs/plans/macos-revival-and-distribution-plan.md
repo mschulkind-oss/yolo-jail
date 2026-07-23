@@ -386,6 +386,46 @@ The bullets below are the original plan; see that runbook for what actually ran.
 
 ---
 
+## Track L — loophole framework on macos-user (future; use-case-gated)
+
+> **Status: NOT STARTED.** Not sequenced into the J/D/M ladder — this is a
+> forward-looking capability, not a revival blocker. Recorded 2026-07-23 from the
+> `macos-user-nix-and-features.md` §3.5 discussion.
+
+The three *bundled* loopholes don't need porting to macos-user (see
+[macos-user-nix-and-features.md](../design/macos-user-nix-and-features.md) §3.5:
+`audio`/`host-processes` are moot on a native process, and `claude-oauth-broker`
+is redundant with the shared `/Users/_yolojail` home). But the **loophole
+framework** — "a host-side daemon mediates the jail's access to a resource" — is
+backend-agnostic and worth carrying onto macos-user, because a native jailed
+process is arguably a *better* fit than a container: it reaches host `localhost`
+sockets/ports **directly** (the Seatbelt profile is `(allow default)` for
+network), so a loophole collapses to *host daemon on a localhost socket/port + a
+launch-env var pointing the jail's clients at it* — no bind mount, no `--add-host`
+redirection plumbing.
+
+**The motivating use case** (the reason to build this at all): a host-side
+**access-scoping / auditing proxy** — e.g. a daemon that intercepts the jail's
+outbound GitHub traffic, scopes a broad PAT down to a least-privilege token, and
+logs/filters requests. On macos-user the wiring is cheap: set
+`HTTPS_PROXY=http://127.0.0.1:PORT` (or a scoped `GH_*`/`GITHUB_*` env) in the
+launch env and `git`/`gh`/`curl` all honor it, while the host daemon owns the real
+credential and never lets it cross into the jail.
+
+**Two-part shape:**
+
+1. **Framework plumbing (unblocked, mechanical).** Generalize the loophole
+   host-service start/stop so it runs on the macos-user launch path (today it lives
+   only in `runContainer`; see §3.6), emitting a localhost socket/port + the
+   launch-env var per active loophole instead of a mount + `--add-host`. Reuse the
+   existing manifest/`Discover` machinery; the transport just changes.
+2. **The specific access-scoping proxy (BLOCKED — see OQ-L1).** The daemon that
+   does the actual GitHub token-scoping + request filtering. Do **not** build this
+   until OQ-L1 is resolved — getting the scoping model wrong ships a false security
+   boundary, which is worse than none.
+
+---
+
 ## Sequencing at a glance
 
 ```
@@ -417,6 +457,22 @@ Everything left of M1 is quota-light, self-contained commits in this jail.
    darwin build (`jq`, `just`), so the no-darwin-build path was never observed
    on hardware — this decision is unchanged by the e2e run. Resolve it as a
    deliberate choice, not via M1.
+
+## Open questions (blocking)
+
+- **OQ-L1 — the access-scoping model for the Track L proxy.** *Blocks Track L
+  part 2 (the specific proxy), not part 1 (framework plumbing).* Before building
+  the GitHub-scoping/auditing daemon, the maintainer needs to pin down what
+  "scoped access" precisely means: which credential the host daemon holds and how
+  it mints the narrowed one (fine-grained PAT vs GitHub App installation token vs
+  short-lived OIDC exchange); the scoping axes it must enforce (repo/org
+  allowlist, read-vs-write, which API surfaces); how it authenticates *which jail*
+  is calling so per-jail scopes don't leak across jails on a shared host; and what
+  the audit log captures and where it lives. Getting this wrong ships a **false**
+  security boundary — an agent believing it is sandboxed to one repo while the
+  token reaches others — which is worse than shipping nothing. Resolve deliberately
+  (a short design note), then build. Until then part 2 stays parked; part 1 can
+  proceed independently since it's just transport plumbing.
 
 ## Risks / watch items
 

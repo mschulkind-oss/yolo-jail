@@ -291,6 +291,11 @@ this cleanly: set `HTTPS_PROXY=http://127.0.0.1:PORT` in the launch env and
 `git`/`gh`/`curl` all honor it. The *only* loophole shape that doesn't port
 cheaply is transparent interception of an opaque client that ignores proxy vars
 and pins its host — which is precisely the oauth-broker's awkward case above.
+This is now on the roadmap as
+[Track L in the revival plan](../plans/macos-revival-and-distribution-plan.md):
+the framework plumbing is unblocked, but the specific access-scoping proxy is
+gated on **OQ-L1** (the scoping model must be pinned down first — a wrong model
+ships a false security boundary).
 
 ### 3.6 The container-launch preamble (config-diff prompt, image load, etc.)
 
