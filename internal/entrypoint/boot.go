@@ -449,8 +449,8 @@ func Main(args []string) error {
 
 	genStep(e, "generate_mcp_wrappers", func() error { return GenerateMCPWrappers(e) })
 	p.mark("generate_mcp_wrappers")
-	configureGit(e)
-	p.mark("configure_git")
+	// Git identity is host-composed and :ro-mounted by the CLI (see
+	// gitIdentityMountArgs) — no entrypoint action on the container path.
 	// Skills are mounted :ro by the CLI — no entrypoint action needed.
 	p.mark("skills_skipped")
 

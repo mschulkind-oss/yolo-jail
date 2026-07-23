@@ -28,12 +28,11 @@ type assembleInput struct {
 	repoRoot     string
 	agentsList   []string
 	agentSpecs   []agents.AgentSpec
-	agentsPath   string   // AGENTS_DIR/<cname> (briefings + skills staging)
-	wsState      string   // <workspace>/.yolo/home
-	miseStore    string   // _jail_mise_store_dir()
-	identityEnv  []string // -e YOLO_GIT_*
-	hostTZ       string   // "" => no TZ
-	yoloVersion  string   // _git_describe_version() or "unknown"
+	agentsPath   string // AGENTS_DIR/<cname> (briefings + skills staging)
+	wsState      string // <workspace>/.yolo/home
+	miseStore    string // _jail_mise_store_dir()
+	hostTZ       string // "" => no TZ
+	yoloVersion  string // _git_describe_version() or "unknown"
 	mountTargets map[string]struct{}
 	// lspNPMInstall / lspGoInstall are the resolved YOLO_LSP_*_INSTALL values
 	// (ResolveLSPInstalls over the lsp_servers keys).
@@ -247,11 +246,8 @@ func (o *Options) assembleRunCmd(in *assembleInput) []string {
 		runCmd = append(runCmd, "--net="+netMode)
 	}
 
-	// --- identity env (git) ---
-	runCmd = append(runCmd, in.identityEnv...)
-
-	// --- global gitignore ---
-	runCmd = append(runCmd, o.gitignoreMountArgs(rt, in.wsState, in.mountTargets)...)
+	// --- git identity + global gitignore (host-composed, :ro-mounted) ---
+	runCmd = append(runCmd, o.gitIdentityMountArgs(rt, in.wsState, in.mountTargets)...)
 
 	// --- publish + extra mounts ---
 	runCmd = append(runCmd, publishArgs...)

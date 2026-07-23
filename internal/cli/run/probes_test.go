@@ -273,38 +273,6 @@ func mustAbs(p string) string {
 	return a
 }
 
-func TestCollectIdentityEnv(t *testing.T) {
-	o := Options{
-		Exec: fakeExec(map[string]ExecResult{
-			"git config --get user.name":  {Stdout: "Ada Lovelace\n", Ran: true, RC: 0},
-			"git config --get user.email": {Stdout: "ada@example.com\n", Ran: true, RC: 0},
-		}),
-	}
-	got := o.collectIdentityEnv()
-	want := []string{
-		"-e", "YOLO_GIT_NAME=Ada Lovelace",
-		"-e", "YOLO_GIT_EMAIL=ada@example.com",
-	}
-	if strings.Join(got, "\x00") != strings.Join(want, "\x00") {
-		t.Errorf("identity env = %v, want %v", got, want)
-	}
-}
-
-func TestCollectIdentityEnvSkipsMissing(t *testing.T) {
-	// git present, empty email skipped.
-	o := Options{
-		Exec: fakeExec(map[string]ExecResult{
-			"git config --get user.name":  {Stdout: "Ada\n", Ran: true, RC: 0},
-			"git config --get user.email": {Stdout: "\n", Ran: true, RC: 0}, // empty → skip
-		}),
-	}
-	got := o.collectIdentityEnv()
-	want := []string{"-e", "YOLO_GIT_NAME=Ada"}
-	if strings.Join(got, "\x00") != strings.Join(want, "\x00") {
-		t.Errorf("identity env = %v, want %v", got, want)
-	}
-}
-
 func TestResolveRuntimeEnvWins(t *testing.T) {
 	o := Options{
 		Getenv:   func(k string) string { return map[string]string{"YOLO_RUNTIME": "podman"}[k] },

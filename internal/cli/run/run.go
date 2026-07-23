@@ -118,8 +118,6 @@ func (o *Options) runContainer(cfg *jsonx.OrderedMap, rt, repoRoot string) int {
 		targetCmd = shquoteJoin(fullCommand)
 	}
 
-	identityEnv := o.collectIdentityEnv()
-
 	cname := runtime.FromWorkspace(o.Workspace)
 
 	// Sweep jails orphaned by an uncatchable kill before the attach decision.
@@ -138,7 +136,7 @@ func (o *Options) runContainer(cfg *jsonx.OrderedMap, rt, repoRoot string) int {
 	}
 
 	if existingCID != "" {
-		return o.attachExisting(cname, rt, targetCmd, identityEnv, false)
+		return o.attachExisting(cname, rt, targetCmd, false)
 	}
 
 	// --- Fresh launch: config-change approval ---
@@ -160,7 +158,7 @@ func (o *Options) runContainer(cfg *jsonx.OrderedMap, rt, repoRoot string) int {
 	if !o.New {
 		if raced := o.findRunningContainer(cname, rt); raced != "" {
 			lock.Close()
-			return o.attachExisting(cname, rt, targetCmd, identityEnv, true)
+			return o.attachExisting(cname, rt, targetCmd, true)
 		}
 	}
 
@@ -259,7 +257,6 @@ func (o *Options) runContainer(cfg *jsonx.OrderedMap, rt, repoRoot string) int {
 		agentsPath:       agentsPath,
 		wsState:          wsState,
 		miseStore:        jailMiseStoreDir(o.inJail()),
-		identityEnv:      identityEnv,
 		hostTZ:           detectHostTZ(),
 		yoloVersion:      o.yoloVersion(repoRoot),
 		mountTargets:     BindMountTargets(),
@@ -369,7 +366,7 @@ func (o *Options) runContainer(cfg *jsonx.OrderedMap, rt, repoRoot string) int {
 
 // attachExisting runs the exec-into-existing-container branch (and the
 // raced-attach twin). raced selects the second banner text.
-func (o *Options) attachExisting(cname, rt, targetCmd string, identityEnv []string, raced bool) int {
+func (o *Options) attachExisting(cname, rt, targetCmd string, raced bool) int {
 	out := o.pr(o.Stdout)
 	// Startup banner to stderr — surfaces the jail's BAKED version so a host CLI
 	// upgrade attaching to a pre-upgrade container (stale shims/mounts/entrypoint)
@@ -388,7 +385,6 @@ func (o *Options) attachExisting(cname, rt, targetCmd string, identityEnv []stri
 		execFlags = append(execFlags, "-t")
 	}
 	runCmd := append([]string{rt, "exec"}, execFlags...)
-	runCmd = append(runCmd, identityEnv...)
 	runCmd = append(runCmd, cname, "yolo-entrypoint", targetCmd)
 
 	rc, err := runWithProxy(runCmd, nil, nil)
