@@ -3,80 +3,22 @@ package run
 import (
 	"io"
 	"os"
-	"path/filepath"
-	"time"
 
-	"github.com/mschulkind-oss/yolo-jail/internal/config"
 	"github.com/mschulkind-oss/yolo-jail/internal/jsonx"
-	"github.com/mschulkind-oss/yolo-jail/internal/paths"
+	"github.com/mschulkind-oss/yolo-jail/internal/reporoot"
 	"github.com/mschulkind-oss/yolo-jail/internal/richtext"
 )
 
 // resolveRepoRoot locates the yolo-jail repo root for nix image builds. Returns
-// (path, ok); ok=false is the exit(1) branch (with an actionable message
-// printed to stderr).
-//
-// Resolution order:
-//  1. YOLO_REPO_ROOT env var (set inside jails and CI), validated to actually
-//     contain source (nested jails' /opt/yolo-jail bind may be empty).
-//  2. Source-checkout detection (walk up from cwd for flake.nix; during dev/CI
-//     the cwd is the workspace or repo).
-//  3. Installed-package staging (a bundled flake.nix+src tree staged into
-//     GLOBAL_STORAGE/nix-build-root with the FROZEN rename-aside invariant).
-//  4. User config repo_path field.
-//  5. Error with the helpful message.
+// (path, ok); ok=false is the exit(1) branch (with an actionable message printed
+// to stderr). The resolution itself is the single shared method in
+// internal/reporoot — identical inside and outside the jail — so run and check
+// never drift. This wrapper adds only the run-side error banner (reporoot.Resolve
+// is pure and never prints).
 func resolveRepoRoot(getenv func(string) string, stderr io.Writer, color bool) (string, bool) {
-	// 1. Env var, validated for source.
-	if env := getenv("YOLO_REPO_ROOT"); env != "" {
-		if fileExists(filepath.Join(env, "flake.nix")) ||
-			fileExists(filepath.Join(env, "go.mod")) {
-			return absOr(env), true
-		}
+	if root, ok := reporoot.Resolve(getenv); ok {
+		return root, true
 	}
-
-	// 2. Source checkout: walk up from cwd for a YOLO-JAIL checkout — requiring
-	// BOTH flake.nix AND go.mod. A bare flake.nix match would hijack a USER's
-	// own flake workspace as the yolo-jail repo.
-	if dir, err := os.Getwd(); err == nil {
-		for {
-			if fileExists(filepath.Join(dir, "flake.nix")) &&
-				fileExists(filepath.Join(dir, "go.mod")) {
-				return absOr(dir), true
-			}
-			parent := filepath.Dir(dir)
-			if parent == dir {
-				break
-			}
-			dir = parent
-		}
-	}
-
-	// 3. Installed-package staging (bundled flake.nix+src). Deferred by the
-	// check slice; owned here. Only fires when a bundled source dir is present
-	// (a Go distribution ships share/yolo-jail/ next to the binary); a
-	// source-checkout / jail launch never reaches here.
-	if pkgDir, ok := bundledSourceDir(); ok {
-		if staged, ok := stageInstalledWheel(pkgDir); ok {
-			return staged, true
-		}
-	}
-
-	// 4. User config repo_path.
-	userPath := paths.UserConfigPath()
-	if fileExists(userPath) {
-		if cfg, err := config.LoadJSONCFile(userPath, userPath, false, func(string) {}); err == nil {
-			if v, _ := cfg.Get("repo_path"); v != nil {
-				if repoPath, ok := v.(string); ok && repoPath != "" {
-					p := absOr(expandUser(repoPath))
-					if fileExists(filepath.Join(p, "flake.nix")) {
-						return p, true
-					}
-				}
-			}
-		}
-	}
-
-	// 5. Error.
 	if stderr != nil {
 		pr := printer{rt: richtext.Printer{W: stderr}}
 		pr.print("[bold red]Cannot find yolo-jail repo root.[/bold red]\n" +
@@ -85,123 +27,6 @@ func resolveRepoRoot(getenv func(string) string, stderr io.Writer, color bool) (
 			`  { "repo_path": "~/code/yolo-jail" }`)
 	}
 	return "", false
-}
-
-// bundledSourceDir discovers a bundled source tree shipped alongside the Go
-// binary (see docs/research/repo-root-and-distribution.md). The bundle is share/yolo-jail/
-// holding the flake's goSrc fileset (flake.nix, flake.lock, go.mod, go.sum,
-// vendor/, cmd/, internal/, bundled_loopholes/). Candidates, relative to the
-// executable: ../share/yolo-jail (the release-archive/brew layout), then the
-// executable's own dir. Returns (dir, true) only when dir/flake.nix exists. In a
-// source checkout or jail this returns ("", false), so step 3 is a no-op there.
-func bundledSourceDir() (string, bool) {
-	exe, err := os.Executable()
-	if err != nil {
-		return "", false
-	}
-	return bundledSourceDirFrom(filepath.Dir(exe))
-}
-
-// bundledSourceDirFrom is the pure core of bundledSourceDir, taking the
-// executable's directory explicitly so it is unit-testable without an installed
-// binary. Candidate order covers both shipping layouts:
-//   - <exeDir>/../share/yolo-jail — Homebrew (bin/yolo, prefix/share/yolo-jail).
-//   - <exeDir>/share/yolo-jail    — release archive (yolo + share/ at one level).
-//   - <exeDir>                    — bundle unpacked directly beside the binary.
-func bundledSourceDirFrom(exeDir string) (string, bool) {
-	for _, cand := range []string{
-		filepath.Join(exeDir, "..", "share", "yolo-jail"),
-		filepath.Join(exeDir, "share", "yolo-jail"),
-		exeDir,
-	} {
-		if fileExists(filepath.Join(cand, "flake.nix")) {
-			if c, err := filepath.Abs(cand); err == nil {
-				return c, true
-			}
-			return cand, true
-		}
-	}
-	return "", false
-}
-
-// stageInstalledWheel implements step 3 of resolveRepoRoot: stage the bundled
-// source tree (pkgDir = share/yolo-jail/, the full goSrc fileset + flake.nix/
-// flake.lock) into GLOBAL_STORAGE/nix-build-root so `nix build .#ociImage`
-// evaluates and podman can bind it :ro into the jail at /opt/yolo-jail. Stages
-// the Go bundle FLAT, since the flake's fileset root is `./.`.
-//
-// FROZEN INVARIANT (do not change): NEVER rmtree the old build_root — a jail
-// launched from the previous copy may still hold that inode bind-mounted at
-// /opt/yolo-jail; deleting it out from under the live mount serves a //deleted
-// inode. Instead rename the old tree ASIDE to a UNIQUE nix-build-root.old.<hex>
-// name (unique so concurrent repopulates never collide on one fixed .old, which
-// would ENOTEMPTY), leave it on disk, and let the liveness-gated prune sweeper
-// reclaim it. Also: do NOT pre-create build_root (an empty placeholder would be
-// renamed aside on the first populate, leaking an empty generation).
-func stageInstalledWheel(pkgDir string) (string, bool) {
-	globalStorage := paths.GlobalStorage()
-	buildRoot := filepath.Join(globalStorage, "nix-build-root")
-
-	// Ensure the PARENT exists for the temp dir + rename swap, but do NOT
-	// pre-create build_root itself.
-	if err := os.MkdirAll(globalStorage, 0o755); err != nil {
-		return "", false
-	}
-
-	// Idempotence: skip the whole dance when the existing build_root already
-	// matches the bundle's flake.nix mtime and has go.mod in place. The marker
-	// is flake.nix+go.mod (the Go bundle's shape). A Go source bundle stages
-	// FLAT into build_root (the flake's fileset root is `./.`), so build_root
-	// must itself look like the repo.
-	brGoMod := filepath.Join(buildRoot, "go.mod")
-	brFlake := filepath.Join(buildRoot, "flake.nix")
-	if isFile(brGoMod) && isFile(brFlake) {
-		if pkgMtime, ok := mtimeNs(filepath.Join(pkgDir, "flake.nix")); ok {
-			if brMtime, ok := mtimeNs(brFlake); ok && brMtime >= pkgMtime {
-				return absOr(buildRoot), true
-			}
-		}
-	}
-
-	// Repopulate: build the new tree in a temp dir, then swap it in with two
-	// inode-preserving renames. The bundle (pkgDir = share/yolo-jail/) already
-	// holds the full goSrc fileset (go.mod, go.sum, vendor/, cmd/, internal/,
-	// bundled_loopholes/) plus flake.nix/flake.lock, so a single copyTree of the
-	// bundle reproduces the layout `nix build .#ociImage` expects at build_root.
-	tmpRoot, err := os.MkdirTemp(globalStorage, "nix-build-tmp-")
-	if err != nil {
-		return "", false
-	}
-	ok := func() bool {
-		if err := copyTree(pkgDir, tmpRoot); err != nil {
-			return false
-		}
-		aside := buildRoot + ".old." + randHex()
-		renamedAside := true
-		if err := os.Rename(buildRoot, aside); err != nil {
-			if os.IsNotExist(err) {
-				renamedAside = false // nothing to move aside (first populate)
-			} else {
-				return false
-			}
-		}
-		if err := os.Rename(tmpRoot, buildRoot); err != nil {
-			return false
-		}
-		// Stamp the aside dir's mtime to now: rename doesn't touch a dir's
-		// mtime, but the prune sweeper uses mtime as the age grace floor.
-		// Best-effort.
-		if renamedAside {
-			now := time.Now()
-			_ = os.Chtimes(aside, now, now)
-		}
-		return true
-	}()
-	if !ok {
-		_ = os.RemoveAll(tmpRoot)
-		return "", false
-	}
-	return absOr(buildRoot), true
 }
 
 // --- small filesystem helpers ---
@@ -214,21 +39,6 @@ func fileExists(p string) bool {
 func isFile(p string) bool {
 	info, err := os.Stat(p)
 	return err == nil && info.Mode().IsRegular()
-}
-
-func absOr(p string) string {
-	if r, err := filepath.Abs(p); err == nil {
-		return r
-	}
-	return p
-}
-
-func mtimeNs(p string) (int64, bool) {
-	info, err := os.Stat(p)
-	if err != nil {
-		return 0, false
-	}
-	return info.ModTime().UnixNano(), true
 }
 
 // expandUser expand a leading "~"/"~/…" against
@@ -284,5 +94,3 @@ func inStrSlice(list []string, s string) bool {
 	}
 	return false
 }
-
-var _ = time.Now

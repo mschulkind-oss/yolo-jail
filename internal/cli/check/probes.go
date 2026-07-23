@@ -2,13 +2,12 @@ package check
 
 import (
 	"os"
-	"path/filepath"
 	"strings"
 	"time"
 
-	"github.com/mschulkind-oss/yolo-jail/internal/config"
 	"github.com/mschulkind-oss/yolo-jail/internal/jsonx"
 	"github.com/mschulkind-oss/yolo-jail/internal/paths"
+	"github.com/mschulkind-oss/yolo-jail/internal/reporoot"
 	"github.com/mschulkind-oss/yolo-jail/internal/runtime"
 )
 
@@ -312,118 +311,12 @@ func inStrSlice(list []string, s string) bool {
 	return false
 }
 
-// resolveRepoRoot runs the pieces of _resolve_repo_root that check() relies on,
-// kept in step-parity with run's resolver (internal/cli/run/probes.go) so check
-// and run agree on where the repo is: (1) the YOLO_REPO_ROOT env var (validated
-// to contain source), (2) a source-checkout walk up from cwd, (4) the user
-// config's repo_path. Returns (path, ok); ok=false means the repo could not be
-// located. Step 3 (installed-wheel/bundle staging) is deliberately omitted —
-// staging has side effects and is owned by the run slice; check only needs a
-// root that resolves to a flake.nix.
+// resolveRepoRoot delegates to the single shared resolver (internal/reporoot) so
+// check and run agree on where the repo is — same method, same paths, inside and
+// outside the jail. Returns (path, ok); ok=false means the repo could not be
+// located.
 func resolveRepoRoot(getenv func(string) string) (string, bool) {
-	if env := getenv("YOLO_REPO_ROOT"); env != "" {
-		if fileExists(filepath.Join(env, "flake.nix")) ||
-			fileExists(filepath.Join(env, "go.mod")) {
-			if r, err := filepath.Abs(env); err == nil {
-				return r, true
-			}
-			return env, true
-		}
-	}
-	// Source-checkout detection: walk up from cwd for a YOLO-JAIL checkout —
-	// requiring BOTH flake.nix AND go.mod, else a user's own flake workspace
-	// would be hijacked as the yolo-jail repo.
-	dir, err := os.Getwd()
-	if err == nil {
-		for {
-			if fileExists(filepath.Join(dir, "flake.nix")) &&
-				fileExists(filepath.Join(dir, "go.mod")) {
-				if r, e := filepath.Abs(dir); e == nil {
-					return r, true
-				}
-				return dir, true
-			}
-			parent := filepath.Dir(dir)
-			if parent == dir {
-				break
-			}
-			dir = parent
-		}
-	}
-	// Bundled source (run's step 3), read-only: a share/yolo-jail/ bundle
-	// shipped beside the binary (Homebrew / release archive). check only needs
-	// to know the repo is FINDABLE, so — unlike run — it reports the bundle dir
-	// itself and does NOT stage it into nix-build-root (staging has side effects
-	// and is run-owned). Without this, a checkout-less install with a bundle
-	// would `run` fine but `check` would wrongly report the repo missing.
-	if bundle, ok := bundledSourceDir(); ok {
-		return bundle, true
-	}
-	// User config repo_path (run's step 4): the only path that lets an
-	// installed-only binary — no YOLO_REPO_ROOT, launched outside a checkout —
-	// resolve the repo. `just deploy` writes this (yolo internal
-	// write-repo-path). Accepted only when the dir has a flake.nix, matching run.
-	if p, ok := userConfigRepoPath(); ok {
-		expanded := expandUserPath(p)
-		if abs, e := filepath.Abs(expanded); e == nil {
-			expanded = abs
-		}
-		if fileExists(filepath.Join(expanded, "flake.nix")) {
-			return expanded, true
-		}
-	}
-	return "", false
-}
-
-// bundledSourceDir mirrors run's bundledSourceDir (read-only): a share/yolo-jail
-// bundle shipped beside the binary, at <exe>/../share/yolo-jail (Homebrew),
-// <exe>/share/yolo-jail (release archive), or <exe> itself. Returns (dir, true)
-// only when dir/flake.nix exists. Kept in sync with internal/cli/run/probes.go.
-func bundledSourceDir() (string, bool) {
-	exe, err := os.Executable()
-	if err != nil {
-		return "", false
-	}
-	return bundledSourceDirFrom(filepath.Dir(exe))
-}
-
-// bundledSourceDirFrom is the pure core (exeDir explicit) so it is unit-testable
-// without an installed binary. Candidate order matches run's exactly.
-func bundledSourceDirFrom(exeDir string) (string, bool) {
-	for _, cand := range []string{
-		filepath.Join(exeDir, "..", "share", "yolo-jail"),
-		filepath.Join(exeDir, "share", "yolo-jail"),
-		exeDir,
-	} {
-		if fileExists(filepath.Join(cand, "flake.nix")) {
-			if c, err := filepath.Abs(cand); err == nil {
-				return c, true
-			}
-			return cand, true
-		}
-	}
-	return "", false
-}
-
-// userConfigRepoPath reads a non-empty string repo_path from the user config,
-// or ("", false). Best-effort: a missing or malformed config yields ("", false).
-func userConfigRepoPath() (string, bool) {
-	userPath := paths.UserConfigPath()
-	if !fileExists(userPath) {
-		return "", false
-	}
-	cfg, err := config.LoadJSONCFile(userPath, userPath, false, func(string) {})
-	if err != nil || cfg == nil {
-		return "", false
-	}
-	v, present := cfg.Get("repo_path")
-	if !present {
-		return "", false
-	}
-	if s, ok := v.(string); ok && s != "" {
-		return s, true
-	}
-	return "", false
+	return reporoot.Resolve(getenv)
 }
 
 func fileExists(p string) bool {
