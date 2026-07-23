@@ -232,8 +232,7 @@ func PlanInvariants(plan RunPlan) []string {
 		problems = append(problems,
 			"workspace "+plan.Workspace+" is inside the home directory "+
 				plan.OffendingHome+"; the macos-user backend shares only "+
-				"neutral ground. Move it under "+SharedRootDefault()+" (or set "+
-				"config `macos_shared_root` to another non-home path).")
+				"neutral ground. Move it under "+SharedRootDefault()+".")
 	}
 
 	// Git identity must reach the BOOTSTRAP env (baked onto the self-exec argv).
