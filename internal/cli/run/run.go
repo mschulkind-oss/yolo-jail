@@ -420,17 +420,18 @@ func runtimeWriteTracking(cname, workspace string) error {
 // version.Get; jailVersion is the container's baked
 // YOLO_VERSION (attach path only, else "").
 func (o *Options) emitStartupBanner(rt, cname string, resParts []string, jailVersion string) {
-	banner := StartupBanner(version.Get(o.RepoRootForBanner()), rt, cname, resParts, jailVersion)
-	fmt.Fprint(o.Stderr, banner)
-}
-
-// RepoRootForBanner returns the repo root env hint for version resolution
-// (YOLO_REPO_ROOT); version.Get falls back to git-describe / "unknown".
-func (o *Options) RepoRootForBanner() string {
-	if o.Getenv != nil {
-		return o.Getenv("YOLO_REPO_ROOT")
+	// Resolve the repo root via the shared method (o.RepoRoot → reporoot.Resolve),
+	// so the banner version matches run/check and describes the yolo-jail repo,
+	// not whatever repo the cwd happens to sit in. "" → version.Get falls back to
+	// the baked stamp / "unknown".
+	repoRoot := ""
+	if o.RepoRoot != nil {
+		if rr, ok := o.RepoRoot(); ok {
+			repoRoot = rr
+		}
 	}
-	return ""
+	banner := StartupBanner(version.Get(repoRoot), rt, cname, resParts, jailVersion)
+	fmt.Fprint(o.Stderr, banner)
 }
 
 // bakedJailVersion reads the YOLO_VERSION baked into a running container via

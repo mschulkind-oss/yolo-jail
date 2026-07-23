@@ -17,6 +17,7 @@ import (
 	"fmt"
 	"os"
 
+	"github.com/mschulkind-oss/yolo-jail/internal/reporoot"
 	"github.com/mschulkind-oss/yolo-jail/internal/richtext"
 	"github.com/mschulkind-oss/yolo-jail/internal/version"
 )
@@ -35,7 +36,10 @@ func Main(argv []string) int {
 	}
 
 	if len(args) >= 1 && args[0] == "--version" {
-		fmt.Println("yolo-jail " + version.Get(os.Getenv("YOLO_REPO_ROOT")))
+		// Resolve the repo root the SAME way run/check do (the shared method), so
+		// an unstamped binary describes the yolo-jail repo, never the cwd's repo.
+		repoRoot, _ := reporoot.Resolve(os.Getenv)
+		fmt.Println("yolo-jail " + version.Get(repoRoot))
 		return 0
 	}
 
