@@ -19,11 +19,12 @@ func ImageRootsDir() string {
 	return filepath.Join(paths.BuildDir(), "roots")
 }
 
-// imageStoreKey is the first 16 hex chars of sha256(storePath) — the SAME key
+// ImageStoreKey is the first 16 hex chars of sha256(storePath) — the SAME key
 // ImageCachePath uses. Both the cache tar (cache/images/<key>.tar) and the GC
-// root (build/roots/<key>) are keyed by it, so a reaper can correlate a root
-// with the store path it pins without a reverse lookup.
-func imageStoreKey(storePath string) string {
+// root (build/roots/<key>) are keyed by it, so a reaper (or the storage §3
+// store-GC rooting confirmation in internal/prune) can correlate a root with the
+// store path it pins without a reverse lookup, against any BUILD_DIR.
+func ImageStoreKey(storePath string) string {
 	return keyFor(storePath)
 }
 
@@ -31,13 +32,13 @@ func imageStoreKey(storePath string) string {
 // not it exists yet). The reaper enumerates ImageRootsDir directly; this is for
 // callers that want the specific link for one store path.
 func ImageRootLink(storePath string) string {
-	return filepath.Join(ImageRootsDir(), imageStoreKey(storePath))
+	return filepath.Join(ImageRootsDir(), ImageStoreKey(storePath))
 }
 
 // RegisterImageRoot creates a durable, per-image nix GC root for storePath so
 // the running image's store closure survives an arbitrary `nix-collect-garbage`.
 // The root is an indirect gcroot at BUILD_DIR/roots/<sha16>, keyed by
-// sha256(storePath)[:16] (imageStoreKey) — so re-running the same image reuses
+// sha256(storePath)[:16] (ImageStoreKey) — so re-running the same image reuses
 // one root and distinct images each keep their own. Returns the link path.
 //
 // MUST run host-side. From inside a jail /nix/var/nix/gcroots is not mounted and
@@ -59,7 +60,7 @@ func RegisterImageRoot(storePath string, out io.Writer) (string, error) {
 		fmt.Fprintln(out, "Warning: could not create GC-root dir: "+err.Error())
 		return "", err
 	}
-	link := filepath.Join(rootsDir, imageStoreKey(storePath))
+	link := filepath.Join(rootsDir, ImageStoreKey(storePath))
 	// --add-root creates an indirect GC root (a symlink under gcroots/auto/ back
 	// to <link>); --realise on an already-valid path returns it without building
 	// or substituting. Combined, this pins the closure without side effects.

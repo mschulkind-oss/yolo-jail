@@ -103,6 +103,16 @@ func runPrune(args []string) int {
 			opts.CacheAge = nextInt(opts.CacheAge)
 		case a == "--purge-heavy-caches":
 			opts.PurgeHeavyCaches = true
+		case a == "--nix-gc":
+			opts.NixGC = true
+		case a == "--nix-gc-max":
+			// A byte ceiling for the bounded store GC (default 50 GiB when unset).
+			if i+1 < len(args) {
+				i++
+				if n, err := strconv.ParseInt(args[i], 10, 64); err == nil {
+					opts.NixGCMaxBytes = n
+				}
+			}
 		}
 	}
 	// Config- and platform-aware runtime resolution (audit findings 4+5): prune

@@ -469,6 +469,187 @@ func TestImagesHintNamesCacheRelocations(t *testing.T) {
 	}
 }
 
+// TestNixGCOffByDefault: without --nix-gc the store-GC section never appears,
+// and the seam is never called.
+func TestNixGCOffByDefault(t *testing.T) {
+	o, _ := baseOpts(t)
+	called := false
+	o.NixStoreGC = func(int64, bool) StoreGCOutcome { called = true; return StoreGCOutcome{} }
+	var buf bytes.Buffer
+	o.Out = &buf
+	Run(o)
+	if called {
+		t.Error("store GC seam must not run when --nix-gc is off")
+	}
+	for _, l := range lines(&buf) {
+		if strings.Contains(l, "Nix store GC") {
+			t.Errorf("store-GC section must be absent by default: %q", l)
+		}
+	}
+}
+
+// TestNixGCRefusesInJail: even with --nix-gc, running inside a jail refuses —
+// the host store must never be GC'd blind from in-jail.
+func TestNixGCRefusesInJail(t *testing.T) {
+	o, _ := baseOpts(t)
+	o.NixGC = true
+	o.InJail = func() bool { return true }
+	called := false
+	o.NixStoreGC = func(int64, bool) StoreGCOutcome { called = true; return StoreGCOutcome{} }
+	var buf bytes.Buffer
+	o.Out = &buf
+	Run(o)
+	if called {
+		t.Error("in-jail must refuse to invoke the store GC")
+	}
+	if !hasLine(&buf, "  skipped — refusing to GC the host store from inside a jail; "+
+		"the host's live jails are unenumerable here, so image rooting can't be confirmed") {
+		t.Errorf("expected the in-jail refusal line:\n%s", buf.String())
+	}
+}
+
+// TestNixGCDeclinesOnUnknownLiveness: liveness unknown (runtime unenumerable) →
+// decline the GC (fail-safe), same polarity as every other sweep.
+func TestNixGCDeclinesOnUnknownLiveness(t *testing.T) {
+	o, _ := baseOpts(t)
+	o.NixGC = true
+	o.InJail = func() bool { return false }
+	o.Exec = func([]string, time.Duration) ProbeResult { return ProbeResult{Ran: false} }
+	called := false
+	o.NixStoreGC = func(int64, bool) StoreGCOutcome { called = true; return StoreGCOutcome{} }
+	var buf bytes.Buffer
+	o.Out = &buf
+	Run(o)
+	if called {
+		t.Error("unknown liveness must decline the store GC")
+	}
+	if !hasLine(&buf, "  skipped — could not enumerate running jails (podman); declining to GC the store") {
+		t.Errorf("expected the decline line:\n%s", buf.String())
+	}
+}
+
+// TestNixGCSkipsWhenImageUnrooted: liveness known, but a loaded image closure has
+// no durable §1 root → refuse the GC and name the offending path.
+func TestNixGCSkipsWhenImageUnrooted(t *testing.T) {
+	o, gs := baseOpts(t)
+	o.NixGC = true
+	o.InJail = func() bool { return false }
+	buildDir := filepath.Join(gs, "build")
+	o.BuildDir = func() string { return buildDir }
+	// A sentinel records a loaded image, but no roots/<sha16> exists for it.
+	sp := "/nix/store/zzzz-stream-yolo-jail"
+	mustMkdir(t, buildDir)
+	mustWrite(t, filepath.Join(buildDir, "last-load-podman"), []byte(sp+"\n"))
+	// Runtime enumerates (empty is fine — live.Known=true).
+	o.Exec = stubExec(map[string]string{
+		k("podman", "ps", "-a", "--format", "{{.Names}} {{.State}}"): "\n",
+	}, nil)
+	called := false
+	o.NixStoreGC = func(int64, bool) StoreGCOutcome { called = true; return StoreGCOutcome{} }
+	var buf bytes.Buffer
+	o.Out = &buf
+	Run(o)
+	if called {
+		t.Error("an unrooted loaded image must block the store GC")
+	}
+	if !hasLine(&buf, "    • "+sp) {
+		t.Errorf("expected the unrooted store path named:\n%s", buf.String())
+	}
+	found := false
+	for _, l := range lines(&buf) {
+		if strings.Contains(l, "lack a durable GC root (storage §1)") {
+			found = true
+		}
+	}
+	if !found {
+		t.Errorf("expected the §1-rooting skip explanation:\n%s", buf.String())
+	}
+}
+
+// TestNixGCDryRunWhenRooted: liveness known and every loaded image is rooted →
+// the dry-run store GC runs and reports the would-delete count (apply=false, so
+// the seam is asked for a dry run).
+func TestNixGCDryRunWhenRooted(t *testing.T) {
+	o, gs := baseOpts(t)
+	o.NixGC = true
+	o.InJail = func() bool { return false }
+	buildDir := filepath.Join(gs, "build")
+	o.BuildDir = func() string { return buildDir }
+	sp := "/nix/store/yyyy-stream-yolo-jail"
+	mustMkdir(t, buildDir)
+	mustWrite(t, filepath.Join(buildDir, "last-load-podman"), []byte(sp+"\n"))
+	rootFor(t, filepath.Join(buildDir, "roots"), sp)
+	o.Exec = stubExec(map[string]string{
+		k("podman", "ps", "-a", "--format", "{{.Names}} {{.State}}"): "\n",
+	}, nil)
+	var gotApply bool
+	var gotMax int64
+	o.NixStoreGC = func(maxBytes int64, apply bool) StoreGCOutcome {
+		gotApply = apply
+		gotMax = maxBytes
+		return StoreGCOutcome{Ran: true, Paths: 2147}
+	}
+	var buf bytes.Buffer
+	o.Out = &buf
+	Run(o)
+	if gotApply {
+		t.Error("dry-run prune must ask the seam for a dry run, not apply")
+	}
+	if gotMax != nixGCDefaultMaxBytes {
+		t.Errorf("default max = %d, want %d", gotMax, nixGCDefaultMaxBytes)
+	}
+	found := false
+	for _, l := range lines(&buf) {
+		if strings.Contains(l, "would delete up to 2,147 store path(s)") {
+			found = true
+		}
+	}
+	if !found {
+		t.Errorf("expected the dry-run would-delete line:\n%s", buf.String())
+	}
+}
+
+// TestNixGCApplyBoundedAndNotInSummary: --apply --nix-gc runs a bounded GC (the
+// seam sees apply=true and the custom max) and its freed count stays OUT of the
+// golden-pinned reclaim summary (host store is a separate ledger).
+func TestNixGCApplyBoundedAndNotInSummary(t *testing.T) {
+	o, gs := baseOpts(t)
+	o.Apply = true
+	o.NixGC = true
+	o.NixGCMaxBytes = 10 << 30
+	o.InJail = func() bool { return false }
+	buildDir := filepath.Join(gs, "build")
+	o.BuildDir = func() string { return buildDir }
+	sp := "/nix/store/wwww-stream-yolo-jail"
+	mustMkdir(t, buildDir)
+	mustWrite(t, filepath.Join(buildDir, "last-load-podman"), []byte(sp+"\n"))
+	rootFor(t, filepath.Join(buildDir, "roots"), sp)
+	o.Exec = stubExec(map[string]string{
+		k("podman", "ps", "-a", "--format", "{{.Names}} {{.State}}"): "\n",
+	}, nil)
+	var gotApply bool
+	var gotMax int64
+	o.NixStoreGC = func(maxBytes int64, apply bool) StoreGCOutcome {
+		gotApply = apply
+		gotMax = maxBytes
+		return StoreGCOutcome{Ran: true, Paths: 1234, HaveBytes: true, Bytes: 5 << 30}
+	}
+	var buf bytes.Buffer
+	o.Out = &buf
+	Run(o)
+	if !gotApply || gotMax != 10<<30 {
+		t.Errorf("apply seam call = (apply=%v, max=%d), want (true, %d)", gotApply, gotMax, int64(10<<30))
+	}
+	if !hasLine(&buf, "  freed 1,234 store path(s) (5.0 GiB)  (bounded at 10.0 GiB; host /nix/store, not counted in the reclaim total)") {
+		t.Errorf("expected the apply freed line:\n%s", buf.String())
+	}
+	// The reclaim summary must NOT mention the 1,234 store paths or 5 GiB.
+	last := lines(&buf)[len(lines(&buf))-1]
+	if strings.Contains(last, "1,234") || strings.Contains(last, "store path") {
+		t.Errorf("store-GC results leaked into the reclaim summary: %q", last)
+	}
+}
+
 func TestFmtComma(t *testing.T) {
 	cases := map[int]string{0: "0", 5: "5", 999: "999", 1000: "1,000", 1234567: "1,234,567", -1500: "-1,500"}
 	for in, want := range cases {

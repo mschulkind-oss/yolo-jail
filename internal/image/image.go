@@ -116,6 +116,29 @@ func ReadLoadedPaths(sentinel string) map[string]struct{} {
 	return out
 }
 
+// CurrentLoadedPath returns the MOST-RECENT store path recorded in a runtime's
+// load sentinel — the image a jail launched against that runtime runs right now
+// (AddLoadedPath appends the newest entry last). ok=false when the sentinel is
+// missing or empty. Distinct from ReadLoadedPaths, which returns the whole LRU
+// as an unordered set: the storage §3 store-GC rooting confirmation needs the
+// single current image per runtime, not its history.
+func CurrentLoadedPath(sentinel string) (string, bool) {
+	data, err := os.ReadFile(sentinel)
+	if err != nil {
+		return "", false
+	}
+	current := ""
+	for _, line := range strings.Split(string(data), "\n") {
+		if s := strings.TrimSpace(line); s != "" {
+			current = s // keep overwriting → the last non-empty line wins
+		}
+	}
+	if current == "" {
+		return "", false
+	}
+	return current, true
+}
+
 // AddLoadedPath appends storePath to the sentinel as the most-recent entry,
 // de-duplicating (move-to-end) and capping at the 10 most recent. Written as
 // "\n".join(paths) + "\n".

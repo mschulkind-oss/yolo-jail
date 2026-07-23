@@ -54,6 +54,13 @@ type Options struct {
 	ImageCacheKeep   int  // --image-cache-keep (default 3)
 	CacheAge         int  // --cache-age        (default 30; 0 skips the pass)
 	PurgeHeavyCaches bool // --purge-heavy-caches
+	// NixGC enables the bounded, rooting-aware host nix store GC (--nix-gc,
+	// default OFF; storage-lifecycle §3). It is opt-in, host-only, and gated on
+	// every known image closure having a durable §1 GC root — see nixgc.go.
+	NixGC bool // --nix-gc
+	// NixGCMaxBytes caps an --apply store GC (0 => nixGCDefaultMaxBytes). A
+	// ceiling, not a target: nix stops once it has freed this many bytes.
+	NixGCMaxBytes int64 // --nix-gc-max (bytes)
 	// --- seams ---
 	// Color requests ANSI styling. It is honored ONLY when stdout is a real
 	// terminal (Color && IsTTYStdout()): piped/redirected output stays byte-
@@ -105,6 +112,15 @@ type Options struct {
 	// RelayKill reaps one relay by PID file (SIGTERM/SIGKILL + pid-file removal).
 	// nil => realRelayKill. Only invoked on --apply for an orphaned relay.
 	RelayKill func(pidFile string)
+	// InJail reports whether prune is running inside a jail. nil => the real
+	// YOLO_VERSION probe. The §3 store-GC section REFUSES in-jail: there `nix
+	// store gc` would collect the HOST store, but the host's live jails are
+	// unenumerable from in-jail, so the rooting confirmation can't be made.
+	InJail func() bool
+	// NixStoreGC runs the bounded host store GC (§3). nil => the real
+	// RunNixStoreGC over the process's own exec. Injected so tests exercise the
+	// section without a real daemon.
+	NixStoreGC func(maxBytes int64, apply bool) StoreGCOutcome
 }
 
 // NewDefaultOptions returns Options with the flag defaults (keep-images 2,
@@ -153,6 +169,17 @@ func fillDefaults(o *Options) {
 	}
 	if o.RelayKill == nil {
 		o.RelayKill = realRelayKill
+	}
+	if o.InJail == nil {
+		o.InJail = func() bool { return os.Getenv("YOLO_VERSION") != "" }
+	}
+	if o.NixStoreGC == nil {
+		// realProbeExec inherits the process env (cmd.Env nil => os.Environ), so
+		// host-side nix reaches its daemon exactly as an interactive `nix store gc`
+		// would. This path never runs in-jail (the section refuses there).
+		o.NixStoreGC = func(maxBytes int64, apply bool) StoreGCOutcome {
+			return RunNixStoreGC(realProbeExec, maxBytes, apply)
+		}
 	}
 }
 
@@ -420,6 +447,56 @@ func Run(opts Options) int {
 		cacheBytes, cacheFiles = PurgeCacheByAge(joinPath(gs, "cache"), subdirs, opts.CacheRelocations, float64(opts.CacheAge), apply, opts.Now())
 		p.line(fmt.Sprintf("  %s: %s across %s files", verb(apply, "would remove", "removed"), FmtBytes(cacheBytes), fmtComma(cacheFiles)))
 		totalSaved += cacheBytes
+	}
+
+	// --- Bounded, rooting-aware nix store GC (storage §3, opt-in, HOST-ONLY) ---
+	// LAST in priority and the ONLY store-touching section. It reclaims HOST
+	// /nix/store space via a bounded `nix store gc --max N` — but only after
+	// confirming every loaded image closure has a durable §1 GC root, so the GC
+	// can never delete a running jail's image (the incident §1 exists to prevent).
+	// Refuses in-jail (the host's live jails are unenumerable there) and declines
+	// on unknown liveness. Its store-path count is NOT folded into the reclaimed-
+	// bytes summary below: those are host-store paths, a different ledger than
+	// yolo's own storage, and the summary line is a golden-pinned contract.
+	if opts.NixGC {
+		p.line("")
+		p.line("[bold]Nix store GC (bounded, rooting-aware)[/bold]")
+		switch {
+		case opts.InJail():
+			p.line("  [dim]skipped — refusing to GC the host store from inside a jail; " +
+				"the host's live jails are unenumerable here, so image rooting can't be confirmed[/dim]")
+		case !live.Known:
+			p.line(fmt.Sprintf("  [dim]skipped — could not enumerate running jails (%s); declining to GC the store[/dim]", rt))
+		default:
+			unrooted := UnrootedProtectedPaths(joinPath(opts.BuildDir(), "roots"), ProtectedImagePaths(opts.BuildDir()))
+			if len(unrooted) > 0 {
+				p.line(fmt.Sprintf("  [yellow]skipped — %s loaded image closure(s) lack a durable GC root (storage §1); "+
+					"a store GC could delete a running jail's image[/yellow]", fmtComma(len(unrooted))))
+				for _, sp := range unrooted {
+					p.line("    • " + sp)
+				}
+				p.line("  [dim]run a host `just load` so the run path registers build/roots/<sha16>, then re-run.[/dim]")
+			} else {
+				maxBytes := opts.NixGCMaxBytes
+				if maxBytes <= 0 {
+					maxBytes = nixGCDefaultMaxBytes
+				}
+				outcome := opts.NixStoreGC(maxBytes, apply)
+				switch {
+				case !outcome.Ran:
+					p.line("  [dim]skipped — `nix store gc` did not run (nix absent or the daemon unreachable)[/dim]")
+				case apply:
+					line := fmt.Sprintf("  freed %s store path(s)", fmtComma(outcome.Paths))
+					if outcome.HaveBytes {
+						line += " (" + FmtBytes(outcome.Bytes) + ")"
+					}
+					p.line(line + fmt.Sprintf("  [dim](bounded at %s; host /nix/store, not counted in the reclaim total)[/dim]", FmtBytes(maxBytes)))
+				default:
+					p.line(fmt.Sprintf("  would delete up to %s store path(s)  [dim](every loaded image is rooted; "+
+						"--apply bounds the reclaim at %s)[/dim]", fmtComma(outcome.Paths), FmtBytes(maxBytes)))
+				}
+			}
+		}
 	}
 
 	// --- Summary ---
