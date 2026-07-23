@@ -70,6 +70,18 @@ nix … eval --impure --json .#darwinUnavailablePackages.aarch64-darwin
 and prepends `<out>/bin` to the agent's PATH (plus `PKG_CONFIG_PATH=<out>/lib/pkgconfig`
 if that dir exists). See `darwinpkg.ProfilePaths`.
 
+**Why invocation 2 is best-effort (120 s timeout, non-fatal).** The skip list is
+*advisory only*: the build (invocation 1) already drops packages with no
+aarch64-darwin build — `flake.nix` filters `darwinPackages` before the
+`yoloDarwinPackages` buildEnv — so it succeeds whether or not this eval runs.
+The eval's sole job is to *name* those dropped packages for the "Skipped packages
+with no aarch64-darwin build: …" warning (`orchestrator.go`). Because a `nix eval`
+can hang (e.g. evaluating an uncached nixpkgs), `skippedNames`
+(`internal/darwinpkg/materialize.go`) bounds it at 120 s and returns `nil` on
+timeout *or* any error. The only consequence of failure: the user loses that
+informational warning — packages are still filtered, the PATH is still correct,
+and the run proceeds normally.
+
 Why each flag:
 
 - **`--impure`** — the flake reads `packages:` from the environment via
@@ -221,20 +233,36 @@ macOS has no cgroup filesystem, and there is no VM to size.
 - **`devices` / `cgroup_rule`** → Linux device paths and
   `--device-cgroup-rule`; not applicable.
 
-### 3.5 Loopholes — not wired on this path
+### 3.5 Loopholes — two moot, one genuine gap
 
 The loophole host-services (`audio`, `host-processes`, `claude-oauth-broker`) and
 the per-jail **broker relay** are started/stopped in `runContainer`
-(`startLoopholes`/`stopLoopholes`) — the macos-user branch never reaches it. Two
-consequences worth calling out:
+(`startLoopholes`/`stopLoopholes`) — the macos-user branch never reaches it. But
+"not wired" means something different for each, because a loophole is machinery
+for punching a *specific* thing through a container boundary — and two of the
+three have **no boundary to punch through** on a native process:
 
-- **`claude-oauth-broker`** — the broker relay that serializes OAuth refreshes is
-  a container-path feature. `macosuser.BrokerSocketGrantCommands` *exists* (it
-  would chmod/chgrp the broker socket for the sandbox group) but **is not called
-  anywhere** — so on macos-user today the broker loophole is effectively off. If
-  multi-jail OAuth serialization is needed on macos-user, this is the wiring gap to
-  close.
-- **`audio` / `host-processes`** — likewise not wired.
+- **`audio`** — **moot, not a port gap.** The loophole bind-mounts the host
+  PipeWire/PulseAudio sockets + `/dev/snd` into the Linux container; its own
+  manifest says "macOS is deliberately unsupported — the macOS container runtimes
+  don't bridge host CoreAudio." A native `_yolojail` process needs none of that: it
+  can reach CoreAudio directly (subject to the Seatbelt profile and TCC), the same
+  as any host process. There is nothing to port.
+- **`host-processes`** — **moot, and if anything the native side is *less*
+  restricted.** The loophole exists to give a *contained* jail an allowlisted
+  read-only window onto host processes via a daemon (`yolo-ps`). A native process
+  already sees host processes directly — the Seatbelt profile grants
+  `(allow process-info*)` (`internal/macosuser/seatbelt.go`) — so the daemon is
+  unnecessary. Note the flip side: the allowlist (`host_processes.visible`) is a
+  container-only control, so on macos-user the agent sees the *full* host process
+  table, not a filtered view. That is a widening of the surface, not a missing
+  feature.
+- **`claude-oauth-broker`** — **the one genuine port gap.** Serializing OAuth
+  refreshes across jails is not a container artifact; it is useful on any backend.
+  `macosuser.BrokerSocketGrantCommands` *exists* (it would chmod/chgrp the broker
+  socket for the sandbox group) but **is not called anywhere**, so the broker
+  loophole is effectively off on macos-user today. If multi-jail OAuth
+  serialization is needed here, this is the wiring to add — see Open item #3.
 
 ### 3.6 The container-launch preamble (config-diff prompt, image load, etc.)
 
@@ -247,19 +275,40 @@ everything that lives only in that function is skipped. Most are irrelevant
   macos-user path.** This matters because the threat model
   ([macos-user-build-step-threat-model.md](macos-user-build-step-threat-model.md))
   lists the config-diff prompt as the mitigation for a poisoned `packages:` edit
-  (Vector A). On macos-user that mitigation does not currently fire — treat it as a
-  known gap, not a guarantee.
+  (Vector A) — and macos-user is the backend where that build runs *unconfined as
+  the invoking user*, so it is the worst place to lose the prompt. This is a
+  **security gap to fix, not just document**: it is on the roadmap as
+  [J4 in the revival plan](../plans/macos-revival-and-distribution-plan.md), whose
+  fix is to hoist `checkConfigChanges` ahead of the runtime split so every backend
+  gates on it. Until that lands, treat the mitigation as absent on macos-user.
 
 ### 3.7 The `macos_shared_root` config key — referenced, not implemented
 
-The plan-invariant error message tells the user they may "set config
-`macos_shared_root` to another non-home path," but **no code reads that key.**
-`SharedRootProvisionCommands` accepts a `root` argument, yet every caller passes
-`""`, which defaults to the hard-coded `/Users/Shared/yolo`
-(`macosuser.SharedRootDefault`). Until the key is actually plumbed
-(setup-time provisioning **and** run-time workspace-location check must agree on
-it), the shared root is effectively fixed. This is a documentation-vs-behavior gap
-to either wire up or reword.
+**What it's *for*.** macos-user has no bind mount, so the workspace must be
+"neutral ground" — a directory outside every user's home that the invoking admin
+and the `_yolojail` sandbox user can *both* reach via a shared-group ACL (a
+home-dir workspace is rejected by a plan invariant, `runplan.go`). That neutral
+root defaults to the hard-coded `/Users/Shared/yolo`
+(`macosuser.SharedRootDefault`). `macos_shared_root` was *intended* to be the
+escape hatch: relocate that root — e.g. onto another volume, or a site-specific
+path — for someone who can't or won't use `/Users/Shared`. The plan-invariant
+error message already advertises it ("set config `macos_shared_root` to another
+non-home path").
+
+**But no code reads that key.** `SharedRootProvisionCommands` accepts a `root`
+argument, yet every caller passes `""`, which falls back to the default. So the
+root is effectively fixed and the error message points at a knob that does
+nothing.
+
+**Do we need it?** Almost certainly not, near-term. `/Users/Shared` exists on
+every stock macOS and is exactly the OS-blessed neutral location for
+cross-user data — the default satisfies the real requirement (a non-home shared
+root) out of the box. An override only matters for the narrow "put workspaces on
+another disk / a policy-mandated path" case, which no current user has. The
+cheap, honest fix is therefore to **reword the message to drop the key** (remove
+the false promise) and defer wiring until a concrete need appears; wiring it later
+means agreeing on the key at *both* setup-time provisioning and the run-time
+workspace-location check. Captured as Open item #1.
 
 ---
 
@@ -276,7 +325,8 @@ to either wire up or reword.
 | `ports` / forward_host_ports | yes | **not wired** | container-path only |
 | `gpu` | Linux only | off | Metal, no CUDA/ROCm |
 | `devices` / `cgroup_rule` | Linux only | off | Linux kernel feature |
-| loopholes (audio/host-proc/oauth-broker) | yes | **not wired** | container-path only |
+| loopholes: audio / host-processes | yes | **moot** | native process reaches CoreAudio / host procs directly |
+| loopholes: claude-oauth-broker | yes | **not wired** (gap) | useful on any backend; `BrokerSocketGrantCommands` uncalled |
 | config-diff approval prompt | yes | **not reached** | `runContainer`-only (gap) |
 | `security.blocked_tools` shims | yes | ✅ | pure generator |
 | `mise_tools` / `lsp_servers` | yes | ✅ | pure generators |
@@ -290,14 +340,33 @@ to either wire up or reword.
 
 ## Open items (for a future maintainer pass)
 
-1. **Wire or reword `macos_shared_root`** (§3.7): either read the key at both
-   setup and run time, or drop it from the error message.
-2. **Decide whether the config-diff prompt should run on macos-user** (§3.6): the
-   threat model assumes it does; the code does not. Either move
-   `checkConfigChanges` ahead of the runtime split, or update the threat model to
-   state the mitigation is container-only.
+1. **Reword `macos_shared_root` out of the error message** (§3.7): the key isn't
+   read anywhere and `/Users/Shared/yolo` covers the real need, so drop the false
+   promise now; wire the override (setup + run-time, in agreement) only if a
+   relocated-root use case ever lands.
+2. **Config-diff prompt on macos-user** (§3.6): the threat model assumes it runs;
+   the code does not reach it — a security gap, since the poisoned-`packages:` build
+   runs unconfined on this backend. **Decided: fix it** by hoisting
+   `checkConfigChanges` ahead of the runtime split. Tracked as
+   [J4 in the revival plan](../plans/macos-revival-and-distribution-plan.md).
 3. **`claude-oauth-broker` on macos-user** (§3.5): `BrokerSocketGrantCommands` is
    dead code until the loophole is wired into the native launch. Wire it or note
    the loophole is container-only.
-4. **Skip-list policy** (§1.3): warn-and-skip vs the direction doc's aggregate
-   error is still Open Decision #5 in the revival plan.
+4. **Skip-list policy** (§1.3) — *the actual open question:* when a `packages:`
+   entry has **no aarch64-darwin build**, should the run **warn and continue**
+   (what ships today) or **hard-error**? The written design
+   ([revival plan](../plans/macos-revival-and-distribution-plan.md) Open Decision
+   #5) called for an *aggregated* error — collect every unavailable package and
+   refuse to launch — plus per-platform `packages` overrides so a config could say
+   "this one is Linux-only." Neither shipped: `flake.nix` filters unavailable
+   packages via `darwinUnavailablePackages` and the orchestrator warns and
+   continues, and `config.EffectivePackages` has no platform conditional at all.
+   The in-code rationale for warn-and-skip: a hard error would have to abort the
+   whole nix eval, and a warn-lets an otherwise-fine jail launch with one tool
+   missing. The counter-argument: silently dropping a tool the config declared can
+   mask a typo (an unknown attr is skipped, not flagged) and diverges from the
+   documented contract. This is a **deliberate maintainer call to make**, not a
+   bug: either bless warn-and-skip retroactively (a doc-hygiene fix to the plan) or
+   add a J-track item implementing the aggregated error + overrides as designed.
+   It stayed open after the M1 hardware run because M1 only exercised packages that
+   *do* have a darwin build, so the no-build path was never observed live.

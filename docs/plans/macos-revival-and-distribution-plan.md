@@ -214,6 +214,29 @@ the proven GHCR builder (runbook `mac-ac-container-builder.md` — zero-sudo,
 agent-runnable, so Track M can verify it from inside a sandbox). Do this after
 J2 — macos-user needs no builder at all.
 
+### J4. Config-diff approval on the macos-user path (security gap)
+
+> **Status: OPEN.** Confirmed 2026-07-23 while documenting
+> `macos-user-nix-and-features.md` §3.6.
+
+`checkConfigChanges` (the startup y/N config-diff prompt) is called **only** in
+`runContainer` (`internal/cli/run/run.go:144`), but the macos-user branch returns
+at `run.go:56-68` — *before* that call. The threat model
+(`docs/design/macos-user-build-step-threat-model.md`) names the config-diff prompt
+as the mitigation for **Vector A** (a poisoned `packages:` edit, which on
+macos-user is fed straight into a host-side `nix build --impure`). So today that
+mitigation **does not fire on the one backend where the build runs unconfined as
+the invoking user** — the worst place to lose it.
+
+Fix: hoist `checkConfigChanges(cfg)` to run **before** the runtime split in
+`run.Run` (so both the container and macos-user paths gate on it), or call it at
+the top of the macos-user handler before `MaterializeDarwin`. Prefer the former —
+one gate for all backends, no per-path drift. Pure-Go, Linux-jail-developable and
+unit-testable; the only care needed is that the prompt still shows exactly once on
+the container path (don't double-prompt). Land H3 from the threat model
+(surface the resolved `repoRoot` in the diff) opportunistically if cheap. This
+also closes Open item #2 in `macos-user-nix-and-features.md`.
+
 ---
 
 ## Track D — source access for image building (the repo-root regression)
