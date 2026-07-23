@@ -144,7 +144,11 @@ func TestValidateCacheRelocationsWorkspaceLocalScopeAlsoRejected(t *testing.T) {
 // rules must still fire; only the filesystem probe is host-only.
 func TestValidateCacheRelocationsSkipsTargetParentInJail(t *testing.T) {
 	ws := t.TempDir()
-	hostOnly := "/data/relocated/yolo-jail/cache/huggingface"
+	// Use a path under a fresh temp dir: the target's parent must not exist on
+	// the host for the missing-parent probe to fire. The old hardcoded
+	// /data/relocated/yolo-jail/cache/huggingface path exists on dev machines
+	// with cache_relocations configured, making this test host-dependent.
+	hostOnly := filepath.Join(t.TempDir(), "nonexistent-parent", "huggingface")
 	body := `{"huggingface": "` + hostOnly + `"}`
 
 	if errs := validateCache(t, ws, body); len(errs) != 1 ||
