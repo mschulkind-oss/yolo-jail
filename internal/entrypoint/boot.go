@@ -281,10 +281,10 @@ func sameFile(a, b string) (bool, error) {
 // ---------------------------------------------------------------------------
 // Deferred subprocess side effects
 // ---------------------------------------------------------------------------
-// The pure content generators (GenerateMiseConfig, ConfigureClaude) deliberately
-// SKIP the two subprocess side effects — those are boot orchestration, not
-// content. main() re-attaches them at the matching ordering points
-// (generate_mise_config tail; configure_claude tail, inside the per-agent loop).
+// The pure content generators (ConfigureMisePrism, ConfigureClaudePrism)
+// deliberately SKIP the two subprocess side effects — those are boot
+// orchestration, not content. main() re-attaches them at the matching ordering
+// points (generate_mise_config tail; configure_claude tail, in the per-agent loop).
 // uninstall --all <tool>` for each retired tool (idempotent, best-effort, 30s
 // timeout). tool_name is the registry token with surrounding quotes stripped.
 func miseUninstallRetired() {
@@ -438,7 +438,7 @@ func Main(args []string) error {
 	p.mark("generate_bootstrap_script")
 	genStep(e, "generate_venv_precreate_script", func() error { return GenerateVenvPrecreateScript(e) })
 	p.mark("generate_venv_precreate_script")
-	genStep(e, "generate_mise_config", func() error { return GenerateMiseConfig(e) })
+	genStep(e, "generate_mise_config", func() error { return ConfigureMisePrism(e) })
 	// Deferred side effect: mise uninstall of retired tools (generate_mise_config tail).
 	miseUninstallRetired()
 	p.mark("generate_mise_config")

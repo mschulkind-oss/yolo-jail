@@ -68,7 +68,7 @@ func (o *Options) runEntrypointPreflight(r *reporter, _, workspace string, merge
 		entrypoint.GenerateBashrc,
 		entrypoint.GenerateBootstrapScript,
 		entrypoint.GenerateVenvPrecreateScript,
-		entrypoint.GenerateMiseConfig,
+		entrypoint.ConfigureMisePrism,
 		entrypoint.GenerateMCPWrappers,
 	}
 	for _, gen := range generators {
@@ -132,6 +132,15 @@ func (o *Options) runEntrypointPreflight(r *reporter, _, workspace string, merge
 				return agent + " config parse error: " + err.Error()
 			}
 		}
+	}
+
+	// The mise global config renders unconditionally (it is not agent-gated), so
+	// validate its TOML separately from the per-agent outputs.
+	miseCfg := filepath.Join(e.MiseConfigDir(), "config.toml")
+	if data, err := os.ReadFile(miseCfg); err != nil {
+		return "mise: " + err.Error()
+	} else if err := parseToml(data); err != nil {
+		return "mise config parse error: " + err.Error()
 	}
 
 	return ""

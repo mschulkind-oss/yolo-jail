@@ -131,7 +131,7 @@ func generateAll(t *testing.T, e *Env) {
 	must(GenerateBashrc(e))
 	must(GenerateBootstrapScript(e))
 	must(GenerateVenvPrecreateScript(e))
-	must(GenerateMiseConfig(e))
+	must(ConfigureMisePrism(e))
 	must(GenerateMCPWrappers(e))
 	for _, agent := range LoadAgents(e) {
 		switch agent {
