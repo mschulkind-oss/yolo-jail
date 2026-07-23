@@ -1,12 +1,32 @@
 # Storage / cache / image lifecycle — make GC safe at any moment
 
-**Status:** OPEN — investigation + plan, no code written (2026-07-22). Anchored
-on a real incident: a host `nix-collect-garbage` reclaiming ~2.5 TiB swept the
-**running jail image's own store closure**, leaving 235 of 467 `/bin` symlinks
-pointing at dead targets (git, gh, curl, gcc, rg, fd, node, yolo, …). The jail
-kept running but its tools were broken. Root cause: **the running image's store
-closure is not a registered nix GC root**, so a GC is not safe to run at an
-arbitrary moment. This plan sequences the fix.
+**Status:** §1–§4 IMPLEMENTED (2026-07-22); host-gated residuals remain (see
+below). Anchored on a real incident: a host `nix-collect-garbage` reclaiming
+~2.5 TiB swept the **running jail image's own store closure**, leaving 235 of
+467 `/bin` symlinks pointing at dead targets (git, gh, curl, gcc, rg, fd, node,
+yolo, …). The jail kept running but its tools were broken. Root cause: **the
+running image's store closure is not a registered nix GC root**, so a GC is not
+safe to run at an arbitrary moment. This plan sequenced the fix.
+
+**Landed:**
+- **§1** — the run path registers a durable per-image GC root
+  (`build/roots/<sha16>`), retained across runs; `yolo prune` reaps roots no
+  live jail needs (tri-state fail-safe). Mechanism verified in-jail; the
+  security win for the maintainer's live jails is host-gated on `just load`.
+- **§2** — `yolo check` warns when the host nix daemon's auto-GC is off
+  (`min-free == 0`), the safety net that §1 makes safe to enable. Host-owns the
+  actual nix.conf edit.
+- **§3** — opt-in `yolo prune --nix-gc`: a bounded, rooting-aware
+  `nix store gc --max N` that refuses in-jail and declines unless every loaded
+  image closure has a durable §1 root. Never a blanket collect.
+- **§4** — log/overlay lifecycle sweeps: dangling build out-links, orphaned
+  agent-staging dirs, and age-purge of regenerable agent logs (Claude
+  transcripts deliberately excluded).
+
+**Host-gated residuals (need the maintainer):** `just load` to ship §1's run-path
+rooting to live jails; the `min-free`/`max-free` nix.conf edit (§2); and the §3
+end-to-end store-GC acceptance run against a real host store. See "What needs the
+human / host" below.
 
 ---
 
@@ -180,13 +200,13 @@ root, and (c) only then invokes a **bounded** `nix-collect-garbage` (or
 
 ### 1. Root the running image's closure — FIRST, everything depends on it
 
-- [ ] **Stop destroying the out-link on success** — `internal/image/autoload.go`.
+- [x] **Stop destroying the out-link on success** — `internal/image/autoload.go`.
   Remove the `os.Remove(outLink)` at `:266` (and reconsider `:236/:243/:259` —
   on failure there is no loaded image to protect, so removing is fine, but the
   success path must retain a root). The out-link name is per-PID
   (`run-result-<pid>`, `:144`), which is wrong for a *durable* root: the PID is
   the build process, not the jail lifetime.
-- [ ] **Introduce a per-loaded-image stable GC root** keyed by the store path,
+- [x] **Introduce a per-loaded-image stable GC root** keyed by the store path,
   not the PID. Shape: after a successful load, `nix build --out-link
   BuildDir()/roots/<sha16>` (reusing `ImageCachePath`'s sha16 of the store path
   as the key) OR `nix-store --add-root BuildDir()/roots/<sha16> -r <store-path>`,
@@ -194,12 +214,12 @@ root, and (c) only then invokes a **bounded** `nix-collect-garbage` (or
   images each keep their own root. Register it **from the host-side `yolo run`
   path** (`internal/cli/run/imageload.go` / `autoLoadImage`), because in-jail the
   gcroots dir is unreachable (see HOME-divergence above).
-- [ ] **Reap the root when no live jail uses the image** — extend the existing
+- [x] **Reap the root when no live jail uses the image** — extend the existing
   live-image enumeration (`FindReferencedBuildRoots` pattern in `sweep.go`, which
   is already tri-state-safe) so `yolo prune` removes `roots/<sha16>` entries whose
   store path no live jail depends on. Mirror the fail-safe: liveness unknown →
   delete nothing.
-- [ ] **Fix `BuildOCIImage`** (`internal/image/build.go:23-30`) — the check
+- [x] **Fix `BuildOCIImage`** (`internal/image/build.go:23-30`) — the check
   preflight's `defer os.Remove(outPath)` is acceptable *only* because check
   doesn't load an image to run; leave it, but add a code comment tying it to this
   invariant so a future refactor doesn't copy the pattern into a load path.
@@ -212,30 +232,32 @@ root, and (c) only then invokes a **bounded** `nix-collect-garbage` (or
 
 ### 2. Auto-GC safety net (min-free/max-free) — ONLY after §1
 
-- [ ] **Configure host nix `min-free`/`max-free`** so the store self-limits
-  instead of relying on a manual blanket GC. Today `min-free = 0`, `max-free =
-  MAX` (measured) — auto-GC is effectively off. Setting e.g. `min-free = 50 GiB`,
-  `max-free = 200 GiB` makes the daemon free *unrooted* paths automatically when
-  space runs low. **This is safe if and only if §1 holds** — auto-GC honors GC
-  roots, so a rooted image closure survives; an unrooted one (today) would be the
-  first casualty, on a timer. Ordering is not optional.
-- [ ] This is **host nix.conf**, not a yolo artifact — it is a `/etc/nix/nix.conf`
-  (or Determinate `nix.custom.conf`) change the **human** must make. yolo can
-  *detect and warn* (extend `yolo check` / `yolo doctor`: if a jail runs against
-  the host daemon and `min-free == 0`, print a hint), but must not edit host
-  nix.conf itself. **Flag for human/host.**
+- [ ] **HOST-OWNED — Configure host nix `min-free`/`max-free`** so the store
+  self-limits instead of relying on a manual blanket GC. Today `min-free = 0`,
+  `max-free = MAX` (measured) — auto-GC is effectively off. Setting e.g.
+  `min-free = 50 GiB`, `max-free = 200 GiB` makes the daemon free *unrooted*
+  paths automatically when space runs low. **This is safe if and only if §1
+  holds** — auto-GC honors GC roots, so a rooted image closure survives; an
+  unrooted one (today) would be the first casualty, on a timer. Ordering is not
+  optional. **Not shipped in code — the maintainer must make this nix.conf edit.**
+- [x] **DONE (detect + warn)** — This is **host nix.conf**, not a yolo artifact:
+  a `/etc/nix/nix.conf` (or Determinate `nix.custom.conf`) change the **human**
+  must make. yolo does not edit it; instead `yolo check` now reads the daemon's
+  effective `min-free` and warns with the exact remediation when it is 0 (the
+  §2 code that landed). The nix.conf edit itself remains host-owned (bullet
+  above).
 - **Verification:** host-only. In-jail, `nix config show` reads the daemon's
   effective config (already works) so `yolo check` can *observe* the values, but
   changing them is host-side.
 
 ### 3. Bounded, rooting-aware store GC in `yolo prune` — after §1 and §2
 
-- [ ] Add an **opt-in** prune section (e.g. `--nix-gc`, default OFF) that runs a
+- [x] Add an **opt-in** prune section (e.g. `--nix-gc`, default OFF) that runs a
   bounded `nix store gc --max <N>` after confirming every live jail's image
   closure is rooted (§1). Target file: `internal/prune/` (new `nixgc.go`) wired
   into `prune.go:Run` and `commands.go:runPrune`. Reuse the tri-state liveness
   probe; **fail-safe**: liveness unknown → skip GC entirely.
-- [ ] Never a blanket `nix-collect-garbage -d`. The section's contract: "free
+- [x] Never a blanket `nix-collect-garbage -d`. The section's contract: "free
   unrooted store paths up to N bytes; never touch a path a live jail's rooted
   image needs." Document it next to the existing "never carelessly GC host store"
   rule.
@@ -244,21 +266,21 @@ root, and (c) only then invokes a **bounded** `nix-collect-garbage` (or
 
 ### 4. Log / overlay / cache lifecycle — independent, lower priority
 
-- [ ] **In-jail agent logs** (`~/.claude/projects/`, `~/.copilot/logs/`,
+- [x] **In-jail agent logs** (`~/.claude/projects/`, `~/.copilot/logs/`,
   `~/.cache/gemini-cli/logs/`) have no reaper. Add age-based purge, ideally by
   folding the log dirs into `CachePurgeDefaultSubdirs`-style handling in
   `cachepurge.go` (they are under `~/.cache` for gemini; claude/copilot are under
   home overlays, so a separate walker keyed off `GlobalHome()` per-workspace).
   Respect the `cachePurgeForbidden` discipline — never delete live profile state.
-- [ ] **`agents/` staging** (30 MiB, per-container briefings) accumulates one dir
+- [x] **`agents/` staging** (30 MiB, per-container briefings) accumulates one dir
   per container name forever. Add a sweep tied to the same live-container
   enumeration prune already does (`FindYoloWorkspaces`): drop `agents/<name>` for
   names with no tracking file. Target: `internal/prune/`, new section.
-- [ ] **Stale out-link symlinks** in `build/` (3 of 4 dangle today). Add a sweep
+- [x] **Stale out-link symlinks** in `build/` (3 of 4 dangle today). Add a sweep
   of `build/run-result-*` symlinks whose target no longer exists — pure cleanup,
   no liveness needed (a dangling symlink protects nothing). Target:
   `internal/prune/`, small helper; safe in-jail.
-- [ ] **`cache/images` size hint** already exists (`prunecmd.go`); once §1 lands,
+- [x] **`cache/images` size hint** already exists (`prunecmd.go`); once §1 lands,
   update the mental model note there — the tars are streamed once then unused,
   but the *store closure* behind the loaded image is the real 3 GiB that must
   stay rooted, distinct from the tar.
