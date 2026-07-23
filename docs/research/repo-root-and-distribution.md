@@ -232,28 +232,30 @@ short-circuit fires).
 | **From source** (`git clone` + `just deploy`) | `go install ./cmd/yolo`; `just deploy` also writes `repo_path` | **Yes** — the checkout is the flake; `repo_path` records it | `README.md`, `Justfile` |
 | **In-image baked prefix** | `flake.nix installPrefix` bakes real-file binaries + the `share/yolo-jail` bundle at `/opt/yolo-jail` (not a mount) | **Yes** — the in-jail `yolo` resolves it via step 3, identical to a host install | `flake.nix` `installPrefix` / `corePackages` |
 | **PyPI wheel** | `tools/build-wheels` embeds only the `cmd/yolo` binary + metadata | **No** — no bundle wired (cutover did brew + goreleaser; wheel not yet) | `tools/build-wheels/main.go` |
-| **Cachix binary cache** | prebuilt image closures for `nix` substitution | **Wired but disabled** (no-op today) | below |
+| **Cachix binary cache** | prebuilt image closures for `nix` substitution | **Substituter live, cache not yet filled** (first push + Mac proof pending) | below |
 
 Two remaining notes:
 
-- **Cachix is still not enabled** (D4, human-gated). `flake.nix`'s `nixConfig`
-  substituter block is **commented out**, and `publish.yml`'s
-  `push-image-cache` job **skips** unless `CACHIX_AUTH_TOKEN` + `CACHIX_CACHE`
-  are set. See `docs/plans/handoff-cachix-cache.md`. **Even a fully-enabled
-  Cachix cache would *not* remove the flake requirement** — `nix build
-  .#ociImage` against `.` must still *evaluate the local flake* to know which
-  store paths to fetch. Cachix removes the *build*, not the *flake read* — so it
-  composes with the bundle, it doesn't replace it. (With the prebuilt bundle the
-  "build" is already just copies + a layered-image stream, so Cachix's win is
-  smaller than it was under source compilation.)
+- **Cachix substituter is enabled, cache not yet filled** (D4). `flake.nix`'s
+  `nixConfig` substituter + public key are **live** (`extra-substituters =
+  ["https://yolo-jail.cachix.org"]`, ENABLED 2026-07-20), and `publish.yml`'s
+  `push-image-cache` job runs when `CACHIX_AUTH_TOKEN` is set (the secret is
+  configured). Human-gated remainder: the first push from a Linux box and the
+  Mac-side download proof. See `docs/plans/handoff-cachix-cache.md`. **Even a
+  fully-populated Cachix cache would *not* remove the flake requirement** — `nix
+  build .#ociImage` against `.` must still *evaluate the local flake* to know
+  which store paths to fetch. Cachix removes the *build*, not the *flake read* —
+  so it composes with the bundle, it doesn't replace it. (With the prebuilt
+  bundle the "build" is already just copies + a layered-image stream, so
+  Cachix's win is smaller than it was under source compilation.)
 - **No prebuilt *jail* image** is pushed to any OCI registry for `podman pull`.
   The only registry image is a separate builder helper.
 
 **Bottom line (today):** Homebrew, the release archive, install-from-source, and
 the in-image baked prefix all resolve a buildable flake — the first two and the
 baked prefix via the prebuilt bundle, install-from-source via `repo_path`. The
-remaining gap is the **PyPI wheel** (no bundle wired) and **Cachix** (account
-not created).
+remaining gap is the **PyPI wheel** (no bundle wired) and **Cachix** (substituter
+live, but the cache is not yet filled — first push + Mac download proof pending).
 
 ---
 
@@ -320,9 +322,10 @@ actionable message. (`macos-user` with empty `packages:` needs no image at all.)
 - **PyPI wheel bundle** — the wheel (`tools/build-wheels`) still ships no bundle;
   a wheel-only install lacks a flake. Wire the same bundle in if PyPI stays a
   supported channel.
-- **D4 — Cachix** — human-gated: create the account, uncomment the `flake.nix`
-  substituter block. Composes with the bundle (still needs the local flake to
-  evaluate).
+- **D4 — Cachix** — substituter block is live in `flake.nix` and the push job
+  is wired; human-gated remainder is the first push from a Linux box + the
+  Mac-side download proof (`docs/plans/handoff-cachix-cache.md`). Composes with
+  the bundle (still needs the local flake to evaluate).
 
 **Accepted regression:** the old dev-override fast loop (live-patching the outer
 jail's binaries from a `just build-go` artifact via `/opt/yolo-jail/dist-go`) is
@@ -359,6 +362,6 @@ anchors:
 - Python wheel bundling (history): `c7e210d~1:pyproject.toml`,
   `c7e210d~1:src/cli/run_cmd.py`
 - Legacy `nix-build-root` cleanup (prune): `internal/prune/sweep.go`
-- Cachix disabled: `flake.nix` `nixConfig`, `publish.yml`,
-  `docs/plans/handoff-cachix-cache.md`
+- Cachix substituter live (cache not yet filled): `flake.nix` `nixConfig`,
+  `publish.yml`, `docs/plans/handoff-cachix-cache.md`
 - Cache fallback: `internal/image/autoload.go`

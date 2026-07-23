@@ -262,9 +262,8 @@ func jailTimeout() time.Duration {
 //
 // TestMain already knows the answer — moduleRoot() derives it from
 // runtime.Caller, independent of any cwd — so hand it to the child. A real
-// YOLO_REPO_ROOT in the environment (set inside jails and by CI) wins: it is
-// the CLI's own first-choice source and may legitimately differ from this
-// checkout, e.g. the /opt/yolo-jail bind in a nested jail.
+// YOLO_REPO_ROOT in the environment (set by CI) wins: it is the CLI's own
+// first-choice source and may legitimately differ from this checkout.
 func childRepoRootEnv() []string {
 	if repoRoot == "" || os.Getenv("YOLO_REPO_ROOT") != "" {
 		return nil

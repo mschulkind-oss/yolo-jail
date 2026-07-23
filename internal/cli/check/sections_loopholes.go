@@ -91,7 +91,7 @@ func (o *Options) reportBrokerDaemon(r *reporter) {
 		}
 		r.fail(fmt.Sprintf("loophole claude-oauth-broker: daemon unresponsive (pid=%d, socket %s, ping failed)", status.pid, socketState),
 			"Run `yolo broker restart` — typical after a "+
-				"wheel upgrade; old code still loaded in memory.")
+				"binary upgrade; old code still loaded in memory.")
 	}
 }
 

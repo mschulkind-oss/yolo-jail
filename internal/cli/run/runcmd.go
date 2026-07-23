@@ -83,9 +83,9 @@ type Options struct {
 	IsLinux bool
 	// Workspace is Path.cwd() — the directory whose jail is launched. "" => cwd.
 	Workspace string
-	// RepoRoot resolves the yolo-jail repo root for nix builds (with the
-	// installed-wheel staging invariant). Returns (path, ok); ok=false is the
-	// exit(1) branch. nil => default resolver.
+	// RepoRoot resolves the yolo-jail repo root for nix builds. Returns
+	// (path, ok); ok=false is the degraded-launch branch (D2). nil => default
+	// resolver.
 	RepoRoot func() (string, bool)
 	// PathExists tests filesystem presence. nil => os.Stat.
 	PathExists func(string) bool

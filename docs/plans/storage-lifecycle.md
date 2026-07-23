@@ -133,7 +133,7 @@ and the host.
 | Image build out-links | `build/run-result-<pid>`, check tempfile | `autoload.go`, `build.go` | removed immediately (destroys the root) | leaks a ~3.1 GiB unrooted closure per build |
 | Image cache tars | `cache/images/*.tar` | `materializeImage` | `PruneImageCache(keep=3)` via `yolo prune` (manual) | keep-newest-3; **9.49 GiB now** (3 × ~3.14 GiB) |
 | Orphan `.tmp` (crashed materialize) | `cache/images/*.tmp` | `materializeImage` temp | `PruneImageCache` always sweeps | swept every prune |
-| Build-root generations | `nix-build-root.old.*` | source-bundle staging | `PruneOrphanBuildRoots` (live-gated, 1h floor) | tri-state safe sweep; ~0 now |
+| Build-root generations (legacy) | `nix-build-root*` | pre-cutover source-bundle staging (removed) | `PruneLegacyBuildRoots` (one-shot legacy cleanup) | staging is gone; sweeps stragglers from pre-cutover installs |
 | Load sentinels | `build/last-load-<runtime>` | `AddLoadedPath` (LRU 10) | self-capping at 10 entries | tiny; but see "stale sentinel" below |
 | Per-workspace overlays | `<ws>/.yolo/home/{npm-global,local,go,…}` | entrypoint bootstrap | `yolo prune` hardlink-dedup (cross-ws) | dedup only; grows per workspace |
 | Shared download caches | `cache/{npm,go-build,uv,pip,node-gyp,…}` | in-jail tools | `PurgeCacheByAge(age>30d)` via `yolo prune` | age-purge; **npm 2.0 GiB, go-build 256 MiB, node-gyp 63 MiB** |

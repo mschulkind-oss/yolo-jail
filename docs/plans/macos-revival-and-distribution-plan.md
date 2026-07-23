@@ -336,7 +336,13 @@ options are complementary; sequence them:
    (`autoload.go:133-167`, now reachable in this scenario); the assembler drops
    the `/opt/yolo-jail:ro` bind + `YOLO_REPO_ROOT` env behind one `repoBound`
    gate; `Run` prints a soft notice instead of exiting 1. Nested-jail verified
-   both paths (normal binds + rebuild; degraded → cached image with neither). The
+   both paths (normal binds + rebuild; degraded → cached image with neither).
+   **Superseded (2026-07-23):** the prebuilt-bundle cutover removed the
+   `repoBound`-gated `/opt/yolo-jail:ro` bind and the `YOLO_REPO_ROOT` env
+   entirely — `/opt/yolo-jail` is now a **baked** install prefix (`flake.nix`
+   `installPrefix`), no `YOLO_REPO_ROOT` is injected into the jail, and the
+   in-jail CLI resolves the flake exe-relative to the baked bundle
+   (`internal/reporoot`). The `SkipBuild` degradation itself is unchanged. The
    design as originally planned:
    - `macos-user` with empty `packages:` needs no repo at all once J2 lands
      (self-exec bootstrap): defer the repo-root hard-exit until a consumer
@@ -368,6 +374,17 @@ options are complementary; sequence them:
    packaging bug was caught (reproduced against goreleaser built from source) and
    fixed. D2 landed 2026-07-21 (`8f1d612`); only D4's human-gated Cachix
    account/push/download remains in Track D.
+   **Superseded (2026-07-23) by the prebuilt-bundle cutover.** The source-tree /
+   `git archive` bundle and `stageInstalledWheel` FLAT staging (and the
+   `nix-build-root` staging dir) are **gone**. The shipped/baked bundle is now
+   "two files and a binary" — `flake.nix` + `flake.lock` + prebuilt
+   `bin/linux-{amd64,arm64}/{yolo,yolo-entrypoint,yolo-jaild,yolo-ps}` — and the
+   flake's **prebuilt short-circuit** (`builtins.pathExists ./bin/linux-<arch>`)
+   copies those binaries with no Go toolchain and no source tree. Resolution is
+   the pure `internal/reporoot.Resolve` (exe-relative `BundledSourceDirFrom`,
+   no staging). The design points below are the historical D3 plan; read them
+   as the *source-bundle* era, not the current model
+   (`docs/research/repo-root-and-distribution.md` is authoritative):
    - Define the bundled layout: `share/yolo-jail/` must contain the `goSrc`
      fileset the flake needs (`flake.nix:65-80`: go.mod, go.sum, `vendor/`,
      `cmd/`, `internal/`, `bundled_loopholes/`) **plus** `flake.nix`/

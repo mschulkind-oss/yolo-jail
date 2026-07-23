@@ -499,7 +499,8 @@ Each stage ends with a nested-jail verification (per repo `CLAUDE.md`).
 - **`yolo config render` runs INSIDE the jail too, not just host-side.** It's the
   in-jail "what is my config, and why?" aid the operating agent needs while
   working — `render`/`--explain` on demand, read-only (no boundary concern). The
-  in-jail `yolo` already ships (mounted from `/opt/yolo-jail`), so this is wiring,
+  in-jail `yolo` already ships (baked into the image at `/opt/yolo-jail` via
+  `flake.nix` `installPrefix`, not mounted), so this is wiring,
   not a new surface — with one requirement to honor: the render's *inputs* must be
   reachable in the jail. The composed layers (defaults+managed from the image, the
   staged host layer, the workspace config, and the overlay sidecar) are all

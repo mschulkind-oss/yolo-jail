@@ -106,9 +106,9 @@ if the human reads the diff. Object-form version/url specs also bypass the
 
 ### Vector B — planted `flake.nix` + `go.mod` in the workspace (repoRoot hijack)
 
-`resolveRepoRoot` step 2 (`internal/cli/run/probes.go:39-51`) walks **up from
-cwd**, selecting the first directory that contains **both** `flake.nix` and
-`go.mod`. The workspace lives under `/Users/Shared/yolo/<name>` and the operator
+`resolveRepoRoot` step 2 (`internal/reporoot/reporoot.go`, `Resolve`) walks
+**up from cwd**, selecting the first directory that contains **both**
+`flake.nix` and `go.mod`. The workspace lives under `/Users/Shared/yolo/<name>` and the operator
 typically launches `yolo` from inside it, while the real yolo-jail checkout lives
 elsewhere (e.g. `~/code/yolo-jail`) and is *not* an ancestor of the workspace. So
 a `flake.nix`+`go.mod` pair planted at the workspace root is found first and
@@ -116,9 +116,9 @@ becomes `repoRoot` — the host user then runs `nix build --impure
 --accept-flake-config` against an **attacker-authored flake**. There is **no
 config-diff prompt** here: a stray `flake.nix` is not the config file.
 
-The double-file requirement (comment at `probes.go:36-38`) exists to stop a bare
-`flake.nix` from hijacking a *user's own* flake project — it does **not** defend
-against a deliberately planted pair. Consequences of a poisoned flake:
+The double-file requirement (comment at `reporoot.go:28-30`) exists to stop a
+bare `flake.nix` from hijacking a *user's own* flake project — it does **not**
+defend against a deliberately planted pair. Consequences of a poisoned flake:
 
 - **`--accept-flake-config`** (`internal/darwinpkg/darwinpkg.go:41-45`) makes nix
   honor the flake's own `nixConfig` substituters + `extra-trusted-public-keys`.

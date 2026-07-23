@@ -54,7 +54,7 @@ ACL to `root` instead of you.
 - **The source / image.** How an installed `yolo` finds the repo to build the
   OCI image is [../../research/repo-root-and-distribution.md](../../research/repo-root-and-distribution.md).
   Current state: a from-source install resolves via `repo_path` (written by
-  `just deploy`, D1) or the shipped source bundle (D3, brew/release archive).
+  `just deploy`, D1) or the shipped prebuilt bundle (brew/release archive).
   **Cachix (D4) is enabled in `flake.nix` (`nixConfig` substituter live) but the
   cache only fills on a `v*` release or a manual `just cachix-push`** — so today
   the Mac most likely **builds from source**. macos-user with empty `packages:`

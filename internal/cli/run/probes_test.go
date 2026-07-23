@@ -44,10 +44,9 @@ func TestResolveRepoRootEnvVar(t *testing.T) {
 }
 
 func TestResolveRepoRootEnvVarEmptyDirRejected(t *testing.T) {
-	// YOLO_REPO_ROOT set but the dir has neither flake.nix nor the entrypoint
-	// source: the env branch must NOT accept it (the nested-jail empty-bind
-	// case). With no cwd flake.nix and no bundled dir / user config, it falls
-	// through to the error.
+	// YOLO_REPO_ROOT set but the dir has neither flake.nix nor go.mod: the env
+	// branch must NOT accept it. With no cwd flake.nix and no bundled dir /
+	// user config, it falls through to the error.
 	empty := t.TempDir()
 	// cwd during test is the package dir (has no flake.nix up to /). Point HOME
 	// at an isolated dir so the user-config branch can't hit a real config.

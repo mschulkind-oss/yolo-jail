@@ -34,15 +34,14 @@ func TestChildRepoRootEnv(t *testing.T) {
 	}
 
 	// A real YOLO_REPO_ROOT wins — it is the CLI's own first-choice source and
-	// may legitimately differ from this checkout (the /opt/yolo-jail bind in a
-	// nested jail).
-	t.Setenv("YOLO_REPO_ROOT", "/opt/yolo-jail")
+	// may legitimately differ from this checkout (e.g. a CI override).
+	t.Setenv("YOLO_REPO_ROOT", "/some/other/checkout")
 	if got := childRepoRootEnv(); got != nil {
 		t.Errorf("preexisting YOLO_REPO_ROOT must not be clobbered, got %v", got)
 	}
 
 	// os.Environ() carries the real value through to the child unchanged.
-	if os.Getenv("YOLO_REPO_ROOT") != "/opt/yolo-jail" {
+	if os.Getenv("YOLO_REPO_ROOT") != "/some/other/checkout" {
 		t.Error("t.Setenv did not take effect")
 	}
 }

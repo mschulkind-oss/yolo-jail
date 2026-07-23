@@ -92,13 +92,19 @@ Marked here so the "start here" arrow points at the real next item.
   Verified: `internal/repopath/` exists, wired into the install recipe.
 - ✅ **D2 — graceful launch degradation** (2026-07-21) — repo-root resolution is
   no longer a hard gate. When it fails the launch proceeds degraded on a
-  cached/loaded image (`image.AutoLoadOptions.SkipBuild`), the assembler drops
-  the `/opt/yolo-jail:ro` bind + `YOLO_REPO_ROOT` behind one `repoBound` gate,
-  and `Run` prints a soft notice instead of exiting 1 (commit 8f1d612).
-  Nested-jail verified both paths: normal binds + rebuilds; degraded runs the
-  cached image with neither.
+  cached/loaded image (`image.AutoLoadOptions.SkipBuild`), and `Run` prints a
+  soft notice instead of exiting 1 (commit 8f1d612). Nested-jail verified both
+  paths: normal launch + rebuilds; degraded runs the cached image.
+  *(The intermediate `repoBound`-gated `/opt/yolo-jail:ro` bind + `YOLO_REPO_ROOT`
+  env described in the original commit were later removed entirely by the
+  prebuilt-bundle cutover — 2026-07-23: `/opt/yolo-jail` is now a baked install
+  prefix and no `YOLO_REPO_ROOT` is injected into the jail.)*
 - ✅ **D3** (2026-07-20) — Go-era source bundle ships so checkout-less installs
-  build the image. Verified the staged tree evaluates.
+  build the image. Verified the staged tree evaluates. *(Superseded 2026-07-23:
+  the source-tree/`git archive` bundle + `stageInstalledWheel` staging were
+  replaced by the prebuilt "two files and a binary" bundle — `flake.nix` +
+  `flake.lock` + prebuilt `bin/linux-<arch>/`, consumed by the flake's prebuilt
+  short-circuit with no staging. See `docs/research/repo-root-and-distribution.md`.)*
 - ✅ **CI green** (2026-07-20) — the `TestShimPersistence` failure (shim
   mount-anchor / `ClearContents`) is fixed and the four test-merges landed; the
   full CI run (both arches, integration incl.) passed.

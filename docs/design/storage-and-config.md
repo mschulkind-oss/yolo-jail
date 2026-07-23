@@ -141,7 +141,8 @@ dirs under `<workspace>/.yolo/home/`. Concurrent startup is safe
 because jails don't share writable paths.
 
 The host CLI guards against races on global storage:
-- **nix-build-root:** atomic rename (build in temp dir, swap in)
+- **image build:** the flake builds in place (`cmd.Dir = repoRoot`, no
+  staging dir); Nix's own store handles concurrent builds atomically
 - **run-result link:** per-PID unique path prevents cross-build deletion
 
 ---

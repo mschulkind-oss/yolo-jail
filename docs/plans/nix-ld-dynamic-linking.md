@@ -99,6 +99,6 @@ Independent image change; do it as its own sequenced PR with a nested-jail gate
 after each mutation (flake change → rebuild → verify node/MCP start env-free →
 delete a wrapper export → re-verify). Per AGENTS.md, a nested `yolo -- bash`
 rebuilds the flake and runs the new image, so every one of those gates runs
-in-jail on the dev-override path — no host session needed to validate. The
+in-jail via the nested-jail rebuild — no host session needed to validate. The
 final host `just load` only ships the proven change to the maintainer's own
 jails.
