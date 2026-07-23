@@ -99,7 +99,8 @@ severity of stale bespoke output that survives, absent a migration step.
 | Gemini settings | `~/.gemini/settings.json` (+ sidecar) | `agent_configs.go ConfigureGemini` | MCP reconciled via sidecar; some keys `setDefault` (see §4.5 bug) | MED |
 | Opencode settings | `~/.config/opencode/opencode.json` (+ sidecar) | `agent_configs.go ConfigureOpencode` | MCP reconciled via sidecar; force-set `permission` | MED |
 | Codex config | `~/.codex/config.toml` (+ sidecar) | `codex.go ConfigureCodex` | MCP reconciled via sidecar; force-set approval/sandbox | MED |
-| Copilot MCP/LSP/config | `~/.copilot/mcp-config.json`, `lsp-config.json`, `config.json` | `agent_configs.go ConfigureCopilot` | full overwrite-from-scratch every boot | **NONE** |
+| Copilot MCP/LSP/config | `~/.copilot/mcp-config.json`, `lsp-config.json`, `config.json` | `agent_configs.go ConfigureCopilot` | full overwrite-from-scratch every boot | **NONE** — ported 2026-07-23 (config: stateful; mcp/lsp: stateless `renderSurfaceComputed`) |
+| agy MCP | `~/.gemini/antigravity-cli/mcp_config.json` | `prism.go ConfigureAgyPrism` | full overwrite-from-scratch every boot | **NONE** — ported 2026-07-23 (stateless `renderSurfaceComputed`) |
 
 **Reading the risk column:**
 
@@ -356,13 +357,36 @@ seed means the corrected values are what gets baselined.
 
 ### 4.6 Copilot — NONE
 
-`mcp-config.json` / `lsp-config.json` are already full overwrite-from-scratch, so
-there is **no stale carryover** and the §3 bootstrap is a formality (the first
-render equals what overwrite would have produced anyway; still write the
-`last_render` baseline and empty overlay so steady-state capture works). No
-sidecar to orphan. `config.json` (`{"yolo": true}`) stays a write-once bootstrap
-file outside the pipeline. **Copilot is the safest first *non-agent-config*
-porting target** — port it early to exercise the bootstrap with zero stale risk.
+`config.json` (`{"yolo": true}`) is the static surface: it ported as the
+proof-of-concept non-agent-config target (`ConfigureCopilotPrism`), rendered by
+the edit-preserving stateful path exactly like pi/agy settings.
+
+`mcp-config.json` / `lsp-config.json` are the **dynamic siblings** — full
+overwrite-from-scratch every boot, no edit preserved. **Ported 2026-07-23** onto
+a distinct, deliberately DIFFERENT prism path: `renderSurfaceComputed`, a
+*stateless* render that composes the surface through the engine and writes ONLY
+the surface file — **no `last_render`, no overlay, no host source**. This is the
+key design point: a pure-overwrite sibling must NOT go through the stateful path
+(`renderSurfaceStateful`), because that path would begin capturing in-jail edits
+into an overlay, silently converting an intentional overwrite into an
+edit-preserving surface. The live table (`LoadMCPServers` / reshaped
+`LoadLSPServers`) rides the **computed layer**; each surface carries only an
+empty-wrapper `Default` (`{"mcpServers":{}}` / `{"lspServers":{}}`) so the file
+keeps its shape when the table is empty and `yolo config render` has a
+meaningful preview. The bespoke `writeCopilotDynamicConfigs` is deleted.
+
+Behavior is unchanged in substance (same content, same overwrite semantics). Two
+inert byte-level diffs, both invisible to copilot (it re-parses as JSON) and both
+already accepted for every other prism surface: keys now sort alphabetically (the
+shared JSON codec vs. the old `OrderedMap` insertion order), and a commandless LSP
+entry omits its `command` rather than emitting an explicit `null` (an RFC-7386
+null-leaf the engine drops — such a server is nonfunctional either way).
+
+**agy's `mcp_config.json`** (Google Antigravity CLI) is the same shape at a
+different path and ported the same way (`renderSurfaceComputed(e, "agy", "mcp",
+…)`) in the same change; agy's static `settings.json` was already on the stateful
+path (§4, born-on-prism). Verified at real nested-jail boot (sorted keys,
+computed servers present, no sidecars written for the sibling surfaces).
 
 ### 4.7 Orphan-file cleanup (all MED surfaces)
 
@@ -480,7 +504,13 @@ before any surface ports:**
   untrusted and would re-seed every boot). The `/workspace/mise.toml` retire
   surgery and the `mise uninstall` subprocess stay bespoke boot side effects (the
   prism never owns `/workspace` files, §5.3).
+- **MCP/LSP siblings** (copilot `mcp-config.json`/`lsp-config.json`, agy
+  `mcp_config.json`): ✅ **Ported (2026-07-23)** onto the *stateless*
+  `renderSurfaceComputed` path (§4.6) — pure per-boot overwrites, no sidecars,
+  the live table on the computed layer. `writeCopilotDynamicConfigs` deleted.
 - **git/jj identity**: the scoped git-kv codec (§4.2), owned-keyspace reconcile. ⏳
+  See `docs/design/identity-prism-decision.md` for the open decision (including
+  whether to drop jj entirely).
 
 **Phase C (deletion, serial, last).** ✅ **Done for the agent-config surfaces
 (2026-07-22).**
@@ -494,8 +524,10 @@ before any surface ports:**
   first-migration boot (§4.7). ✅ mise ported (2026-07-22) — the standalone §4.1
   scrub and the `GenerateMiseConfig` in-place editor are deleted; the surgical
   helpers (`miseBaseTools`, `bakedRuntimes`, `workspacePinsTool`, `miseTomlKey`,
-  `splitKeepNL`) retired with it. ⏳ still pending: MCP/LSP siblings and git/jj
-  identity.
+  `splitKeepNL`) retired with it. ✅ MCP/LSP siblings ported (2026-07-23) — the
+  bespoke `writeCopilotDynamicConfigs` deleted, the siblings rendered via the
+  stateless `renderSurfaceComputed` path (§4.6). ⏳ still pending: git/jj identity
+  (see `docs/design/identity-prism-decision.md`).
 
 The **clear-and-rebuild** command (§5) can land any time in Phase A/B as an
 operator tool; it is not on the critical path — the automatic §3 bootstrap is.
