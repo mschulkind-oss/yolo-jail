@@ -97,7 +97,6 @@ func TestAssembleRunCmdPodmanLinuxGolden(t *testing.T) {
 		cfg:           cfg,
 		rt:            "podman",
 		cname:         "yolo-ws-abcd1234",
-		repoRoot:      "/repo",
 		agentsList:    []string{"claude"},
 		agentSpecs:    agents.ResolveAgents([]string{"claude"}),
 		agentsPath:    "/agents/yolo-ws-abcd1234",
@@ -153,7 +152,6 @@ func TestAssemblePlatformSeamsInjectable(t *testing.T) {
 				cfg:          newConfig("agents", []any{"claude"}, "security", sec),
 				rt:           "podman",
 				cname:        "yolo-ws-abcd1234",
-				repoRoot:     "/repo",
 				agentsList:   []string{"claude"},
 				agentSpecs:   agents.ResolveAgents([]string{"claude"}),
 				agentsPath:   "/agents/yolo-ws-abcd1234",
@@ -197,7 +195,6 @@ func relocationInput(rt, wsState string, rels []config.CacheRelocation) *assembl
 		cfg:              newConfig("agents", []any{"claude"}, "security", sec),
 		rt:               rt,
 		cname:            "yolo-ws-abcd1234",
-		repoRoot:         "/repo",
 		agentsList:       []string{"claude"},
 		agentSpecs:       agents.ResolveAgents([]string{"claude"}),
 		agentsPath:       "/agents/yolo-ws-abcd1234",
@@ -350,13 +347,13 @@ func TestAssembleWritableHomeDirsNoneMatchesGolden(t *testing.T) {
 	}
 }
 
-// TestAssembleDegradedLaunchOmitsRepoBind is the D2 (graceful launch
-// degradation) regression: when repo-root resolution failed (in.repoRoot ==
-// ""), the argv must NOT bind a bogus /opt/yolo-jail source tree and must NOT
-// set YOLO_REPO_ROOT — otherwise the in-jail CLI would trust an empty/foreign
-// mount as the repo. --workdir /workspace stays (it's the container cwd, not
-// the source bind).
-func TestAssembleDegradedLaunchOmitsRepoBind(t *testing.T) {
+// TestAssembleNeverBindsRepoSource guards the invariant that replaced the old
+// D2 repo-bind gate: the in-jail CLI now finds its repo via the baked
+// /opt/yolo-jail bundle (exe-relative, internal/reporoot), so the assembled
+// argv must NEVER bind a /opt/yolo-jail source tree and NEVER set
+// YOLO_REPO_ROOT — regardless of host repo-root resolution. --workdir
+// /workspace stays (it's the container cwd, unrelated to any source bind).
+func TestAssembleNeverBindsRepoSource(t *testing.T) {
 	ws := "/ws"
 	home := t.TempDir()
 	t.Setenv("HOME", home)
@@ -369,7 +366,6 @@ func TestAssembleDegradedLaunchOmitsRepoBind(t *testing.T) {
 		cfg:          newConfig("agents", []any{"claude"}, "security", sec),
 		rt:           "podman",
 		cname:        "yolo-ws-abcd1234",
-		repoRoot:     "", // degraded: no source tree resolved
 		agentsList:   []string{"claude"},
 		agentSpecs:   agents.ResolveAgents([]string{"claude"}),
 		agentsPath:   "/agents/yolo-ws-abcd1234",
@@ -379,17 +375,17 @@ func TestAssembleDegradedLaunchOmitsRepoBind(t *testing.T) {
 		mountTargets: map[string]struct{}{},
 	})
 
-	if slices.Contains(got, "YOLO_REPO_ROOT=/opt/yolo-jail") {
-		t.Error("degraded launch set YOLO_REPO_ROOT=/opt/yolo-jail; want omitted")
-	}
 	for _, a := range got {
+		if strings.HasPrefix(a, "YOLO_REPO_ROOT=") {
+			t.Errorf("argv set %q; YOLO_REPO_ROOT must never be present", a)
+		}
 		if strings.HasSuffix(a, ":/opt/yolo-jail:ro") {
-			t.Errorf("degraded launch bound a repo source at %q; want no /opt bind", a)
+			t.Errorf("argv bound a repo source at %q; want no /opt bind", a)
 		}
 	}
 	// --workdir /workspace must still be present.
 	if i := slices.Index(got, "--workdir"); i < 0 || i+1 >= len(got) || got[i+1] != "/workspace" {
-		t.Errorf("--workdir /workspace missing on degraded launch; argv: %v", got)
+		t.Errorf("--workdir /workspace missing; argv: %v", got)
 	}
 }
 
@@ -477,13 +473,12 @@ func podmanLinuxGolden(home string) []string {
 		"-e", "YOLO_MCP_PRESETS=[]",
 		"-e", "YOLO_AGENTS=[\"claude\"]",
 		"-e", "YOLO_RUNTIME=podman",
-		"-e", "YOLO_REPO_ROOT=/opt/yolo-jail",
 	)
 	// yolo-user-env.sh mount.
 	add("-v", wsState+"/yolo-user-env.sh:/home/agent/.config/yolo-user-env.sh")
-	// repo mount (repoRoot has no flake.nix in fixture, workspace isn't a yolo
-	// source tree → falls back to workspace).
-	add("--workdir", "/workspace", "-v", ws+":/opt/yolo-jail:ro")
+	// container cwd only — no repo source bind (the image bakes the flake bundle
+	// at /opt/yolo-jail; internal/reporoot resolves it exe-relative in-jail).
+	add("--workdir", "/workspace")
 	// podman nesting (host branch; /dev/net/tun absent).
 	add("--security-opt", "label=disable",
 		"--device", "/dev/fuse",

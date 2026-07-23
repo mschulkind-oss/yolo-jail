@@ -11,7 +11,6 @@ import (
 	"strings"
 	"time"
 
-	"github.com/mschulkind-oss/yolo-jail/internal/agents"
 	"github.com/mschulkind-oss/yolo-jail/internal/jsonx"
 )
 
@@ -41,11 +40,6 @@ func hostServiceEnvVar(serviceName string) string {
 	s := nonAlnumRe.ReplaceAllString(serviceName, "_")
 	s = strings.Trim(s, "_")
 	return "YOLO_SERVICE_" + strings.ToUpper(s) + "_SOCKET"
-}
-
-// workspaceIsYoloSourceTree delegates to the agents helper.
-func workspaceIsYoloSourceTree(workspace string) bool {
-	return agents.WorkspaceIsYoloSourceTree(workspace)
 }
 
 // acMaterialize copies src into

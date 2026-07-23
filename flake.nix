@@ -74,33 +74,52 @@
             ++ pkgs.lib.optionals (builtins.pathExists ./bundled_loopholes) [ ./bundled_loopholes ]
           );
         };
-        goBinaries = pkgs.stdenv.mkDerivation {
-          pname = "yolo-jail-go";
-          version = "0-dev";
-          src = goSrc;
-          nativeBuildInputs = [ pkgs.go ];
-          # Hermetic: no network in the Nix sandbox. Vendored deps (or an
-          # empty module graph) satisfy `-mod` without a proxy fetch.
-          buildPhase = ''
-            runHook preBuild
-            export HOME=$TMPDIR
-            export GOCACHE=$TMPDIR/go-cache
-            export GOFLAGS=''${GOFLAGS:-}
-            export CGO_ENABLED=0
-            export GOOS=linux
-            export GOARCH=${goArch}
-            [ -d vendor ] && export GOFLAGS="-mod=vendor $GOFLAGS" || export GOPROXY=off
-            mkdir -p $out/bin
-            for d in cmd/*/; do
-              name="$(basename "$d")"
-              echo "go build $name -> $out/bin/$name (linux/${goArch})"
-              go build -trimpath -o "$out/bin/$name" "./$d"
-            done
-            runHook postBuild
-          '';
-          dontInstall = true;
-          dontFixup = true;
-        };
+        # Prebuilt short-circuit: if the flake source carries
+        # ./bin/linux-${goArch} (a shipped or baked bundle — flake.nix +
+        # flake.lock + static binaries), consume those instead of compiling.
+        # The repo never commits bin/, and a git flake only ever sees tracked
+        # files, so an in-repo build (self-hosting: `yolo -- bash` from
+        # /workspace) always compiles from source; a path: flake (the shipped
+        # tarball / the baked in-image bundle) sees the binaries and skips the
+        # Go toolchain and source tree entirely. One flake, one resolution
+        # method, two outcomes decided purely by what is on disk — this is what
+        # makes "two files and a binary" build the same image the source tree
+        # does.
+        prebuiltBinDir = ./. + "/bin/linux-${goArch}";
+        goBinaries =
+          if builtins.pathExists prebuiltBinDir then
+            pkgs.runCommand "yolo-jail-go-prebuilt" { } ''
+              mkdir -p $out/bin
+              cp ${prebuiltBinDir}/* $out/bin/
+              chmod +x $out/bin/*
+            ''
+          else pkgs.stdenv.mkDerivation {
+            pname = "yolo-jail-go";
+            version = "0-dev";
+            src = goSrc;
+            nativeBuildInputs = [ pkgs.go ];
+            # Hermetic: no network in the Nix sandbox. Vendored deps (or an
+            # empty module graph) satisfy `-mod` without a proxy fetch.
+            buildPhase = ''
+              runHook preBuild
+              export HOME=$TMPDIR
+              export GOCACHE=$TMPDIR/go-cache
+              export GOFLAGS=''${GOFLAGS:-}
+              export CGO_ENABLED=0
+              export GOOS=linux
+              export GOARCH=${goArch}
+              [ -d vendor ] && export GOFLAGS="-mod=vendor $GOFLAGS" || export GOPROXY=off
+              mkdir -p $out/bin
+              for d in cmd/*/; do
+                name="$(basename "$d")"
+                echo "go build $name -> $out/bin/$name (linux/${goArch})"
+                go build -trimpath -o "$out/bin/$name" "./$d"
+              done
+              runHook postBuild
+            '';
+            dontInstall = true;
+            dontFixup = true;
+          };
 
         # Extra packages from project config (passed via YOLO_EXTRA_PACKAGES env var).
         # String forms:
@@ -554,59 +573,50 @@
           withNestedPodman = false;
         };
 
-        # Use pkgs.writeTextFile (host) instead of imagePkgs.writeShellScriptBin
-        # so building these wrappers does not require a Linux builder on macOS.
-        # The shebang is hardcoded to imagePkgs.bashInteractive's Linux store
-        # path: writeTextFile only emits text on the host, but the shebang
-        # string transitively pulls Linux bash into the wrapper's closure
-        # (fetched from the binary cache) so the wrapper is self-contained
-        # and doesn't rely on PATH or /usr/bin/env existing in the image.
+        # ── Baked install prefix (/opt/yolo-jail) ─────────────────────────
+        # ONE derivation lays down the entire in-jail install, mirroring a
+        # host install (Homebrew/tarball) so the exe-relative resolver
+        # (internal/reporoot) finds the flake bundle the SAME way inside and
+        # outside the jail — one layout, one resolution method. Contents:
+        #
+        #   /opt/yolo-jail/bin/<binary>              REAL FILES (see below)
+        #   /opt/yolo-jail/share/yolo-jail/flake.nix
+        #   /opt/yolo-jail/share/yolo-jail/flake.lock
+        #   /opt/yolo-jail/share/yolo-jail/bin/linux-<arch>/<binary>
+        #   /bin/<binary>            → /opt/yolo-jail/bin/<binary>  (symlink)
+        #
+        # The binaries under /opt/yolo-jail/bin are COPIED, not symlinked into
+        # goBinaries: a symlink would make /proc/self/exe (os.Executable)
+        # resolve through to goBinaries' own store path, which has no
+        # share/yolo-jail sibling — the bundle would then be undiscoverable.
+        # Copying keeps the binary co-located with the flake bundle in ONE
+        # store path, so exeDir/../share/yolo-jail always resolves. The
+        # dev-override (/opt/yolo-jail/dist-go) fast loop is GONE: iteration
+        # now goes through a real image rebuild in a nested jail (accepted
+        # regression). goprobe is excluded — it is a dev-only deployment
+        # tripwire that must never reach the runtime PATH.
+        shippedBinaries = [ "yolo" "yolo-entrypoint" "yolo-jaild" "yolo-ps" ];
+        installPrefix = pkgs.runCommand "yolo-jail-install-prefix" { } ''
+          mkdir -p $out/opt/yolo-jail/bin \
+                   $out/opt/yolo-jail/share/yolo-jail/bin/linux-${goArch} \
+                   $out/bin
 
-        # Entrypoint wrapper — prefers the dev override at
-        # /opt/yolo-jail/dist-go/ (live-mount iteration, no image rebuild)
-        # then falls back to the baked Go binary.
-        entrypoint = pkgs.writeTextFile {
-          name = "yolo-entrypoint";
-          executable = true;
-          destination = "/bin/yolo-entrypoint";
-          text = ''
-            #!${imagePkgs.bashInteractive}/bin/bash
-            dev_override="/opt/yolo-jail/dist-go/linux-${goArch}/yolo-entrypoint"
-            if [ -x "$dev_override" ]; then
-              exec "$dev_override" "$@"
-            fi
-            exec ${goBinaries}/bin/yolo-entrypoint "$@"
-          '';
-        };
+          # The self-contained flake bundle — "two files and a binary" — that
+          # a nested `yolo` rebuilds into the very image it is running from
+          # (when cwd is not a source checkout). flake.nix hits its own
+          # prebuilt short-circuit (builtins.pathExists ./bin/linux-<arch>),
+          # so this bundle reproduces THIS image without a Go toolchain.
+          cp ${./flake.nix} $out/opt/yolo-jail/share/yolo-jail/flake.nix
+          cp ${./flake.lock} $out/opt/yolo-jail/share/yolo-jail/flake.lock
 
-        # In-jail yolo CLI — prefers the dev override, then the baked
-        # Go binary.
-        yoloCli = pkgs.writeTextFile {
-          name = "yolo";
-          executable = true;
-          destination = "/bin/yolo";
-          text = ''
-            #!${imagePkgs.bashInteractive}/bin/bash
-            dev_override="/opt/yolo-jail/dist-go/linux-${goArch}/yolo"
-            if [ -x "$dev_override" ]; then
-              exec "$dev_override" "$@"
-            fi
-            exec ${goBinaries}/bin/yolo "$@"
-          '';
-        };
-
-        # Expose all Go cmd/* binaries (except yolo and yolo-entrypoint,
-        # which have their own wrappers with dev-override logic, and goprobe,
-        # which is a dev-only deployment tripwire and must not pollute the
-        # runtime PATH) in /bin/.
-        goBinariesLinks = pkgs.runCommand "go-bin-links" { } ''
-          mkdir -p $out/bin
-          for bin in ${goBinaries}/bin/*; do
-            name=$(basename "$bin")
-            case "$name" in
-              yolo|yolo-entrypoint|goprobe) continue ;;
-            esac
-            ln -s "$bin" "$out/bin/$name"
+          for name in ${builtins.concatStringsSep " " shippedBinaries}; do
+            src="${goBinaries}/bin/$name"
+            [ -e "$src" ] || continue
+            cp "$src" "$out/opt/yolo-jail/bin/$name"
+            chmod +x "$out/opt/yolo-jail/bin/$name"
+            cp "$src" "$out/opt/yolo-jail/share/yolo-jail/bin/linux-${goArch}/$name"
+            chmod +x "$out/opt/yolo-jail/share/yolo-jail/bin/linux-${goArch}/$name"
+            ln -s "/opt/yolo-jail/bin/$name" "$out/bin/$name"
           done
         '';
 
@@ -614,9 +624,7 @@
         # integration/ actually touches, plus POSIX essentials.
         # Shared between the full and minimal image variants.
         corePackages = [
-          entrypoint
-          yoloCli
-          goBinariesLinks
+          installPrefix
           imagePkgs.bashInteractive
           imagePkgs.coreutils-full
           imagePkgs.git
@@ -710,7 +718,9 @@
 
               # Pre-create mountpoint directories for --read-only root filesystem.
               # With --read-only, the OCI runtime cannot create these on the fly.
-              mkdir -p ./home/agent ./workspace ./tmp ./opt/yolo-jail ./mise
+              # /opt/yolo-jail is NOT here: it is baked content (installPrefix),
+              # not a bind mount, so the OCI layer already provides it.
+              mkdir -p ./home/agent ./workspace ./tmp ./mise
               mkdir -p ./ctx/host-claude ./ctx/host-nvim-config
               mkdir -p ./nix/var/nix/daemon-socket
 
@@ -867,6 +877,12 @@
         # cross-compiled with no Linux builder. Buildable in-jail today to
         # prove the channel; baked into the image at Stage 10/11.
         packages.goBinaries = goBinaries;
+        # The baked install prefix (/opt/yolo-jail bin + share bundle + /bin
+        # symlinks) as a standalone package: builds in seconds off cached
+        # goBinaries, so tests and humans can assert the exe-relative layout
+        # (real-file bin/, share/yolo-jail/flake.nix, bin/linux-<arch>/) without
+        # streaming a full image.
+        packages.installPrefix = installPrefix;
         # The /lib symlink farm alone — buildable in seconds, so tests and
         # humans can assert lib discovery (e.g. that a "foo.dev" package
         # spec still lands libfoo.so in /lib) without building an image.

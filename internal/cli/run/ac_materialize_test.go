@@ -56,7 +56,6 @@ func TestAppleContainerMaterializesSingleFiles(t *testing.T) {
 		cfg:          cfg,
 		rt:           "container",
 		cname:        "yolo-ws-abcd1234",
-		repoRoot:     "/repo",
 		agentsList:   []string{"claude"},
 		agentSpecs:   specs,
 		agentsPath:   agentsPath,

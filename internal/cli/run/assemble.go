@@ -25,7 +25,6 @@ type assembleInput struct {
 	cfg          *jsonx.OrderedMap
 	rt           string
 	cname        string
-	repoRoot     string
 	agentsList   []string
 	agentSpecs   []agents.AgentSpec
 	agentsPath   string // AGENTS_DIR/<cname> (briefings + skills staging)
@@ -110,11 +109,6 @@ func (o *Options) assembleRunCmd(in *assembleInput) []string {
 	normalizedBlocked := config.NormalizeBlockedTools(cfgMap(cfg, "security"))
 	blockedConfigJSON := jsonDumps(normalizedBlocked)
 
-	// Resolve the /opt/yolo-jail source bind once: repoBound gates BOTH the
-	// mount (below) and YOLO_REPO_ROOT (in the env block). false = degraded
-	// launch (D2), no source tree to bind.
-	repoMountSrc, repoBound := o.repoMountSource(in.repoRoot)
-
 	// --- Extra mounts (config.mounts → -v host:container:ro) ---
 	var mountArgs []string
 	ctxMountsUnsafe := rt == "container"
@@ -176,7 +170,7 @@ func (o *Options) assembleRunCmd(in *assembleInput) []string {
 	}
 
 	// --- Common env block (frozen order) ---
-	runCmd = append(runCmd, o.commonEnvBlock(in, blockedConfigJSON, netMode, repoBound)...)
+	runCmd = append(runCmd, o.commonEnvBlock(in, blockedConfigJSON, netMode)...)
 
 	// --- yolo-user-env.sh (written by the lifecycle phase; mounted here) ---
 	// Apple Container can't do single-file mounts under the ws_state parent
@@ -190,15 +184,14 @@ func (o *Options) assembleRunCmd(in *assembleInput) []string {
 		runCmd = append(runCmd, "-v", userEnvFile+":/home/agent/.config/yolo-user-env.sh")
 	}
 
-	// --- repo mount for the in-jail CLI ---
-	// --workdir /workspace is unconditional (it's the container cwd). The
-	// /opt/yolo-jail:ro source bind is omitted on a degraded launch (D2): with no
-	// source tree resolved there is nothing honest to bind, and YOLO_REPO_ROOT is
-	// likewise dropped from the env block above (both gated on repoBound).
+	// --- container cwd ---
+	// The in-jail CLI no longer needs a source bind: the image bakes the flake
+	// bundle + real-file binaries at /opt/yolo-jail (installPrefix in flake.nix),
+	// so the shared resolver (internal/reporoot) finds the repo exe-relative,
+	// identically inside and outside the jail. When the workspace itself is the
+	// yolo-jail checkout (self-hosting), the cwd-walk wins instead. Either way
+	// there is nothing to bind and no YOLO_REPO_ROOT to set.
 	runCmd = append(runCmd, "--workdir", "/workspace")
-	if repoBound {
-		runCmd = append(runCmd, "-v", repoMountSrc+":/opt/yolo-jail:ro")
-	}
 
 	// --- nested-container detection ---
 	inContainer := !o.IsMacOS && (o.PathExists("/run/.containerenv") || o.PathExists("/.dockerenv"))
@@ -376,7 +369,7 @@ func (o *Options) assembleRunCmd(in *assembleInput) []string {
 
 // commonEnvBlock builds the big -e env block. Frozen contract (order and
 // content must not drift — yolo-entrypoint reads these exact vars).
-func (o *Options) commonEnvBlock(in *assembleInput, blockedConfigJSON, netMode string, repoBound bool) []string {
+func (o *Options) commonEnvBlock(in *assembleInput, blockedConfigJSON, netMode string) []string {
 	cfg := in.cfg
 	env := []string{
 		"-e", "JAIL_HOME=/home/agent",
@@ -427,13 +420,10 @@ func (o *Options) commonEnvBlock(in *assembleInput, blockedConfigJSON, netMode s
 		"-e", "YOLO_AGENTS="+jsonDumpsStrings(in.agentsList),
 		"-e", "YOLO_RUNTIME=podman",
 	)
-	// YOLO_REPO_ROOT points at the /opt/yolo-jail bind; omit it on a degraded
-	// launch (D2) where that bind was skipped, so the in-jail CLI's own
-	// resolveRepoRoot falls through to its later steps instead of trusting an
-	// absent mount.
-	if repoBound {
-		env = append(env, "-e", "YOLO_REPO_ROOT=/opt/yolo-jail")
-	}
+	// No YOLO_REPO_ROOT: the in-jail CLI resolves its repo root the same way the
+	// host does — exe-relative to the baked /opt/yolo-jail bundle, or the
+	// live-mounted /workspace checkout when self-hosting (internal/reporoot).
+	// There is no jail-special env override any more.
 	_ = netMode
 	return env
 }

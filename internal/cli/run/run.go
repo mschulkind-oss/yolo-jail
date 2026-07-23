@@ -29,11 +29,12 @@ func Run(opts Options) int {
 	// --- Phase 1: probes (repo root, storage, config, runtime) ---
 	// D2 (graceful launch degradation): repo-root resolution is no longer a hard
 	// gate. When it fails, repoRoot is "" and the launch proceeds DEGRADED — no
-	// nix build, no /opt/yolo-jail source bind, no YOLO_REPO_ROOT — running
-	// whatever image is already loaded or cached. The degraded consumers
-	// (autoLoadImage's SkipBuild, the assembler's repoBound gate) each handle the
-	// empty repoRoot; only a truly imageless host still fails, with an actionable
-	// message. macos-user with empty `packages:` never needs a repo at all.
+	// nix build — running whatever image is already loaded or cached. Only
+	// autoLoadImage's SkipBuild consumes the empty repoRoot now (the in-jail CLI
+	// finds its own repo via the baked bundle, so there is no longer a source
+	// bind or YOLO_REPO_ROOT to gate). Only a truly imageless host still fails,
+	// with an actionable message. macos-user with empty `packages:` never needs
+	// a repo at all.
 	repoRoot, _ := o.RepoRoot()
 	if err := ensureStorage(); err != nil {
 		o.pr(o.Stdout).printf("[bold red]%s[/bold red]", err.Error())
@@ -251,7 +252,6 @@ func (o *Options) runContainer(cfg *jsonx.OrderedMap, rt, repoRoot string) int {
 		cfg:              cfg,
 		rt:               rt,
 		cname:            cname,
-		repoRoot:         repoRoot,
 		agentsList:       agentsList,
 		agentSpecs:       agentSpecs,
 		agentsPath:       agentsPath,
