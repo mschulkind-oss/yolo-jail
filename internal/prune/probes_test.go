@@ -156,31 +156,6 @@ func TestPruneOldImages(t *testing.T) {
 	}
 }
 
-func TestFindReferencedBuildRootsTriState(t *testing.T) {
-	// Missing runtime → Known=false (fail safe).
-	absent := func([]string, time.Duration) ProbeResult { return ProbeResult{Ran: false} }
-	if rs := FindReferencedBuildRoots("podman", absent); rs.Known {
-		t.Error("missing runtime must yield Known=false")
-	}
-	// Live container's /opt/yolo-jail bind collected; dead container skipped.
-	root := t.TempDir()
-	mounts, _ := json.Marshal([]map[string]any{{"Destination": "/opt/yolo-jail", "Source": root}})
-	run := stubRun(map[string]string{
-		key("podman", "ps", "-a", "--format", "{{.Names}} {{.State}}"):          "yolo-live-1 Running\nyolo-dead-2 Exited\n",
-		key("podman", "inspect", "--format", "{{json .Mounts}}", "yolo-live-1"): string(mounts),
-	})
-	rs := FindReferencedBuildRoots("podman", run)
-	if !rs.Known {
-		t.Fatal("Known should be true")
-	}
-	if _, ok := rs.Paths[resolvePath(root)]; !ok {
-		t.Errorf("live bind %s not collected: %v", resolvePath(root), rs.Paths)
-	}
-	if len(rs.Paths) != 1 {
-		t.Errorf("dead container's bind should not be collected: %v", rs.Paths)
-	}
-}
-
 func TestReapRelayOrphans(t *testing.T) {
 	base := t.TempDir()
 	now := time.Now()

@@ -84,7 +84,7 @@ func TestDryRunEmptyEnv(t *testing.T) {
 		"Orphaned broker relays",
 		"Old yolo-jail images  (keep=2)",
 		"Cached image tarballs  (keep=3)",
-		"Orphaned build-root generations",
+		"Legacy build-root staging dirs",
 		"Dangling build out-links",
 		"Orphaned agent staging",
 		"Shadowed seed subtrees",
@@ -98,7 +98,7 @@ func TestDryRunEmptyEnv(t *testing.T) {
 		}
 	}
 	last := lines(&buf)[len(lines(&buf))-1]
-	wantSummary := "DRY-RUN: would reclaim 0 B via 0 hardlinks, remove 0 container(s), 0 image(s), 0 image tar(s), 0 build-root generation(s), 0 agent staging dir(s), 0 shadowed seed path(s), 0 cache file(s), 0 agent log file(s).  Re-run with --apply to execute."
+	wantSummary := "DRY-RUN: would reclaim 0 B via 0 hardlinks, remove 0 container(s), 0 image(s), 0 image tar(s), 0 legacy build-root dir(s), 0 agent staging dir(s), 0 shadowed seed path(s), 0 cache file(s), 0 agent log file(s).  Re-run with --apply to execute."
 	if last != wantSummary {
 		t.Errorf("summary =\n%q\nwant\n%q", last, wantSummary)
 	}
@@ -256,7 +256,7 @@ func TestFlagGating(t *testing.T) {
 		"Stopped yolo-* containers",
 		"Old yolo-jail images",
 		"Cached image tarballs",
-		"Orphaned build-root generations",
+		"Legacy build-root staging dirs",
 		"Shadowed seed subtrees",
 		"Hardlink dedup",
 		"Cache purge",
@@ -273,12 +273,15 @@ func TestFlagGating(t *testing.T) {
 	}
 }
 
-// TestBuildRootDeclineWhenUnknown: when the runtime can't be enumerated
-// (Ran=false), the build-root sweep AND the relay sweep decline (fail-safe),
-// printing the skip line rather than deleting.
-func TestBuildRootDeclineWhenUnknown(t *testing.T) {
+// TestSweepsDeclineWhenLivenessUnknown: when the runtime can't be enumerated
+// (Ran=false), the liveness-GATED sweeps (relays, agent-staging, image-roots)
+// decline (fail-safe), printing the skip line. The legacy build-root sweep is
+// NO LONGER liveness-gated — nothing binds those dirs any more — so it proceeds
+// regardless, reporting the orphan in this dry-run without deleting it.
+func TestSweepsDeclineWhenLivenessUnknown(t *testing.T) {
 	o, gs := baseOpts(t)
-	// An old orphan generation that WOULD be swept if liveness were known.
+	// An old legacy staging dir: the build-root sweep must report it even under
+	// unknown liveness (no gate), but the dry-run must not delete it.
 	old := filepath.Join(gs, "nix-build-root.old.deadbeef")
 	mustMkdir(t, old)
 	mustWrite(t, filepath.Join(old, "f"), []byte("x"))
@@ -290,10 +293,14 @@ func TestBuildRootDeclineWhenUnknown(t *testing.T) {
 	Run(o)
 
 	if !hasLine(&buf, "  skipped — could not enumerate running jails (podman); declining to sweep") {
-		t.Errorf("expected decline line (appears for relays AND build-roots):\n%s", buf.String())
+		t.Errorf("expected decline line (appears for relays/agent-staging/image-roots):\n%s", buf.String())
+	}
+	// Build-root sweep ran despite unknown liveness: it reports the orphan.
+	if !hasLine(&buf, "  would remove: 1 B across 1 dir(s)") {
+		t.Errorf("legacy build-root sweep should proceed under unknown liveness:\n%s", buf.String())
 	}
 	if _, err := os.Stat(old); err != nil {
-		t.Error("declined sweep must not delete the orphan generation")
+		t.Error("dry-run must not delete the orphan staging dir")
 	}
 }
 

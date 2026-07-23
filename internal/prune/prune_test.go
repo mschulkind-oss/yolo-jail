@@ -77,13 +77,15 @@ func TestOldImagesLexicalSort(t *testing.T) {
 	}
 }
 
-// TestBuildRootSweepTriState: liveness UNKNOWN (Known=false) must delete
-// NOTHING even for an old orphan; known-empty deletes the old orphan; a
-// referenced orphan is spared.
-func TestBuildRootSweepTriState(t *testing.T) {
-	mk := func() (string, string) {
+// TestPruneLegacyBuildRoots: the legacy nix-build-root* staging mechanism is
+// gone (the image now bakes the flake bundle; nothing binds these dirs), so the
+// sweep is an unconditional one-shot cleanup — no liveness gate. An old orphan
+// of either prefix is reclaimed; a dir within the age grace floor (mid-upgrade
+// window) is spared; dry-run reports without touching disk.
+func TestPruneLegacyBuildRoots(t *testing.T) {
+	mk := func(name string) (string, string) {
 		gs := t.TempDir()
-		old := filepath.Join(gs, "nix-build-root.old.123")
+		old := filepath.Join(gs, name)
 		must(t, os.MkdirAll(old, 0o755))
 		must(t, os.WriteFile(filepath.Join(old, "f"), []byte("x"), 0o644))
 		// Backdate mtime well past any grace floor.
@@ -93,42 +95,41 @@ func TestBuildRootSweepTriState(t *testing.T) {
 	}
 	now := time.Now()
 
-	// (1) Liveness UNKNOWN -> decline; orphan survives.
-	gs, old := mk()
-	_, dirs := PruneOrphanBuildRoots(gs, ReferencedSet{Known: false}, time.Hour, true, now)
-	if dirs != 0 {
-		t.Errorf("unknown-liveness swept %d dirs, want 0 (fail-safe)", dirs)
-	}
-	if _, err := os.Stat(old); err != nil {
-		t.Error("orphan deleted under unknown liveness — tri-state violated")
-	}
-
-	// (2) Known-empty -> old orphan reclaimed.
-	gs, old = mk()
-	_, dirs = PruneOrphanBuildRoots(gs, ReferencedSet{Known: true, Paths: map[string]struct{}{}}, time.Hour, true, now)
+	// (1) Old ".old.*" generation reclaimed unconditionally (no liveness gate).
+	gs, old := mk("nix-build-root.old.123")
+	_, dirs := PruneLegacyBuildRoots(gs, time.Hour, true, now)
 	if dirs != 1 {
-		t.Errorf("known-empty swept %d dirs, want 1", dirs)
+		t.Errorf("old orphan swept %d dirs, want 1", dirs)
 	}
 	if _, err := os.Stat(old); !os.IsNotExist(err) {
-		t.Error("old orphan should be reclaimed when liveness known + empty")
+		t.Error("old orphan should be reclaimed")
 	}
 
-	// (3) Referenced -> spared.
-	gs, old = mk()
-	ref := ReferencedSet{Known: true, Paths: map[string]struct{}{old: {}}}
-	_, dirs = PruneOrphanBuildRoots(gs, ref, time.Hour, true, now)
-	if dirs != 0 {
-		t.Errorf("referenced orphan swept %d dirs, want 0", dirs)
+	// (2) The in-flight "nix-build-tmp-*" prefix is also covered.
+	gs, old = mk("nix-build-tmp-abc123")
+	_, dirs = PruneLegacyBuildRoots(gs, time.Hour, true, now)
+	if dirs != 1 {
+		t.Errorf("tmp orphan swept %d dirs, want 1", dirs)
+	}
+	if _, err := os.Stat(old); !os.IsNotExist(err) {
+		t.Error("tmp orphan should be reclaimed")
+	}
+
+	// (3) Dry-run reports the dir but leaves it on disk.
+	gs, old = mk("nix-build-root.old.777")
+	_, dirs = PruneLegacyBuildRoots(gs, time.Hour, false, now)
+	if dirs != 1 {
+		t.Errorf("dry-run reported %d dirs, want 1", dirs)
 	}
 	if _, err := os.Stat(old); err != nil {
-		t.Error("referenced orphan must be spared")
+		t.Error("dry-run must not delete the orphan")
 	}
 
-	// (4) Too-recent (within grace) -> spared even when known+unreferenced.
+	// (4) Too-recent (within grace) -> spared (mid-upgrade window).
 	gs = t.TempDir()
 	recent := filepath.Join(gs, "nix-build-root.old.999")
 	must(t, os.MkdirAll(recent, 0o755))
-	_, dirs = PruneOrphanBuildRoots(gs, ReferencedSet{Known: true, Paths: map[string]struct{}{}}, time.Hour, true, now)
+	_, dirs = PruneLegacyBuildRoots(gs, time.Hour, true, now)
 	if dirs != 0 {
 		t.Errorf("recent orphan swept %d dirs, want 0 (grace floor)", dirs)
 	}

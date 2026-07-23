@@ -1,13 +1,13 @@
 // The `yolo prune` command implementation. It reclaims disk from
 // yolo-jail storage:
 // hardlink-dedup across workspaces, drop stopped containers, sweep old images
-// and the image-tar cache, reap orphaned broker relays, reclaim orphan
-// build-root generations, purge overlay-shadowed seed subtrees, and age-purge
+// and the image-tar cache, reap orphaned broker relays, reclaim legacy
+// build-root staging dirs, purge overlay-shadowed seed subtrees, and age-purge
 // re-downloadable cache subdirs. Defaults to DRY-RUN; --apply actually reclaims.
 //
 // The byte/behavior-critical pieces — the reclaim decisions, FmtBytes numbers,
 // and removed-name lists — live in the parity-tested internal/prune engine
-// (dedup atomicity, tri-state build-root liveness, shadowed-home
+// (dedup atomicity, tri-state agent-staging liveness, shadowed-home
 // delete-contents-not-dirs, CreatedAt lexical image sort, the runtime probes
 // behind the RunFunc seam). This package is the thin orchestration: it wires the
 // sections in order, applies the flag gates, and renders the report.
@@ -383,22 +383,20 @@ func Run(opts Options) int {
 		totalSaved += imageCacheBytes
 	}
 
-	// --- Orphaned build-root generations ---
+	// --- Legacy build-root staging dirs ---
+	// Pre-upgrade nix-build-root* dirs from the old host-staging mechanism (now
+	// replaced by the baked flake bundle). No liveness gate: nothing binds or
+	// creates these any more; only an age grace floor guards a mid-upgrade write.
 	var buildRootBytes int64
 	var buildRootDirs int
 	if !opts.NoBuildRoots {
 		p.line("")
-		p.line("[bold]Orphaned build-root generations[/bold]")
-		referenced := FindReferencedBuildRoots(rt, opts.Exec)
-		if !referenced.Known {
-			p.line(fmt.Sprintf("  [dim]skipped — could not enumerate running jails (%s); declining to sweep[/dim]", rt))
+		p.line("[bold]Legacy build-root staging dirs[/bold]")
+		buildRootBytes, buildRootDirs = PruneLegacyBuildRoots(gs, time.Duration(buildRootOlderThanSeconds*float64(time.Second)), apply, opts.Now())
+		if buildRootDirs > 0 {
+			p.line(fmt.Sprintf("  %s: %s across %s dir(s)", verb(apply, "would remove", "removed"), FmtBytes(buildRootBytes), fmtComma(buildRootDirs)))
 		} else {
-			buildRootBytes, buildRootDirs = PruneOrphanBuildRoots(gs, referenced, time.Duration(buildRootOlderThanSeconds*float64(time.Second)), apply, opts.Now())
-			if buildRootDirs > 0 {
-				p.line(fmt.Sprintf("  %s: %s across %s generation(s)", verb(apply, "would remove", "removed"), FmtBytes(buildRootBytes), fmtComma(buildRootDirs)))
-			} else {
-				p.line("  [dim]none[/dim]")
-			}
+			p.line("  [dim]none[/dim]")
 		}
 		totalSaved += buildRootBytes
 	}
@@ -407,7 +405,7 @@ func Run(opts Options) int {
 	// The durable per-image roots (build/roots/<sha16>, storage-lifecycle §1) that
 	// keep a `nix-collect-garbage` from deleting a running jail's closure. Reap the
 	// ones no live/recent image needs so a later nix GC can reclaim the store paths.
-	// Uses the SAME tri-state liveness as the build-root sweep: unknown → decline.
+	// Uses the SAME tri-state liveness as the agent-staging sweep: unknown → decline.
 	// Reports a COUNT, not bytes — removing a symlink frees ~0 directly (the closure
 	// bytes come back only on a subsequent nix GC), so it must not inflate the
 	// reclaimed-bytes total (nor the golden-pinned summary line).
@@ -596,12 +594,12 @@ func Run(opts Options) int {
 	p.line("")
 	if apply {
 		p.line(fmt.Sprintf("[bold green]Reclaimed %s[/bold green] via %s hardlinks, %d container(s), "+
-			"%d image(s), %s image tar(s), %s build-root generation(s), %s agent staging dir(s), %s shadowed seed path(s), %s cache file(s), %s agent log file(s).",
+			"%d image(s), %s image tar(s), %s legacy build-root dir(s), %s agent staging dir(s), %s shadowed seed path(s), %s cache file(s), %s agent log file(s).",
 			FmtBytes(totalSaved), fmtComma(totalLinks), len(removedContainers), len(removedImages),
 			fmtComma(imageCacheFiles), fmtComma(buildRootDirs), fmtComma(agentStagingDirs), fmtComma(shadowedItems), fmtComma(cacheFiles), fmtComma(agentLogFiles)))
 	} else {
 		p.line(fmt.Sprintf("[bold yellow]DRY-RUN:[/bold yellow] would reclaim %s via %s hardlinks, remove "+
-			"%d container(s), %d image(s), %s image tar(s), %s build-root generation(s), %s agent staging dir(s), %s shadowed seed path(s), %s cache file(s), %s agent log file(s).  "+
+			"%d container(s), %d image(s), %s image tar(s), %s legacy build-root dir(s), %s agent staging dir(s), %s shadowed seed path(s), %s cache file(s), %s agent log file(s).  "+
 			"Re-run with [cyan]--apply[/cyan] to execute.",
 			FmtBytes(totalSaved), fmtComma(totalLinks), len(removedContainers), len(removedImages),
 			fmtComma(imageCacheFiles), fmtComma(buildRootDirs), fmtComma(agentStagingDirs), fmtComma(shadowedItems), fmtComma(cacheFiles), fmtComma(agentLogFiles)))

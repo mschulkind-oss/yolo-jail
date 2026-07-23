@@ -7,29 +7,26 @@ import (
 	"time"
 )
 
-// ReferencedSet is the tri-state result of enumerating live-container build-root
-// mounts. Known distinguishes "enumerated (maybe empty)" from "could not
-// enumerate" — the polarity the sweep depends on (None ≠ empty set).
-type ReferencedSet struct {
-	// Known is false when the runtime couldn't be enumerated (flaky/absent
-	// `ps`); the sweep then DECLINES to delete. True even for an empty Paths.
-	Known bool
-	// Paths are the resolved host build-root paths a live jail binds.
-	Paths map[string]struct{}
+// legacyBuildRootPrefixes are the on-disk names of the OLD nix-build-root
+// staging mechanism (source staged on the host, bind-mounted into the jail at
+// /opt/yolo-jail). That mechanism is gone — the image now bakes the flake bundle
+// (installPrefix in flake.nix) and there is no source bind — so any of these
+// dirs left under GlobalStorage is a pre-upgrade orphan.
+var legacyBuildRootPrefixes = []string{
+	"nix-build-root", // covers "nix-build-root" and "nix-build-root.old.*"
+	"nix-build-tmp-",
 }
 
-// PruneOrphanBuildRoots reclaims nix-build-root.old.* generations that are
-// BOTH (a) not referenced by a live jail AND (b) older than olderThan. FAIL-SAFE:
-// referenced.Known==false (liveness unknown) → delete NOTHING. Returns
-// (bytesRemoved, dirsRemoved); apply=false reports without touching disk.
-func PruneOrphanBuildRoots(globalStorage string, referenced ReferencedSet, olderThan time.Duration, apply bool, now time.Time) (bytesRemoved int64, dirsRemoved int) {
+// PruneLegacyBuildRoots reclaims the pre-upgrade nix-build-root* staging dirs.
+// No liveness gate is needed: nothing binds these any more (a still-running
+// pre-upgrade jail holds the inode alive through its own mount, so deleting the
+// host dir is safe), and nothing creates new ones. An age grace floor still
+// skips a dir touched within olderThan, so we never yank a *.tmp a concurrent
+// legacy build (mid-upgrade window) is actively writing. Returns (bytesRemoved,
+// dirsRemoved); apply=false reports without touching disk.
+func PruneLegacyBuildRoots(globalStorage string, olderThan time.Duration, apply bool, now time.Time) (bytesRemoved int64, dirsRemoved int) {
 	info, err := os.Stat(globalStorage)
 	if err != nil || !info.IsDir() {
-		return 0, 0
-	}
-	if !referenced.Known {
-		// Liveness unknown — decline to delete (fail safe). This is the
-		// tri-state guard: a nil/unknown set must NEVER read as "nothing live".
 		return 0, 0
 	}
 	children, err := os.ReadDir(globalStorage)
@@ -38,9 +35,7 @@ func PruneOrphanBuildRoots(globalStorage string, referenced ReferencedSet, older
 	}
 	for _, c := range children {
 		name := c.Name()
-		// Only aside-generations; never the live nix-build-root or the
-		// in-flight nix-build-tmp-* dirs.
-		if !strings.HasPrefix(name, "nix-build-root.old.") {
+		if !hasLegacyBuildRootPrefix(name) {
 			continue
 		}
 		child := filepath.Join(globalStorage, name)
@@ -48,27 +43,14 @@ func PruneOrphanBuildRoots(globalStorage string, referenced ReferencedSet, older
 		if err != nil {
 			continue
 		}
-		if st.Mode()&os.ModeSymlink != 0 || !st.IsDir() {
-			continue
-		}
-		// (a) liveness gate — skip anything a running jail still binds. Compare
-		// both the resolved and raw path (a match on either means the generation
-		// is in use).
-		resolved := child
-		if r, err := filepath.EvalSymlinks(child); err == nil {
-			resolved = r
-		}
-		if _, ok := referenced.Paths[resolved]; ok {
-			continue
-		}
-		if _, ok := referenced.Paths[child]; ok {
-			continue
-		}
-		// (b) age grace floor — skip recent generations (startup window).
+		// Age grace floor — skip recent entries (mid-upgrade window).
 		if now.Sub(st.ModTime()) < olderThan {
 			continue
 		}
-		size := dirSizeBytes(child)
+		var size int64
+		if st.Mode()&os.ModeSymlink == 0 && st.IsDir() {
+			size = dirSizeBytes(child)
+		}
 		if apply {
 			if err := os.RemoveAll(child); err != nil {
 				continue
@@ -78,6 +60,18 @@ func PruneOrphanBuildRoots(globalStorage string, referenced ReferencedSet, older
 		dirsRemoved++
 	}
 	return bytesRemoved, dirsRemoved
+}
+
+// hasLegacyBuildRootPrefix reports whether name is a legacy nix-build-root*
+// staging entry (the live "nix-build-root", an ".old.*" generation, or an
+// in-flight "nix-build-tmp-*").
+func hasLegacyBuildRootPrefix(name string) bool {
+	for _, p := range legacyBuildRootPrefixes {
+		if strings.HasPrefix(name, p) {
+			return true
+		}
+	}
+	return false
 }
 
 // dirSizeBytes sums regular-file sizes under p (missing → 0), via lstat so

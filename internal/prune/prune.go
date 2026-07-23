@@ -1,6 +1,6 @@
 // Package prune reclaims disk from yolo-jail storage. The byte/behavior-critical
 // pieces are the
-// hardlink-dedup atomicity, the tri-state orphan-build-root sweep (liveness
+// hardlink-dedup atomicity, the tri-state orphan-agent-staging sweep (liveness
 // unknown → DECLINE to delete), and the lexical CreatedAt image sort.
 //
 // The runtime-probe layer (podman/container ps+inspect) execs the real runtime

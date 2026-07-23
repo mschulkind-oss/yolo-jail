@@ -40,9 +40,8 @@ const (
 )
 
 // isLiveState reports whether a podman State string denotes a live jail
-// (running/paused/restarting, case-insensitive). This is the single liveness
-// predicate shared by PruneStoppedContainers (skip live → remove the rest) and
-// FindReferencedBuildRoots (keep live → collect their binds).
+// (running/paused/restarting, case-insensitive). The liveness predicate used by
+// PruneStoppedContainers (skip live → remove the rest).
 func isLiveState(state string) bool {
 	switch strings.ToLower(state) {
 	case "running", "paused", "restarting":
@@ -53,9 +52,8 @@ func isLiveState(state string) bool {
 
 // resolvePath resolves symlinks to an absolute path for our inputs (existing
 // container bind sources), and on failure falls back to an absolute-cleaned
-// path (it never errors out). Used to dedup workspace paths and to key the
-// referenced-build-root set — both sides of a comparison run through this, so
-// equality is preserved.
+// path (it never errors out). Used to dedup workspace paths (FindYoloWorkspaces)
+// — both sides of a comparison run through this, so equality is preserved.
 func resolvePath(p string) string {
 	if r, err := filepath.EvalSymlinks(p); err == nil {
 		return r
@@ -108,9 +106,8 @@ func pySplitMax(s string, maxsplit int) []string {
 // `name`, or ("", false) on any inspect failure / absence. It runs
 // `inspect --format {{json .Mounts}}` and decodes the mounts array via a
 // type-guarded walk (a non-array top-level or a non-object element is skipped,
-// never crashes), returning the first matching non-empty Source. Callers pass
-// dest=/workspace for the workspace mount and dest=/opt/yolo-jail for the
-// build-root mount.
+// never crashes), returning the first matching non-empty Source. The sole caller
+// passes dest=/workspace (InspectWorkspaceMount).
 func inspectMountSource(rt, name, dest string, run RunFunc) (string, bool) {
 	res := run([]string{rt, "inspect", "--format", "{{json .Mounts}}", name}, inspectTimeout)
 	if !res.Ran || res.RC != 0 {
@@ -240,40 +237,6 @@ func PruneOldImages(rt string, keep int, apply bool, run RunFunc) []string {
 	return toRemove
 }
 
-// FindReferencedBuildRoots returns the tri-state set of resolved host paths a
-// LIVE yolo-* container binds into /opt/yolo-jail. Preserves the unknown-vs-empty
-// polarity: a missing/failed `ps` yields Known=false (liveness unknown → the
-// sweep declines), never an empty set that would read as "nothing live". Note
-// the inverted selection
-// vs PruneStoppedContainers: here LIVE containers are KEPT (their binds
-// collected) so the sweep never unlinks an in-use inode.
-func FindReferencedBuildRoots(rt string, run RunFunc) ReferencedSet {
-	res := run([]string{rt, "ps", "-a", "--format", "{{.Names}} {{.State}}"}, psTimeout)
-	if !res.Ran || res.RC != 0 {
-		return ReferencedSet{Known: false}
-	}
-	paths := map[string]struct{}{}
-	for _, line := range strings.Split(res.Stdout, "\n") {
-		parts := strings.Fields(strings.TrimSpace(line))
-		if len(parts) < 2 {
-			continue
-		}
-		name, state := parts[0], parts[1]
-		if !strings.HasPrefix(name, "yolo-") {
-			continue
-		}
-		if !isLiveState(state) {
-			continue
-		}
-		src, ok := inspectMountSource(rt, name, "/opt/yolo-jail", run)
-		if !ok {
-			continue
-		}
-		paths[resolvePath(src)] = struct{}{}
-	}
-	return ReferencedSet{Known: true, Paths: paths}
-}
-
 // relayShortHash is the 8-char sha1 hash that keys a jail's broker-relay PID
 // file and sockets dir.
 // sync with the host-services-sockets-dir hash so ReapRelayOrphans can match a
@@ -287,7 +250,7 @@ func relayShortHash(cname string) string {
 // is no longer live, returning the PID-file paths reaped (or, in dry-run, that
 // WOULD be).
 // - liveKnown==false (liveness unenumerable) → reap NOTHING (same fail-safe
-// polarity as the build-root sweep — unknown must never read as "nothing
+// polarity as the agent-staging sweep — unknown must never read as "nothing
 // live");
 // - a pid file whose 8-char hash matches a live container is kept;
 // - a pid file younger than olderThanSeconds (mtime grace floor for a jail

@@ -18,7 +18,7 @@ import (
 //
 //  1. FAIL-SAFE liveness gate — liveKnown==false (the runtime couldn't be
 //     enumerated) reaps NOTHING, the same tri-state polarity as
-//     PruneOrphanBuildRoots / ReapRelayOrphans (unknown ≠ "nothing live").
+//     PruneOrphanAgentStaging / ReapRelayOrphans (unknown ≠ "nothing live").
 //  2. PROTECTED set — a root whose symlink target is any store path currently in
 //     a runtime's load sentinel (image.ReadLoadedPaths, LRU of the last 10 loads
 //     per runtime) is kept. The image a live container runs is always the most
