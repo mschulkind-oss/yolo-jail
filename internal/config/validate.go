@@ -46,7 +46,7 @@ func ValidateConfig(config *jsonx.OrderedMap, workspace string, resolver Loophol
 	reportUnknownKeys(config, knownTopLevelConfigKeys, "config", errs)
 
 	validateRuntime(config, errs)
-	validateRepoPath(config, errs)
+	validateRepoPath(config, errs, warns)
 	validateAgents(config, errs, warns)
 	validatePackages(config, errs)
 	validateMounts(config, workspace, errs, warns)
@@ -113,13 +113,22 @@ func validateRuntime(config *jsonx.OrderedMap, errs *[]string) {
 	}
 }
 
-func validateRepoPath(config *jsonx.OrderedMap, errs *[]string) {
+// validateRepoPath handles the RETIRED repo_path key. It is still tolerated (it
+// stays in knownTopLevelConfigKeys) so an existing config does not hard-error on
+// upgrade, but it is no longer read by the resolver (internal/reporoot.Resolve,
+// retired 2026-07-23) — so its presence earns a deprecation WARNING telling the
+// user to drop it. A non-string value is still a type error.
+func validateRepoPath(config *jsonx.OrderedMap, errs, warns *[]string) {
 	repoPath, present := config.Get("repo_path")
-	if present && repoPath != nil {
-		if _, ok := asStr(repoPath); !ok {
-			add(errs, "config.repo_path: expected a string path")
-		}
+	if !present || repoPath == nil {
+		return
 	}
+	if _, ok := asStr(repoPath); !ok {
+		add(errs, "config.repo_path: expected a string path")
+		return
+	}
+	add(warns, "config.repo_path: ignored — this key was retired. yolo now finds "+
+		"the repo from the checkout you launch in (or YOLO_REPO_ROOT). Remove it.")
 }
 
 func validateAgents(config *jsonx.OrderedMap, errs, warns *[]string) {

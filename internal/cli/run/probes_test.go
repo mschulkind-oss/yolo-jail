@@ -69,12 +69,12 @@ func TestResolveRepoRootEnvVarEmptyDirRejected(t *testing.T) {
 	}
 }
 
-func TestResolveRepoRootUserConfig(t *testing.T) {
-	// A user config with repo_path pointing at a flake.nix dir, no env var, cwd
-	// walk fails (we can't control cwd easily, so give a repo that the cwd walk
-	// won't find: use a dir OUTSIDE any ancestor). We assert the resolver
-	// returns SOME valid root; the specific branch is exercised by env/cwd
-	// tests. Here we mainly guard that a repo_path config parses.
+func TestResolveRepoRootIgnoresUserConfigRepoPath(t *testing.T) {
+	// The user-config repo_path key was retired (2026-07-23). A stray repo_path
+	// must NOT be resolved. cwd is isolated so the cwd-walk (step 2) and the
+	// exe-relative bundle (step 3) miss; only the retired step 4 could return
+	// repo, so a pass proves the fallback is gone (run + check agree via the
+	// single internal/reporoot.Resolve).
 	home := t.TempDir()
 	t.Setenv("HOME", home)
 	repo := t.TempDir()
@@ -89,12 +89,11 @@ func TestResolveRepoRootUserConfig(t *testing.T) {
 	if err := os.WriteFile(filepath.Join(cfgDir, "config.jsonc"), []byte(cfg), 0o644); err != nil {
 		t.Fatal(err)
 	}
-	// The cwd-walk (step 2) runs first and will find the repo's own flake.nix
-	// only if a test happens to run under one; in CI the module root has a
-	// flake.nix, so step 2 wins. Either way resolveRepoRoot must return ok.
-	_, ok := resolveRepoRoot(func(string) string { return "" }, discardBuf(), false)
-	if !ok {
-		t.Error("expected a resolvable repo root (cwd walk or user config)")
+	t.Chdir(t.TempDir())
+	got, ok := resolveRepoRoot(func(string) string { return "" }, discardBuf(), false)
+	wantAbs, _ := filepath.Abs(repo)
+	if ok && got == wantAbs {
+		t.Fatalf("resolveRepoRoot honored the retired repo_path key: %q", got)
 	}
 }
 

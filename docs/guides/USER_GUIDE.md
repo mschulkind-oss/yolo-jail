@@ -1133,12 +1133,13 @@ yolo check --no-build         # fast — skip nix build
 
 ### Common Issues (both platforms)
 
-**"Cannot find yolo-jail repo root"** — The CLI needs the source for nix image builds. Either clone the repo and run `just deploy` from inside it, or add `repo_path` to your user config:
+**"Cannot find yolo-jail repo root"** — The CLI needs the source for nix image builds. A packaged install (Homebrew, release archive) ships a flake bundle beside the binary and resolves it automatically. From a source checkout, run `yolo` from inside the checkout, or point it at one from anywhere with `YOLO_REPO_ROOT`:
 
-```jsonc
-// ~/.config/yolo-jail/config.jsonc
-{ "repo_path": "~/code/yolo-jail" }
+```sh
+YOLO_REPO_ROOT=~/code/yolo-jail yolo
 ```
+
+> The old `repo_path` config key was retired (2026-07-23) — if it is still in your `~/.config/yolo-jail/config.jsonc`, `yolo` ignores it and warns; remove it.
 
 **Image build fails**
 

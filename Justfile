@@ -57,11 +57,10 @@ install:
         echo "  Remove the other install, or put $GOBIN_DIR earlier in PATH." >&2
     fi
 
-    # Record this checkout in the user config's repo_path so the installed
-    # binary can find the source for nix image builds from ANY directory — the
-    # Go analog of the Python wheel's bundled source. Idempotent + comment-
-    # preserving. See docs/research/repo-root-and-distribution.md.
-    "$GOBIN_DIR/yolo" internal write-repo-path "{{ justfile_directory() }}"
+    # NOTE: install no longer records repo_path in the user config (that key was
+    # retired 2026-07-23). A from-source `yolo` finds the repo from the checkout
+    # you launch in (the cwd-walk) or via YOLO_REPO_ROOT — see
+    # internal/reporoot.Resolve and docs/research/repo-root-and-distribution.md.
 
 # Install yolo CLI and prime the Claude OAuth broker state. Safe to re-run.
 deploy: install

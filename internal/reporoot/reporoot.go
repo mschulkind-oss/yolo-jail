@@ -7,14 +7,21 @@
 // bundle at /opt/yolo-jail/share/yolo-jail, so os.Executable()-relative
 // discovery (Resolve step 3) finds the bundle exactly the way a Homebrew /
 // release-archive install does on the host.
+//
+// The old user-config `repo_path` fallback was retired (2026-07-23). A
+// from-source developer resolves their LIVE checkout via the cwd-walk (step 2)
+// when launching from inside it, or via YOLO_REPO_ROOT (step 1) from anywhere —
+// both point nix at the real source tree, which is what a source install wants.
+// (A staged prebuilt bundle would be the wrong answer there: it carries
+// prebuilt binaries, not goSrc, so it would build jails from stale artifacts
+// instead of the developer's edits.) Retiring the key leaves ONE resolution
+// method, identical inside and outside the jail, with no config pointer to
+// drift.
 package reporoot
 
 import (
 	"os"
 	"path/filepath"
-
-	"github.com/mschulkind-oss/yolo-jail/internal/config"
-	"github.com/mschulkind-oss/yolo-jail/internal/paths"
 )
 
 // Resolve locates the repo root. Returns (path, ok); ok=false means it could not
@@ -29,9 +36,14 @@ import (
 //     workspace, so both are required. This is the host-dev + nested-dev-jail
 //     path (the live-mounted /workspace checkout wins here).
 //  3. Exe-relative bundle: a share/yolo-jail/ tree shipped beside the binary.
-//     This one candidate list serves BOTH a host install (Homebrew/tarball) AND
-//     the in-jail baked /opt/yolo-jail prefix — one method, one set of paths.
-//  4. User config repo_path (flake.nix required).
+//     This one candidate list serves the checkout-less channels — Homebrew /
+//     release-archive installs and the in-jail baked /opt/yolo-jail prefix —
+//     with one method and one set of paths.
+//
+// There is deliberately NO user-config `repo_path` fallback: it was retired
+// (2026-07-23). A from-source developer resolves their live checkout via step 2
+// (launch from inside it) or step 1 (YOLO_REPO_ROOT), so the config pointer was
+// redundant. Exactly one resolution method now, inside or outside the jail.
 func Resolve(getenv func(string) string) (string, bool) {
 	// 1. Env override, validated for source.
 	if env := getenv("YOLO_REPO_ROOT"); env != "" {
@@ -56,17 +68,9 @@ func Resolve(getenv func(string) string) (string, bool) {
 		}
 	}
 
-	// 3. Exe-relative bundle (host install AND in-jail baked prefix).
+	// 3. Exe-relative bundle (every install channel).
 	if bundle, ok := BundledSourceDir(); ok {
 		return bundle, true
-	}
-
-	// 4. User config repo_path.
-	if p, ok := userConfigRepoPath(); ok {
-		expanded := absOr(expandUser(p))
-		if fileExists(filepath.Join(expanded, "flake.nix")) {
-			return expanded, true
-		}
 	}
 
 	return "", false
@@ -105,27 +109,6 @@ func BundledSourceDirFrom(exeDir string) (string, bool) {
 	return "", false
 }
 
-// userConfigRepoPath reads a non-empty string repo_path from the user config, or
-// ("", false). Best-effort: a missing or malformed config yields ("", false).
-func userConfigRepoPath() (string, bool) {
-	userPath := paths.UserConfigPath()
-	if !fileExists(userPath) {
-		return "", false
-	}
-	cfg, err := config.LoadJSONCFile(userPath, userPath, false, func(string) {})
-	if err != nil || cfg == nil {
-		return "", false
-	}
-	v, present := cfg.Get("repo_path")
-	if !present {
-		return "", false
-	}
-	if s, ok := v.(string); ok && s != "" {
-		return s, true
-	}
-	return "", false
-}
-
 // --- small filesystem helpers ---
 
 func fileExists(p string) bool {
@@ -138,37 +121,4 @@ func absOr(p string) string {
 		return r
 	}
 	return p
-}
-
-// expandUser expands a leading "~"/"~/…" against $HOME (or the passwd home). A
-// "~user" form is left untouched.
-func expandUser(p string) string {
-	if len(p) == 0 || p[0] != '~' {
-		return p
-	}
-	i := 1
-	for i < len(p) && p[i] != '/' {
-		i++
-	}
-	if i != 1 {
-		return p // ~user form
-	}
-	home := homeDir()
-	if home == "" {
-		return p
-	}
-	return home + p[i:]
-}
-
-func homeDir() string {
-	if h, ok := os.LookupEnv("HOME"); ok {
-		if h == "" {
-			return "/"
-		}
-		return h
-	}
-	if h, err := os.UserHomeDir(); err == nil {
-		return h
-	}
-	return "/"
 }

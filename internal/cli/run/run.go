@@ -78,8 +78,8 @@ func Run(opts Options) int {
 	// message. This is a notice, not an error — the launch continues.
 	if repoRoot == "" {
 		o.pr(o.Stderr).print("[yellow]No yolo-jail source tree found — launching on the " +
-			"cached image (no rebuild). Set `repo_path` in ~/.config/yolo-jail/config.jsonc " +
-			"to enable image rebuilds.[/yellow]")
+			"cached image (no rebuild). Run from inside a yolo-jail checkout (or set " +
+			"`YOLO_REPO_ROOT`) to enable image rebuilds.[/yellow]")
 	}
 	return o.runContainer(cfg, rt, repoRoot)
 }

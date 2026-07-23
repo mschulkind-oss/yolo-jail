@@ -211,8 +211,8 @@ func AutoLoadImage(opts AutoLoadOptions) bool {
 		if o.SkipBuild {
 			fmt.Fprintln(out, "Cannot start jail: no jail image is loaded or cached, "+
 				"and the yolo-jail source tree could not be located to build one.")
-			fmt.Fprintln(out, "Fix: run `yolo` once from a yolo-jail checkout, or set "+
-				"`repo_path` in ~/.config/yolo-jail/config.jsonc, to build + cache the image.")
+			fmt.Fprintln(out, "Fix: run `yolo` once from a yolo-jail checkout (or set "+
+				"`YOLO_REPO_ROOT`) to build + cache the image.")
 			return false
 		}
 		title, remedy := o.DiagnoseFailure(buildTail)

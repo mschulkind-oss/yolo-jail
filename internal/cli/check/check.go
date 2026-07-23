@@ -381,14 +381,6 @@ func (o *Options) sectionMergedConfig(r *reporter, merged *jsonx.OrderedMap, wor
 		r.ok("Runtime available: " + runtimeSel)
 	}
 
-	wsPath := filepath.Join(workspace, "yolo-jail.jsonc")
-	if o.PathExists(wsPath) {
-		if _, ok := workspaceConfig.Get("repo_path"); ok {
-			warnings = append(warnings,
-				"config.repo_path: workspace repo_path is ignored; only the user config uses it")
-		}
-	}
-
 	// Same-file preset+null contradictions.
 	errors = append(errors, checkPresetNullConflicts(userConfig, paths.UserConfigPath())...)
 	errors = append(errors, checkPresetNullConflicts(workspaceConfig, "yolo-jail.jsonc")...)

@@ -23,8 +23,9 @@ func resolveRepoRoot(getenv func(string) string, stderr io.Writer, color bool) (
 		pr := printer{rt: richtext.Printer{W: stderr}}
 		pr.print("[bold red]Cannot find yolo-jail repo root.[/bold red]\n" +
 			"The yolo CLI needs the repo for nix image builds.\n\n" +
-			"Fix: add [bold]repo_path[/bold] to ~/.config/yolo-jail/config.jsonc:\n" +
-			`  { "repo_path": "~/code/yolo-jail" }`)
+			"Fix: run yolo from inside a yolo-jail checkout, or point it at one with\n" +
+			"[bold]YOLO_REPO_ROOT[/bold]:\n" +
+			`  YOLO_REPO_ROOT=~/code/yolo-jail yolo …`)
 	}
 	return "", false
 }

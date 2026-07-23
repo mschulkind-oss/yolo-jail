@@ -3,7 +3,6 @@ package cli
 import (
 	"fmt"
 	"os"
-	"path/filepath"
 	"strings"
 
 	"github.com/mschulkind-oss/yolo-jail/internal/brokerrelay"
@@ -15,8 +14,6 @@ import (
 	"github.com/mschulkind-oss/yolo-jail/internal/jsonx"
 	"github.com/mschulkind-oss/yolo-jail/internal/macosuser"
 	"github.com/mschulkind-oss/yolo-jail/internal/oauthbroker"
-	"github.com/mschulkind-oss/yolo-jail/internal/paths"
-	"github.com/mschulkind-oss/yolo-jail/internal/repopath"
 )
 
 // runInternal dispatches the hidden `yolo internal <cmd>` family — debugging
@@ -26,7 +23,7 @@ import (
 // rewrite semantics.
 func runInternal(args []string) int {
 	if len(args) == 0 {
-		fmt.Fprintln(os.Stderr, "usage: yolo internal <config-dump|daemon|darwin-bootstrap|migrate-host|write-repo-path> [args...]")
+		fmt.Fprintln(os.Stderr, "usage: yolo internal <config-dump|daemon|darwin-bootstrap|migrate-host> [args...]")
 		return 2
 	}
 	switch args[0] {
@@ -38,8 +35,6 @@ func runInternal(args []string) int {
 		return runDarwinBootstrap(args[1:])
 	case "migrate-host":
 		return runMigrateHost(args[1:])
-	case "write-repo-path":
-		return runWriteRepoPath(args[1:])
 	default:
 		fmt.Fprintf(os.Stderr, "yolo internal: unknown command %q\n", args[0])
 		return 2
@@ -161,47 +156,6 @@ func runMigrateHost(args []string) int {
 		return 1
 	}
 	return 0
-}
-
-// runWriteRepoPath records the yolo-jail source-checkout path in the user
-// config's repo_path key, so an installed `yolo` can find the repo for nix
-// image builds from any directory (the Go analog of the Python wheel's bundled
-// source; see docs/research/repo-root-and-distribution.md). The Justfile
-// `deploy` recipe runs it (via `go run`) with the checkout dir as the argument.
-// Idempotent and comment-preserving.
-//
-// Usage: yolo internal write-repo-path <repo-dir>
-func runWriteRepoPath(args []string) int {
-	repoDir := ""
-	for _, a := range args {
-		if len(a) > 0 && a[0] == '-' {
-			fmt.Fprintf(os.Stderr, "write-repo-path: unknown flag %q\n", a)
-			return 2
-		}
-		if repoDir != "" {
-			fmt.Fprintf(os.Stderr, "write-repo-path: unexpected extra argument %q\n", a)
-			return 2
-		}
-		repoDir = a
-	}
-	if repoDir == "" {
-		fmt.Fprintln(os.Stderr, "usage: yolo internal write-repo-path <repo-dir>")
-		return 2
-	}
-	if !fileExistsCLI(filepath.Join(repoDir, "flake.nix")) {
-		fmt.Fprintf(os.Stderr, "write-repo-path: %s has no flake.nix — not a yolo-jail checkout\n", repoDir)
-		return 1
-	}
-	if err := repopath.WriteFile(paths.UserConfigPath(), repoDir, os.Stdout); err != nil {
-		fmt.Fprintln(os.Stderr, "write-repo-path:", err)
-		return 1
-	}
-	return 0
-}
-
-func fileExistsCLI(p string) bool {
-	_, err := os.Stat(p)
-	return err == nil
 }
 
 // runConfigDump loads + merges the config for a workspace (default: cwd) via

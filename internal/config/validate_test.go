@@ -189,3 +189,39 @@ func TestValidateCacheRelocationsUserScopeClean(t *testing.T) {
 		t.Errorf("errors = %v, want none", errs)
 	}
 }
+
+// repo_path was retired (2026-07-23). It is still a KNOWN key (so an existing
+// config does not hard-error on upgrade), but the resolver no longer reads it —
+// so its presence must yield a deprecation WARNING, never an error.
+func TestValidateRepoPathRetiredIsWarnNotError(t *testing.T) {
+	errs, warns := ValidateConfig(decode(t, `{"repo_path": "/home/matt/code/yolo-jail"}`), t.TempDir(), nil)
+	for _, e := range errs {
+		if strings.Contains(e, "repo_path") {
+			t.Errorf("repo_path produced an error, want warning only: %q", e)
+		}
+	}
+	found := false
+	for _, w := range warns {
+		if strings.HasPrefix(w, "config.repo_path:") {
+			found = true
+		}
+	}
+	if !found {
+		t.Errorf("expected a config.repo_path deprecation warning, got warns=%v", warns)
+	}
+}
+
+// A non-string repo_path is still a type error (guards the value shape even for
+// a retired key, so a malformed config is not silently accepted).
+func TestValidateRepoPathNonStringStillErrors(t *testing.T) {
+	errs, _ := ValidateConfig(decode(t, `{"repo_path": 42}`), t.TempDir(), nil)
+	found := false
+	for _, e := range errs {
+		if strings.Contains(e, "config.repo_path: expected a string path") {
+			found = true
+		}
+	}
+	if !found {
+		t.Errorf("expected a repo_path type error, got errs=%v", errs)
+	}
+}

@@ -81,6 +81,39 @@ func TestResolveEnvWins(t *testing.T) {
 	}
 }
 
+// Resolve no longer honors a user-config repo_path. The key was retired
+// (2026-07-23): the exe-relative bundle (step 3) covers every install channel,
+// and a from-source developer resolves their live checkout via the cwd-walk
+// (step 2) or YOLO_REPO_ROOT (step 1), so a config pointer is redundant. A stray
+// repo_path must be ignored, NOT resolved — otherwise the retirement is a no-op.
+//
+// cwd is isolated under an empty temp dir so the cwd-walk (step 2) misses all
+// the way to /, and the exe-relative bundle (step 3) misses because the test
+// binary has no share/yolo-jail beside it. Only the retired step 4 could
+// resolve repoDir — so a pass proves it is gone.
+func TestResolveIgnoresUserConfigRepoPath(t *testing.T) {
+	repoDir := t.TempDir()
+	if err := os.WriteFile(filepath.Join(repoDir, "flake.nix"), []byte("{}"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	home := t.TempDir()
+	t.Setenv("HOME", home)
+	cfgDir := filepath.Join(home, ".config", "yolo-jail")
+	if err := os.MkdirAll(cfgDir, 0o755); err != nil {
+		t.Fatal(err)
+	}
+	cfg := `{ "repo_path": "` + repoDir + `" }`
+	if err := os.WriteFile(filepath.Join(cfgDir, "config.jsonc"), []byte(cfg), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	// Isolate cwd so steps 2+3 miss; leave step 4 as the only route to repoDir.
+	t.Chdir(t.TempDir())
+	got, ok := Resolve(func(string) string { return "" })
+	if ok && got == mustAbs(t, repoDir) {
+		t.Fatalf("Resolve honored the retired repo_path key: %q", got)
+	}
+}
+
 // Resolve step 1 rejects an env pointing at a dir with neither flake.nix nor
 // go.mod (an empty/foreign mount must not be trusted as the repo).
 func TestResolveEnvEmptyDirRejected(t *testing.T) {
