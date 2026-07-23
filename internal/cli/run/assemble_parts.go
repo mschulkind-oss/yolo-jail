@@ -96,10 +96,11 @@ func podmanBaseMounts(rt string, runFlags []string, workspace string, in *assemb
 		"-v", filepath.Join(ws, "ssh")+":/home/agent/.ssh",
 	)
 	// Writable home dirs: extra $HOME subpaths (config writable_home_dirs) made
-	// read-write by nesting a bind INSIDE the :ro GLOBAL_HOME base. podman
-	// auto-creates the nested mountpoint under the :ro parent (verified 5.8.4),
-	// so nothing has to pre-exist in the base; only the backing dir under
-	// wsState needs creating, which prepareWsState does. Sorted for a
+	// read-write by nesting a bind INSIDE the :ro GLOBAL_HOME base. The OCI
+	// runtime does NOT auto-create mountpoints inside a :ro bind mount (crun
+	// mkdirat fails with EROFS) — existing mounts (.npm-global etc.) work only
+	// because those dirs already exist in GLOBAL_HOME. prepareWsState creates
+	// the mountpoint in GLOBAL_HOME for each declared entry. Sorted for a
 	// deterministic argv (the deriver already sorts; this keeps the guarantee
 	// local to the emitter, matching the cache-relocation block above).
 	for _, rel := range sortedWritableHomeDirs(in.writableHomeDirs) {

@@ -142,15 +142,20 @@ func (o *Options) prepareWsState(cfg *jsonx.OrderedMap, agentSpecs []agents.Agen
 		_ = os.MkdirAll(filepath.Join(wsState, subdir), 0o755)
 	}
 
-	// Writable home dirs (config writable_home_dirs): create the backing dir for
-	// each declared $HOME path under <wsState>/writable-home/<path>. podman binds
-	// this over /home/agent/<path> (nesting inside the :ro base); the mountpoint
-	// there is auto-created, but the backing SOURCE must exist first or podman
-	// fails the whole container with "statfs …: no such file or directory". The
-	// paths are already validated (relative, no '..', no reserved segment), so
-	// MkdirAll can never escape wsState.
+	// Writable home dirs (config writable_home_dirs): create BOTH the backing dir
+	// under <wsState>/writable-home/<path> AND the mountpoint dir in GLOBAL_HOME.
+	// podman binds the backing dir over /home/agent/<path> (nesting inside the
+	// :ro GLOBAL_HOME base). The OCI runtime does NOT auto-create mountpoints
+	// inside a :ro bind mount — it works for .npm-global/.config/etc. only because
+	// those dirs already exist in GLOBAL_HOME. A path absent from GLOBAL_HOME
+	// makes crun mkdirat inside the :ro bind → "read-only file system", which
+	// surfaces as the cryptic "conmon bytes '': readObjectStart" error. Creating
+	// the mountpoint in GLOBAL_HOME before the :ro bind is applied avoids this.
+	// The paths are already validated (relative, no '..', no reserved segment), so
+	// MkdirAll can never escape wsState or GLOBAL_HOME.
 	for _, rel := range config.WritableHomeDirs(cfg) {
 		_ = os.MkdirAll(filepath.Join(wsState, config.WritableHomeBackingSubdir, rel), 0o755)
+		_ = os.MkdirAll(filepath.Join(paths.GlobalHome(), rel), 0o755)
 	}
 	for _, fname := range []string{
 		"bash_history", "yolo-bootstrap.sh", "yolo-venv-precreate.sh",
