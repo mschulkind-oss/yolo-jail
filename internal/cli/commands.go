@@ -93,6 +93,8 @@ func runPrune(args []string) int {
 			opts.NoImageCache = true
 		case a == "--no-build-roots":
 			opts.NoBuildRoots = true
+		case a == "--no-image-roots":
+			opts.NoImageRoots = true
 		case a == "--no-shadowed-home":
 			opts.NoShadowedHome = true
 		case a == "--image-cache-keep":

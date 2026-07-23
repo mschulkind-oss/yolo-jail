@@ -69,6 +69,17 @@ type AutoLoadOptions struct {
 	DiagnoseFailure func(stderrTail []string) (title, remedy string)
 	// LoadAppleContainer converts+loads a tar into Apple Container. nil => real.
 	LoadAppleContainer func(tarPath string) bool
+	// RegisterRoot registers a durable nix GC root for the loaded image's store
+	// path so a `nix-collect-garbage` at any moment cannot delete the running
+	// jail's closure (the storage-lifecycle §1 invariant). Called on every
+	// success return where the store path is known — idempotent, so an
+	// already-loaded image re-asserts (and self-heals) its root each run.
+	//
+	// MUST be a host-side registration: in-jail the gcroots dir is unmounted and
+	// the host daemon prunes a jail-home root as stale, so the run slice injects
+	// the real image.RegisterImageRoot ONLY when !inJail and a no-op otherwise.
+	// nil => a no-op (tests, and any caller that cannot root host-side).
+	RegisterRoot func(storePath string)
 }
 
 func (o *AutoLoadOptions) fill() {
@@ -121,6 +132,9 @@ func (o *AutoLoadOptions) fill() {
 		o.LoadAppleContainer = func(tarPath string) bool {
 			return loadImageForAppleContainer(tarPath, o.Out)
 		}
+	}
+	if o.RegisterRoot == nil {
+		o.RegisterRoot = func(string) {} // no-op: no host-side rooting available
 	}
 }
 
@@ -263,6 +277,16 @@ func AutoLoadImage(opts AutoLoadOptions) bool {
 		fmt.Fprintln(out, "Done: loaded image")
 	}
 
+	// Register a DURABLE GC root for the store path we are about to run against,
+	// then drop the ephemeral per-PID out-link. currentPath is guaranteed
+	// non-empty here (the currentPath=="" branch returned above), and the image
+	// is loaded (freshly in this call, or already present). This is the storage-
+	// lifecycle §1 invariant: the running image's closure must be reachable from
+	// a registered root so a `nix-collect-garbage` at any moment is safe. The
+	// call re-asserts the root every run, so an already-loaded image self-heals a
+	// root that was reaped or never created. RegisterRoot is a host-side no-op
+	// in-jail (see the seam doc) — where rooting is futile anyway.
+	o.RegisterRoot(currentPath)
 	_ = os.Remove(outLink)
 	return true
 }

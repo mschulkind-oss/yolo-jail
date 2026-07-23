@@ -49,6 +49,7 @@ type Options struct {
 	KeepImages       int  // --keep-images     (default 2)
 	NoImageCache     bool // --no-image-cache
 	NoBuildRoots     bool // --no-build-roots
+	NoImageRoots     bool // --no-image-roots
 	NoShadowedHome   bool // --no-shadowed-home
 	ImageCacheKeep   int  // --image-cache-keep (default 3)
 	CacheAge         int  // --cache-age        (default 30; 0 skips the pass)
@@ -77,11 +78,14 @@ type Options struct {
 	// Now is the clock seam (cache-age cutoff, build-root/relay grace floors).
 	// nil => time.Now.
 	Now func() time.Time
-	// GlobalStorage / GlobalHome / GlobalCache resolve the storage roots. nil =>
-	// the real paths.* getters. Injected so apply tests use a temp root.
+	// GlobalStorage / GlobalHome / GlobalCache / BuildDir resolve the storage
+	// roots. nil => the real paths.* getters. Injected so apply tests use a temp
+	// root. BuildDir holds the per-image GC roots (roots/<sha16>) and the load
+	// sentinels the image-root reaper reads.
 	GlobalStorage func() string
 	GlobalHome    func() string
 	GlobalCache   func() string
+	BuildDir      func() string
 	// CacheRelocations maps a cache subdir name to the absolute host directory
 	// that actually holds its bytes (the `cache_relocations` user-config key).
 	// nil => nothing relocated, which is the pre-feature behavior exactly.
@@ -141,6 +145,9 @@ func fillDefaults(o *Options) {
 	if o.GlobalCache == nil {
 		o.GlobalCache = pathsGlobalCache
 	}
+	if o.BuildDir == nil {
+		o.BuildDir = pathsBuildDir
+	}
 	if o.RelayBase == "" {
 		o.RelayBase = "/tmp"
 	}
@@ -152,6 +159,7 @@ func fillDefaults(o *Options) {
 // Grace floors + relay defaults.
 const (
 	buildRootOlderThanSeconds = 3600.0 // build-root sweep grace floor
+	imageRootOlderThanSeconds = 3600.0 // image GC-root reap grace floor
 	relayOlderThanSeconds     = 3600.0 // relay reap default grace floor
 	imagesHintThreshold       = 20 * (1 << 30)
 )
@@ -345,6 +353,31 @@ func Run(opts Options) int {
 			}
 		}
 		totalSaved += buildRootBytes
+	}
+
+	// --- Orphaned image GC roots ---
+	// The durable per-image roots (build/roots/<sha16>, storage-lifecycle §1) that
+	// keep a `nix-collect-garbage` from deleting a running jail's closure. Reap the
+	// ones no live/recent image needs so a later nix GC can reclaim the store paths.
+	// Uses the SAME tri-state liveness as the build-root sweep: unknown → decline.
+	// Reports a COUNT, not bytes — removing a symlink frees ~0 directly (the closure
+	// bytes come back only on a subsequent nix GC), so it must not inflate the
+	// reclaimed-bytes total (nor the golden-pinned summary line).
+	if !opts.NoImageRoots {
+		p.line("")
+		p.line("[bold]Orphaned image GC roots[/bold]")
+		if !live.Known {
+			p.line(fmt.Sprintf("  [dim]skipped — could not enumerate running jails (%s); declining to sweep[/dim]", rt))
+		} else {
+			reaped := PruneOrphanImageRoots(joinPath(opts.BuildDir(), "roots"), ProtectedImagePaths(opts.BuildDir()),
+				live.Known, time.Duration(imageRootOlderThanSeconds*float64(time.Second)), apply, opts.Now())
+			if len(reaped) > 0 {
+				p.line(fmt.Sprintf("  %s: %s root(s)  [dim](nix store paths reclaimed by a later nix GC)[/dim]",
+					verb(apply, "would remove", "removed"), fmtComma(len(reaped))))
+			} else {
+				p.line("  [dim]none[/dim]")
+			}
+		}
 	}
 
 	// --- Shadowed seed subtrees ---

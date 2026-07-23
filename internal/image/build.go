@@ -27,6 +27,12 @@ func BuildOCIImage(repoRoot string, extraPackages []any) (string, []string) {
 	outPath := outLink.Name()
 	_ = outLink.Close()
 	_ = os.Remove(outPath) // nix creates the symlink itself
+	// Removing the out-link (and thus its GC root) is safe HERE and only here:
+	// the `yolo check` preflight builds the image to prove it *can* build, but
+	// never loads or runs it — there is no running closure to protect, so an
+	// unrooted result is correct. Do NOT copy this pattern into a load path: the
+	// run path (autoload.go) MUST retain a durable root for the image it runs
+	// against (storage-lifecycle §1; see image.RegisterImageRoot).
 	defer os.Remove(outPath)
 
 	buildEnv := os.Environ()

@@ -135,6 +135,15 @@ func AddLoadedPath(sentinel, storePath string) error {
 	return os.WriteFile(sentinel, []byte(strings.Join(pathsList, "\n")+"\n"), 0o644)
 }
 
+// keyFor is the first 16 hex chars of sha256(storePath) — the shared key that
+// correlates a store path's cache tar (cache/images/<key>.tar) with its durable
+// GC root (build/roots/<key>, see gcroot.go). Both derive from this one helper
+// so the two can never drift apart.
+func keyFor(storePath string) string {
+	sum := sha256.Sum256([]byte(storePath))
+	return hex.EncodeToString(sum[:])[:16]
+}
+
 // ImageCachePath returns the cached tar file path for a nix store path, keyed by
 // the first 16 hex chars of sha256(storePath), under GLOBAL_CACHE/images/.
 func ImageCachePath(storePath string) (string, error) {
@@ -142,9 +151,7 @@ func ImageCachePath(storePath string) (string, error) {
 	if err := os.MkdirAll(cacheDir, 0o755); err != nil {
 		return "", err
 	}
-	sum := sha256.Sum256([]byte(storePath))
-	pathHash := hex.EncodeToString(sum[:])[:16]
-	return filepath.Join(cacheDir, pathHash+".tar"), nil
+	return filepath.Join(cacheDir, keyFor(storePath)+".tar"), nil
 }
 
 // SizeFileForSentinel derives the size-estimate file path from a sentinel path

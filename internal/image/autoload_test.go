@@ -94,6 +94,55 @@ func TestAutoLoadImageAlreadyLoaded(t *testing.T) {
 	}
 }
 
+// The storage-lifecycle §1 root is registered for the store path we run against
+// on the fresh-load path and the already-loaded self-heal path, but NOT on the
+// degraded "Using existing"/cached-tar fallbacks (currentPath is unknown there,
+// so there is no store path to root).
+func TestAutoLoadImageRegistersRoot(t *testing.T) {
+	// (a) fresh load → root registered with the built store path.
+	withBuildDir(t)
+	var rooted []string
+	optsFresh := AutoLoadOptions{
+		Runtime:        "podman",
+		Out:            &bytes.Buffer{},
+		BuildStorePath: func(string, []any, string) (string, []string) { return "/nix/store/abc-image", nil },
+		Run: func(argv []string) (int, bool) {
+			if len(argv) >= 2 && argv[1] == "load" {
+				return 0, true
+			}
+			return 1, true // inspect: absent → triggers a load
+		},
+		Materialize: func(_, cacheFile string) int64 {
+			_ = os.WriteFile(cacheFile, []byte("tar"), 0o644)
+			return 1
+		},
+		RegisterRoot: func(p string) { rooted = append(rooted, p) },
+	}
+	if !AutoLoadImage(optsFresh) {
+		t.Fatal("fresh load = false")
+	}
+	if len(rooted) != 1 || rooted[0] != "/nix/store/abc-image" {
+		t.Errorf("fresh load rooted %v, want [/nix/store/abc-image]", rooted)
+	}
+
+	// (b) build fails, existing image present → NO root (store path unknown).
+	withBuildDir(t)
+	rooted = nil
+	optsExisting := AutoLoadOptions{
+		Runtime:        "podman",
+		Out:            &bytes.Buffer{},
+		BuildStorePath: func(string, []any, string) (string, []string) { return "", []string{"boom"} },
+		Run:            func(argv []string) (int, bool) { return 0, true }, // inspect present
+		RegisterRoot:   func(p string) { rooted = append(rooted, p) },
+	}
+	if !AutoLoadImage(optsExisting) {
+		t.Fatal("using-existing = false")
+	}
+	if len(rooted) != 0 {
+		t.Errorf("degraded using-existing rooted %v, want none (no known store path)", rooted)
+	}
+}
+
 func TestAutoLoadImageBuildFailsUsesExisting(t *testing.T) {
 	withBuildDir(t)
 	var out bytes.Buffer

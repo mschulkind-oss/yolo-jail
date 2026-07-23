@@ -12,6 +12,7 @@ import (
 func pathsGlobalStorage() string { return paths.GlobalStorage() }
 func pathsGlobalHome() string    { return paths.GlobalHome() }
 func pathsGlobalCache() string   { return paths.GlobalCache() }
+func pathsBuildDir() string      { return paths.BuildDir() }
 
 // killPID sends SIGTERM (or SIGKILL when force) to pid. A missing/dead target
 // yields an error the caller ignores (best-effort reap).
