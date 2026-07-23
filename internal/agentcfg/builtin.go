@@ -317,12 +317,45 @@ var agySettings = manifest.Surface{
 	},
 }
 
+// miseConfig is the global mise config surface (~/.config/mise/config.toml) —
+// the first NON-agent surface ported onto the prism (docs/design/config-
+// migration-to-prism.md §4.1, a HIGH stale-risk surface). The bespoke
+// GenerateMiseConfig was an in-place editor that added/updated but never removed
+// what it wrote, so an older yolo's default `node`/`python`/`go` `[tools]` lines
+// persisted forever and shadowed the baked /bin/<tool> — the exact
+// LD_LIBRARY_PATH / MCP-wrapper whack-a-mole (mise-node-dynamic-linking.md).
+//
+// The prism fixes this WITHOUT the special-case §4.1 pre-render scrub the older
+// bespoke code carried: on the first prism boot ComposeStateful seeds from a
+// fresh render with an EMPTY overlay and discards the on-disk file
+// (staterender.go §3.2), so the stale lines — present in no layer — simply do
+// not render. Steady-state capture then begins from that truthful baseline.
+//
+// The static surface is intentionally EMPTY: no Defaults (miseBaseTools is []
+// — every default runtime is baked into the image, so mise is override-only,
+// never a default runtime's source), no Managed (yolo asserts no mise key), no
+// host mount (nothing mirrors this file from the host). The ONLY yolo-owned
+// content is the DYNAMIC per-boot [tools] table injected via YOLO_MISE_TOOLS,
+// which ConfigureMisePrism hands to the engine as the COMPUTED layer — above the
+// captured overlay, so an injected pin wins over a stale in-jail `mise use -g`,
+// while a user-added global tool is captured into the overlay and survives.
+//
+// SCOPE: the prism owns only this GLOBAL config. The /workspace/mise.toml
+// retired-tool surgery and the `mise uninstall` subprocess stay bespoke boot
+// side effects (workspace mutation + orchestration, not global-config content —
+// the prism never owns workspace files, migration doc §5.3).
+var miseConfig = manifest.Surface{
+	Agent: "mise",
+	Name:  "config",
+	Path:  "~/.config/mise/config.toml",
+	Codec: "toml",
+}
+
 // BuiltinManifest returns the yolo-shipped manifest of all surfaces yolo knows
-// how to compose. Phase B grows this list (mcp, lsp, mise remain); it
-// currently carries pi, claude (settings + config), gemini, copilot, opencode,
-// codex, and agy. It panics on
-// a malformed builtin (a programming error in this file, caught by tests), never
-// at runtime for user input.
+// how to compose. Phase B grows this list (mcp, lsp remain); it currently
+// carries pi, claude (settings + config), gemini, copilot, opencode, codex,
+// agy, and mise (config). It panics on a malformed builtin (a programming error
+// in this file, caught by tests), never at runtime for user input.
 func BuiltinManifest() *manifest.Manifest {
 	m, err := manifest.New(
 		piSettings,
@@ -333,6 +366,7 @@ func BuiltinManifest() *manifest.Manifest {
 		opencodeConfig,
 		codexConfig,
 		agySettings,
+		miseConfig,
 	)
 	if err != nil {
 		panic("agentcfg: malformed builtin manifest: " + err.Error())

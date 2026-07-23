@@ -312,3 +312,31 @@ func TestBuiltinAgySettingsSurface(t *testing.T) {
 		t.Error("agy/settings must NOT bake mcpServers into managed (it is a separate dynamic sibling)")
 	}
 }
+
+// TestBuiltinMiseConfigSurface pins the mise global-config surface (§4.1): the
+// TOML codec, the ~/.config/mise/config.toml path, and — crucially — that the
+// static surface is EMPTY (no Defaults, no Managed). The [tools] table is
+// entirely dynamic (the YOLO_MISE_TOOLS computed layer at boot), so baking any
+// runtime into a static layer here would resurrect the very stale-shadow bug
+// the port exists to kill.
+func TestBuiltinMiseConfigSurface(t *testing.T) {
+	m := BuiltinManifest()
+	s, ok := m.Lookup("mise", "config")
+	if !ok {
+		t.Fatal("builtin manifest missing mise/config")
+	}
+	if s.Codec != "toml" {
+		t.Errorf("mise/config codec = %q, want toml", s.Codec)
+	}
+	if s.Path != "~/.config/mise/config.toml" {
+		t.Errorf("mise/config path = %q, want ~/.config/mise/config.toml", s.Path)
+	}
+	// The surface is override-only: NO default runtime and NO managed key. All
+	// tool content is the dynamic YOLO_MISE_TOOLS computed layer.
+	if len(s.Defaults) != 0 {
+		t.Errorf("mise/config Defaults should be empty (mise is override-only), got %#v", s.Defaults)
+	}
+	if len(s.Managed) != 0 {
+		t.Errorf("mise/config Managed should be empty (yolo asserts no mise key), got %#v", s.Managed)
+	}
+}
