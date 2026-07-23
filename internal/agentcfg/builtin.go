@@ -351,11 +351,74 @@ var miseConfig = manifest.Surface{
 	Codec: "toml",
 }
 
+// copilotMCP and copilotLSP are copilot's two DYNAMIC sibling surfaces —
+// ~/.copilot/mcp-config.json and ~/.copilot/lsp-config.json — that copilot
+// regenerates from the live mcp_servers / lsp_servers config on every boot. The
+// bespoke writer (writeCopilotDynamicConfigs) emitted them as PURE OVERWRITES
+// (no in-jail edit was ever preserved); the prism keeps that property via the
+// STATELESS renderSurfaceComputed path (no last_render/overlay sidecars), so the
+// full server table always wins outright each boot.
+//
+// The entire file content is the one wrapper key (mcpServers / lspServers) whose
+// value is the dynamic table, handed to the engine as the COMPUTED layer at
+// boot. The static surface therefore carries ONLY an empty-wrapper Default —
+// {"mcpServers": {}} / {"lspServers": {}} — which serves two ends: (1) it makes
+// `yolo config render copilot --surface mcp` print the file's SHAPE rather than
+// a bare `{}` (the render command composes statelessly, with no computed layer,
+// exactly as it does for gemini's mcpServers); (2) it matches the bespoke
+// "always emit the wrapper key, even with zero servers" behavior. At boot the
+// empty wrapper deep-merges UNDER the computed table, so it never suppresses a
+// real server. No Managed (yolo forces no individual server) and no host mount
+// (yolo owns these files outright, like copilot's config.json — §4.6).
+//
+// BYTE-LEVEL PORT GAPS (semantically inert, documented not faked — copilot
+// re-parses both files as JSON):
+//
+//  1. Key order. The bespoke dumpJSONIndent2 preserved OrderedMap insertion
+//     order; the shared JSON codec (codec/json.go) sorts keys alphabetically —
+//     the identical formatting gap already accepted for copilot/config, gemini,
+//     codex, and agy when they moved onto the prism.
+//  2. Null-leaf drop. The bespoke lsp writer emitted an explicit
+//     "command": null for an LSP entry lacking a command (getOr(...,nil)); under
+//     the engine a null leaf is an RFC-7386 tombstone and the key is dropped
+//     instead. This affects only a commandless (nonfunctional) LSP server, which
+//     copilot cannot launch either way — so the observable behavior is identical.
+var copilotMCP = manifest.Surface{
+	Agent:    "copilot",
+	Name:     "mcp",
+	Path:     "~/.copilot/mcp-config.json",
+	Codec:    "json",
+	Defaults: map[string]any{"mcpServers": map[string]any{}},
+}
+
+var copilotLSP = manifest.Surface{
+	Agent:    "copilot",
+	Name:     "lsp",
+	Path:     "~/.copilot/lsp-config.json",
+	Codec:    "json",
+	Defaults: map[string]any{"lspServers": map[string]any{}},
+}
+
+// agyMCP is agy's dynamic mcp_config.json sibling — the same shape as
+// copilotMCP ({"mcpServers": <live table>}) but at agy's antigravity-cli path,
+// so it is a distinct surface (path differs). Like copilot's siblings it is a
+// pure per-boot overwrite via renderSurfaceComputed (no edit capture), and the
+// empty-wrapper Default gives `yolo config render agy --surface mcp` the file's
+// shape while deep-merging under the computed table at boot. Same two inert
+// byte-level gaps as copilotMCP (sorted keys; null-leaf drop).
+var agyMCP = manifest.Surface{
+	Agent:    "agy",
+	Name:     "mcp",
+	Path:     "~/.gemini/antigravity-cli/mcp_config.json",
+	Codec:    "json",
+	Defaults: map[string]any{"mcpServers": map[string]any{}},
+}
+
 // BuiltinManifest returns the yolo-shipped manifest of all surfaces yolo knows
-// how to compose. Phase B grows this list (mcp, lsp remain); it currently
-// carries pi, claude (settings + config), gemini, copilot, opencode, codex,
-// agy, and mise (config). It panics on a malformed builtin (a programming error
-// in this file, caught by tests), never at runtime for user input.
+// how to compose. It carries pi, claude (settings + config), gemini, copilot
+// (config + mcp + lsp), opencode, codex, agy (settings + mcp), and mise
+// (config). It panics on a malformed builtin (a programming error in this file,
+// caught by tests), never at runtime for user input.
 func BuiltinManifest() *manifest.Manifest {
 	m, err := manifest.New(
 		piSettings,
@@ -363,9 +426,12 @@ func BuiltinManifest() *manifest.Manifest {
 		claudeConfig,
 		geminiSettings,
 		copilotConfig,
+		copilotMCP,
+		copilotLSP,
 		opencodeConfig,
 		codexConfig,
 		agySettings,
+		agyMCP,
 		miseConfig,
 	)
 	if err != nil {

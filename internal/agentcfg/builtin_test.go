@@ -313,6 +313,73 @@ func TestBuiltinAgySettingsSurface(t *testing.T) {
 	}
 }
 
+// TestBuiltinCopilotMCPLSPSurfaces pins copilot's two dynamic sibling surfaces
+// (mcp-config.json / lsp-config.json). Both are json-codec, at the copilot paths,
+// and carry ONLY an empty-wrapper Default (the full table is the boot-time
+// computed layer). No Managed (yolo forces no individual server), and the wrapper
+// key must be a DEFAULT (so it deep-merges UNDER the computed table, never
+// suppressing a real server), never Managed.
+func TestBuiltinCopilotMCPLSPSurfaces(t *testing.T) {
+	m := BuiltinManifest()
+
+	mcp, ok := m.Lookup("copilot", "mcp")
+	if !ok {
+		t.Fatal("builtin manifest missing copilot/mcp")
+	}
+	if mcp.Codec != "json" {
+		t.Errorf("copilot/mcp codec = %q, want json", mcp.Codec)
+	}
+	if mcp.Path != "~/.copilot/mcp-config.json" {
+		t.Errorf("copilot/mcp path = %q, want ~/.copilot/mcp-config.json", mcp.Path)
+	}
+	if _, ok := mcp.Defaults["mcpServers"].(map[string]any); !ok {
+		t.Errorf("copilot/mcp should default an empty mcpServers wrapper, got %#v", mcp.Defaults["mcpServers"])
+	}
+	if len(mcp.Managed) != 0 {
+		t.Errorf("copilot/mcp Managed should be empty (yolo forces no server), got %#v", mcp.Managed)
+	}
+
+	lsp, ok := m.Lookup("copilot", "lsp")
+	if !ok {
+		t.Fatal("builtin manifest missing copilot/lsp")
+	}
+	if lsp.Codec != "json" {
+		t.Errorf("copilot/lsp codec = %q, want json", lsp.Codec)
+	}
+	if lsp.Path != "~/.copilot/lsp-config.json" {
+		t.Errorf("copilot/lsp path = %q, want ~/.copilot/lsp-config.json", lsp.Path)
+	}
+	if _, ok := lsp.Defaults["lspServers"].(map[string]any); !ok {
+		t.Errorf("copilot/lsp should default an empty lspServers wrapper, got %#v", lsp.Defaults["lspServers"])
+	}
+	if len(lsp.Managed) != 0 {
+		t.Errorf("copilot/lsp Managed should be empty, got %#v", lsp.Managed)
+	}
+}
+
+// TestBuiltinAgyMCPSurface pins agy's dynamic mcp_config.json sibling: json
+// codec, agy's antigravity-cli path (distinct from copilot/mcp), and the same
+// empty-wrapper Default / empty Managed shape.
+func TestBuiltinAgyMCPSurface(t *testing.T) {
+	m := BuiltinManifest()
+	s, ok := m.Lookup("agy", "mcp")
+	if !ok {
+		t.Fatal("builtin manifest missing agy/mcp")
+	}
+	if s.Codec != "json" {
+		t.Errorf("agy/mcp codec = %q, want json", s.Codec)
+	}
+	if s.Path != "~/.gemini/antigravity-cli/mcp_config.json" {
+		t.Errorf("agy/mcp path = %q, want ~/.gemini/antigravity-cli/mcp_config.json", s.Path)
+	}
+	if _, ok := s.Defaults["mcpServers"].(map[string]any); !ok {
+		t.Errorf("agy/mcp should default an empty mcpServers wrapper, got %#v", s.Defaults["mcpServers"])
+	}
+	if len(s.Managed) != 0 {
+		t.Errorf("agy/mcp Managed should be empty, got %#v", s.Managed)
+	}
+}
+
 // TestBuiltinMiseConfigSurface pins the mise global-config surface (§4.1): the
 // TOML codec, the ~/.config/mise/config.toml path, and — crucially — that the
 // static surface is EMPTY (no Defaults, no Managed). The [tools] table is
