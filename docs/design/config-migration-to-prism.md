@@ -92,7 +92,7 @@ severity of stale bespoke output that survives, absent a migration step.
 
 | Surface | File(s) | Generator | Self-heal today | Stale risk |
 |---|---|---|---|---|
-| **mise global config** | `~/.config/mise/config.toml` | `mise.go GenerateMiseConfig` | in-place editor; only drops dupes + `AllMiseRetire` tokens; forces base tools | **HIGH** |
+| **mise global config** | `~/.config/mise/config.toml` | `prism_mise.go ConfigureMisePrism` (was `mise.go GenerateMiseConfig`) | ✅ **ported** — prism first-migration seed (was in-place editor) | **HIGH** (resolved) |
 | **git / jj identity** | `~/.gitconfig`, `~/.jjconfig` | `identity.go configureGit/configureJJ` | none — sets keys only when env present, never unsets | **HIGH** |
 | Claude settings | `~/.claude/settings.json` (+ snapshot `yolo-host-synced-settings.json`, sidecar `yolo-managed-mcp-servers.json`) | `claude.go ConfigureClaude` | 3-way host merge vs. snapshot; managed keys force-set each boot | MED |
 | Pi settings | `~/.pi/agent/settings.json` (+ snapshot) | `agent_configs.go ConfigurePi` | same 3-way pattern; force-sets `defaultProjectTrust` | MED |
@@ -222,13 +222,22 @@ either the bespoke file carries stale content the fresh render will *not* clean
 (HIGH surfaces need a pre-render scrub), or there are orphan sidecars to delete,
 or a pre-existing generator bug the prism round-trip must not inherit.
 
-### 4.1 mise (`~/.config/mise/config.toml`) — HIGH, needs an immediate concrete fix
+### 4.1 mise (`~/.config/mise/config.toml`) — HIGH — ✅ RESOLVED by the port (2026-07-22)
 
-The §3 bootstrap alone fixes mise *at the moment mise is ported to the prism*. But
-the mise surface is late in the Phase B fan-out, and the `node = "22"` shadow is a
-**live, actively-harmful bug today** (wrong node shadows the baked runtime). So
-mise gets a **one-time pre-render cleanup that ships now**, ahead of the full
-port, reusing/extending the existing `AllMiseRetire` machinery:
+**As shipped, the §3 bootstrap alone fixed mise — no pre-render scrub was needed.**
+The port (`ConfigureMisePrism`) confirmed in the engine that on the first prism
+boot `ComposeStateful` seeds from a fresh render with an empty overlay and
+**discards the on-disk file** (`staterender.go`), so a stale `node`/`python`/`go`
+`[tools]` line — present in no yolo layer — simply does not render. The bounded
+`miseFormerDefaults` catalogue this section originally proposed turned out
+unnecessary: convergence (§1 corollary 3) is achieved by the seed, not a
+catalogue. The subsections below are preserved as the ORIGINAL plan of record
+(and its rationale); the actual implementation is simpler.
+
+The `node = "22"` shadow was a **live, actively-harmful bug** (wrong node shadows
+the baked runtime), which is why this section originally proposed shipping a
+standalone scrub ahead of the full port. In the event, the port landed directly.
+Historical proposal (superseded):
 
 > **One-sentence fix:** in `GenerateMiseConfig`, after the existing dedupe/retire
 > pass, strip any `[tools]` line for a runtime that is (a) in the set of
@@ -458,11 +467,19 @@ before any surface ports:**
 - **Claude/gemini/opencode/codex**: each carries its orphan-sidecar cleanup (§4.7)
   and its pre-existing-bug fix (gemini `setDefault`→managed §4.5; codex
   table-preservation §4.4) as part of the port. ✅ (plus **agy**, born on the prism.)
-- **mise**: carries the §4.1 pre-render scrub. **The §4.1 mise cleanup shipped
-  independently** — a live bug fix to `GenerateMiseConfig` that did not depend on
-  the engine. The mise *port* onto the prism is still pending; when it lands, the
-  scrub becomes declarative (empty defaults + `mise_tools` workspace layer) and the
-  standalone scrub retires. ⏳
+- **mise**: ✅ **Ported (2026-07-22).** `GenerateMiseConfig` is replaced by
+  `ConfigureMisePrism` (`internal/entrypoint/prism_mise.go`), composing
+  `~/.config/mise/config.toml` through the engine. The §4.1 pre-render scrub is
+  **subsumed and gone**: the first-migration seed renders from the (empty) yolo
+  layers and discards the on-disk file, so a stale `node`/`python`/`go` line —
+  present in no layer — simply does not render (no catalogue needed). Injected
+  `YOLO_MISE_TOOLS` pins ride the **computed** layer (above the overlay, so a pin
+  beats a stale in-jail `mise use -g`), NOT a `workspace` layer (that engine input
+  has no production caller). The render always emits a `[tools]` table, even empty,
+  so `last_render` never decodes empty (an empty-decoding sidecar is treated as
+  untrusted and would re-seed every boot). The `/workspace/mise.toml` retire
+  surgery and the `mise uninstall` subprocess stay bespoke boot side effects (the
+  prism never owns `/workspace` files, §5.3).
 - **git/jj identity**: the scoped git-kv codec (§4.2), owned-keyspace reconcile. ⏳
 
 **Phase C (deletion, serial, last).** ✅ **Done for the agent-config surfaces
@@ -474,9 +491,11 @@ before any surface ports:**
   unconditional. The `host_*_files` keys survive (the prism host layer reads
   through them). ✅
 - The obsolete snapshot/managed-MCP sidecars are removed on each surface's
-  first-migration boot (§4.7). ⏳ still pending: delete the standalone §4.1 mise
-  scrub and the remaining non-agent bespoke generators once mise/MCP/LSP/identity
-  are ported.
+  first-migration boot (§4.7). ✅ mise ported (2026-07-22) — the standalone §4.1
+  scrub and the `GenerateMiseConfig` in-place editor are deleted; the surgical
+  helpers (`miseBaseTools`, `bakedRuntimes`, `workspacePinsTool`, `miseTomlKey`,
+  `splitKeepNL`) retired with it. ⏳ still pending: MCP/LSP siblings and git/jj
+  identity.
 
 The **clear-and-rebuild** command (§5) can land any time in Phase A/B as an
 operator tool; it is not on the critical path — the automatic §3 bootstrap is.
