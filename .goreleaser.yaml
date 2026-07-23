@@ -22,9 +22,13 @@ before:
   hooks:
     - go mod tidy
     - go vet ./...
-    # Stage the source bundle that ships beside the binary so a checkout-less
-    # install can build the jail image (nix build .#ociImage). See
-    # scripts/stage-source-bundle.sh + internal/cli/run/probes.go bundledSourceDir.
+    # Stage the PREBUILT "two files and a binary" bundle that ships beside the
+    # host binary so a checkout-less install can build the jail image
+    # (nix build .#ociImage) with NO Go toolchain and NO source tree — the
+    # flake's prebuilt short-circuit consumes bin/linux-<arch> instead of
+    # compiling. See scripts/stage-source-bundle.sh + internal/reporoot
+    # (BundledSourceDir). This cross-compiles both Linux arches, so it needs the
+    # Go toolchain the setup-go step already provides.
     # MUST stage OUTSIDE dist/: GoReleaser's dist.Pipe wipes dist/ right after
     # the before-hooks, so a bundle under dist/ would be deleted before archiving.
     - scripts/stage-source-bundle.sh bundle/share/yolo-jail
@@ -46,22 +50,25 @@ builds:
       - amd64
       - arm64
 
-# One archive per platform containing the yolo binary AND the source bundle
+# One archive per platform containing the yolo binary AND the prebuilt bundle
 # (share/yolo-jail/) an installed binary needs to build the jail image. The
 # archive lays out `yolo` + `share/yolo-jail/…` at the same level, so once
-# unpacked, bundledSourceDir finds the bundle at <exe>/share/yolo-jail (its
-# second candidate — see internal/cli/run/probes.go).
+# unpacked, BundledSourceDir finds the bundle at <exe>/share/yolo-jail (its
+# second candidate — see internal/reporoot). The bundle is arch-agnostic (it
+# carries bin/linux-{amd64,arm64}), so the SAME staged tree ships in every
+# platform archive; the flake selects the matching arch at eval time.
 archives:
   - formats: ["tar.gz"]
     name_template: "yolo-jail_{{ .Version }}_{{ .Os }}_{{ .Arch }}"
     files:
-      # Copy the staged bundle DIRECTORY, preserving its subtree (vendor/, cmd/,
-      # internal/, …). With a directory `src`, goreleaser places the contents
-      # under `dst` keeping the tree — so files land at share/yolo-jail/… beside
-      # the root binary. NO glob + strip_parent (that flattens the tree and
-      # breaks the flake's fileset). NOTE: goreleaser is not installed in the
-      # dev jail, so this mapping is validated on a real release, not here — the
-      # Homebrew source-build path (release.yml) is the primary bundle delivery.
+      # Copy the staged bundle DIRECTORY, preserving its subtree
+      # (flake.nix, flake.lock, bin/linux-<arch>/). With a directory `src`,
+      # goreleaser places the contents under `dst` keeping the tree — so files
+      # land at share/yolo-jail/… beside the root binary. NO glob + strip_parent
+      # (that flattens the tree and breaks the flake's prebuilt-bin layout).
+      # NOTE: goreleaser is not installed in the dev jail, so this mapping is
+      # validated on a real release, not here — the Homebrew bottle path
+      # (release.yml) is the primary bundle delivery.
       - src: "bundle/share/yolo-jail"
         dst: "share/yolo-jail"
 

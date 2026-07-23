@@ -9,6 +9,14 @@ dist/
 dist-go/
 bundle/
 build/
+# Root-level bin/linux-<arch>/ is the PREBUILT bundle layout the flake's
+# short-circuit consumes (flake.nix:prebuiltBinDir). It must NEVER be committed:
+# a git flake only sees tracked files, so an uncommitted bin/ keeps in-repo
+# builds (self-hosting `yolo -- bash`) compiling from source. A committed bin/
+# would silently force every source build into stale prebuilt binaries — the
+# exact source drift this design eliminates. Only shipped/baked path: bundles
+# carry bin/, never the repo.
+/bin/
 # Stray root-level Go build artifacts (a bare `go build ./cmd/<x>` drops the
 # binary here). The real build channel is dist-go/; these should never be
 # tracked (a stale root yolo-parity was committed once — see the audit).

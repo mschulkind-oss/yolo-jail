@@ -21,8 +21,11 @@ setup:
 build-go:
     ./scripts/build-go.sh
 
-# Stage the source bundle (share/yolo-jail/) an installed binary needs to build
-# the jail image. goreleaser runs the script directly; this is for local use.
+# Stage the prebuilt "two files and a binary" bundle (share/yolo-jail/) an
+# installed binary needs to build the jail image with no toolchain: flake.nix +
+# flake.lock + bin/linux-{amd64,arm64}/. Cross-compiles both arches, so it needs
+# a Go toolchain. goreleaser + the brew formula run the script directly; this is
+# for local use.
 stage-bundle DEST="dist/bundle/share/yolo-jail":
     ./scripts/stage-source-bundle.sh {{ DEST }}
 
