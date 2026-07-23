@@ -44,6 +44,11 @@ func baseOpts(t *testing.T) (Options, string) {
 	o.GlobalStorage = func() string { return gs }
 	o.GlobalHome = func() string { return filepath.Join(gs, "home") }
 	o.GlobalCache = func() string { return filepath.Join(gs, "cache") }
+	// Isolate the build/agents/containers dirs under the temp root too, so the
+	// image-root reaper and agent-staging sweep never touch the real host store.
+	o.BuildDir = func() string { return filepath.Join(gs, "build") }
+	o.AgentsDir = func() string { return filepath.Join(gs, "agents") }
+	o.ContainerDir = func() string { return filepath.Join(gs, "containers") }
 	o.RelayBase = relayBase
 	o.RelayKill = func(string) {}
 	return o, gs
@@ -80,16 +85,20 @@ func TestDryRunEmptyEnv(t *testing.T) {
 		"Old yolo-jail images  (keep=2)",
 		"Cached image tarballs  (keep=3)",
 		"Orphaned build-root generations",
+		"Dangling build out-links",
+		"Orphaned agent staging",
 		"Shadowed seed subtrees",
 		"  targets: .cache, .npm, .npm-global, .local, go (each overlay-masked at runtime)",
 		"Cache purge  (subdirs=uv,pip,npm,go-build,mise,pex,pants,node-gyp,gopls, age > 30d)",
+		"Agent log purge  (copilot/logs, gemini/tmp, gemini-cli/logs; age > 30d)",
+		"  Claude transcripts (claude/projects) are durable user data — never purged",
 	} {
 		if !hasLine(&buf, want) {
 			t.Errorf("missing line %q in:\n%s", want, buf.String())
 		}
 	}
 	last := lines(&buf)[len(lines(&buf))-1]
-	wantSummary := "DRY-RUN: would reclaim 0 B via 0 hardlinks, remove 0 container(s), 0 image(s), 0 image tar(s), 0 build-root generation(s), 0 shadowed seed path(s), 0 cache file(s).  Re-run with --apply to execute."
+	wantSummary := "DRY-RUN: would reclaim 0 B via 0 hardlinks, remove 0 container(s), 0 image(s), 0 image tar(s), 0 build-root generation(s), 0 agent staging dir(s), 0 shadowed seed path(s), 0 cache file(s), 0 agent log file(s).  Re-run with --apply to execute."
 	if last != wantSummary {
 		t.Errorf("summary =\n%q\nwant\n%q", last, wantSummary)
 	}

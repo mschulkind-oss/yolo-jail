@@ -55,41 +55,56 @@ func PurgeCacheByAge(cacheRoot string, subdirs []string, relocations map[string]
 		if target := relocations[sub]; target != "" {
 			root = target
 		}
-		info, err := os.Stat(root)
-		if err != nil || !info.IsDir() {
-			continue
-		}
-		_ = filepath.WalkDir(root, func(path string, d os.DirEntry, err error) error {
-			if err != nil {
-				return nil
-			}
-			if d.IsDir() {
-				return nil
-			}
-			st, err := os.Lstat(path)
-			if err != nil {
-				return nil
-			}
-			if st.Mode()&os.ModeSymlink != 0 {
-				return nil
-			}
-			if !st.Mode().IsRegular() {
-				return nil
-			}
-			// Kept when mtime >= cutoff.
-			if !st.ModTime().Before(cutoff) {
-				return nil
-			}
-			size := st.Size()
-			if apply {
-				if err := os.Remove(path); err != nil {
-					return nil
-				}
-			}
-			bytesRemoved += size
-			filesRemoved++
-			return nil
-		})
+		b, f := purgeOldFilesUnder(root, cutoff, apply)
+		bytesRemoved += b
+		filesRemoved += f
 	}
+	return bytesRemoved, filesRemoved
+}
+
+// purgeOldFilesUnder removes regular files under root whose mtime is before
+// cutoff, returning (bytesRemoved, filesRemoved). Shared by PurgeCacheByAge and
+// PurgeAgentLogs. Discipline (identical to the cache-purge contract):
+//   - a missing/non-dir root is a no-op (returns 0,0);
+//   - symlinks are never followed or deleted;
+//   - only regular files are counted/removed (dirs are left as mount anchors);
+//   - mtime >= cutoff is kept;
+//   - apply=false computes accurate counts without mutating.
+func purgeOldFilesUnder(root string, cutoff time.Time, apply bool) (bytesRemoved int64, filesRemoved int) {
+	info, err := os.Stat(root)
+	if err != nil || !info.IsDir() {
+		return 0, 0
+	}
+	_ = filepath.WalkDir(root, func(path string, d os.DirEntry, err error) error {
+		if err != nil {
+			return nil
+		}
+		if d.IsDir() {
+			return nil
+		}
+		st, err := os.Lstat(path)
+		if err != nil {
+			return nil
+		}
+		if st.Mode()&os.ModeSymlink != 0 {
+			return nil
+		}
+		if !st.Mode().IsRegular() {
+			return nil
+		}
+		// Kept when mtime >= cutoff.
+		if !st.ModTime().Before(cutoff) {
+			return nil
+		}
+		size := st.Size()
+		if apply {
+			if err := os.Remove(path); err != nil {
+				return nil
+			}
+		}
+		bytesRemoved += size
+		filesRemoved++
+		return nil
+	})
 	return bytesRemoved, filesRemoved
 }

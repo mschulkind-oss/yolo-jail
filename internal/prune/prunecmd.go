@@ -93,6 +93,11 @@ type Options struct {
 	GlobalHome    func() string
 	GlobalCache   func() string
 	BuildDir      func() string
+	// AgentsDir / ContainerDir resolve the per-jail briefing-staging dir and the
+	// container tracking-file dir (storage §4 agent-staging sweep). nil => the
+	// real paths.* getters. Injected so apply tests use a temp root.
+	AgentsDir    func() string
+	ContainerDir func() string
 	// CacheRelocations maps a cache subdir name to the absolute host directory
 	// that actually holds its bytes (the `cache_relocations` user-config key).
 	// nil => nothing relocated, which is the pre-feature behavior exactly.
@@ -163,6 +168,12 @@ func fillDefaults(o *Options) {
 	}
 	if o.BuildDir == nil {
 		o.BuildDir = pathsBuildDir
+	}
+	if o.AgentsDir == nil {
+		o.AgentsDir = pathsAgentsDir
+	}
+	if o.ContainerDir == nil {
+		o.ContainerDir = pathsContainerDir
 	}
 	if o.RelayBase == "" {
 		o.RelayBase = "/tmp"
@@ -266,6 +277,16 @@ func Run(opts Options) int {
 		p.line("  [dim]cache/images is only ever read host-side, so a symlink is safe HERE.  " +
 			"Other cache subdirs are bind-mounted into the jail, where a symlink dangles — " +
 			"relocate those with cache_relocations in ~/.config/yolo-jail/config.jsonc.[/dim]")
+		// Mental model (storage-lifecycle §1/§4): the tar here is a one-shot load
+		// artifact — streamed into podman's own image store once, then never read
+		// again — so pruning it (PruneImageCache, keep=3) is always safe and frees
+		// these bytes outright. It is NOT the thing that keeps a running jail
+		// alive: that is the image's ~3 GiB /nix/store CLOSURE, kept reachable by
+		// the durable build/roots/<sha16> GC root (§1), a wholly separate ledger.
+		// Deleting a tar never touches the closure; deleting a live root (never
+		// done here without tri-state liveness) would strand a running jail.
+		p.line("  [dim](the tar is a one-shot load artifact; the running jail depends on the store " +
+			"closure kept alive by its §1 GC root, not on this tar — two separate ledgers.)[/dim]")
 	}
 
 	var totalSaved int64
@@ -407,6 +428,57 @@ func Run(opts Options) int {
 		}
 	}
 
+	// --- Dangling build out-links ---
+	// build/run-result-<pid> symlinks whose nix store target is already gone
+	// (storage §4). A dangling symlink protects nothing, so this needs NO liveness
+	// gate — pure cleanup, safe in-jail. Reports a COUNT (removing a symlink frees
+	// ~0 bytes directly), never folded into the reclaimed-bytes summary.
+	if !opts.NoImageRoots {
+		p.line("")
+		p.line("[bold]Dangling build out-links[/bold]")
+		swept := SweepDanglingOutLinks(opts.BuildDir(), apply)
+		if len(swept) > 0 {
+			p.line(fmt.Sprintf("  %s: %s link(s)", verb(apply, "would remove", "removed"), fmtComma(len(swept))))
+			for _, link := range swept {
+				p.line("    • " + baseName(link))
+			}
+		} else {
+			p.line("  [dim]none[/dim]")
+		}
+	}
+
+	// --- Orphaned agent staging ---
+	// AGENTS_DIR/<cname> briefing/skill staging dirs whose container is neither
+	// live nor tracked (storage §4). One dir accumulates per distinct container
+	// name forever; this reclaims real bytes, so it folds into the summary. Uses
+	// the SAME tri-state liveness as the other sweeps: unknown → decline.
+	var agentStagingBytes int64
+	var agentStagingDirs int
+	if !opts.NoBuildRoots {
+		p.line("")
+		p.line("[bold]Orphaned agent staging[/bold]")
+		if !live.Known {
+			p.line(fmt.Sprintf("  [dim]skipped — could not enumerate running jails (%s); declining to sweep[/dim]", rt))
+		} else {
+			known := TrackedContainerNames(opts.ContainerDir())
+			for name := range live.Names {
+				known[name] = struct{}{}
+			}
+			var names []string
+			agentStagingBytes, agentStagingDirs, names = PruneOrphanAgentStaging(opts.AgentsDir(), known,
+				live.Known, time.Duration(buildRootOlderThanSeconds*float64(time.Second)), apply, opts.Now())
+			if agentStagingDirs > 0 {
+				p.line(fmt.Sprintf("  %s: %s across %s dir(s)", verb(apply, "would remove", "removed"), FmtBytes(agentStagingBytes), fmtComma(agentStagingDirs)))
+				for _, n := range names {
+					p.line("    • " + n)
+				}
+			} else {
+				p.line("  [dim]none[/dim]")
+			}
+			totalSaved += agentStagingBytes
+		}
+	}
+
 	// --- Shadowed seed subtrees ---
 	var shadowedBytes int64
 	var shadowedItems int
@@ -447,6 +519,27 @@ func Run(opts Options) int {
 		cacheBytes, cacheFiles = PurgeCacheByAge(joinPath(gs, "cache"), subdirs, opts.CacheRelocations, float64(opts.CacheAge), apply, opts.Now())
 		p.line(fmt.Sprintf("  %s: %s across %s files", verb(apply, "would remove", "removed"), FmtBytes(cacheBytes), fmtComma(cacheFiles)))
 		totalSaved += cacheBytes
+	}
+
+	// --- Agent log purge (age-based) ---
+	// Regenerable per-agent LOG dirs (copilot/logs, gemini/tmp, gemini-cli/logs)
+	// under each tracked workspace's overlay + the shared cache (storage §4).
+	// Shares the --cache-age knob. DELIBERATELY EXCLUDES the Claude session
+	// transcripts (claude/projects) — durable, non-regenerable user data the
+	// memory system reads, not cache. See agentlogs.go.
+	var agentLogBytes int64
+	var agentLogFiles int
+	if opts.CacheAge > 0 {
+		p.line("")
+		p.line(fmt.Sprintf("[bold]Agent log purge[/bold]  (copilot/logs, gemini/tmp, gemini-cli/logs; age > %dd)", opts.CacheAge))
+		p.line("  [dim]Claude transcripts (claude/projects) are durable user data — never purged[/dim]")
+		agentLogBytes, agentLogFiles = PurgeAgentLogs(workspaces, opts.GlobalCache(), float64(opts.CacheAge), apply, opts.Now())
+		if agentLogFiles > 0 {
+			p.line(fmt.Sprintf("  %s: %s across %s file(s)", verb(apply, "would remove", "removed"), FmtBytes(agentLogBytes), fmtComma(agentLogFiles)))
+		} else {
+			p.line("  [dim]none[/dim]")
+		}
+		totalSaved += agentLogBytes
 	}
 
 	// --- Bounded, rooting-aware nix store GC (storage §3, opt-in, HOST-ONLY) ---
@@ -503,15 +596,15 @@ func Run(opts Options) int {
 	p.line("")
 	if apply {
 		p.line(fmt.Sprintf("[bold green]Reclaimed %s[/bold green] via %s hardlinks, %d container(s), "+
-			"%d image(s), %s image tar(s), %s build-root generation(s), %s shadowed seed path(s), %s cache file(s).",
+			"%d image(s), %s image tar(s), %s build-root generation(s), %s agent staging dir(s), %s shadowed seed path(s), %s cache file(s), %s agent log file(s).",
 			FmtBytes(totalSaved), fmtComma(totalLinks), len(removedContainers), len(removedImages),
-			fmtComma(imageCacheFiles), fmtComma(buildRootDirs), fmtComma(shadowedItems), fmtComma(cacheFiles)))
+			fmtComma(imageCacheFiles), fmtComma(buildRootDirs), fmtComma(agentStagingDirs), fmtComma(shadowedItems), fmtComma(cacheFiles), fmtComma(agentLogFiles)))
 	} else {
 		p.line(fmt.Sprintf("[bold yellow]DRY-RUN:[/bold yellow] would reclaim %s via %s hardlinks, remove "+
-			"%d container(s), %d image(s), %s image tar(s), %s build-root generation(s), %s shadowed seed path(s), %s cache file(s).  "+
+			"%d container(s), %d image(s), %s image tar(s), %s build-root generation(s), %s agent staging dir(s), %s shadowed seed path(s), %s cache file(s), %s agent log file(s).  "+
 			"Re-run with [cyan]--apply[/cyan] to execute.",
 			FmtBytes(totalSaved), fmtComma(totalLinks), len(removedContainers), len(removedImages),
-			fmtComma(imageCacheFiles), fmtComma(buildRootDirs), fmtComma(shadowedItems), fmtComma(cacheFiles)))
+			fmtComma(imageCacheFiles), fmtComma(buildRootDirs), fmtComma(agentStagingDirs), fmtComma(shadowedItems), fmtComma(cacheFiles), fmtComma(agentLogFiles)))
 	}
 	return 0
 }
