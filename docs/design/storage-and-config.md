@@ -238,7 +238,8 @@ All writable paths are explicitly mounted:
                          yolo-mise-data-v2 named volume on macOS podman and Apple
                          Container). Shared writable CAS across all jails — the
                          host's ~/.local/share/mise is never mounted.
-/opt/yolo-jail          ← yolo-jail repo (read-only)
+/opt/yolo-jail          ← BAKED install prefix (not a mount): real-file CLI
+                          binaries at bin/ + flake bundle at share/yolo-jail
 /tmp                    ← tmpfs (ephemeral)
 /var/tmp                ← tmpfs (ephemeral)
 ```
@@ -345,7 +346,6 @@ stomping the shared home directory.
 | `TERM` | `xterm-256color` | Terminal type (passed from host) |
 | `YOLO_BLOCK_CONFIG` | JSON | Blocked tools configuration |
 | `YOLO_HOST_DIR` | Host workspace path | For reference/logging |
-| `YOLO_REPO_ROOT` | `/opt/yolo-jail` | Location of yolo-jail source |
 | `NIX_REMOTE` | `daemon` | (If host nix available) Use host nix daemon |
 | `OVERMIND_SOCKET` | `/tmp/overmind.sock` | Isolate from host overmind |
 

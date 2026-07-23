@@ -65,7 +65,9 @@ directory is fully covered by mounts; its image content is irrelevant.
 └─ siblings outside /home/agent:
      /mise        <- GLOBAL_MISE bind (named volume on macOS)  (assemble_parts.go:59-64)
      /workspace   <- the workspace, rw                          (assemble_parts.go:41)
-     /opt/yolo-jail <- the yolo source tree, :ro                (assemble.go:180)
+     /opt/yolo-jail <- BAKED into the image (not a mount): real-file CLI copies
+                       at /opt/yolo-jail/bin + flake bundle at share/yolo-jail
+                       (flake.nix installPrefix). No source bind any more.
      /ctx/*       <- read-only context (host nvim/claude files, config mounts)
 ```
 
@@ -193,10 +195,12 @@ Only the home-relevant ones expanded; the rest one-lined for orientation.
 - **`ws/yolo-user-env.sh`** → `/home/agent/.config/yolo-user-env.sh` rw;
   written pre-assembly by `writeUserEnvFile` (run.go:176-177; mount
   assemble.go:171-176). AC: materialized.
-- **In-jail CLI repo** → `/opt/yolo-jail` **ro**, always; source = the
-  workspace itself when it *is* the yolo tree, else repoRoot with flake.nix,
-  else workspace (`repoMountSource`, assemble_parts.go:299-307;
-  assemble.go:178-180).
+- **In-jail CLI repo**: no longer a mount. `/opt/yolo-jail` is BAKED into the
+  image (`flake.nix` `installPrefix`): real-file copies of the four shipped
+  binaries at `/opt/yolo-jail/bin` plus the flake bundle at
+  `/opt/yolo-jail/share/yolo-jail`. The in-jail CLI finds its repo root the same
+  way a host install does — exe-relative bundle discovery (`reporoot.Resolve`
+  step 3) — so there is no source bind and no `YOLO_REPO_ROOT` env to set.
 - **Host nix daemon + store**: `/nix/var/nix/daemon-socket` rw + `/nix/store`
   ro + `NIX_REMOTE=daemon`, when both exist and runtime isn't AC; macOS podman
   additionally requires opt-in via `YOLO_NIX_HOST_DAEMON`
