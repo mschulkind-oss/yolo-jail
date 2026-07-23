@@ -9,13 +9,14 @@ on the tree, the file:line is named.
 
 ## Open work at a glance
 
-Everything not marked done below reduces to **two** open items. In priority /
+Everything not marked done below reduces to **three** open items. In priority /
 lane order:
 
 | # | Open item | Lane | Blocker |
 |---|---|---|---|
 | 1 | **config-composition — non-agent surface ports** (mise, standalone MCP/LSP, git identity onto the prism, then delete their bespoke generators) | jail-side | none — the main remaining agent-completable thread |
-| 2 | **D4 Cachix** (one Mac download proof) | hardware-gated | substituter enabled + account/cache/CI-push all done (2026-07-22); needs only a real Mac to prove the download path |
+| 2 | **Linux-builder key lifecycle fix** (pin `KEYS` out of the workspace; make the `Key` probe compare not exist-check; replace the leaked `sudo: a password is required` with guidance) | jail-side (macOS-runtime-gated) | none to write; a stray CWD `./keys` mismatch wedges the detached auto-start on a `sudo` prompt the path can't answer — see [linux-builder-lifecycle.md](../design/linux-builder-lifecycle.md) §6–8 |
+| 3 | **D4 Cachix** (one Mac download proof) | hardware-gated | substituter enabled + account/cache/CI-push all done (2026-07-22); needs only a real Mac to prove the download path |
 
 Not on this list because they are **done or held**: J1–J3, D1/D2/D3, Track M
 M0–M2, module-consolidation, the agent-config prism cutover, agy, **and nix-ld**
@@ -41,6 +42,7 @@ post-Go-port backlog (nix-ld, color audit, consolidation) into the same picture.
 | [nix-ld-dynamic-linking.md](nix-ld-dynamic-linking.md) | Replace the `LD_LIBRARY_PATH` whack-a-mole with nix-ld; closes the custom-`mcp_servers` startup gap. | jail-side — **DONE 2026-07-22** (Variant A: custom `nix-ld.overrideAttrs`, `DEFAULT_NIX_LD` baked; MCP-wrapper exports removed; `yolo check` tripwire added). Only a host-gated `env -i` acceptance matrix remains before `just load`. |
 | [agent-settings-composition.md](agent-settings-composition.md) | Layered regeneration of any generated config (agent settings, MCP, LSP, mise, identity) + a Lua transform. **Design FINALIZED 2026-07-20.** | jail-side — **agent-config surfaces DONE 2026-07-22: prism is the sole boot config path (gate retired, bespoke writers deleted); non-agent surfaces (mise/MCP/LSP/identity) still to port** |
 | [cache-relocation.md](cache-relocation.md) | User-scope-only `cache_relocations` so a huge cold cache subdir can live on other storage; unblinds `prune`/`purge`. Podman behavior proven 2026-07-21; host acceptance discharged 2026-07-22. | **DONE (items 1–10); item 11 held on a design question** |
+| [../design/linux-builder-lifecycle.md](../design/linux-builder-lifecycle.md) | Reference for the macOS Linux builder + a **known key-lifecycle bug**: an unpinned CWD-relative `KEYS` lets a stray `./keys` wedge the detached auto-start on an unanswerable `sudo`. | jail-side (macOS-runtime-gated) — **OPEN**: pin `KEYS`, compare-don't-exist-check the `Key` probe, replace the leaked stderr with guidance (doc §8) |
 | [cli-color-audit.md](cli-color-audit.md) | Shared rich→ANSI renderer + TTY gate across commands. | jail-side — **DONE 2026-07-22** (renderer consolidated, TTY probe unified, check/doctor leak fixed, all commands classified) |
 | [antigravity-agy-support.md](antigravity-agy-support.md) | Support Google Antigravity CLI (`agy`) as a native agent inside `yolo-jail`. | jail-side — **DONE 2026-07-22** (born on the prism; all eight touchpoints landed) |
 | [module-consolidation-and-cleanup.md](module-consolidation-and-cleanup.md) | Collapse the parity-era `internal/*` split; drop parity machinery; §4 OSS-hygiene remnants. | **DONE 2026-07-21** (package-merge declined) |
