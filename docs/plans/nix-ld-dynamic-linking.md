@@ -1,69 +1,97 @@
 # Plan: nix-ld — kill the `LD_LIBRARY_PATH` whack-a-mole
 
-**Status:** OPEN — decided, not started. Pulled out of the archived
-`go-port-post-transition.md` §1 (the Go-only cutover it was gated behind has
-landed, so it's now actionable). It's a `flake.nix` + entrypoint image change,
-which is **fully validatable in a nested jail** (`yolo -- bash` rebuilds the
-flake and runs the new image — runtime behavior included; verified 2026-07-22,
-see AGENTS.md "Build & deploy"). A host `just load` is only needed to ship it to
-the maintainer's own day-to-day jails, not to prove it works. Watch the build
-output: a failed nix build silently falls back to the stale image.
+**Status:** IMPLEMENTED (2026-07-22) — shipped as **Variant A** (a custom
+`nix-ld.overrideAttrs` with `DEFAULT_NIX_LD` baked to the real glibc loader).
+Commits: `e05666a` (flake: adopt nix-ld as the FHS interpreter), `1d614e1`
+(drop the MCP-wrapper `LD_LIBRARY_PATH` exports), `d38463a` (keep + document the
+cli `-e` re-export), `d6d2e65` (`yolo check` FHS-loader tripwire), `c434f35`
+(record IMPLEMENTED in the design doc). The full as-shipped record — including
+why items 3–4 below turned out unnecessary — lives in the design doc's
+"Resolution" section (its items 1–8 are the authority; this list is reconciled
+to them). **One residual, host-gated:** the broader `env -i` acceptance matrix
+(Claude native binary, `copilot --version`, an MCP spawn, a ctypes `dlopen`,
+aarch64) before the maintainer ships via `just load` — the mise-node crux is
+already proven in-jail and guarded by the `yolo check` tripwire.
+
+This was a `flake.nix` + entrypoint image change, **fully validatable in a
+nested jail** (`yolo -- bash` rebuilds the flake and runs the new image —
+runtime behavior included; verified 2026-07-22, see AGENTS.md "Build & deploy").
+A host `just load` is only needed to ship it to the maintainer's own day-to-day
+jails, not to prove it works. Watch the build output: a failed nix build
+silently falls back to the stale image.
 
 **Design + empirical validation:**
 [../design/mise-node-dynamic-linking.md](../design/mise-node-dynamic-linking.md)
 §Resolution is the full blueprint — this doc is just the sequenced work list.
 
-## The problem (why this exists)
+## The problem (why this existed) — now solved
 
-Non-nix binaries (the mise node, npm/pip packages, downloaded tools) find their
+Non-nix binaries (the mise node, npm/pip packages, downloaded tools) found their
 shared libs only via `LD_LIBRARY_PATH=/lib:/usr/lib`, which the jail sets in
-every process (`flake.nix:685` baked Env, `internal/cli/run/assemble.go:379` the
-`-e` re-export). Any consumer that **scrubs the environment** then can't load
-`libstdc++` — so we paper over it with per-call-site wrapper hacks. The worst
-offenders are the **MCP node wrappers**
-(`internal/entrypoint/mcp_wrappers.go:20,65,73`), which re-export
-`LD_LIBRARY_PATH` precisely so MCP servers can start under a scrubbed env. Custom
-`mcp_servers` that don't use the wrapper silently fail to start — the open gap.
+every process (the baked image Env + the cli `-e` re-export). Any consumer that
+**scrubbed the environment** then couldn't load `libstdc++` — so we papered over
+it with per-call-site wrapper hacks. The worst offenders were the **MCP node
+wrappers** (`internal/entrypoint/mcp_wrappers.go`), which re-exported
+`LD_LIBRARY_PATH` precisely so MCP servers could start under a scrubbed env.
+Custom `mcp_servers` that didn't use the wrapper silently failed to start — the
+gap that is now closed.
 
 nix-ld replaces the `/lib64` FHS interpreter with a loader that resolves
 `libstdc++` env-free, so the mise node (and everything else) links without the
-`LD_LIBRARY_PATH` dance, and the wrapper hacks disappear.
+`LD_LIBRARY_PATH` dance, and the wrapper hacks are gone.
 
-## Current state (verified 2026-07-20)
+## Current state (as shipped 2026-07-22)
 
-- No nix-ld anywhere in the tree (`rg nix-ld flake.nix` → nothing). The sole
-  mention is an aspirational forward-reference comment at
-  `internal/entrypoint/mise.go:44` (added `743e053`) — cosmetic, nix-ld is still
-  unimplemented, and the doc's own `rg nix-ld flake.nix → nothing` check holds.
-- `LD_LIBRARY_PATH=/lib:/usr/lib[:/usr/lib/<multilib>]` is live in: the baked
-  image Env (`flake.nix:685`), the CLI `-e` injection (`assemble.go:379`), and
-  the three MCP wrapper scripts (`mcp_wrappers.go:20,65,73`).
-- So the "custom-`mcp_servers` wrapper gap" (an MCP server that bypasses the
-  node wrapper can't find libstdc++ under a scrubbed env) is still open.
+- nix-ld **is** the FHS ELF interpreter: `flake.nix` defines the `nixLd`
+  derivation (`nix-ld.overrideAttrs`, `DEFAULT_NIX_LD` → real glibc `ld.so`,
+  the lib-dir const `substituteInPlace`d to the baked non-store
+  `/usr/share/nix-ld/lib`) and symlinks `/lib/$LINKER_BASENAME` +
+  `/lib64/$LINKER_BASENAME` → `${nixLd}/libexec/nix-ld` (see the `nixLd` block
+  and `mkBinPathLinks`). `internal/entrypoint/mise.go:44`'s forward-reference
+  comment is now accurate rather than aspirational.
+- `LD_LIBRARY_PATH=/lib:/usr/lib[:/usr/lib/<multilib>]` is **deliberately kept**
+  in the baked image Env (`flake.nix:732`) and the CLI `-e` re-export
+  (`assemble.go:405-409`) — it is the dlopen-by-soname discovery path for
+  *nix-built* processes, a class nix-ld structurally cannot serve (nix binaries
+  never traverse `/lib64`). The three MCP wrapper `LD_LIBRARY_PATH` exports are
+  **removed** (`mcp_wrappers.go` now carries "No LD_LIBRARY_PATH export" notes).
+- The "custom-`mcp_servers` wrapper gap" is **closed**: bare `node` commands now
+  survive scrubbed-env (`env -i`) spawns with no wrapper, because the interpreter
+  itself is env-independent. (Known farm-gap residuals — e.g. `keytar.node`
+  wanting `libsecret-1.so.0`, not in the farm — are pre-existing and failed
+  *with* the old wrapper too; see the design doc's "Known residuals".)
 
 ## The work (from the blueprint)
 
-- [ ] **flake.nix:** retarget the `/lib64` + `/lib` interpreter symlink → nix-ld.
-  Variant A: a custom derivation with `DEFAULT_NIX_LD` baked to the real loader.
-  Variant B: stock `pkgs.nix-ld` + `NIX_LD` env + `/run` wiring. Delivery rides
-  the same CI / Cachix / on-demand-builder paths as the rest of the image.
-- [ ] **flake.nix:** bake a minimal fallback lib dir at a **non-store** path
-  (`/usr/share/nix-ld/lib/` — `ld.so` + the core farm-trio symlinks).
-- [ ] **entrypoint (Go, `internal/entrypoint`):** idempotently create the
-  `/run/current-system/sw/share/nix-ld/lib` symlink at startup, including on the
-  reuse-`exec` paths. (One implementation now — the Python twin is gone.)
-- [ ] **cli:** explicit mode on `--tmpfs /run` (Docker `-u` EACCES guard).
-- [ ] **KEEP the baked `LD_LIBRARY_PATH`** (`flake.nix:685`) — it's the only
+- [x] **flake.nix:** retarget the `/lib64` + `/lib` interpreter symlink → nix-ld.
+  Shipped as **Variant A** — a custom `nix-ld.overrideAttrs` with
+  `DEFAULT_NIX_LD` baked to the real loader (`e05666a`). Delivery rides the same
+  CI / Cachix / on-demand-builder paths as the rest of the image.
+- [x] **flake.nix:** bake a minimal fallback lib dir at a **non-store** path
+  (`/usr/share/nix-ld/lib/` — `ld.so` + the core farm-trio symlinks). The
+  lib-dir const is `substituteInPlace`d to this baked path.
+- [x] ~~**entrypoint:** idempotently create the
+  `/run/current-system/sw/share/nix-ld/lib` symlink at startup.~~ **NOT NEEDED
+  under Variant A** — the flake bakes `DEFAULT_NIX_LD` + rewrites the lib-dir
+  const to `/usr/share/nix-ld/lib`, so the built `nix-ld` binary has **zero**
+  `/run/current-system` references and there is no runtime symlink to create.
+  (This step existed only for Variant B's `/run` fallback.)
+- [x] ~~**cli:** explicit mode on `--tmpfs /run`.~~ **MOOT under Variant A** (no
+  `/run` dependency). `--tmpfs /run` is already unconditional in both mount
+  modes (`internal/cli/run/runmount.go`) for unrelated reasons — nothing changed.
+- [x] **KEEP the baked `LD_LIBRARY_PATH`** (`flake.nix:732`) — it's the only
   dlopen-by-soname discovery path for *nix-built* processes (the user-packages
-  contract). nix-ld replaces the *interpreter*, not soname discovery.
-- [ ] **Staged DELETE (separate commits, each after nested-jail validation):**
-  the `LD_LIBRARY_PATH` export lines in the MCP wrappers
-  (`mcp_wrappers.go:20,65,73`); then evaluate dropping the CLI `-e` re-export
-  (`assemble.go:379`). **The custom-`mcp_servers` wrapper gap closes for free**
-  once the loader is env-independent.
-- [ ] **Validation:** an `env -i` smoke suite in a nested jail — mise node, the
-  `claude` binary, copilot addons, an MCP spawn, a ctypes `dlopen` — plus one
-  `aarch64` run.
+  contract). nix-ld replaces the *interpreter*, not soname discovery. Kept.
+- [x] **Staged DELETE** — the `LD_LIBRARY_PATH` export lines are removed from all
+  three MCP wrappers (`mcp_wrappers.go`, `1d614e1`, nested-jail verified). The
+  CLI `-e` re-export (`assemble.go`) was **evaluated and kept** (`d38463a`) —
+  byte-identical to the baked `config.Env`, retained to keep the launch env
+  self-describing and as the dlopen-by-soname path for nix processes. **The
+  custom-`mcp_servers` wrapper gap closed for free.**
+- [x] **Validation:** the mise-node `env -i` crux is proven in-jail and guarded
+  by a `yolo check` FHS-loader tripwire (`d6d2e65`). ~~aarch64 + the broader
+  smoke matrix (Claude native binary, copilot, an MCP spawn, a ctypes `dlopen`)~~
+  remains a **host-gated acceptance step** before shipping via `just load`.
 
 ## Sequencing
 

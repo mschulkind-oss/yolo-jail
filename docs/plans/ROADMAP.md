@@ -9,20 +9,21 @@ on the tree, the file:line is named.
 
 ## Open work at a glance
 
-Everything not marked done below reduces to **three** open items. In priority /
+Everything not marked done below reduces to **two** open items. In priority /
 lane order:
 
 | # | Open item | Lane | Blocker |
 |---|---|---|---|
 | 1 | **config-composition — non-agent surface ports** (mise, standalone MCP/LSP, git/jj identity onto the prism, then delete their bespoke generators) | jail-side | none — the main remaining agent-completable thread |
-| 2 | **nix-ld** (retarget the image dynamic linker so mise node + custom MCP servers link env-free; **closes the custom-`mcp_servers` startup gap**) | jail-side | none for validation — a nested `yolo -- bash` rebuilds the flake and runs the new image (verified 2026-07-22); a host `just load` only ships it to the maintainer's own jails |
-| 3 | **D4 Cachix** (one Mac download proof) | hardware-gated | substituter enabled + account/cache/CI-push all done (2026-07-22); needs only a real Mac to prove the download path |
+| 2 | **D4 Cachix** (one Mac download proof) | hardware-gated | substituter enabled + account/cache/CI-push all done (2026-07-22); needs only a real Mac to prove the download path |
 
 Not on this list because they are **done or held**: J1–J3, D1/D2/D3, Track M
-M0–M2, module-consolidation, the agent-config prism cutover, and agy are all
-**done**; `cache-relocation` work items 1–10 are **done** (host acceptance step
-discharged 2026-07-22) and item 11 (`yolo cache relocate`) is **held** pending a
-level-of-abstraction design question, not scheduled.
+M0–M2, module-consolidation, the agent-config prism cutover, agy, **and nix-ld**
+are all **done** (nix-ld shipped Variant A on 2026-07-22 — `e05666a`/`1d614e1`/
+`d38463a`/`d6d2e65`/`c434f35`; only a host-gated `env -i` acceptance matrix
+remains before `just load`); `cache-relocation` work items 1–10 are **done**
+(host acceptance step discharged 2026-07-22) and item 11 (`yolo cache relocate`)
+is **held** pending a level-of-abstraction design question, not scheduled.
 
 This is a **meta-doc**: it sequences the plans, it does not restate them. Each
 plan remains the source of truth for its own work items. The
@@ -37,7 +38,7 @@ post-Go-port backlog (nix-ld, color audit, consolidation) into the same picture.
 |---|---|---|
 | [macos-revival-and-distribution-plan.md](macos-revival-and-distribution-plan.md) | Tracks J (Linux-jail fixes), D (distribution/source-access), M (Mac hardware). Roadmap of record. | **J1–J3 + D1/D2/D3 done, Track M M0/M1/M2 PROVEN on HW 2026-07-21; only D4 Mac-download proof remains.** |
 | [handoff-cachix-cache.md](handoff-cachix-cache.md) | The revival plan's **D4**: publish the OCI image to a Cachix cache. | human-gated — substituter ENABLED (flake.nix:13-16, 730c258); Cachix account + cache exist and CI has pushed data; only the Mac download proof remains |
-| [nix-ld-dynamic-linking.md](nix-ld-dynamic-linking.md) | Replace the `LD_LIBRARY_PATH` whack-a-mole with nix-ld; closes the custom-`mcp_servers` startup gap. | jail-side — **not started**; flake change is nested-jail validatable, only the host-jail ship is host-gated |
+| [nix-ld-dynamic-linking.md](nix-ld-dynamic-linking.md) | Replace the `LD_LIBRARY_PATH` whack-a-mole with nix-ld; closes the custom-`mcp_servers` startup gap. | jail-side — **DONE 2026-07-22** (Variant A: custom `nix-ld.overrideAttrs`, `DEFAULT_NIX_LD` baked; MCP-wrapper exports removed; `yolo check` tripwire added). Only a host-gated `env -i` acceptance matrix remains before `just load`. |
 | [agent-settings-composition.md](agent-settings-composition.md) | Layered regeneration of any generated config (agent settings, MCP, LSP, mise, identity) + a Lua transform. **Design FINALIZED 2026-07-20.** | jail-side — **agent-config surfaces DONE 2026-07-22: prism is the sole boot config path (gate retired, bespoke writers deleted); non-agent surfaces (mise/MCP/LSP/identity) still to port** |
 | [cache-relocation.md](cache-relocation.md) | User-scope-only `cache_relocations` so a huge cold cache subdir can live on other storage; unblinds `prune`/`purge`. Podman behavior proven 2026-07-21; host acceptance discharged 2026-07-22. | **DONE (items 1–10); item 11 held on a design question** |
 | [cli-color-audit.md](cli-color-audit.md) | Shared rich→ANSI renderer + TTY gate across commands. | jail-side — **DONE 2026-07-22** (renderer consolidated, TTY probe unified, check/doctor leak fixed, all commands classified) |
@@ -54,19 +55,22 @@ two are gated on a resource an in-jail agent doesn't have.
 
 - **Jail-side (agent-completable).** Developable and testable from inside a
   jail; `internal/` changes still get a nested-jail sanity run per AGENTS.md.
-  With the Jul-21/22 wave landed, the jail-side work left is the **non-agent
-  config-composition surfaces** (porting mise/MCP/LSP/identity onto the prism —
-  the agent-config surfaces and `agy` are done) and **nix-ld**. J2, J3, D2,
+  With the Jul-21/22 wave landed, the jail-side work left is a single thread —
+  the **non-agent config-composition surfaces** (porting mise/MCP/LSP/identity
+  onto the prism — the agent-config surfaces and `agy` are done). J2, J3, D2,
   cli-color-audit (now fully DONE — renderer consolidated, TTY probe unified,
   check/doctor leak fixed, all commands classified), module-consolidation, the
-  agent-config prism cutover, and agy have all landed.
+  agent-config prism cutover, agy, and **nix-ld** (shipped Variant A 2026-07-22)
+  have all landed.
 - **Host-gated (needs a human at a host with nix) — for SHIPPING, not
   validating.** A nested `yolo -- bash` rebuilds the flake and runs the new
-  image, so a `flake.nix` / image change (including **nix-ld**) is fully
-  validated in-jail, runtime behavior included (verified 2026-07-22; AGENTS.md
-  "Build & deploy"). What still needs a host session is loading the proven image
-  into the maintainer's OWN day-to-day jails (`just load`) — that's shipping, and
-  it never blocks jail-side development or verification. The one genuinely
+  image, so a `flake.nix` / image change is fully validated in-jail, runtime
+  behavior included (verified 2026-07-22; AGENTS.md "Build & deploy"). What still
+  needs a host session is loading the proven image into the maintainer's OWN
+  day-to-day jails (`just load`) — that's shipping, and it never blocks jail-side
+  development or verification. **nix-ld** is the live example: it is fully
+  implemented and in-jail-validated, and its only remaining step is the
+  host-gated `env -i` acceptance matrix before `just load`. The one genuinely
   hardware-gated remnant is **D4's Mac download proof** (see the next bullet),
   which needs real Mac hardware, not just a host with nix.
 - **Hardware-gated (needs a real Mac).** No in-jail agent can complete these.
@@ -144,11 +148,19 @@ Marked here so the "start here" arrow points at the real next item.
   observed and passing. See `docs/research/macos-support-matrix.md`.
 - ✅ **mise migration fix** (2026-07-20) — stale unpinned baked-runtime lines
   stripped on upgrade, workspace/injected pins preserved (nested-jail verified).
+- ✅ **nix-ld — DONE** (2026-07-22) — Variant A: a custom `nix-ld.overrideAttrs`
+  with `DEFAULT_NIX_LD` baked to the real glibc loader is the `/lib64` + `/lib`
+  FHS interpreter; the fallback lib dir is the baked non-store
+  `/usr/share/nix-ld/lib`; the three MCP-wrapper `LD_LIBRARY_PATH` exports are
+  removed (`1d614e1`) and the custom-`mcp_servers` gap closed for free; the baked
+  Env + cli `-e` `LD_LIBRARY_PATH` are deliberately kept (`d38463a`) as the
+  nix-process dlopen-by-soname path; a `yolo check` FHS-loader tripwire
+  (`d6d2e65`) guards regressions. Only the broader host-gated `env -i` acceptance
+  matrix remains before `just load`.
 
 Everything else below is **open**: config-composition non-agent surfaces
-(mise/MCP/LSP/identity ports), nix-ld (flake change, nested-jail validatable;
-host `just load` only ships it), and the D4-download human step. (cli-color-audit
-is now fully DONE — see above.)
+(mise/MCP/LSP/identity ports) and the D4-download human step. (cli-color-audit
+and nix-ld are now fully DONE — see above.)
 
 ## Recommended order (jail-side thread)
 
@@ -253,19 +265,24 @@ cleanup pass with nested-jail parity verification per surface.
 
 ## What unblocks the gated lanes
 
-- **nix-ld (jail-side to validate; host to ship).** Independent of the other
-  jail-side thread — it's an image-layer change (`flake.nix` interpreter retarget
-  + an `internal/entrypoint` `/run` symlink). Verified not started
-  (`rg nix-ld flake.nix` → nothing; `LD_LIBRARY_PATH=/lib:/usr/lib` still live at
-  `flake.nix:685`, `assemble.go:379`, and `mcp_wrappers.go:20,65,73`). **An
-  in-jail agent CAN build and validate it end-to-end**: a nested `yolo -- bash`
-  rebuilds the flake and runs the new image, so the node/MCP `env -i` smoke gates
-  run in-jail (verified 2026-07-22, AGENTS.md "Build & deploy"). The only host
-  step is `just load` to ship the proven image to the maintainer's own jails.
-  **User-visible payoff worth flagging:** this is what finally lets *custom*
-  `mcp_servers` start without the wrapper `LD_LIBRARY_PATH` hack — the open gap
-  where an MCP server that bypasses the node wrapper silently fails to load
-  `libstdc++` under a scrubbed env.
+- **nix-ld — DONE (2026-07-22); only the host `env -i` acceptance matrix +
+  `just load` remain.** Shipped as an image-layer change: the `flake.nix`
+  interpreter retarget (`nixLd = imagePkgs.nix-ld.overrideAttrs`, `DEFAULT_NIX_LD`
+  baked; `/lib` + `/lib64` `$LINKER_BASENAME` → `${nixLd}/libexec/nix-ld`) plus
+  the baked non-store fallback dir `/usr/share/nix-ld/lib`. The entrypoint `/run`
+  symlink turned out **unnecessary** under this variant (the built binary has
+  zero `/run/current-system` references). The three MCP-wrapper
+  `LD_LIBRARY_PATH` exports are gone (`mcp_wrappers.go`, `1d614e1`); the baked
+  Env (`flake.nix:732`) + cli `-e` re-export (`assemble.go:405`) are deliberately
+  kept as the nix-process dlopen-by-soname path (`d38463a`). Built + validated
+  in a nested `yolo -- bash` (AGENTS.md "Build & deploy") and guarded by a
+  `yolo check` FHS-loader tripwire (`d6d2e65`). The only host steps left are the
+  broader `env -i` acceptance matrix (Claude native binary, copilot, MCP spawn,
+  ctypes `dlopen`, aarch64) and `just load` to ship it to the maintainer's own
+  jails. **User-visible payoff realized:** *custom* `mcp_servers` now start
+  without the wrapper `LD_LIBRARY_PATH` hack — the gap where an MCP server that
+  bypassed the node wrapper silently failed to load `libstdc++` under a scrubbed
+  env is **closed**.
 - **D4 Cachix (hardware-gated now).** The `flake.nix` `nixConfig` substituter is
   enabled (flake.nix:13-16, 730c258) and the CI push job self-enables with the
   `CACHIX_AUTH_TOKEN` secret. **As of 2026-07-22 the Cachix account and cache
@@ -281,10 +298,9 @@ cleanup pass with nested-jail parity verification per surface.
  DONE ─────────────────────────────────────────────────►│ now │──────────────►
 
  jail    J1.1–J1.4 ✓  D1 ✓  D2 ✓  D3 ✓  CI ✓  cli-color-audit (FULLY DONE) ✓
- (agent)  J2.1–J2.4 ✓  J3 ✓  module-consolidation ✓  agy ✓
+ (agent)  J2.1–J2.4 ✓  J3 ✓  module-consolidation ✓  agy ✓  nix-ld ✓ (Variant A)
           config Phase A ✓  B ✓  agent-config cutover ✓ ─► non-agent surface ports
 
- jail    nix-ld  ── validatable in nested jail NOW (image layer; closes custom-mcp_servers gap); host just-load only to ship ─►
  (hw)    D4 Cachix ── substituter enabled ✓  account + cache + CI push ✓; needs only a Mac download proof ──►
 
  mac     M0 ✓  M1 ✓  M2 ✓  ── PROVEN on real Apple Silicon 2026-07-21 ────────────────────
@@ -293,22 +309,18 @@ cleanup pass with nested-jail parity verification per surface.
 
 ## Parallelization — what can run concurrently right now
 
-The lanes have thinned out; the concurrency picture is simpler than it was:
+The lanes have thinned out to essentially one open jail-side thread:
 
-- **jail:** the config-composition **non-agent surface ports** thread and
-  **nix-ld** are independent (different files) and can run concurrently. Each
-  non-agent port is a wire-then-delete cleanup pass, verifying the surface in a
-  nested jail; nix-ld is an image-layer change that a nested `yolo -- bash`
-  validates end-to-end.
+- **jail:** the config-composition **non-agent surface ports** thread is the only
+  open agent-completable work — a wire-then-delete cleanup pass per surface,
+  verifying each in a nested jail. (nix-ld, previously the parallel jail-side
+  item, landed 2026-07-22.)
 - **hardware (D4 Cachix Mac-download proof):** on its own clock; does not block
   the jail lane.
 
-**Best concurrent slice today:** config-composition non-agent ports + **nix-ld**
-— both jail-side with non-overlapping files, both nested-jail validatable. The
-only host step nix-ld still needs is a `just load` to ship the proven image to
-the maintainer's own jails, which never blocks the build/validate loop. There is
-no longer a hard cross-lane dependency — M1's dependency on J2 is discharged
-(both landed).
+**Today's slice:** config-composition non-agent ports — jail-side, nested-jail
+validatable per surface. There is no longer a hard cross-lane dependency — M1's
+dependency on J2 is discharged (both landed), and nix-ld is done.
 
 ## Parked
 
