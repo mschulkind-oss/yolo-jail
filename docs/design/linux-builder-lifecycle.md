@@ -1,15 +1,21 @@
-# The macOS Linux builder: what it is and how its lifecycle is managed
+# The macOS Linux builder: two mechanisms, and why the VM one is going away
 
-**Status:** REFERENCE (2026-07-23) — describes the builder as it exists today,
-plus a **known bug** in the key lifecycle (§6) that has an open work item on the
-[ROADMAP](../plans/ROADMAP.md).
+**Status:** DECISION (2026-07-23) — **remove the VM builder entirely; the
+container builder is the sole builder.** Ratifies revival-plan
+[Open Decision #3](../plans/macos-revival-and-distribution-plan.md). This doc is
+the canonical record of *why*, plus the mechanism explanation for both builders
+and the diagnosis of the live VM-builder bug that is part of the evidence.
+Tracked as an open work item on the [ROADMAP](../plans/ROADMAP.md).
 
 **Audience:** anyone debugging `yolo check` / `yolo builder *` on macOS, or
-touching `internal/builder/`. For end-user setup instructions see
-[docs/guides/macos.md § Building the image on macOS](../guides/macos.md#building-the-image-on-macos-cache-vs-linux-builder);
-for *why* this is a fallback and not the happy path see
-[happy-path-principle.md](happy-path-principle.md). This doc is the mechanism —
-how the pieces fit and where the sharp edges are.
+touching `internal/builder` / `internal/containerbuilder`. For *why the builder
+is a fallback below the Cachix download at all* see
+[happy-path-principle.md](happy-path-principle.md); for the container-builder
+reasoning see
+[../research/macos-container-builder-exploration.md](../research/macos-container-builder-exploration.md);
+for end-user setup see
+[docs/guides/macos.md](../guides/macos.md#building-the-image-on-macos-cache-vs-linux-builder)
+(which still documents the VM builder and is slated to be reconciled — see §9).
 
 ## 1. Why a builder exists at all
 
@@ -18,221 +24,204 @@ closure comes prebuilt from `cache.nixos.org`, but a few derivations are built
 from **this repo's own source** (`yolo-jail-conf`, the entrypoint package, the
 image stream script) and are therefore never on the public cache. macOS cannot
 execute Linux build steps locally, so Nix must **offload** those derivations to
-a Linux machine.
+something running Linux.
 
-The **happy path** is to sidestep building entirely: download the fully-built
-image from yolo-jail's own Cachix cache (revival plan D4, substituter enabled;
-Mac download proof still pending — see [ROADMAP](../plans/ROADMAP.md)). The
-builder is the **single sanctioned fallback**, used only until the cache serves
-your platform or when you add a custom package the cache doesn't have. Per
-[happy-path-principle.md](happy-path-principle.md), `yolo check` names *this one*
-fallback and nothing else.
+Three layers, in happy-path order:
 
-## 2. What the builder actually is
+1. **Cachix download (the real happy path).** Download the fully-built image;
+   build nothing, need no builder. Revival plan D4 — substituter enabled, Mac
+   download proof pending. When this lands, the builder question is moot for
+   almost everyone.
+2. **A builder (the fallback), for an uncached `packages:` derivation.** This is
+   what this doc is about. There are **two** implementations of it in the tree
+   (§2) — and the decision here is to keep one and delete the other.
+3. **macos-user needs no builder at all** — it runs native `aarch64-darwin`
+   binaries, no Linux image. Out of scope here.
 
-`nixpkgs#darwin.linux-builder` — a small NixOS VM run under Apple
-Virtualization. Nix's daemon reaches it over SSH on **localhost:31022** and
-hands it `aarch64-linux` derivations to build. It is not bespoke to yolo-jail;
-we just orchestrate its lifecycle. The moving parts:
+## 2. The two builder mechanisms
 
-| Piece | Where | Set by |
+Both present the same thing to Nix — *a remote build machine reached over
+`ssh-ng`* — so the `nix.conf`/`--builders` line, the SSH key, and
+`builders-use-substitutes` are the same idea in each. Only **what answers the
+SSH port** differs.
+
+### 2a. The VM builder — `internal/builder` (being removed)
+
+`nixpkgs#darwin.linux-builder`: a NixOS VM under QEMU/Apple Virtualization,
+reached on **localhost:31022**. Orchestrated by the `yolo builder
+{setup,start,stop,status}` commands. Requires:
+
+- a one-time privileged `yolo builder setup` (one `sudo`: `nix.conf` builders
+  line, `trusted-users` merge, SSH alias, daemon kickstart),
+- an interactive **first boot** where the VM installs its SSH keypair into
+  `/etc/nix` via `sudo`,
+- a detached VM process with a PID/log file, and an idle-stop story that was
+  never finished.
+
+Constants in `internal/builder/builder.go` (`BuilderPort = 31022`,
+`BuilderKeyPath = /etc/nix/builder_ed25519`). Wired into exactly two places:
+the `yolo builder` command (`internal/cli/commands.go`) and `yolo check`'s
+Image Build section (`internal/cli/check/`). **Notably, the real `yolo` run path
+does *not* use it** — see §2b.
+
+### 2b. The container builder — `internal/containerbuilder` (the keeper)
+
+A tiny `nix + sshd` container (`ghcr.io/mschulkind-oss/yolo-jail-builder:latest`,
+built on arm-Linux CI, so no Mac ever builds it) run on the **runtime that's
+already up** — podman or Apple Container — reached over `ssh-ng`. Lifecycle:
+pull → run detached → wait for its sshd → hand Nix a `--builders` line → tear it
+down. **Zero idle RAM** (it exists only during a build), **no `sudo`**, **no
+QEMU**, **no `yolo builder` command, no first-boot dance.**
+
+It is wired into the **actual run path**: `internal/image/autoload.go`'s
+`BuildOffload` seam calls `buildImageWithContainerBuilder`
+(`internal/image/builderoffload.go`) when a from-source build is needed on macOS.
+Per-runtime argv differs correctly (podman publishes `127.0.0.1:31022:22`; Apple
+Container is reachable on its per-container VM IP with no `-p`). Its client key
+lives out of the way under `$GLOBAL_STORAGE` (`containerbuilder.BuilderKeyDir`)
+and is regenerated on demand — none of the VM builder's `/etc/nix` reconcile
+problem.
+
+## 3. The decision: remove the VM builder
+
+**The container builder covers every matrix cell the VM builder did, more
+happy-path.** Proven end-to-end:
+
+| Cell | VM builder | Container builder |
 |---|---|---|
-| `builders = ssh-ng://builder@linux-builder …` | `/etc/nix/nix.custom.conf` (or `nix.conf`) | `yolo builder setup` |
-| `trusted-users` includes you | same file | `yolo builder setup` (merged, never clobbered) |
-| SSH host alias `linux-builder` → `localhost:31022`, `IdentityFile /etc/nix/builder_ed25519` | `/etc/ssh/ssh_config.d/100-linux-builder.conf` | `yolo builder setup` |
-| The builder SSH **keypair** | `/etc/nix/builder_ed25519{,.pub}` (root:nixbld) | first-boot, via `sudo` (see §5–6) |
-| The VM process | detached, PID in `$GLOBAL_STORAGE/linux-builder.pid`, log in `$GLOBAL_STORAGE/logs/linux-builder.log` | `yolo builder start` / auto-start before a build |
+| podman (macOS) | works, but QEMU + sudo + first-boot | ✅ proven end-to-end **in-jail** |
+| Apple Container (macOS) | works | ✅ **PROVEN on real HW 2026-07-17** (`AC-CONTAINER-BUILDER-WORKS`) |
+| macos-user | n/a (no builder) | n/a (no builder) |
+| Setup cost | `yolo builder setup` (one sudo) + interactive first boot | **none** — automatic, part of the build |
+| Idle RAM | a ~3 GB VM (idle-stop never finished) | **0** (ephemeral per build) |
+| `sudo` at build time | yes (key reconcile — see §5) | **no** |
 
-Constants live in `internal/builder/builder.go` (`BuilderPort = 31022`,
-`BuilderKeyPath = /etc/nix/builder_ed25519`, host alias `linux-builder`).
+Per [happy-path-principle.md](happy-path-principle.md), a second builder only
+earns its place if it covers a cell the first cannot. The VM builder covers
+**none**. The one historical reason it was kept — *"can Apple Container even host
+an sshd container the host daemon can reach?"* was unproven
+([macos-container-builder-exploration.md](../research/macos-container-builder-exploration.md)
+§5) — is **discharged** (proven 2026-07-17). So it drops entirely, not to a
+"parked fallback." (`macos-linux-builder-explained.md:184` already said "the
+current builder direction is the container builder"; this makes it official and
+deletes the loser.)
 
-## 3. The three commands (`internal/builder`)
+**What removal is *not*:** it does not remove a user's ability to point Nix at
+*their own* remote builder. Someone already running **nix-darwin
+`linux-builder`**, or with a Linux box in `/etc/nix/machines`, still works —
+that's their nix config, orthogonal to ours. We are deleting *our* VM-builder
+machinery (`internal/builder`, the `yolo builder` commands), not the generic
+`ssh-ng` remote-builder mechanism.
 
-- **`yolo builder setup`** — one-time privileged wiring. Builds a single root
-  script (`SetupRootScript`) and pipes it to **one** `sudo bash -s` (TTY
-  inherited so it can prompt): append the `builders` line, merge `trusted-users`,
-  write the SSH alias, `launchctl kickstart` the nix-daemon. Idempotent (guards
-  on existing content). This does **not** touch the keypair.
-- **`yolo builder start`** — bring the VM up now. Two internal paths, chosen by
-  setup-state (§5).
-- **`yolo builder stop`** — `killpg`→`kill` the recorded PID, remove the PID
-  file.
-- **`yolo builder status`** — read-only snapshot: setup done? key present?
-  reachable on 31022?
+## 4. Work items (tracked on the ROADMAP)
 
-Setup-state is probed by `BuilderSetupState` (`internal/builder/buildercmd.go`):
+1. **Delete `internal/builder`** and the `yolo builder {setup,start,stop,status}`
+   subcommand wiring in `internal/cli/commands.go`. Drop its tests.
+2. **Rewire `yolo check`'s Image Build section** (`internal/cli/check/`,
+   `sections_nix.go` + `builder.go`) off the VM-builder probes
+   (`EnsureBuilder`/`ensureBuilderReal`, the `nix run …darwin.linux-builder`
+   remedy) and onto the container-builder reality: on an uncached-build macOS
+   host, report that the build will offload to a container on the active runtime
+   (and that the runtime must be up), not "run `yolo builder start`."
+3. **Reconcile the run-path failure diagnosis** (`nixdiag.LinuxBuilderRemedy` /
+   `linuxBuilderRemedy` in `internal/cli/run/imageload.go`) so a build-offload
+   failure names the container builder, not the VM.
+4. **Reconcile the user-facing docs** (§9).
 
-```
-SSHConfig  = /etc/ssh/ssh_config.d/100-linux-builder.conf is a file
-NixBuilder = nix.conf has an uncommented builders line naming aarch64-linux + linux-builder
-Key        = /etc/nix/builder_ed25519 is a file      ← see §6, this check is too weak
-Done       = SSHConfig && NixBuilder                  ← note: Key is NOT part of Done
-```
+Security-adjacent and gated by `just build-go` + a nested-jail verification per
+[AGENTS.md](../../AGENTS.md#testing).
 
-## 4. Normal lifecycle (the intended flow)
+## 5. The VM-builder bug (kept as evidence + a manual unblock)
 
-```
-yolo builder setup        one sudo: nix.conf + trusted-users + ssh alias + daemon restart
-        │
-        ▼
-yolo builder start        first boot only: foreground `nix run …linux-builder`, real TTY
-  (first boot)            → the VM's create-builder installs the keypair to /etc/nix (one sudo)
-                          → you see "builder@… login:" → Ctrl-C to return
-        │
-        ▼
-build offloads            nix daemon dials builder@linux-builder:31022, hands off
-  automatically           aarch64-linux derivations; a launchd idle-timer stops the VM
-        │
-        ▼
-later builds              yolo auto-starts the VM detached (no TTY) before a build if
-                          it's not reachable — this is the steady state
-```
-
-`yolo check`'s Image Build section is the trigger surface: it is **quiet** when
-everything is cached, and only escalates — naming the offending derivation —
-when a from-source build is genuinely required. When it does, it names *the one
-fix* (`yolo builder start`), per the happy-path principle.
-
-## 5. Start: foreground vs. detached — and why it matters
-
-`BuilderStartCmd` branches on whether the key is already present:
-
-- **First boot (`!state.Key`):** `FirstBootInteractive` → `StartVMForeground`
-  runs `nix run nixpkgs#darwin.linux-builder` with **stdin/stdout/stderr
-  inherited** — a real TTY. This matters because the VM's own `create-builder`
-  script installs the SSH keypair into `/etc/nix` via `sudo`, and a foreground
-  TTY is where you answer that prompt. Ctrl-C is expected and treated as success.
-- **Steady state (key present):** `EnsureBuilder` → `StartVMDetached` spawns the
-  same command **detached** (`setsid`, output to the log file, **no TTY**), then
-  `pollUntilReachable` waits up to 90s for port 31022. This is what auto-start
-  before a build uses.
-
-The whole design assumes: **any `sudo` the VM needs happens only on the
-foreground first-boot path.** The detached path must never need `sudo`, because
-there is no terminal to answer it. §6 is what happens when that assumption
-breaks.
-
-## 6. The key lifecycle — and the current bug
-
-**How upstream manages the keypair.** `nix run …darwin.linux-builder` runs
-`create-builder` → `add-keys`, which does (reconstructed from the store scripts):
-
-```bash
-KEYS="${KEYS:-./keys}"          # ← relative to the current working directory!
-# generate KEYS/builder_ed25519{,.pub} if absent (fresh random key)
-if ! cmp "$KEYS/builder_ed25519.pub" /etc/nix/builder_ed25519.pub; then
-    sudo --reset-timestamp install-credentials "$KEYS"   # reinstall to /etc/nix
-fi
-```
-
-Two facts collide:
-
-1. **`KEYS` defaults to `./keys`, relative to CWD.** yolo starts the VM with CWD
-   = wherever you invoked `yolo` (your workspace) and **pins neither `KEYS` nor
-   `cmd.Dir`** (`startVMForegroundReal` / `startVMDetachedReal` in
-   `internal/builder/real.go` just `exec.Command("nix", "run", …)`). So the key
-   the VM compares against `/etc/nix` is whatever `./keys` happens to be in the
-   directory you launched from.
-2. **A mismatch triggers a `sudo`.** If `./keys/builder_ed25519.pub` differs from
-   `/etc/nix/builder_ed25519.pub` — or `./keys` is absent, in which case a
-   *fresh random* key is generated that also won't match — `add-keys` runs
-   `sudo install-credentials` to reconcile.
-
-**The failure.** On the **detached** auto-start path there is no TTY. If a stray
-`./keys` dir sits in your workspace (e.g. leftover from a manual `nix run
-…linux-builder` in that directory), or if CWD simply has no persistent matching
-`./keys`, the `sudo` prompt cannot be answered and the child dies. yolo surfaces
-the log's last line verbatim:
+This is what surfaced the whole question — and it's a good illustration of *why*
+the VM builder is the wrong shape. Observed 2026-07-23: `yolo check` FAILs at
+Image Build, and following its advice (`yolo builder start`) dies with:
 
 ```
 Could not start builder: builder process exited early (sudo: a password is required)
 ```
 
-**Why `yolo builder status` still says "ssh key: yes".** The `Key` probe only
-checks that `/etc/nix/builder_ed25519` *exists* — not that it *matches* the key
-in the CWD the VM will use. So a key was installed once (setup looked complete),
-`BuilderStartCmd` takes the **detached** path (§5), and it trips the `sudo` that
-the detached path was never supposed to need. Observed 2026-07-23.
+**Why.** `nix run …darwin.linux-builder` runs `create-builder` → `add-keys`,
+which defaults `KEYS=./keys` **relative to the current working directory** and,
+on a mismatch with `/etc/nix/builder_ed25519.pub`, runs `sudo install-credentials
+./keys` to reconcile. yolo starts the VM with CWD = your workspace and pins
+neither `KEYS` nor `cmd.Dir` (`startVMForegroundReal`/`startVMDetachedReal` in
+`internal/builder/real.go`). So:
 
-**Root causes, precisely:**
+- a stray `./keys` in the workspace (leftover from a manual `nix run
+  …linux-builder`) whose pubkey differs from `/etc/nix` triggers the `sudo`; and
+- on the **detached** auto-start path there is no TTY to answer it, so the child
+  dies. `BuilderStartCmd` takes the detached path because the `Key` state probe
+  (`BuilderSetupState`, `internal/builder/buildercmd.go`) only checks that a key
+  *exists* in `/etc/nix`, not that it *matches* the CWD `./keys` — so `yolo
+  builder status` cheerfully says "ssh key: yes" while the start wedges.
 
-- **yolo doesn't pin the builder identity.** `KEYS` is left to default to a
-  CWD-relative `./keys`, so the builder's identity depends on which directory
-  you launched from — and any stray `./keys` can hijack it.
-- **The `Key` check answers the wrong question.** "Does a key exist in
-  `/etc/nix`?" instead of "does our pinned key *match* `/etc/nix`?" — so a
-  mismatch routes to the no-TTY detached path instead of the interactive one.
-- **The error is a leaked internal.** `sudo: a password is required` is the VM
-  script's stderr, not guidance. It tells you nothing about `./keys`, CWD, or
-  the one-time reconcile you actually need.
+The container builder has none of this: no CWD-relative key, no `/etc/nix`
+reconcile, no `sudo`, no detached-vs-foreground TTY split. **The bug is not worth
+fixing — it's worth deleting.**
 
-## 7. Fixing a wedged builder today (manual, needs your sudo)
-
-Reconcile `/etc/nix` from a **stable** key directory once, from a directory with
-no stray `./keys`:
+**Manual unblock, if you hit it before removal lands** (needs your sudo, from a
+directory with no stray `./keys`):
 
 ```bash
-# 1. Remove any stray ./keys in your workspace (and other stale cruft).
-rm -rf ./keys
-
-# 2. Reconcile from a persistent, out-of-workspace key dir, interactively.
+rm -rf ./keys                                   # remove the stray workspace key
 mkdir -p ~/.local/share/yolo-jail/builder-keys
-cd ~                                        # anywhere without a ./keys
+cd ~                                            # anywhere without a ./keys
 KEYS=~/.local/share/yolo-jail/builder-keys nix run nixpkgs#darwin.linux-builder
 # answer the single sudo prompt; at "builder@… login:" press Ctrl-C
 ```
 
-After this, `/etc/nix/builder_ed25519.pub` matches
-`~/.local/share/yolo-jail/builder-keys`. **Caveat:** until the code fix in §8
-lands, a plain `yolo builder start` from your workspace can still regress,
-because it will again run with CWD = workspace and an unpinned `KEYS`.
+Better: if the container builder is available (podman/AC up), just let a normal
+`yolo` run offload the build — no sudo, no keys.
 
-## 8. The durable fix (open work item)
+## 6. Related cruft worth cleaning
 
-Tracked on the [ROADMAP](../plans/ROADMAP.md). Three changes in
-`internal/builder`, smallest-correct-first:
-
-1. **Pin `KEYS` to `$GLOBAL_STORAGE/builder-keys`** in both
-   `startVMForegroundReal` and `startVMDetachedReal` (set it in the child env).
-   The builder identity becomes independent of the launch directory; a stray
-   `./keys` can never hijack it again.
-2. **Make the `Key` probe compare, not just exist-check.** `BuilderSetupState`
-   should report `Key` true only when the pinned `KEYS` pubkey **matches**
-   `/etc/nix/builder_ed25519.pub`. A mismatch (or absence) then routes
-   `BuilderStartCmd` to the **foreground** first-boot path that can answer the
-   `sudo` prompt — never the detached path.
-3. **Replace the leaked stderr with guidance.** When start fails because the key
-   needs a `sudo` reconcile, print the one fix — "run `yolo builder start` in a
-   terminal and approve one sudo prompt" — instead of surfacing
-   `sudo: a password is required`. Name the one path, per
-   [happy-path-principle.md](happy-path-principle.md).
-
-This is security-adjacent (`sudo` + builder keys) and gated by
-`just build-go` + a nested-jail verification per
-[AGENTS.md](../../AGENTS.md#testing). yolo should **never** auto-`sudo`; the user
-always approves the single prompt.
-
-## 9. Related cruft worth cleaning
-
-The wedge is easy to hit because untracked leftovers accumulate in the repo
-root. As of 2026-07-23 the tree carried three untracked, unignored dirs — none
-tracked by git:
+The wedge was easy to hit because untracked leftovers accumulate in the repo
+root. As of 2026-07-23 the tree carried three untracked, unignored, git-untracked
+dirs:
 
 - `keys/` — a stray builder keypair whose pubkey did **not** match `/etc/nix`;
-  the direct trigger of the §6 wedge.
+  the direct trigger of the §5 wedge.
 - `src/` (`_version.py`) and `yolo_jail.egg-info/` — stale Python packaging
-  artifacts from before the Go port; the ROADMAP already notes the Python tree
-  is gone (`git ls-files src/` → empty). See ROADMAP J2 note.
+  artifacts from before the Go port (`git ls-files src/` → empty; ROADMAP J2
+  note).
 
-None are needed. A `.gitignore` entry for the builder key dir (once §8 pins it
-out of the workspace) plus a one-time cleanup would keep this from recurring.
+None are needed; a one-time cleanup + a `.gitignore` entry would prevent
+recurrence. (Once the VM builder is gone, no workspace `./keys` matters at all.)
 
-## 10. Where things live
+## 7. Where things live
 
 | Topic | Authority |
 |---|---|
-| End-user builder setup, cache-vs-builder | [docs/guides/macos.md](../guides/macos.md#building-the-image-on-macos-cache-vs-linux-builder) |
-| Why the builder is a fallback, not the happy path | [happy-path-principle.md](happy-path-principle.md) |
+| The removal decision | this doc + revival plan Open Decision #3 |
+| Why container-builder, image sourcing, AC risk (now discharged) | [../research/macos-container-builder-exploration.md](../research/macos-container-builder-exploration.md) |
+| Linux-person's explainer of the whole builder question | [../research/macos-linux-builder-explained.md](../research/macos-linux-builder-explained.md) |
+| Runtime × builder × config state matrix | [../research/macos-support-matrix.md](../research/macos-support-matrix.md) |
+| Why a builder is a fallback below Cachix at all | [happy-path-principle.md](happy-path-principle.md) |
 | The Cachix happy path (D4) | [../plans/handoff-cachix-cache.md](../plans/handoff-cachix-cache.md) |
-| Command bodies + lifecycle orchestration | `internal/builder/{builder,buildercmd,commands,real}.go` |
-| `yolo check` Image Build section | `internal/cli/check/{sections_nix,section_nix_probe,builder}.go` |
+| VM-builder code (to delete) | `internal/builder/`, `internal/cli/commands.go`, `internal/cli/check/{sections_nix,builder}.go` |
+| Container-builder code (the keeper) | `internal/containerbuilder/`, `internal/image/{autoload,builderoffload}.go` |
+| Proof the container builder works on AC | [../plans/runbooks/mac-ac-container-builder.md](../plans/runbooks/mac-ac-container-builder.md) |
+
+## 8. Escape hatch (unchanged by removal)
+
+A power user who *already* runs **nix-darwin** can set
+`nix.linux-builder.enable = true;`, or point Nix at any Linux box via
+`/etc/nix/machines`. That's their nix configuration and keeps working — yolo just
+stops shipping and orchestrating its own VM builder.
+
+## 9. User-facing docs to reconcile (follow-up)
+
+These still name the VM builder as *the* fallback and never mention the container
+builder; they need updating (or, since the container builder is automatic, the
+"builder" concept may largely disappear from user docs):
+
+- [docs/guides/macos.md](../guides/macos.md) — "Building the image on macOS" §
+  presents `nix run nixpkgs#darwin.linux-builder` as the fallback.
+- [happy-path-principle.md](happy-path-principle.md) — the worked example names
+  `nix-darwin linux-builder` as the single fallback and lists a QEMU VM under
+  "deliberately NOT supported." The worked example should be updated to the
+  container builder.
+- `README.md`, [docs/guides/USER_GUIDE.md](../guides/USER_GUIDE.md),
+  [../plans/handoff-cachix-cache.md](../plans/handoff-cachix-cache.md) — all
+  frame the macOS fallback as a "Nix remote Linux builder" (the VM).

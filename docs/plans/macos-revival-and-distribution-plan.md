@@ -173,9 +173,9 @@ finding 6 are jail-developable with Mac-side verification deferred to Track M.
    `realProc.Poll` (`real.go:22-34`) can never report `done=true` and the
    "builder process exited early" fast-fail branch is dead code. A Signal(0)
    probe is not enough (unreaped zombie still signals) — fix with a
-   Wait-goroutine recording exit state. Note: the linux-builder VM is
-   **fallback-track** (see Open Decisions #3); land this cheap correctness fix,
-   build nothing else on it.
+   Wait-goroutine recording exit state. Note: this landed, but the linux-builder
+   VM it lives in is now **slated for removal** (Open Decisions #3, RESOLVED
+   2026-07-23) — the whole of `internal/builder` goes, this fix with it.
 4. **`yolo --help` papercut.** `--help`/`-h`/`help` exit 1 "unknown command"
    (no top-level usage handler in `internal/cli/cli.go`). Small fix, queue it.
 
@@ -516,9 +516,26 @@ M1). Everything in the DONE row has landed.
    `yolo-entrypoint` (not in the host ship set — would change distribution).
 2. **D3 bundle scope** — full `git archive` source bundle vs flake-eval-only +
    Cachix. Measure the archive first.
-3. **linux-builder VM** — support matrix already demoted it to
-   roadmap/fallback; recommend parking it (keep the J1.3 correctness fix,
-   skip idle-stop watchdog / lifecycle knob until someone needs the fallback).
+3. **linux-builder VM** — **RESOLVED 2026-07-23: remove it entirely.** The
+   container builder (J3, `internal/containerbuilder`) is proven on **both**
+   runtimes — podman end-to-end in-jail and Apple Container on real HW
+   (2026-07-17, `AC-CONTAINER-BUILDER-WORKS`) — and is wired into the real run
+   path (`autoload.go` `BuildOffload`) as an automatic, zero-setup offload: no
+   `yolo builder` command, no `sudo`, no QEMU, no idle RAM. It covers every
+   matrix cell the VM builder did, in a strictly more happy-path way (the VM
+   builder's foreground-QEMU trap, per-build first-boot `sudo`, and CWD-relative
+   `KEYS` reconcile — the last of which is a live wedge, see
+   [../design/linux-builder-lifecycle.md](../design/linux-builder-lifecycle.md) —
+   are precisely the complexity the container path avoids). The only reason the
+   VM builder was ever kept as a fallback (AC couldn't be shown to host an sshd
+   container) is discharged. **Action:** delete `internal/builder` + the `yolo
+   builder {setup,start,stop,status}` commands, and rewire `yolo check`'s Image
+   Build section onto the container-builder reality (it currently points at the
+   VM builder while a real build uses the container). The user's *own* nix-darwin
+   `linux-builder` remains a valid orthogonal escape hatch (their nix config, not
+   ours to install) — removal is of *our* VM-builder machinery, not of the user's
+   ability to point nix at any remote builder. Tracked on the
+   [ROADMAP](ROADMAP.md).
 4. **MCP presets on native macOS** — skip-and-document (recommended) vs
    building darwin wrapper variants.
 5. **Darwin-unavailable packages: warn-and-skip vs aggregated error** (see
