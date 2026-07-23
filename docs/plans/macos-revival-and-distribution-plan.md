@@ -37,17 +37,104 @@ macos-user backend, at which point SandVault retires.
   pass should note that, the decision itself stands.
 - Settled: mise stays as-is; Seatbelt is the accepted isolation level;
   sandbox-exec deprecation is an accepted long-term risk.
-- **One settled decision diverged in shipping** and needs a maintainer call
-  (Open Decision #5): the docs decided per-platform `packages` overrides + an
-  aggregated "unavailable on macOS" **error** (never silently skip), but what
-  shipped is **warn-and-skip** (`flake.nix:846-847` filters via
-  `darwinUnavailablePackages`; `internal/macosuser/orchestrator.go:196-203`
-  warns and continues — and argues why a hard error would abort the whole
-  eval; the e2e runbook expects warn-and-skip), and per-platform overrides
-  don't exist in the config surface at all (`internal/config/derived.go`
-  `EffectivePackages` has no platform conditional).
+- **One settled decision diverged in shipping** (Open Decision #5): the docs
+  decided per-platform `packages` overrides + an aggregated "unavailable on
+  macOS" **error** (never silently skip), but what shipped is **warn-and-skip**
+  (`flake.nix:846-847` filters via `darwinUnavailablePackages`;
+  `internal/macosuser/orchestrator.go:196-203` warns and continues), and
+  per-platform overrides don't exist in the config surface at all
+  (`internal/config/derived.go` `EffectivePackages` has no platform conditional).
+  **RESOLVED 2026-07-23:** implement the written design (hard error + `linux-only`
+  override) — now tracked as **A2** in "Active work" below.
 - **`docs/research/macos-support-matrix.md` is the tracker.** Every green cell
   this plan produces gets recorded there, not in new docs.
+
+---
+
+## Active work — decided 2026-07-23 (do these now)
+
+Three items promoted from the "Open items" list in
+[macos-user-nix-and-features.md](../design/macos-user-nix-and-features.md) once
+the maintainer resolved them. All three are pure-Go / flake-only and
+Linux-jail-developable + testable; none needs Mac hardware. Do them before any
+remaining fallback/roadmap work below.
+
+### A1. Config-diff approval prompt on the macos-user path (security fix)
+
+> **Decided 2026-07-23: fix it.** (Was J4.) The threat model relies on this prompt
+> as the Vector A mitigation; macos-user is the one backend where the poisoned
+> build runs *unconfined as the invoking user*, so losing the prompt there is the
+> worst case.
+
+`checkConfigChanges` (the startup y/N config-diff prompt) is called **only** in
+`runContainer` (`internal/cli/run/run.go:144`), but the macos-user branch returns
+at `run.go:56-68` — *before* that call. Poisoned `packages:` on macos-user is fed
+straight into a host-side `nix build --impure`
+(`docs/design/macos-user-build-step-threat-model.md` Vector A), with no prompt.
+
+**Fix:** hoist `checkConfigChanges(cfg)` to run **before** the runtime split in
+`run.Run`, so both the container and macos-user paths gate on it. (Alternative:
+call it at the top of the macos-user handler before `MaterializeDarwin` — rejected,
+it invites per-path drift.) The one care: it must still fire **exactly once** on
+the container path — `runContainer` calls it today, so remove that call when you
+hoist, and add a test asserting single invocation on both paths. Pure-Go,
+unit-testable; land threat-model H3 (surface the resolved `repoRoot` in the diff)
+opportunistically if cheap. Closes Open item #2 in the design doc.
+
+### A2. Darwin-unavailable packages: hard error + per-platform `linux-only` overrides
+
+> **Decided 2026-07-23: implement the designed behavior** (resolves Open Decision
+> #5 in favor of the written design, retiring the shipped warn-and-skip). A silently
+> dropped tool that the config *declared* is a footgun — it masks typos and diverges
+> from the documented contract. The maintainer wants the hard error, plus a way to
+> legitimately mark a package Linux-only.
+
+Two coupled pieces:
+
+1. **Aggregated hard error.** When any `packages:` entry has no aarch64-darwin
+   build **and is not marked Linux-only** (see #2), the macos-user run **aborts**
+   with a message listing *every* such package at once (not one-at-a-time), rather
+   than warning and continuing (`internal/macosuser/orchestrator.go:216-223`
+   today). **Keep the flake filtering as-is** — `flake.nix`'s
+   `darwinUnavailablePackages` still computes the skip list, and the buildEnv still
+   builds only the available set, so the nix eval does **not** abort (that was the
+   original in-code objection to a hard error). The error is raised **host-side,
+   after** the eval, from the returned skip list minus the Linux-only allowlist.
+   That ordering is the whole trick: eval stays green, the CLI decides.
+2. **Per-platform override in the config surface.** A way for a config to declare a
+   package Linux-only, so it's *expected*-absent on darwin and does not trip the
+   error. `internal/config/derived.go` `EffectivePackages` has **no platform
+   conditional today** — add one. Recommended shape (nail this in review — it's the
+   one real design choice here): extend the existing object-form package spec
+   (`flake.nix` already accepts `{"nixpkgs": …}` / `{"url":…,"hash":…}`) with a
+   `"platforms": ["linux"]` field; `EffectivePackages` takes the target platform and
+   drops non-matching entries **before** materialize, and the aggregated-error check
+   treats "declared Linux-only + absent on darwin" as fine. Both the darwin filter
+   and the linux container path must read the same field so a Linux-only package
+   still installs in the container.
+
+RED-then-GREEN: a config with a genuinely darwin-less package errors and names it;
+the same package marked `platforms:["linux"]` launches clean on darwin and still
+installs on Linux; a typo'd attr still errors (that's the point). The
+darwin no-build path was never exercised on M1 hardware (only `jq`/`just`, which
+*do* build), so add a Track M checklist line to confirm the error fires live.
+Update `internal/macosuser/orchestrator.go`, the e2e runbook (which currently
+"expects warn-and-skip"), and `yolo config-ref` for the new field. Closes Open
+item #4 in the design doc.
+
+### A3. Drop `macos_shared_root` from the plan-invariant error message
+
+> **Decided 2026-07-23: drop the mention, do not implement the key.**
+> `/Users/Shared/yolo` is the OS-blessed neutral location and covers the real need;
+> the key is read nowhere, so the message advertises a knob that does nothing.
+
+Tiny doc-hygiene-in-code fix: in `internal/macosuser/runplan.go:235-236`, remove
+the "(or set config `macos_shared_root` to another non-home path)" clause so the
+message only tells the user to move the workspace under `SharedRootDefault()`.
+Do **not** wire the key. (The dead `root` parameter on
+`SharedRootProvisionCommands` can stay for now, or be dropped as a trivial
+cleanup — not required.) A golden/string test on the invariant message guards the
+wording. Closes Open item #1 in the design doc.
 
 ---
 
@@ -214,28 +301,8 @@ the proven GHCR builder (runbook `mac-ac-container-builder.md` — zero-sudo,
 agent-runnable, so Track M can verify it from inside a sandbox). Do this after
 J2 — macos-user needs no builder at all.
 
-### J4. Config-diff approval on the macos-user path (security gap)
-
-> **Status: OPEN.** Confirmed 2026-07-23 while documenting
-> `macos-user-nix-and-features.md` §3.6.
-
-`checkConfigChanges` (the startup y/N config-diff prompt) is called **only** in
-`runContainer` (`internal/cli/run/run.go:144`), but the macos-user branch returns
-at `run.go:56-68` — *before* that call. The threat model
-(`docs/design/macos-user-build-step-threat-model.md`) names the config-diff prompt
-as the mitigation for **Vector A** (a poisoned `packages:` edit, which on
-macos-user is fed straight into a host-side `nix build --impure`). So today that
-mitigation **does not fire on the one backend where the build runs unconfined as
-the invoking user** — the worst place to lose it.
-
-Fix: hoist `checkConfigChanges(cfg)` to run **before** the runtime split in
-`run.Run` (so both the container and macos-user paths gate on it), or call it at
-the top of the macos-user handler before `MaterializeDarwin`. Prefer the former —
-one gate for all backends, no per-path drift. Pure-Go, Linux-jail-developable and
-unit-testable; the only care needed is that the prompt still shows exactly once on
-the container path (don't double-prompt). Land H3 from the threat model
-(surface the resolved `repoRoot` in the diff) opportunistically if cheap. This
-also closes Open item #2 in `macos-user-nix-and-features.md`.
+*(J4 — config-diff prompt on macos-user — was promoted to the "Active work"
+section above as A1 once the maintainer decided to fix it.)*
 
 ---
 
@@ -429,12 +496,18 @@ credential and never lets it cross into the jail.
 ## Sequencing at a glance
 
 ```
-jail:  J1.1 J1.2 J1.3 J1.4  D1 ──►  J2.1 J2.2 J2.3 J2.4 + D2 ──► D3 ──► J3
+DONE:  J1.1 J1.2 J1.3 J1.4  D1 ──►  J2.1 J2.2 J2.3 J2.4 + D2 ──► D3 ──► J3
                               │                    │                      │
 mac:                          └─ M0 (SandVault)    └─ M1 (e2e verify) ──► M2 (dogfood, docs)
+
+NOW:   A1 (config-diff fix)   A2 (hard-error + linux-only)   A3 (drop shared_root msg)   ── all jail-side, independent
+LATER: Track L (loophole framework; part 2 gated on OQ-L1)
 ```
 
-Everything left of M1 is quota-light, self-contained commits in this jail.
+The A-track items are the live work — independent, pure-Go/flake-only,
+Linux-jail-developable + testable. A2 carries a Track M checklist line (confirm
+the hard error fires live on a genuinely darwin-less package — never exercised on
+M1). Everything in the DONE row has landed.
 
 ## Open decisions (maintainer input wanted, none blocking J1/D1)
 
@@ -450,13 +523,10 @@ Everything left of M1 is quota-light, self-contained commits in this jail.
    building darwin wrapper variants.
 5. **Darwin-unavailable packages: warn-and-skip vs aggregated error** (see
    §0) — the written decision says error + per-platform `packages` overrides;
-   the shipped code warn-and-skips and the overrides were never built. Either
-   bless warn-and-skip retroactively (doc-hygiene fix) or add a J-track item
-   implementing the decision as written.
-   **Still OPEN after M1 (2026-07-21):** M1 exercised only packages *with* a
-   darwin build (`jq`, `just`), so the no-darwin-build path was never observed
-   on hardware — this decision is unchanged by the e2e run. Resolve it as a
-   deliberate choice, not via M1.
+   the shipped code warn-and-skips and the overrides were never built.
+   **RESOLVED 2026-07-23 in favor of the written design:** implement the
+   aggregated hard error + a per-platform `linux-only` override. Now tracked as
+   **A2** in the "Active work" section above.
 
 ## Open questions (blocking)
 

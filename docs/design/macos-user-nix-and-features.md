@@ -112,12 +112,17 @@ Why each flag:
    store `bin` dir actually reached the launch PATH — the acceptance-bar guard).
 5. Install Seatbelt profile → stage the yolo binary → bootstrap → launch.
 
-**Skipped packages (no aarch64-darwin build) are warn-and-skip**, not a hard
+**Skipped packages (no aarch64-darwin build) are warn-and-skip today**, not a hard
 error (`flake.nix` filters via `darwinUnavailablePackages`; the orchestrator warns
-and continues). This is a shipped divergence from the direction doc's original
-"aggregate error" intent — see the plan's Open Decision #5
-([macos-revival-and-distribution-plan.md](../plans/macos-revival-and-distribution-plan.md)
-§0). The rationale in-code: a hard error would abort the whole nix eval.
+and continues). This was a shipped divergence from the direction doc's original
+"aggregate error" intent. **Decided 2026-07-23: revert to the designed behavior** —
+an aggregated hard error listing every unavailable package, plus a per-platform
+`linux-only` override so a config can legitimately mark a package Linux-only. The
+old in-code objection (a hard error would abort the whole nix eval) is handled by
+raising the error **host-side after** the eval, from the returned skip list minus
+the Linux-only allowlist — the eval stays green. Tracked as roadmap **A2**
+([macos-revival-and-distribution-plan.md](../plans/macos-revival-and-distribution-plan.md)),
+which supersedes Open Decision #5.
 
 ### 1.4 Requirements (`yolo check` verifies these)
 
@@ -310,8 +315,8 @@ everything that lives only in that function is skipped. Most are irrelevant
   lists the config-diff prompt as the mitigation for a poisoned `packages:` edit
   (Vector A) — and macos-user is the backend where that build runs *unconfined as
   the invoking user*, so it is the worst place to lose the prompt. This is a
-  **security gap to fix, not just document**: it is on the roadmap as
-  [J4 in the revival plan](../plans/macos-revival-and-distribution-plan.md), whose
+  **security gap to fix, not just document**: it is decided and on the roadmap as
+  [A1 in the revival plan](../plans/macos-revival-and-distribution-plan.md), whose
   fix is to hoist `checkConfigChanges` ahead of the runtime split so every backend
   gates on it. Until that lands, treat the mitigation as absent on macos-user.
 
@@ -333,15 +338,14 @@ argument, yet every caller passes `""`, which falls back to the default. So the
 root is effectively fixed and the error message points at a knob that does
 nothing.
 
-**Do we need it?** Almost certainly not, near-term. `/Users/Shared` exists on
-every stock macOS and is exactly the OS-blessed neutral location for
-cross-user data — the default satisfies the real requirement (a non-home shared
-root) out of the box. An override only matters for the narrow "put workspaces on
-another disk / a policy-mandated path" case, which no current user has. The
-cheap, honest fix is therefore to **reword the message to drop the key** (remove
-the false promise) and defer wiring until a concrete need appears; wiring it later
-means agreeing on the key at *both* setup-time provisioning and the run-time
-workspace-location check. Captured as Open item #1.
+**Do we need it? Decided: no.** `/Users/Shared` exists on every stock macOS and is
+exactly the OS-blessed neutral location for cross-user data — the default satisfies
+the real requirement (a non-home shared root) out of the box. An override would
+only matter for the narrow "put workspaces on another disk / a policy-mandated
+path" case, which no current user has. So the decision (2026-07-23) is to **drop
+the key from the error message and not implement it** — roadmap **A3**; revisit only
+if a relocated-root use case ever lands (which would then need the key agreed at
+*both* setup-time provisioning and the run-time workspace-location check).
 
 ---
 
@@ -372,40 +376,27 @@ workspace-location check. Captured as Open item #1.
 
 ---
 
-## Open items (for a future maintainer pass)
+## Open items
 
-1. **Reword `macos_shared_root` out of the error message** (§3.7): the key isn't
-   read anywhere and `/Users/Shared/yolo` covers the real need, so drop the false
-   promise now; wire the override (setup + run-time, in agreement) only if a
-   relocated-root use case ever lands.
-2. **Config-diff prompt on macos-user** (§3.6): the threat model assumes it runs;
-   the code does not reach it — a security gap, since the poisoned-`packages:` build
-   runs unconfined on this backend. **Decided: fix it** by hoisting
-   `checkConfigChanges` ahead of the runtime split. Tracked as
-   [J4 in the revival plan](../plans/macos-revival-and-distribution-plan.md).
-3. **`claude-oauth-broker` on macos-user** (§3.5): **decided — leave off.** The
+**All four resolved 2026-07-23.** The three that need code are on the roadmap at
+the **front** of the revival plan's
+[Active work section](../plans/macos-revival-and-distribution-plan.md) (do-now);
+the fourth is a settled no-op.
+
+1. **`macos_shared_root`** (§3.7) — **decided: drop the mention, don't implement.**
+   `/Users/Shared/yolo` covers the real need; remove the key from the
+   plan-invariant error message. Roadmap **A3**.
+2. **Config-diff prompt on macos-user** (§3.6) — **decided: fix it now** by hoisting
+   `checkConfigChanges` ahead of the runtime split so every backend gates on it.
+   Roadmap **A1**.
+3. **`claude-oauth-broker` on macos-user** (§3.5) — **decided: leave off.** The
    shared `/Users/_yolojail` home already gives one shared credentials file (the
    broker's main job on containers); refresh serialization only matters for
    *concurrent* Claude sessions and would need hard-to-port host redirection. Note
-   `BrokerSocketGrantCommands` as dead-until-needed; revisit only if concurrent
-   macos-user sessions become real. The loophole *framework* itself does port
-   (localhost socket + launch env) — an access-scoping/audit proxy is the
-   motivating future case.
-4. **Skip-list policy** (§1.3) — *the actual open question:* when a `packages:`
-   entry has **no aarch64-darwin build**, should the run **warn and continue**
-   (what ships today) or **hard-error**? The written design
-   ([revival plan](../plans/macos-revival-and-distribution-plan.md) Open Decision
-   #5) called for an *aggregated* error — collect every unavailable package and
-   refuse to launch — plus per-platform `packages` overrides so a config could say
-   "this one is Linux-only." Neither shipped: `flake.nix` filters unavailable
-   packages via `darwinUnavailablePackages` and the orchestrator warns and
-   continues, and `config.EffectivePackages` has no platform conditional at all.
-   The in-code rationale for warn-and-skip: a hard error would have to abort the
-   whole nix eval, and a warn-lets an otherwise-fine jail launch with one tool
-   missing. The counter-argument: silently dropping a tool the config declared can
-   mask a typo (an unknown attr is skipped, not flagged) and diverges from the
-   documented contract. This is a **deliberate maintainer call to make**, not a
-   bug: either bless warn-and-skip retroactively (a doc-hygiene fix to the plan) or
-   add a J-track item implementing the aggregated error + overrides as designed.
-   It stayed open after the M1 hardware run because M1 only exercised packages that
-   *do* have a darwin build, so the no-build path was never observed live.
+   `BrokerSocketGrantCommands` as dead-until-needed. The loophole *framework* does
+   port and is the motivating future case — roadmap
+   [Track L / OQ-L1](../plans/macos-revival-and-distribution-plan.md).
+4. **Skip-list policy** (§1.3) — **decided: implement the written design** (hard
+   error + per-platform `linux-only` override), retiring today's warn-and-skip. A
+   silently dropped tool that the config *declared* masks typos and diverges from
+   the documented contract. Roadmap **A2**.
