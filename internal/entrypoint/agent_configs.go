@@ -103,35 +103,6 @@ func pathName(p string) string {
 	return p
 }
 
-// writeCopilotDynamicConfigs writes the two dynamic sibling files —
-// mcp-config.json and lsp-config.json — that copilot regenerates from the live
-// mcp_servers / lsp_servers config every boot. They are pure overwrites (no
-// in-jail edits are preserved), so they stay bespoke even under the prism, which
-// owns only the static config.json (rendered by ConfigureCopilotPrism).
-func writeCopilotDynamicConfigs(e *Env, dir string) error {
-	// mcp-config.json.
-	mcpConfig := jsonx.NewOrderedMap()
-	mcpConfig.Set("mcpServers", e.LoadMCPServers())
-	if err := writeInPlaceString(filepath.Join(dir, "mcp-config.json"), dumpJSONIndent2(mcpConfig)); err != nil {
-		return err
-	}
-	// lsp-config.json.
-	servers := LoadLSPServers(e)
-	lspConfig := jsonx.NewOrderedMap()
-	lspServers := jsonx.NewOrderedMap()
-	for _, name := range servers.Keys() {
-		v, _ := servers.Get(name)
-		cfg, _ := v.(*jsonx.OrderedMap)
-		entry := jsonx.NewOrderedMap()
-		entry.Set("command", getOr(cfg, "command", nil))
-		entry.Set("args", getOr(cfg, "args", []any{}))
-		entry.Set("fileExtensions", getOr(cfg, "fileExtensions", jsonx.NewOrderedMap()))
-		lspServers.Set(name, entry)
-	}
-	lspConfig.Set("lspServers", lspServers)
-	return writeInPlaceString(filepath.Join(dir, "lsp-config.json"), dumpJSONIndent2(lspConfig))
-}
-
 // getOr returns m[key] if present, else def. A nil map yields def.
 func getOr(m *jsonx.OrderedMap, key string, def any) any {
 	if m == nil {

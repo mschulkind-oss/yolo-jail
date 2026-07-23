@@ -153,6 +153,53 @@ func renderSurfaceStateful(e *Env, agent, name string, hostBytes []byte, compute
 	return out, nil
 }
 
+// renderSurfaceComputed runs a STATELESS render for one builtin surface and
+// writes ONLY the surface file — no last_render, no overlay, no host source.
+// It is the prism path for PURE-OVERWRITE siblings: files yolo regenerates from
+// live config every boot and whose in-jail edits are deliberately NOT preserved
+// (copilot's mcp-config.json / lsp-config.json, agy's mcp_config.json). Routing
+// them through renderSurfaceStateful would be wrong — that helper would begin
+// capturing edits into an overlay, silently converting an intentional overwrite
+// into an edit-preserving surface. So this calls the pure engine (agentcfg.Compose,
+// the same function `yolo config render` uses) directly: defaults<computed, then
+// transform, then managed, encode. The dynamic table rides the computed layer;
+// the surface's empty-wrapper default supplies the shape when the table is empty.
+//
+// The Lua transform IS applied (identically to `yolo config render` and to the
+// stateful path), so a user config.lua can still reshape these files — the
+// bespoke writers never ran a transform, but applying it is the strictly more
+// capable superset and keeps every surface's transform behavior uniform; the
+// yolo-owned content is a single wrapper key a transform would only extend.
+func renderSurfaceComputed(e *Env, agent, name string, computed map[string]any) error {
+	surface, ok := agentcfg.BuiltinManifest().Lookup(agent, name)
+	if !ok {
+		return &missingSurfaceError{agent: agent, name: name}
+	}
+
+	script := loadPrismTransformScript(e)
+	var vm luahook.LuaVM
+	if script != "" {
+		vm = &luahook.GopherLuaVM{}
+	}
+
+	res, err := agentcfg.Compose(agentcfg.Inputs{
+		Surface:  surface,
+		Computed: computed,
+		Script:   script,
+		VM:       vm,
+	})
+	if err != nil {
+		return err
+	}
+
+	surfacePath := expandHomePath(e, surface.Path)
+	if err := os.MkdirAll(filepath.Dir(surfacePath), 0o755); err != nil {
+		return err
+	}
+	// Trailing newline matches the stateful path and the old dumpJSONIndent2 "+\n".
+	return writeInPlaceString(surfacePath, string(res.Encoded)+"\n")
+}
+
 // missingSurfaceError is returned when a requested builtin surface is absent —
 // a programmer error (the manifest and the caller disagree), surfaced loudly.
 type missingSurfaceError struct{ agent, name string }
@@ -238,8 +285,43 @@ func ConfigureCopilotPrism(e *Env) error {
 	if _, err := renderSurfaceStateful(e, "copilot", "config", nil, nil); err != nil {
 		return err
 	}
-	// Dynamic siblings stay bespoke, shared with ConfigureCopilot.
-	return writeCopilotDynamicConfigs(e, e.CopilotDir())
+	// Dynamic mcp-config.json / lsp-config.json siblings: pure per-boot overwrites
+	// (no in-jail edits preserved) rendered via the stateless compute path. The
+	// live tables ride the computed layer; each surface's empty-wrapper default
+	// supplies the shape when the table is empty.
+	if err := renderSurfaceComputed(e, "copilot", "mcp", map[string]any{
+		"mcpServers": prismMap(e.LoadMCPServers()),
+	}); err != nil {
+		return err
+	}
+	return renderSurfaceComputed(e, "copilot", "lsp", map[string]any{
+		"lspServers": buildCopilotLSPServers(e),
+	})
+}
+
+// buildCopilotLSPServers reshapes the live LSP config (LoadLSPServers) into
+// copilot's lsp-config.json entry shape — {command, args, fileExtensions} per
+// server — as the engine's plain value model. It mirrors the old
+// writeCopilotDynamicConfigs reshape exactly, except a commandless entry's
+// command is OMITTED rather than emitted as an explicit null: a null leaf is an
+// RFC-7386 tombstone the engine would drop anyway, and a commandless LSP server
+// is nonfunctional either way (documented byte-gap on the copilot/lsp surface).
+func buildCopilotLSPServers(e *Env) map[string]any {
+	servers := LoadLSPServers(e)
+	out := map[string]any{}
+	for _, name := range servers.Keys() {
+		v, _ := servers.Get(name)
+		cfg, _ := v.(*jsonx.OrderedMap)
+		entry := map[string]any{
+			"args":           prismValue(getOr(cfg, "args", []any{})),
+			"fileExtensions": prismValue(getOr(cfg, "fileExtensions", jsonx.NewOrderedMap())),
+		}
+		if cmd := getOr(cfg, "command", nil); cmd != nil {
+			entry["command"] = prismValue(cmd)
+		}
+		out[name] = entry
+	}
+	return out
 }
 
 // ConfigureGeminiPrism is the prism-backed replacement for ConfigureGemini —
@@ -316,10 +398,11 @@ func ConfigureAgyPrism(e *Env) error {
 	if _, err := renderSurfaceStateful(e, "agy", "settings", nil, nil); err != nil {
 		return err
 	}
-	// Dynamic mcp_config.json sibling: a pure overwrite regenerated from live MCP
-	// config every boot (no in-jail edits preserved), mirroring copilot's
-	// mcp-config.json.
-	mcpConfig := jsonx.NewOrderedMap()
-	mcpConfig.Set("mcpServers", e.LoadMCPServers())
-	return writeInPlaceString(filepath.Join(e.AgyDir(), "mcp_config.json"), dumpJSONIndent2(mcpConfig))
+	// Dynamic mcp_config.json sibling: a pure per-boot overwrite (no in-jail edits
+	// preserved) rendered via the stateless compute path. The live MCP table rides
+	// the computed layer; the surface's empty {"mcpServers":{}} default supplies
+	// the shape when the table is empty.
+	return renderSurfaceComputed(e, "agy", "mcp", map[string]any{
+		"mcpServers": prismMap(e.LoadMCPServers()),
+	})
 }
