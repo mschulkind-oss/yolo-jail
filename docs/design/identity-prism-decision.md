@@ -1,11 +1,13 @@
 # git identity: the propagation decision
 
-**Status:** OPEN — decision needed. Everything else in the config-composition
-cutover (`docs/design/config-migration-to-prism.md`) has landed; git identity is
-the one deliberately-deferred surface. This doc frames the decision as two
-separable questions — an **allowlist policy** (what git settings should cross
-into the jail at all) and a **mechanism** (how to apply them without going
-stale) — and gives a recommendation for each.
+**Status:** IMPLEMENTED (2026-07-23, commit `c250c72`). git identity was the one
+deliberately-deferred surface of the config-composition cutover
+(`docs/design/config-migration-to-prism.md`); it now lands as a **host-composed,
+read-only-mounted** config file on the container backends. This doc frames the
+decision as two separable questions — an **allowlist policy** (what git settings
+should cross into the jail at all) and a **mechanism** (how to apply them without
+going stale) — records the chosen answer to each, and keeps the rejected options
+for the rationale.
 
 > **jj was removed (2026-07-23).** yolo previously carried plumbing to forward a
 > host `jj` (Jujutsu) identity into the jail, but jj was never in the image, so
@@ -14,37 +16,53 @@ stale) — and gives a recommendation for each.
 > This doc is now git-only.
 
 Written 2026-07-23. Recommendation revised 2026-07-23 (allowlist framing).
+Implemented 2026-07-23 (host-compose + `:ro` mount; the (c′) variant in §5).
 
 ---
 
-## 1. How it works today: a two-key allowlist
+## 1. How it works now: a host-composed, read-only config
 
-Identity is a host→jail **forward**, not a mount of the host's `~/.gitconfig`.
-It has a **collector** on the host and a **setter** in the jail, and it forwards
-an explicit, enumerated set of two keys — nothing else.
+Identity is a host→jail **forward of an enumerated two-key allowlist**
+(`user.name` + `user.email`) — never a mount of the host's `~/.gitconfig`. On the
+**container backends** (podman + Apple Container) the host composes a small
+`gitconfig` **fresh every run** from those two keys and delivers it read-only; on
+the **macOS-user (Seatbelt)** backend, which has no mount namespace, the same two
+keys are still forwarded as env vars and replayed imperatively.
 
-**Host collector** — `internal/cli/run/identity.go` `collectIdentityEnv()`:
-runs, on the host, two read commands and forwards each non-empty result as a
-`-e` env var into the container:
+**Container path** — `internal/cli/run/assemble_parts.go`
+`gitIdentityMountArgs()`:
 
-| env var forwarded | read from (host) |
-|---|---|
-| `YOLO_GIT_NAME`  | `git config --get user.name` |
-| `YOLO_GIT_EMAIL` | `git config --get user.email` |
+1. reads `user.name` / `user.email` from the host git config (`git config
+   --get`, so a repo-local value for the host CWD wins, matching the old
+   collector);
+2. renders a minimal INI (`composeGitconfig`) containing *only* `[user]`
+   (name/email, each omitted when empty) and, when a global gitignore resolves, a
+   `[core] excludesFile` pointing at the **in-jail** ignore path;
+3. delivers it so git reads it at `~/.config/git/config`:
+   - **podman:** writes `<wsState>/yolo-gitconfig` and bind-mounts it
+     `-v …:/home/agent/.config/git/config:ro` (kernel-enforced read-only, even
+     against the jail's root);
+   - **Apple Container** (no nested `:ro` bind): materializes the composed file
+     into `<wsState>/.config/git/config`, which AC mounts as part of the whole
+     `wsState → /home/agent` bind.
 
-`YOLO_GLOBAL_GITIGNORE` is set separately by the run assembler
-(`assemble_parts.go`) to a **fixed in-jail path** (`~/.config/git/ignore`) — it
-is not read from host config, so it is not part of the identity allowlist.
+The global gitignore is carried the same way (a `:ro` bind for podman,
+`acMaterialize` for AC) and `core.excludesFile` points at its in-jail path. With
+**no identity and no gitignore**, nothing is emitted — a bare, identity-less jail,
+which keeps the identity-less golden argv byte-identical.
 
-**Jail setter** — `internal/entrypoint/identity.go` `configureGit(e)`, called
-from `boot.go` (and `darwin.go` for the macOS backend): if `git` is on PATH,
-for each of `YOLO_GIT_NAME` / `YOLO_GIT_EMAIL` that is non-empty, run
-`git config --global user.name/email`; if `YOLO_GLOBAL_GITIGNORE` points at a
-real regular file, set `core.excludesFile`.
+**macOS-user path (unchanged)** — `internal/macosuser/orchestrator.go`
+`MacosSandboxEnv` derives `YOLO_GIT_NAME`/`YOLO_GIT_EMAIL` from
+`deps.GitConfig(...)` and forwards them; `internal/entrypoint/identity.go`
+`configureGit(e)` (called from `darwin.go`) replays them via `git config
+--global`. Seatbelt has no mount namespace, so it cannot bind a `:ro` file — it
+keeps the imperative path, exactly the way the global gitignore already diverges
+there. This mirrors the container/macos-user split used for every other
+mount-vs-imperative surface.
 
-The macOS-user (Seatbelt) backend does its own thing:
-`internal/macosuser/orchestrator.go` forwards `YOLO_GIT_*`, and `runplan.go`
-re-derives identity from any `YOLO_GIT*` key in the sandbox env.
+The old container-path forward (host `collectIdentityEnv()` → `-e YOLO_GIT_*` →
+in-jail `configureGit`'s `git config --global` replay) is **gone** on the
+container backends; `configureGit` remains only for the macOS-user path.
 
 ---
 
@@ -69,7 +87,8 @@ the property we want, and it satisfies both of the stated goals for free:
 
 **Corollary — why we must NOT inherit `~/.gitconfig` wholesale.** The tempting
 shortcut of pointing `GIT_CONFIG_GLOBAL` at (or `[include]`-ing) the host's real
-`~/.gitconfig` breaks the allowlist and is actively dangerous:
+`~/.gitconfig`, or bind-mounting it directly, breaks the allowlist and is
+actively dangerous:
 
 - It drags in `core.pager` / `core.editor` (the exact agent-confusion we avoid).
 - It drags in credential helpers (the exact leak we avoid).
@@ -84,7 +103,7 @@ applied* (§5).
 
 ---
 
-## 3. What should be on the allowlist? (the "are there other settings?" question)
+## 3. What is on the allowlist? (the "are there other settings?" question)
 
 Candidates, judged against the two rules — **must be author identity /
 harmless workflow preference, must not be a credential, must not be UI, must not
@@ -94,7 +113,7 @@ point at a host path that won't exist in the jail:**
 |---|---|---|
 | `user.name` | ✅ (current) | author identity — the whole point |
 | `user.email` | ✅ (current) | author identity — the whole point |
-| `core.excludesFile` | ✅ (special) | already set to a **fixed in-jail path**, not host-derived — correct as-is |
+| `core.excludesFile` | ✅ (special) | composed to point at the **in-jail** gitignore path, not host-derived — correct as-is |
 | `user.signingkey` | ❌ | credential-adjacent; useless without key material in jail |
 | `commit.gpgsign` / `tag.gpgsign` | ❌ | **breaks every commit** if forwarded without a key (proven, §2) |
 | `credential.helper` | ❌ | credential leak; jail auth is a separate explicit channel |
@@ -111,80 +130,87 @@ hygiene), or a host-path reference that won't resolve in the jail (exclude). The
 only clean *additions* are cosmetic preferences (`init.defaultBranch` and a few
 workflow toggles), and their value is marginal. **The honest conclusion is that
 the allowlist is essentially just `user.name` + `user.email`, and that is a
-feature, not a gap.** If we ever add one, `init.defaultBranch` is the only
-low-regret candidate.
+feature, not a gap.** The implementation ships exactly those two (plus the
+in-jail `core.excludesFile`); `init.defaultBranch` was explicitly declined.
 
 ---
 
-## 4. The one real bug: the setter is add-only (staleness)
+## 4. The bug the port fixes: the old setter was add-only (staleness)
 
-`configureGit` writes each key to the persistent `~/.gitconfig` **only when its
-env var is present and non-empty**, and **never removes it.** So if a host later
-*clears* `user.email`, the jail writes nothing new — and the previously-written
-value **stays in `~/.gitconfig` forever.** There is no snapshot to roll back
-from and no managed sidecar; the value accretes and never leaves. That is why
-the migration doc rates git identity HIGH stale-risk.
+The old `configureGit` wrote each key to the persistent `~/.gitconfig` **only
+when its env var was present and non-empty**, and **never removed it.** So if a
+host later *cleared* `user.email`, the jail wrote nothing new — and the
+previously-written value **stayed in `~/.gitconfig` forever.** There was no
+snapshot to roll back from and no managed sidecar; the value accreted and never
+left. That is why the migration doc rated git identity HIGH stale-risk.
 
-**Severity, honestly assessed.** For `user.name`/`user.email` specifically this
-bug is *low-frequency*: a **changed** value still works fine (the setter
-overwrites — a rename to a new email just re-sets it). The bug only bites when a
-key is **removed entirely** on the host and the user expects the jail to forget
-it — an uncommon event. So this is a real correctness gap, but not an urgent
-one. That matters for the cost/benefit of the options below.
+**How the port fixes it.** The whole config file is **regenerated from the
+current host identity every run** and mounted read-only, so there is no
+persistent file to accrete into: a cleared or changed host key is reflected on
+the very next boot (a cleared `user.email` simply produces a file with no email
+line). Verified live 2026-07-23 — clearing `user.email` on the host makes it
+vanish from the jail's composed config while `user.name` survives
+(`TestGitIdentityMountStaleClearedEmail` pins the regression). This was the
+concrete correctness win that motivated doing the port now rather than the
+minimal (b) unset-patch.
 
 ---
 
 ## 5. Mechanism options (all preserve the §3 allowlist)
 
 - **(a) Leave imperative as-is.** Keep `git config --global`, accept the
-  add-only staleness (§4). Zero work. The migration doc §4.2 explicitly permits
-  this. Bug remains (low severity, §4).
+  add-only staleness (§4). Zero work. Bug remains. *Rejected — leaves the bug.*
 
 - **(b) Imperative + unset (the minimal fix).** Keep `git config --global` as
-  the editor — git itself is already a safe scoped key-level reconciler, editing
-  only the named key and leaving the rest of `~/.gitconfig` untouched. Add the
-  one missing piece: track yolo's owned key list, and each boot run
-  `git config --global --unset <key>` for any owned key whose env var is now
-  absent, before setting the present ones. Closes the bug, **no new file, no
-  codec, no data-loss surface**, and `~/.gitconfig` stays the effective global
-  config so a user's own in-jail `git config` edits still work. Not on the prism
-  → no `yolo config render` visibility.
+  the editor, track yolo's owned key list, and each boot `--unset` any owned key
+  whose env var is now absent before setting the present ones. Closes the bug,
+  no new file, keeps `~/.gitconfig` writable in-jail. Not on the prism → no
+  `yolo config render` visibility. *Rejected — see (c′).*
 
-- **(c) Full prism port via a yolo-owned file.** Set
-  `GIT_CONFIG_GLOBAL=~/.config/yolo/gitconfig` (git ≥2.32; image has **2.54**,
-  verified) pointing at a file yolo owns **completely** — containing *only* the
-  allowlisted keys, **with NO `[include]` of the user's `~/.gitconfig`** (the
-  include is the dangerous variant ruled out in §2). Because yolo owns the whole
-  file, the render is a trivial replace-the-file surface — an ordinary prism
-  member, no lossless-INI codec needed — and staleness vanishes for free
-  (regenerated from the current env each boot). Cost: `~/.gitconfig` is no longer
-  the effective global file, so a user's manual in-jail `git config --global`
-  edits would write to a file git no longer reads — a mild surprise that needs a
-  note. Gains `yolo config render` visibility.
+- **(c) Full prism port via a yolo-owned file behind `GIT_CONFIG_GLOBAL`.** Set
+  `GIT_CONFIG_GLOBAL=~/.config/yolo/gitconfig` (git ≥2.32; image has 2.54)
+  pointing at a file yolo owns completely — allowlisted keys only, **no
+  `[include]`** of the user's `~/.gitconfig`. Staleness vanishes (regenerated
+  each boot); gains render visibility. *Superseded by (c′), which needs no env
+  relocation.*
 
-Note the earlier draft's headline idea — `GIT_CONFIG_GLOBAL` **with** an
-`[include]` of the host `~/.gitconfig` — is **rejected**: it breaks the
-allowlist and can break committing (§2). Option (c) keeps the `GIT_CONFIG_GLOBAL`
-relocation but drops the include, which is what makes it safe.
+- **(c′) Host-compose + `:ro` bind at the default path (IMPLEMENTED).** The
+  refinement actually shipped: instead of relocating `GIT_CONFIG_GLOBAL`, the
+  **host** composes the same yolo-owned, allowlist-only file each run and
+  bind-mounts it **read-only at git's default global path**
+  (`~/.config/git/config`). This mirrors the existing global-gitignore mechanism
+  exactly (same `:ro`-bind-for-podman / `acMaterialize`-for-Apple-Container
+  split), so it reuses machinery already trusted in production rather than
+  introducing a new env var. Staleness vanishes for the same reason as (c)
+  (fresh composition each boot). Because the file is `:ro`, in-jail
+  `git config --global` edits fail — accepted deliberately: every other `:ro`
+  surface behaves the same way, and the file is regenerated each run regardless,
+  so a persisted edit would be a lie. macOS-user can't bind a `:ro` file, so it
+  keeps (b)-style imperative forwarding (§1).
+
+The earlier draft's headline idea — `GIT_CONFIG_GLOBAL` **with** an `[include]`
+of the host `~/.gitconfig` — is **rejected**: it breaks the allowlist and can
+break committing (§2).
 
 ---
 
-## 6. Recommendation
+## 6. Decision (as implemented)
 
-**Policy (§3): keep the allowlist at `user.name` + `user.email`.** It already
-satisfies "maintain author identity, pass no credentials, don't confuse agents
-with UI settings." Optionally add `init.defaultBranch` — the one low-regret
-extra — if matching the host's default branch in the jail is worth it. Do not
-add anything else.
+**Policy (§3): the allowlist is `user.name` + `user.email`** (plus the in-jail
+`core.excludesFile` for the gitignore). It satisfies "maintain author identity,
+pass no credentials, don't confuse agents with UI settings" with nothing else in
+scope. `init.defaultBranch` was considered and declined.
 
-**Mechanism (§5): do (b), imperative + unset.** It fixes the actual bug at the
-lowest cost and risk, preserves the exact allowlist semantics, keeps
-`~/.gitconfig` as the real global file (no in-jail-edit surprise), and needs no
-codec. Given the bug is low-severity (§4), (b)'s small footprint is a better fit
-than (c)'s file relocation + render machinery.
+**Mechanism (§5): (c′) — host-compose + `:ro` mount** on the container backends,
+imperative forward retained on macOS-user. This fixes the staleness bug by
+construction (fresh composition each run), reuses the gitignore mount machinery,
+and keeps the "no credentials, no UI" allowlist properties. Trade-off accepted:
+the mounted file is read-only, so in-jail `git config --global` edits do not
+persist — consistent with every other `:ro` surface, and moot since the file is
+regenerated each boot anyway.
 
-Reach for **(c)** only if we later decide `yolo config render` *must* preview
-git identity like every other surface — then the yolo-owned-file (no-include)
-form is the safe way to get there. And if even the unset path feels like
-over-engineering for a rare failure mode, **(a)** is a defensible do-nothing:
-the allowlist is correct today; only stale removal is imperfect.
+Implementation: `internal/cli/run/assemble_parts.go` (`gitIdentityMountArgs`,
+`composeGitconfig`, `gitConfigValue`, `hostGitConfigGet`), wired at
+`assemble.go`; the container-path `collectIdentityEnv` + entrypoint
+`configureGit` call were removed (`configureGit` stays for macOS-user). Tests in
+`internal/cli/run/gitidentity_test.go`.
