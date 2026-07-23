@@ -6,6 +6,8 @@ import (
 	"path/filepath"
 	"reflect"
 	"testing"
+
+	"github.com/mschulkind-oss/yolo-jail/internal/reporoot"
 )
 
 // writeManifest writes a manifest.jsonc built from a Go map via
@@ -340,18 +342,19 @@ func containsStr(list []string, s string) bool {
 }
 
 // TestRepoRootHostModeFindsBundled is the audit §B3 regression: with
-// YOLO_REPO_ROOT unset (host mode, no shim), repoRoot() must walk up to the real
-// yolo-jail checkout and resolve bundled_loopholes there — NOT fall back to the
-// in-jail /opt/yolo-jail (which is empty on a host) and drop every bundled
-// loophole. Does NOT monkeypatch BundledLoopholesDir (per the audit).
+// YOLO_REPO_ROOT unset (host mode, no shim), the shared resolver
+// (reporoot.Resolve, now the single method BundledLoopholesDir uses) must walk
+// up to the real yolo-jail checkout and resolve bundled_loopholes there — NOT
+// fall back to an empty in-jail path and drop every bundled loophole. Does NOT
+// monkeypatch BundledLoopholesDir (per the audit).
 func TestRepoRootHostModeFindsBundled(t *testing.T) {
 	t.Setenv("YOLO_REPO_ROOT", "")
 	os.Unsetenv("YOLO_REPO_ROOT")
 	// cwd during `go test` is the package dir (a descendant of the repo), so the
 	// walk should reach the real checkout.
-	rr := repoRoot()
-	if !fileExists(filepath.Join(rr, "go.mod")) {
-		t.Fatalf("repoRoot()=%q is not a yolo-jail checkout (host-mode B3 regression)", rr)
+	rr, ok := reporoot.Resolve(os.Getenv)
+	if !ok || !fileExists(filepath.Join(rr, "go.mod")) {
+		t.Fatalf("reporoot.Resolve=%q,%v is not a yolo-jail checkout (host-mode B3 regression)", rr, ok)
 	}
 	got := Discover(DiscoverOptions{IncludeDisabled: true, IncludeBundled: true})
 	if len(got) == 0 {

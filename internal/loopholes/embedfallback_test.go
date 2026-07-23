@@ -118,13 +118,24 @@ func normalizeRoot(l *Loophole, root string) Loophole {
 	return c
 }
 
-// TestMaterializedFallback simulates an installed binary outside any checkout
-// (YOLO_REPO_ROOT pointed at an empty dir, so the on-disk resolution finds
-// nothing): BundledLoopholesDir must serve the embedded copy, and loading it
-// must be indistinguishable from loading the checkout tree.
+// TestMaterializedFallback simulates an installed binary outside any checkout:
+// EVERY step of the shared resolver must miss — no valid YOLO_REPO_ROOT, cwd
+// under an isolated temp (so the walk reaches / without a flake.nix+go.mod), an
+// isolated HOME (no user-config repo_path), and the test binary has no
+// share/yolo-jail sibling (exe-relative miss). BundledLoopholesDir must then
+// serve the embedded copy, indistinguishable from loading the checkout tree.
 func TestMaterializedFallback(t *testing.T) {
+	// Resolve the checkout tree BEFORE chdir — repoBundledDir is cwd-relative.
+	treeDir := repoBundledDir(t)
+
 	t.Setenv("XDG_CACHE_HOME", t.TempDir())
+	// An empty YOLO_REPO_ROOT is rejected by the resolver (needs flake.nix or
+	// go.mod), so step 1 misses instead of being trusted blindly.
 	t.Setenv("YOLO_REPO_ROOT", t.TempDir())
+	// Chdir out of the repo so the cwd-walk can't find /workspace's own
+	// flake.nix+go.mod, and isolate HOME so no user config resolves.
+	t.Chdir(t.TempDir())
+	t.Setenv("HOME", t.TempDir())
 
 	got := BundledLoopholesDir()
 	if got == "" {
@@ -135,7 +146,7 @@ func TestMaterializedFallback(t *testing.T) {
 	}
 
 	fromEmbed, orderEmbed := loadFromDir(got, SourceBundled)
-	fromTree, orderTree := loadFromDir(repoBundledDir(t), SourceBundled)
+	fromTree, orderTree := loadFromDir(treeDir, SourceBundled)
 	if !reflect.DeepEqual(orderEmbed, orderTree) {
 		t.Fatalf("loophole order differs: embed %v, tree %v", orderEmbed, orderTree)
 	}
@@ -153,7 +164,7 @@ func TestMaterializedFallback(t *testing.T) {
 		// vs checkout) and differing is correct: the materialized copy must
 		// reference its own files. Normalize those prefixes; everything else
 		// must be identical.
-		g, w := normalizeRoot(gotL, got), normalizeRoot(want, repoBundledDir(t))
+		g, w := normalizeRoot(gotL, got), normalizeRoot(want, treeDir)
 		if !reflect.DeepEqual(g, w) {
 			t.Errorf("loophole %s differs between materialized copy and tree:\n got %+v\nwant %+v", name, g, w)
 		}

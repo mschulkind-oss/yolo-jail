@@ -14,6 +14,7 @@ import (
 	"github.com/mschulkind-oss/yolo-jail/internal/jsonx"
 	"github.com/mschulkind-oss/yolo-jail/internal/paths"
 	"github.com/mschulkind-oss/yolo-jail/internal/pytext"
+	"github.com/mschulkind-oss/yolo-jail/internal/reporoot"
 )
 
 // DefaultBrokerIP is the container runtime's host-gateway sentinel. The
@@ -35,29 +36,6 @@ const (
 	SourceConfig  = "config"
 )
 
-// repoRoot resolves the repo root for bundled_loopholes discovery.
-// (1) trust YOLO_REPO_ROOT when set, (2) else walk up from cwd for a YOLO-JAIL
-// checkout (flake.nix AND go.mod), (3) else the in-jail default /opt/yolo-jail.
-func repoRoot() string {
-	if r := os.Getenv("YOLO_REPO_ROOT"); r != "" {
-		return r
-	}
-	if dir, err := os.Getwd(); err == nil {
-		for {
-			if fileExists(filepath.Join(dir, "flake.nix")) &&
-				fileExists(filepath.Join(dir, "go.mod")) {
-				return dir
-			}
-			parent := filepath.Dir(dir)
-			if parent == dir {
-				break
-			}
-			dir = parent
-		}
-	}
-	return "/opt/yolo-jail"
-}
-
 // fileExists reports whether path exists (a file or dir).
 func fileExists(path string) bool {
 	_, err := os.Stat(path)
@@ -65,17 +43,30 @@ func fileExists(path string) bool {
 }
 
 // BundledLoopholesDir returns the loopholes that ship with the binary. Package
-// var so tests can override. Falls back to the go:embed copy when no checkout
-// or in-jail copy exists (installed binary outside any repo).
+// var so tests can override. Repo discovery uses the single shared resolver
+// (internal/reporoot) — the SAME method run/check use — so a bundled_loopholes
+// checkout is found identically inside and outside the jail (a source checkout
+// by cwd-walk, self-hosting /workspace included). The shipped "two files and a
+// binary" bundle carries NO bundled_loopholes tree, so an installed binary
+// resolves the manifests from the go:embed copy (materializeEmbedded) — that is
+// the normal production path, not a fallback.
 var BundledLoopholesDir = func() string {
-	dir := filepath.Join(repoRoot(), "bundled_loopholes")
-	if fileExists(dir) {
-		return dir
+	root, ok := reporoot.Resolve(os.Getenv)
+	if ok {
+		if dir := filepath.Join(root, "bundled_loopholes"); fileExists(dir) {
+			return dir
+		}
 	}
 	if mat, err := materializeEmbedded(); err == nil {
 		return mat
 	}
-	return dir // cache dir unwritable etc. — degrade to the pre-embed behavior
+	// Embed materialization failed (cache dir unwritable etc.): degrade to the
+	// resolved repo's bundled_loopholes path (may not exist — pre-embed
+	// behavior), or a bare relative name when nothing resolved.
+	if ok {
+		return filepath.Join(root, "bundled_loopholes")
+	}
+	return "bundled_loopholes"
 }
 
 // UserLoopholesDir returns the third-party loopholes dir (overrides bundled on
