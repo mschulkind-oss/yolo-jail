@@ -164,6 +164,7 @@ there is no sync step.
 | Storage paths and state separation | `docs/design/storage-and-config.md` |
 | Cgroup delegate security model | `docs/design/security-shim.md` |
 | macOS backends | `docs/guides/macos.md` |
+| macos-user nix integration + disabled-feature surface | `docs/design/macos-user-nix-and-features.md` |
 
 Agent logs, for debugging: `~/.copilot/logs/`, `~/.cache/gemini-cli/logs/`,
 `~/.claude/projects/` inside the jail; same paths under
