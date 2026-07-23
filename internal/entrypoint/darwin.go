@@ -50,7 +50,6 @@ func RunDarwinBootstrap(e *Env, opts DarwinBootstrapOptions) {
 	genStep(e, "generate_mise_config", func() error { return ConfigureMisePrism(e) })
 	genStep(e, "generate_mcp_wrappers", func() error { return GenerateMCPWrappers(e) })
 	configureGit(e)
-	configureJJ(e)
 	for _, agent := range LoadAgents(e) {
 		configureAgent(e, agent)
 	}

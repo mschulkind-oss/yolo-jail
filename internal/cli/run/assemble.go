@@ -31,7 +31,7 @@ type assembleInput struct {
 	agentsPath   string   // AGENTS_DIR/<cname> (briefings + skills staging)
 	wsState      string   // <workspace>/.yolo/home
 	miseStore    string   // _jail_mise_store_dir()
-	identityEnv  []string // -e YOLO_GIT_* / -e YOLO_JJ_*
+	identityEnv  []string // -e YOLO_GIT_*
 	hostTZ       string   // "" => no TZ
 	yoloVersion  string   // _git_describe_version() or "unknown"
 	mountTargets map[string]struct{}
@@ -247,7 +247,7 @@ func (o *Options) assembleRunCmd(in *assembleInput) []string {
 		runCmd = append(runCmd, "--net="+netMode)
 	}
 
-	// --- identity env (git + jj) ---
+	// --- identity env (git) ---
 	runCmd = append(runCmd, in.identityEnv...)
 
 	// --- global gitignore ---

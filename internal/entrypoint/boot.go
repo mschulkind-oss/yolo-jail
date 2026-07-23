@@ -451,8 +451,6 @@ func Main(args []string) error {
 	p.mark("generate_mcp_wrappers")
 	configureGit(e)
 	p.mark("configure_git")
-	configureJJ(e)
-	p.mark("configure_jj")
 	// Skills are mounted :ro by the CLI — no entrypoint action needed.
 	p.mark("skills_skipped")
 

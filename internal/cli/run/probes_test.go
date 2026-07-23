@@ -278,16 +278,12 @@ func TestCollectIdentityEnv(t *testing.T) {
 		Exec: fakeExec(map[string]ExecResult{
 			"git config --get user.name":  {Stdout: "Ada Lovelace\n", Ran: true, RC: 0},
 			"git config --get user.email": {Stdout: "ada@example.com\n", Ran: true, RC: 0},
-			"jj config get user.name":     {Stdout: "\"Grace Hopper\"\n", Ran: true, RC: 0},
-			"jj config get user.email":    {Stdout: "grace@example.com", Ran: true, RC: 0},
 		}),
 	}
 	got := o.collectIdentityEnv()
 	want := []string{
 		"-e", "YOLO_GIT_NAME=Ada Lovelace",
 		"-e", "YOLO_GIT_EMAIL=ada@example.com",
-		"-e", "YOLO_JJ_NAME=Grace Hopper", // quotes stripped
-		"-e", "YOLO_JJ_EMAIL=grace@example.com",
 	}
 	if strings.Join(got, "\x00") != strings.Join(want, "\x00") {
 		t.Errorf("identity env = %v, want %v", got, want)
@@ -295,7 +291,7 @@ func TestCollectIdentityEnv(t *testing.T) {
 }
 
 func TestCollectIdentityEnvSkipsMissing(t *testing.T) {
-	// git present, jj absent (Ran=false), empty email skipped.
+	// git present, empty email skipped.
 	o := Options{
 		Exec: fakeExec(map[string]ExecResult{
 			"git config --get user.name":  {Stdout: "Ada\n", Ran: true, RC: 0},

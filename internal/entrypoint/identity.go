@@ -27,22 +27,8 @@ func configureGit(e *Env) {
 	}
 }
 
-// configureJJ set jj user identity from the
-// host-forwarded YOLO_JJ_* env vars. Best-effort — no-op if jj isn't on PATH.
-func configureJJ(e *Env) {
-	if _, err := exec.LookPath("jj"); err != nil {
-		return
-	}
-	if name := e.Getenv("YOLO_JJ_NAME"); name != "" {
-		runQuiet("jj", "config", "set", "--user", "user.name", name)
-	}
-	if email := e.Getenv("YOLO_JJ_EMAIL"); email != "" {
-		runQuiet("jj", "config", "set", "--user", "user.email", email)
-	}
-}
-
 // runQuiet runs argv with stdout/stderr discarded. Errors are swallowed (the
-// identity setters are best-effort and never abort boot).
+// identity setter is best-effort and never aborts boot).
 func runQuiet(name string, args ...string) {
 	cmd := exec.Command(name, args...)
 	cmd.Stdout = nil

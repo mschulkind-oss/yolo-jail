@@ -19,7 +19,7 @@ import (
 	"github.com/mschulkind-oss/yolo-jail/internal/tty"
 )
 
-// ExecResult is the outcome of a short subprocess probe (git/jj identity,
+// ExecResult is the outcome of a short subprocess probe (git identity,
 // lsusb, runtime lookups). Ran is false when the binary was absent or the
 // process could not be started; Timeout is true when the call exceeded its
 // deadline. Both degrade gracefully — callers swallow them.
@@ -60,7 +60,7 @@ type Options struct {
 	LookPath func(string) (string, bool)
 	// Exec runs a short subprocess probe with a timeout in dir ("" = inherit)
 	// with extra env entries ("KEY=VALUE", appended to the parent env). nil =>
-	// real. Used for git/jj identity, lsusb, runtime version/liveness probes.
+	// real. Used for git identity, lsusb, runtime version/liveness probes.
 	Exec func(argv []string, dir string, env []string, timeout time.Duration) ExecResult
 	// Stdout/Stderr receive the human output (console.print goes to stderr in
 	// rich by default for status; run() uses console (stdout) for most lines).

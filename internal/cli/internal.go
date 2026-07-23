@@ -54,7 +54,7 @@ func runInternal(args []string) int {
 // at the sandbox home + real workspace, and runs the native generation entry.
 //
 // Inputs arrive as env vars the launcher bakes into the `env -i K=V…` argv
-// (matching how the launch env already crosses into the sandbox): the git/jj
+// (matching how the launch env already crosses into the sandbox): the git
 // identity + YOLO_* generator contract ride through verbatim; the three darwin
 // extras are YOLO_DARWIN_WORKSPACE, YOLO_DARWIN_MACOS_LOG, and
 // YOLO_DARWIN_LOGIN_PATH.

@@ -123,11 +123,11 @@ func BuildRunPlan(workspace string, cfg *jsonx.OrderedMap, agents, agentArgv []s
 	cname := cnameFor(workspace)
 	profilePath := SessionProfilePath(cname, "")
 
-	// Git/jj identity = the sandbox-env keys prefixed YOLO_GIT / YOLO_JJ.
+	// Git identity = the sandbox-env keys prefixed YOLO_GIT.
 	gitIdentity := jsonx.NewOrderedMap()
 	if sandboxEnv != nil {
 		for _, k := range sandboxEnv.Keys() {
-			if strings.HasPrefix(k, "YOLO_GIT") || strings.HasPrefix(k, "YOLO_JJ") {
+			if strings.HasPrefix(k, "YOLO_GIT") {
 				v, _ := sandboxEnv.Get(k)
 				gitIdentity.Set(k, v)
 			}
@@ -136,7 +136,7 @@ func BuildRunPlan(workspace string, cfg *jsonx.OrderedMap, agents, agentArgv []s
 
 	// The bootstrap env baked onto the self-exec argv: the generator contract
 	// the entrypoint reads (YOLO_HOST_DIR/BLOCK_CONFIG/MISE_TOOLS/LSP/MCP), the
-	// git/jj identity, YOLO_AGENTS (which agents to configure), and the three
+	// git identity, YOLO_AGENTS (which agents to configure), and the three
 	// YOLO_DARWIN_* extras the darwin-bootstrap subcommand consumes (workspace,
 	// macos-log mode, and the login-rc PATH). Reuses the container-side resolvers.
 	bootstrapEnv := jsonx.NewOrderedMap()
@@ -158,8 +158,8 @@ func BuildRunPlan(workspace string, cfg *jsonx.OrderedMap, agents, agentArgv []s
 	}
 	agentsJSON, _ := jsonx.DumpsCompact(agentsAny)
 	bootstrapEnv.Set("YOLO_AGENTS", agentsJSON)
-	// git/jj identity rides verbatim (the subcommand's Env.Vars carries it into
-	// configureGit/JJ).
+	// git identity rides verbatim (the subcommand's Env.Vars carries it into
+	// configureGit).
 	for _, k := range gitIdentity.Keys() {
 		v, _ := gitIdentity.Get(k)
 		bootstrapEnv.Set(k, v)
