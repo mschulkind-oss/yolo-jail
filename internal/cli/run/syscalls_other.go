@@ -2,8 +2,6 @@
 
 package run
 
-import "golang.org/x/sys/unix"
-
 // sysconfPhysMem is Linux-only (macOS uses `sysctl hw.memsize` in the AC
 // default-memory path). Off-Linux this reports failure so the caller falls back
 // to the "8g" default — the AC default-memory path never reaches here anyway
