@@ -133,7 +133,7 @@ second implementation of a surface that already exists in Go.
 exactly the rebinding the Python bootstrap did): GenerateShims (`shims.go:19`),
 GenerateAgentLaunchers (`shims.go:156`), GenerateBashrc (`shell.go:46`),
 GenerateMiseConfig (`mise.go:37`), GenerateMCPWrappers (`mcp_wrappers.go:7`),
-configureGit/configureJJ (`identity.go:12/:32`, unexported), per-agent writers
+configureGit (`identity.go:12`, unexported), per-agent writers
 via configureAgent (`boot.go:505-522`, unexported). The env-var contract:
 `runplan.go:116-127` assembles six keys (HOST_DIR/BLOCK_CONFIG/MISE_TOOLS/
 LSP_SERVERS/MCP_SERVERS/MCP_PRESETS, matching the container's `-e` contract,

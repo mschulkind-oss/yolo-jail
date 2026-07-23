@@ -14,7 +14,7 @@ lane order:
 
 | # | Open item | Lane | Blocker |
 |---|---|---|---|
-| 1 | **config-composition — non-agent surface ports** (mise, standalone MCP/LSP, git/jj identity onto the prism, then delete their bespoke generators) | jail-side | none — the main remaining agent-completable thread |
+| 1 | **config-composition — non-agent surface ports** (mise, standalone MCP/LSP, git identity onto the prism, then delete their bespoke generators) | jail-side | none — the main remaining agent-completable thread |
 | 2 | **D4 Cachix** (one Mac download proof) | hardware-gated | substituter enabled + account/cache/CI-push all done (2026-07-22); needs only a real Mac to prove the download path |
 
 Not on this list because they are **done or held**: J1–J3, D1/D2/D3, Track M
@@ -171,7 +171,7 @@ longer a critical-path chain:
 1. **config-composition — non-agent surface ports** — *the main remaining jail
    work; its own self-contained thread (see below).* The engine drives boot for
    the agent-config surfaces already; what remains is folding the non-agent
-   surfaces (mise, standalone MCP/LSP, git/jj identity) onto the prism and then
+   surfaces (mise, standalone MCP/LSP, git identity) onto the prism and then
    deleting their bespoke generators. This is where the real design
    nuance lives — see the [config-composition build](#config-composition-build-own-self-contained-thread)
    section and `agent-settings-composition.md`.

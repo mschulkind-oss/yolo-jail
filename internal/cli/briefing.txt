@@ -18,7 +18,7 @@ need to know.
   • [bold]Internet access[/bold] is available (bridge networking by default).
     You can curl, pip install, npm install, go get, etc.
 
-  • [bold]Git/jj identity[/bold] is injected from the host (name + email).
+  • [bold]Git identity[/bold] is injected from the host (name + email).
     GitHub CLI (gh) is pre-authenticated.
 
   • [bold]Mise tool data[/bold] is shared with the host. Python, Node, Go, and
@@ -46,7 +46,7 @@ need to know.
 
   Runtimes:  Node.js 22, Python 3.13, Go (managed by mise)
   Editors:   nvim (stable by default, configurable via mise_tools)
-  CLI tools: rg, fd, bat, jq, git, jj, gh, curl, strace, uv, tmux
+  CLI tools: rg, fd, bat, jq, git, gh, curl, strace, uv, tmux
   Agents:    the ones in your `agents` config (default: claude). Available:
              claude, copilot, gemini, opencode, pi (auto-approve wired up).
   The 'yolo' command itself is available inside for nested jailing.

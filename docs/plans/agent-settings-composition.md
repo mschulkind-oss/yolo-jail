@@ -6,7 +6,7 @@ data-filter vocabulary — this is the line in the sand. **Per-phase status:**
 **Phase A complete** — the engine is built + tested (`internal/agentcfg`, with
 `compose.go`/`engine.go`/`manifest`/`codec`/`luahook` and their tests). **Phase
 B complete** — all **agent** surfaces are in the manifest and reachable via
-`yolo config render` (the non-agent surfaces — mise, standalone MCP/LSP, git/jj
+`yolo config render` (the non-agent surfaces — mise, standalone MCP/LSP, git
 identity — are *not* yet manifest-modeled; `yolo config render mise` reports "no
 surfaces", and only `pi/claude/gemini/copilot/opencode/codex/agy` are known).
 **Phase C complete (2026-07-22)** — every surface renders through the
@@ -15,14 +15,14 @@ config path (`boot.go` calls them unconditionally; the `YOLO_PRISM_SURFACES`
 cutover gate is retired), the six bespoke `Configure*` writers and their
 dead helpers are deleted, and `agy` was born directly on the prism. The obsolete
 snapshot/managed-MCP sidecars are cleaned up on each surface's first-migration
-boot. Remaining non-agent surfaces (mise, MCP/LSP standalone, git/jj identity)
+boot. Remaining non-agent surfaces (mise, MCP/LSP standalone, git identity)
 still have bespoke generators; folding them onto the prism is tracked separately
 in §8 / [ROADMAP.md](ROADMAP.md).
 
 yolo generates a number of config files inside the jail from host + jail sources
 — coding-agent settings (Claude's `settings.json`, Codex's `config.toml`, pi's
 `settings.json`, …), but **also** the MCP-server config, LSP config, the global
-mise config, and git/jj identity. This doc fixes **how** any such generated
+mise config, and git identity. This doc fixes **how** any such generated
 config composes and how a user reshapes it. Agent config is the motivating and
 widest case; the model is deliberately generic over **every file yolo generates
 this way** (see §1.1 for the inventory).
@@ -56,7 +56,7 @@ the current entrypoint (`internal/entrypoint`), these are:
 | **MCP servers** (per-agent config) | `mcp.go` | json | `mcp_servers` + `mcp_presets` (config) + builtin presets |
 | **LSP servers** | `mcp.go` (`LoadLSPServers`) / `agent_configs.go` | json | `lsp_servers` (config) + defaults |
 | **Global mise config** (`~/.config/mise/config.toml`) | `mise.go` | **toml** | `mise_tools` (config) + `miseBaseTools` defaults |
-| **git / jj identity** | `identity.go` | (git config kv) | `YOLO_GIT_*` / `YOLO_JJ_*` env |
+| **git identity** | `identity.go` | (git config kv) | `YOLO_GIT_*` env |
 
 All of these are *composed from user-influenceable input* and are the pipeline's
 domain. **Not** in scope (yolo-authored artifacts with no user-config layer to

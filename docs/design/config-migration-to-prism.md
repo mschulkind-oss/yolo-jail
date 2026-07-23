@@ -47,7 +47,7 @@ forcing base tools present/non-`system`. A departed base tool is invisible to al
 three. The stale pin persists indefinitely.
 
 This is not a mise quirk. It is a **class**: bespoke in-place editors with no
-removal path. mise and git/jj identity are its two acute members. The migration
+removal path. mise and git identity are its two acute members. The migration
 must converge every surface to *what the prism would generate*, not carry stale
 bespoke output forward — and must do so without the overlay freezing that stale
 state into permanence.
@@ -93,7 +93,7 @@ severity of stale bespoke output that survives, absent a migration step.
 | Surface | File(s) | Generator | Self-heal today | Stale risk |
 |---|---|---|---|---|
 | **mise global config** | `~/.config/mise/config.toml` | `prism_mise.go ConfigureMisePrism` (was `mise.go GenerateMiseConfig`) | ✅ **ported** — prism first-migration seed (was in-place editor) | **HIGH** (resolved) |
-| **git / jj identity** | `~/.gitconfig`, `~/.jjconfig` | `identity.go configureGit/configureJJ` | none — sets keys only when env present, never unsets | **HIGH** |
+| **git identity** | `~/.gitconfig` | `identity.go configureGit` | none — sets keys only when env present, never unsets | **HIGH** |
 | Claude settings | `~/.claude/settings.json` (+ snapshot `yolo-host-synced-settings.json`, sidecar `yolo-managed-mcp-servers.json`) | `claude.go ConfigureClaude` | 3-way host merge vs. snapshot; managed keys force-set each boot | MED |
 | Pi settings | `~/.pi/agent/settings.json` (+ snapshot) | `agent_configs.go ConfigurePi` | same 3-way pattern; force-sets `defaultProjectTrust` | MED |
 | Gemini settings | `~/.gemini/settings.json` (+ sidecar) | `agent_configs.go ConfigureGemini` | MCP reconciled via sidecar; some keys `setDefault` (see §4.5 bug) | MED |
@@ -272,10 +272,10 @@ never emits `node`/`python`/`go` unless a workspace layer pins them — at which
 point the §4.1 pre-render scrub is subsumed and can retire. Ship the scrub now;
 delete it in Phase C when mise is fully on the engine.
 
-### 4.2 git / jj identity (`~/.gitconfig`, `~/.jjconfig`) — HIGH
+### 4.2 git identity (`~/.gitconfig`) — HIGH
 
-`configureGit`/`configureJJ` run `git config --global` / `jj config set` only when
-the `YOLO_GIT_*` / `YOLO_JJ_*` env var is present and non-empty; there is **no
+`configureGit` runs `git config --global` only when
+the `YOLO_GIT_*` env var is present and non-empty; there is **no
 unset path**. So a host that *removes* `YOLO_GIT_EMAIL`, `YOLO_GIT_NAME`, or
 `YOLO_GLOBAL_GITIGNORE` leaves the previously-written `user.email` / `user.name` /
 `core.excludesFile` in the persistent `~/.gitconfig` forever. No snapshot exists
@@ -285,8 +285,7 @@ Migration to the prism:
 
 - Introduce a **git-kv codec** (a small `key = value` codec over the git-config
   keyspace yolo owns). The identity surface's manifest enumerates the **full set
-  of keys yolo owns**: `user.name`, `user.email`, `core.excludesFile`, and the jj
-  equivalents.
+  of keys yolo owns**: `user.name`, `user.email`, and `core.excludesFile`.
 - Because the prism regenerates from the env each boot, a removed env var means
   the key is simply **absent from the render** — the removal path the bespoke
   editor never had. But: the pre-existing `~/.gitconfig` contains keys the pipeline
@@ -427,7 +426,7 @@ A one-time operator-initiated command, e.g. `yolo config migrate --rebuild`
 Only **yolo-owned user-scope config** under `/home/agent`:
 
 - The owned surface files themselves (mise config, agent settings files, MCP/LSP
-  configs, the owned git/jj keys).
+  configs, the owned git keys).
 - The prism sidecars: `.yolo/last_render`, `.yolo/overlay` (per surface).
 - The obsolete bespoke sidecars/snapshots of §4.7.
 
@@ -508,9 +507,8 @@ before any surface ports:**
   `mcp_config.json`): ✅ **Ported (2026-07-23)** onto the *stateless*
   `renderSurfaceComputed` path (§4.6) — pure per-boot overwrites, no sidecars,
   the live table on the computed layer. `writeCopilotDynamicConfigs` deleted.
-- **git/jj identity**: the scoped git-kv codec (§4.2), owned-keyspace reconcile. ⏳
-  See `docs/design/identity-prism-decision.md` for the open decision (including
-  whether to drop jj entirely).
+- **git identity**: the scoped git-kv codec (§4.2), owned-keyspace reconcile. ⏳
+  See `docs/design/identity-prism-decision.md` for the open decision.
 
 **Phase C (deletion, serial, last).** ✅ **Done for the agent-config surfaces
 (2026-07-22).**
@@ -526,7 +524,7 @@ before any surface ports:**
   helpers (`miseBaseTools`, `bakedRuntimes`, `workspacePinsTool`, `miseTomlKey`,
   `splitKeepNL`) retired with it. ✅ MCP/LSP siblings ported (2026-07-23) — the
   bespoke `writeCopilotDynamicConfigs` deleted, the siblings rendered via the
-  stateless `renderSurfaceComputed` path (§4.6). ⏳ still pending: git/jj identity
+  stateless `renderSurfaceComputed` path (§4.6). ⏳ still pending: git identity
   (see `docs/design/identity-prism-decision.md`).
 
 The **clear-and-rebuild** command (§5) can land any time in Phase A/B as an

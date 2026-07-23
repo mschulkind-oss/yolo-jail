@@ -664,14 +664,14 @@
     These are NOT shared across different project jails.
 
   [bold]Identity & Auth[/bold]
-    Git/jj identity (name + email) is injected from the host automatically.
+    Git identity (name + email) is injected from the host automatically.
     GitHub CLI (gh) is pre-authenticated via the shared home.
     SSH keys are per-workspace — configure in <workspace>/.yolo/home/ssh/.
 
   [bold]Tools & Runtimes[/bold]
     Runtimes: Node.js 22, Python 3.13, Go (managed by mise)
     Editors:  nvim (version configurable via mise_tools config)
-    CLI:      rg, fd, bat, jq, git, jj, gh, curl, strace, uv, tmux
+    CLI:      rg, fd, bat, jq, git, gh, curl, strace, uv, tmux
     Agents:   the ones listed in the `agents` config (default: claude).
               Available: claude, copilot, gemini, opencode, pi — each with
               auto-approve/YOLO mode wired up.

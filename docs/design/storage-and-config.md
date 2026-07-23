@@ -37,7 +37,7 @@ The rules above govern *yolo's own* config (`yolo-jail.jsonc`). A separate,
 load-bearing principle governs **every config file yolo generates inside the
 jail** — coding-agent settings (Claude/Copilot/Gemini/pi/opencode/Codex —
 `.claude/settings.json`, `~/.pi/agent/settings.json`, `config.toml`, …), but
-equally the MCP-server config, LSP config, the global mise config, and git/jj
+equally the MCP-server config, LSP config, the global mise config, and git
 identity:
 
 > **yolo composes generated config into the jail USER scope only. The workspace
@@ -157,7 +157,7 @@ Each workspace has a `.yolo/` directory (gitignored) for isolated state:
 │   ├── local/                    → /home/agent/.local (claude, MCP wrappers)
 │   ├── go/                       → /home/agent/go (gopls, mcp-language-server)
 │   ├── yolo-shims/               → /home/agent/.yolo-shims (blocked tool shims)
-│   ├── config/                   → /home/agent/.config (mise, jj, nvim config)
+│   ├── config/                   → /home/agent/.config (mise, nvim config)
 │   ├── bashrc                    → /home/agent/.bashrc
 │   ├── gitconfig                 → /home/agent/.gitconfig
 │   ├── yolo-bootstrap.sh         → /home/agent/.yolo-bootstrap.sh
@@ -205,7 +205,7 @@ All writable paths are explicitly mounted:
   ├── .local/                ← PER-WORKSPACE overlay (claude, MCP wrappers)
   ├── go/                    ← PER-WORKSPACE overlay (Go binaries)
   ├── .yolo-shims/           ← PER-WORKSPACE overlay (blocked tool shims)
-  ├── .config/               ← PER-WORKSPACE overlay (mise, jj, nvim config)
+  ├── .config/               ← PER-WORKSPACE overlay (mise, nvim config)
   ├── .cache/                ← SHARED writable (download caches — CAS)
   ├── .bashrc                ← PER-WORKSPACE file overlay
   ├── .gitconfig             ← PER-WORKSPACE file overlay
@@ -261,8 +261,6 @@ Host                              Container
 ────                              ─────────
 git config user.name  ─→  YOLO_GIT_NAME   ─→  git config --global user.name
 git config user.email ─→  YOLO_GIT_EMAIL  ─→  git config --global user.email
-jj config user.name   ─→  YOLO_JJ_NAME   ─→  jj config set --user user.name
-jj config user.email  ─→  YOLO_JJ_EMAIL  ─→  jj config set --user user.email
 ```
 
 ### Key design decisions
@@ -273,7 +271,7 @@ jj config user.email  ─→  YOLO_JJ_EMAIL  ─→  jj config set --user user.e
 - **Global gitignore is mounted read-only**: The host's `core.excludesFile`
   is bind-mounted to `/home/agent/.config/git/ignore:ro`.
 - **Identity set on every startup**: Even on container reuse (`podman exec`),
-  the entrypoint re-runs `configure_git()` and `configure_jj()` with fresh
+  the entrypoint re-runs `configure_git()` with fresh
   env vars. This means if you change your host identity, the next jail
   session picks it up.
 - **Exec path gets env vars too**: Both `podman run` and `podman exec`
