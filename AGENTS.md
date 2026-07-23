@@ -47,11 +47,21 @@ there is no sync step.
 - `just build-go` → `scripts/build-go.sh` → `dist-go/<goos>-<goarch>/`. This is
   the cross-compile step. **`just deploy` does NOT cross-compile** — it is
   `just install` (host `go install ./cmd/yolo`) plus Claude-broker priming.
-- **Dev-override wrappers exist for `yolo` and `yolo-entrypoint` only.** They
-  prefer `/opt/yolo-jail/dist-go/linux-<arch>/` over the baked binary, so those
-  two iterate with `just build-go` alone. `yolo-jaild` and `yolo-ps` are plain
-  symlinks to the baked build (`goBinariesLinks` in `flake.nix`) — **editing
-  them requires a full image rebuild** (`just load` on the host).
+- **No dev-override fast loop any more.** The old `/opt/yolo-jail/dist-go`
+  wrapper (which let the outer jail's `yolo`/`yolo-entrypoint` prefer a
+  `just build-go` artifact over the baked binary) is GONE, along with the
+  `/opt/yolo-jail` source bind. The image now bakes REAL-FILE copies of all
+  four shipped binaries at `/opt/yolo-jail/bin/` (with `/bin/<name>` symlinks
+  and the flake bundle at `/opt/yolo-jail/share/yolo-jail`; see `installPrefix`
+  in `flake.nix`). **The outer jail's binaries are now frozen at the
+  host-loaded image** until a host `just load` — you can no longer live-patch
+  them in-jail. Verify Go changes by launching a **nested** jail (`yolo --
+  bash`): its `AutoLoadImage` nix-builds the live `/workspace` checkout from
+  source (the `goSrc` fileset, NOT `dist-go/`), so the nested image carries
+  your edits for all four binaries. This is the accepted fast-loop regression.
+- `just build-go` is now purely the **cross-compile-for-shipping** step
+  (`bin/linux-<arch>` prebuilt artifacts consumed by the flake's prebuilt
+  short-circuit in a shipped bundle) — it no longer feeds any in-jail run.
 - `flake.nix` changes are **fully verifiable in-jail**, runtime behavior
   included. A nested `yolo -- bash` runs the CLI's own `AutoLoadImage`, which
   builds the flake (`nix build` delegates to the host daemon; see "Nix inside
