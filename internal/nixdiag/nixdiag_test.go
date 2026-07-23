@@ -86,6 +86,30 @@ func TestHasLinuxBuilderFromConfig(t *testing.T) {
 	}
 }
 
+func TestMinFreeFromConfig(t *testing.T) {
+	// Real `nix config show` shape (values on their own lines).
+	cfg := "max-free = 9223372036854775807\nmin-free = 0\nmin-free-check-interval = 5\n"
+	if n, ok := MinFreeFromConfig(cfg); !ok || n != 0 {
+		t.Errorf("min-free=0 → (%d,%v), want (0,true)", n, ok)
+	}
+	// A configured floor.
+	if n, ok := MinFreeFromConfig("min-free = 53687091200\n"); !ok || n != 53687091200 {
+		t.Errorf("min-free=50GiB → (%d,%v), want (53687091200,true)", n, ok)
+	}
+	// Absent key.
+	if _, ok := MinFreeFromConfig("max-jobs = auto\n"); ok {
+		t.Error("absent min-free must yield ok=false")
+	}
+	// Non-integer value (defensive).
+	if _, ok := MinFreeFromConfig("min-free = auto\n"); ok {
+		t.Error("non-integer min-free must yield ok=false")
+	}
+	// The prefix must not match min-free-check-interval when min-free is absent.
+	if _, ok := MinFreeFromConfig("min-free-check-interval = 5\n"); ok {
+		t.Error("min-free-check-interval must not be parsed as min-free")
+	}
+}
+
 func TestFmtDuration(t *testing.T) {
 	cases := map[int]string{-1: "?", 0: "0m", 59: "0m", 60: "1m", 3599: "59m", 3600: "1h0m", 7320: "2h2m"}
 	for in, want := range cases {

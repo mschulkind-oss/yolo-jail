@@ -8,6 +8,7 @@ package nixdiag
 
 import (
 	"regexp"
+	"strconv"
 	"strings"
 )
 
@@ -231,4 +232,36 @@ func LinuxBuilderRemedy(label string) string {
 		label = "org.nixos.nix-daemon"
 	}
 	return strings.ReplaceAll(linuxBuilderRemedyTemplate, "NIX_DAEMON_LABEL", label)
+}
+
+// MinFreeFromConfig parses the `min-free` setting out of `nix config show`
+// output, returning (bytes, ok). ok is false when the key is absent or
+// unparseable. `min-free = 0` (the nix default) means the daemon's automatic
+// GC — which frees UNROOTED store paths when a build runs low on space — is
+// effectively OFF: with §1 rooting in place, a non-zero min-free is the safety
+// net that keeps the store from growing unbounded WITHOUT ever touching a
+// running jail's rooted image closure. This is a read-only observation; the
+// value is a /etc/nix/nix.conf edit only a human can make.
+func MinFreeFromConfig(nixConfigShow string) (int64, bool) {
+	return intSettingFromConfig(nixConfigShow, "min-free")
+}
+
+// intSettingFromConfig extracts a single integer nix setting ("<key> = <int>")
+// from `nix config show` output. Returns (value, ok=false) when the key is
+// missing or its value is not a plain integer (e.g. "auto").
+func intSettingFromConfig(nixConfigShow, key string) (int64, bool) {
+	prefix := key + " ="
+	for _, line := range strings.Split(nixConfigShow, "\n") {
+		line = strings.TrimSpace(line)
+		if !strings.HasPrefix(line, prefix) {
+			continue
+		}
+		val := strings.TrimSpace(strings.SplitN(line, "=", 2)[1])
+		n, err := strconv.ParseInt(val, 10, 64)
+		if err != nil {
+			return 0, false
+		}
+		return n, true
+	}
+	return 0, false
 }

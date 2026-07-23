@@ -197,6 +197,9 @@ func Check(opts Options) int {
 	// --- FHS loader (nix-ld) baseline-drift tripwire (in-jail only) ---
 	o.sectionNixLD(r)
 
+	// --- Nix auto-GC (store growth net; storage §2) — detect-and-warn only ---
+	o.sectionAutoGC(r)
+
 	// --- Summary ---
 	r.summaryFinal()
 
