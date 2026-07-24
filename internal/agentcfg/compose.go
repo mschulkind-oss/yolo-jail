@@ -113,6 +113,30 @@ const (
 	layerManaged   = "managed"
 )
 
+// layerAbsent reports whether a layer says nothing and must be skipped — as
+// opposed to an explicitly empty value ("" / []any{} / {}) which is a real
+// assertion the layers fold honors.
+//
+// A plain `data == nil` is not enough: a caller passing a nil map[string]any or
+// []any as the Computed/Workspace layer (common — a "no dynamic content" boot)
+// boxes a TYPED nil into the `any`, which is != nil. The object fold tolerated
+// that (ranging a nil map is a no-op), but the keyless fold then tried to match
+// a nil map against a scalar/array codec and failed with a spurious "layer is
+// not string" — the exact break host_files' raw/lines surfaces hit as the first
+// keyless callers with a nil computed layer. reflect.Value.IsNil catches the
+// typed-nil map/slice/pointer case that == nil misses.
+func layerAbsent(data any) bool {
+	if data == nil {
+		return true
+	}
+	switch v := reflect.ValueOf(data); v.Kind() {
+	case reflect.Map, reflect.Slice, reflect.Ptr, reflect.Interface:
+		return v.IsNil()
+	default:
+		return false
+	}
+}
+
 // Compose runs the full §3.1 pipeline for one surface and returns the rendered
 // config, its encoded bytes, the stage excludes, and per-key provenance. It is
 // pure: no file I/O, no container — the caller supplies bytes and decoded
@@ -165,7 +189,7 @@ func Compose(in Inputs) (*Result, error) {
 		// Object surfaces: the §3.1 deep-merge fold, with per-key provenance.
 		orderedLayers := make([]map[string]any, 0, len(preLayers))
 		for _, l := range preLayers {
-			if l.data == nil {
+			if layerAbsent(l.data) {
 				continue
 			}
 			m, ok := l.data.(map[string]any)
@@ -198,7 +222,7 @@ func Compose(in Inputs) (*Result, error) {
 		// that the file is empty and does win. Conflating the two would let a
 		// surface with no workspace layer erase its own host content.
 		for _, l := range preLayers {
-			if l.data == nil {
+			if layerAbsent(l.data) {
 				continue
 			}
 			if !kind.Matches(l.data) {

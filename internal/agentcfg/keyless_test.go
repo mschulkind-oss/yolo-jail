@@ -193,6 +193,35 @@ func TestComposeRawAbsentVsEmptyLayer(t *testing.T) {
 	}
 }
 
+// TestComposeRawTypedNilComputedSkipped is the regression for the typed-nil
+// layer trap: a caller that passes a nil map[string]any as the Computed layer (a
+// "no dynamic content" boot — exactly what host_files' render loop does for
+// every entry) boxes a TYPED nil into the `any`, which is != nil. The object
+// fold tolerated that by ranging an empty map, but the keyless fold used to try
+// to match the nil map against the raw codec and failed with a spurious
+// "computed layer is not string". A layer that IS nil — however it is typed —
+// must be skipped, so the host content wins.
+func TestComposeRawTypedNilComputedSkipped(t *testing.T) {
+	host := "keep-me\n"
+	var nilComputed map[string]any // typed nil, boxes into a non-nil any
+	res, err := Compose(Inputs{Surface: rawSurface(), HostBytes: []byte(host), Computed: nilComputed})
+	if err != nil {
+		t.Fatalf("Compose with a typed-nil computed layer errored: %v", err)
+	}
+	if res.Config != host {
+		t.Errorf("Config = %q, want %q (typed-nil computed must be skipped)", res.Config, host)
+	}
+	// The lines codec has the same trap with a nil []any.
+	var nilSlice []any
+	res2, err := Compose(Inputs{Surface: linesSurface(), HostBytes: []byte(host), Computed: nilSlice})
+	if err != nil {
+		t.Fatalf("Compose (lines) with a typed-nil computed slice errored: %v", err)
+	}
+	if want := []any{"keep-me"}; !reflect.DeepEqual(res2.Config, want) {
+		t.Errorf("lines Config = %#v, want %#v", res2.Config, want)
+	}
+}
+
 // TestComposeRawTransform runs a REAL Lua transform over a raw surface: the hook
 // receives ctx.config as a string, rewrites it with string.gsub, and returns a
 // string. This is the case the old object-only assertion in vm.go made
