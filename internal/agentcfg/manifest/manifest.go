@@ -87,12 +87,22 @@ type Surface struct {
 
 	// Defaults is the `defaults` layer (§4): yolo's builtin base data, lowest
 	// precedence and user-overridable. Optional (nil == no defaults).
-	Defaults map[string]any
+	//
+	// Typed `any` to match the engine's generic value model, because the layer's
+	// shape follows the Codec: an object for json/toml, a []any for `lines`, a
+	// string for `raw`. A keyless surface has no per-key layering, so its
+	// defaults are the whole-file fallback value. Use DefaultsMap for the object
+	// case, which is nearly all of them.
+	Defaults any
 
 	// Managed is the `managed` layer (§4, §3.1): yolo's asserted keys, applied
 	// AFTER the Lua hook so they win the merge in the generated file. Optional
 	// (nil == nothing enforced).
-	Managed map[string]any
+	//
+	// Also `any`, per Defaults. On a keyless surface there are no individual keys
+	// to assert, so a non-nil Managed pins the ENTIRE file — coarse, but it is
+	// the only meaning "enforce" can carry without keys.
+	Managed any
 
 	// Transform is the optional path to the Lua transform hook for this surface
 	// (§3.4). Empty means identity / pass-through. This package does not read or
@@ -102,6 +112,29 @@ type Surface struct {
 
 // Key returns the (Agent, Name) identity used to detect duplicates.
 func (s Surface) Key() SurfaceKey { return SurfaceKey{Agent: s.Agent, Name: s.Name} }
+
+// DefaultsMap returns Defaults as an object, or nil when it is absent or the
+// surface is keyless. A convenience for the object surfaces that dominate, so
+// callers do not repeat the type assertion.
+func (s Surface) DefaultsMap() map[string]any {
+	m, _ := s.Defaults.(map[string]any)
+	return m
+}
+
+// ManagedMap returns Managed as an object, or nil when it is absent or the
+// surface is keyless. See DefaultsMap.
+func (s Surface) ManagedMap() map[string]any {
+	m, _ := s.Managed.(map[string]any)
+	return m
+}
+
+// Kind reports the shape of this surface's composed value, derived from its
+// Codec. An unknown codec reports KindObject — validate() rejects those, so a
+// surface that reached composition always has a real codec.
+func (s Surface) Kind() codec.Kind {
+	k, _ := codec.KindOf(s.Codec)
+	return k
+}
 
 // SurfaceKey is the unique identity of a surface within a manifest.
 type SurfaceKey struct {

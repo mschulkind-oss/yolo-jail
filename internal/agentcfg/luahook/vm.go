@@ -112,11 +112,20 @@ func (vm GopherLuaVM) Run(script string, ctx *Ctx) error {
 	if err != nil {
 		return err
 	}
-	cfgMap, ok := cfg.(map[string]any)
-	if !ok {
-		return fmt.Errorf("luahook: transform left ctx.config as %T, want an object/table", cfg)
+	// The hook must return the SAME SHAPE it was handed, checked against the
+	// surface's codec kind rather than hardcoded to "object". A raw surface's
+	// transform legitimately returns a string; a json surface's must not.
+	//
+	// This is fail-closed on purpose: coercing the wrong shape (JSON-encoding a
+	// returned table into a raw file, say) would write a plausible-looking file
+	// that is not what the author meant, and the mistake would only surface as
+	// the agent misbehaving. An error keeps the last good render instead (§3.4).
+	if !ctx.Kind.Matches(cfg) {
+		return fmt.Errorf("luahook: transform left ctx.config as %T, want %s "+
+			"(surface %s/%s uses a codec that decodes to %s)",
+			cfg, ctx.Kind, ctx.Agent, ctx.Surface, ctx.Kind)
 	}
-	ctx.Config = cfgMap
+	ctx.Config = cfg
 	return nil
 }
 
@@ -172,7 +181,7 @@ func registerYoloTable(L *lua.LState, hooks map[string]*lua.LFunction) {
 func buildCtxTable(L *lua.LState, ctx *Ctx) (*lua.LTable, error) {
 	t := L.NewTable()
 
-	configLV, err := goToLua(L, mapAsAny(ctx.Config))
+	configLV, err := goToLua(L, configAsAny(ctx))
 	if err != nil {
 		return nil, fmt.Errorf("luahook: marshalling ctx.config: %w", err)
 	}
@@ -190,8 +199,19 @@ func buildCtxTable(L *lua.LState, ctx *Ctx) (*lua.LTable, error) {
 	return t, nil
 }
 
-// mapAsAny normalizes a nil map to an empty one so ctx.config is always a
-// table on the Lua side.
+// configAsAny normalizes a nil Config to its kind's zero value, so ctx.config is
+// never nil on the Lua side: an object surface always gets a table, a raw surface
+// always gets a string (`ctx.config:gsub(...)` on nil would be a confusing Lua
+// error about indexing a nil value).
+func configAsAny(ctx *Ctx) any {
+	if ctx.Config == nil {
+		return ctx.Kind.ZeroValue()
+	}
+	return ctx.Config
+}
+
+// mapAsAny normalizes a nil map to an empty one so a table-shaped ctx field is
+// always a table on the Lua side.
 func mapAsAny(m map[string]any) any {
 	if m == nil {
 		return map[string]any{}
@@ -206,8 +226,22 @@ func mapAsAny(m map[string]any) any {
 // that would (harmlessly, since managed is never marshalled back) mislead the
 // author. This is the VM-native form of the deep-copy guarantee documented on
 // Ctx.Managed.
-func readOnlyManaged(L *lua.LState, managed map[string]any) (*lua.LTable, error) {
-	backingLV, err := goToLua(L, mapAsAny(managed))
+//
+// A KEYLESS surface's managed layer is a whole-file value, not a key set, so
+// there is nothing to proxy: it is exposed as the plain marshalled value
+// (ctx.managed is then a string or a list, still not written back anywhere). The
+// read-only proxy applies to the object case, which is where a transform could
+// otherwise be misled into thinking a write to ctx.managed took effect.
+func readOnlyManaged(L *lua.LState, managed any) (lua.LValue, error) {
+	m, isObj := managed.(map[string]any)
+	if !isObj {
+		if managed == nil {
+			return L.NewTable(), nil
+		}
+		return goToLua(L, managed)
+	}
+
+	backingLV, err := goToLua(L, mapAsAny(m))
 	if err != nil {
 		return nil, err
 	}

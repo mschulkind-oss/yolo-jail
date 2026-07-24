@@ -35,10 +35,11 @@ end)`
 		},
 	}, map[string]any{"defaultProjectTrust": "always"})
 
-	got, err := Apply(Transform{VM: realVM(), Script: script}, ctx)
+	gotAny, err := Apply(Transform{VM: realVM(), Script: script}, ctx)
 	if err != nil {
 		t.Fatalf("Apply returned error: %v", err)
 	}
+	got := asObj(t, gotAny)
 
 	wantExts := []any{"extensions/git-helper.ts"}
 	if !reflect.DeepEqual(got["extensions"], wantExts) {
@@ -99,10 +100,11 @@ end)`
 		"name": "pi",
 		"list": []any{"a", "b", "c"},
 	}, nil)
-	got, err := Apply(Transform{VM: realVM(), Script: script}, ctx)
+	gotAny, err := Apply(Transform{VM: realVM(), Script: script}, ctx)
 	if err != nil {
 		t.Fatalf("Apply errored: %v", err)
 	}
+	got := asObj(t, gotAny)
 	if got["upper"] != "PI" {
 		t.Errorf("string.upper failed: %v", got["upper"])
 	}
@@ -125,7 +127,7 @@ func TestRealVM_InfiniteLoopFailsClosed(t *testing.T) {
 	ctx := NewCtx("pi", "settings", map[string]any{"theme": "dark"}, nil)
 
 	done := make(chan struct{})
-	var got map[string]any
+	var got any
 	var err error
 	go func() {
 		got, err = Apply(Transform{VM: GopherLuaVM{Timeout: 200 * time.Millisecond}, Script: script}, ctx)
@@ -188,10 +190,11 @@ end)`
   ctx.config.defaultProjectTrust = "never"
 end)`
 	ctx2 := NewCtx("pi", "settings", map[string]any{}, map[string]any{"defaultProjectTrust": "always"})
-	got, err := Apply(Transform{VM: realVM(), Script: overrideScript}, ctx2)
+	gotAny, err := Apply(Transform{VM: realVM(), Script: overrideScript}, ctx2)
 	if err != nil {
 		t.Fatalf("Apply errored: %v", err)
 	}
+	got := asObj(t, gotAny)
 	if got["saw"] != "always" {
 		t.Errorf("ctx.managed not readable: saw = %v", got["saw"])
 	}
@@ -209,10 +212,11 @@ end)`
 func TestRealVM_OtherAgentIsNoop(t *testing.T) {
 	script := `yolo.transform("claude", function(ctx) ctx.config.wrecked = true end)`
 	ctx := NewCtx("pi", "settings", map[string]any{"theme": "dark"}, nil)
-	got, err := Apply(Transform{VM: realVM(), Script: script}, ctx)
+	gotAny, err := Apply(Transform{VM: realVM(), Script: script}, ctx)
 	if err != nil {
 		t.Fatalf("Apply errored: %v", err)
 	}
+	got := asObj(t, gotAny)
 	if _, ok := got["wrecked"]; ok {
 		t.Errorf("a different agent's transform fired: %#v", got)
 	}
@@ -244,10 +248,11 @@ end)`
 			"name": "n",
 		},
 	}, nil)
-	got, err := Apply(Transform{VM: realVM(), Script: script}, ctx)
+	gotAny, err := Apply(Transform{VM: realVM(), Script: script}, ctx)
 	if err != nil {
 		t.Fatalf("Apply errored: %v", err)
 	}
+	got := asObj(t, gotAny)
 	nested := got["nested"].(map[string]any)
 	if !reflect.DeepEqual(nested["arr"], []any{float64(1), float64(12), float64(3)}) {
 		t.Errorf("nested array round-trip failed: %#v", nested["arr"])
@@ -268,10 +273,11 @@ end)`
 func TestRealVM_IntRoundTripBecomesFloat(t *testing.T) {
 	script := `yolo.transform("pi", function(ctx) ctx.config.echo = ctx.config.n end)`
 	ctx := NewCtx("pi", "settings", map[string]any{"n": int64(42)}, nil)
-	got, err := Apply(Transform{VM: realVM(), Script: script}, ctx)
+	gotAny, err := Apply(Transform{VM: realVM(), Script: script}, ctx)
 	if err != nil {
 		t.Fatalf("Apply errored: %v", err)
 	}
+	got := asObj(t, gotAny)
 	if got["echo"] != float64(42) {
 		t.Errorf("int64 did not round-trip to float64(42): %v (%T)", got["echo"], got["echo"])
 	}

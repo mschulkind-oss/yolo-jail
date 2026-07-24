@@ -33,7 +33,7 @@ const piGateScript = "pi-permission-gate"
 // dropGateHook is the Go mirror of the §6.5 Lua transform: drop any extension
 // whose name contains "permission-gate" and exclude its file from staging.
 func dropGateHook(ctx *Ctx) error {
-	exts, _ := ctx.Config["extensions"].([]any)
+	exts, _ := ctx.ConfigMap()["extensions"].([]any)
 	kept := make([]any, 0, len(exts))
 	for _, e := range exts {
 		s, _ := e.(string)
@@ -41,7 +41,7 @@ func dropGateHook(ctx *Ctx) error {
 			kept = append(kept, e)
 		}
 	}
-	ctx.Config["extensions"] = kept
+	ctx.ConfigMap()["extensions"] = kept
 	ctx.Stage.Exclude("extensions/permission-gate.ts")
 	return nil
 }
@@ -69,10 +69,11 @@ func TestApply_DropsListElement(t *testing.T) {
 		},
 	}, map[string]any{"defaultProjectTrust": "always"})
 
-	got, err := Apply(Transform{VM: vm, Script: piGateScript}, ctx)
+	gotAny, err := Apply(Transform{VM: vm, Script: piGateScript}, ctx)
 	if err != nil {
 		t.Fatalf("Apply returned error: %v", err)
 	}
+	got := asObj(t, gotAny)
 
 	wantExts := []any{"extensions/git-helper.ts"}
 	if !reflect.DeepEqual(got["extensions"], wantExts) {
@@ -104,15 +105,15 @@ func TestApply_ErrorSurfaces(t *testing.T) {
 	}}
 	ctx := NewCtx("pi", "settings", map[string]any{"theme": "dark"}, nil)
 
-	got, err := Apply(Transform{VM: vm, Script: "boom"}, ctx)
+	gotBoom, err := Apply(Transform{VM: vm, Script: "boom"}, ctx)
 	if err == nil {
 		t.Fatal("Apply returned nil error, want a surfaced Lua error")
 	}
 	if !errors.Is(err, sentinel) {
 		t.Errorf("error does not wrap the underlying Lua error: %v", err)
 	}
-	if got != nil {
-		t.Errorf("Apply returned non-nil config on error: %#v (must be nil, fail-closed)", got)
+	if gotBoom != nil {
+		t.Errorf("Apply returned non-nil config on error: %#v (must be nil, fail-closed)", gotBoom)
 	}
 }
 
@@ -124,9 +125,9 @@ func TestManaged_ReadOnly(t *testing.T) {
 	vm := fakeVM{hooks: map[string]func(*Ctx) error{
 		"tamper": func(ctx *Ctx) error {
 			// Try to subvert the managed layer from inside the transform.
-			ctx.Managed["defaultProjectTrust"] = "never"
-			delete(ctx.Managed, "defaultProjectTrust")
-			ctx.Config["defaultProjectTrust"] = "never"
+			ctx.ManagedMap()["defaultProjectTrust"] = "never"
+			delete(ctx.ManagedMap(), "defaultProjectTrust")
+			ctx.ConfigMap()["defaultProjectTrust"] = "never"
 			return nil
 		},
 	}}
@@ -137,8 +138,8 @@ func TestManaged_ReadOnly(t *testing.T) {
 	}
 	ctx.Enforce()
 
-	if ctx.Config["defaultProjectTrust"] != "always" {
-		t.Errorf("enforced key was overridden by transform: got %v, want always", ctx.Config["defaultProjectTrust"])
+	if ctx.ConfigMap()["defaultProjectTrust"] != "always" {
+		t.Errorf("enforced key was overridden by transform: got %v, want always", ctx.ConfigMap()["defaultProjectTrust"])
 	}
 	// The caller's original enforced map must be untouched by the transform's
 	// scribbling on the Managed view (deep-copy isolation).
@@ -155,7 +156,7 @@ func TestManaged_NestedReadOnly(t *testing.T) {
 	}
 	vm := fakeVM{hooks: map[string]func(*Ctx) error{
 		"nested": func(ctx *Ctx) error {
-			inner, _ := ctx.Managed["limits"].(map[string]any)
+			inner, _ := ctx.ManagedMap()["limits"].(map[string]any)
 			inner["cpu"] = int64(999) // must not leak into enforced
 			return nil
 		},
@@ -166,9 +167,9 @@ func TestManaged_NestedReadOnly(t *testing.T) {
 	}
 	ctx.Enforce()
 
-	inner, _ := ctx.Config["limits"].(map[string]any)
+	inner, _ := ctx.ConfigMap()["limits"].(map[string]any)
 	if inner == nil || inner["cpu"] != int64(4) {
-		t.Errorf("nested enforced value corrupted: got %v, want cpu=4", ctx.Config["limits"])
+		t.Errorf("nested enforced value corrupted: got %v, want cpu=4", ctx.ConfigMap()["limits"])
 	}
 	orig := enforced["limits"].(map[string]any)
 	if orig["cpu"] != int64(4) {
@@ -182,12 +183,12 @@ func TestManaged_NestedReadOnly(t *testing.T) {
 func TestApply_IdentityWhenNoScript(t *testing.T) {
 	cfg := map[string]any{"theme": "dark"}
 	ctx := NewCtx("pi", "settings", cfg, nil)
-	got, err := Apply(Transform{Script: ""}, ctx)
+	gotIdent, err := Apply(Transform{Script: ""}, ctx)
 	if err != nil {
 		t.Fatalf("identity Apply errored: %v", err)
 	}
-	if !reflect.DeepEqual(got, cfg) {
-		t.Errorf("identity transform changed config: %#v", got)
+	if !reflect.DeepEqual(gotIdent, cfg) {
+		t.Errorf("identity transform changed config: %#v", gotIdent)
 	}
 }
 
@@ -240,4 +241,16 @@ func TestValidateSandbox_SubstringNotFlagged(t *testing.T) {
 	if err := ValidateSandbox(script); err != nil {
 		t.Errorf("ValidateSandbox flagged an identifier substring: %v", err)
 	}
+}
+
+// asObj asserts an Apply/Ctx value is an object surface's map. Apply returns
+// `any` now that a surface's shape follows its codec (raw -> string), so the
+// object-surface tests narrow once, here, instead of at every use site.
+func asObj(t *testing.T, v any) map[string]any {
+	t.Helper()
+	m, ok := v.(map[string]any)
+	if !ok {
+		t.Fatalf("config is %T, want map[string]any", v)
+	}
+	return m
 }

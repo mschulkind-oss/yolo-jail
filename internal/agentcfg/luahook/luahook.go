@@ -23,7 +23,11 @@
 // fail-closed on error/timeout, ctx.managed read-only, list/nested round-trip).
 package luahook
 
-import "fmt"
+import (
+	"fmt"
+
+	"github.com/mschulkind-oss/yolo-jail/internal/agentcfg/codec"
+)
 
 // LuaVM is the boundary between yolo and the sandboxed Lua interpreter.
 //
@@ -72,12 +76,33 @@ type Transform struct {
 //	Agent   -> ctx.agent    ("pi" | "claude" | …)
 //	Surface -> ctx.surface  ("settings" | "config" | …)
 type Ctx struct {
-	// Config is the fully-composed config decoded to a generic map
-	// (defaults+host+workspace+overlay already deep-merged — §3.1). The
-	// transform mutates this in place; the mutated value is what Apply returns
-	// and what yolo re-encodes. Structured codecs (json/toml/yaml) decode to
-	// map[string]any here; the raw codec is out of scope for this spike.
-	Config map[string]any
+	// Config is the fully-composed config decoded to the generic value model
+	// (defaults+host+workspace+overlay already merged — §3.1). The transform
+	// mutates it and the mutated value is what Apply returns and yolo re-encodes.
+	//
+	// Its Go type follows the surface's codec, which is why this is `any` and not
+	// map[string]any: json/toml surfaces arrive as map[string]any, `lines` as
+	// []any, and `raw` as a string. A transform on a raw surface is a perfectly
+	// reasonable thing to write —
+	//
+	//	ctx.config = ctx.config:gsub("^#!/bin/sh", "#!/usr/bin/env bash")
+	//
+	// — and the marshaller and the sandbox always supported it (goToLua/luaToGo
+	// round-trip scalars, and the sandbox opens Lua's `string` library). The only
+	// thing that blocked it was this field's type plus a post-hook assertion in
+	// vm.go that demanded a table back. Both now key off Kind instead.
+	//
+	// A hook must return the SAME kind it was handed; a raw transform returning a
+	// table is a loud error, not a coercion (see Kind and vm.go).
+	Config any
+
+	// Kind is the shape Config must have — derived from the surface's codec by
+	// the caller (see codec.KindOf). It is what makes the shape contract
+	// checkable at the VM boundary: without it, "the hook returned a table" is
+	// indistinguishable from "the hook returned the right thing" for a raw
+	// surface. The zero value is KindObject, so an unset Kind behaves exactly like
+	// the old object-only contract.
+	Kind codec.Kind
 
 	// Managed is a READ-ONLY view of the keys yolo enforces regardless (§3.1,
 	// §4 "managed" layer). The transform may INSPECT it (e.g. to avoid
@@ -88,7 +113,12 @@ type Ctx struct {
 	// enforced layer, so a transform that assigns into it cannot reach the
 	// bytes Enforce writes. (The gopher-lua impl instead exposes it via a
 	// read-only metatable; same guarantee, VM-native.)
-	Managed map[string]any
+	//
+	// Typed `any` for the same reason as Config: on a keyless surface (raw/lines)
+	// there are no individual keys to enforce, so the managed layer is the
+	// whole-file value. For an object surface this is always a map[string]any —
+	// use ManagedMap to read it without an assertion at every site.
+	Managed any
 
 	// Stage is the file-tree staging handle (§3.2/§3.3 tree surfaces). The
 	// transform calls Stage.Exclude(glob) to keep files out of the jail tree.
@@ -104,26 +134,82 @@ type Ctx struct {
 	// Enforce applies it over Config after the hook runs (§3.1 "managed keys
 	// win, applied AFTER Lua"). Kept private so the read-only guarantee on
 	// Managed cannot be defeated from Lua.
-	enforced map[string]any
+	enforced any
 }
 
-// NewCtx builds a Ctx for one surface. config is the merged, decoded config the
-// transform will mutate (taken by reference — the caller's map is the one
-// mutated and returned). managed is the enforced layer; NewCtx keeps the
-// original privately for Enforce and exposes only a deep copy as ctx.Managed,
-// so the read-only contract holds even though Go maps are references.
+// ConfigMap returns Config as an object, or nil when the surface is keyless. A
+// convenience for the object-surface callers and tests that dominate: it keeps
+// `ctx.ConfigMap()["k"]` readable now that Config is `any`.
+//
+// Note it returns the LIVE map, not a copy, so mutating it mutates Config — that
+// is what the object-surface transform code expects.
+func (c *Ctx) ConfigMap() map[string]any {
+	m, _ := c.Config.(map[string]any)
+	return m
+}
+
+// ManagedMap returns Managed as an object, or nil when the surface is keyless.
+// See ConfigMap.
+func (c *Ctx) ManagedMap() map[string]any {
+	m, _ := c.Managed.(map[string]any)
+	return m
+}
+
+// NewCtx builds a Ctx for an OBJECT surface (json/toml) — the common case, kept
+// as a map-typed convenience so the many existing call sites and tests read
+// unchanged. config is taken by reference: the caller's map is the one mutated
+// and returned. managed is the enforced layer; NewCtx keeps the original
+// privately for Enforce and exposes only a deep copy as ctx.Managed, so the
+// read-only contract holds even though Go maps are references.
+//
+// For a non-object surface use NewCtxKind.
 func NewCtx(agent, surface string, config, managed map[string]any) *Ctx {
 	if config == nil {
 		config = map[string]any{}
 	}
+	return newCtx(agent, surface, codec.KindObject, config, managed)
+}
+
+// NewCtxKind builds a Ctx for a surface of any kind. config and managed are the
+// generic value model for that kind (map[string]any for KindObject, []any for
+// KindArray, string for KindScalar); a nil config becomes the kind's zero value,
+// so "no layers at all" is an empty object / empty list / empty string rather
+// than a nil that the VM would have to special-case.
+//
+// managed for a non-object surface is the WHOLE-FILE value: there are no keys to
+// enforce individually, so a non-nil managed replaces the rendered value outright
+// (see Enforce). That coarseness is inherent to a keyless format, not a
+// limitation of this function.
+func NewCtxKind(agent, surface string, kind codec.Kind, config, managed any) *Ctx {
+	if config == nil {
+		config = kind.ZeroValue()
+	}
+	return newCtx(agent, surface, kind, config, managed)
+}
+
+// newCtx is the shared constructor body. The managed deep copy goes through
+// deepCopyValue (not deepCopyMap) so a non-object managed layer is copied too.
+func newCtx(agent, surface string, kind codec.Kind, config, managed any) *Ctx {
 	return &Ctx{
 		Config:   config,
-		Managed:  deepCopyMap(managed),
+		Kind:     kind,
+		Managed:  managedView(managed),
 		Stage:    &Stage{},
 		Agent:    agent,
 		Surface:  surface,
 		enforced: managed,
 	}
+}
+
+// managedView returns the ctx.managed value the transform may inspect: a deep
+// copy, so writes to it cannot reach the bytes Enforce writes. For an object
+// surface it keeps the map[string]any type the existing Managed field promises;
+// for other kinds it is the copied whole-file value.
+func managedView(managed any) any {
+	if m, ok := managed.(map[string]any); ok {
+		return deepCopyMap(m)
+	}
+	return deepCopyValue(managed)
 }
 
 // Enforce re-applies the enforced (managed) layer over Config, managed keys
@@ -139,10 +225,24 @@ func NewCtx(agent, surface string, config, managed map[string]any) *Ctx {
 // surfaces documented (claude/gemini managed nested objects). Managed values are
 // deep-copied in, so Config never shares mutable structure with the enforced
 // layer.
+// For a KEYLESS surface (raw/lines) there is nothing to merge key-by-key: a
+// non-nil enforced layer replaces the whole rendered value. `managed` on a raw
+// surface therefore means "this file is exactly these bytes", which is coarse but
+// is the only thing "enforce" can mean without keys. A nil enforced layer leaves
+// Config alone, so a raw surface with no managed value is untouched.
 func (c *Ctx) Enforce() {
-	for k, v := range c.enforced {
-		c.Config[k] = enforceValue(c.Config[k], v)
+	cfgMap, cfgIsObj := c.Config.(map[string]any)
+	encMap, encIsObj := c.enforced.(map[string]any)
+	if !cfgIsObj || !encIsObj {
+		if c.enforced != nil {
+			c.Config = deepCopyValue(c.enforced)
+		}
+		return
 	}
+	for k, v := range encMap {
+		cfgMap[k] = enforceValue(cfgMap[k], v)
+	}
+	c.Config = cfgMap
 }
 
 // enforceValue merges an enforced value over the current one, managed winning.
@@ -166,11 +266,13 @@ func enforceValue(cur, managed any) any {
 
 // Apply runs one transform over ctx and returns the mutated config, or an
 // error. It is the §3.1 pipeline's transform step. On a VM error it returns a
-// nil map and a wrapped error (fail-closed, §3.4 "loud failure") — callers keep
+// nil value and a wrapped error (fail-closed, §3.4 "loud failure") — callers keep
 // the last good render rather than shipping a half-transformed file. Apply does
 // NOT run Enforce; the caller applies the managed layer after (§3.1), which the
 // tests exercise explicitly.
-func Apply(t Transform, ctx *Ctx) (map[string]any, error) {
+// Apply returns the config as `any` because the surface's codec decides its
+// shape (map for json/toml, []any for lines, string for raw) — see Ctx.Config.
+func Apply(t Transform, ctx *Ctx) (any, error) {
 	if ctx == nil {
 		return nil, fmt.Errorf("luahook: nil ctx")
 	}
