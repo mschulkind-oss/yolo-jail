@@ -55,10 +55,31 @@ for the full detail.
 
 ## Verification is mandatory
 
-For any `cmd/` or `internal/` change, **verify with a nested jail**: run
-`yolo -- bash` from inside this jail. Mount failures, permission errors, and
-read-only-fs conflicts only appear when a container actually starts — unit tests
-do not catch them.
+For any `cmd/` or `internal/` change, **verify with a nested jail**. After
+`just build-go`, run the **freshly-built binary BY PATH**:
+
+    just build-go && ./dist-go/linux-$(go env GOARCH)/yolo -- bash
+
+Mount failures, permission errors, and read-only-fs conflicts only appear when a
+container actually starts — unit tests do not catch them.
+
+**Why by path, not bare `yolo`:** bare `yolo` is the baked `/bin/yolo`,
+version-locked to THIS jail's image (frozen at the last host `just load`). It is
+the LAUNCHER — it builds the `podman run` argv. A change to launcher/argv
+construction (mounts, env, flags) is NOT in the baked binary, only in your fresh
+build. Running the fresh binary by path exercises YOUR argv against the nested
+image (which the run rebuilds from live source). Verifying a launcher change via
+bare `yolo` silently tests the OLD launcher — and a stale launcher emitting an
+argv the new image rejects is exactly how a fixed jail looks broken.
+
+**NEVER `just install` inside a jail.** In-jail (`YOLO_VERSION` set) the recipe
+refuses, by design: `go install` drops a copy in `$GOBIN` — a mise Go dir that
+sits AHEAD of `/bin` on PATH and is host-shared + persistent — silently
+shadowing the baked `/bin/yolo` with a possibly-stale binary that lingers across
+sessions. In-jail you rebuild the IMAGE, never a GOBIN binary. (If bare `yolo`
+ever misbehaves in-jail, check `command -v yolo` resolves to the mise shim →
+`/bin/yolo`; a hit under `/mise/installs/go/*/bin/yolo` is this shadow — delete
+it.)
 
 ## Stop and hand off for host-side steps
 

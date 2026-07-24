@@ -33,6 +33,23 @@ stage-bundle DEST="dist/bundle/share/yolo-jail":
 install:
     #!/usr/bin/env bash
     set -euo pipefail
+
+    # `just install` is a HOST-only operation. Inside a jail YOLO_VERSION is set,
+    # and the baked /bin/yolo is version-locked to this jail's image. `go install`
+    # drops a copy in $GOBIN (a mise Go dir that sits AHEAD of /bin on PATH and is
+    # host-shared + persistent), silently shadowing the baked binary with a stale
+    # one — the exact trap that makes a fixed jail look broken. In-jail you never
+    # want that: rebuild the IMAGE, not a GOBIN binary.
+    if [ -n "${YOLO_VERSION:-}" ]; then
+        echo "✗ 'just install' is host-only — refusing inside a jail (YOLO_VERSION set)." >&2
+        echo "  It would go-install a copy into \$GOBIN that shadows the baked /bin/yolo" >&2
+        echo "  on PATH with a stale binary. To test Go changes here:" >&2
+        echo "    just build-go && ./dist-go/linux-\$(go env GOARCH)/yolo -- bash" >&2
+        echo "  (run the freshly-built binary BY PATH — not the installed one)." >&2
+        echo "  To ship to the host, run 'just install' / 'just deploy' on the host." >&2
+        exit 1
+    fi
+
     VERSION="$(git describe --tags --always --dirty 2>/dev/null || echo unknown)"
     COMMIT="$(git rev-parse --short HEAD 2>/dev/null || echo unknown)"
     LDFLAGS="-X github.com/mschulkind-oss/yolo-jail/internal/version.buildVersion=${VERSION} -X github.com/mschulkind-oss/yolo-jail/internal/version.GitCommit=${COMMIT}"

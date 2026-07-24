@@ -117,9 +117,17 @@ there is no sync step.
 - **No agent tests.** Automated tests must never start `claude`/`copilot`/
   `gemini`/etc. interactively or make API calls. `--version` probes only.
 - **Nested-jail verification is mandatory** for `cmd/` and `internal/` changes:
-  run `yolo -- bash` from inside this jail. Mount failures, permission errors,
-  and read-only-fs conflicts only appear when a container actually starts.
-  Unit tests do not catch them.
+  after `just build-go`, run the freshly-built binary BY PATH —
+  `./dist-go/linux-$(go env GOARCH)/yolo -- bash` — from inside this jail. Mount
+  failures, permission errors, and read-only-fs conflicts only appear when a
+  container actually starts. Unit tests do not catch them. **Not bare `yolo`:**
+  that is the baked launcher (frozen at the last host `just load`), so a
+  launcher/argv-side change isn't in it — bare `yolo` silently tests the OLD
+  launcher, and a stale launcher emitting an argv the freshly-built nested image
+  rejects is exactly how a fixed jail looks broken. **Never `just install`
+  in-jail** — it refuses (`YOLO_VERSION` set), because `go install` shadows the
+  baked `/bin/yolo` on PATH with a stale GOBIN copy; rebuild the image, not a
+  binary.
 
 ## Invariants & gotchas
 
@@ -188,8 +196,11 @@ Agent logs, for debugging: `~/.copilot/logs/`, `~/.cache/gemini-cli/logs/`,
    output — a failed build silently falls back to stale code. A host `just load`
    is only needed to ship the change to the maintainer's own jails, not to
    validate it.
-2. Logic change → edit `cmd/`/`internal/`, `just build-go`, verify in a nested
-   jail (`yolo -- bash`).
+2. Logic change → edit `cmd/`/`internal/`, `just build-go`, verify by running
+   the freshly-built binary BY PATH:
+   `./dist-go/linux-$(go env GOARCH)/yolo -- bash`. NOT bare `yolo` — that is the
+   baked launcher and won't carry a launcher/argv-side change (see the
+   nested-jail-verification invariant above). Never `just install` in-jail.
 3. `just format` (gofmt) before committing.
 4. Conventional commit messages. The pre-commit hook runs `just check-ci`; if it
    rejects, fix forward — never `--no-verify`, never `--amend`.
