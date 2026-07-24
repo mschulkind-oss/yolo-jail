@@ -1,416 +1,463 @@
-# Host-file staging — a user-widenable set of host files copied into the jail
+# Host-file staging — a user-extensible set of host files, one engine
 
 **Status:** design, not yet built (2026-07-24).
 **Supersedes:** the `## 10` retirement decisions in
 [agent-settings-composition.md](agent-settings-composition.md) — specifically
-**D4** ("hard-error, as if it never existed"). This plan *reopens* the
-user-scope knob that D4 removed, while keeping everything else D1–D3 landed
-(commit `a84b11c`).
+**D4** ("hard-error, as if it never existed"). This plan reopens a user-scope
+knob D4 removed, and generalizes it: instead of a bespoke raw-copy, the knob
+lowers into the *same* composition engine that already generates `settings.json`.
+D1–D3 (commit `a84b11c`) stand — the per-agent *builtin* host files stay
+yolo-declared; this plan adds a **user** path beside them, it does not touch them.
 
 ## The decision, in one paragraph
 
-There are **two** ways a host file reaches the jail, and conflating them is what
-made `host_*_files` a mess. yolo **composes** a tiny, fixed set of files
-(`settings.json` today) — decode, deep-merge layers, re-assert a managed block,
-re-encode — and that set is yolo-shipped Go, non-widenable, because composition
-needs a yolo-authored codec + managed policy that only exists in code. Every
-*other* host file the user wants in the jail is **raw**: copied verbatim, yolo
-manages nothing. The raw set has a sensible **baked default**, and the user can
-**add to it** through a single generic, **user-scope-only** config key
-(`host_files`) — files *or* directories, copied into the jail home. A
-**workspace** config can never widen it (the credential boundary; exact
-`cache_relocations` precedent). No codec, no per-agent scoping, no management: it
-is "also bring these host paths into the jail home, as-is."
+A user must be able to bring **any** file need into the jail **without editing
+yolo's source** — today every composed surface is a Go literal in
+`BuiltinManifest`, and that must stop being the only way. So: one user-facing
+config key, **`host_files`**, whose entries are either a **string** (sugar: bring
+this host file/dir in, codec auto-detected) or an **object** (rich: pick the
+codec, a Lua transform, inline `content`, `managed`/`defaults` layers). Every
+entry **de-sugars in-memory into a `manifest.Surface`** appended to the builtin
+manifest, and a generic boot loop renders it through the existing pipeline. A
+**raw copy is just `codec: "raw"`** — one engine, not two. Composed user files
+are **read-write and editable in-jail**, and yolo **manages** them: the §5
+capture-diff overlay captures in-jail edits, and any `managed` keys revert on the
+next render. The **credential boundary** is enforced **per entry**: an entry that
+names a host **`source`** (including bare-string sugar) is **user-scope only** — a
+workspace config can never make a host file cross — while a **source-less** entry
+(inline `content`, or pure `managed`/`defaults`) crosses nothing and is legal at
+any scope.
 
 ## Background: where we are, and why this reopens
 
-Commit `a84b11c` retired `host_claude_files` / `host_pi_files` per the §10.4
-decisions. It did three good things and one wrong thing:
+Commit `a84b11c` retired `host_claude_files` / `host_pi_files` per §10.4. It did
+three good things and one wrong thing:
 
 | Landed | Verdict |
 |---|---|
-| **D1/D2** — moved the *composed* set to a fixed, yolo-declared registry (`internal/agents.AgentSpec.HostFiles`: claude ⇒ `.claude/settings.json`, pi ⇒ `.pi/agent/settings.json`) | **Keep.** Composition genuinely can't be user-authored — there is no codec or managed policy for an ad-hoc file. |
-| **D3** — deleted the bespoke per-agent pathways (`appendSettingsScripts`, the claude/pi `syncHost*Files` twins) | **Keep.** The special-casing is gone for good. |
-| **D4** — dropped both keys from `knownTopLevelConfigKeys` so any occurrence **hard-errors** | **Reverse (partially).** This also killed the *legitimate* user-scope ability to bring raw files (pi's `models.json`, `themes/*.json`) into the jail. That was the baby in the bathwater. |
+| **D1/D2** — moved the per-agent *builtin* host files to a fixed, yolo-declared registry (`internal/agents.AgentSpec.HostFiles`: claude ⇒ `.claude/settings.json`, pi ⇒ `.pi/agent/settings.json`) | **Keep.** These are yolo's own defaults; they stay Go-declared. |
+| **D3** — deleted the bespoke per-agent pathways (`appendSettingsScripts`, the claude/pi `syncHost*Files` twins) | **Keep.** The special-casing is gone for good. This plan does not bring per-agent code back — it adds one *generic* user path. |
+| **D4** — dropped both keys from `knownTopLevelConfigKeys` so any occurrence **hard-errors** | **Reverse, and generalize.** D4 removed the *legitimate* user ability to bring extra host files (pi's `models.json`, `themes/*.json`) into the jail. The replacement is not a narrow raw-copy — it is the general `host_files` mechanism below. |
 
-The error in D4 was treating *"the set of host files that cross into the jail is
-a credential boundary"* as *"no config may ever widen it."* The real boundary is
-narrower: a **workspace** config may not widen it (it travels with the repo and
-is agent-editable). A **user** config — the human's own machine — is exactly
-where widening *should* happen. That's the whole point of the mechanism.
+The error in D4 was treating *"the set of host files that cross into the jail is a
+credential boundary"* as *"no config may ever widen it."* The real boundary is
+narrower and **per entry**: a config may not make a **host file cross** unless it
+is the **user's own** config. Bringing a *source-less* managed file into being
+crosses nothing, so even a workspace config may do that. That distinction is the
+spine of this design.
 
-## Two mechanisms on one axis: composed vs. raw
+## What was already true (facts this builds on)
 
-The axis is simply **does yolo reshape the file?**
+Verified against the implementation (2026-07-24), because the first draft of this
+doc got two of them backwards:
 
-|  | **Composed** | **Raw (this plan)** |
+- **Composed files are read-WRITE.** `renderSurfaceStateful` writes the composed
+  output `0o644` via `writeInPlaceString` into the agent overlay dir
+  (`~/.claude`, `~/.pi`), which is a **writable** bind (`assemble.go` ~162, no
+  `:ro`). The only `:ro` mount is the *host source* input at `/ctx/host-<agent>/`.
+- **In-jail edits are captured.** The §5 capture-diff overlay is fully wired
+  (`internal/agentcfg/staterender.go` `ComposeStateful` + `prism.go`
+  `renderSurfaceStateful`): each boot it diffs the on-disk file against the
+  `last_render` sidecar, folds the delta into the durable `overlay` sidecar, and
+  re-renders with the overlay outranking host/computed.
+- **`managed` reverts by re-Enforce, not a file mode.** `compose.go` re-applies
+  the managed layer *after* the overlay and the Lua hook. §9 explicitly rejected
+  the read-only-file approach ("that file is `rw` in the jail… managed stays a
+  layer, never an OS file").
+- **A surface owner need not be a real agent.** `BuiltinManifest` already carries
+  non-agent owners (`mise`, `agy`); `renderSurfaceStateful`/`renderSurfaceComputed`
+  are **surface-agnostic** — they take `(agent, name)` as data and `Lookup` the
+  manifest. A source-less user surface is exactly the shape of `ConfigureAgyPrism`
+  (nil host bytes, nil computed).
+- **`raw` is a real codec.** `codec.registry` maps `raw` → byte-exact
+  passthrough. But **the compose engine is object-only today**: `compose.go`
+  asserts the decoded host layer is `map[string]any` and errors otherwise, and
+  `luahook.Ctx.Config` is typed `map[string]any`. So `raw` (string) and `lines`
+  (`[]any`) are registered and unit-tested but flow through **zero** surfaces and
+  cannot pass `Compose` unchanged. Unifying them is a real (small) code change —
+  see [Making `raw` a first-class codec](#making-raw-a-first-class-codec).
+- **`yaml` is a phantom.** It is named in `manifest.knownCodecs` (5 names) but
+  absent from `codec.registry` (4 names) — no `yaml.go`, no vendored YAML lib,
+  and `codec.go` forbids new deps. A surface declaring `codec: "yaml"` passes
+  config validation and then **dies at render**. This validation split must be
+  reconciled before users can name codecs.
+
+## The model: one key, string-or-object, lowered to a Surface
+
+`host_files` is a **list**; each item is a **string** or an **object**.
+
+### The object form
+
+| Field | Required | Meaning |
 |---|---|---|
-| What yolo does | decode → merge `defaults < host < workspace < overlay < …< managed` → Lua transform → re-encode | copies bytes verbatim (files) or trees (dirs) |
-| Requires | a codec (`json`/`toml`/…) **and** a yolo-authored managed policy | nothing — opaque bytes |
-| Fits | `settings.json` (yolo enforces `permissions`, strips MCP servers, forces theme) | `models.json`, `themes/`, a helper script — anything yolo has no opinion on |
-| Declared in | `internal/agents.AgentSpec.HostFiles` (Go, fixed) + the prism manifest | baked default **+** user `host_files` key |
-| New *file* user-addable? | **No.** A surface = codec + managed policy, declared as a Go literal in `BuiltinManifest` (`internal/agentcfg/builtin.go`); no config key adds one. | **Yes — user scope.** This is the knob. |
-| *Values* user-addable? | **Yes** — a `config.lua` transform reshapes/adds keys (managed still wins via post-hook Enforce). Not the axis this plan touches. | n/a — bytes are copied as-is |
-| In-jail mutability | **read-WRITE.** The composed file is written `0o644` into the writable `~/.claude` / `~/.pi` overlay; in-jail edits are *captured* by the §5 capture-diff overlay and persist across regeneration. yolo's *managed* keys revert — but by **re-applying the managed layer** each render, **not** by any read-only mount (§9 explicitly rejected the `:ro` file as guaranteeing nothing — jail user is root). | writable copy; no managed content to protect; host original is never exposed |
-| Delivery | the *host source* (`~/.claude/settings.json`) is bind-mounted `:ro` at `/ctx/host-<agent>/`; the entrypoint reads it as the `host` layer and writes the *composed output* into the writable home | **copy** into the jail home (portable across all backends) |
+| `path` | ✅ | `~`-relative **jail destination** (e.g. `~/.config/mytool/config.json`). The surface's `Path`. |
+| `source` | — | host path to seed the `host` layer from. **Its presence makes the entry user-scope only** (a host file crosses). Mutually exclusive with `content`. |
+| `content` | — | inline literal seed (a string). Crosses nothing → legal at any scope. Mutually exclusive with `source`. |
+| `codec` | — | `json` \| `toml` \| `lines` \| `raw`. Overrides auto-detect. (`yaml` is not yet real — see must-avoid.) |
+| `managed` | — | object of yolo-asserted keys that **revert on edit** (re-Enforced each render). Structured codecs only. |
+| `defaults` | — | user-overridable base layer. Structured codecs only. |
+| `transform` | — | path to a Lua hook (structured codecs only; a transform on a raw surface is unsupported — identity). |
+| `mode` | — | `managed` (default: §5 capture, editable, managed) \| `copy` (pure overwrite each boot, no edit capture) \| `once` (seed only if absent). |
 
-The mutability / delivery rows carry a real design consequence, below — and note
-the asymmetry the earlier draft got wrong: the **`:ro` mount is the input** (host
-source), while the **composed output is read-write**.
+### The string (sugar) form
 
-**"Can the user extend the composed set?" — three actors, three answers.** The
-question is ambiguous, so split it:
+A bare string `"~/.foo/bar"` means: **`source` == that host path**, `path` ==
+same `~`-relative destination, codec **auto-detected** from the extension, `mode:
+managed`. It is therefore always **source-bearing** → user-scope only. A
+directory string (or one ending `/`) routes to the recursive-copy path
+(directories are not a codec — see below). This is intent #3: the 90% case stays
+a flat list.
 
-- **A *user* declaring a wholly new composed *file*/surface:** **no.** Every
-  surface is a Go literal in `BuiltinManifest` (`internal/agentcfg/builtin.go`);
-  no config key adds one, and `manifest.Surface` has no host-source field. This
-  is the sense in which the composed set is not user-widenable — and it is why a
-  brand-new host file yolo has never seen needs the *raw* `host_files` knob, not
-  the composed pipeline.
-- **A *user* adding/overriding *values* on an existing composed surface:**
-  **yes.** A `config.lua` transform (wired at boot — `loadPrismTransformScript`,
-  `prism.go`) can reshape or add arbitrary keys, and the `mcp_servers` /
-  `lsp_servers` / `mise_tools` config keys feed the `computed` layer. yolo's
-  managed keys still win (re-enforced after the hook). So "compose *these bytes*"
-  is user-reachable; "compose *this new file*" is not.
-- **yolo-the-project adding a composed surface:** **yes** — that is §10.4 D2
-  ("decoded as a composed surface where yolo can round-trip it"), done by editing
-  Go. Different actor from the user.
+### De-sugaring
 
-> **Caveat for implementers:** the §4 layer table in
-> [agent-settings-composition.md](agent-settings-composition.md) names a
-> `workspace` layer sourced from `agent_config.<agent>` in `yolo-jail.jsonc`. That
-> layer is **decided but not wired** — `agent_config` is not in
-> `knownTopLevelConfigKeys` (it would hard-error), and `agentcfg.Inputs.Workspace`
-> has no non-test caller. The only *shipped* value-injection paths today are
-> `config.lua` and the four computed bridges above. Do not cite `agent_config` as
-> a live knob.
+Every entry lowers to a `manifest.Surface` with a synthetic owner
+**`Agent: "user"`** and `Name` = a slug derived from `path` (so the `(Agent,
+Name)` key space never collides with builtin agent surfaces — `manifest.New`
+already validates + dedups on that key). The user surfaces are appended to
+`BuiltinManifest` via `manifest.New(...)`, and a **generic boot loop** renders
+each one. No per-file Go, no new lifecycle machinery — `renderSurfaceStateful`
+already does the work.
 
-## The boundary: user-scope widens, workspace-scope cannot
+## Making `raw` a first-class codec
 
-*Which* host files leave the host is a **credential boundary**: a config that can
-add entries can forward `~/.ssh/id_ed25519`, `~/.aws/credentials`, or any secret
-into the jail. So the source of the key matters, and there are exactly three
-places a key can come from — two of them jail-writable:
+This is what makes "a raw copy is just a codec" literally true (intent #2),
+without rewriting the engine (which the judge panel scored as overkill and
+high-risk). Add **one non-object branch** in `Compose` at the object assertion:
+when the decoded value is not a `map[string]any` (raw `string`, lines `[]any`),
+**skip deep-merge + the Lua transform + object-Enforce** and do **whole-value
+replacement** in ascending layer order (`defaults < host < overlay < managed`,
+each simply replaces), then `Encode`.
 
-| Source | Jail-writable? | Verdict for `host_files` |
+This keeps the §5 sidecars working unchanged: the `overlay` sidecar is always
+JSON, and a raw string stores fine as a JSON string, so `ComposeStateful`'s
+capture/re-incorporate loop gives raw files the **same read-write, editable,
+managed lifecycle** as structured ones (intent #4). What you do **not** do:
+generalize `luahook.Ctx.Config` or the whole `map[string]any` value model — a
+transform on a raw surface is simply unsupported.
+
+## Codec auto-detection
+
+A small extension→codec map beside `codec.registry`:
+
+| Extension | Codec |
+|---|---|
+| `.json` | `json` |
+| `.toml` | `toml` |
+| everything else (incl. no ext, `.sh`, `.yaml`, `.yml`, `.jsonc`) | `raw` |
+
+`.yaml`/`.yml` → `raw` **for now** (no yaml codec exists; building one needs a
+vendored dep + `go mod vendor` + a `goSrc` fileset update — out of scope).
+`.jsonc` → `raw` on purpose: routing it through the `json` codec would sort keys
+and **drop comments**. The object form's explicit `codec` always wins. Structured
+codecs (`json`/`toml`) give key-by-key overlay capture; `raw` gives whole-file
+capture. Both are managed.
+
+**Prerequisite fix:** reconcile the codec validation split — make
+`manifest.knownCodecs` derive from `codec.CodecNames()` (the 4 real codecs, no
+`yaml`) so a user can never declare a codec that validates but fails at render.
+
+## The credential boundary — per entry
+
+*Which host files cross into the jail* is a **credential boundary**: an entry that
+names a `source` can forward `~/.ssh/id_ed25519`, `~/.aws/credentials`, or any
+secret. A **workspace** `yolo-jail.jsonc` travels with the repo and is
+agent-editable, so it must never make a host file cross. But a **source-less**
+entry (`content`, or pure `managed`/`defaults`) copies *nothing from the host* —
+it just brings a yolo-managed file into being — so it is safe at any scope.
+
+Hence the rule is **per entry**, not per key:
+
+| Entry kind | Crosses a host file? | Allowed scope |
 |---|---|---|
-| Workspace `yolo-jail{,.local}.jsonc` | **Yes** — `/workspace` is bind-mounted rw | **Rejected** (hard error) |
-| `<workspace>/.yolo/config-snapshot.json` | **Yes** — same mount; read verbatim in-jail by `LoadConfig` | Never consulted for this key |
-| Host `~/.config/yolo-jail/config.jsonc` (+ `include_if_found`) | **No** — mounted `:ro`, host-owned | **The only source** |
+| source-bearing (bare string, or object with `source`) | **yes** | **user config only** |
+| source-less (object with `content`, or only `managed`/`defaults`) | no | user **or** workspace |
 
-This is **not new machinery** — it is byte-for-byte the `cache_relocations`
-model. `LoadCacheRelocations` (`internal/config/relocations.go`) reads
-`paths.UserConfigPath()` **directly**, never the merged/workspace/snapshot
-config, so workspace scope is *inexpressible by construction*;
-`validateCacheRelocations` then hard-errors if the key nonetheless appears at
-workspace scope — *"a workspace config is agent-editable, so it cannot grant
-read-write host mounts"* — as **defense-in-depth against a silent no-op**, not
-as the boundary itself. `host_files` gets the same two-part treatment: read only
-from the user config, and hard-error on any workspace occurrence.
+Enforcement is the exact `cache_relocations` precedent
+(`internal/config/relocations.go`, `validateCacheRelocations`):
+
+- **Source-bearing entries are read only from `paths.UserConfigPath()` directly**
+  (+ its `include_if_found`), never from the merged/workspace/snapshot config — so
+  workspace scope is *inexpressible by construction*.
+- `validateHostFiles` re-reads `LoadWorkspaceConfig` and **hard-errors** on any
+  source-bearing entry found there — defense-in-depth against a silent no-op, not
+  the boundary itself.
+- The host-source filesystem probe is **`inJail()`-gated** (host paths aren't in
+  the jail's mount namespace; probing them in-jail would turn a valid host config
+  into a fatal error on every nested run — the bug `cache_relocations` already hit).
 
 > **User scope = the human is trusted.** Nothing blocks a user from listing
-> `~/.ssh` in their *own* `host_files` — that is their call on their own
-> machine, and a blocklist is unenforceable anyway (symlinks). The boundary is
-> that the **repo** cannot make that choice on their behalf.
+> `~/.ssh/…` in their *own* `host_files` — their machine, their call, and a
+> blocklist is unenforceable (symlinks). The boundary is that the **repo** cannot
+> make that choice on their behalf.
 
-## Design
+## Delivery, directories, and refresh
 
-### The key: `host_files`
+- **Composed output** lands in the jail home via the existing overlay-dir
+  mechanism. A user surface whose `path` is under a **new** directory (e.g.
+  `~/.config/foo/`) needs that subtree made **writable**: the jail home is `:ro`
+  and writable subtrees derive from `AgentSpec.OverlayDirs` + `writable_home_dirs`.
+  So the loader must **register each user destination's home-relative parent as a
+  writable subtree** (reusing the `writable_home_dirs` staging), or the composed
+  write EROFS-fails on podman. This is the one required plumbing addition beyond
+  the config + render loop.
+- **Host `source`** crosses `:ro` at `/ctx/host-user/<slug>`, mounted by a
+  `hostFileArgs` sibling (the `hostclaude.go` pattern), and read fail-open (absent
+  mount → nil → the surface falls back to `defaults`, exactly like
+  `ConfigurePiPrism`).
+- **Directories** are **not** a codec (codec is strictly per-file: `os.ReadFile`).
+  A directory entry (string ending `/`, or object with a dir `source`) routes to a
+  **recursive copy/stage** step (reuse the skills/`writable_home_dirs` copy +
+  reserved-segment guard), *not* the compose engine. `mode: copy` is implied for
+  directories.
+- **Refresh:** structured/managed surfaces regenerate every boot in the entrypoint
+  (same as `settings.json`). Host `source` bytes are re-read from the `:ro` mount
+  each boot, so editing the host file propagates on the next launch.
 
-A single generic, **user-scope-only** list of `~`-rooted host paths. Not
-per-agent — the destination is derived from the path itself, so there is nothing
-to scope to an agent.
+## Collision safety
 
-```jsonc
-// ~/.config/yolo-jail/config.jsonc  — USER SCOPE ONLY
-{
-  "host_files": [
-    "~/.pi/agent/models.json",     // a file
-    "~/.pi/agent/themes/"          // a directory (trailing slash optional)
-  ]
-}
-```
+`manifest.New` dedups only `(Agent, Name)` — **not** `Path`. So two user entries
+writing the same destination, or a user entry clobbering `~/.claude/settings.json`
+(and thus stripping yolo's managed block), would pass. Guards:
 
-- **Home-rooted only.** Every entry must resolve under the host `$HOME`. The
-  destination is *the same path under the jail home*: host `~/.pi/agent/models.json`
-  → jail `$HOME/.pi/agent/models.json`. This makes it a "bring my own dotfiles
-  into the agent's home" mechanism with a zero-surprise destination. Arbitrary
-  host→container paths outside `$HOME` remain the job of `mounts` (ro, into
-  `/ctx`). Rationale for home-only, expanded in *Open questions*.
-- **Files and directories.** A directory is copied **recursively**; symlinks are
-  **followed and materialized** (a plain copy of the target), matching the
-  briefing/skills precedent (`_copy_skill_subdirs` follows host symlinks at
-  generation time). A broken symlink or missing source **warns and is skipped**,
-  never fatal (matches `mounts` / `cache_relocations`).
-- **Additive.** The user list is *added to* the baked raw default set (see
-  below). It never replaces the composed set, and it cannot subtract from it.
+1. Run every de-sugared destination through the **reserved-home-segment guard**
+   (`writablehome.go`) so a user file can't clobber a yolo-managed mount/overlay or
+   a builtin agent surface path.
+2. Add a **destination-`Path` uniqueness check** across the merged manifest.
 
-### Raw copy, not bind-mount — and why it's portable
+## macos-user — accepted deficiencies, not design constraints
 
-The composed set bind-mounts `:ro` **on the input side only**: the host source
-(`~/.claude/settings.json`) crosses read-only into `/ctx/host-<agent>/` so the
-entrypoint can *read* it as the `host` layer. The composed *output* is then
-written into the writable home and stays read-write (its managed keys are held by
-re-enforcing the managed layer each render, not by a file mode). Raw files have
-no host layer to read and no managed policy, so we skip the `/ctx` round-trip and
-just **copy** them into the home. Copying is the right primitive for three
-reasons:
+Composition runs wherever it must (host-side on `macos-user`, which has no
+container/entrypoint and no bind mounts). Per the maintainer's direction, the
+design is **not** bent to fit `macos-user`; instead the gaps are recorded and
+revisited when `macos-user` is shaped up:
 
-1. **Backend portability.** `macos-user` has **no bind mounts of any kind** — the
-   agent runs natively with a real `/Users/_yolojail` home. A `/ctx` bind is
-   impossible there; a copy into the home works on *every* backend (podman,
-   Apple Container, macos-user) with one code path.
-2. **Directories are trivial** — a recursive copy, no per-file mount plumbing,
-   no Apple-Container single-file-mount workaround (apple/container#1089).
-3. **It's a restoration, not an invention** — the retired `syncHostPiFiles`
-   already *copied* siblings into `~/.pi/agent/`. We are reinstating that copy,
-   generalized and moved behind the user-scope boundary.
-
-The "ro" the user asked for is satisfied in the sense that *matters*: the **host
-original is never exposed live** — the jail gets a snapshot. That an in-jail
-agent can edit its own copy is harmless (edits never reach the host) and is
-actually correct for a file that is the agent's own config.
-
-### Where the copy happens: host-side, into the home overlay
-
-The copy runs **host-side in the CLI**, like briefing/skill staging
-(`_refresh_jail_briefings`, `_prepare_skills`) — *not* in the entrypoint:
-
-- The entrypoint runs *inside* the container and doesn't exist on macos-user;
-  host-side staging is the only portable place.
-- No `/ctx` mount and no `YOLO_HOST_*_FILES` env are introduced — the entrypoint
-  is not involved in the raw path at all (it stays involved only for the
-  composed set, unchanged).
-- Container backends: copy into the `ws_state` home overlay
-  (`<workspace>/.yolo/home/...`, the same overlay briefings materialize into).
-  macos-user: copy into `/Users/_yolojail/...` directly.
-
-### Refresh semantics
-
-Re-copy on **every** `yolo` invocation (fresh launch *and* attach-to-running),
-mirroring `_refresh_jail_briefings`, so editing a host file propagates to a
-running jail on the next `yolo` command. The host file is the source of truth,
-so overwriting an in-jail-edited copy is intended (same contract as a
-`:ro`-mounted briefing, achieved by re-copy instead of by the kernel).
-
-### Precedence with the composed set
-
-A raw-staged **directory** can contain a file yolo also **composes** — e.g.
-staging the whole `~/.pi/agent/` dir, which contains `settings.json`. Ordering
-is **raw-copy first, compose second**: the prism's managed write lands *after*
-the raw copy and wins. This is the same `defaults < managed` ordering §3.3
-already applies to the skills tree (built-in skills staged *under* host skills),
-so it is not new behavior — just an ordering invariant to preserve. Document it,
-test it.
-
-### The baked raw default
-
-Today the baked raw default is **empty** — after `a84b11c`, only `settings.json`
-crosses (composed), and no agent declares a raw sibling. The mechanism ships with
-an empty default and a place to put one: a yolo-shipped constant (leaf registry,
-e.g. alongside `AgentSpec.HostFiles` or a sibling field) that the user list is
-appended to. If a future agent needs a raw file to cross for *every* jail, it
-goes there; a user who wants it only for *their* jails uses `host_files`.
-
-### Validation (`yolo check` + preflight)
-
-Mirror `checkCacheRelocations` structure — one checker shared by the loader and
-the validator so the error text matches the drop behavior verbatim:
-
-- entry must be a non-empty string;
-- expands `~`; must resolve **under `$HOME`** (reject absolute-outside-home and
-  `..`-escapes → hard error, this is a real footgun/attack shape);
-- reject `:` in the path (podman/mount-option footgun; harmless for a pure copy
-  but keeps the path clean and future-proof);
-- **missing source** → warn + skip (non-fatal);
-- **workspace-scope occurrence** → hard error (the `cache_relocations` message,
-  reworded): *"config.host_files: user-scope only — move it to
-  ~/.config/yolo-jail/config.jsonc (a workspace config is agent-editable, so it
-  cannot decide which host files cross into the jail)."*
-- **in-jail**: like `cache_relocations`, the feature is host-side; the loader
-  returns nothing in-jail and the validator gates only the filesystem probe on
-  `inJail()` (the user config is visible in-jail via the `:ro` mount and the
-  snapshot, but its host paths aren't in the jail's namespace — probing them
-  would turn a valid host config into a fatal error on every nested run).
+- **Composed user files are not read-only there** (the native `/Users/_yolojail`
+  home is writable) — accepted.
+- **No workspace/jail isolation of the §5 sidecars** on the shared native home —
+  accepted; noted for the `macos-user` pass.
+- **Host `source` entries can't bind-mount** (no `/ctx`), so they **fail-open to
+  `defaults`** — a source-less managed entry still works via the pure generator; a
+  source-bearing one degrades. Accepted.
 
 ## Worked examples
 
-### Example 1 — the motivating case (pi models + a themes dir)
+### Example 1 — the common case (intent #3): flat sugar list
 
-The maintainer runs pi with a custom model provider and a themes directory. On
-their **host** `~/.config/yolo-jail/config.jsonc`:
+User scope only (each bare string is source-bearing). `.gitignore_global` and
+`.npmrc` have no useful extension → `raw` (whole-file capture); `config.json` →
+`json` (key-by-key capture, so an in-jail edit to one key survives regeneration).
 
 ```jsonc
+// ~/.config/yolo-jail/config.jsonc  — user scope
+{
+  "host_files": [
+    "~/.gitignore_global",
+    "~/.npmrc",
+    "~/.config/mytool/config.json"
+  ]
+}
+```
+
+### Example 2 — source-less managed files (intent #4), legal at workspace scope
+
+Nothing crosses the host boundary, so a **repo** may ship these in its
+`yolo-jail.jsonc`. Both are read-write and editable in-jail; `managed` keys revert.
+
+```jsonc
+// /workspace/yolo-jail.jsonc  — OK even at workspace scope (no `source`)
+{
+  "host_files": [
+    {
+      "path": "~/.config/ripgrep/config",
+      "content": "--max-columns=200\n--smart-case\n"   // codec auto → raw
+    },
+    {
+      "path": "~/.config/mytool/settings.json",
+      "defaults": { "telemetry": false, "theme": "dark" },  // user may retheme…
+      "managed":  { "telemetry": false }                    // …but telemetry stays off
+    }
+  ]
+}
+```
+
+### Example 3 — rich: seed from host, explicit codec, transform, one managed key
+
+User scope only (`source` present). The dir entry is copied wholesale.
+
+```jsonc
+// ~/.config/yolo-jail/config.jsonc  — user scope
+{
+  "host_files": [
+    {
+      "path": "~/.config/starship.toml",
+      "source": "~/.config/starship.toml",
+      "codec": "toml",
+      "transform": "~/.config/yolo-jail/starship.lua",
+      "managed": { "add_newline": true }
+    },
+    { "path": "~/.config/nvim/", "source": "~/dotfiles/nvim/", "mode": "copy" }
+  ]
+}
+```
+
+### Example 4 — the motivating pi case, in the new model
+
+Replaces the retired `host_pi_files`. `models.json` composes as JSON (managed if
+yolo ever needs to assert a provider key; plain today); `themes/` is a dir copy.
+
+```jsonc
+// ~/.config/yolo-jail/config.jsonc  — user scope
 {
   "agents": ["claude", "pi"],
   "host_files": [
-    "~/.pi/agent/models.json",   // pi reads this verbatim; yolo has no opinion
-    "~/.pi/agent/themes/"        // whole directory, copied recursively
+    "~/.pi/agent/models.json",   // json codec, key-by-key capture
+    "~/.pi/agent/themes/"        // directory → recursive copy
   ]
 }
 ```
 
-Result in every jail this user launches:
+`~/.pi/agent/settings.json` is still the yolo **builtin** surface (composed with
+its managed block); these entries sit beside it. A user entry may **not** name
+`settings.json` as its `path` — the collision guard rejects clobbering a builtin
+surface.
 
-```
-$HOME/.pi/agent/settings.json          ← COMPOSED (baked AgentSpec.HostFiles):
-                                          host theme/defaultProjectTrust merged,
-                                          yolo's managed block enforced, :ro
-$HOME/.pi/agent/models.json            ← RAW COPY of the host file
-$HOME/.pi/agent/themes/catppuccin.json ← RAW COPY (dir copied recursively)
-$HOME/.pi/agent/themes/gruvbox.json    ← RAW COPY
-```
-
-`settings.json` is composed even though it lives in the same dir; the raw copy of
-the *dir* does not clobber it because compose runs last (precedence rule above).
-
-### Example 2 — a claude helper script, plus a shared dotfile
+### Example 5 — what a workspace config canNOT do (hard error)
 
 ```jsonc
-// ~/.config/yolo-jail/config.jsonc
+// /workspace/yolo-jail.jsonc  — travels with the repo
 {
-  "agents": ["claude"],
-  "host_files": [
-    "~/.claude/statusline.sh",   // a helper the host settings.json references
-    "~/.gitignore_global"        // any home dotfile, not agent-specific
-  ]
+  "host_files": ["~/.ssh/id_ed25519", "~/.aws/credentials"]  // source-bearing
 }
 ```
-
-`~/.claude/statusline.sh` → `$HOME/.claude/statusline.sh` (raw, executable bit
-preserved best-effort); `~/.gitignore_global` → `$HOME/.gitignore_global`. Note
-this deliberately replaces the retired `appendSettingsScripts` auto-discovery
-(D3): scripts a settings file references are **no longer auto-mounted**; the user
-names them explicitly here. Explicit beats magic.
-
-### Example 3 — what a **workspace** config canNOT do (hard error)
-
-A repo ships this in its checked-in `yolo-jail.jsonc`:
-
-```jsonc
-// /workspace/yolo-jail.jsonc  — attacker-influenceable, travels with the repo
-{
-  "agents": ["claude"],
-  "host_files": ["~/.ssh/id_ed25519", "~/.aws/credentials"]  // exfiltration attempt
-}
-```
-
-`yolo check` and preflight **hard-error**:
 
 ```
 Invalid jail config:
-  config.host_files: user-scope only — move it to ~/.config/yolo-jail/config.jsonc
-  (a workspace config is agent-editable, so it cannot decide which host files
-  cross into the jail)
+  config.host_files[0]: an entry that names a host source is user-scope only —
+  move it to ~/.config/yolo-jail/config.jsonc (a workspace config travels with the
+  repo and is agent-editable, so it cannot decide which host files cross into the
+  jail). A source-less entry (inline `content`, or only `managed`/`defaults`) is
+  allowed here.
 ```
-
-The key is *inexpressible* at workspace scope by construction (the loader reads
-only the user config); the validation error exists so a stray workspace entry
-fails loudly instead of being a silent no-op.
 
 ## Work items
 
-Phased like `cache-relocation.md`: the feature, then what keeps it honest, then
-docs. Ship in one atomic commit per phase; the loader + validator must land
+Phased; each phase is one atomic commit. The loader + validator must land
 together (a half-migration is a silent no-op).
 
-### Phase 1 — the loader + validator
+### Phase 0 — engine prerequisites
 
-1. **`internal/config/hostfiles.go` (new)** — mirror `relocations.go`:
+1. **Reconcile the codec validation split** (`manifest.knownCodecs` →
+   `codec.CodecNames()`), so a declared codec can never validate then fail at
+   render.
+2. **Non-object branch in `Compose`** (`compose.go` object assertion): raw/lines
+   do whole-value replacement through the same pipeline + §5 sidecars. Add the
+   Compose-level tests raw/lines currently lack.
+
+### Phase 1 — config schema + loader + validator
+
+3. **`internal/config/hostfiles.go` (new)** — mirror `relocations.go`:
    - `const hostFilesKey = "host_files"`.
-   - `type HostFileEntry struct { HostPath, RelPath string }` (`RelPath` =
-     `$HOME`-relative destination).
-   - `LoadHostFiles(warn Warn) ([]HostFileEntry, error)` — reads
-     `paths.UserConfigPath()` **only** (+ `include_if_found`), `inJail()` →
-     nil, malformed entries skipped-with-warn, unreadable user config → error.
-   - `checkHostFiles(v any, probeFS bool) (entries, problems)` — shared shape +
-     home-scope + `..`/`:` checks; `probeFS` gates the source-exists stat.
-2. **`internal/config/validate.go`** — add `validateHostFiles(config, workspace,
-   errs, warns)`: re-read the workspace config (as `validateCacheRelocations`
-   does) and hard-error on a workspace occurrence; run `checkHostFiles` with
-   `probeFS = !inJail()`.
-3. **`internal/config/config.go`** — add `"host_files"` back to
-   `knownTopLevelConfigKeys` (reversing that slice of `a84b11c`).
+   - `type HostFileEntry` capturing `Path`, `Source`, `Content`, `Codec`,
+     `Managed`, `Defaults`, `Transform`, `Mode`, and `IsDir`.
+   - `LoadHostFiles(warn)` — reads **source-bearing** entries only from
+     `paths.UserConfigPath()` (+ includes); source-less entries from the merged
+     config; `inJail()` early-return for the host-source side; malformed → skip+warn.
+   - `checkHostFiles(v, probeFS)` — shared shape/polymorphism validation
+     (string|object), codec auto-detect + explicit-codec check, `source`⊕`content`
+     exclusivity, `path` under `$HOME`, `..`/`:` rejection, per-entry scope
+     classification.
+4. **`internal/config/validate.go`** — `validateHostFiles`: re-read
+   `LoadWorkspaceConfig`, hard-error on any **source-bearing** entry at workspace
+   scope; `probeFS = !inJail()`.
+5. **`internal/config/config.go`** — add `"host_files"` to
+   `knownTopLevelConfigKeys`.
 
-### Phase 2 — stage the files
+### Phase 2 — de-sugar + render
 
-4. **CLI staging** — in the run pipeline, after briefing/skill staging and
-   **before** the prism composes, copy each `HostFileEntry` into the jail home
-   (container: `ws_state` overlay; macos-user: `/Users/_yolojail`). Recursive for
-   dirs, follow-and-materialize symlinks, skip missing sources. Reuse the
-   existing copy helpers (`_copy_skill_subdirs` analog); no new bind mounts, no
-   env.
-5. **Preserve compose-wins ordering** — assert (and test) that the prism's
-   managed write for `settings.json` lands after any raw copy of its containing
-   dir.
-6. **Baked default hook** — an (empty today) yolo-shipped raw-default constant
-   the user list appends to; wire it so a future agent default has a home.
+6. **De-sugar to `manifest.Surface`** (owner `user`, slug name), appended to the
+   builtin manifest; codec auto-detect applied here.
+7. **Generic boot render loop** — after the hardcoded agent switch in `boot.go`,
+   iterate the user surfaces calling `renderSurfaceStateful` (managed) or
+   `renderSurfaceComputed` (`mode: copy`), and the recursive-copy path for
+   directories.
+8. **Register writable subtrees** for each destination parent (reuse
+   `writable_home_dirs` staging) so composed writes don't EROFS on podman.
+9. **Host `source` mounts** — a `hostFileArgs` sibling binds `:ro` at
+   `/ctx/host-user/<slug>`; fail-open read.
+10. **Collision guards** — reserved-home-segment guard + destination-`Path`
+    uniqueness across the merged manifest.
 
 ### Phase 3 — docs + config-ref
 
-7. **`internal/cli/config_ref.txt`** — add a `host_files` block (user-scope-only,
-   raw-copy, files+dirs, additive; contrast with the composed `settings.json`).
-8. **`docs/design/agent-credentials.md`** — add `host_files` to the credential
-   matrix and the "which host files cross" narrative; note user-scope boundary.
-9. **`docs/design/jail-home.md`** — document raw-staged files landing in the home
-   overlay and the compose-wins ordering.
-10. **`agent-settings-composition.md` §10** — annotate D4 as *partially reversed
-    by* this plan (composed set stays baked per D1/D2; the raw user knob returns
-    as `host_files`), with a back-link.
+11. **`internal/cli/config_ref.txt`** — a `host_files` block: the string|object
+    union, codec auto-detect table, per-entry scope rule, `mode`.
+12. **`docs/design/agent-credentials.md`** — add `host_files` to the credential
+    matrix; the per-entry source-bearing = user-scope boundary.
+13. **`docs/design/jail-home.md`** — user surfaces in the home overlay; writable
+    subtree registration; the composed-wins ordering vs. a dir copy.
+14. **`agent-settings-composition.md`** — annotate D4 (reversed + generalized),
+    and fix the §4 layer table's `agent_config.<agent>` claim (decided-but-unwired).
 
 ## Test plan
 
-- **Unit (`config`)**: `checkHostFiles` accepts files+dirs+`~`; rejects
-  outside-home, `..`, `:`, non-string; missing source → warn not error.
-- **Unit (scope)**: `host_files` at workspace scope → validation error;
-  `LoadHostFiles` ignores workspace + snapshot, reads only user config; `inJail()`
-  → nil.
-- **Unit (staging)**: file copied to the right home-relative dest; dir copied
-  recursively; symlink materialized; broken symlink skipped; compose-wins when a
-  staged dir contains `settings.json`.
-- **Nested-jail (mandatory, per AGENTS.md)**: fresh temp workspace + temp `$HOME`
-  seeded with a user config listing a raw file and a dir + host files present;
-  run `./dist-go/linux-$(go env GOARCH)/yolo -- bash`; confirm the raw copies land
-  in the home, `settings.json` is still composed with its managed block, and a
-  workspace-scope `host_files` hard-errors.
+- **Unit (codec/compose)**: raw + lines round-trip through `Compose` (whole-value
+  replacement) and through `ComposeStateful` (overlay capture of a raw edit);
+  `knownCodecs` == `CodecNames()`.
+- **Unit (config)**: string and object entries validate; auto-detect maps
+  `.json`/`.toml`/else correctly; explicit codec overrides; `source`⊕`content`
+  enforced; `path` outside `$HOME`/`..`/`:` rejected; dir entry flagged `IsDir`.
+- **Unit (scope)**: a **source-bearing** entry at workspace scope → hard error; a
+  **source-less** entry at workspace scope → OK; `LoadHostFiles` reads
+  source-bearing only from user config; `inJail()` skips the host-source side.
+- **Unit (collision)**: two entries with the same `path` → error; an entry whose
+  `path` is a builtin surface (`~/.claude/settings.json`) or a reserved segment →
+  error.
+- **Nested-jail (mandatory)**: fresh temp workspace + temp `$HOME` with a user
+  config carrying (a) a raw sugar file, (b) a `json` sugar file, (c) a source-less
+  managed object, (d) a dir; run `./dist-go/linux-$(go env GOARCH)/yolo -- bash`;
+  confirm each lands writable in the home, the managed key reverts after an in-jail
+  edit + re-render, a raw in-jail edit is captured, and a workspace-scope
+  source-bearing entry hard-errors.
 
 ## Non-goals
 
-- **No codec / no management for raw files.** If yolo ever needs to *reshape* a
-  new file, that is a new composed surface (a manifest entry + managed policy in
-  Go), not a `host_files` entry.
-- **No workspace-scope path.** Permanent, by the credential boundary. A repo that
-  needs a file in the jail commits it to the repo (the workspace bind) or asks
-  the human to add it to their user config.
-- **No arbitrary host→container mapping.** `host_files` is `$HOME`-relative with
-  a mirrored destination; arbitrary paths into `/ctx` remain `mounts` (ro).
-- **No tree-staging executor / `ctx.stage` glob engine** (the §3.3 vaporware).
-  A flat list of paths + recursive dir copy covers the real need without it.
+- **No full engine generalization.** The `map[string]any` value model stays;
+  raw/lines get a thin non-object bypass in `Compose`, not a rewrite of
+  `luahook.Ctx` / deep-merge / provenance.
+- **No `yaml` codec** until one is deliberately built (vendored dep + `go mod
+  vendor` + `goSrc` fileset). `.yaml`/`.yml` → `raw` meanwhile.
+- **No transform on a raw surface** — identity only; a transform requires a
+  structured codec.
+- **No arbitrary host→container mapping.** `host_files` destinations are
+  `$HOME`-relative; arbitrary paths into `/ctx` remain `mounts` (`:ro`).
+- **No tree-staging glob executor** (the §3.3 `ctx.stage` vaporware — its only
+  consumer is a `config render` display line). A flat list + per-entry codec +
+  recursive dir copy covers the need.
 
-## Open questions
+## Decisions (settled) and remaining forks
 
-### Should destinations be `$HOME`-relative only? (leaning **yes**)
+**Settled** (maintainer direction, 2026-07-24):
 
-Restricting to home keeps the destination zero-surprise (same path under the jail
-home) and keeps the mechanism a "dotfiles into the agent home" tool rather than a
-second, copy-flavored `mounts`. An explicit `host:dest` form (like `mounts`)
-would generalize it but reintroduce a destination-choice surface and a bigger
-attack shape. Recommend home-only until a concrete need appears.
+- **One key, string|object union** (not two keys) — unify the sugar and rich
+  forms; internally everything is a Surface.
+- **Raw is a codec** — a copy is `codec: "raw"`, one engine (intent #2).
+- **Per-entry credential gating** — source-bearing = user-scope-only; source-less
+  = any scope. (Chosen over wholesale key-level gating: a repo may legitimately
+  ship a source-less managed file.)
+- **Directories in v1** — separate recursive-copy path (dirs aren't a codec).
+- **Bare string == source-bearing** — a source-less file uses the object form
+  with `content`/`defaults`.
+- **`.jsonc`/`.yaml`/`.yml` → `raw`** — preserve bytes; no lossy re-encode, no
+  yaml codec yet.
+- **macos-user is not a design constraint** — composition runs there; the gaps
+  (not read-only, no sidecar isolation, source fail-open) are recorded
+  deficiencies to revisit during the `macos-user` pass, not schema limits.
 
-### Additive vs. replace, if a baked default ever exists (leaning **additive**)
+**Still open (worth a look before implementation):**
 
-With an empty baked default today the question is moot, but pin the semantics
-now: user entries are **added**, never replace the baked set, so a baked default
-a future agent relies on can't be silently dropped by a user listing something
-else. (This is the safe half of the old additive/replace choice.)
-
-### One flat `host_files` vs. routing a unified list (rejected)
-
-Considered: a single list where yolo *auto-routes* each entry — compose it if a
-manifest surface exists, else raw-copy. Rejected: a user can't introduce a new
-*composed file* anyway (a surface's codec + managed policy is Go-only), so the
-routing rule would be an invisible yolo-internal decision ("this one gets a
-managed block, that one doesn't"), and it muddies the workspace-can't-widen
-check. Two explicit mechanisms (baked-composed, user-raw) are clearer than one
-magic list.
+- **`managed`/`defaults` merge semantics for a user surface** mirror the builtin
+  surfaces (RFC-7386 object merge, `append` pins). Confirm no user-surface needs
+  array-append pinning in v1 (defer if not).
+- **Slug scheme for `Name`** — a path-derived slug must be stable and
+  collision-free across entries; pin the exact derivation (e.g. cleaned
+  home-relative path with separators mapped) when implementing.
