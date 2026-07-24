@@ -20,9 +20,12 @@ codec, a Lua transform, inline `content`, `managed`/`defaults` layers). Every
 entry **de-sugars in-memory into a `manifest.Surface`** appended to the builtin
 manifest, and a generic boot loop renders it through the existing pipeline. A
 **raw copy is just `codec: "raw"`** — one engine, not two. Composed user files
-are **read-write and editable in-jail**, and yolo **manages** them: the §5
-capture-diff overlay captures in-jail edits, and any `managed` keys revert on the
-next render. The **credential boundary** is enforced **per entry**: an entry that
+are **read-write and editable in-jail by default** — that is the whole point of
+routing them through the engine rather than a plain mount: the §5 capture-diff
+overlay captures in-jail edits and re-incorporates them each boot, while any
+`managed` keys still revert. A file you want kept pristine opts into
+`mode: readonly` (rendered `0o444`, no capture). The **credential boundary** is
+enforced **per entry**: an entry that
 names a host **`source`** (including bare-string sugar) is **user-scope only** — a
 workspace config can never make a host file cross — while a **source-less** entry
 (inline `content`, or pure `managed`/`defaults`) crosses nothing and is legal at
@@ -76,11 +79,13 @@ doc got two of them backwards:
   (`[]any`) are registered and unit-tested but flow through **zero** surfaces and
   cannot pass `Compose` unchanged. Unifying them is a real (small) code change —
   see [Making `raw` a first-class codec](#making-raw-a-first-class-codec).
-- **`yaml` is a phantom.** It is named in `manifest.knownCodecs` (5 names) but
-  absent from `codec.registry` (4 names) — no `yaml.go`, no vendored YAML lib,
-  and `codec.go` forbids new deps. A surface declaring `codec: "yaml"` passes
-  config validation and then **dies at render**. This validation split must be
-  reconciled before users can name codecs.
+- **`yaml` is a phantom — remove it.** It is named in `manifest.knownCodecs`
+  (5 names) but absent from `codec.registry` (4 names) — no `yaml.go`, no vendored
+  YAML lib, and `codec.go` forbids new deps. A surface declaring `codec: "yaml"`
+  passes config validation and then **dies at render**. There is no yaml codec and
+  this design does not add one; the fix is to **delete the phantom name** so
+  `manifest.knownCodecs` == `codec.CodecNames()` (the 4 real codecs). A user can
+  then never name `yaml`, and a `.yaml`/`.yml` file is handled as `raw` bytes.
 
 ## The model: one key, string-or-object, lowered to a Surface
 
@@ -93,11 +98,22 @@ doc got two of them backwards:
 | `path` | ✅ | `~`-relative **jail destination** (e.g. `~/.config/mytool/config.json`). The surface's `Path`. |
 | `source` | — | host path to seed the `host` layer from. **Its presence makes the entry user-scope only** (a host file crosses). Mutually exclusive with `content`. |
 | `content` | — | inline literal seed (a string). Crosses nothing → legal at any scope. Mutually exclusive with `source`. |
-| `codec` | — | `json` \| `toml` \| `lines` \| `raw`. Overrides auto-detect. (`yaml` is not yet real — see must-avoid.) |
+| `codec` | — | `json` \| `toml` \| `lines` \| `raw` — the four real codecs. Overrides auto-detect. There is no `yaml` codec (the phantom name is removed — see below); a `.yaml` file is handled as `raw`. |
 | `managed` | — | object of yolo-asserted keys that **revert on edit** (re-Enforced each render). Structured codecs only. |
 | `defaults` | — | user-overridable base layer. Structured codecs only. |
-| `transform` | — | path to a Lua hook (structured codecs only; a transform on a raw surface is unsupported — identity). |
-| `mode` | — | `managed` (default: §5 capture, editable, managed) \| `copy` (pure overwrite each boot, no edit capture) \| `once` (seed only if absent). |
+| `transform` | — | path to a Lua hook (structured codecs only). Unsupported on raw: the hook receives `ctx.Config` as a `map[string]any` object graph, but a raw surface is one opaque string with no structure to traverse — there is nothing for the hook to rewrite, so it would be a no-op. Transform a file's *contents* by picking a structured codec (`json`/`toml`); a raw blob can only be replaced wholesale (`content`/`mode: copy`). |
+| `mode` | — | `managed` (default: `0o644`, §5 capture, editable, managed) \| `copy` (`0o644`, pure overwrite each boot, no edit capture) \| `once` (seed only if absent) \| `readonly` (`0o444`, regenerated each boot, no capture — the "keep it pristine" exception). |
+
+**Why read-write by default, not read-only?** The read-only *input* is already
+guaranteed: the host `source` crosses on a `:ro` mount and is never written back
+(§ Delivery). The output file being writable poses no host risk — it lives in the
+jail's own overlay. And edit-capture is the *reason* to route a file through the
+engine at all: an agent tweaks `~/.npmrc` mid-session, the change survives the
+next boot instead of being silently reverted, yet `managed` keys the user pinned
+still snap back. A read-only default would make the common case (bring my dotfile
+in, let me adjust it) the awkward one and turn the engine into a glorified `:ro`
+mount. So the default is rw; `mode: readonly` is the one-word opt-out for a file
+that must stay exactly as yolo renders it.
 
 ### The string (sugar) form
 
@@ -135,6 +151,29 @@ managed lifecycle** as structured ones (intent #4). What you do **not** do:
 generalize `luahook.Ctx.Config` or the whole `map[string]any` value model — a
 transform on a raw surface is simply unsupported.
 
+**Who applies the captured edit when there is no merge?** The *same*
+`ComposeStateful` loop — "capture" and "re-incorporate" are codec-agnostic; only
+the *combine* step differs. For a structured codec, combine = RFC-7386 deep-merge
+(the overlay is a key-level patch). For raw, combine = **whole-value replacement**,
+so the pipeline degenerates cleanly:
+
+1. **Capture:** each boot, `ComposeStateful` diffs the on-disk file against the
+   `last_render` sidecar. For raw the "diff" is just inequality — if the bytes
+   changed, the **entire edited string becomes the new `overlay`** (stored as a
+   JSON string in the same sidecar).
+2. **Re-incorporate:** on the next render the layer order
+   `defaults < host < overlay < managed` replaces rather than merges, so a
+   non-empty `overlay` (the user's edited content) **wins over `host`/`defaults`**.
+   That is exactly the read-write, edit-survives-reboot behavior — no merge engine
+   needed, because for a single opaque blob "the merge" and "the last write" are
+   the same thing.
+
+The one real consequence: **`managed` on a raw surface is whole-file** — a raw
+`managed` value replaces the entire rendered file, so it means "pin these exact
+bytes," not "pin this key." That is coarse and rarely what you want; `managed`
+(and `defaults`) are really structured-codec features. A raw surface that needs
+byte-for-byte pinning is better expressed as `mode: copy` or `mode: readonly`.
+
 ## Codec auto-detection
 
 A small extension→codec map beside `codec.registry`:
@@ -145,16 +184,16 @@ A small extension→codec map beside `codec.registry`:
 | `.toml` | `toml` |
 | everything else (incl. no ext, `.sh`, `.yaml`, `.yml`, `.jsonc`) | `raw` |
 
-`.yaml`/`.yml` → `raw` **for now** (no yaml codec exists; building one needs a
-vendored dep + `go mod vendor` + a `goSrc` fileset update — out of scope).
-`.jsonc` → `raw` on purpose: routing it through the `json` codec would sort keys
-and **drop comments**. The object form's explicit `codec` always wins. Structured
-codecs (`json`/`toml`) give key-by-key overlay capture; `raw` gives whole-file
-capture. Both are managed.
+`.yaml`/`.yml` → `raw`: there is no yaml codec and this design does not add one
+(a real one would need a vendored dep + `go mod vendor` + a `goSrc` fileset
+update). `.jsonc` → `raw` on purpose: routing it through the `json` codec would
+sort keys and **drop comments**. The object form's explicit `codec` always wins.
+Structured codecs (`json`/`toml`) give key-by-key overlay capture; `raw` gives
+whole-file capture. Both are managed.
 
-**Prerequisite fix:** reconcile the codec validation split — make
-`manifest.knownCodecs` derive from `codec.CodecNames()` (the 4 real codecs, no
-`yaml`) so a user can never declare a codec that validates but fails at render.
+**Prerequisite fix:** remove the phantom `yaml` from the codec validation split —
+make `manifest.knownCodecs` derive from `codec.CodecNames()` (the 4 real codecs)
+so a user can never declare a codec that validates but fails at render.
 
 ## The credential boundary — per entry
 
@@ -346,9 +385,9 @@ together (a half-migration is a silent no-op).
 
 ### Phase 0 — engine prerequisites
 
-1. **Reconcile the codec validation split** (`manifest.knownCodecs` →
-   `codec.CodecNames()`), so a declared codec can never validate then fail at
-   render.
+1. **Remove the phantom `yaml` codec** — make `manifest.knownCodecs` derive from
+   `codec.CodecNames()` (the 4 real codecs) so a declared codec can never validate
+   then fail at render.
 2. **Non-object branch in `Compose`** (`compose.go` object assertion): raw/lines
    do whole-value replacement through the same pipeline + §5 sidecars. Add the
    Compose-level tests raw/lines currently lack.
@@ -377,8 +416,9 @@ together (a half-migration is a silent no-op).
 6. **De-sugar to `manifest.Surface`** (owner `user`, slug name), appended to the
    builtin manifest; codec auto-detect applied here.
 7. **Generic boot render loop** — after the hardcoded agent switch in `boot.go`,
-   iterate the user surfaces calling `renderSurfaceStateful` (managed) or
-   `renderSurfaceComputed` (`mode: copy`), and the recursive-copy path for
+   iterate the user surfaces calling `renderSurfaceStateful` (`mode: managed`) or
+   `renderSurfaceComputed` (`mode: copy`/`once`/`readonly` — no §5 capture;
+   `readonly` also chmods the output `0o444`), and the recursive-copy path for
    directories.
 8. **Register writable subtrees** for each destination parent (reuse
    `writable_home_dirs` staging) so composed writes don't EROFS on podman.
@@ -424,8 +464,10 @@ together (a half-migration is a silent no-op).
 - **No full engine generalization.** The `map[string]any` value model stays;
   raw/lines get a thin non-object bypass in `Compose`, not a rewrite of
   `luahook.Ctx` / deep-merge / provenance.
-- **No `yaml` codec** until one is deliberately built (vendored dep + `go mod
-  vendor` + `goSrc` fileset). `.yaml`/`.yml` → `raw` meanwhile.
+- **No `yaml` codec**, and the phantom `yaml` name is deleted from
+  `manifest.knownCodecs`. `.yaml`/`.yml` files are handled as `raw` bytes. (A real
+  yaml codec would need a vendored dep + `go mod vendor` + a `goSrc` fileset
+  update — deliberately out of scope.)
 - **No transform on a raw surface** — identity only; a transform requires a
   structured codec.
 - **No arbitrary host→container mapping.** `host_files` destinations are
