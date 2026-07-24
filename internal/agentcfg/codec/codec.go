@@ -82,3 +82,96 @@ func Names() []string {
 	sort.Strings(names)
 	return names
 }
+
+// Kind is the SHAPE of the top-level value a codec decodes to. It is not the
+// codec's identity (that is Name) but the answer to "what Go type does a decoded
+// whole file have", which the engine needs in three places:
+//
+//   - the composition engine, to pick deep-merge (objects) vs. whole-value
+//     replacement (everything else) — see agentcfg.Compose;
+//   - the Lua transform boundary, to check that a hook returned the same shape
+//     it was handed (a raw transform must return a string, not a table) —
+//     see luahook;
+//   - the zero value for an absent layer, so "no host file" is an empty object
+//     for JSON but an empty string for raw.
+//
+// Object is deliberately the only structured kind. A codec whose top level is an
+// array (lines) or a scalar (raw) has no keys, so per-key provenance, tombstones,
+// and `managed` are all whole-file operations for it.
+type Kind int
+
+const (
+	// KindObject decodes to map[string]any — json, toml. Deep-mergeable.
+	KindObject Kind = iota
+	// KindArray decodes to []any — lines. Whole-value replacement.
+	KindArray
+	// KindScalar decodes to string — raw. Whole-value replacement.
+	KindScalar
+)
+
+// String names the kind for error messages, in the vocabulary a config author
+// would recognize from the Lua side.
+func (k Kind) String() string {
+	switch k {
+	case KindObject:
+		return "object/table"
+	case KindArray:
+		return "array/list"
+	case KindScalar:
+		return "string"
+	default:
+		return "unknown"
+	}
+}
+
+// ZeroValue returns the empty value of the kind: the right "absent layer" for a
+// surface, so a missing host file composes as nothing-to-merge rather than as a
+// type error.
+func (k Kind) ZeroValue() any {
+	switch k {
+	case KindObject:
+		return map[string]any{}
+	case KindArray:
+		return []any{}
+	case KindScalar:
+		return ""
+	default:
+		return nil
+	}
+}
+
+// Matches reports whether v has this kind's Go shape. nil matches nothing: an
+// absent value is the caller's business (see ZeroValue), not a shape match.
+func (k Kind) Matches(v any) bool {
+	switch k {
+	case KindObject:
+		_, ok := v.(map[string]any)
+		return ok
+	case KindArray:
+		_, ok := v.([]any)
+		return ok
+	case KindScalar:
+		_, ok := v.(string)
+		return ok
+	default:
+		return false
+	}
+}
+
+// kinds maps each codec name to the shape of its decoded top-level value. It is
+// keyed by name (not by a Codec method) so a caller holding only the manifest's
+// codec STRING can ask about the shape without resolving the implementation.
+var kinds = map[string]Kind{
+	"json":  KindObject,
+	"toml":  KindObject,
+	"lines": KindArray,
+	"raw":   KindScalar,
+}
+
+// KindOf returns the decoded shape of the named codec, and whether the name is
+// known. An unknown name reports (KindObject, false) — callers must check ok
+// rather than lean on the zero value.
+func KindOf(name string) (Kind, bool) {
+	k, ok := kinds[name]
+	return k, ok
+}

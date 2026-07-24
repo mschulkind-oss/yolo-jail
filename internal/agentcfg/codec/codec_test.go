@@ -275,3 +275,64 @@ func TestRawEncodeError(t *testing.T) {
 		t.Error("Encode of non-string: expected error")
 	}
 }
+
+// TestKindOf pins each codec's decoded shape, and that every registered codec
+// has one. A codec without a Kind would silently compose as an object and take
+// the deep-merge path, which is wrong for anything without keys.
+func TestKindOf(t *testing.T) {
+	want := map[string]Kind{
+		"json":  KindObject,
+		"toml":  KindObject,
+		"lines": KindArray,
+		"raw":   KindScalar,
+	}
+	for _, name := range Names() {
+		got, ok := KindOf(name)
+		if !ok {
+			t.Errorf("KindOf(%q): no kind registered for an implemented codec", name)
+			continue
+		}
+		if got != want[name] {
+			t.Errorf("KindOf(%q) = %v, want %v", name, got, want[name])
+		}
+	}
+	if _, ok := KindOf("yaml"); ok {
+		t.Error("KindOf(\"yaml\"): unexpectedly known")
+	}
+	if len(kinds) != len(registry) {
+		t.Errorf("kinds has %d entries, registry has %d — every codec needs a Kind", len(kinds), len(registry))
+	}
+}
+
+// TestKindDecodeAgreement is the real contract: KindOf(name) must describe what
+// that codec's Decode actually produces. Asserted against genuinely decodable
+// input per codec, so a future codec whose Kind is mislabeled fails here.
+func TestKindDecodeAgreement(t *testing.T) {
+	inputs := map[string]string{
+		"json":  `{"a": 1}`,
+		"toml":  "a = 1\n",
+		"lines": "one\ntwo\n",
+		"raw":   "anything at all\n",
+	}
+	for _, name := range Names() {
+		c, ok := LookupCodec(name)
+		if !ok {
+			t.Fatalf("LookupCodec(%q): not found", name)
+		}
+		in, have := inputs[name]
+		if !have {
+			t.Fatalf("no test input for codec %q — add one", name)
+		}
+		v, err := c.Decode([]byte(in))
+		if err != nil {
+			t.Fatalf("%s.Decode(%q): %v", name, in, err)
+		}
+		k, _ := KindOf(name)
+		if !k.Matches(v) {
+			t.Errorf("%s: KindOf = %v but Decode produced %T", name, k, v)
+		}
+		if !k.Matches(k.ZeroValue()) {
+			t.Errorf("%s: ZeroValue %#v does not match its own kind %v", name, k.ZeroValue(), k)
+		}
+	}
+}
