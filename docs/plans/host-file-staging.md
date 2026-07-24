@@ -19,13 +19,17 @@ this host file/dir in, codec auto-detected) or an **object** (rich: pick the
 codec, a Lua transform, inline `content`, `managed`/`defaults` layers). Every
 entry **de-sugars in-memory into a `manifest.Surface`** appended to the builtin
 manifest, and a generic boot loop renders it through the existing pipeline. A
-**raw copy is just `codec: "raw"`** — one engine, not two. Composed user files
-are **read-write and editable in-jail by default** — that is the whole point of
-routing them through the engine rather than a plain mount: the §5 capture-diff
-overlay captures in-jail edits and re-incorporates them each boot, while any
-`managed` keys still revert. A file you want kept pristine opts into
-`mode: readonly` (rendered `0o444`, no capture). The **credential boundary** is
-enforced **per entry**: an entry that
+**raw copy is just `codec: "raw"`** — one engine, not two. **Overlay capture is the
+exception, not the default:** a file mirroring a host source defaults to `readonly`
+(the host file stays the source of truth), a source-less file defaults to `once`
+(seed it, then leave it alone — in-jail edits just persist), and the §5
+capture-diff overlay engages only when a user explicitly writes `"mode":
+"capture"`, because a captured edit outranks `host` forever. See
+[Overlay capture is the exception](#overlay-capture-is-the-exception-never-a-default).
+Because the construction of any given file is now a real question,
+**`yolo config ls`** shows every managed file, its codec, mode, contributing
+layers, and whether an overlay is winning. The **credential boundary** is enforced
+**per entry**: an entry that
 names a host **`source`** (including bare-string sugar) is **user-scope only** — a
 workspace config can never make a host file cross — while a **source-less** entry
 (inline `content`, or pure `managed`/`defaults`) crosses nothing and is legal at
@@ -101,25 +105,112 @@ doc got two of them backwards:
 | `codec` | — | `json` \| `toml` \| `lines` \| `raw` — the four real codecs. Overrides auto-detect. There is no `yaml` codec (the phantom name is removed — see below); a `.yaml` file is handled as `raw`. |
 | `managed` | — | object of yolo-asserted keys that **revert on edit** (re-Enforced each render). Structured codecs only. |
 | `defaults` | — | user-overridable base layer. Structured codecs only. |
-| `transform` | — | path to a Lua hook (structured codecs only). Unsupported on raw: the hook receives `ctx.Config` as a `map[string]any` object graph, but a raw surface is one opaque string with no structure to traverse — there is nothing for the hook to rewrite, so it would be a no-op. Transform a file's *contents* by picking a structured codec (`json`/`toml`); a raw blob can only be replaced wholesale (`content`/`mode: copy`). |
-| `mode` | — | `managed` (default: `0o644`, §5 capture, editable, managed) \| `copy` (`0o644`, pure overwrite each boot, no edit capture) \| `once` (seed only if absent) \| `readonly` (`0o444`, regenerated each boot, no capture — the "keep it pristine" exception). |
+| `transform` | — | path to a Lua hook. Works on **every** codec, raw included — for a raw surface `ctx.config` is a Lua **string** (see [Transforms on non-object surfaces](#transforms-on-non-object-surfaces)). |
+| `mode` | — | `readonly` (`0o444`, re-rendered each boot, no sidecar — edits fail loudly) \| `once` (seed if absent, then never touched — edits just persist, no sidecar) \| `copy` (`0o644`, overwritten each boot, no sidecar — edits silently lost) \| `capture` (`0o644`, **the overlay exception** — re-rendered each boot *and* in-jail edits captured into a sidecar that outranks `host`). **Default:** `readonly` for source-bearing, `once` for source-less — never `capture`; it is always explicit. See [below](#overlay-capture-is-the-exception-never-a-default). |
 
-**Why read-write by default, not read-only?** The read-only *input* is already
-guaranteed: the host `source` crosses on a `:ro` mount and is never written back
-(§ Delivery). The output file being writable poses no host risk — it lives in the
-jail's own overlay. And edit-capture is the *reason* to route a file through the
-engine at all: an agent tweaks `~/.npmrc` mid-session, the change survives the
-next boot instead of being silently reverted, yet `managed` keys the user pinned
-still snap back. A read-only default would make the common case (bring my dotfile
-in, let me adjust it) the awkward one and turn the engine into a glorified `:ro`
-mount. So the default is rw; `mode: readonly` is the one-word opt-out for a file
-that must stay exactly as yolo renders it.
+> **Naming:** the `managed` **field** (keys yolo re-asserts every render) and
+> `mode: capture` (persisting in-jail edits) are unrelated. An earlier draft called
+> the mode `managed` too; it is `capture` to keep the two apart, since a surface
+> commonly has `managed` keys *without* wanting capture.
+
+### Overlay capture is the exception, never a default
+
+An earlier draft of this doc made capture (rw + edit capture) the blanket default
+and argued for it. That was wrong. **No `mode` ever gets overlay capture
+implicitly** — a user must ask for it by writing `"mode": "capture"`. The reason
+falls out of the layer order:
+
+**`overlay` outranks `host`.** `Compose` folds
+`defaults < host < workspace < overlay < computed`. So once an in-jail edit is
+captured into the overlay sidecar, it **wins over the host file forever** — the
+sidecar never ages out. For a file mirroring a host dotfile that silently breaks
+the promise made in [Delivery](#delivery-directories-and-refresh) ("editing the
+host file propagates on the next launch"): the user edits `~/.npmrc` on the host,
+relaunches, and the jail keeps serving the captured version, with the divergence
+recorded only in a sidecar they have never heard of. Troublesome *and* hidden *and*
+sticky — worse than any failure the alternatives cause.
+
+This is not a hypothetical agent-typo scenario. Tools rewrite their own config as
+normal operation: `npm config set` rewrites `~/.npmrc`, `git config --global`
+rewrites `~/.gitconfig`, plenty of CLIs rewrite theirs on first run. A captured
+surface forks from its source on the first such call — and never rejoins.
+
+Capture also buys the least where it is most tempting. For a *host-mirrored* file
+the user already has the natural way to make a change stick: **edit it on the
+host**, where it is version-controlled, visible, and shared by every jail.
+
+So the default is the mode that **does not accumulate hidden state**, and it turns
+on one question — *does a host source of truth exist?*
+
+| Entry kind | Default `mode` | Why |
+|---|---|---|
+| **source-bearing** (bare string, or object with `source`) | **`readonly`** | The host file is the source of truth; host edits keep propagating. An in-jail edit fails *at the moment of the edit* rather than being silently reverted or silently made permanent. |
+| **source-less** (`content`, or only `managed`/`defaults`) | **`once`** | The jail's copy is the only copy, so yolo seeds it and then leaves it alone. In-jail edits simply persist as ordinary file writes — **no sidecar, no capture, no precedence puzzle**. Re-seeding needs `yolo config reset`. |
+
+Note the source-less default is `once`, not `managed`: for a file with no host
+counterpart, "write it if absent, then don't touch it" gives edits-survive-reboot
+*without* any overlay machinery. Capture only earns its complexity when a file must
+be **both** continuously re-rendered from upstream layers **and** in-jail editable —
+e.g. a source-less file whose `managed` keys yolo must keep asserting while letting
+the agent tune the rest. That is the exception, and it is spelled
+`"mode": "capture"`.
+
+**Honest limit on `readonly`.** It renders the file `0o444`, which stops ordinary
+writers and makes an accidental edit fail loudly (`EACCES`) — but it is **DAC, not
+kernel enforcement**: an agent running as **root** (Claude YOLO runs UID 0 with
+`IS_SANDBOX=1`) bypasses the mode bits, and any agent can `chmod +w`. Truly
+unwriteable would require a `:ro` bind mount at the destination, the mechanism
+briefings use — but you cannot compose *into* a `:ro` mount, so that trades away
+`managed`/`defaults`/`transform` entirely. `readonly` is therefore "the file yolo
+renders is not meant to be edited, and casual edits fail" — a strong signal and a
+speed bump, not a sandbox. A user who wants kernel-enforced read-only should mount
+the file with `mounts` instead of composing it.
+
+### `yolo config ls` — the whole picture, one screen
+
+With four modes, five layers, per-entry codecs, and an optional overlay, the honest
+answer to "why does this file look like that?" must be one command, not doc
+archaeology. **`yolo config ls`** lists every managed file — builtin and
+user-declared — and how it is constructed:
+
+```
+$ yolo config ls
+SURFACE              PATH                          CODEC  MODE      LAYERS                    OVERLAY
+claude/settings      ~/.claude/settings.json       json   managed   defaults host managed      2 keys ⚠
+pi/settings          ~/.pi/agent/settings.json     json   managed   defaults managed           –
+user/npmrc           ~/.npmrc                      raw    readonly  host                       –
+user/ripgreprc       ~/.config/ripgrep/config      raw    once      content                    –
+user/mytool          ~/.config/mytool/config.json  json   managed   defaults host managed      1 key ⚠
+mise/config          ~/.config/mise/config.toml    toml   copy      computed                   –
+
+⚠ 2 surfaces have captured in-jail edits that outrank their host layer.
+  Inspect: yolo config diff claude --surface settings
+  Discard: yolo config reset claude --surface settings
+```
+
+The value is that **an overlay can never be invisible**: a file whose content
+diverges from what its layers would produce is flagged on the listing, in the boot
+output, and in `--explain`. This is a gap in what ships **today** — the builtin
+surfaces already carry live capture overlays with no user-facing view of them — so
+these commands are not new-feature polish, they are the missing half of a mechanism
+already in production:
+
+- **`yolo config ls`** — the table above. `--explain` per surface for per-key
+  provenance (extends `render --explain`, which already names the winning layer).
+- **`yolo config diff <agent> [--surface s]`** — captured overlay vs. a
+  freshly-composed host/defaults render. Raw surfaces get a whole-file diff.
+- **`yolo config reset <agent> [--surface s]`** — discard the overlay sidecar (and
+  re-seed a `once` file), replacing "know to delete a file in `<workspace>/.yolo/`
+  by hand".
+- **Boot-time notice** — any surface rendering with a non-empty overlay prints
+  `~/.npmrc: 2 keys from captured in-jail edits (yolo config diff)`.
 
 ### The string (sugar) form
 
 A bare string `"~/.foo/bar"` means: **`source` == that host path**, `path` ==
-same `~`-relative destination, codec **auto-detected** from the extension, `mode:
-managed`. It is therefore always **source-bearing** → user-scope only. A
+same `~`-relative destination, codec **auto-detected** from the extension, and
+`mode: readonly` (the source-bearing default — the host file stays the source of
+truth). It is therefore always **source-bearing** → user-scope only. A
 directory string (or one ending `/`) routes to the recursive-copy path
 (directories are not a codec — see below). This is intent #3: the 90% case stays
 a flat list.
@@ -147,9 +238,56 @@ each simply replaces), then `Encode`.
 This keeps the §5 sidecars working unchanged: the `overlay` sidecar is always
 JSON, and a raw string stores fine as a JSON string, so `ComposeStateful`'s
 capture/re-incorporate loop gives raw files the **same read-write, editable,
-managed lifecycle** as structured ones (intent #4). What you do **not** do:
-generalize `luahook.Ctx.Config` or the whole `map[string]any` value model — a
-transform on a raw surface is simply unsupported.
+managed lifecycle** as structured ones (intent #4).
+
+## Transforms on non-object surfaces
+
+A Lua transform works on a raw surface too — `ctx.config` is simply a **string**
+instead of a table. Lua is good at strings (`string.gsub`, `string.format`,
+`..`), and the plumbing is *already* mostly there:
+
+- **The marshaller handles it today.** `luahook/marshal.go` `goToLua` has a
+  `case string: return lua.LString(val)`, and `luaToGo` has the mirror
+  `case lua.LString: return string(v)`. Scalars round-trip losslessly right now.
+- **The sandbox already opens Lua's `string` library** (`vm.go` `openSandboxLibs`
+  opens base/string/table/math), so `string.gsub` et al. are in scope for a hook.
+
+Only two things actually block it, and both are narrow type declarations, not
+missing capability:
+
+| Blocker | Location | Change |
+|---|---|---|
+| `Ctx.Config` is typed `map[string]any` | `luahook/luahook.go` | widen to `any` |
+| `Run` asserts the hook left an object: ``cfgMap, ok := cfg.(map[string]any)`` → error "want an object/table" | `vm.go` ~115 | accept a non-object when the surface's codec is non-object |
+
+So the design **widens the interface** rather than declaring raw un-transformable:
+
+```lua
+-- config.lua — rewrite a host path that means nothing inside the jail
+yolo.transform("user", function(ctx)
+  if ctx.surface == "npmrc" then
+    ctx.config = ctx.config:gsub("/Users/matt/", "/home/agent/")
+  end
+end)
+```
+
+Type discipline, so a hook can't silently corrupt a surface:
+
+- `ctx.config`'s Lua type is **determined by the surface codec** — table for
+  `json`/`toml`, string for `raw`, table (array) for `lines`. A hook can rely on it.
+- A hook that returns the **wrong kind** for the codec is a **loud fail-closed
+  error** (the existing `wrapLuaErr` path), not a coerced write — the current
+  object assertion generalizes to "must match the codec's kind" instead of
+  "must be an object".
+- `ctx.managed` on a raw surface is the whole-file string (or absent), consistent
+  with the `managed` semantics below.
+
+`Enforce()` also needs the same non-object branch as `Compose` (whole-value
+replace instead of key merge) — `enforceValue` already replaces on a type
+mismatch, so this is a small extension, not a redesign. What this design still
+does **not** do is generalize the *whole* `map[string]any` value model
+(`deepMerge`, provenance, `mergeDiff`): non-object surfaces bypass those by
+construction (whole-value replacement), which is why the change stays small.
 
 **Who applies the captured edit when there is no merge?** The *same*
 `ComposeStateful` loop — "capture" and "re-incorporate" are codec-agnostic; only
@@ -248,9 +386,12 @@ Enforcement is the exact `cache_relocations` precedent
   **recursive copy/stage** step (reuse the skills/`writable_home_dirs` copy +
   reserved-segment guard), *not* the compose engine. `mode: copy` is implied for
   directories.
-- **Refresh:** structured/managed surfaces regenerate every boot in the entrypoint
-  (same as `settings.json`). Host `source` bytes are re-read from the `:ro` mount
-  each boot, so editing the host file propagates on the next launch.
+- **Refresh** depends on the mode. `readonly`/`copy`/`managed` re-render every boot
+  in the entrypoint (same as `settings.json`), re-reading host `source` bytes from
+  the `:ro` mount — so a host-side edit propagates on the next launch. `once` does
+  not: it is seeded when absent and then left alone, so later host edits do *not*
+  propagate (that is the trade for "in-jail edits persist without a sidecar", and
+  `yolo config reset` forces a re-seed). Only `managed` writes overlay sidecars.
 
 ## Collision safety
 
@@ -282,9 +423,11 @@ revisited when `macos-user` is shaped up:
 
 ### Example 1 — the common case (intent #3): flat sugar list
 
-User scope only (each bare string is source-bearing). `.gitignore_global` and
-`.npmrc` have no useful extension → `raw` (whole-file capture); `config.json` →
-`json` (key-by-key capture, so an in-jail edit to one key survives regeneration).
+User scope only (each bare string is source-bearing). All three therefore default
+to **`mode: readonly`**: the host file stays the source of truth, a host-side edit
+propagates on the next launch, and an in-jail edit fails loudly rather than
+silently forking. `.gitignore_global`/`.npmrc` have no useful extension → `raw`;
+`config.json` → `json`.
 
 ```jsonc
 // ~/.config/yolo-jail/config.jsonc  — user scope
@@ -297,10 +440,32 @@ User scope only (each bare string is source-bearing). `.gitignore_global` and
 }
 ```
 
-### Example 2 — source-less managed files (intent #4), legal at workspace scope
+The entry below opts *into* the capture exception, which is the only way to get it:
+`mytool` rewrites its own config as it runs, and those in-jail changes should
+persist across boots even though a host copy exists. The cost is explicit and now
+visible — `yolo config ls` flags the surface, and `yolo config reset` undoes it.
+
+```jsonc
+{
+  "host_files": [
+    "~/.gitignore_global",
+    { "path": "~/.config/mytool/config.json",
+      "source": "~/.config/mytool/config.json",
+      "mode": "capture" }   // opt in: capture in-jail edits (overlay outranks host)
+  ]
+}
+```
+
+### Example 2 — source-less files (intent #4), legal at workspace scope
 
 Nothing crosses the host boundary, so a **repo** may ship these in its
-`yolo-jail.jsonc`. Both are read-write and editable in-jail; `managed` keys revert.
+`yolo-jail.jsonc`. The first is source-less with no `managed` keys → default
+**`mode: once`**: yolo writes it if absent, then never touches it, so an in-jail
+edit simply persists with no sidecar involved.
+
+The second needs continuous enforcement (yolo must keep asserting `telemetry:
+false`) *and* in-jail editability of everything else — that is precisely the case
+that earns the capture exception, so it says `"mode": "capture"` explicitly.
 
 ```jsonc
 // /workspace/yolo-jail.jsonc  — OK even at workspace scope (no `source`)
@@ -308,10 +473,11 @@ Nothing crosses the host boundary, so a **repo** may ship these in its
   "host_files": [
     {
       "path": "~/.config/ripgrep/config",
-      "content": "--max-columns=200\n--smart-case\n"   // codec auto → raw
+      "content": "--max-columns=200\n--smart-case\n"   // codec auto → raw; mode once
     },
     {
       "path": "~/.config/mytool/settings.json",
+      "mode": "capture",                                    // opt in: re-render + capture
       "defaults": { "telemetry": false, "theme": "dark" },  // user may retheme…
       "managed":  { "telemetry": false }                    // …but telemetry stays off
     }
@@ -349,7 +515,7 @@ yolo ever needs to assert a provider key; plain today); `themes/` is a dir copy.
 {
   "agents": ["claude", "pi"],
   "host_files": [
-    "~/.pi/agent/models.json",   // json codec, key-by-key capture
+    "~/.pi/agent/models.json",   // json codec, readonly (host is source of truth)
     "~/.pi/agent/themes/"        // directory → recursive copy
   ]
 }
@@ -389,8 +555,15 @@ together (a half-migration is a silent no-op).
    `codec.CodecNames()` (the 4 real codecs) so a declared codec can never validate
    then fail at render.
 2. **Non-object branch in `Compose`** (`compose.go` object assertion): raw/lines
-   do whole-value replacement through the same pipeline + §5 sidecars. Add the
-   Compose-level tests raw/lines currently lack.
+   do whole-value replacement through the same pipeline + §5 sidecars. Same branch
+   in `Ctx.Enforce`/`enforceValue`. Add the Compose-level tests raw/lines lack.
+3. **Widen the transform interface to non-object surfaces** — `Ctx.Config`
+   `map[string]any` → `any`; `vm.go`'s post-hook assertion becomes "the value's
+   kind matches the surface codec" (fail-closed otherwise) instead of "must be an
+   object". `goToLua`/`luaToGo` already handle strings, and the sandbox already
+   opens Lua's `string` lib, so no marshaller or sandbox change. Test: a raw
+   surface transformed with `string.gsub`; a hook returning a table for a raw
+   surface errors loudly.
 
 ### Phase 1 — config schema + loader + validator
 
@@ -416,10 +589,12 @@ together (a half-migration is a silent no-op).
 6. **De-sugar to `manifest.Surface`** (owner `user`, slug name), appended to the
    builtin manifest; codec auto-detect applied here.
 7. **Generic boot render loop** — after the hardcoded agent switch in `boot.go`,
-   iterate the user surfaces calling `renderSurfaceStateful` (`mode: managed`) or
-   `renderSurfaceComputed` (`mode: copy`/`once`/`readonly` — no §5 capture;
-   `readonly` also chmods the output `0o444`), and the recursive-copy path for
-   directories.
+   iterate the user surfaces calling `renderSurfaceStateful` (**only** `mode:
+   capture` — the sole sidecar-writing path) or `renderSurfaceComputed`
+   (`readonly`/`copy`/`once` — no sidecars; `readonly` chmods `0o444`, `once`
+   skips an existing file), and the recursive-copy path for directories. Apply the
+   per-kind mode default (source-bearing → `readonly`, source-less → `once`) at
+   de-sugar time, not here.
 8. **Register writable subtrees** for each destination parent (reuse
    `writable_home_dirs` staging) so composed writes don't EROFS on podman.
 9. **Host `source` mounts** — a `hostFileArgs` sibling binds `:ro` at
@@ -427,25 +602,58 @@ together (a half-migration is a silent no-op).
 10. **Collision guards** — reserved-home-segment guard + destination-`Path`
     uniqueness across the merged manifest.
 
-### Phase 3 — docs + config-ref
+### Phase 3 — `yolo config ls` + capture visibility (see [above](#yolo-config-ls--the-whole-picture-one-screen))
 
-11. **`internal/cli/config_ref.txt`** — a `host_files` block: the string|object
-    union, codec auto-detect table, per-entry scope rule, `mode`.
-12. **`docs/design/agent-credentials.md`** — add `host_files` to the credential
+Not optional polish. With four modes and five layers, "how is this file
+constructed?" must be answerable by a command; and `mode: capture` is only
+defensible if divergence is visible and reversible. These apply to the **builtin**
+surfaces too, which have carried silent capture overlays since the prism cutover.
+
+11. **`yolo config ls`** — one row per surface (builtin + user): surface, path,
+    codec, mode, contributing layers, overlay-key count with a ⚠ when non-empty,
+    plus the footer pointing at `diff`/`reset`. Data all exists —
+    `manifest.Surfaces()` plus `Result.Provenance`.
+12. **Boot-time divergence notice** — when a surface renders with a non-empty
+    overlay, print `<path>: N keys from captured in-jail edits (yolo config diff)`
+    in the startup output.
+13. **`yolo config diff <agent> [--surface s]`** — captured overlay vs. a
+    freshly-composed host/defaults render. Extends `render --explain`'s existing
+    per-key provenance (which already names `overlay` as a winning layer); raw
+    surfaces get a whole-file diff.
+14. **`yolo config reset <agent> [--surface s]`** — discard the overlay sidecar
+    (and re-seed a `once` file), replacing "know to delete a file in
+    `<workspace>/.yolo/` by hand".
+
+### Phase 4 — docs + config-ref
+
+15. **`internal/cli/config_ref.txt`** — a `host_files` block: the string|object
+    union, codec auto-detect table, per-entry scope rule, the four modes + their
+    per-kind defaults, and that capture is opt-in.
+16. **`docs/design/agent-credentials.md`** — add `host_files` to the credential
     matrix; the per-entry source-bearing = user-scope boundary.
-13. **`docs/design/jail-home.md`** — user surfaces in the home overlay; writable
+17. **`docs/design/jail-home.md`** — user surfaces in the home overlay; writable
     subtree registration; the composed-wins ordering vs. a dir copy.
-14. **`agent-settings-composition.md`** — annotate D4 (reversed + generalized),
-    and fix the §4 layer table's `agent_config.<agent>` claim (decided-but-unwired).
+18. **`agent-settings-composition.md`** — annotate D4 (reversed + generalized),
+    fix the §4 layer table's `agent_config.<agent>` claim (decided-but-unwired), and
+    record that `ctx.config` is no longer always an object.
 
 ## Test plan
 
 - **Unit (codec/compose)**: raw + lines round-trip through `Compose` (whole-value
   replacement) and through `ComposeStateful` (overlay capture of a raw edit);
   `knownCodecs` == `CodecNames()`.
+- **Unit (transform on non-object)**: a raw surface transformed via `string.gsub`
+  round-trips; a hook that leaves a table on a raw surface (or a string on a `json`
+  surface) fails loudly; `ctx.managed` on a raw surface reads as the whole-file
+  value.
 - **Unit (config)**: string and object entries validate; auto-detect maps
   `.json`/`.toml`/else correctly; explicit codec overrides; `source`⊕`content`
   enforced; `path` outside `$HOME`/`..`/`:` rejected; dir entry flagged `IsDir`.
+- **Unit (mode defaults)**: a source-bearing entry with no `mode` resolves to
+  `readonly`; a source-less one to `once`; an explicit `mode` always wins; **no
+  default ever resolves to `managed`** (the capture-is-opt-in invariant).
+- **Unit (sidecars)**: only `mode: capture` produces `last_render`/`overlay`
+  sidecars; `readonly`/`copy`/`once` write none.
 - **Unit (scope)**: a **source-bearing** entry at workspace scope → hard error; a
   **source-less** entry at workspace scope → OK; `LoadHostFiles` reads
   source-bearing only from user config; `inJail()` skips the host-source side.
@@ -454,22 +662,25 @@ together (a half-migration is a silent no-op).
   error.
 - **Nested-jail (mandatory)**: fresh temp workspace + temp `$HOME` with a user
   config carrying (a) a raw sugar file, (b) a `json` sugar file, (c) a source-less
-  managed object, (d) a dir; run `./dist-go/linux-$(go env GOARCH)/yolo -- bash`;
-  confirm each lands writable in the home, the managed key reverts after an in-jail
-  edit + re-render, a raw in-jail edit is captured, and a workspace-scope
-  source-bearing entry hard-errors.
+  `content` entry, (d) an explicit `mode: capture` entry, (e) a dir; run
+  `./dist-go/linux-$(go env GOARCH)/yolo -- bash`; confirm the sugar files land
+  `0o444` and an edit fails `EACCES`, the `content` file lands writable and survives
+  a relaunch with no sidecar, the `managed` entry's managed key reverts after an
+  in-jail edit + re-render while its other edits are captured, `yolo config ls`
+  flags exactly that one surface, `yolo config reset` clears it, and a
+  workspace-scope source-bearing entry hard-errors.
 
 ## Non-goals
 
-- **No full engine generalization.** The `map[string]any` value model stays;
-  raw/lines get a thin non-object bypass in `Compose`, not a rewrite of
-  `luahook.Ctx` / deep-merge / provenance.
 - **No `yaml` codec**, and the phantom `yaml` name is deleted from
   `manifest.knownCodecs`. `.yaml`/`.yml` files are handled as `raw` bytes. (A real
   yaml codec would need a vendored dep + `go mod vendor` + a `goSrc` fileset
   update — deliberately out of scope.)
-- **No transform on a raw surface** — identity only; a transform requires a
-  structured codec.
+- **No generalization of the object value model.** `deepMerge`, per-key
+  provenance, and `mergeDiff` stay object-only; non-object surfaces bypass them via
+  whole-value replacement. (Transforms *do* work on raw — see
+  [Transforms on non-object surfaces](#transforms-on-non-object-surfaces) — but a
+  raw surface gets no per-key provenance or key-level diff.)
 - **No arbitrary host→container mapping.** `host_files` destinations are
   `$HOME`-relative; arbitrary paths into `/ctx` remain `mounts` (`:ro`).
 - **No tree-staging glob executor** (the §3.3 `ctx.stage` vaporware — its only
@@ -489,8 +700,18 @@ together (a half-migration is a silent no-op).
 - **Directories in v1** — separate recursive-copy path (dirs aren't a codec).
 - **Bare string == source-bearing** — a source-less file uses the object form
   with `content`/`defaults`.
-- **`.jsonc`/`.yaml`/`.yml` → `raw`** — preserve bytes; no lossy re-encode, no
-  yaml codec yet.
+- **`.jsonc`/`.yaml`/`.yml` → `raw`** — preserve bytes; no lossy re-encode. The
+  phantom `yaml` codec name is **removed**, not deferred.
+- **Overlay capture is the exception, never a default** — `readonly` for
+  source-bearing, `once` for source-less; `managed` only when explicitly written.
+  A captured edit outranks `host` forever, so implicit capture would silently and
+  permanently fork a host-mirrored file.
+- **Transforms work on every codec** — the interface widens (`Ctx.Config` → `any`,
+  kind-checked against the surface codec) rather than declaring raw
+  un-transformable; Lua handles strings natively and the marshaller already does.
+- **`yolo config ls` is in scope** — with four modes and five layers, file
+  construction must be inspectable by command. It plus `diff`/`reset` also close a
+  gap that exists for the builtin surfaces today.
 - **macos-user is not a design constraint** — composition runs there; the gaps
   (not read-only, no sidecar isolation, source fail-open) are recorded
   deficiencies to revisit during the `macos-user` pass, not schema limits.
