@@ -45,15 +45,46 @@ The axis is simply **does yolo reshape the file?**
 
 |  | **Composed** | **Raw (this plan)** |
 |---|---|---|
-| What yolo does | decode → merge `defaults < host < … < managed` → Lua transform → re-encode | copies bytes verbatim (files) or trees (dirs) |
+| What yolo does | decode → merge `defaults < host < workspace < overlay < …< managed` → Lua transform → re-encode | copies bytes verbatim (files) or trees (dirs) |
 | Requires | a codec (`json`/`toml`/…) **and** a yolo-authored managed policy | nothing — opaque bytes |
 | Fits | `settings.json` (yolo enforces `permissions`, strips MCP servers, forces theme) | `models.json`, `themes/`, a helper script — anything yolo has no opinion on |
 | Declared in | `internal/agents.AgentSpec.HostFiles` (Go, fixed) + the prism manifest | baked default **+** user `host_files` key |
-| User-extensible? | **No — impossible.** No codec/managed policy for an arbitrary file, so "compose this" is undefined. | **Yes — user scope only.** This is the knob. |
-| In-jail mutability | **read-only** (bind-mount): the managed block must not be strippable | writable copy is fine — no managed content to protect; host original is never exposed |
-| Delivery | bind-mount `:ro` at `/ctx/host-<agent>/`, entrypoint reads + composes | **copy** into the jail home (portable across all backends) |
+| New *file* user-addable? | **No.** A surface = codec + managed policy, declared as a Go literal in `BuiltinManifest` (`internal/agentcfg/builtin.go`); no config key adds one. | **Yes — user scope.** This is the knob. |
+| *Values* user-addable? | **Yes** — a `config.lua` transform reshapes/adds keys (managed still wins via post-hook Enforce). Not the axis this plan touches. | n/a — bytes are copied as-is |
+| In-jail mutability | **read-WRITE.** The composed file is written `0o644` into the writable `~/.claude` / `~/.pi` overlay; in-jail edits are *captured* by the §5 capture-diff overlay and persist across regeneration. yolo's *managed* keys revert — but by **re-applying the managed layer** each render, **not** by any read-only mount (§9 explicitly rejected the `:ro` file as guaranteeing nothing — jail user is root). | writable copy; no managed content to protect; host original is never exposed |
+| Delivery | the *host source* (`~/.claude/settings.json`) is bind-mounted `:ro` at `/ctx/host-<agent>/`; the entrypoint reads it as the `host` layer and writes the *composed output* into the writable home | **copy** into the jail home (portable across all backends) |
 
-The last two rows carry a real design consequence, below.
+The mutability / delivery rows carry a real design consequence, below — and note
+the asymmetry the earlier draft got wrong: the **`:ro` mount is the input** (host
+source), while the **composed output is read-write**.
+
+**"Can the user extend the composed set?" — three actors, three answers.** The
+question is ambiguous, so split it:
+
+- **A *user* declaring a wholly new composed *file*/surface:** **no.** Every
+  surface is a Go literal in `BuiltinManifest` (`internal/agentcfg/builtin.go`);
+  no config key adds one, and `manifest.Surface` has no host-source field. This
+  is the sense in which the composed set is not user-widenable — and it is why a
+  brand-new host file yolo has never seen needs the *raw* `host_files` knob, not
+  the composed pipeline.
+- **A *user* adding/overriding *values* on an existing composed surface:**
+  **yes.** A `config.lua` transform (wired at boot — `loadPrismTransformScript`,
+  `prism.go`) can reshape or add arbitrary keys, and the `mcp_servers` /
+  `lsp_servers` / `mise_tools` config keys feed the `computed` layer. yolo's
+  managed keys still win (re-enforced after the hook). So "compose *these bytes*"
+  is user-reachable; "compose *this new file*" is not.
+- **yolo-the-project adding a composed surface:** **yes** — that is §10.4 D2
+  ("decoded as a composed surface where yolo can round-trip it"), done by editing
+  Go. Different actor from the user.
+
+> **Caveat for implementers:** the §4 layer table in
+> [agent-settings-composition.md](agent-settings-composition.md) names a
+> `workspace` layer sourced from `agent_config.<agent>` in `yolo-jail.jsonc`. That
+> layer is **decided but not wired** — `agent_config` is not in
+> `knownTopLevelConfigKeys` (it would hard-error), and `agentcfg.Inputs.Workspace`
+> has no non-test caller. The only *shipped* value-injection paths today are
+> `config.lua` and the four computed bridges above. Do not cite `agent_config` as
+> a live knob.
 
 ## The boundary: user-scope widens, workspace-scope cannot
 
@@ -117,10 +148,14 @@ to scope to an agent.
 
 ### Raw copy, not bind-mount — and why it's portable
 
-The composed set bind-mounts `:ro` because the entrypoint must *read* the file to
-compose it, and read-only-ness protects the managed block. Raw files have no
-managed block and nothing to read-compose, so we **copy** them. Copying is the
-right primitive for three reasons:
+The composed set bind-mounts `:ro` **on the input side only**: the host source
+(`~/.claude/settings.json`) crosses read-only into `/ctx/host-<agent>/` so the
+entrypoint can *read* it as the `host` layer. The composed *output* is then
+written into the writable home and stays read-write (its managed keys are held by
+re-enforcing the managed layer each render, not by a file mode). Raw files have
+no host layer to read and no managed policy, so we skip the `/ctx` round-trip and
+just **copy** them into the home. Copying is the right primitive for three
+reasons:
 
 1. **Backend portability.** `macos-user` has **no bind mounts of any kind** — the
    agent runs natively with a real `/Users/_yolojail` home. A `/ctx` bind is
@@ -373,8 +408,9 @@ else. (This is the safe half of the old additive/replace choice.)
 ### One flat `host_files` vs. routing a unified list (rejected)
 
 Considered: a single list where yolo *auto-routes* each entry — compose it if a
-manifest surface exists, else raw-copy. Rejected: the user can't add composed
-entries anyway (no codec/policy to author), so the routing rule would be an
-invisible yolo-internal decision ("this one gets a managed block, that one
-doesn't"), and it muddies the workspace-can't-widen check. Two explicit
-mechanisms (baked-composed, user-raw) are clearer than one magic list.
+manifest surface exists, else raw-copy. Rejected: a user can't introduce a new
+*composed file* anyway (a surface's codec + managed policy is Go-only), so the
+routing rule would be an invisible yolo-internal decision ("this one gets a
+managed block, that one doesn't"), and it muddies the workspace-can't-widen
+check. Two explicit mechanisms (baked-composed, user-raw) are clearer than one
+magic list.
