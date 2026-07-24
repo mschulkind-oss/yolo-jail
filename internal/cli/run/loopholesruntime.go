@@ -31,8 +31,9 @@ type loopholeDaemon struct {
 // startLoopholes starts all host services for this jail and returns handles.
 // Apple Container gets none (no socket bind-mount there).
 // Otherwise: the builtin cgroup delegate (Linux + cgroup v2 only), the journal
-// bridge (opt-in), and external services from config.loopholes. The broker
-// singleton is ensured but returns NO handle (host-wide, not per-jail).
+// bridge (opt-in via the top-level `journal` key), and external services from
+// config.loopholes. The broker singleton is ensured but returns NO handle
+// (host-wide, not per-jail).
 func (o *Options) startLoopholes(cname, rt string, cfg *jsonx.OrderedMap) []loopholeDaemon {
 	socketsDir := hostServiceSocketsDir(cname, o.IsMacOS)
 	_ = os.MkdirAll(socketsDir, 0o755)
@@ -45,6 +46,11 @@ func (o *Options) startLoopholes(cname, rt string, cfg *jsonx.OrderedMap) []loop
 
 	// 1. Built-in cgroup delegate (Linux only, cgroup v2 only).
 	if h, ok := o.startCgroupDelegate(cname, rt, socketsDir); ok {
+		handles = append(handles, h)
+	}
+
+	// 1.5. Built-in journal bridge (opt-in via top-level `journal` key).
+	if h, ok := o.startJournal(socketsDir, cfg); ok {
 		handles = append(handles, h)
 	}
 
@@ -175,6 +181,54 @@ func (o *Options) startCgroupDelegate(cname, rt, socketsDir string) (loopholeDae
 		envVarName:     hostServiceEnvVar(paths.BuiltinCgroupLoopholeName),
 		stop:           stop,
 	}, true
+}
+
+// resolveJournalMode maps the top-level `journal` config value to a bridge
+// mode. Mirrors the pre-port Python _resolve_journal_mode: the canonical
+// strings pass through; the bool `true` becomes "user" (the safer default for
+// unprivileged agents — never "full", which needs host journal read access);
+// absent / null / false / "off" / anything invalid collapse to "off" (a bad
+// string is reported separately by validateJournal, so here it is inert).
+func resolveJournalMode(cfg *jsonx.OrderedMap) string {
+	v, ok := cfgGet(cfg, "journal")
+	if !ok || v == nil {
+		return "off"
+	}
+	if b, isBool := v.(bool); isBool {
+		if b {
+			return "user"
+		}
+		return "off"
+	}
+	if s, isStr := v.(string); isStr {
+		switch s {
+		case "off", "user", "full":
+			return s
+		}
+	}
+	return "off"
+}
+
+// startJournal starts the built-in journal bridge, parallel to
+// startCgroupDelegate, keyed off the top-level `journal` config value. It
+// re-execs THIS yolo binary as `yolo internal daemon journal --socket … --mode
+// …` (the same self-exec + socket-wait + SIGTERM-teardown plumbing every other
+// spawned host service uses, via startExternalService) so the socket is mounted
+// and torn down like any other loophole. Off / absent → no handle, no spawn.
+// Linux/podman only — the macOS unified-logging analog lives in
+// internal/entrypoint/darwin.go and is out of scope here (rt=="container"
+// already returned before startLoopholes reached this point).
+func (o *Options) startJournal(socketsDir string, cfg *jsonx.OrderedMap) (loopholeDaemon, bool) {
+	mode := resolveJournalMode(cfg)
+	if mode == "off" {
+		return loopholeDaemon{}, false
+	}
+	spec := jsonx.NewOrderedMap()
+	spec.Set("command", []any{
+		"yolo", "internal", "daemon", paths.BuiltinJournalLoopholeName,
+		"--socket", "{socket}", "--mode", mode,
+	})
+	return o.startExternalService(paths.BuiltinJournalLoopholeName, spec, socketsDir)
 }
 
 // startExternalService is the common host-service path: substitute {socket},
