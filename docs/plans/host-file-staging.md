@@ -147,7 +147,7 @@ on one question — *does a host source of truth exist?*
 | **source-bearing** (bare string, or object with `source`) | **`readonly`** | The host file is the source of truth; host edits keep propagating. An in-jail edit fails *at the moment of the edit* rather than being silently reverted or silently made permanent. |
 | **source-less** (`content`, or only `managed`/`defaults`) | **`once`** | The jail's copy is the only copy, so yolo seeds it and then leaves it alone. In-jail edits simply persist as ordinary file writes — **no sidecar, no capture, no precedence puzzle**. Re-seeding needs `yolo config reset`. |
 
-Note the source-less default is `once`, not `managed`: for a file with no host
+Note the source-less default is `once`, not `capture`: for a file with no host
 counterpart, "write it if absent, then don't touch it" gives edits-survive-reboot
 *without* any overlay machinery. Capture only earns its complexity when a file must
 be **both** continuously re-rendered from upstream layers **and** in-jail editable —
@@ -386,12 +386,12 @@ Enforcement is the exact `cache_relocations` precedent
   **recursive copy/stage** step (reuse the skills/`writable_home_dirs` copy +
   reserved-segment guard), *not* the compose engine. `mode: copy` is implied for
   directories.
-- **Refresh** depends on the mode. `readonly`/`copy`/`managed` re-render every boot
+- **Refresh** depends on the mode. `readonly`/`copy`/`capture` re-render every boot
   in the entrypoint (same as `settings.json`), re-reading host `source` bytes from
   the `:ro` mount — so a host-side edit propagates on the next launch. `once` does
   not: it is seeded when absent and then left alone, so later host edits do *not*
   propagate (that is the trade for "in-jail edits persist without a sidecar", and
-  `yolo config reset` forces a re-seed). Only `managed` writes overlay sidecars.
+  `yolo config reset` forces a re-seed). Only `capture` writes overlay sidecars.
 
 ## Collision safety
 
@@ -400,7 +400,8 @@ writing the same destination, or a user entry clobbering `~/.claude/settings.jso
 (and thus stripping yolo's managed block), would pass. Guards:
 
 1. Run every de-sugared destination through the **reserved-home-segment guard**
-   (`writablehome.go`) so a user file can't clobber a yolo-managed mount/overlay or
+   (`internal/config/writablehome.go`'s `checkWritableHomeDir`) so a user file
+   can't clobber a yolo-managed mount/overlay or
    a builtin agent surface path.
 2. Add a **destination-`Path` uniqueness check** across the merged manifest.
 
@@ -651,7 +652,7 @@ surfaces too, which have carried silent capture overlays since the prism cutover
   enforced; `path` outside `$HOME`/`..`/`:` rejected; dir entry flagged `IsDir`.
 - **Unit (mode defaults)**: a source-bearing entry with no `mode` resolves to
   `readonly`; a source-less one to `once`; an explicit `mode` always wins; **no
-  default ever resolves to `managed`** (the capture-is-opt-in invariant).
+  default ever resolves to `capture`** (the capture-is-opt-in invariant).
 - **Unit (sidecars)**: only `mode: capture` produces `last_render`/`overlay`
   sidecars; `readonly`/`copy`/`once` write none.
 - **Unit (scope)**: a **source-bearing** entry at workspace scope → hard error; a
@@ -703,7 +704,7 @@ surfaces too, which have carried silent capture overlays since the prism cutover
 - **`.jsonc`/`.yaml`/`.yml` → `raw`** — preserve bytes; no lossy re-encode. The
   phantom `yaml` codec name is **removed**, not deferred.
 - **Overlay capture is the exception, never a default** — `readonly` for
-  source-bearing, `once` for source-less; `managed` only when explicitly written.
+  source-bearing, `once` for source-less; `capture` only when explicitly written.
   A captured edit outranks `host` forever, so implicit capture would silently and
   permanently fork a host-mirrored file.
 - **Transforms work on every codec** — the interface widens (`Ctx.Config` → `any`,
