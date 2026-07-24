@@ -31,6 +31,7 @@ import (
 	"bytes"
 	"encoding/json"
 	"fmt"
+	"reflect"
 
 	"github.com/mschulkind-oss/yolo-jail/internal/agentcfg/codec"
 )
@@ -115,32 +116,55 @@ func ComposeStateful(in StatefulInputs) (*StatefulOutput, error) {
 			in.Base.Surface.Agent, in.Base.Surface.Name, in.Base.Surface.Codec)
 	}
 
+	kind := in.Base.Surface.Kind()
+
 	// Decide the effective overlay and whether this is a first migration.
 	//
-	// A last_render sidecar is TRUSTED only when it is present AND decodes to an
-	// object. Absent, empty, or undecodable last_render => first migration (§3.2
-	// / §3.3): we cannot diff against it, so seeding from the fresh render with an
-	// empty overlay is the only correct move — capturing the on-disk file would
-	// pin stale bespoke output (§3.1).
-	lastRender, lastOK := decodeObject(c, in.LastRenderBytes)
+	// A last_render sidecar is TRUSTED only when it is present AND decodes to the
+	// surface's own shape. Absent, empty, or undecodable last_render => first
+	// migration (§3.2 / §3.3): we cannot diff against it, so seeding from the
+	// fresh render with an empty overlay is the only correct move — capturing the
+	// on-disk file would pin stale bespoke output (§3.1).
+	lastRender, lastOK := decodeKind(c, kind, in.LastRenderBytes)
 	firstMigration := !in.LastRenderPresent || !lastOK
 
-	var overlay map[string]any
+	var overlay any
 	if firstMigration {
 		// §3.2 seed / §3.3 dangling-overlay reset: overlay starts genuinely empty.
 		// Any OverlayJSON on disk is discarded (it may be an aborted-migration
 		// leftover), so nothing pre-existing leaks into the render.
-		overlay = map[string]any{}
+		//
+		// "Empty" is nil for a keyless surface, NOT the zero value: an empty
+		// string is a real assertion that the file is empty and would win the
+		// fold, blanking the render. nil means "this layer says nothing".
+		overlay = emptyOverlay(kind)
 	} else {
 		// Steady state. Start from the persisted overlay ({} if absent — §3.3
 		// case 3), then accumulate this boot's captured delta.
-		overlay = parseOverlay(in.OverlayJSON)
-		if current, curOK := decodeObject(c, in.CurrentBytes); curOK {
+		overlay = parseOverlayKind(kind, in.OverlayJSON)
+		if current, curOK := decodeKind(c, kind, in.CurrentBytes); curOK {
 			// §5: diff the on-disk file against the trusted baseline and fold the
-			// delta into the durable overlay. mergeAccumulate preserves null
-			// tombstones so a captured deletion persists (§3.4).
-			delta := mergeDiff(lastRender, current)
-			overlay = mergeAccumulate(overlay, delta)
+			// delta into the durable overlay.
+			//
+			// For an OBJECT surface that is the RFC-7386 diff: mergeAccumulate
+			// preserves null tombstones so a captured deletion persists (§3.4).
+			//
+			// For a KEYLESS surface (raw/lines) the same loop holds with a
+			// degenerate diff: the file has one "key" — itself — so "did it
+			// change" is value inequality, and the captured delta is the whole
+			// edited value. Accumulate is replacement (the newest edit is the
+			// overlay). Nothing else about capture differs, which is why raw
+			// files get edit-survives-regeneration for free rather than needing a
+			// parallel mechanism.
+			if kind == codec.KindObject {
+				lastMap, _ := lastRender.(map[string]any)
+				curMap, _ := current.(map[string]any)
+				overlayMap, _ := overlay.(map[string]any)
+				delta := mergeDiff(lastMap, curMap)
+				overlay = mergeAccumulate(overlayMap, delta)
+			} else if !reflect.DeepEqual(lastRender, current) {
+				overlay = current
+			}
 		}
 		// A corrupt/absent current file (curOK false) skips capture: we bias
 		// toward under-capture rather than freezing a spurious delta into the
@@ -172,12 +196,16 @@ func ComposeStateful(in StatefulInputs) (*StatefulOutput, error) {
 	}, nil
 }
 
-// decodeObject decodes bytes with the surface codec and reports success only
-// when the result is a non-empty-input object. Empty input, a decode error, or
-// a non-object shape all report ok=false — the callers treat every one as
-// "cannot trust / cannot capture", which is the conservative choice for both
-// the last_render baseline and the current file.
-func decodeObject(c codec.Codec, data []byte) (map[string]any, bool) {
+// decodeKind decodes bytes with the surface codec and reports success only when
+// the result is non-empty input that decodes to the surface's own shape. Empty
+// input, a decode error, or a shape mismatch all report ok=false — the callers
+// treat every one as "cannot trust / cannot capture", which is the conservative
+// choice for both the last_render baseline and the current file.
+//
+// The kind check is what makes this usable for raw/lines surfaces: an object-only
+// check reported ok=false for every raw file, which silently disabled capture for
+// them (an edit to a raw surface was quietly discarded every boot).
+func decodeKind(c codec.Codec, kind codec.Kind, data []byte) (any, bool) {
 	if len(bytes.TrimSpace(data)) == 0 {
 		return nil, false
 	}
@@ -185,33 +213,53 @@ func decodeObject(c codec.Codec, data []byte) (map[string]any, bool) {
 	if err != nil {
 		return nil, false
 	}
-	m, ok := decoded.(map[string]any)
-	if !ok {
+	if !kind.Matches(decoded) {
 		return nil, false
 	}
-	return m, true
+	return decoded, true
 }
 
-// parseOverlay decodes the overlay sidecar JSON, defaulting to an empty overlay
-// for absent or undecodable content (§3.3: a dangling overlay is not trusted).
-// The overlay is always JSON regardless of the surface codec (see file header).
-func parseOverlay(data []byte) map[string]any {
+// emptyOverlay is the "no captured edits" overlay for a surface kind.
+//
+// For an object surface that is `{}` — an empty merge patch, which changes
+// nothing. For a keyless surface it is nil, NOT the zero value: Compose treats a
+// non-nil keyless layer as a real assertion that wins the fold, so an empty
+// string overlay would blank the file instead of deferring to the layers below.
+func emptyOverlay(kind codec.Kind) any {
+	if kind == codec.KindObject {
+		return map[string]any{}
+	}
+	return nil
+}
+
+// parseOverlayKind decodes the overlay sidecar JSON for a surface of kind,
+// defaulting to the empty overlay for absent or undecodable content (§3.3: a
+// dangling overlay is not trusted). The overlay is always JSON regardless of the
+// surface codec (see file header), so a raw surface's captured text is stored as
+// a JSON string and a lines surface's as a JSON array.
+func parseOverlayKind(kind codec.Kind, data []byte) any {
 	if len(bytes.TrimSpace(data)) == 0 {
-		return map[string]any{}
+		return emptyOverlay(kind)
 	}
-	var m map[string]any
-	if err := json.Unmarshal(data, &m); err != nil || m == nil {
-		return map[string]any{}
+	var v any
+	if err := json.Unmarshal(data, &v); err != nil || v == nil {
+		return emptyOverlay(kind)
 	}
-	return m
+	// A sidecar whose shape doesn't match the surface is as untrustworthy as one
+	// that won't parse (e.g. the surface's codec changed between boots).
+	if !kind.Matches(v) {
+		return emptyOverlay(kind)
+	}
+	return v
 }
 
 // marshalOverlay serializes the overlay to stable, indented JSON (sorted keys
-// via encoding/json), with a nil/empty overlay rendering as `{}`. Null
+// via encoding/json), with a nil object overlay rendering as `{}`. Null
 // tombstones survive the round-trip — that is the whole reason the overlay is
-// JSON and not the surface codec.
-func marshalOverlay(overlay map[string]any) ([]byte, error) {
-	if overlay == nil {
+// JSON and not the surface codec. A nil keyless overlay marshals to `null`,
+// which parseOverlayKind reads back as "no captured edits".
+func marshalOverlay(overlay any) ([]byte, error) {
+	if m, ok := overlay.(map[string]any); ok && m == nil {
 		overlay = map[string]any{}
 	}
 	return json.MarshalIndent(overlay, "", "  ")

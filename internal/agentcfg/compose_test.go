@@ -96,12 +96,12 @@ func TestComposeIdentityNoScript(t *testing.T) {
 		t.Fatalf("Compose error: %v", err)
 	}
 	// Both extensions survive (no transform ran); managed key still enforced.
-	exts, ok := res.Config["extensions"].([]any)
+	exts, ok := res.ConfigMap()["extensions"].([]any)
 	if !ok || len(exts) != 2 {
-		t.Errorf("extensions = %v, want both host extensions intact", res.Config["extensions"])
+		t.Errorf("extensions = %v, want both host extensions intact", res.ConfigMap()["extensions"])
 	}
-	if res.Config["defaultProjectTrust"] != "always" {
-		t.Errorf("managed key not enforced: %v", res.Config["defaultProjectTrust"])
+	if res.ConfigMap()["defaultProjectTrust"] != "always" {
+		t.Errorf("managed key not enforced: %v", res.ConfigMap()["defaultProjectTrust"])
 	}
 	if len(res.Excluded) != 0 {
 		t.Errorf("identity transform should exclude nothing, got %v", res.Excluded)
@@ -125,8 +125,8 @@ end)
 	if err != nil {
 		t.Fatalf("Compose error: %v", err)
 	}
-	if res.Config["defaultProjectTrust"] != "always" {
-		t.Errorf("managed key should win over transform: got %v, want always", res.Config["defaultProjectTrust"])
+	if res.ConfigMap()["defaultProjectTrust"] != "always" {
+		t.Errorf("managed key should win over transform: got %v, want always", res.ConfigMap()["defaultProjectTrust"])
 	}
 	if res.Provenance["defaultProjectTrust"] != layerManaged {
 		t.Errorf("provenance for enforced key = %q, want %q", res.Provenance["defaultProjectTrust"], layerManaged)
@@ -144,8 +144,8 @@ func TestComposeOverlayLayer(t *testing.T) {
 	if err != nil {
 		t.Fatalf("Compose error: %v", err)
 	}
-	if res.Config["theme"] != "solarized" {
-		t.Errorf("overlay should override host theme: got %v", res.Config["theme"])
+	if res.ConfigMap()["theme"] != "solarized" {
+		t.Errorf("overlay should override host theme: got %v", res.ConfigMap()["theme"])
 	}
 	if res.Provenance["theme"] != layerOverlay {
 		t.Errorf("provenance for theme = %q, want %q", res.Provenance["theme"], layerOverlay)
@@ -170,15 +170,15 @@ func TestComposeComputedLayer(t *testing.T) {
 		t.Fatalf("Compose error: %v", err)
 	}
 	// Computed wins over the overlay's stale edit to the same key...
-	if res.Config["defaultModel"] != "computed-wins" {
-		t.Errorf("computed should override overlay: got %v", res.Config["defaultModel"])
+	if res.ConfigMap()["defaultModel"] != "computed-wins" {
+		t.Errorf("computed should override overlay: got %v", res.ConfigMap()["defaultModel"])
 	}
 	if res.Provenance["defaultModel"] != layerComputed {
 		t.Errorf("provenance defaultModel = %q, want %q", res.Provenance["defaultModel"], layerComputed)
 	}
 	// ...but an overlay key the computed layer does NOT touch still survives.
-	if res.Config["theme"] != "solarized" {
-		t.Errorf("overlay-only key should survive: got %v", res.Config["theme"])
+	if res.ConfigMap()["theme"] != "solarized" {
+		t.Errorf("overlay-only key should survive: got %v", res.ConfigMap()["theme"])
 	}
 	if res.Provenance["theme"] != layerOverlay {
 		t.Errorf("provenance theme = %q, want %q", res.Provenance["theme"], layerOverlay)
@@ -204,12 +204,12 @@ end)
 		t.Fatalf("Compose error: %v", err)
 	}
 	// The transform saw the computed value and reshaped it.
-	if res.Config["defaultModel"] != "computed-reshaped" {
-		t.Errorf("transform should reshape computed value: got %v", res.Config["defaultModel"])
+	if res.ConfigMap()["defaultModel"] != "computed-reshaped" {
+		t.Errorf("transform should reshape computed value: got %v", res.ConfigMap()["defaultModel"])
 	}
 	// Managed still stomps a computed attempt to loosen the managed key.
-	if res.Config["defaultProjectTrust"] != "always" {
-		t.Errorf("managed must win over computed: got %v", res.Config["defaultProjectTrust"])
+	if res.ConfigMap()["defaultProjectTrust"] != "always" {
+		t.Errorf("managed must win over computed: got %v", res.ConfigMap()["defaultProjectTrust"])
 	}
 }
 
@@ -227,8 +227,8 @@ func TestComposeComputedTombstone(t *testing.T) {
 	if err != nil {
 		t.Fatalf("Compose error: %v", err)
 	}
-	if _, present := res.Config["defaultModel"]; present {
-		t.Errorf("computed null should delete the key, still present: %v", res.Config["defaultModel"])
+	if _, present := res.ConfigMap()["defaultModel"]; present {
+		t.Errorf("computed null should delete the key, still present: %v", res.ConfigMap()["defaultModel"])
 	}
 	if _, present := res.Provenance["defaultModel"]; present {
 		t.Errorf("provenance should not claim a tombstoned key is present: %v", res.Provenance["defaultModel"])
@@ -294,9 +294,9 @@ func TestComposeClaudeSettingsEnforcesManaged(t *testing.T) {
 		t.Fatalf("Compose error: %v", err)
 	}
 	// The whole managed permissions object wins (shallow Enforce replaces it).
-	perms, ok := res.Config["permissions"].(map[string]any)
+	perms, ok := res.ConfigMap()["permissions"].(map[string]any)
 	if !ok {
-		t.Fatalf("permissions not an object: %T", res.Config["permissions"])
+		t.Fatalf("permissions not an object: %T", res.ConfigMap()["permissions"])
 	}
 	if !reflect.DeepEqual(perms["allow"], []any{}) {
 		t.Errorf("permissions.allow = %#v, want [] (host allow-list must not survive)", perms["allow"])
@@ -304,16 +304,16 @@ func TestComposeClaudeSettingsEnforcesManaged(t *testing.T) {
 	if perms["defaultMode"] != "acceptEdits" {
 		t.Errorf("permissions.defaultMode = %v, want acceptEdits", perms["defaultMode"])
 	}
-	if res.Config["skipDangerousModePermissionPrompt"] != true {
-		t.Errorf("skipDangerousModePermissionPrompt = %v, want true", res.Config["skipDangerousModePermissionPrompt"])
+	if res.ConfigMap()["skipDangerousModePermissionPrompt"] != true {
+		t.Errorf("skipDangerousModePermissionPrompt = %v, want true", res.ConfigMap()["skipDangerousModePermissionPrompt"])
 	}
-	prefs, ok := res.Config["preferences"].(map[string]any)
+	prefs, ok := res.ConfigMap()["preferences"].(map[string]any)
 	if !ok || prefs["autoUpdaterStatus"] != "disabled" {
-		t.Errorf("preferences = %#v, want autoUpdaterStatus=disabled", res.Config["preferences"])
+		t.Errorf("preferences = %#v, want autoUpdaterStatus=disabled", res.ConfigMap()["preferences"])
 	}
 	// A host key with no managed/default counterpart passes through untouched.
-	if res.Config["someHostOnlyKey"] != "kept" {
-		t.Errorf("host-only key dropped: %v", res.Config["someHostOnlyKey"])
+	if res.ConfigMap()["someHostOnlyKey"] != "kept" {
+		t.Errorf("host-only key dropped: %v", res.ConfigMap()["someHostOnlyKey"])
 	}
 	if res.Provenance["permissions"] != layerManaged {
 		t.Errorf("provenance permissions = %q, want %q", res.Provenance["permissions"], layerManaged)
@@ -334,7 +334,7 @@ func TestComposeDeepEnforcePreservesHostSibling(t *testing.T) {
 	if err != nil {
 		t.Fatalf("Compose error: %v", err)
 	}
-	perms := res.Config["permissions"].(map[string]any)
+	perms := res.ConfigMap()["permissions"].(map[string]any)
 	// Managed key wins...
 	if !reflect.DeepEqual(perms["allow"], []any{}) {
 		t.Errorf("managed permissions.allow should win as []: %#v", perms["allow"])
@@ -360,9 +360,9 @@ func TestComposeClaudeConfigEnforcesManaged(t *testing.T) {
 	if err != nil {
 		t.Fatalf("Compose error: %v", err)
 	}
-	proj, ok := res.Config["projects"].(map[string]any)
+	proj, ok := res.ConfigMap()["projects"].(map[string]any)
 	if !ok {
-		t.Fatalf("projects not an object: %T", res.Config["projects"])
+		t.Fatalf("projects not an object: %T", res.ConfigMap()["projects"])
 	}
 	ws, ok := proj["/workspace"].(map[string]any)
 	if !ok {
@@ -403,9 +403,9 @@ func TestComposeGeminiSettingsLayers(t *testing.T) {
 	}
 
 	// Managed general.* wins (shallow Enforce replaces the whole general object).
-	gen, ok := res.Config["general"].(map[string]any)
+	gen, ok := res.ConfigMap()["general"].(map[string]any)
 	if !ok {
-		t.Fatalf("general not an object: %T", res.Config["general"])
+		t.Fatalf("general not an object: %T", res.ConfigMap()["general"])
 	}
 	if gen["enableAutoUpdate"] != false {
 		t.Errorf("general.enableAutoUpdate = %v, want false (managed must win)", gen["enableAutoUpdate"])
@@ -418,9 +418,9 @@ func TestComposeGeminiSettingsLayers(t *testing.T) {
 	}
 
 	// Default security.* yields to the host (setDefault semantics: host wins).
-	sec, ok := res.Config["security"].(map[string]any)
+	sec, ok := res.ConfigMap()["security"].(map[string]any)
 	if !ok {
-		t.Fatalf("security not an object: %T", res.Config["security"])
+		t.Fatalf("security not an object: %T", res.ConfigMap()["security"])
 	}
 	if sec["approvalMode"] != "default" {
 		t.Errorf("security.approvalMode = %v, want default (host overrides the yolo default)", sec["approvalMode"])
@@ -442,9 +442,9 @@ func TestComposeGeminiSettingsDefaultsApply(t *testing.T) {
 	if err != nil {
 		t.Fatalf("Compose error: %v", err)
 	}
-	sec, ok := res.Config["security"].(map[string]any)
+	sec, ok := res.ConfigMap()["security"].(map[string]any)
 	if !ok {
-		t.Fatalf("security not an object: %T", res.Config["security"])
+		t.Fatalf("security not an object: %T", res.ConfigMap()["security"])
 	}
 	if sec["approvalMode"] != "yolo" {
 		t.Errorf("security.approvalMode = %v, want yolo (default applies with no host)", sec["approvalMode"])
@@ -455,9 +455,9 @@ func TestComposeGeminiSettingsDefaultsApply(t *testing.T) {
 	if res.Provenance["security"] != layerDefaults {
 		t.Errorf("provenance security = %q, want %q", res.Provenance["security"], layerDefaults)
 	}
-	gen, ok := res.Config["general"].(map[string]any)
+	gen, ok := res.ConfigMap()["general"].(map[string]any)
 	if !ok || gen["enableAutoUpdate"] != false {
-		t.Errorf("general = %#v, want managed disables applied", res.Config["general"])
+		t.Errorf("general = %#v, want managed disables applied", res.ConfigMap()["general"])
 	}
 }
 
@@ -473,8 +473,8 @@ func TestComposeCopilotConfigDefaultApplies(t *testing.T) {
 	if err != nil {
 		t.Fatalf("Compose error: %v", err)
 	}
-	if res.Config["yolo"] != true {
-		t.Errorf("yolo = %v, want true (default applies with no host)", res.Config["yolo"])
+	if res.ConfigMap()["yolo"] != true {
+		t.Errorf("yolo = %v, want true (default applies with no host)", res.ConfigMap()["yolo"])
 	}
 	if res.Provenance["yolo"] != layerDefaults {
 		t.Errorf("provenance yolo = %q, want %q", res.Provenance["yolo"], layerDefaults)
@@ -493,8 +493,8 @@ func TestComposeCopilotConfigHostWins(t *testing.T) {
 	if err != nil {
 		t.Fatalf("Compose error: %v", err)
 	}
-	if res.Config["yolo"] != false {
-		t.Errorf("yolo = %v, want false (host overrides the yolo default)", res.Config["yolo"])
+	if res.ConfigMap()["yolo"] != false {
+		t.Errorf("yolo = %v, want false (host overrides the yolo default)", res.ConfigMap()["yolo"])
 	}
 	if res.Provenance["yolo"] != layerHost {
 		t.Errorf("provenance yolo = %q, want %q", res.Provenance["yolo"], layerHost)
@@ -522,22 +522,22 @@ func TestComposeOpencodeConfigLayers(t *testing.T) {
 		t.Fatalf("Compose error: %v", err)
 	}
 	// Managed permission wins.
-	if res.Config["permission"] != "allow" {
-		t.Errorf("permission = %v, want allow (managed must win)", res.Config["permission"])
+	if res.ConfigMap()["permission"] != "allow" {
+		t.Errorf("permission = %v, want allow (managed must win)", res.ConfigMap()["permission"])
 	}
 	if res.Provenance["permission"] != layerManaged {
 		t.Errorf("provenance permission = %q, want %q", res.Provenance["permission"], layerManaged)
 	}
 	// Default $schema yields to the host.
-	if res.Config["$schema"] != "https://example.com/custom.json" {
-		t.Errorf("$schema = %v, want the host value (default yields)", res.Config["$schema"])
+	if res.ConfigMap()["$schema"] != "https://example.com/custom.json" {
+		t.Errorf("$schema = %v, want the host value (default yields)", res.ConfigMap()["$schema"])
 	}
 	if res.Provenance["$schema"] != layerHost {
 		t.Errorf("provenance $schema = %q, want %q", res.Provenance["$schema"], layerHost)
 	}
 	// Host-only key survives.
-	if res.Config["someHostOnlyKey"] != "kept" {
-		t.Errorf("host-only key dropped: %v", res.Config["someHostOnlyKey"])
+	if res.ConfigMap()["someHostOnlyKey"] != "kept" {
+		t.Errorf("host-only key dropped: %v", res.ConfigMap()["someHostOnlyKey"])
 	}
 }
 
@@ -553,14 +553,14 @@ func TestComposeOpencodeConfigDefaultsApply(t *testing.T) {
 	if err != nil {
 		t.Fatalf("Compose error: %v", err)
 	}
-	if res.Config["$schema"] != "https://opencode.ai/config.json" {
-		t.Errorf("$schema = %v, want default (applies with no host)", res.Config["$schema"])
+	if res.ConfigMap()["$schema"] != "https://opencode.ai/config.json" {
+		t.Errorf("$schema = %v, want default (applies with no host)", res.ConfigMap()["$schema"])
 	}
 	if res.Provenance["$schema"] != layerDefaults {
 		t.Errorf("provenance $schema = %q, want %q", res.Provenance["$schema"], layerDefaults)
 	}
-	if res.Config["permission"] != "allow" {
-		t.Errorf("permission = %v, want allow (managed applies)", res.Config["permission"])
+	if res.ConfigMap()["permission"] != "allow" {
+		t.Errorf("permission = %v, want allow (managed applies)", res.ConfigMap()["permission"])
 	}
 	if res.Provenance["permission"] != layerManaged {
 		t.Errorf("provenance permission = %q, want %q", res.Provenance["permission"], layerManaged)
@@ -590,11 +590,11 @@ func TestComposeCodexConfigEnforcesManaged(t *testing.T) {
 	}
 
 	// Managed scalars win over the host.
-	if res.Config["approval_policy"] != "never" {
-		t.Errorf("approval_policy = %v, want never (managed must win)", res.Config["approval_policy"])
+	if res.ConfigMap()["approval_policy"] != "never" {
+		t.Errorf("approval_policy = %v, want never (managed must win)", res.ConfigMap()["approval_policy"])
 	}
-	if res.Config["sandbox_mode"] != "danger-full-access" {
-		t.Errorf("sandbox_mode = %v, want danger-full-access (managed must win)", res.Config["sandbox_mode"])
+	if res.ConfigMap()["sandbox_mode"] != "danger-full-access" {
+		t.Errorf("sandbox_mode = %v, want danger-full-access (managed must win)", res.ConfigMap()["sandbox_mode"])
 	}
 	if res.Provenance["approval_policy"] != layerManaged {
 		t.Errorf("provenance approval_policy = %q, want %q", res.Provenance["approval_policy"], layerManaged)
@@ -603,8 +603,8 @@ func TestComposeCodexConfigEnforcesManaged(t *testing.T) {
 		t.Errorf("provenance sandbox_mode = %q, want %q", res.Provenance["sandbox_mode"], layerManaged)
 	}
 	// A host key with no managed/default counterpart passes through untouched.
-	if res.Config["model"] != "gpt-5" {
-		t.Errorf("host-only key model dropped: %v", res.Config["model"])
+	if res.ConfigMap()["model"] != "gpt-5" {
+		t.Errorf("host-only key model dropped: %v", res.ConfigMap()["model"])
 	}
 	if res.Provenance["model"] != layerHost {
 		t.Errorf("provenance model = %q, want %q", res.Provenance["model"], layerHost)

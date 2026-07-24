@@ -67,7 +67,7 @@ func ConfigureMisePrism(e *Env) error {
 	//  1. A mise config with no yolo-owned tools would otherwise render to an
 	//     EMPTY document. The stateful engine treats an empty-decoding
 	//     last_render sidecar as untrusted (a corruption-recovery guard —
-	//     staterender.go decodeObject / TestComposeStatefulEmptyLastRenderReseeds),
+	//     staterender.go decodeKind / TestComposeStatefulEmptyLastRenderReseeds),
 	//     so it would re-seed as a first migration EVERY boot and never capture
 	//     in-jail edits. A user's hand-added global tool (`mise use -g <t>`) would
 	//     be wiped on every boot, not just the one migration boot. Emitting a

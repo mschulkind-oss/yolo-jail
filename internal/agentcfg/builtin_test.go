@@ -19,8 +19,8 @@ func TestBuiltinManifestValid(t *testing.T) {
 	if s.Codec != "json" {
 		t.Errorf("pi/settings codec = %q, want json", s.Codec)
 	}
-	if s.Managed["defaultProjectTrust"] != "always" {
-		t.Errorf("pi/settings should enforce defaultProjectTrust=always, got %v", s.Managed["defaultProjectTrust"])
+	if s.ManagedMap()["defaultProjectTrust"] != "always" {
+		t.Errorf("pi/settings should enforce defaultProjectTrust=always, got %v", s.ManagedMap()["defaultProjectTrust"])
 	}
 }
 
@@ -41,12 +41,12 @@ func TestBuiltinClaudeSettingsSurface(t *testing.T) {
 	if s.Path != "~/.claude/settings.json" {
 		t.Errorf("claude/settings path = %q, want ~/.claude/settings.json", s.Path)
 	}
-	if s.Managed["skipDangerousModePermissionPrompt"] != true {
-		t.Errorf("claude/settings should enforce skipDangerousModePermissionPrompt=true, got %v", s.Managed["skipDangerousModePermissionPrompt"])
+	if s.ManagedMap()["skipDangerousModePermissionPrompt"] != true {
+		t.Errorf("claude/settings should enforce skipDangerousModePermissionPrompt=true, got %v", s.ManagedMap()["skipDangerousModePermissionPrompt"])
 	}
-	perms, ok := s.Managed["permissions"].(map[string]any)
+	perms, ok := s.ManagedMap()["permissions"].(map[string]any)
 	if !ok {
-		t.Fatalf("claude/settings managed permissions not an object: %T", s.Managed["permissions"])
+		t.Fatalf("claude/settings managed permissions not an object: %T", s.ManagedMap()["permissions"])
 	}
 	if perms["defaultMode"] != "acceptEdits" {
 		t.Errorf("permissions.defaultMode = %v, want acceptEdits", perms["defaultMode"])
@@ -60,9 +60,9 @@ func TestBuiltinClaudeSettingsSurface(t *testing.T) {
 	if !reflect.DeepEqual(perms["additionalDirectories"], []any{"/"}) {
 		t.Errorf("permissions.additionalDirectories = %#v, want [/]", perms["additionalDirectories"])
 	}
-	prefs, ok := s.Managed["preferences"].(map[string]any)
+	prefs, ok := s.ManagedMap()["preferences"].(map[string]any)
 	if !ok {
-		t.Fatalf("claude/settings managed preferences not an object: %T", s.Managed["preferences"])
+		t.Fatalf("claude/settings managed preferences not an object: %T", s.ManagedMap()["preferences"])
 	}
 	if prefs["autoUpdaterStatus"] != "disabled" {
 		t.Errorf("preferences.autoUpdaterStatus = %v, want disabled", prefs["autoUpdaterStatus"])
@@ -84,9 +84,9 @@ func TestBuiltinClaudeConfigSurface(t *testing.T) {
 	if s.Path != "~/.claude.json" {
 		t.Errorf("claude/config path = %q, want ~/.claude.json", s.Path)
 	}
-	mProj, ok := s.Managed["projects"].(map[string]any)
+	mProj, ok := s.ManagedMap()["projects"].(map[string]any)
 	if !ok {
-		t.Fatalf("claude/config managed projects not an object: %T", s.Managed["projects"])
+		t.Fatalf("claude/config managed projects not an object: %T", s.ManagedMap()["projects"])
 	}
 	ws, ok := mProj["/workspace"].(map[string]any)
 	if !ok {
@@ -95,9 +95,9 @@ func TestBuiltinClaudeConfigSurface(t *testing.T) {
 	if ws["enableAllProjectMcpServers"] != true {
 		t.Errorf("managed projects[/workspace].enableAllProjectMcpServers = %v, want true", ws["enableAllProjectMcpServers"])
 	}
-	dProj, ok := s.Defaults["projects"].(map[string]any)
+	dProj, ok := s.DefaultsMap()["projects"].(map[string]any)
 	if !ok {
-		t.Fatalf("claude/config default projects not an object: %T", s.Defaults["projects"])
+		t.Fatalf("claude/config default projects not an object: %T", s.DefaultsMap()["projects"])
 	}
 	dws, ok := dProj["/workspace"].(map[string]any)
 	if !ok {
@@ -128,9 +128,9 @@ func TestBuiltinGeminiSettingsSurface(t *testing.T) {
 	}
 
 	// security.* is a DEFAULT (user-overridable), not managed.
-	sec, ok := s.Defaults["security"].(map[string]any)
+	sec, ok := s.DefaultsMap()["security"].(map[string]any)
 	if !ok {
-		t.Fatalf("gemini/settings default security not an object: %T", s.Defaults["security"])
+		t.Fatalf("gemini/settings default security not an object: %T", s.DefaultsMap()["security"])
 	}
 	if sec["approvalMode"] != "yolo" {
 		t.Errorf("default security.approvalMode = %v, want yolo", sec["approvalMode"])
@@ -140,14 +140,14 @@ func TestBuiltinGeminiSettingsSurface(t *testing.T) {
 	}
 	// The security posture must NOT leak into the managed layer (the §7 bug: a
 	// setDefault posture must stay a default, or it silently changes behavior).
-	if _, present := s.Managed["security"]; present {
+	if _, present := s.ManagedMap()["security"]; present {
 		t.Error("gemini/settings security must be a DEFAULT, not managed (setDefault semantics)")
 	}
 
 	// general.* is FORCE-MANAGED, not a default.
-	gen, ok := s.Managed["general"].(map[string]any)
+	gen, ok := s.ManagedMap()["general"].(map[string]any)
 	if !ok {
-		t.Fatalf("gemini/settings managed general not an object: %T", s.Managed["general"])
+		t.Fatalf("gemini/settings managed general not an object: %T", s.ManagedMap()["general"])
 	}
 	if gen["enableAutoUpdate"] != false {
 		t.Errorf("managed general.enableAutoUpdate = %v, want false", gen["enableAutoUpdate"])
@@ -155,7 +155,7 @@ func TestBuiltinGeminiSettingsSurface(t *testing.T) {
 	if gen["enableAutoUpdateNotification"] != false {
 		t.Errorf("managed general.enableAutoUpdateNotification = %v, want false", gen["enableAutoUpdateNotification"])
 	}
-	if _, present := s.Defaults["general"]; present {
+	if _, present := s.DefaultsMap()["general"]; present {
 		t.Error("gemini/settings general must be MANAGED, not a default (.Set semantics)")
 	}
 }
@@ -177,11 +177,11 @@ func TestBuiltinCopilotConfigSurface(t *testing.T) {
 	if s.Path != "~/.copilot/config.json" {
 		t.Errorf("copilot/config path = %q, want ~/.copilot/config.json", s.Path)
 	}
-	if s.Defaults["yolo"] != true {
-		t.Errorf("copilot/config should default yolo=true, got %v", s.Defaults["yolo"])
+	if s.DefaultsMap()["yolo"] != true {
+		t.Errorf("copilot/config should default yolo=true, got %v", s.DefaultsMap()["yolo"])
 	}
 	// yolo:true must NOT be force-managed (write-if-absent = default semantics).
-	if _, present := s.Managed["yolo"]; present {
+	if _, present := s.ManagedMap()["yolo"]; present {
 		t.Error("copilot/config yolo must be a DEFAULT, not managed (write-if-absent semantics)")
 	}
 }
@@ -207,27 +207,27 @@ func TestBuiltinOpencodeConfigSurface(t *testing.T) {
 	}
 
 	// $schema is a DEFAULT (user-overridable), not managed.
-	if s.Defaults["$schema"] != "https://opencode.ai/config.json" {
-		t.Errorf("opencode/config should default $schema, got %v", s.Defaults["$schema"])
+	if s.DefaultsMap()["$schema"] != "https://opencode.ai/config.json" {
+		t.Errorf("opencode/config should default $schema, got %v", s.DefaultsMap()["$schema"])
 	}
-	if _, present := s.Managed["$schema"]; present {
+	if _, present := s.ManagedMap()["$schema"]; present {
 		t.Error("opencode/config $schema must be a DEFAULT, not managed (setDefault semantics)")
 	}
 
 	// permission="allow" is FORCE-MANAGED, not a default.
-	if s.Managed["permission"] != "allow" {
-		t.Errorf("opencode/config should enforce permission=allow, got %v", s.Managed["permission"])
+	if s.ManagedMap()["permission"] != "allow" {
+		t.Errorf("opencode/config should enforce permission=allow, got %v", s.ManagedMap()["permission"])
 	}
-	if _, present := s.Defaults["permission"]; present {
+	if _, present := s.DefaultsMap()["permission"]; present {
 		t.Error("opencode/config permission must be MANAGED, not a default (.Set semantics)")
 	}
 
 	// Documented MCP gap: the dynamic mcp translation is a transform-shaped
 	// concern, so "mcp" must not be baked into either static layer.
-	if _, present := s.Defaults["mcp"]; present {
+	if _, present := s.DefaultsMap()["mcp"]; present {
 		t.Error("opencode/config must NOT bake mcp into defaults (it is a dynamic transform)")
 	}
-	if _, present := s.Managed["mcp"]; present {
+	if _, present := s.ManagedMap()["mcp"]; present {
 		t.Error("opencode/config must NOT bake mcp into managed (it is a dynamic transform)")
 	}
 }
@@ -253,29 +253,29 @@ func TestBuiltinCodexConfigSurface(t *testing.T) {
 	}
 
 	// Both scalars are FORCE-MANAGED (.Set semantics).
-	if s.Managed["approval_policy"] != "never" {
-		t.Errorf("codex/config should enforce approval_policy=never, got %v", s.Managed["approval_policy"])
+	if s.ManagedMap()["approval_policy"] != "never" {
+		t.Errorf("codex/config should enforce approval_policy=never, got %v", s.ManagedMap()["approval_policy"])
 	}
-	if s.Managed["sandbox_mode"] != "danger-full-access" {
-		t.Errorf("codex/config should enforce sandbox_mode=danger-full-access, got %v", s.Managed["sandbox_mode"])
+	if s.ManagedMap()["sandbox_mode"] != "danger-full-access" {
+		t.Errorf("codex/config should enforce sandbox_mode=danger-full-access, got %v", s.ManagedMap()["sandbox_mode"])
 	}
 	// No setDefault keys in ConfigureCodex — Defaults is empty.
-	if len(s.Defaults) != 0 {
+	if len(s.DefaultsMap()) != 0 {
 		t.Errorf("codex/config Defaults should be empty, got %#v", s.Defaults)
 	}
 	// The managed scalars must not leak into the defaults layer.
-	if _, present := s.Defaults["approval_policy"]; present {
+	if _, present := s.DefaultsMap()["approval_policy"]; present {
 		t.Error("codex/config approval_policy must be MANAGED, not a default (.Set semantics)")
 	}
-	if _, present := s.Defaults["sandbox_mode"]; present {
+	if _, present := s.DefaultsMap()["sandbox_mode"]; present {
 		t.Error("codex/config sandbox_mode must be MANAGED, not a default (.Set semantics)")
 	}
 	// Documented MCP gap: the dynamic mcp_servers translation is a transform, so
 	// it must not be baked into either static layer.
-	if _, present := s.Defaults["mcp_servers"]; present {
+	if _, present := s.DefaultsMap()["mcp_servers"]; present {
 		t.Error("codex/config must NOT bake mcp_servers into defaults (it is a dynamic transform)")
 	}
-	if _, present := s.Managed["mcp_servers"]; present {
+	if _, present := s.ManagedMap()["mcp_servers"]; present {
 		t.Error("codex/config must NOT bake mcp_servers into managed (it is a dynamic transform)")
 	}
 }
@@ -299,16 +299,16 @@ func TestBuiltinAgySettingsSurface(t *testing.T) {
 		t.Errorf("agy/settings path = %q, want ~/.gemini/antigravity-cli/settings.json", s.Path)
 	}
 	// permissionMode is FORCE-MANAGED (the container is the sandbox).
-	if s.Managed["permissionMode"] != "allow" {
-		t.Errorf("agy/settings should enforce permissionMode=allow, got %v", s.Managed["permissionMode"])
+	if s.ManagedMap()["permissionMode"] != "allow" {
+		t.Errorf("agy/settings should enforce permissionMode=allow, got %v", s.ManagedMap()["permissionMode"])
 	}
 	// No setDefault keys — Defaults is empty (yolo owns the file outright).
-	if len(s.Defaults) != 0 {
+	if len(s.DefaultsMap()) != 0 {
 		t.Errorf("agy/settings Defaults should be empty, got %#v", s.Defaults)
 	}
 	// The dynamic mcp_config.json is a separate pure-overwrite sibling, not a
 	// manifest layer — it must not be baked into settings.
-	if _, present := s.Managed["mcpServers"]; present {
+	if _, present := s.ManagedMap()["mcpServers"]; present {
 		t.Error("agy/settings must NOT bake mcpServers into managed (it is a separate dynamic sibling)")
 	}
 }
@@ -332,10 +332,10 @@ func TestBuiltinCopilotMCPLSPSurfaces(t *testing.T) {
 	if mcp.Path != "~/.copilot/mcp-config.json" {
 		t.Errorf("copilot/mcp path = %q, want ~/.copilot/mcp-config.json", mcp.Path)
 	}
-	if _, ok := mcp.Defaults["mcpServers"].(map[string]any); !ok {
-		t.Errorf("copilot/mcp should default an empty mcpServers wrapper, got %#v", mcp.Defaults["mcpServers"])
+	if _, ok := mcp.DefaultsMap()["mcpServers"].(map[string]any); !ok {
+		t.Errorf("copilot/mcp should default an empty mcpServers wrapper, got %#v", mcp.DefaultsMap()["mcpServers"])
 	}
-	if len(mcp.Managed) != 0 {
+	if len(mcp.ManagedMap()) != 0 {
 		t.Errorf("copilot/mcp Managed should be empty (yolo forces no server), got %#v", mcp.Managed)
 	}
 
@@ -349,10 +349,10 @@ func TestBuiltinCopilotMCPLSPSurfaces(t *testing.T) {
 	if lsp.Path != "~/.copilot/lsp-config.json" {
 		t.Errorf("copilot/lsp path = %q, want ~/.copilot/lsp-config.json", lsp.Path)
 	}
-	if _, ok := lsp.Defaults["lspServers"].(map[string]any); !ok {
-		t.Errorf("copilot/lsp should default an empty lspServers wrapper, got %#v", lsp.Defaults["lspServers"])
+	if _, ok := lsp.DefaultsMap()["lspServers"].(map[string]any); !ok {
+		t.Errorf("copilot/lsp should default an empty lspServers wrapper, got %#v", lsp.DefaultsMap()["lspServers"])
 	}
-	if len(lsp.Managed) != 0 {
+	if len(lsp.ManagedMap()) != 0 {
 		t.Errorf("copilot/lsp Managed should be empty, got %#v", lsp.Managed)
 	}
 }
@@ -372,10 +372,10 @@ func TestBuiltinAgyMCPSurface(t *testing.T) {
 	if s.Path != "~/.gemini/antigravity-cli/mcp_config.json" {
 		t.Errorf("agy/mcp path = %q, want ~/.gemini/antigravity-cli/mcp_config.json", s.Path)
 	}
-	if _, ok := s.Defaults["mcpServers"].(map[string]any); !ok {
-		t.Errorf("agy/mcp should default an empty mcpServers wrapper, got %#v", s.Defaults["mcpServers"])
+	if _, ok := s.DefaultsMap()["mcpServers"].(map[string]any); !ok {
+		t.Errorf("agy/mcp should default an empty mcpServers wrapper, got %#v", s.DefaultsMap()["mcpServers"])
 	}
-	if len(s.Managed) != 0 {
+	if len(s.ManagedMap()) != 0 {
 		t.Errorf("agy/mcp Managed should be empty, got %#v", s.Managed)
 	}
 }
@@ -400,10 +400,10 @@ func TestBuiltinMiseConfigSurface(t *testing.T) {
 	}
 	// The surface is override-only: NO default runtime and NO managed key. All
 	// tool content is the dynamic YOLO_MISE_TOOLS computed layer.
-	if len(s.Defaults) != 0 {
+	if len(s.DefaultsMap()) != 0 {
 		t.Errorf("mise/config Defaults should be empty (mise is override-only), got %#v", s.Defaults)
 	}
-	if len(s.Managed) != 0 {
+	if len(s.ManagedMap()) != 0 {
 		t.Errorf("mise/config Managed should be empty (yolo asserts no mise key), got %#v", s.Managed)
 	}
 }

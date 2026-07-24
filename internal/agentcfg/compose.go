@@ -39,12 +39,15 @@ type Inputs struct {
 
 	// Workspace is the optional workspace-scope layer (already decoded). Merged
 	// above host, below overlay (§4). nil = absent.
-	Workspace map[string]any
+	//
+	// Typed `any` (like every layer here) so a non-object surface can carry its
+	// whole-file value: see the "non-object surfaces" note on Compose.
+	Workspace any
 
 	// Overlay is the capture-diff overlay layer (§5) that carries in-jail edits
 	// across regeneration, already decoded. Merged above workspace, below the Lua
 	// transform + managed. nil = absent.
-	Overlay map[string]any
+	Overlay any
 
 	// Computed is the runtime-computed layer: yolo's per-boot DYNAMIC content that
 	// is derived from live config rather than declared statically in the manifest
@@ -57,7 +60,7 @@ type Inputs struct {
 	// may still reshape it and managed still wins the floor). A null value is an
 	// RFC-7386 tombstone (deletes the key), so a dynamic entry that is gone this
 	// boot simply is not emitted — no sidecar memory needed. nil = absent.
-	Computed map[string]any
+	Computed any
 
 	// Script is the concatenated config.lua source (user-then-workspace, §3.4),
 	// or "" for the identity transform. VM is required iff Script is non-empty.
@@ -65,10 +68,20 @@ type Inputs struct {
 	VM     luahook.LuaVM
 }
 
+// WholeFileKey is the Provenance key used for a KEYLESS surface (raw/lines):
+// such a file has no top-level keys to attribute, so its single entry records
+// which layer produced the whole file. Bracketed so it cannot collide with a
+// real config key in an object surface's provenance map.
+const WholeFileKey = "<file>"
+
 // Result is the outcome of composing one surface.
 type Result struct {
 	// Config is the fully-composed decoded config (post-transform, post-enforce).
-	Config map[string]any
+	//
+	// Typed `any`: its shape is the surface codec's (map[string]any for
+	// json/toml, []any for lines, string for raw). Use ConfigMap for the object
+	// case.
+	Config any
 	// Encoded is Config serialized with the surface codec — the exact bytes yolo
 	// would write to Surface.Path.
 	Encoded []byte
@@ -80,6 +93,13 @@ type Result struct {
 	// transform (e.g. §6.5's dropped permission-gate) do not appear in Config but
 	// are recorded here with layer "transform (dropped)".
 	Provenance map[string]string
+}
+
+// ConfigMap returns Config as an object, or nil for a keyless surface. A
+// convenience for the object-surface callers that dominate.
+func (r *Result) ConfigMap() map[string]any {
+	m, _ := r.Config.(map[string]any)
+	return m
 }
 
 // Layer names used in Provenance and Explain output.
@@ -105,19 +125,25 @@ func Compose(in Inputs) (*Result, error) {
 		return nil, fmt.Errorf("agentcfg: surface %s/%s: unknown codec %q", in.Surface.Agent, in.Surface.Name, in.Surface.Codec)
 	}
 
+	kind := in.Surface.Kind()
+
 	// Decode the host layer (the one layer that arrives as raw bytes). An
 	// empty/absent host file is an empty layer, not an error.
-	var host map[string]any
+	var host any
 	if len(in.HostBytes) > 0 {
 		decoded, derr := c.Decode(in.HostBytes)
 		if derr != nil {
 			return nil, fmt.Errorf("agentcfg: surface %s/%s: decode host bytes: %w", in.Surface.Agent, in.Surface.Name, derr)
 		}
-		m, ok := decoded.(map[string]any)
-		if !ok {
-			return nil, fmt.Errorf("agentcfg: surface %s/%s: host config is not an object (got %T)", in.Surface.Agent, in.Surface.Name, decoded)
+		// The decoded shape must match what the codec promises (codec.Kind), not
+		// merely "be an object". A json surface whose host file holds a top-level
+		// ARRAY is still an error — deep-merging it would silently discard it —
+		// but a raw surface's string is now perfectly ordinary input.
+		if !kind.Matches(decoded) {
+			return nil, fmt.Errorf("agentcfg: surface %s/%s: host config is not %s (got %T)",
+				in.Surface.Agent, in.Surface.Name, kind, decoded)
 		}
-		host = m
+		host = decoded
 	}
 
 	// Track provenance by folding the same ascending-precedence layer list the
@@ -125,7 +151,7 @@ func Compose(in Inputs) (*Result, error) {
 	prov := map[string]string{}
 	preLayers := []struct {
 		name string
-		data map[string]any
+		data any
 	}{
 		{layerDefaults, in.Surface.Defaults},
 		{layerHost, host},
@@ -133,66 +159,115 @@ func Compose(in Inputs) (*Result, error) {
 		{layerOverlay, in.Overlay},
 		{layerComputed, in.Computed},
 	}
-	orderedLayers := make([]map[string]any, 0, len(preLayers))
-	for _, l := range preLayers {
-		if l.data == nil {
-			continue
-		}
-		orderedLayers = append(orderedLayers, l.data)
-		for k := range l.data {
-			// A null tombstone in a layer deletes the key; reflect that in
-			// provenance so --explain doesn't claim a deleted key is present.
-			if l.data[k] == nil {
-				delete(prov, k)
-			} else {
-				prov[k] = l.name
+
+	var merged any
+	if kind == codec.KindObject {
+		// Object surfaces: the §3.1 deep-merge fold, with per-key provenance.
+		orderedLayers := make([]map[string]any, 0, len(preLayers))
+		for _, l := range preLayers {
+			if l.data == nil {
+				continue
+			}
+			m, ok := l.data.(map[string]any)
+			if !ok {
+				return nil, fmt.Errorf("agentcfg: surface %s/%s: %s layer is not an object (got %T)",
+					in.Surface.Agent, in.Surface.Name, l.name, l.data)
+			}
+			orderedLayers = append(orderedLayers, m)
+			for k := range m {
+				// A null tombstone in a layer deletes the key; reflect that in
+				// provenance so --explain doesn't claim a deleted key is present.
+				if m[k] == nil {
+					delete(prov, k)
+				} else {
+					prov[k] = l.name
+				}
 			}
 		}
+		merged = render(orderedLayers...)
+	} else {
+		// KEYLESS surfaces (raw -> string, lines -> []any): whole-value
+		// replacement in the same ascending order. There is no deep-merge to do
+		// and no per-key attribution to make — a file with no keys has exactly
+		// one "key", itself — so the highest present layer simply wins, and
+		// provenance records that single winner under WholeFileKey.
+		//
+		// A layer is "present" iff non-nil. That is what makes an absent layer
+		// skip rather than blank the file: `nil` means "this layer says nothing",
+		// while an explicitly EMPTY value ("" or []any{}) is a real assertion
+		// that the file is empty and does win. Conflating the two would let a
+		// surface with no workspace layer erase its own host content.
+		for _, l := range preLayers {
+			if l.data == nil {
+				continue
+			}
+			if !kind.Matches(l.data) {
+				return nil, fmt.Errorf("agentcfg: surface %s/%s: %s layer is not %s (got %T)",
+					in.Surface.Agent, in.Surface.Name, l.name, kind, l.data)
+			}
+			merged = l.data
+			prov[WholeFileKey] = l.name
+		}
+		if merged == nil {
+			merged = kind.ZeroValue()
+		}
 	}
-
-	// Fold defaults<host<workspace<overlay via the pure engine (§3.1 deepMerge).
-	merged := render(orderedLayers...)
 
 	// Snapshot the pre-transform values so we can attribute transform edits —
 	// not just added/dropped keys but also keys whose value the transform
 	// changed (e.g. §6.5's extensions array, present before and after).
-	preValues := make(map[string]any, len(merged))
-	for k, v := range merged {
-		preValues[k] = v
+	preValues := map[string]any{}
+	if mm, ok := merged.(map[string]any); ok {
+		for k, v := range mm {
+			preValues[k] = v
+		}
 	}
+	preWhole := merged
 
 	// Transform step (§3.1): run the Lua hook (or identity when Script == "").
-	ctx := luahook.NewCtx(in.Surface.Agent, in.Surface.Name, merged, in.Surface.Managed)
+	// The hook sees the surface's own shape and must return that same shape;
+	// luahook enforces it against Kind (a raw transform returns a string).
+	ctx := luahook.NewCtxKind(in.Surface.Agent, in.Surface.Name, kind, merged, in.Surface.Managed)
 	transformed, terr := luahook.Apply(luahook.Transform{VM: in.VM, Script: in.Script}, ctx)
 	if terr != nil {
 		return nil, terr // already wrapped fail-closed by Apply
 	}
 
 	// Attribute transform edits: any key the transform added, changed, or
-	// dropped is recorded against the transform layer.
+	// dropped is recorded against the transform layer. For a keyless surface the
+	// only attribution possible is "the transform changed the file".
 	if in.Script != "" {
-		for k, nv := range transformed {
-			ov, existed := preValues[k]
-			if !existed || !reflect.DeepEqual(ov, nv) {
-				prov[k] = layerTransform
+		if tm, ok := transformed.(map[string]any); ok {
+			for k, nv := range tm {
+				ov, existed := preValues[k]
+				if !existed || !reflect.DeepEqual(ov, nv) {
+					prov[k] = layerTransform
+				}
 			}
-		}
-		for k := range preValues {
-			if _, still := transformed[k]; !still {
-				prov[k] = layerTransform + " (dropped)"
+			for k := range preValues {
+				if _, still := tm[k]; !still {
+					prov[k] = layerTransform + " (dropped)"
+				}
 			}
+		} else if !reflect.DeepEqual(preWhole, transformed) {
+			prov[WholeFileKey] = layerTransform
 		}
 	}
 
 	// Enforce step (§3.1): re-apply the managed layer AFTER the hook, so managed
-	// keys win regardless of what the transform did.
+	// keys win regardless of what the transform did. On a keyless surface a
+	// non-nil managed layer replaces the whole value (see Ctx.Enforce).
 	ctx.Config = transformed
 	ctx.Enforce()
-	for k := range in.Surface.Managed {
-		if in.Surface.Managed[k] == nil {
-			continue
+	if mm := in.Surface.ManagedMap(); mm != nil {
+		for k := range mm {
+			if mm[k] == nil {
+				continue
+			}
+			prov[k] = layerManaged
 		}
-		prov[k] = layerManaged
+	} else if in.Surface.Managed != nil {
+		prov[WholeFileKey] = layerManaged
 	}
 
 	encoded, eerr := c.Encode(ctx.Config)

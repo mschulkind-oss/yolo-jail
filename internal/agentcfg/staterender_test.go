@@ -72,8 +72,8 @@ func TestComposeStatefulFirstMigrationIgnoresDanglingOverlay(t *testing.T) {
 	if !out.FirstMigration {
 		t.Error("FirstMigration = false, want true")
 	}
-	if out.Result.Config["theme"] != "system" {
-		t.Errorf("theme = %v, want system (dangling overlay must be reset, not applied)", out.Result.Config["theme"])
+	if out.Result.ConfigMap()["theme"] != "system" {
+		t.Errorf("theme = %v, want system (dangling overlay must be reset, not applied)", out.Result.ConfigMap()["theme"])
 	}
 	if got := jsonObj(t, string(out.OverlayJSON)); len(got) != 0 {
 		t.Errorf("overlay = %v, want {} (dangling overlay reset)", got)
@@ -101,8 +101,8 @@ func TestComposeStatefulSteadyStateCapturesEdit(t *testing.T) {
 		t.Error("FirstMigration = true, want false in steady state")
 	}
 	// The edit survives: overlay outranks the default, so theme stays solarized.
-	if out.Result.Config["theme"] != "solarized" {
-		t.Errorf("theme = %v, want solarized (in-jail edit must survive regen)", out.Result.Config["theme"])
+	if out.Result.ConfigMap()["theme"] != "solarized" {
+		t.Errorf("theme = %v, want solarized (in-jail edit must survive regen)", out.Result.ConfigMap()["theme"])
 	}
 	if got := jsonObj(t, string(out.OverlayJSON)); got["theme"] != "solarized" {
 		t.Errorf("overlay = %v, want {theme:solarized}", got)
@@ -126,8 +126,8 @@ func TestComposeStatefulSteadyStateNoEdit(t *testing.T) {
 	if got := jsonObj(t, string(out.OverlayJSON)); len(got) != 0 {
 		t.Errorf("overlay = %v, want {} (no edit)", got)
 	}
-	if out.Result.Config["theme"] != "system" {
-		t.Errorf("theme = %v, want system", out.Result.Config["theme"])
+	if out.Result.ConfigMap()["theme"] != "system" {
+		t.Errorf("theme = %v, want system", out.Result.ConfigMap()["theme"])
 	}
 }
 
@@ -154,8 +154,8 @@ func TestComposeStatefulSteadyStateCapturesDeletionTombstone(t *testing.T) {
 		t.Fatalf("ComposeStateful error: %v", err)
 	}
 	// The deletion wins over the host re-emission: "extra" is gone from the render.
-	if _, present := out.Result.Config["extra"]; present {
-		t.Errorf("extra present in render (%v), want deleted (overlay tombstone must beat host)", out.Result.Config["extra"])
+	if _, present := out.Result.ConfigMap()["extra"]; present {
+		t.Errorf("extra present in render (%v), want deleted (overlay tombstone must beat host)", out.Result.ConfigMap()["extra"])
 	}
 	// And the tombstone is persisted in the overlay (as an explicit null).
 	got := jsonObj(t, string(out.OverlayJSON))
@@ -190,8 +190,8 @@ func TestComposeStatefulSteadyStateAbsentCurrentSkipsCapture(t *testing.T) {
 		t.Errorf("overlay = %v, want prior {theme:solarized} preserved (capture skipped)", got)
 	}
 	// ...and the file is regenerated with that overlay applied.
-	if out.Result.Config["theme"] != "solarized" {
-		t.Errorf("theme = %v, want solarized (regenerated from preserved overlay)", out.Result.Config["theme"])
+	if out.Result.ConfigMap()["theme"] != "solarized" {
+		t.Errorf("theme = %v, want solarized (regenerated from preserved overlay)", out.Result.ConfigMap()["theme"])
 	}
 }
 
@@ -213,8 +213,8 @@ func TestComposeStatefulCorruptLastRenderReseeds(t *testing.T) {
 	if !out.FirstMigration {
 		t.Error("FirstMigration = false, want true (corrupt last_render re-seeds)")
 	}
-	if out.Result.Config["theme"] != "system" {
-		t.Errorf("theme = %v, want system (re-seed drops uncaptured edit and resets overlay)", out.Result.Config["theme"])
+	if out.Result.ConfigMap()["theme"] != "system" {
+		t.Errorf("theme = %v, want system (re-seed drops uncaptured edit and resets overlay)", out.Result.ConfigMap()["theme"])
 	}
 	if got := jsonObj(t, string(out.OverlayJSON)); len(got) != 0 {
 		t.Errorf("overlay = %v, want {} after re-seed", got)
@@ -237,7 +237,7 @@ func TestComposeStatefulEmptyLastRenderReseeds(t *testing.T) {
 	if !out.FirstMigration {
 		t.Error("FirstMigration = false, want true (empty last_render re-seeds)")
 	}
-	if _, present := out.Result.Config["legacyPin"]; present {
+	if _, present := out.Result.ConfigMap()["legacyPin"]; present {
 		t.Error("legacyPin present, want dropped (empty last_render must not capture the file)")
 	}
 }
@@ -262,8 +262,8 @@ func TestComposeStatefulOverlayAbsentInitsEmpty(t *testing.T) {
 		t.Error("FirstMigration = true, want false (last_render present)")
 	}
 	// The edit is still captured against the present last_render.
-	if out.Result.Config["theme"] != "solarized" {
-		t.Errorf("theme = %v, want solarized", out.Result.Config["theme"])
+	if out.Result.ConfigMap()["theme"] != "solarized" {
+		t.Errorf("theme = %v, want solarized", out.Result.ConfigMap()["theme"])
 	}
 }
 
@@ -290,8 +290,8 @@ func TestComposeStatefulCorruptCurrentSkipsCapture(t *testing.T) {
 	if got["theme"] != "solarized" || len(got) != 1 {
 		t.Errorf("overlay = %v, want prior {theme:solarized} preserved (corrupt current => skip capture)", got)
 	}
-	if out.Result.Config["theme"] != "solarized" {
-		t.Errorf("theme = %v, want solarized (regenerated from preserved overlay)", out.Result.Config["theme"])
+	if out.Result.ConfigMap()["theme"] != "solarized" {
+		t.Errorf("theme = %v, want solarized (regenerated from preserved overlay)", out.Result.ConfigMap()["theme"])
 	}
 }
 
@@ -333,12 +333,12 @@ func TestComposeStatefulComputedBeatsCapturedEdit(t *testing.T) {
 		t.Fatalf("ComposeStateful error: %v", err)
 	}
 	// Computed beats the captured edit: the dynamic key reverts to yolo's value.
-	if out.Result.Config["dynamicKey"] != "on" {
-		t.Errorf("dynamicKey = %v, want on (computed must beat captured edit)", out.Result.Config["dynamicKey"])
+	if out.Result.ConfigMap()["dynamicKey"] != "on" {
+		t.Errorf("dynamicKey = %v, want on (computed must beat captured edit)", out.Result.ConfigMap()["dynamicKey"])
 	}
 	// The plain in-jail edit still survives (computed doesn't touch it).
-	if out.Result.Config["theme"] != "solarized" {
-		t.Errorf("theme = %v, want solarized (non-computed edit survives)", out.Result.Config["theme"])
+	if out.Result.ConfigMap()["theme"] != "solarized" {
+		t.Errorf("theme = %v, want solarized (non-computed edit survives)", out.Result.ConfigMap()["theme"])
 	}
 	// Both edits are still CAPTURED in the overlay (capture is layer-agnostic; the
 	// overlay records what changed on disk — precedence is decided at render, so
