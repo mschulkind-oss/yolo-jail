@@ -599,6 +599,78 @@ support them). This is automatic — if port forwarding fails, ensure:
 **Apple Container:** Uses native `--publish-socket` for direct Unix socket
 forwarding. No TCP gateway or socat needed.
 
+### Apple Container: no outbound internet (macOS 15 vmnet limitation)
+
+Apple Container on Darwin 24.x (macOS 15) has a `vmnet` limitation that leaves
+containers without outbound internet even though the bridge gateway is
+reachable. First-time setup stalls: `mise` times out resolving node/go/python
+version lists, `git`/`curl` can't reach `github.com` or `nodejs.org`.
+
+**Symptom.** A jail can ping the gateway `192.168.64.1` but reaches nothing
+beyond it — while the host has full internet:
+
+```bash
+# from inside a jail (yolo -- bash):
+ping -c2 192.168.64.1   # OK
+ping -c2 1.1.1.1        # 100% packet loss
+```
+
+**Cause.** On macOS 15 the `vmnet` framework is supposed to NAT the container
+subnet out to the internet and doesn't. The address allocation itself is fine
+(gateway `192.168.64.1`, containers `192.168.64.2+/24`), and the gateway
+process even proxies DNS — but nothing NATs the container subnet's egress, and
+host IP forwarding is off. `sudo pfctl -a 'com.apple/*' -s nat` shows an empty
+NAT anchor and `sysctl net.inet.ip.forwarding` reads `0`. Apple documents the
+framework limitation in [Apple Container: macOS 15
+limitations](https://github.com/apple/container/blob/main/docs/technical-overview.md#macos-15-limitations);
+it is fixed in macOS 26.
+
+`yolo check` (a.k.a. `yolo doctor`) detects this: on macOS 15 with Apple
+Container running it reads `net.inet.ip.forwarding` and, when it's `0`, warns
+with the remediation below.
+
+**Remediation** (host-side; supply the NAT that `vmnet` failed to). Replace
+`en0` with your default-route interface — find it with
+`route -n get default | grep interface`:
+
+```bash
+sudo sysctl -w net.inet.ip.forwarding=1
+echo 'nat on en0 from 192.168.64.0/24 to any -> (en0)' | \
+  sudo pfctl -a 'com.apple/yolo-vmnet-nat' -f -
+```
+
+This loads a NAT rule into a sub-anchor under the stock `nat-anchor
+"com.apple/*"` (defined in `/etc/pf.conf`), so it composes with the existing
+ruleset without editing or flushing it. Verify from a fresh jail:
+
+```bash
+yolo run -- curl -sS -o /dev/null -w '%{http_code}\n' https://github.com  # 200
+```
+
+**Caveat: not persistent.** Both the `sysctl` and the pf anchor reset on reboot
+(and a `pfctl -f /etc/pf.conf` reload drops the anchor). Re-run the two
+commands after a reboot, or wrap them in a `LaunchDaemon`. The durable fixes are
+upgrading to macOS 26 (where `vmnet` NATs correctly) or using the `podman`
+backend instead of Apple Container.
+
+**A second, distinct variant — subnet disagreement.** macOS 15 vmnet can also
+fail *earlier*, at addressing: because the network is created lazily when the
+first container starts, the network helper and vmnet can pick different subnets.
+Then the gateway the helper hands to containers isn't on any host `bridge*`
+interface, and a jail **can't even reach `192.168.64.1`** — the container is
+completely cut off, not merely internet-less. The NAT workaround above does
+*not* help this case; the fix is to recreate the network coherently:
+
+```bash
+container system stop && container system start
+```
+
+If it recurs, pin the CIDR in `~/.config/container/config.toml`
+(`[network]` `subnet = "192.168.64.1/24"`). `yolo check` distinguishes the two:
+it compares the helper's allocated gateway (from `container system logs`)
+against the host interface addresses and warns with *this* remedy when they
+disagree, versus the forwarding/NAT remedy when addressing is sound.
+
 ### Apple Container: "virtual machine failed to start"
 
 Apple's Virtualization.framework has a hard limit of ~22 directory sharing
