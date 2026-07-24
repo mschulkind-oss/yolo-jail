@@ -252,6 +252,58 @@ func TestCheckAccumulatedFailEarlyExit(t *testing.T) {
 	}
 }
 
+// TestRuntimeStoppedHintIsActionable: when a runtime is installed but its
+// daemon/VM is down, the Container Runtime section's hint must lead with the
+// actual start command. On macOS a not-connected podman means the VM is down,
+// so the hint is `podman machine start` while still pointing at `podman info`
+// for anything else; on Linux (daemonless) it is only the `podman info`
+// diagnostic.
+func TestRuntimeStoppedHintIsActionable(t *testing.T) {
+	run := func(t *testing.T, isMacOS bool) string {
+		t.Helper()
+		var out bytes.Buffer
+		opts := baseOptions(t, &out)
+		opts.IsMacOS = isMacOS
+		opts.LookPath = func(name string) (string, bool) {
+			if name == "podman" {
+				return "/usr/bin/podman", true
+			}
+			return "", false
+		}
+		// podman is installed (version OK) but the liveness probe fails — VM/socket
+		// down. No runtime becomes connectable, so the section FAILs with the hint.
+		opts.Exec = fakeExec(map[string]ExecResult{
+			"podman --version": {Stdout: "podman version 5.0.0", Ran: true, RC: 0},
+			"podman info":      {Stdout: "", Stderr: "cannot connect", Ran: true, RC: 1},
+		})
+		r := newReporter(&out, false)
+		opts.sectionContainerRuntime(r)
+		return stripANSI(out.String())
+	}
+
+	mac := run(t, true)
+	if !strings.Contains(mac, "installed but not started") {
+		t.Errorf("macOS: expected the 'installed but not started' FAIL, got:\n%s", mac)
+	}
+	if !strings.Contains(mac, "podman machine start") {
+		t.Errorf("macOS: expected the actionable 'podman machine start' hint, got:\n%s", mac)
+	}
+	if !strings.Contains(mac, "podman info") {
+		t.Errorf("macOS: 'podman info' is still useful for triage — must be kept, got:\n%s", mac)
+	}
+
+	linux := run(t, false)
+	if !strings.Contains(linux, "installed but not started") {
+		t.Errorf("linux: expected the 'installed but not started' FAIL, got:\n%s", linux)
+	}
+	if strings.Contains(linux, "podman machine start") {
+		t.Errorf("linux: podman is daemonless — must NOT suggest 'podman machine start', got:\n%s", linux)
+	}
+	if !strings.Contains(linux, "podman info") {
+		t.Errorf("linux: expected the 'podman info' diagnostic hint, got:\n%s", linux)
+	}
+}
+
 func must(t *testing.T, err error) {
 	t.Helper()
 	if err != nil {

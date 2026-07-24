@@ -236,8 +236,19 @@ func (o *Options) sectionContainerRuntime(r *reporter) string {
 		livenessCmd  []string
 		livenessHint string
 	}
+	// The hint for an installed-but-not-connected runtime is the user's to act
+	// on. On macOS a not-connected podman almost always means the VM is down, so
+	// lead with `podman machine start`; `podman info` is still the way to triage
+	// anything else. On Linux podman is daemonless, so a failing liveness probe
+	// is a socket/service issue — `podman info` is the whole story.
+	podmanHint := "Run 'podman info' to diagnose"
+	if o.IsMacOS {
+		podmanHint = "Start the VM: podman machine start " +
+			"(first time: podman machine init && podman machine start).  " +
+			"Otherwise run 'podman info' to diagnose"
+	}
 	probes := []probe{
-		{"podman", []string{"podman", "--version"}, []string{"podman", "info"}, "Run 'podman info' to diagnose"},
+		{"podman", []string{"podman", "--version"}, []string{"podman", "info"}, podmanHint},
 		{"container", []string{"container", "--version"}, []string{"container", "system", "status"}, "Start with: container system start"},
 	}
 	selectedRuntime := o.Getenv("YOLO_RUNTIME")
