@@ -5,7 +5,6 @@ import (
 	"github.com/mschulkind-oss/yolo-jail/internal/image"
 	"github.com/mschulkind-oss/yolo-jail/internal/jsonx"
 	"github.com/mschulkind-oss/yolo-jail/internal/nixdiag"
-	"github.com/mschulkind-oss/yolo-jail/internal/storage"
 )
 
 // autoLoadImage builds/loads the nix jail
@@ -15,7 +14,7 @@ import (
 // the actionable "needs a Linux builder / cached image" text matches.
 func (o *Options) autoLoadImage(cfg *jsonx.OrderedMap, rt, repoRoot string) bool {
 	extra := config.EffectivePackages(cfg)
-	remedy := linuxBuilderRemedy()
+	remedy := nixdiag.LinuxBuilderRemedy()
 	return image.AutoLoadImage(image.AutoLoadOptions{
 		Runtime:  rt,
 		RepoRoot: repoRoot,
@@ -49,14 +48,4 @@ func (o *Options) rootImageFn() func(string) {
 		return nil
 	}
 	return func(storePath string) { _, _ = image.RegisterImageRoot(storePath, o.Stdout) }
-}
-
-// linuxBuilderRemedy resolves the remedy template with
-// the detected nix-daemon launchd label substituted (macOS), else a default.
-func linuxBuilderRemedy() string {
-	label := "org.nixos.nix-daemon"
-	if l, ok := storage.DetectNixDaemonLabel(); ok {
-		label = l
-	}
-	return nixdiag.LinuxBuilderRemedy(label)
 }

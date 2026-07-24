@@ -94,8 +94,9 @@ func (o *Options) nixExtraPlatformsAndBuilder(r *reporter) {
 					"Remove 'aarch64-linux' from extra-platforms in your "+
 						"nix config (~/.config/nix/nix.conf or /etc/nix/nix.conf) "+
 						"— it makes nix try to run Linux binaries locally, which "+
-						"fails on macOS.  Use a Linux builder instead: "+
-						"`nix run nixpkgs#darwin.linux-builder`.")
+						"fails on macOS.  A normal `yolo` run offloads any "+
+						"from-source Linux build to an on-demand container builder "+
+						"on the active runtime, so no local Linux build is needed.")
 			}
 		}
 	}

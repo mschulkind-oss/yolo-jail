@@ -449,7 +449,7 @@ func (o *Options) sectionImageBuild(r *reporter, merged *jsonx.OrderedMap, repoR
 			} else {
 				storePath, tail := o.BuildImage(repoRoot, extraArg)
 				if storePath == "" {
-					title, note := nixdiag.DiagnoseNixBuildFailure(tail, o.IsMacOS, linuxBuilderRemedy())
+					title, note := nixdiag.DiagnoseNixBuildFailure(tail, o.IsMacOS, nixdiag.LinuxBuilderRemedy())
 					r.fail(title, note)
 				} else {
 					r.ok("nix build succeeded: " + storePath)

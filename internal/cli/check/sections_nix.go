@@ -7,7 +7,6 @@ import (
 
 	"github.com/mschulkind-oss/yolo-jail/internal/jsonx"
 	"github.com/mschulkind-oss/yolo-jail/internal/nixdiag"
-	"github.com/mschulkind-oss/yolo-jail/internal/storage"
 )
 
 // nixDryRunWillBuild runs `nix build .#ociImage
@@ -49,16 +48,6 @@ func (o *Options) hasLinuxBuilder() bool {
 	})
 }
 
-// linuxBuilderRemedy returns the remedy template with
-// the daemon label filled in.
-func linuxBuilderRemedy() string {
-	label, ok := storage.DetectNixDaemonLabel()
-	if !ok {
-		label = ""
-	}
-	return nixdiag.LinuxBuilderRemedy(label)
-}
-
 // preflightBuilderNeeds returns a tri-state:
 // true  → the build is viable (fully cached, builder present, or inconclusive);
 // false → known-doomed (skip the real build, one clear message already emitted).
@@ -88,33 +77,25 @@ func (o *Options) preflightBuilderNeeds(r *reporter, repoRoot string, extraPacka
 			"(native Linux build; not served from the binary cache).")
 		return true
 	}
-	// macOS: reachability gate.
-	if o.BuilderSetupDone() {
-		started, err := o.EnsureBuilder(func(m string) { r.dim(m) })
-		if started {
-			r.ok("A package will be built from source" + named + "; the on-demand " +
-				"Linux builder is up to handle it")
-			return true
-		}
-		if err == "needs first-boot" {
-			r.fail("Linux builder needs a one-time first boot — a package must be built from source"+named,
-				"Run this ONCE (it asks for sudo to install the builder's ssh "+
-					"key, then boots the VM):\n"+
-					"    nix run nixpkgs#darwin.linux-builder\n"+
-					"Wait for the `builder@…` login prompt, then Ctrl-C and re-run "+
-					"`yolo` — from then on yolo starts/stops the builder for you.")
-			return false
-		}
-		r.fail("Image needs a Linux builder — a package must be built from source"+named,
-			"The on-demand builder is set up but wouldn't start ("+err+").  "+
-				"Try `yolo builder start`, or see `yolo builder status`.")
-		return false
-	}
+	// macOS: a from-source (Linux) build can't run locally. If the user already
+	// has their OWN Linux builder configured (nix-darwin `linux-builder` or a
+	// machine in /etc/nix/machines — the §8 escape hatch), Nix will use it, so
+	// check's own build is viable.
 	if o.hasLinuxBuilder() {
-		r.ok("A package will be built from source" + named + "; a Linux builder will handle it")
+		r.ok("A package will be built from source" + named + "; your configured Linux builder will handle it")
 		return true
 	}
-	r.fail("Image needs a Linux builder — a package must be built from source"+named,
-		linuxBuilderRemedy())
+	// No user builder: a real `yolo` run offloads the from-source build to an
+	// on-demand container builder on the active runtime (podman/Apple Container).
+	// check's own `nix build` has no offload seam (see image.BuildOCIImage), so it
+	// can't reproduce that here — report the container-builder reality (runtime
+	// must be up) and skip the doomed local build. WARN, not FAIL: `yolo` itself
+	// will build fine when the runtime is up.
+	r.warn("A package must be built from source"+named+" — `yolo` will offload it to a container builder",
+		"`yolo check` can't run that Linux build locally, but a normal `yolo` run "+
+			"handles it automatically: it offloads the build to an on-demand "+
+			"container builder on your active runtime (podman/Apple Container), "+
+			"then tears it down.  Just make sure the runtime is up "+
+			"(`podman machine start` or `container system start`) and run `yolo`.")
 	return false
 }

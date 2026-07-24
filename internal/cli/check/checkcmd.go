@@ -104,17 +104,6 @@ type Options struct {
 	// creds file, flake.nix). nil => os.Stat.
 	PathExists func(string) bool
 
-	// BuilderSetupDone reports whether `yolo builder setup` has wired the Nix
-	// daemon to the on-demand Linux builder (macOS only). nil => real probe.
-	BuilderSetupDone func() bool
-	// BuilderKeyInstalled reports whether the builder VM's one-time ssh key is
-	// present (installed on its first boot). nil => real probe.
-	BuilderKeyInstalled func() bool
-	// EnsureBuilder starts the on-demand Linux builder if needed (macOS only),
-	// returning (started, err). err is "" on success, or a short reason
-	// ("needs first-boot", …). nil => real
-	// implementation. onProgress receives boot status messages.
-	EnsureBuilder func(onProgress func(string)) (bool, string)
 	// BuildImage runs the real `nix build .#ociImage`
 	// and returns (storePath, stderrTail). storePath is "" on failure. nil =>
 	// real implementation.
@@ -172,15 +161,6 @@ func fillDefaults(o *Options) {
 	}
 	if o.RepoRoot == nil {
 		o.RepoRoot = func() (string, bool) { return resolveRepoRoot(o.Getenv) }
-	}
-	if o.BuilderSetupDone == nil {
-		o.BuilderSetupDone = builderSetupDone
-	}
-	if o.BuilderKeyInstalled == nil {
-		o.BuilderKeyInstalled = builderKeyInstalled
-	}
-	if o.EnsureBuilder == nil {
-		o.EnsureBuilder = ensureBuilderReal
 	}
 	if o.BuildImage == nil {
 		o.BuildImage = buildImageReal

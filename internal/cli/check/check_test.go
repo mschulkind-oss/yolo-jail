@@ -55,19 +55,16 @@ func baseOptions(t *testing.T, out *bytes.Buffer) Options {
 		Color:             false,
 		// Force the TTY gate open so the Color field alone governs styling over
 		// the test buffer (Color=false stays plain; a Color=true case gets ANSI).
-		IsTTYStdout:         func() bool { return true },
-		IsMacOS:             false,
-		Machine:             "x86_64",
-		Workspace:           ws,
-		RepoRoot:            func() (string, bool) { return "", false },
-		PathExists:          func(string) bool { return false },
-		BuilderSetupDone:    func() bool { return false },
-		BuilderKeyInstalled: func() bool { return false },
-		EnsureBuilder:       func(func(string)) (bool, string) { return false, "not set up" },
-		BuildImage:          func(string, []any) (string, []string) { return "", nil },
-		AccessRW:            func(string) bool { return false },
-		NodeGID:             func(string) (int, string, bool) { return 0, "", false },
-		InUserGroups:        func(int) bool { return false },
+		IsTTYStdout:  func() bool { return true },
+		IsMacOS:      false,
+		Machine:      "x86_64",
+		Workspace:    ws,
+		RepoRoot:     func() (string, bool) { return "", false },
+		PathExists:   func(string) bool { return false },
+		BuildImage:   func(string, []any) (string, []string) { return "", nil },
+		AccessRW:     func(string) bool { return false },
+		NodeGID:      func(string) (int, string, bool) { return 0, "", false },
+		InUserGroups: func(int) bool { return false },
 	}
 }
 

@@ -3,7 +3,7 @@
 // "will be built" stderr parser (a tri-state: build / substitutable /
 // inconclusive), the /etc/nix builders-config parser that decides whether an
 // aarch64-linux builder is reachable, the credentials-freshness duration
-// formatter, and the Linux-builder remedy template.
+// formatter, and the Linux-builder remedy.
 package nixdiag
 
 import (
@@ -78,9 +78,8 @@ func ParseDryRunWillBuild(returncode int, stderr string, ok bool) (WillBuild, []
 }
 
 // DiagnoseNixBuildFailure turns opaque nix build stderr into a (title,
-// remediation) pair. remedy is the resolved _linux_builder_remedy() (caller
-// substitutes the daemon label). isMacOS gates the ambiguous "dependency
-// failed" branch.
+// remediation) pair. remedy is the resolved LinuxBuilderRemedy(). isMacOS gates
+// the ambiguous "dependency failed" branch.
 func DiagnoseNixBuildFailure(stderrTail []string, isMacOS bool, remedy string) (title, remediation string) {
 	text := strings.Join(stderrTail, "\n")
 	low := strings.ToLower(text)
@@ -196,42 +195,44 @@ func itoa(n int) string {
 	return string(b[i:])
 }
 
-// linuxBuilderRemedyTemplate is the builder remedy with a NIX_DAEMON_LABEL
-// placeholder. LinuxBuilderRemedy substitutes the resolved label. Verbatim from
-// _LINUX_BUILDER_REMEDY_TEMPLATE.
-const linuxBuilderRemedyTemplate = "The jail image is a Linux image; part of it must be built from source, " +
-	"and macOS can't build Linux locally — it offloads to a small Linux VM.  " +
-	"Set that up ONCE, then yolo starts/stops it for you on demand (no VM to " +
-	"babysit):\n" +
+// linuxBuilderRemedyText is the macOS from-source-build remedy. On macOS a
+// `packages:` derivation that isn't in the binary cache must be built on Linux,
+// which macOS can't do locally; a normal `yolo` run offloads that build
+// AUTOMATICALLY to a tiny nix+sshd container on whichever container runtime is
+// already up (podman or Apple Container) — no sudo, no VM, no `yolo builder`
+// command, zero idle RAM. This text is shown when that automatic offload could
+// not run or the offloaded build failed, so it diagnoses the runtime rather
+// than telling the user to set a builder up.
+const linuxBuilderRemedyText = "The jail image is a Linux image, and a package in it isn't in the binary " +
+	"cache, so it must be built from source — which macOS can't do locally.  " +
+	"A normal `yolo` run handles that for you AUTOMATICALLY: it offloads the " +
+	"build to a tiny Linux builder CONTAINER on whichever runtime is already up " +
+	"(podman or Apple Container), then tears it down when the build finishes — " +
+	"no sudo, no VM, no `yolo builder` command, and zero idle RAM.\n" +
 	"\n" +
-	"  1. Run:  yolo builder setup\n" +
-	"     (It prints the one privileged step — wiring the Nix daemon to the\n" +
-	"      builder VM — for you to review and run.)\n" +
-	"  2. Ensure YOUR user is trusted by the Nix daemon (only 'trusted' users\n" +
-	"     may hand it a builder to offload to; this grants nix-build trust to\n" +
-	"     your login user, NOT general admin — the `sudo` is only because\n" +
-	"     /etc/nix/nix.conf is root-owned):\n" +
-	"       echo \"trusted-users = root $(whoami)\" | sudo tee -a /etc/nix/nix.conf\n" +
-	"       sudo launchctl kickstart -k system/NIX_DAEMON_LABEL\n" +
-	"  3. Run `yolo` again — it auto-starts the builder, builds, and starts " +
-	"the jail.\n" +
+	"This message means that automatic offload could not run or the offloaded " +
+	"build failed.  The usual cause is that your container runtime isn't running " +
+	"(so there's nowhere to start the builder), or the builder image couldn't be " +
+	"pulled:\n" +
 	"\n" +
-	"Steps 1–2 are one-time (verified by `yolo check` / `yolo builder " +
-	"status`).  From then on the builder is on-demand: yolo brings it up " +
-	"before a build and a launchd idle-timer stops it, so it doesn't hold " +
-	"RAM while you're not building.\n" +
-	"(If you added a custom `packages` entry: a {version,url,hash} override " +
-	"is never cached, so a rebuild is unavoidable; a {nixpkgs:<commit>} pin " +
-	"may just need a released revision that IS in the cache.)"
+	"  1. Make sure your container runtime is up:\n" +
+	"       podman:           podman machine start\n" +
+	"       Apple Container:  container system start\n" +
+	"  2. Run `yolo` again — it starts the builder container, runs the build on " +
+	"it, and launches the jail.\n" +
+	"\n" +
+	"(Already running your OWN Linux builder — nix-darwin `linux-builder`, or a " +
+	"machine in /etc/nix/machines?  That keeps working; Nix uses it and yolo " +
+	"never starts its own container.)\n" +
+	"(If you added a custom `packages` entry: a {version,url,hash} override is " +
+	"never cached, so a rebuild is unavoidable; a {nixpkgs:<commit>} pin may " +
+	"just need a released revision that IS in the cache.)"
 
-// LinuxBuilderRemedy returns the remedy with the daemon-restart label filled in.
-// label is the resolved nix-daemon launchd label (caller passes
-// storage.DetectNixDaemonLabel() or "org.nixos.nix-daemon").
-func LinuxBuilderRemedy(label string) string {
-	if label == "" {
-		label = "org.nixos.nix-daemon"
-	}
-	return strings.ReplaceAll(linuxBuilderRemedyTemplate, "NIX_DAEMON_LABEL", label)
+// LinuxBuilderRemedy returns the macOS from-source-build remedy. It takes no
+// arguments: the container-builder path needs no nix-daemon restart (the old
+// daemon-label substitution was VM-builder setup, now removed).
+func LinuxBuilderRemedy() string {
+	return linuxBuilderRemedyText
 }
 
 // MinFreeFromConfig parses the `min-free` setting out of `nix config show`
