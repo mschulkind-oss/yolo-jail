@@ -13,6 +13,7 @@ package config
 // cannot.
 
 import (
+	"encoding/json"
 	"fmt"
 	"os"
 	"path"
@@ -73,51 +74,55 @@ var knownHostFileKeys = set(
 // HostFileEntry is one validated `host_files` entry, lowered from either the
 // string (sugar) or object form. It is the config-side value; Phase 2 de-sugars
 // it into a manifest.Surface with owner "user".
+//
+// The json tags define the YOLO_HOST_FILES wire form (see MarshalHostFiles): the
+// host CLI is the single source of truth for the resolved entries and hands them
+// to the entrypoint through that env var, so the entrypoint never re-reads config.
 type HostFileEntry struct {
 	// Path is the jail destination, home-relative and slash-separated with the
 	// leading "~/" stripped (e.g. ".config/mytool/config.json"). Always set.
-	Path string
+	Path string `json:"path"`
 
 	// Source is the absolute host path to seed the `host` layer from, "~" already
 	// expanded. Empty means source-less. Its presence is what makes an entry
 	// user-scope only — see SourceBearing.
-	Source string
+	Source string `json:"source,omitempty"`
 
 	// Content is the inline literal seed for the `host` layer. Mutually exclusive
 	// with Source. A source-less entry with neither Content nor Defaults/Managed
 	// would compose to an empty file, which checkHostFiles rejects.
-	Content string
+	Content string `json:"content,omitempty"`
 	// HasContent distinguishes an absent `content` from an explicitly empty one
 	// (`"content": ""` is a legitimate way to declare an empty file).
-	HasContent bool
+	HasContent bool `json:"hasContent,omitempty"`
 
 	// Codec is the resolved codec name ("json" | "toml" | "lines" | "raw") — the
 	// explicit `codec` when given, else auto-detected from Path's extension. Empty
 	// for a directory entry (a directory is not a codec).
-	Codec string
+	Codec string `json:"codec,omitempty"`
 
 	// Managed is the `managed` layer: keys yolo re-asserts after the Lua hook, so
 	// they revert on edit. Lowered to the engine's plain value model.
-	Managed any
+	Managed any `json:"managed,omitempty"`
 	// Defaults is the `defaults` layer: a user-overridable base. Also plain.
-	Defaults any
+	Defaults any `json:"defaults,omitempty"`
 
 	// Transform is the path to a Lua hook for this surface, "~" expanded. Empty
 	// means the identity transform.
-	Transform string
+	Transform string `json:"transform,omitempty"`
 
 	// Mode is the resolved mode: the explicit `mode` when given, else the per-kind
 	// default (source-bearing → readonly, source-less → once, directory → copy).
 	// Never resolves to capture implicitly.
-	Mode string
+	Mode string `json:"mode,omitempty"`
 
 	// IsDir marks a directory entry, which routes to the recursive-copy path
 	// rather than the compose engine (codec is strictly per-file).
-	IsDir bool
+	IsDir bool `json:"isDir,omitempty"`
 
 	// Scope records where this entry was read from, for error messages and for
 	// the Phase 3 `yolo config ls` listing. One of "user" or "workspace".
-	Scope string
+	Scope string `json:"scope,omitempty"`
 }
 
 // SourceBearing reports whether this entry crosses a HOST FILE into the jail —
@@ -824,4 +829,59 @@ func validateHostFiles(config *jsonx.OrderedMap, workspace string, errs *[]strin
 			"host files cross into the jail). A source-less entry (inline 'content', or only "+
 			"'managed'/'defaults') is allowed here.", hostFilesKey, i))
 	}
+}
+
+// MarshalHostFiles renders resolved entries as the compact JSON that travels in
+// the YOLO_HOST_FILES env var — the same single-source-of-truth pattern as
+// YOLO_MCP_SERVERS / YOLO_AGENTS. The host CLI resolves host_files exactly once
+// (LoadHostFiles) and hands the result to the entrypoint through this string, so
+// the entrypoint never re-reads config and the slugs it derives are guaranteed to
+// match the /ctx/host-user/<slug> mount points the CLI emitted.
+//
+// An empty slice marshals to "" (not "[]") so an unset feature leaves the env var
+// empty, which UnmarshalHostFiles reads back as no entries.
+func MarshalHostFiles(entries []HostFileEntry) (string, error) {
+	if len(entries) == 0 {
+		return "", nil
+	}
+	b, err := json.Marshal(entries)
+	if err != nil {
+		return "", fmt.Errorf("marshalling host_files for the entrypoint: %w", err)
+	}
+	return string(b), nil
+}
+
+// UnmarshalHostFiles decodes the YOLO_HOST_FILES env var back into resolved
+// entries. An empty or whitespace-only value is no entries with no error — the
+// feature simply being off — matching how the entrypoint treats an unset var.
+//
+// The Managed/Defaults layers round-trip through encoding/json, which re-lands
+// them in exactly the plain value model (map[string]any, []any, float64) the
+// compose engine type-switches on, so no jsonx types ever reach the renderer.
+func UnmarshalHostFiles(s string) ([]HostFileEntry, error) {
+	if strings.TrimSpace(s) == "" {
+		return nil, nil
+	}
+	var entries []HostFileEntry
+	if err := json.Unmarshal([]byte(s), &entries); err != nil {
+		return nil, fmt.Errorf("decoding YOLO_HOST_FILES: %w", err)
+	}
+	return entries, nil
+}
+
+// SourceLessHostFiles returns the source-less entries — the ones that cross no
+// host file into the jail. The macos-user backend passes only these through
+// YOLO_HOST_FILES: it has no /ctx/host-user mount to carry a source into, so a
+// source-bearing entry there would silently render with no host layer. Filtering
+// them out (rather than letting them fall back to defaults) keeps the deficiency
+// explicit — source-bearing host_files on macos-user are a known gap to revisit,
+// not a half-working surprise.
+func SourceLessHostFiles(entries []HostFileEntry) []HostFileEntry {
+	out := make([]HostFileEntry, 0, len(entries))
+	for _, e := range entries {
+		if !e.SourceBearing() {
+			out = append(out, e)
+		}
+	}
+	return out
 }

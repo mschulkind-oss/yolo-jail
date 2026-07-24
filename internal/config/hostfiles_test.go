@@ -602,3 +602,100 @@ func TestCheckHostFilesInJailSkipsProbe(t *testing.T) {
 		t.Fatalf("in-jail (no probe): entries=%+v problems=%v, want one accepted entry", entries, problems)
 	}
 }
+
+// ---- YOLO_HOST_FILES wire form ----
+
+// TestMarshalHostFilesEmptyIsBlank pins the contract UnmarshalHostFiles and the
+// entrypoint rely on: no entries is the empty string, not "[]" or "null". An
+// unset feature must leave the env var empty so the entrypoint's is-it-set check
+// (and macos-user's) reads it back as no entries with no allocation.
+func TestMarshalHostFilesEmptyIsBlank(t *testing.T) {
+	for _, in := range [][]HostFileEntry{nil, {}} {
+		got, err := MarshalHostFiles(in)
+		if err != nil {
+			t.Fatalf("MarshalHostFiles(%v): %v", in, err)
+		}
+		if got != "" {
+			t.Errorf("MarshalHostFiles(%v) = %q, want empty string", in, got)
+		}
+	}
+	// The mirror: a blank or whitespace-only var is no entries, no error.
+	for _, s := range []string{"", "   ", "\n\t"} {
+		entries, err := UnmarshalHostFiles(s)
+		if err != nil {
+			t.Fatalf("UnmarshalHostFiles(%q): %v", s, err)
+		}
+		if entries != nil {
+			t.Errorf("UnmarshalHostFiles(%q) = %+v, want nil", s, entries)
+		}
+	}
+}
+
+// TestHostFilesWireRoundTrip proves the resolved entries survive the trip through
+// the env var intact — including the two traps: HasContent must distinguish an
+// explicit empty file from an absent one (a boolean that json-omits when false),
+// and the Managed layer must land back in the engine's PLAIN value model
+// (map[string]any / float64), never a jsonx type, since the compose engine
+// type-switches on that model and would treat anything else as an opaque scalar.
+func TestHostFilesWireRoundTrip(t *testing.T) {
+	// Build the entries through the real validator so Managed is lowered exactly as
+	// production does (jsonx.Plain), not hand-constructed.
+	in := []HostFileEntry{
+		oneEntry(t, `[{"path": "~/.config/a.json", "source": "/etc/a.json", "mode": "capture"}]`),
+		oneEntry(t, `[{"path": "~/.config/b.json", "content": ""}]`),
+		oneEntry(t, `[{"path": "~/.config/c.json", "managed": {"n": 5, "nested": {"k": "v"}}}]`),
+		oneEntry(t, `[{"path": "~/lib/", "source": "/opt/lib/"}]`),
+	}
+
+	wire, err := MarshalHostFiles(in)
+	if err != nil {
+		t.Fatalf("MarshalHostFiles: %v", err)
+	}
+	out, err := UnmarshalHostFiles(wire)
+	if err != nil {
+		t.Fatalf("UnmarshalHostFiles: %v", err)
+	}
+	if len(out) != len(in) {
+		t.Fatalf("round-trip changed entry count: got %d, want %d", len(out), len(in))
+	}
+
+	// b.json carries "content": "" — HasContent must survive as true, else the
+	// entrypoint would treat it as source-less-with-nothing and skip it.
+	if !out[1].HasContent || out[1].Content != "" {
+		t.Errorf("empty-content entry lost HasContent: %+v", out[1])
+	}
+	// c.json's managed layer must be plain map[string]any with a float64 leaf.
+	m, ok := out[2].Managed.(map[string]any)
+	if !ok {
+		t.Fatalf("managed round-tripped to %T, want map[string]any", out[2].Managed)
+	}
+	if n, ok := m["n"].(float64); !ok || n != 5 {
+		t.Errorf("managed[n] = %#v, want float64(5)", m["n"])
+	}
+	if nested, ok := m["nested"].(map[string]any); !ok || nested["k"] != "v" {
+		t.Errorf("managed[nested] = %#v, want plain map", m["nested"])
+	}
+	// The directory entry's IsDir and Mode (copy) survive.
+	if !out[3].IsDir || out[3].Mode != HostFileModeCopy {
+		t.Errorf("dir entry mangled: IsDir=%v Mode=%q", out[3].IsDir, out[3].Mode)
+	}
+}
+
+// TestSourceLessHostFiles is the macos-user gate: only source-less entries pass
+// (there is no /ctx/host-user mount there to carry a source into), and the ones
+// that do are returned unchanged and in order.
+func TestSourceLessHostFiles(t *testing.T) {
+	entries := []HostFileEntry{
+		{Path: ".config/a.json", Source: "/etc/a.json"},
+		{Path: ".config/b.json", HasContent: true},
+		{Path: ".config/c.json", Source: "/etc/c.json"},
+		{Path: ".config/d.json", Defaults: map[string]any{"k": "v"}},
+	}
+	got := SourceLessHostFiles(entries)
+	if len(got) != 2 {
+		t.Fatalf("SourceLessHostFiles kept %d, want 2 (the source-less ones): %+v", len(got), got)
+	}
+	if got[0].Path != ".config/b.json" || got[1].Path != ".config/d.json" {
+		t.Errorf("SourceLessHostFiles kept the wrong entries: %+v", got)
+	}
+}
