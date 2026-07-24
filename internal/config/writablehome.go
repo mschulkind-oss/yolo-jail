@@ -46,30 +46,61 @@ func WritableHomeDirs(cfg *jsonx.OrderedMap) []string {
 	return entries
 }
 
-// reservedHomeSegments is the set of first path segments yolo already manages
-// under /home/agent — the base overlays and shared dirs, the single-file
-// mounts, the :ro-base symlinks, and every selected-agent overlay dir. A
-// writable_home_dirs entry whose first segment is one of these is rejected:
-// either it would clobber a yolo mount (dir-over-file or file-over-dir), or the
-// subtree is ALREADY writable (the overlay dirs are read-write binds), so the
-// key is redundant there. The authority for the static half is
-// podmanBaseMounts + storage.fileMountpoints in internal/cli/run + storage; the
-// dynamic half is agents.AllOverlayDirs. Kept as a function (not a package var)
-// so it always reflects the current agent set.
-func reservedHomeSegments() map[string]struct{} {
-	segs := map[string]struct{}{
-		// Base overlays + shared dirs (podmanBaseMounts, assemble.go).
-		".npm-global": {}, ".local": {}, "go": {}, ".yolo-shims": {},
-		".config": {}, ".cache": {}, ".ssh": {}, ".claude-shared-credentials": {},
-		// Single-file mounts (podmanBaseMounts + storage.fileMountpoints).
-		".bash_history": {}, ".yolo-bootstrap.sh": {}, ".yolo-venv-precreate.sh": {},
-		".yolo-perf.log": {}, ".yolo-socat.log": {}, ".yolo-entrypoint.lock": {},
-		".yolo-ca-bundle.crt": {}, ".yolo-installed-lsps": {},
-		// Symlinks materialized into the :ro GLOBAL_HOME base (storage.ensure).
-		".gitconfig": {}, ".bashrc": {}, ".claude.json": {},
+// reservedHomeDirRoots are the home-relative DIRECTORY roots yolo mounts
+// read-write into the jail: the base overlays and the shared dirs. Every
+// selected-agent overlay dir joins them dynamically (see reservedHomeDirs).
+// Authority: podmanBaseMounts in internal/cli/run + storage.EnsureGlobalStorage.
+var reservedHomeDirRoots = []string{
+	".npm-global", ".local", "go", ".yolo-shims",
+	".config", ".cache", ".ssh", ".claude-shared-credentials",
+}
+
+// reservedHomeFiles are the home-relative paths yolo owns as SINGLE FILES: the
+// per-file bind mounts, plus the symlinks materialized into the :ro GLOBAL_HOME
+// base. Writing any of them from config would clobber a bind mount or replace a
+// symlink yolo depends on. Authority: podmanBaseMounts +
+// storage.fileMountpoints + storage.EnsureGlobalStorage's EnsureSymlink calls.
+var reservedHomeFiles = []string{
+	".bash_history", ".yolo-bootstrap.sh", ".yolo-venv-precreate.sh",
+	".yolo-perf.log", ".yolo-socat.log", ".yolo-entrypoint.lock",
+	".yolo-ca-bundle.crt", ".yolo-installed-lsps",
+	".gitconfig", ".bashrc", ".claude.json",
+}
+
+// reservedHomeDirs returns reservedHomeDirRoots plus every known agent's overlay
+// dirs, as a set. Kept as a function (not a package var) so it always reflects
+// the current agent set.
+func reservedHomeDirs() map[string]struct{} {
+	dirs := make(map[string]struct{}, len(reservedHomeDirRoots)+len(agents.AllOverlayDirs))
+	for _, d := range reservedHomeDirRoots {
+		dirs[d] = struct{}{}
 	}
 	for _, d := range agents.AllOverlayDirs {
+		dirs[d] = struct{}{}
+	}
+	return dirs
+}
+
+// reservedHomeSegments is the set of first path segments yolo already manages
+// under /home/agent — the union of reservedHomeDirs and reservedHomeFiles,
+// reduced to first segments. A writable_home_dirs entry whose first segment is
+// one of these is rejected: either it would clobber a yolo mount (dir-over-file
+// or file-over-dir), or the subtree is ALREADY writable (the overlay dirs are
+// read-write binds), so the key is redundant there.
+//
+// Note this is deliberately COARSER than what host_files needs. Rejecting a
+// whole first segment is right for writable_home_dirs, whose entries request a
+// new writable subtree — under `.config` that request is redundant. But a
+// host_files destination is a single composed FILE, and `~/.config/mytool/x.json`
+// is its central use case, so that guard matches exact paths instead; see
+// checkHostFileDest.
+func reservedHomeSegments() map[string]struct{} {
+	segs := make(map[string]struct{}, len(reservedHomeDirRoots)+len(reservedHomeFiles)+len(agents.AllOverlayDirs))
+	for d := range reservedHomeDirs() {
 		segs[firstHomeSegment(d)] = struct{}{}
+	}
+	for _, f := range reservedHomeFiles {
+		segs[firstHomeSegment(f)] = struct{}{}
 	}
 	return segs
 }
