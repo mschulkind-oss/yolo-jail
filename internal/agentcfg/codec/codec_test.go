@@ -17,11 +17,34 @@ func TestLookupCodec(t *testing.T) {
 			t.Errorf("LookupCodec(%q).Name() = %q", name, c.Name())
 		}
 	}
+	// "yaml" is not a codec and must not become one implicitly. yolo will not
+	// structurally round-trip YAML (comments, anchors, and multi-document files
+	// have no representation in the engine's value model), so a .yaml surface is
+	// handled as `raw`. internal/agentcfg/manifest once accepted the NAME anyway,
+	// which made codec:yaml validate and then die at render.
 	if _, ok := LookupCodec("yaml"); ok {
-		t.Error("LookupCodec(\"yaml\"): unexpectedly found (not built yet)")
+		t.Error("LookupCodec(\"yaml\"): unexpectedly found — YAML surfaces are handled as raw")
 	}
 	if _, ok := LookupCodec(""); ok {
 		t.Error("LookupCodec(\"\"): unexpectedly found")
+	}
+}
+
+// TestNames pins Names() to the registry's actual contents. manifest derives its
+// accepted-name set from this, so anything Names() reports must be resolvable by
+// LookupCodec — that biconditional is the whole point of deriving it.
+func TestNames(t *testing.T) {
+	got := Names()
+	if want := []string{"json", "lines", "raw", "toml"}; !reflect.DeepEqual(got, want) {
+		t.Errorf("Names() = %v, want %v (sorted)", got, want)
+	}
+	for _, n := range got {
+		if _, ok := LookupCodec(n); !ok {
+			t.Errorf("Names() reports %q but LookupCodec(%q) fails", n, n)
+		}
+	}
+	if len(got) != len(registry) {
+		t.Errorf("Names() has %d entries, registry has %d", len(got), len(registry))
 	}
 }
 

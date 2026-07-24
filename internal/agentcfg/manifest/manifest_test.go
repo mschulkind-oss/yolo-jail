@@ -3,6 +3,8 @@ package manifest
 import (
 	"strings"
 	"testing"
+
+	"github.com/mschulkind-oss/yolo-jail/internal/agentcfg/codec"
 )
 
 // goodSurface is a valid baseline; tests tweak one field to exercise validation.
@@ -152,12 +154,39 @@ func TestNewValidation(t *testing.T) {
 }
 
 func TestAllKnownCodecsAccepted(t *testing.T) {
-	for _, codec := range CodecNames() {
+	for _, name := range CodecNames() {
 		s := goodSurface()
-		s.Codec = codec
+		s.Codec = name
 		if _, err := New(s); err != nil {
-			t.Errorf("codec %q rejected: %v", codec, err)
+			t.Errorf("codec %q rejected: %v", name, err)
 		}
+	}
+}
+
+// TestAcceptedCodecsAreImplemented is the anti-drift guard. The accepted-name set
+// and the codec registry were once separate hand-written lists and they diverged:
+// "yaml" validated here but had no implementation, so a codec:yaml surface passed
+// `yolo check` and then died at render with "unknown codec". Every name New
+// accepts must resolve to a real codec, and every real codec must be accepted.
+func TestAcceptedCodecsAreImplemented(t *testing.T) {
+	for _, name := range CodecNames() {
+		if _, ok := codec.LookupCodec(name); !ok {
+			t.Errorf("manifest accepts codec %q but codec.LookupCodec(%q) fails "+
+				"— a surface using it would validate and then die at render", name, name)
+		}
+	}
+	for _, name := range codec.Names() {
+		s := goodSurface()
+		s.Codec = name
+		if _, err := New(s); err != nil {
+			t.Errorf("codec %q is implemented but the manifest rejects it: %v", name, err)
+		}
+	}
+	// The specific drift that shipped.
+	s := goodSurface()
+	s.Codec = "yaml"
+	if _, err := New(s); err == nil {
+		t.Error("Surface{Codec: \"yaml\"} accepted — YAML has no codec; .yaml surfaces are raw")
 	}
 }
 

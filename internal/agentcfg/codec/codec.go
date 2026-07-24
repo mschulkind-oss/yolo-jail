@@ -24,6 +24,8 @@
 // map[string]any, arrays to []any, scalars to string/bool/numeric/nil.
 package codec
 
+import "sort"
+
 // Codec converts between a surface's on-disk bytes and the generic decoded
 // value model the composition engine operates over.
 //
@@ -60,4 +62,23 @@ var registry = map[string]Codec{
 func LookupCodec(name string) (Codec, bool) {
 	c, ok := registry[name]
 	return c, ok
+}
+
+// Names returns the sorted names of every IMPLEMENTED codec — the single source
+// of truth for "which codec names exist".
+//
+// internal/agentcfg/manifest derives its accepted-name set from this function
+// rather than keeping its own list. That is not tidiness: the two lists had
+// already drifted. The manifest accepted "yaml" while the registry never had a
+// YAML implementation, so a surface declaring codec:yaml passed manifest
+// validation and `yolo check`, then died at render with "unknown codec" — a
+// validated-then-fatal name. Deriving the set makes that class of drift
+// unrepresentable: a name is accepted iff something here can decode it.
+func Names() []string {
+	names := make([]string, 0, len(registry))
+	for n := range registry {
+		names = append(names, n)
+	}
+	sort.Strings(names)
+	return names
 }

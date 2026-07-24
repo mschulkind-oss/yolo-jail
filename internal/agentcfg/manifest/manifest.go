@@ -17,10 +17,12 @@
 //     two surfaces, "settings" for settings.json and "config" for .claude.json);
 //   - the user-scope file Path yolo writes inside the jail;
 //   - the Codec that decodes/encodes the file — a STRING name only
-//     (json/toml/yaml/lines/raw, §3.3), NOT a codec implementation. This
-//     package is deliberately decoupled from internal/agentcfg/codec: the
-//     string is resolved to a real codec later, outside Phase A. Keeping the
-//     name loose is what lets the codec worker and this schema land in parallel;
+//     (json/toml/lines/raw, §3.3), NOT a codec implementation. A Surface never
+//     holds a codec value: the string is resolved to a real codec at render
+//     time, by the engine. This package does import internal/agentcfg/codec, but
+//     only to derive the set of ACCEPTED NAMES from the implemented registry
+//     (see knownCodecs) — the two lists had drifted, and a name that validates
+//     but cannot decode is worse than the coupling;
 //   - the `defaults` layer data (yolo builtin, user-overridable — §4) and the
 //     `managed` layer data (yolo's asserted keys, re-applied after the Lua hook
 //     — §4, §3.1);
@@ -52,8 +54,9 @@ package manifest
 
 import (
 	"fmt"
-	"sort"
 	"strings"
+
+	"github.com/mschulkind-oss/yolo-jail/internal/agentcfg/codec"
 )
 
 // Surface declares one generated-config file and the layer data yolo composes
@@ -77,7 +80,7 @@ type Surface struct {
 	Path string
 
 	// Codec is the STRING name of the decode/encode round-trip (§3.3):
-	// "json" | "toml" | "yaml" | "lines" | "raw". This is intentionally a name,
+	// "json" | "toml" | "lines" | "raw". This is intentionally a name,
 	// not an imported codec — see the package doc. Required and must be one of
 	// the known names.
 	Codec string
@@ -108,27 +111,33 @@ type SurfaceKey struct {
 
 func (k SurfaceKey) String() string { return k.Agent + "/" + k.Name }
 
-// knownCodecs is the closed set of codec names a surface may declare (§3.3).
-// This package validates the NAME only; resolving a name to a Codec
-// implementation happens later, outside Phase A (see the package doc).
-var knownCodecs = map[string]struct{}{
-	"json":  {},
-	"toml":  {},
-	"yaml":  {},
-	"lines": {},
-	"raw":   {},
-}
+// knownCodecs is the closed set of codec names a surface may declare (§3.3),
+// derived from the codec package's IMPLEMENTED registry rather than restated
+// here.
+//
+// It used to be a hand-written list, and it had drifted: it accepted "yaml"
+// while internal/agentcfg/codec never grew a YAML implementation. A surface
+// declaring codec:yaml therefore passed manifest validation and `yolo check`,
+// then failed at render time with "unknown codec %q" — validated, then fatal.
+// Deriving from codec.Names() makes a name accepted iff something can actually
+// decode it, so that drift cannot recur.
+//
+// The dependency direction is safe: codec does not import manifest (it is a
+// stdlib-only leaf), so manifest -> codec adds no cycle. This does end the
+// package doc's original "deliberately decoupled from internal/agentcfg/codec"
+// stance for name VALIDATION; the Surface.Codec field is still just a string and
+// this package still never resolves it to an implementation.
+var knownCodecs = func() map[string]struct{} {
+	m := make(map[string]struct{})
+	for _, n := range codec.Names() {
+		m[n] = struct{}{}
+	}
+	return m
+}()
 
 // CodecNames returns the sorted set of accepted codec names — handy for error
 // messages and for a future data-loader that wants to validate ahead of New.
-func CodecNames() []string {
-	names := make([]string, 0, len(knownCodecs))
-	for n := range knownCodecs {
-		names = append(names, n)
-	}
-	sort.Strings(names)
-	return names
-}
+func CodecNames() []string { return codec.Names() }
 
 // Manifest is a validated collection of Surfaces keyed by (Agent, Name). It is
 // constructed via New (Go-declared registry — see the package doc); it is
