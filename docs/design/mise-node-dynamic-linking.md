@@ -291,7 +291,7 @@ problem** — the rest are glibc-only, static, or musl.
    `handoff-cachix-cache.md`), so a custom nix-ld adds no new requirement — it
    rides the same delivery paths as the rest of the image: the CI Linux image
    build (`ci.yml`), the release-gated Cachix publish (`publish.yml`
-   `push-image-cache`, wired pending account), and the on-demand macOS Linux
+   `push-image-cache`, wired pending account), and the on-demand macOS container
    builder (see `../research/macos-container-builder-exploration.md`). The flake's
    "no-Linux-builder property" comment (`flake.nix:52-60`) is specifically
    about host-cross-compiled Go binaries, not an image-wide invariant. A

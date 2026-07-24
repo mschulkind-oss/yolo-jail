@@ -174,8 +174,8 @@ finding 6 are jail-developable with Mac-side verification deferred to Track M.
    "builder process exited early" fast-fail branch is dead code. A Signal(0)
    probe is not enough (unreaped zombie still signals) — fix with a
    Wait-goroutine recording exit state. Note: this landed, but the linux-builder
-   VM it lives in is now **slated for removal** (Open Decisions #3, RESOLVED
-   2026-07-23) — the whole of `internal/builder` goes, this fix with it.
+   VM it lived in was **removed** (Open Decisions #3, RESOLVED 2026-07-23) — the
+   whole of `internal/builder` is gone, this fix with it.
 4. **`yolo --help` papercut.** `--help`/`-h`/`help` exit 1 "unknown command"
    (no top-level usage handler in `internal/cli/cli.go`). Small fix, queue it.
 
@@ -552,7 +552,10 @@ M1). Everything in the DONE row has landed.
    `linux-builder` remains a valid orthogonal escape hatch (their nix config, not
    ours to install) — removal is of *our* VM-builder machinery, not of the user's
    ability to point nix at any remote builder. Tracked on the
-   [ROADMAP](ROADMAP.md).
+   [ROADMAP](ROADMAP.md). **DONE 2026-07-23:** `internal/builder` + the `yolo
+   builder {setup,start,stop,status}` commands are deleted; `yolo check`'s Image
+   Build section and the run-path failure remedy (`nixdiag.LinuxBuilderRemedy`)
+   are rewired onto the container builder; user-facing docs reconciled.
 4. **MCP presets on native macOS** — skip-and-document (recommended) vs
    building darwin wrapper variants.
 5. **Darwin-unavailable packages: warn-and-skip vs aggregated error** (see

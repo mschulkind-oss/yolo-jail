@@ -1,5 +1,13 @@
 # The macOS Linux-builder, explained for a Linux person
 
+> **STATUS (2026-07-23):** The VM-builder *direction* discussed below — the §3
+> Option C launchd plist, the §5 rework recommendation, and the `yolo builder`
+> commands — is **SUPERSEDED**. The on-demand **container** builder is the sole
+> shipped builder; see [../design/linux-builder-lifecycle.md](../design/linux-builder-lifecycle.md)
+> (Open Decision #3, RESOLVED). The conceptual/mental-model content here (why
+> macOS needs a Linux builder, the Rosetta stone, the lifecycle mechanics) stays
+> valid; only the "we should build the VM this way" recommendation is retired.
+
 You know Linux, not macOS. This doc explains *why* macOS needs a "Linux
 builder" at all, the macOS-specific machinery involved (translated to Linux
 terms), and the real options for running it — so the choice in
@@ -181,9 +189,11 @@ Every "keep it" option installs a launchd service. The remaining question is
   RAM"). launchd *can* do it (demand-started service + a watchdog that stops the
   VM when no build has run for a while), but it's the less-trodden path.
 
-This on-demand-VM lifecycle is the parked-fallback path (revival plan Open
-Decision #3); the current builder direction is the container builder in
-[macos-container-builder-exploration.md](macos-container-builder-exploration.md).
+This on-demand-VM lifecycle is now **REMOVED**, not parked — revival plan Open
+Decision #3 resolved (2026-07-23) to delete the VM builder rather than keep it as
+a fallback. The current builder direction is the container builder in
+[macos-container-builder-exploration.md](macos-container-builder-exploration.md),
+which is now the sole shipped builder.
 
 ---
 
@@ -200,6 +210,12 @@ That approach is fighting the platform:
 - The interactive-first-boot sudo hack **disappears** under launchd: the daemon
   runs as root, so the SSH key is installed once when the plist is installed (the
   single `yolo builder setup` sudo), not as a prompt mid-build.
+
+> **SUPERSEDED (2026-07-23):** the launchd-rework recommendation below is retired
+> by the removal decision (Open Decision #3). The VM builder (`internal/builder`
+> + the `yolo builder` commands) is being **deleted**, not reworked onto launchd —
+> the container builder is the sole shipped builder. The analysis is kept as
+> historical record of why the detached-`Popen` model was wrong.
 
 **Recommendation: rework `builder.py` around a launchd plist (Option C).** It
 deletes the trap *and* the first-boot hack, and `yolo builder {start,stop,status}`

@@ -82,9 +82,9 @@ Good if you already use Podman on Linux and want the same CLI on macOS. Requires
 
 Auto-detect priority on macOS: **container → podman**.
 
-#### Nix remote Linux builder (macOS, optional)
+#### Building the image on macOS (no builder to set up)
 
-The container image is a Linux image, but most of its content downloads directly from the NixOS binary cache. A few derivations are built from yolo-jail's own source and aren't cached, so building the image on macOS needs a Linux builder — **unless you download the prebuilt image from yolo-jail's cache** (the intended happy path; no builder at all). A local Linux builder is the fallback, needed only before that cache is published or if you add a custom uncached package. See [docs/guides/macos.md § Building the image on macOS](macos.md#building-the-image-on-macos-cache-vs-linux-builder) for setup.
+The container image is a Linux image, but most of its content downloads directly from the NixOS binary cache. A few derivations are built from yolo-jail's own source and aren't cached, so a from-source Linux build step is sometimes needed on macOS — **unless you download the prebuilt image from yolo-jail's cache** (the intended happy path; nothing to build at all). When a from-source build is needed, yolo offloads it automatically to a tiny throwaway container on whichever container runtime is already up (Podman or Apple Container) and tears it down afterward — no VM, no `sudo`, no setup. The only prerequisite is that the runtime is running. (Advanced escape hatch: if you already run your own remote Linux builder — nix-darwin `linux-builder` or a Linux box in `/etc/nix/machines` — Nix will use it.) See [docs/guides/macos.md § Building the image on macOS](macos.md#building-the-image-on-macos-cache-vs-linux-builder) for details.
 
 ### Install YOLO Jail
 
@@ -152,7 +152,7 @@ On first run, YOLO Jail will:
 
 1. **Build the Linux container image** via `nix build`:
    - **Linux:** Nix downloads prebuilt packages from the binary cache (~2–5 minutes).
-   - **macOS:** Nix downloads the same Linux packages from the binary cache (~2–5 minutes the first time, instant on subsequent runs thanks to caching). A remote Linux builder is only needed if you've added non-cached packages.
+   - **macOS:** Nix downloads the same Linux packages from the binary cache (~2–5 minutes the first time, instant on subsequent runs thanks to caching). If you've added a non-cached package, the from-source build is offloaded automatically to an ephemeral container on the running runtime — no builder to configure (the runtime just needs to be up).
 2. **Load the image** into your container runtime:
    - Podman: `podman load` from the cached tarball
    - Apple Container: the tarball is converted to OCI via `skopeo` (or `podman` as fallback) and then `container image load`ed
@@ -1148,7 +1148,7 @@ YOLO_REPO_ROOT=~/code/yolo-jail yolo
   ```
   experimental-features = nix-command flakes
   ```
-- On macOS: if you configured a remote Linux builder, verify it — `nix store info --store ssh-ng://nix-builder` should respond within a few seconds. (No builder is required for the default binary-cache build path.)
+- On macOS: no builder is required for the default binary-cache build path, and an uncached build offloads automatically to a container on the running runtime — nothing to verify. (Only if you configured your *own* remote Linux builder as an escape hatch, verify it — `nix store info --store ssh-ng://nix-builder` should respond within a few seconds.)
 - Run `yolo check` for detailed diagnostics
 
 **Container won't start**
@@ -1220,7 +1220,7 @@ YOLO_REPO_ROOT=~/code/yolo-jail yolo
   sudo pkill determinate-nixd
   sudo /nix/var/nix/profiles/default/bin/nix-daemon &
   ```
-- If you configured a Linux builder, verify it: `nix store info --store ssh-ng://nix-builder` (or `darwin.linux-builder` — see [docs/guides/macos.md](macos.md))
+- If you configured your own remote Linux builder as an escape hatch, verify it: `nix store info --store ssh-ng://nix-builder` (see [docs/guides/macos.md](macos.md)). The default uncached-build path needs no manual builder — it offloads to a container on the running runtime.
 
 **Port forwarding not working**
 

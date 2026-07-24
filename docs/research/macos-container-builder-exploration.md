@@ -109,6 +109,12 @@ port, the fallback for AC users is the QEMU `darwin.linux-builder` (still the
 boring, works-anywhere option) — i.e. the runtime picks the builder:
 podman→container-builder, AC→container-builder *if it works*, else QEMU.
 
+> **UPDATE (proven, 2026-07-17):** AC *does* cleanly host the sshd container with
+> a host-reachable port (macOS 26.5 arm64, AC 0.12.3) — the "unproven bet" is
+> discharged. The QEMU fallback for AC is therefore no longer needed: the
+> container builder is the sole shipped builder on **both** runtimes. See
+> [../design/linux-builder-lifecycle.md](../design/linux-builder-lifecycle.md).
+
 ## 6. Recommendation / plan
 
 1. **Build our own minimal builder image** (`dockerTools` nix+openssh, our key,
@@ -119,8 +125,13 @@ podman→container-builder, AC→container-builder *if it works*, else QEMU.
    changes from "boot QEMU" to "run the builder container + publish its port."
 3. **Prototype on a Mac to settle the AC question** (§5) before committing AC to
    it — podman first (low-risk), then AC. This is Mac-only and the gating unknown.
-4. **Keep QEMU `darwin.linux-builder` as the documented fallback** for AC-if-it-
-   won't-host and for anyone not on a container runtime.
+4. ~~**Keep QEMU `darwin.linux-builder` as the documented fallback** for AC-if-it-
+   won't-host and for anyone not on a container runtime.~~ **SUPERSEDED
+   (2026-07-23):** the AC-won't-host risk is resolved (proven 2026-07-17) and the
+   VM builder is removed (Open Decision #3). QEMU `darwin.linux-builder` is no
+   longer a documented fallback — the container builder is the sole shipped
+   builder. A user's own nix-darwin `linux-builder` remains only as a personal
+   escape hatch.
 
 ## 7. Open questions for the Mac prototype
 

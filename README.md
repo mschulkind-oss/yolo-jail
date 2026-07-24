@@ -49,7 +49,7 @@ Platform specifics (in priority order):
 - **Linux / arm64 (aarch64-linux)** — supported and CI-tested (image built + integration-tested natively on `ubuntu-24.04-arm`); same nix image as x86_64, no arch switch.
 - **macOS / Intel** — also supported (x86_64 Linux container).
 
-A remote Nix Linux builder is **optional** on macOS — the standard image builds entirely from the NixOS binary cache.
+No builder is needed on macOS — the standard image builds entirely from the NixOS binary cache. If you add a package that isn't cached, the from-source Linux build is offloaded automatically to a tiny throwaway container on whichever container runtime is already up (Podman or Apple Container); no VM, no `sudo`, no setup.
 
 ## Install
 
@@ -124,7 +124,7 @@ podman machine init --cpus 4 --memory 8192 --disk-size 50
 podman machine start
 ```
 
-On macOS, image builds use the NixOS binary cache by default — no remote Linux builder required. See [docs/guides/macos.md](docs/guides/macos.md) if you need to add packages that aren't in the cache (or want to build offline).
+On macOS, image builds use the NixOS binary cache by default — no builder to set up. If you add packages that aren't in the cache (or build offline), the from-source Linux build is offloaded automatically to a throwaway container on the container runtime you already have running. See [docs/guides/macos.md](docs/guides/macos.md).
 
 For development, see [CONTRIBUTING.md](https://github.com/mschulkind-oss/.github/blob/main/CONTRIBUTING.md).
 
@@ -163,12 +163,12 @@ yolo ps
 yolo config-ref
 ```
 
-On macOS, `yolo doctor` additionally checks the VM backend (Podman Machine or Apple Container `system status`) and (if configured) the Nix remote Linux builder.
+On macOS, `yolo doctor` additionally checks the VM backend (Podman Machine or Apple Container `system status`) — confirming the runtime is up, so that an uncached build can offload to a throwaway container on it.
 
 ### First Run
 
 On first run, YOLO Jail will:
-1. Build the Linux container image via `nix build` (takes a few minutes — both Linux and macOS download from the NixOS binary cache; macOS only needs a remote Linux builder if you've added non-cached packages)
+1. Build the Linux container image via `nix build` (takes a few minutes — both Linux and macOS download from the NixOS binary cache; on macOS, any non-cached package is built by offloading to an ephemeral container on the running runtime — no VM, no `sudo`, no first-boot)
 2. Load the image into your container runtime
 3. Install MCP servers, LSP servers, and utilities
 4. Start your command

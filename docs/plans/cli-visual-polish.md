@@ -20,9 +20,9 @@ making every `yolo` CLI surface actually colorful, scannable, and eye-friendly
 Every human-facing `yolo` surface uses color to guide the eye — status
 vocabulary (ok/fail/warn) is colored, headers are bold, identifiers and paths
 are distinct from prose, and action hints stand out — following ONE consistent
-semantic convention across all commands. Today five surfaces already hit this
-bar (`check`, `broker status`, `builder status`, `prune`, `macos-*`); several
-others emit textbook color-mappable content as flat monochrome.
+semantic convention across all commands. Today four surfaces already hit this
+bar (`check`, `broker status`, `prune`, `macos-*`); several others emit
+textbook color-mappable content as flat monochrome.
 
 ## The invariant — color is ADDITIVE
 
@@ -189,10 +189,6 @@ Highest value, low risk (text stays byte-identical after strip).
   (L92/98) so label/value split is visible; add ✓/✗ glyphs before
   live/present/ok; align trailing marks into a fixed status column for vertical
   scanning. **Low effort, additive.**
-- [ ] **`yolo builder status`** — dim the parenthetical `(%s)` conf paths
-  (L55/58); make `mark()` emit `[green]✓ yes` / `[red]✗ no`; bold the two
-  top-level rows (`set up`, `reachable`) to separate summary from detail.
-  **Low effort, additive.**
 - [ ] **`yolo prune` mode banner** (prunecmd.go:166) — color the header mode
   token so DRY-RUN vs APPLY is obvious at the top, not only in the far summary:
   `[bold yellow]yolo prune (DRY-RUN)` vs `[bold red/green]yolo prune (APPLY)`.

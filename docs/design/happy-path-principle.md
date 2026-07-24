@@ -68,17 +68,24 @@ The capability: get a runnable Linux OCI image on any host.
   builder, no VM, no Nix knowledge. We pay the one-time cost (publish the
   cache, a release-gated CI push). This is the answer for everybody,
   everywhere. See [handoff-cachix-cache.md](../plans/handoff-cachix-cache.md).
-- **Single fallback (only when the cache can't help): `nix-darwin
-  linux-builder`.** Needed just for a custom package that isn't cached, or
-  before the cache is live. Chosen because it's the *official* Nix tool,
-  works on any macOS Nix install, and is one command — it wins criteria
-  1–3 among builders.
-- **Deliberately NOT supported:** Colima as a Nix builder (it's a Docker VM,
-  not a Nix builder — strictly more setup, loses criterion 2), a hand-driven
-  QEMU VM (more moving parts, loses 5), and a remote Linux host (you must
-  already own one — fails criterion 1, "everywhere"). Each could *work*; none
-  covers a cell the fallback doesn't, so none is worth the support surface.
-  A remote host survives only as a one-line "advanced" prose note.
+- **Single fallback (only when the cache can't help): the on-demand container
+  builder.** Needed just for a custom package that isn't cached, or before the
+  cache is live. A normal `yolo` run offloads the from-source build to a tiny
+  nix+sshd Linux builder *container* on whichever runtime is already up (podman
+  or Apple Container), then tears it down. Chosen because it wins criteria 1–5:
+  zero setup (automatic, part of the build), no VM, no `sudo`, no first-boot,
+  and zero idle RAM (it exists only during the build) — and it reuses the
+  runtime the jail already needs, so it covers every runtime cell.
+- **Deliberately NOT supported (as a shipped builder):** a persistent VM
+  builder — `nix-darwin linux-builder` / `nix run nixpkgs#darwin.linux-builder`
+  (a launchd-managed QEMU/Virtualization VM: `sudo` setup, an interactive first
+  boot, idle RAM — loses criteria 2 and 5), Colima (a Docker VM, not a Nix
+  builder — strictly more setup, loses criterion 2), and a hand-driven QEMU VM
+  (more moving parts, loses 5). Each could *work*; none covers a cell the
+  container builder doesn't, so none is worth the support surface. A user's own
+  Linux builder — nix-darwin `linux-builder`, or a remote host in
+  `/etc/nix/machines` — survives only as a one-line "advanced" prose escape
+  hatch: it's their nix config, orthogonal to ours, and Nix uses it if present.
 
 The old instinct — "the error said no builder, so document Colima + QEMU +
 remote as options A/B/C/D" — is exactly what this principle rejects.

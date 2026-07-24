@@ -35,7 +35,7 @@ question exists only for podman/AC.
 | **Cachix / prebuilt download** | any | 🔜 | THE happy path — wired, account deferred (handoff-cachix-cache.md). No build → no builder needed. |
 | **Container builder** (nix+sshd container on the runtime) | **podman** | ✅ [L] | **proven end-to-end in-jail**: image built, `ssh-ng` build ran inside container, result read back. `packages.builderImage` in flake. |
 | **Container builder** | **Apple Container** | ✅ [M] | **PROVEN on real HW 2026-07-17** (macOS 26.5 arm64, AC 0.12.3, nix 2.34.7): AC pulled the GHCR image, ran it with internal-network IP `192.168.64.2:22`, host nix `store info` → `Trusted: 1`, proof build returned `AC-CONTAINER-BUILDER-WORKS`. No `-p` needed — AC's per-container VM IP is directly reachable. **Runbook → docs/plans/runbooks/mac-ac-container-builder.md.** |
-| **QEMU `darwin.linux-builder`** | any container rt | 🔜 (roadmap/fallback) | standard nix tool; launchd daemon. Fallback if the container builder can't host on a given runtime. builder.py currently half-implements a worse version (detached Popen) — to be reworked. |
+| **QEMU `darwin.linux-builder`** | any container rt | ❌ removed | **DROPPED — Open Decision #3 RESOLVED 2026-07-23** (see [../design/linux-builder-lifecycle.md](../design/linux-builder-lifecycle.md)). The container builder is the sole shipped builder on both runtimes. The AC-can't-host-sshd unknown that justified keeping QEMU as a fallback is discharged (AC hosting PROVEN 2026-07-17, row above). `internal/builder` + the `yolo builder` commands are being deleted, not reworked. |
 | nix-darwin `linux-builder` | any | ⬜ | user-side; only if they already run nix-darwin. Documented, not ours to install. |
 
 ## 3. Feature × runtime coverage (does each yolo capability work per runtime?)
@@ -113,10 +113,14 @@ session's fixes.
    every future release's tags inherit it; no per-release action needed. (The
    auto-PATCH step was removed: it 404'd on the one case that mattered — first
    creation, which the default token can't admin — and was a no-op otherwise.)
-5. **Rework builder.py off the detached-Popen/`nix run` model** → either the
-   container builder (primary) or a launchd plist for the QEMU fallback.
+5. **Remove the VM builder** (`internal/builder` + the `yolo builder` commands).
+   Superseded by removal (Open Decision #3, 2026-07-23) — the container builder
+   is the sole builder, so there is nothing to rework onto launchd.
 6. **Turn on Cachix** (deferred) — removes the builder entirely for cached images.
-7. QEMU `darwin.linux-builder` as the documented fallback (roadmap).
+7. ~~QEMU `darwin.linux-builder` as the documented fallback~~ — REMOVED
+   (Open Decision #3, 2026-07-23). No longer a documented fallback; the
+   container builder is the sole builder. A user's own nix-darwin
+   `linux-builder` remains only as a personal escape hatch (row above).
 
 ## 6. Cross-refs
 - **[runbooks/mac-ac-container-builder.md](../plans/runbooks/mac-ac-container-builder.md)** — Mac test (zero-sudo) for the gating AC-builder cell.

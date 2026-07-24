@@ -180,55 +180,38 @@ The OCI image is a **Linux** image (`aarch64-linux`). Most of its content
 (chromium, bash, python, node, …) is standard nixpkgs, fetched from
 `cache.nixos.org` — but a few derivations are built from **this repo's own
 source** (`yolo-jail-conf`, the entrypoint pkg, the image stream script) and
-are therefore **never** on the public cache. Building those on macOS needs a
-Linux builder.
+are therefore **never** on the public cache. macOS can't build a Linux
+derivation locally, so those few must be built on Linux somehow.
 
-Two ways to avoid that:
+Two things make that a non-event:
 
-**Best — download the prebuilt image (no builder at all).** When yolo-jail's
+**Best — download the prebuilt image (no build at all).** When yolo-jail's
 Cachix cache is published, macOS users download the fully-built image and
 never compile anything. This is the intended happy path; see
 [docs/plans/handoff-cachix-cache.md](../plans/handoff-cachix-cache.md) for its status. Once
 live, `yolo check` shows "every image path is served from the binary cache".
 CI pushes the **aarch64-linux** closure on every release (built natively on
 an arm runner), so Apple Silicon Macs pull the exact arm image they run — no
-cross-build, no Linux builder for cached packages.
+cross-build, no builder needed.
 
-**Fallback — a local Linux builder.** Needed only until the cache is
-published, or if you add a custom package that isn't cached. `yolo check`
-tells you exactly when: it's quiet on the fully-cached path and only escalates
-(naming the offending derivation) when a from-source build is actually
-required.
+**Otherwise — automatic offload to a container builder.** If a package must be
+built from source (before the cache is published, or because you added a custom
+package that isn't cached), a normal `yolo` run handles it **automatically**: it
+starts a tiny nix+sshd Linux builder **container** on whichever runtime is
+already up (podman or Apple Container), offloads the build to it over `ssh-ng`,
+then tears it down. No VM to set up, no `sudo`, no `yolo builder` command, no
+first boot, and zero idle RAM — the builder exists only for the duration of the
+build. The one prerequisite is that your container runtime is running; `yolo
+check` tells you exactly when a from-source build is required (naming the
+offending derivation) and reminds you to start the runtime.
 
 > **Important:** Do NOT set `extra-platforms = aarch64-linux` in your Nix
 > config. This tells Nix to execute Linux binaries locally, which fails on
-> macOS. Set up a Linux builder VM (below) instead.
+> macOS. You don't need it — the automatic container-builder offload handles
+> any from-source Linux build for you.
 
-**The fallback builder: nix-darwin `linux-builder`**
-
-The purpose-built Nix Linux builder: a persistent, launchd-managed Linux VM
-(Apple Virtualization), the standard tool for this. If you use **nix-darwin**,
-it's one line:
-
-```nix
-# in your nix-darwin configuration, then `darwin-rebuild switch`:
-nix.linux-builder.enable = true;
-nix.settings.trusted-users = [ "@admin" ];   # so your user may offload builds
-```
-
-**Standalone (no nix-darwin)** — run the same builder VM on demand:
-
-```bash
-nix run nixpkgs#darwin.linux-builder   # leave running in a terminal/tmux pane
-```
-
-Either way it auto-registers an `aarch64-linux` builder; `nix build .#ociImage`
-then offloads the from-source derivations to it and `yolo check` shows
-"Linux builder configured". Ensure your user is trusted by the daemon (see
-the trusted-users note below).
-
-**Your user must be trusted by the Nix daemon** (so it may offload builds).
-Check, set, and restart:
+**Your user must be trusted by the Nix daemon** (so it may offload builds to the
+builder container). Check, set, and restart:
 
 ```bash
 # Is a custom.conf include present? (Determinate adds it; official NixOS
@@ -242,17 +225,14 @@ sudo launchctl kickstart -k system/systems.determinate.nix-daemon  # Determinate
 # or: sudo launchctl kickstart -k system/org.nixos.nix-daemon       # official NixOS
 ```
 
-With `nix.linux-builder.enable = true`, nix-darwin registers the
-`aarch64-linux` builder for you. Running `nix run nixpkgs#darwin.linux-builder`
-standalone leaves the VM in the foreground (`Ctrl+C` to stop; if a tmux
-prefix eats it, press it twice). `yolo check` then shows "Linux builder
-configured" and image builds offload automatically.
-
-> **Escape hatch (advanced):** if you already own a Linux box, you can point
-> Nix at it as a remote builder in `/etc/nix/machines` instead — see the
-> [Nix manual on distributed builds](https://nix.dev/manual/nix/latest/advanced-topics/distributed-builds).
-> This isn't a first-class path (it requires a machine you must already have);
-> the cache + `nix-darwin linux-builder` cover everyone else.
+> **Escape hatch (advanced):** if you already run your OWN Linux builder — a
+> **nix-darwin** `linux-builder` (`nix.linux-builder.enable = true;`), or a
+> Linux box registered in `/etc/nix/machines` (see the
+> [Nix manual on distributed builds](https://nix.dev/manual/nix/latest/advanced-topics/distributed-builds)) —
+> that keeps working untouched. Nix uses your configured builder and yolo never
+> starts its own container; `yolo check` shows "Linux builder configured". This
+> is your own nix configuration, orthogonal to yolo — the container-builder
+> offload above is what covers everyone who hasn't set one up.
 
 ### Known Issue: Determinate Nix Daemon Hang
 
@@ -531,8 +511,9 @@ the NixOS binary cache — no cross-compilation or remote Linux builder required
 ### `yolo check` reports macOS-specific issues
 
 Run `yolo check` — it includes macOS-specific diagnostics for Nix daemon
-connectivity, Linux builder configuration, VM backend status, and the Nix
-store APFS volume.
+connectivity, container-runtime (VM backend) status, whether a from-source
+build is needed (and thus that the runtime must be up so it can offload to a
+container builder), and the Nix store APFS volume.
 
 ### Podman Machine won't start
 
@@ -554,8 +535,11 @@ podman machine start
 
 1. Check the daemon is responsive: `nix store info` (should return within 2s)
 2. If it hangs, see [Known Issue: Determinate Nix Daemon Hang](#known-issue-determinate-nix-daemon-hang)
-3. If you configured a remote Linux builder, check it: `nix store info --store ssh-ng://nix-builder`
-4. Verify SSH works: `ssh nix-builder echo ok`
+3. If a package must be built from source, yolo offloads to a container builder
+   on your active runtime — make sure the runtime is up (`podman machine start`
+   or `container system start`) and re-run `yolo`.
+4. If you configured your OWN remote Linux builder (escape hatch), check it:
+   `nix store info --store ssh-ng://nix-builder` and `ssh nix-builder echo ok`.
 
 ### Container image not loading
 

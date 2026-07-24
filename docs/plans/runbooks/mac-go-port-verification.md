@@ -163,6 +163,9 @@ yolo-go -- bash -lc 'echo AC-GO-OK; uname -a'
 
 ## 5. Builder VM (`yolo builder …`)
 
+> **OBSOLETE** — the VM builder (`yolo builder` commands) has been removed; see
+> `docs/design/linux-builder-lifecycle.md`.
+
 macOS on-demand Linux builder (for container runtimes needing a Linux image build).
 
 ```sh

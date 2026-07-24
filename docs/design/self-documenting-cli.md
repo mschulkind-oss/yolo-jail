@@ -59,7 +59,7 @@ Help is a *request*, not an error: it prints full help to **stdout** and exits
   container* (the flag leaks to the inner command); `yolo init --help` *writes
   `yolo-jail.jsonc`* into the cwd; `yolo prune --help` *runs a full disk scan*;
   `yolo check --help` / `yolo init-user-config --help` *execute normally*
-  (unknown flag silently ignored). `yolo builder --help` exits 2 with no output.
+  (unknown flag silently ignored).
   Only `broker`/`loopholes` print anything, and only because `--help` lands on
   their default/error branch (`internal/cli/commands.go:162,233`) — see item 4.
   This is worse than a missing feature: several of these mutate state during
@@ -72,8 +72,7 @@ Help is a *request*, not an error: it prints full help to **stdout** and exits
   (`--apply`, `--keep-images`, `--cache-age`, `--purge-heavy-caches`, …,
   `internal/cli/commands.go:79`), `run`'s `--new`/`--profile`/`--network`/
   `--dry-run` (`commands.go:315`), `init`'s `--mount`/`-m` (`commands.go:174`),
-  `broker logs`'s `-n`/`--lines`/`-f`/`--follow` (`commands.go:138`), `builder
-  setup`'s `--max-jobs`/`--show`/`--yes` (`builder/commands.go:144`), and the
+  `broker logs`'s `-n`/`--lines`/`-f`/`--follow` (`commands.go:138`), and the
   positional args of `macos-unshare` (workspace) and `macos-fix-permissions`
   (path). The one-line usage strings that exist (`broker`, `loopholes`) list
   subcommand *names* only — no flags, no effects, no examples.
@@ -83,8 +82,7 @@ Help is a *request*, not an error: it prints full help to **stdout** and exits
 - **State: PARTIAL.** Unknown top-level command is handled correctly: stderr +
   exit 1 (`internal/cli/cli.go:63,70`). But misuse is inconsistent and help is
   conflated with it: `broker`/`loopholes` misuse exits 1 with a stderr usage
-  line; `builder` misuse exits 2 with **no output** (`builder/commands.go`
-  default branch `return 2`); flag-parsing commands (`run`/`check`/`prune`/
+  line; flag-parsing commands (`run`/`check`/`prune`/
   `init`/`init-user-config`/`ps`) treat an unknown flag — including `--help` —
   as ignorable and return their normal (often 0) code, so misuse is not even
   machine-detectable. The rule: help → exit 0 to stdout; misuse → non-zero with
@@ -298,9 +296,6 @@ generic CLI items get their own backlog item (proposed:
    enforcement test 1.
 2. Until P0.1 lands, soften the `help.go:44` footer so it does not promise a
    `<subcommand> --help` convention that traps the caller.
-3. Fix `yolo builder` / builder misuse returning exit 2 with **no output**
-   (`builder/commands.go`). → generic CLI backlog.
-
 **P1 — close the standard for existing commands.**
 
 4. Add per-command help content (synopsis, flags, args, effects, ≥1 example)

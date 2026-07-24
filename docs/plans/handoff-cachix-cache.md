@@ -10,8 +10,10 @@ test" below), which need a Linux box and a Mac respectively.
 script) that are **never** on `cache.nixos.org`. So building the image on
 macOS needs a Linux builder — *unless* we publish the built image to a
 binary cache that macOS users can download from. Publishing = the "everybody,
-zero setup, at any point" happy path; a per-machine Linux builder becomes the
-rare fallback (custom uncached packages only).
+zero setup, at any point" happy path; the rare fallback (custom uncached
+packages only) is an **automatic, ephemeral container builder** that a normal
+`yolo` run offloads to on the active runtime, then tears down — no per-machine
+VM.
 
 ## What's wired (all live as of 2026-07-20)
 
@@ -66,13 +68,14 @@ rare fallback (custom uncached packages only).
    `CACHE` default, and set the `CACHIX_CACHE` repo variable (which otherwise
    defaults to `yolo-jail` in CI).
 
-## Final test (on a Mac, no Linux builder configured)
+## Final test (on a Mac, no builder needed)
 
 This is the whole point — a macOS user with NO builder should get the image
-by download:
+by download (if it *did* have to build, it would offload to a container on the
+active runtime — but the cache should make that unnecessary):
 
 ```sh
-# fresh Mac / clean nix store, no linux-builder:
+# fresh Mac / clean nix store, no builder:
 cd some-project && yolo init
 yolo check          # Image Build: should PASS by substituting from the cache
                     #   ("every image path is served from the binary cache")
@@ -92,10 +95,16 @@ cacheable by construction).
   has **no** job-level `if:`; it gates per-step on the `CACHIX_AUTH_TOKEN` secret
   (a `gate` step at ~line 101). For per-merge freshness, add
   `push: branches: [main]` to `on:`, not a job `if:`.
-- **Fallback builder** for users who add custom uncached packages:
-  **nix-darwin `linux-builder`** (persistent, launchd-managed) — the single
-  documented builder in `docs/guides/macos.md`, per the
-  [happy-path principle](../design/happy-path-principle.md).
+- **Fallback builder** for users who add custom uncached packages: the
+  **ephemeral container builder** — a tiny nix+sshd container a normal `yolo`
+  run offloads the build to on the active runtime (podman/Apple Container) over
+  `ssh-ng`, then tears down (zero idle RAM, no VM, no `sudo`, no `yolo builder`
+  command). The single shipped/documented fallback, per the
+  [happy-path principle](../design/happy-path-principle.md); see
+  [../design/linux-builder-lifecycle.md](../design/linux-builder-lifecycle.md).
+  (A user's *own* nix-darwin `linux-builder` or `/etc/nix/machines` box still
+  works as an advanced escape hatch — that's their nix config, orthogonal to
+  ours.)
 - **Alternative if you never want Cachix:** publish the built image tarball
   as a GitHub Release asset and have the CLI download+`load` it — no cache
   infra, everything on GitHub. Not wired; mentioned as an escape hatch.

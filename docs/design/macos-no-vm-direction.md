@@ -17,7 +17,7 @@ one choice. They are independent:
 | Axis | Decides | Options |
 |------|---------|---------|
 | **1. Runtime** (*where the agent runs*) | VM or not | **(a) Container** (Apple Container / Podman) — Linux container in a VM, runs the Linux nix image • **(b) macos-user** — native macOS user + Seatbelt, **NO VM, no Linux image** |
-| **2. Builder** (*how you get the Linux image*) | **exists ONLY for runtime 1(a)** | Cachix download (no VM) • nix-darwin linux-builder (transient VM, on-demand) • ~~Colima~~ (rejected — see below) |
+| **2. Builder** (*how you get the Linux image*) | **exists ONLY for runtime 1(a)** | Cachix download (no VM — THE happy path) • ephemeral container builder (a normal `yolo` run offloads an uncached build to a tiny nix+sshd container on the active runtime, then tears it down — no VM, no `sudo`; the shipped fallback) • ~~Colima~~ (rejected — see below). A user's *own* nix-darwin linux-builder is an advanced escape hatch (their nix config), not our shipped option. |
 | **3. Packages** (*how `packages:` is materialized*) | per runtime | Container → baked into the aarch64-**linux** image • macos-user → native **aarch64-darwin nix buildEnv** (`internal/darwinpkg`), NOT `nix profile` (the imperative profile path was rejected as drift-prone) |
 
 **Key insight that un-blurs it:** the *builder only exists for the container
@@ -44,12 +44,16 @@ loses on every axis:
   the no-VM goal.
 - It's a **Docker/containerd VM, not a nix builder**: building nix in it means
   installing nix *inside* Colima and copying closures — strictly MORE setup
-  than `nix-darwin linux-builder` (the one-command purpose-built tool). Fails
+  than the container builder (which is automatic, zero per-user infra). Fails
   happy-path criterion 2 (least per-user infra); it's the doc's canonical
   "NOT supported" example.
 - **"Shut down after"** is the idle-stop we already designed for the nix-darwin
-  on-demand builder (`src/cli/builder.py`). The capability you want exists; it
-  isn't Colima.
+  on-demand builder (`src/cli/builder.py`, later `internal/builder`). The
+  capability you want exists; it isn't Colima. (That on-demand VM builder is
+  itself being **removed** in favor of the ephemeral container builder, which is
+  inherently zero-idle — it exists only during a build — so the idle-stop
+  concern disappears entirely. See
+  [linux-builder-lifecycle.md](linux-builder-lifecycle.md).)
 
 ### Acceptance bar for Track B (do not repeat the first mistake)
 
