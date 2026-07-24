@@ -175,9 +175,9 @@ propagates on the next `yolo` invocation like any other briefing edit.
 - In-jail skill directories are read-only by the same mechanism; skill
   development happens in `/workspace/.claude/skills/` (or the agent's
   equivalent) and gets promoted host-side.
-- `~/.claude/CLAUDE.md` prepending is unrelated to the
-  `host_claude_files` config key — that syncs *settings/credential*
-  files into `~/.claude/`, not briefings.
+- `~/.claude/CLAUDE.md` prepending is unrelated to the host settings
+  file — the yolo-declared `settings.json` (`agents.AgentSpec.HostFiles`)
+  is composed into `~/.claude/settings.json`, not briefings.
 
 <!-- changelog -->
 - Agent library model: briefings/skills are now generated only for the agents selected in the `agents` config (default claude), driven by the agent registry (`src/entrypoint/agent_registry.py`); added opencode + pi

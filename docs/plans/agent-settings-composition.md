@@ -440,10 +440,10 @@ surface is verifiable.
 **Phase B — surfaces (fan out; mutually independent on the frozen engine).**
 ✅ **Done for the agent-config surfaces.**
 - **pi first** as the proof-of-concept — exercises tree staging + a transform +
-  the overlay; retires the pi three-way merge. **`host_pi_files` was NOT
-  deleted**: the prism reads the host layer through it. Retiring it (and
-  `host_claude_files`) is **decided in §10** — yolo declares the host-file set
-  per agent and both keys hard-error — pending implementation.
+  the overlay; retires the pi three-way merge. **`host_pi_files` / `host_claude_files`
+  are now RETIRED** (§10, ✅ implemented 2026-07-23): the host-file set is a
+  yolo-declared, non-widenable per-agent constant (`agents.AgentSpec.HostFiles`)
+  and both keys hard-error.
 - then in parallel, one commit each: **Claude** (widest — `settings.json` +
   `.claude.json` as runtime-state), **gemini**, **copilot**, **opencode**,
   **Codex** (TOML codec), plus **agy**, which was born directly on the prism (no
@@ -459,10 +459,9 @@ surfaces.** The `YOLO_PRISM_SURFACES` cutover gate is retired, `boot.go` calls t
 writers plus their now-dead helpers (the three-way merge, the codex TOML dumper,
 the numeric-equality cluster) are deleted. The obsolete snapshot/managed-MCP
 sidecars are removed on each surface's first-migration boot. The `host_*_files`
-keys survive (the prism host layer reads through them) — retiring them is
-**decided in §10** (yolo-declared host-file set, both keys hard-error) and awaits
-implementation. Deletion of the non-agent bespoke generators waits on their
-Phase-B port.
+keys are now **RETIRED** (§10, ✅ implemented 2026-07-23): the host-file set is a
+yolo-declared, non-widenable per-agent constant and both keys hard-error.
+Deletion of the non-agent bespoke generators waits on their Phase-B port.
 
 Each stage ends with a nested-jail verification (per repo `CLAUDE.md`).
 
@@ -521,12 +520,12 @@ Each stage ends with a nested-jail verification (per repo `CLAUDE.md`).
   edit-before-launch loop); same engine, same output, both places.
 
 *(The **composition design** is settled — no open questions there. Retiring the
-`host_*_files` keys, the last piece of the original Phase-B scope, is now
-**decided in §10** (2026-07-23) and awaits implementation.)*
+`host_*_files` keys, the last piece of the original Phase-B scope, is
+**decided in §10** (2026-07-23) and **✅ implemented 2026-07-23**.)*
 
 ---
 
-## 10. Retiring the `host_*_files` keys (decided 2026-07-23)
+## 10. Retiring the `host_*_files` keys (decided + ✅ implemented 2026-07-23)
 
 Deleting `host_pi_files` was the stated Phase-B outcome for pi (§8), but the
 cutover reached parity *reading through* the key rather than removing it. This
@@ -536,21 +535,40 @@ settled decisions. The through-line is that the copied-in host-file set is a
 **credential boundary**, so it must be yolo-declared and not workspace-widenable;
 that principle, not cleanup, is what drives the decisions.
 
-### 10.1 What `host_pi_files` still does today
+> **✅ Implemented 2026-07-23.** The host-file set now lives on
+> `internal/agents.AgentSpec.HostFiles` (`{Dir, Files}` — claude ⇒
+> `.claude`/`settings.json`, pi ⇒ `.pi/agent`/`settings.json`), NOT the builtin
+> manifest as §10.4 D1 speculated. Rationale: `internal/agents` is the leaf
+> registry already imported by the CLI run pipeline, the entrypoint, AND config,
+> and imports none of them — so the declaration adds zero new import edges and
+> stays cycle-free, while the manifest (`internal/agentcfg`) has no host-source
+> field and deliberately keeps host resolution out (§10.2). The CLI's
+> `hostFileArgs` (`internal/cli/run/hostclaude.go`) and the entrypoint prisms
+> (`ConfigureClaudePrism`/`ConfigurePiPrism`) both key off it; the entrypoint
+> re-derives the identical set in-jail from the baked registry and reads
+> `settings.json` **fail-open** from the `/ctx/host-<agent>/` mount (no
+> `YOLO_HOST_*_FILES` env). Both config keys are dropped from
+> `knownTopLevelConfigKeys` and hard-error. The env drop + entrypoint re-derive
+> landed in one atomic commit (a half-migration would fail silently to
+> `defaults<managed`, not loudly).
 
-The key (a JSON list, default `["settings.json"]`) is load-bearing in **three**
-distinct roles. The prism replaced only the *consumption* of the first; the key
-itself, and the other two roles, are untouched:
+### 10.1 What `host_pi_files` did before retirement
 
-| Role | Code | Status |
+The key (a JSON list, default `["settings.json"]`) was load-bearing in **three**
+distinct roles. The prism replaced only the *consumption* of the first; the
+retirement (§10.3) then replaced the other two with `AgentSpec.HostFiles`. For
+the record, the pre-retirement roles were:
+
+| Role | Code (pre-retirement) | How it was replaced |
 |---|---|---|
-| **Host-layer gate** — decides whether `/ctx/host-pi/settings.json` is read as the prism `host` layer | `internal/entrypoint/prism.go` `ConfigurePiPrism` (`contains(e.hostPiFiles(), "settings.json")`) | The prism *consumes* this layer, but the **allow-list that gates it** is still the config key |
-| **Sibling staging** — raw-copies every non-`settings.json` entry (e.g. `models.json`) into `~/.pi/agent/` | `internal/entrypoint/agent_configs.go` `syncHostPiFiles` / `hostPiFiles` | **Not replaced** — a plain file copy, entirely outside the prism |
-| **The mount + env** — builds the `-v …:/ctx/host-pi/<f>:ro` args and forwards `YOLO_HOST_PI_FILES` | `internal/cli/run/hostclaude.go` `hostPiFileArgs` | **Not replaced** — nothing else mounts the host pi dir |
+| **Host-layer gate** — decided whether `/ctx/host-pi/settings.json` is read as the prism `host` layer | `internal/entrypoint/prism.go` `ConfigurePiPrism` (`contains(e.hostPiFiles(), "settings.json")`) | Gate removed — the prism now reads the mount **fail-open** (settings.json is always the declared host file) |
+| **Sibling staging** — raw-copied every non-`settings.json` entry (e.g. `models.json`) into `~/.pi/agent/` | `internal/entrypoint/agent_configs.go` `syncHostPiFiles` / `hostPiFiles` | **Deleted** (D2) — no sibling role remained; nothing declared a sibling |
+| **The mount + env** — built the `-v …:/ctx/host-pi/<f>:ro` args and forwarded `YOLO_HOST_PI_FILES` | `internal/cli/run/hostclaude.go` `hostPiFileArgs` | Replaced by `hostFileArgs` iterating `AgentSpec.HostFiles`; no env forwarded (entrypoint re-derives) |
 
-So `host_pi_files` is not a leaf config knob layered *over* the prism; it is still
-the sole source of truth for **which host file(s) get mounted and read at all**.
-Retiring it means replacing that mount/gate decision, not just deleting a key.
+So `host_pi_files` was not a leaf config knob layered *over* the prism; it was
+the sole source of truth for **which host file(s) got mounted and read at all** —
+which is exactly why retiring it meant moving that mount/gate decision into
+yolo-declared registry data (`AgentSpec.HostFiles`), not just deleting a key.
 
 ### 10.2 Why the intended replacement isn't built
 
@@ -574,23 +592,24 @@ staging) *would* require building the missing half of the prism first — but th
 §10.4 decisions sidestep that by removing the open-ended-list role entirely (D2),
 so no general tree-staging executor is needed for this task.
 
-### 10.3 The remaining work (per the §10.4 decisions)
+### 10.3 The work (per the §10.4 decisions) — ✅ done 2026-07-23
 
-1. **Declare the host-file set in yolo, per agent (D1/D2):** a built-in,
-   explicit per-agent list of host files that cross (pi ⇒ `settings.json`; any
-   claude siblings named explicitly), fixed against workspace config so a
-   workspace `yolo-jail.jsonc` cannot widen it.
-2. **Rekey the mount + host-layer resolution off that declaration**, not the
-   config key: the CLI mount plumbing and `ConfigurePiPrism`'s host-source read
-   both consult the yolo-declared list.
-3. **Retire the config surface entirely (D3/D4):** delete `hostPiFileArgs` /
+1. ✅ **Declared the host-file set in yolo, per agent (D1/D2):** `AgentSpec.HostFiles`
+   (`{Dir, Files}`) — claude/pi each declare exactly `settings.json`; no siblings
+   were needed. Fixed against workspace config (it is yolo-shipped registry
+   data), so a workspace `yolo-jail.jsonc` cannot widen it.
+2. ✅ **Rekeyed the mount + host-layer resolution off that declaration**, not the
+   config key: `hostFileArgs` (CLI) iterates `spec.HostFiles`; the prisms read
+   `/ctx/host-<agent>/settings.json` directly (fail-open), the entrypoint
+   re-deriving the same set from the baked registry.
+3. ✅ **Retired the config surface entirely (D3/D4):** deleted `hostPiFileArgs` /
    `hostClaudeFileArgs` + `appendSettingsScripts`, `syncHostPiFiles` /
    `hostPiFiles` (and the claude twins), `DefaultHostPiFiles` /
-   `DefaultHostClaudeFiles`, the pi arm of `validateHostAgentFiles`, and **remove
-   both keys from `knownTopLevelConfigKeys`** so they hard-error.
-4. **Nested-jail verify parity:** pi and claude boot, `settings.json` composes
-   identically, and every explicitly-declared host file still lands where the
-   agent reads it.
+   `DefaultHostClaudeFiles`, `validateHostClaudeFiles`/`validateHostAgentFiles`,
+   and **removed both keys from `knownTopLevelConfigKeys`** so they hard-error.
+4. ✅ **Nested-jail verify parity:** pi and claude boot, `settings.json` composes
+   identically from the fail-open host read, and the declared host file lands
+   where the agent reads it.
 
 ### 10.4 Decisions (settled 2026-07-23)
 

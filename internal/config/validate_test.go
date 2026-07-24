@@ -225,3 +225,25 @@ func TestValidateRepoPathNonStringStillErrors(t *testing.T) {
 		t.Errorf("expected a repo_path type error, got errs=%v", errs)
 	}
 }
+
+// host_claude_files and host_pi_files were RETIRED (2026-07-23): the host-file
+// set each agent reads is now a yolo-declared, non-widenable per-agent constant
+// (internal/agents.AgentSpec.HostFiles), so a workspace config can no longer
+// widen which host files cross the credential boundary. Both keys are dropped
+// from knownTopLevelConfigKeys and now hard-error as unknown keys, exactly like
+// the retired `docker` runtime — "pretend they never existed" (plan §10.4 D4).
+func TestRetiredHostFilesKeysAreUnknown(t *testing.T) {
+	for _, key := range []string{"host_pi_files", "host_claude_files"} {
+		errs, _ := ValidateConfig(decode(t, `{"`+key+`": ["settings.json"]}`), t.TempDir(), nil)
+		want := "config." + key + ": unknown key"
+		found := false
+		for _, e := range errs {
+			if e == want {
+				found = true
+			}
+		}
+		if !found {
+			t.Errorf("key %q: want %q in errs, got %v", key, want, errs)
+		}
+	}
+}

@@ -84,10 +84,14 @@ jail's root. Used for:
   `/home/agent/.config/git/config:ro` (`assemble_parts.go:253-255`).
 - **Global gitignore** (podman): host `core.excludesFile` →
   `/home/agent/.config/git/ignore:ro` (`assemble_parts.go:231-237`).
-- **Selected host `~/.claude` / `~/.pi/agent` files**: mounted at
-  `/ctx/host-claude/<f>` and `/ctx/host-pi/<f>`, `:ro`, then *copied* into the
-  jail home at boot (§2.2). Wired at `assemble.go:335,338`; built by
-  `hostClaudeFileArgs`/`hostPiFileArgs` (`internal/cli/run/hostclaude.go`).
+- **Host `~/.claude` / `~/.pi/agent` settings**: the yolo-declared per-agent
+  host file (`agents.AgentSpec.HostFiles` — claude/pi each declare just
+  `settings.json`) mounted `:ro` at `/ctx/host-claude/settings.json` and
+  `/ctx/host-pi/settings.json`, then *composed* into the jail `settings.json` at
+  boot (§2.2). Wired at `assemble.go:335`; built by `hostFileArgs`
+  (`internal/cli/run/hostclaude.go`). Which host files cross is fixed in
+  yolo-shipped code — a **credential boundary, not a config knob** (retiring
+  `host_claude_files`/`host_pi_files` is what bought that; §2.2).
 
 Apple Container cannot do a nested single-file `:ro` bind, so it **materializes**
 (copies) these into `<wsState>` instead, relying on the whole-`wsState` →
@@ -101,15 +105,19 @@ The entrypoint (`internal/entrypoint`) re-runs pure generators on every boot and
 writes into the **writable per-workspace overlays** (`jail-home.md §3`). Relevant
 to credentials:
 
-- **Host agent-config files are copied in.** `host_claude_files` (default
-  `["settings.json"]`) and `host_pi_files` (default `["settings.json"]`) are
-  read from the `/ctx/host-*` `:ro` mounts and merged/copied into the jail's
-  `~/.claude` / `~/.pi/agent`. `settings.json` gets a **three-way merge** against
-  a last-synced snapshot so host changes propagate while jail-local edits
-  survive; yolo-required keys win (config-ref `host_claude_files`;
-  `internal/entrypoint/claude.go`, `prism_claude.go`, `prism.go:227-247`).
-  **This is the delivery path for API-key-in-settings credentials** — see the
-  Bedrock worked example (§3).
+- **Host agent settings are composed in.** claude/pi each read one host file —
+  `settings.json`, the yolo-declared `agents.AgentSpec.HostFiles` set — from the
+  `/ctx/host-<agent>/` `:ro` mount, **fail-open** (a missing mount yields the
+  defaults). The prism composes it into the jail's `~/.claude/settings.json` /
+  `~/.pi/agent/settings.json` as `defaults<host<overlay<computed<transform<managed`,
+  so host changes propagate while jail-local edits survive (captured in the §5
+  overlay sidecar) and yolo-required keys win
+  (`internal/entrypoint/prism_claude.go`, `prism.go`). Which host files cross is
+  **not** a config knob — the retired `host_claude_files`/`host_pi_files` keys
+  used to let a workspace config widen it, and that was the credential-boundary
+  hole §10.4 of the settings-composition plan closed. **This is the delivery
+  path for API-key-in-settings credentials** — see the Bedrock worked example
+  (§3).
 - **Composed git identity replay** (macos-user only): `configureGit`
   (`internal/entrypoint/identity.go:12-28`) runs `git config --global user.name/
   user.email/core.excludesFile` from `YOLO_GIT_*` env (§2.5).
@@ -230,16 +238,17 @@ that doc argues the framework ports cleanly to macos-user in principle.
 Claude-on-Bedrock is the canonical illustration of "jail-local credential, no
 host path in". The long-term IAM keys of a tightly-scoped user (`matt-bedrock`,
 `bedrock:InvokeModel` only, no session token, **not** SSO) are placed under the
-`"env"` block of `~/.claude/settings.json` on the host. That file rides the
-`host_claude_files` default (`["settings.json"]`, `config.go:41`) into the jail
-via the `/ctx/host-claude/` `:ro` mount + boot merge (§2.1-2.2); Claude Code reads
-it at startup and injects the keys into its own process env, inherited by every
-Bash tool call. yolo itself contains **zero** AWS code — it does not mount
-`~/.aws` and does not forward `AWS_SESSION_TOKEN`/`AWS_PROFILE`. The blast radius
-of the key leaking inside the jail is bounded to Bedrock invoke cost on the
-allowed model ARNs. (Source: project memory `project_bedrock_creds.md`; the
-delivery mechanism is verifiable in `hostclaude.go` + `claude.go`, the IAM
-scoping is not in-repo.) The same shape works via `env_sources` for a plain
+`"env"` block of `~/.claude/settings.json` on the host. `settings.json` is the
+yolo-declared claude host file (`agents.AgentSpec.HostFiles`), so it always
+rides into the jail via the `/ctx/host-claude/` `:ro` mount + boot compose
+(§2.1-2.2); Claude Code reads it at startup and injects the keys into its own
+process env, inherited by every Bash tool call. yolo itself contains **zero**
+AWS code — it does not mount `~/.aws` and does not forward
+`AWS_SESSION_TOKEN`/`AWS_PROFILE`. The blast radius of the key leaking inside the
+jail is bounded to Bedrock invoke cost on the allowed model ARNs. (Source:
+project memory `project_bedrock_creds.md`; the delivery mechanism is verifiable
+in `hostclaude.go` + `prism_claude.go`, the IAM scoping is not in-repo.) The
+same shape works via `env_sources` for a plain
 `ANTHROPIC_API_KEY`/`OPENAI_API_KEY`.
 
 ---
@@ -256,11 +265,11 @@ generators are enumerated in
 
 | Agent | Overlay dir(s) (`agents.go`) | Creds/token location in jail home | How creds arrive | Managed config surface | Shared vs per-workspace |
 |---|---|---|---|---|---|
-| **claude** | `.claude` | `~/.claude/.credentials.json` (symlink → shared dir) | in-jail `/login`; **host-shared** via broker/shared-creds dir | `~/.claude/settings.json` (3-way merge) + `~/.claude.json` | **host-shared** creds (see below) |
+| **claude** | `.claude` | `~/.claude/.credentials.json` (symlink → shared dir) | in-jail `/login`; **host-shared** via broker/shared-creds dir | `~/.claude/settings.json` (prism-composed) + `~/.claude.json` | **host-shared** creds (see below) |
 | **copilot** | `.copilot` | under `~/.copilot/` | in-jail OAuth `/login` | `~/.copilot/{mcp-config,lsp-config,config}.json` | per-workspace overlay (see §4 note) |
 | **gemini** | `.gemini` | under `~/.gemini/` (logs under `~/.cache/gemini-cli/`) | in-jail `gemini login` | `~/.gemini/settings.json` (+ MCP sidecar) | per-workspace overlay |
 | **opencode** | *(none)* | `~/.config/opencode/` (+ XDG data) | in-jail login / API key via `env_sources` | `~/.config/opencode/opencode.json` | per-workspace via the `.config` overlay |
-| **pi** | `.pi` | under `~/.pi/agent/` | provider API key via `env_sources`; `host_pi_files` (e.g. `models.json`) | `~/.pi/agent/settings.json` (3-way merge) | per-workspace overlay |
+| **pi** | `.pi` | under `~/.pi/agent/` | provider API key via `env_sources`; host `settings.json` (`AgentSpec.HostFiles`) | `~/.pi/agent/settings.json` (prism-composed) | per-workspace overlay |
 | **codex** | `.codex` | under `~/.codex/` | `codex login` or `OPENAI_API_KEY` via `env_sources` | `~/.codex/config.toml` (+ MCP sidecar) | per-workspace overlay |
 | *(agy)* | `.gemini/antigravity-cli` | under `~/.gemini/antigravity-cli/` | shares `~/.gemini` tree, own subdir | `~/.gemini/antigravity-cli/{settings,mcp_config}.json` | per-workspace overlay |
 
@@ -319,7 +328,7 @@ keychain are unreadable, but the network is fully open (`(allow default)`).
 | git identity | composed file, `:ro` bind at `~/.config/git/config` (`assemble_parts.go:253-255`) | composed file, **materialized** (no nested `:ro`) (`:247-251`) | `YOLO_GIT_*` env → `git config --global` replay (`identity.go`) |
 | global gitignore | `:ro` bind (`:231-237`) | materialized (`acMaterialize`) | `YOLO_GLOBAL_GITIGNORE` env → replay |
 | `env_sources` / `${VAR}` | `yolo-user-env.sh` mounted, sourced | `yolo-user-env.sh` **materialized**, sourced | baked onto launch argv via `env -i` (`runplan.go`) |
-| host `~/.claude`/`~/.pi` files | `/ctx/host-*` `:ro` mounts + boot merge (`hostclaude.go`) | materialized copies + boot merge | boot merge (same pure generators; `macos-user-nix-and-features.md Part 2`) |
+| host `~/.claude`/`~/.pi` settings | `/ctx/host-*/settings.json` `:ro` mount + boot compose (`hostclaude.go`) | materialized copy + boot compose | boot compose, fail-open (no `/ctx`; same pure generators; `macos-user-nix-and-features.md Part 2`) |
 | Claude shared credentials | `.claude-shared-credentials` rw bind + symlink (`assemble.go:166-168`) | **not mounted** — AC uses one whole-home bind; creds live in that per-workspace home | **free** — one real `~/.claude/.credentials.json` in the shared home |
 | claude-oauth-broker | ✅ active when host `claude` present | ❌ **skipped** — `tls-intercept` needs `--add-host` (`runtime.go:37`) | **skip by default** — shared home already = one creds file; refresh serialization only bites with *concurrent* Claude sessions and needs hard-to-port host redirection (`macos-user-nix-and-features.md §3.5`; `BrokerSocketGrantCommands` exists but is uncalled) |
 | host-service loopholes (secret brokers) | ✅ Unix-socket bind + `YOLO_SERVICE_*_SOCKET` | ❌ no Unix-socket bind through virtiofs (USER_GUIDE:928) | not wired (container-path only); framework ports in principle |
@@ -336,7 +345,7 @@ macos-user**, because the mount layer is what most credential delivery rides on.
 ## 6. Security model & residual gaps
 
 **What a live agent session CAN reach:** the workspace; its own writable home
-overlay; whatever `env_sources`/`host_*_files`/settings creds a human put in;
+overlay; whatever `env_sources`/host-`settings.json` creds a human put in;
 Claude's shared OAuth token (Claude only); the open network; and, through
 loopholes, host-mediated services (never their raw secrets). **What it CANNOT
 reach:** the host's `~/.ssh`, `~/.gitconfig`, `~/.aws`, gh/cloud tokens, other
@@ -383,7 +392,7 @@ Seatbelt, shared home" on macos-user in exchange for no-VM speed
 | The credential-boundary statement (canonical prose) | `internal/agents/agentsmd.go:186-195`; every jail's `AGENTS.md`/`CLAUDE.md` |
 | git-identity policy + mechanism | [identity-prism-decision.md](identity-prism-decision.md); `internal/cli/run/assemble_parts.go` (`gitIdentityMountArgs`), `internal/entrypoint/identity.go` |
 | `env_sources` semantics + `${VAR}` | config-ref `env_sources`; `internal/config/envsources.go`; [mcp-configuration.md §2](mcp-configuration.md) |
-| `host_claude_files` / `host_pi_files` | config-ref; `internal/cli/run/hostclaude.go`; `internal/config/config.go:41-43` |
+| Host agent-file set (credential boundary) | `internal/agents/agents.go` (`AgentSpec.HostFiles`); `internal/cli/run/hostclaude.go` (`hostFileArgs`); `internal/entrypoint/{prism_claude,prism}.go` |
 | Claude OAuth broker | [../guides/loopholes.md](../guides/loopholes.md), [loophole-protocol.md](loophole-protocol.md); `bundled_loopholes/claude-oauth-broker/`; `internal/broker`, `internal/oauthbroker` |
 | Shared Claude credentials + symlink/harvest | `jail-home.md §4.2`; `internal/entrypoint/claude.go:161-209`; `internal/storage/ensure.go:69-80` |
 | Home composition, overlays, per-agent dirs | [jail-home.md](jail-home.md); `internal/agents/agents.go`; `internal/cli/run/{assemble,assemble_parts,prepare,storagehelpers}.go` |

@@ -21,6 +21,18 @@ type BriefingSpec struct {
 	HostSource string
 }
 
+// HostFilesSpec is the yolo-declared, FIXED set of files an agent reads from the
+// host home. It is a CREDENTIAL BOUNDARY: which host files cross into the jail
+// is decided here, in yolo-shipped code, and can never be widened by a
+// user/workspace config (that is what retiring host_claude_files/host_pi_files
+// bought — plan §10.4 D1/D2/D4). Dir is the $HOME-relative host subdir the CLI
+// binds read-only at /ctx/host-<agent>/; Files are basenames under Dir. The zero
+// value (Dir == "") means nothing crosses.
+type HostFilesSpec struct {
+	Dir   string   // e.g. ".claude", ".pi/agent"; "" == none
+	Files []string // relative to Dir; e.g. []string{"settings.json"}
+}
+
 // AgentSpec is the full per-agent record. Optional string fields use "" when
 // unset; optional slices use nil for an empty default.
 type AgentSpec struct {
@@ -28,6 +40,7 @@ type AgentSpec struct {
 	Install      InstallSpec
 	ConfigWriter string // config-writer function name
 	Briefing     BriefingSpec
+	HostFiles    HostFilesSpec // yolo-declared host files this agent reads (credential boundary)
 	OverlayDirs  []string
 	Skills       string // "" == no skills dir
 	YoloFlags    []string
@@ -64,6 +77,7 @@ var specs = []AgentSpec{
 			Mount:      ".claude/CLAUDE.md",
 			HostSource: ".claude/CLAUDE.md",
 		},
+		HostFiles:   HostFilesSpec{Dir: ".claude", Files: []string{"settings.json"}},
 		OverlayDirs: []string{".claude"},
 		Skills:      ".claude/skills",
 		YoloFlags:   []string{"--dangerously-skip-permissions"},
@@ -129,6 +143,7 @@ var specs = []AgentSpec{
 			Mount:      ".pi/agent/AGENTS.md",
 			HostSource: ".pi/agent/AGENTS.md",
 		},
+		HostFiles:   HostFilesSpec{Dir: ".pi/agent", Files: []string{"settings.json"}},
 		OverlayDirs: []string{".pi"},
 		Skills:      "",
 		YoloFlags:   nil,

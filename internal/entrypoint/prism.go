@@ -224,31 +224,23 @@ func expandHomePath(e *Env, p string) string {
 // ConfigurePiPrism is the prism-backed replacement for ConfigurePi (§4.3, the
 // proof-of-concept surface). It:
 //
-//  1. stages the non-settings host_pi_files tree exactly as before (models.json
-//     et al. still land where pi reads them — the prism owns settings.json, not
-//     its sibling files);
-//  2. renders ~/.pi/agent/settings.json through the engine with §5 overlay
+//  1. renders ~/.pi/agent/settings.json through the engine with §5 overlay
 //     capture and the §3.2 first-migration bootstrap;
-//  3. on the first migration only, deletes the obsolete
+//  2. on the first migration only, deletes the obsolete
 //     yolo-host-synced-settings.json snapshot (§4.7 orphan cleanup).
 //
-// The host source is /ctx/host-pi/settings.json, read only when settings.json is
-// declared in YOLO_HOST_PI_FILES (fail-closed staging, §4) — an undeclared host
-// file is never read, so the render falls back to defaults<managed.
+// The host source is /ctx/host-pi/settings.json — settings.json is the sole
+// yolo-declared pi host file (agents.AgentSpec.HostFiles, plan §10.4), so the
+// CLI binds it there whenever it exists on the host. Read fail-open: a missing
+// mount (host file absent, or macos-user with no /ctx) yields nil and the render
+// falls back to defaults<managed. There is no sibling-file staging any more —
+// retiring host_pi_files dropped the open-ended sibling tree (D2).
 func ConfigurePiPrism(e *Env) error {
 	if err := os.MkdirAll(e.PiDir(), 0o755); err != nil {
 		return err
 	}
-	// Sibling files still stage the old way (the prism owns only settings.json).
-	if err := e.syncHostPiFiles(); err != nil {
-		return err
-	}
 
-	// Resolve the host source, gated by the host_pi_files allow-list.
-	var hostBytes []byte
-	if contains(e.hostPiFiles(), "settings.json") {
-		hostBytes, _ = os.ReadFile(filepath.Join(hostPiDir, "settings.json"))
-	}
+	hostBytes, _ := os.ReadFile(filepath.Join(hostPiDir, "settings.json"))
 
 	out, err := renderSurfaceStateful(e, "pi", "settings", hostBytes, nil)
 	if err != nil {

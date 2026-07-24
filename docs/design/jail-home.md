@@ -244,13 +244,15 @@ Only the home-relevant ones expanded; the rest one-lined for orientation.
   contents in place (inode-preserving), writes the built-in
   `jail-startup/SKILL.md`, then copies host `~/.<agent>/skills/*` dereferencing
   symlinks.
-- **Host `~/.claude` files** (claude selected): `host_claude_files` entries
-  (default `["settings.json"]`, internal/config/config.go:42) plus scripts
-  referenced from settings hooks/statusLine/fileSuggestion →
-  `/ctx/host-claude/<fname>` **ro**
-  + `YOLO_HOST_CLAUDE_FILES` manifest (`hostClaudeFileArgs`,
-  internal/cli/run/hostclaude.go:16-53, 96-154). Same pattern for pi:
-  `/ctx/host-pi/` (hostclaude.go:60-91).
+- **Host agent-config files** (claude/pi selected): the yolo-declared,
+  non-widenable per-agent host-file set (`agents.AgentSpec.HostFiles` —
+  claude/pi each declare just `settings.json`) → `/ctx/host-<agent>/<fname>`
+  **ro** (`hostFileArgs`, internal/cli/run/hostclaude.go). No config key and no
+  `YOLO_HOST_*_FILES` env: which host files cross into the jail is a credential
+  boundary fixed in yolo-shipped code, not a config knob (the retired
+  `host_claude_files`/`host_pi_files` keys; plan §10.4). The entrypoint
+  re-derives the same set in-jail from the baked registry and reads
+  `settings.json` fail-open from the mount.
 - **Briefings**: per selected agent, `AGENTS_DIR/<cname>/<Staging>` →
   `/home/agent/<Mount>` **ro** (assemble.go:329-341). Pairs (agents.go): claude
   `CLAUDE.md`→`.claude/CLAUDE.md`, copilot `AGENTS-copilot.md`→

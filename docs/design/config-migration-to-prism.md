@@ -322,8 +322,10 @@ Migration residue:
   currently host-synced values are *not* captured as edits, so a host key removed
   *after* migration correctly disappears on the next render (instead of being
   wrongly pinned).
-- Pi additionally depends on `YOLO_HOST_PI_FILES` (`host_pi_files`), which the plan
-  §8 deletes with the pi proof-of-concept — sequenced in Phase C.
+- Pi's host settings source no longer depends on any config key: `host_pi_files`
+  (and its `YOLO_HOST_PI_FILES` env) was RETIRED — the host-file set is now the
+  yolo-declared `agents.AgentSpec.HostFiles` constant and the prism reads
+  `/ctx/host-pi/settings.json` fail-open (plan §10.4).
 
 ### 4.4 Opencode & Codex — MED (managed-MCP sidecar)
 

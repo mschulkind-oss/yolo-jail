@@ -30,10 +30,11 @@ import (
 //     "disabled") lives in the claudeSettings manifest (agentcfg/builtin.go).
 //
 //   - The HOST layer replaces the bespoke three-way merge: host settings.json is
-//     read from the :ro mount (gated by the host_claude_files allow-list) and
-//     composed in, while the §5 last_render+overlay sidecars carry in-jail edits
-//     forward. The obsolete yolo-host-synced-settings.json snapshot is therefore
-//     dead and deleted once, on the first-migration boot (§4.7).
+//     read from the :ro mount (/ctx/host-claude/settings.json — the yolo-declared
+//     claude host file, agents.AgentSpec.HostFiles) and composed in, while the §5
+//     last_render+overlay sidecars carry in-jail edits forward. The obsolete
+//     yolo-host-synced-settings.json snapshot is therefore dead and deleted once,
+//     on the first-migration boot (§4.7).
 //
 //   - The COMPUTED layer supplies the three DYNAMIC concerns the manifest
 //     deliberately omits (its FIDELITY GAPS #2 and #3), each an RFC-7386 map that
@@ -72,14 +73,13 @@ func ConfigureClaudePrism(e *Env) error {
 		return err
 	}
 
-	// Resolve the host source, gated by the host_claude_files allow-list — the
-	// prism host layer replacing the bespoke three-way merge. An undeclared host
-	// file is never read (fail-closed staging), so the render falls back to
-	// defaults<overlay<computed<managed.
-	var hostBytes []byte
-	if contains(e.hostClaudeFiles(), "settings.json") {
-		hostBytes, _ = os.ReadFile(filepath.Join(hostClaudeDir, "settings.json"))
-	}
+	// Resolve the host source — the prism host layer replacing the bespoke
+	// three-way merge. settings.json is the yolo-declared claude host file
+	// (agents.AgentSpec.HostFiles), so the CLI binds it at /ctx/host-claude/ (==
+	// hostClaudeDir) whenever it exists on the host. Read fail-open: a missing
+	// mount (host file absent, or macos-user with no /ctx) yields nil and the
+	// render falls back to defaults<overlay<computed<managed.
+	hostBytes, _ := os.ReadFile(filepath.Join(hostClaudeDir, "settings.json"))
 
 	// Build the computed layer: the three dynamic concerns the manifest omits.
 	lspServers := LoadLSPServers(e)

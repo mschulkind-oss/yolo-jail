@@ -91,7 +91,7 @@ func TestGitIdentityMountComposesAndMounts(t *testing.T) {
 		t.Errorf("staged config missing email:\n%s", data)
 	}
 	wantMount := staged + ":/home/agent/.config/git/config:ro"
-	if !containsStr(args, wantMount) {
+	if !inStrSlice(args, wantMount) {
 		t.Errorf("missing :ro gitconfig mount %q in %v", wantMount, args)
 	}
 }

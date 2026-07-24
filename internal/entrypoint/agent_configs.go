@@ -115,59 +115,10 @@ func getOr(m *jsonx.OrderedMap, key string, def any) any {
 }
 
 // hostPiDir is the read-only mount of the host's ~/.pi/agent/ (a var so tests
-// can point it at a temp dir; mirrors boot.go's hostNvimConfig).
+// can point it at a temp dir; mirrors boot.go's hostNvimConfig). The prism reads
+// the host settings source (settings.json — the sole yolo-declared pi host file,
+// agents.AgentSpec.HostFiles) from here.
 var hostPiDir = "/ctx/host-pi"
-
-// syncHostPiFiles copies each host_pi_files entry (except settings.json, which
-// is prism-rendered by ConfigurePiPrism) from the read-only /ctx/host-pi mount
-// into the jail's ~/.pi/agent/. Mirrors claude's syncHostClaudeFiles;
-// best-effort per file.
-func (e *Env) syncHostPiFiles() error {
-	files := e.hostPiFiles()
-	for _, fname := range files {
-		if fname == "settings.json" {
-			continue
-		}
-		src := filepath.Join(hostPiDir, fname)
-		dst := filepath.Join(e.PiDir(), fname)
-		if !pathExists(src) {
-			continue
-		}
-		data, err := os.ReadFile(src)
-		if err != nil {
-			e.warn("Warning: could not copy host pi file " + fname + ": " + err.Error())
-			continue
-		}
-		if err := os.MkdirAll(filepath.Dir(dst), 0o755); err != nil {
-			return err
-		}
-		_ = os.WriteFile(dst, data, 0o644)
-	}
-	return nil
-}
-
-// hostPiFiles parses YOLO_HOST_PI_FILES (a JSON list, default []).
-func (e *Env) hostPiFiles() []string {
-	raw := e.Getenv("YOLO_HOST_PI_FILES")
-	if raw == "" {
-		raw = "[]"
-	}
-	decoded, err := jsonx.Decode([]byte(raw))
-	if err != nil {
-		return nil
-	}
-	arr, ok := decoded.([]any)
-	if !ok {
-		return nil
-	}
-	var out []string
-	for _, v := range arr {
-		if s, ok := v.(string); ok {
-			out = append(out, s)
-		}
-	}
-	return out
-}
 
 // buildOpencodeMCPServers translates the live shared MCP servers
 // (LoadMCPServers) into opencode's NATIVE mcp schema: each server becomes an

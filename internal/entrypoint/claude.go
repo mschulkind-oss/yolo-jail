@@ -22,22 +22,21 @@ var oauthMetadataKeys = []string{"scopes", "subscriptionType", "rateLimitTier"}
 
 // hostClaudeDir is the read-only mount of the host's ~/.claude/ (a var so tests
 // can point it at a temp dir, mirroring hostPiDir). The prism reads the host
-// settings source from here, gated by the host_claude_files allow-list.
+// settings source (settings.json — the sole yolo-declared claude host file,
+// agents.AgentSpec.HostFiles) from here.
 var hostClaudeDir = "/ctx/host-claude"
 
-// configureClaudeSideEffects runs the three non-content side effects that
+// configureClaudeSideEffects runs the two non-content side effects that
 // ConfigureClaudePrism must perform, in order: the credentials symlink
-// (harvest/link ~/.claude/.credentials.json into the shared dir), the host-file
-// staging (copy every host_claude_files entry EXCEPT settings.json into
-// ~/.claude/), and per-jail history isolation (symlink history.jsonl to a
-// per-workspace file). These are runtime-state / filesystem side effects, NOT
-// surface content, so they stay bespoke under the prism — only settings.json is
-// prism-rendered.
+// (harvest/link ~/.claude/.credentials.json into the shared dir) and per-jail
+// history isolation (symlink history.jsonl to a per-workspace file). These are
+// runtime-state / filesystem side effects, NOT surface content, so they stay
+// bespoke under the prism — only settings.json is prism-rendered. (Host-file
+// staging is gone: settings.json is the only claude host file and the prism
+// reads it directly from the :ro mount; the old host_claude_files sibling copy
+// was retired, plan §10.4.)
 func configureClaudeSideEffects(e *Env) error {
 	if err := e.ensureCredentialsSymlink(); err != nil {
-		return err
-	}
-	if err := e.syncHostClaudeFiles(); err != nil {
 		return err
 	}
 	return e.isolateClaudeHistory()
@@ -70,60 +69,6 @@ func writeClaudeJSON(e *Env, configured *jsonx.OrderedMap) error {
 		return err
 	}
 	return writeInPlaceString(e.ClaudeManagedMCPPath(), managedSidecar(configured.Keys()))
-}
-
-// hostClaudeFiles parses YOLO_HOST_CLAUDE_FILES (a JSON list, default []).
-func (e *Env) hostClaudeFiles() []string {
-	raw := e.Getenv("YOLO_HOST_CLAUDE_FILES")
-	if raw == "" {
-		raw = "[]"
-	}
-	decoded, err := jsonx.Decode([]byte(raw))
-	if err != nil {
-		return nil
-	}
-	arr, ok := decoded.([]any)
-	if !ok {
-		return nil
-	}
-	var out []string
-	for _, e := range arr {
-		if s, ok := e.(string); ok {
-			out = append(out, s)
-		}
-	}
-	return out
-}
-
-// ~/.claude/ files (except settings.json) into the jail. This is a filesystem
-// side effect that materializes real files; it belongs to content generation
-// insofar as it produces files, but its SOURCE is /ctx/host-claude which the
-// tree golden's env matrix controls. Best-effort per file.
-func (e *Env) syncHostClaudeFiles() error {
-	files := e.hostClaudeFiles()
-	hostDir := hostClaudeDir
-	for _, fname := range files {
-		if fname == "settings.json" {
-			continue
-		}
-		src := filepath.Join(hostDir, fname)
-		dst := filepath.Join(e.ClaudeDir(), fname)
-		if !pathExists(src) {
-			continue
-		}
-		data, err := os.ReadFile(src)
-		if err != nil {
-			e.warn("Warning: could not copy host claude file " + fname + ": " + err.Error())
-			continue
-		}
-		// Copy the file content; mode preservation is a best-effort detail not
-		// exercised by the golden's env matrix.
-		if err := os.MkdirAll(filepath.Dir(dst), 0o755); err != nil {
-			return err
-		}
-		_ = os.WriteFile(dst, data, 0o644)
-	}
-	return nil
 }
 
 // ~/.claude/history.jsonl to a per-host-workspace file. YOLO_HOST_DIR keys the
@@ -322,13 +267,4 @@ func expiresAtMs(oauth *jsonx.OrderedMap) int64 {
 		}
 		return 0
 	}
-}
-
-func contains(ss []string, want string) bool {
-	for _, s := range ss {
-		if s == want {
-			return true
-		}
-	}
-	return false
 }

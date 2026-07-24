@@ -331,11 +331,8 @@ func (o *Options) assembleRunCmd(in *assembleInput) []string {
 		}
 	}
 
-	// --- host ~/.claude files (claude only) ---
-	runCmd = append(runCmd, o.hostClaudeFileArgs(cfg, rt, in)...)
-
-	// --- host ~/.pi/agent files (pi only) ---
-	runCmd = append(runCmd, o.hostPiFileArgs(cfg, in)...)
+	// --- host files (yolo-declared per-agent set; claude + pi) ---
+	runCmd = append(runCmd, o.hostFileArgs(in)...)
 
 	// --- per-agent briefings ---
 	// Same Apple-Container single-file-mount limitation as yolo-user-env.sh: AC

@@ -8,10 +8,11 @@ import (
 )
 
 // prismTestEnv builds an Env with a fake jail home, a fake /ctx/host-pi mount,
-// and a writable workspace (for the .yolo/prism sidecars), plus the given
-// host_pi_files list. It returns the env and the host-mount dir so a test can
-// seed host files.
-func prismTestEnv(t *testing.T, hostPiFilesJSON string) (*Env, string) {
+// and a writable workspace (for the .yolo/prism sidecars). It returns the env
+// and the host-mount dir so a test can seed the host settings.json. The prism
+// reads /ctx/host-pi/settings.json unconditionally (fail-open) — there is no
+// host_pi_files allow-list any more (plan §10.4).
+func prismTestEnv(t *testing.T) (*Env, string) {
 	t.Helper()
 	home := t.TempDir()
 	ctx := t.TempDir()
@@ -24,7 +25,7 @@ func prismTestEnv(t *testing.T, hostPiFilesJSON string) (*Env, string) {
 	e := &Env{
 		Home:      home,
 		Workspace: ws,
-		Vars:      map[string]string{"YOLO_HOST_PI_FILES": hostPiFilesJSON},
+		Vars:      map[string]string{},
 	}
 	return e, ctx
 }
@@ -50,7 +51,7 @@ func decodeJSONFile(t *testing.T, path string) map[string]any {
 // seeded to those exact bytes, the overlay starts empty, and the obsolete
 // yolo-host-synced-settings.json snapshot (§4.7 orphan) is deleted.
 func TestConfigurePiPrismFirstMigration(t *testing.T) {
-	e, ctx := prismTestEnv(t, `["settings.json"]`)
+	e, ctx := prismTestEnv(t)
 
 	// Host settings the prism must merge in.
 	hostJSON := `{"theme":"dark","defaultModel":"claude-fable-5"}`
@@ -123,7 +124,7 @@ func TestConfigurePiPrismFirstMigration(t *testing.T) {
 // two boots: after the first-migration seed, an in-jail edit to settings.json
 // (adding a key) is captured and SURVIVES the second boot's regeneration.
 func TestConfigurePiPrismSteadyStateEditSurvives(t *testing.T) {
-	e, ctx := prismTestEnv(t, `["settings.json"]`)
+	e, ctx := prismTestEnv(t)
 	if err := os.WriteFile(filepath.Join(ctx, "settings.json"), []byte(`{"theme":"dark"}`), 0o644); err != nil {
 		t.Fatal(err)
 	}
@@ -166,50 +167,21 @@ func TestConfigurePiPrismSteadyStateEditSurvives(t *testing.T) {
 	}
 }
 
-// TestConfigurePiPrismNoHostSettings proves host-source gating: when
-// settings.json is NOT in YOLO_HOST_PI_FILES, the host layer is empty and the
-// render is defaults<managed only (theme defaults to "system").
+// TestConfigurePiPrismNoHostSettings proves the fail-open host read: when no
+// settings.json is present on the /ctx/host-pi mount (host file absent, or a
+// macos-user jail with no /ctx), the host layer is empty and the render is
+// defaults<managed only (theme defaults to "system").
 func TestConfigurePiPrismNoHostSettings(t *testing.T) {
-	e, ctx := prismTestEnv(t, `["models.json"]`) // settings.json intentionally absent from the list
-	// Even if a host settings.json exists on the mount, it must NOT be read
-	// because it is not declared in host_pi_files (fail-closed staging).
-	if err := os.WriteFile(filepath.Join(ctx, "settings.json"), []byte(`{"theme":"dark"}`), 0o644); err != nil {
-		t.Fatal(err)
-	}
+	e, _ := prismTestEnv(t) // no settings.json seeded on the mount
 
 	if err := ConfigurePiPrism(e); err != nil {
 		t.Fatalf("ConfigurePiPrism: %v", err)
 	}
 	got := decodeJSONFile(t, filepath.Join(e.PiDir(), "settings.json"))
 	if got["theme"] != "system" {
-		t.Errorf("theme = %v, want system (undeclared host settings must not be read)", got["theme"])
+		t.Errorf("theme = %v, want system (absent host settings → defaults)", got["theme"])
 	}
 	if got["defaultProjectTrust"] != "always" {
 		t.Errorf("defaultProjectTrust = %v, want always (managed)", got["defaultProjectTrust"])
-	}
-}
-
-// TestConfigurePiPrismStillStagesNonSettingsFiles proves the port preserves the
-// existing host_pi_files tree-staging behavior (models.json et al. still land in
-// ~/.pi/agent/) — the prism owns settings.json, not the sibling files.
-func TestConfigurePiPrismStillStagesNonSettingsFiles(t *testing.T) {
-	e, ctx := prismTestEnv(t, `["settings.json", "models.json"]`)
-	if err := os.WriteFile(filepath.Join(ctx, "settings.json"), []byte(`{}`), 0o644); err != nil {
-		t.Fatal(err)
-	}
-	modelsBody := `{"providers":{"bedrock-mantle":{}}}`
-	if err := os.WriteFile(filepath.Join(ctx, "models.json"), []byte(modelsBody), 0o644); err != nil {
-		t.Fatal(err)
-	}
-
-	if err := ConfigurePiPrism(e); err != nil {
-		t.Fatalf("ConfigurePiPrism: %v", err)
-	}
-	got, err := os.ReadFile(filepath.Join(e.PiDir(), "models.json"))
-	if err != nil {
-		t.Fatalf("models.json not staged: %v", err)
-	}
-	if string(got) != modelsBody {
-		t.Errorf("models.json = %q, want %q", got, modelsBody)
 	}
 }

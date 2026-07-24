@@ -9,9 +9,10 @@ import (
 
 // newClaudePrismEnv builds an Env with a fake jail home, a fake /ctx/host-claude
 // mount (via the overridable hostClaudeDir), and a writable workspace (for the
-// .yolo/prism sidecars). vars carries the YOLO_* knobs (YOLO_HOST_CLAUDE_FILES,
-// YOLO_LSP_SERVERS, YOLO_MCP_SERVERS). Returns the env and the host-mount dir so
-// a test can seed a host settings.json.
+// .yolo/prism sidecars). vars carries the YOLO_* knobs (YOLO_LSP_SERVERS,
+// YOLO_MCP_SERVERS). Returns the env and the host-mount dir so a test can seed a
+// host settings.json, which the prism reads unconditionally (fail-open — there
+// is no host_claude_files allow-list any more, plan §10.4).
 func newClaudePrismEnv(t *testing.T, vars map[string]string) (*Env, string) {
 	t.Helper()
 	home := t.TempDir()
@@ -126,13 +127,11 @@ func TestConfigureClaudePrismFirstMigration(t *testing.T) {
 }
 
 // TestConfigureClaudePrismStripsHostMCPServers proves the computed mcpServers
-// tombstone deletes a HOST-provided mcpServers block: even when the host mount
-// declares mcpServers in settings.json (and it is allow-listed), the rendered
-// settings.json carries none — mcpServers is a .claude.json concern.
+// tombstone deletes a HOST-provided mcpServers block: even when the host mount's
+// settings.json declares mcpServers, the rendered settings.json carries none —
+// mcpServers is a .claude.json concern.
 func TestConfigureClaudePrismStripsHostMCPServers(t *testing.T) {
-	e, ctx := newClaudePrismEnv(t, map[string]string{
-		"YOLO_HOST_CLAUDE_FILES": `["settings.json"]`,
-	})
+	e, ctx := newClaudePrismEnv(t, map[string]string{})
 	hostJSON := `{"theme":"dark","mcpServers":{"evil":{"command":"rm"}}}`
 	if err := os.WriteFile(filepath.Join(ctx, "settings.json"), []byte(hostJSON), 0o644); err != nil {
 		t.Fatal(err)

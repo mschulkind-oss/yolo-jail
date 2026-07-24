@@ -52,7 +52,6 @@ func ValidateConfig(config *jsonx.OrderedMap, workspace string, resolver Loophol
 	validateMounts(config, workspace, errs, warns)
 	validateWorkspaceReadonly(config, errs)
 	validatePerSidePaths(config, errs)
-	validateHostClaudeFiles(config, errs)
 	validateLoopholes(config, resolver, errs, warns)
 	validateJournal(config, errs)
 	validateKVM(config, errs)
@@ -327,49 +326,6 @@ func validatePerSidePaths(config *jsonx.OrderedMap, errs *[]string) {
 		} else if strings.HasPrefix(entry, "/") {
 			add(errs, path+": must be a relative path, not absolute")
 		} else if containsDotDot(entry) {
-			add(errs, path+": must not contain '..' components")
-		}
-	}
-}
-
-func validateHostClaudeFiles(config *jsonx.OrderedMap, errs *[]string) {
-	// host_claude_files and host_pi_files are validated as two identical blocks
-	// in that fixed order.
-	validateHostAgentFiles(config, "host_claude_files", errs)
-	validateHostAgentFiles(config, "host_pi_files", errs)
-}
-
-// validateHostAgentFiles checks a `<agent>_files` key: absent → skip; present
-// but not a list → "expected a list of strings"; each entry must be a string
-// naming a file relative to the agent home (~/.pi/agent or ~/.claude). Relative
-// subpaths are allowed ("mantle/mint-token.mjs" — a provider's helper script
-// under a subdir); the mount (ROFileMountArg) and sync (syncHost*Files) sides
-// already create intermediate dirs. Fail-closed on escapes, mirroring the
-// workspace_readonly / per_side_paths guard: reject absolute paths, `..`
-// traversal, and Windows-style `\` separators (the container is Linux).
-func validateHostAgentFiles(config *jsonx.OrderedMap, key string, errs *[]string) {
-	v, present := config.Get(key)
-	if !present || v == nil {
-		return
-	}
-	list, ok := asList(v)
-	if !ok {
-		add(errs, fmt.Sprintf("config.%s: expected a list of strings", key))
-		return
-	}
-	for idx, entryV := range list {
-		path := fmt.Sprintf("config.%s[%d]", key, idx)
-		entry, ok := asStr(entryV)
-		switch {
-		case !ok:
-			add(errs, path+": expected a string")
-		case entry == "" || entry == ".":
-			add(errs, path+": must name a file")
-		case strings.HasPrefix(entry, "/"):
-			add(errs, path+": must be a relative path, not absolute")
-		case strings.Contains(entry, "\\"):
-			add(errs, path+": must use '/' separators, not '\\'")
-		case containsDotDot(entry):
 			add(errs, path+": must not contain '..' components")
 		}
 	}
