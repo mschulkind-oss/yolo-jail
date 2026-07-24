@@ -1,0 +1,334 @@
+package entrypoint
+
+import (
+	"encoding/json"
+	"os"
+	"path/filepath"
+	"testing"
+
+	"github.com/mschulkind-oss/yolo-jail/internal/config"
+)
+
+// mustJSON marshals v or fails the test.
+func mustJSON(t *testing.T, v any) []byte {
+	t.Helper()
+	b, err := json.Marshal(v)
+	if err != nil {
+		t.Fatalf("json.Marshal: %v", err)
+	}
+	return b
+}
+
+// hostFilesTestEnv builds an Env with a fake jail home, a fake /ctx/host-user
+// mount (via the overridable hostUserDir), and a writable workspace for the §5
+// sidecars. It returns the env and the mount dir so a test can seed the host
+// source bytes at <mount>/<slug>.
+func hostFilesTestEnv(t *testing.T) (*Env, string) {
+	t.Helper()
+	home := t.TempDir()
+	ctx := t.TempDir()
+	ws := t.TempDir()
+
+	orig := hostUserDir
+	hostUserDir = ctx
+	t.Cleanup(func() { hostUserDir = orig })
+
+	return &Env{Home: home, Workspace: ws, Vars: map[string]string{}}, ctx
+}
+
+// setHostFiles marshals entries into the YOLO_HOST_FILES env var the loop reads.
+func setHostFiles(t *testing.T, e *Env, entries ...config.HostFileEntry) {
+	t.Helper()
+	wire, err := config.MarshalHostFiles(entries)
+	if err != nil {
+		t.Fatalf("MarshalHostFiles: %v", err)
+	}
+	e.Vars["YOLO_HOST_FILES"] = wire
+}
+
+func readFile(t *testing.T, path string) string {
+	t.Helper()
+	b, err := os.ReadFile(path)
+	if err != nil {
+		t.Fatalf("read %s: %v", path, err)
+	}
+	return string(b)
+}
+
+// TestHostFilesReadonlyRendersAndLocks: a source-bearing json entry in the
+// default readonly mode merges the host bytes over defaults, writes the surface
+// at 0o444, and re-renders (restoring host-side changes) on the next boot —
+// proving the 0o444→0o644→re-lock chmod dance does not wedge the re-render.
+func TestHostFilesReadonlyRendersAndLocks(t *testing.T) {
+	e, ctx := hostFilesTestEnv(t)
+	entry := config.HostFileEntry{
+		Path:     ".config/mytool/config.json",
+		Source:   "/host/config.json", // presence marks source-bearing; slug is from Path
+		Codec:    "json",
+		Defaults: map[string]any{"level": "info", "colour": true},
+		Mode:     config.HostFileModeReadonly,
+	}
+	// Seed the /ctx/host-user/<slug> mount with the host bytes.
+	if err := os.WriteFile(filepath.Join(ctx, entry.Slug()), []byte(`{"level":"debug"}`), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	setHostFiles(t, e, entry)
+
+	if err := ConfigureHostFiles(e); err != nil {
+		t.Fatalf("boot 1: %v", err)
+	}
+	dest := filepath.Join(e.Home, ".config/mytool/config.json")
+	got := decodeJSONFile(t, dest)
+	if got["level"] != "debug" {
+		t.Errorf("level = %v, want debug (host over default)", got["level"])
+	}
+	if got["colour"] != true {
+		t.Errorf("colour = %v, want true (default survives)", got["colour"])
+	}
+	if fi, err := os.Stat(dest); err != nil {
+		t.Fatal(err)
+	} else if fi.Mode().Perm() != 0o444 {
+		t.Errorf("mode = %o, want 0444 (readonly)", fi.Mode().Perm())
+	}
+
+	// Boot 2: the dest is 0o444 from boot 1. A host change must still propagate,
+	// which requires the re-render to succeed despite the read-only dest.
+	if err := os.WriteFile(filepath.Join(ctx, entry.Slug()), []byte(`{"level":"warn"}`), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	if err := ConfigureHostFiles(e); err != nil {
+		t.Fatalf("boot 2: %v", err)
+	}
+	if got := decodeJSONFile(t, dest); got["level"] != "warn" {
+		t.Errorf("boot 2 level = %v, want warn (host change must re-render over 0444)", got["level"])
+	}
+	// No sidecars for a readonly surface — it is not the capture mode.
+	if _, err := os.Stat(prismOverlayPath(e, "user", entry.Slug())); !os.IsNotExist(err) {
+		t.Errorf("readonly surface must not write an overlay sidecar (stat err %v)", err)
+	}
+}
+
+// TestHostFilesOnceSeedsThenLeavesAlone: a source-less `once` entry seeds from
+// its defaults when absent, and an in-jail edit survives the next boot untouched
+// (no re-render, no sidecar).
+func TestHostFilesOnceSeedsThenLeavesAlone(t *testing.T) {
+	e, _ := hostFilesTestEnv(t)
+	entry := config.HostFileEntry{
+		Path:     ".config/seed.json",
+		Codec:    "json",
+		Defaults: map[string]any{"seeded": true},
+		Mode:     config.HostFileModeOnce,
+	}
+	setHostFiles(t, e, entry)
+
+	if err := ConfigureHostFiles(e); err != nil {
+		t.Fatalf("boot 1: %v", err)
+	}
+	dest := filepath.Join(e.Home, ".config/seed.json")
+	if got := decodeJSONFile(t, dest); got["seeded"] != true {
+		t.Errorf("seeded = %v, want true", got["seeded"])
+	}
+
+	// Agent edits the seeded file. `once` must never touch it again.
+	if err := os.WriteFile(dest, []byte(`{"seeded":false,"mine":1}`), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	if err := ConfigureHostFiles(e); err != nil {
+		t.Fatalf("boot 2: %v", err)
+	}
+	got := decodeJSONFile(t, dest)
+	if got["seeded"] != false || got["mine"] != float64(1) {
+		t.Errorf("once re-touched the file: %v (edit must persist verbatim)", got)
+	}
+}
+
+// TestHostFilesCopyOverwritesEveryBoot: a `copy` entry is regenerated every boot,
+// discarding an in-jail edit.
+func TestHostFilesCopyOverwritesEveryBoot(t *testing.T) {
+	e, ctx := hostFilesTestEnv(t)
+	entry := config.HostFileEntry{
+		Path:   ".config/copy.json",
+		Source: "/host/copy.json",
+		Codec:  "json",
+		Mode:   config.HostFileModeCopy,
+	}
+	if err := os.WriteFile(filepath.Join(ctx, entry.Slug()), []byte(`{"n":1}`), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	setHostFiles(t, e, entry)
+
+	if err := ConfigureHostFiles(e); err != nil {
+		t.Fatalf("boot 1: %v", err)
+	}
+	dest := filepath.Join(e.Home, ".config/copy.json")
+	// Agent edit, then boot 2 must overwrite it back to the host value.
+	if err := os.WriteFile(dest, []byte(`{"n":999}`), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	if err := ConfigureHostFiles(e); err != nil {
+		t.Fatalf("boot 2: %v", err)
+	}
+	if got := decodeJSONFile(t, dest); got["n"] != float64(1) {
+		t.Errorf("n = %v, want 1 (copy overwrites the in-jail edit)", got["n"])
+	}
+}
+
+// TestHostFilesCaptureEditSurvives: the overlay exception — a capture entry
+// re-renders every boot AND preserves an in-jail edit through the §5 sidecar.
+func TestHostFilesCaptureEditSurvives(t *testing.T) {
+	e, ctx := hostFilesTestEnv(t)
+	entry := config.HostFileEntry{
+		Path:   ".config/capture.json",
+		Source: "/host/capture.json",
+		Codec:  "json",
+		Mode:   config.HostFileModeCapture,
+	}
+	if err := os.WriteFile(filepath.Join(ctx, entry.Slug()), []byte(`{"host":"a"}`), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	setHostFiles(t, e, entry)
+
+	if err := ConfigureHostFiles(e); err != nil {
+		t.Fatalf("boot 1: %v", err)
+	}
+	dest := filepath.Join(e.Home, ".config/capture.json")
+	edited := decodeJSONFile(t, dest)
+	edited["mine"] = "keepme"
+	editedBytes := mustJSON(t, edited)
+	if err := os.WriteFile(dest, editedBytes, 0o644); err != nil {
+		t.Fatal(err)
+	}
+	if err := ConfigureHostFiles(e); err != nil {
+		t.Fatalf("boot 2: %v", err)
+	}
+	got := decodeJSONFile(t, dest)
+	if got["mine"] != "keepme" {
+		t.Errorf("captured edit lost: %v", got)
+	}
+	if got["host"] != "a" {
+		t.Errorf("host key lost: %v", got)
+	}
+	// Capture is the ONE mode that writes a sidecar.
+	if _, err := os.Stat(prismOverlayPath(e, "user", entry.Slug())); err != nil {
+		t.Errorf("capture mode must write an overlay sidecar: %v", err)
+	}
+}
+
+// TestHostFilesRawNoTrailingNewline is the regression for the codec-aware newline
+// fix: a `raw` surface promises a byte-exact round-trip, so the rendered file must
+// carry NO appended "\n" that the source did not have.
+func TestHostFilesRawNoTrailingNewline(t *testing.T) {
+	e, ctx := hostFilesTestEnv(t)
+	entry := config.HostFileEntry{
+		Path:   ".config/tool.conf",
+		Source: "/host/tool.conf",
+		Codec:  "raw",
+		Mode:   config.HostFileModeCopy,
+	}
+	// Deliberately no trailing newline on the source.
+	if err := os.WriteFile(filepath.Join(ctx, entry.Slug()), []byte("key=value"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	setHostFiles(t, e, entry)
+
+	if err := ConfigureHostFiles(e); err != nil {
+		t.Fatalf("boot: %v", err)
+	}
+	dest := filepath.Join(e.Home, ".config/tool.conf")
+	if got := readFile(t, dest); got != "key=value" {
+		t.Errorf("raw surface = %q, want %q byte-exact (no appended newline)", got, "key=value")
+	}
+}
+
+// TestHostFilesContentEmptyFile: a source-less entry with "content": "" declares
+// a deliberately empty file, and the loop must create it (HasContent, not a
+// nothing-to-compose skip).
+func TestHostFilesContentEmptyFile(t *testing.T) {
+	e, _ := hostFilesTestEnv(t)
+	entry := config.HostFileEntry{
+		Path:       ".config/empty.conf",
+		Codec:      "raw",
+		Content:    "",
+		HasContent: true,
+		Mode:       config.HostFileModeOnce,
+	}
+	setHostFiles(t, e, entry)
+
+	if err := ConfigureHostFiles(e); err != nil {
+		t.Fatalf("boot: %v", err)
+	}
+	dest := filepath.Join(e.Home, ".config/empty.conf")
+	if got := readFile(t, dest); got != "" {
+		t.Errorf("empty-content file = %q, want empty", got)
+	}
+}
+
+// TestHostFilesDirCopiesTree: a directory entry recursively copies the mounted
+// tree at /ctx/host-user/<slug> into the jail home, running no codec.
+func TestHostFilesDirCopiesTree(t *testing.T) {
+	e, ctx := hostFilesTestEnv(t)
+	entry := config.HostFileEntry{
+		Path:   ".config/tooldir",
+		Source: "/host/tooldir/",
+		IsDir:  true,
+		Mode:   config.HostFileModeCopy,
+	}
+	// Seed a small tree at the mount slug.
+	slugDir := filepath.Join(ctx, entry.Slug())
+	if err := os.MkdirAll(filepath.Join(slugDir, "sub"), 0o755); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(filepath.Join(slugDir, "a.txt"), []byte("A"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(filepath.Join(slugDir, "sub", "b.txt"), []byte("B"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	setHostFiles(t, e, entry)
+
+	if err := ConfigureHostFiles(e); err != nil {
+		t.Fatalf("boot: %v", err)
+	}
+	base := filepath.Join(e.Home, ".config/tooldir")
+	if got := readFile(t, filepath.Join(base, "a.txt")); got != "A" {
+		t.Errorf("a.txt = %q, want A", got)
+	}
+	if got := readFile(t, filepath.Join(base, "sub", "b.txt")); got != "B" {
+		t.Errorf("sub/b.txt = %q, want B", got)
+	}
+}
+
+// TestHostFilesMissingSourceFailsOpen: a source-bearing entry whose /ctx mount is
+// absent (host source not present, or macos-user with no /ctx) falls back to its
+// defaults layer rather than crashing the boot step.
+func TestHostFilesMissingSourceFailsOpen(t *testing.T) {
+	e, _ := hostFilesTestEnv(t) // nothing seeded at the mount slug
+	entry := config.HostFileEntry{
+		Path:     ".config/fallback.json",
+		Source:   "/host/absent.json",
+		Codec:    "json",
+		Defaults: map[string]any{"fallback": true},
+		Mode:     config.HostFileModeReadonly,
+	}
+	setHostFiles(t, e, entry)
+
+	if err := ConfigureHostFiles(e); err != nil {
+		t.Fatalf("boot: %v", err)
+	}
+	dest := filepath.Join(e.Home, ".config/fallback.json")
+	if got := decodeJSONFile(t, dest); got["fallback"] != true {
+		t.Errorf("fallback = %v, want true (missing source → defaults layer)", got["fallback"])
+	}
+}
+
+// TestConfigureHostFilesEmptyEnvIsNoop: an unset YOLO_HOST_FILES is the feature
+// off — no error, and no files created.
+func TestConfigureHostFilesEmptyEnvIsNoop(t *testing.T) {
+	e, _ := hostFilesTestEnv(t)
+	if err := ConfigureHostFiles(e); err != nil {
+		t.Fatalf("empty env: %v", err)
+	}
+	if entries, _ := os.ReadDir(e.Home); len(entries) != 0 {
+		t.Errorf("empty YOLO_HOST_FILES created %d home entries, want none", len(entries))
+	}
+}

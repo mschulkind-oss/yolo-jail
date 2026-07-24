@@ -460,6 +460,12 @@ func Main(args []string) error {
 		p.mark("configure_" + agent)
 	}
 
+	// Stage the user's host_files entries (YOLO_HOST_FILES) through the same
+	// composition engine, after the builtin agent surfaces so a user entry never
+	// races a builtin (the config layer already forbids one at a builtin path).
+	genStep(e, "configure_host_files", func() error { return ConfigureHostFiles(e) })
+	p.mark("configure_host_files")
+
 	setupCgroupDelegation(os.Stderr)
 	p.mark("cgroup_delegation")
 	genStep(e, "generate_cglimit_script", func() error { return GenerateCglimitScript(e) })

@@ -54,6 +54,13 @@ func RunDarwinBootstrap(e *Env, opts DarwinBootstrapOptions) {
 		configureAgent(e, agent)
 	}
 
+	// Stage host_files (YOLO_HOST_FILES), after the builtin agent surfaces, same
+	// as the Linux boot loop. On macos-user the launcher passes only the
+	// source-less entries (config.SourceLessHostFiles): there is no /ctx/host-user
+	// mount to carry a source into — the design's accepted macos-user deficiency,
+	// kept explicit rather than half-working (docs/plans/host-file-staging.md).
+	genStep(e, "configure_host_files", func() error { return ConfigureHostFiles(e) })
+
 	// macOS-only writers (the two pieces unique to the native-macOS bootstrap).
 	genStep(e, "install_yolo_log", func() error { return InstallYoloLog(e, opts.YoloLogScript) })
 	genStep(e, "write_login_rc", func() error { return WriteLoginRC(e, opts.LoginPath) })
