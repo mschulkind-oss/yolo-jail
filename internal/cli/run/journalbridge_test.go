@@ -3,6 +3,7 @@ package run
 import (
 	"os"
 	"path/filepath"
+	"runtime"
 	"testing"
 
 	"github.com/mschulkind-oss/yolo-jail/internal/journald"
@@ -60,6 +61,14 @@ func TestResolveJournalMode(t *testing.T) {
 // mount path + env var. Before the fix, startLoopholes had no journal step at
 // all and this handle never existed.
 func TestStartJournalStartsBridge(t *testing.T) {
+	// The journal bridge is Linux/podman-only: it forwards `journalctl`, which
+	// has no macOS host analog, and startLoopholes never reaches startJournal on
+	// the macOS `container` runtime (it returns before the journal step). The
+	// spawn+socket-bind path is therefore only meaningful on Linux; on macOS the
+	// self-exec'd daemon can't bind under $TMPDIR's long sun_path anyway.
+	if runtime.GOOS != "linux" {
+		t.Skip("journal bridge is Linux-only (journalctl forwarder)")
+	}
 	socketsDir := t.TempDir()
 	cfg := jsonx.NewOrderedMap()
 	cfg.Set("journal", "user")
