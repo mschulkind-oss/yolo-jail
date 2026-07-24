@@ -583,7 +583,7 @@
         #   /opt/yolo-jail/share/yolo-jail/flake.nix
         #   /opt/yolo-jail/share/yolo-jail/flake.lock
         #   /opt/yolo-jail/share/yolo-jail/bin/linux-<arch>/<binary>
-        #   /bin/<binary>            → /opt/yolo-jail/bin/<binary>  (symlink)
+        #   /bin/<binary>            → $out/opt/yolo-jail/bin/<binary>  (store path)
         #
         # The binaries under /opt/yolo-jail/bin are COPIED, not symlinked into
         # goBinaries: a symlink would make /proc/self/exe (os.Executable)
@@ -595,6 +595,19 @@
         # now goes through a real image rebuild in a nested jail (accepted
         # regression). goprobe is excluded — it is a dev-only deployment
         # tripwire that must never reach the runtime PATH.
+        #
+        # SHADOW HARDENING: /bin/<binary> targets the ABSOLUTE STORE PATH
+        # ($out/opt/yolo-jail/bin/<binary>), not the /opt/yolo-jail/bin/<binary>
+        # mountpoint. A launcher that binds a source tree over /opt/yolo-jail
+        # (e.g. a pre-6f6cdca `-v …:/opt/yolo-jail:ro`, which has no bin/ subdir)
+        # would dangle a /bin symlink that hopped THROUGH /opt/yolo-jail — and
+        # since catatonit execs /bin/yolo-entrypoint as pid1, that bricked the
+        # whole container with "failed to exec pid1" before any Go ran. The store
+        # path is mounted :ro and is never a shadow target, so boot survives ANY
+        # mount over /opt/yolo-jail; at worst the in-jail exe-relative RESOLVER
+        # degrades to a warning (soft), never a boot brick (hard). This is pure
+        # upside — os.Executable still resolves to the store path either way, so
+        # ../share/yolo-jail resolution is unaffected.
         shippedBinaries = [ "yolo" "yolo-entrypoint" "yolo-jaild" "yolo-ps" ];
         installPrefix = pkgs.runCommand "yolo-jail-install-prefix" { } ''
           mkdir -p $out/opt/yolo-jail/bin \
@@ -616,7 +629,13 @@
             chmod +x "$out/opt/yolo-jail/bin/$name"
             cp "$src" "$out/opt/yolo-jail/share/yolo-jail/bin/linux-${goArch}/$name"
             chmod +x "$out/opt/yolo-jail/share/yolo-jail/bin/linux-${goArch}/$name"
-            ln -s "/opt/yolo-jail/bin/$name" "$out/bin/$name"
+            # Point /bin/<name> straight at the store copy, NOT through the
+            # /opt/yolo-jail/bin mountpoint. $out expands to this derivation's
+            # store path, which is mounted :ro and can never be a bind-mount
+            # shadow target — so exec of /bin/<name> (the boot-critical
+            # yolo-entrypoint as pid1 included) survives any launcher mounting
+            # over /opt/yolo-jail. See the shadow-hardening note above.
+            ln -s "$out/opt/yolo-jail/bin/$name" "$out/bin/$name"
           done
         '';
 
