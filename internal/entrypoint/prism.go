@@ -25,7 +25,9 @@ import (
 	"strings"
 
 	"github.com/mschulkind-oss/yolo-jail/internal/agentcfg"
+	"github.com/mschulkind-oss/yolo-jail/internal/agentcfg/codec"
 	"github.com/mschulkind-oss/yolo-jail/internal/agentcfg/luahook"
+	"github.com/mschulkind-oss/yolo-jail/internal/agentcfg/manifest"
 	"github.com/mschulkind-oss/yolo-jail/internal/jsonx"
 )
 
@@ -98,13 +100,23 @@ func renderSurfaceStateful(e *Env, agent, name string, hostBytes []byte, compute
 	if !ok {
 		return nil, &missingSurfaceError{agent: agent, name: name}
 	}
+	return renderSurfaceStatefulSurface(e, surface, hostBytes, computed)
+}
 
+// renderSurfaceStatefulSurface is the surface-taking core of the stateful
+// render, split out of renderSurfaceStateful so host_files can render a
+// user-declared surface (Agent="user", Name=slug) that is NOT in the builtin
+// manifest. The sidecar paths key on surface.Agent/surface.Name, so a user
+// surface's sidecars are user-<slug>.{last_render,overlay.json} — collision-free
+// with any builtin (no builtin agent is "user", and the slug is injective on the
+// destination path).
+func renderSurfaceStatefulSurface(e *Env, surface manifest.Surface, hostBytes []byte, computed map[string]any) (*agentcfg.StatefulOutput, error) {
 	surfacePath := expandHomePath(e, surface.Path)
 	current, _ := os.ReadFile(surfacePath) // absent => nil, treated as no current file
 
-	lastRenderPath := prismLastRenderPath(e, agent, name)
+	lastRenderPath := prismLastRenderPath(e, surface.Agent, surface.Name)
 	lastRenderBytes, lastErr := os.ReadFile(lastRenderPath)
-	overlayJSON, _ := os.ReadFile(prismOverlayPath(e, agent, name))
+	overlayJSON, _ := os.ReadFile(prismOverlayPath(e, surface.Agent, surface.Name))
 
 	script := loadPrismTransformScript(e)
 	var vm luahook.LuaVM
@@ -129,28 +141,43 @@ func renderSurfaceStateful(e *Env, agent, name string, hostBytes []byte, compute
 		return nil, err
 	}
 
-	// Persist the render to the jail surface path (codecs emit no trailing
-	// newline; append one so the file is a well-formed text file, matching the
-	// bespoke writers' dumpJSONIndent2 "+ \n").
+	// Persist the render to the jail surface path.
 	if err := os.MkdirAll(filepath.Dir(surfacePath), 0o755); err != nil {
 		return nil, err
 	}
-	if err := writeInPlaceString(surfacePath, string(out.Result.Encoded)+"\n"); err != nil {
+	if err := writeInPlaceString(surfacePath, surfaceText(surface, out.Result.Encoded)); err != nil {
 		return nil, err
 	}
 
 	// Persist the two sidecars (last_render matches the surface bytes exactly, so
-	// the next boot's mergeDiff has a truthful baseline).
+	// the next boot's mergeDiff has a truthful baseline). The last_render sidecar
+	// must be the SAME bytes written to the surface — so it goes through the same
+	// surfaceText codec-aware terminator, or the next boot's diff sees a spurious
+	// change on a keyless surface.
 	if err := os.MkdirAll(prismSidecarDir(e), 0o755); err != nil {
 		return nil, err
 	}
-	if err := writeInPlaceString(lastRenderPath, string(out.LastRenderBytes)+"\n"); err != nil {
+	if err := writeInPlaceString(lastRenderPath, surfaceText(surface, out.LastRenderBytes)); err != nil {
 		return nil, err
 	}
-	if err := writeInPlaceString(prismOverlayPath(e, agent, name), string(out.OverlayJSON)+"\n"); err != nil {
+	if err := writeInPlaceString(prismOverlayPath(e, surface.Agent, surface.Name), string(out.OverlayJSON)+"\n"); err != nil {
 		return nil, err
 	}
 	return out, nil
+}
+
+// surfaceText renders a surface's encoded bytes as the exact file text to write.
+// Object codecs (json/toml) emit no trailing newline, so one is appended to make
+// a well-formed text file (matching the bespoke writers' dumpJSONIndent2 "+\n").
+// Keyless codecs must NOT get an appended newline: raw promises a byte-exact
+// Decode→Encode round-trip (a stray "\n" corrupts it), and lines already
+// terminates every line with "\n" (a second one decodes back as a spurious
+// trailing empty element, which would also poison the §5 last_render baseline).
+func surfaceText(surface manifest.Surface, encoded []byte) string {
+	if surface.Kind() == codec.KindObject {
+		return string(encoded) + "\n"
+	}
+	return string(encoded)
 }
 
 // renderSurfaceComputed runs a STATELESS render for one builtin surface and
@@ -175,7 +202,18 @@ func renderSurfaceComputed(e *Env, agent, name string, computed map[string]any) 
 	if !ok {
 		return &missingSurfaceError{agent: agent, name: name}
 	}
+	// Builtin computed siblings have no host source; host bytes stay nil.
+	_, err := renderSurfaceStatelessSurface(e, surface, nil, computed)
+	return err
+}
 
+// renderSurfaceStatelessSurface is the surface-taking core of the stateless
+// render. Unlike renderSurfaceComputed it accepts hostBytes: host_files
+// readonly/copy/once modes seed the `host` layer from a /ctx mount (or inline
+// content), and dropping that layer would compose only defaults<computed<managed
+// — silently losing the file's actual content. It writes ONLY the surface file
+// (no sidecars) and returns the Result so a caller can chmod or inspect it.
+func renderSurfaceStatelessSurface(e *Env, surface manifest.Surface, hostBytes []byte, computed map[string]any) (*agentcfg.Result, error) {
 	script := loadPrismTransformScript(e)
 	var vm luahook.LuaVM
 	if script != "" {
@@ -183,21 +221,24 @@ func renderSurfaceComputed(e *Env, agent, name string, computed map[string]any) 
 	}
 
 	res, err := agentcfg.Compose(agentcfg.Inputs{
-		Surface:  surface,
-		Computed: computed,
-		Script:   script,
-		VM:       vm,
+		Surface:   surface,
+		HostBytes: hostBytes,
+		Computed:  computed,
+		Script:    script,
+		VM:        vm,
 	})
 	if err != nil {
-		return err
+		return nil, err
 	}
 
 	surfacePath := expandHomePath(e, surface.Path)
 	if err := os.MkdirAll(filepath.Dir(surfacePath), 0o755); err != nil {
-		return err
+		return nil, err
 	}
-	// Trailing newline matches the stateful path and the old dumpJSONIndent2 "+\n".
-	return writeInPlaceString(surfacePath, string(res.Encoded)+"\n")
+	if err := writeInPlaceString(surfacePath, surfaceText(surface, res.Encoded)); err != nil {
+		return nil, err
+	}
+	return res, nil
 }
 
 // missingSurfaceError is returned when a requested builtin surface is absent —
