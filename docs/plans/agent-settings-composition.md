@@ -2,9 +2,9 @@
 
 **Status:** Design of record — **FINALIZED 2026-07-20** (all §9 *composition*
 questions resolved). Supersedes the exploratory RFC that carried a menu of models
-and a data-filter vocabulary — this is the line in the sand. One piece of
-implementation scope remains **open**: retiring `host_pi_files` (§10). **Per-phase
-status:**
+and a data-filter vocabulary — this is the line in the sand. Retiring the
+`host_*_files` keys was **decided 2026-07-23** (§10) and now awaits
+implementation. **Per-phase status:**
 **Phase A complete** — the engine is built + tested (`internal/agentcfg`, with
 `compose.go`/`engine.go`/`manifest`/`codec`/`luahook` and their tests). **Phase
 B complete** — all **agent** surfaces are in the manifest and reachable via
@@ -21,8 +21,10 @@ boot. Remaining non-agent surfaces (mise, MCP/LSP standalone, git identity)
 still have bespoke generators; folding them onto the prism is tracked separately
 in §8 / [ROADMAP.md](ROADMAP.md). The `host_*_files` config keys also survived
 the cutover — the prism host layer reads *through* them rather than replacing
-them; fully retiring `host_pi_files` (the original Phase-B goal for pi) turns out
-to need more than a key deletion, and its **open questions are in §10.**
+them; fully retiring them (the original Phase-B goal for pi) turns out to need
+more than a key deletion. The approach is now **decided in §10**: yolo declares
+the copied-in host-file set per agent (a credential boundary, not
+workspace-widenable) and both keys hard-error.
 
 yolo generates a number of config files inside the jail from host + jail sources
 — coding-agent settings (Claude's `settings.json`, Codex's `config.toml`, pi's
@@ -439,9 +441,9 @@ surface is verifiable.
 ✅ **Done for the agent-config surfaces.**
 - **pi first** as the proof-of-concept — exercises tree staging + a transform +
   the overlay; retires the pi three-way merge. **`host_pi_files` was NOT
-  deleted**: the prism reads the host layer through it and the tree-staging
-  executor that would supersede it is unbuilt — see §10 for the remaining work
-  and open questions.
+  deleted**: the prism reads the host layer through it. Retiring it (and
+  `host_claude_files`) is **decided in §10** — yolo declares the host-file set
+  per agent and both keys hard-error — pending implementation.
 - then in parallel, one commit each: **Claude** (widest — `settings.json` +
   `.claude.json` as runtime-state), **gemini**, **copilot**, **opencode**,
   **Codex** (TOML codec), plus **agy**, which was born directly on the prism (no
@@ -457,9 +459,10 @@ surfaces.** The `YOLO_PRISM_SURFACES` cutover gate is retired, `boot.go` calls t
 writers plus their now-dead helpers (the three-way merge, the codex TOML dumper,
 the numeric-equality cluster) are deleted. The obsolete snapshot/managed-MCP
 sidecars are removed on each surface's first-migration boot. The `host_*_files`
-keys survive (the prism host layer reads through them) — retiring `host_pi_files`
-is deferred, unbuilt work with open questions; see §10. Deletion of the non-agent
-bespoke generators waits on their Phase-B port.
+keys survive (the prism host layer reads through them) — retiring them is
+**decided in §10** (yolo-declared host-file set, both keys hard-error) and awaits
+implementation. Deletion of the non-agent bespoke generators waits on their
+Phase-B port.
 
 Each stage ends with a nested-jail verification (per repo `CLAUDE.md`).
 
@@ -517,19 +520,21 @@ Each stage ends with a nested-jail verification (per repo `CLAUDE.md`).
   render without reaching back to the host. Host-side `render` stays too (for the
   edit-before-launch loop); same engine, same output, both places.
 
-*(The **composition design** is settled — no open questions there. The one piece
-of the original Phase-B scope still open is **retiring `host_pi_files`**, which
-turned out to need machinery the cutover left unbuilt; its questions are §10.)*
+*(The **composition design** is settled — no open questions there. Retiring the
+`host_*_files` keys, the last piece of the original Phase-B scope, is now
+**decided in §10** (2026-07-23) and awaits implementation.)*
 
 ---
 
-## 10. Open — retiring `host_pi_files`
+## 10. Retiring the `host_*_files` keys (decided 2026-07-23)
 
 Deleting `host_pi_files` was the stated Phase-B outcome for pi (§8), but the
 cutover reached parity *reading through* the key rather than removing it. This
 section is the lead-up: what the key still does, why the plan's intended
-replacement (§3.3 tree staging) is not actually built, and the decisions needed
-before the key can go.
+replacement (§3.3 tree staging) is not actually built, and — in §10.4 — the
+settled decisions. The through-line is that the copied-in host-file set is a
+**credential boundary**, so it must be yolo-declared and not workspace-widenable;
+that principle, not cleanup, is what drives the decisions.
 
 ### 10.1 What `host_pi_files` still does today
 
@@ -564,64 +569,81 @@ But the executor behind that is **not implemented**:
   and so cannot live in the codec-agnostic manifest") — which is exactly *why*
   the allow-list still lives in a config key.
 
-In other words: retiring `host_pi_files` cleanly via the design's own answer
-(tree staging) requires **building the missing half of the prism first**. The
-open questions below are largely about whether to build it now or take a cheaper
-path that sidesteps it.
+In other words: retiring `host_*_files` cleanly via the design's own answer (tree
+staging) *would* require building the missing half of the prism first — but the
+§10.4 decisions sidestep that by removing the open-ended-list role entirely (D2),
+so no general tree-staging executor is needed for this task.
 
-### 10.3 The remaining work, once the questions below are answered
+### 10.3 The remaining work (per the §10.4 decisions)
 
-1. **Replace the `settings.json` host-source resolution** so pi's settings file
-   is mounted + read as the `host` layer without consulting the config key
-   (fixed built-in mount, or a manifest-declared host path — Q1).
-2. **Replace sibling staging** (`models.json` et al.) — or drop it (Q2).
-3. **Retire the config surface:** delete `hostPiFileArgs`, `syncHostPiFiles` /
-   `hostPiFiles`, `DefaultHostPiFiles`, the `knownTopLevelConfigKeys` entry, and
-   the pi arm of `validateHostAgentFiles`; decide migration behavior for a config
-   that still sets the key (Q4).
-4. **Nested-jail verify parity:** pi boots, `settings.json` composes identically,
-   and any sibling files still land where pi reads them.
+1. **Declare the host-file set in yolo, per agent (D1/D2):** a built-in,
+   explicit per-agent list of host files that cross (pi ⇒ `settings.json`; any
+   claude siblings named explicitly), fixed against workspace config so a
+   workspace `yolo-jail.jsonc` cannot widen it.
+2. **Rekey the mount + host-layer resolution off that declaration**, not the
+   config key: the CLI mount plumbing and `ConfigurePiPrism`'s host-source read
+   both consult the yolo-declared list.
+3. **Retire the config surface entirely (D3/D4):** delete `hostPiFileArgs` /
+   `hostClaudeFileArgs` + `appendSettingsScripts`, `syncHostPiFiles` /
+   `hostPiFiles` (and the claude twins), `DefaultHostPiFiles` /
+   `DefaultHostClaudeFiles`, the pi arm of `validateHostAgentFiles`, and **remove
+   both keys from `knownTopLevelConfigKeys`** so they hard-error.
+4. **Nested-jail verify parity:** pi and claude boot, `settings.json` composes
+   identically, and every explicitly-declared host file still lands where the
+   agent reads it.
 
-### 10.4 Open questions
+### 10.4 Decisions (settled 2026-07-23)
 
-**Q1 — What replaces the allow-list: always-mount, or manifest-declared?**
-Pi's host source is fixed (`~/.pi/agent/settings.json`); the key's
-configurability was never really exercised (default is just `["settings.json"]`).
-Options: (a) **always-mount the fixed source** — retires the key with near-zero
-new machinery; (b) **add a host-source field to the manifest** — cleaner
-long-term and matches "the manifest is where a surface is declared," but reverses
-the explicit decision to keep env-dependent paths out of the manifest.
-*Lean: (a).*
+**The governing principle — the host-file set is yolo-declared, never
+workspace-widenable.** *Which* host files cross into the jail is a **credential
+boundary**, not a convenience knob: a config that can add entries can forward
+arbitrary host files — SSH keys, cloud tokens, `~/.pi/agent/`-adjacent secrets —
+into the jail. A **workspace** `yolo-jail.jsonc` is attacker-influenceable (it
+travels with the repo), so it must **never** be able to expand the copied-in set.
+That reframes the whole task: the point of retiring `host_*_files` is not
+cleanup, it is removing a config-controlled path that widens what leaves the
+host. Everything below follows from that.
 
-**Q2 — How do sibling files like `models.json` cross without the key?**
-This is the real blocker, because sibling staging is the only role that needs an
-open-ended list. Options: (a) model each sibling as its own composed surface
-(`pi/models`) — clean, but only for files yolo can decode/round-trip, one
-manifest entry each; (b) **build the §3.3 tree-staging executor** — the design's
-intended answer, but genuinely unbuilt (this is implementing the missing half of
-the prism, not retiring a key); (c) **drop sibling support entirely** — note it
-is opt-in and **off by default** (default `["settings.json"]` stages no
-siblings), so it may affect no real config. *Lean: confirm whether pi sibling
-files are used at all; if not, (c) and the whole task collapses to Q1.*
+**D1 — The host-file set is declared by yolo, per agent (explicit list), and
+fixed against workspace config.** Not an open-ended user list. yolo ships an
+explicit, per-agent declaration of exactly which host files cross (a defaults
+list is fine — e.g. pi ⇒ `settings.json`); a **workspace** config cannot add to
+it. This satisfies both the Q1 concern (no workspace-driven expansion of
+copied-in user files) and the Q2 preference (fully explicit declarations, with
+per-agent defaults). The natural home is the builtin manifest: the file paths
+are fixed (`~/.pi/agent/settings.json`), not env-dependent — only the *mount
+plumbing* is env-dependent, and that stays in the CLI. (This narrows the earlier
+"keep paths out of the manifest" note to "keep the mount mechanism out," not the
+declaration.)
 
-**Q3 — Retire `host_claude_files` in lockstep, or pi only?**
-They are structurally identical, **but** claude has `appendSettingsScripts`
-(auto-mounts hook / statusLine / fileSuggestion scripts referenced by
-`settings.json`) — a real feature with no prism equivalent, so its blast radius
-is much larger. *Lean: pi only now; leave claude + its script-discovery for a
-separate pass.*
+**D2 — No open-ended sibling list; sibling files are explicit declarations
+too.** The `models.json`-style "copy every other entry in the list" role is
+removed. If an agent needs a sibling host file, it is named in the same explicit
+per-agent declaration (D1) — a built-in defaults list, decoded as a composed
+surface where yolo can round-trip it, or staged verbatim where it can't. There
+is no arbitrary user-provided list to honor, so the "open-ended list" role that
+motivated the tree-staging executor simply disappears for this purpose.
 
-**Q4 — Migration for a config that still sets `host_pi_files`?**
-Options: hard-error (as `docker` does), warn-and-ignore, or silently
-accept-and-ignore for a deprecation window. *Lean: warn-and-ignore — it was a
-low-traffic key; a hard error is hostile for a key that is merely becoming a
-no-op.*
+**D3 — Retire ALL special-cased `host_*_files`, not just pi.** Both
+`host_pi_files` **and** `host_claude_files` go, and with them claude's
+`appendSettingsScripts` special-casing (the hook / statusLine / fileSuggestion
+script auto-mount). Any host file claude genuinely needs becomes an explicit
+per-agent declaration under D1; there are no bespoke, per-agent host-file
+pathways left after this.
 
-**The cheapest complete path**, if pi sibling files are unused: *always-mount
-pi's `settings.json` (Q1a), drop sibling staging (Q2c), warn-and-ignore the key
-(Q4), leave claude alone (Q3 pi-only)* — this retires `host_pi_files` fully
-**without** building the tree-staging executor. If sibling files *are* used, Q2
-forces building tree staging first — a materially bigger commitment.
+**D4 — The key is removed outright: hard-error, as if it never existed.**
+`host_pi_files` and `host_claude_files` are dropped from `knownTopLevelConfigKeys`
+so a config that still sets either fails the unknown-key check (the same
+treatment `docker` gets). No warn-and-ignore, no deprecation window — pretend the
+keys never existed.
+
+**Net shape.** A single yolo-owned, per-agent declaration of host files that
+cross into the jail; no config key gates or expands it; the mount plumbing stays
+in the CLI keyed off that declaration; the config keys hard-error. This removes a
+workspace-influenceable credential path (the real motivation) and collapses the
+three roles of §10.1 into one explicit, non-widenable list — **without** needing
+the general tree-staging executor, because D2 removes the only role that wanted
+an open-ended list.
 
 ---
 
