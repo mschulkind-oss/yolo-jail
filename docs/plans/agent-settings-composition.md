@@ -1,8 +1,10 @@
 # Generated-config composition — layered regeneration + Lua transforms
 
-**Status:** Design of record — **FINALIZED 2026-07-20** (all §9 questions
-resolved). Supersedes the exploratory RFC that carried a menu of models and a
-data-filter vocabulary — this is the line in the sand. **Per-phase status:**
+**Status:** Design of record — **FINALIZED 2026-07-20** (all §9 *composition*
+questions resolved). Supersedes the exploratory RFC that carried a menu of models
+and a data-filter vocabulary — this is the line in the sand. One piece of
+implementation scope remains **open**: retiring `host_pi_files` (§10). **Per-phase
+status:**
 **Phase A complete** — the engine is built + tested (`internal/agentcfg`, with
 `compose.go`/`engine.go`/`manifest`/`codec`/`luahook` and their tests). **Phase
 B complete** — all **agent** surfaces are in the manifest and reachable via
@@ -17,7 +19,10 @@ dead helpers are deleted, and `agy` was born directly on the prism. The obsolete
 snapshot/managed-MCP sidecars are cleaned up on each surface's first-migration
 boot. Remaining non-agent surfaces (mise, MCP/LSP standalone, git identity)
 still have bespoke generators; folding them onto the prism is tracked separately
-in §8 / [ROADMAP.md](ROADMAP.md).
+in §8 / [ROADMAP.md](ROADMAP.md). The `host_*_files` config keys also survived
+the cutover — the prism host layer reads *through* them rather than replacing
+them; fully retiring `host_pi_files` (the original Phase-B goal for pi) turns out
+to need more than a key deletion, and its **open questions are in §10.**
 
 yolo generates a number of config files inside the jail from host + jail sources
 — coding-agent settings (Claude's `settings.json`, Codex's `config.toml`, pi's
@@ -433,7 +438,10 @@ surface is verifiable.
 **Phase B — surfaces (fan out; mutually independent on the frozen engine).**
 ✅ **Done for the agent-config surfaces.**
 - **pi first** as the proof-of-concept — exercises tree staging + a transform +
-  the overlay; deletes `host_pi_files` and the pi three-way merge.
+  the overlay; retires the pi three-way merge. **`host_pi_files` was NOT
+  deleted**: the prism reads the host layer through it and the tree-staging
+  executor that would supersede it is unbuilt — see §10 for the remaining work
+  and open questions.
 - then in parallel, one commit each: **Claude** (widest — `settings.json` +
   `.claude.json` as runtime-state), **gemini**, **copilot**, **opencode**,
   **Codex** (TOML codec), plus **agy**, which was born directly on the prism (no
@@ -449,7 +457,8 @@ surfaces.** The `YOLO_PRISM_SURFACES` cutover gate is retired, `boot.go` calls t
 writers plus their now-dead helpers (the three-way merge, the codex TOML dumper,
 the numeric-equality cluster) are deleted. The obsolete snapshot/managed-MCP
 sidecars are removed on each surface's first-migration boot. The `host_*_files`
-keys survive (the prism host layer reads through them). Deletion of the non-agent
+keys survive (the prism host layer reads through them) — retiring `host_pi_files`
+is deferred, unbuilt work with open questions; see §10. Deletion of the non-agent
 bespoke generators waits on their Phase-B port.
 
 Each stage ends with a nested-jail verification (per repo `CLAUDE.md`).
@@ -508,8 +517,111 @@ Each stage ends with a nested-jail verification (per repo `CLAUDE.md`).
   render without reaching back to the host. Host-side `render` stays too (for the
   edit-before-launch loop); same engine, same output, both places.
 
-*(No open questions remain — the design is settled. Implementation is sequenced
-in §8.)*
+*(The **composition design** is settled — no open questions there. The one piece
+of the original Phase-B scope still open is **retiring `host_pi_files`**, which
+turned out to need machinery the cutover left unbuilt; its questions are §10.)*
+
+---
+
+## 10. Open — retiring `host_pi_files`
+
+Deleting `host_pi_files` was the stated Phase-B outcome for pi (§8), but the
+cutover reached parity *reading through* the key rather than removing it. This
+section is the lead-up: what the key still does, why the plan's intended
+replacement (§3.3 tree staging) is not actually built, and the decisions needed
+before the key can go.
+
+### 10.1 What `host_pi_files` still does today
+
+The key (a JSON list, default `["settings.json"]`) is load-bearing in **three**
+distinct roles. The prism replaced only the *consumption* of the first; the key
+itself, and the other two roles, are untouched:
+
+| Role | Code | Status |
+|---|---|---|
+| **Host-layer gate** — decides whether `/ctx/host-pi/settings.json` is read as the prism `host` layer | `internal/entrypoint/prism.go` `ConfigurePiPrism` (`contains(e.hostPiFiles(), "settings.json")`) | The prism *consumes* this layer, but the **allow-list that gates it** is still the config key |
+| **Sibling staging** — raw-copies every non-`settings.json` entry (e.g. `models.json`) into `~/.pi/agent/` | `internal/entrypoint/agent_configs.go` `syncHostPiFiles` / `hostPiFiles` | **Not replaced** — a plain file copy, entirely outside the prism |
+| **The mount + env** — builds the `-v …:/ctx/host-pi/<f>:ro` args and forwards `YOLO_HOST_PI_FILES` | `internal/cli/run/hostclaude.go` `hostPiFileArgs` | **Not replaced** — nothing else mounts the host pi dir |
+
+So `host_pi_files` is not a leaf config knob layered *over* the prism; it is still
+the sole source of truth for **which host file(s) get mounted and read at all**.
+Retiring it means replacing that mount/gate decision, not just deleting a key.
+
+### 10.2 Why the intended replacement isn't built
+
+§3.3 names **tree surfaces** (`ctx.stage` include/exclude by glob, paths
+preserved) as the mechanism that supersedes flat `host_*_files` mounts, and §7
+lists "flat filename mounts that reject path separators" as a retired problem.
+But the executor behind that is **not implemented**:
+
+- `ctx.stage.exclude` is captured into `Result.Excluded`, yet the **only**
+  consumer is a *display* line in `yolo config render` (`internal/cli/config.go`
+  — "staged files excluded: …"). Nothing acts on it to include/exclude files in
+  the jail tree.
+- There is **no tree surface** in the builtin manifest, and `manifest.Surface`
+  has **no host-source field**. Host-source resolution was deliberately kept out
+  of the manifest (`prism.go`: the mount + allow-list are "environment-dependent
+  and so cannot live in the codec-agnostic manifest") — which is exactly *why*
+  the allow-list still lives in a config key.
+
+In other words: retiring `host_pi_files` cleanly via the design's own answer
+(tree staging) requires **building the missing half of the prism first**. The
+open questions below are largely about whether to build it now or take a cheaper
+path that sidesteps it.
+
+### 10.3 The remaining work, once the questions below are answered
+
+1. **Replace the `settings.json` host-source resolution** so pi's settings file
+   is mounted + read as the `host` layer without consulting the config key
+   (fixed built-in mount, or a manifest-declared host path — Q1).
+2. **Replace sibling staging** (`models.json` et al.) — or drop it (Q2).
+3. **Retire the config surface:** delete `hostPiFileArgs`, `syncHostPiFiles` /
+   `hostPiFiles`, `DefaultHostPiFiles`, the `knownTopLevelConfigKeys` entry, and
+   the pi arm of `validateHostAgentFiles`; decide migration behavior for a config
+   that still sets the key (Q4).
+4. **Nested-jail verify parity:** pi boots, `settings.json` composes identically,
+   and any sibling files still land where pi reads them.
+
+### 10.4 Open questions
+
+**Q1 — What replaces the allow-list: always-mount, or manifest-declared?**
+Pi's host source is fixed (`~/.pi/agent/settings.json`); the key's
+configurability was never really exercised (default is just `["settings.json"]`).
+Options: (a) **always-mount the fixed source** — retires the key with near-zero
+new machinery; (b) **add a host-source field to the manifest** — cleaner
+long-term and matches "the manifest is where a surface is declared," but reverses
+the explicit decision to keep env-dependent paths out of the manifest.
+*Lean: (a).*
+
+**Q2 — How do sibling files like `models.json` cross without the key?**
+This is the real blocker, because sibling staging is the only role that needs an
+open-ended list. Options: (a) model each sibling as its own composed surface
+(`pi/models`) — clean, but only for files yolo can decode/round-trip, one
+manifest entry each; (b) **build the §3.3 tree-staging executor** — the design's
+intended answer, but genuinely unbuilt (this is implementing the missing half of
+the prism, not retiring a key); (c) **drop sibling support entirely** — note it
+is opt-in and **off by default** (default `["settings.json"]` stages no
+siblings), so it may affect no real config. *Lean: confirm whether pi sibling
+files are used at all; if not, (c) and the whole task collapses to Q1.*
+
+**Q3 — Retire `host_claude_files` in lockstep, or pi only?**
+They are structurally identical, **but** claude has `appendSettingsScripts`
+(auto-mounts hook / statusLine / fileSuggestion scripts referenced by
+`settings.json`) — a real feature with no prism equivalent, so its blast radius
+is much larger. *Lean: pi only now; leave claude + its script-discovery for a
+separate pass.*
+
+**Q4 — Migration for a config that still sets `host_pi_files`?**
+Options: hard-error (as `docker` does), warn-and-ignore, or silently
+accept-and-ignore for a deprecation window. *Lean: warn-and-ignore — it was a
+low-traffic key; a hard error is hostile for a key that is merely becoming a
+no-op.*
+
+**The cheapest complete path**, if pi sibling files are unused: *always-mount
+pi's `settings.json` (Q1a), drop sibling staging (Q2c), warn-and-ignore the key
+(Q4), leave claude alone (Q3 pi-only)* — this retires `host_pi_files` fully
+**without** building the tree-staging executor. If sibling files *are* used, Q2
+forces building tree staging first — a materially bigger commitment.
 
 ---
 
