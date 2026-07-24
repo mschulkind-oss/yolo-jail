@@ -9,7 +9,6 @@ import (
 	"strings"
 
 	"github.com/mschulkind-oss/yolo-jail/internal/broker"
-	"github.com/mschulkind-oss/yolo-jail/internal/builder"
 	"github.com/mschulkind-oss/yolo-jail/internal/cli/check"
 	"github.com/mschulkind-oss/yolo-jail/internal/cli/run"
 	"github.com/mschulkind-oss/yolo-jail/internal/config"
@@ -22,18 +21,6 @@ import (
 	"github.com/mschulkind-oss/yolo-jail/internal/runtime"
 	"github.com/mschulkind-oss/yolo-jail/internal/tty"
 )
-
-// runBuilder dispatches `yolo builder {setup,start,stop,status}` (macOS-only
-// on-demand Linux builder VM).
-func runBuilder(args []string) int {
-	var sub string
-	var rest []string
-	if len(args) > 1 {
-		sub = args[1]
-		rest = args[2:]
-	}
-	return builder.RunBuilder(builder.RealDeps(), sub, rest)
-}
 
 // runMacosSetup/Teardown/Unshare/FixPermissions dispatch the four macos-*
 // commands (macOS-only; refuse/no-op on Linux).
