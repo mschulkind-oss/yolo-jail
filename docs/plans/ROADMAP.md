@@ -9,7 +9,7 @@ on the tree, the file:line is named.
 
 ## Open work at a glance
 
-Everything not marked done below reduces to **four** open items. In priority /
+Everything not marked done below reduces to **five** open items. In priority /
 lane order:
 
 | # | Open item | Lane | Blocker |
@@ -18,6 +18,7 @@ lane order:
 | 2 | **D4 Cachix** (one Mac download proof) | hardware-gated | substituter enabled + account/cache/CI-push all done (2026-07-22); needs only a real Mac to prove the download path |
 | 3 | **composed-file follow-ups** — the deferred tail of `host_files` + two pre-existing prism defects (see below) | jail-side | none; each item is independently shippable |
 | 4 | **agent auth — capture the model, fix the asymmetry** (Claude broker rationale, the six un-investigated agents, macos-user parity, 4 verified defects) | jail-side (macos-user half is Mac-gated) | none for the audit/docs half; the macos-user fixes need a Mac to verify |
+| 5 | **agent config packs** — share skills/AGENTS.md prose across agents by `(repo, path, branch)`, no PR ([agent-config-packs.md](agent-config-packs.md)) | jail-side | none; Phase 0 is local-only and fixes a standalone `pi`/`codex` skills gap |
 
 ### Item 3 — composed-file follow-ups
 
@@ -206,6 +207,72 @@ drain-before-close semantics. Untestable without hardware: the real OAuth flow, 
 that for any backend (no `BROWSER`, no `xdg-open`, chromium is headless-MCP-only, and
 the runbook's login step was optional and never recorded as run).
 
+### Item 5 — agent config packs
+
+**The ask.** Share agent environment configuration — skills, subsets or whole sets
+of AGENTS.md prose, lint conventions, MCP sets — between people at a company, in
+the vein of the vim plugin scene: declarative, downloaded, synced, **rollbackable**
+("especially apparent in the Pi agent"). One shared unit that works in `opencode`
+*and* `pi` *and* `claude`. The unit of sharing is a git repo, which in a monorepo
+means a **(repo, path, branch)** triple. **No PR, no merge** — share straight off a
+branch. Full proposal: [agent-config-packs.md](agent-config-packs.md); landscape
+research (14 agents, 6 mechanisms, measured git plumbing):
+[../research/agent-config-distribution.md](../research/agent-config-distribution.md).
+
+**Scope verdict: in yolo-jail**, with one extractable dependency-free package
+(`internal/packsrc`). Every hard part is already solved *inside* and is not
+exportable: fetch needs host git credentials and the host ship set is `{yolo}`;
+delivery is `:ro` mount emission into a composed home; precedence is
+`PrepareSkills` plus the prism's five-layer fold; and `internal/agentcfg` is
+`internal/`, so Go visibility forbids an external producer for `Inputs.Workspace`.
+The corpus stays universal — a pack is a plain `SKILL.md` tree consumable by bare
+`claude` or `npx skills` — so "not everyone at the company runs yolo-jail" is an
+argument about the artifact, and the artifact was never trapped.
+
+**Why it fits here.** The proposal is mostly *wiring existing machinery*, and it is
+the forcing function for two already-tracked gaps:
+
+- `Inputs.Workspace` (`internal/agentcfg/compose.go:45`) is implemented, tested,
+  and has **zero non-test callers** — packs are its first producer, which item 1
+  benefits from either way.
+- The tree-staging executor is still unbuilt: `ctx.stage.exclude` feeds
+  `Result.Excluded`, whose only consumer is a `pr.Printf`
+  (`internal/cli/config.go:210-212`). Packs put it on the critical path once
+  instead of twice.
+
+**Phase 0 is a standalone bug fix.** `pi` and `codex` are `Skills: ""`
+(`internal/agents/agents.go:148,163`) and get `continue`d at
+`internal/agents/skills.go:31-32`, so they have **no skills at all** today —
+including yolo's own built-in suite. Two registry lines make the existing
+`spec.Skills != ""`-gated mount loop (`internal/cli/run/assemble.go:335-337`) emit
+their `:ro` mounts for free, fixing cross-agent skills for six of seven agents
+whether or not anything else ships. Phase 0 is `file://`-only: no network code, no
+lockfile, no new container argument.
+
+**Two security corrections this item must respect** (both verified, both wider than
+packs):
+
+- **The config-snapshot y/N diff is not a gate.** `internal/config/snapshot.go:74`
+  auto-accepts and rewrites the snapshot when non-TTY, so pack approval needs a real
+  TTY plus a user-scope `(source, tree)` ledger under `GlobalStorage()`.
+- **⚠ `Enforce()` is an allowlist, not a denylist.** `enforceValue`
+  (`internal/agentcfg/luahook/luahook.go:251-265`) deep-merges `Managed` into
+  current and **deletes nothing**, and no key denylist exists anywhere in
+  `internal/agentcfg`. `claudeSettings.Managed` names `permissions`,
+  `skipDangerousModePermissionPrompt` and `preferences` — not `hooks`,
+  `apiKeyHelper`, `env`, or an MCP `command`. So the day any non-user-scope layer
+  can contribute a settings fragment, it can contribute an arbitrary-execution hook
+  as UID 0. The per-surface denylist gates Phase 2 and is worth doing regardless of
+  packs.
+
+Third, cheap, and independent: the four built-in skill names
+(`jail-startup`, `configuring-the-jail`, `diagnosing-the-jail`,
+`developing-yolo-jail`) need **reservation**. `internal/agents/skills.go` writes
+built-ins first and lets later layers overwrite them by name, while
+`internal/agents/agentsmd.go:210-211` tells every agent in its briefing to trust
+`configuring-the-jail` and `diagnosing-the-jail` *by name* at the moment it is about
+to edit `yolo-jail.jsonc`.
+
 Not on this list because they are **done or held**: J1–J3, D1/D2/D3, Track M
 M0–M2, module-consolidation, the agent-config prism cutover, agy, **the VM-builder
 removal** (`internal/builder` + the `yolo builder {setup,start,stop,status}`
@@ -238,6 +305,7 @@ post-Go-port backlog (nix-ld, color audit, consolidation) into the same picture.
 | [../design/linux-builder-lifecycle.md](../design/linux-builder-lifecycle.md) | Decision record: the two builder mechanisms (VM vs container), why the **VM builder was removed** and the container builder is the sole builder, plus the KEYS-bug diagnosis kept as evidence + a manual unblock. | jail-side (macOS-runtime-gated) — **DONE 2026-07-23**: `internal/builder` + the `yolo builder` commands deleted; `yolo check` Image Build + the run-path failure remedy rewired onto the container builder |
 | [cli-color-audit.md](cli-color-audit.md) | Shared rich→ANSI renderer + TTY gate across commands. | jail-side — **DONE 2026-07-22** (renderer consolidated, TTY probe unified, check/doctor leak fixed, all commands classified) |
 | [antigravity-agy-support.md](antigravity-agy-support.md) | Support Google Antigravity CLI (`agy`) as a native agent inside `yolo-jail`. | jail-side — **DONE 2026-07-22** (born on the prism; all eight touchpoints landed) |
+| [agent-config-packs.md](agent-config-packs.md) | Share skills + AGENTS.md prose across all seven agents by `(repo, path, branch)`, no PR: user-scope `packs`, host-side blobless fetch, content-addressed trees, pin/rollback. | jail-side — **proposal** (open item 5); Phase 0 is `file://`-only and fixes the `pi`/`codex` no-skills gap standalone |
 | [module-consolidation-and-cleanup.md](module-consolidation-and-cleanup.md) | Collapse the parity-era `internal/*` split; drop parity machinery; §4 OSS-hygiene remnants. | **DONE 2026-07-21** (package-merge declined) |
 
 | [integration-parallelism.md](integration-parallelism.md) | Bounded `t.Parallel()` for the container suite (needs per-test GlobalStorage first). | parked (test speed) |
