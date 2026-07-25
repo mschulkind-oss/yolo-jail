@@ -74,6 +74,12 @@ Nothing here blocks use of the feature; each is a known, bounded follow-up.
   (Claude YOLO runs UID 0) ignores it entirely, while a non-root agent gets
   `EACCES` and the surface *silently stops re-rendering every boot*. Shipped as
   four; **not decided**.
+- **Naming for the recovered state.** Four terms are in use for one concept
+  (*overlay sidecar* 35, *captured edits* 15, *capture-diff overlay* 13, *capture
+  overlay* 10), and the obvious candidate — "managed" — is already taken twice
+  (`managed` = keys **yolo** wins; this = what the **agent** won). Proposed
+  vocabulary, plus why not to unify on "managed", in
+  [Naming: what to call the recovered state](#naming-what-to-call-the-recovered-state).
 - **Comments in a composed `json`/`toml` surface.** They die at `Decode` and are
   unrecoverable from the render. The motivating consumer is **the agent reading for
   intent** — `// pinned: 2.14 regressed on the arm64 builder` is often the only place
@@ -83,7 +89,14 @@ Nothing here blocks use of the feature; each is a known, bounded follow-up.
   pointing at the pristine `/ctx/host-user/<slug>` original; the option that puts a
   comment back *beside its key* is a trivia sidecar, which needs a widened overlay
   envelope and a merge rule and therefore a decision. `raw` is already lossless
-  today at the cost of key-level merging. Ranked options in
+  today at the cost of key-level merging. **Notably the highest-stakes surface does
+  not need this at all**: `~/.claude/settings.json` is pure JSON with zero comments
+  in both source and render (verified), and strict JSON could not carry them anyway.
+  Staleness, in-jail-added comments, and attachment each have a cheap answer
+  (drop-on-override via existing provenance; one-way host→jail; comment→key by the
+  usual convention). And the whole class is duckable: **anything undecided ships
+  `readonly`/`once`, which has no recovered state and therefore none of these
+  questions.** Ranked options in
   [Comments, and why `.jsonc`/`.yaml` fall back to `raw`](#comments-and-why-jsoncyaml-fall-back-to-raw).
 - **`managed`/`defaults` array-append pinning** for a user surface is unbuilt
   (RFC-7386 object merge only). No user surface has needed it; deferred until one
@@ -219,6 +232,44 @@ bullets below describe the *old* tree and are kept only for the reasoning:
 > `mode: capture` (persisting in-jail edits) are unrelated. An earlier draft called
 > the mode `managed` too; it is `capture` to keep the two apart, since a surface
 > commonly has `managed` keys *without* wanting capture.
+
+### Naming: what to call the recovered state
+
+**Open, and worth settling** — the thing an agent naturally reaches for "managed
+state" is already three different concepts, and the codebase currently uses four
+names for one of them. Counted across Go and Markdown: *overlay sidecar* (35),
+*captured in-jail edits* (15), *capture-diff overlay* (13), *capture overlay* (10).
+
+Do **not** call it "managed" anything. That word is taken twice over:
+
+| Term | Means | Where |
+|---|---|---|
+| `managed` (the field/layer) | keys **yolo asserts** and re-applies after the Lua hook, so they revert on edit | manifest `Managed`, `host_files.managed` |
+| `mode: capture` | the **posture** that turns edit-recovery on | `host_files.mode` |
+| *(this)* | the **recovered content** — what an in-jail edit left behind, which now outranks `host` | `<workspace>/.yolo/prism/<surface>.overlay.json` |
+
+Naming them all "managed" would collapse the exact distinction the design rests on:
+`managed` keys are what yolo **wins**, and this is what the **agent** wins.
+
+The four current terms are not really synonyms — they name different aspects, which
+is why they all survive. That suggests keeping a small deliberate vocabulary rather
+than picking one winner:
+
+- **overlay** — the *layer* in the fold (`defaults < host < workspace < overlay <
+  computed`). Correct in engine/layer contexts; already the code's identifier.
+- **overlay sidecar** — the *file* on disk. Use when the subject is a path.
+- **captured edits** — the *content*, in user-facing prose. This is the one to
+  standardize on for CLI output and docs, because it says whose they are and where
+  they came from without any yolo jargon. (`yolo config ls` and the boot notice
+  already use it.)
+- ~~capture-diff overlay~~ — the *mechanism* (diff vs `last_render`). Accurate but
+  it puts implementation in the name; keep it to §5 where the mechanism is the
+  subject, and prefer "overlay" elsewhere.
+
+If a single umbrella term is wanted, **"captured edits"** is the candidate: it is
+already the most user-legible, it is what the two shipped commands print, and it
+cannot be confused with `managed`. Renaming the code identifiers is a mechanical
+follow-up, not part of this plan.
 
 ### Overlay capture is the exception, never a default
 
@@ -623,6 +674,56 @@ What it costs, honestly:
   plus a trailing same-line comment" is the convention every formatter uses; it is a
   convention, not a fact, and a comment floating between two keys has to pick one.
 
+##### The three hard sub-questions, and cheap answers to each
+
+**① Staleness — what if the value changes under the comment?** The failure mode is
+worse than losing the comment: a comment justifying a value that is no longer there
+actively misleads. Three candidate rules, and only the last is safe:
+
+| Rule | Behavior | Verdict |
+|---|---|---|
+| trivia follows the key | comment stays even when a higher layer overwrites the value | **unsafe** — this is exactly how you get `// pinned to 2.13` sitting above `"2.15"` |
+| trivia follows the value | comment travels with whichever layer won | wrong shape; layers other than `host` have no comments to travel |
+| **trivia is dropped when its value is overridden** | the comment survives iff the `host` layer's value survived | **safe by construction** |
+
+The third is the one to take, and it is *cheaper* than the others: a comment is
+emitted only when the rendered value for that key came from the layer the comment
+came from. Provenance already records exactly that (`Result.Provenance` maps key →
+winning layer), so the check is one map lookup per key and needs no new bookkeeping.
+The cost is under-preservation — a `managed` override silently drops the user's
+comment — which is the right way to be wrong here. Better a missing explanation than
+a lying one.
+
+**② What if the agent ADDS a comment in the jail?** Best answer: **don't support it.**
+Not because it is hard, but because it has no destination. The comment would live in
+the capture sidecar, outrank the host file forever, and be visible to nobody on the
+host — the same "hidden, sticky, troublesome" trap that made capture opt-in in the
+first place. An agent that wants to record a reason has better venues: the workspace
+(committed, reviewable), or the host file, which it can *read* but should not be
+editing through a composed surface anyway.
+
+Concretely: **comment capture is one-way — host → jail, never back.** On capture, the
+diff considers values only; a comment the agent added is neither preserved nor
+reverted, it is simply not tracked, and the next render drops it. That is a *documented
+loss*, not silent: `yolo config diff` would be the place to say "in-jail comments are
+not captured". Cheap to implement (it is the current behavior) and it keeps trivia
+strictly a projection of the host source, which also makes ① trivially correct.
+
+**③ Which surface actually needs this?** Worth checking before building anything —
+and the answer for the highest-value surface is: **none of it.**
+
+Verified in this jail: `~/.claude/settings.json` is **pure JSON with zero comments**,
+in both the host source (`/ctx/host-claude/settings.json` — no `//` at all) and the
+render. Claude Code ships no `$schema` on it and the file is plain `json` codec. So
+the widest, most-managed, highest-stakes surface has **no comments to lose**, and
+strict JSON means it could not carry them anyway (`encoding/json` rejects `//`).
+
+That is the single most useful fact in this whole section: **the surface where getting
+it right matters most does not need it.** The comment problem belongs to
+user-declared `host_files` entries pointing at hand-written configs — `.jsonc`,
+`starship.toml`, a tool's `config.toml` with a "why" above a key. Real, but a
+narrower and lower-stakes population than the agent settings.
+
 **Format-preserving CST** — parse to a concrete syntax tree, mutate in place,
 re-serialize byte-identically except where changed (`toml-edit`-style). The only
 approach that survives arbitrary formatting, at the price of a dependency per
@@ -630,6 +731,26 @@ format, a second value model in the engine, and `Encode(any)` no longer being th
 whole contract. Still out of proportion — but note it is the only option that
 preserves a comment through a *capture* round trip without the trivia envelope,
 since it never lowers to the generic model at all.
+
+#### The escape hatch: default to `readonly` when undecided
+
+There is a way to duck all of the above, and it is worth stating as a policy rather
+than leaving implicit. **A surface that has no captured state has no staleness
+problem, no attach problem, and no in-jail-comment problem** — because it is rendered
+fresh from its layers every boot and nothing is recovered from the previous one.
+
+So the rule for anything whose semantics are not fully decided: **ship it `readonly`
+(or `once`), never `capture`.** That is already the default (source-bearing →
+`readonly`, source-less → `once`; `capture` is always explicit), which means the
+policy is *already enforced* — this section just names why that default is load-
+bearing rather than merely conservative. Every hard question in this section is a
+question about **captured** state; decline capture and they do not arise.
+
+The corollary is a decision rule for the comment work: **do the reading-the-trail
+options first** (point at the `:ro` original, yolo-authored header) because they work
+identically for every mode and add no recovered state. Only reach for trivia in the
+sidecar if someone specifically needs comments preserved *through capture* — which,
+given ② says in-jail comments are not captured anyway, is a narrow case.
 
 #### Where this lands
 
