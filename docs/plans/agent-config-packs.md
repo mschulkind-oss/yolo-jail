@@ -39,8 +39,8 @@ server sets. Five requirements, in the order they were given:
   `internal/agents/skills.go:31-32`, so they have no skills at all. Setting their
   paths makes the existing mount loop (`internal/cli/run/assemble.go:335-337`,
   gated purely on `spec.Skills != ""`) emit `:ro` mounts for free. That fixes
-  cross-agent skills for **six of seven agents** whether or not anything else in
-  this doc ships.
+  cross-agent skills for **five of the six supported agents** whether or not
+  anything else in this doc ships.
 - **The prism needs no engine change.** `Inputs.Workspace`
   (`internal/agentcfg/compose.go:45`) is implemented, tested, and has **zero
   non-test callers**. It folds between host and overlay
@@ -85,7 +85,7 @@ their first share.
 (`include: ["agents.d/rust.md"]`). Prose is never spliced out of a document — the
 enterprise research is unambiguous that surviving systems compose *addressable
 named units*, and a marker-based markdown re-writer is the least debuggable
-failure mode available, landing on the one artifact all seven agents read.
+failure mode available, landing on the one artifact every agent reads.
 
 `owner` is required *if* a manifest is present, and surfaced in `yolo pack ls`.
 "Who do I ask about this rule" is the most common real support question, and
@@ -287,11 +287,14 @@ per pack with explicit **DROPPED** rows. Without it a wrong path is a silent
 no-op indistinguishable from success, and the first silent gap destroys trust
 permanently.
 
+The supported set is **six** agents, per ROADMAP item 0 (`gemini` is being
+removed — Google is deprecating Gemini CLI — and is out of design consideration
+here).
+
 | Agent | `skills/` | `agents.md` + fragments | `surfaces/` (phase 2) |
 |---|---|---|---|
 | claude | ✓ `.claude/skills` | ✓ briefing | ✓ `claudeSettings` |
 | copilot | ✓ `.copilot/skills` | ✓ briefing | ✓ `copilotConfig` |
-| gemini | ✓ `.gemini/skills` | ✓ briefing | ✓ |
 | agy | ✓ `.gemini/antigravity-cli/skills` | ✓ briefing | ✓ `agySettings` |
 | **pi** | ✓ **new** `.pi/agent/skills` | ✓ briefing | ✓ `piSettings` |
 | **codex** | ✓ **new** `.codex/skills` | ✓ briefing | ✓ (TOML; no inline-table emitter) |
@@ -307,8 +310,8 @@ Three mechanisms, all existing:
   dirs are already `:ro`-mounted and already refreshed on every invocation.
 - **Prose.** `ComposeBriefing` (`internal/agents/agentsmd.go:229`) gains a
   `packText` argument, folding between `PrependHostBriefing` and
-  `agents_md_extra`. The briefing is the **only** channel reaching all seven
-  agents — every `AgentSpec` has a `BriefingSpec`.
+  `agents_md_extra`. The briefing is the **only** channel reaching every
+  agent — every `AgentSpec` has a `BriefingSpec`.
 - **Surfaces.** `surfaces/<agent>/<name>.json` decodes into `Inputs.Workspace`,
   the zero-caller engine slot, filled at the three `Inputs{}` construction sites
   (`internal/cli/config.go:190`, `internal/entrypoint/prism.go:131,281`).
@@ -321,7 +324,7 @@ gets prose through the briefing it has always had, and in phase 4 an
 pack and discovers weeks later that opencode never received the skills will
 conclude the cross-agent promise was marketing.
 
-**Two registry lines fix six of seven.** `pi` → `.pi/agent/skills`, `codex` →
+**Two registry lines fix five of six.** `pi` → `.pi/agent/skills`, `codex` →
 `.codex/skills`. Both are documented native user-skills paths, but the
 *user-level* spelling is flagged UNCONFIRMED in the research — so phase 0 ships a
 probe test, not a docs citation. This is a standalone bug fix that this work pays
@@ -602,8 +605,8 @@ The staging directory for skills is the **source of a live `:ro` bind**, and
 running jail captured that inode (`internal/agents/skills.go:38`). So an external
 producer cannot put a skill where the agent reads skills; it can only create a
 *parallel* `~/.agents/skills` tree, which Claude Code does not read at all and
-which for four of seven agents is simply the wrong path. Whatever inserts pack
-skills must run in the process that owns the inode contract, on every invocation
+which is not the path yolo stages and mounts for **any** agent. Whatever inserts
+pack skills must run in the process that owns the inode contract, on every invocation
 including attach. **Projection is not extractable**; the fetch half is. That is
 exactly the split `internal/packsrc` encodes.
 
@@ -763,8 +766,8 @@ a docs citation. `yolo pack init|lint|ls|split|explain`.
 
 Independently valuable: it is the entire authoring loop, "share by `git clone` +
 one `file://` line" is already a working story for a small team, and it fixes
-cross-agent skills for six of seven agents whether or not phase 1 lands.
-Verification is a nested `yolo -- bash` run **by path** per AGENTS.md
+cross-agent skills for five of the six supported agents whether or not phase 1
+lands. Verification is a nested `yolo -- bash` run **by path** per AGENTS.md
 (`./dist-go/linux-$(go env GOARCH)/yolo -- bash`, never bare `yolo` — that is the
 baked launcher, frozen at the last host `just load`, and a failed nix build falls
 back to a stale image silently): `ls ~/.claude/skills` and `ls ~/.pi/agent/skills`
@@ -821,9 +824,9 @@ fallbacks named in phase 0 apply to this mount too; both halves are Mac-gated.
 
 **Phase 3 — the sharp edges, each independently refusable.**
 `allow_exec: true` gating hooks and MCP contributions, routed through existing
-`mcp_servers` validation — and note MCP is **not** a prism surface for five of
-seven agents today (only copilot and agy), so this is scoped to those two or it
-budgets the computed-MCP work explicitly. Wire `Result.Excluded` to the tree
+`mcp_servers` validation — and note MCP is **not** a prism surface for four of
+the six supported agents today (only copilot and agy), so this is scoped to those
+two or it budgets the computed-MCP work explicitly. Wire `Result.Excluded` to the tree
 executor so `ctx.stage.exclude` stops being display-only
 (`internal/cli/config.go:210-212`). An `instructions` computed layer on
 `opencodeConfig` pointed at the staged tree. A `CLAUDE_CODE_PLUGIN_SEED_DIR`
@@ -940,7 +943,7 @@ Making a pack literally a `.claude-plugin/` directory would give non-jail
 colleagues native consumption through Claude's own marketplace machinery. The
 cost is authoring ceremony — two dot-directories and two manifests to share one
 skill — and Claude plugins cannot carry AGENTS.md prose, which is the one payload
-that reaches all seven agents.
+that reaches every agent.
 
 _Leaning:_ no. Keep the pack a plain directory, and let a pack *optionally*
 contain `.claude-plugin/plugin.json` for authors who want it. Phase 3's seed-dir
