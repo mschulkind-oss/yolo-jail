@@ -1,6 +1,28 @@
 # Host-file staging — a user-extensible set of host files, one engine
 
-**Status:** design, not yet built (2026-07-24).
+**Status:** **SHIPPED 2026-07-25.** All four phases are implemented, unit-tested,
+and verified end-to-end in a nested jail (all four modes render; `once` keeps an
+in-jail edit, `copy` discards it, `capture` reverts its `managed` key while keeping
+the sibling edit; `config ls`/`diff`/`reset` report and clear exactly the diverged
+surface). Four `integration/hostfiles_test.go` tests pass against real containers.
+
+Three deviations from the text below are worth knowing:
+
+1. **Modes.** All four (`readonly`/`once`/`copy`/`capture`) shipped as specified.
+   [composed-file-permissions.md §7.4](../design/composed-file-permissions.md)
+   argues they should collapse to three (`copy` merges into `readonly`, and
+   `readonly` should be a `:ro` mount rather than a bare `0o444` chmod, which is
+   *asymmetric* — root ignores it while a non-root agent gets EACCES and the
+   surface silently stops re-rendering). That change is **not** made here.
+2. **Home-root destinations** (`~/.npmrc`, Example 1) do NOT use the
+   writable-subtree staging §"Delivery" describes — that makes the destination a
+   *directory*. They use the `GlobalHome` relative-symlink hatch instead; see
+   [composed-file-permissions.md §7.5](../design/composed-file-permissions.md) for
+   why the alternatives break `mode: once`, one of them permanently.
+3. **No surfaces are appended to `BuiltinManifest`.** Each user surface renders
+   standalone through the extracted surface-taking cores, so the §"Collision
+   safety" destination-uniqueness check is enforced at the config layer instead of
+   "across the merged manifest".
 **Supersedes:** the `## 10` retirement decisions in
 [agent-settings-composition.md](agent-settings-composition.md) — specifically
 **D4** ("hard-error, as if it never existed"). This plan reopens a user-scope
