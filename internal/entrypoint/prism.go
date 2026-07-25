@@ -20,6 +20,9 @@ package entrypoint
 //   - the one-time §4.7 orphan-file cleanup, gated on the first-migration signal.
 
 import (
+	"bytes"
+	"encoding/json"
+	"fmt"
 	"os"
 	"path/filepath"
 	"strings"
@@ -163,7 +166,62 @@ func renderSurfaceStatefulSurface(e *Env, surface manifest.Surface, hostBytes []
 	if err := writeInPlaceString(prismOverlayPath(e, surface.Agent, surface.Name), string(out.OverlayJSON)+"\n"); err != nil {
 		return nil, err
 	}
+	noteCapturedOverlay(e, surface, out)
 	return out, nil
+}
+
+// noteCapturedOverlay prints a one-line boot notice when a surface renders with a
+// NON-EMPTY capture overlay. It is the boot-time half of `yolo config ls`: an
+// overlay outranks the host layer permanently, so a divergence that is only
+// recorded in a sidecar is invisible state — the notice makes it something the
+// user sees at the moment it is applied, with the command that explains it.
+//
+// Deliberately quiet in the normal case (an empty overlay says nothing), and
+// deliberately not a warning: capture is a supported mode, not a fault.
+func noteCapturedOverlay(e *Env, surface manifest.Surface, out *agentcfg.StatefulOutput) {
+	if out == nil || e.Stderr == nil {
+		return
+	}
+	n := overlayEntryCount(out.OverlayJSON)
+	if n == 0 {
+		return
+	}
+	unit := "keys"
+	if n == 1 {
+		unit = "key"
+	}
+	e.warn(fmt.Sprintf("%s: %d %s from captured in-jail edits (yolo config diff %s)",
+		surface.Path, n, unit, surface.Agent))
+}
+
+// overlayEntryCount reports how many captured entries an overlay sidecar holds: the
+// key count for an object surface, and 1 for a non-empty KEYLESS surface (raw or
+// lines, whose overlay is a whole-file scalar or list — such a file has exactly one
+// "key", itself). 0 means the overlay contributes nothing.
+func overlayEntryCount(overlayJSON []byte) int {
+	if len(bytes.TrimSpace(overlayJSON)) == 0 {
+		return 0
+	}
+	var v any
+	if err := json.Unmarshal(overlayJSON, &v); err != nil || v == nil {
+		return 0
+	}
+	switch t := v.(type) {
+	case map[string]any:
+		return len(t)
+	case []any:
+		if len(t) == 0 {
+			return 0
+		}
+		return 1
+	case string:
+		if t == "" {
+			return 0
+		}
+		return 1
+	default:
+		return 1
+	}
 }
 
 // surfaceText renders a surface's encoded bytes as the exact file text to write.

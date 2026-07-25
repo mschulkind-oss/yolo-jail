@@ -1,6 +1,7 @@
 package entrypoint
 
 import (
+	"bytes"
 	"encoding/json"
 	"os"
 	"path/filepath"
@@ -523,4 +524,99 @@ func equalStringSets(a, b []string) bool {
 		}
 	}
 	return true
+}
+
+// TestCaptureOverlayBootNotice: a capture surface rendering with a NON-EMPTY
+// overlay must announce it. An overlay outranks the host layer permanently, so a
+// divergence recorded only in a sidecar is invisible state — the notice makes it
+// visible at the moment it is applied, and names the command that explains it.
+func TestCaptureOverlayBootNotice(t *testing.T) {
+	e, ctx := hostFilesTestEnv(t)
+	var stderr bytes.Buffer
+	e.Stderr = &stderr
+
+	entry := config.HostFileEntry{
+		Path:   ".config/captured.json",
+		Source: "/host/captured.json",
+		Codec:  "json",
+		Mode:   config.HostFileModeCapture,
+	}
+	if err := os.WriteFile(filepath.Join(ctx, entry.Slug()), []byte(`{"host":"a"}`), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	setHostFiles(t, e, entry)
+
+	// Boot 1 seeds; the overlay is empty, so nothing should be announced.
+	if err := ConfigureHostFiles(e); err != nil {
+		t.Fatalf("boot 1: %v", err)
+	}
+	if strings.Contains(stderr.String(), "captured in-jail edits") {
+		t.Errorf("empty overlay produced a notice (it must stay quiet):\n%s", stderr.String())
+	}
+
+	// An in-jail edit, then boot 2 must capture it AND announce it.
+	dest := filepath.Join(e.Home, ".config/captured.json")
+	if err := os.WriteFile(dest, []byte(`{"host":"a","mine":true}`), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	stderr.Reset()
+	if err := ConfigureHostFiles(e); err != nil {
+		t.Fatalf("boot 2: %v", err)
+	}
+	got := stderr.String()
+	for _, want := range []string{"~/.config/captured.json", "1 key from captured in-jail edits", "yolo config diff"} {
+		if !strings.Contains(got, want) {
+			t.Errorf("boot notice missing %q:\n%s", want, got)
+		}
+	}
+}
+
+// TestNoNoticeForNonCaptureModes: readonly/once/copy write no sidecar, so they can
+// never diverge and must never print the notice.
+func TestNoNoticeForNonCaptureModes(t *testing.T) {
+	for _, mode := range []string{
+		config.HostFileModeReadonly, config.HostFileModeOnce, config.HostFileModeCopy,
+	} {
+		e, ctx := hostFilesTestEnv(t)
+		var stderr bytes.Buffer
+		e.Stderr = &stderr
+		entry := config.HostFileEntry{
+			Path: ".config/plain.json", Source: "/host/plain.json", Codec: "json", Mode: mode,
+		}
+		if err := os.WriteFile(filepath.Join(ctx, entry.Slug()), []byte(`{"a":1}`), 0o644); err != nil {
+			t.Fatal(err)
+		}
+		setHostFiles(t, e, entry)
+		if err := ConfigureHostFiles(e); err != nil {
+			t.Fatalf("mode %s: %v", mode, err)
+		}
+		if strings.Contains(stderr.String(), "captured in-jail edits") {
+			t.Errorf("mode %s printed a capture notice:\n%s", mode, stderr.String())
+		}
+	}
+}
+
+// TestOverlayEntryCount covers the shapes an overlay sidecar can hold: an object
+// counts keys, a keyless surface (raw string / lines array) counts as one whole
+// file, and every empty form is zero.
+func TestOverlayEntryCount(t *testing.T) {
+	for _, c := range []struct {
+		json string
+		want int
+	}{
+		{`{}`, 0},
+		{`{"a":1,"b":2}`, 2},
+		{`null`, 0},
+		{`""`, 0},
+		{`"edited content"`, 1},
+		{`[]`, 0},
+		{`["line"]`, 1},
+		{``, 0},
+		{`   `, 0},
+		{`not json`, 0},
+	} {
+		if got := overlayEntryCount([]byte(c.json)); got != c.want {
+			t.Errorf("overlayEntryCount(%q) = %d, want %d", c.json, got, c.want)
+		}
+	}
 }
