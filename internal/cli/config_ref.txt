@@ -271,6 +271,13 @@
                  legal at any scope.  Use "" to declare a deliberately empty file.
       codec      json | toml | lines | raw.  Overrides auto-detect.  There is no
                  yaml codec — a .yaml file is handled as raw bytes.
+                 [bold yellow]Comments:[/bold yellow] a STRUCTURED codec (json/toml) parses the file
+                 into keys and re-emits it, which DISCARDS every comment — so
+                 naming "codec": "json" on a commented .jsonc file silently
+                 drops the comments.  "raw" keeps the bytes exactly as they
+                 are, comments included, at the cost of key-level merging and
+                 the defaults/managed layers.  Pick per file: raw to preserve a
+                 hand-written config, json/toml to compose one.
       defaults   user-overridable base layer (structured codecs).
       managed    keys yolo re-asserts every render, so they revert on edit.
       transform  path to a Lua hook; works on every codec, raw included.

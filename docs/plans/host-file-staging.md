@@ -63,56 +63,89 @@ the diverged surface.
    does not mention. Presence is only knowable in-jail, so host-side the column is
    suppressed rather than guessed.
 
-### Open questions and remaining work
+## Scope: the line
 
-Nothing here blocks use of the feature; each is a known, bounded follow-up.
+**This is the authoritative in/out list.** The rule it enforces: *nothing may look
+like it works and then not.* Anything in the **Out** column below is either rejected
+outright with a validation error, or documented as a known limit in
+`yolo config-ref` — never silently half-working. If you find something that
+validates and then does not behave, that is a bug in this table, not a feature gap.
 
-- **The four modes should probably be three.**
-  [composed-file-permissions.md §7.4](../design/composed-file-permissions.md)
-  argues `copy` merges into `readonly`, and that `readonly` should be a `:ro`
-  mount rather than a bare `0o444` chmod — because `0o444` is **asymmetric**: root
-  (Claude YOLO runs UID 0) ignores it entirely, while a non-root agent gets
-  `EACCES` and the surface *silently stops re-rendering every boot*. Shipped as
-  four; **not decided**.
-- **Naming for the recovered state.** Four terms are in use for one concept
-  (*overlay sidecar* 35, *captured edits* 15, *capture-diff overlay* 13, *capture
-  overlay* 10), and the obvious candidate — "managed" — is already taken twice
-  (`managed` = keys **yolo** wins; this = what the **agent** won). Proposed
-  vocabulary, plus why not to unify on "managed", in
-  [Naming: what to call the recovered state](#naming-what-to-call-the-recovered-state).
-- **Comments in a composed `json`/`toml` surface.** They die at `Decode` and are
-  unrecoverable from the render. The motivating consumer is **the agent reading for
-  intent** — `// pinned: 2.14 regressed on the arm64 builder` is often the only place
-  that reason exists, and stripping it leaves the value while destroying the why. So
-  the goal is "do not lose the reasoning on the way in", which is weaker (and
-  cheaper) than byte-exact preservation. Cheapest real win is a yolo-authored header
-  pointing at the pristine `/ctx/host-user/<slug>` original; the option that puts a
-  comment back *beside its key* is a trivia sidecar, which needs a widened overlay
-  envelope and a merge rule and therefore a decision. `raw` is already lossless
-  today at the cost of key-level merging. **Notably the highest-stakes surface does
-  not need this at all**: `~/.claude/settings.json` is pure JSON with zero comments
-  in both source and render (verified), and strict JSON could not carry them anyway.
-  Staleness, in-jail-added comments, and attachment each have a cheap answer
-  (drop-on-override via existing provenance; one-way host→jail; comment→key by the
-  usual convention). And the whole class is duckable: **anything undecided ships
-  `readonly`/`once`, which has no recovered state and therefore none of these
-  questions.** Ranked options in
-  [Comments, and why `.jsonc`/`.yaml` fall back to `raw`](#comments-and-why-jsoncyaml-fall-back-to-raw).
-- **`managed`/`defaults` array-append pinning** for a user surface is unbuilt
-  (RFC-7386 object merge only). No user surface has needed it; deferred until one
-  does. *(Was listed as open below; still open.)*
-- **The slug scheme is settled** — a reversible percent-escape with `_` as the sole
-  sentinel (`HostFileEntry.Slug`), injective by construction and unit-tested.
-  *(This resolves the second "still open" fork listed at the bottom of this doc.)*
-- **`copilot/config` can lose an OAuth token** on a first-migration boot — an
-  independent prism defect this work surfaced, not caused by it. See
+Out-of-scope items are tracked as **ROADMAP open item #3, "composed-file follow-ups"**
+([ROADMAP.md](ROADMAP.md)), which is where they get sequenced. This doc stays the
+design of record for the `host_files` key itself and is **closed** to new scope.
+
+### In — shipped and supported
+
+| Capability | Guarantee |
+|---|---|
+| string sugar + object form, one `host_files` key | validated by `yolo check`; malformed entries are errors, not skips |
+| codecs `json` / `toml` / `lines` / `raw`, auto-detected by extension | a declared codec is accepted iff something can decode it (`knownCodecs` derives from the registry) |
+| modes `readonly` / `once` / `copy` / `capture` | per-kind defaults; `capture` is never implicit |
+| `defaults` / `managed` / `transform` layers | RFC-7386 object merge; transform works on every codec incl. `raw` |
+| directory entries (recursive copy) | `mode: copy` implied; composition keys rejected for a dir |
+| per-entry credential boundary | source-bearing entries are **unreadable** from workspace scope by construction, plus a hard `yolo check` error |
+| destination staging (`.config/*`, home-root files, new top-level dirs) | all three cases verified in a nested jail |
+| `yolo config ls` / `diff` / `reset` + boot notice | captured edits cannot be invisible |
+| comments on a `raw` surface | **byte-exact** round trip, verified |
+
+### Out — deliberately not covered, and how that is enforced
+
+| Not covered | How a user finds out | Tracked |
+|---|---|---|
+| **`yaml` codec** | `codec: "yaml"` is a `yolo check` **error** naming the four real codecs and saying `.yaml` is handled as `raw`. The phantom name was deleted so it cannot validate-then-die. | won't do (needs a vendored dep) |
+| **Comments preserved on a `json`/`toml` surface** | The only item here that cannot announce itself with an error, so it is **documented in `config-ref` under `codec`** — naming a structured codec on a commented file discards them; `raw` keeps them byte-exact. See [below](#the-one-gap-that-needed-closing-to-hold-the-line). | #3 |
+| **In-jail-added comments captured back** | Never captured, never reverted; documented as one-way host→jail. | #3 |
+| **`managed`/`defaults` array-append pinning** | Object merge only; an array in `managed` replaces rather than appends. Shape-checked at config time, so no surprise at render. | #3 |
+| **`readonly` as a kernel-enforced `:ro` mount** | It is `0o444` DAC. Documented in config-ref as "a strong signal and a speed bump, not a sandbox", with the root-bypass called out. | #3 |
+| **Source-bearing entries on `macos-user`** | Filtered out (`SourceLessHostFilesFrom`) rather than rendered without their host layer. | accepted deficiency |
+| **Single-file `:ro` on Apple Container** | apple/container#1089; source-less entries compose fine. | accepted deficiency |
+| **Arbitrary host→container paths** | Destinations are `$HOME`-relative; an absolute path is a `yolo check` error pointing at `mounts`. | won't do (by design) |
+
+### The one gap that needed closing to hold the line
+
+Everything in the Out table announces itself with a validation error except **comment
+loss on a `json`/`toml` surface**. A user points `host_files` at a commented `.jsonc`
+and gets `codec: raw` by auto-detect, so comments survive — but the moment they write
+`"codec": "json"` to get key-level merging, the comments vanish with no warning. That
+is exactly the "looks like it works and then doesn't" case, and it cannot be an error
+because both halves of the trade are legitimate.
+
+**✅ Closed, without building any preservation machinery:** `yolo config-ref` now
+states the trade under `codec` — a structured codec parses into keys and re-emits,
+discarding every comment; `raw` keeps the bytes exactly, at the cost of key-level
+merging and the `defaults`/`managed` layers. "Pick per file: raw to preserve a
+hand-written config, json/toml to compose one." The user meets the limit before they
+hit it, so the line holds without deciding anything about preservation.
+
+Deciding *how* to preserve them is #3's business, not this doc's; the reasoning and
+ranked options are parked in
+[Comments, and why `.jsonc`/`.yaml` fall back to `raw`](#comments-and-why-jsoncyaml-fall-back-to-raw)
+below, with the sub-questions (staleness, attachment, in-jail additions) answered
+there so #3 starts from decisions rather than a blank page.
+
+### Resolved, for the record
+
+- **Slug scheme** — settled: reversible percent-escape with `_` as the sole
+  sentinel (`HostFileEntry.Slug`), injective by construction, unit-tested.
+- **Naming for the recovered state** — proposed vocabulary in
+  [Naming](#naming-what-to-call-the-recovered-state) (*overlay* = the layer,
+  *overlay sidecar* = the file, **"captured edits"** = the user-facing term; not
+  "managed", which is taken). Renaming the Go identifiers is a mechanical pass
+  under #3.
+
+### Not this feature's bugs, but found while building it
+
+Both are pre-existing prism defects, tracked under #3 so they do not get lost:
+
+- **`copilot/config` can lose an OAuth token** on a first-migration boot — it
+  renders statefully with `Defaults: {"yolo": true}` and no host layer, so an
+  absent/corrupt sidecar reduces a token-bearing file to one key.
   [composed-file-permissions.md §4.2](../design/composed-file-permissions.md).
-- **Reserved destinations miss symlink *targets*** (`~/.config/git/config`,
-  `~/.claude/claude.json` validate while their aliases are rejected). Also
-  pre-existing; [§4.5 there](../design/composed-file-permissions.md).
-- **macos-user gaps stand as accepted deficiencies** — see
-  [macos-user](#macos-user--accepted-deficiencies-not-design-constraints); the
-  source-bearing case is now explicitly *filtered out* rather than half-working.
+- **Reserved destinations miss symlink *targets*** — `~/.config/git/config`,
+  `~/.config/bashrc` and `~/.claude/claude.json` validate while their aliases
+  (`~/.gitconfig`, `~/.bashrc`, `~/.claude.json`) are rejected. [§4.5
+  there](../design/composed-file-permissions.md).
 
 ## The decision
 
@@ -1232,7 +1265,6 @@ surfaces too, which have carried silent capture overlays since the prism cutover
   Injective by construction, so two surfaces can never share the sidecars or the
   `/ctx/host-user` mount point. `HostFileEntry.Slug`, unit-tested for injectivity.
 
-**Still open:** see
-[Open questions and remaining work](#open-questions-and-remaining-work) — chiefly
-whether the four modes should collapse to three and `readonly` become a real `:ro`
-mount.
+**Still open:** see [Scope: the line](#scope-the-line) for the authoritative in/out
+list, and ROADMAP item #3 for where the deferred tail is sequenced — chiefly whether
+the four modes should collapse to three and `readonly` become a real `:ro` mount.

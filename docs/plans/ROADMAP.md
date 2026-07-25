@@ -9,13 +9,35 @@ on the tree, the file:line is named.
 
 ## Open work at a glance
 
-Everything not marked done below reduces to **two** open items. In priority /
+Everything not marked done below reduces to **three** open items. In priority /
 lane order:
 
 | # | Open item | Lane | Blocker |
 |---|---|---|---|
 | 1 | **config-composition — non-agent surface ports** (mise, standalone MCP/LSP, git identity onto the prism, then delete their bespoke generators) | jail-side | none — the main remaining agent-completable thread |
 | 2 | **D4 Cachix** (one Mac download proof) | hardware-gated | substituter enabled + account/cache/CI-push all done (2026-07-22); needs only a real Mac to prove the download path |
+| 3 | **composed-file follow-ups** — the deferred tail of `host_files` + two pre-existing prism defects (see below) | jail-side | none; each item is independently shippable |
+
+### Item 3 — composed-file follow-ups
+
+[host-file-staging.md](host-file-staging.md) **shipped** 2026-07-25 and is closed to
+new scope; its "Scope: the line" section is the authoritative in/out list. The items
+it pushed out land here. Nothing here is a half-working feature — every deferral is
+either a validation error or a documented limit in `yolo config-ref` — so these are
+improvements, not repairs, **except** the two defects at the end.
+
+| Sub-item | Why it is deferred | Notes |
+|---|---|---|
+| **Comment preservation on a `json`/`toml` surface** | needs a decision, not just code | Reasoning + ranked options are parked in host-file-staging.md; the three sub-questions (staleness, attachment, in-jail additions) are already answered there, so this starts from decisions. Cheapest useful step is a yolo-authored header pointing at the `:ro` original — no comment parsing at all. `raw` is already lossless today. |
+| **Collapse the four `host_files` modes to three** | behavior change on a shipped key | [composed-file-permissions.md §7.4](../design/composed-file-permissions.md): `copy` merges into `readonly`, and `readonly` becomes a real `:ro` mount instead of `0o444` — which is *asymmetric* (root ignores it; a non-root agent gets EACCES and the surface silently stops re-rendering). |
+| **Rename the recovered state** | mechanical, wants one pass | Four terms for one concept; "captured edits" is the proposed user-facing umbrella. NOT "managed" — that already means keys *yolo* wins. |
+| **`managed`/`defaults` array-append pinning** | no user surface has needed it | Object merge only today; shape-checked at config time so it fails loudly, not silently. |
+| **⚠ `copilot/config` can lose an OAuth token** | **a real defect** | Renders statefully with `Defaults: {"yolo": true}` and no host layer, so an absent/corrupt sidecar reduces a token-bearing file to one key. Steady state recovers, which is why it went unnoticed. [§4.2](../design/composed-file-permissions.md). |
+| **⚠ Reserved destinations miss symlink targets** | **a real gap** | `~/.config/git/config`, `~/.config/bashrc`, `~/.claude/claude.json` validate while their aliases are rejected. [§4.5](../design/composed-file-permissions.md). |
+
+The two ⚠ rows predate `host_files` and were surfaced by the audit in
+[composed-file-permissions.md](../design/composed-file-permissions.md); they are the
+only rows here that fix something broken rather than extend something working.
 
 Not on this list because they are **done or held**: J1–J3, D1/D2/D3, Track M
 M0–M2, module-consolidation, the agent-config prism cutover, agy, **the VM-builder
