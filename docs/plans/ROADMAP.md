@@ -300,16 +300,35 @@ the forcing function for two already-tracked gaps:
 `internal/agents/skills.go:31-32`, so they have **no skills at all** today —
 including yolo's own built-in suite. Two registry lines make the existing
 `spec.Skills != ""`-gated mount loop (`internal/cli/run/assemble.go:335-337`) emit
-their `:ro` mounts for free, fixing cross-agent skills for six of seven agents
-whether or not anything else ships. Phase 0 is `file://`-only: no network code, no
-lockfile, no new container argument.
+their `:ro` mounts for free, fixing cross-agent skills for **five of the six
+supported agents** (per item 0) whether or not anything else ships. Both paths are
+confirmed from the shipped implementations — pi's `join(getAgentDir(), "skills")`
+(`dist/core/skills.js:330-334`) and codex's `$CODEX_HOME/skills` — with a probe test
+rather than a docs citation. Phase 0 is `file://`-only: no network code, no lockfile,
+no new container argument.
+
+**Two decisions settled 2026-07-25** after the proposal was reviewed, both recorded
+in the proposal's "Answered questions":
+
+- **A lockfile ships in phase 1**, reversing the proposal's original deferral.
+  `install`/`update` are the only network verbs and are always hand-run; `restore` is
+  offline, strict, and never writes the lock; launch is always `restore`. The lock
+  lives **beside the spec** at `~/.config/yolo-jail/packs.lock.json`, keyed by
+  normalized source, recording both the commit and the subtree hash. Approvals stay
+  machine-local under `GlobalStorage()` so trust does not travel with a copied lock.
+- **`.claude-plugin/` is adopted as an optional co-located layout.** Claude, Copilot
+  and Codex all probe `.claude-plugin/plugin.json` (verified in all three
+  implementations), so `yolo pack init --plugin` writes one and a jail-less colleague
+  installs the same branch with their own agent's installer. yolo keeps fetch, lock,
+  and rollback — the layer none of the three plugin systems has.
 
 **Two security corrections this item must respect** (both verified, both wider than
 packs):
 
 - **The config-snapshot y/N diff is not a gate.** `internal/config/snapshot.go:74`
   auto-accepts and rewrites the snapshot when non-TTY, so pack approval needs a real
-  TTY plus a user-scope `(source, tree)` ledger under `GlobalStorage()`.
+  TTY plus a machine-local `(source, tree)` ledger under `GlobalStorage()` —
+  deliberately separate from the portable lock above.
 - **⚠ `Enforce()` is an allowlist, not a denylist.** `enforceValue`
   (`internal/agentcfg/luahook/luahook.go:251-265`) deep-merges `Managed` into
   current and **deletes nothing**, and no key denylist exists anywhere in
