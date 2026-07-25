@@ -427,9 +427,22 @@ func checkHostFileObject(m *jsonx.OrderedMap, itemPath, scope string, reserved m
 		}
 	}
 
+	// path is optional WHEN a `source` is given: the overwhelmingly common case is
+	// mirroring a host file at the same home-relative place (that is exactly what
+	// the string-sugar form means), so requiring the caller to repeat the path
+	// verbatim is noise that also invites the two halves drifting apart. An entry
+	// with neither is unplaceable, so that stays an error.
+	//
+	// Only a "~/"-relative source can be defaulted. An absolute host path outside
+	// $HOME (/etc/foo.conf) has no meaningful home-relative destination, so it must
+	// say where it goes.
 	rawPath, present := m.Get("path")
 	if !present {
-		return HostFileEntry{}, itemPath + ".path: required (the jail destination, e.g. '~/.config/mytool/config.json')"
+		inferred, msg := inferHostFileDest(m)
+		if msg != "" {
+			return HostFileEntry{}, itemPath + msg
+		}
+		rawPath = inferred
 	}
 	destRaw, ok := asStr(rawPath)
 	if !ok {
@@ -579,6 +592,38 @@ func checkHostFileObject(m *jsonx.OrderedMap, itemPath, scope string, reserved m
 		}
 	}
 	return entry, ""
+}
+
+// inferHostFileDest derives a missing `path` from the entry's `source`, so
+// mirroring a host file at the same place does not require writing it twice.
+// Returns the destination string, or a message (suffixed onto the item path)
+// explaining why it cannot be inferred.
+//
+// The inference is deliberately narrow: only a source written "~/…" yields a
+// destination, because only then is the home-relative path unambiguous. An
+// absolute host path outside $HOME has no home-relative counterpart to guess —
+// "/etc/foo.conf" could reasonably mean ~/.config/foo.conf, ~/foo.conf, or
+// nothing — and silently picking one would be worse than asking.
+//
+// The trailing "/" is preserved so a directory source stays a directory entry.
+func inferHostFileDest(m *jsonx.OrderedMap) (string, string) {
+	rawSource, hasSource := m.Get("source")
+	if !hasSource {
+		return "", ".path: required (the jail destination, e.g. " +
+			"'~/.config/mytool/config.json') — it can only be omitted when 'source' " +
+			"is a '~/…' path to mirror"
+	}
+	src, ok := asStr(rawSource)
+	if !ok {
+		// The source itself is malformed; let the source check report it.
+		return "", ".source: expected a host path string"
+	}
+	if !strings.HasPrefix(src, "~/") {
+		return "", fmt.Sprintf(".path: required — 'source' %s is not under $HOME, "+
+			"so there is no home-relative destination to infer; name one explicitly",
+			pytext.Repr(src))
+	}
+	return src, ""
 }
 
 // checkHostFileLayer validates a `managed`/`defaults` layer against the entry's

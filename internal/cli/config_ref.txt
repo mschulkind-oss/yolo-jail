@@ -260,7 +260,11 @@
     recursive directory copy.  Always source-bearing, hence user scope only.
 
     [bold]Object form[/bold] keys:
-      path       (required) ~-relative jail DESTINATION.
+      path       ~-relative jail DESTINATION.  OPTIONAL when `source` is a "~/…"
+                 path — it then defaults to the same home-relative place, so a
+                 mirrored file names its path once.  Required for a source-less
+                 entry, and for a source outside $HOME (/etc/foo.conf has no
+                 unambiguous home-relative counterpart to guess).
       source     host path to seed from.  Its presence is what makes an entry
                  user-scope only.  Mutually exclusive with content.
       content    inline literal seed (a string).  Crosses nothing, so it is
@@ -318,6 +322,8 @@
         "~/.npmrc",                    // raw, readonly
         "~/.pi/agent/models.json",     // json, readonly
         "~/.pi/agent/themes/",         // directory -> recursive copy
+        { "source": "~/.config/starship.toml",  // path + codec both inferred
+          "managed": { "add_newline": true } },
         { "path": "~/.config/ripgrep/config",
           "content": "--max-columns=200\n--smart-case\n" },
         { "path": "~/.config/mytool/settings.json",

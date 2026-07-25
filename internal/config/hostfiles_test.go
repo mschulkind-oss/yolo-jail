@@ -806,3 +806,76 @@ func TestSourceLessHostFilesFromEmpty(t *testing.T) {
 		t.Errorf("absent key returned %+v, want nil", got)
 	}
 }
+
+// ---- inferred `path` (review round 0) ----
+
+// TestHostFilesInfersPathFromSource: mirroring a host file at the same place is
+// the common case, so `path` may be omitted when `source` is a "~/…" path. Writing
+// the same path twice is noise, and invites the two halves drifting apart.
+func TestHostFilesInfersPathFromSource(t *testing.T) {
+	e := oneEntry(t, `[{"source": "~/.config/mytool/config.json", "mode": "capture"}]`)
+	if e.Path != ".config/mytool/config.json" {
+		t.Errorf("inferred Path = %q, want the source's home-relative path", e.Path)
+	}
+	if e.Codec != "json" {
+		t.Errorf("inferred entry lost codec auto-detect: %q", e.Codec)
+	}
+	if !e.SourceBearing() {
+		t.Error("inferred entry must still be source-bearing (it crosses a host file)")
+	}
+	if e.Mode != HostFileModeCapture {
+		t.Errorf("explicit mode lost: %q", e.Mode)
+	}
+}
+
+// TestHostFilesInferredPathKeepsDirShape: a trailing "/" on the source must survive
+// the inference, or a directory entry silently becomes a single-file one.
+func TestHostFilesInferredPathKeepsDirShape(t *testing.T) {
+	e := oneEntry(t, `[{"source": "~/.pi/agent/themes/"}]`)
+	if !e.IsDir {
+		t.Errorf("inferred dir entry lost IsDir: %+v", e)
+	}
+	if e.Path != ".pi/agent/themes" {
+		t.Errorf("inferred dir Path = %q, want .pi/agent/themes", e.Path)
+	}
+	if e.Mode != HostFileModeCopy {
+		t.Errorf("dir mode = %q, want copy", e.Mode)
+	}
+}
+
+// TestHostFilesPathRequiredWithoutSource: a source-less entry has nothing to infer
+// from, so `path` stays required — and the error must say when it can be omitted.
+func TestHostFilesPathRequiredWithoutSource(t *testing.T) {
+	_, problems := checkHostFiles(hostFilesValue(t, `[{"content": "x"}]`), "user", false)
+	if len(problems) != 1 {
+		t.Fatalf("expected one problem, got %v", problems)
+	}
+	for _, want := range []string{".path: required", "'source'"} {
+		if !strings.Contains(problems[0], want) {
+			t.Errorf("error %q missing %q", problems[0], want)
+		}
+	}
+}
+
+// TestHostFilesPathRequiredForNonHomeSource: an absolute source outside $HOME has
+// no unambiguous home-relative counterpart (/etc/foo.conf could mean several
+// things), so it must name its destination rather than have one guessed.
+func TestHostFilesPathRequiredForNonHomeSource(t *testing.T) {
+	_, problems := checkHostFiles(hostFilesValue(t, `[{"source": "/etc/foo.conf"}]`), "user", false)
+	if len(problems) != 1 {
+		t.Fatalf("expected one problem, got %v", problems)
+	}
+	if !strings.Contains(problems[0], "not under $HOME") {
+		t.Errorf("error %q should explain why nothing can be inferred", problems[0])
+	}
+}
+
+// TestHostFilesInferredPathStillReserved: inference must not become a bypass for
+// the reserved-destination guard.
+func TestHostFilesInferredPathStillReserved(t *testing.T) {
+	_, problems := checkHostFiles(
+		hostFilesValue(t, `[{"source": "~/.claude/settings.json"}]`), "user", false)
+	if len(problems) != 1 || !strings.Contains(problems[0], "managed by yolo") {
+		t.Errorf("inferred path bypassed the reserved-destination guard: %v", problems)
+	}
+}

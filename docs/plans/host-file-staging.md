@@ -1,28 +1,11 @@
 # Host-file staging — a user-extensible set of host files, one engine
 
-**Status:** **SHIPPED 2026-07-25.** All four phases are implemented, unit-tested,
-and verified end-to-end in a nested jail (all four modes render; `once` keeps an
-in-jail edit, `copy` discards it, `capture` reverts its `managed` key while keeping
-the sibling edit; `config ls`/`diff`/`reset` report and clear exactly the diverged
-surface). Four `integration/hostfiles_test.go` tests pass against real containers.
+**Status: ✅ SHIPPED 2026-07-25.** All four phases are implemented, unit-tested,
+and verified end-to-end in a nested jail. **Read [What is built, and what is
+not](#what-is-built-and-what-is-not) first** — the body of this doc is the original
+DESIGN and still reads in the future tense; that section is the authority on what
+the code actually does and what remains open.
 
-Three deviations from the text below are worth knowing:
-
-1. **Modes.** All four (`readonly`/`once`/`copy`/`capture`) shipped as specified.
-   [composed-file-permissions.md §7.4](../design/composed-file-permissions.md)
-   argues they should collapse to three (`copy` merges into `readonly`, and
-   `readonly` should be a `:ro` mount rather than a bare `0o444` chmod, which is
-   *asymmetric* — root ignores it while a non-root agent gets EACCES and the
-   surface silently stops re-rendering). That change is **not** made here.
-2. **Home-root destinations** (`~/.npmrc`, Example 1) do NOT use the
-   writable-subtree staging §"Delivery" describes — that makes the destination a
-   *directory*. They use the `GlobalHome` relative-symlink hatch instead; see
-   [composed-file-permissions.md §7.5](../design/composed-file-permissions.md) for
-   why the alternatives break `mode: once`, one of them permanently.
-3. **No surfaces are appended to `BuiltinManifest`.** Each user surface renders
-   standalone through the extracted surface-taking cores, so the §"Collision
-   safety" destination-uniqueness check is enforced at the config layer instead of
-   "across the merged manifest".
 **Supersedes:** the `## 10` retirement decisions in
 [agent-settings-composition.md](agent-settings-composition.md) — specifically
 **D4** ("hard-error, as if it never existed"). This plan reopens a user-scope
@@ -30,6 +13,82 @@ knob D4 removed, and generalizes it: instead of a bespoke raw-copy, the knob
 lowers into the *same* composition engine that already generates `settings.json`.
 D1–D3 (commit `a84b11c`) stand — the per-agent *builtin* host files stay
 yolo-declared; this plan adds a **user** path beside them, it does not touch them.
+
+## What is built, and what is not
+
+> **How to read the rest of this doc.** Everything below this section is the
+> original design, written before implementation, in the future tense ("the loader
+> must…", "add one non-object branch…"). It was *followed*, so it is still an
+> accurate account of the reasoning — but where it and the code disagree, **the code
+> wins and this section says so.** Individual sections carry a `> **Built:**` or
+> `> **⚠ Deviation:**` note where they need one.
+
+### Shipped
+
+| Phase | What landed | Where |
+|---|---|---|
+| **0** — engine prerequisites | phantom `yaml` removed (`knownCodecs` derives from `codec.Names()`); non-object branch in `Compose`/`Enforce`; transform interface widened to `any`, kind-checked per codec | `internal/agentcfg/{compose.go,manifest,codec,luahook}` |
+| **1** — config schema | `host_files` key, `HostFileEntry`, `LoadHostFiles`, `checkHostFiles`, `validateHostFiles`, the per-entry scope rule | `internal/config/hostfiles.go` |
+| **2** — de-sugar + render | the four modes, directory copy, `/ctx/host-user/<slug>` reads, `YOLO_HOST_FILES` wire form | `internal/entrypoint/hostfiles.go` |
+| **2** — host-side wiring | `YOLO_HOST_FILES` emission, `:ro` source mounts, destination staging | `internal/cli/run/hostfiles.go` |
+| **2** — macos-user | source-less entries only (`SourceLessHostFilesFrom`) | `internal/macosuser/runplan.go` |
+| **3** — visibility | `yolo config ls` / `diff` / `reset` + a boot-time divergence notice | `internal/cli/config{ls,diff}.go`, `internal/entrypoint/prism.go` |
+| **4** — docs | `host_files` block in `config-ref`; `agent-credentials.md` §2.4; `jail-home.md` §2.8; D4 annotated | — |
+| **tests** | unit coverage per phase, plus 4 real-container tests | `integration/hostfiles_test.go` |
+
+Verified in a nested jail: all four modes render; `once` keeps an in-jail edit,
+`copy` discards it, `capture` reverts its `managed` key while keeping the sibling
+edit; a destination under a brand-new top-level dir renders (the case that
+EROFS-failed before staging existed); `ls`/`diff`/`reset` report and clear exactly
+the diverged surface.
+
+### Deviations from the design below
+
+1. **`path` is OPTIONAL when `source` is a `~/…` path** — it defaults to the same
+   home-relative destination, so a mirrored file names its path once. Required only
+   for a source-less entry, or a `source` outside `$HOME`. (Added after review; the
+   field table and Examples 1/3 below are updated to match.)
+2. **Home-root destinations** (`~/.npmrc` — Example 1) do **not** use the
+   writable-subtree staging [Delivery](#delivery-directories-and-refresh)
+   describes; that would make the destination a *directory*. They use the
+   `GlobalHome` relative-symlink hatch. See
+   [composed-file-permissions.md §7.5](../design/composed-file-permissions.md) for
+   why each alternative breaks `mode: once`, one of them permanently.
+3. **No surfaces are appended to `BuiltinManifest`.** Each user surface renders
+   standalone through the extracted surface-taking render cores, so the
+   [Collision safety](#collision-safety) destination-uniqueness check is enforced
+   at the config layer rather than "across the merged manifest".
+4. **`yolo config ls` defaults to surfaces whose file exists** (`--all` for the
+   whole manifest), which the [§ sketch](#yolo-config-ls--the-whole-picture-one-screen)
+   does not mention. Presence is only knowable in-jail, so host-side the column is
+   suppressed rather than guessed.
+
+### Open questions and remaining work
+
+Nothing here blocks use of the feature; each is a known, bounded follow-up.
+
+- **The four modes should probably be three.**
+  [composed-file-permissions.md §7.4](../design/composed-file-permissions.md)
+  argues `copy` merges into `readonly`, and that `readonly` should be a `:ro`
+  mount rather than a bare `0o444` chmod — because `0o444` is **asymmetric**: root
+  (Claude YOLO runs UID 0) ignores it entirely, while a non-root agent gets
+  `EACCES` and the surface *silently stops re-rendering every boot*. Shipped as
+  four; **not decided**.
+- **`managed`/`defaults` array-append pinning** for a user surface is unbuilt
+  (RFC-7386 object merge only). No user surface has needed it; deferred until one
+  does. *(Was listed as open below; still open.)*
+- **The slug scheme is settled** — a reversible percent-escape with `_` as the sole
+  sentinel (`HostFileEntry.Slug`), injective by construction and unit-tested.
+  *(This resolves the second "still open" fork listed at the bottom of this doc.)*
+- **`copilot/config` can lose an OAuth token** on a first-migration boot — an
+  independent prism defect this work surfaced, not caused by it. See
+  [composed-file-permissions.md §4.2](../design/composed-file-permissions.md).
+- **Reserved destinations miss symlink *targets*** (`~/.config/git/config`,
+  `~/.claude/claude.json` validate while their aliases are rejected). Also
+  pre-existing; [§4.5 there](../design/composed-file-permissions.md).
+- **macos-user gaps stand as accepted deficiencies** — see
+  [macos-user](#macos-user--accepted-deficiencies-not-design-constraints); the
+  source-bearing case is now explicitly *filtered out* rather than half-working.
 
 ## The decision, in one paragraph
 
@@ -78,7 +137,13 @@ spine of this design.
 ## What was already true (facts this builds on)
 
 Verified against the implementation (2026-07-24), because the first draft of this
-doc got two of them backwards:
+doc got two of them backwards.
+
+> **⚠ Two of these are now STALE — they describe the pre-implementation tree.** The
+> `raw`-is-object-only and `yaml`-is-a-phantom bullets were both *fixed* by Phase 0:
+> `Compose`/`Enforce` have a keyless branch, `luahook.Ctx.Config` is `any`, and
+> `manifest.knownCodecs` derives from `codec.Names()`. They are kept for the
+> reasoning, not as a current description.
 
 - **Composed files are read-WRITE.** `renderSurfaceStateful` writes the composed
   output `0o644` via `writeInPlaceString` into the agent overlay dir
@@ -121,7 +186,7 @@ doc got two of them backwards:
 
 | Field | Required | Meaning |
 |---|---|---|
-| `path` | ✅ | `~`-relative **jail destination** (e.g. `~/.config/mytool/config.json`). The surface's `Path`. |
+| `path` | ⚠ conditional | `~`-relative **jail destination** (e.g. `~/.config/mytool/config.json`). The surface's `Path`. **Optional when `source` is a `~/…` path** — it then defaults to the same home-relative destination, so mirroring a host file needs the path only once. Required for a source-less entry, and for a `source` outside `$HOME` (`/etc/foo.conf` has no unambiguous home-relative counterpart). |
 | `source` | — | host path to seed the `host` layer from. **Its presence makes the entry user-scope only** (a host file crosses). Mutually exclusive with `content`. |
 | `content` | — | inline literal seed (a string). Crosses nothing → legal at any scope. Mutually exclusive with `source`. |
 | `codec` | — | `json` \| `toml` \| `lines` \| `raw` — the four real codecs. Overrides auto-detect. There is no `yaml` codec (the phantom name is removed — see below); a `.yaml` file is handled as `raw`. |
@@ -190,6 +255,12 @@ the file with `mounts` instead of composing it.
 
 ### `yolo config ls` — the whole picture, one screen
 
+> **✅ Built** (`internal/cli/configls.go`, `configdiff.go`). The table below is a
+> sketch: real output also carries an `(absent)` marker in-jail, lists only
+> existing surfaces unless `--all` is passed, and names host_files surfaces by
+> `user/<slug>`. `diff` additionally flags a captured value equal to yolo's last
+> render as a *redundant* capture — which is what most captured keys turn out to be.
+
 With four modes, five layers, per-entry codecs, and an optional overlay, the honest
 answer to "why does this file look like that?" must be one command, not doc
 archaeology. **`yolo config ls`** lists every managed file — builtin and
@@ -249,6 +320,9 @@ already does the work.
 
 ## Making `raw` a first-class codec
 
+> **✅ Built** exactly as described (`compose.go` branches on `codec.Kind`;
+> `Ctx.Enforce`/`enforceValue` gained the same whole-value branch).
+
 This is what makes "a raw copy is just a codec" literally true (intent #2),
 without rewriting the engine (which the judge panel scored as overkill and
 high-risk). Add **one non-object branch** in `Compose` at the object assertion:
@@ -263,6 +337,10 @@ capture/re-incorporate loop gives raw files the **same read-write, editable,
 managed lifecycle** as structured ones (intent #4).
 
 ## Transforms on non-object surfaces
+
+> **✅ Built** as described: `Ctx.Config` is `any`, and `vm.go` checks the returned
+> value against the surface's `codec.Kind` (fail-closed) rather than "must be an
+> object".
 
 A Lua transform works on a raw surface too — `ctx.config` is simply a **string**
 instead of a table. Lua is good at strings (`string.gsub`, `string.format`,
@@ -357,6 +435,10 @@ so a user can never declare a codec that validates but fails at render.
 
 ## The credential boundary — per entry
 
+> **✅ Built** as described, including the `inJail()`-gated probe. One addition:
+> `LoadHostFiles` does not early-return in-jail (source-bearing entries are still
+> needed there to re-emit the wire form); only the filesystem *probe* is gated.
+
 *Which host files cross into the jail* is a **credential boundary**: an entry that
 names a `source` can forward `~/.ssh/id_ed25519`, `~/.aws/credentials`, or any
 secret. A **workspace** `yolo-jail.jsonc` travels with the repo and is
@@ -391,6 +473,15 @@ Enforcement is the exact `cache_relocations` precedent
 
 ## Delivery, directories, and refresh
 
+> **⚠ Deviation in the first bullet.** Registering the destination's parent as a
+> writable subtree is what a NEW TOP-LEVEL DIR gets. A **home-root file**
+> (`~/.npmrc`) cannot use it — a directory bind makes the destination a directory,
+> and a pre-created empty backing file breaks `mode: once` permanently (`os.Stat` on
+> a bind-mounted empty file succeeds, so the seed never happens). Those go through a
+> dangling `GlobalHome` relative symlink instead. A destination already under a rw
+> bind (`~/.config/…`, the common case) needs nothing.
+> See [composed-file-permissions.md §7.5](../design/composed-file-permissions.md).
+
 - **Composed output** lands in the jail home via the existing overlay-dir
   mechanism. A user surface whose `path` is under a **new** directory (e.g.
   `~/.config/foo/`) needs that subtree made **writable**: the jail home is `:ro`
@@ -416,6 +507,14 @@ Enforcement is the exact `cache_relocations` precedent
   `yolo config reset` forces a re-seed). Only `capture` writes overlay sidecars.
 
 ## Collision safety
+
+> **✅ Built**, with one deviation: there is no merged manifest to check across
+> (user surfaces render standalone), so destination uniqueness is enforced in the
+> config layer — `checkHostFiles` rejects duplicates within one config value and
+> `dedupeHostFilesByPath` resolves the cross-scope case. The reserved-destination
+> guard matches EXACT paths rather than reusing `checkWritableHomeDir`'s
+> first-segment rule, which would reject `~/.config/mytool/x.json` — the central
+> use case.
 
 `manifest.New` dedups only `(Agent, Name)` — **not** `Path`. So two user entries
 writing the same destination, or a user entry clobbering `~/.claude/settings.json`
@@ -468,15 +567,24 @@ The entry below opts *into* the capture exception, which is the only way to get 
 persist across boots even though a host copy exists. The cost is explicit and now
 visible — `yolo config ls` flags the surface, and `yolo config reset` undoes it.
 
+`path` is omitted: with a `~/…` source it defaults to the same home-relative
+destination, so a mirrored file names its path once rather than twice.
+
 ```jsonc
 {
   "host_files": [
     "~/.gitignore_global",
-    { "path": "~/.config/mytool/config.json",
-      "source": "~/.config/mytool/config.json",
+    { "source": "~/.config/mytool/config.json",  // path defaults to the same place
       "mode": "capture" }   // opt in: capture in-jail edits (overlay outranks host)
   ]
 }
+```
+
+Spelling `path` out is still legal, and required when the destination differs from
+the source or the source lives outside `$HOME`:
+
+```jsonc
+{ "path": "~/.config/mytool/config.json", "source": "/etc/mytool/defaults.json" }
 ```
 
 ### Example 2 — source-less files (intent #4), legal at workspace scope
@@ -508,18 +616,21 @@ that earns the capture exception, so it says `"mode": "capture"` explicitly.
 }
 ```
 
-### Example 3 — rich: seed from host, explicit codec, transform, one managed key
+### Example 3 — rich: seed from host, transform, one managed key
 
 User scope only (`source` present). The dir entry is copied wholesale.
+
+No `codec` and no `path`: `.toml` auto-detects to the `toml` codec, and the
+destination defaults to the source's home-relative path. Name a `codec` only to
+*override* the extension — e.g. `"codec": "raw"` on a `.json` file whose comments
+or key order must survive byte-for-byte.
 
 ```jsonc
 // ~/.config/yolo-jail/config.jsonc  — user scope
 {
   "host_files": [
     {
-      "path": "~/.config/starship.toml",
-      "source": "~/.config/starship.toml",
-      "codec": "toml",
+      "source": "~/.config/starship.toml",   // → toml codec, same dest path
       "transform": "~/.config/yolo-jail/starship.lua",
       "managed": { "add_newline": true }
     },
@@ -568,6 +679,13 @@ Invalid jail config:
 ```
 
 ## Work items
+
+> **✅ All phases below are DONE** (see
+> [What is built](#what-is-built-and-what-is-not) for the per-phase landing map).
+> Kept as the record of how the work was sequenced. Two items came out differently:
+> the `readonly` mode ships as a `0o444` chmod rather than a `:ro` mount (item 7 —
+> still an open question), and item 8's writable-subtree registration does not cover
+> home-root files, which use the symlink hatch instead.
 
 Phased; each phase is one atomic commit. The loader + validator must land
 together (a half-migration is a silent no-op).
@@ -662,6 +780,14 @@ surfaces too, which have carried silent capture overlays since the prism cutover
 
 ## Test plan
 
+> **✅ Implemented.** Unit coverage landed per phase; the nested-jail bullet became
+> `integration/hostfiles_test.go` (4 tests, real containers) — narrowed in one
+> respect: it drives the SOURCE-LESS half, because a source-bearing entry is read
+> only from `~/.config/yolo-jail/config.jsonc`, which in this repo's own jail is a
+> `:ro` bind of the maintainer's dotfiles and cannot be written by a test. The
+> source-bearing render path is covered in `internal/entrypoint` against a fake
+> `/ctx/host-user` mount, and its mount emission in `internal/cli/run`.
+
 - **Unit (codec/compose)**: raw + lines round-trip through `Compose` (whole-value
   replacement) and through `ComposeStateful` (overlay capture of a raw edit);
   `knownCodecs` == `CodecNames()`.
@@ -739,11 +865,17 @@ surfaces too, which have carried silent capture overlays since the prism cutover
   (not read-only, no sidecar isolation, source fail-open) are recorded
   deficiencies to revisit during the `macos-user` pass, not schema limits.
 
-**Still open (worth a look before implementation):**
+**Resolved during implementation** (both were the "still open" forks):
 
-- **`managed`/`defaults` merge semantics for a user surface** mirror the builtin
-  surfaces (RFC-7386 object merge, `append` pins). Confirm no user-surface needs
-  array-append pinning in v1 (defer if not).
-- **Slug scheme for `Name`** — a path-derived slug must be stable and
-  collision-free across entries; pin the exact derivation (e.g. cleaned
-  home-relative path with separators mapped) when implementing.
+- **`managed`/`defaults` merge semantics** — RFC-7386 object merge only, mirroring
+  the builtin surfaces. Array-append pinning was **deferred**: no user surface has
+  needed it. Still open if one does.
+- **Slug scheme for `Name`** — **settled**: a reversible percent-escape with `_` as
+  the sole sentinel (`[A-Za-z0-9.-]` pass through, every other byte becomes `_hh`).
+  Injective by construction, so two surfaces can never share the sidecars or the
+  `/ctx/host-user` mount point. `HostFileEntry.Slug`, unit-tested for injectivity.
+
+**Still open:** see
+[Open questions and remaining work](#open-questions-and-remaining-work) — chiefly
+whether the four modes should collapse to three and `readonly` become a real `:ro`
+mount.
