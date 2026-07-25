@@ -53,10 +53,16 @@ server sets. Five requirements, in the order they were given:
   `~/.config/yolo-jail/packs.lock.json` — where lazy.nvim, vim.pack, and mini.deps
   all put theirs — so copying two files moves an environment, and a dotfiles repo
   gives `git checkout HEAD -- packs.lock.json` rollback for free (§7).
-- **Nothing in the field records what it resolved.** Claude plugins, Gemini
-  extensions, `npx skills`, ruler, rulesync, opencode: not one has a lockfile, and
-  none has a rollback verb. This is the single biggest gap in the landscape and the
-  clearest thing to take from the vim scene instead.
+- **A pack may also be a plugin.** `.claude-plugin/plugin.json` is read natively by
+  Claude, Copilot **and** Codex (verified in all three implementations), so `yolo pack
+  init --plugin` writes one and a colleague with no jail installs the same branch
+  with `claude plugin marketplace add … --sparse` or
+  `copilot plugin install owner/repo:path`. Their format; our resolution.
+- **Nothing in the field records what it resolved.** Claude/Copilot/Codex plugins,
+  Gemini extensions, `npx skills`, ruler, rulesync, opencode: not one has a lockfile,
+  and none has a rollback verb — Copilot's install record stores a version string and
+  a timestamp, no SHA. This is the single biggest gap in the landscape and the clearest
+  thing to take from the vim scene instead.
 
 ## 1. The unit of sharing
 
@@ -91,6 +97,63 @@ failure mode available, landing on the one artifact every agent reads.
 `owner` is required *if* a manifest is present, and surfaced in `yolo pack ls`.
 "Who do I ask about this rule" is the most common real support question, and
 unowned fragments are how a shared corpus rots.
+
+### A pack may also be a plugin: `.claude-plugin/` is a cross-vendor layout now
+
+**The premise checks out for the layout, and only for the layout.** Verified
+against the shipped implementations, not their docs:
+
+- **Claude Code** (2.1.220) reads `.claude-plugin/plugin.json`, with marketplace
+  manifests at `.claude-plugin/marketplace.json`.
+- **Copilot** (`@github/copilot`) probes manifest directories
+  `[".plugin", ".", ".github/plugin", ".claude-plugin"]` and counts
+  `.claude-plugin/marketplace.json` among its marketplace candidates. It reads
+  Claude's layout deliberately.
+- **Codex** ships `.codex-plugin/plugin.json`, `.claude-plugin/plugin.json`, **and**
+  `.cursor-plugin/plugin.json` probes in one binary — three vendors' directory names
+  in a single loader.
+
+So `.claude-plugin/plugin.json` is a de-facto interchange layout that **three of the
+six supported agents consume natively**, and all three ship monorepo affordances that
+match §2's grammar almost exactly: Claude's `git-subdir` source
+(`{url, path, ref?, sha?}`, fetched as a `--filter=tree:0` partial clone with only
+the subdir materialized) and `marketplace add --sparse <paths…>`; Copilot's
+`owner/repo:path` shorthand and a `path` field on *every* source arm; Codex's
+`marketplace add … --ref --sparse <PATH>`. Everyone converged on (repo, path, ref)
+independently, which is good evidence the grammar is right rather than clever.
+
+**A pack therefore SHOULD be allowed to carry `.claude-plugin/plugin.json`, and
+`yolo pack init` should offer to write one** (`--plugin`). It costs one small JSON
+file, it is purely additive to the plain-directory shape, and it buys the thing §9's
+audience argument needs: a colleague with no jail runs
+`claude plugin marketplace add acme/mono --sparse tools/agent-pack` or
+`copilot plugin install acme/mono:tools/agent-pack` against the *same* branch, no
+merge, no yolo. That is requirement 5 satisfied by an existing ecosystem instead of
+a new one.
+
+**What the plugin ecosystem does not give, and what yolo therefore still owns:**
+
+- **No resolved commit anywhere.** Copilot's install record is
+  `{name, marketplace, version, installed_at, enabled, cache_path, source}` — a
+  human version string and a wall-clock time, no SHA. Claude's sources *accept* a
+  `sha`, but nothing writes one back.
+- **No lockfile and no rollback verb** in any of the three. This is the §7 gap, and
+  it is the whole reason the vim scene is the model rather than the plugin scene.
+- **Three separate installers with three separate state trees.** A shared *layout*
+  is not a shared *installation*; "install it once, three agents see it" is not
+  something any of them offers. yolo's staging + `:ro` mounts is what makes one fetch
+  serve every agent.
+- **Half the supported set can't read it at all.** pi and agy have no plugin format;
+  opencode is not in the family. Prose — the payload that reaches *every* agent via
+  the briefing — has no plugin representation either.
+
+The bridge in the other direction is real but one-sided:
+`CLAUDE_CODE_PLUGIN_SEED_DIR` is a **path list** (split on the platform delimiter),
+each entry read for `known_marketplaces.json` plus `marketplaces/<name>/`, with
+`autoUpdate: false` forced — purpose-built for a host-resolved, `:ro`, offline
+directory, i.e. exactly what a pack tree already is. Copilot has only a repeatable
+`--plugin-dir <dir>` and no seed-dir equivalent; Codex has neither. So the seed-dir
+bridge is a Claude-specific bonus, not the mechanism.
 
 ## 2. Address grammar
 
@@ -329,11 +392,15 @@ pack and discovers weeks later that opencode never received the skills will
 conclude the cross-agent promise was marketing.
 
 **Two registry lines fix five of six.** `pi` → `.pi/agent/skills`, `codex` →
-`.codex/skills`. Both are documented native user-skills paths, but the
-*user-level* spelling is flagged UNCONFIRMED in the research — so phase 0 ships a
-probe test, not a docs citation. This is a standalone bug fix that this work pays
-for: today those two agents get no skills at all, including yolo's own built-in
-suite.
+`.codex/skills`. Both paths are now **confirmed from the shipped implementations**,
+not inferred from docs: pi's user skills dir is `join(getAgentDir(), "skills")` where
+`getAgentDir()` is `$PI_AGENT_DIR` or `join(homedir(), ".pi", "agent")`
+(`dist/core/skills.js:330-334`, `dist/config.js:412-418`), and codex reads
+`$CODEX_HOME/skills` with `CODEX_HOME` defaulting to `~/.codex`. Phase 0 still ships
+a `--version`-only probe test pinning both, because an agent CLI moving its own
+user-level path is exactly the kind of silent break a docs citation would not catch.
+This is a standalone bug fix that this work pays for: today those two agents get no
+skills at all, including yolo's own built-in suite.
 
 ## 7. Explicit install/update, and the lockfile
 
@@ -759,11 +826,13 @@ corpus reaches a single-digit fraction of the org.
 **The answer is to split the corpus from the mechanism, and only the mechanism is
 yolo's.** A pack is a plain directory of `SKILL.md` files and markdown — zero
 yolo dependency, no yolo-specific format, optionally also a valid
-`.claude-plugin/` directory. A colleague on a bare laptop consumes the identical
-directory today with `git checkout <branch> && npx skills add ./path`, or a Claude
-marketplace entry pointed at the same path. ~10.7M weekly `npx skills` installs
-is the interop surface. So "not everyone uses yolo-jail" is an argument about the
-*artifact*, and the artifact was never trapped.
+`.claude-plugin/` directory (§1). A colleague on a bare laptop consumes the identical
+directory today with `git checkout <branch> && npx skills add ./path`, or
+`claude plugin marketplace add acme/mono --sparse tools/agent-pack`, or
+`copilot plugin install acme/mono:tools/agent-pack` — three vendors' installers plus
+~10.7M weekly `npx skills` installs, all pointed at the same tree. So "not everyone
+uses yolo-jail" is an argument about the *artifact*, and the artifact was never
+trapped.
 
 **The seam, kept honest:** `internal/packsrc` — address grammar, blobless mirror,
 content-addressed tree store, tree-hash verification — imports **nothing** from
@@ -896,7 +965,9 @@ The `packs` key accepting **only** `file://`. `internal/config/packs.go`
 exec-bit files unless `allow_exec`, copy. `PrepareSkills` gains a packs pass;
 `ComposeBriefing` gains `packText` with the provenance block. Reserved skill
 names. Two registry lines for `pi` and `codex`, **with a probe test** rather than
-a docs citation. `yolo pack init|lint|ls|split|explain`.
+a docs citation. `yolo pack init|lint|ls|split|explain`, where `init --plugin` also
+writes `.claude-plugin/plugin.json` (§1) — a template, not a code path, so the
+non-jail consumption story exists from the first pack.
 
 Independently valuable: it is the entire authoring loop, "share by `git clone` +
 one `file://` line" is already a working story for a small team, and it fixes
@@ -964,10 +1035,20 @@ the six supported agents today (only copilot and agy), so this is scoped to thos
 two or it budgets the computed-MCP work explicitly. Wire `Result.Excluded` to the tree
 executor so `ctx.stage.exclude` stops being display-only
 (`internal/cli/config.go:210-212`). An `instructions` computed layer on
-`opencodeConfig` pointed at the staged tree. A `CLAUDE_CODE_PLUGIN_SEED_DIR`
-bridge so a pack can carry a Claude plugin without yolo learning the plugin
-format. `require_signed: true`. Pack removal pruning its own captured overlay
-entries. A tree denylist plus `yolo pack audit` for revocation.
+`opencodeConfig` pointed at the staged tree. `require_signed: true`. Pack removal
+pruning its own captured overlay entries. A tree denylist plus `yolo pack audit` for
+revocation.
+
+The **`CLAUDE_CODE_PLUGIN_SEED_DIR` bridge moves up to phase 2**, out of this
+phase. It is one env var pointing at the pack tree yolo already stages, it needs no
+new mount and no knowledge of the plugin format, and `autoUpdate: false` is forced by
+Claude itself so it cannot reach the network behind our back — the same offline
+guarantee `restore` gives. It sat in phase 3 on the assumption that plugin interop
+was a sharp edge; §1 establishes it is a layout, so the sharp edges here are
+`allow_exec`, signing, and revocation, none of which the seed dir touches. Copilot's
+`--plugin-dir` is the analogous flag but is per-invocation rather than an env var, so
+it lands only if launcher-side argv injection for copilot proves cheap; Codex has no
+equivalent and stays briefing-plus-skills.
 
 ## 12. What we deliberately do not build
 
@@ -991,9 +1072,14 @@ Recorded so scope creep is visible:
   the prism already does, and better for this case: it composes into a `:ro`
   mount instead of generating files in the workspace that then need gitignoring.
   Integrating it means a Node dependency to produce files yolo already produces.
-- **No Claude plugin marketplace as the model.** Steal the source enum, skip the
-  system: single-vendor, no lockfile, no rollback verb, and per-user-home state
-  that collides with a home composed per run.
+- **No plugin *installer* — but the plugin *layout* is adopted** (§1).
+  `.claude-plugin/` is now read by Claude, Copilot, and Codex, so a pack may carry
+  `.claude-plugin/plugin.json` and `yolo pack init --plugin` writes one. What is
+  rejected is delegating fetch/state to those installers: three separate state trees
+  (none shared), no resolved commit recorded anywhere, no lockfile, no rollback verb,
+  half the supported agents unable to read the format, and per-user-home state that
+  collides with a home composed per run. Adopt the interchange format; keep the
+  resolution layer, which is precisely the layer they lack.
 - **No `npx skills` as the fetcher.** Its `cloneRepo` uses
   `git clone --depth 1 --branch <ref>`, which **rejects a commit SHA**; its
   subpath support refuses SSH and non-github hosts; its lock records the ref you
@@ -1073,6 +1159,8 @@ feature should open.
 **Answer:**
 > _(empty — fill in when decided)_
 
+## Answered questions
+
 ### Whether a pack should be required to also be a valid Claude plugin
 
 Making a pack literally a `.claude-plugin/` directory would give non-jail
@@ -1081,14 +1169,37 @@ cost is authoring ceremony — two dot-directories and two manifests to share on
 skill — and Claude plugins cannot carry AGENTS.md prose, which is the one payload
 that reaches every agent.
 
-_Leaning:_ no. Keep the pack a plain directory, and let a pack *optionally*
-contain `.claude-plugin/plugin.json` for authors who want it. Phase 3's seed-dir
-bridge then consumes it without yolo learning the plugin format.
+_Leaning was:_ no — keep the pack a plain directory and let it *optionally* carry
+`.claude-plugin/plugin.json`, consumed by a phase 3 seed-dir bridge.
 
 **Answer:**
-> _(empty — fill in when decided)_
+> "I want to be able to use claude plugins or whatever they're called. they already
+> are supported on copilot and claude, so this should be easy. I think it's just a
+> repo foramt?"
 
-## Answered questions
+Settled 2026-07-25, and the premise is right about the part that matters. It **is**
+just a repo format, and it is no longer Claude-only: Copilot probes
+`.claude-plugin/` among its manifest dirs and accepts `.claude-plugin/marketplace.json`,
+and Codex's binary carries `.claude-plugin/`, `.codex-plugin/` and `.cursor-plugin/`
+probes in one loader. Three of the six supported agents read the layout natively, and
+all three ship (repo, path, ref) monorepo affordances — `git-subdir` + `--sparse`,
+`owner/repo:path`, `marketplace add --ref --sparse` — which independently corroborates
+§2's grammar. So §1 now *invites* the manifest, `yolo pack init --plugin` writes it,
+and the seed-dir bridge moves from phase 3 to phase 2 (§11).
+
+Two corrections to the premise, both consequential. **"Already supported" is true of
+the format and false of the system:** they are three independent installers with three
+independent state trees, so a plugin installed for Claude is not installed for
+Copilot — one fetch serving every agent is still yolo's staging + `:ro` mounts, not
+theirs. And **none of them records what it resolved**: Copilot's install record is
+`{name, marketplace, version, installed_at, enabled, cache_path, source}` with no SHA,
+Claude's sources accept a `sha` that nothing writes back, and not one of the three has
+a lockfile or a rollback verb. Since the answered question above makes the lockfile
+the centerpiece, adopting their installer would forfeit exactly the property that was
+just made non-negotiable. Hence the split: **their format, our resolution.** The
+remaining limit is coverage — pi and agy have no plugin format, opencode is not in the
+family, and prose has no plugin representation at all, so the briefing stays the only
+channel that reaches everything.
 
 ### Whether the committable lockfile should just ship in phase 1
 
