@@ -164,6 +164,21 @@ func BuildRunPlan(workspace string, cfg *jsonx.OrderedMap, agents, agentArgv []s
 		v, _ := gitIdentity.Get(k)
 		bootstrapEnv.Set(k, v)
 	}
+	// host_files: SOURCE-LESS entries only (config.SourceLessHostFiles). There is
+	// no /ctx/host-user mount on this backend — there are no bind mounts at all —
+	// so a source-bearing entry would render with an empty host layer and silently
+	// serve its defaults instead of the host file the user named. Filtering them
+	// out here keeps that an explicit, recorded deficiency
+	// (docs/plans/host-file-staging.md "macos-user — accepted deficiencies")
+	// rather than a half-working surprise.
+	//
+	// Read from the config map handed in, NOT via config.LoadHostFiles: the plan
+	// builder is pure, and a source-less entry is legal at any scope so the merged
+	// map is the right source for exactly this subset.
+	if wire := sourceLessHostFilesWire(cfg); wire != "" {
+		bootstrapEnv.Set("YOLO_HOST_FILES", wire)
+	}
+
 	// Darwin extras consumed by `yolo internal darwin-bootstrap`.
 	bootstrapEnv.Set("YOLO_DARWIN_WORKSPACE", workspace)
 	bootstrapEnv.Set("YOLO_DARWIN_MACOS_LOG", macosLogMode(cfg))
@@ -354,3 +369,14 @@ func macosLogMode(cfg *jsonx.OrderedMap) string {
 // orderedMapToAny returns the OrderedMap as an `any` so jsonx.DumpsCompact
 // encodes it (it accepts *OrderedMap directly).
 func orderedMapToAny(m *jsonx.OrderedMap) any { return m }
+
+// sourceLessHostFilesWire renders the merged config's SOURCE-LESS host_files
+// entries as the YOLO_HOST_FILES wire string, or "" when there are none. The
+// source-bearing half is deliberately excluded — see the call site.
+func sourceLessHostFilesWire(cfg *jsonx.OrderedMap) string {
+	wire, err := config.MarshalHostFiles(config.SourceLessHostFilesFrom(cfg))
+	if err != nil {
+		return ""
+	}
+	return wire
+}

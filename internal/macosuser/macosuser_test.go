@@ -216,3 +216,79 @@ func splitColon(s string) []string {
 	out = append(out, cur)
 	return out
 }
+
+// TestSourceLessHostFilesWireExcludesSourceBearing is the macos-user accepted
+// deficiency, pinned: this backend has no bind mounts at all, so there is no
+// /ctx/host-user to carry a host source into. A source-bearing entry must be
+// FILTERED OUT rather than passed through to render with an empty host layer,
+// which would silently serve its defaults in place of the host file the user
+// named (docs/plans/host-file-staging.md, "macos-user — accepted deficiencies").
+func TestSourceLessHostFilesWireExcludesSourceBearing(t *testing.T) {
+	cfg := jsonx.NewOrderedMap()
+	cfg.Set("host_files", []any{
+		// source-less: crosses nothing, so it is staged here.
+		mapOf("path", "~/.config/seed.json", "content", "x\n"),
+		// source-bearing: must not appear.
+		mapOf("path", "~/.config/crosses.json", "source", "/Users/me/.config/crosses.json"),
+	})
+
+	wire := sourceLessHostFilesWire(cfg)
+	if wire == "" {
+		t.Fatal("source-less entry produced no wire string")
+	}
+	if !contains(wire, ".config/seed.json") {
+		t.Errorf("wire %q is missing the source-less entry", wire)
+	}
+	if contains(wire, "crosses.json") {
+		t.Errorf("wire %q leaked a source-bearing entry — it would render with an empty host layer", wire)
+	}
+}
+
+// TestSourceLessHostFilesWireEmpty: no host_files (or only source-bearing ones)
+// means no YOLO_HOST_FILES at all, so the bootstrap env is unchanged for every
+// existing macos-user launch.
+func TestSourceLessHostFilesWireEmpty(t *testing.T) {
+	if got := sourceLessHostFilesWire(jsonx.NewOrderedMap()); got != "" {
+		t.Errorf("no host_files produced wire %q, want empty", got)
+	}
+	cfg := jsonx.NewOrderedMap()
+	cfg.Set("host_files", []any{
+		mapOf("path", "~/.config/crosses.json", "source", "/Users/me/.config/crosses.json"),
+	})
+	if got := sourceLessHostFilesWire(cfg); got != "" {
+		t.Errorf("only-source-bearing produced wire %q, want empty", got)
+	}
+}
+
+// TestBuildRunPlanCarriesSourceLessHostFiles: the wire string must actually reach
+// the bootstrap argv, which is the only channel to the darwin entrypoint.
+func TestBuildRunPlanCarriesSourceLessHostFiles(t *testing.T) {
+	cfg := jsonx.NewOrderedMap()
+	cfg.Set("host_files", []any{
+		mapOf("path", "~/.config/seed.json", "content", "x\n"),
+	})
+	plan := BuildRunPlan("/Users/Shared/proj", cfg, []string{"claude"},
+		[]string{"/bin/zsh", "-l"}, "/usr/local/bin/yolo", jsonx.NewOrderedMap(), nil)
+
+	var found bool
+	for _, a := range plan.BootstrapArgv {
+		if len(a) > len("YOLO_HOST_FILES=") && a[:len("YOLO_HOST_FILES=")] == "YOLO_HOST_FILES=" {
+			found = true
+			if !contains(a, ".config/seed.json") {
+				t.Errorf("YOLO_HOST_FILES reached the argv but without the entry: %q", a)
+			}
+		}
+	}
+	if !found {
+		t.Errorf("YOLO_HOST_FILES never reached the bootstrap argv: %v", plan.BootstrapArgv)
+	}
+}
+
+// mapOf builds an OrderedMap from key/value pairs (config values are ordered maps).
+func mapOf(pairs ...string) *jsonx.OrderedMap {
+	m := jsonx.NewOrderedMap()
+	for i := 0; i+1 < len(pairs); i += 2 {
+		m.Set(pairs[i], pairs[i+1])
+	}
+	return m
+}

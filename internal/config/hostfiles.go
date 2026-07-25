@@ -887,6 +887,30 @@ func SourceLessHostFiles(entries []HostFileEntry) []HostFileEntry {
 	return out
 }
 
+// SourceLessHostFilesFrom reads just the SOURCE-LESS entries out of an
+// already-merged config map. It is the PURE counterpart of LoadHostFiles: no user
+// config read, no filesystem probe, so a caller that must stay side-effect-free
+// (macosuser.BuildRunPlan) can still stage the entries that cross nothing.
+//
+// Reading source-less entries from the merged map is correct, not a shortcut: they
+// are legal at ANY scope precisely because they copy nothing from the host (see
+// SourceBearing), so the merge is their proper source. The source-bearing half is
+// deliberately unreachable here — it requires the user-config-only read that IS
+// the credential boundary.
+func SourceLessHostFilesFrom(merged *jsonx.OrderedMap) []HostFileEntry {
+	if merged == nil {
+		return nil
+	}
+	v, present := merged.Get(hostFilesKey)
+	if !present || v == nil {
+		return nil
+	}
+	entries, _ := checkHostFiles(v, "workspace", false)
+	out := SourceLessHostFiles(entries)
+	sort.Slice(out, func(i, j int) bool { return out[i].Path < out[j].Path })
+	return out
+}
+
 // HostFileStaging names what the host CLI must provision so a destination is
 // WRITABLE inside the jail. The jail home is a `:ro` bind of GlobalHome with
 // read-write binds nested inside it, so where a destination lands decides whether

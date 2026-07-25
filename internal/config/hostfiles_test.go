@@ -771,3 +771,38 @@ func TestHostFileWritableParent(t *testing.T) {
 		t.Errorf("WritableParent(.npmrc) = %q, must never be the home root itself", got)
 	}
 }
+
+// TestSourceLessHostFilesFromMerged is the pure reader macos-user uses: it must
+// return the source-less entries from a merged map and NEVER the source-bearing
+// ones, because that half requires the user-config-only read that IS the
+// credential boundary.
+func TestSourceLessHostFilesFromMerged(t *testing.T) {
+	merged := decode(t, `{"host_files": [
+		{"path": "~/.config/seed.json", "content": "{}"},
+		"~/.config/crosses.json",
+		{"path": "~/.config/layered.json", "defaults": {"k": "v"}}
+	]}`)
+	got := SourceLessHostFilesFrom(merged)
+	if len(got) != 2 {
+		t.Fatalf("SourceLessHostFilesFrom returned %d entries, want 2: %+v", len(got), got)
+	}
+	for _, e := range got {
+		if e.SourceBearing() {
+			t.Errorf("a source-bearing entry leaked through the pure reader: %+v", e)
+		}
+	}
+	if got[0].Path != ".config/layered.json" || got[1].Path != ".config/seed.json" {
+		t.Errorf("entries not sorted by path: %+v", got)
+	}
+}
+
+// TestSourceLessHostFilesFromEmpty: absent key and nil map are both "no entries",
+// never a panic (macos-user calls this on every launch).
+func TestSourceLessHostFilesFromEmpty(t *testing.T) {
+	if got := SourceLessHostFilesFrom(nil); got != nil {
+		t.Errorf("nil map returned %+v, want nil", got)
+	}
+	if got := SourceLessHostFilesFrom(decode(t, `{}`)); got != nil {
+		t.Errorf("absent key returned %+v, want nil", got)
+	}
+}
