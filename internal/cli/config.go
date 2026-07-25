@@ -31,8 +31,15 @@ agent settings/MCP/LSP/mise config, with optional Lua transforms). See
 'yolo config-ref' and docs/plans/agent-settings-composition.md.
 
 Subcommands:
+  ls [--all]               List every composed surface — path, codec, mode,
+                           contributing layers, and whether captured in-jail
+                           edits are outranking its host layer.
   render <agent> [flags]   Run the composition pipeline and print what it would
                            write, for every surface of <agent> (no writes).
+  diff <agent> [flags]     Show the captured in-jail edits (the capture overlay)
+                           for <agent>, key by key, versus yolo's last render.
+  reset <agent> [flags]    Discard those captured edits, so the surface returns
+                           to what its layers produce on the next launch.
 
 render flags:
   --surface <name>   Render only the named surface (e.g. settings).
@@ -40,6 +47,18 @@ render flags:
                      (defaults<host<workspace<overlay<transform<managed),
                      instead of the rendered file.
   --help, -h         Show this help.
+
+ls flags:
+  --all              Include surfaces whose file does not exist (the manifest
+                     declares every agent's surfaces; a jail composes only the
+                     selected agents').
+
+diff/reset flags:
+  --surface <name>   Limit to the named surface.
+
+Only a 'capture'-mode surface accumulates in-jail edits; 'readonly', 'once' and
+'copy' surfaces write no sidecar, so diff/reset do not apply to them. Use
+'user' as the agent for files declared via the host_files config key.
 
 Config transforms live in yolo-jail.config.lua (repo root) and
 ~/.config/yolo-jail/config.lua (user); both are auto-loaded, user first.`
@@ -66,6 +85,12 @@ func configRunW(args []string, out, errw io.Writer) int {
 	switch args[0] {
 	case "render":
 		return configRender(args[1:], out, errw, colorForWriter(out))
+	case "ls":
+		return configLs(args[1:], out, errw, colorForWriter(out))
+	case "diff":
+		return configDiff(args[1:], out, errw, colorForWriter(out))
+	case "reset":
+		return configReset(args[1:], out, errw, colorForWriter(out))
 	default:
 		fmt.Fprintf(errw, "yolo config: unknown subcommand %q\n\n%s\n", args[0], configUsage)
 		return 2

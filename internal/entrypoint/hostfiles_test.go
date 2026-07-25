@@ -4,6 +4,9 @@ import (
 	"encoding/json"
 	"os"
 	"path/filepath"
+	"regexp"
+	"sort"
+	"strings"
 	"testing"
 
 	"github.com/mschulkind-oss/yolo-jail/internal/config"
@@ -446,4 +449,78 @@ func isSymlink(t *testing.T, path string) bool {
 		t.Fatalf("lstat %s: %v", path, err)
 	}
 	return fi.Mode()&os.ModeSymlink != 0
+}
+
+// TestBuiltinSurfaceRenderPaths is the anti-drift guard for the posture table the
+// CLI's `config ls` reports (internal/cli.prismSurfaceMode). That table is
+// hand-maintained because a builtin surface's posture is not declared in the
+// manifest — it is implied by which render helper boot.go calls. This test pins the
+// two sets against the source of truth: the actual call sites.
+//
+// If it fails, a surface's render path changed (or one was added) and
+// prismSurfaceMode must be updated, or `yolo config ls` will report the wrong mode
+// and — worse — `config diff`/`reset` will skip a surface that does carry an
+// overlay.
+func TestBuiltinSurfaceRenderPaths(t *testing.T) {
+	// Grep the entrypoint's own source for the render call sites, so the assertion
+	// tracks the code rather than a second hand-written list.
+	stateful, computed := renderCallSites(t)
+
+	wantStateful := []string{
+		"agy/settings", "claude/settings", "codex/config", "copilot/config",
+		"gemini/settings", "mise/config", "opencode/config", "pi/settings",
+	}
+	wantComputed := []string{"agy/mcp", "copilot/lsp", "copilot/mcp"}
+
+	if !equalStringSets(stateful, wantStateful) {
+		t.Errorf("stateful (capture) surfaces = %v, want %v\n"+
+			"update internal/cli.prismSurfaceMode to match", stateful, wantStateful)
+	}
+	if !equalStringSets(computed, wantComputed) {
+		t.Errorf("computed (copy) surfaces = %v, want %v\n"+
+			"update internal/cli.prismSurfaceMode to match", computed, wantComputed)
+	}
+}
+
+// renderCallSites scans the entrypoint package source for renderSurfaceStateful /
+// renderSurfaceComputed call sites and returns the (agent/name) pairs each renders.
+func renderCallSites(t *testing.T) (stateful, computed []string) {
+	t.Helper()
+	files, err := filepath.Glob("*.go")
+	if err != nil {
+		t.Fatal(err)
+	}
+	call := regexp.MustCompile(`renderSurface(Stateful|Computed)\(e, "([a-z]+)", "([a-z]+)"`)
+	for _, f := range files {
+		if strings.HasSuffix(f, "_test.go") {
+			continue
+		}
+		data, err := os.ReadFile(f)
+		if err != nil {
+			t.Fatal(err)
+		}
+		for _, m := range call.FindAllStringSubmatch(string(data), -1) {
+			key := m[2] + "/" + m[3]
+			if m[1] == "Stateful" {
+				stateful = append(stateful, key)
+			} else {
+				computed = append(computed, key)
+			}
+		}
+	}
+	sort.Strings(stateful)
+	sort.Strings(computed)
+	return stateful, computed
+}
+
+func equalStringSets(a, b []string) bool {
+	if len(a) != len(b) {
+		return false
+	}
+	for i := range a {
+		if a[i] != b[i] {
+			return false
+		}
+	}
+	return true
 }

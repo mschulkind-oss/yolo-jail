@@ -1,0 +1,318 @@
+package cli
+
+// configdiff.go implements `yolo config diff` and `yolo config reset` — the
+// inspect-and-undo half of the capture overlay.
+//
+// `mode: capture` is only defensible if divergence is visible AND reversible: a
+// captured edit outranks the host layer forever, so without these two commands the
+// only cure is knowing to delete a file in <workspace>/.yolo/prism/ by hand
+// (docs/design/composed-file-permissions.md §5).
+
+import (
+	"fmt"
+	"io"
+	"os"
+	"path/filepath"
+	"sort"
+	"strings"
+
+	"github.com/mschulkind-oss/yolo-jail/internal/agentcfg"
+	"github.com/mschulkind-oss/yolo-jail/internal/agentcfg/manifest"
+	"github.com/mschulkind-oss/yolo-jail/internal/jsonx"
+	"github.com/mschulkind-oss/yolo-jail/internal/richtext"
+)
+
+// surfaceArgs parses the shared `<agent> [--surface <name>]` argument shape used
+// by diff and reset. Returns rc=-1 when parsing succeeded.
+func surfaceArgs(cmd string, args []string, out, errw io.Writer) (agent, surface string, rc int) {
+	for i := 0; i < len(args); i++ {
+		a := args[i]
+		switch {
+		case isHelpToken(a):
+			io.WriteString(out, configUsage+"\n")
+			return "", "", 0
+		case a == "--surface":
+			if i+1 >= len(args) {
+				fmt.Fprintf(errw, "yolo config %s: --surface needs a value\n", cmd)
+				return "", "", 2
+			}
+			i++
+			surface = args[i]
+		case strings.HasPrefix(a, "--surface="):
+			surface = strings.TrimPrefix(a, "--surface=")
+		case strings.HasPrefix(a, "-"):
+			fmt.Fprintf(errw, "yolo config %s: unknown flag %q\n\n%s\n", cmd, a, configUsage)
+			return "", "", 2
+		default:
+			if agent != "" {
+				fmt.Fprintf(errw, "yolo config %s: unexpected argument %q (agent already %q)\n", cmd, a, agent)
+				return "", "", 2
+			}
+			agent = a
+		}
+	}
+	if agent == "" {
+		fmt.Fprintf(errw, "yolo config %s: needs an agent (e.g. 'yolo config %s claude')\n\n%s\n",
+			cmd, cmd, configUsage)
+		return "", "", 2
+	}
+	return agent, surface, -1
+}
+
+// capturedSurfaces returns the (agent, name) pairs that can carry a capture
+// overlay for the given agent, honoring an optional surface filter. It works for
+// the pseudo-agent "user" too, whose surfaces are host_files slugs rather than
+// manifest entries — those are discovered from the sidecar files on disk, since
+// the CLI cannot know which entries a past boot staged.
+func capturedSurfaces(agent, surface string) []manifest.Surface {
+	if agent == "user" {
+		return userSidecarSurfaces(surface)
+	}
+	var out []manifest.Surface
+	for _, s := range agentcfg.BuiltinManifest().ForAgent(agent) {
+		if surface != "" && s.Name != surface {
+			continue
+		}
+		if prismSurfaceMode[s.Agent+"/"+s.Name] != "capture" {
+			continue
+		}
+		out = append(out, s)
+	}
+	return out
+}
+
+// userSidecarSurfaces discovers host_files capture surfaces from the sidecar dir.
+// The slug is opaque here (it is a percent-escaped destination path), so the
+// surfaces are synthesized from the file names rather than the config — which also
+// means `reset user` can clean up after an entry the user has since removed.
+func userSidecarSurfaces(surface string) []manifest.Surface {
+	entries, err := os.ReadDir(prismSidecarDir())
+	if err != nil {
+		return nil
+	}
+	var out []manifest.Surface
+	for _, e := range entries {
+		name := e.Name()
+		if !strings.HasPrefix(name, "user-") || !strings.HasSuffix(name, ".overlay.json") {
+			continue
+		}
+		slug := strings.TrimSuffix(strings.TrimPrefix(name, "user-"), ".overlay.json")
+		if surface != "" && slug != surface {
+			continue
+		}
+		out = append(out, manifest.Surface{Agent: "user", Name: slug})
+	}
+	sort.Slice(out, func(i, j int) bool { return out[i].Name < out[j].Name })
+	return out
+}
+
+// configDiff implements `yolo config diff <agent> [--surface s]`: what the capture
+// overlay is contributing, key by key, versus the layers beneath it.
+//
+// It reports the overlay's own content rather than re-composing, deliberately: the
+// overlay IS the divergence, and showing it directly cannot drift from what the
+// engine will apply. Each key is annotated with what the layers underneath say, so
+// a redundant capture (same value as the host layer — the common case) is
+// distinguishable from a real edit.
+func configDiff(args []string, out, errw io.Writer, color bool) int {
+	agent, surface, rc := surfaceArgs("diff", args, out, errw)
+	if rc >= 0 {
+		return rc
+	}
+	surfaces := capturedSurfaces(agent, surface)
+	if len(surfaces) == 0 {
+		fmt.Fprintf(errw, "yolo config diff: no capture surfaces for agent %q%s\n",
+			agent, surfaceSuffix(surface))
+		return 1
+	}
+
+	pr := richtext.Printer{W: out, Color: color}
+	found := false
+	for _, s := range surfaces {
+		overlay := readOverlayValue(s.Agent, s.Name)
+		if overlayIsEmpty(overlay) {
+			continue
+		}
+		found = true
+		pr.Printf("[bold]# %s/%s → %s[/bold]", s.Agent, s.Name, surfacePathOrSidecar(s))
+		baseline := readLastRenderKeys(s)
+		for _, line := range overlayDiffLines(overlay, baseline) {
+			pr.Print(line)
+		}
+		pr.Printf("")
+	}
+	if !found {
+		pr.Printf("[dim]No captured in-jail edits for %s%s.[/dim]", agent, surfaceSuffix(surface))
+		return 0
+	}
+	pr.Printf("[dim]These values were captured from in-jail edits and outrank the host layer.[/dim]")
+	pr.Printf("[dim]Discard them with: yolo config reset %s[/dim]", agent)
+	return 0
+}
+
+// overlayDiffLines renders one line per captured key: the key, the captured value,
+// and how it compares to the last render (the bytes yolo itself wrote).
+func overlayDiffLines(overlay any, baseline map[string]string) []string {
+	m, ok := overlay.(*jsonx.OrderedMap)
+	if !ok {
+		// A keyless surface (raw/lines): the whole file is the captured value.
+		return []string{"  [magenta]<file>[/magenta]  " + oneLineJSON(overlay)}
+	}
+	var lines []string
+	for _, k := range sortedKeys(m) {
+		v, _ := m.Get(k)
+		got := oneLineJSON(v)
+		switch {
+		case v == nil:
+			lines = append(lines, fmt.Sprintf("  [magenta]%s[/magenta]  [red]deleted in-jail[/red]", k))
+		case baseline[k] == got:
+			lines = append(lines, fmt.Sprintf("  [magenta]%s[/magenta]  %s [dim](same as yolo's last render — redundant capture)[/dim]", k, got))
+		case baseline[k] != "":
+			lines = append(lines, fmt.Sprintf("  [magenta]%s[/magenta]  %s [dim](was %s)[/dim]", k, got, baseline[k]))
+		default:
+			lines = append(lines, fmt.Sprintf("  [magenta]%s[/magenta]  %s [dim](added in-jail)[/dim]", k, got))
+		}
+	}
+	return lines
+}
+
+// readLastRenderKeys decodes the last_render sidecar into per-key one-line JSON,
+// so a captured value can be compared against what yolo last wrote. An absent or
+// undecodable sidecar yields an empty map (everything reads as "added in-jail").
+func readLastRenderKeys(s manifest.Surface) map[string]string {
+	baseline := map[string]string{}
+	data, err := os.ReadFile(prismLastRenderPath(s.Agent, s.Name))
+	if err != nil {
+		return baseline
+	}
+	// The sidecar is in the SURFACE's codec, so only decode the object codecs; a
+	// keyless surface has no keys to compare and falls back to the whole-file line.
+	decoded, derr := jsonx.Decode(data)
+	if derr != nil {
+		return baseline
+	}
+	if m, ok := decoded.(*jsonx.OrderedMap); ok {
+		for _, k := range m.Keys() {
+			v, _ := m.Get(k)
+			baseline[k] = oneLineJSON(v)
+		}
+	}
+	return baseline
+}
+
+// configReset implements `yolo config reset <agent> [--surface s]`: discard the
+// capture overlay so the surface returns to what its layers produce.
+//
+// It removes the overlay sidecar AND the last_render sidecar. Removing last_render
+// too is not incidental: it makes the next boot take the §3.2 first-migration path,
+// which re-seeds a truthful baseline with an empty overlay. Deleting only the
+// overlay would leave the next boot diffing the (still-edited) file against a stale
+// baseline and immediately re-capturing the very edits just discarded.
+func configReset(args []string, out, errw io.Writer, color bool) int {
+	agent, surface, rc := surfaceArgs("reset", args, out, errw)
+	if rc >= 0 {
+		return rc
+	}
+	surfaces := capturedSurfaces(agent, surface)
+	if len(surfaces) == 0 {
+		fmt.Fprintf(errw, "yolo config reset: no capture surfaces for agent %q%s\n",
+			agent, surfaceSuffix(surface))
+		return 1
+	}
+
+	pr := richtext.Printer{W: out, Color: color}
+	cleared := 0
+	for _, s := range surfaces {
+		overlayPath := prismOverlayPath(s.Agent, s.Name)
+		had := overlayKeyCount(s.Agent, s.Name)
+		removedAny := false
+		for _, p := range []string{overlayPath, prismLastRenderPath(s.Agent, s.Name)} {
+			if err := os.Remove(p); err == nil {
+				removedAny = true
+			} else if !os.IsNotExist(err) {
+				fmt.Fprintf(errw, "yolo config reset: %s: %v\n", filepath.Base(p), err)
+				return 1
+			}
+		}
+		if !removedAny {
+			continue
+		}
+		cleared++
+		if had > 0 {
+			pr.Printf("Cleared [cyan]%s/%s[/cyan] — discarded %d captured %s.",
+				s.Agent, s.Name, had, plural(had, "key", "keys"))
+		} else {
+			pr.Printf("Cleared [cyan]%s/%s[/cyan] — no captured edits (baseline re-seeded).", s.Agent, s.Name)
+		}
+	}
+	if cleared == 0 {
+		pr.Printf("[dim]Nothing to reset for %s%s.[/dim]", agent, surfaceSuffix(surface))
+		return 0
+	}
+	pr.Printf("[dim]The next jail launch re-renders these surfaces from their layers.[/dim]")
+	return 0
+}
+
+// readOverlayValue decodes a surface's overlay sidecar, or nil.
+func readOverlayValue(agent, name string) any {
+	data, err := os.ReadFile(prismOverlayPath(agent, name))
+	if err != nil {
+		return nil
+	}
+	v, err := jsonx.Decode(data)
+	if err != nil {
+		return nil
+	}
+	return v
+}
+
+// overlayIsEmpty reports whether an overlay contributes nothing.
+func overlayIsEmpty(v any) bool {
+	switch t := v.(type) {
+	case nil:
+		return true
+	case *jsonx.OrderedMap:
+		return t.Len() == 0
+	case []any:
+		return len(t) == 0
+	case string:
+		return t == ""
+	default:
+		return false
+	}
+}
+
+// surfacePathOrSidecar names a surface's destination, falling back to the sidecar
+// identity for a user surface (whose path lives in config, not the manifest).
+func surfacePathOrSidecar(s manifest.Surface) string {
+	if s.Path != "" {
+		return s.Path
+	}
+	if built, ok := agentcfg.BuiltinManifest().Lookup(s.Agent, s.Name); ok && built.Path != "" {
+		return built.Path
+	}
+	return "(host_files entry " + s.Name + ")"
+}
+
+func surfaceSuffix(surface string) string {
+	if surface == "" {
+		return ""
+	}
+	return " surface " + surface
+}
+
+// oneLineJSON renders a decoded value as compact single-line JSON for a diff line.
+func oneLineJSON(v any) string {
+	s, err := jsonx.DumpsCompact(v)
+	if err != nil {
+		return fmt.Sprintf("%v", v)
+	}
+	return s
+}
+
+// sortedKeys returns an ordered map's keys sorted, for deterministic output.
+func sortedKeys(m *jsonx.OrderedMap) []string {
+	keys := append([]string(nil), m.Keys()...)
+	sort.Strings(keys)
+	return keys
+}
