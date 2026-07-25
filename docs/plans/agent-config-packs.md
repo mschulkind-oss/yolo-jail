@@ -49,9 +49,10 @@ server sets. Five requirements, in the order they were given:
   and `yolo pack update` are the only network verbs and both are hand-run;
   `restore` is offline and never writes the lock; launch resolves the lock and
   touches no remote. The lock records `requested` vs `locked` and carries **both**
-  the commit and the subtree hash. It lives in user-scope `GlobalStorage()`,
-  because a lock on the rw-mounted workspace would be agent-writable and an
-  integrity artifact the adversary can edit provides no integrity.
+  the commit and the subtree hash. It lives **beside the spec** in
+  `~/.config/yolo-jail/packs.lock.json` — where lazy.nvim, vim.pack, and mini.deps
+  all put theirs — so copying two files moves an environment, and a dotfiles repo
+  gives `git checkout HEAD -- packs.lock.json` rollback for free (§7).
 - **Nothing in the field records what it resolved.** Claude plugins, Gemini
   extensions, `npx skills`, ruler, rulesync, opencode: not one has a lockfile, and
   none has a rollback verb. This is the single biggest gap in the landscape and the
@@ -262,9 +263,12 @@ protocol. It stays documented in the research doc as the upgrade path.
   mirrors/github.com/acme/mono.git/       # bare, blobless, promisor
   trees/c1eae7ef…/                        # content-addressed materialization
   slots/acme -> ../trees/c1eae7ef…        # what the launcher resolves, offline
-  packs.lock.json                         # requested/locked + approval, per entry
+  ledger.json                             # approvals: name -> approved tree hash
   acme.history.jsonl                      # per-machine, append-only
 ```
+
+The lock is *not* here — it lives beside the spec in `~/.config/yolo-jail/`
+(§7), and only the machine-local approval record stays in this tree.
 
 `paths.PacksDir()` sits beside `AgentsDir()` (`internal/paths/paths.go:79`).
 **Never `GlobalCache()`** (`paths.go:73`) — it is bound **rw** into every jail
@@ -337,74 +341,160 @@ suite.
 and a lockfile that records what you actually got.** Nothing is ever fetched
 implicitly. Launching a jail never touches the network; it resolves the lock.
 
-```
-yolo pack install         # spec → resolve any entry with no lock row → write lock
-yolo pack update [name]   # re-resolve to the current ref tip → rewrite lock rows
-yolo pack restore         # lock → disk. Never consults a remote. Never writes the lock.
-yolo pack rollback <name> # step a lock row back to its previous tree; rewrites the lock
-yolo pack pin <name>      # freeze the SPEC's ?ref= to the locked commit
-yolo pack ls / explain / lint / share / init / split / approve
-```
+| verb | reads | network | writes lock | writes spec |
+|---|---|---|---|---|
+| `install` | spec + lock | only for rows with no lock entry | **yes, additive only** | no |
+| `update [name…]` | spec + lock | yes | **yes, rewrites rows** | no |
+| `restore` | lock only | **never** | no | no |
+| `rollback <name>` | lock only | never | **yes, rewrites one row** | no |
+| `pin <name>` / `unpin` | lock | never | no | **yes** |
 
-Three verbs mutate the lock (`install`, `update`, `rollback`), one only reads it
-(`restore`), and one edits the spec (`pin`). That split is vim-plug's
-`:PlugInstall`/`:PlugUpdate` plus lazy.nvim's `restore`-vs-`update` distinction,
-and it is the thing that makes "roll back" mean something: `restore` is
-idempotent and offline, so it is always safe to run and always ends in the state
-the lock describes.
+Plus the non-mutating `ls / explain / diff / lint / share / init / split / approve`.
+One rule makes the whole surface legible: **exactly one verb reaches the network and
+re-resolves (`update`), exactly one applies the lock and never rewrites it
+(`restore`), and exactly one edits the spec (`pin`).** `install` is additive — it
+resolves only spec entries that have no lock row and never touches an existing one —
+which is `:PluginInstall` / `:PlugInstall` / `:Lazy install`. `update` is the only
+verb that can lose a pin, which is why it is the only one that needs a confirmation
+surface (vim-plug's `:PlugDiff`, vim.pack's confirmation buffer, and mini.deps'
+update buffer all exist for that one verb).
 
-**Naming note, so the doc doesn't mislead:** the precedent here is a composite.
-Vundle gave us the explicit-step model (`:PluginInstall`, `:PluginUpdate`) and has
-**no lockfile at all** — `vim-plug`'s `:PlugSnapshot` (a generated restore
-*script*) and lazy.nvim's `lazy-lock.json` are where the lock idea comes from. So
-"like Vundle, with a lockfile" is Vundle's UX plus lazy.nvim's artifact, not one
-tool's design.
+**`sync` is deliberately not a verb.** The word means something different in every
+surveyed tool — vendir's fetches, lazy.nvim's is `clean + install + update` and
+therefore re-floats — so it is exactly the name that would make "did that just move
+my pins?" unanswerable. `yolo run` performs an implicit `restore`, which is the
+concrete meaning of "launch resolves the lock, never the network."
 
-### Where the lock lives
+**`restore` is strict, and that is a deliberate improvement on the most-copied
+precedent.** lazy.nvim's `restore` is literally `update` with `lockfile = true`
+(`lua/lazy/manage/init.lua:141-144`), so it still runs `git fetch` and still rewrites
+`lazy-lock.json` in the same callback — in the tool everyone copies, restore is
+neither offline nor lock-read-only. Ours reads the lock, materializes the locked
+trees, verifies tree hashes against bytes on disk, and stops. The precedent for the
+strict version is vim.pack's flag pair `:packupdate ++offline ++lockfile`. Because
+launch calls `restore`, any network path inside it would make jail startup flaky —
+so **`restore` gets a network-disabled test as a hard CI assertion**, not a comment.
+
+**Naming note, so the doc doesn't mislead:** the precedent is a composite, verified
+against upstream source rather than READMEs. Vundle gave us the explicit-step model
+(`:PluginInstall`, `:PluginUpdate` — the latter defined literally as
+`PluginInstall! <args>`) and has **no lockfile at all**; its `{'pinned': 1}` option
+only means "never sync this," and a `{'rev': ...}` value is parsed at
+`autoload/vundle/config.vim:124` and consumed nowhere, so two machines with the same
+`.vimrc` land on different commits. vim-plug's `:PlugSnapshot` is a generated Vim
+*script* (`silent! let g:plugs[…].commit = '<sha>'` lines plus a trailing
+`PlugUpdate!`), not data, and has no default output path. The real lock artifacts are
+lazy.nvim's `lazy-lock.json`, mini.deps' `mini-deps-snap` (a Lua file), and — the
+part most write-ups predate — Neovim 0.12's built-in `vim.pack`, whose
+`nvim-pack-lock.json` stores **both** the requested `version` and the resolved `rev`
+per row, exactly the split adopted above. So "like Vundle, with a lockfile" is
+Vundle's UX plus a later generation's artifact, not one tool's design.
+
+### What the lock records
 
 ```json
-// ~/.local/share/yolo-jail/packs/packs.lock.json      (schema 1)
+// ~/.config/yolo-jail/packs.lock.json                 (schema 1)
 {
   "schema": 1,
-  "entries": [
-    {
-      "name":         "acme",
-      "requested":    { "url": "git+ssh://git@github.com/acme/mono", "path": "tools/agent-pack", "ref": "main" },
-      "locked":       { "commit": "3d81aa47…", "tree": "55915fb0…" },
-      "commit_title": "wip: rust review pack",
-      "resolved_at":  "2026-07-25T14:02:11Z",
-      "approved_at":  "2026-07-25T14:02:14Z",
-      "previous":     [{ "commit": "9f21c0de…", "tree": "c1eae7ef…" }]
+  "packs": {
+    "git+ssh://git@github.com/acme/mono//tools/agent-pack?ref=main": {
+      "name":      "acme",
+      "requested": { "url": "ssh://git@github.com/acme/mono", "path": "tools/agent-pack", "ref": "main" },
+      "locked":    { "commit": "3d81aa47…", "tree": "55915fb0…", "object_format": "sha1",
+                     "commit_title": "rust-review: tighten the unsafe-block rule",
+                     "committed_at": "2026-07-24T09:11:03Z" },
+      "monitor":     "main",
+      "resolved_at": "2026-07-25T14:02:11Z",
+      "history":  [{ "commit": "9f21c0de…", "tree": "c1eae7ef…", "resolved_at": "2026-07-18T…" }]
     }
-  ]
+  }
 }
 ```
 
-`requested`/`locked` is flake.lock's split; `commit_title` is vendir's, so a human
-can read a bump without a git command. **Both hashes, not one:** `commit` is what
-you show a human and what `pin` writes, and `tree` is the integrity and identity
-primitive — in a monorepo the branch commit changes many times a day while
-`main:tools/agent-pack` does not, so the tree hash is both the dedup key and a free
-no-op detector. `previous` is what `rollback` walks; the trees are still in
-`trees/<sha>/`, so rollback is offline and instant.
+`requested`/`locked` is flake.lock's split; `commit_title` + `committed_at` are
+vendir's, so `pack ls` can show a readable bump and a staleness age with zero git
+invocations. Serialization is sorted-key with a stable field order and a trailing
+newline — lazy.nvim sorts and vim.pack passes `sort_keys=true` for the same reason,
+because the file lands in someone's dotfiles repo and has to diff cleanly.
 
-It lives in `GlobalStorage()` — **user scope, unreachable from any jail** — and
-that placement is forced rather than chosen. The spec lives in
-`~/.config/yolo-jail/config.jsonc`, so there is no repo to put a lock beside;
-lazy.nvim can put `lazy-lock.json` in the config tree only because its spec is in
-that tree. More importantly, `/workspace` is bind-mounted rw, so a lock stored
-there would be **agent-writable**, and an integrity artifact the adversary can edit
-provides no integrity: a prompt-injected agent could silently *downgrade* to an
-older tree that was legitimately approved once, and nothing would object — the pin
-resolves, the approval exists. The lock therefore doubles as the approval record
-(`approved_at` per `(source, tree)`), which is also why `restore` cannot introduce
-an unapproved tree.
+**Keyed by the normalized source string, not by `name`.** lazy.nvim and vim.pack
+both key by plugin name, and that is safe for them because a vim plugin *is* a whole
+repo. It breaks here: the §3 example legitimately holds two entries differing only
+in `?ref=`, and name-keying silently collapses them so one pack gets the other's
+tree. The consequence is accepted deliberately: the URL normalizer becomes part of
+the lock's identity, so changing it is a format migration. `name` stays a display
+and CLI-selector field.
+
+**Both hashes, not one, because they fail in opposite directions.** `tree`
+(`<commit>:<path>`) is the integrity, identity, and dedup primitive — what `restore`
+verifies against bytes on disk, the content address for `trees/<sha>/`, and a free
+no-op detector, since a monorepo branch tip moves many times a day while
+`main:tools/agent-pack` does not. But **tree-only is unfetchable**: git servers do
+not serve `want <tree-oid>`, so you fetch a commit and address `commit:path`, and a
+fresh machine could not reproduce from a tree-only lock. Commit-only churns on every
+unrelated push to the monorepo and throws the no-op detector away. `commit` is also
+what `pin` writes and what `git log`/`git diff -- <path>` need. `object_format` is
+cheap now and painful later: a SHA-256 monorepo yields differently-shaped tree
+hashes and the `write-tree` verification silently needs the matching format.
+`monitor` is mini.deps' field — keep the ref you were following even after `pin`
+rewrites the spec to a SHA, so `ls` can say "pinned at 3d81aa47, `main` +47" and a
+pin stays a decision instead of becoming abandonware. `history` is bounded (~10) and
+is what `rollback` walks; the trees are still on disk, so rollback is offline and
+instant.
+
+### Where the lock goes, and where the approvals go
+
+**The lock sits beside the spec, in `~/.config/yolo-jail/`. The approval ledger does
+not.** Splitting them is the correction, and each half has a different reason.
+
+Every vim tool that has a lock puts it in the *config* dir next to the spec and the
+plugin content in the *data* dir: lazy.nvim `stdpath("config")/lazy-lock.json`,
+vim.pack `$XDG_CONFIG_HOME/nvim/nvim-pack-lock.json`, mini.deps
+`stdpath("config")/mini-deps-snap`. None puts the lock beside the content. Two
+reasons carry over intact. It is the file a user wants to copy to a second machine
+alongside `config.jsonc` — and if they keep `~/.config` in a dotfiles repo, which is
+common, vim.pack's whole rollback story (`git checkout HEAD -- packs.lock.json`)
+works verbatim for free, so `pack ls` should detect `~/.config/yolo-jail/.git` and
+say so. And `GlobalStorage()` is **prunable**: `yolo prune --apply` exists to reclaim
+it and §5 grows a packs section there. A reproducibility artifact inside the tree our
+own GC eats is a footgun. Config means "sync this"; data means "delete this to
+reclaim space"; a lock is the former.
+
+**The approval record stays machine-local**, in
+`~/.local/share/yolo-jail/packs/ledger.json` plus the append-only
+`<name>.history.jsonl` (vim.pack splits its `nvim-pack.log` from its lock the same
+way). `approved_at`/`approved_by` are trust decisions about *this* machine. Folding
+them into the portable file makes trust transitive by accident: a review performed
+once on a laptop would silently authorize the same tree on the build box the moment
+someone copies their dotfiles. `restore` still cannot introduce an unapproved tree —
+it consults the ledger, not the lock.
+
+**Security did not decide the lock's location, and it should not be claimed to.**
+Only the single *file* `~/.config/yolo-jail/config.jsonc` is ever bound into a jail,
+`:ro` (`internal/cli/run/assemble_parts.go:463-475` → `ROFileMountArg`, which appends
+`:ro` at `internal/cli/run/runmount.go:105`); the directory is not mounted, so a
+sibling `packs.lock.json` is simply absent in-jail. Both candidate locations were
+already out of reach. What the threat model does decide is a **never-here list**:
+
+- `/workspace/**` — bind-mounted live rw. A lock there is agent-writable, and an
+  integrity artifact the adversary can edit provides no integrity: a prompt-injected
+  agent could silently *downgrade* to an older, once-approved tree and nothing would
+  object.
+- Anything under `paths.GlobalCache()` — bound **rw** at `/home/agent/.cache`
+  (`assemble_parts.go:48,75`). This is the fact an out-of-tree tool guesses wrong.
+- Anything under `paths.GlobalHome()` — bound `:ro` (`assemble_parts.go:69`), but rw
+  holes are punched through it by per-workspace overlays and by `writable_home_dirs`,
+  which is read from the **merged** config (`internal/config/writablehome.go:23-46`)
+  and therefore settable from the agent-writable workspace file. That is *sound* for
+  its own purpose — the backing dir is inside the workspace, so it grants nothing new
+  (`writablehome.go:30-36`) — but it means "under the jail's home backing dir" is the
+  wrong neighborhood for an integrity artifact.
 
 **If the spec ever becomes shared** — the day a company distributes a baseline
 `packs` list via `include_if_found` — a *second*, committable lock beside that
 shared spec is a ~60-line addition over fields already recorded here, and the
-user-scope lock stays the approval record. Written down so the seam is deliberate
-rather than discovered.
+machine-local ledger stays the approval record. Written down so the seam is
+deliberate rather than discovered.
 
 `pin` is the escape hatch for making a choice permanent in the spec itself, and it
 steals pre-commit's `--freeze` convention so machine-resolvable and human-readable
@@ -414,17 +504,59 @@ coexist:
 "git+ssh://git@github.com/acme/mono//tools/agent-pack?ref=6461be617ca2670db07dabc4d84707aed18e5fa9", // frozen: main @ 2026-07-25
 ```
 
+**`pin` prints that line by default; `--write` is opt-in.** No vim tool writes the
+user's spec — all of them make the human edit `init.lua`/`.vimrc` — so there is no
+precedent to crib for comment- and formatting-preserving rewrites of a hand-edited
+JSONC file, and a formatter bug there is worse than any lock bug. `unpin` is a real
+verb, restoring `?ref=` from the row's `monitor` field: vim-plug's `frozen` and
+mini.deps' `monitor` both exist because an unrevertable freeze is its own trap.
+
 ### Rollback, and the trap it has to avoid
 
-`yolo pack rollback acme` rewrites the lock row to the previous `(commit, tree)`
-and retargets `slots/acme` — offline, instant, no network. Because the **lock** is
-what launch reads, that rollback is durable across restarts on its own.
+`yolo pack rollback acme` rewrites the lock row from `history[0]` and retargets
+`slots/acme` — offline, instant, no network, because the tree is already in
+`trees/<sha>/` and its commit is kept reachable by `refs/yolo-pack/<slug>/<n>`.
+Because **the lock is what launch reads**, and `restore` never consults `?ref=`, that
+rollback survives every jail launch on its own. That is vim.pack's escape — its
+`add()` installs at the lockfile's `rev` "instead of inferring from `version`" — and
+ours is stronger, because `?ref=` is mandatory and launch is always `restore`.
 
-The trap is mini.deps': if the spec still says `?ref=main`, the next
-`yolo pack update` re-floats to the tip and undoes the rollback. So `rollback`
-prints the `pin` line that makes it permanent, and `yolo pack ls` marks a row whose
-lock is behind its ref as `rolled-back (ref still floating)` rather than letting it
-look settled.
+The trap can therefore fire in exactly one place: the next `yolo pack update acme`
+re-resolves `?ref=main`. It is mini.deps' documented behavior (`:DepsSnapLoad` sets
+`checkout` on a throwaway table and the docs say twice that the next update may move
+you again), and lazy.nvim has it worse — its next `:Lazy update` re-floats *and*
+rewrites `lazy-lock.json`, so the rollback is erased from the artifact too. Three
+things close it, in ascending strength:
+
+- **Print the line that makes it stick.** `rollback` ends by emitting the
+  `yolo pack pin acme` invocation and prompting "also pin the spec to this commit?
+  [Y/n]" — mini.deps' documented fix, lazy's `pin`, and vim.pack's freeze workflow all
+  put the durable pin in the spec.
+- **Make `update` refuse to silently undo a rollback.** The row records
+  `rolled_back_from`; `update` then declines to move it without `--force`, naming the
+  rollback. **No surveyed tool does this** — it costs one field and converts the trap
+  from a silent re-float into an explicit decision.
+- **`yolo pack ls` shows the disagreement**, marking a row whose lock is behind its
+  ref as `rolled-back (ref still floating)` rather than letting it look settled, and a
+  pinned row as `pinned at 3d81aa47, main +47` via `monitor`. Mandatory `?ref=` means
+  spec/lock disagreement is *permanent and normal*, so the precedence rule — lock wins
+  on apply, spec wins only under `update` — has to be stated and visible, or the top
+  support question becomes "I rolled back and it came back." vim.pack's alternative is
+  a prompt that returns every time you run `:packupdate` until you also edit
+  `init.lua`.
+
+**Hand-edits are validated or refused, never silently dropped.** vim.pack says the
+lockfile "should not be edited by hand" and auto-repairs corrupt rows; lazy.nvim
+`pcall`s the JSON decode and on failure substitutes an *empty* lock, discarding every
+pin without a word. In a JSONC world where people edit config by hand daily, a silent
+partial parse is the worst available behavior: `restore` refuses loudly on a lock it
+cannot fully parse.
+
+**GC and the lock create each other's bug.** The lock plus `history[]` make
+`trees/<sha>/` liveness roots, and rollback depth multiplies them. Ship `yolo prune`
+without teaching it about `history[]` and `restore`-after-`rollback` fails with a
+missing tree that reads as a corrupt lock — which is why §5 puts the packs prune
+section in the *same* phase.
 
 Nothing is ever automatic. `install`/`update` are the only network verbs and both
 are hand-run; launch resolves the lock offline. lazy.nvim ships
@@ -681,7 +813,9 @@ Controls, in the order they must ship:
 
 - **Source declaration is user-scope by construction** (§3). Not a validation.
 - **Approval requires a TTY**, never the auto-accepting config-snapshot diff, and
-  is recorded in the user-scope lock no jail can reach. `restore` therefore cannot
+  is recorded in the machine-local ledger (`PacksDir()/ledger.json`, §7) that no
+  jail can reach — deliberately *not* in the portable lock, so copying a lock to a
+  new machine carries pins without carrying trust. `restore` therefore cannot
   introduce an unapproved tree, which is what makes the offline verb safe to run
   unattended.
 - **Verify the trust label, don't believe it.** If a manifest claims
@@ -793,7 +927,8 @@ copy-based staging fallback, tracked as the same known gap and Mac-gated. Phase 
 first), `Store.Resolve` (offline), materialization via
 `read-tree`+`checkout-index`+`write-tree` verification — with a regression test
 whose fixture carries `.gitattributes` `export-ignore` and `export-subst`.
-`paths.PacksDir()`. **`packs.lock.json` (schema 1) plus TTY approval**, and the
+`paths.PacksDir()`. **`packs.lock.json` (schema 1, beside the spec) plus TTY
+approval**, and the
 full verb set: `yolo pack add|install|update|restore|rollback|pin|share|approve
 --from-workspace`, plus `pack_requests` in workspace scope and the `yolo prune`
 packs section. `flock` on
@@ -838,10 +973,11 @@ entries. A tree denylist plus `yolo pack audit` for revocation.
 
 Recorded so scope creep is visible:
 
-- **No second, committable lockfile in v1.** The user-scope
-  `packs.lock.json` ships in phase 1 (§7); what is deferred is a *repo-committed*
-  lock beside a *shared* spec, which has no reason to exist until
-  `include_if_found` distributes a baseline `packs` list. Trigger named in §7.
+- **No second, committable lockfile in v1.** `~/.config/yolo-jail/packs.lock.json`
+  ships in phase 1 (§7); what is deferred is a *repo-committed* lock beside a
+  *shared* spec, which has no reason to exist until `include_if_found` distributes a
+  baseline `packs` list. Trigger named in §7. (A dotfiles repo committing the config
+  dir is not this — that is one lock, versioned by its owner.)
 - **No resolver, no version constraints, no transitive dependencies.** One level,
   no solver. Go's MVS is the only sound solver in the survey and it needs a proxy
   protocol, a checksum database, pseudo-versions with ancestry validation, and an
@@ -969,14 +1105,16 @@ deferral this design's one real gap against requirement 1.
 Settled 2026-07-25. §7 was rewritten around it: the spec is declarative, `install`
 and `update` are the only network verbs and are always hand-run, `restore` is
 offline and never writes the lock, and `packs.lock.json` (schema 1) ships in phase
-1 in user-scope `GlobalStorage()`. Two things fell out of the reversal that the
-original refusal had not accounted for. The lock subsumes the ledger — it already
-has to carry `(source, tree)` plus a timestamp, so making it the approval record
-too removes a file rather than adding one, and it is what makes `restore` unable
-to introduce an unapproved tree. And its placement is forced, not chosen: the spec
-lives in `~/.config/yolo-jail/config.jsonc`, so there is no repo for a lock to sit
-beside, and a lock under `/workspace` would be agent-writable — an integrity
-artifact the adversary can edit permits a silent downgrade to an
-older-but-once-approved tree. What remains deferred is only a *second*,
-repo-committed lock beside a *shared* spec, which has no reason to exist until
-`include_if_found` distributes a baseline `packs` list.
+1 — **beside the spec** in `~/.config/yolo-jail/`, which is where lazy.nvim,
+vim.pack, and mini.deps all put theirs, and which makes "copy two files" the whole
+second-machine story. Three things fell out of the reversal that the original
+refusal had not accounted for. The lock, not the ledger, becomes what launch reads,
+so rollback is durable across restarts without touching the spec. Keying it by
+normalized source rather than by name is forced by §3's own example, where two
+entries differ only in `?ref=` — which makes the normalizer part of the lock's
+identity and a change to it a format migration. And the approvals do **not** move
+into the lock: they stay machine-local in `PacksDir()/ledger.json`, because a lock
+you copy to a new machine must carry pins without also carrying "I already trusted
+this," or trust becomes transitive by file copy. What remains deferred is only a
+*second*, repo-committed lock beside a *shared* spec, which has no reason to exist
+until `include_if_found` distributes a baseline `packs` list.
