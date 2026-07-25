@@ -248,6 +248,84 @@
     already writable and the key is a harmless no-op.
     Example: [".pi-lens", ".config-that-isnt-mine/state"]
 
+  [bold]host_files[/bold] (array): Bring any file into the jail, composed not copied.
+    Each entry is either a [bold]string[/bold] (sugar) or an [bold]object[/bold] (rich).  Every entry
+    becomes a composed "surface" rendered by the same engine that generates the
+    agent settings files, so a plain copy is just codec "raw" — one engine, not
+    two.  Use this for a dotfile yolo doesn't know about (~/.npmrc, pi's
+    models.json), or to bring a brand-new managed file into being.
+
+    [bold]String form[/bold] — "~/.npmrc" means: copy that host file to the same path in
+    the jail, codec auto-detected, mode readonly.  A trailing "/" makes it a
+    recursive directory copy.  Always source-bearing, hence user scope only.
+
+    [bold]Object form[/bold] keys:
+      path       (required) ~-relative jail DESTINATION.
+      source     host path to seed from.  Its presence is what makes an entry
+                 user-scope only.  Mutually exclusive with content.
+      content    inline literal seed (a string).  Crosses nothing, so it is
+                 legal at any scope.  Use "" to declare a deliberately empty file.
+      codec      json | toml | lines | raw.  Overrides auto-detect.  There is no
+                 yaml codec — a .yaml file is handled as raw bytes.
+      defaults   user-overridable base layer (structured codecs).
+      managed    keys yolo re-asserts every render, so they revert on edit.
+      transform  path to a Lua hook; works on every codec, raw included.
+      mode       see below.
+
+    [bold]Codec auto-detect[/bold]: .json -> json, .toml -> toml, everything else -> raw
+    (including no extension, .sh, .yaml, .yml, and .jsonc — routing .jsonc
+    through the json codec would sort keys and DROP COMMENTS).
+
+    [bold]Modes[/bold] — what happens across boots, and to an in-jail edit:
+      readonly  re-rendered every boot at 0444; a host-side edit propagates on
+                the next launch.  [bold]Default for a source-bearing entry.[/bold]
+      once      seeded when absent, then never touched.  In-jail edits simply
+                persist (no sidecar); later host edits do NOT propagate.
+                [bold]Default for a source-less entry.[/bold]  `yolo config reset` re-seeds.
+      copy      overwritten every boot; in-jail edits are discarded.  Implied
+                for a directory entry.
+      capture   re-rendered every boot AND in-jail edits captured into a sidecar
+                that outranks the host layer.  [bold yellow]Never a default — always
+                explicit[/bold yellow], because a captured edit wins over the host file
+                FOREVER (the sidecar never ages out), so implicit capture would
+                silently fork a host-mirrored file the first time a tool
+                rewrote its own config (`npm config set`, any CLI's first run).
+    Note 0444 is DAC, not kernel enforcement: an agent running as root (Claude
+    YOLO does) bypasses the mode bits.  It is a strong signal and a speed bump,
+    not a sandbox — use `mounts` for a kernel-enforced read-only file.
+    Inspect what any of this produced with [bold]yolo config ls[/bold]; a capture surface's
+    accumulated edits with [bold]yolo config diff[/bold], and discard them with
+    [bold]yolo config reset[/bold].
+
+    [bold yellow]Scope: an entry that names a `source` is read from
+    ~/.config/yolo-jail/config.jsonc ONLY[/bold yellow] (plus that file's include_if_found
+    files).  In yolo-jail.jsonc such an entry is a `yolo check` error: a
+    workspace config travels with the repo and is agent-editable, so it must
+    never decide which host files cross into the jail.  A SOURCE-LESS entry
+    (inline content, or only defaults/managed) copies nothing from the host, so
+    it is allowed at any scope — a repo may legitimately ship one.
+    Within your own user config nothing is blocked: listing ~/.ssh/… there is
+    your call.  The boundary is that the REPO cannot make it for you.
+
+    A destination may not clobber a file yolo owns (~/.claude.json, ~/.bashrc,
+    ~/.gitconfig, the yolo-* single-file mounts) or any yolo-composed agent
+    surface (~/.claude/settings.json, ~/.config/mise/config.toml, …).
+    Runtime support: podman gets everything.  "macos-user" has no bind mounts,
+    so only SOURCE-LESS entries are staged there — a source-bearing one is
+    skipped rather than silently rendering without its host layer.
+    Example (~/.config/yolo-jail/config.jsonc):
+      "host_files": [
+        "~/.npmrc",                    // raw, readonly
+        "~/.pi/agent/models.json",     // json, readonly
+        "~/.pi/agent/themes/",         // directory -> recursive copy
+        { "path": "~/.config/ripgrep/config",
+          "content": "--max-columns=200\n--smart-case\n" },
+        { "path": "~/.config/mytool/settings.json",
+          "mode": "capture",
+          "defaults": { "telemetry": false, "theme": "dark" },
+          "managed":  { "telemetry": false } }
+      ]
+
   [bold]workspace_readonly[/bold] (array of strings): Workspace sub-paths to overlay as read-only.
     Each entry is a relative path inside the workspace (no leading /, no ..).
     Mounted on top of the writable /workspace volume so agents cannot modify

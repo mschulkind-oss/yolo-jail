@@ -3,8 +3,11 @@
 **Status:** Design of record — **FINALIZED 2026-07-20** (all §9 *composition*
 questions resolved). Supersedes the exploratory RFC that carried a menu of models
 and a data-filter vocabulary — this is the line in the sand. Retiring the
-`host_*_files` keys was **decided 2026-07-23** (§10) and now awaits
-implementation. **Per-phase status:**
+`host_*_files` keys was **decided 2026-07-23** (§10) and **landed** (commit
+`a84b11c`); its D4 "no config may ever widen the host-file set" clause was
+subsequently **reversed and generalized** into the `host_files` key
+(2026-07-25 — see the D4 annotation in §10 and
+[host-file-staging.md](host-file-staging.md)). **Per-phase status:**
 **Phase A complete** — the engine is built + tested (`internal/agentcfg`, with
 `compose.go`/`engine.go`/`manifest`/`codec`/`luahook` and their tests). **Phase
 B complete** — all **agent** surfaces are in the manifest and reachable via
@@ -151,9 +154,13 @@ per agent (or per surface):
 
 ```lua
 -- yolo-jail.config.lua (workspace) or ~/.config/yolo-jail/config.lua (user) — §3.4
--- ctx.config  : the composed config, PARSED to a Lua table (yolo did the decode)
+-- ctx.config  : the composed config, decoded by yolo. Its Lua type follows the
+--               surface CODEC: a table for json/toml, an array-table for `lines`,
+--               and a plain STRING for `raw`. A hook must return the same kind or
+--               the render fails closed (luahook checks it against codec.Kind).
 -- ctx.stage   : the file-tree staging handle (what gets copied into the jail)
 -- ctx.managed : read-only view of the keys the jail will enforce regardless
+--               (on a keyless surface: the whole-file value, or absent)
 -- ctx.agent   : "pi" | "claude" | … ;  ctx.surface : "settings" | "config" | …
 -- Return value (or the mutated ctx.config) is re-encoded by yolo. No yolo helper
 -- lib — it's plain Lua over a plain table.
@@ -250,7 +257,7 @@ precedence):
 |---|---|---|---|
 | `defaults` | manifest data (image) | global | yolo builtin, user-overridable |
 | `host` | staged host files, parsed fresh each boot (`:ro`) | per-host | the user's host config |
-| `workspace` | `agent_config.<agent>` in `yolo-jail.jsonc` (user cfg merged under workspace cfg) | per-workspace | jail-only config the user declares |
+| `workspace` | **DECIDED BUT UNWIRED** — no `agent_config.<agent>` key exists; `Inputs.Workspace` is a real engine slot every caller currently passes nil for. The user-declared jail-only config that DID ship is `host_files` (its own surfaces, not a layer on an agent's) | per-workspace | jail-only config the user declares |
 | `runtime` overlay | capture-diff sidecar (§5) | per-workspace | what changed in-jail |
 | `managed` | manifest data (image) | global | yolo's asserted keys — win the merge, applied after the Lua hook (a precedence guarantee in the generated file, not an OS enforcement — §9) |
 
@@ -655,6 +662,20 @@ pathways left after this.
 so a config that still sets either fails the unknown-key check (the same
 treatment `docker` gets). No warn-and-ignore, no deprecation window — pretend the
 keys never existed.
+
+> **⚠ D4 was REVERSED and generalized (2026-07-25).** The two named keys stay
+> gone, but the *ability* they provided is back under a different, safer shape:
+> **`host_files`** (see [host-file-staging.md](host-file-staging.md), shipped).
+> The error in D4 was treating *"the set of host files that cross into the jail is
+> a credential boundary"* as *"no config may ever widen it."* The real boundary is
+> narrower and **per entry**: a config may not make a host file cross unless it is
+> the **user's own** config. A *source-less* entry (inline `content`, or only
+> `managed`/`defaults`) brings a yolo-managed file into being while copying nothing
+> from the host, so even a workspace config may declare one. D1–D3 stand
+> unchanged — the per-agent *builtin* host files remain yolo-declared, and the
+> bespoke per-agent pathways stay deleted. `host_files` adds one *generic* user
+> path beside them, lowered into this very engine (a raw copy is just
+> `codec: "raw"`), never a second mechanism.
 
 **Net shape.** A single yolo-owned, per-agent declaration of host files that
 cross into the jail; no config key gates or expands it; the mount plumbing stays

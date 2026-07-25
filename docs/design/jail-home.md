@@ -164,9 +164,19 @@ host file. How the jail's `~/.claude/.credentials.json` reaches it: §4.2.
 Extra `$HOME` subpaths the user declares writable, for agent extensions that
 hardcode a home path yolo doesn't manage (motivating case: pi-lens writing
 `~/.pi-lens`). Each entry `<p>` is bound `ws/writable-home/<p>` →
-`/home/agent/<p>` **rw**, nested inside the `:ro` base — podman auto-creates the
-nested mountpoint under the read-only parent, so nothing has to pre-exist in
-`GLOBAL_HOME`. Backing dirs are created in `prepareWsState`
+`/home/agent/<p>` **rw**, nested inside the `:ro` base. `prepareWsState` creates
+BOTH ends: the backing dir (load-bearing — podman fails the whole container on a
+missing bind source) and the mountpoint inside `GLOBAL_HOME`. That second MkdirAll
+is belt-and-braces rather than strictly required: the code comment says the OCI
+runtime cannot auto-create a mountpoint inside a `:ro` bind (crun `mkdirat` →
+EROFS, surfacing as `conmon bytes "": readObjectStart`), but seven live
+podman 5.8.4 experiments could not reproduce that — podman auto-created the nested
+mountpoint in every realistic variant, and the only reproduction was a `:ro` bind
+whose *host source* was itself read-only. Keep the pre-create anyway: it is cheap,
+idempotent, and makes mode/ownership deterministic (`drwxr-xr-x` 755 rather than
+podman's `drwxr-xr-t` 1755). Treat the stated EROFS mechanism as
+version-dependent, not a cross-runtime guarantee. Backing dirs are created in
+`prepareWsState`
 (prepare.go); mounts emitted in `podmanBaseMounts` (assemble_parts.go), sorted.
 Derived by `config.WritableHomeDirs` from the **merged** config (safe at any
 scope — see below); validated by `validateWritableHomeDirs`.
@@ -188,7 +198,54 @@ jail editing its workspace config gains nothing it couldn't get by writing to
 rw in one bind (§2.2), and macos-user's Seatbelt profile allows writes to the
 whole sandbox home, so every declared path is already writable there.
 
-### 2.7 Remaining mounts, in assembly order
+### 2.8 User-declared host files (config `host_files`)
+
+Any file a user wants in the jail, composed by the same engine that generates the
+agent settings (`docs/plans/host-file-staging.md`). Each entry becomes a surface
+owned by the pseudo-agent `user`, named by an injective slug derived from its
+destination path. Three mount-relevant pieces, all emitted by
+`internal/cli/run/hostfiles.go`:
+
+- **Source input** (source-bearing entries only): the host path bound `:ro` at
+  `/ctx/host-user/<slug>` (`hostUserFileArgs`). Files go through
+  `ROFileMountArg` for the nested-jail deref; directories bind directly. A source
+  that does not exist is **skipped**, because podman fails the whole container on
+  a missing bind source and an uncreated host dotfile is a normal state — the
+  surface then falls back to its `defaults` layer.
+- **Wire form**: the resolved entry list rides `-e YOLO_HOST_FILES=<json>`
+  (`hostFilesEnv`). The host CLI is the single source of truth — it alone can read
+  the user config and stat host paths — so the entrypoint never re-reads config,
+  and the slug it derives is guaranteed to match the mount emitted here.
+- **Writable destination**: because the home base is `:ro`, where a destination
+  lands decides whether the composed write succeeds at all.
+  `config.HostFileEntry.StagingFor` sorts each into three cases
+  (docs/design/composed-file-permissions.md §7.5):
+
+| Destination | Staging | Mechanism |
+|---|---|---|
+| under `.config/`, `.cache/`, `.local/`, `go/`, `.npm-global/`, or a **selected** agent's overlay dir | none | already a rw bind; staging would shadow a yolo mount |
+| a home-root file (`~/.npmrc`) | symlink | a **relative, dangling** symlink in `GLOBAL_HOME` → `.config/yolo-home/<slug>`, resolving through the mount table into the rw `.config` overlay — the same hatch `.bashrc`/`.claude.json` use (§4.1) |
+| a new top-level dir (`~/foo/bar.json`) | writable subtree | the `writable_home_dirs` recipe: backing dir + `GLOBAL_HOME` mountpoint + nested rw bind |
+
+The symlink shape is load-bearing and not interchangeable: a directory bind would
+make the destination a *directory* (the composed write then fails "is a
+directory"), and a pre-created **empty** backing file is worse — `os.Stat` on a
+bind-mounted empty file *succeeds*, so `mode: once`'s seed-if-absent guard returns
+early on the first boot and the file stays empty forever. Dangling is what keeps
+`once` correct.
+
+An entry's destination may not be a path yolo owns as a single file/symlink, nor
+any yolo-composed agent surface (`hostFileReservedDests`). Scope is **per entry**:
+a `source`-bearing entry is user-config-only (a credential boundary — see
+[agent-credentials.md §2.4](agent-credentials.md)), while a source-less one is
+legal at any scope.
+
+**Other backends:** Apple Container mounts all of `ws` rw at `/home/agent`, so
+destinations are writable but the `/ctx/host-user` single-file binds hit
+apple/container#1089. macos-user has no mounts at all and therefore carries only
+the **source-less** entries.
+
+### 2.9 Remaining mounts, in assembly order
 
 Only the home-relevant ones expanded; the rest one-lined for orientation.
 

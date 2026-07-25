@@ -56,7 +56,7 @@ Two consequences worth stating plainly:
   `git push` fails not because the packets are blocked but because the jail holds
   no credential the remote will accept.
 - **Nothing is stripped; things are never added.** The design is an *allowlist*
-  everywhere it can be (git identity is the clearest example, §2.5): rather than
+  everywhere it can be (git identity is the clearest example, §2.6): rather than
   mount the host's `~/.gitconfig` and scrub credentials out, yolo composes a
   fresh file containing only the two keys it names. See
   [identity-prism-decision.md §2](identity-prism-decision.md).
@@ -72,7 +72,7 @@ Seatbelt profile's read denies instead (§5).
 
 ## 2. Delivery mechanisms — the toolbox
 
-Six mechanisms carry (or withhold) credential-shaped data. Each is
+Seven mechanisms carry (or withhold) credential-shaped data. Each is
 **backend-conditional**; the per-backend split is summarized in §5.
 
 ### 2.1 `:ro` bind mounts (container backends only)
@@ -89,9 +89,13 @@ jail's root. Used for:
   `settings.json`) mounted `:ro` at `/ctx/host-claude/settings.json` and
   `/ctx/host-pi/settings.json`, then *composed* into the jail `settings.json` at
   boot (§2.2). Wired at `assemble.go:335`; built by `hostFileArgs`
-  (`internal/cli/run/hostclaude.go`). Which host files cross is fixed in
-  yolo-shipped code — a **credential boundary, not a config knob** (retiring
-  `host_claude_files`/`host_pi_files` is what bought that; §2.2).
+  (`internal/cli/run/hostclaude.go`). Which host files cross **for an agent
+  surface** is fixed in yolo-shipped code — a **credential boundary, not a config
+  knob** (retiring `host_claude_files`/`host_pi_files` is what bought that; §2.2).
+- **User-declared host files** (`host_files`) cross at `/ctx/host-user/<slug>:ro`,
+  built by `hostUserFileArgs` (`internal/cli/run/hostfiles.go`). This is a
+  *separate* channel from the per-agent set above and it **is** user-widenable —
+  under a per-entry scope rule that is the whole point. See §2.4.
 
 Apple Container cannot do a nested single-file `:ro` bind, so it **materializes**
 (copies) these into `<wsState>` instead, relying on the whole-`wsState` →
@@ -112,15 +116,17 @@ to credentials:
   `~/.pi/agent/settings.json` as `defaults<host<overlay<computed<transform<managed`,
   so host changes propagate while jail-local edits survive (captured in the §5
   overlay sidecar) and yolo-required keys win
-  (`internal/entrypoint/prism_claude.go`, `prism.go`). Which host files cross is
-  **not** a config knob — the retired `host_claude_files`/`host_pi_files` keys
-  used to let a workspace config widen it, and that was the credential-boundary
-  hole §10.4 of the settings-composition plan closed. **This is the delivery
-  path for API-key-in-settings credentials** — see the Bedrock worked example
-  (§3).
+  (`internal/entrypoint/prism_claude.go`, `prism.go`). Which host files cross **for
+  an agent surface** is not a config knob — the retired
+  `host_claude_files`/`host_pi_files` keys used to let a workspace config widen it,
+  and that was the credential-boundary hole §10.4 of the settings-composition plan
+  closed. A user may still bring extra host files in via `host_files`, but under a
+  per-entry scope rule and never onto an agent surface path (§2.4). **This is the
+  delivery path for API-key-in-settings credentials** — see the Bedrock worked
+  example (§3).
 - **Composed git identity replay** (macos-user only): `configureGit`
   (`internal/entrypoint/identity.go:12-28`) runs `git config --global user.name/
-  user.email/core.excludesFile` from `YOLO_GIT_*` env (§2.5).
+  user.email/core.excludesFile` from `YOLO_GIT_*` env (§2.6).
 
 ### 2.3 Launch env + `env_sources` (the sanctioned secret channel)
 
@@ -155,7 +161,51 @@ against the startup env (which already has `env_sources` merged), and a
 ([mcp-configuration.md §2](mcp-configuration.md), lines 136-155). So a secret can
 live in one unsynced dotenv file and be scoped to exactly one MCP server.
 
-### 2.4 The `claude-oauth-broker` loophole (Claude OAuth refresh)
+### 2.4 User-declared host files (`host_files`) — per-entry scope
+
+`host_files` lets a user bring **any** host file into the jail as a composed
+surface (`docs/plans/host-file-staging.md`). It reopens, deliberately and
+narrowly, the ability the retired `host_claude_files`/`host_pi_files` keys had —
+so it is a credential-relevant mechanism and its boundary is **per entry**, not
+per key:
+
+| Entry kind | Crosses a host file? | Allowed scope |
+|---|---|---|
+| **source-bearing** — a bare string, or an object with `source` | **yes** | **user config only** |
+| **source-less** — object with `content`, or only `managed`/`defaults` | no | user **or** workspace |
+
+The split is enforced **by construction**, not by a check: `config.LoadHostFiles`
+reads source-bearing entries **only** from `paths.UserConfigPath()` (plus its
+`include_if_found` files), so workspace scope is inexpressible. Of the places a
+config key can come from, two are jail-writable — the workspace
+`yolo-jail{,.local}.jsonc` and `<workspace>/.yolo/config-snapshot.json`, both on
+the read-write `/workspace` bind — and only the host user config is not.
+`validateHostFiles` additionally hard-errors on a source-bearing entry found at
+workspace scope; that is defense-in-depth against a silent no-op, not the
+boundary itself.
+
+A source-less entry copies nothing from the host — it just brings a yolo-managed
+file into being — so a repo may legitimately ship one.
+
+**Within the user's own config nothing is blocked.** Listing `~/.ssh/id_ed25519`
+there is the human's call: their machine, their decision, and a blocklist would be
+unenforceable anyway (symlinks). The boundary is that the **repo** cannot make
+that choice on their behalf.
+
+Delivery: each source-bearing entry's host path is bound `:ro` at
+`/ctx/host-user/<slug>` (`hostUserFileArgs`, `internal/cli/run/hostfiles.go`), and
+the resolved entry list travels to the entrypoint in `YOLO_HOST_FILES` — the host
+CLI is the single source of truth, so the entrypoint never re-reads config. A
+destination may not be any path yolo owns as a single file/symlink, nor any
+yolo-composed agent surface (`hostFileReservedDests`), so this channel cannot be
+used to overwrite `~/.claude/settings.json` and strip its managed block.
+
+**macos-user carries only the source-less entries** (`SourceLessHostFiles`): with
+no bind mounts there is no `/ctx/host-user` to carry a source into, and a
+source-bearing entry is skipped rather than silently rendering without its host
+layer.
+
+### 2.5 The `claude-oauth-broker` loophole (Claude OAuth refresh)
 
 The broker exists because **Anthropic mints single-use refresh tokens**: if two
 jails share one `.credentials.json` and both refresh in the same window, one
@@ -194,7 +244,7 @@ entirely because `--add-host` is unsupported
 (`internal/loopholes/runtime.go:37`; [loopholes.md](../guides/loopholes.md)
 step 3). macos-user **skips it by default** — see §5.
 
-### 2.5 Git-identity composition (host-composed, never a wallet)
+### 2.6 Git-identity composition (host-composed, never a wallet)
 
 Git identity is a **two-key allowlist** — `user.name` + `user.email`, plus an
 in-jail `core.excludesFile` — never a mount of `~/.gitconfig`
@@ -217,7 +267,7 @@ in §2 of that doc). So none of those are named, hence none cross.
   `configureGit` (`internal/entrypoint/identity.go`). A plan invariant asserts
   the identity actually reached the bootstrap env (`runplan.go:238-244`).
 
-### 2.6 Host-service loopholes (secrets that never enter the jail)
+### 2.7 Host-service loopholes (secrets that never enter the jail)
 
 The general pattern (`host_services` config; broker is one instance): a host-side
 daemon holds the secret and exposes a Unix socket bind-mounted at
@@ -329,6 +379,7 @@ keychain are unreadable, but the network is fully open (`(allow default)`).
 | global gitignore | `:ro` bind (`:231-237`) | materialized (`acMaterialize`) | `YOLO_GLOBAL_GITIGNORE` env → replay |
 | `env_sources` / `${VAR}` | `yolo-user-env.sh` mounted, sourced | `yolo-user-env.sh` **materialized**, sourced | baked onto launch argv via `env -i` (`runplan.go`) |
 | host `~/.claude`/`~/.pi` settings | `/ctx/host-*/settings.json` `:ro` mount + boot compose (`hostclaude.go`) | materialized copy + boot compose | boot compose, fail-open (no `/ctx`; same pure generators; `macos-user-nix-and-features.md Part 2`) |
+| user `host_files` (§2.4) | source-bearing: `/ctx/host-user/<slug>` `:ro` mount; source-less: composed from `content`/`defaults` | ⚠ single-file `:ro` unhandled for `/ctx/host-user` (apple/container#1089); source-less entries compose fine | **source-less ONLY** (`SourceLessHostFiles`) — no `/ctx` to carry a source into, so a source-bearing entry is skipped rather than silently rendering without its host layer |
 | Claude shared credentials | `.claude-shared-credentials` rw bind + symlink (`assemble.go:166-168`) | **not mounted** — AC uses one whole-home bind; creds live in that per-workspace home | **free** — one real `~/.claude/.credentials.json` in the shared home |
 | claude-oauth-broker | ✅ active when host `claude` present | ❌ **skipped** — `tls-intercept` needs `--add-host` (`runtime.go:37`) | **skip by default** — shared home already = one creds file; refresh serialization only bites with *concurrent* Claude sessions and needs hard-to-port host redirection (`macos-user-nix-and-features.md §3.5`; `BrokerSocketGrantCommands` exists but is uncalled) |
 | host-service loopholes (secret brokers) | ✅ Unix-socket bind + `YOLO_SERVICE_*_SOCKET` | ❌ no Unix-socket bind through virtiofs (USER_GUIDE:928) | not wired (container-path only); framework ports in principle |
