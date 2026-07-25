@@ -37,6 +37,13 @@ other than yolo write this file?* If no → read-only. If yes → read-write wit
 capture, and the capture must be visible. There is no third answer, and
 "read-only-ish" (`0o444` DAC) is not one — see §6.
 
+> **⚠ That question is necessary but not sufficient**, and [§8](#8-who-is-writing-program-operation-vs-directed-agent)
+> is the correction: "something else writes it" hides **two** writers with opposite
+> needs. A *program* writing its own config is unsteerable and is exactly what
+> capture exists for. A *human-directed agent* is steerable — and for that writer,
+> capture is often the **wrong** outcome, because the durable answer was a config
+> key it should have edited instead. Read §1 for the posture, §8 for who to serve.
+
 ---
 
 ## 2. Where composed files actually live (and why nothing is enforced today)
@@ -525,7 +532,164 @@ bind) — that is the case the mechanism was built for.
 > trusted as a cross-runtime guarantee. jail-home.md:167 (which says podman
 > auto-creates) may in fact be the accurate description.
 
-## 8. Work items
+## 8. Who is writing: program operation vs directed agent
+
+**This is the split §1 was missing**, and it changes what "serve the writer" means.
+"Something other than yolo writes this file" hides two writers with opposite needs:
+
+| | **Class 1 — program operation** | **Class 2 — human-directed agent** |
+|---|---|---|
+| Who | the agent *binary*, as part of functioning | the agent *reasoning*, because a human asked |
+| Example | `/settings` in Claude writes `settings.json`; `npm config set`; a CLI's first-run write | "add tool X", "raise the memory limit", "add this MCP server" |
+| Steerable? | **No.** You cannot ask a program to write elsewhere. | **Yes.** A skill, an error message, or a header can point it at the right path. |
+| Right outcome | **preserve it** — this is precisely why capture exists | **redirect it** — the durable answer is usually a config key, not this file |
+| Wrong outcome | reverting the user's `/settings` choice on next boot | capturing an edit that should have been a `yolo-jail.jsonc` change |
+
+Two consequences follow, and they pull in opposite directions:
+
+1. **Capture is *correct* for class 1 and is the whole motivation.** A human types
+   `/settings`, picks a theme, and Claude rewrites its own JSON. Nothing else can
+   preserve that across a regeneration. Removing capture to "simplify" would break
+   the one case it was built for.
+2. **Capture is a *consolation prize* for class 2.** If an agent was told "add a
+   global tool" and it edits the composed file, capture makes that survive — but the
+   change is now invisible to `yolo-jail.jsonc`, absent from the repo, and lost on
+   `yolo config reset`. The edit *worked*, which is exactly why nobody notices it went
+   to the wrong place. **Silent success in the wrong file is worse than a loud
+   failure**, because it never gets corrected.
+
+So the design goal is not "capture more" or "capture less" — it is **route by class**:
+make class 1 work silently, and make class 2 *fail loudly with the alternative named*.
+That reframes §6's `0o444` finding: the mode bit is not a security measure, it is the
+**class-2 routing signal**, and its asymmetry (root bypasses, non-root gets EACCES) is
+bad precisely because it routes some agents and not others.
+
+### 8.1 The three-axis map an agent actually needs
+
+For any "change X" request the answer has three parts, and today an agent can discover
+at most one of them:
+
+| Axis | Question | Where the answer lives today |
+|---|---|---|
+| **Source of truth** | which file should hold this durably? | `yolo config-ref` (jail keys only); **nothing** for agent-surface keys |
+| **Application** | does it apply live, need a restart, or need a rebuild? | `configuring-the-jail` skill (jail keys only) |
+| **Escape hatch** | is there a live invocation that avoids the restart? | one sentence in that skill (`npm i -g`, `mise use`) |
+
+Worked through for the common requests:
+
+| Request | Source of truth | Live? | Escape hatch | Steering today |
+|---|---|---|---|---|
+| add a CLI/runtime | `mise_tools` | needs restart | **`mise use -g`** (live, and captured so it persists) | ✅ skill covers it |
+| add a nix package | `packages` | needs **rebuild** | `npm i -g` / `pip install` for the non-nix case | ✅ skill covers it |
+| raise memory/cpus | `resources` | needs restart | none — mounts/env are frozen at create | ✅ skill covers it |
+| add an MCP server | `mcp_servers` | needs restart | none | ⚠ skill does not name the key |
+| open a port / add a mount | `network.ports` / `mounts` | needs restart | none | ✅ skill covers it |
+| set Claude's model/theme/effort | **none exists** | n/a | edit the composed file → captured | ❌ **no steering at all** |
+| add a Claude hook | **none exists** | n/a | edit the composed file → captured | ❌ none |
+| bring a host dotfile in | `host_files` | needs restart | none | ⚠ config-ref only |
+| reshape a composed key | `yolo-jail.config.lua` (Lua transform) | needs restart | none | ❌ undocumented for agents |
+
+The two ❌ rows are the interesting ones: **for agent-surface keys there is no config
+source of truth at all**, so "edit the composed file and let capture hold it" is not
+the agent doing the wrong thing — it is *the only thing available*. That makes capture
+load-bearing for class 2 as well, until a knob exists.
+
+### 8.2 What steering exists today (and the gaps)
+
+Verified inventory. The good news is that the best-in-class example is already in the
+tree, so there is a pattern to copy rather than invent.
+
+**Works well:**
+
+- **Blocked-tool shims** — the model to imitate. The generated shim prints the reason
+  *and* a `Suggestion:` line, then exits 127: `grep`'s says *"Use ripgrep (rg) for
+  recursive searches"* → `Suggestion: Try: rg <pattern> [path]`. Reason + alternative +
+  a documented bypass (`YOLO_BYPASS_SHIMS`).
+- **The `configuring-the-jail` skill** — genuinely good on all three axes for jail
+  keys: the three-layer merge, rebuild-vs-restart (only `packages` and `gpu.vaapi`
+  rebuild), and it *explicitly* disclaims the ephemeral case (*"Do NOT use this for
+  one-off installs… you can `npm i -g`, `pip install`, `uv pip install`, or `mise use`
+  a tool right now with no config change and no restart"*). That sentence is the only
+  place in shipped agent-facing text naming a live path.
+- **`host_files` scope error** — the strongest single message in the codebase: it names
+  the exact file to move the entry to *and why*.
+
+**Gaps, in priority order:**
+
+1. **No built-in skill or briefing line mentions composed surfaces at all.** Zero of
+   the four embedded skills (`jail-startup`, `configuring-the-jail`,
+   `diagnosing-the-jail`, `developing-yolo-jail`) mention the prism, a composed
+   surface, `settings.json`, capture, or `yolo config ls`. The briefing names
+   `yolo-jail.jsonc` exactly once, scoped to `packages`/`resources`. So the machinery
+   built to make composed state legible is invisible through every channel an agent
+   reads.
+2. **Three agents get no skills at all.** `opencode`, `pi` and `codex` have
+   `Skills: ""`, so the loop `continue`s and they receive no skills dir — *including
+   yolo's own built-in suite*. Their briefing still says "read **configuring-the-jail**",
+   a dangling reference. (Already a known ROADMAP item; it is also a steering bug.)
+3. **No composed file says it is generated.** Exactly two generated files carry a
+   header — the git config and `yolo-user-env.sh` — and **neither is a prism surface**.
+   All 11 rendered surfaces are header-free (byte-probed). Worse, the git config's
+   header is the one nobody can read: the file is EROFS in-jail (§4.1). A structured
+   `json` surface *cannot* carry a comment header at all, which is the connection to
+   the comment work in ROADMAP item 3.
+4. **`yolo config ls|diff|reset` is undiscoverable.** It appears only inside the
+   `host_files` entry of config-ref; USER_GUIDE never mentions it. (`yolo --help`'s
+   blurb was also stale, advertising only `render` — fixed 2026-07-25.)
+
+### 8.3 The restart axis, precisely
+
+Class-2 guidance depends on this and the boundary is sharper than the docs suggest:
+
+- **Mounts and the whole `-e` env block are frozen at container create.** The attach
+  path emits only `<rt> exec -i [-t] <cname> yolo-entrypoint <cmd>` — **no `-e`, no
+  `-v`** — so nothing carried by env or mounts can change without a new container.
+- **The entrypoint re-runs every generator on each attach**, but reads only that frozen
+  env. So composed surfaces *are* re-rendered live — from **stale config**. This is
+  idempotent recomputation, not a config re-read, and it is the subtlety most likely to
+  mislead: "the file regenerated" does not mean "my config change took".
+- **One thing genuinely is live:** `refreshJailBriefings` runs on every invocation
+  *before* the attach branch, so briefings and skills update in a running jail
+  (inode-preserving writes, and the skills dir is cleared in place rather than
+  recreated, precisely so the `:ro` bind keeps working). Consequence worth naming:
+  the keys it re-reads (`network`, `security.blocked_tools`, `mounts`, `loopholes`,
+  `resources`, `agents`, `agents_md_extra`) have **live briefing text but frozen
+  enforcement** — the jail will *describe* a limit it is not applying.
+- **In-jail, `config.LoadConfig` returns `<workspace>/.yolo/config-snapshot.json`
+  verbatim** and never reads `yolo-jail.jsonc` (gated on `YOLO_VERSION`). But
+  **`yolo check` bypasses `LoadConfig`** and validates the raw files — which is what
+  makes the documented "edit → `yolo check --no-build`" loop work at all. That
+  split-brain is load-bearing and undocumented.
+- **The approval prompt only fires on fresh launch**, after the attach branch has
+  returned — so attaching never re-checks config, and in a non-TTY it **auto-accepts**
+  and rewrites the snapshot.
+
+### 8.4 What to do about it
+
+Ordered by value per unit of work; none of this is large.
+
+1. **Extend `configuring-the-jail` to cover composed surfaces** (docs only, no code).
+   Add: composed files are regenerated every boot; an edit to one is either captured
+   or reverted depending on mode; `yolo config ls` shows which; and for keys with no
+   config knob (Claude's model/theme/hooks) editing the composed file *is* the
+   sanctioned path — say so explicitly, so it stops looking like a mistake. This turns
+   the biggest ❌ into a documented decision.
+2. **Give `pi`/`codex`/`opencode` a skills dir** so the steering reaches all seven
+   agents. Two registry lines; the mount loop already handles it.
+3. **A yolo-authored header where the codec allows** (`toml`, `lines`, `raw`): *"Generated
+   by yolo — regenerated every boot; see `yolo config ls`."* Names the mechanism at the
+   point of contact. Blocked for `json` surfaces, which is the argument for the
+   header-only comment work in item 3.
+4. **Make the class-2 signal symmetric.** `0o444` routes non-root agents and is silent
+   to root; if the signal matters, it needs a mechanism that reaches both (a header, or
+   `yolo config ls` in the briefing) rather than relying on the mode bit.
+5. **Then, and only then, consider config knobs for the ❌ rows.** A
+   `agent_config.<agent>` key is already "decided but unwired" in the composition plan;
+   wiring it would convert "edit the composed file" from the only option into a
+   fallback. Worth doing *after* the steering, because a knob nobody is told about is
+   not an improvement.
+
+## 9. Work items
 
 Ordered by "fixes a real defect" before "improves the model".
 
@@ -560,7 +724,7 @@ empty overlays prove nothing. Until someone does, they stay in the Shared bucket
 (rw + capture) — the conservative choice, since demoting a Shared file to Derived
 is what caused §4.2.
 
-## 9. Open questions
+## 10. Open questions
 
 - **Does `:ro` for a Derived surface need host-side composition?** Yes — you
   cannot compose into a `:ro` mount. That means a `:ro` posture gives up
