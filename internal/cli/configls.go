@@ -36,7 +36,7 @@ type surfaceRow struct {
 	Layers   []string // contributing layers, lowest precedence first
 	Overlay  int      // captured overlay keys (-1 = surface writes no sidecar)
 	HasFile  bool     // the destination exists on disk
-	Reserved bool     // declared but never rendered at boot (see claudeConfigNote)
+	Reserved bool     // declared in the manifest but never rendered at boot
 }
 
 // prismSurfaceMode reports the posture of a BUILTIN surface. The builtin surfaces
@@ -64,10 +64,12 @@ var prismSurfaceMode = map[string]string{
 
 // configLs implements `yolo config ls [--all]`.
 //
-// By default only surfaces whose destination EXISTS are listed, because the
+// In-jail, only surfaces whose destination EXISTS are listed by default: the
 // builtin manifest declares every agent's surfaces while a jail configures only
-// the selected ones — listing all 12 in a claude-only jail would report files
-// that do not and will not exist. --all lists the whole manifest.
+// the selected ones, so listing all 12 in a claude-only jail would report files
+// that do not and will not exist. --all lists the whole manifest. Host-side,
+// presence is unknowable (the destinations are in the JAIL home, not the
+// developer's), so everything is listed regardless — see composedFileExists.
 func configLs(args []string, out, errw io.Writer, color bool) int {
 	all := false
 	for _, a := range args {
@@ -106,7 +108,7 @@ func collectSurfaceRows(all bool) []surfaceRow {
 			Mode:     mode,
 			Layers:   builtinLayers(s),
 			Overlay:  -1,
-			HasFile:  fileExistsAt(expandHome(s.Path)),
+			HasFile:  composedFileExists(s.Path),
 			Reserved: mode == "unrendered",
 		}
 		if mode == "capture" {
@@ -141,7 +143,7 @@ func hostFileRows() []surfaceRow {
 			Mode:    e.Mode,
 			Layers:  hostFileLayers(e),
 			Overlay: -1,
-			HasFile: fileExistsAt(expandHome("~/" + e.Path)),
+			HasFile: composedFileExists("~/" + e.Path),
 		}
 		if e.IsDir {
 			row.Codec = "(dir)"
@@ -270,22 +272,68 @@ var prismSidecarDir = func() string {
 	return filepath.Join(workspaceRoot(), ".yolo", "prism")
 }
 
-// workspaceRoot is the workspace the sidecars belong to. In-jail that is always
-// /workspace (the bind-mount target the entrypoint used); host-side it is the cwd.
+// workspaceRoot is the workspace whose sidecars this invocation is about: the
+// CWD, walked upward to the nearest dir holding a .yolo/ (so the command works
+// from a subdirectory, like git does).
+//
+// Deliberately NOT hardcoded to /workspace when in-jail. That shortcut is wrong
+// the moment the CLI is run from a DIFFERENT workspace than the one it is jailed
+// for — exactly what happens in a nested jail, and in the integration tests, where
+// `yolo config ls` runs against a temp workspace while /workspace is the outer
+// checkout. It silently read the wrong sidecars and `reset` would have deleted
+// them.
 func workspaceRoot() string {
-	if os.Getenv("YOLO_VERSION") != "" {
-		return "/workspace"
-	}
 	wd, err := os.Getwd()
 	if err != nil {
 		return "."
 	}
+	for dir := wd; ; {
+		if st, err := os.Stat(filepath.Join(dir, ".yolo")); err == nil && st.IsDir() {
+			return dir
+		}
+		parent := filepath.Dir(dir)
+		if parent == dir {
+			break
+		}
+		dir = parent
+	}
 	return wd
 }
 
-func fileExistsAt(p string) bool {
-	_, err := os.Lstat(p)
+// composedFileExists reports whether a surface's rendered file is present.
+//
+// A composed surface lives in the home of the jail THIS WORKSPACE launches, which
+// is the process home only when the command runs inside that very jail. Two ways
+// to get it wrong, both observed:
+//
+//   - host-side, expandHome points at the developer's OWN dotfiles, so every file
+//     the jail did render reads as "absent" and a host dotfile the jail never
+//     wrote reads as "present";
+//   - in-jail but for a DIFFERENT workspace (a nested jail, and every integration
+//     test), the process home belongs to the outer jail while the surfaces belong
+//     to the inner one — same wrong answer.
+//
+// So presence is only knowable when the resolved workspace is the one this jail was
+// launched for, which YOLO_HOST_DIR records. Otherwise we decline to claim absence
+// rather than print a confidently wrong column.
+func composedFileExists(surfacePath string) bool {
+	if !surfacesAreLocal() {
+		return true // unknowable here; never claim the file is missing
+	}
+	_, err := os.Lstat(expandHome(surfacePath))
 	return err == nil
+}
+
+// surfacesAreLocal reports whether the process home is the home of the jail that
+// owns the workspace we resolved. True only in-jail AND when YOLO_HOST_DIR (the
+// host path of the workspace this jail was launched for) matches it.
+func surfacesAreLocal() bool {
+	if os.Getenv("YOLO_VERSION") == "" {
+		return false // host-side
+	}
+	// In-jail the workspace is bind-mounted at /workspace; a resolved root anywhere
+	// else means we are inspecting some OTHER workspace's surfaces.
+	return workspaceRoot() == "/workspace"
 }
 
 // writeSurfaceTable renders the listing plus the divergence footer.

@@ -100,7 +100,13 @@ func userSidecarSurfaces(surface string) []manifest.Surface {
 		if surface != "" && slug != surface {
 			continue
 		}
-		out = append(out, manifest.Surface{Agent: "user", Name: slug})
+		// Path is filled in from the slug so the diff header names the FILE rather
+		// than the escaped slug — the slug is a reversible percent-escape of the
+		// destination (config.HostFileEntry.Slug), so this needs no config read and
+		// still works for an entry the user has since removed.
+		out = append(out, manifest.Surface{
+			Agent: "user", Name: slug, Path: "~/" + unslugHostFilePath(slug),
+		})
 	}
 	sort.Slice(out, func(i, j int) bool { return out[i].Name < out[j].Name })
 	return out
@@ -280,6 +286,28 @@ func overlayIsEmpty(v any) bool {
 	default:
 		return false
 	}
+}
+
+// unslugHostFilePath reverses config.HostFileEntry.Slug: "_hh" is a two-hex-digit
+// escape and every other byte passed through unchanged. A malformed tail is
+// returned as-is rather than dropped — this is display text, so being readable
+// matters more than being strict.
+func unslugHostFilePath(slug string) string {
+	var b strings.Builder
+	for i := 0; i < len(slug); i++ {
+		if slug[i] != '_' || i+2 >= len(slug) {
+			b.WriteByte(slug[i])
+			continue
+		}
+		var v int
+		if _, err := fmt.Sscanf(slug[i+1:i+3], "%02x", &v); err != nil {
+			b.WriteByte(slug[i])
+			continue
+		}
+		b.WriteByte(byte(v))
+		i += 2
+	}
+	return b.String()
 }
 
 // surfacePathOrSidecar names a surface's destination, falling back to the sidecar

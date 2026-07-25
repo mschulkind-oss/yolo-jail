@@ -8,6 +8,7 @@ import (
 	"testing"
 
 	"github.com/mschulkind-oss/yolo-jail/internal/agentcfg"
+	"github.com/mschulkind-oss/yolo-jail/internal/config"
 )
 
 // withSidecarDir points the CLI's sidecar resolver at a temp dir. Without this
@@ -218,5 +219,66 @@ func TestConfigResetUserSurfacesFromSidecars(t *testing.T) {
 	}
 	if _, err := os.Stat(filepath.Join(dir, "user-.config_2fmytool_2fx.json.overlay.json")); !os.IsNotExist(err) {
 		t.Errorf("user overlay survived reset: %v", err)
+	}
+}
+
+// TestUnslugHostFilePath: the diff/ls header must name the FILE, not the escaped
+// slug. The slug is a reversible percent-escape, so decoding needs no config read
+// and still works for an entry the user has since removed.
+func TestUnslugHostFilePath(t *testing.T) {
+	for _, path := range []string{
+		".config/mytool/config.json",
+		".npmrc",
+		".config/dir with spaces/x.conf",
+		"foo/bar_baz.json", // a literal '_' must survive the round trip
+	} {
+		slug := (config.HostFileEntry{Path: path}).Slug()
+		if got := unslugHostFilePath(slug); got != path {
+			t.Errorf("unslugHostFilePath(Slug(%q)) = %q, want round-trip", path, got)
+		}
+	}
+}
+
+// TestComposedFileExistsNeverClaimsAbsenceElsewhere is the regression for a bug the
+// nested-jail run caught: presence was checked against the PROCESS home, so a
+// host-side `config ls` reported every jail-rendered file as absent, and an in-jail
+// run for a DIFFERENT workspace (a nested jail, and every integration test) did the
+// same. Presence is only knowable when the surfaces are this jail's own.
+func TestComposedFileExistsNeverClaimsAbsenceElsewhere(t *testing.T) {
+	// Host-side (no YOLO_VERSION): must never claim absence.
+	t.Setenv("YOLO_VERSION", "")
+	if !composedFileExists("~/definitely-not-a-real-file-xyz") {
+		t.Error("host-side presence check claimed a jail file is absent")
+	}
+	// In-jail but resolved to a foreign workspace: same.
+	t.Setenv("YOLO_VERSION", "9.9.9")
+	dir := t.TempDir()
+	if err := os.MkdirAll(filepath.Join(dir, ".yolo"), 0o755); err != nil {
+		t.Fatal(err)
+	}
+	t.Chdir(dir)
+	if !composedFileExists("~/definitely-not-a-real-file-xyz") {
+		t.Error("in-jail-but-foreign-workspace check claimed a file is absent")
+	}
+}
+
+// TestWorkspaceRootWalksUp: the sidecar dir must resolve from a SUBDIRECTORY of the
+// workspace (like git), and must not be hardcoded to /workspace — that shortcut
+// silently read another workspace's sidecars, and `reset` would have deleted them.
+func TestWorkspaceRootWalksUp(t *testing.T) {
+	root := t.TempDir()
+	if err := os.MkdirAll(filepath.Join(root, ".yolo", "prism"), 0o755); err != nil {
+		t.Fatal(err)
+	}
+	sub := filepath.Join(root, "a", "b")
+	if err := os.MkdirAll(sub, 0o755); err != nil {
+		t.Fatal(err)
+	}
+	t.Chdir(sub)
+	// EvalSymlinks: t.TempDir may hand back a symlinked path (/tmp -> /private/tmp).
+	want, _ := filepath.EvalSymlinks(root)
+	got, _ := filepath.EvalSymlinks(workspaceRoot())
+	if got != want {
+		t.Errorf("workspaceRoot() from a subdir = %q, want the workspace root %q", got, want)
 	}
 }
