@@ -8,22 +8,33 @@ measured git plumbing, and ends in a verdict table: adopt / steal / integrate /
 ignore.
 
 Researched 2026-07-25 against primary sources; every claim below is either
-quoted from a vendor doc with its URL, or was measured in this container. Items
-that could not be confirmed from a primary source are marked **UNCONFIRMED** and
-should be re-checked before anything is built on them.
+quoted from a vendor doc with its URL, was measured in this container, or — for the
+plugin and vim-plugin-manager sections — was read out of the shipped
+implementation's own source or binary. Items that could not be confirmed from a
+primary source are marked **UNCONFIRMED** and should be re-checked before anything
+is built on them.
 
 The design that consumes this research is
-[`docs/plans/agent-config-distribution.md`](../plans/agent-config-distribution.md).
+[`docs/plans/agent-config-packs.md`](../plans/agent-config-packs.md).
 
 ---
 
 ## TL;DR
 
-- **Nobody in the field has a lockfile.** Claude Code plugins, Gemini CLI
-  extensions, `npx skills`, ruler, rulesync, opencode — not one records resolved
-  versions in a committable artifact. That absence is the single differentiating
-  piece available to build, and it is exactly the "roll back" half of the
-  vim-plugin experience.
+- **No agent-config distributor has a real lockfile.** Claude Code, Copilot and
+  Codex plugins, Gemini CLI extensions, `npx skills`, ruler, rulesync, opencode —
+  not one records a *resolved commit* in a committable artifact (Copilot's install
+  record stores a version string and an `installed_at` timestamp; `npx skills`
+  records the ref you asked for). That absence is the single differentiating piece
+  available to build. **The vim scene, by contrast, has three real locks** —
+  lazy.nvim, mini.deps, and Neovim 0.12's built-in `vim.pack` — and all three put
+  the lock in the *config* dir beside the spec, with content in the *data* dir. See
+  Part 3.5.
+- **The plugin *layout* is already cross-vendor, the plugin *system* is not.**
+  Claude, Copilot and Codex all probe `.claude-plugin/plugin.json`; Codex ships
+  `.claude-plugin/`, `.codex-plugin/` and `.cursor-plugin/` probes in one binary. But
+  they are three installers with three state trees, none records a SHA, and none has
+  a rollback verb. Adopt the format; do not delegate resolution.
 - **The source-address grammar question is settled by convergence, not
   argument**: Terraform's `//subdir` + `?ref=`. Go's `module/subdir@version`
   requires subdirectory-prefixed tags a monorepo can't be made to adopt; Nix's
@@ -62,10 +73,10 @@ location, and is there any in-file composition primitive.
 | Agent | Config | Format | Remote source | AGENTS.md | Skills on disk | In-file import |
 |---|---|---|---|---|---|---|
 | **Claude Code** | `~/.claude/settings.json`, `.claude/settings{,.local}.json`, managed | JSON | **Yes** — `extraKnownMarketplaces` + `enabledPlugins` | No native read; bridge is `@AGENTS.md` | `.claude/skills/`, `~/.claude/skills/`, `<plugin>/skills/` — **not** `.agents/skills` | **Yes — `@path`, 4 hops, abs + outside-repo** |
-| **Codex CLI** | `~/.codex/config.toml`, `.codex/config.toml` | TOML | Partial — `features.remote_plugin`; manifest UNCONFIRMED | **Native** | `.codex/skills/`, `~/.codex/skills/`, `.agents/skills/` | No |
+| **Codex CLI** | `~/.codex/config.toml`, `.codex/config.toml` | TOML | **Yes** — `codex plugin marketplace add … --ref --sparse`; manifest `.codex-plugin/plugin.json` (+ `.claude-plugin/`, `.cursor-plugin/`) | **Native** | `$CODEX_HOME/skills` → `~/.codex/skills/` (confirmed), `.codex/skills/`, `.agents/skills/` | No |
 | **opencode** | `opencode.json(c)`, `~/.config/opencode/` | JSONC | Yes — `plugin: ["npm-pkg@ver"]` | **Native** | `.agents/skills/` | No — but `instructions` takes globs **and HTTPS URLs** |
 | **Gemini CLI** (retired 2026-06-18) | `~/.gemini/settings.json` | JSON | Yes — `gemini extensions install <git>` | Via `context.fileName` | extensions-based | **Yes — `@path`** |
-| **Copilot** | `.github/copilot-instructions.md`, `.github/instructions/*.instructions.md` | MD+frontmatter | Yes — `chat.plugins.marketplaces` | **Native** | `chat.agentSkillsLocations` defaults incl. `~/.claude/skills` | No (`applyTo:` globs) |
+| **Copilot** | `.github/copilot-instructions.md`, `.github/instructions/*.instructions.md` | MD+frontmatter | Yes — `chat.plugins.marketplaces`; CLI `copilot plugin marketplace add`, reads `.claude-plugin/` | **Native** | `chat.agentSkillsLocations` defaults incl. `~/.claude/skills` | No (`applyTo:` globs) |
 | **Cursor** | `.cursor/rules/*.mdc` | MDC | Yes — `.cursor-plugin/plugin.json` | **Native** | `.cursor/skills/`, `.agents/skills/` | No |
 | **Devin Desktop** (ex-Windsurf) | `.devin/rules/` | MD+frontmatter | UNCONFIRMED (plugins doc 404s) | **Native** | `.agents/skills/` | No |
 | **Aider** | `.aider.conf.yml` | YAML | None | Not auto-loaded | None | No |
@@ -94,8 +105,11 @@ location, and is there any in-file composition primitive.
   frontmatter (Cursor). No single config file serves two families.
 - **Plugin packaging**: `.claude-plugin/plugin.json` from a github marketplace,
   `.cursor-plugin/plugin.json`, `gemini-extension.json` from a git URL, npm
-  packages (opencode, Pi), local-only TypeScript (Amp) — five mutually unaware
-  channels for roughly the same payload.
+  packages (opencode, Pi), local-only TypeScript (Amp) — five channels for roughly
+  the same payload. **Partially healed since:** Copilot and Codex both probe
+  `.claude-plugin/` (and Codex `.cursor-plugin/` too), so the *layout* is now shared
+  across three of these; the installers, state trees, and lack of any resolved-commit
+  record are not. See "Copilot and Codex read Claude's layout" in Part 2.
 - **Composition primitive**: `@`-imports (Claude, Gemini, Amp) vs remote URL
   instruction lists (opencode) vs declarative selector arrays (Pi) vs nothing at
   all (Codex, Cursor, Copilot, Zed, Aider). **"Share a subset of your AGENTS.md"
@@ -147,8 +161,10 @@ tree shared by many agents. It is the same bet this project would be making.
 
 | Mechanism | What it is | Pins? | Lockfile? | Subdir? | Verdict |
 |---|---|---|---|---|---|
-| [Claude Code plugins + marketplaces](https://code.claude.com/docs/en/plugin-marketplaces) | `.claude-plugin/plugin.json` + `marketplace.json`, 5 source kinds | `ref` (mutable) / `sha` (immutable) | **No** | Only via `git-subdir` | **Steal the source enum; integrate the seed dir** |
-| `CLAUDE_CODE_PLUGIN_SEED_DIR` | read-only dir Claude pre-populates plugin state from | n/a | n/a | n/a | **Integrate** — purpose-built for this exact flow |
+| [Claude Code plugins + marketplaces](https://code.claude.com/docs/en/plugin-marketplaces) | `.claude-plugin/plugin.json` + `marketplace.json`, 5 source kinds | `ref` (mutable) / `sha` (immutable) | **No** | `git-subdir` source, `marketplace add --sparse` | **Adopt the layout; steal the source enum; integrate the seed dir** |
+| **Copilot plugins** (`copilot plugin …`) | reads **Claude's** layout: manifest dirs `[".plugin",".",".github/plugin",".claude-plugin"]` | `ref` on source arms; install record has only a `version` string | **No** | `owner/repo:path`; `path` on **every** source arm | **Adopt the layout** — it is the interop evidence |
+| **Codex plugins** (`codex plugin …`) | one binary probing `.codex-plugin/`, `.claude-plugin/` **and** `.cursor-plugin/` | `--ref` | **No** | `marketplace add … --sparse <PATH>` | **Adopt the layout**; three vendors in one loader |
+| `CLAUDE_CODE_PLUGIN_SEED_DIR` | read-only **path list** Claude pre-populates plugin state from; `autoUpdate:false` forced | n/a | n/a | n/a | **Integrate** — purpose-built for this exact flow |
 | [Gemini CLI extensions](https://github.com/google-gemini/gemini-cli) | `gemini-extension.json`, `install <git-url> --ref` | yes | No | **No** | **Ignore** (CLI retired); steal policy-stripping |
 | [opencode](https://opencode.ai/docs/config/) | `plugin: []` npm specs; `instructions` HTTPS URLs; `.well-known/opencode` | npm semver | No | n/a | **Ignore**; note the org-defaults-at-a-URL idea |
 | [ruler](https://github.com/intellectronica/ruler) | canonicalize-then-fan-out into ~20 agents' native files | n/a | No | n/a | **Steal the model** (the prism already is it) |
@@ -206,6 +222,57 @@ read-only directory laid out as `known_marketplaces.json` +
 exactly the shape of a host-resolves / mount-`:ro` / no-network-at-start flow.
 Siblings: `CLAUDE_CODE_PLUGIN_CACHE_DIR`, `--plugin-dir` (dir or `.zip`),
 `--plugin-url`, `@skills-dir` plugins, `/reload-plugins`.
+
+Verified in the installed binary (2.1.220), correcting/extending the doc-sourced
+notes above:
+
+- The seed dir is a **path list**, split on the platform path delimiter, not a single
+  directory. Each entry is read for `known_marketplaces.json` plus
+  `marketplaces/<name>/`, and `autoUpdate: false` is forced on everything seeded — so
+  a seeded marketplace cannot reach the network on its own. Further siblings:
+  `CLAUDE_CODE_PLUGIN_BINARY_ASSETS`, `_GIT_TIMEOUT_MS`,
+  `_KEEP_MARKETPLACE_ON_FAILURE`, `_PREFER_HTTPS`, `_USE_ZIP_CACHE`.
+- `git-subdir` is a **partial clone**: `--filter=tree:0` with only the requested
+  subdir materialized. That is the same shape as Part 4's measured blobless-mirror
+  plumbing, arrived at independently.
+- CLI surface: `plugin install --scope user|project|local --config k=v`,
+  `marketplace add --sparse <paths…> --scope`, plus `init`/`new` (scaffolds
+  `~/.claude/skills/<name>/` and auto-loads it as `<name>@skills-dir`), `tag`, `eval`,
+  `details`, `validate`, `prune`. **No lock verb and no rollback verb.**
+
+### Copilot and Codex read Claude's layout — the interop finding
+
+This is the load-bearing correction to the "five mutually unaware channels" line in
+Part 1. Verified from the shipped `@github/copilot` bundle and the Codex binary:
+
+**Copilot** (`copilot plugin install|list|marketplace|uninstall|update`) probes
+manifest directories `[".plugin", ".", ".github/plugin", ".claude-plugin"]` for
+`plugin.json`, and its marketplace candidates include `.claude-plugin/marketplace.json`.
+Its source grammar is `plugin@marketplace | owner/repo | owner/repo:path | https://…`,
+and its source union is `string | github{repo,ref?,path?} | url{url,ref?,path?}` —
+i.e. **`path` on every arm**, the exact fix Part 2 says any copied grammar needs.
+`marketplace add` takes an `owner/repo`, a URL, or a local path; two marketplaces ship
+by default (`github/copilot-plugins`, `awesome-copilot`). Hook env exports both
+vendors' names: `CLAUDE_PLUGIN_ROOT`, `COPILOT_PLUGIN_ROOT`, `PLUGIN_ROOT`,
+`CLAUDE_PLUGIN_DATA`, `COPILOT_PLUGIN_DATA`.
+
+What it lacks: the install record is
+`{name, marketplace, version, installed_at, enabled, cache_path, source}` — **no
+resolved commit** — there is no lockfile, no rollback verb, and **no seed-dir
+equivalent**; the only local-load affordance is a repeatable `--plugin-dir <dir>`
+flag, which is per-invocation rather than environmental.
+
+**Codex** (`codex plugin add|list|marketplace|remove`) accepts
+`marketplace add <local path|owner/repo[@ref]|HTTPS|SSH> --ref --sparse <PATH> --json`,
+and the binary contains probes for `.codex-plugin/plugin.json`,
+`.claude-plugin/plugin.json` **and** `.cursor-plugin/plugin.json`, plus
+`marketplace.json` at bare, `.claude-plugin/` and `.cursor-plugin/` locations. Same
+gaps: no resolved commit, no lock, no rollback, no seed dir.
+
+**Read of it:** `.claude-plugin/` has become a de-facto interchange layout for three
+of the agents in this survey, and all three converged on (repo, path, ref) monorepo
+addressing. What none of them built is the resolution layer — a recorded commit, a
+lock, a rollback. That is the seam a distributor should occupy.
 
 ### `npx skills` — verified pinning traps
 
@@ -269,6 +336,42 @@ single point of failure; transitive dependency resolution (a config distributor
 that resolves a dependency graph has become a package manager, with all of
 semver's problems and none of its ecosystem); and a lockfile stored in the data
 directory rather than beside the spec.
+
+### Part 3.5 — the vim scene's locks, read from source
+
+The maintainer's framing is "like Vundle, with a lockfile." That is a composite of
+two generations, and the details matter because the write-ups get them wrong. Every
+claim below was read in the plugin manager's own source, not its README.
+
+| Tool | Lock artifact | Where | Explicit verbs | Notes |
+|---|---|---|---|---|
+| **Vundle** | **none** | — | `:PluginInstall`, `:PluginUpdate` | `:PluginUpdate` is defined literally as `PluginInstall! <args>` (`autoload/vundle.vim:8-44`) |
+| **vim-plug** | `:PlugSnapshot` output | no default path | `:PlugInstall`, `:PlugUpdate` | the snapshot is a Vim **script**, not data (`plug.vim:2864`) |
+| **lazy.nvim** | `lazy-lock.json` | `stdpath("config")` | `:Lazy install/update/restore` | `restore` is literally `update` with `lockfile=true` (`lua/lazy/manage/init.lua:141-144`) |
+| **mini.deps** | `mini-deps-snap` | `stdpath("config")` | `:DepsUpdate`, `:DepsSnapSave/Load` | a Lua file (`return {…}`); fields `checkout` + `monitor` |
+| **vim.pack** (Neovim 0.12) | `nvim-pack-lock.json` | `$XDG_CONFIG_HOME/nvim/` | `:packupdate [++offline] [++lockfile]` | stores `{rev, src, version}`; `sort_keys=true`; **lock wins over spec on apply** |
+
+Findings that changed the design:
+
+- **Vundle has no pin at all.** `{'pinned': 1}` only means "never sync this," and a
+  `{'rev': …}` value is parsed at `autoload/vundle/config.vim:124` and **consumed
+  nowhere** — two machines with the same `.vimrc` land on different commits. So
+  "Vundle plus a lockfile" is Vundle's *UX* with a later generation's *artifact*.
+- **All three lock-bearing tools put the lock in the config dir**, beside the spec,
+  with plugin content in the data dir. None puts it beside the content. Reasons that
+  carry over: the lock is the file you copy to a second machine, and if `~/.config`
+  is a git repo you get `git checkout HEAD -- <lock>` rollback for free.
+- **vim.pack is the closest prior art and post-dates most write-ups.** It records
+  both the requested `version` and the resolved `rev`, the lock takes precedence over
+  the spec on apply, and `++offline`/`++lockfile` are separable — i.e. exactly the
+  strict-offline-restore verb this domain needs. Its own docs say the lockfile
+  "should not be edited by hand" and it auto-repairs corrupt rows.
+- **The re-float trap, in two flavors.** mini.deps' `SnapLoad` doesn't touch the
+  spec, so the next update can move you again (documented twice). lazy.nvim is worse:
+  `restore` = `update` with `lockfile=true`, so it *fetches* and *rewrites* the lock,
+  and a subsequent `:Lazy update` erases the rollback from the artifact too. On a
+  malformed lock lazy.nvim `pcall`s the decode and substitutes an **empty** lock,
+  silently discarding every pin.
 
 ---
 
@@ -539,14 +642,22 @@ Carry these forward; do not build on them without re-checking.
 
 - Devin Desktop plugin/extension mechanism with a remote source (docs 404).
 - Antigravity (`agy`) remote plugin install — only local-path install documented.
-- Codex plugin manifest filename/format, and whether marketplaces can be
-  declared in `config.toml` (config reference truncated; only
-  `plugins.<n>.mcp_servers.*` and `features.remote_plugin` observed).
+- Whether Codex marketplaces can be declared in `config.toml` (config reference
+  truncated; only `plugins.<n>.mcp_servers.*` and `features.remote_plugin` observed).
+  The **manifest filename/format is now CONFIRMED** from the binary:
+  `.codex-plugin/plugin.json`, with `.claude-plugin/` and `.cursor-plugin/` also
+  probed, and `codex plugin marketplace add … --ref --sparse` for the source side.
 - Zed support for `.claude/skills` — never mentioned; treat as unsupported.
 - Cline's AGENTS.md merge semantics and skills directory.
 - Gemini `@`-import max depth and extension restrictions.
 - Whether Anthropic's announced enterprise marketplace covers Claude Code
   plugin marketplaces with the same admin surface.
-- `.pi/agent/skills` and `.codex/skills` as *user-level* skills destinations —
-  documented for project scope; the user-level spelling should be probe-verified
-  before a registry entry depends on it.
+**Resolved 2026-07-25** — `~/.pi/agent/skills` and `~/.codex/skills` as *user-level*
+skills destinations are now **CONFIRMED from the shipped implementations**, not docs:
+pi computes its user skills dir as `join(getAgentDir(), "skills")` where
+`getAgentDir()` is `$PI_AGENT_DIR` or `join(homedir(), ".pi", "agent")`
+(`dist/core/skills.js:330-334`, `dist/config.js:412-418`; discovery is SKILL.md-rooted
+and first-wins on a name collision, with project scope at `<cwd>/.pi/skills`), and
+codex reads `$CODEX_HOME/skills` with `CODEX_HOME` defaulting to `~/.codex`. A probe
+test is still worth having, because a CLI moving its own user-level path is a silent
+break.
