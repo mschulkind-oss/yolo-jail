@@ -9,7 +9,7 @@ on the tree, the file:line is named.
 
 ## Open work at a glance
 
-Everything not marked done below reduces to **three** open items. In priority /
+Everything not marked done below reduces to **four** open items. In priority /
 lane order:
 
 | # | Open item | Lane | Blocker |
@@ -17,6 +17,7 @@ lane order:
 | 1 | **config-composition — non-agent surface ports** (mise, standalone MCP/LSP, git identity onto the prism, then delete their bespoke generators) | jail-side | none — the main remaining agent-completable thread |
 | 2 | **D4 Cachix** (one Mac download proof) | hardware-gated | substituter enabled + account/cache/CI-push all done (2026-07-22); needs only a real Mac to prove the download path |
 | 3 | **composed-file follow-ups** — the deferred tail of `host_files` + two pre-existing prism defects (see below) | jail-side | none; each item is independently shippable |
+| 4 | **agent auth — capture the model, fix the asymmetry** (Claude broker rationale, the six un-investigated agents, macos-user parity, 4 verified defects) | jail-side (macos-user half is Mac-gated) | none for the audit/docs half; the macos-user fixes need a Mac to verify |
 
 ### Item 3 — composed-file follow-ups
 
@@ -38,6 +39,172 @@ improvements, not repairs, **except** the two defects at the end.
 The two ⚠ rows predate `host_files` and were surfaced by the audit in
 [composed-file-permissions.md](../design/composed-file-permissions.md); they are the
 only rows here that fix something broken rather than extend something working.
+
+### Item 4 — agent auth: capture the model, fix the asymmetry
+
+**Why now.** Auth is the most incident-scarred subsystem in the repo (~35
+incident-driven commits, 2026-02 → 2026-07) and simultaneously the least evenly
+covered: Claude has a whole host daemon, an in-jail TLS terminator and two research
+writeups; the other six agents have *nothing but a one-way file copy*. That
+asymmetry has never been examined, and a 2026-07-25 audit found it is **investigative,
+not architectural** — the strongest single piece of evidence was in a live jail, not
+the code: **gemini's `~/.gemini/oauth_creds.json` carries a `refresh_token` and
+`expiry_date`** (verified), the exact shape whose rotation is the entire reason Claude
+needs a broker, and the repo mentions a non-Anthropic refresh token **zero times**.
+
+Three things make this a real item rather than a tidy-up: the broker's reasoning is
+scattered across two research docs, a README and ~35 commit messages and is
+**actively contradicted by two shipped user-facing docs**; macos-user is expected to
+change and has a confirmed auth bug today; and the audit turned up **four verified
+defects**, one of them a credential exposure.
+
+#### 4a. Capture the Claude broker rationale (docs; do this first)
+
+The *why* exists but is not collected anywhere, and the parts that are written down
+are partly wrong. Consolidate into one design doc (proposed
+`docs/design/agent-auth.md`) so a future reader can defend or redesign it:
+
+- **The root problem.** Anthropic mints **single-use refresh tokens** — each
+  successful refresh rotates the token and invalidates the one presented. Two clients
+  sharing one `.credentials.json` means whichever refreshes first burns the other.
+  `internal/oauthbroker/refresh.go:31-36` names the invariant: *"The flock is the
+  load-bearing single-use-refresh-token serialization contract. We must NOT silently
+  proceed unlocked (that would let concurrent jails burn the token)."*
+- **Why it is fatal rather than annoying.** Claude Code keeps an in-process set
+  (`T86`) of refresh tokens that ever returned `invalid_grant`. It is **never
+  cleaned, not persisted, and invisible to every log yolo can see**, so *one* lost
+  race permanently disables refresh for that process's lifetime — the user sees
+  `/login` and the broker log explains nothing
+  ([claude-oauth-refresh-mechanics.md](../research/claude-oauth-refresh-mechanics.md) §2, §3.4).
+- **The three failure paths that look identical** (§4 of the same doc): **A** Claude
+  is idle and has *no proactive refresh at all* for Pro/Max tokens; **B** a transient
+  broker error (Cloudflare 1010 read as `invalid_grant`, a socket desync) poisons
+  `T86` forever; **C** the cross-jail single-use rotation race. One fix collapses all
+  three: a host-side loop keeping the **disk file** ahead of expiry, because Claude's
+  401-recovery re-reads disk and adopts a differing access token *without consulting
+  `T86` and without any HTTP refresh*. That is why a 60-second proactive refresher is
+  architectural and not a band-aid.
+- **Why host and jail identities are deliberately SPLIT.** The 2026-04-23
+  `invalid_grant` incident was host Claude and jail Claude sharing one token chain.
+  `cb6e850` removed the mirror; divergence is now *the design*. Re-converging
+  reintroduces Path C with a racer the flock can never reach, because host Claude
+  refreshes natively and will never take the lock. Instructive tail: that fix was
+  **half a fix for nine days** — the entrypoint's reverse HOST→SHARED copy survived
+  and re-converged identities at every boot (`8ce6f47` → `927723d`).
+- **Why the architecture has three processes.** The terminator exists because Claude
+  refreshes *itself* and will never take our lock, and binds `:443`, which is only
+  unprivileged inside the container netns. The per-jail relay exists because
+  bind-mounting the singleton's *socket file* pinned a dead inode across broker
+  restarts; the relay dials per connection and also stamps `jail_id` host-side so log
+  attribution is not an in-jail self-report.
+- **The on-disk shape constraint.** Claude ≥ 2.1.200 treats a creds file carrying only
+  the token trio as *not logged in*; `scopes`/`subscriptionType`/`rateLimitTier` are
+  load-bearing, so no writer may strip them. Both writers (broker `NormalizeOAuth`,
+  entrypoint `harvestCredentialsFile`) preserve metadata deliberately.
+- **The honest cost.** 3 process kinds (N+2 for N jails), 3 sockets per hop, 5 PID/lock
+  paths, 4 log sinks, a frozen-contract list (timings, UA, atomic-write recipe,
+  `Accept-Encoding` stripping both ways), an `openssl`-exec'd 10-year CA, and a
+  teardown guard stack whose order may not change. A redesign should weigh this
+  honestly — and know that **a complete non-MITM alternative exists**: an
+  `apiKeyHelper`-based credential broker (−4406/+129 lines) was built and live-tested
+  on a fork (`4b84ea8`, never merged; `git merge-base --is-ancestor` confirms it is
+  not in `main`). **No evidence found** in `main` of a rationale for rejecting it —
+  the two lines developed in parallel and the fork simply ended.
+
+#### 4b. The six un-investigated agents
+
+| Agent | Creds land | Scope | What yolo does |
+|---|---|---|---|
+| **claude** | `~/.claude/.credentials.json` → relative symlink into `~/.claude-shared-credentials` | **host-shared** | broker + terminator + harvest + `claude.json` back-propagation |
+| copilot | `~/.copilot/config.json` (holds a live `gho_` token) | per-workspace | ⚠ *composed by the prism* — can be wiped (item 3) |
+| gemini | `~/.gemini/oauth_creds.json` (**has a `refresh_token`**) | per-workspace | one-way seed only |
+| pi | `~/.pi/agent/` | per-workspace | one-way seed only |
+| codex | `~/.codex/` | per-workspace | one-way seed only |
+| agy | `~/.gemini/antigravity-cli/` | per-workspace | one-way seed only |
+| opencode | `~/.config/opencode/` | per-workspace, **no inheritance at all** | nothing — it has no `OverlayDirs` entry, so it rides the `.config` overlay, which is created but never seeded. An accident, not a decision. |
+
+`seedAgentDir` copies top-level regular files **from** the `:ro` GlobalHome base into
+the workspace overlay, never overwriting and never writing back
+(`internal/cli/run/storagehelpers.go:37-64`). So a `/login` in one workspace is
+invisible to every other workspace for all six. **The work:** determine for each
+whether its refresh token rotates (gemini/Google first — highest-value unknown),
+whether `codex login` even writes a file (none exists in a jail where codex is
+selected), and then decide per agent between "leave it per-workspace", "seed
+bidirectionally like claude", or "needs serialization".
+
+#### 4c. macos-user auth — one confirmed bug, then parity
+
+macos-user is one shared native home (`/Users/_yolojail`) for **every concurrent
+session and every workspace**, no container, no bind mounts. Consequences:
+
+- **⚠ Confirmed bug: Claude's credentials symlink is DANGLING there.**
+  `ensureCredentialsSymlink` runs unconditionally in `RunDarwinBootstrap`, but the
+  target dir is provisioned only by `storage.EnsureGlobalStorage` + the container bind
+  mount — neither of which runs on macos-user (verified: no `claude-shared-credentials`
+  reference on any macos-user path). Claude's own `open(O_CREAT)` on it then fails
+  ENOENT. The M1 runbook's login step was optional and never run, so this never
+  surfaced.
+- **The broker is unwired, by decision.** `BrokerSocketGrantCommands`
+  (`internal/macosuser/macosuser.go:319`) exists with **zero call sites**. The recorded
+  reasoning — the shared home already gives one creds file — is sound for *sharing*
+  but explicitly does **not** address serialization, and macos-user gets neither the
+  flock nor the proactive refresher. Since nothing prevents two concurrent `yolo`
+  runs there, the "defer the concurrent case" decision may be deferring the common
+  case. `git 84d0365` already sketches the port: no relay, no mount — just
+  chgrp/chmod on the singleton socket + parent so the sandbox uid connects directly
+  and `getpeereid` attests a real uid.
+- **Bedrock creds do not reach a macos-user jail.** The worked example in
+  agent-credentials.md §3 rides the `/ctx/host-claude` mount, which does not exist
+  there, so the surface fails open to defaults. The doc notes the fail-open in its §5
+  table but never connects it to §3.
+- **env_sources secrets are on the process argv** (`env -i K=V…`), i.e. visible in
+  `ps` to every user on the Mac — and they reach the *launch* argv but not the
+  *bootstrap* argv, so MCP `${VAR}` interpolation and `requires_env` gating silently
+  drop every secret-gated MCP server.
+- The `/Library/Keychains` deny is effectively free: all seven agents are file-based,
+  and nothing in the repo calls any Keychain API.
+
+#### 4d. Verified defects found by the audit
+
+| Defect | Evidence |
+|---|---|
+| **⚠ Broker CA *private key* is readable in-jail** | The whole loophole state dir crosses `:ro`, so `/var/lib/yolo-jail/loopholes/claude-oauth-broker/ca.key` is readable by the UID-0 agent (verified: `-----BEGIN PRIVATE KEY-----`). Only `server.crt`/`server.key` are needed in-jail — `ca.key` is used solely host-side by `cert.go`. Combined with `NODE_EXTRA_CA_CERTS` trusting that CA, a jail process can mint a trusted leaf for **any** host. Fix is narrow: mount only the two server files. |
+| **⚠ Claude creds symlink dangles on macos-user** | see 4c |
+| **⚠ Config-approval snapshot is agent-writable** | `.yolo/config-snapshot.json` is mode 664 inside the workspace and writable in-jail (verified). An agent that edits `yolo-jail.jsonc` *and* matches the snapshot makes the launch-time diff prompt disappear — the exact bypass [config-safety.md](../design/config-safety.md) exists to prevent, and it is undiscussed. |
+| **Two shipped docs contradict the code** | `bundled_loopholes/claude-oauth-broker/README.md:59` and `docs/guides/USER_GUIDE.md:182` both say *"no background timer / no proactive refresh"*, but `oauthbrokercmd.go:88` starts `RunBackgroundRefresher` by default — and that refresher **is** the architectural fix for all three logout paths. USER_GUIDE:186 additionally still describes the host-creds mirror that `cb6e850` deleted (`--host-creds-file` is gone from the Go code entirely), and README:3 links a plan doc deleted by `5eb1643`. |
+
+#### 4e. Open questions the maintainer must decide
+
+- **Does Google rotate gemini's refresh token?** The single highest-value unknown; it
+  decides whether the broker's problem class is Claude-specific or general.
+- **Keep the TLS-MITM architecture, or revisit `apiKeyHelper`?** A working
+  alternative exists on an abandoned fork and `main` records no rejection rationale.
+- **Is per-workspace credential isolation a feature or an accident?** It is currently
+  both — deliberate for claude (shared) and incidental for the rest (per-workspace),
+  with opencode getting neither by oversight.
+- **Should env_sources secrets be redactable?** They land cleartext at 0644 in five
+  agent config files, a prism `last_render` sidecar, and Claude session transcripts.
+  There is no redaction concept anywhere in the design docs.
+- **Who is the adversary?** The code reasons consistently about a config-writing agent
+  (confused or prompt-injected) and never about a malicious npm/MCP dependency reading
+  `~/.config/yolo-user-env.sh`. Naming this would settle several of the above.
+- **Are the reverse-engineered mechanics still true?** Pinned to Claude 2.1.143/2.1.201;
+  today is later. §7 supplies a re-verification recipe that has not been re-run.
+
+#### 4f. Testability
+
+Auth is the worst-covered subsystem at the highest-risk moment: the Go port kept the
+broker's *logging* contract byte-faithfully (logs are what made incidents
+diagnosable) while dropping ~46 of 47 behavioral tests, so **refresh semantics have
+essentially zero coverage**. AGENTS.md forbids tests that start an agent
+interactively or make API calls, but that leaves plenty testable with a fake upstream:
+flock serialization under N concurrent callers, the 90 s cache-headroom decision, the
+metadata-preservation invariant, `NormalizeOAuth` key-order stability, the
+transient-vs-permanent retry classification, and the relay's `jail_id` stamping and
+drain-before-close semantics. Untestable without hardware: the real OAuth flow, and
+**how an interactive login actually completes** — there is *zero* repo evidence on
+that for any backend (no `BROWSER`, no `xdg-open`, chromium is headless-MCP-only, and
+the runbook's login step was optional and never recorded as run).
 
 Not on this list because they are **done or held**: J1–J3, D1/D2/D3, Track M
 M0–M2, module-consolidation, the agent-config prism cutover, agy, **the VM-builder
