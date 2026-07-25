@@ -74,6 +74,13 @@ Nothing here blocks use of the feature; each is a known, bounded follow-up.
   (Claude YOLO runs UID 0) ignores it entirely, while a non-root agent gets
   `EACCES` and the surface *silently stops re-rendering every boot*. Shipped as
   four; **not decided**.
+- **Comment-preserving codecs for `.jsonc`/`.yaml`.** Both fall back to `raw`
+  today, which is lossless but gives up key-level capture, `managed`/`defaults`,
+  and table-shaped transforms. Reading them is already solved (`internal/json5`
+  is in-repo; BurntSushi's lexer emits comment tokens) — *writing* them back is
+  the wall, since the generic value model has nowhere to keep the trivia. Three
+  options sketched, cheapest first, in
+  [Comments, and why `.jsonc`/`.yaml` fall back to `raw`](#comments-and-why-jsoncyaml-fall-back-to-raw).
 - **`managed`/`defaults` array-append pinning** for a user surface is unbuilt
   (RFC-7386 object merge only). No user surface has needed it; deferred until one
   does. *(Was listed as open below; still open.)*
@@ -90,93 +97,102 @@ Nothing here blocks use of the feature; each is a known, bounded follow-up.
   [macos-user](#macos-user--accepted-deficiencies-not-design-constraints); the
   source-bearing case is now explicitly *filtered out* rather than half-working.
 
-## The decision, in one paragraph
+## The decision
 
-A user must be able to bring **any** file need into the jail **without editing
-yolo's source** — today every composed surface is a Go literal in
-`BuiltinManifest`, and that must stop being the only way. So: one user-facing
-config key, **`host_files`**, whose entries are either a **string** (sugar: bring
-this host file/dir in, codec auto-detected) or an **object** (rich: pick the
-codec, a Lua transform, inline `content`, `managed`/`defaults` layers). Every
-entry **de-sugars in-memory into a `manifest.Surface`** appended to the builtin
-manifest, and a generic boot loop renders it through the existing pipeline. A
-**raw copy is just `codec: "raw"`** — one engine, not two. **Overlay capture is the
-exception, not the default:** a file mirroring a host source defaults to `readonly`
-(the host file stays the source of truth), a source-less file defaults to `once`
-(seed it, then leave it alone — in-jail edits just persist), and the §5
-capture-diff overlay engages only when a user explicitly writes `"mode":
-"capture"`, because a captured edit outranks `host` forever. See
-[Overlay capture is the exception](#overlay-capture-is-the-exception-never-a-default).
-Because the construction of any given file is now a real question,
-**`yolo config ls`** shows every managed file, its codec, mode, contributing
-layers, and whether an overlay is winning. The **credential boundary** is enforced
-**per entry**: an entry that
-names a host **`source`** (including bare-string sugar) is **user-scope only** — a
-workspace config can never make a host file cross — while a **source-less** entry
-(inline `content`, or pure `managed`/`defaults`) crosses nothing and is legal at
-any scope.
+**The problem.** Every file yolo composes is a Go literal in `BuiltinManifest`.
+That means a user who wants one more file in the jail — pi's `models.json`, their
+own `~/.npmrc` — has to edit yolo's source. That must stop being the only way.
 
-## Background: where we are, and why this reopens
+**The mechanism.** One config key, **`host_files`**, taking a list whose entries
+are either:
 
-Commit `a84b11c` retired `host_claude_files` / `host_pi_files` per §10.4. It did
-three good things and one wrong thing:
+- a **string** — `"~/.npmrc"`: bring this host file (or `dir/`) in at the same
+  path, codec auto-detected. The 90% case stays a flat list.
+- an **object** — pick the codec, add a Lua transform, supply inline `content`,
+  layer `managed`/`defaults` on top.
 
-| Landed | Verdict |
-|---|---|
-| **D1/D2** — moved the per-agent *builtin* host files to a fixed, yolo-declared registry (`internal/agents.AgentSpec.HostFiles`: claude ⇒ `.claude/settings.json`, pi ⇒ `.pi/agent/settings.json`) | **Keep.** These are yolo's own defaults; they stay Go-declared. |
-| **D3** — deleted the bespoke per-agent pathways (`appendSettingsScripts`, the claude/pi `syncHost*Files` twins) | **Keep.** The special-casing is gone for good. This plan does not bring per-agent code back — it adds one *generic* user path. |
-| **D4** — dropped both keys from `knownTopLevelConfigKeys` so any occurrence **hard-errors** | **Reverse, and generalize.** D4 removed the *legitimate* user ability to bring extra host files (pi's `models.json`, `themes/*.json`) into the jail. The replacement is not a narrow raw-copy — it is the general `host_files` mechanism below. |
+Each entry lowers into a `manifest.Surface` and renders through the pipeline that
+already generates `settings.json`. **A raw copy is just `codec: "raw"`** — so this
+adds a config key, not a second engine.
 
-The error in D4 was treating *"the set of host files that cross into the jail is a
-credential boundary"* as *"no config may ever widen it."* The real boundary is
-narrower and **per entry**: a config may not make a **host file cross** unless it
-is the **user's own** config. Bringing a *source-less* managed file into being
-crosses nothing, so even a workspace config may do that. That distinction is the
-spine of this design.
+**The default is the mode that accumulates no hidden state.** It turns on one
+question — *is there a host source of truth?*
+
+| Entry | Default | Why |
+|---|---|---|
+| source-bearing | `readonly` | the host file stays authoritative; host edits keep propagating |
+| source-less | `once` | seed it, then leave it alone — in-jail edits just persist |
+
+The §5 capture-diff overlay engages **only** when a user writes
+`"mode": "capture"` explicitly, because a captured edit outranks `host` *forever*
+— see [Overlay capture is the exception](#overlay-capture-is-the-exception-never-a-default).
+And because "how was this file built?" is now a real question, **`yolo config ls`**
+answers it: every managed file, its codec, mode, contributing layers, and whether
+an overlay is winning.
+
+**The credential boundary is per entry, not per key.** An entry naming a host
+`source` (bare-string sugar included) is **user-scope only** — a workspace config,
+which travels with the repo and is agent-editable, can never make a host file
+cross. A source-less entry copies nothing from the host, so it is legal anywhere.
+
+### Why this reopens something we just closed
+
+Commit `a84b11c` retired `host_claude_files` / `host_pi_files`. Three of its four
+decisions were right and stand untouched: the per-agent *builtin* host files became
+a fixed yolo-declared registry (**D1/D2**, `agents.AgentSpec.HostFiles`), and the
+bespoke per-agent pathways were deleted for good (**D3** — this plan brings back no
+per-agent code, only one generic path).
+
+**D4 is the one to reverse.** It dropped both keys so any occurrence hard-errors,
+and in doing so removed a legitimate ability: bringing *extra* host files into the
+jail at all. The mistake was reading *"the set of host files that cross is a
+credential boundary"* as *"no config may ever widen it."* The boundary is narrower
+than that — a config may not make a host file cross **unless it is the user's own**.
+Bringing a source-less managed file into being crosses nothing, so even a workspace
+config may do it. That distinction is the spine of everything below.
 
 ## What was already true (facts this builds on)
 
-Verified against the implementation (2026-07-24), because the first draft of this
-doc got two of them backwards.
+Before designing anything, it was worth checking what the engine could already do
+— the first draft of this doc guessed twice and got both wrong, so what follows was
+read out of the tree (2026-07-24) rather than assumed.
 
-> **⚠ Two of these are now STALE — they describe the pre-implementation tree.** The
-> `raw`-is-object-only and `yaml`-is-a-phantom bullets were both *fixed* by Phase 0:
-> `Compose`/`Enforce` have a keyless branch, `luahook.Ctx.Config` is `any`, and
-> `manifest.knownCodecs` derives from `codec.Names()`. They are kept for the
-> reasoning, not as a current description.
+The good news was that most of the machinery already existed. **Composed files are
+read-write**, not read-only as the draft had it: `renderSurfaceStateful` writes
+`0o644` into the agent overlay dir, which is a writable bind — the only `:ro` mount
+in the picture is the host *input* at `/ctx/host-<agent>/`. **In-jail edits are
+already captured** too: the §5 overlay loop is fully wired, diffing the on-disk file
+against the `last_render` sidecar each boot, folding the delta into the durable
+`overlay` sidecar, and re-rendering with the overlay outranking host and computed.
+So the "surviving edits" half of this feature needed no new mechanism at all.
 
-- **Composed files are read-WRITE.** `renderSurfaceStateful` writes the composed
-  output `0o644` via `writeInPlaceString` into the agent overlay dir
-  (`~/.claude`, `~/.pi`), which is a **writable** bind (`assemble.go` ~162, no
-  `:ro`). The only `:ro` mount is the *host source* input at `/ctx/host-<agent>/`.
-- **In-jail edits are captured.** The §5 capture-diff overlay is fully wired
-  (`internal/agentcfg/staterender.go` `ComposeStateful` + `prism.go`
-  `renderSurfaceStateful`): each boot it diffs the on-disk file against the
-  `last_render` sidecar, folds the delta into the durable `overlay` sidecar, and
-  re-renders with the overlay outranking host/computed.
-- **`managed` reverts by re-Enforce, not a file mode.** `compose.go` re-applies
-  the managed layer *after* the overlay and the Lua hook. §9 explicitly rejected
-  the read-only-file approach ("that file is `rw` in the jail… managed stays a
-  layer, never an OS file").
-- **A surface owner need not be a real agent.** `BuiltinManifest` already carries
-  non-agent owners (`mise`, `agy`); `renderSurfaceStateful`/`renderSurfaceComputed`
-  are **surface-agnostic** — they take `(agent, name)` as data and `Lookup` the
-  manifest. A source-less user surface is exactly the shape of `ConfigureAgyPrism`
-  (nil host bytes, nil computed).
-- **`raw` is a real codec.** `codec.registry` maps `raw` → byte-exact
-  passthrough. But **the compose engine is object-only today**: `compose.go`
-  asserts the decoded host layer is `map[string]any` and errors otherwise, and
-  `luahook.Ctx.Config` is typed `map[string]any`. So `raw` (string) and `lines`
-  (`[]any`) are registered and unit-tested but flow through **zero** surfaces and
-  cannot pass `Compose` unchanged. Unifying them is a real (small) code change —
-  see [Making `raw` a first-class codec](#making-raw-a-first-class-codec).
-- **`yaml` is a phantom — remove it.** It is named in `manifest.knownCodecs`
-  (5 names) but absent from `codec.registry` (4 names) — no `yaml.go`, no vendored
-  YAML lib, and `codec.go` forbids new deps. A surface declaring `codec: "yaml"`
-  passes config validation and then **dies at render**. There is no yaml codec and
-  this design does not add one; the fix is to **delete the phantom name** so
-  `manifest.knownCodecs` == `codec.CodecNames()` (the 4 real codecs). A user can
-  then never name `yaml`, and a `.yaml`/`.yml` file is handled as `raw` bytes.
+Worth being precise about how `managed` actually enforces, since the name suggests
+a file mode: it doesn't touch permissions. `compose.go` simply re-applies the
+managed layer *after* the overlay and the Lua hook, so a managed key wins the merge
+in the generated file. §9 considered and rejected the read-only-file approach in as
+many words — "that file is `rw` in the jail… managed stays a layer, never an OS
+file."
+
+The most encouraging discovery was that **a surface owner need not be a real
+agent**. `BuiltinManifest` already carries `mise` and `agy`, and the render helpers
+take `(agent, name)` as plain data. A source-less user surface is structurally
+identical to `ConfigureAgyPrism` — nil host bytes, nil computed — which meant the
+user path could reuse the boot renderer wholesale.
+
+Two things did need fixing first, and both are now done (Phase 0), so the two
+bullets below describe the *old* tree and are kept only for the reasoning:
+
+- **`raw` was registered but unreachable.** `codec.registry` mapped `raw` to a
+  byte-exact passthrough, but the engine was object-only — `compose.go` asserted
+  `map[string]any` and `luahook.Ctx.Config` was typed the same way. So `raw` and
+  `lines` were unit-tested and flowed through *zero* surfaces. Making "a copy is
+  just a codec" literally true meant unifying them; see
+  [Making `raw` a first-class codec](#making-raw-a-first-class-codec).
+- **`yaml` was a phantom.** `manifest.knownCodecs` accepted it while
+  `codec.registry` had no implementation, so a surface declaring `codec: "yaml"`
+  passed `yolo check` and then died at render — validated, then fatal. The fix was
+  to delete the name and derive the accepted set from the registry, which is what
+  now happens.
 
 ## The model: one key, string-or-object, lowered to a Surface
 
@@ -432,6 +448,70 @@ whole-file capture. Both are managed.
 **Prerequisite fix:** remove the phantom `yaml` from the codec validation split —
 make `manifest.knownCodecs` derive from `codec.CodecNames()` (the 4 real codecs)
 so a user can never declare a codec that validates but fails at render.
+
+### Comments, and why `.jsonc`/`.yaml` fall back to `raw`
+
+> **Status: not built, and the interesting part is *why*.** Raised in review:
+> could we handle `.jsonc` or `.yaml` properly, "even if it's a subset of comments
+> or something?" Worth writing down, because the obstacle is not the parser.
+
+The `raw` fallback costs something real. A `.jsonc` surface gets whole-file capture
+instead of key-level, no `managed`/`defaults` (those need keys), and a Lua transform
+that must do string surgery rather than table edits. For a hand-written config full
+of explanatory comments — exactly the kind a user brings in via `host_files` — that
+is the difference between composable and merely copied.
+
+**Reading these formats is already solved.** `internal/json5` parses comments and
+trailing commas today (it is how yolo reads its own `yolo-jail.jsonc`), and it is
+in-repo — no vendoring, no `goSrc` change. `BurntSushi/toml` is already vendored and
+its lexer emits comment tokens.
+
+**Writing them back is the wall.** Both *discard* comments on the way in:
+`json5.skipWS` treats `//` and `/* */` as whitespace, and BurntSushi's encoder has
+no comment support whatsoever. The `Codec` interface is
+`Decode([]byte) (any, error)` / `Encode(any) ([]byte, error)`, where `any` is the
+generic value model — a `map[string]any` has nowhere to put "there was a comment
+above this key." So a comment-preserving codec is not a parser swap; it needs
+somewhere for the trivia to *live* across the round trip. Three ways to give it one,
+in ascending order of cost:
+
+**① Header-only preservation** — keep the leading comment block, drop the rest.
+A codec that splits the leading run of comment lines off the front, decodes the
+remainder as JSON/TOML, and re-emits the header verbatim above the encoded body.
+This is the "subset of comments" the review asks about, and it is genuinely cheap:
+no interface change, no new dependency, ~40 lines. It buys the case that matters
+most in practice (the "what is this file / don't edit, it's generated" preamble)
+and is *honest about its limit* — an interior comment is still lost. Whether that
+honesty is enough is the open question: silently dropping the comments a user can
+see two lines lower is arguably worse than the current `raw`, where nothing is
+touched at all.
+
+**② Trivia sidecar** — decode to `(value, trivia)`, where trivia maps a key path to
+its attached comments, and re-attach on encode. Full fidelity for keys that survive,
+and it composes with the existing layer model because the *value* stays the plain
+generic model. Costs: `Codec` grows a second, optional interface
+(`TriviaCodec`, so the four current codecs are unaffected); the trivia has to
+survive the §5 sidecar round-trip; and every layer merge raises a question the
+value model never had — if `managed` overwrites a key, does the user's comment above
+it stay? There is a defensible answer (trivia follows the key, not the value) but it
+is a new rule to hold.
+
+**③ Format-preserving CST** — parse to a concrete syntax tree, mutate nodes in
+place, re-serialize byte-identically except where changed. This is what
+`toml-edit`-style libraries do, and it is the only approach that survives arbitrary
+formatting. It also means a real dependency per format, a second value model in the
+engine, and `Encode(any)` no longer being the whole contract. Out of proportion to
+the problem.
+
+**Where this lands.** ① is small enough to be worth doing on its own merits and does
+not foreclose ②; ② is the right shape if comment fidelity turns out to matter beyond
+the header; ③ is a different project. Nothing here is on the critical path — `raw`
+is a correct, lossless answer today, just a less capable one — so it stays an open
+question rather than a work item. **YAML is a separate decision either way**: it has
+no in-repo reader at all, so even ① would need a vendored dep first, and its
+whitespace-significant, multi-document, anchor-bearing syntax makes it the format
+where a naive round trip does the most damage. `.yaml` → `raw` is the right default
+regardless of what happens above.
 
 ## The credential boundary — per entry
 
