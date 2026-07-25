@@ -41,10 +41,29 @@ capture, and the capture must be visible. There is no third answer, and
 
 ## 2. Where composed files actually live (and why nothing is enforced today)
 
-The jail home is a `:ro` bind of the shared `GlobalHome` with read-write binds
-nested inside it (jail-home.md §2.2). Every one of the 11 rendered surfaces lands
-in a **read-write** nested bind, so nothing about the prism's output is enforced
-by the kernel:
+> **What "enforced" is for here.** The goal is **not** to stop an agent destroying
+> the jail — that is unachievable (the agent runs as UID 0 and can `chmod`), and it is
+> not the threat model: the container *is* the boundary, and `/workspace` is
+> deliberately writable. The goal is narrower and entirely achievable: **a write to a
+> yolo-composed file should fail the first time, as a signal that the agent is
+> touching something it does not own.** An agent that hits `EACCES`, reads the error,
+> and reconsiders has been told the truth. One that means it can still `chmod +w` and
+> proceed — that is fine, because the point was the signal, not the wall.
+>
+> Read the rest of this section as "how legible is that signal today?" rather than
+> "how strong is the sandbox?" — and see [§6](#6-why-0o444-is-not-a-posture), where the
+> problem with `0o444` turns out to be that it delivers that signal to *some* agents
+> and silence to others.
+
+**The jail home is read-only by DEFAULT.** Writability is an explicit allowlist of
+nested binds, not a set of holes punched in a writable home — verified by probe: the
+home root itself is `Read-only file system`, while `~/.config`, `~/.cache`,
+`~/.local`, `~/.npm-global`, `~/go`, `~/.ssh` and each **selected** agent's overlay
+dir are read-write. Anything not on that list is read-only, including any new
+top-level directory. That default is the right posture and this doc does not propose
+changing it; the question is only what happens *inside* the writable islands, since
+every one of the 11 rendered surfaces lands in one — so **nothing about the prism's
+output is currently enforced, or even signalled**, by the kernel:
 
 - `~/.claude`, `~/.pi`, `~/.codex`, `~/.copilot`, `~/.gemini`,
   `~/.gemini/antigravity-cli` — per-agent overlay binds, emitted **only for
@@ -54,10 +73,13 @@ by the kernel:
 
 Two consequences that are easy to miss:
 
-1. **An unselected agent's dir is read-only.** With `agents: [claude, pi, codex,
-   agy]`, `touch ~/.gemini/x` and `touch ~/.copilot/x` both fail EROFS (probed).
-   `~/.gemini/antigravity-cli` is writable while its own parent `~/.gemini` is
-   not, because agy's overlay dir is a *nested* path (agents.go:193).
+1. **An unselected agent's dir is read-only** — a consequence of the RO-by-default
+   home above, since the overlay bind is emitted per *selected* agent. With
+   `agents: [claude, pi, codex, agy]`, `touch ~/.gemini/x` and `touch ~/.copilot/x`
+   both fail EROFS (probed). `~/.gemini/antigravity-cli` is writable while its own
+   parent `~/.gemini` is not, because agy's overlay dir is a *nested* path
+   (agents.go:193) — so the writable set is not even closed under "parent of a
+   writable dir".
 2. **Mode is create-only.** Every prism write is `writeInPlaceString` →
    `WriteStringInPlace(path, content, 0o644)` → `os.WriteFile`
    (helpers.go:71-73), whose perm argument is **ignored for an existing inode**.
@@ -82,7 +104,7 @@ at boot; one is dead.** 8 of the 11 write capture sidecars.
 |---|---|---|---|---|---|
 | `claude/settings` | `~/.claude/settings.json` | stateful | ✅ | `/ctx/host-claude` | **YES** — proven |
 | `pi/settings` | `~/.pi/agent/settings.json` | stateful | ✅ | `/ctx/host-pi` | no evidence |
-| `gemini/settings` | `~/.gemini/settings.json` | stateful | ✅ | — | **YES** — proven |
+| ~~`gemini/settings`~~ | `~/.gemini/settings.json` | stateful | ✅ | — | **YES** — proven, but **being removed**: see [ROADMAP item 0](../plans/ROADMAP.md) (Google is deprecating Gemini CLI). Out of design consideration. |
 | `copilot/config` | `~/.copilot/config.json` | stateful | ✅ | — | **YES** — credentials |
 | `opencode/config` | `~/.config/opencode/opencode.json` | stateful | ✅ | — | no evidence |
 | `codex/config` | `~/.codex/config.toml` | stateful | ✅ | — | no evidence |
@@ -96,6 +118,68 @@ at boot; one is dead.** 8 of the 11 write capture sidecars.
 Only **two** surfaces have a host layer wired at all (claude + pi), because
 `agents.AgentSpec.HostFiles` has exactly two entries (agents.go:80,146). The
 other six stateful surfaces pass `hostBytes=nil` — they are yolo-owned outright.
+
+### 3.0.1 Should `mise use -g` be prevented rather than captured?
+
+Raised in review, and worth answering because it is the one row where the "something
+else writes it" writer is a *tool yolo itself installed*, not an agent going
+off-script. Three findings shape the answer.
+
+**There is a real use case, and it is the lack of a restart.** The declarative routes
+both work: `mise_tools` in `yolo-jail.jsonc` (injected as the computed layer via
+`YOLO_MISE_TOOLS`) and a workspace `/workspace/mise.toml` (a live mise layer, re-read
+every boot). But both are *config* changes, and a config change means `yolo check` plus
+a jail restart. `mise use -g <tool>` is the in-session escape hatch: an agent mid-task
+discovers it needs `jq` at a specific version and installs it without tearing down the
+jail it is working in. Blocking that would make the only path "stop, edit config,
+restart, re-establish context" — the exact friction the writable-home islands exist to
+avoid. So **capture is right here**, and the design already reasons this way
+deliberately: the computed layer folds *above* the overlay, so an injected pin still
+beats a stale in-jail `mise use -g`, while a genuinely user-added tool survives
+(`prism_mise.go:44-46`).
+
+**Preventing it is also not really available.** `mise` is on `PATH` and the agent is
+UID 0; `mise use -g` writes an ordinary file in a writable overlay. The strongest
+honest measure is the §7.1 signal — make the file `0o444` so the first `mise use -g`
+*errors*, telling the agent this is yolo-managed config and the declarative route
+exists. That is a legibility improvement, not a block, and it fits the "warn, not
+prevent" framing of §2.
+
+**The nuance that makes capture cheap here.** mise is the one surface with **no
+`defaults` and no `managed`** at all (`builtin.go` `miseConfig` declares only
+`Agent`/`Name`/`Path`/`Codec`) — every yolo-owned tool arrives via the computed layer.
+So there is no managed-key-reverts-on-edit surprise to explain: the only precedence
+rule is "an injected pin wins its own key, everything else you added is yours."
+
+**Recommendation:** keep capture, add the `0o444` signal, and document the two
+declarative routes in the error path so the signal is actionable.
+
+### 3.0.2 mise-specific plumbing that should fold into the prism
+
+Yes — and this is item 1 on the ROADMAP, but with a correction worth recording:
+**mise is already a prism surface and the roadmap says it is not.**
+`ConfigureMisePrism` renders it statefully (`prism_mise.go:82`) and
+`yolo config render mise` works — verified. Both
+[ROADMAP.md](../plans/ROADMAP.md) and
+[agent-settings-composition.md](../plans/agent-settings-composition.md) still claim
+`config render mise` reports "no surfaces"; that is stale. The genuinely unported
+non-agent surfaces are **MCP, LSP and identity** (`config render mcp|lsp|identity` →
+"no surfaces", verified).
+
+What remains mise-specific and *not* yet generic:
+
+- **`YOLO_MISE_TOOLS` as a bespoke transport.** `mise_tools` is merged host-side
+  (`config.MergeMiseTools`), serialized into its own env var, and re-decoded in the
+  entrypoint — the pattern the composition plan explicitly wants to retire ("the
+  config key *is* the `workspace` layer… no per-key merge function, no dedicated env
+  var"). Touch points: `assemble.go`, `runplan.go`, `derived.go`, `env.go`,
+  `check/entrypoint.go`.
+- **`MISE_DISABLE_TOOLS`** — derived from the resolved user env at assembly time
+  (`assemble.go`), unrelated to the surface.
+- **Two bespoke side effects the prism deliberately does not own** and which should
+  *stay* bespoke: the `/workspace/mise.toml` retire surgery (a **workspace**-file
+  mutation, which yolo must never own) and the `mise uninstall` subprocess in
+  `boot.go`. Both are correctly out of scope; only the transport is the cleanup.
 
 ### 3.1 The evidence that agents do write these files
 
@@ -241,6 +325,60 @@ verified by probe. So `"model": null` in the live overlay is a stale artifact
 about to be overwritten, not a forever-suppression. The "captured deletion is
 permanent" framing applies only to a key that is never rewritten.
 
+### 5.1 Where should the sidecars live? (open — needs a decision)
+
+Raised in review: this is **real state**, arguably valuable enough to commit, and it
+currently hides under `<workspace>/.yolo/`, which `.gitignore:6` excludes wholesale.
+Three findings constrain the answer, and the first is disqualifying for the simple
+version.
+
+**⚠ A sidecar already contains a secret.** `rg -l "tvly-" .yolo/prism/` matches
+`codex-config.last_render` in this very workspace — an API key, in cleartext, because
+`last_render` is a byte copy of a rendered file that had `${VAR}` interpolated into it.
+So **"just move them somewhere committable" cannot be the default.** Any scheme that
+makes the directory a candidate for `git add` needs the secret question answered first
+— and there is no redaction concept anywhere in the design today.
+
+**The two sidecars are not the same kind of thing**, which is what makes a single
+answer awkward:
+
+| Sidecar | What it is | Shareable? |
+|---|---|---|
+| `<surface>.overlay.json` | the **captured edits** — a user's/agent's intent, small, human-readable, the thing you might want to keep or review | plausibly yes |
+| `<surface>.last_render` | a byte copy of yolo's own output, purely a **diff baseline**, regenerable, and the one that can hold interpolated secrets | **no** — it is cache, not state |
+
+That split suggests the honest move is not "relocate the directory" but **separate the
+two by kind**: the overlay is durable state, `last_render` is a cache. Once split, the
+cache can stay gitignored under `.yolo/` (or move to `GlobalStorage` entirely, since it
+is per-workspace but not workspace-*content*), and only the overlay is a candidate for
+anywhere visible.
+
+**Options, and what each costs:**
+
+1. **Leave both under `.yolo/`, improve discoverability only** — `yolo config ls`
+   already surfaces overlay contents (shipped), and could print the path. Zero risk,
+   solves the "invisible" complaint without touching the secret question. This is the
+   cheapest correct step and does not foreclose anything.
+2. **Split cache from state; keep both gitignored.** Prerequisite for anything below,
+   and independently worth doing because it stops calling regenerable cache "state".
+3. **Overlay to a committable path** (e.g. `.yolo-config/` or a `yolo/` dir, ignored by
+   default only if the user says so). Needs: a scope decision (an overlay is
+   per-workspace *and* per-machine — a captured `theme: dark` committed to a shared
+   repo is at best noise, at worst a fight), and a story for the case the reviewer
+   raises directly: **some people will not want it under source control**, so the path
+   cannot be committable-by-construction.
+4. **Two paths, user-selected** (the reviewer's own suggestion) — a config key naming
+   where overlays live, defaulting to the current gitignored location. Most flexible,
+   but it splits the sidecar layout into a variable, which every reader of
+   `prismSidecarDir` then has to know about, and `yolo config reset` has to search both.
+
+**My recommendation:** ① now, ② next, and treat ③/④ as blocked on two prior questions
+that are worth answering on their own merits anyway — *should env_sources secrets be
+redactable in composed output?* (already an open question in ROADMAP item 4) and *is a
+captured edit per-workspace or per-machine?* Committing machine-specific captured edits
+to a shared repo is a different feature (shared config packs, ROADMAP item 5) and
+probably wants that mechanism rather than this one.
+
 ## 6. Why `0o444` is not a posture
 
 `host_files` `mode: readonly` chmods the destination `0o444`. The plan is already
@@ -301,9 +439,10 @@ These are the surfaces where the maintainer's read-only instinct applies cleanly
 
 ### 7.2 Shared → read-write with *visible* capture
 
-`claude/settings`, `mise/config`, `copilot/config`, `gemini/settings`, and — until
-evidence says otherwise — `pi/settings`, `codex/config`, `opencode/config`,
-`agy/settings`. These stay `0o644` in a rw overlay with capture, plus the three
+`claude/settings`, `mise/config`, `copilot/config`, and — until evidence says
+otherwise — `pi/settings`, `codex/config`, `opencode/config`, `agy/settings`.
+(`gemini/settings` belonged here too and is being removed — [ROADMAP item
+0](../plans/ROADMAP.md).) These stay `0o644` in a rw overlay with capture, plus the three
 things capture is missing:
 
 1. **`yolo config ls`** — one row per surface: path, codec, posture, contributing

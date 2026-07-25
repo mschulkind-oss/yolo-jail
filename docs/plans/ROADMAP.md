@@ -9,16 +9,62 @@ on the tree, the file:line is named.
 
 ## Open work at a glance
 
-Everything not marked done below reduces to **five** open items. In priority /
+Everything not marked done below reduces to **six** open items. In priority /
 lane order:
 
 | # | Open item | Lane | Blocker |
 |---|---|---|---|
+| 0 | **Remove the `gemini` agent** — Google is deprecating it; drop it from the registry, surfaces and docs (see below). Do this FIRST: it shrinks every table the other items touch | jail-side | none — verified safe for `agy` |
 | 1 | **config-composition — non-agent surface ports** (mise, standalone MCP/LSP, git identity onto the prism, then delete their bespoke generators) | jail-side | none — the main remaining agent-completable thread |
 | 2 | **D4 Cachix** (one Mac download proof) | hardware-gated | substituter enabled + account/cache/CI-push all done (2026-07-22); needs only a real Mac to prove the download path |
 | 3 | **composed-file follow-ups** — the deferred tail of `host_files` + two pre-existing prism defects (see below) | jail-side | none; each item is independently shippable |
-| 4 | **agent auth — capture the model, fix the asymmetry** (Claude broker rationale, the six un-investigated agents, macos-user parity, 4 verified defects) | jail-side (macos-user half is Mac-gated) | none for the audit/docs half; the macos-user fixes need a Mac to verify |
+| 4 | **agent auth — capture the model, fix the asymmetry** (Claude broker rationale, the five un-investigated agents, macos-user parity, 4 verified defects) | jail-side (macos-user half is Mac-gated) | none for the audit/docs half; the macos-user fixes need a Mac to verify |
 | 5 | **agent config packs** — share skills/AGENTS.md prose across agents by `(repo, path, branch)`, no PR ([agent-config-packs.md](agent-config-packs.md)) | jail-side | none; Phase 0 is local-only and fixes a standalone `pi`/`codex` skills gap |
+
+### Item 0 — remove the `gemini` agent
+
+**Decision (2026-07-25):** Google is deprecating Gemini CLI, so `gemini` is dropped
+from the supported set rather than carried. It is **out of design consideration** —
+new work should not reason about it, and the supported set becomes six agents:
+`claude`, `copilot`, `opencode`, `pi`, `codex`, `agy`.
+
+Sequenced **first** because it is subtractive: it removes rows from the very tables
+items 1, 3 and 4 are about to rewrite, so doing it after means doing that work twice.
+
+**The one real coupling, and it is already proven safe.** `agy` (Google Antigravity
+CLI) is a *separate* agent whose overlay dir is **nested inside gemini's**:
+`gemini` → `.gemini`, `agy` → `.gemini/antigravity-cli` (`agents.go:111,193`), and two
+of agy's three surfaces live under `~/.gemini/` (`builtin.go:313,412`). That looks like
+a blocker and is not: **this very jail runs `agy` with `gemini` unselected**
+(`YOLO_AGENTS=["claude","pi","codex","agy"]`), and a probe confirms
+`~/.gemini/antigravity-cli` is read-write while its parent `~/.gemini` is read-only.
+podman synthesizes the nested mountpoint, so agy needs no gemini overlay. Removal is
+safe; keep the nested-path shape as-is.
+
+**Blast radius** (`rg -c gemini --type go -g '!*_test.go'`, largest first):
+
+| Where | What to remove |
+|---|---|
+| `internal/agents/agents.go` (19) | the `gemini` `AgentSpec` — install, overlay dir, skills target, briefing pair (`.gemini/AGENTS.md`), mise retire tokens |
+| `internal/agentcfg/builtin.go` (15) | the `geminiSettings` surface (+ its `Defaults`/`Managed`) and its `BuiltinManifest` entry |
+| `internal/entrypoint/prism.go` (4) | `ConfigureGeminiPrism` + `buildGeminiMCPServers` + the `GeminiManagedMCPPath` orphan cleanup |
+| `internal/entrypoint/env.go` (5), `shell.go`, `boot.go`, `agent_configs.go` | `GeminiDir()` and the dispatch/PATH/env references |
+| `internal/entrypoint/prism_{opencode,codex}.go` (4 each) | comment references only — they cite gemini as the reference port for the computed layer; re-point at another surface |
+| `internal/prune/{agentlogs,prunecmd}.go` | `~/.cache/gemini-cli/logs` prune path |
+| `internal/config/hostfiles.go` (3) | `~/.gemini/settings.json` in `builtinSurfacePaths` (keep the two `antigravity-cli` entries) |
+| docs | `config-ref` `agents` list, `agent-credentials.md` matrix, `jail-home.md` overlay list, `composed-file-permissions.md` surface table, AGENTS.md "six agents" |
+
+**Watch for:** `agents.AllOverlayDirs` feeds `reservedHomeSegments`, so dropping
+`.gemini` from the registry changes what `writable_home_dirs` and `host_files` reject —
+`~/.gemini/…` would become a legal user destination. Decide whether to keep `.gemini`
+reserved anyway (agy still writes there). Also `TestBuiltinSurfacePathsMatchManifest`
+and the briefing golden tests will need updating; they are the guardrails that prove
+the removal is complete.
+
+**Migration:** a config naming `gemini` should fail the unknown-agent check with a
+message saying it was removed, not be silently ignored — the same treatment `docker`
+gets (`validate.go`). Existing `<workspace>/.yolo/home/gemini/` dirs and
+`.yolo/prism/gemini-settings.*` sidecars become orphans; `yolo prune` should reap them.
 
 ### Item 3 — composed-file follow-ups
 
@@ -49,9 +95,12 @@ covered: Claude has a whole host daemon, an in-jail TLS terminator and two resea
 writeups; the other six agents have *nothing but a one-way file copy*. That
 asymmetry has never been examined, and a 2026-07-25 audit found it is **investigative,
 not architectural** — the strongest single piece of evidence was in a live jail, not
-the code: **gemini's `~/.gemini/oauth_creds.json` carries a `refresh_token` and
-`expiry_date`** (verified), the exact shape whose rotation is the entire reason Claude
+the code: gemini's `~/.gemini/oauth_creds.json` carried a `refresh_token` and
+`expiry_date` (verified), the exact shape whose rotation is the entire reason Claude
 needs a broker, and the repo mentions a non-Anthropic refresh token **zero times**.
+gemini itself is now being removed (item 0), but the finding survives its subject:
+**agy is the other Google OAuth client**, on the same issuer, with the same
+un-investigated rotation semantics — so the question transfers rather than retires.
 
 Three things make this a real item rather than a tidy-up: the broker's reasoning is
 scattered across two research docs, a README and ~35 commit messages and is
@@ -112,16 +161,19 @@ are partly wrong. Consolidate into one design doc (proposed
   not in `main`). **No evidence found** in `main` of a rationale for rejecting it —
   the two lines developed in parallel and the fork simply ended.
 
-#### 4b. The six un-investigated agents
+#### 4b. The five un-investigated agents
+
+Post-item-0 the set is claude + five others (`gemini` is being removed — see item 0 —
+so it is **out of design consideration** here even though it supplied the evidence
+above):
 
 | Agent | Creds land | Scope | What yolo does |
 |---|---|---|---|
 | **claude** | `~/.claude/.credentials.json` → relative symlink into `~/.claude-shared-credentials` | **host-shared** | broker + terminator + harvest + `claude.json` back-propagation |
 | copilot | `~/.copilot/config.json` (holds a live `gho_` token) | per-workspace | ⚠ *composed by the prism* — can be wiped (item 3) |
-| gemini | `~/.gemini/oauth_creds.json` (**has a `refresh_token`**) | per-workspace | one-way seed only |
 | pi | `~/.pi/agent/` | per-workspace | one-way seed only |
 | codex | `~/.codex/` | per-workspace | one-way seed only |
-| agy | `~/.gemini/antigravity-cli/` | per-workspace | one-way seed only |
+| agy | `~/.gemini/antigravity-cli/` | per-workspace | one-way seed only — and the closest analogue to the removed gemini, since it is the other **Google** OAuth client |
 | opencode | `~/.config/opencode/` | per-workspace, **no inheritance at all** | nothing — it has no `OverlayDirs` entry, so it rides the `.config` overlay, which is created but never seeded. An accident, not a decision. |
 
 `seedAgentDir` copies top-level regular files **from** the `:ro` GlobalHome base into
@@ -176,8 +228,10 @@ session and every workspace**, no container, no bind mounts. Consequences:
 
 #### 4e. Open questions the maintainer must decide
 
-- **Does Google rotate gemini's refresh token?** The single highest-value unknown; it
-  decides whether the broker's problem class is Claude-specific or general.
+- **Does Google rotate its refresh tokens?** The single highest-value unknown; it
+  decides whether the broker's problem class is Claude-specific or general. gemini was
+  the sample that raised it and is departing (item 0), so re-ask against **agy**, which
+  shares Google's issuer.
 - **Keep the TLS-MITM architecture, or revisit `apiKeyHelper`?** A working
   alternative exists on an abandoned fork and `main` records no rejection rationale.
 - **Is per-workspace credential isolation a feature or an accident?** It is currently
