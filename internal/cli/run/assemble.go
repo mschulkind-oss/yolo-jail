@@ -52,6 +52,13 @@ type assembleInput struct {
 	// Already derived + validated by the run pipeline; prepareWsState created
 	// each backing dir, so assembly only emits the -v pairs.
 	writableHomeDirs []string
+	// hostFiles are the resolved user `host_files` entries (config.LoadHostFiles),
+	// already scope-filtered and validated by the run pipeline — assembly only
+	// emits the -v pairs + the YOLO_HOST_FILES env, and must stay free of the
+	// user-config read and the host stat that producing them requires (the same
+	// split as cacheRelocations). prepareHostFiles provisioned each destination's
+	// writable staging before assembly.
+	hostFiles []config.HostFileEntry
 }
 
 // lspNPM / lspGo return the resolved YOLO_LSP_*_INSTALL values.
@@ -333,6 +340,15 @@ func (o *Options) assembleRunCmd(in *assembleInput) []string {
 
 	// --- host files (yolo-declared per-agent set; claude + pi) ---
 	runCmd = append(runCmd, o.hostFileArgs(in)...)
+
+	// --- user host_files: :ro source mounts, writable destinations, wire env ---
+	// Order within the group is fixed: the destination's writable subtree must be
+	// declared alongside the other home binds (podman sorts by destination depth,
+	// so adjacency is cosmetic, but a deterministic argv is not), then the :ro
+	// source inputs under /ctx, then the resolved-entry env the entrypoint decodes.
+	runCmd = append(runCmd, o.hostFileWritableDirArgs(in)...)
+	runCmd = append(runCmd, o.hostUserFileArgs(in)...)
+	runCmd = append(runCmd, o.hostFilesEnv(in)...)
 
 	// --- per-agent briefings ---
 	// Same Apple-Container single-file-mount limitation as yolo-user-env.sh: AC

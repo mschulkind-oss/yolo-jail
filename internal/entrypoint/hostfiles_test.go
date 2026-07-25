@@ -332,3 +332,118 @@ func TestConfigureHostFilesEmptyEnvIsNoop(t *testing.T) {
 		t.Errorf("empty YOLO_HOST_FILES created %d home entries, want none", len(entries))
 	}
 }
+
+// TestHostFilesHomeRootViaSymlink is the entrypoint half of the ~/.npmrc case
+// (docs/design/composed-file-permissions.md §7.5). The CLI stages a DANGLING
+// relative symlink in the :ro home base pointing into a writable overlay; the
+// render must then work unchanged — the write follows the link, `once` seeds
+// because Stat on a dangling link is ENOENT, and readonly's chmod lands on the
+// real target rather than replacing the link.
+func TestHostFilesHomeRootViaSymlink(t *testing.T) {
+	e, ctx := hostFilesTestEnv(t)
+	// The writable overlay the link points into (the jail's ~/.config).
+	if err := os.MkdirAll(filepath.Join(e.Home, ".config", "yolo-home"), 0o755); err != nil {
+		t.Fatal(err)
+	}
+	// The CLI's staging: a dangling relative symlink at the home-root path.
+	link := filepath.Join(e.Home, ".npmrc")
+	if err := os.Symlink(filepath.Join(".config", "yolo-home", "x"), link); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := os.Stat(link); !os.IsNotExist(err) {
+		t.Fatalf("fixture symlink must start dangling, got %v", err)
+	}
+
+	entry := config.HostFileEntry{
+		Path:   ".npmrc",
+		Source: "/host/.npmrc",
+		Codec:  "raw",
+		Mode:   config.HostFileModeOnce,
+	}
+	if err := os.WriteFile(filepath.Join(ctx, entry.Slug()), []byte("--smart-case\n"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	setHostFiles(t, e, entry)
+
+	if err := ConfigureHostFiles(e); err != nil {
+		t.Fatalf("boot 1: %v", err)
+	}
+	// The bytes must land THROUGH the link, in the writable overlay.
+	target := filepath.Join(e.Home, ".config", "yolo-home", "x")
+	if got := readFile(t, target); got != "--smart-case\n" {
+		t.Errorf("content did not land in the overlay target: %q", got)
+	}
+	if got := readFile(t, link); got != "--smart-case\n" {
+		t.Errorf("content not readable at the home-root path: %q", got)
+	}
+	if !isSymlink(t, link) {
+		t.Error("the render replaced the symlink with a regular file; writes must follow it")
+	}
+
+	// `once` must now leave an in-jail edit alone (Stat succeeds through the link).
+	if err := os.WriteFile(target, []byte("--mine\n"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	if err := ConfigureHostFiles(e); err != nil {
+		t.Fatalf("boot 2: %v", err)
+	}
+	if got := readFile(t, target); got != "--mine\n" {
+		t.Errorf("once re-seeded over an in-jail edit: %q", got)
+	}
+}
+
+// TestHostFilesHomeRootReadonlyChmodsTarget: readonly mode must lock the file the
+// symlink points at, not replace the link with a 0o444 regular file.
+func TestHostFilesHomeRootReadonlyChmodsTarget(t *testing.T) {
+	e, ctx := hostFilesTestEnv(t)
+	if err := os.MkdirAll(filepath.Join(e.Home, ".config", "yolo-home"), 0o755); err != nil {
+		t.Fatal(err)
+	}
+	link := filepath.Join(e.Home, ".npmrc")
+	if err := os.Symlink(filepath.Join(".config", "yolo-home", "y"), link); err != nil {
+		t.Fatal(err)
+	}
+
+	entry := config.HostFileEntry{
+		Path: ".npmrc", Source: "/host/.npmrc", Codec: "raw", Mode: config.HostFileModeReadonly,
+	}
+	if err := os.WriteFile(filepath.Join(ctx, entry.Slug()), []byte("a=1\n"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	setHostFiles(t, e, entry)
+
+	if err := ConfigureHostFiles(e); err != nil {
+		t.Fatalf("boot 1: %v", err)
+	}
+	target := filepath.Join(e.Home, ".config", "yolo-home", "y")
+	fi, err := os.Stat(target)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if fi.Mode().Perm() != 0o444 {
+		t.Errorf("target mode = %o, want 0444", fi.Mode().Perm())
+	}
+	if !isSymlink(t, link) {
+		t.Error("readonly mode replaced the symlink instead of chmod'ing its target")
+	}
+	// A host-side change must still re-render over the 0o444 target.
+	if err := os.WriteFile(filepath.Join(ctx, entry.Slug()), []byte("a=2\n"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	if err := ConfigureHostFiles(e); err != nil {
+		t.Fatalf("boot 2: %v", err)
+	}
+	if got := readFile(t, target); got != "a=2\n" {
+		t.Errorf("host change did not propagate through the symlink: %q", got)
+	}
+}
+
+// isSymlink reports whether path is a symlink (Lstat, not Stat).
+func isSymlink(t *testing.T, path string) bool {
+	t.Helper()
+	fi, err := os.Lstat(path)
+	if err != nil {
+		t.Fatalf("lstat %s: %v", path, err)
+	}
+	return fi.Mode()&os.ModeSymlink != 0
+}

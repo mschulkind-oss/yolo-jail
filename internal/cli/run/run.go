@@ -247,6 +247,32 @@ func (o *Options) runContainer(cfg *jsonx.OrderedMap, rt, repoRoot string) int {
 		}
 	}
 
+	// User host_files (docs/plans/host-file-staging.md). Read with the same
+	// scope rule as cache_relocations — a SOURCE-BEARING entry comes only from the
+	// host user config, never the merged/workspace one, so a repo cannot decide
+	// which host files cross into the jail (config.LoadHostFiles enforces that by
+	// construction). probeSource is on host-side only: host paths are deliberately
+	// not in a jail's mount namespace, so stat'ing them from a nested run would
+	// turn a valid host config into a fatal error.
+	//
+	// Unlike cache_relocations a failure here is a WARNING, not fatal: every entry
+	// renders fail-open in the entrypoint anyway (a missing source falls back to
+	// the defaults layer), so a jail that starts without one composed file is the
+	// feature degrading, not the jail running against the wrong storage.
+	hostFiles, hfErr := config.LoadHostFiles(cfg, func(msg string) {
+		out.printf("[yellow]Warning: %s[/yellow]", msg)
+	}, !o.inJail())
+	if hfErr != nil {
+		out.printf("[yellow]Warning: host_files: %s — no host files staged[/yellow]", hfErr.Error())
+		hostFiles = nil
+	}
+	// Provision each destination's writable staging BEFORE the argv is assembled:
+	// a missing bind source kills the whole container, and the GlobalHome symlink
+	// hatch must exist before the :ro base is applied.
+	if rt != "container" {
+		prepareHostFiles(wsState, hostFiles)
+	}
+
 	// --- Assemble the ordered argv ---
 	in := &assembleInput{
 		cfg:              cfg,
@@ -265,6 +291,7 @@ func (o *Options) runContainer(cfg *jsonx.OrderedMap, rt, repoRoot string) int {
 		storePruneOK:     storePruneOK,
 		cacheRelocations: relocations,
 		writableHomeDirs: config.WritableHomeDirs(cfg),
+		hostFiles:        hostFiles,
 	}
 	runCmd := o.assembleRunCmd(in)
 
