@@ -699,3 +699,75 @@ func TestSourceLessHostFiles(t *testing.T) {
 		t.Errorf("SourceLessHostFiles kept the wrong entries: %+v", got)
 	}
 }
+
+// ---- destination staging (docs/design/composed-file-permissions.md §7.5) ----
+
+// TestHostFileStagingCategories pins which destinations need host-side staging to
+// be writable. This is the whole reason ~/.npmrc did not work: the jail home is a
+// :ro bind, so only a destination under an existing rw bind composes for free.
+func TestHostFileStagingCategories(t *testing.T) {
+	for _, c := range []struct {
+		name  string
+		entry HostFileEntry
+		want  HostFileStaging
+	}{
+		{"under .config is already rw", HostFileEntry{Path: ".config/mytool/config.json"}, HostFileStagingNone},
+		{"under .cache is already rw", HostFileEntry{Path: ".cache/tool/x.json"}, HostFileStagingNone},
+		{"under .local is already rw", HostFileEntry{Path: ".local/share/x"}, HostFileStagingNone},
+		{"under an agent overlay dir is rw", HostFileEntry{Path: ".claude/extra.json"}, HostFileStagingNone},
+		{"pi overlay dir is rw", HostFileEntry{Path: ".pi/agent/models.json"}, HostFileStagingNone},
+		{"home-root dotfile needs the symlink hatch", HostFileEntry{Path: ".npmrc"}, HostFileStagingSymlink},
+		{"home-root plain file needs the symlink hatch", HostFileEntry{Path: "gitignore_global"}, HostFileStagingSymlink},
+		{"new top-level dir needs a writable subtree", HostFileEntry{Path: "foo/bar.json"}, HostFileStagingWritableDir},
+		{"deep new top-level dir needs a writable subtree", HostFileEntry{Path: "foo/bar/baz.conf"}, HostFileStagingWritableDir},
+		{"home-root DIR entry needs a writable subtree", HostFileEntry{Path: "mydir", IsDir: true}, HostFileStagingWritableDir},
+		{"dir under .config is already rw", HostFileEntry{Path: ".config/nvim", IsDir: true}, HostFileStagingNone},
+	} {
+		if got := c.entry.StagingFor(); got != c.want {
+			t.Errorf("%s: StagingFor(%q, isDir=%v) = %v, want %v",
+				c.name, c.entry.Path, c.entry.IsDir, got, c.want)
+		}
+	}
+}
+
+// TestHostFileSymlinkTargetIsInWritableConfig: the symlink hatch must point INTO
+// a read-write overlay, or it is a dangling link to another read-only path. It
+// must also be slug-keyed so two home-root entries can never share a target.
+func TestHostFileSymlinkTargetIsInWritableConfig(t *testing.T) {
+	a := HostFileEntry{Path: ".npmrc"}
+	b := HostFileEntry{Path: ".gitignore_global"}
+	for _, e := range []HostFileEntry{a, b} {
+		target := e.SymlinkTarget()
+		if !strings.HasPrefix(target, ".config/") {
+			t.Errorf("SymlinkTarget(%q) = %q, want a path under .config/ (the rw overlay)", e.Path, target)
+		}
+		// The target itself must need no further staging, else the hatch is moot.
+		if got := (HostFileEntry{Path: target}).StagingFor(); got != HostFileStagingNone {
+			t.Errorf("SymlinkTarget(%q) = %q, which itself needs staging %v", e.Path, target, got)
+		}
+	}
+	if a.SymlinkTarget() == b.SymlinkTarget() {
+		t.Errorf("two home-root entries share a symlink target %q — captured content would cross over", a.SymlinkTarget())
+	}
+}
+
+// TestHostFileWritableParent: a file entry stages its PARENT (the dir that must
+// exist), a directory entry stages ITSELF (copyTree copies into it).
+func TestHostFileWritableParent(t *testing.T) {
+	for _, c := range []struct{ path, want string }{
+		{"foo/bar.json", "foo"},
+		{"foo/bar/baz.conf", "foo/bar"},
+	} {
+		if got := (HostFileEntry{Path: c.path}).WritableParent(); got != c.want {
+			t.Errorf("WritableParent(%q) = %q, want %q", c.path, got, c.want)
+		}
+	}
+	if got := (HostFileEntry{Path: "mydir", IsDir: true}).WritableParent(); got != "mydir" {
+		t.Errorf("WritableParent(dir mydir) = %q, want mydir (the tree is copied INTO it)", got)
+	}
+	// A home-root FILE has no meaningful parent dir to stage — it takes the
+	// symlink route instead, but WritableParent must not return "." either way.
+	if got := (HostFileEntry{Path: ".npmrc"}).WritableParent(); got == "." {
+		t.Errorf("WritableParent(.npmrc) = %q, must never be the home root itself", got)
+	}
+}

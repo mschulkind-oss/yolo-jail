@@ -22,6 +22,7 @@ import (
 	"strings"
 
 	"github.com/mschulkind-oss/yolo-jail/internal/agentcfg/codec"
+	"github.com/mschulkind-oss/yolo-jail/internal/agents"
 	"github.com/mschulkind-oss/yolo-jail/internal/jsonx"
 	"github.com/mschulkind-oss/yolo-jail/internal/paths"
 	"github.com/mschulkind-oss/yolo-jail/internal/pytext"
@@ -884,4 +885,105 @@ func SourceLessHostFiles(entries []HostFileEntry) []HostFileEntry {
 		}
 	}
 	return out
+}
+
+// HostFileStaging names what the host CLI must provision so a destination is
+// WRITABLE inside the jail. The jail home is a `:ro` bind of GlobalHome with
+// read-write binds nested inside it, so where a destination lands decides whether
+// the entrypoint's composed write succeeds at all — an uncovered path EROFS-fails
+// (docs/design/composed-file-permissions.md §7.5).
+type HostFileStaging int
+
+const (
+	// HostFileStagingNone: the destination already sits under a read-write bind
+	// (`~/.config/…`, `~/.cache/…`, `~/.local/…`, `go/…`, or a selected agent's
+	// overlay dir). The entrypoint's own MkdirAll+write just works; provisioning
+	// anything here would shadow a yolo mount.
+	HostFileStagingNone HostFileStaging = iota
+
+	// HostFileStagingSymlink: a HOME-ROOT file (`~/.npmrc`) — it would land
+	// directly in the `:ro` base. The CLI materializes a relative symlink in
+	// GlobalHome pointing into the writable `~/.config` overlay, exactly as
+	// storage.EnsureSymlink already does for .bashrc/.claude.json/.gitconfig.
+	//
+	// A DIRECTORY bind cannot serve this case (it would make the destination a
+	// directory, so the composed write fails "is a directory"), and a
+	// pre-created EMPTY backing file is worse: os.Stat on a bind-mounted empty
+	// file SUCCEEDS, so HostFileModeOnce's seed-if-absent guard returns early on
+	// the very first boot and the file stays empty forever. A DANGLING symlink is
+	// the one shape that keeps `once` correct — Stat yields ENOENT until it is
+	// seeded, then succeeds.
+	HostFileStagingSymlink
+
+	// HostFileStagingWritableDir: a NEW top-level directory (`~/foo/bar.json`) —
+	// the parent does not exist in the `:ro` base at all, so the entrypoint's
+	// MkdirAll EROFS-fails before any write. The CLI stages the destination's
+	// parent as a writable subtree, reusing the writable_home_dirs recipe
+	// (backing dir + GlobalHome mountpoint + a nested rw bind).
+	HostFileStagingWritableDir
+)
+
+// hostFileWritableRoots are the home-relative first segments already covered by a
+// read-write bind, so a destination under one needs no staging. Authority:
+// podmanBaseMounts (internal/cli/run/assemble_parts.go) plus the per-agent overlay
+// dirs (agents.AllOverlayDirs, emitted for SELECTED agents only).
+//
+// `.ssh` is deliberately absent: it is a rw bind, but composing a file into the
+// jail's ssh dir from config is not a use case worth blessing implicitly.
+var hostFileWritableRoots = func() map[string]struct{} {
+	roots := map[string]struct{}{
+		".config": {}, ".cache": {}, ".local": {}, "go": {}, ".npm-global": {},
+	}
+	for _, d := range agents.AllOverlayDirs {
+		roots[firstHomeSegment(d)] = struct{}{}
+	}
+	return roots
+}()
+
+// StagingFor reports what the host CLI must provision for this entry's
+// destination. It keys on the destination's FIRST SEGMENT, because that is what
+// the mount table keys on: a nested rw bind covers its whole subtree, so
+// `.config/mytool/config.json` is writable for the same reason `.config/x` is.
+//
+// A directory entry never needs symlink staging (its tree is copied wholesale
+// into the destination, and copyTree does its own MkdirAll), but it does still
+// need a writable parent, so the dir case falls through the same way.
+func (e HostFileEntry) StagingFor() HostFileStaging {
+	seg, rest := firstHomeSegment(e.Path), strings.Contains(e.Path, "/")
+	if _, ok := hostFileWritableRoots[seg]; ok {
+		return HostFileStagingNone
+	}
+	if !rest {
+		// No slash at all: the destination IS a home-root leaf. A file needs the
+		// symlink hatch; a bare directory entry needs a writable subtree.
+		if e.IsDir {
+			return HostFileStagingWritableDir
+		}
+		return HostFileStagingSymlink
+	}
+	return HostFileStagingWritableDir
+}
+
+// SymlinkTarget is the home-relative path a HostFileStagingSymlink entry's
+// GlobalHome symlink points at: a private subtree of the writable `~/.config`
+// overlay, keyed by the entry's injective slug so two entries can never collide.
+//
+// Kept under `.config/yolo-home/` rather than the overlay root so a composed
+// home-root file is visibly yolo-provisioned and can never collide with a real
+// `~/.config` entry a tool expects to own.
+func (e HostFileEntry) SymlinkTarget() string {
+	return path.Join(".config", "yolo-home", e.Slug())
+}
+
+// WritableParent is the home-relative directory a HostFileStagingWritableDir
+// entry needs staged read-write: the destination's parent for a file, or the
+// destination itself for a directory entry (whose tree is copied INTO it).
+func (e HostFileEntry) WritableParent() string {
+	if e.IsDir {
+		return e.Path
+	}
+	if dir := path.Dir(e.Path); dir != "." {
+		return dir
+	}
+	return e.Path
 }
