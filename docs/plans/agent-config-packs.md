@@ -528,6 +528,39 @@ problem is already solved inside yolo-jail and is *not exportable*.
   agree with `yolo` on storage layout, mount syntax, agent registry and refresh
   timing doubles the install surface to gain nothing.
 
+### Two seams were argued for and both were checked
+
+The case for a standalone `agentpack` rests on a claim that is **true**: a
+user-scope `host_files` directory entry already consumes an externally-produced
+tree with **zero new yolo code**. Verified — `stageHostFile`
+(`internal/entrypoint/hostfiles.go:62-74`) `copyTree`s `/ctx/host-user/<slug>` into
+`~/<path>`; a dir entry is `mode: copy`-only (`hostfiles.go:558`) and must be
+source-bearing (`:579`); `StagingFor()` (`:1020-1033`) routes a home-root dir dest
+to a writable subtree; and `.agents` is in no reserved table. So
+`{"path": ".agents", "source": "~/.local/share/agentpack/out/agents", "mode": "copy"}`
+works today.
+
+It lands in the wrong place, and the reason is mechanical rather than aesthetic.
+The staging directory for skills is the **source of a live `:ro` bind**, and
+`PrepareSkills` clears its contents rather than rmtree'ing it precisely because a
+running jail captured that inode (`internal/agents/skills.go:38`). So an external
+producer cannot put a skill where the agent reads skills; it can only create a
+*parallel* `~/.agents/skills` tree, which Claude Code does not read at all and
+which for four of seven agents is simply the wrong path. Whatever inserts pack
+skills must run in the process that owns the inode contract, on every invocation
+including attach. **Projection is not extractable**; the fetch half is. That is
+exactly the split `internal/packsrc` encodes.
+
+The hybrid position — split at the materialized-tree-plus-lock seam, standalone
+core owns fetch/credentials/store/lock, yolo owns declaration scope and projection
+— is the same boundary this proposal draws, one repo earlier. Its own falsification
+test is the honest tell: "if `internal/packs/` contains a git invocation at 6
+months, the seam did not hold and this should have been one repo." With one
+maintainer, four open ROADMAP items, and zero packs in existence, starting as two
+repos with a JSON contract designed for a fetcher that does not yet exist is the
+expensive way to reach the same place. Keeping `internal/packsrc` import-clean
+reaches it for free and defers the repo split until a second consumer exists.
+
 **The strongest counter is real: most engineers at the company don't run
 yolo-jail.** If the sharing mechanism only works inside the jail, the shared
 corpus reaches a single-digit fraction of the org.
@@ -600,6 +633,18 @@ Controls, in the order they must ship:
   SHA-pinned tag, never a branch. A branch pin plus code execution means a
   colleague can change what runs on your machine *after* you approved it, which
   defeats approval entirely. This follows pre-commit's rule.
+- **Reuse the reserved-destination tables; never re-derive them.** A pack
+  destination goes through `checkHostFileDest` against `hostFileReservedDests()`
+  (`internal/config/hostfiles.go:716-740`), which unions `reservedHomeFiles`
+  (`internal/config/writablehome.go:63-68` — `.gitconfig`, `.bashrc`,
+  `.claude.json`, the yolo sentinels) with `builtinSurfacePaths`
+  (`hostfiles.go:701-714`). Note that second list is a **hand-maintained 12-entry
+  duplicate** of the manifest, kept duplicated to keep the Lua VM out of
+  `internal/config` and guarded only by `TestBuiltinSurfacePathsMatchManifest` — so
+  a pack-declared surface must be added there too, or the drift check goes stale
+  silently. This is also where ROADMAP item 3's symlink-target gap
+  (`~/.config/git/config` validates while its alias is rejected) is inherited
+  rather than re-introduced.
 - **Reserve the four built-in skill names.** `internal/agents/skills.go` writes
   built-ins first and then copies later layers over them, and
   `internal/agents/agentsmd.go:210-211` tells every agent, in the briefing, to
@@ -661,9 +706,25 @@ a docs citation. `yolo pack init|lint|ls|split|explain`.
 Independently valuable: it is the entire authoring loop, "share by `git clone` +
 one `file://` line" is already a working story for a small team, and it fixes
 cross-agent skills for six of seven agents whether or not phase 1 lands.
-Verification is a nested `yolo -- bash` run **by path** per AGENTS.md: `ls
-~/.claude/skills` and `ls ~/.pi/agent/skills` both show the pack's skill, and a
-write to either returns EROFS.
+Verification is a nested `yolo -- bash` run **by path** per AGENTS.md
+(`./dist-go/linux-$(go env GOARCH)/yolo -- bash`, never bare `yolo` — that is the
+baked launcher, frozen at the last host `just load`, and a failed nix build falls
+back to a stale image silently): `ls ~/.claude/skills` and `ls ~/.pi/agent/skills`
+both show the pack's skill, and a write to either returns EROFS. The argv golden
+(`internal/cli/run/assemble_test.go:346`) asserts the exact command line, so the
+skills-mount change updates it; phase 0 adds no new mount, which is part of why it
+is the cheap slice.
+
+**Backend coverage, stated up front rather than discovered.** Skills reach the jail
+as `:ro` mounts, so the story differs per backend: podman is the reference path;
+Apple Container cannot bind-mount a single file and needs `acMaterialize`
+(`assemble.go:189,361`), which the existing briefing path already uses; and
+**macos-user has no mount concept and no `/ctx` at all** — `SourceLessHostFiles`
+(`internal/config/hostfiles.go:918-926`) filters source-bearing `host_files`
+entries out on that backend *specifically so the deficiency stays explicit rather
+than half-working*. Packs are source-bearing by definition, so macos-user needs a
+copy-based staging fallback, tracked as the same known gap and Mac-gated. Phase 0's
+`file://` sources make this tractable: the source is already a local host path.
 
 **Phase 1 — git sources (~1 week, ~260 lines in one dependency-free package).**
 `internal/packsrc`: `ParseAddr`, `Store.Sync` (blobless promisor mirror,
@@ -696,9 +757,8 @@ forbidden for pack-declared surfaces, with a test.
 Separable and independently valuable: it closes a documented zero-caller engine
 seam that ROADMAP item 1 benefits from regardless of packs. Note the risk: those
 call sites are shared with the `host_files` dynamic-surface capture path, so a
-capture regression test lands *before* `Workspace` is filled. macos-user needs
-the copy-based fallback here (no `/ctx`, no mount concept), and Apple Container
-needs `acMaterialize`; both halves are Mac-gated.
+capture regression test lands *before* `Workspace` is filled. The per-backend
+fallbacks named in phase 0 apply to this mount too; both halves are Mac-gated.
 
 **Phase 3 — the sharp edges, each independently refusable.**
 `allow_exec: true` gating hooks and MCP contributions, routed through existing
