@@ -132,18 +132,28 @@ Raised in review, and worth answering because it is the one row where the "somet
 else writes it" writer is a *tool yolo itself installed*, not an agent going
 off-script. Three findings shape the answer.
 
-**There is a real use case, and it is the lack of a restart.** The declarative routes
-both work: `mise_tools` in `yolo-jail.jsonc` (injected as the computed layer via
-`YOLO_MISE_TOOLS`) and a workspace `/workspace/mise.toml` (a live mise layer, re-read
-every boot). But both are *config* changes, and a config change means `yolo check` plus
-a jail restart. `mise use -g <tool>` is the in-session escape hatch: an agent mid-task
-discovers it needs `jq` at a specific version and installs it without tearing down the
-jail it is working in. Blocking that would make the only path "stop, edit config,
-restart, re-establish context" — the exact friction the writable-home islands exist to
-avoid. So **capture is right here**, and the design already reasons this way
-deliberately: the computed layer folds *above* the overlay, so an injected pin still
-beats a stale in-jail `mise use -g`, while a genuinely user-added tool survives
-(`prism_mise.go:44-46`).
+**The restart argument is weaker than it first looks, because `/workspace/mise.toml`
+needs no restart either.** That file is **not** a composed surface — mise reads it
+natively (`prism_mise.go:343` scopes the prism to the global config only) — it is an
+ordinary workspace file the agent can edit, and `mise install` applies it immediately.
+So for a **project** tool the loop is already "edit `mise.toml`, `mise install`, done":
+no yolo config, no restart, no capture, and the change is *committed with the repo*,
+which is strictly better than any of the alternatives. That is the path to steer at,
+and it should be the default recommendation.
+
+**What remains is a genuinely narrow case**, and worth naming precisely: a tool needed
+**globally in the jail but deliberately not recorded in the project**. Examples are
+thin — a one-off diagnostic the repo should not depend on, or a tool for work outside
+`/workspace` (`~`, `/tmp`). For anything the project actually needs, `mise.toml` is
+correct and `mise use -g` is the wrong file. So the honest statement is not "there is a
+real use case for `mise use -g`" but "**the global case is rare, and the common case has
+a better answer that needs no restart at all**."
+
+That still argues for capture rather than prevention, but on a weaker ground: the global
+case is rare, not important. When it does happen, capture is what makes it survive, and
+the layer order already handles the conflict — the computed layer folds *above* the
+overlay, so an injected `mise_tools` pin beats a stale in-jail `mise use -g` while a
+genuinely user-added tool survives (`prism_mise.go:44-46`).
 
 **Preventing it is also not really available.** `mise` is on `PATH` and the agent is
 UID 0; `mise use -g` writes an ordinary file in a writable overlay. The strongest
@@ -158,8 +168,11 @@ prevent" framing of §2.
 So there is no managed-key-reverts-on-edit surprise to explain: the only precedence
 rule is "an injected pin wins its own key, everything else you added is yours."
 
-**Recommendation:** keep capture, add the `0o444` signal, and document the two
-declarative routes in the error path so the signal is actionable.
+**Recommendation:** keep capture (the global case is rare but real), add the `0o444`
+signal, and make the signal *point at `mise.toml` + `mise install` first* — the
+no-restart, committed-with-the-repo path — with `mise_tools` as the fallback for a tool
+that must exist before the workspace is trusted. Steering an agent to `mise use -g` at
+all is close to a mistake; steering it to `mise.toml` is the win.
 
 ### 3.0.2 mise-specific plumbing that should fold into the prism
 
@@ -215,9 +228,21 @@ none of those agents has ever been launched in this jail (no installed binary, n
 launcher stamp), so their empty overlays prove nothing. Do not read "empty
 overlay" as "safe to make read-only".
 
-## 4. Bugs and inconsistencies this audit found
+## 4. Defect register — verified bugs, each with its fix
 
-These are independent of any redesign and worth fixing regardless.
+**This section IS the work list for defects**; §9 sequences it rather than restating
+it. Every entry below was reproduced by probe, not inferred, and each carries the fix
+inline so the section is actionable on its own. All five are independent of any
+redesign — they are broken today.
+
+| # | Defect | Severity | Fix |
+|---|---|---|---|
+| [4.1](#41-gitconfig-is-unwritable-and-git-config---global-fails) | `~/.gitconfig` unwritable; `git config --global` fails "Device or resource busy" | confusing, arguably correct behavior | make the intent legible (drop the decoy symlink, or surface the header) |
+| [4.2](#42-copilotconfig-can-wipe-a-live-oauth-token) | `copilot/config` can **wipe a live OAuth token** | ⚠ **data loss** | stop composing it wholesale — see [§5.1](#51-where-should-the-sidecars-live-open--needs-a-decision), same fix also removes the token from the capture diff |
+| [4.3](#43-claudeconfig-is-a-dead-surface-with-two-live-side-effects) | `claude/config` declared but never rendered; `config render` renders it anyway | misleading output, one `writeInPlaceString` from data loss | mark it explicitly non-rendered so both the CLI and any future generic loop skip it |
+| [4.4](#44-yolo-config-render-does-not-show-what-the-jail-gets) | `config render` omits the overlay **and** computed layers, and reads "host" from its own destination | the debugging command lies | feed it the real layers, or relabel it a defaults+host preview |
+| [4.5](#45-host_files-reserves-symlink-aliases-but-not-their-targets) | reserved destinations miss symlink **targets** | gap, not yet exploited | reserve targets alongside aliases |
+| [§2](#2-where-composed-files-actually-live-and-why-nothing-is-enforced-today) | `writeInPlaceString`'s "umask-independent 0o644" comment is false | latent | set modes explicitly (`writeBytesMode`) and correct the comment |
 
 ### 4.1 `~/.gitconfig` is unwritable, and `git config --global` fails
 
@@ -334,31 +359,51 @@ permanent" framing applies only to a key that is never rewritten.
 
 ### 5.1 Where should the sidecars live? (open — needs a decision)
 
-Raised in review: this is **real state**, arguably valuable enough to commit, and it
-currently hides under `<workspace>/.yolo/`, which `.gitignore:6` excludes wholesale.
-Three findings constrain the answer, and the first is disqualifying for the simple
-version.
+Raised in review: the captured diff is **real state**, arguably valuable enough to
+commit, and it currently hides under `<workspace>/.yolo/`, which `.gitignore:6` excludes
+wholesale. **Only one of the two sidecars is state**, and getting that right changes the
+shape of the answer:
 
-**⚠ A sidecar already contains a secret.** `rg -l "tvly-" .yolo/prism/` matches
-`codex-config.last_render` in this very workspace — an API key, in cleartext, because
-`last_render` is a byte copy of a rendered file that had `${VAR}` interpolated into it.
-So **"just move them somewhere committable" cannot be the default.** Any scheme that
-makes the directory a candidate for `git add` needs the secret question answered first
-— and there is no redaction concept anywhere in the design today.
-
-**The two sidecars are not the same kind of thing**, which is what makes a single
-answer awkward:
-
-| Sidecar | What it is | Shareable? |
+| Sidecar | Kind | Why |
 |---|---|---|
-| `<surface>.overlay.json` | the **captured edits** — a user's/agent's intent, small, human-readable, the thing you might want to keep or review | plausibly yes |
-| `<surface>.last_render` | a byte copy of yolo's own output, purely a **diff baseline**, regenerable, and the one that can hold interpolated secrets | **no** — it is cache, not state |
+| `<surface>.overlay.json` | **STATE** — the only durable thing here | the captured diff: a user's/agent's intent, small, human-readable, and irrecoverable if deleted |
+| `<surface>.last_render` | **CACHE** | it is literally `res.Encoded` (staterender.go:193) — a byte copy of yolo's own output, regenerated every boot, and its absence *self-heals* via the first-migration reseed (staterender.go:129) |
 
-That split suggests the honest move is not "relocate the directory" but **separate the
-two by kind**: the overlay is durable state, `last_render` is a cache. Once split, the
-cache can stay gitignored under `.yolo/` (or move to `GlobalStorage` entirely, since it
-is per-workspace but not workspace-*content*), and only the overlay is a candidate for
-anywhere visible.
+That distinction also relocates an earlier finding. This audit reported "a sidecar
+contains a secret" (`codex-config.last_render` holds a `tvly-` API key, because
+`last_render` copies a rendered file after `${VAR}` interpolation) and treated it as
+disqualifying for the whole directory. **It is not** — it is a fact about the *cache*,
+and the cache was never a candidate for anywhere visible. Splitting cache from state
+therefore does more than tidy naming: it **removes the secret objection from the state
+file**, which is the thing you might want to move.
+
+**But secrets will reach the capture diff too, by a different route** — and this is the
+real constraint, verified rather than hypothesized. An in-jail `/login` writes
+credentials into a file that *is* a composed surface, and the next boot captures them:
+`~/.copilot/config.json` holds `copilot_tokens`, `logged_in_users` and
+`last_logged_in_user` (probed live) **and** renders through `renderSurfaceStateful`
+(prism.go:376). So on any workspace with copilot selected, a login puts an OAuth token
+into `copilot-config.overlay.json`. Not "could" — will, by construction.
+
+Which points at the reviewer's own suggestion as the right structural fix: **credential
+state should not be a composed surface at all.** It should live in an *unmanaged* file
+the prism never renders and never captures — which is exactly the posture
+[§1](#1-the-one-paragraph-answer) calls **State** (`~/.claude.json` already has it:
+declared in the manifest but deliberately never rendered, written bespoke because it
+"must NEVER be wiped"). Doing that for `copilot/config` would:
+
+- remove the token from the capture path entirely, so the overlay becomes genuinely
+  shareable-in-principle;
+- **also fix the ⚠ token-wipe defect in [§4.2](#42-copilotconfig-can-wipe-a-live-oauth-token)** — the
+  same root cause, one fix;
+- and require a home to persist in, which is the "explicitly allow for" part: a
+  credential file needs a writable, *non-composed* location. `~/.copilot/` is already a
+  writable overlay (§2), so the file can simply stay where it is once the prism stops
+  owning it — no new mount, no new allowlist entry. The requirement is to stop
+  composing it, not to relocate it.
+
+So the ordering inverts: **de-compose credential surfaces first**, and the sidecar
+location question gets much easier afterwards.
 
 **Options, and what each costs:**
 
@@ -379,12 +424,14 @@ anywhere visible.
    but it splits the sidecar layout into a variable, which every reader of
    `prismSidecarDir` then has to know about, and `yolo config reset` has to search both.
 
-**My recommendation:** ① now, ② next, and treat ③/④ as blocked on two prior questions
-that are worth answering on their own merits anyway — *should env_sources secrets be
-redactable in composed output?* (already an open question in ROADMAP item 4) and *is a
-captured edit per-workspace or per-machine?* Committing machine-specific captured edits
-to a shared repo is a different feature (shared config packs, ROADMAP item 5) and
-probably wants that mechanism rather than this one.
+**My recommendation:** ① now, then **de-compose the credential surfaces** (above), then
+② — because after de-composing, ② is what makes "the overlay is safe to look at" a true
+statement rather than an aspiration. ③/④ stay blocked, but on **one** remaining question
+rather than two: *is a captured edit per-workspace or per-machine?* A captured
+`theme: dark` committed to a shared repo is at best noise; if the answer is
+"per-machine", the whole idea of committing it dissolves and ④'s config key is the only
+sensible form. (Committing *intentional* shared config is a different feature —
+ROADMAP item 5, config packs — and probably wants that mechanism, not this one.)
 
 ## 6. Why `0o444` is not a posture
 
@@ -693,30 +740,27 @@ Ordered by value per unit of work; none of this is large.
 
 Ordered by "fixes a real defect" before "improves the model".
 
-**Defects (independent of the redesign):**
-
-1. `copilot/config` must stop being a wholesale-composed surface — it can wipe a
-   live OAuth token on any first-migration boot (§4.2).
-2. Reserve symlink *targets* (`~/.config/git/config`, `~/.config/bashrc`,
-   `~/.claude/claude.json`) alongside their reserved aliases (§4.5).
-3. Mark `claude/config` explicitly non-rendered so `config render` stops printing
-   a composition the jail never performs (§4.3).
-4. Fix the `writeInPlaceString` umask claim — set modes explicitly and correct
-   the comment (§2).
-5. Make `~/.gitconfig`'s unwritability legible rather than a "Device or resource
-   busy" mystery (§4.1).
+**Defects:** see the [§4 register](#4-defect-register--verified-bugs-each-with-its-fix)
+— five verified bugs, each with its fix stated inline. Sequence them **4.2 first** (it is
+the only data-loss one, and de-composing that surface also removes credentials from the
+capture diff, so it unblocks [§5.1](#51-where-should-the-sidecars-live-open--needs-a-decision)),
+then 4.3/4.5 (cheap correctness), then 4.4 and the §2 umask fix.
 
 **The model:**
 
-6. `yolo config ls` + boot divergence notice + `config diff` / `config reset`
-   (§7.2) — already Phase 3 of host-file-staging.md, and the prerequisite for
-   `capture` being defensible at all.
-7. Overlay auto-retire: drop a captured key equal to the layer beneath it (§5).
-8. Feed `config render` the overlay + computed layers, or relabel it (§4.4).
-9. Collapse `host_files`' four modes to three; implement `readonly` as `:ro`
+1. ~~`yolo config ls` + boot divergence notice + `config diff` / `config reset`~~ —
+   **✅ SHIPPED 2026-07-25** (`e138c55`, `91d2c2a`). This was the prerequisite for
+   `capture` being defensible at all. Remaining gap is not the machinery but its
+   *discoverability* — see item 5.
+2. Overlay auto-retire: drop a captured key equal to the layer beneath it (§5).
+3. Split cache from state — `last_render` is regenerable cache, the overlay is the
+   only durable thing ([§5.1](#51-where-should-the-sidecars-live-open--needs-a-decision)).
+4. Collapse `host_files`' four modes to three; implement `readonly` as `:ro`
    where possible instead of `0o444` (§7.4).
-10. Home-root destinations via `EnsureSymlink`; new top-level dirs via
-    `writable_home_dirs` staging (§7.5).
+5. Steer directed agents at composed surfaces — the docs-only gap in
+   [§8.4](#84-what-to-do-about-it), which is the highest value-per-effort item here.
+6. Home-root destinations via `EnsureSymlink`; new top-level dirs via
+   `writable_home_dirs` staging (§7.5).
 
 **Evidence still missing:** whether pi, codex, opencode, and agy rewrite their own
 settings files. Nobody has launched them in a jail long enough to know, and their
