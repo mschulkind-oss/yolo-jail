@@ -465,7 +465,9 @@ func podmanLinuxGolden(home string) []string {
 		"-e", "YOLO_HOST_DIR="+ws,
 		"-e", "YOLO_VERSION=9.9.9-test",
 		"-e", "OVERMIND_SOCKET=/tmp/overmind.sock",
-		"-e", "YOLO_MISE_TOOLS={\"neovim\": \"stable\"}",
+		// yolo ships no default mise tool — every default runtime is a baked nix
+		// package instead (config.go defaultMiseToolsKeys is deliberately empty).
+		"-e", "YOLO_MISE_TOOLS={}",
 		"-e", "YOLO_LSP_SERVERS={}",
 		"-e", "YOLO_LSP_NPM_INSTALL=",
 		"-e", "YOLO_LSP_GO_INSTALL=",

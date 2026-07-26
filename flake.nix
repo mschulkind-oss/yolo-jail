@@ -657,6 +657,7 @@
           imagePkgs.nodejs_24
           imagePkgs.python3
           imagePkgs.go            # baked so the default go is RPATH-self-contained like node/python — no LD_LIBRARY_PATH dependency, no mise download on first use
+          imagePkgs.neovim        # baked for the same reason, and because the run env sets VISUAL=nvim unconditionally (human ctrl-g editing): nvim must exist without any mise_tools entry. Was `mise_tools: {neovim: stable}` by default; a tool yolo wants in EVERY jail belongs in the image, not a per-workspace mise store. Override with mise_tools for a nightly/pinned build.
           imagePkgs.gh
           imagePkgs.gnused
           imagePkgs.gnugrep

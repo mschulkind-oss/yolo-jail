@@ -405,10 +405,27 @@
 
   [bold]mise_tools[/bold] (object): Extra tools installed via mise in the jail.
     Keys are mise tool names, values are version strings.
-    Default: {"neovim": "stable"}
+    Default: {} — yolo ships no mise tool of its own. Every default runtime is a
+    baked nix package instead (self-contained, present at boot, no first-use
+    download).
     These are injected into the jail's global mise config (not workspace mise.toml).
     Deep-merged: user config adds tools, workspace config overrides versions.
-    Example: {"neovim": "nightly", "typst": "latest"}
+
+    [bold]Which of the three places does your tool belong?[/bold] They are not
+    interchangeable, and picking by habit is the common mistake:
+      • The PROJECT needs it to build (a language runtime, a linter CI also runs)
+        -> [bold]/workspace/mise.toml[/bold]. Committed, so CI and non-jail users get it
+        too, and `mise install` applies it with NO restart. Putting a project
+        requirement in mise_tools hides it where nobody outside a jail can see it.
+      • YOU want it in every jail, but not on your host (an editor, a personal
+        utility) -> [bold]mise_tools in ~/.config/yolo-jail/config.jsonc[/bold]. This is the
+        one thing no workspace file can express, and the reason this key exists.
+      • It is available in nixpkgs at the version you want -> prefer [bold]packages[/bold].
+        Costs an image rebuild, but the binary is self-contained and present at
+        boot. Reach for mise_tools when nix does not track what you need — a
+        nightly channel, or a PyPI/npm-only tool (e.g. "pipx:some-tool").
+    Once a mise_tools entry stabilizes, consider promoting it to `packages`.
+    Example (user config): {"neovim": "nightly", "pipx:some-tool": "latest"}
 
   [bold]lsp_servers[/bold] (object): Additional language servers for Copilot and Gemini (Claude uses its own tools).
     Default servers (always present): python (pyright), typescript, go (gopls).

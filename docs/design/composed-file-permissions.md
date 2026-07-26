@@ -233,11 +233,24 @@ The review's sharpened version: `mise_tools` is really for **support tools for t
 or MCP that are not available or convenient in nix**, they never need changing at runtime,
 so a restart is fine — could nix bake them instead, maybe even "mise at nix time"?
 
-**Yes, it is legitimate, and the codebase already votes that way** — not just as a user
-knob. `mise_tools` ships a **built-in default of `{"neovim": "stable"}`**
-(`config.go:88-89`, visible in the golden argv as `YOLO_MISE_TOOLS={"neovim": "stable"}`).
-So yolo itself delivers a support tool through this channel; it is load-bearing
-machinery, not only a convenience for one user.
+**Yes — and the question resolved a default that should not have existed.** `mise_tools`
+used to carry a built-in `{"neovim": "stable"}`, which made it look like load-bearing
+yolo machinery. It was not: a tool yolo wants in *every* jail belongs in the image, not in
+a per-workspace mise store that re-installs it. **Removed 2026-07-26** — the default is now
+`{}` and neovim is a baked nix package (`flake.nix`, beside `imagePkgs.go`), verified in a
+nested jail: `/bin/nvim -> /nix/store/…-neovim-0.12.4/bin/nvim`, working with **no**
+`mise_tools` entry at all.
+
+That change also closed a latent trap: the run env sets `VISUAL=nvim` unconditionally
+(assemble.go:414, for human ctrl-g editing), so before the bake a user with no
+`mise_tools` had a `VISUAL` pointing at a binary that did not exist. Nested-jail check
+confirms both halves still work: with a user-config `neovim: nightly` pin, mise's copy
+shadows the baked one; without it, the baked one is used.
+
+**So `mise_tools` is now purely a user knob — and it is still worth keeping**, because the
+"mine, in every jail, but not on my host" case remains inexpressible anywhere else (the
+jail's global mise config is yolo-composed, not inherited from the host — see the stack
+table above).
 
 **But the repo has already moved one tool the other way, and the reason is the whole
 answer.** `flake.nix:659` bakes Go with this comment:
@@ -512,9 +525,13 @@ So the honest characterization is a **three-way**, not a two-way, split:
   is lost by not committing it.
 - **Moving it to `GlobalStorage`: fine**, and arguably better (it is per-workspace but
   not workspace *content*).
-- **`yolo prune` reaping it: NOT fine** unless the jail is known-stopped. Reaping a
-  live workspace's `last_render` silently discards whatever the agent has edited since
-  the last boot. That deserves a guard.
+- **`yolo prune` is not a hazard here** — checked, and an earlier draft of this doc was
+  wrong to imply otherwise. Prune never touches `.yolo/prism` (no reference anywhere in
+  `internal/prune`), its dedup is **hardlinking** rather than deletion (content-preserving
+  by construction), and what it does delete is regenerable: agent staging, shadowed
+  files, stale out-links, image roots. So no guard is needed. The hazard in the bullet
+  above is *any* deletion of `last_render` while an uncaptured edit exists — today
+  nothing in yolo does that except `config reset`, where it is the intent.
 - **`yolo config reset` deleting it: correct** — and this is the asymmetry that makes the
   characterization useful. Reset is an *intentional* discard of exactly those pending
   edits, so removing the baseline is the point (and it forces a clean reseed). Every
@@ -563,8 +580,7 @@ location question gets much easier afterwards.
    solves the "invisible" complaint without touching the secret question. This is the
    cheapest correct step and does not foreclose anything.
 2. **Separate the durable record from the pending-edit baseline; keep both gitignored.**
-   Prerequisite for anything below. Also the point at which `yolo prune` should learn not
-   to reap a live workspace's baseline (§5.1) — today that is a silent data loss.
+   Prerequisite for anything below.
 3. **Overlay to a committable path** (e.g. `.yolo-config/` or a `yolo/` dir, ignored by
    default only if the user says so). Needs: a scope decision (an overlay is
    per-workspace *and* per-machine — a captured `theme: dark` committed to a shared
@@ -720,7 +736,8 @@ actually costs:
   in place, so the edit is then adopted as if it were original — surprising, but not
   destructive.
 - The one genuine loss case remains §5.1's: something deletes `last_render` while an
-  uncaptured edit exists. That is a `prune` guard, not a timing fix.
+  uncaptured edit exists. Nothing in yolo does that today except `config reset`, where it
+  is the intent — see §5.1; it is not a `prune` hazard and not a timing fix.
 
 **Which reprioritizes the options.** Since nothing is lost, an inotify watcher is
 solving a staleness problem, not a data-loss problem, and its costs (debounce against
@@ -1060,8 +1077,7 @@ then 4.3/4.5 (cheap correctness), then 4.4 and the §2 umask fix.
 2. Overlay auto-retire: drop a captured key equal to the layer beneath it (§5).
 3. Separate the overlay (durable) from `last_render` (a one-boot pending-edit
    baseline, NOT a cache — deleting it silently discards uncaptured edits, proved in
-   [§5.1](#51-where-should-the-sidecars-live-open--needs-a-decision)); guard `yolo prune`
-   against reaping a live workspace's baseline.
+   [§5.1](#51-where-should-the-sidecars-live-open--needs-a-decision)).
 4. Collapse `host_files`' four modes to three; implement `readonly` as `:ro`
    where possible instead of `0o444` (§7.4).
 5. Steer directed agents at composed surfaces — the docs-only gap in

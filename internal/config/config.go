@@ -85,8 +85,21 @@ var vaapiPackages = []string{"mesa", "libva-utils"}
 var validMCPPresets = set("chrome-devtools", "sequential-thinking")
 
 // Default mise tools, merged under any user overrides.
-var defaultMiseToolsKeys = []string{"neovim"}
-var defaultMiseToolsVals = map[string]string{"neovim": "stable"}
+//
+// DELIBERATELY EMPTY. yolo ships no mise tool of its own: every default runtime is
+// baked into the image as a nix package, which is self-contained (RPATH, no
+// LD_LIBRARY_PATH dependency) and present at boot rather than downloaded on first use
+// — see the `imagePkgs.go` comment in flake.nix for the same reasoning applied to Go.
+// `neovim: stable` used to live here; it was removed because a tool yolo wants in every
+// jail belongs in the image, not in a per-workspace mise store that re-installs it.
+//
+// Kept as a seam rather than deleted: `mise_tools` remains a real user knob (the
+// legitimate case is "mine, in every jail, but not on my host" — see
+// docs/design/composed-file-permissions.md §3.0.1), and MergeMiseTools still folds user
+// entries over this empty base. If a future default is genuinely un-bakeable, it goes
+// here; anything bakeable goes in flake.nix instead.
+var defaultMiseToolsKeys = []string{}
+var defaultMiseToolsVals = map[string]string{}
 
 var defaultMiseDisabledTools = []string{"pnpm"}
 
