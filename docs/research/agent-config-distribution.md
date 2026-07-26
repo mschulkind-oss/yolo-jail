@@ -412,6 +412,70 @@ Findings that changed the design:
   malformed lock lazy.nvim `pcall`s the decode and substitutes an **empty** lock,
   silently discarding every pin.
 
+### Part 3.6 — layered config composers, i.e. "is the prism already a product?"
+
+Added 2026-07-25, prompted by a review question about extracting yolo's
+composition engine into a standalone tool. This survey covers *composers* — tools
+that materialize a config file from multiple layers — as opposed to Part 2's
+*distributors*. It was a real gap: none of chezmoi, home-manager, stow, kustomize,
+CUE, hiera, sops, or devcontainer appeared anywhere in this doc before.
+
+The field splits into three tiers and **nothing occupies the middle of all three**:
+
+| Tier | Tools | Why it isn't the prism |
+|---|---|---|
+| **Placement + whole-file templating** | GNU Stow, yadm, rcm, dotbot, homeshick/vcsh, [dotter](https://github.com/supercuber/dotter) (Handlebars + `global.toml`/`local.toml` + pre/post-deploy hooks), [dotdrop](https://dotdrop.readthedocs.io/en/latest/config/config-dotfiles) (`trans_install`/`trans_update` shell keys), yolk | Symlink farm or copy. **No structured merge** — a template renders a whole file; there is no notion of layers over an existing document |
+| **Structured deep merge, format-locked** | kustomize + ytt (YAML/k8s; overlays are `@overlay/match` + Starlark `overlay.apply()`), Hiera (`first`/`unique`/`hash`/`deep` + `knockout_prefix`, Puppet data only), [himl](https://github.com/adobe/himl), home-manager (NixOS module system), mise (its own TOML hierarchy) | None decodes-and-re-encodes a *third-party app's* JSON/TOML settings file. home-manager both merges and generates, but `checkLinkTargets` exists to **refuse** overwriting an existing file (`force = true` / `backupFileExtension` are the escape hatches) — the exact opposite of composing over a file the app rewrites |
+| **New config language** | CUE, Nickel (`&` commutative; custom merge functions "planned"), Dhall (`//` shallow, `/\` recursive-fails-on-collision), jsonnet (`+` non-commutative, deep merge opt-in per field via `+:`), Pkl | Strongest merge theory, wrong ergonomics: you must rewrite the config *in* the language. Not available when the schema belongs to Claude Code |
+
+**The nearest competitor is a dotfile manager's addon, not a config-management
+tool.** Two tools do per-app, schema-aware merge of an *existing* app config with a
+transform hook:
+
+- **chezmoi `modify_` scripts** — a script receives the current file on stdin and
+  writes the new file to stdout; with the `chezmoi:modify-template` marker the body
+  becomes a template over `.chezmoi.stdin`, and `setValueAtPath` sets individual
+  values in JSON, JSONC, TOML and YAML. But it is a per-file filter *the user
+  authors*, not a declared layer stack, and chezmoi's default model is whole-file.
+- **[chezmoi_modify_manager](https://vorpalblade.github.io/chezmoi_modify_manager/algorithms.html)**
+  — INI only, three-file model (`modify_` script + `.src.ini` source state + system
+  state on stdin) with `ignore`/`set`/`remove`/`transform` directives over the
+  `ini-merge` crate (asymmetric, formatting-preserving). It solves the *same*
+  problem as the capture-diff overlay — an app that rewrites its own config, mixing
+  settings with state — by the opposite means: keep system state per-key, rather
+  than diff-and-replay.
+
+**Nobody ships a sandboxed scripting hook over a merged multi-layer config.** The
+citable prior art for embedded-Lua-over-decoded-data is **Argo CD** (health checks
+and resource actions: `obj` global, return the mutated object) — and Argo CD
+independently reached the same sandbox stance, disabling the standard Lua libraries
+by default via `resource.customizations.useOpenLibs`. That is an external precedent
+for `luahook/sandbox.go`'s posture that yolo's own docs don't cite. The nearer
+analogues are ytt/Starlark (YAML only) and opencode's TypeScript
+`config: async (config) => …` plugin hook (opencode's own config only). Rhai shows
+up in dotter and yolk, but for computing template *variables*.
+
+**Nothing composes one spec into both a host and a sandbox.** The closest
+structured mechanism is the devcontainer spec's `devcontainer.metadata` image
+label, which merges an array of metadata snippets with the local
+`devcontainer.json` at create time — but the merged schema is devcontainer's own
+properties, not the applications' config files. Codespaces personalization is
+clone-then-`install.sh`-or-symlink. distrobox's default is sharing the host `$HOME`
+outright (`DBX_CONTAINER_HOME_PREFIX` is an opt-in, buggy escape hatch).
+
+**So the honest differentiator of an extracted prism is a triple, and no surveyed
+tool has all three:** (1) a *declared* layer precedence over **existing** app
+formats with RFC-7386 semantics, (2) a sandboxed transform over the
+already-merged value, (3) in-place edits surviving regeneration via a capture-diff
+overlay. (3) is the least replicated — chezmoi's answer to a self-rewriting app is
+`ignore`, home-manager's is refuse-or-backup, ruler/rulesync's is overwrite.
+
+Two prism features a standalone product would have to keep are documented as
+deliberately absent, which matters if extraction is ever pitched: there is **no Lua
+helper library** (yolo's only contribution to the transform is parsing) and
+per-keypath `append` merge is an open TODO, because the pure engine has no
+manifest/keypath context (`internal/agentcfg/engine.go:51-54`).
+
 ---
 
 ## Part 4 — Measured git plumbing

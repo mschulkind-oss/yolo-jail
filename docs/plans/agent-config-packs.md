@@ -80,6 +80,12 @@ tools/agent-pack/
   files/.config/ruff/ruff.toml    # verbatim home-relative files (phase 2)
 ```
 
+**`surfaces/` is a real prism layer, not a lookalike.** A pack fragment is folded
+by the composition engine itself, at `Inputs.Workspace` — and yolo already
+synthesizes `manifest.Surface` values from *config data* at runtime, so this is a
+smaller change than it looks. §6 has the mechanics, the five verified sharp edges,
+and the one thing a pack still cannot do.
+
 Claude Code's rule is adopted: only `name` is required *if a manifest exists at
 all*. `mkdir -p tools/agent-pack/skills/rust-review` plus a SKILL.md is a
 complete, shareable pack. The 30-second share is where this class of tool lives
@@ -407,7 +413,8 @@ Three mechanisms, all existing:
   agent — every `AgentSpec` has a `BriefingSpec`.
 - **Surfaces.** `surfaces/<agent>/<name>.json` decodes into `Inputs.Workspace`,
   the zero-caller engine slot, filled at the three `Inputs{}` construction sites
-  (`internal/cli/config.go:190`, `internal/entrypoint/prism.go:131,281`).
+  (`internal/cli/config.go:190`, `internal/entrypoint/prism.go:131,281`). This is
+  the engine's own layer, not a parallel merge — see below.
 
 **opencode's gap is stated at add time, in the tool's own output — not in a risks
 section.** It has no user-level skills directory yolo can write;
@@ -427,6 +434,84 @@ a `--version`-only probe test pinning both, because an agent CLI moving its own
 user-level path is exactly the kind of silent break a docs citation would not catch.
 This is a standalone bug fix that this work pays for: today those two agents get no
 skills at all, including yolo's own built-in suite.
+
+### Yes — a pack defines a layer *in* a prism surface, and `host_files` already proves it
+
+This was raised in review as an interesting possibility. It is the intent, and it
+is less speculative than the phase-2 label suggests, because the engine already
+takes surfaces from data.
+
+**The layer.** `Inputs.Workspace` (`internal/agentcfg/compose.go:45`) is
+implemented and tested and has zero non-test producers. It folds third of five
+pre-transform layers — `{layerDefaults, layerHost, layerWorkspace, layerOverlay,
+layerComputed}` at `compose.go:180-184` — so a pack fragment **beats the surface's
+`Defaults` and the host file, and loses to a captured overlay, to yolo's computed
+layer, to the Lua transform, and to `Managed`**. That ordering is exactly right
+for this feature: a company pack can set a default the user then overrides
+in-jail, and can never overrule what yolo asserts. Filling it needs no
+`ComposeStateful` change — the harness overwrites only `Base.Overlay`
+(`staterender.go:176-177`), so a `Workspace` value passes through the capture path
+untouched. A pack must therefore ride `Workspace` and never `Overlay`.
+
+**The surface.** A pack does *not* need to be in `builtin.go`, and the manifest
+was built for this: "a data-loaded variant … slots in later without changing this
+schema: a loader would decode into a `[]Surface` and call `New(surfaces...)`"
+(`internal/agentcfg/manifest/manifest.go:48-52`). `host_files` already does it in
+production — `hostFileSurface` (`internal/entrypoint/hostfiles.go:127-137`)
+synthesizes `manifest.Surface{Agent: "user", Name: entry.Slug(), Path, Codec,
+Defaults, Managed, Transform}` from config data, and both render cores were
+deliberately split into surface-taking variants (`prism.go:109-116`, `:268-274`)
+so a non-builtin surface composes. So "surfaces are Go literals" is already false
+in the shipped code. Two caveats: `manifest.Surface` carries **no json tags**, so a
+data loader needs a tagged DTO (`internal/config.HostFileEntry` is the existing
+model); and a pack-*declared* surface — as opposed to a pack layer over a builtin
+one — must also be registered in `builtinSurfacePaths` (§10) or the reserved-dest
+drift check goes stale silently.
+
+**Five sharp edges, all verified against the code, none of them blocking:**
+
+- **A pack layer's provenance reads `workspace`, not `pack:<slug>`.** The seven
+  layer names are unexported constants (`compose.go:106-114`) with no per-source
+  parameter, so N packs folded into one `Workspace` value are indistinguishable in
+  `--explain`. §11's `pack:<slug>` label is therefore an engine change (a named
+  layer, or a provenance side-channel), not a printf.
+- **Shape checking is fail-closed but shallow.** A JSON object handed to a `raw`
+  or `lines` surface dies at compose with the layer *named*
+  (`compose.go:196-199,228-231`) — good. But a `lines` layer that is an array
+  holding a non-string element passes `Kind.Matches` and dies later in `Encode`
+  with no layer attribution, and a TOML integer decoded by plain `encoding/json`
+  emits as `4096.0` (`codec/toml.go:219-226`) unless decoded through `jsonx` the
+  way `host_files` does. Pack layers get validated host-side by the existing
+  model — `checkHostFileLayer` (`internal/config/hostfiles.go:641-670`) already
+  reports a shape mistake at `yolo check` time with the key named.
+- **Boot downgrades a compose error to a warning.** `genStep`
+  (`internal/entrypoint/boot.go:534-538`) wraps every `Configure*Prism` call, so a
+  malformed pack surface yields a stale-or-absent file and an apparently
+  successful launch. Compose's fail-closed contract is undone one frame up. This is
+  why pack-layer validation must be host-side in `yolo check`, before the mount is
+  ever emitted.
+- **`Surface.Transform` is dead at render time.** Nothing reads it; `Compose` only
+  runs `Inputs.Script`, the concatenated user+workspace `config.lua`
+  (`compose.go:254-255`, `prism.go:124,275`) — yet `yolo config ls` prints a
+  `transform` layer from the field (`configls.go:173,215`). A pack that sets it
+  would get a listing claiming a hook that never runs. A pack shipping Lua is
+  phase-3 `allow_exec` territory anyway; the point is that the obvious slot is a
+  no-op today.
+- **The Lua hook dispatches on `ctx.Agent` alone** (`luahook/vm.go:97-103`), and
+  `host_files` already owns the pseudo-agent `"user"` — whose sidecars are
+  discovered by a `user-*.overlay.json` glob (`configdiff.go:88-113`). A
+  pack-declared surface needs its own pseudo-agent or it collides with
+  `host_files` in both namespaces.
+
+**The one thing a pack layer must not be allowed to do is capture** (§10): a
+captured value outranks the host file forever and survives removing the pack, so
+"roll back" would silently not roll back. `host_files` already refuses capture as
+a default (`internal/config/hostfiles.go:212-215`).
+
+And the security consequence is unchanged and non-negotiable: `Enforce()` is an
+allowlist of yolo-asserted keys, so the moment `Workspace` is filled from a pack,
+a fragment can contribute `hooks`, `apiKeyHelper`, `env`, or a gemini/copilot MCP
+`command`. §10's per-surface denylist gates phase 2.
 
 ## 7. Explicit install/update, and the lockfile
 
@@ -862,13 +947,17 @@ problem is already solved inside yolo-jail and is *not exportable*.
   function, into a directory whose inode a live bind mount has captured. It would
   be forced to write into the host's `~/.claude/skills` — shared across every
   jail, `:ro` in-jail, i.e. exactly the global mutable state this design avoids.
-- **`internal/agentcfg` is `internal/`.** Go's own visibility rules forbid an
-  external tool from filling `Inputs.Workspace`. The design of record for config
-  composition already ruled that new user-facing paths are "lowered into this
-  very engine … **never a second mechanism**."
 - **The host ship set is `{yolo}`.** A second host-installed binary that must
   agree with `yolo` on storage layout, mount syntax, agent registry and refresh
   timing doubles the install surface to gain nothing.
+
+⚠ **Retraction.** An earlier version of this list argued "`internal/agentcfg` is
+`internal/`, so Go's visibility rules forbid an external tool from filling
+`Inputs.Workspace`." That is circular and it is withdrawn: `internal/` is a choice
+this repo makes, reversible by one directory move, not a fact about the world. The
+same sentence is in ROADMAP item 5 and is corrected there too. The honest version
+of the argument is below, and it is narrower — *projection* is not extractable;
+the composition engine demonstrably is.
 
 ### Two seams were argued for and both were checked
 
@@ -933,6 +1022,117 @@ implementation appears in the monorepo, or someone files a request for an
 installable `agentpack`, the boundary was drawn wrong. Conversely, if
 `internal/packsrc` still has zero yolo imports and nobody asked, because
 `git checkout` + `npx skills` covered the non-jail users, it held.
+
+### Could the prism itself be extracted, and manage host configs too?
+
+Raised in review, alongside the surfaces question: extract the whole prism into a
+separate tool that packs plug into, and let one unix-like tool manage configs on
+the host **and** inside the jail. Three separable claims. The first is measurably
+true, the second is a genuine architectural improvement worth its own item, and the
+third is a posture change that needs deciding on its own merits — it is not implied
+by the first two.
+
+**1. The engine is extraction-shaped. Measured, not estimated.**
+
+| Fact | Value |
+|---|---|
+| In-repo import closure of `./internal/agentcfg/...` | exactly 6 packages: `agentcfg`, `agentcfg/codec`, `agentcfg/luahook`, `agentcfg/manifest`, `jsonx`, `tomlx` |
+| Edges to `agents` / `config` / `paths` / `cli*` / `entrypoint` / `storage` / `image` / `loopholes` | **zero**, runtime *and* test (`go list -deps -test`) |
+| Non-test lines / test lines | 4019 / 4018 (3061 non-test excluding `jsonx`+`tomlx`) |
+| Third-party deps | `BurntSushi/toml`, `yuin/gopher-lua` — both vendored, 700K, pure Go, no cgo |
+| Filesystem or env access in the closure | none reached: the only `os.*` is `tomlx.DecodeFile`, which the closure never calls |
+| `embed.FS`, `go:generate`, on-disk goldens | none — every golden is a Go string literal |
+
+A verification agent copied the four packages into a fresh module, rewrote the
+import paths, and got a green `go build ./... && go test ./...` — twice, once
+carrying `jsonx`+`tomlx` and once dropping both by inlining the single 9-line
+`tomlx.Decode` the closure actually calls. `Compose` is documented pure ("no file
+I/O, no container — the caller supplies bytes", `compose.go:141-145`) and it is.
+
+The one real entanglement is `builtin.go` (441 lines): yolo's 12-surface agent
+registry as Go literals, with `/workspace` paths and `"yolo": true` baked in, and
+11 of `compose_test.go`'s 22 test functions assert against it. Dropping it builds
+clean and breaks the test build — so extraction is "engine + registry-as-data",
+not "engine".
+
+**And extraction would fix a cost the current layout already pays.**
+`internal/config/hostfiles.go:694-714` hand-copies all 12 surface paths
+specifically to avoid a runtime dependency on `agentcfg`, because that package owns
+both the manifest *and* the Lua VM: "a runtime dep on the transform engine just to
+validate a path would put the VM in every binary that reads config." The
+duplication is drift-checked by a test that imports `agentcfg` in test code only.
+Splitting engine / VM / agent-data — which extraction forces — deletes that
+duplicate and its drift test. That makes it a cleanup with a named beneficiary,
+not repackaging.
+
+**2. What is *not* extractable is projection, and that is the whole of §9's
+argument.** Restated without the circular clause:
+
+- The staging dir for skills is the source of a live `:ro` bind, and
+  `PrepareSkills` clears its *contents* because a running jail captured the inode
+  (`internal/agents/skills.go:38`). Whatever inserts a pack skill must run in the
+  process that owns that contract, on every invocation including attach.
+- Mount emission, `/ctx` staging, and the `YOLO_*` wire manifests are yolo's
+  argv, not a library's output.
+- The §5 sidecars, the four `host_files` modes, and the capture/copy/unrendered
+  *posture* live outside the manifest entirely — posture is a hand-kept map in
+  `internal/cli` (`configls.go:50-63`) asserted from `internal/entrypoint` by
+  regex-scanning that package's own source (`hostfiles_test.go:487`). An extracted
+  library stopping at `manifest.Surface` leaves that concept behind.
+- The credential boundary is defined by yolo's mount table, not by a policy a
+  sidecar could adopt (first bullet of §9).
+
+So the split runs *through* the prism, not around it: a pure composer that could be
+a library, wrapped in projection machinery that could not.
+
+**3. "Manage configs on the host AND in the jail" is the load-bearing question,
+and the honest answer is that yolo has never composed a host config.**
+
+The argument *for* is strong on mechanics. Composition already runs in two
+processes over the same engine: boot-side (`internal/entrypoint/prism.go`) and
+host-side (`yolo config render|ls|diff|reset`), plus a third site nobody counts —
+`yolo check`'s preflight invokes the **real** `Configure*Prism` writers host-side
+into a throwaway temp home (`internal/cli/check/entrypoint.go:36-99`). A
+`~/.config` composer for a laptop is not a new engine.
+
+The argument *against* is about target, and it survives every backend:
+
+- **Every existing render targets a jail home, never the invoking user's.** The
+  entrypoint resolves `~` against `e.Home` = `$JAIL_HOME || $HOME || /home/agent`
+  (`env.go:76`, `prism.go:313-321`), deliberately not the process `$HOME`. Even
+  `macos-user` — no container, no mounts at all — re-targets: the launcher
+  self-execs `sudo --user=_yolojail /usr/bin/env -i HOME=/Users/_yolojail
+  JAIL_HOME=/Users/_yolojail` (`macosuser/runplan.go:63-86`), and Seatbelt
+  `deny file-read* (subpath "/Users")`s the invoking user's home
+  (`seatbelt.go:44-50`). The containerless backend does **not** weaken the
+  composed-home model; it reimplements it. Writing the user's real dotfiles would
+  be the first time yolo mutates the host's own agent config, and the blast radius
+  is a human's live environment rather than a disposable home.
+- **`yolo config render` is not the host-side composer it looks like.** It reads
+  its "host" layer from the surface's own **destination** path expanded against
+  `paths.Home()` (`internal/cli/config.go:188`) — so host-side it feeds the
+  developer's own dotfiles back into the composition — and it passes neither
+  `Computed` nor `Overlay`. Both defects are already logged
+  (`docs/design/composed-file-permissions.md:260`), and the neighbouring file
+  already documents the root cause it doesn't apply
+  (`configls.go:309-311`). Also: `yolo config render user` does not exist
+  (`no surfaces for agent "user"`) even though the help text advertises `user` and
+  `ls`/`diff`/`reset` all handle it — the one surface family a user declares by
+  hand is the one `render` cannot preview.
+- **The reserved-destination and posture tables assume a single writer.** Two
+  hand-maintained duplicates and three drift tests currently hold the line; a
+  second tool writing the same destinations doubles that surface.
+
+**Verdict for this proposal: unchanged — build packs in yolo-jail.** Extraction is
+a real, separately-motivated refactor (it deletes the `builtinSurfacePaths`
+duplicate and gives the engine a data-loaded registry), but it is not a
+prerequisite for anything here, and doing it *first* would put a module boundary
+between packs and the two seams they need to fill. Sequence it the other way: fill
+`Inputs.Workspace` from data in phase 2 — which is itself the last step of making
+the manifest data-driven — and then extraction is a directory move plus a DTO,
+against an engine whose external-facing seams finally have a producer. Managing the
+*host's* configs is a separate product decision, recorded as an open question
+below, and it should not be smuggled in as an implementation detail of packs.
 
 ## 10. Security and supply chain
 
@@ -1099,8 +1299,13 @@ never lands: skills plus AGENTS.md prose is the majority of what people share.
 **Phase 2 — settings fragments and files (~1 week).**
 The per-surface key denylist **first**. Then fill `Inputs.Workspace` at the three
 construction sites; the entrypoint reads `surfaces/<agent>/<name>.json` from a
-new `/ctx/packs/<slug>:ro` mount mirroring `/ctx/host-user/<slug>`;
-`yolo config render --explain` gains a `pack:<slug>` provenance label. Wire form
+new `/ctx/packs/<slug>:ro` mount mirroring `/ctx/host-user/<slug>`; host-side
+shape validation via the `checkHostFileLayer` model so a bad fragment fails
+`yolo check` with the key named rather than becoming a `genStep` warning at boot
+(§6);
+`yolo config render --explain` gains a `pack:<slug>` provenance label — which is an
+**engine change**, since the seven layer names are unexported constants with no
+per-source parameter (§6), not a printf. Wire form
 `YOLO_PACKS` mirroring `MarshalHostFiles`. `files/` staging behind the existing
 `checkHostFileDest` so the reserved-destination list is shared, not re-derived —
 including the symlink-target gap already tracked as ROADMAP item 3. Capture mode
@@ -1171,6 +1376,12 @@ Recorded so scope creep is visible:
   is written down because it will otherwise be re-litigated every six months.)
 - **No marker-based markdown rewriting.** Fragments are whole files with names.
 - **No new second composition mechanism.** Everything lowers onto the prism.
+- **No prism extraction, and no host-config management, as part of this work.**
+  Both were raised in review and both are live — the engine measurably extracts
+  (§9) — but packs need `Inputs.Workspace` *filled*, not *relocated*, and yolo has
+  never written a config into the invoking user's own home. Open question below;
+  extraction wants its own ROADMAP item, motivated by the duplicate
+  `builtinSurfacePaths` table rather than by packs.
 
 ## Open Questions
 
@@ -1222,6 +1433,32 @@ disclosure).
 _Leaning:_ never write into `/workspace`. Ship the `instructions` layer, and
 state the degradation in `pack add` output rather than burying it. If this
 becomes the dominant complaint, the right fix is upstream in opencode.
+
+**Answer:**
+> _(empty — fill in when decided)_
+
+### Whether the prism should become a standalone tool that also manages host configs
+
+Raised in review off the `surfaces/` line in §1. Three claims, separated in §9:
+the engine *is* extraction-shaped (measured — 6-package closure, zero app-layer
+edges, green build and tests in a fresh module); extraction would delete the
+`builtinSurfacePaths` duplicate and its drift test, so it is a cleanup with a
+beneficiary; but "manage the host's configs too" is a posture change, not a
+consequence of the first two. Every render yolo performs today targets a *jail*
+home — including on `macos-user`, which has no container and still re-targets to
+`/Users/_yolojail` with the invoking user's home read-denied by Seatbelt. Writing
+a human's live `~/.claude/settings.json` would be a first.
+
+_Leaning:_ split the three. (a) Do **not** block packs on it — phase 2 fills
+`Inputs.Workspace` from data, which is the last step of making the manifest
+data-driven, and extraction afterwards is a directory move plus a tagged DTO.
+(b) Extraction earns its own ROADMAP item, motivated by the duplicate-table
+cleanup rather than by packs. (c) Host-config management is a separate product
+question and the *first* thing it needs is not a new tool but the three logged
+defects fixed: `config render` reading its host layer from the destination path,
+its missing `Computed`/`Overlay` layers, and `config render user` not existing. A
+faithful host-side previewer is the honest prerequisite for a host-side composer,
+and it is worth having either way.
 
 **Answer:**
 > _(empty — fill in when decided)_
