@@ -276,14 +276,15 @@ research (14 agents, 6 mechanisms, measured git plumbing):
 [../research/agent-config-distribution.md](../research/agent-config-distribution.md).
 
 **Scope verdict: in yolo-jail**, with one extractable dependency-free package
-(`internal/packsrc`). The hard parts are *projection*, and projection is not
-exportable: fetch needs host git credentials and the host ship set is `{yolo}`;
-delivery is `:ro` mount emission into a composed home; precedence is
-`PrepareSkills` plus the prism's five-layer fold, over a staging dir whose inode a
-live bind mount captured. The corpus stays universal — a pack is a plain `SKILL.md`
-tree consumable by bare `claude` or `npx skills` — so "not everyone at the company
-runs yolo-jail" is an argument about the artifact, and the artifact was never
-trapped.
+(`internal/packsrc`). The hard part is *projection*, and projection is not
+exportable: fetch needs host git credentials; delivery is a write into a home yolo
+composes (`:ro` mount on podman, materialized copy on Apple Container, plain write on
+macos-user); precedence is `PrepareSkills` plus the prism's five-layer fold, over a
+staging dir whose inode a live bind mount captured. The host ship set being `{yolo}`
+is a **cost** argument, not a constraint — it is one `just install` line. The corpus
+stays universal — a pack is a plain `SKILL.md` tree consumable by bare `claude` or
+`npx skills` — so "not everyone at the company runs yolo-jail" is an argument about
+the artifact, and the artifact was never trapped.
 
 ⚠ **One clause retracted 2026-07-25.** This item previously argued
 "`internal/agentcfg` is `internal/`, so Go visibility forbids an external producer
@@ -291,9 +292,12 @@ for `Inputs.Workspace`." That is circular — `internal/` is this repo's choice,
 a constraint — and the opposite is measurable: the prism's in-repo import closure
 is exactly 6 packages with **zero** edges to `agents`/`config`/`paths`/`cli*`/
 `entrypoint`, and it builds and tests green as a standalone module. Extraction is a
-real separate refactor (it would delete the hand-copied `builtinSurfacePaths` table
-and its drift test) but not a prerequisite here; "manage host configs too" is a
-distinct posture change. Recorded as an open question in the proposal (§9).
+real separate refactor but not a prerequisite here, and it now needs a *second
+consumer* to motivate it: its one named beneficiary — deleting the hand-copied
+`builtinSurfacePaths` table and its drift test — is achieved by a strictly smaller
+in-repo `builtin.go` package split, since `manifest`+`codec` carry no gopher-lua
+edge. "Manage host configs too" is a distinct posture change. Both recorded as an
+open question in the proposal (§9).
 
 **Why it fits here.** The proposal is mostly *wiring existing machinery*, and it is
 the forcing function for two already-tracked gaps:

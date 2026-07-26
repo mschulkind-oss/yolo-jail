@@ -476,6 +476,30 @@ helper library** (yolo's only contribution to the transform is parsing) and
 per-keypath `append` merge is an open TODO, because the pure engine has no
 manifest/keypath context (`internal/agentcfg/engine.go:51-54`).
 
+**What "ship it as a product" would additionally cost, measured rather than
+guessed** — recorded here because the temptation is to read the clean import closure
+as the whole bill:
+
+- **No black-box test suite exists.** All five `internal/agentcfg` test files are
+  `package agentcfg`, i.e. white-box — they reach unexported layer constants and
+  helpers. A published API would start with zero tests written against it.
+- **The Lua global is named `yolo`** (`luahook/vm.go:176`, `sandbox.go:65`). A
+  standalone tool either ships branded `yolo` or renames it and breaks every existing
+  `config.lua`.
+- **`manifest.Surface` has no json tags and no schema version**, both prerequisites
+  for the data-loaded registry the manifest's own docstring anticipates
+  (`manifest.go:48-52`).
+- **The agent registry is Go literals** (`builtin.go`, 441 lines) with `/workspace`
+  paths and `"yolo": true` baked in; 11 `builtin_test.go` funcs plus 11 of
+  `compose_test.go`'s 22 assert against them.
+- The closure's own no-`BurntSushi`-import invariant (`codec/codec.go:20-21`,
+  `codec/toml.go:22-24`) rules out the tempting shortcut of inlining `tomlx.Decode`
+  to shed `internal/tomlx`; the clean way to shed the `internal/jsonx` edge is
+  deleting `tomlx.DecodeOrdered`, which is **dead repo-wide** and is tomlx's only
+  `jsonx` consumer.
+- And a hermetic, network-free image build means the extracted module comes back as a
+  vendored dependency — `go mod vendor` committed, per `AGENTS.md`.
+
 ---
 
 ## Part 4 — Measured git plumbing
