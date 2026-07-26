@@ -104,11 +104,18 @@ unowned fragments are how a shared corpus rots.
 against the shipped implementations, not their docs:
 
 - **Claude Code** (2.1.220) reads `.claude-plugin/plugin.json`, with marketplace
-  manifests at `.claude-plugin/marketplace.json`.
+  manifests at `.claude-plugin/marketplace.json`. It also accepts a **bare-root
+  `plugin.json`** on the install path: the manifest loader takes an extra-candidates
+  list and the remote-install caller passes `[join(root, "plugin.json")]`, so a
+  root-level manifest is a live second candidate for every fetched plugin. That is
+  strictly good news here — a single root `plugin.json` is the cheapest way to satisfy
+  all three consumers at once, which is what VS Code's own plugin doc recommends.
 - **Copilot** (`@github/copilot`) probes manifest directories
   `[".plugin", ".", ".github/plugin", ".claude-plugin"]` and counts
   `.claude-plugin/marketplace.json` among its marketplace candidates. It reads
-  Claude's layout deliberately.
+  Claude's layout deliberately, and *validates* it rather than merely tolerating it —
+  same required `name`/`owner`/`plugins` triple, same 64-char kebab-case name cap,
+  duplicate plugin names rejected.
 - **Codex** ships `.codex-plugin/plugin.json`, `.claude-plugin/plugin.json`, **and**
   `.cursor-plugin/plugin.json` probes in one binary — three vendors' directory names
   in a single loader.
@@ -154,6 +161,25 @@ each entry read for `known_marketplaces.json` plus `marketplaces/<name>/`, with
 directory, i.e. exactly what a pack tree already is. Copilot has only a repeatable
 `--plugin-dir <dir>` and no seed-dir equivalent; Codex has neither. So the seed-dir
 bridge is a Claude-specific bonus, not the mechanism.
+
+**Two traps for whoever implements the bridge**, both verified in the 2.1.220 binary
+and both silent failures rather than errors:
+
+- **Seeding a marketplace does not enable a plugin.** The loader still gates on
+  `enabledPlugins["<spec>"] === true`, and the accepted scopes are exactly
+  `userSettings`, `flagSettings`, `policySettings`, plus `localSettings` when the repo
+  is untracked. **Project scope (`.claude/settings.json`) does not activate a
+  non-string-source plugin.** So the prism must render `enabledPlugins` into the *user*
+  surface (`~/.claude/settings.json`), which is `claudeSettings` — render it into the
+  workspace file and the seed mounts perfectly and loads nothing.
+- **A marketplace source's `path` is the path *to* `marketplace.json`, not a
+  subdirectory.** The resolver is `join(clone, entry.path || ".claude-plugin/marketplace.json")`
+  followed directly by `readFile` — no `stat`, no directory check, no filename append.
+  `"path": "tools/agent-pack"` fails with "Marketplace file not found"; the correct
+  value is `"path": "tools/agent-pack/.claude-plugin/marketplace.json"`. Claude's own
+  settings doc calls it "(optional: subdirectory)", which is where the mistake comes
+  from — that wording appears in the `strictKnownMarketplaces` *matching* section, not
+  on the resolution path.
 
 ## 2. Address grammar
 
@@ -437,10 +463,16 @@ precedent.** lazy.nvim's `restore` is literally `update` with `lockfile = true`
 (`lua/lazy/manage/init.lua:141-144`), so it still runs `git fetch` and still rewrites
 `lazy-lock.json` in the same callback — in the tool everyone copies, restore is
 neither offline nor lock-read-only. Ours reads the lock, materializes the locked
-trees, verifies tree hashes against bytes on disk, and stops. The precedent for the
-strict version is vim.pack's flag pair `:packupdate ++offline ++lockfile`. Because
-launch calls `restore`, any network path inside it would make jail startup flaky —
-so **`restore` gets a network-disabled test as a hard CI assertion**, not a comment.
+trees, verifies tree hashes against bytes on disk, and stops.
+
+**No surveyed tool has a strictly read-only restore**, so this is a genuine
+differentiator rather than a borrowed one. The closest is vim.pack's
+`vim.pack.update(names, { offline = true, target = 'lockfile' })` — offline and
+lock-sourced, but still not lock-read-only: `M.update` sets `needs_lock_write` when
+the spec's `src` differs from the lock row (or `force` is set) and calls `lock_write()`
+at the end (`runtime/lua/vim/pack.lua:1264,1288,1317` in v0.12.4). Because launch calls
+`restore`, any network path inside it would make jail startup flaky — so **`restore`
+gets a network-disabled test as a hard CI assertion**, not a comment.
 
 **Naming note, so the doc doesn't mislead:** the precedent is a composite, verified
 against upstream source rather than READMEs. Vundle gave us the explicit-step model
@@ -452,10 +484,21 @@ only means "never sync this," and a `{'rev': ...}` value is parsed at
 *script* (`silent! let g:plugs[…].commit = '<sha>'` lines plus a trailing
 `PlugUpdate!`), not data, and has no default output path. The real lock artifacts are
 lazy.nvim's `lazy-lock.json`, mini.deps' `mini-deps-snap` (a Lua file), and — the
-part most write-ups predate — Neovim 0.12's built-in `vim.pack`, whose
+part most write-ups predate — Neovim's built-in `vim.pack`, whose
 `nvim-pack-lock.json` stores **both** the requested `version` and the resolved `rev`
 per row, exactly the split adopted above. So "like Vundle, with a lockfile" is
 Vundle's UX plus a later generation's artifact, not one tool's design.
+
+**Cite vim.pack by version, because its surface is mid-flight.** The lockfile itself
+ships in stable 0.12 (v0.12.4 checked: `lock_get_path()` at
+`runtime/lua/vim/pack.lua:231` hardcodes `stdpath('config')/nvim-pack-lock.json`), and
+the offline lock-sourced update is **API-only** there —
+`vim.pack.update(names, {offline=true, target='lockfile'})`. The `:packupdate` /
+`:packdel` Ex commands and the `'packlockfile'` option that relocates the lock are
+**0.13-dev only**: v0.12.4's `src/nvim/ex_cmds.lua` defines only `packadd`, and
+`packlockfile` does not appear in its `options.txt`. So anything written here as
+`:packupdate ++offline ++lockfile` is a HEAD citation, not something a reader on
+stable can run.
 
 ### What the lock records
 
@@ -496,11 +539,20 @@ and CLI-selector field.
 (`<commit>:<path>`) is the integrity, identity, and dedup primitive — what `restore`
 verifies against bytes on disk, the content address for `trees/<sha>/`, and a free
 no-op detector, since a monorepo branch tip moves many times a day while
-`main:tools/agent-pack` does not. But **tree-only is unfetchable**: git servers do
-not serve `want <tree-oid>`, so you fetch a commit and address `commit:path`, and a
-fresh machine could not reproduce from a tree-only lock. Commit-only churns on every
-unrelated push to the monorepo and throws the no-op detector away. `commit` is also
-what `pin` writes and what `git log`/`git diff -- <path>` need. `object_format` is
+`main:tools/agent-pack` does not. `commit` is what makes a tree *legible and
+retainable*: `git log`, `git diff <old> <new> -- <path>`, the value `pin` writes into
+`?ref=`, and the thing `refs/yolo-pack/<slug>/<n>` keeps reachable. A tree fetch
+yields no ref-reachable commit and `git log <tree>` prints nothing, so a tree-only lock
+is a dead end for every human question. Commit-only, conversely, churns on every
+unrelated push to the monorepo and throws the no-op detector away.
+
+*Not* because a tree OID is unfetchable — that was measured and is false. With git
+2.54.0, `git fetch <remote> <tree-oid>` succeeds against github.com and gitlab.com and
+the object arrives with its blobs (`GIT_TRACE_PACKET` shows `want <tree-oid>`
+accepted). The real portability caveat is server config, not the protocol:
+`uploadpack.allowAnySHA1InWant` / `allowReachableSHA1InWant` gate it, so a self-hosted
+forge may refuse where the big two do not — which is a reason to fetch commits, not a
+reason tree fetches cannot work. `object_format` is
 cheap now and painful later: a SHA-256 monorepo yields differently-shaped tree
 hashes and the `write-tree` verification silently needs the matching format.
 `monitor` is mini.deps' field — keep the ref you were following even after `pin`
@@ -522,10 +574,14 @@ reasons carry over intact. It is the file a user wants to copy to a second machi
 alongside `config.jsonc` — and if they keep `~/.config` in a dotfiles repo, which is
 common, vim.pack's whole rollback story (`git checkout HEAD -- packs.lock.json`)
 works verbatim for free, so `pack ls` should detect `~/.config/yolo-jail/.git` and
-say so. And `GlobalStorage()` is **prunable**: `yolo prune --apply` exists to reclaim
-it and §5 grows a packs section there. A reproducibility artifact inside the tree our
-own GC eats is a footgun. Config means "sync this"; data means "delete this to
-reclaim space"; a lock is the former.
+say so. And `GlobalStorage()` is **the space-reclamation tree**: §5 grows a packs
+section in `yolo prune`, and a reproducibility artifact living inside the tree our own
+GC is taught to walk is a footgun waiting for a `--apply`. (Stated as prospective,
+not present: prune is allowlist-driven today — `PruneLegacyBuildRoots` matches only
+the `nix-build-root`/`nix-build-tmp-` prefixes, `internal/prune/sweep.go:15-18,27-63`
+— so a `packs/` dir would currently survive untouched. The hazard arrives with §5's
+prune section, which is exactly when the lock would be inside it.) Config means "sync
+this"; data means "delete this to reclaim space"; a lock is the former.
 
 **The approval record stays machine-local**, in
 `~/.local/share/yolo-jail/packs/ledger.json` plus the append-only
@@ -537,11 +593,12 @@ someone copies their dotfiles. `restore` still cannot introduce an unapproved tr
 it consults the ledger, not the lock.
 
 **Security did not decide the lock's location, and it should not be claimed to.**
-Only the single *file* `~/.config/yolo-jail/config.jsonc` is ever bound into a jail,
-`:ro` (`internal/cli/run/assemble_parts.go:463-475` → `ROFileMountArg`, which appends
-`:ro` at `internal/cli/run/runmount.go:105`); the directory is not mounted, so a
-sibling `packs.lock.json` is simply absent in-jail. Both candidate locations were
-already out of reach. What the threat model does decide is a **never-here list**:
+The host's `~/.config/yolo-jail/` is not in any jail's mount namespace: only the single
+*file* `~/.config/yolo-jail/config.jsonc` is bound in, `:ro`
+(`internal/cli/run/assemble_parts.go:463-475` → `ROFileMountArg`, which appends `:ro`
+at `internal/cli/run/runmount.go:105`). Both candidate locations were already out of
+reach *from the host's side*. What the threat model does decide is a **never-here
+list**:
 
 - `/workspace/**` — bind-mounted live rw. A lock there is agent-writable, and an
   integrity artifact the adversary can edit provides no integrity: a prompt-injected
@@ -549,13 +606,40 @@ already out of reach. What the threat model does decide is a **never-here list**
   object.
 - Anything under `paths.GlobalCache()` — bound **rw** at `/home/agent/.cache`
   (`assemble_parts.go:48,75`). This is the fact an out-of-tree tool guesses wrong.
-- Anything under `paths.GlobalHome()` — bound `:ro` (`assemble_parts.go:69`), but rw
-  holes are punched through it by per-workspace overlays and by `writable_home_dirs`,
-  which is read from the **merged** config (`internal/config/writablehome.go:23-46`)
-  and therefore settable from the agent-writable workspace file. That is *sound* for
-  its own purpose — the backing dir is inside the workspace, so it grants nothing new
-  (`writablehome.go:30-36`) — but it means "under the jail's home backing dir" is the
-  wrong neighborhood for an integrity artifact.
+- Anything under `paths.GlobalHome()` — bound `:ro` (`assemble_parts.go:69`), but
+  holed by the per-workspace rw overlays below. (`writable_home_dirs` is *not* the
+  hole: `checkWritableHomeDir` rejects any entry whose first segment is reserved, and
+  `reservedHomeDirRoots` names `.config`, `.local`, `.cache`, `.npm-global`, `go`,
+  `.yolo-shims`, `.ssh`, `.claude-shared-credentials` —
+  `internal/config/writablehome.go:53-56,158-184` — so that key cannot target either
+  candidate. It is also sound on its own terms, and says so: the backing dir is inside
+  the workspace, so an entry "gains nothing it could not already do by writing to
+  /workspace" (`writablehome.go:27-35`).)
+
+### The in-jail writer is the real hole, and it needs an explicit rule
+
+**Inside a jail, both candidate paths are workspace-backed and agent-writable.** The
+`.config` and `.local` overlays are unconditional rw binds from the workspace:
+`-v <wsState>/config:/home/agent/.config` and `-v <wsState>/local:/home/agent/.local`
+(`internal/cli/run/assemble_parts.go:71,74`). Probed in this jail:
+`touch ~/.config/yolo-jail/AGENT_PROBE` **succeeds** and the file appears at
+`/workspace/.yolo/home/config/yolo-jail/`, while `touch ~/.config/yolo-jail/config.jsonc`
+fails with `Read-only file system` — only the spec file itself is `:ro`. The same is
+true of `~/.local/share/yolo-jail/`. So an in-jail `yolo pack install` writing "beside
+the spec" would write into `/workspace/**`, the first entry on the never-here list
+above, and the same is true of the `GlobalStorage()` alternative. Placement does not
+fix this; **a guard does.**
+
+Since yolo-jail is developed from inside its own jail, this is the routine case, not a
+corner. The rule: **`yolo pack` mutating verbs refuse when `inJail()`** —
+`install`, `update`, `rollback`, `pin`, `approve` — with `ls`/`explain`/`diff` still
+working read-only. The precedent is already in the tree and is cited for exactly this
+shape of reasoning: `LoadCacheRelocations` returns nil early because "relocation is a
+HOST-side feature and is inert inside a jail" (`internal/config/relocations.go:60-68`),
+and `LoadConfig` branches on the same `inJail()` guard (`internal/config/load.go:235`)
+because the in-jail view of user config is not the host's. Fetch is host-side anyway
+(§4) — the jail has no git credentials — so the refusal costs nothing real and closes
+the one path by which a prompt-injected agent could rewrite its own pins.
 
 **If the spec ever becomes shared** — the day a company distributes a baseline
 `packs` list via `include_if_found` — a *second*, committable lock beside that
@@ -609,8 +693,8 @@ things close it, in ascending strength:
   spec/lock disagreement is *permanent and normal*, so the precedence rule — lock wins
   on apply, spec wins only under `update` — has to be stated and visible, or the top
   support question becomes "I rolled back and it came back." vim.pack's alternative is
-  a prompt that returns every time you run `:packupdate` until you also edit
-  `init.lua`.
+  a prompt that returns on every update (`vim.pack.update()`, or 0.13's `:packupdate`)
+  until you also edit `init.lua`.
 
 **Hand-edits are validated or refused, never silently dropped.** vim.pack says the
 lockfile "should not be edited by hand" and auto-repairs corrupt rows; lazy.nvim

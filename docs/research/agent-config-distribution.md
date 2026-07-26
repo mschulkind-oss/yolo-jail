@@ -27,14 +27,16 @@ The design that consumes this research is
   record stores a version string and an `installed_at` timestamp; `npx skills`
   records the ref you asked for). That absence is the single differentiating piece
   available to build. **The vim scene, by contrast, has three real locks** —
-  lazy.nvim, mini.deps, and Neovim 0.12's built-in `vim.pack` — and all three put
+  lazy.nvim, mini.deps, and Neovim's built-in `vim.pack` (stable since v0.12.4;
+  its Ex-command surface is 0.13-dev, so cite it by version) — and all three put
   the lock in the *config* dir beside the spec, with content in the *data* dir. See
   Part 3.5.
 - **The plugin *layout* is already cross-vendor, the plugin *system* is not.**
   Claude, Copilot and Codex all probe `.claude-plugin/plugin.json`; Codex ships
-  `.claude-plugin/`, `.codex-plugin/` and `.cursor-plugin/` probes in one binary. But
-  they are three installers with three state trees, none records a SHA, and none has
-  a rollback verb. Adopt the format; do not delegate resolution.
+  `.claude-plugin/`, `.codex-plugin/` and `.cursor-plugin/` probes in one binary, and
+  Claude also accepts a bare-root `plugin.json` on the install path, so one manifest can
+  serve all three. But they are three installers with three state trees, none records a
+  SHA, and none has a rollback verb. Adopt the format; do not delegate resolution.
 - **The source-address grammar question is settled by convergence, not
   argument**: Terraform's `//subdir` + `?ref=`. Go's `module/subdir@version`
   requires subdirectory-prefixed tags a monorepo can't be made to adopt; Nix's
@@ -232,6 +234,29 @@ notes above:
   a seeded marketplace cannot reach the network on its own. Further siblings:
   `CLAUDE_CODE_PLUGIN_BINARY_ASSETS`, `_GIT_TIMEOUT_MS`,
   `_KEEP_MARKETPLACE_ON_FAILURE`, `_PREFER_HTTPS`, `_USE_ZIP_CACHE`.
+- **Seeding a marketplace does not enable a plugin.** Activation still requires
+  `enabledPlugins["<spec>"] === true`, and the accepted scopes are exactly
+  `userSettings`, `flagSettings`, `policySettings`, plus `localSettings` when the repo
+  is untracked. **Project-scope `.claude/settings.json` does not activate a plugin whose
+  source is not a plain string.** Neither `installed_plugins.json` nor its undocumented
+  sibling `installed_plugins_v2.json` (with a rename-migration between them) is ever
+  read from a seed dir.
+- **A marketplace entry's `path` is the path TO `marketplace.json`, not a
+  subdirectory.** The resolver is
+  `join(clone, entry.path || ".claude-plugin/marketplace.json")` → `readFile`, with no
+  `stat`, no directory check and no filename append; the zod description says "Path to
+  marketplace.json within repo". So `"path": "tools/pack"` fails with "Marketplace file
+  not found"; the working value is `"path": "tools/pack/.claude-plugin/marketplace.json"`.
+  The "(optional: subdirectory)" phrasing in `settings.md` is a doc bug — it appears in
+  the `strictKnownMarketplaces` *matching* section, not on the resolution path.
+- **A bare-root `plugin.json` is also accepted** on the install path, contradicting the
+  "`.claude-plugin/` and only that" reading: the manifest loader takes an
+  extra-candidates list (`[join(root, ".claude-plugin", "plugin.json"), ...extra]`) and
+  the remote-install caller passes `[join(root, "plugin.json")]`. A second site probes
+  `.claude-plugin/plugin.json` and then the parent's root `plugin.json`. So Claude is
+  **not** the strictest of the three consumers, and one root manifest plus one
+  `.claude-plugin/` copy covers all three — which is what VS Code's plugin doc
+  recommends.
 - `git-subdir` is a **partial clone**: `--filter=tree:0` with only the requested
   subdir materialized. That is the same shape as Part 4's measured blobless-mirror
   plumbing, arrived at independently.
@@ -347,25 +372,39 @@ claim below was read in the plugin manager's own source, not its README.
 |---|---|---|---|---|
 | **Vundle** | **none** | — | `:PluginInstall`, `:PluginUpdate` | `:PluginUpdate` is defined literally as `PluginInstall! <args>` (`autoload/vundle.vim:8-44`) |
 | **vim-plug** | `:PlugSnapshot` output | no default path | `:PlugInstall`, `:PlugUpdate` | the snapshot is a Vim **script**, not data (`plug.vim:2864`) |
-| **lazy.nvim** | `lazy-lock.json` | `stdpath("config")` | `:Lazy install/update/restore` | `restore` is literally `update` with `lockfile=true` (`lua/lazy/manage/init.lua:141-144`) |
+| **lazy.nvim** | `lazy-lock.json` | `stdpath("config")` | `:Lazy install/update/sync/restore/check/clean` + `show`/`help`/`profile`/`debug`/… (`lua/lazy/view/commands.lua:29-89`) | `restore` is literally `update` with `lockfile=true` (`lua/lazy/manage/init.lua:141-144`); `sync` = `clean + install + update`, so it re-floats |
 | **mini.deps** | `mini-deps-snap` | `stdpath("config")` | `:DepsUpdate`, `:DepsSnapSave/Load` | a Lua file (`return {…}`); fields `checkout` + `monitor` |
-| **vim.pack** (Neovim 0.12) | `nvim-pack-lock.json` | `$XDG_CONFIG_HOME/nvim/` | `:packupdate [++offline] [++lockfile]` | stores `{rev, src, version}`; `sort_keys=true`; **lock wins over spec on apply** |
+| **vim.pack** (Neovim, v0.12.4) | `nvim-pack-lock.json` | `$XDG_CONFIG_HOME/nvim/` (**hardcoded**) | Lua API only: `vim.pack.update(names, {offline=true, target='lockfile'})` | stores `{rev, src, version}`; `sort_keys=true`; **lock wins over spec on apply** |
+| **vim.pack** (Neovim 0.13-dev) | same | `'packlockfile'` option relocates it | `:packu[pdate][!] [++offline] [++lockfile] [name]`, `:packdel` | the Ex-command surface; `M.update` still calls `lock_write()` in both versions |
 
 Findings that changed the design:
 
-- **Vundle has no pin at all.** `{'pinned': 1}` only means "never sync this," and a
-  `{'rev': …}` value is parsed at `autoload/vundle/config.vim:124` and **consumed
-  nowhere** — two machines with the same `.vimrc` land on different commits. So
-  "Vundle plus a lockfile" is Vundle's *UX* with a later generation's *artifact*.
+- **Vundle has no pin at all.** It documents exactly **three** per-script options —
+  `rtp` (`doc/vundle.txt:148`), `name` (`:162`), `pinned` (`:176`) — and `pinned` only
+  means "never sync this." A `{'rev': …}` value *is* parsed, at
+  `autoload/vundle/config.vim:124`, and **consumed nowhere** — two machines with the
+  same `.vimrc` land on different commits. So "Vundle plus a lockfile" is Vundle's
+  *UX* with a later generation's *artifact*.
 - **All three lock-bearing tools put the lock in the config dir**, beside the spec,
   with plugin content in the data dir. None puts it beside the content. Reasons that
   carry over: the lock is the file you copy to a second machine, and if `~/.config`
   is a git repo you get `git checkout HEAD -- <lock>` rollback for free.
-- **vim.pack is the closest prior art and post-dates most write-ups.** It records
-  both the requested `version` and the resolved `rev`, the lock takes precedence over
-  the spec on apply, and `++offline`/`++lockfile` are separable — i.e. exactly the
-  strict-offline-restore verb this domain needs. Its own docs say the lockfile
+- **vim.pack is the closest prior art and post-dates most write-ups** — which is also
+  why its surface must be cited by version. It records both the requested `version`
+  and the resolved `rev`, and the lock takes precedence over the spec on apply. In
+  **stable v0.12.4** the lock path is hardcoded (`lock_get_path()`,
+  `runtime/lua/vim/pack.lua:231`) and the offline lock-sourced update is **API-only**:
+  `vim.pack.update(names, {offline=true, target='lockfile'})`. The `:packupdate` /
+  `:packdel` Ex commands and the `'packlockfile'` option that relocates the lock exist
+  only on **0.13-dev** (v0.12.4's `src/nvim/ex_cmds.lua` defines only `packadd`, and
+  `packlockfile` is absent from its `options.txt`). Its own docs say the lockfile
   "should not be edited by hand" and it auto-repairs corrupt rows.
+- **Even the `target='lockfile'` path still writes the lock.** In v0.12.4, `M.update`
+  sets `needs_lock_write` whenever the spec's `src` differs from the lock row (or
+  `force` is set) and calls `lock_write()` at the end — `runtime/lua/vim/pack.lua:822`
+  (definition), `:1288,1317` (the write in `update`); the 0.13-dev `++lockfile` command
+  is a wrapper over that same function. So **no surveyed tool — vim.pack included —
+  has a strictly read-only restore**; that verb is available to build, not to borrow.
 - **The re-float trap, in two flavors.** mini.deps' `SnapLoad` doesn't touch the
   spec, so the next update can move you again (documented twice). lazy.nvim is worse:
   `restore` = `update` with `lockfile=true`, so it *fetches* and *rewrites* the lock,
