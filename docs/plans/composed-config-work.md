@@ -139,6 +139,7 @@ places which makes it look smaller than it is.
 | 3.5 | **`managed`/`defaults` array-append pinning** | no user surface has needed it |
 | 3.6 | **Non-agent prism ports** — MCP, LSP, identity (`config render mcp\|lsp\|identity` → "no surfaces") | ROADMAP item 1; mise is **already** ported |
 | 3.7 | **Rename the recovered state** — four terms for one concept; "captured edits" is the proposed umbrella, **not** "managed" (already taken) | mechanical, wants one pass |
+| 3.8 | **Parameterize `/workspace` out of `builtin.go`** — claude's `defaults`/`managed` hardcode the literal path (`internal/agentcfg/builtin.go:104`), so surface data is jail-shaped even though the engine is not. Wants a `${workspace}` substitution at compose time. Small, but it is a **prerequisite** for surfaces-as-pack-data and for reusing the engine outside a jail — see [what-yolo-is.md](../design/what-yolo-is.md) | small; parked only because it has no standalone payoff yet |
 
 ---
 
@@ -155,6 +156,7 @@ Proposed, following that policy:
 |---|---|
 | `design/composed-file-permissions.md` | **keep (A)** — the reference for postures + the audit. The one doc to read. |
 | `design/packs-and-the-prism.md` | **keep (A)** — the conceptual frame; distinct audience (deciding an architecture, not implementing) |
+| `design/what-yolo-is.md` | **keep (A)** — the boundaries question (what is separable from the sandbox) + how pack *logic* would ship. Answers the two questions the packs sketch left open |
 | `plans/composed-config-work.md` *(this)* | **keep (B)** — the single work list |
 | `plans/host-file-staging.md` | **keep (B)**, already marked SHIPPED and closed to new scope; its "Scope: the line" is the authority on `host_files` in/out |
 | `plans/agent-settings-composition.md` | **keep (A-hybrid)** — the engine design of record. Stop adding status to it |

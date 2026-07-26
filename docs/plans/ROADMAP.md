@@ -305,6 +305,17 @@ in-repo `builtin.go` package split, since `manifest`+`codec` carry no gopher-lua
 edge. "Manage host configs too" is a distinct posture change. Both recorded as an
 open question in the proposal (§9).
 
+**One qualifier added 2026-07-26.** Re-measuring confirms the retraction above
+(`go list -deps` gives 6 first-party packages, one third-party), but the *engine*
+being jail-free is not the same as the *surface data* being jail-free:
+`internal/agentcfg/builtin.go:104` hardcodes the literal `/workspace` in claude's
+`defaults`/`managed`. So extraction is "engine yes, built-ins no" until a
+`${workspace}` substitution exists — tracked as item 3.8 in
+[composed-config-work.md](composed-config-work.md). The broader boundaries question
+(what is separable from the sandbox at all) and the **how pack logic would ship**
+question — compiled binaries vs Lua vs subprocess vs compile-at-first-run — are
+answered in [../design/what-yolo-is.md](../design/what-yolo-is.md).
+
 **Why it fits here.** The proposal is mostly *wiring existing machinery*, and it is
 the forcing function for two already-tracked gaps:
 
@@ -401,6 +412,7 @@ post-Go-port backlog (nix-ld, color audit, consolidation) into the same picture.
 | [cli-color-audit.md](cli-color-audit.md) | Shared rich→ANSI renderer + TTY gate across commands. | jail-side — **DONE 2026-07-22** (renderer consolidated, TTY probe unified, check/doctor leak fixed, all commands classified) |
 | [antigravity-agy-support.md](antigravity-agy-support.md) | Support Google Antigravity CLI (`agy`) as a native agent inside `yolo-jail`. | jail-side — **DONE 2026-07-22** (born on the prism; all eight touchpoints landed) |
 | [agent-config-packs.md](agent-config-packs.md) | Share skills + AGENTS.md prose across all seven agents by `(repo, path, branch)`, no PR: user-scope `packs`, host-side blobless fetch, content-addressed trees, pin/rollback. | jail-side — **proposal** (open item 5); Phase 0 is `file://`-only and fixes the `pi`/`codex` no-skills gap standalone |
+| [../design/what-yolo-is.md](../design/what-yolo-is.md) | Boundaries: which subsystems are separable from the sandbox ("could you use the config engine without a jail?" — yes for the engine, no for the built-in surface data), and how pack-shipped *logic* would build/ship/cache. Recommends Lua → subprocess, never Go plugins or compile-at-first-run. | conceptual — decision input for item 5 |
 | [module-consolidation-and-cleanup.md](module-consolidation-and-cleanup.md) | Collapse the parity-era `internal/*` split; drop parity machinery; §4 OSS-hygiene remnants. | **DONE 2026-07-21** (package-merge declined) |
 
 | [integration-parallelism.md](integration-parallelism.md) | Bounded `t.Parallel()` for the container suite (needs per-test GlobalStorage first). | parked (test speed) |

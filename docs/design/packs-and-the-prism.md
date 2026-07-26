@@ -12,6 +12,11 @@ proposal — this doc is the higher-level frame around it),
 [composed-file-permissions.md](composed-file-permissions.md) (the prism's posture rules),
 [agent-settings-composition.md](../plans/agent-settings-composition.md) (the engine).
 
+**Two questions this doc raised and does not answer** — *how would pack-shipped logic be
+built and cached?* and *where does the config system end and the jail begin?* — are
+answered in [what-yolo-is.md](what-yolo-is.md). Its findings sharpen con 2 and the
+§6 ranking below; read it before deciding between bets A/B/C.
+
 ---
 
 ## 1. The two systems, in one paragraph each
@@ -233,7 +238,13 @@ contributes a *layer*, not a whole subsystem. The sequencing that follows:
    revertable, and each proving the seam a bit harder.
 5. Agent registry + surfaces last, and **`HostFiles` never**.
 
-The one question that gates all of it: **does a pack-declared surface get to name a host
+Two questions gate all of it. The first: **does a pack-declared surface get to name a host
 file?** If yes, the pack system is a credential-boundary change and needs that scrutiny
 first. If no — and no is the right answer — then packs are a layer mechanism, the
 boundary stays in Go, and every step above is safe to take one at a time.
+
+The second, from [what-yolo-is.md](what-yolo-is.md): **may pack logic run unsandboxed?**
+If yes, packs inherit MCP's trust model (fetch-time human approval), which the lockfile +
+approval step in the proposal already provides — consistent, but it means a pack can run
+arbitrary code. If no, pack logic is Lua-only and a Go remainder stays. Answering this
+decides whether con 2's "Go remainder" is a transitional state or the permanent design.
