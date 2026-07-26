@@ -227,11 +227,63 @@ preference; a Go version pinned in `mise_tools` hides a build requirement. **The
 should therefore be phrased by question, not by key** — "is this the app's requirement or
 your preference?" answers *where* it goes, and the restart/rebuild axis is secondary.
 
-**Should we encourage this style?** For the preference half, yes — with one caveat worth
-saying out loud: it only pays when there is **no nix equivalent**. `mise_tools` avoids the
-image rebuild that `packages` costs, which is exactly why it is attractive for
-`neovim`/`pipx:swarf`; but a tool that *does* have a clean nix package and is wanted in
-every jail is better baked, since `mise_tools` re-installs it per workspace store.
+#### Is "agent support tooling in every jail" a legitimate use case — or should it be nix?
+
+The review's sharpened version: `mise_tools` is really for **support tools for the agent
+or MCP that are not available or convenient in nix**, they never need changing at runtime,
+so a restart is fine — could nix bake them instead, maybe even "mise at nix time"?
+
+**Yes, it is legitimate, and the codebase already votes that way** — not just as a user
+knob. `mise_tools` ships a **built-in default of `{"neovim": "stable"}`**
+(`config.go:88-89`, visible in the golden argv as `YOLO_MISE_TOOLS={"neovim": "stable"}`).
+So yolo itself delivers a support tool through this channel; it is load-bearing
+machinery, not only a convenience for one user.
+
+**But the repo has already moved one tool the other way, and the reason is the whole
+answer.** `flake.nix:659` bakes Go with this comment:
+
+> `imagePkgs.go  # baked so the default go is RPATH-self-contained like node/python — no LD_LIBRARY_PATH dependency, no mise download on first use`
+
+That names both nix advantages precisely: a nix-built binary is **RPATH-self-contained**
+(no dependency on the `LD_LIBRARY_PATH` scaffolding that FHS/mise binaries need — see
+[mise-node-dynamic-linking.md](mise-node-dynamic-linking.md)) and it is **present at boot**
+rather than downloaded on first use. So "bake it in nix" is the right default whenever it
+is available.
+
+**When it is not available, and why the two live examples both qualify:**
+
+| Tool | Nix has it? | Why mise anyway |
+|---|---|---|
+| `neovim = "nightly"` | yes, but **not nightly** | nixpkgs tracks releases; the *point* is the nightly channel. A nix override would mean pinning a source+hash and rebuilding to move it — for a tool whose whole appeal is that it moves. |
+| `pipx:swarf = "latest"` | **no** | a PyPI package via mise's `pipx:` backend. Packaging it for nix is real work for a personal utility. |
+
+So the honest rule is a **three-way test**, not a preference:
+
+1. **Is there a clean nix package at the version you want?** → `packages`. Costs a
+   rebuild, buys self-containment and boot-time presence. This is the default.
+2. **Is it a channel/ecosystem nix does not track well** (nightly builds, PyPI/npm-only
+   tools, anything you want to float)? → `mise_tools`. Costs a per-workspace-store install,
+   buys no rebuild and easy version movement.
+3. **Is it the project's requirement rather than yours?** → `mise.toml`, regardless of the
+   above.
+
+**"mise at nix time" — can we prebake mise tools into the image?** Not usefully, and the
+reason is structural rather than effort: the nix image build is **hermetic and offline**
+(`-mod=vendor`, no network — see AGENTS.md), while `mise install` is a network fetch of an
+un-pinned "latest"/"nightly". Resolving those at build time would mean pinning each tool
+to a hash, which converts it into option 1 with extra steps *and* discards the floating
+version that motivated mise in the first place. The genuine middle ground already exists
+and is worth naming instead: **when a tool stabilizes, promote it from `mise_tools` to a
+nix `package`** — exactly the trip Go already made. `mise_tools` is then the *staging
+area* for tooling that is not yet worth baking, which is a coherent role rather than a
+loophole.
+
+**Restart is fine here, and that is a point in mise's favour.** Support tooling is
+installed once and not edited at runtime, so the restart cost the key carries is
+irrelevant for this use case — the friction argument that justifies `mise use -g`
+(§3.0.1) does not even apply. Which sharpens the guidance: `mise_tools` for *support
+tooling*, `mise use -g` only for a genuine mid-session need, `mise.toml` for anything the
+project depends on.
 
 ### 3.0.2 mise-specific plumbing that should fold into the prism
 
@@ -636,57 +688,55 @@ exactly the legibility this doc has been arguing for. Worth fixing by having `ls
 `claude/config` is already in that category and is currently mislabeled rather than
 absent.
 
-### 5.3 Capture timing — can we stop deferring to the next boot?
+### 5.3 Capture timing — deferred, not lost
 
-Raised in review, and the instinct is right: **deferring capture to the next boot is a
-hack**, and it has a failure mode that is not merely theoretical.
+Raised in review: deferring capture to the next boot looks like a hack. It is a
+deferral, but **the earlier claim in this doc that "the last session's edits are lost by
+construction" was wrong**, and the correction matters because it changes the priority.
 
-**How bad is it today?** Better than "next restart" implies, worse than safe. Capture runs
-on *every* entrypoint invocation — container start **and** every `exec`/attach — so in
-this jail it has run 50 times over three days (`~/.yolo-perf.log`), not once. The window
-is "since the last `yolo` invocation", which for an interactive session is usually short.
+**Nothing is stored in the container.** Every composed surface lives under a
+host-backed read-write bind, so `--rm` destroys no content — verified by resolving each
+surface against its covering mount:
 
-**But the last session's edits are lost by construction.** The container is `--rm`
-(assemble.go:143), and the only shutdown hook (`onTerminate`, run.go:357) calls
-`stopJail` — it does **not** capture. So every edit made after the final entrypoint run is
-discarded when the jail exits. Sequence: agent edits `settings.json` → session ends → the
-container is destroyed → next launch's diff compares the freshly-rendered file against a
-baseline that never saw the edit. Note this is *not* the deleted-baseline case from §5.1;
-here the baseline is intact and simply predates the edit. The overlay does persist
-(`.yolo/prism` lives in the workspace, verified rw), so the loss is purely one of timing.
+| Surface | Covering mount | Persists past `--rm`? |
+|---|---|---|
+| `~/.claude/settings.json` | `~/.claude` (rw overlay) | ✅ |
+| `~/.config/mise/config.toml` | `~/.config` (rw overlay) | ✅ |
+| `~/.codex/config.toml` | `~/.codex` (rw overlay) | ✅ |
 
-**Options, cheapest first:**
+The baseline persists too — `.yolo/prism/` is in the workspace. So at exit the edited
+file **and** its baseline both survive on the host, and the next boot's
+`mergeDiff(last_render, current)` sees the edit and captures it normally. Observable
+right now in this jail: the surface is newer (19:07) than its baseline (15:43) — an
+uncaptured edit sitting safely on disk, awaiting the next boot.
 
-1. **Capture on shutdown.** `onTerminate` already exists and already runs host-side while
-   the container may still be alive; a capture pass there would close the common case
-   without any new process. Caveats: the hook is best-effort (a SIGKILL skips it), and it
-   is on the *host* side, so it would need to read the surfaces through the workspace
-   mount rather than in-jail paths — doable for the mounted overlay dirs, not for
-   everything.
-2. **A `yolo config capture` command.** The `config` dispatcher already has four
-   subcommands; a fifth that runs the capture half of `ComposeStateful` without
-   re-rendering would let a human or a skill checkpoint deliberately ("I just changed
-   settings, save that"). Cheap, explicit, and it makes the mechanism *nameable* — which
-   §8 argues is most of the problem. It does not remove the hack, it gives it a manual
-   escape.
-3. **Watch the files.** `yolo-jaild` is already a long-lived supervised in-jail process
-   (`internal/entrypoint/runtime.go:108-115`), so an inotify watcher is architecturally
-   available — no new daemon, one more entry in `YOLO_JAIL_DAEMONS`. This is the only
-   option that actually eliminates the deferral. Costs: debounce (agents write configs
-   repeatedly — Claude rewrites `settings.json` on every `/config` keystroke-ish action),
-   a write-amplification concern on the sidecar, and a genuine race with the entrypoint's
-   own renders that the flock-free sidecar path does not currently handle.
-4. **Give up on capture for the surfaces that do not need it** — the §8 framing. If a
-   surface's writer is class 2 (human-directed) and a config knob exists, the durable
-   answer was never capture; the timing problem then only matters for genuine class-1
-   writes, which is a much smaller set.
+**So the real consequence is narrow:** between the last entrypoint run and the next one,
+the captured state is *stale* — the overlay does not yet reflect the edit. What that
+actually costs:
 
-**Recommendation: ② then ①.** A named command is small, removes the "it silently didn't
-save" surprise, and is useful to a skill; shutdown capture then closes the common case
-automatically. ③ is the only real fix but wants the race and debounce thought through
-first, and ④ shrinks the problem rather than solving it — worth doing anyway for its own
-reasons. Either way the honest statement for the doc is: **capture is eventually
-consistent, and the last session before exit is the gap.**
+- `yolo config diff` run host-side in that window under-reports; it shows the last
+  captured overlay, not what is on disk.
+- A `yolo config reset` in that window discards the baseline *and* leaves the edited file
+  in place, so the edit is then adopted as if it were original — surprising, but not
+  destructive.
+- The one genuine loss case remains §5.1's: something deletes `last_render` while an
+  uncaptured edit exists. That is a `prune` guard, not a timing fix.
+
+**Which reprioritizes the options.** Since nothing is lost, an inotify watcher is
+solving a staleness problem, not a data-loss problem, and its costs (debounce against
+agents that rewrite config repeatedly, plus a race with the entrypoint's own renders on a
+flock-free sidecar path) are no longer justified by urgency.
+
+| Option | Buys | Cost | Verdict |
+|---|---|---|---|
+| **`yolo config capture`** subcommand | an explicit checkpoint; makes the mechanism nameable (§8's real problem) | small — the capture half of `ComposeStateful` without re-rendering | **do this** |
+| capture in the existing `onTerminate` hook | closes the window automatically | best-effort only (SIGKILL skips it); host-side, so it reads surfaces through the workspace mount | worth it after the above |
+| inotify on `yolo-jaild` | eliminates the deferral | debounce + a real race story | **not now** — no data loss to justify it |
+| shrink the problem via [§8](#8-who-is-writing-program-operation-vs-directed-agent)'s class split | fewer surfaces need capture at all | design work | do anyway, for its own reasons |
+
+**Honest statement for the doc:** capture is **eventually consistent**, the window is
+"since the last `yolo` invocation" (50 invocations over 3 days in this jail, so usually
+short), and nothing is lost by waiting — only *observability* lags.
 
 ## 6. Why `0o444` is not a posture
 
