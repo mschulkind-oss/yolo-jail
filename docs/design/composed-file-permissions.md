@@ -183,13 +183,55 @@ its *documentation* is scope-blind. Concretely:
   preserve. Steer at `mise.toml` + `mise install` first; `mise use -g` is right only for
   the same "global, not project" case as the user config.
 
-**Strongest counter-argument to my own position:** the user-scope case is one person's
-two tools, and `mise_tools` costs a bespoke transport (`YOLO_MISE_TOOLS`, §3.0.2), a
-prism surface, and a capture path. If the user-scope need were instead served by a
-`~/.config/mise/config.toml` on the *host* that yolo mounted or copied in, the key could
-disappear entirely and mise's own layering would do the work. **That is the alternative
-worth testing before keeping the key** — it is not obviously worse, and it would delete
-code rather than document it.
+#### Where in the stack the injection happens, and why the host layer is not available
+
+The review's framing is the useful one: *you could put it in user mise (host, and
+inherited into the jail if we inherited), or in the user yolo config (jails only, not the
+host) — and that jail-only property is arguably the point.* Mapping it out:
+
+| Layer | Scope | On the host? | In the jail? |
+|---|---|---|---|
+| host `~/.config/mise/config.toml` | user, all projects | ✅ | **❌ not inherited** |
+| yolo `mise_tools` (user config) | user, all **jails** | ❌ | ✅ (composed into the jail's global config) |
+| yolo `mise_tools` (workspace config) | one project's jails | ❌ | ✅ |
+| `/workspace/mise.toml` | one project, **everyone** | ✅ | ✅ (native, no restart) |
+| `mise.jail.toml` (`MISE_ENV=jail`) | one project, jails only | ❌ | ✅ (native) |
+
+**So `mise_tools` at user scope fills a real hole: "mine, in every jail, but not on my
+host."** The jail's global mise config is *yolo-composed* rather than inherited — verified
+live: `~/.config/mise/config.toml` in this jail contains exactly the two `mise_tools`
+entries and nothing from the host.
+
+**And I have to retract my own counter-argument.** I previously suggested the key could be
+deleted by mounting the host's `~/.config/mise/config.toml` and letting mise layer it.
+That does not work, and the reason is already documented: **host and jail mise state are
+deliberately separated** — the host store is never mounted, jails use a neutral `/mise`
+with `RUSTUP_HOME`/`CARGO_HOME` redirected, because a shared store with mismatched
+workspace paths *corrupted `mise install`*
+([mise-host-jail-path-mismatch.md](../research/mise-host-jail-path-mismatch.md),
+[jail-state-separation-design.md](jail-state-separation-design.md)). Inheriting the host's
+tool *declarations* would immediately re-pose "which store are these installed into?" So
+the composed-config route is not incidental; it is the separation working as designed.
+
+**The deeper tension the review names, and it is the right frame.** These tiers are
+serving **two different questions** that happen to share one file format:
+
+- *What does this application need to build?* → belongs to the **repo**, wanted by CI and
+  host users alike → `mise.toml`. Non-negotiable.
+- *What does this developer want their environment to contain?* → belongs to the
+  **person**, varies by machine, must not be imposed on collaborators → host mise config,
+  or `mise_tools` at user scope for the jail-only half.
+
+Conflating them is precisely the anti-pattern: an editor pinned in `mise.toml` inflicts a
+preference; a Go version pinned in `mise_tools` hides a build requirement. **The guidance
+should therefore be phrased by question, not by key** — "is this the app's requirement or
+your preference?" answers *where* it goes, and the restart/rebuild axis is secondary.
+
+**Should we encourage this style?** For the preference half, yes — with one caveat worth
+saying out loud: it only pays when there is **no nix equivalent**. `mise_tools` avoids the
+image rebuild that `packages` costs, which is exactly why it is attractive for
+`neovim`/`pipx:swarf`; but a tool that *does* have a clean nix package and is wanted in
+every jail is better baked, since `mise_tools` re-installs it per workspace store.
 
 ### 3.0.2 mise-specific plumbing that should fold into the prism
 
@@ -523,13 +565,37 @@ verified, `hostBytes=nil` at prism.go:376), no Lua transform, no capture, and no
 `config ls` visibility is the only real regret. Cost: one bespoke writer per surface, and
 `claude/config` shows that is ~20 lines.
 
-**(c) Adopt-on-first-migration** — the smallest possible change, and it **works**. Today
-the first-migration branch discards the on-disk file (`overlay = emptyOverlay(kind)`,
-staterender.go:140) because capturing it "would pin stale bespoke output" — a rationale
-about the *historical* migration from bespoke writers, which is now complete. If instead
-the baseline were the **pure render** (defaults+layers with an empty overlay), the diff
-would see agent-written keys as in-jail additions and preserve them. Proved with the real
-engine on the actual `copilot/config` shape:
+**(c) Adopt-on-first-migration** — the smallest possible change, and it **works**.
+
+*How it identifies "our part" — there is no marker, and no recursion.* Worth stating
+plainly because the mechanism sounds more exotic than it is. yolo never labels its own
+keys. What it has is the ability to **compute what the layers alone would produce**, and
+"ours" is defined as exactly that:
+
+```
+declared layers      Defaults{"yolo": true}                      <- all yolo asserts
+pure render          {"yolo": true}                              <- layers, nothing else
+file on disk         {"yolo": true, "copilot_tokens": …, "model": "x"}
+
+mergeDiff(pure, disk) = {"copilot_tokens": …, "model": "x"}       <- the residue = theirs
+```
+
+One subtraction, no loop: **ours = what the layers generate; theirs = whatever is left
+over.** `mergeDiff` is purely two-document (engine.go:163) — it knows nothing about
+ownership, only about difference — so the whole trick is *choosing the right left-hand
+side*. Today the first-migration branch passes an empty overlay
+(`overlay = emptyOverlay(kind)`, staterender.go:140), which is equivalent to subtracting
+the disk file from nothing and keeping nothing. Pass the pure render instead and the
+residue is preserved.
+
+The "recursion" intuition is understandable but is the *steady state*, not this fix: each
+boot's render becomes next boot's baseline, so the residue is re-derived every boot rather
+than accumulated once. That is a fixed point, not a growing structure — and it is exactly
+why the baseline file is load-bearing for one cycle (§5.1). The rationale for discarding
+on first migration was that capturing would "pin stale bespoke output" — a concern about
+the *historical* migration away from bespoke writers, which is now complete.
+
+Proved with the real engine on the actual `copilot/config` shape:
 
 ```
 TODAY  (first migration):            { "yolo": true }                       <- token gone
@@ -569,6 +635,58 @@ exactly the legibility this doc has been arguing for. Worth fixing by having `ls
 *non-rendered but yolo-touched* files too — which it would need anyway, since
 `claude/config` is already in that category and is currently mislabeled rather than
 absent.
+
+### 5.3 Capture timing — can we stop deferring to the next boot?
+
+Raised in review, and the instinct is right: **deferring capture to the next boot is a
+hack**, and it has a failure mode that is not merely theoretical.
+
+**How bad is it today?** Better than "next restart" implies, worse than safe. Capture runs
+on *every* entrypoint invocation — container start **and** every `exec`/attach — so in
+this jail it has run 50 times over three days (`~/.yolo-perf.log`), not once. The window
+is "since the last `yolo` invocation", which for an interactive session is usually short.
+
+**But the last session's edits are lost by construction.** The container is `--rm`
+(assemble.go:143), and the only shutdown hook (`onTerminate`, run.go:357) calls
+`stopJail` — it does **not** capture. So every edit made after the final entrypoint run is
+discarded when the jail exits. Sequence: agent edits `settings.json` → session ends → the
+container is destroyed → next launch's diff compares the freshly-rendered file against a
+baseline that never saw the edit. Note this is *not* the deleted-baseline case from §5.1;
+here the baseline is intact and simply predates the edit. The overlay does persist
+(`.yolo/prism` lives in the workspace, verified rw), so the loss is purely one of timing.
+
+**Options, cheapest first:**
+
+1. **Capture on shutdown.** `onTerminate` already exists and already runs host-side while
+   the container may still be alive; a capture pass there would close the common case
+   without any new process. Caveats: the hook is best-effort (a SIGKILL skips it), and it
+   is on the *host* side, so it would need to read the surfaces through the workspace
+   mount rather than in-jail paths — doable for the mounted overlay dirs, not for
+   everything.
+2. **A `yolo config capture` command.** The `config` dispatcher already has four
+   subcommands; a fifth that runs the capture half of `ComposeStateful` without
+   re-rendering would let a human or a skill checkpoint deliberately ("I just changed
+   settings, save that"). Cheap, explicit, and it makes the mechanism *nameable* — which
+   §8 argues is most of the problem. It does not remove the hack, it gives it a manual
+   escape.
+3. **Watch the files.** `yolo-jaild` is already a long-lived supervised in-jail process
+   (`internal/entrypoint/runtime.go:108-115`), so an inotify watcher is architecturally
+   available — no new daemon, one more entry in `YOLO_JAIL_DAEMONS`. This is the only
+   option that actually eliminates the deferral. Costs: debounce (agents write configs
+   repeatedly — Claude rewrites `settings.json` on every `/config` keystroke-ish action),
+   a write-amplification concern on the sidecar, and a genuine race with the entrypoint's
+   own renders that the flock-free sidecar path does not currently handle.
+4. **Give up on capture for the surfaces that do not need it** — the §8 framing. If a
+   surface's writer is class 2 (human-directed) and a config knob exists, the durable
+   answer was never capture; the timing problem then only matters for genuine class-1
+   writes, which is a much smaller set.
+
+**Recommendation: ② then ①.** A named command is small, removes the "it silently didn't
+save" surprise, and is useful to a skill; shutdown capture then closes the common case
+automatically. ③ is the only real fix but wants the race and debounce thought through
+first, and ④ shrinks the problem rather than solving it — worth doing anyway for its own
+reasons. Either way the honest statement for the doc is: **capture is eventually
+consistent, and the last session before exit is the gap.**
 
 ## 6. Why `0o444` is not a posture
 
