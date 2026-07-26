@@ -37,12 +37,71 @@ other than yolo write this file?* If no → read-only. If yes → read-write wit
 capture, and the capture must be visible. There is no third answer, and
 "read-only-ish" (`0o444` DAC) is not one — see §6.
 
+There is a **second, orthogonal axis** — *does a host file cross into this surface?* — and
+it sharpens the rule rather than replacing it: see
+[§1.0](#10-the-second-axis-is-the-surface-host-linked).
+
 > **⚠ That question is necessary but not sufficient**, and [§8](#8-who-is-writing-program-operation-vs-directed-agent)
 > is the correction: "something else writes it" hides **two** writers with opposite
 > needs. A *program* writing its own config is unsteerable and is exactly what
 > capture exists for. A *human-directed agent* is steerable — and for that writer,
 > capture is often the **wrong** outcome, because the durable answer was a config
 > key it should have edited instead. Read §1 for the posture, §8 for who to serve.
+
+### 1.0 The second axis: is the surface HOST-LINKED?
+
+Raised in review, and it is a real distinction the taxonomy above was missing.
+`~/.claude/settings.json` and `~/.claude.json` are **different kinds of file** on an axis
+orthogonal to Derived/Shared/State: one has a **host layer** and the other deliberately
+does not.
+
+- **Host-linked** — the host's copy is `:ro`-mounted at `/ctx/host-<agent>/<file>` and
+  composed in as the `host` layer, so a host-side edit propagates on the next launch.
+- **Jail-only** — no host file crosses at all; the surface is composed purely from
+  yolo's own layers.
+
+**Exactly 2 of the 11 rendered surfaces are host-linked** (verified by tracing the
+`hostBytes` argument at every render call site): `claude/settings` and `pi/settings`. The
+other nine pass `nil`. What decides it is `agents.AgentSpec.HostFiles` — a **hard-coded
+per-agent allowlist**, `{Dir: ".claude", Files: ["settings.json"]}` and
+`{Dir: ".pi/agent", Files: ["settings.json"]}`, and nothing else. That list is a
+**credential boundary no config key can widen**; the retired `host_claude_files` /
+`host_pi_files` keys are the counter-example that made it so
+([agent-credentials.md](agent-credentials.md)).
+
+Crossed with the kinds above:
+
+| | **Host-linked** (2) | **Jail-only** (9) |
+|---|---|---|
+| **Derived** | *(empty — invariant)* | `copilot/mcp`, `copilot/lsp`, `agy/mcp` |
+| **Shared** | `claude/settings`, `pi/settings` | `mise/config`, `copilot/config`, `codex/config`, `opencode/config`, `agy/settings` |
+| **State** | *(empty — forbidden)* | `~/.claude.json` |
+
+**Both empty cells are deliberate, and naming them is the point of the axis:**
+
+- **Derived + host-linked is empty** because a file yolo regenerates from a host source
+  with nothing else writing it does not need the prism at all — that is the composed git
+  config, which is host-composed and `:ro`-mounted rather than being a surface.
+- **State + host-linked is empty because it is forbidden.** Crossing the host's
+  *identity* file is exactly what caused the 2026-04-23 `invalid_grant` incident (host and
+  jail Claude sharing one single-use refresh-token chain, whichever refreshed first
+  burning the other). `cb6e850` separated the identities permanently, and the host's
+  `~/.claude.json` is *not* in `HostFiles` — verified: no `/ctx/host-claude/claude.json`
+  mount exists.
+
+So `~/.claude/settings.json` (preferences — safe to mirror from the host) crosses, while
+`~/.claude.json` (identity + session state) does not. Same directory, same agent,
+opposite treatment, for a reason.
+
+**Does host-linkage change the correct posture?** It sharpens one rule rather than adding
+a fourth kind: **host-linked ⇒ must stay read-write-with-capture.** Read-only would break
+the promise that host edits propagate *and* that in-jail edits survive; both are required
+because the host file is a real source of truth someone else maintains. It also makes
+capture **more** dangerous there, which is worth stating plainly: on a host-linked surface
+a captured overlay outranks the host layer *forever* — the "troublesome and hidden and
+sticky" failure — whereas on a jail-only surface there is no host truth to fork from, so a
+stale capture is merely stale. That asymmetry is the strongest argument for the
+[§5](#5-the-capture-overlay-is-invisible-and-partly-noise) visibility work.
 
 ### 1.1 What yolo injects into a State file, and why it must
 
