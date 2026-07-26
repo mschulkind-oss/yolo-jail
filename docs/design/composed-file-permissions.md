@@ -30,7 +30,7 @@ kinds**, and the mistake to date has been treating them as one:
 |---|---|---|---|
 | **Derived** — a pure function of host+config, nothing else writes it | git config, briefings, skills, `copilot/mcp`, `copilot/lsp`, `agy/mcp` | yolo only | **read-only**, kernel-enforced where possible |
 | **Shared** — yolo composes it *and* the agent legitimately rewrites it | `claude/settings`, `mise/config`, `copilot/config` | both | **read-write, capture required** |
-| **State** — the agent owns it; yolo only injects a few keys | `~/.claude.json` | agent | **read-write, never composed wholesale** |
+| **State** — the agent owns it; yolo injects a few keys ([which ones](#11-what-yolo-injects-into-a-state-file-and-why-it-must)) | `~/.claude.json` | agent | **read-write, never composed wholesale** |
 
 The design rule that follows is **one question, not four modes**: *does anything
 other than yolo write this file?* If no → read-only. If yes → read-write with
@@ -43,6 +43,42 @@ capture, and the capture must be visible. There is no third answer, and
 > capture exists for. A *human-directed agent* is steerable — and for that writer,
 > capture is often the **wrong** outcome, because the durable answer was a config
 > key it should have edited instead. Read §1 for the posture, §8 for who to serve.
+
+### 1.1 What yolo injects into a State file, and why it must
+
+Fair challenge from review: *what keys are actually injected — doesn't yolo never touch
+these? And since this is state rather than config, it lives on the persistent workspace
+home, so is there even an issue?*
+
+**Half right, and the half that is wrong is the load-bearing half.** yolo does touch
+`~/.claude.json`, and it must. `writeClaudeJSON` (claude.go:54-72) injects exactly three
+things, all verified live in this jail:
+
+| Injected | Live value here | Why yolo must |
+|---|---|---|
+| `mcpServers` — the whole reconciled table | `chrome-devtools`, `sequential-thinking`, `tavily` | this is where claude reads user-scoped MCP from. Without it, `mcp_servers`/`mcp_presets` config does nothing and MCP is simply absent |
+| `projects[<workspace>].hasTrustDialogAccepted` | `true` | suppresses the interactive trust prompt — an agent cannot answer a dialog |
+| `projects[<workspace>].enableAllProjectMcpServers` | set each boot | lets the workspace's project-scoped MCP servers load without per-server approval |
+
+The reconciliation is the interesting part, and it is why this cannot just be left alone:
+the `mcpServers` block must be **re-derived every boot** from live config (a server dropped
+from `mcp_servers` has to disappear), yet the file also holds 33 top-level keys of pure
+agent state — `numStartups`, `tipsHistory`, `oauthAccount`, onboarding flags. So yolo
+prunes only the names its own sidecar records as previously-managed, re-adds the current
+set, and touches nothing else.
+
+**On the second half — you are right, and it is exactly why the posture works.** The file
+*is* on the persistent per-workspace home (`~/.claude.json` → `.claude/claude.json`, under
+the rw `~/.claude` overlay — verified), it survives every restart, and yolo never
+regenerates it. That is precisely what makes "State" a *safe* posture rather than a
+compromise: no capture sidecar, no overlay precedence, no first-migration hazard. The
+issue this row guards against is not the file's persistence — it is the temptation to
+**compose** it, which is what §4.2 shows happening to `copilot/config` with a live OAuth
+token as the casualty.
+
+So the row is not "yolo has business here"; it is **"yolo must inject a little and compose
+nothing"** — and the reason it earns a place in the taxonomy is that one surface
+(`copilot/config`) is currently on the wrong side of that line.
 
 ---
 
