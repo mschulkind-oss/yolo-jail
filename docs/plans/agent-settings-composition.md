@@ -11,9 +11,10 @@ subsequently **reversed and generalized** into the `host_files` key
 **Phase A complete** — the engine is built + tested (`internal/agentcfg`, with
 `compose.go`/`engine.go`/`manifest`/`codec`/`luahook` and their tests). **Phase
 B complete** — all **agent** surfaces are in the manifest and reachable via
-`yolo config render` (the non-agent surfaces — mise, standalone MCP/LSP, git
-identity — are *not* yet manifest-modeled; `yolo config render mise` reports "no
-surfaces", and only `pi/claude/gemini/copilot/opencode/codex/agy` are known).
+`yolo config render` — **and so is mise** (ported since; verified 2026-07-25).
+The non-agent surfaces still unported are **standalone MCP/LSP and git identity**
+(`yolo config render mcp|lsp|identity` reports "no surfaces"); the known set is
+`pi/claude/gemini/copilot/opencode/codex/agy/mise`.
 **Phase C complete (2026-07-22)** — every surface renders through the
 prism at boot: `internal/entrypoint`'s `Configure*Prism` functions are the sole
 config path (`boot.go` calls them unconditionally; the `YOLO_PRISM_SURFACES`

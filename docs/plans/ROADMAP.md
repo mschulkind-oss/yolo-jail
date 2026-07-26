@@ -608,9 +608,12 @@ the spec. `yolo config render` is the thin read-only CLI over it.
 **Phase B — surface migrations (DONE for agent configs).** Every agent surface
 (pi/claude/gemini/copilot/opencode/codex, plus `agy` born on the prism) renders
 through `agentcfg` at boot via its `Configure*Prism` writer, each verified at
-parity in a nested jail. MCP/LSP/mise/identity are **not** yet manifest-modeled
-and are **not** reachable via `yolo config render` (`config render mise` →
-"no surfaces"); they still run through bespoke generators — their ports remain.
+parity in a nested jail. **mise IS also ported** (`ConfigureMisePrism` renders it
+statefully; `yolo config render mise` works — verified 2026-07-25; an earlier
+version of this paragraph claimed otherwise). Still **not** manifest-modeled and
+**not** reachable via `yolo config render`: **MCP, LSP and identity**
+(`config render mcp|lsp|identity` → "no surfaces", verified); they run through
+bespoke generators — their ports remain.
 
 **Phase C — deletion + boot-wiring (DONE for agent configs, 2026-07-22).** Boot
 and `yolo check` render the agent-config surfaces through `Compose`; the
