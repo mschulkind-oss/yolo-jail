@@ -66,6 +66,12 @@ message saying it was removed, not be silently ignored — the same treatment `d
 gets (`validate.go`). Existing `<workspace>/.yolo/home/gemini/` dirs and
 `.yolo/prism/gemini-settings.*` sidecars become orphans; `yolo prune` should reap them.
 
+> **The working list for items 3 and 4 now lives in
+> [composed-config-work.md](composed-config-work.md)** — one dependency-ordered,
+> deduplicated list with defect/improvement, ready/needs-decision and size per item. The
+> tables below stay as the summary and the lane/blocker call; do not add work items to
+> them.
+
 ### Item 3 — composed-file follow-ups
 
 [host-file-staging.md](host-file-staging.md) **shipped** 2026-07-25 and is closed to

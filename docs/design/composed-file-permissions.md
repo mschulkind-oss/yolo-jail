@@ -781,7 +781,23 @@ heuristic that is wrong either way is worse than no heuristic, because it fails 
 Cleanest in principle, but it depends on the *agent* supporting a second config path, and
 there is **no evidence** copilot does. Not available without upstream cooperation.
 
-**Recommendation: (c) then (a), in that order, and they are complementary.**
+> **⚠ Blocking conflict found in this recommendation (2026-07-26).** Option (c) as
+> stated would **turn `yolo config reset` into a no-op.** `reset` deletes *both*
+> sidecars (`configdiff.go:234-235`) precisely to reach the empty-overlay
+> first-migration path — that is how the discard takes effect. If first migration
+> instead *adopts* the on-disk file, then reset → no baseline → adopt → the edits the
+> user just asked to discard are re-adopted on the next boot.
+>
+> Both states are "no baseline", so the engine cannot currently distinguish them. **The
+> decision needed before (c) can ship:** how does the engine tell *"first migration"*
+> from *"the user asked to discard"*? Plausible answers, cheapest first — (i) `reset`
+> also truncates the surface file to the pure render, so there is nothing to adopt;
+> (ii) `reset` writes a one-shot marker the next boot consumes; (iii) adopt only when
+> the surface file is *older* than some yolo artifact, i.e. infer migration from
+> mtime. (i) is the smallest and matches what a user means by "reset".
+
+**Recommendation: (c) then (a), in that order, and they are complementary** — *subject to
+the conflict above being resolved first.*
 
 1. **Ship (c) now** — it is a small change in one place (`staterender.go`'s
    first-migration branch: seed the overlay from `mergeDiff(pureRender, current)` rather
