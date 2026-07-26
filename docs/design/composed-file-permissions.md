@@ -126,53 +126,70 @@ Only **two** surfaces have a host layer wired at all (claude + pi), because
 `agents.AgentSpec.HostFiles` has exactly two entries (agents.go:80,146). The
 other six stateful surfaces pass `hostBytes=nil` — they are yolo-owned outright.
 
-### 3.0.1 Should `mise use -g` be prevented rather than captured?
+### 3.0.1 Should yolo manage mise tools at all?
 
-Raised in review, and worth answering because it is the one row where the "something
-else writes it" writer is a *tool yolo itself installed*, not an agent going
-off-script. Three findings shape the answer.
+Raised in review, and the sharper form of the question: is `mise_tools` **ever** the
+right answer, or does it just encourage version pins in the wrong place? Three tiers
+exist and it is worth separating them precisely, because they are not
+interchangeable:
 
-**The restart argument is weaker than it first looks, because `/workspace/mise.toml`
-needs no restart either.** That file is **not** a composed surface — mise reads it
-natively (`prism_mise.go:343` scopes the prism to the global config only) — it is an
-ordinary workspace file the agent can edit, and `mise install` applies it immediately.
-So for a **project** tool the loop is already "edit `mise.toml`, `mise install`, done":
-no yolo config, no restart, no capture, and the change is *committed with the repo*,
-which is strictly better than any of the alternatives. That is the path to steer at,
-and it should be the default recommendation.
+| Tier | Lives in | Who else sees it | Survives outside the jail | To change |
+|---|---|---|---|---|
+| nix `packages` | `yolo-jail.jsonc` | the repo, if committed there | no — image-only | **rebuild** |
+| `mise_tools` | `yolo-jail.jsonc` **or the user config** | depends on scope | no — jail-only | restart |
+| `/workspace/mise.toml` | the workspace | **everyone who clones the repo** | **yes** — host users too | nothing (`mise install`) |
 
-**What remains is a genuinely narrow case**, and worth naming precisely: a tool needed
-**globally in the jail but deliberately not recorded in the project**. Examples are
-thin — a one-off diagnostic the repo should not depend on, or a tool for work outside
-`/workspace` (`~`, `/tmp`). For anything the project actually needs, `mise.toml` is
-correct and `mise use -g` is the wrong file. So the honest statement is not "there is a
-real use case for `mise use -g`" but "**the global case is rare, and the common case has
-a better answer that needs no restart at all**."
+**The workspace file is the right place for a project tool, and it is strictly better
+than the other two.** It is committed, shared with non-jail users, and applies with no
+restart at all (it is not a composed surface — mise reads it natively, `prism_mise.go:343`;
+`mise install` is enough). Any pin that describes *what the project needs* belongs
+there, and `mise_tools` for that purpose is a genuine anti-pattern: it hides a project
+dependency in jail config where no host user or CI will ever see it.
 
-That still argues for capture rather than prevention, but on a weaker ground: the global
-case is rare, not important. When it does happen, capture is what makes it survive, and
-the layer order already handles the conflict — the computed layer folds *above* the
-overlay, so an injected `mise_tools` pin beats a stale in-jail `mise use -g` while a
-genuinely user-added tool survives (`prism_mise.go:44-46`).
+**But there is one case the workspace file structurally cannot express, and the
+maintainer's own configuration is the evidence.** The live user config
+(`~/.config/yolo-jail/config.jsonc`) pins:
 
-**Preventing it is also not really available.** `mise` is on `PATH` and the agent is
-UID 0; `mise use -g` writes an ordinary file in a writable overlay. The strongest
-honest measure is the §7.1 signal — make the file `0o444` so the first `mise use -g`
-*errors*, telling the agent this is yolo-managed config and the declarative route
-exists. That is a legibility improvement, not a block, and it fits the "warn, not
-prevent" framing of §2.
+```jsonc
+"mise_tools": { "neovim": "nightly", "pipx:swarf": "latest" }
+```
 
-**The nuance that makes capture cheap here.** mise is the one surface with **no
-`defaults` and no `managed`** at all (`builtin.go` `miseConfig` declares only
-`Agent`/`Name`/`Path`/`Codec`) — every yolo-owned tool arrives via the computed layer.
-So there is no managed-key-reverts-on-edit surprise to explain: the only precedence
-rule is "an injected pin wins its own key, everything else you added is yours."
+Those are **personal tools wanted in every jail on this machine** — an editor and the
+maintainer's own utility. Put them in a workspace `mise.toml` and you commit your editor
+choice into every repo you touch and impose it on everyone who clones; put them nowhere
+and you reinstall them per jail. No workspace-scoped file can say "mine, everywhere",
+because *workspace* is the wrong axis. Note the shape of the evidence: the repo's own
+`yolo-jail.jsonc` has `mise_tools` **commented out** (`:79`) while the *user* config uses
+it for real. In practice the key is already being used at exactly the scope that
+justifies it.
 
-**Recommendation:** keep capture (the global case is rare but real), add the `0o444`
-signal, and make the signal *point at `mise.toml` + `mise install` first* — the
-no-restart, committed-with-the-repo path — with `mise_tools` as the fallback for a tool
-that must exist before the workspace is trusted. Steering an agent to `mise use -g` at
-all is close to a mistake; steering it to `mise.toml` is the win.
+**The alternatives do not cover that case.** `MISE_ENV=jail` is already set
+(`assemble.go:397`), so mise reads a `mise.jail.toml` — but that is still a *workspace*
+file: per-repo, and committed unless separately gitignored. `mise.local.toml` is
+gitignorable but still per-repo. A nix `package` would work but costs a rebuild and
+cannot express `pipx:` or `nightly`. So the user-scope case survives every substitute.
+
+**Recommendation: keep `mise_tools`, but retarget the guidance.** The key is not wrong;
+its *documentation* is scope-blind. Concretely:
+
+- **user config** (`~/.config/yolo-jail/config.jsonc`) — the legitimate home for
+  `mise_tools`. Personal tooling, every jail, deliberately not in any project.
+- **workspace config** (`yolo-jail.jsonc`) — should be **discouraged for `mise_tools`**,
+  with a hint pointing at `mise.toml`: if the project needs it, the project should
+  declare it where CI and host users see it. This is worth a `yolo check` *warning*
+  rather than an error — it is a smell, not a bug, and there are edge cases (a tool
+  needed before the workspace is trusted).
+- **`mise use -g`** — the in-session escape hatch, and the thing capture exists to
+  preserve. Steer at `mise.toml` + `mise install` first; `mise use -g` is right only for
+  the same "global, not project" case as the user config.
+
+**Strongest counter-argument to my own position:** the user-scope case is one person's
+two tools, and `mise_tools` costs a bespoke transport (`YOLO_MISE_TOOLS`, §3.0.2), a
+prism surface, and a capture path. If the user-scope need were instead served by a
+`~/.config/mise/config.toml` on the *host* that yolo mounted or copied in, the key could
+disappear entirely and mise's own layering would do the work. **That is the alternative
+worth testing before keeping the key** — it is not obviously worse, and it would delete
+code rather than document it.
 
 ### 3.0.2 mise-specific plumbing that should fold into the prism
 
@@ -238,7 +255,7 @@ redesign — they are broken today.
 | # | Defect | Severity | Fix |
 |---|---|---|---|
 | [4.1](#41-gitconfig-is-unwritable-and-git-config---global-fails) | `~/.gitconfig` unwritable; `git config --global` fails "Device or resource busy" | confusing, arguably correct behavior | make the intent legible (drop the decoy symlink, or surface the header) |
-| [4.2](#42-copilotconfig-can-wipe-a-live-oauth-token) | `copilot/config` can **wipe a live OAuth token** | ⚠ **data loss** | stop composing it wholesale — see [§5.1](#51-where-should-the-sidecars-live-open--needs-a-decision), same fix also removes the token from the capture diff |
+| [4.2](#42-copilotconfig-can-wipe-a-live-oauth-token) | `copilot/config` can **wipe a live OAuth token** | ⚠ **data loss** | two steps, both specified in [§5.2](#52-how-to-actually-de-compose-a-credential-surface): **(1)** adopt-on-first-migration (one branch in `staterender.go`, fixes every surface at once, proved by probe); **(2)** then de-compose the credential surfaces so tokens leave the capture path |
 | [4.3](#43-claudeconfig-is-a-dead-surface-with-two-live-side-effects) | `claude/config` declared but never rendered; `config render` renders it anyway | misleading output, one `writeInPlaceString` from data loss | mark it explicitly non-rendered so both the CLI and any future generic loop skip it |
 | [4.4](#44-yolo-config-render-does-not-show-what-the-jail-gets) | `config render` omits the overlay **and** computed layers, and reads "host" from its own destination | the debugging command lies | feed it the real layers, or relabel it a defaults+host preview |
 | [4.5](#45-host_files-reserves-symlink-aliases-but-not-their-targets) | reserved destinations miss symlink **targets** | gap, not yet exploited | reserve targets alongside aliases |
@@ -366,16 +383,56 @@ shape of the answer:
 
 | Sidecar | Kind | Why |
 |---|---|---|
-| `<surface>.overlay.json` | **STATE** — the only durable thing here | the captured diff: a user's/agent's intent, small, human-readable, and irrecoverable if deleted |
-| `<surface>.last_render` | **CACHE** | it is literally `res.Encoded` (staterender.go:193) — a byte copy of yolo's own output, regenerated every boot, and its absence *self-heals* via the first-migration reseed (staterender.go:129) |
+| `<surface>.overlay.json` | **STATE** — the durable record | the captured diff: a user's/agent's intent, small, human-readable, irrecoverable if deleted |
+| `<surface>.last_render` | **NEITHER — a *pending-edit baseline*** | regenerable *going forward*, but **destroying it destroys information that has not been captured yet** (proved below) |
 
-That distinction also relocates an earlier finding. This audit reported "a sidecar
-contains a secret" (`codex-config.last_render` holds a `tvly-` API key, because
-`last_render` copies a rendered file after `${VAR}` interpolation) and treated it as
-disqualifying for the whole directory. **It is not** — it is a fact about the *cache*,
-and the cache was never a candidate for anywhere visible. Splitting cache from state
-therefore does more than tidy naming: it **removes the secret objection from the state
-file**, which is the thing you might want to move.
+**`last_render` is not a cache, and the distinction is decidable rather than a matter
+of naming.** A cache can be deleted with no loss of information. This cannot. The
+review framing is exactly right: *it will regen, but the next start is when the diff is
+captured, and that produces state* — so between boot N and boot N+1 the file is
+**carrying the only baseline** against which an uncaptured edit can be recognized.
+
+Proved with the real engine (temp copy of the tree, `ComposeStateful` directly). Same
+inputs, `last_render` present vs absent:
+
+```
+last_render PRESENT  -> render {"mine":true,"theme":"dark"}   overlay {"mine":true,"theme":"dark"}
+last_render DELETED  -> render {"theme":"light"}              overlay {}   firstMigration=true
+```
+
+Deleting it does not degrade gracefully — the agent's edit is **silently discarded** and
+the surface reverts to `defaults`. The mechanism is `firstMigration := !in.LastRenderPresent
+|| !lastOK` (staterender.go:129) → `overlay = emptyOverlay(kind)` (:140), which skips
+capture entirely for that boot.
+
+So the honest characterization is a **three-way**, not a two-way, split:
+
+- **overlay** = state, permanently.
+- **last_render** = state *for exactly one boot cycle* — a write-ahead baseline. Durable
+  obligation between boots; worthless after the next capture.
+- nothing here is a pure cache.
+
+**Practical consequences**, all following from that:
+
+- **Gitignoring it: fine.** The obligation is only until the next boot; nothing durable
+  is lost by not committing it.
+- **Moving it to `GlobalStorage`: fine**, and arguably better (it is per-workspace but
+  not workspace *content*).
+- **`yolo prune` reaping it: NOT fine** unless the jail is known-stopped. Reaping a
+  live workspace's `last_render` silently discards whatever the agent has edited since
+  the last boot. That deserves a guard.
+- **`yolo config reset` deleting it: correct** — and this is the asymmetry that makes the
+  characterization useful. Reset is an *intentional* discard of exactly those pending
+  edits, so removing the baseline is the point (and it forces a clean reseed). Every
+  *unintentional* loss of the same file is a silent data loss. Same deletion, opposite
+  meanings.
+
+That also relocates an earlier finding in this audit. It reported "a sidecar contains a
+secret" (`codex-config.last_render` holds a `tvly-` API key, because `last_render`
+copies a rendered file after `${VAR}` interpolation) and treated it as disqualifying for
+the whole directory. **It is narrower than that** — the secret is in the *baseline*
+file, which is short-lived and never a candidate for anywhere visible. Splitting the two
+therefore removes the secret objection from the file you might actually want to move.
 
 **But secrets will reach the capture diff too, by a different route** — and this is the
 real constraint, verified rather than hypothesized. An in-jail `/login` writes
@@ -411,8 +468,9 @@ location question gets much easier afterwards.
    already surfaces overlay contents (shipped), and could print the path. Zero risk,
    solves the "invisible" complaint without touching the secret question. This is the
    cheapest correct step and does not foreclose anything.
-2. **Split cache from state; keep both gitignored.** Prerequisite for anything below,
-   and independently worth doing because it stops calling regenerable cache "state".
+2. **Separate the durable record from the pending-edit baseline; keep both gitignored.**
+   Prerequisite for anything below. Also the point at which `yolo prune` should learn not
+   to reap a live workspace's baseline (§5.1) — today that is a silent data loss.
 3. **Overlay to a committable path** (e.g. `.yolo-config/` or a `yolo/` dir, ignored by
    default only if the user says so). Needs: a scope decision (an overlay is
    per-workspace *and* per-machine — a captured `theme: dark` committed to a shared
@@ -432,6 +490,85 @@ rather than two: *is a captured edit per-workspace or per-machine?* A captured
 "per-machine", the whole idea of committing it dissolves and ④'s config key is the only
 sensible form. (Committing *intentional* shared config is a different feature —
 ROADMAP item 5, config packs — and probably wants that mechanism, not this one.)
+
+### 5.2 How to actually de-compose a credential surface
+
+§5.1 concluded "de-compose credential surfaces first" without showing a mechanism —
+a fair objection. Here it is, with the options tested rather than asserted.
+
+**The precedent already works and is worth reading first.** `~/.claude.json` is declared
+in the manifest and **never rendered**; `writeClaudeJSON` (claude.go:54-72) does a
+read-modify-write instead:
+
+```go
+claudeJSON := loadObject(claudeJSONPath)          // start from what is THERE
+mcpServers := setDefaultMap(claudeJSON, "mcpServers")
+for _, name := range loadManagedSet(...) { mcpServers.Delete(name) }  // prune only OURS
+updateFrom(mcpServers, configured)                // assert only our keys
+projects := setDefaultMap(claudeJSON, "projects") // touch only our subtree
+...
+writeInPlaceString(claudeJSONPath, dumpJSONIndent2(claudeJSON))
+```
+
+Nothing is composed from layers; nothing the agent wrote is at risk, because the file is
+only ever *edited*, never *regenerated*. That is the shape a credential surface wants.
+
+**Four options, and one is far smaller than the rest.**
+
+**(a) Full de-composition** — move `copilot/config` to the `writeClaudeJSON` pattern.
+Correct, and precedented. What it gives up, honestly: no host layer (copilot has none —
+verified, `hostBytes=nil` at prism.go:376), no Lua transform, no capture, and no
+`yolo config ls`/`diff` visibility. For a credential file, losing capture is a *feature*
+(we do not want tokens in the overlay) and losing the host layer costs nothing. Losing
+`config ls` visibility is the only real regret. Cost: one bespoke writer per surface, and
+`claude/config` shows that is ~20 lines.
+
+**(c) Adopt-on-first-migration** — the smallest possible change, and it **works**. Today
+the first-migration branch discards the on-disk file (`overlay = emptyOverlay(kind)`,
+staterender.go:140) because capturing it "would pin stale bespoke output" — a rationale
+about the *historical* migration from bespoke writers, which is now complete. If instead
+the baseline were the **pure render** (defaults+layers with an empty overlay), the diff
+would see agent-written keys as in-jail additions and preserve them. Proved with the real
+engine on the actual `copilot/config` shape:
+
+```
+TODAY  (first migration):            { "yolo": true }                       <- token gone
+ADOPT  (baseline = pure render):     { "copilot_tokens": {...}, "model": "x", "yolo": true }
+```
+
+So option (c) fixes [§4.2](#42-copilotconfig-can-wipe-a-live-oauth-token) for **every**
+surface at once, with no per-surface code — and it is a strictly better first-boot
+behavior in general, not just for credentials: adopting what is on disk is what a
+migration *should* do. Its cost is that the token then lives in the overlay sidecar,
+which is exactly what §5.1 wants to avoid. **So (c) is the right bug fix and the wrong
+end state.**
+
+**(b) Capture allow/denylist** — capture everything except credential-shaped keys.
+Rejected: the predicate is the problem. `copilot_tokens` is guessable, but
+`logged_in_users`, `last_logged_in_user`, an `oauthAccount`, a bare `token` — a
+heuristic that is wrong either way is worse than no heuristic, because it fails silently.
+
+**(d) Split the file** — yolo owns a separate config file, credentials stay in theirs.
+Cleanest in principle, but it depends on the *agent* supporting a second config path, and
+there is **no evidence** copilot does. Not available without upstream cooperation.
+
+**Recommendation: (c) then (a), in that order, and they are complementary.**
+
+1. **Ship (c) now** — it is a small change in one place (`staterender.go`'s
+   first-migration branch: seed the overlay from `mergeDiff(pureRender, current)` rather
+   than empty), it fixes a live data-loss bug across all surfaces, and it needs no
+   per-surface decisions. Verification is straightforward: the probe above becomes a unit
+   test, plus a nested-jail check that a copilot token survives a deleted sidecar.
+2. **Then (a) for the surfaces that hold credentials** — so tokens leave the capture path
+   entirely and the overlay becomes safe to expose. Audit target: `copilot/config`
+   (confirmed: `copilot_tokens`, `logged_in_users`, `last_logged_in_user`) and any other
+   surface whose live file carries auth-shaped keys. `~/.claude.json` is already done.
+
+The honest gap: (a) removes those surfaces from `yolo config ls`, which is a regression in
+exactly the legibility this doc has been arguing for. Worth fixing by having `ls` list
+*non-rendered but yolo-touched* files too — which it would need anyway, since
+`claude/config` is already in that category and is currently mislabeled rather than
+absent.
 
 ## 6. Why `0o444` is not a posture
 
@@ -753,8 +890,10 @@ then 4.3/4.5 (cheap correctness), then 4.4 and the §2 umask fix.
    `capture` being defensible at all. Remaining gap is not the machinery but its
    *discoverability* — see item 5.
 2. Overlay auto-retire: drop a captured key equal to the layer beneath it (§5).
-3. Split cache from state — `last_render` is regenerable cache, the overlay is the
-   only durable thing ([§5.1](#51-where-should-the-sidecars-live-open--needs-a-decision)).
+3. Separate the overlay (durable) from `last_render` (a one-boot pending-edit
+   baseline, NOT a cache — deleting it silently discards uncaptured edits, proved in
+   [§5.1](#51-where-should-the-sidecars-live-open--needs-a-decision)); guard `yolo prune`
+   against reaping a live workspace's baseline.
 4. Collapse `host_files`' four modes to three; implement `readonly` as `:ro`
    where possible instead of `0o444` (§7.4).
 5. Steer directed agents at composed surfaces — the docs-only gap in
