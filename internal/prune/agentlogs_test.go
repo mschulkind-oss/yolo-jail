@@ -4,6 +4,7 @@ import (
 	"bytes"
 	"os"
 	"path/filepath"
+	"strings"
 	"testing"
 	"time"
 )
@@ -100,5 +101,21 @@ func TestPurgeAgentLogsSkipsSymlink(t *testing.T) {
 	}
 	if _, err := os.Stat(target); err != nil {
 		t.Errorf("symlink target was removed: %v", err)
+	}
+}
+
+// B3: the prism sidecars are NOT a cache and must never be pruned.
+//
+// The overlay is DURABLE STATE — the only record that in-jail edits happened, and
+// unreconstructable. last_render is a one-boot pending-edit baseline whose loss
+// silently destroys every uncaptured edit. Neither is derivable in the way a cache
+// is, so a prune target that swept <workspace>/.yolo/prism/ would be data loss
+// dressed as housekeeping. This pins the current (correct) behavior so a future
+// "clean up .yolo" cannot quietly include it.
+func TestPruneNeverTargetsPrismSidecars(t *testing.T) {
+	for _, sub := range append(append([]string{}, agentLogWorkspaceSubdirs...), agentLogGlobalCacheSubdirs...) {
+		if strings.Contains(sub, "prism") {
+			t.Errorf("prune target %q includes the prism sidecars (durable state, not cache)", sub)
+		}
 	}
 }

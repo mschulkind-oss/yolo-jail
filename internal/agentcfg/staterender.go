@@ -15,17 +15,35 @@ package agentcfg
 // diff/accumulate/render loop — are unit-tested with zero filesystem, and it
 // can use the unexported mergeDiff/mergeAccumulate directly.
 //
-// The two sidecars (§5), which the caller stores in `<workspace>/.yolo/`:
+// The two sidecars (§5), which the caller stores in `<workspace>/.yolo/prism/`.
+// B3: they are DIFFERENT KINDS of thing, and conflating them has caused real
+// mistakes — reason about each by its kind, not by "the sidecars":
 //
-//   - last_render: the exact surface-codec bytes yolo wrote last boot. Stored
-//     in the surface's own codec (not JSON) so it byte-matches what was written
-//     and diffs cleanly against the on-disk file — "the bytes yolo wrote last
-//     boot" per §5.
-//   - overlay: the accumulated in-jail edits, ALWAYS JSON. The overlay must be
-//     able to carry `null` tombstones (a captured deletion), which TOML/lines
-//     codecs cannot express; JSON is the one codec that round-trips the generic
-//     value model including nulls. It is an engine-internal sidecar the agent
-//     never sees (§5), so its on-disk format is yolo's choice, not the surface's.
+//   - overlay — DURABLE STATE. The accumulated in-jail edits, and the only record
+//     that they ever happened. Nothing else can reconstruct it. Losing it loses
+//     every captured edit permanently; that is why `yolo config reset` deleting it
+//     IS the discard operation, and why it lives in the workspace rather than a
+//     cache dir. ALWAYS JSON: the overlay must carry `null` tombstones (a captured
+//     deletion), which the TOML/lines codecs cannot express, and JSON is the one
+//     codec that round-trips the generic value model including nulls. Engine-
+//     internal — the agent never sees it — so its format is yolo's choice, not the
+//     surface's.
+//
+//   - last_render — a ONE-BOOT PENDING-EDIT BASELINE. Not a cache and not durable
+//     state. It is the exact surface-codec bytes yolo wrote last boot, stored in the
+//     surface's own codec so it byte-matches the file and diffs cleanly.
+//
+//     It is tempting to call it a cache, since it is derivable in principle — and
+//     that is exactly the mistake. Deleting it does NOT cause a harmless
+//     recompute: it destroys the ability to tell an in-jail EDIT from yolo's own
+//     previous output, so every edit made since the last boot and not yet captured
+//     is silently lost. Before B1 it was worse — a missing baseline discarded the
+//     whole file's agent-owned state (the copilot OAuth wipe). It is "state" only
+//     for the span of one boot cycle, after which it is rewritten.
+//
+// Practical consequence: the overlay must be preserved and backed up like data;
+// last_render must be preserved across a single restart but is meaningless
+// afterwards. Neither is a cache, and nothing here may be pruned as one.
 
 import (
 	"bytes"
