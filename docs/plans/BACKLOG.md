@@ -108,12 +108,19 @@ renaming the recovered state.
 
 ## Open rulings still owed
 
-1. **First-migration vs user-asked-to-discard** — gates all of stage B.
-2. **Is agent/pack state per-machine or per-jail?** Today per-machine *by accident*: `GlobalHome`
-   is shared across all jails, so `~/.claude` exists even with no agents selected (verified).
-   Determines whether pack removal can ever clean up. Also decides B4.
-3. **Where composition runs** — D1. The largest single call.
-4. **Does a running jail need to re-render?** Only bites if D1 goes host-side.
+**Full context, options and a recommendation per ruling: [open-rulings.md](open-rulings.md).**
+
+1. **First-migration vs user-asked-to-discard** — gates all of stage B. Recommendation:
+   `reset` also truncates the surface to the pure render (adds no new state).
+2. **Is agent/pack state per-machine or per-jail?** **Correction:** it is already
+   *per-workspace* — `<workspace>/.yolo/home/<agent>/` holds the real state and the
+   `GlobalHome` entries are empty mountpoints (verified). Only
+   `.claude-shared-credentials` is machine-wide. Recommendation: packs follow the
+   per-workspace pattern; removal does not chase per-workspace effects.
+3. **Where composition runs** — D1, the largest call. Recommendation: host-side, keeping
+   binary installs in-jail.
+4. **Does a running jail need to re-render?** Only bites if 3 goes host-side.
+   Recommendation: re-render at run start only.
 
 ## Suggested order
 
