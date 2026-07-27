@@ -50,7 +50,6 @@ type surfaceRow struct {
 var prismSurfaceMode = map[string]string{
 	"claude/settings": "capture",
 	"pi/settings":     "capture",
-	"gemini/settings": "capture",
 	"copilot/config":  "capture",
 	"opencode/config": "capture",
 	"codex/config":    "capture",
@@ -191,7 +190,6 @@ var surfaceHasHostLayer = map[string]bool{
 // per-boot dynamic layer (MCP tables, LSP toggles, mise tools).
 var surfaceHasComputedLayer = map[string]bool{
 	"claude/settings": true,
-	"gemini/settings": true,
 	"codex/config":    true,
 	"opencode/config": true,
 	"mise/config":     true,

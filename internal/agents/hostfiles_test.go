@@ -23,7 +23,7 @@ func TestHostFilesDeclarations(t *testing.T) {
 			t.Errorf("%s HostFiles = %+v, want %+v", name, spec.HostFiles, want)
 		}
 	}
-	for _, name := range []string{"copilot", "gemini", "opencode", "codex", "agy"} {
+	for _, name := range []string{"copilot", "opencode", "codex", "agy"} {
 		spec, ok := Get(name)
 		if !ok {
 			t.Fatalf("agent %q not found", name)

@@ -7,7 +7,7 @@
     },
     "all_agents_presets_lsp": {
       "env": {
-        "YOLO_AGENTS": "[\"claude\",\"copilot\",\"gemini\",\"opencode\",\"pi\",\"codex\"]",
+        "YOLO_AGENTS": "[\"claude\",\"copilot\",\"opencode\",\"pi\",\"codex\"]",
         "YOLO_MCP_PRESETS": "[\"chrome-devtools\",\"sequential-thinking\"]",
         "YOLO_LSP_SERVERS": "{\"python\":{\"command\":\"/x/pyright-langserver\",\"args\":[\"--stdio\"],\"fileExtensions\":{\".py\":\"python\",\".pyi\":\"python\"}},\"go\":{\"command\":\"/x/gopls\",\"args\":[],\"fileExtensions\":{\".go\":\"go\"}}}",
         "YOLO_HOST_DIR": "/home/user/kitchen",
@@ -21,13 +21,13 @@
     },
     "block_shadows_agent_launcher": {
       "env": {
-        "YOLO_AGENTS": "[\"gemini\",\"copilot\",\"claude\"]",
-        "YOLO_BLOCK_CONFIG": "[{\"name\":\"gemini\",\"message\":\"blocked\"},{\"name\":\"pnpm\",\"message\":\"blocked\"}]"
+        "YOLO_AGENTS": "[\"codex\",\"copilot\",\"claude\"]",
+        "YOLO_BLOCK_CONFIG": "[{\"name\":\"curl\",\"message\":\"blocked\"},{\"name\":\"pnpm\",\"message\":\"blocked\"}]"
       }
     },
     "mcp_servers_env_interp": {
       "env": {
-        "YOLO_AGENTS": "[\"copilot\",\"gemini\",\"claude\",\"opencode\",\"codex\"]",
+        "YOLO_AGENTS": "[\"copilot\",\"agy\",\"claude\",\"opencode\",\"codex\"]",
         "CEREBRAS_API_KEY": "csk-from-launch-env",
         "YOLO_MCP_SERVERS": "{\"cerebras-mcp\":{\"command\":\"npx\",\"args\":[\"-y\",\"cerebras-code-mcp\"],\"env\":{\"CEREBRAS_API_KEY\":\"${CEREBRAS_API_KEY}\",\"CEREBRAS_MCP_IDE\":\"claude\"}},\"tavily\":{\"command\":\"npx\",\"args\":[\"-y\",\"tavily-mcp\"],\"env\":{\"TAVILY_API_KEY\":\"${TAVILY_API_KEY}\"},\"requires_env\":[\"TAVILY_API_KEY\"]},\"probe-mcp\":{\"command\":\"/workspace/probe-mcp.py\",\"args\":[\"--stdio\"]}}"
       }
@@ -42,7 +42,7 @@
         "baseline.crt": "-----BEGIN CERTIFICATE-----\nBASELINE\n-----END CERTIFICATE-----\n",
         "broker.crt": "-----BEGIN CERTIFICATE-----\nBROKERCA\n-----END CERTIFICATE-----\n",
         "other.crt": "-----BEGIN CERTIFICATE-----\nOTHERCA\n-----END CERTIFICATE-----\n",
-        ".config/mise/config.toml": "[tools]\nnode = \"20\"\npython = \"3.12\"\ngemini = \"latest\"\n"
+        ".config/mise/config.toml": "[tools]\nnode = \"20\"\npython = \"3.12\"\n"
       }
     },
     "claude_history_and_existing": {
@@ -53,15 +53,6 @@
       "files": {
         ".claude/settings.json": "{\"myCustomKey\": true, \"env\": {\"ENABLE_LSP_TOOL\": \"1\", \"OTHER\": \"keep\"}}",
         ".claude.json": "{\"hasCompletedOnboarding\": true, \"mcpServers\": {\"custom\": {\"command\": \"foo\"}}}"
-      }
-    },
-    "gemini_migration_fallback": {
-      "env": {
-        "YOLO_AGENTS": "[\"gemini\"]",
-        "YOLO_MCP_SERVERS": "{\"other-mcp\":{\"command\":\"/workspace/other.py\",\"args\":[]}}"
-      },
-      "files": {
-        ".gemini/settings.json": "{\"mcpServers\": {\"my-server\": {\"command\": \"foo\"}, \"probe-mcp\": {\"command\": \"/workspace/probe_mcp.py\", \"args\": []}}}"
       }
     },
     "codex_userkeys_preserved": {

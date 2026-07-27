@@ -139,8 +139,6 @@ func generateAll(t *testing.T, e *Env) {
 			must(ConfigureClaudePrism(e))
 		case "copilot":
 			must(ConfigureCopilotPrism(e))
-		case "gemini":
-			must(ConfigureGeminiPrism(e))
 		case "opencode":
 			must(ConfigureOpencodePrism(e))
 		case "pi":

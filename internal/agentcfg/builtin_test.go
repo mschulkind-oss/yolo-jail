@@ -108,58 +108,6 @@ func TestBuiltinClaudeConfigSurface(t *testing.T) {
 	}
 }
 
-// TestBuiltinGeminiSettingsSurface asserts gemini/settings is in the manifest
-// with the json codec at the right path, and — the §7 subtlety — that the
-// security posture (approvalMode / enablePermanentToolApproval) is modeled as
-// USER-OVERRIDABLE DEFAULTS (bespoke setDefault) while the auto-update disables
-// are FORCE-MANAGED (bespoke .Set). A default in managed or vice versa is the
-// exact mistake this test guards against.
-func TestBuiltinGeminiSettingsSurface(t *testing.T) {
-	m := BuiltinManifest()
-	s, ok := m.Lookup("gemini", "settings")
-	if !ok {
-		t.Fatal("builtin manifest missing gemini/settings")
-	}
-	if s.Codec != "json" {
-		t.Errorf("gemini/settings codec = %q, want json", s.Codec)
-	}
-	if s.Path != "~/.gemini/settings.json" {
-		t.Errorf("gemini/settings path = %q, want ~/.gemini/settings.json", s.Path)
-	}
-
-	// security.* is a DEFAULT (user-overridable), not managed.
-	sec, ok := s.DefaultsMap()["security"].(map[string]any)
-	if !ok {
-		t.Fatalf("gemini/settings default security not an object: %T", s.DefaultsMap()["security"])
-	}
-	if sec["approvalMode"] != "yolo" {
-		t.Errorf("default security.approvalMode = %v, want yolo", sec["approvalMode"])
-	}
-	if sec["enablePermanentToolApproval"] != true {
-		t.Errorf("default security.enablePermanentToolApproval = %v, want true", sec["enablePermanentToolApproval"])
-	}
-	// The security posture must NOT leak into the managed layer (the §7 bug: a
-	// setDefault posture must stay a default, or it silently changes behavior).
-	if _, present := s.ManagedMap()["security"]; present {
-		t.Error("gemini/settings security must be a DEFAULT, not managed (setDefault semantics)")
-	}
-
-	// general.* is FORCE-MANAGED, not a default.
-	gen, ok := s.ManagedMap()["general"].(map[string]any)
-	if !ok {
-		t.Fatalf("gemini/settings managed general not an object: %T", s.ManagedMap()["general"])
-	}
-	if gen["enableAutoUpdate"] != false {
-		t.Errorf("managed general.enableAutoUpdate = %v, want false", gen["enableAutoUpdate"])
-	}
-	if gen["enableAutoUpdateNotification"] != false {
-		t.Errorf("managed general.enableAutoUpdateNotification = %v, want false", gen["enableAutoUpdateNotification"])
-	}
-	if _, present := s.DefaultsMap()["general"]; present {
-		t.Error("gemini/settings general must be MANAGED, not a default (.Set semantics)")
-	}
-}
-
 // TestBuiltinCopilotConfigSurface asserts copilot/config (config.json) is in the
 // manifest with the json codec at the right path, and — the §7 subtlety — that
 // yolo:true is a USER-OVERRIDABLE DEFAULT (the bespoke write-if-absent), not a

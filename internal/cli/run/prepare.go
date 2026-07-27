@@ -186,9 +186,6 @@ func (o *Options) prepareWsState(cfg *jsonx.OrderedMap, agentSpecs []agents.Agen
 	if inStrSlice(agentsList, "copilot") {
 		migrateOldOverlay(filepath.Join(wsState, "copilot-sessions"), filepath.Join(wsState, "copilot", "session-state"))
 	}
-	if inStrSlice(agentsList, "gemini") {
-		migrateOldOverlay(filepath.Join(wsState, "gemini-history"), filepath.Join(wsState, "gemini", "history"))
-	}
 	return wsState
 }
 

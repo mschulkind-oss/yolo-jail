@@ -331,3 +331,28 @@ func TestValidateAgentsNoWorkspaceKeyClean(t *testing.T) {
 		t.Errorf("errors = %v, want none", errs)
 	}
 }
+
+// `gemini` was removed (Google is deprecating Gemini CLI). A config still naming
+// it must get a RETIREMENT message, not a bare "unknown agent" that reads like a
+// typo — the same treatment `docker` gets in validateRuntime.
+func TestValidateAgentsGeminiRetired(t *testing.T) {
+	t.Setenv("YOLO_VERSION", "")
+	errs, _ := ValidateConfig(decode(t, `{"agents": ["gemini"]}`), t.TempDir(), nil)
+	var found string
+	for _, e := range errs {
+		if strings.HasPrefix(e, "config.agents[0]") {
+			found = e
+		}
+	}
+	if found == "" {
+		t.Fatalf("no config.agents[0] error; got %v", errs)
+	}
+	for _, want := range []string{"REMOVED", "agy"} {
+		if !strings.Contains(found, want) {
+			t.Errorf("error %q does not mention %q", found, want)
+		}
+	}
+	if strings.Contains(found, "unknown agent") {
+		t.Errorf("gemini must get a retirement message, not 'unknown agent': %q", found)
+	}
+}

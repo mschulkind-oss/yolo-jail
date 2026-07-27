@@ -134,8 +134,11 @@ func TestMisePrismUserGlobalToolDroppedThenPreserved(t *testing.T) {
 
 // TestMisePrismRetiresWorkspaceTool covers the one bespoke side effect the prism
 // does NOT own: stripping a retired agent's token from the WORKSPACE mise.toml
-// (never a prism-owned file — migration doc §5.3). `gemini` is always in
-// agents.AllMiseRetire (the union is unconditional); an unrelated pin is kept.
+// (never a prism-owned file — migration doc §5.3). The token used here is
+// claude's npm spec, which is always in agents.AllMiseRetire (the union is
+// unconditional over the registry); an unrelated pin is kept. It was `gemini`
+// before that agent was removed — the retire MECHANISM is unchanged, only the
+// example token.
 func TestMisePrismRetiresWorkspaceTool(t *testing.T) {
 	e := newMiseEnv(t, nil)
 	writeMiseConfig(t, e.Home, "[tools]\n") // global config exists but is empty
@@ -144,7 +147,7 @@ func TestMisePrismRetiresWorkspaceTool(t *testing.T) {
 	prev := workspaceMisePath
 	t.Cleanup(func() { workspaceMisePath = prev })
 	ws := filepath.Join(t.TempDir(), "mise.toml")
-	if err := os.WriteFile(ws, []byte("[tools]\ngemini = \"latest\"\nnode = \"24\"\n"), 0o644); err != nil {
+	if err := os.WriteFile(ws, []byte("[tools]\n\"npm:@anthropic-ai/claude-code\" = \"latest\"\nnode = \"24\"\n"), 0o644); err != nil {
 		t.Fatal(err)
 	}
 	workspaceMisePath = ws
@@ -153,8 +156,8 @@ func TestMisePrismRetiresWorkspaceTool(t *testing.T) {
 		t.Fatal(err)
 	}
 	got := string(mustRead(t, ws))
-	if strings.Contains(got, "gemini =") {
-		t.Errorf("retired token gemini must be stripped from the workspace mise.toml:\n%s", got)
+	if strings.Contains(got, "claude-code\" =") {
+		t.Errorf("retired claude npm token must be stripped from the workspace mise.toml:\n%s", got)
 	}
 	if !strings.Contains(got, `node = "24"`) {
 		t.Errorf("unrelated workspace pin node must be preserved:\n%s", got)

@@ -148,6 +148,16 @@ func validateAgents(config *jsonx.OrderedMap, errs, warns *[]string) {
 		s, ok := asStr(name)
 		if !ok {
 			add(errs, fmt.Sprintf("config.agents[%d]: expected a string", idx))
+		} else if s == "gemini" {
+			// RETIRED, not merely unknown: Google is deprecating Gemini CLI, so
+			// `gemini` was dropped from the supported set. Say so explicitly — a bare
+			// "unknown agent" reads like a typo and sends people looking for one.
+			// Same treatment `docker` gets in validateRuntime.
+			add(errs, fmt.Sprintf("config.agents[%d]: 'gemini' was REMOVED — Google is "+
+				"deprecating Gemini CLI, so yolo no longer supports it. Drop it from the "+
+				"list. (For Google Antigravity CLI use 'agy'.) Leftover state under "+
+				"<workspace>/.yolo/home/gemini/ and .yolo/prism/gemini-* is inert; "+
+				"`yolo prune` reaps it.", idx))
 		} else if _, valid := validAgentSet[s]; !valid {
 			add(errs, fmt.Sprintf("config.agents[%d]: unknown agent '%s'. Valid agents: %s",
 				idx, s, joinSorted(validAgentSet)))

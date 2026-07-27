@@ -222,7 +222,7 @@ func managedView(managed any) any {
 // under the same top-level key survive (e.g. a host `permissions.ask` is kept
 // while yolo forces `permissions.allow`). A managed scalar/array still replaces.
 // This closes the "shallow-Enforce subtree clobber" fidelity gap the Phase B
-// surfaces documented (claude/gemini managed nested objects). Managed values are
+// surfaces documented (claude/copilot managed nested objects). Managed values are
 // deep-copied in, so Config never shares mutable structure with the enforced
 // layer.
 // For a KEYLESS surface (raw/lines) there is nothing to merge key-by-key: a

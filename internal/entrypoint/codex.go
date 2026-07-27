@@ -11,7 +11,7 @@ import (
 // {command, args, [env]} keyed by server name, ready to sit under the
 // mcp_servers key. This is the raw yolo-owned set consumed by ConfigureCodexPrism
 // as the computed layer, where the §5 last_render anchor makes an explicit
-// managed sidecar unnecessary. Mirrors buildGeminiMCPServers.
+// managed sidecar unnecessary.
 func buildCodexMCPServers(e *Env) *jsonx.OrderedMap {
 	configured := e.LoadMCPServers()
 	codexMCP := jsonx.NewOrderedMap()

@@ -172,16 +172,14 @@ func (e *Env) BashrcPath() string { return filepath.Join(e.Home, ".bashrc") }
 // CopilotDir is HOME/.copilot.
 func (e *Env) CopilotDir() string { return filepath.Join(e.Home, ".copilot") }
 
-// GeminiDir is HOME/.gemini.
+// GeminiDir is HOME/.gemini. The `gemini` AGENT was removed (A1), but this tree
+// is still live: it is where agy (Google Antigravity CLI) keeps its state, under
+// the antigravity-cli subdir. Kept for AgyDir, not for gemini.
 func (e *Env) GeminiDir() string { return filepath.Join(e.Home, ".gemini") }
 
-// GeminiManagedMCPPath is HOME/.gemini/yolo-managed-mcp-servers.json.
-func (e *Env) GeminiManagedMCPPath() string {
-	return filepath.Join(e.GeminiDir(), "yolo-managed-mcp-servers.json")
-}
-
 // AgyDir is HOME/.gemini/antigravity-cli — the Google Antigravity CLI's state
-// dir. It shares the ~/.gemini tree with gemini but is a distinct subdir, so
+// dir. It sits under the ~/.gemini tree (a Google convention agy inherits) but is
+// a distinct subdir, so
 // the two agents never collide (see the agy AgentSpec / agySettings surface).
 func (e *Env) AgyDir() string { return filepath.Join(e.GeminiDir(), "antigravity-cli") }
 

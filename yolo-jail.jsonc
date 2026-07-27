@@ -11,7 +11,7 @@
   // (also settable via YOLO_RUNTIME env var)
   // "runtime": "podman",
   // Coding agents to install in the jail (only these are installed).
-  // Available: claude, copilot, gemini, opencode, pi.  Default: ["claude"].
+  // Available: claude, copilot, opencode, pi, codex, agy.  Default: ["claude"].
   // A workspace list REPLACES the user-level default (does not union).
   // "agents": ["claude"],
   // Extra nix packages to include in the jail image.

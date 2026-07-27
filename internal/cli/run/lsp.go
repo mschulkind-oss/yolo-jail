@@ -19,17 +19,10 @@ var lspInstallRecipes = map[string]lspInstallRecipe{
 	"go":         {go_: []string{"golang.org/x/tools/gopls@latest"}},
 }
 
-// lspGeminiBridgeGo is pulled whenever ANY LSP is configured (Gemini wraps every
-// LSP through it). Frozen contract (must not drift).
-const lspGeminiBridgeGo = "github.com/isaacphi/mcp-language-server@latest"
-
 // ResolveLSPInstalls translates a configured lsp_servers set into newline-joined
-// npm + go install lists (parser-free for the bash side),
-// including the quirk that the Gemini bridge is appended
-// only when lsp_servers is NON-EMPTY (an empty set returns two empty strings and
-// skips the bridge entirely). Server names outside the recipe table contribute
-// nothing but still count toward "non-empty" (so a custom-only LSP set still
-// pulls the bridge). Dedup preserves first-seen order.
+// npm + go install lists (parser-free for the bash side). An empty set returns
+// two empty strings. Server names outside the recipe table contribute nothing.
+// Dedup preserves first-seen order.
 //
 // serverNames is the set of configured LSP server names, in config load order;
 // pass them in that order.
@@ -54,8 +47,11 @@ func ResolveLSPInstalls(serverNames []string) (npm, goPkgs string) {
 			}
 		}
 	}
-	// Bridge appended unconditionally for a non-empty set (after the early
-	// empty return above).
-	goList = append(goList, lspGeminiBridgeGo)
+	// The mcp-language-server BRIDGE IS GONE with the gemini agent (A1): gemini was
+	// its only consumer — it wrapped every configured LSP as an MCP server keyed
+	// "<name>-lsp" (the old buildGeminiMCPServers). Every surviving agent consumes
+	// LSP servers natively (copilot via its own lsp-config.json surface; claude via
+	// its own tools), so appending the bridge would install a Go binary nothing
+	// invokes.
 	return strings.Join(npmList, "\n"), strings.Join(goList, "\n")
 }

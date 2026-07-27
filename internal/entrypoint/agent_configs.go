@@ -2,9 +2,7 @@ package entrypoint
 
 import (
 	"os"
-	"path/filepath"
 	"sort"
-	"strings"
 
 	"github.com/mschulkind-oss/yolo-jail/internal/jsonx"
 )
@@ -81,28 +79,6 @@ func updateFrom(m, other *jsonx.OrderedMap) {
 	}
 }
 
-// baseName returns the final path segment; an empty string or a trailing-slash
-// path resolve per pathName's rules.
-func baseName(p string) string {
-	return string(pathName(p))
-}
-
-// pathName returns the POSIX path basename: drop trailing slashes, take the
-// last segment; "" for "/" or "".
-func pathName(p string) string {
-	// Strip trailing slashes.
-	for len(p) > 1 && strings.HasSuffix(p, "/") {
-		p = p[:len(p)-1]
-	}
-	if p == "" || p == "/" {
-		return ""
-	}
-	if i := strings.LastIndexByte(p, '/'); i >= 0 {
-		return p[i+1:]
-	}
-	return p
-}
-
 // getOr returns m[key] if present, else def. A nil map yields def.
 func getOr(m *jsonx.OrderedMap, key string, def any) any {
 	if m == nil {
@@ -155,38 +131,6 @@ func buildOpencodeMCPServers(e *Env) *jsonx.OrderedMap {
 		opencodeMCP.Set(name, entry)
 	}
 	return opencodeMCP
-}
-
-// buildGeminiMCPServers builds the full MCP-server table gemini owns each boot:
-// the live shared MCP servers (LoadMCPServers) plus every configured LSP server
-// wrapped as an MCP server via mcp-language-server (keyed "<lsp>-lsp"). This is
-// the raw yolo-owned set BEFORE any sidecar/overlay reconciliation — shared by
-// the bespoke ConfigureGemini (which reconciles it against the managed sidecar)
-// and ConfigureGeminiPrism (which hands it to the engine as the computed layer,
-// where the last_render anchor makes the sidecar reconcile unnecessary).
-func buildGeminiMCPServers(e *Env) *jsonx.OrderedMap {
-	goBin := e.GoBin()
-	configured := e.LoadMCPServers()
-
-	lspServers := LoadLSPServers(e)
-	for _, name := range lspServers.Keys() {
-		v, _ := lspServers.Get(name)
-		cfg, _ := v.(*jsonx.OrderedMap)
-		cmd, _ := stringValue(cfg, "command")
-		bareCmd := baseName(cmd)
-		mcpArgs := []any{"-lsp", bareCmd, "-workspace", e.WorkspaceDir()}
-		if lspArgs, ok := cfg.Get("args"); ok {
-			if arr, isArr := lspArgs.([]any); isArr && len(arr) > 0 {
-				mcpArgs = append(mcpArgs, "--")
-				mcpArgs = append(mcpArgs, arr...)
-			}
-		}
-		entry := jsonx.NewOrderedMap()
-		entry.Set("command", filepath.Join(goBin, "mcp-language-server"))
-		entry.Set("args", mcpArgs)
-		configured.Set(name+"-lsp", entry)
-	}
-	return configured
 }
 
 // loadManagedSet returns the sidecar's server names as a set, or an empty set

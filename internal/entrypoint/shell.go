@@ -6,7 +6,7 @@ import (
 	"github.com/mschulkind-oss/yolo-jail/internal/agents"
 )
 
-// for the SELECTED agents that declare an alias (gemini, copilot today).
+// for the SELECTED agents that declare an alias (copilot today).
 func agentAliases(e *Env) string {
 	var lines []string
 	for _, name := range LoadAgents(e) {
@@ -127,7 +127,7 @@ alias ls='ls --color=auto'
 alias ll='ls -alF'
 `
 
-const bashrcPart4 = `# Agent YOLO flags: gemini/copilot get a --yolo alias above (when selected);
+const bashrcPart4 = `# Agent YOLO flags: copilot gets a --yolo alias above (when selected);
 # claude gets --dangerously-skip-permissions injected by the CLI (with
 # IS_SANDBOX=1 to bypass the root check); opencode/pi auto-approve via their
 # own config files.
@@ -159,7 +159,7 @@ export PATH="$HOME/.local/bin:$NPM_CONFIG_PREFIX/bin:__YOLO_MISE_SHIMS__:$GOBIN:
 # Initialize font cache (once, not on every shell session)
 fc-cache -f >/dev/null 2>&1
 
-# Agent CLIs (gemini, copilot, claude) are NOT updated here.
+# Agent CLIs (copilot, claude, codex) are NOT updated here.
 # Lazy-update launchers in ~/.yolo-shims/ handle install/update on first use,
 # keeping boot fast.  Only MCP/LSP tools that agents depend on are installed here.
 

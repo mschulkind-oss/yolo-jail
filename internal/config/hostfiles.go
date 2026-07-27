@@ -702,7 +702,6 @@ var builtinSurfacePaths = []string{
 	"~/.pi/agent/settings.json",
 	"~/.claude/settings.json",
 	"~/.claude.json",
-	"~/.gemini/settings.json",
 	"~/.copilot/config.json",
 	"~/.copilot/mcp-config.json",
 	"~/.copilot/lsp-config.json",

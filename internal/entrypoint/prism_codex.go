@@ -10,14 +10,14 @@ import (
 )
 
 // ConfigureCodexPrism is the prism-backed replacement for ConfigureCodex — the
-// TOML-codec analogue of the gemini reference port (§4). Codex's config.toml is
+// TOML-codec computed-layer surface (§4). Codex's config.toml is
 // the ONE non-JSON surface, so it also exercises the toml codec
-// (internal/agentcfg/codec/toml.go) end to end. Like gemini it carries a DYNAMIC
+// (internal/agentcfg/codec/toml.go) end to end. It carries a DYNAMIC
 // MCP table (mcp_servers), not just static managed keys:
 //
 //  1. the static force-managed scalars — approval_policy="never" and
 //     sandbox_mode="danger-full-access" — come from the manifest surface
-//     (codexConfig), exactly as for gemini's security/general keys;
+//     (codexConfig), exactly as for copilot's static keys;
 //  2. the mcp_servers table — live shared MCP servers translated into codex's
 //     TOML table shape (buildCodexMCPServers, shared with the bespoke path) — is
 //     handed to the engine as the COMPUTED layer. It merges above the captured
@@ -36,7 +36,7 @@ import (
 // a yolo server dropped from config between boots never resurrects (it always
 // matched last_render → never captured into the overlay → simply absent from the
 // computed layer this boot). The obsolete sidecar is deleted on the first
-// migration (§4.7 orphan cleanup), mirroring gemini's/pi's deletion.
+// migration (§4.7 orphan cleanup), mirroring pi's deletion.
 //
 // CODEC-EXTENSION BYTE-SHAPE GAP (documented, harmless — see codexConfig's doc,
 // FIDELITY GAP #2): the agentcfg toml codec has no inline-table output, so a

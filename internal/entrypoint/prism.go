@@ -84,7 +84,7 @@ func loadPrismTransformScript(e *Env) string {
 //
 // computed is yolo's per-boot DYNAMIC layer (§4 computed slot) — content derived
 // from live config rather than the static manifest: the reconciled MCP-server
-// table (gemini/codex/opencode), claude's LSP-driven enabledPlugins toggles and
+// table (codex/opencode), claude's LSP-driven enabledPlugins toggles and
 // env.ENABLE_LSP_TOOL, and the mcpServers tombstone that strips a host block.
 // jsonx-sourced content (the MCP tables) is deep-converted to the engine's plain
 // value model via prismMap first; claude builds its layer as native map[string]any
@@ -413,53 +413,6 @@ func buildCopilotLSPServers(e *Env) map[string]any {
 		out[name] = entry
 	}
 	return out
-}
-
-// ConfigureGeminiPrism is the prism-backed replacement for ConfigureGemini —
-// the REFERENCE PORT for the computed layer (§4). Gemini's settings.json is the
-// first ported surface that carries a DYNAMIC mcpServers table, not just static
-// managed keys, so it is where the computed-layer seam is proven:
-//
-//  1. the static security defaults + general force-offs come from the manifest
-//     surface (geminiSettings), exactly as for pi/copilot;
-//  2. the mcpServers table — live shared MCP servers plus LSP-as-MCP wrappers
-//     (buildGeminiMCPServers, shared with the bespoke path) — is handed to the
-//     engine as the COMPUTED layer. It merges above the captured overlay and
-//     below transform+managed, so yolo's freshly regenerated servers win over a
-//     stale in-jail edit to the same server, while a server the USER adds (never
-//     in last_render) is captured into the overlay and survives.
-//
-// The bespoke path's yolo-managed-mcp-servers.json sidecar is UNNECESSARY here:
-// the §5 last_render sidecar is itself the "what yolo owned last boot" anchor,
-// so a yolo server dropped from config between boots never resurrects (it always
-// matched last_render → never captured into the overlay → simply absent from the
-// computed layer this boot). The obsolete sidecar is deleted on the first
-// migration (§4.7 orphan cleanup), mirroring pi's snapshot deletion.
-//
-// Gemini has NO host mount (its settings.json is not in any host_*_files
-// allow-list — yolo owns the MCP/security posture), so hostBytes is nil.
-func ConfigureGeminiPrism(e *Env) error {
-	if err := os.MkdirAll(e.GeminiDir(), 0o755); err != nil {
-		return err
-	}
-
-	// Computed layer: the full yolo-owned mcpServers table, deep-converted from
-	// jsonx to the engine's plain value model.
-	computed := map[string]any{
-		"mcpServers": prismMap(buildGeminiMCPServers(e)),
-	}
-
-	out, err := renderSurfaceStateful(e, "gemini", "settings", nil, computed)
-	if err != nil {
-		return err
-	}
-
-	// §4.7: the bespoke managed-MCP sidecar is dead under the prism (last_render
-	// is the anchor now). Delete it once, on the migration boot.
-	if out.FirstMigration {
-		_ = os.Remove(e.GeminiManagedMCPPath())
-	}
-	return nil
 }
 
 // ConfigureAgyPrism configures the Google Antigravity CLI (agy). AGY is a

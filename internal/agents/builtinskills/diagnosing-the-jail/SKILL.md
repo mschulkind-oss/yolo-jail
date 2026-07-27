@@ -68,4 +68,4 @@ command behaves unexpectedly.
 
 - `yolo ps` — list running jails (catches orphaned containers).
 - Agent logs, for debugging a specific agent:
-  `~/.copilot/logs/`, `~/.cache/gemini-cli/logs/`, `~/.claude/projects/`.
+  `~/.copilot/logs/`, `~/.claude/projects/`.

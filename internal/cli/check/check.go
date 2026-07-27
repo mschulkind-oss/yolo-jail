@@ -423,7 +423,7 @@ func (o *Options) sectionEntrypointDryRun(r *reporter, repoRoot string, repoRoot
 	if err := o.entrypointPreflight(r, repoRoot, workspace, merged); err != "" {
 		r.fail("Entrypoint preflight failed", err)
 	} else {
-		r.ok("Generated Copilot/Gemini/Claude jail config in a temp home")
+		r.ok("Generated per-agent jail config in a temp home")
 	}
 	r.blank()
 }

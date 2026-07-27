@@ -386,84 +386,11 @@ func TestComposeClaudeConfigEnforcesManaged(t *testing.T) {
 // general.* auto-update disables win over a host that tried to enable them,
 // while the security.* posture is a USER-OVERRIDABLE DEFAULT that a host value
 // legitimately replaces (the bespoke setDefault behavior, faithfully modeled).
-func TestComposeGeminiSettingsLayers(t *testing.T) {
-	s, ok := BuiltinManifest().Lookup("gemini", "settings")
-	if !ok {
-		t.Fatal("builtin manifest missing gemini/settings")
-	}
-	// A host that (a) turns the auto-updater back on and (b) tightens the
-	// approval posture. Managed must stomp (a); the default must yield to (b).
-	host := `{
-	  "general": {"enableAutoUpdate": true, "enableAutoUpdateNotification": true},
-	  "security": {"approvalMode": "default"}
-	}`
-	res, err := Compose(Inputs{Surface: s, HostBytes: []byte(host)})
-	if err != nil {
-		t.Fatalf("Compose error: %v", err)
-	}
-
-	// Managed general.* wins (shallow Enforce replaces the whole general object).
-	gen, ok := res.ConfigMap()["general"].(map[string]any)
-	if !ok {
-		t.Fatalf("general not an object: %T", res.ConfigMap()["general"])
-	}
-	if gen["enableAutoUpdate"] != false {
-		t.Errorf("general.enableAutoUpdate = %v, want false (managed must win)", gen["enableAutoUpdate"])
-	}
-	if gen["enableAutoUpdateNotification"] != false {
-		t.Errorf("general.enableAutoUpdateNotification = %v, want false (managed must win)", gen["enableAutoUpdateNotification"])
-	}
-	if res.Provenance["general"] != layerManaged {
-		t.Errorf("provenance general = %q, want %q", res.Provenance["general"], layerManaged)
-	}
-
-	// Default security.* yields to the host (setDefault semantics: host wins).
-	sec, ok := res.ConfigMap()["security"].(map[string]any)
-	if !ok {
-		t.Fatalf("security not an object: %T", res.ConfigMap()["security"])
-	}
-	if sec["approvalMode"] != "default" {
-		t.Errorf("security.approvalMode = %v, want default (host overrides the yolo default)", sec["approvalMode"])
-	}
-	if res.Provenance["security"] != layerHost {
-		t.Errorf("provenance security = %q, want %q", res.Provenance["security"], layerHost)
-	}
-}
-
-// TestComposeGeminiSettingsDefaultsApply proves that with NO host file the
-// default security posture is what lands (approvalMode=yolo), alongside the
-// managed general disables — the empty-host baseline.
-func TestComposeGeminiSettingsDefaultsApply(t *testing.T) {
-	s, ok := BuiltinManifest().Lookup("gemini", "settings")
-	if !ok {
-		t.Fatal("builtin manifest missing gemini/settings")
-	}
-	res, err := Compose(Inputs{Surface: s, HostBytes: []byte(`{}`)})
-	if err != nil {
-		t.Fatalf("Compose error: %v", err)
-	}
-	sec, ok := res.ConfigMap()["security"].(map[string]any)
-	if !ok {
-		t.Fatalf("security not an object: %T", res.ConfigMap()["security"])
-	}
-	if sec["approvalMode"] != "yolo" {
-		t.Errorf("security.approvalMode = %v, want yolo (default applies with no host)", sec["approvalMode"])
-	}
-	if sec["enablePermanentToolApproval"] != true {
-		t.Errorf("security.enablePermanentToolApproval = %v, want true", sec["enablePermanentToolApproval"])
-	}
-	if res.Provenance["security"] != layerDefaults {
-		t.Errorf("provenance security = %q, want %q", res.Provenance["security"], layerDefaults)
-	}
-	gen, ok := res.ConfigMap()["general"].(map[string]any)
-	if !ok || gen["enableAutoUpdate"] != false {
-		t.Errorf("general = %#v, want managed disables applied", res.ConfigMap()["general"])
-	}
-}
 
 // TestComposeCopilotConfigDefaultApplies proves the builtin copilot/config
 // surface, composed with NO host file, yields yolo:true from the defaults layer
 // (the bespoke write-if-absent baseline: yolo owns a fresh config.json).
+
 func TestComposeCopilotConfigDefaultApplies(t *testing.T) {
 	s, ok := BuiltinManifest().Lookup("copilot", "config")
 	if !ok {

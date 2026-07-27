@@ -104,15 +104,15 @@ func TestPrepareSkillsFollowsSymlinks(t *testing.T) {
 	realSkill := filepath.Join(home, "real-skill")
 	must(t, os.MkdirAll(realSkill, 0o755))
 	must(t, os.WriteFile(filepath.Join(realSkill, "SKILL.md"), []byte("via symlink"), 0o644))
-	hostGeminiSkills := filepath.Join(home, ".gemini", "skills")
-	must(t, os.MkdirAll(hostGeminiSkills, 0o755))
-	must(t, os.Symlink(realSkill, filepath.Join(hostGeminiSkills, "linked-skill")))
+	hostSkills := filepath.Join(home, ".claude", "skills")
+	must(t, os.MkdirAll(hostSkills, 0o755))
+	must(t, os.Symlink(realSkill, filepath.Join(hostSkills, "linked-skill")))
 
-	staging, err := PrepareSkills("c2", home, []string{"gemini"}, false)
+	staging, err := PrepareSkills("c2", home, []string{"claude"}, false)
 	if err != nil {
 		t.Fatal(err)
 	}
-	// Find gemini staging + confirm the dereferenced copy is a real file.
+	// Find the staging dir + confirm the dereferenced copy is a real file.
 	var found bool
 	_ = filepath.Walk(staging, func(p string, info os.FileInfo, err error) error {
 		if err == nil && info.Mode().IsRegular() && filepath.Base(p) == "SKILL.md" {

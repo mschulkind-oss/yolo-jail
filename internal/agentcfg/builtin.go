@@ -115,53 +115,6 @@ var claudeConfig = manifest.Surface{
 	},
 }
 
-// geminiSettings is gemini's settings.json surface (§ table row "Copilot /
-// Gemini / opencode / pi / Codex settings"). It faithfully models the STATIC
-// force-sets ConfigureGemini (internal/entrypoint/agent_configs.go) applies
-// after loading ~/.gemini/settings.json — and, crucially, it splits them into
-// the CORRECT layer per §7's flagged subtlety:
-//
-//   - security.approvalMode="yolo" and security.enablePermanentToolApproval=true
-//     are written with setDefault (a host value silently wins). They are
-//     USER-OVERRIDABLE DEFAULTS, so they live in the Defaults layer. §7 calls
-//     this out as a latent security-posture bug ("Gemini using setdefault … a
-//     user value silently disables the intended YOLO default"); the manifest
-//     preserves the bespoke behavior faithfully rather than silently promoting
-//     it to managed. Promoting the security posture to managed is a deliberate
-//     policy change, not a port, and is out of scope here.
-//   - general.enableAutoUpdate=false and general.enableAutoUpdateNotification=
-//     false are written with .Set on the general sub-map (they overwrite any
-//     host value). They are FORCE-MANAGED, so they live in the Managed layer.
-//
-// FIDELITY GAPS (documented, not faked):
-//
-//  1. (CLOSED) Subtree preservation (same as claude). The deep-merge Enforce
-//     merges the managed "general" object key-by-key into the existing general
-//     object, so host siblings under general survive — matching the bespoke
-//     setDefaultMap+.Set on the live sub-map. Formerly a shallow-clobber gap.
-//  2. mcpServers is DYNAMIC: ConfigureGemini reconciles it from LoadMCPServers()
-//     plus LSP-as-MCP wrappers, minus the managed sidecar. Not static data —
-//     omitted here; it belongs to the dedicated MCP surface (mcp.go, a separate
-//     Phase B item), exactly as for claude.
-var geminiSettings = manifest.Surface{
-	Agent: "gemini",
-	Name:  "settings",
-	Path:  "~/.gemini/settings.json",
-	Codec: "json",
-	Defaults: map[string]any{
-		"security": map[string]any{
-			"approvalMode":                "yolo",
-			"enablePermanentToolApproval": true,
-		},
-	},
-	Managed: map[string]any{
-		"general": map[string]any{
-			"enableAutoUpdate":             false,
-			"enableAutoUpdateNotification": false,
-		},
-	},
-}
-
 // copilotConfig is copilot's config.json surface (§ table row "Copilot / Gemini
 // / opencode / pi / Codex settings"). The bespoke ConfigureCopilot
 // (internal/entrypoint/agent_configs.go) writes the LITERAL string
@@ -424,7 +377,6 @@ func BuiltinManifest() *manifest.Manifest {
 		piSettings,
 		claudeSettings,
 		claudeConfig,
-		geminiSettings,
 		copilotConfig,
 		copilotMCP,
 		copilotLSP,

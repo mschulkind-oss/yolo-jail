@@ -83,7 +83,6 @@ func (o *Options) runEntrypointPreflight(r *reporter, _, workspace string, merge
 	// home above so the dry run never touches the live workspace.
 	agentWriters := map[string]func(*entrypoint.Env) error{
 		"copilot":  entrypoint.ConfigureCopilotPrism,
-		"gemini":   entrypoint.ConfigureGeminiPrism,
 		"claude":   entrypoint.ConfigureClaudePrism,
 		"opencode": entrypoint.ConfigureOpencodePrism,
 		"pi":       entrypoint.ConfigurePiPrism,

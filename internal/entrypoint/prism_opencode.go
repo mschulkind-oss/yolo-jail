@@ -1,8 +1,7 @@
 package entrypoint
 
 // prism_opencode.go is the opencode config.json port onto the agentcfg
-// composition engine — the third computed-layer surface after the gemini
-// reference (see prism.go ConfigureGeminiPrism). It lives in its own file
+// composition engine — a computed-layer surface. It lives in its own file
 // (rather than in prism.go) to keep the per-agent ports merge-conflict-free.
 
 import (
@@ -11,7 +10,7 @@ import (
 )
 
 // ConfigureOpencodePrism is the prism-backed replacement for ConfigureOpencode.
-// It mirrors the gemini reference port (ConfigureGeminiPrism): opencode.json
+// Like the other computed-layer surfaces: opencode.json
 // carries a DYNAMIC mcp table (each shared MCP server translated into
 // opencode's native {type:"local", command:[cmd, ...args], enabled:true,
 // environment:{...}} schema), not just static managed keys, so it uses the
@@ -34,12 +33,12 @@ import (
 // so a yolo server dropped from config between boots never resurrects (it
 // always matched last_render → never captured into the overlay → simply absent
 // from the computed layer this boot). The obsolete sidecar is deleted on the
-// first migration (§4.7 orphan cleanup), mirroring gemini's managed-MCP sidecar
+// first migration (§4.7 orphan cleanup), mirroring the managed-MCP sidecar
 // and pi's snapshot deletion.
 //
 // DELETE-WHEN-EMPTY: when no MCP servers are configured, the computed layer
 // OMITS the "mcp" key entirely (rather than supplying an empty object). opencode
-// has NO host mount (yolo owns the file, like gemini/copilot), so there is no
+// has NO host mount (yolo owns the file, like copilot), so there is no
 // host layer that could carry a stale mcp block — an omitted computed key stays
 // absent from the render, matching the bespoke path's "delete the mcp key when
 // the reconciled table is empty".

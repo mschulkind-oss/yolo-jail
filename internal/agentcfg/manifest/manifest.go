@@ -66,7 +66,7 @@ import (
 // and Transform are chosen for clarity.
 type Surface struct {
 	// Agent is the owning agent id (§3.2 ctx.agent): "claude", "pi", "codex",
-	// "copilot", "gemini", "opencode" — or a non-agent surface owner such as
+	// "copilot", "codex", "opencode" — or a non-agent surface owner such as
 	// "mcp", "lsp", "mise", "identity" (§1.1 lists these alongside the agents).
 	Agent string
 

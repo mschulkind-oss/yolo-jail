@@ -34,7 +34,7 @@ need to know.
 
   • [bold]Per-workspace state[/bold]: Some things are isolated per-workspace
     (not shared across jails): SSH keys, bash history, copilot sessions,
-    gemini history. These live in <workspace>/.yolo/.
+    agent history. These live in <workspace>/.yolo/.
 
   • [bold]Workspace path[/bold] is /workspace (not the host's absolute path).
     Venv scripts with absolute host path shebangs may need fixing.
@@ -48,7 +48,7 @@ need to know.
   Editors:   nvim (stable by default, configurable via mise_tools)
   CLI tools: rg, fd, bat, jq, git, gh, curl, strace, uv, tmux
   Agents:    the ones in your `agents` config (default: claude). Available:
-             claude, copilot, gemini, opencode, pi (auto-approve wired up).
+             claude, copilot, opencode, pi, codex, agy (auto-approve wired up).
   The 'yolo' command itself is available inside for nested jailing.
 
   [bold]Mise[/bold] manages all runtimes and supports thousands of tools from
@@ -88,7 +88,7 @@ need to know.
      • Any gotchas or context the inner agent needs
 
   4. [bold]Ask the human to restart you inside the jail[/bold]:
-     Tell them to run: yolo -- claude  (or copilot / gemini / opencode / pi,
+     Tell them to run: yolo -- claude  (or copilot / opencode / pi / codex,
      whichever is in the `agents` config)
 
      The inner agent has a built-in [bold]jail-startup[/bold] skill that reads

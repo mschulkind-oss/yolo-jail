@@ -38,7 +38,6 @@
     Valid agents:
       • claude   — Claude Code (native installer; YOLO via --dangerously-skip-permissions)
       • copilot  — GitHub Copilot CLI (npm @github/copilot; --yolo --no-auto-update)
-      • gemini   — Google Gemini CLI (npm @google/gemini-cli; --yolo)
       • opencode — opencode.ai agent (npm opencode-ai; auto-approve via permission:allow)
       • pi       — pi.dev coding agent (npm @earendil-works/pi-coding-agent;
                    auto-approve via defaultProjectTrust:always)
@@ -48,13 +47,17 @@
                    --dangerously-skip-permissions; config under ~/.gemini/antigravity-cli)
     Default: ["claude"].
     Merge: unlike other list fields, [bold]agents replaces (does not union)[/bold] across
-    the user→workspace hierarchy — so a workspace can NARROW the user default
-    (e.g. user ["claude","gemini"] but a claude-only workspace ["claude"]).
-    Auth: each agent authenticates itself inside the jail (claude/gemini/
-    copilot/codex OAuth via their own /login or `codex login`; opencode/pi/
-    codex also accept a provider API key via env_sources — e.g. OPENAI_API_KEY
-    for codex).  yolo-jail wires MCP for claude/copilot/gemini/opencode/codex/agy;
-    pi has no native MCP.
+    the user→workspace hierarchy — so a workspace can NARROW the user set
+    (e.g. user ["claude","pi"] but a claude-only workspace ["claude"]).  It may
+    NOT WIDEN it: naming an agent absent from your user config is an ERROR,
+    because selecting an agent mounts that agent's host files into the jail and a
+    workspace config travels with the repo (it is agent-editable), so it cannot
+    decide which host files cross the boundary.
+    Auth: each agent authenticates itself inside the jail (claude/copilot/codex
+    OAuth via their own /login or `codex login`; opencode/pi/codex also accept a
+    provider API key via env_sources — e.g. OPENAI_API_KEY for codex).
+    yolo-jail wires MCP for claude/copilot/opencode/codex/agy; pi has no native
+    MCP.
     Example: ["claude", "opencode"]
 
   [bold]packages[/bold] (array): Extra nix packages baked into the image.
@@ -110,7 +113,7 @@
 
   [bold]agents_md_extra[/bold] (string): Markdown appended to every agent's briefing.
     Whatever you put here is concatenated onto the jail-managed section of
-    AGENTS-copilot.md, AGENTS-gemini.md, and CLAUDE.md before the host-level
+    AGENTS-copilot.md, AGENTS-codex.md, and CLAUDE.md before the host-level
     user content is prepended.  Use it to surface per-jail notes that every
     agent should see — "this jail has cerebras-mcp wired up, prefer it for X",
     project-specific quirks, links to the right runbook, etc.
@@ -427,7 +430,7 @@
     Once a mise_tools entry stabilizes, consider promoting it to `packages`.
     Example (user config): {"neovim": "nightly", "pipx:some-tool": "latest"}
 
-  [bold]lsp_servers[/bold] (object): Additional language servers for Copilot and Gemini (Claude uses its own tools).
+  [bold]lsp_servers[/bold] (object): Additional language servers for Copilot (Claude uses its own tools).
     Default servers (always present): python (pyright), typescript, go (gopls).
     Workspace servers are merged with defaults — add new ones or override existing.
     Each key is a server name; value is an object with:
@@ -436,7 +439,6 @@
       • fileExtensions (object): Extension → language ID map (required for Copilot).
     The entrypoint translates these for each agent:
       • Copilot: written to ~/.copilot/lsp-config.json as native LSP servers.
-      • Gemini: wrapped via mcp-language-server as MCP servers in settings.json.
     Example: {"rust": {"command": "rust-analyzer", "args": [],
               "fileExtensions": {".rs": "rust"}}}
 
@@ -447,7 +449,7 @@
     Invalid: enabling a preset here and null-removing it in the same config file.
     Example: ["chrome-devtools", "sequential-thinking"]
 
-  [bold]mcp_servers[/bold] (object): Custom MCP servers for Copilot, Gemini, and Claude.
+  [bold]mcp_servers[/bold] (object): Custom MCP servers for Copilot, Claude, and Codex.
     Add custom servers, or set a preset/inherited server to [bold]null[/bold] to disable it.
     Each key is a server name; value is an object with:
       • command (string, required): Binary name (on PATH) or absolute path.
@@ -473,7 +475,6 @@
           }}
     The entrypoint translates these for each SELECTED agent:
       • Copilot: written to a per-workspace overlay mounted at ~/.copilot/mcp-config.json.
-      • Gemini: written to a per-workspace overlay mounted at ~/.gemini/settings.json.
       • Claude: written to a per-workspace overlay mounted at ~/.claude/settings.json.
       • opencode: written to ~/.config/opencode/opencode.json (mcp key, native schema).
       • codex: written to ~/.codex/config.toml (\\[mcp_servers.<name>] tables).
@@ -731,14 +732,14 @@
 
   [bold]Home Directory (/home/agent)[/bold]
     A shared persistent home that is the SAME across ALL jail workspaces.
-    Contains: auth tokens (gh, gemini, claude), tool caches, npm/go globals,
+    Contains: auth tokens (gh, claude, codex), tool caches, npm/go globals,
     nvim config, shell configs. All of this survives jail restarts and is
     shared between every project's jail. Mise tool data lives at /mise —
     also shared between all jails, also surviving restarts.
 
   [bold]Per-Workspace State[/bold]
     Some state is isolated per-workspace (in <workspace>/.yolo/):
-    SSH keys, bash history, copilot sessions, gemini history, claude projects.
+    SSH keys, bash history, copilot sessions, claude projects.
     These are NOT shared across different project jails.
 
   [bold]Identity & Auth[/bold]
@@ -751,7 +752,7 @@
     Editors:  nvim (version configurable via mise_tools config)
     CLI:      rg, fd, bat, jq, git, gh, curl, strace, uv, tmux
     Agents:   the ones listed in the `agents` config (default: claude).
-              Available: claude, copilot, gemini, opencode, pi — each with
+              Available: claude, copilot, opencode, pi, codex, agy — each with
               auto-approve/YOLO mode wired up.
     The 'yolo' command is available inside for nested jailing and help.
 
@@ -789,7 +790,7 @@
   [bold]Persistence Summary[/bold]
     Shared home:   /home/agent (same across all jails — auth, tools, caches)
     Workspace:     /workspace edits visible on host immediately
-    Per-workspace: SSH keys, bash history, copilot/gemini sessions
+    Per-workspace: SSH keys, bash history, copilot sessions
     Ephemeral:     /tmp, container processes
 
 [bold cyan]SPAWNING A NEW PROJECT[/bold cyan]
@@ -800,7 +801,7 @@
   2. Edit the config — add any nix packages or mise_tools needed
   3. Run 'yolo check' after EVERY config edit to validate the config before restarting
   4. Run 'yolo -- bash' to enter the jail interactively
-  5. Start your agent: 'yolo -- claude' (or copilot / gemini / opencode / pi,
+  5. Start your agent: 'yolo -- claude' (or copilot / opencode / pi / codex,
      whichever you listed in the `agents` config)
 
   [bold]For agents preparing to enter a jail:[/bold]

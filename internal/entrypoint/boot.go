@@ -516,8 +516,6 @@ func configureAgent(e *Env, agent string) {
 		installClaudePlugins(e)
 	case "copilot":
 		genStep(e, "configure_copilot", func() error { return ConfigureCopilotPrism(e) })
-	case "gemini":
-		genStep(e, "configure_gemini", func() error { return ConfigureGeminiPrism(e) })
 	case "opencode":
 		genStep(e, "configure_opencode", func() error { return ConfigureOpencodePrism(e) })
 	case "pi":

@@ -469,7 +469,7 @@ func TestBuiltinSurfaceRenderPaths(t *testing.T) {
 
 	wantStateful := []string{
 		"agy/settings", "claude/settings", "codex/config", "copilot/config",
-		"gemini/settings", "mise/config", "opencode/config", "pi/settings",
+		"mise/config", "opencode/config", "pi/settings",
 	}
 	wantComputed := []string{"agy/mcp", "copilot/lsp", "copilot/mcp"}
 

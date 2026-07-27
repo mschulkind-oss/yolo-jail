@@ -57,8 +57,9 @@ func (a AgentSpec) SkillsStaging() string {
 	return "skills-" + a.Name
 }
 
-// YoloFlagAliases: --yolo and -y are the same switch (gemini); the injector
-// must not add --yolo when the user already passed -y.
+// YoloFlagAliases: --yolo and -y are the same switch (originally gemini's case,
+// carried by copilot now); the injector must not add --yolo when the user already
+// passed -y.
 var YoloFlagAliases = map[string][]string{"--yolo": {"-y"}}
 
 // specs is the agent registry. Declaration order is load-bearing (Order and
@@ -98,21 +99,6 @@ var specs = []AgentSpec{
 		YoloFlags:   []string{"--yolo", "--no-auto-update"},
 		Alias:       "copilot --yolo --no-auto-update",
 		MiseRetire:  []string{`"npm:@github/copilot"`},
-	},
-	{
-		Name:         "gemini",
-		Install:      InstallSpec{Kind: "npm", Bin: "gemini", Package: "@google/gemini-cli"},
-		ConfigWriter: "configure_gemini",
-		Briefing: BriefingSpec{
-			Staging:    "AGENTS-gemini.md",
-			Mount:      ".gemini/AGENTS.md",
-			HostSource: ".gemini/AGENTS.md",
-		},
-		OverlayDirs: []string{".gemini"},
-		Skills:      ".gemini/skills",
-		YoloFlags:   []string{"--yolo"},
-		Alias:       "gemini --yolo",
-		MiseRetire:  []string{"gemini"},
 	},
 	{
 		Name:         "opencode",
@@ -167,10 +153,11 @@ var specs = []AgentSpec{
 	},
 	{
 		// agy is Google's Antigravity CLI — a native Go binary installed to
-		// ~/.local/bin/agy via a curl|bash installer. It shares the ~/.gemini
-		// tree with gemini but lives in its own antigravity-cli/ subdir, so its
-		// overlay is scoped to .gemini/antigravity-cli (zero collision with
-		// gemini's .gemini overlay — both are seeded/persisted independently).
+		// ~/.local/bin/agy via a curl|bash installer. Its state lives under the
+		// ~/.gemini tree (a Google convention) in its own antigravity-cli/ subdir,
+		// so its overlay is scoped to .gemini/antigravity-cli. The `gemini` agent
+		// that formerly owned .gemini was removed (A1); agy never depended on it —
+		// podman synthesizes the nested mountpoint, so the parent needs no overlay.
 		// Born directly on the prism: settings.json is the agySettings surface
 		// (internal/agentcfg/builtin.go), configured by ConfigureAgyPrism with no
 		// bespoke fallback (docs/plans/antigravity-agy-support.md).
