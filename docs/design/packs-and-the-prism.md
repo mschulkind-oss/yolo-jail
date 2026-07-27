@@ -91,6 +91,89 @@ generic `workspace` layer.
 
 ---
 
+## 2.5 What a pack contributes — the design layer
+
+**Added 2026-07-26**, because the earlier discussion of "how does pack logic ship" ran
+three independent questions together. Disentangling them first, because the answer to each
+is different and merging them produces false constraints.
+
+The three questions:
+
+1. **Delivery** — what does the pack contribute, and when must it be in place?
+2. **Execution** — if the contribution computes something, where does that computation run?
+3. **Reproducibility** — is the contribution inside the unit we can rebuild identically?
+
+I previously argued (2) as though it settled (3): "compose on the host" is a claim about
+*execution site and error timing*, and it does **not** answer whether a pack can be an
+input to the image. Those are orthogonal. Likewise "packs ship compiled binaries" conflated
+(1) and (3) — a compiled MCP server is not pack *content*, it is a *capability
+requirement*, and the two bind at different times.
+
+### The four kinds of contribution
+
+Sorting by kind rather than by pack, because **one pack routinely contributes several
+kinds** — this is the correction to "a subset of packs are image inputs":
+
+| Kind | Example | Must be in place by | Needs an image rebuild? | Runs where |
+|---|---|---|---|---|
+| **Content** | a skill, an AGENTS.md fragment, a briefing | when the agent reads it | no | nowhere — it is files |
+| **Config values** | a settings default, a managed key, an MCP entry | when the file is composed | no | nowhere — it is data |
+| **Computation** | a generator or transform producing config values | when the file is composed | no | **a real choice** — see (2) |
+| **Capability** | a tool, an LSP server, an MCP server, a shared library | before the agent invokes it | **only sometimes** | in the jail |
+
+Three of four kinds never touch the image. So the split you're pointing at is real, but:
+
+- **the unit is the contribution, not the pack.** A pack can ship skills (no rebuild) *and*
+  declare it needs `ripgrep` (maybe a rebuild). Classifying whole packs would force authors
+  to split one logical thing across two packs.
+- **it should not be author-declared metadata.** The binding time is *derivable* from the
+  kind, because the kind determines what has to be true for the thing to work. If authors
+  declare their own tier, we get a fourth place to pin a tool version — which is precisely
+  the anti-pattern the existing `packages` / `mise_tools` / project-manifest three-way rule
+  exists to prevent (§5, "weak candidates").
+
+### Where the image boundary actually falls
+
+Only the **capability** row can reach the image, and even there it is a tier choice that
+already has an established shape:
+
+| Tier | Reproducible | Offline | Rebuild to adopt | Good for |
+|---|---|---|---|---|
+| baked into the image | yes | yes | **yes** | system-level things: binaries, libraries, anything on PATH for every jail |
+| fetched at first use | no | no | no | ecosystem packages that already have a registry (MCP servers, LSP servers, language tooling) |
+| composed content | yes | yes | no | files and config values — the other three rows |
+
+**This is the real tension in the pack idea**, and it deserves stating plainly because it
+is a collision between two of the pack system's own promises: *"share config without a
+release"* and *"the environment is reproducible."* A pack needing a system-level capability
+cannot be adopted without a rebuild, and a rebuild is a release.
+
+Three ways to resolve it:
+
+1. **Packs may not require system capabilities.** They may *declare a dependency* and fail
+   with a clear, actionable message — "this pack needs `X`; add it to `packages` and
+   restart." Preserves the no-release property completely; the cost is that some packs
+   aren't self-installing.
+2. **Packs may, and adopting one triggers a rebuild.** Honest, but a pack install now takes
+   minutes and can fail in nix, and every pack becomes part of the image identity.
+3. **Two explicit pack classes.** Maximum flexibility, and it quietly abandons
+   "structurally identical to a user pack" — the same weakening as embedded-vs-fetched in
+   con 4.
+
+**(1) is the right default.** It keeps every pack cheap and rebuild-free, keeps the image
+identity independent of what packs are installed, and turns the hard case into a diagnostic
+instead of a build. Escalate to (2) only if declared-dependency friction proves real.
+
+### What this leaves for the execution question
+
+With (1) adopted, the only remaining live question from [what-yolo-is.md](what-yolo-is.md)
+is the **computation** row: where a pack's generator runs. That is now a much smaller
+question than it looked, because it no longer has to carry the image-input problem — and the
+argument there (run it where failures are pre-flight rather than fail-open, which the host
+side gives you for free) stands on its own.
+
+---
+
 ## 3. Pros
 
 **1. Adding or fixing an agent stops being a release.** Today a new agent means editing

@@ -123,7 +123,30 @@ of *genuine* per-agent logic (claude's `mcpServers` tombstone and LSP toggles, t
 mise's retire surgery on a workspace file). A pack format expressive enough to hold that
 becomes a programming language; one that isn't leaves a Go remainder.
 
-### First: which of these are actually constraints?
+### First: three questions, not one
+
+**Corrected 2026-07-26.** Everything below originally treated "how does pack logic ship" as
+one question. It is three, and they are orthogonal:
+
+1. **Delivery** — what does a pack contribute, and when must it be in place?
+2. **Execution** — where does a pack's computation run?
+3. **Reproducibility** — is the contribution inside the unit we can rebuild identically?
+
+My "compose on the host" argument answers **(2) only**. It is a claim about execution site
+and error timing; it says nothing about whether a pack can be an input to the image. And the
+option table below silently mixed (1) and (3) — treating a compiled binary as pack *content*
+when it is really a *capability requirement*, which binds at a different time.
+
+**(1) and (3) are answered in [packs-and-the-prism.md §2.5](packs-and-the-prism.md)**: four
+contribution kinds (content, config values, computation, capability), of which only
+*capability* can reach the image, and the classification is per-**contribution**, not
+per-pack — one pack routinely ships several kinds. The recommendation there is that packs
+may *declare* a system-capability dependency but not require a rebuild to adopt, which keeps
+the image identity independent of installed packs.
+
+**This section is now only about (2).** Read it that way; it does not decide delivery.
+
+### Which of these are actually constraints?
 
 **Added 2026-07-26, on the note that architecture is still open.** The list below was
 originally written as "constraints," and that framing smuggled in a bias toward the status
@@ -211,6 +234,11 @@ most of the mechanism question rather than answering it.
    destroys the entire point of packs (change config without a release). Secondarily,
    `sandbox = true` means the *compile* still has no network, so the pack would need its
    own vendored deps or a second FOD.
+
+   **Note the scope of that conclusion**, per the three-questions split above: it rejects
+   *making pack content an image input*, which is question (3). It does **not** mean a pack
+   can never relate to the image — a pack **declaring** that it needs a baked capability is
+   fine and needs no FOD at all ([packs-and-the-prism.md §2.5](packs-and-the-prism.md)).
 2. **Only two third-party deps are vendored**: `BurntSushi/toml` and `yuin/gopher-lua`.
    Adding a wasm runtime means `go mod vendor` + a fileset update, and `codec.go` already
    forbids new deps by convention.
@@ -242,6 +270,10 @@ the agent lazy-install launchers (`~/.yolo-shims/<agent>` checks `-x $REAL_BIN`,
 on first use) and the LSP installs (guarded by the `~/.yolo-installed-lsps` sentinel).
 
 ### The options, costed
+
+**Scope reminder:** these are answers to question (2), *where does a pack's computation
+run*. Rows (b)/(d)/(e) also carry delivery baggage, which is why they lose — but they lose
+on the delivery axis, not the execution one.
 
 | | Where built | When | Cache | Trust | Verdict |
 |---|---|---|---|---|---|
