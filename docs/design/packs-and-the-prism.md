@@ -109,6 +109,35 @@ input to the image. Those are orthogonal. Likewise "packs ship compiled binaries
 (1) and (3) — a compiled MCP server is not pack *content*, it is a *capability
 requirement*, and the two bind at different times.
 
+### Phases, not prohibitions
+
+**Refined 2026-07-26.** An earlier draft said pack content as an image input is "off
+limits." That framing is wrong in a way that matters: it reads as a rule to enforce, when
+the useful thing is a **gradient**.
+
+Better model: a pack has **phases**, and only one of them gets to comment on image input.
+
+| Phase | Runs | May contribute to the image? | Cost of contributing |
+|---|---|---|---|
+| **provision** | before the image is built | **yes** — this is the phase that speaks to the derivation | a rebuild on adopt/change; the pack joins the image identity |
+| **compose** | after the image, before/at jail start | no | none — regenerated every boot |
+
+Nothing is forbidden. A pack *may* put something in `provision` that would have worked in
+`compose` — it just pays for it, in rebuild latency and in coupling its own edits to the
+image's store path. **Being a good citizen means pushing as much as possible into
+`compose`**, and the incentive does that work without a rule: an author who bakes their
+prompts into `provision` discovers that editing a prompt now costs a rebuild, and moves it.
+
+This is better than a prohibition for three reasons: the boundary is self-enforcing rather
+than validated; it leaves room for the case we haven't thought of (a pack that genuinely
+must bake something); and it gives us a place to *report* the cost — "this pack has 3
+provision contributions; your next run rebuilds" — instead of a rejection the author has to
+work around.
+
+Mapping onto the kinds below: **capability** contributions are `provision`; **content**,
+**config values** and **computation** are `compose`. That is the natural assignment, not a
+constraint — and it is derivable from the kind, so authors still don't hand-declare a tier.
+
 ### The four kinds of contribution
 
 Sorting by kind rather than by pack, because **one pack routinely contributes several
@@ -200,6 +229,78 @@ skills or config values are baked into the store path, so editing a prompt trigg
 rebuild. That is the case [what-yolo-is.md](what-yolo-is.md) rejects, and it stays rejected:
 content and config values are read at compose time, and nothing about them needs to be in
 the derivation.
+
+## 2.6 Packs consume other packs — typed exports
+
+**Added 2026-07-26**, from: *"I want MCP servers defined in one pack, and then the agent
+packs know how to take MCP server exports/configs as an input to insert them into their
+agent."*
+
+This is the piece that turns packs from a flat set of layer-contributors into a **typed
+graph**, and it is the right shape — because the codebase already proves it works.
+
+### It is already implemented in Go, which is the strongest possible evidence
+
+There is exactly **one canonical MCP form** today (`LoadMCPServers`, `mcp.go:120` — an
+ordered map of `name → {command, args, env}`), and each agent applies a **pure projection**
+of it into its own dialect:
+
+| Agent | Projection of the same canonical entry |
+|---|---|
+| **codex** | `{command, args, env}` — near-passthrough (`codex.go:15`) |
+| **opencode** | `{type:"local", command:[cmd, ...args], enabled:true, environment:env}` — *renames* `env`, *folds* command+args into one array, *adds* two keys (`agent_configs.go:131`) |
+| **gemini** | passthrough, plus synthesized `<lsp>-lsp` entries wrapping each LSP server (`agent_configs.go:167`) |
+| **claude** | `mcpServers` in `.claude.json`, with tombstone pruning of managed names |
+
+So "one definition, N agent-specific insertions" is not speculative — it is what the code
+does. The pack version simply moves the *definition* into a pack and the *projection* into
+the agent pack. The shapes above are also the acceptance test: a design that can't express
+opencode's rename-and-fold is not expressive enough.
+
+### The shape
+
+Two new declarations, and they are duals:
+
+- a pack **exports** a typed value: `exports: { mcp_servers: { … } }`
+- an agent pack declares an **import** with a projection: "for each `mcp_servers` entry in
+  scope, insert it into surface `X` at key `Y`, shaped like this"
+
+The consumer never names the producer. An agent pack imports *the type*, not
+`pack:acme-tools` — so adding an MCP pack requires no edit to any agent pack, which is the
+whole point. This is the same late-binding the prism already has between `host_files` and
+surfaces.
+
+### Why this is a genuine improvement, not just tidier
+
+- **It kills the N×M problem.** Six agents × every MCP source is currently six hand-written
+  builders that must each be updated. With exports it is N projections + M definitions.
+- **It makes the pack system compositional**, which is the actual justification for packs
+  as an *architecture* rather than a sharing feature (§6's bet B vs A). A flat pack set is
+  just a config file with extra steps; a typed graph is a system.
+- **It generalizes past MCP for free.** LSP servers, blocked tools and tool requirements
+  have the same shape: one definition, N agent dialects. `mcp_servers` is the first export
+  type, not a special case. Note gemini's row above already *derives* MCP entries from LSP
+  definitions — a pack-to-pack projection existing in Go today.
+- **It answers "what is an official agent pack for?"** — it is the thing that owns the
+  projections. That is a much clearer role than "a bag of that agent's data," and it is
+  where the per-agent knowledge legitimately lives.
+
+### What has to be decided before this can be built
+
+Three real questions, all tractable:
+
+1. **Is the projection data or code?** Opencode's rename-and-fold is beyond a key-mapping
+   table, so either the projection language handles renames/array-folding/constant-injection
+   (a small template language — sufficient for all four cases above), or projections are
+   `compose`-phase computation, which is the Lua row of the execution question. **The four
+   real projections are the spec**; design against them, not in the abstract.
+2. **Who arbitrates collisions?** Two packs exporting `mcp_servers.foo`. The `host_files`
+   precedent — deep merge in declaration order for objects, hard error naming both slugs for
+   keyless ones — extends here directly.
+3. **Does an export imply a capability?** An MCP server definition usually needs the server
+   *installed*. That is the `provision`/`compose` phase split above: the export is `compose`
+   (config values), any binary it needs is `provision`. Keeping those separable is what lets
+   an MCP pack be adopted without a rebuild when the server is an npm package.
 
 ### What this leaves for the execution question
 
