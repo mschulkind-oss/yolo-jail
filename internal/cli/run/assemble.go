@@ -169,10 +169,13 @@ func (o *Options) assembleRunCmd(in *assembleInput) []string {
 		for _, subdir := range agentOverlaySubdirs(in.agentSpecs) {
 			runCmd = append(runCmd, "-v", filepath.Join(in.wsState, subdir)+":/home/agent/."+subdir)
 		}
-		// Claude's shared credentials dir.
-		if inStrSlice(in.agentsList, "claude") {
+		// B5: machine-wide (cross-jail) dirs, from the registry rather than a
+		// hardcoded per-agent branch. These come from GlobalHome, NOT ws_state, so a
+		// credential survives across workspaces — see agents.SharedDirs for why that
+		// tier exists and why widening it is a real decision.
+		for _, dir := range agents.SharedDirsFor(in.agentsList) {
 			runCmd = append(runCmd, "-v",
-				filepath.Join(paths.GlobalHome(), ".claude-shared-credentials")+":/home/agent/.claude-shared-credentials")
+				filepath.Join(paths.GlobalHome(), dir)+":/home/agent/"+dir)
 		}
 	}
 

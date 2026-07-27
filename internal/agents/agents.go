@@ -42,11 +42,34 @@ type AgentSpec struct {
 	Briefing     BriefingSpec
 	HostFiles    HostFilesSpec // yolo-declared host files this agent reads (credential boundary)
 	OverlayDirs  []string
-	Skills       string // "" == no skills dir
+	SharedDirs   []string // home-relative dirs shared across ALL jails (see below)
+	Skills       string   // "" == no skills dir
 	YoloFlags    []string
 	Alias        string // "" == no alias
 	MiseRetire   []string
 }
+
+// SharedDirs are home-relative directories whose contents are shared across EVERY
+// jail and workspace on the machine, mounted from GlobalHome rather than from the
+// per-workspace ws_state overlay.
+//
+// This is the second of the TWO state tiers, and both are deliberate:
+//
+//   - OverlayDirs are PER-WORKSPACE (<workspace>/.yolo/home/<dir>). That is the
+//     default and the right one for almost everything — history, caches, sessions,
+//     project-scoped settings.
+//   - SharedDirs are PER-MACHINE. Reserved for IDENTITY/CREDENTIAL state, where
+//     re-authenticating in every workspace would be the wrong behavior rather than
+//     merely inconvenient.
+//
+// B5 generalized this from a hardcoded `if agent == "claude"` branch in the mount
+// assembler. It is per-agent registry DATA now, which is what lets an agent's
+// credential dir survive agent support becoming pack data — that branch could not
+// have.
+//
+// Widening this list is a real decision, not a convenience: anything here leaks
+// between workspaces by design, so it must be state whose whole purpose is to be
+// machine-wide.
 
 // SkillsStaging returns the staging dir name for this agent's skills, or ""
 // when the agent has no skills dir.
@@ -80,10 +103,14 @@ var specs = []AgentSpec{
 		},
 		HostFiles:   HostFilesSpec{Dir: ".claude", Files: []string{"settings.json"}},
 		OverlayDirs: []string{".claude"},
-		Skills:      ".claude/skills",
-		YoloFlags:   []string{"--dangerously-skip-permissions"},
-		Alias:       "",
-		MiseRetire:  []string{`"npm:@anthropic-ai/claude-code"`},
+		// Claude auth is deliberately machine-wide: ~/.claude/.credentials.json is a
+		// symlink out of the per-workspace overlay into this dir, so one login serves
+		// every jail (entrypoint.ensureCredentialsSymlink + the OAuth broker).
+		SharedDirs: []string{".claude-shared-credentials"},
+		Skills:     ".claude/skills",
+		YoloFlags:  []string{"--dangerously-skip-permissions"},
+		Alias:      "",
+		MiseRetire: []string{`"npm:@anthropic-ai/claude-code"`},
 	},
 	{
 		Name:         "copilot",
@@ -331,4 +358,23 @@ func sortStrings(s []string) {
 			s[j-1], s[j] = s[j], s[j-1]
 		}
 	}
+}
+
+// SharedDirsFor returns the union of the named agents' SharedDirs, sorted and
+// deduped. Only SELECTED agents contribute, so a machine-wide credential dir is
+// mounted exactly when the agent that owns it is in play.
+func SharedDirsFor(names []string) []string {
+	seen := map[string]struct{}{}
+	var out []string
+	for _, spec := range ResolveAgents(names) {
+		for _, d := range spec.SharedDirs {
+			if _, dup := seen[d]; dup {
+				continue
+			}
+			seen[d] = struct{}{}
+			out = append(out, d)
+		}
+	}
+	sortStrings(out)
+	return out
 }
