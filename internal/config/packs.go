@@ -36,6 +36,22 @@ import (
 // packsKey is the top-level config key.
 const packsKey = "packs"
 
+// NoPacksMessage / NoPacksGuidance are the empty-packs notice, shared by the two
+// surfaces that report it: the launch-time warning (internal/cli/run) and the
+// `yolo check` Packs section (internal/cli/check). It lives HERE, next to LoadPacks,
+// because check cannot import the run pipeline — the dependency only ever goes the
+// other way — and a copy in each was free to drift in wording with no test noticing.
+// Both already import this package to load the packs it describes.
+//
+// NoPacksMessage carries NO trailing period so a `yolo check` badge can use it
+// verbatim (no badge line in the reporter ends in one), while the launch notice, which
+// is prose, appends one. That is the whole reason the punctuation is not baked in.
+const (
+	NoPacksMessage  = "No packs are configured, so this jail has no coding agent"
+	NoPacksGuidance = "An agent arrives as a pack. Run `yolo pack --help` for what packs " +
+		"deliver and how to add one."
+)
+
 // knownPackKeys is the accepted key set of the object form.
 var knownPackKeys = set(
 	"source", "name", "only", "exclude", "allow_exec",

@@ -24,21 +24,6 @@ import (
 	"github.com/mschulkind-oss/yolo-jail/internal/paths"
 )
 
-// noPacksHeadline / noPacksGuidance mirror the launch-time notice in internal/cli/run
-// (run.go), which check cannot import — that is the run pipeline, and the dependency
-// only ever goes the other way. Duplicated on purpose, with the same reasoning as
-// machineForPlatform's twin of run.platformMachine: `yolo check` and a launch must tell
-// the user the SAME thing, and a test in each package pins its own half.
-//
-// The guidance SENTENCE is byte-identical to the run-side one so the two are diffable
-// at a glance. Only the headline differs, by the trailing period: a check badge line
-// carries none ("No jails currently running"), a launch notice is prose.
-const (
-	noPacksHeadline = "No packs are configured, so this jail has no coding agent"
-	noPacksGuidance = "An agent arrives as a pack. Run `yolo pack --help` for what packs " +
-		"deliver and how to add one."
-)
-
 // sectionPacks validates the configured packs.
 //
 // Zero packs is the NOTABLE state, not the boring one: packs are how content —
@@ -46,6 +31,10 @@ const (
 // it. This section used to return silently there, on the reasoning that a non-pack
 // user should not see output for a feature they do not use; that reasoning died with
 // the `agents` key, because there is no longer a non-pack way to get an agent.
+//
+// The notice text is config.NoPacksMessage/NoPacksGuidance, shared with the launch-time
+// warning in internal/cli/run so `yolo check` and a launch cannot tell the user
+// different things.
 func (o *Options) sectionPacks(r *reporter) {
 	// The header and the trailing blank are now UNCONDITIONAL — every branch below
 	// prints something, and the separator used to be missing because the section only
@@ -53,13 +42,18 @@ func (o *Options) sectionPacks(r *reporter) {
 	r.section("Packs")
 	defer r.blank()
 
+	// Per-entry problems land on warningLine as informational "Warning:" lines. Unlike
+	// the launch-side notice, check does NOT suppress the empty-packs warning when they
+	// occur: the problems are printed right above it here, so the two together read as
+	// "these entries were skipped, and what is left is nothing" rather than as a
+	// misdiagnosis.
 	entries, err := config.LoadPacks(r.warningLine)
 	if err != nil {
 		r.fail("Loading packs: "+err.Error(), "")
 		return
 	}
 	if len(entries) == 0 {
-		r.warn(noPacksHeadline, noPacksGuidance)
+		r.warn(config.NoPacksMessage, config.NoPacksGuidance)
 		return
 	}
 

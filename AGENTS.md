@@ -1,12 +1,24 @@
 # YOLO Jail: Agent Developer Guide
 
 yolo-jail runs coding agents in an isolated container against a live-mounted
-workspace, without exposing host credentials or identity. Six agents are
-supported (`claude`, `copilot`, `gemini`, `opencode`, `pi`, `codex`); the
-`agents` config key selects which get installed, and that selection gates
-overlay dirs, briefings, and skills. Backends are `podman`, `container`
-(Apple Container), and `macos-user` (macOS Seatbelt, no VM) — **Docker was
-removed**; `internal/config/validate.go` hard-errors on it.
+workspace, without exposing host credentials or identity. The agent REGISTRY
+(`internal/agents`) still knows six agents (`claude`, `copilot`, `opencode`,
+`pi`, `codex`, `agy`), and a selection still gates overlay dirs, briefings,
+and skills — but **the `agents` config key is GONE** and there is no default
+agent set. Config carries ONE list of `packs`; a pack that installs an agent is
+just a pack, and nothing in the pack machinery knows what an agent is.
+`internal/config/validate.go` hard-errors on `agents` on the host (and warns
+in-jail, where the config is the generated snapshot). Consequences worth knowing
+before you debug a "missing agent": `config.SelectedAgents` is a transitional
+shim returning the empty set, so a jail today resolves ZERO agents — no
+briefings are written (`prepare.go`'s loop runs over resolved agents), no
+per-agent skills stage, and `YOLO_AGENTS=[]`. That state is reported by a
+PRINTED launch warning (`run.warnIfNoPacks`) and a `yolo check` [WARN], because
+with no agents there is no briefing file to put a note in. **No pack can declare
+an agent yet** — `PackEntry` has no field for it and `agentcfg.ManifestWith`
+has no production caller — so restoring agent installation is still open work.
+Backends are `podman`, `container` (Apple Container), and `macos-user` (macOS
+Seatbelt, no VM) — **Docker was removed**; validate.go hard-errors on it too.
 
 **This file is the guide for developing yolo-jail itself.** It deliberately does
 not restate usage or config reference material — see "Where things live" below.
@@ -115,7 +127,7 @@ there is no sync step.
   deadline; the suite runs under `-timeout 0` so only those deadlines and CI's
   `timeout-minutes` bound it.
 - **No agent tests.** Automated tests must never start `claude`/`copilot`/
-  `gemini`/etc. interactively or make API calls. `--version` probes only.
+  `codex`/etc. interactively or make API calls. `--version` probes only.
 - **Nested-jail verification is mandatory** for `cmd/` and `internal/` changes:
   after `just build-go`, run the freshly-built binary BY PATH —
   `./dist-go/linux-$(go env GOARCH)/yolo -- bash` — from inside this jail. Mount
@@ -184,7 +196,7 @@ there is no sync step.
 | macOS backends | `docs/guides/macos.md` |
 | macos-user nix integration + disabled-feature surface | `docs/design/macos-user-nix-and-features.md` |
 
-Agent logs, for debugging: `~/.copilot/logs/`, `~/.cache/gemini-cli/logs/`,
+Agent logs, for debugging: `~/.copilot/logs/`,
 `~/.claude/projects/` inside the jail; same paths under
 `~/.local/share/yolo-jail/home/` on the host.
 

@@ -6,6 +6,8 @@ import (
 	"path/filepath"
 	"strings"
 	"testing"
+
+	"github.com/mschulkind-oss/yolo-jail/internal/config"
 )
 
 // userPacksConfig writes a user config with the given body and points HOME at it, so
@@ -87,24 +89,62 @@ func TestWarnIfNoPacksSilentWithAPack(t *testing.T) {
 	}
 }
 
-// A pack list that fails to LOAD must not produce this notice: stagePacks turns a
-// broken `packs` into a fatal launch error naming the real problem, and "you have no
-// packs" would be a misdiagnosis of "your packs are malformed".
-func TestWarnIfNoPacksSilentOnLoadError(t *testing.T) {
-	userPacksConfig(t, `{"packs": `)
-	if got := noPacksOutput(t); got != "" {
-		t.Errorf("a load error must not be reported as an empty pack list, got:\n%s", got)
+// A `packs` value that is present but UNUSABLE must not produce this notice: validatePacks
+// fails the launch naming the real problem, and "you have no packs" would be a
+// misdiagnosis of "your packs are malformed".
+//
+// All three shapes matter, and only the first is a LoadPacks error. A non-list value and
+// a list whose every entry is invalid both return zero entries with a NIL error, because
+// checkPacks routes per-entry problems to the warn callback instead — so an `err != nil`
+// guard alone reported both as "no packs are configured". Table-driven for exactly that
+// reason: the two nil-error shapes are the ones a future reader would not predict.
+func TestWarnIfNoPacksSilentWhenPacksAreConfiguredButUnusable(t *testing.T) {
+	for _, tc := range []struct{ name, body string }{
+		{"unparseable config", `{"packs": `},
+		{"not a list", `{"packs": {"a": "b"}}`},
+		{"every entry invalid", `{"packs": ["nonsense"]}`},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			userPacksConfig(t, tc.body)
+			if got := noPacksOutput(t); got != "" {
+				t.Errorf("configured-but-broken packs must not be reported as an empty "+
+					"list, got:\n%s", got)
+			}
+		})
 	}
 }
 
-// The notice keys off the PACK list, not the agent list. Guards the requirement
-// directly: config.SelectedAgents is a transitional shim on its way out, and a notice
-// written against it would either die with it or resurrect the deleted `agents` key.
+// The notice text is the SHARED config constant, not a local copy — the other half of
+// TestSectionPacksUsesTheSharedNoPacksText. The two surfaces used to keep separate
+// copies (check cannot import this package) and had already drifted by a trailing
+// period; both now read config.NoPacksMessage/NoPacksGuidance so they cannot diverge.
+// The period is appended HERE because this is prose and a check badge line is not.
+func TestWarnIfNoPacksUsesTheSharedNoPacksText(t *testing.T) {
+	userPacksConfig(t, `{}`)
+	got := noPacksOutput(t)
+	for _, want := range []string{config.NoPacksMessage + ".", config.NoPacksGuidance} {
+		if !strings.Contains(got, want) {
+			t.Errorf("notice does not render the shared constant %q verbatim:\n%s", want, got)
+		}
+	}
+}
+
+// The notice keys off the PACK list, not the agent list.
+//
+// The assertion that carries this is the INVERSE one: a config with NO packs that still
+// names agents must STILL warn. (Its twin — a pack silencing the notice — is already
+// TestWarnIfNoPacksSilentWithAPack, and adding an ignored `agents` key to that fixture
+// asserts nothing, since no code path reads it.) A notice written against
+// config.SelectedAgents rather than the pack list would either die with that transitional
+// shim or resurrect the deleted `agents` key; this fails in both cases.
 func TestWarnIfNoPacksKeysOffPacksNotAgents(t *testing.T) {
-	pack := t.TempDir()
-	// A config that names a pack AND (legacy, ignored) agents: the pack decides.
-	userPacksConfig(t, `{"packs": ["file://`+pack+`"], "agents": []}`)
-	if got := noPacksOutput(t); got != "" {
-		t.Errorf("a configured pack must silence the notice regardless of `agents`, got:\n%s", got)
+	userPacksConfig(t, `{"agents": ["claude"]}`)
+	got := noPacksOutput(t)
+	if got == "" {
+		t.Fatal("a config naming `agents` but no packs must still warn — the key is " +
+			"deleted, so it cannot be evidence that a jail has an agent")
+	}
+	if !strings.Contains(got, "no coding agent") {
+		t.Errorf("notice missing the no-agent claim:\n%s", got)
 	}
 }

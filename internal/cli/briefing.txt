@@ -47,8 +47,9 @@ need to know.
   Runtimes:  Node.js 22, Python 3.13, Go (managed by mise)
   Editors:   nvim (stable by default, configurable via mise_tools)
   CLI tools: rg, fd, bat, jq, git, gh, curl, strace, uv, tmux
-  Agents:    the ones in your `agents` config (default: claude). Available:
-             claude, copilot, opencode, pi, codex, agy (auto-approve wired up).
+  Agents:    whichever a configured pack installs — there is NO `agents` config
+             key any more, and no default, so a jail with no packs has no agent.
+             Run `yolo pack --help`.
   The 'yolo' command itself is available inside for nested jailing.
 
   [bold]Mise[/bold] manages all runtimes and supports thousands of tools from
@@ -89,7 +90,7 @@ need to know.
 
   4. [bold]Ask the human to restart you inside the jail[/bold]:
      Tell them to run: yolo -- claude  (or copilot / opencode / pi / codex,
-     whichever is in the `agents` config)
+     whichever a configured pack installed; with no packs there is no agent)
 
      The inner agent has a built-in [bold]jail-startup[/bold] skill that reads
      your handover doc automatically. The human just needs to say:

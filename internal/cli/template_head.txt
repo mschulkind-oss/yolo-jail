@@ -9,11 +9,11 @@
   // (also settable via YOLO_RUNTIME env var)
   // "runtime": "podman",
 
-  // Coding agents to install in the jail (only these are installed).
-  // Available: claude, copilot, gemini, opencode, pi.  Default: ["claude"].
-  // A workspace list REPLACES the user-level default (it does not union),
-  // so you can narrow to just the agents this project uses.
-  // "agents": ["claude", "opencode"],
+  // There is no "agents" key — it was REMOVED, and a config still carrying it
+  // is rejected.  Which agents a jail gets is not a setting of its own: an
+  // agent arrives as a pack, so name the pack that installs it in "packs"
+  // (user scope only, ~/.config/yolo-jail/config.jsonc).  See `yolo pack
+  // --help` and `yolo config-ref`.
 
   // Extra nix packages to include in the jail image.
   // Names must match nixpkgs attribute names (search at https://search.nixos.org/packages).

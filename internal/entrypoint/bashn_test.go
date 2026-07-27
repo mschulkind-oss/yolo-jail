@@ -90,6 +90,54 @@ func TestGeneratedShellSyntax(t *testing.T) {
 	}
 }
 
+// The matrix must keep EXERCISING agent launchers, which stopped being automatic when
+// the default agent set was deleted.
+//
+// checkShellScripts globs .yolo-shims and skips files that do not exist, so a scenario
+// generating no launcher still passes — silently testing less. Three scenarios
+// (`default_claude`, `blocked_tools_matrix`, `mise_ca_seeded`) relied on an absent
+// YOLO_AGENTS meaning "claude"; with no default that became "no agents", and the
+// `bash -n` gate over generated agent launchers quietly lost them while staying green.
+// The scenario literally named `default_claude` was exercising no claude at all, which
+// is why it is now `no_agents`.
+//
+// So: at least one scenario must generate a launcher (the gate has something to check),
+// and `no_agents` must generate NONE (a zero-agent boot stays a pinned, deliberate case
+// rather than an accident). This asserts the matrix's coverage, not the generators.
+func TestMatrixCoversAgentLaunchersAndTheZeroAgentCase(t *testing.T) {
+	matrix := loadMatrix(t, filepath.Join(findRepoRoot(t), "internal", "entrypoint", "testdata", "entrypoint_matrix.json"))
+
+	withLaunchers := 0
+	for name, spec := range matrix.Scenarios {
+		dir := t.TempDir()
+		e := NewEnv(scenarioVars(dir, matrix.HomeToken, spec))
+		seedFiles(t, dir, matrix.HomeToken, spec)
+		if err := GenerateAgentLaunchers(e); err != nil {
+			t.Fatalf("%s: GenerateAgentLaunchers: %v", name, err)
+		}
+		// Only agent launchers count: GeneratePackageManagerLaunchers is not run here,
+		// so anything in the shim dir came from the agent selection.
+		got := 0
+		if entries, err := os.ReadDir(filepath.Join(dir, ".yolo-shims")); err == nil {
+			got = len(entries)
+		}
+		if name == "no_agents" {
+			if got != 0 {
+				t.Errorf("scenario `no_agents` generated %d launcher(s), want 0 — a "+
+					"zero-agent boot must stay pinned", got)
+			}
+			continue
+		}
+		if got > 0 {
+			withLaunchers++
+		}
+	}
+	if withLaunchers == 0 {
+		t.Error("no matrix scenario generates an agent launcher, so the `bash -n` gate " +
+			"covers none — name agents in a scenario's YOLO_AGENTS")
+	}
+}
+
 func scenarioVars(home, token string, spec scenarioSpec) map[string]string {
 	vars := map[string]string{"JAIL_HOME": home}
 	// Isolate the prism §5 sidecars (<workspace>/.yolo/prism/) under the temp

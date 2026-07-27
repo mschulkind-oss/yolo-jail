@@ -1,8 +1,8 @@
 {
-  "_comment": "Stage 9 entrypoint tree-golden env matrix (go-port plan §9). The SINGLE committed source of truth for the scenarios both the Python oracle (entrypoint_oracle.py) and the Go test (entrypoint_parity_test.go) drive. @HOME@ is the fake-HOME token: substituted with the actual temp dir in env values and seed-file bodies on the way IN, and substituted back OUT of emitted file bodies + symlink targets so the two languages agree regardless of temp dir. Add scenarios here and both sides pick them up.",
+  "_comment": "Stage 9 entrypoint tree-golden env matrix (go-port plan §9). The SINGLE committed source of truth for the scenarios both the Python oracle (entrypoint_oracle.py) and the Go test (entrypoint_parity_test.go) drive. @HOME@ is the fake-HOME token: substituted with the actual temp dir in env values and seed-file bodies on the way IN, and substituted back OUT of emitted file bodies + symlink targets so the two languages agree regardless of temp dir. Add scenarios here and both sides pick them up. Scenario agent selection is now EXPLICIT everywhere: there is no default agent set, so an absent YOLO_AGENTS means zero agents and generates zero agent launchers. `no_agents` (formerly `default_claude`, which no longer defaulted to anything) pins that zero-agent boot deliberately; every other scenario names its agents so the `bash -n` gate keeps covering generated launchers.",
   "home_token": "@HOME@",
   "scenarios": {
-    "default_claude": {
+    "no_agents": {
       "env": {}
     },
     "all_agents_presets_lsp": {
@@ -16,7 +16,8 @@
     },
     "blocked_tools_matrix": {
       "env": {
-        "YOLO_BLOCK_CONFIG": "[{\"name\":\"grep\",\"message\":\"grep -r is blocked\",\"suggestion\":\"Use rg\",\"block_flags\":[\"--recursive\",\"-r\",\"-R\",\"-*[rR]*\"]},{\"name\":\"find\",\"message\":\"find is blocked\",\"suggestion\":\"Use fd\"},{\"name\":\"curl\",\"message\":\"curl is blocked in this project.\"}]"
+        "YOLO_BLOCK_CONFIG": "[{\"name\":\"grep\",\"message\":\"grep -r is blocked\",\"suggestion\":\"Use rg\",\"block_flags\":[\"--recursive\",\"-r\",\"-R\",\"-*[rR]*\"]},{\"name\":\"find\",\"message\":\"find is blocked\",\"suggestion\":\"Use fd\"},{\"name\":\"curl\",\"message\":\"curl is blocked in this project.\"}]",
+        "YOLO_AGENTS": "[\"claude\"]"
       }
     },
     "block_shadows_agent_launcher": {
@@ -36,7 +37,8 @@
       "env": {
         "YOLO_MISE_TOOLS": "{\"node\":\"23\"}",
         "SSL_CERT_FILE": "@HOME@/baseline.crt",
-        "NODE_EXTRA_CA_CERTS": "@HOME@/broker.crt:@HOME@/other.crt"
+        "NODE_EXTRA_CA_CERTS": "@HOME@/broker.crt:@HOME@/other.crt",
+        "YOLO_AGENTS": "[\"claude\"]"
       },
       "files": {
         "baseline.crt": "-----BEGIN CERTIFICATE-----\nBASELINE\n-----END CERTIFICATE-----\n",

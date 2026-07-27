@@ -35,19 +35,31 @@ import (
 // packUsage is what `yolo pack --help` prints, and it is also the destination the
 // empty-packs notice sends a brand-new user to (internal/cli/run.warnIfNoPacks,
 // internal/cli/check.sectionPacks). That second audience is why it opens with WHAT A
-// PACK IS and that an agent arrives as one, before the verb list: a user who has just
-// been told "this jail has no coding agent" needs "here is the thing you add", not a
-// command table for authoring. `yolo config-ref` remains the exhaustive key schema.
+// PACK IS, before the verb list: a user who has just been told "this jail has no coding
+// agent" needs "here is the thing you add", not a command table for authoring.
+// `yolo config-ref` remains the exhaustive key schema.
+//
+// It states plainly that an agent-installing pack DOES NOT EXIST YET. The temptation is
+// to describe the destination as if it had arrived — the notice sends people here asking
+// "how do I get my agent back", and "an AGENT pack" is the answer the design intends.
+// But a pack today stages CONTENT (skills, prose) and nothing declares an agent: no
+// PackEntry field, no knownPackKeys entry, and agentcfg.ManifestWith — the seam a pack
+// would contribute a surface through — has no production caller. Promising it here
+// would send a user to configure a pack, watch it silence the very warning that told
+// them they had no agent, and still have no agent. Say what works and what does not.
 const packUsage = `yolo pack — author and inspect agent config packs
 
-A pack is a directory of agent CONFIG — skills, briefing prose (AGENTS.md), and the
-surfaces that define an agent — delivered into every jail you launch. Anything a jail
-knows how to do beyond a bare shell arrives as a pack, INCLUDING A CODING AGENT: with
-no packs configured, a jail has no agent in it.
+A pack is a directory of agent CONFIG — skills and briefing prose (AGENTS.md) —
+delivered into every jail you launch. Content a jail has beyond a bare shell arrives as
+a pack: with no packs configured, a jail gets nothing but the built-ins.
 
-Two things people usually want here:
-  • an AGENT pack, to get claude / copilot / codex / … installed and configured
+What a pack delivers TODAY:
   • a SHARED pack of your own skills and house rules, applied in every project
+  • per-project narrowing of that corpus, via only/exclude
+
+NOT YET: a pack cannot install a coding agent. That is where this is going — an agent is
+meant to arrive as a pack like anything else — but no pack can declare one yet, so a
+jail launched today has no agent regardless of what you configure here.
 
   yolo pack init [dir]        scaffold a pack skeleton (default: current dir)
   yolo pack lint [dir]        validate a pack directory the way staging will

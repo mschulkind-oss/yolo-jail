@@ -135,8 +135,10 @@ func TestReservedHomeSegments(t *testing.T) {
 // finding without the reasoning.
 func TestReservedHomeDirsSpanAllAgentsNotSelected(t *testing.T) {
 	dirs := reservedHomeDirs()
-	// pi and codex are not in DefaultAgents, but their overlay dirs must still be
-	// reserved: validation cannot depend on which agents this jail happens to select.
+	// Every agent's overlay dir is reserved regardless of selection — and with no
+	// default agent set, a jail's selection is routinely EMPTY, which makes the point
+	// sharper than when this said "pi and codex are not in DefaultAgents": reservation
+	// cannot depend on a selection that is usually nothing.
 	for _, want := range []string{".claude", ".pi", ".codex", ".copilot"} {
 		if _, ok := dirs[want]; !ok {
 			t.Errorf("%s not reserved — reservation must not depend on agent selection", want)

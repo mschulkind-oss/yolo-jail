@@ -6,6 +6,8 @@ import (
 	"path/filepath"
 	"strings"
 	"testing"
+
+	"github.com/mschulkind-oss/yolo-jail/internal/config"
 )
 
 func packsFixture(t *testing.T, cfgBody string) {
@@ -98,6 +100,26 @@ func TestSectionPacksWarnsWhenNoneConfigured(t *testing.T) {
 	}
 }
 
+// The empty-packs text is the SHARED config constant, not a local copy.
+//
+// It used to be duplicated here and in internal/cli/run (check cannot import the run
+// pipeline), which let the two surfaces drift in wording with no test noticing — they had
+// already drifted by a trailing period. Both now read config.NoPacksMessage/NoPacksGuidance,
+// so `yolo check` and a launch cannot tell the user different things. This asserts the
+// section renders those constants verbatim; the run side pins its own use of the same two.
+func TestSectionPacksUsesTheSharedNoPacksText(t *testing.T) {
+	packsFixture(t, `{}`)
+	var buf bytes.Buffer
+	r := &reporter{w: &buf}
+	(&Options{}).sectionPacks(r)
+	for _, want := range []string{config.NoPacksMessage, config.NoPacksGuidance} {
+		if !strings.Contains(buf.String(), want) {
+			t.Errorf("section does not render the shared constant %q verbatim:\n%s",
+				want, buf.String())
+		}
+	}
+}
+
 // A never-installed GIT pack is reported, not fetched: `yolo check` must work offline
 // and must never make a surprise network call.
 func TestSectionPacksReportsUnfetchedGitPackWithoutFetching(t *testing.T) {
@@ -110,6 +132,35 @@ func TestSectionPacksReportsUnfetchedGitPackWithoutFetching(t *testing.T) {
 	}
 	if !strings.Contains(buf.String(), "pack install") {
 		t.Errorf("message should point at the fetch command:\n%s", buf.String())
+	}
+}
+
+// The section ALWAYS prints its header and a trailing blank, on every branch.
+//
+// Both used to be conditional, because the section only existed for pack users; making
+// the empty case warn meant every branch now prints, so the header and the separator
+// became unconditional (a `defer`). That is easy to half-revert: the load-error branch
+// returns early, and the golden that would otherwise pin section shape early-exits
+// before Packs, so nothing else covers it. Without the trailing blank the next section
+// header ("Entrypoint Dry-Run") runs straight into this one's last line.
+func TestSectionPacksAlwaysFramesTheSection(t *testing.T) {
+	for _, tc := range []struct{ name, cfg string }{
+		{"empty (warn branch)", `{}`},
+		{"unusable (load-error branch)", `{"packs": `},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			packsFixture(t, tc.cfg)
+			var buf bytes.Buffer
+			r := &reporter{w: &buf}
+			(&Options{}).sectionPacks(r)
+			if !strings.Contains(buf.String(), "Packs") {
+				t.Errorf("section header missing:\n%s", buf.String())
+			}
+			if !strings.HasSuffix(buf.String(), "\n\n") {
+				t.Errorf("section must end with a blank line or the next header abuts "+
+					"it:\n%q", buf.String())
+			}
+		})
 	}
 }
 

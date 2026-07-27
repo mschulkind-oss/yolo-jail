@@ -88,23 +88,15 @@ func Run(opts Options) int {
 	return o.runContainer(cfg, rt, repoRoot)
 }
 
-// The empty-packs notice, split so `yolo check` can mirror it as a [WARN] plus a
-// "-> " remediation note (internal/cli/check/packs.go keeps its own copy — check
-// cannot import the run pipeline, the same duplication runtimeStartHint carries).
-// Three lines, and deliberately free of blame: an empty pack list is exactly what a
-// brand-new install looks like, not a mistake anybody made.
-//
-// It names `yolo pack --help` rather than `yolo config-ref` because that is the
-// shorter of the two answers to "what do I put here" — packUsage opens with what a
-// pack is and that an agent arrives as one, where config-ref's `packs` entry is the
-// exhaustive key schema underneath it.
-const (
-	noPacksHeadline = "No packs are configured, so this jail has no coding agent."
-	noPacksGuidance = "An agent arrives as a pack. Run `yolo pack --help` for what packs " +
-		"deliver and how to add one."
-)
-
 // warnIfNoPacks prints the empty-packs notice when the user has no packs configured.
+//
+// The text is config.NoPacksMessage/NoPacksGuidance, shared with the `yolo check` Packs
+// section so the two surfaces cannot drift; the sentence-ending period is added here
+// because this is prose and a check badge line is not. It is deliberately free of
+// blame: an empty pack list is exactly what a brand-new install looks like, not a
+// mistake anybody made. It names `yolo pack --help` rather than `yolo config-ref`
+// because that is the shorter answer to "what do I put here" — packUsage opens with
+// what a pack is, where config-ref's `packs` entry is the key schema underneath it.
 //
 // Packs are the only way content — an agent included — gets installed into a jail, so
 // an empty list is not a lean jail, it is a jail with nothing in it. That state is
@@ -114,24 +106,36 @@ const (
 // printed rather than written — and why it keys off the PACK list rather than the agent
 // list, which is both the thing the user edits and the thing that still exists.
 //
-// Silent on a load error: stagePacks has already run by every call site that can reach
-// one, and it turns a broken `packs` into a fatal launch failure naming the real
-// problem. "You have no packs" would be a misdiagnosis of "your packs are malformed".
+// Silent whenever `packs` is present but UNUSABLE, which is not the same test as
+// "LoadPacks returned an error". An error covers only a JSONC parse failure; a
+// non-list value and a list whose every entry is invalid both come back as zero
+// entries with a nil error, because checkPacks routes per-entry problems to the warn
+// callback instead. All three mean the user DID configure packs, so "you have no
+// packs" would misdiagnose "your packs are malformed" — and stagePacks (via
+// validatePacks) already fails the launch naming the real problem. Hence the callback
+// is non-nil and any problem suppresses the notice: only a genuinely absent or empty
+// list reaches the print.
+//
+// Counting callback invocations is exact rather than approximate because LoadPacks
+// loads strict: every loader-side warning (parse failure, bad include_if_found) is an
+// ERROR under strict, so the only thing that can reach this callback is a checkPacks
+// per-entry problem. An unrelated config warning cannot false-suppress the notice.
 //
 // It re-reads the user config rather than taking a count threaded down from stagePacks:
 // one small file read per launch is cheaper than making every staging-side signature
 // carry a value only this notice consumes.
 func (o *Options) warnIfNoPacks() {
-	entries, err := config.LoadPacks(nil)
-	if err != nil || len(entries) > 0 {
+	problems := 0
+	entries, err := config.LoadPacks(func(string) { problems++ })
+	if err != nil || problems > 0 || len(entries) > 0 {
 		return
 	}
 	// Stderr, like every other launch notice: a launch is usually `yolo -- cmd`, and
 	// the user redirects the COMMAND's stdout — a notice on stdout would be swallowed
 	// by that redirect, or corrupt a piped payload.
 	out := o.pr(o.Stderr)
-	out.print("[bold yellow]" + noPacksHeadline + "[/bold yellow]")
-	out.print("[yellow]" + noPacksGuidance + "[/yellow]")
+	out.print("[bold yellow]" + config.NoPacksMessage + ".[/bold yellow]")
+	out.print("[yellow]" + config.NoPacksGuidance + "[/yellow]")
 }
 
 // ensureStorage wraps storage.EnsureGlobalStorage, wiring the v2 layout

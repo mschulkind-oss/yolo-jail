@@ -47,7 +47,7 @@ func ValidateConfig(config *jsonx.OrderedMap, workspace string, resolver Loophol
 
 	validateRuntime(config, errs)
 	validateRepoPath(config, errs, warns)
-	validateAgentsRetired(config, errs)
+	validateAgentsRetired(config, errs, warns)
 	validatePackages(config, errs)
 	validateMounts(config, workspace, errs, warns)
 	validateWorkspaceReadonly(config, errs)
@@ -140,23 +140,44 @@ func validateRepoPath(config *jsonx.OrderedMap, errs, warns *[]string) {
 // config still naming agents would not merely be ignored — it would describe a
 // selection yolo can no longer make.
 //
-// It is dropped from knownTopLevelConfigKeys, so it already earns a bare "unknown
-// key". This adds the RETIREMENT message on top, the same treatment `docker` gets
-// in validateRuntime and `env` gets in validateEnvSources: a bare "unknown key"
-// reads like a typo and sends people looking for the correct spelling of a key
-// that no longer exists. Say it was removed, and say what replaced it.
+// `agents` STAYS in knownTopLevelConfigKeys so this is the only message the key earns:
+// dropping it from the set would add a generic "unknown key" alongside, reporting one
+// mistake twice. This is the same treatment `docker` gets in validateRuntime and `env`
+// gets in validateEnvSources — a bare "unknown key" reads like a typo and sends people
+// hunting for the correct spelling of a key that no longer exists. Say it was removed,
+// and say what replaced it.
 //
 // Everything that existed only to serve the key went with it: validateAgentsScope
 // (the workspace-cannot-widen-the-user-set guard, which protected the credential
 // boundary `agents` opened by being an override-list key) and validAgentSet.
-func validateAgentsRetired(config *jsonx.OrderedMap, errs *[]string) {
+//
+// ERROR on the host, WARNING inside a jail, and the asymmetry is the whole point.
+// A hard error is right on the host: the user is looking at the file they typed the key
+// into, and silently ignoring it would mean they asked for claude, got nothing, and had
+// nowhere to read why (with zero agents no briefing file is written). Inside a jail the
+// config is NOT user-authored — LoadConfig prefers the host-generated, gitignored
+// <workspace>/.yolo/config-snapshot.json, falling back to the host user config mounted
+// read-only. Erroring there refuses every nested launch over a key the in-jail user
+// cannot fix at its source, and it made `yolo check` DISAGREE with launch: check merges
+// the user and workspace files directly and never reads the snapshot, so it called the
+// very config that just refused to launch "semantically valid" — while the error text
+// told the user to run `yolo check`. Warning in-jail makes the two agree again and
+// still reports the key. validateCacheRelocations carves out the same way, for the same
+// snapshot reason.
+func validateAgentsRetired(config *jsonx.OrderedMap, errs, warns *[]string) {
 	if _, present := config.Get("agents"); !present {
 		return
 	}
-	add(errs, "config.agents: REMOVED — which agents a jail gets is no longer a "+
-		"config key of its own. An agent arrives as a pack, so name the pack that "+
-		"installs it in `packs` instead. See `yolo config-ref` for the `packs` key "+
-		"and `yolo pack --help` for the pack tooling.")
+	msg := "config.agents: REMOVED — which agents a jail gets is no longer a " +
+		"config key of its own. An agent arrives as a pack, so name the pack that " +
+		"installs it in `packs` instead. See `yolo config-ref` for the `packs` key " +
+		"and `yolo pack --help` for the pack tooling."
+	if inJail() {
+		add(warns, msg+" (ignored here: this is the host-generated config snapshot, "+
+			"so remove the key from the HOST config.)")
+		return
+	}
+	add(errs, msg)
 }
 
 func validatePackages(config *jsonx.OrderedMap, errs *[]string) {

@@ -186,18 +186,23 @@ func TestCheckPacksRejectsRetiredAgentsKey(t *testing.T) {
 }
 
 // Nothing in a lowered entry may carry an agent filter any more, wire form included.
-// The wire form is the entrypoint's ONLY view of packs, so a lingering field there
-// would be a filter the host could still express and the jail would still honor.
+//
+// The REFLECT assertion is the load-bearing one, and it is the reason this test is not
+// just a string check: it catches a field re-added behind `json:"-"`, which no wire-form
+// inspection can see. The wire assertion is the weaker half and deliberately kept as a
+// cheap belt — with the field present it carried `json:"agents,omitempty"`, so a fixture
+// leaving it nil elided it from the JSON and the string check passed. It only earns its
+// place against a re-added field that is BOTH exported to JSON and non-empty here.
 func TestPackEntryHasNoAgentFilterField(t *testing.T) {
+	if _, ok := reflect.TypeOf(PackEntry{}).FieldByName("Agents"); ok {
+		t.Error("PackEntry.Agents is back — a pack applies to the whole jail")
+	}
 	wire, err := MarshalPacks([]PackEntry{{Source: "file:///p", Name: "p"}})
 	if err != nil {
 		t.Fatal(err)
 	}
 	if strings.Contains(wire, "agents") {
 		t.Errorf("YOLO_PACKS wire form still mentions agents: %s", wire)
-	}
-	if _, ok := reflect.TypeOf(PackEntry{}).FieldByName("Agents"); ok {
-		t.Error("PackEntry.Agents is back — a pack applies to the whole jail")
 	}
 }
 

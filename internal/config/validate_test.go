@@ -248,33 +248,87 @@ func TestRetiredHostFilesKeysAreUnknown(t *testing.T) {
 	}
 }
 
-// agentsErrs runs ValidateConfig over a config carrying only `agents` and returns
-// just the config.agents problems.
+// agentsErrs runs ValidateConfig over a config carrying only `agents`, on the HOST
+// (YOLO_VERSION cleared), and returns just the config.agents errors.
 func agentsErrs(t *testing.T, body string) []string {
 	t.Helper()
 	t.Setenv("YOLO_VERSION", "")
 	errs, _ := ValidateConfig(decode(t, `{"agents": `+body+`}`), t.TempDir(), nil)
+	return withPrefix(errs, "config.agents")
+}
+
+// agentsInJail is agentsErrs' in-jail twin, returning (errors, warnings).
+func agentsInJail(t *testing.T, body string) ([]string, []string) {
+	t.Helper()
+	t.Setenv("YOLO_VERSION", "test")
+	errs, warns := ValidateConfig(decode(t, `{"agents": `+body+`}`), t.TempDir(), nil)
+	return withPrefix(errs, "config.agents"), withPrefix(warns, "config.agents")
+}
+
+func withPrefix(msgs []string, prefix string) []string {
 	var out []string
-	for _, e := range errs {
-		if strings.HasPrefix(e, "config.agents") {
-			out = append(out, e)
+	for _, m := range msgs {
+		if strings.HasPrefix(m, prefix) {
+			out = append(out, m)
 		}
 	}
 	return out
 }
 
-// The `agents` key is DELETED, so a config carrying it must be REJECTED — not
-// ignored, and not quietly accepted. Ignoring it would be the worst outcome
+// The `agents` key is DELETED, so a config carrying it must be REJECTED on the host —
+// not ignored, and not quietly accepted. Ignoring it would be the worst outcome
 // available: the user asked for claude, yolo silently gives them nothing, and
 // nothing in the jail can explain why.
+// Every shape the key ever took — a valid list, an empty one, null, a bare string, a
+// list naming the long-retired `gemini` — must land on the IDENTICAL verdict, because
+// the key is gone and its CONTENTS are no longer a question yolo answers. Asserting
+// byte-equality across shapes rather than merely "each is rejected" is what pins that:
+// a reintroduced per-shape branch (a different message for `[]`, say, or the old
+// unknown-agent typo check firing on `["gemini"]`) would otherwise pass unnoticed.
 func TestValidateAgentsKeyIsRejected(t *testing.T) {
-	// Every shape the key ever took, valid or not, must land on the same verdict —
-	// the key is gone, so its CONTENTS are no longer a question yolo answers.
-	for _, body := range []string{`["claude"]`, `[]`, `null`, `"claude"`, `["gemini"]`} {
+	shapes := []string{`["claude"]`, `[]`, `null`, `"claude"`, `["gemini"]`}
+	var first []string
+	for i, body := range shapes {
 		errs := agentsErrs(t, body)
 		if len(errs) == 0 {
 			t.Errorf("agents=%s: want a rejection, got none", body)
+			continue
 		}
+		if i == 0 {
+			first = errs
+			continue
+		}
+		if strings.Join(errs, "\n") != strings.Join(first, "\n") {
+			t.Errorf("agents=%s produced a shape-specific verdict:\n got %v\nwant %v",
+				body, errs, first)
+		}
+	}
+}
+
+// INSIDE a jail the same key is a WARNING, not an error, and this is the regression for
+// a real wedge: LoadConfig prefers the host-generated, gitignored config snapshot in a
+// jail, so a snapshot still carrying `agents` made every nested launch refuse to start
+// over a key the in-jail user cannot fix at its source. Worse, `yolo check` — the command
+// the error text tells you to run — merges the user and workspace files directly and
+// never reads the snapshot, so it reported that same config "semantically valid".
+// Reproduced by hand before the fix: `yolo --dry-run -- true` printed "Invalid jail
+// config" while `yolo check --no-build` passed on the identical fixture.
+//
+// It must still be REPORTED in-jail. Dropping it entirely would hide a real stale
+// snapshot; the warning names the host config as the place to remove it.
+func TestValidateAgentsIsAWarningInJail(t *testing.T) {
+	errs, warns := agentsInJail(t, `["claude"]`)
+	if len(errs) != 0 {
+		t.Errorf("in a jail the key must not be a hard error — the config is the "+
+			"host-written snapshot, so this refuses every nested launch: %v", errs)
+	}
+	if len(warns) != 1 {
+		t.Fatalf("want exactly one config.agents warning in a jail, got %d: %v",
+			len(warns), warns)
+	}
+	if !strings.Contains(warns[0], "REMOVED") || !strings.Contains(warns[0], "HOST") {
+		t.Errorf("the in-jail warning must say the key is removed AND that the fix is on "+
+			"the host (the snapshot is generated, not authored): %q", warns[0])
 	}
 }
 
@@ -341,19 +395,24 @@ func TestValidateAgentsAbsentIsClean(t *testing.T) {
 	}
 }
 
-// SelectedAgents is a shim that returns the EMPTY set now that there is no key to
-// read and no DefaultAgents to fall back on. The non-nil part is load-bearing:
-// agents.ResolveAgents treats a nil names argument as "unspecified" and substitutes
-// DefaultAgents, so a nil return here would resurrect claude in every caller — the
-// exact behavior deleting the key removes.
+// SelectedAgents is a shim that returns the EMPTY set now that there is no key to read.
+// The load-bearing assertion is EMPTINESS, and that it holds for EVERY input — including
+// a config that still names agents, which must not be honored just because it parses.
+//
+// The non-nil check is kept but is no longer load-bearing, and this comment says so on
+// purpose: it used to guard ResolveAgents' nil -> DefaultAgents fallback, which is gone,
+// and every YOLO_AGENTS encoder builds its list with make(…, len(x)) so nil already
+// serializes as `[]`. Left as a cheap shape pin, not as a hazard guard — a reader who
+// finds it should not conclude the old fallback is still out there.
 func TestSelectedAgentsIsEmptyAndNonNil(t *testing.T) {
 	for _, src := range []string{`{}`, `{"agents": ["claude"]}`, `{"agents": []}`} {
 		got := SelectedAgents(decode(t, src))
 		if len(got) != 0 {
-			t.Errorf("SelectedAgents(%s) = %v, want empty", src, got)
+			t.Errorf("SelectedAgents(%s) = %v, want empty — a config naming agents must "+
+				"not be honored", src, got)
 		}
 		if got == nil {
-			t.Errorf("SelectedAgents(%s) returned nil; ResolveAgents(nil) falls back to DefaultAgents", src)
+			t.Errorf("SelectedAgents(%s) returned nil, want a non-nil empty slice", src)
 		}
 	}
 }
@@ -362,26 +421,24 @@ func TestSelectedAgentsIsEmptyAndNonNil(t *testing.T) {
 // merge is what let a repo-committed, agent-editable workspace config decide agent
 // selection — and through it which host files mounted (the hole validateAgentsScope
 // existed to plug). With the key gone the exception has no members, so EVERY list
-// key union-merges. This is the regression for the mechanism's removal: a
-// resurrected override-list would silently reopen that class of hole for whatever
-// key got added to it.
+// key union-merges, and the mechanism went with it rather than sitting inert waiting
+// to reopen that class of hole for whatever key got added next.
+//
+// This drives EVERY top-level key rather than a hand-picked pair, because the claim is
+// universal and a two-key version does not pin it: `packages` and `mcp_presets` union
+// both before and after the removal, so a resurrected override-list carrying some OTHER
+// key would leave such a test green. Any key excluded from the union is a
+// replace-wholesale exception, which is what must not exist.
 func TestMergeConfigUnionsEveryListKey(t *testing.T) {
-	base := decode(t, `{"packages": ["a"], "mcp_presets": ["chrome-devtools"]}`)
-	over := decode(t, `{"packages": ["b"], "mcp_presets": ["sequential-thinking"]}`)
-	merged := MergeConfig(base, over)
-	for key, want := range map[string][]string{
-		"packages":    {"a", "b"},
-		"mcp_presets": {"chrome-devtools", "sequential-thinking"},
-	} {
-		v, _ := merged.Get(key)
+	for key := range knownTopLevelConfigKeys {
+		base := decode(t, `{"`+key+`": ["a"]}`)
+		over := decode(t, `{"`+key+`": ["b"]}`)
+		v, _ := MergeConfig(base, over).Get(key)
 		got, _ := v.([]any)
-		if len(got) != len(want) {
-			t.Fatalf("%s = %v, want %v (union, not replace)", key, got, want)
-		}
-		for i := range want {
-			if got[i] != want[i] {
-				t.Errorf("%s[%d] = %v, want %q", key, i, got[i], want[i])
-			}
+		if len(got) != 2 || got[0] != "a" || got[1] != "b" {
+			t.Errorf("%s = %v, want [a b] — a list key that does not union is a "+
+				"replace-wholesale exception, and overrideListKeys was deleted so that "+
+				"no such exception exists", key, got)
 		}
 	}
 }

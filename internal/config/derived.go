@@ -86,24 +86,31 @@ func EffectiveMCPServerNames(mcpServers, mcpPresets any) []any {
 	return names
 }
 
-// SelectedAgents is a TRANSITIONAL SHIM and always returns the empty set.
+// SelectedAgents is a TRANSITIONAL SHIM and always returns the empty set. It ignores
+// its argument, which is retained only to keep the call sites unchanged while they are
+// converted.
 //
-// It used to read the `agents` config key, which is DELETED: config now carries
-// one list of packs, a pack that installs an agent is just a pack, and nothing
-// outside internal/agents knows what an agent is. There is consequently no
-// selection to read and no DefaultAgents to fall back on — a user with no packs
-// gets no agents, and is TOLD so at launch (that warning is the whole
-// discoverability story, since with zero agents no briefing file is written to
-// put a note in).
+// It used to read the `agents` config key, which is DELETED: config now carries one
+// list of packs, a pack that installs an agent is just a pack, and nothing outside
+// internal/agents knows what an agent is. There is consequently no selection to read
+// and nothing to fall back on — a user with no packs gets no agents, and is TOLD so at
+// launch (that warning is the whole discoverability story, since with zero agents no
+// briefing file is written to put a note in).
 //
 // It survives as a shim only so the registry-side callers (internal/cli/run,
-// internal/cli/check) keep compiling while they are converted to read packs
-// instead; deleting it is that change's job, not this one.
+// internal/cli/check) keep compiling while they are converted to read packs instead;
+// deleting it is that change's job, not this one. Four call sites remain: run.go's
+// container and macos-user paths, prepare.go, and check/entrypoint.go.
 //
-// The empty slice is non-nil ON PURPOSE. agents.ResolveAgents treats a nil
-// names argument as "unspecified" and substitutes DefaultAgents, so returning
-// nil here would silently resurrect claude through every caller — the exact
-// behavior the key's deletion removes.
+// Returning a non-nil empty slice is no longer LOAD-BEARING, and the comment that used
+// to say it was has been corrected rather than deleted, because the claim is the kind a
+// future reader would otherwise re-derive wrongly. It once mattered: ResolveAgents
+// treated nil as "unspecified" and substituted DefaultAgents, so nil here resurrected
+// claude in every caller. That fallback is GONE — nil and empty both yield no agents
+// through ResolveAgents and SharedDirsFor, and every YOLO_AGENTS encoder on the way out
+// (run.jsonDumpsStrings, check.jsonDumpStrings, macosuser.BuildRunPlan) builds its list
+// with make(…, len(x)), so nil already serializes as `[]`, not `null`. Non-nil is now
+// merely the tidier of two equivalent returns; nothing depends on it.
 func SelectedAgents(*jsonx.OrderedMap) []string { return []string{} }
 
 // MergeMiseTools merges config.mise_tools over the defaults. Returns an
