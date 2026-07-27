@@ -121,22 +121,34 @@ The clean split is **config vs binaries**:
 real nested run reached `BOOT_OK`. So "no agent by default" is not a new capability to
 build — it is a supported state already.
 
-### The thing that surprised me, and it is a design problem
+### The thing that surprised me — and my first reading of it was wrong
 
 That same probe showed **`~/.claude`, `~/.codex` and `~/.copilot` all exist in an
-empty-agent jail.** They are not created by that boot — they live in `GlobalHome`
-(`~/.local/share/yolo-jail/home/`, 18 directories), which is **shared across every jail on
-the machine**. So agent state is machine-global, not per-jail.
+empty-agent jail.** I concluded from that "agent state is machine-global, not per-jail."
+**Retracted — that is backwards.** Re-probing:
 
-Consequences for the target state:
+- `<workspace>/.yolo/home/claude/` holds **the real state** (`claude.json`, `history.jsonl`,
+  `debug`, `cache`);
+- `~/.local/share/yolo-jail/home/.claude/` is an **empty mountpoint** (`total 0`).
 
-- "No agent by default" cannot mean "a clean home." A user who ever enabled a pack has its
-  dirs forever, in every jail.
-- Pack *removal* has no natural cleanup point. This is the same gap
-  `composed-config-work.md` notes for captured overlay entries, but wider.
-- Conversely it is *why* lazy in-jail install works: the install survives the container.
+`prepareWsState` (`cli/run/prepare.go:135-142`) creates a per-workspace dir per selected agent
+and `assemble.go:169-171` binds each over `/home/agent/.<subdir>`. The `GlobalHome` entries
+exist *only* so the OCI runtime has a mountpoint to bind onto — it cannot `mkdirat` inside a
+`:ro` bind. So **agent state is per-workspace**, and what I saw was scaffolding, not state.
 
-**This needs a ruling** and it is not currently written down anywhere: is agent/pack state
+The one genuine machine-wide exception is `.claude-shared-credentials`
+(`assemble.go:173-176`, mounted only when claude is selected) — which is what lets a login
+survive across workspaces, and is exactly the thing ruling 2 generalizes into a pack-declared
+field (BACKLOG B5).
+
+What survives of the original observation:
+
+- Lazy in-jail install works because the install outlives the container — still true.
+- Pack removal has no natural cleanup point — still true, and now **ruled**: leave abandoned
+  per-workspace state in place, deliberately and with a report.
+
+**RULED 2026-07-26** (see [../plans/open-rulings.md](../plans/open-rulings.md) ruling 2). The
+question as originally posed — is agent/pack state
 per-machine (today's behavior, shared `GlobalHome`) or per-jail? Today's answer is defensible
 — it is what makes an agent's login survive a restart — but it should be a decision rather
 than an accident.
@@ -152,12 +164,18 @@ rather than a hypothetical one.
 
 ### Backends
 
-`macos-user` is the acid test and it *favors* this recommendation: it has no mounts and no
-`/ctx`, so "compose then mount `:ro`" is meaningless there — but "compose then **write**"
-works fine, because host and jail share a filesystem. Host-side composition is the only
-option that has one story across all three backends. Apple Container's inability to
-bind-mount single files (`acMaterialize`) likewise becomes irrelevant if the file is already
-materialized before the container starts.
+I argued `macos-user` was the acid test and *favored* host-side composition: no mounts, no
+`/ctx`, so "compose then mount `:ro`" is meaningless there while "compose then write" works.
+
+**That argument is void under the ruling**, and it is worth seeing why, because the error is
+instructive. It assumed the alternative was "compose *into* a mount" — but with composition
+staying in the container, macos-user's lack of a host/jail filesystem split makes it the
+*degenerate* case that already works: there is nothing to bridge. The backend I claimed forced
+host-side composition is in fact the one least affected by the choice.
+
+Apple Container's inability to bind-mount single files (`acMaterialize`) is likewise unchanged
+from today rather than solved — it is a staging concern for pack *content*, which is
+host-side either way.
 
 ### Cost, honestly
 
