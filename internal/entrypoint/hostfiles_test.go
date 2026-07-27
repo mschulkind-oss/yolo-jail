@@ -465,17 +465,24 @@ func isSymlink(t *testing.T, path string) bool {
 func TestBuiltinSurfaceRenderPaths(t *testing.T) {
 	// Grep the entrypoint's own source for the render call sites, so the assertion
 	// tracks the code rather than a second hand-written list.
-	stateful, computed := renderCallSites(t)
+	stateful, computed, rmw := renderCallSites(t)
 
 	wantStateful := []string{
-		"agy/settings", "claude/settings", "codex/config", "copilot/config",
+		"agy/settings", "claude/settings", "codex/config",
 		"mise/config", "opencode/config", "pi/settings",
 	}
 	wantComputed := []string{"agy/mcp", "copilot/lsp", "copilot/mcp"}
+	// B2: copilot/config moved OFF composition onto read-modify-write, so its OAuth
+	// token never touches the capture sidecars.
+	wantRMW := []string{"copilot/config"}
 
 	if !equalStringSets(stateful, wantStateful) {
 		t.Errorf("stateful (capture) surfaces = %v, want %v\n"+
 			"update internal/cli.prismSurfaceMode to match", stateful, wantStateful)
+	}
+	if !equalStringSets(rmw, wantRMW) {
+		t.Errorf("read-modify-write surfaces = %v, want %v\n"+
+			"update internal/cli.prismSurfaceMode to match", rmw, wantRMW)
 	}
 	if !equalStringSets(computed, wantComputed) {
 		t.Errorf("computed (copy) surfaces = %v, want %v\n"+
@@ -485,13 +492,13 @@ func TestBuiltinSurfaceRenderPaths(t *testing.T) {
 
 // renderCallSites scans the entrypoint package source for renderSurfaceStateful /
 // renderSurfaceComputed call sites and returns the (agent/name) pairs each renders.
-func renderCallSites(t *testing.T) (stateful, computed []string) {
+func renderCallSites(t *testing.T) (stateful, computed, rmw []string) {
 	t.Helper()
 	files, err := filepath.Glob("*.go")
 	if err != nil {
 		t.Fatal(err)
 	}
-	call := regexp.MustCompile(`renderSurface(Stateful|Computed)\(e, "([a-z]+)", "([a-z]+)"`)
+	call := regexp.MustCompile(`renderSurface(Stateful|Computed|RMW)\(e, "([a-z]+)", "([a-z]+)"`)
 	for _, f := range files {
 		if strings.HasSuffix(f, "_test.go") {
 			continue
@@ -502,16 +509,20 @@ func renderCallSites(t *testing.T) (stateful, computed []string) {
 		}
 		for _, m := range call.FindAllStringSubmatch(string(data), -1) {
 			key := m[2] + "/" + m[3]
-			if m[1] == "Stateful" {
+			switch m[1] {
+			case "Stateful":
 				stateful = append(stateful, key)
-			} else {
+			case "Computed":
 				computed = append(computed, key)
+			default:
+				rmw = append(rmw, key)
 			}
 		}
 	}
 	sort.Strings(stateful)
 	sort.Strings(computed)
-	return stateful, computed
+	sort.Strings(rmw)
+	return stateful, computed, rmw
 }
 
 func equalStringSets(a, b []string) bool {

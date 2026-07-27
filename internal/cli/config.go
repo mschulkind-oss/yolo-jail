@@ -182,7 +182,10 @@ func configRender(args []string, out, errw io.Writer, color bool) int {
 		// preview of what yolo writes. That breaks §6's promise that what render
 		// prints is what the jail gets, and it is the one place the promise is a lie
 		// rather than a drift.
-		if prismSurfaceMode[s.Agent+"/"+s.Name] == surfaceModeUnrendered {
+		// Skip surfaces with no composition to preview: `unrendered` (the agent owns
+		// the file outright) and `rmw` (yolo asserts keys into an agent-owned file —
+		// there is no layer fold to show).
+		if mode := prismSurfaceMode[s.Agent+"/"+s.Name]; mode == surfaceModeUnrendered || mode == surfaceModeRMW {
 			if surface != "" {
 				// Explicitly asked for by name: say why nothing came out, rather than
 				// printing silence.

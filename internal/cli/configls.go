@@ -52,10 +52,21 @@ type surfaceRow struct {
 // writeClaudeJSON's read-modify-write). ls/diff/reset and render all skip these.
 const surfaceModeUnrendered = "unrendered"
 
+// surfaceModeRMW marks a READ-MODIFY-WRITE surface (B2): yolo asserts its managed
+// keys and fills its defaults into a file the AGENT owns, preserving everything
+// else, and writes no capture sidecars. Used for surfaces holding live credentials,
+// so a secret never lands in <workspace>/.yolo/prism/*.overlay.json.
+//
+// These ARE listed by `config ls` — de-composing a surface must not make it
+// invisible, which was the known regression of moving copilot/config off capture.
+// They are not rendered by `config render` (there is no composition to preview) and
+// not covered by diff/reset (there are no sidecars).
+const surfaceModeRMW = "rmw"
+
 var prismSurfaceMode = map[string]string{
 	"claude/settings": "capture",
 	"pi/settings":     "capture",
-	"copilot/config":  "capture",
+	"copilot/config":  surfaceModeRMW,
 	"opencode/config": "capture",
 	"codex/config":    "capture",
 	"agy/settings":    "capture",

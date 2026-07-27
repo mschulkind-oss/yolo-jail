@@ -25,6 +25,7 @@ import (
 	"fmt"
 	"os"
 	"path/filepath"
+	"sort"
 	"strings"
 
 	"github.com/mschulkind-oss/yolo-jail/internal/agentcfg"
@@ -439,8 +440,17 @@ func ConfigureCopilotPrism(e *Env) error {
 	if err := os.MkdirAll(e.CopilotDir(), 0o755); err != nil {
 		return err
 	}
-	// config.json: no host source (yolo owns it outright), no computed layer.
-	if _, err := renderSurfaceStateful(e, "copilot", "config", nil, nil); err != nil {
+	// config.json holds copilot's LIVE OAUTH STATE (copilot_tokens,
+	// logged_in_users, last_logged_in_user), so it is READ-MODIFY-WRITE, not
+	// composed (B2). yolo asserts only its own `yolo: true` default here; everything
+	// else is copilot's.
+	//
+	// It used to render statefully, which put the OAuth token on the capture path:
+	// the token survived only via <workspace>/.yolo/prism/copilot-config.overlay.json
+	// — a file a user may well commit — and a lost baseline wiped it outright (the B1
+	// bug). RMW keeps the secret out of the capture path entirely rather than
+	// protecting it there.
+	if err := renderSurfaceRMW(e, "copilot", "config"); err != nil {
 		return err
 	}
 	// Dynamic mcp-config.json / lsp-config.json siblings: pure per-boot overwrites
@@ -516,4 +526,82 @@ func ConfigureAgyPrism(e *Env) error {
 	return renderSurfaceComputed(e, "agy", "mcp", map[string]any{
 		"mcpServers": prismMap(e.LoadMCPServers()),
 	})
+}
+
+// renderSurfaceRMW renders one surface by READ-MODIFY-WRITE instead of composition
+// (B2 / the third engine mechanism, alongside stateful capture and computed
+// overwrite).
+//
+// It exists for surfaces that hold LIVE AGENT STATE — credentials, session records,
+// telemetry the agent writes itself — where composition is the wrong model in two
+// ways:
+//
+//  1. Capture is a data-loss risk. A composed surface's content only survives via
+//     the overlay sidecar, so a lost or corrupt baseline puts the agent's state at
+//     the mercy of the recovery path. B1 made that path adopt rather than discard,
+//     which fixes the wipe — but it also means an OAuth TOKEN ends up copied into
+//     <workspace>/.yolo/prism/*.overlay.json, a file the user may commit. Not
+//     composing the surface at all keeps the secret out of the capture path
+//     entirely, which is strictly better than protecting it there.
+//  2. There is nothing to regenerate. yolo asserts a handful of keys into these
+//     files and has no opinion about the rest, so "regenerate from layers" describes
+//     the wrong operation: the file is the agent's, with a few yolo-owned keys in it.
+//
+// The mechanism is the one writeClaudeJSON has always used for ~/.claude.json,
+// generalized: load the existing object, set the surface's Managed keys (yolo
+// re-asserts these every boot), fill its Defaults only where absent (a value the
+// agent already chose wins), write back in place. Unknown keys are preserved
+// untouched — that is the whole point. No sidecars are written or read.
+func renderSurfaceRMW(e *Env, agent, name string) error {
+	surface, ok := agentcfg.BuiltinManifest().Lookup(agent, name)
+	if !ok {
+		return &missingSurfaceError{agent: agent, name: name}
+	}
+	surface = agentcfg.SubstituteWorkspace(surface, e.WorkspaceDir())
+
+	path := expandHomePath(e, surface.Path)
+	if err := os.MkdirAll(filepath.Dir(path), 0o755); err != nil {
+		return err
+	}
+	obj := loadObject(path)
+
+	// Managed: yolo owns these outright, so re-assert every boot.
+	if managed, isMap := surface.Managed.(map[string]any); isMap {
+		applyRMWLayer(obj, managed, true)
+	}
+	// Defaults: user-overridable, so fill only where the key is absent.
+	if defaults, isMap := surface.Defaults.(map[string]any); isMap {
+		applyRMWLayer(obj, defaults, false)
+	}
+	return writeInPlaceString(path, dumpJSONIndent2(obj))
+}
+
+// sortedKeys returns layer's keys in a deterministic order, so a re-render writes
+// byte-identical output rather than shuffling with Go's map iteration.
+func sortedKeys(m map[string]any) []string {
+	out := make([]string, 0, len(m))
+	for k := range m {
+		out = append(out, k)
+	}
+	sort.Strings(out)
+	return out
+}
+
+// applyRMWLayer writes layer into obj. force=true overwrites (managed semantics);
+// force=false only fills absent keys (default semantics). Nested objects recurse so
+// a sibling key the agent owns under the same parent survives — the deep-merge
+// behavior composition's Enforce already provides.
+func applyRMWLayer(obj *jsonx.OrderedMap, layer map[string]any, force bool) {
+	for _, k := range sortedKeys(layer) {
+		v := layer[k]
+		if sub, isMap := v.(map[string]any); isMap {
+			applyRMWLayer(setDefaultMap(obj, k), sub, force)
+			continue
+		}
+		if force {
+			obj.Set(k, v)
+		} else {
+			setDefault(obj, k, v)
+		}
+	}
 }
