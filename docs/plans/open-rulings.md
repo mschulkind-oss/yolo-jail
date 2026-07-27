@@ -7,21 +7,42 @@ unblocked. This doc keeps the facts and options that led to each answer; the ans
 | # | Ruling | Answer |
 |---|---|---|
 | 1 | first-migration vs user-asked-to-discard | **(a)** `reset` also truncates the surface to the pure render |
-| 2 | pack state scope | selection stays **user-level**; **shared-across-jail state becomes pack-declared** (new field); removal leaves abandoned state in place, deliberately |
+| 2 | pack state scope | selection stays **user-level**; **shared-across-jail state becomes pack-declared** (new field, generalizing claude auth); removal leaves abandoned state in place, deliberately |
 | 3 | where composition runs | **split by dependency**: image-build inputs and host-file reads on the host; **everything else stays in the container** |
 | 4 | re-render while running | **no** — not supported; it was ruling 3's premise |
+| 5 | config/pack generator failure | **fatal** — loud, halting, jail does not start. `genStep`'s fail-open behavior is removed (20 call sites) |
 
 **Ruling 3 rejected my recommendation, and produced a better rule.** I argued host-side
 composition for its error-timing benefit; the ruling points out that once re-render-while-running
 is off the table, there is no reason to move composition at all. The line is *what needs the
 host*, not *where we'd prefer things to run* — which deletes the largest port in stage D. The
-error-timing benefit I wanted has to be recovered a different way: **host-side validation of
-pack contributions**, noted under ruling 3 as a required work item.
+error-timing benefit I wanted is recovered directly instead: **ruling 5 makes generator
+failures fatal**, so in-jail composition now has the same error discipline I wanted from
+host-side composition. Host-side validation stays worth building, as defense in depth.
 
-**One correction up front, because it changes ruling 2 substantially.** I previously said
-agent state is "per-machine by accident of a shared `GlobalHome`." **That is wrong.** Agent
-state is **per-workspace**; the `GlobalHome` entries I saw are empty *mountpoints*. Details
-under ruling 2.
+**Scope facts, stated once, because I got this wrong in both directions.** There are **two**
+tiers and both are real:
+
+| Tier | Path | What lives there |
+|---|---|---|
+| **per-workspace** | `<workspace>/.yolo/home/<agent>/` | the bulk of agent state — `claude.json`, `history.jsonl`, `debug`, `cache` |
+| **machine-global** | `GlobalHome/.claude-shared-credentials/` | **claude auth, deliberately shared across every workspace and jail** |
+
+My first draft called all agent state machine-global (wrong — the `GlobalHome/.claude` entries
+are empty mountpoints); my correction then over-swung to "state is per-workspace" and buried
+the auth tier. **Both tiers exist by design.** The mechanism is a symlink *out* of the
+per-workspace dir:
+
+```
+~/.claude/.credentials.json -> ../.claude-shared-credentials/.credentials.json
+```
+
+planted by `ensureCredentialsSymlink` (`entrypoint/claude.go:106-108`), with the target dir
+bind-mounted from `GlobalHome` (`assemble.go:174-175`). `EnsureGlobalStorage`
+(`storage/ensure.go:54,72`) creates it, the OAuth broker reads that exact path
+(`oauthbroker/oauthbrokercmd.go:20`), and `yolo check` verifies it
+(`check/sections_misc.go:20`). **Maintaining claude auth across jails is a designed feature
+with five call sites, not an accident** — which is exactly why ruling 2 generalizes it.
 
 ---
 
@@ -100,9 +121,9 @@ Implementation shape for B1 (stage B is now fully unblocked):
 
 **Blocks:** B4 (sidecar location), D6, and pack-removal cleanup.
 
-### ⚠ My earlier claim was wrong — here is the real layout
+### The real layout — two tiers, both by design
 
-Verified in this jail:
+Verified in this jail (see also the summary at the top of this doc):
 
 | Path | What it actually is |
 |---|---|
@@ -117,14 +138,19 @@ per selected agent, and `assemble.go:169-171` bind-mounts each over
 per-workspace already**, and the GlobalHome dirs exist only so the OCI runtime has a
 mountpoint to bind onto (it cannot `mkdirat` inside a `:ro` bind).
 
-The one deliberate exception is `.claude-shared-credentials`, mounted from GlobalHome
-(`assemble.go:173-176`) **only when claude is selected** — that is what lets a login survive
-across workspaces.
+**And there is genuinely machine-global state: claude auth.**
+`.claude-shared-credentials` is mounted from GlobalHome (`assemble.go:174-175`) when claude is
+selected, and `~/.claude/.credentials.json` is a **symlink out** of the per-workspace dir into
+it (`entrypoint/claude.go:106-108`). That is a designed feature — *we maintain claude auth
+across workspaces and jails* — with five supporting call sites (`storage/ensure.go:54,72`
+creates it, `oauthbroker/oauthbrokercmd.go:20` reads it, `check/sections_misc.go:20` verifies
+it). Do not read the per-workspace default as "everything is per-workspace."
 
-### So the real question is narrower than I framed it
+So the shape is: **per-workspace by default, machine-global where the state is
+identity/credential-shaped.** Ruling 2 generalizes the second tier from one hardcoded dir into
+a pack-declared field.
 
-Not "should state be per-workspace?" — it already is, and it's the right default. The actual
-questions:
+### The actual questions
 
 **A distinction my first draft muddled.** "Are packs per-workspace?" is two questions, and
 they have opposite answers:
@@ -218,16 +244,48 @@ either option I offered. The rule is a *dependency* test, not a location prefere
 - **In-jail re-render keeps working**, so ruling 4 is answered by construction rather than
   traded away.
 
-**What we give up, honestly** — and this is the part to keep an eye on:
+**What we give up — and RULED 2026-07-26: nothing, because fail-open is being removed.**
 
-- **Pack failures stay fail-open.** `genStep` (`boot.go:534-538`) downgrades any generator error
-  to a warning so boot never aborts, so a malformed pack means an agent boots silently
-  misconfigured. **Mitigation, and it must be a real work item, not a hope:** validate pack
-  contributions *host-side at `yolo check` and at run assembly*, where erroring is normal. That
-  is where the `host_files` validators already live (`checkHostFileLayer`,
-  `checkHostFileDest`), so the precedent and the location both exist. **This is the single
-  most important consequence of this ruling** — the error-surface risk does not go away, it
-  moves to validation.
+*"A pack failure means a jail should not start. Failures should be loud and halting."*
+
+**What "fail-open" means here**, since the term was jargon: `genStep`
+(`boot.go:533-538`) is the wrapper every config generator runs through, and its entire body is
+
+```go
+func genStep(e *Env, label string, fn func() error) {
+    if err := fn(); err != nil {
+        e.warn("Warning: " + label + ": " + err.Error())
+    }
+}
+```
+
+The error is printed and **discarded** — boot continues to the next step and the jail starts
+anyway. "Fail-open" = the failure does not close the gate. There are **20 `genStep` call sites**
+in `boot.go`, so today *every* config generator can fail silently-ish and still yield a running
+jail with a misconfigured agent.
+
+**The ruling: a pack/config generator failure is fatal — print it loudly and refuse to start
+the jail.** This is a new work item and it is not small, because it inverts a deliberate design
+choice made 20 times over.
+
+What has to be worked out while implementing it (not blockers, but they will come up):
+
+- **Which failures are genuinely fatal vs absent-input.** "The pack's projector exited 1" and
+  "this optional host file does not exist" are different. Today both flow through `genStep`.
+  The fail-open behavior exists partly to tolerate the second kind, so those paths need to stop
+  returning errors for non-errors rather than being made fatal.
+- **Ordering.** A generator that fails after earlier ones have written files leaves a partially
+  configured home. Halting is still correct — a partial config that *reports itself* beats a
+  partial config that pretends success — but the message must say what was and wasn't done.
+- **Host-side validation is still worth doing**, and now for a better reason: catching a bad
+  pack at `yolo check` or run assembly turns a fatal boot failure into a pre-flight error the
+  user can act on before the container starts. Precedent and location both exist
+  (`checkHostFileLayer`, `checkHostFileDest`). This is now *defense in depth* rather than the
+  only line of defense.
+
+**Net effect of this ruling on ruling 3:** the one real cost I identified for keeping
+composition in-jail is gone. In-jail composition with loud halting failures has the same error
+discipline I wanted from host-side composition.
 - **`readonly` as a real `:ro` mount stays hard** (stage E). You cannot compose into a `:ro`
   mount, so that item keeps its per-surface design pass. Unchanged from today.
 - **The projector runs in-jail** for compose-phase projections, so a third-party projector

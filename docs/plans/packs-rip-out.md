@@ -166,7 +166,9 @@ Since the ask is explicitly a full rip-out, the parts that deserve a flag before
 - **Compile-time → runtime error trade.** `builtin.go` is type-checked; a pack is validated
   at best. Under 2.1-host-side this is largely mitigated (failures become pre-flight); under
   in-jail rendering with fail-open `genStep`, a malformed official pack means an agent boots
-  silently misconfigured. **This is the strongest argument for deciding 2.1 before the
+  silently misconfigured. **RULED 2026-07-26: fail-open is removed — a generator failure is
+  fatal and halting** (BACKLOG A12), which retires this concern independently of where
+  composition runs. **This is the strongest argument for deciding 2.1 before the
   rip-out, not after.**
 - **Two pack kinds will exist** — embedded (official, offline, in the image) and fetched — so
   "structurally identical to a user pack" is aspirational. `bundled_loopholes/` shows the

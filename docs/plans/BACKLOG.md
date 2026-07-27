@@ -45,6 +45,7 @@ first means porting known defects into a new mechanism.
 | A9 | Wire `Surface.Transform` — a documented key that does nothing | defect | small |
 | A10 | Steer directed agents at composed surfaces (skills + header) | improvement | docs-only |
 | A11 | Parameterize `/workspace` out of `builtin.go` | blocker for packs | small |
+| A12 | **Make generator failures fatal** — `genStep` (`boot.go:533-538`) prints a warning and discards the error, so a failed config step still yields a running jail with a misconfigured agent. Ruled 2026-07-26: loud and halting. **20 call sites**; requires separating genuine failures from absent-optional-input first | **policy inversion** | medium |
 
 **Do A1 first** (subtractive — shrinks every later table, and deletes one of the five
 projections A-stage work must satisfy). **Do A8 + A10 together** (A10's guidance is worthless
@@ -96,7 +97,7 @@ image-build inputs and host-file reads run host-side. There is no port. See
 
 | # | Item | Gate |
 |---|---|---|
-| D1 | ~~Decide where composition runs~~ → **replaced by: host-side *validation* of pack contributions** at `yolo check` + run assembly, so a bad pack is a pre-flight error rather than a fail-open `genStep` warning (`boot.go:534`). Precedent: `checkHostFileLayer`/`checkHostFileDest` | **required** — this is how the error-surface risk is recovered now that composition stays in-jail |
+| D1 | ~~Decide where composition runs~~ → **replaced by: host-side *validation* of pack contributions** at `yolo check` + run assembly, so a bad pack is caught before the container starts. Precedent: `checkHostFileLayer`/`checkHostFileDest` | defense in depth, now that A12 makes failures fatal |
 | D2 | Three engine mechanisms: `stateful`, `computed`, `read_modify_write` | needs B2 |
 | D3 | Agent registry + surfaces + skills + briefings become official packs | needs A11, C1–C6 |
 | D4 | `AgentSpec.HostFiles` becomes pack data | safe *because* packs are user-scope only |
@@ -116,11 +117,17 @@ renaming the recovered state.
 
 Nothing is blocked on a decision any more. Context: [open-rulings.md](open-rulings.md).
 
+0. **Config/pack generator failure** → **fatal: loud and halting, the jail does not start.**
+   Removes `genStep`'s fail-open behavior. New item **A12**, and it retires the biggest stated
+   risk of keeping composition in-jail.
 1. **First-migration vs discard** → `reset` also truncates the surface to the pure render.
    Unblocks stage B.
-2. **Pack state scope** → selection stays user-level; **shared-across-jail state becomes a
-   pack-declared field** (new item B5); removal leaves abandoned per-workspace state in place,
-   deliberately and with a report.
+2. **Pack state scope** → **two tiers, both by design**: per-workspace by default,
+   **machine-global for identity/credential state** — claude auth is deliberately shared across
+   all workspaces and jails via a symlink out to `GlobalHome/.claude-shared-credentials`
+   (`entrypoint/claude.go:106-108`, `assemble.go:174-175`). Pack selection stays user-level;
+   the machine-global tier becomes a **pack-declared field** (new item B5); removal leaves
+   abandoned per-workspace state in place, deliberately and with a report.
 3. **Where composition runs** → **split by dependency, not preference.** Image-build inputs and
    host-file reads on the host; everything else **stays in the container**. Deletes the D1 port;
    replaces it with host-side pack validation.
@@ -129,7 +136,10 @@ Nothing is blocked on a decision any more. Context: [open-rulings.md](open-rulin
 
 ## Suggested order
 
-**A1 → A8+A10 → A9 → A11 → rest of A → B1–B5 → C1–C5 → C6 → D1 → D2–D7.**
+**A1 → A8+A10 → A9 → A11 → A12 → rest of A → B1–B5 → C1–C5 → C6 → D1 → D2–D7.**
+
+**A12 before stage C**, so packs land in a world where a broken pack halts loudly instead of
+warning into a running jail.
 
 A is ~11 items of mostly one-sitting work that fixes five verified defects and removes both
 pack blockers. B is now unblocked. C6 is the cheap experiment that de-risks the expensive part.

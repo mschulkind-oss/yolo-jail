@@ -127,9 +127,14 @@ That same probe showed **`~/.claude`, `~/.codex` and `~/.copilot` all exist in a
 empty-agent jail.** I concluded from that "agent state is machine-global, not per-jail."
 **Retracted — that is backwards.** Re-probing:
 
-- `<workspace>/.yolo/home/claude/` holds **the real state** (`claude.json`, `history.jsonl`,
+- `<workspace>/.yolo/home/claude/` holds **most** state (`claude.json`, `history.jsonl`,
   `debug`, `cache`);
-- `~/.local/share/yolo-jail/home/.claude/` is an **empty mountpoint** (`total 0`).
+- `~/.local/share/yolo-jail/home/.claude/` is an **empty mountpoint** (`total 0`);
+- **but `.claude-shared-credentials` is genuinely machine-global** — `~/.claude/.credentials.json`
+  is a symlink *out* to it (`entrypoint/claude.go:106-108`), the dir is bind-mounted from
+  `GlobalHome` (`assemble.go:174-175`), and maintaining claude auth across workspaces and jails
+  is a designed feature with five supporting call sites. So the answer is **two tiers**, not
+  one: per-workspace by default, machine-global for identity/credential state.
 
 `prepareWsState` (`cli/run/prepare.go:135-142`) creates a per-workspace dir per selected agent
 and `assemble.go:169-171` binds each over `/home/agent/.<subdir>`. The `GlobalHome` entries

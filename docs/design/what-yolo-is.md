@@ -156,7 +156,7 @@ quo. Separating them honestly:
 |---|---|
 | `CGO_ENABLED=0` kills Go plugins | **a choice.** We set it. It could be flipped |
 | `vendor/` is small, new deps are costly | **a choice** (a convention, even) |
-| `genStep` is fail-open so pack errors become warnings | **a choice**, and arguably the wrong one — see below |
+| `genStep` is fail-open so pack errors become warnings | **a choice, and it was the wrong one — RULED 2026-07-26: failures become fatal and halting.** See [../plans/open-rulings.md](../plans/open-rulings.md) ruling 5 |
 | the nix store is `:ro`, GOPATH is writable | **inherent** to the mount design |
 | the *compile* inside a nix sandbox has no network | **inherent** to `sandbox = true` |
 | **an in-jail render can only use what's in the jail** | **inherent** — and the one that matters |
