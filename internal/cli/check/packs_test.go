@@ -71,15 +71,30 @@ func TestSectionPacksPassesCleanPack(t *testing.T) {
 	}
 }
 
-// A user with no packs must see NO new output: `yolo check` should not grow a section
-// for a feature they do not use.
-func TestSectionPacksSilentWhenNoneConfigured(t *testing.T) {
+// Zero packs WARNS, and this test replaces the earlier one asserting silence.
+//
+// The old contract ("a user who does not use packs sees no new output") assumed packs
+// were an opt-in extra alongside a Go-owned `agents` key. With that key gone, packs are
+// the only delivery channel, so an empty list is the one state worth reporting: it is a
+// jail with no agent in it. Not a FAIL — such a jail still boots, and a shell-only jail
+// is a legitimate thing to want.
+func TestSectionPacksWarnsWhenNoneConfigured(t *testing.T) {
 	packsFixture(t, `{}`)
 	var buf bytes.Buffer
 	r := &reporter{w: &buf}
 	(&Options{}).sectionPacks(r)
-	if buf.Len() != 0 {
-		t.Errorf("expected no output with no packs configured:\n%s", buf.String())
+	if r.warned != 1 {
+		t.Errorf("warned = %d, want 1:\n%s", r.warned, buf.String())
+	}
+	if r.failed != 0 {
+		t.Errorf("zero packs must not FAIL (a shell-only jail is legitimate):\n%s", buf.String())
+	}
+	// The guidance must name a command the user can actually run — this is the whole
+	// point of the warning, and the half most likely to rot.
+	for _, want := range []string{"no coding agent", "yolo pack --help"} {
+		if !strings.Contains(buf.String(), want) {
+			t.Errorf("empty-packs warning missing %q:\n%s", want, buf.String())
+		}
 	}
 }
 

@@ -65,6 +65,10 @@ func Run(opts Options) int {
 		if len(agentArgv) == 0 {
 			agentArgv = []string{"/bin/zsh", "-l"}
 		}
+		// Same notice as the container paths: a brand-new macos-user user has no packs
+		// either, and the native backend is where a "where is my agent?" is hardest to
+		// diagnose (no image, no provisioning output to read back).
+		o.warnIfNoPacks()
 		return o.MacosUserRun(cfg, o.Workspace, config.SelectedAgents(cfg), agentArgv, repoRoot, o.DryRun)
 	}
 	if o.DryRun {
@@ -82,6 +86,52 @@ func Run(opts Options) int {
 			"`YOLO_REPO_ROOT`) to enable image rebuilds.[/yellow]")
 	}
 	return o.runContainer(cfg, rt, repoRoot)
+}
+
+// The empty-packs notice, split so `yolo check` can mirror it as a [WARN] plus a
+// "-> " remediation note (internal/cli/check/packs.go keeps its own copy — check
+// cannot import the run pipeline, the same duplication runtimeStartHint carries).
+// Three lines, and deliberately free of blame: an empty pack list is exactly what a
+// brand-new install looks like, not a mistake anybody made.
+//
+// It names `yolo pack --help` rather than `yolo config-ref` because that is the
+// shorter of the two answers to "what do I put here" — packUsage opens with what a
+// pack is and that an agent arrives as one, where config-ref's `packs` entry is the
+// exhaustive key schema underneath it.
+const (
+	noPacksHeadline = "No packs are configured, so this jail has no coding agent."
+	noPacksGuidance = "An agent arrives as a pack. Run `yolo pack --help` for what packs " +
+		"deliver and how to add one."
+)
+
+// warnIfNoPacks prints the empty-packs notice when the user has no packs configured.
+//
+// Packs are the only way content — an agent included — gets installed into a jail, so
+// an empty list is not a lean jail, it is a jail with nothing in it. That state is
+// otherwise SILENT: with no packs there are no selected agents, so refreshJailBriefings
+// writes zero briefings (its loop runs over the RESOLVED agents) and stages zero
+// per-agent skills. There is no file left to put a note in, which is why this is
+// printed rather than written — and why it keys off the PACK list rather than the agent
+// list, which is both the thing the user edits and the thing that still exists.
+//
+// Silent on a load error: stagePacks has already run by every call site that can reach
+// one, and it turns a broken `packs` into a fatal launch failure naming the real
+// problem. "You have no packs" would be a misdiagnosis of "your packs are malformed".
+//
+// It re-reads the user config rather than taking a count threaded down from stagePacks:
+// one small file read per launch is cheaper than making every staging-side signature
+// carry a value only this notice consumes.
+func (o *Options) warnIfNoPacks() {
+	entries, err := config.LoadPacks(nil)
+	if err != nil || len(entries) > 0 {
+		return
+	}
+	// Stderr, like every other launch notice: a launch is usually `yolo -- cmd`, and
+	// the user redirects the COMMAND's stdout — a notice on stdout would be swallowed
+	// by that redirect, or corrupt a piped payload.
+	out := o.pr(o.Stderr)
+	out.print("[bold yellow]" + noPacksHeadline + "[/bold yellow]")
+	out.print("[yellow]" + noPacksGuidance + "[/yellow]")
 }
 
 // ensureStorage wraps storage.EnsureGlobalStorage, wiring the v2 layout
@@ -365,6 +415,12 @@ func (o *Options) runContainer(cfg *jsonx.OrderedMap, rt, repoRoot string) int {
 	// capture (audit §B#4.
 	o.emitStartupBanner(rt, cname, resPartsFor(cfg, rt), "")
 
+	// The empty-packs notice rides immediately behind the banner: this is the LAST
+	// host-side output before the container takes the terminal, so it is the only spot
+	// where the message is still on screen when the agent (or the fallback bash)
+	// starts. Printed any earlier it scrolls away behind the nix build.
+	o.warnIfNoPacks()
+
 	rc, runErr := runWithProxy(runCmd, onStarted, onTerminate)
 	if runErr != nil {
 		out.printf("[bold red]Configured runtime '%s' not found on PATH.[/bold red]", rt)
@@ -404,6 +460,10 @@ func (o *Options) attachExisting(cname, rt, targetCmd string, raced bool) int {
 	} else {
 		out.printf("[bold cyan]Attaching to existing jail [dim](%s)[/dim]...[/bold cyan]", cname)
 	}
+	// Attach gets the notice too, and that is not symmetry for its own sake: once a
+	// jail is up, attaching is how a user re-enters it, so a fresh-launch-only notice
+	// is one a user with a long-lived jail may never see.
+	o.warnIfNoPacks()
 	// Heal the per-jail relay before handing the session over.
 	o.ensureBrokerRelay(cname, rt)
 
@@ -458,7 +518,12 @@ func (o *Options) emitStartupBanner(rt, cname string, resParts []string, jailVer
 		}
 	}
 	banner := StartupBanner(version.Get(repoRoot), rt, cname, resParts, jailVersion)
-	fmt.Fprint(o.Stderr, banner)
+	// Fprintln, not Fprint: StartupBanner returns no trailing newline, so the old
+	// Fprint left the cursor mid-line and whatever printed next was glued onto the
+	// banner ("…pids=32768No packs are configured…", observed in a nested launch).
+	// It was invisible before only because the next writer happened to be the
+	// container's own output, which opens with its own newline.
+	fmt.Fprintln(o.Stderr, banner)
 }
 
 // bakedJailVersion reads the YOLO_VERSION baked into a running container via

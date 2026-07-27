@@ -248,12 +248,12 @@ func TestRetiredHostFilesKeysAreUnknown(t *testing.T) {
 	}
 }
 
-// validateAgentsScopeErrs runs ValidateConfig against a merged map and returns
+// agentsErrs runs ValidateConfig over a config carrying only `agents` and returns
 // just the config.agents problems.
-func validateAgentsScopeErrs(t *testing.T, workspace, mergedAgents string) []string {
+func agentsErrs(t *testing.T, body string) []string {
 	t.Helper()
 	t.Setenv("YOLO_VERSION", "")
-	errs, _ := ValidateConfig(decode(t, `{"agents": `+mergedAgents+`}`), workspace, nil)
+	errs, _ := ValidateConfig(decode(t, `{"agents": `+body+`}`), t.TempDir(), nil)
 	var out []string
 	for _, e := range errs {
 		if strings.HasPrefix(e, "config.agents") {
@@ -263,117 +263,125 @@ func validateAgentsScopeErrs(t *testing.T, workspace, mergedAgents string) []str
 	return out
 }
 
-// A workspace config selecting an agent the user did not decides a CREDENTIAL
-// BOUNDARY question: hostFileArgs mounts each selected agent's
-// AgentSpec.HostFiles, so `agents` in an agent-editable, repo-committed file
-// could pull a host settings.json into the jail. This is the hole a84b11c closed
-// for host_files, which stayed open via `agents`.
-func TestValidateAgentsWorkspaceCannotWidenUserSet(t *testing.T) {
-	ws := t.TempDir()
-	home := t.TempDir()
-	t.Setenv("HOME", home)
-	write(t, filepath.Join(home, ".config", "yolo-jail", "config.jsonc"),
-		`{"agents": ["pi"]}`)
-	write(t, filepath.Join(ws, WorkspaceConfigName), `{"agents": ["claude"]}`)
-
-	// `agents` is in overrideListKeys, so the merge yields the workspace value.
-	// claude carries HostFiles (~/.claude/settings.json), so adding it is exactly
-	// the boundary crossing this guard exists for.
-	errs := validateAgentsScopeErrs(t, ws, `["claude"]`)
-	if len(errs) != 1 {
-		t.Fatalf("errors = %v, want exactly one", errs)
-	}
-	for _, want := range []string{"claude", "host files", "user config"} {
-		if !strings.Contains(errs[0], want) {
-			t.Errorf("error %q does not mention %q", errs[0], want)
+// The `agents` key is DELETED, so a config carrying it must be REJECTED — not
+// ignored, and not quietly accepted. Ignoring it would be the worst outcome
+// available: the user asked for claude, yolo silently gives them nothing, and
+// nothing in the jail can explain why.
+func TestValidateAgentsKeyIsRejected(t *testing.T) {
+	// Every shape the key ever took, valid or not, must land on the same verdict —
+	// the key is gone, so its CONTENTS are no longer a question yolo answers.
+	for _, body := range []string{`["claude"]`, `[]`, `null`, `"claude"`, `["gemini"]`} {
+		errs := agentsErrs(t, body)
+		if len(errs) == 0 {
+			t.Errorf("agents=%s: want a rejection, got none", body)
 		}
 	}
 }
 
-// The guard is scoped to the REAL boundary: an agent with no HostFilesSpec crosses
-// no host file, so a workspace may select it freely. Gating on every agent instead
-// made a committed yolo-jail.jsonc's validity depend on the developer's own user
-// config — a portability bug that bought no security.
-func TestValidateAgentsWorkspaceMaySelectHostFilelessAgents(t *testing.T) {
-	ws := t.TempDir()
-	home := t.TempDir()
-	t.Setenv("HOME", home)
-	write(t, filepath.Join(home, ".config", "yolo-jail", "config.jsonc"),
-		`{"agents": ["claude"]}`)
-	write(t, filepath.Join(ws, WorkspaceConfigName),
-		`{"agents": ["copilot", "codex", "opencode", "agy"]}`)
-
-	if errs := validateAgentsScopeErrs(t, ws, `["copilot","codex","opencode","agy"]`); len(errs) != 0 {
-		t.Errorf("errors = %v; agents with no host files must be freely selectable", errs)
-	}
-}
-
-// Narrowing is legitimate: a repo saying "only claude here" mounts strictly
-// fewer host files than the user already allowed, so it crosses no boundary.
-func TestValidateAgentsWorkspaceMayNarrow(t *testing.T) {
-	ws := t.TempDir()
-	home := t.TempDir()
-	t.Setenv("HOME", home)
-	write(t, filepath.Join(home, ".config", "yolo-jail", "config.jsonc"),
-		`{"agents": ["claude", "pi", "codex"]}`)
-	write(t, filepath.Join(ws, WorkspaceConfigName), `{"agents": ["claude"]}`)
-
-	if errs := validateAgentsScopeErrs(t, ws, `["claude"]`); len(errs) != 0 {
-		t.Errorf("errors = %v, want none (narrowing is allowed)", errs)
-	}
-}
-
-// With no user `agents` key the effective user set is DefaultAgents, so a
-// workspace naming anything outside it still widens.
-func TestValidateAgentsWorkspaceWidensBeyondDefault(t *testing.T) {
-	ws := t.TempDir()
-	home := t.TempDir()
-	t.Setenv("HOME", home)
-	write(t, filepath.Join(home, ".config", "yolo-jail", "config.jsonc"), `{}`)
-	// pi carries HostFiles (~/.pi/agent/settings.json) and is not in DefaultAgents.
-	write(t, filepath.Join(ws, WorkspaceConfigName), `{"agents": ["pi"]}`)
-
-	errs := validateAgentsScopeErrs(t, ws, `["pi"]`)
-	if len(errs) != 1 || !strings.Contains(errs[0], "pi") {
-		t.Fatalf("errors = %v, want one naming pi", errs)
-	}
-}
-
-// A workspace with no `agents` key at all must stay clean.
-func TestValidateAgentsNoWorkspaceKeyClean(t *testing.T) {
-	ws := t.TempDir()
-	home := t.TempDir()
-	t.Setenv("HOME", home)
-	write(t, filepath.Join(home, ".config", "yolo-jail", "config.jsonc"),
-		`{"agents": ["claude"]}`)
-	write(t, filepath.Join(ws, WorkspaceConfigName), `{}`)
-
-	if errs := validateAgentsScopeErrs(t, ws, `["claude"]`); len(errs) != 0 {
-		t.Errorf("errors = %v, want none", errs)
-	}
-}
-
-// `gemini` was removed (Google is deprecating Gemini CLI). A config still naming
-// it must get a RETIREMENT message, not a bare "unknown agent" that reads like a
-// typo — the same treatment `docker` gets in validateRuntime.
-func TestValidateAgentsGeminiRetired(t *testing.T) {
-	t.Setenv("YOLO_VERSION", "")
-	errs, _ := ValidateConfig(decode(t, `{"agents": ["gemini"]}`), t.TempDir(), nil)
-	var found string
+// A retired key earns a RETIREMENT message, not a bare "unknown key": "unknown"
+// reads like a typo and sends the reader hunting for the correct spelling of
+// something that no longer exists. Same treatment `docker` gets in validateRuntime
+// and `env` gets in validateEnvSources — and the message must point at what
+// replaced it, which is `packs`.
+func TestValidateAgentsRetirementMessageNamesPacks(t *testing.T) {
+	errs := agentsErrs(t, `["claude"]`)
+	var retirement string
 	for _, e := range errs {
-		if strings.HasPrefix(e, "config.agents[0]") {
-			found = e
+		if strings.Contains(e, "REMOVED") {
+			retirement = e
 		}
 	}
-	if found == "" {
-		t.Fatalf("no config.agents[0] error; got %v", errs)
+	if retirement == "" {
+		t.Fatalf("no REMOVED message among %v", errs)
 	}
-	for _, want := range []string{"REMOVED", "agy"} {
-		if !strings.Contains(found, want) {
-			t.Errorf("error %q does not mention %q", found, want)
+	for _, want := range []string{"packs", "pack"} {
+		if !strings.Contains(retirement, want) {
+			t.Errorf("retirement message %q does not mention %q", retirement, want)
 		}
 	}
-	if strings.Contains(found, "unknown agent") {
-		t.Errorf("gemini must get a retirement message, not 'unknown agent': %q", found)
+}
+
+// `agents` stays IN knownTopLevelConfigKeys even though the key is deleted, so the
+// user gets ONE targeted error instead of two reports of the same problem.
+//
+// Dropping it from the set also produced a generic "config.agents: unknown key"
+// alongside the retirement message — verified by hand, `yolo check` printed both
+// lines. The retirement message already says the key is gone AND what to do
+// instead, so the bare one adds nothing and makes the output look like two
+// separate mistakes. This is the same reason `repo_path` stays listed.
+//
+// The key is still a hard ERROR, not a warning: it is deleted, not merely
+// deprecated, so a config naming it cannot be honored.
+func TestValidateAgentsRetiredIsTheOnlyError(t *testing.T) {
+	if _, known := knownTopLevelConfigKeys["agents"]; !known {
+		t.Error("`agents` must stay in knownTopLevelConfigKeys so the retirement " +
+			"message is the ONLY error — otherwise the generic unknown-key error " +
+			"duplicates it")
+	}
+	errs := agentsErrs(t, `["claude"]`)
+	if len(errs) != 1 {
+		t.Errorf("want exactly one config.agents error, got %d: %v", len(errs), errs)
+	}
+	for _, e := range errs {
+		if e == "config.agents: unknown key" {
+			t.Errorf("the bare unknown-key error duplicates the retirement message: %v", errs)
+		}
+	}
+}
+
+// A config with NO `agents` key must stay clean. The obvious regression if the
+// retirement check ever conflates "absent" with "nil".
+func TestValidateAgentsAbsentIsClean(t *testing.T) {
+	t.Setenv("YOLO_VERSION", "")
+	errs, _ := ValidateConfig(decode(t, `{}`), t.TempDir(), nil)
+	for _, e := range errs {
+		if strings.HasPrefix(e, "config.agents") {
+			t.Errorf("unexpected error on a config without the key: %s", e)
+		}
+	}
+}
+
+// SelectedAgents is a shim that returns the EMPTY set now that there is no key to
+// read and no DefaultAgents to fall back on. The non-nil part is load-bearing:
+// agents.ResolveAgents treats a nil names argument as "unspecified" and substitutes
+// DefaultAgents, so a nil return here would resurrect claude in every caller — the
+// exact behavior deleting the key removes.
+func TestSelectedAgentsIsEmptyAndNonNil(t *testing.T) {
+	for _, src := range []string{`{}`, `{"agents": ["claude"]}`, `{"agents": []}`} {
+		got := SelectedAgents(decode(t, src))
+		if len(got) != 0 {
+			t.Errorf("SelectedAgents(%s) = %v, want empty", src, got)
+		}
+		if got == nil {
+			t.Errorf("SelectedAgents(%s) returned nil; ResolveAgents(nil) falls back to DefaultAgents", src)
+		}
+	}
+}
+
+// The `agents` key was overrideListKeys' only member, and its replace-wholesale
+// merge is what let a repo-committed, agent-editable workspace config decide agent
+// selection — and through it which host files mounted (the hole validateAgentsScope
+// existed to plug). With the key gone the exception has no members, so EVERY list
+// key union-merges. This is the regression for the mechanism's removal: a
+// resurrected override-list would silently reopen that class of hole for whatever
+// key got added to it.
+func TestMergeConfigUnionsEveryListKey(t *testing.T) {
+	base := decode(t, `{"packages": ["a"], "mcp_presets": ["chrome-devtools"]}`)
+	over := decode(t, `{"packages": ["b"], "mcp_presets": ["sequential-thinking"]}`)
+	merged := MergeConfig(base, over)
+	for key, want := range map[string][]string{
+		"packages":    {"a", "b"},
+		"mcp_presets": {"chrome-devtools", "sequential-thinking"},
+	} {
+		v, _ := merged.Get(key)
+		got, _ := v.([]any)
+		if len(got) != len(want) {
+			t.Fatalf("%s = %v, want %v (union, not replace)", key, got, want)
+		}
+		for i := range want {
+			if got[i] != want[i] {
+				t.Errorf("%s[%d] = %v, want %q", key, i, got[i], want[i])
+			}
+		}
 	}
 }

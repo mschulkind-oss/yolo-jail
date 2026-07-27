@@ -30,36 +30,10 @@
     "packages:" materialized via native aarch64-darwin nix. Fastest startup,
     but a WEAKER isolation boundary than a container/VM.
 
-  [bold]agents[/bold] (array of strings): Which coding agents to install in the jail.
-    Only the listed agents are installed and configured — a lean jail with
-    just the agents you use (faster boot, less to update).  Agents install
-    lazily on first use (npm / native installer), so changing this list does
-    NOT rebuild the image.
-    Valid agents:
-      • claude   — Claude Code (native installer; YOLO via --dangerously-skip-permissions)
-      • copilot  — GitHub Copilot CLI (npm @github/copilot; --yolo --no-auto-update)
-      • opencode — opencode.ai agent (npm opencode-ai; auto-approve via permission:allow)
-      • pi       — pi.dev coding agent (npm @earendil-works/pi-coding-agent;
-                   auto-approve via defaultProjectTrust:always)
-      • codex    — OpenAI Codex CLI (npm @openai/codex; auto-approve +
-                   sandbox-off via --dangerously-bypass-approvals-and-sandbox)
-      • agy      — Google Antigravity CLI (native installer; YOLO via
-                   --dangerously-skip-permissions; config under ~/.gemini/antigravity-cli)
-    Default: ["claude"].
-    Merge: unlike other list fields, [bold]agents replaces (does not union)[/bold] across
-    the user→workspace hierarchy — so a workspace can NARROW the user set
-    (e.g. user ["claude","pi"] but a claude-only workspace ["claude"]).  It may
-    NOT ADD an agent that READS HOST FILES (claude, pi) unless your user config
-    already lists it — selecting one mounts that agent's host settings.json into
-    the jail, and a workspace config travels with the repo (it is agent-editable),
-    so it cannot decide which host files cross the boundary.  Agents that read no
-    host files (copilot, codex, opencode, agy) may be selected freely.
-    Auth: each agent authenticates itself inside the jail (claude/copilot/codex
-    OAuth via their own /login or `codex login`; opencode/pi/codex also accept a
-    provider API key via env_sources — e.g. OPENAI_API_KEY for codex).
-    yolo-jail wires MCP for claude/copilot/opencode/codex/agy; pi has no native
-    MCP.
-    Example: ["claude", "opencode"]
+  [bold]agents[/bold]: [bold yellow]REMOVED[/bold yellow] — which agents a jail gets is no longer a
+    config key of its own.  An agent arrives as a pack, so name the pack that
+    installs it in [bold]packs[/bold] instead.  A config still carrying `agents` is a
+    `yolo check` error.
 
   [bold]packages[/bold] (array): Extra nix packages baked into the image.
     Supports three formats:
@@ -449,7 +423,6 @@
       name        short name for the staging dir and `yolo pack ls`.  Defaults to
                   the last path segment; two packs resolving to the same name is an
                   error (they would share a staging dir).
-      agents      restrict to a subset of the SELECTED agents.  Default: all.
       only        globs to include; matches a DIRECTORY prefix, so "skills/rust-*"
                   takes the whole skill dir.  Default: everything.
       exclude     globs to drop, applied after `only`.
@@ -786,9 +759,9 @@
     Runtimes: Node.js 22, Python 3.13, Go (managed by mise)
     Editors:  nvim (version configurable via mise_tools config)
     CLI:      rg, fd, bat, jq, git, gh, curl, strace, uv, tmux
-    Agents:   the ones listed in the `agents` config (default: claude).
-              Available: claude, copilot, opencode, pi, codex, agy — each with
-              auto-approve/YOLO mode wired up.
+    Agents:   whichever ones your configured `packs` install — each with
+              auto-approve/YOLO mode wired up.  With no packs configured a jail
+              has no agent, and says so at launch.
     The 'yolo' command is available inside for nested jailing and help.
 
   [bold]Mise Tool Management[/bold]
@@ -837,7 +810,7 @@
   3. Run 'yolo check' after EVERY config edit to validate the config before restarting
   4. Run 'yolo -- bash' to enter the jail interactively
   5. Start your agent: 'yolo -- claude' (or copilot / opencode / pi / codex,
-     whichever you listed in the `agents` config)
+     whichever your configured `packs` install)
 
   [bold]For agents preparing to enter a jail:[/bold]
   Before asking the human to restart you inside the jail, ALWAYS run 'yolo check'

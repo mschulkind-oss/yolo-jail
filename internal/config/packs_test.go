@@ -2,6 +2,7 @@ package config
 
 import (
 	"path/filepath"
+	"reflect"
 	"strings"
 	"testing"
 
@@ -66,7 +67,7 @@ func TestCheckPacksLowersBothForms(t *testing.T) {
 	entries, problems := checkPacks(decodeAny(t, `[
 		"file:///home/me/code/acme/tools/agent-pack",
 		{"source": "git+ssh://git@github.com/acme/mono//tools/pack?ref=main",
-		 "name": "acme", "agents": ["claude"], "only": ["skills/rust-*"],
+		 "name": "acme", "only": ["skills/rust-*"],
 		 "exclude": ["skills/legacy-*"], "allow_exec": true}
 	]`))
 	if len(problems) != 0 {
@@ -84,7 +85,7 @@ func TestCheckPacksLowersBothForms(t *testing.T) {
 	}
 	// Object form: a git subpath name wins over the repo name.
 	e := entries[1]
-	if e.Name != "acme" || len(e.Agents) != 1 || !e.AllowExec {
+	if e.Name != "acme" || !e.AllowExec {
 		t.Errorf("object entry lowered wrong: %+v", e)
 	}
 	if len(e.Only) != 1 || len(e.Exclude) != 1 {
@@ -112,7 +113,6 @@ func TestCheckPacksRejectsBadEntries(t *testing.T) {
 		{`["http://example.com/pack"]`, "unsupported scheme"},
 		{`[{"name": "x"}]`, `missing required "source"`},
 		{`[{"source": "file:///p", "bogus": 1}]`, "unknown key"},
-		{`[{"source": "file:///p", "agents": ["nope"]}]`, "unknown agent"},
 		{`[{"source": "file:///p", "allow_exec": "yes"}]`, "expected true or false"},
 		// Two packs resolving to the same name would share a staging dir.
 		{`["file:///a/dup", "file:///b/dup"]`, "duplicate pack name"},
@@ -134,7 +134,7 @@ func TestCheckPacksRejectsBadEntries(t *testing.T) {
 func TestPacksWireRoundTrip(t *testing.T) {
 	in := []PackEntry{
 		{Source: "file:///p", Name: "p"},
-		{Source: "git+ssh://git@h/o/r//s?ref=main", Name: "s", Agents: []string{"claude"},
+		{Source: "git+ssh://git@h/o/r//s?ref=main", Name: "s",
 			Only: []string{"skills/*"}, AllowExec: true},
 	}
 	wire, err := MarshalPacks(in)
@@ -157,15 +157,47 @@ func TestPacksWireRoundTrip(t *testing.T) {
 	}
 }
 
-func TestPacksForAgentFiltersAndKeepsOrder(t *testing.T) {
-	entries := []PackEntry{
-		{Name: "all"},
-		{Name: "claude-only", Agents: []string{"claude"}},
-		{Name: "codex-only", Agents: []string{"codex"}},
+// A PACK APPLIES TO THE WHOLE JAIL. The per-entry `agents` filter is RETIRED: it
+// presumed a fixed, known agent list, which is precisely the assumption the pack
+// model deletes — a pack that installs an agent is just a pack, and the pack
+// machinery knows nothing about agents. So the key must be REJECTED, not silently
+// ignored: an inert key that used to work looks exactly like a broken feature, and
+// the whole point of the object form's closed key set is that a no-longer-honored
+// filter cannot quietly stop filtering.
+func TestCheckPacksRejectsRetiredAgentsKey(t *testing.T) {
+	for _, body := range []string{
+		`[{"source": "file:///p", "agents": ["claude"]}]`,
+		// Also rejected when it names a REAL agent list — this is not typo detection.
+		`[{"source": "file:///p", "agents": []}]`,
+	} {
+		entries, problems := checkPacks(decodeAny(t, body))
+		if len(problems) != 1 {
+			t.Fatalf("%s: problems = %v, want exactly one", body, problems)
+		}
+		if !strings.Contains(problems[0], "agents") ||
+			!strings.Contains(problems[0], "unknown key") {
+			t.Errorf("%s: problem = %q, want an `agents` unknown-key rejection",
+				body, problems[0])
+		}
+		if len(entries) != 0 {
+			t.Errorf("%s: entry survived a rejected key: %v", body, entries)
+		}
 	}
-	got := PacksForAgent(entries, "claude")
-	if len(got) != 2 || got[0].Name != "all" || got[1].Name != "claude-only" {
-		t.Errorf("PacksForAgent(claude) = %v", got)
+}
+
+// Nothing in a lowered entry may carry an agent filter any more, wire form included.
+// The wire form is the entrypoint's ONLY view of packs, so a lingering field there
+// would be a filter the host could still express and the jail would still honor.
+func TestPackEntryHasNoAgentFilterField(t *testing.T) {
+	wire, err := MarshalPacks([]PackEntry{{Source: "file:///p", Name: "p"}})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if strings.Contains(wire, "agents") {
+		t.Errorf("YOLO_PACKS wire form still mentions agents: %s", wire)
+	}
+	if _, ok := reflect.TypeOf(PackEntry{}).FieldByName("Agents"); ok {
+		t.Error("PackEntry.Agents is back — a pack applies to the whole jail")
 	}
 }
 

@@ -38,7 +38,17 @@ const (
 // Schema constants
 // ---------------------------------------------------------------------------
 
+// knownTopLevelConfigKeys is the accepted top-level key set. `agents` is
+// deliberately ABSENT — the key was deleted (an agent arrives as a pack now), so
+// a config still carrying it must be rejected, not silently ignored. See
+// validateAgentsRetired, which supplies the retirement message on top of the bare
+// "unknown key" this omission produces.
 var knownTopLevelConfigKeys = set(
+	// `repo_path` and `agents` are RETIRED but stay listed: a key in this set gets
+	// only its own targeted retirement message (validateRepoPath /
+	// validateAgentsRetired), whereas removing it here would ALSO trigger the generic
+	// "unknown key" error and the user would see the same problem reported twice —
+	// once uselessly.
 	"runtime", "repo_path", "agents", "packages", "mounts", "workspace_readonly",
 	"per_side_paths", "network", "security", "mise_tools", "lsp_servers",
 	"mcp_servers", "mcp_presets", "devices", "gpu", "resources", "env_sources",

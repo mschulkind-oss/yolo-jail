@@ -14,8 +14,10 @@ import (
 // per-agent user skills. Agents without a skills dir are skipped. Returns the
 // staging directory (AGENTS_DIR/<cname>).
 // homeDir is the host home (~) whose ~/.<agent>/skills dirs are the sources;
-// agentNames is the selected set (nil → DefaultAgents). includeDev stages the
-// source-tree-only skills (e.g. developing-yolo-jail) — pass
+// agentNames is the selected set — nil and empty alike stage nothing, since
+// ResolveAgents has no default (there is no agent to stage skills FOR until a
+// pack installs one). includeDev stages the source-tree-only skills (e.g.
+// developing-yolo-jail) — pass
 // WorkspaceIsYoloSourceTree(workspace). CRITICAL: entries are cleared *inside*
 // each skills_dir — the dir itself is NEVER rmtree+mkdir'd, because a running
 // jail's bind mount captured its inode and a fresh inode would silently detach

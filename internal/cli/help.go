@@ -17,7 +17,10 @@ var commandHelp = []struct{ name, blurb string }{
 	{"init", "Scaffold yolo-jail.jsonc in the current workspace"},
 	{"init-user-config", "Write user-level defaults at ~/.config/yolo-jail/config.jsonc"},
 	{"config", "Inspect generated config: 'config ls' (every composed file), 'render', 'diff', 'reset'"},
-	{"pack", "Author and inspect agent config packs: 'pack init', 'lint', 'ls', 'explain'"},
+	// Leads with "add an agent" rather than the authoring verbs: with the `agents`
+	// config key gone, `pack` is the ONLY route to a jail that has an agent in it, so
+	// this line is what a new user scanning `yolo --help` needs to land on.
+	{"pack", "Add an agent or shared skills via config packs: 'pack --help', 'ls', 'install'"},
 	{"config-ref", "Print the full configuration reference"},
 	{"macos-setup", "Provision the native macOS sandbox user (macos-user backend)"},
 }

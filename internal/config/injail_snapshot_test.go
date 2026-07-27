@@ -30,10 +30,10 @@ func TestLoadConfigInJailReadsSnapshot(t *testing.T) {
 	// re-assemble would therefore drop mcp_servers.
 	mustWrite(t, filepath.Join(home, ".config", "yolo-jail", "config.jsonc"),
 		`{ "include_if_found": ["overrides.jsonc"], "mcp_presets": ["chrome-devtools"] }`)
-	mustWrite(t, filepath.Join(ws, "yolo-jail.jsonc"), `{ "agents": ["claude"] }`)
+	mustWrite(t, filepath.Join(ws, "yolo-jail.jsonc"), `{ "packages": ["ripgrep"] }`)
 	// The host wrote a snapshot WITH the assembled mcp_servers.
 	mustWrite(t, ConfigSnapshotPath(ws), `{
-  "agents": ["claude"],
+  "packages": ["ripgrep"],
   "mcp_servers": { "tavily": { "command": "npx" } }
 }`)
 
@@ -59,18 +59,18 @@ func TestLoadConfigHostStillAssembles(t *testing.T) {
 
 	mustWrite(t, filepath.Join(home, ".config", "yolo-jail", "config.jsonc"),
 		`{ "mcp_presets": ["chrome-devtools"] }`)
-	mustWrite(t, filepath.Join(ws, "yolo-jail.jsonc"), `{ "agents": ["pi"] }`)
+	mustWrite(t, filepath.Join(ws, "yolo-jail.jsonc"), `{ "packages": ["ripgrep"] }`)
 	// A stale snapshot with a DIFFERENT value must be ignored on the host.
-	mustWrite(t, ConfigSnapshotPath(ws), `{ "agents": ["stale-should-be-ignored"] }`)
+	mustWrite(t, ConfigSnapshotPath(ws), `{ "packages": ["stale-should-be-ignored"] }`)
 
 	cfg, err := LoadConfig(ws, true, func(string) {})
 	if err != nil {
 		t.Fatal(err)
 	}
-	agents, _ := cfg.Get("agents")
-	list, _ := agents.([]any)
-	if len(list) != 1 || list[0] != "pi" {
-		t.Errorf("host LoadConfig must assemble from files, not the snapshot; got agents=%v", agents)
+	pkgs, _ := cfg.Get("packages")
+	list, _ := pkgs.([]any)
+	if len(list) != 1 || list[0] != "ripgrep" {
+		t.Errorf("host LoadConfig must assemble from files, not the snapshot; got packages=%v", pkgs)
 	}
 }
 
@@ -85,14 +85,14 @@ func TestLoadConfigInJailFallsBackWhenNoSnapshot(t *testing.T) {
 
 	mustWrite(t, filepath.Join(home, ".config", "yolo-jail", "config.jsonc"),
 		`{ "mcp_presets": ["chrome-devtools"] }`)
-	mustWrite(t, filepath.Join(ws, "yolo-jail.jsonc"), `{ "agents": ["claude"] }`)
+	mustWrite(t, filepath.Join(ws, "yolo-jail.jsonc"), `{ "packages": ["ripgrep"] }`)
 	// No snapshot file written.
 
 	cfg, err := LoadConfig(ws, true, func(string) {})
 	if err != nil {
 		t.Fatalf("fallback assemble should not error: %v", err)
 	}
-	if _, ok := cfg.Get("agents"); !ok {
+	if _, ok := cfg.Get("packages"); !ok {
 		t.Errorf("fallback assemble should produce the workspace config; got %v", cfg.Keys())
 	}
 }
@@ -106,14 +106,14 @@ func TestLoadConfigInJailIgnoresNonObjectSnapshot(t *testing.T) {
 	t.Setenv("YOLO_VERSION", "9.9.9-test")
 
 	mustWrite(t, filepath.Join(home, ".config", "yolo-jail", "config.jsonc"), `{}`)
-	mustWrite(t, filepath.Join(ws, "yolo-jail.jsonc"), `{ "agents": ["claude"] }`)
+	mustWrite(t, filepath.Join(ws, "yolo-jail.jsonc"), `{ "packages": ["ripgrep"] }`)
 	mustWrite(t, ConfigSnapshotPath(ws), `["not", "an", "object"]`)
 
 	cfg, err := LoadConfig(ws, true, func(string) {})
 	if err != nil {
 		t.Fatal(err)
 	}
-	if _, ok := cfg.Get("agents"); !ok {
+	if _, ok := cfg.Get("packages"); !ok {
 		t.Errorf("non-object snapshot must be ignored; expected assembled config, got %v", cfg.Keys())
 	}
 	// Sanity: the snapshot decode path really did reject the array.

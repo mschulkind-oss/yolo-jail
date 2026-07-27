@@ -6,7 +6,6 @@ import (
 	"strconv"
 	"strings"
 
-	"github.com/mschulkind-oss/yolo-jail/internal/agents"
 	"github.com/mschulkind-oss/yolo-jail/internal/jsonx"
 	"github.com/mschulkind-oss/yolo-jail/internal/paths"
 	"github.com/mschulkind-oss/yolo-jail/internal/pytext"
@@ -48,8 +47,7 @@ func ValidateConfig(config *jsonx.OrderedMap, workspace string, resolver Loophol
 
 	validateRuntime(config, errs)
 	validateRepoPath(config, errs, warns)
-	validateAgents(config, errs, warns)
-	validateAgentsScope(config, workspace, errs)
+	validateAgentsRetired(config, errs)
 	validatePackages(config, errs)
 	validateMounts(config, workspace, errs, warns)
 	validateWorkspaceReadonly(config, errs)
@@ -134,138 +132,31 @@ func validateRepoPath(config *jsonx.OrderedMap, errs, warns *[]string) {
 		"the repo from the checkout you launch in (or YOLO_REPO_ROOT). Remove it.")
 }
 
-func validateAgents(config *jsonx.OrderedMap, errs, warns *[]string) {
-	agentsV, present := config.Get("agents")
-	if !present || agentsV == nil {
-		return
-	}
-	agentsList, ok := asList(agentsV)
-	if !ok {
-		add(errs, "config.agents: expected a list of agent names "+
-			"(valid: "+joinSorted(validAgentSet)+")")
-		return
-	}
-	for idx, name := range agentsList {
-		s, ok := asStr(name)
-		if !ok {
-			add(errs, fmt.Sprintf("config.agents[%d]: expected a string", idx))
-		} else if s == "gemini" {
-			// RETIRED, not merely unknown: Google is deprecating Gemini CLI, so
-			// `gemini` was dropped from the supported set. Say so explicitly — a bare
-			// "unknown agent" reads like a typo and sends people looking for one.
-			// Same treatment `docker` gets in validateRuntime.
-			add(errs, fmt.Sprintf("config.agents[%d]: 'gemini' was REMOVED — Google is "+
-				"deprecating Gemini CLI, so yolo no longer supports it. Drop it from the "+
-				"list. (For Google Antigravity CLI use 'agy'.) Leftover state under "+
-				"<workspace>/.yolo/home/gemini/ and .yolo/prism/gemini-* is inert; "+
-				"`yolo prune` reaps it.", idx))
-		} else if _, valid := validAgentSet[s]; !valid {
-			add(errs, fmt.Sprintf("config.agents[%d]: unknown agent '%s'. Valid agents: %s",
-				idx, s, joinSorted(validAgentSet)))
-		}
-	}
-	if len(agentsList) == 0 {
-		add(warns, "config.agents: empty list — no coding agents will be "+
-			"installed in the jail")
-	}
-}
-
-// validateAgentsScope rejects a WORKSPACE config that selects an agent the user
-// config did not.
+// validateAgentsRetired reports the DELETED `agents` key.
 //
-// `agents` decides a CREDENTIAL BOUNDARY question, not just which CLIs get
-// installed: hostFileArgs (internal/cli/run) mounts every SELECTED agent's
-// agents.AgentSpec.HostFiles read-only at /ctx/host-<agent>/, and Briefing.
-// HostSource + Skills read host-home paths per selected agent too. A workspace
-// config travels with the repo and is agent-editable, so letting it name an
-// agent lets an untrusted file pull a host settings.json into the jail. That is
-// exactly the hole retiring host_claude_files/host_pi_files closed for
-// host_files (plan §10.4 D1/D2/D4) — it stayed open through `agents` because
-// `agents` is in overrideListKeys, so a workspace value REPLACES the user's
-// wholesale rather than being unable to widen it.
+// The key is gone, not renamed: config now carries ONE list of `packs`, a pack
+// that installs an agent is just a pack, and nothing in the pack machinery knows
+// what an agent is. There is no DefaultAgents behind it any more either, so a
+// config still naming agents would not merely be ignored — it would describe a
+// selection yolo can no longer make.
 //
-// NARROWING is fine and stays allowed: a repo pinning "only claude here" mounts
-// strictly fewer host files than the user already permitted. Only widening —
-// naming an agent absent from the user's effective set — is an error.
+// It is dropped from knownTopLevelConfigKeys, so it already earns a bare "unknown
+// key". This adds the RETIREMENT message on top, the same treatment `docker` gets
+// in validateRuntime and `env` gets in validateEnvSources: a bare "unknown key"
+// reads like a typo and sends people looking for the correct spelling of a key
+// that no longer exists. Say it was removed, and say what replaced it.
 //
-// Like validateHostFiles, this re-reads the workspace config: ValidateConfig
-// receives only the merged map, and the merge carries no provenance.
-func validateAgentsScope(config *jsonx.OrderedMap, workspace string, errs *[]string) {
+// Everything that existed only to serve the key went with it: validateAgentsScope
+// (the workspace-cannot-widen-the-user-set guard, which protected the credential
+// boundary `agents` opened by being an override-list key) and validAgentSet.
+func validateAgentsRetired(config *jsonx.OrderedMap, errs *[]string) {
 	if _, present := config.Get("agents"); !present {
-		// Every workspace key survives the merge, so an absent merged key proves
-		// the workspace config has none either.
 		return
 	}
-	wsCfg, err := LoadWorkspaceConfig(workspace, false, func(string) {})
-	if err != nil || wsCfg == nil {
-		return
-	}
-	wsValue, atWorkspace := wsCfg.Get("agents")
-	if !atWorkspace || wsValue == nil {
-		return
-	}
-	wsList, ok := asList(wsValue)
-	if !ok {
-		return // shape already reported by validateAgents
-	}
-
-	// The user's EFFECTIVE set: an absent/nil user key means DefaultAgents, which
-	// is what SelectedAgents would resolve to.
-	allowed := map[string]struct{}{}
-	userCfg, uerr := LoadJSONCWithIncludes(
-		paths.UserConfigPath(), paths.UserConfigPath(), false, func(string) {}, nil)
-	userValue, hasUser := any(nil), false
-	if uerr == nil && userCfg != nil {
-		userValue, hasUser = userCfg.Get("agents")
-	}
-	if userList, isList := asList(userValue); hasUser && userValue != nil && isList {
-		for _, nv := range userList {
-			if s, isStr := asStr(nv); isStr {
-				allowed[s] = struct{}{}
-			}
-		}
-	} else {
-		for _, a := range agents.DefaultAgents {
-			allowed[a] = struct{}{}
-		}
-	}
-
-	for i, nv := range wsList {
-		s, isStr := asStr(nv)
-		if !isStr {
-			continue // shape already reported
-		}
-		if _, ok := allowed[s]; ok {
-			continue
-		}
-		// Gate ONLY on agents that actually cross a host file. The boundary being
-		// protected is "a repo-committed, agent-editable file must not decide which
-		// host files enter the jail" — so an agent with an empty HostFilesSpec crosses
-		// nothing and a workspace may select it freely.
-		//
-		// Scoping to the real boundary matters beyond precision: gating on ALL agents
-		// made a workspace config's validity depend on the DEVELOPER'S OWN user
-		// config, so a committed yolo-jail.jsonc selecting copilot broke for anyone
-		// whose user config did not also list it — including every integration test
-		// on a default (claude-only) machine. That is a portability bug, and it is not
-		// buying any security, because copilot has no host files to leak.
-		if spec, known := agents.Get(s); known && spec.HostFiles.Dir == "" {
-			continue
-		}
-		hostDir := s
-		if spec, known := agents.Get(s); known && spec.HostFiles.Dir != "" {
-			hostDir = spec.HostFiles.Dir
-		}
-		add(errs, fmt.Sprintf("config.agents[%d]: a workspace config cannot add "+
-			"'%s' — it is not in your user config's agents, and selecting it would "+
-			"mount that agent's host files (~/%s/) into the jail. A workspace config "+
-			"travels with the repo and is agent-editable, so it cannot decide which "+
-			"host files cross the boundary. Add '%s' to "+
-			"~/.config/yolo-jail/config.jsonc to allow it here. A workspace config may "+
-			"freely select any agent that reads no host files, and may always NARROW "+
-			"the set.",
-			i, s, hostDir, s))
-	}
+	add(errs, "config.agents: REMOVED — which agents a jail gets is no longer a "+
+		"config key of its own. An agent arrives as a pack, so name the pack that "+
+		"installs it in `packs` instead. See `yolo config-ref` for the `packs` key "+
+		"and `yolo pack --help` for the pack tooling.")
 }
 
 func validatePackages(config *jsonx.OrderedMap, errs *[]string) {

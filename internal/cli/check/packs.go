@@ -24,19 +24,44 @@ import (
 	"github.com/mschulkind-oss/yolo-jail/internal/paths"
 )
 
-// sectionPacks validates the configured packs. Silent when none are configured, so a
-// user who does not use packs sees no new output.
+// noPacksHeadline / noPacksGuidance mirror the launch-time notice in internal/cli/run
+// (run.go), which check cannot import — that is the run pipeline, and the dependency
+// only ever goes the other way. Duplicated on purpose, with the same reasoning as
+// machineForPlatform's twin of run.platformMachine: `yolo check` and a launch must tell
+// the user the SAME thing, and a test in each package pins its own half.
+//
+// The guidance SENTENCE is byte-identical to the run-side one so the two are diffable
+// at a glance. Only the headline differs, by the trailing period: a check badge line
+// carries none ("No jails currently running"), a launch notice is prose.
+const (
+	noPacksHeadline = "No packs are configured, so this jail has no coding agent"
+	noPacksGuidance = "An agent arrives as a pack. Run `yolo pack --help` for what packs " +
+		"deliver and how to add one."
+)
+
+// sectionPacks validates the configured packs.
+//
+// Zero packs is the NOTABLE state, not the boring one: packs are how content —
+// an agent included — reaches a jail, so an empty list means a jail with nothing in
+// it. This section used to return silently there, on the reasoning that a non-pack
+// user should not see output for a feature they do not use; that reasoning died with
+// the `agents` key, because there is no longer a non-pack way to get an agent.
 func (o *Options) sectionPacks(r *reporter) {
+	// The header and the trailing blank are now UNCONDITIONAL — every branch below
+	// prints something, and the separator used to be missing because the section only
+	// existed for pack users (it ran straight into "Entrypoint Dry-Run").
+	r.section("Packs")
+	defer r.blank()
+
 	entries, err := config.LoadPacks(r.warningLine)
 	if err != nil {
-		r.section("Packs")
 		r.fail("Loading packs: "+err.Error(), "")
 		return
 	}
 	if len(entries) == 0 {
+		r.warn(noPacksHeadline, noPacksGuidance)
 		return
 	}
-	r.section("Packs")
 
 	lock, lockErr := packsrc.LoadLock(packsrc.LockPath(paths.UserConfigPath()))
 	if lockErr != nil {

@@ -81,14 +81,16 @@ func mergeLists(base, override []any) []any {
 	return merged
 }
 
-// overrideListKeys names list keys that REPLACE wholesale rather than
-// union-merging.
-var overrideListKeys = set("agents")
-
 // MergeConfig recursively merges override onto base: recursive dict merge, list
-// union-merge (except overrideListKeys), scalar/type-mismatch override. Returns
-// a new OrderedMap; base's order is preserved, override-only keys are appended
-// in override order.
+// union-merge, scalar/type-mismatch override. Returns a new OrderedMap; base's
+// order is preserved, override-only keys are appended in override order.
+//
+// EVERY list key union-merges. There used to be an overrideListKeys exception for
+// list keys that REPLACE wholesale, and `agents` was its only member — a workspace
+// value replacing the user's is what let a repo-committed, agent-editable config
+// decide agent selection, and through it which host files mounted. The key is gone
+// (an agent arrives as a pack), so the exception has no members and the mechanism
+// went with it rather than sitting inert waiting for a user it will not get.
 func MergeConfig(base, override *jsonx.OrderedMap) *jsonx.OrderedMap {
 	result := jsonx.NewOrderedMap()
 	for _, k := range base.Keys() {
@@ -105,12 +107,10 @@ func MergeConfig(base, override *jsonx.OrderedMap) *jsonx.OrderedMap {
 					continue
 				}
 			}
-			if _, isOverrideKey := overrideListKeys[key]; !isOverrideKey {
-				if el, ok := asList(existing); ok {
-					if vl, ok := asList(value); ok {
-						result.Set(key, mergeLists(el, vl))
-						continue
-					}
+			if el, ok := asList(existing); ok {
+				if vl, ok := asList(value); ok {
+					result.Set(key, mergeLists(el, vl))
+					continue
 				}
 			}
 		}

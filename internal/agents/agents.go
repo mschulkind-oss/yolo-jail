@@ -258,17 +258,6 @@ func Get(name string) (AgentSpec, bool) {
 	return s, ok
 }
 
-// DefaultAgents is the agent set when a config omits `agents` — claude only.
-var DefaultAgents = []string{"claude"}
-
-// ValidAgents is the sorted set of known agent names.
-var ValidAgents = func() []string {
-	v := make([]string, len(Order))
-	copy(v, Order)
-	sortStrings(v)
-	return v
-}()
-
 // AllMiseRetire is every agent's mise-retire tokens, unioned in declaration
 // order.
 var AllMiseRetire = func() []string {
@@ -296,11 +285,16 @@ var AllOverlayDirs = func() []string {
 }()
 
 // ResolveAgents returns the AgentSpec list for names (unknown names skipped),
-// preserving the order of names. names==nil falls back to DefaultAgents.
+// preserving the order of names.
+//
+// There is NO default: nil and empty both mean "no agents", and nothing in this
+// package invents one. Agent support is pack data now — a jail gets an agent
+// because a configured pack installs it, so a registry-level fallback would
+// resurrect exactly the thing that was removed: an agent appearing in a jail
+// whose config never asked for it. A user with no packs is told so out loud at
+// launch (internal/cli/run), which is a message they can act on; a silently
+// substituted "claude" is not.
 func ResolveAgents(names []string) []AgentSpec {
-	if names == nil {
-		names = DefaultAgents
-	}
 	var out []AgentSpec
 	for _, n := range names {
 		if s, ok := agentsByName[n]; ok {

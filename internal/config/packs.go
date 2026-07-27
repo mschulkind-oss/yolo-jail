@@ -38,7 +38,7 @@ const packsKey = "packs"
 
 // knownPackKeys is the accepted key set of the object form.
 var knownPackKeys = set(
-	"source", "name", "agents", "only", "exclude", "allow_exec",
+	"source", "name", "only", "exclude", "allow_exec",
 )
 
 // PackEntry is one validated `packs` entry, lowered from either the string (sugar)
@@ -48,6 +48,15 @@ var knownPackKeys = set(
 // resolves entries and hands them to the entrypoint through that env var, so the
 // entrypoint never re-reads config — the same contract YOLO_HOST_FILES uses, and
 // the reason the in-jail side cannot widen the set.
+//
+// A PACK APPLIES TO THE WHOLE JAIL. There used to be a per-entry `agents` filter
+// ("stage this pack only for claude"), and it is gone: it presumed a fixed, known
+// agent list, which is the assumption the pack model deletes — a pack that installs
+// an agent is just a pack, and nothing in this machinery knows what an agent is.
+// The filter was also redundant with where filtering actually happens: staging is
+// per-agent at the DELIVERY end (agents.PrepareSkills layers every pack's skills/
+// into each agent that has a skills dir), so the config-side filter was a second,
+// weaker copy of a decision already made downstream.
 type PackEntry struct {
 	// Source is the pack address. Always set. Either a `file://` URL (a local path,
 	// the only form phase 0 fetches) or a `git+<transport>://` URL.
@@ -56,10 +65,6 @@ type PackEntry struct {
 	// Name is the pack's short name, used for the staging dir, `yolo pack ls`, and
 	// provenance. Defaults to a slug derived from Source when not given.
 	Name string `json:"name"`
-
-	// Agents restricts the pack to a subset of the SELECTED agents. Empty means
-	// every selected agent, which is the common case and the default.
-	Agents []string `json:"agents,omitempty"`
 
 	// Only and Exclude filter the pack tree by glob, applied in that order. `only`
 	// is a documented first-line ergonomic, not an escape hatch: "give me just
@@ -235,7 +240,7 @@ func checkPackEntry(raw any, itemPath string) (PackEntry, string) {
 	for _, field := range []struct {
 		key string
 		dst *[]string
-	}{{"agents", &entry.Agents}, {"only", &entry.Only}, {"exclude", &entry.Exclude}} {
+	}{{"only", &entry.Only}, {"exclude", &entry.Exclude}} {
 		rawVal, hasVal := m.Get(field.key)
 		if !hasVal || rawVal == nil {
 			continue
@@ -250,14 +255,6 @@ func checkPackEntry(raw any, itemPath string) (PackEntry, string) {
 				return PackEntry{}, itemPath + "." + field.key + ": expected a list of strings"
 			}
 			*field.dst = append(*field.dst, s)
-		}
-	}
-	// An `agents` entry naming an unknown agent is a typo, and silently staging
-	// nothing is the least helpful possible response.
-	for _, a := range entry.Agents {
-		if _, valid := validAgentSet[a]; !valid {
-			return PackEntry{}, fmt.Sprintf("%s.agents: unknown agent %q. Valid agents: %s",
-				itemPath, a, joinSorted(validAgentSet))
 		}
 	}
 	if rawExec, hasExec := m.Get("allow_exec"); hasExec && rawExec != nil {
@@ -388,29 +385,4 @@ func UnmarshalPacks(wire string) ([]PackEntry, error) {
 		return nil, fmt.Errorf("decoding YOLO_PACKS: %w", err)
 	}
 	return entries, nil
-}
-
-// PacksForAgent returns the entries that apply to one agent, in config order
-// (later entries win on same-named content — the whole mental model).
-func PacksForAgent(entries []PackEntry, agent string) []PackEntry {
-	var out []PackEntry
-	for _, e := range entries {
-		if len(e.Agents) == 0 {
-			out = append(out, e)
-			continue
-		}
-		if containsString(e.Agents, agent) {
-			out = append(out, e)
-		}
-	}
-	return out
-}
-
-func containsString(hay []string, needle string) bool {
-	for _, s := range hay {
-		if s == needle {
-			return true
-		}
-	}
-	return false
 }

@@ -1,6 +1,7 @@
 package agents
 
 import (
+	"fmt"
 	"os"
 	"strings"
 	"testing"
@@ -35,38 +36,58 @@ func TestSharedDirsForIsClaudeOnlyAndSelectionGated(t *testing.T) {
 	}
 }
 
-// D5: "no agent by default" is ALREADY SUPPORTED — `agents: []` yields an empty
-// selection that every consumer handles. Verified in a real nested jail: it boots.
+// D5, now completed: "no agent by default" was already SUPPORTED (`agents: []`
+// yielded an empty selection every consumer handled; verified booting in a real
+// nested jail). What this test used to also pin was the DEFAULT — DefaultAgents
+// == ["claude"], with nil meaning "use it" and an explicit [] meaning "none".
 //
-// What is NOT changed here is the DEFAULT itself. DefaultAgents stays ["claude"],
-// because flipping it to [] is a breaking UX change for every existing user (their
-// jail would come up with no agent after an upgrade), and that is a product decision
-// rather than an implementation one. The machinery is ready either way; this test
-// pins that readiness so the switch is a one-line change plus a migration note.
+// That default is GONE, and with it the nil/empty distinction: an agent reaches a
+// jail because a configured pack installs it, and no pack means no agent. So nil
+// and empty are the same answer here, and it is the honest one — a registry that
+// substituted "claude" for "nothing configured" would put an agent in a jail whose
+// config never asked for one, silently. The user-facing half of that decision is a
+// printed warning at launch (internal/cli/run), not a fabricated selection.
+//
+// The rest of this test is the permanent regression: every derived view must
+// tolerate an empty selection without panicking and without inventing an agent.
 func TestEmptyAgentSelectionIsSupported(t *testing.T) {
-	// ResolveAgents distinguishes "nil = use the default" from "explicitly empty".
-	if got := ResolveAgents(nil); len(got) == 0 {
-		t.Error("nil should fall back to DefaultAgents")
+	// No default: nil and empty are BOTH "no agents". nil is the case worth
+	// pinning — it is what an absent config key and an unset YOLO_AGENTS decode to,
+	// so a fallback reintroduced here would be invisible until a jail came up with
+	// an agent nobody selected.
+	if got := ResolveAgents(nil); len(got) != 0 {
+		t.Errorf("ResolveAgents(nil) = %v, want none — there is no default agent set", got)
 	}
 	if got := ResolveAgents([]string{}); len(got) != 0 {
 		t.Errorf("an explicitly empty selection must stay empty, got %v", got)
 	}
 
 	// Every derived view must tolerate it without panicking or inventing an agent.
-	if got := SharedDirsFor([]string{}); len(got) != 0 {
-		t.Errorf("SharedDirsFor([]) = %v, want none", got)
+	for _, names := range [][]string{nil, {}} {
+		if got := SharedDirsFor(names); len(got) != 0 {
+			t.Errorf("SharedDirsFor(%v) = %v, want none", names, got)
+		}
 	}
+	// HERMETIC: PrepareSkills stages under paths.AgentsDir(), which derives from
+	// GlobalStorage() -> $HOME. Without redirecting HOME this writes into the real
+	// shared store, and a stale skills-<agent> dir left by ANY earlier run (or an
+	// earlier iteration of this loop) then shows up as "skills were staged" — a
+	// failure that has nothing to do with the code under test. Setting HOME makes
+	// each run read only what it wrote.
 	home := t.TempDir()
-	staging, err := PrepareSkills("c-empty", home, []string{}, false)
-	if err != nil {
-		t.Fatalf("PrepareSkills with no agents: %v", err)
-	}
-	entries, err := os.ReadDir(staging)
-	if err != nil {
-		t.Fatal(err)
-	}
-	if len(entries) != 0 {
-		t.Errorf("no agents selected but skills were staged: %v", entries)
+	t.Setenv("HOME", home)
+	for i, names := range [][]string{nil, {}} {
+		staging, err := PrepareSkills(fmt.Sprintf("c-empty-%d", i), home, names, false)
+		if err != nil {
+			t.Fatalf("PrepareSkills with no agents (%v): %v", names, err)
+		}
+		entries, err := os.ReadDir(staging)
+		if err != nil {
+			t.Fatal(err)
+		}
+		if len(entries) != 0 {
+			t.Errorf("no agents selected (%v) but skills were staged: %v", names, entries)
+		}
 	}
 }
 

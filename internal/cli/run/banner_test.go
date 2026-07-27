@@ -1,6 +1,7 @@
 package run
 
 import (
+	"bytes"
 	"runtime"
 	"strings"
 	"testing"
@@ -47,5 +48,21 @@ func TestStartupBanner(t *testing.T) {
 	got = StartupBanner("0.6.0", "podman", "c", []string{"pids=32768"}, "")
 	if !strings.Contains(got, "\nResource limits: pids=32768") {
 		t.Errorf("res banner = %q", got)
+	}
+}
+
+// emitStartupBanner must TERMINATE its line. StartupBanner returns no trailing
+// newline, and emitStartupBanner used Fprint, so the next writer landed on the same
+// line: a nested launch printed "…Resource limits: pids=32768No packs are configured…".
+// It hid for as long as the next writer was the container's own output (which opens
+// with a newline of its own), and surfaced the moment a host-side notice followed.
+func TestEmitStartupBannerEndsItsLine(t *testing.T) {
+	var errBuf bytes.Buffer
+	o := goldenOptions("/ws", t.TempDir())
+	o.Stderr = &errBuf
+	o.RepoRoot = func() (string, bool) { return "", false }
+	o.emitStartupBanner("podman", "yolo-x-abc", []string{"pids=32768"}, "")
+	if got := errBuf.String(); !strings.HasSuffix(got, "\n") {
+		t.Errorf("banner does not end its line — the next line will be glued on: %q", got)
 	}
 }

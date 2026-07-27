@@ -32,7 +32,22 @@ import (
 	"github.com/mschulkind-oss/yolo-jail/internal/richtext"
 )
 
+// packUsage is what `yolo pack --help` prints, and it is also the destination the
+// empty-packs notice sends a brand-new user to (internal/cli/run.warnIfNoPacks,
+// internal/cli/check.sectionPacks). That second audience is why it opens with WHAT A
+// PACK IS and that an agent arrives as one, before the verb list: a user who has just
+// been told "this jail has no coding agent" needs "here is the thing you add", not a
+// command table for authoring. `yolo config-ref` remains the exhaustive key schema.
 const packUsage = `yolo pack — author and inspect agent config packs
+
+A pack is a directory of agent CONFIG — skills, briefing prose (AGENTS.md), and the
+surfaces that define an agent — delivered into every jail you launch. Anything a jail
+knows how to do beyond a bare shell arrives as a pack, INCLUDING A CODING AGENT: with
+no packs configured, a jail has no agent in it.
+
+Two things people usually want here:
+  • an AGENT pack, to get claude / copilot / codex / … installed and configured
+  • a SHARED pack of your own skills and house rules, applied in every project
 
   yolo pack init [dir]        scaffold a pack skeleton (default: current dir)
   yolo pack lint [dir]        validate a pack directory the way staging will
@@ -43,7 +58,14 @@ const packUsage = `yolo pack — author and inspect agent config packs
   yolo pack status            show locked commits, and flag config/lock drift
 
 Packs are configured in ~/.config/yolo-jail/config.jsonc under "packs" (USER scope
-only — a workspace config cannot name one). See ` + "`yolo config-ref`" + `.`
+only — a workspace config cannot name one), as an address per entry:
+
+  "packs": ["file:///home/me/code/my-pack",
+            "git+ssh://git@github.com/org/repo//subdir?ref=main"]
+
+Then run ` + "`yolo pack install`" + ` (fetching only ever happens there, never at launch).
+For the full entry schema — name, only/exclude, allow_exec — and the precedence
+rules, see ` + "`yolo config-ref`" + `.`
 
 // runPack is the registry entry point. Like every handler, args INCLUDES the
 // subcommand name itself ("pack"), so the payload is args[1:] — the same shape
@@ -252,9 +274,6 @@ func packLs(out, errw io.Writer, color bool) int {
 			kind = "local"
 		}
 		pr.Printf("%-20s %-8s %s", e.Name, kind, e.Source)
-		if len(e.Agents) > 0 {
-			pr.Printf("  [dim]agents: %s[/dim]", strings.Join(e.Agents, ", "))
-		}
 		if len(e.Only) > 0 || len(e.Exclude) > 0 {
 			pr.Printf("  [dim]only: %v  exclude: %v[/dim]", e.Only, e.Exclude)
 		}

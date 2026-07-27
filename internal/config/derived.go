@@ -3,7 +3,6 @@ package config
 import (
 	"strings"
 
-	"github.com/mschulkind-oss/yolo-jail/internal/agents"
 	"github.com/mschulkind-oss/yolo-jail/internal/jsonx"
 )
 
@@ -87,49 +86,25 @@ func EffectiveMCPServerNames(mcpServers, mcpPresets any) []any {
 	return names
 }
 
-// SelectedAgents returns agent names from config (default DefaultAgents),
-// filtered to ValidAgents, de-duplicated, order preserved. An explicit empty
-// list is honored.
-func SelectedAgents(config *jsonx.OrderedMap) []string {
-	rawVal, present := config.Get("agents")
-	var raw []any
-	if !present || rawVal == nil {
-		for _, a := range agents.DefaultAgents {
-			raw = append(raw, a)
-		}
-	} else if l, ok := asList(rawVal); ok {
-		raw = l
-	} else {
-		// SelectedAgents is only called after ValidateConfig, so a non-list,
-		// non-nil raw is unreachable for real input; treat as empty (no agents).
-		raw = nil
-	}
-	seen := map[string]struct{}{}
-	var result []string
-	for _, nv := range raw {
-		name, ok := asStr(nv)
-		if !ok {
-			continue
-		}
-		if _, valid := validAgentSet[name]; !valid {
-			continue
-		}
-		if _, dup := seen[name]; dup {
-			continue
-		}
-		seen[name] = struct{}{}
-		result = append(result, name)
-	}
-	return result
-}
-
-var validAgentSet = func() map[string]struct{} {
-	m := map[string]struct{}{}
-	for _, a := range agents.ValidAgents {
-		m[a] = struct{}{}
-	}
-	return m
-}()
+// SelectedAgents is a TRANSITIONAL SHIM and always returns the empty set.
+//
+// It used to read the `agents` config key, which is DELETED: config now carries
+// one list of packs, a pack that installs an agent is just a pack, and nothing
+// outside internal/agents knows what an agent is. There is consequently no
+// selection to read and no DefaultAgents to fall back on — a user with no packs
+// gets no agents, and is TOLD so at launch (that warning is the whole
+// discoverability story, since with zero agents no briefing file is written to
+// put a note in).
+//
+// It survives as a shim only so the registry-side callers (internal/cli/run,
+// internal/cli/check) keep compiling while they are converted to read packs
+// instead; deleting it is that change's job, not this one.
+//
+// The empty slice is non-nil ON PURPOSE. agents.ResolveAgents treats a nil
+// names argument as "unspecified" and substitutes DefaultAgents, so returning
+// nil here would silently resurrect claude through every caller — the exact
+// behavior the key's deletion removes.
+func SelectedAgents(*jsonx.OrderedMap) []string { return []string{} }
 
 // MergeMiseTools merges config.mise_tools over the defaults. Returns an
 // OrderedMap so the result serializes with stable key order: defaults first,
