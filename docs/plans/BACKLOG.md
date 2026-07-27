@@ -139,9 +139,15 @@ non-test `prism*.go` is **917 lines** (verified). And `claude/config` is **corre
 
 ## Stage E — parked design work
 
-`host_files` modes 4→3; `readonly` as a real `:ro` mount (cheaper after D1); capture timing;
-comment preservation; array-append pinning; non-agent prism ports (MCP/LSP/identity);
-renaming the recovered state.
+| # | Item | Status |
+|---|---|---|
+| E1 | `host_files` modes 4→3 (`copy` merges into `readonly`) | open — behavior change on a shipped key, blocked on E2 |
+| E2 | `readonly` as a real `:ro` mount instead of `0o444` | open — needs a per-surface design pass; you cannot compose *into* a `:ro` mount |
+| E3 | Capture timing (`yolo config capture` + capture on terminate) | open, **not urgent** — nothing is lost today, only observability lags |
+| E4 | Comment preservation on `json`/`toml` surfaces | open — starts from decisions, not blank |
+| E5 | `managed`/`defaults` array-append pinning | open — no user surface has needed it |
+| ✅ E6 | ~~Non-agent prism ports (MCP/LSP/identity)~~ | **premise stale.** MCP and LSP *are* ported — they ride the **computed layer** into per-agent surfaces (`copilot/mcp`, `copilot/lsp`, `agy/mcp`), which is the right model: a standalone `mcp` surface would have no file of its own to write. `identity` is deliberately **host-composed and `:ro`-mounted** (`gitIdentityMountArgs`), settled by the identity-prism decision. `config render mcp` reporting "no surfaces" is therefore correct, not a gap |
+| ✅ E7 | Renaming the recovered state | **done** — three live terms are NOT synonyms (act / state / layer); vocabulary defined rather than flattened |
 
 ---
 
