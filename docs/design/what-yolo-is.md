@@ -125,17 +125,42 @@ becomes a programming language; one that isn't leaves a Go remainder.
 
 ### The constraints that decide it
 
-1. **The image build is hermetic and offline** — `-mod=vendor`, no network, and the
+1. **The image build is hermetic** — `CGO_ENABLED=0`, `-mod=vendor`, `-trimpath`, and the
    `goSrc` fileset only sees `go.mod`, `go.sum`, `vendor/`, `cmd/`, `internal/`,
-   `bundled_loopholes/`. **It cannot compile something fetched from git**, because
-   fetching is a network act.
+   `bundled_loopholes/` (`flake.nix:61-77`, `100-112`).
+
+   ⚠ **Corrected 2026-07-26.** An earlier draft said this "cannot compile something
+   fetched from git, because fetching is a network act." That is wrong, and the distinction
+   matters. Nix hermeticity is *no network in ordinary derivations*, **not** no network at
+   all: fixed-output derivations and builtin fetchers are allowed to reach out because
+   their output hash pins the result. Probed in this jail — `builtins.fetchTarball` with a
+   deliberately wrong `sha256` returns a **hash mismatch**, i.e. it fetched:
+
+   ```
+   specified: sha256:00000000000000000000000000000000
+   got:       sha256:13y49fs389xasgv7v64bwyk76yjl6k1f35qs8sqq1aw2vfy1wfxj
+   ```
+
+   And `flake.nix` **already relies on this** (`builtins.fetchTarball` at `:214`/`:268`
+   for pinned-nixpkgs specs, `fetchurl {url; hash;}` at `:223`/`:284`). So a hash-pinned
+   pack *could* be fetched and compiled at image-build time. The reason to reject it is
+   **cost and coupling, not impossibility**: the pack becomes part of the image's nix store
+   path, so every pack edit is a full image rebuild plus a host `just load` — which
+   destroys the entire point of packs (change config without a release). Secondarily,
+   `sandbox = true` means the *compile* still has no network, so the pack would need its
+   own vendored deps or a second FOD.
 2. **Only two third-party deps are vendored**: `BurntSushi/toml` and `yuin/gopher-lua`.
    Adding a wasm runtime means `go mod vendor` + a fileset update, and `codec.go` already
    forbids new deps by convention.
 3. **There IS a Go toolchain in the jail, baked**: `/bin/go` → the nix store, go1.26.4,
-   independent of mise (verified). So compile-in-jail is *technically* possible offline.
-4. **The nix store is `:ro`**; `~/go` (GOPATH) and the overlay dirs are writable. So a
-   build cache has somewhere to live.
+   independent of mise (verified). `gcc`, `node` and `python3` are baked too. So
+   compile-in-jail is *technically* possible offline. Note the toolchain is baked **for the
+   user** (`flake.nix:659` — "no mise download on first use"); yolo itself never invokes it.
+4. **The nix store is `:ro`**; `~/go` (GOPATH) and `~/.cache/go-build` are writable and
+   **persist across workspaces** (the latter is `paths.GlobalCache()`, bind-mounted, ~4 GB
+   today). So a build cache has somewhere to live, and it is shared — which cuts both ways.
+5. **Shipped binaries are `CGO_ENABLED=0` and `-trimpath`** (read off the baked `/bin/yolo`
+   with `go version -m`). This is what kills Go plugins outright — see (d).
 
 ### The three code-execution seams that already exist
 
@@ -145,7 +170,7 @@ has a real precedent to copy rather than invent:
 | Seam | What executes | Sandbox | Precedent quality |
 |---|---|---|---|
 | **Lua transform** | a script, in-process | **strong** — gopher-lua with only base/table/string/math open; no `os`, `io`, `package`, `debug` (verified) | pure computation only; cannot read a file or spawn |
-| **Loopholes** | a host or jail daemon named by `manifest.jsonc` | none — it is a command string | already data-driven, already `go:embed`-bundled, already unions bundled + user dirs in one `Discover` |
+| **Loopholes** | a host or jail daemon named by `manifest.jsonc` | none — but it is an **argv `[]string`**, not a shell string (`loopholes.go:94`), so no shell injection surface | stronger than it looks: the loophole dir is bind-mounted `:ro` at `/etc/yolo-jail/loopholes/<name>` (`runtime.go:40`), and **a loophole shipping its own script and having it executed is a tested contract** — `runtime_test.go:189` uses `{"python3", "/etc/yolo-jail/loopholes/jd-mod/jail.py"}`. User loopholes live in a jail-writable dir |
 | **MCP servers** | **arbitrary executables**, `npm install -g` on first boot | none | **this is already pack-shipped logic in production** |
 
 That third row is the answer to "is there a story for shipping compiled stuff?" — **there
@@ -158,11 +183,11 @@ on first use) and the LSP installs (guarded by the `~/.yolo-installed-lsps` sent
 
 | | Where built | When | Cache | Trust | Verdict |
 |---|---|---|---|---|---|
-| **(a) Lua**, extended from transforms to whole generators | nowhere — interpreted | at render | none needed | **strong sandbox** | **best first answer.** Already vendored, already the extension story. Limit: the sandbox has no `io`, so a generator that must *read another file* needs yolo to pass it in — which is a fine API constraint, not a blocker |
-| **(b) WASM** | pack author's machine | ship prebuilt | content-addressed | strong | **no.** New vendored runtime, new toolchain expectation for pack authors, and no existing precedent here. Revisit only if (a) provably can't express the work |
-| **(c) Subprocess + JSON protocol** | pack author's machine, or npm/pip at first run | first use | overlay dir + sentinel | **none** — it is arbitrary code | **the realistic answer for heavy logic.** It is exactly what MCP and the agent launchers already do; the protocol shape is the only new thing |
-| **(d) Go plugins** (`plugin.Open`) | must match the host binary exactly | build time | n/a | none | **no.** Requires identical Go version, identical dep versions, and CGO — a nix-built static binary and a fetched plugin will essentially never match. This is the option that sounds cleanest and is least viable |
-| **(e) Compile-at-first-run + cache** | in-jail, `/bin/go` | first boot after fetch | `~/go` or a new `GlobalStorage` sibling, keyed by content hash | none | **technically possible** (a baked toolchain exists, offline) **but the worst trade**: minutes of first-boot latency, a compiler in the trust path, per-jail rebuilds, and a cache-invalidation story to get wrong. The precedents (npm/LSP installs) are *downloads*, not compiles |
+| **(a) Lua**, extended from transforms to whole generators | nowhere — interpreted | at render | none needed | **strong sandbox** — `openSandboxLibs` opens only base/table/string/math, then nils `os io require package load loadstring loadfile dofile dostring collectgarbage`; 5s instruction budget. No file read, no spawn, no clock, no randomness | **best first answer.** Already vendored, already the extension story. Limit: the sandbox has no `io`, so a generator that must *read another file* needs yolo to pass it in — a fine API constraint, not a blocker. **Its first task is not new work but a fix**: `Surface.Transform` is already declared, documented and parsed, yet never reaches the compose path (work item 1.9) |
+| **(b) WASM** | pack author's machine | ship prebuilt | content-addressed | strong | **no.** Vendoring a pure-Go runtime (wazero) roughly *doubles* `vendor/` from its current 7.9 MB and adds ~1 MB to each of the **four** shipped binaries, plus a `goSrc` fileset update, plus a toolchain expectation on pack authors (no `tinygo`/`rustc` in the image), and there is no precedent here. Revisit only if (a) provably can't express the work |
+| **(c) Subprocess + JSON protocol** | pack author's machine, or npm/pip at first run | first use | overlay dir + sentinel | **none** — it is arbitrary code | **the realistic answer for heavy logic**, and it has *three* precedents, not one: MCP servers, the loophole `jail_daemon` script contract, and the agent lazy-launchers. The protocol shape is the only genuinely new thing |
+| **(d) Go plugins** (`plugin.Open`) | must match the host binary exactly | build time | n/a | none | **no, and this one is *proven*, not predicted.** `plugin` requires CGO; the shipped binaries are `CGO_ENABLED=0`, so `plugin.Open` returns **`plugin: not implemented`** — it cannot work at all without changing how yolo is built. Even with CGO forced on, the shipped `-trimpath` makes a non-trimpath plugin fail with *"plugin was built with a different version of package internal/goarch"*. Sounds cleanest, is dead on arrival |
+| **(e) Compile-at-first-run + cache** | in-jail `/bin/go`, or a nix FOD at image build (see constraint 1) | first boot after fetch | `~/.cache/go-build` — but it is **shared across all workspaces**, so a per-pack cache is a cross-workspace side channel | none — a compiler in the trust path | **worst trade.** Works offline for a vendored pack (~2s cold for a trivial package, minutes for real code). Killed by a second-order problem: `genStep` is **fail-open**, so a compile failure downgrades to a warning and the jail boots with the pack silently inert — the same failure mode as con 1, but now with a compiler's error surface. The precedents (npm/LSP installs) are *downloads*, not compiles |
 | **(f) No pack logic** | — | — | — | — | **the honest default.** Packs are data; logic stays in yolo |
 
 ### Recommendation
@@ -180,10 +205,13 @@ on first use) and the LSP installs (guarded by the `~/.yolo-installed-lsps` sent
    unsandboxed — because MCP already established that boundary. If a pack needs to run a
    real program, it should run it *the way an MCP server runs*, not through a new
    mechanism.
-4. **Never (d).** Go plugins against a nix-built binary is a version-lock trap.
+4. **Never (d).** Not a judgment call — `CGO_ENABLED=0` makes `plugin.Open` return
+   `plugin: not implemented`. It is unavailable, not merely unwise.
 5. **Never (e) as the primary story.** Compile-at-first-run means a compiler in the boot
-   path of every jail. If a pack needs compiled code, the author compiles it and ships the
-   artifact — which is (b) or (c), both of which are better.
+   path of every jail, behind a fail-open error handler. If a pack needs compiled code, the
+   author compiles it and ships the artifact — which is (b) or (c), both of which are
+   better. The nix-FOD variant is *possible* (constraint 1) but makes every pack edit an
+   image rebuild, which defeats the purpose of packs entirely.
 
 **The load-bearing insight:** the question "how do we ship compiled logic?" has an answer
 that is not a new subsystem. **yolo does not need to become a build system, because MCP
