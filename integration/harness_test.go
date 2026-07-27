@@ -381,10 +381,10 @@ func writeProject(t *testing.T, configJSON string) string {
 
 // tempProjectConfig is the standard fixture config (ported from conftest's
 // temp_project): all three legacy agents selected explicitly (the library-model
-// default is claude-only, but many tests assert copilot/gemini configs), a curl
+// default is claude-only, but many tests assert copilot/codex configs), a curl
 // block plus a custom-message grep block, and bridge networking.
 const tempProjectConfig = `{
-  "agents": ["copilot", "gemini", "claude"],
+  "agents": ["copilot", "codex", "claude"],
   "security": {
     "blocked_tools": [
       "curl",

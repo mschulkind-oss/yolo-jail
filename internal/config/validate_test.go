@@ -277,14 +277,34 @@ func TestValidateAgentsWorkspaceCannotWidenUserSet(t *testing.T) {
 	write(t, filepath.Join(ws, WorkspaceConfigName), `{"agents": ["claude"]}`)
 
 	// `agents` is in overrideListKeys, so the merge yields the workspace value.
+	// claude carries HostFiles (~/.claude/settings.json), so adding it is exactly
+	// the boundary crossing this guard exists for.
 	errs := validateAgentsScopeErrs(t, ws, `["claude"]`)
 	if len(errs) != 1 {
 		t.Fatalf("errors = %v, want exactly one", errs)
 	}
-	for _, want := range []string{"claude", "widen", "user"} {
+	for _, want := range []string{"claude", "host files", "user config"} {
 		if !strings.Contains(errs[0], want) {
 			t.Errorf("error %q does not mention %q", errs[0], want)
 		}
+	}
+}
+
+// The guard is scoped to the REAL boundary: an agent with no HostFilesSpec crosses
+// no host file, so a workspace may select it freely. Gating on every agent instead
+// made a committed yolo-jail.jsonc's validity depend on the developer's own user
+// config — a portability bug that bought no security.
+func TestValidateAgentsWorkspaceMaySelectHostFilelessAgents(t *testing.T) {
+	ws := t.TempDir()
+	home := t.TempDir()
+	t.Setenv("HOME", home)
+	write(t, filepath.Join(home, ".config", "yolo-jail", "config.jsonc"),
+		`{"agents": ["claude"]}`)
+	write(t, filepath.Join(ws, WorkspaceConfigName),
+		`{"agents": ["copilot", "codex", "opencode", "agy"]}`)
+
+	if errs := validateAgentsScopeErrs(t, ws, `["copilot","codex","opencode","agy"]`); len(errs) != 0 {
+		t.Errorf("errors = %v; agents with no host files must be freely selectable", errs)
 	}
 }
 
@@ -310,11 +330,12 @@ func TestValidateAgentsWorkspaceWidensBeyondDefault(t *testing.T) {
 	home := t.TempDir()
 	t.Setenv("HOME", home)
 	write(t, filepath.Join(home, ".config", "yolo-jail", "config.jsonc"), `{}`)
-	write(t, filepath.Join(ws, WorkspaceConfigName), `{"agents": ["codex"]}`)
+	// pi carries HostFiles (~/.pi/agent/settings.json) and is not in DefaultAgents.
+	write(t, filepath.Join(ws, WorkspaceConfigName), `{"agents": ["pi"]}`)
 
-	errs := validateAgentsScopeErrs(t, ws, `["codex"]`)
-	if len(errs) != 1 || !strings.Contains(errs[0], "codex") {
-		t.Fatalf("errors = %v, want one naming codex", errs)
+	errs := validateAgentsScopeErrs(t, ws, `["pi"]`)
+	if len(errs) != 1 || !strings.Contains(errs[0], "pi") {
+		t.Fatalf("errors = %v, want one naming pi", errs)
 	}
 }
 

@@ -53,10 +53,11 @@ Merge edge cases that surprise people:
 
 - Objects deep-merge; lists **union and de-dupe** — **except `agents`, which
   replaces wholesale** (list the full set you want, not just additions). A
-  workspace `agents` may only **narrow** the user's set: naming an agent absent
-  from `~/.config/yolo-jail/config.jsonc` is an error, because selecting an agent
-  mounts that agent's host files into the jail and this file is committed and
-  agent-editable.
+  workspace `agents` may not **add** an agent that reads host files (`claude`,
+  `pi`) unless `~/.config/yolo-jail/config.jsonc` already lists it — selecting one
+  mounts that agent's host `settings.json` into the jail, and this file is committed
+  and agent-editable. Agents that read no host files are freely selectable, and
+  narrowing the set is always allowed.
 - A scalar or `null` in a later layer **overrides**. Use this to disable an
   inherited entry: `"mcp_servers": { "foo": null }` removes an inherited server;
   the same trick disables an inherited preset.

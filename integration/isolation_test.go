@@ -22,7 +22,7 @@ import (
 // shadow coverage is fully preserved:
 //
 //  1. AGENTS.md — workspace file untouched while generated AGENTS context is
-//     mounted into ~/.copilot and ~/.gemini.
+//     mounted into ~/.copilot and ~/.codex.
 //  2. host .venv — a host-created .venv (interpreter symlink into the host mise
 //     store) is shadowed by the per-side .yolo/home dir, not leaked through the
 //     /workspace bind.
@@ -79,7 +79,7 @@ func TestWorkspaceIsolation(t *testing.T) {
 
 	// --- one launch, one fenced probe per property ---
 	r := runYolo(t, dir, strings.Join([]string{
-		`echo "=== AGENTS ==="; ls /home/agent/.copilot/AGENTS.md && ls /home/agent/.gemini/AGENTS.md; echo "AGENTS rc=$?"`,
+		`echo "=== AGENTS ==="; ls /home/agent/.copilot/AGENTS.md && ls /home/agent/.codex/AGENTS.md; echo "AGENTS rc=$?"`,
 		`echo "=== VENV ==="; ls -a /workspace/.venv/ && cat /workspace/.venv/pyvenv.cfg 2>/dev/null; true`,
 		`echo "=== MISE ==="; echo "MISE_DATA_DIR=$MISE_DATA_DIR" && touch /mise/.yolo-write-probe && rm /mise/.yolo-write-probe && echo MISE_STORE_WRITABLE`,
 		`echo "=== VSCODE ==="; cat /workspace/.vscode/mcp.json`,
@@ -94,7 +94,7 @@ func TestWorkspaceIsolation(t *testing.T) {
 
 	// (1) home AGENTS.md present, and the workspace file was NOT modified.
 	if !strings.Contains(agents, "AGENTS rc=0") {
-		t.Fatalf("home ~/.copilot + ~/.gemini AGENTS.md not both present:\n%s", agents)
+		t.Fatalf("home ~/.copilot + ~/.codex AGENTS.md not both present:\n%s", agents)
 	}
 	if got, err := os.ReadFile(workspaceAgents); err != nil {
 		t.Fatalf("re-reading workspace AGENTS.md: %v", err)

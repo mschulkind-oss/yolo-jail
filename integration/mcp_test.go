@@ -10,16 +10,16 @@ import (
 
 // MCP-config tests. The in-jail `python - <<'PY' ... PY` probes parse the jail
 // image's
-// generated agent config files (copilot mcp-config.json, gemini settings.json)
+// generated agent config files (copilot mcp-config.json, codex config.toml)
 // with the image's python3, unaffected by host-side Python ejection.
 
-// mcpConfigWithAgents is the standard fixture (copilot + gemini + claude, curl +
+// mcpConfigWithAgents is the standard fixture (copilot + codex + claude, curl +
 // grep blocks, bridge net) with an extra top-level key merged in — the Go
 // equivalent of the Python tests reading temp_project's config, adding a key, and
 // writing it back.
 func mcpConfigWithAgents(extra string) string {
 	return `{
-  "agents": ["copilot", "gemini", "claude"],
+  "agents": ["copilot", "codex", "claude"],
   "security": {
     "blocked_tools": [
       "curl",
@@ -32,7 +32,7 @@ func mcpConfigWithAgents(extra string) string {
 }
 
 // TestCustomMcpServerConfigPropagates confirms custom MCP servers from
-// yolo-jail.jsonc reach both agent configs (copilot mcp-config.json and gemini
+// yolo-jail.jsonc reach both agent configs (copilot mcp-config.json and codex
 // settings.json).
 func TestCustomMcpServerConfigPropagates(t *testing.T) {
 	requireJail(t)
@@ -46,9 +46,10 @@ func TestCustomMcpServerConfigPropagates(t *testing.T) {
 import json
 from pathlib import Path
 copilot = json.loads(Path('/home/agent/.copilot/mcp-config.json').read_text())
-gemini = json.loads(Path('/home/agent/.gemini/settings.json').read_text())
+codex = Path('/home/agent/.codex/config.toml').read_text()
 print(copilot['mcpServers']['probe-mcp']['command'])
-print(gemini['mcpServers']['probe-mcp']['command'])
+# codex is TOML; assert the command lands rather than parsing it.
+print([l for l in codex.splitlines() if 'probe-mcp.py' in l][0].split('"')[1])
 PY`)
 	if r.rc != 0 {
 		t.Fatalf("expected rc 0, got %d\n%s", r.rc, r.stderr)
@@ -69,11 +70,11 @@ func TestMcpPresetCanBeEnabled(t *testing.T) {
 import json
 from pathlib import Path
 copilot = json.loads(Path('/home/agent/.copilot/mcp-config.json').read_text())
-gemini = json.loads(Path('/home/agent/.gemini/settings.json').read_text())
+codex = Path('/home/agent/.codex/config.toml').read_text()
 print('chrome-devtools' in copilot['mcpServers'])
-print('chrome-devtools' in gemini['mcpServers'])
+print('chrome-devtools' in codex)
 print('sequential-thinking' in copilot['mcpServers'])
-print('sequential-thinking' in gemini['mcpServers'])
+print('sequential-thinking' in codex)
 PY`)
 	if r.rc != 0 {
 		t.Fatalf("expected rc 0, got %d\n%s", r.rc, r.stderr)
@@ -121,12 +122,12 @@ func TestSameFilePresetAndNullOverrideIsRejected(t *testing.T) {
 
 // TestWorkspaceMcpConfigsAreIsolated confirms each workspace keeps its own
 // generated MCP config files (host-side per-agent overlays at
-// <ws>/.yolo/home/{copilot/mcp-config.json,gemini/settings.json}), so one
+// <ws>/.yolo/home/{copilot/mcp-config.json,codex/config.toml}), so one
 // workspace's servers never leak into another's.
 func TestWorkspaceMcpConfigsAreIsolated(t *testing.T) {
 	requireJail(t)
 	base := `{
-  "agents": ["copilot", "gemini"],
+  "agents": ["copilot", "codex"],
   "security": {"blocked_tools": ["curl"]},
   "network": {"mode": "bridge"},
   `
@@ -162,13 +163,13 @@ func TestWorkspaceMcpConfigsAreIsolated(t *testing.T) {
 	if !hasChromeDevtools(projectA, "copilot", "mcp-config.json") {
 		t.Fatalf("project_a copilot config missing chrome-devtools")
 	}
-	if !hasChromeDevtools(projectA, "gemini", "settings.json") {
-		t.Fatalf("project_a gemini config missing chrome-devtools")
+	if !hasChromeDevtools(projectA, "codex", "config.toml") {
+		t.Fatalf("project_a codex config missing chrome-devtools")
 	}
 	if hasChromeDevtools(projectB, "copilot", "mcp-config.json") {
 		t.Fatalf("project_b copilot config should not have chrome-devtools (project_a leaked in)")
 	}
-	if hasChromeDevtools(projectB, "gemini", "settings.json") {
-		t.Fatalf("project_b gemini config should not have chrome-devtools")
+	if hasChromeDevtools(projectB, "codex", "config.toml") {
+		t.Fatalf("project_b codex config should not have chrome-devtools")
 	}
 }

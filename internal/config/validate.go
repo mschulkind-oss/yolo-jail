@@ -74,6 +74,7 @@ func ValidateConfig(config *jsonx.OrderedMap, workspace string, resolver Loophol
 	validateCacheRelocations(config, workspace, errs, warns)
 	validateWritableHomeDirs(config, errs)
 	validateHostFiles(config, workspace, errs)
+	validatePacks(workspace, errs)
 
 	errors = *errs
 	warnings = *warns
@@ -237,14 +238,33 @@ func validateAgentsScope(config *jsonx.OrderedMap, workspace string, errs *[]str
 		if _, ok := allowed[s]; ok {
 			continue
 		}
-		add(errs, fmt.Sprintf("config.agents[%d]: a workspace config cannot widen "+
-			"the agent set — '%s' is not in your user config's agents. Selecting an "+
-			"agent mounts that agent's host files (~/.%s/…) into the jail, and a "+
-			"workspace config travels with the repo and is agent-editable, so it "+
-			"cannot decide which host files cross. Add '%s' to "+
-			"~/.config/yolo-jail/config.jsonc to allow it here. A workspace config "+
-			"may still NARROW the set to a subset of your own.",
-			i, s, s, s))
+		// Gate ONLY on agents that actually cross a host file. The boundary being
+		// protected is "a repo-committed, agent-editable file must not decide which
+		// host files enter the jail" — so an agent with an empty HostFilesSpec crosses
+		// nothing and a workspace may select it freely.
+		//
+		// Scoping to the real boundary matters beyond precision: gating on ALL agents
+		// made a workspace config's validity depend on the DEVELOPER'S OWN user
+		// config, so a committed yolo-jail.jsonc selecting copilot broke for anyone
+		// whose user config did not also list it — including every integration test
+		// on a default (claude-only) machine. That is a portability bug, and it is not
+		// buying any security, because copilot has no host files to leak.
+		if spec, known := agents.Get(s); known && spec.HostFiles.Dir == "" {
+			continue
+		}
+		hostDir := s
+		if spec, known := agents.Get(s); known && spec.HostFiles.Dir != "" {
+			hostDir = spec.HostFiles.Dir
+		}
+		add(errs, fmt.Sprintf("config.agents[%d]: a workspace config cannot add "+
+			"'%s' — it is not in your user config's agents, and selecting it would "+
+			"mount that agent's host files (~/%s/) into the jail. A workspace config "+
+			"travels with the repo and is agent-editable, so it cannot decide which "+
+			"host files cross the boundary. Add '%s' to "+
+			"~/.config/yolo-jail/config.jsonc to allow it here. A workspace config may "+
+			"freely select any agent that reads no host files, and may always NARROW "+
+			"the set.",
+			i, s, hostDir, s))
 	}
 }
 

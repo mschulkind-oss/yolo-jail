@@ -49,10 +49,11 @@
     Merge: unlike other list fields, [bold]agents replaces (does not union)[/bold] across
     the user→workspace hierarchy — so a workspace can NARROW the user set
     (e.g. user ["claude","pi"] but a claude-only workspace ["claude"]).  It may
-    NOT WIDEN it: naming an agent absent from your user config is an ERROR,
-    because selecting an agent mounts that agent's host files into the jail and a
-    workspace config travels with the repo (it is agent-editable), so it cannot
-    decide which host files cross the boundary.
+    NOT ADD an agent that READS HOST FILES (claude, pi) unless your user config
+    already lists it — selecting one mounts that agent's host settings.json into
+    the jail, and a workspace config travels with the repo (it is agent-editable),
+    so it cannot decide which host files cross the boundary.  Agents that read no
+    host files (copilot, codex, opencode, agy) may be selected freely.
     Auth: each agent authenticates itself inside the jail (claude/copilot/codex
     OAuth via their own /login or `codex login`; opencode/pi/codex also accept a
     provider API key via env_sources — e.g. OPENAI_API_KEY for codex).
