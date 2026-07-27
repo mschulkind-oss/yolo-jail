@@ -427,12 +427,29 @@ are better candidates than agent support is.
 
 **Not candidates:**
 
-- **Mount assembly, the credential boundary, the OAuth broker.** These are the security
-  model. `AgentSpec.HostFiles` in particular is a *hard-coded allowlist deliberately made
-  unwidenable by config* — the retired `host_claude_files` keys are the counter-example.
-  If agent support becomes a pack, **that field must stay in Go**, or the pack system has
-  reopened the exact hole `a84b11c` closed. This is the sharpest constraint on the whole
-  idea and it should be settled before anything else.
+- **Mount assembly, the OAuth broker.** These are the security model.
+
+**`AgentSpec.HostFiles` — RESOLVED 2026-07-27, and the two docs disagreed until now.**
+This section said it "must stay in Go"; [three-decisions.md §0.1](three-decisions.md)
+said user-scope-only packs dissolve the tension. Both were half right, and the missing
+distinction is **which kind of pack**:
+
+| | Embedded official pack | Fetched third-party pack |
+|---|---|---|
+| what it is | yolo-shipped code, in the image, reviewed with the release | someone else's git ref |
+| may it name a host file? | **yes** — it *is* the yolo-shipped decision, just expressed as data instead of a Go literal | **no** — that is a genuinely stronger permission than shipping a skill file, and no scope rule makes it not so |
+
+So the honest rule is not "HostFiles stays in Go", it is **"a host-file grant may only
+come from a yolo-shipped or user-authored source, never from fetched content"**. The
+user-scope argument covers the *config* channel (a workspace cannot name a pack) but
+NOT the *content* channel — a user who installs a third-party pack has approved
+distributing skills, not handing that repo their `~/.claude/settings.json`.
+
+That is why `internal/agentcfg.ManifestWith` deliberately stops short: a pack surface
+names a jail destination and its layers, and the host SOURCE stays with
+`agents.AgentSpec.HostFiles`. Splitting a host-file grant out as its own declaration —
+distinguishable by pack origin — is the work D4 actually names, and it is not the same
+as moving surfaces to data.
 
 ---
 

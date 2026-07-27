@@ -381,6 +381,15 @@ rule needs no extension:
 Packs live on the permitted side of that line by definition. **No request/grant split, no new
 mechanism, and `AgentSpec.HostFiles` can become pack data without reopening anything.**
 
+**⚠ Narrowed 2026-07-27.** That conclusion is right for an EMBEDDED OFFICIAL pack and
+wrong for a FETCHED one, and the difference matters more than the scope rule. Packs
+being user-scope means a *workspace* cannot name a pack — it does not mean a user who
+installed a third-party pack agreed to hand that repo their `~/.claude/settings.json`.
+Installing a pack approves distributing skills and prose; it is not consent to a
+host-file grant. So the rule is "a host-file grant may come only from a yolo-shipped or
+user-authored source, never from fetched content", not "user scope makes it safe". See
+[packs-and-the-prism.md §5](packs-and-the-prism.md).
+
 One precision worth keeping straight, because I stated it loosely before: user config **can**
 name `~/.ssh/id_ed25519`. `SourceBearing()` (`hostfiles.go:142`) gates on *authorship trust* —
 "a human editing their own user config chose this" — not on a vetted path list. The boundary
