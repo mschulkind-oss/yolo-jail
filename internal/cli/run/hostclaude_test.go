@@ -6,7 +6,8 @@ import (
 	"strings"
 	"testing"
 
-	"github.com/mschulkind-oss/yolo-jail/internal/agents"
+	"github.com/mschulkind-oss/yolo-jail/internal/packload"
+	officialpacks "github.com/mschulkind-oss/yolo-jail/packs"
 )
 
 // TestHostFileMounts covers the yolo-declared host-file mounts (hostFileArgs)
@@ -39,11 +40,26 @@ func TestHostFileMounts(t *testing.T) {
 	}
 
 	o := &Options{}
+	// Host-file grants now come from PACK DECLARATIONS gated on origin, not from the
+	// agent registry. The fixture loads the real official packs so it pins what those
+	// packs declare rather than a hand-written stub.
+	official, problems := packload.MaterializeEmbedded(officialpacks.FS, t.TempDir())
+	if len(problems) != 0 {
+		t.Fatalf("materializing official packs: %v", problems)
+	}
 	newIn := func(names ...string) *assembleInput {
+		var chosen []*packload.Pack
+		for _, n := range names {
+			for _, p := range official {
+				if p.Name == n {
+					chosen = append(chosen, p)
+				}
+			}
+		}
 		return &assembleInput{
 			wsState:      filepath.Join(home, ".yolo", "home"),
 			mountTargets: map[string]struct{}{},
-			agentSpecs:   agents.ResolveAgents(names),
+			packs:        chosen,
 		}
 	}
 
@@ -85,10 +101,20 @@ func TestHostFileMountsSkipsAbsent(t *testing.T) {
 		t.Fatal(err)
 	}
 	o := &Options{}
+	official, problems := packload.MaterializeEmbedded(officialpacks.FS, t.TempDir())
+	if len(problems) != 0 {
+		t.Fatalf("materializing official packs: %v", problems)
+	}
+	var piPack []*packload.Pack
+	for _, p := range official {
+		if p.Name == "pi" {
+			piPack = append(piPack, p)
+		}
+	}
 	in := &assembleInput{
 		wsState:      filepath.Join(home, ".yolo", "home"),
 		mountTargets: map[string]struct{}{},
-		agentSpecs:   agents.ResolveAgents([]string{"pi"}),
+		packs:        piPack,
 	}
 	if got := o.hostFileArgs(in); got != nil {
 		t.Errorf("absent settings.json: want nil args, got %v", got)
