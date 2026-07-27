@@ -291,11 +291,22 @@ func packLs(out, errw io.Writer, color bool) int {
 	}
 	pr.Printf("[bold]%-20s %-8s %s[/bold]", "NAME", "KIND", "SOURCE")
 	for _, e := range entries {
+		// KIND is the pack's ORIGIN, which is the one thing that decides whether its
+		// host-access declarations are honored — so it is the column worth showing.
 		kind := "git"
-		if e.IsLocal() {
+		switch {
+		case e.Embedded():
+			kind = "builtin"
+		case e.IsLocal():
 			kind = "local"
 		}
-		pr.Printf("%-20s %-8s %s", e.Name, kind, e.Source)
+		source := e.Source
+		if e.Embedded() {
+			// "embedded:claude" is a synthetic marker, not an address; printing it in a
+			// SOURCE column would invite someone to copy it as one.
+			source = "(ships with yolo)"
+		}
+		pr.Printf("%-20s %-8s %s", e.Name, kind, source)
 		if len(e.Only) > 0 || len(e.Exclude) > 0 {
 			pr.Printf("  [dim]only: %v  exclude: %v[/dim]", e.Only, e.Exclude)
 		}
@@ -326,6 +337,16 @@ func packExplain(args []string, out, errw io.Writer, color bool) int {
 	if entry == nil {
 		fmt.Fprintf(errw, "yolo pack explain: no configured pack named %q "+
 			"(see `yolo pack ls`)\n", name)
+		return 1
+	}
+	if entry.Embedded() {
+		// A builtin's tree lives in the binary, so there is no directory to stage from
+		// here and its content is fixed — `explain` answers "why isn't MY skill showing
+		// up", which is never about a shipped pack. Say so rather than staging from
+		// "embedded:<name>" as if it were a path (which would report an empty pack).
+		fmt.Fprintf(errw, "yolo pack explain: %s ships with yolo — its content is fixed, "+
+			"so there are no only/exclude filters to explain. See `yolo config ls` for the "+
+			"config files it renders.\n", name)
 		return 1
 	}
 	if !entry.IsLocal() {
@@ -403,6 +424,12 @@ func packInstall(out, errw io.Writer, color bool) int {
 	var names []string
 	for _, e := range entries {
 		names = append(names, e.Name)
+		// An EMBEDDED pack ships inside the binary: nothing to fetch, no commit to pin.
+		// It is still NAMED here so the lockfile prune below does not treat it as
+		// removed-from-config and drop a real entry alongside it.
+		if e.Embedded() {
+			continue
+		}
 		addr, err := packsrc.Parse(e.Source)
 		if err != nil {
 			fmt.Fprintf(errw, "yolo pack install: %s: %v\n", e.Name, err)
@@ -485,9 +512,21 @@ func packStatus(out, errw io.Writer, color bool) int {
 
 	configured := map[string]string{}
 	for _, e := range entries {
+		// EMBEDDED packs are excluded from the drift map deliberately: they have no lock
+		// entry to drift from, and including them would make DriftFrom report every
+		// builtin as "config changed since install" forever.
+		if e.Embedded() {
+			continue
+		}
 		configured[e.Name] = e.Source
 	}
 	for _, e := range entries {
+		if e.Embedded() {
+			// Never "not installed": it ships in the binary, so telling the user to run
+			// `yolo pack install` would send them to a command that cannot help.
+			pr.Printf("%-20s [dim]builtin[/dim]", e.Name)
+			continue
+		}
 		locked, ok := lock.Get(e.Name)
 		switch {
 		case !ok:

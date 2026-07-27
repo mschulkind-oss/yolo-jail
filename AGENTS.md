@@ -1,22 +1,37 @@
 # YOLO Jail: Agent Developer Guide
 
 yolo-jail runs coding agents in an isolated container against a live-mounted
-workspace, without exposing host credentials or identity. The agent REGISTRY
-(`internal/agents`) still knows six agents (`claude`, `copilot`, `opencode`,
-`pi`, `codex`, `agy`), and a selection still gates overlay dirs, briefings,
-and skills — but **the `agents` config key is GONE** and there is no default
-agent set. Config carries ONE list of `packs`; a pack that installs an agent is
-just a pack, and nothing in the pack machinery knows what an agent is.
+workspace, without exposing host credentials or identity.
+
+**AGENTS ARE PACKS. Core does not know what an agent is.** There is no agent
+registry, no `agents` config key, and no `YOLO_AGENTS`. Config carries ONE list
+of `packs`; the six that ship with yolo (`claude`, `copilot`, `opencode`, `pi`,
+`codex`, `agy`) live in `packs/*/pack.json` and are selected by BARE NAME —
+`"packs": ["claude"]`. **Nothing is active by default**: an empty config yields a
+jail with no coding agent, and says so at launch (`run.warnIfNoPacks`).
 `internal/config/validate.go` hard-errors on `agents` on the host (and warns
-in-jail, where the config is the generated snapshot). Consequences worth knowing
-before you debug a "missing agent": `config.SelectedAgents` is a transitional
-shim returning the empty set, so a jail today resolves ZERO agents — no
-briefings are written (`prepare.go`'s loop runs over resolved agents), no
-per-agent skills stage, and `YOLO_AGENTS=[]`. That state is reported by a
-PRINTED launch warning (`run.warnIfNoPacks`) and a `yolo check` [WARN], because
-with no agents there is no briefing file to put a note in. **No pack can declare
-an agent yet** — `PackEntry` has no field for it and `agentcfg.ManifestWith`
-has no production caller — so restoring agent installation is still open work.
+in-jail, where the config is the generated snapshot).
+
+What a pack declares (`internal/packdecl`), all read through `internal/packload`:
+install spec, mounts, writable/shared dirs, host-file grants, composed
+`surfaces`, launch flags, and named `hooks`. The boot path renders every one in a
+single loop (`entrypoint/packsurfaces.go`) with no switch on any tool name. Two
+things worth knowing before you debug:
+
+- **The MOUNT is the filter.** The entrypoint renders every pack under
+  `YOLO_PACK_ROOT`, so `stagePacks` copies only the SELECTED packs into the
+  mounted tree (and clears it, so a dropped pack stops rendering). Staging all
+  six and filtering later renders packs nobody asked for.
+- **`packload.Embedded*` is deliberately NOT selection-gated.** The reservation
+  lists (`host_files` writable roots, `writable_home_dirs` segments, GlobalHome
+  subdirs) cover every pack yolo SHIPS, or a `host_files` entry could claim a
+  path a pack added tomorrow needs.
+
+`agentcfg.BuiltinManifest()` is now core's own surfaces only (`mise/config`);
+callers wanting the full set merge pack surfaces via `ManifestWith`.
+`internal/agents` keeps only what was never per-agent: skills staging, briefing
+composition, loophole descriptions, the source-tree probe.
+
 Backends are `podman`, `container` (Apple Container), and `macos-user` (macOS
 Seatbelt, no VM) — **Docker was removed**; validate.go hard-errors on it too.
 
@@ -184,6 +199,8 @@ there is no sync step.
 | Topic | Authority |
 |---|---|
 | Config keys, all of them | `yolo config-ref` |
+| Pack manifest schema | `internal/packdecl/packdecl.go` (the doc comments ARE the reference) |
+| Pack authoring + the `packs` key | `yolo pack --help`, `docs/design/packs-and-the-prism.md` |
 | CLI surface | `yolo --help` |
 | End-user usage, devices/GPU, mise tools, `yolo-cglimit` | `docs/guides/USER_GUIDE.md` |
 | Mounts, overlays, home layout | `docs/design/jail-home.md` |

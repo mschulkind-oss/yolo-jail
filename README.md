@@ -3,7 +3,7 @@
 [![CI](https://github.com/mschulkind-oss/yolo-jail/actions/workflows/ci.yml/badge.svg)](https://github.com/mschulkind-oss/yolo-jail/actions/workflows/ci.yml)
 [![License](https://img.shields.io/badge/License-Apache_2.0-blue.svg)](LICENSE)
 
-A secure, isolated container environment for AI coding agents (Claude Code, Copilot, opencode, pi, Codex, Antigravity) to safely modify codebases without compromising host security or identity. See [Agents](#agents) for the current state of agent installation (the `agents` config key was removed). Runs on **Linux and macOS** (Apple Silicon and Intel) with Podman or Apple Container.
+A secure, isolated container environment for AI coding agents (Claude Code, Copilot, opencode, pi, Codex, Antigravity) to safely modify codebases without compromising host security or identity. Agents are selected with the `packs` config key — see [Agents](#agents). Runs on **Linux and macOS** (Apple Silicon and Intel) with Podman or Apple Container.
 
 ## Why?
 
@@ -212,7 +212,34 @@ Create a per-project config in `yolo-jail.jsonc`:
 
 Workspace config merges over user defaults (`~/.config/yolo-jail/config.jsonc`), and a sibling `yolo-jail.local.jsonc` — meant to be gitignored for per-machine overrides — auto-merges over the workspace config. Lists merge and dedupe, scalars override.
 
-**One key opts out of that merge: `cache_relocations` is user-scope only.** It moves a subdir of the jail cache onto other storage, bind-mounted **read-write**, so it is read straight from `~/.config/yolo-jail/config.jsonc` and nowhere else — a workspace config lives inside the jail's writable mount, so an agent could otherwise grant itself a read-write host mount. `yolo check` errors if the key appears in `yolo-jail.jsonc`. Podman only.
+**Two keys opt out of that merge, and both for the same reason: a workspace config
+lives inside the jail's writable mount, so an agent could otherwise grant itself
+something.** `packs` and `cache_relocations` are read straight from
+`~/.config/yolo-jail/config.jsonc` and nowhere else; `yolo check` errors if either
+appears in `yolo-jail.jsonc`.
+
+```jsonc
+// ~/.config/yolo-jail/config.jsonc — never yolo-jail.jsonc
+{
+  // Everything a jail has beyond a bare shell. A bare NAME selects a pack that
+  // ships with yolo; an address brings one from elsewhere. Nothing is on by
+  // default, so with no entries here a jail has no coding agent.
+  "packs": [
+    "claude",                                    // a shipped agent pack
+    "file:///home/me/code/my-skills-pack",       // a local pack of your own
+    "git+ssh://git@github.com/org/repo//packs/team?ref=main"
+  ]
+}
+```
+
+A pack delivers a coding agent (its CLI, config files, skills and briefing), or
+your own shared skills and house rules, or both. An EMBEDDED pack — one shipped
+with yolo — may read a host file, which is how `claude` and `pi` compose your own
+`settings.json` into the jail. A FETCHED pack never can: installing a
+third-party pack approves distributing content, not handing that repository your
+host config. Run `yolo pack --help` for authoring and `yolo pack install` to fetch.
+
+**On `cache_relocations` specifically:** it moves a subdir of the jail cache onto other storage, bind-mounted **read-write** — which is the read-write host mount an agent must not be able to grant itself. Podman only.
 
 ```jsonc
 // ~/.config/yolo-jail/config.jsonc — never yolo-jail.jsonc
@@ -233,29 +260,31 @@ Run `yolo config-ref` for the full configuration reference.
 ## Agents
 
 > [!IMPORTANT]
-> **The `agents` config key has been REMOVED, and there is currently no
-> replacement.** A config still carrying it is rejected with an error, and there
-> is no default agent set — so a jail launched today comes up with **no coding
-> agent at all**, and says so at launch and in `yolo check`.
+> **The `agents` config key has been REMOVED. An agent arrives as a `packs`
+> entry.** A config still carrying `agents` is rejected with an error.
 >
-> The design is that an agent arrives as a **pack**, like every other thing a
-> jail knows how to do (see [Packs](#packs)). That half is not built yet: no pack
-> can declare an agent, so configuring packs delivers skills and briefing prose
-> but will not install `claude`. Agent installation is open work; the table below
-> documents the registry's agents, not something you can currently select.
+> Name the pack you want, in your USER config
+> (`~/.config/yolo-jail/config.jsonc` — a workspace config cannot name one):
+>
+> ```jsonc
+> { "packs": ["claude"] }   // also: copilot, codex, opencode, pi, agy
+> ```
+>
+> **Nothing is on by default**, so a jail with no `packs` really has no coding
+> agent, and says so at launch and in `yolo check`.
 
-YOLO Jail is a **library of coding agents**. Which ones a jail gets is not a
-setting of its own any more — it follows from the packs you configure, and
-nothing in the pack machinery knows what an agent is.
+YOLO Jail is a **library of coding agents**. Which ones a jail gets follows from
+the packs you configure, and nothing in the core knows what an agent is — the six
+below are pack files (`packs/*/pack.json`), not Go code.
 
-- **No rebuild:** agents install lazily on first use, so the selection never
+- **No rebuild:** agents install lazily on first use, so changing `packs` never
   rebuilds the image — just restart the jail.
 
 Each agent is launched with its autonomous/YOLO mode auto-enabled (the jail
 container is the security boundary), and authenticates itself **inside the
 jail** — host credentials never cross the boundary.
 
-| Agent | registry name | Run | Install | Auth (inside the jail) |
+| Agent | pack name | Run | Install | Auth (inside the jail) |
 |---|---|---|---|---|
 | **Claude Code** | `claude` | `yolo -- claude` | native installer | `/login` on first run |
 | **GitHub Copilot** | `copilot` | `yolo -- copilot` | npm `@github/copilot` | `/login` (GitHub OAuth) |

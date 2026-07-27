@@ -184,3 +184,31 @@ func TestSectionPacksWarnsOnZeroStagedFiles(t *testing.T) {
 		t.Errorf("expected a 0-files warning:\n%s", buf.String())
 	}
 }
+
+// TestEmbeddedPacksPassCheckWithoutAnAddress is the regression for a failure only the
+// integration suite caught: `yolo check` parsed every entry's Source as a fetchable
+// address, so a `packs: ["claude"]` entry failed with `pack address "embedded:claude" has
+// no scheme`. A user's valid config reported three failures.
+//
+// Reported PASSING rather than skipped: someone who wrote `packs: ["claude"]` should see it
+// acknowledged, not wonder whether the key took effect.
+func TestEmbeddedPacksPassCheckWithoutAnAddress(t *testing.T) {
+	packsFixture(t, `{"packs": ["claude", "codex"]}`)
+
+	var out bytes.Buffer
+	r := newReporter(&out, false)
+	(&Options{}).sectionPacks(r)
+	got := out.String()
+	if strings.Contains(got, "no scheme") {
+		t.Errorf("an embedded pack must not be parsed as an address:\n%s", got)
+	}
+	if r.failed != 0 {
+		t.Errorf("want 0 failures for a valid embedded selection, got %d:\n%s",
+			r.failed, got)
+	}
+	for _, name := range []string{"claude", "codex"} {
+		if !strings.Contains(got, name) {
+			t.Errorf("check should acknowledge the %s pack:\n%s", name, got)
+		}
+	}
+}

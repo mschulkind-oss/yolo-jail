@@ -70,6 +70,15 @@ func (o *Options) sectionPacks(r *reporter) {
 	}
 
 	for _, e := range entries {
+		// An EMBEDDED pack ships inside the binary, so there is nothing to fetch, resolve,
+		// or stage from a store — and its synthetic "embedded:<name>" source is not an
+		// address. Reporting it PASSING rather than skipping silently: a user who wrote
+		// `packs: ["claude"]` should see it acknowledged here, not wonder whether the key
+		// took effect.
+		if e.Embedded() {
+			r.ok(e.Name + ": ships with yolo")
+			continue
+		}
 		addr, err := packsrc.Parse(e.Source)
 		if err != nil {
 			r.fail(e.Name+": "+err.Error(), "")
