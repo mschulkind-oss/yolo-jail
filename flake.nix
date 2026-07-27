@@ -737,10 +737,17 @@
               mkdir -p ./var/tmp ./var/cache ./var/log ./run ./var/lib/containers
 
               # Pre-create mountpoint directories for --read-only root filesystem.
-              # With --read-only, the OCI runtime cannot create these on the fly.
               # /opt/yolo-jail is NOT here: it is baked content (installPrefix),
               # not a bind mount, so the OCI layer already provides it.
               mkdir -p ./home/agent ./workspace ./tmp ./mise
+              # F8: the ./ctx/* entries are NOT required. podman creates a nested
+              # mountpoint under /ctx on demand even with --read-only — verified live:
+              # /ctx/host-pi exists and carries a mount while appearing in no image
+              # layer and in no mkdir here. Kept only because they are harmless and
+              # removing them would be an unrelated image change; the point of
+              # recording it is that a NEW /ctx consumer (pack staging at
+              # /ctx/packs/<slug>) needs no flake edit, which drops a constraint the
+              # pack design had assumed.
               mkdir -p ./ctx/host-claude ./ctx/host-nvim-config
               mkdir -p ./nix/var/nix/daemon-socket
 

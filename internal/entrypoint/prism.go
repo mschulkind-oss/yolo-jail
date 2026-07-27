@@ -552,6 +552,23 @@ func ConfigureAgyPrism(e *Env) error {
 // re-asserts these every boot), fill its Defaults only where absent (a value the
 // agent already chose wins), write back in place. Unknown keys are preserved
 // untouched — that is the whole point. No sidecars are written or read.
+//
+// SCOPE, stated because it is easy to over-read what this covers (F7): it handles a
+// STATIC asserted-key set. It cannot express a REMOVAL from a dynamic table, because
+// with no record of what yolo asserted last boot there is no way to distinguish "the
+// agent added this server" from "yolo added it and config has since dropped it" —
+// they look identical on disk.
+//
+// That is exactly why writeClaudeJSON still keeps its managed-MCP sidecar
+// (claude.go:58,71): the sidecar IS that record, and mcpServers is a dynamic table
+// where a dropped entry must actually disappear. So claude/config stays on its bespoke
+// writer rather than moving here, and this serves surfaces whose yolo-owned keys are
+// declared and static — copilot/config being the case it was built for.
+//
+// Generalizing to dynamic tables needs a third artifact (a per-surface record of the
+// last asserted key set) plus a `config reset` story for it, since reset today is
+// defined over the capture sidecars. Deliberately not built on speculation: nothing
+// yet needs it that writeClaudeJSON does not already handle.
 func renderSurfaceRMW(e *Env, agent, name string) error {
 	surface, ok := agentcfg.BuiltinManifest().Lookup(agent, name)
 	if !ok {

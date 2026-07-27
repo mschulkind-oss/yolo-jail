@@ -28,6 +28,22 @@ type BriefingSpec struct {
 // bought — plan §10.4 D1/D2/D4). Dir is the $HOME-relative host subdir the CLI
 // binds read-only at /ctx/host-<agent>/; Files are basenames under Dir. The zero
 // value (Dir == "") means nothing crosses.
+//
+// F2: HostFiles is NOT the only field that reads the host home, and treating it as
+// the whole boundary is a mistake worth not repeating. The full set is THREE fields:
+//
+//	HostFiles           this: an explicit, per-agent file allowlist
+//	Briefing.HostSource  a host-home path read on every run, whose bytes are
+//	                     PREPENDED into the briefing the agent then follows
+//	                     (cli/run/prepare.go, PrependHostBriefing)
+//	Skills               the WIDEST of the three: a recursive tree copy of
+//	                     ~/.<agent>/skills that DEREFERENCES symlinks (skills.go)
+//
+// Any future mechanism that lets a non-yolo source declare one of these — a pack,
+// say — has to cover all three, not just the one with "HostFiles" in its name. The
+// symlink-dereferencing tree copy is the one that would surprise someone: it is safe
+// today only because its source is the user's OWN home, which is why
+// internal/packstage refuses an escaping symlink instead of following it.
 type HostFilesSpec struct {
 	Dir   string   // e.g. ".claude", ".pi/agent"; "" == none
 	Files []string // relative to Dir; e.g. []string{"settings.json"}

@@ -115,3 +115,37 @@ func TestCopilotRMWIsIdempotentAndRespectsAgentChoice(t *testing.T) {
 		t.Errorf("a DEFAULT must not overwrite the agent's own value:\n%s", data)
 	}
 }
+
+// F7 boundary: RMW asserts a STATIC key set and cannot express a REMOVAL from a
+// dynamic table. This pins the limit so nobody moves a dynamic-table surface onto it
+// expecting removals to work.
+//
+// With no record of what yolo asserted last boot, "the agent added this key" and
+// "yolo added it and config has since dropped it" are indistinguishable on disk — so
+// RMW preserves an unknown key, which is right for agent state and WRONG for a stale
+// yolo-owned entry. claude/config keeps its bespoke writer and managed-MCP sidecar for
+// exactly this reason.
+func TestRMWPreservesUnknownKeysAndCannotExpressRemoval(t *testing.T) {
+	e := &Env{Home: t.TempDir(), Workspace: t.TempDir(), Vars: map[string]string{}}
+	dir := filepath.Join(e.Home, ".copilot")
+	if err := os.MkdirAll(dir, 0o755); err != nil {
+		t.Fatal(err)
+	}
+	cfg := filepath.Join(dir, "config.json")
+	// A key that LOOKS like stale yolo output sitting next to real agent state.
+	if err := os.WriteFile(cfg,
+		[]byte(`{"yolo":true,"looks_stale":"?","copilot_tokens":{"gh":"t"}}`), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	if err := ConfigureCopilotPrism(e); err != nil {
+		t.Fatal(err)
+	}
+	got := readFile(t, cfg)
+	// Both are preserved, because RMW cannot tell them apart. That is the documented
+	// trade: keeping a dead key is cosmetic, dropping a live one loses a token.
+	for _, want := range []string{"looks_stale", "copilot_tokens"} {
+		if !strings.Contains(got, want) {
+			t.Errorf("RMW dropped %q; it must preserve unknown keys:\n%s", want, got)
+		}
+	}
+}

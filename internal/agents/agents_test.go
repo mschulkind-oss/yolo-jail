@@ -2,6 +2,7 @@ package agents
 
 import (
 	"os"
+	"strings"
 	"testing"
 )
 
@@ -66,5 +67,31 @@ func TestEmptyAgentSelectionIsSupported(t *testing.T) {
 	}
 	if len(entries) != 0 {
 		t.Errorf("no agents selected but skills were staged: %v", entries)
+	}
+}
+
+// F2: the credential-boundary field set is {HostFiles, Briefing.HostSource, Skills}.
+// This pins the SHAPE of that claim so a future pack-declared-surface mechanism cannot
+// cover only the field named "HostFiles" and believe it covered the boundary.
+func TestCredentialBoundaryFieldsAreAllHostHomeReads(t *testing.T) {
+	for _, name := range Order {
+		spec, _ := Get(name)
+		// Every host-home read must be a plain relative path under $HOME: an absolute
+		// path or a `..` escape would read outside the user's home entirely.
+		for field, p := range map[string]string{
+			"HostFiles.Dir":       spec.HostFiles.Dir,
+			"Briefing.HostSource": spec.Briefing.HostSource,
+			"Skills":              spec.Skills,
+		} {
+			if p == "" {
+				continue
+			}
+			if strings.HasPrefix(p, "/") {
+				t.Errorf("%s %s = %q: must be $HOME-relative", name, field, p)
+			}
+			if strings.Contains(p, "..") {
+				t.Errorf("%s %s = %q: must not escape the home dir", name, field, p)
+			}
+		}
 	}
 }
