@@ -324,7 +324,36 @@ mkdir -p "$STAMP_DIR"
 
 _do_install() {
     echo "  Installing __YOLO_BIN__..." >&2
-    YOLO_BYPASS_SHIMS=1 curl -fsSL __YOLO_URL__ | bash 2>&1 || true
+    # Download to a file BEFORE running it, rather than curl | bash. A stale or moved
+    # installer endpoint usually keeps answering 200 with a web page, and piping that
+    # straight into bash reports the HTML as a bash syntax error plus a curl broken-pipe
+    # error — three messages, none naming the wrong URL. Landing it first lets us say so.
+    local script
+    script="$(mktemp -t __YOLO_BIN__-install-XXXXXX.sh)"
+    if ! YOLO_BYPASS_SHIMS=1 curl -fsSL __YOLO_URL__ -o "$script"; then
+        echo "  ⚠ __YOLO_BIN__ installer download failed: __YOLO_URL__" >&2
+        rm -f "$script"
+        touch "$STAMP"
+        return
+    fi
+    # Pure-bash markup sniff: no grep, because grep is a SHIMMED tool in the jail and a
+    # launcher must not depend on the block config staying compatible with these flags.
+    local head_line
+    IFS= read -r head_line < "$script" || true
+    shopt -s nocasematch
+    if [[ "$head_line" =~ ^[[:space:]]*\<(\!doctype|html|\?xml) ]]; then
+        shopt -u nocasematch
+        echo "  ⚠ __YOLO_BIN__ installer URL is not a shell script — it served a web page." >&2
+        echo "    __YOLO_URL__" >&2
+        echo "    The pack's install.installerUrl is probably stale; check the tool's docs" >&2
+        echo "    for its current install command." >&2
+        rm -f "$script"
+        touch "$STAMP"
+        return
+    fi
+    shopt -u nocasematch
+    YOLO_BYPASS_SHIMS=1 bash "$script" 2>&1 || true
+    rm -f "$script"
     touch "$STAMP"
 }
 

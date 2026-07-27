@@ -1,7 +1,7 @@
 {
   "install": {
     "bin": "agy",
-    "installerUrl": "https://antigravity.google.com/install.sh",
+    "installerUrl": "https://antigravity.google/cli/install.sh",
     "kind": "native"
   },
   "launchFlags": {

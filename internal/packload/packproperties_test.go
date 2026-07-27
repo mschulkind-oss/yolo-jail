@@ -1,8 +1,11 @@
 package packload_test
 
 import (
+	"io"
+	"net/http"
 	"strings"
 	"testing"
+	"time"
 
 	"github.com/mschulkind-oss/yolo-jail/internal/packload"
 	officialpacks "github.com/mschulkind-oss/yolo-jail/packs"
@@ -211,5 +214,59 @@ func TestCopilotFlagsInjectFromItsRealDeclaration(t *testing.T) {
 	_ = packload.InjectLaunchFlags(packs, in)
 	if strings.Join(in, " ") != "copilot chat" {
 		t.Errorf("input mutated: %v", in)
+	}
+}
+
+// TestNativeInstallerURLsAreLive fetches every shipped installerUrl and asserts it still
+// serves a shell script.
+//
+// This exists because the failure mode is INVISIBLE to every other test. An installer
+// endpoint that moves usually keeps answering 200 with a web page, so the URL looks fine
+// from Go: the string is well-formed, the pack validates, the launcher generates. The break
+// only appears when a user runs the tool and bash chokes on HTML. agy shipped with
+// antigravity.google.com/install.sh — a placeholder that was never replaced, and which
+// answered 200/text/html — for five days before anyone ran it.
+//
+// NETWORK-GATED, so it is not part of the offline unit run: skipped under -short (which is
+// what the pre-commit hook and the hermetic nix build use). It runs in the full `just test`
+// pass, where reaching the network is already normal.
+func TestNativeInstallerURLsAreLive(t *testing.T) {
+	if testing.Short() {
+		t.Skip("network-gated: installer URL liveness needs the internet")
+	}
+	checked := 0
+	for _, p := range loadAll(t) {
+		if p.Decl.Install == nil || p.Decl.Install.InstallerURL == "" {
+			continue
+		}
+		url := p.Decl.Install.InstallerURL
+		t.Run(p.Name, func(t *testing.T) {
+			client := &http.Client{Timeout: 30 * time.Second}
+			resp, err := client.Get(url)
+			if err != nil {
+				// A network hiccup must not fail the suite — the assertion is about the URL
+				// being WRONG, not about this machine's connectivity.
+				t.Skipf("cannot reach %s: %v", url, err)
+			}
+			defer func() { _ = resp.Body.Close() }()
+			if resp.StatusCode != http.StatusOK {
+				t.Errorf("%s installerUrl %s returned %d — the endpoint moved",
+					p.Name, url, resp.StatusCode)
+				return
+			}
+			head := make([]byte, 512)
+			n, _ := io.ReadAtLeast(resp.Body, head, 1)
+			body := strings.ToLower(strings.TrimSpace(string(head[:n])))
+			if strings.HasPrefix(body, "<!doctype") || strings.HasPrefix(body, "<html") {
+				t.Errorf("%s installerUrl %s serves a WEB PAGE, not a script — piping this "+
+					"into bash is the \"syntax error near unexpected token `<'\" failure. "+
+					"Find the tool's current install command and update the pack.",
+					p.Name, url)
+			}
+		})
+		checked++
+	}
+	if checked == 0 {
+		t.Error("no native installer URLs found — this test has silently stopped covering anything")
 	}
 }
