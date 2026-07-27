@@ -2,6 +2,7 @@ package run
 
 import (
 	"bytes"
+	"os"
 	"path/filepath"
 	"slices"
 	"strings"
@@ -506,4 +507,53 @@ func podmanLinuxGolden(home string) []string {
 	// image + entrypoint.
 	add("localhost/yolo-jail:latest", "yolo-entrypoint")
 	return a
+}
+
+// A13: a user-scope config.lua must be mounted into the jail. The entrypoint reads
+// $HOME/.config/yolo-jail/config.lua and the CLI docs advertise it as auto-loaded,
+// but only config.jsonc was ever mounted — so the user half of the documented
+// "user then workspace" transform pair silently did nothing.
+func TestUserConfigMountIncludesConfigLua(t *testing.T) {
+	home := t.TempDir()
+	t.Setenv("HOME", home)
+	cfgDir := filepath.Join(home, ".config", "yolo-jail")
+	if err := os.MkdirAll(cfgDir, 0o755); err != nil {
+		t.Fatal(err)
+	}
+	for _, n := range []string{"config.jsonc", "config.lua"} {
+		if err := os.WriteFile(filepath.Join(cfgDir, n), []byte("x"), 0o644); err != nil {
+			t.Fatal(err)
+		}
+	}
+
+	o := &Options{}
+	args := o.userConfigMountArgs("podman", t.TempDir(), map[string]struct{}{})
+	joined := strings.Join(args, " ")
+	for _, want := range []string{
+		"/home/agent/.config/yolo-jail/config.jsonc",
+		"/home/agent/.config/yolo-jail/config.lua",
+	} {
+		if !strings.Contains(joined, want) {
+			t.Errorf("mount args missing %s:\n%s", want, joined)
+		}
+	}
+}
+
+// A user with no config.lua must add no argv — the golden argv of a jail without
+// a transform stays byte-identical.
+func TestUserConfigMountOmitsAbsentConfigLua(t *testing.T) {
+	home := t.TempDir()
+	t.Setenv("HOME", home)
+	cfgDir := filepath.Join(home, ".config", "yolo-jail")
+	if err := os.MkdirAll(cfgDir, 0o755); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(filepath.Join(cfgDir, "config.jsonc"), []byte("{}"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	o := &Options{}
+	args := o.userConfigMountArgs("podman", t.TempDir(), map[string]struct{}{})
+	if strings.Contains(strings.Join(args, " "), "config.lua") {
+		t.Errorf("absent config.lua must not be mounted: %v", args)
+	}
 }

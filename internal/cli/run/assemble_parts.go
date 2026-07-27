@@ -458,20 +458,37 @@ func (o *Options) kvmArgs(cfg *jsonx.OrderedMap, rt string, keepGroupsAlready bo
 	return args
 }
 
-// userConfigMountArgs builds the user-config mount for nested jails.
+// userConfigMountArgs builds the user-config mounts: config.jsonc (for nested
+// jails) and config.lua.
+//
+// A13: config.lua used to have NO channel into any jail. The entrypoint reads
+// $HOME/.config/yolo-jail/config.lua (loadPrismTransformScript) and `yolo
+// config-ref`/`config --help` both advertise it as auto-loaded beside the
+// workspace transform — but only filepath.Base(UserConfigPath()) was ever
+// mounted, i.e. config.jsonc alone. So the USER half of the documented
+// "user then workspace" transform pair silently did nothing, while the workspace
+// half worked because it rides the /workspace bind.
 func (o *Options) userConfigMountArgs(rt, wsState string, mountTargets map[string]struct{}) []string {
+	var args []string
 	userPath := paths.UserConfigPath()
-	if !isFile(userPath) {
-		return nil
+	userDir := filepath.Dir(userPath)
+	// Both files live beside each other; each is mounted only when present, so a
+	// user with no transform adds no argv (the golden argv stays unchanged).
+	for _, name := range []string{filepath.Base(userPath), "config.lua"} {
+		hostPath := filepath.Join(userDir, name)
+		if !isFile(hostPath) {
+			continue
+		}
+		rel := ".config/yolo-jail/" + name
+		if rt == "container" {
+			// Apple Container cannot bind-mount a single file.
+			acMaterialize(hostPath, rel, wsState)
+			continue
+		}
+		args = append(args,
+			ROFileMountArg(hostPath, "/home/agent/"+rel, wsState, rel, mountTargets, nil)...)
 	}
-	name := filepath.Base(userPath)
-	containerConfig := "/home/agent/.config/yolo-jail/" + name
-	relConfig := ".config/yolo-jail/" + name
-	if rt == "container" {
-		acMaterialize(userPath, relConfig, wsState)
-		return nil
-	}
-	return ROFileMountArg(userPath, containerConfig, wsState, relConfig, mountTargets, nil)
+	return args
 }
 
 // loopholesRuntimeArgs builds the host-side loopholes runtime args:
