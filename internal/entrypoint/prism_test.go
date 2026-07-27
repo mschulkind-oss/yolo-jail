@@ -91,8 +91,12 @@ func TestConfigurePiPrismFirstMigration(t *testing.T) {
 	if got["defaultProjectTrust"] != "always" {
 		t.Errorf("defaultProjectTrust = %v, want always (managed)", got["defaultProjectTrust"])
 	}
-	if _, present := got["staleBespokeKey"]; present {
-		t.Errorf("staleBespokeKey survived (%v); first migration must drop it", got["staleBespokeKey"])
+	// B1: an unasserted key is PRESERVED on first migration. yolo cannot distinguish
+	// its own stale output from the agent's live state without a last_render, and the
+	// two errors are not symmetric — keeping a dead key is cosmetic, dropping a live
+	// one wiped copilot's OAuth token.
+	if _, present := got["staleBespokeKey"]; !present {
+		t.Errorf("staleBespokeKey dropped; B1 adopts keys yolo does not assert: %v", got)
 	}
 
 	// The last_render sidecar equals exactly the bytes just written to the surface.
@@ -108,10 +112,13 @@ func TestConfigurePiPrismFirstMigration(t *testing.T) {
 		t.Errorf("last_render != surface bytes:\n last_render: %s\n surface:     %s", lastRenderBytes, surfaceBytes)
 	}
 
-	// The overlay sidecar is a genuinely empty object.
+	// The overlay sidecar carries the adopted residue: the unasserted key only.
 	overlay := decodeJSONFile(t, prismOverlayPath(e, "pi", "settings"))
-	if len(overlay) != 0 {
-		t.Errorf("overlay = %v, want {} on first migration", overlay)
+	if _, ok := overlay["staleBespokeKey"]; !ok {
+		t.Errorf("overlay = %v, want the adopted unasserted key", overlay)
+	}
+	if _, bad := overlay["defaultProjectTrust"]; bad {
+		t.Errorf("overlay must not adopt a managed key: %v", overlay)
 	}
 
 	// The obsolete snapshot orphan is deleted (§4.7).

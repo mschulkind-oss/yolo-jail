@@ -606,3 +606,28 @@ func contains(s, sub string) bool {
 	}
 	return false
 }
+
+// B1 boundary: adoption is for OBJECT surfaces only. A keyless (raw/lines) surface
+// has one "key" — the whole file — so adopting would mean the on-disk content wins
+// outright, freezing a host-mirrored file at whatever stale bytes were there and
+// never picking up host changes again. There is no partial residue to preserve
+// either, unlike an object's unasserted keys. The data-loss risk B1 fixes
+// (copilot's OAuth tokens) is an object-surface problem, and object surfaces get
+// exact key-level adoption instead.
+func TestKeylessFirstMigrationDoesNotAdoptOnDiskContent(t *testing.T) {
+	out, err := ComposeStateful(StatefulInputs{
+		Base:              Inputs{Surface: rawSurface(), HostBytes: []byte("host-wins\n")},
+		CurrentBytes:      []byte("stale in-jail content\n"),
+		LastRenderPresent: false,
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if out.Result.Config != "host-wins\n" {
+		t.Errorf("Config = %q, want the host render — a keyless surface must not adopt on-disk bytes",
+			out.Result.Config)
+	}
+	if got := string(out.OverlayJSON); got != "null" {
+		t.Errorf("OverlayJSON = %s, want null (no keyless adoption)", got)
+	}
+}

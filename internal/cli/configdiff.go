@@ -17,6 +17,7 @@ import (
 	"strings"
 
 	"github.com/mschulkind-oss/yolo-jail/internal/agentcfg"
+	"github.com/mschulkind-oss/yolo-jail/internal/agentcfg/codec"
 	"github.com/mschulkind-oss/yolo-jail/internal/agentcfg/manifest"
 	"github.com/mschulkind-oss/yolo-jail/internal/jsonx"
 	"github.com/mschulkind-oss/yolo-jail/internal/richtext"
@@ -243,6 +244,22 @@ func configReset(args []string, out, errw io.Writer, color bool) int {
 		if !removedAny {
 			continue
 		}
+		// Ruling 1 / B1: also TRUNCATE the surface to its pure render.
+		//
+		// This is what makes reset survive adopt-on-first-migration. Deleting the two
+		// sidecars is how the discard used to take effect: no baseline meant the next
+		// boot re-seeded from scratch. But B1 changed that path to ADOPT the on-disk
+		// file (so a first migration stops wiping agent state), and "no baseline" is
+		// indistinguishable from "the user asked to discard" — so without this,
+		// reset → no baseline → adopt would bring back the very edits the user just
+		// discarded, making reset a silent no-op. The two halves are one change.
+		//
+		// Truncating also makes reset VISIBLE immediately rather than only after the
+		// next boot, which is what a user means by "reset".
+		if err := truncateSurfaceToPureRender(s); err != nil {
+			fmt.Fprintf(errw, "yolo config reset: %s/%s: %v\n", s.Agent, s.Name, err)
+			return 1
+		}
 		cleared++
 		if had > 0 {
 			pr.Printf("Cleared [cyan]%s/%s[/cyan] — discarded %d captured %s.",
@@ -343,4 +360,43 @@ func sortedKeys(m *jsonx.OrderedMap) []string {
 	keys := append([]string(nil), m.Keys()...)
 	sort.Strings(keys)
 	return keys
+}
+
+// truncateSurfaceToPureRender rewrites a surface file with the composition yolo
+// would produce from its declared layers alone — no captured overlay. It is the
+// second half of `reset` (see configReset): discarding the sidecars is what stops
+// the edits being re-applied, and this is what removes them from the file the agent
+// reads right now.
+//
+// An ABSENT surface file is left absent: reset discards edits, it does not create
+// files the jail has not written yet.
+//
+// The computed layer is deliberately not supplied — for the same reason
+// `config render` omits it (jail-absolute paths built from $HOME; see
+// renderSurface). The next boot recomputes it, so the only cost is that a
+// computed-layer key is briefly missing from the file between reset and restart,
+// which is strictly better than leaving a discarded edit in place.
+func truncateSurfaceToPureRender(s manifest.Surface) error {
+	path := expandHome(s.Path)
+	if _, err := os.Stat(path); err != nil {
+		if os.IsNotExist(err) {
+			return nil
+		}
+		return err
+	}
+	sub := agentcfg.SubstituteWorkspace(s, containerWorkspace)
+	var hostBytes []byte
+	if surfaceHasHostLayer[sub.Agent+"/"+sub.Name] {
+		hostBytes, _ = os.ReadFile(path)
+	}
+	res, err := agentcfg.Compose(agentcfg.Inputs{Surface: sub, HostBytes: hostBytes})
+	if err != nil {
+		return err
+	}
+	text := string(res.Encoded)
+	if sub.Kind() == codec.KindObject {
+		text += "\n"
+	}
+	// Truncate in place: the file may be a bind-mount target whose inode matters.
+	return os.WriteFile(path, []byte(text), 0o644)
 }

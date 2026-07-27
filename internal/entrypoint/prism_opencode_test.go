@@ -80,8 +80,14 @@ func TestConfigureOpencodePrismFirstMigration(t *testing.T) {
 	if _, present := mcp["staleServer"]; present {
 		t.Errorf("mcp.staleServer survived; first migration must drop it: %v", mcp)
 	}
-	if _, present := got["staleTopKey"]; present {
-		t.Errorf("staleTopKey survived; first migration must drop it: %v", got["staleTopKey"])
+	// B1: an unasserted TOP-LEVEL key is now PRESERVED, not dropped. On a first
+	// migration there is no last_render, so yolo cannot tell its own stale output
+	// from the agent's live state — and those two mistakes are not symmetric:
+	// keeping a dead key is cosmetic, dropping a live one destroyed copilot's OAuth
+	// token. yolo-owned SUBTREES (mcp above) are still dropped, because the pure
+	// render proves yolo owns them.
+	if _, present := got["staleTopKey"]; !present {
+		t.Errorf("staleTopKey dropped; B1 adopts keys yolo does not assert: %v", got)
 	}
 
 	// The default $schema + managed permission land.
@@ -92,10 +98,14 @@ func TestConfigureOpencodePrismFirstMigration(t *testing.T) {
 		t.Errorf("permission = %v, want allow (managed)", got["permission"])
 	}
 
-	// Overlay seeded empty; obsolete managed sidecar deleted (§4.7).
+	// The overlay carries exactly the adopted residue — the unasserted key, and
+	// nothing yolo owns. Obsolete managed sidecar deleted (§4.7).
 	overlay := decodeJSONFile(t, prismOverlayPath(e, "opencode", "config"))
-	if len(overlay) != 0 {
-		t.Errorf("overlay = %v, want {} on first migration", overlay)
+	if _, ok := overlay["staleTopKey"]; !ok {
+		t.Errorf("overlay = %v, want the adopted unasserted key", overlay)
+	}
+	if _, bad := overlay["mcp"]; bad {
+		t.Errorf("overlay must not adopt a yolo-owned subtree: %v", overlay)
 	}
 	if _, err := os.Stat(sidecar); !os.IsNotExist(err) {
 		t.Errorf("yolo-managed-mcp-servers.json should be deleted on migration, stat err = %v", err)

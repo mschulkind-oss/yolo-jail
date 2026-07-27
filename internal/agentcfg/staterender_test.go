@@ -3,6 +3,7 @@ package agentcfg
 import (
 	"encoding/json"
 	"reflect"
+	"strings"
 	"testing"
 )
 
@@ -23,7 +24,7 @@ func jsonObj(t *testing.T, s string) map[string]any {
 // FIRST migration boot (last_render absent) the render must DROP the stale key
 // and the overlay must stay EMPTY — proving the empty-overlay SEED path is
 // wired, not the naïve mergeDiff(∅, file) path that would pin the whole file.
-func TestComposeStatefulFirstMigrationDropsStaleKey(t *testing.T) {
+func TestComposeStatefulFirstMigrationAdoptsUnassertedKeys(t *testing.T) {
 	// The pre-existing bespoke file: a stale key ("legacyPin") plus an in-jail
 	// theme change ("dark"). No host layer, no transform.
 	current := `{"theme":"dark","legacyPin":"stale","defaultProjectTrust":"always"}`
@@ -40,19 +41,34 @@ func TestComposeStatefulFirstMigrationDropsStaleKey(t *testing.T) {
 	if !out.FirstMigration {
 		t.Error("FirstMigration = false, want true on absent last_render")
 	}
-	// The fresh render is defaults<managed only: theme reverts to the default
-	// "system" (the current file's "dark" is NOT captured — capture is skipped),
-	// and the stale key is gone.
+	// B1 changed this: a first migration now ADOPTS the on-disk file instead of
+	// discarding it, because discarding silently destroyed agent-owned state (the
+	// copilot OAuth-token wipe). So keys yolo does NOT assert are PRESERVED —
+	// including ones that look "stale", since the engine cannot tell a stale key
+	// from an agent's own live state, and guessing wrong loses data.
+	//
+	// What yolo DOES assert still wins: `theme` is a yolo default, so the file's
+	// "dark" does not override it.
+	// theme is a DEFAULT (user-overridable), so the file's "dark" legitimately wins
+	// over it — that is what a default means, and it is the same result a steady-state
+	// capture would give. defaultProjectTrust is MANAGED, so yolo's value still wins
+	// no matter what the file said.
 	want := map[string]any{
-		"theme":               "system",
+		"theme":               "dark",
 		"defaultProjectTrust": "always",
+		"legacyPin":           "stale",
 	}
 	if !reflect.DeepEqual(out.Result.Config, want) {
 		t.Errorf("first-migration render mismatch:\n got: %#v\nwant: %#v", out.Result.Config, want)
 	}
-	// The overlay sidecar is genuinely empty.
-	if got := jsonObj(t, string(out.OverlayJSON)); len(got) != 0 {
-		t.Errorf("overlay = %v, want {} on first migration", got)
+	// The adopted residue never contains a MANAGED key: managed is re-asserted after
+	// the fold, so capturing it would be meaningless noise in the sidecar.
+	got := jsonObj(t, string(out.OverlayJSON))
+	if _, ok := got["legacyPin"]; !ok {
+		t.Errorf("overlay = %v, want the adopted unasserted key", got)
+	}
+	if _, bad := got["defaultProjectTrust"]; bad {
+		t.Errorf("overlay must not capture a MANAGED key: %v", got)
 	}
 }
 
@@ -72,11 +88,14 @@ func TestComposeStatefulFirstMigrationIgnoresDanglingOverlay(t *testing.T) {
 	if !out.FirstMigration {
 		t.Error("FirstMigration = false, want true")
 	}
-	if out.Result.ConfigMap()["theme"] != "system" {
-		t.Errorf("theme = %v, want system (dangling overlay must be reset, not applied)", out.Result.ConfigMap()["theme"])
+	// The core claim survives B1: the STALE SIDECAR's junk value must never leak.
+	// theme resolves to the ON-DISK "dark" (adopted, and theme is a user-overridable
+	// default), NOT to "junk-from-aborted-migration".
+	if got := out.Result.ConfigMap()["theme"]; got != "dark" {
+		t.Errorf("theme = %v, want dark (adopted from disk)", got)
 	}
-	if got := jsonObj(t, string(out.OverlayJSON)); len(got) != 0 {
-		t.Errorf("overlay = %v, want {} (dangling overlay reset)", got)
+	if got := jsonObj(t, string(out.OverlayJSON)); got["theme"] == "junk-from-aborted-migration" {
+		t.Errorf("dangling overlay value leaked into the new overlay: %v", got)
 	}
 }
 
@@ -213,17 +232,21 @@ func TestComposeStatefulCorruptLastRenderReseeds(t *testing.T) {
 	if !out.FirstMigration {
 		t.Error("FirstMigration = false, want true (corrupt last_render re-seeds)")
 	}
-	if out.Result.ConfigMap()["theme"] != "system" {
-		t.Errorf("theme = %v, want system (re-seed drops uncaptured edit and resets overlay)", out.Result.ConfigMap()["theme"])
+	// B1: the recovery re-seed ADOPTS the on-disk file rather than discarding it —
+	// a corrupt sidecar is exactly when discarding would destroy live agent state.
+	// So the on-disk "dark" survives (theme is a user-overridable default), while
+	// the STALE OVERLAY's "solarized" is still thrown away.
+	if got := out.Result.ConfigMap()["theme"]; got != "dark" {
+		t.Errorf("theme = %v, want dark (adopted from disk on re-seed)", got)
 	}
-	if got := jsonObj(t, string(out.OverlayJSON)); len(got) != 0 {
-		t.Errorf("overlay = %v, want {} after re-seed", got)
+	if got := jsonObj(t, string(out.OverlayJSON)); got["theme"] == "solarized" {
+		t.Errorf("stale overlay value survived the re-seed: %v", got)
 	}
 }
 
 // TestComposeStatefulEmptyLastRenderReseeds: a present but 0-byte last_render is
-// as untrustworthy as an absent one (it would make mergeDiff capture the whole
-// file). Treat it as a first migration.
+// as untrustworthy as an absent one, so it is treated as a first migration — which
+// since B1 means ADOPTING the on-disk file rather than discarding it.
 func TestComposeStatefulEmptyLastRenderReseeds(t *testing.T) {
 	out, err := ComposeStateful(StatefulInputs{
 		Base:              Inputs{Surface: piSurface()},
@@ -237,8 +260,11 @@ func TestComposeStatefulEmptyLastRenderReseeds(t *testing.T) {
 	if !out.FirstMigration {
 		t.Error("FirstMigration = false, want true (empty last_render re-seeds)")
 	}
-	if _, present := out.Result.ConfigMap()["legacyPin"]; present {
-		t.Error("legacyPin present, want dropped (empty last_render must not capture the file)")
+	// B1: an empty sidecar is a re-seed, and a re-seed now ADOPTS. legacyPin is a
+	// key yolo does not assert, so it is preserved — the engine cannot distinguish a
+	// stale key from the agent's own live state, and guessing wrong loses data.
+	if _, present := out.Result.ConfigMap()["legacyPin"]; !present {
+		t.Error("legacyPin dropped; an adopting re-seed must preserve unasserted keys")
 	}
 }
 
@@ -346,5 +372,71 @@ func TestComposeStatefulComputedBeatsCapturedEdit(t *testing.T) {
 	got := jsonObj(t, string(out.OverlayJSON))
 	if got["dynamicKey"] != "off" || got["theme"] != "solarized" {
 		t.Errorf("overlay = %v, want both edits captured {dynamicKey:off,theme:solarized}", got)
+	}
+}
+
+// B1 (⚠ DATA LOSS): a first-migration boot must ADOPT the on-disk file rather than
+// discarding it.
+//
+// copilot/config renders statefully with Defaults {"yolo": true} and NO host layer.
+// On any boot where last_render is absent or corrupt — a fresh workspace, a deleted
+// sidecar, an interrupted first migration — the old code seeded an EMPTY overlay, so
+// the render collapsed a file holding copilot_tokens / logged_in_users /
+// last_logged_in_user down to {"yolo": true}. The user is silently logged out and the
+// token is gone. Steady state recovers, which is why it went unnoticed.
+//
+// Adopting means seeding the overlay from mergeDiff(pureRender, current): everything
+// the agent owns that yolo does not assert is preserved.
+func TestFirstMigrationAdoptsOnDiskFile(t *testing.T) {
+	surface, ok := BuiltinManifest().Lookup("copilot", "config")
+	if !ok {
+		t.Fatal("builtin manifest missing copilot/config")
+	}
+	// A live config.json as copilot itself would have written it.
+	live := `{"copilot_tokens":{"gh":"secret-token"},` +
+		`"logged_in_users":["ada"],"last_logged_in_user":"ada","model":"x"}`
+
+	out, err := ComposeStateful(StatefulInputs{
+		Base:              Inputs{Surface: surface},
+		CurrentBytes:      []byte(live),
+		LastRenderPresent: false, // the first-migration / lost-sidecar case
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	got := map[string]any{}
+	if err := json.Unmarshal(out.Result.Encoded, &got); err != nil {
+		t.Fatalf("decode render: %v", err)
+	}
+	if _, ok := got["copilot_tokens"]; !ok {
+		t.Errorf("OAuth token wiped by a first-migration boot: %v", got)
+	}
+	for _, k := range []string{"logged_in_users", "last_logged_in_user", "model"} {
+		if _, ok := got[k]; !ok {
+			t.Errorf("agent-owned key %q lost on first migration: %v", k, got)
+		}
+	}
+	// yolo's own default must still be asserted.
+	if got["yolo"] != true {
+		t.Errorf("yolo default not applied: %v", got)
+	}
+	if !out.FirstMigration {
+		t.Error("FirstMigration should still be reported true")
+	}
+}
+
+// A first-migration boot with NO file on disk must still start from a clean
+// overlay — adoption must not invent content.
+func TestFirstMigrationWithNoFileStaysClean(t *testing.T) {
+	surface, _ := BuiltinManifest().Lookup("copilot", "config")
+	out, err := ComposeStateful(StatefulInputs{
+		Base:              Inputs{Surface: surface},
+		LastRenderPresent: false,
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if strings.TrimSpace(string(out.OverlayJSON)) != "{}" {
+		t.Errorf("overlay = %s, want {} with no file on disk", out.OverlayJSON)
 	}
 }

@@ -130,14 +130,64 @@ func ComposeStateful(in StatefulInputs) (*StatefulOutput, error) {
 
 	var overlay any
 	if firstMigration {
-		// §3.2 seed / §3.3 dangling-overlay reset: overlay starts genuinely empty.
-		// Any OverlayJSON on disk is discarded (it may be an aborted-migration
-		// leftover), so nothing pre-existing leaks into the render.
+		// B1 (⚠ DATA LOSS FIX): ADOPT the on-disk file instead of discarding it.
+		//
+		// This branch used to seed an EMPTY overlay, which silently destroyed every
+		// agent-owned key in the file. copilot/config is the sharp case: it renders
+		// with Defaults {"yolo": true} and no host layer, so a boot with an
+		// absent/corrupt last_render — a fresh workspace, a deleted sidecar, an
+		// interrupted migration — collapsed a file holding copilot_tokens /
+		// logged_in_users / last_logged_in_user to {"yolo": true} and logged the user
+		// out. Steady state recovered, which is why it went unnoticed.
+		//
+		// Adopting = seed the overlay with mergeDiff(pureRender, current): the
+		// residue of the on-disk file after subtracting what yolo itself would
+		// produce. That keeps agent-owned state and lets yolo's own layers win for
+		// the keys yolo asserts, with no markers and no recursion.
+		//
+		// This is safe against `yolo config reset` ONLY because reset also truncates
+		// the surface to the pure render (ruling 1, configReset). Without that,
+		// reset → no baseline → adopt would resurrect the very edits the user asked
+		// to discard, making reset a no-op. The two halves are one change.
 		//
 		// "Empty" is nil for a keyless surface, NOT the zero value: an empty
 		// string is a real assertion that the file is empty and would win the
 		// fold, blanking the render. nil means "this layer says nothing".
 		overlay = emptyOverlay(kind)
+		if current, curOK := decodeKind(c, kind, in.CurrentBytes); curOK {
+			if kind == codec.KindObject {
+				// Subtract what a pure render would produce; keep the rest.
+				pure, perr := Compose(in.Base)
+				if perr != nil {
+					return nil, perr
+				}
+				pureMap, _ := decodeKind(c, kind, pure.Encoded)
+				pm, _ := pureMap.(map[string]any)
+				curMap, _ := current.(map[string]any)
+				residue := dropNullLeaves(mergeDiff(pm, curMap))
+				residue = dropYoloOwnedSubtrees(residue, pm)
+				// Also drop anything the surface MANAGES. Managed is re-asserted after
+				// the fold, so an adopted managed key can never affect the output — it
+				// would only sit in the sidecar as permanent noise, and `yolo config
+				// diff` would report a phantom "edit" the user cannot act on. (A stale
+				// managed VALUE on disk, e.g. codex's approval_policy=on-request from
+				// an old boot, is exactly this case.)
+				if mg, ok := in.Base.Surface.Managed.(map[string]any); ok {
+					residue = dropKeys(residue, mg)
+				}
+				if len(residue) > 0 {
+					overlay = residue
+				}
+			}
+			// KEYLESS surfaces are deliberately NOT adopted. A raw/lines surface has
+			// one "key" — the whole file — so adoption would mean "the existing file
+			// wins outright", which defeats the host layer entirely: a readonly
+			// host-mirrored file would freeze at whatever stale content was on disk
+			// and never pick up host-side changes again. There is also no partial
+			// residue to take, so nothing here is recoverable the way an object's
+			// unasserted keys are. Object surfaces are where the data-loss risk lives
+			// (copilot's tokens), and they get exact key-level adoption instead.
+		}
 	} else {
 		// Steady state. Start from the persisted overlay ({} if absent — §3.3
 		// case 3), then accumulate this boot's captured delta.
@@ -225,6 +275,69 @@ func decodeKind(c codec.Codec, kind codec.Kind, data []byte) (any, bool) {
 // nothing. For a keyless surface it is nil, NOT the zero value: Compose treats a
 // non-nil keyless layer as a real assertion that wins the fold, so an empty
 // string overlay would blank the file instead of deferring to the layers below.
+// dropYoloOwnedSubtrees removes from an adopted residue every key that collides
+// with a CONTAINER yolo itself produces, keyed against the pure render.
+//
+// This is the line between "state the agent owns" and "yolo's own output from a
+// previous boot", and on a first migration it is the only signal available —
+// last_render, which normally disambiguates them, is exactly what is missing.
+//
+// Without it, adoption resurrects dropped yolo-owned entries and breaks §2
+// principle 1 ("regenerate, don't reconcile"): an MCP server removed from config
+// would come back, because the stale entry sits under mcp_servers, a table yolo
+// computes wholesale. Verified against the real surfaces — codex's
+// mcp_servers.staleServer, opencode's mcp.staleServer and mise's stale baked
+// [tools] runtimes all resurrected before this.
+//
+// The rule: if the pure render has the key as an OBJECT, yolo owns that subtree and
+// nothing inside it is adopted. If the key is absent from the pure render entirely,
+// yolo knows nothing about it, so it is agent state and IS adopted — that is the
+// copilot_tokens case this whole change exists for.
+func dropYoloOwnedSubtrees(residue, pure map[string]any) map[string]any {
+	out := make(map[string]any, len(residue))
+	for k, v := range residue {
+		if _, yoloOwns := pure[k].(map[string]any); yoloOwns {
+			continue
+		}
+		out[k] = v
+	}
+	return out
+}
+
+// dropKeys returns m without any key present in drop.
+func dropKeys(m, drop map[string]any) map[string]any {
+	out := make(map[string]any, len(m))
+	for k, v := range m {
+		if _, skip := drop[k]; skip {
+			continue
+		}
+		out[k] = v
+	}
+	return out
+}
+
+// dropNullLeaves returns m without any null-valued entry, recursively. Used to
+// strip RFC-7386 tombstones out of an adopted first-migration overlay: the overlay
+// must add the agent's own keys without deleting the ones yolo asserts. A nested
+// object that becomes empty after stripping is itself dropped, so an
+// all-tombstones subtree does not survive as a meaningless {}.
+func dropNullLeaves(m map[string]any) map[string]any {
+	out := make(map[string]any, len(m))
+	for k, v := range m {
+		switch t := v.(type) {
+		case nil:
+			continue
+		case map[string]any:
+			if inner := dropNullLeaves(t); len(inner) > 0 {
+				out[k] = inner
+			}
+		default:
+			out[k] = v
+		}
+	}
+	return out
+}
+
 func emptyOverlay(kind codec.Kind) any {
 	if kind == codec.KindObject {
 		return map[string]any{}
