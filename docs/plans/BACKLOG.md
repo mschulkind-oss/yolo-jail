@@ -100,7 +100,31 @@ cross-type LSP→MCP derivation the docs called hardest **died with A1** (it was
 
 **Consequence: C7 is not required.** The subprocess projector stays designed and unbuilt.
 
-## Stage D — the rip-out — ✅ mechanisms COMPLETE (2026-07-27)
+## Stage D — the rip-out — ✅ COMPLETE (2026-07-27)
+
+**THE TRANSITION IS DONE.** Not just the mechanisms: the agent registry is deleted, all
+six agents ship as `packs/*/pack.json`, and core contains no switch on any tool name.
+What landed beyond what the table below anticipated:
+
+- **`configureAgent`'s six-way switch is gone**, replaced by one loop over pack-declared
+  surfaces (`entrypoint/packsurfaces.go`). Three new mechanisms were needed to get the
+  per-agent data out of Go: declarative `computed` (which live table, which reshape, plus
+  `flags` for conditional key assertions), `reconcile` (an RMW surface's key as a managed
+  dynamic table — the gap the RMW docstring described), and `hooks` (the imperative
+  residue, as a named capability a pack REQUESTS rather than code it ships).
+- **Embedded packs are OPT-IN by bare name** (`packs: ["claude"]`), nothing on by default.
+  This was a correction: activating six packs unconditionally while the launch warning said
+  "no packs are configured, so this jail has no coding agent" was a contradiction a user
+  could only find by looking in `~/.yolo-shims`.
+- **The MOUNT is the filter.** The entrypoint renders every pack under `YOLO_PACK_ROOT`,
+  so only selected packs are copied into the mounted tree, which is cleared each launch.
+- **The ten Go surface literals were proved byte-equal** to the generated pack declarations
+  before deletion; `BuiltinManifest()` keeps only `mise/config`.
+
+Three bugs came from real nested jails rather than unit tests, and are now regression-
+tested: the reconcile sidecar written into the `:ro` home root, a hook symlinking into a
+directory nothing had created, and `yolo check` parsing `embedded:claude` as a fetchable
+address.
 
 **D1 is RESOLVED and mostly deleted.** Composition **stays in the container**; only
 image-build inputs and host-file reads run host-side. There is no port. See
@@ -110,8 +134,8 @@ image-build inputs and host-file reads run host-side. There is no port. See
 |---|---|---|
 | ✅ D1 | ~~Decide where composition runs~~ → **replaced by: host-side *validation* of pack contributions** at `yolo check` + run assembly, so a bad pack is caught before the container starts. Precedent: `checkHostFileLayer`/`checkHostFileDest` | defense in depth, now that A12 makes failures fatal |
 | ✅ D2 | Three engine mechanisms: `stateful`, `computed`, `read_modify_write` | needs B2 |
-| ✅ D3 | Agent registry + surfaces + skills + briefings become official packs | **the SEAM is built and proven**: `manifest.DecodeSurfaces` + `agentcfg.ManifestWith` let data-defined surfaces compose and override builtins, through the same validation. Migrating the shipped agents' definitions from Go literals into embedded pack files is now mechanical — and is a separate, revertable step per agent |
-| ✅ D4 | `AgentSpec.HostFiles` becomes pack data | **the GATE is built**: `PackEntry.MayGrantHostFiles()` keys on content ORIGIN — embedded and local may grant, fetched never. The two docs contradicted each other here; resolved 2026-07-27. Scope alone was NOT sufficient: it covers the config channel, not the content channel |
+| ✅ D3 | Agent registry + surfaces + skills + briefings become official packs | **DONE.** The registry is deleted (`internal/agents` keeps only skills staging, briefing composition, loopholes, the source-tree probe). All six agents are `packs/*/pack.json`, generated from the Go literals and proved byte-equal before those were removed |
+| ✅ D4 | `AgentSpec.HostFiles` becomes pack data | **DONE.** `packdecl.HostFile` entries, gated by `PackEntry.MayGrantHostFiles()` on content ORIGIN — embedded and local may grant, fetched never. `packload.CtxPath` is the ONE definition of the `/ctx` destination, shared by the CLI that mounts it and the entrypoint that reads it; two copies would have silently composed the wrong user file |
 | ✅ D5 | No agent by default | already works — `agents: []` boots (verified) |
 | ✅ D6 | Make the MCP bootstrap a pack contribution | it currently installs 112 npm packages for zero agents |
 | ⏸ D7 | Stage a third-party projector binary into the jail (compose runs in-jail, so it must be reachable there) | needs C7 |
