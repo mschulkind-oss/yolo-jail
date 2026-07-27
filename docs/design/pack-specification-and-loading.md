@@ -123,11 +123,16 @@ field is the exact mistake it was written to prevent.
 `kind` is `npm` or `native`. `bin` is both the binary name on PATH and the **launcher
 filename** in `~/.yolo-shims/`. Core decides how — and whether — to honor it.
 
-Nothing is installed at boot. `GenerateAgentLaunchers` writes a lazy launcher per install
-declaration, and the **first invocation** installs. This is by design: installing four agent
-CLIs on every boot would add minutes to a jail start (agy alone is 189 MB), and it means
-changing `packs` needs no image rebuild. The stamp dir
+Nothing is installed at boot. Core writes one **lazy launcher** per install declaration into
+`~/.yolo-shims/<bin>`, and the **first invocation** of that binary installs it. This is by
+design: installing every declared binary on every boot would add minutes to a jail start
+(agy alone is 189 MB), and it means changing `packs` needs no image rebuild. A stamp file
 (`~/.cache/yolo-agent-stamps/<bin>.stamp`) throttles update checks to hourly.
+
+Nothing in that mechanism knows the binary is a coding agent — it is *a program a pack asked
+for*, and the launcher is generated from `kind`/`bin`/`package`/`installerUrl` alone. The Go
+identifiers still say otherwise (`GenerateAgentLaunchers`, `yolo-agent-stamps`), which is
+naming residue from the deleted registry rather than a concept core retained; see §8.7.
 
 `installerUrl` is the sharpest thing a manifest can name: a URL whose contents run as a
 shell script. It is origin-gated (§4). The launcher downloads to a temp file, sniffs for
@@ -145,20 +150,54 @@ three error messages, none of which names the wrong URL. See
 ]
 ```
 
-`from` is pack-relative, `to` is home-relative in the jail. `hostOverlay` names a host-home
-path whose content is **prepended** to the staged file — the "your own AGENTS.md first, then
-the pack's" case — and because it reads the host home it is origin-gated (§4).
+Three fields, **three different coordinate systems**, which is worth stating explicitly
+because they are all bare relative paths and nothing in the syntax distinguishes them:
 
-**A `from` of `AGENTS.md`/`CLAUDE.md` or `skills` is special-cased**, and this is the one
-place the current implementation is narrower than the schema reads:
+| Field | Relative to | Resolved | Why that root |
+|---|---|---|---|
+| `from` | the **pack** root | host, at staging | It names the pack's own content |
+| `to` | the **jail** home | host, as a mount dest | It names where the tool will look, inside the container |
+| `hostOverlay` | the **host** home | host, at staging | It names the user's *own* copy of the same file, which lives in their real home |
 
-| `from` | What happens |
+`hostOverlay` is host-home-relative for the reason you'd guess, and it is worth being precise
+about it: the file it names is the user's personal, pre-existing version — their own
+`~/.claude/CLAUDE.md` on the host machine — and yolo never mounts the host home wholesale, so
+a path is the only way to reach one. Its content is **prepended** to the staged file, which is
+what makes "your own AGENTS.md first, then the pack's" work. Because it reads the host home it
+is origin-gated (§4).
+
+Note that in every shipped pack `to` and `hostOverlay` are the **same string**
+(`.claude/CLAUDE.md`, `.copilot/AGENTS.md`, …) while meaning two different files on two
+different filesystems. That is not redundancy: a tool reads its briefing from one path
+regardless of who wrote it, so the jail destination and the host source naturally coincide.
+They are separate fields because nothing *requires* them to.
+
+Unlike `hostFiles` (§2.4), a `hostOverlay` is **not a mount**. It is read on the host and
+baked into the staged content, so the jail never sees the host path and there is nothing to
+compose in-jail.
+
+#### The two special `from` values
+
+**A `from` of `AGENTS.md`/`CLAUDE.md` or `skills` does not mean "mount my file there".** It
+means "put the *accumulated* briefing / skills corpus there", and the accumulation spans
+every pack in the jail:
+
+| `from` | What actually lands at `to` |
 |---|---|
-| `AGENTS.md` / `CLAUDE.md` | `isBriefingMount` → the composed briefing (core's content + config prose + every pack's prose) is written to a per-pack staging file and mounted at `to` |
-| `skills` | `packSkillTargets` → a three-layer merge (yolo built-ins < pack skills < the user's own host skills) is staged and mounted at `to` |
-| anything else | **nothing** — see §8.2 |
+| `AGENTS.md` / `CLAUDE.md` | `isBriefingMount` → **one composed document**: core's generated briefing + config `agents_md_extra` + *every* pack's root `AGENTS.md`, each under a `<!-- from pack: NAME -->` header |
+| `skills` | `packSkillTargets` → **one merged directory**: yolo's built-in skills < *every* pack's `skills/` < the user's own `~/<to>` skills tree |
+| anything else | **nothing at all** — no mount, no warning (see §8.2) |
 
 Both destinations are mounted `:ro`.
+
+So a pack that declares `{"from": "AGENTS.md", "to": ".claude/CLAUDE.md"}` is not publishing
+its own prose to that path — it is **subscribing** to the briefing corpus and saying where its
+tool reads one. Its *own* prose went into that corpus by virtue of existing at the pack root,
+which is a separate act it did not declare.
+
+That producer/consumer split is the real structure here, and it is currently implicit on both
+sides — contributing happens by filename convention, consuming happens through a `mounts`
+entry whose other meaning is something else entirely. §8.2 takes up whether to name it.
 
 ### 2.3 `writableDirs` vs `sharedDirs` — the two persistence tiers
 
@@ -792,25 +831,133 @@ Not urgent for the six shipped packs, which have distinct bins. It matters the m
 third-party pack ships a tool with a common name. **Proposal:** a `PackInstallConflicts`
 mirroring `HostFileConflicts`, fatal at staging, naming both packs and the bin.
 
-### 8.2 `mounts` reads more general than it is
+### 8.2 `mounts` conflates two operations, and the interesting one is unnamed
 
-The schema says "stages one of the pack's own files or directories and mounts it
-read-only". In practice only two `from` values do anything: `AGENTS.md`/`CLAUDE.md` and
-`skills`. A pack declaring `{"from": "templates", "to": ".config/mytool/templates"}` gets
-**silently nothing** — no mount, no warning. That is exactly the "a declaration that
-silently does nothing" failure mode `DisallowUnknownFields` exists to prevent, one level
-up.
+The immediate defect is small: the schema says "stages one of the pack's own files or
+directories and mounts it read-only", but only two `from` values do anything. A pack
+declaring `{"from": "templates", "to": ".config/mytool/templates"}` gets **silently
+nothing** — no mount, no warning. That is precisely the "a declaration that silently does
+nothing" failure mode `DisallowUnknownFields` exists to prevent, one level up.
 
-Two directions, and this is the one most worth a decision:
+The interesting part is *why* those two are special, because it points at a mechanism the
+codebase already has and has not generalized.
 
-- **Honor it generically.** Mount any staged `from` at `to`, keeping the briefing and skills
-  cases as special composition behavior layered on top. More capable; needs a rule for
-  what happens when `to` collides with a writable dir or another pack's mount.
-- **Narrow the schema to match.** Rename to something like `content: {briefing, skills}`,
-  so the manifest can't express what core won't do.
+#### The shape that's actually there
 
-Either beats the status quo. If neither is done soon, at minimum an unrecognized `from`
-should be a **validation error** rather than silence.
+`mounts` is doing two unrelated jobs under one key:
+
+1. **Mount my file at that path.** Never implemented.
+2. **Put the accumulated CORPUS at that path.** Implemented twice, ad hoc, once for briefing
+   prose and once for skills.
+
+Job 2 is a **producer/consumer fan-in**: many packs contribute, one pack consumes and names
+the destination + format. And core already has a first-class version of exactly that pattern
+— the `computed` layer (§3.2):
+
+```jsonc
+"computed": [ { "from": "mcp_servers", "to": "mcpServers", "project": { … } } ]
+```
+
+`mcp_servers` is a **named collection** core owns. A surface says "give me that collection,
+reshaped into my dialect, at this key". The source set is closed, so a typo is an error
+rather than a silently empty layer.
+
+Briefing and skills are the same shape with none of the machinery: contribution is by
+**filename convention** at the pack root (`AGENTS.md`, `skills/`), consumption is a `mounts`
+entry, the merge order is hardcoded in Go, and the "projection" is a fixed concatenation or
+directory copy. Three mechanisms for one idea.
+
+#### The proposal: named collections as the one fan-in
+
+Make the collection a first-class thing packs both **contribute to** and **consume from**,
+and let `computed.from`'s closed source set carry them:
+
+```jsonc
+// any pack — CONTRIBUTE
+"contributes": [
+  { "to": "briefing", "from": "AGENTS.md" },              // was: filename convention
+  { "to": "skills",   "from": "skills" },                 // was: filename convention
+  { "to": "mcp_servers", "from": "mcp/servers.json" }      // new: a pack can ship MCP servers
+]
+
+// an agent pack — CONSUME
+"surfaces": [ { "agent": "claude", "name": "settings", …,
+                "computed": [ { "from": "mcp_servers", "to": "mcpServers" } ] } ],
+"consumes": [
+  { "from": "briefing", "to": ".claude/CLAUDE.md", "codec": "markdown",
+    "hostOverlay": ".claude/CLAUDE.md" },
+  { "from": "skills",   "to": ".claude/skills",    "codec": "skilldir" }
+]
+```
+
+What this buys, in rough order of value:
+
+- **The two ad-hoc cases become instances of one mechanism**, so a third collection (prompt
+  templates, lint configs, command definitions, subagent definitions) is a pack file rather
+  than a Go change — the same bar the rest of the pack system already meets.
+- **An unrecognized name is an error**, inheriting the closed-set property that already makes
+  `computed.from` safe. That fixes the silent-nothing defect as a side effect.
+- **Contribution stops being a filename convention.** Today a pack contributes prose by
+  happening to have `AGENTS.md` at its root — invisible in the manifest, undiscoverable from
+  `yolo pack ls`, and un-narrowable (`only: ["skills/**"]` silently drops the briefing too).
+- **A non-agent pack can contribute to an agent-facing table.** `mcp_servers` is core-owned
+  today, so a shared team pack cannot ship an MCP server; it has to tell people to edit their
+  own config. That is a real gap and this closes it.
+
+#### The four questions it has to answer
+
+Worth working through before committing, because each has a wrong answer that looks fine:
+
+1. **Where does the format knowledge live?** Briefing is markdown-with-attribution-headers;
+   skills is a directory merge with three-tier precedence; MCP is a JSON table with
+   projections. `computed` already solved this for tables (`project.ops`), and the
+   deliberate refusal there was to invent a templating language. A directory merge is not
+   expressible in `project.ops` and probably shouldn't be — which suggests **core owns a
+   small closed set of collection *kinds*** (`table`, `document`, `dir`), each with fixed
+   merge semantics, and a pack picks a kind rather than describing one. That keeps §8.6's
+   "closed set, no executable content" posture intact.
+2. **What is the merge order, and can a pack influence it?** Skills has a real answer today
+   (built-ins < packs in config order < the user's own) that took thought and should survive.
+   Config order is the only ordering signal a pack can't fake, so the safe rule is
+   *contribution order = config order, later wins*, with **no** per-pack priority field —
+   a priority number is how a shared pack quietly outranks the user's own.
+3. **Does contribution cross the origin gate?** A fetched pack contributing to `briefing`
+   means its prose becomes instructions an agent follows. That is already true today and is
+   the *intended* semantics of installing a pack — §4 gates reading the host home, not
+   shipping content. But `mcp_servers` is different in kind: an MCP server is a **command
+   line the agent executes**. A fetched pack contributing one is much closer to
+   `installerUrl` than to prose, and should probably be gated with it. **This is the one
+   question I'd want settled first**, because getting it wrong turns a content grant into an
+   execution grant — the exact collapse §2.6 refuses for hooks.
+4. **Who consumes when nothing does?** A jail with a conventions pack and no agent pack has
+   contributions and no consumer. Today that is silent (no briefing is written at all, since
+   nothing declares a briefing mount). Under named collections it stays silent, which is
+   correct — but `yolo pack ls` should be able to *say* "3 skills contributed, 0 consumers",
+   because that is the same no-silent-caps rule the 0-files-staged warning already follows.
+
+#### The narrow alternative
+
+If named collections are too much for now: **split `mounts` into what it actually does** —
+`content: { briefing: {...}, skills: {...} }` — so the manifest cannot express the
+unimplemented job 1. Less capable, honest, and a smaller step. It does not close the
+non-agent-pack-can't-ship-an-MCP-server gap.
+
+**Either beats the status quo.** If neither happens soon, the minimum is making an
+unrecognized `from` a validation error rather than silence.
+
+### 8.7 The Go identifiers still say "agent"
+
+Core no longer has an agent concept, but the names kept from the deleted registry:
+`GenerateAgentLaunchers`, `~/.cache/yolo-agent-stamps/`, `nativeAgentLauncher`,
+`agents.SetPackSkillDirs`, and `internal/agents` itself (now holding only skills staging,
+briefing composition, loophole descriptions, and the source-tree probe).
+
+Cosmetic, but not harmless: the invariant is "core does not know what an agent is", and a
+reader checking that claim against the code finds a function named for the concept it is
+supposed to have shed — which reads as the refactor being incomplete rather than the naming
+being stale. A rename (`GeneratePackLaunchers`, `yolo-pack-stamps`, …) is mechanical; the
+stamp-dir path change would orphan existing stamps, which is harmless (a stale stamp just
+means one extra update check).
 
 ### 8.3 A native install's destination is core-fixed, not pack-declared
 
