@@ -44,6 +44,19 @@ package agentcfg
 // Practical consequence: the overlay must be preserved and backed up like data;
 // last_render must be preserved across a single restart but is meaningless
 // afterwards. Neither is a cache, and nothing here may be pruned as one.
+//
+// VOCABULARY (E/3.7). Three terms are in use and they are NOT synonyms, which is why a
+// blanket rename would lose information rather than add clarity:
+//
+//	in-jail edit       the ACT: an agent or user writing to a composed file
+//	captured edits     the user-facing name for the STATE that survives regeneration.
+//	                   This is the umbrella term — what `yolo config diff` shows and
+//	                   `yolo config reset` discards
+//	captured overlay   the specific LAYER in the fold, between workspace and computed
+//
+// Deliberately NOT "managed": that already means keys YOLO re-asserts and wins, which
+// is the opposite relationship. Using one word for both would make the fold order
+// unreadable.
 
 import (
 	"bytes"
