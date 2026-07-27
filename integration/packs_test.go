@@ -36,8 +36,11 @@ func TestPackDeliversSkillAndBriefing(t *testing.T) {
 		t.Fatal(err)
 	}
 
-	dir := writeProject(t, `{"agents": ["claude"]}`)
-	packHome(t, `{"packs": ["file://`+pack+`"]}`)
+	// The user config carries BOTH: the claude pack (so there is an agent whose skills dir
+	// and briefing the user pack layers into) and the user pack under test. One key, because
+	// `packs` is a single user-scope list — there is no separate "official" tier.
+	dir := writeProject(t, `{}`)
+	packHome(t, `{"packs": ["claude", "file://`+pack+`"]}`)
 
 	r := runYolo(t, dir,
 		`ls /home/agent/.claude/skills/pack-demo/SKILL.md && `+
@@ -62,8 +65,8 @@ func TestPackWithNoMatchingFilesWarns(t *testing.T) {
 		t.Fatal(err)
 	}
 
-	dir := writeProject(t, `{"agents": ["claude"]}`)
-	packHome(t, `{"packs": [{"source": "file://`+pack+`", "only": ["nothing-matches/*"]}]}`)
+	dir := writeProject(t, `{}`)
+	packHome(t, `{"packs": ["claude", {"source": "file://`+pack+`", "only": ["nothing-matches/*"]}]}`)
 
 	r := runYolo(t, dir, "true")
 	if !strings.Contains(r.combined(), "staged 0 files") {

@@ -17,9 +17,10 @@ import (
 // grep blocks, bridge net) with an extra top-level key merged in — the Go
 // equivalent of the Python tests reading temp_project's config, adding a key, and
 // writing it back.
+// The `packs` selection is NOT here: it is user-scope only (see writeProjectWithPacks), so
+// the workspace config carries everything else and the caller selects packs separately.
 func mcpConfigWithAgents(extra string) string {
 	return `{
-  "agents": ["copilot", "codex", "claude"],
   "security": {
     "blocked_tools": [
       "curl",
@@ -36,8 +37,9 @@ func mcpConfigWithAgents(extra string) string {
 // settings.json).
 func TestCustomMcpServerConfigPropagates(t *testing.T) {
 	requireJail(t)
-	dir := writeProject(t, mcpConfigWithAgents(
-		`"mcp_servers": {"probe-mcp": {"command": "/workspace/probe-mcp.py", "args": ["--stdio"]}}`))
+	dir := writeProjectWithPacks(t, mcpConfigWithAgents(
+		`"mcp_servers": {"probe-mcp": {"command": "/workspace/probe-mcp.py", "args": ["--stdio"]}}`),
+		"copilot", "codex", "claude")
 	if err := os.WriteFile(filepath.Join(dir, "probe-mcp.py"), []byte("#!/usr/bin/env python3\n"), 0o644); err != nil {
 		t.Fatalf("writing probe-mcp.py: %v", err)
 	}
@@ -63,8 +65,9 @@ PY`)
 // built-in servers in both agent configs.
 func TestMcpPresetCanBeEnabled(t *testing.T) {
 	requireJail(t)
-	dir := writeProject(t, mcpConfigWithAgents(
-		`"mcp_presets": ["chrome-devtools", "sequential-thinking"]`))
+	dir := writeProjectWithPacks(t, mcpConfigWithAgents(
+		`"mcp_presets": ["chrome-devtools", "sequential-thinking"]`),
+		"copilot", "codex", "claude")
 
 	r := runYolo(t, dir, `python - <<'PY'
 import json
@@ -100,6 +103,8 @@ PY`)
 // preflight validator rejects it before any container starts.
 func TestSameFilePresetAndNullOverrideIsRejected(t *testing.T) {
 	requireJail(t)
+	// No pack selection needed: the validator rejects this before a container starts, so
+	// what the jail would have contained never matters.
 	dir := writeProject(t, mcpConfigWithAgents(
 		`"mcp_presets": ["chrome-devtools", "sequential-thinking"],
   "mcp_servers": {"chrome-devtools": null}`))
@@ -127,10 +132,13 @@ func TestSameFilePresetAndNullOverrideIsRejected(t *testing.T) {
 func TestWorkspaceMcpConfigsAreIsolated(t *testing.T) {
 	requireJail(t)
 	base := `{
-  "agents": ["copilot", "codex"],
   "security": {"blocked_tools": ["curl"]},
   "network": {"mode": "bridge"},
   `
+	// One user config for both workspaces: `packs` is user-scope, so the two projects
+	// necessarily share a selection. That is fine for what this test isolates — MCP servers
+	// come from the WORKSPACE config, which is exactly the split being verified.
+	packHome(t, `{"packs": ["copilot", "codex"]}`)
 	projectA := writeProject(t, base+`"mcp_presets": ["chrome-devtools", "sequential-thinking"]
 }`)
 	projectB := writeProject(t, base+`"mcp_servers": {"chrome-devtools": null}

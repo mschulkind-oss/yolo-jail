@@ -17,11 +17,11 @@ import (
 // be per-arch flaky. Per the CI policy (ci.yml), a red cell in one arch means
 // gating that agent out of that arch's matrix — not weakening the assertion here.
 
-// TestAgentToolsAvailable confirms codex and copilot are both present inside a
-// jail that selects them.
+// TestAgentToolsAvailable confirms codex and copilot are both present inside a jail whose
+// `packs` name them.
 func TestAgentToolsAvailable(t *testing.T) {
 	requireJail(t)
-	dir := writeProject(t, `{"agents": ["codex", "copilot"]}`)
+	dir := writeProjectWithPacks(t, `{}`, "codex", "copilot")
 	r := runYolo(t, dir, "codex --version && copilot --version")
 	if r.rc != 0 {
 		t.Fatalf("expected rc 0, got %d\n%s", r.rc, r.combined())
@@ -34,30 +34,31 @@ func TestAgentToolsAvailable(t *testing.T) {
 // was absent from the non-login-shell PATH.
 func TestAgentToolsAvailableDirect(t *testing.T) {
 	requireJail(t)
-	dir := writeProject(t, `{"agents": ["copilot"]}`)
+	dir := writeProjectWithPacks(t, `{}`, "copilot")
 	r := runYoloDirect(t, dir, "copilot", "--version")
 	if r.rc != 0 {
 		t.Fatalf("copilot --version failed: rc %d\nstdout: %s\nstderr: %s", r.rc, r.stdout, r.stderr)
 	}
 }
 
-// agentCase describes one selectable agent: the config's agent name, the
-// installed binary, its version flag, the in-jail config file it generates, and
-// an auto-approve marker expected inside that file.
-type agentCase struct {
-	agent      string
+// packCase describes one shipped agent PACK: its pack name, the binary its `install`
+// declaration provides, that binary's version flag, the config file its `surfaces` render,
+// and an auto-approve marker expected inside that file.
+type packCase struct {
+	pack       string
 	binary     string
 	versionArg string
 	configRel  string
 	marker     string
 }
 
-// agentMatrix has one row per selectable agent. The subtest name is the agent
-// name.
-// Markers are the auto-approve settings each agent's config generator emits
-// (claude acceptEdits, copilot yolo, opencode allow,
-// pi defaultProjectTrust, codex danger-full-access).
-var agentMatrix = []agentCase{
+// packMatrix has one row per shipped agent pack; the subtest name is the pack name.
+//
+// Markers are the auto-approve settings each pack's surfaces assert (claude acceptEdits,
+// copilot yolo, opencode allow, pi defaultProjectTrust, codex danger-full-access). They
+// come from the pack's `managed`/`defaults` layers — there is no per-agent config generator
+// any more.
+var packMatrix = []packCase{
 	{"claude", "claude", "--version", ".claude/settings.json", "acceptEdits"},
 	{"copilot", "copilot", "--version", ".copilot/config.json", "yolo"},
 	{"opencode", "opencode", "--version", ".config/opencode/opencode.json", "allow"},
@@ -65,17 +66,21 @@ var agentMatrix = []agentCase{
 	{"codex", "codex", "--version", ".codex/config.toml", "danger-full-access"},
 }
 
-// TestAgentInstallsVersionsAndConfigures runs, for each selectable agent, a
-// single jail session that: exercises the lazy launcher's install path via
-// `<bin> --version`; confirms the post-install/update stamp file exists (proving
-// the update path ran); and greps the generated config for the agent's
-// auto-approve marker (proving the entrypoint generated it).
-func TestAgentInstallsVersionsAndConfigures(t *testing.T) {
+// TestPackInstallsVersionsAndConfigures runs, for each shipped agent pack, a single jail
+// session that: exercises the lazy launcher's install path via `<bin> --version`; confirms
+// the post-install/update stamp file exists (proving the update path ran); and greps the
+// generated config for the pack's auto-approve marker (proving the surface rendered).
+//
+// It is the strongest end-to-end statement that the transition is real: every one of these
+// launchers is generated from the pack's `install` declaration, and every config file from
+// its `surfaces`, with no Go code naming any of these tools. The matrix entries are PACK
+// names now, not agent names — the only registry left is the packs/ directory.
+func TestPackInstallsVersionsAndConfigures(t *testing.T) {
 	requireJail(t)
-	for _, tc := range agentMatrix {
-		t.Run(tc.agent, func(t *testing.T) {
+	for _, tc := range packMatrix {
+		t.Run(tc.pack, func(t *testing.T) {
 			requireJail(t)
-			dir := writeProject(t, fmt.Sprintf(`{"agents": [%q]}`, tc.agent))
+			dir := writeProjectWithPacks(t, `{}`, tc.pack)
 			stamp := "$HOME/.cache/yolo-agent-stamps/" + tc.binary + ".stamp"
 			cmd := fmt.Sprintf(
 				"%s %s && test -f %s && grep -q '%s' \"$HOME/%s\"",
@@ -84,19 +89,24 @@ func TestAgentInstallsVersionsAndConfigures(t *testing.T) {
 			r := runYolo(t, dir, cmd)
 			if r.rc != 0 {
 				t.Fatalf("%s: install/version/config check failed: rc %d\nstdout: %s\nstderr: %s",
-					tc.agent, r.rc, r.stdout, r.stderr)
+					tc.pack, r.rc, r.stdout, r.stderr)
 			}
 		})
 	}
 }
 
-// TestAgentSelectionPrunesUnselected confirms a codex-only jail installs codex
-// but NOT copilot/claude: their lazy-launcher shims under $HOME/.yolo-shims are
-// absent, and copilot's config dir is never generated — the library model's
-// isolation win.
-func TestAgentSelectionPrunesUnselected(t *testing.T) {
+// TestPackSelectionPrunesUnselected confirms a codex-only jail installs codex but NOT
+// copilot/claude: their lazy-launcher shims under $HOME/.yolo-shims are absent, and
+// copilot's config dir is never generated.
+//
+// This is now the END-TO-END check on pack OPT-IN, and it is the assertion that would have
+// caught the bug the unit tests missed. Embedded packs were briefly staged wholesale and
+// filtered afterwards, so every pack rendered in-jail regardless of selection — a real jail
+// halted its boot with eleven read-only-filesystem errors from packs nobody asked for. The
+// mount is the filter, and this proves it from outside.
+func TestPackSelectionPrunesUnselected(t *testing.T) {
 	requireJail(t)
-	dir := writeProject(t, `{"agents": ["codex"]}`)
+	dir := writeProjectWithPacks(t, `{}`, "codex")
 	cmd := strings.Join([]string{
 		"codex --version",
 		"! test -e $HOME/.yolo-shims/copilot",

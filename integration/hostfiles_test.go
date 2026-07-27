@@ -28,8 +28,7 @@ import (
 func TestHostFilesSourceLessModes(t *testing.T) {
 	requireJail(t)
 
-	dir := writeProject(t, `{
-  "agents": ["claude"],
+	dir := writeProjectWithPacks(t, `{
   "network": {"mode": "bridge"},
   "host_files": [
     {"path": "~/.config/yolo-it/seeded.conf", "content": "seeded=1\n"},
@@ -40,7 +39,7 @@ func TestHostFilesSourceLessModes(t *testing.T) {
      "managed": {"telemetry": false}},
     {"path": "~/yolo-it-newdir/nested.conf", "content": "newdir=1\n"}
   ]
-}`)
+}`, "claude")
 
 	// Boot 1: every entry must render. Then edit each one so boot 2 can prove the
 	// per-mode behavior.
@@ -112,15 +111,14 @@ func TestHostFilesSourceLessModes(t *testing.T) {
 func TestHostFilesConfigLsAndReset(t *testing.T) {
 	requireJail(t)
 
-	dir := writeProject(t, `{
-  "agents": ["claude"],
+	dir := writeProjectWithPacks(t, `{
   "network": {"mode": "bridge"},
   "host_files": [
     {"path": "~/.config/yolo-it/cap.json", "mode": "capture",
      "defaults": {"a": 1}},
     {"path": "~/.config/yolo-it/plain.conf", "content": "plain\n"}
   ]
-}`)
+}`, "claude")
 
 	// Boot 1 renders both; then edit the capture surface so it diverges.
 	if r := runYolo(t, dir, `printf '{"a":1,"mine":true}' > ~/.config/yolo-it/cap.json`); r.rc != 0 {
@@ -192,10 +190,9 @@ func TestHostFilesWorkspaceScopeSourceBearingRejected(t *testing.T) {
 	// absolute path is rejected earlier, as a path error, which would make this
 	// test pass for the wrong reason. Point at a real host dotfile so the rejection
 	// also cannot be confused with a missing-source complaint.
-	dir := writeProject(t, `{
-  "agents": ["claude"],
+	dir := writeProjectWithPacks(t, `{
   "host_files": ["~/.bashrc-yolo-it-probe"]
-}`)
+}`, "claude")
 
 	check := runYoloCLI(t, dir, "check", "--no-build")
 	if check.rc == 0 {
@@ -213,12 +210,11 @@ func TestHostFilesWorkspaceScopeSourceBearingRejected(t *testing.T) {
 func TestHostFilesReservedDestinationRejected(t *testing.T) {
 	requireJail(t)
 
-	dir := writeProject(t, `{
-  "agents": ["claude"],
+	dir := writeProjectWithPacks(t, `{
   "host_files": [
     {"path": "~/.claude/settings.json", "content": "{}"}
   ]
-}`)
+}`, "claude")
 
 	check := runYoloCLI(t, dir, "check", "--no-build")
 	if check.rc == 0 {

@@ -375,16 +375,41 @@ func writeProject(t *testing.T, configJSON string) string {
 	if err := os.WriteFile(filepath.Join(dir, "yolo-jail.jsonc"), []byte(configJSON), 0o644); err != nil {
 		t.Fatalf("writing yolo-jail.jsonc: %v", err)
 	}
+	if strings.Contains(configJSON, `"packs"`) {
+		t.Fatalf("writeProject got a `packs` key, which is USER SCOPE ONLY — a workspace "+
+			"config naming one is a `yolo check` error. Use writeProjectWithPacks so the "+
+			"key lands in the user config where it is read:\n%s", configJSON)
+	}
 	t.Cleanup(func() { forceRemoveContainer(dir) })
 	return dir
 }
 
-// tempProjectConfig is the standard fixture config (ported from conftest's
-// temp_project): all three legacy agents selected explicitly (the library-model
-// default is claude-only, but many tests assert copilot/codex configs), a curl
-// block plus a custom-message grep block, and bridge networking.
+// writeProjectWithPacks is writeProject for a test that needs specific packs active.
+//
+// The SPLIT is forced by scope, not preference: `packs` is read from
+// ~/.config/yolo-jail/config.jsonc directly and never from a workspace config, because a
+// workspace config travels with the repo and is agent-editable — so it must not decide what
+// content an agent then follows. A fixture that wrote `packs` into yolo-jail.jsonc would
+// fail `yolo check` rather than select anything, and writeProject now says so outright.
+//
+// packNames are BARE embedded-pack names ("claude", "codex"), which is how the packs yolo
+// ships are selected; nothing is active by default.
+func writeProjectWithPacks(t *testing.T, workspaceConfig string, packNames ...string) string {
+	t.Helper()
+	quoted := make([]string, len(packNames))
+	for i, n := range packNames {
+		quoted[i] = `"` + n + `"`
+	}
+	packHome(t, `{"packs": [`+strings.Join(quoted, ", ")+`]}`)
+	return writeProject(t, workspaceConfig)
+}
+
+// tempProjectConfig is the standard fixture WORKSPACE config (ported from conftest's
+// temp_project): a curl block plus a custom-message grep block, and bridge networking.
+//
+// The pack selection is NOT here — it moved to the user config (tempProjectPacks), because
+// `packs` is user-scope only. See writeProjectWithPacks.
 const tempProjectConfig = `{
-  "agents": ["copilot", "codex", "claude"],
   "security": {
     "blocked_tools": [
       "curl",
@@ -394,10 +419,15 @@ const tempProjectConfig = `{
   "network": {"mode": "bridge"}
 }`
 
-// tempProject creates a workspace with the standard fixture config.
+// tempProjectPacks is the standard fixture's pack selection: the three tools whose configs
+// the suite asserts. Nothing is active by default, so a fixture that needs a tool's config
+// file to exist has to name its pack.
+var tempProjectPacks = []string{"copilot", "codex", "claude"}
+
+// tempProject creates a workspace with the standard fixture config and pack selection.
 func tempProject(t *testing.T) string {
 	t.Helper()
-	return writeProject(t, tempProjectConfig)
+	return writeProjectWithPacks(t, tempProjectConfig, tempProjectPacks...)
 }
 
 // section returns the slice of s strictly between the first occurrence of start
