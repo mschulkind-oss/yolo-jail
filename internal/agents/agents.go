@@ -131,10 +131,15 @@ var specs = []AgentSpec{
 		},
 		HostFiles:   HostFilesSpec{Dir: ".pi/agent", Files: []string{"settings.json"}},
 		OverlayDirs: []string{".pi"},
-		Skills:      "",
-		YoloFlags:   nil,
-		Alias:       "",
-		MiseRetire:  nil,
+		// pi's user skills dir is join(getAgentDir(), "skills") where getAgentDir()
+		// is $PI_AGENT_DIR or join(homedir(), ".pi", "agent") — confirmed from the
+		// shipped dist/core/skills.js + dist/config.js, not inferred from docs.
+		// Before this was set, pi received NO skills at all, including yolo's own
+		// built-in suite, while its briefing told it to read configuring-the-jail.
+		Skills:     ".pi/agent/skills",
+		YoloFlags:  nil,
+		Alias:      "",
+		MiseRetire: nil,
 	},
 	{
 		Name:         "codex",
@@ -146,10 +151,12 @@ var specs = []AgentSpec{
 			HostSource: ".codex/AGENTS.md",
 		},
 		OverlayDirs: []string{".codex"},
-		Skills:      "",
-		YoloFlags:   []string{"--dangerously-bypass-approvals-and-sandbox"},
-		Alias:       "",
-		MiseRetire:  nil,
+		// codex reads $CODEX_HOME/skills, with CODEX_HOME defaulting to ~/.codex.
+		// Same standalone bug as pi: no skills at all before this.
+		Skills:     ".codex/skills",
+		YoloFlags:  []string{"--dangerously-bypass-approvals-and-sandbox"},
+		Alias:      "",
+		MiseRetire: nil,
 	},
 	{
 		// agy is Google's Antigravity CLI — a native Go binary installed to

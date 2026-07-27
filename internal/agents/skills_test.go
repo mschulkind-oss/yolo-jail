@@ -133,3 +133,48 @@ func mustReadDir(t *testing.T, dir string) []os.DirEntry {
 	must(t, err)
 	return entries
 }
+
+// A8: pi and codex had Skills:"" and were `continue`d by PrepareSkills, so they
+// received NO skills at all — including yolo's own BUILT-IN suite — while their
+// generated briefing told them to "read configuring-the-jail". This pins that
+// every skills-bearing agent gets the built-in suite staged, and pins the two
+// paths, which come from the shipped agent implementations (pi:
+// join(getAgentDir(),"skills"); codex: $CODEX_HOME/skills) rather than from docs.
+//
+// opencode is deliberately absent: it has no user-level skills dir at all, so
+// Skills:"" is correct for it and it stays briefing-only.
+func TestEveryAgentWithSkillsGetsBuiltinSuite(t *testing.T) {
+	home := t.TempDir()
+	t.Setenv("HOME", home)
+
+	for _, tc := range []struct{ agent, want string }{
+		{"claude", ".claude/skills"},
+		{"copilot", ".copilot/skills"},
+		{"pi", ".pi/agent/skills"},
+		{"codex", ".codex/skills"},
+		{"agy", ".gemini/antigravity-cli/skills"},
+	} {
+		spec, ok := Get(tc.agent)
+		if !ok {
+			t.Fatalf("agent %q not in registry", tc.agent)
+		}
+		if spec.Skills != tc.want {
+			t.Errorf("%s Skills = %q, want %q", tc.agent, spec.Skills, tc.want)
+		}
+		staging, err := PrepareSkills("c-"+tc.agent, home, []string{tc.agent}, false)
+		if err != nil {
+			t.Fatalf("%s: %v", tc.agent, err)
+		}
+		// jail-startup is in the built-in suite, so its presence proves the agent
+		// is no longer skipped.
+		probe := filepath.Join(staging, spec.SkillsStaging(), "jail-startup", "SKILL.md")
+		if _, err := os.Stat(probe); err != nil {
+			t.Errorf("%s: built-in suite not staged (%v)", tc.agent, err)
+		}
+	}
+
+	// opencode stays skills-less by design.
+	if spec, _ := Get("opencode"); spec.Skills != "" {
+		t.Errorf("opencode Skills = %q, want \"\" (no user-level skills dir)", spec.Skills)
+	}
+}
