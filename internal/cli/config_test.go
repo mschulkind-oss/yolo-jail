@@ -189,3 +189,26 @@ func TestConfigRenderMisuse(t *testing.T) {
 		}
 	}
 }
+
+// A3: `config render claude` composed claude/config (~/.claude.json) even though
+// the JAIL NEVER COMPOSES THAT FILE — the boot path writes it via
+// writeClaudeJSON's read-modify-write, which is why prismSurfaceMode labels it
+// "unrendered" and ls/diff/reset already skip it. Rendering it printed live agent
+// state (machineID, the full mcpServers table, onboarding timestamps) as though it
+// were a yolo-composed preview, breaking the §6 promise that what render prints is
+// what the jail gets.
+func TestConfigRenderSkipsUnrenderedSurfaces(t *testing.T) {
+	var out, errw bytes.Buffer
+	rc := configRender([]string{"claude"}, &out, &errw, false)
+	if rc != 0 {
+		t.Fatalf("rc = %d, stderr = %s", rc, errw.String())
+	}
+	got := out.String()
+	if strings.Contains(got, "claude/config") {
+		t.Errorf("render must skip the unrendered claude/config surface:\n%s", got)
+	}
+	// The genuinely composed surface must still render.
+	if !strings.Contains(got, "claude/settings") {
+		t.Errorf("render dropped claude/settings:\n%s", got)
+	}
+}

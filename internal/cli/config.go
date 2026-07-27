@@ -174,6 +174,24 @@ func configRender(args []string, out, errw io.Writer, color bool) int {
 		if surface != "" && s.Name != surface {
 			continue
 		}
+		// A3: skip surfaces the JAIL never composes. claude/config (~/.claude.json)
+		// is written by writeClaudeJSON's read-modify-write, not by the engine —
+		// prismSurfaceMode marks it "unrendered" and ls/diff/reset already skip it,
+		// but render composed it anyway and printed LIVE AGENT STATE (machineID, the
+		// whole mcpServers table, onboarding timestamps, userID) as though it were a
+		// preview of what yolo writes. That breaks §6's promise that what render
+		// prints is what the jail gets, and it is the one place the promise is a lie
+		// rather than a drift.
+		if prismSurfaceMode[s.Agent+"/"+s.Name] == surfaceModeUnrendered {
+			if surface != "" {
+				// Explicitly asked for by name: say why nothing came out, rather than
+				// printing silence.
+				fmt.Fprintf(errw, "yolo config render: %s/%s is not composed by yolo "+
+					"(%s is owned by the agent; yolo only asserts individual keys into "+
+					"it at boot), so there is nothing to render\n", s.Agent, s.Name, s.Path)
+			}
+			continue
+		}
 		if err := renderSurface(s, script, vm, explain, out, color); err != nil {
 			fmt.Fprintf(errw, "yolo config render: %s/%s: %v\n", s.Agent, s.Name, err)
 			rc = 1

@@ -47,6 +47,11 @@ type surfaceRow struct {
 // "capture" = rendered via renderSurfaceStateful (writes last_render + overlay
 // sidecars, in-jail edits survive). "copy" = rendered via renderSurfaceComputed
 // (pure per-boot overwrite, no sidecars, in-jail edits discarded).
+// surfaceModeUnrendered marks a surface yolo does NOT compose: the agent owns the
+// file and yolo only asserts individual keys into it (claude/config via
+// writeClaudeJSON's read-modify-write). ls/diff/reset and render all skip these.
+const surfaceModeUnrendered = "unrendered"
+
 var prismSurfaceMode = map[string]string{
 	"claude/settings": "capture",
 	"pi/settings":     "capture",
@@ -58,7 +63,7 @@ var prismSurfaceMode = map[string]string{
 	"copilot/mcp":     "copy",
 	"copilot/lsp":     "copy",
 	"agy/mcp":         "copy",
-	"claude/config":   "unrendered",
+	"claude/config":   surfaceModeUnrendered,
 }
 
 // configLs implements `yolo config ls [--all]`.
@@ -108,7 +113,7 @@ func collectSurfaceRows(all bool) []surfaceRow {
 			Layers:   builtinLayers(s),
 			Overlay:  -1,
 			HasFile:  composedFileExists(s.Path),
-			Reserved: mode == "unrendered",
+			Reserved: mode == surfaceModeUnrendered,
 		}
 		if mode == "capture" {
 			row.Overlay = overlayKeyCount(s.Agent, s.Name)
