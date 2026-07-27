@@ -4,7 +4,10 @@ import (
 	"encoding/json"
 	"os"
 	"path/filepath"
+	"strings"
 	"testing"
+
+	"github.com/mschulkind-oss/yolo-jail/internal/agentcfg"
 )
 
 // newClaudePrismEnv builds an Env with a fake jail home, a fake /ctx/host-claude
@@ -224,5 +227,29 @@ func TestConfigureClaudePrismUserSettingSurvives(t *testing.T) {
 	plugins, ok := got["enabledPlugins"].(map[string]any)
 	if !ok || plugins["pyright-lsp@claude-plugins-official"] != true {
 		t.Errorf("enabledPlugins[pyright] = %v, want true (computed regenerates)", got["enabledPlugins"])
+	}
+}
+
+// A11: the ${workspace} placeholder must never reach a rendered file. If a render
+// path forgets to substitute, the agent silently gets a projects table keyed by a
+// literal "${workspace}" — plausible-looking and completely inert. This asserts on
+// the real boot writer with a NON-default workspace root, so the container default
+// cannot mask a missing substitution.
+func TestClaudePrismSubstitutesWorkspacePlaceholder(t *testing.T) {
+	e, _ := newClaudePrismEnv(t, nil)
+	e.Workspace = t.TempDir()
+
+	if err := ConfigureClaudePrism(e); err != nil {
+		t.Fatal(err)
+	}
+	// claude/config is the surface carrying the placeholder; it is written by
+	// writeClaudeJSON, so read the file the agent actually reads.
+	raw := readFile(t, filepath.Join(e.Home, ".claude.json"))
+	if strings.Contains(raw, agentcfg.WorkspacePlaceholder) {
+		t.Errorf("unsubstituted %s leaked into ~/.claude.json:\n%s",
+			agentcfg.WorkspacePlaceholder, raw)
+	}
+	if !strings.Contains(raw, e.Workspace) {
+		t.Errorf("~/.claude.json does not mention the real workspace %q:\n%s", e.Workspace, raw)
 	}
 }

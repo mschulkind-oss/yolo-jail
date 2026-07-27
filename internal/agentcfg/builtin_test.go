@@ -88,9 +88,11 @@ func TestBuiltinClaudeConfigSurface(t *testing.T) {
 	if !ok {
 		t.Fatalf("claude/config managed projects not an object: %T", s.ManagedMap()["projects"])
 	}
-	ws, ok := mProj["/workspace"].(map[string]any)
+	// A11: the manifest holds the ${workspace} placeholder, not a jail literal.
+	ws, ok := mProj[WorkspacePlaceholder].(map[string]any)
 	if !ok {
-		t.Fatalf("claude/config managed projects[/workspace] not an object: %T", mProj["/workspace"])
+		t.Fatalf("claude/config managed projects[%s] not an object: %T",
+			WorkspacePlaceholder, mProj[WorkspacePlaceholder])
 	}
 	if ws["enableAllProjectMcpServers"] != true {
 		t.Errorf("managed projects[/workspace].enableAllProjectMcpServers = %v, want true", ws["enableAllProjectMcpServers"])
@@ -99,12 +101,14 @@ func TestBuiltinClaudeConfigSurface(t *testing.T) {
 	if !ok {
 		t.Fatalf("claude/config default projects not an object: %T", s.DefaultsMap()["projects"])
 	}
-	dws, ok := dProj["/workspace"].(map[string]any)
+	dws, ok := dProj[WorkspacePlaceholder].(map[string]any)
 	if !ok {
-		t.Fatalf("claude/config default projects[/workspace] not an object: %T", dProj["/workspace"])
+		t.Fatalf("claude/config default projects[%s] not an object: %T",
+			WorkspacePlaceholder, dProj[WorkspacePlaceholder])
 	}
 	if dws["hasTrustDialogAccepted"] != true {
-		t.Errorf("default projects[/workspace].hasTrustDialogAccepted = %v, want true", dws["hasTrustDialogAccepted"])
+		t.Errorf("default projects[%s].hasTrustDialogAccepted = %v, want true",
+			WorkspacePlaceholder, dws["hasTrustDialogAccepted"])
 	}
 }
 

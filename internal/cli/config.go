@@ -182,9 +182,20 @@ func configRender(args []string, out, errw io.Writer, color bool) int {
 	return rc
 }
 
+// containerWorkspace is the workspace root inside a container-backed jail, and the
+// value `yolo config render` previews against. Env.WorkspaceDir() resolves the same
+// default in-jail. The macos-user backend uses the real host path instead, so a
+// render preview on that backend is approximate for ${workspace}-bearing keys.
+const containerWorkspace = "/workspace"
+
 // renderSurface composes one surface and writes either the rendered file or the
 // --explain provenance to out.
 func renderSurface(s manifest.Surface, script string, vm luahook.LuaVM, explain bool, out io.Writer, color bool) error {
+	// A11: resolve ${workspace} exactly as the boot path does, so what `render`
+	// prints is what the jail gets (§6). The jail composes with ITS OWN workspace
+	// root — "/workspace" on a container backend — so that is what we substitute
+	// here, not the host checkout path: this command previews the jail's file.
+	s = agentcfg.SubstituteWorkspace(s, containerWorkspace)
 	hostBytes, _ := os.ReadFile(expandHome(s.Path)) // absent host file => empty layer
 
 	res, err := agentcfg.Compose(agentcfg.Inputs{

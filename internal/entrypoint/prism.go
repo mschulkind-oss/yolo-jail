@@ -142,6 +142,11 @@ func renderSurfaceStateful(e *Env, agent, name string, hostBytes []byte, compute
 // with any builtin (no builtin agent is "user", and the slug is injective on the
 // destination path).
 func renderSurfaceStatefulSurface(e *Env, surface manifest.Surface, hostBytes []byte, computed map[string]any) (*agentcfg.StatefulOutput, error) {
+	// A11: resolve ${workspace} in the surface's layer DATA before composing. The
+	// workspace root is not always "/workspace" (YOLO_WORKSPACE; macos-user has no
+	// /workspace), so a literal in the manifest would assert keys under a path the
+	// agent never looks at.
+	surface = agentcfg.SubstituteWorkspace(surface, e.WorkspaceDir())
 	surfacePath := expandHomePath(e, surface.Path)
 	current, _ := os.ReadFile(surfacePath) // absent => nil, treated as no current file
 
@@ -330,6 +335,7 @@ func renderSurfaceComputed(e *Env, agent, name string, computed map[string]any) 
 // — silently losing the file's actual content. It writes ONLY the surface file
 // (no sidecars) and returns the Result so a caller can chmod or inspect it.
 func renderSurfaceStatelessSurface(e *Env, surface manifest.Surface, hostBytes []byte, computed map[string]any) (*agentcfg.Result, error) {
+	surface = agentcfg.SubstituteWorkspace(surface, e.WorkspaceDir()) // A11, see the stateful core
 	script, serr := surfaceScript(e, surface)
 	if serr != nil {
 		return nil, serr

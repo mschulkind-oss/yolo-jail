@@ -356,7 +356,12 @@ func TestComposeClaudeConfigEnforcesManaged(t *testing.T) {
 	if !ok {
 		t.Fatal("builtin manifest missing claude/config")
 	}
-	res, err := Compose(Inputs{Surface: s, HostBytes: []byte(`{}`)})
+	// A11: the manifest carries ${workspace}; the render substitutes the real root.
+	// Compose here through the same substitution the boot path applies, with a
+	// NON-default root so a re-hardcoded literal would fail rather than pass by
+	// coincidence.
+	const root = "/somewhere/else"
+	res, err := Compose(Inputs{Surface: SubstituteWorkspace(s, root), HostBytes: []byte(`{}`)})
 	if err != nil {
 		t.Fatalf("Compose error: %v", err)
 	}
@@ -364,12 +369,12 @@ func TestComposeClaudeConfigEnforcesManaged(t *testing.T) {
 	if !ok {
 		t.Fatalf("projects not an object: %T", res.ConfigMap()["projects"])
 	}
-	ws, ok := proj["/workspace"].(map[string]any)
+	ws, ok := proj[root].(map[string]any)
 	if !ok {
-		t.Fatalf("projects[/workspace] not an object: %T", proj["/workspace"])
+		t.Fatalf("projects[%s] not an object: %T (keys %v)", root, proj[root], proj)
 	}
 	if ws["enableAllProjectMcpServers"] != true {
-		t.Errorf("projects[/workspace].enableAllProjectMcpServers = %v, want true", ws["enableAllProjectMcpServers"])
+		t.Errorf("projects[%s].enableAllProjectMcpServers = %v, want true", root, ws["enableAllProjectMcpServers"])
 	}
 	if res.Provenance["projects"] != layerManaged {
 		t.Errorf("provenance projects = %q, want %q", res.Provenance["projects"], layerManaged)
