@@ -1,4 +1,9 @@
 {
+  "flagAliases": {
+    "--yolo": [
+      "-y"
+    ]
+  },
   "install": {
     "bin": "copilot",
     "kind": "npm",

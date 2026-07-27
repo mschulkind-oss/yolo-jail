@@ -26,7 +26,6 @@ func (o *Options) runEntrypointPreflight(r *reporter, _, workspace string, merge
 	lspJSON := jsonDumpOrEmptyObj(mapOrNil(merged, "lsp_servers"))
 	mcpJSON := jsonDumpOrEmptyObj(mapOrNil(merged, "mcp_servers"))
 	presetsJSON := jsonDumpOrEmptyList(listOrNil(merged, "mcp_presets"))
-	agentsJSON := jsonDumpStrings(config.SelectedAgents(merged))
 
 	workspaceResolved := workspace
 	if r, e := filepath.Abs(workspace); e == nil {
@@ -45,7 +44,6 @@ func (o *Options) runEntrypointPreflight(r *reporter, _, workspace string, merge
 		"YOLO_LSP_SERVERS":  lspJSON,
 		"YOLO_MCP_SERVERS":  mcpJSON,
 		"YOLO_MCP_PRESETS":  presetsJSON,
-		"YOLO_AGENTS":       agentsJSON,
 		// Point prism writers' §5 sidecars (<workspace>/.yolo/prism/) at the temp
 		// home, not the real workspace — the preflight is a dry run and must not
 		// touch the live workspace. agy (born on the prism) is the first writer
@@ -169,15 +167,6 @@ func jsonDumpOrEmptyList(l []any) string {
 		return "[]"
 	}
 	s, _ := jsonx.DumpsCompact(l)
-	return s
-}
-
-func jsonDumpStrings(ss []string) string {
-	arr := make([]any, len(ss))
-	for i, s := range ss {
-		arr[i] = s
-	}
-	s, _ := jsonx.DumpsCompact(arr)
 	return s
 }
 

@@ -6,43 +6,8 @@ import (
 	"sort"
 	"strings"
 
-	"github.com/mschulkind-oss/yolo-jail/internal/agents"
 	"github.com/mschulkind-oss/yolo-jail/internal/jsonx"
 )
-
-// LoadAgents reads the selected agents from YOLO_AGENTS (a JSON list), with
-// unknown names dropped.
-//
-// An absent, empty, or unparseable value yields NO agents rather than a default
-// set. That is the same rule as agents.ResolveAgents, and it has to be: the
-// entrypoint is the LAST place that could conjure an agent the user's config
-// never selected, and it runs where nobody would see it happen — inside the jail,
-// at boot, with no console the user is reading. Agents come from packs now, so a
-// missing YOLO_AGENTS means the host had nothing to select, and provisioning an
-// agent anyway would install a CLI and mount its host files behind the user's
-// back.
-func LoadAgents(e *Env) []string {
-	raw := e.Getenv("YOLO_AGENTS")
-	var names []string
-	if raw != "" {
-		if decoded, err := jsonx.Decode([]byte(raw)); err == nil {
-			if arr, ok := decoded.([]any); ok {
-				for _, n := range arr {
-					if s, isStr := n.(string); isStr {
-						names = append(names, s)
-					}
-				}
-			}
-		}
-	}
-	out := []string{}
-	for _, n := range names {
-		if _, ok := agents.Get(n); ok {
-			out = append(out, n)
-		}
-	}
-	return out
-}
 
 // (empty) merged with the dict in YOLO_LSP_SERVERS. Returns an OrderedMap so
 // insertion order (defaults then overrides) is preserved for byte-parity.

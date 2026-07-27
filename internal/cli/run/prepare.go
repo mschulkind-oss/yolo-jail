@@ -61,8 +61,6 @@ func (o *Options) refreshJailBriefings(cname string, cfg *jsonx.OrderedMap, rt s
 		loops = append(loops, agents.Loophole{Name: lo.Name, Desc: lo.Description})
 	}
 
-	agentsList := config.SelectedAgents(cfg)
-
 	// Source-tree gating: staged skills + the briefing's dev section both key
 	// off this. Derived from the stable workspace, so launch and attach agree.
 	isSrc := agents.WorkspaceIsYoloSourceTree(o.Workspace)
@@ -80,7 +78,7 @@ func (o *Options) refreshJailBriefings(cname string, cfg *jsonx.OrderedMap, rt s
 	agents.SetPackSkillTargets(packSkillTargets(loadedPacks))
 
 	// Skills staging.
-	staging, err := agents.PrepareSkills(cname, homeDir(), agentsList, isSrc)
+	staging, err := agents.PrepareSkills(cname, homeDir(), nil, isSrc)
 	if err != nil {
 		return "", "", nil, err
 	}
@@ -168,7 +166,7 @@ func orderedMapToStrAny(m *jsonx.OrderedMap) map[string]any {
 // per-workspace overlay dirs + touch the overlay files, seed selected agents'
 // config dirs, sync claude.json, and run the old-overlay migrations. Returns the
 // ws_state path (<workspace>/.yolo/home).
-func (o *Options) prepareWsState(cfg *jsonx.OrderedMap, loadedPacks []*packload.Pack, agentsList []string) string {
+func (o *Options) prepareWsState(cfg *jsonx.OrderedMap, loadedPacks []*packload.Pack) string {
 	wsState := filepath.Join(o.Workspace, ".yolo", "home")
 	_ = os.MkdirAll(wsState, 0o755)
 	_ = os.MkdirAll(filepath.Join(wsState, "ssh"), 0o700)
@@ -213,7 +211,18 @@ func (o *Options) prepareWsState(cfg *jsonx.OrderedMap, loadedPacks []*packload.
 		seedAgentDir(filepath.Join(paths.GlobalHome(), "."+subdir), filepath.Join(wsState, subdir))
 	}
 
-	if inStrSlice(agentsList, "claude") {
+	// One-time LAYOUT MIGRATIONS from a pre-overlay-subdir yolo (flat
+	// <wsState>/claude-projects → <wsState>/claude/projects, and the same for copilot's
+	// sessions).
+	//
+	// Gated on whether the pack that owns the dir is LOADED, not on an agent name. The
+	// gate matters either way: creating <wsState>/claude/ for a user with no claude pack
+	// would leave an empty dir that looks like state, and podman would then bind it into
+	// a jail nothing writes.
+	//
+	// Transitional. Each entry cleans up a layout no yolo has written for some time, and
+	// they can all go once no live workspace still carries one.
+	if hasWritableDir(loadedPacks, ".claude") {
 		syncClaudeJSONSeed(
 			filepath.Join(paths.GlobalHome(), ".claude", "claude.json"),
 			filepath.Join(wsState, "claude", "claude.json"))
@@ -226,10 +235,20 @@ func (o *Options) prepareWsState(cfg *jsonx.OrderedMap, loadedPacks []*packload.
 			_ = copyFile2(oldSettings, newSettings)
 		}
 	}
-	if inStrSlice(agentsList, "copilot") {
+	if hasWritableDir(loadedPacks, ".copilot") {
 		migrateOldOverlay(filepath.Join(wsState, "copilot-sessions"), filepath.Join(wsState, "copilot", "session-state"))
 	}
 	return wsState
+}
+
+// hasWritableDir reports whether any loaded pack declared dir writable.
+func hasWritableDir(packs []*packload.Pack, dir string) bool {
+	for _, d := range packload.WritableDirs(packs) {
+		if d == dir {
+			return true
+		}
+	}
+	return false
 }
 
 func touchFile(p string) {

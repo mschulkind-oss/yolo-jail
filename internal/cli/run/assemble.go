@@ -6,7 +6,6 @@ import (
 	"strconv"
 	"strings"
 
-	"github.com/mschulkind-oss/yolo-jail/internal/agents"
 	"github.com/mschulkind-oss/yolo-jail/internal/config"
 	"github.com/mschulkind-oss/yolo-jail/internal/jsonx"
 	"github.com/mschulkind-oss/yolo-jail/internal/packload"
@@ -23,11 +22,9 @@ const miseStoreVolume = "yolo-mise-data-v2"
 // on Options. It is populated by the fresh-launch path before assembly; grouping
 // it keeps assembleRunCmd a pure function of its inputs ().
 type assembleInput struct {
-	cfg        *jsonx.OrderedMap
-	rt         string
-	cname      string
-	agentsList []string
-	agentSpecs []agents.AgentSpec
+	cfg   *jsonx.OrderedMap
+	rt    string
+	cname string
 	// packs are this run's loaded packs (embedded official + configured). Their
 	// DECLARATIONS drive the mounts below — writable dirs, mount targets, host-file
 	// grants — which is what lets core stay ignorant of what an "agent" is.
@@ -477,7 +474,6 @@ func (o *Options) commonEnvBlock(in *assembleInput, blockedConfigJSON, netMode s
 		"-e", "YOLO_LSP_GO_INSTALL="+in.lspGo(),
 		"-e", "YOLO_MCP_SERVERS="+jsonDumpsOrEmptyObj(cfgMap(cfg, "mcp_servers")),
 		"-e", "YOLO_MCP_PRESETS="+jsonDumpsOrEmptyList(cfgList(cfg, "mcp_presets")),
-		"-e", "YOLO_AGENTS="+jsonDumpsStrings(in.agentsList),
 		"-e", "YOLO_RUNTIME=podman",
 	)
 	// No YOLO_REPO_ROOT: the in-jail CLI resolves its repo root the same way the

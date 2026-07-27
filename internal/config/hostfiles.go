@@ -23,12 +23,11 @@ import (
 	"sync"
 
 	"github.com/mschulkind-oss/yolo-jail/internal/agentcfg/codec"
-	"github.com/mschulkind-oss/yolo-jail/internal/agents"
 	"github.com/mschulkind-oss/yolo-jail/internal/jsonx"
 	"github.com/mschulkind-oss/yolo-jail/internal/packload"
+	_ "github.com/mschulkind-oss/yolo-jail/internal/packreg" // registers the embedded packs with packload
 	"github.com/mschulkind-oss/yolo-jail/internal/paths"
 	"github.com/mschulkind-oss/yolo-jail/internal/pytext"
-	officialpacks "github.com/mschulkind-oss/yolo-jail/packs"
 )
 
 // hostFilesKey is the one config key this feature reads. Kept as a constant so
@@ -710,21 +709,14 @@ func hostFileShapeName(v any) string {
 func builtinSurfacePaths() []string {
 	surfacePathsOnce.Do(func() {
 		paths := []string{}
-		dir, err := os.MkdirTemp("", "yolo-surface-paths-")
-		if err == nil {
-			packs, problems := packload.MaterializeEmbedded(officialpacks.FS, dir)
-			if len(problems) == 0 {
-				for _, p := range packs {
-					surfaces, probs := p.Surfaces()
-					if len(probs) > 0 {
-						continue
-					}
-					for _, sf := range surfaces {
-						paths = append(paths, sf.Path)
-					}
-				}
+		for _, p := range packload.Embedded() {
+			surfaces, probs := p.Surfaces()
+			if len(probs) > 0 {
+				continue
 			}
-			_ = os.RemoveAll(dir)
+			for _, sf := range surfaces {
+				paths = append(paths, sf.Path)
+			}
 		}
 		paths = append(paths, corePathsForReservation...)
 		sort.Strings(paths)
@@ -1027,7 +1019,9 @@ const (
 // hostFileWritableRoots are the home-relative first segments already covered by a
 // read-write bind, so a destination under one needs no staging. Authority:
 // podmanBaseMounts (internal/cli/run/assemble_parts.go) plus the per-agent overlay
-// dirs (agents.AllOverlayDirs, emitted for SELECTED agents only).
+// dirs (packload.EmbeddedWritableDirs — every pack yolo ships, NOT only the loaded ones:
+// a reservation gated on selection would let a host_files entry claim a path a pack added
+// tomorrow needs, surfacing as a mount conflict with no obvious cause).
 //
 // `.ssh` is deliberately absent: it is a rw bind, but composing a file into the
 // jail's ssh dir from config is not a use case worth blessing implicitly.
@@ -1035,7 +1029,7 @@ var hostFileWritableRoots = func() map[string]struct{} {
 	roots := map[string]struct{}{
 		".config": {}, ".cache": {}, ".local": {}, "go": {}, ".npm-global": {},
 	}
-	for _, d := range agents.AllOverlayDirs {
+	for _, d := range packload.EmbeddedWritableDirs() {
 		roots[firstHomeSegment(d)] = struct{}{}
 	}
 	return roots

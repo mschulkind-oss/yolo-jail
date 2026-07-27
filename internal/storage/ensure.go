@@ -10,8 +10,9 @@ import (
 	"strconv"
 	"strings"
 
-	"github.com/mschulkind-oss/yolo-jail/internal/agents"
 	"github.com/mschulkind-oss/yolo-jail/internal/config"
+	"github.com/mschulkind-oss/yolo-jail/internal/packload"
+	_ "github.com/mschulkind-oss/yolo-jail/internal/packreg" // registers the embedded packs with packload
 	"github.com/mschulkind-oss/yolo-jail/internal/paths"
 )
 
@@ -49,7 +50,7 @@ func EnsureGlobalStorage(migrate func()) error {
 	}
 
 	// Per-agent overlay dirs (UNION across all known agents) + shared dirs.
-	overlaySubdirs := append([]string{}, agents.AllOverlayDirs...)
+	overlaySubdirs := append([]string{}, packload.EmbeddedWritableDirs()...)
 	overlaySubdirs = append(overlaySubdirs,
 		".claude-shared-credentials",
 		filepath.Join(".config", "git"),

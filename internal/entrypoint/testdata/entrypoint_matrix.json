@@ -1,55 +1,27 @@
 {
-  "_comment": "Stage 9 entrypoint tree-golden env matrix (go-port plan §9). The SINGLE committed source of truth for the scenarios both the Python oracle (entrypoint_oracle.py) and the Go test (entrypoint_parity_test.go) drive. @HOME@ is the fake-HOME token: substituted with the actual temp dir in env values and seed-file bodies on the way IN, and substituted back OUT of emitted file bodies + symlink targets so the two languages agree regardless of temp dir. Add scenarios here and both sides pick them up. Scenario agent selection is now EXPLICIT everywhere: there is no default agent set, so an absent YOLO_AGENTS means zero agents and generates zero agent launchers. `no_agents` (formerly `default_claude`, which no longer defaulted to anything) pins that zero-agent boot deliberately; every other scenario names its agents so the `bash -n` gate keeps covering generated launchers.",
+  "_comment": "Stage 9 entrypoint tree-golden env matrix (go-port plan \u00a79). The SINGLE committed source of truth for the scenarios both the Python oracle (entrypoint_oracle.py) and the Go test (entrypoint_parity_test.go) drive. @HOME@ is the fake-HOME token: substituted with the actual temp dir in env values and seed-file bodies on the way IN, and substituted back OUT of emitted file bodies + symlink targets so the two languages agree regardless of temp dir. Add scenarios here and both sides pick them up. Scenario agent selection is now EXPLICIT everywhere: there is no default agent set, so an absent YOLO_AGENTS means zero agents and generates zero agent launchers. `no_agents` (formerly `default_claude`, which no longer defaulted to anything) pins that zero-agent boot deliberately; every other scenario names its agents so the `bash -n` gate keeps covering generated launchers.",
   "home_token": "@HOME@",
   "scenarios": {
-    "no_agents": {
-      "env": {}
-    },
     "all_agents_presets_lsp": {
       "env": {
-        "YOLO_AGENTS": "[\"claude\",\"copilot\",\"opencode\",\"pi\",\"codex\"]",
         "YOLO_MCP_PRESETS": "[\"chrome-devtools\",\"sequential-thinking\"]",
         "YOLO_LSP_SERVERS": "{\"python\":{\"command\":\"/x/pyright-langserver\",\"args\":[\"--stdio\"],\"fileExtensions\":{\".py\":\"python\",\".pyi\":\"python\"}},\"go\":{\"command\":\"/x/gopls\",\"args\":[],\"fileExtensions\":{\".go\":\"go\"}}}",
         "YOLO_HOST_DIR": "/home/user/kitchen",
         "YOLO_MISE_TOOLS": "{\"typst\":\"latest\"}"
       }
     },
-    "blocked_tools_matrix": {
-      "env": {
-        "YOLO_BLOCK_CONFIG": "[{\"name\":\"grep\",\"message\":\"grep -r is blocked\",\"suggestion\":\"Use rg\",\"block_flags\":[\"--recursive\",\"-r\",\"-R\",\"-*[rR]*\"]},{\"name\":\"find\",\"message\":\"find is blocked\",\"suggestion\":\"Use fd\"},{\"name\":\"curl\",\"message\":\"curl is blocked in this project.\"}]",
-        "YOLO_AGENTS": "[\"claude\"]"
-      }
-    },
     "block_shadows_agent_launcher": {
       "env": {
-        "YOLO_AGENTS": "[\"codex\",\"copilot\",\"claude\"]",
         "YOLO_BLOCK_CONFIG": "[{\"name\":\"curl\",\"message\":\"blocked\"},{\"name\":\"pnpm\",\"message\":\"blocked\"}]"
       }
     },
-    "mcp_servers_env_interp": {
+    "blocked_tools_matrix": {
       "env": {
-        "YOLO_AGENTS": "[\"copilot\",\"agy\",\"claude\",\"opencode\",\"codex\"]",
-        "CEREBRAS_API_KEY": "csk-from-launch-env",
-        "YOLO_MCP_SERVERS": "{\"cerebras-mcp\":{\"command\":\"npx\",\"args\":[\"-y\",\"cerebras-code-mcp\"],\"env\":{\"CEREBRAS_API_KEY\":\"${CEREBRAS_API_KEY}\",\"CEREBRAS_MCP_IDE\":\"claude\"}},\"tavily\":{\"command\":\"npx\",\"args\":[\"-y\",\"tavily-mcp\"],\"env\":{\"TAVILY_API_KEY\":\"${TAVILY_API_KEY}\"},\"requires_env\":[\"TAVILY_API_KEY\"]},\"probe-mcp\":{\"command\":\"/workspace/probe-mcp.py\",\"args\":[\"--stdio\"]}}"
-      }
-    },
-    "mise_ca_seeded": {
-      "env": {
-        "YOLO_MISE_TOOLS": "{\"node\":\"23\"}",
-        "SSL_CERT_FILE": "@HOME@/baseline.crt",
-        "NODE_EXTRA_CA_CERTS": "@HOME@/broker.crt:@HOME@/other.crt",
-        "YOLO_AGENTS": "[\"claude\"]"
-      },
-      "files": {
-        "baseline.crt": "-----BEGIN CERTIFICATE-----\nBASELINE\n-----END CERTIFICATE-----\n",
-        "broker.crt": "-----BEGIN CERTIFICATE-----\nBROKERCA\n-----END CERTIFICATE-----\n",
-        "other.crt": "-----BEGIN CERTIFICATE-----\nOTHERCA\n-----END CERTIFICATE-----\n",
-        ".config/mise/config.toml": "[tools]\nnode = \"20\"\npython = \"3.12\"\n"
+        "YOLO_BLOCK_CONFIG": "[{\"name\":\"grep\",\"message\":\"grep -r is blocked\",\"suggestion\":\"Use rg\",\"block_flags\":[\"--recursive\",\"-r\",\"-R\",\"-*[rR]*\"]},{\"name\":\"find\",\"message\":\"find is blocked\",\"suggestion\":\"Use fd\"},{\"name\":\"curl\",\"message\":\"curl is blocked in this project.\"}]"
       }
     },
     "claude_history_and_existing": {
       "env": {
-        "YOLO_AGENTS": "[\"claude\"]",
         "YOLO_HOST_DIR": "/home/user/proj-xyz"
       },
       "files": {
@@ -59,11 +31,41 @@
     },
     "codex_userkeys_preserved": {
       "env": {
-        "YOLO_AGENTS": "[\"codex\"]",
         "YOLO_MCP_SERVERS": "{\"probe\":{\"command\":\"/bin/probe\",\"args\":[],\"env\":{\"K\":\"v\"}}}"
       },
       "files": {
         ".codex/config.toml": "model = \"gpt-5\"\napproval_policy = \"on-request\"\n"
+      }
+    },
+    "mcp_servers_env_interp": {
+      "env": {
+        "CEREBRAS_API_KEY": "csk-from-launch-env",
+        "YOLO_MCP_SERVERS": "{\"cerebras-mcp\":{\"command\":\"npx\",\"args\":[\"-y\",\"cerebras-code-mcp\"],\"env\":{\"CEREBRAS_API_KEY\":\"${CEREBRAS_API_KEY}\",\"CEREBRAS_MCP_IDE\":\"claude\"}},\"tavily\":{\"command\":\"npx\",\"args\":[\"-y\",\"tavily-mcp\"],\"env\":{\"TAVILY_API_KEY\":\"${TAVILY_API_KEY}\"},\"requires_env\":[\"TAVILY_API_KEY\"]},\"probe-mcp\":{\"command\":\"/workspace/probe-mcp.py\",\"args\":[\"--stdio\"]}}"
+      }
+    },
+    "mise_ca_seeded": {
+      "env": {
+        "YOLO_MISE_TOOLS": "{\"node\":\"23\"}",
+        "SSL_CERT_FILE": "@HOME@/baseline.crt",
+        "NODE_EXTRA_CA_CERTS": "@HOME@/broker.crt:@HOME@/other.crt"
+      },
+      "files": {
+        "baseline.crt": "-----BEGIN CERTIFICATE-----\nBASELINE\n-----END CERTIFICATE-----\n",
+        "broker.crt": "-----BEGIN CERTIFICATE-----\nBROKERCA\n-----END CERTIFICATE-----\n",
+        "other.crt": "-----BEGIN CERTIFICATE-----\nOTHERCA\n-----END CERTIFICATE-----\n",
+        ".config/mise/config.toml": "[tools]\nnode = \"20\"\npython = \"3.12\"\n"
+      }
+    },
+    "no_agents": {
+      "env": {}
+    },
+    "pack_launchers_npm_and_native": {
+      "env": {
+        "YOLO_PACK_ROOT": "@HOME@/packs"
+      },
+      "files": {
+        "packs/tool-npm/pack.json": "{\n  \"name\": \"tool-npm\",\n  \"install\": {\n    \"kind\": \"npm\",\n    \"bin\": \"toolnpm\",\n    \"package\": \"@x/toolnpm\"\n  },\n  \"launchFlags\": {\n    \"toolnpm\": [\n      \"--yolo\"\n    ]\n  }\n}",
+        "packs/tool-native/pack.json": "{\n  \"name\": \"tool-native\",\n  \"install\": {\n    \"kind\": \"native\",\n    \"bin\": \"toolnat\",\n    \"installerUrl\": \"https://example.invalid/install.sh\"\n  }\n}"
       }
     }
   }

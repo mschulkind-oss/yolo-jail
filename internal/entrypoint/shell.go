@@ -2,18 +2,31 @@ package entrypoint
 
 import (
 	"strings"
-
-	"github.com/mschulkind-oss/yolo-jail/internal/agents"
 )
 
-// for the SELECTED agents that declare an alias (copilot today).
-func agentAliases(e *Env) string {
+// packAliases writes a shell alias for each pack whose install binary has launchFlags,
+// so an interactive shell gets the same flags a `yolo -- <bin>` invocation does.
+//
+// DERIVED rather than declared. It used to be an AgentSpec.Alias string holding a whole
+// command line ("copilot --yolo --no-auto-update"), which duplicated the launchFlags the
+// same spec already carried — two places to change, and a pack shipping only one of them
+// would get a shell alias silently disagreeing with the launcher.
+func packAliases(e *Env) string {
+	packs, err := LoadJailPacks(e)
+	if err != nil {
+		return ""
+	}
 	var lines []string
-	for _, name := range LoadAgents(e) {
-		spec, ok := agents.Get(name)
-		if ok && spec.Alias != "" {
-			lines = append(lines, "alias "+spec.Install.Bin+"='"+spec.Alias+"'")
+	for _, p := range packs {
+		inst, _ := p.HonoredInstall()
+		if inst == nil {
+			continue
 		}
+		flags := p.Decl.LaunchFlags[inst.Bin]
+		if len(flags) == 0 {
+			continue
+		}
+		lines = append(lines, "alias "+inst.Bin+"='"+inst.Bin+" "+strings.Join(flags, " ")+"'")
 	}
 	return strings.Join(lines, "\n")
 }
@@ -27,7 +40,7 @@ func Bashrc(e *Env) string {
 		hostDir = "unknown"
 	}
 	miseShims := e.MiseShims()
-	aliases := agentAliases(e)
+	aliases := packAliases(e)
 
 	var b strings.Builder
 	b.WriteString(bashrcPart1)

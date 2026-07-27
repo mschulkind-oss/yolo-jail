@@ -2,11 +2,12 @@ package config
 
 import (
 	"fmt"
+	"github.com/mschulkind-oss/yolo-jail/internal/packload"
+	_ "github.com/mschulkind-oss/yolo-jail/internal/packreg" // registers the embedded packs with packload
 	"path"
 	"sort"
 	"strings"
 
-	"github.com/mschulkind-oss/yolo-jail/internal/agents"
 	"github.com/mschulkind-oss/yolo-jail/internal/jsonx"
 	"github.com/mschulkind-oss/yolo-jail/internal/pytext"
 )
@@ -80,11 +81,11 @@ var reservedHomeFiles = []string{
 // dirs, as a set. Kept as a function (not a package var) so it always reflects
 // the current agent set.
 func reservedHomeDirs() map[string]struct{} {
-	dirs := make(map[string]struct{}, len(reservedHomeDirRoots)+len(agents.AllOverlayDirs))
+	dirs := make(map[string]struct{}, len(reservedHomeDirRoots)+len(packload.EmbeddedWritableDirs()))
 	for _, d := range reservedHomeDirRoots {
 		dirs[d] = struct{}{}
 	}
-	for _, d := range agents.AllOverlayDirs {
+	for _, d := range packload.EmbeddedWritableDirs() {
 		dirs[d] = struct{}{}
 	}
 	return dirs
@@ -104,7 +105,7 @@ func reservedHomeDirs() map[string]struct{} {
 // is its central use case, so that guard matches exact paths instead; see
 // checkHostFileDest.
 func reservedHomeSegments() map[string]struct{} {
-	segs := make(map[string]struct{}, len(reservedHomeDirRoots)+len(reservedHomeFiles)+len(agents.AllOverlayDirs))
+	segs := make(map[string]struct{}, len(reservedHomeDirRoots)+len(reservedHomeFiles)+len(packload.EmbeddedWritableDirs()))
 	for d := range reservedHomeDirs() {
 		segs[firstHomeSegment(d)] = struct{}{}
 	}

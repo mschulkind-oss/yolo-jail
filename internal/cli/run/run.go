@@ -8,10 +8,11 @@ import (
 	"strings"
 	"time"
 
-	"github.com/mschulkind-oss/yolo-jail/internal/agents"
 	"github.com/mschulkind-oss/yolo-jail/internal/broker"
 	"github.com/mschulkind-oss/yolo-jail/internal/config"
 	"github.com/mschulkind-oss/yolo-jail/internal/jsonx"
+	"github.com/mschulkind-oss/yolo-jail/internal/packload"
+	_ "github.com/mschulkind-oss/yolo-jail/internal/packreg" // registers the embedded packs with packload
 	"github.com/mschulkind-oss/yolo-jail/internal/paths"
 	"github.com/mschulkind-oss/yolo-jail/internal/runtime"
 	"github.com/mschulkind-oss/yolo-jail/internal/storage"
@@ -162,14 +163,22 @@ func ensureStorage() error {
 func (o *Options) runContainer(cfg *jsonx.OrderedMap, rt, repoRoot string) int {
 	out := o.pr(o.Stdout)
 
-	agentsList := config.SelectedAgents(cfg)
-	agentSpecs := agents.ResolveAgents(agentsList)
-
 	// Command construction (needed for both exec and run paths).
+	//
+	// Flags come from the EMBEDDED packs, not this run's loaded set, for two reasons that
+	// both point the same way. Ordering: the command is built here, before packs are staged
+	// (staging needs the container name, which needs the workspace). And reachability: this
+	// same construction serves the ATTACH path into an already-running jail, where the
+	// loaded set belongs to whatever launched it. Using what yolo ships means `yolo --
+	// copilot` gets its flags identically on both paths.
+	//
+	// The cost is that a CONFIGURED pack's launchFlags do not apply to a bare `yolo --
+	// <bin>` invocation. Real but narrow: the in-jail launcher that pack generates still
+	// applies them, so the flags are not lost — only this one host-side injection misses.
 	fullCommand := append([]string{}, o.Args...)
 	targetCmd := "bash"
 	if len(fullCommand) > 0 {
-		fullCommand = agents.InjectYoloFlags(fullCommand)
+		fullCommand = packload.InjectLaunchFlags(packload.Embedded(), fullCommand)
 		targetCmd = shquoteJoin(fullCommand)
 	}
 
@@ -235,7 +244,7 @@ func (o *Options) runContainer(cfg *jsonx.OrderedMap, rt, repoRoot string) int {
 	}
 
 	// ws_state overlay prep.
-	wsState := o.prepareWsState(cfg, loadedPacks, agentsList)
+	wsState := o.prepareWsState(cfg, loadedPacks)
 
 	// yolo-user-env.sh (frozen writer).
 	userEnv := config.ResolveEnvSources(o.Workspace, cfg, func(msg string) { out.print(msg) })
@@ -332,8 +341,6 @@ func (o *Options) runContainer(cfg *jsonx.OrderedMap, rt, repoRoot string) int {
 		cfg:              cfg,
 		rt:               rt,
 		cname:            cname,
-		agentsList:       agentsList,
-		agentSpecs:       agentSpecs,
 		packs:            loadedPacks,
 		agentsPath:       agentsPath,
 		packStaging:      packStaging,

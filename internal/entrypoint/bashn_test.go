@@ -124,7 +124,7 @@ func TestMatrixCoversAgentLaunchersAndTheZeroAgentCase(t *testing.T) {
 		if name == "no_agents" {
 			if got != 0 {
 				t.Errorf("scenario `no_agents` generated %d launcher(s), want 0 — a "+
-					"zero-agent boot must stay pinned", got)
+					"boot with no packs must stay pinned", got)
 			}
 			continue
 		}
@@ -133,8 +133,8 @@ func TestMatrixCoversAgentLaunchersAndTheZeroAgentCase(t *testing.T) {
 		}
 	}
 	if withLaunchers == 0 {
-		t.Error("no matrix scenario generates an agent launcher, so the `bash -n` gate " +
-			"covers none — name agents in a scenario's YOLO_AGENTS")
+		t.Error("no matrix scenario generates a tool launcher, so the `bash -n` gate " +
+			"covers none — give a scenario a YOLO_PACK_ROOT with a pack declaring `install`")
 	}
 }
 
@@ -182,21 +182,10 @@ func generateAll(t *testing.T, e *Env) {
 	must(GenerateVenvPrecreateScript(e))
 	must(ConfigureMisePrism(e))
 	must(GenerateMCPWrappers(e))
-	for _, agent := range LoadAgents(e) {
-		switch agent {
-		case "claude":
-			must(ConfigurePackByName(e, "claude"))
-		case "copilot":
-			must(ConfigurePackByName(e, "copilot"))
-		case "opencode":
-			must(ConfigurePackByName(e, "opencode"))
-		case "pi":
-			must(ConfigurePackByName(e, "pi"))
-		case "codex":
-			must(ConfigurePackByName(e, "codex"))
-		case "agy":
-			must(ConfigurePackByName(e, "agy"))
-		}
+	// Every embedded pack, rather than a switch over a selected-agent list. That list
+	// (YOLO_AGENTS) is gone: what a jail provisions comes from its packs.
+	for _, name := range EmbeddedPackNames() {
+		must(ConfigurePackByName(e, name))
 	}
 	must(GenerateCglimitScript(e))
 	must(GenerateJournalctlScript(e))

@@ -5,8 +5,8 @@ import (
 	"path/filepath"
 	"strings"
 
-	"github.com/mschulkind-oss/yolo-jail/internal/agents"
 	"github.com/mschulkind-oss/yolo-jail/internal/jsonx"
+	"github.com/mschulkind-oss/yolo-jail/internal/packdecl"
 	"github.com/mschulkind-oss/yolo-jail/internal/shquote"
 )
 
@@ -165,22 +165,28 @@ func GenerateAgentLaunchers(e *Env) error {
 	}
 	stampDir := filepath.Join(e.Home, ".cache", "yolo-agent-stamps")
 
-	for _, name := range LoadAgents(e) {
-		spec, ok := agents.Get(name)
-		if !ok {
+	packs, err := LoadJailPacks(e)
+	if err != nil {
+		return err
+	}
+	for _, p := range packs {
+		// HonoredInstall applies the ORIGIN gate: a fetched pack cannot introduce a
+		// curl-piped installer, because that would let a git ref run arbitrary code in the
+		// jail. The refusal was already reported at staging time on the host.
+		inst, _ := p.HonoredInstall()
+		if inst == nil {
 			continue
 		}
-		binName := spec.Install.Bin
-		shimPath := filepath.Join(shimDir, binName)
+		shimPath := filepath.Join(shimDir, inst.Bin)
 		if pathExists(shimPath) {
 			continue // don't overwrite a blocked-tool shim
 		}
 		var launcher string
-		switch spec.Install.Kind {
+		switch inst.Kind {
 		case "npm":
-			launcher = npmAgentLauncher(spec, stampDir)
+			launcher = npmAgentLauncher(inst, stampDir)
 		case "native":
-			launcher = nativeAgentLauncher(spec, stampDir)
+			launcher = nativeAgentLauncher(inst, stampDir)
 		default:
 			continue
 		}
@@ -191,10 +197,10 @@ func GenerateAgentLaunchers(e *Env) error {
 	return nil
 }
 
-func npmAgentLauncher(spec agents.AgentSpec, stampDir string) string {
-	binName := spec.Install.Bin
-	pkgName := spec.Install.Package
-	extraFlags := strings.Join(spec.Install.InstallFlags, " ")
+func npmAgentLauncher(inst *packdecl.Install, stampDir string) string {
+	binName := inst.Bin
+	pkgName := inst.Package
+	extraFlags := strings.Join(inst.Flags, " ")
 	if extraFlags != "" {
 		extraFlags += " "
 	}
@@ -207,9 +213,9 @@ func npmAgentLauncher(spec agents.AgentSpec, stampDir string) string {
 	return r.Replace(npmLauncherTemplate)
 }
 
-func nativeAgentLauncher(spec agents.AgentSpec, stampDir string) string {
-	binName := spec.Install.Bin
-	installerURL := spec.Install.InstallerURL
+func nativeAgentLauncher(inst *packdecl.Install, stampDir string) string {
+	binName := inst.Bin
+	installerURL := inst.InstallerURL
 	r := strings.NewReplacer(
 		"__YOLO_BIN__", binName,
 		"__YOLO_URL__", installerURL,

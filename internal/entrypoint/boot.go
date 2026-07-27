@@ -2,6 +2,8 @@ package entrypoint
 
 import (
 	"fmt"
+	"github.com/mschulkind-oss/yolo-jail/internal/packload"
+	_ "github.com/mschulkind-oss/yolo-jail/internal/packreg" // registers the embedded packs with packload
 	"io"
 	"os"
 	"os/exec"
@@ -10,7 +12,6 @@ import (
 	"strings"
 	"time"
 
-	"github.com/mschulkind-oss/yolo-jail/internal/agents"
 	"github.com/mschulkind-oss/yolo-jail/internal/jsonx"
 )
 
@@ -288,7 +289,7 @@ func sameFile(a, b string) (bool, error) {
 // uninstall --all <tool>` for each retired tool (idempotent, best-effort, 30s
 // timeout). tool_name is the registry token with surrounding quotes stripped.
 func miseUninstallRetired() {
-	for _, tool := range agents.AllMiseRetire {
+	for _, tool := range packload.EmbeddedRetireMiseTools() {
 		toolName := strings.Trim(tool, `"`)
 		cmd := exec.Command("mise", "uninstall", "--all", toolName)
 		cmd.Stdout = nil

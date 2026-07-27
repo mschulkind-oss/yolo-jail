@@ -28,10 +28,10 @@ package entrypoint
 // layers, re-applied every boot.
 
 import (
+	"github.com/mschulkind-oss/yolo-jail/internal/packload"
+	_ "github.com/mschulkind-oss/yolo-jail/internal/packreg" // registers the embedded packs with packload
 	"os"
 	"regexp"
-
-	"github.com/mschulkind-oss/yolo-jail/internal/agents"
 )
 
 // ConfigureMisePrism renders ~/.config/mise/config.toml through the composition
@@ -47,7 +47,7 @@ import (
 //     otherwise reach the TOML codec as an int and change the value's shape).
 //
 //  2. WORKSPACE retire surgery (bespoke) — retired agent tokens
-//     (agents.AllMiseRetire) are stripped from /workspace/mise.toml in place.
+//     (packload.EmbeddedRetireMiseTools()) are stripped from /workspace/mise.toml in place.
 //     This is a WORKSPACE-file mutation, which the prism must never own
 //     (migration doc §5.3: yolo owns only user-scope config, never /workspace).
 //     The `mise uninstall` subprocess side effect stays in boot.go
@@ -88,7 +88,7 @@ func ConfigureMisePrism(e *Env) error {
 	return retireWorkspaceMiseTools(e)
 }
 
-// retireWorkspaceMiseTools removes any agents.AllMiseRetire token line from the
+// retireWorkspaceMiseTools removes any packload.EmbeddedRetireMiseTools() token line from the
 // workspace mise.toml in place. A missing/unreadable file is a no-op. This is
 // the workspace-scope half of the old GenerateMiseConfig, kept bespoke because
 // the prism never mutates /workspace files (migration doc §5.3).
@@ -100,7 +100,7 @@ func retireWorkspaceMiseTools(e *Env) error {
 	}
 	content := string(raw)
 	changed := false
-	for _, tool := range agents.AllMiseRetire {
+	for _, tool := range packload.EmbeddedRetireMiseTools() {
 		pattern := regexp.MustCompile(`(?m)^` + regexp.QuoteMeta(tool) + `\s*=\s*"[^"]*"\n?`)
 		newWs := pattern.ReplaceAllString(content, "")
 		if newWs != content {

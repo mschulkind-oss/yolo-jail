@@ -9,7 +9,6 @@ import (
 	"testing"
 	"time"
 
-	"github.com/mschulkind-oss/yolo-jail/internal/agents"
 	"github.com/mschulkind-oss/yolo-jail/internal/config"
 	"github.com/mschulkind-oss/yolo-jail/internal/jsonx"
 	"github.com/mschulkind-oss/yolo-jail/internal/loopholes"
@@ -100,8 +99,6 @@ func TestAssembleRunCmdPodmanLinuxGolden(t *testing.T) {
 		cfg:           cfg,
 		rt:            "podman",
 		cname:         "yolo-ws-abcd1234",
-		agentsList:    []string{"claude"},
-		agentSpecs:    agents.ResolveAgents([]string{"claude"}),
 		packs:         claudePackFixture(t),
 		agentsPath:    "/agents/yolo-ws-abcd1234",
 		wsState:       "/ws/.yolo/home",
@@ -156,8 +153,6 @@ func TestAssemblePlatformSeamsInjectable(t *testing.T) {
 				cfg:          newConfig("agents", []any{"claude"}, "security", sec),
 				rt:           "podman",
 				cname:        "yolo-ws-abcd1234",
-				agentsList:   []string{"claude"},
-				agentSpecs:   agents.ResolveAgents([]string{"claude"}),
 				packs:        claudePackFixture(t),
 				agentsPath:   "/agents/yolo-ws-abcd1234",
 				wsState:      "/ws/.yolo/home",
@@ -200,8 +195,6 @@ func relocationInput(t *testing.T, rt, wsState string, rels []config.CacheReloca
 		cfg:              newConfig("agents", []any{"claude"}, "security", sec),
 		rt:               rt,
 		cname:            "yolo-ws-abcd1234",
-		agentsList:       []string{"claude"},
-		agentSpecs:       agents.ResolveAgents([]string{"claude"}),
 		packs:            claudePackFixture(t),
 		agentsPath:       "/agents/yolo-ws-abcd1234",
 		wsState:          wsState,
@@ -372,8 +365,6 @@ func TestAssembleNeverBindsRepoSource(t *testing.T) {
 		cfg:          newConfig("agents", []any{"claude"}, "security", sec),
 		rt:           "podman",
 		cname:        "yolo-ws-abcd1234",
-		agentsList:   []string{"claude"},
-		agentSpecs:   agents.ResolveAgents([]string{"claude"}),
 		packs:        claudePackFixture(t),
 		agentsPath:   "/agents/yolo-ws-abcd1234",
 		wsState:      "/ws/.yolo/home",
@@ -480,7 +471,6 @@ func podmanLinuxGolden(home string) []string {
 		"-e", "YOLO_LSP_GO_INSTALL=",
 		"-e", "YOLO_MCP_SERVERS={}",
 		"-e", "YOLO_MCP_PRESETS=[]",
-		"-e", "YOLO_AGENTS=[\"claude\"]",
 		"-e", "YOLO_RUNTIME=podman",
 	)
 	// yolo-user-env.sh mount.

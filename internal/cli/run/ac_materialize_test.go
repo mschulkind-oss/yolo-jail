@@ -6,7 +6,6 @@ import (
 	"strings"
 	"testing"
 
-	"github.com/mschulkind-oss/yolo-jail/internal/agents"
 	"github.com/mschulkind-oss/yolo-jail/internal/jsonx"
 )
 
@@ -36,7 +35,6 @@ func TestAppleContainerMaterializesSingleFiles(t *testing.T) {
 		t.Fatal(err)
 	}
 	agentsPath := filepath.Join(ws, "agents")
-	specs := agents.ResolveAgents([]string{"claude"})
 	if err := os.MkdirAll(agentsPath, 0o755); err != nil {
 		t.Fatal(err)
 	}
@@ -53,14 +51,12 @@ func TestAppleContainerMaterializesSingleFiles(t *testing.T) {
 
 	sec := jsonx.NewOrderedMap()
 	sec.Set("blocked_tools", []any{})
-	cfg := newConfig("agents", []any{"claude"}, "security", sec)
+	cfg := newConfig("security", sec)
 
 	in := &assembleInput{
 		cfg:          cfg,
 		rt:           "container",
 		cname:        "yolo-ws-abcd1234",
-		agentsList:   []string{"claude"},
-		agentSpecs:   specs,
 		packs:        loadedPacks,
 		agentsPath:   agentsPath,
 		wsState:      wsState,
@@ -77,8 +73,19 @@ func TestAppleContainerMaterializesSingleFiles(t *testing.T) {
 	if b, err := os.ReadFile(materializedEnv); err != nil || string(b) != "export FOO=bar\n" {
 		t.Errorf("yolo-user-env.sh not materialized into ws_state: err=%v content=%q", err, string(b))
 	}
-	// 2. briefing copied under ws_state at spec.Briefing.Mount.
-	materializedBrief := filepath.Join(wsState, specs[0].Briefing.Mount)
+	// 2. briefing copied under ws_state at the PACK's declared mount destination — read
+	// off the declaration, so the test breaks if the pack moves it rather than asserting a
+	// path the assembler never looks at.
+	briefDest := ""
+	for _, mt := range loadedPacks[0].Decl.Mounts {
+		if isBriefingMount(mt.From) {
+			briefDest = mt.To
+		}
+	}
+	if briefDest == "" {
+		t.Fatal("the claude pack declares no briefing mount")
+	}
+	materializedBrief := filepath.Join(wsState, briefDest)
 	if b, err := os.ReadFile(materializedBrief); err != nil || string(b) != "# briefing\n" {
 		t.Errorf("briefing not materialized into ws_state: err=%v content=%q", err, string(b))
 	}
@@ -86,7 +93,7 @@ func TestAppleContainerMaterializesSingleFiles(t *testing.T) {
 	if strings.Contains(joined, "yolo-user-env.sh:/home/agent") {
 		t.Errorf("AC path must NOT single-file-mount yolo-user-env.sh: %v", got)
 	}
-	if strings.Contains(joined, ":/home/agent/"+specs[0].Briefing.Mount+":ro") {
+	if strings.Contains(joined, ":/home/agent/"+briefDest+":ro") {
 		t.Errorf("AC path must NOT single-file-mount the briefing: %v", got)
 	}
 }

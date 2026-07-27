@@ -136,7 +136,7 @@ func BuildRunPlan(workspace string, cfg *jsonx.OrderedMap, agents, agentArgv []s
 
 	// The bootstrap env baked onto the self-exec argv: the generator contract
 	// the entrypoint reads (YOLO_HOST_DIR/BLOCK_CONFIG/MISE_TOOLS/LSP/MCP), the
-	// git identity, YOLO_AGENTS (which agents to configure), and the three
+	// git identity, and the three
 	// YOLO_DARWIN_* extras the darwin-bootstrap subcommand consumes (workspace,
 	// macos-log mode, and the login-rc PATH). Reuses the container-side resolvers.
 	bootstrapEnv := jsonx.NewOrderedMap()
@@ -151,13 +151,6 @@ func BuildRunPlan(workspace string, cfg *jsonx.OrderedMap, agents, agentArgv []s
 	bootstrapEnv.Set("YOLO_MCP_SERVERS", mcpSrvJSON)
 	mcpPresetsJSON, _ := jsonx.DumpsCompact(getSectionOrEmptyList(cfg, "mcp_presets"))
 	bootstrapEnv.Set("YOLO_MCP_PRESETS", mcpPresetsJSON)
-	// YOLO_AGENTS = compact JSON list, matching the container's -e contract.
-	agentsAny := make([]any, len(agents))
-	for i, a := range agents {
-		agentsAny[i] = a
-	}
-	agentsJSON, _ := jsonx.DumpsCompact(agentsAny)
-	bootstrapEnv.Set("YOLO_AGENTS", agentsJSON)
 	// git identity rides verbatim (the subcommand's Env.Vars carries it into
 	// configureGit).
 	for _, k := range gitIdentity.Keys() {
