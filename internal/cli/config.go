@@ -40,6 +40,10 @@ Subcommands:
                            for <agent>, key by key, versus yolo's last render.
   reset <agent> [flags]    Discard those captured edits, so the surface returns
                            to what its layers produce on the next launch.
+  capture <agent> [flags]  Record the CURRENT on-disk edits into the overlay now,
+                           instead of waiting for the next launch. Nothing is lost
+                           without it (the next boot captures normally) — this is
+                           so 'diff' reflects edits made this session.
 
 render flags:
   --surface <name>   Render only the named surface (e.g. settings).
@@ -91,6 +95,8 @@ func configRunW(args []string, out, errw io.Writer) int {
 		return configDiff(args[1:], out, errw, colorForWriter(out))
 	case "reset":
 		return configReset(args[1:], out, errw, colorForWriter(out))
+	case "capture":
+		return configCapture(args[1:], out, errw, colorForWriter(out))
 	default:
 		fmt.Fprintf(errw, "yolo config: unknown subcommand %q\n\n%s\n", args[0], configUsage)
 		return 2

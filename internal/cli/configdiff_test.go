@@ -84,3 +84,83 @@ func TestResetTruncationLeavesAbsentFileAbsent(t *testing.T) {
 		t.Errorf("reset created a file that did not exist (stat err = %v)", err)
 	}
 }
+
+// E3: `config capture` must fold the CURRENT on-disk edits into the overlay
+// immediately, so `diff` reflects edits made this session instead of showing a stale
+// answer until the next boot.
+//
+// Nothing is lost without it — every composed surface lives under a host-backed bind,
+// so an edit and its baseline both survive --rm and the next boot captures normally.
+// What lags is VISIBILITY, and a user checking their own divergence has no way to tell
+// the answer is stale.
+func TestConfigCaptureFoldsCurrentEditsImmediately(t *testing.T) {
+	home := t.TempDir()
+	t.Setenv("HOME", home)
+	ws := t.TempDir()
+	prev := prismSidecarDir
+	prismSidecarDir = func() string { return filepath.Join(ws, ".yolo", "prism") }
+	t.Cleanup(func() { prismSidecarDir = prev })
+
+	s, ok := agentcfg.BuiltinManifest().Lookup("claude", "settings")
+	if !ok {
+		t.Fatal("missing claude/settings")
+	}
+	// Seed a baseline (what yolo "last rendered") and an edited surface.
+	if err := os.MkdirAll(filepath.Join(ws, ".yolo", "prism"), 0o755); err != nil {
+		t.Fatal(err)
+	}
+	path := expandHome(s.Path)
+	if err := os.MkdirAll(filepath.Dir(path), 0o755); err != nil {
+		t.Fatal(err)
+	}
+	baseline := `{"model":"base"}`
+	if err := os.WriteFile(prismLastRenderPath("claude", "settings"), []byte(baseline), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(path, []byte(`{"model":"base","myEdit":"present"}`), 0o644); err != nil {
+		t.Fatal(err)
+	}
+
+	n, err := captureSurface(s)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if n <= 0 {
+		t.Fatalf("captureSurface recorded %d keys, want at least 1", n)
+	}
+	data, err := os.ReadFile(prismOverlayPath("claude", "settings"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !strings.Contains(string(data), "myEdit") {
+		t.Errorf("the edit was not captured into the overlay:\n%s", data)
+	}
+}
+
+// With NO baseline the surface has never been rendered here, so there is nothing to
+// diff against. That must be reported as "nothing to capture" rather than treated as
+// an edit — capturing the whole file would freeze yolo's own output as a user edit.
+func TestConfigCaptureWithNoBaselineIsANoOp(t *testing.T) {
+	home := t.TempDir()
+	t.Setenv("HOME", home)
+	ws := t.TempDir()
+	prev := prismSidecarDir
+	prismSidecarDir = func() string { return filepath.Join(ws, ".yolo", "prism") }
+	t.Cleanup(func() { prismSidecarDir = prev })
+
+	s, _ := agentcfg.BuiltinManifest().Lookup("claude", "settings")
+	path := expandHome(s.Path)
+	if err := os.MkdirAll(filepath.Dir(path), 0o755); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(path, []byte(`{"model":"x"}`), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	n, err := captureSurface(s)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if n != -1 {
+		t.Errorf("captureSurface = %d, want -1 (no baseline, nothing to capture)", n)
+	}
+}

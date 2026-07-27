@@ -402,3 +402,90 @@ func truncateSurfaceToPureRender(s manifest.Surface) error {
 	// Truncate in place: the file may be a bind-mount target whose inode matters.
 	return os.WriteFile(path, []byte(text), 0o644)
 }
+
+// configCapture folds the current on-disk edits into the overlay sidecar NOW, instead
+// of waiting for the next boot (E3).
+//
+// It exists for observability, not correctness. Nothing is lost without it: every
+// composed surface lives under a host-backed bind, so an edit and its baseline both
+// survive `--rm`, and the next boot captures normally. What lags is VISIBILITY — until
+// that boot, `yolo config diff` cannot show an edit made this session, so a user
+// checking their own divergence sees a stale answer with no indication it is stale.
+//
+// It performs exactly the capture half of a boot render: diff the file against the
+// last_render baseline, accumulate into the overlay, persist. It deliberately does NOT
+// re-render the surface, because re-rendering needs the computed layer, which is built
+// from jail paths (see renderSurface) — so a host-side re-render would write host paths
+// into the file. Capture needs none of that: it only compares what is there.
+func configCapture(args []string, out, errw io.Writer, color bool) int {
+	agent, surface, rc := surfaceArgs("capture", args, out, errw)
+	if rc >= 0 {
+		return rc
+	}
+	surfaces := capturedSurfaces(agent, surface)
+	if len(surfaces) == 0 {
+		fmt.Fprintf(errw, "yolo config capture: no capture surfaces for agent %q%s\n",
+			agent, surfaceSuffix(surface))
+		return 1
+	}
+	pr := richtext.Printer{W: out, Color: color}
+	captured := 0
+	for _, s := range surfaces {
+		n, err := captureSurface(s)
+		if err != nil {
+			fmt.Fprintf(errw, "yolo config capture: %s/%s: %v\n", s.Agent, s.Name, err)
+			return 1
+		}
+		if n < 0 {
+			// No baseline yet: the surface has never been rendered in this workspace,
+			// so there is nothing to diff against. Skipping is right, but say so —
+			// silence would read as "captured, nothing to do".
+			pr.Printf("[dim]%s/%s: never rendered here — nothing to capture[/dim]", s.Agent, s.Name)
+			continue
+		}
+		captured++
+		pr.Printf("Captured [cyan]%s/%s[/cyan] — %d %s now recorded.",
+			s.Agent, s.Name, n, plural(n, "key", "keys"))
+	}
+	if captured > 0 {
+		pr.Printf("[dim]`yolo config diff` now reflects the current files.[/dim]")
+	}
+	return 0
+}
+
+// captureSurface folds one surface's on-disk state into its overlay, returning the
+// resulting overlay key count, or -1 when there is no baseline to diff against.
+func captureSurface(s manifest.Surface) (int, error) {
+	path := expandHome(s.Path)
+	current, err := os.ReadFile(path)
+	if err != nil {
+		if os.IsNotExist(err) {
+			return -1, nil
+		}
+		return 0, err
+	}
+	lastRender, err := os.ReadFile(prismLastRenderPath(s.Agent, s.Name))
+	if err != nil {
+		return -1, nil // no baseline: cannot tell an edit from yolo's own output
+	}
+	overlayJSON, _ := os.ReadFile(prismOverlayPath(s.Agent, s.Name))
+
+	// Reuse the ENGINE's capture path rather than reimplementing the diff: a second
+	// implementation would be free to disagree with the boot render, which is the one
+	// thing this must not do.
+	out, err := agentcfg.ComposeStateful(agentcfg.StatefulInputs{
+		Base:              agentcfg.Inputs{Surface: agentcfg.SubstituteWorkspace(s, containerWorkspace)},
+		CurrentBytes:      current,
+		LastRenderPresent: true,
+		LastRenderBytes:   lastRender,
+		OverlayJSON:       overlayJSON,
+	})
+	if err != nil {
+		return 0, err
+	}
+	if err := os.WriteFile(prismOverlayPath(s.Agent, s.Name),
+		append(out.OverlayJSON, '\n'), 0o644); err != nil {
+		return 0, err
+	}
+	return overlayKeyCount(s.Agent, s.Name), nil
+}
