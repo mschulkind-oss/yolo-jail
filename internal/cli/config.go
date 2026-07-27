@@ -208,13 +208,38 @@ const containerWorkspace = "/workspace"
 
 // renderSurface composes one surface and writes either the rendered file or the
 // --explain provenance to out.
+//
+// SCOPE, stated because A7 half-closed and half-documented this: render composes
+// defaults < host < transform < managed. It does NOT supply the `computed` layer,
+// and that is a real limitation rather than an oversight — the computed builders
+// bake JAIL-ABSOLUTE, $HOME-derived paths (Env.McpWrappersBin() =
+// $HOME/.local/bin/mcp-wrappers, Env.GoBin() = $GOPATH/bin), so composing them
+// host-side would emit HOST paths into the preview and be wrong in a more
+// misleading way than omitting them. `yolo config ls` names which surfaces carry a
+// computed layer (surfaceHasComputedLayer), so the gap is visible rather than
+// silent. Nor does it supply the captured `overlay`: that is per-workspace state
+// under <workspace>/.yolo/prism/, and `yolo config diff` is the command for it.
 func renderSurface(s manifest.Surface, script string, vm luahook.LuaVM, explain bool, out io.Writer, color bool) error {
 	// A11: resolve ${workspace} exactly as the boot path does, so what `render`
 	// prints is what the jail gets (§6). The jail composes with ITS OWN workspace
 	// root — "/workspace" on a container backend — so that is what we substitute
 	// here, not the host checkout path: this command previews the jail's file.
 	s = agentcfg.SubstituteWorkspace(s, containerWorkspace)
-	hostBytes, _ := os.ReadFile(expandHome(s.Path)) // absent host file => empty layer
+
+	// A7: read a `host` layer ONLY for the surfaces that actually get one at boot.
+	//
+	// This used to read the surface's own DESTINATION unconditionally. For a
+	// yolo-OWNED surface that destination is yolo's previous output, so every key
+	// yolo had written came back labelled `host` — mise's computed [tools] table
+	// reported as host-provided, and a claude `model` present in no boot layer
+	// printed as if composed. The jail hands host bytes to exactly two surfaces
+	// (surfaceHasHostLayer, bounded by AgentSpec.HostFiles' two entries), so
+	// matching that is what makes render a faithful preview (§6) rather than a
+	// re-read of its own output.
+	var hostBytes []byte
+	if surfaceHasHostLayer[s.Agent+"/"+s.Name] {
+		hostBytes, _ = os.ReadFile(expandHome(s.Path)) // absent host file => empty layer
+	}
 
 	res, err := agentcfg.Compose(agentcfg.Inputs{
 		Surface:   s,
@@ -230,6 +255,13 @@ func renderSurface(s manifest.Surface, script string, vm luahook.LuaVM, explain 
 	header := fmt.Sprintf("[bold]# %s/%s → %s[/bold]", s.Agent, s.Name, s.Path)
 	if explain {
 		pr.Printf("%s [dim](layer that set each key)[/dim]", header)
+		// A7: say what this preview leaves out, on the surfaces where it matters.
+		// Silently omitting the computed layer is how the old output managed to
+		// attribute mise's computed [tools] table to `host` without anyone noticing.
+		if surfaceHasComputedLayer[s.Agent+"/"+s.Name] {
+			pr.Printf("  [dim](this surface also has a `computed` layer, not shown: it is " +
+				"built per-boot from jail paths — see `yolo config ls`)[/dim]")
+		}
 		// ProvenanceLines is sorted "key\tlayer"; color the key cyan and the
 		// layer by its distinct hue.
 		for _, line := range res.ProvenanceLines() {

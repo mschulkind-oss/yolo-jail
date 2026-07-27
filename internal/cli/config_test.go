@@ -212,3 +212,26 @@ func TestConfigRenderSkipsUnrenderedSurfaces(t *testing.T) {
 		t.Errorf("render dropped claude/settings:\n%s", got)
 	}
 }
+
+// A7: `config render --explain` read the surface's OWN DESTINATION as the `host`
+// layer. For a yolo-OWNED surface that destination is yolo's previous output, so
+// every key it had written came back labelled `host` — mise's computed [tools]
+// table reported as host-provided, and a claude `model` key that exists in no boot
+// layer printed as though yolo composed it.
+//
+// Only two surfaces actually get host bytes at boot (surfaceHasHostLayer, bounded
+// by AgentSpec.HostFiles' two entries). Everything else must compose with NO host
+// layer, exactly as the jail does.
+func TestConfigRenderExplainDoesNotAttributeOwnOutputToHost(t *testing.T) {
+	var out, errw bytes.Buffer
+	if rc := configRender([]string{"mise", "--explain"}, &out, &errw, false); rc != 0 {
+		t.Fatalf("rc != 0: %s", errw.String())
+	}
+	// mise/config has no host layer; its tools table is computed. Whatever the
+	// local machine's rendered file contains, nothing may be attributed to `host`.
+	for _, line := range strings.Split(out.String(), "\n") {
+		if strings.HasSuffix(strings.TrimSpace(line), "\thost") {
+			t.Errorf("mise/config has no host layer, but render attributed a key to it: %q", line)
+		}
+	}
+}
