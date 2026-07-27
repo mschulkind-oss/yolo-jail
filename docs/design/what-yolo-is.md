@@ -123,7 +123,69 @@ of *genuine* per-agent logic (claude's `mcpServers` tombstone and LSP toggles, t
 mise's retire surgery on a workspace file). A pack format expressive enough to hold that
 becomes a programming language; one that isn't leaves a Go remainder.
 
-### The constraints that decide it
+### First: which of these are actually constraints?
+
+**Added 2026-07-26, on the note that architecture is still open.** The list below was
+originally written as "constraints," and that framing smuggled in a bias toward the status
+quo. Separating them honestly:
+
+| Stated as a constraint | Really? |
+|---|---|
+| `CGO_ENABLED=0` kills Go plugins | **a choice.** We set it. It could be flipped |
+| `vendor/` is small, new deps are costly | **a choice** (a convention, even) |
+| `genStep` is fail-open so pack errors become warnings | **a choice**, and arguably the wrong one — see below |
+| the nix store is `:ro`, GOPATH is writable | **inherent** to the mount design |
+| the *compile* inside a nix sandbox has no network | **inherent** to `sandbox = true` |
+| **an in-jail render can only use what's in the jail** | **inherent** — and the one that matters |
+
+Only the last three survive, and flipping the first three does not rescue (d) or (e)
+anyway — the reasons they lose are *coupling* (a pack edit forcing an image rebuild) and
+*failure surface* (a compiler behind a warning-only handler), not the settings. So the
+ranking is stable under "we can change the architecture."
+
+But dropping the status-quo bias does surface something the original table missed
+entirely, and it beats every row in it.
+
+### The option the constraint-framing hid: compose on the host
+
+Composition **never probes the running container.** I checked every `computed` layer
+producer (`prism.go:448`, `agent_configs.go:167`): they read config, env vars, and
+computed paths, and that is all — no `os.Stat`, no `exec.Command`, no `LookPath` anywhere
+in the layer construction. Composition is a **pure function of config**.
+
+That means *where* it runs is a free choice, not a requirement — and two things already
+prove the host side works: `yolo config render` composes host-side today, and the jail home
+is a host directory (`paths.GlobalHome()`) that yolo writes into before the container
+starts.
+
+Moving composition host-side changes the pack-logic question qualitatively:
+
+- **Pack logic never enters the jail.** It runs on the host, before the container exists,
+  and only its *output* is mounted in. The jail-side trust question — "may a pack run
+  arbitrary code next to the agent?" — **stops being asked**, because there is no jail yet.
+- **Failures become pre-flight, not fail-open.** A bad pack fails at `yolo check` or at run
+  assembly, where erroring is normal, instead of at `genStep` where it downgrades to a
+  warning and the agent silently gets unconfigured files. This retires con 1 of the packs
+  sketch — the single biggest cost — without needing a validator.
+- **Compiled pack logic becomes ordinary.** The host has a real toolchain, a network, and
+  no hermeticity requirement. Option (c) reduces to "yolo runs a host subprocess," which is
+  what it already does for loophole `host_daemon`s.
+- **`readonly` gets easier too.** If output is composed before the container starts, it can
+  be mounted `:ro` — which is exactly what work item 3.2 wants and currently can't have,
+  because you cannot compose *into* a `:ro` mount.
+
+The cost, stated plainly: **it breaks in-jail re-render.** Today an agent can edit a
+composed file and yolo reconciles on the next boot from inside. Host-side composition means
+the reconcile has to happen host-side too, so `last_render`/overlay capture must be readable
+from the host — which it is (same bind-mounted dir), but the *timing* changes: capture would
+move to run-teardown or the next run's assembly. That is work item 3.3's question arriving a
+different way. It also does not fit **macos-user**, where there is no mount step at all and
+"host" and "jail" are the same filesystem.
+
+**This is worth designing before choosing a pack-logic mechanism**, because it dissolves
+most of the mechanism question rather than answering it.
+
+### The constraints that decide the in-jail case
 
 1. **The image build is hermetic** — `CGO_ENABLED=0`, `-mod=vendor`, `-trimpath`, and the
    `goSrc` fileset only sees `go.mod`, `go.sum`, `vendor/`, `cmd/`, `internal/`,
@@ -189,34 +251,51 @@ on first use) and the LSP installs (guarded by the `~/.yolo-installed-lsps` sent
 | **(d) Go plugins** (`plugin.Open`) | must match the host binary exactly | build time | n/a | none | **no, and this one is *proven*, not predicted.** `plugin` requires CGO; the shipped binaries are `CGO_ENABLED=0`, so `plugin.Open` returns **`plugin: not implemented`** — it cannot work at all without changing how yolo is built. Even with CGO forced on, the shipped `-trimpath` makes a non-trimpath plugin fail with *"plugin was built with a different version of package internal/goarch"*. Sounds cleanest, is dead on arrival |
 | **(e) Compile-at-first-run + cache** | in-jail `/bin/go`, or a nix FOD at image build (see constraint 1) | first boot after fetch | `~/.cache/go-build` — but it is **shared across all workspaces**, so a per-pack cache is a cross-workspace side channel | none — a compiler in the trust path | **worst trade.** Works offline for a vendored pack (~2s cold for a trivial package, minutes for real code). Killed by a second-order problem: `genStep` is **fail-open**, so a compile failure downgrades to a warning and the jail boots with the pack silently inert — the same failure mode as con 1, but now with a compiler's error surface. The precedents (npm/LSP installs) are *downloads*, not compiles |
 | **(f) No pack logic** | — | — | — | — | **the honest default.** Packs are data; logic stays in yolo |
+| **(g) Compose on the host** (see above) | host, before the container exists | at run assembly | normal host build cache; no jail involvement | **the question doesn't arise** — no jail exists yet | **the option the others were competing for.** Makes (c) trivial and retires the fail-open failure mode. Cost: in-jail re-render and macos-user both need rethinking |
 
 ### Recommendation
 
-**Layer (f) → (a) → (c), and never (d)/(e).**
+**Design (g) first; ship (f) → (a) → (c) within it. Never (d)/(e).**
 
-1. **Start at (f).** Packs carry data. This is already most of the value (registry,
-   surfaces, skills, briefings, MCP presets, blocked tools) and it is where
-   [packs-and-the-prism.md](packs-and-the-prism.md) lands too.
-2. **Escalate to (a) Lua for computation.** The transform hook already exists, is
-   sandboxed, and works on every codec. Widening it from "reshape a surface" to "generate
-   a surface" is an incremental change to a mechanism that ships. Most of what looks like
-   logic in `prism*.go` is *shaping*, which Lua does well.
-3. **Reserve (c) subprocess for genuinely heavy or stateful work**, and accept that it is
-   unsandboxed — because MCP already established that boundary. If a pack needs to run a
-   real program, it should run it *the way an MCP server runs*, not through a new
-   mechanism.
-4. **Never (d).** Not a judgment call — `CGO_ENABLED=0` makes `plugin.Open` return
-   `plugin: not implemented`. It is unavailable, not merely unwise.
-5. **Never (e) as the primary story.** Compile-at-first-run means a compiler in the boot
-   path of every jail, behind a fail-open error handler. If a pack needs compiled code, the
-   author compiles it and ships the artifact — which is (b) or (c), both of which are
-   better. The nix-FOD variant is *possible* (constraint 1) but makes every pack edit an
-   image rebuild, which defeats the purpose of packs entirely.
+The ordering matters more than the list. (g) is not a sixth mechanism — it is a decision
+about *where the mechanism runs*, and it makes the others cheaper:
 
-**The load-bearing insight:** the question "how do we ship compiled logic?" has an answer
-that is not a new subsystem. **yolo does not need to become a build system, because MCP
-already made "fetch and run a third-party executable over a JSON protocol" the normal
-thing.** A pack that needs real logic should look like an MCP server, not like a plugin.
+1. **Decide (g) before anything else.** If composition moves host-side, pack logic never
+   crosses the boundary, failures become pre-flight, and "how do we sandbox pack logic?"
+   stops being a question. If it stays in-jail, every row above keeps its jail-side trust
+   cost. This is one decision that reprices the whole table, so it should not be made
+   implicitly by continuing to render in `entrypoint`.
+2. **Ship (f).** Packs carry data. Already most of the value (registry, surfaces, skills,
+   briefings, MCP presets, blocked tools), and where
+   [packs-and-the-prism.md](packs-and-the-prism.md) lands too. Unaffected by (g).
+3. **Escalate to (a) Lua for shaping.** Sandboxed, vendored, works on every codec. Its
+   first task is a *fix*, not new work: `Surface.Transform` is declared, documented and
+   parsed but never reaches the compose path (item 1.9). Also unaffected by (g) — a pure
+   function runs the same on either side.
+4. **Reserve (c) subprocess for heavy or stateful work.** Under (g) this is easy and
+   ordinary — a host subprocess, like a loophole `host_daemon`. Under in-jail rendering it
+   means accepting MCP's unsandboxed boundary. **This is the row (g) changes most**, and the
+   reason to decide (g) first.
+5. **Never (d).** Under the old framing I called this proven-impossible because
+   `CGO_ENABLED=0` makes `plugin.Open` return `plugin: not implemented`. With architecture
+   open, that's a flag we could flip — so the honest reason is the *version lock*: a plugin
+   must match the host binary's Go version and every dep version exactly, and yolo is built
+   by nix while packs are not. `-trimpath` alone already breaks it
+   (*"built with a different version of package internal/goarch"*). Flipping CGO would buy a
+   mechanism that still fails on every toolchain bump.
+6. **Never (e).** Also not about settings: a compiler in the config path means pack authors
+   ship source, every consumer compiles it, and the failure lands wherever composition runs.
+   The nix-FOD variant is possible but makes each pack edit an image rebuild plus a host
+   `just load` — which defeats the purpose of packs. Under (g) the whole idea is moot,
+   because the host can just run a prebuilt binary.
+
+**The load-bearing insight, restated for an open architecture:** the question "how do we
+ship compiled logic?" is downstream of a question nobody asked — **where does composition
+run?** Answer that first and most of the mechanism question dissolves: on the host, pack
+logic is just a subprocess and needs no sandbox story at all. In the jail, yolo still
+doesn't need to become a build system, because MCP already made "fetch and run a
+third-party executable over a JSON protocol" normal. Either way, a pack that needs real
+logic should look like an MCP server, not like a plugin.
 
 ---
 
@@ -236,6 +315,12 @@ Three consequences that change the ranking in
   serves both directions. Surfaces need a substitution mechanism (`${workspace}`) before
   they can be pack data *or* before the engine is reusable outside a jail. It is the
   cheapest thing on this page that de-risks the expensive things.
+- **Host-side composition is a bigger lever than the pack format.** Because composition
+  never probes the container, moving it host-side is *available*, and it retires con 1 of
+  the packs sketch (runtime-instead-of-compile-time errors) by making pack failures
+  pre-flight. If packs are going to happen, this ordering — move composition, then add
+  packs — is strictly better than adding packs to an in-jail renderer and then discovering
+  the error-surface problem.
 - **The gating question from the pack sketch stands and gets sharper:** may a
   pack-declared surface name a host file? Now also: **may pack logic run unsandboxed?** If
   the answer to the second is "yes, like MCP", then packs inherit MCP's trust model — which

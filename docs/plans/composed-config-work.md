@@ -35,6 +35,11 @@ accident.
 | **2 — the data-loss chain** | adopt-on-first-migration → de-compose credentials → sidecar location | **one decision** (§2.1) |
 | **3 — parked design work** | modes 4→3, `:ro` per surface, capture timing | needs a per-surface pass |
 
+**One item in tranche 3 is not like the others.** 3.9 ("where does composition run?") is a
+*fork in the architecture*, not a task — it reprices 3.1, 3.2, 3.3 and the entire
+pack-logic question. It is parked because it is a real port, not because it is minor; the
+risk is deciding it **implicitly** by continuing to render in `entrypoint`.
+
 ---
 
 ## Tranche 0 — remove the `gemini` agent
@@ -134,12 +139,13 @@ places which makes it look smaller than it is.
 | # | Item | Why parked |
 |---|---|---|
 | 3.1 | **Collapse `host_files`' four modes to three** (`copy` merges into `readonly`) | behavior change on a shipped key, and blocked on 3.2 |
-| 3.2 | **`readonly` as a real `:ro` mount instead of `0o444`** — `0o444` is *asymmetric*: root ignores it, a non-root agent gets EACCES and the surface silently stops re-rendering | **a per-surface design pass**, not a code change: you cannot compose *into* a `:ro` mount, so each candidate surface must be shown to afford losing `managed`/`defaults`/`transform` |
+| 3.2 | **`readonly` as a real `:ro` mount instead of `0o444`** — `0o444` is *asymmetric*: root ignores it, a non-root agent gets EACCES and the surface silently stops re-rendering | **a per-surface design pass**, not a code change: you cannot compose *into* a `:ro` mount, so each candidate surface must be shown to afford losing `managed`/`defaults`/`transform`. **Cheaper if 3.9 lands first** — host-side composition finishes the file before the mount exists, so `:ro` costs nothing |
 | 3.3 | **Capture timing** — a `yolo config capture` subcommand, then capture in the existing `onTerminate` hook | small, but **not urgent**: nothing is lost today (every surface is under a host-backed rw bind; the edit and its baseline both survive `--rm`), only *observability* lags. An inotify watcher is **not** justified |
 | 3.4 | **Comment preservation on `json`/`toml` surfaces** | needs a decision; the sub-questions (staleness → drop-on-override via existing provenance, in-jail additions → one-way host→jail, attachment → the usual convention) are already answered in host-file-staging.md, so this starts from decisions rather than blank |
 | 3.5 | **`managed`/`defaults` array-append pinning** | no user surface has needed it |
 | 3.6 | **Non-agent prism ports** — MCP, LSP, identity (`config render mcp\|lsp\|identity` → "no surfaces") | ROADMAP item 1; mise is **already** ported |
 | 3.7 | **Rename the recovered state** — four terms for one concept; "captured edits" is the proposed umbrella, **not** "managed" (already taken) | mechanical, wants one pass |
+| 3.9 | **Decide where composition runs** — host-side (before the container exists) vs in-jail (today). Available because composition **never probes the container**: every `computed` producer reads config/env/paths only, with no `os.Stat`/`exec.Command`/`LookPath` in layer construction (`prism.go:448`, `agent_configs.go:167`), and `yolo config render` already composes host-side. Moving it makes pack failures **pre-flight instead of fail-open `genStep` warnings**, lets `readonly` be a real `:ro` mount (unblocks **3.2**), and keeps pack logic outside the boundary entirely. Costs: in-jail re-render/capture timing must move host-side (**3.3** by another route), and macos-user has no mount step, so it needs a separate answer | **design decision, gates 3.1/3.2/3.3 and the pack-logic mechanism** | one decision + a real port; see [what-yolo-is.md](../design/what-yolo-is.md) |
 | 3.8 | **Parameterize `/workspace` out of `builtin.go`** — claude's `defaults`/`managed` hardcode the literal path (`internal/agentcfg/builtin.go:104`), so surface data is jail-shaped even though the engine is not. Wants a `${workspace}` substitution at compose time. Small, but it is a **prerequisite** for surfaces-as-pack-data and for reusing the engine outside a jail — see [what-yolo-is.md](../design/what-yolo-is.md) | small; parked only because it has no standalone payoff yet |
 
 ---
