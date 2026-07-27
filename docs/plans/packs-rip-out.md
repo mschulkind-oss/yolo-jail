@@ -4,10 +4,10 @@
 start implementing this? I want to implement everything — the rest of the prism stuff,
 extract things as packs, agents as packs, all of this. Full rip out and reimplement."*
 
-**Short answer: three decisions, and then you can start — but not on the packs.** Two of the
-three are one sitting each. The third is the fork. Meanwhile a substantial amount of work is
-**unblocked right now** and is a prerequisite for the rip-out anyway, so "start implementing"
-has a real answer today.
+**Short answer, as of 2026-07-26: all the design questions are answered and nothing is
+blocked.** This doc records how each was settled; the ordered work list is
+[BACKLOG.md](BACKLOG.md), which is where to go to pick something up. The rulings themselves
+are in [open-rulings.md](open-rulings.md).
 
 **Reads with:** [packs-and-the-prism.md](../design/packs-and-the-prism.md) (the conceptual
 frame: phases, contribution kinds, typed exports), [what-yolo-is.md](../design/what-yolo-is.md)
@@ -57,23 +57,24 @@ This reopens Go as an implementation option for official-pack logic and un-force
 
 ## 2. What must be decided first
 
-### 2.1 Where composition runs — **the fork** (item 3.9)
+### 2.1 Where composition runs — **ANSWERED 2026-07-26, and there is no fork**
 
-Host-side (before the container exists) or in-jail (today)?
+**Composition stays in the container.** Only image-build inputs (pack `provision`
+contributions, `packages`) and host-file reads (the `host` layer, pack fetch, lockfile) run
+host-side. The rule is *what needs the host* — a dependency test, not a location preference.
+Full ruling: [open-rulings.md](open-rulings.md) ruling 3.
 
-This is not a task, it reprices everything: whether pack logic crosses the boundary, whether
-pack failures are pre-flight or fail-open `genStep` warnings, whether `readonly` can be a
-real `:ro` mount, and how capture/re-render works. Full argument in
-[what-yolo-is.md](../design/what-yolo-is.md); it is available because composition never
-probes the container.
+This **deletes** what was the largest single item in the rip-out: there is no port. Two
+consequences worth carrying forward:
 
-**Must be decided before**: any pack work that involves computation, `:ro` posture work
-(3.2), capture-timing work (3.3).
-**Not blocking**: everything in §3 below.
-**The risk is deciding it implicitly** by continuing to render in `entrypoint`.
-
-Needs a Mac answer either way: **macos-user has no mount step**, so "compose then mount
-`:ro`" has no meaning there and needs its own story.
+- **macos-user needs no special case.** I had this backwards — I argued its lack of a mount
+  step forced host-side composition, but that assumed the alternative was composing *into* a
+  mount. With composition in-jail, macos-user's lack of a host/jail filesystem split makes it
+  the degenerate case that already works.
+- **The error-timing concern is handled separately and better.** `genStep`'s fail-open
+  behavior is being removed outright — a generator failure is now fatal and halting (BACKLOG
+  A12), so in-jail composition has the error discipline host-side composition was wanted for.
+  Host-side pack validation remains worth building as defense in depth.
 
 ### 2.2 Are projections data or code? (new, from typed exports)
 
