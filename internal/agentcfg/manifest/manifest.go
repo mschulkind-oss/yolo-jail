@@ -108,6 +108,48 @@ type Surface struct {
 	// (§3.4). Empty means identity / pass-through. This package does not read or
 	// execute the file; it only carries the path.
 	Transform string
+
+	// Mode names the ENGINE MECHANISM that writes this surface (D2). Empty means
+	// ModeStateful, which is the common case.
+	//
+	// There are exactly three, and the taxonomy is closed because it was derived from
+	// every surface that exists rather than designed in advance:
+	//
+	//	stateful   compose from layers, capturing in-jail edits into the §5 sidecars
+	//	computed   compose from layers, overwrite every boot, discard in-jail edits
+	//	rmw        read-modify-write an AGENT-OWNED file: assert managed keys, fill
+	//	           defaults where absent, preserve everything else, write no sidecars
+	//
+	// Declaring it HERE rather than in a lookup table beside the CLI is the point.
+	// The mode was previously hand-maintained in internal/cli.prismSurfaceMode — a
+	// second table that had to be kept in sync with which render helper the boot path
+	// happened to call, pinned only by a drift test. A surface that is DATA (a pack's)
+	// cannot participate in a Go-side table at all, so the mode has to travel with the
+	// surface.
+	Mode string
+}
+
+// The closed set of engine mechanisms. See Surface.Mode.
+const (
+	// ModeStateful composes from layers and captures in-jail edits (the default).
+	ModeStateful = "stateful"
+	// ModeComputed composes from layers and overwrites every boot, discarding
+	// in-jail edits. For files yolo regenerates wholesale from live config.
+	ModeComputed = "computed"
+	// ModeRMW read-modify-writes an agent-owned file. For surfaces holding live agent
+	// state (credentials, sessions) where composition would put a secret on the
+	// capture path and "regenerate from layers" describes the wrong operation.
+	ModeRMW = "rmw"
+	// ModeUnrendered marks a file yolo does not write at all.
+	ModeUnrendered = "unrendered"
+)
+
+// ResolvedMode returns the surface's mode, defaulting to ModeStateful.
+func (s Surface) ResolvedMode() string {
+	if s.Mode == "" {
+		return ModeStateful
+	}
+	return s.Mode
 }
 
 // Key returns the (Agent, Name) identity used to detect duplicates.

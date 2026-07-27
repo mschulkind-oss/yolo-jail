@@ -99,6 +99,10 @@ var claudeConfig = manifest.Surface{
 	Name:  "config",
 	Path:  "~/.claude.json",
 	Codec: "json",
+	// The ENGINE never writes this file: writeClaudeJSON read-modify-writes it
+	// directly, asserting a few keys into a file claude owns. Declared unrendered so
+	// `config render`/`ls`/`diff` all agree with the boot path.
+	Mode: manifest.ModeUnrendered,
 	Defaults: map[string]any{
 		"projects": map[string]any{
 			WorkspacePlaceholder: map[string]any{
@@ -203,6 +207,9 @@ var copilotConfig = manifest.Surface{
 	Path:     "~/.copilot/config.json",
 	Codec:    "json",
 	Defaults: map[string]any{"yolo": true},
+	// B2: holds live OAuth state (copilot_tokens, logged_in_users), so it is
+	// read-modify-write — composing it would put the token on the capture path.
+	Mode: manifest.ModeRMW,
 }
 
 // opencodeConfig is opencode's opencode.json surface (§ table row "Copilot /
@@ -393,6 +400,7 @@ var copilotMCP = manifest.Surface{
 	Path:     "~/.copilot/mcp-config.json",
 	Codec:    "json",
 	Defaults: map[string]any{"mcpServers": map[string]any{}},
+	Mode:     manifest.ModeComputed,
 }
 
 var copilotLSP = manifest.Surface{
@@ -401,6 +409,7 @@ var copilotLSP = manifest.Surface{
 	Path:     "~/.copilot/lsp-config.json",
 	Codec:    "json",
 	Defaults: map[string]any{"lspServers": map[string]any{}},
+	Mode:     manifest.ModeComputed,
 }
 
 // agyMCP is agy's dynamic mcp_config.json sibling — the same shape as
@@ -416,6 +425,7 @@ var agyMCP = manifest.Surface{
 	Path:     "~/.gemini/antigravity-cli/mcp_config.json",
 	Codec:    "json",
 	Defaults: map[string]any{"mcpServers": map[string]any{}},
+	Mode:     manifest.ModeComputed,
 }
 
 // BuiltinManifest returns the yolo-shipped manifest of all surfaces yolo knows

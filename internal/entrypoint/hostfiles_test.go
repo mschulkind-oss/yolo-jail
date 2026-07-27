@@ -10,6 +10,8 @@ import (
 	"strings"
 	"testing"
 
+	"github.com/mschulkind-oss/yolo-jail/internal/agentcfg"
+	"github.com/mschulkind-oss/yolo-jail/internal/agentcfg/manifest"
 	"github.com/mschulkind-oss/yolo-jail/internal/config"
 )
 
@@ -478,15 +480,15 @@ func TestBuiltinSurfaceRenderPaths(t *testing.T) {
 
 	if !equalStringSets(stateful, wantStateful) {
 		t.Errorf("stateful (capture) surfaces = %v, want %v\n"+
-			"update internal/cli.prismSurfaceMode to match", stateful, wantStateful)
+			"update the surface's Mode in internal/agentcfg/builtin.go to match", stateful, wantStateful)
 	}
 	if !equalStringSets(rmw, wantRMW) {
 		t.Errorf("read-modify-write surfaces = %v, want %v\n"+
-			"update internal/cli.prismSurfaceMode to match", rmw, wantRMW)
+			"update the surface's Mode in internal/agentcfg/builtin.go to match", rmw, wantRMW)
 	}
 	if !equalStringSets(computed, wantComputed) {
 		t.Errorf("computed (copy) surfaces = %v, want %v\n"+
-			"update internal/cli.prismSurfaceMode to match", computed, wantComputed)
+			"update the surface's Mode in internal/agentcfg/builtin.go to match", computed, wantComputed)
 	}
 }
 
@@ -689,5 +691,42 @@ func TestHostFilesMissingTransformIsAnError(t *testing.T) {
 	setHostFiles(t, e, entry)
 	if err := ConfigureHostFiles(e); err == nil {
 		t.Error("a named-but-missing transform must be an error, not a silent skip")
+	}
+}
+
+// D2: the surface's DECLARED Mode must match the render helper the boot path actually
+// calls. This is the invariant that used to be split across a hand-maintained CLI
+// table and a source-grep — now it compares DATA against CODE, which is the thing
+// that can really drift, and it is what lets a surface's mode travel with the surface
+// when surfaces become pack data.
+func TestBuiltinSurfaceModesMatchRenderCallSites(t *testing.T) {
+	stateful, computed, rmw := renderCallSites(t)
+
+	wantMode := map[string]string{}
+	for _, key := range stateful {
+		wantMode[key] = manifest.ModeStateful
+	}
+	for _, key := range computed {
+		wantMode[key] = manifest.ModeComputed
+	}
+	for _, key := range rmw {
+		wantMode[key] = manifest.ModeRMW
+	}
+
+	for _, s := range agentcfg.BuiltinManifest().Surfaces() {
+		key := s.Agent + "/" + s.Name
+		want, called := wantMode[key]
+		if !called {
+			// Not rendered by any helper: the only legitimate mode is unrendered.
+			if s.ResolvedMode() != manifest.ModeUnrendered {
+				t.Errorf("%s declares mode %q but no render helper calls it — "+
+					"either wire it up or mark it unrendered", key, s.ResolvedMode())
+			}
+			continue
+		}
+		if s.ResolvedMode() != want {
+			t.Errorf("%s declares mode %q but the boot path renders it via %q",
+				key, s.ResolvedMode(), want)
+		}
 	}
 }

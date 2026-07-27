@@ -90,13 +90,13 @@ func TestConfigLsMarksUnrenderedSurface(t *testing.T) {
 }
 
 // TestConfigLsEveryBuiltinSurfaceHasAMode is the anti-drift guard: a new builtin
-// surface with no entry in prismSurfaceMode would list with an empty MODE, silently
+// surface with no resolvable mode would list with an empty MODE, silently
 // implying it has no posture.
 func TestConfigLsEveryBuiltinSurfaceHasAMode(t *testing.T) {
 	for _, s := range agentcfg.BuiltinManifest().Surfaces() {
 		key := s.Agent + "/" + s.Name
-		if prismSurfaceMode[key] == "" {
-			t.Errorf("surface %s has no prismSurfaceMode entry — it would list with an empty MODE", key)
+		if surfaceMode(s) == "" {
+			t.Errorf("surface %s has no resolvable mode — it would list with an empty MODE", key)
 		}
 	}
 }

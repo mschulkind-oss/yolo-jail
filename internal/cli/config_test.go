@@ -192,7 +192,7 @@ func TestConfigRenderMisuse(t *testing.T) {
 
 // A3: `config render claude` composed claude/config (~/.claude.json) even though
 // the JAIL NEVER COMPOSES THAT FILE — the boot path writes it via
-// writeClaudeJSON's read-modify-write, which is why prismSurfaceMode labels it
+// writeClaudeJSON's read-modify-write, which is why the manifest labels it
 // "unrendered" and ls/diff/reset already skip it. Rendering it printed live agent
 // state (machineID, the full mcpServers table, onboarding timestamps) as though it
 // were a yolo-composed preview, breaking the §6 promise that what render prints is

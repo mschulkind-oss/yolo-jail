@@ -39,42 +39,40 @@ type surfaceRow struct {
 	Reserved bool     // declared in the manifest but never rendered at boot
 }
 
-// prismSurfaceMode reports the posture of a BUILTIN surface. The builtin surfaces
-// carry no mode field in the manifest — the posture is implied by which render
-// helper the boot path calls, which is why this table is hand-maintained here and
-// pinned by TestBuiltinSurfaceModesMatchBootPath.
-//
-// "capture" = rendered via renderSurfaceStateful (writes last_render + overlay
-// sidecars, in-jail edits survive). "copy" = rendered via renderSurfaceComputed
-// (pure per-boot overwrite, no sidecars, in-jail edits discarded).
-// surfaceModeUnrendered marks a surface yolo does NOT compose: the agent owns the
-// file and yolo only asserts individual keys into it (claude/config via
-// writeClaudeJSON's read-modify-write). ls/diff/reset and render all skip these.
-const surfaceModeUnrendered = "unrendered"
+// The MODE strings `config ls` prints. They are the user-facing vocabulary, kept
+// distinct from the engine's manifest.Mode* constants so the display can stay stable
+// if the engine's naming changes.
+const (
+	// surfaceModeUnrendered marks a file yolo does not compose: the agent owns it and
+	// yolo only asserts individual keys (claude/config via writeClaudeJSON).
+	surfaceModeUnrendered = "unrendered"
+	// surfaceModeRMW marks a read-modify-write surface (B2): yolo asserts managed keys
+	// and fills defaults into an agent-owned file, preserving everything else and
+	// writing no capture sidecars. Used where a secret must stay off the capture path.
+	//
+	// These ARE listed by `config ls` — de-composing a surface must not make it
+	// invisible, which was the known regression of moving copilot/config off capture.
+	surfaceModeRMW = "rmw"
+)
 
-// surfaceModeRMW marks a READ-MODIFY-WRITE surface (B2): yolo asserts its managed
-// keys and fills its defaults into a file the AGENT owns, preserving everything
-// else, and writes no capture sidecars. Used for surfaces holding live credentials,
-// so a secret never lands in <workspace>/.yolo/prism/*.overlay.json.
+// surfaceMode reports the posture of a builtin surface, READ FROM THE MANIFEST (D2).
 //
-// These ARE listed by `config ls` — de-composing a surface must not make it
-// invisible, which was the known regression of moving copilot/config off capture.
-// They are not rendered by `config render` (there is no composition to preview) and
-// not covered by diff/reset (there are no sidecars).
-const surfaceModeRMW = "rmw"
-
-var prismSurfaceMode = map[string]string{
-	"claude/settings": "capture",
-	"pi/settings":     "capture",
-	"copilot/config":  surfaceModeRMW,
-	"opencode/config": "capture",
-	"codex/config":    "capture",
-	"agy/settings":    "capture",
-	"mise/config":     "capture",
-	"copilot/mcp":     "copy",
-	"copilot/lsp":     "copy",
-	"agy/mcp":         "copy",
-	"claude/config":   surfaceModeUnrendered,
+// This replaced a hand-maintained map keyed "agent/name" — a FOURTH surface table
+// that had to be kept in sync with which render helper the boot path happened to
+// call, pinned only by a drift test. Reading the declared mode removes the
+// possibility of that drift, and it is a prerequisite for surfaces becoming pack
+// data: a data-defined surface cannot appear in a Go-side table.
+func surfaceMode(s manifest.Surface) string {
+	switch s.ResolvedMode() {
+	case manifest.ModeComputed:
+		return "copy"
+	case manifest.ModeRMW:
+		return surfaceModeRMW
+	case manifest.ModeUnrendered:
+		return surfaceModeUnrendered
+	default:
+		return "capture"
+	}
 }
 
 // configLs implements `yolo config ls [--all]`.
@@ -115,7 +113,7 @@ func collectSurfaceRows(all bool) []surfaceRow {
 	var rows []surfaceRow
 	for _, s := range agentcfg.BuiltinManifest().Surfaces() {
 		key := s.Agent + "/" + s.Name
-		mode := prismSurfaceMode[key]
+		mode := surfaceMode(s)
 		row := surfaceRow{
 			Surface:  key,
 			Path:     s.Path,

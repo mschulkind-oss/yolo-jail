@@ -176,7 +176,7 @@ func configRender(args []string, out, errw io.Writer, color bool) int {
 		}
 		// A3: skip surfaces the JAIL never composes. claude/config (~/.claude.json)
 		// is written by writeClaudeJSON's read-modify-write, not by the engine —
-		// prismSurfaceMode marks it "unrendered" and ls/diff/reset already skip it,
+		// the manifest marks it unrendered and ls/diff/reset already skip it,
 		// but render composed it anyway and printed LIVE AGENT STATE (machineID, the
 		// whole mcpServers table, onboarding timestamps, userID) as though it were a
 		// preview of what yolo writes. That breaks §6's promise that what render
@@ -185,7 +185,7 @@ func configRender(args []string, out, errw io.Writer, color bool) int {
 		// Skip surfaces with no composition to preview: `unrendered` (the agent owns
 		// the file outright) and `rmw` (yolo asserts keys into an agent-owned file —
 		// there is no layer fold to show).
-		if mode := prismSurfaceMode[s.Agent+"/"+s.Name]; mode == surfaceModeUnrendered || mode == surfaceModeRMW {
+		if mode := surfaceMode(s); mode == surfaceModeUnrendered || mode == surfaceModeRMW {
 			if surface != "" {
 				// Explicitly asked for by name: say why nothing came out, rather than
 				// printing silence.

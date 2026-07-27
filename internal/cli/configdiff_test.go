@@ -19,7 +19,7 @@ import (
 // must not consider a non-capture surface.
 func TestResetOnlyCoversCaptureSurfaces(t *testing.T) {
 	for _, s := range capturedSurfaces("claude", "") {
-		if prismSurfaceMode[s.Agent+"/"+s.Name] != "capture" {
+		if surfaceMode(s) != "capture" {
 			t.Errorf("reset considered non-capture surface %s/%s", s.Agent, s.Name)
 		}
 	}

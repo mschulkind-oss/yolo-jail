@@ -76,7 +76,7 @@ func capturedSurfaces(agent, surface string) []manifest.Surface {
 		}
 		// Only CAPTURE surfaces have sidecars; rmw/copy/unrendered have none, so
 		// diff and reset have nothing to operate on.
-		if prismSurfaceMode[s.Agent+"/"+s.Name] != "capture" {
+		if surfaceMode(s) != "capture" {
 			continue
 		}
 		out = append(out, s)
