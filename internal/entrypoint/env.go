@@ -54,7 +54,23 @@ type Env struct {
 	// configuring X" lines). Nil discards them. These are NOT part of the
 	// file-content golden but ARE part of behavioral parity.
 	Stderr io.Writer
+
+	// genFailures accumulates the config-generator failures collected by genStep.
+	// A12: a generator failure is FATAL — boot must not hand the agent a
+	// half-configured home — but each step still runs so one run reports every
+	// problem instead of one-per-restart. Main turns a non-empty slice into the
+	// error that aborts the jail. See genStep.
+	genFailures []string
 }
+
+// genFailure records a fatal config-generator failure (A12). Collected rather
+// than returned immediately so a single boot reports every broken step.
+func (e *Env) genFailure(msg string) {
+	e.genFailures = append(e.genFailures, msg)
+}
+
+// GenFailures returns the accumulated fatal generator failures, in order.
+func (e *Env) GenFailures() []string { return e.genFailures }
 
 // warn writes a line to e.Stderr (if set).
 func (e *Env) warn(msg string) {

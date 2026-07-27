@@ -411,8 +411,9 @@ func Main(args []string) error {
 	generateLdCache()
 	p.mark("generate_ld_cache")
 
-	// Generators (each best-effort — never abort boot; a generator error is
-	// warned and boot continues).
+	// Generators. A12: a failure is FATAL — each step still runs so one boot
+	// reports every problem, then genFailuresError aborts before exec'ing the
+	// agent. See genStep.
 	genStep(e, "generate_shims", func() error { return GenerateShims(e) })
 	p.mark("generate_shims")
 	genStep(e, "generate_agent_launchers", func() error { return GenerateAgentLaunchers(e) })
@@ -497,7 +498,26 @@ func Main(args []string) error {
 	// NOTE: We intentionally do NOT call `mise hook-env` here (flock deadlock).
 	p.dump(e.Home)
 
+	// A12: abort BEFORE handing control to the agent. Everything above has run, so
+	// this reports every broken generator at once rather than one per restart.
+	if err := genFailuresError(e); err != nil {
+		return err
+	}
+
 	return execBash(e, command)
+}
+
+// genFailuresError turns the collected generator failures into the single error
+// that aborts the boot (A12), or nil when every step succeeded. The message names
+// each failing step, because "config generation failed" alone would send the user
+// back into the logs to find out which one.
+func genFailuresError(e *Env) error {
+	fails := e.GenFailures()
+	if len(fails) == 0 {
+		return nil
+	}
+	return fmt.Errorf("refusing to start the jail: %d config generator(s) failed:\n  - %s",
+		len(fails), strings.Join(fails, "\n  - "))
 }
 
 // configureAgent runs the content writer for a selected agent, then re-attaches
@@ -527,11 +547,29 @@ func configureAgent(e *Env, agent string) {
 	}
 }
 
-// genStep runs a generator, warning (never aborting) on error: a failed step
-// prints a warning and boot continues.
+// genStep runs a config generator. A failure is FATAL (A12 ruling: "a pack
+// failure means a jail should not start — failures should be loud and halting").
+//
+// It used to warn and DISCARD the error, so a failed generator still yielded a
+// running jail whose agent silently read a missing or half-written config. That is
+// the worst outcome available for a config surface: the jail looks healthy and the
+// misconfiguration only shows up as inexplicable agent behavior later.
+//
+// Failures are COLLECTED rather than returned at the first error, for two reasons:
+// every remaining step still runs, so one boot reports every problem instead of
+// making the user restart once per bug; and the steps are largely independent, so
+// stopping early would hide unrelated breakage behind the first failure. Main
+// converts a non-empty set into the error that aborts the boot.
+//
+// This is not a licence to route optional inputs through here: a generator must
+// return nil when its input is legitimately ABSENT (InstallYoloLog with no script,
+// WriteLoginRC with no login path, GenerateYoloWrapper finding no stale files all
+// do exactly that). Only a real failure — an unwritable path, a malformed value,
+// an unreadable declared file — reaches this.
 func genStep(e *Env, label string, fn func() error) {
 	if err := fn(); err != nil {
-		e.warn("Warning: " + label + ": " + err.Error())
+		e.warn("Error: " + label + ": " + err.Error())
+		e.genFailure(label + ": " + err.Error())
 	}
 }
 

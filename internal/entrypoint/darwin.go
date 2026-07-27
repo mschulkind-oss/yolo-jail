@@ -40,9 +40,13 @@ type DarwinBootstrapOptions struct {
 // RunDarwinBootstrap generates the sandbox user's jail config natively: the same
 // shims/launchers/bashrc/mise/MCP/identity/per-agent writers the container runs,
 // plus the two macOS-only pieces (yolo-log helper, login-rc PATH re-prepend).
-// Each generator is best-effort — a failure is warned to e.Stderr and the rest
-// continue, matching the Linux boot loop's per-step error isolation.
-func RunDarwinBootstrap(e *Env, opts DarwinBootstrapOptions) {
+//
+// A12: a generator failure is FATAL here too, and returning it is the whole point
+// — this path is easy to miss (it has its OWN nine genStep sites and its own
+// configureAgent loop, so an earlier count of the fail-open sites missed it
+// entirely) and its caller used to print "bootstrap ok" unconditionally. Every
+// step still runs, so one invocation reports every problem; see genStep.
+func RunDarwinBootstrap(e *Env, opts DarwinBootstrapOptions) error {
 	genStep(e, "generate_shims", func() error { return GenerateShims(e) })
 	genStep(e, "generate_agent_launchers", func() error { return GenerateAgentLaunchers(e) })
 	genStep(e, "generate_package_manager_launchers", func() error { return GeneratePackageManagerLaunchers(e) })
@@ -64,6 +68,8 @@ func RunDarwinBootstrap(e *Env, opts DarwinBootstrapOptions) {
 	// macOS-only writers (the two pieces unique to the native-macOS bootstrap).
 	genStep(e, "install_yolo_log", func() error { return InstallYoloLog(e, opts.YoloLogScript) })
 	genStep(e, "write_login_rc", func() error { return WriteLoginRC(e, opts.LoginPath) })
+
+	return genFailuresError(e)
 }
 
 // InstallYoloLog writes the yolo-log helper to ~/.local/bin/yolo-log (0755) —

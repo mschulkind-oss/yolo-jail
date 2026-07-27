@@ -78,7 +78,11 @@ func runDarwinBootstrap(_ []string) int {
 		LoginPath:     os.Getenv("YOLO_DARWIN_LOGIN_PATH"),
 		YoloLogScript: macosuser.MacosLogWrapperScript(os.Getenv("YOLO_DARWIN_MACOS_LOG")),
 	}
-	entrypoint.RunDarwinBootstrap(e, opts)
+	if err := entrypoint.RunDarwinBootstrap(e, opts); err != nil {
+		// A12: do NOT print "ok" over a failed bootstrap.
+		fmt.Fprintln(os.Stderr, "yolo-jail macos-user bootstrap:", err)
+		return 1
+	}
 	fmt.Println("yolo-jail macos-user bootstrap ok")
 	return 0
 }

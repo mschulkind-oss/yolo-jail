@@ -2,6 +2,7 @@ package entrypoint
 
 import (
 	"encoding/json"
+	"errors"
 	"os"
 	"os/exec"
 	"path/filepath"
@@ -188,4 +189,40 @@ func checkShellScripts(t *testing.T, bash, home string) {
 
 func replaceAll(s, old, replacement string) string {
 	return strings.ReplaceAll(s, old, replacement)
+}
+
+// A12: a config-generator failure must be FATAL. genStep used to warn and discard
+// the error, so a jail with a broken generator still started and handed the agent
+// a missing or half-written config — the failure only showed up later as
+// inexplicable agent behavior.
+//
+// Also pins the COLLECT-don't-stop-early behavior: every step runs, so one boot
+// reports every broken generator rather than making the user restart once per bug.
+func TestGenStepFailuresAreFatalAndCollected(t *testing.T) {
+	e := &Env{Home: t.TempDir(), Vars: map[string]string{}}
+
+	if err := genFailuresError(e); err != nil {
+		t.Fatalf("clean env must not error: %v", err)
+	}
+
+	genStep(e, "step_ok", func() error { return nil })
+	if err := genFailuresError(e); err != nil {
+		t.Fatalf("a succeeding step must not error: %v", err)
+	}
+
+	genStep(e, "step_one", func() error { return errors.New("boom one") })
+	genStep(e, "step_two", func() error { return errors.New("boom two") })
+
+	err := genFailuresError(e)
+	if err == nil {
+		t.Fatal("failed generators must abort the boot, not warn")
+	}
+	msg := err.Error()
+	// Both failures must be named: reporting only the first would send the user
+	// through one restart per bug.
+	for _, want := range []string{"step_one", "boom one", "step_two", "boom two", "refusing to start"} {
+		if !strings.Contains(msg, want) {
+			t.Errorf("error %q missing %q", msg, want)
+		}
+	}
 }
