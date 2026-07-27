@@ -140,3 +140,33 @@ func TestGitIdentityMountStaleClearedEmail(t *testing.T) {
 		t.Errorf("surviving name must remain:\n%s", data)
 	}
 }
+
+// A5: ~/.gitconfig was a DECOY — the symlink resolves into a :ro bind, so
+// `git config --global user.email x` failed with a bare "could not write config
+// file /home/agent/.gitconfig: Device or resource busy", naming a path that looks
+// writable and explaining nothing. The composed file said "edits do not persist",
+// but a user never reads it: they hit the error through the alias.
+//
+// The composed config now includes a WRITABLE sibling and says so in its header,
+// so the file the user lands on tells them where to write. The include must come
+// FIRST: git applies includes in file order with last-definition-wins, so yolo's
+// [user] identity has to be emitted AFTER it to stay authoritative.
+func TestComposeGitconfigIncludesWritableSiblingFirst(t *testing.T) {
+	got := composeGitconfig("Ada", "ada@example.com", "/home/agent/.config/git/ignore")
+
+	if !strings.Contains(got, gitLocalConfigInJail) {
+		t.Errorf("composed gitconfig does not include the writable sibling:\n%s", got)
+	}
+	includeAt := strings.Index(got, "[include]")
+	userAt := strings.Index(got, "[user]")
+	if includeAt < 0 || userAt < 0 {
+		t.Fatalf("missing [include] or [user]:\n%s", got)
+	}
+	if includeAt > userAt {
+		t.Errorf("[include] must precede [user] so yolo's identity wins (last-wins):\n%s", got)
+	}
+	// And the header must point the user at the writable file.
+	if !strings.Contains(got, "git config --global") {
+		t.Errorf("header does not tell the user where their writes go:\n%s", got)
+	}
+}

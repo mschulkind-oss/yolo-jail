@@ -295,7 +295,11 @@
                 the next launch.  [bold]Default for a source-bearing entry.[/bold]
       once      seeded when absent, then never touched.  In-jail edits simply
                 persist (no sidecar); later host edits do NOT propagate.
-                [bold]Default for a source-less entry.[/bold]  `yolo config reset` re-seeds.
+                [bold]Default for a source-less entry.[/bold]  To re-seed, DELETE
+                the file — the next boot recreates it, because `once` keys off the
+                destination's absence.  (`yolo config reset` does NOT re-seed it:
+                reset discards CAPTURED edits by deleting the §5 sidecars, and a
+                `once` surface has none.)
       copy      overwritten every boot; in-jail edits are discarded.  Implied
                 for a directory entry.
       capture   re-rendered every boot AND in-jail edits captured into a sidecar
@@ -309,7 +313,8 @@
     not a sandbox — use `mounts` for a kernel-enforced read-only file.
     Inspect what any of this produced with [bold]yolo config ls[/bold]; a capture surface's
     accumulated edits with [bold]yolo config diff[/bold], and discard them with
-    [bold]yolo config reset[/bold].
+    [bold]yolo config reset[/bold].  `diff` and `reset` apply to CAPTURE surfaces only —
+    they are defined over the sidecars, which no other mode writes.
 
     [bold yellow]Scope: an entry that names a `source` is read from
     ~/.config/yolo-jail/config.jsonc ONLY[/bold yellow] (plus that file's include_if_found
