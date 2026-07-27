@@ -3,9 +3,12 @@ package cli
 import (
 	"bytes"
 	"os"
+	"os/exec"
 	"path/filepath"
 	"strings"
 	"testing"
+
+	"github.com/mschulkind-oss/yolo-jail/internal/packsrc"
 )
 
 // `pack init` must scaffold a pack that `pack lint` accepts. If the scaffold did not
@@ -190,5 +193,164 @@ func TestPackLsEmptyExplainsWhereToConfigure(t *testing.T) {
 	}
 	if !strings.Contains(out.String(), "user scope only") {
 		t.Errorf("empty ls should say where packs are configured:\n%s", out.String())
+	}
+}
+
+// gitPackRepo builds a real git repo containing a pack in a subdirectory, so the
+// install path exercises actual git rather than a mock.
+func gitPackRepo(t *testing.T) string {
+	t.Helper()
+	if _, err := exec.LookPath("git"); err != nil {
+		t.Skip("git not available")
+	}
+	dir := t.TempDir()
+	sub := filepath.Join(dir, "tools", "agent-pack", "skills", "gitskill")
+	if err := os.MkdirAll(sub, 0o755); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(filepath.Join(sub, "SKILL.md"),
+		[]byte("---\nname: gitskill\ndescription: from git\n---\n"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	run := func(args ...string) {
+		t.Helper()
+		cmd := exec.Command("git", args...)
+		cmd.Dir = dir
+		cmd.Env = append(os.Environ(), "GIT_AUTHOR_NAME=t", "GIT_AUTHOR_EMAIL=t@e",
+			"GIT_COMMITTER_NAME=t", "GIT_COMMITTER_EMAIL=t@e")
+		if out, err := cmd.CombinedOutput(); err != nil {
+			t.Fatalf("git %v: %v\n%s", args, err, out)
+		}
+	}
+	run("init", "-q", "-b", "main")
+	run("add", "-A")
+	run("commit", "-qm", "pack")
+	return dir
+}
+
+// C5 end to end: install FETCHES and records a commit; status reports it; a second
+// install is a no-op that says "unchanged".
+func TestPackInstallFetchesAndLocks(t *testing.T) {
+	repo := gitPackRepo(t)
+	home := t.TempDir()
+	t.Setenv("HOME", home)
+	cfgDir := filepath.Join(home, ".config", "yolo-jail")
+	if err := os.MkdirAll(cfgDir, 0o755); err != nil {
+		t.Fatal(err)
+	}
+	src := "git+file://" + repo + "//tools/agent-pack?ref=main"
+	if err := os.WriteFile(filepath.Join(cfgDir, "config.jsonc"),
+		[]byte(`{"packs": [{"source": "`+src+`", "name": "gp"}]}`), 0o644); err != nil {
+		t.Fatal(err)
+	}
+
+	var out, errw bytes.Buffer
+	if rc := packMain([]string{"install"}, &out, &errw, false); rc != 0 {
+		t.Fatalf("install rc = %d\n%s%s", rc, out.String(), errw.String())
+	}
+	if !strings.Contains(out.String(), "gp") {
+		t.Errorf("install did not report the pack:\n%s", out.String())
+	}
+
+	// The lockfile records the COMMIT, not just the ref: "what you asked for" vs
+	// "what you got" is the whole reason it exists.
+	lock, err := packsrc.LoadLock(packsrc.LockPath(filepath.Join(cfgDir, "config.jsonc")))
+	if err != nil {
+		t.Fatal(err)
+	}
+	e, ok := lock.Get("gp")
+	if !ok {
+		t.Fatalf("pack not locked: %+v", lock.Packs)
+	}
+	if len(e.Commit) != 40 || e.Ref != "main" {
+		t.Errorf("lock entry = %+v, want a full SHA and ref=main", e)
+	}
+
+	// Re-install is idempotent and says so, rather than implying it re-fetched.
+	out.Reset()
+	if rc := packMain([]string{"install"}, &out, &errw, false); rc != 0 {
+		t.Fatalf("second install rc = %d: %s", rc, errw.String())
+	}
+	if !strings.Contains(out.String(), "unchanged") {
+		t.Errorf("second install should report unchanged:\n%s", out.String())
+	}
+
+	// status reports the locked commit.
+	out.Reset()
+	if rc := packMain([]string{"status"}, &out, &errw, false); rc != 0 {
+		t.Fatalf("status rc = %d: %s", rc, errw.String())
+	}
+	if !strings.Contains(out.String(), e.Commit[:8]) {
+		t.Errorf("status did not show the locked commit:\n%s", out.String())
+	}
+}
+
+// DRIFT: editing the config address without re-installing must be REPORTED. Launch
+// resolves from the store, so a silently-stale lock is the most confusing possible
+// behavior — the user's edit appears to do nothing.
+func TestPackStatusFlagsConfigDrift(t *testing.T) {
+	repo := gitPackRepo(t)
+	home := t.TempDir()
+	t.Setenv("HOME", home)
+	cfgDir := filepath.Join(home, ".config", "yolo-jail")
+	if err := os.MkdirAll(cfgDir, 0o755); err != nil {
+		t.Fatal(err)
+	}
+	cfg := filepath.Join(cfgDir, "config.jsonc")
+	write := func(ref string) {
+		src := "git+file://" + repo + "//tools/agent-pack?ref=" + ref
+		if err := os.WriteFile(cfg,
+			[]byte(`{"packs": [{"source": "`+src+`", "name": "gp"}]}`), 0o644); err != nil {
+			t.Fatal(err)
+		}
+	}
+	var out, errw bytes.Buffer
+	write("main")
+	if rc := packMain([]string{"install"}, &out, &errw, false); rc != 0 {
+		t.Fatalf("install rc = %d: %s", rc, errw.String())
+	}
+
+	// Edit the ref without re-installing.
+	write("some-other-ref")
+	out.Reset()
+	rc := packMain([]string{"status"}, &out, &errw, false)
+	if rc == 0 {
+		t.Error("status should fail when config and lock disagree")
+	}
+	if !strings.Contains(out.String(), "config changed since install") {
+		t.Errorf("status did not flag drift:\n%s", out.String())
+	}
+}
+
+// A pack removed from config must be pruned from the lockfile, and the removal
+// REPORTED: it means content is about to stop being delivered.
+func TestPackInstallPrunesRemovedPacks(t *testing.T) {
+	home := t.TempDir()
+	pack := t.TempDir()
+	t.Setenv("HOME", home)
+	cfgDir := filepath.Join(home, ".config", "yolo-jail")
+	if err := os.MkdirAll(cfgDir, 0o755); err != nil {
+		t.Fatal(err)
+	}
+	cfg := filepath.Join(cfgDir, "config.jsonc")
+	if err := os.WriteFile(cfg,
+		[]byte(`{"packs": [{"source": "file://`+pack+`", "name": "gone"}]}`), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	var out, errw bytes.Buffer
+	packMain([]string{"install"}, &out, &errw, false)
+
+	if err := os.WriteFile(cfg, []byte(`{"packs": []}`), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	out.Reset()
+	packMain([]string{"install"}, &out, &errw, false)
+
+	lock, err := packsrc.LoadLock(packsrc.LockPath(cfg))
+	if err != nil {
+		t.Fatal(err)
+	}
+	if _, still := lock.Get("gone"); still {
+		t.Error("a pack removed from config should be pruned from the lockfile")
 	}
 }

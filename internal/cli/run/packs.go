@@ -16,6 +16,7 @@ import (
 
 	"github.com/mschulkind-oss/yolo-jail/internal/agents"
 	"github.com/mschulkind-oss/yolo-jail/internal/config"
+	"github.com/mschulkind-oss/yolo-jail/internal/packsrc"
 	"github.com/mschulkind-oss/yolo-jail/internal/packstage"
 	"github.com/mschulkind-oss/yolo-jail/internal/paths"
 )
@@ -86,22 +87,21 @@ func (o *Options) stagePacks(cname string) ([]agents.PackBriefing, error) {
 
 // packRoot resolves a pack entry to a directory on disk.
 //
-// Phase 0 handles file:// only. A git+ source is a clear, actionable error rather
-// than a silent skip: the entry is valid config that this build cannot yet fetch,
-// which is exactly the distinction a user needs to see.
+// LAUNCH IS STRICTLY OFFLINE (C5): it resolves from the store and never fetches. A
+// jail start must not depend on a reachable git server, and a missing pin must be a
+// clear error pointing at `yolo pack install` rather than a surprise network call
+// mid-boot — or worse, a 30-second askpass hang that reads as yolo wedging.
 func packRoot(entry config.PackEntry) (string, error) {
-	if !entry.IsLocal() {
-		return "", fmt.Errorf("packs: %s: git sources are not implemented yet "+
-			"(%s) — use a file:// path for now", entry.Name, entry.Source)
+	addr, err := packsrc.Parse(entry.Source)
+	if err != nil {
+		return "", fmt.Errorf("packs: %s: %w", entry.Name, err)
 	}
-	path := entry.Source[len("file://"):]
-	if path == "" {
-		return "", fmt.Errorf("packs: %s: empty file:// path", entry.Name)
+	store := &packsrc.Store{Dir: paths.PacksDir()}
+	res, err := store.Resolve(addr)
+	if err != nil {
+		return "", fmt.Errorf("packs: %s: %w", entry.Name, err)
 	}
-	if !isDir(path) {
-		return "", fmt.Errorf("packs: %s: %s is not a directory", entry.Name, path)
-	}
-	return path, nil
+	return res.Root, nil
 }
 
 // readPackBriefing reads a pack's briefing prose, accepting either AGENTS.md or

@@ -26,7 +26,9 @@ import (
 	"strings"
 
 	"github.com/mschulkind-oss/yolo-jail/internal/config"
+	"github.com/mschulkind-oss/yolo-jail/internal/packsrc"
 	"github.com/mschulkind-oss/yolo-jail/internal/packstage"
+	"github.com/mschulkind-oss/yolo-jail/internal/paths"
 	"github.com/mschulkind-oss/yolo-jail/internal/richtext"
 )
 
@@ -36,6 +38,9 @@ const packUsage = `yolo pack — author and inspect agent config packs
   yolo pack lint [dir]        validate a pack directory the way staging will
   yolo pack ls                list configured packs and what each stages
   yolo pack explain <name>    show which files a pack stages, and what it dropped
+  yolo pack install           fetch configured packs and write the lockfile
+  yolo pack update            same as install (re-fetch; reports moved pins)
+  yolo pack status            show locked commits, and flag config/lock drift
 
 Packs are configured in ~/.config/yolo-jail/config.jsonc under "packs" (USER scope
 only — a workspace config cannot name one). See ` + "`yolo config-ref`" + `.`
@@ -65,6 +70,10 @@ func packMain(args []string, out, errw io.Writer, color bool) int {
 		return packLs(out, errw, color)
 	case "explain":
 		return packExplain(args[1:], out, errw, color)
+	case "install", "update":
+		return packInstall(out, errw, color)
+	case "status":
+		return packStatus(out, errw, color)
 	case "-h", "--help", "help":
 		fmt.Fprintln(out, packUsage)
 		return 0
@@ -318,4 +327,154 @@ func packExplain(args []string, out, errw io.Writer, color bool) int {
 		}
 	}
 	return 0
+}
+
+// packInstall fetches every configured pack and records what it resolved to (C5).
+//
+// THIS IS THE ONLY PLACE NETWORK ACCESS HAPPENS. Launch resolves offline from the
+// store, so fetching is an explicit, user-initiated act — never something that fires
+// mid-boot. `update` is the same operation with a different name and intent, so they
+// share this body: the distinction users care about is "did my pins move", and the
+// output reports exactly that.
+func packInstall(out, errw io.Writer, color bool) int {
+	entries, err := config.LoadPacks(func(msg string) {
+		fmt.Fprintf(errw, "Warning: %s\n", msg)
+	})
+	if err != nil {
+		fmt.Fprintf(errw, "yolo pack install: %v\n", err)
+		return 1
+	}
+	pr := richtext.Printer{W: out, Color: color}
+
+	// NOTE: no early return for zero entries. Removing the last pack from config must
+	// still PRUNE its lockfile entry — returning early here left a stale lock behind,
+	// so the pack looked installed forever and `status` reported a pin for content
+	// that was no longer being delivered.
+	lockPath := packsrc.LockPath(paths.UserConfigPath())
+	lock, err := packsrc.LoadLock(lockPath)
+	if err != nil {
+		fmt.Fprintf(errw, "yolo pack install: %v\n", err)
+		return 1
+	}
+	store := &packsrc.Store{Dir: paths.PacksDir()}
+
+	rc := 0
+	var names []string
+	for _, e := range entries {
+		names = append(names, e.Name)
+		addr, err := packsrc.Parse(e.Source)
+		if err != nil {
+			fmt.Fprintf(errw, "yolo pack install: %s: %v\n", e.Name, err)
+			rc = 1
+			continue
+		}
+		if addr.IsLocal() {
+			// A local pack has nothing to fetch and no commit to pin. Recording it
+			// anyway keeps `pack ls`/rollback able to see every pack, without
+			// inventing a pin it does not have.
+			lock.Set(packsrc.LockEntry{Name: e.Name, Source: e.Source})
+			pr.Printf("[dim]%s: local, nothing to fetch[/dim]", e.Name)
+			continue
+		}
+		prev, hadPrev := lock.Get(e.Name)
+		commit, err := store.Sync(addr)
+		if err != nil {
+			fmt.Fprintf(errw, "yolo pack install: %s: %v\n", e.Name, err)
+			rc = 1
+			continue
+		}
+		if _, err := store.Materialize(addr, commit); err != nil {
+			fmt.Fprintf(errw, "yolo pack install: %s: %v\n", e.Name, err)
+			rc = 1
+			continue
+		}
+		lock.Set(packsrc.LockEntry{
+			Name: e.Name, Source: e.Source, Commit: commit, Ref: addr.Ref,
+		})
+		// Report whether the pin MOVED, which is the thing a user actually wants to
+		// know from an update — not merely that it succeeded.
+		switch {
+		case !hadPrev:
+			pr.Printf("[green]%s[/green] %s → %s", e.Name, addr.Ref, shortSHA(commit))
+		case prev.Commit != commit:
+			pr.Printf("[yellow]%s[/yellow] %s: %s → %s", e.Name, addr.Ref,
+				shortSHA(prev.Commit), shortSHA(commit))
+		default:
+			pr.Printf("[dim]%s unchanged (%s)[/dim]", e.Name, shortSHA(commit))
+		}
+	}
+
+	// Prune entries for packs that left the config, and SAY SO: a lock entry
+	// vanishing means content is about to stop being delivered.
+	for _, gone := range lock.Prune(names) {
+		pr.Printf("[dim]%s removed from config — dropped from the lockfile[/dim]", gone)
+	}
+	if len(entries) == 0 {
+		pr.Printf("[dim]No packs configured.[/dim]")
+	}
+	if err := lock.Save(lockPath); err != nil {
+		fmt.Fprintf(errw, "yolo pack install: writing lockfile: %v\n", err)
+		return 1
+	}
+	return rc
+}
+
+// packStatus reports configured packs against the lockfile, including DRIFT — a
+// config address that no longer matches what is locked.
+//
+// Drift is the whole reason this verb exists. Launch resolves from the store using
+// the CONFIG address, but a user who edits `?ref=v1` to `?ref=v2` without running
+// install has a config and a lockfile that disagree, and nothing else would tell them.
+func packStatus(out, errw io.Writer, color bool) int {
+	entries, err := config.LoadPacks(nil)
+	if err != nil {
+		fmt.Fprintf(errw, "yolo pack status: %v\n", err)
+		return 1
+	}
+	lock, err := packsrc.LoadLock(packsrc.LockPath(paths.UserConfigPath()))
+	if err != nil {
+		fmt.Fprintf(errw, "yolo pack status: %v\n", err)
+		return 1
+	}
+	pr := richtext.Printer{W: out, Color: color}
+	if len(entries) == 0 {
+		pr.Printf("[dim]No packs configured.[/dim]")
+		return 0
+	}
+
+	configured := map[string]string{}
+	for _, e := range entries {
+		configured[e.Name] = e.Source
+	}
+	for _, e := range entries {
+		locked, ok := lock.Get(e.Name)
+		switch {
+		case !ok:
+			pr.Printf("[yellow]%-20s not installed[/yellow] [dim](run `yolo pack install`)[/dim]", e.Name)
+		case locked.Commit == "":
+			pr.Printf("%-20s [dim]local[/dim]", e.Name)
+		default:
+			pr.Printf("%-20s %s [dim]%s[/dim]", e.Name, shortSHA(locked.Commit), locked.Ref)
+		}
+	}
+	drift := lock.DriftFrom(configured)
+	for _, d := range drift {
+		pr.Printf("[yellow]⚠ %s: config changed since install[/yellow]", d.Name)
+		pr.Printf("    locked: [dim]%s[/dim]", d.LockedSource)
+		pr.Printf("    config: [cyan]%s[/cyan]", d.WantedSource)
+	}
+	if len(drift) > 0 {
+		pr.Printf("[dim]Run `yolo pack install` to fetch the new address.[/dim]")
+		return 1
+	}
+	return 0
+}
+
+// shortSHA abbreviates a commit for display, tolerating a short or empty input rather
+// than panicking on a slice bound.
+func shortSHA(sha string) string {
+	if len(sha) > 8 {
+		return sha[:8]
+	}
+	return sha
 }
