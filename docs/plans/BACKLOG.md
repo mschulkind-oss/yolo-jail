@@ -75,9 +75,11 @@ nothing is left to adopt and first-migration can safely adopt the on-disk file.
 **B2 is load-bearing for packs**: it is also the third engine mechanism
 (`read_modify_write`) that agents-as-packs needs, so it earns its place twice.
 
-## Stage C — the pack foundation
+## Stage C — the pack foundation — ✅ COMPLETE (2026-07-27)
 
-Buildable once A is done. Does **not** need the composition-site decision (D1).
+All built and verified against real containers and real git. C7 proved unnecessary
+(see C6). Launch is offline: verified by moving a source repo away and still
+launching a jail with its pack delivered.
 
 | # | Item | Notes |
 |---|---|---|
@@ -85,7 +87,7 @@ Buildable once A is done. Does **not** need the composition-site decision (D1).
 | ✅ C2 | Tree executor: walk, `only`/`exclude`, exec-bit refusal, copy | |
 | ✅ C3 | `PrepareSkills` + `ComposeBriefing` packs pass | delivers A8/A10's value via packs |
 | ✅ C4 | `yolo pack init\|lint\|ls\|explain` | authoring loop |
-| ⏳ C5 | Git sources: `internal/packsrc`, lockfile, approval, `add/install/update/rollback` | the ~1-week chunk |
+| ✅ C5 | Git sources: `internal/packsrc`, lockfile, approval, `add/install/update/rollback` | the ~1-week chunk |
 | ✅ C6 | Port the 5 real projections to the declarative operation set | **validates the design** — do before freezing the op set |
 | ⏸ C7 | The projector protocol (tier 2 escape hatch) | **not needed** — C6 proved the op set sufficient. Stays designed, unbuilt |
 
