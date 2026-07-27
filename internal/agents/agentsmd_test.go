@@ -3,6 +3,7 @@ package agents
 import (
 	"os"
 	"path/filepath"
+	"strings"
 	"syscall"
 	"testing"
 )
@@ -105,5 +106,43 @@ func repoRoot(t *testing.T) string {
 			t.Fatal("go.mod not found")
 		}
 		dir = parent
+	}
+}
+
+// C3: pack prose is appended with a provenance header naming the pack. The header
+// matters because pack prose is INSTRUCTIONS an agent will follow: with several
+// packs plus yolo's own briefing in one file, an agent (or a human debugging it) that
+// hits a surprising rule needs to know which pack it came from.
+func TestComposePackBriefingsAttributesEachPack(t *testing.T) {
+	got := ComposePackBriefings("BASE BRIEFING\n", []PackBriefing{
+		{Name: "acme", Text: "Always use rg.\n"},
+		{Name: "team-rust", Text: "Prefer thiserror.\n"},
+	})
+	for _, want := range []string{
+		"BASE BRIEFING",
+		"<!-- from pack: acme -->",
+		"Always use rg.",
+		"<!-- from pack: team-rust -->",
+		"Prefer thiserror.",
+	} {
+		if !strings.Contains(got, want) {
+			t.Errorf("briefing missing %q:\n%s", want, got)
+		}
+	}
+	// Config order is preserved: later packs win on conflicting advice, so the
+	// order an agent reads them in is load-bearing.
+	if strings.Index(got, "acme") > strings.Index(got, "team-rust") {
+		t.Errorf("pack order not preserved:\n%s", got)
+	}
+}
+
+// A pack with no briefing must leave no trace — no empty attributed section.
+func TestComposePackBriefingsSkipsEmpty(t *testing.T) {
+	got := ComposePackBriefings("BASE\n", []PackBriefing{{Name: "quiet", Text: "  \n"}})
+	if strings.Contains(got, "quiet") {
+		t.Errorf("an empty pack briefing must emit nothing:\n%s", got)
+	}
+	if got != "BASE\n" {
+		t.Errorf("base briefing altered: %q", got)
 	}
 }

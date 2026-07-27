@@ -62,6 +62,14 @@ func (o *Options) refreshJailBriefings(cname string, cfg *jsonx.OrderedMap, rt s
 	// off this. Derived from the stable workspace, so launch and attach agree.
 	isSrc := agents.WorkspaceIsYoloSourceTree(o.Workspace)
 
+	// Pack staging (C3), BEFORE skills so PrepareSkills can layer pack skills in.
+	// Fail-closed per A12: a declared pack that cannot be staged is an error, not a
+	// jail that silently comes up without it.
+	packBriefings, err := o.stagePacks(cname)
+	if err != nil {
+		return "", err
+	}
+
 	// Skills staging.
 	staging, err := agents.PrepareSkills(cname, homeDir(), agentsList, isSrc)
 	if err != nil {
@@ -84,6 +92,9 @@ func (o *Options) refreshJailBriefings(cname string, cfg *jsonx.OrderedMap, rt s
 	}
 	jailContent := agents.BriefingContent(in)
 	jailContent = agents.ComposeBriefing(jailContent, cfgStr(cfg, "agents_md_extra"))
+	// Pack prose last, each attributed to its pack (C3): it is instructions the
+	// agent will follow, so it must be traceable to a source.
+	jailContent = agents.ComposePackBriefings(jailContent, packBriefings)
 
 	home := homeDir()
 	for _, spec := range agents.ResolveAgents(agentsList) {

@@ -143,12 +143,20 @@ func TestWorkspaceMcpConfigsAreIsolated(t *testing.T) {
 		t.Fatalf("project_b run failed (rc %d): %s", r.rc, r.stderr)
 	}
 
+	// Codec-aware: copilot's surface is JSON, codex's is TOML. A JSON parse of the
+	// TOML file fails on its leading comment, so the check is per-codec rather than
+	// one shape for both.
 	hasChromeDevtools := func(dir, agent, file string) bool {
 		t.Helper()
 		p := filepath.Join(dir, ".yolo", "home", agent, file)
 		data, err := os.ReadFile(p)
 		if err != nil {
 			t.Fatalf("reading %s: %v", p, err)
+		}
+		if strings.HasSuffix(file, ".toml") {
+			// The TOML surface spells it [mcp_servers.chrome-devtools]; a substring
+			// check is enough here and avoids a TOML dependency in the test.
+			return strings.Contains(string(data), "chrome-devtools")
 		}
 		var cfg struct {
 			McpServers map[string]json.RawMessage `json:"mcpServers"`

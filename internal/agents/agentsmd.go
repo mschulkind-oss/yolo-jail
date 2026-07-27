@@ -299,3 +299,35 @@ func WorkspaceIsYoloSourceTree(workspace string) bool {
 	_, err = os.Stat(workspace + "/cmd/yolo/main.go")
 	return err == nil
 }
+
+// PackBriefing is one pack's contribution to an agent briefing (C3).
+type PackBriefing struct {
+	// Name is the pack's name, used for the provenance header.
+	Name string
+	// Text is the pack's AGENTS.md prose, already read.
+	Text string
+}
+
+// ComposePackBriefings appends each pack's prose to a briefing, in config order,
+// under a provenance header naming the pack.
+//
+// The header is not decoration. Pack prose is INSTRUCTIONS an agent will follow, and
+// a jail may carry several packs plus yolo's own briefing plus the user's — so
+// without attribution an agent reading a surprising rule has no way to find out
+// where it came from, and neither does the human debugging it. Naming the source is
+// the same legibility argument as `yolo config diff` reporting which layer set a key.
+//
+// Empty text is skipped rather than emitting an empty section: a pack with no
+// briefing should leave no trace.
+func ComposePackBriefings(base string, packs []PackBriefing) string {
+	out := base
+	for _, p := range packs {
+		text := strings.TrimRight(p.Text, " \t\r\n")
+		if text == "" {
+			continue
+		}
+		out = strings.TrimRight(out, "\n") + "\n\n" +
+			"<!-- from pack: " + p.Name + " -->\n" + text + "\n"
+	}
+	return out
+}

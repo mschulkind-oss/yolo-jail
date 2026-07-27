@@ -20,6 +20,20 @@ import (
 // each skills_dir — the dir itself is NEVER rmtree+mkdir'd, because a running
 // jail's bind mount captured its inode and a fresh inode would silently detach
 // attach-time refreshes.
+// packSkillDirs are the per-pack `skills/` directories to layer in, in config
+// order (C3). Threaded as a package-level var rather than a parameter so the
+// existing four-arg signature and its callers stay untouched; the CLI sets it once
+// per run, before PrepareSkills.
+//
+// Precedence within one agent's staging dir: built-ins < packs < the user's own host
+// skills. A pack may override a built-in (that is a legitimate reason to ship one),
+// but never the user's local copy.
+var packSkillDirs []string
+
+// SetPackSkillDirs sets the pack skills dirs consulted by the next PrepareSkills.
+// Passing nil clears them.
+func SetPackSkillDirs(dirs []string) { packSkillDirs = dirs }
+
 func PrepareSkills(cname, homeDir string, agentNames []string, includeDev bool) (string, error) {
 	staging := filepath.Join(paths.AgentsDir(), cname)
 	if err := os.MkdirAll(staging, 0o755); err != nil {
@@ -43,8 +57,18 @@ func PrepareSkills(cname, homeDir string, agentNames []string, includeDev bool) 
 		if err := writeBuiltinSkills(skillsDir, includeDev); err != nil {
 			return "", err
 		}
-		// 2. Host user-level skills — strictly per-agent, no cross-agent merge.
-		//    Written after the built-ins so a same-named host skill overrides.
+		// 2. PACK skills (C3), in config order. Written after the built-ins so a pack
+		//    may override a built-in skill, and BEFORE the host's own skills so the
+		//    user's local copy always wins over anything a shared pack ships — the
+		//    precedence a user expects, and the one that keeps a pack from silently
+		//    replacing a skill they wrote.
+		for _, dir := range packSkillDirs {
+			if err := copySkillSubdirs(dir, skillsDir); err != nil {
+				return "", err
+			}
+		}
+		// 3. Host user-level skills — strictly per-agent, no cross-agent merge.
+		//    Written last so a same-named host skill overrides both.
 		if err := copySkillSubdirs(filepath.Join(homeDir, spec.Skills), skillsDir); err != nil {
 			return "", err
 		}

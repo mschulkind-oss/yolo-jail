@@ -78,6 +78,12 @@ func ContainerDir() string { return filepath.Join(GlobalStorage(), "containers")
 // AgentsDir returns the per-jail briefing staging dir.
 func AgentsDir() string { return filepath.Join(GlobalStorage(), "agents") }
 
+// PacksDir returns the machine-wide pack store: $HOME/.local/share/yolo-jail/packs.
+// Packs are USER-scope (config/packs.go), so their fetched content is per-machine —
+// one pack serves every workspace. Their EFFECTS (staged trees, composed files) are
+// per-workspace like every other agent artifact.
+func PacksDir() string { return filepath.Join(GlobalStorage(), "packs") }
+
 // BuildDir returns the nix build-root dir.
 func BuildDir() string { return filepath.Join(GlobalStorage(), "build") }
 

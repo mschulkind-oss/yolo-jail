@@ -65,6 +65,19 @@ func TestBlockedTools(t *testing.T) {
 // The container uses --rm, so the second run is a fresh launch; the non-TTY
 // config-change path auto-accepts (config.CheckConfigChanges), regenerating shims
 // from the new config, so unblocking curl takes effect.
+//
+// KNOWN FAILURE when the suite runs from INSIDE a jail (the normal dev loop here).
+// In-jail LoadConfig deliberately short-circuits to <workspace>/.yolo/
+// config-snapshot.json (load.go:235) instead of re-assembling, because the host's
+// user-level include_if_found overrides are not mounted and an in-jail re-merge
+// would silently drop them. That means the test's SECOND config write is never read:
+// the run sees the snapshot written by the first launch, still blocking curl, and
+// the unblock cannot take effect. Verified by hand — deleting the snapshot between
+// writes makes curl rc 0.
+//
+// So this asserts host-side behavior and is expected to fail in-jail. It is not
+// skipped via requireJail because it must still run on the host/CI, where the
+// short-circuit does not apply.
 func TestShimPersistence(t *testing.T) {
 	requireJail(t)
 	dir := writeProject(t, `{"security": {"blocked_tools": ["curl"]}}`)
