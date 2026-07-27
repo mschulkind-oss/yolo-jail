@@ -37,16 +37,7 @@ func TestPackDeliversSkillAndBriefing(t *testing.T) {
 	}
 
 	dir := writeProject(t, `{"agents": ["claude"]}`)
-	home := t.TempDir()
-	cfgDir := filepath.Join(home, ".config", "yolo-jail")
-	if err := os.MkdirAll(cfgDir, 0o755); err != nil {
-		t.Fatal(err)
-	}
-	if err := os.WriteFile(filepath.Join(cfgDir, "config.jsonc"),
-		[]byte(`{"packs": ["file://`+pack+`"]}`), 0o644); err != nil {
-		t.Fatal(err)
-	}
-	t.Setenv("HOME", home)
+	packHome(t, `{"packs": ["file://`+pack+`"]}`)
 
 	r := runYolo(t, dir,
 		`ls /home/agent/.claude/skills/pack-demo/SKILL.md && `+
@@ -72,19 +63,41 @@ func TestPackWithNoMatchingFilesWarns(t *testing.T) {
 	}
 
 	dir := writeProject(t, `{"agents": ["claude"]}`)
-	home := t.TempDir()
-	cfgDir := filepath.Join(home, ".config", "yolo-jail")
-	if err := os.MkdirAll(cfgDir, 0o755); err != nil {
-		t.Fatal(err)
-	}
-	if err := os.WriteFile(filepath.Join(cfgDir, "config.jsonc"),
-		[]byte(`{"packs": [{"source": "file://`+pack+`", "only": ["nothing-matches/*"]}]}`), 0o644); err != nil {
-		t.Fatal(err)
-	}
-	t.Setenv("HOME", home)
+	packHome(t, `{"packs": [{"source": "file://`+pack+`", "only": ["nothing-matches/*"]}]}`)
 
 	r := runYolo(t, dir, "true")
 	if !strings.Contains(r.combined(), "staged 0 files") {
 		t.Errorf("expected a 0-files warning for a pack whose filters match nothing:\n%s", r.combined())
 	}
+}
+
+// packHome points HOME at a temp dir carrying only the given user config, and
+// RE-LINKS the real GlobalStorage into it.
+//
+// The re-link is not incidental. paths.GlobalStorage() is $HOME/.local/share/yolo-jail,
+// so a bare t.Setenv("HOME", tmp) redirects the whole store — including the podman
+// IMAGE CACHE and its last-load sentinel. A pack test doing that builds and loads
+// into a throwaway store, and the next test that needs a freshly-built image (the
+// lib-farm `packages:` tests) finds the shared cache in an unexpected state and reuses
+// a stale image. That is exactly the cross-test interference this avoids: packs need a
+// custom CONFIG, not a custom store.
+func packHome(t *testing.T, userConfig string) {
+	t.Helper()
+	realStorage := filepath.Join(os.Getenv("HOME"), ".local", "share", "yolo-jail")
+
+	home := t.TempDir()
+	cfgDir := filepath.Join(home, ".config", "yolo-jail")
+	if err := os.MkdirAll(cfgDir, 0o755); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(filepath.Join(cfgDir, "config.jsonc"), []byte(userConfig), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.MkdirAll(filepath.Join(home, ".local", "share"), 0o755); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.Symlink(realStorage, filepath.Join(home, ".local", "share", "yolo-jail")); err != nil {
+		t.Fatal(err)
+	}
+	t.Setenv("HOME", home)
 }
