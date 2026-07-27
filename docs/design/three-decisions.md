@@ -64,6 +64,22 @@ implementation option for official packs and un-forces Decision 2.
 
 ---
 
+> **⚠ RULED 2026-07-26 — Decision 1 is settled, and not the way this section recommends.**
+> Composition **stays in the container.** Only image-build inputs (pack `provision`
+> contributions, `packages`) and host-file reads (the `host` layer, pack fetch, lockfile)
+> run host-side. The rule is *what needs the host*, not a location preference.
+>
+> The reasoning that settles it: I argued host-side for its error-timing benefit, but once
+> re-render-while-running is explicitly unsupported (it is), there is no reason to move
+> composition at all — and not moving it deletes the largest port in the plan. My
+> "host-side is the only coherent macos-user story" argument also fails: it assumed a mount
+> step to compose into, and with composition staying in-jail, macos-user's lack of a
+> host/jail filesystem split makes it the degenerate case that already works.
+>
+> The error-timing benefit has to be recovered another way: **host-side validation of pack
+> contributions** at `yolo check` and run assembly. Tracked as BACKLOG D1.
+> Full ruling: [../plans/open-rulings.md](../plans/open-rulings.md).
+
 ## Decision 1 — where does composition run?
 
 ### The question, restated precisely

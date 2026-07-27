@@ -1,8 +1,22 @@
 # The four open rulings — context for a decision
 
-**Status:** 2026-07-26. Each ruling below blocks a stage in [BACKLOG.md](BACKLOG.md). This
-doc gives the facts, the options, and a recommendation per ruling, so the answers can be
-given in one pass and the work fired off.
+**Status: ALL FOUR ANSWERED 2026-07-26.** Every stage in [BACKLOG.md](BACKLOG.md) is now
+unblocked. This doc keeps the facts and options that led to each answer; the answers are in the
+`DECIDED` blocks.
+
+| # | Ruling | Answer |
+|---|---|---|
+| 1 | first-migration vs user-asked-to-discard | **(a)** `reset` also truncates the surface to the pure render |
+| 2 | pack state scope | selection stays **user-level**; **shared-across-jail state becomes pack-declared** (new field); removal leaves abandoned state in place, deliberately |
+| 3 | where composition runs | **split by dependency**: image-build inputs and host-file reads on the host; **everything else stays in the container** |
+| 4 | re-render while running | **no** — not supported; it was ruling 3's premise |
+
+**Ruling 3 rejected my recommendation, and produced a better rule.** I argued host-side
+composition for its error-timing benefit; the ruling points out that once re-render-while-running
+is off the table, there is no reason to move composition at all. The line is *what needs the
+host*, not *where we'd prefer things to run* — which deletes the largest port in stage D. The
+error-timing benefit I wanted has to be recovered a different way: **host-side validation of
+pack contributions**, noted under ruling 3 as a required work item.
 
 **One correction up front, because it changes ruling 2 substantially.** I previously said
 agent state is "per-machine by accident of a shared `GlobalHome`." **That is wrong.** Agent
@@ -64,10 +78,21 @@ Both states are "no baseline." The engine cannot distinguish them today.
 | b | `reset` writes a one-shot marker the next boot consumes | a new sidecar kind and a new lifecycle to get wrong |
 | c | Infer from mtime (adopt only if the surface predates a yolo artifact) | heuristic; clock skew and touched files make it unreliable |
 
-**Recommendation: (a).** It is the only one that adds no new state. It also makes `reset`
-honest: today `reset` is invisible until the next boot, which is itself confusing.
+### DECIDED 2026-07-26: (a)
 
-**Question for you:** *approve (a), or prefer (b)?*
+**`reset` also truncates the surface file to the pure render.** Nothing is left to adopt, so
+first-migration can safely adopt the on-disk file and the copilot token wipe is fixed without
+`reset` becoming a no-op. Adds no new state, and makes `reset` take effect immediately instead
+of silently waiting for the next boot.
+
+Implementation shape for B1 (stage B is now fully unblocked):
+
+1. `staterender.go:132` — replace `overlay = emptyOverlay(kind)` on the `firstMigration` branch
+   with a seed from `mergeDiff(pureRender, current)`.
+2. `configdiff.go` `configReset` — after removing both sidecars, write the pure render to the
+   surface path.
+3. Regression tests for both halves, plus the specific copilot shape (a file holding
+   `copilot_tokens` must survive an absent `last_render`).
 
 ---
 
@@ -101,21 +126,41 @@ across workspaces.
 Not "should state be per-workspace?" — it already is, and it's the right default. The actual
 questions:
 
-1. **Do packs follow that pattern?** A pack's *content* is machine-wide (fetched once,
-   `~/.local/share/yolo-jail/packs/`). Its *effects* — composed files, captured overlays —
-   are per-workspace. **Recommendation: yes, follow it.** It matches the sidecars, which are
-   already per-workspace, and it means two workspaces can enable different packs.
-2. **Which state is credential-shaped and therefore machine-wide?** Today exactly one dir,
-   claude's. If pack-shipped agents need the same, the pattern must generalize — an agent pack
-   would declare "this dir is shared across workspaces," which is a new pack field.
-3. **Does pack removal clean up?** Content is easy (delete the fetch). Per-workspace effects
-   are the hard part: they are spread across every workspace that ever used the pack, and
-   nothing enumerates workspaces. **Recommendation: don't try.** `yolo pack remove` deletes
-   content and stops composing; stale files decay naturally because composition regenerates
-   every boot and a dropped input simply stops appearing.
+**A distinction my first draft muddled.** "Are packs per-workspace?" is two questions, and
+they have opposite answers:
 
-**Question for you:** *packs follow the per-workspace pattern with a machine-wide escape
-hatch for credential dirs, and removal doesn't chase per-workspace effects — approve?*
+- **Pack *selection* — which packs exist and are enabled — is USER-LEVEL, full stop.** Already
+  settled: there is no workspace-scope pack, because a repo can lay out whatever it wants in
+  its own tree and needs no distribution mechanism to reach files it owns. Nothing below
+  reopens this.
+- **Pack *effects* — the files a pack causes yolo to write — land wherever that kind of file
+  already lands.** Composed agent config is per-workspace today
+  (`<workspace>/.yolo/home/<agent>/`), so a pack-composed file goes there too. That is not a
+  pack scope decision; it is just "packs don't invent a new location."
+
+So: **user-level packs, existing per-workspace effects.** No conflict.
+
+### DECIDED 2026-07-26
+
+1. **Pack selection is user-level only** — reaffirmed, unchanged.
+2. **Shared-across-jail state is generalized and pack-declared.** ✅ *"We need to generalize
+   shared-across-jail state, to be specified by the pack."* Today exactly one dir is
+   machine-wide (`.claude-shared-credentials`, mounted from GlobalHome only when claude is
+   selected, `assemble.go:173-176`) and it is hardcoded. A pack declares which of its dirs are
+   shared across jails; yolo mounts those from GlobalHome and everything else per-workspace.
+   **This is a new pack field and a real work item** — see B4/D-stage in
+   [BACKLOG.md](BACKLOG.md). Note it is also a prerequisite for agents-as-packs: claude's
+   credential dir cannot become pack data without it.
+3. **Removal does not clean up, and abandoned state stays in place.** ✅ *"Don't try, but leave
+   the abandoned state in place."* `yolo pack remove` deletes the fetched content and stops
+   composing. Per-workspace effects are left alone — not chased, not deleted. Two reasons this
+   is right rather than merely easy: nothing enumerates workspaces, and composition regenerates
+   every boot, so a dropped input simply stops appearing. Leaving the files also means a
+   re-enabled pack finds its state intact, and a user who wants them gone can delete
+   `<workspace>/.yolo/` themselves.
+
+   **Implementation note:** "leave it in place" must be *deliberate*, not incidental. Removal
+   should say what it left behind rather than silently orphaning files.
 
 ---
 
@@ -147,51 +192,68 @@ summary.
 | macos-user | **the only coherent story** (no mounts, no `/ctx`; "compose then write" works) | mounts don't exist to compose into |
 | in-jail re-render | **lost** — reconcile moves to next assembly | works today |
 
-### The cost, stated plainly
+### DECIDED 2026-07-26 — split by *what needs the host*, not by preference
 
-A running jail can no longer re-render itself. Today an agent edits a composed file and the
-next boot reconciles from inside. Host-side means reconciliation happens at *assembly*, so
-re-render requires a restart — unless `yolo config render` is made to write through in-jail,
-which is possible (the files are in a host-backed bind) but is extra work.
+**Ruling:** *"Re-render while running is not important to support — so let's not, and simplify
+things. The image-build input stuff must run host side obviously; after that, the rest should
+run in the container for the stuff that doesn't need host influence."*
 
-**Recommendation: host-side, with the binary-install carve-out.** Compose config on the host;
-keep agent-CLI / npm / LSP / mise installs in-jail where they already are. It is the only
-option with one story across all three backends, and it converts the pack error surface from
-fail-open-at-boot to pre-flight — which is the single biggest risk in the rip-out.
+This **rejects my host-side-everything recommendation**, and it draws a better line than
+either option I offered. The rule is a *dependency* test, not a location preference:
 
-**Question for you:** *host-side (recommended), in-jail, or host-side-but-keep-in-jail-
-re-render-as-a-later-item?*
+| Runs where | What | Why it must |
+|---|---|---|
+| **host — mandatory** | image-build inputs: pack `provision` contributions, `packages`, capability requirements | they feed the nix derivation, which is built before any container exists |
+| **host — mandatory** | anything reading a host file or host credential: the `host` layer, pack fetch, lockfile/approval | the jail has no host filesystem and no git credentials |
+| **jail — default** | composing every surface that needs no host influence, overlay capture, sidecar writes | it already works there; moving it buys nothing once re-render-while-running is off the table |
+
+**What this simplifies, concretely:**
+
+- **No port.** Composition stays in `entrypoint` where it is. The largest single piece of work
+  in stage D disappears.
+- **macos-user needs no special case.** My "host-side is the only coherent macos-user story"
+  argument assumed a mount step to compose into. With composition staying in-jail and
+  macos-user having no jail/host filesystem split at all, it is *already* the degenerate case
+  that works.
+- **In-jail re-render keeps working**, so ruling 4 is answered by construction rather than
+  traded away.
+
+**What we give up, honestly** — and this is the part to keep an eye on:
+
+- **Pack failures stay fail-open.** `genStep` (`boot.go:534-538`) downgrades any generator error
+  to a warning so boot never aborts, so a malformed pack means an agent boots silently
+  misconfigured. **Mitigation, and it must be a real work item, not a hope:** validate pack
+  contributions *host-side at `yolo check` and at run assembly*, where erroring is normal. That
+  is where the `host_files` validators already live (`checkHostFileLayer`,
+  `checkHostFileDest`), so the precedent and the location both exist. **This is the single
+  most important consequence of this ruling** — the error-surface risk does not go away, it
+  moves to validation.
+- **`readonly` as a real `:ro` mount stays hard** (stage E). You cannot compose into a `:ro`
+  mount, so that item keeps its per-surface design pass. Unchanged from today.
+- **The projector runs in-jail** for compose-phase projections, so a third-party projector
+  binary must be present in the jail. The in-pack-script tier (`python3`, already baked) and the
+  nix-package tier both cover this; the prebuilt-binary tier now needs the artifact staged into
+  the jail, which is one more reason to discourage it.
 
 ---
 
 ## Ruling 4 — does a running jail need to re-render?
 
-**Blocks:** nothing on its own; it is the follow-on to ruling 3 and only bites if that goes
-host-side.
+### DECIDED 2026-07-26: no — and ruling 3 answers it
 
-### Context
+**Re-render while a jail is running is explicitly not supported.** That was the *premise* of
+ruling 3's split, not a consequence of it: because nothing needs to re-render mid-session,
+composition has no reason to move host-side, so it stays in the container.
 
-Today's flow: agent edits `~/.claude/settings.json` → next boot's `ComposeStateful` diffs it
-against `last_render`, folds the delta into the overlay, re-renders. The sidecars are at
-`<workspace>/.yolo/prism/` (`prism.go:41`) — **per-workspace, host-visible**, which is why
-nothing is lost across `--rm`: both the edited file and its baseline survive in the
-bind-mounted workspace.
+The behavior that remains, unchanged from today: an agent edits `~/.claude/settings.json` →
+the **next boot**'s `ComposeStateful` diffs it against `last_render`, folds the delta into the
+overlay, and re-renders. Sidecars live at `<workspace>/.yolo/prism/` (`prism.go:41`), so both
+the edited file and its baseline survive `--rm` in the bind-mounted workspace — nothing is
+lost, only *observability* lags until the next run.
 
-Under host-side composition, that same reconcile happens at *next assembly* instead. Nothing
-is lost; only the *timing* changes.
-
-### Options
-
-| | Approach | Notes |
-|---|---|---|
-| **a** | **Re-render only at run start.** In-jail edits reconcile next run | simplest. Matches the current mental model ("config regenerates every boot") |
-| b | `yolo config render --write` invokable in-jail | the files are host-backed bind mounts, so an in-jail write works; needs the pack/projector inputs available in-jail too, which partly defeats ruling 3 |
-| c | A `yolo config capture` verb, plus capture on terminate | already tracked as E; useful for *observability* regardless |
-
-**Recommendation: (a), plus (c) later for visibility.** (b) reintroduces the thing ruling 3
-removes.
-
-**Question for you:** *approve (a) + defer (c)?*
+Still worth doing eventually, for visibility rather than correctness: a `yolo config capture`
+verb plus capture in the existing `onTerminate` hook. Stays in **stage E**; an inotify watcher
+remains unjustified.
 
 ---
 

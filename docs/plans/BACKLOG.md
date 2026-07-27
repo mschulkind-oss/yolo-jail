@@ -54,17 +54,18 @@ because surface data can't become pack data while it hardcodes the jail path.
 
 ## Stage B — the data-loss chain (one decision, then ordered)
 
-**Gate:** how does the engine tell "first migration" from "the user asked to discard"? Both are
-"no baseline" today, so adopt-on-first-migration would make `yolo config reset` a no-op.
-Cheapest fix: `reset` also truncates the surface to the pure render.
-Detail: [composed-config-work.md §2.1](composed-config-work.md).
+**Gate RESOLVED 2026-07-26:** `reset` also truncates the surface file to the pure render, so
+nothing is left to adopt and first-migration can safely adopt the on-disk file.
+**Stage B is fully unblocked.** Detail: [open-rulings.md](open-rulings.md) ruling 1,
+[composed-config-work.md §2.1](composed-config-work.md).
 
 | # | Item | Kind |
 |---|---|---|
 | B1 | Adopt-on-first-migration (one branch in `staterender.go`) | ⚠ data-loss fix |
 | B2 | De-compose the credential surfaces onto read-modify-write | ⚠ data-loss fix |
 | B3 | Separate durable overlay state from the one-boot `last_render` baseline | naming |
-| B4 | Sidecar location / scope — needs a per-workspace-vs-per-machine ruling | improvement |
+| B4 | Sidecar location / scope — **resolved**: stays per-workspace (that is already where state lives) | improvement |
+| B5 | **Generalize shared-across-jail state as a pack-declared field** — today `.claude-shared-credentials` is the only machine-wide dir and it is hardcoded (`assemble.go:173-176`). Prerequisite for agents-as-packs | new, ruled 2026-07-26 |
 
 **B2 is load-bearing for packs**: it is also the third engine mechanism
 (`read_modify_write`) that agents-as-packs needs, so it earns its place twice.
@@ -89,14 +90,19 @@ and learning that costs far less now than after packs ship.
 
 ## Stage D — the rip-out
 
+**D1 is RESOLVED and mostly deleted.** Composition **stays in the container**; only
+image-build inputs and host-file reads run host-side. There is no port. See
+[open-rulings.md](open-rulings.md) ruling 3.
+
 | # | Item | Gate |
 |---|---|---|
-| D1 | **Decide where composition runs** (host-side vs in-jail) | the fork — reprices everything below |
+| D1 | ~~Decide where composition runs~~ → **replaced by: host-side *validation* of pack contributions** at `yolo check` + run assembly, so a bad pack is a pre-flight error rather than a fail-open `genStep` warning (`boot.go:534`). Precedent: `checkHostFileLayer`/`checkHostFileDest` | **required** — this is how the error-surface risk is recovered now that composition stays in-jail |
 | D2 | Three engine mechanisms: `stateful`, `computed`, `read_modify_write` | needs B2 |
 | D3 | Agent registry + surfaces + skills + briefings become official packs | needs A11, C1–C6 |
 | D4 | `AgentSpec.HostFiles` becomes pack data | safe *because* packs are user-scope only |
 | D5 | No agent by default | already works — `agents: []` boots (verified) |
 | D6 | Make the MCP bootstrap a pack contribution | it currently installs 112 npm packages for zero agents |
+| D7 | Stage a third-party projector binary into the jail (compose runs in-jail, so it must be reachable there) | needs C7 |
 
 ## Stage E — parked design work
 
@@ -106,26 +112,26 @@ renaming the recovered state.
 
 ---
 
-## Open rulings still owed
+## Rulings — ALL ANSWERED 2026-07-26
 
-**Full context, options and a recommendation per ruling: [open-rulings.md](open-rulings.md).**
+Nothing is blocked on a decision any more. Context: [open-rulings.md](open-rulings.md).
 
-1. **First-migration vs user-asked-to-discard** — gates all of stage B. Recommendation:
-   `reset` also truncates the surface to the pure render (adds no new state).
-2. **Is agent/pack state per-machine or per-jail?** **Correction:** it is already
-   *per-workspace* — `<workspace>/.yolo/home/<agent>/` holds the real state and the
-   `GlobalHome` entries are empty mountpoints (verified). Only
-   `.claude-shared-credentials` is machine-wide. Recommendation: packs follow the
-   per-workspace pattern; removal does not chase per-workspace effects.
-3. **Where composition runs** — D1, the largest call. Recommendation: host-side, keeping
-   binary installs in-jail.
-4. **Does a running jail need to re-render?** Only bites if 3 goes host-side.
-   Recommendation: re-render at run start only.
+1. **First-migration vs discard** → `reset` also truncates the surface to the pure render.
+   Unblocks stage B.
+2. **Pack state scope** → selection stays user-level; **shared-across-jail state becomes a
+   pack-declared field** (new item B5); removal leaves abandoned per-workspace state in place,
+   deliberately and with a report.
+3. **Where composition runs** → **split by dependency, not preference.** Image-build inputs and
+   host-file reads on the host; everything else **stays in the container**. Deletes the D1 port;
+   replaces it with host-side pack validation.
+4. **Re-render while running** → **not supported.** This was ruling 3's premise, so it needs no
+   separate work.
 
 ## Suggested order
 
-**A1 → A8+A10 → A9 → A11 → rest of A → B (after its gate) → C1–C5 → C6 → D1 → D2–D6.**
+**A1 → A8+A10 → A9 → A11 → rest of A → B1–B5 → C1–C5 → C6 → D1 → D2–D7.**
 
 A is ~11 items of mostly one-sitting work that fixes five verified defects and removes both
-pack blockers. C6 is the cheap experiment that de-risks the expensive part. D1 is the one
-decision worth taking time over.
+pack blockers. B is now unblocked. C6 is the cheap experiment that de-risks the expensive part.
+D1 (host-side pack validation) should land **before** D3, so the first official pack cannot
+fail silently at boot.
