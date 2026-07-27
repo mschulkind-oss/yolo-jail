@@ -57,7 +57,7 @@ to three agents until A8 lands). **A9 and A11 are the two that gate pack work**:
 the per-surface Lua seam has never executed and pack projections would be built on it, A11
 because surface data can't become pack data while it hardcodes the jail path.
 
-## Stage B — the data-loss chain (one decision, then ordered)
+## Stage B — the data-loss chain — ✅ COMPLETE (2026-07-27)
 
 **Gate RESOLVED 2026-07-26:** `reset` also truncates the surface file to the pure render, so
 nothing is left to adopt and first-migration can safely adopt the on-disk file.
@@ -66,11 +66,11 @@ nothing is left to adopt and first-migration can safely adopt the on-disk file.
 
 | # | Item | Kind |
 |---|---|---|
-| B1 | Adopt-on-first-migration (one branch in `staterender.go`) | ⚠ data-loss fix |
-| B2 | De-compose the credential surfaces onto read-modify-write | ⚠ data-loss fix |
-| B3 | Separate durable overlay state from the one-boot `last_render` baseline | naming |
-| B4 | Sidecar location / scope — **resolved**: stays per-workspace (that is already where state lives) | improvement |
-| B5 | **Generalize shared-across-jail state as a pack-declared field** — today `.claude-shared-credentials` is the only machine-wide dir and it is hardcoded (`assemble.go:173-176`). Prerequisite for agents-as-packs | new, ruled 2026-07-26 |
+| ✅ B1 | Adopt-on-first-migration (one branch in `staterender.go`) | ⚠ data-loss fix |
+| ✅ B2 | De-compose the credential surfaces onto read-modify-write | ⚠ data-loss fix |
+| ✅ B3 | Separate durable overlay state from the one-boot `last_render` baseline | naming |
+| ✅ B4 | Sidecar location / scope — **resolved**: stays per-workspace (that is already where state lives) | improvement |
+| ✅ B5 | **Generalize shared-across-jail state as a pack-declared field** — today `.claude-shared-credentials` is the only machine-wide dir and it is hardcoded (`assemble.go:173-176`). Prerequisite for agents-as-packs | new, ruled 2026-07-26 |
 
 **B2 is load-bearing for packs**: it is also the third engine mechanism
 (`read_modify_write`) that agents-as-packs needs, so it earns its place twice.
