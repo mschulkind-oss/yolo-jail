@@ -13,7 +13,9 @@ import (
 	"github.com/mschulkind-oss/yolo-jail/internal/config"
 	"github.com/mschulkind-oss/yolo-jail/internal/jsonx"
 	"github.com/mschulkind-oss/yolo-jail/internal/loopholes"
+	"github.com/mschulkind-oss/yolo-jail/internal/packload"
 	"github.com/mschulkind-oss/yolo-jail/internal/storage"
+	officialpacks "github.com/mschulkind-oss/yolo-jail/packs"
 )
 
 // emptyLoopholeDirs points BundledLoopholesDir + UserLoopholesDir at empty temp
@@ -100,6 +102,7 @@ func TestAssembleRunCmdPodmanLinuxGolden(t *testing.T) {
 		cname:         "yolo-ws-abcd1234",
 		agentsList:    []string{"claude"},
 		agentSpecs:    agents.ResolveAgents([]string{"claude"}),
+		packs:         claudePackFixture(t),
 		agentsPath:    "/agents/yolo-ws-abcd1234",
 		wsState:       "/ws/.yolo/home",
 		miseStore:     "/mise-store",
@@ -155,6 +158,7 @@ func TestAssemblePlatformSeamsInjectable(t *testing.T) {
 				cname:        "yolo-ws-abcd1234",
 				agentsList:   []string{"claude"},
 				agentSpecs:   agents.ResolveAgents([]string{"claude"}),
+				packs:        claudePackFixture(t),
 				agentsPath:   "/agents/yolo-ws-abcd1234",
 				wsState:      "/ws/.yolo/home",
 				miseStore:    "/mise-store",
@@ -189,7 +193,7 @@ func cacheRelocationMounts(argv []string) []string {
 
 // relocationInput builds the minimal assembleInput used by the cache-relocation
 // cases (same fixture shape as the golden, minus the pieces they don't touch).
-func relocationInput(rt, wsState string, rels []config.CacheRelocation) *assembleInput {
+func relocationInput(t *testing.T, rt, wsState string, rels []config.CacheRelocation) *assembleInput {
 	sec := jsonx.NewOrderedMap()
 	sec.Set("blocked_tools", []any{})
 	return &assembleInput{
@@ -198,6 +202,7 @@ func relocationInput(rt, wsState string, rels []config.CacheRelocation) *assembl
 		cname:            "yolo-ws-abcd1234",
 		agentsList:       []string{"claude"},
 		agentSpecs:       agents.ResolveAgents([]string{"claude"}),
+		packs:            claudePackFixture(t),
 		agentsPath:       "/agents/yolo-ws-abcd1234",
 		wsState:          wsState,
 		miseStore:        "/mise-store",
@@ -245,7 +250,7 @@ func TestAssembleCacheRelocations(t *testing.T) {
 			emptyLoopholeDirs(t)
 			o := goldenOptions("/ws", home)
 
-			got := cacheRelocationMounts(o.assembleRunCmd(relocationInput("podman", "/ws/.yolo/home", tc.rels)))
+			got := cacheRelocationMounts(o.assembleRunCmd(relocationInput(t, "podman", "/ws/.yolo/home", tc.rels)))
 			if !slices.Equal(got, tc.want) {
 				t.Errorf("relocation mounts = %v, want %v", got, tc.want)
 			}
@@ -262,7 +267,7 @@ func TestAssembleCacheRelocationsNoneMatchesGolden(t *testing.T) {
 	emptyLoopholeDirs(t)
 	o := goldenOptions("/ws", home)
 
-	got := o.assembleRunCmd(relocationInput("podman", "/ws/.yolo/home", nil))
+	got := o.assembleRunCmd(relocationInput(t, "podman", "/ws/.yolo/home", nil))
 	if !slices.Equal(got, podmanLinuxGolden(home)) {
 		t.Errorf("argv drifted from the golden with no relocations:\ngot:  %v\nwant: %v", got, podmanLinuxGolden(home))
 	}
@@ -281,7 +286,7 @@ func TestAssembleCacheRelocationsAppleContainerSkips(t *testing.T) {
 	o.Stdout = &buf
 
 	// A real ws_state dir: the Apple Container branch materializes files into it.
-	got := o.assembleRunCmd(relocationInput("container", t.TempDir(), []config.CacheRelocation{
+	got := o.assembleRunCmd(relocationInput(t, "container", t.TempDir(), []config.CacheRelocation{
 		{Subdir: "uv", Target: "/data/relocated/uv"},
 		{Subdir: "huggingface", Target: "/data/relocated/huggingface"},
 	}))
@@ -321,7 +326,7 @@ func TestAssembleWritableHomeDirs(t *testing.T) {
 	emptyLoopholeDirs(t)
 	o := goldenOptions("/ws", home)
 
-	in := relocationInput("podman", "/ws/.yolo/home", nil)
+	in := relocationInput(t, "podman", "/ws/.yolo/home", nil)
 	// Deliberately reverse-ordered: the emitter sorts.
 	in.writableHomeDirs = []string{".pi-lens", ".foo/bar"}
 	got := writableHomeDirMounts(o.assembleRunCmd(in))
@@ -342,7 +347,7 @@ func TestAssembleWritableHomeDirsNoneMatchesGolden(t *testing.T) {
 	emptyLoopholeDirs(t)
 	o := goldenOptions("/ws", home)
 
-	got := o.assembleRunCmd(relocationInput("podman", "/ws/.yolo/home", nil))
+	got := o.assembleRunCmd(relocationInput(t, "podman", "/ws/.yolo/home", nil))
 	if !slices.Equal(got, podmanLinuxGolden(home)) {
 		t.Errorf("argv drifted from the golden with no writable_home_dirs:\ngot:  %v\nwant: %v", got, podmanLinuxGolden(home))
 	}
@@ -369,6 +374,7 @@ func TestAssembleNeverBindsRepoSource(t *testing.T) {
 		cname:        "yolo-ws-abcd1234",
 		agentsList:   []string{"claude"},
 		agentSpecs:   agents.ResolveAgents([]string{"claude"}),
+		packs:        claudePackFixture(t),
 		agentsPath:   "/agents/yolo-ws-abcd1234",
 		wsState:      "/ws/.yolo/home",
 		miseStore:    "/mise-store",
@@ -502,8 +508,10 @@ func podmanLinuxGolden(home string) []string {
 	add("-e", "MISE_DISABLE_TOOLS=pnpm")
 	// skills mount (claude has .claude/skills).
 	add("-v", agentsPath+"/skills-claude:/home/agent/.claude/skills:ro")
-	// briefing mount (claude → .claude/CLAUDE.md).
-	add("-v", agentsPath+"/CLAUDE.md:/home/agent/.claude/CLAUDE.md:ro")
+	// PACK-DECLARED briefing mount: the claude pack declares AGENTS.md -> .claude/CLAUDE.md.
+	// The staged name is per-PACK (briefing-<pack>.md) so two packs cannot collide on
+	// one staged file, which the old per-agent name could not guarantee.
+	add("-v", agentsPath+"/briefing-claude.md:/home/agent/.claude/CLAUDE.md:ro")
 	// image + entrypoint.
 	add("localhost/yolo-jail:latest", "yolo-entrypoint")
 	return a
@@ -556,4 +564,25 @@ func TestUserConfigMountOmitsAbsentConfigLua(t *testing.T) {
 	if strings.Contains(strings.Join(args, " "), "config.lua") {
 		t.Errorf("absent config.lua must not be mounted: %v", args)
 	}
+}
+
+// claudePackFixture is the OFFICIAL claude pack, loaded the way a real run loads it.
+//
+// The golden argv asserts pack-DECLARED mounts (writable .claude, the shared
+// credentials dir), so the fixture has to come from the real pack manifest rather than
+// a hand-written stub — otherwise the golden would pin what the test author believed
+// the pack says instead of what it says.
+func claudePackFixture(t *testing.T) []*packload.Pack {
+	t.Helper()
+	loaded, problems := packload.MaterializeEmbedded(officialpacks.FS, t.TempDir())
+	if len(problems) != 0 {
+		t.Fatalf("materializing official packs: %v", problems)
+	}
+	for _, p := range loaded {
+		if p.Name == "claude" {
+			return []*packload.Pack{p}
+		}
+	}
+	t.Fatal("official claude pack not found")
+	return nil
 }

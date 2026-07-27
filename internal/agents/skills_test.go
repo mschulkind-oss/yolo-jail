@@ -3,6 +3,7 @@ package agents
 import (
 	"os"
 	"path/filepath"
+	"strings"
 	"testing"
 
 	"github.com/mschulkind-oss/yolo-jail/internal/agents/builtinskills"
@@ -20,6 +21,7 @@ func TestPrepareSkillsStaging(t *testing.T) {
 	must(t, os.MkdirAll(filepath.Join(hostClaudeSkills, "my-skill"), 0o755))
 	must(t, os.WriteFile(filepath.Join(hostClaudeSkills, "my-skill", "SKILL.md"), []byte("host skill"), 0o644))
 
+	withSkillTargets(t, ".claude/skills")
 	staging, err := PrepareSkills("test-cname", home, []string{"claude"}, false)
 	if err != nil {
 		t.Fatal(err)
@@ -64,6 +66,7 @@ func TestPrepareSkillsStaging(t *testing.T) {
 	ino1 := inodeOf(t, claudeStaging)
 	// Drop a stale entry to prove clearing happens inside.
 	must(t, os.WriteFile(filepath.Join(claudeStaging, "STALE"), []byte("x"), 0o644))
+	withSkillTargets(t, ".claude/skills")
 	if _, err := PrepareSkills("test-cname", home, []string{"claude"}, false); err != nil {
 		t.Fatal(err)
 	}
@@ -85,6 +88,7 @@ func TestPrepareSkillsIncludeDev(t *testing.T) {
 	home := t.TempDir()
 	t.Setenv("HOME", home)
 
+	withSkillTargets(t, ".claude/skills")
 	staging, err := PrepareSkills("dev-cname", home, []string{"claude"}, true)
 	if err != nil {
 		t.Fatal(err)
@@ -108,6 +112,7 @@ func TestPrepareSkillsFollowsSymlinks(t *testing.T) {
 	must(t, os.MkdirAll(hostSkills, 0o755))
 	must(t, os.Symlink(realSkill, filepath.Join(hostSkills, "linked-skill")))
 
+	withSkillTargets(t, ".claude/skills")
 	staging, err := PrepareSkills("c2", home, []string{"claude"}, false)
 	if err != nil {
 		t.Fatal(err)
@@ -134,47 +139,66 @@ func mustReadDir(t *testing.T, dir string) []os.DirEntry {
 	return entries
 }
 
-// A8: pi and codex had Skills:"" and were `continue`d by PrepareSkills, so they
-// received NO skills at all — including yolo's own BUILT-IN suite — while their
-// generated briefing told them to "read configuring-the-jail". This pins that
-// every skills-bearing agent gets the built-in suite staged, and pins the two
-// paths, which come from the shipped agent implementations (pi:
-// join(getAgentDir(),"skills"); codex: $CODEX_HOME/skills) rather than from docs.
+// Every PACK-DECLARED skills destination must receive the built-in suite.
 //
-// opencode is deliberately absent: it has no user-level skills dir at all, so
-// Skills:"" is correct for it and it stays briefing-only.
-func TestEveryAgentWithSkillsGetsBuiltinSuite(t *testing.T) {
+// This used to iterate the AGENT REGISTRY and assert each agent's Skills field. It now
+// iterates DECLARATIONS, which is the point of the transition: core builds a staging dir
+// per pack target and knows nothing about which tool reads it. The destinations below are
+// the ones the official packs declare, so a pack dropping its skills mount fails here.
+//
+// A8 is still pinned by the paths themselves: pi and codex appear, and before A8 they had
+// no skills dir at all and silently received nothing — including yolo's own built-ins.
+func TestBuiltinSuiteReachesEveryDeclaredSkillsTarget(t *testing.T) {
 	home := t.TempDir()
 	t.Setenv("HOME", home)
 
-	for _, tc := range []struct{ agent, want string }{
-		{"claude", ".claude/skills"},
-		{"copilot", ".copilot/skills"},
-		{"pi", ".pi/agent/skills"},
-		{"codex", ".codex/skills"},
-		{"agy", ".gemini/antigravity-cli/skills"},
+	for _, dest := range []string{
+		".claude/skills",
+		".copilot/skills",
+		".pi/agent/skills",
+		".codex/skills",
+		".gemini/antigravity-cli/skills",
 	} {
-		spec, ok := Get(tc.agent)
-		if !ok {
-			t.Fatalf("agent %q not in registry", tc.agent)
-		}
-		if spec.Skills != tc.want {
-			t.Errorf("%s Skills = %q, want %q", tc.agent, spec.Skills, tc.want)
-		}
-		staging, err := PrepareSkills("c-"+tc.agent, home, []string{tc.agent}, false)
+		withSkillTargets(t, dest)
+		staging, err := PrepareSkills("c-target", home, nil, false)
 		if err != nil {
-			t.Fatalf("%s: %v", tc.agent, err)
+			t.Fatalf("%s: %v", dest, err)
 		}
-		// jail-startup is in the built-in suite, so its presence proves the agent
-		// is no longer skipped.
-		probe := filepath.Join(staging, spec.SkillsStaging(), "jail-startup", "SKILL.md")
+		// jail-startup is in the built-in suite, so its presence proves the target was
+		// built rather than skipped.
+		pack := strings.ReplaceAll(strings.TrimSuffix(strings.TrimPrefix(dest, "."), "/skills"), "/", "-")
+		probe := filepath.Join(staging, SkillStagingName(pack), "jail-startup", "SKILL.md")
 		if _, err := os.Stat(probe); err != nil {
-			t.Errorf("%s: built-in suite not staged (%v)", tc.agent, err)
+			t.Errorf("%s: built-in suite not staged (%v)", dest, err)
 		}
 	}
 
-	// opencode stays skills-less by design.
-	if spec, _ := Get("opencode"); spec.Skills != "" {
-		t.Errorf("opencode Skills = %q, want \"\" (no user-level skills dir)", spec.Skills)
+	// With NO declared target, nothing is staged — a jail with no packs gets no skills
+	// dirs rather than an invented one.
+	SetPackSkillTargets(nil)
+	staging, err := PrepareSkills("c-none", home, nil, false)
+	if err != nil {
+		t.Fatal(err)
 	}
+	entries, err := os.ReadDir(staging)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(entries) != 0 {
+		t.Errorf("no declared targets but skills were staged: %v", entries)
+	}
+}
+
+func withSkillTargets(t *testing.T, dests ...string) {
+	t.Helper()
+	var targets []SkillTarget
+	for _, dest := range dests {
+		pack := strings.TrimSuffix(strings.TrimPrefix(dest, "."), "/skills")
+		pack = strings.ReplaceAll(pack, "/", "-")
+		targets = append(targets, SkillTarget{
+			Staging: SkillStagingName(pack), Dest: dest, HostSource: dest,
+		})
+	}
+	SetPackSkillTargets(targets)
+	t.Cleanup(func() { SetPackSkillTargets(nil) })
 }

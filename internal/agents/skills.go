@@ -36,18 +36,42 @@ var packSkillDirs []string
 // Passing nil clears them.
 func SetPackSkillDirs(dirs []string) { packSkillDirs = dirs }
 
+// SkillTarget is one pack-declared skills destination: which staging dir to build, and
+// the jail path it will be mounted at.
+type SkillTarget struct {
+	// Staging is the staging subdir name (per PACK, so two packs cannot collide).
+	Staging string
+	// Dest is the home-relative jail path the staged dir is mounted at.
+	Dest string
+	// HostSource is the user's OWN skills tree to layer in last, so a local skill
+	// always outranks a pack's. Empty means none.
+	HostSource string
+}
+
+// packSkillTargets are the destinations PrepareSkills builds. Set per run by the CLI
+// from pack declarations; nil means none, which is why a jail with no packs stages
+// nothing rather than inventing a destination.
+var packSkillTargets []SkillTarget
+
+// SetPackSkillTargets sets the pack-declared skills destinations for the next
+// PrepareSkills call.
+func SetPackSkillTargets(targets []SkillTarget) { packSkillTargets = targets }
+
+// SkillStagingName is the staging subdir for one pack's skills.
+func SkillStagingName(pack string) string { return "skills-" + pack }
+
+// PACK-DECLARED skills destinations replace the agent list: SetPackSkillTargets is
+// what tells this which staging dirs to build, so a pack gets its skills whether or not
+// anything calls it an agent. agentNames is retained ONLY as the source of the user's
+// own ~/.<agent>/skills tree, which is keyed by the tool's real home dir either way.
 func PrepareSkills(cname, homeDir string, agentNames []string, includeDev bool) (string, error) {
 	staging := filepath.Join(paths.AgentsDir(), cname)
 	if err := os.MkdirAll(staging, 0o755); err != nil {
 		return "", err
 	}
 
-	specs := ResolveAgents(agentNames)
-	for _, spec := range specs {
-		if spec.Skills == "" {
-			continue // agent has no user-skills dir (opencode, pi)
-		}
-		skillsDir := filepath.Join(staging, spec.SkillsStaging())
+	for _, target := range packSkillTargets {
+		skillsDir := filepath.Join(staging, target.Staging)
 		if err := os.MkdirAll(skillsDir, 0o755); err != nil {
 			return "", err
 		}
@@ -69,10 +93,12 @@ func PrepareSkills(cname, homeDir string, agentNames []string, includeDev bool) 
 				return "", err
 			}
 		}
-		// 3. Host user-level skills — strictly per-agent, no cross-agent merge.
-		//    Written last so a same-named host skill overrides both.
-		if err := copySkillSubdirs(filepath.Join(homeDir, spec.Skills), skillsDir); err != nil {
-			return "", err
+		// 3. The user's OWN skills tree, written last so a same-named local skill
+		//    overrides both a built-in and a pack's.
+		if target.HostSource != "" {
+			if err := copySkillSubdirs(filepath.Join(homeDir, target.HostSource), skillsDir); err != nil {
+				return "", err
+			}
 		}
 	}
 	return staging, nil

@@ -16,43 +16,64 @@ import (
 
 	"github.com/mschulkind-oss/yolo-jail/internal/agents"
 	"github.com/mschulkind-oss/yolo-jail/internal/config"
+	"github.com/mschulkind-oss/yolo-jail/internal/packload"
 	"github.com/mschulkind-oss/yolo-jail/internal/packsrc"
 	"github.com/mschulkind-oss/yolo-jail/internal/packstage"
 	"github.com/mschulkind-oss/yolo-jail/internal/paths"
+	"github.com/mschulkind-oss/yolo-jail/packs"
 )
 
-// stagePacks stages every configured pack for this run and returns their briefing
-// contributions in config order.
+// stagePacks stages every pack for this run — the EMBEDDED official packs plus the
+// user's configured ones — and returns them loaded, so the mount assembler can act on
+// their declarations.
 //
-// FAIL-CLOSED (A12): a declared pack that cannot be staged is an error. A jail that
-// comes up silently missing a pack the user asked for is the failure mode this
-// whole cluster of work exists to remove — and unlike a warning, an error is seen.
+// Embedded packs come FIRST so a user pack can override one: later wins, the same rule
+// packs already use for same-named skills.
+//
+// FAIL-CLOSED (A12): a pack that cannot be staged is an error. A jail that comes up
+// silently missing a pack the user asked for is the failure mode this whole cluster of
+// work exists to remove — and unlike a warning, an error is seen.
 //
 // Sets agents.SetPackSkillDirs as a side effect, which PrepareSkills consumes on the
 // next call. Ordering is therefore load-bearing: stagePacks runs first.
-func (o *Options) stagePacks(cname string) ([]agents.PackBriefing, error) {
+func (o *Options) stagePacks(cname string) ([]*packload.Pack, []agents.PackBriefing, error) {
 	entries, err := config.LoadPacks(func(msg string) {
 		o.pr(o.Stdout).print("[yellow]Warning: packs: " + msg + "[/yellow]")
 	})
 	if err != nil {
-		return nil, fmt.Errorf("packs: %w", err)
-	}
-	if len(entries) == 0 {
-		agents.SetPackSkillDirs(nil)
-		return nil, nil
+		return nil, nil, fmt.Errorf("packs: %w", err)
 	}
 
 	stagingRoot := filepath.Join(paths.AgentsDir(), cname, "packs")
 	if err := os.MkdirAll(stagingRoot, 0o755); err != nil {
-		return nil, err
+		return nil, nil, err
+	}
+
+	// The OFFICIAL packs, materialized out of the binary. They ship with yolo, so their
+	// declarations carry yolo's own authority (MayAccessHost).
+	loaded, problems := packload.MaterializeEmbedded(packs.FS,
+		filepath.Join(stagingRoot, "_official"))
+	for _, prob := range problems {
+		// A broken OFFICIAL pack is a yolo bug, not a user error, so it is fatal rather
+		// than a warning the user can do nothing about.
+		return nil, nil, fmt.Errorf("official packs: %s", prob)
 	}
 
 	var skillDirs []string
 	var briefings []agents.PackBriefing
+	for _, p := range loaded {
+		if skills := filepath.Join(p.Root, "skills"); isDir(skills) {
+			skillDirs = append(skillDirs, skills)
+		}
+		if text, ok := readPackBriefing(p.Root); ok {
+			briefings = append(briefings, agents.PackBriefing{Name: p.Name, Text: text})
+		}
+	}
+
 	for _, entry := range entries {
 		root, err := packRoot(entry)
 		if err != nil {
-			return nil, err
+			return nil, nil, err
 		}
 		dest := filepath.Join(stagingRoot, entry.Slug())
 		res, err := packstage.Stage(packstage.Spec{
@@ -63,7 +84,7 @@ func (o *Options) stagePacks(cname string) ([]agents.PackBriefing, error) {
 			AllowExec: entry.AllowExec,
 		})
 		if err != nil {
-			return nil, fmt.Errorf("packs: %s: %w", entry.Name, err)
+			return nil, nil, fmt.Errorf("packs: %s: %w", entry.Name, err)
 		}
 		// NO SILENT CAPS: a pack that staged nothing is almost always an `only`/
 		// `exclude` typo, and the user would otherwise just see a pack that "does
@@ -74,6 +95,23 @@ func (o *Options) stagePacks(cname string) ([]agents.PackBriefing, error) {
 					"check its filters[/yellow]", entry.Name, len(res.Excluded)))
 		}
 
+		// A configured pack's declarations are honored only as far as its ORIGIN
+		// permits: a fetched pack cannot read the host home or run an installer.
+		p, probs := packload.LoadDir(dest, entry.Name, entry.MayGrantHostFiles())
+		for _, prob := range probs {
+			return nil, nil, fmt.Errorf("packs: %s", prob)
+		}
+		// Report every refused declaration. A pack silently not getting what it asked
+		// for changes what the jail contains, so the user has to be told.
+		_, refused := p.HonoredHostFiles()
+		if _, why := p.HonoredInstall(); why != "" {
+			refused = append(refused, why)
+		}
+		for _, msg := range refused {
+			o.pr(o.Stdout).print("[yellow]Warning: " + msg + "[/yellow]")
+		}
+		loaded = append(loaded, p)
+
 		if skills := filepath.Join(dest, "skills"); isDir(skills) {
 			skillDirs = append(skillDirs, skills)
 		}
@@ -82,7 +120,7 @@ func (o *Options) stagePacks(cname string) ([]agents.PackBriefing, error) {
 		}
 	}
 	agents.SetPackSkillDirs(skillDirs)
-	return briefings, nil
+	return loaded, briefings, nil
 }
 
 // packRoot resolves a pack entry to a directory on disk.

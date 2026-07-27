@@ -9,6 +9,7 @@ import (
 	"github.com/mschulkind-oss/yolo-jail/internal/config"
 	"github.com/mschulkind-oss/yolo-jail/internal/jsonx"
 	"github.com/mschulkind-oss/yolo-jail/internal/loopholes"
+	"github.com/mschulkind-oss/yolo-jail/internal/packload"
 	"github.com/mschulkind-oss/yolo-jail/internal/paths"
 )
 
@@ -17,7 +18,11 @@ import (
 // every invocation (incl. attach) so host-side skill/briefing edits propagate to
 // a live jail via inode-preserving writes. Returns the staging dir
 // (AGENTS_DIR/<cname>).
-func (o *Options) refreshJailBriefings(cname string, cfg *jsonx.OrderedMap, rt string) (string, error) {
+// It also returns the LOADED PACKS, because the mount assembler needs their
+// declarations (writable dirs, mount targets, host-file grants) and staging is where
+// they are read. Returning them here rather than re-loading later keeps one source of
+// truth for what this run's packs declared.
+func (o *Options) refreshJailBriefings(cname string, cfg *jsonx.OrderedMap, rt string) (string, []*packload.Pack, error) {
 	netSec := cfgMap(cfg, "network")
 	netMode := o.Network
 	if netSec != nil {
@@ -65,15 +70,19 @@ func (o *Options) refreshJailBriefings(cname string, cfg *jsonx.OrderedMap, rt s
 	// Pack staging (C3), BEFORE skills so PrepareSkills can layer pack skills in.
 	// Fail-closed per A12: a declared pack that cannot be staged is an error, not a
 	// jail that silently comes up without it.
-	packBriefings, err := o.stagePacks(cname)
+	loadedPacks, packBriefings, err := o.stagePacks(cname)
 	if err != nil {
-		return "", err
+		return "", nil, err
 	}
+
+	// PACK-DECLARED skills destinations. A pack mount whose source is "skills" says
+	// "put my skills tree here"; core builds a staging dir per pack and mounts it there.
+	agents.SetPackSkillTargets(packSkillTargets(loadedPacks))
 
 	// Skills staging.
 	staging, err := agents.PrepareSkills(cname, homeDir(), agentsList, isSrc)
 	if err != nil {
-		return "", err
+		return "", nil, err
 	}
 
 	// Resources map (sorted-key rendering handled inside BriefingContent).
@@ -96,15 +105,31 @@ func (o *Options) refreshJailBriefings(cname string, cfg *jsonx.OrderedMap, rt s
 	// agent will follow, so it must be traceable to a source.
 	jailContent = agents.ComposePackBriefings(jailContent, packBriefings)
 
+	// Write one briefing per PACK-DECLARED briefing mount. The pack says where its
+	// prose goes; core writes the composed content to the matching staging file and
+	// (for a pack whose origin permits it) prepends the user's own host briefing first,
+	// so a personal AGENTS.md still outranks anything a pack ships.
+	//
+	// This is the loop that used to iterate selected agents, which is why a zero-agent
+	// jail wrote NO briefing at all. It now follows declarations, so a pack always gets
+	// its briefing whether or not anything calls it an agent.
 	home := homeDir()
-	for _, spec := range agents.ResolveAgents(agentsList) {
-		content := agents.PrependHostBriefing(filepath.Join(home, spec.Briefing.HostSource), jailContent)
-		if err := agents.WriteBriefing(filepath.Join(staging, spec.Briefing.Staging), content); err != nil {
-			return "", err
+	for _, p := range loadedPacks {
+		for _, mt := range p.Decl.Mounts {
+			if !isBriefingMount(mt.From) {
+				continue
+			}
+			content := jailContent
+			if mt.HostOverlay != "" && p.MayAccessHost {
+				content = agents.PrependHostBriefing(filepath.Join(home, mt.HostOverlay), content)
+			}
+			if err := agents.WriteBriefing(filepath.Join(staging, briefingStagingName(p.Name)), content); err != nil {
+				return "", nil, err
+			}
 		}
 	}
 	_ = rt
-	return staging, nil
+	return staging, loadedPacks, nil
 }
 
 // blockedToolRecords converts NormalizeBlockedTools output (a []any of ordered
@@ -143,12 +168,19 @@ func orderedMapToStrAny(m *jsonx.OrderedMap) map[string]any {
 // per-workspace overlay dirs + touch the overlay files, seed selected agents'
 // config dirs, sync claude.json, and run the old-overlay migrations. Returns the
 // ws_state path (<workspace>/.yolo/home).
-func (o *Options) prepareWsState(cfg *jsonx.OrderedMap, agentSpecs []agents.AgentSpec, agentsList []string) string {
+func (o *Options) prepareWsState(cfg *jsonx.OrderedMap, loadedPacks []*packload.Pack, agentsList []string) string {
 	wsState := filepath.Join(o.Workspace, ".yolo", "home")
 	_ = os.MkdirAll(wsState, 0o755)
 	_ = os.MkdirAll(filepath.Join(wsState, "ssh"), 0o700)
 
-	overlaySubdirs := agentOverlaySubdirs(agentSpecs)
+	// Backing dirs for the PACK-DECLARED writable dirs. These must exist before the
+	// :ro home bind is applied: podman refuses to start with a bare
+	// "statfs …: no such file or directory" when a bind source is missing, which reads
+	// as a yolo bug rather than a missing directory.
+	var overlaySubdirs []string
+	for _, dir := range packload.WritableDirs(loadedPacks) {
+		overlaySubdirs = append(overlaySubdirs, strings.TrimPrefix(dir, "."))
+	}
 	for _, subdir := range append([]string{"npm-global", "local", "go", "yolo-shims", "config"}, overlaySubdirs...) {
 		_ = os.MkdirAll(filepath.Join(wsState, subdir), 0o755)
 	}
@@ -220,3 +252,38 @@ func lspServerNames(cfg *jsonx.OrderedMap) []string {
 }
 
 var _ = strings.Join
+
+// isBriefingMount reports whether a pack mount carries briefing prose rather than a
+// content tree. Keyed on the source NAME because that is what a pack author writes;
+// both spellings are in the wild and an author should not have to know which one yolo
+// reads.
+func isBriefingMount(from string) bool {
+	return from == "AGENTS.md" || from == "CLAUDE.md"
+}
+
+// briefingStagingName is the staging filename for one pack's briefing. Per-pack rather
+// than per-agent, so two packs cannot collide on one staged file.
+func briefingStagingName(pack string) string { return "briefing-" + pack + ".md" }
+
+// packSkillTargets turns pack mount declarations into skills staging targets.
+//
+// The user's OWN skills tree is layered in from the same jail-relative path the pack
+// declared, because a tool reads its skills from one place regardless of who put them
+// there — and a local skill must outrank a pack's. Only a pack whose origin permits
+// host access gets that layer, since it reads the host home.
+func packSkillTargets(loadedPacks []*packload.Pack) []agents.SkillTarget {
+	var out []agents.SkillTarget
+	for _, p := range loadedPacks {
+		for _, mt := range p.Decl.Mounts {
+			if mt.From != "skills" {
+				continue
+			}
+			t := agents.SkillTarget{Staging: agents.SkillStagingName(p.Name), Dest: mt.To}
+			if p.MayAccessHost {
+				t.HostSource = mt.To
+			}
+			out = append(out, t)
+		}
+	}
+	return out
+}

@@ -184,7 +184,7 @@ func (o *Options) runContainer(cfg *jsonx.OrderedMap, rt, repoRoot string) int {
 	}
 
 	// Refresh the per-jail skills + AGENTS/CLAUDE staging on every invocation.
-	agentsPath, err := o.refreshJailBriefings(cname, cfg, rt)
+	agentsPath, loadedPacks, err := o.refreshJailBriefings(cname, cfg, rt)
 	if err != nil {
 		out.printf("[bold red]%s[/bold red]", err.Error())
 		return 1
@@ -235,7 +235,7 @@ func (o *Options) runContainer(cfg *jsonx.OrderedMap, rt, repoRoot string) int {
 	}
 
 	// ws_state overlay prep.
-	wsState := o.prepareWsState(cfg, agentSpecs, agentsList)
+	wsState := o.prepareWsState(cfg, loadedPacks, agentsList)
 
 	// yolo-user-env.sh (frozen writer).
 	userEnv := config.ResolveEnvSources(o.Workspace, cfg, func(msg string) { out.print(msg) })
@@ -334,6 +334,7 @@ func (o *Options) runContainer(cfg *jsonx.OrderedMap, rt, repoRoot string) int {
 		cname:            cname,
 		agentsList:       agentsList,
 		agentSpecs:       agentSpecs,
+		packs:            loadedPacks,
 		agentsPath:       agentsPath,
 		wsState:          wsState,
 		miseStore:        jailMiseStoreDir(o.inJail()),

@@ -9,6 +9,7 @@ import (
 	"github.com/mschulkind-oss/yolo-jail/internal/agents"
 	"github.com/mschulkind-oss/yolo-jail/internal/config"
 	"github.com/mschulkind-oss/yolo-jail/internal/jsonx"
+	"github.com/mschulkind-oss/yolo-jail/internal/packload"
 	"github.com/mschulkind-oss/yolo-jail/internal/paths"
 	"github.com/mschulkind-oss/yolo-jail/internal/storage"
 )
@@ -22,11 +23,15 @@ const miseStoreVolume = "yolo-mise-data-v2"
 // on Options. It is populated by the fresh-launch path before assembly; grouping
 // it keeps assembleRunCmd a pure function of its inputs ().
 type assembleInput struct {
-	cfg          *jsonx.OrderedMap
-	rt           string
-	cname        string
-	agentsList   []string
-	agentSpecs   []agents.AgentSpec
+	cfg        *jsonx.OrderedMap
+	rt         string
+	cname      string
+	agentsList []string
+	agentSpecs []agents.AgentSpec
+	// packs are this run's loaded packs (embedded official + configured). Their
+	// DECLARATIONS drive the mounts below — writable dirs, mount targets, host-file
+	// grants — which is what lets core stay ignorant of what an "agent" is.
+	packs        []*packload.Pack
 	agentsPath   string // AGENTS_DIR/<cname> (briefings + skills staging)
 	wsState      string // <workspace>/.yolo/home
 	miseStore    string // _jail_mise_store_dir()
@@ -165,15 +170,17 @@ func (o *Options) assembleRunCmd(in *assembleInput) []string {
 		runCmd = podmanBaseMounts(rt, runFlags, o.Workspace, in, o.IsMacOS)
 		// Ephemeral scratch dirs.
 		runCmd = append(runCmd, ScratchMountArgs(cfgStr(cfg, "ephemeral_storage"))...)
-		// Per-agent config-dir overlays (selected agents only).
-		for _, subdir := range agentOverlaySubdirs(in.agentSpecs) {
-			runCmd = append(runCmd, "-v", filepath.Join(in.wsState, subdir)+":/home/agent/."+subdir)
+		// PACK-DECLARED writable dirs, backed per-workspace. Core does not know these
+		// belong to an "agent" — a pack asked for a writable dir and got one.
+		for _, dir := range packload.WritableDirs(in.packs) {
+			runCmd = append(runCmd, "-v",
+				filepath.Join(in.wsState, strings.TrimPrefix(dir, "."))+":/home/agent/"+dir)
 		}
 		// B5: machine-wide (cross-jail) dirs, from the registry rather than a
 		// hardcoded per-agent branch. These come from GlobalHome, NOT ws_state, so a
 		// credential survives across workspaces — see agents.SharedDirs for why that
 		// tier exists and why widening it is a real decision.
-		for _, dir := range agents.SharedDirsFor(in.agentsList) {
+		for _, dir := range packload.SharedDirs(in.packs) {
 			runCmd = append(runCmd, "-v",
 				filepath.Join(paths.GlobalHome(), dir)+":/home/agent/"+dir)
 		}
@@ -334,11 +341,14 @@ func (o *Options) assembleRunCmd(in *assembleInput) []string {
 	runCmd = append(runCmd, in.storePruneEnv()...)
 
 	// --- skills mounts (selected agents with a skills dir) ---
-	for _, spec := range in.agentSpecs {
-		if spec.Skills != "" {
-			runCmd = append(runCmd, "-v",
-				filepath.Join(in.agentsPath, spec.SkillsStaging())+":/home/agent/"+spec.Skills+":ro")
-		}
+	// PACK-DECLARED skills mounts. The SOURCE is the per-pack staging dir, not the
+	// pack's own tree, because PrepareSkills merges three sources into it (built-ins <
+	// pack skills < the user's own host skills) and that merge has to land somewhere.
+	// Core reads the destination off the pack's declaration and mounts it; it does not
+	// know the content is "an agent's skills".
+	for _, target := range packSkillTargets(in.packs) {
+		runCmd = append(runCmd, "-v",
+			filepath.Join(in.agentsPath, target.Staging)+":/home/agent/"+target.Dest+":ro")
 	}
 
 	// --- host files (yolo-declared per-agent set; claude + pi) ---
@@ -353,17 +363,26 @@ func (o *Options) assembleRunCmd(in *assembleInput) []string {
 	runCmd = append(runCmd, o.hostUserFileArgs(in)...)
 	runCmd = append(runCmd, o.hostFilesEnv(in)...)
 
-	// --- per-agent briefings ---
+	// --- PACK-DECLARED briefings ---
 	// Same Apple-Container single-file-mount limitation as yolo-user-env.sh: AC
-	// materializes the staged briefing into ws_state. Skipping
-	// the container branch silently dropped every selected agent's AGENTS.md /
-	// CLAUDE.md briefing.
-	for _, spec := range in.agentSpecs {
-		staged := filepath.Join(in.agentsPath, spec.Briefing.Staging)
-		if rt == "container" {
-			acMaterialize(staged, spec.Briefing.Mount, in.wsState)
-		} else {
-			runCmd = append(runCmd, "-v", staged+":/home/agent/"+spec.Briefing.Mount+":ro")
+	// materializes the staged briefing into ws_state. Skipping the container branch
+	// silently dropped every briefing on that backend.
+	//
+	// The staging filename must match what refreshJailBriefings wrote
+	// (briefingStagingName), or the mount points at a file that does not exist and the
+	// jail comes up with no briefing at all — silently, since a missing bind source for
+	// a FILE is not an error the way a missing dir is.
+	for _, p := range in.packs {
+		for _, mt := range p.Decl.Mounts {
+			if !isBriefingMount(mt.From) {
+				continue
+			}
+			staged := filepath.Join(in.agentsPath, briefingStagingName(p.Name))
+			if rt == "container" {
+				acMaterialize(staged, mt.To, in.wsState)
+			} else {
+				runCmd = append(runCmd, "-v", staged+":/home/agent/"+mt.To+":ro")
+			}
 		}
 	}
 
@@ -531,17 +550,5 @@ func insertAt(s []string, i int, v string) []string {
 	out = append(out, s[:i]...)
 	out = append(out, v)
 	out = append(out, s[i:]...)
-	return out
-}
-
-// agentOverlaySubdirs returns the bare overlay-dir names (leading dot stripped)
-// for the selected agents, in spec-then-dir order.
-func agentOverlaySubdirs(specs []agents.AgentSpec) []string {
-	var out []string
-	for _, spec := range specs {
-		for _, d := range spec.OverlayDirs {
-			out = append(out, strings.TrimPrefix(d, "."))
-		}
-	}
 	return out
 }
