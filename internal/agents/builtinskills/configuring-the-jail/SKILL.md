@@ -52,7 +52,11 @@ Three layers merge, later wins:
 Merge edge cases that surprise people:
 
 - Objects deep-merge; lists **union and de-dupe** — **except `agents`, which
-  replaces wholesale** (list the full set you want, not just additions).
+  replaces wholesale** (list the full set you want, not just additions). A
+  workspace `agents` may only **narrow** the user's set: naming an agent absent
+  from `~/.config/yolo-jail/config.jsonc` is an error, because selecting an agent
+  mounts that agent's host files into the jail and this file is committed and
+  agent-editable.
 - A scalar or `null` in a later layer **overrides**. Use this to disable an
   inherited entry: `"mcp_servers": { "foo": null }` removes an inherited server;
   the same trick disables an inherited preset.
@@ -70,6 +74,38 @@ Add a nix package — only when no mise tool exists (triggers a rebuild):
 ```jsonc
 "packages": ["ffmpeg", "postgresql"]
 ```
+
+## Some files in your home are GENERATED — don't hand-edit them
+
+Your own agent config — `~/.claude/settings.json`, `~/.codex/config.toml`,
+`~/.copilot/config.json`, and friends — is **not a file you own**. yolo composes
+each one at every boot from an ordered stack of layers, so a change you make by
+hand may be silently reverted, preserved, or discarded depending on the file. Edit
+the *inputs*, not the output.
+
+Find out what is generated and how, before editing anything in `~`:
+
+```
+yolo config ls                      # every composed file, its mode, and its source
+yolo config render <agent> --explain   # which layer each key came from
+yolo config diff <agent>            # your in-jail edits vs what yolo generated
+```
+
+The `MODE` column in `yolo config ls` is the part that decides whether your edit
+survives:
+
+- **capture** — your edit is recorded in a sidecar under `<workspace>/.yolo/prism/`
+  and re-applied on later boots. Editing works, but it is invisible to anyone
+  reading the config, so prefer changing the real input.
+- **copy** — regenerated from scratch every boot. **Your edit is silently gone
+  after a restart.** Never hand-edit these.
+- **unrendered** — yolo does not compose this file; the agent owns it.
+
+To make a change that *persists and is legible*, change the input instead: an MCP
+server belongs in `mcp_servers`, an LSP in `lsp_servers`, and an arbitrary host
+file you want composed into the jail belongs in `host_files` (user config only —
+`yolo config-ref` has the shape). If you edited a composed file and want to undo
+it, `yolo config reset <agent>` discards the captured edits.
 
 ## Don't guess at keys — the schema lives in the CLI
 
