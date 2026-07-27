@@ -140,9 +140,9 @@ when it is really a *capability requirement*, which binds at a different time.
 **(1) and (3) are answered in [packs-and-the-prism.md §2.5](packs-and-the-prism.md)**: four
 contribution kinds (content, config values, computation, capability), of which only
 *capability* can reach the image, and the classification is per-**contribution**, not
-per-pack — one pack routinely ships several kinds. The recommendation there is that packs
-may *declare* a system-capability dependency but not require a rebuild to adopt, which keeps
-the image identity independent of installed packs.
+per-pack — one pack routinely ships several kinds. A system-level capability **is** an image
+input, and yolo should satisfy it automatically the way a config `packages` entry already is
+— the image identity becoming a function of installed packs is correct, not a cost.
 
 **This section is now only about (2).** Read it that way; it does not decide delivery.
 
@@ -236,9 +236,11 @@ most of the mechanism question rather than answering it.
    own vendored deps or a second FOD.
 
    **Note the scope of that conclusion**, per the three-questions split above: it rejects
-   *making pack content an image input*, which is question (3). It does **not** mean a pack
-   can never relate to the image — a pack **declaring** that it needs a baked capability is
-   fine and needs no FOD at all ([packs-and-the-prism.md §2.5](packs-and-the-prism.md)).
+   *making pack **content** an image input* — baking skills or config values into the store
+   path, so editing a prompt forces a rebuild. That is question (3). It does **not** mean a
+   pack can never contribute to the image: a pack needing a system **capability** should feed
+   the derivation exactly as a config `packages` entry does, which needs no FOD at all
+   ([packs-and-the-prism.md §2.5](packs-and-the-prism.md)).
 2. **Only two third-party deps are vendored**: `BurntSushi/toml` and `yuin/gopher-lua`.
    Adding a wasm runtime means `go mod vendor` + a fileset update, and `codec.go` already
    forbids new deps by convention.

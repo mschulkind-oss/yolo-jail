@@ -114,12 +114,12 @@ requirement*, and the two bind at different times.
 Sorting by kind rather than by pack, because **one pack routinely contributes several
 kinds** — this is the correction to "a subset of packs are image inputs":
 
-| Kind | Example | Must be in place by | Needs an image rebuild? | Runs where |
+| Kind | Example | Must be in place by | Image input? | Runs where |
 |---|---|---|---|---|
 | **Content** | a skill, an AGENTS.md fragment, a briefing | when the agent reads it | no | nowhere — it is files |
 | **Config values** | a settings default, a managed key, an MCP entry | when the file is composed | no | nowhere — it is data |
 | **Computation** | a generator or transform producing config values | when the file is composed | no | **a real choice** — see (2) |
-| **Capability** | a tool, an LSP server, an MCP server, a shared library | before the agent invokes it | **only sometimes** | in the jail |
+| **Capability** | a tool, an LSP server, an MCP server, a shared library | before the agent invokes it | **yes, when system-level** — and that is fine, see below | in the jail |
 
 Three of four kinds never touch the image. So the split you're pointing at is real, but:
 
@@ -137,32 +137,69 @@ Three of four kinds never touch the image. So the split you're pointing at is re
 Only the **capability** row can reach the image, and even there it is a tier choice that
 already has an established shape:
 
-| Tier | Reproducible | Offline | Rebuild to adopt | Good for |
+| Tier | Reproducible | Offline | Cost to adopt | Good for |
 |---|---|---|---|---|
-| baked into the image | yes | yes | **yes** | system-level things: binaries, libraries, anything on PATH for every jail |
-| fetched at first use | no | no | no | ecosystem packages that already have a registry (MCP servers, LSP servers, language tooling) |
-| composed content | yes | yes | no | files and config values — the other three rows |
+| baked into the image | yes | yes | one slow run (automatic) | system-level things: binaries, libraries, anything on PATH for every jail |
+| fetched at first use | no | no | one slow first invocation | ecosystem packages that already have a registry (MCP servers, LSP servers, language tooling) |
+| composed content | yes | yes | none | files and config values — the other three rows |
 
-**This is the real tension in the pack idea**, and it deserves stating plainly because it
-is a collision between two of the pack system's own promises: *"share config without a
-release"* and *"the environment is reproducible."* A pack needing a system-level capability
-cannot be adopted without a rebuild, and a rebuild is a release.
+### The tension is smaller than it looks — two retractions
 
-Three ways to resolve it:
+An earlier draft of this section said *"a rebuild is a release"* and concluded that packs
+should declare a capability and make the user go edit `packages` by hand. **Both halves were
+wrong.**
 
-1. **Packs may not require system capabilities.** They may *declare a dependency* and fail
-   with a clear, actionable message — "this pack needs `X`; add it to `packages` and
-   restart." Preserves the no-release property completely; the cost is that some packs
-   aren't self-installing.
-2. **Packs may, and adopting one triggers a rebuild.** Honest, but a pack install now takes
-   minutes and can fail in nix, and every pack becomes part of the image identity.
-3. **Two explicit pack classes.** Maximum flexibility, and it quietly abandons
-   "structurally identical to a user pack" — the same weakening as embedded-vs-fetched in
-   con 4.
+**"A rebuild is a release" — retracted.** I was equating two different things. A *release*
+is shipping a new yolo (version bump, host `just install`, everyone else gets it). A
+*rebuild* is a local nix build of an image derivation, triggered by a local config change,
+affecting one machine. The confusion came from the maintainer's own dev loop, where a
+`flake.nix` edit does need a host `just load` to reach their day-to-day jails — but that is
+a fact about *developing yolo*, not about *using* it.
 
-**(1) is the right default.** It keeps every pack cheap and rebuild-free, keeps the image
-identity independent of what packs are installed, and turns the hard case into a diagnostic
-instead of a build. Escalate to (2) only if declared-dependency friction proves real.
+For a user, the rebuild path is already the ordinary one: `packages` in config feeds
+`YOLO_EXTRA_PACKAGES` into the flake, and the next `yolo` run notices the store path changed
+and rebuilds and reloads on its own. **A user adding a package today is a config edit and a
+restart — no release, no manual build step.** So "pack needs a capability" lands on a path
+that already exists and is already automatic.
+
+**"Declare it and make the user add it to `packages`" — also retracted**, and this is the
+worse of the two. It is precisely the opposite of a happy path: the pack knows exactly what
+it needs, and we would be making a human transcribe it into a second file to find out
+whether it works. That is busywork we invented by mis-modelling the cost.
+
+### What follows instead
+
+**A pack declares its capability needs, and yolo satisfies them the same way it satisfies
+`packages` — automatically.** A capability requirement is just another input to the image
+derivation, exactly as a config `packages` entry is. Adopting a pack that needs `ripgrep`
+should mean: install pack → next run rebuilds → `ripgrep` is there.
+
+The design questions this leaves are real but ordinary, and none of them is "make the user
+do it by hand":
+
+- **Latency and visibility.** The first run after adopting a capability-bearing pack is slow.
+  That is *already true* of adding a package, so the answer is the existing one: say so
+  clearly while it builds. Worth surfacing at pack-install time — "this pack needs `X`; your
+  next run will rebuild the image" — so the slow run is expected rather than mysterious.
+- **Failure.** A pack naming a package that does not exist must fail *at pack install or
+  `yolo check`*, not mid-build. This is the same pre-flight-validation argument as
+  everywhere else in this cluster.
+- **Trust.** A pack contributing to the image derivation is a real escalation: it can name
+  arbitrary nixpkgs attributes. This wants the same approval gate the pack lockfile already
+  provides, and it is a genuinely stronger permission than shipping a skill file.
+- **Attribution.** When a jail has an unexpected binary on PATH, it must be answerable which
+  pack put it there. Same provenance need as `yolo config diff` naming a layer.
+
+**Where the image identity lands.** It does become a function of installed packs — I claimed
+that was a cost worth avoiding, but it is simply *correct*: if a pack changes what is in the
+environment, a reproducible environment must reflect that. Pretending otherwise would mean
+the image no longer describes the jail.
+
+The one thing that stays off-limits is **pack content as an image input** — a pack whose
+skills or config values are baked into the store path, so editing a prompt triggers a
+rebuild. That is the case [what-yolo-is.md](what-yolo-is.md) rejects, and it stays rejected:
+content and config values are read at compose time, and nothing about them needs to be in
+the derivation.
 
 ### What this leaves for the execution question
 
