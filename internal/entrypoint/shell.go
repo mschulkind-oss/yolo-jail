@@ -143,9 +143,37 @@ func GenerateBootstrapScript(e *Env) error {
 
 func bootstrapPath(e *Env) string { return e.Home + "/.yolo-bootstrap.sh" }
 
-// interpolation is the mise_shims path in the PATH export line.
+// interpolation is the mise_shims path in the PATH export line, plus the
+// preset-gated MCP npm package list.
 func BootstrapScript(e *Env) string {
-	return strings.Replace(bootstrapTemplate, "__YOLO_MISE_SHIMS__", e.MiseShims(), 1)
+	out := strings.Replace(bootstrapTemplate, "__YOLO_MISE_SHIMS__", e.MiseShims(), 1)
+	return strings.Replace(out, "__YOLO_MCP_NPM_PACKAGES__", mcpPresetNpmPackages(e), 1)
+}
+
+// mcpPresetNpmPackages returns the npm packages the ENABLED MCP presets need, space
+// separated, or "" when none are enabled (D6).
+//
+// This used to be an unconditional `npm install -g chrome-devtools-mcp
+// @modelcontextprotocol/server-sequential-thinking`, which ran in EVERY jail whether
+// anything wanted those servers or not. Probed on an empty-agent jail: 112 npm
+// packages installed for zero agents and zero configured presets.
+//
+// Gating on the presets that actually asked for them is the whole fix: an MCP preset
+// is already config data (YOLO_MCP_PRESETS), so the install should follow the same
+// declaration the server table does rather than being hardcoded beside it. That also
+// makes the eventual move to a pack contribution a change of SOURCE rather than a
+// change of mechanism.
+func mcpPresetNpmPackages(e *Env) string {
+	var pkgs []string
+	for _, preset := range e.LoadMCPPresetNames() {
+		switch preset {
+		case "chrome-devtools":
+			pkgs = append(pkgs, "chrome-devtools-mcp")
+		case "sequential-thinking":
+			pkgs = append(pkgs, "@modelcontextprotocol/server-sequential-thinking")
+		}
+	}
+	return strings.Join(pkgs, " ")
 }
 
 // bootstrapTemplate is the body of the bootstrap script.
@@ -163,13 +191,29 @@ fc-cache -f >/dev/null 2>&1
 # Lazy-update launchers in ~/.yolo-shims/ handle install/update on first use,
 # keeping boot fast.  Only MCP/LSP tools that agents depend on are installed here.
 
-# --- Always-on MCP tools (chrome-devtools-mcp, sequential-thinking) -----
-if ! command -v chrome-devtools-mcp >/dev/null; then
-    echo "  Installing MCP tools..." >&2
-    # Clean stale npm temp directories that cause ENOTEMPTY on rename.
-    # maxdepth 2 catches both top-level and scoped (@org/) packages.
-    find "$NPM_CONFIG_PREFIX/lib/node_modules" -maxdepth 2 -name '.*' -type d 2>/dev/null | xargs rm -rf
-    YOLO_BYPASS_SHIMS=1 npm install -g chrome-devtools-mcp @modelcontextprotocol/server-sequential-thinking
+# --- MCP preset tools (gated on the ENABLED presets, D6) ----------------
+# Empty when no preset needs an npm package, so a jail that wants none installs
+# nothing.  This was previously unconditional: 112 npm packages in every jail,
+# including one with no agents and no presets at all.
+YOLO_MCP_NPM="__YOLO_MCP_NPM_PACKAGES__"
+if [ -n "$YOLO_MCP_NPM" ]; then
+    # Reinstall only when something is actually missing, so a warm jail is fast.
+    missing=""
+    for pkg in $YOLO_MCP_NPM; do
+        case "$pkg" in
+            chrome-devtools-mcp) bin=chrome-devtools-mcp ;;
+            *server-sequential-thinking) bin=mcp-server-sequential-thinking ;;
+            *) bin="" ;;
+        esac
+        if [ -n "$bin" ] && ! command -v "$bin" >/dev/null; then missing="yes"; fi
+    done
+    if [ -n "$missing" ]; then
+        echo "  Installing MCP tools..." >&2
+        # Clean stale npm temp directories that cause ENOTEMPTY on rename.
+        # maxdepth 2 catches both top-level and scoped (@org/) packages.
+        find "$NPM_CONFIG_PREFIX/lib/node_modules" -maxdepth 2 -name '.*' -type d 2>/dev/null | xargs rm -rf
+        YOLO_BYPASS_SHIMS=1 npm install -g $YOLO_MCP_NPM
+    fi
 fi
 
 # --- LSP installs (gated on workspace config) ---------------------------

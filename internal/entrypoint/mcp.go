@@ -255,3 +255,31 @@ func sortedUnique(in []string) []string {
 	sort.Strings(out)
 	return out
 }
+
+// LoadMCPPresetNames returns the enabled MCP preset names from YOLO_MCP_PRESETS, in
+// config order. Empty when none are enabled.
+//
+// Split out so the bootstrap script's npm install can be gated on the SAME
+// declaration that builds the server table (D6), rather than hardcoding a package
+// list beside it and letting the two drift.
+func (e *Env) LoadMCPPresetNames() []string {
+	presetsJSON := e.Getenv("YOLO_MCP_PRESETS")
+	if presetsJSON == "" {
+		return nil
+	}
+	decoded, err := jsonx.Decode([]byte(presetsJSON))
+	if err != nil {
+		return nil
+	}
+	arr, ok := decoded.([]any)
+	if !ok {
+		return nil
+	}
+	var out []string
+	for _, v := range arr {
+		if name, isStr := v.(string); isStr {
+			out = append(out, name)
+		}
+	}
+	return out
+}
