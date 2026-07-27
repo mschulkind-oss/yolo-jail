@@ -1,0 +1,39 @@
+{
+  "name": "codex",
+  "install": {
+    "kind": "npm",
+    "bin": "codex",
+    "package": "@openai/codex"
+  },
+  "mounts": [
+    {
+      "from": "AGENTS.md",
+      "to": ".codex/AGENTS.md",
+      "hostOverlay": ".codex/AGENTS.md"
+    },
+    {
+      "from": "skills",
+      "to": ".codex/skills"
+    }
+  ],
+  "writableDirs": [
+    ".codex"
+  ],
+  "surfaces": [
+    {
+      "agent": "codex",
+      "codec": "toml",
+      "managed": {
+        "approval_policy": "never",
+        "sandbox_mode": "danger-full-access"
+      },
+      "name": "config",
+      "path": "~/.codex/config.toml"
+    }
+  ],
+  "launchFlags": {
+    "codex": [
+      "--dangerously-bypass-approvals-and-sandbox"
+    ]
+  }
+}

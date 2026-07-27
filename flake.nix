@@ -72,6 +72,13 @@
             # or the hermetic -mod=vendor build fails with "cannot find module
             # providing package .../bundled_loopholes".
             ++ pkgs.lib.optionals (builtins.pathExists ./bundled_loopholes) [ ./bundled_loopholes ]
+            # packs/ is the same shape of trap as bundled_loopholes: a top-level
+            # package (embed.FS of the OFFICIAL pack manifests) imported by
+            # internal/packload, living outside cmd/ and internal/. Omitted here it
+            # VANISHES from the image while `go build` stays green — and the failure
+            # is worse than a build error, because a jail would come up with no packs
+            # and therefore no agent, looking like a config problem.
+            ++ pkgs.lib.optionals (builtins.pathExists ./packs) [ ./packs ]
           );
         };
         # Prebuilt short-circuit: if the flake source carries

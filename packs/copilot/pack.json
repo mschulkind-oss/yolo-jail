@@ -1,0 +1,63 @@
+{
+  "name": "copilot",
+  "install": {
+    "kind": "npm",
+    "bin": "copilot",
+    "package": "@github/copilot"
+  },
+  "mounts": [
+    {
+      "from": "AGENTS.md",
+      "to": ".copilot/AGENTS.md",
+      "hostOverlay": ".copilot/AGENTS.md"
+    },
+    {
+      "from": "skills",
+      "to": ".copilot/skills"
+    }
+  ],
+  "writableDirs": [
+    ".copilot"
+  ],
+  "surfaces": [
+    {
+      "agent": "copilot",
+      "codec": "json",
+      "defaults": {
+        "yolo": true
+      },
+      "mode": "rmw",
+      "name": "config",
+      "path": "~/.copilot/config.json"
+    },
+    {
+      "agent": "copilot",
+      "codec": "json",
+      "defaults": {
+        "mcpServers": {}
+      },
+      "mode": "computed",
+      "name": "mcp",
+      "path": "~/.copilot/mcp-config.json"
+    },
+    {
+      "agent": "copilot",
+      "codec": "json",
+      "defaults": {
+        "lspServers": {}
+      },
+      "mode": "computed",
+      "name": "lsp",
+      "path": "~/.copilot/lsp-config.json"
+    }
+  ],
+  "launchFlags": {
+    "copilot": [
+      "--yolo",
+      "--no-auto-update"
+    ]
+  },
+  "retireMiseTools": [
+    "\"npm:@github/copilot\""
+  ]
+}

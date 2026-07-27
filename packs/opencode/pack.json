@@ -1,0 +1,29 @@
+{
+  "name": "opencode",
+  "install": {
+    "kind": "npm",
+    "bin": "opencode",
+    "package": "opencode-ai"
+  },
+  "mounts": [
+    {
+      "from": "AGENTS.md",
+      "to": ".config/opencode/AGENTS.md",
+      "hostOverlay": ".config/opencode/AGENTS.md"
+    }
+  ],
+  "surfaces": [
+    {
+      "agent": "opencode",
+      "codec": "json",
+      "defaults": {
+        "$schema": "https://opencode.ai/config.json"
+      },
+      "managed": {
+        "permission": "allow"
+      },
+      "name": "config",
+      "path": "~/.config/opencode/opencode.json"
+    }
+  ]
+}

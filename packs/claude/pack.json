@@ -1,0 +1,82 @@
+{
+  "name": "claude",
+  "install": {
+    "kind": "native",
+    "bin": "claude",
+    "installerUrl": "https://claude.ai/install.sh"
+  },
+  "mounts": [
+    {
+      "from": "AGENTS.md",
+      "to": ".claude/CLAUDE.md",
+      "hostOverlay": ".claude/CLAUDE.md"
+    },
+    {
+      "from": "skills",
+      "to": ".claude/skills"
+    }
+  ],
+  "writableDirs": [
+    ".claude"
+  ],
+  "sharedDirs": [
+    ".claude-shared-credentials"
+  ],
+  "hostFiles": [
+    {
+      "from": ".claude/settings.json",
+      "to": "host-claude/settings.json"
+    }
+  ],
+  "surfaces": [
+    {
+      "agent": "claude",
+      "codec": "json",
+      "managed": {
+        "permissions": {
+          "additionalDirectories": [
+            "/"
+          ],
+          "allow": [],
+          "defaultMode": "acceptEdits",
+          "deny": []
+        },
+        "preferences": {
+          "autoUpdaterStatus": "disabled"
+        },
+        "skipDangerousModePermissionPrompt": true
+      },
+      "name": "settings",
+      "path": "~/.claude/settings.json"
+    },
+    {
+      "agent": "claude",
+      "codec": "json",
+      "defaults": {
+        "projects": {
+          "${workspace}": {
+            "hasTrustDialogAccepted": true
+          }
+        }
+      },
+      "managed": {
+        "projects": {
+          "${workspace}": {
+            "enableAllProjectMcpServers": true
+          }
+        }
+      },
+      "mode": "unrendered",
+      "name": "config",
+      "path": "~/.claude.json"
+    }
+  ],
+  "launchFlags": {
+    "claude": [
+      "--dangerously-skip-permissions"
+    ]
+  },
+  "retireMiseTools": [
+    "\"npm:@anthropic-ai/claude-code\""
+  ]
+}

@@ -1,0 +1,45 @@
+{
+  "name": "pi",
+  "install": {
+    "kind": "npm",
+    "bin": "pi",
+    "package": "@earendil-works/pi-coding-agent",
+    "flags": [
+      "--ignore-scripts"
+    ]
+  },
+  "mounts": [
+    {
+      "from": "AGENTS.md",
+      "to": ".pi/agent/AGENTS.md",
+      "hostOverlay": ".pi/agent/AGENTS.md"
+    },
+    {
+      "from": "skills",
+      "to": ".pi/agent/skills"
+    }
+  ],
+  "writableDirs": [
+    ".pi"
+  ],
+  "hostFiles": [
+    {
+      "from": ".pi/agent/settings.json",
+      "to": "host-pi/settings.json"
+    }
+  ],
+  "surfaces": [
+    {
+      "agent": "pi",
+      "codec": "json",
+      "defaults": {
+        "theme": "system"
+      },
+      "managed": {
+        "defaultProjectTrust": "always"
+      },
+      "name": "settings",
+      "path": "~/.pi/agent/settings.json"
+    }
+  ]
+}
