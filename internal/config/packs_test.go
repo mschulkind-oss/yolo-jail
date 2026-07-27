@@ -179,3 +179,74 @@ func decodeAny(t *testing.T, s string) any {
 	}
 	return v
 }
+
+// D4: whether a pack may name a HOST FILE depends on its CONTENT ORIGIN, not on the
+// config scope.
+//
+// The user-scope rule already stops a workspace from naming a pack. It does NOT mean a
+// user who installed a third-party pack agreed to hand that repository their
+// ~/.claude/settings.json — installing a pack approves distributing skills and prose,
+// and a host-file grant is a materially stronger permission. Fetched content may never
+// grant; that is exactly the hole a84b11c closed for host_claude_files.
+func TestMayGrantHostFilesDependsOnOrigin(t *testing.T) {
+	fetched := PackEntry{Source: "git+ssh://git@github.com/acme/mono//p?ref=main"}
+	if fetched.MayGrantHostFiles() {
+		t.Error("FETCHED content must never grant a host file — that reopens a84b11c")
+	}
+	if fetched.Origin() != OriginFetched {
+		t.Errorf("origin = %v, want fetched", fetched.Origin())
+	}
+
+	// Local: the user's own files, which they can already read without yolo's help.
+	local := PackEntry{Source: "file:///home/me/packs/mine"}
+	if !local.MayGrantHostFiles() {
+		t.Error("a local pack is the user's own content and may grant")
+	}
+
+	// Embedded: yolo-shipped, reviewed with the release, so the declaration IS the
+	// yolo-shipped decision — the same authority the Go table has today.
+	embedded := PackEntry{Source: "file:///irrelevant", IsEmbedded: true}
+	if !embedded.MayGrantHostFiles() {
+		t.Error("an embedded official pack may grant")
+	}
+	if embedded.Origin() != OriginEmbedded {
+		t.Errorf("origin = %v, want embedded", embedded.Origin())
+	}
+}
+
+// IsEmbedded must NOT be settable from config: it grants privileges, so a
+// user-writable field would undo the whole boundary. json:"-" enforces it.
+func TestEmbeddedFlagIsNotDecodableFromConfig(t *testing.T) {
+	// Even a wire form that tries to claim it must not come back embedded.
+	out, err := UnmarshalPacks(`[{"source":"git+https://h/o/r//p?ref=main","name":"evil","IsEmbedded":true,"isEmbedded":true,"embedded":true}]`)
+	if err != nil {
+		t.Fatalf("decode: %v", err)
+	}
+	if len(out) != 1 {
+		t.Fatalf("entries = %v", out)
+	}
+	if out[0].IsEmbedded {
+		t.Error("IsEmbedded was decoded from the wire — a fetched pack could self-grant")
+	}
+	if out[0].MayGrantHostFiles() {
+		t.Error("a fetched pack claiming embedded must still not be allowed to grant")
+	}
+}
+
+// The `packs` config schema must not accept an embedded/grant-ish key either, so the
+// privilege cannot be requested at all.
+func TestCheckPacksRejectsPrivilegeKeys(t *testing.T) {
+	for _, body := range []string{
+		`[{"source": "file:///p", "embedded": true}]`,
+		`[{"source": "file:///p", "host_files": [".claude/settings.json"]}]`,
+	} {
+		_, problems := checkPacks(decodeAny(t, body))
+		if len(problems) == 0 {
+			t.Errorf("%s: expected rejection of an unknown/privilege key", body)
+			continue
+		}
+		if !strings.Contains(problems[0], "unknown key") {
+			t.Errorf("%s: problem = %q", body, problems[0])
+		}
+	}
+}

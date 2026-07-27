@@ -68,6 +68,11 @@ type PackEntry struct {
 	Only    []string `json:"only,omitempty"`
 	Exclude []string `json:"exclude,omitempty"`
 
+	// IsEmbedded marks a pack shipped inside yolo. Set by the embedded-pack loader,
+	// NEVER decoded from config: it grants privileges (see MayGrantHostFiles), so a
+	// user-writable field would be the whole boundary undone. Hence json:"-".
+	IsEmbedded bool `json:"-"`
+
 	// AllowExec permits staging files carrying the exec bit. Default false: a pack
 	// is CONTENT, and an executable arriving through a content channel is a
 	// different trust question than a skill file, so it must be opted into.
@@ -84,6 +89,55 @@ func (p PackEntry) Slug() string {
 // IsLocal reports whether Source is a file:// address, which needs no fetch.
 func (p PackEntry) IsLocal() bool {
 	return strings.HasPrefix(p.Source, "file://")
+}
+
+// Origin classifies where a pack's CONTENT came from, which decides what that content
+// is allowed to declare (D4).
+type Origin int
+
+const (
+	// OriginFetched is content pulled from someone else's repository.
+	OriginFetched Origin = iota
+	// OriginLocal is content at a path on this machine — authored or vendored by the
+	// user, and readable by them without yolo's help.
+	OriginLocal
+	// OriginEmbedded is content shipped inside yolo itself: reviewed with the release,
+	// so a declaration from it IS a yolo-shipped decision.
+	OriginEmbedded
+)
+
+// Embedded marks a pack as yolo-shipped. Set by the embedded-pack loader, never by
+// config — an entry a user writes can only ever be local or fetched.
+func (p PackEntry) Embedded() bool { return p.IsEmbedded }
+
+// Origin returns the pack's content origin.
+func (p PackEntry) Origin() Origin {
+	switch {
+	case p.IsEmbedded:
+		return OriginEmbedded
+	case p.IsLocal():
+		return OriginLocal
+	default:
+		return OriginFetched
+	}
+}
+
+// MayGrantHostFiles reports whether this pack's content may name a HOST FILE to cross
+// into the jail (D4).
+//
+// The rule is about the CONTENT channel, not the config channel, and that distinction
+// is the whole of it. Packs being user-scope already means a workspace cannot name a
+// pack — but it does NOT mean a user who installed a third-party pack agreed to hand
+// that repository their ~/.claude/settings.json. Installing a pack approves
+// distributing skills and prose; a host-file grant is a materially stronger permission
+// and no scope rule makes it not so.
+//
+// So: embedded (yolo-shipped, reviewed with the release) and local (the user's own
+// files, which they can already read) may grant. FETCHED content may not, ever —
+// that is the hole a84b11c closed for host_claude_files, and it would be reopened by
+// letting a git ref widen the set.
+func (p PackEntry) MayGrantHostFiles() bool {
+	return p.Origin() != OriginFetched
 }
 
 // LoadPacks returns the validated `packs` entries from the USER config only.
