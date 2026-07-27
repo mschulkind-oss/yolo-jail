@@ -121,6 +121,15 @@ func Check(opts Options) int {
 		return 1
 	}
 
+	// D1: validate pack contributions on the HOST, where erroring is normal and the
+	// message can be actionable — before the jail's fatal-generator policy turns the
+	// same problem into a refused boot. Offline: never fetches.
+	o.sectionPacks(r)
+	if r.failed > 0 {
+		r.summaryFailWarn()
+		return 1
+	}
+
 	runtimeSel, _ := o.runtimeForCheck(merged)
 	isNativeRuntime := inStrSlice(paths.NativeRuntimes, runtimeSel)
 
