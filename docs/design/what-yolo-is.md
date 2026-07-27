@@ -117,7 +117,7 @@ for. That is worth knowing before deciding how much of yolo becomes packs.
 
 ## Part 2 — How pack logic could ship
 
-The problem: data extracts cleanly, but `internal/entrypoint/prism*.go` is ~2,200 lines
+The problem: data extracts cleanly, but `internal/entrypoint/prism*.go` is 917 non-test lines (the 2,207 figure counts `_test.go`)
 of *genuine* per-agent logic (claude's `mcpServers` tombstone and LSP toggles, the
 `.claude.json` read-modify-write that must never wipe state, gemini's MCP reconciliation,
 mise's retire surgery on a workspace file). A pack format expressive enough to hold that

@@ -52,7 +52,7 @@ Today "supporting an agent" means writing Go:
 |---|---|---|
 | the agent registry (install method, overlay dirs, skills path, briefing pair, YOLO flags) | `internal/agents/agents.go` | 340 lines |
 | its composed surfaces (path, codec, defaults, managed) | `internal/agentcfg/builtin.go` | 441 lines |
-| its boot writer (`Configure*Prism`) | `internal/entrypoint/prism*.go` | 2,207 lines |
+| its boot writer (`Configure*Prism`) | `internal/entrypoint/prism*.go` | 917 non-test lines |
 | its built-in skills | `internal/agents/builtinskills/` | 5 files |
 
 The reframe: **make all of that data, shipped as first-party packs.** yolo becomes an
@@ -353,7 +353,7 @@ that configures every agent is the single biggest cost, and it is not obviously
 recoverable by validation, because the validator would itself be new code.
 
 **2. `Configure*Prism` is not all data, and pretending otherwise is where this breaks.**
-Those 2,207 lines contain genuine per-agent *logic*: claude's `mcpServers` tombstone and
+Those 917 non-test lines contain genuine per-agent *logic*: claude's `mcpServers` tombstone and
 LSP-plugin toggles, the `.claude.json` read-modify-write that must never wipe runtime
 state, gemini's MCP reconciliation, the copilot LSP reshape, mise's retire surgery on a
 workspace file. A pack format expressive enough to hold that becomes a programming

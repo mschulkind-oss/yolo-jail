@@ -36,7 +36,7 @@ first means porting known defects into a new mechanism.
 |---|---|---|---|
 | A1 | Remove the `gemini` agent | subtractive | medium (~8 files) |
 | A2 | Reserve symlink targets (`~/.config/git/config`, `~/.claude/claude.json`) | defect | small |
-| A3 | Mark `claude/config` non-rendered | defect | small |
+| A3 | Stop `config render claude` composing the `claude/config` surface. **Narrowed:** it is *already* correctly labeled `unrendered` in `prismSurfaceMode` (`configls.go:62`), so `ls`/`diff`/`reset` skip it properly — only the `render` path still composes a file the jail never writes | defect | small |
 | A4 | Fix `writeInPlaceString`'s umask claim | defect (latent) | small |
 | A5 | Make `~/.gitconfig`'s unwritability legible | defect | small |
 | A6 | Fix `config-ref`'s `reset`-re-seeds-`once` promise | docs lie | small |
@@ -105,6 +105,26 @@ image-build inputs and host-file reads run host-side. There is no port. See
 | D6 | Make the MCP bootstrap a pack contribution | it currently installs 112 npm packages for zero agents |
 | D7 | Stage a third-party projector binary into the jail (compose runs in-jail, so it must be reachable there) | needs C7 |
 
+## Stage F — findings from the verification pass (2026-07-26)
+
+An adversarial review checked every `file:line` in the design docs. These are the claims that
+were **refuted and re-verified by hand**, plus the defects it surfaced. Each is real work.
+
+| # | Item | Kind |
+|---|---|---|
+| F1 | **⚠ A workspace config controls agent selection, and therefore which host files mount.** `agents` is in `overrideListKeys` (`config/load.go:86`) so a workspace value *replaces* the user's wholesale — probed: user config selecting `[claude, pi, codex, agy]` became `[claude]` from a workspace `yolo-jail.jsonc`. Since `hostFileArgs` mounts each selected agent's `AgentSpec.HostFiles`, a repo-committed, agent-editable file decides a credential-boundary question. **This is the same threat `a84b11c` closed for `host_files`, still open via `agents`.** Under packs it gets worse if the enable list is the pack list | **security** |
+| F2 | The credential-boundary field set is **`{HostFiles, Briefing.HostSource, Skills}`**, not just `HostFiles`. `BriefingSpec.HostSource` reads a host-home path every run (`agents/agentsmd.go:239-245`), and `Skills` is the *widest* — a recursive, symlink-dereferencing tree copy (`agents/skills.go:72-138`). Any pack-declared grant spec must cover all three | **security** |
+| F3 | **Lua map iteration is nondeterministic** — but the cause is `goToLua`'s map branch (`luahook/marshal.go:78`), not `pairs()`. Fix by iterating keys in sorted order there (~3 lines), which fixes every hook rather than adding an author-facing rule | defect |
+| F4 | **Any Lua hook converts TOML integers to floats** (`8192` → `8192.0`), because `luaToGo` returns `float64` for every `LNumber` (`marshal.go:99-100`). Fix at the marshalling boundary, **not** in the TOML emitter | defect |
+| F5 | `prismSurfaceMode` (`cli/configls.go:50-63`) is a **fourth** hand-maintained surface table, pinned only by a test. Under packs the mode belongs in the manifest | duplication |
+| F6 | `agents.AllOverlayDirs`/`AllMiseRetire` are package-level initializers over **all** specs, not the selected set (`agents.go:238-259`) — so an empty default agent list does *not* shrink the reserved namespace. D5 needs these five call sites converted separately | correctness |
+| F7 | RMW as an engine mode needs **three** things, not one mode field: a declared asserted-key set (a superset of today's `Managed` — `mcpServers` must be declarable), a durable record of what yolo asserted last boot to express *removals*, and a `config reset` story (reset is currently *defined over* capture surfaces, `configdiff.go:222`, and hard-errors otherwise) | design |
+| F8 | `/ctx/<pack>` mountpoints need **no flake edit** — podman creates them on demand under `--read-only` (probed: `/ctx/host-pi` exists with a live mount). Drops a constraint from the pack-staging design | simplification |
+
+**Doc corrections to fold in:** the "2,207 lines of per-agent logic" figure **counts test files** —
+non-test `prism*.go` is **917 lines** (verified). And `claude/config` is **correctly** labeled
+`unrendered` (`configls.go:62`), so item A3's framing needs narrowing to the `render`-only half.
+
 ## Stage E — parked design work
 
 `host_files` modes 4→3; `readonly` as a real `:ro` mount (cheaper after D1); capture timing;
@@ -136,7 +156,10 @@ Nothing is blocked on a decision any more. Context: [open-rulings.md](open-rulin
 
 ## Suggested order
 
-**A1 → A8+A10 → A9 → A11 → A12 → rest of A → B1–B5 → C1–C5 → C6 → D1 → D2–D7.**
+**F1 → A1 → A8+A10 → A9 → A11 → A12 → rest of A → B1–B5 → C1–C5 → C6 → D1 → D2–D7 → F-rest.**
+
+**F1 first** — it is a live credential-boundary hole, independent of packs, and packs make it
+worse if the pack-enable list inherits `agents`' merge semantics.
 
 **A12 before stage C**, so packs land in a world where a broken pack halts loudly instead of
 warning into a running jail.

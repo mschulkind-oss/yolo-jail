@@ -109,7 +109,7 @@ in the abstract.** Depends on 2.1 only if the answer is "code."
 
 ### 2.3 What does "agents as packs" mean for the boot writers?
 
-`Configure*Prism` is ~2,200 lines and not all data — claude's `.claude.json`
+`Configure*Prism` is **917 non-test lines** (the oft-cited 2,207 counts `_test.go`) and not all data — claude's `.claude.json`
 read-modify-write that must never wipe 33 keys of live state is the sharp example. Three
 options: express it in the projection language (2.2), keep a Go remainder, or de-compose
 those surfaces so the stateful reconciliation disappears (which
@@ -158,7 +158,7 @@ Since the ask is explicitly a full rip-out, the parts that deserve a flag before
 
 - **The four Go artifacts differ enormously in difficulty.** Registry (340 lines), surfaces
   (441), skills (files already), briefings (prose already) are genuine data — extract cleanly.
-  Boot writers (2,207) are not, per §2.3. A plan that treats all four as one step will stall
+  Boot writers (917 non-test) are not, per §2.3. A plan that treats all four as one step will stall
   on the fourth.
 - **`AgentSpec.HostFiles` must stay in Go.** It is a deliberately unwidenable allowlist; the
   retired `host_claude_files` keys are the counter-example. If a pack can name a host file,

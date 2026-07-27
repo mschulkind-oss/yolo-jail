@@ -291,7 +291,7 @@ hook that has never executed**; fix it first, cheaply, and learn from it.
 
 ### This is the decision the target state changes most, and in a good way
 
-The framing has been "2,200 lines of per-agent logic, some of it not data." I went through
+The framing has been "2,200 lines of per-agent logic, some of it not data." (That figure also **counts test files** — non-test `prism*.go` is **917 lines**.) I went through
 the actual call sites and **that framing overstates the problem substantially.**
 
 **Every single surface already routes through exactly two mechanisms:**
@@ -393,8 +393,8 @@ was never that yolo approves the path; it is that an agent-editable file cannot 
 1. **Decision 3's reframe is free — take it now.** Three named engine mechanisms
    (`stateful`, `computed`, `read_modify_write`) covering every surface is not a research
    project; two of the three already exist and the third is already wanted for a correctness
-   fix (2.2b). This also *shrinks* decisions 1 and 2 by removing the "2,200 lines of
-   irreducible logic" fear from both.
+   fix (2.2b). This also *shrinks* decisions 1 and 2 by removing the "irreducible logic"
+   fear from both.
 2. **Decision 2 is a real choice again — and it reduces to one question:** may a third party
    ship an agent pack without touching the yolo repo? If no, official-pack projections can be
    compiled Go and this is nearly free. If yes, they need the typed operation set plus Lua.
