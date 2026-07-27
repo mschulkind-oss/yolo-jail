@@ -81,12 +81,15 @@ The MCP-pack idea ([§2.6](../design/packs-and-the-prism.md)) needs one decision
 pack's projection of an exported type expressed as **data** (a small mapping language) or
 **computation** (Lua)?
 
-**No longer forced.** An earlier version of this item said Go was off the table because a new
-agent would need a yolo release. Wrong — official packs are embedded, so their logic compiles
-at image-build time. The real question is **who authors an agent pack**: if only the yolo repo
-does, compiled-Go projections are viable and cheapest; if a third party must ship one without
-touching the yolo repo, its logic cannot be Go (the `goSrc` fileset, `flake.nix:61`, only sees
-in-repo dirs). See [../design/three-decisions.md](../design/three-decisions.md).
+**ANSWERED 2026-07-26 — see [../design/third-party-pack-logic.md](../design/third-party-pack-logic.md).**
+Third-party agent packs are explicitly wanted, and "then it can't be Go" was wrong: `goSrc`
+forbids *linking* third-party Go into yolo, not third-party Go as a separate program. The
+answer is **declarative projections by default** (the typed operation set) **plus a subprocess
+projector** over a one-shot JSON protocol — any language, sourced as an in-pack script, a nix
+package via the already-shipped `{name, version, url, hash}` build-from-source spec form, or a
+prebuilt artifact. Official packs use the same seam with a `yolo` subcommand as the projector,
+which is exactly the loophole pattern. Remaining work is to *prove* the operation set covers
+the five real projections by porting them.
 
 **This one has a spec, which makes it tractable in a sitting**: the five projections that
 exist in Go today are the acceptance test.

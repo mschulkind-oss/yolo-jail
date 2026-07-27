@@ -370,9 +370,15 @@ was never that yolo approves the path; it is that an agent-editable file cannot 
 
 ## Still needs a human ruling
 
-- **May a third party author an agent pack without touching the yolo repo?** This is now the
-  whole of Decision 2. "Official packs only, authored in-repo" makes compiled-Go projections
-  viable and cheap; "anyone can ship an agent pack" requires the data/Lua route.
+- ~~**May a third party author an agent pack without touching the yolo repo?**~~ **ANSWERED
+  2026-07-26: yes, explicitly wanted.** And "then it can't be Go" was too fast — the `goSrc`
+  fileset forbids *linking* third-party Go into yolo, not third-party Go as such. The design
+  is declarative projections by default plus a **subprocess projector** escape hatch, which
+  may be written in any language including Go, with the binary sourced either as an in-pack
+  script, a nix package via the existing `{name, version, url, hash}` build-from-source form,
+  or a prebuilt artifact. Official packs use the identical seam with a `yolo` subcommand as
+  the projector, exactly as loopholes already do. Full design:
+  [third-party-pack-logic.md](third-party-pack-logic.md).
 - **Is agent/pack state per-machine or per-jail?** Today it is per-machine by accident of a
   shared `GlobalHome` — verified: agent dirs exist in an empty-agent jail. It should be a
   decision, and it determines whether pack removal can ever clean up.
