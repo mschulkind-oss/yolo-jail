@@ -25,6 +25,7 @@ package packload
 import (
 	"io/fs"
 	"os"
+	"sort"
 	"sync"
 )
 
@@ -72,3 +73,26 @@ func EmbeddedSharedDirs() []string { return SharedDirs(Embedded()) }
 
 // EmbeddedRetireMiseTools is the union of every embedded pack's retireMiseTools.
 func EmbeddedRetireMiseTools() []string { return RetireMiseTools(Embedded()) }
+
+// EmbeddedNames lists the embedded pack directory names, sorted.
+//
+// Read from the embed.FS directly rather than via Embedded(), which materializes the trees
+// to disk: config validation calls this to check a bare `packs: ["claude"]` entry, and a
+// name list does not justify a temp-dir copy on every config read.
+func EmbeddedNames() []string {
+	if embeddedFS == nil {
+		return nil
+	}
+	entries, err := fs.ReadDir(embeddedFS, ".")
+	if err != nil {
+		return nil
+	}
+	var names []string
+	for _, e := range entries {
+		if e.IsDir() {
+			names = append(names, e.Name())
+		}
+	}
+	sort.Strings(names)
+	return names
+}

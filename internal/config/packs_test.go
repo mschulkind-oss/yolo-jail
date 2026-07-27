@@ -287,3 +287,85 @@ func TestCheckPacksRejectsPrivilegeKeys(t *testing.T) {
 		}
 	}
 }
+
+// TestBareNameSelectsAnEmbeddedPack: `packs: ["claude"]` is the entire opt-in surface for
+// the packs yolo ships, so the shortest thing a user can write must work.
+func TestBareNameSelectsAnEmbeddedPack(t *testing.T) {
+	entries, problems := checkPacks(listOf("claude"))
+	if len(problems) != 0 {
+		t.Fatalf("problems = %v", problems)
+	}
+	if len(entries) != 1 {
+		t.Fatalf("want 1 entry, got %d", len(entries))
+	}
+	e := entries[0]
+	if e.Name != "claude" {
+		t.Errorf("Name = %q, want claude", e.Name)
+	}
+	if !e.Embedded() {
+		t.Error("a bare name must resolve to an EMBEDDED pack — origin is what grants it " +
+			"host access, so getting this wrong silently downgrades or upgrades trust")
+	}
+	if e.Origin() != OriginEmbedded {
+		t.Errorf("Origin = %v, want embedded", e.Origin())
+	}
+	if !e.MayGrantHostFiles() {
+		t.Error("an embedded pack must be allowed to name a host file")
+	}
+}
+
+// TestUnknownBareNameListsWhatShips: the likeliest cause of an unresolvable bare name is a
+// typo in a tool name, and showing the real list is the whole fix.
+func TestUnknownBareNameListsWhatShips(t *testing.T) {
+	_, problems := checkPacks(listOf("cluade"))
+	if len(problems) != 1 {
+		t.Fatalf("want 1 problem, got %v", problems)
+	}
+	if !strings.Contains(problems[0], "claude") {
+		t.Errorf("the error must list the available packs so a typo is self-fixing: %q",
+			problems[0])
+	}
+}
+
+// TestPathShapedEntryAsksForAScheme: someone who wrote "/no/scheme" or "./pack" forgot a
+// URL scheme; offering them a list of tool names answers a question they did not ask.
+func TestPathShapedEntryAsksForAScheme(t *testing.T) {
+	for _, bad := range []string{"/no/scheme", "./relative", "../up", "host:path"} {
+		_, problems := checkPacks(listOf(bad))
+		if len(problems) != 1 {
+			t.Fatalf("%s: want 1 problem, got %v", bad, problems)
+		}
+		if !strings.Contains(problems[0], "expected a URL with a scheme") {
+			t.Errorf("%s: want a scheme hint, got %q", bad, problems[0])
+		}
+	}
+}
+
+// TestEmbeddedEntryIsNotFetchedFromTheStore: an embedded pack must never be resolved
+// through the pack store, so its synthetic Source must not look like an address someone
+// (or some code) would try to fetch.
+func TestEmbeddedEntryIsNotFetchedFromTheStore(t *testing.T) {
+	entries, _ := checkPacks(listOf("claude"))
+	if len(entries) != 1 {
+		t.Fatalf("want 1 entry, got %d", len(entries))
+	}
+	src := entries[0].Source
+	if src == "" {
+		t.Error("Source must be set — Slug, provenance and `pack ls` all read it")
+	}
+	for _, scheme := range []string{"file://", "git+"} {
+		if strings.HasPrefix(src, scheme) {
+			t.Errorf("Source %q looks fetchable; an embedded pack comes from the binary", src)
+		}
+	}
+}
+
+// listOf builds the decoded shape a `packs` value has, so the tests exercise the same
+// lowering path a real config does.
+func listOf(items ...string) []any {
+	out := make([]any, len(items))
+	for i, s := range items {
+		out[i] = s
+	}
+	return out
+}

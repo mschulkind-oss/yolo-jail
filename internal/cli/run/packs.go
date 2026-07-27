@@ -11,6 +11,7 @@ package run
 
 import (
 	"fmt"
+	"io/fs"
 	"os"
 	"path/filepath"
 
@@ -54,14 +55,62 @@ func (o *Options) stagePacks(cname string) (string, []*packload.Pack, []agents.P
 		return "", nil, nil, err
 	}
 
-	// The OFFICIAL packs, materialized out of the binary. They ship with yolo, so their
-	// declarations carry yolo's own authority (MayAccessHost).
-	loaded, problems := packload.MaterializeEmbedded(packs.FS,
-		filepath.Join(stagingRoot, "_official"))
+	// The OFFICIAL packs, materialized out of the binary — but only the ones the config
+	// NAMED. A bare `packs: ["claude"]` entry selects one; nothing is on by default.
+	//
+	// Opt-in rather than always-active, and the reason is honesty about what a jail
+	// contains: activating six agent packs unconditionally while the launch warning said
+	// "no packs are configured, so this jail has no coding agent" was a contradiction a
+	// user would only discover by looking in ~/.yolo-shims. An empty config now really does
+	// produce a jail with no agent.
+	// Materialize into a SCRATCH dir first, then copy only the selected packs into the
+	// mounted staging root.
+	//
+	// The mount IS the filter, and it has to be: the entrypoint renders every pack it finds
+	// under YOLO_PACK_ROOT, so an unselected pack left in that tree gets its surfaces
+	// rendered and its hooks run in-jail. That failed loudly rather than silently (the
+	// unselected packs' config dirs are not writable, so A12 halted the boot) — but "the
+	// jail refuses to start because of a pack you did not ask for" is not a fix, it is the
+	// same bug with a better error.
+	scratch, err := os.MkdirTemp("", "yolo-official-packs-")
+	if err != nil {
+		return "", nil, nil, err
+	}
+	defer os.RemoveAll(scratch)
+	available, problems := packload.MaterializeEmbedded(packs.FS, scratch)
 	for _, prob := range problems {
 		// A broken OFFICIAL pack is a yolo bug, not a user error, so it is fatal rather
 		// than a warning the user can do nothing about.
 		return "", nil, nil, fmt.Errorf("official packs: %s", prob)
+	}
+	byName := map[string]*packload.Pack{}
+	for _, p := range available {
+		byName[p.Name] = p
+	}
+
+	officialRoot := filepath.Join(stagingRoot, "_official")
+	// Clear it: a pack DROPPED from config must stop being mounted, and a leftover tree
+	// would keep rendering as if it were still selected.
+	if err := os.RemoveAll(officialRoot); err != nil {
+		return "", nil, nil, err
+	}
+	var loaded []*packload.Pack
+	var configured []config.PackEntry
+	for _, entry := range entries {
+		p, isEmbedded := byName[entry.Name]
+		if !isEmbedded || !entry.Embedded() {
+			configured = append(configured, entry)
+			continue
+		}
+		dest := filepath.Join(officialRoot, p.Name)
+		if err := copyTree(p.Root, dest); err != nil {
+			return "", nil, nil, fmt.Errorf("official pack %s: %w", p.Name, err)
+		}
+		selected, probs := packload.LoadDir(dest, p.Name, true)
+		for _, prob := range probs {
+			return "", nil, nil, fmt.Errorf("official pack %s: %s", p.Name, prob)
+		}
+		loaded = append(loaded, selected)
 	}
 
 	var skillDirs []string
@@ -75,7 +124,7 @@ func (o *Options) stagePacks(cname string) (string, []*packload.Pack, []agents.P
 		}
 	}
 
-	for _, entry := range entries {
+	for _, entry := range configured {
 		root, err := packRoot(entry)
 		if err != nil {
 			return "", nil, nil, err
@@ -157,4 +206,33 @@ func readPackBriefing(dest string) (string, bool) {
 		}
 	}
 	return "", false
+}
+
+// copyTree copies a staged pack tree to dest, mode 0o644 for files.
+//
+// Content mode is FIXED rather than preserved, matching packstage's rule for a configured
+// pack: an exec bit arriving through a content channel is a different trust question, and
+// the copy must not be the place that quietly grants one.
+func copyTree(src, dest string) error {
+	return filepath.WalkDir(src, func(p string, d fs.DirEntry, err error) error {
+		if err != nil {
+			return err
+		}
+		rel, relErr := filepath.Rel(src, p)
+		if relErr != nil {
+			return relErr
+		}
+		target := filepath.Join(dest, rel)
+		if d.IsDir() {
+			return os.MkdirAll(target, 0o755)
+		}
+		data, readErr := os.ReadFile(p)
+		if readErr != nil {
+			return readErr
+		}
+		if err := os.MkdirAll(filepath.Dir(target), 0o755); err != nil {
+			return err
+		}
+		return os.WriteFile(target, data, 0o644)
+	})
 }

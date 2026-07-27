@@ -39,27 +39,35 @@ import (
 // agent" needs "here is the thing you add", not a command table for authoring.
 // `yolo config-ref` remains the exhaustive key schema.
 //
-// It states plainly that an agent-installing pack DOES NOT EXIST YET. The temptation is
-// to describe the destination as if it had arrived — the notice sends people here asking
-// "how do I get my agent back", and "an AGENT pack" is the answer the design intends.
-// But a pack today stages CONTENT (skills, prose) and nothing declares an agent: no
-// PackEntry field, no knownPackKeys entry, and agentcfg.ManifestWith — the seam a pack
-// would contribute a surface through — has no production caller. Promising it here
-// would send a user to configure a pack, watch it silence the very warning that told
-// them they had no agent, and still have no agent. Say what works and what does not.
+// It used to state plainly that an agent-installing pack DID NOT EXIST YET, because
+// promising it would have sent a user to configure a pack, watch it silence the very
+// warning that told them they had no agent, and still have no agent.
+//
+// It exists now. A pack declares its own install, mounts, writable dirs, composed
+// surfaces and host-file grants (internal/packdecl), and the boot path renders every one
+// of them with no switch on any tool name. The packs yolo ships are selected by BARE NAME
+// — `packs: ["claude"]` — and nothing is on by default, so the empty-packs warning stays
+// true rather than being contradicted by six silently-active packs.
 const packUsage = `yolo pack — author and inspect agent config packs
 
-A pack is a directory of agent CONFIG — skills and briefing prose (AGENTS.md) —
-delivered into every jail you launch. Content a jail has beyond a bare shell arrives as
-a pack: with no packs configured, a jail gets nothing but the built-ins.
+A pack is a directory of jail CONFIG — skills, briefing prose (AGENTS.md), composed
+config files, and optionally a tool to install — delivered into every jail you launch.
+Everything a jail has beyond a bare shell arrives as a pack: with no packs configured, a
+jail gets nothing but the built-ins, and no coding agent.
 
-What a pack delivers TODAY:
+What a pack delivers:
+  • a coding agent: its CLI, its config files, its skills and briefing
   • a SHARED pack of your own skills and house rules, applied in every project
   • per-project narrowing of that corpus, via only/exclude
 
-NOT YET: a pack cannot install a coding agent. That is where this is going — an agent is
-meant to arrive as a pack like anything else — but no pack can declare one yet, so a
-jail launched today has no agent regardless of what you configure here.
+The packs yolo ships are selected by NAME, and none is on by default:
+
+  "packs": ["claude"]        # or copilot, codex, opencode, pi, agy
+
+An EMBEDDED pack (one shipped with yolo) may name a host file to read — that is how
+claude and pi compose your own ~/.claude/settings.json and ~/.pi/agent/settings.json into
+the jail. A FETCHED pack never can: installing a third-party pack approves distributing
+content, not handing that repository your host config.
 
   yolo pack init [dir]        scaffold a pack skeleton (default: current dir)
   yolo pack lint [dir]        validate a pack directory the way staging will
@@ -70,9 +78,11 @@ jail launched today has no agent regardless of what you configure here.
   yolo pack status            show locked commits, and flag config/lock drift
 
 Packs are configured in ~/.config/yolo-jail/config.jsonc under "packs" (USER scope
-only — a workspace config cannot name one), as an address per entry:
+only — a workspace config cannot name one), as a bare name for a pack yolo ships or an
+address for one from elsewhere:
 
-  "packs": ["file:///home/me/code/my-pack",
+  "packs": ["claude",
+            "file:///home/me/code/my-pack",
             "git+ssh://git@github.com/org/repo//subdir?ref=main"]
 
 Then run ` + "`yolo pack install`" + ` (fetching only ever happens there, never at launch).

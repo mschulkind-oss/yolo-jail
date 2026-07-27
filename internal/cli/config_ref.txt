@@ -410,16 +410,26 @@
     Once a mise_tools entry stabilizes, consider promoting it to `packages`.
     Example (user config): {"neovim": "nightly", "pipx:some-tool": "latest"}
 
-  [bold]packs[/bold] (array): Agent config packs — shared skills + AGENTS.md prose,
-    delivered into every jail.  [bold yellow]USER SCOPE ONLY[/bold yellow]: read from
+  [bold]packs[/bold] (array): Everything a jail has beyond a bare shell — a coding agent
+    and its config, shared skills, AGENTS.md prose.  [bold yellow]USER SCOPE ONLY[/bold yellow]: read from
     ~/.config/yolo-jail/config.jsonc directly, never from a workspace config.  A
     `packs` key in yolo-jail.jsonc is a `yolo check` error, because a workspace
     config travels with the repo and is agent-editable, so it must not decide what
     content (skills and briefing prose an agent then FOLLOWS) enters the jail.  A
     repo that wants to configure its own agents can just commit the files.
-    Entry forms — a source string, or an object:
-      source      required.  file:///abs/path (local) or
-                  git+ssh://git@host/org/repo//subdir?ref=branch (not yet fetched).
+    [bold]The packs yolo ships are selected by BARE NAME, and none is on by default:[/bold]
+      "packs": ["claude"]     also: copilot, codex, opencode, pi, agy
+    With no packs configured a jail has no coding agent, and says so at launch.  That
+    is the honest default: activating agents nobody asked for would put six tools and
+    their config files in every jail.
+    An EMBEDDED pack (one shipped with yolo) may read a host file — that is how claude
+    and pi compose your own settings.json into the jail.  A FETCHED pack never can:
+    installing a third-party pack approves distributing content, not handing that
+    repository your host config.  The refusal is printed, not silent.
+    Entry forms — a bare name, a source string, or an object:
+      source      required unless the entry is a bare embedded-pack name.
+                  file:///abs/path (local) or
+                  git+ssh://git@host/org/repo//subdir?ref=branch.
       name        short name for the staging dir and `yolo pack ls`.  Defaults to
                   the last path segment; two packs resolving to the same name is an
                   error (they would share a staging dir).
@@ -436,7 +446,7 @@
     Tooling: [bold]yolo pack init|lint|ls|explain[/bold].  `lint` runs the real staging
     rules (exec-bit and escaping-symlink refusals); `explain` lists exactly which
     files stage and which the filters dropped.
-    Example: ["file:///home/me/code/acme/tools/agent-pack"]
+    Example: ["claude", "file:///home/me/code/acme/tools/agent-pack"]
 
   [bold]lsp_servers[/bold] (object): Additional language servers for Copilot (Claude uses its own tools).
     Default servers (always present): python (pyright), typescript, go (gopls).

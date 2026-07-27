@@ -24,15 +24,20 @@ func TestPackUsageAnswersWhatPacksAreFor(t *testing.T) {
 		t.Errorf("pack help never mentions agents — the notice points here for exactly "+
 			"that:\n%s", got)
 	}
-	// And it must be HONEST about the gap. A pack cannot install an agent yet: nothing
-	// in PackEntry/knownPackKeys declares one and agentcfg.ManifestWith has no
-	// production caller. Help that promised "add an agent pack" would send a user from
-	// the no-agent warning to a configured pack that silences the warning and still
-	// leaves them with no agent. When a pack CAN install an agent, this assertion is
-	// the one to delete — deliberately, not by accident.
-	if !strings.Contains(got, "NOT YET") {
-		t.Errorf("pack help must say a pack cannot install an agent yet — otherwise it "+
-			"promises a mechanism that does not exist:\n%s", got)
+	// The "NOT YET" honesty clause is GONE, deleted deliberately as its own comment
+	// instructed: a pack can install an agent now, so the text that said it could not was
+	// the thing that had become dishonest.
+	//
+	// What replaces it is the concrete answer a user arriving from the no-agent warning
+	// needs. They have just been told their jail has no agent; help that discusses packs
+	// abstractly leaves them exactly where they were. It must show the shortest working
+	// entry, by name.
+	if !strings.Contains(got, `"packs": ["claude"]`) {
+		t.Errorf("pack help must show the shortest working entry — a user arriving from "+
+			"the no-agent warning needs the literal thing to type:\n%s", got)
+	}
+	if strings.Contains(got, "NOT YET") {
+		t.Errorf("pack help still claims a pack cannot install an agent; it can:\n%s", got)
 	}
 	// Where the list lives, and how to make an entry take effect. A user who reads
 	// only this text must be able to get from zero packs to one.

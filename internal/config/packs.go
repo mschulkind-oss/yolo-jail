@@ -30,6 +30,8 @@ import (
 	"strings"
 
 	"github.com/mschulkind-oss/yolo-jail/internal/jsonx"
+	"github.com/mschulkind-oss/yolo-jail/internal/packload"
+	_ "github.com/mschulkind-oss/yolo-jail/internal/packreg" // registers the embedded packs with packload
 	"github.com/mschulkind-oss/yolo-jail/internal/paths"
 )
 
@@ -48,8 +50,9 @@ const packsKey = "packs"
 // is prose, appends one. That is the whole reason the punctuation is not baked in.
 const (
 	NoPacksMessage  = "No packs are configured, so this jail has no coding agent"
-	NoPacksGuidance = "An agent arrives as a pack. Run `yolo pack --help` for what packs " +
-		"deliver and how to add one."
+	NoPacksGuidance = "An agent arrives as a pack. The packs yolo ships are selected by " +
+		"name — add `\"packs\": [\"claude\"]` to ~/.config/yolo-jail/config.jsonc, or run " +
+		"`yolo pack --help` for what packs deliver and how to add one from elsewhere."
 )
 
 // knownPackKeys is the accepted key set of the object form.
@@ -291,8 +294,19 @@ func lowerPackSource(source, name, itemPath string) (PackEntry, string) {
 	}
 	scheme, _, hasScheme := strings.Cut(source, "://")
 	if !hasScheme {
-		return PackEntry{}, itemPath + ".source: expected a URL with a scheme, " +
-			"e.g. file:///path/to/pack or git+ssh://git@host/org/repo//sub?ref=main"
+		// A BARE NAME selects an EMBEDDED pack — `packs: ["claude"]`. This is the whole
+		// opt-in surface for the packs yolo ships, and it is deliberately the shortest
+		// thing a user can write: naming the tool you want is the entire configuration.
+		//
+		// Embedded packs are NOT active by default, which is the ruling that makes the
+		// launch warning honest. A jail with an empty config really has no agent, and says
+		// so; activating six of them unconditionally while printing "no packs are
+		// configured" was a contradiction the user would only discover by looking in
+		// ~/.yolo-shims.
+		if name, ok := embeddedPackName(source); ok {
+			return PackEntry{Source: embeddedSourceFor(name), Name: name, IsEmbedded: true}, ""
+		}
+		return PackEntry{}, itemPath + ".source: " + unknownEmbeddedMessage(source)
 	}
 	switch {
 	case scheme == "file":
@@ -401,4 +415,43 @@ func UnmarshalPacks(wire string) ([]PackEntry, error) {
 		return nil, fmt.Errorf("decoding YOLO_PACKS: %w", err)
 	}
 	return entries, nil
+}
+
+// embeddedPackName resolves a bare entry to an embedded pack name.
+func embeddedPackName(s string) (string, bool) {
+	for _, n := range packload.EmbeddedNames() {
+		if n == s {
+			return n, true
+		}
+	}
+	return "", false
+}
+
+// embeddedSourceFor is the synthetic Source an embedded entry carries.
+//
+// Non-empty because Source is documented as always set and several call sites (Slug,
+// provenance, `yolo pack ls`) read it. The scheme is deliberately NOT file:// — an embedded
+// pack is never resolved through the pack store, so a URL suggesting a path would invite a
+// reader to look for one.
+func embeddedSourceFor(name string) string { return "embedded:" + name }
+
+// unknownEmbeddedMessage explains a bare entry that matched no embedded pack.
+//
+// It lists what IS available, because the failure is otherwise indistinguishable from a
+// malformed URL — and the most likely cause is a typo in a tool name, where showing the
+// real list is the whole fix.
+func unknownEmbeddedMessage(s string) string {
+	names := packload.EmbeddedNames()
+	// A PATH-SHAPED entry is a forgotten scheme, not a misspelled pack name. Offering a
+	// list of tool names to someone who wrote "/no/scheme" or "./my-pack" answers a
+	// question they did not ask; the plausible names are what a bare word is.
+	pathShaped := len(names) == 0 ||
+		strings.ContainsAny(s, "/\\.") || strings.Contains(s, ":")
+	if pathShaped {
+		return "expected a URL with a scheme, e.g. file:///path/to/pack or " +
+			"git+ssh://git@host/org/repo//sub?ref=main"
+	}
+	return fmt.Sprintf("no pack named %q ships with yolo (available: %s); for a pack from "+
+		"elsewhere, give a full address like file:///path/to/pack or "+
+		"git+ssh://git@host/org/repo//sub?ref=main", s, strings.Join(names, ", "))
 }
