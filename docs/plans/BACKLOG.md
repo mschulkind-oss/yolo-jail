@@ -27,26 +27,29 @@ ROADMAP. Nothing gets three homes.
 
 ---
 
-## Stage A — prism prerequisites (unblocked, start here)
+## Stage A — prism prerequisites — ✅ COMPLETE (2026-07-27)
+
+All of stage A plus F1 has landed. Each item was verified in a real nested jail, not
+only by unit test.
 
 Nothing in this stage needs a decision. All of it is prerequisite to packs, so doing packs
 first means porting known defects into a new mechanism.
 
 | # | Item | Kind | Size |
 |---|---|---|---|
-| A1 | Remove the `gemini` agent | subtractive | medium (~8 files) |
-| A2 | Reserve symlink targets (`~/.config/git/config`, `~/.claude/claude.json`) | defect | small |
-| A3 | Stop `config render claude` composing the `claude/config` surface. **Narrowed:** it is *already* correctly labeled `unrendered` in `prismSurfaceMode` (`configls.go:62`), so `ls`/`diff`/`reset` skip it properly — only the `render` path still composes a file the jail never writes | defect | small |
-| A4 | Fix `writeInPlaceString`'s umask claim | defect (latent) | small |
-| A5 | Make `~/.gitconfig`'s unwritability legible | defect | small |
-| A6 | Fix `config-ref`'s `reset`-re-seeds-`once` promise | docs lie | small |
-| A7 | Feed `config render` the overlay + computed layers | defect | small–medium |
-| A8 | Give `pi`/`codex`/`opencode` a skills dir | defect | **two lines** |
-| A9 | Wire `Surface.Transform` — a documented key that does nothing | defect | small |
-| A10 | Steer directed agents at composed surfaces (skills + header) | improvement | docs-only |
-| A11 | Parameterize `/workspace` out of `builtin.go` | blocker for packs | small |
-| A12 | **Make generator failures fatal** — `genStep` (`boot.go:532-537`) prints a warning and discards the error, so a failed config step still yields a running jail with a misconfigured agent. Ruled 2026-07-26: loud and halting. **28 call sites across TWO files: 19 in `boot.go` + 9 in `darwin.go`** (the earlier "20" counted only `boot.go` — the macos-user path has its own loop and was missed). Requires separating genuine failures from absent-optional-input first | **policy inversion** | medium |
-| A13 | **A user-scope `config.lua` never reaches any jail** — `prism.go:65` reads `$HOME/.config/yolo-jail/config.lua`, but `userConfigMountArgs` (`cli/run/assemble_parts.go:462-474`) mounts only `filepath.Base(UserConfigPath())` = `config.jsonc`. Verified live: that dir contains only `config.jsonc` and mountinfo shows one bind. So the user half of the documented user-then-workspace transform pair is dead; only `<workspace>/yolo-jail.config.lua` works (it rides the `/workspace` bind). One extra `ROFileMountArg` | defect (**documented feature has no channel**) | small |
+| ✅ A1 | Remove the `gemini` agent | subtractive | medium (~8 files) |
+| ✅ A2 | Reserve symlink targets (`~/.config/git/config`, `~/.claude/claude.json`) | defect | small |
+| ✅ A3 | Stop `config render claude` composing the `claude/config` surface. **Narrowed:** it is *already* correctly labeled `unrendered` in `prismSurfaceMode` (`configls.go:62`), so `ls`/`diff`/`reset` skip it properly — only the `render` path still composes a file the jail never writes | defect | small |
+| ✅ A4 | Fix `writeInPlaceString`'s umask claim | defect (latent) | small |
+| ✅ A5 | Make `~/.gitconfig`'s unwritability legible | defect | small |
+| ✅ A6 | Fix `config-ref`'s `reset`-re-seeds-`once` promise | docs lie | small |
+| ✅ A7 | Feed `config render` the overlay + computed layers | defect | small–medium |
+| ✅ A8 | Give `pi`/`codex`/`opencode` a skills dir | defect | **two lines** |
+| ✅ A9 | Wire `Surface.Transform` — a documented key that does nothing | defect | small |
+| ✅ A10 | Steer directed agents at composed surfaces (skills + header) | improvement | docs-only |
+| ✅ A11 | Parameterize `/workspace` out of `builtin.go` | blocker for packs | small |
+| ✅ A12 | **Make generator failures fatal** — `genStep` (`boot.go:532-537`) prints a warning and discards the error, so a failed config step still yields a running jail with a misconfigured agent. Ruled 2026-07-26: loud and halting. **28 call sites across TWO files: 19 in `boot.go` + 9 in `darwin.go`** (the earlier "20" counted only `boot.go` — the macos-user path has its own loop and was missed). Requires separating genuine failures from absent-optional-input first | **policy inversion** | medium |
+| ✅ A13 | **A user-scope `config.lua` never reaches any jail** — `prism.go:65` reads `$HOME/.config/yolo-jail/config.lua`, but `userConfigMountArgs` (`cli/run/assemble_parts.go:462-474`) mounts only `filepath.Base(UserConfigPath())` = `config.jsonc`. Verified live: that dir contains only `config.jsonc` and mountinfo shows one bind. So the user half of the documented user-then-workspace transform pair is dead; only `<workspace>/yolo-jail.config.lua` works (it rides the `/workspace` bind). One extra `ROFileMountArg` | defect (**documented feature has no channel**) | small |
 
 **Do A1 first** (subtractive — shrinks every later table, and deletes one of the five
 projections A-stage work must satisfy). **Do A8 + A10 together** (A10's guidance is worthless
@@ -113,7 +116,7 @@ were **refuted and re-verified by hand**, plus the defects it surfaced. Each is 
 
 | # | Item | Kind |
 |---|---|---|
-| F1 | **⚠ A workspace config controls agent selection, and therefore which host files mount.** `agents` is in `overrideListKeys` (`config/load.go:86`) so a workspace value *replaces* the user's wholesale — probed: user config selecting `[claude, pi, codex, agy]` became `[claude]` from a workspace `yolo-jail.jsonc`. Since `hostFileArgs` mounts each selected agent's `AgentSpec.HostFiles`, a repo-committed, agent-editable file decides a credential-boundary question. **This is the same threat `a84b11c` closed for `host_files`, still open via `agents`.** Under packs it gets worse if the enable list is the pack list | **security** |
+| ✅ F1 | **⚠ A workspace config controls agent selection, and therefore which host files mount.** `agents` is in `overrideListKeys` (`config/load.go:86`) so a workspace value *replaces* the user's wholesale — probed: user config selecting `[claude, pi, codex, agy]` became `[claude]` from a workspace `yolo-jail.jsonc`. Since `hostFileArgs` mounts each selected agent's `AgentSpec.HostFiles`, a repo-committed, agent-editable file decides a credential-boundary question. **This is the same threat `a84b11c` closed for `host_files`, still open via `agents`.** Under packs it gets worse if the enable list is the pack list | **security** |
 | F2 | The credential-boundary field set is **`{HostFiles, Briefing.HostSource, Skills}`**, not just `HostFiles`. `BriefingSpec.HostSource` reads a host-home path every run (`agents/agentsmd.go:239-245`), and `Skills` is the *widest* — a recursive, symlink-dereferencing tree copy (`agents/skills.go:72-138`). Any pack-declared grant spec must cover all three | **security** |
 | F3 | **Lua map iteration is nondeterministic** — but the cause is `goToLua`'s map branch (`luahook/marshal.go:78`), not `pairs()`. Fix by iterating keys in sorted order there (~3 lines), which fixes every hook rather than adding an author-facing rule | defect |
 | F4 | **Any Lua hook converts TOML integers to floats** (`8192` → `8192.0`), because `luaToGo` returns `float64` for every `LNumber` (`marshal.go:99-100`). Fix at the marshalling boundary, **not** in the TOML emitter | defect |
