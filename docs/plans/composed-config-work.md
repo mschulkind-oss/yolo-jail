@@ -3,6 +3,11 @@
 **Status:** plan, 2026-07-26. **ROADMAP:** supersedes the sub-tables of items 3 and 4 as
 the working list; ROADMAP keeps the one-line summaries and the lane/blocker call.
 
+> **⚠ For picking up work, use [BACKLOG.md](BACKLOG.md) instead.** It is the single
+> ordered list across the whole cluster (prism + packs + rip-out) and maps each item to
+> its reasoning doc. This file remains the *per-item detail* for the prism items — the
+> failure each one fixes, the file it touches, the verification it needs.
+
 **What this is.** Every actionable item from the composed-config discussion, deduplicated
 into one dependency-ordered list, each marked defect-or-improvement, ready-or-needs-
 decision, and sized. Written because the work had scattered across ~8,900 lines of design

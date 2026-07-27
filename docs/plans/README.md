@@ -10,6 +10,11 @@ for the classification and `git log --follow` to recover any).
 > one order (jail-side / host-gated / hardware-gated lanes) so "what's next?"
 > has a single answer. It's a meta-doc — the individual plans stay the source of
 > truth for their own work items.
+>
+> **For the composed-config / packs cluster specifically**, start at
+> [`BACKLOG.md`](BACKLOG.md): that cluster's design spans 8 docs, and BACKLOG is the
+> only place that lists the implementable items in order, with a pointer per item to
+> the doc holding its reasoning.
 
 ## macOS revival + distribution
 
