@@ -620,3 +620,63 @@ func TestOverlayEntryCount(t *testing.T) {
 		}
 	}
 }
+
+// A9: `transform` is a DOCUMENTED host_files key (config_ref: "path to a Lua
+// hook; works on every codec") that was schema-validated, parsed, path-cleaned,
+// and copied onto the surface — and then never read. Every Inputs.Script producer
+// filled it from the global config.lua pair only, so a user's per-surface hook was
+// silently ignored. This pins that the hook actually runs.
+func TestHostFilesPerSurfaceTransformRuns(t *testing.T) {
+	e, ctx := hostFilesTestEnv(t)
+
+	// A per-surface hook that rewrites a key. Surfaces synthesized from host_files
+	// use agent "user" (hostFileSurface), so the hook registers under that name.
+	hook := filepath.Join(t.TempDir(), "hook.lua")
+	if err := os.WriteFile(hook, []byte(`
+yolo.transform("user", function(ctx)
+  ctx.config.injected = "by-transform"
+  ctx.config.level = "rewritten"
+end)`), 0o644); err != nil {
+		t.Fatal(err)
+	}
+
+	entry := config.HostFileEntry{
+		Path:      ".config/xform/config.json",
+		Source:    "/host/xform.json",
+		Codec:     "json",
+		Transform: hook,
+		Mode:      config.HostFileModeReadonly,
+	}
+	if err := os.WriteFile(filepath.Join(ctx, entry.Slug()), []byte(`{"level":"debug"}`), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	setHostFiles(t, e, entry)
+
+	if err := ConfigureHostFiles(e); err != nil {
+		t.Fatalf("boot: %v", err)
+	}
+	got := decodeJSONFile(t, filepath.Join(e.Home, ".config/xform/config.json"))
+	if got["injected"] != "by-transform" {
+		t.Errorf("per-surface transform did not run: %v", got)
+	}
+	if got["level"] != "rewritten" {
+		t.Errorf("transform must be able to overwrite a host value: %v", got)
+	}
+}
+
+// A missing or unreadable transform file must FAIL the surface, not be silently
+// skipped: a user who names a hook and gets no hook has no way to tell.
+func TestHostFilesMissingTransformIsAnError(t *testing.T) {
+	e, _ := hostFilesTestEnv(t)
+	entry := config.HostFileEntry{
+		Path:      ".config/xform2/config.json",
+		Codec:     "json",
+		Defaults:  map[string]any{"a": 1},
+		Transform: filepath.Join(t.TempDir(), "does-not-exist.lua"),
+		Mode:      config.HostFileModeReadonly,
+	}
+	setHostFiles(t, e, entry)
+	if err := ConfigureHostFiles(e); err == nil {
+		t.Error("a named-but-missing transform must be an error, not a silent skip")
+	}
+}

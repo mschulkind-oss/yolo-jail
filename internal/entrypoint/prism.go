@@ -75,6 +75,34 @@ func loadPrismTransformScript(e *Env) string {
 	return b.String()
 }
 
+// surfaceScript is the Lua source for ONE surface: the global config.lua pair
+// (user then workspace, §3.4) with the surface's OWN hook appended last, so a
+// per-surface transform runs after — and can therefore override — the globals.
+//
+// A9: Surface.Transform used to be inert. It is a documented host_files key
+// ("path to a Lua hook; works on every codec"), schema-validated, parsed,
+// path-cleaned and copied onto the surface — but nothing read it, because every
+// Inputs.Script producer filled Script from the global pair alone. A user's
+// per-surface hook was silently ignored.
+//
+// A NAMED-BUT-UNREADABLE hook is a hard error, not a skip. The alternative fails
+// open: the user asked for a transform, got none, and the file looks plausibly
+// correct — the exact silent-misconfiguration class the config surface must not
+// have. (An ABSENT Transform is simply the identity transform; only a named path
+// that cannot be read fails.)
+func surfaceScript(e *Env, surface manifest.Surface) (string, error) {
+	script := loadPrismTransformScript(e)
+	if surface.Transform == "" {
+		return script, nil
+	}
+	data, err := os.ReadFile(surface.Transform)
+	if err != nil {
+		return "", fmt.Errorf("surface %s/%s: transform %s: %w",
+			surface.Agent, surface.Name, surface.Transform, err)
+	}
+	return script + "\n" + string(data) + "\n", nil
+}
+
 // renderSurfaceStateful runs the §5/§3.2 stateful render for one builtin surface
 // and persists the three artifacts (surface file, last_render, overlay). It
 // resolves the host source via hostBytes (caller supplies, since the mount and
@@ -121,7 +149,10 @@ func renderSurfaceStatefulSurface(e *Env, surface manifest.Surface, hostBytes []
 	lastRenderBytes, lastErr := os.ReadFile(lastRenderPath)
 	overlayJSON, _ := os.ReadFile(prismOverlayPath(e, surface.Agent, surface.Name))
 
-	script := loadPrismTransformScript(e)
+	script, serr := surfaceScript(e, surface)
+	if serr != nil {
+		return nil, serr
+	}
 	var vm luahook.LuaVM
 	if script != "" {
 		vm = &luahook.GopherLuaVM{}
@@ -299,7 +330,10 @@ func renderSurfaceComputed(e *Env, agent, name string, computed map[string]any) 
 // — silently losing the file's actual content. It writes ONLY the surface file
 // (no sidecars) and returns the Result so a caller can chmod or inspect it.
 func renderSurfaceStatelessSurface(e *Env, surface manifest.Surface, hostBytes []byte, computed map[string]any) (*agentcfg.Result, error) {
-	script := loadPrismTransformScript(e)
+	script, serr := surfaceScript(e, surface)
+	if serr != nil {
+		return nil, serr
+	}
 	var vm luahook.LuaVM
 	if script != "" {
 		vm = &luahook.GopherLuaVM{}

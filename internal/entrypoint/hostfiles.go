@@ -47,10 +47,14 @@ func ConfigureHostFiles(e *Env) error {
 		// abort boot over a config-transport problem.
 		return fmt.Errorf("host_files: %w", err)
 	}
+	// FAIL-CLOSED (A12 ruling): a host_files entry that cannot be staged is an
+	// ERROR, not a warning. This loop used to warn and continue, which meant a
+	// user who declared a file — or a per-surface `transform` hook — got a jail
+	// that came up looking fine with the file missing or unhooked. A config
+	// surface must not fail silently; the caller aborts boot with this error.
 	for _, entry := range entries {
 		if err := stageHostFile(e, entry); err != nil {
-			e.warn(fmt.Sprintf("Warning: host_files: staging %s: %v",
-				"~/"+entry.Path, err))
+			return fmt.Errorf("host_files: staging ~/%s: %w", entry.Path, err)
 		}
 	}
 	return nil
