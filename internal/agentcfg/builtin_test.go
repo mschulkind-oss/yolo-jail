@@ -1,6 +1,7 @@
 package agentcfg
 
 import (
+	"github.com/mschulkind-oss/yolo-jail/internal/agentcfg/manifest"
 	"reflect"
 	"testing"
 )
@@ -411,5 +412,74 @@ func TestSubstituteWorkspaceRewritesKeys(t *testing.T) {
 	pi, _ := BuiltinManifest().Lookup("pi", "settings")
 	if !reflect.DeepEqual(SubstituteWorkspace(pi, "/x"), pi) {
 		t.Error("a surface without the placeholder must be unchanged")
+	}
+}
+
+// D3: a pack-declared surface must compose exactly like a builtin, and must be able to
+// OVERRIDE one. This is the end of the seam — data in, composed file out — and it is
+// what makes "agent support as pack data" mechanically possible rather than aspirational.
+func TestManifestWithComposesPackDeclaredSurface(t *testing.T) {
+	extra, problems := manifest.DecodeSurfaces([]byte(`[
+	  {"agent":"acme","name":"settings","path":"~/.acme/settings.json","codec":"json",
+	   "defaults":{"theme":"dark"},"managed":{"telemetry":false}}
+	]`))
+	if len(problems) != 0 {
+		t.Fatalf("problems = %v", problems)
+	}
+	m, err := ManifestWith(extra...)
+	if err != nil {
+		t.Fatal(err)
+	}
+	s, ok := m.Lookup("acme", "settings")
+	if !ok {
+		t.Fatal("pack surface not in the merged manifest")
+	}
+	// It composes through the ordinary engine: managed wins over a host value, a
+	// default yields to one.
+	res, err := Compose(Inputs{Surface: s, HostBytes: []byte(`{"theme":"light","telemetry":true}`)})
+	if err != nil {
+		t.Fatal(err)
+	}
+	cfg := res.ConfigMap()
+	if cfg["telemetry"] != false {
+		t.Errorf("managed key did not win: %v", cfg["telemetry"])
+	}
+	if cfg["theme"] != "light" {
+		t.Errorf("default should yield to the host value: %v", cfg["theme"])
+	}
+	// Every builtin still resolves.
+	if _, ok := m.Lookup("claude", "settings"); !ok {
+		t.Error("merging a pack surface dropped a builtin")
+	}
+}
+
+// A pack may REPLACE a builtin surface — that is the override path an official-pack
+// world needs, and it must still be validated.
+func TestManifestWithOverridesBuiltin(t *testing.T) {
+	extra, _ := manifest.DecodeSurfaces([]byte(`[
+	  {"agent":"codex","name":"config","path":"~/.codex/config.toml","codec":"toml",
+	   "mode":"computed","managed":{"approval_policy":"overridden"}}
+	]`))
+	m, err := ManifestWith(extra...)
+	if err != nil {
+		t.Fatal(err)
+	}
+	s, _ := m.Lookup("codex", "config")
+	mg, _ := s.ManagedMap()["approval_policy"].(string)
+	if mg != "overridden" {
+		t.Errorf("pack did not override the builtin: %v", s.ManagedMap())
+	}
+	if s.ResolvedMode() != manifest.ModeComputed {
+		t.Errorf("override's mode not applied: %q", s.ResolvedMode())
+	}
+	// No duplicate: the override replaced rather than added.
+	count := 0
+	for _, x := range m.Surfaces() {
+		if x.Agent == "codex" && x.Name == "config" {
+			count++
+		}
+	}
+	if count != 1 {
+		t.Errorf("expected exactly one codex/config, got %d", count)
 	}
 }

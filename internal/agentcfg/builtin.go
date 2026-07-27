@@ -452,3 +452,30 @@ func BuiltinManifest() *manifest.Manifest {
 	}
 	return m
 }
+
+// builtinSurfaces is the ordered list BuiltinManifest builds from, exposed so a caller
+// can MERGE pack-declared surfaces over it (D3).
+func builtinSurfaces() []manifest.Surface {
+	return []manifest.Surface{
+		piSettings, claudeSettings, claudeConfig,
+		copilotConfig, copilotMCP, copilotLSP,
+		opencodeConfig, codexConfig,
+		agySettings, agyMCP, miseConfig,
+	}
+}
+
+// ManifestWith returns the builtin manifest with extra (data-loaded) surfaces merged
+// over it: a surface sharing an (agent, name) with a builtin REPLACES it, and a new
+// key is added (D3).
+//
+// This is how a pack contributes a surface. It goes through the same validation as the
+// builtins, so a malformed pack surface is an error here — on the host, at
+// `yolo check` — rather than a silently misconfigured agent.
+//
+// Note what this does NOT do: it does not let a pack change which host files cross the
+// boundary. A surface names a JAIL destination and its layers; the host source for the
+// two agent surfaces that have one is decided by agents.AgentSpec.HostFiles in Go, and
+// stays there.
+func ManifestWith(extra ...manifest.Surface) (*manifest.Manifest, error) {
+	return manifest.Merge(builtinSurfaces(), extra...)
+}
