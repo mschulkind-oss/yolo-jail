@@ -879,3 +879,36 @@ func TestHostFilesInferredPathStillReserved(t *testing.T) {
 		t.Errorf("inferred path bypassed the reserved-destination guard: %v", problems)
 	}
 }
+
+// A2: a reserved home FILE and the symlink TARGET it points at are the same file,
+// so both must be rejected as host_files destinations. yolo materializes three
+// dangling relative symlinks into the :ro GlobalHome base
+// (storage/ensure.go:95-101):
+//
+//	~/.claude.json -> .claude/claude.json
+//	~/.gitconfig   -> .config/git/config
+//	~/.bashrc      -> .config/bashrc
+//
+// Only the LINK names were reserved, so a user could claim the TARGET and
+// silently clobber what yolo's symlink resolves to — the reservation looked
+// complete while covering only one of the two names for each file.
+func TestHostFileReservedDestsCoverSymlinkTargets(t *testing.T) {
+	reserved := hostFileReservedDests()
+	for _, pair := range []struct{ link, target string }{
+		{".claude.json", ".claude/claude.json"},
+		{".gitconfig", ".config/git/config"},
+		{".bashrc", ".config/bashrc"},
+	} {
+		if _, ok := reserved[pair.link]; !ok {
+			t.Errorf("link %s is not reserved", pair.link)
+		}
+		if _, ok := reserved[pair.target]; !ok {
+			t.Errorf("symlink TARGET %s is not reserved (its alias %s is) — a user could claim it",
+				pair.target, pair.link)
+		}
+		// And the validator must actually reject it.
+		if _, why := checkHostFileDest(pair.target, reserved); why == "" {
+			t.Errorf("checkHostFileDest(%q) accepted a reserved symlink target", pair.target)
+		}
+	}
+}

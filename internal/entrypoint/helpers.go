@@ -43,26 +43,27 @@ func truthy(v any) bool {
 
 // writeExecutable writes content to path (truncate-in-place via WriteInPlace
 // to preserve inodes for bind-mounted files, per docs/design/agent-briefings.md)
-// then sets the executable bit.
-// This is the "OR in owner-execute" variant used by shims and mcp_wrappers: it
-// ORs owner-execute (0o100) onto the file's current mode, yielding 0o744 for a
-// freshly-created 0o644 file. (Other generators that emit 0o755 scripts chmod
-// to 0o755 directly.)
+// then sets mode 0o755 explicitly. Used by shims and mcp_wrappers; other
+// generators that emit executable scripts already chmod to 0o755 directly, so
+// every generated executable now agrees on one mode.
 func writeExecutable(path, content string) error {
 	if err := os.MkdirAll(filepath.Dir(path), 0o755); err != nil {
 		return err
 	}
-	if err := WriteStringInPlace(path, content, 0o644); err != nil {
+	if err := WriteStringInPlace(path, content, 0o755); err != nil {
 		return err
 	}
-	// The current mode after WriteInPlace is 0o644 (umask-independent: WriteFile
-	// on create uses the perm arg, and on an existing file leaves the mode). OR
-	// in owner-execute.
-	fi, err := os.Stat(path)
-	if err != nil {
-		return err
-	}
-	return os.Chmod(path, fi.Mode()|0o100)
+	// A4: chmod EXPLICITLY rather than OR-ing owner-execute onto whatever mode the
+	// file happens to have.
+	//
+	// The old comment claimed the post-write mode was "0o644 (umask-independent)".
+	// That is false: os.WriteFile's perm goes to open(2) and IS masked by the
+	// process umask — probed, `umask 077` + WriteFile(0o644) yields 0o600, so the
+	// OR produced 0o700 instead of the intended 0o744/0o755. It never bit us only
+	// because the jail's umask is 0022; a caller with a stricter umask (or a
+	// pre-existing file with a stale mode, which WriteFile leaves alone) got a
+	// script the wrong side of readable.
+	return os.Chmod(path, 0o755)
 }
 
 // writeInPlaceString writes content with mode 0o644, truncate-in-place. For

@@ -65,6 +65,15 @@ var reservedHomeFiles = []string{
 	".yolo-perf.log", ".yolo-socat.log", ".yolo-entrypoint.lock",
 	".yolo-ca-bundle.crt", ".yolo-installed-lsps",
 	".gitconfig", ".bashrc", ".claude.json",
+	// A2: the TARGETS of the three symlinks EnsureGlobalStorage materializes into
+	// the :ro GlobalHome base (storage/ensure.go:95-101). A symlink and its target
+	// are the SAME FILE, so reserving only the link name left the other name
+	// claimable — a config could take ~/.config/git/config and silently clobber
+	// what ~/.gitconfig resolves to, while the reservation looked complete.
+	//   .claude.json -> .claude/claude.json
+	//   .gitconfig   -> .config/git/config
+	//   .bashrc      -> .config/bashrc
+	".claude/claude.json", ".config/git/config", ".config/bashrc",
 }
 
 // reservedHomeDirs returns reservedHomeDirRoots plus every known agent's overlay
