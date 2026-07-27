@@ -2,6 +2,8 @@ package luahook
 
 import (
 	"fmt"
+	"math"
+	"sort"
 	"strconv"
 
 	lua "github.com/yuin/gopher-lua"
@@ -75,8 +77,21 @@ func goToLua(L *lua.LState, v any) (lua.LValue, error) {
 		return t, nil
 	case map[string]any:
 		t := L.NewTable()
-		for k, e := range val {
-			ev, err := goToLua(L, e)
+		// F3: SORTED key order. Go map iteration is randomized, so building the Lua
+		// table in map order made a hook that iterates with pairs() see a different
+		// order on every run — and a hook that REORDERS or rebuilds a table then
+		// produced nondeterministic output. Probed: 8 distinct renders over 30 runs.
+		//
+		// Fixed here rather than by adding a sorted_pairs() API, because this fixes
+		// EVERY hook (including ones already written) instead of adding a rule authors
+		// must know and remember.
+		keys := make([]string, 0, len(val))
+		for k := range val {
+			keys = append(keys, k)
+		}
+		sort.Strings(keys)
+		for _, k := range keys {
+			ev, err := goToLua(L, val[k])
 			if err != nil {
 				return nil, err
 			}
@@ -97,6 +112,20 @@ func luaToGo(lv lua.LValue) (any, error) {
 	case lua.LBool:
 		return bool(v), nil
 	case lua.LNumber:
+		// F4: preserve INTEGRALITY. gopher-lua has one numeric type, so returning
+		// float64 unconditionally turned every integer into a float — probed, a TOML
+		// surface's `max_tokens = 8192` became `8192.0` after an IDENTITY hook that
+		// touched nothing. The TOML emitter faithfully renders what it is given, so
+		// the corruption has to be prevented here, at the boundary, rather than
+		// papered over by making the emitter guess which floats were "really" ints.
+		//
+		// Lua numbers are float64 internally, so an integral value is exactly
+		// representable and this round-trips losslessly. A genuinely fractional value
+		// stays a float.
+		if f := float64(v); f == math.Trunc(f) && !math.IsInf(f, 0) &&
+			f >= -(1<<53) && f <= 1<<53 {
+			return int64(f), nil
+		}
 		return float64(v), nil
 	case lua.LString:
 		return string(v), nil

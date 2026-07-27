@@ -108,11 +108,13 @@ end)`
 	if got["upper"] != "PI" {
 		t.Errorf("string.upper failed: %v", got["upper"])
 	}
-	if got["count"] != float64(3) {
+	// F4: an integral Lua number now comes back as an integer, so #t and math.max
+	// yield int64 rather than float64.
+	if got["count"] != int64(3) {
 		t.Errorf("table length failed: %v (%T)", got["count"], got["count"])
 	}
-	if got["max"] != float64(3) {
-		t.Errorf("math.max failed: %v", got["max"])
+	if got["max"] != int64(3) {
+		t.Errorf("math.max failed: %v (%T)", got["max"], got["max"])
 	}
 	if !reflect.DeepEqual(got["list"], []any{"a", "b", "c", "d"}) {
 		t.Errorf("table.insert failed: %#v", got["list"])
@@ -254,34 +256,52 @@ end)`
 	}
 	got := asObj(t, gotAny)
 	nested := got["nested"].(map[string]any)
-	if !reflect.DeepEqual(nested["arr"], []any{float64(1), float64(12), float64(3)}) {
+	// F4: integral values come back as int64. Note the INPUT was float64(1..3) and
+	// the output is int64 — a float64 that happens to be integral is not
+	// distinguishable from an int inside Lua (one numeric type), so this direction of
+	// the round-trip is lossy by construction. That trade is deliberate: JSON has no
+	// int/float distinction so it is invisible there, while TOML DOES, and preserving
+	// integers is what stops an identity hook rewriting `8192` as `8192.0`.
+	if !reflect.DeepEqual(nested["arr"], []any{int64(1), int64(12), int64(3)}) {
 		t.Errorf("nested array round-trip failed: %#v", nested["arr"])
 	}
 	added := nested["added"].(map[string]any)
-	if added["x"] != float64(1) {
-		t.Errorf("added.x = %v (%T), want float64(1)", added["x"], added["x"])
+	if added["x"] != int64(1) {
+		t.Errorf("added.x = %v (%T), want int64(1) — F4 preserves integrality", added["x"], added["x"])
 	}
 	if !reflect.DeepEqual(added["y"], []any{"deep"}) {
 		t.Errorf("added.y round-trip failed: %#v", added["y"])
 	}
 }
 
-// TestRealVM_IntRoundTripBecomesFloat documents the Lua number model: a Go
-// int64 in the input comes back as float64 (Lua has no integer type). This is
-// the fidelity caveat marshal.go warns about, asserted so a future change that
-// silently alters it is caught.
-func TestRealVM_IntRoundTripBecomesFloat(t *testing.T) {
+// F4: an INTEGER must survive a Lua round-trip as an integer.
+//
+// This test previously asserted the opposite — that int64 comes back as float64 —
+// documenting the Lua single-number-type model as an accepted fidelity caveat. It was
+// not acceptable: probed on a real TOML surface, an IDENTITY hook that touched nothing
+// turned `max_tokens = 8192` into `8192.0`, because the TOML emitter faithfully
+// renders whatever it is handed. So any config.lua at all silently corrupted every
+// integer in every TOML surface.
+//
+// luaToGo now returns an integer type for an integral Lua number. Lua numbers are
+// float64 internally, so integral values are exactly representable and this
+// round-trips losslessly; genuinely fractional values stay floats (asserted below).
+func TestRealVM_IntRoundTripsAsInt(t *testing.T) {
 	script := `yolo.transform("pi", function(ctx) ctx.config.echo = ctx.config.n end)`
-	ctx := NewCtx("pi", "settings", map[string]any{"n": int64(42)}, nil)
+	ctx := NewCtx("pi", "settings", map[string]any{"n": int64(42), "f": 1.5}, nil)
 	gotAny, err := Apply(Transform{VM: realVM(), Script: script}, ctx)
 	if err != nil {
 		t.Fatalf("Apply errored: %v", err)
 	}
 	got := asObj(t, gotAny)
-	if got["echo"] != float64(42) {
-		t.Errorf("int64 did not round-trip to float64(42): %v (%T)", got["echo"], got["echo"])
+	if got["echo"] != int64(42) {
+		t.Errorf("int did not survive the round-trip: %v (%T), want int64(42)", got["echo"], got["echo"])
 	}
-	if got["n"] != float64(42) {
-		t.Errorf("input int64 came back as %v (%T), want float64(42)", got["n"], got["n"])
+	if got["n"] != int64(42) {
+		t.Errorf("input int came back as %v (%T), want int64(42)", got["n"], got["n"])
+	}
+	// A real fraction must NOT be coerced to an int.
+	if got["f"] != 1.5 {
+		t.Errorf("fractional value corrupted: %v (%T), want 1.5", got["f"], got["f"])
 	}
 }
