@@ -1,6 +1,9 @@
 package agents
 
-import "testing"
+import (
+	"os"
+	"testing"
+)
 
 // B5: machine-wide state is registry DATA, not a hardcoded branch in the mount
 // assembler. Claude's credential dir is the only entry today, and the mount must be
@@ -28,5 +31,40 @@ func TestSharedDirsForIsClaudeOnlyAndSelectionGated(t *testing.T) {
 	if len(all) != 1 {
 		t.Errorf("SharedDirs across all agents = %v; adding one leaks state between "+
 			"workspaces by design — confirm that is intended, then update this test", all)
+	}
+}
+
+// D5: "no agent by default" is ALREADY SUPPORTED — `agents: []` yields an empty
+// selection that every consumer handles. Verified in a real nested jail: it boots.
+//
+// What is NOT changed here is the DEFAULT itself. DefaultAgents stays ["claude"],
+// because flipping it to [] is a breaking UX change for every existing user (their
+// jail would come up with no agent after an upgrade), and that is a product decision
+// rather than an implementation one. The machinery is ready either way; this test
+// pins that readiness so the switch is a one-line change plus a migration note.
+func TestEmptyAgentSelectionIsSupported(t *testing.T) {
+	// ResolveAgents distinguishes "nil = use the default" from "explicitly empty".
+	if got := ResolveAgents(nil); len(got) == 0 {
+		t.Error("nil should fall back to DefaultAgents")
+	}
+	if got := ResolveAgents([]string{}); len(got) != 0 {
+		t.Errorf("an explicitly empty selection must stay empty, got %v", got)
+	}
+
+	// Every derived view must tolerate it without panicking or inventing an agent.
+	if got := SharedDirsFor([]string{}); len(got) != 0 {
+		t.Errorf("SharedDirsFor([]) = %v, want none", got)
+	}
+	home := t.TempDir()
+	staging, err := PrepareSkills("c-empty", home, []string{}, false)
+	if err != nil {
+		t.Fatalf("PrepareSkills with no agents: %v", err)
+	}
+	entries, err := os.ReadDir(staging)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(entries) != 0 {
+		t.Errorf("no agents selected but skills were staged: %v", entries)
 	}
 }

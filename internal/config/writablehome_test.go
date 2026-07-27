@@ -116,3 +116,30 @@ func TestReservedHomeSegments(t *testing.T) {
 		t.Errorf(".pi-lens must not be reserved")
 	}
 }
+
+// F6 revisited, and the finding does NOT hold as stated: these unions SHOULD span
+// every known agent, not the selected set.
+//
+// The claim was that agents.AllOverlayDirs being a union over all specs is a
+// correctness bug that D5 (no agent by default) must fix. It is the opposite. These
+// are RESERVATION lists — what a user's host_files/writable_home_dirs entry may not
+// claim. If they were selection-gated, the same committed config would validate in a
+// jail that selects claude and fail in one that does not, so a repo's config would be
+// portable only by accident.
+//
+// The other all-agents union (storage.EnsureGlobalStorage) is right for the same kind
+// of reason: it pre-creates GlobalHome MOUNTPOINTS, and the OCI runtime cannot mkdir
+// inside a :ro bind, so a dir any FUTURE jail might mount over has to exist now.
+//
+// This test pins the intent so the "fix" is not applied later by someone reading the
+// finding without the reasoning.
+func TestReservedHomeDirsSpanAllAgentsNotSelected(t *testing.T) {
+	dirs := reservedHomeDirs()
+	// pi and codex are not in DefaultAgents, but their overlay dirs must still be
+	// reserved: validation cannot depend on which agents this jail happens to select.
+	for _, want := range []string{".claude", ".pi", ".codex", ".copilot"} {
+		if _, ok := dirs[want]; !ok {
+			t.Errorf("%s not reserved — reservation must not depend on agent selection", want)
+		}
+	}
+}
