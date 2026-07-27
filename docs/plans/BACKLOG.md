@@ -17,7 +17,8 @@ ROADMAP. Nothing gets three homes.
 | Doc | Answers | Read it when |
 |---|---|---|
 | [../design/composed-file-permissions.md](../design/composed-file-permissions.md) | ro/rw postures, the Derived/Shared/State taxonomy, the defect audit, writer classes | touching any composed file's permissions or the capture overlay |
-| [../design/packs-and-the-prism.md](../design/packs-and-the-prism.md) | what packs *are*; provision vs compose phases; the 4 contribution kinds; typed exports between packs | deciding pack shape |
+| [../design/pack-specification-and-loading.md](../design/pack-specification-and-loading.md) | the pack system **as built**: manifest field by field, the origin gate, the host→jail load path, worked examples, remaining seams | authoring, debugging, or changing a pack |
+| [../design/packs-and-the-prism.md](../design/packs-and-the-prism.md) | what packs *are*; provision vs compose phases; the 4 contribution kinds; typed exports between packs | deciding pack shape (pre-implementation frame) |
 | [../design/what-yolo-is.md](../design/what-yolo-is.md) | subsystem boundaries; where composition could run; how logic ships | deciding *where* something executes |
 | [../design/three-decisions.md](../design/three-decisions.md) | the three open decisions in depth; the 3 engine mechanisms; the 5 projections | before starting any pack work |
 | [../design/third-party-pack-logic.md](../design/third-party-pack-logic.md) | the projector protocol; build/source tiers; trust | implementing pack logic |

@@ -7,6 +7,11 @@ system and then pulled all agent support out into 'official' packs?"*
 **Audience:** whoever is deciding whether the pack system is a sharing feature or an
 architecture. Those are different bets.
 
+**It was built.** For the system as it actually shipped — manifest schema, the origin gate,
+the host→jail load path, worked examples — read
+[pack-specification-and-loading.md](pack-specification-and-loading.md). This doc is kept as
+the argument that produced that shape, not as a description of it.
+
 **Reads with:** [agent-config-packs.md](../plans/agent-config-packs.md) (the concrete pack
 proposal — this doc is the higher-level frame around it),
 [composed-file-permissions.md](composed-file-permissions.md) (the prism's posture rules),
