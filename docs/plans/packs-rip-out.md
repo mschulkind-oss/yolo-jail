@@ -39,6 +39,22 @@ surfaces stay in Go and packs contribute *fragments to them*. Under a rip-out, s
 
 ---
 
+## 1.5 Two scope rulings that shrank this list (2026-07-26)
+
+**Packs are user-level only.** No workspace/repo-scope packs — a repo already has a git
+repo and can lay out its own config. This *deletes* rather than defers: `pack_requests`,
+`approve --from-workspace`, the in-jail-writer hole, cross-scope collision arbitration, and
+the request/grant split that was proposed for pack-declared host files (a pack is user-scope
+by construction, so `config/hostfiles.go:865-877` already covers it). Recorded as the answer
+to that open question in [agent-config-packs.md](agent-config-packs.md).
+
+**A rebuild is not a release.** Official packs are embedded in the image, so their logic can
+be compiled at **image-build time** — which costs one slow run, not a distribution event.
+This reopens Go as an implementation option for official-pack logic and un-forces decision
+2.2 below. Full argument in [../design/three-decisions.md](../design/three-decisions.md).
+
+---
+
 ## 2. What must be decided first
 
 ### 2.1 Where composition runs — **the fork** (item 3.9)
@@ -65,7 +81,14 @@ The MCP-pack idea ([§2.6](../design/packs-and-the-prism.md)) needs one decision
 pack's projection of an exported type expressed as **data** (a small mapping language) or
 **computation** (Lua)?
 
-**This one has a spec, which makes it tractable in a sitting**: the four projections that
+**No longer forced.** An earlier version of this item said Go was off the table because a new
+agent would need a yolo release. Wrong — official packs are embedded, so their logic compiles
+at image-build time. The real question is **who authors an agent pack**: if only the yolo repo
+does, compiled-Go projections are viable and cheapest; if a third party must ship one without
+touching the yolo repo, its logic cannot be Go (the `goSrc` fileset, `flake.nix:61`, only sees
+in-repo dirs). See [../design/three-decisions.md](../design/three-decisions.md).
+
+**This one has a spec, which makes it tractable in a sitting**: the five projections that
 exist in Go today are the acceptance test.
 
 | Agent | What the projection must do |

@@ -14,6 +14,56 @@ why this doc exists rather than just a longer bullet in the plan.
 
 ---
 
+## 0. Two scope rulings that came in after the first draft
+
+Both narrow the problem, and both correct an error above. Recorded first because everything
+downstream depends on them.
+
+### 0.1 Packs are USER-LEVEL ONLY
+
+**Ruling:** packs exist at user scope. There is no such thing as a workspace/repo-level pack.
+A repo that wants to configure its agents already has a git repo and can lay out whatever it
+likes in the workspace — it does not need a distribution mechanism to reach files it already
+owns.
+
+This is a bigger simplification than it sounds, because a large fraction of the pack proposal
+exists purely to make *workspace* packs safe:
+
+| Machinery | Why it existed | Under user-only |
+|---|---|---|
+| `pack_requests` in workspace scope | a repo asking for a pack it may not name itself | **gone** |
+| the "in-jail writer" hole (§7) | an agent editing the workspace could grant itself a pack | **gone** — the agent cannot write user config |
+| source-bearing scope enforcement for packs | a workspace config must not name host files | **moot** — packs are only ever user scope |
+| approvals / `approve --from-workspace` | promoting a workspace request to user scope | **gone** |
+| two-pack collision arbitration across scopes | merge order between workspace and user layers | **simplified** to one scope |
+
+**And it dissolves the `AgentSpec.HostFiles` tension entirely.** I proposed
+"a pack may request a host file; only user-scope config may grant it." With packs *already*
+user-scope-only, there is no request/grant split to build — a pack naming a host file is by
+construction a user-scope declaration, which is exactly the trust level `host_files` already
+requires. The existing rule (`config/hostfiles.go:865-877`: a source-bearing entry in
+workspace scope is a hard error, *because* a workspace config travels with the repo and is
+agent-editable) applies unchanged, and packs simply live on the correct side of it.
+
+Note what the boundary actually is, since I described it imprecisely before: user config
+**can** name `~/.ssh/id_ed25519` — `SourceBearing()` (`hostfiles.go:142`) gates on *authorship
+trust*, not on capability. The boundary is "a human editing their own user config decided
+this," not "yolo vetted the path."
+
+**Consequence for the layer stack:** the prism's `workspace` layer has zero non-test
+producers today, and packs were going to be its first. Under user-only packs, packs contribute
+at **user** scope instead — so `Inputs.Workspace` stays unfilled, and the natural producer of
+a workspace layer becomes *the workspace itself* (a repo laying out its own config), which is
+a different and simpler feature.
+
+### 0.2 A rebuild is not a release (again)
+
+See the retraction under Decision 2. Official-pack logic can be **compiled at image-build
+time**, so "adding an agent needs a yolo release" was false. This reopens Go as an
+implementation option for official packs and un-forces Decision 2.
+
+---
+
 ## Decision 1 — where does composition run?
 
 ### The question, restated precisely
@@ -133,17 +183,54 @@ Specifically: a projection is data listing named operations (`rename`, `fold`, `
 `default`, `omit_if_absent`, `suffix_key`, `route_to`, `tombstone`), with Lua as an escape
 hatch for the residue.
 
-Two reasons this is the answer rather than a compromise:
+Why this is the answer:
 
-1. **The eight operations are a closed set derived from five real cases, not a guess.** A
-   language designed to cover them is small. A language designed "for projections in
-   general" is unbounded — that is the failure mode to avoid.
-2. **The target state removes "Go" as an option**, and this is the decisive argument. If
-   projections stay compiled into yolo, then adding an agent still requires a yolo release,
-   and "all agent support is packs" is false. **Decision 2 is therefore forced by the target
-   state**, where previously it was a genuine choice. Worth stating plainly: under the old
-   bet-A framing, "projections in Go, packs are data" was defensible and probably cheapest.
-   It is no longer available.
+**The eight operations are a closed set derived from five real cases, not a guess.** A
+language designed to cover them is small. A language designed "for projections in general"
+is unbounded — that is the failure mode to avoid.
+
+### ⚠ Retracted: "the target state removes Go as an option"
+
+An earlier version of this section argued Decision 2 was **forced**, because projections in
+Go would mean "adding an agent requires a yolo release." **That is wrong**, and the error
+was conflating a *release* with an *image build* — the same mistake made once already in
+[packs-and-the-prism.md §2.5](packs-and-the-prism.md), now made a second time in a different
+costume.
+
+The distinction:
+
+| | What it is | Who it affects | Cost |
+|---|---|---|---|
+| **release** | ship a new yolo to other people | everyone | version bump, distribution |
+| **image build** | local nix build of the image derivation | one machine | one slow run, already automatic |
+
+An official pack's logic — Go *or* Lua — can be **compiled at image-build time**, because
+official packs are embedded in the image anyway (the `bundled_loopholes/` model:
+`go:embed`, one `Discover`, bundled and user dirs unioned). Adding an agent then costs an
+image build, not a release. And an image build is the ordinary path: `packages` already feeds
+`YOLO_EXTRA_PACKAGES` into the flake and the next run rebuilds and reloads itself.
+
+**So Go remains a live option for official-pack logic, and Decision 2 is a genuine choice
+again.** What it turns on is no longer "is Go available" but:
+
+- **who authors an agent pack.** If only the yolo repo does, compiled-Go projections are fine
+  and cheapest — the pack is data plus a compiled projection, both embedded. If a third party
+  should be able to ship an agent pack *without* touching the yolo repo, its logic cannot be
+  Go, because it would have to be inside `goSrc` at build time.
+- **the goSrc fileset trap** (`flake.nix:61`): the hermetic build only sees `go.mod`,
+  `go.sum`, `vendor/`, `cmd/`, `internal/`, `bundled_loopholes/`. Go pack logic must live in
+  that set. That is fine for official packs (add `packs/` to the fileset, exactly as
+  `bundled_loopholes/` is) and impossible for fetched ones.
+
+**Revised recommendation:** the typed operation set is still the right primary answer, because
+it keeps official and user packs expressing projections the *same way* — which is the whole
+"structurally identical" claim. But **Go-at-image-build-time is the correct escape hatch for
+official packs**, in place of Lua, and it is strictly better than Lua for that role: it is
+type-checked, it is testable with `go test`, and it fails at build rather than at boot. Lua
+remains the escape hatch for *fetched* packs, which cannot compile.
+
+That is a better answer than the forced one, and it exists only because the release/rebuild
+distinction was corrected.
 
 **One projection dies on its own:** gemini is being removed (tranche 0), which deletes the
 cross-type-derivation case. That does *not* mean the design can ignore it — copilot's
@@ -238,21 +325,27 @@ Its only mount consumer is `hostFileArgs` (`cli/run/hostclaude.go`), which reads
 key* and emits *no env var* — deliberately. Two entries exist today: claude's
 `.claude/settings.json` and pi's `.pi/agent/settings.json`.
 
-**But "stays in Go" is the wrong resolution under the target state** — if official packs are
-structurally identical to user packs and agent support is entirely packs, a hardcoded Go
-allowlist keyed by agent name means agent support *isn't* entirely packs.
+**"Stays in Go" is still the wrong resolution** — a hardcoded Go allowlist keyed by agent name
+means agent support isn't entirely packs. But the fix is smaller than the request/grant
+mechanism I first proposed.
 
-**The resolution already exists in the codebase, and it is scope, not hardcoding.**
-`host_files` solved the identical problem: a **source-bearing entry is user-config-only**,
-enforced by construction — `SourceLessHostFilesFrom` (`config/hostfiles.go:945`) parses
-workspace scope and returns *only* source-less entries, so a workspace config physically
-cannot name a host file. Apply the same rule to packs: **a pack may declare that it wants a
-host file; only user-scope config may grant it.** The pack requests, the human approves.
-That preserves the boundary without a per-agent Go table, and it reuses a mechanism that
-already ships.
+**Settled by §0.1: packs are user-scope only, so a pack naming a host file IS a user-scope
+declaration.** That is precisely the trust level `host_files` already demands. The existing
+rule needs no extension:
 
-This is the sub-question that most needs an explicit human ruling, because it is the one
-place where the target state and the security model actually pull against each other.
+- a source-bearing entry in **workspace** scope is a hard error, *because* a workspace config
+  travels with the repo and is agent-editable (`config/hostfiles.go:865-877`);
+- `SourceLessHostFilesFrom` (`hostfiles.go:945`) enforces it by construction — it parses
+  workspace scope and returns only source-**less** entries, so a workspace config physically
+  cannot name a host file.
+
+Packs live on the permitted side of that line by definition. **No request/grant split, no new
+mechanism, and `AgentSpec.HostFiles` can become pack data without reopening anything.**
+
+One precision worth keeping straight, because I stated it loosely before: user config **can**
+name `~/.ssh/id_ed25519`. `SourceBearing()` (`hostfiles.go:142`) gates on *authorship trust* —
+"a human editing their own user config chose this" — not on a vetted path list. The boundary
+was never that yolo approves the path; it is that an agent-editable file cannot choose it.
 
 ---
 
@@ -263,9 +356,11 @@ place where the target state and the security model actually pull against each o
    project; two of the three already exist and the third is already wanted for a correctness
    fix (2.2b). This also *shrinks* decisions 1 and 2 by removing the "2,200 lines of
    irreducible logic" fear from both.
-2. **Decision 2 is forced, so spend the time on the operation set, not the choice.** The
-   target state eliminates Go projections. Design against the eight enumerated operations;
-   fix work item 1.9 first so the Lua escape hatch is real.
+2. **Decision 2 is a real choice again — and it reduces to one question:** may a third party
+   ship an agent pack without touching the yolo repo? If no, official-pack projections can be
+   compiled Go and this is nearly free. If yes, they need the typed operation set plus Lua.
+   Design against the eight enumerated operations either way; fix work item 1.9 first so the
+   Lua path is real rather than notional.
 3. **Decision 1 last of the three** — it is the largest port, and its main new argument
    (the compose set is dynamic under no-agent-by-default) only became visible once the target
    state was fixed.
@@ -275,9 +370,9 @@ place where the target state and the security model actually pull against each o
 
 ## Still needs a human ruling
 
-- **Pack-declared host files: request-plus-user-grant, or never?** The `host_files`
-  source-bearing precedent says request-plus-grant works. This is the one real tension
-  between the target state and the credential boundary.
+- **May a third party author an agent pack without touching the yolo repo?** This is now the
+  whole of Decision 2. "Official packs only, authored in-repo" makes compiled-Go projections
+  viable and cheap; "anyone can ship an agent pack" requires the data/Lua route.
 - **Is agent/pack state per-machine or per-jail?** Today it is per-machine by accident of a
   shared `GlobalHome` — verified: agent dirs exist in an empty-agent jail. It should be a
   decision, and it determines whether pack removal can ever clean up.

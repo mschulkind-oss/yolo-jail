@@ -1529,7 +1529,29 @@ made this its single most important graft; the security lens agreed
 widening the boundary.
 
 **Answer:**
-> _(empty — fill in when decided)_
+> **DECIDED 2026-07-26: no. Packs are user-level only; drop `pack_requests` and
+> `approve --from-workspace` entirely.**
+>
+> Maintainer ruling: *"packs are only at the user level. At the repo/jail level you can
+> just design everything in the workspace however you want — you've got a git repo
+> already."*
+>
+> The reasoning that settles it: `pack_requests` existed to give a *repo* influence over
+> agent config without granting workspace scope any power. But a repo does not need a
+> distribution mechanism to reach files it already owns — it can lay out whatever it wants
+> in the workspace and commit it. Packs solve *cross-machine, cross-person* distribution,
+> which is inherently a user-level concern.
+>
+> This also retires, not defers, several things: the in-jail-writer hole (an agent editing
+> the workspace can no longer influence which packs exist), cross-scope collision
+> arbitration, and the request/grant split proposed for pack-declared host files — a pack
+> is user-scope by construction, so the existing source-bearing rule
+> (`config/hostfiles.go:865-877`) already covers it with no new mechanism.
+>
+> The adoption-lens objection ("user-config-only is an adoption wall") stands as a real
+> cost and is accepted: onboarding is a printed `yolo pack add` line in `yolo check`, one
+> copy-paste worse, and threat-model-identical. See
+> [../design/three-decisions.md §0.1](../design/three-decisions.md).
 
 ### What happens when two people attach to the same jail with different pack sets
 
