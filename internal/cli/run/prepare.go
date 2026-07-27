@@ -22,7 +22,7 @@ import (
 // declarations (writable dirs, mount targets, host-file grants) and staging is where
 // they are read. Returning them here rather than re-loading later keeps one source of
 // truth for what this run's packs declared.
-func (o *Options) refreshJailBriefings(cname string, cfg *jsonx.OrderedMap, rt string) (string, []*packload.Pack, error) {
+func (o *Options) refreshJailBriefings(cname string, cfg *jsonx.OrderedMap, rt string) (string, string, []*packload.Pack, error) {
 	netSec := cfgMap(cfg, "network")
 	netMode := o.Network
 	if netSec != nil {
@@ -70,9 +70,9 @@ func (o *Options) refreshJailBriefings(cname string, cfg *jsonx.OrderedMap, rt s
 	// Pack staging (C3), BEFORE skills so PrepareSkills can layer pack skills in.
 	// Fail-closed per A12: a declared pack that cannot be staged is an error, not a
 	// jail that silently comes up without it.
-	loadedPacks, packBriefings, err := o.stagePacks(cname)
+	packStaging, loadedPacks, packBriefings, err := o.stagePacks(cname)
 	if err != nil {
-		return "", nil, err
+		return "", "", nil, err
 	}
 
 	// PACK-DECLARED skills destinations. A pack mount whose source is "skills" says
@@ -82,7 +82,7 @@ func (o *Options) refreshJailBriefings(cname string, cfg *jsonx.OrderedMap, rt s
 	// Skills staging.
 	staging, err := agents.PrepareSkills(cname, homeDir(), agentsList, isSrc)
 	if err != nil {
-		return "", nil, err
+		return "", "", nil, err
 	}
 
 	// Resources map (sorted-key rendering handled inside BriefingContent).
@@ -124,12 +124,12 @@ func (o *Options) refreshJailBriefings(cname string, cfg *jsonx.OrderedMap, rt s
 				content = agents.PrependHostBriefing(filepath.Join(home, mt.HostOverlay), content)
 			}
 			if err := agents.WriteBriefing(filepath.Join(staging, briefingStagingName(p.Name)), content); err != nil {
-				return "", nil, err
+				return "", "", nil, err
 			}
 		}
 	}
 	_ = rt
-	return staging, loadedPacks, nil
+	return staging, packStaging, loadedPacks, nil
 }
 
 // blockedToolRecords converts NormalizeBlockedTools output (a []any of ordered

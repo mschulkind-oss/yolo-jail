@@ -67,7 +67,7 @@ func TestConfigureCodexPrismFirstMigration(t *testing.T) {
 		t.Fatal(err)
 	}
 
-	if err := ConfigureCodexPrism(e); err != nil {
+	if err := ConfigurePackByName(e, "codex"); err != nil {
 		t.Fatalf("ConfigureCodexPrism: %v", err)
 	}
 
@@ -121,7 +121,7 @@ func TestConfigureCodexPrismFirstMigration(t *testing.T) {
 func TestConfigureCodexPrismDroppedServerDoesNotResurrect(t *testing.T) {
 	// Boot 1: two yolo servers configured.
 	e := codexComputedEnv(t, `{"alpha":{"command":"/bin/alpha"},"beta":{"command":"/bin/beta"}}`)
-	if err := ConfigureCodexPrism(e); err != nil {
+	if err := ConfigurePackByName(e, "codex"); err != nil {
 		t.Fatalf("boot 1: %v", err)
 	}
 	configPath := filepath.Join(e.CodexDir(), "config.toml")
@@ -137,7 +137,7 @@ func TestConfigureCodexPrismDroppedServerDoesNotResurrect(t *testing.T) {
 	// Boot 2: beta dropped from config (only alpha remains). The user did NOT
 	// touch config.toml, so beta still sits on disk from boot 1.
 	e.Vars["YOLO_MCP_SERVERS"] = `{"alpha":{"command":"/bin/alpha"}}`
-	if err := ConfigureCodexPrism(e); err != nil {
+	if err := ConfigurePackByName(e, "codex"); err != nil {
 		t.Fatalf("boot 2: %v", err)
 	}
 	b2 := decodeCodexTOML(t, configPath)
@@ -156,7 +156,7 @@ func TestConfigureCodexPrismDroppedServerDoesNotResurrect(t *testing.T) {
 // yolo's own servers still regenerate from the computed layer.
 func TestConfigureCodexPrismUserAddedServerSurvives(t *testing.T) {
 	e := codexComputedEnv(t, `{"alpha":{"command":"/bin/alpha"}}`)
-	if err := ConfigureCodexPrism(e); err != nil {
+	if err := ConfigurePackByName(e, "codex"); err != nil {
 		t.Fatalf("boot 1: %v", err)
 	}
 	configPath := filepath.Join(e.CodexDir(), "config.toml")
@@ -174,7 +174,7 @@ func TestConfigureCodexPrismUserAddedServerSurvives(t *testing.T) {
 	}
 
 	// Boot 2: steady state — user server captured + survives, yolo server regens.
-	if err := ConfigureCodexPrism(e); err != nil {
+	if err := ConfigurePackByName(e, "codex"); err != nil {
 		t.Fatalf("boot 2: %v", err)
 	}
 	got := decodeCodexTOML(t, configPath)
@@ -194,7 +194,7 @@ func TestConfigureCodexPrismUserAddedServerSurvives(t *testing.T) {
 // banner as a user edit and capture it into the overlay forever.
 func TestCodexPrismWritesGeneratedHeaderButNotIntoBaseline(t *testing.T) {
 	e := codexComputedEnv(t, "")
-	if err := ConfigureCodexPrism(e); err != nil {
+	if err := ConfigurePackByName(e, "codex"); err != nil {
 		t.Fatal(err)
 	}
 	surface := readFile(t, filepath.Join(e.Home, ".codex", "config.toml"))
@@ -207,7 +207,7 @@ func TestCodexPrismWritesGeneratedHeaderButNotIntoBaseline(t *testing.T) {
 	}
 
 	// Second boot with the banner on disk must capture nothing.
-	if err := ConfigureCodexPrism(e); err != nil {
+	if err := ConfigurePackByName(e, "codex"); err != nil {
 		t.Fatal(err)
 	}
 	overlay := strings.TrimSpace(readFile(t, prismOverlayPath(e, "codex", "config")))

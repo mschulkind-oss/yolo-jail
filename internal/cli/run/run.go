@@ -184,7 +184,7 @@ func (o *Options) runContainer(cfg *jsonx.OrderedMap, rt, repoRoot string) int {
 	}
 
 	// Refresh the per-jail skills + AGENTS/CLAUDE staging on every invocation.
-	agentsPath, loadedPacks, err := o.refreshJailBriefings(cname, cfg, rt)
+	agentsPath, packStaging, loadedPacks, err := o.refreshJailBriefings(cname, cfg, rt)
 	if err != nil {
 		out.printf("[bold red]%s[/bold red]", err.Error())
 		return 1
@@ -336,6 +336,7 @@ func (o *Options) runContainer(cfg *jsonx.OrderedMap, rt, repoRoot string) int {
 		agentSpecs:       agentSpecs,
 		packs:            loadedPacks,
 		agentsPath:       agentsPath,
+		packStaging:      packStaging,
 		wsState:          wsState,
 		miseStore:        jailMiseStoreDir(o.inJail()),
 		hostTZ:           detectHostTZ(),

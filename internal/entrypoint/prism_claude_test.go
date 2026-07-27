@@ -22,9 +22,7 @@ func newClaudePrismEnv(t *testing.T, vars map[string]string) (*Env, string) {
 	ctx := t.TempDir()
 	ws := t.TempDir()
 
-	orig := hostClaudeDir
-	hostClaudeDir = ctx
-	t.Cleanup(func() { hostClaudeDir = orig })
+	ctx = withCtxRoot(t, ctx, "claude")
 
 	if vars == nil {
 		vars = map[string]string{}
@@ -57,7 +55,7 @@ func TestConfigureClaudePrismFirstMigration(t *testing.T) {
 		t.Fatal(err)
 	}
 
-	if err := ConfigureClaudePrism(e); err != nil {
+	if err := ConfigurePackByName(e, "claude"); err != nil {
 		t.Fatalf("ConfigureClaudePrism: %v", err)
 	}
 
@@ -140,7 +138,7 @@ func TestConfigureClaudePrismStripsHostMCPServers(t *testing.T) {
 		t.Fatal(err)
 	}
 
-	if err := ConfigureClaudePrism(e); err != nil {
+	if err := ConfigurePackByName(e, "claude"); err != nil {
 		t.Fatalf("ConfigureClaudePrism: %v", err)
 	}
 
@@ -164,7 +162,7 @@ func TestConfigureClaudePrismStripsHostMCPServers(t *testing.T) {
 func TestConfigureClaudePrismNoLSP(t *testing.T) {
 	e, _ := newClaudePrismEnv(t, map[string]string{})
 
-	if err := ConfigureClaudePrism(e); err != nil {
+	if err := ConfigurePackByName(e, "claude"); err != nil {
 		t.Fatalf("ConfigureClaudePrism: %v", err)
 	}
 
@@ -196,7 +194,7 @@ func TestConfigureClaudePrismUserSettingSurvives(t *testing.T) {
 	})
 
 	// Boot 1: first migration seeds the baseline.
-	if err := ConfigureClaudePrism(e); err != nil {
+	if err := ConfigurePackByName(e, "claude"); err != nil {
 		t.Fatalf("boot 1: %v", err)
 	}
 	settingsPath := filepath.Join(e.ClaudeDir(), "settings.json")
@@ -211,7 +209,7 @@ func TestConfigureClaudePrismUserSettingSurvives(t *testing.T) {
 
 	// Boot 2: steady state. The engine captures the edit into the overlay and
 	// re-emits it while the managed + computed layers regenerate.
-	if err := ConfigureClaudePrism(e); err != nil {
+	if err := ConfigurePackByName(e, "claude"); err != nil {
 		t.Fatalf("boot 2: %v", err)
 	}
 	got := decodeJSONFile(t, settingsPath)
@@ -239,7 +237,7 @@ func TestClaudePrismSubstitutesWorkspacePlaceholder(t *testing.T) {
 	e, _ := newClaudePrismEnv(t, nil)
 	e.Workspace = t.TempDir()
 
-	if err := ConfigureClaudePrism(e); err != nil {
+	if err := ConfigurePackByName(e, "claude"); err != nil {
 		t.Fatal(err)
 	}
 	// claude/config is the surface carrying the placeholder; it is written by

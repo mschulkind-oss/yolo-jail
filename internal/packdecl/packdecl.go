@@ -84,10 +84,39 @@ type Manifest struct {
 	// when the user already passed an equivalent (e.g. -y for --yolo).
 	FlagAliases map[string][]string `json:"flagAliases,omitempty"`
 
+	// Hooks are named IMPERATIVE capabilities the pack requests — the things that are
+	// not surface content and so cannot be expressed as layers (a credentials symlink
+	// out to the machine-global tier, per-workspace history isolation).
+	//
+	// A REQUEST, not a script. Core implements each hook and decides whether to honor it;
+	// a pack cannot supply code to run at boot, because that would collapse the origin
+	// gate — shipping content and executing code would become one grant.
+	Hooks []Hook `json:"hooks,omitempty"`
+
 	// RetireMiseTools are mise tool tokens to strip from a workspace mise.toml,
 	// for a tool that used to be installed that way and no longer is.
 	RetireMiseTools []string `json:"retireMiseTools,omitempty"`
 }
+
+// Hook is one requested imperative capability. Its extra fields are the parameters that
+// hook needs; an unused one for a given hook name is an error rather than ignored, so a
+// misplaced field is not a declaration that silently does nothing.
+type Hook struct {
+	// Name is the hook, from core's closed set (see internal/entrypoint/packhooks.go).
+	Name string `json:"name"`
+	// File is a home-relative file the hook acts on.
+	File string `json:"file,omitempty"`
+	// SharedDir is a home-relative directory from the pack's own sharedDirs, for a hook
+	// that links into the machine-global tier.
+	SharedDir string `json:"sharedDir,omitempty"`
+}
+
+// KnownHooks is the closed set of hook names, so a manifest can be validated on the HOST
+// (where `yolo check` runs) without importing the entrypoint's implementation.
+//
+// Duplicating the names is the lesser evil versus a package dependency from the host CLI
+// into the entrypoint; HookSetsAgree pins them together so the duplicate cannot drift.
+var KnownHooks = []string{"shared_credentials", "per_jail_history", "claude_plugins"}
 
 // Install declares a program the pack wants present in the jail.
 type Install struct {
@@ -185,6 +214,17 @@ func (m *Manifest) Validate() []string {
 				fmt.Sprintf("mounts[%d].hostOverlay", i), mt.HostOverlay)
 		}
 	}
+	for i, h := range m.Hooks {
+		if h.Name == "" {
+			problems = append(problems, fmt.Sprintf("hooks[%d]: missing \"name\"", i))
+		} else if !knownHook(h.Name) {
+			problems = append(problems, fmt.Sprintf(
+				"hooks[%d]: unknown hook %q (expected one of %s)", i, h.Name,
+				strings.Join(KnownHooks, ", ")))
+		}
+		problems = appendPathProblems(problems, fmt.Sprintf("hooks[%d].file", i), h.File)
+		problems = appendPathProblems(problems, fmt.Sprintf("hooks[%d].sharedDir", i), h.SharedDir)
+	}
 	for i, hf := range m.HostFiles {
 		if hf.From == "" {
 			problems = append(problems, fmt.Sprintf("hostFiles[%d]: missing \"from\"", i))
@@ -248,4 +288,13 @@ func (m *Manifest) NeedsHostAccess() []string {
 		reasons = append(reasons, "install.installerUrl (runs a fetched script)")
 	}
 	return reasons
+}
+
+func knownHook(name string) bool {
+	for _, k := range KnownHooks {
+		if k == name {
+			return true
+		}
+	}
+	return false
 }

@@ -50,7 +50,7 @@ func TestConfigureOpencodePrismFirstMigration(t *testing.T) {
 		t.Fatal(err)
 	}
 
-	if err := ConfigureOpencodePrism(e); err != nil {
+	if err := ConfigurePackByName(e, "opencode"); err != nil {
 		t.Fatalf("ConfigureOpencodePrism: %v", err)
 	}
 
@@ -119,7 +119,7 @@ func TestConfigureOpencodePrismFirstMigration(t *testing.T) {
 // delete-when-empty.
 func TestConfigureOpencodePrismEmptyMCPOmitsKey(t *testing.T) {
 	e := opencodeComputedEnv(t, "")
-	if err := ConfigureOpencodePrism(e); err != nil {
+	if err := ConfigurePackByName(e, "opencode"); err != nil {
 		t.Fatalf("ConfigureOpencodePrism: %v", err)
 	}
 	got := decodeJSONFile(t, opencodeConfigPath(e))
@@ -144,7 +144,7 @@ func TestConfigureOpencodePrismEmptyMCPOmitsKey(t *testing.T) {
 func TestConfigureOpencodePrismDroppedServerDoesNotResurrect(t *testing.T) {
 	// Boot 1: two yolo servers configured.
 	e := opencodeComputedEnv(t, `{"alpha":{"command":"/bin/alpha"},"beta":{"command":"/bin/beta"}}`)
-	if err := ConfigureOpencodePrism(e); err != nil {
+	if err := ConfigurePackByName(e, "opencode"); err != nil {
 		t.Fatalf("boot 1: %v", err)
 	}
 	configPath := opencodeConfigPath(e)
@@ -160,7 +160,7 @@ func TestConfigureOpencodePrismDroppedServerDoesNotResurrect(t *testing.T) {
 	// Boot 2: beta dropped from config (only alpha remains). The user did NOT
 	// touch opencode.json, so beta still sits on disk from boot 1.
 	e.Vars["YOLO_MCP_SERVERS"] = `{"alpha":{"command":"/bin/alpha"}}`
-	if err := ConfigureOpencodePrism(e); err != nil {
+	if err := ConfigurePackByName(e, "opencode"); err != nil {
 		t.Fatalf("boot 2: %v", err)
 	}
 	b2 := decodeJSONFile(t, configPath)
@@ -180,7 +180,7 @@ func TestConfigureOpencodePrismDroppedServerDoesNotResurrect(t *testing.T) {
 // layer.
 func TestConfigureOpencodePrismUserAddedServerSurvives(t *testing.T) {
 	e := opencodeComputedEnv(t, `{"alpha":{"command":"/bin/alpha"}}`)
-	if err := ConfigureOpencodePrism(e); err != nil {
+	if err := ConfigurePackByName(e, "opencode"); err != nil {
 		t.Fatalf("boot 1: %v", err)
 	}
 	configPath := opencodeConfigPath(e)
@@ -199,7 +199,7 @@ func TestConfigureOpencodePrismUserAddedServerSurvives(t *testing.T) {
 	}
 
 	// Boot 2: steady state — user server captured + survives, yolo server regens.
-	if err := ConfigureOpencodePrism(e); err != nil {
+	if err := ConfigurePackByName(e, "opencode"); err != nil {
 		t.Fatalf("boot 2: %v", err)
 	}
 	got := decodeJSONFile(t, configPath)

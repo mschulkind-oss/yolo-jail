@@ -16,7 +16,7 @@ func vkeys(m map[string]any) []string {
 
 // V1: does RMW-as-Compose prune a retired MCP server WITHOUT a tombstone source?
 func TestV1RMWNeedsStateToPrune(t *testing.T) {
-	s, _ := agentcfg.BuiltinManifest().Lookup("claude", "config")
+	s, _ := agentcfg.PackManifestForTest(t).Lookup("claude", "config")
 	live := map[string]any{
 		"machineID": "abc",
 		"mcpServers": map[string]any{
@@ -38,7 +38,7 @@ func TestV1RMWNeedsStateToPrune(t *testing.T) {
 
 // V2: deep-merge vs whole-entry replace divergence from writeClaudeJSON.
 func TestV2DeepMergeLeaksStaleSubkey(t *testing.T) {
-	s, _ := agentcfg.BuiltinManifest().Lookup("claude", "config")
+	s, _ := agentcfg.PackManifestForTest(t).Lookup("claude", "config")
 	live := map[string]any{"mcpServers": map[string]any{"tavily": map[string]any{
 		"command": "OLD", "args": []any{"old"}, "env": map[string]any{"STALE": "x"}}}}
 	computed := map[string]any{"mcpServers": map[string]any{"tavily": map[string]any{
@@ -51,7 +51,7 @@ func TestV2DeepMergeLeaksStaleSubkey(t *testing.T) {
 
 // V3: setDefault semantics -- live false must survive; managed true must win.
 func TestV3SetDefaultVsManaged(t *testing.T) {
-	s, _ := agentcfg.BuiltinManifest().Lookup("claude", "config")
+	s, _ := agentcfg.PackManifestForTest(t).Lookup("claude", "config")
 	live := map[string]any{"projects": map[string]any{"/workspace": map[string]any{
 		"hasTrustDialogAccepted": false, "enableAllProjectMcpServers": false}}}
 	res, _ := agentcfg.Compose(agentcfg.Inputs{Surface: s, Overlay: live})
@@ -63,7 +63,7 @@ func TestV3SetDefaultVsManaged(t *testing.T) {
 
 // V4: RMW residue -- yolo stops asserting a key; nothing removes it.
 func TestV4StopAssertingLeavesResidue(t *testing.T) {
-	s, _ := agentcfg.BuiltinManifest().Lookup("claude", "config")
+	s, _ := agentcfg.PackManifestForTest(t).Lookup("claude", "config")
 	s.Managed = nil
 	s.Defaults = nil
 	afterBoot1 := map[string]any{"projects": map[string]any{"/workspace": map[string]any{
@@ -77,7 +77,7 @@ func TestV4StopAssertingLeavesResidue(t *testing.T) {
 // V5: is a live value able to override a pack's DEFAULT under RMW? (yes -- that's the point)
 // but can it override a pack's MANAGED? (must be no)
 func TestV5CopilotDefaultsAndManaged(t *testing.T) {
-	s, _ := agentcfg.BuiltinManifest().Lookup("copilot", "config")
+	s, _ := agentcfg.PackManifestForTest(t).Lookup("copilot", "config")
 	t.Logf("copilot/config defaults=%v managed=%v", s.Defaults, s.Managed)
 	live := map[string]any{"yolo": false, "copilot_tokens": map[string]any{"t": "secret"}}
 	res, _ := agentcfg.Compose(agentcfg.Inputs{Surface: s, Overlay: live})
@@ -87,7 +87,7 @@ func TestV5CopilotDefaultsAndManaged(t *testing.T) {
 
 // V6: mise/config is TOML. Can RMW read a live TOML file back as a layer? Codec check.
 func TestV6MiseTOMLAsRMW(t *testing.T) {
-	s, _ := agentcfg.BuiltinManifest().Lookup("mise", "config")
+	s, _ := agentcfg.PackManifestForTest(t).Lookup("mise", "config")
 	t.Logf("mise/config codec=%s defaults=%v managed=%v", s.Codec, s.Defaults, s.Managed)
 	res, err := agentcfg.Compose(agentcfg.Inputs{
 		Surface:   s,

@@ -54,9 +54,12 @@ func RunDarwinBootstrap(e *Env, opts DarwinBootstrapOptions) error {
 	genStep(e, "generate_mise_config", func() error { return ConfigureMisePrism(e) })
 	genStep(e, "generate_mcp_wrappers", func() error { return GenerateMCPWrappers(e) })
 	configureGit(e)
-	for _, agent := range LoadAgents(e) {
-		configureAgent(e, agent)
+	jailPacks, packErr := LoadJailPacks(e)
+	if packErr != nil {
+		genStep(e, "load_packs", func() error { return packErr })
 	}
+	ConfigurePackSurfaces(e, jailPacks)
+	RunPackHooks(e, jailPacks)
 
 	// Stage host_files (YOLO_HOST_FILES), after the builtin agent surfaces, same
 	// as the Linux boot loop. On macos-user the launcher passes only the

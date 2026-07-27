@@ -79,60 +79,6 @@ func updateFrom(m, other *jsonx.OrderedMap) {
 	}
 }
 
-// getOr returns m[key] if present, else def. A nil map yields def.
-func getOr(m *jsonx.OrderedMap, key string, def any) any {
-	if m == nil {
-		return def
-	}
-	if v, ok := m.Get(key); ok {
-		return v
-	}
-	return def
-}
-
-// hostPiDir is the read-only mount of the host's ~/.pi/agent/ (a var so tests
-// can point it at a temp dir; mirrors boot.go's hostNvimConfig). The prism reads
-// the host settings source (settings.json — the sole yolo-declared pi host file,
-// agents.AgentSpec.HostFiles) from here.
-var hostPiDir = "/ctx/host-pi"
-
-// buildOpencodeMCPServers translates the live shared MCP servers
-// (LoadMCPServers) into opencode's NATIVE mcp schema: each server becomes an
-// object {type:"local", command:[cmd, ...args], enabled:true, environment:{...}}
-// (environment omitted when empty). This is the raw yolo-owned table BEFORE any
-// sidecar/overlay reconciliation — shared by the bespoke ConfigureOpencode
-// (which reconciles it against the yolo-managed sidecar) and
-// ConfigureOpencodePrism (which hands it to the engine as the computed layer,
-// where the last_render anchor makes the sidecar reconcile unnecessary).
-func buildOpencodeMCPServers(e *Env) *jsonx.OrderedMap {
-	configured := e.LoadMCPServers()
-	opencodeMCP := jsonx.NewOrderedMap()
-	for _, name := range configured.Keys() {
-		v, _ := configured.Get(name)
-		cfg, ok := v.(*jsonx.OrderedMap)
-		if !ok {
-			continue
-		}
-		command := []any{getOr(cfg, "command", "")}
-		if args, ok := cfg.Get("args"); ok {
-			if arr, isArr := args.([]any); isArr {
-				command = append(command, arr...)
-			}
-		}
-		entry := jsonx.NewOrderedMap()
-		entry.Set("type", "local")
-		entry.Set("command", command)
-		entry.Set("enabled", true)
-		if envVal, ok := cfg.Get("env"); ok {
-			if envMap, isMap := envVal.(*jsonx.OrderedMap); isMap && envMap.Len() > 0 {
-				entry.Set("environment", envMap)
-			}
-		}
-		opencodeMCP.Set(name, entry)
-	}
-	return opencodeMCP
-}
-
 // loadManagedSet returns the sidecar's server names as a set, or an empty set
 // on any error (the reconcile only needs the names for pop).
 func loadManagedSet(path string) []string {

@@ -1,23 +1,29 @@
 {
-  "name": "copilot",
   "install": {
-    "kind": "npm",
     "bin": "copilot",
+    "kind": "npm",
     "package": "@github/copilot"
+  },
+  "launchFlags": {
+    "copilot": [
+      "--yolo",
+      "--no-auto-update"
+    ]
   },
   "mounts": [
     {
       "from": "AGENTS.md",
-      "to": ".copilot/AGENTS.md",
-      "hostOverlay": ".copilot/AGENTS.md"
+      "hostOverlay": ".copilot/AGENTS.md",
+      "to": ".copilot/AGENTS.md"
     },
     {
       "from": "skills",
       "to": ".copilot/skills"
     }
   ],
-  "writableDirs": [
-    ".copilot"
+  "name": "copilot",
+  "retireMiseTools": [
+    "\"npm:@github/copilot\""
   ],
   "surfaces": [
     {
@@ -33,31 +39,69 @@
     {
       "agent": "copilot",
       "codec": "json",
-      "defaults": {
-        "mcpServers": {}
-      },
-      "mode": "computed",
-      "name": "mcp",
-      "path": "~/.copilot/mcp-config.json"
-    },
-    {
-      "agent": "copilot",
-      "codec": "json",
+      "computed": [
+        {
+          "from": "lsp_servers",
+          "project": {
+            "ops": [
+              {
+                "copy": {
+                  "from": "command",
+                  "omitEmpty": true
+                }
+              },
+              {
+                "copy": {
+                  "from": "args"
+                }
+              },
+              {
+                "default": {
+                  "to": "args",
+                  "value": []
+                }
+              },
+              {
+                "copy": {
+                  "from": "fileExtensions"
+                }
+              },
+              {
+                "default": {
+                  "to": "fileExtensions",
+                  "value": {}
+                }
+              }
+            ]
+          },
+          "to": "lspServers"
+        }
+      ],
       "defaults": {
         "lspServers": {}
       },
       "mode": "computed",
       "name": "lsp",
       "path": "~/.copilot/lsp-config.json"
+    },
+    {
+      "agent": "copilot",
+      "codec": "json",
+      "computed": [
+        {
+          "from": "mcp_servers",
+          "to": "mcpServers"
+        }
+      ],
+      "defaults": {
+        "mcpServers": {}
+      },
+      "mode": "computed",
+      "name": "mcp",
+      "path": "~/.copilot/mcp-config.json"
     }
   ],
-  "launchFlags": {
-    "copilot": [
-      "--yolo",
-      "--no-auto-update"
-    ]
-  },
-  "retireMiseTools": [
-    "\"npm:@github/copilot\""
+  "writableDirs": [
+    ".copilot"
   ]
 }

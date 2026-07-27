@@ -7,7 +7,7 @@ import (
 	"strings"
 	"testing"
 
-	"github.com/mschulkind-oss/yolo-jail/internal/agentcfg"
+	"github.com/mschulkind-oss/yolo-jail/internal/agentcfg/manifest"
 	"github.com/mschulkind-oss/yolo-jail/internal/config"
 )
 
@@ -69,10 +69,36 @@ func TestConfigLsListsSurfacesAndFlagsOverlay(t *testing.T) {
 	}
 }
 
-// TestConfigLsMarksUnrenderedSurface: claude/config is declared in the manifest but
-// never rendered at boot (writeClaudeJSON owns ~/.claude.json because it must never
-// be wiped). The listing must say so rather than implying the jail composes it.
+// TestConfigLsMarksUnrenderedSurface: a surface declared as `unrendered` must be listed
+// as such rather than implying the jail composes it.
+//
+// It used to pin claude/config, which was unrendered only because ~/.claude.json had a
+// bespoke Go writer that must never wipe it. That writer is gone — the surface is now
+// rmw + reconcile, actually rendered — so the test asserts the MECHANISM against a
+// synthetic surface instead of a real one that no longer has the property. Keeping it
+// pointed at claude/config would have meant re-marking a rendered file "not rendered" to
+// satisfy a test.
 func TestConfigLsMarksUnrenderedSurface(t *testing.T) {
+	s := manifest.Surface{
+		Agent: "example", Name: "config", Path: "~/.example/config.json",
+		Codec: "json", Mode: manifest.ModeUnrendered,
+	}
+	if got := surfaceMode(s); got != surfaceModeUnrendered {
+		t.Fatalf("surfaceMode = %q, want %q", got, surfaceModeUnrendered)
+	}
+	row := surfaceRow{Surface: "example/config", Path: s.Path, Codec: s.Codec,
+		Mode: surfaceModeUnrendered, Overlay: -1, Reserved: true}
+	var out bytes.Buffer
+	writeSurfaceTable(&out, []surfaceRow{row}, false)
+	if !strings.Contains(out.String(), "not rendered at boot") {
+		t.Errorf("an unrendered surface must say so in the listing:\n%s", out.String())
+	}
+}
+
+// TestConfigLsListsRenderedClaudeConfig is the other half, and the reason the test above
+// changed: ~/.claude.json IS rendered now (rmw, with its mcpServers table reconciled), so
+// the listing must not describe it as reserved.
+func TestConfigLsListsRenderedClaudeConfig(t *testing.T) {
 	withSidecarDir(t)
 	var out, errw bytes.Buffer
 	if rc := configLs([]string{"--all"}, &out, &errw, false); rc != 0 {
@@ -80,8 +106,8 @@ func TestConfigLsMarksUnrenderedSurface(t *testing.T) {
 	}
 	for _, line := range strings.Split(out.String(), "\n") {
 		if strings.HasPrefix(line, "claude/config") {
-			if !strings.Contains(line, "not rendered at boot") {
-				t.Errorf("claude/config not marked unrendered: %q", line)
+			if strings.Contains(line, "not rendered at boot") {
+				t.Errorf("claude/config is rendered now; listing still calls it reserved: %q", line)
 			}
 			return
 		}
@@ -93,7 +119,7 @@ func TestConfigLsMarksUnrenderedSurface(t *testing.T) {
 // surface with no resolvable mode would list with an empty MODE, silently
 // implying it has no posture.
 func TestConfigLsEveryBuiltinSurfaceHasAMode(t *testing.T) {
-	for _, s := range agentcfg.BuiltinManifest().Surfaces() {
+	for _, s := range surfaceManifest().Surfaces() {
 		key := s.Agent + "/" + s.Name
 		if surfaceMode(s) == "" {
 			t.Errorf("surface %s has no resolvable mode — it would list with an empty MODE", key)

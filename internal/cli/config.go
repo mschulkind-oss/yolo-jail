@@ -153,7 +153,7 @@ func configRender(args []string, out, errw io.Writer, color bool) int {
 		return 2
 	}
 
-	m := agentcfg.BuiltinManifest()
+	m := surfaceManifest()
 	surfaces := m.ForAgent(agent)
 	if len(surfaces) == 0 {
 		known := map[string]bool{}

@@ -20,93 +20,23 @@ var claudeLSPPluginOrder = []struct{ lsp, plugin string }{
 var oauthTokenKeys = []string{"accessToken", "refreshToken", "expiresAt"}
 var oauthMetadataKeys = []string{"scopes", "subscriptionType", "rateLimitTier"}
 
-// hostClaudeDir is the read-only mount of the host's ~/.claude/ (a var so tests
-// can point it at a temp dir, mirroring hostPiDir). The prism reads the host
-// settings source (settings.json — the sole yolo-declared claude host file,
-// agents.AgentSpec.HostFiles) from here.
-var hostClaudeDir = "/ctx/host-claude"
-
-// configureClaudeSideEffects runs the two non-content side effects that
-// ConfigureClaudePrism must perform, in order: the credentials symlink
-// (harvest/link ~/.claude/.credentials.json into the shared dir) and per-jail
-// history isolation (symlink history.jsonl to a per-workspace file). These are
-// runtime-state / filesystem side effects, NOT surface content, so they stay
-// bespoke under the prism — only settings.json is prism-rendered. (Host-file
-// staging is gone: settings.json is the only claude host file and the prism
-// reads it directly from the :ro mount; the old host_claude_files sibling copy
-// was retired, plan §10.4.)
-func configureClaudeSideEffects(e *Env) error {
-	if err := e.ensureCredentialsSymlink(); err != nil {
-		return err
-	}
-	return e.isolateClaudeHistory()
-}
-
-// writeClaudeJSON builds ~/.claude.json (the user-scoped MCP + workspace-project
-// surface) and its managed-MCP sidecar from the reconciled MCP-server table.
-// This is claude's RUNTIME-STATE config file — the AGENTS.md invariant is that
-// it must NEVER be wiped — so it stays BESPOKE under the prism: the mcpServers
-// block is reconciled against the yolo-managed-mcp-servers.json sidecar (prune
-// previously-managed names, then re-add the freshly configured set) and the
-// workspace project is force-trusted. Extracted so ConfigureClaude and
-// ConfigureClaudePrism share exactly one implementation of the .claude.json
-// write. `configured` is the LoadMCPServers() table the caller already loaded.
-func writeClaudeJSON(e *Env, configured *jsonx.OrderedMap) error {
-	claudeJSONPath := e.ClaudeJSONPath()
-	claudeJSON := loadObject(claudeJSONPath)
-	mcpServers := setDefaultMap(claudeJSON, "mcpServers")
-	for _, name := range loadManagedSet(e.ClaudeManagedMCPPath()) {
-		mcpServers.Delete(name)
-	}
-	updateFrom(mcpServers, configured)
-
-	projects := setDefaultMap(claudeJSON, "projects")
-	workspaceProject := setDefaultMap(projects, e.WorkspaceDir())
-	workspaceProject.Set("enableAllProjectMcpServers", true)
-	setDefault(workspaceProject, "hasTrustDialogAccepted", true)
-
-	if err := writeInPlaceString(claudeJSONPath, dumpJSONIndent2(claudeJSON)); err != nil {
-		return err
-	}
-	return writeInPlaceString(e.ClaudeManagedMCPPath(), managedSidecar(configured.Keys()))
-}
-
-// ~/.claude/history.jsonl to a per-host-workspace file. YOLO_HOST_DIR keys the
-// hash; absent -> no-op.
-func (e *Env) isolateClaudeHistory() error {
-	hostDir := e.Getenv("YOLO_HOST_DIR")
-	if hostDir == "" {
-		return nil
-	}
-	historyDir := filepath.Join(e.ClaudeDir(), "jail-history")
-	if err := os.MkdirAll(historyDir, 0o755); err != nil {
-		return err
-	}
-	h := sha256Hex(hostDir)[:12]
-	perJail := filepath.Join(historyDir, h+".jsonl")
-	// touch(exist_ok=True)
-	if !pathExists(perJail) {
-		f, err := os.OpenFile(perJail, os.O_CREATE, 0o644)
-		if err == nil {
-			_ = f.Close()
-		}
-	}
-	historyFile := filepath.Join(e.ClaudeDir(), "history.jsonl")
-	// If it's already the right symlink, nothing to do.
-	if target, err := os.Readlink(historyFile); err == nil {
-		// perJail is absolute, so a matching absolute symlink target means done.
-		if target == perJail {
-			return nil
-		}
-	}
-	_ = os.Remove(historyFile)
-	return os.Symlink(perJail, historyFile)
-}
-
-func (e *Env) ensureCredentialsSymlink() error {
-	link := filepath.Join(e.ClaudeDir(), ".credentials.json")
-	target := filepath.Join("..", ".claude-shared-credentials", ".credentials.json")
-
+// linkThroughShared replaces link with a symlink to target, harvesting an existing REAL
+// file at link into shared first.
+//
+// The harvest is the load-bearing part and the reason this is not three lines. link may
+// hold a credential this jail just obtained, so replacing it with a symlink outright would
+// destroy a live login. So: if link is already the right symlink, done; if it is a real
+// file, merge its OAuth material into shared (newest token wins) before relinking; and if
+// the merge does not apply, copy it over an empty shared file rather than dropping it.
+//
+// A failure to remove link RETURNS NIL deliberately: the tool then keeps using its own
+// local file, which works. Failing the boot because a credential could not be moved to the
+// shared tier would trade a working jail for a tidier layout.
+//
+// Reached by the shared_credentials HOOK (packhooks.go), which is how a pack asks for this
+// without core switching on a tool name. It was ensureCredentialsSymlink, with claude's
+// three paths baked in as constants.
+func (e *Env) linkThroughShared(link, shared, target string) error {
 	if cur, err := os.Readlink(link); err == nil {
 		// It's a symlink.
 		if cur == target {
@@ -115,7 +45,6 @@ func (e *Env) ensureCredentialsSymlink() error {
 		_ = os.Remove(link)
 	} else if pathExists(link) {
 		// A regular file: harvest or legacy-copy, then re-link.
-		shared := filepath.Join(e.ClaudeSharedCredentialsDir(), ".credentials.json")
 		if !e.harvestCredentialsFile(link, shared) {
 			if fi, err := os.Stat(shared); err != nil || fi.Size() == 0 {
 				if data, rerr := os.ReadFile(link); rerr == nil {

@@ -33,7 +33,7 @@ func TestEnvWorkspaceOverride(t *testing.T) {
 	e := NewEnv(map[string]string{"HOME": home})
 	e.Workspace = ws
 
-	if err := ConfigureClaudePrism(e); err != nil {
+	if err := ConfigurePackByName(e, "claude"); err != nil {
 		t.Fatal(err)
 	}
 	got := string(mustRead(t, e.ClaudeJSONPath()))

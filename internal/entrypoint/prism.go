@@ -302,33 +302,6 @@ func generatedHeader(surface manifest.Surface) string {
 		"# input instead (`yolo config-ref`).\n"
 }
 
-// renderSurfaceComputed runs a STATELESS render for one builtin surface and
-// writes ONLY the surface file — no last_render, no overlay, no host source.
-// It is the prism path for PURE-OVERWRITE siblings: files yolo regenerates from
-// live config every boot and whose in-jail edits are deliberately NOT preserved
-// (copilot's mcp-config.json / lsp-config.json, agy's mcp_config.json). Routing
-// them through renderSurfaceStateful would be wrong — that helper would begin
-// capturing edits into an overlay, silently converting an intentional overwrite
-// into an edit-preserving surface. So this calls the pure engine (agentcfg.Compose,
-// the same function `yolo config render` uses) directly: defaults<computed, then
-// transform, then managed, encode. The dynamic table rides the computed layer;
-// the surface's empty-wrapper default supplies the shape when the table is empty.
-//
-// The Lua transform IS applied (identically to `yolo config render` and to the
-// stateful path), so a user config.lua can still reshape these files — the
-// bespoke writers never ran a transform, but applying it is the strictly more
-// capable superset and keeps every surface's transform behavior uniform; the
-// yolo-owned content is a single wrapper key a transform would only extend.
-func renderSurfaceComputed(e *Env, agent, name string, computed map[string]any) error {
-	surface, ok := agentcfg.BuiltinManifest().Lookup(agent, name)
-	if !ok {
-		return &missingSurfaceError{agent: agent, name: name}
-	}
-	// Builtin computed siblings have no host source; host bytes stay nil.
-	_, err := renderSurfaceStatelessSurface(e, surface, nil, computed)
-	return err
-}
-
 // renderSurfaceStatelessSurface is the surface-taking core of the stateless
 // render. Unlike renderSurfaceComputed it accepts hostBytes: host_files
 // readonly/copy/once modes seed the `host` layer from a /ctx mount (or inline
@@ -388,192 +361,13 @@ func expandHomePath(e *Env, p string) string {
 	return p
 }
 
-// ConfigurePiPrism is the prism-backed replacement for ConfigurePi (§4.3, the
-// proof-of-concept surface). It:
+// renderSurfaceRMWSurface is the surface-taking core of the RMW render, so a
+// PACK-DECLARED surface reaches the identical mechanism a builtin does. See
+// renderSurfaceRMW for what RMW is and why it exists.
 //
-//  1. renders ~/.pi/agent/settings.json through the engine with §5 overlay
-//     capture and the §3.2 first-migration bootstrap;
-//  2. on the first migration only, deletes the obsolete
-//     yolo-host-synced-settings.json snapshot (§4.7 orphan cleanup).
-//
-// The host source is /ctx/host-pi/settings.json — settings.json is the sole
-// yolo-declared pi host file (agents.AgentSpec.HostFiles, plan §10.4), so the
-// CLI binds it there whenever it exists on the host. Read fail-open: a missing
-// mount (host file absent, or macos-user with no /ctx) yields nil and the render
-// falls back to defaults<managed. There is no sibling-file staging any more —
-// retiring host_pi_files dropped the open-ended sibling tree (D2).
-func ConfigurePiPrism(e *Env) error {
-	if err := os.MkdirAll(e.PiDir(), 0o755); err != nil {
-		return err
-	}
-
-	hostBytes, _ := os.ReadFile(filepath.Join(hostPiDir, "settings.json"))
-
-	out, err := renderSurfaceStateful(e, "pi", "settings", hostBytes, nil)
-	if err != nil {
-		return err
-	}
-
-	// §4.7: the three-way-merge snapshot is dead under the prism. Delete it once,
-	// on the migration boot, so a stale file never confuses a future reader.
-	if out.FirstMigration {
-		_ = os.Remove(e.PiHostSettingsSnapshotPath())
-	}
-	return nil
-}
-
-// ConfigureCopilotPrism is the prism-backed replacement for ConfigureCopilot
-// (§4.6, the zero-stale surface — the cleanest first non-agent-config port). It:
-//
-//  1. renders ~/.copilot/config.json through the engine with §5 overlay capture
-//     and the §3.2 first-migration bootstrap. Copilot has NO host mount — the
-//     file is purely yolo-owned — so hostBytes is nil and the render is
-//     defaults<overlay<managed (the sole default being {"yolo": true});
-//  2. writes the dynamic mcp-config.json / lsp-config.json siblings exactly as
-//     the bespoke path does (they are pure overwrites regenerated from live
-//     config every boot — the prism owns only the static config.json).
-//
-// There is no orphan-file cleanup here: copilot never had a snapshot sidecar
-// (nothing to migrate away from), which is precisely why it is the zero-stale
-// first porting target.
-func ConfigureCopilotPrism(e *Env) error {
-	if err := os.MkdirAll(e.CopilotDir(), 0o755); err != nil {
-		return err
-	}
-	// config.json holds copilot's LIVE OAUTH STATE (copilot_tokens,
-	// logged_in_users, last_logged_in_user), so it is READ-MODIFY-WRITE, not
-	// composed (B2). yolo asserts only its own `yolo: true` default here; everything
-	// else is copilot's.
-	//
-	// It used to render statefully, which put the OAuth token on the capture path:
-	// the token survived only via <workspace>/.yolo/prism/copilot-config.overlay.json
-	// — a file a user may well commit — and a lost baseline wiped it outright (the B1
-	// bug). RMW keeps the secret out of the capture path entirely rather than
-	// protecting it there.
-	if err := renderSurfaceRMW(e, "copilot", "config"); err != nil {
-		return err
-	}
-	// Dynamic mcp-config.json / lsp-config.json siblings: pure per-boot overwrites
-	// (no in-jail edits preserved) rendered via the stateless compute path. The
-	// live tables ride the computed layer; each surface's empty-wrapper default
-	// supplies the shape when the table is empty.
-	if err := renderSurfaceComputed(e, "copilot", "mcp", map[string]any{
-		"mcpServers": prismMap(e.LoadMCPServers()),
-	}); err != nil {
-		return err
-	}
-	return renderSurfaceComputed(e, "copilot", "lsp", map[string]any{
-		"lspServers": buildCopilotLSPServers(e),
-	})
-}
-
-// buildCopilotLSPServers reshapes the live LSP config (LoadLSPServers) into
-// copilot's lsp-config.json entry shape — {command, args, fileExtensions} per
-// server — as the engine's plain value model. It mirrors the old
-// writeCopilotDynamicConfigs reshape exactly, except a commandless entry's
-// command is OMITTED rather than emitted as an explicit null: a null leaf is an
-// RFC-7386 tombstone the engine would drop anyway, and a commandless LSP server
-// is nonfunctional either way (documented byte-gap on the copilot/lsp surface).
-func buildCopilotLSPServers(e *Env) map[string]any {
-	servers := LoadLSPServers(e)
-	out := map[string]any{}
-	for _, name := range servers.Keys() {
-		v, _ := servers.Get(name)
-		cfg, _ := v.(*jsonx.OrderedMap)
-		entry := map[string]any{
-			"args":           prismValue(getOr(cfg, "args", []any{})),
-			"fileExtensions": prismValue(getOr(cfg, "fileExtensions", jsonx.NewOrderedMap())),
-		}
-		if cmd := getOr(cfg, "command", nil); cmd != nil {
-			entry["command"] = prismValue(cmd)
-		}
-		out[name] = entry
-	}
-	return out
-}
-
-// ConfigureAgyPrism configures the Google Antigravity CLI (agy). AGY is a
-// brand-new agent with zero legacy bespoke state, so — unlike the migrating
-// agents that sit behind the YOLO_PRISM_SURFACES gate while their bespoke
-// writers are retired — it is born DIRECTLY on the prism: there is no bespoke
-// ConfigureAgy and no gate. boot.go calls this unconditionally. It:
-//
-//  1. renders ~/.gemini/antigravity-cli/settings.json through the engine with §5
-//     overlay capture and the §3.2 first-migration bootstrap. agy has NO host
-//     mount (yolo owns the file, like copilot's config.json — §4.6), so
-//     hostBytes is nil and the render is defaults<overlay<managed; the sole
-//     managed key permissionMode="allow" is the YOLO posture (agy never
-//     re-prompts — the container is the sandbox), so a user edit reverts;
-//  2. writes the dynamic mcp_config.json sibling from live MCP config — a pure
-//     per-boot overwrite (no in-jail edits preserved), exactly like copilot's
-//     mcp-config.json. The prism owns only the static settings.json.
-//
-// There is no orphan-file cleanup: agy never had a bespoke snapshot sidecar
-// (nothing to migrate away from) — the same zero-stale property that made
-// copilot the first non-agent-config port.
-func ConfigureAgyPrism(e *Env) error {
-	if err := os.MkdirAll(e.AgyDir(), 0o755); err != nil {
-		return err
-	}
-	// settings.json: no host source (yolo owns it outright), no computed layer.
-	if _, err := renderSurfaceStateful(e, "agy", "settings", nil, nil); err != nil {
-		return err
-	}
-	// Dynamic mcp_config.json sibling: a pure per-boot overwrite (no in-jail edits
-	// preserved) rendered via the stateless compute path. The live MCP table rides
-	// the computed layer; the surface's empty {"mcpServers":{}} default supplies
-	// the shape when the table is empty.
-	return renderSurfaceComputed(e, "agy", "mcp", map[string]any{
-		"mcpServers": prismMap(e.LoadMCPServers()),
-	})
-}
-
-// renderSurfaceRMW renders one surface by READ-MODIFY-WRITE instead of composition
-// (B2 / the third engine mechanism, alongside stateful capture and computed
-// overwrite).
-//
-// It exists for surfaces that hold LIVE AGENT STATE — credentials, session records,
-// telemetry the agent writes itself — where composition is the wrong model in two
-// ways:
-//
-//  1. Capture is a data-loss risk. A composed surface's content only survives via
-//     the overlay sidecar, so a lost or corrupt baseline puts the agent's state at
-//     the mercy of the recovery path. B1 made that path adopt rather than discard,
-//     which fixes the wipe — but it also means an OAuth TOKEN ends up copied into
-//     <workspace>/.yolo/prism/*.overlay.json, a file the user may commit. Not
-//     composing the surface at all keeps the secret out of the capture path
-//     entirely, which is strictly better than protecting it there.
-//  2. There is nothing to regenerate. yolo asserts a handful of keys into these
-//     files and has no opinion about the rest, so "regenerate from layers" describes
-//     the wrong operation: the file is the agent's, with a few yolo-owned keys in it.
-//
-// The mechanism is the one writeClaudeJSON has always used for ~/.claude.json,
-// generalized: load the existing object, set the surface's Managed keys (yolo
-// re-asserts these every boot), fill its Defaults only where absent (a value the
-// agent already chose wins), write back in place. Unknown keys are preserved
-// untouched — that is the whole point. No sidecars are written or read.
-//
-// SCOPE, stated because it is easy to over-read what this covers (F7): it handles a
-// STATIC asserted-key set. It cannot express a REMOVAL from a dynamic table, because
-// with no record of what yolo asserted last boot there is no way to distinguish "the
-// agent added this server" from "yolo added it and config has since dropped it" —
-// they look identical on disk.
-//
-// That is exactly why writeClaudeJSON still keeps its managed-MCP sidecar
-// (claude.go:58,71): the sidecar IS that record, and mcpServers is a dynamic table
-// where a dropped entry must actually disappear. So claude/config stays on its bespoke
-// writer rather than moving here, and this serves surfaces whose yolo-owned keys are
-// declared and static — copilot/config being the case it was built for.
-//
-// Generalizing to dynamic tables needs a third artifact (a per-surface record of the
-// last asserted key set) plus a `config reset` story for it, since reset today is
-// defined over the capture sidecars. Deliberately not built on speculation: nothing
-// yet needs it that writeClaudeJSON does not already handle.
-func renderSurfaceRMW(e *Env, agent, name string) error {
-	surface, ok := agentcfg.BuiltinManifest().Lookup(agent, name)
-	if !ok {
-		return &missingSurfaceError{agent: agent, name: name}
-	}
+// tables supplies the live data for a `reconcile` declaration; pass nil for a surface
+// that has none (the static-key case RMW was originally built for).
+func renderSurfaceRMWSurface(e *Env, surface manifest.Surface, tables map[string]map[string]any) error {
 	surface = agentcfg.SubstituteWorkspace(surface, e.WorkspaceDir())
 
 	path := expandHomePath(e, surface.Path)
@@ -582,6 +376,11 @@ func renderSurfaceRMW(e *Env, agent, name string) error {
 	}
 	obj := loadObject(path)
 
+	// Reconciled dynamic tables FIRST, so a managed key nested under the same parent
+	// still wins the floor.
+	if err := reconcileRMWTables(e, surface, obj, tables); err != nil {
+		return err
+	}
 	// Managed: yolo owns these outright, so re-assert every boot.
 	if managed, isMap := surface.Managed.(map[string]any); isMap {
 		applyRMWLayer(obj, managed, true)
@@ -591,6 +390,78 @@ func renderSurfaceRMW(e *Env, agent, name string) error {
 		applyRMWLayer(obj, defaults, false)
 	}
 	return writeInPlaceString(path, dumpJSONIndent2(obj))
+}
+
+// reconcileRMWTables applies each `reconcile` computed declaration to an RMW surface:
+// drop the entries yolo asserted last time, add the ones it asserts now, leave every
+// other entry alone.
+//
+// The SIDECAR is the whole mechanism. Without a record of what yolo put there, removing
+// a dropped entry is indistinguishable from deleting one the agent added itself — so a
+// reconcile with a missing sidecar removes NOTHING and only adds. That is the safe
+// direction: a stale entry is a wrong config the user can see and fix, while deleting an
+// agent's own MCP server is data loss they cannot.
+func reconcileRMWTables(e *Env, surface manifest.Surface, obj *jsonx.OrderedMap, tables map[string]map[string]any) error {
+	for _, c := range surface.Computed {
+		if !c.Reconcile {
+			continue
+		}
+		if c.To == "" {
+			return fmt.Errorf("surface %s/%s: reconcile needs a \"to\"", surface.Agent, surface.Name)
+		}
+		table := tables[c.From]
+		if c.Project != nil {
+			projected, err := c.Project.Apply(table)
+			if err != nil {
+				return fmt.Errorf("surface %s/%s: %w", surface.Agent, surface.Name, err)
+			}
+			table = projected
+		}
+		dest := setDefaultMap(obj, c.To)
+		sidecar := rmwManagedPath(e, surface, c.To)
+		if err := os.MkdirAll(filepath.Dir(sidecar), 0o755); err != nil {
+			return err
+		}
+		for _, name := range loadManagedSet(sidecar) {
+			dest.Delete(name)
+		}
+		names := make([]string, 0, len(table))
+		for name := range table {
+			names = append(names, name)
+		}
+		sort.Strings(names)
+		for _, name := range names {
+			// A plain map[string]any goes in as-is: the jsonx encoder handles it and
+			// sorts its keys, so the write is deterministic without a lift back into
+			// an OrderedMap.
+			dest.Set(name, table[name])
+		}
+		if err := writeInPlaceString(sidecar, managedSidecar(names)); err != nil {
+			return err
+		}
+	}
+	return nil
+}
+
+// rmwManagedPath is the sidecar recording which entries yolo asserted into one reconciled
+// table.
+//
+// It lives in the prism sidecar dir (<workspace>/.yolo/prism/) — NOT beside the surface
+// file, which was the first attempt and which a real jail rejected immediately: the jail
+// home is mounted :ro except for the dirs a pack declares writable, so a surface at the
+// home ROOT (~/.claude.json) has no writable directory beside it at all. The failure was
+// `read-only file system`, and A12 correctly halted the boot rather than shipping a jail
+// with a silently unrecorded managed set.
+//
+// The `.managed.json` suffix keeps it out of `yolo config reset`'s way, which removes
+// exactly `<agent>-<name>.overlay.json` and `.last_render`. That separation is deliberate
+// rather than incidental: those two are the CAPTURE artifacts of a composed surface and
+// resetting them restores the pure render, while this is bookkeeping for a file yolo does
+// not own. Deleting it would make yolo forget what it added and ORPHAN every entry it had
+// put there — a leak, not a reset.
+func rmwManagedPath(e *Env, surface manifest.Surface, key string) string {
+	return filepath.Join(prismSidecarDir(e),
+		surface.Agent+"-"+surface.Name+"-"+key+".managed.json")
 }
 
 // sortedKeys returns layer's keys in a deterministic order, so a re-render writes

@@ -20,7 +20,6 @@ import (
 	"sort"
 	"strings"
 
-	"github.com/mschulkind-oss/yolo-jail/internal/agentcfg"
 	"github.com/mschulkind-oss/yolo-jail/internal/agentcfg/manifest"
 	"github.com/mschulkind-oss/yolo-jail/internal/config"
 	"github.com/mschulkind-oss/yolo-jail/internal/jsonx"
@@ -111,7 +110,7 @@ func configLs(args []string, out, errw io.Writer, color bool) int {
 // user-declared host_files entry.
 func collectSurfaceRows(all bool) []surfaceRow {
 	var rows []surfaceRow
-	for _, s := range agentcfg.BuiltinManifest().Surfaces() {
+	for _, s := range surfaceManifest().Surfaces() {
 		key := s.Agent + "/" + s.Name
 		mode := surfaceMode(s)
 		row := surfaceRow{

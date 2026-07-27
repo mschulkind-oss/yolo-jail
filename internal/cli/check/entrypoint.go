@@ -77,58 +77,37 @@ func (o *Options) runEntrypointPreflight(r *reporter, _, workspace string, merge
 		}
 	}
 
-	// Every agent renders through the prism now (the bespoke Configure* writers
-	// are gone). The preflight exercises the real boot path — Configure*Prism —
-	// for each. These write §5 sidecars under YOLO_WORKSPACE, pointed at the temp
-	// home above so the dry run never touches the live workspace.
-	agentWriters := map[string]func(*entrypoint.Env) error{
-		"copilot":  entrypoint.ConfigureCopilotPrism,
-		"claude":   entrypoint.ConfigureClaudePrism,
-		"opencode": entrypoint.ConfigureOpencodePrism,
-		"pi":       entrypoint.ConfigurePiPrism,
-		"codex":    entrypoint.ConfigureCodexPrism,
-		"agy":      entrypoint.ConfigureAgyPrism,
-	}
-	for _, agent := range entrypoint.LoadAgents(e) {
-		if writer, ok := agentWriters[agent]; ok {
-			if err := writer(e); err != nil {
-				return err.Error()
-			}
+	// Render EVERY embedded pack's surfaces, then parse each one back.
+	//
+	// Was two agent-keyed maps: which writer to call per agent, and which files to parse
+	// per agent. Both are now derivable from the pack's own declarations — the surface
+	// says where it writes and in which codec — so the preflight covers a pack it has
+	// never heard of, which is the point of the whole transition. These write §5 sidecars
+	// under YOLO_WORKSPACE, pointed at the temp home above so the dry run never touches
+	// the live workspace.
+	for _, name := range entrypoint.EmbeddedPackNames() {
+		if err := entrypoint.ConfigurePackByName(e, name); err != nil {
+			return err.Error()
 		}
 	}
-
-	// Validate that each agent's output files are parseable.
-	type outputSpec struct {
-		path  string
-		parse func([]byte) error
-	}
-	parseJSON := func(data []byte) error {
-		_, err := jsonx.Decode(data)
-		return err
-	}
-	agentOutputs := map[string][]outputSpec{
-		"copilot": {
-			{filepath.Join(e.CopilotDir(), "mcp-config.json"), parseJSON},
-			{filepath.Join(e.CopilotDir(), "lsp-config.json"), parseJSON},
-		},
-		"gemini":   {{filepath.Join(e.GeminiDir(), "settings.json"), parseJSON}},
-		"claude":   {{filepath.Join(e.ClaudeDir(), "settings.json"), parseJSON}},
-		"opencode": {{filepath.Join(e.OpencodeDir(), "opencode.json"), parseJSON}},
-		"pi":       {{filepath.Join(e.PiDir(), "settings.json"), parseJSON}},
-		"codex":    {{filepath.Join(e.CodexDir(), "config.toml"), parseToml}},
-		"agy": {
-			{filepath.Join(e.AgyDir(), "settings.json"), parseJSON},
-			{filepath.Join(e.AgyDir(), "mcp_config.json"), parseJSON},
-		},
-	}
-	for _, agent := range entrypoint.LoadAgents(e) {
-		for _, spec := range agentOutputs[agent] {
-			data, err := os.ReadFile(spec.path)
-			if err != nil {
-				return agent + ": " + err.Error()
+	for _, sf := range entrypoint.EmbeddedPackSurfaces(e) {
+		if sf.Unrendered {
+			// yolo does not write it, so there is nothing to parse. Reading it would
+			// report a missing file for a surface behaving exactly as declared.
+			continue
+		}
+		data, err := os.ReadFile(sf.Path)
+		if err != nil {
+			return sf.Label + ": " + err.Error()
+		}
+		switch sf.Codec {
+		case "toml":
+			if err := parseToml(data); err != nil {
+				return sf.Label + " config parse error: " + err.Error()
 			}
-			if err := spec.parse(data); err != nil {
-				return agent + " config parse error: " + err.Error()
+		case "json":
+			if _, err := jsonx.Decode(data); err != nil {
+				return sf.Label + " config parse error: " + err.Error()
 			}
 		}
 	}

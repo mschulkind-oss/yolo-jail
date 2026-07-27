@@ -1,33 +1,30 @@
 {
-  "name": "pi",
-  "install": {
-    "kind": "npm",
-    "bin": "pi",
-    "package": "@earendil-works/pi-coding-agent",
-    "flags": [
-      "--ignore-scripts"
-    ]
-  },
-  "mounts": [
-    {
-      "from": "AGENTS.md",
-      "to": ".pi/agent/AGENTS.md",
-      "hostOverlay": ".pi/agent/AGENTS.md"
-    },
-    {
-      "from": "skills",
-      "to": ".pi/agent/skills"
-    }
-  ],
-  "writableDirs": [
-    ".pi"
-  ],
   "hostFiles": [
     {
       "from": ".pi/agent/settings.json",
       "to": "host-pi/settings.json"
     }
   ],
+  "install": {
+    "bin": "pi",
+    "flags": [
+      "--ignore-scripts"
+    ],
+    "kind": "npm",
+    "package": "@earendil-works/pi-coding-agent"
+  },
+  "mounts": [
+    {
+      "from": "AGENTS.md",
+      "hostOverlay": ".pi/agent/AGENTS.md",
+      "to": ".pi/agent/AGENTS.md"
+    },
+    {
+      "from": "skills",
+      "to": ".pi/agent/skills"
+    }
+  ],
+  "name": "pi",
   "surfaces": [
     {
       "agent": "pi",
@@ -39,7 +36,13 @@
         "defaultProjectTrust": "always"
       },
       "name": "settings",
-      "path": "~/.pi/agent/settings.json"
+      "path": "~/.pi/agent/settings.json",
+      "retireOnFirstRender": [
+        "yolo-host-synced-settings.json"
+      ]
     }
+  ],
+  "writableDirs": [
+    ".pi"
   ]
 }

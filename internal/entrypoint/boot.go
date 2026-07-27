@@ -318,26 +318,14 @@ func installClaudePlugins(e *Env) {
 		}
 	}
 
-	claudeBin := filepath.Join(e.Home, ".local", "bin", "claude")
-	if !pathExists(claudeBin) {
-		claudeBin = "claude"
-	}
-	runClaude := func(args ...string) {
-		cmd := exec.Command(claudeBin, args...)
-		cmd.Env = envWith(os.Environ(), "YOLO_BYPASS_SHIMS", "1")
-		cmd.Stdout = nil
-		cmd.Stderr = nil
-		_ = runWithTimeoutSeconds(cmd, 30)
-	}
-
 	lspServers := LoadLSPServers(e)
 	for _, pm := range claudeLSPPluginOrder {
 		_, wanted := lspServers.Get(pm.lsp)
 		_, present := installed[pm.plugin]
 		if wanted && !present {
-			runClaude("plugins", "install", pm.plugin)
+			runClaudeCLI(e, "plugins", "install", pm.plugin)
 		} else if present && !wanted {
-			runClaude("plugins", "uninstall", pm.plugin)
+			runClaudeCLI(e, "plugins", "uninstall", pm.plugin)
 		}
 	}
 }
@@ -455,11 +443,18 @@ func Main(args []string) error {
 	// Skills are mounted :ro by the CLI — no entrypoint action needed.
 	p.mark("skills_skipped")
 
-	// Configure only the selected agents (YOLO_AGENTS), in order.
-	for _, agent := range LoadAgents(e) {
-		configureAgent(e, agent)
-		p.mark("configure_" + agent)
+	// Render every PACK-DECLARED surface. One loop over declarations — no switch on
+	// tool names, because core does not know any (see packsurfaces.go).
+	jailPacks, packErr := LoadJailPacks(e)
+	if packErr != nil {
+		// A pack that parsed on the host and not here means the mounted tree disagrees
+		// with what was staged. Fatal (A12): rendering a subset would yield a jail whose
+		// config is quietly incomplete.
+		genStep(e, "load_packs", func() error { return packErr })
 	}
+	ConfigurePackSurfaces(e, jailPacks)
+	RunPackHooks(e, jailPacks)
+	p.mark("configure_pack_surfaces")
 
 	// Stage the user's host_files entries (YOLO_HOST_FILES) through the same
 	// composition engine, after the builtin agent surfaces so a user entry never
@@ -518,33 +513,6 @@ func genFailuresError(e *Env) error {
 	}
 	return fmt.Errorf("refusing to start the jail: %d config generator(s) failed:\n  - %s",
 		len(fails), strings.Join(fails, "\n  - "))
-}
-
-// configureAgent runs the content writer for a selected agent, then re-attaches
-// any deferred subprocess side effect for that agent. Unknown agents are no-ops.
-func configureAgent(e *Env, agent string) {
-	// Every surface renders through the prism (the agentcfg composition engine):
-	// the surface-by-surface cutover is complete, so there is one config path, not
-	// a gated pair — the bespoke Configure* writers are gone. Each Configure*Prism
-	// owns its static surface plus any dynamic siblings/side effects (claude's
-	// .claude.json + credentials + history, copilot's mcp/lsp siblings, pi's
-	// host-file staging).
-	switch agent {
-	case "claude":
-		genStep(e, "configure_claude", func() error { return ConfigureClaudePrism(e) })
-		// Deferred side effect: claude plugins install/uninstall (configure_claude tail).
-		installClaudePlugins(e)
-	case "copilot":
-		genStep(e, "configure_copilot", func() error { return ConfigureCopilotPrism(e) })
-	case "opencode":
-		genStep(e, "configure_opencode", func() error { return ConfigureOpencodePrism(e) })
-	case "pi":
-		genStep(e, "configure_pi", func() error { return ConfigurePiPrism(e) })
-	case "codex":
-		genStep(e, "configure_codex", func() error { return ConfigureCodexPrism(e) })
-	case "agy":
-		genStep(e, "configure_agy", func() error { return ConfigureAgyPrism(e) })
-	}
 }
 
 // genStep runs a config generator. A failure is FATAL (A12 ruling: "a pack

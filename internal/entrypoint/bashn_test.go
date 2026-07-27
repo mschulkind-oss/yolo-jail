@@ -185,17 +185,17 @@ func generateAll(t *testing.T, e *Env) {
 	for _, agent := range LoadAgents(e) {
 		switch agent {
 		case "claude":
-			must(ConfigureClaudePrism(e))
+			must(ConfigurePackByName(e, "claude"))
 		case "copilot":
-			must(ConfigureCopilotPrism(e))
+			must(ConfigurePackByName(e, "copilot"))
 		case "opencode":
-			must(ConfigureOpencodePrism(e))
+			must(ConfigurePackByName(e, "opencode"))
 		case "pi":
-			must(ConfigurePiPrism(e))
+			must(ConfigurePackByName(e, "pi"))
 		case "codex":
-			must(ConfigureCodexPrism(e))
+			must(ConfigurePackByName(e, "codex"))
 		case "agy":
-			must(ConfigureAgyPrism(e))
+			must(ConfigurePackByName(e, "agy"))
 		}
 	}
 	must(GenerateCglimitScript(e))

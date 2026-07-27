@@ -18,9 +18,12 @@ func prismTestEnv(t *testing.T) (*Env, string) {
 	ctx := t.TempDir()
 	ws := t.TempDir()
 
-	orig := hostPiDir
-	hostPiDir = ctx
-	t.Cleanup(func() { hostPiDir = orig })
+	// The host layer now arrives at the /ctx path the PACK's hostFiles declaration
+	// resolves to (packload.CtxPath), so the fixture redirects the /ctx ROOT and lays the
+	// file out under the same per-pack subdir a real mount would. Pointing a per-agent
+	// global at a temp dir is what this replaced — that global existed only because the
+	// host layer had nowhere else to say where it came from.
+	ctx = withCtxRoot(t, ctx, "pi")
 
 	e := &Env{
 		Home:      home,
@@ -74,7 +77,7 @@ func TestConfigurePiPrismFirstMigration(t *testing.T) {
 		t.Fatal(err)
 	}
 
-	if err := ConfigurePiPrism(e); err != nil {
+	if err := ConfigurePackByName(e, "pi"); err != nil {
 		t.Fatalf("ConfigurePiPrism: %v", err)
 	}
 
@@ -137,7 +140,7 @@ func TestConfigurePiPrismSteadyStateEditSurvives(t *testing.T) {
 	}
 
 	// Boot 1: first migration seeds the baseline.
-	if err := ConfigurePiPrism(e); err != nil {
+	if err := ConfigurePackByName(e, "pi"); err != nil {
 		t.Fatalf("boot 1: %v", err)
 	}
 	settingsPath := filepath.Join(e.PiDir(), "settings.json")
@@ -153,7 +156,7 @@ func TestConfigurePiPrismSteadyStateEditSurvives(t *testing.T) {
 
 	// Boot 2: steady state. The engine must capture the edit into the overlay and
 	// re-emit it, so both survive the regen even though the host says theme=dark.
-	if err := ConfigurePiPrism(e); err != nil {
+	if err := ConfigurePackByName(e, "pi"); err != nil {
 		t.Fatalf("boot 2: %v", err)
 	}
 	got := decodeJSONFile(t, settingsPath)
@@ -181,7 +184,7 @@ func TestConfigurePiPrismSteadyStateEditSurvives(t *testing.T) {
 func TestConfigurePiPrismNoHostSettings(t *testing.T) {
 	e, _ := prismTestEnv(t) // no settings.json seeded on the mount
 
-	if err := ConfigurePiPrism(e); err != nil {
+	if err := ConfigurePackByName(e, "pi"); err != nil {
 		t.Fatalf("ConfigurePiPrism: %v", err)
 	}
 	got := decodeJSONFile(t, filepath.Join(e.PiDir(), "settings.json"))

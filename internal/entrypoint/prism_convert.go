@@ -23,6 +23,3 @@ import "github.com/mschulkind-oss/yolo-jail/internal/jsonx"
 // prismMap deeply converts a jsonx OrderedMap into the engine's plain
 // map[string]any model. A nil map yields nil (an absent computed layer).
 var prismMap = jsonx.PlainMap
-
-// prismValue deeply converts one jsonx value into the engine's generic model.
-var prismValue = jsonx.Plain

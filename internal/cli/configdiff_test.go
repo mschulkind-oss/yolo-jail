@@ -5,8 +5,6 @@ import (
 	"path/filepath"
 	"strings"
 	"testing"
-
-	"github.com/mschulkind-oss/yolo-jail/internal/agentcfg"
 )
 
 // A6: config-ref promised "`yolo config reset` re-seeds" a `once` host_files
@@ -43,7 +41,7 @@ func TestResetTruncatesSurfaceSoAdoptionFindsNothing(t *testing.T) {
 	home := t.TempDir()
 	t.Setenv("HOME", home)
 
-	s, ok := agentcfg.BuiltinManifest().Lookup("copilot", "config")
+	s, ok := surfaceManifest().Lookup("copilot", "config")
 	if !ok {
 		t.Fatal("missing copilot/config")
 	}
@@ -76,7 +74,7 @@ func TestResetTruncatesSurfaceSoAdoptionFindsNothing(t *testing.T) {
 func TestResetTruncationLeavesAbsentFileAbsent(t *testing.T) {
 	home := t.TempDir()
 	t.Setenv("HOME", home)
-	s, _ := agentcfg.BuiltinManifest().Lookup("copilot", "config")
+	s, _ := surfaceManifest().Lookup("copilot", "config")
 	if err := truncateSurfaceToPureRender(s); err != nil {
 		t.Fatal(err)
 	}
@@ -101,7 +99,7 @@ func TestConfigCaptureFoldsCurrentEditsImmediately(t *testing.T) {
 	prismSidecarDir = func() string { return filepath.Join(ws, ".yolo", "prism") }
 	t.Cleanup(func() { prismSidecarDir = prev })
 
-	s, ok := agentcfg.BuiltinManifest().Lookup("claude", "settings")
+	s, ok := surfaceManifest().Lookup("claude", "settings")
 	if !ok {
 		t.Fatal("missing claude/settings")
 	}
@@ -148,7 +146,7 @@ func TestConfigCaptureWithNoBaselineIsANoOp(t *testing.T) {
 	prismSidecarDir = func() string { return filepath.Join(ws, ".yolo", "prism") }
 	t.Cleanup(func() { prismSidecarDir = prev })
 
-	s, _ := agentcfg.BuiltinManifest().Lookup("claude", "settings")
+	s, _ := surfaceManifest().Lookup("claude", "settings")
 	path := expandHome(s.Path)
 	if err := os.MkdirAll(filepath.Dir(path), 0o755); err != nil {
 		t.Fatal(err)

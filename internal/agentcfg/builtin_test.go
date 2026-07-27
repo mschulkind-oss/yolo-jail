@@ -1,15 +1,16 @@
 package agentcfg
 
 import (
-	"github.com/mschulkind-oss/yolo-jail/internal/agentcfg/manifest"
 	"reflect"
 	"testing"
+
+	"github.com/mschulkind-oss/yolo-jail/internal/agentcfg/manifest"
 )
 
 // TestBuiltinManifestValid asserts the yolo-shipped manifest passes the
 // manifest validator (catches a malformed builtin at test time, not runtime).
 func TestBuiltinManifestValid(t *testing.T) {
-	m := BuiltinManifest()
+	m := packManifest(t)
 	if m.Len() == 0 {
 		t.Fatal("builtin manifest is empty")
 	}
@@ -31,7 +32,7 @@ func TestBuiltinManifestValid(t *testing.T) {
 // permissions posture, skipDangerousModePermissionPrompt, and the disabled
 // auto-updater preference.
 func TestBuiltinClaudeSettingsSurface(t *testing.T) {
-	m := BuiltinManifest()
+	m := packManifest(t)
 	s, ok := m.Lookup("claude", "settings")
 	if !ok {
 		t.Fatal("builtin manifest missing claude/settings")
@@ -74,7 +75,7 @@ func TestBuiltinClaudeSettingsSurface(t *testing.T) {
 // with the json codec, the managed workspace-project MCP-enable key, and the
 // user-overridable trust-dialog default.
 func TestBuiltinClaudeConfigSurface(t *testing.T) {
-	m := BuiltinManifest()
+	m := packManifest(t)
 	s, ok := m.Lookup("claude", "config")
 	if !ok {
 		t.Fatal("builtin manifest missing claude/config")
@@ -119,7 +120,7 @@ func TestBuiltinClaudeConfigSurface(t *testing.T) {
 // force-managed key. ConfigureCopilot never overwrites an existing config.json,
 // so a managed yolo:true would misrepresent the port.
 func TestBuiltinCopilotConfigSurface(t *testing.T) {
-	m := BuiltinManifest()
+	m := packManifest(t)
 	s, ok := m.Lookup("copilot", "config")
 	if !ok {
 		t.Fatal("builtin manifest missing copilot/config")
@@ -147,7 +148,7 @@ func TestBuiltinCopilotConfigSurface(t *testing.T) {
 // It also pins the documented MCP gap: the dynamic "mcp" block is a transform,
 // NOT static data, so it must appear in neither the defaults nor managed layer.
 func TestBuiltinOpencodeConfigSurface(t *testing.T) {
-	m := BuiltinManifest()
+	m := packManifest(t)
 	s, ok := m.Lookup("opencode", "config")
 	if !ok {
 		t.Fatal("builtin manifest missing opencode/config")
@@ -193,7 +194,7 @@ func TestBuiltinOpencodeConfigSurface(t *testing.T) {
 // ConfigureCodex has no setDefault keys, so Defaults must be empty; the dynamic
 // mcp_servers block is a transform and must appear in neither static layer.
 func TestBuiltinCodexConfigSurface(t *testing.T) {
-	m := BuiltinManifest()
+	m := packManifest(t)
 	s, ok := m.Lookup("codex", "config")
 	if !ok {
 		t.Fatal("builtin manifest missing codex/config")
@@ -240,7 +241,7 @@ func TestBuiltinCodexConfigSurface(t *testing.T) {
 // antigravity-agy-support.md) — so Defaults is empty and the dynamic
 // mcp_config.json (a separate sibling) must not leak into either static layer.
 func TestBuiltinAgySettingsSurface(t *testing.T) {
-	m := BuiltinManifest()
+	m := packManifest(t)
 	s, ok := m.Lookup("agy", "settings")
 	if !ok {
 		t.Fatal("builtin manifest missing agy/settings")
@@ -273,7 +274,7 @@ func TestBuiltinAgySettingsSurface(t *testing.T) {
 // key must be a DEFAULT (so it deep-merges UNDER the computed table, never
 // suppressing a real server), never Managed.
 func TestBuiltinCopilotMCPLSPSurfaces(t *testing.T) {
-	m := BuiltinManifest()
+	m := packManifest(t)
 
 	mcp, ok := m.Lookup("copilot", "mcp")
 	if !ok {
@@ -314,7 +315,7 @@ func TestBuiltinCopilotMCPLSPSurfaces(t *testing.T) {
 // codec, agy's antigravity-cli path (distinct from copilot/mcp), and the same
 // empty-wrapper Default / empty Managed shape.
 func TestBuiltinAgyMCPSurface(t *testing.T) {
-	m := BuiltinManifest()
+	m := packManifest(t)
 	s, ok := m.Lookup("agy", "mcp")
 	if !ok {
 		t.Fatal("builtin manifest missing agy/mcp")
@@ -340,7 +341,7 @@ func TestBuiltinAgyMCPSurface(t *testing.T) {
 // runtime into a static layer here would resurrect the very stale-shadow bug
 // the port exists to kill.
 func TestBuiltinMiseConfigSurface(t *testing.T) {
-	m := BuiltinManifest()
+	m := packManifest(t)
 	s, ok := m.Lookup("mise", "config")
 	if !ok {
 		t.Fatal("builtin manifest missing mise/config")
@@ -368,7 +369,7 @@ func TestBuiltinMiseConfigSurface(t *testing.T) {
 // and the render substitutes it, which is also what lets these surfaces become
 // pack data later (a pack cannot ship a jail-specific literal).
 func TestClaudeConfigUsesWorkspacePlaceholder(t *testing.T) {
-	s, ok := BuiltinManifest().Lookup("claude", "config")
+	s, ok := packManifest(t).Lookup("claude", "config")
 	if !ok {
 		t.Fatal("builtin manifest missing claude/config")
 	}
@@ -392,7 +393,7 @@ func TestClaudeConfigUsesWorkspacePlaceholder(t *testing.T) {
 // The substitution must rewrite the placeholder key to the real workspace root,
 // and must leave a surface that does not use it untouched.
 func TestSubstituteWorkspaceRewritesKeys(t *testing.T) {
-	s, _ := BuiltinManifest().Lookup("claude", "config")
+	s, _ := packManifest(t).Lookup("claude", "config")
 	got := SubstituteWorkspace(s, "/home/me/proj")
 
 	proj := got.ManagedMap()["projects"].(map[string]any)
@@ -403,13 +404,13 @@ func TestSubstituteWorkspaceRewritesKeys(t *testing.T) {
 		t.Errorf("placeholder survived substitution: %v", proj)
 	}
 	// The original manifest surface must be unchanged (no aliasing).
-	orig, _ := BuiltinManifest().Lookup("claude", "config")
+	orig, _ := packManifest(t).Lookup("claude", "config")
 	if _, ok := orig.ManagedMap()["projects"].(map[string]any)[WorkspacePlaceholder]; !ok {
 		t.Error("SubstituteWorkspace mutated the shared manifest surface")
 	}
 
 	// A surface with no placeholder is returned as-is.
-	pi, _ := BuiltinManifest().Lookup("pi", "settings")
+	pi, _ := packManifest(t).Lookup("pi", "settings")
 	if !reflect.DeepEqual(SubstituteWorkspace(pi, "/x"), pi) {
 		t.Error("a surface without the placeholder must be unchanged")
 	}
@@ -447,8 +448,11 @@ func TestManifestWithComposesPackDeclaredSurface(t *testing.T) {
 	if cfg["theme"] != "light" {
 		t.Errorf("default should yield to the host value: %v", cfg["theme"])
 	}
-	// Every builtin still resolves.
-	if _, ok := m.Lookup("claude", "settings"); !ok {
+	// Core's own surface still resolves. It used to check claude/settings, which lived in
+	// this Go file; that surface is now the claude PACK's, so the thing being guarded —
+	// "merging does not drop what was already there" — is checked against what core
+	// actually still ships.
+	if _, ok := m.Lookup("mise", "config"); !ok {
 		t.Error("merging a pack surface dropped a builtin")
 	}
 }

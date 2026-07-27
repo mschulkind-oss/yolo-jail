@@ -5,13 +5,9 @@ import (
 	"encoding/json"
 	"os"
 	"path/filepath"
-	"regexp"
-	"sort"
 	"strings"
 	"testing"
 
-	"github.com/mschulkind-oss/yolo-jail/internal/agentcfg"
-	"github.com/mschulkind-oss/yolo-jail/internal/agentcfg/manifest"
 	"github.com/mschulkind-oss/yolo-jail/internal/config"
 )
 
@@ -454,91 +450,6 @@ func isSymlink(t *testing.T, path string) bool {
 	return fi.Mode()&os.ModeSymlink != 0
 }
 
-// TestBuiltinSurfaceRenderPaths is the anti-drift guard for the posture table the
-// CLI's `config ls` reports (internal/cli.prismSurfaceMode). That table is
-// hand-maintained because a builtin surface's posture is not declared in the
-// manifest — it is implied by which render helper boot.go calls. This test pins the
-// two sets against the source of truth: the actual call sites.
-//
-// If it fails, a surface's render path changed (or one was added) and
-// prismSurfaceMode must be updated, or `yolo config ls` will report the wrong mode
-// and — worse — `config diff`/`reset` will skip a surface that does carry an
-// overlay.
-func TestBuiltinSurfaceRenderPaths(t *testing.T) {
-	// Grep the entrypoint's own source for the render call sites, so the assertion
-	// tracks the code rather than a second hand-written list.
-	stateful, computed, rmw := renderCallSites(t)
-
-	wantStateful := []string{
-		"agy/settings", "claude/settings", "codex/config",
-		"mise/config", "opencode/config", "pi/settings",
-	}
-	wantComputed := []string{"agy/mcp", "copilot/lsp", "copilot/mcp"}
-	// B2: copilot/config moved OFF composition onto read-modify-write, so its OAuth
-	// token never touches the capture sidecars.
-	wantRMW := []string{"copilot/config"}
-
-	if !equalStringSets(stateful, wantStateful) {
-		t.Errorf("stateful (capture) surfaces = %v, want %v\n"+
-			"update the surface's Mode in internal/agentcfg/builtin.go to match", stateful, wantStateful)
-	}
-	if !equalStringSets(rmw, wantRMW) {
-		t.Errorf("read-modify-write surfaces = %v, want %v\n"+
-			"update the surface's Mode in internal/agentcfg/builtin.go to match", rmw, wantRMW)
-	}
-	if !equalStringSets(computed, wantComputed) {
-		t.Errorf("computed (copy) surfaces = %v, want %v\n"+
-			"update the surface's Mode in internal/agentcfg/builtin.go to match", computed, wantComputed)
-	}
-}
-
-// renderCallSites scans the entrypoint package source for renderSurfaceStateful /
-// renderSurfaceComputed call sites and returns the (agent/name) pairs each renders.
-func renderCallSites(t *testing.T) (stateful, computed, rmw []string) {
-	t.Helper()
-	files, err := filepath.Glob("*.go")
-	if err != nil {
-		t.Fatal(err)
-	}
-	call := regexp.MustCompile(`renderSurface(Stateful|Computed|RMW)\(e, "([a-z]+)", "([a-z]+)"`)
-	for _, f := range files {
-		if strings.HasSuffix(f, "_test.go") {
-			continue
-		}
-		data, err := os.ReadFile(f)
-		if err != nil {
-			t.Fatal(err)
-		}
-		for _, m := range call.FindAllStringSubmatch(string(data), -1) {
-			key := m[2] + "/" + m[3]
-			switch m[1] {
-			case "Stateful":
-				stateful = append(stateful, key)
-			case "Computed":
-				computed = append(computed, key)
-			default:
-				rmw = append(rmw, key)
-			}
-		}
-	}
-	sort.Strings(stateful)
-	sort.Strings(computed)
-	sort.Strings(rmw)
-	return stateful, computed, rmw
-}
-
-func equalStringSets(a, b []string) bool {
-	if len(a) != len(b) {
-		return false
-	}
-	for i := range a {
-		if a[i] != b[i] {
-			return false
-		}
-	}
-	return true
-}
-
 // TestCaptureOverlayBootNotice: a capture surface rendering with a NON-EMPTY
 // overlay must announce it. An overlay outranks the host layer permanently, so a
 // divergence recorded only in a sidecar is invisible state — the notice makes it
@@ -691,42 +602,5 @@ func TestHostFilesMissingTransformIsAnError(t *testing.T) {
 	setHostFiles(t, e, entry)
 	if err := ConfigureHostFiles(e); err == nil {
 		t.Error("a named-but-missing transform must be an error, not a silent skip")
-	}
-}
-
-// D2: the surface's DECLARED Mode must match the render helper the boot path actually
-// calls. This is the invariant that used to be split across a hand-maintained CLI
-// table and a source-grep — now it compares DATA against CODE, which is the thing
-// that can really drift, and it is what lets a surface's mode travel with the surface
-// when surfaces become pack data.
-func TestBuiltinSurfaceModesMatchRenderCallSites(t *testing.T) {
-	stateful, computed, rmw := renderCallSites(t)
-
-	wantMode := map[string]string{}
-	for _, key := range stateful {
-		wantMode[key] = manifest.ModeStateful
-	}
-	for _, key := range computed {
-		wantMode[key] = manifest.ModeComputed
-	}
-	for _, key := range rmw {
-		wantMode[key] = manifest.ModeRMW
-	}
-
-	for _, s := range agentcfg.BuiltinManifest().Surfaces() {
-		key := s.Agent + "/" + s.Name
-		want, called := wantMode[key]
-		if !called {
-			// Not rendered by any helper: the only legitimate mode is unrendered.
-			if s.ResolvedMode() != manifest.ModeUnrendered {
-				t.Errorf("%s declares mode %q but no render helper calls it — "+
-					"either wire it up or mark it unrendered", key, s.ResolvedMode())
-			}
-			continue
-		}
-		if s.ResolvedMode() != want {
-			t.Errorf("%s declares mode %q but the boot path renders it via %q",
-				key, s.ResolvedMode(), want)
-		}
 	}
 }

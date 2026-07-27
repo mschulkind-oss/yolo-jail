@@ -1,26 +1,17 @@
 {
-  "name": "claude",
-  "install": {
-    "kind": "native",
-    "bin": "claude",
-    "installerUrl": "https://claude.ai/install.sh"
-  },
-  "mounts": [
+  "hooks": [
     {
-      "from": "AGENTS.md",
-      "to": ".claude/CLAUDE.md",
-      "hostOverlay": ".claude/CLAUDE.md"
+      "file": ".claude/.credentials.json",
+      "name": "shared_credentials",
+      "sharedDir": ".claude-shared-credentials"
     },
     {
-      "from": "skills",
-      "to": ".claude/skills"
+      "file": ".claude/history.jsonl",
+      "name": "per_jail_history"
+    },
+    {
+      "name": "claude_plugins"
     }
-  ],
-  "writableDirs": [
-    ".claude"
-  ],
-  "sharedDirs": [
-    ".claude-shared-credentials"
   ],
   "hostFiles": [
     {
@@ -28,10 +19,104 @@
       "to": "host-claude/settings.json"
     }
   ],
+  "install": {
+    "bin": "claude",
+    "installerUrl": "https://claude.ai/install.sh",
+    "kind": "native"
+  },
+  "launchFlags": {
+    "claude": [
+      "--dangerously-skip-permissions"
+    ]
+  },
+  "mounts": [
+    {
+      "from": "AGENTS.md",
+      "hostOverlay": ".claude/CLAUDE.md",
+      "to": ".claude/CLAUDE.md"
+    },
+    {
+      "from": "skills",
+      "to": ".claude/skills"
+    }
+  ],
+  "name": "claude",
+  "retireMiseTools": [
+    "\"npm:@anthropic-ai/claude-code\""
+  ],
+  "sharedDirs": [
+    ".claude-shared-credentials"
+  ],
   "surfaces": [
     {
       "agent": "claude",
       "codec": "json",
+      "computed": [
+        {
+          "from": "mcp_servers",
+          "reconcile": true,
+          "to": "mcpServers"
+        }
+      ],
+      "defaults": {
+        "projects": {
+          "${workspace}": {
+            "hasTrustDialogAccepted": true
+          }
+        }
+      },
+      "managed": {
+        "projects": {
+          "${workspace}": {
+            "enableAllProjectMcpServers": true
+          }
+        }
+      },
+      "mode": "rmw",
+      "name": "config",
+      "path": "~/.claude.json"
+    },
+    {
+      "agent": "claude",
+      "codec": "json",
+      "computed": [
+        {
+          "to": "mcpServers",
+          "tombstone": true
+        },
+        {
+          "flags": [
+            {
+              "key": "pyright-lsp@claude-plugins-official",
+              "value": true,
+              "whenPresent": "python"
+            },
+            {
+              "key": "typescript-lsp@claude-plugins-official",
+              "value": true,
+              "whenPresent": "typescript"
+            },
+            {
+              "key": "gopls-lsp@claude-plugins-official",
+              "value": true,
+              "whenPresent": "go"
+            }
+          ],
+          "from": "lsp_servers",
+          "to": "enabledPlugins"
+        },
+        {
+          "flags": [
+            {
+              "key": "ENABLE_LSP_TOOL",
+              "value": "1",
+              "whenAny": true
+            }
+          ],
+          "from": "lsp_servers",
+          "to": "env"
+        }
+      ],
       "managed": {
         "permissions": {
           "additionalDirectories": [
@@ -47,36 +132,13 @@
         "skipDangerousModePermissionPrompt": true
       },
       "name": "settings",
-      "path": "~/.claude/settings.json"
-    },
-    {
-      "agent": "claude",
-      "codec": "json",
-      "defaults": {
-        "projects": {
-          "${workspace}": {
-            "hasTrustDialogAccepted": true
-          }
-        }
-      },
-      "managed": {
-        "projects": {
-          "${workspace}": {
-            "enableAllProjectMcpServers": true
-          }
-        }
-      },
-      "mode": "unrendered",
-      "name": "config",
-      "path": "~/.claude.json"
+      "path": "~/.claude/settings.json",
+      "retireOnFirstRender": [
+        "yolo-host-synced-settings.json"
+      ]
     }
   ],
-  "launchFlags": {
-    "claude": [
-      "--dangerously-skip-permissions"
-    ]
-  },
-  "retireMiseTools": [
-    "\"npm:@anthropic-ai/claude-code\""
+  "writableDirs": [
+    ".claude"
   ]
 }

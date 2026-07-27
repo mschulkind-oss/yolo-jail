@@ -16,7 +16,7 @@ func TestConfigureAgyPrismFirstMigration(t *testing.T) {
 	ws := t.TempDir()
 	e := &Env{Home: home, Workspace: ws, Vars: map[string]string{}}
 
-	if err := ConfigureAgyPrism(e); err != nil {
+	if err := ConfigurePackByName(e, "agy"); err != nil {
 		t.Fatalf("ConfigureAgyPrism: %v", err)
 	}
 
@@ -53,7 +53,7 @@ func TestConfigureAgyPrismManagedReverts(t *testing.T) {
 		t.Fatal(err)
 	}
 	// First boot to seed the sidecars.
-	if err := ConfigureAgyPrism(e); err != nil {
+	if err := ConfigurePackByName(e, "agy"); err != nil {
 		t.Fatalf("ConfigureAgyPrism (boot 1): %v", err)
 	}
 	// User flips permissionMode off between boots.
@@ -62,7 +62,7 @@ func TestConfigureAgyPrismManagedReverts(t *testing.T) {
 		t.Fatal(err)
 	}
 	// Second boot: managed reasserts "allow".
-	if err := ConfigureAgyPrism(e); err != nil {
+	if err := ConfigurePackByName(e, "agy"); err != nil {
 		t.Fatalf("ConfigureAgyPrism (boot 2): %v", err)
 	}
 	settings := decodeJSONFile(t, filepath.Join(e.AgyDir(), "settings.json"))

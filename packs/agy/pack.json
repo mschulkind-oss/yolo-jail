@@ -1,25 +1,43 @@
 {
-  "name": "agy",
   "install": {
-    "kind": "native",
     "bin": "agy",
-    "installerUrl": "https://antigravity.google.com/install.sh"
+    "installerUrl": "https://antigravity.google.com/install.sh",
+    "kind": "native"
+  },
+  "launchFlags": {
+    "agy": [
+      "--dangerously-skip-permissions"
+    ]
   },
   "mounts": [
     {
       "from": "AGENTS.md",
-      "to": ".gemini/antigravity-cli/AGENTS.md",
-      "hostOverlay": ".gemini/antigravity-cli/AGENTS.md"
+      "hostOverlay": ".gemini/antigravity-cli/AGENTS.md",
+      "to": ".gemini/antigravity-cli/AGENTS.md"
     },
     {
       "from": "skills",
       "to": ".gemini/antigravity-cli/skills"
     }
   ],
-  "writableDirs": [
-    ".gemini/antigravity-cli"
-  ],
+  "name": "agy",
   "surfaces": [
+    {
+      "agent": "agy",
+      "codec": "json",
+      "computed": [
+        {
+          "from": "mcp_servers",
+          "to": "mcpServers"
+        }
+      ],
+      "defaults": {
+        "mcpServers": {}
+      },
+      "mode": "computed",
+      "name": "mcp",
+      "path": "~/.gemini/antigravity-cli/mcp_config.json"
+    },
     {
       "agent": "agy",
       "codec": "json",
@@ -28,21 +46,9 @@
       },
       "name": "settings",
       "path": "~/.gemini/antigravity-cli/settings.json"
-    },
-    {
-      "agent": "agy",
-      "codec": "json",
-      "defaults": {
-        "mcpServers": {}
-      },
-      "mode": "computed",
-      "name": "mcp",
-      "path": "~/.gemini/antigravity-cli/mcp_config.json"
     }
   ],
-  "launchFlags": {
-    "agy": [
-      "--dangerously-skip-permissions"
-    ]
-  }
+  "writableDirs": [
+    ".gemini/antigravity-cli"
+  ]
 }

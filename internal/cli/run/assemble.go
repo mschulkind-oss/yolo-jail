@@ -31,8 +31,11 @@ type assembleInput struct {
 	// packs are this run's loaded packs (embedded official + configured). Their
 	// DECLARATIONS drive the mounts below — writable dirs, mount targets, host-file
 	// grants — which is what lets core stay ignorant of what an "agent" is.
-	packs        []*packload.Pack
-	agentsPath   string // AGENTS_DIR/<cname> (briefings + skills staging)
+	packs      []*packload.Pack
+	agentsPath string // AGENTS_DIR/<cname> (briefings + skills staging)
+	// packStaging is AGENTS_DIR/<cname>/packs — the staged pack trees, mounted :ro so
+	// the entrypoint renders the same declarations the host read.
+	packStaging  string
 	wsState      string // <workspace>/.yolo/home
 	miseStore    string // _jail_mise_store_dir()
 	hostTZ       string // "" => no TZ
@@ -351,7 +354,29 @@ func (o *Options) assembleRunCmd(in *assembleInput) []string {
 			filepath.Join(in.agentsPath, target.Staging)+":/home/agent/"+target.Dest+":ro")
 	}
 
-	// --- host files (yolo-declared per-agent set; claude + pi) ---
+	// --- PACK MANIFESTS, read-only at /ctx/packs ---
+	// The entrypoint renders each pack's declared SURFACES in-jail, so it needs the
+	// same declarations the host just read. Mounting the staged tree is how they cross,
+	// rather than an env var carrying serialized JSON: the tree is already staged (the
+	// exec-bit and symlink-escape refusals in packstage have run on it), and a surface
+	// may name a Lua transform FILE that has to exist at a path in-jail.
+	//
+	// :ro, and that is load-bearing rather than tidiness — a pack manifest is an INPUT
+	// to composition, and an agent that could rewrite one in-jail could grant its own
+	// pack a host file on the next boot.
+	if in.packStaging != "" {
+		if rt == "container" {
+			// Apple Container can't nest this under the ws_state mount; the staged tree
+			// is read straight from the host path instead (the AC host filesystem is
+			// visible), so there is nothing to emit.
+			runCmd = append(runCmd, "-e", "YOLO_PACK_ROOT="+in.packStaging)
+		} else {
+			runCmd = append(runCmd, "-v", in.packStaging+":"+packCtxDir+":ro",
+				"-e", "YOLO_PACK_ROOT="+packCtxDir)
+		}
+	}
+
+	// --- host files (pack-declared, origin-gated) ---
 	runCmd = append(runCmd, o.hostFileArgs(in)...)
 
 	// --- user host_files: :ro source mounts, writable destinations, wire env ---

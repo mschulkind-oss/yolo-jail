@@ -3,6 +3,8 @@ package run
 import (
 	"path/filepath"
 	"strings"
+
+	"github.com/mschulkind-oss/yolo-jail/internal/packload"
 )
 
 // hostFileArgs mounts each pack's DECLARED host files read-only under /ctx.
@@ -31,13 +33,14 @@ func (o *Options) hostFileArgs(in *assembleInput) []string {
 				// source would kill the container with a bare statfs error.
 				continue
 			}
-			dest := hf.To
-			if dest == "" {
-				dest = "host-" + p.Name + "/" + filepath.Base(hf.From)
-			}
+			// packload.CtxPath is THE definition of where this lands, shared with the
+			// entrypoint's host-layer read. Two copies of this derivation would silently
+			// compose the wrong user file (or none) into the surface.
+			dest := packload.CtxPath(p.Name, hf)
 			args = append(args, ROFileMountArg(
-				hostFile, "/ctx/"+dest, in.wsState,
-				"ctx-"+strings.ReplaceAll(dest, "/", "-"), in.mountTargets, nil)...)
+				hostFile, dest, in.wsState,
+				"ctx-"+strings.ReplaceAll(strings.TrimPrefix(dest, "/ctx/"), "/", "-"),
+				in.mountTargets, nil)...)
 		}
 	}
 	return args

@@ -20,12 +20,15 @@ import (
 	"path/filepath"
 	"sort"
 	"strings"
+	"sync"
 
 	"github.com/mschulkind-oss/yolo-jail/internal/agentcfg/codec"
 	"github.com/mschulkind-oss/yolo-jail/internal/agents"
 	"github.com/mschulkind-oss/yolo-jail/internal/jsonx"
+	"github.com/mschulkind-oss/yolo-jail/internal/packload"
 	"github.com/mschulkind-oss/yolo-jail/internal/paths"
 	"github.com/mschulkind-oss/yolo-jail/internal/pytext"
+	officialpacks "github.com/mschulkind-oss/yolo-jail/packs"
 )
 
 // hostFilesKey is the one config key this feature reads. Kept as a constant so
@@ -687,28 +690,58 @@ func hostFileShapeName(v any) string {
 	}
 }
 
-// builtinSurfacePaths are the destination paths of every yolo-composed agent
-// surface (agentcfg.BuiltinManifest). A host_files entry may not write one — see
-// hostFileReservedDests.
+// builtinSurfacePaths are the destination paths of every yolo-composed surface — core's
+// own plus every EMBEDDED PACK's. A host_files entry may not write one, because composing
+// over a surface yolo also renders means two writers racing for one file, and whichever
+// runs second wins silently. See hostFileReservedDests.
 //
-// It is duplicated here rather than read from agentcfg.BuiltinManifest() because
-// that package pulls in the Lua VM (internal/agentcfg/luahook → gopher-lua), and
-// internal/config is imported by essentially everything: a runtime dep on the
-// transform engine just to validate a path would put the VM in every binary that
-// reads config. The duplication is drift-checked by
-// TestBuiltinSurfacePathsMatchManifest, which imports agentcfg in TEST code only —
-// so the list cannot silently fall behind a new builtin surface.
-var builtinSurfacePaths = []string{
-	"~/.pi/agent/settings.json",
-	"~/.claude/settings.json",
-	"~/.claude.json",
-	"~/.copilot/config.json",
-	"~/.copilot/mcp-config.json",
-	"~/.copilot/lsp-config.json",
-	"~/.config/opencode/opencode.json",
-	"~/.codex/config.toml",
-	"~/.gemini/antigravity-cli/settings.json",
-	"~/.gemini/antigravity-cli/mcp_config.json",
+// READ FROM THE PACKS, not duplicated. It used to be a hand-maintained list, drift-checked
+// by a test, because reading agentcfg.BuiltinManifest() would have pulled the Lua VM
+// (agentcfg/luahook → gopher-lua) into internal/config and therefore into every binary
+// that reads config. internal/packload has no such dependency — it reads manifests and
+// decodes surfaces without the transform engine — so the real declarations are reachable
+// now and the duplicate is gone.
+//
+// Embedded packs only, which is a real and deliberate limit: a CONFIGURED pack's surface
+// path is not reserved here, because resolving one requires the pack store (a filesystem
+// read, at config-validation time, that could fail for reasons having nothing to do with
+// the config being validated). A user who declares a host_files entry at a configured
+// pack's surface path gets two writers instead of an error.
+func builtinSurfacePaths() []string {
+	surfacePathsOnce.Do(func() {
+		paths := []string{}
+		dir, err := os.MkdirTemp("", "yolo-surface-paths-")
+		if err == nil {
+			packs, problems := packload.MaterializeEmbedded(officialpacks.FS, dir)
+			if len(problems) == 0 {
+				for _, p := range packs {
+					surfaces, probs := p.Surfaces()
+					if len(probs) > 0 {
+						continue
+					}
+					for _, sf := range surfaces {
+						paths = append(paths, sf.Path)
+					}
+				}
+			}
+			_ = os.RemoveAll(dir)
+		}
+		paths = append(paths, corePathsForReservation...)
+		sort.Strings(paths)
+		surfacePathsCache = paths
+	})
+	return surfacePathsCache
+}
+
+var (
+	surfacePathsOnce  sync.Once
+	surfacePathsCache []string
+)
+
+// corePathsForReservation are the surfaces CORE renders itself, which belong to no pack.
+// Kept as a literal because there is exactly one and reading it back through agentcfg
+// would reintroduce the Lua-VM dependency this function exists to avoid.
+var corePathsForReservation = []string{
 	"~/.config/mise/config.toml",
 }
 
@@ -729,11 +762,11 @@ var builtinSurfacePaths = []string{
 // read-write binds, so composing a NEW file inside one is exactly what should
 // work.
 func hostFileReservedDests() map[string]string {
-	dests := make(map[string]string, len(reservedHomeFiles)+len(builtinSurfacePaths))
+	dests := make(map[string]string, len(reservedHomeFiles)+len(builtinSurfacePaths()))
 	for _, f := range reservedHomeFiles {
 		dests[f] = "yolo mounts or materializes it directly"
 	}
-	for _, p := range builtinSurfacePaths {
+	for _, p := range builtinSurfacePaths() {
 		dests[strings.TrimPrefix(p, "~/")] = "it is a yolo-composed agent surface"
 	}
 	return dests

@@ -32,6 +32,8 @@ type SurfaceDTO struct {
 	Defaults  map[string]any `json:"defaults,omitempty"`
 	Managed   map[string]any `json:"managed,omitempty"`
 	Transform string         `json:"transform,omitempty"`
+	Computed  []Computed     `json:"computed,omitempty"`
+	Retire    []string       `json:"retireOnFirstRender,omitempty"`
 }
 
 // knownModes is the closed set a DTO may name. A mode outside it is an error rather
@@ -62,9 +64,15 @@ func (d SurfaceDTO) Surface() (Surface, []string) {
 		problems = append(problems, fmt.Sprintf("%s: unknown mode %q (expected %s)",
 			label, d.Mode, joinSortedKeys(knownModes)))
 	}
+	for i, c := range d.Computed {
+		for _, prob := range c.Validate() {
+			problems = append(problems, fmt.Sprintf("%s: computed[%d]: %s", label, i, prob))
+		}
+	}
 	s := Surface{
 		Agent: d.Agent, Name: d.Name, Path: d.Path, Codec: d.Codec,
-		Mode: d.Mode, Transform: d.Transform,
+		Mode: d.Mode, Transform: d.Transform, Computed: d.Computed,
+		RetireOnFirstRender: d.Retire,
 	}
 	// Assign layers only when non-nil. An empty map is NOT the same as absent: on a
 	// keyless surface an empty-map layer hard-errors, and on an object surface it

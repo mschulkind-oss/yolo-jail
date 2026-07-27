@@ -127,6 +127,42 @@ type Surface struct {
 	// cannot participate in a Go-side table at all, so the mode has to travel with the
 	// surface.
 	Mode string
+
+	// HostSource is the in-jail path the `host` layer is read from — the /ctx mount
+	// carrying the user's own version of this file.
+	//
+	// Derived, not declared: the host CLI mounts a pack's granted host file at a path
+	// it chooses, and this is that path. It exists on the Surface so the render is a
+	// pure function of the surface rather than needing a per-agent Go constant
+	// (hostClaudeDir, hostPiDir — two globals that existed only because the host layer
+	// had nowhere else to say where it came from).
+	//
+	// Empty means the surface has no host layer, which is the common case: most surfaces
+	// are yolo-owned outright.
+	HostSource string
+
+	// RetireOnFirstRender are files to DELETE the first time yolo renders this surface
+	// through the composition engine — the sidecars a pre-prism bespoke writer left behind.
+	//
+	// Paths are relative to the surface file's own directory. Transitional by nature: each
+	// entry names a file that a yolo version before the prism wrote and that nothing reads
+	// now, and once no jail can still be carrying one the whole field goes. It is DATA
+	// rather than Go because it was the last thing in the per-agent render functions
+	// besides the computed layer, and leaving one behind in Go would keep those functions
+	// alive for a one-shot cleanup.
+	//
+	// A missing file is not an error — the common case is that there was nothing to clean.
+	RetireOnFirstRender []string
+
+	// Computed declares the surface's DYNAMIC layer as data: which live tables core
+	// should read, and how to reshape each entry into this surface's dialect. See
+	// computed.go — this is what replaced the six per-agent Go builders, and it is the
+	// reason core no longer switches on an agent name to render a surface.
+	//
+	// Optional. A surface with no dynamic content leaves it nil; a caller may also
+	// supply a computed map directly (the escape hatch for a builtin whose derivation
+	// is genuinely not a table reshape).
+	Computed []Computed
 }
 
 // The closed set of engine mechanisms. See Surface.Mode.

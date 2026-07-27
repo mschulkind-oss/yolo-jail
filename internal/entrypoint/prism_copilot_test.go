@@ -20,7 +20,7 @@ func TestB1CopilotBootPreservesTokenOnFirstMigration(t *testing.T) {
 	if err := os.WriteFile(filepath.Join(dir, "config.json"), []byte(live), 0o644); err != nil {
 		t.Fatal(err)
 	}
-	if err := ConfigureCopilotPrism(e); err != nil {
+	if err := ConfigurePackByName(e, "copilot"); err != nil {
 		t.Fatal(err)
 	}
 	got, err := os.ReadFile(filepath.Join(dir, "config.json"))
@@ -53,7 +53,7 @@ func TestCopilotConfigIsRMWAndKeepsTokensOutOfSidecars(t *testing.T) {
 		t.Fatal(err)
 	}
 
-	if err := ConfigureCopilotPrism(e); err != nil {
+	if err := ConfigurePackByName(e, "copilot"); err != nil {
 		t.Fatal(err)
 	}
 
@@ -92,11 +92,11 @@ func TestCopilotRMWIsIdempotentAndRespectsAgentChoice(t *testing.T) {
 	}
 	cfg := filepath.Join(e.Home, ".copilot", "config.json")
 
-	if err := ConfigureCopilotPrism(e); err != nil {
+	if err := ConfigurePackByName(e, "copilot"); err != nil {
 		t.Fatal(err)
 	}
 	first, _ := os.ReadFile(cfg)
-	if err := ConfigureCopilotPrism(e); err != nil {
+	if err := ConfigurePackByName(e, "copilot"); err != nil {
 		t.Fatal(err)
 	}
 	if second, _ := os.ReadFile(cfg); string(second) != string(first) {
@@ -108,7 +108,7 @@ func TestCopilotRMWIsIdempotentAndRespectsAgentChoice(t *testing.T) {
 	if err := os.WriteFile(cfg, []byte(`{"yolo":false}`), 0o644); err != nil {
 		t.Fatal(err)
 	}
-	if err := ConfigureCopilotPrism(e); err != nil {
+	if err := ConfigurePackByName(e, "copilot"); err != nil {
 		t.Fatal(err)
 	}
 	if data, _ := os.ReadFile(cfg); !strings.Contains(string(data), "false") {
@@ -137,7 +137,7 @@ func TestRMWPreservesUnknownKeysAndCannotExpressRemoval(t *testing.T) {
 		[]byte(`{"yolo":true,"looks_stale":"?","copilot_tokens":{"gh":"t"}}`), 0o644); err != nil {
 		t.Fatal(err)
 	}
-	if err := ConfigureCopilotPrism(e); err != nil {
+	if err := ConfigurePackByName(e, "copilot"); err != nil {
 		t.Fatal(err)
 	}
 	got := readFile(t, cfg)

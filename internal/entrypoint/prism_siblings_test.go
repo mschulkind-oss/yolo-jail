@@ -27,7 +27,7 @@ func TestCopilotMCPComputedServerLands(t *testing.T) {
 	e := siblingEnv(t, map[string]string{
 		"YOLO_MCP_SERVERS": `{"demo":{"command":"/bin/demo","args":["--serve"]}}`,
 	})
-	if err := ConfigureCopilotPrism(e); err != nil {
+	if err := ConfigurePackByName(e, "copilot"); err != nil {
 		t.Fatalf("ConfigureCopilotPrism: %v", err)
 	}
 	mcp := decodeJSONFile(t, filepath.Join(e.CopilotDir(), "mcp-config.json"))
@@ -49,7 +49,7 @@ func TestCopilotMCPComputedServerLands(t *testing.T) {
 // shape), matching the old always-emit-the-wrapper behavior.
 func TestCopilotMCPEmptyStillEmitsWrapper(t *testing.T) {
 	e := siblingEnv(t, nil)
-	if err := ConfigureCopilotPrism(e); err != nil {
+	if err := ConfigurePackByName(e, "copilot"); err != nil {
 		t.Fatalf("ConfigureCopilotPrism: %v", err)
 	}
 	mcp := decodeJSONFile(t, filepath.Join(e.CopilotDir(), "mcp-config.json"))
@@ -68,7 +68,7 @@ func TestCopilotMCPEmptyStillEmitsWrapper(t *testing.T) {
 // silently start capturing edits — the exact regression this pins against.
 func TestCopilotSiblingsWriteNoSidecars(t *testing.T) {
 	e := siblingEnv(t, nil)
-	if err := ConfigureCopilotPrism(e); err != nil {
+	if err := ConfigurePackByName(e, "copilot"); err != nil {
 		t.Fatalf("ConfigureCopilotPrism: %v", err)
 	}
 	for _, name := range []string{"mcp", "lsp"} {
@@ -86,7 +86,7 @@ func TestCopilotSiblingsWriteNoSidecars(t *testing.T) {
 // wins outright) — the opposite of a stateful surface, which would capture it.
 func TestCopilotMCPUserEditNotPreserved(t *testing.T) {
 	e := siblingEnv(t, nil)
-	if err := ConfigureCopilotPrism(e); err != nil {
+	if err := ConfigurePackByName(e, "copilot"); err != nil {
 		t.Fatalf("ConfigureCopilotPrism (boot 1): %v", err)
 	}
 	mcpPath := filepath.Join(e.CopilotDir(), "mcp-config.json")
@@ -95,7 +95,7 @@ func TestCopilotMCPUserEditNotPreserved(t *testing.T) {
 		[]byte(`{"mcpServers":{"handAdded":{"command":"/bin/x"}}}`+"\n"), 0o644); err != nil {
 		t.Fatal(err)
 	}
-	if err := ConfigureCopilotPrism(e); err != nil {
+	if err := ConfigurePackByName(e, "copilot"); err != nil {
 		t.Fatalf("ConfigureCopilotPrism (boot 2): %v", err)
 	}
 	mcp := decodeJSONFile(t, mcpPath)
@@ -116,7 +116,7 @@ func TestCopilotLSPReshape(t *testing.T) {
 			`"bare":{"fileExtensions":[".x"]}` +
 			`}`,
 	})
-	if err := ConfigureCopilotPrism(e); err != nil {
+	if err := ConfigurePackByName(e, "copilot"); err != nil {
 		t.Fatalf("ConfigureCopilotPrism: %v", err)
 	}
 	lsp := decodeJSONFile(t, filepath.Join(e.CopilotDir(), "lsp-config.json"))
@@ -152,7 +152,7 @@ func TestAgyMCPComputedServerLands(t *testing.T) {
 	e := siblingEnv(t, map[string]string{
 		"YOLO_MCP_SERVERS": `{"demo":{"command":"/bin/demo"}}`,
 	})
-	if err := ConfigureAgyPrism(e); err != nil {
+	if err := ConfigurePackByName(e, "agy"); err != nil {
 		t.Fatalf("ConfigureAgyPrism: %v", err)
 	}
 	mcp := decodeJSONFile(t, filepath.Join(e.AgyDir(), "mcp_config.json"))

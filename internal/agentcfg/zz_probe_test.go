@@ -34,7 +34,7 @@ func TestStatefulFirstMigrationOnLiveClaudeJSON(t *testing.T) {
 	if err := json.Unmarshal(raw, &in); err != nil {
 		t.Fatal(err)
 	}
-	s, ok := agentcfg.BuiltinManifest().Lookup("claude", "config")
+	s, ok := agentcfg.PackManifestForTest(t).Lookup("claude", "config")
 	if !ok {
 		t.Fatal("no claude/config surface")
 	}
@@ -58,7 +58,7 @@ func TestRMWAsComposeOnLiveClaudeJSON(t *testing.T) {
 	if err := json.Unmarshal(raw, &in); err != nil {
 		t.Fatal(err)
 	}
-	s, _ := agentcfg.BuiltinManifest().Lookup("claude", "config")
+	s, _ := agentcfg.PackManifestForTest(t).Lookup("claude", "config")
 
 	// Simulate writeClaudeJSON: previously-managed name "stale" removed, fresh set added.
 	computed := map[string]any{
@@ -103,7 +103,7 @@ func TestRMWAsComposeOnLiveCopilotConfig(t *testing.T) {
 	if err := json.Unmarshal(raw, &in); err != nil {
 		t.Fatal(err)
 	}
-	s, ok := agentcfg.BuiltinManifest().Lookup("copilot", "config")
+	s, ok := agentcfg.PackManifestForTest(t).Lookup("copilot", "config")
 	if !ok {
 		t.Fatal("no copilot/config")
 	}
@@ -120,7 +120,7 @@ func TestStatefulFirstMigrationOnLiveCopilotConfig(t *testing.T) {
 	raw := live(t, "/home/agent/.copilot/config.json")
 	var in map[string]any
 	_ = json.Unmarshal(raw, &in)
-	s, _ := agentcfg.BuiltinManifest().Lookup("copilot", "config")
+	s, _ := agentcfg.PackManifestForTest(t).Lookup("copilot", "config")
 	out, err := agentcfg.ComposeStateful(agentcfg.StatefulInputs{
 		Base: agentcfg.Inputs{Surface: s}, CurrentBytes: raw, LastRenderPresent: false,
 	})

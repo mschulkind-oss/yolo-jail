@@ -277,7 +277,7 @@ func TestComposeScriptWithoutVM(t *testing.T) {
 // YOLO force-managed posture regardless of what the host tried to set. This is
 // the Compose-through-the-engine analogue of the pi worked example.
 func TestComposeClaudeSettingsEnforcesManaged(t *testing.T) {
-	s, ok := BuiltinManifest().Lookup("claude", "settings")
+	s, ok := packManifest(t).Lookup("claude", "settings")
 	if !ok {
 		t.Fatal("builtin manifest missing claude/settings")
 	}
@@ -325,7 +325,7 @@ func TestComposeClaudeSettingsEnforcesManaged(t *testing.T) {
 // permissions.allow=[] but the host's permissions.ask stays), instead of the
 // whole permissions object being clobbered. This is the closed fidelity gap.
 func TestComposeDeepEnforcePreservesHostSibling(t *testing.T) {
-	s, ok := BuiltinManifest().Lookup("claude", "settings")
+	s, ok := packManifest(t).Lookup("claude", "settings")
 	if !ok {
 		t.Fatal("builtin manifest missing claude/settings")
 	}
@@ -352,7 +352,7 @@ func TestComposeDeepEnforcePreservesHostSibling(t *testing.T) {
 // Enforce used to have (managed nested object clobbering its default sibling) is
 // closed.
 func TestComposeClaudeConfigEnforcesManaged(t *testing.T) {
-	s, ok := BuiltinManifest().Lookup("claude", "config")
+	s, ok := packManifest(t).Lookup("claude", "config")
 	if !ok {
 		t.Fatal("builtin manifest missing claude/config")
 	}
@@ -397,7 +397,7 @@ func TestComposeClaudeConfigEnforcesManaged(t *testing.T) {
 // (the bespoke write-if-absent baseline: yolo owns a fresh config.json).
 
 func TestComposeCopilotConfigDefaultApplies(t *testing.T) {
-	s, ok := BuiltinManifest().Lookup("copilot", "config")
+	s, ok := packManifest(t).Lookup("copilot", "config")
 	if !ok {
 		t.Fatal("builtin manifest missing copilot/config")
 	}
@@ -417,7 +417,7 @@ func TestComposeCopilotConfigDefaultApplies(t *testing.T) {
 // already set yolo — the bespoke code never overwrites an existing config.json,
 // so a host yolo:false must survive (setDefault/write-if-absent semantics).
 func TestComposeCopilotConfigHostWins(t *testing.T) {
-	s, ok := BuiltinManifest().Lookup("copilot", "config")
+	s, ok := packManifest(t).Lookup("copilot", "config")
 	if !ok {
 		t.Fatal("builtin manifest missing copilot/config")
 	}
@@ -439,7 +439,7 @@ func TestComposeCopilotConfigHostWins(t *testing.T) {
 // to a host that already set it (the bespoke setDefault behavior). A host-only
 // key passes through untouched.
 func TestComposeOpencodeConfigLayers(t *testing.T) {
-	s, ok := BuiltinManifest().Lookup("opencode", "config")
+	s, ok := packManifest(t).Lookup("opencode", "config")
 	if !ok {
 		t.Fatal("builtin manifest missing opencode/config")
 	}
@@ -477,7 +477,7 @@ func TestComposeOpencodeConfigLayers(t *testing.T) {
 // $schema default lands alongside the managed permission — the empty-host
 // baseline (yolo owns a fresh opencode.json).
 func TestComposeOpencodeConfigDefaultsApply(t *testing.T) {
-	s, ok := BuiltinManifest().Lookup("opencode", "config")
+	s, ok := packManifest(t).Lookup("opencode", "config")
 	if !ok {
 		t.Fatal("builtin manifest missing opencode/config")
 	}
@@ -505,7 +505,7 @@ func TestComposeOpencodeConfigDefaultsApply(t *testing.T) {
 // and the encoded bytes are valid TOML that round-trips back to the composed
 // config. This is the toml-codec analogue of the pi/claude worked examples.
 func TestComposeCodexConfigEnforcesManaged(t *testing.T) {
-	s, ok := BuiltinManifest().Lookup("codex", "config")
+	s, ok := packManifest(t).Lookup("codex", "config")
 	if !ok {
 		t.Fatal("builtin manifest missing codex/config")
 	}
@@ -565,7 +565,7 @@ func TestComposeCodexConfigEnforcesManaged(t *testing.T) {
 // scalars are exactly what lands (there are no default keys for codex), and the
 // output is valid TOML.
 func TestComposeCodexConfigDefaultsApply(t *testing.T) {
-	s, ok := BuiltinManifest().Lookup("codex", "config")
+	s, ok := packManifest(t).Lookup("codex", "config")
 	if !ok {
 		t.Fatal("builtin manifest missing codex/config")
 	}

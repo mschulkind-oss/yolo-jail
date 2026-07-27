@@ -70,7 +70,7 @@ func capturedSurfaces(agent, surface string) []manifest.Surface {
 		return userSidecarSurfaces(surface)
 	}
 	var out []manifest.Surface
-	for _, s := range agentcfg.BuiltinManifest().ForAgent(agent) {
+	for _, s := range surfaceManifest().ForAgent(agent) {
 		if surface != "" && s.Name != surface {
 			continue
 		}
@@ -335,7 +335,7 @@ func surfacePathOrSidecar(s manifest.Surface) string {
 	if s.Path != "" {
 		return s.Path
 	}
-	if built, ok := agentcfg.BuiltinManifest().Lookup(s.Agent, s.Name); ok && built.Path != "" {
+	if built, ok := surfaceManifest().Lookup(s.Agent, s.Name); ok && built.Path != "" {
 		return built.Path
 	}
 	return "(host_files entry " + s.Name + ")"

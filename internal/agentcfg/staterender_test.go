@@ -388,7 +388,7 @@ func TestComposeStatefulComputedBeatsCapturedEdit(t *testing.T) {
 // Adopting means seeding the overlay from mergeDiff(pureRender, current): everything
 // the agent owns that yolo does not assert is preserved.
 func TestFirstMigrationAdoptsOnDiskFile(t *testing.T) {
-	surface, ok := BuiltinManifest().Lookup("copilot", "config")
+	surface, ok := packManifest(t).Lookup("copilot", "config")
 	if !ok {
 		t.Fatal("builtin manifest missing copilot/config")
 	}
@@ -428,7 +428,7 @@ func TestFirstMigrationAdoptsOnDiskFile(t *testing.T) {
 // A first-migration boot with NO file on disk must still start from a clean
 // overlay — adoption must not invent content.
 func TestFirstMigrationWithNoFileStaysClean(t *testing.T) {
-	surface, _ := BuiltinManifest().Lookup("copilot", "config")
+	surface, _ := packManifest(t).Lookup("copilot", "config")
 	out, err := ComposeStateful(StatefulInputs{
 		Base:              Inputs{Surface: surface},
 		LastRenderPresent: false,

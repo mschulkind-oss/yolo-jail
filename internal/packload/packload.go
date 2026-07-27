@@ -16,6 +16,7 @@ import (
 	"fmt"
 	"io/fs"
 	"os"
+	"path"
 	"path/filepath"
 	"sort"
 	"strings"
@@ -39,7 +40,20 @@ type Pack struct {
 	MayAccessHost bool
 }
 
-// Surfaces decodes the pack's surface declarations.
+// Surfaces decodes the pack's surface declarations, resolving each one's host layer to
+// the /ctx path the host CLI mounts it at.
+//
+// The RESOLUTION is here rather than in the manifest schema because it is a fact about
+// how the two sides agree, not about the surface: a pack says "I want ~/.claude/
+// settings.json from the host", the CLI mounts it under /ctx, and both sides derive the
+// same path from the same declaration. Keeping the derivation in ONE function is what
+// makes that agreement checkable — a second copy would be a silent-empty-host-layer bug
+// waiting to happen, and the symptom (a config file missing the user's own settings)
+// looks nothing like a path mismatch.
+//
+// A surface is matched to a host file by BASENAME. That is sufficient because a pack's
+// grants land in one flat /ctx dir, so two grants with the same basename would already
+// collide there; HostFileConflicts reports that as a pack error.
 func (p *Pack) Surfaces() ([]manifest.Surface, []string) {
 	if len(p.Decl.Surfaces) == 0 {
 		return nil, nil
@@ -48,7 +62,61 @@ func (p *Pack) Surfaces() ([]manifest.Surface, []string) {
 	for i, prob := range problems {
 		problems[i] = "pack " + p.Name + ": " + prob
 	}
+	granted, _ := p.HonoredHostFiles()
+	for i := range surfaces {
+		surfaces[i].HostSource = p.hostSourceFor(surfaces[i].Path, granted)
+	}
 	return surfaces, problems
+}
+
+// hostSourceFor finds the granted host file whose basename matches this surface's file,
+// and returns the /ctx path it is mounted at. Empty when the pack granted none — the
+// surface then has no host layer, which is the common case.
+func (p *Pack) hostSourceFor(surfacePath string, granted []packdecl.HostFile) string {
+	want := path.Base(surfacePath)
+	for _, hf := range granted {
+		if path.Base(hf.From) != want {
+			continue
+		}
+		return CtxPath(p.Name, hf)
+	}
+	return ""
+}
+
+// CtxPath is the in-jail /ctx path a granted host file is mounted at. THE one definition
+// both sides use: the CLI emits this mount destination, the entrypoint reads the host
+// layer from it.
+func CtxPath(pack string, hf packdecl.HostFile) string {
+	if hf.To != "" {
+		return CtxRoot + "/" + hf.To
+	}
+	return CtxRoot + "/host-" + pack + "/" + path.Base(hf.From)
+}
+
+// CtxRoot is where host-file mounts land in the jail.
+const CtxRoot = "/ctx"
+
+// HostFileConflicts reports grants that would collide at the same /ctx destination.
+//
+// Two grants landing on one path would mean one silently shadows the other, and the
+// surface reading that path would compose the wrong user file into its output — a wrong
+// config that looks right. Reported so it fails at load instead.
+func (p *Pack) HostFileConflicts() []string {
+	granted, _ := p.HonoredHostFiles()
+	seen := map[string]string{}
+	var problems []string
+	for _, hf := range granted {
+		dest := CtxPath(p.Name, hf)
+		if prev, dup := seen[dest]; dup {
+			problems = append(problems, fmt.Sprintf(
+				"pack %s: host files %q and %q both mount at %s — one would silently "+
+					"shadow the other; set a distinct \"to\" on one of them",
+				p.Name, prev, hf.From, dest))
+			continue
+		}
+		seen[dest] = hf.From
+	}
+	return problems
 }
 
 // HonoredHostFiles returns the host-file grants this pack is ALLOWED to make, and a
