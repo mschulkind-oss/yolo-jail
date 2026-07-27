@@ -81,17 +81,22 @@ Buildable once A is done. Does **not** need the composition-site decision (D1).
 
 | # | Item | Notes |
 |---|---|---|
-| C1 | `packs` config key, user scope only, `file://` sources | no workspace scope — settled |
-| C2 | Tree executor: walk, `only`/`exclude`, exec-bit refusal, copy | |
-| C3 | `PrepareSkills` + `ComposeBriefing` packs pass | delivers A8/A10's value via packs |
-| C4 | `yolo pack init\|lint\|ls\|explain` | authoring loop |
-| C5 | Git sources: `internal/packsrc`, lockfile, approval, `add/install/update/rollback` | the ~1-week chunk |
-| C6 | Port the 5 real projections to the declarative operation set | **validates the design** — do before freezing the op set |
-| C7 | The projector protocol (tier 2 escape hatch) | only if C6 proves the op set insufficient |
+| ✅ C1 | `packs` config key, user scope only, `file://` sources | no workspace scope — settled |
+| ✅ C2 | Tree executor: walk, `only`/`exclude`, exec-bit refusal, copy | |
+| ✅ C3 | `PrepareSkills` + `ComposeBriefing` packs pass | delivers A8/A10's value via packs |
+| ✅ C4 | `yolo pack init\|lint\|ls\|explain` | authoring loop |
+| ⏳ C5 | Git sources: `internal/packsrc`, lockfile, approval, `add/install/update/rollback` | the ~1-week chunk |
+| ✅ C6 | Port the 5 real projections to the declarative operation set | **validates the design** — do before freezing the op set |
+| ⏸ C7 | The projector protocol (tier 2 escape hatch) | **not needed** — C6 proved the op set sufficient. Stays designed, unbuilt |
 
-**C6 is the highest-information item in the whole plan.** If `conditional-OMIT` vs
-`tombstone-null` or the cross-type LSP→MCP derivation won't fit, the operation set is wrong,
-and learning that costs far less now than after packs ship.
+**C6 — ANSWERED 2026-07-27, and the answer is yes.** All three surviving projections
+(codex MCP, opencode MCP, copilot LSP) are expressible in four data ops: copy (with rename
++ omitEmpty), fold, inject, default. Each is pinned by a test transcribed from the Go
+builder it replaces. `conditional-OMIT` vs `tombstone-null` is handled as two separate
+operations, because a null leaf is an RFC-7386 tombstone that DELETES downstream. The
+cross-type LSP→MCP derivation the docs called hardest **died with A1** (it was gemini's).
+
+**Consequence: C7 is not required.** The subprocess projector stays designed and unbuilt.
 
 ## Stage D — the rip-out
 
