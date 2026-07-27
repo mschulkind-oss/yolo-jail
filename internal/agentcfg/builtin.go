@@ -101,18 +101,69 @@ var claudeConfig = manifest.Surface{
 	Codec: "json",
 	Defaults: map[string]any{
 		"projects": map[string]any{
-			"/workspace": map[string]any{
+			WorkspacePlaceholder: map[string]any{
 				"hasTrustDialogAccepted": true,
 			},
 		},
 	},
 	Managed: map[string]any{
 		"projects": map[string]any{
-			"/workspace": map[string]any{
+			WorkspacePlaceholder: map[string]any{
 				"enableAllProjectMcpServers": true,
 			},
 		},
 	},
+}
+
+// WorkspacePlaceholder is the token surface DATA uses where the jail's workspace
+// root belongs, resolved by SubstituteWorkspace at render time.
+//
+// It exists because the workspace root is NOT always "/workspace": Env.WorkspaceDir
+// honors YOLO_WORKSPACE, and the macos-user backend has no /workspace at all. A
+// literal in the manifest was therefore a latent correctness bug on any run whose
+// workspace is elsewhere — claude would assert projects["/workspace"] while the
+// agent looked under the real path.
+//
+// It is also what un-blocks surfaces-as-pack-data: a pack cannot ship a
+// jail-specific absolute path, so the placeholder is the seam that lets this
+// surface definition move out of Go unchanged.
+const WorkspacePlaceholder = "${workspace}"
+
+// SubstituteWorkspace returns a copy of s with every WorkspacePlaceholder MAP KEY
+// in the Defaults and Managed layers replaced by workspace. A surface that does
+// not use the placeholder is returned unchanged.
+//
+// It DEEP-COPIES the layers it rewrites: manifest surfaces are package-level
+// values shared by every caller (Lookup returns them by value, but the maps
+// inside are aliased), so rewriting in place would corrupt the manifest for the
+// rest of the process — and, in tests, for every later test in the binary.
+//
+// Only keys are substituted, not values, because that is the only shape any real
+// surface needs (claude's projects table is keyed by absolute path). Extending to
+// values would invite a placeholder appearing inside arbitrary strings, which is a
+// templating language rather than one named seam.
+func SubstituteWorkspace(s manifest.Surface, workspace string) manifest.Surface {
+	s.Defaults = substituteWorkspaceValue(s.Defaults, workspace)
+	s.Managed = substituteWorkspaceValue(s.Managed, workspace)
+	return s
+}
+
+// substituteWorkspaceValue deep-copies v, rewriting placeholder keys. Non-map
+// values are returned as-is: they are immutable scalars or slices the caller does
+// not rewrite, so sharing them is safe.
+func substituteWorkspaceValue(v any, workspace string) any {
+	m, ok := v.(map[string]any)
+	if !ok {
+		return v
+	}
+	out := make(map[string]any, len(m))
+	for k, val := range m {
+		if k == WorkspacePlaceholder {
+			k = workspace
+		}
+		out[k] = substituteWorkspaceValue(val, workspace)
+	}
+	return out
 }
 
 // copilotConfig is copilot's config.json surface (§ table row "Copilot / Gemini

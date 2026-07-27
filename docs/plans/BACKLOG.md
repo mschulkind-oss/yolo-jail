@@ -45,7 +45,8 @@ first means porting known defects into a new mechanism.
 | A9 | Wire `Surface.Transform` — a documented key that does nothing | defect | small |
 | A10 | Steer directed agents at composed surfaces (skills + header) | improvement | docs-only |
 | A11 | Parameterize `/workspace` out of `builtin.go` | blocker for packs | small |
-| A12 | **Make generator failures fatal** — `genStep` (`boot.go:533-538`) prints a warning and discards the error, so a failed config step still yields a running jail with a misconfigured agent. Ruled 2026-07-26: loud and halting. **20 call sites**; requires separating genuine failures from absent-optional-input first | **policy inversion** | medium |
+| A12 | **Make generator failures fatal** — `genStep` (`boot.go:532-537`) prints a warning and discards the error, so a failed config step still yields a running jail with a misconfigured agent. Ruled 2026-07-26: loud and halting. **28 call sites across TWO files: 19 in `boot.go` + 9 in `darwin.go`** (the earlier "20" counted only `boot.go` — the macos-user path has its own loop and was missed). Requires separating genuine failures from absent-optional-input first | **policy inversion** | medium |
+| A13 | **A user-scope `config.lua` never reaches any jail** — `prism.go:65` reads `$HOME/.config/yolo-jail/config.lua`, but `userConfigMountArgs` (`cli/run/assemble_parts.go:462-474`) mounts only `filepath.Base(UserConfigPath())` = `config.jsonc`. Verified live: that dir contains only `config.jsonc` and mountinfo shows one bind. So the user half of the documented user-then-workspace transform pair is dead; only `<workspace>/yolo-jail.config.lua` works (it rides the `/workspace` bind). One extra `ROFileMountArg` | defect (**documented feature has no channel**) | small |
 
 **Do A1 first** (subtractive — shrinks every later table, and deletes one of the five
 projections A-stage work must satisfy). **Do A8 + A10 together** (A10's guidance is worthless

@@ -355,3 +355,57 @@ func TestBuiltinMiseConfigSurface(t *testing.T) {
 		t.Errorf("mise/config Managed should be empty (yolo asserts no mise key), got %#v", s.Managed)
 	}
 }
+
+// A11: surface DATA must not hardcode the jail's workspace path. claude/config
+// asserts keys under projects[<workspace>], and the workspace root is NOT always
+// "/workspace" — Env.WorkspaceDir() honors YOLO_WORKSPACE, and macos-user has no
+// /workspace at all. The manifest therefore carries the ${workspace} placeholder
+// and the render substitutes it, which is also what lets these surfaces become
+// pack data later (a pack cannot ship a jail-specific literal).
+func TestClaudeConfigUsesWorkspacePlaceholder(t *testing.T) {
+	s, ok := BuiltinManifest().Lookup("claude", "config")
+	if !ok {
+		t.Fatal("builtin manifest missing claude/config")
+	}
+	for _, layer := range []struct {
+		name string
+		m    map[string]any
+	}{{"managed", s.ManagedMap()}, {"defaults", s.DefaultsMap()}} {
+		proj, ok := layer.m["projects"].(map[string]any)
+		if !ok {
+			t.Fatalf("%s projects not an object: %T", layer.name, layer.m["projects"])
+		}
+		if _, bad := proj["/workspace"]; bad {
+			t.Errorf("%s projects still hardcodes the literal /workspace", layer.name)
+		}
+		if _, ok := proj[WorkspacePlaceholder]; !ok {
+			t.Errorf("%s projects missing the %s key: %v", layer.name, WorkspacePlaceholder, proj)
+		}
+	}
+}
+
+// The substitution must rewrite the placeholder key to the real workspace root,
+// and must leave a surface that does not use it untouched.
+func TestSubstituteWorkspaceRewritesKeys(t *testing.T) {
+	s, _ := BuiltinManifest().Lookup("claude", "config")
+	got := SubstituteWorkspace(s, "/home/me/proj")
+
+	proj := got.ManagedMap()["projects"].(map[string]any)
+	if _, ok := proj["/home/me/proj"]; !ok {
+		t.Errorf("managed projects not substituted: %v", proj)
+	}
+	if _, bad := proj[WorkspacePlaceholder]; bad {
+		t.Errorf("placeholder survived substitution: %v", proj)
+	}
+	// The original manifest surface must be unchanged (no aliasing).
+	orig, _ := BuiltinManifest().Lookup("claude", "config")
+	if _, ok := orig.ManagedMap()["projects"].(map[string]any)[WorkspacePlaceholder]; !ok {
+		t.Error("SubstituteWorkspace mutated the shared manifest surface")
+	}
+
+	// A surface with no placeholder is returned as-is.
+	pi, _ := BuiltinManifest().Lookup("pi", "settings")
+	if !reflect.DeepEqual(SubstituteWorkspace(pi, "/x"), pi) {
+		t.Error("a surface without the placeholder must be unchanged")
+	}
+}
