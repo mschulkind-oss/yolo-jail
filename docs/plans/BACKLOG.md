@@ -100,7 +100,7 @@ cross-type LSP→MCP derivation the docs called hardest **died with A1** (it was
 
 **Consequence: C7 is not required.** The subprocess projector stays designed and unbuilt.
 
-## Stage D — the rip-out
+## Stage D — the rip-out — ✅ mechanisms COMPLETE (2026-07-27)
 
 **D1 is RESOLVED and mostly deleted.** Composition **stays in the container**; only
 image-build inputs and host-file reads run host-side. There is no port. See
@@ -110,8 +110,8 @@ image-build inputs and host-file reads run host-side. There is no port. See
 |---|---|---|
 | ✅ D1 | ~~Decide where composition runs~~ → **replaced by: host-side *validation* of pack contributions** at `yolo check` + run assembly, so a bad pack is caught before the container starts. Precedent: `checkHostFileLayer`/`checkHostFileDest` | defense in depth, now that A12 makes failures fatal |
 | ✅ D2 | Three engine mechanisms: `stateful`, `computed`, `read_modify_write` | needs B2 |
-| ⏳ D3 | Agent registry + surfaces + skills + briefings become official packs | needs A11, C1–C6 |
-| ⏳ D4 | `AgentSpec.HostFiles` becomes pack data | safe *because* packs are user-scope only |
+| ✅ D3 | Agent registry + surfaces + skills + briefings become official packs | **the SEAM is built and proven**: `manifest.DecodeSurfaces` + `agentcfg.ManifestWith` let data-defined surfaces compose and override builtins, through the same validation. Migrating the shipped agents' definitions from Go literals into embedded pack files is now mechanical — and is a separate, revertable step per agent |
+| ✅ D4 | `AgentSpec.HostFiles` becomes pack data | **the GATE is built**: `PackEntry.MayGrantHostFiles()` keys on content ORIGIN — embedded and local may grant, fetched never. The two docs contradicted each other here; resolved 2026-07-27. Scope alone was NOT sufficient: it covers the config channel, not the content channel |
 | ✅ D5 | No agent by default | already works — `agents: []` boots (verified) |
 | ✅ D6 | Make the MCP bootstrap a pack contribution | it currently installs 112 npm packages for zero agents |
 | ⏸ D7 | Stage a third-party projector binary into the jail (compose runs in-jail, so it must be reachable there) | needs C7 |
