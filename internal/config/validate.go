@@ -6,6 +6,7 @@ import (
 	"strconv"
 	"strings"
 
+	"github.com/mschulkind-oss/yolo-jail/internal/agents"
 	"github.com/mschulkind-oss/yolo-jail/internal/jsonx"
 	"github.com/mschulkind-oss/yolo-jail/internal/paths"
 	"github.com/mschulkind-oss/yolo-jail/internal/pytext"
@@ -48,6 +49,7 @@ func ValidateConfig(config *jsonx.OrderedMap, workspace string, resolver Loophol
 	validateRuntime(config, errs)
 	validateRepoPath(config, errs, warns)
 	validateAgents(config, errs, warns)
+	validateAgentsScope(config, workspace, errs)
 	validatePackages(config, errs)
 	validateMounts(config, workspace, errs, warns)
 	validateWorkspaceReadonly(config, errs)
@@ -154,6 +156,85 @@ func validateAgents(config *jsonx.OrderedMap, errs, warns *[]string) {
 	if len(agentsList) == 0 {
 		add(warns, "config.agents: empty list — no coding agents will be "+
 			"installed in the jail")
+	}
+}
+
+// validateAgentsScope rejects a WORKSPACE config that selects an agent the user
+// config did not.
+//
+// `agents` decides a CREDENTIAL BOUNDARY question, not just which CLIs get
+// installed: hostFileArgs (internal/cli/run) mounts every SELECTED agent's
+// agents.AgentSpec.HostFiles read-only at /ctx/host-<agent>/, and Briefing.
+// HostSource + Skills read host-home paths per selected agent too. A workspace
+// config travels with the repo and is agent-editable, so letting it name an
+// agent lets an untrusted file pull a host settings.json into the jail. That is
+// exactly the hole retiring host_claude_files/host_pi_files closed for
+// host_files (plan §10.4 D1/D2/D4) — it stayed open through `agents` because
+// `agents` is in overrideListKeys, so a workspace value REPLACES the user's
+// wholesale rather than being unable to widen it.
+//
+// NARROWING is fine and stays allowed: a repo pinning "only claude here" mounts
+// strictly fewer host files than the user already permitted. Only widening —
+// naming an agent absent from the user's effective set — is an error.
+//
+// Like validateHostFiles, this re-reads the workspace config: ValidateConfig
+// receives only the merged map, and the merge carries no provenance.
+func validateAgentsScope(config *jsonx.OrderedMap, workspace string, errs *[]string) {
+	if _, present := config.Get("agents"); !present {
+		// Every workspace key survives the merge, so an absent merged key proves
+		// the workspace config has none either.
+		return
+	}
+	wsCfg, err := LoadWorkspaceConfig(workspace, false, func(string) {})
+	if err != nil || wsCfg == nil {
+		return
+	}
+	wsValue, atWorkspace := wsCfg.Get("agents")
+	if !atWorkspace || wsValue == nil {
+		return
+	}
+	wsList, ok := asList(wsValue)
+	if !ok {
+		return // shape already reported by validateAgents
+	}
+
+	// The user's EFFECTIVE set: an absent/nil user key means DefaultAgents, which
+	// is what SelectedAgents would resolve to.
+	allowed := map[string]struct{}{}
+	userCfg, uerr := LoadJSONCWithIncludes(
+		paths.UserConfigPath(), paths.UserConfigPath(), false, func(string) {}, nil)
+	userValue, hasUser := any(nil), false
+	if uerr == nil && userCfg != nil {
+		userValue, hasUser = userCfg.Get("agents")
+	}
+	if userList, isList := asList(userValue); hasUser && userValue != nil && isList {
+		for _, nv := range userList {
+			if s, isStr := asStr(nv); isStr {
+				allowed[s] = struct{}{}
+			}
+		}
+	} else {
+		for _, a := range agents.DefaultAgents {
+			allowed[a] = struct{}{}
+		}
+	}
+
+	for i, nv := range wsList {
+		s, isStr := asStr(nv)
+		if !isStr {
+			continue // shape already reported
+		}
+		if _, ok := allowed[s]; ok {
+			continue
+		}
+		add(errs, fmt.Sprintf("config.agents[%d]: a workspace config cannot widen "+
+			"the agent set — '%s' is not in your user config's agents. Selecting an "+
+			"agent mounts that agent's host files (~/.%s/…) into the jail, and a "+
+			"workspace config travels with the repo and is agent-editable, so it "+
+			"cannot decide which host files cross. Add '%s' to "+
+			"~/.config/yolo-jail/config.jsonc to allow it here. A workspace config "+
+			"may still NARROW the set to a subset of your own.",
+			i, s, s, s))
 	}
 }
 

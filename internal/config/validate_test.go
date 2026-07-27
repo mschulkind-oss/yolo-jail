@@ -247,3 +247,87 @@ func TestRetiredHostFilesKeysAreUnknown(t *testing.T) {
 		}
 	}
 }
+
+// validateAgentsScopeErrs runs ValidateConfig against a merged map and returns
+// just the config.agents problems.
+func validateAgentsScopeErrs(t *testing.T, workspace, mergedAgents string) []string {
+	t.Helper()
+	t.Setenv("YOLO_VERSION", "")
+	errs, _ := ValidateConfig(decode(t, `{"agents": `+mergedAgents+`}`), workspace, nil)
+	var out []string
+	for _, e := range errs {
+		if strings.HasPrefix(e, "config.agents") {
+			out = append(out, e)
+		}
+	}
+	return out
+}
+
+// A workspace config selecting an agent the user did not decides a CREDENTIAL
+// BOUNDARY question: hostFileArgs mounts each selected agent's
+// AgentSpec.HostFiles, so `agents` in an agent-editable, repo-committed file
+// could pull a host settings.json into the jail. This is the hole a84b11c closed
+// for host_files, which stayed open via `agents`.
+func TestValidateAgentsWorkspaceCannotWidenUserSet(t *testing.T) {
+	ws := t.TempDir()
+	home := t.TempDir()
+	t.Setenv("HOME", home)
+	write(t, filepath.Join(home, ".config", "yolo-jail", "config.jsonc"),
+		`{"agents": ["pi"]}`)
+	write(t, filepath.Join(ws, WorkspaceConfigName), `{"agents": ["claude"]}`)
+
+	// `agents` is in overrideListKeys, so the merge yields the workspace value.
+	errs := validateAgentsScopeErrs(t, ws, `["claude"]`)
+	if len(errs) != 1 {
+		t.Fatalf("errors = %v, want exactly one", errs)
+	}
+	for _, want := range []string{"claude", "widen", "user"} {
+		if !strings.Contains(errs[0], want) {
+			t.Errorf("error %q does not mention %q", errs[0], want)
+		}
+	}
+}
+
+// Narrowing is legitimate: a repo saying "only claude here" mounts strictly
+// fewer host files than the user already allowed, so it crosses no boundary.
+func TestValidateAgentsWorkspaceMayNarrow(t *testing.T) {
+	ws := t.TempDir()
+	home := t.TempDir()
+	t.Setenv("HOME", home)
+	write(t, filepath.Join(home, ".config", "yolo-jail", "config.jsonc"),
+		`{"agents": ["claude", "pi", "codex"]}`)
+	write(t, filepath.Join(ws, WorkspaceConfigName), `{"agents": ["claude"]}`)
+
+	if errs := validateAgentsScopeErrs(t, ws, `["claude"]`); len(errs) != 0 {
+		t.Errorf("errors = %v, want none (narrowing is allowed)", errs)
+	}
+}
+
+// With no user `agents` key the effective user set is DefaultAgents, so a
+// workspace naming anything outside it still widens.
+func TestValidateAgentsWorkspaceWidensBeyondDefault(t *testing.T) {
+	ws := t.TempDir()
+	home := t.TempDir()
+	t.Setenv("HOME", home)
+	write(t, filepath.Join(home, ".config", "yolo-jail", "config.jsonc"), `{}`)
+	write(t, filepath.Join(ws, WorkspaceConfigName), `{"agents": ["codex"]}`)
+
+	errs := validateAgentsScopeErrs(t, ws, `["codex"]`)
+	if len(errs) != 1 || !strings.Contains(errs[0], "codex") {
+		t.Fatalf("errors = %v, want one naming codex", errs)
+	}
+}
+
+// A workspace with no `agents` key at all must stay clean.
+func TestValidateAgentsNoWorkspaceKeyClean(t *testing.T) {
+	ws := t.TempDir()
+	home := t.TempDir()
+	t.Setenv("HOME", home)
+	write(t, filepath.Join(home, ".config", "yolo-jail", "config.jsonc"),
+		`{"agents": ["claude"]}`)
+	write(t, filepath.Join(ws, WorkspaceConfigName), `{}`)
+
+	if errs := validateAgentsScopeErrs(t, ws, `["claude"]`); len(errs) != 0 {
+		t.Errorf("errors = %v, want none", errs)
+	}
+}
