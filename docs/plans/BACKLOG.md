@@ -18,6 +18,7 @@ ROADMAP. Nothing gets three homes.
 |---|---|---|
 | [../design/composed-file-permissions.md](../design/composed-file-permissions.md) | ro/rw postures, the Derived/Shared/State taxonomy, the defect audit, writer classes | touching any composed file's permissions or the capture overlay |
 | [../design/pack-specification-and-loading.md](../design/pack-specification-and-loading.md) | the pack system **as built**: manifest field by field, the origin gate, the host→jail load path, worked examples, remaining seams | authoring, debugging, or changing a pack |
+| [../design/pack-util-extraction.md](../design/pack-util-extraction.md) | extracting packs into a standalone util that also manages HOST configs: the dependency measurement, the 4 residual couplings, the host-target design | considering extraction, or touching host-side `config reset`/`capture` |
 | [../design/packs-and-the-prism.md](../design/packs-and-the-prism.md) | what packs *are*; provision vs compose phases; the 4 contribution kinds; typed exports between packs | deciding pack shape (pre-implementation frame) |
 | [../design/what-yolo-is.md](../design/what-yolo-is.md) | subsystem boundaries; where composition could run; how logic ships | deciding *where* something executes |
 | [../design/three-decisions.md](../design/three-decisions.md) | the three open decisions in depth; the 3 engine mechanisms; the 5 projections | before starting any pack work |
@@ -161,6 +162,19 @@ were **refuted and re-verified by hand**, plus the defects it surfaced. Each is 
 **Doc corrections to fold in:** the "2,207 lines of per-agent logic" figure **counts test files** —
 non-test `prism*.go` is **917 lines** (verified). And `claude/config` is **correctly** labeled
 `unrendered` (`configls.go:62`), so item A3's framing needs narrowing to the `render`-only half.
+
+## Stage G — host-side composition (found 2026-07-27)
+
+Reasoning: [../design/pack-util-extraction.md §6](../design/pack-util-extraction.md).
+
+| # | Item | Kind |
+|---|---|---|
+| G1 | **⚠ Host-side `config reset` destroys real user config.** `truncateSurfaceToPureRender` (`cli/configdiff.go:381`) resolves `~` via `expandHome` → `paths.Home()` = the *invoking human's* home, and composes with **no computed layer**. Probed: `reset mise` truncated a real `~/.config/mise/config.toml` (20 bytes → `"\n"`, the user's `[tools]` gone); `reset codex`/`opencode` replaced real files with yolo's managed keys only; `reset claude` merged yolo's managed layer into the user's own file. `configCapture`'s own docstring (`:415-419`) says a host-side re-render is wrong *for exactly this reason* — the reasoning exists one function away. **Fix:** refuse (or `--force`) when `surfacesAreLocal()` (`configls.go:341`) is false; it is currently consulted only by `composedFileExists` (`:330`) | ⚠ **data loss** |
+| G2 | `config capture` copies real host config into `<workspace>/.yolo/prism/`. Probed: a `~/.codex/config.toml` `api_key_hint` landed in the overlay sidecar. Gitignored, so not a commit leak — but it is host content crossing into the workspace tree unasked. Same predicate fixes it | privacy |
+| G3 | **macos-user renders zero pack surfaces, silently.** `RunDarwinBootstrap` calls `LoadJailPacks`/`ConfigurePackSurfaces`/`RunPackHooks` (`entrypoint/darwin.go:57-62`), but the run path returns at `cli/run/run.go:73` *before* `stagePacks`, and `YOLO_PACK_ROOT` is never set on that backend — so the loop runs over an empty list every launch. `docs/design/macos-user-nix-and-features.md:174` still claims selection ✅ | defect + docs lie |
+| G4 | Make the render target an explicit parameter (`Target{Home, Workspace, SidecarDir, HostLayer, Tables, Hooks, Posture}`) instead of `*entrypoint.Env` in-jail and an implicit `paths.Home()` host-side. This is the root cause G1/G2/G3 all share, and the prerequisite for any host-config feature | design |
+
+**G1 is the one to do first, and it does not wait on any extraction decision.**
 
 ## Stage E — parked design work
 
