@@ -83,16 +83,19 @@ existing interface with the axis it was always implicitly varying made visible.
 
 ## 3. The verbs
 
-Six, and only two are new.
+Five, and only two are new.
 
 ```
 yolo -- <cmd>          run <cmd> in the described environment          (unchanged)
 yolo --at <level> -- <cmd>   … at a different confinement level        (new)
 yolo apply             make this environment match its description     (new)
+yolo apply --sealed    … and fail if anything undeclared got in        (new; §3.3)
 yolo describe          print the resolved description                  (new; absorbs config-dump)
-yolo diff              description vs. what is actually there          (generalizes config diff)
 yolo check             is this description satisfiable here?           (unchanged in spirit)
 ```
+
+There is deliberately **no top-level `diff`** — see §3.3. `yolo config diff` keeps its narrower,
+real job.
 
 `packs`, `config`, `ps`, `prune`, `loopholes`, `broker`, `init` are unaffected.
 
@@ -139,29 +142,79 @@ description  sha256:4c1f…   ← same hash, same environment
 environment, and that is the sentence SandVault, devcontainers, and "whatever's on the host"
 structurally cannot say.
 
-### 3.3 `diff` answers "why is my environment not what I asked for?"
+One caveat that §3.3 makes load-bearing: **a hash over an unsealed environment is worse than no
+hash**, because it looks authoritative while moving for reasons the user cannot enumerate. Over a
+sealed definition it is a `flake.lock` rev. Unsealed, it prints marked or not at all.
 
-Generalizes today's `config diff` from composed files to the whole description: a package in
-the lock but not the image, a pack in config but not installed, a surface with captured edits
-outranking its declared layer, a loophole configured but not running. One place to look.
+### 3.3 `apply --sealed`: the definition binds, or the apply fails
+
+The point of a description is not that you can compare two of them. It is that **it is the only
+input.** Nix ships no "diff my two machines" verb because a comparison tool is what you build when
+the definition does not bind; `describe --hash` above is a cache key and a CI pin, not the
+guarantee.
+
+Three inputs escape today's definition, and only the first is declared:
+
+| Input | Declared? | The nix analogue |
+|---|---|---|
+| the `host` layer (`Surface.HostSource`) | ✓ by the pack that grants it — its *content* is machine state | a fixed-output derivation: impure, but named |
+| the **capture overlay** | ✗ nothing declares it, and it outranks every declared layer | a store path that edited itself |
+| `yolo-jail.local.jsonc` | ✗ untracked, auto-merged, no `include_if_found` needed | `--impure`, silently |
+
+```
+$ yolo apply --sealed
+✗ refused: 3 keys captured in-jail outrank the definition
+           claude/settings: enabledPlugins, extraKnownMarketplaces · mise/config: [tools]
+           → promote them into a pack, or discard: yolo config reset claude
+✗ refused: yolo-jail.local.jsonc is present and drops 2 packages (ripgrep, fd)
+✓ declared impurity: claude/settings ← ~/.claude/settings.json (granted by the claude pack)
+```
+
+**Impurity is declared, not banned** — that is the whole rule, and it is why sealing cannot mean
+"no host reads." The `host` layer is load-bearing: it is how a user's own Claude settings reach the
+jail at all, which is a feature packs exist to provide. Sealing means **no *undeclared* input.**
+
+Capture is also a good feature — humans and agents edit config in-jail, and silently discarding
+that is hostile — so the resolution is that it becomes a *staging area* rather than a winning
+layer: recorded, reported, and promotable into a pack or the workspace config, with `--sealed`
+refusing while any are outstanding. That is what makes "captured, and I meant it" expressible.
+
+This retires `diff` as a top-level verb. `yolo config diff` already reports open closure on one
+surface (captured vs rendered) and keeps that job; whole-environment assurance is `--sealed`; a
+cross-machine comparison is `describe --json` on each side and `diff(1)`.
 
 ### 3.4 `check` becomes "is this description satisfiable *here*"
 
-The important change: **`check` reports what is inert at your confinement level**, by name.
+Two changes. **`check` reports what is inert at your confinement level, by name** — and then it
+does something about it, because *an inert key is a handoff, not a verdict*:
 
 ```
 $ yolo check --at host
 ✓  packs, surfaces, skills, briefing, env_sources    apply here
-✗  packages                    needs a jail (no image to bake)
 ✗  mounts, host_files          needs a mount namespace — refused, never emulated
 ✗  network.*, resources        nothing to confine
 !  security.blocked_tools      shims would land on your real PATH — opt in explicitly
+✗  packages                    yolo does not manage packages here (no image to bake)
+                               yolo needs these; here is what this machine has:
+                                 postgresql   ✓ present   /opt/homebrew/bin/psql   16.4
+                                 redis        ✗ MISSING   → brew install redis
+                               re-checked on every apply; a missing dep refuses the apply.
 ```
 
-Today the equivalent information does not exist, and its absence has a live cost: on
-`macos-user`, packs render **zero surfaces every launch, silently** (`host-render-target.md`
-§9.7). A description that cannot be honored must say which part, in the output, at the moment
-you ask.
+"yolo can't manage this" is one sentence short of useful. The next sentence is whether the
+dependency is present anyway — **probed, not inferred from config** — and the one after is the
+command that fixes it. Where yolo hands off, it hands off with momentum.
+
+The remedy is pack-declarable rather than a built-in attr→`brew`/`apt` table that goes stale on
+every distro release, and the probe needs the *binaries* a package provides (`packages:
+["postgresql"]` → `psql`), which nix can answer at `jail` and cannot at a lower notch — so a
+declared `provides` list, with unprobeable entries reported as unprobeable rather than as present.
+The same rule as `install` applies: **yolo names the remedy and never runs it below `jail`**
+(§4.1). This is advice, not a second package manager.
+
+Today none of this information exists, and its absence has a live cost: on `macos-user`, packs
+render **zero surfaces every launch, silently** (`host-render-target.md` §9.7). A description that
+cannot be honored must say which part, in the output, at the moment you ask.
 
 ---
 
@@ -332,9 +385,12 @@ Worth stating plainly, because a reframing this size invites scope creep:
   and is agent-editable, so it must not decide what prose an agent then follows. Nothing about
   environment-manager framing loosens this — if anything a `host` notch makes it more load-
   bearing.
-- **Reproducibility stays the differentiator.** Locked nixpkgs, locked packs, `describe --hash`.
-  This is the item `macos-no-vm-direction.md` calls "*the* yolo differentiator," and every part
-  of this design is downstream of keeping it.
+- **Reproducibility stays the differentiator, and gets teeth.** Locked nixpkgs, locked packs, and
+  now a definition that *binds* — `apply --sealed` (§3.3) refuses rather than reports. This is the
+  item `macos-no-vm-direction.md` calls "*the* yolo differentiator," and it was the weakest claim
+  in the product until sealing: "reproducible" meant "the same declaration produces the same jail,"
+  while a user arriving from nix reads it as "the declaration is the only input." Three inputs said
+  otherwise. Every part of this design is downstream of closing that gap.
 
 ---
 

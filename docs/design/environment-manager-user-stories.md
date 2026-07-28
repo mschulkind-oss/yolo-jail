@@ -4,8 +4,15 @@ Five worked stories of people (and one agent) encountering yolo as
 [an environment manager whose confinement is a dial](yolo-as-environment-manager.md) —
 `jail` (default), `guest`, `host` — rather than as a container product with config
 composition bolted inside it. The lens is **the moment the reframing pays off, and the moment it
-bites**: every story is written so the new verbs (`apply`, `describe`, `diff`, `check --at`) get
-used in anger, and three of the five hit defects that exist in the shipped code today.
+bites**: every story is written so the new verbs (`apply`, `describe`, `check --at`) get used in
+anger, and three of the five hit defects that exist in the shipped code today.
+
+Two things the stories argue for that the design doc does not yet say. **The goal is a binding
+definition, not a comparison tool** — nix has no "diff my two machines" verb because it does not
+need one, so the verb story 1 ends up needing is the one that *refuses* (`apply --sealed`), and
+`describe --hash` is demoted to a cache key over a closed definition. And **an inert config key is
+a handoff, not a verdict** — where yolo declines to manage something, it should verify whether the
+dependency is there anyway and name the remedy, which is story 2's step 1.
 
 Terminal output below is real where it can be (`yolo config ls`, `yolo config diff`, the launch
 banner, `yolo pack ls`, the empty-packs notice) and follows the design doc's samples where the
@@ -17,142 +24,157 @@ failures in story 2 were probed), [../plans/BACKLOG.md](../plans/BACKLOG.md) Sta
 
 ---
 
-## 1. Maya — Staff Engineer, Rust CLI, Two Machines That Should Be the Same
+## 1. Maya — Staff Engineer, Rust CLI, Wants a Guarantee, Not a Diff
 
-**Context:** Maya maintains `sift`, a Rust CLI with 1,240 tests and a 6-minute release build.
-She works on a Linux desktop at her desk and a MacBook on the train. Both run yolo with the same
-user config: the `claude` pack plus a private `house-rules` pack (11 skills, an AGENTS.md
-fragment about her error-handling conventions, and a `claude/settings.json` surface that turns
-off two MCP servers she finds noisy). Her complaint for the last three months: **the agent is
-subtly better at her desk than on the train**, and she has never been able to say why.
+**Context:** Maya maintains `sift`, a Rust CLI with 1,240 tests. Her `flake.nix` pins the
+toolchain, and she has not wondered "does this machine have the right rustc" in two years. The
+definition binds, so there is nothing to check. She wants the same property for the agent
+environment: the `claude` pack plus a private `house-rules` pack (11 skills, an AGENTS.md fragment
+about her error-handling conventions, and a `claude/settings.json` surface that disables two noisy
+MCP servers). Her ask is one sentence: **"I want to define the agent environment functionally,
+the way I define the toolchain, and have that definition be true."**
 
-**What happens today:**
+**What she is explicitly not asking for.** A way to compare her desk to her laptop. Nix has no
+`nix diff-my-two-machines` because it does not need one — a comparison tool is what you build
+when the definition does not bind. If yolo's answer to "is this the environment I declared" is
+"diff it against another machine," the answer is no. So the interesting verb in this story is not
+`diff`. It is the one that **refuses**.
 
-She has no way to ask the question. `yolo config ls` tells her which files are composed, `yolo
-check` tells her the runtime is healthy, and neither of them compares two machines. She has
-twice resorted to `diff`ing `~/.claude/settings.json` between hosts over SSH, which does not
-work, because the file she cares about is composed *inside* the jail from four layers and never
-exists on the host in that form.
+**What happens:**
 
-**What happens with a description:**
-
-1. At her desk, she asks what she's actually running:
-
-   ```
-   $ yolo describe
-   environment  sift @ /home/maya/code/sift         confinement  jail (podman)
-   tools        31 nix packages · flake.lock 8f2a1c…   mise: node@22.23.1
-   agents       claude (pack, embedded)               launcher --dangerously-skip-permissions
-   knowledge    3 skill trees (built-in < house-rules < user) · AGENTS.md 4 sources
-   config       11 composed surfaces                  2 with captured edits
-   services     claude-oauth-broker, host-processes
-   grants       /workspace rw · 2 host files ro · no network holes
-   description  sha256:4c1f8ad2…   ← same hash, same environment
-   ```
-
-2. On the train, same command:
+1. She writes the definition and applies it:
 
    ```
-   $ yolo describe --hash
-   sha256:b7e0119c…
+   $ yolo apply
+   jail (podman)   image ✓ (cached)   packs claude,house-rules   surfaces 4 rendered
    ```
 
-   Two hashes. Three months of vague intuition resolves into a 12-character mismatch in under a
-   second, which is the entire argument for `describe` existing.
+2. On the laptop: same definition, same command. The environment is the same **by
+   construction** — nixpkgs pinned by `flake.lock`, packs pinned to commits by `yolo pack
+   status`, composition deterministic and layered. She does not verify this, the same way she
+   does not verify rustc. **That non-event is the product.**
 
-3. She asks what differs:
+3. Three weeks later the agent is noticeably better at her desk than on the laptop. So the
+   definition did *not* bind, and the fact that she now has to investigate is itself the finding.
 
-   ```
-   $ yolo diff --against sha256:4c1f8ad2…
-   tools     nix packages 31 → 29        (-ripgrep, -fd)
-   tools     mise node@22.23.1 → (none)
-   config    claude/settings  managed layer differs: 2 keys
-   knowledge house-rules skills 11 → 11  (identical)
-   ```
+   Three inputs escaped the definition. All three exist in the shipped product today.
 
-   **Gap:** `--against <hash>` implies yolo can resolve a hash back into a description, which
-   means descriptions have to be *stored* somewhere, keyed by hash. Nothing in the design says
-   where. The honest minimum is `yolo describe --json > desc.json` on machine A, scp, then
-   `yolo diff --against ./desc.json` — a file, not a hash. The hash is for *detecting* drift;
-   a file is for *explaining* it. The design conflates them.
-
-4. The package difference is easy: her MacBook has a `yolo-jail.local.jsonc` next to the
-   workspace config, written eight weeks ago to drop two packages while she was disk-starved.
-   She'd forgotten it existed. It is deliberately gitignored, which is why no amount of `git
-   diff` ever found it.
-
-   **Gap:** `describe` printed `31 nix packages` but not *where the number came from*. A
-   description assembled from user config + workspace config + an untracked local override
-   should say so, or the hash becomes a mystery generator. She wants:
+   **Gap 1 — the `host` layer reads a file that no declaration mentions.** `claude/settings`
+   composes four layers, and one of them is literally named `host`:
 
    ```
-   $ yolo describe --sources
-   packages   29   user:2  workspace:29  local:-2   ← yolo-jail.local.jsonc
-   packs       2   user:2
-   mounts      0
+   $ yolo config ls
+   SURFACE          PATH                        CODEC  MODE     LAYERS                   OVERLAY
+   claude/config    ~/.claude.json              json   rmw      defaults managed         –
+   claude/settings  ~/.claude/settings.json     json   capture  host computed managed    3 keys ⚠
+   mise/config      ~/.config/mise/config.toml  toml   capture  computed                 1 key ⚠
+   house-rules/md   ~/.claude/CLAUDE.md         text   copy     defaults                 –
    ```
 
-5. The `claude/settings` difference is the interesting one:
+   That `host` layer is her own `~/.claude/settings.json`, mounted in from the host and recorded
+   per-surface as `HostSource` (`internal/agentcfg/manifest/manifest.go:132`). Her two machines'
+   copies differ. This is nix's *impure derivation* — an input from outside the closure — and nix's
+   rule for it is not prohibition, it is **declaration**. The `claude` pack does declare the grant;
+   nothing surfaces that the resulting environment therefore has a machine-shaped input.
+
+   **Gap 2 — capture writes in-jail edits back, and they outrank the declaration.** This is the
+   one that actually broke her:
 
    ```
    $ yolo config diff claude --surface settings
    # claude/settings → ~/.claude/settings.json
      enabledPlugins  {"gopls-lsp@claude-plugins-official": true, "pyright-lsp@claude-plugins-official": true} (was {})
-     extraKnownMarketplaces  {"subdir-mk": {...}} (same as yolo's last render — redundant capture)
 
    These values were captured from in-jail edits and outrank the host layer.
    Discard them with: yolo config reset claude
    ```
 
-   Her desk jail captured two LSP plugins she enabled interactively in March. They outrank the
-   pack. The train jail never had them. **The agent really was better at her desk** — it had
-   `gopls` and `pyright` and the train agent didn't.
+   She enabled `gopls` and `pyright` interactively in March, at her desk. The capture overlay
+   promoted them to the winning layer. The laptop never had them, and **the agent really was
+   better at her desk** — it had two language servers the definition never mentioned. In nix
+   terms: a store path edited itself, and the edit outranks the derivation. There is no equivalent
+   move in nix, which is the point.
 
-   **Gap:** a captured in-jail edit is a *fourth* source of truth that no pack, no config file,
-   and no lockfile mentions. It legitimately changes behavior and it legitimately changes the
-   description hash — but `describe`'s `2 with captured edits` is a count, not a warning, and
-   nothing about it says "this environment has diverged from what you declared." Compare the
-   launch banner, which does say it, every single boot:
+   The launch banner does announce this, every single boot:
 
    ```
    ~/.config/mise/config.toml: 1 key from captured in-jail edits (yolo config diff mise)
    ~/.claude/settings.json: 3 keys from captured in-jail edits (yolo config diff claude)
    ```
 
-   The information exists. It just isn't in the artifact that claims to be the description.
+   But by the time it prints, the undeclared value has already won. A notice is not a binding.
 
-6. She promotes the two plugins into `house-rules` (where they belong), runs `yolo config reset
-   claude` in both jails, and re-checks:
+   **Gap 3 — `yolo-jail.local.jsonc`.** An untracked, gitignored sibling that merges over the
+   workspace config *automatically*, with no `include_if_found` entry. Hers drops two packages,
+   written eight weeks ago while she was disk-starved and forgotten since. A deliberate feature,
+   and a hole in the definition by design.
+
+4. What she wants is not a comparison. She wants the environment to tell her whether it is
+   **closed**, and to refuse when it isn't:
 
    ```
-   $ yolo describe --hash
-   sha256:9d3c02f1…
+   $ yolo apply --sealed
+   ✗ refused: 3 keys captured in-jail outrank the definition
+              claude/settings: enabledPlugins, extraKnownMarketplaces · mise/config: [tools]
+              → promote them into a pack, or discard: yolo config reset claude
+   ✗ refused: yolo-jail.local.jsonc is present and drops 2 packages (ripgrep, fd)
+              → fold it into yolo-jail.jsonc, or pass --allow-local
+   ✓ declared impurity: claude/settings ← ~/.claude/settings.json (granted by the claude pack)
    ```
 
-   Both machines. Same hash. She adds `yolo describe --hash` to her release checklist so a
-   release never builds from an environment she can't name.
+   This is the nix model applied exactly: **impurity is not banned, it is declared.** A pack that
+   says "I read the user's `~/.claude/settings.json`" is the fixed-output derivation — an impure
+   input, named in the definition, so the closure stays honest and the value is still attributable.
+   A captured in-jail edit is an impure input with *no declaration anywhere*, and that is the one
+   that has to be an error rather than a banner line.
+
+   **Gap:** nothing in the design decides whether `--sealed` is a flag or the default. As a flag,
+   the property Maya thinks she bought is off until she knows to ask for it — and she came here
+   from nix, where nobody opts into purity. As the default, capture (a genuinely good feature:
+   agents and humans edit config in-jail, and silently discarding that is hostile) becomes an
+   error on first use.
+
+5. She promotes the two plugins into `house-rules`, folds the local override into
+   `yolo-jail.jsonc`, discards the captures, and re-applies:
+
+   ```
+   $ yolo apply --sealed
+   jail (podman)   sealed ✓   image ✓ (cached)   packs claude,house-rules   surfaces 4 rendered
+   ```
+
+   She adds `yolo apply --sealed` to CI and **never runs `describe` again.** That is the correct
+   end state: the success condition for a guarantee is that you stop looking at it.
+
+   **Gap:** `describe --hash` still has a job, but not the one it was pitched with. A hash over a
+   *sealed* definition is a cache key and a CI pin — a `flake.lock` rev. A hash over an unsealed
+   environment is a number that changes for reasons the user cannot enumerate, which is worse than
+   having no hash, because it looks authoritative. The hash must refuse to print, or print marked,
+   when the closure is open.
 
 **What would trip them up:**
 
-- `--against <hash>` cannot work without a description store; the first thing she tries is the
-  thing that doesn't exist.
-- A gitignored `yolo-jail.local.jsonc` is invisible to every workflow she already trusts. The
-  hash catches it, but only if she thinks to compare hashes — which requires already suspecting
-  drift.
-- Captured in-jail edits are legitimate (that's the feature) *and* a drift source. There is no
-  vocabulary yet for "captured, and I meant it" vs "captured, and I forgot."
+- The word "reproducible" in yolo's own materials currently means "the same declaration produces
+  the same jail," and Maya reads it as nix's meaning: "the declaration is the only input." Three
+  inputs say otherwise.
+- Capture and closure are in direct tension, and both are right. Nothing in the design says which
+  wins by default, or gives a user a way to say "capture, but tell me I've gone impure."
+- Sealing cannot mean "no host reads" — the `host` layer is load-bearing, it is how her real Claude
+  settings reach the jail at all. It has to mean "no *undeclared* host reads," which is a subtler
+  rule to explain and to implement.
 
 **What makes this work:**
 
-- The hash converts an unfalsifiable feeling ("it's better at my desk") into a comparison. That
-  is the only thing in the design that SandVault, devcontainers, and "whatever's on the host"
-  structurally cannot offer.
-- `yolo config diff` already exists and already prints the right thing. `describe` doesn't have
-  to reinvent it — it has to *point at* it.
+- The binding mostly exists already. Packages come from `flake.lock`, packs lock to commits,
+  composition is deterministic and layer-ordered. What's missing is not machinery, it's a refusal.
+- Every impurity is already *visible somewhere*: `config ls` marks captured surfaces with `⚠`,
+  the boot banner prints them, and `HostSource` records where a host layer was read from. Closure
+  is an aggregation of facts yolo already holds — which is why `--sealed` is a small feature and a
+  large promise.
 
-**The aha moment:** step 5. Not the mismatch — the *cause*. She'd assumed the difference was
-model routing or network latency. It was two LSP plugins she enabled by hand five months ago and
-never wrote down. The environment had state she didn't know she owned.
+**The aha moment:** step 4 — when she stops asking "are my two machines the same?" and starts
+asking "is this machine what I said?" The first question needs another machine and a diff tool.
+The second needs only the definition. Nix taught her the difference, and she had been asking yolo
+the weaker question because it was the only one yolo could answer.
 
 ---
 
@@ -185,9 +207,46 @@ exactly what she needs and exactly why she's here: **a real home on the real fil
    !  security.blocked_tools      shims would land on the guest user's PATH — opt in explicitly
    ```
 
-   This is a good half hour. `check --at` told her, by name, that her `packages: ["postgresql",
-   "redis"]` line is inert here and her developers will need those from Homebrew. That's a
-   rollout decision she can make on the spot instead of discovering it in a support ticket.
+   `check --at` told her, by name, that her `packages: ["postgresql", "redis"]` line is inert
+   here. Which is where a reporting tool stops and where she still has a rollout problem: 28
+   machines need `postgresql` and `redis` and yolo has just declined to provide them.
+
+   **Gap — an inert key is a handoff, not a verdict.** "yolo can't manage this" is one sentence
+   short of useful. The next sentence is whether the dependency is *present anyway*, and the one
+   after is how to get it. Both are knowable: `packages` names concrete binaries, and the notch
+   knows which native package manager owns them. What she needs:
+
+   ```
+   $ yolo check --at guest
+   ✗  packages          yolo does not manage packages at this notch (no image to bake)
+                        yolo needs these; here is what this machine has:
+                          postgresql   ✓ present   /opt/homebrew/bin/psql   16.4
+                          redis        ✗ MISSING
+                        remedy for the fleet:  brew install redis
+                        yolo will re-check on every apply and refuse if it goes missing.
+   ```
+
+   Two properties matter more than the formatting. **It verifies rather than assuming** — the
+   `✓ present` line is a probe, not an inference from the config, so a machine that lies gets
+   caught. And **it hands off with momentum**: a copy-pasteable `brew install` line, ownership
+   stated plainly (Homebrew's, not yolo's), and a promise about future applies. Compare the
+   original output, which correctly reports scope and leaves her to work out the rest across 28
+   machines.
+
+   **Gap:** the remedy line is a per-notch, per-platform mapping (`brew`, `apt`, `dnf`, `pacman`,
+   `port`) that yolo does not have and that goes stale. The honest version is a pack-declarable
+   field — a pack that needs `redis` says how to get it outside a jail, once, in the manifest,
+   rather than every yolo release guessing on every distro. That parallels the `install` rule
+   exactly: **yolo names the remedy but never runs it below `jail`** (§4.1), so this is advice,
+   not a second package manager.
+
+   **Gap:** "verify system deps are present" needs a name for the dependency that is *not* the
+   nixpkgs attribute. `packages: ["postgresql"]` is a nixpkgs attr; the Homebrew formula is
+   `postgresql@16` and the binary is `psql`. Probing PATH for `postgresql` finds nothing on a
+   machine that has it. So a real check needs the **binaries** a package provides, which nix can
+   answer at jail level (the store path's `bin/`) and cannot answer at `guest`, where the package
+   was never built. Most likely: packs and config declare `provides: ["psql"]` for the deps they
+   care about, and unprobeable entries are reported as unprobeable rather than as present.
 
 2. She applies:
 
@@ -290,9 +349,13 @@ exactly what she needs and exactly why she's here: **a real home on the real fil
 **What makes this work — once it does:**
 
 - `check --at guest` is genuinely the best thing in the design. Ten lines told her which of her
-  ~25 config keys are inert on the notch she chose, before she distributed anything.
+  ~25 config keys are inert on the notch she chose, before she distributed anything. It becomes
+  the best thing *by a distance* if each inert key also probes and remedies (step 1): the
+  difference between "yolo doesn't do this" and "yolo doesn't do this, you already have 1 of 2,
+  run `brew install redis` for the other."
 - Refusing `install` by name, with the manual command, converts a security rule into a
-  documentation line instead of a mystery.
+  documentation line instead of a mystery. The remedy lines generalize that pattern: **yolo names
+  what it will not do, and hands you the next command anyway.**
 
 **Technical reality check:** the three notches are not equally real. `jail` is production,
 `host` is a design, `guest` renders zero surfaces per launch on the one platform it exists on.
@@ -351,8 +414,9 @@ builds on top of it, and none of it is required:
 - **Layer 4 — `apply`.** He wants CI to pre-build the image at 6am so his morning launch is
   instant: `yolo apply` in a cron job, no agent, no exec. The first verb he learns that isn't
   "run."
-- **Layer 5 — `describe --hash`.** He buys a second laptop. Now he cares whether they match
-  (story 1).
+- **Layer 5 — `apply --sealed`.** He buys a second laptop, and rather than compare the two he
+  wants each one to be what he declared. Sealing is the layer where his definition starts binding
+  the way his `requirements.txt` does (story 1).
 - **Layer 6 — the dial.** One afternoon he needs the agent to fix his *global* git config, which
   lives on the host by definition. `yolo --at host -- claude`. He gets his pack's skills and
   house rules on his real machine for the first time, plus a list of what didn't come along.
@@ -581,9 +645,11 @@ before the response is due and she is not going to read `docs/design/`.
    control is that the *user config* can pin `"maxConfinement": "jail"` — a floor she can
    distribute — and that `--at host` logs to the journal.
 
-   Notably, `describe --hash` *would* let her verify a fleet: 31 machines, one hash, one
-   sentence. That is a stronger compliance story than any of her other vendors can tell. It just
-   isn't reachable from anything she saw in 40 minutes.
+   Notably, `apply --sealed` *would* give her the fleet sentence she actually needs — not "all 31
+   machines match each other" but "all 31 machines are what we declared, and the run fails
+   otherwise." A vendor questionnaire wants a binding control, not a consistency observation, and
+   sealing is the only thing in this design that is one. It just isn't reachable from anything she
+   saw in 40 minutes.
 
 **What would trip them up:**
 
@@ -615,22 +681,45 @@ before the response is due and she is not going to read `docs/design/`.
 | `yolo -- <cmd>` | launch container | launch as the guest identity | exec in place |
 | `yolo apply` | build image, stage packs, render | render into the guest home | render applicable subset into real home |
 | `yolo describe` | full | full, minus image/mounts | full, minus image/mounts/network/resources |
-| `yolo diff` | declared vs rendered vs captured | same | declared vs real files (`rmw` + sidecar) |
-| `yolo check --at <n>` | all keys apply | names the inert ones | names the inert ones + the refused ones |
+| `yolo config diff` | per-surface: captured vs rendered | same | vs real files (`rmw` + sidecar) |
+| `yolo check --at <n>` | all keys apply | inert ones named, probed, remedied | same, plus the refused ones |
+| `yolo apply --sealed` | refuse on any undeclared input | same | meaningless (the host *is* undeclared input) |
 | `yolo pack install` | ✓ | ✓ | **refused, by field name** |
 | `yolo config reset` | ✓ | ✓ | **must refuse unless `surfacesAreLocal()`** (G1) |
 
+### The closure: what is in the definition, and what escapes it
+
+Story 1's finding, as a table. "Declared" is the nix test — is this input named in something the
+user wrote or pinned?
+
+| Input | Declared? | Binds today? |
+|---|---|---|
+| `packages[]` + `flake.lock` | ✓ | ✓ — the part that already works like nix |
+| pack set + locked commits | ✓ | ✓ |
+| `mise_tools` | ✓ | ✓ |
+| composed surfaces (`defaults`, `managed`) | ✓ | ✓ |
+| `computed` layer | ✓ (derived from jail paths) | ✓ — a function of the definition |
+| **`host` layer** (`HostSource`) | ✓ **declared by the pack**, but its *content* is machine state | partly — the nix analogue is a fixed-output derivation |
+| **capture overlay** | ✗ **nothing declares it, and it outranks everything** | ✗ — the closure-breaker |
+| **`yolo-jail.local.jsonc`** | ✗ untracked, auto-merged, no `include_if_found` needed | ✗ by design |
+
+`--sealed` is exactly: refuse on a row in the bottom two, report the `host` row as a declared
+impurity. **Not** "no host reads" — the `host` layer is how a user's real Claude settings reach the
+jail at all, and killing it would break the feature packs exist to provide.
+
 ### What goes into the description hash
 
-The stories put four sources under the hash, and one of them is contentious:
-
 ```
-resolved config      user + workspace + yolo-jail.local.jsonc     ← story 1, step 4
+resolved config      user + workspace (+ yolo-jail.local.jsonc, which is why sealing exists)
 pack set             names + locked commits (yolo pack status)
 tool set             flake.lock rev + packages[] + mise_tools[]
 composed surfaces    the rendered bytes of every surface
-captured edits       ??? — story 1, step 5; see open question 1
+captured edits       ??? — see open question 1
 ```
+
+A hash over an *unsealed* environment is worse than no hash: it looks authoritative and moves for
+reasons the user cannot enumerate. Under a sealed definition the hash is a `flake.lock` rev — a
+cache key and a CI pin — which is the only job it should have.
 
 ### The failure that both story 2 and story 4 are instances of
 
@@ -648,15 +737,47 @@ nothing stamps a rendering with the notch it was made for.**
 
 ## Open Questions
 
-1. **Whether captured in-jail edits belong in the description hash.**
-   Story 1's whole plot is two machines whose declared config matched and whose *captured* config
-   didn't. If captures are excluded, the hash says "same environment" when the agent demonstrably
-   behaves differently. If they're included, the hash changes whenever a user enables an LSP
-   plugin interactively, and `describe --hash` in CI becomes noise.
+1. **Whether the capture overlay may outrank the definition at all.**
+   This is the closure question, and it is the biggest one in the document. Capture is a real
+   feature — humans and agents edit config in-jail, and silently discarding those edits is hostile
+   — but a captured value wins over every declared layer while nothing declares *it*. Story 1 is
+   what that costs: two language servers in the winning layer that no config, pack, or lockfile
+   mentions.
 
-   _Leaning:_ include them, and print two hashes — `declared` and `effective`. CI pins
-   `declared`; story 1's mystery is solved by `effective`. One hash cannot serve both, and
-   picking one silently makes the other lie.
+   _Leaning:_ capture stays, but becomes a **staging area rather than a layer**: captured values
+   are recorded, reported, and *proposed* (`yolo config promote claude` writes them into a pack or
+   the workspace config), and `apply --sealed` refuses while any are outstanding. That keeps the
+   feature, keeps the definition binding, and makes "capture, and I meant it" expressible — it
+   means "promote it." The alternative (capture keeps winning, sealing is opt-in) leaves the
+   product unable to make nix's promise, which is the promise story 1 came for.
+
+   **Answer:**
+   > _(empty — fill in when decided)_
+
+1a. **Whether `--sealed` is a flag or the default.**
+   As a flag, the property is off until a user knows to ask, and nobody arriving from nix expects
+   to opt into purity. As the default, capture and `yolo-jail.local.jsonc` — both deliberate,
+   both shipped — become errors on first use.
+
+   _Leaning:_ default-on for `apply` in CI (non-TTY), flag-on interactively, with the interactive
+   path *printing* the open-closure summary every apply rather than refusing. Same information,
+   two severities, chosen by whether a human is there to act on it. Pair with question 1's
+   promote verb, or the interactive notice is just the boot banner again — visible and unbinding.
+
+   **Answer:**
+   > _(empty — fill in when decided)_
+
+1b. **How far the "inert key" handoff goes.**
+   Story 2 step 1 wants an inert `packages` to probe whether the dep is present anyway and print a
+   remedy. That needs two things yolo lacks: a mapping from nixpkgs attr to native package manager
+   formula, and the *binaries* a package provides (`packages: ["postgresql"]` → `psql`, not
+   `postgresql`), which nix can answer at `jail` and cannot at `guest`.
+
+   _Leaning:_ pack- and config-declarable `provides: ["psql"]` plus an optional per-notch
+   `remedy` string, and report unprobeable entries as unprobeable rather than as present. yolo
+   names the remedy and never runs it below `jail` — same rule as `install` (§4.1), so this is
+   advice, not a second package manager. A built-in attr→brew/apt table is the tempting version
+   and it goes stale on every distro release.
 
    **Answer:**
    > _(empty — fill in when decided)_
@@ -673,13 +794,17 @@ nothing stamps a rendering with the notch it was made for.**
    **Answer:**
    > _(empty — fill in when decided)_
 
-3. **Where `describe --against` resolves a hash from.**
-   Story 1 assumes a hash can be turned back into a description. That needs a store — per
-   workspace under `.yolo/`, machine-global under `~/.local/share/yolo-jail/`, or nowhere.
+3. **Whether `diff` is a top-level verb at all.**
+   The first draft of story 1 was built on comparing two machines, and rewriting it around closure
+   removed the need: a binding definition makes "compare my environments" a question you stop
+   asking, and nix ships no such verb. What survives is `yolo config diff`, which already exists
+   and answers something narrower and real — *this surface's captured values vs. what yolo
+   rendered* — i.e. it reports open closure on one file.
 
-   _Leaning:_ nowhere. `--hash` detects drift; `describe --json` to a file plus `diff --against
-   ./file.json` explains it. A description store is a cache-invalidation problem in exchange for
-   saving one `scp`.
+   _Leaning:_ don't promote `diff` to a top-level description-vs-description verb. Keep `config
+   diff` as the per-surface impurity report, and let `apply --sealed` be the whole-environment
+   answer. A cross-machine comparison is then a `describe --json` on each side and `diff(1)` — no
+   verb, no description store, no cache invalidation.
 
    **Answer:**
    > _(empty — fill in when decided)_
