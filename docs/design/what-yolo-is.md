@@ -90,6 +90,14 @@ binaries — but it is load-bearing for a property nothing else here provides: a
 
 ### So what *is* yolo?
 
+> **Superseded 2026-07-27.** This section's answer was inverted by
+> [yolo-as-environment-manager.md](yolo-as-environment-manager.md): the sandbox is ~85 lines of
+> policy (a 59-line SandVault-parity Seatbelt profile, ~34 lines of container flags) plus a
+> credential boundary that is *code that isn't there*, while the staging is the product. The
+> "uncomfortable implication" at the end of this section turned out to be the correct answer,
+> not a caveat. Kept as written because the measurement below is still accurate and the
+> reasoning is what led to the inversion.
+
 Honestly: **yolo is a sandbox product with an unusually good config-composition engine
 inside it.** Three things, only two of which are core:
 
@@ -112,6 +120,16 @@ what would remain interesting.
 composition system is separable, then the pack system is *also* not fundamentally a jail
 feature. It is an agent-config distribution mechanism that yolo happens to be a good host
 for. That is worth knowing before deciding how much of yolo becomes packs.
+
+**And that implication generalizes past packs, which is where this section's answer breaks
+down.** Almost nothing outside the ~85 lines of confinement policy is fundamentally
+jail-shaped: not the packages, not the surfaces, not the skills, not the briefings, not the
+loopholes. Half the config surface consists of *grants* — ways to poke a hole through a wall —
+which presuppose a wall without creating one, and go inert rather than wrong when the wall is
+absent. So the honest answer is the other way around: yolo describes an agent's environment,
+and confinement is one attribute of the description.
+[yolo-as-environment-manager.md](yolo-as-environment-manager.md) is that framing worked
+through from the user's side.
 
 ---
 

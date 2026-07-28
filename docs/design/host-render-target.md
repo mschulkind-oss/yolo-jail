@@ -851,8 +851,13 @@ is even reachable.
 
 ## 9. Open questions — the discussion part
 
-**9.1 Is yolo "a jail" or "an interface for describing environments agents run in"?** This is
-the real question under everything above, and I do not think the doc can settle it. §2.2's
+**9.1 Is yolo "a jail" or "an interface for describing environments agents run in"?**
+**Answered 2026-07-27, in the second sense** — see
+[yolo-as-environment-manager.md](yolo-as-environment-manager.md), which takes §2.2's confinement
+axis as the product's organizing idea (a `confinement: jail|sandbox|host` dial, with `runtime`
+demoted to a mechanism hint) and makes this doc's host target one notch of it rather than a
+special case. The reasoning below is what the question looked like before that ruling, and its
+cost analysis still applies. §2.2's
 confinement axis says the second is already true *descriptively* — `macos-user` ships, has no
 container, and is documented as one product with the container backends. What is unsettled is
 whether we say so **normatively**, because that changes the scope of everything: a "jail" has
