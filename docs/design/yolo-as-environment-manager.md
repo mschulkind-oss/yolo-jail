@@ -18,7 +18,10 @@ reads as "yolo, at the jail level." The name gets *more* accurate under this fra
 the question this doc answers), [happy-path-principle.md](happy-path-principle.md) (which
 constrains how many knobs this may add),
 [macos-no-vm-direction.md §"What makes it yolo"](macos-no-vm-direction.md) (the prior, narrower
-version of this argument).
+version of this argument),
+[environment-manager-user-stories.md](environment-manager-user-stories.md) (this design walked
+through five users, which is where its output formats get pressure-tested and where §8's costs
+show up as concrete failures).
 
 ---
 
