@@ -11,7 +11,8 @@ needs a ruling, §9 is what I could not settle from the code.
 system as built — this doc assumes it), [what-yolo-is.md](what-yolo-is.md) (the earlier
 "is the engine separable?" answer, which this extends from the engine to the pack system),
 [../plans/agent-config-packs.md §9.3](../plans/agent-config-packs.md) (the previous round of
-this exact question, answered "not yet, no second consumer"),
+this exact question, answered "not yet, no second consumer" — §1.3 argues that test was the
+wrong one),
 [composed-file-permissions.md](composed-file-permissions.md) (the postures a host-side
 writer would have to honor).
 
@@ -19,19 +20,30 @@ writer would have to honor).
 
 ## 0. The one-paragraph version
 
+**The motivation is one declaration, two environments.** A pack already says how `pi` is
+configured — approval prompts, MCP servers, skills. You write it once and it renders only
+inside a jail; the day you need that same agent to behave the same way *on the host*, none of
+it is available. Nothing intrinsic to the mechanism requires that (§2).
+
 **The code boundary already exists.** The pack system's five packages have zero edges to
 anything jail-shaped, and the composition engine they sit on has zero edges to
-`config`/`paths`/`cli`/`entrypoint`. Extraction is not an untangling job. **The design work
-is entirely about three other things:** (1) what the *interface* between yolo and the util
-is, (2) how the four residual couplings — reservation lists, in-jail rendering, host-side
-staging, storage paths — get re-expressed across it, and (3) what "manage the host configs"
-actually means, which is the only genuinely new thing here and the only part that is
-dangerous. On (3) there is a finding: **yolo already composes into the invoking human's
-real home, by accident, and it is currently destructive.** Two probes below truncate a real
+`config`/`paths`/`cli`/`entrypoint`. Extraction is not an untangling job. **So the design
+work is three other things:** (1) what the *interface* between yolo and the util is, (2) how
+the four residual couplings — reservation lists, in-jail rendering, host-side staging,
+storage paths — get re-expressed across it, and (3) what "manage the host configs" actually
+means, which is the dangerous part.
+
+On (3) there is a finding: **yolo already composes into the invoking human's real home, by
+accident, and it is currently destructive.** Probes below truncate a real
 `~/.config/mise/config.toml` and rewrite a real `~/.claude/settings.json`. So this is not a
 posture we would be *adopting*; it is one we are *already in* without having designed it.
 That reframes the proposal from "should we point this at the host?" to "we already do —
 should it be deliberate?"
+
+**And the capability turns out not to need the new repo.** Making the render target explicit
+(§6.2, step 3) delivers the `pi`-on-the-host case inside today's binary. The extraction buys
+a boundary — the tool editing your live dotfiles is not the one launching containers — and
+that, not the feature, is the open decision (§9.1).
 
 ---
 
@@ -112,37 +124,57 @@ means.
 
 ### 1.3 What this measurement means
 
-The previous round of this question ([agent-config-packs.md §9.3](../plans/agent-config-packs.md))
-concluded: extractable, but *unmotivated* — "it has to be motivated by an external
-consumer, and there isn't one yet." **That conclusion is unchanged by anything in §1.** The
-code is no more tangled and no less tangled than it was measured to be.
+Nothing in §1 is an argument *for* extraction — it only says the bill is small. The argument
+is in the next section, and it is not the one the previous round of this question was
+answering.
 
-What *has* changed since then is the pack system landed (Stage A–D), so there is now a real
-mechanism to extract rather than a design; and this doc's second half supplies the missing
-motivation — a host-config manager is exactly the second consumer §9.3 said was absent.
+[agent-config-packs.md §9.3](../plans/agent-config-packs.md) concluded "extractable, but it
+has to be motivated by an external consumer, and there isn't one yet." **That test was the
+wrong one, and it is worth saying so rather than inheriting it.** It looked for a *third
+party* who wanted an `agentpack` binary. The real motivation was already sitting in the
+product: we have built a mechanism for declaring how an agent is configured and how an
+environment is set up, and **its reach stops at the container wall** — for no reason
+intrinsic to what it does.
+
+The consumer is not external. **It is the same person, on the other side of that wall.**
 
 ---
 
-## 2. Two jobs, and only one of them is new
+## 2. The motivation: an agent config that stops at the container wall
 
-The ask has two halves that pull in different directions.
+**The point is one definition, two environments.** A pack already says how `pi` is
+configured — its settings surface, its approval-prompt posture, its skills, its MCP servers,
+its launch flags. You write that once. Today it renders **only** inside a jail.
 
-**Job 1 — be the pack engine yolo consumes.** Pure refactor. No user-visible behavior
-change, no new capability, no new risk. The measurement in §1 says it is a week of careful
-mechanical work plus the interface decision in §3. Its value is architectural: the pack
-format stops being "a yolo-jail implementation detail" and becomes a thing with a spec, and
-a pack author can lint one without installing a container runtime.
+So the concrete case, which is the whole argument in one sentence:
 
-**Job 2 — manage the host's own agent configs.** A new product. This is where all the risk
-and all the interesting design is, and §6 is about it.
+> You configure `pi` through a pack — trust posture, approval prompts, MCP servers — and it
+> works beautifully in the jail. Now you need to fix something **on the host**, where the
+> same agent is running against the same repos with none of it. You want *that* config,
+> the one you already wrote and already trust, over there.
 
-**They are separable, and the ordering matters.** Job 1 with no job 2 is refactoring for
-its own sake — the thing §9.3 already declined. Job 2 without job 1 is *also* possible (a
-host-config mode inside `yolo` itself), and is strictly cheaper. So the honest framing is:
+Today the answer is: reproduce it by hand in `~/.pi/agent/settings.json`, and keep the two
+in sync forever by remembering to. **That is the gap.** It is not a missing external
+consumer; it is the same user, the same agent, the same declaration, arbitrarily unavailable
+in one of the two places they run it.
 
-> **Job 2 is the reason to do job 1.** If we want a host-config manager, extraction is how
-> to get one without making `yolo` the tool that edits your real dotfiles. If we don't want
-> job 2, job 1 has no motivation it didn't already lack.
+That reframes the two halves of the ask. They are not "a refactor" and "a product":
+
+**Half 1 — the pack engine becomes a thing that can run anywhere.** Mechanically a refactor
+(§1 prices it), but the *point* is not tidiness. It is that a renderer welded to
+`internal/entrypoint` can only ever render into a container. Extraction is how the
+declaration stops being jail-only.
+
+**Half 2 — a target that is the host.** §6. This is where the risk is, because the blast
+radius is the human's real environment rather than a disposable one.
+
+**They are separable, and the honest accounting is:** half 2 is *also* reachable without
+half 1 (a host-config mode inside `yolo` itself) and would be strictly cheaper. What half 1
+buys is that the thing writing your real dotfiles is not the same binary whose job is
+launching containers — plus a pack author who can `lint` without a container runtime, and a
+pack format with one implementation instead of two. Whether that is worth a second repo is
+§3's question and §10's counter-argument; **it is no longer a question of whether anyone
+wants the capability.**
 
 ---
 
@@ -161,8 +193,8 @@ import "github.com/mschulkind-oss/agentpack/packload"
 - Nothing ships on the host but `yolo`. The host ship set stays `{yolo}`.
 - `flake.nix`'s `goSrc` trap gets *easier*: an external module lives in `vendor/`, which is
   already in the fileset, so it can't silently vanish the way a new top-level dir can.
-- **Cost:** a version bump is now a two-repo dance. And it does not, by itself, deliver job
-  2 — it just makes job 2 buildable elsewhere.
+- **Cost:** a version bump is now a two-repo dance. And it does not, by itself, deliver the
+  host target — it just makes it buildable elsewhere.
 
 ### B. Sidecar binary — `agentpack` on the host, `yolo` shells out
 
@@ -194,8 +226,8 @@ reinventing `packdecl` as a second schema, with drift. Option C is the right sha
 ### D. Library + thin CLI in one module — **recommended**
 
 One new module exposing both a Go API and a `agentpack` binary. `yolo` imports the library
-(option A, so coupling 1 is untouched); the binary exists for pack authors and for job 2,
-and is **not** in yolo's ship set.
+(option A, so coupling 1 is untouched); the binary exists for pack authors and for the host
+target, and is **not** in yolo's ship set.
 
 ```
 agentpack/                       # new module
@@ -208,7 +240,7 @@ yolo-jail/
   packs/                         # the six embedded packs — stays HERE (see §4.1)
 ```
 
-The recommendation is D because it gets job 2's delivery vehicle without paying option B's
+The recommendation is D because it gets the host target's delivery vehicle without paying option B's
 coupling-1 tax inside yolo, and because a shared module is the only arrangement where the
 pack *format* has exactly one implementation.
 
@@ -236,7 +268,7 @@ test). Nice accident; the extraction should not disturb it.
 
 `renderDeclaredSurface` and the three writers in `prism.go` are already written against
 `e.Home`, resolved as `$JAIL_HOME || $HOME || /home/agent` (`env.go:76`), deliberately not
-the process `$HOME`. **That is exactly the parameter job 2 needs** (§6). So this code moves
+the process `$HOME`. **That is exactly the parameter a host target needs** (§6). So this code moves
 into the util behind an explicit target instead of an `*entrypoint.Env`, and yolo's
 entrypoint becomes a caller that supplies `{home, workspace, sidecarDir, ctxRoot,
 liveTables}`.
@@ -373,7 +405,7 @@ is correctly read-only and `claude/config` correctly refuses (it's `rmw`).
 cause is that "which home am I composing into?" is an *implicit* `paths.Home()` host-side
 and an *explicit* `e.Home` in-jail. The entrypoint got this right on purpose
 (`env.go:76`, "deliberately not the process `$HOME`"); the host CLI never had to decide,
-because it was only ever meant to *preview*. Job 2 forces the parameter to become explicit
+because it was only ever meant to *preview*. A host target forces the parameter to be explicit
 everywhere — which is precisely the fix. So the destructive host-side writes are not an
 argument against pointing this at the host; they are an argument that we already did, by
 omission, and should do it on purpose.
@@ -500,7 +532,7 @@ a different dialect, `computed` + `project` already expresses the reshape as dat
 
 ## 7. Three walkthroughs
 
-### 7.1 yolo launches a jail (job 1 — nothing observable changes)
+### 7.1 yolo launches a jail (nothing observable changes)
 
 ```
 yolo -- claude
@@ -518,7 +550,7 @@ yolo -- claude
 The only user-visible difference is that `yolo pack lint` and `agentpack lint` are the same
 code, so they cannot disagree.
 
-### 7.2 The human manages their own machine (job 2)
+### 7.2 The human manages their own machine (the host target)
 
 ```
 $ cat ~/.config/agentpack/config.jsonc
@@ -572,8 +604,10 @@ it is on is the signal that this design went wrong.
    means step 4 is a move, not a redesign — and if we stop after this, we still deleted a
    duplicate table.
 3. **Introduce `Target` inside yolo**, replacing `*entrypoint.Env` in the render path and
-   `paths.Home()` in the host path. No new module. This is where the real design risk lives,
-   and it is cheaper to get wrong in one repo.
+   `paths.Home()` in the host path. No new module. **This is the step that delivers §2's
+   motivating case** — a host target is what lets your `pi` pack fix the approval prompts on
+   the host — so it is also where the real design risk lives, and it is cheaper to get wrong
+   in one repo than across two.
 4. **Extract the module** (option D), packs staying in yolo (§4.1). Mechanical once step 3
    lands. Verify per the nested-jail rule — a pack-staging change is exactly the class of
    thing unit tests miss.
@@ -586,10 +620,14 @@ it is on is the signal that this design went wrong.
 
 ## 9. Open questions — the discussion part
 
-**9.1 Is there a second consumer yet?** §9.3's test for whether the boundary was drawn
-right was: does anyone ask for an installable `agentpack`? A host-config manager is a
-plausible second consumer, but *we* would be inventing it rather than responding to demand.
-Worth being honest that this could be building the abstraction to justify the extraction.
+**9.1 Does the host case need a separate repo, or just a separate target?** §2 settles that
+the *capability* is wanted (one declaration, both environments). What it does not settle is
+whether that requires extraction at all: a `Target` with `Home = $HOME` inside today's
+`yolo` binary would deliver the `pi`-on-the-host case with no new module, no version skew,
+and no §9.5 schema problem. The case for a real module is that a tool which edits your live
+dotfiles should not be the tool whose other job is launching containers — a boundary
+argument, not a capability one. **This is the actual open decision**, and §8 sequences the
+work so it can be deferred: steps 1–3 deliver the capability, step 4 decides the repo.
 
 **9.2 Does a host target defeat the sandbox's purpose, or is it a separate product?** The
 threat model is "the container is blast-radius reduction, never authorization." A util that
@@ -635,7 +673,9 @@ stay a silent no-op.
 
 ## 10. The case against, stated fairly
 
-- **Job 1 alone is unmotivated**, and that was already the ruling. Nothing in §1 changed it.
+- **The capability does not require the extraction.** §2's `pi`-on-the-host case is delivered
+  by an explicit render target, which is step 3 and lives entirely inside today's `yolo`.
+  Everything after that buys a boundary, not a feature.
 - **Two repos cost more than the duplication they remove.** Version skew, a compatibility
   matrix for pack authors (§9.5), and a second place to look when a pack misbehaves.
 - **The strongest argument for extraction — deleting the duplicate surface-path table — was
