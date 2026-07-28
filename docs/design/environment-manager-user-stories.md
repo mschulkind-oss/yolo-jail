@@ -2,7 +2,7 @@
 
 Five worked stories of people (and one agent) encountering yolo as
 [an environment manager whose confinement is a dial](yolo-as-environment-manager.md) —
-`jail` (default), `sandbox`, `host` — rather than as a container product with config
+`jail` (default), `guest`, `host` — rather than as a container product with config
 composition bolted inside it. The lens is **the moment the reframing pays off, and the moment it
 bites**: every story is written so the new verbs (`apply`, `describe`, `diff`, `check --at`) get
 used in anger, and three of the five hit defects that exist in the shipped code today.
@@ -161,8 +161,8 @@ never wrote down. The environment had state she didn't know she owned.
 **Context:** Priya supports 34 engineers, 28 of them on M-series MacBooks. She has been asked to
 standardize agent config across the fleet: same skills, same approval posture, same MCP servers.
 Containers on macOS mean a VM, the VM means 4 GB of RAM and a 20-second cold start, and her
-developers will not accept that for a tool they invoke 40 times a day. The `sandbox` notch is
-exactly what she needs and exactly why she's here: **a real user, a real home, no VM.**
+developers will not accept that for a tool they invoke 40 times a day. The `guest` notch is
+exactly what she needs and exactly why she's here: **a real home on the real filesystem, no VM.**
 
 **First 30 minutes:**
 
@@ -171,18 +171,18 @@ exactly what she needs and exactly why she's here: **a real user, a real home, n
    ```jsonc
    // ~/.config/yolo-jail/config.jsonc
    {
-     "confinement": "sandbox",
+     "confinement": "guest",
      "packs": ["claude", "git+ssh://git@github.com/acme/yolo-house-rules"]
    }
    ```
 
    ```
-   $ yolo check --at sandbox
+   $ yolo check --at guest
    ✓  packs, surfaces, skills, briefing, env_sources    apply here
    ✗  packages                    needs a jail (no image to bake)
    ✗  mounts, host_files          needs a mount namespace — refused, never emulated
    ✗  network.*, resources        nothing to confine
-   !  security.blocked_tools      shims would land on the sandbox user's PATH — opt in explicitly
+   !  security.blocked_tools      shims would land on the guest user's PATH — opt in explicitly
    ```
 
    This is a good half hour. `check --at` told her, by name, that her `packages: ["postgresql",
@@ -193,7 +193,7 @@ exactly what she needs and exactly why she's here: **a real user, a real home, n
 
    ```
    $ yolo apply
-   sandbox (seatbelt)   user yolo-agent   packs claude,house-rules   surfaces 0 rendered
+   guest (seatbelt)   user yolo-agent   packs claude,house-rules   surfaces 0 rendered
    ```
 
 3. She launches, and Claude comes up. No MCP servers. No skills. No house rules. The agent
@@ -207,7 +207,7 @@ exactly what she needs and exactly why she's here: **a real user, a real home, n
    over an empty list on every single launch. Eleven surfaces are declared; zero render; nothing
    errors. `docs/design/macos-user-nix-and-features.md:174` still claims pack selection works.
 
-   The design doc's own §8 says it out loud: *"`sandbox` must actually work before any of this is
+   The design doc's own §8 says it out loud: *"`guest` must actually work before any of this is
    honest. A three-notch story with a broken middle is worse than a one-notch story that
    works."* Priya is what that sentence looks like from the outside.
 
@@ -284,18 +284,18 @@ exactly what she needs and exactly why she's here: **a real user, a real home, n
   neither prints a warning.
 - `yolo config reset` reads as scoped to yolo's own state. Nothing in its name or output says it
   can write outside the jail.
-- She'd have shipped `sandbox` to 28 machines on the strength of step 1's clean `check --at`
+- She'd have shipped `guest` to 28 machines on the strength of step 1's clean `check --at`
   output. `check` validated the *description*; nothing validated that the notch renders.
 
 **What makes this work — once it does:**
 
-- `check --at sandbox` is genuinely the best thing in the design. Ten lines told her which of her
+- `check --at guest` is genuinely the best thing in the design. Ten lines told her which of her
   ~25 config keys are inert on the notch she chose, before she distributed anything.
 - Refusing `install` by name, with the manual command, converts a security rule into a
   documentation line instead of a mystery.
 
 **Technical reality check:** the three notches are not equally real. `jail` is production,
-`host` is a design, `sandbox` renders zero surfaces per launch on the one platform it exists on.
+`host` is a design, `guest` renders zero surfaces per launch on the one platform it exists on.
 The BACKLOG order (G1 → G2 → G4 → G3) puts the data-loss fix first and the silent-zero fix
 fourth, behind the `internal/render` collapse that makes it a two-line change. That order is
 right, and this story is the argument for not announcing three notches until G3 lands.
@@ -464,7 +464,7 @@ agent that believes it is disposable when it is not will take a disposable agent
 **What would trip them up:**
 
 - An agent cannot verify its own confinement without being told. `uname` and `/proc` distinguish
-  container from host on Linux; on macOS `sandbox` vs `host` is *invisible from inside* until you
+  container from host on Linux; on macOS `guest` vs `host` is *invisible from inside* until you
   hit a Seatbelt denial. The briefing is not a convenience, it is the only channel.
 - Ash has no way to ask. There is no `yolo describe` output in their context unless the human
   pastes it, and no reason for them to run it — the briefing is the thing they're trained to
@@ -600,7 +600,7 @@ before the response is due and she is not going to read `docs/design/`.
   all. Today `runtime: "macos-user"` answers "how confined am I?" and "by what mechanism?" in one
   word, and `config-ref` has to explain in prose that one of the three values is *"a WEAKER
   isolation boundary than a container/VM."* Lisa could not have parsed that. `confinement:
-  sandbox` she can.
+  guest` she can.
 - The credential boundary being **omission** rather than policy is genuinely the strongest answer
   to question 14 — there is no allowlist to misconfigure. It only needs to be *printed*.
 
@@ -610,10 +610,10 @@ before the response is due and she is not going to read `docs/design/`.
 
 ### Verbs × notches
 
-| Verb | `jail` | `sandbox` | `host` |
+| Verb | `jail` | `guest` | `host` |
 |---|---|---|---|
-| `yolo -- <cmd>` | launch container | launch as sandbox user | exec in place |
-| `yolo apply` | build image, stage packs, render | render into sandbox user's home | render applicable subset into real home |
+| `yolo -- <cmd>` | launch container | launch as the guest identity | exec in place |
+| `yolo apply` | build image, stage packs, render | render into the guest home | render applicable subset into real home |
 | `yolo describe` | full | full, minus image/mounts | full, minus image/mounts/network/resources |
 | `yolo diff` | declared vs rendered vs captured | same | declared vs real files (`rmw` + sidecar) |
 | `yolo check --at <n>` | all keys apply | names the inert ones | names the inert ones + the refused ones |
@@ -723,13 +723,13 @@ nothing stamps a rendering with the notch it was made for.**
    **Answer:**
    > _(empty — fill in when decided)_
 
-7. **Whether Linux `sandbox` (bwrap + Landlock) is a promise or a hypothesis.**
+7. **Whether Linux `guest` (bwrap + Landlock) is a promise or a hypothesis.**
    The design's three-row table lists it as the Linux mechanism for the middle notch, and that
    row is the evidence the dial is real rather than a story told about two macOS backends. No such
    code exists.
 
    _Leaning:_ mark it explicitly as unbuilt in the table until it runs, and do not ship the
-   three-notch vocabulary in user-facing copy until `sandbox` renders surfaces on at least one
+   three-notch vocabulary in user-facing copy until `guest` renders surfaces on at least one
    platform (G3). Story 2 is what shipping it early costs.
 
    **Answer:**
@@ -744,6 +744,30 @@ nothing stamps a rendering with the notch it was made for.**
    _Leaning:_ one banner, parameterized: `yolo — host level (no confinement)`. The name survives
    because the level is named in the same breath. Leaving the word "JAIL" in a `host` banner is
    the fastest way to make the reframing look like marketing.
+
+   **Answer:**
+   > _(empty — fill in when decided)_
+
+9. **Whether the notch names are defensible as terminology.**
+   The middle notch was `sandbox` in the first draft of these stories, and it does not survive
+   scrutiny (design doc §4.0): "sandbox" is the industry's *generic* term for the whole column —
+   Kubernetes' `PodSandbox`, gVisor, Firecracker, Chrome's seccomp/Seatbelt renderer — so it names
+   containers and VMs too. This codebase already spends the word on the jail three times
+   (`internal/cli/help.go:39` "a sandboxed container jail", `internal/agents/agentsmd.go:114`,
+   `internal/macosuser/seatbelt.go`'s profile header). `jail` is fine: FreeBSD jails and chroot
+   jails are OS-level partitioning of one kernel, so a container *is* a jail in the term's own
+   lineage — nothing about the word implies a VM. Renamed to `guest` here.
+
+   _Leaning:_ `jail` / `guest` / `host` — named for the agent's relationship to the machine, which
+   is the only thing true on every platform, since the middle notch is a separate macOS user +
+   Seatbelt on darwin but namespaces with **no separate user** under bwrap on Linux. Any name
+   drawn from a mechanism describes one platform and lies about the other. Two residual worries:
+   `guest` collides with "guest OS" in virtualization (where the guest is the *stronger*
+   isolation, the reverse of our ordering), and a three-noun ladder invites reading the notches as
+   absolute strengths when they are ordinal per platform — `jail` is podman on Linux and a
+   per-container VM on Apple Container. `describe` prints the mechanism beside the notch for
+   exactly that reason. `restricted` is the boring alternative, at the cost of mixing an adjective
+   into a noun triple.
 
    **Answer:**
    > _(empty — fill in when decided)_

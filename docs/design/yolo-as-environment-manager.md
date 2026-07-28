@@ -64,7 +64,7 @@ The model I want is **"describe the environment; choose how confined it is."**
        DESCRIPTION                                    CONFINEMENT
   ┌──────────────────────────┐              ┌────────────────────────────┐
   │ tools      packages, mise│              │  jail     container        │
-  │ agents     packs         │      ×       │  sandbox  real user + LSM  │
+  │ agents     packs         │      ×       │  guest    own identity+LSM │
   │ knowledge  skills, briefs│              │  host     none             │
   │ config     composed files│              └────────────────────────────┘
   │ services   loopholes     │
@@ -171,7 +171,7 @@ The config key that matters:
 
 ```jsonc
 {
-  "confinement": "jail",     // jail | sandbox | host      (default: jail)
+  "confinement": "jail",     // jail | guest | host        (default: jail)
   "runtime": "auto"          // podman | container | auto  — mechanism, not policy
 }
 ```
@@ -184,13 +184,51 @@ question has one answer:
 | Level | Mechanism | What the agent gets | Credentials |
 |---|---|---|---|
 | **`jail`** (default) | podman / Apple Container | namespaces, disposable home, baked image | none of yours |
-| **`sandbox`** | Seatbelt (macOS), bwrap+Landlock (Linux) | a real user, a real home, no VM, no mounts | its own, separate user |
+| **`guest`** | Seatbelt (macOS), bwrap+Landlock (Linux) | a real home on the real filesystem, no image | its own, separate identity |
 | **`host`** | none | you, your machine, your dotfiles | yours |
 
-`runtime` demotes to a mechanism hint inside `jail`, normally `auto`. A Linux `sandbox` row
-needs no new concept — it is the same notch with a different LSM, which is the evidence the dial
-is real rather than a story told about two backends
+`runtime` demotes to a mechanism hint inside `jail`, normally `auto`. A Linux middle row needs no
+new concept — it is the same notch with a different enforcement primitive, which is the evidence
+the dial is real rather than a story told about two backends
 ([host-render-target.md](host-render-target.md) §9.8).
+
+### 4.0 Why the middle notch is not called `sandbox`
+
+Worth pinning, because "sandbox" was the obvious name and it is the wrong one.
+
+**"Sandbox" is the generic term for the whole column, not a point on it.** Kubernetes' CRI unit
+is a `PodSandbox`; gVisor and Firecracker both sell themselves as sandboxes; Chrome's renderer
+sandbox is seccomp on Linux and Seatbelt on macOS. Containers and VMs are sandboxes. Naming one
+notch `sandbox` gives the notch that most needs a discriminating name the least discriminating
+word available — and this codebase already proves it: `internal/cli/help.go:39` calls the
+container "a sandboxed container jail", `internal/agents/agentsmd.go:114` tells every agent it is
+"inside a YOLO Jail — a sandboxed container", and `internal/macosuser/seatbelt.go` emits
+`";; yolo-jail macOS-user sandbox profile"`. One word, currently naming both the jail and the
+not-jail.
+
+**`jail` survives the same test.** FreeBSD jails (2000) and chroot jails are OS-level
+partitioning of one kernel — a container *is* a jail in the term's own lineage. Nothing about
+`jail` implies a VM, so the strongest notch keeps its name honestly.
+
+**The middle notch is also not "just a different user."** Two orthogonal things are bundled
+there: the separate macOS user is the *credential* boundary (own home, own keychain reach), while
+Seatbelt is the *confinement* (`(deny file-write* (subpath "/"))` plus re-allows;
+`(deny file-read* (subpath "/Library/Keychains"))`). The Linux version needs **no separate user
+at all** — bwrap uses namespaces, the same primitive podman uses, so the Linux middle notch is a
+*weaker container*, not a second account. Any name drawn from either mechanism describes one
+platform and lies about the other, which is the exact conflation this section demotes `runtime`
+for.
+
+So the notches are named for **the agent's relationship to the machine**, which is the one thing
+true on every platform: it is jailed, it is a guest, or it is you. `guest` carries the right
+connotation from "guest account" — its own identity, restricted reach, on the real machine — and
+commits to no mechanism.
+
+**One caveat the names cannot carry: the dial is ordinal within a platform, not absolute across
+them.** `jail` spans podman (namespaces, shared kernel) and Apple Container (one VM per
+container), and a VM is materially stronger than a user namespace. `jail` therefore means "the
+strongest confinement available here," not one fixed strength. `describe` prints the mechanism
+next to the notch for exactly this reason.
 
 **Three notches, not a policy vector.** Underneath, confinement *is* composed policy —
 filesystem write scope, credential visibility, network reach, process view, resource caps — and
@@ -233,7 +271,7 @@ Which is already true of the mechanism — a pack is data, read through one load
 one loop with no switch on any tool name — and only accidentally false of its reach. A pack's
 fields already sort cleanly by which notch they need:
 
-| Pack declares | jail | sandbox | host |
+| Pack declares | jail | guest | host |
 |---|---|---|---|
 | `surfaces` (composed config) | ✓ | ✓ | ✓ |
 | skills, briefing prose | ✓ | ✓ | ✓ |
@@ -260,7 +298,7 @@ A small thing with outsized value, and only possible because the briefing is gen
 
 **The agent should be told which notch it is in.** Today every briefing and the built-in
 `jail-startup` skill assume a container — "you are in a sandboxed container," "no sudo,"
-"host credentials are not propagated." At `sandbox` or `host` those sentences range from
+"host credentials are not propagated." At `guest` or `host` those sentences range from
 misleading to actively wrong, and an agent that believes it is disposable when it is not will
 take a disposable agent's risks.
 
@@ -316,7 +354,7 @@ Worth stating plainly, because a reframing this size invites scope creep:
   *reduced* environment that says out loud what it cannot do, and that `install` is refused
   there permanently — but this is a product-discipline risk, not a technical one, and it does
   not have a technical fix.
-- **`sandbox` must actually work before any of this is honest.** One notch of the dial currently
+- **`guest` must actually work before any of this is honest.** One notch of the dial currently
   renders zero pack surfaces per launch. A three-notch story with a broken middle is worse than a
   one-notch story that works.
 
@@ -333,8 +371,8 @@ After:
 
 > **yolo describes the environment your coding agents work in — their tools, their config,
 > their skills, their credentials — and realizes that description wherever you need it: in a
-> disposable jail (the default), in a sandboxed user, or on your own machine. One description,
-> locked and reproducible; you choose how confined it runs.**
+> disposable jail (the default), as a restricted guest on your machine, or as you. One
+> description, locked and reproducible; you choose how confined it runs.**
 
 The jail is still the headline, because it is still what nearly everyone wants nearly all the
 time. It is just no longer the *claim*. The claim is the description.
