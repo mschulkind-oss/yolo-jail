@@ -539,12 +539,12 @@ awkward become clean:
   `name → {command, args, env}`); it just has no single home. Two places it could live, and the
   choice is a real fork worth stating:
 
-  1. **In core.** Core owns the canonical `mcp_server` type and the reshape *ops*
-     (`internal/agentcfg/project` already exists); an agent pack declares only its *dialect delta*.
-     Pro: it is where `knownComputedSources` already puts MCP (§4.1 — a domain noun, not a tool), so
-     this is the least new machinery. Con: the *set of servers* is data a user supplies, so core
-     owning the *type* is fine but core must not own the *contents* — the type is core, the
-     instances stay config/pack data.
+  1. **In core.** Core owns the canonical `mcp_server` type and the `derive` sandbox that runs a
+     reshape (§3.3 — *not* a reshape op DSL, which §3.3 deletes); an agent pack ships its dialect as
+     a `derive` function. Pro: it is where `knownComputedSources` already puts MCP (§4.1 — a domain
+     noun, not a tool), so this is the least new machinery. Con: the *set of servers* is data a user
+     supplies, so core owning the *type* is fine but core must not own the *contents* — the type is
+     core, the instances stay config/pack data.
   2. **In a shared dependency pack.** A dedicated pack `exports: { mcp_servers: … }`, and agent
      packs `import` the type (never the producing pack by name) with a projection — the typed-export
      graph from `packs-and-the-prism.md §2.6`. Pro: keeps core thinner and makes MCP composition a
@@ -711,28 +711,38 @@ breaks if it is decided wrong — because a leaning without a cost is just an op
 
    That reshape — rename `env→environment`, fold `command+args` into one array, inject
    `type`/`enabled` — is the **projection**. It exists today as hand-written Go per agent
-   (`agent_configs.go:131`); the reform expresses it as declared ops (`Copy` with rename, `Fold`,
-   `Inject` — all already in `internal/agentcfg/project`). With that picture, the three decisions:
+   (`agent_configs.go:131`).
+
+   **It is NOT a new op DSL.** An earlier draft here proposed expressing the reshape as declared
+   ops (`Copy`/`Fold`/`Inject` from `internal/agentcfg/project`) — which contradicts §3.3, whose
+   whole point is that a hand-rolled reshape vocabulary *is* a transform scripting language and
+   should be **deleted** in favor of the one sandboxed slot. The projection is just a `derive`
+   function (§3.3): the agent pack ships a Lua function `(canonical entry) → its dialect`, run in
+   the same sandbox, and that is the *only* reshape mechanism in the whole design. opencode's
+   projection is nine lines of obvious Lua (rename a key, concat two into an array, set two
+   constants), not a JSON op tree. So there is no second language to hate — there is `derive`, and
+   projection is one more thing it does. With that settled, the three decisions:
 
    - **The type — plan for it to change, do not freeze it.** The canonical form is
      `name → {command, args, env}` today, but an MCP server addressed by URL (HTTP transport, not a
      stdio `command`) already exists in the wild, and more transports will come. So the real
      requirement the reviewer named is **forward-compatibility, not a final schema**: the type must
      be able to grow a field (a `url`, a `transport`, whatever's next) *without* breaking every
-     agent pack's projection. Two things make that cheap here. (1) A projection only names the
-     fields it *uses* — codex copies `command/args/env` and ignores the rest — so a new optional
-     field is invisible to a projection that does not consume it (additive change, no break). (2)
-     **Agents maintain these configs**, which the reviewer flagged as the freeing constraint: a
-     projection that *does* need the new field is a mechanical edit an agent can make across every
-     pack at once, so "evolve the type" is not a human migration project. The design rule that
-     follows: **the type is open for extension (new optional fields never break), and projections
-     declare only the fields they read** — a versioned-envelope-plus-additive-fields discipline,
-     not a frozen struct.
+     agent pack's projection. Two things make that cheap here. (1) A projection only reads the
+     fields it *uses* — codex's `derive` touches `command/args/env` and ignores the rest — so a new
+     optional field is invisible to a projection that does not consume it (additive change, no
+     break). (2) **Agents maintain these configs**, which the reviewer flagged as the freeing
+     constraint: a projection that *does* need the new field is a mechanical edit an agent can make
+     across every pack at once, so "evolve the type" is not a human migration project. The design
+     rule that follows: **the type is open for extension (new optional fields never break), and a
+     projection reads only the fields it needs** — a versioned-envelope-plus-additive-fields
+     discipline, not a frozen struct.
    - **The split — who writes what.** Three distinct things, three distinct owners, and this is the
      seam that must be named:
-     - the **type + reshape ops** (what an MCP server *is*, and the vocabulary of reshapes like
-       `Copy`/`Fold`/`Inject`) → **core**. It is a domain noun (§4.1), tool-independent.
-     - the **projection** (this agent's specific reshape — opencode's rename+fold+inject) →
+     - the **type + the `derive` runtime** (what an MCP server *is*, and the sandboxed Lua slot that
+       runs a reshape) → **core**. A domain noun (§4.1), tool-independent. Core provides the *place*
+       a projection runs, not any specific reshape.
+     - the **projection** (this agent's `derive` function — opencode's rename+fold+inject, as Lua) →
        **the agent pack**. This is the load-bearing choice: if the projection lived in core, adding
        a seventh agent's dialect would be a *core* change, which is exactly the "core knows the
        tool" coupling §4.1 forbids. Putting it in the agent pack keeps core tool-blind and makes a
@@ -741,21 +751,21 @@ breaks if it is decided wrong — because a leaning without a cost is just an op
        carried as typed exports (`packs-and-the-prism.md` §2.6: a pack `exports: {mcp_servers}`,
        agent packs `import` the *type* and never name the producing pack).
 
-     Net: core owns the *shape and the reshape verbs*, the agent pack owns *its dialect*, the user/
-     exporter owns *the contents*. Nobody owns two of those, which is why no single change touches
-     all three.
-   - **The acceptance test.** opencode's entry above is the hardest shipped projection (it uses all
-     three op kinds). Any design that cannot express it in declared ops is under-powered and must
-     fall back to a `derive` function. Whether the four ops cover all four shipped agents is
-     answerable *now* by porting them, and should be done before the type is settled — if
-     opencode's needs `derive`, the op set is the thing to fix, not the type.
+     Net: core owns the *type and the sandbox*, the agent pack owns *its dialect* (as a `derive`
+     function), the user/exporter owns *the contents*. Nobody owns two of those, which is why no
+     single change touches all three.
+   - **The acceptance test.** opencode's entry above is the hardest shipped projection. The test is
+     simply that its `derive` function stays small and obvious — a few lines, no cleverness — which
+     it does. If a projection ever needed something a sandboxed pure function genuinely cannot
+     express, that is the signal for the subprocess projector (§3.4), the same escape hatch every
+     other computed case uses. There is no separate op-set to prove out, because there is no op set.
 
    _Leaning:_ an **open, additively-versioned** canonical type (`name → {command, args, env}` now,
-   new transports as optional fields later, never a breaking change); reshape ops + engine in core;
-   the per-agent projection in the agent pack; server instances as typed exports. Prove the op set
-   by porting all four shipped projections first. The whole design optimizes for *evolution* —
-   agents maintaining the configs is what makes an additive type change a mechanical sweep rather
-   than a migration.
+   new transports as optional fields later, never a breaking change); the type and the `derive`
+   sandbox in core; the per-agent projection as a `derive` function in the agent pack; server
+   instances as typed exports. **No reshape op DSL** — projection is `derive`, per §3.3. The whole
+   design optimizes for *evolution* — agents maintaining the configs is what makes an additive type
+   change a mechanical sweep rather than a migration.
 
    **Answer:**
    > _(empty — fill in when decided)_
