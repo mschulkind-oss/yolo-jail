@@ -496,7 +496,94 @@ extension points where a shared file needs computed production rather than a fix
 
 ---
 
-## 4. What this deliberately does not change
+## 4. If we let the environment have opinions
+
+Everything to here obeys a self-imposed rule: **"core does not know what an agent is."** The
+manifest is maximally self-describing, and core renders it through one loop with no switch on any
+tool name. That rule is load-bearing and this section does not propose deleting it. But it is worth
+asking directly — because the doc's author flagged it as a possible misstep — **what improves if
+yolo is allowed to hold opinions about the environment it manages, given that environment is always
+an *agentic development* one, never a general-purpose container?**
+
+### 4.1 The rule was never "be domain-blind" — separate the two things it conflates
+
+"Core doesn't know what an agent is" bundles two very different commitments, and only one of them
+is actually valuable:
+
+1. **No switch on a tool *name*.** Core must not contain `if agent == "claude"`. This is the real
+   win: it is why adding a seventh tool is a `pack.json` and not a Go change, why the six render
+   paths collapsed into one loop, and why a third-party pack is a first-class citizen. **Keep this
+   absolutely.**
+2. **No opinion about the *domain*.** Core must not know what an MCP server, an LSP server, a
+   skill, a briefing, or "approval posture" *is*. **This one is already false, and pretending
+   otherwise is the misstep.** `computed.go:22` says it in as many words: *"Core owns the sources
+   (it knows what an MCP server is; that is config, not an agent concept)."* `knownComputedSources`
+   is a closed set of domain nouns core understands. The proposed `kind` vocabulary (§3.1) — `skills`,
+   `briefing`, `config`, `reads-host` — is a *list of opinions about what an agentic dev environment
+   is made of.* A generic container manager would not have a `skills` kind.
+
+So the honest framing is not "should core have opinions" — it already does — but **"core may have
+opinions about the DOMAIN (agentic dev environments), never about a specific TOOL."** Domain nouns
+are shared, closed, and core-owned; tool names stay entirely in packs. That line is the one worth
+drawing, and it is sharper and more defensible than the blanket rule.
+
+### 4.2 What taking opinions buys
+
+Once the environment is allowed a point of view, several things the self-describing manifest makes
+awkward become clean:
+
+- **A canonical MCP / LSP / skill shape, owned by core.** Today every agent redeclares how to
+  reshape the shared MCP table into its dialect (`computed` + `project`). If core owns *the*
+  canonical MCP-server type and each agent declares only its *dialect delta* from canonical, the
+  N-agents-times-M-exports problem collapses — and cross-agent features (share one MCP server to
+  every configured agent) become expressible because there is a shared type to share. This is
+  §3.2a's "canonical format" idea generalized from skills to every domain noun.
+- **A default environment that is opinionated, not empty.** Nothing is on by default today (an
+  empty config yields a jail with no agent). An environment manager with opinions could ship a
+  *recommended* agentic baseline — a sensible skill suite, an approval posture, the LSP-for-your-
+  languages wiring — that a pack overrides rather than assembles from nothing. The happy path stops
+  being "figure out what to put in `packs`."
+- **Semantic validation, not just structural.** `yolo pack lint` checks shapes. An opinionated core
+  could check *meaning*: "this pack sets an approval posture weaker than the environment's floor,"
+  "this MCP server duplicates one the environment already provides," "this skill shadows a built-in
+  that does the same job." You can only warn about things you have a concept of.
+- **The briefing gets truer.** The self-describing briefing (see
+  [yolo-as-environment-manager.md](yolo-as-environment-manager.md) §6) can only describe what it
+  has words for. If core knows the domain, the briefing can say "you have these 3 MCP servers,
+  these language servers, this approval posture" — not just "here are some files."
+
+### 4.3 What it costs, and the line that keeps it safe
+
+The danger is obvious and is exactly the instinct behind the original rule: **opinions calcify into
+a switch on a tool name, and then the batteries-included environment manager quietly becomes six
+hardcoded agents again.** The discipline that prevents it is the §3.1 rule restated:
+
+> Core may name **domain nouns** (`mcp_server`, `lsp_server`, `skill`, `briefing`, `approval`) in a
+> **closed, tool-independent** set. Core may never name a **tool** (`claude`, `copilot`). A pack
+> maps its tool onto the domain nouns; core never maps a domain noun onto a specific tool.
+
+Concretely: a `canonical MCP type` is fine (it mentions no agent); a `claudeMCPToggle` is the
+forbidden thing. `knownComputedSources` already lives on the right side of this line, which is the
+proof the line is holdable. And every opinion still ships as **overridable default**, never a
+mandate — an opinionated baseline a pack can replace is batteries-included; an opinionated baseline
+a pack *cannot* replace is the sandbox-clone the whole product is trying not to be
+([yolo-as-environment-manager.md](yolo-as-environment-manager.md) §1).
+
+### 4.4 The recommendation
+
+Adopt the reframing, not a pile of new features: **replace "core does not know what an agent is"
+with "core knows the DOMAIN, not the TOOL."** It costs nothing today (it merely describes what
+`computed.go` already does), it makes the `kind` vocabulary honest about what it is (a set of
+domain opinions), and it unlocks the four wins above incrementally, each behind the same
+override-not-mandate and no-tool-names discipline. The one concrete near-term step it justifies is
+promoting the MCP/LSP "sources" from an implementation detail of `computed` into a **named,
+core-owned canonical type** that agents declare deltas against — the generalization §3.2a and §3.6
+both gesture at. Everything else (opinionated defaults, semantic lint) can wait for a real need, on
+the same "don't build it before the second case" rule the rest of the doc uses.
+
+---
+
+## 5. What this deliberately does not change
 
 - **The manifest stays static data.** Every claim is readable without executing anything, which is
   what keeps `pack lint`, the origin gate, and `describe --hash` honest.
@@ -510,7 +597,7 @@ extension points where a shared file needs computed production rather than a fix
 - **Determinism stays mandatory.** The `derive` contract is the existing sandbox contract: pure,
   no clock, no randomness. The overlay diff depends on it.
 
-## 5. What this costs
+## 6. What this costs
 
 - **It is a breaking rewrite of every pack manifest, including six shipped ones.** No migration
   path is in scope here, but this is the largest single cost and it is not small: `pack.json` is a
@@ -533,10 +620,16 @@ extension points where a shared file needs computed production rather than a fix
 - **`yolo pack explain --footprint` invites a false sense of completeness.** A footprint lists
   declared claims; a pack's *installed program* can do anything the jail permits. The output must
   say that, or it reads as a sandbox report.
+- **Domain opinions (§4) are a slope with a real bottom.** "Core knows the domain, not the tool" is
+  a discipline, not a compiler-enforced boundary — nothing stops a future PR from sneaking a tool
+  name into a "domain" noun (`claudeMCPToggle` wearing a `mcp` hat). The mitigation is that the
+  line is stated and the existing `knownComputedSources` sits on the right side of it as a worked
+  example, but it wants a lint or a review reflex, because the failure mode is exactly the
+  six-hardcoded-agents regression the whole reform exists to prevent.
 
 ---
 
-## 6. The one-paragraph version
+## 7. The one-paragraph version
 
 The manifest's 59 keys are not the disease; they are the rash. The disease is that a pack declares
 *paths* and core infers *effects* — from filenames (`isBriefingMount`), from which array a path
