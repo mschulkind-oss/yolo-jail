@@ -17,8 +17,11 @@ package check
 import (
 	"fmt"
 	"os"
+	"strings"
 
 	"github.com/mschulkind-oss/yolo-jail/internal/config"
+	"github.com/mschulkind-oss/yolo-jail/internal/packload"
+	_ "github.com/mschulkind-oss/yolo-jail/internal/packreg" // registers the embedded packs with packload
 	"github.com/mschulkind-oss/yolo-jail/internal/packsrc"
 	"github.com/mschulkind-oss/yolo-jail/internal/packstage"
 	"github.com/mschulkind-oss/yolo-jail/internal/paths"
@@ -121,5 +124,19 @@ func (o *Options) sectionPacks(r *reporter) {
 	for _, d := range lock.DriftFrom(configured) {
 		r.warn(d.Name+": config address changed since install",
 			"locked "+d.LockedSource+", config "+d.WantedSource+" — run `yolo pack install`")
+	}
+
+	// Footprint collision check (the one-writer rule, §3.6): compute the union of
+	// what packs claim and refuse a collision on a sole-owned target before boot.
+	// Runs over the embedded packs — the ones with real declarations that every
+	// launch includes; a configured local pack's declarations join once the
+	// footprint reads a staged tree (a later phase). A collision is FATAL here
+	// because it is a pack-authoring bug that would otherwise surface as a mount
+	// conflict at boot with no obvious cause (§1.4).
+	if cols := packload.Collisions(packload.Embedded()); len(cols) > 0 {
+		for _, c := range cols {
+			r.fail(fmt.Sprintf("pack footprint collision: %s %s", c.Kind, c.Target),
+				"packs "+strings.Join(c.Packs, ", ")+" — "+c.Reason)
+		}
 	}
 }

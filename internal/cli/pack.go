@@ -26,6 +26,8 @@ import (
 	"strings"
 
 	"github.com/mschulkind-oss/yolo-jail/internal/config"
+	"github.com/mschulkind-oss/yolo-jail/internal/packload"
+	_ "github.com/mschulkind-oss/yolo-jail/internal/packreg" // registers the embedded packs with packload
 	"github.com/mschulkind-oss/yolo-jail/internal/packsrc"
 	"github.com/mschulkind-oss/yolo-jail/internal/packstage"
 	"github.com/mschulkind-oss/yolo-jail/internal/paths"
@@ -73,6 +75,7 @@ content, not handing that repository your host config.
   yolo pack lint [dir]        validate a pack directory the way staging will
   yolo pack ls                list configured packs and what each stages
   yolo pack explain <name>    show which files a pack stages, and what it dropped
+  yolo pack footprint [name]  show what packs claim on the environment + collisions
   yolo pack install           fetch configured packs and write the lockfile
   yolo pack update            same as install (re-fetch; reports moved pins)
   yolo pack status            show locked commits, and flag config/lock drift
@@ -114,6 +117,8 @@ func packMain(args []string, out, errw io.Writer, color bool) int {
 		return packLs(out, errw, color)
 	case "explain":
 		return packExplain(args[1:], out, errw, color)
+	case "footprint":
+		return packFootprint(args[1:], out, errw, color)
 	case "install", "update":
 		return packInstall(out, errw, color)
 	case "status":
@@ -389,6 +394,98 @@ func packExplain(args []string, out, errw io.Writer, color bool) int {
 		}
 	}
 	return 0
+}
+
+// packFootprint prints what each pack CLAIMS on the environment — the §3.2 view —
+// and the cross-pack collisions the one-writer rule (§3.6) forbids. With no
+// argument it reports the embedded packs yolo ships (the ones with real
+// declarations); with a name it reports just that embedded pack.
+//
+// Phase 1: the footprint is computed from today's manifest fields via
+// packload.FootprintOf (the field→kind shim), so this is faithful to current
+// behavior, not the future contributes[] schema.
+func packFootprint(args []string, out, errw io.Writer, color bool) int {
+	packs := packload.Embedded()
+	if len(packs) == 0 {
+		fmt.Fprintln(errw, "yolo pack footprint: no embedded packs available")
+		return 1
+	}
+	if len(args) > 0 {
+		name := args[0]
+		var one []*packload.Pack
+		for _, p := range packs {
+			if p.Name == name {
+				one = append(one, p)
+			}
+		}
+		if len(one) == 0 {
+			fmt.Fprintf(errw, "yolo pack footprint: no embedded pack named %q "+
+				"(footprint currently reports embedded packs; see `yolo pack ls`)\n", name)
+			return 1
+		}
+		packs = one
+	}
+
+	pr := richtext.Printer{W: out, Color: color}
+	for _, p := range packs {
+		fp := packload.FootprintOf(p)
+		pr.Printf("[bold]%s[/bold]", p.Name)
+		if len(fp.Claims) == 0 {
+			pr.Printf("  [dim](no declared claims)[/dim]")
+			continue
+		}
+		for _, c := range fp.Claims {
+			flag := ""
+			if c.ReviewWorthy {
+				flag = " [yellow]⚠ review[/yellow]"
+			}
+			detail := ""
+			if c.Detail != "" {
+				detail = "  [dim]" + c.Detail + "[/dim]"
+			}
+			pr.Printf("  [cyan]%-14s[/cyan] %s%s%s", string(c.Kind), c.Target, detail, flag)
+		}
+	}
+
+	// Cross-pack collisions across the reported set (the good-citizen check).
+	cols := packload.Collisions(packs)
+	if len(cols) > 0 {
+		pr.Printf("")
+		pr.Printf("[bold red]%d collision(s):[/bold red]", len(cols))
+		for _, c := range cols {
+			pr.Printf("  [red]%s %s[/red] — packs %s: %s",
+				string(c.Kind), c.Target, strings.Join(c.Packs, ", "), c.Reason)
+		}
+		return 1
+	}
+
+	// Review summary — the claims a human should look at before trusting the set.
+	rw := packload.ReviewWorthy(packs)
+	if len(rw) > 0 {
+		pr.Printf("")
+		pr.Printf("[dim]%d claim(s) worth review: %s[/dim]", len(rw), reviewSummary(rw))
+	}
+	return 0
+}
+
+// reviewSummary renders the one-line "N claims worth review" tail: a compact
+// count-by-kind so the reader sees the shape (1 machine-wide state, 1 host read,
+// …) without re-listing every claim.
+func reviewSummary(claims []packload.Claim) string {
+	byKind := map[string]int{}
+	var order []string
+	for _, c := range claims {
+		k := string(c.Kind)
+		if byKind[k] == 0 {
+			order = append(order, k)
+		}
+		byKind[k]++
+	}
+	parts := make([]string, 0, len(order))
+	for _, k := range order {
+		parts = append(parts, fmt.Sprintf("%d %s", byKind[k], k))
+	}
+	return strings.Join(parts, ", ")
 }
 
 // packInstall fetches every configured pack and records what it resolved to (C5).
