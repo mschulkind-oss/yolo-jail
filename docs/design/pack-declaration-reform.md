@@ -563,12 +563,22 @@ awkward become clean:
   `~/.config/yolo-jail/config.jsonc`" — so the happy path is copy-a-known-good-config, not
   assemble-from-scratch. Opinions ship as *documentation and examples*, never as behavior that turns
   on without the user writing it.
-- **The briefing gets truer.** The self-describing briefing (see
-  [yolo-as-environment-manager.md](yolo-as-environment-manager.md) §6) can only describe what it
-  has words for. If core knows the domain, the briefing can say "you have these 3 MCP servers,
-  these language servers, this approval posture" — not just "here are some files." This is the
-  clearest payoff of core holding domain nouns: the description an agent reads about its own
-  environment becomes specific instead of a file listing.
+- **The briefing describes what the agent *cannot* natively discover — not MCP or skills.** This
+  bullet used to claim the briefing should list "you have these 3 MCP servers, these skills," which
+  is wrong, and the reason it is wrong is clarifying: **MCP servers and skills are natively
+  discoverable by design** — the agent enumerates its own MCP servers and reads its own skills dir
+  at runtime, and that live list is authoritative. Restating them in the briefing is redundant at
+  best and *drift* at worst (the briefing says 3 servers; the agent's live list says 4 after a
+  runtime change — now the description lies). So the payoff is not "list the domain nouns." It is
+  the opposite: knowing what a domain noun *is* lets core tell the difference between **the
+  discoverable furniture (MCP, skills, LSP)** — which the briefing should NOT enumerate because the
+  agent already sees it — and **the non-discoverable facts of the environment** the briefing exists
+  to state. [yolo-as-environment-manager.md](yolo-as-environment-manager.md) §6's actual content is
+  the latter: *confinement level, grants, absences* — precisely the things a sandboxed process
+  cannot reliably learn about itself from inside. Core holding domain nouns is what lets the
+  briefing generator *omit* the discoverable and surface only the un-discoverable, instead of dumping
+  a file listing and hoping. That is a real payoff, but a narrower and more honest one than the
+  bullet first claimed.
 
 ### 4.3 What it costs, and the line that keeps it safe
 
@@ -595,8 +605,11 @@ with "core knows the DOMAIN, not the TOOL."** It costs nothing today (it merely 
 domain opinions). The one concrete near-term step it justifies — and the one the reviewer confirmed
 is needed regardless — is **pulling the canonical MCP-server definition out to a shared location**
 (§4.2), whether that is core or a shared dependency pack (open question 1). Of the other threads,
-only the **truer briefing** is worth pursuing (it is the clearest payoff of core holding domain
-nouns); an opinionated default is explicitly *not* wanted as behavior — it ships only as
+the **briefing** is worth pursuing but only in its narrow form (§4.2): knowing the domain lets the
+briefing *omit* what the agent discovers natively (MCP, skills, LSP) and state only the
+un-discoverable facts — confinement, grants, absences — which is
+[yolo-as-environment-manager.md](yolo-as-environment-manager.md) §6's actual job, not a listing of
+the discoverable. An opinionated default is explicitly *not* wanted as behavior — it ships only as
 copy-paste example configs — and semantic lint is out of scope. Everything stays behind the same
 override-not-mandate and no-tool-names discipline.
 
