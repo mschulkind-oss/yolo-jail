@@ -556,7 +556,7 @@ awkward become clean:
   The two are not exclusive: **the *type + ops* can be core (choice 1) while the *instances* travel
   as typed exports (choice 2's mechanism).** That split matches §4.1's rule exactly — core names the
   domain noun and how to reshape it, packs supply the tool mapping and the actual servers. Leaning
-  there, but the fork is genuinely open; see open question 11.
+  there, but the fork is genuinely open; see open question 1 (the load-bearing one).
 - **Example pack configs to copy-paste, not a baked-in default.** The empty-config-yields-no-agent
   default stays (nothing is silently on). What an opinionated environment offers instead is a set of
   **worked `packs` snippets** — "here is a sensible claude + house-rules config, paste it into
@@ -594,7 +594,7 @@ with "core knows the DOMAIN, not the TOOL."** It costs nothing today (it merely 
 `computed.go` already does) and it makes the `kind` vocabulary honest about what it is (a set of
 domain opinions). The one concrete near-term step it justifies — and the one the reviewer confirmed
 is needed regardless — is **pulling the canonical MCP-server definition out to a shared location**
-(§4.2), whether that is core or a shared dependency pack (open question 11). Of the other threads,
+(§4.2), whether that is core or a shared dependency pack (open question 1). Of the other threads,
 only the **truer briefing** is worth pursuing (it is the clearest payoff of core holding domain
 nouns); an opinionated default is explicitly *not* wanted as behavior — it ships only as
 copy-paste example configs — and semantic lint is out of scope. Everything stays behind the same
@@ -667,156 +667,274 @@ where *effects* are declared, because that slot's whole job is to be readable be
 
 ## Open Questions
 
-1. **Whether `derive` Lua is per-surface or per-pack.**
-   `Surface.Transform` is per-surface today and `entrypoint/prism.go:80` concatenates the global
-   `config.lua` pair with the surface's own hook, so a per-surface hook can override a global. A
-   per-pack `derive.lua` registering by surface name (the `yolo.transform(agent, fn)` shape
-   `luahook` already uses) is fewer files.
+These are ordered by how much they constrain the schema: the ones at the top change what a
+`pack.json` *is*, so they must be answered before any of it is built; the ones lower down are
+policy choices that can move without a format break. Each says what is genuinely at stake — what
+breaks if it is decided wrong — because a leaning without a cost is just an opinion.
 
-   _Leaning:_ per-pack file, registering per-surface functions — matches the existing
-   `yolo.transform` registration idiom, and one file per pack is easier to review than N. Keep the
-   per-surface `transform` key as the *user's* override slot, which is what it already is.
+1. **The wire shape of the canonical MCP type, and where it lives (§4.2, the load-bearing one).**
+   This is the question the reviewer confirmed is needed regardless, and it is first because it
+   sets the pattern every other domain noun (LSP, later) will copy — get it wrong and every agent
+   pack inherits the mistake. Three sub-decisions hide inside it:
 
-   **Answer:**
-   > _(empty — fill in when decided)_
+   - **The type.** The canonical form is `name → {command, args, env}` today (`packs-and-the-prism.md`
+     §2.6, `mcp.go`). Is that *the* type, frozen, or does it need a version field so a future MCP
+     transport (HTTP servers, not just stdio `command`) does not force a breaking change? An MCP
+     server with a URL instead of a `command` already exists in the wild — if the type cannot hold
+     one, choice-1's "core owns the type" becomes "core owns a type that is already behind."
+   - **The split.** The leaning is **type + reshape ops in core, instances as typed exports** — but
+     that split has a seam that must be specified: an agent pack's *projection* (its dialect delta)
+     is core-adjacent data (it reshapes a core type), while the *server list* is user/pack data.
+     Where does the projection live — in the agent pack (it is tool-specific) or in core (it is a
+     reshape of a core type)? If in the pack, core owns the type but not the transform, and a
+     malformed projection is a pack bug caught at lint; if in core, adding an agent's dialect is a
+     core change, which reintroduces exactly the "core knows the tool" coupling §4.1 forbids. **The
+     projection must live in the agent pack** for the §4.1 rule to hold — which means the shape of a
+     projection is part of the pack format, not an internal detail.
+   - **The example that is also the acceptance test.** opencode's projection renames `env →
+     environment`, folds `command + args` into one array, and injects `type:"local"` +
+     `enabled:true` (`agent_configs.go:131`). Any design that cannot express *that entry* in
+     declared ops (`Copy` with rename, `Fold`, `Inject` — all already in `internal/agentcfg/project`)
+     is under-powered and must fall back to a `derive` function. The open question is whether the
+     four existing ops cover all four shipped agents or whether one needs `derive`; that is
+     answerable now by porting them, and should be, before the type is frozen.
 
-2. **Whether `state.scope: "machine"` should require more than a `because` string.**
-   A machine-scoped state claim is cross-workspace credential leakage by design
-   (`packdecl.go:59`). A required justification string is documentation, not a control.
-
-   _Leaning:_ require the string *and* surface it in `yolo pack explain --footprint` and at first
-   launch, but do not gate it on origin — the legitimate case (one Claude login serving every
-   workspace) is exactly what a fetched agent pack would need, and refusing it would push users to
-   local packs for no security gain. The control that matters is visibility, since the alternative
-   to a shared credential dir is re-authenticating per workspace, which users will defeat by hand.
-
-   **Answer:**
-   > _(empty — fill in when decided)_
-
-3. **Whether two packs may contribute `config` to the same surface.**
-   The table in §3.2 says error-unless-`overrides`. But a plausible real case exists: a `house-rules`
-   pack that wants to add two `managed` keys to `claude/settings` without vendoring the whole
-   surface.
-
-   _Leaning:_ allow it as an explicit `kind: "config-overlay"` naming the target surface, ordered
-   after the owning pack, and refuse silent same-surface duplicates. Ordering across packs is
-   already "later wins" for skills and bins, so the precedent exists — but a *silent* second writer
-   to one config file is how you get a surface nobody can explain.
-
-   **Answer:**
-   > _(empty — fill in when decided)_
-
-4. **Whether tier-2 effect Lua is worth building at all.**
-   It would let `shared_credentials` and `per_jail_history` leave core, opening the hook set. It
-   also puts a capability sandbox on the boot path, and the two hooks it would replace are ~40
-   lines of Go that work.
-
-   _Leaning:_ **no, not yet** — and say so in the doc rather than leaving it as future work.
-   `packhooks.go:24`'s rule is correct: wait for a real second case. Tiers 1 and 3 cover everything
-   known today, and tier 3 (subprocess, frozen protocol, re-approval) is the honest place for
-   genuinely arbitrary pack logic because it makes no sandbox claim it cannot keep.
+   _Leaning:_ freeze `name → {command, args, env, type?, url?}` (room for non-stdio) as the core
+   type; ops + the reshape engine in core; the per-agent projection in the agent pack; server
+   instances as typed exports (`packs-and-the-prism.md` §2.6). Prove it by porting all four shipped
+   projections to declared ops first — if opencode's needs `derive`, the op set is the thing to fix,
+   not the type.
 
    **Answer:**
    > _(empty — fill in when decided)_
 
-5. **Whether the footprint belongs in the description hash.**
-   If `describe --hash` covers the environment, a change in what packs *claim* is a change in the
-   environment even when no rendered byte differs — e.g. a pack adding a machine-scoped state claim
-   it does not yet write to.
+2. **Whether two packs may contribute `config` to the same surface — and if so, how a conflict on
+   one key resolves.**
+   This is a schema question, not a policy one, because it decides whether a `config-overlay` kind
+   exists at all. The motivating case is real and common: a `house-rules` pack wants to assert two
+   `managed` keys in `claude/settings` without vendoring the whole surface (which would fork it and
+   go stale the next time the `claude` pack updates its defaults). §3.2's table says
+   error-unless-`overrides`; that is too blunt if overlays are a first-class need.
 
-   _Leaning:_ yes, hash the footprint. A claim is a capability, and a capability change is exactly
-   what a sealed definition should notice. It also makes the re-approval gate in
-   `third-party-pack-logic.md` §2.3 mechanical rather than a judgment call.
+   The hard part is not *whether* to allow it but *key-level conflict*: if the `claude` pack sets
+   `permissions.defaultMode: "acceptEdits"` and a `house-rules` overlay sets it to `"plan"`, who
+   wins, and is the loser told? Silent last-wins is how you get a surface nobody can explain — the
+   exact §1.2 failure this whole reform targets, reintroduced one layer up. This ties directly to
+   §3.6: an overlay is another *input* to the neutral assembler, so the assembler's provenance
+   manifest is what makes the resolution legible ("key X: claude pack lost to house-rules overlay").
 
-   **Answer:**
-   > _(empty — fill in when decided)_
-
-6. **Whether `retireMiseTools` survives the reform.**
-   It is transitional by nature — tokens to strip from a workspace `mise.toml` for tools that used
-   to be installed that way. It fits no kind cleanly, and it is the one field that is pure
-   cleanup-of-yolo's-own-past.
-
-   _Leaning:_ make it `kind: "retire"` with an explicit expiry note, or drop it entirely if no
-   supported version still writes those tokens. It should not become a permanent kind for a
-   temporary job — `Surface.RetireOnFirstRender` has the same smell and the same eventual deletion.
-
-   **Answer:**
-   > _(empty — fill in when decided)_
-
-7. **What a `files` contribution means at `guest` / `host`.**
-   §3.2 gives `files` exclusive path ownership enforced by a read-only bind mount. Off-container
-   there is no mount namespace, and
-   [yolo-as-environment-manager.md](yolo-as-environment-manager.md) §5 already ruled that **a copy
-   is never a substitute for a mount** (it goes silently stale).
-
-   _Leaning:_ `files` is refused by name below `jail`, while `skills` and `briefing` port — because
-   their delivery is a *merge*/*concat*, which is a render, not a mount. That is the existing
-   ruling restated per kind, and it is a good sign that the kind vocabulary makes it expressible in
-   one row instead of a paragraph.
+   _Leaning:_ allow it as an explicit `kind: "config-overlay"` naming the target surface and ordered
+   after the owning pack (later-wins, the precedent skills/bins already use), but **require the
+   assembler to record per-key provenance and surface any overlay that overrode an owner's key** in
+   `--footprint` and at lint. Refuse *silent* same-surface duplicates — an overlay must name what it
+   targets. The overlay is cheap; the provenance is the part that must not be skipped.
 
    **Answer:**
    > _(empty — fill in when decided)_
 
-8. **Whether `yolo pack lint` should refuse a pack whose footprint collides with the user's own
-   config.**
-   §1.4's hole is that `host_files` reservations cover only embedded packs. With footprints, the
-   union is computable across *all* selected packs — but the user's own `writable_home_dirs` and
-   `host_files` entries are a third party to that union.
+3. **Whether the footprint (and the derive/projection logic) belongs in the description hash.**
+   This decides whether `describe --hash` and `apply --sealed`
+   ([yolo-as-environment-manager.md](yolo-as-environment-manager.md) §3.3) can actually detect a
+   capability change — and it is more subtle than "hash the footprint." A pack can change what it
+   *does* without changing any rendered byte today: add a machine-scoped `state` claim it does not
+   yet write to, gain a `reads-host` grant, or — the sharp one — change its `derive.lua` so the same
+   inputs produce the same output *now* but different output when the live MCP table changes next
+   week. A byte-hash of the rendered files misses all three.
 
-   _Leaning:_ compute all three (embedded, configured, user config) in one pass at `yolo check`
-   time and report collisions with the *source* of each claim named. That retires the
-   `packload.Embedded*`-is-not-selection-gated workaround, which exists precisely because the union
-   could not be computed at the right time.
+   So the real question is *what* to hash: the rendered output (misses latent capability changes),
+   the declared footprint (catches claims but not logic), or the footprint **plus the hash of every
+   `derive`/projection script** (catches logic changes too, at the cost of churn — editing a comment
+   in `derive.lua` changes the hash). This matters because a re-approval gate
+   (`third-party-pack-logic.md` §2.3) built on the wrong hash either misses a privilege escalation
+   or cries wolf on every cosmetic edit.
+
+   _Leaning:_ hash **footprint + derive-script contents**, not rendered output — a claim is a
+   capability and a script is executable capability, both of which a sealed definition must notice;
+   accept the cosmetic-edit churn because a false "this changed, re-approve" is safe and a missed
+   capability change is not. Keep it a *separate* hash from the rendered-output hash (§3.3's two-hash
+   idea) so CI can pin the strict one and drift-detection can use the loose one.
 
    **Answer:**
    > _(empty — fill in when decided)_
 
-9. **Whether `skills` needs a reshape seam, or a canonical format is enough (§3.2a).**
-   Skills today are copied as a plain `SKILL.md` tree into each agent's dir, with no reshape — the
-   "merge" assumes every agent reads the same format. A second on-disk skills format (e.g. an agent
-   wanting `skill.toml`) breaks the shared-skills merge, since one tree lands in every agent's dir.
-   `config` already solved the analogous problem with `derive`; `skills` has no equivalent.
+4. **How far to generalize the neutral assembler (§3.6) now vs. incrementally, and what the
+   provenance manifest's format is.**
+   §3.6 commits to one writer per file; this question is whether one *module* writes everything up
+   front or the per-subsystem owners (compose for config, the stager for skills/briefing) unify
+   later. The stakes are real either way: build the universal assembler before a third combine rule
+   exists and you invent combine semantics no pack needs (the §3.4 over-building trap); defer too
+   long and you get a third bespoke owner that has to be torn out, and the collision-checking that
+   is the whole safety story stays partial in the meantime.
+
+   The piece that is *not* deferrable is the **provenance manifest** — the record of which
+   contribution produced which file/key — because three separate features depend on it: the §3.2
+   cross-pack collision report, `yolo pack explain --footprint`, and question 2's key-level overlay
+   resolution. Without it those are best-effort; with it they are exact. So its format is itself an
+   open question: is it the existing `last_render` sidecar generalized to every kind, a single
+   machine-wide manifest, or per-file? It has to be machine-readable (the collision checker consumes
+   it) and it has to survive across runs (drift detection compares against it).
+
+   _Leaning:_ commit to the one-writer rule now (nothing regresses — config and skills already obey
+   it), generalize the *module* only on the first shared file that is neither config nor a
+   skills/briefing tree, but **build the provenance manifest immediately** as a generalization of
+   `last_render`: one entry per written file, listing each contributing pack and (for composed
+   files) the winning source per key. It is small, it unblocks three features, and it is the thing
+   that makes "one writer" *checkable* rather than merely asserted.
+
+   **Answer:**
+   > _(empty — fill in when decided)_
+
+5. **Whether `skills` needs a reshape seam, or a canonical format is enough (§3.2a).**
+   Skills today are copied as a plain `SKILL.md` tree into each agent's dir with no reshape — the
+   merge assumes every agent reads the same format. This is important because it is the *first test*
+   of whether the §4 "canonical domain type" idea generalizes past config: a skill is a domain noun
+   exactly like an MCP server, and if two agents read incompatible skill formats, the "ordered
+   merge" conflict rule in §3.2 quietly produces a tree half the agents cannot parse. The failure is
+   silent — the merge succeeds, the files are wrong — which is the worst kind for this reform.
+
+   The decision mirrors question 1's structure: is there a canonical skill type with per-agent
+   projections (the general answer, reusing the `derive`/projection seam to emit a *file tree*
+   instead of a config value), or is `SKILL.md` simply mandated and a non-conforming agent
+   unsupported? The cost of the general answer is a second place `derive` emits (files, not values),
+   which the assembler (question 4) would have to understand.
 
    _Leaning:_ declare `SKILL.md` + frontmatter the canonical format and keep skills a plain tree
-   copy for now (today's behavior, made explicit); add a `skills`-kind reshape — the same `derive`
-   slot emitting a file tree instead of a config value — only when a second real format appears. A
-   `kind` carries a format contract, not just a footprint; the reform's job is to *name* that
-   contract, not to pre-build the reshape.
+   copy **now** (it is today's behavior, made explicit), but treat this as the *design probe* for
+   question 1 — whatever projection shape MCP settles on is the shape a `skills` reshape reuses when
+   a second format appears. Do not build the reshape before that second format exists; do make sure
+   question 1's projection design is not accidentally config-only, so skills can adopt it later
+   without a format break.
 
    **Answer:**
    > _(empty — fill in when decided)_
 
-10. **How far to generalize the neutral assembler (§3.6) now vs. incrementally.**
-    The one-writer rule and the config assembler (compose + `derive`) exist today; skills/briefing
-    have a neutral stager with only a trivial combine. The question is whether to build the
-    *general* single-writer assembler — one module, every kind, a provenance manifest, one staging
-    tree layered in `:ro` — up front, or to keep growing the existing per-subsystem owners until a
-    real second shared-file case forces unification.
+6. **Whether `state.scope: "machine"` should require more than a `because` string.**
+   Important because it is the one contribution kind that *intends* to leak across the isolation
+   boundary — a machine-scoped `state` claim is cross-workspace credential sharing by design
+   (`packdecl.go:59`), which is the single sharpest thing a pack can do to the environment short of
+   installing software. A `because` string is documentation, not a control, and the question is
+   whether that is enough or whether machine scope needs origin-gating like `reads-host` and
+   `install` do.
 
-    _Leaning:_ commit to the rule and the direction now (it is already how config and skills behave,
-    so nothing regresses), but generalize the *module* incrementally — unify on the first shared
-    file that is neither config nor a skills/briefing tree, since that is the case the current two
-    owners cannot express. Building a universal assembler before a third combine rule exists risks
-    inventing combine semantics no pack needs, the same speculation §3.4 warns against for hooks.
-    The provenance manifest is the piece worth pulling forward regardless, because it is what makes
-    the §3.2 collision report and `--footprint` exact.
+   The tension: the *legitimate* case (one Claude login serving every workspace) is exactly what a
+   fetched agent pack legitimately needs, so origin-gating machine scope would break the common good
+   case to stop a rare bad one — and the bad case (a pack quietly reading another workspace's state)
+   is better caught by *visibility* than prohibition, because a user who is denied a shared
+   credential dir will just re-authenticate per workspace, or worse, symlink it by hand.
+
+   _Leaning:_ require the `because` string, surface every machine-scoped claim in `--footprint` and
+   at first launch (loudly — it is in the "needs review" count), and fold it into the description
+   hash (question 3) so gaining machine scope forces re-approval — but do **not** origin-gate it.
+   Visibility + re-approval is the right weight; prohibition pushes users to defeat it.
+
+   **Answer:**
+   > _(empty — fill in when decided)_
+
+7. **Whether `yolo pack lint` should refuse — not just report — a footprint collision with the
+   user's own config.**
+   §1.4's live hole: reservation lists cover only embedded packs, so a user `host_files` or
+   `writable_home_dirs` entry can silently land on a path a configured pack needs, surfacing as an
+   opaque mount conflict at boot. Footprints make the full union computable, so the mechanism is
+   finally available; the open question is the *severity* — report (warn, proceed) or refuse (fail
+   the check). It matters because this is the "good citizen" promise's teeth: a collision that only
+   warns is a collision most users scroll past.
+
+   The subtlety is *whose* collision. Two packs colliding is a pack-author error → refuse at lint.
+   A pack colliding with the *user's own* config is arguably the user's call (their config, their
+   machine) → report and let them decide. Conflating the two either nags authors' users about their
+   own overrides or lets a genuine pack-vs-pack bug through as a warning.
+
+   _Leaning:_ compute all three sources (embedded, configured, user config) in one pass at `yolo
+   check`, **refuse** on pack-vs-pack collisions (an author bug, and the jail would break anyway),
+   **report with the source named** on pack-vs-user-config collisions (the user owns that call), and
+   retire the `packload.Embedded*`-is-not-selection-gated workaround, which exists only because the
+   union could not be computed at the right time.
+
+   **Answer:**
+   > _(empty — fill in when decided)_
+
+8. **What each kind means below `jail` — the per-notch matrix, not just `files`.**
+   §3.2 enforces kinds with jail mechanisms (a `files` bind mount, a `state` overlay); at `guest`
+   and `host` ([yolo-as-environment-manager.md](yolo-as-environment-manager.md) §4) those mechanisms
+   do not exist. This is important because the kind vocabulary is supposed to make the confinement
+   matrix *legible* (`check --at` names what is inert), and that only works if every kind has a
+   ruling — a kind with no per-notch answer is exactly the silent-inert-surface bug (macos-user
+   renders zero surfaces) reappearing under a new name.
+
+   The clean cases are known: `files` refused below `jail` (a copy goes silently stale — §5 of the
+   environment-manager doc), while `skills`/`briefing`/`config` port because their delivery is a
+   render (merge/concat/compose), not a mount. The unclear ones are `state` (a machine-scoped claim
+   at `host` *is* the user's real home — is that honored or refused?), `reads-host` (at `host` there
+   is nothing to mount because the file is already there — inert or trivially satisfied?), and
+   `program`/`install` (already ruled: `install` never below `jail`). Each needs a row.
+
+   _Leaning:_ make the per-notch ruling a **required column of the kind registry**, so adding a kind
+   forces answering it for all three notches or the kind does not compile — turning §8's "every
+   feature needs a per-notch ruling" cost into a structural obligation rather than a thing someone
+   remembers. `files` refused; `skills`/`briefing`/`config` render; `reads-host` trivially satisfied
+   at `host` (no-op, the file is native) and a mount below; `state` at `host` maps to the real home
+   and machine scope is a no-op there.
+
+   **Answer:**
+   > _(empty — fill in when decided)_
+
+9. **Whether `derive` Lua is per-surface or per-pack — and whether the user keeps an override slot.**
+   Smaller in blast radius than the above, but it fixes the authoring ergonomics and the review
+   surface, so it is worth settling. `Surface.Transform` is per-surface today; `entrypoint/prism.go:80`
+   concatenates the global `config.lua` pair with the surface's own hook so a per-surface hook can
+   override a global. A per-pack `derive.lua` registering by surface name (the `yolo.transform(agent,
+   fn)` idiom `luahook` already uses) is fewer files and one review target per pack.
+
+   The part that makes it more than bikeshedding: whoever can supply a `derive` function can run
+   sandboxed code at compose time, so "how many `derive` entry points exist and who owns each" is a
+   security-surface question, not just a layout one. A per-pack file with clear ownership is easier
+   to audit than N per-surface snippets scattered through the manifest; and the *user's* override
+   (their own `config.lua`) must stay a distinct, higher-precedence slot so a pack's `derive` can
+   never silently win over a user's local transform.
+
+   _Leaning:_ per-pack `derive.lua` registering per-surface functions (matches the existing idiom,
+   one audit target per pack), with the per-surface user `transform` key retained as the *user's*
+   override — the precedence that already holds, made explicit in the kind vocabulary.
+
+   **Answer:**
+   > _(empty — fill in when decided)_
+
+10. **Whether tier-2 effect Lua (capability-restricted boot code) is ever worth building.**
+    This bounds how far the "packs can run code" story goes, so it is important to settle as a *no*
+    explicitly rather than leave as tempting future work — an unanswered "maybe" here is what leads
+    someone to build a capability sandbox on the boot path for two hooks that are 40 lines of Go.
+    Tier 2 would let `shared_credentials` and `per_jail_history` leave core and open the closed hook
+    set (§3.4), at the cost of a capability-by-declaration sandbox that is genuinely new,
+    genuinely on the boot path, and genuinely expensive to get right.
+
+    The reason this is not just "later": tier 3 (a subprocess projector over a frozen protocol,
+    with re-approval — `third-party-pack-logic.md` §2.1) already covers *arbitrary* pack logic, and
+    it makes no sandbox claim it cannot keep (it only ever sees the JSON handed to it). So tier 2 is
+    a *middle* that may never earn its complexity — everything below it is data, everything above it
+    is an honest subprocess.
+
+    _Leaning:_ **no, not yet**, stated as a decision in the doc. `packhooks.go:24`'s wait-for-the-
+    second-case rule is correct; tiers 1 (named hooks) and 3 (subprocess) bracket every known need,
+    and the closed hook set is a feature (an auditable, finite list of imperative capabilities) until
+    a concrete second case proves otherwise.
 
     **Answer:**
     > _(empty — fill in when decided)_
 
-11. **Where the canonical MCP-server definition lives: core, or a shared dependency pack (§4.2).**
-    Pulling MCP out to one shared location is confirmed necessary. In core (choice 1) it is the
-    least new machinery — `knownComputedSources` already treats MCP as a core-owned domain noun, and
-    `internal/agentcfg/project` already holds the reshape ops. In a shared dependency pack (choice 2)
-    it becomes a first-class pack feature via the `packs-and-the-prism.md §2.6` typed-export graph
-    (a pack `exports` `mcp_servers`, agent packs `import` the type with a projection, never naming
-    the producer), at the cost of introducing inter-pack dependencies packs do not have today.
+11. **Whether `retireMiseTools` (and `RetireOnFirstRender`) survive as kinds, or are ejected as
+    one-shot migrations.**
+    Lowest-stakes of the eleven, but it decides a principle worth stating: whether the manifest
+    format carries *transitional cleanup* at all. `retireMiseTools` strips tokens from a workspace
+    `mise.toml` for tools once installed that way; `Surface.RetireOnFirstRender` deletes pre-prism
+    sidecars. Both are pure cleanup-of-yolo's-own-past, both fit no kind cleanly, and making either
+    a permanent `kind` bakes a temporary job into the format forever — the schema-bloat this reform
+    exists to reverse.
 
-    _Leaning:_ split it — the **type + reshape ops in core** (a domain noun, per §4.1, and where the
-    code already keeps them), the **server instances as typed exports** (config/pack data, never
-    core contents). This gives the shared definition without core owning what a user supplies, and
-    without forcing a hard inter-pack dependency for the common case. Revisit choice 2 wholesale
-    only if third-party MCP packs become a real distribution channel.
+    _Leaning:_ do **not** give cleanup a kind. Either drop `retireMiseTools` entirely if no supported
+    version still writes those tokens, or handle retirement as a one-shot host migration
+    (`internal/hostmigrate` already does this class of thing) keyed on a version stamp, not a
+    standing manifest field. A format should describe the environment, not carry a changelog of its
+    own past mistakes.
 
     **Answer:**
     > _(empty — fill in when decided)_
