@@ -178,6 +178,18 @@ syntactic.
 
 ### 3.1 One shape, repeated
 
+The `kind` set is **closed and core-owned** — a pack *selects* from it, it does not *define* new
+kinds. This is the same shape as every other extensibility point in the manifest today:
+`knownModes` (`manifest/load.go:42`), `knownComputedSources` (`computed.go:47`), `knownCodecs`
+(`manifest.go:225`), and `packdecl.KnownHooks` are all closed lists validated on load, and a value
+outside the set is a loud error rather than a silent no-op. Kinds join that family. The reason is
+the same one those give: an unknown kind is a typo that would otherwise render nothing, and — more
+importantly here — **core has to know what each kind's environmental footprint is** (§3.2) to
+check it, so a pack cannot invent a kind whose footprint core cannot reason about. A pack that
+needs a genuinely new *effect* reaches for the escape hatches in §3.4 (a `derive` function, or a
+subprocess projector), not a new kind. So "where are these kinds defined?" — in core, one place
+(a `knownKinds`-style registry beside the footprint table), never in a pack.
+
 Replace nine top-level effect fields with **one list of contributions**, each with an explicit
 `kind`:
 
@@ -228,7 +240,7 @@ claims on the environment:
 | Kind | Claims | Conflict rule |
 |---|---|---|
 | `program` | a name on `PATH`, a launcher in `~/.yolo-shims/` | two packs claiming one bin → **error** |
-| `skills` | a merge target dir | two packs, one dir → **fine, that is the feature** (ordered merge) |
+| `skills` | a merge target dir, in the canonical skills format (§3.2a) | two packs, one dir → **fine** (ordered merge) *if same format*; a format gap needs a reshape or is refused |
 | `briefing` | a concat slot at a path | two packs, one path → **fine** (ordered concat) |
 | `files` | exclusive ownership of a path | two packs, one path → **error** (one would shadow) |
 | `config` | a surface identity + a file | two packs, one surface → **error** unless one declares `overrides` |
@@ -262,6 +274,41 @@ launch     claude --dangerously-skip-permissions
 
 That output is the answer to "how do we impact the environment around us." It does not exist today
 and cannot be built today, because there is no field that means "impact."
+
+### 3.2a When two agents disagree on a format: the `skills` case, made honest
+
+A fair question the `skills` row hides: **what if two packs' agents read skills in different
+on-disk formats?** Say claude reads `SKILL.md` with YAML frontmatter and some future agent reads
+`skill.toml`. "Two packs, one dir → ordered merge" only works if the *files being merged are in a
+format both readers accept*. Today they are, but by assumption, not by design.
+
+Here is the true picture in the shipped code. `PrepareSkills` (`internal/agents/skills.go`) stages
+a **separate dir per agent** (`~/.claude/skills`, `~/.copilot/skills`, `~/.pi/agent/skills`, …) and
+copies the *same* three-layer stack into each — built-in `SKILL.md` suite < pack skills < the
+user's own tree. So skills are already per-destination, and the "merge" is a merge of trees that
+all happen to be `SKILL.md`. There is **no reshape step** — unlike `config`, which has `derive`
+precisely because agents consume config in incompatible shapes.
+
+So the reform has to make the latent assumption explicit, and it splits by *whose* skills:
+
+- **A pack's own agent + its own skills** never conflict on format — the pack ships the skills its
+  agent reads, into its agent's dir. That is the common case and it stays a plain tree copy.
+- **Shared/house-rules skills** (the cross-agent corpus a user wants everywhere) are the only place
+  a format gap can bite, because one tree lands in every agent's dir. Two honest options, and the
+  doc should pick one rather than pretend the gap away:
+  1. **Declare a canonical skills format** (`SKILL.md` + frontmatter, which is already the de-facto
+     standard) and make an agent whose reader differs supply a `skills`-kind **reshape** — the
+     exact `derive` seam from §3.3, but emitting a file tree instead of a config value. This is the
+     general answer and it is why `derive` is a *slot*, not a config-only feature.
+  2. **Keep skills format-agnostic and per-agent** (today's behavior): a shared skill is only
+     merged into an agent's dir when the pack that owns that agent opts in, and a format mismatch
+     is simply not offered rather than mis-rendered. Simpler, ships now, punts the reshape until a
+     second real format exists.
+
+_Leaning: (2) now, (1) when a second skills format actually appears_ — the same "don't build the
+general mechanism before the second case" rule §3.4 applies to hooks. The point for this doc is
+that a `kind` carries not just a footprint but a **format contract**, and `skills` is where that
+contract is currently implicit. Naming it is the reform; choosing the reshape is deferrable.
 
 ### 3.3 Lua takes exactly one slot: `derive`
 
@@ -521,6 +568,21 @@ where *effects* are declared, because that slot's whole job is to be readable be
    time and report collisions with the *source* of each claim named. That retires the
    `packload.Embedded*`-is-not-selection-gated workaround, which exists precisely because the union
    could not be computed at the right time.
+
+   **Answer:**
+   > _(empty — fill in when decided)_
+
+9. **Whether `skills` needs a reshape seam, or a canonical format is enough (§3.2a).**
+   Skills today are copied as a plain `SKILL.md` tree into each agent's dir, with no reshape — the
+   "merge" assumes every agent reads the same format. A second on-disk skills format (e.g. an agent
+   wanting `skill.toml`) breaks the shared-skills merge, since one tree lands in every agent's dir.
+   `config` already solved the analogous problem with `derive`; `skills` has no equivalent.
+
+   _Leaning:_ declare `SKILL.md` + frontmatter the canonical format and keep skills a plain tree
+   copy for now (today's behavior, made explicit); add a `skills`-kind reshape — the same `derive`
+   slot emitting a file tree instead of a config value — only when a second real format appears. A
+   `kind` carries a format contract, not just a footprint; the reform's job is to *name* that
+   contract, not to pre-build the reshape.
 
    **Answer:**
    > _(empty — fill in when decided)_
