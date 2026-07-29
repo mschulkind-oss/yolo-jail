@@ -59,6 +59,27 @@ for f in flake.nix flake.lock; do
   fi
 done
 
+# SAFETY GUARD (learned the hard way). This script `rm -rf`s DEST to stage a
+# fresh bundle. A caller that computes DEST wrong can therefore aim `rm -rf` at
+# something precious — a first cut derived DEST from $GOBIN and hit
+# ~/.local/share/yolo-jail (yolo's entire state dir). So REFUSE to clobber a
+# non-empty directory unless it already looks like a bundle we produced
+# (a flake.nix at its root). An empty or absent DEST is fine; a populated dir
+# that is NOT a bundle aborts loudly rather than deleting the user's data.
+if [ -e "$DEST" ]; then
+  if [ ! -d "$DEST" ]; then
+    echo "stage-source-bundle: refusing — DEST exists and is not a directory: $DEST" >&2
+    exit 1
+  fi
+  if [ -n "$(ls -A "$DEST" 2>/dev/null)" ] && [ ! -f "$DEST/flake.nix" ]; then
+    echo "stage-source-bundle: refusing to rm -rf a non-empty dir that is not a bundle:" >&2
+    echo "  $DEST" >&2
+    echo "  (a bundle has flake.nix at its root; this dir does not — aborting to" >&2
+    echo "   avoid deleting something that is not ours). Pass an empty/new dir." >&2
+    exit 1
+  fi
+fi
+
 # The image bakes exactly these four (flake.nix:shippedBinaries). goprobe is
 # intentionally absent.
 SHIPPED_BINARIES=(yolo yolo-entrypoint yolo-jaild yolo-ps)

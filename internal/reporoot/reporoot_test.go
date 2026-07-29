@@ -4,6 +4,8 @@ import (
 	"os"
 	"path/filepath"
 	"testing"
+
+	"github.com/mschulkind-oss/yolo-jail/internal/paths"
 )
 
 func mustAbs(t *testing.T, p string) string {
@@ -60,6 +62,44 @@ func TestBundledSourceDirFrom(t *testing.T) {
 	// No bundle anywhere → not found.
 	if _, ok := BundledSourceDirFrom(t.TempDir()); ok {
 		t.Error("empty dir wrongly reported a bundle")
+	}
+}
+
+// Resolve step 4: a from-source `just install` stages the flake bundle under
+// paths.FlakeBundleDir (GlobalStorage/flake-bundle), and Resolve finds it with
+// no checkout in cwd and no YOLO_REPO_ROOT — the self-contained-install
+// guarantee. HOME is redirected to a temp dir so FlakeBundleDir resolves there.
+func TestResolveFindsStateDirBundle(t *testing.T) {
+	home := t.TempDir()
+	t.Setenv("HOME", home)
+	bundle := paths.FlakeBundleDir()
+	if err := os.MkdirAll(bundle, 0o755); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(filepath.Join(bundle, "flake.nix"), []byte("{}"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	// Isolate cwd so the cwd-walk (step 2) cannot find a checkout; no env set.
+	t.Chdir(t.TempDir())
+	got, ok := Resolve(func(string) string { return "" })
+	if !ok || got != mustAbs(t, bundle) {
+		t.Fatalf("Resolve() = (%q,%v), want (%q,true) — the staged bundle", got, ok, mustAbs(t, bundle))
+	}
+}
+
+// The state-dir bundle can NEVER equal the state dir itself — it is a dedicated
+// leaf under it. This is the structural invariant that makes the `rm -rf $DEST`
+// staging safe: even if a caller aimed staging at FlakeBundleDir and it were
+// wiped, GlobalStorage (auth, caches, per-workspace overlays) is its parent, not
+// the target. Pins the collision that deleted a real state dir from recurring.
+func TestFlakeBundleDirIsNotStateDir(t *testing.T) {
+	t.Setenv("HOME", t.TempDir())
+	if paths.FlakeBundleDir() == paths.GlobalStorage() {
+		t.Fatal("FlakeBundleDir equals GlobalStorage — staging rm -rf would delete the state dir")
+	}
+	if filepath.Dir(paths.FlakeBundleDir()) != paths.GlobalStorage() {
+		t.Fatalf("FlakeBundleDir %q is not a direct child of GlobalStorage %q",
+			paths.FlakeBundleDir(), paths.GlobalStorage())
 	}
 }
 

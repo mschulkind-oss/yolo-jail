@@ -22,6 +22,8 @@ package reporoot
 import (
 	"os"
 	"path/filepath"
+
+	"github.com/mschulkind-oss/yolo-jail/internal/paths"
 )
 
 // Resolve locates the repo root. Returns (path, ok); ok=false means it could not
@@ -39,11 +41,15 @@ import (
 //     This one candidate list serves the checkout-less channels — Homebrew /
 //     release-archive installs and the in-jail baked /opt/yolo-jail prefix —
 //     with one method and one set of paths.
+//  4. State-dir bundle: paths.FlakeBundleDir (GlobalStorage/flake-bundle), what a
+//     from-source `just install` stages so the install is SELF-CONTAINED — no
+//     external checkout, resolvable from any cwd. Last because a real
+//     distribution bundle (step 3) and a live checkout (step 2) both outrank it.
 //
 // There is deliberately NO user-config `repo_path` fallback: it was retired
 // (2026-07-23). A from-source developer resolves their live checkout via step 2
-// (launch from inside it) or step 1 (YOLO_REPO_ROOT), so the config pointer was
-// redundant. Exactly one resolution method now, inside or outside the jail.
+// (launch from inside it) or step 1 (YOLO_REPO_ROOT); a from-source INSTALL
+// (no checkout in cwd) resolves via the step-4 staged bundle.
 func Resolve(getenv func(string) string) (string, bool) {
 	// 1. Env override, validated for source.
 	if env := getenv("YOLO_REPO_ROOT"); env != "" {
@@ -68,9 +74,21 @@ func Resolve(getenv func(string) string) (string, bool) {
 		}
 	}
 
-	// 3. Exe-relative bundle (every install channel).
+	// 3. Exe-relative bundle (Homebrew / release archive / baked /opt prefix).
 	if bundle, ok := BundledSourceDir(); ok {
 		return bundle, true
+	}
+
+	// 4. Staged bundle under yolo's own state dir. This is what a from-source
+	//    `just install` writes (paths.FlakeBundleDir) so the install is
+	//    SELF-CONTAINED — an installed `yolo` resolves the flake from any cwd,
+	//    with no external checkout and no YOLO_REPO_ROOT. Comes AFTER the
+	//    exe-relative candidate so a real distribution bundle beside the binary
+	//    still wins, and AFTER the cwd-walk so a developer inside their checkout
+	//    still gets their live source. It is a fixed leaf under GlobalStorage,
+	//    which can never equal GlobalStorage itself (see paths.FlakeBundleDir).
+	if bundle := paths.FlakeBundleDir(); fileExists(filepath.Join(bundle, "flake.nix")) {
+		return absOr(bundle), true
 	}
 
 	return "", false

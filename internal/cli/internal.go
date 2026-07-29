@@ -14,6 +14,7 @@ import (
 	"github.com/mschulkind-oss/yolo-jail/internal/jsonx"
 	"github.com/mschulkind-oss/yolo-jail/internal/macosuser"
 	"github.com/mschulkind-oss/yolo-jail/internal/oauthbroker"
+	"github.com/mschulkind-oss/yolo-jail/internal/paths"
 )
 
 // runInternal dispatches the hidden `yolo internal <cmd>` family — debugging
@@ -23,7 +24,7 @@ import (
 // rewrite semantics.
 func runInternal(args []string) int {
 	if len(args) == 0 {
-		fmt.Fprintln(os.Stderr, "usage: yolo internal <config-dump|daemon|darwin-bootstrap|migrate-host> [args...]")
+		fmt.Fprintln(os.Stderr, "usage: yolo internal <config-dump|daemon|darwin-bootstrap|migrate-host|bundle-dir> [args...]")
 		return 2
 	}
 	switch args[0] {
@@ -35,6 +36,13 @@ func runInternal(args []string) int {
 		return runDarwinBootstrap(args[1:])
 	case "migrate-host":
 		return runMigrateHost(args[1:])
+	case "bundle-dir":
+		// The self-contained flake-bundle staging dir, printed so `just install`
+		// stages into the ONE path reporoot.Resolve consults (paths.FlakeBundleDir)
+		// rather than recomputing it — the drift that once aimed `rm -rf` at the
+		// state dir. Prints the path and nothing else.
+		fmt.Println(paths.FlakeBundleDir())
+		return 0
 	default:
 		fmt.Fprintf(os.Stderr, "yolo internal: unknown command %q\n", args[0])
 		return 2

@@ -25,19 +25,31 @@ ways `yolo` finds a flake now (`internal/reporoot.Resolve`):
 3. **From a shipped/baked bundle** — an exe-relative `share/yolo-jail/` bundle
    (Homebrew, the release archive, and the in-image baked `/opt/yolo-jail`
    prefix all use this ONE method). **No checkout required.**
+4. **From the state-dir bundle** — `paths.FlakeBundleDir()`
+   (`~/.local/share/yolo-jail/flake-bundle`), which a from-source `just install`
+   stages so the install is **self-contained**: an installed `yolo` builds the
+   image from any directory with no checkout and no `YOLO_REPO_ROOT`. Last,
+   because a real distribution bundle (step 3) and a live checkout (step 2) both
+   outrank it. Its path comes from the binary (`yolo internal bundle-dir`), and
+   it is a dedicated leaf UNDER the state dir — never the state dir itself.
 
-> **Retired (2026-07-23): the `repo_path` config key.** A fourth step used to
-> read `repo_path` from `~/.config/yolo-jail/config.jsonc`, written by
-> `just install`/`just deploy`. It was dropped: steps 1–3 already cover every
-> case (a from-source developer resolves their LIVE checkout via step 2 or step
-> 1, which is what a source install wants — a staged prebuilt bundle would build
-> jails from stale artifacts, not their edits). The key is still *tolerated*
-> (known key, so an existing config does not hard-error) but is ignored with a
-> deprecation warning; `just install` no longer writes it, and the
-> `internal/repopath` package + `yolo internal write-repo-path` subcommand were
-> deleted.
+> **Retired (2026-07-23): the `repo_path` config key.** A step used to read
+> `repo_path` from `~/.config/yolo-jail/config.jsonc`, written by
+> `just install`/`just deploy`. It was dropped in favor of the exe-relative
+> bundle (step 3). The state-dir bundle (step 4, added 2026-07-29) restores the
+> *self-contained from-source install* the `repo_path` note below worried about
+> — but as a **prebuilt bundle keyed to a fixed yolo-owned path**, not a config
+> pointer at a live checkout. The concern that "a staged prebuilt bundle would
+> build jails from stale artifacts, not their edits" is answered by precedence:
+> steps 1–2 (env, cwd-walk) outrank step 4, so a developer editing yolo-jail
+> always gets their live source; step 4 only answers the no-checkout-in-scope
+> case (launching a jail for some OTHER project), which is exactly when
+> checkout-less behavior is wanted. The `repo_path` key is still *tolerated*
+> (known key, so an existing config does not hard-error) but ignored with a
+> deprecation warning; the `internal/repopath` package + `yolo internal
+> write-repo-path` subcommand were deleted.
 
-Only if all three miss do you get the actionable error:
+Only if all four miss do you get the actionable error:
 
 ```
 Cannot find yolo-jail repo root.
@@ -134,8 +146,9 @@ and outside the jail**. There is no in-jail-special code path any more.
 | 1 | `YOLO_REPO_ROOT` env, if it contains `flake.nix` **or** `go.mod` | Yes — CI / integration harness, and the from-source escape hatch from any dir |
 | 2 | Walk up from cwd for a dir with **both** `flake.nix` **and** `go.mod` | Only when `cd`'d into a checkout (the from-source dev path) |
 | 3 | **Exe-relative bundle** (`BundledSourceDirFrom`) | **Yes — Homebrew / release archive / baked `/opt/yolo-jail`** |
+| 4 | **State-dir bundle** (`paths.FlakeBundleDir`, `~/.local/share/yolo-jail/flake-bundle`) | **Yes — a from-source `just install`, from any dir** |
 
-_(A former step 4 read `repo_path` from the user config; retired 2026-07-23 — see the box in the intro.)_
+_(An earlier "step 4" read `repo_path` from the user config; retired 2026-07-23. The current step 4 is the state-dir bundle, added 2026-07-29.)_
 
 Notes on the guards, which are deliberate:
 
@@ -143,7 +156,10 @@ Notes on the guards, which are deliberate:
 - **Step 2** requires **both** files, on purpose: a bare `flake.nix` match would
   hijack *a user's own* flake workspace as the yolo-jail repo.
 - **Step 3** requires only `flake.nix` (the bundle has no `go.mod`).
-- **Step 4** requires only `flake.nix`.
+- **Step 4** requires only `flake.nix`, at a fixed yolo-owned path. It is LAST so
+  a live checkout (step 2) and a real distribution bundle (step 3) both win — a
+  from-source developer editing yolo-jail always gets their source, never the
+  staged prebuilt binaries.
 
 **Step 3 — the exe-relative bundle — is the checkout-less path.**
 `BundledSourceDir` (`reporoot.go`, pure core `BundledSourceDirFrom`) looks for a
@@ -243,7 +259,7 @@ short-circuit fires).
 |---|---|---|---|
 | **Homebrew tap** (`mschulkind-oss/homebrew-tap`) | `release.yml` generates a **source-build** formula (`depends_on go`): `go build ./cmd/yolo`, then `scripts/stage-source-bundle.sh` produces the **prebuilt** bundle into `pkgshare` | **Yes** — `flake.nix`/`flake.lock` + `bin/linux-{amd64,arm64}/` at `prefix/share/yolo-jail` → `<exe>/../share/yolo-jail` | `.github/workflows/release.yml` install block |
 | **GitHub Release tar.gz** (goreleaser) | `before` hook runs `stage-source-bundle.sh`; archive `files:` ships it beside the binary | **Yes** — `yolo` + `share/yolo-jail/…` → `<exe>/share/yolo-jail` | `.goreleaser.yaml` before-hook + archives `files:` |
-| **From source** (`git clone` + `just install`/`deploy`) | `go install ./cmd/yolo`, then `scripts/stage-source-bundle.sh` stages the bundle at `$(dirname $GOBIN)/share/yolo-jail` | **Yes** — three ways: the checkout (cwd-walk, step 2), `YOLO_REPO_ROOT` (step 1), OR the staged bundle beside the binary (step 3, `<exe>/../share/yolo-jail`). The bundle makes a from-source install checkout-less like every other channel; steps 1–2 still win when a checkout is in scope, so live edits are never shadowed | `README.md`, `Justfile` |
+| **From source** (`git clone` + `just install`/`deploy`) | `go install ./cmd/yolo`, then `scripts/stage-source-bundle.sh` stages the **native-arch** bundle at `$(yolo internal bundle-dir)` = `~/.local/share/yolo-jail/flake-bundle` | **Yes** — three ways: the checkout (cwd-walk, step 2), `YOLO_REPO_ROOT` (step 1), OR the staged state-dir bundle (step 4). Self-contained: resolves from any dir with no checkout; steps 1–2 still win when a checkout is in scope, so live edits are never shadowed | `README.md`, `Justfile` |
 | **In-image baked prefix** | `flake.nix installPrefix` bakes real-file binaries + the `share/yolo-jail` bundle at `/opt/yolo-jail` (not a mount) | **Yes** — the in-jail `yolo` resolves it via step 3, identical to a host install | `flake.nix` `installPrefix` / `corePackages` |
 | **PyPI wheel** | `tools/build-wheels` embeds only the `cmd/yolo` binary + metadata | **No** — no bundle wired (cutover did brew + goreleaser; wheel not yet) | `tools/build-wheels/main.go` |
 | **Cachix binary cache** | prebuilt image closures for `nix` substitution | **Substituter live, cache not yet filled** (first push + Mac proof pending) | below |
@@ -280,8 +296,23 @@ proof pending).
 `just deploy` → `just install` (`deploy: install`):
 
 - `install` stamps `buildVersion` + `GitCommit` via ldflags, runs
-  `migrate-host`, then `go install ./cmd/yolo`, then stages the prebuilt bundle
-  at `$(dirname $GOBIN_DIR)/share/yolo-jail` via `scripts/stage-source-bundle.sh`.
+  `migrate-host`, then `go install ./cmd/yolo`, then stages the **native-arch**
+  prebuilt bundle via `scripts/stage-source-bundle.sh` into the path the
+  just-installed binary reports (`yolo internal bundle-dir` =
+  `paths.FlakeBundleDir()` = `~/.local/share/yolo-jail/flake-bundle`).
+  - **The path comes from the binary, not from `$GOBIN` arithmetic.** The first
+    cut computed `$(dirname $GOBIN)/share/yolo-jail`, which for the common
+    `GOBIN=~/.local/bin` collapses onto `~/.local/share/yolo-jail` — the entire
+    yolo state dir — and the staging script leads with `rm -rf $DEST`. So
+    `just deploy` deleted the state dir. Asking the binary for the ONE path it
+    resolves (a dedicated leaf under the state dir, never the state dir itself)
+    removes both the arithmetic and the drift. The script also refuses to
+    `rm -rf` any non-empty dir that is not already a bundle (no `flake.nix` at
+    its root), as a belt-and-suspenders guard.
+  - **Native arch only.** The shipped bundle (goreleaser/brew) is arch-agnostic
+    and builds both; a local install builds only `go env GOARCH` via
+    `YOLO_BUNDLE_ARCHES`, so it reuses the warm cache from the `go install` just
+    above instead of cold-cross-compiling the foreign arch.
 - `migrate-host` (`internal/hostmigrate`) still retires the old Python install
   (uninstalls the `yolo-jail` uv tool, clears stale GOBIN console scripts) —
   only when positively identified as stale; an unidentifiable `yolo` *blocks*
@@ -289,15 +320,16 @@ proof pending).
 - `deploy` then retires legacy systemd token-refresher units, primes the
   claude-oauth-broker state, and restarts the broker.
 
-An installed-from-source `yolo` resolves the repo **three** ways now. When a
-checkout is in scope, the cwd-walk (step 2) or `YOLO_REPO_ROOT` (step 1) points
-nix at the developer's LIVE source — which is what a from-source developer
-editing yolo-jail wants, and both take precedence over the bundle. When there is
-no checkout in scope — launching a jail for some *other* project from an
-unrelated directory — the staged bundle (step 3) makes the launch work
-checkout-less, exactly like a Homebrew install. Because the bundle is a
-lower-precedence fallback, it never shadows live edits: the moment you `cd` into
-your checkout or export `YOLO_REPO_ROOT`, your source wins.
+An installed-from-source `yolo` resolves the repo **three** ways now, and the
+install is genuinely **self-contained** — no external checkout is ever required.
+When a checkout is in scope, the cwd-walk (step 2) or `YOLO_REPO_ROOT` (step 1)
+points nix at the developer's LIVE source — which is what a from-source
+developer editing yolo-jail wants, and both take precedence over the bundle.
+When there is no checkout in scope — launching a jail for some *other* project
+from an unrelated directory — the staged state-dir bundle (step 4) makes the
+launch work checkout-less. Because the bundle is a lower-precedence fallback, it
+never shadows live edits: the moment you `cd` into your checkout or export
+`YOLO_REPO_ROOT`, your source wins.
 
 > **Why the bundle is not "stale artifacts."** The `reporoot.go` docstring warns
 > that a staged prebuilt bundle carries prebuilt binaries, not `goSrc`, so it
@@ -354,8 +386,9 @@ directly), but the run path never sets it now.
 **Done:**
 
 - **Single resolver** — `internal/reporoot.Resolve` is the one method for run +
-  check, identical inside and outside the jail. **Three steps** (env, cwd-walk,
-  exe-relative bundle) since the `repo_path` fallback was retired 2026-07-23.
+  check, identical inside and outside the jail. **Four steps** (env, cwd-walk,
+  exe-relative bundle, state-dir bundle); the `repo_path` fallback was retired
+  2026-07-23 and the state-dir bundle added 2026-07-29.
 - **Prebuilt bundle** — `flake.nix` + `flake.lock` + `bin/linux-{amd64,arm64}/`
   ships in Homebrew + the release archive and is baked into the image at
   `/opt/yolo-jail`; the flake's prebuilt short-circuit builds from it with no
@@ -398,7 +431,7 @@ anchors:
 - Image built from Go source OR prebuilt: `flake.nix` `goBinaries` (prebuilt
   short-circuit `builtins.pathExists ./bin/linux-<arch>`), `installPrefix`,
   `corePackages`
-- The single shared resolver (3 steps): `internal/reporoot/reporoot.go`
+- The single shared resolver (4 steps): `internal/reporoot/reporoot.go`
   (`Resolve`, `BundledSourceDirFrom`); run/check delegates in
   `internal/cli/run/probes.go`, `internal/cli/check/probes.go`
 - `repo_path` retirement (2026-07-23): the key is tolerated-with-warning in

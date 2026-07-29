@@ -87,6 +87,20 @@ func PacksDir() string { return filepath.Join(GlobalStorage(), "packs") }
 // BuildDir returns the nix build-root dir.
 func BuildDir() string { return filepath.Join(GlobalStorage(), "build") }
 
+// FlakeBundleDir is where a from-source `just install` stages the self-contained
+// flake bundle (flake.nix + flake.lock + prebuilt bin/linux-<arch>/) so an
+// installed `yolo` builds the jail image with no source checkout — the
+// "installs are self-contained" guarantee. reporoot.Resolve consults it.
+//
+// It is a DEDICATED LEAF under GlobalStorage, deliberately NOT derived from the
+// binary's install dir. The first cut computed it as $(dirname $GOBIN)/share/
+// yolo-jail, which for the common GOBIN=~/.local/bin collapses onto
+// GlobalStorage() itself ($HOME/.local/share/yolo-jail) — and the staging script
+// leads with `rm -rf $DEST`, so `just install` deleted the whole state dir. A
+// fixed leaf under GlobalStorage can never equal GlobalStorage, so that class of
+// collision is structurally impossible.
+func FlakeBundleDir() string { return filepath.Join(GlobalStorage(), "flake-bundle") }
+
 // UserConfigPath returns $HOME/.config/yolo-jail/config.jsonc.
 func UserConfigPath() string { return filepath.Join(home(), userConfigSuffix) }
 

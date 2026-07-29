@@ -67,29 +67,27 @@ install:
     [ -n "$GOBIN_DIR" ] || GOBIN_DIR="$(go env GOPATH)/bin"
     echo "Installed to $GOBIN_DIR"
 
-    # Stage the flake bundle beside the binary so an installed `yolo` can build
-    # the jail image from ANY directory — not only from inside a yolo-jail
-    # checkout. reporoot.Resolve's step 3 (BundledSourceDirFrom) looks for
-    # <exeDir>/../share/yolo-jail; go install put the binary at $GOBIN_DIR/yolo,
-    # so that resolves to $GOBIN_DIR/../share/yolo-jail. This is the SAME
-    # "two files and a binary" prebuilt bundle Homebrew and the release archive
-    # ship (flake.nix + flake.lock + bin/linux-{amd64,arm64}/), so a from-source
-    # install now behaves like every other channel.
+    # Stage a SELF-CONTAINED flake bundle so an installed `yolo` builds the jail
+    # image from ANY directory — no source checkout, no YOLO_REPO_ROOT, ever.
+    # This is the "two files and a binary" prebuilt bundle (flake.nix +
+    # flake.lock + bin/linux-<arch>/) that the flake's prebuilt short-circuit
+    # consumes with no toolchain — the same bundle Homebrew and the release
+    # archive ship. reporoot.Resolve step 4 finds it.
     #
-    # Why a prebuilt bundle is right here and not "stale artifacts": resolution
-    # steps 1 (YOLO_REPO_ROOT) and 2 (cwd-walk) BOTH take precedence over the
-    # bundle, so the instant you're inside your checkout — or export
-    # YOLO_REPO_ROOT — your live source wins and the bundle is never consulted.
-    # The bundle only answers the case where there is no checkout in scope at
-    # all (launching a jail for some OTHER project), which is exactly when you
-    # want checkout-less behavior. See docs/research/repo-root-and-distribution.md.
+    # THE PATH COMES FROM THE BINARY, not from $GOBIN arithmetic. `yolo internal
+    # bundle-dir` prints paths.FlakeBundleDir() — a dedicated leaf UNDER the
+    # state dir ($HOME/.local/share/yolo-jail/flake-bundle). The first cut
+    # computed $(dirname $GOBIN)/share/yolo-jail, which for GOBIN=~/.local/bin
+    # collapsed onto $HOME/.local/share/yolo-jail — the whole state dir — and the
+    # staging script's `rm -rf $DEST` deleted it. Asking the binary for the one
+    # path it actually resolves removes both the arithmetic and the drift.
     #
     # NATIVE ARCH ONLY. The shipped bundle (goreleaser/brew) is arch-agnostic and
     # builds both amd64+arm64, but a LOCAL install runs on one host — building the
-    # foreign arch is a cold cross-compile of the whole module graph (the "why is
-    # it recompiling the world" surprise). YOLO_BUNDLE_ARCHES narrows it to this
-    # host's arch, reusing the warm cache from the `go install` just above.
-    BUNDLE_DIR="$(dirname "$GOBIN_DIR")/share/yolo-jail"
+    # foreign arch is a cold cross-compile of the whole module graph. Narrow to
+    # this host's arch, reusing the warm cache from the `go install` just above.
+    YOLO_BIN="$GOBIN_DIR/yolo"
+    BUNDLE_DIR="$("$YOLO_BIN" internal bundle-dir)"
     echo "Staging flake bundle (linux/$(go env GOARCH)) → $BUNDLE_DIR"
     YOLO_BUNDLE_ARCHES="$(go env GOARCH)" ./scripts/stage-source-bundle.sh "$BUNDLE_DIR"
 
