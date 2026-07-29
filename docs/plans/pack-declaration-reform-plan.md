@@ -121,6 +121,30 @@ unchanged surface before/after — this touches the A12-fatal boot render).
 
 ## Phase 3 — MCP to a shared location, projection as `derive` (OQ1)
 
+> **⚠ BLOCKED on a ruling (found 2026-07-29 during implementation).** The plan's step-4
+> "delete `computed.go` wholesale, all reshape → `derive`" does not survive contact with the code:
+> **one `computed[]` use is stateful and a `derive` function is pure.** Enumerated across the six
+> shipped packs, the `computed[]` blocks split into:
+>
+> | Use | Packs | Portable to a pure `derive`? |
+> |---|---|---|
+> | passthrough / project (reshape one entry) | agy/mcp, codex/config, copilot/mcp, copilot/lsp, opencode/config | **Yes** — pure function of the entry |
+> | tombstone (delete a key) | claude/settings | **Yes** — `out.k = nil` |
+> | flags (conditional key on a table) | claude/settings ×2 | **Yes** — the §3.3 worked example |
+> | **`reconcile` (managed dynamic table on an RMW file)** | **claude/config** | **NO** — it is sidecar-STATEFUL: it removes the MCP names yolo asserted *last boot* and re-adds the current set, so an agent-added server survives while a yolo-dropped one is removed. A pure `derive` has no memory of last boot; `reconcileRMWTables` (`prism.go:430`) tracks it via a managed-name sidecar. This is the exact `.claude.json` reconciliation the hand-written writer did before the DSL generalized it. |
+>
+> So `derive` can absorb 8 of the 9 `computed[]` uses; the 9th (`reconcile`) is a genuinely
+> stateful RMW mechanism that is not a projection at all. **The ruling needed:** does `reconcile`
+> (a) stay as a small dedicated non-`derive` mechanism (keep a slice of `computed.go` alive purely
+> for it — contradicts "both DSLs gone"), (b) move behind the subprocess projector (§3.4 — but that
+> is for *pure* arbitrary logic, and reconcile needs on-disk state, so this is a poor fit), or
+> (c) get reframed as an RMW-surface capability declared directly (not via `computed[]`), letting
+> `computed.go`/`project.go` still be deleted while reconcile lives as its own thing. **Leaning (c):**
+> reconcile was always an RMW concern wearing a `computed[]` hat (its own doc says "only meaningful
+> on an RMW surface"); lifting it to an explicit RMW-surface field lets the DSLs die as planned and
+> keeps the one stateful mechanism honest about being stateful. This is a new open question (OQ12,
+> below) and Phase 3 is paused here pending it. Phases 0–2 are unaffected and shipped.
+
 The load-bearing decision, built last of the core phases because it leans on Phase 2's assembler
 and the `derive` slot must be solid first.
 

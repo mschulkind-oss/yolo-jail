@@ -1010,3 +1010,28 @@ breaks if it is decided wrong — because a leaning without a cost is just an op
 
     **Answer:**
     > _(empty — fill in when decided)_
+
+12. **What happens to `reconcile` when the `computed[]`/`project` DSLs are deleted (found during
+    implementation, 2026-07-29).**
+    The reform's §3.3 says every reshape becomes a `derive` function and both DSLs are deleted. That
+    holds for 8 of the 9 `computed[]` uses across the shipped packs (passthrough/project, tombstone,
+    flags) — all pure functions of a table entry. The 9th, `claude/config`'s `reconcile: true`, is
+    **not a projection**: it is a sidecar-STATEFUL RMW mechanism (`reconcileRMWTables`, `prism.go:430`)
+    that removes the MCP-server names yolo asserted *last boot* and re-adds the current set, so an
+    agent-added server survives while a config-dropped one is removed. A `derive` function is pure —
+    it has no memory of last boot — so `reconcile` cannot become one. Its own doc already says it is
+    "only meaningful on an RMW surface," which is the tell: it was an RMW concern riding in a
+    `computed[]` block.
+
+    _Leaning:_ **(c) lift `reconcile` to an explicit RMW-surface capability**, declared directly on
+    the config kind for an RMW surface (e.g. a `reconcileKeys` field naming which keys are managed
+    dynamic tables), NOT via the deleted `computed[]`. This lets `computed.go` and `project.go` be
+    deleted as §3.3 plans while the one genuinely stateful mechanism lives honestly as what it is.
+    Rejected alternatives: (a) keep a slice of `computed.go` alive just for `reconcile` — contradicts
+    "both DSLs gone" and leaves the DSL's validation surface half-alive; (b) push it behind the
+    subprocess projector (§3.4) — that seam is for *pure* arbitrary logic and explicitly gets no
+    filesystem handle, but reconcile *needs* on-disk state, so it is the wrong home. Phase 3 of the
+    implementation plan is paused on this ruling.
+
+    **Answer:**
+    > _(empty — fill in when decided)_

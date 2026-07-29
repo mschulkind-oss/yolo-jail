@@ -154,10 +154,10 @@ func FootprintOf(p *Pack) Footprint {
 // Collision is a conflict between two claims on one target that the kind's
 // combine rule forbids (§3.2). Reported, never silently resolved.
 type Collision struct {
-	Kind    packdecl.Kind
-	Target  string
-	Packs   []string // the packs claiming the same target, sorted
-	Reason  string   // human explanation from the combine rule
+	Kind   packdecl.Kind
+	Target string
+	Packs  []string // the packs claiming the same target, sorted
+	Reason string   // human explanation from the combine rule
 }
 
 // Collisions computes the union of every pack's footprint and returns the

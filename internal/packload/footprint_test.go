@@ -94,7 +94,7 @@ func TestCollisionsExclusiveOnly(t *testing.T) {
 		Mounts:  []packdecl.Mount{{From: "skills", To: ".x/skills"}, {From: "prompts", To: ".x/data"}},
 	})
 	b := pk("b", false, &packdecl.Manifest{
-		Install: &packdecl.Install{Kind: "npm", Bin: "tool", Package: "b"}, // same bin → collision
+		Install: &packdecl.Install{Kind: "npm", Bin: "tool", Package: "b"},                             // same bin → collision
 		Mounts:  []packdecl.Mount{{From: "skills", To: ".x/skills"}, {From: "prompts", To: ".x/data"}}, // same files-target → collision; same skills → fine
 	})
 	cols := Collisions([]*Pack{a, b})
