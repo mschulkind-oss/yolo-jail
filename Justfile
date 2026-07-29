@@ -24,8 +24,9 @@ build-go:
 # Stage the prebuilt "two files and a binary" bundle (share/yolo-jail/) an
 # installed binary needs to build the jail image with no toolchain: flake.nix +
 # flake.lock + bin/linux-{amd64,arm64}/. Cross-compiles both arches, so it needs
-# a Go toolchain. goreleaser + the brew formula run the script directly; this is
-# for local use.
+# a Go toolchain. `just install`, goreleaser, and the brew formula all run the
+# underlying script; this recipe is the manual entry point (e.g. to inspect the
+# bundle) and defaults to a build-output dir.
 stage-bundle DEST="dist/bundle/share/yolo-jail":
     ./scripts/stage-source-bundle.sh {{ DEST }}
 
@@ -66,6 +67,26 @@ install:
     [ -n "$GOBIN_DIR" ] || GOBIN_DIR="$(go env GOPATH)/bin"
     echo "Installed to $GOBIN_DIR"
 
+    # Stage the flake bundle beside the binary so an installed `yolo` can build
+    # the jail image from ANY directory — not only from inside a yolo-jail
+    # checkout. reporoot.Resolve's step 3 (BundledSourceDirFrom) looks for
+    # <exeDir>/../share/yolo-jail; go install put the binary at $GOBIN_DIR/yolo,
+    # so that resolves to $GOBIN_DIR/../share/yolo-jail. This is the SAME
+    # "two files and a binary" prebuilt bundle Homebrew and the release archive
+    # ship (flake.nix + flake.lock + bin/linux-{amd64,arm64}/), so a from-source
+    # install now behaves like every other channel.
+    #
+    # Why a prebuilt bundle is right here and not "stale artifacts": resolution
+    # steps 1 (YOLO_REPO_ROOT) and 2 (cwd-walk) BOTH take precedence over the
+    # bundle, so the instant you're inside your checkout — or export
+    # YOLO_REPO_ROOT — your live source wins and the bundle is never consulted.
+    # The bundle only answers the case where there is no checkout in scope at
+    # all (launching a jail for some OTHER project), which is exactly when you
+    # want checkout-less behavior. See docs/research/repo-root-and-distribution.md.
+    BUNDLE_DIR="$(dirname "$GOBIN_DIR")/share/yolo-jail"
+    echo "Staging flake bundle → $BUNDLE_DIR"
+    ./scripts/stage-source-bundle.sh "$BUNDLE_DIR"
+
     # Warn if PATH resolves `yolo` to some other install (a Homebrew copy, say)
     # — go install would have succeeded while the old binary still wins.
     RESOLVED="$(command -v yolo 2>/dev/null || true)"
@@ -76,8 +97,9 @@ install:
 
     # NOTE: install no longer records repo_path in the user config (that key was
     # retired 2026-07-23). A from-source `yolo` finds the repo from the checkout
-    # you launch in (the cwd-walk) or via YOLO_REPO_ROOT — see
-    # internal/reporoot.Resolve and docs/research/repo-root-and-distribution.md.
+    # you launch in (the cwd-walk), via YOLO_REPO_ROOT, or now from the staged
+    # bundle above — see internal/reporoot.Resolve and
+    # docs/research/repo-root-and-distribution.md.
 
 # Install yolo CLI and prime the Claude OAuth broker state. Safe to re-run.
 deploy: install

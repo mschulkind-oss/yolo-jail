@@ -66,11 +66,13 @@ flake on first run.**
 The launch path (`internal/cli/run/run.go`) resolves the repo root as its very
 first probe and threads it through the launch:
 
-- `run.go:38` — `repoRoot, _ := o.RepoRoot()` is the first thing `Run()` does.
-  Resolution is **no longer a hard gate** (D2): an empty `repoRoot` proceeds
-  DEGRADED (no rebuild, run whatever image is loaded/cached) with a one-line
-  notice, rather than exiting.
-- `run.go:178` — `repoRoot` becomes the argument to `autoLoadImage`.
+- `run.go` — `repoRoot, repoRootOK := o.RepoRoot()` is the first thing `Run()`
+  does. Resolution is a **hard gate** for the container backends: an
+  unresolvable repo root exits 1 with an actionable message rather than
+  launching on a possibly-stale cached image. (This reverts D2's graceful
+  degradation — see §6 for why the soft path was removed.) The gate fires
+  *after* the macos-user branch, which needs no repo when `packages:` is empty.
+- `run.go` — `repoRoot` becomes the argument to `autoLoadImage`.
 
 `autoLoadImage` runs the Nix build **in `repoRoot` as the working directory**,
 building the flake **in place** — there is no copy-to-a-staging-dir step:
@@ -241,7 +243,7 @@ short-circuit fires).
 |---|---|---|---|
 | **Homebrew tap** (`mschulkind-oss/homebrew-tap`) | `release.yml` generates a **source-build** formula (`depends_on go`): `go build ./cmd/yolo`, then `scripts/stage-source-bundle.sh` produces the **prebuilt** bundle into `pkgshare` | **Yes** — `flake.nix`/`flake.lock` + `bin/linux-{amd64,arm64}/` at `prefix/share/yolo-jail` → `<exe>/../share/yolo-jail` | `.github/workflows/release.yml` install block |
 | **GitHub Release tar.gz** (goreleaser) | `before` hook runs `stage-source-bundle.sh`; archive `files:` ships it beside the binary | **Yes** — `yolo` + `share/yolo-jail/…` → `<exe>/share/yolo-jail` | `.goreleaser.yaml` before-hook + archives `files:` |
-| **From source** (`git clone` + `just deploy`) | `go install ./cmd/yolo` | **Yes** — the checkout is the flake; resolved via the cwd-walk (step 2) when launched from inside it, or `YOLO_REPO_ROOT` (step 1) from anywhere | `README.md`, `Justfile` |
+| **From source** (`git clone` + `just install`/`deploy`) | `go install ./cmd/yolo`, then `scripts/stage-source-bundle.sh` stages the bundle at `$(dirname $GOBIN)/share/yolo-jail` | **Yes** — three ways: the checkout (cwd-walk, step 2), `YOLO_REPO_ROOT` (step 1), OR the staged bundle beside the binary (step 3, `<exe>/../share/yolo-jail`). The bundle makes a from-source install checkout-less like every other channel; steps 1–2 still win when a checkout is in scope, so live edits are never shadowed | `README.md`, `Justfile` |
 | **In-image baked prefix** | `flake.nix installPrefix` bakes real-file binaries + the `share/yolo-jail` bundle at `/opt/yolo-jail` (not a mount) | **Yes** — the in-jail `yolo` resolves it via step 3, identical to a host install | `flake.nix` `installPrefix` / `corePackages` |
 | **PyPI wheel** | `tools/build-wheels` embeds only the `cmd/yolo` binary + metadata | **No** — no bundle wired (cutover did brew + goreleaser; wheel not yet) | `tools/build-wheels/main.go` |
 | **Cachix binary cache** | prebuilt image closures for `nix` substitution | **Substituter live, cache not yet filled** (first push + Mac proof pending) | below |
@@ -264,11 +266,12 @@ Two remaining notes:
   The only registry image is a separate builder helper.
 
 **Bottom line (today):** Homebrew, the release archive, install-from-source, and
-the in-image baked prefix all resolve a buildable flake — the first two and the
-baked prefix via the prebuilt bundle, install-from-source via the cwd-walk /
-`YOLO_REPO_ROOT`. The remaining gap is the **PyPI wheel** (no bundle wired) and
-**Cachix** (substituter live, but the cache is not yet filled — first push + Mac
-download proof pending).
+the in-image baked prefix all resolve a buildable flake — all four via the
+prebuilt bundle now that `just install` stages it, with install-from-source
+*also* resolving via the cwd-walk / `YOLO_REPO_ROOT` when a checkout is in
+scope. The remaining gap is the **PyPI wheel** (no bundle wired) and **Cachix**
+(substituter live, but the cache is not yet filled — first push + Mac download
+proof pending).
 
 ---
 
@@ -277,7 +280,8 @@ download proof pending).
 `just deploy` → `just install` (`deploy: install`):
 
 - `install` stamps `buildVersion` + `GitCommit` via ldflags, runs
-  `migrate-host`, then `go install ./cmd/yolo`.
+  `migrate-host`, then `go install ./cmd/yolo`, then stages the prebuilt bundle
+  at `$(dirname $GOBIN_DIR)/share/yolo-jail` via `scripts/stage-source-bundle.sh`.
 - `migrate-host` (`internal/hostmigrate`) still retires the old Python install
   (uninstalls the `yolo-jail` uv tool, clears stale GOBIN console scripts) —
   only when positively identified as stale; an unidentifiable `yolo` *blocks*
@@ -285,10 +289,24 @@ download proof pending).
 - `deploy` then retires legacy systemd token-refresher units, primes the
   claude-oauth-broker state, and restarts the broker.
 
-An installed-from-source `yolo` resolves the repo the same way anyone with a
-checkout does: launch it from inside the checkout (the cwd-walk, step 2), or set
-`YOLO_REPO_ROOT` to point at it from any directory (step 1). Both point nix at
-the developer's LIVE source, which is what a from-source install wants.
+An installed-from-source `yolo` resolves the repo **three** ways now. When a
+checkout is in scope, the cwd-walk (step 2) or `YOLO_REPO_ROOT` (step 1) points
+nix at the developer's LIVE source — which is what a from-source developer
+editing yolo-jail wants, and both take precedence over the bundle. When there is
+no checkout in scope — launching a jail for some *other* project from an
+unrelated directory — the staged bundle (step 3) makes the launch work
+checkout-less, exactly like a Homebrew install. Because the bundle is a
+lower-precedence fallback, it never shadows live edits: the moment you `cd` into
+your checkout or export `YOLO_REPO_ROOT`, your source wins.
+
+> **Why the bundle is not "stale artifacts."** The `reporoot.go` docstring warns
+> that a staged prebuilt bundle carries prebuilt binaries, not `goSrc`, so it
+> would build jails from stale artifacts *for a source developer*. That concern
+> is about precedence, and precedence protects against it: the bundle answers
+> only the no-checkout-in-scope case, where there are no local edits to be stale
+> relative to. A developer working on yolo-jail itself always resolves via steps
+> 1–2, never the bundle. This is the `~/code/forms6` case — you want a working
+> jail for forms6, not a rebuild of yolo-jail from your dirty tree.
 
 > **Retired: `repo_path` + `write-repo-path` (2026-07-23).** `just install` used
 > to run `yolo internal write-repo-path <checkout>`, which did an idempotent,
@@ -304,21 +322,30 @@ the developer's LIVE source, which is what a from-source install wants.
 
 ---
 
-## 6. The image-cache fallback and graceful degradation (D2)
+## 6. The image-cache fallback, and why a missing repo root is FATAL (D2 reverted 2026-07-29)
 
-`AutoLoadImage` has a fallback when the Nix build returns `""`:
+`AutoLoadImage` has a fallback when the Nix build returns `""` (e.g. a build
+failure on a host that already has an image):
 
 1. If the jail image already exists in the runtime (`image inspect` rc==0) →
    use it, no rebuild.
 2. Else load the newest `*.tar` from `~/.local/share/yolo-jail/cache/images/`.
 3. Else diagnose the Nix failure and return false.
 
-Under **D2**, repo-root resolution is no longer a hard gate: when `Resolve`
-returns `("", false)`, `run` proceeds DEGRADED — it prints a one-line notice and
-calls `autoLoadImage` with an empty `repoRoot`, which `SkipBuild`s straight to
-this fallback. So a source-less user with a previously-loaded or cached image
-still launches; only a truly imageless, flake-less host fails, with the
-actionable message. (`macos-user` with empty `packages:` needs no image at all.)
+**D2 (graceful degradation on a missing repo root) was reverted.** It used to
+treat an unresolvable repo root as non-fatal: `run` discarded the `ok` flag,
+printed a one-line notice, and called `autoLoadImage` with an empty `repoRoot`,
+which `SkipBuild`-ed straight to the fallback above — so a source-less host ran
+whatever image was already loaded or cached. That was judged a footgun: it
+silently ran an image that **may not match the config**, hiding the fact that
+the environment is stale, which is worse than failing. Now an unresolvable repo
+root on a container backend is **fatal** (`run.go`, exit 1) with a message
+pointing at the three fixes — launch from a checkout, set `YOLO_REPO_ROOT`, or
+reinstall so the flake bundle ships beside the binary (§4, `just install` now
+stages it). `macos-user` with empty `packages:` still needs no repo and is not
+gated. `SkipBuild` stays a field on `AutoLoadOptions` as a dormant seam (its
+fallback branch and the `autoload_test.go` regressions construct the options
+directly), but the run path never sets it now.
 
 ---
 
@@ -364,7 +391,9 @@ missing.
 Verified by reading the current source (and `c7e210d~1` for the Python era). Key
 anchors:
 
-- Launch ordering + degraded path: `internal/cli/run/run.go:38,79-84,178`
+- Launch ordering + fatal repo-root gate: `internal/cli/run/run.go` (`Run`,
+  the `!repoRootOK` exit after the macos-user branch); regression:
+  `internal/cli/run/reporoot_fatal_test.go`
 - Nix build cwd + argv (in-place, no staging): `internal/image/autoload.go:314-322`
 - Image built from Go source OR prebuilt: `flake.nix` `goBinaries` (prebuilt
   short-circuit `builtins.pathExists ./bin/linux-<arch>`), `installPrefix`,
