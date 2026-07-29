@@ -461,11 +461,16 @@ Marked here so the "start here" arrow points at the real next item.
   verified.
 - ✅ **D1** (2026-07-20) — `just deploy` records `repo_path`; `check` honors it.
   Verified: `internal/repopath/` exists, wired into the install recipe.
-- ✅ **D2 — graceful launch degradation** (2026-07-21) — repo-root resolution is
-  no longer a hard gate. When it fails the launch proceeds degraded on a
-  cached/loaded image (`image.AutoLoadOptions.SkipBuild`), and `Run` prints a
-  soft notice instead of exiting 1 (commit 8f1d612). Nested-jail verified both
-  paths: normal launch + rebuilds; degraded runs the cached image.
+- ↩️ **D2 — graceful launch degradation** (2026-07-21) — **REVERTED 2026-07-29.**
+  Originally made repo-root resolution non-fatal: on a miss the launch ran
+  degraded on a cached/loaded image (`SkipBuild`) with a soft notice (commit
+  8f1d612). Reverted because silently running a possibly-stale image hides that
+  the environment no longer matches the config — a worse failure than exiting.
+  A missing flake is again FATAL on container backends (`run.go` `!repoRootOK`
+  exit, after the un-gated macos-user branch); paired with `just install` now
+  staging the prebuilt bundle so from-source installs resolve checkout-less
+  (see D3). Regression: `internal/cli/run/reporoot_fatal_test.go`;
+  `docs/research/repo-root-and-distribution.md` §6.
   *(The intermediate `repoBound`-gated `/opt/yolo-jail:ro` bind + `YOLO_REPO_ROOT`
   env described in the original commit were later removed entirely by the
   prebuilt-bundle cutover — 2026-07-23: `/opt/yolo-jail` is now a baked install

@@ -157,9 +157,10 @@ func fillDefaults(o *Options) {
 		}
 	}
 	if o.RepoRoot == nil {
-		// stderr is nil: repo-root resolution is no longer fatal (D2 degraded
-		// launch), so the resolver must not print its "Cannot find repo root" fix
-		// hint. Run() emits a softer degraded notice when repoRoot comes back "".
+		// stderr is nil so the resolver stays silent: repo-root resolution IS
+		// fatal for container backends, but Run() owns the failure message (it
+		// exits only after the macos-user branch, which needs no repo). Letting
+		// the resolver also print would double the "Cannot find repo root" text.
 		o.RepoRoot = func() (string, bool) { return resolveRepoRoot(o.Getenv, nil, o.Color) }
 	}
 	if o.Getpid == nil {

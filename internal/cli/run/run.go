@@ -28,15 +28,17 @@ func Run(opts Options) int {
 	o := &opts
 
 	// --- Phase 1: probes (repo root, storage, config, runtime) ---
-	// D2 (graceful launch degradation): repo-root resolution is no longer a hard
-	// gate. When it fails, repoRoot is "" and the launch proceeds DEGRADED — no
-	// nix build — running whatever image is already loaded or cached. Only
-	// autoLoadImage's SkipBuild consumes the empty repoRoot now (the in-jail CLI
-	// finds its own repo via the baked bundle, so there is no longer a source
-	// bind or YOLO_REPO_ROOT to gate). Only a truly imageless host still fails,
-	// with an actionable message. macos-user with empty `packages:` never needs
-	// a repo at all.
-	repoRoot, _ := o.RepoRoot()
+	// Repo-root resolution is a HARD GATE for the container backends: without a
+	// flake there is nothing to build the image from, and silently running a
+	// stale loaded/cached image instead is worse than failing — it hides that the
+	// environment is not what the config describes. (This reverts D2's graceful
+	// degradation: launching on an old image with no rebuild was deemed a
+	// footgun, not a convenience.) The gate is applied at repoRootFatal below,
+	// AFTER the macos-user branch, because macos-user with empty `packages:`
+	// genuinely needs no repo (it materializes native darwin packages only when
+	// `packages:` is non-empty, and MaterializeDarwin fails loudly on a bad flake
+	// root of its own accord).
+	repoRoot, repoRootOK := o.RepoRoot()
 	if err := ensureStorage(); err != nil {
 		o.pr(o.Stdout).printf("[bold red]%s[/bold red]", err.Error())
 		return 1
@@ -78,13 +80,20 @@ func Run(opts Options) int {
 				`Set runtime: "macos-user" (or YOLO_RUNTIME=macos-user) to use it.`)
 		return 1
 	}
-	// D2: warn once when launching degraded (no source tree). autoLoadImage then
-	// runs on a cached/loaded image; if none exists it fails with an actionable
-	// message. This is a notice, not an error — the launch continues.
-	if repoRoot == "" {
-		o.pr(o.Stderr).print("[yellow]No yolo-jail source tree found — launching on the " +
-			"cached image (no rebuild). Run from inside a yolo-jail checkout (or set " +
-			"`YOLO_REPO_ROOT`) to enable image rebuilds.[/yellow]")
+	// Container backends need a flake to build the image from. A missing repo
+	// root is FATAL rather than a degraded launch on a stale image: running the
+	// wrong environment silently is the failure this refuses. reporoot.Resolve
+	// already found nothing here (env → cwd-walk → exe-relative bundle all
+	// missed), so print the same actionable fix the resolver would and exit.
+	if !repoRootOK {
+		o.pr(o.Stderr).print("[bold red]Cannot find yolo-jail repo root.[/bold red]\n" +
+			"The yolo CLI needs the repo (a flake) to build the jail image, and refuses to\n" +
+			"launch on a possibly-stale cached image instead.\n\n" +
+			"Fix: run yolo from inside a yolo-jail checkout, point it at one with\n" +
+			"[bold]YOLO_REPO_ROOT[/bold], or reinstall so the flake bundle ships beside the\n" +
+			"binary (`just install`):\n" +
+			"  YOLO_REPO_ROOT=~/code/yolo-jail yolo …")
+		return 1
 	}
 	return o.runContainer(cfg, rt, repoRoot)
 }

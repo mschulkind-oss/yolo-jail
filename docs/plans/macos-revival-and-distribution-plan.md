@@ -329,6 +329,19 @@ options are complementary; sequence them:
    (user-config repo_path). Step 3 (bundle staging) stays run-owned — that is
    D3 below.
 2. **D2: make the launch path degrade gracefully.**
+   **REVERTED (2026-07-29).** Graceful degradation on a missing repo root was
+   removed: a missing flake is once again FATAL on the container backends
+   (`run.go`, the `!repoRootOK` exit after the macos-user branch), because
+   silently running a possibly-stale loaded/cached image hides that the
+   environment does not match the config — judged a worse failure than exiting.
+   Paired with `just install` now staging the prebuilt bundle beside the binary
+   (Track D / D3), so a from-source install resolves checkout-less and the fatal
+   case is genuinely rare. `image.AutoLoadOptions.SkipBuild` remains a dormant
+   seam (its fallback + `autoload_test.go` regressions stand), but the run path
+   never sets it. Regression: `internal/cli/run/reporoot_fatal_test.go`.
+   `macos-user` with empty `packages:` is still un-gated. See
+   `docs/research/repo-root-and-distribution.md` §6. Original D2 record below.
+
    **Status (2026-07-21): DONE + committed** (`8f1d612`). Repo-root resolution is
    no longer a hard gate: `run.go` resolves it, and on a miss the launch proceeds
    degraded. `image.AutoLoadOptions.SkipBuild` (set when `repoRoot==""`) skips the

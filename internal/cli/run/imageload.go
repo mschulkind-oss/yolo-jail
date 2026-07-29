@@ -18,9 +18,11 @@ func (o *Options) autoLoadImage(cfg *jsonx.OrderedMap, rt, repoRoot string) bool
 	return image.AutoLoadImage(image.AutoLoadOptions{
 		Runtime:  rt,
 		RepoRoot: repoRoot,
-		// D2: a degraded launch (repoRoot=="") has no flake to build from — skip
-		// the build and run whatever image is loaded/cached.
-		SkipBuild:     repoRoot == "",
+		// Never skip the build on the run path: Run() now hard-exits before here
+		// when the repo root is unresolved (a missing flake is fatal, not a
+		// degraded cached-image launch), so repoRoot is always non-empty here.
+		// SkipBuild stays a field on AutoLoadOptions as a dormant seam.
+		SkipBuild:     false,
 		ExtraPackages: extra,
 		Out:           o.Stdout,
 		ProgressTTY:   o.IsTTYStdout(),
