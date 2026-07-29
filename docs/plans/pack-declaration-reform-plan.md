@@ -121,7 +121,9 @@ unchanged surface before/after — this touches the A12-fatal boot render).
 
 ## Phase 3 — MCP to a shared location, projection as `derive` (OQ1)
 
-> **⚠ BLOCKED on a ruling (found 2026-07-29 during implementation).** The plan's step-4
+> **⚠ BLOCKED on a ruling (found 2026-07-29 during implementation).**
+> Plain-language walkthrough of this whole blocker: [phase3-reconcile-explained.md](phase3-reconcile-explained.md).
+> The plan's step-4
 > "delete `computed.go` wholesale, all reshape → `derive`" does not survive contact with the code:
 > **one `computed[]` use is stateful and a `derive` function is pure.** Enumerated across the six
 > shipped packs, the `computed[]` blocks split into:
