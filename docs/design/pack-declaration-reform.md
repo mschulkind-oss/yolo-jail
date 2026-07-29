@@ -254,6 +254,12 @@ table. That is the **good-citizen mechanism**, and it is only possible because f
 expressed in one vocabulary. Today the same information is spread across `HostFileConflicts` (one
 pack, one kind), `union()` (silent dedup), and nothing at all for `mounts`.
 
+Read this table as one rule, not nine: **every file has exactly one writer.** The `→ error` rows
+are files a pack owns outright (two claimants is a collision); the `→ fine` rows are files no pack
+writes — a neutral core owner combines the inputs and writes them (ordered merge for `skills`,
+concat for `briefing`, compose for `config`). §3.6 is that rule stated directly, and it is the
+shape the whole reform is really pointing at.
+
 A new verb falls out for free:
 
 ```
@@ -411,6 +417,83 @@ Two rows below it are the actual case: **both conditional DSLs are gone**, and *
 dispatch is gone**. A schema with 35 honest keys and no hidden semantics is not the same object as
 one with 59 where a filename picks your merge strategy.
 
+### 3.6 The deeper shape: one file, one writer — and a neutral owner for the rest
+
+Everything above is really circling one rule, so state it directly:
+
+> **Every file on disk has exactly one writer. A pack either OWNS a file outright, or it does not
+> write that file at all — it contributes typed INPUTS to a neutral owner that writes it.**
+
+Two ownership modes, and the conflict table in §3.2 is just this rule applied per kind:
+
+- **Sole ownership.** A pack declares the files it owns; a file may be owned by **at most one
+  pack**. `files`, `program`, a pack's own `skills`/`briefing` tree — these the pack writes
+  directly, and two packs claiming one path is an **error**, caught at `yolo pack lint` before
+  anything runs. This is the part the reviewer already affirmed: declare ownership, one owner
+  per file.
+
+- **Shared production via a neutral owner.** The moment two packs need to affect *one* file, no
+  pack may write it. They emit **typed contributions** and a **core-owned assembler** consumes all
+  of them and produces the file. This is the "scripting somewhere else" the design keeps reaching
+  for — but located correctly: not in a pack (which would re-collapse the origin gate, §1.3), and
+  not as a general language in the manifest (§2), but as a **core module that is the sole writer of
+  any shared file.** `~/.claude/settings.json` is the worked example — `defaults`, `managed`, the
+  `host` layer, and `derive` are four inputs from different sources, and the compose engine, not
+  any of them, writes the bytes.
+
+**This already exists, half-built, and the reform is mostly about generalizing it.** Two pieces of
+core are already neutral owners:
+
+1. **The compose engine** (`internal/agentcfg/compose.go`) takes layered inputs
+   (`defaults`/`host`/`computed`/`overlay`/`managed`) and produces one file, deterministically,
+   with a `last_render` sidecar recording exactly what it wrote (§5 of the composition design).
+   That sidecar *is* provenance tracking — it already answers "who last wrote this key."
+2. **The staging-then-layer-in pattern** the reviewer intuited already ships for skills and
+   briefings: `PrepareSkills` builds a tree under `AgentsDir()/<cname>/` and the run assembler
+   `:ro`-mounts it into the jail (`internal/agents/skills.go`, `cli/run/prepare.go`). Nothing is
+   written to the live home directly; a neutral staging dir is assembled on the host and layered in
+   read-only. That is exactly "write it to another directory that then gets layered in so we can
+   make sure we aren't overwriting the same files and can track things."
+
+So the target architecture is: **make that the universal write path, not a per-subsystem one.**
+
+```
+   packs' typed contributions                 core assembler                 the jail
+  ┌────────────────────────────┐          (the ONLY writer)            ┌──────────────────┐
+  │ claude:  config inputs ─────┼──┐                                   │                  │
+  │ house-rules: config overlay─┼──┼──►  compose ──► staging/ ──:ro──► │ ~/.claude/       │
+  │ claude:  skills tree ───────┼──┼──►  merge   ──► staging/ ──:ro──► │   settings.json  │
+  │ house-rules: skills tree ───┼──┘                  │                │   skills/        │
+  │ claude:  briefing prose ────┼─────►  concat  ─────┘  (collision-   │   CLAUDE.md      │
+  │ house-rules: briefing ──────┼─────►             checked, tracked)  │                  │
+  └────────────────────────────┘                                      └──────────────────┘
+        declare inputs                  one module writes every file      never written in place
+```
+
+Every arrow into the assembler is a **typed contribution keyed by kind**; the assembler picks the
+combine rule from the kind (compose / ordered-merge / concat / sole-copy) and writes into a staging
+tree it wholly owns; the staging tree is layered in read-only. Three properties fall out, and they
+are the three the reviewer asked for:
+
+- **No file is ever written twice.** The assembler is the sole writer, so "two packs overwrote each
+  other" is structurally impossible — it is a collision *detected among inputs*, not a race on disk.
+- **Provenance is free.** Because one module writes everything from declared inputs, it can emit a
+  manifest of "which contribution produced which file/key" — a generalization of the `last_render`
+  sidecar to every kind, which is what makes `yolo pack explain --footprint` and the §3.2
+  collision report exact rather than best-effort.
+- **The staging layer is the safety boundary.** Assembling into a neutral dir and mounting it `:ro`
+  means a bad contribution corrupts a throwaway staging tree, never the live home — the same reason
+  the skills path already works this way.
+
+**What is still open is the shared-input case beyond config.** Config already has its neutral owner
+(compose + `derive`). Skills and briefings have a neutral *stager* but only a trivial combine
+(concat / ordered-merge), because no second producer has needed a real reshape yet (§3.2a). The
+honest statement: the sole-owner rule ships now (it is just the §3.2 conflict table), the neutral
+assembler for config exists now, and the *general* neutral owner — one module, every kind, a
+provenance manifest, one staging tree — is the direction this section commits to, with the reshape
+seams (`derive`, and a subprocess projector for genuinely arbitrary combine logic, §3.4) as the
+extension points where a shared file needs computed production rather than a fixed combine rule.
+
 ---
 
 ## 4. What this deliberately does not change
@@ -460,7 +543,11 @@ The manifest's 59 keys are not the disease; they are the rash. The disease is th
 appears in (`writableDirs` vs `sharedDirs`), from field combinations that a 60-line validator has
 to police. Give every contribution a `kind`, make each kind's environmental footprint explicit and
 checkable, and the special-casing has nowhere to hide: one vocabulary, one union, one conflict
-table, one `--footprint` view. Then put Lua in the single slot where a *value* genuinely needs
+table, one `--footprint` view. Underneath the vocabulary is a single rule (§3.6): **every file has
+exactly one writer** — a pack owns a file outright, or it feeds typed inputs to a neutral core
+owner that writes it, never both, never two packs on one path. Config already works this way (the
+compose engine is that owner) and skills already stage-then-layer-in read-only; the reform makes
+that the universal write path. Then put Lua in the single slot where a *value* genuinely needs
 computing — deleting both conditional DSLs, 24 keys' worth — and keep it out of the slot
 where *effects* are declared, because that slot's whole job is to be readable before it runs.
 
@@ -586,3 +673,21 @@ where *effects* are declared, because that slot's whole job is to be readable be
 
    **Answer:**
    > _(empty — fill in when decided)_
+
+10. **How far to generalize the neutral assembler (§3.6) now vs. incrementally.**
+    The one-writer rule and the config assembler (compose + `derive`) exist today; skills/briefing
+    have a neutral stager with only a trivial combine. The question is whether to build the
+    *general* single-writer assembler — one module, every kind, a provenance manifest, one staging
+    tree layered in `:ro` — up front, or to keep growing the existing per-subsystem owners until a
+    real second shared-file case forces unification.
+
+    _Leaning:_ commit to the rule and the direction now (it is already how config and skills behave,
+    so nothing regresses), but generalize the *module* incrementally — unify on the first shared
+    file that is neither config nor a skills/briefing tree, since that is the case the current two
+    owners cannot express. Building a universal assembler before a third combine rule exists risks
+    inventing combine semantics no pack needs, the same speculation §3.4 warns against for hooks.
+    The provenance manifest is the piece worth pulling forward regardless, because it is what makes
+    the §3.2 collision report and `--footprint` exact.
+
+    **Answer:**
+    > _(empty — fill in when decided)_
