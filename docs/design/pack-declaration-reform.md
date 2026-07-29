@@ -532,25 +532,43 @@ drawing, and it is sharper and more defensible than the blanket rule.
 Once the environment is allowed a point of view, several things the self-describing manifest makes
 awkward become clean:
 
-- **A canonical MCP / LSP / skill shape, owned by core.** Today every agent redeclares how to
-  reshape the shared MCP table into its dialect (`computed` + `project`). If core owns *the*
-  canonical MCP-server type and each agent declares only its *dialect delta* from canonical, the
-  N-agents-times-M-exports problem collapses — and cross-agent features (share one MCP server to
-  every configured agent) become expressible because there is a shared type to share. This is
-  §3.2a's "canonical format" idea generalized from skills to every domain noun.
-- **A default environment that is opinionated, not empty.** Nothing is on by default today (an
-  empty config yields a jail with no agent). An environment manager with opinions could ship a
-  *recommended* agentic baseline — a sensible skill suite, an approval posture, the LSP-for-your-
-  languages wiring — that a pack overrides rather than assembles from nothing. The happy path stops
-  being "figure out what to put in `packs`."
-- **Semantic validation, not just structural.** `yolo pack lint` checks shapes. An opinionated core
-  could check *meaning*: "this pack sets an approval posture weaker than the environment's floor,"
-  "this MCP server duplicates one the environment already provides," "this skill shadows a built-in
-  that does the same job." You can only warn about things you have a concept of.
+- **A canonical MCP-server shape, pulled to a shared location.** This is the concrete win, and it
+  is needed regardless of the rest of the section: today the MCP definition is redeclared per
+  agent (six hand-written projections of one table — `packs-and-the-prism.md §2.6` documents them),
+  which is the N×M problem. There is **one canonical MCP form** already (`mcp.go:120`,
+  `name → {command, args, env}`); it just has no single home. Two places it could live, and the
+  choice is a real fork worth stating:
+
+  1. **In core.** Core owns the canonical `mcp_server` type and the reshape *ops*
+     (`internal/agentcfg/project` already exists); an agent pack declares only its *dialect delta*.
+     Pro: it is where `knownComputedSources` already puts MCP (§4.1 — a domain noun, not a tool), so
+     this is the least new machinery. Con: the *set of servers* is data a user supplies, so core
+     owning the *type* is fine but core must not own the *contents* — the type is core, the
+     instances stay config/pack data.
+  2. **In a shared dependency pack.** A dedicated pack `exports: { mcp_servers: … }`, and agent
+     packs `import` the type (never the producing pack by name) with a projection — the typed-export
+     graph from `packs-and-the-prism.md §2.6`. Pro: keeps core thinner and makes MCP composition a
+     first-class pack feature (third parties ship MCP packs the same way); it is the more
+     "self-describing" answer. Con: it introduces inter-pack dependencies (a resolution/ordering
+     concern packs do not have today), and a shared dep pack that every agent pack needs is a
+     de-facto part of the platform anyway — so the isolation win is partly illusory.
+
+  The two are not exclusive: **the *type + ops* can be core (choice 1) while the *instances* travel
+  as typed exports (choice 2's mechanism).** That split matches §4.1's rule exactly — core names the
+  domain noun and how to reshape it, packs supply the tool mapping and the actual servers. Leaning
+  there, but the fork is genuinely open; see open question 11.
+- **Example pack configs to copy-paste, not a baked-in default.** The empty-config-yields-no-agent
+  default stays (nothing is silently on). What an opinionated environment offers instead is a set of
+  **worked `packs` snippets** — "here is a sensible claude + house-rules config, paste it into
+  `~/.config/yolo-jail/config.jsonc`" — so the happy path is copy-a-known-good-config, not
+  assemble-from-scratch. Opinions ship as *documentation and examples*, never as behavior that turns
+  on without the user writing it.
 - **The briefing gets truer.** The self-describing briefing (see
   [yolo-as-environment-manager.md](yolo-as-environment-manager.md) §6) can only describe what it
   has words for. If core knows the domain, the briefing can say "you have these 3 MCP servers,
-  these language servers, this approval posture" — not just "here are some files."
+  these language servers, this approval posture" — not just "here are some files." This is the
+  clearest payoff of core holding domain nouns: the description an agent reads about its own
+  environment becomes specific instead of a file listing.
 
 ### 4.3 What it costs, and the line that keeps it safe
 
@@ -573,13 +591,14 @@ a pack *cannot* replace is the sandbox-clone the whole product is trying not to 
 
 Adopt the reframing, not a pile of new features: **replace "core does not know what an agent is"
 with "core knows the DOMAIN, not the TOOL."** It costs nothing today (it merely describes what
-`computed.go` already does), it makes the `kind` vocabulary honest about what it is (a set of
-domain opinions), and it unlocks the four wins above incrementally, each behind the same
-override-not-mandate and no-tool-names discipline. The one concrete near-term step it justifies is
-promoting the MCP/LSP "sources" from an implementation detail of `computed` into a **named,
-core-owned canonical type** that agents declare deltas against — the generalization §3.2a and §3.6
-both gesture at. Everything else (opinionated defaults, semantic lint) can wait for a real need, on
-the same "don't build it before the second case" rule the rest of the doc uses.
+`computed.go` already does) and it makes the `kind` vocabulary honest about what it is (a set of
+domain opinions). The one concrete near-term step it justifies — and the one the reviewer confirmed
+is needed regardless — is **pulling the canonical MCP-server definition out to a shared location**
+(§4.2), whether that is core or a shared dependency pack (open question 11). Of the other threads,
+only the **truer briefing** is worth pursuing (it is the clearest payoff of core holding domain
+nouns); an opinionated default is explicitly *not* wanted as behavior — it ships only as
+copy-paste example configs — and semantic lint is out of scope. Everything stays behind the same
+override-not-mandate and no-tool-names discipline.
 
 ---
 
@@ -781,6 +800,23 @@ where *effects* are declared, because that slot's whole job is to be readable be
     inventing combine semantics no pack needs, the same speculation §3.4 warns against for hooks.
     The provenance manifest is the piece worth pulling forward regardless, because it is what makes
     the §3.2 collision report and `--footprint` exact.
+
+    **Answer:**
+    > _(empty — fill in when decided)_
+
+11. **Where the canonical MCP-server definition lives: core, or a shared dependency pack (§4.2).**
+    Pulling MCP out to one shared location is confirmed necessary. In core (choice 1) it is the
+    least new machinery — `knownComputedSources` already treats MCP as a core-owned domain noun, and
+    `internal/agentcfg/project` already holds the reshape ops. In a shared dependency pack (choice 2)
+    it becomes a first-class pack feature via the `packs-and-the-prism.md §2.6` typed-export graph
+    (a pack `exports` `mcp_servers`, agent packs `import` the type with a projection, never naming
+    the producer), at the cost of introducing inter-pack dependencies packs do not have today.
+
+    _Leaning:_ split it — the **type + reshape ops in core** (a domain noun, per §4.1, and where the
+    code already keeps them), the **server instances as typed exports** (config/pack data, never
+    core contents). This gives the shared definition without core owning what a user supplies, and
+    without forcing a hard inter-pack dependency for the common case. Revisit choice 2 wholesale
+    only if third-party MCP packs become a real distribution channel.
 
     **Answer:**
     > _(empty — fill in when decided)_
