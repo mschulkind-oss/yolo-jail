@@ -688,35 +688,74 @@ breaks if it is decided wrong — because a leaning without a cost is just an op
 1. **The wire shape of the canonical MCP type, and where it lives (§4.2, the load-bearing one).**
    This is the question the reviewer confirmed is needed regardless, and it is first because it
    sets the pattern every other domain noun (LSP, later) will copy — get it wrong and every agent
-   pack inherits the mistake. Three sub-decisions hide inside it:
+   pack inherits the mistake. Three sub-decisions hide inside it, but they only make sense against a
+   concrete picture, so start there.
 
-   - **The type.** The canonical form is `name → {command, args, env}` today (`packs-and-the-prism.md`
-     §2.6, `mcp.go`). Is that *the* type, frozen, or does it need a version field so a future MCP
-     transport (HTTP servers, not just stdio `command`) does not force a breaking change? An MCP
-     server with a URL instead of a `command` already exists in the wild — if the type cannot hold
-     one, choice-1's "core owns the type" becomes "core owns a type that is already behind."
-   - **The split.** The leaning is **type + reshape ops in core, instances as typed exports** — but
-     that split has a seam that must be specified: an agent pack's *projection* (its dialect delta)
-     is core-adjacent data (it reshapes a core type), while the *server list* is user/pack data.
-     Where does the projection live — in the agent pack (it is tool-specific) or in core (it is a
-     reshape of a core type)? If in the pack, core owns the type but not the transform, and a
-     malformed projection is a pack bug caught at lint; if in core, adding an agent's dialect is a
-     core change, which reintroduces exactly the "core knows the tool" coupling §4.1 forbids. **The
-     projection must live in the agent pack** for the §4.1 rule to hold — which means the shape of a
-     projection is part of the pack format, not an internal detail.
-   - **The example that is also the acceptance test.** opencode's projection renames `env →
-     environment`, folds `command + args` into one array, and injects `type:"local"` +
-     `enabled:true` (`agent_configs.go:131`). Any design that cannot express *that entry* in
-     declared ops (`Copy` with rename, `Fold`, `Inject` — all already in `internal/agentcfg/project`)
-     is under-powered and must fall back to a `derive` function. The open question is whether the
-     four existing ops cover all four shipped agents or whether one needs `derive`; that is
-     answerable now by porting them, and should be, before the type is frozen.
+   Today there is **one** shared MCP-server table in config — `mcp_servers`, a map of
+   `name → {command, args, env}` (`mcp.go`). Each of the four shipped agents wants that *same*
+   server written into *its own* config file in *its own* shape. So there is a canonical form (the
+   table) and, per agent, a **projection** that reshapes each entry into that agent's dialect:
 
-   _Leaning:_ freeze `name → {command, args, env, type?, url?}` (room for non-stdio) as the core
-   type; ops + the reshape engine in core; the per-agent projection in the agent pack; server
-   instances as typed exports (`packs-and-the-prism.md` §2.6). Prove it by porting all four shipped
-   projections to declared ops first — if opencode's needs `derive`, the op set is the thing to fix,
-   not the type.
+   ```
+   canonical entry                    codex writes          opencode writes
+   ─────────────────                  ────────────          ───────────────
+   fs = {                             fs = {                fs = {
+     command: "mcp-fs",                 command: "mcp-fs",    type: "local",        ← injected
+     args: ["/work"],                   args: ["/work"],      command: ["mcp-fs",   ← command+args
+     env: {ROOT: "/work"}               env: {ROOT:"/work"}             "/work"],     FOLDED to one array
+   }                                  }                       environment:          ← env RENAMED
+                                      (near-passthrough)        {ROOT:"/work"},
+                                                              enabled: true         ← injected
+                                                            }
+   ```
+
+   That reshape — rename `env→environment`, fold `command+args` into one array, inject
+   `type`/`enabled` — is the **projection**. It exists today as hand-written Go per agent
+   (`agent_configs.go:131`); the reform expresses it as declared ops (`Copy` with rename, `Fold`,
+   `Inject` — all already in `internal/agentcfg/project`). With that picture, the three decisions:
+
+   - **The type — plan for it to change, do not freeze it.** The canonical form is
+     `name → {command, args, env}` today, but an MCP server addressed by URL (HTTP transport, not a
+     stdio `command`) already exists in the wild, and more transports will come. So the real
+     requirement the reviewer named is **forward-compatibility, not a final schema**: the type must
+     be able to grow a field (a `url`, a `transport`, whatever's next) *without* breaking every
+     agent pack's projection. Two things make that cheap here. (1) A projection only names the
+     fields it *uses* — codex copies `command/args/env` and ignores the rest — so a new optional
+     field is invisible to a projection that does not consume it (additive change, no break). (2)
+     **Agents maintain these configs**, which the reviewer flagged as the freeing constraint: a
+     projection that *does* need the new field is a mechanical edit an agent can make across every
+     pack at once, so "evolve the type" is not a human migration project. The design rule that
+     follows: **the type is open for extension (new optional fields never break), and projections
+     declare only the fields they read** — a versioned-envelope-plus-additive-fields discipline,
+     not a frozen struct.
+   - **The split — who writes what.** Three distinct things, three distinct owners, and this is the
+     seam that must be named:
+     - the **type + reshape ops** (what an MCP server *is*, and the vocabulary of reshapes like
+       `Copy`/`Fold`/`Inject`) → **core**. It is a domain noun (§4.1), tool-independent.
+     - the **projection** (this agent's specific reshape — opencode's rename+fold+inject) →
+       **the agent pack**. This is the load-bearing choice: if the projection lived in core, adding
+       a seventh agent's dialect would be a *core* change, which is exactly the "core knows the
+       tool" coupling §4.1 forbids. Putting it in the agent pack keeps core tool-blind and makes a
+       malformed projection a pack bug caught at `yolo pack lint`, not a core regression.
+     - the **server instances** (the actual list of servers the user wants) → **config/pack data**,
+       carried as typed exports (`packs-and-the-prism.md` §2.6: a pack `exports: {mcp_servers}`,
+       agent packs `import` the *type* and never name the producing pack).
+
+     Net: core owns the *shape and the reshape verbs*, the agent pack owns *its dialect*, the user/
+     exporter owns *the contents*. Nobody owns two of those, which is why no single change touches
+     all three.
+   - **The acceptance test.** opencode's entry above is the hardest shipped projection (it uses all
+     three op kinds). Any design that cannot express it in declared ops is under-powered and must
+     fall back to a `derive` function. Whether the four ops cover all four shipped agents is
+     answerable *now* by porting them, and should be done before the type is settled — if
+     opencode's needs `derive`, the op set is the thing to fix, not the type.
+
+   _Leaning:_ an **open, additively-versioned** canonical type (`name → {command, args, env}` now,
+   new transports as optional fields later, never a breaking change); reshape ops + engine in core;
+   the per-agent projection in the agent pack; server instances as typed exports. Prove the op set
+   by porting all four shipped projections first. The whole design optimizes for *evolution* —
+   agents maintaining the configs is what makes an additive type change a mechanical sweep rather
+   than a migration.
 
    **Answer:**
    > _(empty — fill in when decided)_
