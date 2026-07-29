@@ -83,9 +83,15 @@ install:
     # The bundle only answers the case where there is no checkout in scope at
     # all (launching a jail for some OTHER project), which is exactly when you
     # want checkout-less behavior. See docs/research/repo-root-and-distribution.md.
+    #
+    # NATIVE ARCH ONLY. The shipped bundle (goreleaser/brew) is arch-agnostic and
+    # builds both amd64+arm64, but a LOCAL install runs on one host — building the
+    # foreign arch is a cold cross-compile of the whole module graph (the "why is
+    # it recompiling the world" surprise). YOLO_BUNDLE_ARCHES narrows it to this
+    # host's arch, reusing the warm cache from the `go install` just above.
     BUNDLE_DIR="$(dirname "$GOBIN_DIR")/share/yolo-jail"
-    echo "Staging flake bundle → $BUNDLE_DIR"
-    ./scripts/stage-source-bundle.sh "$BUNDLE_DIR"
+    echo "Staging flake bundle (linux/$(go env GOARCH)) → $BUNDLE_DIR"
+    YOLO_BUNDLE_ARCHES="$(go env GOARCH)" ./scripts/stage-source-bundle.sh "$BUNDLE_DIR"
 
     # Warn if PATH resolves `yolo` to some other install (a Homebrew copy, say)
     # — go install would have succeeded while the old binary still wins.

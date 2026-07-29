@@ -26,12 +26,20 @@
 # reach a runtime PATH. The shippable set is the same four binaries the image
 # bakes (flake.nix:shippedBinaries).
 #
-# Cross-compiling both Linux arches needs a Go toolchain (build-go.sh). The
-# bundle is arch-agnostic on purpose: one bundle serves amd64 and arm64 hosts,
-# and the flake picks the matching bin/linux-<arch> at eval time.
+# Cross-compiling needs a Go toolchain (build-go.sh). The SHIPPED bundle is
+# arch-agnostic on purpose: one bundle serves amd64 and arm64 hosts, and the
+# flake picks the matching bin/linux-<arch> at eval time — so the release path
+# (goreleaser, the brew formula) builds BOTH arches (the default).
+#
+# A LOCAL `just install`, though, only ever runs on the one host, so building
+# the foreign arch is pure waste — a cold cross-compile of the entire module
+# graph, which on an amd64 host recompiles the world for arm64 (and vice versa).
+# Pass YOLO_BUNDLE_ARCHES to narrow it; `just install` sets the native arch, so
+# the build reuses the warm cache from the `go install` that just ran.
 #
 # Usage: scripts/stage-source-bundle.sh <dest-dir>
 #   e.g. scripts/stage-source-bundle.sh bundle/share/yolo-jail
+#   YOLO_BUNDLE_ARCHES=amd64 scripts/stage-source-bundle.sh <dest-dir>
 set -euo pipefail
 
 REPO_ROOT="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
@@ -54,7 +62,16 @@ done
 # The image bakes exactly these four (flake.nix:shippedBinaries). goprobe is
 # intentionally absent.
 SHIPPED_BINARIES=(yolo yolo-entrypoint yolo-jaild yolo-ps)
-ARCHES=(amd64 arm64)
+
+# Arches to build. Default is BOTH (the arch-agnostic shipped bundle); a local
+# install narrows this to the native arch via YOLO_BUNDLE_ARCHES to avoid a cold
+# cross-compile. Space-separated list.
+if [ -n "${YOLO_BUNDLE_ARCHES:-}" ]; then
+  # shellcheck disable=SC2206
+  ARCHES=(${YOLO_BUNDLE_ARCHES})
+else
+  ARCHES=(amd64 arm64)
+fi
 
 rm -rf "$DEST"
 mkdir -p "$DEST"
