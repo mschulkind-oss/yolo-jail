@@ -48,6 +48,16 @@ func prismLastRenderPath(e *Env, agent, name string) string {
 	return filepath.Join(prismSidecarDir(e), agent+"-"+name+".last_render")
 }
 
+// prismProvenancePath is the provenance sidecar for one surface: per-key "which
+// layer set this key" (Compose already computes it; this persists it). Phase 2 of
+// the pack-declaration reform — it is what makes config-overlay overrides legible
+// ("key X: claude pack lost to house-rules overlay") and generalizes to the
+// footprint's per-key record. Additive: a new file beside the surface, never a
+// change to the surface bytes.
+func prismProvenancePath(e *Env, agent, name string) string {
+	return filepath.Join(prismSidecarDir(e), agent+"-"+name+".provenance")
+}
+
 // prismOverlayPath is the overlay sidecar for one surface: the accumulated
 // in-jail edits, always JSON (the one codec that round-trips null tombstones).
 func prismOverlayPath(e *Env, agent, name string) string {
@@ -202,6 +212,22 @@ func renderSurfaceStatefulSurface(e *Env, surface manifest.Surface, hostBytes []
 	}
 	if err := writeInPlaceString(prismOverlayPath(e, surface.Agent, surface.Name), string(out.OverlayJSON)+"\n"); err != nil {
 		return nil, err
+	}
+	// Provenance sidecar (Phase 2): the per-key winning layer Compose already
+	// computed. Additive — a new file, never a change to the surface bytes — so
+	// it cannot regress the A12-fatal render. Best-effort: a provenance write
+	// failure must not fail the boot (the surface itself is already written), so
+	// it is logged, not returned. Empty provenance writes an empty file rather
+	// than skipping, so a reader can tell "rendered, no keys" from "never rendered".
+	if out.Result != nil {
+		provText := strings.Join(out.Result.ProvenanceLines(), "\n")
+		if provText != "" {
+			provText += "\n"
+		}
+		if err := writeInPlaceString(prismProvenancePath(e, surface.Agent, surface.Name), provText); err != nil {
+			e.warn("warning: could not write provenance sidecar for " +
+				surface.Agent + "/" + surface.Name + ": " + err.Error())
+		}
 	}
 	noteCapturedOverlay(e, surface, out)
 	return out, nil

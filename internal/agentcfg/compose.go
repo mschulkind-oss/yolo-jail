@@ -44,9 +44,23 @@ type Inputs struct {
 	// whole-file value: see the "non-object surfaces" note on Compose.
 	Workspace any
 
+	// Overlays are config-overlay contributions from OTHER packs onto a surface a
+	// different pack owns (design §3.2/§3.6, OQ2). Each is a decoded object layer
+	// plus the name of the contributing pack, for per-key provenance. They fold in
+	// after Workspace and BELOW the capture Overlay and Computed — an overlay
+	// overrides the owner's defaults (later-wins), but a user's in-jail edit
+	// (capture) and yolo's freshly-regenerated computed data and the managed floor
+	// all still win over it. Ordered: later entries win over earlier ones, matching
+	// the "later pack wins" rule skills/bins already use. Empty = none.
+	//
+	// Only meaningful for object surfaces (a keyless surface has no keys to
+	// overlay); a keyless surface with overlays is a caller error the boot path
+	// prevents by only ever attaching overlays to object config kinds.
+	Overlays []Overlay
+
 	// Overlay is the capture-diff overlay layer (§5) that carries in-jail edits
-	// across regeneration, already decoded. Merged above workspace, below the Lua
-	// transform + managed. nil = absent.
+	// across regeneration, already decoded. Merged above workspace + config
+	// overlays, below the Lua transform + managed. nil = absent.
 	Overlay any
 
 	// Computed is the runtime-computed layer: yolo's per-boot DYNAMIC content that
@@ -102,6 +116,18 @@ func (r *Result) ConfigMap() map[string]any {
 	return m
 }
 
+// Overlay is one config-overlay contribution: a decoded object layer and the
+// name of the pack that contributed it. The Pack name is what makes an override
+// legible in provenance ("key X: overlay:house-rules") rather than an anonymous
+// "overlay". See Inputs.Overlays.
+type Overlay struct {
+	// Pack is the contributing pack's name, used only for provenance labelling.
+	Pack string
+	// Data is the decoded object layer (map[string]any). A nil/non-object entry
+	// is skipped as absent.
+	Data any
+}
+
 // Layer names used in Provenance and Explain output.
 const (
 	layerDefaults  = "defaults"
@@ -111,6 +137,10 @@ const (
 	layerComputed  = "computed"
 	layerTransform = "transform"
 	layerManaged   = "managed"
+	// layerConfigOverlay is the provenance-label PREFIX for a config-overlay
+	// contribution; the full label is "config-overlay:<pack>" so a reader sees
+	// which pack's overlay won a key (OQ2).
+	layerConfigOverlay = "config-overlay"
 )
 
 // layerAbsent reports whether a layer says nothing and must be skipped — as
@@ -180,9 +210,25 @@ func Compose(in Inputs) (*Result, error) {
 		{layerDefaults, in.Surface.Defaults},
 		{layerHost, host},
 		{layerWorkspace, in.Workspace},
-		{layerOverlay, in.Overlay},
-		{layerComputed, in.Computed},
 	}
+	// config-overlay contributions fold in after workspace, in order (later pack
+	// wins), each labelled with its pack so an override is attributable (OQ2).
+	for _, ov := range in.Overlays {
+		preLayers = append(preLayers, struct {
+			name string
+			data any
+		}{layerConfigOverlay + ":" + ov.Pack, ov.Data})
+	}
+	preLayers = append(preLayers,
+		struct {
+			name string
+			data any
+		}{layerOverlay, in.Overlay},
+		struct {
+			name string
+			data any
+		}{layerComputed, in.Computed},
+	)
 
 	var merged any
 	if kind == codec.KindObject {
