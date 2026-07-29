@@ -24,6 +24,10 @@ adopts and narrows), [happy-path-principle.md](happy-path-principle.md) (the con
 many knobs any of this may add), [three-decisions.md](three-decisions.md) (where the projection op
 set came from).
 
+**Implementation:** [../plans/pack-declaration-reform-plan.md](../plans/pack-declaration-reform-plan.md)
+sequences the decided work (OQ1 + OQ2 answered 2026-07-29) into five phases and states which open
+questions land inside which phase rather than blocking a start.
+
 ---
 
 ## 1. The measurement: what is actually wrong
@@ -768,7 +772,10 @@ breaks if it is decided wrong — because a leaning without a cost is just an op
    change a mechanical sweep rather than a migration.
 
    **Answer:**
-   > _(empty — fill in when decided)_
+   > **Decided (2026-07-29): the leaning, as written.** Open, additively-versioned canonical type;
+   > type + `derive` sandbox in core; per-agent projection as a `derive` function in the agent pack;
+   > server instances as typed exports; no reshape op DSL. This is the load-bearing decision the
+   > rest of the work builds on.
 
 2. **Whether two packs may contribute `config` to the same surface — and if so, how a conflict on
    one key resolves.**
@@ -792,7 +799,10 @@ breaks if it is decided wrong — because a leaning without a cost is just an op
    targets. The overlay is cheap; the provenance is the part that must not be skipped.
 
    **Answer:**
-   > _(empty — fill in when decided)_
+   > **Decided (2026-07-29): the leaning, as written.** `kind: "config-overlay"` naming its target
+   > surface, ordered after the owner (later-wins), with per-key provenance recorded and any
+   > override of an owner's key surfaced at `--footprint` and lint; silent same-surface duplicates
+   > refused. The provenance recording is the non-optional part.
 
 3. **Whether the footprint (and the derive/projection logic) belongs in the description hash.**
    This decides whether `describe --hash` and `apply --sealed`
