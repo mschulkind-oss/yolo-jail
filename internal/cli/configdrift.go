@@ -25,12 +25,12 @@ import (
 // so reordering keys or reformatting the source file is not drift; only a real
 // value or structure change is.
 func configDrift(args []string, out, errw io.Writer, color bool) int {
-	for _, a := range args {
-		if isHelpToken(a) {
+	if len(args) > 0 {
+		if isHelpToken(args[0]) {
 			io.WriteString(out, configUsage+"\n")
 			return 0
 		}
-		fmt.Fprintf(errw, "yolo config drift: unexpected argument %q\n", a)
+		fmt.Fprintf(errw, "yolo config drift: unexpected argument %q\n", args[0])
 		return 2
 	}
 
@@ -83,12 +83,12 @@ func configDrift(args []string, out, errw io.Writer, color bool) int {
 // host it is the freshly assembled user+workspace merge. Either way it is the canonical
 // serialization, so its bytes are stable and diffable.
 func configDump(args []string, out, errw io.Writer) int {
-	for _, a := range args {
-		if isHelpToken(a) {
+	if len(args) > 0 {
+		if isHelpToken(args[0]) {
 			io.WriteString(out, configUsage+"\n")
 			return 0
 		}
-		fmt.Fprintf(errw, "yolo config dump: unexpected argument %q\n", a)
+		fmt.Fprintf(errw, "yolo config dump: unexpected argument %q\n", args[0])
 		return 2
 	}
 	cfg, err := config.LoadConfig("", false, func(string) {})
