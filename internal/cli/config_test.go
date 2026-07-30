@@ -6,6 +6,8 @@ import (
 	"path/filepath"
 	"strings"
 	"testing"
+
+	"github.com/mschulkind-oss/yolo-jail/internal/config"
 )
 
 // writeFile is a tiny helper for the fixtures.
@@ -234,4 +236,73 @@ func TestConfigRenderExplainDoesNotAttributeOwnOutputToHost(t *testing.T) {
 			t.Errorf("mise/config has no host layer, but render attributed a key to it: %q", line)
 		}
 	}
+}
+
+// `config drift` exit codes are the agent-facing interface: 4 no baseline, 0 in
+// sync, 3 drifted. These pin them so an agent branching on $? never silently breaks.
+func TestConfigDriftExitCodes(t *testing.T) {
+	_, repo := withHomeAndCwd(t)
+	writeFile(t, filepath.Join(repo, "yolo-jail.jsonc"), `{"packs":["claude"]}`)
+
+	// No baseline yet → exit 4 (cannot determine).
+	var out, errw bytes.Buffer
+	if rc := configRunW([]string{"drift"}, &out, &errw); rc != 4 {
+		t.Fatalf("no baseline should exit 4, got %d\n%s%s", rc, out.String(), errw.String())
+	}
+
+	// Freeze a baseline matching the current config → in sync, exit 0.
+	writeFile(t, filepath.Join(repo, ".yolo", "config-boot.json"), canonicalWS(t, repo))
+	out.Reset()
+	errw.Reset()
+	if rc := configRunW([]string{"drift"}, &out, &errw); rc != 0 {
+		t.Fatalf("matching baseline should exit 0, got %d\n%s%s", rc, out.String(), errw.String())
+	}
+	if !strings.Contains(out.String(), "In sync") {
+		t.Errorf("in-sync output unclear:\n%s", out.String())
+	}
+
+	// Edit the config after the baseline → drift, exit 3, diff printed.
+	writeFile(t, filepath.Join(repo, "yolo-jail.jsonc"), `{"packs":["claude","codex"]}`)
+	out.Reset()
+	errw.Reset()
+	if rc := configRunW([]string{"drift"}, &out, &errw); rc != 3 {
+		t.Fatalf("drift should exit 3, got %d\n%s%s", rc, out.String(), errw.String())
+	}
+	if !strings.Contains(out.String(), "codex") || !strings.Contains(out.String(), "drifted") {
+		t.Errorf("drift output should name the change:\n%s", out.String())
+	}
+}
+
+// `config dump` prints canonical JSON (sorted keys) of the effective config and
+// exits 0.
+func TestConfigDumpCanonical(t *testing.T) {
+	_, repo := withHomeAndCwd(t)
+	writeFile(t, filepath.Join(repo, "yolo-jail.jsonc"), `{"packs":["claude"],"resources":{"pids_limit":4096}}`)
+	var out, errw bytes.Buffer
+	if rc := configRunW([]string{"dump"}, &out, &errw); rc != 0 {
+		t.Fatalf("dump should exit 0, got %d\n%s", rc, errw.String())
+	}
+	s := out.String()
+	if !strings.Contains(s, `"pids_limit": 4096`) || !strings.Contains(s, `"packs"`) {
+		t.Errorf("dump did not print the effective config:\n%s", s)
+	}
+	// Canonical: 2-space indent, so a nested key is indented and the output parses.
+	if !strings.Contains(s, "\n  \"packs\"") {
+		t.Errorf("dump is not 2-space-indented canonical JSON:\n%s", s)
+	}
+}
+
+// canonicalWS returns the canonical snapshot JSON of a workspace's config, the form
+// WriteWorkspaceBootBaseline writes — so a test can hand-place a matching baseline.
+func canonicalWS(t *testing.T, repo string) string {
+	t.Helper()
+	wsCfg, err := config.LoadWorkspaceConfig(repo, false, func(string) {})
+	if err != nil {
+		t.Fatal(err)
+	}
+	j, err := config.SnapshotJSON(wsCfg)
+	if err != nil {
+		t.Fatal(err)
+	}
+	return j + "\n"
 }

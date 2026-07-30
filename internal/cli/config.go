@@ -44,6 +44,13 @@ Subcommands:
                            instead of waiting for the next launch. Nothing is lost
                            without it (the next boot captures normally) — this is
                            so 'diff' reflects edits made this session.
+  drift                    Show whether the WORKSPACE config (yolo-jail.jsonc) on
+                           disk differs from the one this jail was started with —
+                           i.e. whether a restart is needed to apply an edit. Exit
+                           0 in sync, 3 drifted (prints the diff), 4 no baseline.
+  dump                     Print the full COMPUTED config as canonical JSON (sorted
+                           keys) — the effective merged config this jail runs under,
+                           the same form the startup config-change diff validates.
 
 render flags:
   --surface <name>   Render only the named surface (e.g. settings).
@@ -97,6 +104,10 @@ func configRunW(args []string, out, errw io.Writer) int {
 		return configReset(args[1:], out, errw, colorForWriter(out))
 	case "capture":
 		return configCapture(args[1:], out, errw, colorForWriter(out))
+	case "drift":
+		return configDrift(args[1:], out, errw, colorForWriter(out))
+	case "dump":
+		return configDump(args[1:], out, errw)
 	default:
 		fmt.Fprintf(errw, "yolo config: unknown subcommand %q\n\n%s\n", args[0], configUsage)
 		return 2
