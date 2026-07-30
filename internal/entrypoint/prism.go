@@ -391,16 +391,15 @@ func expandHomePath(e *Env, p string) string {
 // PACK-DECLARED surface reaches the identical mechanism a builtin does. See
 // renderSurfaceRMW for what RMW is and why it exists.
 //
-// tables supplies the live data for a dynamic managed table (the MCP-server block
-// in ~/.claude.json). yolo OWNS that block — it regenerates it wholesale from
-// config every boot, exactly like every other agent's MCP surface does
-// (regenerate-don't-reconcile). A server the user added at USER scope through the
-// agent's own UI is overwritten; the boot notes what it dropped so it is not
-// silent. This deliberately replaced the sidecar-tracked `reconcile` mechanism
-// (OQ12 (d), 2026-07-29): reconcile was a one-of-a-kind stateful special case for
-// Claude, and "your config is the source of truth" is the reform's principle.
-// pass nil tables for a surface with no dynamic managed table (plain RMW).
-func renderSurfaceRMWSurface(e *Env, surface manifest.Surface, tables map[string]map[string]any) error {
+// computed is the surface's derived dynamic layer (the MCP-server block in
+// ~/.claude.json). yolo OWNS each top-level key of it — it regenerates the block
+// wholesale from config every boot, exactly like every other agent's MCP surface
+// does (regenerate-don't-reconcile). A server the user added at USER scope through
+// the agent's own UI is overwritten; the boot notes what it dropped so it is not
+// silent. This replaced the sidecar-tracked `reconcile` mechanism (OQ12 (d)): a
+// one-of-a-kind stateful special case for Claude, against "config is the source
+// of truth". Pass nil computed for a plain RMW surface with no dynamic table.
+func renderSurfaceRMWSurface(e *Env, surface manifest.Surface, computed map[string]any) error {
 	surface = agentcfg.SubstituteWorkspace(surface, e.WorkspaceDir())
 
 	path := expandHomePath(e, surface.Path)
@@ -411,7 +410,7 @@ func renderSurfaceRMWSurface(e *Env, surface manifest.Surface, tables map[string
 
 	// Dynamic managed tables (MCP servers) FIRST, so a managed key nested under the
 	// same parent still wins the floor.
-	regenerateManagedTables(e, surface, obj, tables)
+	regenerateManagedTables(e, surface, obj, computed)
 	// Managed: yolo owns these outright, so re-assert every boot.
 	if managed, isMap := surface.Managed.(map[string]any); isMap {
 		applyRMWLayer(obj, managed, true)
@@ -424,27 +423,28 @@ func renderSurfaceRMWSurface(e *Env, surface manifest.Surface, tables map[string
 }
 
 // regenerateManagedTables replaces each dynamic managed table on an RMW surface
-// (the `mcpServers` block) with the current config table, wholesale — yolo owns
-// the key, so its previous content is disposable output, not state to preserve.
+// (the `mcpServers` block) with the derived layer, wholesale — yolo owns the key,
+// so its previous content is disposable output, not state to preserve.
 //
-// This is "regenerate, don't reconcile" (§2 principle 1) applied to the one RMW
-// surface that carries a dynamic table. A key present in the file but absent from
-// config is REMOVED: it was either yolo's from a prior boot (a stale entry that
-// must go) or a server the user added through the agent's UI at user scope (which
-// belongs in yolo's `mcp_servers` config, where it reaches every agent). Either
-// way it is dropped, and the drop is announced (see noteDroppedManagedEntries) so
-// it is never a silent surprise. Local-scope servers (nested under a project path,
-// not the top-level key) and the project `.mcp.json` are untouched — yolo only
-// ever writes this one top-level key.
-func regenerateManagedTables(e *Env, surface manifest.Surface, obj *jsonx.OrderedMap, tables map[string]map[string]any) {
-	for _, c := range surface.Computed {
-		if !c.Reconcile || c.To == "" {
-			continue
+// Each top-level key of `computed` whose value is an object is a managed dynamic
+// table: its block is cleared and rewritten from the derived value. This is
+// "regenerate, don't reconcile" (§2 principle 1) for the one RMW surface with a
+// dynamic table. A server present in the file but absent from the derived layer is
+// REMOVED: it was either yolo's from a prior boot (stale) or a server the user
+// added through the agent's UI at user scope (which belongs in yolo's
+// `mcp_servers` config, reaching every agent). Either way it is dropped, and the
+// drop is announced (noteDroppedManagedEntries) so it is never a silent surprise.
+// Local-scope servers (nested under a project path, not the top-level key) and the
+// project `.mcp.json` are untouched — yolo only ever writes this one top-level key.
+func regenerateManagedTables(e *Env, surface manifest.Surface, obj *jsonx.OrderedMap, computed map[string]any) {
+	for _, to := range sortedKeys(computed) {
+		table, isObj := computed[to].(map[string]any)
+		if !isObj {
+			continue // only object-valued derived keys are dynamic tables
 		}
-		table := tables[c.From]
-		dest := setDefaultMap(obj, c.To)
-		noteDroppedManagedEntries(e, surface, c.To, dest, table)
-		// Clear the block and rewrite it from config, deterministically.
+		dest := setDefaultMap(obj, to)
+		noteDroppedManagedEntries(e, surface, to, dest, table)
+		// Clear the block and rewrite it from the derived layer, deterministically.
 		for _, existing := range dest.Keys() {
 			dest.Delete(existing)
 		}

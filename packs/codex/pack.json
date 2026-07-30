@@ -25,39 +25,6 @@
     {
       "agent": "codex",
       "codec": "toml",
-      "computed": [
-        {
-          "from": "mcp_servers",
-          "omitEmpty": true,
-          "project": {
-            "ops": [
-              {
-                "copy": {
-                  "from": "command"
-                }
-              },
-              {
-                "copy": {
-                  "from": "args"
-                }
-              },
-              {
-                "default": {
-                  "to": "args",
-                  "value": []
-                }
-              },
-              {
-                "copy": {
-                  "from": "env",
-                  "omitEmpty": true
-                }
-              }
-            ]
-          },
-          "to": "mcp_servers"
-        }
-      ],
       "managed": {
         "approval_policy": "never",
         "sandbox_mode": "danger-full-access"

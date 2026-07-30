@@ -51,13 +51,6 @@
     {
       "agent": "claude",
       "codec": "json",
-      "computed": [
-        {
-          "from": "mcp_servers",
-          "reconcile": true,
-          "to": "mcpServers"
-        }
-      ],
       "defaults": {
         "projects": {
           "${workspace}": {
@@ -79,44 +72,6 @@
     {
       "agent": "claude",
       "codec": "json",
-      "computed": [
-        {
-          "to": "mcpServers",
-          "tombstone": true
-        },
-        {
-          "flags": [
-            {
-              "key": "pyright-lsp@claude-plugins-official",
-              "value": true,
-              "whenPresent": "python"
-            },
-            {
-              "key": "typescript-lsp@claude-plugins-official",
-              "value": true,
-              "whenPresent": "typescript"
-            },
-            {
-              "key": "gopls-lsp@claude-plugins-official",
-              "value": true,
-              "whenPresent": "go"
-            }
-          ],
-          "from": "lsp_servers",
-          "to": "enabledPlugins"
-        },
-        {
-          "flags": [
-            {
-              "key": "ENABLE_LSP_TOOL",
-              "value": "1",
-              "whenAny": true
-            }
-          ],
-          "from": "lsp_servers",
-          "to": "env"
-        }
-      ],
       "managed": {
         "permissions": {
           "additionalDirectories": [

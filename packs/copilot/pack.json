@@ -44,44 +44,6 @@
     {
       "agent": "copilot",
       "codec": "json",
-      "computed": [
-        {
-          "from": "lsp_servers",
-          "project": {
-            "ops": [
-              {
-                "copy": {
-                  "from": "command",
-                  "omitEmpty": true
-                }
-              },
-              {
-                "copy": {
-                  "from": "args"
-                }
-              },
-              {
-                "default": {
-                  "to": "args",
-                  "value": []
-                }
-              },
-              {
-                "copy": {
-                  "from": "fileExtensions"
-                }
-              },
-              {
-                "default": {
-                  "to": "fileExtensions",
-                  "value": {}
-                }
-              }
-            ]
-          },
-          "to": "lspServers"
-        }
-      ],
       "defaults": {
         "lspServers": {}
       },
@@ -92,12 +54,6 @@
     {
       "agent": "copilot",
       "codec": "json",
-      "computed": [
-        {
-          "from": "mcp_servers",
-          "to": "mcpServers"
-        }
-      ],
       "defaults": {
         "mcpServers": {}
       },

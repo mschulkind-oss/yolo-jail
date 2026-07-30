@@ -16,45 +16,6 @@
     {
       "agent": "opencode",
       "codec": "json",
-      "computed": [
-        {
-          "from": "mcp_servers",
-          "omitEmpty": true,
-          "project": {
-            "ops": [
-              {
-                "fold": {
-                  "froms": [
-                    "command",
-                    "args"
-                  ],
-                  "to": "command"
-                }
-              },
-              {
-                "copy": {
-                  "from": "env",
-                  "omitEmpty": true,
-                  "to": "environment"
-                }
-              },
-              {
-                "inject": {
-                  "to": "type",
-                  "value": "local"
-                }
-              },
-              {
-                "inject": {
-                  "to": "enabled",
-                  "value": true
-                }
-              }
-            ]
-          },
-          "to": "mcp"
-        }
-      ],
       "defaults": {
         "$schema": "https://opencode.ai/config.json"
       },

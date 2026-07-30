@@ -42,8 +42,9 @@ func ConfigurePackByName(e *Env, name string) error {
 	if len(problems) > 0 {
 		return fmt.Errorf("pack %s: %s", name, problems[0])
 	}
+	deriveScript := loadPackDeriveScript(p)
 	for _, s := range surfaces {
-		if err := renderDeclaredSurface(e, s, tables); err != nil {
+		if err := renderDeclaredSurface(e, s, tables, deriveScript); err != nil {
 			return err
 		}
 	}

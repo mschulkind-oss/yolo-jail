@@ -59,9 +59,13 @@ type DeriveVM interface {
 	Derive(script string, ctx *DeriveCtx) (map[string]any, error)
 }
 
-// tombstoneName is the registry key under which the sentinel userdata is stored,
-// so goToLua/luaToGo on the derive path can recognize it by identity.
-const tombstoneName = "yolo_tombstone_sentinel"
+// tombstoneName / emptyArrayName are the globals under which the two derive
+// sentinels are exposed (as ctx.tombstone / ctx.empty_array), recognized by
+// identity when marshalling the derive's return back to Go.
+const (
+	tombstoneName  = "yolo_tombstone_sentinel"
+	emptyArrayName = "yolo_empty_array_sentinel"
+)
 
 // Derive implements DeriveVM on the same gopher-lua VM as Run. It builds the
 // sandbox identically (openSandboxLibs), exposes the live tables + tombstone as
@@ -88,9 +92,18 @@ func (vm GopherLuaVM) Derive(script string, ctx *DeriveCtx) (map[string]any, err
 	}
 
 	// The tombstone sentinel: a unique userdata, exposed as ctx.tombstone and
-	// recognized by identity when marshalling back.
+	// recognized by identity when marshalling back to Go nil.
 	sentinel := L.NewUserData()
 	L.SetGlobal(tombstoneName, sentinel)
+
+	// The empty-array sentinel. Lua cannot distinguish {} the array from {} the
+	// object, and the marshaller decodes an empty table to an empty OBJECT
+	// (map[string]any) — so a derive that wants an empty ARRAY (e.g. a defaulted
+	// `args = []`, which must render as JSON `[]`, not `{}`) needs a distinct
+	// marker. ctx.empty_array is that marker, decoded back to []any{}. A NON-empty
+	// array is unambiguous (1..n integer keys) and needs no sentinel.
+	emptyArr := L.NewUserData()
+	L.SetGlobal(emptyArrayName, emptyArr)
 
 	// yolo.derive(agent, surface, fn) records fn keyed by (agent, surface).
 	type key struct{ agent, surface string }
@@ -105,7 +118,7 @@ func (vm GopherLuaVM) Derive(script string, ctx *DeriveCtx) (map[string]any, err
 	}))
 	L.SetGlobal("yolo", yolo)
 
-	ctxTable, err := buildDeriveCtxTable(L, ctx, sentinel)
+	ctxTable, err := buildDeriveCtxTable(L, ctx, sentinel, emptyArr)
 	if err != nil {
 		return nil, err
 	}
@@ -132,19 +145,20 @@ func (vm GopherLuaVM) Derive(script string, ctx *DeriveCtx) (map[string]any, err
 		return nil, fmt.Errorf("luahook: derive for %s/%s returned %s, want a table (the computed layer)",
 			ctx.Agent, ctx.Surface, ret.Type())
 	}
-	out, err := deriveTableToGo(tbl, sentinel)
+	out, err := deriveTableToGo(tbl, sentinel, emptyArr)
 	if err != nil {
 		return nil, err
 	}
 	return out, nil
 }
 
-// buildDeriveCtxTable exposes the derive inputs: ctx.tombstone (the sentinel),
-// ctx.agent / ctx.surface, and one read-only table per live source
-// (ctx.mcp_servers, ctx.lsp_servers).
-func buildDeriveCtxTable(L *lua.LState, ctx *DeriveCtx, sentinel *lua.LUserData) (*lua.LTable, error) {
+// buildDeriveCtxTable exposes the derive inputs: the two sentinels
+// (ctx.tombstone, ctx.empty_array), ctx.agent / ctx.surface, and one read-only
+// table per live source (ctx.mcp_servers, ctx.lsp_servers).
+func buildDeriveCtxTable(L *lua.LState, ctx *DeriveCtx, sentinel, emptyArr *lua.LUserData) (*lua.LTable, error) {
 	t := L.NewTable()
 	L.SetField(t, "tombstone", sentinel)
+	L.SetField(t, "empty_array", emptyArr)
 	L.SetField(t, "agent", lua.LString(ctx.Agent))
 	L.SetField(t, "surface", lua.LString(ctx.Surface))
 	for _, src := range knownDeriveSources {
@@ -169,8 +183,9 @@ var knownDeriveSources = []string{"mcp_servers", "lsp_servers"}
 
 // deriveTableToGo is luaTableToGo specialized for the derive return: a value
 // equal to the tombstone sentinel decodes to Go nil (the RFC-7386 delete marker
-// the computed layer uses), instead of being dropped as Lua nil would be.
-func deriveTableToGo(tbl *lua.LTable, sentinel *lua.LUserData) (map[string]any, error) {
+// the computed layer uses) instead of being dropped, and the empty-array sentinel
+// decodes to []any{} instead of the ambiguous empty {}.
+func deriveTableToGo(tbl *lua.LTable, sentinel, emptyArr *lua.LUserData) (map[string]any, error) {
 	out := map[string]any{}
 	var iterErr error
 	tbl.ForEach(func(k, v lua.LValue) {
@@ -184,7 +199,7 @@ func deriveTableToGo(tbl *lua.LTable, sentinel *lua.LUserData) (map[string]any, 
 			iterErr = fmt.Errorf("luahook: derive produced a non-string top-level key %s", k.Type())
 			return
 		}
-		gv, err := deriveValueToGo(v, sentinel)
+		gv, err := deriveValueToGo(v, sentinel, emptyArr)
 		if err != nil {
 			iterErr = err
 			return
@@ -195,32 +210,33 @@ func deriveTableToGo(tbl *lua.LTable, sentinel *lua.LUserData) (map[string]any, 
 }
 
 // deriveValueToGo converts one Lua value, mapping the tombstone sentinel to Go
-// nil and recursing into tables so a nested tombstone (a false flag under an
-// object key, e.g. enabledPlugins) is preserved.
-func deriveValueToGo(v lua.LValue, sentinel *lua.LUserData) (any, error) {
+// nil and the empty-array sentinel to []any{}, and recursing into tables so a
+// nested sentinel (a false flag under enabledPlugins; a defaulted args=[]) is
+// preserved.
+func deriveValueToGo(v lua.LValue, sentinel, emptyArr *lua.LUserData) (any, error) {
 	if ud, ok := v.(*lua.LUserData); ok {
-		if ud == sentinel {
+		switch ud {
+		case sentinel:
 			return nil, nil // the tombstone: an explicit RFC-7386 delete
+		case emptyArr:
+			return []any{}, nil // a distinctly-typed empty array (JSON [], not {})
+		default:
+			return nil, fmt.Errorf("luahook: derive produced unexpected userdata")
 		}
-		return nil, fmt.Errorf("luahook: derive produced unexpected userdata")
 	}
 	tbl, ok := v.(*lua.LTable)
 	if !ok {
 		return luaToGo(v)
 	}
-	// A nested table may itself be an array or an object; reuse the array/object
-	// discrimination from luaTableToGo, but with tombstone-aware values. The
-	// simplest faithful approach: detect a pure 1..n array, else object, mirroring
-	// luaTableToGo, converting each element through deriveValueToGo.
-	return deriveNestedTableToGo(tbl, sentinel)
+	return deriveNestedTableToGo(tbl, sentinel, emptyArr)
 }
 
 // deriveNestedTableToGo mirrors luaTableToGo's array/object discrimination while
-// honoring the tombstone sentinel in values. A tombstone cannot appear as an
-// array ELEMENT (Lua arrays cannot hold the sentinel meaningfully and the config
-// model never puts nulls in arrays — marshal.go), so array elements go through
-// the normal luaToGo; object values go through deriveValueToGo.
-func deriveNestedTableToGo(tbl *lua.LTable, sentinel *lua.LUserData) (any, error) {
+// honoring the sentinels in values. A sentinel cannot appear as an array ELEMENT
+// (the config model never puts nulls/empty-arrays inside arrays — marshal.go), so
+// array elements go through the normal luaToGo; object values go through
+// deriveValueToGo.
+func deriveNestedTableToGo(tbl *lua.LTable, sentinel, emptyArr *lua.LUserData) (any, error) {
 	strKeys := map[string]lua.LValue{}
 	intKeys := map[int]lua.LValue{}
 	otherKey := false
@@ -242,7 +258,7 @@ func deriveNestedTableToGo(tbl *lua.LTable, sentinel *lua.LUserData) (any, error
 	if len(strKeys) == 0 && !otherKey && len(intKeys) > 0 && contiguousFrom1(intKeys) {
 		outArr := make([]any, len(intKeys))
 		for i := 1; i <= len(intKeys); i++ {
-			gv, err := luaToGo(intKeys[i]) // array elements: no tombstone
+			gv, err := luaToGo(intKeys[i]) // array elements: no sentinel
 			if err != nil {
 				return nil, err
 			}
@@ -252,7 +268,7 @@ func deriveNestedTableToGo(tbl *lua.LTable, sentinel *lua.LUserData) (any, error
 	}
 	outObj := map[string]any{}
 	for k, val := range strKeys {
-		gv, err := deriveValueToGo(val, sentinel)
+		gv, err := deriveValueToGo(val, sentinel, emptyArr)
 		if err != nil {
 			return nil, err
 		}

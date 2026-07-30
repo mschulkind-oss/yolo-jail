@@ -31,6 +31,7 @@ import (
 	"path/filepath"
 	"strings"
 
+	"github.com/mschulkind-oss/yolo-jail/internal/agentcfg/luahook"
 	"github.com/mschulkind-oss/yolo-jail/internal/agentcfg/manifest"
 	"github.com/mschulkind-oss/yolo-jail/internal/packload"
 )
@@ -89,13 +90,51 @@ func ConfigurePackSurfaces(e *Env, packs []*packload.Pack) {
 			// yields a jail whose config is quietly incomplete.
 			genStep(e, "pack_"+p.Name+"_surfaces", func() error { return fmt.Errorf("%s", prob) })
 		}
+		// A pack's derive.lua (if any) produces every dynamic layer for its surfaces
+		// — the projection Lua that replaced the computed[] op DSL (§3.3). Read once
+		// per pack; absent means no surface has a dynamic layer.
+		deriveScript := loadPackDeriveScript(p)
 		for _, s := range surfaces {
 			surface := s
 			genStep(e, "configure_"+surface.Agent+"_"+surface.Name, func() error {
-				return renderDeclaredSurface(e, surface, tables)
+				return renderDeclaredSurface(e, surface, tables, deriveScript)
 			})
 		}
 	}
+}
+
+// loadPackDeriveScript reads a pack's derive.lua (at its tree root), or "" when
+// absent. The script registers per-surface producers via yolo.derive(agent,
+// surface, fn); a surface with no registered derive gets no dynamic layer.
+func loadPackDeriveScript(p *packload.Pack) string {
+	if p.Root == "" {
+		return ""
+	}
+	data, err := os.ReadFile(filepath.Join(p.Root, "derive.lua"))
+	if err != nil {
+		return ""
+	}
+	return string(data)
+}
+
+// deriveComputedLayer runs a surface's derive producer to build its dynamic
+// (computed) layer — the map that feeds Inputs.Computed and, for an RMW surface,
+// the managed dynamic table. Returns nil when the pack ships no derive or none is
+// registered for this surface (the identity: no dynamic layer). A Lua error is
+// fatal, matching the old BuildComputed error contract.
+func deriveComputedLayer(e *Env, surface manifest.Surface, deriveScript string, tables map[string]map[string]any) (map[string]any, error) {
+	if deriveScript == "" {
+		return nil, nil
+	}
+	out, err := (luahook.GopherLuaVM{}).Derive(deriveScript, &luahook.DeriveCtx{
+		Agent:   surface.Agent,
+		Surface: surface.Name,
+		Tables:  tables,
+	})
+	if err != nil {
+		return nil, fmt.Errorf("surface %s/%s: derive: %w", surface.Agent, surface.Name, err)
+	}
+	return out, nil
 }
 
 // liveTables gathers the live config tables a surface's `computed` declarations may draw
@@ -112,7 +151,7 @@ func liveTables(e *Env) map[string]map[string]any {
 }
 
 // renderDeclaredSurface writes one declared surface by the mechanism its mode names.
-func renderDeclaredSurface(e *Env, surface manifest.Surface, tables map[string]map[string]any) error {
+func renderDeclaredSurface(e *Env, surface manifest.Surface, tables map[string]map[string]any, deriveScript string) error {
 	if surface.ResolvedMode() == manifest.ModeUnrendered {
 		// Declared so `yolo config ls` can describe the file and so host_files cannot
 		// claim its path, but yolo does not write it. Skipping silently is correct here
@@ -127,7 +166,10 @@ func renderDeclaredSurface(e *Env, surface manifest.Surface, tables map[string]m
 		return err
 	}
 
-	computed, err := manifest.BuildComputed(surface.Computed, tables)
+	// The dynamic (computed) layer: produced by the surface's derive function over the
+	// live tables (§3.3), replacing the computed[] op DSL. One map serves both the
+	// compose path (as Inputs.Computed) and the RMW path (as the managed dynamic table).
+	computed, err := deriveComputedLayer(e, surface, deriveScript, tables)
 	if err != nil {
 		return err
 	}
@@ -137,7 +179,7 @@ func renderDeclaredSurface(e *Env, surface manifest.Surface, tables map[string]m
 		_, err := renderSurfaceStatelessSurface(e, surface, hostSurfaceBytes(e, surface), computed)
 		return err
 	case manifest.ModeRMW:
-		return renderSurfaceRMWSurface(e, surface, tables)
+		return renderSurfaceRMWSurface(e, surface, computed)
 	default:
 		out, err := renderSurfaceStatefulSurface(e, surface,
 			hostSurfaceBytes(e, surface), computed)

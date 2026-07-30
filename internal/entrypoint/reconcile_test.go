@@ -12,13 +12,13 @@ import (
 
 // managedTableSurface is an RMW surface with one dynamic managed table (the MCP
 // block), the shape ~/.claude.json has. yolo OWNS the table and regenerates it
-// wholesale each boot (OQ12 (d)) — the `reconcile` flag now just marks "this is
-// the managed dynamic table," no sidecar, no preserve-hand-edits.
+// wholesale each boot (OQ12 (d)) from the derived computed layer — no sidecar, no
+// preserve-hand-edits. The dynamic layer arrives as the `computed` arg (a
+// {servers: {...}} map), not from a Surface.Computed field.
 func managedTableSurface() manifest.Surface {
 	return manifest.Surface{
 		Agent: "example", Name: "config", Path: "~/.example.json", Codec: "json",
-		Mode:     manifest.ModeRMW,
-		Computed: []manifest.Computed{{From: manifest.SourceMCPServers, To: "servers", Reconcile: true}},
+		Mode: manifest.ModeRMW,
 	}
 }
 
@@ -36,12 +36,14 @@ func readServers(t *testing.T, path string) map[string]any {
 	return m
 }
 
-func tables(names ...string) map[string]map[string]any {
+// computedServers is the derived dynamic layer the RMW render receives: the
+// `servers` managed table with one entry per name.
+func computedServers(names ...string) map[string]any {
 	t := map[string]any{}
 	for _, n := range names {
 		t[n] = map[string]any{"command": n}
 	}
-	return map[string]map[string]any{manifest.SourceMCPServers: t}
+	return map[string]any{"servers": t}
 }
 
 // A server dropped from config disappears on the next render — the same
@@ -51,13 +53,13 @@ func TestManagedTableDropsAServerRemovedFromConfig(t *testing.T) {
 	s := managedTableSurface()
 	path := expandHomePath(e, s.Path)
 
-	if err := renderSurfaceRMWSurface(e, s, tables("alpha", "beta")); err != nil {
+	if err := renderSurfaceRMWSurface(e, s, computedServers("alpha", "beta")); err != nil {
 		t.Fatal(err)
 	}
 	if got := readServers(t, path); len(got) != 2 {
 		t.Fatalf("first render: want 2 servers, got %v", got)
 	}
-	if err := renderSurfaceRMWSurface(e, s, tables("alpha")); err != nil {
+	if err := renderSurfaceRMWSurface(e, s, computedServers("alpha")); err != nil {
 		t.Fatal(err)
 	}
 	got := readServers(t, path)
@@ -79,7 +81,7 @@ func TestManagedTableOverwritesAnAgentAddedEntry(t *testing.T) {
 	s := managedTableSurface()
 	path := expandHomePath(e, s.Path)
 
-	if err := renderSurfaceRMWSurface(e, s, tables("alpha")); err != nil {
+	if err := renderSurfaceRMWSurface(e, s, computedServers("alpha")); err != nil {
 		t.Fatal(err)
 	}
 	// The agent adds one itself, at the top-level managed block.
@@ -94,7 +96,7 @@ func TestManagedTableOverwritesAnAgentAddedEntry(t *testing.T) {
 		t.Fatal(err)
 	}
 
-	if err := renderSurfaceRMWSurface(e, s, tables("alpha")); err != nil {
+	if err := renderSurfaceRMWSurface(e, s, computedServers("alpha")); err != nil {
 		t.Fatal(err)
 	}
 	if _, present := readServers(t, path)["agent-added"]; present {
@@ -112,11 +114,11 @@ func TestManagedTableAnnouncesADrop(t *testing.T) {
 	s := managedTableSurface()
 	path := expandHomePath(e, s.Path)
 
-	if err := renderSurfaceRMWSurface(e, s, tables("alpha", "beta")); err != nil {
+	if err := renderSurfaceRMWSurface(e, s, computedServers("alpha", "beta")); err != nil {
 		t.Fatal(err)
 	}
 	errbuf.Reset() // ignore the first render's output; beta exists now
-	if err := renderSurfaceRMWSurface(e, s, tables("alpha")); err != nil {
+	if err := renderSurfaceRMWSurface(e, s, computedServers("alpha")); err != nil {
 		t.Fatal(err)
 	}
 	out := errbuf.String()
@@ -136,11 +138,11 @@ func TestManagedTableQuietWhenNothingDropped(t *testing.T) {
 	e.Stderr = &errbuf
 	s := managedTableSurface()
 
-	if err := renderSurfaceRMWSurface(e, s, tables("alpha")); err != nil {
+	if err := renderSurfaceRMWSurface(e, s, computedServers("alpha")); err != nil {
 		t.Fatal(err)
 	}
 	errbuf.Reset()
-	if err := renderSurfaceRMWSurface(e, s, tables("alpha")); err != nil {
+	if err := renderSurfaceRMWSurface(e, s, computedServers("alpha")); err != nil {
 		t.Fatal(err)
 	}
 	if errbuf.Len() != 0 {
@@ -152,7 +154,7 @@ func TestManagedTableQuietWhenNothingDropped(t *testing.T) {
 func TestManagedTableWritesNoSidecar(t *testing.T) {
 	e := modeEnv(t)
 	s := managedTableSurface()
-	if err := renderSurfaceRMWSurface(e, s, tables("alpha", "beta")); err != nil {
+	if err := renderSurfaceRMWSurface(e, s, computedServers("alpha", "beta")); err != nil {
 		t.Fatal(err)
 	}
 	entries, err := os.ReadDir(prismSidecarDir(e))
