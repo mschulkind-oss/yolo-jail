@@ -219,27 +219,34 @@ legacy fields are deleted last. Four independently-verifiable steps:
   + `Manifest.Contributes` + `Manifest.Contributions()` (declared `contributes[]` wins; else
   synthesize from legacy fields — the inverse of the Phase-1 shim) + per-kind `validateContributions`
   wired into `Validate`. Both shapes parse; nothing reads `Contributions()` yet. Tested.
-- **4.2 — migrate the read paths to `Contributions()` — NEXT.** Rewrite the accessors
-  (`packload.WritableDirs`/`SharedDirs`/`LaunchFlags`/`FlagAliases`/`HonoredHostFiles`/`HonoredInstall`/
-  `Surfaces`, `packload.FootprintOf`, the `isBriefingMount`/`from != "skills"` magic-string loops
-  in `cli/run/prepare.go` (`:116`, `:296`) + the AGENTS.md handling in `assemble.go`,
-  `packdecl.NeedsHostAccess`) to read normalized contributions. The mapping workflow's per-field
-  consumer blast radius (every `p.Decl.<field>` call site, production then tests) is the checklist —
-  central accessors are `HonoredInstall`/`HonoredHostFiles`/`Surfaces`/`WritableDirs`/`SharedDirs`
-  in `packload`, so migrating those covers most downstream callers unchanged. Because
-  4.1's fallback synthesizes from the legacy fields, **every shipped pack.json still works
-  unchanged** here — so a regression is unambiguously in the new read path, not the data.
-  Nested-jail verify each agent. Green intermediate.
-- **4.3 — rewrite the six `pack.json`** to `contributes[]` (one commit or one per pack), `git add`
-  before each nested verify; **byte-equality gate every rendered surface**. Green intermediate.
-- **4.4 — delete the legacy fields** + sub-types + the synthesis fallback + the magic-string
-  dispatch, and eject `retireMiseTools`/`RetireOnFirstRender` (OQ11) to a one-shot host migration
-  rather than a cleanup kind. The final irreversible commit; a pure deletion since 4.2–4.3 proved
-  the read path and the data.
+- **4.2 — migrate the read paths to `Contributions()` ✅ DONE** (commit `bc2aae1`). All packload
+  accessors (`HonoredHostFiles`/`HonoredInstall`/`Surfaces`/`WritableDirs`/`SharedDirs`/`LaunchFlags`/
+  `FlagAliases`), `packload.FootprintOf` (rewritten to iterate contributions), the entrypoint hook/
+  shell reads, the `cli/run` mount loops, and `packdecl.NeedsHostAccess` now read the normalized
+  contributions via the projection accessors. Footprint output byte-identical; nested-jail verified.
+- **4.3 — rewrite the six `pack.json` to `contributes[]` ✅ DONE** (commit `484a3cf`). All six packs
+  converted; `yolo pack footprint` byte-identical (43 claims); prism render tests (exact bytes) green;
+  nested-jail verified. Last test/support legacy-field reads migrated too.
+- **4.4 — delete the legacy fields ✅ DONE** (commit `4c1b351`). The nine effect fields + sub-type
+  fields + `synthesizeContributions` + the magic-string dispatch deleted; `Validate` is per-kind
+  only. OQ11: `retireMiseTools` ejected to a CORE constant `packload.RetiredMiseTools` (yolo's own
+  cleanup, not pack data) so the boot-time mise strip still runs; `RetireOnFirstRender` stays a
+  surface field (it is per-surface transitional cleanup, not a manifest effect field). Test fixtures
+  migrated to `contributes[]`. Footprint byte-identical; full suite + nested-jail green.
 
-**Done when:** all six shipped packs use `contributes[]`, the magic-string dispatch sites are
-deleted (not relocated), and `go list ./...` + nested-jail launch of each agent is green. This is a
-breaking format change with **no migration path** (design scope) — third-party packs re-author.
+**DONE:** all six shipped packs use `contributes[]`, the magic-string dispatch sites are deleted
+(not relocated), `go test`/`vet`/`staticcheck` green tree-wide, and nested-jail boot renders every
+selected agent's surfaces/skills/briefing/launcher from `contributes[]`. Breaking format change with
+**no migration path** (design scope) — third-party packs re-author.
+
+## Status: the whole reform is implemented
+
+Phases 0–4 are all complete and committed. `contributes[]` with a closed kind vocabulary is the
+manifest format; the footprint/collision check ships; per-key provenance + config-overlay compose;
+reconcile is deleted (yolo owns `mcpServers`); the `computed[]`/`project` DSLs are gone, replaced by
+`derive` Lua; and the nine legacy effect fields are deleted. Remaining open questions (OQ3 footprint-
+in-hash, OQ5 skills reshape, OQ6 machine-scope gating, OQ7 collision severity, OQ8 per-notch matrix,
+OQ10 tier-2 effect Lua) are future enhancements, not blockers — each is scoped in the design doc.
 
 ---
 
