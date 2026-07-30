@@ -148,17 +148,40 @@ unchanged surface before/after — this touches the A12-fatal boot render).
 
 - **3a — delete reconcile ✅ DONE.** `reconcileRMWTables` + the managed-name sidecar gone;
   `regenerateManagedTables` regenerates `mcpServers` wholesale; nested-jail verified.
-- **3b — port the 8 pure reshapes to `derive`, then delete `computed.go`/`project.go` — NOT YET.**
-  This is a substantial sub-project of its own, not a tail of 3a, because the `derive` slot as it
-  exists today **cannot yet do a projection**: the luahook `Ctx` (`internal/agentcfg/luahook`)
-  exposes `config`/`stage`/`managed`/`agent`/`surface` but **not the live tables**
-  (`ctx.mcp_servers`, `ctx.lsp_servers`) or the `ctx.tombstone` sentinel that the §3.3 example
-  needs. So 3b is: (1) extend the luahook `Ctx` + VM to expose the live tables + tombstone,
-  (2) run `derive` to PRODUCE the computed layer (it feeds `Inputs.Computed`, so no merge-order
-  change), (3) write the five packs' `derive.lua` (agy/mcp, copilot/mcp, copilot/lsp,
-  codex/config, opencode/config projections + claude/settings tombstone+flags), (4) delete
-  `computed.go`/`project.go` and the `Surface.Computed`/`SurfaceDTO.Computed` fields, (5) byte-equal
-  regression-gate every shipped surface. Its own focused change; sequenced next.
+- **3b — port the 8 pure reshapes to `derive`, then delete `computed.go`/`project.go` — IN PROGRESS.**
+  - **3b.1 — the derive producer ✅ DONE** (commit `fbc0668`). `internal/agentcfg/luahook/derive.go`:
+    `GopherLuaVM.Derive` runs a `yolo.derive(agent, surface, fn)` producer in the same sandbox,
+    exposes the live tables read-only as `ctx.mcp_servers`/`ctx.lsp_servers`, and a `ctx.tombstone`
+    sentinel that round-trips to Go `nil` (a bare Lua `nil` drops the key — that is why the sentinel
+    is needed). Fully tested incl. the opencode fold/rename/inject projection and the tombstone-vs-
+    bare-nil distinction. Consumed by nothing yet.
+
+  Remaining 3b steps — an **ordered, atomic** sequence (a mapping workflow, 2026-07-29, confirmed
+  `DisallowUnknownFields` means `computed` and `derive` can't safely coexist in a pack.json, so the
+  swap must land together per pack), and caught a Phase-3a leftover:
+
+  - **3b.2 — rewire the RMW managed-table path OFF `surface.Computed`.** Phase 3a's
+    `regenerateManagedTables` (`prism.go:439`) still iterates `surface.Computed`/`c.Reconcile` as a
+    *marker* for "this key is the managed dynamic table." That is a SECOND consumer of
+    `Surface.Computed` (besides `BuildComputed`), and it blocks deleting the field. Give it a
+    non-DSL input: `renderDeclaredSurface` produces the computed layer once via derive and hands the
+    RMW path that map to force-apply, so RMW no longer reads `surface.Computed`.
+  - **3b.3 — rewire `packsurfaces.go:130`** to run derive over `liveTables` instead of
+    `manifest.BuildComputed(surface.Computed, tables)`. Load each pack's `derive.lua` from
+    `<pack.Root>/derive.lua` once per pack (the pack-tree file pattern `Surfaces()` uses). The
+    host-side twin (`cli/config.go renderSurface`) already builds NO computed layer — it only prints
+    a "computed layer not shown" note gated on `surfaceHasComputedLayer` (`configls.go:202`), so the
+    host side needs only that predicate re-derived, not a compose change.
+  - **3b.4 — write the 5 packs' `derive.lua`** (agy/mcp + copilot/mcp passthrough; copilot/lsp
+    copy+default; codex/config copy+default+omitEmpty; opencode/config fold+rename+inject;
+    claude/settings tombstone + enabledPlugins flags + ENABLE_LSP_TOOL whenAny) and **strip the
+    `computed` blocks from those pack.json in the same commit** (DisallowUnknownFields).
+  - **3b.5 — delete** `SurfaceDTO.Computed`/`Surface.Computed` + `computed.go`/`computed_test.go` +
+    `project.go`/`project_test.go` (whole `internal/agentcfg/project` pkg).
+  - **3b.6 — verify:** `go list ./...` green; **byte-equal regression gate on every shipped surface**
+    (before/after render must be identical — this is the A12-fatal path); nested-jail launch of each
+    agent. The reference oracle for the projections is `project_test.go`'s codex/opencode/copilot
+    projection fixtures (delete only after they confirm the derive output matches).
 
 The load-bearing decision, built last of the core phases because it leans on Phase 2's assembler
 and the `derive` slot must be solid first.
