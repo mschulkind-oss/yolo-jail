@@ -202,11 +202,6 @@ func (e *Env) AgyDir() string { return filepath.Join(e.GeminiDir(), "antigravity
 // ClaudeDir is HOME/.claude.
 func (e *Env) ClaudeDir() string { return filepath.Join(e.Home, ".claude") }
 
-// ClaudeManagedMCPPath is HOME/.claude/yolo-managed-mcp-servers.json.
-func (e *Env) ClaudeManagedMCPPath() string {
-	return filepath.Join(e.ClaudeDir(), "yolo-managed-mcp-servers.json")
-}
-
 // ClaudeHostSettingsSnapshotPath is HOME/.claude/yolo-host-synced-settings.json.
 func (e *Env) ClaudeHostSettingsSnapshotPath() string {
 	return filepath.Join(e.ClaudeDir(), "yolo-host-synced-settings.json")

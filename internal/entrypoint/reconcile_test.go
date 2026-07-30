@@ -1,17 +1,20 @@
 package entrypoint
 
 import (
+	"bytes"
 	"encoding/json"
 	"os"
-	"path/filepath"
+	"strings"
 	"testing"
 
 	"github.com/mschulkind-oss/yolo-jail/internal/agentcfg/manifest"
 )
 
-// reconcileSurface is an RMW surface with one reconciled dynamic table, the shape
-// ~/.claude.json has.
-func reconcileSurface() manifest.Surface {
+// managedTableSurface is an RMW surface with one dynamic managed table (the MCP
+// block), the shape ~/.claude.json has. yolo OWNS the table and regenerates it
+// wholesale each boot (OQ12 (d)) — the `reconcile` flag now just marks "this is
+// the managed dynamic table," no sidecar, no preserve-hand-edits.
+func managedTableSurface() manifest.Surface {
 	return manifest.Surface{
 		Agent: "example", Name: "config", Path: "~/.example.json", Codec: "json",
 		Mode:     manifest.ModeRMW,
@@ -41,13 +44,11 @@ func tables(names ...string) map[string]map[string]any {
 	return map[string]map[string]any{manifest.SourceMCPServers: t}
 }
 
-// TestReconcileRemovesADroppedEntry is the property plain RMW could NOT express, and the
-// reason the mechanism exists: with no record of what yolo asserted last boot, "the agent
-// added this" and "yolo added it and config has since dropped it" look identical on disk.
-// The sidecar is that record.
-func TestReconcileRemovesADroppedEntry(t *testing.T) {
+// A server dropped from config disappears on the next render — the same
+// "regenerate, don't reconcile" behavior every other agent's MCP block has.
+func TestManagedTableDropsAServerRemovedFromConfig(t *testing.T) {
 	e := modeEnv(t)
-	s := reconcileSurface()
+	s := managedTableSurface()
 	path := expandHomePath(e, s.Path)
 
 	if err := renderSurfaceRMWSurface(e, s, tables("alpha", "beta")); err != nil {
@@ -56,7 +57,6 @@ func TestReconcileRemovesADroppedEntry(t *testing.T) {
 	if got := readServers(t, path); len(got) != 2 {
 		t.Fatalf("first render: want 2 servers, got %v", got)
 	}
-	// beta dropped from config.
 	if err := renderSurfaceRMWSurface(e, s, tables("alpha")); err != nil {
 		t.Fatal(err)
 	}
@@ -69,19 +69,20 @@ func TestReconcileRemovesADroppedEntry(t *testing.T) {
 	}
 }
 
-// TestReconcilePreservesAnAgentAddedEntry is the flip side, and the one that makes the
-// removal above safe. Verified live in a nested jail too, but pinned here because it is the
-// property whose loss is silent data destruction: an agent's own MCP server vanishing on the
-// next boot.
-func TestReconcilePreservesAnAgentAddedEntry(t *testing.T) {
+// The behavior CHANGE from the old reconcile mechanism (OQ12 (d)): a server the
+// agent added through its own UI is NOT preserved — yolo owns the mcpServers block
+// and regenerates it from config. This is intentional: config is the source of
+// truth, and a user-scope server added via the agent belongs in yolo's config
+// (where it reaches every agent), not hand-poked into one agent's file.
+func TestManagedTableOverwritesAnAgentAddedEntry(t *testing.T) {
 	e := modeEnv(t)
-	s := reconcileSurface()
+	s := managedTableSurface()
 	path := expandHomePath(e, s.Path)
 
 	if err := renderSurfaceRMWSurface(e, s, tables("alpha")); err != nil {
 		t.Fatal(err)
 	}
-	// The agent adds one itself.
+	// The agent adds one itself, at the top-level managed block.
 	var doc map[string]any
 	data, _ := os.ReadFile(path)
 	if err := json.Unmarshal(data, &doc); err != nil {
@@ -96,65 +97,74 @@ func TestReconcilePreservesAnAgentAddedEntry(t *testing.T) {
 	if err := renderSurfaceRMWSurface(e, s, tables("alpha")); err != nil {
 		t.Fatal(err)
 	}
-	if _, present := readServers(t, path)["agent-added"]; !present {
-		t.Errorf("an entry the agent added must survive: %v", readServers(t, path))
+	if _, present := readServers(t, path)["agent-added"]; present {
+		t.Errorf("a hand-added server must be overwritten (yolo owns the block): %v", readServers(t, path))
 	}
 }
 
-// TestReconcileWithNoSidecarOnlyAdds pins the SAFE DIRECTION for a missing record. Without
-// the sidecar, removing anything is a guess — and guessing wrong deletes an entry the agent
-// owns. A stale entry is a wrong config the user can see and fix; deleted state they cannot.
-func TestReconcileWithNoSidecarOnlyAdds(t *testing.T) {
+// Dropping a hand-added (or config-removed) entry is ANNOUNCED, not silent — the
+// visible-drop requirement of OQ12 (d). The notice names the entry and points at
+// mcp_servers.
+func TestManagedTableAnnouncesADrop(t *testing.T) {
 	e := modeEnv(t)
-	s := reconcileSurface()
+	var errbuf bytes.Buffer
+	e.Stderr = &errbuf
+	s := managedTableSurface()
 	path := expandHomePath(e, s.Path)
 
 	if err := renderSurfaceRMWSurface(e, s, tables("alpha", "beta")); err != nil {
 		t.Fatal(err)
 	}
-	// Lose the record (a wiped .yolo dir, a fresh clone).
-	if err := os.Remove(rmwManagedPath(e, s, "servers")); err != nil {
-		t.Fatal(err)
-	}
+	errbuf.Reset() // ignore the first render's output; beta exists now
 	if err := renderSurfaceRMWSurface(e, s, tables("alpha")); err != nil {
 		t.Fatal(err)
 	}
-	got := readServers(t, path)
-	if _, present := got["beta"]; !present {
-		t.Errorf("with no record, beta must be KEPT rather than guessed away: %v", got)
+	out := errbuf.String()
+	if !strings.Contains(out, "beta") {
+		t.Errorf("dropping beta must be announced, got: %q", out)
+	}
+	if !strings.Contains(out, "mcp_servers") {
+		t.Errorf("the drop notice must point at mcp_servers, got: %q", out)
+	}
+	_ = path
+}
+
+// No drop, no noise: a render that removes nothing must be quiet.
+func TestManagedTableQuietWhenNothingDropped(t *testing.T) {
+	e := modeEnv(t)
+	var errbuf bytes.Buffer
+	e.Stderr = &errbuf
+	s := managedTableSurface()
+
+	if err := renderSurfaceRMWSurface(e, s, tables("alpha")); err != nil {
+		t.Fatal(err)
+	}
+	errbuf.Reset()
+	if err := renderSurfaceRMWSurface(e, s, tables("alpha")); err != nil {
+		t.Fatal(err)
+	}
+	if errbuf.Len() != 0 {
+		t.Errorf("a render that drops nothing must be silent, got: %q", errbuf.String())
 	}
 }
 
-// TestReconcileSidecarStaysOutOfResetsWay: `yolo config reset` removes exactly
-// `<agent>-<name>.overlay.json` and `.last_render`. The reconcile record must not match
-// either, because resetting it would make yolo forget what it asserted and orphan every
-// entry it had added — a leak dressed as a reset.
-func TestReconcileSidecarStaysOutOfResetsWay(t *testing.T) {
+// No sidecar is created any more — the whole stateful mechanism is gone.
+func TestManagedTableWritesNoSidecar(t *testing.T) {
 	e := modeEnv(t)
-	s := reconcileSurface()
-	got := filepath.Base(rmwManagedPath(e, s, "servers"))
-	for _, reserved := range []string{
-		filepath.Base(prismOverlayPath(e, s.Agent, s.Name)),
-		filepath.Base(prismLastRenderPath(e, s.Agent, s.Name)),
-	} {
-		if got == reserved {
-			t.Errorf("reconcile record %q collides with a reset target", got)
+	s := managedTableSurface()
+	if err := renderSurfaceRMWSurface(e, s, tables("alpha", "beta")); err != nil {
+		t.Fatal(err)
+	}
+	entries, err := os.ReadDir(prismSidecarDir(e))
+	if err != nil {
+		if os.IsNotExist(err) {
+			return // no sidecar dir at all — fine
 		}
+		t.Fatal(err)
 	}
-}
-
-// TestReconcileSidecarLivesInAWritableDir is the regression for a failure a real jail found
-// and no unit test would have: the record was first written beside the surface file, which
-// for a home-root surface (~/.claude.json) is the :ro home itself. The boot halted with
-// `read-only file system`.
-func TestReconcileSidecarLivesInAWritableDir(t *testing.T) {
-	e := modeEnv(t)
-	s := reconcileSurface()
-	dir := filepath.Dir(rmwManagedPath(e, s, "servers"))
-	if dir == e.Home {
-		t.Error("the reconcile record must not live in the home root — it is mounted :ro")
-	}
-	if dir != prismSidecarDir(e) {
-		t.Errorf("expected the prism sidecar dir (writable), got %s", dir)
+	for _, ent := range entries {
+		if strings.Contains(ent.Name(), "managed") {
+			t.Errorf("no managed-name sidecar should be written any more, found %s", ent.Name())
+		}
 	}
 }

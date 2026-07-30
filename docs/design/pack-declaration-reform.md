@@ -1010,6 +1010,8 @@ breaks if it is decided wrong — because a leaning without a cost is just an op
 
     **Answer:**
     > _(empty — fill in when decided)_
+    >
+    > _(OQ12 below is the one from this cluster that is now decided — see its Answer.)_
 
 12. **What happens to `reconcile` when the `computed[]`/`project` DSLs are deleted (found during
     implementation, 2026-07-29).**
@@ -1044,4 +1046,10 @@ breaks if it is decided wrong — because a leaning without a cost is just an op
     needs state. Phase 3 paused on this ruling.
 
     **Answer:**
-    > _(empty — fill in when decided)_
+    > **Decided (2026-07-29): (d) — delete `reconcile` entirely.** yolo owns the top-level
+    > user-scope `mcpServers` key in `~/.claude.json` and regenerates it every boot like every other
+    > agent; a user-scope server added via Claude's UI is overwritten on the next render, with a
+    > boot-time notice naming any server dropped so it is not silent. The sidecar mechanism
+    > (`reconcileRMWTables`, the managed-name sidecar, `ClaudeManagedMCPPath`) is deleted — which is
+    > what lets `computed.go`/`project.go` fully die in Phase 3. Local-scope (per-project-path) and
+    > project `.mcp.json` servers are untouched (yolo never wrote those keys). Phase 3 unblocked.

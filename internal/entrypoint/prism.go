@@ -391,8 +391,15 @@ func expandHomePath(e *Env, p string) string {
 // PACK-DECLARED surface reaches the identical mechanism a builtin does. See
 // renderSurfaceRMW for what RMW is and why it exists.
 //
-// tables supplies the live data for a `reconcile` declaration; pass nil for a surface
-// that has none (the static-key case RMW was originally built for).
+// tables supplies the live data for a dynamic managed table (the MCP-server block
+// in ~/.claude.json). yolo OWNS that block — it regenerates it wholesale from
+// config every boot, exactly like every other agent's MCP surface does
+// (regenerate-don't-reconcile). A server the user added at USER scope through the
+// agent's own UI is overwritten; the boot notes what it dropped so it is not
+// silent. This deliberately replaced the sidecar-tracked `reconcile` mechanism
+// (OQ12 (d), 2026-07-29): reconcile was a one-of-a-kind stateful special case for
+// Claude, and "your config is the source of truth" is the reform's principle.
+// pass nil tables for a surface with no dynamic managed table (plain RMW).
 func renderSurfaceRMWSurface(e *Env, surface manifest.Surface, tables map[string]map[string]any) error {
 	surface = agentcfg.SubstituteWorkspace(surface, e.WorkspaceDir())
 
@@ -402,11 +409,9 @@ func renderSurfaceRMWSurface(e *Env, surface manifest.Surface, tables map[string
 	}
 	obj := loadObject(path)
 
-	// Reconciled dynamic tables FIRST, so a managed key nested under the same parent
-	// still wins the floor.
-	if err := reconcileRMWTables(e, surface, obj, tables); err != nil {
-		return err
-	}
+	// Dynamic managed tables (MCP servers) FIRST, so a managed key nested under the
+	// same parent still wins the floor.
+	regenerateManagedTables(e, surface, obj, tables)
 	// Managed: yolo owns these outright, so re-assert every boot.
 	if managed, isMap := surface.Managed.(map[string]any); isMap {
 		applyRMWLayer(obj, managed, true)
@@ -418,38 +423,30 @@ func renderSurfaceRMWSurface(e *Env, surface manifest.Surface, tables map[string
 	return writeInPlaceString(path, dumpJSONIndent2(obj))
 }
 
-// reconcileRMWTables applies each `reconcile` computed declaration to an RMW surface:
-// drop the entries yolo asserted last time, add the ones it asserts now, leave every
-// other entry alone.
+// regenerateManagedTables replaces each dynamic managed table on an RMW surface
+// (the `mcpServers` block) with the current config table, wholesale — yolo owns
+// the key, so its previous content is disposable output, not state to preserve.
 //
-// The SIDECAR is the whole mechanism. Without a record of what yolo put there, removing
-// a dropped entry is indistinguishable from deleting one the agent added itself — so a
-// reconcile with a missing sidecar removes NOTHING and only adds. That is the safe
-// direction: a stale entry is a wrong config the user can see and fix, while deleting an
-// agent's own MCP server is data loss they cannot.
-func reconcileRMWTables(e *Env, surface manifest.Surface, obj *jsonx.OrderedMap, tables map[string]map[string]any) error {
+// This is "regenerate, don't reconcile" (§2 principle 1) applied to the one RMW
+// surface that carries a dynamic table. A key present in the file but absent from
+// config is REMOVED: it was either yolo's from a prior boot (a stale entry that
+// must go) or a server the user added through the agent's UI at user scope (which
+// belongs in yolo's `mcp_servers` config, where it reaches every agent). Either
+// way it is dropped, and the drop is announced (see noteDroppedManagedEntries) so
+// it is never a silent surprise. Local-scope servers (nested under a project path,
+// not the top-level key) and the project `.mcp.json` are untouched — yolo only
+// ever writes this one top-level key.
+func regenerateManagedTables(e *Env, surface manifest.Surface, obj *jsonx.OrderedMap, tables map[string]map[string]any) {
 	for _, c := range surface.Computed {
-		if !c.Reconcile {
+		if !c.Reconcile || c.To == "" {
 			continue
 		}
-		if c.To == "" {
-			return fmt.Errorf("surface %s/%s: reconcile needs a \"to\"", surface.Agent, surface.Name)
-		}
 		table := tables[c.From]
-		if c.Project != nil {
-			projected, err := c.Project.Apply(table)
-			if err != nil {
-				return fmt.Errorf("surface %s/%s: %w", surface.Agent, surface.Name, err)
-			}
-			table = projected
-		}
 		dest := setDefaultMap(obj, c.To)
-		sidecar := rmwManagedPath(e, surface, c.To)
-		if err := os.MkdirAll(filepath.Dir(sidecar), 0o755); err != nil {
-			return err
-		}
-		for _, name := range loadManagedSet(sidecar) {
-			dest.Delete(name)
+		noteDroppedManagedEntries(e, surface, c.To, dest, table)
+		// Clear the block and rewrite it from config, deterministically.
+		for _, existing := range dest.Keys() {
+			dest.Delete(existing)
 		}
 		names := make([]string, 0, len(table))
 		for name := range table {
@@ -457,37 +454,33 @@ func reconcileRMWTables(e *Env, surface manifest.Surface, obj *jsonx.OrderedMap,
 		}
 		sort.Strings(names)
 		for _, name := range names {
-			// A plain map[string]any goes in as-is: the jsonx encoder handles it and
-			// sorts its keys, so the write is deterministic without a lift back into
-			// an OrderedMap.
 			dest.Set(name, table[name])
 		}
-		if err := writeInPlaceString(sidecar, managedSidecar(names)); err != nil {
-			return err
-		}
 	}
-	return nil
 }
 
-// rmwManagedPath is the sidecar recording which entries yolo asserted into one reconciled
-// table.
-//
-// It lives in the prism sidecar dir (<workspace>/.yolo/prism/) — NOT beside the surface
-// file, which was the first attempt and which a real jail rejected immediately: the jail
-// home is mounted :ro except for the dirs a pack declares writable, so a surface at the
-// home ROOT (~/.claude.json) has no writable directory beside it at all. The failure was
-// `read-only file system`, and A12 correctly halted the boot rather than shipping a jail
-// with a silently unrecorded managed set.
-//
-// The `.managed.json` suffix keeps it out of `yolo config reset`'s way, which removes
-// exactly `<agent>-<name>.overlay.json` and `.last_render`. That separation is deliberate
-// rather than incidental: those two are the CAPTURE artifacts of a composed surface and
-// resetting them restores the pure render, while this is bookkeeping for a file yolo does
-// not own. Deleting it would make yolo forget what it added and ORPHAN every entry it had
-// put there — a leak, not a reset.
-func rmwManagedPath(e *Env, surface manifest.Surface, key string) string {
-	return filepath.Join(prismSidecarDir(e),
-		surface.Agent+"-"+surface.Name+"-"+key+".managed.json")
+// noteDroppedManagedEntries prints a one-line boot notice for each entry in the
+// existing managed block that config does not (re)assert — the visible-drop
+// requirement of OQ12 (d). Quiet when nothing is dropped. Not a warning: dropping
+// a stale/hand-added entry is the intended behavior, but a user who added a server
+// through the agent's UI must be told where it went, with the fix.
+func noteDroppedManagedEntries(e *Env, surface manifest.Surface, key string, dest *jsonx.OrderedMap, table map[string]any) {
+	if e.Stderr == nil {
+		return
+	}
+	var dropped []string
+	for _, name := range dest.Keys() {
+		if _, kept := table[name]; !kept {
+			dropped = append(dropped, name)
+		}
+	}
+	if len(dropped) == 0 {
+		return
+	}
+	sort.Strings(dropped)
+	fmt.Fprintf(e.Stderr, "%s/%s: dropping from %s (not in config): %s "+
+		"— add under `mcp_servers` to keep it, reaching every agent\n",
+		surface.Agent, surface.Name, key, strings.Join(dropped, ", "))
 }
 
 // sortedKeys returns layer's keys in a deterministic order, so a re-render writes
