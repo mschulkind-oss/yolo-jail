@@ -1,10 +1,25 @@
 # yolo as an environment manager — the shape I would want
 
-**Status:** design, high level, 2026-07-27. Written in response to: *"we're going through an
-identity crisis… an environment manager is really the thing. How is yolo macos-user mode
-different from SandVault? The answer is this batteries-included approach — the jail is not the
-novel thing, it is what's staged inside it. Maybe we redescribe ourselves as an agentic
-development environment describer that can describe a jail."*
+**Status:** design, high level, 2026-07-27; **fact-checked against the code 2026-07-30** (the
+vision is unchanged; a few claims about not-yet-built verbs are now partly shipped — see the
+refresh note). Written in response to: *"we're going through an identity crisis… an environment
+manager is really the thing. How is yolo macos-user mode different from SandVault? The answer is
+this batteries-included approach — the jail is not the novel thing, it is what's staged inside
+it. Maybe we redescribe ourselves as an agentic development environment describer that can
+describe a jail."*
+
+> **Refresh note (2026-07-30).** Two verbs this doc proposed as future now partly exist:
+> **`yolo config dump`** ships (the canonical computed-config dump this doc folds into
+> `describe`), and **`yolo config drift`** ships (compares the workspace config on disk against
+> the one a running jail was built from — a narrower, in-jail cousin of the drift/sealing
+> discussion in §3.3/§7). The pack manifest is now `contributes[]` with twelve **kinds**, not
+> nine fields, and a fetched pack can access the host with **install-time approval** rather than
+> never — which is the consent primitive §4.1's `--at host` escape valve would build on. The §5
+> pack-field table uses the old field names; the mapping is: `surfaces`→`config`,
+> `install`→`program`, `mounts`→`mount`, `hostFiles`→`reads-host`,
+> `writableDirs`/`sharedDirs`→`state`, plus new `env`. The vision and the confinement dial are
+> unaffected; nothing below is built beyond those two verbs. See
+> [pack-system.md](pack-system.md).
 
 **Scope:** what yolo *is* and how it feels to use, mostly from the user's side. **No migration
 path** — this describes the destination, not the route. Where today's behavior is cited it is
@@ -90,7 +105,8 @@ yolo -- <cmd>          run <cmd> in the described environment          (unchange
 yolo --at <level> -- <cmd>   … at a different confinement level        (new)
 yolo apply             make this environment match its description     (new)
 yolo apply --sealed    … and fail if anything undeclared got in        (new; §3.3)
-yolo describe          print the resolved description                  (new; absorbs config-dump)
+yolo describe          print the resolved description                  (new; would absorb the
+                                                                        now-shipped `config dump`)
 yolo check             is this description satisfiable here?           (unchanged in spirit)
 ```
 
@@ -324,14 +340,15 @@ Which is already true of the mechanism — a pack is data, read through one load
 one loop with no switch on any tool name — and only accidentally false of its reach. A pack's
 fields already sort cleanly by which notch they need:
 
-| Pack declares | jail | guest | host |
+| Pack declares (kind) | jail | guest | host |
 |---|---|---|---|
-| `surfaces` (composed config) | ✓ | ✓ | ✓ |
-| skills, briefing prose | ✓ | ✓ | ✓ |
-| `hooks` | 3 of 3 | 2 | 1 |
-| `launchFlags` | ✓ | ✓ | ✓ |
-| `install` | ✓ | ✓ | **never** |
-| `mounts`, `writableDirs`, `sharedDirs`, `hostFiles`, `retireMiseTools` | ✓ | — | — |
+| `config` / `config-overlay` (composed config) | ✓ | ✓ | ✓ |
+| `skills`, `briefing` prose | ✓ | ✓ | ✓ |
+| `env` (static vars) | ✓ | ✓ | ✓ |
+| `hook` | 3 of 3 | 2 | 1 |
+| `launch` (flags) | ✓ | ✓ | ✓ |
+| `program` (install) | ✓ | ✓ | **never** |
+| `mount`, `reads-host`, `state`, `files` | ✓ | — | — |
 
 One row is the whole point and it is target-independent. Refusals name the field; nothing is
 emulated. In particular **a copy is never a substitute for a mount** — it goes silently stale,

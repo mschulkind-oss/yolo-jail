@@ -1,10 +1,22 @@
 # Managing host agent configs from yolo — the host as a reduced render target
 
-**Status:** design, for discussion, 2026-07-27. Started as *"how could we pull all of this
-pack stuff out of yolo, yet still use it in yolo, but also manage the host configs — a
-separate util"*; the measurement said the extraction is the wrong shape (§1.3, §2.3), so
-**this doc designs the capability inside yolo.** The extraction analysis is kept as evidence,
-not as a proposal.
+**Status:** design, for discussion, 2026-07-27; **fact-checked against the code 2026-07-30**
+(the design is unchanged; stale code references were corrected — see the refresh note below).
+Started as *"how could we pull all of this pack stuff out of yolo, yet still use it in yolo,
+but also manage the host configs — a separate util"*; the measurement said the extraction is
+the wrong shape (§1.3, §2.3), so **this doc designs the capability inside yolo.** The
+extraction analysis is kept as evidence, not as a proposal.
+
+> **Refresh note (2026-07-30).** Since this was written, the pack manifest moved from nine
+> effect fields to one `contributes[]` list of twelve typed **kinds**, the `computed[] + project`
+> reshape DSL was replaced by a single `derive` Lua slot, in-jail reconcile became wholesale
+> regeneration (`regenerateManagedTables`), two new kinds shipped (`mount` — a host-home dir
+> read-only into a jail; `env` — static vars), and a fetched pack can now access the host with
+> **install-time approval** rather than never. This doc's *design* survives all of that intact —
+> the host is still a reduced render target, the fix is still collapsing two render paths — but
+> its field-census and code-citation details were updated to the current vocabulary. The
+> load-bearing sections (§2, §3, §6) are unaffected in substance. See
+> [pack-system.md](pack-system.md) for the current kind set and the approval model.
 
 **Audience:** whoever decides whether the host target happens. **§2 and §3 are the
 load-bearing sections** — §2 measures how much of a pack even applies off-container and
@@ -69,19 +81,23 @@ home without untangling anything first.
 | `internal/packdecl` | 300 | — | **none** |
 | `internal/packstage` | 256 | 225 | **none** |
 | `internal/packsrc` | 638 | 503 | **none** |
-| `internal/packload` | 451 | 524 | `agentcfg/{codec,manifest,project}`, `packdecl`, `jsonx`, `tomlx` |
-| `internal/agentcfg` | 1103 | 2992 | `agentcfg/*`, `jsonx`, `tomlx` |
-| `internal/agentcfg/manifest` | 753 | — | `codec`, `project`, `jsonx`, `tomlx` |
-| `internal/agentcfg/codec` | 620 | — | `jsonx`, `tomlx` |
-| `internal/agentcfg/project` | 230 | 200 | **none** |
-| `internal/agentcfg/luahook` | 963 | — | (gopher-lua only) |
-| `internal/jsonx` | 714 | — | none |
-| `internal/tomlx` | 244 | — | `jsonx` |
+| `internal/packload` | ~450 | ~520 | `agentcfg/{codec,manifest}`, `packdecl`, `jsonx`, `tomlx` |
+| `internal/agentcfg` | ~1100 | ~3000 | `agentcfg/*`, `jsonx`, `tomlx` |
+| `internal/agentcfg/manifest` | ~750 | — | `codec`, `jsonx`, `tomlx` |
+| `internal/agentcfg/codec` | ~620 | — | `jsonx`, `tomlx` |
+| `internal/agentcfg/luahook` | ~1000 | — | (gopher-lua only) — now carries `derive` |
+| `internal/jsonx` | ~714 | — | none |
+| `internal/tomlx` | ~244 | — | `jsonx` |
 
-**Totals: 5,314 non-test / 6,568 test lines**, out of 46,166 non-test lines in the repo —
-about 12%. Third-party: `BurntSushi/toml` and `yuin/gopher-lua`, both vendored, both pure
-Go. The only `os/exec` in the whole set is `packsrc`'s `git` invocation
-(`internal/packsrc/store.go:94`, binary resolved by `store.go:81`).
+**Roughly 5,000 non-test lines out of ~46,000 in the repo — about 12%.** Third-party:
+`BurntSushi/toml` and `yuin/gopher-lua`, both vendored, both pure Go. The only `os/exec` in
+the whole set is `packsrc`'s `git` invocation (`internal/packsrc/store.go`).
+
+(Refresh note: the former `internal/agentcfg/project` — the `computed[] + project` op DSL —
+was deleted; its job is now the `derive` Lua slot in `internal/agentcfg/luahook`. The point of
+this section is unchanged: the render core still has zero edges to `config`/`paths`/`cli`/
+`entrypoint`, so a non-jail target can call it. Line counts above are approximate and not
+worth re-measuring for a design doc.)
 
 **Zero edges** from any of it to `config`, `paths`, `cli`, `cli/run`, `entrypoint`,
 `storage`, `image`, or `loopholes`. `internal/agentcfg` does import `packload` — but only
@@ -174,25 +190,31 @@ The `pi` case above is about **configuration**. A pack declares much more than t
 obvious objection is that most of it is meaningless on a host: you do not want a pack
 installing agents into your real machine, and there are no mounts without a mount namespace.
 
-That objection is correct, and it is *measurable*. Every field of
-`packdecl.Manifest`, against the question "does this mean anything with no container?":
+That objection is correct, and it is *measurable*. Every **contribution kind** a pack can
+declare (`packdecl` — twelve since the `contributes[]` reform), against the question "does this
+mean anything with no container?":
 
-| Field | On the host | Why |
+| Kind | On the host | Why |
 |---|---|---|
-| `surfaces` | ✅ **the whole point** | composed config files. The only field whose meaning is target-independent |
-| `mounts` | ❌ **unavailable** | no mount namespace. A copy is not a substitute — it goes silently stale, and macos-user already *filters* rather than degrades (§2.2). Skills are a merge, not a mount, so they port separately |
-| `hooks` | ⚠ 1 of 3 | `shared_credentials` is a no-op (host creds are *already* machine-global); `per_jail_history` has no jail to key on; `claude_plugins` works |
-| `launchFlags` / `flagAliases` | ⚠ only with a launcher | `--dangerously-skip-permissions` is a *jail* posture. Meaningful only if yolo also launches the host agent, which is the §2.2 question |
-| `install` | ❌ **refuse** | `installerUrl` is curl-to-shell; `npm -g` mutates a real toolchain. §6.4 |
-| `writableDirs` | ❌ meaningless | names a bind target. The host dir simply *is* writable |
-| `sharedDirs` | ❌ meaningless | the machine-global tier exists to escape a per-jail home. On the host there is no per-jail home |
-| `hostFiles` | ❌ meaningless | it exists to carry a host file *into* a jail. Source and destination are one filesystem |
-| `retireMiseTools` | ❌ meaningless | mise is jail provisioning |
+| `config` | ✅ **the whole point** | composed config surfaces. The one kind whose meaning is target-independent |
+| `config-overlay` | ✅ | a contribution to another pack's surface — same story as `config` (it lands in a composed surface) |
+| `skills` | ✅ **ports (as a merge)** | built-in < pack < user is a *composition*, not a mount, so it is written as an artifact (§2.2), not bound |
+| `briefing` | ✅ ports | concatenated prose — also a composition result, written not mounted |
+| `env` | ✅ | static environment variables — literal strings, no container needed |
+| `mount` | ❌ **unavailable** | reads a host-home dir into a jail via a `:ro` `/ctx` mount. No mount namespace off-container, and a copy goes silently stale (§2.2). macos-user already *filters* rather than degrades |
+| `reads-host` | ❌ meaningless | it exists to carry a host file *into* a jail. Off-container the source and destination are one filesystem |
+| `hook` | ⚠ 1 of 3 | `shared_credentials` is a no-op (host creds are *already* machine-global); `per_jail_history` has no jail to key on; `claude_plugins` works |
+| `launch` | ⚠ only with a launcher | `--dangerously-skip-permissions` is a *jail* posture. Meaningful only if yolo also launches the host agent, which is the §2.2 question |
+| `program` | ❌ **refuse** | `via: installer` is curl-to-shell; `via: npm` mutates a real toolchain. §6.4 |
+| `state` | ❌ meaningless | names a writable home subtree (per-workspace or machine). Off-container the home dir simply *is* writable, and there is no per-jail home to escape |
+| `files` | ❌ meaningless | a pack-owned tree bound into a jail. Off-container there is nothing to bind into |
 
-**Four of nine are meaningless, one must be refused, one is unavailable, two degrade, one is
-the point.** Against the shipped packs, `claude` uses all nine; `opencode` uses three
-(`install`, `mounts`, `surfaces`) — so on a host target `opencode` would render one field and
-refuse two.
+**Roughly: the config/skills/briefing/env kinds port, `program` must be refused, `mount`/
+`reads-host`/`state`/`files` are unavailable or meaningless, `hook`/`launch` degrade.** The
+crisp line is unchanged from the original nine-field census: **the composed-config kinds are
+target-independent; the provisioning kinds are not.** Against the shipped packs, `claude`
+uses most kinds; `opencode` uses `program` + `briefing` + `config` — so on a host target
+`opencode` would render its config surface and its briefing, and refuse `program` by name.
 
 **So a pack is not a config format that yolo happens to consume** — it is mostly a
 *jail-provisioning* format with a config format inside it. That is the crux of the confusion
@@ -230,14 +252,16 @@ with the container backends rather than a special case.
 So the axis is not jail-vs-host. **It is how much confinement the environment has** — and two
 of the three rows below already ship:
 
-| Environment | Confinement | `install` | `mounts` | `surfaces` |
+| Environment | Confinement | `program` | `mount` | `config` |
 |---|---|---|---|---|
 | `podman` / `container` | namespaces, disposable | ✅ | ✅ binds | ✅ |
 | `macos-user` | Seatbelt, real user, real home | ✅ (native nix) | ❌ **not available** | ✅ *(should — see §9.7)* |
 | **host** (proposed) | **none** | ❌ refuse | ❌ **not available** | ✅ |
 
-Read down the `surfaces` column: **it is the one row-independent capability.** That is the
-same conclusion §2.1 reached field by field, arrived at from the runtime side instead. And
+(Column names are the current kinds: `program` was `install`, `mount` is the host-read kind,
+`config` was `surfaces`.) Read down the `config` column: **it is the one row-independent
+capability.** That is the same conclusion §2.1 reached kind by kind, arrived at from the
+runtime side instead. And
 the "something like macos-user on Linux" idea is the missing fourth row — a bwrap/Landlock
 confined-but-not-containerized environment. **It needs no new concept**; it is another
 confinement level, which is precisely the evidence that the axis is real rather than
@@ -671,12 +695,16 @@ There are three known answers and the ecosystem has picked two of them:
 2. **Own a source, generate the destination** (chezmoi): the user edits `~/.local/share/…`,
    the tool renders `~/.claude/settings.json`. Correct, and a big ask — the user now has two
    files and must learn which one to edit.
-3. **Read-modify-write with a memory of what you asserted** — which yolo *already built*, as
-   `mode: rmw` + the `reconcile` sidecar (`reconcileRMWTables`, `prism.go:404`;
-   `rmwManagedPath`, `:462`). The sidecar records what yolo put there so a removal is
-   distinguishable from a user's own entry, and a missing sidecar removes *nothing* — "a
-   stale entry is a wrong config the user can see and fix, while deleting an agent's own MCP
-   server is data loss they cannot" (`prism.go:402-403`).
+3. **Read-modify-write, regenerating the keys yolo owns** — which yolo *already built*, as
+   `mode: rmw`: the boot render reads the agent-owned file and `regenerateManagedTables`
+   (`entrypoint/prism.go`) replaces only the dynamic managed tables yolo owns, leaving the
+   agent's own keys. (Refresh note: the original text cited a `reconcile` sidecar
+   `reconcileRMWTables`/`rmwManagedPath`; that was superseded — yolo now REGENERATES the
+   managed keys wholesale each boot rather than reconciling against a sidecar, so a UI-added
+   entry in a yolo-owned key is overwritten with a drop notice. The design point below still
+   holds: the agent's own keys survive because yolo only rewrites the keys it declares.) A
+   host-target `--revert` (§7.2) is the one place that still wants a memory of what was
+   asserted — see the open question in §9.5.
 
 **(3) is the answer, and it is already the shipped design for exactly this problem.**
 `claude/config` (`~/.claude.json`, agent-owned, yolo asserts keys into it) is a host-target
@@ -696,23 +724,29 @@ That has a crisp consequence worth stating as a rule:
 - **`${workspace}` has no referent.** claude's `projects["${workspace}"]` is a per-jail
   assertion. A host target must either refuse a surface that uses the placeholder or bind it
   to the cwd, and refusing is the honest option.
-- **`hostFiles` is meaningless and must be refused.** It names a host file to mount into a
-  jail. On a host target the source and the destination are the same filesystem. Honoring it
-  would be a copy the user did not ask for.
-- **`mounts` is unavailable, and must be refused rather than emulated** (§2.2). No mount
+- **`reads-host` (was `hostFiles`) is meaningless and must be refused.** It names a host file
+  to mount into a jail. On a host target the source and the destination are the same
+  filesystem. Honoring it would be a copy the user did not ask for.
+- **`mount` is unavailable, and must be refused rather than emulated** (§2.2). No mount
   namespace means no `:ro`, and a copy goes silently stale — a pack update that appears to
-  apply and doesn't. macos-user's `host_files` filter is the precedent. The *composed*
-  artifacts a pack delivers through `mounts` — the merged skills tree, `AGENTS.md` — are a
-  separate question: those are composition results and port like surfaces do, which is why
-  §7.3's walkthrough writes them and §6.5's `assert` posture covers them.
-- **The origin gate keeps its tiers but loses its justification** (§5). `OriginEmbedded` still
-  means "shipped in the yolo release", but the reason a `fetched` pack's `install` block is
-  tolerable — whatever it does, it does inside something disposable — is gone. So
-  `install.installerUrl`, a curl-piped shell script, would be running against the human's real
+  apply and doesn't. macos-user's `reads-host`/`host_files` filter is the precedent. The
+  *composed* artifacts a pack delivers — the merged skills tree, `AGENTS.md` — are a separate
+  question: those are composition results (their own `skills`/`briefing` kinds now) and port
+  like config surfaces do, which is why §7.3's walkthrough writes them and §6.5's `assert`
+  posture covers them.
+- **The origin gate keeps its tiers, and off-container it needs to stay strict** (§5).
+  `OriginEmbedded` still means "shipped in the yolo release." Since this was written, a
+  *fetched* pack's host access stopped being an outright refusal and became **install-time
+  approval** (recorded per-commit in the lockfile — see [pack-system.md](pack-system.md) §9).
+  That is the right primitive to build a host target on: the consent step already exists. But
+  the reason the gate is *tolerable* in a jail — whatever runs, runs in something disposable —
+  is gone off-container, so a host target must gate at least as tightly as the jail, and
+  `program via installer` (a curl-piped shell script) would be running against the human's real
   home.
   **This is the single sharpest thing in the whole proposal.** A host target should refuse
-  `install` entirely, at least at first: the host target manages *config*, and installing
-  tools into a real machine is a different feature with its own design.
+  `program` (both `installer` and `npm -g`) entirely, at least at first — even for an
+  otherwise-approved pack: the host target manages *config*, and installing tools into a real
+  machine is a different feature with its own design.
 - **Hooks: two of three must be off.** `shared_credentials` symlinks a credentials file into
   a machine-global dir — on a host target the credentials file *is* already machine-global,
   so the hook is a no-op at best and a broken symlink at worst. `per_jail_history` keys on
@@ -733,8 +767,10 @@ renderer is allowed to do*. This is `Target.Posture` from §3.3:
 `observe` is the default and `own` needs a per-surface opt-in. Note what this makes
 possible that nothing currently does: **`assert` across every agent from one declaration**.
 That is the actual unmet need — you have five agents that each want the same MCP server in
-a different dialect, `computed` + `project` already expresses the reshape as data
-(`agentcfg/project`), and today that machinery only ever runs inside a jail.
+a different dialect, and the per-agent `derive` Lua slot already expresses the reshape
+(`packs/<agent>/derive.lua`, run through `internal/agentcfg/luahook`; this replaced the
+`computed[] + project` DSL the original text referenced), and today that machinery only ever
+runs inside a jail.
 
 ---
 
@@ -753,9 +789,9 @@ yolo -- claude
   <clear _official; copy selected>                # unchanged: the mount IS the filter
   -v .../packs:/ctx/packs:ro -e YOLO_PACK_ROOT=…  # unchanged: argv
   ─── container ───
-  packload.Decode(pack.json)                      # unchanged: the schema, all 9 fields
+  packdecl.Decode(pack.json)                      # unchanged: the schema, all 12 kinds
   render.Render(render.Jail(e), surfaces)         # CHANGED: was an implicit *entrypoint.Env
-  entrypoint: install, mounts, writableDirs, …    # unchanged: the six jail-only fields
+  entrypoint: program, mount, state, files, …     # unchanged: the jail-only kinds
 ```
 
 That single changed line is the entire jail-side risk, and §3.5 says how to retire it:
@@ -778,9 +814,9 @@ mise/config      ~/.config/mise/config.toml        —     refused: computed lay
 claude/config    ~/.claude.json                    rmw   projects — refused: ${workspace}
 
 INAPPLICABLE (FieldSet, §2.1)
-claude  install       refused: pack installs are jail-only
-claude  sharedDirs    skipped: host credentials are already machine-global
-claude  hostFiles     skipped: no jail to carry a host file into
+claude  program       refused: pack installs are jail-only
+claude  state:machine skipped: host credentials are already machine-global
+claude  reads-host    skipped: no jail to carry a host file into
 
 $ yolo config apply --host              # assert: only declared keys, records a sidecar
 $ yolo config apply --host --revert     # removes exactly what the sidecar says it added
@@ -795,20 +831,20 @@ from "delete the user's keys."
 
 ### 7.3 One pack, three environments
 
-`house-rules` has `skills/`, an `AGENTS.md`, and a `pack.json` naming a `computed` MCP
-projection. In a jail the surfaces are composed and the trees arrive as `:ro` mounts. On
-macos-user and on the host the surfaces are asserted into the real home, the merged skills tree
-is *written* (a composition result, §2.2), and anything that needed a real mount is **refused
-by name**.
-**Same manifest, no target-specific fields** — the manifest declares paths and reshapes, and
+`house-rules` has a `skills` tree, a `briefing` (`AGENTS.md`), and a `config` surface whose
+dynamic layer is produced by a `derive.lua` MCP projection. In a jail the surfaces are composed
+and the trees arrive as `:ro` mounts. On macos-user and on the host the surfaces are asserted
+into the real home, the merged skills tree is *written* (a composition result, §2.2), and
+anything that needed a real mount is **refused by name**.
+**Same manifest, no target-specific kinds** — the manifest declares paths and reshapes, and
 the *target* decides what is honored. That is the whole content of "core does not know what an
 agent is," extended one level: **a manifest that has to know which environment it is on is the
 signal this design went wrong.**
 
-The `install` block is where it gets tested. `house-rules` has none, but `claude` does — and
-on the host it is refused *by the target*, not by anything in the pack. A pack author writes
-one `install` spec and never thinks about confinement levels; the target that cannot honor it
-says so by name.
+A `program` contribution is where it gets tested. `house-rules` has none, but `claude` does —
+and on the host it is refused *by the target*, not by anything in the pack. A pack author
+writes one `program` spec and never thinks about confinement levels; the target that cannot
+honor it says so by name.
 
 ---
 
