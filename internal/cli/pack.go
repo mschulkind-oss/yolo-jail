@@ -62,20 +62,36 @@ What a pack delivers:
   • a SHARED pack of your own skills and house rules, applied in every project
   • per-project narrowing of that corpus, via only/exclude
 
+A zero-ceremony pack needs no manifest: a skills/ dir and an AGENTS.md at the pack
+root are staged as-is. A pack.json adds a "contributes" list, one typed entry per
+effect, with a "kind" from a closed set:
+
+  program        install a tool onto PATH        skills    merge a skills tree
+  briefing       prose appended to the briefing  files     own a file tree
+  config         a composed config surface       state     a persistent home dir
+  launch         inject launch flags             hook      a named capability
+  reads-host     read one host-home file :ro     mount     mount a host-home dir :ro
+  env            set static env vars in the jail
+
+See ` + "`yolo config-ref`" + ` (the "packs" section) for the full per-kind field reference.
+
 The packs yolo ships are selected by NAME, and none is on by default:
 
   "packs": ["claude"]        # or copilot, codex, opencode, pi, agy
 
-An EMBEDDED pack (one shipped with yolo) may name a host file to read — that is how
-claude and pi compose your own ~/.claude/settings.json and ~/.pi/agent/settings.json into
-the jail. A FETCHED pack never can: installing a third-party pack approves distributing
-content, not handing that repository your host config.
+An EMBEDDED or LOCAL (file://) pack may read the host home — reads-host, mount, an
+installer program, or a host-prepending briefing. That is how claude and pi compose
+your own ~/.claude/settings.json into the jail. A FETCHED (git) pack is refused all of
+these, with a printed notice: installing a third-party pack approves distributing
+content, not handing that repository your host config. Static "env" values are never
+gated (they read nothing from the host).
 
   yolo pack init [dir]        scaffold a pack skeleton (default: current dir)
-  yolo pack lint [dir]        validate a pack directory the way staging will
+  yolo pack lint [dir]        validate the tree AND the pack.json manifest; print its footprint
   yolo pack ls                list configured packs and what each stages
   yolo pack explain <name>    show which files a pack stages, and what it dropped
-  yolo pack footprint [name]  show what packs claim on the environment + collisions
+  yolo pack footprint [ref]   what packs claim on the environment + collisions;
+                              [ref] = an embedded name OR a local path / file:// pack
   yolo pack install           fetch configured packs and write the lockfile
   yolo pack update            same as install (re-fetch; reports moved pins)
   yolo pack status            show locked commits, and flag config/lock drift
@@ -237,14 +253,56 @@ func packLint(args []string, out, errw io.Writer, color bool) int {
 		problems = append(problems, "skills/"+d+" has no SKILL.md — agents will not see it")
 	}
 
+	// Manifest validation. LoadDir runs packdecl.Decode over the STAGED tree (tmp),
+	// so an unknown kind, a missing required field, or an unknown top-level key is
+	// caught HERE rather than at jail boot (where only the first problem surfaces,
+	// one per launch). Staged, not source, so a manifest filtered out by only/exclude
+	// is not linted as if it shipped. A manifest is optional, so an absent one is not
+	// a problem — LoadDir returns no problems in that case.
+	//
+	// mayAccessHost=true so a reads-host / installer / host-prepending-briefing
+	// contribution is validated for SHAPE regardless of origin; lint checks the
+	// declaration, and the origin gate (a fetched pack getting it refused) is a
+	// separate, install-time concern.
+	pack, manifestProblems := packload.LoadDir(tmp, filepath.Base(dir), true)
+	problems = append(problems, manifestProblems...)
+
 	if len(problems) > 0 {
 		for _, p := range problems {
 			pr.Printf("[red]✗[/red] %s", p)
 		}
 		return 1
 	}
+
 	pr.Printf("[green]✓[/green] pack ok — %d file(s) stage", len(res.Staged))
+
+	// The footprint: what this pack CLAIMS on the environment. An author who never
+	// launches a jail still sees, at lint time, exactly what the manifest declares —
+	// the same view `yolo pack footprint` gives, computed from this pack alone.
+	printPackFootprint(pr, pack)
 	return 0
+}
+
+// printPackFootprint prints one pack's declared claims, flagging the ones a human
+// should review (machine-scope state, a host read, an installer URL). Shared by
+// `pack lint` and `pack footprint` so their output does not drift.
+func printPackFootprint(pr richtext.Printer, p *packload.Pack) {
+	fp := packload.FootprintOf(p)
+	if len(fp.Claims) == 0 {
+		return
+	}
+	pr.Printf("[dim]declares %d claim(s):[/dim]", len(fp.Claims))
+	for _, c := range fp.Claims {
+		flag := ""
+		if c.ReviewWorthy {
+			flag = " [yellow]⚠ review[/yellow]"
+		}
+		detail := ""
+		if c.Detail != "" {
+			detail = "  [dim]" + c.Detail + "[/dim]"
+		}
+		pr.Printf("  [cyan]%-14s[/cyan] %s%s%s", string(c.Kind), c.Target, detail, flag)
+	}
 }
 
 // skillDirsMissingManifest returns the skills/<dir> names that staged files but no
@@ -396,36 +454,102 @@ func packExplain(args []string, out, errw io.Writer, color bool) int {
 	return 0
 }
 
-// packFootprint prints what each pack CLAIMS on the environment — the §3.2 view —
-// and the cross-pack collisions the one-writer rule (§3.6) forbids. With no
-// argument it reports the embedded packs yolo ships (the ones with real
-// declarations); with a name it reports just that embedded pack.
+// packFootprint prints what each pack CLAIMS on the environment, and the cross-pack
+// collisions the one-writer rule forbids. With no argument it reports the embedded
+// packs yolo ships. With an argument it reports ONE pack: an embedded name, or a
+// local path / file:// source — which is staged, loaded, and reported so an author
+// can see their own pack's claims (and any self-collision) before configuring it.
+// A git source is not fetched here (the same limit `pack explain` has).
 //
 // The footprint is computed from each pack's contributes[] via
 // packload.FootprintOf, dispatching on contribution kind.
 func packFootprint(args []string, out, errw io.Writer, color bool) int {
+	pr := richtext.Printer{W: out, Color: color}
+
+	if len(args) > 0 {
+		arg := args[0]
+		// A local path or file:// source → stage + load it, so footprint works on the
+		// pack you are AUTHORING, not only the six yolo ships. This is the one command
+		// that surfaces a same-into skills collision before boot does, so it must accept
+		// a pack that is not yet configured.
+		if isLocalPackArg(arg) {
+			return packFootprintLocal(arg, pr, errw)
+		}
+		// Otherwise treat it as an embedded pack name.
+		var one []*packload.Pack
+		for _, p := range packload.Embedded() {
+			if p.Name == arg {
+				one = append(one, p)
+			}
+		}
+		if len(one) == 0 {
+			fmt.Fprintf(errw, "yolo pack footprint: %q is neither an embedded pack nor a "+
+				"local path/file:// source — see `yolo pack ls`, or pass a directory to "+
+				"footprint a pack you are authoring\n", arg)
+			return 1
+		}
+		return reportFootprint(one, pr)
+	}
+
 	packs := packload.Embedded()
 	if len(packs) == 0 {
 		fmt.Fprintln(errw, "yolo pack footprint: no embedded packs available")
 		return 1
 	}
-	if len(args) > 0 {
-		name := args[0]
-		var one []*packload.Pack
-		for _, p := range packs {
-			if p.Name == name {
-				one = append(one, p)
-			}
-		}
-		if len(one) == 0 {
-			fmt.Fprintf(errw, "yolo pack footprint: no embedded pack named %q "+
-				"(footprint currently reports embedded packs; see `yolo pack ls`)\n", name)
-			return 1
-		}
-		packs = one
-	}
+	return reportFootprint(packs, pr)
+}
 
-	pr := richtext.Printer{W: out, Color: color}
+// isDir reports whether p exists and is a directory.
+func isDir(p string) bool {
+	fi, err := os.Stat(p)
+	return err == nil && fi.IsDir()
+}
+
+// isLocalPackArg reports whether a footprint/explain argument names a local pack
+// (a file:// source or an existing directory) rather than an embedded pack name.
+func isLocalPackArg(arg string) bool {
+	if strings.HasPrefix(arg, "file://") {
+		return true
+	}
+	// A bare name like "claude" is not a path; only treat it as local if it resolves
+	// to an existing directory (covers "./my-pack", "../x", and absolute paths).
+	if strings.ContainsAny(arg, "/.") {
+		return isDir(strings.TrimPrefix(arg, "file://"))
+	}
+	return false
+}
+
+// packFootprintLocal stages a local pack directory and prints its footprint. Uses
+// the same packstage.Stage → packload.LoadDir path as boot, so the claims match
+// what a jail would render. mayAccessHost=true so host-gated claims show up in the
+// footprint (the origin gate is what decides whether they are HONORED, and footprint
+// exists precisely to show what a pack WANTS before you trust it).
+func packFootprintLocal(arg string, pr richtext.Printer, errw io.Writer) int {
+	root := strings.TrimPrefix(arg, "file://")
+	tmp, err := os.MkdirTemp("", "yolo-pack-footprint-")
+	if err != nil {
+		fmt.Fprintf(errw, "yolo pack footprint: %v\n", err)
+		return 1
+	}
+	defer os.RemoveAll(tmp)
+
+	if _, err := packstage.Stage(packstage.Spec{Root: root, Dest: tmp}); err != nil {
+		fmt.Fprintf(errw, "yolo pack footprint: %v\n", err)
+		return 1
+	}
+	pack, problems := packload.LoadDir(tmp, filepath.Base(root), true)
+	if len(problems) > 0 {
+		for _, p := range problems {
+			pr.Printf("[red]✗[/red] %s", p)
+		}
+		return 1
+	}
+	return reportFootprint([]*packload.Pack{pack}, pr)
+}
+
+// reportFootprint prints the per-pack claims for a set of packs, then their
+// cross-pack collisions and the review summary.
+func reportFootprint(packs []*packload.Pack, pr richtext.Printer) int {
 	for _, p := range packs {
 		fp := packload.FootprintOf(p)
 		pr.Printf("[bold]%s[/bold]", p.Name)

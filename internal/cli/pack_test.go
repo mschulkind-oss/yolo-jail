@@ -112,6 +112,75 @@ func TestPackLintFlagsPackNothingReads(t *testing.T) {
 	}
 }
 
+// lint must validate the MANIFEST, not just the file tree: an unknown kind, a
+// missing required field, or an unknown top-level key has to be caught here rather
+// than at jail boot (where only the first surfaces, one per launch).
+func TestPackLintValidatesManifest(t *testing.T) {
+	dir := t.TempDir()
+	var out, errw bytes.Buffer
+	packMain([]string{"init", dir}, &out, &errw, false) // valid skeleton (skills + AGENTS.md)
+
+	// A manifest with an unknown kind AND a missing required field.
+	manifest := `{"contributes":[{"kind":"nonsense"},{"kind":"program","bin":"x"}]}`
+	if err := os.WriteFile(filepath.Join(dir, "pack.json"), []byte(manifest), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	out.Reset()
+	errw.Reset()
+	if rc := packMain([]string{"lint", dir}, &out, &errw, false); rc == 0 {
+		t.Fatalf("expected lint to fail on a malformed manifest:\n%s%s", out.String(), errw.String())
+	}
+	got := out.String() + errw.String()
+	if !strings.Contains(got, "nonsense") {
+		t.Errorf("lint did not report the unknown kind:\n%s", got)
+	}
+	// It must report EVERY problem, not stop at the first — the whole reason to lint.
+	if !strings.Contains(got, "via") {
+		t.Errorf("lint did not also report the missing program field (should report all):\n%s", got)
+	}
+}
+
+// A lint-clean pack with a valid manifest shows its footprint, so an author who
+// never launches a jail still sees what the pack claims.
+func TestPackLintPrintsFootprint(t *testing.T) {
+	dir := t.TempDir()
+	var out, errw bytes.Buffer
+	packMain([]string{"init", dir}, &out, &errw, false)
+	manifest := `{"contributes":[{"kind":"env","vars":{"ACME_MODE":"fast"}}]}`
+	if err := os.WriteFile(filepath.Join(dir, "pack.json"), []byte(manifest), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	out.Reset()
+	errw.Reset()
+	if rc := packMain([]string{"lint", dir}, &out, &errw, false); rc != 0 {
+		t.Fatalf("valid manifest should lint clean: rc %d\n%s%s", rc, out.String(), errw.String())
+	}
+	if !strings.Contains(out.String(), "ACME_MODE") {
+		t.Errorf("lint did not print the env claim in the footprint:\n%s", out.String())
+	}
+}
+
+// footprint must accept a local pack directory, not only the embedded packs, so an
+// author can inspect the pack they are writing before configuring it.
+func TestPackFootprintAcceptsLocalPath(t *testing.T) {
+	dir := t.TempDir()
+	var out, errw bytes.Buffer
+	packMain([]string{"init", dir}, &out, &errw, false)
+	manifest := `{"contributes":[{"kind":"mount","host":"datasets/acme","into":"acme-data"}]}`
+	if err := os.WriteFile(filepath.Join(dir, "pack.json"), []byte(manifest), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	out.Reset()
+	errw.Reset()
+	if rc := packMain([]string{"footprint", dir}, &out, &errw, false); rc != 0 {
+		t.Fatalf("footprint on a local path failed: rc %d\n%s%s", rc, out.String(), errw.String())
+	}
+	// The mount claim (host read → /ctx) must appear and be flagged for review.
+	if !strings.Contains(out.String(), "mount") || !strings.Contains(out.String(), "review") {
+		t.Errorf("footprint did not show the review-worthy mount claim:\n%s", out.String())
+	}
+}
+
 func TestPackUnknownVerbIsAnError(t *testing.T) {
 	var out, errw bytes.Buffer
 	if rc := packMain([]string{"frobnicate"}, &out, &errw, false); rc == 0 {
