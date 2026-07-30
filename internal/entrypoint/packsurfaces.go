@@ -91,8 +91,8 @@ func ConfigurePackSurfaces(e *Env, packs []*packload.Pack) {
 			genStep(e, "pack_"+p.Name+"_surfaces", func() error { return fmt.Errorf("%s", prob) })
 		}
 		// A pack's derive.lua (if any) produces every dynamic layer for its surfaces
-		// — the projection Lua that replaced the computed[] op DSL (§3.3). Read once
-		// per pack; absent means no surface has a dynamic layer.
+		// — the projection Lua (docs/design/pack-system.md §7). Read once per pack;
+		// absent means no surface has a dynamic layer.
 		deriveScript := loadPackDeriveScript(p)
 		for _, s := range surfaces {
 			surface := s
@@ -167,8 +167,8 @@ func renderDeclaredSurface(e *Env, surface manifest.Surface, tables map[string]m
 	}
 
 	// The dynamic (computed) layer: produced by the surface's derive function over the
-	// live tables (§3.3), replacing the computed[] op DSL. One map serves both the
-	// compose path (as Inputs.Computed) and the RMW path (as the managed dynamic table).
+	// live tables (docs/design/pack-system.md §7). One map serves both the compose
+	// path (as Inputs.Computed) and the RMW path (as the managed dynamic table).
 	computed, err := deriveComputedLayer(e, surface, deriveScript, tables)
 	if err != nil {
 		return err

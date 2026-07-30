@@ -401,9 +401,8 @@ func packExplain(args []string, out, errw io.Writer, color bool) int {
 // argument it reports the embedded packs yolo ships (the ones with real
 // declarations); with a name it reports just that embedded pack.
 //
-// Phase 1: the footprint is computed from today's manifest fields via
-// packload.FootprintOf (the field→kind shim), so this is faithful to current
-// behavior, not the future contributes[] schema.
+// The footprint is computed from each pack's contributes[] via
+// packload.FootprintOf, dispatching on contribution kind.
 func packFootprint(args []string, out, errw io.Writer, color bool) int {
 	packs := packload.Embedded()
 	if len(packs) == 0 {

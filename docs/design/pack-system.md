@@ -1,0 +1,593 @@
+# The pack system
+
+A **pack** is a directory of jail configuration — skills, briefing prose, composed config
+files, and optionally a tool to install — that yolo delivers into every jail you launch.
+This is the whole of how a jail is populated: with no packs configured a jail has nothing
+but the built-in shell and skills, and no coding agent. **Agents are packs.** Core has no
+notion of "an agent"; the six that ship with yolo (`claude`, `copilot`, `opencode`, `pi`,
+`codex`, `agy`) are packs like any other, selected by bare name.
+
+This document describes the pack system as it works: what a pack declares, how the
+declaration is validated, how packs are selected and fetched, and how they are rendered
+into a jail. It is the authority for **authoring, debugging, or changing a pack**. For the
+CLI surface see `yolo pack --help`; for the `packs` config key see `yolo config-ref`.
+
+---
+
+## 0. Three principles
+
+Everything below follows from three rules. Read these first; the rest is their mechanism.
+
+1. **Every file on disk has exactly one writer.** A pack either OWNS a file outright, or it
+   does not write that file — it contributes typed INPUTS to a neutral core-owned assembler
+   that writes it. Two packs claiming one owned path is an error, caught before anything
+   runs. Two packs feeding one assembled file is the feature. There is no third case.
+
+2. **Core knows the DOMAIN, not the TOOL.** Core names domain nouns from a closed,
+   tool-independent set — `program`, `skills`, `briefing`, `config`, `state`, and so on. It
+   never names `claude` or `copilot`. A pack maps its tool onto those nouns. The boot path
+   renders every pack in one loop with no switch on any tool name; the *selection of which
+   packs stage* is the only filter (§8).
+
+3. **The manifest is static data.** Every claim a pack makes is readable without executing
+   anything — that is what keeps linting, the origin gate, and content hashing honest. Lua
+   has exactly one job in a pack (`derive`, §7): it computes config *values*, and never
+   declares *effects*.
+
+---
+
+## 1. What a pack is, on disk
+
+A pack is a directory. Nothing in it is mandatory.
+
+```
+my-pack/
+├── pack.json      # optional — the manifest (contributes[])
+├── AGENTS.md      # optional — prose concatenated into every briefing (CLAUDE.md also accepted)
+├── derive.lua     # optional — Lua producers for config dynamic layers (§7)
+└── skills/        # optional — one dir per skill, each with a SKILL.md
+    └── rust-review/
+        └── SKILL.md
+```
+
+The zero-ceremony pack — an `AGENTS.md` plus a `skills/` tree, no `pack.json` — is a
+complete, useful pack: house rules and a skill corpus applied in every jail. `yolo pack
+init` scaffolds exactly this.
+
+Content rules are enforced at staging by `internal/packstage`, and a violation is **fatal,
+not skipped** (a pack that half-stages is worse than one that fails loudly):
+
+| Rule | Enforcement |
+|---|---|
+| An executable file is refused unless its entry sets `allow_exec` | staging error |
+| A symlink whose target escapes the pack root is refused | staging error |
+| Staging clears a destination dir's *contents*, never the dir itself | avoids clobbering a mountpoint |
+
+`yolo pack lint` runs the real staging executor against a directory and reports what it
+would stage and what it would drop, so these rules are checkable before a pack is
+configured.
+
+---
+
+## 2. The manifest: `contributes[]`
+
+`pack.json` has two top-level keys: `name` and `contributes`. Every field is optional; a
+pack with no `pack.json` behaves as an empty `contributes`.
+
+```jsonc
+{
+  "name": "claude",
+  "contributes": [
+    { "kind": "program", "bin": "claude", "via": "installer", "url": "https://claude.ai/install.sh" },
+    { "kind": "skills",  "from": "skills", "into": ".claude/skills" }
+    // ...
+  ]
+}
+```
+
+`contributes` is a single list of typed **contributions**. Each has a required `kind` drawn
+from a closed set core owns (§3), plus the fields that kind uses. The struct is a flat
+superset — a contribution carries only the fields its kind reads. Decoding is strict
+(`DisallowUnknownFields`) and reports *every* problem, not the first, so a typo in one
+contribution does not mask a second. An unknown `kind` is a loud load error.
+
+**Every path is relative and points into `$HOME` or the pack.** Absolute paths, `..`
+segments, and `:` are rejected as a security property, not a style rule: a pack — especially
+a fetched one — naming `/etc/shadow` or `../../` must never validate. This check runs on
+every path-bearing field of every kind.
+
+---
+
+## 3. The kinds, their footprints, and conflict rules
+
+The closed kind set, what each *claims* on the environment, and how two claims on the same
+target combine:
+
+| Kind | Claims | Combine rule |
+|---|---|---|
+| `program` | a name on `PATH` + a lazy launcher in `~/.yolo-shims/` | **Exclusive** — two packs, one `bin` → error |
+| `skills` | a merge-target skills dir | **Merge** — many packs into one dir is the feature |
+| `briefing` | a concat slot at a path | **Concat** — ordered |
+| `files` | exclusive ownership of a path | **Exclusive** |
+| `config` | a config surface (identity + file) | **Exclusive** — a second writer must be `config-overlay` |
+| `config-overlay` | a contribution to a surface another pack owns | **Overlay** — later-wins, per-key provenance |
+| `state` | a writable home subtree at a scope | **Scoped** — same subtree at two scopes → error |
+| `reads-host` | a host-home file, read-only | **Shared** — many readers are fine |
+| `launch` | flags for a binary | **Exclusive** — by `bin` |
+| `hook` | a named imperative capability from core's closed set | **PerHook** |
+
+The **footprint** is this table applied to a concrete set of packs: the union of every
+claim, plus the collisions where an Exclusive/Scoped target is claimed twice. `yolo pack
+footprint` prints it, and `yolo check` folds it in. Some claims are flagged `⚠ review`
+because they widen the trust surface — machine-scope state (it leaks across workspaces), a
+`reads-host` grant, an installer URL, a briefing that prepends a host file. The review flag
+is an invitation to look, not a refusal.
+
+The per-kind fields:
+
+### `program`
+Installs a tool and puts it on `PATH` via a launcher that installs on first invocation.
+- `bin` (required) — the command name.
+- `via` (required) — `npm` or `installer`.
+- `package` (required for `npm`) — the npm package.
+- `url` (required for `installer`) — the install-script URL (origin-gated, §9).
+- `flags` — optional flags baked into the launcher.
+
+```json
+{ "kind": "program", "bin": "opencode", "via": "npm", "package": "opencode-ai" }
+{ "kind": "program", "bin": "claude", "via": "installer", "url": "https://claude.ai/install.sh" }
+```
+
+### `skills`
+A skills tree merged into an agent's skills dir. Precedence is built-in < pack < the user's
+own tree, so a local skill always wins.
+- `from` (required) — pack-relative source dir.
+- `into` (required) — home-relative destination.
+
+```json
+{ "kind": "skills", "from": "skills", "into": ".claude/skills" }
+```
+
+### `briefing`
+Prose concatenated into a briefing file, attributed to its pack.
+- `from` (required) — pack-relative source (`AGENTS.md`/`CLAUDE.md`).
+- `into` (required) — home-relative destination.
+- `after` — `"host:<path>"` prepends the user's own briefing at that host path ahead of the
+  composed content, so a personal `AGENTS.md` still outranks the pack's. Origin-gated.
+
+```json
+{ "kind": "briefing", "from": "AGENTS.md", "into": ".claude/CLAUDE.md", "after": "host:.claude/CLAUDE.md" }
+```
+
+### `files`
+An opaque tree the pack owns outright.
+- `from` (required), `into` (required).
+
+### `config`
+A composed config surface the pack owns. `config` is a JSON array of surface definitions
+(§5) carried verbatim; the surface schema is validated by the config engine.
+- `config` (required) — the surface array.
+
+```json
+{ "kind": "config", "config": [
+  { "agent": "opencode", "name": "config", "codec": "json",
+    "path": "~/.config/opencode/opencode.json",
+    "defaults": { "$schema": "https://opencode.ai/config.json" },
+    "managed": { "permission": "allow" } } ] }
+```
+
+### `config-overlay`
+A contribution to a surface **another pack owns** — the mechanism a "house-rules" pack uses
+to assert keys on an agent's config without owning the file. Folds in after the owner's
+layers, later-wins, with per-key provenance recorded.
+- `surface` (required) — the target `"agent/name"`.
+- `config` (required) — the object to overlay.
+
+> **Boundary note.** The kind parses, validates, and has full compose-engine support
+> (`Inputs.Overlays`), but the boot render path does not yet collect `config-overlay`
+> contributions and feed them to the assembler — so today a `config-overlay` in a manifest
+> is inert. See §14.
+
+### `state`
+A writable home subtree that persists.
+- `at` (required) — home-relative dir.
+- `scope` — `workspace` (default; backed per-workspace under `<ws>/.yolo/home/`) or
+  `machine` (backed by the global home, **leaks across workspaces by design**).
+- `because` — **required** for `scope: machine`, so a cross-workspace leak is a conscious,
+  documented decision.
+
+```json
+{ "kind": "state", "at": ".claude", "scope": "workspace" }
+{ "kind": "state", "at": ".claude-shared-credentials", "scope": "machine",
+  "because": "identity/credential state shared across workspaces" }
+```
+
+### `reads-host`
+A host-home file mounted read-only into the jail — the credential boundary. Origin-gated:
+only an embedded or local pack may read a host file.
+- `host` (required) — host-home-relative source.
+- `into` — `/ctx` destination (defaults to `host-<pack>/<basename>`).
+
+```json
+{ "kind": "reads-host", "host": ".claude/settings.json", "into": "host-claude/settings.json" }
+```
+
+### `launch`
+Flags injected right after a binary on the command line, with alias suppression.
+- `bin` (required), `flags`, `aliases` (`map[string][]string` — e.g. `-y` implies `--yolo`,
+  so a user who typed `-y` does not also get `--yolo`).
+
+```json
+{ "kind": "launch", "bin": "claude", "flags": ["--dangerously-skip-permissions"] }
+```
+
+### `hook`
+A named request for a core-provided imperative behavior. The set is **closed**:
+`shared_credentials`, `per_jail_history`, `claude_plugins`. A pack requests a hook by name
+and supplies its parameters; it cannot ship the hook's logic (that would put arbitrary
+effect code in a fetched pack). New behavior means a new named hook in core.
+- `hook` (required, from the closed set), plus `from`/`at` as that hook's parameters.
+
+```json
+{ "kind": "hook", "hook": "shared_credentials", "from": ".claude/.credentials.json", "at": ".claude-shared-credentials" }
+```
+
+---
+
+## 4. The one-writer rule and the neutral assembler
+
+Principle 1 restated concretely. There are two ways a file reaches the jail:
+
+- **Sole ownership.** `files`, `program`, `launch`, and a pack's own `skills`/`briefing`
+  tree — the pack owns the target, and two packs claiming one path is a lint error before
+  anything runs.
+
+- **Shared production via a neutral owner.** When two packs affect one file, no pack writes
+  it. Each emits typed contributions and a **core-owned assembler** consumes all of them and
+  writes the file into a staging tree it wholly owns; the staging tree is mounted read-only
+  into the jail. The compose engine (§5) is that owner for config; the stage-then-`:ro`-mount
+  pattern is it for skills and briefings.
+
+```
+   packs' typed contributions                 core assembler                 the jail
+  ┌────────────────────────────┐          (the ONLY writer)            ┌──────────────────┐
+  │ claude:  config inputs ─────┼──┐                                   │                  │
+  │ house-rules: config overlay─┼──┼──►  compose ──► staging/ ──:ro──► │ ~/.claude/       │
+  │ claude:  skills tree ───────┼──┼──►  merge   ──► staging/ ──:ro──► │   settings.json  │
+  │ house-rules: skills tree ───┼──┘                  │                │   skills/        │
+  │ claude:  briefing prose ────┼─────►  concat  ─────┘  (collision-   │   CLAUDE.md      │
+  │ house-rules: briefing ──────┼─────►             checked, tracked)  │                  │
+  └────────────────────────────┘                                      └──────────────────┘
+        declare inputs                  one module writes every file      never written in place
+```
+
+Three properties fall out: no file is ever written twice (a "collision" is detected among
+inputs, never raced on disk); provenance is free (one module writing from declared inputs
+can say which contribution produced which key); and the staging layer is a safety boundary
+(a bad contribution corrupts a throwaway tree, never the live home).
+
+---
+
+## 5. Config surfaces and the compose engine
+
+A `config` contribution declares one or more **surfaces**. A surface is one generated file
+plus its layer data:
+
+| Field | Meaning |
+|---|---|
+| `agent` | the owning surface id — an agent (`claude`) or a non-agent owner (`mcp`, `lsp`, `mise`, `identity`) |
+| `name` | the per-owner surface name; `(agent, name)` is the unique key |
+| `path` | the file yolo writes in the jail, e.g. `~/.claude/settings.json` |
+| `codec` | `json` \| `toml` \| `lines` \| `raw` — the decode/encode round-trip |
+| `mode` | how the file is maintained (below); defaults to `stateful` |
+| `defaults` | yolo's base layer, lowest precedence, user-overridable |
+| `managed` | yolo's asserted keys, applied last so they win the merge |
+| `retireOnFirstRender` | stale sidecar files to clean up on first render |
+
+The engine composes a surface by folding layers with RFC-7386 merge semantics, lowest to
+highest precedence:
+
+```
+defaults  <  host  <  workspace  <  config-overlay  <  capture-overlay  <  computed(derive)  <  [lua transform]  <  managed
+```
+
+- **`host`** is derived, not declared: a `reads-host` grant whose basename matches the
+  surface path becomes this layer, read from its `/ctx` mount. This is how claude's own
+  `~/.claude/settings.json` composes into the jail with no second declaration.
+- **`capture-overlay`** carries a user's in-jail edits across regeneration (for `stateful`
+  surfaces).
+- **`computed`** is the per-boot dynamic layer produced by `derive` (§7); a null value there
+  is an RFC-7386 tombstone that deletes the key.
+- **`managed`** is the floor yolo always wins.
+
+`${workspace}` in a map key is substituted with the container workspace path.
+
+The four **modes** (a closed set):
+
+| Mode | Behavior |
+|---|---|
+| `stateful` | compose from layers *and* capture in-jail edits back into the overlay (the default) |
+| `computed` | compose from layers and overwrite every boot, discarding in-jail edits |
+| `rmw` | read-modify-write an agent-owned file: merge yolo's managed keys into whatever the agent wrote, no sidecars |
+| `unrendered` | declared but never written |
+
+`rmw` is the mode for a file the agent itself owns and mutates at runtime (e.g. claude's
+`~/.claude.json`): yolo regenerates only the keys it manages and leaves the rest alone. yolo
+owns the top-level `mcpServers` key in that file and regenerates it wholesale each boot — a
+server a UI adds at the user scope is overwritten with a boot-time drop notice, while
+local-scope and project `.mcp.json` servers are untouched. yolo does not reconcile; it
+regenerates.
+
+---
+
+## 6. Composed-file posture: what "writable" means
+
+Every composed file has a read/write posture, from a three-way taxonomy:
+
+- **Derived** — yolo is the sole author; the file is a pure function of layers. Made
+  effectively read-only in the jail (`computed` mode); an in-jail edit is discarded next
+  boot.
+- **Shared** — yolo and the agent both write, on disjoint keys (`rmw`); yolo asserts its
+  managed keys and preserves the agent's.
+- **State** — the agent owns it; yolo only seeds and persists it (`stateful` with capture,
+  or a `state` dir).
+
+A second axis is whether a surface is **host-linked** (has a `host` layer from a
+`reads-host` grant). The posture and the host-link together decide whether an in-jail edit
+survives, and whether the file is safe to regenerate.
+
+---
+
+## 7. The `derive` slot
+
+A surface whose content depends on live configuration — which MCP servers are set, which LSP
+servers are enabled — cannot be static data. That dynamic layer is the one place a pack runs
+Lua, and it is tightly bounded.
+
+A pack ships `derive.lua` at its root and registers per-surface producers:
+
+```lua
+yolo.derive("opencode", "config", function(ctx)
+  -- ctx.mcp_servers and ctx.lsp_servers are the live, read-only source tables.
+  -- return the computed layer for opencode's `config` surface.
+end)
+```
+
+The contract:
+
+- A `derive` function is a **producer**: it returns the computed layer (a config value),
+  which the engine folds in at the `computed` slot. It runs *before* the merge — it does not
+  mutate the composed file.
+- Its inputs are the **live source tables** `ctx.mcp_servers` and `ctx.lsp_servers`,
+  read-only. The source set is closed and core-owned: a pack *projects* from these into its
+  tool's dialect; it never invents a new source.
+- `ctx.tombstone` is a sentinel that round-trips to Go `nil` so a key can be deleted (bare
+  Lua `nil` in a table just drops the entry, which cannot express "delete this key");
+  `ctx.empty_array` is the sentinel for an intentional empty JSON array (Lua cannot
+  distinguish an empty array from an empty object).
+- It runs in the sandboxed Lua VM, and it must be deterministic.
+
+This is the whole of pack-supplied logic. There is no reshape op DSL and no pack-supplied
+effect code; a projection that a fixed combine rule cannot express is a `derive` function,
+and nothing else in a pack executes.
+
+The **canonical MCP-server type** lives in core: `name → {command, args, env}`, open and
+additively versioned (a new transport is a new optional field that never breaks an existing
+projection). Each agent pack's `derive` projects that canonical table into its tool's shape
+— opencode folds `command`+`args` into one array and renames `env`→`environment`; claude
+tombstones `mcpServers` out of `settings.json` because MCP belongs in `.claude.json`.
+
+---
+
+## 8. Selection and the load path
+
+### The `packs` key
+
+Packs are selected by the `packs` config key, **user scope only** — a workspace config
+naming a pack is a hard error, because a workspace is agent-editable and a pack can grant
+host access. Nothing is active by default; an empty `packs` yields a jail with no agent, and
+says so at launch.
+
+Three source forms:
+
+```jsonc
+"packs": [
+  "claude",                                              // a pack yolo ships, by bare name
+  "file:///home/me/code/my-pack",                        // a local directory
+  "git+ssh://git@github.com/org/repo//subdir?ref=main"   // a fetched pack (ref mandatory)
+]
+```
+
+The object form adds `name`, `only`/`exclude` globs (per-project narrowing of a shared
+corpus), and `allow_exec`.
+
+### Fetch, lock, offline launch
+
+Fetching happens in exactly one place: `yolo pack install` (and its alias `update`).
+Everything else is offline.
+
+- A git source is cloned host-side into a content-addressed store: a bare mirror per repo,
+  a checkout per commit. Fetches run with fsck-on-transfer so malformed third-party content
+  is rejected at the boundary, and with terminal prompts disabled so a missing credential
+  errors instead of hanging. **The jail has no git credentials by design**, so fetch is
+  host-only.
+- The lockfile (`~/.config/yolo-jail/packs.lock.json`, beside the user config) records the
+  asked-for `source`, the resolved `commit`, and the `ref`. Because trees are keyed by
+  commit, a moving ref never corrupts an existing checkout.
+- Launch resolves pins from the store and never fetches; a missing pin errors and points at
+  `yolo pack install`. `yolo pack status` flags drift between the config address and the
+  lock.
+
+### Host-side staging, then jail-side render
+
+- The host stages only the **selected** packs into the mounted pack tree (`YOLO_PACK_ROOT`),
+  clearing it first. **The mount is the filter**: the entrypoint renders every pack it finds
+  under the root, so staging only the selected ones — and clearing the tree — is what makes a
+  dropped pack stop rendering. Staging all packs and filtering later would render packs
+  nobody asked for.
+- A declared pack that cannot be staged is a **fatal** error — a jail must not come up
+  silently missing a pack it was told to load.
+- In the jail, the entrypoint renders every staged pack in **one loop with no switch on any
+  tool name**: for each contribution it dispatches on `kind`. This loop is the concrete proof
+  of principle 2.
+- Certain core reservation lists (writable-home roots, global-home subdirs, host-file
+  reserved destinations) cover **every pack yolo ships**, not just the selected ones — a
+  reservation that only knew the selected set could let one pack claim a path another pack
+  needs.
+
+---
+
+## 9. The origin gate (credential boundary)
+
+A pack has an **origin**: embedded (ships with yolo), local (a `file://` directory the user
+controls), or fetched (cloned from a git ref). The gate is one predicate:
+
+> **A fetched pack may not access the host. An embedded or local pack may.**
+
+Three contributions constitute host access, and they are checked through a single predicate
+so a caller cannot honor two of three:
+
+- `reads-host` — a host file read.
+- `program` via `installer` — a curl-to-shell install URL. (`npm` is *not* gated: a package
+  name is not a host read.)
+- `briefing` with `after: "host:…"` — prepending the user's own briefing file.
+
+A fetched pack that declares any of these has it **refused, with a printed notice** — never
+silently dropped. Installing a third-party pack approves distributing its content; it does
+not hand that repository your host config. Inside the jail every pack loads as
+host-permitted, because the host already applied the gate by deciding which `/ctx` mounts
+exist.
+
+---
+
+## 10. Command surface
+
+| Verb | What it does |
+|---|---|
+| `yolo pack init [dir]` | scaffold a valid skeleton (`AGENTS.md`, an example skill, `README.md`); never a `pack.json` |
+| `yolo pack lint [dir]` | run the real staging executor; flag no-stageable-files, missing skills/briefing, a skill dir with no `SKILL.md` |
+| `yolo pack ls` | list configured packs and what each stages |
+| `yolo pack explain <name>` | stage one pack and show what it stages and what it dropped (`file://` local only) |
+| `yolo pack footprint [name]` | print each pack's claims, cross-pack collisions, and the review-worthy summary (embedded packs) |
+| `yolo pack install` / `update` | fetch configured packs, write the lockfile, report moved pins, prune dropped packs (the only network step) |
+| `yolo pack status` | show locked commits and flag config/lock drift |
+
+---
+
+## 11. Worked examples
+
+### The `claude` pack
+
+Selected as `"claude"`. It declares, in one `contributes[]`:
+
+- `program` — installs `claude` from its installer URL (origin-gated).
+- `briefing` — its `AGENTS.md` composed into `~/.claude/CLAUDE.md`, prepending the user's own
+  `~/.claude/CLAUDE.md` if present.
+- `skills` — its `skills/` tree merged into `~/.claude/skills`.
+- two `config` surfaces — `~/.claude.json` in `rmw` mode (yolo owns `mcpServers`, claude owns
+  the rest) and `~/.claude/settings.json` in the default `stateful` mode.
+- two `state` dirs — `.claude` (per-workspace) and `.claude-shared-credentials` (machine,
+  with a `because`).
+- `reads-host` — `~/.claude/settings.json`, which becomes the `host` layer of the `settings`
+  surface by basename match.
+- `launch` — `--dangerously-skip-permissions`.
+- three `hook`s — `shared_credentials`, `per_jail_history`, `claude_plugins`.
+
+Its `derive.lua` produces two computed layers: for `config`, the `mcpServers` table from the
+canonical source; for `settings`, tombstoning `mcpServers` (MCP belongs in `.claude.json`)
+and toggling LSP plugins by which LSP servers are configured.
+
+### The `opencode` pack
+
+A leaner pack: `program` (npm), `briefing`, and one `config` surface. Its `derive.lua` is the
+worked projection — it folds the canonical MCP `command`+`args` into opencode's single
+`command` array, renames `env`→`environment`, injects `type: "local"` and `enabled: true`,
+and omits the whole `mcp` key when no servers are configured.
+
+### A minimal house-rules pack (no manifest)
+
+```
+acme-conventions/
+├── AGENTS.md                      # house conventions, appended to every briefing
+└── skills/
+    └── acme-rust-review/
+        └── SKILL.md
+```
+
+Configured as `"file:///home/me/acme-conventions"`. It declares no host access, so nothing
+is origin-gated; it works identically as an embedded, local, or fetched pack. `yolo pack
+lint` validates it, `yolo pack install` records it in the lockfile, and every jail gets the
+prose appended to its briefing (attributed to the pack) and the skill merged into the skills
+dir.
+
+---
+
+## 12. Invariants
+
+- The manifest stays static data — every claim readable without executing anything.
+- The origin gate keeps its teeth — a fetched pack never reads the host.
+- Packs stay user scope — a workspace config cannot name one.
+- The source set for `derive` stays closed and core-owned — a pack projects, never invents.
+- `derive` is deterministic.
+
+---
+
+## 13. Open questions
+
+These are unsettled and do not affect a pack author today; they are recorded here rather
+than scattered.
+
+1. **Footprint in the content hash.** Whether a pack's declared footprint should be part of
+   what its lockfile pin hashes, so a pack cannot silently widen its claims across a moving
+   ref.
+2. **Skills reshape.** Skills merge as plain trees today. Whether a second producer will ever
+   need to reshape another pack's skills (as `derive` reshapes config) is open; no case has
+   needed it.
+3. **Machine-scope gating.** Whether `scope: machine` state should require more than a
+   `because` string — e.g. an explicit user opt-in per pack.
+4. **Collision severity.** Reservation lists cover embedded packs only. A configured pack's
+   `state` dir is not reserved, so a `host_files` entry can collide with it and surface as an
+   opaque mount error. The direction: compute embedded/configured/user claims in one pass at
+   `yolo check`, refuse pack-vs-pack, report pack-vs-user. The footprint union is the
+   mechanism; the severity wiring is unbuilt.
+5. **Per-confinement field applicability.** Which kinds mean anything when a pack is rendered
+   somewhere other than a container (see §14) — `config`/`skills`/`briefing` port cleanly;
+   `files`/`install` are refused; `reads-host` and `state` at the host are genuinely unclear.
+   This is `yolo-as-environment-manager.md`'s concern.
+
+---
+
+## 14. Designed but not yet wired
+
+Three capabilities are designed and partly built. A pack author should treat them as absent.
+
+- **`config-overlay` rendering.** The kind parses and validates, has a footprint and combine
+  rule, and the compose engine accepts overlay inputs with per-key provenance. But no
+  boot-path code collects `config-overlay` contributions and feeds them to the assembler, so
+  a `config-overlay` in a manifest has no effect today. This is the one contribution kind
+  that is inert.
+
+- **Typed inter-pack exports.** The design allows a pack to `export` a canonical type (e.g.
+  MCP servers) that other packs `import`, so a shared dependency lives in one pack. Only the
+  *projection* half shipped (`derive`); the export/import graph did not. MCP server instances
+  come from the `mcp_servers` config table, not from an exporting pack.
+
+- **Rendering a pack OUT to the host.** A pack describes how a tool is configured; rendering
+  that description into the *real* `$HOME` (rather than a jail) — "the host as a reduced
+  render target" — is fully designed in `host-render-target.md` but entirely unbuilt. This is
+  the "invert the flow" direction and it is tracked as its own body of work.
+
+---
+
+## Where the rest lives
+
+| Topic | Authority |
+|---|---|
+| Pack manifest schema, field by field | `internal/packdecl/packdecl.go`, `contributes.go`, `kinds.go` (the doc comments are the reference) |
+| The `packs` config key, precedence, entry schema | `yolo config-ref` |
+| The composition engine internals | `internal/agentcfg` |
+| Bringing host files INTO a jail as a user (the `host_files` key) | `docs/plans/host-file-staging.md` |
+| Rendering a pack OUT to the host (the invert-the-flow design) | `docs/design/host-render-target.md` |
+| The credential/identity boundary a pack respects | `docs/design/agent-credentials.md`, `docs/design/identity-prism-decision.md` |
+| Composed-file read/write posture, in depth | `docs/design/composed-file-permissions.md` |
+| yolo as a confinement dial (jail / guest / host) | `docs/design/yolo-as-environment-manager.md` |

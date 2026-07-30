@@ -6,10 +6,9 @@ package luahook
 // A `transform` runs POST-merge: it receives ctx.config (the composed surface)
 // and mutates it. A `derive` runs PRE-merge: it receives the live config tables
 // (mcp_servers, lsp_servers) and RETURNS a fresh object — the computed layer that
-// feeds Inputs.Computed, exactly where manifest.BuildComputed's output flowed
-// before (packsurfaces.go). Same pipeline slot, so no merge-order change; the
-// only new thing is that the reshape is now sandboxed Lua instead of the
-// computed[]/project op DSL (pack-declaration-reform §3.3, OQ1).
+// feeds Inputs.Computed (packsurfaces.go). It is the one place a pack runs Lua:
+// a sandboxed producer of a config value, never an effect
+// (docs/design/pack-system.md §7).
 //
 // Two facilities a derive needs that a transform does not, both added here:
 //
@@ -130,8 +129,7 @@ func (vm GopherLuaVM) Derive(script string, ctx *DeriveCtx) (map[string]any, err
 
 	fn, ok := derives[key{ctx.Agent, ctx.Surface}]
 	if !ok {
-		// No derive registered for this surface — the identity (no computed layer),
-		// exactly like a surface with no computed[] declarations.
+		// No derive registered for this surface — the identity (no computed layer).
 		return nil, nil
 	}
 	if err := L.CallByParam(lua.P{Fn: fn, NRet: 1, Protect: true}, ctxTable); err != nil {

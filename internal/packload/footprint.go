@@ -2,21 +2,14 @@ package packload
 
 // footprint.go computes a pack's FOOTPRINT — the list of concrete claims it makes
 // on the environment — and detects collisions across packs. It is the "good
-// citizen" mechanism (docs/design/pack-declaration-reform.md §1.4, §3.2): the one
+// citizen" mechanism (docs/design/pack-system.md §3): the one
 // place that computes the union of what packs claim and applies the one-writer
-// rule (§3.6).
+// rule (pack-system.md §4).
 //
-// PHASE 1 (the plan): this reads TODAY's manifest fields — mounts / writableDirs /
-// sharedDirs / hostFiles / install / surfaces / launchFlags — and maps each to a
-// kind + claim. It is the compatibility shim that lets footprints exist before the
-// manifest is rewritten to contributes[] (Phase 4). When that rewrite lands, only
-// FootprintOf changes (to read contributes[] directly); Collisions and the CLI
-// consumers stay put.
-//
-// It absorbs the two scattered checks that existed: HostFileConflicts (one pack,
-// one kind — and never actually called) and the silent-dedup union() behind
-// WritableDirs/SharedDirs. Here a cross-pack duplicate is REPORTED, per the §3.2
-// combine rule, not silently merged.
+// FootprintOf reads a pack's contributes[] and maps each contribution to a kind +
+// claim; Collisions unions the claims across packs and reports a cross-pack
+// duplicate on any Exclusive/Scoped target, per the combine rule
+// (docs/design/pack-system.md §3), rather than silently merging it.
 
 import (
 	"fmt"
@@ -39,7 +32,7 @@ type Claim struct {
 	Target string
 	// Pack is the name of the pack making the claim.
 	Pack string
-	// Detail is a short human note shown by --footprint (e.g. "machine-wide",
+	// Detail is a short human note shown by `yolo pack footprint` (e.g. "machine-wide",
 	// the installer URL, the merge precedence). Not used for collision.
 	Detail string
 	// ReviewWorthy marks a claim a human should look at before trusting the pack:
@@ -55,11 +48,8 @@ type Footprint struct {
 	Claims []Claim
 }
 
-// FootprintOf reads a pack's typed contributions (via packdecl.Contributions(),
-// which yields the declared contributes[] or synthesizes them from the legacy
-// fields during the compatibility window) and returns its claims. This is the
-// Phase-4 inversion of the Phase-1 shim: the footprint now reads kinds directly
-// rather than reproducing the field→kind mapping.
+// FootprintOf reads a pack's typed contributions (via packdecl.Contributions())
+// and returns its claims, dispatching on each contribution's kind.
 //
 // The config claim needs a surface IDENTITY (agent/name), which only the decoded
 // surface carries — so config claims come from p.Surfaces(), while every other
@@ -126,7 +116,7 @@ func FootprintOf(p *Pack) Footprint {
 	}
 
 	// Stable order: contribution order is map-dependent for launch/…, so sort by
-	// (kind, target) for a deterministic --footprint and test.
+	// (kind, target) for a deterministic footprint and test.
 	sort.SliceStable(fp.Claims, func(i, j int) bool {
 		if fp.Claims[i].Kind != fp.Claims[j].Kind {
 			return fp.Claims[i].Kind < fp.Claims[j].Kind
@@ -137,7 +127,7 @@ func FootprintOf(p *Pack) Footprint {
 }
 
 // Collision is a conflict between two claims on one target that the kind's
-// combine rule forbids (§3.2). Reported, never silently resolved.
+// combine rule forbids. Reported, never silently resolved.
 type Collision struct {
 	Kind   packdecl.Kind
 	Target string
@@ -146,15 +136,14 @@ type Collision struct {
 }
 
 // Collisions computes the union of every pack's footprint and returns the
-// conflicts the one-writer rule forbids (§3.6): two packs claiming an
+// conflicts the one-writer rule forbids (pack-system.md §4): two packs claiming an
 // exclusively-owned target (program/files/config/launch), or overlapping
 // state at different scopes. Merge/concat/shared kinds never collide — that is
 // the feature — so they are not reported.
 //
-// This is the single-pass replacement for the scattered HostFileConflicts (one
-// pack, one kind) and union()'s silent dedup. config-overlay is NOT resolved here
-// (that is Phase 2, where the assembler records the override); a config-overlay
-// claim simply does not collide with the config it targets.
+// config-overlay is NOT resolved here (the assembler records the override at
+// render time); a config-overlay claim simply does not collide with the config
+// it targets.
 func Collisions(packs []*Pack) []Collision {
 	// Group claims by (kind, target), preserving which packs made each.
 	type key struct {
@@ -273,7 +262,7 @@ func sortedPackNames(set map[string]struct{}) []string {
 }
 
 // ReviewWorthy returns the claims across all packs a human should inspect —
-// machine-scope state, host reads, installer URLs — for the --footprint summary
+// machine-scope state, host reads, installer URLs — for the footprint summary
 // line. Deterministically ordered.
 func ReviewWorthy(packs []*Pack) []Claim {
 	var out []Claim

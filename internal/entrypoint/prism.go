@@ -49,8 +49,8 @@ func prismLastRenderPath(e *Env, agent, name string) string {
 }
 
 // prismProvenancePath is the provenance sidecar for one surface: per-key "which
-// layer set this key" (Compose already computes it; this persists it). Phase 2 of
-// the pack-declaration reform — it is what makes config-overlay overrides legible
+// layer set this key" (Compose already computes it; this persists it). It is what
+// makes config-overlay overrides legible
 // ("key X: claude pack lost to house-rules overlay") and generalizes to the
 // footprint's per-key record. Additive: a new file beside the surface, never a
 // change to the surface bytes.
@@ -213,7 +213,7 @@ func renderSurfaceStatefulSurface(e *Env, surface manifest.Surface, hostBytes []
 	if err := writeInPlaceString(prismOverlayPath(e, surface.Agent, surface.Name), string(out.OverlayJSON)+"\n"); err != nil {
 		return nil, err
 	}
-	// Provenance sidecar (Phase 2): the per-key winning layer Compose already
+	// Provenance sidecar: the per-key winning layer Compose already
 	// computed. Additive — a new file, never a change to the surface bytes — so
 	// it cannot regress the A12-fatal render. Best-effort: a provenance write
 	// failure must not fail the boot (the surface itself is already written), so

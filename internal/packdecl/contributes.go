@@ -1,19 +1,12 @@
 package packdecl
 
-// contributes.go is the Phase-4 manifest shape: one `contributes` list of typed
-// contributions, each with an explicit `kind` from the closed set (kinds.go),
-// replacing the nine effect fields (install/mounts/writableDirs/sharedDirs/
-// hostFiles/surfaces/launchFlags/flagAliases/hooks/retireMiseTools) and the
-// filename-based magic-string dispatch (docs/design/pack-declaration-reform.md
-// §3.1).
+// contributes.go is the manifest shape: one `contributes` list of typed
+// contributions, each with an explicit `kind` from the closed core-owned set
+// (kinds.go). See docs/design/pack-system.md §2-§3.
 //
-// COMPATIBILITY WINDOW (Phase 4 step 1): both shapes parse. A manifest with a
-// non-empty `contributes` uses it and ignores the legacy fields; a manifest
-// without one has its contributions SYNTHESIZED from the legacy fields (the exact
-// inverse of the Phase-1 packload footprint shim). This lets the read paths move
-// to Contributions() one at a time, each nested-jail-verified while the shipped
-// pack.json still work, before the legacy fields are deleted in the final step.
-// Nothing in core reads Contribution yet — this is the parse + normalize layer.
+// The accessors below (Contributions and the per-kind projections) are the one
+// way core reads a pack's effects; nothing outside this package looks at the
+// Contribution fields directly.
 
 import (
 	"encoding/json"
@@ -77,12 +70,10 @@ func (m *Manifest) Contributions() []Contribution {
 	return m.Contributes
 }
 
-// The projections below re-derive the legacy per-field shapes from the normalized
-// contributions, so a caller that still wants "the install" or "the host files"
-// reads them through one accessor regardless of which manifest shape the pack
-// used. When the legacy fields are deleted (final Phase-4 step) these become the
-// ONLY producers of those shapes; today they let the packload accessors migrate to
-// Contributions() while the shipped pack.json are still legacy-shaped.
+// The projections below group the flat contributions by kind into the per-effect
+// shapes core consumes (Install, HostFile, Mount, ...), so a caller that wants "the
+// install" or "the host files" reads them through one accessor rather than
+// filtering the contribution list itself.
 
 // InstallContribution returns the pack's program contribution as a legacy *Install,
 // or nil when it declares none.
@@ -269,7 +260,7 @@ func (m *Manifest) validateContributions() []string {
 }
 
 // validateContribution checks one entry's required fields for its kind, and
-// re-runs the path guards the legacy fields had.
+// runs the path guards on every path-bearing field.
 func validateContribution(label string, c Contribution) []string {
 	var problems []string
 	req := func(field, val string) {

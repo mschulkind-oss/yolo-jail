@@ -45,7 +45,7 @@ type Inputs struct {
 	Workspace any
 
 	// Overlays are config-overlay contributions from OTHER packs onto a surface a
-	// different pack owns (design §3.2/§3.6, OQ2). Each is a decoded object layer
+	// different pack owns (docs/design/pack-system.md §3, §5). Each is a decoded object layer
 	// plus the name of the contributing pack, for per-key provenance. They fold in
 	// after Workspace and BELOW the capture Overlay and Computed — an overlay
 	// overrides the owner's defaults (later-wins), but a user's in-jail edit

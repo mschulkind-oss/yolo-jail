@@ -40,10 +40,8 @@ type Manifest struct {
 
 	// Contributes is the pack's effects: one list of typed contributions, each with
 	// an explicit `kind` from the closed set (see contributes.go / kinds.go). It
-	// replaced the nine legacy effect fields (install/mounts/writableDirs/
-	// sharedDirs/hostFiles/surfaces/launchFlags/flagAliases/hooks) and the
-	// filename-based magic-string dispatch (docs/design/pack-declaration-reform.md
-	// §3.1). Read it through Contributions().
+	// each with an explicit kind from the closed core-owned set
+	// (docs/design/pack-system.md §2-§3). Read it through Contributions().
 	Contributes []Contribution `json:"contributes,omitempty"`
 }
 
@@ -163,10 +161,9 @@ func appendPathProblems(problems []string, field, p string) []string {
 // boundary" was treated as AgentSpec.HostFiles alone while Briefing.HostSource and
 // Skills read the host home too.
 func (m *Manifest) NeedsHostAccess() []string {
-	// Routes through the normalized contributions (NeedsHostAccessContributions),
-	// so it is correct for both manifest shapes and stays correct when the legacy
-	// fields are deleted — the origin gate is "any reads-host, program-via-
-	// installer, or host-prepending briefing" (design §3.1).
+	// Routes through the contributions (NeedsHostAccessContributions): the origin
+	// gate is "any reads-host, program-via-installer, or host-prepending briefing"
+	// (docs/design/pack-system.md §9).
 	return m.NeedsHostAccessContributions()
 }
 

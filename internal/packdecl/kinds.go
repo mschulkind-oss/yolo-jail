@@ -1,22 +1,20 @@
 package packdecl
 
 // kinds.go is the CLOSED, core-owned vocabulary of contribution kinds — the
-// registry the reform (docs/design/pack-declaration-reform.md §3.1) is built on.
+// registry the manifest is built on (docs/design/pack-system.md §3).
 //
 // A pack does not DEFINE a kind; it SELECTS one, exactly as a surface selects a
 // mode from knownModes or a codec from knownCodecs. The set is closed because
 // core has to know each kind's FOOTPRINT (what it claims on the environment, and
-// how two claims on one target combine) to check it — §3.2. A kind core cannot
-// reason about is a kind whose collisions it cannot catch, which is the whole
-// good-citizen guarantee (§1.4) lost. So an unknown kind is a loud load error,
+// how two claims on one target combine) to check it (pack-system.md §3). A kind
+// core cannot reason about is a kind whose collisions it cannot catch, which is
+// the whole good-citizen guarantee lost. So an unknown kind is a loud load error,
 // never a silent skip.
 //
-// Phase 0 (the plan): this file lands the registry + footprint descriptors +
-// tests, and nothing reads it yet. The Manifest is untouched; contributes[]
-// parsing arrives in a later phase. Keeping the vocabulary here — dependency-free
-// on the rest of the repo, beside the Manifest it will eventually type — is the
-// same placement rule packdecl already follows (see the package doc): both the
-// host CLI and the in-jail entrypoint read it, so it may not import either.
+// The vocabulary lives here — dependency-free on the rest of the repo, beside the
+// Manifest it types — following the placement rule packdecl already follows (see
+// the package doc): both the host CLI and the in-jail entrypoint read it, so it
+// may not import either.
 
 import (
 	"fmt"
@@ -28,9 +26,9 @@ import (
 // it is a validation error, not a fallback.
 type Kind string
 
-// The closed kind set (§3.2). Each names a category of environmental effect,
-// never a tool — `config`, not `claude/settings` (§4.1: core knows the domain,
-// not the tool).
+// The closed kind set (pack-system.md §3). Each names a category of environmental
+// effect, never a tool — `config`, not `claude/settings` (§0 principle 2: core
+// knows the domain, not the tool).
 const (
 	// KindProgram: a program the jail should have on PATH (with a lazy launcher
 	// in ~/.yolo-shims/). Sole-owned by bin name.
@@ -47,16 +45,16 @@ const (
 	// KindConfig: a composed config surface the pack owns (path + codec + layers).
 	// Sole-owned by surface identity; a second writer must be KindConfigOverlay.
 	KindConfig Kind = "config"
-	// KindConfigOverlay: a contribution to a config surface OWNED by another pack
-	// (§3.2, OQ2). Ordered after the owner (later-wins), with per-key provenance
-	// recorded so an override of the owner's key is legible rather than silent.
+	// KindConfigOverlay: a contribution to a config surface OWNED by another pack.
+	// Ordered after the owner (later-wins), with per-key provenance recorded so an
+	// override of the owner's key is legible rather than silent.
 	KindConfigOverlay Kind = "config-overlay"
 	// KindState: a home-relative subtree the pack writes at runtime, at a scope
 	// (workspace | machine). Machine scope leaks across workspaces by design and
-	// is review-worthy (§3.1). Overlapping subtrees at DIFFERENT scopes conflict.
+	// is review-worthy. Overlapping subtrees at DIFFERENT scopes conflict.
 	KindState Kind = "state"
 	// KindReadsHost: a host-home file mounted read-only into the jail — the
-	// credential boundary (§3.1). Many packs may read one file; no combine.
+	// credential boundary. Many packs may read one file; no combine.
 	KindReadsHost Kind = "reads-host"
 	// KindLaunch: flags injected after a binary at launch. Sole-owned by bin name.
 	KindLaunch Kind = "launch"
@@ -66,7 +64,8 @@ const (
 )
 
 // Combine names how two claims on the SAME target resolve — the conflict-rule
-// column of §3.2, read as one rule (§3.6: every file has exactly one writer).
+// column of the footprint table, read as one rule (pack-system.md §4: every
+// file has exactly one writer).
 // The CombineExclusive kinds are files a pack owns outright (a second claimant is
 // a collision); the others are files no pack writes directly — a neutral owner
 // combines the inputs.
@@ -97,8 +96,8 @@ const (
 )
 
 // Footprint is the static, core-owned description of a kind's environmental
-// effect: what it claims and how claims combine. It is the data the §3.2
-// conflict table and `yolo pack explain --footprint` are computed from. The
+// effect: what it claims and how claims combine. It is the data the footprint
+// conflict table and `yolo pack footprint` are computed from. The
 // PER-CLAIM facts (which concrete path, whether THIS state claim is machine-scope
 // and thus review-worthy) are derived later from an actual contribution; this
 // struct carries only what is true of the kind regardless of instance.
@@ -108,12 +107,14 @@ type Footprint struct {
 	// Combine is how two claims on one target resolve.
 	Combine Combine
 	// Claims is a one-line, human description of what the kind claims on the
-	// environment — the "Claims" column of §3.2. Shown by --footprint.
+	// environment — the "Claims" column of the footprint table. Shown by
+	// `yolo pack footprint`.
 	Claims string
 	// MayBeReviewWorthy is true for kinds that CAN produce a claim needing review
 	// (machine-scope state, a host read, an installer program). Whether a given
-	// CLAIM is review-worthy is decided per-instance in Phase 1; this only marks
-	// the kinds where that check applies at all, so --footprint knows where to look.
+	// CLAIM is review-worthy is decided per-instance from the contribution; this
+	// only marks the kinds where that check applies at all, so `yolo pack
+	// footprint` knows where to look.
 	MayBeReviewWorthy bool
 }
 
