@@ -40,9 +40,9 @@ accident.
 | **2 — the data-loss chain** | adopt-on-first-migration → de-compose credentials → sidecar location | **one decision** (§2.1) |
 | **3 — parked design work** | modes 4→3, `:ro` per surface, capture timing | needs a per-surface pass |
 
-**If the goal is the full pack rip-out**, tranches 0–2 are its prerequisites, not a detour —
-see [packs-rip-out.md](packs-rip-out.md), which lists the three decisions still owed and
-confirms none of them block this list.
+**If the goal is the full pack rip-out**, tranches 0–2 are its prerequisites, not a detour.
+The rip-out and the pack-declaration reform are both complete; the current design of record
+is [pack-system.md](../design/pack-system.md).
 
 **One item in tranche 3 is not like the others.** 3.9 ("where does composition run?") is a
 *fork in the architecture*, not a task — it reprices 3.1, 3.2, 3.3 and the entire
@@ -174,7 +174,6 @@ Proposed, following that policy:
 | `design/packs-and-the-prism.md` | **keep (A)** — the conceptual frame; distinct audience (deciding an architecture, not implementing) |
 | `design/what-yolo-is.md` | **keep (A)** — the boundaries question (what is separable from the sandbox) + how pack *logic* would ship. Answers the two questions the packs sketch left open |
 | `plans/composed-config-work.md` *(this)* | **keep (B)** — the single work list |
-| `plans/packs-rip-out.md` | **keep (B)** — what is left to *design* before the full rip-out, and what can start today (answer: everything in this doc's tranches) |
 | `plans/host-file-staging.md` | **keep (B)**, already marked SHIPPED and closed to new scope; its "Scope: the line" is the authority on `host_files` in/out |
 | `plans/agent-settings-composition.md` | **keep (A-hybrid)** — the engine design of record. Stop adding status to it |
 | `plans/ROADMAP.md` | **keep (B)** — sequencing only; item 3/4 sub-tables now point here |

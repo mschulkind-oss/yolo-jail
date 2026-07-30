@@ -12,9 +12,9 @@ concludes the host is a *reduced target*; §3 is the design, which turns out to 
 *deleting a duplicate renderer* yolo already has two copies of. §6 is the part that needs a
 ruling, §9 is what I could not settle, §8 is the order I would build it in.
 
-**Reads with:** [pack-specification-and-loading.md](pack-specification-and-loading.md) (the
-system as built — this doc assumes it), [packs-and-the-prism.md](packs-and-the-prism.md) (the
-compose engine and its layer stack), [what-yolo-is.md](what-yolo-is.md) (the earlier "is the
+**Reads with:** [pack-system.md](pack-system.md) (the pack system as built — this doc
+assumes it, including the compose engine and its layer stack),
+[what-yolo-is.md](what-yolo-is.md) (the earlier "is the
 engine separable?" answer, which this reaches the same conclusion as from the pack side),
 [composed-file-permissions.md](composed-file-permissions.md) (the postures a host-side writer
 must honor).

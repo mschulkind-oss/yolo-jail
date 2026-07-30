@@ -1,12 +1,15 @@
 # The three decisions, in depth
 
+> **Superseded for the current design.** These three decisions were all made and shipped.
+> For how the pack system works today read [pack-system.md](pack-system.md); this doc is
+> kept only as the argument that produced those answers.
+
 **Status:** design, 2026-07-26. Answers *"tell me more about these 3 decisions"* under the
 now-fixed target: **no Go-owned agents at all; agent support exists only as official packs
 shipped with yolo; a default jail has no agent.**
 
 **Reads with:** [packs-and-the-prism.md](packs-and-the-prism.md) (phases, contribution kinds,
 typed exports), [what-yolo-is.md](what-yolo-is.md) (boundaries),
-[../plans/packs-rip-out.md](../plans/packs-rip-out.md) (the work framing),
 [../plans/composed-config-work.md](../plans/composed-config-work.md) (the existing list).
 
 **The target state changes two of the three answers.** That is the main finding, and it is

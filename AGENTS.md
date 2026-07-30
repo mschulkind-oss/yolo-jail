@@ -200,7 +200,7 @@ there is no sync step.
 |---|---|
 | Config keys, all of them | `yolo config-ref` |
 | Pack manifest schema | `internal/packdecl/packdecl.go` (the doc comments ARE the reference) |
-| Pack authoring + the `packs` key | `yolo pack --help`, `docs/design/pack-specification-and-loading.md` |
+| Pack authoring + the `packs` key | `yolo pack --help`, `docs/design/pack-system.md` |
 | CLI surface | `yolo --help` |
 | End-user usage, devices/GPU, mise tools, `yolo-cglimit` | `docs/guides/USER_GUIDE.md` |
 | Mounts, overlays, home layout | `docs/design/jail-home.md` |

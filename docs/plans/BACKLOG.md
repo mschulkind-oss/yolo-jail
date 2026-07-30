@@ -10,6 +10,11 @@ pick up?"* Everything else is reasoning, and is linked per item.
 **Rule:** an item lives here once. Reasoning lives in the design doc. Sequencing lives in
 ROADMAP. Nothing gets three homes.
 
+**Current state (2026-07-29).** Stages A–F are complete, and the pack-declaration reform
+that produced today's `contributes[]` design is shipped (see
+[../design/pack-system.md](../design/pack-system.md)). **Stage G — host-side composition —
+is the one substantive open pack-adjacent stage**, and G1 within it is a live data-loss bug.
+
 ---
 
 ## Where the reasoning lives
@@ -17,18 +22,14 @@ ROADMAP. Nothing gets three homes.
 | Doc | Answers | Read it when |
 |---|---|---|
 | [../design/composed-file-permissions.md](../design/composed-file-permissions.md) | ro/rw postures, the Derived/Shared/State taxonomy, the defect audit, writer classes | touching any composed file's permissions or the capture overlay |
-| [../design/pack-specification-and-loading.md](../design/pack-specification-and-loading.md) | the pack system **as built**: manifest field by field, the origin gate, the host→jail load path, worked examples, remaining seams | authoring, debugging, or changing a pack |
+| [../design/pack-system.md](../design/pack-system.md) | **the pack system, whole**: the `contributes[]` manifest, the ten kinds + footprints + conflict rules, the one-writer rule, the compose engine, `derive`, and selection/fetch/origin-gate | authoring, debugging, or changing a pack; changing the schema or a kind |
 | [../design/yolo-as-environment-manager.md](../design/yolo-as-environment-manager.md) | **what yolo is**: confinement as a `jail`/`sandbox`/`host` dial rather than a `runtime` backend choice, the description as the product, the verbs (`apply`/`describe`/`diff`/`check --at`), what a pack means per notch, and what the wider identity costs | deciding whether a feature is jail-shaped, adding a config key, or writing user-facing copy |
-| [../design/pack-declaration-reform.md](../design/pack-declaration-reform.md) | **the manifest's shape**: why 59 JSON keys across 4 packages is the rash and not the disease (a pack declares paths, core infers effects from filenames), `contributes[]` with a `kind` per contribution, a per-kind footprint + cross-pack conflict table (`pack explain --footprint`), and why Lua belongs in `derive` but NOT in the manifest | changing the pack schema, adding a manifest field, or deciding what a pack may do to a machine |
 | [../design/environment-manager-user-stories.md](../design/environment-manager-user-stories.md) | the same design **from the outside**: five worked stories (drift across two machines, a Mac fleet rollout that hits G3 then G1, the minimal-ladder user, the agent reading its own briefing at `host`, a security questionnaire) — plus 8 open questions the stories surfaced | pressure-testing a verb's output, or deciding what `apply`/`describe` must print |
 | [../design/host-render-target.md](../design/host-render-target.md) | **the host as a reduced render target**: the two duplicated render paths and the one `Target`-parameterized renderer that replaces them, which manifest fields even apply off-container, the confinement axis (jail / macos-user / host), `FieldSet` | adding a backend, touching host-side `config reset`/`capture`, or changing the boot render |
-| [../design/packs-and-the-prism.md](../design/packs-and-the-prism.md) | what packs *are*; provision vs compose phases; the 4 contribution kinds; typed exports between packs | deciding pack shape (pre-implementation frame) |
 | [../design/what-yolo-is.md](../design/what-yolo-is.md) | subsystem boundaries; where composition could run; how logic ships | deciding *where* something executes |
-| [../design/three-decisions.md](../design/three-decisions.md) | the three open decisions in depth; the 3 engine mechanisms; the 5 projections | before starting any pack work |
 | [../design/third-party-pack-logic.md](../design/third-party-pack-logic.md) | the projector protocol; build/source tiers; trust | implementing pack logic |
 | [agent-config-packs.md](agent-config-packs.md) | the concrete pack proposal: fetch, lockfile, staging, verbs | implementing pack plumbing |
 | [composed-config-work.md](composed-config-work.md) | per-item detail for the prism items below | implementing a prism item |
-| [packs-rip-out.md](packs-rip-out.md) | what design remains before the rip-out | scoping the rip-out |
 
 ---
 
