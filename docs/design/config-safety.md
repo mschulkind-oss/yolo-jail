@@ -110,6 +110,17 @@ every jail. Agents are told:
 - They must ask the human to restart
 - They must NOT use apt, nix-env, or other package managers
 
+An agent can check whether its edit has taken effect yet with `yolo config drift`,
+which compares the workspace config on disk against the one the running jail was
+built from. The jail freezes that baseline (workspace-only) at fresh launch to
+`<workspace>/.yolo/config-boot.json` — immutable for the jail's life, distinct from
+the every-launch `config-snapshot.json`. `drift` re-reads the live config in-jail
+(the workspace is bind-mounted, so this is accurate) and diffs the canonical form:
+exit `0` in sync, `3` drifted (prints the diff), `4` no baseline. Since the running
+jail's config is fixed until restart, a non-zero drift is the signal that a restart
+is owed. `yolo config dump` prints the full effective config in the same canonical
+form for inspection.
+
 ### Security Properties
 
 - **Human-in-the-loop**: Every config change requires explicit approval

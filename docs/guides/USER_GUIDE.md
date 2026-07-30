@@ -1094,6 +1094,14 @@ This prevents agents from silently adding packages, mounts, or devices. The huma
 4. Agent asks human to restart: _"I've updated the config. Please restart the jail."_
 5. Human exits and runs `yolo` again (sees diff, approves)
 
+An agent can confirm at any point whether a restart is actually needed with
+`yolo config drift`: it compares the workspace config on disk against the one the
+running jail was started with, and exits `0` if they match, `3` if they differ
+(printing the diff), or `4` if it cannot tell (no baseline). Because the config the
+jail is *running under* is fixed until a restart, this is how an agent knows its
+edit has not yet taken effect. To see the full effective config the jail is running
+under — the merged, canonicalized form — use `yolo config dump`.
+
 See [docs/design/config-safety.md](../design/config-safety.md) for the full workflow.
 
 ---
