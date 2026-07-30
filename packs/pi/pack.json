@@ -1,48 +1,55 @@
 {
-  "hostFiles": [
+  "contributes": [
     {
-      "from": ".pi/agent/settings.json",
-      "to": "host-pi/settings.json"
-    }
-  ],
-  "install": {
-    "bin": "pi",
-    "flags": [
-      "--ignore-scripts"
-    ],
-    "kind": "npm",
-    "package": "@earendil-works/pi-coding-agent"
-  },
-  "mounts": [
+      "bin": "pi",
+      "flags": [
+        "--ignore-scripts"
+      ],
+      "kind": "program",
+      "package": "@earendil-works/pi-coding-agent",
+      "via": "npm"
+    },
     {
+      "after": "host:.pi/agent/AGENTS.md",
       "from": "AGENTS.md",
-      "hostOverlay": ".pi/agent/AGENTS.md",
-      "to": ".pi/agent/AGENTS.md"
+      "into": ".pi/agent/AGENTS.md",
+      "kind": "briefing"
     },
     {
       "from": "skills",
-      "to": ".pi/agent/skills"
-    }
-  ],
-  "name": "pi",
-  "surfaces": [
+      "into": ".pi/agent/skills",
+      "kind": "skills"
+    },
     {
-      "agent": "pi",
-      "codec": "json",
-      "defaults": {
-        "theme": "system"
-      },
-      "managed": {
-        "defaultProjectTrust": "always"
-      },
-      "name": "settings",
-      "path": "~/.pi/agent/settings.json",
-      "retireOnFirstRender": [
-        "yolo-host-synced-settings.json"
-      ]
+      "config": [
+        {
+          "agent": "pi",
+          "codec": "json",
+          "defaults": {
+            "theme": "system"
+          },
+          "managed": {
+            "defaultProjectTrust": "always"
+          },
+          "name": "settings",
+          "path": "~/.pi/agent/settings.json",
+          "retireOnFirstRender": [
+            "yolo-host-synced-settings.json"
+          ]
+        }
+      ],
+      "kind": "config"
+    },
+    {
+      "at": ".pi",
+      "kind": "state",
+      "scope": "workspace"
+    },
+    {
+      "host": ".pi/agent/settings.json",
+      "into": "host-pi/settings.json",
+      "kind": "reads-host"
     }
   ],
-  "writableDirs": [
-    ".pi"
-  ]
+  "name": "pi"
 }

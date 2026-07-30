@@ -1,42 +1,52 @@
 {
-  "install": {
-    "bin": "codex",
-    "kind": "npm",
-    "package": "@openai/codex"
-  },
-  "launchFlags": {
-    "codex": [
-      "--dangerously-bypass-approvals-and-sandbox"
-    ]
-  },
-  "mounts": [
+  "contributes": [
     {
+      "bin": "codex",
+      "kind": "program",
+      "package": "@openai/codex",
+      "via": "npm"
+    },
+    {
+      "after": "host:.codex/AGENTS.md",
       "from": "AGENTS.md",
-      "hostOverlay": ".codex/AGENTS.md",
-      "to": ".codex/AGENTS.md"
+      "into": ".codex/AGENTS.md",
+      "kind": "briefing"
     },
     {
       "from": "skills",
-      "to": ".codex/skills"
-    }
-  ],
-  "name": "codex",
-  "surfaces": [
+      "into": ".codex/skills",
+      "kind": "skills"
+    },
     {
-      "agent": "codex",
-      "codec": "toml",
-      "managed": {
-        "approval_policy": "never",
-        "sandbox_mode": "danger-full-access"
-      },
-      "name": "config",
-      "path": "~/.codex/config.toml",
-      "retireOnFirstRender": [
-        "yolo-managed-mcp-servers.json"
-      ]
+      "config": [
+        {
+          "agent": "codex",
+          "codec": "toml",
+          "managed": {
+            "approval_policy": "never",
+            "sandbox_mode": "danger-full-access"
+          },
+          "name": "config",
+          "path": "~/.codex/config.toml",
+          "retireOnFirstRender": [
+            "yolo-managed-mcp-servers.json"
+          ]
+        }
+      ],
+      "kind": "config"
+    },
+    {
+      "at": ".codex",
+      "kind": "state",
+      "scope": "workspace"
+    },
+    {
+      "bin": "codex",
+      "flags": [
+        "--dangerously-bypass-approvals-and-sandbox"
+      ],
+      "kind": "launch"
     }
   ],
-  "writableDirs": [
-    ".codex"
-  ]
+  "name": "codex"
 }

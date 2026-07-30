@@ -49,7 +49,7 @@ func TestEveryEmbeddedPackHookIsHonored(t *testing.T) {
 		if err != nil {
 			t.Fatal(err)
 		}
-		for _, h := range p.Decl.Hooks {
+		for _, h := range p.Decl.HookContributions() {
 			switch h.Name {
 			case HookSharedCredentials, HookPerJailHistory, HookClaudePlugins:
 			default:
@@ -87,7 +87,7 @@ func TestSharedCredentialsHookLinksADeclaredDir(t *testing.T) {
 	}
 	e := &Env{Home: t.TempDir(), Workspace: t.TempDir(), Vars: map[string]string{}}
 	var hook packdecl.Hook
-	for _, h := range p.Decl.Hooks {
+	for _, h := range p.Decl.HookContributions() {
 		if h.Name == HookSharedCredentials {
 			hook = h
 		}

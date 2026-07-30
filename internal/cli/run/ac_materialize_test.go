@@ -77,7 +77,7 @@ func TestAppleContainerMaterializesSingleFiles(t *testing.T) {
 	// off the declaration, so the test breaks if the pack moves it rather than asserting a
 	// path the assembler never looks at.
 	briefDest := ""
-	for _, mt := range loadedPacks[0].Decl.Mounts {
+	for _, mt := range loadedPacks[0].Decl.MountContributions() {
 		if isBriefingMount(mt.From) {
 			briefDest = mt.To
 		}

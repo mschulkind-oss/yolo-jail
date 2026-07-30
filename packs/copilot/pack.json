@@ -1,68 +1,88 @@
 {
-  "flagAliases": {
-    "--yolo": [
-      "-y"
-    ]
-  },
-  "install": {
-    "bin": "copilot",
-    "kind": "npm",
-    "package": "@github/copilot"
-  },
-  "launchFlags": {
-    "copilot": [
-      "--yolo",
-      "--no-auto-update"
-    ]
-  },
-  "mounts": [
+  "contributes": [
     {
+      "bin": "copilot",
+      "kind": "program",
+      "package": "@github/copilot",
+      "via": "npm"
+    },
+    {
+      "after": "host:.copilot/AGENTS.md",
       "from": "AGENTS.md",
-      "hostOverlay": ".copilot/AGENTS.md",
-      "to": ".copilot/AGENTS.md"
+      "into": ".copilot/AGENTS.md",
+      "kind": "briefing"
     },
     {
       "from": "skills",
-      "to": ".copilot/skills"
+      "into": ".copilot/skills",
+      "kind": "skills"
+    },
+    {
+      "config": [
+        {
+          "agent": "copilot",
+          "codec": "json",
+          "defaults": {
+            "yolo": true
+          },
+          "mode": "rmw",
+          "name": "config",
+          "path": "~/.copilot/config.json"
+        }
+      ],
+      "kind": "config"
+    },
+    {
+      "config": [
+        {
+          "agent": "copilot",
+          "codec": "json",
+          "defaults": {
+            "lspServers": {}
+          },
+          "mode": "computed",
+          "name": "lsp",
+          "path": "~/.copilot/lsp-config.json"
+        }
+      ],
+      "kind": "config"
+    },
+    {
+      "config": [
+        {
+          "agent": "copilot",
+          "codec": "json",
+          "defaults": {
+            "mcpServers": {}
+          },
+          "mode": "computed",
+          "name": "mcp",
+          "path": "~/.copilot/mcp-config.json"
+        }
+      ],
+      "kind": "config"
+    },
+    {
+      "at": ".copilot",
+      "kind": "state",
+      "scope": "workspace"
+    },
+    {
+      "aliases": {
+        "--yolo": [
+          "-y"
+        ]
+      },
+      "bin": "copilot",
+      "flags": [
+        "--yolo",
+        "--no-auto-update"
+      ],
+      "kind": "launch"
     }
   ],
   "name": "copilot",
   "retireMiseTools": [
     "\"npm:@github/copilot\""
-  ],
-  "surfaces": [
-    {
-      "agent": "copilot",
-      "codec": "json",
-      "defaults": {
-        "yolo": true
-      },
-      "mode": "rmw",
-      "name": "config",
-      "path": "~/.copilot/config.json"
-    },
-    {
-      "agent": "copilot",
-      "codec": "json",
-      "defaults": {
-        "lspServers": {}
-      },
-      "mode": "computed",
-      "name": "lsp",
-      "path": "~/.copilot/lsp-config.json"
-    },
-    {
-      "agent": "copilot",
-      "codec": "json",
-      "defaults": {
-        "mcpServers": {}
-      },
-      "mode": "computed",
-      "name": "mcp",
-      "path": "~/.copilot/mcp-config.json"
-    }
-  ],
-  "writableDirs": [
-    ".copilot"
   ]
 }

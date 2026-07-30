@@ -1,99 +1,117 @@
 {
-  "hooks": [
+  "contributes": [
     {
-      "file": ".claude/.credentials.json",
-      "name": "shared_credentials",
-      "sharedDir": ".claude-shared-credentials"
+      "bin": "claude",
+      "kind": "program",
+      "url": "https://claude.ai/install.sh",
+      "via": "installer"
     },
     {
-      "file": ".claude/history.jsonl",
-      "name": "per_jail_history"
-    },
-    {
-      "name": "claude_plugins"
-    }
-  ],
-  "hostFiles": [
-    {
-      "from": ".claude/settings.json",
-      "to": "host-claude/settings.json"
-    }
-  ],
-  "install": {
-    "bin": "claude",
-    "installerUrl": "https://claude.ai/install.sh",
-    "kind": "native"
-  },
-  "launchFlags": {
-    "claude": [
-      "--dangerously-skip-permissions"
-    ]
-  },
-  "mounts": [
-    {
+      "after": "host:.claude/CLAUDE.md",
       "from": "AGENTS.md",
-      "hostOverlay": ".claude/CLAUDE.md",
-      "to": ".claude/CLAUDE.md"
+      "into": ".claude/CLAUDE.md",
+      "kind": "briefing"
     },
     {
       "from": "skills",
-      "to": ".claude/skills"
+      "into": ".claude/skills",
+      "kind": "skills"
+    },
+    {
+      "config": [
+        {
+          "agent": "claude",
+          "codec": "json",
+          "defaults": {
+            "projects": {
+              "${workspace}": {
+                "hasTrustDialogAccepted": true
+              }
+            }
+          },
+          "managed": {
+            "projects": {
+              "${workspace}": {
+                "enableAllProjectMcpServers": true
+              }
+            }
+          },
+          "mode": "rmw",
+          "name": "config",
+          "path": "~/.claude.json"
+        }
+      ],
+      "kind": "config"
+    },
+    {
+      "config": [
+        {
+          "agent": "claude",
+          "codec": "json",
+          "managed": {
+            "permissions": {
+              "additionalDirectories": [
+                "/"
+              ],
+              "allow": [],
+              "defaultMode": "acceptEdits",
+              "deny": []
+            },
+            "preferences": {
+              "autoUpdaterStatus": "disabled"
+            },
+            "skipDangerousModePermissionPrompt": true
+          },
+          "name": "settings",
+          "path": "~/.claude/settings.json",
+          "retireOnFirstRender": [
+            "yolo-host-synced-settings.json"
+          ]
+        }
+      ],
+      "kind": "config"
+    },
+    {
+      "at": ".claude",
+      "kind": "state",
+      "scope": "workspace"
+    },
+    {
+      "at": ".claude-shared-credentials",
+      "because": "identity/credential state shared across workspaces",
+      "kind": "state",
+      "scope": "machine"
+    },
+    {
+      "host": ".claude/settings.json",
+      "into": "host-claude/settings.json",
+      "kind": "reads-host"
+    },
+    {
+      "bin": "claude",
+      "flags": [
+        "--dangerously-skip-permissions"
+      ],
+      "kind": "launch"
+    },
+    {
+      "at": ".claude-shared-credentials",
+      "from": ".claude/.credentials.json",
+      "hook": "shared_credentials",
+      "kind": "hook"
+    },
+    {
+      "from": ".claude/history.jsonl",
+      "hook": "per_jail_history",
+      "kind": "hook"
+    },
+    {
+      "hook": "claude_plugins",
+      "kind": "hook"
     }
   ],
   "name": "claude",
   "retireMiseTools": [
     "\"npm:@anthropic-ai/claude-code\""
-  ],
-  "sharedDirs": [
-    ".claude-shared-credentials"
-  ],
-  "surfaces": [
-    {
-      "agent": "claude",
-      "codec": "json",
-      "defaults": {
-        "projects": {
-          "${workspace}": {
-            "hasTrustDialogAccepted": true
-          }
-        }
-      },
-      "managed": {
-        "projects": {
-          "${workspace}": {
-            "enableAllProjectMcpServers": true
-          }
-        }
-      },
-      "mode": "rmw",
-      "name": "config",
-      "path": "~/.claude.json"
-    },
-    {
-      "agent": "claude",
-      "codec": "json",
-      "managed": {
-        "permissions": {
-          "additionalDirectories": [
-            "/"
-          ],
-          "allow": [],
-          "defaultMode": "acceptEdits",
-          "deny": []
-        },
-        "preferences": {
-          "autoUpdaterStatus": "disabled"
-        },
-        "skipDangerousModePermissionPrompt": true
-      },
-      "name": "settings",
-      "path": "~/.claude/settings.json",
-      "retireOnFirstRender": [
-        "yolo-host-synced-settings.json"
-      ]
-    }
-  ],
-  "writableDirs": [
-    ".claude"
   ]
 }

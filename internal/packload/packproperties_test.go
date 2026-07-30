@@ -59,13 +59,13 @@ func TestMachineGlobalTierStaysNarrow(t *testing.T) {
 // home too.
 func TestEveryHostHomeReadIsHomeRelative(t *testing.T) {
 	for _, p := range loadAll(t) {
-		for _, hf := range p.Decl.HostFiles {
+		for _, hf := range p.Decl.HostFileContributions() {
 			checkHomeRelative(t, p.Name, "hostFiles.from", hf.From)
 		}
-		for _, mt := range p.Decl.Mounts {
+		for _, mt := range p.Decl.MountContributions() {
 			checkHomeRelative(t, p.Name, "mounts[].hostOverlay", mt.HostOverlay)
 		}
-		for _, h := range p.Decl.Hooks {
+		for _, h := range p.Decl.HookContributions() {
 			checkHomeRelative(t, p.Name, "hooks[].file", h.File)
 			checkHomeRelative(t, p.Name, "hooks[].sharedDir", h.SharedDir)
 		}
@@ -131,7 +131,7 @@ func TestHostFileGrantsAreExactlyTwoSettingsFiles(t *testing.T) {
 	}
 	for _, p := range loadAll(t) {
 		var froms []string
-		for _, hf := range p.Decl.HostFiles {
+		for _, hf := range p.Decl.HostFileContributions() {
 			froms = append(froms, hf.From)
 		}
 		expected, listed := want[p.Name]
@@ -163,7 +163,7 @@ func TestHostFileGrantsAreExactlyTwoSettingsFiles(t *testing.T) {
 // refusal would pass on an implementation that refused everything.
 func TestFetchedPacksGetNoHostAccess(t *testing.T) {
 	for _, p := range loadAll(t) {
-		if len(p.Decl.HostFiles) == 0 {
+		if len(p.Decl.HostFileContributions()) == 0 {
 			continue
 		}
 		granted, refused := p.HonoredHostFiles()
@@ -177,9 +177,9 @@ func TestFetchedPacksGetNoHostAccess(t *testing.T) {
 		if len(granted) != 0 {
 			t.Errorf("as a FETCHED pack, %s must be granted nothing, got %v", p.Name, granted)
 		}
-		if len(refused) != len(p.Decl.HostFiles) {
+		if len(refused) != len(p.Decl.HostFileContributions()) {
 			t.Errorf("as a FETCHED pack, %s must report a refusal per declaration: got %d "+
-				"for %d", p.Name, len(refused), len(p.Decl.HostFiles))
+				"for %d", p.Name, len(refused), len(p.Decl.HostFileContributions()))
 		}
 	}
 }
@@ -236,10 +236,11 @@ func TestNativeInstallerURLsAreLive(t *testing.T) {
 	}
 	checked := 0
 	for _, p := range loadAll(t) {
-		if p.Decl.Install == nil || p.Decl.Install.InstallerURL == "" {
+		inst := p.Decl.InstallContribution()
+		if inst == nil || inst.InstallerURL == "" {
 			continue
 		}
-		url := p.Decl.Install.InstallerURL
+		url := inst.InstallerURL
 		t.Run(p.Name, func(t *testing.T) {
 			client := &http.Client{Timeout: 30 * time.Second}
 			resp, err := client.Get(url)

@@ -48,7 +48,7 @@ func ConfigurePackByName(e *Env, name string) error {
 			return err
 		}
 	}
-	for _, h := range p.Decl.Hooks {
+	for _, h := range p.Decl.HookContributions() {
 		if err := runPackHook(e, p, h); err != nil {
 			return err
 		}

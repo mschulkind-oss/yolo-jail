@@ -1,32 +1,37 @@
 {
-  "install": {
-    "bin": "opencode",
-    "kind": "npm",
-    "package": "opencode-ai"
-  },
-  "mounts": [
+  "contributes": [
     {
+      "bin": "opencode",
+      "kind": "program",
+      "package": "opencode-ai",
+      "via": "npm"
+    },
+    {
+      "after": "host:.config/opencode/AGENTS.md",
       "from": "AGENTS.md",
-      "hostOverlay": ".config/opencode/AGENTS.md",
-      "to": ".config/opencode/AGENTS.md"
+      "into": ".config/opencode/AGENTS.md",
+      "kind": "briefing"
+    },
+    {
+      "config": [
+        {
+          "agent": "opencode",
+          "codec": "json",
+          "defaults": {
+            "$schema": "https://opencode.ai/config.json"
+          },
+          "managed": {
+            "permission": "allow"
+          },
+          "name": "config",
+          "path": "~/.config/opencode/opencode.json",
+          "retireOnFirstRender": [
+            "yolo-managed-mcp-servers.json"
+          ]
+        }
+      ],
+      "kind": "config"
     }
   ],
-  "name": "opencode",
-  "surfaces": [
-    {
-      "agent": "opencode",
-      "codec": "json",
-      "defaults": {
-        "$schema": "https://opencode.ai/config.json"
-      },
-      "managed": {
-        "permission": "allow"
-      },
-      "name": "config",
-      "path": "~/.config/opencode/opencode.json",
-      "retireOnFirstRender": [
-        "yolo-managed-mcp-servers.json"
-      ]
-    }
-  ]
+  "name": "opencode"
 }
