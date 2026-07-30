@@ -96,6 +96,14 @@ type Manifest struct {
 	// RetireMiseTools are mise tool tokens to strip from a workspace mise.toml,
 	// for a tool that used to be installed that way and no longer is.
 	RetireMiseTools []string `json:"retireMiseTools,omitempty"`
+
+	// Contributes is the Phase-4 shape: one list of typed contributions replacing
+	// the effect fields above (see contributes.go). During the compatibility
+	// window both parse — a non-empty Contributes wins and the legacy fields are
+	// ignored; an empty one has its contributions synthesized from the legacy
+	// fields. Read it through Contributions(), never directly, so a caller does
+	// not care which shape a pack used.
+	Contributes []Contribution `json:"contributes,omitempty"`
 }
 
 // Hook is one requested imperative capability. Its extra fields are the parameters that
@@ -178,6 +186,10 @@ func Decode(data []byte) (*Manifest, []string) {
 // Validate reports every structural problem.
 func (m *Manifest) Validate() []string {
 	var problems []string
+
+	// Phase-4 contributes[]: validated per-kind. The legacy-field validation below
+	// still runs for a pack that uses the old shape (both parse during the window).
+	problems = append(problems, m.validateContributions()...)
 
 	if m.Install != nil {
 		switch m.Install.Kind {
