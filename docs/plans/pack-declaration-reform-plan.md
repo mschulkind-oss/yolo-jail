@@ -220,9 +220,13 @@ legacy fields are deleted last. Four independently-verifiable steps:
   synthesize from legacy fields — the inverse of the Phase-1 shim) + per-kind `validateContributions`
   wired into `Validate`. Both shapes parse; nothing reads `Contributions()` yet. Tested.
 - **4.2 — migrate the read paths to `Contributions()` — NEXT.** Rewrite the accessors
-  (`packload.WritableDirs`/`SharedDirs`/`LaunchFlags`/`FlagAliases`/`HonoredHostFiles`/install/
+  (`packload.WritableDirs`/`SharedDirs`/`LaunchFlags`/`FlagAliases`/`HonoredHostFiles`/`HonoredInstall`/
   `Surfaces`, `packload.FootprintOf`, the `isBriefingMount`/`from != "skills"` magic-string loops
-  in `cli/run/prepare.go`, `packdecl.NeedsHostAccess`) to read normalized contributions. Because
+  in `cli/run/prepare.go` (`:116`, `:296`) + the AGENTS.md handling in `assemble.go`,
+  `packdecl.NeedsHostAccess`) to read normalized contributions. The mapping workflow's per-field
+  consumer blast radius (every `p.Decl.<field>` call site, production then tests) is the checklist —
+  central accessors are `HonoredInstall`/`HonoredHostFiles`/`Surfaces`/`WritableDirs`/`SharedDirs`
+  in `packload`, so migrating those covers most downstream callers unchanged. Because
   4.1's fallback synthesizes from the legacy fields, **every shipped pack.json still works
   unchanged** here — so a regression is unambiguously in the new read path, not the data.
   Nested-jail verify each agent. Green intermediate.
