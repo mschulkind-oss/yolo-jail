@@ -64,4 +64,3 @@ func updateFrom(m, other *jsonx.OrderedMap) {
 		m.Set(k, v)
 	}
 }
-

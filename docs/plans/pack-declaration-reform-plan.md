@@ -135,17 +135,30 @@ unchanged surface before/after — this touches the A12-fatal boot render).
 > | flags (conditional key on a table) | claude/settings ×2 | **Yes** — the §3.3 worked example |
 > | **`reconcile` (managed dynamic table on an RMW file)** | **claude/config** | **NO** — it is sidecar-STATEFUL: it removes the MCP names yolo asserted *last boot* and re-adds the current set, so an agent-added server survives while a yolo-dropped one is removed. A pure `derive` has no memory of last boot; `reconcileRMWTables` (`prism.go:430`) tracks it via a managed-name sidecar. This is the exact `.claude.json` reconciliation the hand-written writer did before the DSL generalized it. |
 >
-> So `derive` can absorb 8 of the 9 `computed[]` uses; the 9th (`reconcile`) is a genuinely
-> stateful RMW mechanism that is not a projection at all. **The ruling needed:** does `reconcile`
-> (a) stay as a small dedicated non-`derive` mechanism (keep a slice of `computed.go` alive purely
-> for it — contradicts "both DSLs gone"), (b) move behind the subprocess projector (§3.4 — but that
-> is for *pure* arbitrary logic, and reconcile needs on-disk state, so this is a poor fit), or
-> (c) get reframed as an RMW-surface capability declared directly (not via `computed[]`), letting
-> `computed.go`/`project.go` still be deleted while reconcile lives as its own thing. **Leaning (c):**
-> reconcile was always an RMW concern wearing a `computed[]` hat (its own doc says "only meaningful
-> on an RMW surface"); lifting it to an explicit RMW-surface field lets the DSLs die as planned and
-> keeps the one stateful mechanism honest about being stateful. This is a new open question (OQ12,
-> below) and Phase 3 is paused here pending it. Phases 0–2 are unaffected and shipped.
+> So `derive` can absorb 8 of the 9 `computed[]` uses; the 9th (`reconcile`) was a genuinely
+> stateful RMW mechanism that is not a projection at all.
+>
+> **RESOLVED (OQ12 decided (d), 2026-07-29): reconcile is DELETED, not relocated.** yolo owns the
+> top-level `mcpServers` block and regenerates it wholesale each boot (with a drop notice); the
+> preserve-hand-edits behavior — Claude's alone, and contrary to "regenerate, don't reconcile" — is
+> gone. Shipped in **Phase 3a** (commit `feat(entrypoint)!: delete reconcile`). This removed the
+> last stateful use of `computed[]`, so the remaining 8 uses are all pure and the DSLs can die.
+
+**Phase status (2026-07-29):**
+
+- **3a — delete reconcile ✅ DONE.** `reconcileRMWTables` + the managed-name sidecar gone;
+  `regenerateManagedTables` regenerates `mcpServers` wholesale; nested-jail verified.
+- **3b — port the 8 pure reshapes to `derive`, then delete `computed.go`/`project.go` — NOT YET.**
+  This is a substantial sub-project of its own, not a tail of 3a, because the `derive` slot as it
+  exists today **cannot yet do a projection**: the luahook `Ctx` (`internal/agentcfg/luahook`)
+  exposes `config`/`stage`/`managed`/`agent`/`surface` but **not the live tables**
+  (`ctx.mcp_servers`, `ctx.lsp_servers`) or the `ctx.tombstone` sentinel that the §3.3 example
+  needs. So 3b is: (1) extend the luahook `Ctx` + VM to expose the live tables + tombstone,
+  (2) run `derive` to PRODUCE the computed layer (it feeds `Inputs.Computed`, so no merge-order
+  change), (3) write the five packs' `derive.lua` (agy/mcp, copilot/mcp, copilot/lsp,
+  codex/config, opencode/config projections + claude/settings tombstone+flags), (4) delete
+  `computed.go`/`project.go` and the `Surface.Computed`/`SurfaceDTO.Computed` fields, (5) byte-equal
+  regression-gate every shipped surface. Its own focused change; sequenced next.
 
 The load-bearing decision, built last of the core phases because it leans on Phase 2's assembler
 and the `derive` slot must be solid first.
