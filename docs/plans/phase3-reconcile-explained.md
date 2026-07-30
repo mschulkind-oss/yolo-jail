@@ -122,9 +122,82 @@ dynamic table; track what I asserted and reconcile it." Then:
 - the sidecar mechanism (`reconcileRMWTables`) is **unchanged** — only *how it's declared* moves,
   from a `computed[]` entry to a named RMW field.
 
-The leaning is (c) because it's the only option that lets the reform reach its actual goal (the
-mini-languages gone) *and* keeps the one genuinely-stateful mechanism truthful about being
-stateful, instead of disguised as a pure reshape it can never be.
+**(d) (NEW leaning — delete reconcile entirely; yolo owns `mcpServers`, Claude doesn't).**
+The question behind the question: *do we even want the behavior reconcile protects?* It exists to
+preserve a server the user added through Claude across a jail restart. But **the other four agents
+already don't do this** — codex/copilot/opencode/agy write their MCP block as a plain regenerated
+layer, so a server added by hand is gone on the next render. That is the reform's own stated
+principle, "regenerate, don't reconcile" (`compose.go:73`): your config is the source of truth, and
+the rendered file is disposable output. Claude is the *lone* exception, carrying a whole
+sidecar-state mechanism nothing else needs.
+
+So (d) is: **declare that yolo owns the `mcpServers` block — Claude may not durably add to it.** No
+sidecar, no memory, no reconcile. Each boot, yolo writes exactly the servers in your config; a
+server you added via Claude's UI is simply overwritten next restart. This:
+- deletes `reconcile`, `reconcileRMWTables`, the managed-name sidecar, AND the last remnant that
+  keeps `computed.go`/`project.go` from dying — **more** deletion than (c), not less;
+- makes Claude behave like every other agent (one rule for MCP, not "Claude is special");
+- is the honest expression of "your config is the definition" — the same thing sealing (`apply
+  --sealed`, the environment-manager doc) is built on.
+
+**The cost, stated plainly so it's a real choice:** a server a user adds through Claude's own
+`/mcp` UI vanishes on the next jail restart, with no warning at the moment they add it. Three things
+make that acceptable, but they should be true:
+1. **`.claude.json` stays RMW regardless** — it holds Claude's auth, session history, and project
+   state, which yolo must never clobber. (d) narrows yolo's ownership to *just the `mcpServers`
+   key* within that file, not the file. So "yolo owns mcpServers" is a per-key claim, not "yolo
+   overwrites .claude.json."
+2. **The right way to add an MCP server is your config** (`mcp_servers`), which reaches *every*
+   agent at once — the whole point of the shared canonical type. Adding via Claude's UI only ever
+   configured Claude, so losing it nudges the user to the place that works everywhere.
+3. **It should be visible, not silent.** The one thing reconcile got right is not surprising the
+   user. (d) is better if yolo *notices* a hand-added server it's about to drop and says so at boot
+   ("removing mcpServers.foo — not in your config; add it under mcp_servers to keep it") rather than
+   silently overwriting. That boot notice is cheap and turns "data loss" into "a told-you-why
+   cleanup."
+
+**(c) vs (d):** (c) *keeps* the preserve-hand-edits behavior but relocates its declaration; (d)
+*drops* the behavior and deletes the mechanism. (d) is more deletion and a simpler mental model
+("config is the truth, output is disposable, and it's the same for every agent"), at the cost of one
+convenience Claude uniquely had. Given reconcile is a one-of-a-kind mechanism for a one-pack case,
+and the behavior contradicts the reform's own "regenerate, don't reconcile" principle, **(d) is the
+cleaner answer** — provided we add the boot-time "dropping X" notice so it isn't silent.
+
+The earlier leaning was (c). It shifts to **(d) with a visible-drop notice**, unless preserving
+hand-added Claude MCP servers turns out to be a workflow people actually rely on — which is the one
+thing worth confirming before deleting it.
+
+## Confirmed against Claude Code's live docs (2026-07-29)
+
+Checked whether Claude has a dedicated standalone MCP file yolo could own outright — like it does
+for copilot (`~/.copilot/mcp-config.json`, a `computed`-mode surface yolo writes whole). If it did,
+this whole problem would vanish. It does not. Per `code.claude.com/docs/en/mcp`, Claude Code stores
+MCP servers in exactly these places:
+
+| Scope | Stored in | yolo's relationship |
+|---|---|---|
+| **User** | **top-level `mcpServers` key in `~/.claude.json`** | this is what yolo writes (`to: mcpServers`) |
+| **Local** | `~/.claude.json`, nested **under each project's path** | a different location; yolo does not touch it |
+| **Project** | `.mcp.json` in the repo root (team-committed) | a workspace file, not yolo's to write |
+
+Two facts this nails down:
+
+1. **There is no standalone user-level MCP-only file for Claude.** User/local servers live inside
+   `~/.claude.json` alongside auth, sessions, and project state — which is *why* yolo can't own the
+   file wholesale and why reconcile exists at all. The clean "own a dedicated file" escape (copilot's
+   model) is not available for Claude. Confirmed, not assumed.
+2. **yolo's `mcpServers` claim is the TOP-LEVEL (user-scope) key only.** A server a user adds at
+   *local* scope lands under the project's path, a different key yolo never writes — so option (d)'s
+   "yolo owns `mcpServers`, overwrite each boot" would clobber only the top-level user-scope block,
+   **not** a locally-scoped server, and never the project's `.mcp.json`. That shrinks (d)'s
+   data-loss surface to exactly one case: a server added at *user* scope through Claude's UI. And
+   the doc's own guidance is that user scope is for "servers you frequently use across different
+   projects" — which is precisely what belongs in yolo's `mcp_servers` config instead, reaching
+   every agent, not just Claude.
+
+So (d) is safer than it first looked: it overwrites the one block yolo is trying to own, leaves
+local- and project-scoped servers alone, and the only thing lost is a *user-scope* server added via
+Claude's UI rather than via yolo config — which the boot-time notice should name.
 
 ## What's already done, and what waits on this
 

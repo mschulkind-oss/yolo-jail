@@ -1023,15 +1023,25 @@ breaks if it is decided wrong — because a leaning without a cost is just an op
     "only meaningful on an RMW surface," which is the tell: it was an RMW concern riding in a
     `computed[]` block.
 
-    _Leaning:_ **(c) lift `reconcile` to an explicit RMW-surface capability**, declared directly on
-    the config kind for an RMW surface (e.g. a `reconcileKeys` field naming which keys are managed
-    dynamic tables), NOT via the deleted `computed[]`. This lets `computed.go` and `project.go` be
-    deleted as §3.3 plans while the one genuinely stateful mechanism lives honestly as what it is.
-    Rejected alternatives: (a) keep a slice of `computed.go` alive just for `reconcile` — contradicts
-    "both DSLs gone" and leaves the DSL's validation surface half-alive; (b) push it behind the
-    subprocess projector (§3.4) — that seam is for *pure* arbitrary logic and explicitly gets no
-    filesystem handle, but reconcile *needs* on-disk state, so it is the wrong home. Phase 3 of the
-    implementation plan is paused on this ruling.
+    `reconcile` is used in **exactly one place** (`claude/config`'s top-level `mcpServers`); the
+    other four MCP-writing agents already regenerate their block with no reconcile. Full walkthrough
+    + web-confirmed facts in [../plans/phase3-reconcile-explained.md](../plans/phase3-reconcile-explained.md).
+
+    _Leaning:_ **(d) delete `reconcile` entirely — yolo owns the top-level `mcpServers`, Claude
+    doesn't.** The behavior reconcile protects (preserve a hand-added server across restarts)
+    contradicts the reform's own "regenerate, don't reconcile" principle and is Claude's alone; the
+    other agents drop hand-added servers already. Deleting it removes MORE code than relocating it
+    (the sidecar mechanism dies too) and lets `computed.go`/`project.go` fully die. Confirmed against
+    Claude Code's live docs: there is no standalone MCP-only file to own (user/local servers live in
+    `~/.claude.json` with auth), and yolo's claim is the **top-level user-scope `mcpServers` key
+    only** — so overwriting it never touches local-scope servers (nested under project paths) or the
+    project `.mcp.json`. The one loss is a *user-scope* server added via Claude's UI, which belongs
+    in yolo's `mcp_servers` config anyway (it reaches every agent). Ship (d) **with a boot-time
+    notice** naming any server it drops, so it is not silent. Earlier leaning was (c) (relocate
+    reconcile to an explicit RMW field); (d) supersedes it unless preserving hand-added Claude MCP
+    servers is a workflow people rely on. Rejected: (a) keep a slice of `computed.go` alive — leaves
+    the DSL half-dead; (b) the subprocess projector — that seam is pure/no-filesystem, reconcile
+    needs state. Phase 3 paused on this ruling.
 
     **Answer:**
     > _(empty — fill in when decided)_
