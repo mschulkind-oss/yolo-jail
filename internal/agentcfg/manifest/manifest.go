@@ -153,16 +153,6 @@ type Surface struct {
 	//
 	// A missing file is not an error — the common case is that there was nothing to clean.
 	RetireOnFirstRender []string
-
-	// Computed declares the surface's DYNAMIC layer as data: which live tables core
-	// should read, and how to reshape each entry into this surface's dialect. See
-	// computed.go — this is what replaced the six per-agent Go builders, and it is the
-	// reason core no longer switches on an agent name to render a surface.
-	//
-	// Optional. A surface with no dynamic content leaves it nil; a caller may also
-	// supply a computed map directly (the escape hatch for a builtin whose derivation
-	// is genuinely not a table reshape).
-	Computed []Computed
 }
 
 // The closed set of engine mechanisms. See Surface.Mode.
