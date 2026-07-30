@@ -9,6 +9,7 @@ import (
 	"github.com/mschulkind-oss/yolo-jail/internal/config"
 	"github.com/mschulkind-oss/yolo-jail/internal/jsonx"
 	"github.com/mschulkind-oss/yolo-jail/internal/loopholes"
+	"github.com/mschulkind-oss/yolo-jail/internal/packdecl"
 	"github.com/mschulkind-oss/yolo-jail/internal/packload"
 	"github.com/mschulkind-oss/yolo-jail/internal/paths"
 )
@@ -113,13 +114,13 @@ func (o *Options) refreshJailBriefings(cname string, cfg *jsonx.OrderedMap, rt s
 	// its briefing whether or not anything calls it an agent.
 	home := homeDir()
 	for _, p := range loadedPacks {
-		for _, mt := range p.Decl.MountContributions() {
-			if !isBriefingMount(mt.From) {
+		for _, c := range p.Decl.Contributions() {
+			if c.Kind != packdecl.KindBriefing {
 				continue
 			}
 			content := jailContent
-			if mt.HostOverlay != "" && p.MayAccessHost {
-				content = agents.PrependHostBriefing(filepath.Join(home, mt.HostOverlay), content)
+			if hostOverlay := briefingHostOverlay(c); hostOverlay != "" && p.MayAccessHost {
+				content = agents.PrependHostBriefing(filepath.Join(home, hostOverlay), content)
 			}
 			if err := agents.WriteBriefing(filepath.Join(staging, briefingStagingName(p.Name)), content); err != nil {
 				return "", "", nil, err
@@ -270,14 +271,15 @@ func lspServerNames(cfg *jsonx.OrderedMap) []string {
 	return m.Keys()
 }
 
-var _ = strings.Join
-
-// isBriefingMount reports whether a pack mount carries briefing prose rather than a
-// content tree. Keyed on the source NAME because that is what a pack author writes;
-// both spellings are in the wild and an author should not have to know which one yolo
-// reads.
-func isBriefingMount(from string) bool {
-	return from == "AGENTS.md" || from == "CLAUDE.md"
+// briefingHostOverlay returns the host-home path a briefing contribution prepends
+// (its `after: "host:<path>"`), or "" for none. Replaces the old filename-based
+// magic-string dispatch (isBriefingMount) — a briefing is now a kind, not a mount
+// whose source happened to be named AGENTS.md/CLAUDE.md.
+func briefingHostOverlay(c packdecl.Contribution) string {
+	if strings.HasPrefix(c.After, "host:") {
+		return strings.TrimPrefix(c.After, "host:")
+	}
+	return ""
 }
 
 // briefingStagingName is the staging filename for one pack's briefing. Per-pack rather
@@ -293,13 +295,13 @@ func briefingStagingName(pack string) string { return "briefing-" + pack + ".md"
 func packSkillTargets(loadedPacks []*packload.Pack) []agents.SkillTarget {
 	var out []agents.SkillTarget
 	for _, p := range loadedPacks {
-		for _, mt := range p.Decl.MountContributions() {
-			if mt.From != "skills" {
+		for _, c := range p.Decl.Contributions() {
+			if c.Kind != packdecl.KindSkills {
 				continue
 			}
-			t := agents.SkillTarget{Staging: agents.SkillStagingName(p.Name), Dest: mt.To}
+			t := agents.SkillTarget{Staging: agents.SkillStagingName(p.Name), Dest: c.Into}
 			if p.MayAccessHost {
-				t.HostSource = mt.To
+				t.HostSource = c.Into
 			}
 			out = append(out, t)
 		}

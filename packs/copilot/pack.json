@@ -81,8 +81,5 @@
       "kind": "launch"
     }
   ],
-  "name": "copilot",
-  "retireMiseTools": [
-    "\"npm:@github/copilot\""
-  ]
+  "name": "copilot"
 }

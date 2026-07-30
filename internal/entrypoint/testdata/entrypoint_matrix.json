@@ -64,8 +64,8 @@
         "YOLO_PACK_ROOT": "@HOME@/packs"
       },
       "files": {
-        "packs/tool-npm/pack.json": "{\n  \"name\": \"tool-npm\",\n  \"install\": {\n    \"kind\": \"npm\",\n    \"bin\": \"toolnpm\",\n    \"package\": \"@x/toolnpm\"\n  },\n  \"launchFlags\": {\n    \"toolnpm\": [\n      \"--yolo\"\n    ]\n  }\n}",
-        "packs/tool-native/pack.json": "{\n  \"name\": \"tool-native\",\n  \"install\": {\n    \"kind\": \"native\",\n    \"bin\": \"toolnat\",\n    \"installerUrl\": \"https://example.invalid/install.sh\"\n  }\n}"
+        "packs/tool-npm/pack.json": "{\n  \"name\": \"tool-npm\",\n  \"contributes\": [\n    {\n      \"kind\": \"program\",\n      \"bin\": \"toolnpm\",\n      \"via\": \"npm\",\n      \"package\": \"@x/toolnpm\"\n    },\n    {\n      \"kind\": \"launch\",\n      \"bin\": \"toolnpm\",\n      \"flags\": [\n        \"--yolo\"\n      ]\n    }\n  ]\n}",
+        "packs/tool-native/pack.json": "{\n  \"name\": \"tool-native\",\n  \"contributes\": [\n    {\n      \"kind\": \"program\",\n      \"bin\": \"toolnat\",\n      \"via\": \"installer\",\n      \"url\": \"https://example.invalid/install.sh\"\n    }\n  ]\n}"
       }
     }
   }

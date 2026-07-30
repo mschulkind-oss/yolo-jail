@@ -303,10 +303,24 @@ func FlagAliases(packs []*Pack) map[string][]string {
 	return out
 }
 
-// RetireMiseTools is the union of every pack's retireMiseTools. (Legacy field —
-// OQ11 ejects it to a host migration; still read directly until then.)
-func RetireMiseTools(packs []*Pack) []string {
-	return union(packs, func(p *Pack) []string { return p.Decl.RetireMiseTools })
+// RetiredMiseTools is the fixed list of mise tool tokens yolo used to install for
+// its shipped agents and no longer does — a one-shot cleanup of yolo's OWN past
+// (OQ11). It is a CORE constant, not a pack manifest field: it describes yolo's
+// history, not what a pack contributes, and giving transitional cleanup a manifest
+// field (or a contribution kind) would bake a temporary job into the format
+// forever. The boot path strips these tokens from a workspace mise.toml and
+// `mise uninstall`s them; when no supported jail can still carry one, delete the
+// entry (and eventually this whole list).
+var RetiredMiseTools = []string{
+	`"npm:@anthropic-ai/claude-code"`, // claude was installed via mise before the pack installer
+	`"npm:@github/copilot"`,           // copilot, likewise
+}
+
+// RetireMiseTools returns the core retired-tool list (the packs argument is
+// accepted for call-site compatibility and ignored — the list is no longer
+// per-pack).
+func RetireMiseTools(_ []*Pack) []string {
+	return append([]string(nil), RetiredMiseTools...)
 }
 
 // InjectLaunchFlags returns fullCommand with the flags declared for its leading binary

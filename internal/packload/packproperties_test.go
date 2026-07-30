@@ -101,9 +101,9 @@ func TestNoPacksMeansNoDeclarations(t *testing.T) {
 		if got := packload.SharedDirs(empty); len(got) != 0 {
 			t.Errorf("SharedDirs(%v) = %v, want none", empty, got)
 		}
-		if got := packload.RetireMiseTools(empty); len(got) != 0 {
-			t.Errorf("RetireMiseTools(%v) = %v, want none", empty, got)
-		}
+		// RetireMiseTools is deliberately NOT per-pack any more (OQ11): it returns a
+		// fixed CORE list of yolo's own retired mise tokens regardless of packs, so it
+		// is not asserted empty here.
 		if got := packload.LaunchFlags(empty); len(got) != 0 {
 			t.Errorf("LaunchFlags(%v) = %v, want none", empty, got)
 		}

@@ -21,21 +21,23 @@ func claimSet(fp Footprint) map[string]Claim {
 	return out
 }
 
-// FootprintOf maps each of today's manifest fields to the right kind + claim.
+// FootprintOf maps each contribution kind to the right claim.
 func TestFootprintMapsCurrentFields(t *testing.T) {
-	surfaces, _ := json.Marshal([]map[string]any{
+	surface, _ := json.Marshal([]map[string]any{
 		{"agent": "claude", "name": "settings", "path": "~/.claude/settings.json", "codec": "json"},
 	})
-	m := &packdecl.Manifest{
-		Install:      &packdecl.Install{Kind: "native", Bin: "claude", InstallerURL: "https://x/install.sh"},
-		Mounts:       []packdecl.Mount{{From: "skills", To: ".claude/skills"}, {From: "AGENTS.md", To: ".claude/CLAUDE.md", HostOverlay: ".claude/CLAUDE.md"}, {From: "prompts", To: ".claude/prompts"}},
-		WritableDirs: []string{".claude"},
-		SharedDirs:   []string{".claude-shared-credentials"},
-		HostFiles:    []packdecl.HostFile{{From: ".claude/settings.json"}},
-		Surfaces:     surfaces,
-		LaunchFlags:  map[string][]string{"claude": {"--dangerously-skip-permissions"}},
-		Hooks:        []packdecl.Hook{{Name: "shared_credentials"}},
-	}
+	m := &packdecl.Manifest{Contributes: []packdecl.Contribution{
+		{Kind: packdecl.KindProgram, Bin: "claude", Via: "installer", URL: "https://x/install.sh"},
+		{Kind: packdecl.KindSkills, From: "skills", Into: ".claude/skills"},
+		{Kind: packdecl.KindBriefing, From: "AGENTS.md", Into: ".claude/CLAUDE.md", After: "host:.claude/CLAUDE.md"},
+		{Kind: packdecl.KindFiles, From: "prompts", Into: ".claude/prompts"},
+		{Kind: packdecl.KindState, At: ".claude", Scope: "workspace"},
+		{Kind: packdecl.KindState, At: ".claude-shared-credentials", Scope: "machine", Why: "shared creds"},
+		{Kind: packdecl.KindReadsHost, Host: ".claude/settings.json"},
+		{Kind: packdecl.KindLaunch, Bin: "claude", Flags: []string{"--dangerously-skip-permissions"}},
+		{Kind: packdecl.KindHook, Hook: "shared_credentials"},
+		{Kind: packdecl.KindConfig, Raw: surface},
+	}}
 	cs := claimSet(FootprintOf(pk("claude", true, m)))
 
 	// program from install, review-worthy (installer URL).
@@ -79,7 +81,9 @@ func TestFootprintMapsCurrentFields(t *testing.T) {
 // claim counted (matches what actually gets mounted — a fetched pack's grant is
 // refused upstream).
 func TestFootprintOmitsHostReadsWhenOriginForbids(t *testing.T) {
-	m := &packdecl.Manifest{HostFiles: []packdecl.HostFile{{From: ".claude/settings.json"}}}
+	m := &packdecl.Manifest{Contributes: []packdecl.Contribution{
+		{Kind: packdecl.KindReadsHost, Host: ".claude/settings.json"},
+	}}
 	cs := claimSet(FootprintOf(pk("fetched", false, m)))
 	if _, ok := cs["reads-host .claude/settings.json"]; ok {
 		t.Error("a non-host-permitted pack's hostFiles must not appear as an honored reads-host claim")
@@ -89,14 +93,16 @@ func TestFootprintOmitsHostReadsWhenOriginForbids(t *testing.T) {
 // Two packs claiming the same sole-owned target collide; a merge/concat target
 // does not (that is the feature).
 func TestCollisionsExclusiveOnly(t *testing.T) {
-	a := pk("a", false, &packdecl.Manifest{
-		Install: &packdecl.Install{Kind: "npm", Bin: "tool", Package: "a"},
-		Mounts:  []packdecl.Mount{{From: "skills", To: ".x/skills"}, {From: "prompts", To: ".x/data"}},
-	})
-	b := pk("b", false, &packdecl.Manifest{
-		Install: &packdecl.Install{Kind: "npm", Bin: "tool", Package: "b"},                             // same bin → collision
-		Mounts:  []packdecl.Mount{{From: "skills", To: ".x/skills"}, {From: "prompts", To: ".x/data"}}, // same files-target → collision; same skills → fine
-	})
+	a := pk("a", false, &packdecl.Manifest{Contributes: []packdecl.Contribution{
+		{Kind: packdecl.KindProgram, Bin: "tool", Via: "npm", Package: "a"},
+		{Kind: packdecl.KindSkills, From: "skills", Into: ".x/skills"},
+		{Kind: packdecl.KindFiles, From: "prompts", Into: ".x/data"},
+	}})
+	b := pk("b", false, &packdecl.Manifest{Contributes: []packdecl.Contribution{
+		{Kind: packdecl.KindProgram, Bin: "tool", Via: "npm", Package: "b"}, // same bin → collision
+		{Kind: packdecl.KindSkills, From: "skills", Into: ".x/skills"},      // same skills → fine
+		{Kind: packdecl.KindFiles, From: "prompts", Into: ".x/data"},        // same files-target → collision
+	}})
 	cols := Collisions([]*Pack{a, b})
 
 	got := map[string]Collision{}
@@ -117,8 +123,12 @@ func TestCollisionsExclusiveOnly(t *testing.T) {
 // State claimed at two different scopes (one workspace, one machine) collides;
 // the same scope does not.
 func TestCollisionsStateScope(t *testing.T) {
-	ws := pk("ws", false, &packdecl.Manifest{WritableDirs: []string{".shared"}})
-	mc := pk("mc", false, &packdecl.Manifest{SharedDirs: []string{".shared"}})
+	ws := pk("ws", false, &packdecl.Manifest{Contributes: []packdecl.Contribution{
+		{Kind: packdecl.KindState, At: ".shared", Scope: "workspace"},
+	}})
+	mc := pk("mc", false, &packdecl.Manifest{Contributes: []packdecl.Contribution{
+		{Kind: packdecl.KindState, At: ".shared", Scope: "machine", Why: "x"},
+	}})
 	cols := Collisions([]*Pack{ws, mc})
 	found := false
 	for _, c := range cols {
@@ -131,8 +141,8 @@ func TestCollisionsStateScope(t *testing.T) {
 	}
 
 	// Same scope in both → no collision.
-	a := pk("a", false, &packdecl.Manifest{WritableDirs: []string{".dup"}})
-	b := pk("b", false, &packdecl.Manifest{WritableDirs: []string{".dup"}})
+	a := pk("a", false, &packdecl.Manifest{Contributes: []packdecl.Contribution{{Kind: packdecl.KindState, At: ".dup", Scope: "workspace"}}})
+	b := pk("b", false, &packdecl.Manifest{Contributes: []packdecl.Contribution{{Kind: packdecl.KindState, At: ".dup", Scope: "workspace"}}})
 	for _, c := range Collisions([]*Pack{a, b}) {
 		if c.Target == ".dup" {
 			t.Error("same-scope state on one path must not collide (it unions)")
@@ -144,7 +154,7 @@ func TestCollisionsStateScope(t *testing.T) {
 // is not a cross-pack collision.
 func TestCollisionsIgnoreSinglePack(t *testing.T) {
 	a := pk("solo", false, &packdecl.Manifest{
-		Install: &packdecl.Install{Kind: "npm", Bin: "tool", Package: "a"},
+		Contributes: []packdecl.Contribution{{Kind: packdecl.KindProgram, Bin: "tool", Via: "npm", Package: "a"}},
 	})
 	if cols := Collisions([]*Pack{a}); len(cols) != 0 {
 		t.Errorf("one pack cannot collide with itself, got %+v", cols)

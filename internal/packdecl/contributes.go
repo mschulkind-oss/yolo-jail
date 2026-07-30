@@ -68,65 +68,13 @@ type Contribution struct {
 	Raw json.RawMessage `json:"config,omitempty"`
 }
 
-// Contributions returns the pack's effective contributions: the declared
-// `contributes` list when non-empty, else the synthesis from the legacy fields.
-// This is THE accessor the read paths migrate to; while both shapes are
-// supported it hides which one a given pack used.
+// Contributions returns the pack's declared contributions. THE accessor every
+// read path uses — the legacy-shaped projections below (InstallContribution,
+// HostFileContributions, …) are all derived from it, so a consumer that wants
+// "the install" or "the host files" reads them without touching the manifest
+// shape.
 func (m *Manifest) Contributions() []Contribution {
-	if len(m.Contributes) > 0 {
-		return m.Contributes
-	}
-	return m.synthesizeContributions()
-}
-
-// synthesizeContributions builds contributions from the legacy effect fields —
-// the inverse of the Phase-1 footprint shim, so a pack.json that has not yet been
-// rewritten behaves identically. Deleted with the legacy fields in the final step.
-func (m *Manifest) synthesizeContributions() []Contribution {
-	var out []Contribution
-	if m.Install != nil && m.Install.Bin != "" {
-		c := Contribution{Kind: KindProgram, Bin: m.Install.Bin, Flags: m.Install.Flags}
-		switch m.Install.Kind {
-		case "npm":
-			c.Via, c.Package = "npm", m.Install.Package
-		case "native":
-			c.Via, c.URL = "installer", m.Install.InstallerURL
-		}
-		out = append(out, c)
-	}
-	for _, mt := range m.Mounts {
-		switch {
-		case mt.From == "skills":
-			out = append(out, Contribution{Kind: KindSkills, From: mt.From, Into: mt.To})
-		case mt.From == "AGENTS.md" || mt.From == "CLAUDE.md":
-			c := Contribution{Kind: KindBriefing, From: mt.From, Into: mt.To}
-			if mt.HostOverlay != "" {
-				c.After = "host:" + mt.HostOverlay
-			}
-			out = append(out, c)
-		default:
-			out = append(out, Contribution{Kind: KindFiles, From: mt.From, Into: mt.To})
-		}
-	}
-	if len(m.Surfaces) > 0 {
-		out = append(out, Contribution{Kind: KindConfig, Raw: m.Surfaces})
-	}
-	for _, d := range m.WritableDirs {
-		out = append(out, Contribution{Kind: KindState, At: d, Scope: "workspace"})
-	}
-	for _, d := range m.SharedDirs {
-		out = append(out, Contribution{Kind: KindState, At: d, Scope: "machine"})
-	}
-	for _, hf := range m.HostFiles {
-		out = append(out, Contribution{Kind: KindReadsHost, Host: hf.From, Into: hf.To})
-	}
-	for bin, flags := range m.LaunchFlags {
-		out = append(out, Contribution{Kind: KindLaunch, Bin: bin, Flags: flags, Aliases: m.FlagAliases})
-	}
-	for _, h := range m.Hooks {
-		out = append(out, Contribution{Kind: KindHook, Hook: h.Name, From: h.File, At: h.SharedDir})
-	}
-	return out
+	return m.Contributes
 }
 
 // The projections below re-derive the legacy per-field shapes from the normalized

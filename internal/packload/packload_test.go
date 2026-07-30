@@ -62,7 +62,7 @@ func TestEmbeddedPackSurfacesDecode(t *testing.T) {
 // has to be told.
 func TestFetchedPackHostFilesRefusedAndReported(t *testing.T) {
 	root := t.TempDir()
-	writeManifest(t, root, `{"hostFiles":[{"from":".ssh/id_ed25519"}]}`)
+	writeManifest(t, root, `{"contributes":[{"kind":"reads-host","host":".ssh/id_ed25519"}]}`)
 
 	fetched, _ := LoadDir(root, "evil", false)
 	granted, refused := fetched.HonoredHostFiles()
@@ -85,14 +85,14 @@ func TestFetchedPackHostFilesRefusedAndReported(t *testing.T) {
 // the same trust as any dependency the user already installs.
 func TestFetchedPackNativeInstallerRefusedButNpmAllowed(t *testing.T) {
 	root := t.TempDir()
-	writeManifest(t, root, `{"install":{"kind":"native","bin":"x","installerUrl":"https://evil/sh"}}`)
+	writeManifest(t, root, `{"contributes":[{"kind":"program","bin":"x","via":"installer","url":"https://evil/sh"}]}`)
 	fetched, _ := LoadDir(root, "evil", false)
 	if in, why := fetched.HonoredInstall(); in != nil || why == "" {
 		t.Errorf("a fetched native installer must be refused: in=%v why=%q", in, why)
 	}
 
 	npmRoot := t.TempDir()
-	writeManifest(t, npmRoot, `{"install":{"kind":"npm","bin":"x","package":"x"}}`)
+	writeManifest(t, npmRoot, `{"contributes":[{"kind":"program","bin":"x","via":"npm","package":"x"}]}`)
 	npm, _ := LoadDir(npmRoot, "ok", false)
 	if in, why := npm.HonoredInstall(); in == nil || why != "" {
 		t.Errorf("an npm install must be allowed even when fetched: why=%q", why)
@@ -122,8 +122,8 @@ func TestPackWithNoManifestIsValid(t *testing.T) {
 // Unions must dedupe across packs: two packs declaring the same writable dir must
 // produce one mount, not a duplicate the runtime would reject.
 func TestUnionsDedupeAcrossPacks(t *testing.T) {
-	a := &Pack{Name: "a", Decl: declFrom(t, `{"writableDirs":[".shared",".a"],"sharedDirs":[".creds"]}`)}
-	b := &Pack{Name: "b", Decl: declFrom(t, `{"writableDirs":[".shared",".b"],"sharedDirs":[".creds"]}`)}
+	a := &Pack{Name: "a", Decl: declFrom(t, `{"contributes":[{"kind":"state","at":".shared","scope":"workspace"},{"kind":"state","at":".a","scope":"workspace"},{"kind":"state","at":".creds","scope":"machine","because":"x"}]}`)}
+	b := &Pack{Name: "b", Decl: declFrom(t, `{"contributes":[{"kind":"state","at":".shared","scope":"workspace"},{"kind":"state","at":".b","scope":"workspace"},{"kind":"state","at":".creds","scope":"machine","because":"x"}]}`)}
 	if got := WritableDirs([]*Pack{a, b}); len(got) != 3 {
 		t.Errorf("WritableDirs = %v, want 3 deduped", got)
 	}
@@ -136,7 +136,7 @@ func TestUnionsDedupeAcrossPacks(t *testing.T) {
 // passed — including via a declared ALIAS, so `-y` suppresses `--yolo`.
 func TestInjectLaunchFlags(t *testing.T) {
 	p := &Pack{Name: "p", Decl: declFrom(t,
-		`{"launchFlags":{"tool":["--yolo","--no-update"]},"flagAliases":{"--yolo":["-y"]}}`)}
+		`{"contributes":[{"kind":"launch","bin":"tool","flags":["--yolo","--no-update"],"aliases":{"--yolo":["-y"]}}]}`)}
 	loaded := []*Pack{p}
 
 	got := InjectLaunchFlags(loaded, []string{"tool", "sub"})

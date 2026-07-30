@@ -4,63 +4,56 @@ import (
 	"testing"
 )
 
-// A manifest with no contributes[] synthesizes them from the legacy fields —
-// the same field→kind mapping the Phase-1 footprint shim used.
-func TestSynthesizeFromLegacyFields(t *testing.T) {
-	m := &Manifest{
-		Install:      &Install{Kind: "native", Bin: "claude", InstallerURL: "https://x/i.sh"},
-		Mounts:       []Mount{{From: "skills", To: ".claude/skills"}, {From: "AGENTS.md", To: ".claude/CLAUDE.md", HostOverlay: ".claude/CLAUDE.md"}, {From: "prompts", To: ".claude/prompts"}},
-		WritableDirs: []string{".claude"},
-		SharedDirs:   []string{".creds"},
-		HostFiles:    []HostFile{{From: ".claude/settings.json", To: "host-claude/settings.json"}},
-		LaunchFlags:  map[string][]string{"claude": {"--yolo"}},
-		Hooks:        []Hook{{Name: "shared_credentials", File: ".claude/.credentials.json", SharedDir: ".creds"}},
-	}
-	got := map[Kind][]Contribution{}
-	for _, c := range m.Contributions() {
-		got[c.Kind] = append(got[c.Kind], c)
-	}
+// The legacy-shaped projections re-derive the per-field views the read paths
+// consume, from a contributes[] manifest.
+func TestProjectionsFromContributes(t *testing.T) {
+	m := &Manifest{Contributes: []Contribution{
+		{Kind: KindProgram, Bin: "claude", Via: "installer", URL: "https://x/i.sh"},
+		{Kind: KindSkills, From: "skills", Into: ".claude/skills"},
+		{Kind: KindBriefing, From: "AGENTS.md", Into: ".claude/CLAUDE.md", After: "host:.claude/CLAUDE.md"},
+		{Kind: KindState, At: ".claude", Scope: "workspace"},
+		{Kind: KindState, At: ".creds", Scope: "machine", Why: "shared creds"},
+		{Kind: KindReadsHost, Host: ".claude/settings.json", Into: "host-claude/settings.json"},
+		{Kind: KindLaunch, Bin: "claude", Flags: []string{"--yolo"}},
+		{Kind: KindHook, Hook: "shared_credentials", From: ".claude/.credentials.json", At: ".creds"},
+	}}
 
-	if len(got[KindProgram]) != 1 || got[KindProgram][0].Via != "installer" || got[KindProgram][0].URL != "https://x/i.sh" {
-		t.Errorf("program synthesis wrong: %+v", got[KindProgram])
+	if in := m.InstallContribution(); in == nil || in.Kind != "native" || in.InstallerURL != "https://x/i.sh" {
+		t.Errorf("InstallContribution wrong: %+v", in)
 	}
-	if len(got[KindSkills]) != 1 || got[KindSkills][0].Into != ".claude/skills" {
-		t.Errorf("skills synthesis wrong: %+v", got[KindSkills])
+	if hf := m.HostFileContributions(); len(hf) != 1 || hf[0].From != ".claude/settings.json" {
+		t.Errorf("HostFileContributions wrong: %+v", hf)
 	}
-	if len(got[KindBriefing]) != 1 || got[KindBriefing][0].After != "host:.claude/CLAUDE.md" {
-		t.Errorf("briefing synthesis wrong (host overlay): %+v", got[KindBriefing])
+	if wd := m.WritableDirContributions(); len(wd) != 1 || wd[0] != ".claude" {
+		t.Errorf("WritableDirContributions wrong: %+v", wd)
 	}
-	if len(got[KindFiles]) != 1 || got[KindFiles][0].Into != ".claude/prompts" {
-		t.Errorf("files synthesis wrong: %+v", got[KindFiles])
+	if sd := m.SharedDirContributions(); len(sd) != 1 || sd[0] != ".creds" {
+		t.Errorf("SharedDirContributions wrong: %+v", sd)
 	}
-	// state: one workspace, one machine.
-	scopes := map[string]bool{}
-	for _, c := range got[KindState] {
-		scopes[c.Scope] = true
+	if lf := m.LaunchFlagContributions(); len(lf["claude"]) != 1 || lf["claude"][0] != "--yolo" {
+		t.Errorf("LaunchFlagContributions wrong: %+v", lf)
 	}
-	if !scopes["workspace"] || !scopes["machine"] {
-		t.Errorf("state synthesis should have both scopes: %+v", got[KindState])
+	if hk := m.HookContributions(); len(hk) != 1 || hk[0].Name != "shared_credentials" {
+		t.Errorf("HookContributions wrong: %+v", hk)
 	}
-	if len(got[KindReadsHost]) != 1 || got[KindReadsHost][0].Host != ".claude/settings.json" {
-		t.Errorf("reads-host synthesis wrong: %+v", got[KindReadsHost])
+	// mounts: skills + briefing (with host overlay reconstructed).
+	mounts := m.MountContributions()
+	var sawSkills, sawBriefing bool
+	for _, mt := range mounts {
+		if mt.From == "skills" {
+			sawSkills = true
+		}
+		if mt.From == "AGENTS.md" && mt.HostOverlay == ".claude/CLAUDE.md" {
+			sawBriefing = true
+		}
 	}
-	if len(got[KindLaunch]) != 1 || got[KindLaunch][0].Bin != "claude" {
-		t.Errorf("launch synthesis wrong: %+v", got[KindLaunch])
+	if !sawSkills || !sawBriefing {
+		t.Errorf("MountContributions missing skills/briefing: %+v", mounts)
 	}
-	if len(got[KindHook]) != 1 || got[KindHook][0].Hook != "shared_credentials" {
-		t.Errorf("hook synthesis wrong: %+v", got[KindHook])
-	}
-}
-
-// A non-empty contributes[] WINS and the legacy fields are ignored.
-func TestContributesWinsOverLegacy(t *testing.T) {
-	m := &Manifest{
-		Install:     &Install{Kind: "npm", Bin: "legacy", Package: "legacy-pkg"},
-		Contributes: []Contribution{{Kind: KindProgram, Bin: "new", Via: "npm", Package: "new-pkg"}},
-	}
-	cs := m.Contributions()
-	if len(cs) != 1 || cs[0].Bin != "new" {
-		t.Errorf("contributes[] must win over legacy Install: %+v", cs)
+	// origin gate: reads-host + installer both flagged.
+	reasons := m.NeedsHostAccess()
+	if len(reasons) < 2 {
+		t.Errorf("NeedsHostAccess should flag reads-host + installer: %v", reasons)
 	}
 }
 

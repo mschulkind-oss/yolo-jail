@@ -8,6 +8,7 @@ import (
 
 	"github.com/mschulkind-oss/yolo-jail/internal/config"
 	"github.com/mschulkind-oss/yolo-jail/internal/jsonx"
+	"github.com/mschulkind-oss/yolo-jail/internal/packdecl"
 	"github.com/mschulkind-oss/yolo-jail/internal/packload"
 	"github.com/mschulkind-oss/yolo-jail/internal/paths"
 	"github.com/mschulkind-oss/yolo-jail/internal/storage"
@@ -395,15 +396,15 @@ func (o *Options) assembleRunCmd(in *assembleInput) []string {
 	// jail comes up with no briefing at all — silently, since a missing bind source for
 	// a FILE is not an error the way a missing dir is.
 	for _, p := range in.packs {
-		for _, mt := range p.Decl.MountContributions() {
-			if !isBriefingMount(mt.From) {
+		for _, c := range p.Decl.Contributions() {
+			if c.Kind != packdecl.KindBriefing {
 				continue
 			}
 			staged := filepath.Join(in.agentsPath, briefingStagingName(p.Name))
 			if rt == "container" {
-				acMaterialize(staged, mt.To, in.wsState)
+				acMaterialize(staged, c.Into, in.wsState)
 			} else {
-				runCmd = append(runCmd, "-v", staged+":/home/agent/"+mt.To+":ro")
+				runCmd = append(runCmd, "-v", staged+":/home/agent/"+c.Into+":ro")
 			}
 		}
 	}

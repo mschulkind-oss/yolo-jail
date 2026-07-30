@@ -19,7 +19,6 @@ package packdecl
 import (
 	"bytes"
 	"encoding/json"
-	"fmt"
 	"strings"
 )
 
@@ -39,70 +38,12 @@ type Manifest struct {
 	// Description is one line, shown by `yolo pack ls`.
 	Description string `json:"description,omitempty"`
 
-	// Install describes a program the pack wants available in the jail. It is a
-	// DECLARATION, not a command: core decides how (and whether) to honor it.
-	Install *Install `json:"install,omitempty"`
-
-	// Mounts are the pack's own files, staged and mounted read-only into the jail.
-	// This is how a pack delivers skills, briefing prose, or any other content that
-	// must appear at a specific path.
-	Mounts []Mount `json:"mounts,omitempty"`
-
-	// WritableDirs are home-relative directories the pack needs to WRITE at runtime
-	// (a tool's own config/state dir). Backed per-workspace, so two workspaces get
-	// independent state — the default, and right for almost everything.
-	WritableDirs []string `json:"writableDirs,omitempty"`
-
-	// SharedDirs are home-relative directories shared across EVERY jail on the
-	// machine, backed by GlobalHome instead of the per-workspace overlay.
-	//
-	// Reserved for IDENTITY/CREDENTIAL state, where re-authenticating in every
-	// workspace would be wrong behavior rather than an inconvenience. Anything here
-	// leaks between workspaces BY DESIGN, so declaring one is a real decision.
-	SharedDirs []string `json:"sharedDirs,omitempty"`
-
-	// HostFiles are host-home files the pack wants mounted read-only into the jail.
-	//
-	// THE CREDENTIAL BOUNDARY. A declaration here is only honored for a pack whose
-	// content origin permits it (embedded or local — never fetched; see
-	// config.PackEntry.MayGrantHostFiles). A fetched pack asking for one is refused,
-	// because installing a third-party pack approves distributing content, not handing
-	// that repository your host config.
-	HostFiles []HostFile `json:"hostFiles,omitempty"`
-
-	// Surfaces are composed config files, in the agentcfg surface schema. Decoded by
-	// internal/agentcfg/manifest, not here — this package only carries the raw JSON so
-	// packdecl stays free of an engine dependency.
-	Surfaces json.RawMessage `json:"surfaces,omitempty"`
-
-	// LaunchFlags are flags injected after the binary when the user runs it, keyed by
-	// the binary name. This is how a tool's "don't prompt me" mode gets applied
-	// without the user typing it every time.
-	LaunchFlags map[string][]string `json:"launchFlags,omitempty"`
-
-	// FlagAliases marks flags that mean the same thing, so an injected flag is skipped
-	// when the user already passed an equivalent (e.g. -y for --yolo).
-	FlagAliases map[string][]string `json:"flagAliases,omitempty"`
-
-	// Hooks are named IMPERATIVE capabilities the pack requests — the things that are
-	// not surface content and so cannot be expressed as layers (a credentials symlink
-	// out to the machine-global tier, per-workspace history isolation).
-	//
-	// A REQUEST, not a script. Core implements each hook and decides whether to honor it;
-	// a pack cannot supply code to run at boot, because that would collapse the origin
-	// gate — shipping content and executing code would become one grant.
-	Hooks []Hook `json:"hooks,omitempty"`
-
-	// RetireMiseTools are mise tool tokens to strip from a workspace mise.toml,
-	// for a tool that used to be installed that way and no longer is.
-	RetireMiseTools []string `json:"retireMiseTools,omitempty"`
-
-	// Contributes is the Phase-4 shape: one list of typed contributions replacing
-	// the effect fields above (see contributes.go). During the compatibility
-	// window both parse — a non-empty Contributes wins and the legacy fields are
-	// ignored; an empty one has its contributions synthesized from the legacy
-	// fields. Read it through Contributions(), never directly, so a caller does
-	// not care which shape a pack used.
+	// Contributes is the pack's effects: one list of typed contributions, each with
+	// an explicit `kind` from the closed set (see contributes.go / kinds.go). It
+	// replaced the nine legacy effect fields (install/mounts/writableDirs/
+	// sharedDirs/hostFiles/surfaces/launchFlags/flagAliases/hooks) and the
+	// filename-based magic-string dispatch (docs/design/pack-declaration-reform.md
+	// §3.1). Read it through Contributions().
 	Contributes []Contribution `json:"contributes,omitempty"`
 }
 
@@ -183,73 +124,9 @@ func Decode(data []byte) (*Manifest, []string) {
 	return &m, m.Validate()
 }
 
-// Validate reports every structural problem.
+// Validate reports every structural problem — per-kind over contributes[].
 func (m *Manifest) Validate() []string {
-	var problems []string
-
-	// Phase-4 contributes[]: validated per-kind. The legacy-field validation below
-	// still runs for a pack that uses the old shape (both parse during the window).
-	problems = append(problems, m.validateContributions()...)
-
-	if m.Install != nil {
-		switch m.Install.Kind {
-		case "npm":
-			if m.Install.Package == "" {
-				problems = append(problems, "install: kind \"npm\" needs a \"package\"")
-			}
-		case "native":
-			if m.Install.InstallerURL == "" {
-				problems = append(problems, "install: kind \"native\" needs an \"installerUrl\"")
-			}
-		case "":
-			problems = append(problems, "install: missing \"kind\" (expected npm or native)")
-		default:
-			problems = append(problems, fmt.Sprintf(
-				"install: unknown kind %q (expected npm or native)", m.Install.Kind))
-		}
-		if m.Install.Bin == "" {
-			problems = append(problems, "install: missing \"bin\"")
-		}
-	}
-
-	for i, mt := range m.Mounts {
-		if mt.From == "" {
-			problems = append(problems, fmt.Sprintf("mounts[%d]: missing \"from\"", i))
-		}
-		if mt.To == "" {
-			problems = append(problems, fmt.Sprintf("mounts[%d]: missing \"to\"", i))
-		}
-		problems = appendPathProblems(problems, fmt.Sprintf("mounts[%d].from", i), mt.From)
-		problems = appendPathProblems(problems, fmt.Sprintf("mounts[%d].to", i), mt.To)
-		if mt.HostOverlay != "" {
-			problems = appendPathProblems(problems,
-				fmt.Sprintf("mounts[%d].hostOverlay", i), mt.HostOverlay)
-		}
-	}
-	for i, h := range m.Hooks {
-		if h.Name == "" {
-			problems = append(problems, fmt.Sprintf("hooks[%d]: missing \"name\"", i))
-		} else if !knownHook(h.Name) {
-			problems = append(problems, fmt.Sprintf(
-				"hooks[%d]: unknown hook %q (expected one of %s)", i, h.Name,
-				strings.Join(KnownHooks, ", ")))
-		}
-		problems = appendPathProblems(problems, fmt.Sprintf("hooks[%d].file", i), h.File)
-		problems = appendPathProblems(problems, fmt.Sprintf("hooks[%d].sharedDir", i), h.SharedDir)
-	}
-	for i, hf := range m.HostFiles {
-		if hf.From == "" {
-			problems = append(problems, fmt.Sprintf("hostFiles[%d]: missing \"from\"", i))
-		}
-		problems = appendPathProblems(problems, fmt.Sprintf("hostFiles[%d].from", i), hf.From)
-	}
-	for i, d := range m.WritableDirs {
-		problems = appendPathProblems(problems, fmt.Sprintf("writableDirs[%d]", i), d)
-	}
-	for i, d := range m.SharedDirs {
-		problems = appendPathProblems(problems, fmt.Sprintf("sharedDirs[%d]", i), d)
-	}
-	return problems
+	return m.validateContributions()
 }
 
 // appendPathProblems rejects a path that escapes the tree it is relative to.

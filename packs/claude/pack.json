@@ -110,8 +110,5 @@
       "kind": "hook"
     }
   ],
-  "name": "claude",
-  "retireMiseTools": [
-    "\"npm:@anthropic-ai/claude-code\""
-  ]
+  "name": "claude"
 }

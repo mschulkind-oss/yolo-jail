@@ -7,6 +7,7 @@ import (
 	"testing"
 
 	"github.com/mschulkind-oss/yolo-jail/internal/jsonx"
+	"github.com/mschulkind-oss/yolo-jail/internal/packdecl"
 )
 
 // TestAppleContainerMaterializesSingleFiles is the regression for the AC
@@ -77,9 +78,9 @@ func TestAppleContainerMaterializesSingleFiles(t *testing.T) {
 	// off the declaration, so the test breaks if the pack moves it rather than asserting a
 	// path the assembler never looks at.
 	briefDest := ""
-	for _, mt := range loadedPacks[0].Decl.MountContributions() {
-		if isBriefingMount(mt.From) {
-			briefDest = mt.To
+	for _, c := range loadedPacks[0].Decl.Contributions() {
+		if c.Kind == packdecl.KindBriefing {
+			briefDest = c.Into
 		}
 	}
 	if briefDest == "" {
