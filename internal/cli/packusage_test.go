@@ -13,7 +13,7 @@ import (
 // this test the notice can keep pointing at help that never mentions agents.
 func TestPackUsageAnswersWhatPacksAreFor(t *testing.T) {
 	var out, errw bytes.Buffer
-	if rc := packMain([]string{"--help"}, &out, &errw, false); rc != 0 {
+	if rc := packMain([]string{"--help"}, &out, &errw, false, nil); rc != 0 {
 		t.Fatalf("pack --help rc = %d: %s", rc, errw.String())
 	}
 	got := out.String()
@@ -66,7 +66,7 @@ func TestPackHelpRoutesAgree(t *testing.T) {
 	render := func(t *testing.T, args ...string) string {
 		t.Helper()
 		var out, errw bytes.Buffer
-		if rc := packMain(args, &out, &errw, false); rc != 0 {
+		if rc := packMain(args, &out, &errw, false, nil); rc != 0 {
 			t.Fatalf("pack %v rc = %d: %s", args, rc, errw.String())
 		}
 		return out.String()

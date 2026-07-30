@@ -457,8 +457,9 @@ Everything else is offline.
   errors instead of hanging. **The jail has no git credentials by design**, so fetch is
   host-only.
 - The lockfile (`~/.config/yolo-jail/packs.lock.json`, beside the user config) records the
-  asked-for `source`, the resolved `commit`, and the `ref`. Because trees are keyed by
-  commit, a moving ref never corrupts an existing checkout.
+  asked-for `source`, the resolved `commit`, the `ref`, and — for a fetched pack the user
+  granted host access — the approved host-access claims and the commit they were approved at
+  (§9). Because trees are keyed by commit, a moving ref never corrupts an existing checkout.
 - Launch resolves pins from the store and never fetches; a missing pin errors and points at
   `yolo pack install`. `yolo pack status` flags drift between the config address and the
   lock.
@@ -482,15 +483,11 @@ Everything else is offline.
 
 ---
 
-## 9. The origin gate (credential boundary)
+## 9. The credential boundary: origin + approval
 
 A pack has an **origin**: embedded (ships with yolo), local (a `file://` directory the user
-controls), or fetched (cloned from a git ref). The gate is one predicate:
-
-> **A fetched pack may not access the host. An embedded or local pack may.**
-
-Four contributions constitute host access, and they are checked through a single predicate
-so a caller cannot honor some but miss another:
+controls), or fetched (cloned from a git ref). Four contributions constitute **host
+access**, checked through a single predicate so a caller cannot honor some but miss another:
 
 - `reads-host` — a host file read.
 - `mount` — a host-home directory or file read.
@@ -501,11 +498,46 @@ so a caller cannot honor some but miss another:
 Static `env` is *not* host access — its values are literal strings, so it is honored for
 any origin.
 
-A fetched pack that declares any of these has it **refused, with a printed notice** — never
-silently dropped. Installing a third-party pack approves distributing its content; it does
-not hand that repository your host config. Inside the jail every pack loads as
-host-permitted, because the host already applied the gate by deciding which `/ctx` mounts
-exist.
+Host access is granted by **origin plus approval**:
+
+- An **embedded or local** pack may access the host unconditionally. Its origin already
+  carries the user's own authority — yolo ships the embedded packs, and a `file://` pack is
+  a directory the user controls.
+- A **fetched** pack may access the host **only for the specific claims the user approved at
+  `yolo pack install`.** Installing a third-party pack no longer means trusting it with your
+  host home by default, but it is no longer a hard refusal either: at install time the pack's
+  host-access claims are shown and the user answers y/N once. The approval — the exact set of
+  claims, and the commit it was granted at — is recorded per-pack in the lockfile.
+
+```
+$ yolo pack install
+acme  v2 → a1b2c3d
+  ⚠ pack acme reads your host:
+      mount acme-refs -> /ctx/acme-refs
+      reads-host .config/acme/key
+  Approve host access for acme? [y/N] y
+```
+
+**A moving pin re-prompts only when it gains access.** `yolo pack update` pulls a new commit
+and recomputes the pack's host-access claims. If they are a subset of what was approved
+(unchanged, or narrowed), the approval carries forward silently. If the new commit declares a
+claim the user has *not* approved — a benign pack turning to read `~/.ssh` across a ref bump —
+install re-prompts with the full current claim set before recording it.
+
+At **launch**, a fetched pack's host access is gated on this lockfile approval, not on origin:
+its `mount`/`reads-host`/`installer`/host-`briefing` claims are honored only if the lock
+approves the currently-resolved commit's claims. An unapproved fetched pack still loads — its
+`env`, `skills`, `briefing`, `config`, and other non-host contributions all work — but its
+host claims are refused with a printed notice pointing at `yolo pack install`. The gate
+**fails closed**: no lockfile, a corrupt lockfile, or a non-interactive install all mean "not
+approved". Inside the jail every pack loads as host-permitted, because the host already
+applied the gate by deciding which `/ctx` mounts exist.
+
+**Transparency at every launch.** Because a fetched pack *can* now read the host, the startup
+banner lists what each loaded pack reads this launch — its mounts, host-file reads, and env —
+so the effective environment is visible on screen, not just recorded in a lockfile. Only
+honored claims appear (a refused, unapproved claim is not in the footprint), so the banner is
+an accurate picture of what actually crossed into the jail.
 
 ---
 
@@ -518,7 +550,7 @@ exist.
 | `yolo pack ls` | list configured packs and what each stages |
 | `yolo pack explain <name>` | stage one pack and show what it stages and what it dropped (`file://` local only) |
 | `yolo pack footprint [ref]` | print claims + cross-pack collisions + review summary; `[ref]` is an embedded pack name **or a local path / `file://` source** so you can inspect a pack you are authoring |
-| `yolo pack install` / `update` | fetch configured packs, write the lockfile, report moved pins, prune dropped packs (the only network step) |
+| `yolo pack install` / `update` | fetch configured packs, write the lockfile, report moved pins, prune dropped packs (the only network step); **prompt to approve a fetched pack's host access**, re-prompting only when a moved pin gains a claim (§9) |
 | `yolo pack status` | show locked commits and flag config/lock drift |
 
 ---
@@ -574,7 +606,9 @@ dir.
 ## 12. Invariants
 
 - The manifest stays static data — every claim readable without executing anything.
-- The origin gate keeps its teeth — a fetched pack never reads the host.
+- The credential boundary holds — a fetched pack reads the host only for claims the user
+  approved at install, and a pin that gains access re-prompts; a fetched pack never reads the
+  host silently.
 - Packs stay user scope — a workspace config cannot name one.
 - The source set for `derive` stays closed and core-owned — a pack projects, never invents.
 - `derive` is deterministic.

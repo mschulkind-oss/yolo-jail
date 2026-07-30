@@ -11,6 +11,7 @@ package packdecl
 import (
 	"encoding/json"
 	"fmt"
+	"sort"
 	"strings"
 )
 
@@ -253,6 +254,30 @@ func (m *Manifest) NeedsHostAccessContributions() []string {
 		}
 	}
 	return reasons
+}
+
+// HostAccessClaims returns the SPECIFIC, stable host-access claims a pack makes —
+// one line per claim, naming the exact target — sorted for deterministic comparison.
+// This is the set a user approves at `pack install`; a pin move whose claims are a
+// superset of the approved set re-prompts, so the strings must be specific (which
+// dir, which file) rather than the generic reasons NeedsHostAccessContributions
+// gives for display. Empty when the pack reads nothing from the host.
+func (m *Manifest) HostAccessClaims() []string {
+	var claims []string
+	for _, c := range m.Contributions() {
+		switch {
+		case c.Kind == KindReadsHost:
+			claims = append(claims, "reads-host "+c.Host)
+		case c.Kind == KindMount:
+			claims = append(claims, "mount "+c.Host+" -> /ctx/"+c.Into)
+		case c.Kind == KindProgram && c.Via == "installer":
+			claims = append(claims, "installer "+c.URL)
+		case c.Kind == KindBriefing && strings.HasPrefix(c.After, "host:"):
+			claims = append(claims, "briefing "+strings.TrimPrefix(c.After, "host:"))
+		}
+	}
+	sort.Strings(claims)
+	return claims
 }
 
 // mergeSurfaceArrays concatenates several JSON arrays of surface DTOs into one

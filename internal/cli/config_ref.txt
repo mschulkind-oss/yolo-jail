@@ -422,11 +422,14 @@
     With no packs configured a jail has no coding agent, and says so at launch.  That
     is the honest default: activating agents nobody asked for would put six tools and
     their config files in every jail.
-    An EMBEDDED or LOCAL (file://) pack may read the host home; a FETCHED (git) pack
-    never can.  Host access = a reads-host file, a `mount` of a host dir, an installer
-    program, or a host-prepending briefing.  Installing a third-party pack approves
-    distributing content, not handing that repository your host config.  The refusal
-    is printed, not silent.  Static `env` values are never gated (they read nothing).
+    Host access = a reads-host file, a `mount` of a host dir, an installer program, or
+    a host-prepending briefing.  An EMBEDDED or LOCAL (file://) pack may read the host
+    unconditionally.  A FETCHED (git) pack may too, but only for the claims you APPROVE
+    at `yolo pack install` (it shows what the pack reads and asks y/N once, recording
+    the approval per-commit in the lockfile); a moved pin re-prompts only if it gains a
+    new claim, and an unapproved claim is refused at launch with a printed notice.
+    Static `env` values are never gated (they read nothing).  Each launch's banner
+    lists what every loaded pack reads from the host.
     A pack.json declares effects as a "contributes" list, one entry per effect with a
     "kind" from the closed set:
       program       a tool on PATH: {bin, via:"npm"|"installer", package|url, flags}

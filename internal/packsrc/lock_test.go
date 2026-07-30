@@ -154,3 +154,64 @@ func TestLockPathSitsBesideUserConfig(t *testing.T) {
 		t.Errorf("LockPath = %q", got)
 	}
 }
+
+// HostAccessApproved is the superset check that decides whether a fetched pack's
+// current host-access claims are all already approved (no re-prompt) or include a
+// new one (re-prompt). The rule the whole approval model turns on.
+func TestHostAccessApprovedSupersetRule(t *testing.T) {
+	e := LockEntry{
+		Name:               "acme",
+		ApprovedHostAccess: []string{"mount refs -> /ctx/refs", "reads-host .config/acme/key"},
+	}
+	cases := []struct {
+		name string
+		want []string
+		ok   bool
+	}{
+		{"reads nothing is always approved", nil, true},
+		{"exact match approved", []string{"mount refs -> /ctx/refs", "reads-host .config/acme/key"}, true},
+		{"a narrowed subset approved", []string{"mount refs -> /ctx/refs"}, true},
+		{"a NEW claim not approved", []string{"mount refs -> /ctx/refs", "reads-host .ssh/id_ed25519"}, false},
+		{"a wholly different claim not approved", []string{"installer https://x/i.sh"}, false},
+	}
+	for _, tc := range cases {
+		t.Run(tc.name, func(t *testing.T) {
+			if got := e.HostAccessApproved(tc.want); got != tc.ok {
+				t.Errorf("HostAccessApproved(%v) = %v, want %v", tc.want, got, tc.ok)
+			}
+		})
+	}
+
+	// An entry with NO approvals grants nothing but the empty set.
+	empty := LockEntry{Name: "x"}
+	if empty.HostAccessApproved([]string{"mount a -> /ctx/a"}) {
+		t.Error("an unapproved entry must not approve any host-access claim")
+	}
+	if !empty.HostAccessApproved(nil) {
+		t.Error("an unapproved entry must still approve the empty set (reads nothing)")
+	}
+}
+
+// The approval fields round-trip through save/load so an approval survives across
+// invocations (the whole point — approve once, trusted until the pin moves).
+func TestApprovalFieldsRoundTrip(t *testing.T) {
+	dir := t.TempDir()
+	path := filepath.Join(dir, "packs.lock.json")
+	l := &Lock{Schema: LockSchema, Packs: map[string]LockEntry{}}
+	l.Set(LockEntry{
+		Name: "acme", Source: "git+ssh://h/o/r//p?ref=v1", Commit: "abc123", Ref: "v1",
+		ApprovedHostAccess: []string{"mount refs -> /ctx/refs"}, ApprovedAt: "abc123",
+	})
+	if err := l.Save(path); err != nil {
+		t.Fatal(err)
+	}
+	got, err := LoadLock(path)
+	if err != nil {
+		t.Fatal(err)
+	}
+	e, ok := got.Get("acme")
+	if !ok || e.ApprovedAt != "abc123" || len(e.ApprovedHostAccess) != 1 ||
+		e.ApprovedHostAccess[0] != "mount refs -> /ctx/refs" {
+		t.Errorf("approval did not round-trip: %+v", e)
+	}
+}

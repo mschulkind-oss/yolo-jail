@@ -42,6 +42,39 @@ type LockEntry struct {
 	// Ref is the ref as written, kept alongside Commit so the pair reads as
 	// "asked for main, got <sha>".
 	Ref string `json:"ref,omitempty"`
+	// ApprovedHostAccess is the set of SPECIFIC host-access claims
+	// (packdecl.HostAccessClaims — "mount X -> /ctx/Y", "reads-host Z", …) the user
+	// approved for this pack at install time. A fetched pack gets host access at
+	// launch only for the claims recorded here; a new commit whose claims are a
+	// SUPERSET re-prompts. Empty for a pack that reads nothing from the host, and
+	// unused for embedded/local packs (their origin already permits host access).
+	//
+	// Stored sorted, so the JSON is stable and a superset check is a plain walk.
+	ApprovedHostAccess []string `json:"approvedHostAccess,omitempty"`
+	// ApprovedAt is the commit the approval was granted against, so `pack status` can
+	// say "approved at <sha>" and a moved pin is legible. Usually equals Commit.
+	ApprovedAt string `json:"approvedAt,omitempty"`
+}
+
+// HostAccessApproved reports whether every claim in `want` (a pack's current
+// HostAccessClaims) is already in this entry's approved set — i.e. the pack asks for
+// nothing the user has not already granted. An empty `want` is trivially approved
+// (the pack reads nothing from the host). A claim in `want` absent from the approved
+// set means the footprint GAINED host access and the caller must re-prompt.
+func (e LockEntry) HostAccessApproved(want []string) bool {
+	if len(want) == 0 {
+		return true
+	}
+	have := map[string]bool{}
+	for _, c := range e.ApprovedHostAccess {
+		have[c] = true
+	}
+	for _, c := range want {
+		if !have[c] {
+			return false
+		}
+	}
+	return true
 }
 
 // Lock is the whole lockfile.

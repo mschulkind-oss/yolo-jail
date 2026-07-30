@@ -124,6 +124,18 @@ func (o *Options) stagePacks(cname string) (string, []*packload.Pack, []agents.P
 		}
 	}
 
+	// The lockfile records which fetched packs the user approved host access for, and
+	// at which commit. Launch reads it (never writes it) to gate a fetched pack's host
+	// access on that approval rather than on origin alone. A missing lock is normal
+	// (nothing approved yet) — LoadLock returns an empty one.
+	lock, lockErr := packsrc.LoadLock(packsrc.LockPath(paths.UserConfigPath()))
+	if lockErr != nil {
+		// A corrupt lock must not silently grant OR silently deny; surface it and treat
+		// every fetched pack as unapproved (fail-closed) for this launch.
+		o.pr(o.Stdout).print("[yellow]Warning: " + lockErr.Error() + "[/yellow]")
+		lock = nil
+	}
+
 	for _, entry := range configured {
 		root, err := packRoot(entry)
 		if err != nil {
@@ -149,9 +161,14 @@ func (o *Options) stagePacks(cname string) (string, []*packload.Pack, []agents.P
 					"check its filters[/yellow]", entry.Name, len(res.Excluded)))
 		}
 
-		// A configured pack's declarations are honored only as far as its ORIGIN
-		// permits: a fetched pack cannot read the host home or run an installer.
-		p, probs := packload.LoadDir(dest, entry.Name, entry.MayGrantHostFiles())
+		// A configured pack's host access is gated: an embedded or local pack always
+		// may (its origin already carries the user's authority); a FETCHED pack may
+		// only for the host-access claims the user approved at `yolo pack install`,
+		// recorded per-commit in the lockfile. This is the approval model that lets a
+		// shared pack mount a host dir or set env, without a fetched ref silently
+		// gaining access it did not have when the user last looked.
+		mayHost := packMayAccessHost(entry, dest, lock)
+		p, probs := packload.LoadDir(dest, entry.Name, mayHost)
 		for _, prob := range probs {
 			return "", nil, nil, fmt.Errorf("packs: %s", prob)
 		}
@@ -178,6 +195,42 @@ func (o *Options) stagePacks(cname string) (string, []*packload.Pack, []agents.P
 	}
 	agents.SetPackSkillDirs(skillDirs)
 	return stagingRoot, loaded, briefings, nil
+}
+
+// packMayAccessHost decides whether a configured pack gets host access at launch.
+//
+//   - Embedded or local (file://) pack → always: its origin carries the user's own
+//     authority, exactly as before the approval model existed.
+//   - Fetched (git) pack → only when the lockfile records approval for EVERY
+//     host-access claim the staged pack currently makes. A pack that reads nothing
+//     from the host trivially passes (there is nothing to approve). A claim the user
+//     has not approved (a fresh install never run through `pack install`, or a pin
+//     that moved and gained access) fails closed here, and packload refuses those
+//     claims with a printed notice pointing at `yolo pack install`.
+//
+// dest is the STAGED tree, so the claims checked are exactly what would be honored.
+func packMayAccessHost(entry config.PackEntry, dest string, lock *packsrc.Lock) bool {
+	if entry.MayGrantHostFiles() {
+		return true // embedded or local — origin permits
+	}
+	// Fetched. Read the staged pack's host-access claims and check them against the
+	// lockfile approval. A nil lock (missing or corrupt) approves nothing.
+	p, _ := packload.LoadDir(dest, entry.Name, false)
+	if p == nil {
+		return false
+	}
+	want := p.Decl.HostAccessClaims()
+	if len(want) == 0 {
+		return true // reads nothing from the host; the gate is moot
+	}
+	if lock == nil {
+		return false
+	}
+	le, ok := lock.Get(entry.Name)
+	if !ok {
+		return false
+	}
+	return le.HostAccessApproved(want)
 }
 
 // packRoot resolves a pack entry to a directory on disk.

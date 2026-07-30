@@ -19,6 +19,7 @@ package cli
 // worse than no linter.
 
 import (
+	"bufio"
 	"fmt"
 	"io"
 	"os"
@@ -79,12 +80,13 @@ The packs yolo ships are selected by NAME, and none is on by default:
 
   "packs": ["claude"]        # or copilot, codex, opencode, pi, agy
 
-An EMBEDDED or LOCAL (file://) pack may read the host home — reads-host, mount, an
-installer program, or a host-prepending briefing. That is how claude and pi compose
-your own ~/.claude/settings.json into the jail. A FETCHED (git) pack is refused all of
-these, with a printed notice: installing a third-party pack approves distributing
-content, not handing that repository your host config. Static "env" values are never
-gated (they read nothing from the host).
+An EMBEDDED or LOCAL (file://) pack may read the host home unconditionally — reads-host,
+mount, an installer program, or a host-prepending briefing. A FETCHED (git) pack may too,
+but only for the claims you APPROVE at install: yolo pack install shows what the pack
+reads and asks y/N once, recording the approval (per commit) in the lockfile. A pin that
+later gains a new host-access claim re-prompts; an unapproved claim is refused at launch,
+with a notice. Static "env" values are never gated (they read nothing from the host), and
+every loaded pack's host access is listed in the startup banner each launch.
 
   yolo pack init [dir]        scaffold a pack skeleton (default: current dir)
   yolo pack lint [dir]        validate the tree AND the pack.json manifest; print its footprint
@@ -92,8 +94,8 @@ gated (they read nothing from the host).
   yolo pack explain <name>    show which files a pack stages, and what it dropped
   yolo pack footprint [ref]   what packs claim on the environment + collisions;
                               [ref] = an embedded name OR a local path / file:// pack
-  yolo pack install           fetch configured packs and write the lockfile
-  yolo pack update            same as install (re-fetch; reports moved pins)
+  yolo pack install           fetch configured packs, write the lockfile, approve host access
+  yolo pack update            same as install (re-fetch; reports moved pins, re-approves new access)
   yolo pack status            show locked commits, and flag config/lock drift
 
 Packs are configured in ~/.config/yolo-jail/config.jsonc under "packs" (USER scope
@@ -116,10 +118,14 @@ func runPack(args []string) int {
 	if len(rest) > 0 {
 		rest = rest[1:]
 	}
-	return packMain(rest, os.Stdout, os.Stderr, isTTYStdout())
+	return packMain(rest, os.Stdout, os.Stderr, isTTYStdout(), os.Stdin)
 }
 
-func packMain(args []string, out, errw io.Writer, color bool) int {
+// packMain dispatches a pack subcommand. stdin is the reader the install-time
+// host-access approval prompt uses; a nil stdin (tests, or a non-interactive run)
+// means "no approval given", so a fetched pack's host access stays refused rather
+// than being granted without a human — fail-closed on the credential boundary.
+func packMain(args []string, out, errw io.Writer, color bool, stdin io.Reader) int {
 	if len(args) == 0 {
 		fmt.Fprintln(out, packUsage)
 		return 0
@@ -136,7 +142,7 @@ func packMain(args []string, out, errw io.Writer, color bool) int {
 	case "footprint":
 		return packFootprint(args[1:], out, errw, color)
 	case "install", "update":
-		return packInstall(out, errw, color)
+		return packInstall(out, errw, color, stdin)
 	case "status":
 		return packStatus(out, errw, color)
 	case "-h", "--help", "help":
@@ -618,7 +624,7 @@ func reviewSummary(claims []packload.Claim) string {
 // mid-boot. `update` is the same operation with a different name and intent, so they
 // share this body: the distinction users care about is "did my pins move", and the
 // output reports exactly that.
-func packInstall(out, errw io.Writer, color bool) int {
+func packInstall(out, errw io.Writer, color bool, stdin io.Reader) int {
 	entries, err := config.LoadPacks(func(msg string) {
 		fmt.Fprintf(errw, "Warning: %s\n", msg)
 	})
@@ -671,14 +677,13 @@ func packInstall(out, errw io.Writer, color bool) int {
 			rc = 1
 			continue
 		}
-		if _, err := store.Materialize(addr, commit); err != nil {
+		resolved, err := store.Materialize(addr, commit)
+		if err != nil {
 			fmt.Fprintf(errw, "yolo pack install: %s: %v\n", e.Name, err)
 			rc = 1
 			continue
 		}
-		lock.Set(packsrc.LockEntry{
-			Name: e.Name, Source: e.Source, Commit: commit, Ref: addr.Ref,
-		})
+		treeRoot := resolved.Root
 		// Report whether the pin MOVED, which is the thing a user actually wants to
 		// know from an update — not merely that it succeeded.
 		switch {
@@ -690,6 +695,23 @@ func packInstall(out, errw io.Writer, color bool) int {
 		default:
 			pr.Printf("[dim]%s unchanged (%s)[/dim]", e.Name, shortSHA(commit))
 		}
+
+		// HOST-ACCESS APPROVAL. A fetched pack may read the host (mount, reads-host,
+		// installer, host-briefing) only with explicit consent, recorded per-commit in
+		// the lockfile. Carry a prior approval forward when the pack asks for nothing
+		// new; prompt when it declares a host-access claim the user has not approved.
+		approved, denied := resolveHostApproval(e.Name, treeRoot, prev, hadPrev, pr, stdin, out)
+		if denied {
+			// The user declined (or a non-interactive run cannot ask). The pack is still
+			// installed and its non-host contributions work; its host claims will be
+			// refused at launch until approved. Not an install failure.
+			rc = 1
+		}
+		lock.Set(packsrc.LockEntry{
+			Name: e.Name, Source: e.Source, Commit: commit, Ref: addr.Ref,
+			ApprovedHostAccess: approved,
+			ApprovedAt:         approvedAtFor(approved, commit),
+		})
 	}
 
 	// Prune entries for packs that left the config, and SAY SO: a lock entry
@@ -705,6 +727,86 @@ func packInstall(out, errw io.Writer, color bool) int {
 		return 1
 	}
 	return rc
+}
+
+// resolveHostApproval decides which host-access claims are approved for a freshly
+// materialized fetched pack, prompting the user only when the pack declares a claim
+// they have not already approved.
+//
+// treeRoot is the materialized pack tree. prev/hadPrev are the pack's previous
+// lockfile entry. Returns the approved claim set to record, and denied=true when the
+// pack WANTS host access the user did not grant (declined, or no stdin to ask).
+//
+//   - No host-access claims → approve nothing, denied=false (a pack that reads
+//     nothing from the host needs no consent).
+//   - Every claim already approved (prev.HostAccessApproved) → carry the prior
+//     approval forward silently. This is the "unchanged or narrowed pin" case.
+//   - A claim not previously approved → show the full claim set and prompt y/N. On
+//     yes, approve the current set (so a later narrowing is remembered too); on no or
+//     no-tty, keep the prior approvals but do NOT add the new ones (denied=true).
+func resolveHostApproval(name, treeRoot string, prev packsrc.LockEntry, hadPrev bool,
+	pr richtext.Printer, stdin io.Reader, out io.Writer) (approved []string, denied bool) {
+	p, _ := packload.LoadDir(treeRoot, name, true)
+	if p == nil {
+		return prevApproved(prev, hadPrev), false
+	}
+	want := p.Decl.HostAccessClaims()
+	if len(want) == 0 {
+		return nil, false // reads nothing from the host
+	}
+	if hadPrev && prev.HostAccessApproved(want) {
+		// Nothing new since the last approval — carry it forward, no prompt. Re-record
+		// the CURRENT set so a claim the pack dropped stops being carried.
+		return want, false
+	}
+
+	// New host access: show the full claim set (not just the delta — the user is
+	// approving the whole current footprint) and ask.
+	pr.Printf("  [bold yellow]⚠ pack %s reads your host:[/bold yellow]", name)
+	for _, c := range want {
+		pr.Printf("      [yellow]%s[/yellow]", c)
+	}
+	if !promptYesNo(out, stdin, "  Approve host access for "+name+"? [y/N] ") {
+		pr.Printf("  [red]host access NOT approved — %s's host claims will be refused at "+
+			"launch until you run `yolo pack install` and approve[/red]", name)
+		return prevApproved(prev, hadPrev), true
+	}
+	return want, false
+}
+
+// prevApproved returns the previously-approved claim set, or nil when there was no
+// prior entry.
+func prevApproved(prev packsrc.LockEntry, hadPrev bool) []string {
+	if !hadPrev {
+		return nil
+	}
+	return prev.ApprovedHostAccess
+}
+
+// approvedAtFor records the commit an approval was granted against, but only when
+// something was actually approved — an empty set (a pack that reads nothing, or a
+// declined prompt that carried nothing forward) records no anchor.
+func approvedAtFor(approved []string, commit string) string {
+	if len(approved) == 0 {
+		return ""
+	}
+	return commit
+}
+
+// promptYesNo writes a prompt and reads a single line from stdin, returning true
+// only for an explicit yes. A nil stdin (non-interactive, or a test) is a NO — the
+// credential boundary fails closed: host access is never granted without a human.
+func promptYesNo(out io.Writer, stdin io.Reader, prompt string) bool {
+	if stdin == nil {
+		return false
+	}
+	_, _ = out.Write([]byte(prompt))
+	scanner := bufio.NewScanner(stdin)
+	if !scanner.Scan() {
+		return false
+	}
+	answer := strings.ToLower(strings.TrimSpace(scanner.Text()))
+	return answer == "y" || answer == "yes"
 }
 
 // packStatus reports configured packs against the lockfile, including DRIFT — a

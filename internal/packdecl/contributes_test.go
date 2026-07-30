@@ -112,3 +112,41 @@ func indexOf(s, sub string) int {
 	}
 	return -1
 }
+
+// HostAccessClaims returns the SPECIFIC, sorted claims a pack makes on the host —
+// the set a user approves and a pin move is diffed against. Distinct from
+// NeedsHostAccessContributions (generic display reasons).
+func TestHostAccessClaims(t *testing.T) {
+	m := &Manifest{Contributes: []Contribution{
+		{Kind: KindMount, Host: "datasets/acme", Into: "acme-data"},
+		{Kind: KindReadsHost, Host: ".config/acme/key"},
+		{Kind: KindProgram, Bin: "acme", Via: "installer", URL: "https://acme/i.sh"},
+		{Kind: KindBriefing, From: "AGENTS.md", Into: ".acme/A.md", After: "host:.acme/A.md"},
+		{Kind: KindEnv, Vars: map[string]string{"ACME_MODE": "fast"}}, // NOT host access
+		{Kind: KindSkills, From: "skills", Into: ".acme/skills"},      // NOT host access
+	}}
+	got := m.HostAccessClaims()
+	want := []string{
+		"briefing .acme/A.md",
+		"installer https://acme/i.sh",
+		"mount datasets/acme -> /ctx/acme-data",
+		"reads-host .config/acme/key",
+	}
+	if len(got) != len(want) {
+		t.Fatalf("HostAccessClaims() = %v, want %v", got, want)
+	}
+	for i := range want {
+		if got[i] != want[i] {
+			t.Errorf("claim[%d] = %q, want %q (must be sorted + specific)", i, got[i], want[i])
+		}
+	}
+
+	// A pack that reads nothing from the host makes no claims.
+	none := &Manifest{Contributes: []Contribution{
+		{Kind: KindEnv, Vars: map[string]string{"X": "1"}},
+		{Kind: KindSkills, From: "skills", Into: ".x/skills"},
+	}}
+	if c := none.HostAccessClaims(); len(c) != 0 {
+		t.Errorf("a pack reading nothing from the host should have no claims, got %v", c)
+	}
+}

@@ -11,6 +11,7 @@ import (
 	"github.com/mschulkind-oss/yolo-jail/internal/broker"
 	"github.com/mschulkind-oss/yolo-jail/internal/config"
 	"github.com/mschulkind-oss/yolo-jail/internal/jsonx"
+	"github.com/mschulkind-oss/yolo-jail/internal/packdecl"
 	"github.com/mschulkind-oss/yolo-jail/internal/packload"
 	_ "github.com/mschulkind-oss/yolo-jail/internal/packreg" // registers the embedded packs with packload
 	"github.com/mschulkind-oss/yolo-jail/internal/paths"
@@ -146,6 +147,41 @@ func (o *Options) warnIfNoPacks() {
 	out := o.pr(o.Stderr)
 	out.print("[bold yellow]" + config.NoPacksMessage + ".[/bold yellow]")
 	out.print("[yellow]" + config.NoPacksGuidance + "[/yellow]")
+}
+
+// notePackHostAccess prints, to stderr, what each loaded pack reads from the host
+// this launch — its mounts, host-file reads, and env vars. This is the transparency
+// half of the fetched-pack approval model: a pack (fetched or local) that touches
+// the host says so at every launch, not just once in a lockfile, so the effective
+// environment is always visible.
+//
+// It reads the FOOTPRINT, which already reflects the approval gate: an unapproved
+// fetched pack has MayAccessHost=false, so its host-read claims are absent from the
+// footprint and correctly do not appear here (they were refused). Env is always
+// shown (it is never gated). A pack that touches nothing prints nothing.
+func (o *Options) notePackHostAccess(loadedPacks []*packload.Pack) {
+	type line struct{ pack, claim string }
+	var lines []line
+	for _, p := range loadedPacks {
+		for _, c := range packload.FootprintOf(p).Claims {
+			switch c.Kind {
+			case packdecl.KindMount, packdecl.KindReadsHost, packdecl.KindEnv:
+				detail := c.Target
+				if c.Detail != "" {
+					detail += " " + c.Detail
+				}
+				lines = append(lines, line{p.Name, string(c.Kind) + " " + detail})
+			}
+		}
+	}
+	if len(lines) == 0 {
+		return
+	}
+	out := o.pr(o.Stderr)
+	out.print("[dim]Pack environment this launch:[/dim]")
+	for _, l := range lines {
+		out.print("[dim]  " + l.pack + ": " + l.claim + "[/dim]")
+	}
 }
 
 // ensureStorage wraps storage.EnsureGlobalStorage, wiring the v2 layout
@@ -442,6 +478,12 @@ func (o *Options) runContainer(cfg *jsonx.OrderedMap, rt, repoRoot string) int {
 	// where the message is still on screen when the agent (or the fallback bash)
 	// starts. Printed any earlier it scrolls away behind the nix build.
 	o.warnIfNoPacks()
+
+	// Right behind that: what each loaded pack reads from the host this launch. A
+	// fetched pack CAN read the host now (with approval), so the effective host access
+	// must be visible every launch, not just recorded in a lockfile — the transparency
+	// half of the approval model.
+	o.notePackHostAccess(loadedPacks)
 
 	rc, runErr := runWithProxy(runCmd, onStarted, onTerminate)
 	if runErr != nil {
