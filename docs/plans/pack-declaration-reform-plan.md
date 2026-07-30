@@ -210,16 +210,28 @@ byte-identical to before (regression gate). Nested-jail verified.
 
 ## Phase 4 — Migrate the manifest to `contributes[]` (the schema rewrite)
 
-The visible format change (`§3.1`). Deliberately last: everything above works over today's fields
-via the Phase-1 shim, so this is a *representation* swap with the semantics already proven.
+The visible format change (`§3.1`). A mapping workflow (2026-07-29) recommended a **compatibility
+window over a big-bang**: `DisallowUnknownFields` makes any half-migrated manifest a dead jail, so
+both shapes parse while the read paths migrate one at a time (each nested-jail-verified), then the
+legacy fields are deleted last. Four independently-verifiable steps:
 
-1. **Parse `contributes[]`** into the kind registry, each entry validated against its kind's schema.
-2. **Delete the nine effect fields** (`mounts`/`writableDirs`/`sharedDirs`/`hostFiles`/`install`/
-   `surfaces`/`launchFlags`/`flagAliases`/`hooks`/`retireMiseTools`) and the magic-string dispatch
-   (`isBriefingMount`, `from != "skills"` — `§1.2`).
-3. **Rewrite the six shipped `pack.json` files** to `contributes[]`.
-4. **`retireMiseTools`/`RetireOnFirstRender`** (OQ11): eject to a one-shot host migration rather than
-   carry a cleanup kind — decide and do it here since the manifest is being rewritten anyway.
+- **4.1 — parse + normalize (the window opens) ✅ DONE** (commit `dbbc2cd`). `packdecl.Contribution`
+  + `Manifest.Contributes` + `Manifest.Contributions()` (declared `contributes[]` wins; else
+  synthesize from legacy fields — the inverse of the Phase-1 shim) + per-kind `validateContributions`
+  wired into `Validate`. Both shapes parse; nothing reads `Contributions()` yet. Tested.
+- **4.2 — migrate the read paths to `Contributions()` — NEXT.** Rewrite the accessors
+  (`packload.WritableDirs`/`SharedDirs`/`LaunchFlags`/`FlagAliases`/`HonoredHostFiles`/install/
+  `Surfaces`, `packload.FootprintOf`, the `isBriefingMount`/`from != "skills"` magic-string loops
+  in `cli/run/prepare.go`, `packdecl.NeedsHostAccess`) to read normalized contributions. Because
+  4.1's fallback synthesizes from the legacy fields, **every shipped pack.json still works
+  unchanged** here — so a regression is unambiguously in the new read path, not the data.
+  Nested-jail verify each agent. Green intermediate.
+- **4.3 — rewrite the six `pack.json`** to `contributes[]` (one commit or one per pack), `git add`
+  before each nested verify; **byte-equality gate every rendered surface**. Green intermediate.
+- **4.4 — delete the legacy fields** + sub-types + the synthesis fallback + the magic-string
+  dispatch, and eject `retireMiseTools`/`RetireOnFirstRender` (OQ11) to a one-shot host migration
+  rather than a cleanup kind. The final irreversible commit; a pure deletion since 4.2–4.3 proved
+  the read path and the data.
 
 **Done when:** all six shipped packs use `contributes[]`, the magic-string dispatch sites are
 deleted (not relocated), and `go list ./...` + nested-jail launch of each agent is green. This is a
