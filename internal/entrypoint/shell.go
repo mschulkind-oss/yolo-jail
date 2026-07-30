@@ -22,7 +22,7 @@ func packAliases(e *Env) string {
 		if inst == nil {
 			continue
 		}
-		flags := p.Decl.LaunchFlags[inst.Bin]
+		flags := p.Decl.LaunchFlagContributions()[inst.Bin]
 		if len(flags) == 0 {
 			continue
 		}

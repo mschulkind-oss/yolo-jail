@@ -113,7 +113,7 @@ func (o *Options) refreshJailBriefings(cname string, cfg *jsonx.OrderedMap, rt s
 	// its briefing whether or not anything calls it an agent.
 	home := homeDir()
 	for _, p := range loadedPacks {
-		for _, mt := range p.Decl.Mounts {
+		for _, mt := range p.Decl.MountContributions() {
 			if !isBriefingMount(mt.From) {
 				continue
 			}
@@ -293,7 +293,7 @@ func briefingStagingName(pack string) string { return "briefing-" + pack + ".md"
 func packSkillTargets(loadedPacks []*packload.Pack) []agents.SkillTarget {
 	var out []agents.SkillTarget
 	for _, p := range loadedPacks {
-		for _, mt := range p.Decl.Mounts {
+		for _, mt := range p.Decl.MountContributions() {
 			if mt.From != "skills" {
 				continue
 			}

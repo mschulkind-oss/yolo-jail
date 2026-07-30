@@ -59,7 +59,7 @@ const (
 // broken hook fails the boot with every other problem reported alongside it (A12).
 func RunPackHooks(e *Env, packs []*packload.Pack) {
 	for _, p := range packs {
-		for _, h := range p.Decl.Hooks {
+		for _, h := range p.Decl.HookContributions() {
 			hook, pack := h, p
 			genStep(e, "hook_"+pack.Name+"_"+hook.Name, func() error {
 				return runPackHook(e, pack, hook)
@@ -161,7 +161,7 @@ func (e *Env) isolateHistoryFile(h packdecl.Hook) error {
 }
 
 func declaresSharedDir(p *packload.Pack, dir string) bool {
-	for _, d := range p.Decl.SharedDirs {
+	for _, d := range p.Decl.SharedDirContributions() {
 		if d == dir {
 			return true
 		}

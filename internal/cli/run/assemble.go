@@ -395,7 +395,7 @@ func (o *Options) assembleRunCmd(in *assembleInput) []string {
 	// jail comes up with no briefing at all — silently, since a missing bind source for
 	// a FILE is not an error the way a missing dir is.
 	for _, p := range in.packs {
-		for _, mt := range p.Decl.Mounts {
+		for _, mt := range p.Decl.MountContributions() {
 			if !isBriefingMount(mt.From) {
 				continue
 			}

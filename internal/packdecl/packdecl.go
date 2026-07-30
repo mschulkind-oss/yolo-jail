@@ -286,20 +286,11 @@ func appendPathProblems(problems []string, field, p string) []string {
 // boundary" was treated as AgentSpec.HostFiles alone while Briefing.HostSource and
 // Skills read the host home too.
 func (m *Manifest) NeedsHostAccess() []string {
-	var reasons []string
-	if len(m.HostFiles) > 0 {
-		reasons = append(reasons, "hostFiles (reads the host home)")
-	}
-	for _, mt := range m.Mounts {
-		if mt.HostOverlay != "" {
-			reasons = append(reasons, "mounts[].hostOverlay (reads the host home)")
-			break
-		}
-	}
-	if m.Install != nil && m.Install.InstallerURL != "" {
-		reasons = append(reasons, "install.installerUrl (runs a fetched script)")
-	}
-	return reasons
+	// Routes through the normalized contributions (NeedsHostAccessContributions),
+	// so it is correct for both manifest shapes and stays correct when the legacy
+	// fields are deleted — the origin gate is "any reads-host, program-via-
+	// installer, or host-prepending briefing" (design §3.1).
+	return m.NeedsHostAccessContributions()
 }
 
 func knownHook(name string) bool {

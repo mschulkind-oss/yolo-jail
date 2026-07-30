@@ -55,10 +55,11 @@ type Pack struct {
 // grants land in one flat /ctx dir, so two grants with the same basename would already
 // collide there; HostFileConflicts reports that as a pack error.
 func (p *Pack) Surfaces() ([]manifest.Surface, []string) {
-	if len(p.Decl.Surfaces) == 0 {
+	rawSurfaces := p.Decl.SurfaceContributions()
+	if len(rawSurfaces) == 0 {
 		return nil, nil
 	}
-	surfaces, problems := manifest.DecodeSurfaces(p.Decl.Surfaces)
+	surfaces, problems := manifest.DecodeSurfaces(rawSurfaces)
 	for i, prob := range problems {
 		problems[i] = "pack " + p.Name + ": " + prob
 	}
@@ -126,13 +127,14 @@ func (p *Pack) HostFileConflicts() []string {
 // one changes what the jail contains, so a user who installed it must be told rather
 // than left to discover the absence.
 func (p *Pack) HonoredHostFiles() (granted []packdecl.HostFile, refused []string) {
-	if len(p.Decl.HostFiles) == 0 {
+	hostFiles := p.Decl.HostFileContributions()
+	if len(hostFiles) == 0 {
 		return nil, nil
 	}
 	if p.MayAccessHost {
-		return p.Decl.HostFiles, nil
+		return hostFiles, nil
 	}
-	for _, hf := range p.Decl.HostFiles {
+	for _, hf := range hostFiles {
 		refused = append(refused, fmt.Sprintf(
 			"pack %s: refused host file %q — a FETCHED pack cannot read your host home. "+
 				"Installing a pack approves distributing content, not handing that "+
@@ -148,7 +150,7 @@ func (p *Pack) HonoredHostFiles() (granted []packdecl.HostFile, refused []string
 // arbitrary code in the jail. An npm install names a registry package and is not
 // origin-gated — it is the same trust as any dependency the user already installs.
 func (p *Pack) HonoredInstall() (*packdecl.Install, string) {
-	in := p.Decl.Install
+	in := p.Decl.InstallContribution()
 	if in == nil {
 		return nil, ""
 	}
@@ -254,12 +256,12 @@ func copyEmbeddedTree(embedded fs.FS, sub, dest string) error {
 // WritableDirs is the union of every pack's writableDirs, sorted and deduped. These
 // become per-workspace overlay mounts.
 func WritableDirs(packs []*Pack) []string {
-	return union(packs, func(p *Pack) []string { return p.Decl.WritableDirs })
+	return union(packs, func(p *Pack) []string { return p.Decl.WritableDirContributions() })
 }
 
 // SharedDirs is the union of every pack's sharedDirs — the machine-wide tier.
 func SharedDirs(packs []*Pack) []string {
-	return union(packs, func(p *Pack) []string { return p.Decl.SharedDirs })
+	return union(packs, func(p *Pack) []string { return p.Decl.SharedDirContributions() })
 }
 
 func union(packs []*Pack, pick func(*Pack) []string) []string {
@@ -283,7 +285,7 @@ func union(packs []*Pack, pick func(*Pack) []string) []string {
 func LaunchFlags(packs []*Pack) map[string][]string {
 	out := map[string][]string{}
 	for _, p := range packs {
-		for bin, flags := range p.Decl.LaunchFlags {
+		for bin, flags := range p.Decl.LaunchFlagContributions() {
 			out[bin] = flags
 		}
 	}
@@ -294,14 +296,15 @@ func LaunchFlags(packs []*Pack) map[string][]string {
 func FlagAliases(packs []*Pack) map[string][]string {
 	out := map[string][]string{}
 	for _, p := range packs {
-		for flag, aliases := range p.Decl.FlagAliases {
+		for flag, aliases := range p.Decl.FlagAliasContributions() {
 			out[flag] = aliases
 		}
 	}
 	return out
 }
 
-// RetireMiseTools is the union of every pack's retireMiseTools.
+// RetireMiseTools is the union of every pack's retireMiseTools. (Legacy field —
+// OQ11 ejects it to a host migration; still read directly until then.)
 func RetireMiseTools(packs []*Pack) []string {
 	return union(packs, func(p *Pack) []string { return p.Decl.RetireMiseTools })
 }

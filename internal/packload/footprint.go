@@ -55,53 +55,65 @@ type Footprint struct {
 	Claims []Claim
 }
 
-// FootprintOf reads a pack's CURRENT declarations and returns its claims. This is
-// the Phase-1 shim (field → kind → claim); Phase 4 replaces the body with a read
-// of contributes[] and nothing else changes.
+// FootprintOf reads a pack's typed contributions (via packdecl.Contributions(),
+// which yields the declared contributes[] or synthesizes them from the legacy
+// fields during the compatibility window) and returns its claims. This is the
+// Phase-4 inversion of the Phase-1 shim: the footprint now reads kinds directly
+// rather than reproducing the field→kind mapping.
 //
-// mayAccessHost gates whether host-reading claims (reads-host, an installer) are
-// counted as HONORED — a fetched pack's are refused upstream, so counting them
-// here would over-report. It matches Pack.MayAccessHost.
+// The config claim needs a surface IDENTITY (agent/name), which only the decoded
+// surface carries — so config claims come from p.Surfaces(), while every other
+// kind maps straight off its contribution. A reads-host claim is counted only
+// when the origin permits it (matching what actually mounts).
 func FootprintOf(p *Pack) Footprint {
 	fp := Footprint{Pack: p.Name}
 	add := func(k packdecl.Kind, target, detail string, review bool) {
 		fp.Claims = append(fp.Claims, Claim{Kind: k, Target: target, Pack: p.Name, Detail: detail, ReviewWorthy: review})
 	}
-	d := p.Decl
 
-	// install → program (installer URL is review-worthy: curl-to-shell).
-	if d.Install != nil && d.Install.Bin != "" {
-		detail := d.Install.Kind
-		review := false
-		if d.Install.InstallerURL != "" {
-			detail = "installer: " + d.Install.InstallerURL
-			review = true
-		} else if d.Install.Package != "" {
-			detail = "npm: " + d.Install.Package
-		}
-		add(packdecl.KindProgram, d.Install.Bin, detail, review)
-	}
-
-	// mounts → skills | briefing | files, by the magic-string dispatch that
-	// exists TODAY (prepare.go isBriefingMount / from=="skills"). The reform
-	// deletes that dispatch by making the kind explicit (Phase 4); here we
-	// reproduce it so the footprint is faithful to current behavior.
-	for _, m := range d.Mounts {
-		switch {
-		case m.From == "skills":
-			add(packdecl.KindSkills, m.To, "merged (built-in < pack < user)", false)
-		case m.From == "AGENTS.md" || m.From == "CLAUDE.md":
-			detail := "concat"
-			if m.HostOverlay != "" {
-				detail = "concat after host " + m.HostOverlay
+	for _, c := range p.Decl.Contributions() {
+		switch c.Kind {
+		case packdecl.KindProgram:
+			detail := c.Via
+			review := false
+			switch c.Via {
+			case "installer":
+				detail, review = "installer: "+c.URL, true
+			case "npm":
+				detail = "npm: " + c.Package
 			}
-			add(packdecl.KindBriefing, m.To, detail, m.HostOverlay != "")
-		default:
-			add(packdecl.KindFiles, m.To, "read-only tree", false)
+			add(packdecl.KindProgram, c.Bin, detail, review)
+		case packdecl.KindSkills:
+			add(packdecl.KindSkills, c.Into, "merged (built-in < pack < user)", false)
+		case packdecl.KindBriefing:
+			detail := "concat"
+			review := strings.HasPrefix(c.After, "host:")
+			if review {
+				detail = "concat after " + c.After
+			}
+			add(packdecl.KindBriefing, c.Into, detail, review)
+		case packdecl.KindFiles:
+			add(packdecl.KindFiles, c.Into, "read-only tree", false)
+		case packdecl.KindState:
+			if c.Scope == "machine" {
+				add(packdecl.KindState, c.At, "machine-wide (leaks across workspaces)", true)
+			} else {
+				add(packdecl.KindState, c.At, "per-workspace", false)
+			}
+		case packdecl.KindReadsHost:
+			if p.MayAccessHost {
+				add(packdecl.KindReadsHost, c.Host, "read-only host file", true)
+			}
+		case packdecl.KindLaunch:
+			add(packdecl.KindLaunch, c.Bin, strings.Join(c.Flags, " "), false)
+		case packdecl.KindHook:
+			add(packdecl.KindHook, c.Hook, "", false)
 		}
+		// KindConfig / KindConfigOverlay claims come from the decoded surfaces
+		// below, where the surface identity (agent/name) is available.
 	}
 
-	// surfaces → config, keyed by surface identity "agent/name".
+	// config → one claim per decoded surface, keyed by identity "agent/name".
 	if surfaces, _ := p.Surfaces(); len(surfaces) > 0 {
 		for _, s := range surfaces {
 			id := s.Agent + "/" + s.Name
@@ -113,35 +125,8 @@ func FootprintOf(p *Pack) Footprint {
 		}
 	}
 
-	// writableDirs → state (workspace scope).
-	for _, dir := range d.WritableDirs {
-		add(packdecl.KindState, dir, "per-workspace", false)
-	}
-	// sharedDirs → state (machine scope) — review-worthy: leaks across workspaces.
-	for _, dir := range d.SharedDirs {
-		add(packdecl.KindState, dir, "machine-wide (leaks across workspaces)", true)
-	}
-
-	// hostFiles → reads-host (review-worthy: the credential boundary). Only
-	// counted when the origin permits it, matching what actually gets mounted.
-	if p.MayAccessHost {
-		for _, hf := range d.HostFiles {
-			add(packdecl.KindReadsHost, hf.From, "read-only host file", true)
-		}
-	}
-
-	// launchFlags → launch, keyed by bin.
-	for bin, flags := range d.LaunchFlags {
-		add(packdecl.KindLaunch, bin, strings.Join(flags, " "), false)
-	}
-
-	// hooks → hook, keyed by hook name.
-	for _, h := range d.Hooks {
-		add(packdecl.KindHook, h.Name, "", false)
-	}
-
-	// Stable order: declaration order is map-dependent for launchFlags/… , so
-	// sort by (kind, target) for a deterministic --footprint and test.
+	// Stable order: contribution order is map-dependent for launch/…, so sort by
+	// (kind, target) for a deterministic --footprint and test.
 	sort.SliceStable(fp.Claims, func(i, j int) bool {
 		if fp.Claims[i].Kind != fp.Claims[j].Kind {
 			return fp.Claims[i].Kind < fp.Claims[j].Kind
