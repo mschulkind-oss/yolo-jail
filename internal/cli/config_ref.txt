@@ -422,10 +422,30 @@
     With no packs configured a jail has no coding agent, and says so at launch.  That
     is the honest default: activating agents nobody asked for would put six tools and
     their config files in every jail.
-    An EMBEDDED pack (one shipped with yolo) may read a host file — that is how claude
-    and pi compose your own settings.json into the jail.  A FETCHED pack never can:
-    installing a third-party pack approves distributing content, not handing that
-    repository your host config.  The refusal is printed, not silent.
+    An EMBEDDED or LOCAL (file://) pack may read the host home; a FETCHED (git) pack
+    never can.  Host access = a reads-host file, a `mount` of a host dir, an installer
+    program, or a host-prepending briefing.  Installing a third-party pack approves
+    distributing content, not handing that repository your host config.  The refusal
+    is printed, not silent.  Static `env` values are never gated (they read nothing).
+    A pack.json declares effects as a "contributes" list, one entry per effect with a
+    "kind" from the closed set:
+      program       a tool on PATH: {bin, via:"npm"|"installer", package|url, flags}
+      skills        {from (pack dir), into (~ dir)} — merged (built-in < pack < yours)
+      briefing      {from, into, after:"host:<path>" to prepend your own file first}
+      files         {from, into} — an opaque tree the pack owns
+      config        {config:[surface...]} — a composed config surface (see below)
+      config-overlay {surface:"agent/name", config:{...}} — keys on a surface another
+                    pack owns (parses today, but NOT yet applied at boot)
+      state         {at (~ dir), scope:"workspace"|"machine", because} — persists
+      reads-host    {host (~-relative file), into (/ctx dest)} — one file, :ro [gated]
+      mount         {host (~-relative DIR or file), into (/ctx dest)} — :ro    [gated]
+      env           {vars:{KEY:"value"}} — STATIC strings only; no interpolation, no
+                    host reads, so it is honored for any origin
+      launch        {bin, flags, aliases} — inject flags after a binary
+      hook          {hook:"shared_credentials"|"per_jail_history"|"claude_plugins"}
+    NOTE (shipped behavior): skills/briefing read from the conventional skills/ dir
+    and root AGENTS.md regardless of `from`; and two packs declaring a skills `into`
+    at the SAME path fail the jail at boot.  Rely on the zero-ceremony skills/ merge.
     Entry forms — a bare name, a source string, or an object:
       source      required unless the entry is a bare embedded-pack name.
                   file:///abs/path (local) or
@@ -443,9 +463,12 @@
     override a yolo built-in but never a skill you wrote.
     Pack prose is appended to each briefing under a "from pack: NAME" header, so a
     rule an agent follows is always traceable to its source.
-    Tooling: [bold]yolo pack init|lint|ls|explain[/bold].  `lint` runs the real staging
-    rules (exec-bit and escaping-symlink refusals); `explain` lists exactly which
-    files stage and which the filters dropped.
+    Tooling: [bold]yolo pack init|lint|ls|explain|footprint[/bold].  `lint` runs the real
+    staging rules (exec-bit and escaping-symlink refusals) AND validates the pack.json
+    manifest (unknown kind, missing field, unknown key — every problem, not the
+    first), then prints the pack's footprint.  `footprint <path>` shows what a local
+    pack you are authoring claims, and any collision, before you configure it.
+    `explain` lists exactly which files stage and which the filters dropped.
     Example: ["claude", "file:///home/me/code/acme/tools/agent-pack"]
 
   [bold]lsp_servers[/bold] (object): Additional language servers for Copilot (Claude uses its own tools).

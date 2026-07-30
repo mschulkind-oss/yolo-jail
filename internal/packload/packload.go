@@ -143,6 +143,44 @@ func (p *Pack) HonoredHostFiles() (granted []packdecl.HostFile, refused []string
 	return nil, refused
 }
 
+// HonoredMounts returns the pack's mount contributions if its origin permits them,
+// else refuses each with a reported message. A mount reads the host home (the
+// source may be a whole directory), so it is gated exactly like a host file: a
+// fetched pack gets none.
+func (p *Pack) HonoredMounts() (granted []packdecl.HostFile, refused []string) {
+	mounts := p.Decl.HostMountContributions()
+	if len(mounts) == 0 {
+		return nil, nil
+	}
+	if p.MayAccessHost {
+		return mounts, nil
+	}
+	for _, mt := range mounts {
+		refused = append(refused, fmt.Sprintf(
+			"pack %s: refused mount %q — a FETCHED pack cannot read your host home. "+
+				"Installing a pack approves distributing content, not handing that "+
+				"repository your host files.", p.Name, mt.From))
+	}
+	return nil, refused
+}
+
+// EnvVars merges the env contributions of every pack into one map, later packs
+// winning a key. Static values only, so this is not origin-gated. Deterministic is
+// not guaranteed across a key set two packs both write; a collision is reported by
+// the footprint's env-key claims rather than resolved here.
+func EnvVars(packs []*Pack) map[string]string {
+	var out map[string]string
+	for _, p := range packs {
+		for k, v := range p.Decl.EnvContributions() {
+			if out == nil {
+				out = map[string]string{}
+			}
+			out[k] = v
+		}
+	}
+	return out
+}
+
 // HonoredInstall returns the pack's install declaration if its origin permits it.
 //
 // A native installer is a URL whose contents run as a shell script, so it is gated the

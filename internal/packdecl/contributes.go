@@ -44,8 +44,14 @@ type Contribution struct {
 	Scope string `json:"scope,omitempty"` // state: "workspace" (default) | "machine"
 	Why   string `json:"because,omitempty"`
 
-	// --- reads-host ---
-	Host string `json:"host,omitempty"` // reads-host: the host-home-relative file
+	// --- reads-host / mount ---
+	Host string `json:"host,omitempty"` // reads-host: the host-home-relative file; mount: the host-home-relative dir/file
+
+	// --- env ---
+	// Vars is a static map of environment variables the pack sets in the jail. Values
+	// are literal strings only — no interpolation, no secrets, no host references — so
+	// an env contribution never reads the host and is honored regardless of origin.
+	Vars map[string]string `json:"vars,omitempty"`
 
 	// --- launch alias map (kept as the legacy flagAliases shape) ---
 	Aliases map[string][]string `json:"aliases,omitempty"`
@@ -100,6 +106,39 @@ func (m *Manifest) HostFileContributions() []HostFile {
 	for _, c := range m.Contributions() {
 		if c.Kind == KindReadsHost {
 			out = append(out, HostFile{From: c.Host, To: c.Into})
+		}
+	}
+	return out
+}
+
+// HostMountContributions returns the mount contributions as {From (host-home
+// source), To (/ctx destination)} pairs. Unlike reads-host the source may be a
+// directory and the destination is an arbitrary /ctx path. Origin-gated: the
+// caller honors these only for a host-permitted pack (see NeedsHostAccess).
+func (m *Manifest) HostMountContributions() []HostFile {
+	var out []HostFile
+	for _, c := range m.Contributions() {
+		if c.Kind == KindMount {
+			out = append(out, HostFile{From: c.Host, To: c.Into})
+		}
+	}
+	return out
+}
+
+// EnvContributions merges every env contribution's vars into one map, later
+// contributions winning a key. Static values only — no interpolation, no host
+// reads — so this is never origin-gated. Returns nil when no pack sets env.
+func (m *Manifest) EnvContributions() map[string]string {
+	var out map[string]string
+	for _, c := range m.Contributions() {
+		if c.Kind != KindEnv {
+			continue
+		}
+		if out == nil {
+			out = map[string]string{}
+		}
+		for k, v := range c.Vars {
+			out[k] = v
 		}
 	}
 	return out
@@ -205,6 +244,8 @@ func (m *Manifest) NeedsHostAccessContributions() []string {
 		switch {
 		case c.Kind == KindReadsHost:
 			reasons = append(reasons, "reads-host (reads the host home)")
+		case c.Kind == KindMount:
+			reasons = append(reasons, "mount (reads a host-home dir/file)")
 		case c.Kind == KindProgram && c.Via == "installer":
 			reasons = append(reasons, "program via installer (runs a fetched script)")
 		case c.Kind == KindBriefing && strings.HasPrefix(c.After, "host:"):
@@ -307,6 +348,20 @@ func validateContribution(label string, c Contribution) []string {
 	case KindReadsHost:
 		req("host", c.Host)
 		problems = appendPathProblems(problems, label+".host", c.Host)
+	case KindMount:
+		req("host", c.Host)
+		req("into", c.Into)
+		problems = appendPathProblems(problems, label+".host", c.Host)
+		problems = appendPathProblems(problems, label+".into", c.Into)
+	case KindEnv:
+		if len(c.Vars) == 0 {
+			problems = append(problems, label+": env needs a non-empty \"vars\" map")
+		}
+		for k := range c.Vars {
+			if k == "" {
+				problems = append(problems, label+": env has an empty variable name")
+			}
+		}
 	case KindLaunch:
 		req("bin", c.Bin)
 	case KindHook:

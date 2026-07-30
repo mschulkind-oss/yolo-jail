@@ -113,6 +113,8 @@ target combine:
 | `config-overlay` | a contribution to a surface another pack owns | **Overlay** — later-wins, per-key provenance |
 | `state` | a writable home subtree at a scope | **Scoped** — same subtree at two scopes → error |
 | `reads-host` | a host-home file, read-only | **Shared** — many readers are fine |
+| `mount` | a host-home dir/file, read-only, at a `/ctx` path | **Shared** — many readers are fine |
+| `env` | static environment variables in the jail | **Merge** — a key claimed twice collides |
 | `launch` | flags for a binary | **Exclusive** — by `bin` |
 | `hook` | a named imperative capability from core's closed set | **PerHook** |
 
@@ -120,8 +122,8 @@ The **footprint** is this table applied to a concrete set of packs: the union of
 claim, plus the collisions where an Exclusive/Scoped target is claimed twice. `yolo pack
 footprint` prints it, and `yolo check` folds it in. Some claims are flagged `⚠ review`
 because they widen the trust surface — machine-scope state (it leaks across workspaces), a
-`reads-host` grant, an installer URL, a briefing that prepends a host file. The review flag
-is an invitation to look, not a refusal.
+`reads-host` grant, a `mount` of a host directory, an installer URL, a briefing that
+prepends a host file. The review flag is an invitation to look, not a refusal.
 
 The per-kind fields:
 
@@ -225,6 +227,35 @@ only an embedded or local pack may read a host file.
 ```json
 { "kind": "reads-host", "host": ".claude/settings.json", "into": "host-claude/settings.json" }
 ```
+
+### `mount`
+A host-home directory (or file) mounted read-only into the jail at a `/ctx` path. Like
+`reads-host`, but the source may be a whole **directory** and the destination is an
+arbitrary `/ctx` path the pack chooses (rather than a config-surface feed matched by
+basename). Use it to make a reference tree — a dataset, a shared prompt library, a config
+directory — visible in the jail. Origin-gated exactly like `reads-host`: a fetched pack is
+refused, because a whole-home read is precisely what the credential boundary governs.
+- `host` (required) — host-home-relative source dir or file.
+- `into` (required) — the `/ctx` destination (mounted at `/ctx/<into>`).
+
+```json
+{ "kind": "mount", "host": "datasets/acme", "into": "acme-data" }
+```
+An absent source is skipped with a warning rather than failing the jail.
+
+### `env`
+Static environment variables set in the jail. Values are **literal strings only** — no
+interpolation, no secrets, no host references — so `env` never reads the host and is
+honored regardless of origin (a fetched pack may set env). A key two packs both set
+collides in the footprint.
+- `vars` (required) — a non-empty `map[string]string`.
+
+```json
+{ "kind": "env", "vars": { "ACME_MODE": "fast", "ACME_TELEMETRY": "0" } }
+```
+For values that must reference a secret or a host path, use the user config's
+`env_sources` instead — that is the channel for host-derived and sensitive values, kept
+out of a distributable pack on purpose.
 
 ### `launch`
 Flags injected right after a binary on the command line, with alias suppression.
@@ -458,13 +489,17 @@ controls), or fetched (cloned from a git ref). The gate is one predicate:
 
 > **A fetched pack may not access the host. An embedded or local pack may.**
 
-Three contributions constitute host access, and they are checked through a single predicate
-so a caller cannot honor two of three:
+Four contributions constitute host access, and they are checked through a single predicate
+so a caller cannot honor some but miss another:
 
 - `reads-host` — a host file read.
+- `mount` — a host-home directory or file read.
 - `program` via `installer` — a curl-to-shell install URL. (`npm` is *not* gated: a package
   name is not a host read.)
 - `briefing` with `after: "host:…"` — prepending the user's own briefing file.
+
+Static `env` is *not* host access — its values are literal strings, so it is honored for
+any origin.
 
 A fetched pack that declares any of these has it **refused, with a printed notice** — never
 silently dropped. Installing a third-party pack approves distributing its content; it does
@@ -479,10 +514,10 @@ exist.
 | Verb | What it does |
 |---|---|
 | `yolo pack init [dir]` | scaffold a valid skeleton (`AGENTS.md`, an example skill, `README.md`); never a `pack.json` |
-| `yolo pack lint [dir]` | run the real staging executor; flag no-stageable-files, missing skills/briefing, a skill dir with no `SKILL.md`. **Note:** it validates the *tree*, not the manifest — a malformed `pack.json` is not caught here (see §14) |
+| `yolo pack lint [dir]` | run the real staging executor (no-stageable-files, missing skills/briefing, a skill dir with no `SKILL.md`) **and validate the `pack.json` manifest** (unknown kind, missing required field, unknown key — every problem, not the first), then print the pack's footprint |
 | `yolo pack ls` | list configured packs and what each stages |
 | `yolo pack explain <name>` | stage one pack and show what it stages and what it dropped (`file://` local only) |
-| `yolo pack footprint [name]` | print each pack's claims, cross-pack collisions, and the review-worthy summary (embedded packs) |
+| `yolo pack footprint [ref]` | print claims + cross-pack collisions + review summary; `[ref]` is an embedded pack name **or a local path / `file://` source** so you can inspect a pack you are authoring |
 | `yolo pack install` / `update` | fetch configured packs, write the lockfile, report moved pins, prune dropped packs (the only network step) |
 | `yolo pack status` | show locked commits and flag config/lock drift |
 
@@ -573,11 +608,10 @@ than scattered.
 
 ## 14. Gaps between the schema and the shipped tooling
 
-The `contributes[]` schema above is the intended design. Some of it is not yet honored by
-the shipped code, and the authoring tools do not yet check the manifest. A pack author should
-know these before treating a manifest field as load-bearing. **The zero-ceremony path — a
-bare `skills/` dir and a root `AGENTS.md`, no `pack.json` — is fully reliable; the friction
-is concentrated in the manifest path.**
+The `contributes[]` schema above is the intended design; some of it is not yet honored by
+the shipped code. A pack author should know these before treating a manifest field as
+load-bearing. `yolo pack lint` now validates the manifest and `yolo pack footprint <path>`
+inspects a local pack, so most of what follows is catchable before boot.
 
 Not yet wired:
 
@@ -601,23 +635,14 @@ Not yet wired:
   render target" — is fully designed in `host-render-target.md` but entirely unbuilt. This is
   the "invert the flow" direction and it is tracked as its own body of work.
 
-Authoring-time feedback gaps (the manifest has no lint):
-
-- **`yolo pack lint` and `yolo check` validate the tree, not the manifest.** Neither calls
-  `packdecl.Decode`, so an unknown `kind`, a missing required field, or an unknown top-level
-  key passes both — the manifest is first validated at jail boot, and boot reports one problem
-  per launch rather than all of them. Until `lint` decodes the manifest, iterate a `pack.json`
-  by launching a jail.
-
-- **`yolo pack footprint` only inspects the six embedded packs.** It refuses a path or a local
-  pack name, so it cannot show an author the claims (or collisions) of the pack they are
-  writing — including the same-`into` skills collision below.
+Known sharp edge:
 
 - **Two `skills` contributions with the same `into` fail the jail at boot.** The mount
   assembler emits one bind mount per pack with no dedup by destination, so podman rejects the
   second with "duplicate mount destination" — even though the footprint model treats skills as
   a safe merge. Do not declare an explicit `skills` contribution whose `into` duplicates
-  another loaded pack's; rely on the zero-ceremony merge instead.
+  another loaded pack's; rely on the zero-ceremony merge instead. (`yolo pack footprint`
+  across your pack set surfaces this before boot does.)
 
 ---
 

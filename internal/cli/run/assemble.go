@@ -3,6 +3,7 @@ package run
 import (
 	"path/filepath"
 	"slices"
+	"sort"
 	"strconv"
 	"strings"
 
@@ -376,6 +377,25 @@ func (o *Options) assembleRunCmd(in *assembleInput) []string {
 
 	// --- host files (pack-declared, origin-gated) ---
 	runCmd = append(runCmd, o.hostFileArgs(in)...)
+
+	// --- pack `mount` contributions: host-home dir/file :ro under /ctx ---
+	runCmd = append(runCmd, o.hostMountArgs(in)...)
+
+	// --- pack `env` contributions: static jail env vars ---
+	// Static values only (the env kind forbids interpolation/host reads), so they go
+	// straight onto the command as -e. A key two packs both set is last-writer-wins
+	// here; the footprint's per-key env claims are what surface such a collision.
+	// Sorted for a deterministic argv.
+	if packEnv := packload.EnvVars(in.packs); len(packEnv) > 0 {
+		keys := make([]string, 0, len(packEnv))
+		for k := range packEnv {
+			keys = append(keys, k)
+		}
+		sort.Strings(keys)
+		for _, k := range keys {
+			runCmd = append(runCmd, "-e", k+"="+packEnv[k])
+		}
+	}
 
 	// --- user host_files: :ro source mounts, writable destinations, wire env ---
 	// Order within the group is fixed: the destination's writable subtree must be

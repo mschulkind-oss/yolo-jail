@@ -56,6 +56,17 @@ const (
 	// KindReadsHost: a host-home file mounted read-only into the jail — the
 	// credential boundary. Many packs may read one file; no combine.
 	KindReadsHost Kind = "reads-host"
+	// KindMount: a host-home dir (or file) mounted read-only into the jail at a
+	// /ctx destination. Like reads-host but the source may be a whole directory and
+	// the destination is an arbitrary /ctx path (reads-host feeds a config surface
+	// by basename; mount just makes the tree visible). Reads the host home, so it is
+	// origin-gated exactly like reads-host — a fetched pack is refused. Many packs
+	// may mount; no combine (each is an independent read).
+	KindMount Kind = "mount"
+	// KindEnv: static environment variables set in the jail. Values are literal
+	// strings only (no interpolation, no host reads), so it is NOT origin-gated. A
+	// key claimed by two packs collides.
+	KindEnv Kind = "env"
 	// KindLaunch: flags injected after a binary at launch. Sole-owned by bin name.
 	KindLaunch Kind = "launch"
 	// KindHook: a named imperative capability from core's closed hook set
@@ -153,6 +164,14 @@ var footprints = map[Kind]Footprint{
 	KindReadsHost: {
 		Kind: KindReadsHost, Combine: CombineShared, MayBeReviewWorthy: true,
 		Claims: "a host-home file mounted read-only (the credential boundary)",
+	},
+	KindMount: {
+		Kind: KindMount, Combine: CombineShared, MayBeReviewWorthy: true,
+		Claims: "a host-home dir/file mounted read-only at a /ctx path",
+	},
+	KindEnv: {
+		Kind: KindEnv, Combine: CombineMerge,
+		Claims: "static environment variables set in the jail",
 	},
 	KindLaunch: {
 		Kind: KindLaunch, Combine: CombineExclusive,

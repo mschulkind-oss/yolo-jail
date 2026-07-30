@@ -158,6 +158,9 @@ func (o *Options) stagePacks(cname string) (string, []*packload.Pack, []agents.P
 		// Report every refused declaration. A pack silently not getting what it asked
 		// for changes what the jail contains, so the user has to be told.
 		_, refused := p.HonoredHostFiles()
+		if _, mountRefused := p.HonoredMounts(); len(mountRefused) > 0 {
+			refused = append(refused, mountRefused...)
+		}
 		if _, why := p.HonoredInstall(); why != "" {
 			refused = append(refused, why)
 		}

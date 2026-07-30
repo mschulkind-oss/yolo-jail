@@ -77,6 +77,42 @@ func TestFootprintMapsCurrentFields(t *testing.T) {
 	}
 }
 
+// A mount reads the host home, so it is origin-gated exactly like reads-host: an
+// embedded/local pack's mount is HONORED, a fetched pack's is REFUSED with a
+// reported message. The env kind is static and never gated.
+func TestMountOriginGateAndEnvUngated(t *testing.T) {
+	decl := &packdecl.Manifest{Contributes: []packdecl.Contribution{
+		{Kind: packdecl.KindMount, Host: "datasets/acme", Into: "acme-data"},
+		{Kind: packdecl.KindEnv, Vars: map[string]string{"ACME_MODE": "fast"}},
+	}}
+
+	local := pk("local", true, decl)
+	granted, refused := local.HonoredMounts()
+	if len(granted) != 1 || len(refused) != 0 {
+		t.Errorf("local pack: want its mount granted, got %d granted / %d refused", len(granted), len(refused))
+	}
+
+	fetched := pk("fetched", false, decl)
+	granted, refused = fetched.HonoredMounts()
+	if len(granted) != 0 || len(refused) != 1 {
+		t.Errorf("fetched pack: want its mount refused, got %d granted / %d refused", len(granted), len(refused))
+	}
+
+	// env is honored regardless of origin (static values, no host read).
+	if v := EnvVars([]*Pack{fetched}); v["ACME_MODE"] != "fast" {
+		t.Errorf("env must be honored even for a fetched pack: %v", v)
+	}
+
+	// The mount claim is counted in the footprint only when host access is permitted
+	// (matching what actually mounts).
+	if _, ok := claimSet(FootprintOf(local))["mount datasets/acme"]; !ok {
+		t.Error("local pack's mount should appear as a footprint claim")
+	}
+	if _, ok := claimSet(FootprintOf(fetched))["mount datasets/acme"]; ok {
+		t.Error("fetched pack's mount must NOT appear as an honored footprint claim")
+	}
+}
+
 // A pack whose origin does NOT permit host access does not get its reads-host
 // claim counted (matches what actually gets mounted — a fetched pack's grant is
 // refused upstream).

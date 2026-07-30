@@ -45,3 +45,38 @@ func (o *Options) hostFileArgs(in *assembleInput) []string {
 	}
 	return args
 }
+
+// hostMountArgs mounts each pack's DECLARED `mount` contributions read-only under
+// /ctx. Same credential boundary as hostFileArgs (HonoredMounts applies the origin
+// gate — a fetched pack is refused), but the source may be a whole DIRECTORY and the
+// destination is the pack's chosen /ctx path rather than a config-surface feed.
+//
+// A directory is mounted directly (a dir source is not the single-file nested-bind
+// case ROFileMountArg guards against); a single-file mount reuses ROFileMountArg so
+// the nested-jail inode-copy dance still applies. An absent source is skipped rather
+// than mounted — a missing bind source kills the container with a bare statfs error.
+func (o *Options) hostMountArgs(in *assembleInput) []string {
+	var args []string
+	for _, p := range in.packs {
+		granted, _ := p.HonoredMounts()
+		for _, mt := range granted {
+			src := filepath.Join(homeDir(), filepath.FromSlash(mt.From))
+			dest := "/ctx/" + strings.TrimPrefix(mt.To, "/")
+			switch {
+			case isDir(src):
+				args = append(args, "-v", src+":"+dest+":ro")
+			case isFile(src):
+				args = append(args, ROFileMountArg(
+					src, dest, in.wsState,
+					"ctx-"+strings.ReplaceAll(strings.TrimPrefix(dest, "/ctx/"), "/", "-"),
+					in.mountTargets, nil)...)
+			default:
+				// Absent source: skip. The pack's content simply is not present; a
+				// missing bind source would otherwise abort the container start.
+				o.pr(o.Stdout).print("[yellow]Warning: pack " + p.Name + " mount source " +
+					"does not exist, skipping: ~/" + mt.From + "[/yellow]")
+			}
+		}
+	}
+	return args
+}

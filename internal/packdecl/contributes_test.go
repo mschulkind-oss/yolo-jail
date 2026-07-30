@@ -71,6 +71,12 @@ func TestValidateContributes(t *testing.T) {
 		{"machine state no because", Contribution{Kind: KindState, At: ".x", Scope: "machine"}, "needs a \"because\""},
 		{"state escaping path", Contribution{Kind: KindState, At: "../etc"}, "must not contain"},
 		{"unknown hook", Contribution{Kind: KindHook, Hook: "nope"}, "unknown hook"},
+		{"good mount", Contribution{Kind: KindMount, Host: "datasets/acme", Into: "acme-data"}, ""},
+		{"mount no host", Contribution{Kind: KindMount, Into: "acme-data"}, "needs \"host\""},
+		{"mount escaping host", Contribution{Kind: KindMount, Host: "../../etc", Into: "x"}, "must not"},
+		{"good env", Contribution{Kind: KindEnv, Vars: map[string]string{"ACME_MODE": "fast"}}, ""},
+		{"env empty map", Contribution{Kind: KindEnv}, "non-empty \"vars\""},
+		{"env empty key", Contribution{Kind: KindEnv, Vars: map[string]string{"": "x"}}, "empty variable name"},
 	}
 	for _, tc := range cases {
 		t.Run(tc.name, func(t *testing.T) {

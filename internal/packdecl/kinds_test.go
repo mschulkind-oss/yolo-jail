@@ -12,7 +12,8 @@ func TestKnownKindsCoverEveryConstant(t *testing.T) {
 	// Every declared Kind constant must be registered.
 	for _, k := range []Kind{
 		KindProgram, KindSkills, KindBriefing, KindFiles, KindConfig,
-		KindConfigOverlay, KindState, KindReadsHost, KindLaunch, KindHook,
+		KindConfigOverlay, KindState, KindReadsHost, KindMount, KindEnv,
+		KindLaunch, KindHook,
 	} {
 		fp, ok := FootprintOf(k)
 		if !ok {
@@ -26,8 +27,8 @@ func TestKnownKindsCoverEveryConstant(t *testing.T) {
 			t.Errorf("kind %q has an empty Claims description", k)
 		}
 	}
-	if got := len(KnownKinds()); got != 10 {
-		t.Errorf("KnownKinds() has %d entries, want 10 — a kind was added/removed without updating the test", got)
+	if got := len(KnownKinds()); got != 12 {
+		t.Errorf("KnownKinds() has %d entries, want 12 — a kind was added/removed without updating the test", got)
 	}
 }
 
@@ -76,6 +77,8 @@ func TestCombineRulesMatchDesign(t *testing.T) {
 		KindBriefing:      CombineConcat,
 		KindConfigOverlay: CombineOverlay,
 		KindReadsHost:     CombineShared,
+		KindMount:         CombineShared,
+		KindEnv:           CombineMerge,
 		KindState:         CombineScoped,
 		KindHook:          CombinePerHook,
 	}
@@ -90,7 +93,7 @@ func TestCombineRulesMatchDesign(t *testing.T) {
 // Only the kinds that can produce a review-worthy claim are marked so — the set
 // --footprint looks at for machine-scope state, host reads, and installer programs.
 func TestReviewWorthyKinds(t *testing.T) {
-	worthy := map[Kind]bool{KindProgram: true, KindState: true, KindReadsHost: true}
+	worthy := map[Kind]bool{KindProgram: true, KindState: true, KindReadsHost: true, KindMount: true}
 	for _, k := range KnownKinds() {
 		fp, _ := FootprintOf(k)
 		if fp.MayBeReviewWorthy != worthy[k] {

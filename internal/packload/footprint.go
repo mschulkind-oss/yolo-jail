@@ -94,6 +94,14 @@ func FootprintOf(p *Pack) Footprint {
 			if p.MayAccessHost {
 				add(packdecl.KindReadsHost, c.Host, "read-only host file", true)
 			}
+		case packdecl.KindMount:
+			if p.MayAccessHost {
+				add(packdecl.KindMount, c.Host, "read-only → /ctx/"+c.Into, true)
+			}
+		case packdecl.KindEnv:
+			for _, k := range sortedEnvKeys(c.Vars) {
+				add(packdecl.KindEnv, k, "="+c.Vars[k], false)
+			}
 		case packdecl.KindLaunch:
 			add(packdecl.KindLaunch, c.Bin, strings.Join(c.Flags, " "), false)
 		case packdecl.KindHook:
@@ -280,4 +288,15 @@ func ReviewWorthy(packs []*Pack) []Claim {
 		return out[i].Target < out[j].Target
 	})
 	return out
+}
+
+// sortedEnvKeys returns the keys of an env `vars` map in sorted order, so the
+// footprint prints one claim per variable deterministically.
+func sortedEnvKeys(vars map[string]string) []string {
+	keys := make([]string, 0, len(vars))
+	for k := range vars {
+		keys = append(keys, k)
+	}
+	sort.Strings(keys)
+	return keys
 }
