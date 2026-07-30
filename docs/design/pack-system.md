@@ -148,6 +148,16 @@ own tree, so a local skill always wins.
 { "kind": "skills", "from": "skills", "into": ".claude/skills" }
 ```
 
+> **Shipped-behavior caveat.** The stager reads a pack's skills from a conventional
+> `skills/` directory at the pack root, *regardless of `from`* — the `from` value is
+> validated but not yet honored, so a pack must put its skills in `skills/`. And `into` is
+> the mount destination: two loaded packs declaring a `skills` contribution with the *same*
+> `into` currently produce two bind mounts at one path and the jail fails to start
+> ("duplicate mount destination"), even though the footprint model treats skills as safely
+> mergeable. A zero-ceremony pack (a bare `skills/` dir, no contribution) merges cleanly into
+> whichever agent pack owns that destination; declaring an explicit `skills` contribution
+> that duplicates another pack's `into` is the case to avoid. See §14.
+
 ### `briefing`
 Prose concatenated into a briefing file, attributed to its pack.
 - `from` (required) — pack-relative source (`AGENTS.md`/`CLAUDE.md`).
@@ -158,6 +168,10 @@ Prose concatenated into a briefing file, attributed to its pack.
 ```json
 { "kind": "briefing", "from": "AGENTS.md", "into": ".claude/CLAUDE.md", "after": "host:.claude/CLAUDE.md" }
 ```
+
+> **Shipped-behavior caveat.** As with `skills`, the briefing source is read from a
+> conventional `AGENTS.md` or `CLAUDE.md` at the pack root regardless of `from`; `into` and
+> `after` are honored.
 
 ### `files`
 An opaque tree the pack owns outright.
@@ -465,7 +479,7 @@ exist.
 | Verb | What it does |
 |---|---|
 | `yolo pack init [dir]` | scaffold a valid skeleton (`AGENTS.md`, an example skill, `README.md`); never a `pack.json` |
-| `yolo pack lint [dir]` | run the real staging executor; flag no-stageable-files, missing skills/briefing, a skill dir with no `SKILL.md` |
+| `yolo pack lint [dir]` | run the real staging executor; flag no-stageable-files, missing skills/briefing, a skill dir with no `SKILL.md`. **Note:** it validates the *tree*, not the manifest — a malformed `pack.json` is not caught here (see §14) |
 | `yolo pack ls` | list configured packs and what each stages |
 | `yolo pack explain <name>` | stage one pack and show what it stages and what it dropped (`file://` local only) |
 | `yolo pack footprint [name]` | print each pack's claims, cross-pack collisions, and the review-worthy summary (embedded packs) |
@@ -557,15 +571,25 @@ than scattered.
 
 ---
 
-## 14. Designed but not yet wired
+## 14. Gaps between the schema and the shipped tooling
 
-Three capabilities are designed and partly built. A pack author should treat them as absent.
+The `contributes[]` schema above is the intended design. Some of it is not yet honored by
+the shipped code, and the authoring tools do not yet check the manifest. A pack author should
+know these before treating a manifest field as load-bearing. **The zero-ceremony path — a
+bare `skills/` dir and a root `AGENTS.md`, no `pack.json` — is fully reliable; the friction
+is concentrated in the manifest path.**
+
+Not yet wired:
 
 - **`config-overlay` rendering.** The kind parses and validates, has a footprint and combine
   rule, and the compose engine accepts overlay inputs with per-key provenance. But no
   boot-path code collects `config-overlay` contributions and feeds them to the assembler, so
   a `config-overlay` in a manifest has no effect today. This is the one contribution kind
   that is inert.
+
+- **`from` on `skills`/`briefing`.** The stager reads skills from a conventional `skills/`
+  dir and briefing prose from a root `AGENTS.md`/`CLAUDE.md`, regardless of the `from` value.
+  `from` is validated but not honored; a pack must use the conventional locations.
 
 - **Typed inter-pack exports.** The design allows a pack to `export` a canonical type (e.g.
   MCP servers) that other packs `import`, so a shared dependency lives in one pack. Only the
@@ -576,6 +600,24 @@ Three capabilities are designed and partly built. A pack author should treat the
   that description into the *real* `$HOME` (rather than a jail) — "the host as a reduced
   render target" — is fully designed in `host-render-target.md` but entirely unbuilt. This is
   the "invert the flow" direction and it is tracked as its own body of work.
+
+Authoring-time feedback gaps (the manifest has no lint):
+
+- **`yolo pack lint` and `yolo check` validate the tree, not the manifest.** Neither calls
+  `packdecl.Decode`, so an unknown `kind`, a missing required field, or an unknown top-level
+  key passes both — the manifest is first validated at jail boot, and boot reports one problem
+  per launch rather than all of them. Until `lint` decodes the manifest, iterate a `pack.json`
+  by launching a jail.
+
+- **`yolo pack footprint` only inspects the six embedded packs.** It refuses a path or a local
+  pack name, so it cannot show an author the claims (or collisions) of the pack they are
+  writing — including the same-`into` skills collision below.
+
+- **Two `skills` contributions with the same `into` fail the jail at boot.** The mount
+  assembler emits one bind mount per pack with no dedup by destination, so podman rejects the
+  second with "duplicate mount destination" — even though the footprint model treats skills as
+  a safe merge. Do not declare an explicit `skills` contribution whose `into` duplicates
+  another loaded pack's; rely on the zero-ceremony merge instead.
 
 ---
 
