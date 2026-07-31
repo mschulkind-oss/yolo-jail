@@ -260,6 +260,31 @@ the same logic — the container supplies blast-radius reduction and the `:ro` h
 separation, not the enumeration. Which is one more reason the `host` layer above is the odd one
 out: it is the single input whose *meaning* depends on having a container.
 
+**But be precise about what sealing proves.** `--sealed` verifies the **input closure of config
+*generation*** — that the config was assembled only from declared inputs, nothing unnamed shaped
+it. It does *not* by itself verify the **resulting *environment*** — that `psql` is actually on
+PATH, that the toolchain the agent will invoke exists. Those are two different guarantees, and a
+reviewer was right that the dep check (§3.4) is on the far side of that line. Whether the two
+coincide is **level-dependent, and it is the same fact that makes dep-checking a separate
+mechanism rather than a clause of sealing**:
+
+- At **`jail`** they nearly coincide, because the toolchain is *inside* the sealed closure: system
+  deps come from the locked image (nixpkgs @ `flake.lock`, the Locked tier above). Seal the
+  inputs and you have effectively sealed the environment, because its tools were *built from*
+  those inputs — nix's build-closure, where the derivation is pure and its dependencies are
+  pinned in the store. The §3.4 dep probe at `jail` is nearly a formality: a declared package is
+  present *because* it is a sealed input.
+- At **`guest`/`host`** they split. yolo bakes no image, so the toolchain is whatever the machine
+  happens to have — host state, outside any closure yolo can seal. That gap is exactly what the
+  dep probe fills: `check --at host` (and every `apply`) probes for the binaries a pack needs and
+  refuses the apply if one is missing. Dep-checking is the *resulting-environment* guarantee that
+  sealing **structurally cannot** provide once the toolchain leaves the closure.
+
+So it matters, and the design already answers it with two verbs rather than one: `--sealed` is
+the input-closure guarantee; the dep probe is the environment-sufficiency guarantee. They are
+distinct precisely because the single closure nix gets for free (pure eval *and* a pinned build)
+splits in two the moment you drop below `jail` and lose the image.
+
 Capture is the other Undeclared input, and it is a good feature — humans and agents edit config
 in-jail, and silently discarding that is hostile — so the resolution is that it becomes a
 *staging area* rather than a winning layer: recorded, reported, and promotable into a pack or
