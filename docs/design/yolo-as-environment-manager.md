@@ -137,6 +137,25 @@ $ yolo apply --at host --dry-run
 host            surfaces 4 would render, 3 refused (see below)
 ```
 
+**When would a user run `apply` by hand, given `yolo -- <cmd>` already applies-then-execs?**
+Worth enumerating, because it is the same question as "is `apply` a real verb or just an
+internal step" — and the answer is that every case is one where you want the *make-it-so*
+without the *run*:
+
+- **Set up, don't launch.** Provision a fresh checkout — build the image, stage packs, render
+  config — so the first `yolo -- claude` is instant, or so CI can `apply` in one step and run
+  tests in another.
+- **Apply at the host notch, where there is nothing to exec.** `yolo apply --at host` *is* the
+  host-render feature (§4.1): it writes your agent config into your real home. There is no "run
+  something in it" half — the environment you are configuring is the one you are already in.
+- **Re-apply after editing the description.** You changed `yolo-jail.jsonc` or a pack and want
+  the environment to match, without starting an agent. In a jail this overlaps with "restart to
+  pick up config" (and `yolo config drift`, shipped, tells an in-jail agent a restart is owed);
+  at the host notch, `apply` is the only way that edit ever takes effect.
+- **`apply --sealed` as a gate** (§3.3): in CI or a release, you `apply --sealed` to *prove* the
+  environment matches only its declaration, then run — the seal is the reason to split apply
+  from run at all.
+
 ### 3.2 `describe` is the reproducibility claim, made checkable
 
 If the pitch is "your environment is described and locked," the description has to be a thing
@@ -300,6 +319,20 @@ the *same* declared list rather than each maintaining its own. The declaration l
 the pack that introduced the need); the checker lives once (in a lib both callers share). Where
 exactly that library boundary sits — a Go package both import, or a small declared schema a
 third-party doctor can read — is an open question worth its own design pass, flagged in §8.
+
+**`check` should also report host-render drift, when it is run with host access.** Once your
+agent config can be applied to the real home (§4.1, once host-render ships), the machine gains
+a new way to be wrong: the real `~/.claude/settings.json` no longer matches what the pack would
+render, because someone hand-edited it or the pack moved. `check` is where that surfaces — not
+as a diff it silently reconciles, but as a handoff with the same momentum as the missing-dep
+case: *"host config has drifted from your description on 2 surfaces — run `yolo apply --host` to
+reassert, or `yolo apply --host --dry-run` to see it first."* This is the host-side twin of the
+in-jail `yolo config drift` (shipped), which already answers "has the workspace config drifted
+from what this jail was built with." Same question, other side of the wall: is the environment
+still what the description says. `check` never *writes* — it detects and points at `apply`,
+which is the only verb that changes anything (§3.1). That keeps the "detect vs. apply" split
+clean: `check --at host` tells you the host has drifted; `apply --host` is the deliberate act
+that fixes it.
 
 Today none of this information exists, and its absence has a live cost: on `macos-user`, packs
 render **zero surfaces every launch, silently** (`host-render-target.md` §9.7). A description that
