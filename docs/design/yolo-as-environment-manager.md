@@ -164,10 +164,27 @@ sealed definition it is a `flake.lock` rev. Unsealed, it prints marked or not at
 
 ### 3.3 `apply --sealed`: the definition binds, or the apply fails
 
-The point of a description is not that you can compare two of them. It is that **it is the only
-input.** Nix ships no "diff my two machines" verb because a comparison tool is what you build when
-the definition does not bind; `describe --hash` above is a cache key and a CI pin, not the
-guarantee.
+**`--sealed` is an opt-in flag, not the default, and the split is the point.** Plain `yolo
+apply` (and `yolo -- claude`) is the everyday path: it honors the three escapes below —
+in-jail edits are captured, a `yolo-jail.local.jsonc` merges, a host settings file composes
+in — because that is what makes an interactive session livable. You reach for `--sealed` at
+the moments where "the same declaration, and *only* the declaration" has to be true and
+provable: pinning an environment in CI, handing it to a colleague, or cutting a release you
+want to reproduce a year later. Sealing trades the everyday conveniences for a guarantee you
+do not need most of the time — so it is a flag you raise deliberately, not a wall the common
+path runs into.
+
+It is not the default for the same reason `nix build` is not `--pure` by default in every
+context: the escapes it refuses are *good features*. Capture keeps an agent's mid-session edit
+from being silently discarded; `yolo-jail.local.jsonc` lets you drop two packages on this one
+machine without touching the shared config; the host layer is how your own Claude settings
+reach the jail at all. Banning them everywhere would make the happy path hostile. `--sealed`
+is for when you have decided, for this apply, that no unnamed input may participate.
+
+With that established: the point of a description is not that you can compare two of them. It is
+that **it is the only input.** Nix ships no "diff my two machines" verb because a comparison
+tool is what you build when the definition does not bind; `describe --hash` above is a cache
+key and a CI pin, not the guarantee.
 
 Three inputs escape today's definition, and only the first is declared:
 
