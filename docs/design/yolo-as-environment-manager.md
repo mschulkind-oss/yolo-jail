@@ -165,9 +165,9 @@ sealed definition it is a `flake.lock` rev. Unsealed, it prints marked or not at
 ### 3.3 `apply --sealed`: the definition binds, or the apply fails
 
 **`--sealed` is an opt-in flag, not the default, and the split is the point.** Plain `yolo
-apply` (and `yolo -- claude`) is the everyday path: it honors the three escapes below —
-in-jail edits are captured, a `yolo-jail.local.jsonc` merges, a host settings file composes
-in — because that is what makes an interactive session livable. You reach for `--sealed` at
+apply` (and `yolo -- claude`) is the everyday path: it tolerates a small set of inputs that are
+not part of the committed definition — an in-jail edit is captured, a `yolo-jail.local.jsonc`
+merges — because that is what makes an interactive session livable. You reach for `--sealed` at
 the moments where "the same declaration, and *only* the declaration" has to be true and
 provable: pinning an environment in CI, handing it to a colleague, or cutting a release you
 want to reproduce a year later. Sealing trades the everyday conveniences for a guarantee you
@@ -175,24 +175,29 @@ do not need most of the time — so it is a flag you raise deliberately, not a w
 path runs into.
 
 It is not the default for the same reason `nix build` is not `--pure` by default in every
-context: the escapes it refuses are *good features*. Capture keeps an agent's mid-session edit
-from being silently discarded; `yolo-jail.local.jsonc` lets you drop two packages on this one
-machine without touching the shared config; the host layer is how your own Claude settings
-reach the jail at all. Banning them everywhere would make the happy path hostile. `--sealed`
-is for when you have decided, for this apply, that no unnamed input may participate.
+context: the escapes it tolerates are *good features*. Capture keeps an agent's mid-session
+edit from being silently discarded; `yolo-jail.local.jsonc` lets you drop two packages on this
+one machine without touching the shared config. Banning them everywhere would make the happy
+path hostile. `--sealed` is for when you have decided, for this apply, that no unnamed input
+may participate.
 
-With that established: the point of a description is not that you can compare two of them. It is
-that **it is the only input.** Nix ships no "diff my two machines" verb because a comparison
-tool is what you build when the definition does not bind; `describe --hash` above is a cache
-key and a CI pin, not the guarantee.
+#### The full closure
 
-Three inputs escape today's definition, and only the first is declared:
+"What is the definition?" has to be answerable input by input, or `describe --hash` is a hash
+over a set you cannot enumerate. So, nix-style — every input that shapes an environment,
+classified by whether it is part of the definition:
 
-| Input | Declared? | The nix analogue |
+| Tier | Inputs | nix analogue |
 |---|---|---|
-| the `host` layer (`Surface.HostSource`) | ✓ by the pack that grants it — its *content* is machine state | a fixed-output derivation: impure, but named |
-| the **capture overlay** | ✗ nothing declares it, and it outranks every declared layer | a store path that edited itself |
-| `yolo-jail.local.jsonc` | ✗ untracked, auto-merged, no `include_if_found` needed | `--impure`, silently |
+| **Locked** (reproducible, pinned) | nixpkgs + the image (`flake.lock`); the pack set with per-pack commit pins and host-access approvals (`packs.lock.json`) | `flake.lock` revs |
+| **Declared** (in a tracked file) | `yolo-jail.jsonc`; pack `contributes[]` — surfaces, `defaults`/`managed`, `derive`; the workspace transform `yolo-jail.config.lua`; inline `env_sources` entries | `flake.nix` |
+| **Declared-impure** (named, but the *content* is external machine state) | the user config `~/.config/yolo-jail/config.jsonc`; `include_if_found` targets; `env_sources` dotenv *files* (secret values); the user `config.lua`; `mise_tools` (versions declared, toolchains fetched); the **`host` layer** (§below) | a fixed-output derivation — impure, but *named* |
+| **Undeclared** (participates, nothing names it) | `yolo-jail.local.jsonc` (auto-merged, gitignored); the **capture overlay** (outranks every declared layer, nothing declares *it*) | `--impure`, silently |
+
+Sealing's rule is one line against this table: **`--sealed` refuses the Undeclared tier and
+reports the Declared-impure tier; the Locked and Declared tiers are the definition.** It does
+*not* mean "no host reads" — a named-but-impure input is nix's fixed-output derivation, and
+banning it would break the point of packs. It means **no *un*declared input.**
 
 ```
 $ yolo apply --sealed
@@ -200,21 +205,56 @@ $ yolo apply --sealed
            claude/settings: enabledPlugins, extraKnownMarketplaces · mise/config: [tools]
            → promote them into a pack, or discard: yolo config reset claude
 ✗ refused: yolo-jail.local.jsonc is present and drops 2 packages (ripgrep, fd)
-✓ declared impurity: claude/settings ← ~/.claude/settings.json (granted by the claude pack)
+✓ declared impurity: 31 nix packages @ flake.lock 8f2a1c…   packs @ packs.lock.json
 ```
 
-**Impurity is declared, not banned** — that is the whole rule, and it is why sealing cannot mean
-"no host reads." The `host` layer is load-bearing: it is how a user's own Claude settings reach the
-jail at all, which is a feature packs exist to provide. Sealing means **no *undeclared* input.**
+#### The `host` layer is the input we should retire
 
-Capture is also a good feature — humans and agents edit config in-jail, and silently discarding
-that is hostile — so the resolution is that it becomes a *staging area* rather than a winning
-layer: recorded, reported, and promotable into a pack or the workspace config, with `--sealed`
-refusing while any are outstanding. That is what makes "captured, and I meant it" expressible.
+One Declared-impure row is different from the rest, and a reviewer was right to flag it: the
+**`host` layer** — where your real `~/.claude/settings.json` composes *into* the jail (a pack's
+`reads-host` grant) — sits badly in this design for two independent reasons.
 
-This retires `diff` as a top-level verb. `yolo config diff` already reports open closure on one
-surface (captured vs rendered) and keeps that job; whole-environment assurance is `--sealed`; a
-cross-machine comparison is `describe --json` on each side and `diff(1)`.
+- **It fights host-config management.** The companion direction ([host-render-target.md](host-render-target.md))
+  renders a pack's config *out* to your real home. A pipeline that both reads your live
+  settings *in* and asserts config *out* over the same file is a loop: which one is the source?
+  You cannot cleanly have both on one surface — it is an XOR at best.
+- **It does not port.** It is the one input that needs a `:ro` `/ctx` mount to stay
+  non-circular: on a host target the source file *is* the output (a fixpoint — §host-render §6.3),
+  and on `macos-user` there is no `/ctx`, so the layer silently drops today. Every other input
+  in the closure means the same thing at every confinement level; this one does not.
+
+**The leaning is to drop settings-inheritance and express it as a pack instead.** If your
+personal Claude settings matter, they are a *local pack* — declared, locked, portable to every
+notch — not a live read of a file yolo has to special-case. That collapses the awkward
+Declared-impure row into the Declared tier, makes `--sealed` mean what it should on every
+surface, and removes the read-in/write-out conflict. The cost is real and worth naming: today a
+user's `~/.claude/settings.json` "just works" in the jail with zero setup, and under this
+direction they would author (or `yolo config promote` into) a one-file local pack. Credentials
+are unaffected — those cross as mounts, not as a compose layer, and stay their own mechanism.
+
+#### Sealing is a host-side check — it needs no container
+
+Because the whole closure is *assembled on the host before any container exists* (the render
+core has zero jail dependencies; the jail only ever consumes a rendered snapshot), sealing is
+not a jail feature. `yolo apply --sealed` can seal a `jail`, a `guest`, or a `host` apply with
+the same logic — the container supplies blast-radius reduction and the `:ro` host-layer
+separation, not the enumeration. Which is one more reason the `host` layer above is the odd one
+out: it is the single input whose *meaning* depends on having a container.
+
+Capture is the other Undeclared input, and it is a good feature — humans and agents edit config
+in-jail, and silently discarding that is hostile — so the resolution is that it becomes a
+*staging area* rather than a winning layer: recorded, reported, and promotable into a pack or
+the workspace config, with `--sealed` refusing while any are outstanding. That is what makes
+"captured, and I meant it" expressible.
+
+The point of a description is not that you can compare two of them. It is that **it is the only
+input.** Nix ships no "diff my two machines" verb because a comparison tool is what you build
+when the definition does not bind; `describe --hash` above is a cache key and a CI pin, not the
+guarantee. So this retires `diff` as a top-level verb: `yolo config diff` already reports open
+closure on one surface (captured vs rendered) and keeps that job; `yolo config drift` (shipped)
+reports whether a running jail's workspace config has drifted from what it was built with;
+whole-environment assurance is `--sealed`; a cross-machine comparison is `describe --json` on
+each side and `diff(1)`.
 
 ### 3.4 `check` becomes "is this description satisfiable *here*"
 
@@ -244,6 +284,22 @@ every distro release, and the probe needs the *binaries* a package provides (`pa
 declared `provides` list, with unprobeable entries reported as unprobeable rather than as present.
 The same rule as `install` applies: **yolo names the remedy and never runs it below `jail`**
 (§4.1). This is advice, not a second package manager.
+
+**One thing to get right so we don't duplicate the world's dep-checks.** A reviewer worried,
+correctly, that this could end up restating a tool's own dependency needs in a pack *and* in
+the tool — every project that checks its own environment already encodes "needs `psql` ≥ 16"
+somewhere, and copying that into a `provides`/remedy block is drift waiting to happen. Two rules
+keep this narrow. First, a pack declares only *what it introduces* — a pack that ships
+`packages: [postgresql]` owns the `psql` probe *because it is the thing that added the
+dependency*; it does not re-declare deps some other tool already owns. Second, the probe/remedy
+logic is **one reusable piece, not a `check`-only feature**: the same "is this binary present,
+at what version, and what installs it" check should be a library (and a plain
+`yolo check-deps`-style entry point) that runs identically inside `check`, at `apply` time, and
+standalone — so a project's own doctor script and yolo's `check` call the *same* checker over
+the *same* declared list rather than each maintaining its own. The declaration lives once (in
+the pack that introduced the need); the checker lives once (in a lib both callers share). Where
+exactly that library boundary sits — a Go package both import, or a small declared schema a
+third-party doctor can read — is an open question worth its own design pass, flagged in §8.
 
 Today none of this information exists, and its absence has a live cost: on `macos-user`, packs
 render **zero surfaces every launch, silently** (`host-render-target.md` §9.7). A description that
@@ -447,6 +503,11 @@ Worth stating plainly, because a reframing this size invites scope creep:
 - **`guest` must actually work before any of this is honest.** One notch of the dial currently
   renders zero pack surfaces per launch. A three-notch story with a broken middle is worse than a
   one-notch story that works.
+- **The dep-checker boundary needs its own design pass (§3.4).** `provides`/remedy is only
+  non-duplicative if the probe logic is a shared library — one checker, called by `check`, by
+  `apply`, and by a project's own doctor script over the same declared list. Where that boundary
+  sits (an importable Go package vs. a declared schema a third-party tool reads) is unresolved,
+  and getting it wrong reintroduces exactly the duplication it is meant to avoid.
 
 ---
 
