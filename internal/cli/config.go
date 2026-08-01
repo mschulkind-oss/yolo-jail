@@ -67,6 +67,11 @@ ls flags:
 diff/reset flags:
   --surface <name>   Limit to the named surface.
 
+reset/capture also take:
+  --force            reset and capture WRITE files; run host-side (outside the jail
+                     that owns the workspace) they resolve against your REAL home and
+                     could clobber your own config, so they refuse there unless --force.
+
 Only a 'capture'-mode surface accumulates in-jail edits; 'readonly', 'once' and
 'copy' surfaces write no sidecar, so diff/reset do not apply to them. Use
 'user' as the agent for files declared via the host_files config key.

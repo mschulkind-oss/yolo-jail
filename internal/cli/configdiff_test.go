@@ -1,6 +1,7 @@
 package cli
 
 import (
+	"bytes"
 	"os"
 	"path/filepath"
 	"strings"
@@ -160,5 +161,40 @@ func TestConfigCaptureWithNoBaselineIsANoOp(t *testing.T) {
 	}
 	if n != -1 {
 		t.Errorf("captureSurface = %d, want -1 (no baseline, nothing to capture)", n)
+	}
+}
+
+// Phase-0 data-loss guard: host-side (surfaces resolve against a REAL home, not a
+// jail's), `reset`/`capture` must REFUSE by default and only proceed with --force —
+// so a stray host-side invocation cannot truncate a real dotfile or copy host config
+// into a workspace. surfacesAreLocal() is false when YOLO_VERSION is unset, which is
+// exactly the host-side condition.
+func TestResetCaptureRefuseHostSideWithoutForce(t *testing.T) {
+	t.Setenv("YOLO_VERSION", "") // force the host-side branch (surfacesAreLocal()==false)
+	dir := withSidecarDir(t)
+	writeSidecar(t, dir, "claude", "settings", `{"theme":"dark"}`, `{"theme":"light"}`)
+
+	for _, cmd := range []string{"reset", "capture"} {
+		var out, errw bytes.Buffer
+		// Without --force: refused, and the sidecar is left intact.
+		rc := configRunW([]string{cmd, "claude", "--surface", "settings"}, &out, &errw)
+		if rc == 0 {
+			t.Errorf("%s host-side without --force should refuse, got rc=0", cmd)
+		}
+		if !strings.Contains(errw.String(), "refusing") {
+			t.Errorf("%s refusal message unclear:\n%s", cmd, errw.String())
+		}
+		if _, err := os.Stat(filepath.Join(dir, "claude-settings.overlay.json")); err != nil {
+			t.Errorf("%s without --force removed the sidecar (err=%v) — it must not touch anything", cmd, err)
+		}
+	}
+
+	// With --force, reset proceeds (removes the sidecars) — the escape hatch works.
+	var out, errw bytes.Buffer
+	if rc := configRunW([]string{"reset", "claude", "--surface", "settings", "--force"}, &out, &errw); rc != 0 {
+		t.Fatalf("reset --force host-side should proceed, got rc=%d: %s", rc, errw.String())
+	}
+	if _, err := os.Stat(filepath.Join(dir, "claude-settings.overlay.json")); !os.IsNotExist(err) {
+		t.Errorf("reset --force did not remove the overlay sidecar (err=%v)", err)
 	}
 }

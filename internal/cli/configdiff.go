@@ -25,29 +25,34 @@ import (
 
 // surfaceArgs parses the shared `<agent> [--surface <name>]` argument shape used
 // by diff and reset. Returns rc=-1 when parsing succeeded.
-func surfaceArgs(cmd string, args []string, out, errw io.Writer) (agent, surface string, rc int) {
+func surfaceArgs(cmd string, args []string, out, errw io.Writer) (agent, surface string, force bool, rc int) {
 	for i := 0; i < len(args); i++ {
 		a := args[i]
 		switch {
 		case isHelpToken(a):
 			io.WriteString(out, configUsage+"\n")
-			return "", "", 0
+			return "", "", false, 0
 		case a == "--surface":
 			if i+1 >= len(args) {
 				fmt.Fprintf(errw, "yolo config %s: --surface needs a value\n", cmd)
-				return "", "", 2
+				return "", "", false, 2
 			}
 			i++
 			surface = args[i]
 		case strings.HasPrefix(a, "--surface="):
 			surface = strings.TrimPrefix(a, "--surface=")
+		case a == "--force":
+			// The escape hatch for the host-side write guard (below). Only meaningful
+			// when the surfaces are NOT local (host-side or another workspace's jail);
+			// harmless otherwise.
+			force = true
 		case strings.HasPrefix(a, "-"):
 			fmt.Fprintf(errw, "yolo config %s: unknown flag %q\n\n%s\n", cmd, a, configUsage)
-			return "", "", 2
+			return "", "", false, 2
 		default:
 			if agent != "" {
 				fmt.Fprintf(errw, "yolo config %s: unexpected argument %q (agent already %q)\n", cmd, a, agent)
-				return "", "", 2
+				return "", "", false, 2
 			}
 			agent = a
 		}
@@ -55,9 +60,27 @@ func surfaceArgs(cmd string, args []string, out, errw io.Writer) (agent, surface
 	if agent == "" {
 		fmt.Fprintf(errw, "yolo config %s: needs an agent (e.g. 'yolo config %s claude')\n\n%s\n",
 			cmd, cmd, configUsage)
-		return "", "", 2
+		return "", "", false, 2
 	}
-	return agent, surface, -1
+	return agent, surface, force, -1
+}
+
+// refuseHostSideWrite is the Phase-0 data-loss guard. Host-side `config reset`/`capture`
+// resolve `~` against the INVOKING human's real home (expandHome → paths.Home()) and
+// write it — reset truncates a real dotfile to its (often empty) pure render; capture
+// copies real host config into the workspace sidecar tree. Both are destructive on a
+// file yolo does not own in that context. surfacesAreLocal() is true only in the jail
+// that owns /workspace; anywhere else (host-side, or a different workspace's surfaces)
+// a write is refused unless --force. Returns true when the caller must abort.
+func refuseHostSideWrite(cmd string, force bool, errw io.Writer) bool {
+	if surfacesAreLocal() || force {
+		return false
+	}
+	fmt.Fprintf(errw, "yolo config %s: refusing — these surfaces resolve against a real "+
+		"home, not a jail's, so writing them could clobber your own config. This command "+
+		"is meant to run inside the jail that owns the workspace. Re-run with --force if you "+
+		"really mean to write the host's files.\n", cmd)
+	return true
 }
 
 // capturedSurfaces returns the (agent, name) pairs that can carry a capture
@@ -124,7 +147,7 @@ func userSidecarSurfaces(surface string) []manifest.Surface {
 // a redundant capture (same value as the host layer — the common case) is
 // distinguishable from a real edit.
 func configDiff(args []string, out, errw io.Writer, color bool) int {
-	agent, surface, rc := surfaceArgs("diff", args, out, errw)
+	agent, surface, _, rc := surfaceArgs("diff", args, out, errw)
 	if rc >= 0 {
 		return rc
 	}
@@ -218,9 +241,12 @@ func readLastRenderKeys(s manifest.Surface) map[string]string {
 // overlay would leave the next boot diffing the (still-edited) file against a stale
 // baseline and immediately re-capturing the very edits just discarded.
 func configReset(args []string, out, errw io.Writer, color bool) int {
-	agent, surface, rc := surfaceArgs("reset", args, out, errw)
+	agent, surface, force, rc := surfaceArgs("reset", args, out, errw)
 	if rc >= 0 {
 		return rc
+	}
+	if refuseHostSideWrite("reset", force, errw) {
+		return 1
 	}
 	surfaces := capturedSurfaces(agent, surface)
 	if len(surfaces) == 0 {
@@ -418,9 +444,12 @@ func truncateSurfaceToPureRender(s manifest.Surface) error {
 // from jail paths (see renderSurface) — so a host-side re-render would write host paths
 // into the file. Capture needs none of that: it only compares what is there.
 func configCapture(args []string, out, errw io.Writer, color bool) int {
-	agent, surface, rc := surfaceArgs("capture", args, out, errw)
+	agent, surface, force, rc := surfaceArgs("capture", args, out, errw)
 	if rc >= 0 {
 		return rc
+	}
+	if refuseHostSideWrite("capture", force, errw) {
+		return 1
 	}
 	surfaces := capturedSurfaces(agent, surface)
 	if len(surfaces) == 0 {
