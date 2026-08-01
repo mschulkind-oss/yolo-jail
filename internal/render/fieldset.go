@@ -70,6 +70,7 @@ func HostFields() FieldSet {
 		packdecl.KindLaunch:        true,
 		packdecl.KindHook:          true,
 		packdecl.KindProgram:       true, // honored but confirm-gated by the caller (OQ-6/7)
+		packdecl.KindAutonomy:      true, // honored: host renders the GUARDED posture (§4.2)
 	}
 	return FieldSet{applies: honored}
 }

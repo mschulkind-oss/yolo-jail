@@ -35,9 +35,12 @@ func TestFieldSetCensus(t *testing.T) {
 	}
 
 	host := Host("/home/me", nil).Fields()
-	// The portable, target-independent kinds.
+	// The portable, target-independent kinds. autonomy is honored on host because that
+	// is how the GUARDED posture reaches the real home (§4.2) — refusing it would leave
+	// the host with no way to render prompts-on.
 	for _, k := range []packdecl.Kind{
 		packdecl.KindConfig, packdecl.KindSkills, packdecl.KindBriefing, packdecl.KindEnv,
+		packdecl.KindAutonomy,
 	} {
 		if !host.Honors(k) {
 			t.Errorf("host must honor %q (target-independent)", k)

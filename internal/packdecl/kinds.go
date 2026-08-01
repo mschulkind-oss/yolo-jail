@@ -72,6 +72,13 @@ const (
 	// KindHook: a named imperative capability from core's closed hook set
 	// (KnownHooks). Conflict resolution is per-hook, not generic.
 	KindHook Kind = "hook"
+	// KindAutonomy: the pack's two permission postures (§4.2 / env-manager plan
+	// Phase 9). The confinement notch's AgentAutonomy policy selects one; its config
+	// patch folds into the managed layer of the pack's OWN surfaces and its launch
+	// flags merge into the binary's. Sole-owned by the pack (one autonomy declaration
+	// per pack); it patches surfaces the same pack owns, so it never collides across
+	// packs the way a second config writer would.
+	KindAutonomy Kind = "autonomy"
 )
 
 // Combine names how two claims on the SAME target resolve — the conflict-rule
@@ -180,6 +187,10 @@ var footprints = map[Kind]Footprint{
 	KindHook: {
 		Kind: KindHook, Combine: CombinePerHook,
 		Claims: "a named imperative capability from core's closed hook set",
+	},
+	KindAutonomy: {
+		Kind: KindAutonomy, Combine: CombineExclusive,
+		Claims: "the agent's autonomous/guarded permission postures (notch-selected)",
 	},
 }
 

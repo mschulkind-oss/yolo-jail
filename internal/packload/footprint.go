@@ -106,6 +106,15 @@ func FootprintOf(p *Pack) Footprint {
 			add(packdecl.KindLaunch, c.Bin, strings.Join(c.Flags, " "), false)
 		case packdecl.KindHook:
 			add(packdecl.KindHook, c.Hook, "", false)
+		case packdecl.KindAutonomy:
+			detail := "autonomous+guarded postures"
+			switch {
+			case c.Autonomous == nil:
+				detail = "guarded posture only"
+			case c.Guarded == nil:
+				detail = "autonomous posture only"
+			}
+			add(packdecl.KindAutonomy, p.Name, detail, false)
 		}
 		// KindConfig / KindConfigOverlay claims come from the decoded surfaces
 		// below, where the surface identity (agent/name) is available.

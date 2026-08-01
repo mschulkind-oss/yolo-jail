@@ -187,3 +187,43 @@ func TestInstallHintsDecodes(t *testing.T) {
 		t.Errorf("decoded install_hints wrong: %+v", d)
 	}
 }
+
+// An autonomy contribution decodes both postures through strict Decode, and PostureFor
+// selects by the policy bit (§4.2). A pack that is permissive by default (pi-like) may
+// leave autonomous empty and only carry a guarded block.
+func TestAutonomyDecodesAndSelects(t *testing.T) {
+	m, probs := Decode([]byte(`{"name":"claude","contributes":[
+	  {"kind":"autonomy",
+	   "autonomous":{"config":[{"agent":"claude","name":"settings","managed":{"skipDangerousModePermissionPrompt":true}}],
+	                 "launch":[{"bin":"claude","flags":["--dangerously-skip-permissions"]}]},
+	   "guarded":{"config":[{"agent":"claude","name":"settings","managed":{"skipDangerousModePermissionPrompt":false}}]}}]}`))
+	if len(probs) != 0 {
+		t.Fatalf("autonomy should decode cleanly, got: %v", probs)
+	}
+	ac := m.AutonomyContributions()
+	if ac == nil || ac.Autonomous == nil || ac.Guarded == nil {
+		t.Fatalf("both postures should decode: %+v", ac)
+	}
+	// autonomy ON selects the autonomous posture (with the launch flag); OFF selects guarded.
+	on := m.PostureFor(true)
+	if on == nil || len(on.Launch) != 1 || on.Launch[0].Flags[0] != "--dangerously-skip-permissions" {
+		t.Errorf("PostureFor(true) should be the autonomous posture with the launch flag: %+v", on)
+	}
+	off := m.PostureFor(false)
+	if off == nil || len(off.Launch) != 0 {
+		t.Errorf("PostureFor(false) should be the guarded posture (no bypass launch flag): %+v", off)
+	}
+}
+
+// autonomy validation: at least one posture, and a launch entry needs a bin.
+func TestAutonomyValidation(t *testing.T) {
+	_, probs := Decode([]byte(`{"name":"x","contributes":[{"kind":"autonomy"}]}`))
+	if len(probs) == 0 {
+		t.Error("an autonomy contribution with neither posture should be a validation error")
+	}
+	_, probs = Decode([]byte(`{"name":"x","contributes":[
+	  {"kind":"autonomy","autonomous":{"launch":[{"flags":["--x"]}]}}]}`))
+	if len(probs) == 0 {
+		t.Error("an autonomy launch entry with no bin should be a validation error")
+	}
+}

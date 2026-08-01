@@ -68,6 +68,16 @@ type Contribution struct {
 	// --- hook ---
 	Hook string `json:"hook,omitempty"` // hook: the named capability from KnownHooks
 
+	// --- autonomy (§4.2 / env-manager plan Phase 9) ---
+	// A pack declares BOTH postures; the confinement notch's AgentAutonomy policy
+	// selects which one renders (autonomous at jail/guest, guarded at host). Each
+	// posture folds config-managed keys into the pack's OWN surfaces and merges launch
+	// flags — it is not a second config writer, it is a notch-gated patch of the
+	// managed layer. Either posture may be empty (pi is permissive by default, so its
+	// autonomous is empty and only guarded tightens it).
+	Autonomous *AutonomyPosture `json:"autonomous,omitempty"`
+	Guarded    *AutonomyPosture `json:"guarded,omitempty"`
+
 	// Raw carries kind-specific structured payloads that do not fit a scalar field
 	// — today only a `config` contribution's surface definition (the agentcfg
 	// surface schema), decoded by internal/agentcfg/manifest, kept as RawMessage
@@ -135,6 +145,61 @@ func (m *Manifest) DepRequirements() []DepRequirement {
 		out = append(out, DepRequirement{Bin: c.Bin, Hints: c.InstallHints})
 	}
 	return out
+}
+
+// AutonomyPosture is one side of an autonomy contribution (§4.2): the config-managed
+// keys and launch flags that express either the autonomous (no-prompts) or guarded
+// (prompts-on) posture for the pack's agent. Config patches fold into the managed layer
+// of a surface the SAME pack owns (keyed by "agent/name"); launch flags merge into the
+// binary's launch flags. It is not a second config writer — it is a notch-gated patch.
+type AutonomyPosture struct {
+	// Config patches the managed layer of the pack's own surfaces. Reuses the config
+	// surface schema (agent/name identify the target surface; managed carries the keys),
+	// kept as RawMessage for the same reason config's Raw is — packdecl stays free of the
+	// agentcfg engine dependency; the engine decodes it.
+	Config json.RawMessage `json:"config,omitempty"`
+	// Launch is the flags to inject for a binary in this posture (e.g.
+	// ["--dangerously-skip-permissions"] for autonomous, [] for guarded).
+	Launch []AutonomyLaunch `json:"launch,omitempty"`
+}
+
+// AutonomyLaunch is a per-binary launch-flag set within a posture.
+type AutonomyLaunch struct {
+	Bin   string   `json:"bin"`
+	Flags []string `json:"flags,omitempty"`
+}
+
+// AutonomyContribution is a pack's autonomy declaration: the two postures. Returns nil
+// when the pack declares none (every pack that never touches permission posture).
+type AutonomyContribution struct {
+	Autonomous *AutonomyPosture
+	Guarded    *AutonomyPosture
+}
+
+// AutonomyContributions returns the pack's autonomy declaration, or nil when it declares
+// no autonomy contribution. At most one is meaningful (a second is a validation error).
+func (m *Manifest) AutonomyContributions() *AutonomyContribution {
+	for _, c := range m.Contributions() {
+		if c.Kind != KindAutonomy {
+			continue
+		}
+		return &AutonomyContribution{Autonomous: c.Autonomous, Guarded: c.Guarded}
+	}
+	return nil
+}
+
+// PostureFor returns the posture selected by an autonomy policy: the autonomous posture
+// when autonomy is true, the guarded posture otherwise. Returns nil when the pack has no
+// autonomy contribution or the selected posture is empty.
+func (m *Manifest) PostureFor(autonomy bool) *AutonomyPosture {
+	ac := m.AutonomyContributions()
+	if ac == nil {
+		return nil
+	}
+	if autonomy {
+		return ac.Autonomous
+	}
+	return ac.Guarded
 }
 
 // HostFileContributions returns the reads-host contributions as legacy HostFiles.
@@ -430,6 +495,29 @@ func validateContribution(label string, c Contribution) []string {
 			problems = append(problems, label+": hook needs a \"hook\" name")
 		} else if !knownHook(c.Hook) {
 			problems = append(problems, fmt.Sprintf("%s: unknown hook %q", label, c.Hook))
+		}
+	case KindAutonomy:
+		if c.Autonomous == nil && c.Guarded == nil {
+			problems = append(problems, label+": autonomy needs at least one of \"autonomous\" or \"guarded\"")
+		}
+		problems = append(problems, validateAutonomyPosture(label+".autonomous", c.Autonomous)...)
+		problems = append(problems, validateAutonomyPosture(label+".guarded", c.Guarded)...)
+	}
+	return problems
+}
+
+// validateAutonomyPosture checks one posture's shape: each launch entry needs a bin.
+// The config patch's surface schema is validated by the engine at decode time (packdecl
+// stays free of the agentcfg dependency), so here we only enforce the structural
+// invariants packdecl owns.
+func validateAutonomyPosture(label string, p *AutonomyPosture) []string {
+	if p == nil {
+		return nil
+	}
+	var problems []string
+	for i, l := range p.Launch {
+		if l.Bin == "" {
+			problems = append(problems, fmt.Sprintf("%s.launch[%d]: needs a \"bin\"", label, i))
 		}
 	}
 	return problems

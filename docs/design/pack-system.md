@@ -117,6 +117,7 @@ target combine:
 | `env` | static environment variables in the jail | **Merge** — a key claimed twice collides |
 | `launch` | flags for a binary | **Exclusive** — by `bin` |
 | `hook` | a named imperative capability from core's closed set | **PerHook** |
+| `autonomy` | the agent's autonomous/guarded permission postures, notch-selected | **Exclusive** — one per pack |
 
 The **footprint** is this table applied to a concrete set of packs: the union of every
 claim, plus the collisions where an Exclusive/Scoped target is claimed twice. `yolo pack
