@@ -20,6 +20,7 @@ import (
 	"fmt"
 	"io"
 	"os"
+	"path/filepath"
 
 	"github.com/mschulkind-oss/yolo-jail/internal/config"
 	"github.com/mschulkind-oss/yolo-jail/internal/richtext"
@@ -84,12 +85,7 @@ func applyMain(args []string, out, errw io.Writer, color bool) int {
 
 	pr := richtext.Printer{W: out, Color: color}
 	if sealed {
-		// Phase 5 owns the closure enumeration + refusal; recognized here so `--sealed`
-		// is not an "unknown flag" error before then.
-		pr.Printf("[yellow]apply --sealed: the sealed closure check is not built yet " +
-			"(env-manager plan Phase 5). Use `yolo describe --json` to inspect the current " +
-			"config in the meantime.[/yellow]")
-		return 1
+		return applySealed(out, errw, color)
 	}
 
 	switch notch {
@@ -115,6 +111,49 @@ func applyMain(args []string, out, errw io.Writer, color bool) int {
 	}
 }
 
+// applySealed enumerates the input closure (env-manager design §3.3) and refuses if any
+// UNDECLARED input shaped the environment. Sealing does not mean "no host reads" — a
+// named-but-impure input (the user config, a pack's reads-host) is declared, nix's
+// fixed-output derivation. It means no input that NOTHING names. The two undeclared
+// inputs today are:
+//   - yolo-jail.local.jsonc: auto-merged, gitignored, needs no include entry.
+//   - an outstanding capture overlay: in-jail edits that outrank every declared layer,
+//     yet nothing declares them (they are a staging area to promote, §3.3).
+func applySealed(out, errw io.Writer, color bool) int {
+	pr := richtext.Printer{W: out, Color: color}
+	ws := workspaceRoot()
+
+	var refusals []string
+	// (1) yolo-jail.local.jsonc present anywhere in the workspace root.
+	localPath := filepath.Join(ws, config.WorkspaceLocalConfigName)
+	if _, err := os.Stat(localPath); err == nil {
+		refusals = append(refusals,
+			config.WorkspaceLocalConfigName+" is present and merges into the config, but "+
+				"nothing declares it (it is gitignored, machine-local). Fold its keys into "+
+				"yolo-jail.jsonc or remove it to seal.")
+	}
+	// (2) any capture surface carrying outstanding overlay keys.
+	for _, s := range surfaceManifest().Surfaces() {
+		if n := overlayKeyCount(s.Agent, s.Name); n > 0 {
+			refusals = append(refusals, fmt.Sprintf(
+				"%s/%s has %d captured in-jail edit(s) outranking the definition — "+
+					"promote them into a pack or `yolo config reset %s --surface %s` to discard.",
+				s.Agent, s.Name, n, s.Agent, s.Name))
+		}
+	}
+
+	if len(refusals) > 0 {
+		pr.Printf("[bold red]apply --sealed: refused — %d undeclared input(s):[/bold red]", len(refusals))
+		for _, r := range refusals {
+			pr.Printf("  [red]✗[/red] %s", r)
+		}
+		return 1
+	}
+	pr.Printf("[green]sealed[/green] — the environment is assembled only from declared inputs.")
+	pr.Printf("[dim]Its `describe --hash` is now a reproducibility pin, not just a cache key.[/dim]")
+	return 0
+}
+
 func hasPrefix(s, p string) bool { return len(s) >= len(p) && s[:len(p)] == p }
 
 const applyUsage = `yolo apply — make this environment match its description, without running anything
@@ -122,7 +161,8 @@ const applyUsage = `yolo apply — make this environment match its description, 
   yolo apply                provision the environment at its configured confinement
   yolo apply --at <level>   … at a different notch (jail|guest|host) for this run
   yolo apply --host         shorthand for --at host: render your config into your real home
-  yolo apply --sealed       refuse if any UNDECLARED input shaped the environment (Phase 5)
+  yolo apply --sealed       refuse if any UNDECLARED input shaped the environment
+                            (yolo-jail.local.jsonc, an outstanding capture overlay)
   yolo apply --dry-run      show what would change, write nothing
 
 apply splits "make it so" from "run something in it": ` + "`yolo -- <cmd>`" + ` is
