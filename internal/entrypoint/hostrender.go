@@ -21,11 +21,14 @@ package entrypoint
 //     workspace — so Workspace is empty and a ${workspace} surface is skipped.
 
 import (
+	"encoding/json"
 	"fmt"
 	"reflect"
+	"sort"
 
 	"github.com/mschulkind-oss/yolo-jail/internal/agentcfg"
 	"github.com/mschulkind-oss/yolo-jail/internal/agentcfg/manifest"
+	"github.com/mschulkind-oss/yolo-jail/internal/jsonx"
 	"github.com/mschulkind-oss/yolo-jail/internal/packload"
 )
 
@@ -35,6 +38,12 @@ type HostRenderResult struct {
 	Surface string // "agent/name"
 	Path    string // resolved real-home path
 	Action  string // "rendered" | "would render" | "refused: <reason>"
+	// Overwrites lists the dotted managed keys whose EXISTING value in the real file
+	// differs from what this render writes — the reviewer's "always warn on overwrite"
+	// for the host notch (§4.2 / env-manager plan Phase 9). Empty when the render only
+	// adds keys or re-asserts identical values. Populated in both observe and assert, so
+	// the dry-run preview shows the collision BEFORE anything is written (finding D2).
+	Overwrites []string
 }
 
 // RenderHostPack renders one pack's config surfaces into homeDir (the real $HOME), pure
@@ -67,17 +76,85 @@ func RenderHostPack(p *packload.Pack, homeDir string, observe bool) ([]HostRende
 				Action: "refused: uses ${workspace}, which has no referent on the host"})
 			continue
 		}
+		// Compute which managed keys would OVERWRITE a differing existing value, from the
+		// file as it stands now — before any write, so observe reports the same collisions
+		// assert would cause.
+		overwrites := managedOverwrites(e, s, path)
 		if observe {
-			out = append(out, HostRenderResult{Surface: id, Path: path, Action: "would render"})
+			out = append(out, HostRenderResult{Surface: id, Path: path, Action: "would render", Overwrites: overwrites})
 			continue
 		}
 		// Pure RMW into the real home, NO computed layer (host gets none — OQ-4).
 		if err := renderSurfaceRMWSurface(e, s, nil); err != nil {
 			return out, fmt.Errorf("%s: %w", id, err)
 		}
-		out = append(out, HostRenderResult{Surface: id, Path: path, Action: "rendered"})
+		out = append(out, HostRenderResult{Surface: id, Path: path, Action: "rendered", Overwrites: overwrites})
 	}
 	return out, nil
+}
+
+// managedOverwrites returns the dotted managed keys whose value in the EXISTING file at
+// path differs from what this surface's managed layer will write — the host-notch
+// "warn before you clobber a user value" (§4.2 / env-manager plan Phase 9, the reviewer's
+// always-warn). It reads the file as it stands (loadObject, matching the RMW writer's own
+// JSON round-trip) and walks the managed map; a key absent from the file is an ADD, not an
+// overwrite, so it is not reported. Deterministic (sorted). Best-effort: it mirrors the
+// RMW writer, which is JSON-based, so a non-JSON surface simply yields no findings.
+func managedOverwrites(e *Env, s manifest.Surface, path string) []string {
+	s = agentcfg.SubstituteWorkspace(s, e.WorkspaceDir())
+	managed, ok := s.Managed.(map[string]any)
+	if !ok || len(managed) == 0 {
+		return nil
+	}
+	existing := loadObject(path)
+	var out []string
+	collectOverwrites(existing, managed, "", &out)
+	sort.Strings(out)
+	return out
+}
+
+// collectOverwrites walks the managed layer against the existing OrderedMap, appending a
+// dotted key path for each leaf whose existing value differs from the managed value. An
+// object managed value recurses (so a sibling the user owns under the same parent is not
+// reported); a missing existing key is an add, not an overwrite.
+func collectOverwrites(existing *jsonx.OrderedMap, managed map[string]any, prefix string, out *[]string) {
+	for _, k := range sortedKeys(managed) {
+		key := k
+		if prefix != "" {
+			key = prefix + "." + k
+		}
+		mv := managed[k]
+		cur, present := existing.Get(k)
+		if !present {
+			continue // an ADD, not an overwrite
+		}
+		if sub, isMap := mv.(map[string]any); isMap {
+			if curMap, ok := cur.(*jsonx.OrderedMap); ok {
+				collectOverwrites(curMap, sub, key, out)
+				continue
+			}
+			// managed wants an object where the user has a scalar/array — a real overwrite.
+			*out = append(*out, key)
+			continue
+		}
+		if !sameJSON(cur, mv) {
+			*out = append(*out, key)
+		}
+	}
+}
+
+// sameJSON reports whether two decoded values are equal by their JSON serialization —
+// codec-agnostic value equality that tolerates the OrderedMap vs map/[]any shape
+// differences between a loaded file and a managed literal. Both are normalized to plain
+// Go values first (jsonx.Plain), so encoding/json sorts object keys deterministically on
+// both sides and the comparison is order-independent.
+func sameJSON(a, b any) bool {
+	ab, errA := json.Marshal(jsonx.Plain(a))
+	bb, errB := json.Marshal(jsonx.Plain(b))
+	if errA != nil || errB != nil {
+		return false
+	}
+	return string(ab) == string(bb)
 }
 
 // usesWorkspacePlaceholder reports whether a surface's data references ${workspace}.

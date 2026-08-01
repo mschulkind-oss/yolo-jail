@@ -103,3 +103,63 @@ func TestHostRenderAllAgentsGuarded(t *testing.T) {
 		}
 	}
 }
+
+// managedOverwrites is the host-notch "warn before you clobber" (§4.2 / Phase 9): when a
+// managed key's value differs from what the user already has, the render reports it; an
+// added key or an identical re-assert is silent, and a sibling the user owns under a
+// managed parent is preserved (not reported).
+func TestHostRenderReportsOverwrites(t *testing.T) {
+	home := t.TempDir()
+	// The user already has autoUpdaterStatus=enabled (differs from the pack's "disabled")
+	// plus a sibling theme the pack never manages.
+	settings := filepath.Join(home, ".claude", "settings.json")
+	if err := os.MkdirAll(filepath.Dir(settings), 0o755); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(settings, []byte(`{"preferences":{"autoUpdaterStatus":"enabled","theme":"dark"}}`), 0o644); err != nil {
+		t.Fatal(err)
+	}
+
+	claude, err := embeddedPack("claude")
+	if err != nil {
+		t.Fatalf("embedded claude: %v", err)
+	}
+	// Observe: must report the overwrite BEFORE writing anything.
+	results, rerr := RenderHostPack(claude, home, true)
+	if rerr != nil {
+		t.Fatalf("RenderHostPack observe: %v", rerr)
+	}
+	var found bool
+	for _, r := range results {
+		if r.Surface != "claude/settings" {
+			continue
+		}
+		for _, o := range r.Overwrites {
+			if o == "preferences.autoUpdaterStatus" {
+				found = true
+			}
+			if o == "preferences.theme" {
+				t.Errorf("theme is not managed — must not be reported as an overwrite: %v", r.Overwrites)
+			}
+		}
+	}
+	if !found {
+		t.Errorf("observe should report the differing managed key preferences.autoUpdaterStatus as an overwrite; got results=%+v", results)
+	}
+	// Observe wrote nothing.
+	after, _ := os.ReadFile(settings)
+	if !strings.Contains(string(after), `"enabled"`) {
+		t.Errorf("observe must not write — the user's autoUpdaterStatus should still be 'enabled':\n%s", after)
+	}
+
+	// A file that already matches the managed value reports NO overwrite (idempotent).
+	if err := os.WriteFile(settings, []byte(`{"preferences":{"autoUpdaterStatus":"disabled"}}`), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	results, _ = RenderHostPack(claude, home, true)
+	for _, r := range results {
+		if r.Surface == "claude/settings" && len(r.Overwrites) > 0 {
+			t.Errorf("an identical value must not be reported as an overwrite: %v", r.Overwrites)
+		}
+	}
+}

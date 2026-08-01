@@ -21,6 +21,7 @@ import (
 	"io"
 	"os"
 	"path/filepath"
+	"strings"
 
 	"github.com/mschulkind-oss/yolo-jail/internal/config"
 	"github.com/mschulkind-oss/yolo-jail/internal/entrypoint"
@@ -164,6 +165,17 @@ func applyHost(out, errw io.Writer, color bool, write bool) int {
 		}
 		for _, r := range results {
 			pr.Printf("  [cyan]%-20s[/cyan] %s  [dim]%s[/dim]", r.Surface, r.Action, r.Path)
+			// Warn on every managed key that overwrites a DIFFERING existing value — the
+			// host-notch "always warn" (§4.2 / Phase 9). Shown in observe too, so the
+			// preview is not path-only (finding D2): you see the collision before writing.
+			if len(r.Overwrites) > 0 {
+				verb := "would overwrite"
+				if write {
+					verb = "overwrote"
+				}
+				pr.Printf("    [yellow]⚠ %s your existing value for: %s[/yellow]",
+					verb, strings.Join(r.Overwrites, ", "))
+			}
 		}
 	}
 	if !write {
