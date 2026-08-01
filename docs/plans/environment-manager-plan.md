@@ -217,9 +217,9 @@ description (and `--json` supersedes `config dump`), and `--at` selects a notch.
 **Design/reasoning:** `host-render-target.md` §6 (the whole section), §6.5 postures,
 §7.2; design doc §4.1.
 **Depends on:** Phase 1 (`render.Host`), Phase 3 (`apply`), Phase 2 (`--at host`).
-**Before you start — decide:** OQ-6, OQ-7 (the confirm-gated-install detail, for 4.3).
-OQ-1, OQ-2, OQ-3, OQ-4 are RESOLVED and OQ-5 is moot — the host-render shape (pure
-`rmw`, user-scoped, no read-in layer, no capture) is now settled and assumed below.
+**Before you start — decide:** nothing outstanding. OQ-1..OQ-9 are all RESOLVED (OQ-5
+moot); the host-render shape (pure `rmw`, user-scoped, no read-in layer, no capture) and
+the confirm-gated-install detail (OQ-6/7) are settled and assumed below.
 
 - **4.1** `render.Host(home)` renders the applicable kinds into the real `$HOME`;
   postures `observe` → `assert` → (maybe never) `own` (§6.5). Default `observe`
@@ -236,8 +236,10 @@ OQ-1, OQ-2, OQ-3, OQ-4 are RESOLVED and OQ-5 is moot — the host-render shape (
   A yolo-managed key the agent edits is overwritten on the next `apply` (yolo owns it,
   OQ-1). `${workspace}`-using surfaces are refused (no referent).
 - **4.3** `program` (install) below `jail` is **confirm-gated, not refused** (§4.1, the
-  reviewed position): TTY-only, command shown, curl-to-shell shows the script,
-  permission-bounded. **The two confirm details are OQ-6 and OQ-7.**
+  reviewed position): TTY-only, permission-bounded. Per OQ-6 the confirm shows the resolved
+  **URL only** (not the fetched script); per OQ-7/OQ-9 confirmations are **batched by
+  elevation class** — one approval for all no-elevation remedies, one for all `sudo` ones
+  (sudo first, so the OS password prompt comes up once at the front).
 - **4.4** `check --at host` reports host-render drift and hands off to `apply --host`
   (§3.4) — the host-side twin of the shipped `config drift`. `check` never writes.
 
@@ -280,22 +282,23 @@ from declared inputs, and its `--hash` is a reproducibility pin.
 **Depends on:** Phase 1 (`FieldSet`/notch-aware render), Phase 4 (host apply is where a
 missing dep bites). At `jail` this is a near-formality (the toolchain is in the sealed
 image); below `jail` it is the real work.
-**Before you start — decide:** OQ-8 (checker-library boundary) and OQ-9 (offer-to-run /
-`sudo` confirm UX) below. §3.5 fixes the *shape*, not the schema.
+**Before you start — decide:** nothing outstanding — OQ-8 (checker boundary) and OQ-9
+(confirm UX) are RESOLVED. §3.5 fixes the *shape*, not the schema.
 
 - **6.1** Pack-authored `provides`/`install_hints` (per-system: `brew`/`apt`/`dnf`/`nix`),
   declared by the pack that *introduces* the dep (no re-declaring others' deps).
 - **6.2** The shared **dep-checker**: probe "is this binary present, at what version,
   what installs it," used by `check`, by every `apply`, and standalone (`yolo
-  check-deps`). Boundary leaning: a **declared schema** a third-party doctor can read,
-  yolo shipping a reference checker over it (OQ-8).
+  check-deps`). Boundary (OQ-8, resolved): a **declared schema** a third-party doctor can
+  read, yolo shipping a reference checker over it — evolvable to a Go helper later.
 - **6.3** The manifest as a **composed surface** at a fixed path (`~/.config/yolo/Brewfile`
   + apt/dnf/pacman kin), composed from all packs' hints, regenerated wholesale every
   `apply`, yolo-owned. Not a one-off in a random dir.
-- **6.4** Offer-to-run: both no-elevation and `sudo` remedies are offer-to-run behind a
-  per-step confirm; a `sudo` step runs `sudo <cmd>` and lets the OS password prompt show
-  through (yolo never handles the credential). Never ambient; no-TTY = print-only; the
-  manifest is always the floor (OQ-9).
+- **6.4** Offer-to-run (OQ-9, resolved): **confirm everything, batched by elevation class**
+  — one approval for all no-elevation remedies, one for all `sudo` ones, `sudo` first so its
+  OS password prompt (shown through, never captured) comes up once at the front. Not
+  per-command, not one blind confirm. Never ambient; no-TTY = print-only; the manifest is
+  always the floor.
 
 **Done when:** `check --at host`/`apply --at host` report missing deps, write the
 manifest surface, and (behind a confirm) can run the remedies including `sudo`.
@@ -343,6 +346,11 @@ and a "if no preference, I build X" fallback — so you can answer them one at a
 rather than untangle a bundle. They are grouped by the phase they block, and marked
 **RESOLVED** once you have answered. A short **Context** line precedes each cluster; the
 long reasoning lives in the cited design section, not here.
+
+**Status (2026-08-01): OQ-1 through OQ-9 are all RESOLVED** (OQ-5 dropped as moot). The only
+remaining item is **OQ-10**, and it is a "decide at Phase 2" internal-representation choice
+that needs no answer up front — so **there is nothing outstanding for you to decide before
+implementation can begin.**
 
 ### Resolved
 
@@ -412,21 +420,30 @@ resolved; the reviewer's push on OQ-4 corrected an over-complication I had intro
 details are open.** I will draft a short note for your sign-off rather than improvise at
 the call site.
 
-- **OQ-6 — What does the curl-to-shell install confirm display?** URL only / URL + fetched
-  script / URL + a hash. *Leaning: show the resolved URL and the fetched script* (approve a
-  specific thing, not a category). **If no preference, I build "URL + script."**
+- **OQ-6 — What does the curl-to-shell install confirm display? → RESOLVED: URL only
+  (2026-08-01).** Show the resolved install URL; do not fetch-and-display the script or a
+  hash. (Simplest, and consistent with the confirm being "approve running *this command*,"
+  not a code review of the payload.)
 - **OQ-7 — Where is the category-(a) *no-elevation* / category-(b) *needs-`sudo`* line drawn
-  per remedy?** *Leaning:* (a) = writes only under the user's own tree (user `brew`, `pip
-  --user`, `~`); (b) = anything else. **If no preference, I build that rule.**
+  per remedy? → RESOLVED (2026-08-01).** (a) = writes only under the user's own tree (user
+  `brew`, `pip --user`, `~`); (b) = anything else (a system `apt install`, anything outside
+  the user's tree). The split is now *only* used to **batch confirmations by elevation
+  class** — see OQ-9, which the reviewer answered together with this.
 
 ### Blocks Phase 6 (dep provisioning)
 
-- **OQ-8 — Dep-checker boundary: a declared schema, or an importable Go package?** *Leaning:
-  schema* — portable to a third-party doctor; add a Go helper only if a spec proves too
-  weak. Design doc §3.5. **If no preference, I build the schema.**
-- **OQ-9 — Offer-to-run confirm: once for the whole manifest, or per command?** *Leaning:
-  per-command for `sudo`/category-(b) steps, once for category-(a).* Design doc §3.5. A UX
-  call, not a blocker. **If no preference, I build the split.**
+- **OQ-8 — Dep-checker boundary: a declared schema, or an importable Go package? → RESOLVED:
+  schema, evolvable (2026-08-01).** Start with a declared schema a third-party doctor can
+  read; this can grow a Go helper later if a spec proves too weak. No lock-in either way.
+  Design doc §3.5.
+- **OQ-9 — Offer-to-run confirm UX → RESOLVED: batch by elevation class, minimize
+  interaction (2026-08-01).** Not per-command (my earlier split was too interactive) and not
+  one blind confirm. **Confirm everything, batched:** group the remedies by elevation class
+  (OQ-7's a/b line) and ask **once per class** — show all category-(a) commands and confirm
+  them, show all category-(b)/`sudo` commands and confirm them — so there are two approvals,
+  not N. **Order `sudo` first** where possible, so the single `sudo` password prompt (shown
+  through, OS-native, §3.5) comes up once at the front rather than interleaved. The manifest
+  is still the floor — decline either batch and it is only written, not run. Design doc §3.5.
 
 ### Decide at its phase, not up front
 
