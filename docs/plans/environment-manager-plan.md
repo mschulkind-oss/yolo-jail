@@ -370,13 +370,75 @@ defect bites). **Motivated by:** a host agent following the migration guide woul
 the only protection when there is no jail. Today those keys are unconditional pack config
 with nothing marking them jail-only.
 
-**Before you start — decide (OQ-11, OPEN):** how a pack encodes its two autonomy
-postures — a new `autonomy` contribution kind (cohesive named block per posture) vs a
-`confinement`/`whenAutonomy` discriminator on existing `config`/`launch` entries. Sketch
-both against the real `claude`/`codex`/`agy`/`pi` packs, then pick. *Leaning:* the
-dedicated kind, because `describe`/`footprint` can show the posture whole and the
-bidirectional case (below) reads clearly as two named blocks. **If no preference, I build
-the `autonomy` kind.**
+**OQ-11 — RESOLVED (2026-08-01): a dedicated `autonomy` contribution kind (Encoding A
+below).** The maintainer delegated the choice ("do the sketch now, I'm not sure I care").
+The sketch (§9.0) settles it: the discriminator-field encoding forces the `claude`
+settings surface to be *split* into a conditional half and an always-on half, which is
+exactly the way a jail-bypass key gets left in the unconditional part by accident. The
+dedicated kind keeps each posture whole and keeps the always-safe keys in the ordinary
+`config` kind, untouched.
+
+### 9.0 The sketch that resolved OQ-11 (two encodings vs the real packs)
+
+The hard pack is `claude`: its autonomy recipe spans a `config` surface (`~/.claude/settings.json`)
+*and* a `launch` flag, and that same settings surface also carries *benign* always-safe keys
+(`preferences.autoUpdaterStatus`). `codex` is similar (a `config.toml` surface +
+`--dangerously-bypass-approvals-and-sandbox`); `agy`/`opencode` are config-only; `pi` has
+*no* autonomy config at all and needs a *guarded* posture invented for the `host` notch.
+
+**Encoding A — a dedicated `autonomy` kind (CHOSEN).** One contribution names both
+postures; each posture is a set of config patches (per agent/surface) + launch flags. The
+benign keys stay in the pack's ordinary `config` kind and are never touched by the selector.
+
+```jsonc
+// claude/pack.json — the confinement-conditional recipe, lifted OUT of the plain config kind
+{ "kind": "autonomy",
+  "autonomous": {                                  // rendered when the notch's autonomy policy is ON
+    "config": [ { "agent": "claude", "name": "settings", "managed": {
+        "permissions": { "defaultMode": "acceptEdits", "additionalDirectories": ["/"],
+                         "allow": [], "deny": [] },
+        "skipDangerousModePermissionPrompt": true } } ],
+    "launch": [ { "bin": "claude", "flags": ["--dangerously-skip-permissions"] } ] },
+  "guarded": {                                     // rendered when it is OFF (the host default)
+    "config": [ { "agent": "claude", "name": "settings", "managed": {
+        "permissions": { "defaultMode": "default" } } } ],   // prompts on; NO allow/deny clobber
+    "launch": [] } }
+// pi/pack.json — permissive by default, so 'autonomous' is empty and only 'guarded' has content
+{ "kind": "autonomy",
+  "autonomous": {},
+  "guarded": { "config": [ { "agent": "pi", "name": "settings", "managed": { /* pi's prompt-on keys */ } } ] } }
+```
+
+**Encoding B — a `when: autonomous|guarded` discriminator on existing entries (REJECTED).**
+Each `config`/`launch` entry gains an optional `when`. Because the bypass keys are nested
+in the *same* `managed` block as the benign `autoUpdaterStatus`, the claude settings surface
+must be broken into **three** entries — one `when:autonomous` (the bypass keys), one
+`when:guarded` (prompts on), one unconditional (the benign keys) — and the recipe scatters
+across the file:
+
+```jsonc
+{ "kind": "config", "when": "autonomous", "config": [ { "agent": "claude", "name": "settings",
+    "managed": { "permissions": { "defaultMode": "acceptEdits", … }, "skipDangerousModePermissionPrompt": true } } ] },
+{ "kind": "config", "when": "guarded",    "config": [ { "agent": "claude", "name": "settings",
+    "managed": { "permissions": { "defaultMode": "default" } } } ] },
+{ "kind": "config",                       "config": [ { "agent": "claude", "name": "settings",
+    "managed": { "preferences": { "autoUpdaterStatus": "disabled" } } } ] },   // must stay unconditional
+{ "kind": "launch", "when": "autonomous", "bin": "claude", "flags": ["--dangerously-skip-permissions"] }
+```
+
+**Why A wins.** (1) *Safety by construction:* in B, a bypass key mistakenly left in the
+unconditional `config` entry silently ships to `host`; in A the confinement-conditional keys
+physically live in the `autonomy` kind and nowhere else, so "unconditional config" cannot
+contain a bypass. (2) *Legibility:* `describe`/`pack footprint` print one `autonomy` block
+("autonomous → these keys + flags; guarded → these") instead of reconstructing intent from
+`when` tags scattered over N entries. (3) *Bidirectional reads cleanly:* `autonomous` vs
+`guarded` are two named siblings; `pi`'s empty-autonomous / full-guarded shape is obvious.
+(4) *Implementation reuse:* an `autonomy` posture's config half is exactly a **notch-gated
+`config-overlay`** — the overlay compose path already exists (Phase 4), so 9.3 is "select the
+posture, then run the existing overlay + launch machinery," not a new renderer.
+
+The cost of A is one new kind (13 → the closed set grows by one) and the schema for a
+posture block. Accepted.
 
 - **9.1** Add an `agent-autonomy` **policy** to `render.Profile` (composes beside the
   §4.0 enforcement primitives; it is a policy knob, not an enforcement one). Preset
@@ -391,9 +453,13 @@ the `autonomy` kind.**
 - **9.3** At render: `profile.agentAutonomy ? pack.autonomous : pack.guarded`. Benign
   always-safe `managed` keys (auto-updater off, trust-dialog) are untouched by this — only
   the confinement-conditional keys move under the selector.
-- **9.4** Migrate the shipped packs (`claude`, `codex`, `agy`, `opencode`, `pi`) to the
-  chosen encoding. **Invariant:** the `jail`-on path must render byte-identical to today —
-  `renderfingerprint_test.go` stays green — so only the host/guest paths change behavior.
+- **9.4** Migrate the shipped packs to the `autonomy` kind (§9.0 Encoding A): move each
+  agent's confinement-conditional keys + `--dangerously-*` launch flag into an `autonomy`
+  contribution's `autonomous` block, leave the benign always-safe keys in the ordinary
+  `config` kind, and author a `guarded` block (prompts on, no allow/deny clobber) for each —
+  including `pi`, whose block is guarded-only. **Invariant:** the `jail`-on path must render
+  byte-identical to today — `renderfingerprint_test.go` stays green — so only the host/guest
+  paths change behavior.
 
 **Done when:** `apply --host` renders an agent with its permission prompts intact (no
 jail-bypass keys, no `--dangerously-skip-permissions`), `pi` is tightened at `host`, a
@@ -411,9 +477,9 @@ long reasoning lives in the cited design section, not here.
 
 **Status (2026-08-01): OQ-1 through OQ-9 are all RESOLVED** (OQ-5 dropped as moot). OQ-10
 is a "decide at Phase 2" internal-representation choice that needs no answer up front.
-**OQ-11 (new, 2026-08-01) is OPEN** — the Phase 9 pack-encoding choice (autonomy kind vs
-discriminator field); it blocks only Phase 9, not the shipped phases. So for everything
-through Phase 8 there is nothing outstanding to decide.
+**OQ-11 (2026-08-01) is RESOLVED** — the Phase 9 pack-encoding choice is the dedicated
+`autonomy` kind (Encoding A; the sketch is in §9.0). Nothing is outstanding to decide before
+implementing any phase.
 
 ### Resolved
 

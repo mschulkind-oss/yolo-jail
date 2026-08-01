@@ -42,9 +42,37 @@ its `managed` block is force-written into the real `~/.claude/settings.json` via
   dangerous-mode prompt, and treat the whole filesystem as allowed. They were only ever
   safe *because a jail contained the agent*.
 - `permissions.allow: []` and `permissions.deny: []` **overwrite** the user's own
-  hand-authored allow/deny lists — and *silently*: the drop-notice
-  (`noteDroppedManagedEntries`) fires only for object-valued dynamic tables like
-  `mcpServers`, never for a scalar/array key like `permissions.deny`.
+  hand-authored allow/deny lists — and *silently*.
+
+  **Why silently, and why the difference the reviewer noticed?** The RMW render has two
+  write paths, and the distinction is which **layer** a key lives in, not its value shape:
+  - The `managed` block is written by `applyRMWLayer(force=true)`
+    (`prism.go:528-541`): for each key it does a plain `obj.Set(k, v)` — a
+    **replace-whole-value** that never reads the prior value and emits nothing. This is how
+    every `permissions.*` key is written. (Note: `permissions` is itself an *object*, and
+    `applyRMWLayer` recurses into it and is still silent — so the trigger is the layer, not
+    "scalar vs object." The claim in an earlier draft that this was a "scalar/array key"
+    distinction was imprecise.)
+  - The only notice in the whole path, `noteDroppedManagedEntries` (`prism.go:494-511`),
+    belongs to the *dynamic-table* layer (`mcpServers`), and reports a categorically
+    different event: a **named sub-entry dropped** during a wholesale regenerate ("you had
+    `mcpServers.foo`, config no longer lists it, so it's gone"). A whole-value replace has
+    no member-level diff to report, so nothing analogous exists for `permissions.deny`.
+  - On the **host** path specifically it is worse: `RenderHostPack` passes `computed=nil`
+    (`hostrender.go:72`), so the dynamic-table path — and thus the only notice emitter —
+    never runs at all. The overwrite is total and unannounced.
+
+  **Should we always warn (the reviewer's suggestion)? Yes, at the host notch — folded into
+  the Phase 9 work.** It is not a free toggle: `applyRMWLayer` computes no before/after, so
+  a symmetric "always warn on overwrite" would (a) require adding a prior-vs-new diff that
+  does not exist, and (b) be pure noise on every *jail* boot, where re-asserting managed
+  keys is the whole point (and would also perturb the byte-equality boot gate's
+  expectations). The useful, minimal version: when `apply --host` is about to overwrite a
+  key whose existing value **differs** from the pack's, print it (a real diff line, not the
+  path-only preview — this is the same gap as finding D2). Phase 9 makes most of this moot
+  for the dangerous keys by rendering the *guarded* posture at `host` so they are not
+  written; the differ-and-warn is the backstop for any managed key that legitimately still
+  overwrites a user value off-jail.
 
 The same bypass recipe exists per agent — `claude`, `codex`
 (`approval_policy: "never"` + `--dangerously-bypass-approvals-and-sandbox`), `agy`
@@ -68,10 +96,15 @@ unconditional pack config and becomes a **confinement policy**:
   behavior changes.
 
 **Status.** Design landed (design doc §4.2, plan Phase 9). **Not implemented** — deferred
-by decision (scope this round was "design + plan entry only"). **Open decision (OQ-11):**
-how a pack encodes the two postures — a dedicated `autonomy` contribution kind vs a
-`confinement`/`whenAutonomy` discriminator on existing `config`/`launch` entries. Both to
-be sketched against the real packs before choosing; leaning toward the dedicated kind.
+by decision (scope this round was "design + plan entry only"). **OQ-11 is now RESOLVED:** a
+pack encodes its two postures with a **dedicated `autonomy` contribution kind** (each posture
+a named block of config patches + launch flags), not a `when` discriminator on existing
+entries. Both encodings were sketched against the real `claude`/`codex`/`agy`/`opencode`/`pi`
+packs in plan §9.0; the dedicated kind wins because it keeps confinement-conditional keys
+physically out of the unconditional `config` (a bypass key can't be left in the always-on
+part by accident), prints as one legible block in `describe`/`footprint`, and reuses the
+existing notch-gated `config-overlay` + `launch` machinery. Phase 9 also folds in the
+host-notch overwrite warning the reviewer asked for (see R1's silent-overwrite note above).
 
 **Until it ships, the guide carries a hard warning** (see D1) and a known-defect banner
 sits at the top of the plan doc.

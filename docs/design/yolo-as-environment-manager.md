@@ -649,12 +649,13 @@ must stay byte-identical to today (the `renderfingerprint_test.go` gate), so the
 path reproduces exactly the current `managed`+`launch` output; only the host/guest paths
 change.
 
-**Open question — how a pack encodes the two postures.** Either a new `autonomy`
-contribution kind that bundles each posture's config keys + launch flags as one named block
-(cohesive; `describe`/`footprint` can show it whole), or a `confinement`/`whenAutonomy`
-discriminator field on the existing `config` and `launch` entries (smaller schema delta,
-but the recipe scatters across entries). Deferred to the implementation phase; both are
-sketched against the real packs before the encoding is chosen.
+**How a pack encodes the two postures (resolved).** A dedicated `autonomy` contribution
+kind that bundles each posture's config patches + launch flags as one named block
+(`autonomous` / `guarded`) — chosen over a `when`-discriminator on existing `config`/`launch`
+entries because it keeps confinement-conditional keys physically out of the unconditional
+`config` (so a jail-bypass key can't be left in the always-on part by accident) and prints
+whole in `describe`/`footprint`. Both encodings were sketched against the real packs; see the
+implementation plan §9.0 for the sketch and the decision (OQ-11).
 
 ---
 
