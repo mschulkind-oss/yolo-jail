@@ -4,6 +4,7 @@ import (
 	"encoding/json"
 	"os"
 	"path/filepath"
+	"strings"
 	"testing"
 )
 
@@ -58,5 +59,47 @@ func TestHostRenderClaudeDropsBypass(t *testing.T) {
 	// The benign always-safe key still renders (it is plain config, not autonomy-gated).
 	if prefs, _ := got["preferences"].(map[string]any); prefs == nil || prefs["autoUpdaterStatus"] != "disabled" {
 		t.Errorf("benign autoUpdater key should still render at host:\n%s", data)
+	}
+}
+
+// Across every shipped agent pack, the host notch must NOT carry the autonomous
+// (prompts-off) value into the real config — the guarded posture (or the agent's own
+// default) must win. This guards all four migrations at once against a regression that
+// re-leaks one agent's bypass. Checks are per-agent because each expresses "prompts off"
+// with a different key/value.
+func TestHostRenderAllAgentsGuarded(t *testing.T) {
+	// forbidden maps an agent to the autonomous value that must NOT appear at host, as a
+	// substring of the rendered file (codec-agnostic: json and toml both serialize these).
+	forbidden := map[string][]string{
+		"codex":    {"danger-full-access", `"never"`, "never"},
+		"agy":      {`"allow"`},
+		"opencode": {`"permission": "allow"`, `"permission":"allow"`},
+		"pi":       {`"always"`},
+	}
+	// the config file each agent's guarded posture writes.
+	settingsPath := map[string]string{
+		"codex":    ".codex/config.toml",
+		"agy":      ".gemini/antigravity-cli/settings.json",
+		"opencode": ".config/opencode/opencode.json",
+		"pi":       ".pi/agent/settings.json",
+	}
+	for agentName, rel := range settingsPath {
+		p, err := embeddedPack(agentName)
+		if err != nil {
+			t.Fatalf("embedded %s: %v", agentName, err)
+		}
+		home := t.TempDir()
+		if _, rerr := RenderHostPack(p, home, false); rerr != nil {
+			t.Fatalf("RenderHostPack %s: %v", agentName, rerr)
+		}
+		data, err := os.ReadFile(filepath.Join(home, rel))
+		if err != nil {
+			t.Fatalf("%s: read %s: %v", agentName, rel, err)
+		}
+		for _, bad := range forbidden[agentName] {
+			if strings.Contains(string(data), bad) {
+				t.Errorf("%s host config leaks the autonomous value %q:\n%s", agentName, bad, data)
+			}
+		}
 	}
 }

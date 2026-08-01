@@ -22,10 +22,6 @@
         {
           "agent": "codex",
           "codec": "toml",
-          "managed": {
-            "approval_policy": "never",
-            "sandbox_mode": "danger-full-access"
-          },
           "name": "config",
           "path": "~/.codex/config.toml",
           "retireOnFirstRender": [
@@ -36,16 +32,48 @@
       "kind": "config"
     },
     {
+      "autonomous": {
+        "config": [
+          {
+            "agent": "codex",
+            "codec": "toml",
+            "managed": {
+              "approval_policy": "never",
+              "sandbox_mode": "danger-full-access"
+            },
+            "name": "config",
+            "path": "~/.codex/config.toml"
+          }
+        ],
+        "launch": [
+          {
+            "bin": "codex",
+            "flags": [
+              "--dangerously-bypass-approvals-and-sandbox"
+            ]
+          }
+        ]
+      },
+      "guarded": {
+        "config": [
+          {
+            "agent": "codex",
+            "codec": "toml",
+            "managed": {
+              "approval_policy": "on-request",
+              "sandbox_mode": "workspace-write"
+            },
+            "name": "config",
+            "path": "~/.codex/config.toml"
+          }
+        ]
+      },
+      "kind": "autonomy"
+    },
+    {
       "at": ".codex",
       "kind": "state",
       "scope": "workspace"
-    },
-    {
-      "bin": "codex",
-      "flags": [
-        "--dangerously-bypass-approvals-and-sandbox"
-      ],
-      "kind": "launch"
     }
   ],
   "name": "codex"

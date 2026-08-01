@@ -37,9 +37,6 @@
         {
           "agent": "agy",
           "codec": "json",
-          "managed": {
-            "permissionMode": "allow"
-          },
           "name": "settings",
           "path": "~/.gemini/antigravity-cli/settings.json"
         }
@@ -47,16 +44,46 @@
       "kind": "config"
     },
     {
+      "autonomous": {
+        "config": [
+          {
+            "agent": "agy",
+            "codec": "json",
+            "managed": {
+              "permissionMode": "allow"
+            },
+            "name": "settings",
+            "path": "~/.gemini/antigravity-cli/settings.json"
+          }
+        ],
+        "launch": [
+          {
+            "bin": "agy",
+            "flags": [
+              "--dangerously-skip-permissions"
+            ]
+          }
+        ]
+      },
+      "guarded": {
+        "config": [
+          {
+            "agent": "agy",
+            "codec": "json",
+            "managed": {
+              "toolPermission": "strict"
+            },
+            "name": "settings",
+            "path": "~/.gemini/antigravity-cli/settings.json"
+          }
+        ]
+      },
+      "kind": "autonomy"
+    },
+    {
       "at": ".gemini/antigravity-cli",
       "kind": "state",
       "scope": "workspace"
-    },
-    {
-      "bin": "agy",
-      "flags": [
-        "--dangerously-skip-permissions"
-      ],
-      "kind": "launch"
     }
   ],
   "name": "agy"

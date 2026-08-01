@@ -28,9 +28,6 @@
           "defaults": {
             "theme": "system"
           },
-          "managed": {
-            "defaultProjectTrust": "always"
-          },
           "name": "settings",
           "path": "~/.pi/agent/settings.json",
           "retireOnFirstRender": [
@@ -39,6 +36,35 @@
         }
       ],
       "kind": "config"
+    },
+    {
+      "autonomous": {
+        "config": [
+          {
+            "agent": "pi",
+            "codec": "json",
+            "managed": {
+              "defaultProjectTrust": "always"
+            },
+            "name": "settings",
+            "path": "~/.pi/agent/settings.json"
+          }
+        ]
+      },
+      "guarded": {
+        "config": [
+          {
+            "agent": "pi",
+            "codec": "json",
+            "managed": {
+              "defaultProjectTrust": "ask"
+            },
+            "name": "settings",
+            "path": "~/.pi/agent/settings.json"
+          }
+        ]
+      },
+      "kind": "autonomy"
     },
     {
       "at": ".pi",
