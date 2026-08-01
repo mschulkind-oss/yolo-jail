@@ -17,6 +17,8 @@ var commandHelp = []struct{ name, blurb string }{
 	{"init", "Scaffold yolo-jail.jsonc in the current workspace"},
 	{"init-user-config", "Write user-level defaults at ~/.config/yolo-jail/config.jsonc"},
 	{"config", "Inspect generated config: 'config ls' (every composed file), 'render', 'diff', 'reset'"},
+	{"describe", "Print the resolved environment description (--json, --hash)"},
+	{"apply", "Provision the environment without launching (--at jail|guest|host)"},
 	// Leads with what a pack delivers rather than the authoring verbs: with the `agents`
 	// config key gone, `pack` is the only channel content reaches a jail through, so this
 	// line is what a new user scanning `yolo --help` needs to land on. It says "agent
