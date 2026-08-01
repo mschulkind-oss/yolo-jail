@@ -40,6 +40,12 @@ type BriefingInput struct {
 	Resources          map[string]any
 	IsYoloSourceTree   bool
 	ProvisioningFailed bool
+	// Confinement is the notch this environment runs at ("jail"|"guest"|"host"),
+	// env-manager plan Phase 8. Empty is treated as "jail" (the default and today's
+	// behavior). The briefing states the notch so an agent at guest/host knows it is
+	// NOT disposable — a briefing that always said "sandboxed container" would tell a
+	// host agent something dangerously false.
+	Confinement string
 }
 
 // BriefingContent renders the jail-managed briefing body (before any host-level
@@ -49,6 +55,46 @@ type BriefingInput struct {
 // output (agentsmd_test.go covers only the helpers), so sections can be added
 // or removed without regenerating a golden. NetMode defaults to "bridge" when
 // empty.
+// confinementHeader is the briefing's opening block, keyed on the confinement notch
+// (env-manager plan Phase 8). For "jail" (and empty — the default) it is exactly the
+// historical text, so the common case is unchanged byte-for-byte. For guest/host it
+// states the notch, the grants, and the absences, because an agent that believes it is
+// disposable when it is on the human's real machine will take a disposable agent's
+// risks.
+func confinementHeader(confinement string) []string {
+	switch confinement {
+	case "host":
+		return []string{
+			"# YOLO Environment — host",
+			"",
+			"You are running at the **host** confinement level: this is the human's REAL",
+			"machine, with no container around you. Changes are NOT disposable.",
+			"You have: their real credentials, their real dotfiles, no snapshot to fall back on.",
+			"Absent: nothing is mounted read-only; there is no jail to restart; `sudo` is real.",
+			"Jail tooling: `yolo --help`; config reference: `yolo config-ref`.",
+			"",
+		}
+	case "guest":
+		return []string{
+			"# YOLO Environment — guest",
+			"",
+			"You are running at the **guest** confinement level: a restricted account on the",
+			"real machine (LSM-confined, its own identity), NOT a disposable container.",
+			"Your home is real and persists; there is no image and no jail to restart.",
+			"Jail tooling: `yolo --help`; config reference: `yolo config-ref`.",
+			"",
+		}
+	default: // "jail" or empty — unchanged from the historical briefing.
+		return []string{
+			"# YOLO Jail Environment",
+			"",
+			"You are running inside a YOLO Jail — a sandboxed container.",
+			"Jail tooling: `yolo --help`; config reference: `yolo config-ref`.",
+			"",
+		}
+	}
+}
+
 func BriefingContent(in BriefingInput) string {
 	netMode := in.NetMode
 	if netMode == "" {
@@ -108,13 +154,7 @@ func BriefingContent(in BriefingInput) string {
 		}
 	}
 
-	lines := []string{
-		"# YOLO Jail Environment",
-		"",
-		"You are running inside a YOLO Jail — a sandboxed container.",
-		"Jail tooling: `yolo --help`; config reference: `yolo config-ref`.",
-		"",
-	}
+	lines := append([]string{}, confinementHeader(in.Confinement)...)
 	lines = append(lines, provisioningFailed...)
 	lines = append(lines,
 		"## Environment",

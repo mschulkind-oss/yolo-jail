@@ -97,6 +97,7 @@ func (o *Options) refreshJailBriefings(cname string, cfg *jsonx.OrderedMap, rt s
 		Resources:          resources,
 		IsYoloSourceTree:   isSrc,
 		ProvisioningFailed: agents.ReadProvisioningFailed(o.Workspace),
+		Confinement:        string(config.ResolveConfinement(cfg)),
 	}
 	jailContent := agents.BriefingContent(in)
 	jailContent = agents.ComposeBriefing(jailContent, cfgStr(cfg, "agents_md_extra"))

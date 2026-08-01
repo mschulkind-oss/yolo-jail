@@ -146,3 +146,60 @@ func TestComposePackBriefingsSkipsEmpty(t *testing.T) {
 		t.Errorf("base briefing altered: %q", got)
 	}
 }
+
+// Phase 8 (env-manager): the briefing states the confinement notch. jail (and empty)
+// is unchanged; guest/host tell the agent it is NOT disposable.
+func TestBriefingConfinementHeader(t *testing.T) {
+	base := BriefingInput{Workspace: "/home/me/proj"}
+
+	jail := BriefingContent(base) // empty Confinement == jail
+	if !contains(jail, "sandboxed container") {
+		t.Errorf("default/jail briefing must keep the historical 'sandboxed container' line:\n%s", jail)
+	}
+
+	base.Confinement = "jail"
+	if BriefingContent(base) != jail {
+		t.Error("explicit confinement=jail must be byte-identical to the empty default")
+	}
+
+	// The HEADER (the top paragraph, §8.1) states the notch and non-disposability.
+	// The deeper "## Environment" body stays jail-shaped until guest/host actually
+	// boot (Phases 4/7) — no jail boots at those notches today, so the body is not yet
+	// specialized; this test pins the header, which is what Phase 8 delivers.
+	base.Confinement = "host"
+	host := firstParagraph(BriefingContent(base))
+	for _, want := range []string{"host", "real", "NOT disposable"} {
+		if !contains(host, want) {
+			t.Errorf("host briefing header must warn it is not disposable (missing %q):\n%s", want, host)
+		}
+	}
+	if contains(host, "sandboxed container") {
+		t.Errorf("host briefing header must NOT claim it is a sandboxed container:\n%s", host)
+	}
+
+	base.Confinement = "guest"
+	guest := firstParagraph(BriefingContent(base))
+	if !contains(guest, "guest") || contains(guest, "sandboxed container") {
+		t.Errorf("guest briefing header wrong:\n%s", guest)
+	}
+}
+
+// firstParagraph returns the briefing up to the first blank line after the title —
+// the confinement header block Phase 8 owns.
+func firstParagraph(s string) string {
+	// Header runs from the "# " title through the blank line before "## Environment".
+	if i := index(s, "## Environment"); i >= 0 {
+		return s[:i]
+	}
+	return s
+}
+
+func contains(s, sub string) bool { return len(sub) == 0 || (len(s) >= len(sub) && index(s, sub) >= 0) }
+func index(s, sub string) int {
+	for i := 0; i+len(sub) <= len(s); i++ {
+		if s[i:i+len(sub)] == sub {
+			return i
+		}
+	}
+	return -1
+}
