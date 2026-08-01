@@ -408,18 +408,28 @@ $ yolo check --at host
 **Who may install, and the permission line.** This is the line the reviewer asked for, and it is
 the load-bearing one:
 
-- **yolo never installs below `jail`; it hands off.** It writes the manifest and names the
-  command; the user runs it. That keeps yolo out of the business of mutating a real machine's
-  package set (§4.1 makes the parallel argument for a pack's own `install`: confirm-gated below `jail`, never silent).
-- **Draw the line at permission, not at yolo-vs-user.** Split the remedies into *(a)* things that
-  need no elevation and *(b)* things that need `sudo` or another grant. Category (a) — a
-  user-scope `brew install`, a `pip install --user`, dropping a file in `~` — is safe to *offer
-  to run* (still with a confirm, §4.1). Category (b) — a system `apt install`, anything writing
-  outside the user's own tree — yolo **only ever prints**, and if a step genuinely needs
-  elevation it says so and **requests `sudo` explicitly at that step**, never ambiently. At the
-  `host` notch, where yolo is running *as the user with no confinement*, category (a) is often
-  "nothing to elevate" — the user already has the rights — so the honest default there is: offer
-  the no-elevation remedies behind a confirm, print the rest with the `sudo` command spelled out.
+- **The manifest is always the floor; running it is an offer on top.** yolo writes the runnable
+  manifest (the Brewfile and kin) regardless — that is the guaranteed handoff, and "just print
+  it, I'll run it" is always a valid outcome. On top of that floor yolo *offers* to run the
+  remedies for you, behind a confirm (below). Nothing installs *silently* below `jail`; the same
+  confirm-gated, never-ambient rule §4.1 states for a pack's own `install` applies here.
+- **yolo can offer to run either kind — including `sudo` — always behind a confirm.** Split the
+  remedies into *(a)* things that need no elevation (a user-scope `brew install`, a `pip install
+  --user`, dropping a file in `~`) and *(b)* things that need `sudo` or another grant (a system
+  `apt install`, anything outside the user's own tree). Both are **offer-to-run behind a
+  confirm**; the only difference is that a category-(b) step runs `sudo <cmd>` and **lets sudo's
+  own password prompt show through normally.** yolo does not need to capture, inject, or store a
+  password — the invocation is interactive, so the OS prompt is the right thing to see, and yolo
+  never handles the credential itself. The confirm shows the exact command (with the `sudo`
+  prefix) before anything runs, so the user is approving a specific elevation, not a category.
+- **The invariants that bound "offer to run":** yolo never elevates *ambiently* — no step runs
+  without the per-step confirm, and `sudo` appears only where the command visibly carries it,
+  never wrapped silently around something the user thought was user-scope. No TTY (CI) means no
+  confirm means the remedy is only printed, never run (fail-closed, §4.1). And yolo still writes
+  the manifest regardless, so "print it, I'll run it myself" is always available — offering to
+  run is a convenience over the handoff, not a replacement for it. At the `host` notch, category
+  (a) is often "nothing to elevate" (the user already has the rights), so most host remedies run
+  without ever reaching a `sudo` prompt.
 
 **Open question for the design pass:** the exact schema of `provides`/`install_hints`/the
 manifest emitters, and precisely where the checker-library boundary sits (schema vs. Go
@@ -664,9 +674,11 @@ Worth stating plainly, because a reframing this size invites scope creep:
   renders zero pack surfaces per launch. A three-notch story with a broken middle is worse than a
   one-notch story that works.
 - **The dep-provisioning design needs its own pass (§3.5).** The *shape* is fixed (declare-once,
-  check-once, hand off a runnable manifest, permission-bounded), but the field schema
-  (`provides`/`install_hints`/the manifest emitters) and the checker-library boundary (an
-  importable Go package vs. a declared schema a third-party doctor reads — leaning schema) are
+  check-once, hand off a runnable manifest, offer-to-run behind a confirm including `sudo` with
+  the OS prompt shown through), but the field schema (`provides`/`install_hints`/the manifest
+  emitters), the checker-library boundary (an importable Go package vs. a declared schema a
+  third-party doctor reads — leaning schema), and the exact offer-to-run confirm UX (how a
+  `sudo` step is presented, how a multi-step manifest is confirmed — once or per-step) are
   unresolved, and getting the boundary wrong reintroduces the duplication it is meant to avoid.
 - **Confirm-gated `install` below `jail` needs a threat-model pass (§4.1).** Moving from "never"
   to "confirm-gated, TTY-only, command shown, permission-bounded" is the right trust model — you
