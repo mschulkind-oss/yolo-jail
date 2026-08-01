@@ -11,8 +11,11 @@ fix** (designed, deferred).
 **The one finding that matters most.** Five of the eighteen, from four independent review
 lenses, converge on the same defect: `yolo apply --host --assert` renders the shipped
 agent packs' *jail-safety-bypass* config onto the user's real machine, and overwrites the
-user's own permission keys. Everything else is either a facet of that, or an
-accuracy/expectations fix. So this response has two tiers:
+user's own permission keys. (`apply --host` defaults to **observe** — a dry-run that prints
+what it would do and writes nothing; `--assert` is the flag that makes it actually
+**write** the render into the real home. So `--assert` is precisely the step that commits
+the damage.) Everything else is either a facet of that, or an accuracy/expectations fix.
+So this response has two tiers:
 
 1. **The code fix** — autonomy becomes a confinement policy (env-manager Phase 9). Big,
    boot-critical, and **deferred** by decision; the guide is made safe in the meantime.
