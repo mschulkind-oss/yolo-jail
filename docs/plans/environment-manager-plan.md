@@ -433,9 +433,14 @@ contain a bypass. (2) *Legibility:* `describe`/`pack footprint` print one `auton
 ("autonomous → these keys + flags; guarded → these") instead of reconstructing intent from
 `when` tags scattered over N entries. (3) *Bidirectional reads cleanly:* `autonomous` vs
 `guarded` are two named siblings; `pi`'s empty-autonomous / full-guarded shape is obvious.
-(4) *Implementation reuse:* an `autonomy` posture's config half is exactly a **notch-gated
-`config-overlay`** — the overlay compose path already exists (Phase 4), so 9.3 is "select the
-posture, then run the existing overlay + launch machinery," not a new renderer.
+(4) *Implementation reuse:* an `autonomy` posture's config half **selects which keys enter
+the `managed` layer** of the pack's own surface — it is NOT a `config-overlay` (that kind is
+defined as a contribution to a surface owned by *another* pack, and it folds in *below*
+`managed`, so it could neither target the pack's own surface nor make the `guarded` value win
+over the jail-default managed keys). Concretely 9.3 is "select the posture, fold its config
+patch into the surface's managed map before compose, and merge its launch flags" — reusing
+the existing managed-layer + `InjectLaunchFlags` machinery, not the overlay path and not a new
+renderer.
 
 The cost of A is one new kind (13 → the closed set grows by one) and the schema for a
 posture block. Accepted.
