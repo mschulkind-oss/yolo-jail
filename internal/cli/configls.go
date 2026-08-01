@@ -338,7 +338,12 @@ func composedFileExists(surfacePath string) bool {
 // surfacesAreLocal reports whether the process home is the home of the jail that
 // owns the workspace we resolved. True only in-jail AND when YOLO_HOST_DIR (the
 // host path of the workspace this jail was launched for) matches it.
-func surfacesAreLocal() bool {
+//
+// It is a var, not a plain func, so tests can pin the answer: the real logic keys
+// off YOLO_VERSION and the /workspace mount, neither of which a bare CI runner has,
+// so tests that model the in-jail owner must stub this rather than depend on ambient
+// environment (see withLocalSurfaces in the test file).
+var surfacesAreLocal = func() bool {
 	if os.Getenv("YOLO_VERSION") == "" {
 		return false // host-side
 	}

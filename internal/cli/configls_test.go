@@ -23,6 +23,20 @@ func withSidecarDir(t *testing.T) string {
 	return dir
 }
 
+// withLocalSurfaces pins surfacesAreLocal()==true for the duration of a test, so a
+// reset/capture happy path runs the in-jail-owner branch regardless of the ambient
+// environment. Without it these tests pass in a dev jail (YOLO_VERSION set,
+// /workspace mounted) but the Phase-0 guard refuses on a bare CI runner, where
+// neither holds — the classic passes-in-jail-fails-in-CI trap. Tests that model the
+// host-side branch (e.g. TestResetCaptureRefuseHostSideWithoutForce) must NOT call
+// this.
+func withLocalSurfaces(t *testing.T) {
+	t.Helper()
+	orig := surfacesAreLocal
+	surfacesAreLocal = func() bool { return true }
+	t.Cleanup(func() { surfacesAreLocal = orig })
+}
+
 // writeSidecar seeds an overlay (and optionally a last_render baseline).
 func writeSidecar(t *testing.T, dir, agent, name, overlayJSON, lastRenderJSON string) {
 	t.Helper()
@@ -173,6 +187,7 @@ func TestConfigDiffEmptyOverlayIsQuiet(t *testing.T) {
 // a stale baseline and instantly re-capturing the edits just discarded. Deleting
 // last_render too forces the first-migration re-seed.
 func TestConfigResetRemovesBothSidecars(t *testing.T) {
+	withLocalSurfaces(t)
 	dir := withSidecarDir(t)
 	writeSidecar(t, dir, "claude", "settings", `{"theme":"dark"}`, `{"theme":"light"}`)
 	writeSidecar(t, dir, "pi", "settings", `{"other":true}`, `{"other":false}`)
@@ -197,6 +212,7 @@ func TestConfigResetRemovesBothSidecars(t *testing.T) {
 
 // TestConfigResetIsIdempotent: running it twice must not error.
 func TestConfigResetIsIdempotent(t *testing.T) {
+	withLocalSurfaces(t)
 	dir := withSidecarDir(t)
 	writeSidecar(t, dir, "claude", "settings", `{"a":1}`, `{}`)
 	var out, errw bytes.Buffer
@@ -236,6 +252,7 @@ func TestConfigDiffResetRejectMissingAgent(t *testing.T) {
 // an opaque slug, so `reset user` must discover its surfaces from the sidecar files
 // — which also lets it clean up after an entry the user has since removed.
 func TestConfigResetUserSurfacesFromSidecars(t *testing.T) {
+	withLocalSurfaces(t)
 	dir := withSidecarDir(t)
 	writeSidecar(t, dir, "user", ".config_2fmytool_2fx.json", `{"k":"v"}`, `{}`)
 
