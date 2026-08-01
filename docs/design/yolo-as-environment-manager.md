@@ -22,8 +22,12 @@ describe a jail."*
 > [pack-system.md](pack-system.md).
 
 **Scope:** what yolo *is* and how it feels to use, mostly from the user's side. **No migration
-path** — this describes the destination, not the route. Where today's behavior is cited it is
-to say what changes shape, not to plan the change.
+path here** — this describes the destination, not the route. The route is
+[../plans/environment-manager-plan.md](../plans/environment-manager-plan.md), which sequences
+this vision into buildable phases (foundation-first: the render-path collapse, then the dial,
+then the verbs) and carries this doc's §8 open questions forward as "decide before phase N"
+gates. Where today's behavior is cited below it is to say what changes shape, not to plan the
+change.
 
 **The name stays.** `jail` becomes the name of the strongest confinement level, so "yolo jail"
 reads as "yolo, at the jail level." The name gets *more* accurate under this framing, not less.
