@@ -167,24 +167,32 @@ were **refuted and re-verified by hand**, plus the defects it surfaced. Each is 
 non-test `prism*.go` is **917 lines** (verified). And `claude/config` is **correctly** labeled
 `unrendered` (`configls.go:62`), so item A3's framing needs narrowing to the `render`-only half.
 
-## Stage G — host-side composition (found 2026-07-27)
+## Stage G — host-side composition (found 2026-07-27) — **now sequenced in the env-manager plan**
 
 Reasoning: [../design/host-render-target.md](../design/host-render-target.md) — §3 is the
 design (one renderer, several targets), §6 is the finding these items came from.
 
-| # | Item | Kind |
-|---|---|---|
-| G1 | **⚠ Host-side `config reset` destroys real user config.** `truncateSurfaceToPureRender` (`cli/configdiff.go:381`) resolves `~` via `expandHome` → `paths.Home()` = the *invoking human's* home, and composes with **no computed layer**. Probed: `reset mise` truncated a real `~/.config/mise/config.toml` (20 bytes → `"\n"`, the user's `[tools]` gone); `reset codex`/`opencode` replaced real files with yolo's managed keys only; `reset claude` merged yolo's managed layer into the user's own file. `configCapture`'s own docstring (`:415-419`) says a host-side re-render is wrong *for exactly this reason* — the reasoning exists one function away. **Fix:** refuse (or `--force`) when `surfacesAreLocal()` (`configls.go:341`) is false; it is currently consulted only by `composedFileExists` (`:330`) | ⚠ **data loss** |
-| G2 | `config capture` copies real host config into `<workspace>/.yolo/prism/`. Probed: a `~/.codex/config.toml` `api_key_hint` landed in the overlay sidecar. Gitignored, so not a commit leak — but it is host content crossing into the workspace tree unasked. Same predicate fixes it | privacy |
-| G3 | **macos-user renders zero pack surfaces, silently.** `RunDarwinBootstrap` calls `LoadJailPacks`/`ConfigurePackSurfaces`/`RunPackHooks` (`entrypoint/darwin.go:57-62`), but the run path returns at `cli/run/run.go:73` *before* `stagePacks`, and `YOLO_PACK_ROOT` is never set on that backend — so the loop runs over an empty list every launch. `docs/design/macos-user-nix-and-features.md:174` still claims selection ✅ | defect + docs lie |
-| G4 | **Collapse the two render paths into one `internal/render` package** parameterized by an explicit `Target{Home, Workspace, SidecarDir, HostLayer, Tables, Hooks, Fields, Posture}` — instead of `*entrypoint.Env` in-jail (`prism.go:167,322`) and an implicit `paths.Home()` host-side (`cli/config.go:253`, `cli/configdiff.go:394,476`). The duplication is the root cause G1/G2/G3 all share, and the code admits it in three comments (`prism.go:61`, `prism.go:351-353`, `cli/config.go:3-4`). Pays for itself before any host feature: retires `surfaceHasHostLayer`/`surfaceHasComputedLayer` (`configls.go:197,204`) and makes `config render` a faithful preview rather than an approximation. **Risk: this refactors the A12-fatal boot path** — gate on byte-equality of every shipped pack's rendered surfaces before/after. **G3 is the cheapest test of the abstraction**: an existing backend that should render surfaces into a real home and renders none | design |
-| G5 | `FieldSet` — a target declares which manifest fields apply, so an inapplicable one gets a refusal **naming the field** instead of a silent skip. Census (`host-render-target.md` §2.1): 4 of 9 fields are meaningless without a container, `install` must be refused, `mounts` is unavailable and must be refused rather than emulated (a copy goes silently stale), only `surfaces` is target-independent. G3 is what a silent skip looks like in production | design |
-| G6 | `yolo config apply --host` — render the applicable subset into the real home, refusing the rest by name. `observe` → `assert` → (maybe never) `own`; `install` refused outright. Every host-target surface is `rmw` + a reconcile sidecar, so `--revert` means something. **Open first:** where that sidecar lives, given two workspaces can assert into one machine-scoped file (§9.5) | feature |
+**Moved 2026-07-31.** Stage G is the host-render slice of the wider environment-manager
+vision, and its six items now live — with their full evidence, the byte-equality gate, and
+the build order — as the first phases of
+[environment-manager-plan.md](environment-manager-plan.md), which sequences the whole vision
+foundation-first. Kept here as the map from the old G-numbers to the plan phases (per this
+file's "an item lives once" rule — the item now lives in the plan):
 
-**G1 is the one to do first, and it waits on nothing.** Order: G1 → G2 → G4 → G3 → G5 → G6.
-**Extracting any of this into a separate util is settled: no** (§2.3, decided 2026-07-27) — the
-field census puts the boundary through the middle of a single manifest, so the capability lives
-in yolo. G4 is where its value is, host target or not.
+| G-item | What | Now |
+|---|---|---|
+| G1 | ⚠ host-side `config reset` destroys real user config (data-loss) | **Phase 0.1** |
+| G2 | `config capture` leaks host config into the workspace (privacy) | **Phase 0.2** |
+| G3 | macos-user renders zero pack surfaces, silently | **Phase 1.4** |
+| G4 | collapse the two render paths into one `internal/render` + `Target` | **Phase 1.1–1.2** |
+| G5 | `FieldSet` — refuse an inapplicable kind by name, not silently | **Phase 1.3** |
+| G6 | `yolo config apply --host` — render the applicable subset into the real home | **Phase 4** |
+
+**G1 (Phase 0) is the one to do first, and it waits on nothing.** Original order G1 → G2 → G4
+→ G3 → G5 → G6 is preserved as Phase 0 → 1 → 4. **Extracting any of this into a separate util
+is settled: no** (`host-render-target.md` §2.3, decided 2026-07-27) — the field census puts the
+boundary through the middle of a single manifest, so the capability lives in yolo as
+`internal/render`.
 
 ## Stage E — parked design work
 

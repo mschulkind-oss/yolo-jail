@@ -58,63 +58,108 @@ addition, and each is gated by the decisions in its "Before you start" note.
 
 ---
 
-## Phase 0 — Stop the destructive host-side write
+## Phase 0 — Stop the destructive host-side write  *(was BACKLOG G1 + G2)*
 
-**Design:** BACKLOG G1/G2; `host-render-target.md` §6.1, §8 step 1.
+**Design/reasoning:** `host-render-target.md` §6.1 (the probes), §8 step 1.
 **Depends on:** nothing. **Ship regardless of whether the rest happens.**
 
-Host-side `yolo config reset`/`capture` already resolve `~` against the invoking
-human's real home and write it — `reset mise` truncates a real `~/.config/mise/config.toml`
-to `"\n"`. Fix: refuse (or require `--force`) when `surfacesAreLocal()` is false; the
-predicate exists (`configls.go:341`) and is consulted only by `composedFileExists`.
+Host-side `yolo config` verbs already resolve `~` against the invoking human's *real*
+home (`expandHome` → `paths.Home()`) and two of them write — a destructive posture
+yolo is already in by accident. This is the one live data-loss bug in the whole
+cluster, it is independent of the architecture below it, and it is ~20 lines.
 
-- **0.1** Gate `configReset` (`configdiff.go`) on `surfacesAreLocal()`; refuse with a
-  message naming the surface, `--force` to override. **(data-loss fix)**
-- **0.2** Gate `configCapture` the same way (the api-key-hint privacy leak, G2).
+- **0.1 — `config reset` destroys real user config. *(G1, ⚠ data-loss)*** The bug:
+  `truncateSurfaceToPureRender` (`cli/configdiff.go:381`) composes with **no computed
+  layer** against the real `$HOME`. Probed:
+  - `reset mise` truncated a real `~/.config/mise/config.toml` (20 bytes → `"\n"`, the
+    user's `[tools]` gone) — its content is *entirely* the computed layer.
+  - `reset codex`/`opencode` replaced real files with yolo's managed keys only.
+  - `reset claude` merged yolo's managed layer into the user's own file.
+
+  **Fix:** refuse (or require `--force`) in `configReset` (`configdiff.go`) when
+  `surfacesAreLocal()` (`configls.go:341`) is false — the predicate already exists and
+  is currently consulted only by `composedFileExists` (`:330`). `configCapture`'s own
+  docstring (`:415-419`) already says a host-side re-render is wrong for exactly this
+  reason; the reasoning is one function away, just not applied.
+- **0.2 — `config capture` leaks host config into the workspace. *(G2, privacy)***
+  `configCapture` copies real host config into `<workspace>/.yolo/prism/`; probed, a
+  `~/.codex/config.toml` `api_key_hint` landed in the overlay sidecar. `.yolo/` is
+  gitignored so it is not a commit leak, but it is host content crossing into the
+  agent-readable workspace tree unasked. **Same `surfacesAreLocal()` predicate fixes
+  it.**
 - **0.3** Regression test: a host-side `reset`/`capture` in a non-jail home is a
   refusal, not a write.
 
-**Done when:** a host-side `reset`/`capture` cannot mutate a real dotfile without
-`--force`. This is a ~20-line change and its own shippable unit — do it first.
+**Done when:** a host-side `reset`/`capture` cannot mutate a real dotfile (0.1) or copy
+host config into the workspace (0.2) without `--force`. Its own shippable unit — do it
+first.
 
 ---
 
-## Phase 1 — One renderer, several targets (`internal/render` + `Target`)
+## Phase 1 — One renderer, several targets (`internal/render` + `Target`)  *(was BACKLOG G4 + G5 + G3)*
 
-**Design:** BACKLOG G3/G4/G5; `host-render-target.md` §3 (the load-bearing section),
-§4, §7.1.
+**Design/reasoning:** `host-render-target.md` §3 (the load-bearing section), §4, §7.1.
 **Depends on:** Phase 0 (so the refactor lands on non-destructive host paths).
 
-This is the foundation. Today `agentcfg.Compose`/`ComposeStateful` have two independent
-callers — the in-jail boot render (`entrypoint/prism.go`) and the host-side `config`
-verbs (`cli/config.go`, `configdiff.go`) — and three code comments admit the second
-mirrors the first. Collapse them into one `internal/render` package parameterized by an
-explicit `Target{Home, Workspace, SidecarDir, HostLayer, Tables, Hooks, Fields, Posture}`.
+This is the foundation — every phase below needs it. Today `agentcfg.Compose` /
+`ComposeStateful` have **two independent callers**: the in-jail boot render
+(`entrypoint/prism.go:167,322`) and the host-side `config` verbs (`cli/config.go:253`,
+`cli/configdiff.go:394,476`). The code already admits the second is a hand-copy of the
+first, in three comments — `prism.go:61` ("Mirrors `internal/cli.loadTransformScript`"),
+`prism.go:351-353` ("Mirrors `internal/cli.expandHome` … keyed on the Env rather than the
+process `$HOME`"), and the `cli/config.go:3-4` header promising it runs "the SAME engine."
+**Every Phase-0 defect is a drift between these two copies.** Collapse them into one
+`internal/render` package parameterized by an explicit `Target`.
 
-- **1.1** Introduce `internal/render` with `Target` + the three constructors
-  `Jail(e)` / `Preview(dir)` / `Host(home)` (`host-render-target.md` §3.3). Move the
-  three surface writers out of `entrypoint/prism.go`, keyed on `Target`.
-- **1.2** `entrypoint` calls `render.Jail(e)`; `cli` calls `render.Preview()`. Delete
-  the mirrored helpers and the two hand-maintained maps (`surfaceHasHostLayer`,
-  `surfaceHasComputedLayer`, `configls.go:197,204`) — they become derived from `Target`.
-- **1.3** `FieldSet` (G5): a target declares which kinds apply; an inapplicable kind is
-  refused **by name**, never silently skipped.
-- **1.4** Fix macos-user as a target row (G3): it currently renders zero surfaces
-  silently because the run path returns before `stagePacks`. This is **the cheapest
-  test of the abstraction** — an existing backend that should render into a real home
-  and renders none. If `Target` cannot express macos-user cleanly, it will not express
-  `host` either.
+- **1.1 — introduce `internal/render` with `Target` + three constructors. *(G4 core)***
+  ```go
+  type Target struct { Home, Workspace, SidecarDir string; HostLayer HostLayer
+                       Tables Tables; Hooks map[string]HookFunc; Fields FieldSet; Posture Posture }
+  func Jail(e *entrypoint.Env) Target   // the boot render, behavior-identical to today
+  func Preview(dir string) Target       // `config render` — writes nothing outside dir
+  func Host(home string) Target         // Phase 4
+  ```
+  Move the three surface writers out of `entrypoint/prism.go`, keyed on `Target` instead
+  of an implicit `*Env`/`paths.Home()`. `entrypoint` calls `render.Jail(e)`; `cli` calls
+  `render.Preview()`.
+- **1.2 — delete the duplication G4 exists to kill.** The two mirrored helpers above, and
+  the two hand-maintained maps `surfaceHasHostLayer` / `surfaceHasComputedLayer`
+  (`configls.go:197,204`), become *derived from `Target`* — `config render` stops being an
+  approximation of the boot render and *is* the boot render against a temp home.
+- **1.3 — `FieldSet`. *(G5)*** A target declares which kinds apply; an inapplicable kind
+  gets a refusal **naming the kind**, never a silent skip. The census
+  (`host-render-target.md` §2.1): only `config` is target-independent; `program` must be
+  refused, `mount`/`reads-host` are unavailable off-container and must be refused rather
+  than emulated (a copy goes silently stale). G3 below is what a silent skip looks like
+  after a year in production.
+- **1.4 — fix macos-user as a target row. *(G3, and the cheapest test of 1.1–1.3)***
+  macos-user renders **zero pack surfaces every launch, silently**: `RunDarwinBootstrap`
+  calls `LoadJailPacks`/`ConfigurePackSurfaces`/`RunPackHooks` (`entrypoint/darwin.go:57-62`),
+  but the run path returns at `cli/run/run.go:73` *before* `stagePacks`, so
+  `YOLO_PACK_ROOT` is never set and the loop runs over an empty list.
+  (`macos-user-nix-and-features.md:174` still wrongly claims selection works.) This is an
+  existing backend that *should* render into a real home and renders none — **if `Target`
+  cannot express macos-user cleanly it will not express `host` either**, so fixing it here
+  proves the abstraction before Phase 4 bets on it.
 
-**The one hard risk (from `host-render-target.md` §3.5):** this refactors the
-A12-fatal boot path — a regression stops jails from *starting*, not just misconfigures
-one. **Retire it with a byte-equality check of every shipped pack's rendered surfaces,
-before and after** — the same method Stage D used to prove the Go surface literals
-equalled their generated pack declarations. `entrypoint` must not gain a `cli`
-dependency; `liveTables` and `genStep`'s A12 policy stay in the caller, not the renderer.
+**The one hard risk (`host-render-target.md` §3.5):** this refactors the **A12-fatal boot
+path** — a regression does not misconfigure an agent, it stops jails from *starting*,
+including the one you are reading this in. **Retire it with a byte-equality check of every
+shipped pack's rendered surfaces, before and after** — the same method Stage D used to
+prove the ten Go surface literals equalled their generated pack declarations. Two
+constraints: `entrypoint` must **not** gain a `cli` dependency (the edge runs
+`cli`→`entrypoint` today, and `internal/render` sits below both); and `liveTables` +
+`genStep`'s A12 fail-closed policy stay in the *caller*, not the renderer — that split is
+what lets a host target's refusal be a message while the jail stays loud-and-halting.
 
-**Done when:** boot render, `config render`, and (via macos-user) a real-home render
-all go through one `render.Render(target, surfaces)`, and the byte-equality gate is
-green.
+**Extraction is settled: no** (`host-render-target.md` §2.3, decided 2026-07-27). This
+lives in yolo as `internal/render`, not a separate util — the field census puts the
+boundary through the middle of a single manifest, and G4's value is in the *deletion* of
+the duplicate renderer, host target or not.
+
+**Done when:** boot render, `config render`, and (via macos-user, 1.4) a real-home render
+all go through one `render.Render(target, surfaces)`; inapplicable kinds refuse by name;
+and the byte-equality gate is green.
 
 ---
 
@@ -167,9 +212,9 @@ description (and `--json` supersedes `config dump`), and `--at` selects a notch.
 
 ---
 
-## Phase 4 — `apply --host`: the host notch becomes real
+## Phase 4 — `apply --host`: the host notch becomes real  *(was BACKLOG G6)*
 
-**Design:** BACKLOG G6; `host-render-target.md` §6 (the whole section), §6.5 postures,
+**Design/reasoning:** `host-render-target.md` §6 (the whole section), §6.5 postures,
 §7.2; design doc §4.1.
 **Depends on:** Phase 1 (`render.Host`), Phase 3 (`apply`), Phase 2 (`--at host`).
 **Before you start — decide:** OQ-A (host sidecar location) and OQ-B (retire the host
@@ -288,12 +333,38 @@ These are the design doc's own unresolved points (its §8), pulled forward and t
 the phase each blocks. **Everything above is decided enough to start; these are the
 "decide before you start phase N" items.**
 
-**OQ-A — Where does a host-target reconcile sidecar live? (blocks Phase 4)**
-`host-render-target.md` §9.5. The jail sidecars are workspace-scoped; a host assertion is
-machine-scoped (`~/.local/state/yolo-jail/host-render/`?), and if two workspaces both
-`apply --host` they assert into one file — the sidecar is the only record of who put what
-there. Last-writer-wins with a shared sidecar is probably right, but a `--revert` that
-removes another workspace's keys is the failure to design against.
+**OQ-A — Where does a host-target reconcile sidecar live, and who arbitrates two
+workspaces? (blocks Phase 4)** — reasoning in `host-render-target.md` §9.5, §4.4.
+
+*Context — what a "reconcile sidecar" is and why Phase 4 needs one.* When yolo `assert`s
+into a host file it doesn't own outright (e.g. `~/.claude/settings.json`, which the agent
+also writes), it must remember *which keys it put there* — otherwise `--revert` cannot tell
+"a key yolo added" from "a key the user wrote," and undo becomes either a no-op or data
+loss. That memory is the **reconcile sidecar**: a small record, beside the target, of what
+this apply asserted. In a jail it already exists and lives at
+`<workspace>/.yolo/prism/…` — **workspace-scoped, because a jail is.**
+
+*The problem.* A host assertion is **machine-scoped** — `~/.claude/settings.json` is not
+about any one workspace — so its sidecar wants to live somewhere machine-global like
+`~/.local/state/yolo-jail/host-render/`. That is a new storage location, and it opens a
+collision the jail case never had:
+
+> You `apply --host` from repo A (asserts `mcpServers.tavily`), then from repo B (asserts
+> `mcpServers.github`) into the *same* `~/.claude/settings.json`. There is one sidecar
+> recording "what yolo asserted here." What does `--revert` from repo A remove — only
+> tavily, or everything in the sidecar (including B's github)?
+
+*The decision, and the failure to design against.* Last-writer-wins with a single shared
+sidecar is probably right and simplest, **but a naive `--revert` under it removes another
+workspace's keys** — that is the specific failure. Candidate resolutions to pick among:
+(a) one shared sidecar keyed by asserting-workspace, so `--revert` only pulls its own keys;
+(b) one sidecar per (target-file × workspace), merged at apply; (c) machine-scope is
+single-writer by rule — the *last* `apply --host` owns the file and a second workspace
+asserting is a warned overwrite, not a merge. **Decide before Phase 4.1 writes the first
+host sidecar**, because the sidecar's shape and location are load-bearing for `--revert`
+and are painful to migrate once real files depend on them. (OQ-B interacts: if the host
+`reads-host` layer is retired, one class of host-file contention goes away, but the
+multi-workspace-assert collision remains.)
 
 **OQ-B — Retire the host (`reads-host`) compose layer? (shapes Phase 4 and Phase 5)**
 Design doc §3.3 "The `host` layer is the input we should retire." The lean is *yes* —
@@ -331,9 +402,10 @@ Linux `guest` is a new preset, not a new special case.
 
 ## What this plan explicitly does not do
 
-- **It does not re-list BACKLOG Stage G.** Phase 0 = G1/G2, Phase 1 = G3/G4/G5, Phase 4 =
-  G6. BACKLOG stays the item-level tracker for those; this plan is the whole-vision
-  sequence they sit inside.
+- **It absorbs BACKLOG Stage G rather than pointing at it.** Phase 0 = G1/G2, Phase 1 =
+  G4/G5/G3, Phase 4 = G6, folded in with their full evidence and build order; BACKLOG's
+  Stage G is now just a G-number→phase map, so each item lives once (here). The rest of
+  BACKLOG (Stages A–F, E) stays the tracker for the shipped/parked composed-config work.
 - **It does not change the pack format.** Every phase renders through the shipped
   `contributes[]` substrate; `provides`/`install_hints` (Phase 6) is the one additive
   field, and it is additive.
