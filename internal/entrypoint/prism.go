@@ -33,13 +33,21 @@ import (
 	"github.com/mschulkind-oss/yolo-jail/internal/agentcfg/luahook"
 	"github.com/mschulkind-oss/yolo-jail/internal/agentcfg/manifest"
 	"github.com/mschulkind-oss/yolo-jail/internal/jsonx"
+	"github.com/mschulkind-oss/yolo-jail/internal/render"
 )
 
 // prismSidecarDir is the per-workspace directory holding the §5 capture-diff
 // sidecars (last_render + overlay). It lives under the workspace's gitignored
 // .yolo/ — the overlay is per-workspace scope (§4) and the agent never sees it.
 func prismSidecarDir(e *Env) string {
-	return filepath.Join(e.WorkspaceDir(), ".yolo", "prism")
+	return targetSidecarDir(e.renderTarget())
+}
+
+// targetSidecarDir is the Target-keyed form: the sidecar tree lives under the target's
+// workspace. This is the seam the host/preview targets reuse — the boot path reaches it
+// through prismSidecarDir(e), which is just this over e.renderTarget().
+func targetSidecarDir(t render.Target) string {
+	return filepath.Join(t.Workspace, ".yolo", "prism")
 }
 
 // prismLastRenderPath is the last_render sidecar for one surface: the exact
@@ -72,13 +80,23 @@ func prismOverlayPath(e *Env, agent, name string) string {
 // serves the host-side render — the two must stay in sync (§6: "what render
 // prints is what the jail gets").
 func loadPrismTransformScript(e *Env) string {
+	return targetTransformScript(e.renderTarget())
+}
+
+// targetTransformScript is the Target-keyed transform loader: user config.lua (under
+// the target's home) then workspace config.lua (under the target's workspace), user
+// first so the workspace transform runs last. The boot path reaches it via
+// loadPrismTransformScript(e). This is the convergence point the old
+// "mirrors internal/cli.loadTransformScript — the two must stay in sync" comment asked
+// for: one Target-keyed loader instead of two hand-copies.
+func targetTransformScript(t render.Target) string {
 	var b strings.Builder
-	userLua := filepath.Join(e.Home, ".config", "yolo-jail", "config.lua")
+	userLua := filepath.Join(t.Home, ".config", "yolo-jail", "config.lua")
 	if data, err := os.ReadFile(userLua); err == nil {
 		b.Write(data)
 		b.WriteByte('\n')
 	}
-	wsLua := filepath.Join(e.WorkspaceDir(), "yolo-jail.config.lua")
+	wsLua := filepath.Join(t.Workspace, "yolo-jail.config.lua")
 	if data, err := os.ReadFile(wsLua); err == nil {
 		b.Write(data)
 		b.WriteByte('\n')
@@ -378,11 +396,20 @@ func (e *missingSurfaceError) Error() string {
 // Env's resolved Home (the jail home, or the native-macOS home). Mirrors
 // internal/cli.expandHome but keyed on the Env rather than the process $HOME.
 func expandHomePath(e *Env, p string) string {
+	return targetExpandHome(e.renderTarget(), p)
+}
+
+// targetExpandHome resolves a "~"-relative surface path against the TARGET's home. This
+// is the seam that lets a host/preview target write into a different home than the jail;
+// the boot path reaches it via expandHomePath(e, p) over e.renderTarget(). It replaces
+// the old "mirrors internal/cli.expandHome but keyed on Env" duplication with one
+// Target-keyed resolver both sides can converge on.
+func targetExpandHome(t render.Target, p string) string {
 	if p == "~" {
-		return e.Home
+		return t.Home
 	}
 	if strings.HasPrefix(p, "~/") {
-		return filepath.Join(e.Home, p[2:])
+		return filepath.Join(t.Home, p[2:])
 	}
 	return p
 }

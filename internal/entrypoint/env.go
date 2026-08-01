@@ -11,6 +11,8 @@ import (
 	"io"
 	"os"
 	"path/filepath"
+
+	"github.com/mschulkind-oss/yolo-jail/internal/render"
 )
 
 // Env captures the container environment the pure generators read. Modeling the
@@ -129,6 +131,19 @@ func (e *Env) WorkspaceDir() string {
 		return "/workspace"
 	}
 	return e.Workspace
+}
+
+// renderTarget projects this Env onto the render.Target the surface writers key on
+// (env-manager plan Phase 1): the boot render is the KindJail instance of the one
+// Target-parameterized renderer. The writers touch exactly these three Env fields —
+// Home (surface dest + user config.lua), WorkspaceDir (sidecar root + ${workspace} +
+// workspace config.lua), and Stderr (capture/dropped-entry notices) — so the whole of
+// what a render needs from the environment is this projection; everything else
+// (host bytes, the computed layer) is passed to the writers as arguments. Making the
+// Target explicit here is what lets the host verbs (internal/cli) and a future
+// `apply --host` render through the SAME contract instead of a hand-copied mirror.
+func (e *Env) renderTarget() render.Target {
+	return render.Jail(e.Home, e.WorkspaceDir(), e.Stderr)
 }
 
 // ShimBinPath returns the directory a shim exec's the real tool from, defaulting
