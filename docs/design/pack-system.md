@@ -134,10 +134,16 @@ Installs a tool and puts it on `PATH` via a launcher that installs on first invo
 - `package` (required for `npm`) — the npm package.
 - `url` (required for `installer`) — the install-script URL (origin-gated, §9).
 - `flags` — optional flags baked into the launcher.
+- `install_hints` — optional map of host package manager (`brew`/`apt`/`dnf`/`pacman`/`nix`)
+  → the package that provides `bin` there. Used below the `jail` notch (where yolo bakes no
+  image) by `yolo check-deps` / `apply` to probe for the binary and, if missing, emit a
+  runnable manifest. Declared by the pack that *introduces* the dependency.
 
 ```json
 { "kind": "program", "bin": "opencode", "via": "npm", "package": "opencode-ai" }
 { "kind": "program", "bin": "claude", "via": "installer", "url": "https://claude.ai/install.sh" }
+{ "kind": "program", "bin": "psql", "via": "npm", "package": "x",
+  "install_hints": { "brew": "postgresql@16", "apt": "postgresql-16", "nix": "postgresql_16" } }
 ```
 
 ### `skills`

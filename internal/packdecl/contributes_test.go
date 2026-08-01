@@ -150,3 +150,40 @@ func TestHostAccessClaims(t *testing.T) {
 		t.Errorf("a pack reading nothing from the host should have no claims, got %v", c)
 	}
 }
+
+// install_hints parses on a program contribution and DepRequirements projects it.
+func TestDepRequirementsFromInstallHints(t *testing.T) {
+	m := &Manifest{Contributes: []Contribution{
+		{Kind: KindProgram, Bin: "psql", Via: "npm", Package: "x",
+			InstallHints: map[string]string{"brew": "postgresql@16", "apt": "postgresql-16"}},
+		{Kind: KindProgram, Bin: "nohints", Via: "npm", Package: "y"},
+		{Kind: KindSkills, From: "skills", Into: ".x/skills"}, // not a program
+	}}
+	got := m.DepRequirements()
+	if len(got) != 2 {
+		t.Fatalf("DepRequirements = %d, want 2 (one per program with a bin)", len(got))
+	}
+	byBin := map[string]DepRequirement{}
+	for _, d := range got {
+		byBin[d.Bin] = d
+	}
+	if byBin["psql"].Hints["brew"] != "postgresql@16" {
+		t.Errorf("psql brew hint wrong: %+v", byBin["psql"])
+	}
+	if len(byBin["nohints"].Hints) != 0 {
+		t.Errorf("a program with no install_hints should have empty Hints: %+v", byBin["nohints"])
+	}
+}
+
+// install_hints round-trips through strict Decode (DisallowUnknownFields).
+func TestInstallHintsDecodes(t *testing.T) {
+	m, probs := Decode([]byte(`{"name":"x","contributes":[
+	  {"kind":"program","bin":"psql","via":"npm","package":"p","install_hints":{"brew":"postgresql@16"}}]}`))
+	if len(probs) != 0 {
+		t.Fatalf("install_hints should decode cleanly, got: %v", probs)
+	}
+	d := m.DepRequirements()
+	if len(d) != 1 || d[0].Hints["brew"] != "postgresql@16" {
+		t.Errorf("decoded install_hints wrong: %+v", d)
+	}
+}

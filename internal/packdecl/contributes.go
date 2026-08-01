@@ -31,6 +31,14 @@ type Contribution struct {
 	Package string   `json:"package,omitempty"` // program via npm: the npm package
 	URL     string   `json:"url,omitempty"`     // program via installer: the curl-to-shell URL
 	Flags   []string `json:"flags,omitempty"`   // program: extra install flags; launch: the injected flags
+	// InstallHints maps a host package manager ("brew"|"apt"|"dnf"|"pacman"|"nix") to
+	// the package name that provides Bin on that manager (env-manager plan Phase 6). A
+	// pack author knows this better than a built-in attr→pkg table that goes stale; it
+	// is what `check`/`apply` below jail use to probe for the binary and, if missing,
+	// emit a runnable manifest (a Brewfile and kin). Optional: absent means yolo can
+	// name the binary as missing but not the remedy. Declared by the pack that
+	// INTRODUCES the dep, never re-declaring one another tool owns.
+	InstallHints map[string]string `json:"install_hints,omitempty"`
 
 	// --- skills / briefing / files (staged trees) ---
 	From  string `json:"from,omitempty"`  // pack-relative source path
@@ -99,6 +107,34 @@ func (m *Manifest) InstallContribution() *Install {
 		return in
 	}
 	return nil
+}
+
+// DepRequirement is one binary a pack needs on the host, with the per-manager package
+// names that provide it (env-manager plan Phase 6). Below the jail notch, where yolo
+// bakes no image, this is what a dep check probes for and, if missing, turns into a
+// runnable install line.
+type DepRequirement struct {
+	// Bin is the binary that must be on PATH (e.g. "psql").
+	Bin string
+	// Hints maps a host package manager to the package providing Bin. May be empty:
+	// then yolo can report Bin missing but not a remedy.
+	Hints map[string]string
+}
+
+// DepRequirements returns every program contribution that carries install_hints, as
+// the host-dep requirements the dep checker probes. A program with no hints still needs
+// its bin, but yolo has no remedy to offer, so it is reported as unprobeable-remedy
+// rather than omitted — the caller decides. Only program contributions with a Bin are
+// returned.
+func (m *Manifest) DepRequirements() []DepRequirement {
+	var out []DepRequirement
+	for _, c := range m.Contributions() {
+		if c.Kind != KindProgram || c.Bin == "" {
+			continue
+		}
+		out = append(out, DepRequirement{Bin: c.Bin, Hints: c.InstallHints})
+	}
+	return out
 }
 
 // HostFileContributions returns the reads-host contributions as legacy HostFiles.
