@@ -49,18 +49,9 @@
           "agent": "claude",
           "codec": "json",
           "managed": {
-            "permissions": {
-              "additionalDirectories": [
-                "/"
-              ],
-              "allow": [],
-              "defaultMode": "acceptEdits",
-              "deny": []
-            },
             "preferences": {
               "autoUpdaterStatus": "disabled"
-            },
-            "skipDangerousModePermissionPrompt": true
+            }
           },
           "name": "settings",
           "path": "~/.claude/settings.json",
@@ -70,6 +61,55 @@
         }
       ],
       "kind": "config"
+    },
+    {
+      "autonomous": {
+        "config": [
+          {
+            "agent": "claude",
+            "codec": "json",
+            "managed": {
+              "permissions": {
+                "additionalDirectories": [
+                  "/"
+                ],
+                "allow": [],
+                "defaultMode": "acceptEdits",
+                "deny": []
+              },
+              "skipDangerousModePermissionPrompt": true
+            },
+            "name": "settings",
+            "path": "~/.claude/settings.json"
+          }
+        ],
+        "launch": [
+          {
+            "bin": "claude",
+            "flags": [
+              "--dangerously-skip-permissions"
+            ]
+          }
+        ]
+      },
+      "guarded": {
+        "config": [
+          {
+            "agent": "claude",
+            "codec": "json",
+            "managed": {
+              "permissions": {
+                "additionalDirectories": [],
+                "defaultMode": "default"
+              },
+              "skipDangerousModePermissionPrompt": false
+            },
+            "name": "settings",
+            "path": "~/.claude/settings.json"
+          }
+        ]
+      },
+      "kind": "autonomy"
     },
     {
       "at": ".claude",
@@ -86,13 +126,6 @@
       "host": ".claude/settings.json",
       "into": "host-claude/settings.json",
       "kind": "reads-host"
-    },
-    {
-      "bin": "claude",
-      "flags": [
-        "--dangerously-skip-permissions"
-      ],
-      "kind": "launch"
     },
     {
       "at": ".claude-shared-credentials",
