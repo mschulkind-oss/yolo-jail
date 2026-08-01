@@ -331,7 +331,10 @@ take a disposable agent's risks.
 
 These are the design doc's own unresolved points (its §8), pulled forward and tied to
 the phase each blocks. **Everything above is decided enough to start; these are the
-"decide before you start phase N" items.**
+"decide before you start phase N" items.** Each ends with a **Decision needed** line
+naming what *you* have to pick and the options — so these read as a checklist of calls
+to make, not a list of tensions to admire. Where there is a leaning it is marked, but
+none is decided until you say so.
 
 **OQ-A — Where does a host-target reconcile sidecar live, and who arbitrates two
 workspaces? (blocks Phase 4)** — reasoning in `host-render-target.md` §9.5, §4.4.
@@ -360,43 +363,103 @@ workspace's keys** — that is the specific failure. Candidate resolutions to pi
 (a) one shared sidecar keyed by asserting-workspace, so `--revert` only pulls its own keys;
 (b) one sidecar per (target-file × workspace), merged at apply; (c) machine-scope is
 single-writer by rule — the *last* `apply --host` owns the file and a second workspace
-asserting is a warned overwrite, not a merge. **Decide before Phase 4.1 writes the first
-host sidecar**, because the sidecar's shape and location are load-bearing for `--revert`
-and are painful to migrate once real files depend on them. (OQ-B interacts: if the host
-`reads-host` layer is retired, one class of host-file contention goes away, but the
-multi-workspace-assert collision remains.)
+asserting is a warned overwrite, not a merge. The sidecar's shape and location are
+load-bearing for `--revert` and painful to migrate once real files depend on them.
+(OQ-B interacts: if the host `reads-host` layer is retired, one class of host-file
+contention goes away, but the multi-workspace-assert collision remains.)
 
-**OQ-B — Retire the host (`reads-host`) compose layer? (shapes Phase 4 and Phase 5)**
-Design doc §3.3 "The `host` layer is the input we should retire." The lean is *yes* —
-drop settings-inheritance, express personal settings as a local pack — because reading
-settings *in* and asserting config *out* over the same file is an XOR, and it is the one
-input whose meaning needs a container. Deciding yes collapses a Declared-impure closure
-row into Declared (simpler Phase 5) and removes a Phase-4 fixpoint case. Deciding no
-means Phase 4 must handle the §6.3 fixpoint. **This is the biggest single decision in the
-plan** and should be made before either phase.
+> **Decision needed (before Phase 4.1):** pick a sidecar scheme — **(a)** one shared
+> machine-global sidecar keyed by asserting-workspace *(leaning: smallest, and `--revert`
+> pulls only its own keys)*, **(b)** one sidecar per (target-file × workspace) merged at
+> apply, or **(c)** single-writer-by-rule (last apply owns the file, second is a warned
+> overwrite). And confirm the location `~/.local/state/yolo-jail/host-render/`. If you
+> have no preference, say so and I will build (a).
+
+**OQ-B — Retire the host (`reads-host`) compose layer, AND how does a host agent keep
+editing its own config? (shapes Phase 4 and Phase 5)** — design doc §3.3; but see the
+reopen below.
+
+Two parts, and a reviewer flagged that the second was not explored:
+
+*Part 1 — retire the read-*in* layer.* Design doc §3.3 leans *yes*: drop
+settings-inheritance (the `reads-host`/`host` compose layer that reads your real
+`~/.claude/settings.json` *into* a jail), express personal settings as a local pack
+instead. The reason is that reading settings *in* and asserting config *out* over the
+same file is an XOR — you cannot cleanly do both on one surface — and the host layer is
+the one input whose meaning needs a container. Retiring it collapses a Declared-impure
+closure row into Declared (simpler Phase 5) and removes a Phase-4 fixpoint case.
+
+*Part 2 — the gap: a host agent must stay free to edit its own config.* This is the
+reviewer's point, and it exposes a claim in `host-render-target.md` §6.3 that was made
+too fast. §6.3 says *"on a host target every surface is `rmw` and `stateful`/capture is
+meaningless, because the editor and yolo are the same person."* But **"same person" is
+the wrong axis.** At `host`, `claude` writes `~/.claude/settings.json` constantly (any
+first-run, any `/config` toggle) — that is normal, wanted, and must not be clobbered by
+the next `apply --host`. The distinction that matters is not *yolo vs. agent* (same UID,
+true) but ***apply-time* (yolo deliberately asserting) vs. *between applies* (the agent
+working)** — which is exactly the distinction the jail's `stateful` + capture-overlay
+model already draws. So the likely resolution is that the **host notch keeps
+`stateful`+capture, not the pure `rmw` §6.3 assumed**: `apply --host` asserts the
+pack's `managed` keys, an agent edit between applies is captured, and the next apply
+re-asserts `managed` over the agent's own keys rather than reverting them. That means
+**§6.3 should be reopened** — its "capture is meaningless on host" line is the thing to
+fix. It also interacts with OQ-A (capture needs somewhere to live off-container) and
+softens Part 1 (if capture survives on host, the read-*in* layer is even less needed,
+because the agent's own edits are already preserved without it).
+
+> **Decision needed (before Phase 4 and Phase 5, and it reopens design §6.3):**
+> **(1)** Retire the `reads-host`/host-inheritance layer — yes / no / defer?
+> *(leaning yes.)* **(2)** On the host notch, does a surface stay `stateful`+capture (so
+> the agent edits its own config freely and `apply` re-asserts only `managed` keys), or
+> is it pure `rmw` as §6.3 currently claims? *(leaning: keep capture — reopen §6.3.)*
+> I can draft the §6.3 revision for the "apply-time vs. between-applies" model once you
+> confirm (2), since it changes what Phase 4.2 builds. **This is the biggest single
+> decision in the plan.**
 
 **OQ-C — Threat-model pass for confirm-gated `install` below `jail` (blocks Phase 4.3)**
-Design doc §4.1, §8. Moving from "never" to "confirm-gated, TTY-only, command shown,
-permission-bounded" is the right trust model (you already approved the pack), but the
-confirm UX, what a curl-to-shell approval displays, and the category-(a)/(b) permission
-split want to be pinned before code, not designed at the call site.
+Design doc §4.1, §8. The *policy* is decided — install below `jail` moves from "never" to
+"confirm-gated, TTY-only, command shown, permission-bounded," because you already approved
+the pack. What is open is the threat-model detail that should be pinned before code, not
+improvised at the call site: exactly what a curl-to-shell approval displays (URL only? the
+fetched script? a hash?), and where the category-(a) *(no elevation)* / category-(b)
+*(needs `sudo`)* line is drawn per remedy.
+
+> **Decision needed (before Phase 4.3):** approve a short threat-model note that fixes
+> (1) what the install confirm shows for a curl-to-shell URL, and (2) the a/b split rule.
+> I can draft that note for your sign-off; it is a review, not an open design — the policy
+> above is already settled.
 
 **OQ-D — The dep-checker library boundary (blocks Phase 6.2)**
-Design doc §3.5, §8. A declared schema a third-party doctor reads (portable, leaning) vs.
-an importable Go package (only if the probe logic gets subtle enough that a spec
-under-specifies it). Getting it wrong reintroduces the duplication §3.5 exists to avoid.
+Design doc §3.5, §8. A declared schema a third-party doctor reads vs. an importable Go
+package both link. The schema is more portable (a Rust project's doctor can honor it);
+the Go package is only worth it if the probe logic gets subtle enough that a spec
+under-specifies it. Getting it wrong reintroduces the duplication §3.5 exists to avoid.
+
+> **Decision needed (before Phase 6.2):** pick **schema** *(leaning — start here, add a Go
+> helper only if a spec proves too weak)* or **Go package**. If no preference, I build the
+> schema.
 
 **OQ-E — Offer-to-run confirm UX (blocks Phase 6.4)**
-Design doc §3.5, §8. How a `sudo` step is presented; whether a multi-step manifest is
-confirmed once or per-step. The design fixes the shape (offer-to-run, OS prompt shown,
-never ambient, manifest is the floor); the UX detail is open.
+Design doc §3.5, §8. The shape is fixed (offer-to-run, OS `sudo` prompt shown through,
+never ambient, the manifest is always the floor). Two UX details are open: how a `sudo`
+step is presented, and whether a multi-step manifest is confirmed **once** (approve the
+whole run) or **per-step** (approve each command).
+
+> **Decision needed (before Phase 6.4):** once-for-the-whole-manifest vs. per-command
+> confirm *(leaning: per-command for `sudo`/category-(b) steps, once for category-(a))*.
+> A UX call, not a design blocker — tell me your preference or take the leaning.
 
 **OQ-F — Composable-primitive model shape (shapes Phase 2.2)**
-Design doc §4.0. The three notches are presets over (separate user / Seatbelt / bwrap /
-namespace). The internal representation that lets a fourth combination be expressed
-(and printed by `describe`) without becoming a policy vector the user hand-assembles
-(`happy-path-principle.md`) is undesigned. Get it roughly right at Phase 2 so Phase 7's
-Linux `guest` is a new preset, not a new special case.
+Design doc §4.0. The three notches are presets over independent primitives (separate user /
+Seatbelt / bwrap / namespace). The internal representation that lets a fourth combination be
+expressed (and printed by `describe`) without becoming a policy vector the user
+hand-assembles (`happy-path-principle.md`) is undesigned. Getting it roughly right at Phase 2
+is what keeps Phase 7's Linux `guest` a new preset rather than a new special case.
+
+> **Decision needed (at Phase 2, not before):** this one does not need a call from you up
+> front — it is an internal-representation choice I will propose as part of Phase 2 and you
+> review then. Flagged here only so Phase 2 does not hard-code three monoliths and foreclose
+> it. Say if you want to weigh in earlier.
 
 ---
 
