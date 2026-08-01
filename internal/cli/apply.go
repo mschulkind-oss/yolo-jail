@@ -23,6 +23,8 @@ import (
 	"path/filepath"
 
 	"github.com/mschulkind-oss/yolo-jail/internal/config"
+	"github.com/mschulkind-oss/yolo-jail/internal/entrypoint"
+	"github.com/mschulkind-oss/yolo-jail/internal/render"
 	"github.com/mschulkind-oss/yolo-jail/internal/richtext"
 )
 
@@ -32,7 +34,7 @@ func runApply(args []string) int {
 
 func applyMain(args []string, out, errw io.Writer, color bool) int {
 	var at string
-	var dryRun, sealed bool
+	var dryRun, sealed, assert bool
 	for i := 0; i < len(args); i++ {
 		a := args[i]
 		switch {
@@ -52,6 +54,8 @@ func applyMain(args []string, out, errw io.Writer, color bool) int {
 			at = "host" // shorthand for --at host
 		case a == "--dry-run":
 			dryRun = true
+		case a == "--assert":
+			assert = true // write (the assert posture); default is observe/dry-run
 		case a == "--sealed":
 			sealed = true
 		default:
@@ -90,11 +94,7 @@ func applyMain(args []string, out, errw io.Writer, color bool) int {
 
 	switch notch {
 	case config.ConfinementHost:
-		// Phase 4 (`apply --host`) renders the applicable config into the real home.
-		pr.Printf("[yellow]apply at the host notch is not built yet (env-manager plan " +
-			"Phase 4). It will render your pack config into your real home (pure rmw, only " +
-			"the keys yolo manages). For now, `yolo describe` shows what it would apply.[/yellow]")
-		return 1
+		return applyHost(out, errw, color, assert && !dryRun)
 	case config.ConfinementGuest:
 		pr.Printf("[yellow]apply at the guest notch is not built yet (env-manager plan " +
 			"Phase 7 — the LSM-confined backend).[/yellow]")
@@ -109,6 +109,67 @@ func applyMain(args []string, out, errw io.Writer, color bool) int {
 		pr.Printf("")
 		return describeMain(nil, out, errw, color)
 	}
+}
+
+// applyHost renders the configured packs' config surfaces into the invoking user's REAL
+// home (env-manager plan Phase 4). Default posture is OBSERVE (dry-run): it prints what
+// would change and writes nothing; --assert (write=true) actually renders. Pure RMW, no
+// computed layer, user-scoped, no --revert — the resolved OQ-1..4 model. Non-config
+// kinds are refused by name via the host FieldSet, and `program` (install) is called out
+// as confirm-gated-not-yet-run (Phase 4.3's confirm UX is a follow-up).
+func applyHost(out, errw io.Writer, color bool, write bool) int {
+	pr := richtext.Printer{W: out, Color: color}
+	home, err := os.UserHomeDir()
+	if err != nil {
+		fmt.Fprintf(errw, "yolo apply --host: cannot resolve your home: %v\n", err)
+		return 1
+	}
+	entries, err := config.LoadPacks(nil)
+	if err != nil {
+		fmt.Fprintf(errw, "yolo apply --host: %v\n", err)
+		return 1
+	}
+	if len(entries) == 0 {
+		pr.Printf("[dim]No packs configured — nothing to apply to the host.[/dim]")
+		return 0
+	}
+
+	posture := "observe (dry-run)"
+	if write {
+		posture = "assert (writing)"
+	}
+	pr.Printf("[bold]apply --host[/bold]  home [cyan]%s[/cyan]  posture [cyan]%s[/cyan]", home, posture)
+
+	hostFields := render.HostFields()
+	rc := 0
+	for _, e := range entries {
+		p := packForCheckDeps(e) // same loader: embedded or local; git needs `pack install`
+		if p == nil {
+			pr.Printf("[dim]%s: not resolvable offline (fetched packs need `yolo pack install`) — skipped[/dim]", e.Name)
+			continue
+		}
+		// Refuse the non-config kinds by name (the FieldSet census) before rendering.
+		for _, c := range p.Decl.Contributions() {
+			if !hostFields.Honors(c.Kind) {
+				pr.Printf("  [yellow]%-10s refused[/yellow] — %s", string(c.Kind), hostFields.Refuse(c.Kind))
+			} else if c.Kind == "program" {
+				pr.Printf("  [yellow]program[/yellow] — install below jail is confirm-gated; not run by apply --host yet (Phase 4.3)")
+			}
+		}
+		results, rerr := entrypoint.RenderHostPack(p, home, !write)
+		if rerr != nil {
+			fmt.Fprintf(errw, "yolo apply --host: %s: %v\n", e.Name, rerr)
+			rc = 1
+			continue
+		}
+		for _, r := range results {
+			pr.Printf("  [cyan]%-20s[/cyan] %s  [dim]%s[/dim]", r.Surface, r.Action, r.Path)
+		}
+	}
+	if !write {
+		pr.Printf("[dim]observe only — nothing written. Re-run with --assert to apply.[/dim]")
+	}
+	return rc
 }
 
 // applySealed enumerates the input closure (env-manager design §3.3) and refuses if any
@@ -161,6 +222,9 @@ const applyUsage = `yolo apply — make this environment match its description, 
   yolo apply                provision the environment at its configured confinement
   yolo apply --at <level>   … at a different notch (jail|guest|host) for this run
   yolo apply --host         shorthand for --at host: render your config into your real home
+                            (default OBSERVE/dry-run — prints what would change, writes nothing)
+  yolo apply --host --assert  actually write: regenerate only the keys yolo manages (pure
+                            rmw), leaving your own keys; non-config kinds refused by name
   yolo apply --sealed       refuse if any UNDECLARED input shaped the environment
                             (yolo-jail.local.jsonc, an outstanding capture overlay)
   yolo apply --dry-run      show what would change, write nothing

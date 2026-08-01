@@ -2,6 +2,7 @@ package cli
 
 import (
 	"bytes"
+	"os"
 	"path/filepath"
 	"strings"
 	"testing"
@@ -55,14 +56,8 @@ func TestApplyVerbRouting(t *testing.T) {
 		t.Errorf("apply (jail) should say so:\n%s", out.String())
 	}
 
-	// --host still fails closed (Phase 4 host render not built). --sealed is now real
-	// (Phase 5) and has its own test; here it may pass or refuse depending on the
-	// workspace, so it is not asserted in this routing test.
-	out.Reset()
-	errw.Reset()
-	if rc := applyMain([]string{"--host"}, &out, &errw, false); rc == 0 {
-		t.Errorf("apply --host should fail closed (host render not built yet), got rc=0")
-	}
+	// --host and --sealed are real now (Phases 4/5) with their own tests; their outcome
+	// depends on packs/workspace, so this routing test does not assert them.
 
 	// A bogus notch is a usage error (rc 2), not a silent default.
 	out.Reset()
@@ -99,5 +94,50 @@ func TestApplySealedClosure(t *testing.T) {
 	}
 	if !strings.Contains(out.String(), "yolo-jail.local.jsonc") || !strings.Contains(out.String(), "refused") {
 		t.Errorf("refusal should name the undeclared input:\n%s", out.String())
+	}
+}
+
+// apply --host renders config surfaces into a real home as PURE RMW (OQ-4): observe
+// writes nothing, assert regenerates only the pack's managed keys and preserves the
+// user's own, and non-config kinds are refused by name. Uses a scratch HOME.
+func TestApplyHostRMW(t *testing.T) {
+	home := t.TempDir()
+	t.Setenv("HOME", home)
+
+	packDir := t.TempDir()
+	writeFile(t, filepath.Join(packDir, "pack.json"), `{"name":"hp","contributes":[
+	  {"kind":"config","config":[{"agent":"hp","name":"settings","codec":"json","path":"~/.hp/settings.json","mode":"rmw","managed":{"telemetry":false}}]},
+	  {"kind":"mount","host":"refs","into":"refs"}]}`)
+	writeFile(t, filepath.Join(home, ".config", "yolo-jail", "config.jsonc"),
+		`{"packs":["file://`+packDir+`"],"confinement":"host"}`)
+
+	// A pre-existing user key that RMW must preserve.
+	writeFile(t, filepath.Join(home, ".hp", "settings.json"), `{"myOwnKey":"keep","telemetry":true}`)
+
+	// Observe: writes nothing (the file keeps the user's telemetry:true).
+	var out, errw bytes.Buffer
+	if rc := applyMain([]string{"--host"}, &out, &errw, false); rc != 0 {
+		t.Fatalf("apply --host observe rc=%d: %s", rc, errw.String())
+	}
+	if !strings.Contains(out.String(), "refused") || !strings.Contains(out.String(), "mount") {
+		t.Errorf("observe should refuse the mount kind by name:\n%s", out.String())
+	}
+	data, _ := os.ReadFile(filepath.Join(home, ".hp", "settings.json"))
+	if !strings.Contains(string(data), `"telemetry": true`) && !strings.Contains(string(data), `"telemetry":true`) {
+		t.Errorf("observe must not write — telemetry should still be the user's true:\n%s", data)
+	}
+
+	// Assert: managed key regenerated, user key preserved.
+	out.Reset()
+	errw.Reset()
+	if rc := applyMain([]string{"--host", "--assert"}, &out, &errw, false); rc != 0 {
+		t.Fatalf("apply --host --assert rc=%d: %s", rc, errw.String())
+	}
+	data, _ = os.ReadFile(filepath.Join(home, ".hp", "settings.json"))
+	if !strings.Contains(string(data), "keep") {
+		t.Errorf("RMW must preserve the user's own key:\n%s", data)
+	}
+	if !strings.Contains(string(data), "false") {
+		t.Errorf("RMW must regenerate yolo's managed key to its declared value:\n%s", data)
 	}
 }
