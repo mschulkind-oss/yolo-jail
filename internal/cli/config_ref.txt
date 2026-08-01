@@ -20,7 +20,23 @@
 
 [bold cyan]FIELDS[/bold cyan]
 
-  [bold]runtime[/bold] (string): Isolation backend.
+  [bold]confinement[/bold] (string): How confined the environment is — the dial, separate
+    from the MECHANISM (runtime) that enforces it.
+    Values: "jail" (default) | "guest" | "host".
+      • [bold]jail[/bold] — a container (podman / Apple Container): namespaces, a disposable
+        home, a baked image, NONE of your credentials. The default and what
+        `yolo -- <cmd>` gives you.
+      • [bold]guest[/bold] — a real home on the real filesystem, no image, an LSM boundary
+        (Seatbelt on macOS, bwrap+Landlock on Linux), its own separate identity.
+      • [bold]host[/bold] — you, your machine, your dotfiles, your credentials. EXPLICIT
+        opt-in only: never inferred, never a fallback. `yolo apply --host`
+        renders your agent config into your real home.
+    The three are presets over composable primitives (separate user / Seatbelt /
+    bwrap / namespace); you pick a notch, not a hand-assembled policy.
+    NOTE: guest and host are being built out (env-manager plan); jail is fully
+    supported and is the default, so an absent key is exactly today's behavior.
+
+  [bold]runtime[/bold] (string): Isolation MECHANISM inside the jail notch (a hint, not policy).
     Values: "podman", "container", or "macos-user".
     Override: YOLO_RUNTIME env var takes priority.
     Auto-detect: macOS prefers "container" then "podman"; Linux uses "podman".
@@ -28,7 +44,9 @@
     "macos-user" (macOS only, EXPLICIT opt-in — never auto-detected) runs the
     agent as a dedicated macOS user under Seatbelt: NO VM, no Linux image,
     "packages:" materialized via native aarch64-darwin nix. Fastest startup,
-    but a WEAKER isolation boundary than a container/VM.
+    but a WEAKER isolation boundary than a container/VM. (Under the confinement
+    dial this is the `guest` notch by another name; `runtime` stays for
+    compatibility and as the in-jail mechanism hint.)
 
   [bold]agents[/bold]: [bold yellow]REMOVED[/bold yellow] — which agents a jail gets is no longer a
     config key of its own.  An agent arrives as a pack, so name the pack that

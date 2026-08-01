@@ -46,6 +46,7 @@ func ValidateConfig(config *jsonx.OrderedMap, workspace string, resolver Loophol
 	reportUnknownKeys(config, knownTopLevelConfigKeys, "config", errs)
 
 	validateRuntime(config, errs)
+	validateConfinement(config, errs)
 	validateRepoPath(config, errs, warns)
 	validateAgentsRetired(config, errs, warns)
 	validatePackages(config, errs)

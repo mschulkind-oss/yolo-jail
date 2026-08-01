@@ -442,3 +442,40 @@ func TestMergeConfigUnionsEveryListKey(t *testing.T) {
 		}
 	}
 }
+
+// Phase 2 (env-manager): the confinement dial. Validation accepts the three notches
+// and rejects anything else; ResolveConfinement defaults to jail and never fails.
+func TestConfinementValidateAndResolve(t *testing.T) {
+	for _, ok := range []string{"jail", "guest", "host"} {
+		errs, _ := ValidateConfig(decode(t, `{"confinement":"`+ok+`"}`), t.TempDir(), nil)
+		for _, e := range errs {
+			if strings.HasPrefix(e, "config.confinement") {
+				t.Errorf("confinement %q should validate, got: %s", ok, e)
+			}
+		}
+		if got := ResolveConfinement(decode(t, `{"confinement":"`+ok+`"}`)); string(got) != ok {
+			t.Errorf("ResolveConfinement(%q) = %q", ok, got)
+		}
+	}
+
+	// An unknown value is a validation error...
+	errs, _ := ValidateConfig(decode(t, `{"confinement":"sandbox"}`), t.TempDir(), nil)
+	found := false
+	for _, e := range errs {
+		if strings.HasPrefix(e, "config.confinement") {
+			found = true
+		}
+	}
+	if !found {
+		t.Error("unknown confinement value must be a validation error")
+	}
+	// ...but the resolver never fails — it defaults to the strongest notch, so `host`
+	// is never reached by a typo (env-manager §7: host is explicit-only).
+	if got := ResolveConfinement(decode(t, `{"confinement":"sandbox"}`)); got != ConfinementJail {
+		t.Errorf("unknown confinement should resolve to jail (never host), got %q", got)
+	}
+	// Absent key defaults to jail — the behavior-neutral default.
+	if got := ResolveConfinement(decode(t, `{}`)); got != ConfinementJail {
+		t.Errorf("absent confinement should default to jail, got %q", got)
+	}
+}

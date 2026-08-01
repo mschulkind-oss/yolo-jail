@@ -49,7 +49,7 @@ var knownTopLevelConfigKeys = set(
 	// validateAgentsRetired), whereas removing it here would ALSO trigger the generic
 	// "unknown key" error and the user would see the same problem reported twice —
 	// once uselessly.
-	"runtime", "repo_path", "agents", "packages", "mounts", "workspace_readonly",
+	"runtime", "confinement", "repo_path", "agents", "packages", "mounts", "workspace_readonly",
 	"per_side_paths", "network", "security", "mise_tools", "lsp_servers",
 	"mcp_servers", "mcp_presets", "devices", "gpu", "resources", "env_sources",
 	"loopholes", "host_processes", "journal",
