@@ -264,7 +264,7 @@ out: it is the single input whose *meaning* depends on having a container.
 *generation*** — that the config was assembled only from declared inputs, nothing unnamed shaped
 it. It does *not* by itself verify the **resulting *environment*** — that `psql` is actually on
 PATH, that the toolchain the agent will invoke exists. Those are two different guarantees, and a
-reviewer was right that the dep check (§3.4) is on the far side of that line. Whether the two
+reviewer was right that the dep check (§3.5) is on the far side of that line. Whether the two
 coincide is **level-dependent, and it is the same fact that makes dep-checking a separate
 mechanism rather than a clause of sealing**:
 
@@ -272,7 +272,7 @@ mechanism rather than a clause of sealing**:
   deps come from the locked image (nixpkgs @ `flake.lock`, the Locked tier above). Seal the
   inputs and you have effectively sealed the environment, because its tools were *built from*
   those inputs — nix's build-closure, where the derivation is pure and its dependencies are
-  pinned in the store. The §3.4 dep probe at `jail` is nearly a formality: a declared package is
+  pinned in the store. The §3.5 dep probe at `jail` is nearly a formality: a declared package is
   present *because* it is a sealed input.
 - At **`guest`/`host`** they split. yolo bakes no image, so the toolchain is whatever the machine
   happens to have — host state, outside any closure yolo can seal. That gap is exactly what the
@@ -322,28 +322,12 @@ $ yolo check --at host
 dependency is present anyway — **probed, not inferred from config** — and the one after is the
 command that fixes it. Where yolo hands off, it hands off with momentum.
 
-The remedy is pack-declarable rather than a built-in attr→`brew`/`apt` table that goes stale on
-every distro release, and the probe needs the *binaries* a package provides (`packages:
-["postgresql"]` → `psql`), which nix can answer at `jail` and cannot at a lower notch — so a
-declared `provides` list, with unprobeable entries reported as unprobeable rather than as present.
-The same rule as `install` applies: **yolo names the remedy and never runs it below `jail`**
-(§4.1). This is advice, not a second package manager.
-
-**One thing to get right so we don't duplicate the world's dep-checks.** A reviewer worried,
-correctly, that this could end up restating a tool's own dependency needs in a pack *and* in
-the tool — every project that checks its own environment already encodes "needs `psql` ≥ 16"
-somewhere, and copying that into a `provides`/remedy block is drift waiting to happen. Two rules
-keep this narrow. First, a pack declares only *what it introduces* — a pack that ships
-`packages: [postgresql]` owns the `psql` probe *because it is the thing that added the
-dependency*; it does not re-declare deps some other tool already owns. Second, the probe/remedy
-logic is **one reusable piece, not a `check`-only feature**: the same "is this binary present,
-at what version, and what installs it" check should be a library (and a plain
-`yolo check-deps`-style entry point) that runs identically inside `check`, at `apply` time, and
-standalone — so a project's own doctor script and yolo's `check` call the *same* checker over
-the *same* declared list rather than each maintaining its own. The declaration lives once (in
-the pack that introduced the need); the checker lives once (in a lib both callers share). Where
-exactly that library boundary sits — a Go package both import, or a small declared schema a
-third-party doctor can read — is an open question worth its own design pass, flagged in §8.
+The remedy is not a built-in attr→`brew`/`apt` table that goes stale on every distro release —
+it is pack-declarable, the probe is a shared checker, and at lower notches it can emit a
+runnable manifest (a Brewfile and its kin) rather than a wall of advice. That is a section of
+its own: **§3.5**. The rule `check` keeps is only the detection half — probe, report, and hand
+off; it never installs anything itself (§3.5 draws the line about who does, and with what
+permission).
 
 **`check` should also report host-render drift, when it is run with host access.** Once your
 agent config can be applied to the real home (§4.1, once host-render ships), the machine gains
@@ -362,6 +346,85 @@ that fixes it.
 Today none of this information exists, and its absence has a live cost: on `macos-user`, packs
 render **zero surfaces every launch, silently** (`host-render-target.md` §9.7). A description that
 cannot be honored must say which part, in the output, at the moment you ask.
+
+### 3.5 Dependency provisioning: declare once, check once, hand off with a manifest
+
+At `jail` the toolchain is inside the sealed closure (§3.3): a `packages: [postgresql]` entry
+becomes `psql` in the image, and there is nothing to provision. Below `jail` there is no image,
+so the same declaration becomes a *question about the host* — is `psql` present, at what
+version — and, if not, a handoff. Getting that handoff right without becoming a second package
+manager or duplicating every tool's own dep-list is a real design problem, so it gets its own
+section rather than a clause of `check`.
+
+**One declaration, owned by whoever introduced the need.** A pack declares only the deps *it*
+introduces: a pack that ships `packages: [postgresql]` owns the `psql` probe *because it is the
+thing that added the dependency*. It does not re-declare deps some other tool already owns —
+that is the drift the reviewer rightly worried about. A project that already encodes "needs
+`psql` ≥ 16" in its own doctor keeps owning that; yolo does not copy it.
+
+**One checker, shared by every caller.** The "is this binary present, at what version, what
+installs it" logic is a **library plus a plain entry point** (`yolo check-deps`), used
+identically by `check`, by every `apply`, and standalone by a project's own doctor script — so
+the same checker runs over the same declared list rather than each caller re-implementing it.
+The declaration lives once (in the pack that introduced the need); the checker lives once (in
+the shared lib).
+
+- **The boundary to decide** is what the two callers share. The lighter option is a **declared
+  schema** — the `provides`/hint block below is plain data any doctor can read and probe with
+  its own code, and yolo ships a reference checker over it. The heavier option is an importable
+  **Go package** both link. The schema is more portable (a Rust project's doctor can honor it)
+  and is the leaning; the Go package is only worth it if the probe logic gets subtle enough that
+  a spec under-specifies it. Pick the schema unless that happens.
+
+**Per-system install hints, authored by the pack.** A pack author knows how their dependency is
+installed better than yolo's built-in table ever will, and a single `psql` maps to different
+package names on `brew`, `apt`, `dnf`, `pacman`. So the pack declares them:
+
+```jsonc
+{ "kind": "program", "bin": "psql", "provides_from": "postgresql",
+  "install_hints": {
+    "brew":   "postgresql@16",
+    "apt":    "postgresql-16",
+    "dnf":    "postgresql-server",
+    "nix":    "postgresql_16"        // the jail path; also the reproducible one
+  } }
+```
+
+`check` picks the hint matching the detected host package manager, and reports the others as
+alternatives. An unprobeable or unhinted entry is reported as **unprobeable**, never silently as
+present — the same honesty rule the rest of `check` follows.
+
+**Emit a runnable manifest, not just advice.** A wall of `→ brew install …` lines is one step
+short of useful when there are ten of them. So `check`/`apply` at a lower notch can **generate
+the package manager's own manifest** from the collected hints — a `Brewfile` on macOS, and the
+`apt`/`dnf`/`pacman` equivalents — as an output the user runs to tune the host up in one step:
+
+```
+$ yolo check --at host
+✗  3 host deps missing → wrote Brewfile.yolo (brew bundle --file=Brewfile.yolo to install)
+     postgresql@16   redis   ripgrep
+```
+
+**Who may install, and the permission line.** This is the line the reviewer asked for, and it is
+the load-bearing one:
+
+- **yolo never installs below `jail`; it hands off.** It writes the manifest and names the
+  command; the user runs it. That keeps yolo out of the business of mutating a real machine's
+  package set (§4.1 makes the parallel argument for a pack's own `install`: confirm-gated below `jail`, never silent).
+- **Draw the line at permission, not at yolo-vs-user.** Split the remedies into *(a)* things that
+  need no elevation and *(b)* things that need `sudo` or another grant. Category (a) — a
+  user-scope `brew install`, a `pip install --user`, dropping a file in `~` — is safe to *offer
+  to run* (still with a confirm, §4.1). Category (b) — a system `apt install`, anything writing
+  outside the user's own tree — yolo **only ever prints**, and if a step genuinely needs
+  elevation it says so and **requests `sudo` explicitly at that step**, never ambiently. At the
+  `host` notch, where yolo is running *as the user with no confinement*, category (a) is often
+  "nothing to elevate" — the user already has the rights — so the honest default there is: offer
+  the no-elevation remedies behind a confirm, print the rest with the `sudo` command spelled out.
+
+**Open question for the design pass:** the exact schema of `provides`/`install_hints`/the
+manifest emitters, and precisely where the checker-library boundary sits (schema vs. Go
+package). Flagged in §8; this section fixes the *shape* (declare-once, check-once, hand-off, and
+the permission line), not the field names.
 
 ---
 
@@ -430,12 +493,28 @@ container), and a VM is materially stronger than a user namespace. `jail` theref
 strongest confinement available here," not one fixed strength. `describe` prints the mechanism
 next to the notch for exactly this reason.
 
-**Three notches, not a policy vector.** Underneath, confinement *is* composed policy —
-filesystem write scope, credential visibility, network reach, process view, resource caps — and
-the temptation is to expose that. [happy-path-principle.md](happy-path-principle.md) says
-don't: "fill the matrix, support one path per cell." Three named levels, each a preset over
-that vector, each with a documented meaning. The vector is an implementation fact, and hand-
-assembling one is not a supported way to use yolo.
+**Three notches on the surface, composable primitives underneath.** Underneath, confinement
+*is* composed policy — filesystem write scope, credential visibility, network reach, process
+view, resource caps — and, as a reviewer noted, the enforcement *primitives* also compose:
+a separate OS user, a Seatbelt profile, a bwrap/Landlock sandbox, a user namespace are
+independent knobs, and real combinations exist — a separate user *without* Seatbelt, Seatbelt
+*without* a separate user, a namespace with neither. **The internal model should be built to
+express those combinations from the start; the three notches are presets over it, not a
+replacement for it.** Concretely: `guest` today bundles "separate macOS user (credential
+boundary) + Seatbelt (confinement)" and its Linux form is "bwrap namespaces, no separate user"
+— those are already *different compositions wearing one notch name*, which is the evidence the
+primitive layer is real and needs a home.
+
+What [happy-path-principle.md](happy-path-principle.md) rules out is *exposing* that vector as
+the everyday interface — "fill the matrix, support one path per cell." So the design is
+two-layer: a composable primitive model that the code assembles and `describe` can print
+(so a non-standard combination is legible and testable), with **three named, documented
+presets as the only thing a user normally selects**. Hand-assembling a custom combination is an
+advanced, explicitly-opt-in path — planned for, not the front door — rather than something the
+architecture forecloses by hard-coding three monoliths. The distinction from today: `runtime`
+currently *is* a hard-coded monolith, and that is the conflation §4 exists to undo; planning the
+primitive layer now is what keeps a fourth combination (a Linux `guest` variant, a
+seatbelt-without-user posture) from being another special case bolted on later.
 
 **The grants stay where they are.** `mounts`, `host_files`, `network.ports`, `devices`, `gpu`,
 loopholes — these are *holes through a wall*, and they keep their current names and semantics.
@@ -455,10 +534,31 @@ host*, where today you get none of it and reproduce it by hand forever. `--at ho
 agent you already described, with the confinement dial at zero, and tells you what it could not
 carry over.
 
-This is also the sharpest risk in the whole design, and it gets one hard rule: **`install` is
-never honored below `jail`.** A pack's `installerUrl` is curl-to-shell; a pack managing *config*
-on your real machine is a feature, and a pack *installing software* on your real machine is a
-different product with its own threat model. Refused by name, always, not by default.
+This is also the sharpest risk in the whole design. The original rule here was "**`install` is
+never honored below `jail`**, refused by name, always." On reflection that is stricter than the
+trust model actually requires, and a reviewer pushed on it: **you already trust the pack** — you
+approved its host access at install (see [pack-system.md](pack-system.md) §9, the fetched-pack
+approval model), and at the `host` notch it is running as you regardless. So the honest rule is
+not *refuse* but *confirm*:
+
+- **Below `jail`, an `install` is confirm-gated, never silent.** A pack's `program via installer`
+  is curl-to-shell and `npm -g`/`brew install` mutates a real toolchain — so yolo shows exactly
+  what would run, from which pack, and asks. `yolo apply` with no TTY (CI) treats an unconfirmed
+  install as a refusal (fail-closed), the same way pack host-access approval does. This reuses
+  the machinery that already exists rather than inventing a second gate.
+- **Curl-to-shell always shows the command first.** The one thing never done below `jail` is
+  piping a fetched script into a shell *unseen*. The confirm prints the resolved URL (and, where
+  cheap, the fetched script itself) so the human is approving a specific thing, not a category.
+- **Permission still bounds it** (§3.5): a category-(a) user-scope install is offer-to-run behind
+  the confirm; a category-(b) elevation requests `sudo` explicitly at that step, never ambiently.
+
+The distinction that survives from the original rule: a pack managing *config* on your real
+machine and a pack *installing software* on it are different postures, and the second is the
+sharper one — so it is gated by an explicit confirm rather than riding the same silent path
+config does. What changes is that "gated" replaces "forbidden," because forbidding what the user
+already trusts and could run by hand anyway is friction, not safety. **This wants its own
+threat-model pass before it ships** (flagged in §8); the design position is *confirm-gated, TTY
+only, command shown, permission-bounded* — not *never*.
 
 ---
 
@@ -478,14 +578,16 @@ fields already sort cleanly by which notch they need:
 | `env` (static vars) | ✓ | ✓ | ✓ |
 | `hook` | 3 of 3 | 2 | 1 |
 | `launch` (flags) | ✓ | ✓ | ✓ |
-| `program` (install) | ✓ | ✓ | **never** |
+| `program` (install) | ✓ | confirm | confirm |
 | `mount`, `reads-host`, `state`, `files` | ✓ | — | — |
 
-One row is the whole point and it is target-independent. Refusals name the field; nothing is
-emulated. In particular **a copy is never a substitute for a mount** — it goes silently stale,
-so a pack update appears to apply and doesn't. Skills are the exception that proves the rule:
-they port because their delivery is a *merge* (built-in < pack < user), which no mount expresses
-anyway.
+One row is the whole point and it is target-independent. Where a kind cannot apply it is
+refused by name, never emulated — in particular **a copy is never a substitute for a mount** (it
+goes silently stale, so a pack update appears to apply and doesn't). Skills are the exception
+that proves the rule: they port because their delivery is a *merge* (built-in < pack < user),
+which no mount expresses anyway. `program` is the other special case: below `jail` it is neither
+honored silently nor refused outright but **confirm-gated** (§4.1) — you already trusted the
+pack at install, so the remedy is to show what would run and ask, not to forbid it.
 
 Nothing above requires a new pack format, a version field, or a second repo. A pack author
 writes one manifest and never thinks about notches; the environment that cannot honor a field
@@ -555,17 +657,27 @@ Worth stating plainly, because a reframing this size invites scope creep:
   comparison is the one we keep winning, because the batteries are the part that is ours.
 - **`host` will be over-used.** It is faster and it works with your real credentials, and
   "why not just run at host?" is one step from existing. The counter is that `host` is a
-  *reduced* environment that says out loud what it cannot do, and that `install` is refused
-  there permanently — but this is a product-discipline risk, not a technical one, and it does
-  not have a technical fix.
+  *reduced* environment that says out loud what it cannot do, and that a pack `install` there is
+  confirm-gated with the command shown (§4.1) rather than silent — but this is a
+  product-discipline risk, not a technical one, and it does not have a technical fix.
 - **`guest` must actually work before any of this is honest.** One notch of the dial currently
   renders zero pack surfaces per launch. A three-notch story with a broken middle is worse than a
   one-notch story that works.
-- **The dep-checker boundary needs its own design pass (§3.4).** `provides`/remedy is only
-  non-duplicative if the probe logic is a shared library — one checker, called by `check`, by
-  `apply`, and by a project's own doctor script over the same declared list. Where that boundary
-  sits (an importable Go package vs. a declared schema a third-party tool reads) is unresolved,
-  and getting it wrong reintroduces exactly the duplication it is meant to avoid.
+- **The dep-provisioning design needs its own pass (§3.5).** The *shape* is fixed (declare-once,
+  check-once, hand off a runnable manifest, permission-bounded), but the field schema
+  (`provides`/`install_hints`/the manifest emitters) and the checker-library boundary (an
+  importable Go package vs. a declared schema a third-party doctor reads — leaning schema) are
+  unresolved, and getting the boundary wrong reintroduces the duplication it is meant to avoid.
+- **Confirm-gated `install` below `jail` needs a threat-model pass (§4.1).** Moving from "never"
+  to "confirm-gated, TTY-only, command shown, permission-bounded" is the right trust model — you
+  already approved the pack — but the exact confirm UX, what a curl-to-shell approval shows, and
+  the category-(a)/(b) permission split want to be pinned before it ships, not designed at the
+  call site.
+- **The composable-isolation primitive layer (§4.0) is planned, not built.** The three notches
+  are presets over a primitive model (separate user / Seatbelt / bwrap+Landlock / namespace) the
+  code should assemble and `describe` should print. Building the notches as monoliths now would
+  foreclose the fourth combination later; building the primitive layer is the up-front cost that
+  keeps a Linux `guest` variant from being a bolted-on special case.
 
 ---
 
