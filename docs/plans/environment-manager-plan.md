@@ -7,11 +7,19 @@
 > own commit, CI green, boot path byte-identical via the render fingerprint gate).
 > **Phase 7 (the `guest` backend — macOS Seatbelt + Linux bwrap/Landlock) is NOT built**:
 > it needs host capabilities a nested Linux jail cannot exercise, so it is host/Mac-gated
-> and deferred. A few *within-phase* increments are also deferred and noted at their
-> phase: the no-exec jail provision (Phase 3), the dep-manifest-as-composed-surface and
-> the install offer-to-run confirm (Phase 6 → rides host apply), and the per-notch body of
-> the briefing (Phase 8 → rides the guest/host backends). What shipped is behavior-neutral
-> for the default `jail` notch — `yolo -- claude` is unchanged.
+> and deferred. **Phase 9 (agent autonomy as a confinement policy) is NOT built** — its
+> design landed 2026-08-01 after the `apply --host` bypass-leak was found; it is scoped
+> below and gated on OQ-11 (the pack-encoding choice). A few *within-phase* increments are
+> also deferred and noted at their phase: the no-exec jail provision (Phase 3), the
+> dep-manifest-as-composed-surface and the install offer-to-run confirm (Phase 6 → rides
+> host apply), and the per-notch body of the briefing (Phase 8 → rides the guest/host
+> backends). What shipped is behavior-neutral for the default `jail` notch — `yolo --
+> claude` is unchanged.
+>
+> **⚠ Known defect until Phase 9 ships:** `yolo apply --host --assert` renders the shipped
+> agent packs' jail-bypass permission keys into the real `$HOME` (see §4.2 / Phase 9). Do
+> not follow the host-management guide's `--assert` step for the `claude`/`codex`/`agy`
+> packs on a machine whose permission prompts you rely on.
 
 **What this doc is.** The design doc says *what yolo becomes* — "yolo describes an
 environment; confinement is a dial (`jail`/`guest`/`host`); the verbs are `apply` /
@@ -61,10 +69,12 @@ Phase 5  --sealed + closure   (§3.3)             ← the reproducibility guaran
 Phase 6  dep provisioning     (§3.4, §3.5)       ← check-at-notch + the manifest surface
 Phase 7  guest notch          (§4, §4.0)         ← the middle notch actually works
 Phase 8  self-describing      (§6)               ← the briefing states the notch
+Phase 9  agent autonomy       (§4.2)             ← bypass is a notch policy, not baked config
 ```
 
-Phases 0 and 1 are already scoped in BACKLOG Stage G. Phases 2–8 are this plan's
-addition, and each is gated by the decisions in its "Before you start" note.
+Phases 0 and 1 are already scoped in BACKLOG Stage G. Phases 2–9 are this plan's
+addition, and each is gated by the decisions in its "Before you start" note. Phase 9 was
+added 2026-08-01 (the `apply --host` bypass-leak); it depends on 1/2/4 but not on 7.
 
 ---
 
@@ -349,6 +359,48 @@ take a disposable agent's risks.
 
 ---
 
+## Phase 9 — Agent autonomy as a confinement policy  *(NOT built — design landed 2026-08-01)*
+
+**Design:** design doc §4.2 (the whole subsection). **Depends on:** Phase 1
+(`render.Profile`/`Target`), Phase 2 (the notch), Phase 4 (`apply --host` is where the
+defect bites). **Motivated by:** a host agent following the migration guide would
+`apply --host --assert` the `claude` pack's jail-bypass keys (`acceptEdits`,
+`skipDangerousModePermissionPrompt`, `additionalDirectories:["/"]`,
+`--dangerously-skip-permissions`) onto the *real* machine, stripping the prompts that are
+the only protection when there is no jail. Today those keys are unconditional pack config
+with nothing marking them jail-only.
+
+**Before you start — decide (OQ-11, OPEN):** how a pack encodes its two autonomy
+postures — a new `autonomy` contribution kind (cohesive named block per posture) vs a
+`confinement`/`whenAutonomy` discriminator on existing `config`/`launch` entries. Sketch
+both against the real `claude`/`codex`/`agy`/`pi` packs, then pick. *Leaning:* the
+dedicated kind, because `describe`/`footprint` can show the posture whole and the
+bidirectional case (below) reads clearly as two named blocks. **If no preference, I build
+the `autonomy` kind.**
+
+- **9.1** Add an `agent-autonomy` **policy** to `render.Profile` (composes beside the
+  §4.0 enforcement primitives; it is a policy knob, not an enforcement one). Preset
+  defaults: `jail` → on, `guest` → on, `host` → off. `describe` prints it. A composed
+  custom confinement can set it explicitly (the §4.2 composability requirement).
+- **9.2** Packs declare autonomy postures as data, **bidirectionally** (the subtle half):
+  a pack states *both* the `autonomous` posture (config keys + launch flags meaning "no
+  prompts") and the `guarded` posture (meaning "prompt"). Guarded-by-default agents
+  (`claude`/`codex`/`agy`/`opencode`) get *loosened* by confinement; the permissive-by-
+  default agent (`pi`) gets *tightened* at `host`. One selector, run in whichever
+  direction the pack's default sits — NOT "always add a bypass."
+- **9.3** At render: `profile.agentAutonomy ? pack.autonomous : pack.guarded`. Benign
+  always-safe `managed` keys (auto-updater off, trust-dialog) are untouched by this — only
+  the confinement-conditional keys move under the selector.
+- **9.4** Migrate the shipped packs (`claude`, `codex`, `agy`, `opencode`, `pi`) to the
+  chosen encoding. **Invariant:** the `jail`-on path must render byte-identical to today —
+  `renderfingerprint_test.go` stays green — so only the host/guest paths change behavior.
+
+**Done when:** `apply --host` renders an agent with its permission prompts intact (no
+jail-bypass keys, no `--dangerously-skip-permissions`), `pi` is tightened at `host`, a
+jail boot is byte-identical to today, and `describe` names the autonomy policy in force.
+
+---
+
 ## Open questions to resolve before their phase
 
 **Each OQ below is ONE decision** — a single yes/no or a pick-from-two, with a leaning
@@ -357,10 +409,11 @@ rather than untangle a bundle. They are grouped by the phase they block, and mar
 **RESOLVED** once you have answered. A short **Context** line precedes each cluster; the
 long reasoning lives in the cited design section, not here.
 
-**Status (2026-08-01): OQ-1 through OQ-9 are all RESOLVED** (OQ-5 dropped as moot). The only
-remaining item is **OQ-10**, and it is a "decide at Phase 2" internal-representation choice
-that needs no answer up front — so **there is nothing outstanding for you to decide before
-implementation can begin.**
+**Status (2026-08-01): OQ-1 through OQ-9 are all RESOLVED** (OQ-5 dropped as moot). OQ-10
+is a "decide at Phase 2" internal-representation choice that needs no answer up front.
+**OQ-11 (new, 2026-08-01) is OPEN** — the Phase 9 pack-encoding choice (autonomy kind vs
+discriminator field); it blocks only Phase 9, not the shipped phases. So for everything
+through Phase 8 there is nothing outstanding to decide.
 
 ### Resolved
 

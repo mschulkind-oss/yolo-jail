@@ -584,6 +584,78 @@ already trusts and could run by hand anyway is friction, not safety. **This want
 threat-model pass before it ships** (flagged in §8); the design position is *confirm-gated, TTY
 only, command shown, permission-bounded* — not *never*.
 
+### 4.2 Agent autonomy is a confinement policy, not baked pack config
+
+The escape valve above exposes a defect that `--at host` makes unavoidable. Every shipped
+agent pack currently hard-codes, *unconditionally*, the settings that let the agent run
+without permission prompts — because a jail contains it, so "accept every edit, skip the
+dangerous-mode prompt, allow the whole filesystem" is the correct posture *there*. Today
+that posture is expressed as ordinary `managed` config plus a `launch` flag, with nothing
+saying "only because I am jailed":
+
+| Pack | how it says "no prompts" today (config `managed` + `launch`) |
+|---|---|
+| `claude` | `permissions.defaultMode: acceptEdits`, `skipDangerousModePermissionPrompt: true`, `additionalDirectories: ["/"]`, `allow: []` · `--dangerously-skip-permissions` |
+| `codex` | `approval_policy: "never"` · `--dangerously-bypass-approvals-and-sandbox` |
+| `agy` | `permissionMode: "allow"` · `--dangerously-skip-permissions` |
+| `opencode` | `permission: "allow"` |
+| `pi` | *(nothing — pi is permissive by default)* |
+
+`yolo apply --host --assert` renders a pack's `managed` keys into your **real**
+`~/.claude/settings.json` (pure RMW; the managed layer wins — `hostrender.go`,
+`compose.go` Enforce). So following the host-management guide today writes `acceptEdits` +
+`skipDangerousModePermissionPrompt` + `additionalDirectories: ["/"]` onto your actual
+machine and launches the agent with `--dangerously-skip-permissions` — **stripping the
+very confirmation prompts that are the only thing protecting a machine with no jail around
+it.** The keys that are *safe because* there is a jail travel, unlabelled, to the notch
+that has no jail. That is the bug.
+
+**The fix: autonomy is a policy the confinement decides, not config the pack asserts
+everywhere.** Two halves, and they meet at render time:
+
+1. **The confinement level carries an `agent-autonomy` policy.** It composes alongside the
+   *enforcement* primitives of §4.0 (namespaces, Seatbelt, Landlock, separate-user) — it is
+   simply a *policy* primitive rather than an *enforcement* one, and it belongs in the same
+   `render.Profile`. The preset defaults follow the wall: `jail` → autonomy **on** (the
+   container is the safety net — the existing "Claude YOLO" invariant), `guest` → **on**
+   (still confined), `host` → **off** (nothing contains it; your prompts stay). Because it
+   lives on the Profile, `describe` prints it ("Confinement: host — agents run with normal
+   permission prompts"), and — the composability requirement — **whenever someone
+   defines/composes a custom confinement mode, autonomy is one of the settable knobs**,
+   exactly like "separate user? Seatbelt?". A locked-down `jail` with prompts on, or a
+   `guest` with autonomy explicitly off, are then expressible without a new concept.
+
+2. **Each pack declares its autonomy posture as data — and it is bidirectional.** This is
+   the half the table above makes subtle. It is *not* "apply a bypass recipe when confined."
+   Different agents have opposite defaults:
+   - `claude`/`codex`/`agy`/`opencode` are **guarded by default**; confinement *loosens*
+     them (jail adds the bypass recipe).
+   - `pi` is **permissive by default**; there is nothing for confinement to add — instead
+     the **`host` notch must add a restriction**, tightening pi back to prompting.
+
+   So a pack does not declare "my bypass"; it declares **both postures** — the settings
+   (config keys + launch flags) that mean *autonomous*, and the settings that mean
+   *guarded* — and the confinement's `agent-autonomy` policy selects which set renders. The
+   pack owns *how* each posture is expressed for its agent; the confinement owns *which* is
+   in force. Neither the "always loosen" nor the "always tighten" framing is correct alone;
+   the machinery is one selector run in whichever direction the pack's default sits.
+
+At render: `profile.agentAutonomy ? pack.autonomousPosture : pack.guardedPosture`. The
+benign managed keys that are safe at any notch (auto-updater off, trust-dialog accepted)
+stay in ordinary `managed` and are untouched by this — the line is precisely *"safe
+anywhere"* stays unconditional, *"safe only because something contains me"* (or its
+inverse, *"unsafe unless something contains me"*) becomes autonomy-selected. A jail boot
+must stay byte-identical to today (the `renderfingerprint_test.go` gate), so the jail-on
+path reproduces exactly the current `managed`+`launch` output; only the host/guest paths
+change.
+
+**Open question — how a pack encodes the two postures.** Either a new `autonomy`
+contribution kind that bundles each posture's config keys + launch flags as one named block
+(cohesive; `describe`/`footprint` can show it whole), or a `confinement`/`whenAutonomy`
+discriminator field on the existing `config` and `launch` entries (smaller schema delta,
+but the recipe scatters across entries). Deferred to the implementation phase; both are
+sketched against the real packs before the encoding is chosen.
+
 ---
 
 ## 5. Packs are the batteries, and the batteries are data
