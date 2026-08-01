@@ -222,20 +222,25 @@ layer?) below. Both change what Phase 4 writes.
 
 - **4.1** `render.Host(home)` renders the applicable kinds into the real `$HOME`;
   postures `observe` → `assert` → (maybe never) `own` (§6.5). Default `observe`
-  (dry-run); `assert` writes only pack-`managed` keys and records a sidecar so
-  `--revert` means something.
-- **4.2** Every host-target surface is `rmw` (§6.3) — `stateful`/`capture` is meaningless
-  where the editor and yolo are the same person. `${workspace}`-using surfaces are
-  refused (no referent).
+  (dry-run); `assert` **regenerates only the pack's `managed` keys** and leaves the
+  user's own keys — the shipped "regenerate, don't reconcile" model applied to a real
+  home. **No `--revert` verb** (OQ-A): dropping yolo's management is "stop declaring the
+  key and re-apply," which removes it with a notice exactly as an unset MCP server is
+  dropped in a jail today; there is no restore-to-pre-yolo-state, which would need a
+  before-snapshot nothing takes.
+- **4.2** Whether a host surface stays `stateful`+capture or is pure `rmw` is **OQ-B**,
+  not settled: §6.3 currently says pure `rmw`, but a host agent editing its own config
+  between applies is the case that model gets wrong, so the leaning is to keep capture.
+  Either way, `${workspace}`-using surfaces are refused (no referent).
 - **4.3** `program` (install) below `jail` is **confirm-gated, not refused** (§4.1, the
   reviewed position): TTY-only, command shown, curl-to-shell shows the script,
   permission-bounded. **This wants its own threat-model pass first** (OQ-C).
 - **4.4** `check --at host` reports host-render drift and hands off to `apply --host`
   (§3.4) — the host-side twin of the shipped `config drift`. `check` never writes.
 
-**Done when:** `yolo apply --host` reasserts a pack's config surfaces into the real home
-(behind `observe`/`assert`), `--revert` undoes exactly what it asserted, and inapplicable
-kinds are refused by name.
+**Done when:** `yolo apply --host` regenerates a pack's `managed` config keys into the
+real home (behind `observe`/`assert`) without clobbering the user's own keys, and
+inapplicable kinds are refused by name.
 
 ---
 
@@ -336,44 +341,58 @@ naming what *you* have to pick and the options — so these read as a checklist 
 to make, not a list of tensions to admire. Where there is a leaning it is marked, but
 none is decided until you say so.
 
-**OQ-A — Where does a host-target reconcile sidecar live, and who arbitrates two
-workspaces? (blocks Phase 4)** — reasoning in `host-render-target.md` §9.5, §4.4.
+**OQ-A — On a host target, does yolo need to track what it asserted at all? (shapes
+Phase 4)** — reasoning in `host-render-target.md` §9.5, §4.4; but see the reframe below.
 
-*Context — what a "reconcile sidecar" is and why Phase 4 needs one.* When yolo `assert`s
-into a host file it doesn't own outright (e.g. `~/.claude/settings.json`, which the agent
-also writes), it must remember *which keys it put there* — otherwise `--revert` cannot tell
-"a key yolo added" from "a key the user wrote," and undo becomes either a no-op or data
-loss. That memory is the **reconcile sidecar**: a small record, beside the target, of what
-this apply asserted. In a jail it already exists and lives at
-`<workspace>/.yolo/prism/…` — **workspace-scoped, because a jail is.**
+**A reviewer pushed on the premise, and was right.** The original text here (and
+`host-render-target.md` §6.5, §7.2, §9.5, which show a `yolo config apply --host
+--revert`) assumed a `--revert` — restore a host file to its exact pre-yolo state — and
+therefore a "reconcile sidecar" recording what yolo put there. But **`--revert` is not
+something we need, and it is not universally possible**: restoring the *prior* value
+requires snapshotting the original bytes before the first assert, which nothing does; a
+sidecar records only what yolo *asserted*, not what was there before. It also fights the
+shipped model. (The host-render doc's `--revert` design is thereby superseded by this
+OQ — folded here, to be struck from that doc if you confirm the reframe.)
 
-*The problem.* A host assertion is **machine-scoped** — `~/.claude/settings.json` is not
-about any one workspace — so its sidecar wants to live somewhere machine-global like
-`~/.local/state/yolo-jail/host-render/`. That is a new storage location, and it opens a
-collision the jail case never had:
+In-jail, RMW surfaces are **"regenerate, don't reconcile"** (`prism.go:397-436`,
+OQ12(d)): yolo owns its `managed` keys, rewrites them wholesale every boot, and a key
+that was yolo's last boot but is gone from the declaration now is simply *dropped* with a
+notice (`noteDroppedManagedEntries`) — the sidecar-tracked `reconcile` mechanism was
+deleted on purpose. **So "undo yolo's management" is not `--revert`; it is "stop declaring
+the key and re-apply," which drops it the same way.** No before-snapshot, no `--revert`
+verb.
 
-> You `apply --host` from repo A (asserts `mcpServers.tavily`), then from repo B (asserts
-> `mcpServers.github`) into the *same* `~/.claude/settings.json`. There is one sidecar
-> recording "what yolo asserted here." What does `--revert` from repo A remove — only
-> tavily, or everything in the sidecar (including B's github)?
+*What Phase 4 therefore actually needs* is much smaller: `apply --host` must
+**distinguish a key yolo manages from a key the user owns**, so re-asserting `managed`
+keys does not clobber the agent's own edits (that is the OQ-B point). That is already
+expressed by the `managed`-vs-rest split in the surface declaration — it needs **no
+per-file "what I asserted" sidecar** at all. The one thing a host target may still want
+to persist is the **capture overlay** (an agent's between-applies edits, OQ-B), and that
+is a different artifact from a revert-sidecar.
 
-*The decision, and the failure to design against.* Last-writer-wins with a single shared
-sidecar is probably right and simplest, **but a naive `--revert` under it removes another
-workspace's keys** — that is the specific failure. Candidate resolutions to pick among:
-(a) one shared sidecar keyed by asserting-workspace, so `--revert` only pulls its own keys;
-(b) one sidecar per (target-file × workspace), merged at apply; (c) machine-scope is
-single-writer by rule — the *last* `apply --host` owns the file and a second workspace
-asserting is a warned overwrite, not a merge. The sidecar's shape and location are
-load-bearing for `--revert` and painful to migrate once real files depend on them.
-(OQ-B interacts: if the host `reads-host` layer is retired, one class of host-file
-contention goes away, but the multi-workspace-assert collision remains.)
+*The residual real question* is narrower than "where does the sidecar live": **when two
+workspaces `apply --host` into the same machine-scoped file, whose managed keys win?**
 
-> **Decision needed (before Phase 4.1):** pick a sidecar scheme — **(a)** one shared
-> machine-global sidecar keyed by asserting-workspace *(leaning: smallest, and `--revert`
-> pulls only its own keys)*, **(b)** one sidecar per (target-file × workspace) merged at
-> apply, or **(c)** single-writer-by-rule (last apply owns the file, second is a warned
-> overwrite). And confirm the location `~/.local/state/yolo-jail/host-render/`. If you
-> have no preference, say so and I will build (a).
+> You `apply --host` from repo A (declares `mcpServers.tavily`) and from repo B (declares
+> `mcpServers.github`) into the same `~/.claude/settings.json`. On the next `apply` from
+> A, regenerate-don't-reconcile says A rewrites *its* managed block — but does it drop
+> `github`, which A never declared?
+
+Options: **(a)** managed keys are namespaced/attributed by declaring-workspace so each
+apply only regenerates its own and leaves the other's; **(b)** machine-scope is
+single-writer by rule — the last `apply --host` owns the file, a second workspace is a
+**warned overwrite**, not a silent merge *(leaning — simplest, and matches
+"regenerate-don't-reconcile": one owner, no cross-workspace merge to arbitrate)*;
+**(c)** attribution requires the machine-global capture/state location
+`~/.local/state/yolo-jail/host-render/` after all, but only for the capture overlay, not
+a revert-sidecar. (OQ-B interacts: if capture survives on host, its storage answers most
+of this.)
+
+> **Decision needed (before Phase 4):** first, confirm **there is no `--revert`** and the
+> undo story is "stop declaring it and re-apply" (regenerate-don't-reconcile) — I believe
+> yes. Then pick the multi-workspace rule: **(a)** per-workspace attribution of managed
+> keys, **(b)** single-writer / warned-overwrite *(leaning)*, or **(c)** defer until
+> OQ-B settles where capture lives. If no preference, I build (b).
 
 **OQ-B — Retire the host (`reads-host`) compose layer, AND how does a host agent keep
 editing its own config? (shapes Phase 4 and Phase 5)** — design doc §3.3; but see the
