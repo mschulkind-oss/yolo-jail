@@ -394,25 +394,35 @@ package names on `brew`, `apt`, `dnf`, `pacman`. So the pack declares them:
 alternatives. An unprobeable or unhinted entry is reported as **unprobeable**, never silently as
 present — the same honesty rule the rest of `check` follows.
 
-**Emit a runnable manifest, not just advice.** A wall of `→ brew install …` lines is one step
-short of useful when there are ten of them. So `check`/`apply` at a lower notch can **generate
-the package manager's own manifest** from the collected hints — a `Brewfile` on macOS, and the
-`apt`/`dnf`/`pacman` equivalents — as an output the user runs to tune the host up in one step:
+**Emit a runnable manifest as a composed surface, not a one-off command helper.** A wall of `→
+brew install …` lines is one step short of useful when there are ten of them — but a manifest
+dropped in whatever directory you happened to run `check` from is worse, because now there are
+copies with no owner. So the package manager's own manifest is **another rendered surface**: a
+single file at a known path — `~/.config/yolo/Brewfile` on macOS (and the `apt`/`dnf`/`pacman`
+equivalents beside it) — composed from *every* pack's `install_hints`, regenerated **wholesale
+on every `apply`** exactly like the config surfaces are. It is a total summary of what the
+described environment wants from the host, not a per-invocation snippet. You point your package
+manager at that one stable file (`brew bundle --file=~/.config/yolo/Brewfile`), and because it
+is composed, adding a pack updates it in place the next `apply` — the same regenerate-don't-
+accrete rule every other surface follows. yolo owns the file; a hand-edit is discarded on the
+next render, so it never drifts into a hand-maintained list that disagrees with the packs.
 
 ```
-$ yolo check --at host
-✗  3 host deps missing → wrote Brewfile.yolo (brew bundle --file=Brewfile.yolo to install)
+$ yolo apply --at host
+host   surfaces 4 rendered   deps: ~/.config/yolo/Brewfile updated (3 not yet installed)
+                             → brew bundle --file=~/.config/yolo/Brewfile   (or let yolo run it, below)
      postgresql@16   redis   ripgrep
 ```
 
 **Who may install, and the permission line.** This is the line the reviewer asked for, and it is
 the load-bearing one:
 
-- **The manifest is always the floor; running it is an offer on top.** yolo writes the runnable
-  manifest (the Brewfile and kin) regardless — that is the guaranteed handoff, and "just print
-  it, I'll run it" is always a valid outcome. On top of that floor yolo *offers* to run the
-  remedies for you, behind a confirm (below). Nothing installs *silently* below `jail`; the same
-  confirm-gated, never-ambient rule §4.1 states for a pack's own `install` applies here.
+- **The composed manifest is always the floor; running it is an offer on top.** yolo renders
+  the manifest surface (`~/.config/yolo/Brewfile` and kin) on every `apply` regardless — that is
+  the guaranteed handoff, and "I'll run it against that file myself" is always a valid outcome.
+  On top of that floor yolo *offers* to run the not-yet-satisfied remedies for you, behind a
+  confirm (below). Nothing installs *silently* below `jail`; the same confirm-gated,
+  never-ambient rule §4.1 states for a pack's own `install` applies here.
 - **yolo can offer to run either kind — including `sudo` — always behind a confirm.** Split the
   remedies into *(a)* things that need no elevation (a user-scope `brew install`, a `pip install
   --user`, dropping a file in `~`) and *(b)* things that need `sudo` or another grant (a system
