@@ -46,7 +46,10 @@ type HostRenderResult struct {
 // is refused rather than bound to some arbitrary dir.
 func RenderHostPack(p *packload.Pack, homeDir string, observe bool) ([]HostRenderResult, error) {
 	e := &Env{Home: homeDir, Vars: map[string]string{}}
-	surfaces, problems := p.Surfaces()
+	// Host is the autonomy-OFF notch (§4.2): render the GUARDED posture, so a pack's
+	// jail-bypass permission keys do NOT reach the real home. This is the fix for the
+	// apply --host bypass leak.
+	surfaces, problems := p.SurfacesFor(false)
 	if len(problems) > 0 {
 		return nil, fmt.Errorf("pack %s: %s", p.Name, problems[0])
 	}

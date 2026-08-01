@@ -55,6 +55,18 @@ type Pack struct {
 // grants land in one flat /ctx dir, so two grants with the same basename would already
 // collide there; HostFileConflicts reports that as a pack error.
 func (p *Pack) Surfaces() ([]manifest.Surface, []string) {
+	// The jail/guest default is autonomy ON — so the boot path (which calls Surfaces)
+	// renders the autonomous posture, keeping boot output byte-identical after packs
+	// move their bypass keys into the autonomy kind. The host path calls SurfacesFor(false).
+	return p.SurfacesFor(true)
+}
+
+// SurfacesFor is Surfaces with the §4.2 autonomy policy applied: it decodes the pack's
+// config surfaces, then folds the selected autonomy posture's config-managed keys into
+// the matching surface's Managed layer (deep-merged, posture wins). autonomy=true selects
+// the autonomous posture, false the guarded one. A pack with no autonomy contribution, or
+// whose selected posture is empty, gets its surfaces unchanged.
+func (p *Pack) SurfacesFor(autonomy bool) ([]manifest.Surface, []string) {
 	rawSurfaces := p.Decl.SurfaceContributions()
 	if len(rawSurfaces) == 0 {
 		return nil, nil
@@ -67,7 +79,56 @@ func (p *Pack) Surfaces() ([]manifest.Surface, []string) {
 	for i := range surfaces {
 		surfaces[i].HostSource = p.hostSourceFor(surfaces[i].Path, granted)
 	}
+	// Fold the selected autonomy posture's config patch into the matching surfaces.
+	if posture := p.Decl.PostureFor(autonomy); posture != nil && len(posture.Config) > 0 {
+		patches, probs := manifest.DecodeSurfaces(posture.Config)
+		for _, prob := range probs {
+			problems = append(problems, "pack "+p.Name+" (autonomy): "+prob)
+		}
+		surfaces = foldPostureManaged(surfaces, patches)
+	}
 	return surfaces, problems
+}
+
+// foldPostureManaged deep-merges each patch surface's Managed map into the base surface
+// with the same (agent, name), the patch winning per key. A patch that names no existing
+// base surface is ignored (the posture may only touch a subset). This is how an autonomy
+// posture asserts its permission keys onto the pack's OWN surface without being a second
+// config writer.
+func foldPostureManaged(base, patches []manifest.Surface) []manifest.Surface {
+	for _, patch := range patches {
+		pm := patch.ManagedMap()
+		if pm == nil {
+			continue
+		}
+		for i := range base {
+			if base[i].Agent != patch.Agent || base[i].Name != patch.Name {
+				continue
+			}
+			base[i].Managed = mergeManagedMap(base[i].ManagedMap(), pm)
+		}
+	}
+	return base
+}
+
+// mergeManagedMap deep-merges over into base (over wins), returning a new map. A nil base
+// yields a copy of over. Object values recurse; scalars and arrays replace wholesale —
+// the same managed semantics the render engine's deepMerge uses.
+func mergeManagedMap(base, over map[string]any) map[string]any {
+	out := map[string]any{}
+	for k, v := range base {
+		out[k] = v
+	}
+	for k, v := range over {
+		if ov, ok := v.(map[string]any); ok {
+			if bv, ok := out[k].(map[string]any); ok {
+				out[k] = mergeManagedMap(bv, ov)
+				continue
+			}
+		}
+		out[k] = v
+	}
+	return out
 }
 
 // hostSourceFor finds the granted host file whose basename matches this surface's file,
@@ -320,11 +381,27 @@ func union(packs []*Pack, pick func(*Pack) []string) []string {
 
 // LaunchFlags merges every pack's launchFlags, keyed by binary name. A later pack wins
 // on a conflicting binary, matching the "later entries win" rule packs already use.
+// It applies autonomy ON (the jail/guest default); the host path calls LaunchFlagsFor(false).
 func LaunchFlags(packs []*Pack) map[string][]string {
+	return LaunchFlagsFor(packs, true)
+}
+
+// LaunchFlagsFor is LaunchFlags with the §4.2 autonomy policy applied: on top of each
+// pack's plain `launch` contributions it folds the selected autonomy posture's per-binary
+// launch flags. So the `--dangerously-*` flags live in the autonomous posture and vanish
+// at the host notch (autonomy=false), where the guarded posture (usually no flags) applies.
+func LaunchFlagsFor(packs []*Pack, autonomy bool) map[string][]string {
 	out := map[string][]string{}
 	for _, p := range packs {
 		for bin, flags := range p.Decl.LaunchFlagContributions() {
 			out[bin] = flags
+		}
+		if posture := p.Decl.PostureFor(autonomy); posture != nil {
+			for _, l := range posture.Launch {
+				if l.Bin != "" {
+					out[l.Bin] = l.Flags
+				}
+			}
 		}
 	}
 	return out
