@@ -714,10 +714,16 @@ two that needed it in a jail.
 
 That has a crisp consequence worth stating as a rule:
 
-> **On a host target, every surface is `rmw`.** `stateful`/`capture` is meaningless there —
-> capture exists to distinguish *the agent's* in-jail edits from yolo's render, and on a
-> host target those are the same person. `computed`-mode overwrite-every-boot is
-> unacceptable there for the same reason probe 2 is a bug.
+> **On a host target, every surface is `rmw`.** The reason is not "the editor and yolo are
+> the same person" (a loose framing — a host agent edits its own config constantly, and that
+> is fine). It is that **`rmw` only ever rewrites the keys yolo declares** (`managed` +
+> dynamic tables), filling absent `defaults` and touching nothing else — so an agent's own
+> keys are preserved *for free*, with no whole-file compose and therefore no capture overlay
+> to protect them. Capture exists only to make *whole-file* composition non-destructive, and
+> a host target does no whole-file composition. A key yolo *does* manage is overwritten on
+> the next `apply` (regenerate-don't-reconcile) — which is correct and the only workable
+> option for a key yolo owns. `computed`-mode overwrite-every-*whole-file* is unacceptable
+> here for the same reason probe 2 is a bug. *(Confirmed 2026-08-01, env-manager plan OQ-4.)*
 
 ### 6.4 What else changes on a host target
 

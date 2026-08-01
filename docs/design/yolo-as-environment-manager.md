@@ -246,11 +246,11 @@ One Declared-impure row is different from the rest, and a reviewer was right to 
   and on `macos-user` there is no `/ctx`, so the layer silently drops today. Every other input
   in the closure means the same thing at every confinement level; this one does not.
 
-**The leaning is to drop settings-inheritance and express it as a pack instead.** If your
-personal Claude settings matter, they are a *local pack* — declared, locked, portable to every
-notch — not a live read of a file yolo has to special-case. That collapses the awkward
-Declared-impure row into the Declared tier, makes `--sealed` mean what it should on every
-surface, and removes the read-in/write-out conflict. The cost is real and worth naming: today a
+**Decided (2026-08-01, env-manager plan OQ-3): drop settings-inheritance and express it as a
+pack instead.** If your personal Claude settings matter, they are a *local pack* — declared,
+locked, portable to every notch — not a live read of a file yolo has to special-case. That
+collapses the awkward Declared-impure row into the Declared tier, makes `--sealed` mean what
+it should on every surface, and removes the read-in/write-out conflict. The cost is real and worth naming: today a
 user's `~/.claude/settings.json` "just works" in the jail with zero setup, and under this
 direction they would author (or `yolo config promote` into) a one-file local pack. Credentials
 are unaffected — those cross as mounts, not as a compose layer, and stay their own mechanism.

@@ -217,9 +217,9 @@ description (and `--json` supersedes `config dump`), and `--at` selects a notch.
 **Design/reasoning:** `host-render-target.md` §6 (the whole section), §6.5 postures,
 §7.2; design doc §4.1.
 **Depends on:** Phase 1 (`render.Host`), Phase 3 (`apply`), Phase 2 (`--at host`).
-**Before you start — decide:** OQ-3, OQ-4, OQ-5 (host layer / capture / capture-storage)
-and OQ-6, OQ-7 (the confirm-gated-install detail, for 4.3). OQ-1 and OQ-2 are RESOLVED
-and already assumed below.
+**Before you start — decide:** OQ-6, OQ-7 (the confirm-gated-install detail, for 4.3).
+OQ-1, OQ-2, OQ-3, OQ-4 are RESOLVED and OQ-5 is moot — the host-render shape (pure
+`rmw`, user-scoped, no read-in layer, no capture) is now settled and assumed below.
 
 - **4.1** `render.Host(home)` renders the applicable kinds into the real `$HOME`;
   postures `observe` → `assert` → (maybe never) `own` (§6.5). Default `observe`
@@ -230,10 +230,11 @@ and already assumed below.
   server is dropped in a jail today; there is no restore-to-pre-yolo-state, which would
   need a before-snapshot nothing takes. **User-scoped, workspace contributes nothing**
   (OQ-2, resolved).
-- **4.2** Whether a host surface stays `stateful`+capture or is pure `rmw` is **OQ-4**,
-  not settled: §6.3 currently says pure `rmw`, but a host agent editing its own config
-  between applies is the case that model gets wrong, so the leaning is to keep capture.
-  Either way, `${workspace}`-using surfaces are refused (no referent).
+- **4.2** Every host config surface is **pure `rmw`** (OQ-4, resolved): `apply` rewrites
+  only yolo's own declared keys (`managed` + dynamic tables), fills absent `defaults`, and
+  leaves every key the agent wrote untouched — no whole-file compose, no capture overlay.
+  A yolo-managed key the agent edits is overwritten on the next `apply` (yolo owns it,
+  OQ-1). `${workspace}`-using surfaces are refused (no referent).
 - **4.3** `program` (install) below `jail` is **confirm-gated, not refused** (§4.1, the
   reviewed position): TTY-only, command shown, curl-to-shell shows the script,
   permission-bounded. **The two confirm details are OQ-6 and OQ-7.**
@@ -251,8 +252,9 @@ inapplicable kinds are refused by name.
 **Design:** design doc §3.3 (the full-closure table + the sealing rule).
 **Depends on:** Phase 3 (`apply`). Independent of the host notch — sealing is a
 host-side check that needs no container (§3.3).
-**Before you start — decide:** OQ-3 (retire the host layer) again, because it moves a row
-of the closure table from Declared-impure to Declared.
+**Note:** OQ-3 (retire the host read-in layer) is RESOLVED yes, so the closure table's
+`host`-layer row has moved from Declared-impure to Declared — one fewer impure input for
+sealing to report.
 
 - **5.1** Enumerate the closure at apply time against the §3.3 four-tier table
   (Locked / Declared / Declared-impure / Undeclared). This is the machine-readable
@@ -360,28 +362,49 @@ long reasoning lives in the cited design section, not here.
 
 ### Blocks Phase 4 (host render)
 
-**Context — the host `host` layer and how a host agent keeps editing its own config.**
-Design doc §3.3 wants to *retire* the `reads-host`/`host` compose layer (reading your real
-`~/.claude/settings.json` *into* a jail), because reading-in and asserting-out over one
-file is an XOR. Separately, `host-render-target.md` §6.3 claims "on host every surface is
-`rmw`, capture is meaningless — same person edits both." That claim uses the wrong axis: a
-host `claude` writes its own settings constantly, and the real split is **apply-time (yolo
-asserting) vs. between-applies (the agent working)** — exactly what the jail's
-`stateful`+capture model already draws. These are now three separate calls:
+**Context — how `apply --host` touches a file the agent also writes.** Two calls, both now
+resolved; the reviewer's push on OQ-4 corrected an over-complication I had introduced.
 
-- **OQ-3 — Retire the `reads-host` read-*in* layer? (yes / no / defer)** *Leaning: yes* —
-  express personal settings as a local pack instead (declared, locked, portable), which
-  collapses a Declared-impure closure row into Declared and removes a Phase-4 fixpoint.
-  Design doc §3.3. **If no preference, I build "yes, retired."**
-- **OQ-4 — On the host notch, does a config surface stay `stateful`+capture, or is it pure
-  `rmw`?** *Leaning: keep `stateful`+capture* — so the agent edits its own config freely
-  and `apply` re-asserts only `managed` keys over it, rather than pure `rmw` overwriting.
-  Answering "capture" **reopens `host-render-target.md` §6.3**; I will draft that revision
-  once you pick, since it sets what Phase 4.2 builds. **If no preference, I build
-  "capture."** *(This is the biggest single behavior call in the plan.)*
-- **OQ-5 — Where does a host capture overlay live?** Only live if OQ-4 = capture. *Leaning:*
-  `~/.local/state/yolo-jail/host-render/`, keyed by target file (user/machine-scoped per
-  OQ-2). `host-render-target.md` §4.4, §6.6. **If no preference, I build that path.**
+- **OQ-3 — Retire the `reads-host` read-*in* layer? → RESOLVED: YES (2026-08-01).** Drop
+  settings-inheritance (yolo reading your real `~/.claude/settings.json` *into* a jail as a
+  compose layer); express personal settings as a **local pack** instead — declared, locked,
+  portable to every notch. This collapses a Declared-impure closure row into Declared
+  (simpler Phase 5) and removes the read-in/write-out XOR. Design doc §3.3. *Consequence:*
+  the `host` compose layer and the `reads-host` kind's compose role go away; credentials are
+  unaffected (they cross as mounts, not a layer).
+
+- **OQ-4 — On the host notch, `rmw` (surgical) or whole-file compose? → RESOLVED: pure
+  `rmw` (2026-08-01).** The reviewer is right that **overwrite is the only workable option
+  for a key yolo manages**, and once you see why, `rmw` is not just workable — it is the
+  *simpler* and *complete* answer, so my earlier "keep capture" lean was wrong. The two
+  models differ only in blast radius:
+
+  - **`rmw` (the answer):** yolo rewrites **only the keys it declares** — its `managed`
+    block and dynamic tables (e.g. `mcpServers`) — fills `defaults` where a key is absent,
+    and **touches nothing else**. Every key the agent wrote (`theme`, a `/config` toggle,
+    anything not in yolo's declaration) is left byte-for-byte, because yolo never reads or
+    rewrites it. This is exactly the shipped `~/.claude.json` behavior (`prism.go`
+    `regenerateManagedTables` + `applyRMWLayer`), just pointed at a real home.
+  - **whole-file `stateful`+capture (rejected):** yolo composes the *entire* file from its
+    layer stack and writes all of it — which would blow away the agent's own keys, so it
+    would need a **capture** sidecar to first snapshot the agent's edits and re-inject them
+    as a layer. That machinery exists in a jail *only because* a jail whole-file-composes
+    some surfaces; on the host there is no reason to whole-file-compose (esp. with OQ-3
+    retiring the read-in layer), so **capture buys nothing** — it is solving a problem `rmw`
+    does not have.
+
+  So the answer to your question — "what happens to a pack-managed key the agent then
+  edits?" — is: **yolo overwrites it on the next `apply`**, deliberately, because yolo owns
+  that key (regenerate-don't-reconcile, OQ-1). A key the agent owns is never touched.
+  Capture was never about protecting a *managed* key (nothing can — overwrite is correct
+  there); it was only about surviving a *whole-file* rewrite, which `rmw` doesn't do.
+  `host-render-target.md` §6.3 already concluded pure `rmw`; only its *justification* ("same
+  person") was loose — the real reason is "`rmw` only ever rewrites yolo's own keys, so the
+  agent's are safe without capture." I will tighten §6.3 to say that.
+
+- **~~OQ-5 — where does a host capture overlay live?~~ → MOOT.** It only existed if OQ-4
+  chose capture. With pure `rmw` there is no host capture overlay, so there is no new
+  storage location to decide. (Removed from the count.)
 
 ### Blocks Phase 4.3 (confirm-gated install)
 
