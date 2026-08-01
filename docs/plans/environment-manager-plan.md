@@ -3,6 +3,16 @@
 **Status:** plan, 2026-07-31. Sequences [`../design/yolo-as-environment-manager.md`](../design/yolo-as-environment-manager.md)
 (the vision — finalized, the maintainer is happy with it) into buildable phases.
 
+> **Build status (2026-08-01).** Phases **0, 1, 2, 3, 4, 5, 6, 8 are SHIPPED** (each its
+> own commit, CI green, boot path byte-identical via the render fingerprint gate).
+> **Phase 7 (the `guest` backend — macOS Seatbelt + Linux bwrap/Landlock) is NOT built**:
+> it needs host capabilities a nested Linux jail cannot exercise, so it is host/Mac-gated
+> and deferred. A few *within-phase* increments are also deferred and noted at their
+> phase: the no-exec jail provision (Phase 3), the dep-manifest-as-composed-surface and
+> the install offer-to-run confirm (Phase 6 → rides host apply), and the per-notch body of
+> the briefing (Phase 8 → rides the guest/host backends). What shipped is behavior-neutral
+> for the default `jail` notch — `yolo -- claude` is unchanged.
+
 **What this doc is.** The design doc says *what yolo becomes* — "yolo describes an
 environment; confinement is a dial (`jail`/`guest`/`host`); the verbs are `apply` /
 `describe` / `check` / `--at` / `apply --sealed`." This doc says *in what order to
