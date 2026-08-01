@@ -342,7 +342,8 @@ to make, not a list of tensions to admire. Where there is a leaning it is marked
 none is decided until you say so.
 
 **OQ-A — On a host target, does yolo need to track what it asserted at all? (shapes
-Phase 4)** — reasoning in `host-render-target.md` §9.5, §4.4; but see the reframe below.
+Phase 4)** — reasoning in `host-render-target.md` §9.5, §4.4, and the new §6.6
+("user-scoped, not workspace-scoped"); but see the reframe below.
 
 **A reviewer pushed on the premise, and was right.** The original text here (and
 `host-render-target.md` §6.5, §7.2, §9.5, which show a `yolo config apply --host
@@ -370,29 +371,30 @@ per-file "what I asserted" sidecar** at all. The one thing a host target may sti
 to persist is the **capture overlay** (an agent's between-applies edits, OQ-B), and that
 is a different artifact from a revert-sidecar.
 
-*The residual real question* is narrower than "where does the sidecar live": **when two
-workspaces `apply --host` into the same machine-scoped file, whose managed keys win?**
+*The "two workspaces collide" question dissolves — a reviewer caught that the framing was
+wrong at its root.* The earlier version of this OQ asked "when two *workspaces* `apply
+--host` into the same file, whose keys win?" But **a workspace should not be an input to
+host management at all.** What yolo asserts into your real `$HOME` is a function of your
+**user** config and the packs *you* installed — never of which repo you ran the command
+from. This is the same rule packs already enforce (user-scope only; a workspace config
+cannot name a pack, `pack-system.md` §8), and it is *most* load-bearing on the host, your
+realest environment: a repo you `cd` into must not reach into `~/.claude/settings.json`.
+So there are not two writers racing — there is one description (your user config + your
+packs) with one owner (you), rendered identically wherever you invoke it; `cwd` selects
+nothing. I wrote this up as a new **§6.6 in `host-render-target.md`** ("A host target is
+user-scoped, not workspace-scoped").
 
-> You `apply --host` from repo A (declares `mcpServers.tavily`) and from repo B (declares
-> `mcpServers.github`) into the same `~/.claude/settings.json`. On the next `apply` from
-> A, regenerate-don't-reconcile says A rewrites *its* managed block — but does it drop
-> `github`, which A never declared?
+With the workspace removed, the residual is small and mostly settled by it: `apply --host`
+regenerates the `managed` keys from your user-scope description; a host **capture** overlay
+(OQ-B — the agent's own between-applies edits, not a `--revert`) is the one thing that might
+persist, and it lives at a **user/machine-scoped** path (`~/.local/state/yolo-jail/host-render/`)
+keyed by target file, never by workspace.
 
-Options: **(a)** managed keys are namespaced/attributed by declaring-workspace so each
-apply only regenerates its own and leaves the other's; **(b)** machine-scope is
-single-writer by rule — the last `apply --host` owns the file, a second workspace is a
-**warned overwrite**, not a silent merge *(leaning — simplest, and matches
-"regenerate-don't-reconcile": one owner, no cross-workspace merge to arbitrate)*;
-**(c)** attribution requires the machine-global capture/state location
-`~/.local/state/yolo-jail/host-render/` after all, but only for the capture overlay, not
-a revert-sidecar. (OQ-B interacts: if capture survives on host, its storage answers most
-of this.)
-
-> **Decision needed (before Phase 4):** first, confirm **there is no `--revert`** and the
-> undo story is "stop declaring it and re-apply" (regenerate-don't-reconcile) — I believe
-> yes. Then pick the multi-workspace rule: **(a)** per-workspace attribution of managed
-> keys, **(b)** single-writer / warned-overwrite *(leaning)*, or **(c)** defer until
-> OQ-B settles where capture lives. If no preference, I build (b).
+> **Decision needed (before Phase 4):** confirm two things — **(1)** there is no `--revert`
+> (undo = "stop declaring it and re-apply", regenerate-don't-reconcile), and **(2)** host
+> management is **user-scoped, workspace contributes nothing** (§6.6). *(I believe yes to
+> both; §6.6 is written to that position.)* If yes, the sidecar question reduces to the
+> capture-storage question in OQ-B and needs no separate decision here.
 
 **OQ-B — Retire the host (`reads-host`) compose layer, AND how does a host agent keep
 editing its own config? (shapes Phase 4 and Phase 5)** — design doc §3.3; but see the

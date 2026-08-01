@@ -772,6 +772,48 @@ a different dialect, and the per-agent `derive` Lua slot already expresses the r
 `computed[] + project` DSL the original text referenced), and today that machinery only ever
 runs inside a jail.
 
+### 6.6 A host target is user-scoped, not workspace-scoped
+
+**Added 2026-07-31, in response to a review of the env-manager plan.** An earlier framing
+of the reconcile/sidecar question asked "when two *workspaces* `apply --host` into the same
+machine file, whose keys win?" — and that framing is wrong at its root. **A workspace should
+not be an input to host management at all.** Stating it plainly, because it dissolves a
+question rather than answering it, and because it follows from a rule the pack system already
+enforces:
+
+> **What yolo asserts into your real `$HOME` is a function of your *user* configuration and
+> the packs *you* have installed — never of which repository you happened to run `apply
+> --host` from.**
+
+This is the same boundary packs already draw. Packs are **user scope only**: a workspace
+config cannot name one (`pack-system.md` §8), *precisely because* a workspace config travels
+with a repo and is agent-editable, so it must not decide what crosses into your environment.
+The host is your realest environment, so that rule is *most* load-bearing there, not least: a
+repo you `cd` into must not be able to reach into `~/.claude/settings.json`.
+
+Three consequences, each of which removes a problem the workspace-scoped framing created:
+
+- **The "two workspaces collide" question disappears.** There are not two writers racing into
+  one file — there is one description (your user config + your packs) with one owner (you).
+  `apply --host` renders *that*, identically, from wherever you invoke it. The `cwd` selects
+  nothing.
+- **`${workspace}` surfaces are refused, not bound.** A surface keyed on `${workspace}` (e.g.
+  claude's `projects["${workspace}"]`) is inherently per-repo; on a host target it has no
+  referent and is refused by `FieldSet` (§6.4) — consistent with "no workspace input," not a
+  special case.
+- **A host sidecar, if one is ever needed** (for capture — the agent's own between-applies
+  edits, not a `--revert`; see the env-manager plan's reframed OQ-A), lives at a
+  **user/machine-scoped** path like `~/.local/state/yolo-jail/host-render/`, keyed by the
+  target file, **never by workspace.** §4.4's `SidecarDir` becomes a user-scope constant for
+  the host target, not a per-workspace path.
+
+The one honest exception is the *invocation*: you might be standing in a repo when you type
+`yolo apply --host`. That is fine — the command reads your **user** config to decide what to
+assert; the repo you are standing in contributes nothing to the host render. If a user ever
+wants a genuinely repo-specific host tweak, the answer is the same as for a jail: put it in a
+**local pack** they have chosen to install at user scope, not in a workspace config that any
+`cd` would silently activate.
+
 ---
 
 ## 7. Three walkthroughs
