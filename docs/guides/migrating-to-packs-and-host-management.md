@@ -1,5 +1,29 @@
 # Migrating to packs, and managing your host from yolo
 
+> **⚠ UNRELEASED — verify your version first.** The verbs this guide leans on —
+> `describe`, `apply` (incl. `--host`/`--sealed`), `check-deps`, and the newer `pack`
+> subcommands (`lint`'s manifest validation, `footprint`, `install`, `status`) and
+> `config drift`/`dump` — are part of in-progress work that is **not in a released yolo
+> yet**. On an older `yolo` they fail with `unknown command` / `unknown subcommand`
+> (exit 2), not a helpful message. Before following any step, confirm the verb exists:
+> `yolo apply --help`, `yolo describe --help`, `yolo pack --help`. If those error, your
+> installed `yolo` predates this work — rebuild/reinstall from a build that carries it.
+
+> **⚠ SECURITY — do NOT run `apply --host --assert` with a shipped agent pack (`claude`,
+> `codex`, `agy`) in your config yet.** Those packs carry **jail-safety bypasses** in
+> their managed config — `permissions.defaultMode: acceptEdits`,
+> `skipDangerousModePermissionPrompt: true`, `additionalDirectories: ["/"]`,
+> `permissions.deny: []`, and a `--dangerously-skip-permissions` launch flag. Those are
+> safe *only because a jail contains the agent*. `apply --host` renders **every** configured
+> pack, so `--assert` would write those keys into your **real** `~/.claude/settings.json` —
+> auto-accepting edits, suppressing the dangerous-mode prompt, and allowing the whole
+> filesystem, on a machine with no jail around it. It also **overwrites** your own
+> `permissions.allow`/`deny`. The fix (making autonomy a confinement policy so `host`
+> renders the *guarded* posture) is designed but **not built** — see
+> [Part 2](#part-2--manage-your-host) and env-manager plan Phase 9. Until it ships, treat
+> `--host --assert` as observe-only, or apply only a pack that contains no agent-permission
+> keys.
+
 This guide takes you from "yolo just runs claude in a jail with my hand-tuned
 `~/.claude/settings.json`" to "my agent environment is a **pack** I own — declared,
 locked, portable — and I can render that same config onto my **real machine**, not just
@@ -12,8 +36,10 @@ Two journeys, in order:
 2. **[Manage your host from that pack](#part-2--manage-your-host)** — render your
    config into your real `$HOME`, and check the host has the tools your packs need.
 
-Everything here uses only shipped commands. Where a capability is not built yet, this
-guide says so plainly rather than showing you a command that does nothing.
+Every command here is real (not aspirational), but several are **unreleased** — see the
+version banner above and verify with `--help` before you run them. Where a capability is
+not built yet, this guide says so plainly rather than showing you a command that does
+nothing.
 
 > **The one-line mental model.** yolo *describes* an environment — tools, agent config,
 > skills, credentials — and *confinement* is one attribute of that description. A **jail**
@@ -30,10 +56,13 @@ guide says so plainly rather than showing you a command that does nothing.
   `copilot`, `codex`, `opencode`, `pi`, `agy`); you add your own.
 - **Nothing is active by default.** An empty config gives you a jail with a shell and no
   agent. You opt in with the `packs` key.
-- **Your personal `~/.claude/settings.json` is no longer special-cased.** yolo used to
-  read it *into* the jail as a magic layer. The durable way to carry your settings is to
-  put them in a **local pack** — declared, locked, and portable to every confinement
-  level (see Part 2 for why this matters for host management).
+- **Your personal `~/.claude/settings.json` is no longer a composed config *layer*.** yolo
+  used to merge it *into* the jail's settings as a magic layer; that layer is gone. (The
+  shipped `claude` pack still mounts it read-only into the jail via a `reads-host` entry so
+  the agent can *see* it — but it no longer silently composes into what yolo writes.) The
+  durable way to carry your settings is to put them in a **local pack** — declared, locked,
+  and portable to every confinement level (see Part 2 for why this matters for host
+  management).
 
 Check where you are today:
 
@@ -74,6 +103,13 @@ my-agent-pack/
 Edit `AGENTS.md` to hold your house rules; add real skills under `skills/<name>/SKILL.md`.
 The `skills/` + `AGENTS.md` layout is the **zero-ceremony** path — it works with no
 `pack.json` at all.
+
+> **Migration is manual re-authoring — there is no import.** `pack init` scaffolds an
+> empty skeleton; it does **not** read, convert, or adopt your existing
+> `~/.claude/settings.json`, your current skills, or anything else. "Move your setup into
+> a pack" means: open your current config and **transcribe by hand** the keys you want
+> yolo to manage into the pack's `managed` block (Step 2). There is no `pack import` /
+> `adopt` / `extract` verb.
 
 ### Step 2: add a manifest when you need more than prose + skills
 
@@ -208,9 +244,11 @@ jail. This is the "invert the flow" the pack migration unlocks: the same declara
 places it can be realized.
 
 > **Why express host settings as a pack (and retire the old inheritance).** yolo no longer
-> reads your live `~/.claude/settings.json` *into* the jail as a magic layer — because
-> reading settings *in* and asserting config *out* over the same file is a contradiction.
-> A pack is the single source: declared, locked, and rendered *to* wherever you need it.
+> *composes* your live `~/.claude/settings.json` into the jail's settings as a magic layer —
+> because reading settings *in* and asserting config *out* over the same file is a
+> contradiction. (The shipped `claude` pack still mounts that file read-only into the jail
+> so the agent can see it; what's gone is the silent merge-into-what-yolo-writes.) A pack is
+> the single *authored* source: declared, locked, and rendered *to* wherever you need it.
 > Credentials are unaffected — those still cross as mounts, not as a config layer.
 
 ### Step 1: describe what you'd apply
@@ -222,7 +260,7 @@ can hold:
 $ yolo describe
 environment  confinement jail
 packs        claude, my-agent-pack
-description  sha256:d6a00e0e39aa79b0 (unsealed — describe --hash for the pin, --json for the full config)
+description  sha256:0000…example  (unsealed — describe --hash for the pin, --json for the full config)
 
 $ yolo describe --json    # the full canonical computed config (supersedes `config dump`)
 $ yolo describe --hash    # a sha256 pin, for CI / cache keys
@@ -237,16 +275,30 @@ to **observe** (a dry-run) — it prints what it *would* do and writes nothing:
 $ yolo apply --host
 apply --host  home /home/me  posture observe (dry-run)
   claude/settings          would render  /home/me/.claude/settings.json
-  mount      refused — mount needs a mount namespace — unavailable without a container
+  claude/config            refused: uses ${workspace}, which has no referent on the host
+  reads-host refused — reads-host carries a host file INTO a jail — meaningless when there is no jail
+  state      refused — state names a jail-writable home subtree — off-container the home simply is writable
 observe only — nothing written. Re-run with --assert to apply.
 ```
 
-Note two things this tells you honestly:
-- **Only config surfaces port.** Kinds that need a container (`mount`, `reads-host`,
-  `state`, `files`) are **refused by name** — a copy is never a silent substitute for a
-  mount.
+Three things this tells you — but note the last is a real gap, not honesty:
+- **Only config surfaces port.** Kinds that need a container (`reads-host`, `state`,
+  `files`, and `mount` if a pack declares one) are **refused by name** — a copy is never
+  a silent substitute for a mount. A `${workspace}`-derived surface is refused too (no
+  workspace on the host).
+- **`skills` and `briefing` are honored by the census but silently NOT written by
+  `apply --host`** — it renders config surfaces only. So the `AGENTS.md` and skills you
+  authored in Part 1 do **not** reach your real home this way, and they don't appear in the
+  refused list either. Copy them by hand if you want them on the host.
 - **`program` (install) is not run** by `apply --host`. Installing software on your real
   machine is a separate, sharper decision (see Step 4).
+
+> **⚠ Observe hides the payload.** The preview prints only *paths* (`would render …`), not
+> the keys and values that would land. So `claude/settings would render` looks innocuous
+> while the actual content is the jail-bypass block from the security banner at the top of
+> this guide. "Preview first" is **not** sufficient review here: before you ever `--assert`
+> a shipped agent pack, read the pack's `managed` block yourself (`yolo pack lint <pack>`,
+> or `packs/claude/pack.json`) and understand every key it will write.
 
 ### Step 3: apply it for real
 
@@ -258,11 +310,23 @@ apply --host  home /home/me  posture assert (writing)
   claude/settings          rendered  /home/me/.claude/settings.json
 ```
 
-**This is pure read-modify-write.** yolo regenerates only the keys your pack declares
-(`managed`) and **leaves every key you wrote yourself untouched**. So if your real
-`~/.claude/settings.json` already has a `theme` you set by hand, `apply --host` keeps it
-and only (re)asserts the pack's keys. There is no `--revert` and no restore-to-previous:
-"undo yolo's management" is simply "stop declaring the key and re-apply," which drops it.
+**This is read-modify-write, but be precise about what "untouched" means.** yolo preserves
+only the keys your pack does **not** declare. Every key inside the pack's `managed` block
+is **overwritten** with the pack's value — and for the shipped `claude` pack that includes
+`permissions.allow`, `permissions.deny`, `permissions.defaultMode`, and
+`additionalDirectories`. So:
+
+- A sibling key the pack never mentions (e.g. a top-level `env` you set, or your editor
+  theme) **survives** — that part of "RMW preserves your keys" is true.
+- A key the pack manages is **clobbered, silently.** If you hand-authored
+  `permissions.deny: ["Read(~/.ssh/**)"]`, the claude pack's `permissions.deny: []`
+  **wipes it**. There is no merge and no notice. This is exactly the security downgrade the
+  banner at the top warns about — and it is why you should not `--assert` a shipped agent
+  pack onto a real host until Phase 9 (autonomy-as-policy) ships.
+
+There is no `--revert` and no restore-to-previous: "undo yolo's management" is simply "stop
+declaring the key and re-apply," which drops it (it does **not** bring back what was there
+before yolo — nothing snapshots that).
 
 Re-run `apply --host --assert` any time you change the pack — it re-asserts, idempotently.
 
@@ -312,17 +376,30 @@ Sealing does **not** ban host reads — a named-but-impure input (your user conf
 
 ## What is not built yet (so you're not surprised)
 
-This guide only shows shipped behavior. A few things the design calls for are **not built**:
+A few things the design calls for are **not built**:
 
+- **The commands themselves are unreleased.** As the version banner at the top says,
+  `describe`, `apply`, `check-deps`, the newer `pack` subcommands, and `config drift`/`dump`
+  are in-progress and not in a released `yolo`. Verify with `--help` before relying on any
+  step.
+- **Autonomy-as-a-confinement-policy (the security fix).** Until env-manager plan **Phase 9**
+  ships, `apply --host` renders a shipped agent pack's jail-bypass permission keys onto your
+  real host and overwrites your own `permissions.allow`/`deny` — the defect the top banner
+  warns about. The design (autonomy is a policy the notch decides; `host` renders the
+  *guarded* posture) is written up but not implemented.
 - **The `guest` confinement notch** — a real home under an LSM boundary (macOS Seatbelt /
   Linux bwrap+Landlock), between `jail` and `host`. `confinement: guest` validates but the
   backend is not implemented; use `jail` or `host`.
 - **`apply --host` offering to run installs for you.** Today it renders config and *names*
   missing deps (`check-deps`); it does not run installers. That confirm-gated offer-to-run
   is a planned follow-up.
+- **`apply --host` rendering `skills`/`briefing`.** It writes config surfaces only; the
+  skills tree and `AGENTS.md` you author do not reach the host through it (copy them by hand).
 - **A provision-without-launch at the jail notch.** `yolo apply` at jail currently directs
   you to `yolo -- <cmd>` (or `yolo -- true` to provision and exit); a dedicated no-exec
   provision is a follow-up.
+- **A `pack import`/`adopt` verb.** Migration is manual re-authoring (Part 1) — nothing
+  reads your existing `~/.claude/settings.json` into a pack for you.
 
 Tracking for all of it: [../plans/environment-manager-plan.md](../plans/environment-manager-plan.md).
 
@@ -337,8 +414,8 @@ Tracking for all of it: [../plans/environment-manager-plan.md](../plans/environm
 | Turn packs on | edit `~/.config/yolo-jail/config.jsonc` `packs`, then `yolo pack install` |
 | See what packs stage / drifted | `yolo pack ls` · `yolo pack status` |
 | See the resolved environment | `yolo describe` (`--json`, `--hash`) |
-| Preview host config render | `yolo apply --host` |
-| Apply config to your real home | `yolo apply --host --assert` |
+| Preview host config render | `yolo apply --host` (⚠ shows paths, not the keys — read the pack first) |
+| Apply config to your real home | `yolo apply --host --assert` (⚠ writes jail-bypass keys from shipped agent packs — see banner) |
 | Check host has the needed tools | `yolo check-deps` |
 | Prove nothing undeclared crept in | `yolo apply --sealed` |
 | In-jail: is a restart owed? | `yolo config drift` |
