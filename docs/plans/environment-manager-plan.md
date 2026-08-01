@@ -3,23 +3,20 @@
 **Status:** plan, 2026-07-31. Sequences [`../design/yolo-as-environment-manager.md`](../design/yolo-as-environment-manager.md)
 (the vision — finalized, the maintainer is happy with it) into buildable phases.
 
-> **Build status (2026-08-01).** Phases **0, 1, 2, 3, 4, 5, 6, 8 are SHIPPED** (each its
+> **Build status (2026-08-01).** Phases **0, 1, 2, 3, 4, 5, 6, 8, 9 are SHIPPED** (each its
 > own commit, CI green, boot path byte-identical via the render fingerprint gate).
 > **Phase 7 (the `guest` backend — macOS Seatbelt + Linux bwrap/Landlock) is NOT built**:
 > it needs host capabilities a nested Linux jail cannot exercise, so it is host/Mac-gated
-> and deferred. **Phase 9 (agent autonomy as a confinement policy) is NOT built** — its
-> design landed 2026-08-01 after the `apply --host` bypass-leak was found; it is scoped
-> below and gated on OQ-11 (the pack-encoding choice). A few *within-phase* increments are
-> also deferred and noted at their phase: the no-exec jail provision (Phase 3), the
-> dep-manifest-as-composed-surface and the install offer-to-run confirm (Phase 6 → rides
-> host apply), and the per-notch body of the briefing (Phase 8 → rides the guest/host
-> backends). What shipped is behavior-neutral for the default `jail` notch — `yolo --
-> claude` is unchanged.
+> and deferred. A few *within-phase* increments are also deferred and noted at their phase:
+> the no-exec jail provision (Phase 3), the dep-manifest-as-composed-surface and the
+> install offer-to-run confirm (Phase 6 → rides host apply), and the per-notch body of the
+> briefing (Phase 8 → rides the guest/host backends). What shipped is behavior-neutral for
+> the default `jail` notch — `yolo -- claude` is unchanged.
 >
-> **⚠ Known defect until Phase 9 ships:** `yolo apply --host --assert` renders the shipped
-> agent packs' jail-bypass permission keys into the real `$HOME` (see §4.2 / Phase 9). Do
-> not follow the host-management guide's `--assert` step for the `claude`/`codex`/`agy`
-> packs on a machine whose permission prompts you rely on.
+> **The `apply --host` bypass-leak is FIXED (Phase 9, 2026-08-01):** the shipped agent
+> packs' jail-bypass keys live in the `autonomy` kind's `autonomous` posture, rendered only
+> at the contained notches; `apply --host` renders the `guarded` posture (permission prompts
+> on) and warns before overwriting any existing user value.
 
 **What this doc is.** The design doc says *what yolo becomes* — "yolo describes an
 environment; confinement is a dial (`jail`/`guest`/`host`); the verbs are `apply` /
@@ -359,7 +356,7 @@ take a disposable agent's risks.
 
 ---
 
-## Phase 9 — Agent autonomy as a confinement policy  *(NOT built — design landed 2026-08-01)*
+## Phase 9 — Agent autonomy as a confinement policy  *(SHIPPED 2026-08-01)*
 
 **Design:** design doc §4.2 (the whole subsection). **Depends on:** Phase 1
 (`render.Profile`/`Target`), Phase 2 (the notch), Phase 4 (`apply --host` is where the

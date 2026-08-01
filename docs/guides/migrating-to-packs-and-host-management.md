@@ -9,20 +9,17 @@
 > `yolo apply --help`, `yolo describe --help`, `yolo pack --help`. If those error, your
 > installed `yolo` predates this work — rebuild/reinstall from a build that carries it.
 
-> **⚠ SECURITY — do NOT run `apply --host --assert` with a shipped agent pack (`claude`,
-> `codex`, `agy`) in your config yet.** Those packs carry **jail-safety bypasses** in
-> their managed config — `permissions.defaultMode: acceptEdits`,
-> `skipDangerousModePermissionPrompt: true`, `additionalDirectories: ["/"]`,
-> `permissions.deny: []`, and a `--dangerously-skip-permissions` launch flag. Those are
-> safe *only because a jail contains the agent*. `apply --host` renders **every** configured
-> pack, so `--assert` would write those keys into your **real** `~/.claude/settings.json` —
-> auto-accepting edits, suppressing the dangerous-mode prompt, and allowing the whole
-> filesystem, on a machine with no jail around it. It also **overwrites** your own
-> `permissions.allow`/`deny`. The fix (making autonomy a confinement policy so `host`
-> renders the *guarded* posture) is designed but **not built** — see
-> [Part 2](#part-2--manage-your-host) and env-manager plan Phase 9. Until it ships, treat
-> `--host --assert` as observe-only, or apply only a pack that contains no agent-permission
-> keys.
+> **Autonomy is a confinement policy (how `apply --host` stays safe).** The shipped agent
+> packs (`claude`, `codex`, `agy`, `opencode`) declare the jail-bypass settings
+> (`acceptEdits`, `skipDangerousModePermissionPrompt`, `additionalDirectories: ["/"]`,
+> `--dangerously-skip-permissions`, …) in an `autonomy` contribution's **autonomous**
+> posture — rendered only at the contained notches (`jail`/`guest`). `apply --host` renders
+> each pack's **guarded** posture instead: permission prompts stay **on**, and the bypass
+> keys never reach your real `~/.claude/settings.json`. (The permissive-by-default `pi` pack
+> is the mirror image — `host` *tightens* it from auto-trust to prompt.) `apply --host` also
+> **warns before overwriting** any existing value you set yourself. So the earlier hazard
+> here — `--assert` writing jail-bypass keys onto a real machine — is fixed; you still
+> review what it writes (next).
 
 This guide takes you from "yolo just runs claude in a jail with my hand-tuned
 `~/.claude/settings.json`" to "my agent environment is a **pack** I own — declared,
@@ -115,7 +112,7 @@ The `skills/` + `AGENTS.md` layout is the **zero-ceremony** path — it works wi
 
 If your pack should also carry composed config, set env vars, or install a tool, add a
 `pack.json` with a `contributes` list — one typed entry per effect, each with a `kind`
-from a closed set of twelve:
+from a closed set of thirteen:
 
 | Kind | What it contributes |
 |---|---|
@@ -128,6 +125,7 @@ from a closed set of twelve:
 | `reads-host` / `mount` | read a host file / dir into the jail (`:ro`) |
 | `launch` | flags injected after a binary |
 | `hook` | a named capability (`shared_credentials`, …) |
+| `autonomy` | the agent's autonomous/guarded permission postures (the notch selects which) |
 
 Example — a pack that carries your Claude settings as a **composed config surface** and a
 static env var:
@@ -312,17 +310,16 @@ apply --host  home /home/me  posture assert (writing)
 
 **This is read-modify-write, but be precise about what "untouched" means.** yolo preserves
 only the keys your pack does **not** declare. Every key inside the pack's `managed` block
-is **overwritten** with the pack's value — and for the shipped `claude` pack that includes
-`permissions.allow`, `permissions.deny`, `permissions.defaultMode`, and
-`additionalDirectories`. So:
+is **overwritten** with the pack's value. So:
 
 - A sibling key the pack never mentions (e.g. a top-level `env` you set, or your editor
   theme) **survives** — that part of "RMW preserves your keys" is true.
-- A key the pack manages is **clobbered, silently.** If you hand-authored
-  `permissions.deny: ["Read(~/.ssh/**)"]`, the claude pack's `permissions.deny: []`
-  **wipes it**. There is no merge and no notice. This is exactly the security downgrade the
-  banner at the top warns about — and it is why you should not `--assert` a shipped agent
-  pack onto a real host until Phase 9 (autonomy-as-policy) ships.
+- A key the pack manages is **overwritten** — but at the host notch, no longer *silently*.
+  If a managed key's value differs from what you already have, `apply --host` prints a
+  `⚠ would overwrite your existing value for: <key>` line (in the observe preview too), so
+  you see the collision before writing. And because the guarded posture no longer manages
+  the dangerous `permissions.allow`/`deny` at the host notch, a hand-authored
+  `permissions.deny: ["Read(~/.ssh/**)"]` is **left alone** rather than wiped.
 
 There is no `--revert` and no restore-to-previous: "undo yolo's management" is simply "stop
 declaring the key and re-apply," which drops it (it does **not** bring back what was there
@@ -382,11 +379,6 @@ A few things the design calls for are **not built**:
   `describe`, `apply`, `check-deps`, the newer `pack` subcommands, and `config drift`/`dump`
   are in-progress and not in a released `yolo`. Verify with `--help` before relying on any
   step.
-- **Autonomy-as-a-confinement-policy (the security fix).** Until env-manager plan **Phase 9**
-  ships, `apply --host` renders a shipped agent pack's jail-bypass permission keys onto your
-  real host and overwrites your own `permissions.allow`/`deny` — the defect the top banner
-  warns about. The design (autonomy is a policy the notch decides; `host` renders the
-  *guarded* posture) is written up but not implemented.
 - **The `guest` confinement notch** — a real home under an LSM boundary (macOS Seatbelt /
   Linux bwrap+Landlock), between `jail` and `host`. `confinement: guest` validates but the
   backend is not implemented; use `jail` or `host`.
