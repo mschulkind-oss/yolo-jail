@@ -1,8 +1,10 @@
 # When two packs want the same config file
 
-**Status:** analysis, 2026-08-02. Written to answer a specific question before changing
-anything: *"the claude pack needs to add support for the `fileSuggestion` key, then the fzf
-pack feeds into this new key?"*
+**Status:** analysis + **rulings**, 2026-08-02. Written to answer a specific question before
+changing anything: *"the claude pack needs to add support for the `fileSuggestion` key, then the
+fzf pack feeds into this new key?"* Reviewed the same day; §7 records four rulings that
+constrain the implementation, and the recommended order (§6) is confirmed. **Still no code
+changed.**
 
 **Short answer: no, and the reason is worth understanding.** The claude pack needs no change,
 and the fzf pack does not feed into anything the claude pack declares. But the mechanism that
@@ -91,6 +93,19 @@ contributes only keys. Where `config` declares-and-owns a surface, `config-overl
 to one **another pack owns** (§0), folding in below `managed` so the owner still wins a genuine
 conflict. The `claude` pack stays the sole *owner* of the file; the fzf pack is explicitly a
 *contributor*, with per-key provenance so an override is legible.
+
+**And if the owning pack is not selected?** Then the overlay has no surface to fold into, and
+the answer is **no effect, reported by name** (ruling R2, §7):
+
+```
+config-overlay  no effect — claude/settings has no owner (the `claude` pack is not selected)
+```
+
+Deliberately *not* the two tempting alternatives. It must not create the file — that would let
+an overlay own a surface by accident, which is the distinction Layout C exists to draw. And it
+must not fail the launch — a pack the user simply did not select is not an error. It also fails
+in the useful direction: add the `claude` pack later and the overlay starts working with no
+further edit.
 
 **This is what the kind set was designed for, and it is inert.** `config-overlay` parses,
 validates, has a combine rule (`CombineOverlay`), and the compose engine accepts overlay
@@ -230,13 +245,20 @@ agent-owned files, which is why the gap has stayed invisible.
 
 | # | Problem | Severity |
 |---|---|---|
-| **1** | **A same-identity surface declaration silently replaces the first**, taking its `mode`/`path`/`codec` with it. Verified: a pack can flip claude's settings from `stateful` to `rmw` with no warning. | **real hazard** |
+| **1** | **A same-identity surface declaration silently replaces the first**, taking its `mode`/`path`/`codec` with it. Verified: a pack can flip claude's settings from `stateful` to `rmw` with no warning, silently disabling in-jail edit capture for that file. | **general hazard in the pack mechanism** (ruling R1) |
 | **2** | `config-overlay` — the designed mechanism for exactly this — is **inert**. It parses, validates, has a combine rule and engine support, and no boot-path code collects it. | **missing feature** |
 | **3** | `yolo pack footprint` does not flag an identity clash between two `config` contributions, though the footprint model calls `config` `CombineExclusive` (*"a second writer must be `config-overlay`"*). The rule is documented and unenforced. | **unenforced invariant** |
 | **4** | No mechanism exists for a second pack to contribute to a `computed` surface. Latent — no shipped pack does this — but it is the case the accident does not cover. | **latent gap** |
+| **5** | A duplicated surface prints one `rendered` line per declaring pack, so the collision is visible in the output while nothing names it one. | **misleading output** (ruling R4) |
 
-Note that #1 and #3 are the same defect seen from two angles: the footprint promises
-exclusivity, the merge silently allows a replacement.
+Note that #1, #3 and #5 are one defect seen from three angles: the footprint promises
+exclusivity, the merge silently allows a replacement, and the output shows the replacement
+happening without calling it that.
+
+**#1 is not about any one pack's politeness.** A pack *can* avoid the flip by matching the
+owner's `mode` (see §6), but that fixes one pack, not the mechanism — the next pack anyone
+writes can do the same damage to any surface. That is ruling R1, and it is why #1 outranks the
+missing feature it would be tempting to fix first.
 
 ---
 
@@ -247,7 +269,11 @@ exclusivity, the merge silently allows a replacement.
 Make two `config` contributions on one surface identity a **loud collision**, named in
 `pack footprint` and refused at launch — exactly as `files` already is (that pre-flight was
 built in Phase 7 and names both packs). This is the one-writer rule finally enforced instead
-of merely written down.
+of merely written down. Per ruling R4 it also collapses the double `rendered` line: once a
+clash is a collision, the second line is reportable as a conflict rather than printed as noise.
+
+Ruling R1 makes this the load-bearing half rather than the tidy-up: the hazard is the
+mechanism's, so only enforcement closes it.
 
 **Cost:** it breaks the working Layout B, so it must land *with* Option 2 or the fzf case
 regresses from "works by accident" to "refused". On its own it is a regression.
@@ -269,8 +295,13 @@ The `claude` pack remains the sole owner of `~/.claude/settings.json` and keeps 
 codec. It also closes the last inert kind, and it is the only option that answers the
 `computed`-surface case in §4.
 
-**Cost:** it is real work — two render paths (jail + host), provenance plumbing, and
-`config diff` should show which pack set which key or the provenance is pointless.
+Per ruling R2, an overlay whose owner is not selected is **inert and says so by name** — it
+neither creates the file nor fails the launch. Per ruling R3, provenance must be **visible in
+`yolo config diff`** (which pack set which key), not merely recorded: provenance nobody can
+read does not make an override legible, which was the whole justification for the kind.
+
+**Cost:** it is real work — two render paths (jail + host), provenance plumbing, and the
+`config diff` surfacing that R3 makes non-optional.
 
 ### Option 3 — Merge same-identity surfaces instead of replacing (medium, tempting, wrong)
 
@@ -285,42 +316,89 @@ unanswerable, which is the thing `config-overlay` was designed to record.
 
 ### Recommendation
 
-**Option 2, then Option 1**, in that order, as one body of work. Wire `config-overlay` first
-so there is a correct way to express the intent; then enforce exclusivity so the incorrect way
-stops silently working. Doing 1 first breaks a working setup; doing 2 without 1 leaves the
-silent-replacement hazard in place for anyone who takes the shortcut.
+**Option 2, then Option 1**, in that order, as one body of work — **confirmed in review.** Wire
+`config-overlay` first so there is a correct way to express the intent; then enforce exclusivity
+so the incorrect way stops silently working. Doing 1 first breaks a working setup; doing 2
+without 1 leaves the silent-replacement hazard in place for anyone who takes the shortcut.
 
-Until then, **Layout B is the working answer and should be documented as a known shortcut**,
-with the `stateful`→`rmw` side effect called out — because right now a user following it has
-no way to learn what it did.
+Ruling R1 sharpens the second half: because the hazard belongs to the mechanism rather than to
+any one pack, **Option 1 is not optional cleanup that can be deferred indefinitely.** Shipping
+Option 2 alone would leave a correct path available and the destructive path still working
+silently — which is the state we are in now, minus the excuse that no alternative exists.
+
+**In the meantime, Layout B is the working answer and should be documented as a known
+shortcut** — with the `stateful`→`rmw` side effect called out, because a user following it today
+has no way to learn what it did. A pack taking the shortcut should match the owner's `mode`
+(omit it, inheriting `stateful`; verified to work with all keys coexisting). But per R1 that is
+**politeness by the pack author, not a fix** — it is worth doing and worth not mistaking for the
+repair.
 
 ---
 
-## 7. Open questions for you
+## 7. Rulings
 
-- **OQ-1 — Is the `stateful` → `rmw` flip on `~/.claude/settings.json` actually harmful in
-  practice?** It disables in-jail edit capture for that file. If you never rely on capture
-  there (`yolo config diff claude` would show what it holds), the fzf pack can simply **omit
-  `mode`** and inherit `stateful`, matching the claude pack — same mode, disjoint keys, no
-  behavior change. **VERIFIED working**: with `mode` omitted, `fileSuggestion`, `preferences`,
-  and `permissions` all coexist in the rendered file. That reduces this from "hazard" to
-  "unenforced rule", and it is the shape the shortcut should be documented as.
+All four questions were decided in review (2026-08-02). Recorded here because each one
+constrains the implementation.
 
-- **OQ-4 (found while verifying OQ-1) — a duplicated surface renders TWICE.** The
-  `apply --host` output prints `claude/settings rendered` twice, once per declaring pack:
+- **R1 — the `mode` flip is HARMFUL, full stop.** *Ruling: "yes, very harmful. my setup
+  doesn't matter. this is a general mechanism."*
+
+  This raises the severity in §5 rather than lowering it. The question was framed wrongly:
+  whether *this* maintainer relies on in-jail edit capture for `~/.claude/settings.json` is
+  irrelevant, because **a pack silently changing another pack's surface `mode` is a general
+  defect in the pack mechanism.** Any pack can do it to any surface, and the victim is
+  whichever user's file loses its capture sidecar.
+
+  The consequence for the plan: **matching `mode: "stateful"` in the fzf pack is a workaround,
+  not a fix, and must not be presented as one.** It makes one pack polite; it leaves the
+  mechanism able to do the same damage on the next pack anyone writes. Problem #1 in §5 stays
+  ranked as a real hazard, and the enforcement in Option 1 becomes load-bearing rather than
+  tidy-up.
+
+- **R2 — `config-overlay` with no owner: no effect, reported.** *Ruling: "more a no effect,
+  which is kinda refuse?"*
+
+  Right, and the distinction is worth keeping precise. Two things it must NOT do: create the
+  file (that would make an overlay a covert `config`, owning a surface by accident), or abort
+  the launch (a pack the user simply did not select is not an error). So: **the overlay is
+  inert and SAYS SO by name**, the same shape as every other honest non-delivery in this
+  system —
+
+  ```
+  config-overlay  no effect — claude/settings has no owner (the `claude` pack is not selected)
+  ```
+
+  That is "no effect" in behavior and "refused by name" in reporting, which is the same answer
+  read two ways. It also fails in the right direction: a user who adds the `claude` pack later
+  gets the overlay working with no further edit.
+
+- **R3 — provenance must be USER-VISIBLE.** *Ruling: "yes do this. more visibility is
+  better."* So wiring `config-overlay` includes surfacing per-key provenance in
+  `yolo config diff` — which pack set which key — not merely recording it internally. This is
+  scope inside Option 2, not a follow-up: provenance nobody can read does not make an override
+  legible, which was the entire justification for the kind.
+
+- **R4 — the double-render line needs fixing.** *Ruling: "yes needs fixing."* The
+  `apply --host` output prints one `rendered` line per declaring pack:
 
   ```
     claude/settings      rendered  /tmp/…/.claude/settings.json
     claude/settings      rendered  /tmp/…/.claude/settings.json
   ```
 
-  Harmless in effect (the second write is idempotent) but it is the collision made visible in
-  the output while nothing calls it a collision. Whatever fix lands for #1/#3 should collapse
-  this to one line — and until then, **two identical `rendered` lines for one surface is the
-  tell that two packs are fighting over it.**
-- **OQ-2 — Should `config-overlay` be able to reach a surface no loaded pack owns?** If the
-  `claude` pack is not selected, an overlay on `claude/settings` has no owner. Refuse by name
-  (consistent with the never-silent rule), or create the file? I lean refuse.
-- **OQ-3 — Does provenance need to be user-visible, or just internally recorded?** §14 says
-  "per-key provenance recorded so an override is legible rather than silent". Surfacing it in
-  `yolo config diff` is more work but is what makes the feature honest.
+  Harmless in effect (the second write is idempotent), but it is the collision made visible
+  while nothing names it a collision — the same never-silent failure this whole body of work
+  exists to remove, inverted: the output is not silent, it is just *uninterpretable*. Folded
+  into Option 1, since the collision check is what makes the second line reportable as a
+  conflict instead of collapsible as noise.
+
+  Until then: **two identical `rendered` lines for one surface is the tell that two packs are
+  fighting over it.**
+
+### What the rulings change about the plan
+
+Option 2 (wire `config-overlay`) grows the provenance-visibility requirement from R3, and
+gains the no-owner reporting rule from R2. Option 1 (enforce exclusivity) grows the
+double-render fix from R4 and is promoted by R1 from "tidy up an unenforced rule" to "close a
+general hazard in the pack mechanism". The **Option 2 → Option 1 order still holds** (confirmed
+in review), because a correct expression must exist before the incorrect one is refused.
