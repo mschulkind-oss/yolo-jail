@@ -453,7 +453,8 @@
       program       a tool on PATH: {bin, via:"npm"|"installer", package|url, flags}
       skills        {from (pack dir), into (~ dir)} — merged (built-in < pack < yours)
       briefing      {from, into, after:"host:<path>" to prepend your own file first}
-      files         {from, into} — an opaque tree the pack owns
+      files         {from, into} — an opaque tree the pack owns (parses and reports a
+                    footprint today, but NOT yet delivered at boot)
       config        {config:[surface...]} — a composed config surface (see below)
       config-overlay {surface:"agent/name", config:{...}} — keys on a surface another
                     pack owns (parses today, but NOT yet applied at boot)
@@ -464,6 +465,13 @@
                     host reads, so it is honored for any origin
       launch        {bin, flags, aliases} — inject flags after a binary
       hook          {hook:"shared_credentials"|"per_jail_history"|"claude_plugins"}
+      autonomy      {autonomous:{...}, guarded:{...}} — the agent's two permission
+                    postures; the confinement notch selects one (autonomous at
+                    jail/guest, guarded at host), so a jail-bypass key never reaches
+                    your real home via `yolo apply --host`.  Each posture takes
+                    {config:[surface...]} patching the managed layer of a surface THIS
+                    pack owns, plus {launch:[{bin, flags}]}.  Either posture may be
+                    empty (a permissive-by-default tool only needs `guarded`).
     NOTE (shipped behavior): skills/briefing read from the conventional skills/ dir
     and root AGENTS.md regardless of `from`; and two packs declaring a skills `into`
     at the SAME path fail the jail at boot.  Rely on the zero-ceremony skills/ merge.

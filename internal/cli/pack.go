@@ -73,6 +73,8 @@ effect, with a "kind" from a closed set:
   launch         inject launch flags             hook      a named capability
   reads-host     read one host-home file :ro     mount     mount a host-home dir :ro
   env            set static env vars in the jail
+  autonomy       the agent's autonomous/guarded permission postures (notch-selected)
+  config-overlay keys on a config surface another pack owns
 
 See ` + "`yolo config-ref`" + ` (the "packs" section) for the full per-kind field reference.
 
