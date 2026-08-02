@@ -645,19 +645,68 @@ program — install below jail is confirm-gated; not run by apply --host yet (Ph
   Reuse `check-deps`' probe rather than writing a second one.
 - **8.2** Leave the *running* of installs to env-manager Phase 4.3, and say so in the
   output.
-- **8.3 — OPEN follow-up, found by shipping 8.1.** All six packs yolo ships declare `program`
-  with a `via` and **zero `install_hints`**, so the "print the remedy" branch is the *uncommon*
-  path in practice and every stock pack lands in the no-remedy case. The output is honest about
-  it (it distinguishes "hints exist but not for your manager" from "no hints at all", and adds
-  that the pack's jail install path is deliberately not run against a real toolchain), but a
-  user below the jail notch is told what is missing without being told what to run.
+- **8.3 — SHIPPED (2026-08-02).** All six shipped packs now carry verified `install_hints`, so
+  the "print the remedy" branch is the *common* path: `check-deps` and `apply --host` name the
+  exact install line instead of landing in the no-remedy case. Every name was verified against
+  the manager's own index (brew's `formulae.brew.sh` API, `nix eval nixpkgs#<attr>` plus the
+  nixpkgs expression's `mainProgram`/`installPhase`, Arch's `packages/search/json` and the
+  package file list, Fedora `mdapi`/dist-git, Debian+Ubuntu name and contents search) — never
+  inferred from the binary or npm name. What shipped:
 
-  Deliberately **not** guessed here: the correct package name per manager is a fact about each
-  tool's distribution, and inventing `brew install codex` when the real name differs would be
-  worse than saying nothing — a wrong install line is a support burden, a missing one is a
-  known gap. Wants either the maintainer's knowledge or per-tool verification. Cheap, isolated,
-  and independently shippable: it is six edits to `packs/*/pack.json` plus whatever probing it
-  takes to be sure of each name.
+  | pack (bin) | brew | nix | pacman | dnf | apt |
+  |---|---|---|---|---|---|
+  | claude (`claude`) | `claude-code` (cask) | `claude-code` | — | — | — |
+  | copilot (`copilot`) | `copilot-cli` (cask) | `github-copilot-cli` | — | — | — |
+  | codex (`codex`) | `codex` (cask) | `codex` | `openai-codex` | — | — |
+  | opencode (`opencode`) | `opencode` (formula) | `opencode` | `opencode` | — | — |
+  | pi (`pi`) | `pi-coding-agent` (formula) | `pi-coding-agent` | — | `pi-coding-agent` | — |
+  | agy (`agy`) | `antigravity-cli` (cask) | `antigravity-cli` | — | — | — |
+
+  **Genuinely empty, and why — do not re-research these:**
+
+  - **apt is empty for all six.** No Debian or Ubuntu suite packages any of them, in any
+    release. These are npm-distributed or curl-to-shell tools; Debian's only near-misses are
+    unrelated (`librust-codex-dev`, the Haskell `libghc-copilot-*` stream-language libraries,
+    `ctwm` "Claude's Tab Window Manager"). Debian's own contents search finds no
+    `/usr/bin/{claude,codex,copilot,agy,opencode,pi}` in unstable.
+  - **dnf is empty except pi.** Only `pi-coding-agent` exists in Fedora, and only in
+    **Rawhide** (0.80.3-4.fc45; dist-git has just `rawhide`/`main`, so F43/F44 have nothing).
+    It is kept anyway: it is correct where it resolves, and it provides `/usr/bin/pi`. No
+    dist-git repo exists for the other five under any plausible name.
+  - **pacman is empty except codex and opencode.** Only `extra/openai-codex` (which ships
+    `/usr/bin/codex`) and `extra/opencode` are in the official repos. The other four exist
+    **only in the AUR** (`claude-code` 87 votes, `github-copilot-cli` 14, `antigravity-cli` 22
+    but flagged out-of-date, `pi-coding-agent` 18) — and an AUR package is not a `pacman`
+    package (`pacman -S` cannot install one), so per the hint contract they are omitted.
+  - **No manager anywhere packages a bare `copilot`.** Two live traps: the brew **formula**
+    `copilot` is AWS's ECS/Fargate CLI (deprecated, unrelated), and nixpkgs `copilot-cli` is a
+    `throw` ("removed due to upstream end-of-life") while `gh-copilot` is a `throw` pointing at
+    `github-copilot-cli`. The correct names are brew **cask** `copilot-cli` and nix
+    `github-copilot-cli`. This pair is exactly the wrong-hint hazard 8.3 refused to guess at.
+  - **`antigravity` is three different products.** nixpkgs `antigravity` is an alias to
+    `antigravity-ide` (the IDE, `mainProgram = "antigravity-ide"`); the CLI is
+    `antigravity-cli`, whose `installPhase` is `install -Dm755 antigravity $out/bin/agy`. Brew
+    has all three tokens (`antigravity` the desktop app, `antigravity-ide`, `antigravity-cli`);
+    only the `antigravity-cli` cask targets `bin/agy`.
+  - **Four of the five confirmed brew hints are casks, not formulae** (`claude-code`, `codex`,
+    `copilot-cli`, `antigravity-cli`); no formula of any of those names exists. Bare
+    `brew install <token>` is right — brew's `load_formula_or_cask` falls back to a cask when no
+    formula matches — so the printed remedy is correct. **But `depcheck.Manifest` emits
+    `brew "<token>"`, and a Brewfile `brew` entry runs `brew install --formula <name>`
+    (`Library/Homebrew/bundle/brew.rb`), which cannot resolve a cask.** The generated Brewfile
+    is therefore wrong for those four; see the new defect below.
+  - **nix covers all six**, but `claude-code`, `github-copilot-cli`, and `antigravity-cli` are
+    `unfree` — a bare `nix profile install` on them refuses until `allowUnfree`. The remedy line
+    is the right package; it is just not sufficient on its own for those three.
+
+- **8.4 — NEW, found by shipping 8.3: `depcheck.Manifest` cannot express a brew cask.** It
+  writes every package as `brew "<pkg>"`, but brew bundle installs a `brew` entry with
+  `--formula`, so the four cask-only hints above produce a Brewfile that fails. `Requirement`
+  has no place to say "this brew package is a cask" — the hint is a bare `map[string]string`.
+  Options: a `brew-cask` pseudo-manager key that `installCmd` maps to `brew install --cask` and
+  `Manifest` emits as `cask "<token>"`; or a per-hint struct. The printed one-liner
+  (`brew install <token>`) is unaffected and correct today, so this is a manifest-only defect.
+  Lives in `internal/depcheck/depcheck.go` (`Manifest`, `installCmd`).
 
 **Done when:** `apply --host` on a pack declaring `fd`/`fzf` names which are missing and the
 exact install line, without running anything.

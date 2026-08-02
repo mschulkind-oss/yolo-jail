@@ -2,6 +2,11 @@
   "contributes": [
     {
       "bin": "opencode",
+      "install_hints": {
+        "brew": "opencode",
+        "nix": "opencode",
+        "pacman": "opencode"
+      },
       "kind": "program",
       "package": "opencode-ai",
       "via": "npm"

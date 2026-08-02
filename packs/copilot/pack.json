@@ -2,6 +2,10 @@
   "contributes": [
     {
       "bin": "copilot",
+      "install_hints": {
+        "brew": "copilot-cli",
+        "nix": "github-copilot-cli"
+      },
       "kind": "program",
       "package": "@github/copilot",
       "via": "npm"

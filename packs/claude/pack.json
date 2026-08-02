@@ -2,6 +2,10 @@
   "contributes": [
     {
       "bin": "claude",
+      "install_hints": {
+        "brew": "claude-code",
+        "nix": "claude-code"
+      },
       "kind": "program",
       "url": "https://claude.ai/install.sh",
       "via": "installer"

@@ -2,6 +2,11 @@
   "contributes": [
     {
       "bin": "codex",
+      "install_hints": {
+        "brew": "codex",
+        "nix": "codex",
+        "pacman": "openai-codex"
+      },
       "kind": "program",
       "package": "@openai/codex",
       "via": "npm"
