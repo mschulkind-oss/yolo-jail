@@ -264,11 +264,14 @@ func readPackBriefing(dest string) (string, bool) {
 	return "", false
 }
 
-// copyTree copies a staged pack tree to dest, mode 0o644 for files.
+// copyTree copies a staged pack tree to dest at mode 0o644, or 0o755 for a file whose
+// source carries an execute bit.
 //
-// Content mode is FIXED rather than preserved, matching packstage's rule for a configured
-// pack: an exec bit arriving through a content channel is a different trust question, and
-// the copy must not be the place that quietly grants one.
+// The exec bit is PRESERVED here, matching packstage's rule for a configured pack: the
+// trust question an exec bit raises is "may this content ship an executable at all", and
+// for an embedded pack the answer is yes by construction — it ships with yolo and is
+// reviewed with the release. Stripping the bit at copy time would only mean a shipped pack
+// cannot carry a working script while a user's own pack can.
 func copyTree(src, dest string) error {
 	return filepath.WalkDir(src, func(p string, d fs.DirEntry, err error) error {
 		if err != nil {
@@ -289,6 +292,20 @@ func copyTree(src, dest string) error {
 		if err := os.MkdirAll(filepath.Dir(target), 0o755); err != nil {
 			return err
 		}
-		return os.WriteFile(target, data, 0o644)
+		// Carry the source's exec bit (0o111 only — the read/write bits stay 0o644).
+		// An EMBEDDED pack ships with yolo, so its content is reviewed with the release
+		// and there is no third party to gate: the consumer opt-in that governs a
+		// configured pack has no analogue here, and forcing 0o644 would mean a shipped
+		// pack could never carry a working script while a user's own pack could.
+		mode := os.FileMode(0o644)
+		if fi, statErr := d.Info(); statErr == nil && fi.Mode().Perm()&0o111 != 0 {
+			mode = 0o755
+		}
+		if err := os.WriteFile(target, data, mode); err != nil {
+			return err
+		}
+		// Explicit chmod: WriteFile's mode is masked by umask and ignored entirely for an
+		// existing file, so neither path reliably lands the exec bit on its own.
+		return os.Chmod(target, mode)
 	})
 }

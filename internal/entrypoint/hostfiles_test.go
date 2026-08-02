@@ -604,3 +604,86 @@ func TestHostFilesMissingTransformIsAnError(t *testing.T) {
 		t.Error("a named-but-missing transform must be an error, not a silent skip")
 	}
 }
+
+// TestHostFilesCarriesExecBit is the fzf-file-finder case: a host_files entry for an
+// executable script must arrive EXECUTABLE in the jail.
+//
+// Before this, no mode yielded an executable — `readonly` locked 0o444 and `copy` wrote
+// 0o644 — so an agent configured to run a mirrored script (a Claude `fileSuggestion`
+// command, a git hook, any wired-up helper) got EACCES. `codec: "raw"`, correct for a .sh,
+// does not affect permissions either. Both modes are covered because they take different
+// chmod paths, and the readonly one is re-rendered to prove the unlock/re-lock dance does
+// not strip the bit on the SECOND boot (0o644→0o444 was the specific bug).
+func TestHostFilesCarriesExecBit(t *testing.T) {
+	for _, tc := range []struct {
+		name       string
+		mode       string
+		wantLocked os.FileMode
+	}{
+		{"readonly", config.HostFileModeReadonly, 0o555},
+		{"copy", config.HostFileModeCopy, 0o755},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			e, ctx := hostFilesTestEnv(t)
+			entry := config.HostFileEntry{
+				Path:   ".claude/file-suggestion.sh",
+				Source: "/host/file-suggestion.sh",
+				Codec:  "raw",
+				Mode:   tc.mode,
+			}
+			script := "#!/bin/sh\nfd | fzf --filter \"$1\"\n"
+			if err := os.WriteFile(filepath.Join(ctx, entry.Slug()), []byte(script), 0o755); err != nil {
+				t.Fatal(err)
+			}
+			setHostFiles(t, e, entry)
+
+			dest := filepath.Join(e.Home, ".claude", "file-suggestion.sh")
+			// Two boots: the second is where the re-lock path runs against an
+			// already-locked file.
+			for boot := 1; boot <= 2; boot++ {
+				if err := ConfigureHostFiles(e); err != nil {
+					t.Fatalf("boot %d: %v", boot, err)
+				}
+				fi, err := os.Stat(dest)
+				if err != nil {
+					t.Fatalf("boot %d: %v", boot, err)
+				}
+				if fi.Mode().Perm() != tc.wantLocked {
+					t.Errorf("boot %d: mode = %o, want %o — an executable host file must "+
+						"arrive executable, or the agent running it gets EACCES",
+						boot, fi.Mode().Perm(), tc.wantLocked)
+				}
+				if got := readFile(t, dest); got != script {
+					t.Errorf("boot %d: content = %q, want %q", boot, got, script)
+				}
+			}
+		})
+	}
+}
+
+// A NON-executable host source must not gain an exec bit: the mode is mirrored from the
+// source, not granted. Locks at 0o444 exactly as before, so the change is additive.
+func TestHostFilesNonExecutableStaysLocked(t *testing.T) {
+	e, ctx := hostFilesTestEnv(t)
+	entry := config.HostFileEntry{
+		Path:   ".config/plain/notes.txt",
+		Source: "/host/notes.txt",
+		Codec:  "raw",
+		Mode:   config.HostFileModeReadonly,
+	}
+	if err := os.WriteFile(filepath.Join(ctx, entry.Slug()), []byte("plain\n"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	setHostFiles(t, e, entry)
+	if err := ConfigureHostFiles(e); err != nil {
+		t.Fatal(err)
+	}
+	fi, err := os.Stat(filepath.Join(e.Home, ".config", "plain", "notes.txt"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	if fi.Mode().Perm() != 0o444 {
+		t.Errorf("mode = %o, want 444: a non-executable source must stay non-executable",
+			fi.Mode().Perm())
+	}
+}

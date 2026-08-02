@@ -16,7 +16,10 @@
 //     sets allow_exec. A pack is CONTENT — skills, prose, config fragments — and an
 //     executable arriving through a content channel is a materially different trust
 //     question. Refusing is an ERROR, not a skip: silently dropping the one file a
-//     pack author cared about is worse than failing.
+//     pack author cared about is worse than failing. allow_exec is a CONSUMER opt-in
+//     (a field on the user's `packs` entry, not a pack.json key), and when set it
+//     grants the exec bit all the way THROUGH to the staged file — an admission gate
+//     that stripped the bit anyway would let a pack ship a script nothing can run.
 //  2. NO ESCAPE. A symlink pointing outside the pack root is refused rather than
 //     dereferenced. A pack is fetched from someone else's repo, so `ln -s
 //     ~/.ssh/id_ed25519 skills/innocuous.md` must not exfiltrate a key into a
@@ -152,7 +155,7 @@ func Stage(spec Spec) (*Result, error) {
 				"repo, so shipping an executable is the user's call, not the author's.)",
 				rel, fi.Mode().Perm())
 		}
-		if err := copyFile(path, filepath.Join(spec.Dest, filepath.FromSlash(rel))); err != nil {
+		if err := copyFile(path, filepath.Join(spec.Dest, filepath.FromSlash(rel)), fi.Mode()); err != nil {
 			return fmt.Errorf("staging %s: %w", rel, err)
 		}
 		res.Staged = append(res.Staged, rel)
@@ -241,19 +244,33 @@ func clearContents(dir string) error {
 	return nil
 }
 
-// copyFile copies src to dst, creating parent dirs. Mode is forced to 0o644: a
-// staged pack file is content, and the exec bit is exactly what rule 1 gates, so it
-// must not be carried through even when allow_exec permitted the copy.
-func copyFile(src, dst string) error {
+// copyFile copies src to dst, creating parent dirs, at 0o644 — or 0o755 when srcMode
+// carries an execute bit.
+//
+// This USED to force 0o644 unconditionally, on the reasoning that "a staged pack file is
+// content, and the exec bit is exactly what rule 1 gates." That conflated two different
+// gates. Rule 1 decides whether an executable may be staged AT ALL, and it is enforced
+// above by refusing the file outright unless the CONSUMER set allow_exec. By the time a
+// file reaches here it has already passed that gate — so stripping the bit anyway made
+// allow_exec mean "may be present in the tree" rather than "arrives usable", and a pack
+// could not ship a working script through any channel.
+//
+// Only the 0o111 bits come from the source; the read/write bits stay 0o644, so a
+// group-writable file in someone else's repo does not widen the staged copy.
+func copyFile(src, dst string, srcMode os.FileMode) error {
 	if err := os.MkdirAll(filepath.Dir(dst), 0o755); err != nil {
 		return err
+	}
+	mode := os.FileMode(0o644)
+	if srcMode.Perm()&0o111 != 0 {
+		mode = 0o755
 	}
 	in, err := os.Open(src)
 	if err != nil {
 		return err
 	}
 	defer in.Close()
-	out, err := os.OpenFile(dst, os.O_WRONLY|os.O_CREATE|os.O_TRUNC, 0o644)
+	out, err := os.OpenFile(dst, os.O_WRONLY|os.O_CREATE|os.O_TRUNC, mode)
 	if err != nil {
 		return err
 	}
@@ -261,5 +278,11 @@ func copyFile(src, dst string) error {
 		out.Close()
 		return err
 	}
-	return out.Close()
+	if err := out.Close(); err != nil {
+		return err
+	}
+	// Chmod explicitly: O_CREATE's mode is masked by umask, and an existing dst (a
+	// re-stage into a dir whose contents were cleared, or a same-name file) keeps its old
+	// mode entirely. Neither path reliably lands the exec bit without this.
+	return os.Chmod(dst, mode)
 }

@@ -64,7 +64,14 @@ func TestStageRefusesExecutableWithoutOptIn(t *testing.T) {
 			t.Errorf("error %q missing %q", err, want)
 		}
 	}
-	// With the opt-in it stages, but still lands as 0644.
+	// With the consumer's opt-in it stages AND arrives executable.
+	//
+	// This assertion is inverted from what it was. It used to require 0o644 "even with
+	// allow_exec", on the reasoning that the exec bit is what rule 1 gates. But rule 1
+	// gates whether an executable may be staged at all — enforced by the refusal above —
+	// and a file that has passed that gate is one the CONSUMER explicitly asked for.
+	// Stripping the bit anyway made allow_exec mean "may sit in the tree" instead of
+	// "arrives usable", so no pack could ship a working script through any channel.
 	res, err := Stage(Spec{Root: root, Dest: dest, AllowExec: true})
 	if err != nil {
 		t.Fatal(err)
@@ -73,8 +80,31 @@ func TestStageRefusesExecutableWithoutOptIn(t *testing.T) {
 		t.Fatalf("staged = %v", res.Staged)
 	}
 	fi, _ := os.Stat(filepath.Join(dest, "hooks", "run.sh"))
+	if fi.Mode().Perm() != 0o755 {
+		t.Errorf("mode = %o, want 755: allow_exec grants the exec bit THROUGH to the "+
+			"staged file, not merely admission to the tree", fi.Mode().Perm())
+	}
+}
+
+// A non-executable file stays 0o644 even when the consumer set allow_exec: the flag is
+// permission to carry a source's exec bit, not an instruction to add one. Only the 0o111
+// bits come from the source, so a group-writable file in someone else's repo does not
+// widen the staged copy either.
+func TestStageDoesNotInventExecBit(t *testing.T) {
+	root, dest := t.TempDir(), t.TempDir()
+	writePack(t, root, map[string]os.FileMode{
+		"skills/s/SKILL.md": 0o666, // world-writable source
+	})
+	if _, err := Stage(Spec{Root: root, Dest: dest, AllowExec: true}); err != nil {
+		t.Fatal(err)
+	}
+	fi, err := os.Stat(filepath.Join(dest, "skills", "s", "SKILL.md"))
+	if err != nil {
+		t.Fatal(err)
+	}
 	if fi.Mode().Perm() != 0o644 {
-		t.Errorf("mode = %o, want 644 even with allow_exec", fi.Mode().Perm())
+		t.Errorf("mode = %o, want 644: allow_exec must not invent an exec bit, and the "+
+			"read/write bits stay yolo's decision", fi.Mode().Perm())
 	}
 }
 

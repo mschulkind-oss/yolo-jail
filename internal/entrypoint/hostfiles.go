@@ -104,24 +104,68 @@ func renderHostFileSurface(e *Env, entry config.HostFileEntry) error {
 		return err
 
 	case config.HostFileModeReadonly:
-		// Re-render every boot at 0o444. The dest from a prior boot is 0o444, and a
-		// non-root agent can't reopen a 0o444 file O_TRUNC (writeInPlaceString's
-		// truncate-in-place needs write permission) — so restore 0o644 first, then
-		// re-lock. A root agent (Claude YOLO) bypasses the bits either way; the
-		// chmod is harmless there and load-bearing for everyone else.
+		// Re-render every boot at 0o444 (0o555 when the source is executable). The dest
+		// from a prior boot is not writable, and a non-root agent can't reopen it O_TRUNC
+		// (writeInPlaceString's truncate-in-place needs write permission) — so restore a
+		// writable mode first, then re-lock. A root agent (Claude YOLO) bypasses the bits
+		// either way; the chmod is harmless there and load-bearing for everyone else.
+		//
+		// The exec bit must survive BOTH chmods: unlocking to a non-executable 0o644 and
+		// then re-locking to 0o555 would work, but unlocking to 0o644 and re-locking to
+		// 0o444 (the old code) silently strips it — which is the whole bug. Derive both
+		// modes from the source so there is one decision, not two that can disagree.
+		locked, unlocked := hostFileModes(entry)
 		if _, err := os.Stat(dest); err == nil {
-			_ = os.Chmod(dest, 0o644)
+			_ = os.Chmod(dest, unlocked)
 		}
 		if _, err := renderSurfaceStatelessSurface(e, surface, hostBytes, nil); err != nil {
 			return err
 		}
-		return os.Chmod(dest, 0o444)
+		return os.Chmod(dest, locked)
 
 	default: // config.HostFileModeCopy
-		// Overwrite every boot at 0o644; in-jail edits are deliberately not kept.
-		_, err := renderSurfaceStatelessSurface(e, surface, hostBytes, nil)
-		return err
+		// Overwrite every boot at 0o644 (0o755 when the source is executable); in-jail
+		// edits are deliberately not kept.
+		if _, err := renderSurfaceStatelessSurface(e, surface, hostBytes, nil); err != nil {
+			return err
+		}
+		_, unlocked := hostFileModes(entry)
+		return os.Chmod(dest, unlocked)
 	}
+}
+
+// hostFileModes returns the (locked, unlocked) permission pair for an entry, derived from
+// whether its HOST SOURCE carries an execute bit.
+//
+// Source-derived rather than a new config knob, and that is the point: `host_files` means
+// "mirror this host file into the jail", so a file that is executable on the host must
+// arrive executable — otherwise an agent told to run it (a `fileSuggestion` command, a git
+// hook, any wired-up script) gets EACCES. No mode previously yielded an executable, so
+// `host_files` could not carry a script at all.
+//
+// Only the 0o111 bits are taken from the source; the read/write bits stay yolo's decision,
+// so a group- or world-writable host file does not widen the jail copy.
+func hostFileModes(entry config.HostFileEntry) (locked, unlocked os.FileMode) {
+	if hostSourceIsExecutable(entry) {
+		return 0o555, 0o755
+	}
+	return 0o444, 0o644
+}
+
+// hostSourceIsExecutable reports whether the entry's host source has any execute bit.
+//
+// Fail-CLOSED on anything unclear (no source, unreadable mount, a content/layers-only
+// entry): a file yolo cannot prove was executable is rendered non-executable. Granting the
+// exec bit on a guess is the wrong direction to be wrong in.
+func hostSourceIsExecutable(entry config.HostFileEntry) bool {
+	if !entry.SourceBearing() {
+		return false
+	}
+	fi, err := os.Stat(filepath.Join(hostUserDir, entry.Slug()))
+	if err != nil {
+		return false
+	}
+	return fi.Mode().Perm()&0o111 != 0
 }
 
 // hostFileSurface lowers a resolved entry into the manifest.Surface the engine
