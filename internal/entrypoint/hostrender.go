@@ -10,6 +10,15 @@ package entrypoint
 //   - PURE RMW. Every surface is read-modify-written: yolo regenerates only the keys it
 //     declares (managed + dynamic tables) and leaves every key the agent wrote. No
 //     whole-file compose, so no capture overlay, so no --revert (OQ-4).
+//   - PROVENANCE IS STILL RECORDED. "No sidecars" covers the two CAPTURE sidecars
+//     (last_render, overlay), which pure RMW genuinely has no use for. It does not cover
+//     the per-key winning-layer record: a host render knows which layer won each key, and
+//     for a while it wrote that down nowhere, so `yolo config diff` at the host inferred
+//     the winner from declarations and could state the opposite of what happened (an
+//     overlay key with no competing `managed` value reported as "managed won"). The record
+//     goes under the rendered home's STATE dir, not a workspace and not the user's config
+//     dir — see render.Target.ProvenanceDir. Assert only: recording a winner in observe
+//     posture would document a write that never happened.
 //   - NO computed layer. The live MCP/LSP tables embed jail-absolute paths, so a host
 //     render passes an empty computed map — a ${workspace}-derived value has no referent
 //     off-container (OQ-2/§6.6) and such a surface is refused, not bound.
@@ -68,7 +77,12 @@ type HostRenderResult struct {
 // a per-pack derivation would find none of the overlays the kind exists to carry. Pass nil
 // for a caller that has no other packs in view.
 func RenderHostPack(p *packload.Pack, homeDir string, observe bool, overlays *packoverlay.OverlaySet) ([]HostRenderResult, error) {
-	e := &Env{Home: homeDir, Vars: map[string]string{}}
+	// hostTarget: this Env drives render.Host, not render.Jail. Load-bearing for every
+	// Target-keyed path the writers resolve — without it an empty Workspace reads as the
+	// container default "/workspace" (WorkspaceDir()), so a host apply would write its
+	// provenance into some jail's .yolo/prism tree and read a workspace config.lua that
+	// has nothing to do with this render. See Env.hostTarget.
+	e := &Env{Home: homeDir, Vars: map[string]string{}, hostTarget: true}
 	// Host is the autonomy-OFF notch (§4.2): render the GUARDED posture, so a pack's
 	// jail-bypass permission keys do NOT reach the real home. This is the fix for the
 	// apply --host bypass leak.

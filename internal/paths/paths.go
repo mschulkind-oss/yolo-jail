@@ -61,7 +61,16 @@ const (
 )
 
 // GlobalStorage returns $HOME/.local/share/yolo-jail.
-func GlobalStorage() string { return filepath.Join(home(), globalStorageSuffix) }
+func GlobalStorage() string { return GlobalStorageUnder(home()) }
+
+// GlobalStorageUnder returns the state dir under an EXPLICIT home, rather than the
+// process $HOME. It exists because a caller that has ALREADY resolved which home it is
+// writing into must not re-derive it from the environment: `apply --host` renders into a
+// home it was handed (render.Target.Home), and a state path computed from $HOME instead
+// would land in the invoking user's REAL state dir the moment the two differ — which is
+// exactly what every test with a t.TempDir() home does. Keying on the passed home makes
+// that class of mistake impossible rather than merely avoided.
+func GlobalStorageUnder(home string) string { return filepath.Join(home, globalStorageSuffix) }
 
 // GlobalHome returns the shared container /home/agent backing dir.
 func GlobalHome() string { return filepath.Join(GlobalStorage(), "home") }

@@ -22,7 +22,12 @@
 //     caller decides whether a failure halts the boot (loud) or is a message (host).
 package render
 
-import "io"
+import (
+	"io"
+	"path/filepath"
+
+	"github.com/mschulkind-oss/yolo-jail/internal/paths"
+)
 
 // Target is everything the surface renderer cannot infer from the surface declaration
 // itself — the difference between rendering into a jail, into a preview temp dir, or
@@ -102,4 +107,78 @@ func (t Target) KindOf() Kind {
 		return KindPreview
 	}
 	return KindJail
+}
+
+// hostProvenanceLeaf is the state-dir leaf holding host-render provenance records. Named
+// for its CONTENT rather than mirroring the jail's "prism", because it will never hold the
+// jail's other two sidecars: the host notch is pure RMW by resolved decision (OQ-4,
+// host-render-target.md §6.3), so there is no last_render baseline and no capture overlay
+// to keep. A dir called "host-prism" would promise a tree that does not exist.
+const hostProvenanceLeaf = "host-provenance"
+
+// SidecarDir is where the §5 capture sidecars (last_render + overlay) for this target
+// live: under the target's workspace, in the gitignored .yolo/. EMPTY at the host target,
+// and that is the honest answer rather than a gap — a host render is pure RMW, so it keeps
+// no baseline and captures no edits, and there is no per-workspace referent to put them
+// under anyway.
+//
+// Never relative. That is the load-bearing property: the jail and preview kinds are
+// defined by having a Workspace (see KindOf), so the join always has an absolute root,
+// and the host kind — whose Workspace is deliberately empty — returns "" instead of a
+// bare ".yolo/prism" that would resolve against whatever directory the process happens to
+// be sitting in. `yolo apply --host` runs from anywhere.
+func (t Target) SidecarDir() string {
+	if t.KindOf() == KindHost {
+		return ""
+	}
+	return filepath.Join(t.Workspace, ".yolo", "prism")
+}
+
+// ProvenanceDir is where THIS target's per-key "which layer set this key" records go. It
+// is the one sidecar every target keeps, so unlike SidecarDir it has an answer at all
+// three notches:
+//
+//   - jail / preview: beside the other sidecars, under <workspace>/.yolo/prism/.
+//   - host: under the STATE dir of the home being rendered into,
+//     <home>/.local/share/yolo-jail/host-provenance/.
+//
+// Why the state dir at the host, and not the two alternatives:
+//
+//   - NOT the workspace. `render.Host()` leaves Workspace empty on purpose (KindOf uses
+//     that as the definition of "host"), so there is no workspace to put it under; joining
+//     anyway yields a RELATIVE ".yolo/prism" that scatters records into whatever directory
+//     `yolo apply --host` was invoked from. A host render is user-scoped — what it writes
+//     is a function of the pack plus the user config, never of a workspace — so keying its
+//     bookkeeping to a workspace would be wrong even if one were available.
+//   - NOT beside the rendered file (~/.claude/.yolo-provenance/…). Discoverable, but it
+//     puts yolo's bookkeeping inside the user's own config directory, which is the one
+//     thing the host notch is most careful not to do: a real $HOME is not a jail home, and
+//     a stray dir in ~/.claude is indistinguishable to the agent (and to the user) from
+//     config. The state dir is already where "what did yolo do to this home?" lives — the
+//     host-skills ownership manifest and the apply archive are both there.
+//
+// Derived from t.Home rather than paths.GlobalStorage(): the target has already resolved
+// which home it is writing into, and re-deriving it from the process $HOME would send the
+// record to the invoking user's real state dir whenever the two differ — which is every
+// test with a t.TempDir() home. Empty when the target has no home to key on (an
+// unusable Target); the caller treats that as "nowhere to record".
+func (t Target) ProvenanceDir() string {
+	if t.KindOf() != KindHost {
+		return t.SidecarDir()
+	}
+	if t.Home == "" {
+		return ""
+	}
+	return filepath.Join(paths.GlobalStorageUnder(t.Home), hostProvenanceLeaf)
+}
+
+// ProvenancePath is the provenance record for one surface under this target, or "" when
+// the target has nowhere to keep one. The file name is the same agent-name.provenance the
+// jail sidecar tree uses, so one reader serves both notches.
+func (t Target) ProvenancePath(agent, name string) string {
+	dir := t.ProvenanceDir()
+	if dir == "" {
+		return ""
+	}
+	return filepath.Join(dir, agent+"-"+name+".provenance")
 }

@@ -23,6 +23,8 @@ import (
 	"github.com/mschulkind-oss/yolo-jail/internal/agentcfg/manifest"
 	"github.com/mschulkind-oss/yolo-jail/internal/config"
 	"github.com/mschulkind-oss/yolo-jail/internal/jsonx"
+	"github.com/mschulkind-oss/yolo-jail/internal/paths"
+	"github.com/mschulkind-oss/yolo-jail/internal/render"
 	"github.com/mschulkind-oss/yolo-jail/internal/richtext"
 )
 
@@ -283,8 +285,27 @@ func prismLastRenderPath(agent, name string) string {
 // which is the gap ruling R3 closes — a config-overlay folds in below the owner's managed
 // layer, so it leaves no trace in the surface file, and provenance nobody can read does
 // not make an override legible.
+//
+// JAIL notch only. The host render keeps its record elsewhere (it has no workspace to key
+// on) — see hostProvenancePath.
 func prismProvenancePath(agent, name string) string {
 	return filepath.Join(prismSidecarDir(), agent+"-"+name+".provenance")
+}
+
+// hostProvenancePath is the CLI-side reader for the record `yolo apply --host --assert`
+// writes: the same per-key winning layers, for the surfaces in the invoking user's REAL
+// home, under that home's state dir rather than any workspace.
+//
+// Resolved through render.Host so there is ONE definition of where the record lives, used
+// by both the writer (internal/entrypoint, via the Target) and this reader. Two hand-copied
+// path builders is how the CLI's own prism* twins already work, and it is a standing hazard
+// — here the writer's location is a documented decision with an argument behind it
+// (render.Target.ProvenanceDir), so re-deriving it would put that argument in two places.
+//
+// A var so tests can point it at a temp state dir without setting a real $HOME — the same
+// seam, and for the same reason, as prismSidecarDir.
+var hostProvenancePath = func(agent, name string) string {
+	return render.Host(paths.Home(), nil).ProvenancePath(agent, name)
 }
 
 // prismSidecarDir is the per-workspace sidecar directory. A var so tests can

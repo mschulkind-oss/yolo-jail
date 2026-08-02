@@ -210,7 +210,7 @@ func configDiff(args []string, out, errw io.Writer, color bool) int {
 }
 
 // overlayContribution is one surface's config-overlay picture for the diff: who
-// contributed, which keys, and — where a boot recorded it — which layer actually won each
+// contributed, which keys, and — where a render recorded it — which layer actually won each
 // key.
 type overlayContribution struct {
 	Surface string // "agent/name"
@@ -220,25 +220,38 @@ type overlayContribution struct {
 	// Keys maps a contributed top-level key to the pack that contributed it LAST (the one
 	// whose value the fold would use).
 	Keys map[string]string
-	// Winners is the boot-recorded provenance, key → winning layer, from the surface's
-	// provenance sidecar. nil when no boot has written one — which is the honest state for
-	// an `rmw` surface (no sidecars at all, by design) and for a surface never rendered in
-	// this workspace.
+	// Winners is the RECORDED provenance, key → winning layer, read from whichever notch's
+	// record describes these surfaces. nil when no render has written one.
 	Winners map[string]string
-	// NoSidecar records that this surface's MODE writes no provenance sidecar, so an
-	// absent winner is by design rather than "never rendered here". The two read very
-	// differently to a user: one is expected, the other is worth investigating.
-	NoSidecar bool
+	// Notch names where Winners was measured — "jail" or "host" — so a reported winner is
+	// attributed as well as measured. The two notches render into different homes from
+	// different postures (the host renders the guarded autonomy posture, pure RMW), so
+	// "managed won" without a notch is an incomplete fact.
+	Notch string
+	// NoRecordReason explains an ABSENT record, in the words of the specific state it is.
+	// Empty when Winners is non-nil. Three states, and collapsing them is a misreport in
+	// its own right: a mode that keeps no record by design is expected, an unrendered
+	// surface is worth investigating, and a host notch nobody has asserted yet has an
+	// obvious remedy.
+	NoRecordReason string
 }
 
 // overlayContributionRows resolves the config-overlay contributions landing on the given
 // agent's surfaces, honoring an optional surface filter, plus the names of any configured
 // pack it could not read (see configuredPacksForInspection).
 //
-// It reads the PACK DECLARATIONS rather than the sidecar for "who contributed what",
-// because the sidecar records only the WINNER of each key — a contribution the owner's
-// managed layer beat leaves no sidecar entry, and "your overlay lost" is exactly the case
-// a user needs told. The sidecar then supplies the winner where a boot has recorded one.
+// It reads the PACK DECLARATIONS rather than the record for "who contributed what",
+// because the record holds only the WINNER of each key — a contribution the owner's
+// managed layer beat leaves no entry, and "your overlay lost" is exactly the case a user
+// needs told. The record then supplies the winner where a render has measured one.
+//
+// WHICH notch's record, and it is the load-bearing choice here: the surfaces `config diff`
+// describes are the ones THIS invocation's home would carry, so an in-jail run reads the
+// jail's sidecar tree and a host-side run reads the host provenance record. Reading the
+// jail's record host-side (or inferring, which is what this used to do when it found
+// nothing) reports one notch's outcome as the other's — and since the host renders a
+// different posture into a different home, that answer can be the exact opposite of what
+// landed. Measured-or-silent, never guessed.
 //
 // The surfaces come from the LOADED PACKS rather than surfaceManifest(), which is embedded
 // packs only (see internal/cli/surfaces.go). That limitation is exactly wrong here: a
@@ -249,10 +262,12 @@ func overlayContributionRows(agent, surface string) ([]overlayContribution, []st
 	if len(packs) == 0 {
 		return nil, unresolved
 	}
-	// autonomy=true: `config diff` is about the JAIL's surfaces, matching the boot render
-	// (Pack.Surfaces()). The posture only patches the owner's managed layer, so it changes
-	// which keys an overlay LOSES, not which surfaces exist.
-	set := packoverlay.Collect(packs, true)
+	// The posture matches the notch whose surfaces we are describing: the jail renders
+	// autonomy ON, the host renders the guarded posture (§4.2). It only patches the owner's
+	// managed layer, so it changes which keys an overlay LOSES, not which surfaces exist —
+	// but that is exactly the thing being reported, so it must match.
+	host := !surfacesAreLocal()
+	set := packoverlay.Collect(packs, !host)
 	var out []overlayContribution
 	for _, s := range packSurfacesForAgent(packs, agent, surface) {
 		overlays := set.For(s.Agent, s.Name)
@@ -263,10 +278,8 @@ func overlayContributionRows(agent, surface string) ([]overlayContribution, []st
 			Surface: s.Agent + "/" + s.Name,
 			Path:    s.Path,
 			Keys:    map[string]string{},
-			Winners: readProvenance(s.Agent, s.Name),
-			NoSidecar: s.ResolvedMode() == manifest.ModeRMW ||
-				s.ResolvedMode() == manifest.ModeComputed,
 		}
+		row.Winners, row.Notch, row.NoRecordReason = surfaceProvenance(s, host)
 		for _, ov := range overlays {
 			row.Packs = append(row.Packs, ov.Pack)
 			if layer, isMap := ov.Data.(map[string]any); isMap {
@@ -279,6 +292,35 @@ func overlayContributionRows(agent, surface string) ([]overlayContribution, []st
 	}
 	sort.Slice(out, func(i, j int) bool { return out[i].Surface < out[j].Surface })
 	return out, unresolved
+}
+
+// surfaceProvenance reads the recorded per-key winners for one surface at the notch this
+// invocation describes, returning (winners, notch, reason-it-is-absent). Exactly one of
+// winners / reason is meaningful: a non-nil map means measured, and a non-empty reason
+// names WHICH absence this is.
+//
+// The host notch is the simple case and the reason this function exists: `apply --host` is
+// pure RMW at every mode, and it records a winner for every surface it writes, so there is
+// exactly one question — has an apply asserted yet? The jail notch has the mode split,
+// because an `rmw`/`computed` surface in a jail keeps no record by design (§8) and that
+// must not read as a loss.
+func surfaceProvenance(s manifest.Surface, host bool) (winners map[string]string, notch, reason string) {
+	if host {
+		if w := readProvenance(hostProvenancePath(s.Agent, s.Name)); w != nil {
+			return w, "host", ""
+		}
+		// No mode split here: the host render is pure RMW and records every surface it
+		// writes, so an absent record means no apply has asserted this surface — which has
+		// a remedy, unlike the by-design absences below.
+		return nil, "host", "no `yolo apply --host --assert` has rendered it yet"
+	}
+	if w := readProvenance(prismProvenancePath(s.Agent, s.Name)); w != nil {
+		return w, "jail", ""
+	}
+	if s.ResolvedMode() == manifest.ModeRMW || s.ResolvedMode() == manifest.ModeComputed {
+		return nil, "jail", "this surface's mode keeps no provenance sidecar"
+	}
+	return nil, "jail", "not rendered in this workspace yet"
 }
 
 // packSurfacesForAgent returns the loaded packs' surfaces owned by one agent, honoring an
@@ -319,23 +361,31 @@ func writeOverlayContributions(pr richtext.Printer, rows []overlayContribution) 
 			pack := row.Keys[k]
 			winner, recorded := row.Winners[k]
 			switch {
+			case row.Winners == nil:
+				// NO RECORD AT ALL. Say which absence this is rather than inferring a winner
+				// from the declarations — that inference is what made this command print
+				// "contributed by X but managed won" for a key no `managed` layer even
+				// declared, which reads as a confident wrong answer rather than an unknown.
+				pr.Printf("  [magenta]%s[/magenta]  [dim]contributed by %s (winner not measured at "+
+					"the %s notch — %s)[/dim]", k, pack, row.Notch, row.NoRecordReason)
 			case !recorded:
-				// No boot-recorded winner. Say WHICH state that is rather than guessing:
-				// a surface whose mode writes no provenance sidecar is expected, while a
-				// stateful one that has never rendered here is worth investigating.
-				why := "not rendered in this workspace yet"
-				if row.NoSidecar {
-					why = "this surface's mode keeps no provenance sidecar"
-				}
-				pr.Printf("  [magenta]%s[/magenta]  [dim]contributed by %s (winner unknown — %s)[/dim]",
-					k, pack, why)
-			case winner == "config-overlay:"+pack:
-				pr.Printf("  [magenta]%s[/magenta]  [green]set by %s[/green] [dim](won the key)[/dim]", k, pack)
+				// The surface DID render and the record does not mention this key. Measured,
+				// and it means the key never made it into the file: the only way a
+				// contributed key is unattributed is a tombstone deleting it, or a transform
+				// dropping it. Reported as a measurement, not as a loss to some layer.
+				pr.Printf("  [magenta]%s[/magenta]  [yellow]contributed by %s but the key is not in "+
+					"the rendered file[/yellow] [dim](%s notch — deleted by a tombstone or a "+
+					"transform)[/dim]", k, pack, row.Notch)
+			case winner == agentcfg.OverlayLayer(pack):
+				pr.Printf("  [magenta]%s[/magenta]  [green]set by %s[/green] [dim](won the key at the "+
+					"%s notch)[/dim]", k, pack, row.Notch)
 			default:
 				// The load-bearing line: the overlay folded in and LOST. Naming the layer
-				// that beat it is what turns "my key did nothing" into an actionable fact.
-				pr.Printf("  [magenta]%s[/magenta]  [yellow]contributed by %s but %s won[/yellow]",
-					k, pack, winner)
+				// that beat it is what turns "my key did nothing" into an actionable fact —
+				// and it is only worth printing because the layer is now MEASURED from the
+				// render's own record rather than guessed from what the packs declare.
+				pr.Printf("  [magenta]%s[/magenta]  [yellow]contributed by %s but %s won[/yellow] "+
+					"[dim](measured at the %s notch)[/dim]", k, pack, winner, row.Notch)
 			}
 		}
 		pr.Printf("")
@@ -345,15 +395,30 @@ func writeOverlayContributions(pr richtext.Printer, rows []overlayContribution) 
 		"remove them.[/dim]")
 }
 
-// readProvenance decodes a surface's provenance sidecar into key → winning layer. An
-// absent or malformed file yields nil, which callers read as "no render recorded here"
-// rather than "nothing won" — the two are different and conflating them would report an
-// unrendered surface as one where every overlay lost.
-func readProvenance(agent, name string) map[string]string {
-	data, err := os.ReadFile(prismProvenancePath(agent, name))
+// readProvenance decodes a provenance record at path into key → winning layer. An absent
+// or malformed file yields nil, which callers read as "no render recorded here" rather than
+// "nothing won" — the two are different and conflating them would report an unrendered
+// surface as one where every overlay lost.
+//
+// Path-taking rather than (agent, name)-taking, because there are now two records to read
+// — the jail's per-workspace sidecar and the host's per-home one — and the CHOICE of which
+// belongs to the caller that knows which notch it is describing (surfaceProvenance). A
+// function that resolved the path itself would have to re-derive that decision, which is
+// how a reader ends up reporting one notch's outcome as the other's.
+func readProvenance(path string) map[string]string {
+	if path == "" {
+		return nil
+	}
+	data, err := os.ReadFile(path)
 	if err != nil {
 		return nil
 	}
+	// PRESENT-BUT-EMPTY returns an empty non-nil map, not nil, and the distinction is the
+	// reason the writer emits an empty file rather than skipping: "this surface rendered and
+	// attributed no keys" is a measurement, while nil means "no render recorded here". A
+	// reader that collapsed them would answer a question it had actually measured with "we
+	// do not know", which is the mirror image of the confident-wrong-answer this record
+	// exists to remove.
 	out := map[string]string{}
 	for _, line := range strings.Split(string(data), "\n") {
 		key, layer, found := strings.Cut(line, "\t")
@@ -361,9 +426,6 @@ func readProvenance(agent, name string) map[string]string {
 			continue
 		}
 		out[key] = layer
-	}
-	if len(out) == 0 {
-		return nil
 	}
 	return out
 }

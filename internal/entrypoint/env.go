@@ -57,6 +57,20 @@ type Env struct {
 	// file-content golden but ARE part of behavioral parity.
 	Stderr io.Writer
 
+	// hostTarget marks this Env as driving the HOST render (`yolo apply --host`) rather
+	// than the in-jail boot, so renderTarget() projects it onto render.Host instead of
+	// render.Jail.
+	//
+	// It cannot be inferred from Workspace, and the reason is worth stating because the
+	// inference LOOKED available: the host render builds its Env with Workspace unset, but
+	// WorkspaceDir() resolves an unset Workspace to the container default "/workspace" —
+	// so an empty Workspace means "the container default", not "no workspace". A host Env
+	// was therefore indistinguishable from a jail Env, and every Target-keyed path
+	// (sidecars, provenance, the workspace config.lua) silently resolved against the
+	// jail's tree. Unexported: only this package's host entries set it, and a caller
+	// outside should be reaching for RenderHostPack, not assembling a host Env by hand.
+	hostTarget bool
+
 	// genFailures accumulates the config-generator failures collected by genStep.
 	// A12: a generator failure is FATAL — boot must not hand the agent a
 	// half-configured home — but each step still runs so one run reports every
@@ -143,6 +157,13 @@ func (e *Env) WorkspaceDir() string {
 // Target explicit here is what lets the host verbs (internal/cli) and a future
 // `apply --host` render through the SAME contract instead of a hand-copied mirror.
 func (e *Env) renderTarget() render.Target {
+	if e.hostTarget {
+		// render.Host leaves Workspace empty ON PURPOSE — a host render has no
+		// per-workspace referent, which is why a ${workspace} surface is refused there
+		// rather than bound to an arbitrary dir. So this must NOT pass WorkspaceDir(),
+		// which would hand it the container default and make KindOf() call it a jail.
+		return render.Host(e.Home, e.Stderr)
+	}
 	return render.Jail(e.Home, e.WorkspaceDir(), e.Stderr)
 }
 

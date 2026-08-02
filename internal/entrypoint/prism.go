@@ -40,14 +40,7 @@ import (
 // sidecars (last_render + overlay). It lives under the workspace's gitignored
 // .yolo/ — the overlay is per-workspace scope (§4) and the agent never sees it.
 func prismSidecarDir(e *Env) string {
-	return targetSidecarDir(e.renderTarget())
-}
-
-// targetSidecarDir is the Target-keyed form: the sidecar tree lives under the target's
-// workspace. This is the seam the host/preview targets reuse — the boot path reaches it
-// through prismSidecarDir(e), which is just this over e.renderTarget().
-func targetSidecarDir(t render.Target) string {
-	return filepath.Join(t.Workspace, ".yolo", "prism")
+	return e.renderTarget().SidecarDir()
 }
 
 // prismLastRenderPath is the last_render sidecar for one surface: the exact
@@ -56,14 +49,71 @@ func prismLastRenderPath(e *Env, agent, name string) string {
 	return filepath.Join(prismSidecarDir(e), agent+"-"+name+".last_render")
 }
 
-// prismProvenancePath is the provenance sidecar for one surface: per-key "which
+// prismProvenancePath is the provenance record for one surface: per-key "which
 // layer set this key" (Compose already computes it; this persists it). It is what
 // makes config-overlay overrides legible
 // ("key X: claude pack lost to house-rules overlay") and generalizes to the
 // footprint's per-key record. Additive: a new file beside the surface, never a
 // change to the surface bytes.
+//
+// Target-keyed (render.Target.ProvenancePath), because this is the ONE sidecar the host
+// notch keeps too — a host render is pure RMW, so it has no last_render baseline and no
+// capture overlay, but it still knows which layer won each key, and without the record
+// `yolo config diff` at the host has nothing to annotate from and guesses. The Target
+// decides where: the jail's .yolo/prism tree, or the rendered home's state dir. See
+// render.Target.ProvenanceDir for why the state dir and not the two alternatives.
 func prismProvenancePath(e *Env, agent, name string) string {
-	return filepath.Join(prismSidecarDir(e), agent+"-"+name+".provenance")
+	return e.renderTarget().ProvenancePath(agent, name)
+}
+
+// writeProvenanceRecord persists a surface's per-key winning layers, best-effort.
+//
+// Three properties, all deliberate, all shared by the jail and host callers:
+//
+//   - ADDITIVE. A new file, never a change to the surface bytes, so it cannot regress
+//     the A12-fatal render (or perturb the render fingerprint gate).
+//   - BEST-EFFORT. The surface itself is already written by the time this runs, so a
+//     failure here must not fail the boot or the apply. It is warned, not returned.
+//   - EMPTY IS WRITTEN, not skipped. An empty record says "rendered, and no keys were
+//     attributed"; an absent one says "never rendered here". Collapsing the two would
+//     make `config diff` report an unrendered surface as one where every overlay lost.
+//
+// A Target with nowhere to keep a record (no home at all) is a silent no-op: there is
+// no user-facing decision to report, and warning on every such render would be noise.
+func writeProvenanceRecord(e *Env, agent, name string, provenance map[string]string) {
+	path := prismProvenancePath(e, agent, name)
+	if path == "" {
+		return
+	}
+	if err := os.MkdirAll(filepath.Dir(path), 0o755); err != nil {
+		e.warn("warning: could not create the provenance dir for " +
+			agent + "/" + name + ": " + err.Error())
+		return
+	}
+	text := strings.Join(provenanceLines(provenance), "\n")
+	if text != "" {
+		text += "\n"
+	}
+	if err := writeInPlaceString(path, text); err != nil {
+		e.warn("warning: could not write provenance for " + agent + "/" + name + ": " + err.Error())
+	}
+}
+
+// provenanceLines renders a key→layer map as sorted "key\tlayer" lines — the same shape
+// agentcfg.Result.ProvenanceLines produces, for the callers that build the map themselves
+// because their mode has no Result to read it from (rmw has no layer fold). Sorted so a
+// re-render writes byte-identical output.
+func provenanceLines(provenance map[string]string) []string {
+	keys := make([]string, 0, len(provenance))
+	for k := range provenance {
+		keys = append(keys, k)
+	}
+	sort.Strings(keys)
+	lines := make([]string, 0, len(keys))
+	for _, k := range keys {
+		lines = append(lines, k+"\t"+provenance[k])
+	}
+	return lines
 }
 
 // prismOverlayPath is the overlay sidecar for one surface: the accumulated
@@ -96,10 +146,18 @@ func targetTransformScript(t render.Target) string {
 		b.Write(data)
 		b.WriteByte('\n')
 	}
-	wsLua := filepath.Join(t.Workspace, "yolo-jail.config.lua")
-	if data, err := os.ReadFile(wsLua); err == nil {
-		b.Write(data)
-		b.WriteByte('\n')
+	// A host target has NO workspace (render.Host leaves it empty by definition), so
+	// there is no workspace transform to load — and joining anyway would yield a bare
+	// relative "yolo-jail.config.lua" read out of whatever directory the process is
+	// sitting in, which is the same scatter-into-the-CWD hazard the provenance path had
+	// to solve. The user config.lua above is still honored: it is keyed on the home,
+	// which a host target does have.
+	if t.Workspace != "" {
+		wsLua := filepath.Join(t.Workspace, "yolo-jail.config.lua")
+		if data, err := os.ReadFile(wsLua); err == nil {
+			b.Write(data)
+			b.WriteByte('\n')
+		}
 	}
 	return b.String()
 }
@@ -238,21 +296,11 @@ func renderSurfaceStatefulSurface(e *Env, surface manifest.Surface, hostBytes []
 	if err := writeInPlaceString(prismOverlayPath(e, surface.Agent, surface.Name), string(out.OverlayJSON)+"\n"); err != nil {
 		return nil, err
 	}
-	// Provenance sidecar: the per-key winning layer Compose already
-	// computed. Additive — a new file, never a change to the surface bytes — so
-	// it cannot regress the A12-fatal render. Best-effort: a provenance write
-	// failure must not fail the boot (the surface itself is already written), so
-	// it is logged, not returned. Empty provenance writes an empty file rather
-	// than skipping, so a reader can tell "rendered, no keys" from "never rendered".
+	// Provenance record: the per-key winning layer Compose already computed. Additive,
+	// best-effort, and empty-is-written — see writeProvenanceRecord for why each of the
+	// three matters.
 	if out.Result != nil {
-		provText := strings.Join(out.Result.ProvenanceLines(), "\n")
-		if provText != "" {
-			provText += "\n"
-		}
-		if err := writeInPlaceString(prismProvenancePath(e, surface.Agent, surface.Name), provText); err != nil {
-			e.warn("warning: could not write provenance sidecar for " +
-				surface.Agent + "/" + surface.Name + ": " + err.Error())
-		}
+		writeProvenanceRecord(e, surface.Agent, surface.Name, out.Result.Provenance)
 	}
 	noteCapturedOverlay(e, surface, out)
 	return out, nil
@@ -450,6 +498,11 @@ func renderSurfaceRMWSurface(e *Env, surface manifest.Surface, computed map[stri
 		return err
 	}
 	obj := loadObject(path)
+	// The file's own top-level keys BEFORE the render, snapshotted for provenance: on an
+	// rmw surface the existing content is the `host` layer, and it beats defaults
+	// (fill-if-absent) while losing to everything yolo force-writes. Taken here because
+	// the writes below mutate obj in place.
+	present := obj.Keys()
 
 	// config-overlay contributions: below everything yolo and the owner assert, above
 	// the file's existing content (see the doc comment).
@@ -469,7 +522,93 @@ func renderSurfaceRMWSurface(e *Env, surface manifest.Surface, computed map[stri
 	if defaults, isMap := surface.Defaults.(map[string]any); isMap {
 		applyRMWLayer(obj, defaults, false)
 	}
-	return writeInPlaceString(path, dumpJSONIndent2(obj))
+	if err := writeInPlaceString(path, dumpJSONIndent2(obj)); err != nil {
+		return err
+	}
+	// Record which layer won each key — AT THE HOST NOTCH ONLY, and the asymmetry is
+	// precisely the shape of the bug it fixes.
+	//
+	// In a JAIL, `rmw` keeping no sidecar is a documented design decision
+	// (pack-config-collaboration.md §8): rmw is one mode among four, and the surfaces that
+	// matter there are `stateful`, which do record. So an absent record on a jail rmw
+	// surface is expected, `config diff` says exactly that, and adding one here would both
+	// falsify that message and put a new write on the A12-fatal boot path for no gain.
+	//
+	// At the HOST notch rmw is not one mode among four — it is the ONLY mode
+	// (`apply --host` is pure RMW by resolved decision, OQ-4). So "rmw records nothing"
+	// there means "the host records nothing", which is what left `config diff` inferring a
+	// winner from declarations and reporting an overlay as having LOST a key it in fact WON.
+	//
+	// AFTER the surface write, so a provenance failure cannot cost the render; derived
+	// rather than read from a Result, because rmw has no layer fold to produce one.
+	if e.renderTarget().KindOf() == render.KindHost {
+		writeProvenanceRecord(e, surface.Agent, surface.Name,
+			rmwProvenance(surface, present, computed, overlays))
+	}
+	return nil
+}
+
+// rmwProvenance derives the per-key winning layer for an RMW render, by REPLAYING the
+// write order the function above performs.
+//
+// It has to be derived rather than read off a Result, and that is the whole reason this
+// exists: `rmw` has no layer fold — it merges each layer into whatever is in the file, in
+// order — so Compose never runs and there is no Result.Provenance to persist. Without
+// this, the one mode the HOST notch uses for every surface (`apply --host` is pure RMW by
+// resolved decision) would be the one mode that records nothing, which is exactly the gap
+// that let `config diff` state the opposite of what happened.
+//
+// Built in ASCENDING precedence so a later layer overwrites the attribution, mirroring
+// both the write order and Compose's own fold:
+//
+//	defaults < host (the file's existing content) < config-overlay < computed < managed
+//
+// Per TOP-LEVEL key, matching Compose's documented contract — a layer that sets a NESTED
+// key claims the whole top-level key, so an overlay contributing a sibling under a parent
+// the owner also manages reads as `managed`, exactly as it would on a stateful surface.
+// One coarseness in both places beats two different ones, since one reader serves both.
+func rmwProvenance(surface manifest.Surface, present []string, computed map[string]any,
+	overlays []agentcfg.Overlay) map[string]string {
+	prov := map[string]string{}
+	// defaults: the floor, and only where the key was absent — the `host` pass below
+	// corrects the ones the file already had, which is what fill-if-absent means.
+	if defaults, isMap := surface.Defaults.(map[string]any); isMap {
+		for k := range defaults {
+			prov[k] = agentcfg.LayerDefaults
+		}
+	}
+	// The file's own content: on rmw the existing file IS the host layer. Recorded for
+	// every key it had, including the ones yolo never declares — "this key is yours, yolo
+	// did not set it" is a real answer to "why does this file say that".
+	for _, k := range present {
+		prov[k] = agentcfg.LayerHost
+	}
+	for _, ov := range overlays {
+		layer, isMap := ov.Data.(map[string]any)
+		if !isMap {
+			continue
+		}
+		for k := range layer {
+			prov[k] = agentcfg.OverlayLayer(ov.Pack)
+		}
+	}
+	// Only OBJECT-valued computed keys are dynamic managed tables, matching
+	// regenerateManagedTables — a non-object computed value is skipped there, so claiming
+	// it here would attribute a write that never happened.
+	for k, v := range computed {
+		if _, isObj := v.(map[string]any); isObj {
+			prov[k] = agentcfg.LayerComputed
+		}
+	}
+	if managed, isMap := surface.Managed.(map[string]any); isMap {
+		for k, v := range managed {
+			if v == nil {
+				continue // an RFC-7386 tombstone asserts no value to attribute
+			}
+			prov[k] = agentcfg.LayerManaged
+		}
+	}
+	return prov
 }
 
 // regenerateManagedTables replaces each dynamic managed table on an RMW surface

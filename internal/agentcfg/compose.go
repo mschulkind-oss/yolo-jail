@@ -143,6 +143,30 @@ const (
 	layerConfigOverlay = "config-overlay"
 )
 
+// The provenance vocabulary, exported — because Compose is not the only writer that
+// has to speak it.
+//
+// An `rmw` surface has no layer FOLD: it merges each layer into whatever is already in
+// the file, in write order, and never produces a Result. So a caller that wants to
+// record which layer won each key on an rmw render has to build the map itself — and it
+// must use these exact strings, or `yolo config diff` ends up reading a second,
+// hand-copied vocabulary that is free to drift from this one. Exported so there is one
+// spelling of "managed" in the tree instead of one per writer.
+const (
+	LayerDefaults = layerDefaults
+	LayerHost     = layerHost
+	LayerComputed = layerComputed
+	LayerManaged  = layerManaged
+)
+
+// OverlayLayer is the provenance label for a config-overlay contribution by pack —
+// "config-overlay:<pack>". Both the writer that records a winner and the reader that
+// asks "did MY pack win this key?" need the same construction; a literal on either
+// side is a silent mismatch waiting to happen (the reader would report every win as a
+// loss, which is precisely the class of confident-wrong-answer this record exists to
+// remove).
+func OverlayLayer(pack string) string { return layerConfigOverlay + ":" + pack }
+
 // layerAbsent reports whether a layer says nothing and must be skipped — as
 // opposed to an explicitly empty value ("" / []any{} / {}) which is a real
 // assertion the layers fold honors.

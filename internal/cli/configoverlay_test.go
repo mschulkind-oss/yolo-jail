@@ -118,6 +118,10 @@ func TestConfigDiffShowsOverlayProvenance(t *testing.T) {
 		"acme":     acmeOwnerPackJSON,
 		"acme-fzf": acmeFzfPackJSON,
 	})
+	// This models the JAIL notch — it seeds the jail's sidecar tree — so pin it rather than
+	// depending on the ambient environment. `config diff` now reads the record for the notch
+	// it is describing, and a bare CI runner is host-side (see withLocalSurfaces).
+	withLocalSurfaces(t)
 	dir := withSidecarDir(t)
 	// The boot render's provenance sidecar: the overlay won `fileSuggestion`, the owner's
 	// managed layer won `telemetry`.
@@ -150,6 +154,7 @@ func TestConfigDiffShowsAnOverlayThatLost(t *testing.T) {
 	  {"kind":"config-overlay","surface":"acme/settings",
 	   "config":{"managed":{"telemetry":true}}}]}`
 	writeOverlayFixture(t, map[string]string{"acme": acmeOwnerPackJSON, "pushy": pushy})
+	withLocalSurfaces(t) // the jail notch: this seeds the jail's sidecar
 	dir := withSidecarDir(t)
 	// The boot recorded `managed` as the winner: the owner beat the overlay.
 	writeProvenanceSidecar(t, dir, "acme", "settings", "telemetry\tmanaged\n")
@@ -168,15 +173,20 @@ func TestConfigDiffShowsAnOverlayThatLost(t *testing.T) {
 	}
 }
 
-// An `rmw` surface writes no sidecars by design, so there is no recorded winner. The diff
-// must say THAT rather than reporting the overlay as lost — the two are different states
-// and conflating them sends a user chasing a non-defect.
+// An `rmw` surface IN A JAIL writes no sidecars by design, so there is no recorded winner.
+// The diff must say THAT rather than reporting the overlay as lost — the two are different
+// states and conflating them sends a user chasing a non-defect.
+//
+// Jail-specific, and deliberately so: at the HOST notch every surface is rmw and every one
+// of them DOES get a record, which is what makes the host's absence a different message with
+// a different remedy (see TestConfigDiffHostNotchWithNoApplyYet).
 func TestConfigDiffOverlayOnRMWSurfaceSaysNoProvenanceRecorded(t *testing.T) {
 	rmwOwner := `{"name":"acme","contributes":[
 	  {"kind":"config","config":[{"agent":"acme","name":"settings","codec":"json",
 	    "path":"~/.acme/settings.json","mode":"rmw","managed":{"telemetry":false}}]}]}`
 	writeOverlayFixture(t, map[string]string{"acme": rmwOwner, "acme-fzf": acmeFzfPackJSON})
-	withSidecarDir(t) // no provenance sidecar: rmw writes none
+	withLocalSurfaces(t)
+	withSidecarDir(t) // no provenance sidecar: rmw writes none in a jail
 
 	var out, errw bytes.Buffer
 	if rc := configDiff([]string{"acme"}, &out, &errw, false); rc != 0 {
