@@ -202,6 +202,12 @@ func (p *Plugin) HostAccessClaims() []string {
 //	{paths:[…]}       → <dir>/skills PLUS those paths
 //	{paths:[…],exclusive:true} → only those paths
 //
+// With ONE evidence-driven exception: a list naming the plugin root itself (`skills: ["./"]`,
+// which is what the real scaffolder emits) also gets the default `skills/` dir. Verified
+// against a scaffolded plugin, where that single manifest yields BOTH the root's own skill
+// (`/<plugin>`) and a nested one (`/<plugin>:<skill>`) — so reading the list as strictly
+// exclusive there would drop every nested skill of the most common layout there is.
+//
 // An escaping path is refused rather than clamped: `skills: ["../../.ssh"]` in someone
 // else's repo must not become a directory yolo copies into the user's home.
 func (p *Plugin) SkillRoots() (roots []string, problems []string) {
@@ -215,13 +221,20 @@ func (p *Plugin) SkillRoots() (roots []string, problems []string) {
 			roots = append(roots, def)
 		}
 	}
+	selfReferential := false
 	for _, rel := range paths {
 		abs := filepath.Join(p.Dir, strings.TrimPrefix(rel, "./"))
 		if !inside(p.Dir, abs) {
 			problems = append(problems, "skills path "+rel+" escapes the plugin directory")
 			continue
 		}
+		if filepath.Clean(abs) == filepath.Clean(p.Dir) {
+			selfReferential = true
+		}
 		roots = append(roots, abs)
+	}
+	if selfReferential {
+		roots = append(roots, def)
 	}
 	return dedupe(roots), problems
 }
@@ -268,6 +281,58 @@ func (p *Plugin) SkillDirs() map[string]string {
 	return out
 }
 
+// ComponentPaths returns every absolute path inside the plugin that belongs to the PLUGIN
+// MACHINERY rather than to a plain skill: its manifest dirs and every component path it
+// declares (plus each component's default location, since a tool falls back to those).
+//
+// It exists for one narrow but sharp case. When a plugin's root is itself a skill — the
+// `skills: ["./"]` layout the real scaffolder emits — a flat destination has to deliver that
+// root as an ordinary skill directory, and a naive recursive copy of it drags the ENTIRE
+// plugin along: manifest, hooks, agents, everything the flat path just refused by name. That
+// turns the refusal into a cosmetic message while the components land anyway, which is worse
+// than either delivering or refusing honestly.
+//
+// Driven by the manifest rather than by a hardcoded dir list, because the point is to exclude
+// what THIS plugin says its components are, not what a plugin usually calls them.
+func (p *Plugin) ComponentPaths() []string {
+	var out []string
+	for _, sub := range manifestDirs {
+		if sub == "." {
+			out = append(out, filepath.Join(p.Dir, manifestName))
+			continue
+		}
+		out = append(out, filepath.Join(p.Dir, filepath.FromSlash(sub)))
+	}
+	// Every component's declared paths plus its conventional default DIRECTORY NAMES. Both
+	// spellings, because a manifest field is camelCase (`outputStyles`) while the directory
+	// beside it is conventionally kebab-case (`output-styles/`) — guessing only the field name
+	// missed the real directory, which a running test caught. A component declared as an inline
+	// object (hooks as a map, say) has no path to exclude at all: its content lives in the
+	// manifest, already excluded above.
+	for field, raw := range map[string]json.RawMessage{
+		"skills": p.Manifest.Skills, "commands": p.Manifest.Commands,
+		"agents": p.Manifest.Agents, "hooks": p.Manifest.Hooks,
+		"mcpServers": p.Manifest.MCPServers, "lspServers": p.Manifest.LSPServers,
+		"outputStyles": p.Manifest.OutputStyles,
+	} {
+		out = append(out, filepath.Join(p.Dir, field), filepath.Join(p.Dir, kebab(field)))
+		paths, _, _ := pathSpec(raw)
+		for _, rel := range paths {
+			abs := filepath.Join(p.Dir, strings.TrimPrefix(rel, "./"))
+			// A path resolving to the plugin root is the self-reference, not a component dir;
+			// excluding it would exclude everything.
+			if filepath.Clean(abs) == filepath.Clean(p.Dir) || !inside(p.Dir, abs) {
+				continue
+			}
+			out = append(out, abs)
+		}
+	}
+	// `.mcp.json` is the conventional sibling file an mcpServers entry points at, and it is
+	// plugin machinery wherever it is named from.
+	out = append(out, filepath.Join(p.Dir, ".mcp.json"))
+	return dedupe(out)
+}
+
 // Load reads the plugin manifest in dir, returning ok=false when dir is not plugin-shaped.
 //
 // A malformed manifest reads as NOT a plugin rather than as an error, and that direction is
@@ -291,7 +356,11 @@ func Load(dir string) (*Plugin, bool) {
 	if err != nil {
 		abs = dir
 	}
-	return &Plugin{Dir: abs, ManifestPath: filepath.Join(abs, relTo(dir, path)), Manifest: m}, true
+	absManifest, err := filepath.Abs(path)
+	if err != nil {
+		absManifest = path
+	}
+	return &Plugin{Dir: abs, ManifestPath: absManifest, Manifest: m}, true
 }
 
 // ManifestPath returns the plugin manifest inside dir and whether one exists, searching
@@ -412,13 +481,19 @@ func inside(root, path string) bool {
 	return rel != ".." && !strings.HasPrefix(rel, ".."+string(filepath.Separator))
 }
 
-// relTo returns path relative to base, or path unchanged when it is not under it.
-func relTo(base, path string) string {
-	rel, err := filepath.Rel(base, path)
-	if err != nil {
-		return path
+// kebab lowers a camelCase manifest field to the kebab-case directory name the same component
+// conventionally uses on disk ("outputStyles" -> "output-styles").
+func kebab(s string) string {
+	var b strings.Builder
+	for _, r := range s {
+		if r >= 'A' && r <= 'Z' {
+			b.WriteByte('-')
+			b.WriteRune(r + ('a' - 'A'))
+			continue
+		}
+		b.WriteRune(r)
 	}
-	return rel
+	return b.String()
 }
 
 func dedupe(in []string) []string {

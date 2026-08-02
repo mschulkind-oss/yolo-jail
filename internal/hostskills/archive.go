@@ -66,7 +66,17 @@ func Archive(root ArchiveRoot, stamp, pack, src string) (string, error) {
 
 // copyTree copies a file or directory tree, preserving the exec bit (a skill may ship a
 // script, and an archived copy the user restores must still run).
-func copyTree(src, dst string) error {
+func copyTree(src, dst string) error { return copyTreeExcept(src, dst, nil) }
+
+// copyTreeExcept is copyTree skipping the given absolute source paths (and their subtrees).
+// The only caller that passes any is the flat plugin delivery — see Request.excludePaths for
+// why omitting content is the honest option there and nowhere else.
+func copyTreeExcept(src, dst string, exclude []string) error {
+	for _, ex := range exclude {
+		if filepath.Clean(ex) == filepath.Clean(src) {
+			return nil
+		}
+	}
 	fi, err := os.Lstat(src)
 	if err != nil {
 		return err
@@ -80,7 +90,8 @@ func copyTree(src, dst string) error {
 			return err
 		}
 		for _, e := range entries {
-			if err := copyTree(filepath.Join(src, e.Name()), filepath.Join(dst, e.Name())); err != nil {
+			if err := copyTreeExcept(filepath.Join(src, e.Name()),
+				filepath.Join(dst, e.Name()), exclude); err != nil {
 				return err
 			}
 		}

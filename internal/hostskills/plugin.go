@@ -26,6 +26,7 @@ package hostskills
 
 import (
 	"encoding/json"
+	"fmt"
 	"os"
 	"path/filepath"
 	"sort"
@@ -135,7 +136,7 @@ func deliverPluginTree(req PluginRequest, name string) ([]Result, error) {
 		out[0].Action, out[0].Detail = ActionRefused, err.Error()
 		return out, nil
 	}
-	if err := markManifest(dest, req.Plugin.ManifestPath); err != nil {
+	if err := markManifest(dest, req.Plugin.ManifestRel()); err != nil {
 		out[0].Action, out[0].Detail = ActionRefused, err.Error()
 		return out, nil
 	}
@@ -170,13 +171,20 @@ func deliverPluginFlat(req PluginRequest, name string) ([]Result, error) {
 	// Reuse the flat delivery wholesale rather than reimplementing the ownership rules: a
 	// plugin's skill in a flat dir is a skill in a flat dir, and a second copy of "is this
 	// entry the user's?" is a second chance to get it wrong.
+	// exclude is the sharp part, and it was found by RUNNING this rather than by reading it.
+	// When the plugin's ROOT is itself a skill (`skills: ["./"]`, the layout the real
+	// scaffolder emits), the root is delivered as an ordinary skill dir — and a plain
+	// recursive copy of it drags the whole plugin along: manifest, hooks, agents, every
+	// component the loop above just refused BY NAME. The refusal would print while the
+	// components arrived anyway, which is the one outcome worse than either honest answer.
 	res, err := deliverFlat(Request{
-		Pack:        req.Pack,
-		SkillsDir:   req.SkillsDir,
-		Manifest:    req.Manifest,
-		ArchiveRoot: req.ArchiveRoot,
-		Stamp:       req.Stamp,
-		Observe:     req.Observe,
+		Pack:         req.Pack,
+		SkillsDir:    req.SkillsDir,
+		Manifest:     req.Manifest,
+		ArchiveRoot:  req.ArchiveRoot,
+		Stamp:        req.Stamp,
+		Observe:      req.Observe,
+		excludePaths: req.Plugin.ComponentPaths(),
 	}, skills)
 	return append(out, res...), err
 }
@@ -194,7 +202,7 @@ func pluginTreeDetail(name string, skills map[string]string) string {
 	sort.Strings(names)
 	detail := "plugin tree copied verbatim — invoke as " + names[0]
 	if len(names) > 1 {
-		detail += " (+" + itoa(len(names)-1) + " more)"
+		detail += fmt.Sprintf(" (+%d more)", len(names)-1)
 	}
 	return detail
 }
@@ -204,13 +212,9 @@ func pluginTreeDetail(name string, skills map[string]string) string {
 //
 // Decoded into a map, not into a struct: a struct round-trip would drop every field yolo does
 // not model, which is precisely the plugin content this whole file exists to carry through
-// intact. relManifest keeps the marker in the SAME file the source used, so a plugin whose
-// manifest lives at `.plugin/plugin.json` is not silently given a second one.
-func markManifest(destDir, srcManifest string) error {
-	rel := pluginpack.PreferredManifestDir + "/" + "plugin.json"
-	if r, ok := relManifest(srcManifest); ok {
-		rel = r
-	}
+// intact. rel is the manifest's location WITHIN the tree, so a plugin whose manifest lives at
+// `.plugin/plugin.json` is not silently given a second one under `.claude-plugin/`.
+func markManifest(destDir, rel string) error {
 	path := filepath.Join(destDir, filepath.FromSlash(rel))
 	data, err := os.ReadFile(path)
 	if err != nil {
@@ -233,33 +237,4 @@ func markManifest(destDir, srcManifest string) error {
 		return err
 	}
 	return os.WriteFile(path, append(out, '\n'), 0o644)
-}
-
-// relManifest recovers the manifest's path relative to its plugin dir from the absolute path
-// pluginpack recorded, so the marker is written back into the same file.
-func relManifest(srcManifest string) (string, bool) {
-	dir := filepath.Base(filepath.Dir(srcManifest))
-	base := filepath.Base(srcManifest)
-	if dir == "" || dir == "." || dir == string(filepath.Separator) {
-		return base, true
-	}
-	// The manifest may sit two levels down (".github/plugin/plugin.json"); recover that too.
-	parent := filepath.Base(filepath.Dir(filepath.Dir(srcManifest)))
-	if parent == ".github" {
-		return parent + "/" + dir + "/" + base, true
-	}
-	return dir + "/" + base, true
-}
-
-// itoa avoids pulling strconv in for one call site.
-func itoa(n int) string {
-	if n == 0 {
-		return "0"
-	}
-	var b []byte
-	for n > 0 {
-		b = append([]byte{byte('0' + n%10)}, b...)
-		n /= 10
-	}
-	return string(b)
 }

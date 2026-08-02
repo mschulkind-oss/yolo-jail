@@ -35,6 +35,13 @@ const (
 	KindProgram Kind = "program"
 	// KindSkills: a skills tree merged into an agent's skills dir. Multiple packs
 	// into one dir is the feature, not a conflict (ordered merge).
+	//
+	// It also carries a WRAPPED AGENT PLUGIN — a subtree with its own plugin manifest,
+	// recognized from the filesystem rather than declared (internal/pluginpack). That has no
+	// kind of its own deliberately: a plugin is skills plus components yolo does not model,
+	// and a `plugin` kind would be a second name for the same destination whose combine rule
+	// had to be kept in sync with this one. What it needs instead is the exclusivity a
+	// per-plugin-name claim gets in the footprint, since delivery is one directory per name.
 	KindSkills Kind = "skills"
 	// KindBriefing: briefing prose concatenated at a path (the AGENTS.md/CLAUDE.md
 	// slot). Multiple packs concatenate in order.

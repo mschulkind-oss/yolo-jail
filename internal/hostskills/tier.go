@@ -180,3 +180,14 @@ func writePluginManifest(packDir, pack, description string) error {
 	}
 	return os.WriteFile(filepath.Join(dir, pluginManifestName), append(data, '\n'), 0o644)
 }
+
+// hasPluginManifest reports whether dir already carries a plugin manifest — either a real
+// one from a wrapped plugin (delivered verbatim) or one yolo wrote on a previous apply.
+//
+// The distinction deliberately does NOT matter to the caller: in both cases the right move
+// is to leave it alone. Overwriting a plugin's manifest destroys the components it declares
+// (hooks, MCP servers, agents), and rewriting yolo's own identical copy buys nothing.
+func hasPluginManifest(dir string) bool {
+	_, err := os.Stat(filepath.Join(dir, pluginManifestDir, pluginManifestName))
+	return err == nil
+}

@@ -62,6 +62,20 @@ func applyHostSkills(pr richtext.Printer, errw io.Writer, p *packload.Pack, home
 		pr.Printf("  [yellow]⚠ skills: %v — treating every existing entry as yours[/yellow]", err)
 	}
 
+	// A pack may WRAP an existing agent plugin — a subtree carrying its own plugin manifest.
+	// Those are delivered by copying the tree verbatim (the destination tool already loads
+	// exactly that shape), so they are pulled out of the ordinary skill set below rather than
+	// flattened into loose skills. Origin-gated: a fetched pack's plugin that runs code needs
+	// the same approval any other host-power claim needs.
+	plugins, pluginRefused := p.HonoredPlugins()
+	for _, msg := range pluginRefused {
+		pr.Printf("  [yellow]skills     refused[/yellow] — %s", msg)
+	}
+	pluginDirs := make([]string, 0, len(plugins))
+	for _, pl := range plugins {
+		pluginDirs = append(pluginDirs, pl.Dir)
+	}
+
 	rc := 0
 	for _, c := range contributions {
 		tier, ok := hostskills.ParseTier(c.Tier)
@@ -70,13 +84,37 @@ func applyHostSkills(pr richtext.Printer, errw io.Writer, p *packload.Pack, home
 			// hand-edited staged tree). Say so rather than silently choosing.
 			pr.Printf("  [yellow]skills     unknown tier %q — using flat (the safe tier)[/yellow]", c.Tier)
 		}
+		skillsDir := filepath.Join(home, c.Into)
+		for _, pl := range plugins {
+			results, derr := hostskills.DeliverPlugin(hostskills.PluginRequest{
+				Pack:        p.Name,
+				Plugin:      pl,
+				SkillsDir:   skillsDir,
+				Tier:        tier,
+				Manifest:    man,
+				ArchiveRoot: hostSkillsArchiveRoot(),
+				Stamp:       stamp,
+				Observe:     !write,
+			})
+			if derr != nil {
+				pr.Printf("  [red]skills     plugin %s failed[/red] — %v", pl.Name(), derr)
+				rc = 1
+				continue
+			}
+			for _, r := range results {
+				printSkillResult(pr, r)
+			}
+		}
 		results, derr := hostskills.Deliver(hostskills.Request{
 			Pack:        p.Name,
 			Description: p.Decl.Description,
 			// The pack's own skills/ dir is the only source. Built-ins and the user's
 			// own tree are both deliberately excluded (see the file comment).
-			Sources:     []string{filepath.Join(p.Root, "skills")},
-			SkillsDir:   filepath.Join(home, c.Into),
+			Sources: []string{filepath.Join(p.Root, "skills")},
+			// A wrapped plugin's subtree is already delivered verbatim above, so it must not
+			// ALSO arrive here as a loose skill dir named after the plugin.
+			SkipSources: pluginDirs,
+			SkillsDir:   skillsDir,
 			Tier:        tier,
 			Manifest:    man,
 			ArchiveRoot: hostSkillsArchiveRoot(),
@@ -88,7 +126,7 @@ func applyHostSkills(pr richtext.Printer, errw io.Writer, p *packload.Pack, home
 			rc = 1
 			continue
 		}
-		if len(results) == 0 {
+		if len(results) == 0 && len(plugins) == 0 {
 			// A pack that CARRIES no skills is normal and common: the six shipped agent
 			// packs declare a `skills` contribution to name the destination their agent
 			// reads from, and the content comes from the user's own packs merging into it.

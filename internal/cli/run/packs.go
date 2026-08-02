@@ -14,6 +14,7 @@ import (
 	"io/fs"
 	"os"
 	"path/filepath"
+	"sort"
 	"strings"
 
 	"github.com/mschulkind-oss/yolo-jail/internal/agents"
@@ -242,9 +243,14 @@ func packMayAccessHost(entry config.PackEntry, dest string, lock *packsrc.Lock) 
 	if p == nil {
 		return false
 	}
-	want := p.Decl.HostAccessClaims()
+	// The pack's own claims PLUS any wrapped plugin's code-running components. Both halves,
+	// or the gate disagrees with the prompt: `pack install` approves the merged set, so
+	// checking only the contributions here would grant a fetched plugin's hooks on the
+	// strength of an approval that never mentioned them.
+	want := append(p.Decl.HostAccessClaims(), p.PluginHostAccessClaims()...)
+	sort.Strings(want)
 	if len(want) == 0 {
-		return true // reads nothing from the host; the gate is moot
+		return true // reads nothing from the host, runs nothing on it; the gate is moot
 	}
 	if lock == nil {
 		return false

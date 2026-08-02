@@ -24,6 +24,7 @@ import (
 	"io"
 	"os"
 	"path/filepath"
+	"sort"
 	"strings"
 
 	"github.com/mschulkind-oss/yolo-jail/internal/config"
@@ -32,6 +33,7 @@ import (
 	"github.com/mschulkind-oss/yolo-jail/internal/packsrc"
 	"github.com/mschulkind-oss/yolo-jail/internal/packstage"
 	"github.com/mschulkind-oss/yolo-jail/internal/paths"
+	"github.com/mschulkind-oss/yolo-jail/internal/pluginpack"
 	"github.com/mschulkind-oss/yolo-jail/internal/richtext"
 )
 
@@ -91,6 +93,11 @@ with a notice. Static "env" values are never gated (they read nothing from the h
 every loaded pack's host access is listed in the startup banner each launch.
 
   yolo pack init [dir]        scaffold a pack skeleton (default: current dir)
+                              --from-plugin <dir>  wrap an EXISTING agent plugin (a tree with
+                              a .claude-plugin/plugin.json) as a pack: its tree is delivered
+                              verbatim, so its skills invoke as /<plugin>:<skill> and cannot
+                              collide with yours. Components that RUN (hooks, MCP/LSP servers)
+                              are named at init and approved at install.
   yolo pack lint [dir]        validate the tree AND the pack.json manifest; print its footprint
                               --allow-exec  lint as a consumer who set "allow_exec"
   yolo pack ls                list configured packs and what each stages
@@ -161,10 +168,26 @@ func packMain(args []string, out, errw io.Writer, color bool, stdin io.Reader) i
 // AGENTS.md. It writes a working example rather than empty placeholders, because the
 // first question an author has is "what shape does this need to be", and an empty
 // dir answers nothing.
+//
+// --from-plugin <dir> wraps an EXISTING agent plugin instead, which is what turns "you can
+// pull in a plugin" from documented into trivial.
 func packInit(args []string, out, errw io.Writer) int {
 	dir := "."
-	if len(args) > 0 {
-		dir = args[0]
+	fromPlugin := ""
+	for i := 0; i < len(args); i++ {
+		switch a := args[i]; {
+		case a == "--from-plugin":
+			if i+1 >= len(args) {
+				fmt.Fprintf(errw, "yolo pack init: --from-plugin needs a plugin directory\n")
+				return 2
+			}
+			i++
+			fromPlugin = args[i]
+		case strings.HasPrefix(a, "--from-plugin="):
+			fromPlugin = strings.TrimPrefix(a, "--from-plugin=")
+		default:
+			dir = a
+		}
 	}
 	abs, err := filepath.Abs(dir)
 	if err != nil {
@@ -172,6 +195,9 @@ func packInit(args []string, out, errw io.Writer) int {
 		return 1
 	}
 	name := filepath.Base(abs)
+	if fromPlugin != "" {
+		return packInitFromPlugin(fromPlugin, abs, name, out, errw)
+	}
 
 	type packFile struct{ rel, content string }
 	files := []packFile{
@@ -194,24 +220,31 @@ func packInit(args []string, out, errw io.Writer) int {
 	// A SLICE, not a map: `init` output must be deterministic, and Go map iteration
 	// is not.
 	for _, f := range files {
-		rel, content := f.rel, f.content
-		p := filepath.Join(abs, rel)
-		if _, err := os.Stat(p); err == nil {
-			// Never clobber: init on an existing pack should be safe to re-run.
-			fmt.Fprintf(out, "  skip %s (exists)\n", rel)
-			continue
+		if rc := writeScaffoldFile(abs, f.rel, f.content, out, errw); rc != 0 {
+			return rc
 		}
-		if err := os.MkdirAll(filepath.Dir(p), 0o755); err != nil {
-			fmt.Fprintf(errw, "yolo pack init: %v\n", err)
-			return 1
-		}
-		if err := os.WriteFile(p, []byte(content), 0o644); err != nil {
-			fmt.Fprintf(errw, "yolo pack init: %v\n", err)
-			return 1
-		}
-		fmt.Fprintf(out, "  create %s\n", rel)
 	}
 	fmt.Fprintf(out, "\nPack scaffolded at %s\nNext: yolo pack lint %s\n", abs, dir)
+	return 0
+}
+
+// writeScaffoldFile writes one scaffolded file, never clobbering: `init` on an existing pack
+// must be safe to re-run. Shared with the --from-plugin path so both report identically.
+func writeScaffoldFile(root, rel, content string, out, errw io.Writer) int {
+	p := filepath.Join(root, rel)
+	if _, err := os.Stat(p); err == nil {
+		fmt.Fprintf(out, "  skip %s (exists)\n", rel)
+		return 0
+	}
+	if err := os.MkdirAll(filepath.Dir(p), 0o755); err != nil {
+		fmt.Fprintf(errw, "yolo pack init: %v\n", err)
+		return 1
+	}
+	if err := os.WriteFile(p, []byte(content), 0o644); err != nil {
+		fmt.Fprintf(errw, "yolo pack init: %v\n", err)
+		return 1
+	}
+	fmt.Fprintf(out, "  create %s\n", rel)
 	return 0
 }
 
@@ -286,7 +319,20 @@ func packLint(args []string, out, errw io.Writer, color bool) int {
 	}
 	// A skill dir without SKILL.md is invisible to every agent, which is the single
 	// most likely authoring mistake and produces no error anywhere else.
+	//
+	// A WRAPPED PLUGIN is the one exception, and it has to be: a plugin dir is not a skill
+	// dir — its skills live one level down and its manifest is what makes them loadable — so
+	// the SKILL.md rule would reject every plugin wrapper, including the one
+	// `pack init --from-plugin` just wrote. Recognized from the staged tree rather than
+	// assumed, so a dir merely NAMED like a plugin still gets the rule.
+	pluginDirs := map[string]bool{}
+	for _, pl := range pluginpack.Discover(tmp) {
+		pluginDirs[filepath.Base(pl.Dir)] = true
+	}
 	for _, d := range skillDirsMissingManifest(res.Staged) {
+		if pluginDirs[d] {
+			continue
+		}
 		problems = append(problems, "skills/"+d+" has no SKILL.md — agents will not see it")
 	}
 
@@ -781,9 +827,15 @@ func resolveHostApproval(name, treeRoot string, prev packsrc.LockEntry, hadPrev 
 	if p == nil {
 		return prevApproved(prev, hadPrev), false
 	}
-	want := p.Decl.HostAccessClaims()
+	// A WRAPPED PLUGIN's claims join the pack's own. They are not in pack.json — they come
+	// from the plugin's own manifest, which can declare hooks and MCP servers — so reading
+	// only the contributions would let a fetched tree arrive with code to run and nothing to
+	// approve. That is the specific hole plugin-as-pack could have opened, and merging here
+	// closes it with the gate that already exists rather than a second one beside it.
+	want := append(p.Decl.HostAccessClaims(), p.PluginHostAccessClaims()...)
+	sort.Strings(want)
 	if len(want) == 0 {
-		return nil, false // reads nothing from the host
+		return nil, false // reads nothing from the host, runs nothing on it
 	}
 	if hadPrev && prev.HostAccessApproved(want) {
 		// Nothing new since the last approval — carry it forward, no prompt. Re-record
@@ -793,7 +845,7 @@ func resolveHostApproval(name, treeRoot string, prev packsrc.LockEntry, hadPrev 
 
 	// New host access: show the full claim set (not just the delta — the user is
 	// approving the whole current footprint) and ask.
-	pr.Printf("  [bold yellow]⚠ pack %s reads your host:[/bold yellow]", name)
+	pr.Printf("  [bold yellow]⚠ pack %s reads your host or runs code on it:[/bold yellow]", name)
 	for _, c := range want {
 		pr.Printf("      [yellow]%s[/yellow]", c)
 	}

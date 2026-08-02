@@ -17,6 +17,7 @@ import (
 	"strings"
 
 	"github.com/mschulkind-oss/yolo-jail/internal/packdecl"
+	"github.com/mschulkind-oss/yolo-jail/internal/pluginpack"
 )
 
 // Claim is one concrete claim a pack makes: a kind, a target it claims, and the
@@ -120,6 +121,17 @@ func FootprintOf(p *Pack) Footprint {
 		// below, where the surface identity (agent/name) is available.
 	}
 
+	// A WRAPPED PLUGIN is a claim in its own right, and one the contributions cannot
+	// express: what it declares lives in ITS manifest, not in pack.json. So a plugin's
+	// components are invisible to the loop above — which for `hooks`/`mcpServers` would mean a
+	// pack that runs code on the user's behalf showing a footprint that says only "skills".
+	// Reported under KindSkills because that is the kind that carries it (see the plugin
+	// contribution note in kinds.go), with a target no real `into` path can collide with
+	// (manifest paths may not contain a colon).
+	for _, pl := range p.Plugins() {
+		add(packdecl.KindSkills, "plugin:"+pl.Name(), pluginClaimDetail(pl), pl.RunsCode())
+	}
+
 	// config → one claim per decoded surface, keyed by identity "agent/name".
 	if surfaces, _ := p.Surfaces(); len(surfaces) > 0 {
 		for _, s := range surfaces {
@@ -141,6 +153,31 @@ func FootprintOf(p *Pack) Footprint {
 		return fp.Claims[i].Target < fp.Claims[j].Target
 	})
 	return fp
+}
+
+// pluginClaimDetail describes a wrapped plugin in one footprint line: the components it
+// declares, with the code-running ones marked, since those are what the review flag is about.
+//
+// The word "RUNS CODE" is spelled out rather than left to the ⚠ marker because this claim is
+// the one place a user learns that installing a pack of "skills" also starts an MCP server.
+func pluginClaimDetail(pl *pluginpack.Plugin) string {
+	comps := pl.Components()
+	if len(comps) == 0 {
+		return "wrapped agent plugin (skills only)"
+	}
+	var names []string
+	runs := false
+	for _, c := range comps {
+		names = append(names, c.Name)
+		if c.RunsCode {
+			runs = true
+		}
+	}
+	detail := "wrapped agent plugin declaring " + strings.Join(names, ", ")
+	if runs {
+		detail += " — RUNS CODE"
+	}
+	return detail
 }
 
 // Collision is a conflict between two claims on one target that the kind's
@@ -214,6 +251,13 @@ func Collisions(packs []*Pack) []Collision {
 	// scope is fine (union). Detail carries the scope ("machine-wide …").
 	out = append(out, stateScopeCollisions(packs)...)
 
+	// A wrapped plugin NAME is exclusive even though skills merge: a plugin is delivered as
+	// one directory named for itself, so two packs wrapping same-named plugins want the same
+	// directory and the later apply would silently win. The generic loop above cannot see this
+	// (the claim's kind is skills, which merges by design), so it is its own pass — the same
+	// shape state's scope conflict needs, and for the same reason.
+	out = append(out, pluginNameCollisions(packs)...)
+
 	sort.SliceStable(out, func(i, j int) bool {
 		if out[i].Kind != out[j].Kind {
 			return out[i].Kind < out[j].Kind
@@ -265,6 +309,38 @@ func stateScopeCollisions(packs []*Pack) []Collision {
 				Reason: "state claimed at two scopes (workspace and machine-wide) — ambiguous which backing store wins",
 			})
 		}
+	}
+	return out
+}
+
+// pluginNameCollisions finds a plugin name wrapped by two different packs. Delivery is one
+// directory per plugin name, so two claimants mean one silently overwrites the other on every
+// apply — reported here rather than discovered as a plugin that keeps changing its mind.
+func pluginNameCollisions(packs []*Pack) []Collision {
+	byName := map[string]map[string]struct{}{}
+	var order []string
+	for _, p := range packs {
+		for _, pl := range p.Plugins() {
+			name := pl.Name()
+			if byName[name] == nil {
+				byName[name] = map[string]struct{}{}
+				order = append(order, name)
+			}
+			byName[name][p.Name] = struct{}{}
+		}
+	}
+	var out []Collision
+	for _, name := range order {
+		if len(byName[name]) < 2 {
+			continue
+		}
+		out = append(out, Collision{
+			Kind: packdecl.KindSkills, Target: "plugin:" + name,
+			Packs: sortedPackNames(byName[name]),
+			Reason: "two packs wrap a plugin named " + name +
+				"; a plugin is delivered as one directory under its own name, so one would " +
+				"overwrite the other — rename one plugin",
+		})
 	}
 	return out
 }

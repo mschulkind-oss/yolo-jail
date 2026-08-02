@@ -65,6 +65,11 @@ type Request struct {
 	// NOT included by the caller for a host render: yolo's own jail-oriented skills are
 	// noise in a real home.
 	Sources []string
+	// SkipSources are absolute source paths to leave out even when they sit inside a Source.
+	// Today that means a WRAPPED PLUGIN's subtree (plugin.go): it is delivered verbatim as a
+	// plugin, and without this it would ALSO be picked up here as an ordinary skill dir named
+	// after the plugin — the same content delivered twice, once loadable and once not.
+	SkipSources []string
 	// SkillsDir is the absolute destination skills dir (the tool's own, e.g.
 	// ~/.claude/skills).
 	SkillsDir string
@@ -78,6 +83,13 @@ type Request struct {
 	Stamp string
 	// Observe computes without writing.
 	Observe bool
+
+	// excludePaths are absolute source paths to omit from a copied skill's subtree. Unexported
+	// because it exists for exactly one caller (plugin.go's flat path) and one reason: a
+	// plugin whose ROOT is a skill would otherwise carry its whole manifest and every
+	// component along inside that "skill", arriving at a destination that just refused them by
+	// name. A general knob would invite using it to drop content for less honest reasons.
+	excludePaths []string
 }
 
 // Deliver renders one pack's skills into one real skills dir and returns one Result per
@@ -85,7 +97,7 @@ type Request struct {
 // impossible (an unwritable skills dir); a per-entry problem becomes a Result so the rest
 // still proceeds and the user sees the whole picture at once.
 func Deliver(req Request) ([]Result, error) {
-	skills, err := collectSkills(req.Sources)
+	skills, err := collectSkills(req.Sources, req.SkipSources)
 	if err != nil {
 		return nil, err
 	}
@@ -158,8 +170,24 @@ func deliverNamespaced(req Request, skills map[string]string) ([]Result, error) 
 		if err := os.MkdirAll(nested, 0o755); err != nil {
 			return out, err
 		}
-		if err := writePluginManifest(packDir, req.Pack, req.Description); err != nil {
-			return out, err
+		// Write yolo's synthetic manifest only when there is not already a REAL one here.
+		//
+		// A pack that wraps an agent plugin has its tree delivered verbatim by DeliverPlugin,
+		// manifest included — and that manifest carries the plugin's own `description`,
+		// `hooks`, `mcpServers`, and anything else yolo does not model. This function then
+		// runs at the same destination for the pack's ordinary skills, and overwriting the
+		// manifest with a generated one silently DESTROYED all of it: the delivered plugin
+		// kept its hooks/ and .mcp.json directories on disk while the manifest that points at
+		// them was replaced, so the tool loaded a plugin with none of its components. Verified
+		// by inspecting the delivered file — the copy is verbatim, then this undid it.
+		//
+		// Keeping the existing manifest is right in both directions: it is either the plugin's
+		// (must not be clobbered) or one yolo wrote on a previous apply (already correct, and
+		// re-writing it identical buys nothing).
+		if !hasPluginManifest(packDir) {
+			if err := writePluginManifest(packDir, req.Pack, req.Description); err != nil {
+				return out, err
+			}
 		}
 	}
 
@@ -253,7 +281,7 @@ func deliverFlat(req Request, skills map[string]string) ([]Result, error) {
 					r.Detail += " (previous copy archived to " + at + ")"
 				}
 			}
-			if err := copyTree(skills[name], dest); err != nil {
+			if err := copyTreeExcept(skills[name], dest, req.excludePaths); err != nil {
 				r.Action, r.Detail = ActionRefused, err.Error()
 			} else {
 				man.Record(dest, req.Pack)
@@ -267,8 +295,12 @@ func deliverFlat(req Request, skills map[string]string) ([]Result, error) {
 // collectSkills walks the source dirs in order and returns {skill name -> source path},
 // later sources winning a name. Only directories count: a loose .md file in a skills dir is
 // not a skill to any of these tools, and copying it would put unreadable content in a real
-// home.
-func collectSkills(sources []string) (map[string]string, error) {
+// home. Entries listed in skip are left out (see Request.SkipSources).
+func collectSkills(sources, skip []string) (map[string]string, error) {
+	skipSet := map[string]bool{}
+	for _, s := range skip {
+		skipSet[filepath.Clean(s)] = true
+	}
 	out := map[string]string{}
 	for _, src := range sources {
 		entries, err := os.ReadDir(src)
@@ -280,6 +312,9 @@ func collectSkills(sources []string) (map[string]string, error) {
 		}
 		for _, e := range entries {
 			full := filepath.Join(src, e.Name())
+			if skipSet[filepath.Clean(full)] {
+				continue
+			}
 			// Stat, not the DirEntry: a symlink to a directory is a legitimate skill (the
 			// tools follow them), and Lstat-based IsDir would drop it.
 			fi, err := os.Stat(full)
