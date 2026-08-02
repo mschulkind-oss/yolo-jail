@@ -199,7 +199,12 @@ const (
 	buildRootOlderThanSeconds = 3600.0 // build-root sweep grace floor
 	imageRootOlderThanSeconds = 3600.0 // image GC-root reap grace floor
 	relayOlderThanSeconds     = 3600.0 // relay reap default grace floor
-	imagesHintThreshold       = 20 * (1 << 30)
+	// hostArchiveKeep is how many `apply --host` archive generations survive a prune.
+	// Small on purpose: the archive is an undo buffer for the last few applies, and each
+	// generation holds only what a render actually retired (usually nothing), so keeping
+	// more buys little. Three covers "I applied, noticed, applied again, then looked".
+	hostArchiveKeep     = 3
+	imagesHintThreshold = 20 * (1 << 30)
 )
 
 // Run executes `yolo prune`, writing the report to Out, and returns the exit
@@ -399,6 +404,39 @@ func Run(opts Options) int {
 			p.line("  [dim]none[/dim]")
 		}
 		totalSaved += buildRootBytes
+	}
+
+	// --- Host-render archive generations ---
+	// What `yolo apply --host` moves aside when it retires a skill or file it previously
+	// delivered. It archives rather than deletes because the ownership record authorizing
+	// the removal can be stale, and a stale record plus rm is data loss in the user's own
+	// home — so this is the undo buffer for host renders.
+	//
+	// Prune owns the cleanup, not apply: an unbounded archive is a disk leak, but a
+	// destructive sweep must not be a side effect of a render. Keeps the newest few
+	// generations rather than applying an age cutoff — the archive answers "undo my last few
+	// applies", and an age rule would drop exactly the generation you want at the moment you
+	// were iterating.
+	var hostArchiveBytes int64
+	var hostArchiveGens int
+	{
+		p.line("")
+		p.line("[bold]Host-render archive[/bold]")
+		var names []string
+		hostArchiveBytes, hostArchiveGens, names = PruneHostArchive(
+			joinPath(joinPath(gs, "archive"), "skills"), hostArchiveKeep, apply)
+		if hostArchiveGens > 0 {
+			p.line(fmt.Sprintf("  %s: %s across %s generation(s)",
+				verb(apply, "would remove", "removed"), FmtBytes(hostArchiveBytes), fmtComma(hostArchiveGens)))
+			// NO SILENT CAPS: name what went, so "reclaimed 40 MB" is auditable rather than
+			// something the user has to take on trust about their own home.
+			for _, n := range names {
+				p.line("    [dim]" + n + "[/dim]")
+			}
+		} else {
+			p.line("  [dim]none[/dim]")
+		}
+		totalSaved += hostArchiveBytes
 	}
 
 	// --- Orphaned image GC roots ---
