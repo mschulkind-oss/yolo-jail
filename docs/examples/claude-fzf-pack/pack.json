@@ -1,0 +1,33 @@
+{
+  "name": "claude-fzf",
+  "description": "An fd|fzf custom file finder for Claude Code's @-file completion.",
+  "contributes": [
+    {
+      "kind": "files",
+      "from": "bin",
+      "into": ".claude/bin"
+    },
+    {
+      "kind": "config",
+      "config": [
+        {
+          "agent": "claude",
+          "name": "settings",
+          "codec": "json",
+          "path": "~/.claude/settings.json",
+          "managed": {
+            "fileSuggestion": {
+              "type": "command",
+              "command": "~/.claude/bin/file-suggestion.sh"
+            }
+          }
+        }
+      ]
+    },
+    {
+      "kind": "briefing",
+      "from": "AGENTS.md",
+      "into": ".claude/CLAUDE.md"
+    }
+  ]
+}
