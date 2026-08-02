@@ -25,6 +25,7 @@ import (
 
 	"github.com/mschulkind-oss/yolo-jail/internal/config"
 	"github.com/mschulkind-oss/yolo-jail/internal/entrypoint"
+	"github.com/mschulkind-oss/yolo-jail/internal/packdecl"
 	"github.com/mschulkind-oss/yolo-jail/internal/render"
 	"github.com/mschulkind-oss/yolo-jail/internal/richtext"
 )
@@ -149,12 +150,29 @@ func applyHost(out, errw io.Writer, color bool, write bool) int {
 			pr.Printf("[dim]%s: not resolvable offline (fetched packs need `yolo pack install`) — skipped[/dim]", e.Name)
 			continue
 		}
-		// Refuse the non-config kinds by name (the FieldSet census) before rendering.
+		// Account for EVERY kind the pack declares, before rendering. Three outcomes, and
+		// the invariant is that there is no fourth: refused by the census, honored-but-
+		// unbuilt (named as such), or rendered below. A kind that produced no line at all
+		// was the G1 bug — `skills`/`briefing` were honored by the FieldSet but rendered by
+		// nothing, so they vanished silently, which is strictly worse than a loud refusal.
 		for _, c := range p.Decl.Contributions() {
-			if !hostFields.Honors(c.Kind) {
+			switch {
+			case !hostFields.Honors(c.Kind):
 				pr.Printf("  [yellow]%-10s refused[/yellow] — %s", string(c.Kind), hostFields.Refuse(c.Kind))
-			} else if c.Kind == "program" {
+			case c.Kind == "program":
 				pr.Printf("  [yellow]program[/yellow] — install below jail is confirm-gated; not run by apply --host yet (Phase 4.3)")
+			case c.Kind == packdecl.KindAutonomy:
+				// Rendered, but INVISIBLY: an autonomy posture folds into the managed layer
+				// of a surface the same pack owns, so it shows up as that surface's line and
+				// never as its own. Say which posture won, because "did my jail-bypass keys
+				// reach my real home?" is the single most consequential question this
+				// command answers (env-manager Phase 9).
+				pr.Printf("  [cyan]autonomy[/cyan]   guarded posture — permission prompts " +
+					"stay ON; folded into this pack's own config surfaces below")
+			default:
+				if why, unbuilt := render.HostUnimplemented(c.Kind); unbuilt {
+					pr.Printf("  [yellow]%-10s refused[/yellow] — %s", string(c.Kind), why)
+				}
 			}
 		}
 		results, rerr := entrypoint.RenderHostPack(p, home, !write)

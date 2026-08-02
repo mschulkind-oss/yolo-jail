@@ -42,6 +42,58 @@ var refusalReasons = map[packdecl.Kind]string{
 	packdecl.KindFiles:     "files binds a pack tree into a jail — nothing to bind into off-container",
 }
 
+// hostUnimplemented names the kinds a host target's FieldSet HONORS but whose renderer is
+// not built yet, with the reason to print. It is the fix for the failure mode G1 shipped:
+// HostFields() promised `skills` and `briefing` applied, while RenderHostPack iterated
+// config surfaces only — so a kind that was applicable but had no surface was neither
+// rendered NOR refused, and vanished with no output line at all. `refusalReasons` could not
+// cover them precisely because the census says they DO apply.
+//
+// Kept as DATA rather than two `if`s at the call site so each phase that implements one
+// deletes an entry here instead of untangling a conditional. An empty map is the end state.
+// Four of these were found by the no-silent-skip TEST, not by the gap report that
+// prompted this map — G1 named only skills and briefing. `launch`, `env`,
+// `config-overlay` and (visibly) `autonomy` were skipped just as silently. That is the
+// argument for asserting the invariant over the whole kind set rather than patching the
+// two kinds someone happened to notice.
+var hostUnimplemented = map[packdecl.Kind]string{
+	packdecl.KindSkills: "host skills render not implemented yet " +
+		"(docs/plans/pack-host-management-plan.md Phase 4)",
+	packdecl.KindBriefing: "host briefing render not implemented yet; a naive append " +
+		"would duplicate your prose on every apply (same plan, Phase 5)",
+	// Inert at EVERY target, not just this one (pack-system.md §14): the kind parses,
+	// validates and has a combine rule, but no boot-path code collects overlays and feeds
+	// them to the assembler.
+	packdecl.KindConfigOverlay: "config-overlay is not applied at any target yet — it " +
+		"parses and validates, but nothing collects overlays during a render",
+	// Honored in the census because a host target CAN express the concept, but there is
+	// nothing to express it INTO: below jail, yolo launches no process, so there is no
+	// shim and no argv to inject flags after.
+	packdecl.KindLaunch: "launch flags need a launcher — apply --host configures your " +
+		"tools but never runs them, so there is nowhere to inject them",
+	// Same shape: a jail gets these as `-e` on the container. On a real host the only
+	// place to put them is a shell profile, and editing your shell rc unprompted is a
+	// much larger claim than a pack's env contribution asks for.
+	packdecl.KindEnv: "host env render not implemented — the only place to set these " +
+		"off-container is your shell profile, which apply --host does not write",
+	// The three shipped hooks are all jail plumbing: shared_credentials symlinks a
+	// credentials file into a machine-global dir, per_jail_history isolates a history
+	// file PER JAIL, claude_plugins reconciles in-jail plugin installs. Off-container
+	// each is either meaningless or a mutation of real user state that no pack should
+	// perform unprompted. Refused deliberately, not merely unbuilt.
+	packdecl.KindHook: "hooks are jail provisioning steps (credential symlinks, " +
+		"per-jail history, plugin reconciliation) — apply --host does not run them " +
+		"against your real home",
+}
+
+// HostUnimplemented returns the reason a kind is honored-but-unbuilt at a host target, and
+// ok=false once it is implemented (or was never in the set). Callers report it the same way
+// they report a refusal — the point is that NOTHING a pack declares is silently absent.
+func HostUnimplemented(k packdecl.Kind) (string, bool) {
+	r, ok := hostUnimplemented[k]
+	return r, ok
+}
+
 // JailFields is every kind: a jail honors the whole manifest.
 func JailFields() FieldSet {
 	all := map[packdecl.Kind]bool{}
