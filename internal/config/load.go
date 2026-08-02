@@ -222,17 +222,43 @@ func LoadWorkspaceConfig(workspace string, strict bool, warn Warn) (*jsonx.Order
 
 // LoadConfig merges the user-level config under the workspace config.
 func LoadConfig(workspace string, strict bool, warn Warn) (*jsonx.OrderedMap, error) {
-	// Inside a jail, do NOT re-assemble: COPY the host's already-merged config
-	// from the workspace snapshot instead. The user-level `include_if_found`
-	// overrides (e.g. a machine-local overrides.jsonc carrying mcp_servers) live
-	// on the HOST and are never mounted into the jail, so an in-jail re-merge
-	// silently drops them — producing a reduced config that (a) mismatches the
-	// host and (b) rewrites the bind-mounted, host-owned snapshot with the
-	// reduced form, so the host then re-prompts on every run (the ping-pong).
+	// Inside a jail, for THIS JAIL'S OWN workspace, do NOT re-assemble: COPY the
+	// host's already-merged config from the workspace snapshot instead. The
+	// user-level `include_if_found` overrides (e.g. a machine-local overrides.jsonc
+	// carrying mcp_servers) live on the HOST and are never mounted into the jail, so
+	// an in-jail re-merge silently drops them — producing a reduced config that (a)
+	// mismatches the host and (b) rewrites the bind-mounted, host-owned snapshot with
+	// the reduced form, so the host then re-prompts on every run (the ping-pong).
 	// The snapshot IS the assembled config serialized; reading it verbatim keeps
 	// the in-jail view identical to the host's. Falls back to a normal assemble
 	// when the snapshot is absent/unreadable (e.g. never run through approval).
-	if inJail() {
+	//
+	// The jailOwnWorkspace() gate is load-bearing, not defensive. Only the OWN
+	// workspace's snapshot was written by the host FOR THIS JAIL; another
+	// workspace's snapshot is just the newest artifact of that workspace's own jail
+	// lineage, and copying it makes the in-jail CLI act on a config nobody assembled
+	// for this launch. Two things broke without the gate, both when an in-jail CLI
+	// launches a jail for a DIFFERENT workspace (every nested launch, and every
+	// integration test):
+	//
+	//   - A workspace-config EDIT never took effect. Launch 1 wrote the snapshot;
+	//     launch 2 read it back instead of the edited yolo-jail.jsonc, so e.g.
+	//     dropping a tool from `blocked_tools` left its shim generated forever
+	//     (the shims are rendered from the config this returns).
+	//   - CheckConfigChanges was silently disabled. It diffs the live config
+	//     against that same snapshot, so with the short-circuit it compared the
+	//     snapshot to ITSELF — always "unchanged", so the config-approval prompt
+	//     could never fire for a nested launch.
+	//
+	// And the short-circuit's own rationale does not reach the other-workspace case,
+	// so the gate gives up nothing. That snapshot was not written by the host; it was
+	// written by an IN-JAIL assemble on a previous launch, through this very function.
+	// So it is already the reduced merge (verified: a nested workspace's snapshot has
+	// no mcp_servers, the host-only include_if_found key whose loss motivated the
+	// short-circuit) — reading it back recovers no host-only override, it only
+	// substitutes a staler copy of what assembling produces now. The ping-pong cannot
+	// arise either: that snapshot has no host writer to disagree with.
+	if inJail() && jailOwnWorkspace(workspace) {
 		if snap, ok := loadAssembledSnapshot(workspace); ok {
 			return snap, nil
 		}
@@ -253,6 +279,36 @@ func LoadConfig(workspace string, strict bool, warn Warn) (*jsonx.OrderedMap, er
 // sets YOLO_VERSION to a non-empty version string in the container env).
 func inJail() bool {
 	return os.Getenv("YOLO_VERSION") != ""
+}
+
+// jailOwnWorkspace reports whether workspace is the workspace THIS jail was
+// launched for — i.e. the one whose config-snapshot.json the host wrote for this
+// launch, and the only one the snapshot short-circuit may speak for.
+//
+// The jail's own workspace is its bind-mount root: "/workspace", or YOLO_WORKSPACE
+// where the backend puts it elsewhere (the entrypoint resolves it the same way, see
+// entrypoint.Env.WorkspaceDir). YOLO_HOST_DIR is deliberately NOT used: it is the
+// HOST-side path of that mount, which never matches the in-jail path a caller
+// passes here.
+//
+// Comparison is on resolved paths so a symlinked or non-clean workspace argument
+// (t.TempDir() under /tmp → /private/tmp on darwin is the live case) still matches
+// the mount root it actually denotes. An empty workspace means "the cwd", matching
+// LoadConfig's own default.
+func jailOwnWorkspace(workspace string) bool {
+	if workspace == "" {
+		workspace = cwd()
+	}
+	own := os.Getenv("YOLO_WORKSPACE")
+	if own == "" {
+		own = "/workspace"
+	}
+	a, aerr := resolve(workspace)
+	b, berr := resolve(own)
+	if aerr != nil || berr != nil {
+		return filepath.Clean(workspace) == filepath.Clean(own)
+	}
+	return a == b
 }
 
 // loadAssembledSnapshot reads the host-written config snapshot

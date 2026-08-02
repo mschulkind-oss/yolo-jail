@@ -66,18 +66,18 @@ func TestBlockedTools(t *testing.T) {
 // config-change path auto-accepts (config.CheckConfigChanges), regenerating shims
 // from the new config, so unblocking curl takes effect.
 //
-// KNOWN FAILURE when the suite runs from INSIDE a jail (the normal dev loop here).
-// In-jail LoadConfig deliberately short-circuits to <workspace>/.yolo/
-// config-snapshot.json (load.go:235) instead of re-assembling, because the host's
-// user-level include_if_found overrides are not mounted and an in-jail re-merge
-// would silently drop them. That means the test's SECOND config write is never read:
-// the run sees the snapshot written by the first launch, still blocking curl, and
-// the unblock cannot take effect. Verified by hand — deleting the snapshot between
-// writes makes curl rc 0.
+// This test was long annotated as a KNOWN in-jail failure, on the theory that
+// LoadConfig's snapshot short-circuit legitimately hid the second config write. That
+// was misdiagnosed: the short-circuit exists so an in-jail read of the jail's OWN
+// workspace keeps the host's include_if_found overrides, and it was firing for OTHER
+// workspaces too — where the snapshot is itself the product of a previous in-jail
+// assemble and so carries no host-only key to preserve. It is now gated on the own
+// workspace (config.jailOwnWorkspace), which is what makes this pass in-jail.
 //
-// So this asserts host-side behavior and is expected to fail in-jail. It is not
-// skipped via requireJail because it must still run on the host/CI, where the
-// short-circuit does not apply.
+// Keep the rc-127 assertion exact. 127 is the shim's own frozen exit code, NOT
+// "command not found": the image bakes a real curl (flake.nix), so a 127 here always
+// means the shim ran. Reading it as an absent binary is the wrong turn that made this
+// look like a bad assertion rather than a live unblock bug.
 func TestShimPersistence(t *testing.T) {
 	requireJail(t)
 	dir := writeProject(t, `{"security": {"blocked_tools": ["curl"]}}`)

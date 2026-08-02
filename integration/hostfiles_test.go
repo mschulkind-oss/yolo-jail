@@ -108,6 +108,9 @@ func TestHostFilesSourceLessModes(t *testing.T) {
 // `config reset` must clear it. These run host-side against the workspace the jail
 // wrote its sidecars into, so they exercise the same sidecar layout the entrypoint
 // produced rather than a fixture.
+//
+// Being host-side is also why the reset half needs --force: the write guard refuses
+// off the jail that owns the workspace. See the comment at that call.
 func TestHostFilesConfigLsAndReset(t *testing.T) {
 	requireJail(t)
 
@@ -161,20 +164,69 @@ func TestHostFilesConfigLsAndReset(t *testing.T) {
 		t.Errorf("config diff did not show the captured key:\n%s", diff.stdout)
 	}
 
-	// `config reset user` must clear the sidecars.
-	reset := runYoloCLI(t, dir, "config", "reset", "user")
+	// `config reset user` needs --force HERE, and that is the product behaving
+	// correctly — do not "fix" this by dropping the flag.
+	//
+	// reset does two things: delete the sidecars, and truncate the surface FILE to its
+	// pure render. The second half resolves `~` against the INVOKING process's home, so
+	// it is only safe in the jail that owns the workspace. refuseHostSideWrite() gates
+	// on exactly that (surfacesAreLocal(): in-jail AND the resolved workspace is
+	// /workspace), because otherwise reset truncates a real dotfile yolo does not own
+	// there.
+	//
+	// This harness is permanently on the refused side of that gate and cannot be moved
+	// to the other one: it drives the host-side CLI against a TEMP workspace, so the
+	// surfaces it would truncate live in the inner jail's home while `~` resolves to the
+	// harness's own home. That is the guard's target case, not an exemption — hence the
+	// documented escape hatch. It is safe here only because packHome() has already
+	// pointed HOME at a temp dir, where the destination does not exist (reset leaves an
+	// absent surface absent), so nothing outside the fixture is written.
+	//
+	// First assert the guard actually fires, so this test also pins the refusal
+	// end-to-end rather than just tunnelling through it.
+	refused := runYoloCLI(t, dir, "config", "reset", "user")
+	if refused.rc == 0 {
+		t.Errorf("config reset without --force should refuse off the owning jail, got rc=0:\n%s",
+			refused.combined())
+	}
+	if before := captureSidecars(dir); len(before) == 0 {
+		t.Errorf("the refused reset removed the sidecars — it must touch nothing: %v", before)
+	}
+
+	// Now the real assertion: with --force, reset clears the sidecars.
+	reset := runYoloCLI(t, dir, "config", "reset", "user", "--force")
 	if reset.rc != 0 {
 		t.Fatalf("config reset rc=%d\n%s\n%s", reset.rc, reset.stdout, reset.stderr)
 	}
-	sidecars, _ := filepath.Glob(filepath.Join(dir, ".yolo", "prism", "user-*"))
-	if len(sidecars) != 0 {
-		t.Errorf("config reset left user sidecars behind: %v", sidecars)
+	if sidecars := captureSidecars(dir); len(sidecars) != 0 {
+		t.Errorf("config reset left user capture sidecars behind: %v", sidecars)
 	}
 	// And `ls` must now be clean.
 	ls2 := runYoloCLI(t, dir, "config", "ls")
 	if strings.Contains(ls2.stdout, "captured in-jail edits") {
 		t.Errorf("config ls still reports divergence after reset:\n%s", ls2.stdout)
 	}
+}
+
+// captureSidecars lists the user-surface sidecars that carry CAPTURE STATE — the
+// overlay (the captured edits) and the last_render (the baseline they are diffed
+// against). Those two are exactly what `config reset` removes, and both must be
+// gone for a reset to have taken effect: dropping only the overlay would leave the
+// next boot re-capturing the discarded edits against a stale baseline.
+//
+// The `.provenance` sidecar is deliberately EXCLUDED, and reset leaving it is not a
+// leak. It is a per-boot observability record ("which layer set each key"), written
+// unconditionally by every render and read by nothing in the reset/diff/capture path,
+// so it holds no captured edit to discard and the next boot rewrites it wholesale.
+// A bare `user-*` glob here asserted otherwise and went red when Phase 2 added the
+// file — the assertion predated it, so it was over-broad rather than newly violated.
+func captureSidecars(workspaceDir string) []string {
+	var out []string
+	for _, suffix := range []string{"*.overlay.json", "*.last_render"} {
+		found, _ := filepath.Glob(filepath.Join(workspaceDir, ".yolo", "prism", "user-"+suffix))
+		out = append(out, found...)
+	}
+	return out
 }
 
 // TestHostFilesWorkspaceScopeSourceBearingRejected is the credential boundary's

@@ -4,6 +4,8 @@ import (
 	"os"
 	"path/filepath"
 	"testing"
+
+	"github.com/mschulkind-oss/yolo-jail/internal/jsonx"
 )
 
 // writeFile is a tiny test helper.
@@ -25,6 +27,10 @@ func TestLoadConfigInJailReadsSnapshot(t *testing.T) {
 	ws := t.TempDir()
 	home := t.TempDir()
 	t.Setenv("HOME", home)
+	// The short-circuit only applies to the jail's OWN workspace (see
+	// jailOwnWorkspace), so point the marker at this temp dir — that is what makes
+	// ws "the workspace this jail was launched for" rather than some other one.
+	t.Setenv("YOLO_WORKSPACE", ws)
 	// The jail has a mounted config.jsonc whose include_if_found points at an
 	// overrides.jsonc that does NOT exist in the jail (it's host-only). A
 	// re-assemble would therefore drop mcp_servers.
@@ -97,6 +103,53 @@ func TestLoadConfigInJailFallsBackWhenNoSnapshot(t *testing.T) {
 	}
 }
 
+// TestLoadConfigInJailOtherWorkspaceAssembles is the regression for "a workspace
+// config edit never took effect for a nested launch".
+//
+// The snapshot short-circuit exists for the jail's OWN workspace, whose snapshot the
+// host wrote for this launch. When an in-jail CLI launches a jail for a DIFFERENT
+// workspace — every nested launch, and every integration test — the short-circuit
+// used to fire anyway and return that workspace's PREVIOUS snapshot, so the edited
+// yolo-jail.jsonc was never read. Live symptom: dropping a tool from `blocked_tools`
+// left its shim generated forever, because shims render from the config LoadConfig
+// returns (integration TestShimPersistence). It also silently disabled
+// CheckConfigChanges, which diffs the live config against that same snapshot and so
+// compared it to itself.
+//
+// Off the own workspace the short-circuit's own rationale does not apply either: the
+// user config IS readable there, so assembling drops no include_if_found override.
+func TestLoadConfigInJailOtherWorkspaceAssembles(t *testing.T) {
+	ws := t.TempDir()
+	home := t.TempDir()
+	t.Setenv("HOME", home)
+	t.Setenv("YOLO_VERSION", "9.9.9-test")
+	// In-jail, but this jail owns some OTHER workspace — so ws's snapshot was not
+	// written for this launch and must not outrank ws's files.
+	t.Setenv("YOLO_WORKSPACE", filepath.Join(home, "owned-workspace"))
+
+	mustWrite(t, filepath.Join(home, ".config", "yolo-jail", "config.jsonc"), `{}`)
+	// The live workspace config says curl is UNBLOCKED...
+	mustWrite(t, filepath.Join(ws, "yolo-jail.jsonc"), `{ "security": { "blocked_tools": [] } }`)
+	// ...while the stale snapshot from a previous launch still blocks it.
+	mustWrite(t, ConfigSnapshotPath(ws), `{ "security": { "blocked_tools": ["curl"] } }`)
+
+	cfg, err := LoadConfig(ws, true, func(string) {})
+	if err != nil {
+		t.Fatal(err)
+	}
+	sec, _ := cfg.Get("security")
+	secMap, ok := sec.(*jsonx.OrderedMap)
+	if !ok {
+		t.Fatalf("security section missing or not an object: %#v", sec)
+	}
+	blocked, _ := secMap.Get("blocked_tools")
+	list, _ := blocked.([]any)
+	if len(list) != 0 {
+		t.Errorf("another workspace's snapshot outranked its live config: blocked_tools=%v, want empty "+
+			"(a config edit must take effect for a nested/other-workspace launch)", list)
+	}
+}
+
 // TestLoadConfigInJailIgnoresNonObjectSnapshot confirms a corrupt/non-object
 // snapshot is ignored (fall back to assemble), never returned as config.
 func TestLoadConfigInJailIgnoresNonObjectSnapshot(t *testing.T) {
@@ -104,6 +157,7 @@ func TestLoadConfigInJailIgnoresNonObjectSnapshot(t *testing.T) {
 	home := t.TempDir()
 	t.Setenv("HOME", home)
 	t.Setenv("YOLO_VERSION", "9.9.9-test")
+	t.Setenv("YOLO_WORKSPACE", ws) // the own-workspace case this test is about
 
 	mustWrite(t, filepath.Join(home, ".config", "yolo-jail", "config.jsonc"), `{}`)
 	mustWrite(t, filepath.Join(ws, "yolo-jail.jsonc"), `{ "packages": ["ripgrep"] }`)
