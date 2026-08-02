@@ -16,6 +16,47 @@ that made host rendering real).
 
 ---
 
+## 0. Four terms, because the rest of this doc leans on them
+
+Skip if `pack-system.md` §5 is fresh; these are its definitions restated in one place.
+
+**Surface** — one config *file* a pack declares, identified by `agent/name` (e.g.
+`claude/settings`). The identity is what yolo keys on internally; `path` is where it lands.
+Two packs using the same `agent/name` are talking about the same file, which is the whole
+subject of this doc.
+
+**Layers** — a surface is not written directly. yolo folds several inputs together with
+RFC-7386 merge semantics, lowest precedence to highest:
+
+```
+defaults < host < workspace < config-overlay < capture-overlay < computed(derive) < [lua transform] < managed
+```
+
+**`managed`** is the top layer: **the keys yolo asserts and always wins.** It is applied last,
+so a `managed` key overrides anything below it — including a value the user or the agent wrote.
+`defaults` is the mirror image (yolo's base, freely overridable). So "only its own key in
+`managed`" means "this pack insists on exactly this one key and stays out of everything else".
+
+**`mode`** — how the file is maintained across boots. Four values; three matter here:
+
+| mode | behavior | who it is for |
+|---|---|---|
+| `stateful` | compose from layers *and* capture in-jail edits into a sidecar, replayed next boot | the default |
+| `rmw` | read-modify-write: merge `managed` into whatever is in the file, touch nothing else, no sidecars | a file the **agent itself** owns and mutates |
+| `computed` | compose from layers and overwrite wholesale every boot | a file **yolo** solely authors |
+
+`mode` is the pivot of §3 and §4: `rmw` and `stateful` are key-scoped writers, `computed` is
+not, and that difference decides whether two packs can share a file by accident.
+
+**`config-overlay`** — a contribution *kind* (one of thirteen; see `yolo config-ref`). Where
+`config` **declares and owns** a surface, `config-overlay` **contributes keys to a surface
+another pack owns**, naming it by identity. It folds in at the `config-overlay` position above
+— below `managed`, so the owner still wins a genuine conflict — with per-key provenance so an
+override is traceable rather than silent. It is the routing mechanism, and it is **inert**
+(§1 Layout C).
+
+---
+
 ## 1. The three layouts you could imagine
 
 For a pack to add `fileSuggestion` to `~/.claude/settings.json`, there are three
@@ -36,7 +77,9 @@ story — the `claude` pack would need to know about fzf.
 ### Layout B — "the second pack declares the same surface" (what works today)
 
 The fzf pack declares `agent: "claude", name: "settings"` itself, with only its own key in
-`managed`. Two packs then both declare the surface identity `claude/settings`.
+`managed` (§0: the top layer, the keys yolo asserts and always wins — so this pack insists on
+`fileSuggestion` and stays out of every other key). Two packs then both declare the surface
+identity `claude/settings`.
 
 This is what I verified working end to end, at both notches, in either pack order. **It is
 also the layout with the sharp edge** — see §3.
@@ -44,8 +87,10 @@ also the layout with the sharp edge** — see §3.
 ### Layout C — "the second pack overlays a surface the first owns" (the designed answer)
 
 The fzf pack declares `kind: "config-overlay"` naming `surface: "claude/settings"`, and
-contributes only keys. The `claude` pack stays the sole *owner* of the file; the fzf pack is
-explicitly a *contributor*, with per-key provenance so an override is legible.
+contributes only keys. Where `config` declares-and-owns a surface, `config-overlay` contributes
+to one **another pack owns** (§0), folding in below `managed` so the owner still wins a genuine
+conflict. The `claude` pack stays the sole *owner* of the file; the fzf pack is explicitly a
+*contributor*, with per-key provenance so an override is legible.
 
 **This is what the kind set was designed for, and it is inert.** `config-overlay` parses,
 validates, has a combine rule (`CombineOverlay`), and the compose engine accepts overlay
