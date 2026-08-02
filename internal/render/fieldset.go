@@ -57,8 +57,6 @@ var refusalReasons = map[packdecl.Kind]string{
 // argument for asserting the invariant over the whole kind set rather than patching the
 // two kinds someone happened to notice.
 var hostUnimplemented = map[packdecl.Kind]string{
-	packdecl.KindBriefing: "host briefing render not implemented yet; a naive append " +
-		"would duplicate your prose on every apply (same plan, Phase 5)",
 	// Inert at EVERY target, not just this one (pack-system.md §14): the kind parses,
 	// validates and has a combine rule, but no boot-path code collects overlays and feeds
 	// them to the assembler.

@@ -185,8 +185,11 @@ func TestHostBriefingPruneRemovesOnlyTheDroppedPack(t *testing.T) {
 		t.Fatalf("want one removal for pack-b; got %+v", results)
 	}
 	got := readFile(t, dest)
-	if strings.Contains(got, "pack-b") || strings.Contains(got, "B prose.") {
-		t.Errorf("pack-b's block should be gone:\n%s", got)
+	// Match pack-b's MARKER, not the bare string "pack-b". The marker tag is
+	// `yolo:pack-briefing`, and "pack-b" is a substring of "pack-briefing" — so the naive
+	// check was true of every block, including pack-a's, and failed on correct output.
+	if strings.Contains(got, hostBriefingBeginMarker("pack-b")) || strings.Contains(got, "B prose.") {
+		t.Errorf("pack-b's block should be gone:\n%q", got)
 	}
 	for _, want := range []string{"# Mine", "A prose.", hostBriefingBeginMarker("pack-a")} {
 		if !strings.Contains(got, want) {

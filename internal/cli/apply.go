@@ -27,6 +27,7 @@ import (
 	"github.com/mschulkind-oss/yolo-jail/internal/config"
 	"github.com/mschulkind-oss/yolo-jail/internal/entrypoint"
 	"github.com/mschulkind-oss/yolo-jail/internal/packdecl"
+	"github.com/mschulkind-oss/yolo-jail/internal/packload"
 	"github.com/mschulkind-oss/yolo-jail/internal/render"
 	"github.com/mschulkind-oss/yolo-jail/internal/richtext"
 )
@@ -150,12 +151,20 @@ func applyHost(out, errw io.Writer, color bool, write bool) int {
 
 	hostFields := render.HostFields()
 	rc := 0
+	// active names the packs this apply is asserting; every other pack yolo SHIPS is a
+	// prune candidate. Collected as we go and consumed after the loop (see the prune call),
+	// because "which briefing blocks are stale?" is only answerable once the whole active
+	// set is known — a pack dropped from config never appears in `entries` at all.
+	active := map[string]bool{}
+	var loaded []*packload.Pack
 	for _, e := range entries {
 		p := packForCheckDeps(e) // same loader: embedded or local; git needs `pack install`
 		if p == nil {
 			pr.Printf("[dim]%s: not resolvable offline (fetched packs need `yolo pack install`) — skipped[/dim]", e.Name)
 			continue
 		}
+		active[p.Name] = true
+		loaded = append(loaded, p)
 		// Account for EVERY kind the pack declares, before rendering. Three outcomes, and
 		// the invariant is that there is no fourth: refused by the census, honored-but-
 		// unbuilt (named as such), or rendered below. A kind that produced no line at all
@@ -181,9 +190,9 @@ func applyHost(out, errw io.Writer, color bool, write bool) int {
 				// command answers (env-manager Phase 9).
 				pr.Printf("  [cyan]autonomy[/cyan]   guarded posture — permission prompts " +
 					"stay ON; folded into this pack's own config surfaces below")
-			case c.Kind == packdecl.KindSkills:
-				// Rendered below, per-entry, by applyHostSkills — each skill gets its own
-				// line, so a single summary line here would be noise.
+			case c.Kind == packdecl.KindSkills, c.Kind == packdecl.KindBriefing:
+				// Both render below with their own per-entry lines (applyHostSkills,
+				// RenderHostBriefing), so a summary line here would just be noise.
 			default:
 				if why, unbuilt := render.HostUnimplemented(c.Kind); unbuilt {
 					pr.Printf("  [yellow]%-10s refused[/yellow] — %s", string(c.Kind), why)
@@ -192,6 +201,17 @@ func applyHost(out, errw io.Writer, color bool, write bool) int {
 		}
 		if src := applyHostSkills(pr, errw, p, home, stamp, write); src != 0 {
 			rc = src
+		}
+		// The briefing's managed block. Failures here are reported and do not abort the
+		// remaining packs: a refusal is usually one malformed file (an unterminated marker),
+		// and stopping would leave the user with a partial apply and no report of the rest.
+		bres, berr := entrypoint.RenderHostBriefing(p, home, !write)
+		if berr != nil {
+			pr.Printf("  [red]briefing   refused[/red] — %v", berr)
+			rc = 1
+		}
+		for _, r := range bres {
+			pr.Printf("  [cyan]%-20s[/cyan] %s  [dim]%s[/dim]", r.Surface, r.Action, r.Path)
 		}
 		results, rerr := entrypoint.RenderHostPack(p, home, !write)
 		if rerr != nil {
@@ -214,11 +234,36 @@ func applyHost(out, errw io.Writer, color bool, write bool) int {
 			}
 		}
 	}
+
+	// Retire the briefing blocks of packs that are no longer active. Candidates are every
+	// pack yolo SHIPS plus the active ones: a pack dropped from config is absent from
+	// `entries`, so asking only the active packs where to look would leave its block in the
+	// user's file forever, unattributed and unremovable. Guarded by a non-nil active set —
+	// PruneHostBriefings refuses a nil one rather than reading it as "drop everything".
+	if pres, perr := entrypoint.PruneHostBriefings(
+		append(loaded, embeddedPacksForPrune()...), active, home, !write); perr != nil {
+		pr.Printf("  [red]briefing prune refused[/red] — %v", perr)
+		rc = 1
+	} else {
+		for _, r := range pres {
+			pr.Printf("  [cyan]%-20s[/cyan] %s  [dim]%s[/dim]", r.Surface, r.Action, r.Path)
+		}
+	}
+
 	if !write {
 		pr.Printf("[dim]observe only — nothing written. Re-run with --assert to apply.[/dim]")
 	}
 	return rc
 }
+
+// embeddedPacksForPrune returns the packs yolo SHIPS, as prune candidates. A pack the user
+// removed from config is not in `entries`, so its briefing destination would otherwise never
+// be visited — and its block would outlive the pack silently, unattributed.
+//
+// packload.Embedded() is deliberately not selection-gated (see AGENTS.md), which is exactly
+// what makes it the right source here: the point is to visit the destination of a pack that
+// is NOT selected.
+func embeddedPacksForPrune() []*packload.Pack { return packload.Embedded() }
 
 // applySealed enumerates the input closure (env-manager design §3.3) and refuses if any
 // UNDECLARED input shaped the environment. Sealing does not mean "no host reads" — a
