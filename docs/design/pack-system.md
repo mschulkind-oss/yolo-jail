@@ -700,25 +700,48 @@ Not yet wired:
   *projection* half shipped (`derive`); the export/import graph did not. MCP server instances
   come from the `mcp_servers` config table, not from an exporting pack.
 
-- **Rendering a pack OUT to the host.** A pack describes how a tool is configured; rendering
-  that description into the *real* `$HOME` (rather than a jail) — "the host as a reduced
-  render target" — is fully designed in `host-render-target.md` but entirely unbuilt. This is
-  the "invert the flow" direction and it is tracked as its own body of work.
+- ~~**Rendering a pack OUT to the host.**~~ **SHIPPED 2026-08-02**
+  (`docs/plans/pack-host-management-plan.md`). `yolo apply --host` now renders `config`,
+  `skills`, `briefing`, and `files` into the real `$HOME`, reports resolved `program` dep
+  state, and accounts for every other kind BY NAME (rendered, refused, or unbuilt — never
+  silently absent). Three things a reader should know before relying on it:
+  - **Ownership does not carry over from the jail.** Every jail path is disposable and
+    `:ro`; the host equivalents are the user's own files. So `skills` and `files` refuse any
+    path they cannot prove yolo wrote, and retire their own output by ARCHIVING it under the
+    state dir rather than deleting (reclaimed by `yolo prune`).
+  - **`skills` delivery is tiered**, because how safely a tool's skills dir can be managed is
+    a property of the TOOL. `tier: "namespaced"` writes one subtree per pack (invoked
+    `<pack>:<skill>`), so a user's own skills cannot collide; the default `flat` writes
+    beside them under a provenance manifest. Declared by the pack, then probed.
+  - **`briefing` is a delimited managed block**, not an append: at the host the source and
+    destination are the same file, so a naive concat duplicates the user's prose every apply.
 
-Known sharp edge:
+Resolved sharp edges (kept because the reasoning is the interesting part):
 
-- **Two `skills` contributions with the same `into` fail the jail at boot.** The mount
-  assembler emits one bind mount per pack with no dedup by destination, so podman rejects the
-  second with "duplicate mount destination" — even though the footprint model treats skills as
-  a safe merge. Do not declare an explicit `skills` contribution whose `into` duplicates
-  another loaded pack's; rely on the zero-ceremony merge instead. (`yolo pack footprint`
-  across your pack set surfaces this before boot does.)
+- ~~**Two `skills` contributions with the same `into` fail the jail at boot.**~~ **FIXED
+  2026-08-02** by deduplicating mounts per destination. The assembler emitted one bind per
+  contribution, so podman rejected the second with "duplicate mount destination" — even
+  though the footprint model calls skills a safe merge, and `PrepareSkills` had *already*
+  merged every pack's skills into each staging dir, making the second mount the same content
+  again.
 
-  `files` no longer has this edge, but the fix does not transfer: a second `files` claimant
-  is a genuine sole-ownership violation, so it is a **pre-flight refusal naming both
-  packs**. For `skills` the same podman failure is the wrong diagnosis — the merge is
-  legal and what is missing is mount DEDUP, a different change. Kept separate on purpose
-  (`pack-host-management-plan.md` OQ-C).
+  The documented workaround was "do not declare a `skills` contribution whose `into`
+  duplicates another pack's" — and that advice was unfollowable in the configuration it most
+  matters for: an agent pack naming `~/.claude/skills` plus a user pack sharing a skills
+  corpus is the entire point of the kind. `briefing` had the identical bug for the identical
+  reason (`CombineConcat`, prose already merged) and is fixed the same way.
+
+  **`files` is deliberately NOT fixed this way.** A second `files` claimant on one path is a
+  genuine sole-ownership violation, so it stays a **pre-flight refusal naming both packs**
+  rather than a silent dedup — deduping there would let one pack's content shadow another's.
+  Same podman symptom, opposite correct response.
+
+- ~~**A `files` tree can shadow a config surface.**~~ **CAUGHT IN PRE-FLIGHT 2026-08-02.** A
+  `files` claim is a `:ro` mount over its whole destination, so a surface the entrypoint must
+  write beneath that path hit a read-only filesystem and refused the boot with an error
+  naming the *surface*, not the claim that shadowed it — and usually cross-pack, so neither
+  author could see it. Now reported before the container exists, with the remedy (narrow the
+  `into`).
 
 ---
 
