@@ -47,6 +47,14 @@ import (
 // mounted tree disagrees with what was staged — corruption, not a user error — so it is
 // returned as an error and the boot fails (A12).
 func LoadJailPacks(e *Env) ([]*packload.Pack, error) {
+	// Read manifests TOLERANTLY in the jail. The host CLI and this entrypoint come from
+	// different places — the CLI is freshly built or `go install`ed, the entrypoint is baked
+	// into the image at the last `just load` — so a manifest using a field this build does
+	// not know is ordinary version skew, not corruption. Refusing it means the jail does not
+	// start at all, and when the manifest is one yolo SHIPS there is no way for the user to
+	// route around it. See packdecl.DecodeTolerant for the incident that established this.
+	packload.TolerateSkew()
+
 	root := e.Getenv("YOLO_PACK_ROOT")
 	if root == "" {
 		// No packs mounted. Legitimate: an older host launcher, macos-user, or a jail

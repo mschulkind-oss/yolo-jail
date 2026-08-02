@@ -112,11 +112,44 @@ type HostFile struct {
 //
 // Strict about unknown fields: a misspelled key would otherwise be a declaration that
 // silently does nothing, and the author would have no signal at all.
+//
+// Use DecodeTolerant instead when reading a manifest that some OTHER build wrote — see its
+// doc for why the strictness has to stop at the version boundary.
 func Decode(data []byte) (*Manifest, []string) {
 	var m Manifest
 	dec := json.NewDecoder(bytes.NewReader(data))
 	dec.DisallowUnknownFields()
 	if err := dec.Decode(&m); err != nil {
+		return nil, []string{ManifestName + ": " + err.Error()}
+	}
+	return &m, m.Validate()
+}
+
+// DecodeTolerant parses a manifest, IGNORING fields this build does not know.
+//
+// The strictness in Decode is right for authoring — a misspelled key that silently does
+// nothing is the worst outcome for a pack author — but it is wrong across a VERSION
+// BOUNDARY, and the jail is exactly that. The host CLI and the in-jail `yolo-entrypoint`
+// come from different places (the CLI is `go install`ed or freshly built; the entrypoint is
+// baked into the image at the last `just load`), so a newer CLI staging a pack that uses a
+// newer manifest field is a NORMAL state, not a corruption.
+//
+// Verified the hard way: adding the `tier` field to `skills` made every jail refuse to start
+// against an older baked image —
+//
+//	yolo-entrypoint: refusing to start the jail: 2 config generator(s) failed:
+//	  - load_packs: pack claude: pack.json: json: unknown field "tier"
+//
+// with no route to recovery except rebuilding the image, since the failing manifest is one
+// yolo SHIPS. A field the entrypoint cannot use is a feature it cannot render, which is a
+// degraded jail; a field it refuses to read is no jail at all. The first is recoverable and
+// the second is not, so the version boundary reads tolerantly.
+//
+// Structural validation still runs, so a manifest that is malformed in a way BOTH builds
+// understand (an unknown kind, a missing required field) still fails loudly here.
+func DecodeTolerant(data []byte) (*Manifest, []string) {
+	var m Manifest
+	if err := json.Unmarshal(data, &m); err != nil {
 		return nil, []string{ManifestName + ": " + err.Error()}
 	}
 	return &m, m.Validate()

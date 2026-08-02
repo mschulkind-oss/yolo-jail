@@ -1,0 +1,265 @@
+package hostskills
+
+// plugin.go delivers an EXISTING agent plugin — someone else's tree, carrying its own
+// `.claude-plugin/plugin.json` — into a real skills dir, by COPYING IT VERBATIM rather than
+// translating it.
+//
+// Why verbatim is the whole design, not an optimization: a tier-A destination is a skills
+// dir whose tool already loads a per-directory plugin manifest and namespaces what it finds.
+// So the correct render of a plugin is the plugin. Lowering it into yolo's own kinds — skills
+// here, a hook there, MCP servers into a config surface — would silently drop everything
+// yolo does not model (sub-agents, output styles, commands, an `.mcp.json`), and would need a
+// new lowering rule every time the plugin schema grows. Copying needs neither.
+//
+// The single deviation from byte-identical: yolo injects its ownership marker into the copied
+// manifest (markManifest below). Without it a later apply cannot tell its own output from a
+// plugin the user installed by hand, and would either refuse to update what it wrote or feel
+// entitled to rewrite what it did not. An unknown extra field is inert to the tools — they
+// ignore what they do not model — which is exactly why the marker lives there rather than in
+// a sidecar file that a second ownership mechanism would have to be invented for.
+//
+// TIER B gets an honest degradation, not a quiet one. A flat skills dir has no way to carry a
+// plugin manifest, so only the plugin's SKILLS are deliverable; every other component it
+// declares is refused BY NAME. That is the never-silent rule the rest of this work enforces:
+// a user whose plugin ships hooks must hear that the hooks are not arriving, because the
+// alternative is a plugin that looks installed and half works.
+
+import (
+	"encoding/json"
+	"os"
+	"path/filepath"
+	"sort"
+
+	"github.com/mschulkind-oss/yolo-jail/internal/pluginpack"
+)
+
+// PluginRequest is one wrapped plugin's delivery into one skills dir.
+type PluginRequest struct {
+	// Pack is the wrapping pack's name — the ownership record's key, and what the report
+	// attributes the delivery to. NOT the destination name: the plugin's own name is, because
+	// that is what the tools namespace its skills by.
+	Pack string
+	// Plugin is the recognized tree.
+	Plugin *pluginpack.Plugin
+	// SkillsDir is the absolute destination skills dir (the tool's own).
+	SkillsDir string
+	// Tier is the DECLARED tier of that destination; ProbeTier decides what is used.
+	Tier Tier
+	// Manifest is the ownership record. Used at BOTH tiers here, unlike plain skill
+	// delivery: tier A needs it to catch a second pack claiming one plugin name, which the
+	// per-directory marker alone cannot distinguish from yolo's own earlier apply.
+	Manifest *Manifest
+	// ArchiveRoot is where a retired entry is moved.
+	ArchiveRoot ArchiveRoot
+	// Stamp names the archive generation.
+	Stamp string
+	// Observe computes without writing.
+	Observe bool
+}
+
+// DeliverPlugin renders one plugin tree into one skills dir and returns one Result per thing
+// considered — the tree itself, each component that could not come along, each flat skill.
+//
+// An error is returned only for a condition that makes the delivery impossible; anything
+// per-entry becomes a Result so the user sees the whole picture in one run.
+func DeliverPlugin(req PluginRequest) ([]Result, error) {
+	name := req.Plugin.Name()
+	tier, downgrade := ProbeTier(req.Tier, req.SkillsDir, name)
+	var out []Result
+	if downgrade != "" {
+		out = append(out, Result{
+			Name: name, Path: filepath.Join(req.SkillsDir, name), Action: ActionRefused,
+			Detail: "plugin delivery downgraded to flat skills — " + downgrade,
+		})
+	}
+	if tier == TierNamespaced {
+		res, err := deliverPluginTree(req, name)
+		return append(out, res...), err
+	}
+	res, err := deliverPluginFlat(req, name)
+	return append(out, res...), err
+}
+
+// deliverPluginTree is the tier-A path: the plugin dir lands at <skillsDir>/<plugin-name>/,
+// contents and manifest included, and the tool loads it in place.
+func deliverPluginTree(req PluginRequest, name string) ([]Result, error) {
+	dest := filepath.Join(req.SkillsDir, name)
+
+	// A plugin NAME is exclusive at a destination even though `skills` as a kind merges: two
+	// packs wrapping plugins that call themselves the same thing want one directory, and
+	// whichever applied last would win with no report. The per-directory marker cannot catch
+	// this (both copies are genuinely yolo's), so the record is the only evidence.
+	if owner, recorded := req.Manifest.Owner(dest); recorded && owner != req.Pack {
+		return []Result{{
+			Name: name, Path: dest, Action: ActionRefused,
+			Detail: "pack " + owner + " already delivers a plugin named " + name +
+				" here — rename one, or they would overwrite each other every apply",
+		}}, nil
+	}
+
+	skills := req.Plugin.SkillDirs()
+	out := []Result{{
+		Name: name, Path: dest, Action: ActionWrote,
+		Detail: pluginTreeDetail(name, skills),
+	}}
+	// Components that RUN are delivered here (the destination tool loads the manifest, which
+	// is the point of tier A) — so say so. The install-time approval decided whether they may
+	// come at all; this is the always-warn half, because "a pack put a hook in my real home"
+	// is not something a user should have to read a lockfile to discover.
+	for _, c := range req.Plugin.Components() {
+		if !c.RunsCode {
+			continue
+		}
+		out = append(out, Result{
+			Name: name + ":" + c.Name, Path: req.Plugin.ManifestPath, Action: ActionWrote,
+			Detail: "delivered — " + c.Detail + " once your tool loads the plugin",
+		})
+	}
+
+	if req.Observe {
+		return out, nil
+	}
+	if err := os.MkdirAll(req.SkillsDir, 0o755); err != nil {
+		return out, err
+	}
+	// Replace wholesale rather than merging into the previous copy. Exact mirroring is what
+	// makes a plugin that DROPPED a skill stop offering it, and it is legitimate only because
+	// ProbeTier already established that this path is yolo's own output (or free). The
+	// alternative — diffing the two trees — would be the same result with more ways to leave
+	// a stale file behind.
+	if err := os.RemoveAll(dest); err != nil {
+		out[0].Action, out[0].Detail = ActionRefused, err.Error()
+		return out, nil
+	}
+	if err := copyTree(req.Plugin.Dir, dest); err != nil {
+		out[0].Action, out[0].Detail = ActionRefused, err.Error()
+		return out, nil
+	}
+	if err := markManifest(dest, req.Plugin.ManifestPath); err != nil {
+		out[0].Action, out[0].Detail = ActionRefused, err.Error()
+		return out, nil
+	}
+	req.Manifest.Record(dest, req.Pack)
+	return out, nil
+}
+
+// deliverPluginFlat is the tier-B path: only the plugin's skills survive the trip, each one
+// written directly into the skills dir under the same ownership rules any other flat skill
+// gets, and every other component refused by name.
+func deliverPluginFlat(req PluginRequest, name string) ([]Result, error) {
+	var out []Result
+	// The refusals come FIRST, before the successes, because they are the part a user needs
+	// to read: a plugin whose hooks did not arrive is not the plugin they installed.
+	for _, c := range req.Plugin.Components() {
+		out = append(out, Result{
+			Name: name + ":" + c.Name, Path: req.SkillsDir, Action: ActionRefused,
+			Detail: "plugin " + c.Name + " needs a tool that loads a plugin manifest; " +
+				"this skills dir is flat, so it cannot arrive (" + c.Detail + ")",
+		})
+	}
+
+	skills := req.Plugin.SkillDirs()
+	if len(skills) == 0 {
+		out = append(out, Result{
+			Name: name, Path: req.SkillsDir, Action: ActionRefused,
+			Detail: "plugin declares no skills — nothing about it is deliverable to a flat " +
+				"skills dir",
+		})
+		return out, nil
+	}
+	// Reuse the flat delivery wholesale rather than reimplementing the ownership rules: a
+	// plugin's skill in a flat dir is a skill in a flat dir, and a second copy of "is this
+	// entry the user's?" is a second chance to get it wrong.
+	res, err := deliverFlat(Request{
+		Pack:        req.Pack,
+		SkillsDir:   req.SkillsDir,
+		Manifest:    req.Manifest,
+		ArchiveRoot: req.ArchiveRoot,
+		Stamp:       req.Stamp,
+		Observe:     req.Observe,
+	}, skills)
+	return append(out, res...), err
+}
+
+// pluginTreeDetail describes what a delivered plugin tree gives the user: the qualified names
+// its skills invoke under, which is the one fact that is not obvious from the path.
+func pluginTreeDetail(name string, skills map[string]string) string {
+	if len(skills) == 0 {
+		return "plugin tree copied verbatim (declares no skills)"
+	}
+	names := make([]string, 0, len(skills))
+	for s := range skills {
+		names = append(names, "/"+name+":"+s)
+	}
+	sort.Strings(names)
+	detail := "plugin tree copied verbatim — invoke as " + names[0]
+	if len(names) > 1 {
+		detail += " (+" + itoa(len(names)-1) + " more)"
+	}
+	return detail
+}
+
+// markManifest injects yolo's ownership marker into the manifest of a freshly copied plugin
+// tree, preserving every other field.
+//
+// Decoded into a map, not into a struct: a struct round-trip would drop every field yolo does
+// not model, which is precisely the plugin content this whole file exists to carry through
+// intact. relManifest keeps the marker in the SAME file the source used, so a plugin whose
+// manifest lives at `.plugin/plugin.json` is not silently given a second one.
+func markManifest(destDir, srcManifest string) error {
+	rel := pluginpack.PreferredManifestDir + "/" + "plugin.json"
+	if r, ok := relManifest(srcManifest); ok {
+		rel = r
+	}
+	path := filepath.Join(destDir, filepath.FromSlash(rel))
+	data, err := os.ReadFile(path)
+	if err != nil {
+		return err
+	}
+	var raw map[string]json.RawMessage
+	if err := json.Unmarshal(data, &raw); err != nil {
+		// A manifest yolo cannot re-encode is left exactly as copied. The cost is that the
+		// next apply will not recognize the dir as yolo's and will leave it alone — the safe
+		// direction, and better than rewriting someone's file from a partial parse.
+		return nil
+	}
+	marker, err := json.Marshal(yoloManagedMarker)
+	if err != nil {
+		return err
+	}
+	raw["x-yolo-managed-by"] = marker
+	out, err := json.MarshalIndent(raw, "", "  ")
+	if err != nil {
+		return err
+	}
+	return os.WriteFile(path, append(out, '\n'), 0o644)
+}
+
+// relManifest recovers the manifest's path relative to its plugin dir from the absolute path
+// pluginpack recorded, so the marker is written back into the same file.
+func relManifest(srcManifest string) (string, bool) {
+	dir := filepath.Base(filepath.Dir(srcManifest))
+	base := filepath.Base(srcManifest)
+	if dir == "" || dir == "." || dir == string(filepath.Separator) {
+		return base, true
+	}
+	// The manifest may sit two levels down (".github/plugin/plugin.json"); recover that too.
+	parent := filepath.Base(filepath.Dir(filepath.Dir(srcManifest)))
+	if parent == ".github" {
+		return parent + "/" + dir + "/" + base, true
+	}
+	return dir + "/" + base, true
+}
+
+// itoa avoids pulling strconv in for one call site.
+func itoa(n int) string {
+	if n == 0 {
+		return "0"
+	}
+	var b []byte
+	for n > 0 {
+		b = append([]byte{byte('0' + n%10)}, b...)
+		n /= 10
+	}
+	return string(b)
+}

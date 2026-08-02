@@ -263,12 +263,31 @@ func (p *Pack) HonoredInstall() (*packdecl.Install, string) {
 
 // LoadDir reads a pack from a directory. A missing pack.json is fine and yields an
 // empty declaration.
+// tolerateUnknownFields makes LoadDir ignore manifest fields this build does not know,
+// instead of refusing the manifest. Set once, by the IN-JAIL entrypoint (TolerateSkew).
+//
+// A package-level switch rather than a parameter because the choice is a property of WHERE
+// the code is running, not of any individual call: every read on the host is an authoring
+// read (be strict — a typo must be loud) and every read in the jail is a cross-version read
+// (be tolerant — the host CLI and the baked entrypoint legitimately differ in age). Threading
+// it through ten call sites would invite getting one wrong, and the wrong one is the boot
+// path, where the cost is a jail that will not start.
+var tolerateUnknownFields bool
+
+// TolerateSkew switches this process's manifest reads to the version-tolerant decoder. The
+// entrypoint calls it at startup; the host CLI never does.
+func TolerateSkew() { tolerateUnknownFields = true }
+
 func LoadDir(root, name string, mayAccessHost bool) (*Pack, []string) {
 	decl := &packdecl.Manifest{}
 	var problems []string
 	data, err := os.ReadFile(filepath.Join(root, packdecl.ManifestName))
 	if err == nil {
-		decl, problems = packdecl.Decode(data)
+		decode := packdecl.Decode
+		if tolerateUnknownFields {
+			decode = packdecl.DecodeTolerant
+		}
+		decl, problems = decode(data)
 		if decl == nil {
 			decl = &packdecl.Manifest{}
 		}
