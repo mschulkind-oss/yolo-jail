@@ -22,6 +22,7 @@ import (
 	"os"
 	"path/filepath"
 	"strings"
+	"time"
 
 	"github.com/mschulkind-oss/yolo-jail/internal/config"
 	"github.com/mschulkind-oss/yolo-jail/internal/entrypoint"
@@ -117,8 +118,9 @@ func applyMain(args []string, out, errw io.Writer, color bool) int {
 // home (env-manager plan Phase 4). Default posture is OBSERVE (dry-run): it prints what
 // would change and writes nothing; --assert (write=true) actually renders. Pure RMW, no
 // computed layer, user-scoped, no --revert — the resolved OQ-1..4 model. Non-config
-// kinds are refused by name via the host FieldSet, and `program` (install) is called out
-// as confirm-gated-not-yet-run (Phase 4.3's confirm UX is a follow-up).
+// kinds are refused by name via the host FieldSet, and `program` resolves to the host's
+// real dep state (present/missing + the remedy for the detected manager) without running
+// an install — that stays confirm-gated behind env-manager plan Phase 4.3.
 func applyHost(out, errw io.Writer, color bool, write bool) int {
 	pr := richtext.Printer{W: out, Color: color}
 	home, err := os.UserHomeDir()
@@ -135,6 +137,10 @@ func applyHost(out, errw io.Writer, color bool, write bool) int {
 		pr.Printf("[dim]No packs configured — nothing to apply to the host.[/dim]")
 		return 0
 	}
+
+	// One archive generation per apply, so everything this run retires groups under one
+	// directory and the user can undo a whole apply rather than hunting per-file.
+	stamp := time.Now().UTC().Format("20060102-150405")
 
 	posture := "observe (dry-run)"
 	if write {
@@ -155,12 +161,18 @@ func applyHost(out, errw io.Writer, color bool, write bool) int {
 		// unbuilt (named as such), or rendered below. A kind that produced no line at all
 		// was the G1 bug — `skills`/`briefing` were honored by the FieldSet but rendered by
 		// nothing, so they vanished silently, which is strictly worse than a loud refusal.
+		deps := resolveHostDeps(p) // one probe per pack, consulted by the program case below
 		for _, c := range p.Decl.Contributions() {
 			switch {
 			case !hostFields.Honors(c.Kind):
 				pr.Printf("  [yellow]%-10s refused[/yellow] — %s", string(c.Kind), hostFields.Refuse(c.Kind))
-			case c.Kind == "program":
-				pr.Printf("  [yellow]program[/yellow] — install below jail is confirm-gated; not run by apply --host yet (Phase 4.3)")
+			case c.Kind == packdecl.KindProgram:
+				// Resolved dep state, not a static "confirm-gated" line: which bin, present
+				// or missing, and the install command for THIS host's package manager
+				// (pack-host-management-plan.md Phase 8). Running it is still Phase 4.3's.
+				for _, l := range deps.lines(c) {
+					pr.Printf("%s", l)
+				}
 			case c.Kind == packdecl.KindAutonomy:
 				// Rendered, but INVISIBLY: an autonomy posture folds into the managed layer
 				// of a surface the same pack owns, so it shows up as that surface's line and
@@ -169,11 +181,17 @@ func applyHost(out, errw io.Writer, color bool, write bool) int {
 				// command answers (env-manager Phase 9).
 				pr.Printf("  [cyan]autonomy[/cyan]   guarded posture — permission prompts " +
 					"stay ON; folded into this pack's own config surfaces below")
+			case c.Kind == packdecl.KindSkills:
+				// Rendered below, per-entry, by applyHostSkills — each skill gets its own
+				// line, so a single summary line here would be noise.
 			default:
 				if why, unbuilt := render.HostUnimplemented(c.Kind); unbuilt {
 					pr.Printf("  [yellow]%-10s refused[/yellow] — %s", string(c.Kind), why)
 				}
 			}
+		}
+		if src := applyHostSkills(pr, errw, p, home, stamp, write); src != 0 {
+			rc = src
 		}
 		results, rerr := entrypoint.RenderHostPack(p, home, !write)
 		if rerr != nil {

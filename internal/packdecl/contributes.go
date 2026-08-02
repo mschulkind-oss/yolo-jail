@@ -45,6 +45,24 @@ type Contribution struct {
 	Into  string `json:"into,omitempty"`  // home-relative jail destination
 	After string `json:"after,omitempty"` // briefing: "host:<path>" to prepend the user's own file
 
+	// Tier declares how much SKILL NAMESPACING the destination tool supports, which bounds
+	// how safely yolo can manage that tool's skills dir in a REAL home (a jail is
+	// unaffected: its skills mount is disposable and :ro). Values:
+	//
+	//   ""            same as "flat" — the safe default, so a pack that says nothing gets
+	//                 no authority over a subtree of the user's home
+	//   "flat"        every skill is a bare name in one dir; yolo writes beside the user's
+	//                 own entries and tracks its output in a manifest
+	//   "namespaced"  the tool loads a per-directory plugin manifest and qualifies those
+	//                 skills by its name, so one pack can own one subtree outright
+	//
+	// Declared by the PACK because the pack is what knows which tool it configures; core
+	// must not infer it from the destination path, which would hardcode a tool's name into
+	// core. Verified against the destination before it is trusted (internal/hostskills
+	// ProbeTier), since the namespaced mechanism is undocumented in the tools that
+	// implement it and could regress.
+	Tier string `json:"tier,omitempty"`
+
 	// --- config / config-overlay ---
 	Surface string `json:"surface,omitempty"` // config-overlay: the target surface "agent/name"
 
@@ -453,6 +471,19 @@ func validateContribution(label string, c Contribution) []string {
 		req("into", c.Into)
 		problems = appendPathProblems(problems, label+".from", c.From)
 		problems = appendPathProblems(problems, label+".into", c.Into)
+		// A misspelled tier is an ERROR, not a silent downgrade to flat. Silently reading
+		// it as flat would be safe but confusing (the pack author sees no namespacing and
+		// no reason why); silently reading it as namespaced would hand a real home more
+		// authority than the pack meant to ask for.
+		if c.Kind == KindSkills && c.Tier != "" &&
+			c.Tier != "flat" && c.Tier != "namespaced" {
+			problems = append(problems, fmt.Sprintf(
+				"%s: unknown tier %q (flat or namespaced)", label, c.Tier))
+		}
+		if c.Kind != KindSkills && c.Tier != "" {
+			problems = append(problems, fmt.Sprintf(
+				"%s: %q does not take a \"tier\" (it only applies to skills)", label, c.Kind))
+		}
 	case KindConfig:
 		if len(c.Raw) == 0 {
 			problems = append(problems, label+": config needs a \"config\" surface definition")

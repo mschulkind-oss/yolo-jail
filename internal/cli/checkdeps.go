@@ -95,6 +95,10 @@ func depManifestDir() string {
 // adapted to depcheck.Requirement. Embedded/local/fetched all contribute — a dep is a
 // dep regardless of origin. Best-effort: a pack that fails to load is skipped (the run
 // path reports load failures loudly; this verb is a probe, not a gate on loading).
+//
+// The per-pack adaptation lives in packDepRequirements (applyhostdeps.go) because
+// `apply --host` needs the same projection one pack at a time; keeping one adapter is what
+// stops the two commands from disagreeing about what counts as a requirement.
 func configuredDepRequirements() []depcheck.Requirement {
 	entries, err := config.LoadPacks(nil)
 	if err != nil {
@@ -106,9 +110,7 @@ func configuredDepRequirements() []depcheck.Requirement {
 		if p == nil {
 			continue
 		}
-		for _, d := range p.Decl.DepRequirements() {
-			reqs = append(reqs, depcheck.Requirement{Bin: d.Bin, Hints: d.Hints})
-		}
+		reqs = append(reqs, packDepRequirements(p)...)
 	}
 	return reqs
 }

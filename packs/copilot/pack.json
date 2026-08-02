@@ -15,7 +15,8 @@
     {
       "from": "skills",
       "into": ".copilot/skills",
-      "kind": "skills"
+      "kind": "skills",
+      "tier": "namespaced"
     },
     {
       "config": [

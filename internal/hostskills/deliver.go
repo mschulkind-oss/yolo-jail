@@ -90,6 +90,16 @@ func Deliver(req Request) ([]Result, error) {
 		return nil, err
 	}
 
+	// A pack that carries NO skills must leave no trace. The six shipped agent packs declare
+	// a `skills` contribution to name the destination their agent reads from and ship no
+	// content of their own, so without this an apply would litter the user's skills dir with
+	// empty plugin directories — visible in `/plugin`, loadable, and containing nothing.
+	// Returning early also means such a pack cannot "retire" anything, which is right: it
+	// never owned anything to retire.
+	if len(skills) == 0 {
+		return nil, nil
+	}
+
 	tier, downgrade := ProbeTier(req.Tier, req.SkillsDir, req.Pack)
 	var out []Result
 	if downgrade != "" {

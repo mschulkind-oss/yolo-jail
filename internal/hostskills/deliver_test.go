@@ -359,3 +359,27 @@ func treeSnapshot(t *testing.T, root string) string {
 	}
 	return b.String()
 }
+
+// A pack that carries no skills must leave NO trace — not even an empty plugin dir.
+//
+// This is not a hypothetical: the shipped agent packs each declare a `skills` contribution
+// purely to name the destination their agent reads from, and ship no skills of their own. An
+// earlier cut created <skillsDir>/<pack>/ with a manifest and an empty skills/ subdir for
+// every one of them, which is a loadable, listed, empty plugin in the user's home.
+func TestNoSkillsLeavesNoTrace(t *testing.T) {
+	for _, tier := range []Tier{TierNamespaced, TierFlat} {
+		t.Run(tier.String(), func(t *testing.T) {
+			req, _ := testReq(t, tier) // source dir exists but is empty
+			results, err := Deliver(req)
+			if err != nil {
+				t.Fatal(err)
+			}
+			if len(results) != 0 {
+				t.Errorf("a pack with no skills should report nothing, got %+v", results)
+			}
+			if _, err := os.Stat(req.SkillsDir); !os.IsNotExist(err) {
+				t.Errorf("%s was created for a pack that ships no skills", req.SkillsDir)
+			}
+		})
+	}
+}
