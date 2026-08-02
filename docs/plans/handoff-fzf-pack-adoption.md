@@ -81,20 +81,20 @@ so omitting `program` is correct today and the pack works. But it means:
 presence-asserting kind (`requires`?), this pack should adopt it immediately — it is the case
 that motivated the question.
 
-### 2.3 The double `rendered` line is expected here
+### 2.3 ~~The double `rendered` line is expected here~~ — FIXED 2026-08-02
 
-`apply --host` prints `claude/settings rendered` **twice** for this pack — once for the claude
-pack's declaration, once for this one. That is ruling **R4** in
-[`../design/pack-config-collaboration.md`](../design/pack-config-collaboration.md) and is
-tracked as Option 1 in that doc, not a defect in this pack. Do not "fix" it here.
+`apply --host` used to print `claude/settings rendered` **twice** for this pack — once per
+declaring pack. That was ruling **R4** in
+[`../design/pack-config-collaboration.md`](../design/pack-config-collaboration.md), and Option 1
+settled it by **refusing** the clash rather than deduping the line: two `config` declarations of
+one identity are now a collision, so the state that produced the second line cannot arise. An
+overlay-based pack (which this one now is) prints exactly one line — and always did.
 
-### 2.4 The pack declares `config`, which will eventually be wrong
+### 2.4 ~~The pack declares `config`, which will eventually be wrong~~ — CONVERTED 2026-08-02
 
-The pack declares `agent: claude, name: settings` itself — Layout B in
-`pack-config-collaboration.md`. The **designed** answer is `config-overlay` (Layout C), which
-was inert when this pack was built and is being wired now.
-
-**When `config-overlay` lands, this pack should convert**, becoming:
+The pack declared `agent: claude, name: settings` itself — Layout B in
+`pack-config-collaboration.md`. It now declares Layout C, which is what it should always have
+been:
 
 ```jsonc
 { "kind": "config-overlay", "surface": "claude/settings",
@@ -102,30 +102,46 @@ was inert when this pack was built and is being wired now.
       "type": "command", "command": "~/.claude/bin/file-suggestion.sh" } } } }
 ```
 
-That is strictly better: the claude pack stays the sole owner of `settings.json`, this pack
-cannot alter the file's `mode`/`path`/`codec` even by accident, and provenance records which
-pack set the key. **Until then Layout B is the working answer** and the pack is correct as
-shipped.
+Strictly better, and all three halves are now mechanical rather than conventional: the claude
+pack stays the sole owner of `settings.json`; this pack **cannot** alter the file's
+`mode`/`path`/`codec` (every surface-defining field is refused by name at decode); and the
+boot's provenance sidecar records `fileSuggestion → config-overlay:claude-fzf`, which
+`yolo config diff claude` reads out.
+
+The conversion landed **with** Option 1 rather than before it, deliberately: the old `config`
+form is no longer merely discouraged — selecting it alongside `claude` refuses the launch, so
+leaving the example on Layout B would have shipped a pack that cannot start a jail.
 
 ---
 
-## 3. The trap that is already defused, and must stay defused
+## 3. The trap that was defused by convention, and is now closed by the mechanism
 
-🔒 **`mode` is deliberately OMITTED from the `config` contribution.** Do not add it.
+🔒 **The old rule was "`mode` is deliberately OMITTED from the `config` contribution — do not
+add it."** It is obsolete, and how it became obsolete is the interesting part.
 
 `claude/settings` is `stateful` (the default). Declaring `mode: "rmw"` on the same surface
-identity **silently replaces the whole surface definition** — `manifest.Merge` is last-writer-
+identity **silently replaced the whole surface definition** — `manifest.Merge` is last-writer-
 wins (`internal/agentcfg/manifest/load.go:124`, `byKey[k] = s`) — flipping claude's settings
 from `stateful` to `rmw` and **disabling in-jail edit capture for `~/.claude/settings.json`**
 with nothing reported.
 
 This is ruling **R1**: *"very harmful. my setup doesn't matter. this is a general mechanism."*
+And R1 is precisely why omitting `mode` was never the fix: it made ONE pack polite while the
+mechanism stayed able to do the same damage through the next pack anyone wrote.
 
-`pack.json` is strict JSON, so a `// why` comment fails to parse — which is exactly why the
-rationale lives in the README under a "DO NOT ADD IT" heading. **If you edit the pack.json,
-re-read that section first.** Verified state: `yolo pack lint` reports
-`config claude/settings stateful → ~/.claude/settings.json`, and capture sidecars are present
-*and populated* in-jail (`rmw` writes no sidecar at all, so their presence is the proof).
+**Both halves are now shipped**, so the hazard is unreachable rather than avoided:
+
+- the pack declares `config-overlay`, whose body may carry only `managed` — `mode`, `path`,
+  `codec` and every other surface-defining field are refused **by name** at decode, so a
+  contributor *cannot* flip the owner's mode even deliberately;
+- a second `config` declaration of one identity is a **refused collision** at launch, at
+  `apply --host`, and in `yolo pack footprint`/`yolo check`, naming both packs and the
+  conversion.
+
+Verified state: `yolo pack lint --allow-exec <dir>` reports
+`config-overlay claude/settings contributes keys (owner still wins)`, and the in-jail capture
+sidecars are present *and populated* (`rmw` writes none at all, so their presence is the proof)
+with `fileSuggestion → config-overlay:claude-fzf` in the provenance record.
 
 ---
 
@@ -173,25 +189,34 @@ lists them as work items. Summarized so a successor does not rediscover them:
       re-run `yolo pack lint --allow-exec <dir>`.
 - [ ] Copy the pack to `~/.dotfiles/claude-fzf/` (or wherever personal packs live) and add the
       config entry from the README — **including `"allow_exec": true`**.
-- [ ] Do NOT add `mode` to the `config` contribution (§3).
-- [ ] When `config-overlay` lands, convert the `config` contribution to it (§2.4).
+- [x] ~~Do NOT add `mode` to the `config` contribution~~ — moot: the pack declares
+      `config-overlay`, which cannot set `mode` at all (§3).
+- [x] ~~When `config-overlay` lands, convert the `config` contribution to it~~ — **done
+      2026-08-02** (§2.4).
 - [ ] When Q1.x is decided, add the `fd`/`fzf` dependency declaration with `install_hints`
       (§2.2).
-- [ ] Expect two `claude/settings rendered` lines until R4 is fixed (§2.3) — not a bug here.
+- [x] ~~Expect two `claude/settings rendered` lines until R4 is fixed~~ — one line now; two
+      would mean a collision, which is refused (§2.3).
 
 ## 7. How to verify after any change
 
 The sequence used originally, all against a throwaway `$HOME` under `mktemp -d` — **never a
 real home**:
 
-1. `yolo pack lint --allow-exec <pack dir>` → clean, and confirm it says **`stateful`**.
+1. `yolo pack lint --allow-exec <pack dir>` → clean, and confirm it says
+   **`config-overlay claude/settings`** — a `config` claim there would mean the pack regressed
+   to Layout B, which now refuses the launch.
 2. `yolo apply --host` (observe) → writes nothing.
 3. `yolo apply --host --assert` → script at `0o555`, `fileSuggestion` present alongside
-   claude's own `preferences`/`permissions`, briefing block written.
+   claude's own `preferences`/`permissions`, briefing block written, and **exactly one**
+   `claude/settings rendered` line (two would be the R4 tell, and is now impossible).
 4. **Second `--assert` → byte-identical.** This is the test that catches an accumulating
    render; run it every time.
 5. Nested jail, with the freshly built binary **by path**
    (`just build-go && ./dist-go/linux-$(go env GOARCH)/yolo -- bash -lc '…'`, `YOLO_REPO_ROOT=/workspace`)
    → script present, executable, and **runs**. Not bare `yolo` — that is the baked launcher.
    `git add` new files first; a nested image build only sees git-tracked files.
-6. Confirm the mode did not flip: lint says `stateful`, and capture sidecars exist in-jail.
+6. Confirm the owner's mode survived: capture sidecars exist in-jail under
+   `<ws>/.yolo/prism/claude-settings.*` (an `rmw` surface writes none, so their presence is the
+   proof), and `claude-settings.provenance` names the contributor —
+   `fileSuggestion → config-overlay:claude-fzf`.

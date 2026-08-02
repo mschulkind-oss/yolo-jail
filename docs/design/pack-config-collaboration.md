@@ -5,13 +5,13 @@ changing anything: *"the claude pack needs to add support for the `fileSuggestio
 fzf pack feeds into this new key?"* Reviewed the same day; §7 records four rulings that
 constrain the implementation, and the recommended order (§6) is confirmed.
 
-**Option 2 is SHIPPED** (2026-08-02): `config-overlay` now applies at both render paths, with
-R2's ownerless-overlay reporting and R3's provenance visibility in `yolo config diff`. See §6
-for what that means in the code and §8 for what shipping it settled that this doc did not.
-**Option 1 (enforce `config` exclusivity) is still open**, so the §5 problem #1 hazard — a
-second `config` declaration silently replacing the first, `mode` and all — stands. Per R1 that
-is not optional cleanup: there is now a correct way to express the intent, so the incorrect way
-has lost its last excuse.
+**Both options are SHIPPED** (2026-08-02). Option 2 wired `config-overlay` at both render
+paths, with R2's ownerless-overlay reporting and R3's provenance visibility in `yolo config
+diff`; Option 1 then made `config` exclusivity a LOUD COLLISION — named in `yolo pack
+footprint`, refused at launch and by `apply --host`, naming both packs and teaching the
+`config-overlay` conversion — which also settled R4 by removing the state that produced the
+double `rendered` line. See §6 for what that means in the code, §8 for what shipping Option 2
+settled, and §9 for Option 1.
 
 **Short answer: no, and the reason is worth understanding.** The claude pack needs no change,
 and the fzf pack does not feed into anything the claude pack declares. But the mechanism that
@@ -256,11 +256,11 @@ agent-owned files, which is why the gap has stayed invisible.
 
 | # | Problem | Severity |
 |---|---|---|
-| **1** | **A same-identity surface declaration silently replaces the first**, taking its `mode`/`path`/`codec` with it. Verified: a pack can flip claude's settings from `stateful` to `rmw` with no warning, silently disabling in-jail edit capture for that file. | **general hazard in the pack mechanism** (ruling R1) |
-| **2** | `config-overlay` — the designed mechanism for exactly this — is **inert**. It parses, validates, has a combine rule and engine support, and no boot-path code collects it. | **missing feature** |
-| **3** | `yolo pack footprint` does not flag an identity clash between two `config` contributions, though the footprint model calls `config` `CombineExclusive` (*"a second writer must be `config-overlay`"*). The rule is documented and unenforced. | **unenforced invariant** |
-| **4** | No mechanism exists for a second pack to contribute to a `computed` surface. Latent — no shipped pack does this — but it is the case the accident does not cover. | **latent gap** |
-| **5** | A duplicated surface prints one `rendered` line per declaring pack, so the collision is visible in the output while nothing names it one. | **misleading output** (ruling R4) |
+| ~~**1**~~ | ~~**A same-identity surface declaration silently replaces the first**, taking its `mode`/`path`/`codec` with it.~~ **FIXED** (§9): refused at launch, at `apply --host`, and named in `pack footprint`. | **general hazard in the pack mechanism** (ruling R1) |
+| ~~**2**~~ | ~~`config-overlay` — the designed mechanism for exactly this — is **inert**.~~ **FIXED** (§8). | **missing feature** |
+| ~~**3**~~ | ~~`yolo pack footprint` does not flag an identity clash between two `config` contributions.~~ **FIXED** (§9). Footprint also reports `config-overlay` claims now, which it previously skipped. | **unenforced invariant** |
+| **4** | No mechanism exists for a second pack to contribute to a `computed` surface. Latent — no shipped pack does this — but it is the case the accident does not cover. | ~~**latent gap**~~ **CLOSED by §8** — all three modes now carry overlays |
+| ~~**5**~~ | ~~A duplicated surface prints one `rendered` line per declaring pack.~~ **FIXED** (§9), by refusing the clash rather than deduping the line. | **misleading output** (ruling R4) |
 
 Note that #1, #3 and #5 are one defect seen from three angles: the footprint promises
 exclusivity, the merge silently allows a replacement, and the output shows the replacement
@@ -275,13 +275,15 @@ missing feature it would be tempting to fix first.
 
 ## 6. Options, with a recommendation
 
-### Option 1 — Enforce the documented rule (small, subtractive)
+### Option 1 — Enforce the documented rule (small, subtractive) — **SHIPPED**
 
 Make two `config` contributions on one surface identity a **loud collision**, named in
 `pack footprint` and refused at launch — exactly as `files` already is (that pre-flight was
 built in Phase 7 and names both packs). This is the one-writer rule finally enforced instead
 of merely written down. Per ruling R4 it also collapses the double `rendered` line: once a
 clash is a collision, the second line is reportable as a conflict rather than printed as noise.
+
+Shipped 2026-08-02 — see §9 for what it turned out to require.
 
 Ruling R1 makes this the load-bearing half rather than the tidy-up: the hazard is the
 mechanism's, so only enforcement closes it.
@@ -468,15 +470,10 @@ sending a user to investigate a by-design absence is its own kind of misreport.
 
 ### Still open after Option 2
 
-- **Option 1** (§6): two `config` contributions on one identity remain last-writer-wins, so
-  problem #1 and rulings R1/R4 are untouched. This was scoped out deliberately — making the
-  correct path work and making the incorrect path stop working are separate changes, and the
-  order matters.
-- **`yolo pack footprint` does not show overlay claims.** `FootprintOf` derives `config`
-  claims from the decoded surfaces and skips `config-overlay` entirely, so a pack's
-  footprint does not list what it contributes to someone else's file. Now that the kind
-  applies, that is a real omission in the "good citizen" report rather than an accurate
-  reflection of an inert kind.
+- ~~**Option 1** (§6)~~ **SHIPPED** — see §9.
+- ~~**`yolo pack footprint` does not show overlay claims.**~~ **FIXED** with Option 1:
+  `FootprintOf` now emits one `config-overlay` claim per contribution, keyed by the identity
+  it targets. It does not collide (`CombineOverlay`), so it is a claim line only.
 
 - **At the HOST notch, `config diff` reports a plausible winner rather than a measured one.**
   Found while verifying Option 2 end to end. The paragraph above covers the case where a
@@ -502,3 +499,65 @@ sending a user to investigate a by-design absence is its own kind of misreport.
   it just has nowhere it currently writes one), or make the host path report
   `contributed by <pack> (winner not recorded at the host notch)` and stop inferring. The
   second is cheap and honest; the first is what R3 actually asked for.
+
+---
+
+## 9. What building Option 1 settled that this doc did not
+
+Shipped 2026-08-02, deliberately AFTER Option 2 (§6's recommended order, confirmed in review):
+a correct expression had to exist before the incorrect one could be refused. Five decisions the
+implementation had to make.
+
+**Three refusal sites, one detector.** `packload.ConfigSurfaceCollisions` is the single pass;
+it is consumed by `packload.Collisions` (so `yolo pack footprint` and `yolo check` report it),
+by `stagePacks` (so a launch is refused before the container exists), and by `apply --host`
+(so nothing is written into a real home). The `files` pre-flight's shape, reused rather than
+re-invented: same call site in `stagePacks`, same reason — that is where the pack set becomes
+complete, and it covers the attach path too.
+
+**Its own pass, not a row in the generic exclusive loop.** Two reasons, and both are structural
+rather than stylistic. (1) A pack can commit this against ITSELF: every other exclusive kind
+collides on a destination the runtime then rejects, so "one pack, one claim" is safe enough
+there and the generic loop correctly skips a single-pack group. A surface identity is resolved
+in Go by `manifest.Merge`, which is just as silent for two declarations inside one manifest.
+(2) The REMEDY is a different KIND, not a different target — "give them different paths" is
+right for `files` and useless here, because two packs wanting keys in one config file is a
+legitimate intent with a correct expression. So the message has to teach the conversion, which
+no generic reason string can.
+
+**The refusal names the DIVERGENCE, not just the rule.** Two packs agreeing on everything but
+`managed` are still refused (R1: the hazard is the mechanism, not the impoliteness), but where
+the declarations disagree on `mode`/`path`/`codec` the message says which field and which two
+values — `mode (claude: "stateful" vs claude-fzf: "rmw")`. That is the concrete damage, and a
+reader who sees it does not have to take the rule on faith. In a SELF-collision both sides
+would carry the same pack name, so there the labels are `declaration 1` / `declaration 2`.
+
+**R4 is settled by refusing, not by deduping.** The double `rendered` line was one line per
+declaring pack for one file. Deduping it would have hidden the clash; refusing the apply
+removes the second line by removing the state that produced it. Measured both ways: pre-fix,
+`apply --host` on a doubly-declared surface printed the line twice and exited 0; post-fix it
+prints the refusal and exits 1, and an OVERLAY-based pack prints exactly one line (it always
+did — that path was not touched).
+
+**The single-pack views need a shipped-pack advisory.** `pack lint` and `pack footprint <dir>`
+hold ONE pack by construction, so they cannot see a cross-pack collision — and the most likely
+one, a surface a pack yolo ships already owns, is exactly the fzf case. Without help an author's
+pack lints clean and then fails to boot, which makes the pre-configure check the one check that
+misses. So both single-pack views compare against the (not-selection-gated) embedded set and
+warn by name, with the `config-overlay` shape to copy. A WARNING rather than a lint failure:
+whether the two packs are ever selected together is a config question these commands cannot
+answer, so the refusal stays where the pack set is known.
+
+### What it did NOT change
+
+- **No shipped pack collides.** All six declare disjoint identities (`claude/config`,
+  `claude/settings`, `copilot/config`, `copilot/lsp`, `copilot/mcp`, `codex/config`,
+  `opencode/config`, `pi/settings`, `agy/mcp`, `agy/settings`), and five use `autonomy` to
+  patch a surface they already own — which is not a second declaration, because
+  `foldPostureManaged` merges into the base rather than appending. Pinned by two tests, one at
+  the detector and one at `stagePacks`.
+- **The render fingerprint is byte-identical.** Refusing a collision changes no rendered file
+  for a valid pack set, which is the invariant `TestRenderFingerprintStable` exists to hold.
+- **`docs/examples/claude-fzf-pack/` converted** to `config-overlay` in the same change, per
+  `docs/plans/handoff-fzf-pack-adoption.md` §2.4. It would otherwise have been the first thing
+  the new refusal broke — by design, since it used Layout B because Layout C did not work yet.

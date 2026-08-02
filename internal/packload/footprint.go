@@ -144,6 +144,19 @@ func FootprintOf(p *Pack) Footprint {
 		}
 	}
 
+	// config-overlay → one claim per contribution, keyed by the identity it targets.
+	//
+	// Reported for the same reason every other kind is: the footprint is the "good
+	// citizen" statement of what a pack does to its environment, and "contributes keys to
+	// someone else's config file" is squarely that. It was omitted while the kind was
+	// INERT, where saying nothing was accurate; now that it applies at both render paths,
+	// the omission would mean the one report a user reads before trusting a pack cannot
+	// show its most collaborative claim. It does not collide (CombineOverlay), so it is a
+	// claim line only.
+	for _, ov := range p.Decl.ConfigOverlayContributions() {
+		add(packdecl.KindConfigOverlay, ov.Surface, "contributes keys (owner still wins)", false)
+	}
+
 	// Stable order: contribution order is map-dependent for launch/…, so sort by
 	// (kind, target) for a deterministic footprint and test.
 	sort.SliceStable(fp.Claims, func(i, j int) bool {
@@ -237,6 +250,13 @@ func Collisions(packs []*Pack) []Collision {
 		if fp.Combine != packdecl.CombineExclusive {
 			continue
 		}
+		// config has its OWN pass (ConfigSurfaceCollisions): it is the one exclusive kind
+		// whose violation a pack can commit against ITSELF, and the one whose remedy is a
+		// different kind rather than a different target — so its message has to teach
+		// `config-overlay` rather than say "one would shadow the other".
+		if k.kind == packdecl.KindConfig {
+			continue
+		}
 		out = append(out, Collision{
 			Kind:   k.kind,
 			Target: k.target,
@@ -257,6 +277,9 @@ func Collisions(packs []*Pack) []Collision {
 	// (the claim's kind is skills, which merges by design), so it is its own pass — the same
 	// shape state's scope conflict needs, and for the same reason.
 	out = append(out, pluginNameCollisions(packs)...)
+
+	// Two `config` declarations of one surface identity — the R1 hazard, finally enforced.
+	out = append(out, ConfigSurfaceCollisions(packs)...)
 
 	sort.SliceStable(out, func(i, j int) bool {
 		if out[i].Kind != out[j].Kind {
@@ -343,6 +366,149 @@ func pluginNameCollisions(packs []*Pack) []Collision {
 		})
 	}
 	return out
+}
+
+// configSurfaceCollisions finds a config surface IDENTITY declared more than once — the
+// hazard docs/design/pack-config-collaboration.md R1 rules harmful, enforced.
+//
+// WHY IT IS ITS OWN PASS rather than a row in the generic exclusive loop, in two parts:
+//
+//   - A pack can commit this against ITSELF. Every other exclusive kind collides on a
+//     destination the runtime then rejects (podman's duplicate mount), so "one pack, one
+//     claim" is enough to be safe; a surface identity is resolved in Go by
+//     manifest.Merge's last-writer-wins, which is just as silent for two declarations
+//     inside one manifest as for two packs. The generic loop skips a single-pack group by
+//     design (it is asking "do two packs fight"), which is the wrong question here.
+//   - The REMEDY is a different KIND, not a different target. "One would shadow the
+//     other — give them different paths" is the right advice for `files` and useless
+//     here: two packs wanting keys in one config file is a legitimate intent, and
+//     `config-overlay` is how it is expressed. So the message has to teach the
+//     conversion, which no generic reason string can.
+//
+// What actually goes wrong is worth stating precisely, because it is not "one pack's keys
+// are dropped": the survivor of manifest.Merge brings its own `mode`, `path`, `codec` and
+// `defaults`, so a second declaration can flip a surface from `stateful` to `rmw` and
+// disable in-jail edit capture for a file the other pack owns. Neither author can see it,
+// and the victim is whichever user's file loses its capture sidecar (R1).
+//
+// Reads Surfaces() (autonomy ON). The posture only patches the managed layer of surfaces
+// the pack ALREADY declares — foldPostureManaged merges into the base rather than
+// appending — so the identity set is the same at either notch, and an `autonomy` patch of
+// the pack's own surface is correctly not a second declaration.
+//
+// EXPORTED, unlike its sibling passes, because three callers outside the footprint report
+// refuse THIS collision specifically rather than the whole set: the launch pre-flight,
+// `apply --host`, and `yolo check`. Narrow on purpose — a `launch` clash, for instance, is
+// documented later-wins at every one of those, so widening the refusal to Collisions()
+// wholesale would break overrides that work today.
+func ConfigSurfaceCollisions(packs []*Pack) []Collision {
+	// One entry per DECLARATION (not per pack), so a manifest declaring an identity twice
+	// is visible. Keyed by identity, first-seen order for a deterministic report.
+	byID := map[string][]surfaceDecl{}
+	var order []string
+	for _, p := range packs {
+		surfaces, _ := p.Surfaces() // problems are reported by the render path, not here
+		for _, s := range surfaces {
+			id := s.Key().String()
+			if _, seen := byID[id]; !seen {
+				order = append(order, id)
+			}
+			byID[id] = append(byID[id], surfaceDecl{p.Name, s.ResolvedMode(), s.Path, s.Codec})
+		}
+	}
+
+	var out []Collision
+	for _, id := range order {
+		decls := byID[id]
+		if len(decls) < 2 {
+			continue
+		}
+		packSet := map[string]struct{}{}
+		for _, d := range decls {
+			packSet[d.pack] = struct{}{}
+		}
+		names := sortedPackNames(packSet)
+		out = append(out, Collision{
+			Kind: packdecl.KindConfig, Target: id,
+			Packs:  names,
+			Reason: configCollisionReason(id, names, divergences(decls)),
+		})
+	}
+	return out
+}
+
+// surfaceDecl is one `config` declaration of a surface identity: which pack made it, and
+// the three surface-DEFINING fields whose silent replacement is the R1 hazard. `managed` is
+// deliberately absent — the keys are what two packs legitimately both want, so they are not
+// evidence of anything.
+type surfaceDecl struct {
+	pack  string
+	mode  string
+	path  string
+	codec string
+}
+
+// divergences describes the ways two declarations of one identity DISAGREE, as
+// "<field> (<pack>: <value> vs <pack>: <value>)" strings.
+//
+// It exists because the disagreement is the concrete damage, not an abstraction: two packs
+// agreeing on everything but `managed` still get refused (R1 — the hazard is the mechanism,
+// not the impoliteness), but a pack that flipped a `mode` deserves to be told exactly that
+// rather than left to infer it from a rule. Empty when the declarations are identical
+// apart from their keys.
+func divergences(decls []surfaceDecl) []string {
+	var out []string
+	field := func(name string, pick func(int) string) {
+		first := pick(0)
+		for i := 1; i < len(decls); i++ {
+			if pick(i) == first {
+				continue
+			}
+			// Label by pack, except in a self-collision where both labels would be the
+			// same name — there the declaration index is the only thing that tells them
+			// apart.
+			lhs, rhs := decls[0].pack, decls[i].pack
+			if lhs == rhs {
+				lhs, rhs = "declaration 1", fmt.Sprintf("declaration %d", i+1)
+			}
+			out = append(out, fmt.Sprintf("%s (%s: %q vs %s: %q)", name, lhs, first, rhs, pick(i)))
+			return // one report per field is enough to make the point
+		}
+	}
+	field("mode", func(i int) string { return decls[i].mode })
+	field("path", func(i int) string { return decls[i].path })
+	field("codec", func(i int) string { return decls[i].codec })
+	return out
+}
+
+// configCollisionReason is the message a user sees, and it is deliberately the longest one
+// in this file: it has to name both packs, say what silently happens, and TEACH the
+// conversion, because since 2026-08-02 the correct expression exists (`config-overlay`) and
+// a refusal that does not point at it just blocks a working setup.
+func configCollisionReason(id string, packs, diverged []string) string {
+	// Two wordings, because a self-collision has no second pack to blame and saying "the
+	// other pack" there sends the author looking for one that does not exist.
+	who := fmt.Sprintf("packs %s each declare it, so one silently changes how the other's "+
+		"file is maintained", strings.Join(packs, " and "))
+	if len(packs) == 1 {
+		who = fmt.Sprintf("pack %s declares it more than once, so its own later entry "+
+			"silently redefines its earlier one", packs[0])
+	}
+	agent, _, _ := strings.Cut(id, "/")
+	msg := fmt.Sprintf("a config surface has exactly ONE owner. %s — the later declaration "+
+		"REPLACES the earlier one whole, taking its mode, path, codec and defaults with it, "+
+		"with nothing reported", who)
+	if len(diverged) > 0 {
+		msg += ", and these already disagree: " + strings.Join(diverged, "; ")
+	}
+	return msg + ".\n" +
+		"    To contribute keys to a surface another pack owns, declare `config-overlay` " +
+		"instead of a second `config`:\n" +
+		"      { \"kind\": \"config-overlay\", \"surface\": \"" + id + "\",\n" +
+		"        \"config\": { \"managed\": { …your keys… } } }\n" +
+		"    That leaves the owner's mode/path/codec alone, folds your keys in BELOW its " +
+		"managed layer (so the owner still wins a genuine conflict), and records which pack " +
+		"set which key (`yolo config diff " + agent + "`)."
 }
 
 func sortedPackNames(set map[string]struct{}) []string {

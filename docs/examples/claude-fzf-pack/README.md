@@ -20,7 +20,7 @@ adding a seventh would change the shipped product. Copy this directory to
 
 | File | Role |
 |---|---|
-| `pack.json` | the manifest: three contributions (`files`, `config`, `briefing`) |
+| `pack.json` | the manifest: three contributions (`files`, `config-overlay`, `briefing`) |
 | `bin/file-suggestion.sh` | the finder itself — **a reference implementation to replace** |
 | `AGENTS.md` | briefing prose telling the agent the finder exists and not to edit it in place |
 
@@ -121,50 +121,56 @@ At the host notch the same declaration *writes the tree* instead of binding it,
 read-only (`0o555`, executable preserved), refusing any path you own that yolo
 has no record of writing.
 
-### `config` → the `fileSuggestion` key
+### `config-overlay` → the `fileSuggestion` key
 
 ```jsonc
-{ "kind": "config", "config": [ {
-    "agent": "claude", "name": "settings", "codec": "json",
-    "path": "~/.claude/settings.json",
-    "managed": { "fileSuggestion": { "type": "command",
-                 "command": "~/.claude/bin/file-suggestion.sh" } } } ] }
+{ "kind": "config-overlay", "surface": "claude/settings",
+  "config": { "managed": { "fileSuggestion": {
+      "type": "command", "command": "~/.claude/bin/file-suggestion.sh" } } } }
 ```
 
-This pack declares the **same surface identity** (`claude/settings`) the `claude`
-pack owns, contributing only its own key in `managed`. That works because a
-key-scoped writer merges its keys and leaves the rest — the `claude` pack's
-`preferences`, and its `permissions` from the `autonomy` kind, all coexist.
+The `claude` pack stays the **sole owner** of `~/.claude/settings.json`; this pack
+is explicitly a **contributor**. It names the surface by identity and contributes
+one key, folding in *below* the owner's `managed` layer — so claude's own
+`preferences`, and its `permissions` from the `autonomy` kind, all coexist, and
+the owner still wins a genuine conflict.
 
-#### 🔒 `mode` IS DELIBERATELY OMITTED. DO NOT ADD IT.
+**What a contributor cannot do, mechanically:** the overlay body may carry only
+`managed`. Every field that would redefine the *surface* — `agent`, `name`,
+`path`, `codec`, `mode`, `transform`, `defaults`, `retireOnFirstRender` — is
+refused **by name** at decode. So this pack cannot change where the file lands,
+in what format, or how it is maintained across boots, even by accident.
 
-`pack.json` is strict JSON — no comments — so the reason lives here instead:
-
-**Declaring `mode: "rmw"` silently flips claude's settings surface from
-`stateful` to `rmw`,** because two declarations of one surface identity resolve
-*last-writer-wins, whole* (`manifest.Merge`) — the survivor brings its own
-`mode`, `path`, `codec` and `defaults`. `stateful` captures your in-jail edits
-into a sidecar and replays them across regeneration; `rmw` has no sidecars at
-all. So adding `mode` would quietly disable in-jail edit capture for
-`~/.claude/settings.json`, and nothing would report it.
-
-Omitting `mode` inherits `stateful`, matching the `claude` pack. Confirm with:
+That last one is the point. Confirm the owner's mode is untouched:
 
 ```console
 $ yolo pack lint --allow-exec <pack dir> | grep config
-  config   claude/settings  stateful → ~/.claude/settings.json     # ← want this
+  config-overlay claude/settings  contributes keys (owner still wins)   # ← this pack
+$ yolo config ls claude | grep settings
+  claude/settings  stateful     # ← still the claude pack's, still capturing edits
 ```
 
-Per **ruling R1** in
-[`../design/pack-config-collaboration.md`](../design/pack-config-collaboration.md#7-rulings),
-this politeness is a **workaround, not a fix** — the hazard belongs to the
-mechanism, which can still do the same damage to any surface via the next pack
-anyone writes. The real repair is wiring `config-overlay` (Option 2) and then
-enforcing surface exclusivity (Option 1).
+#### This pack used to declare `config`, and that is worth knowing
 
-**Related tell:** `apply --host` prints the `claude/settings` line **twice**, once
-per declaring pack. Harmless (the second write is idempotent) but it is the
-collision made visible while nothing names it one — ruling R4.
+Until 2026-08-02 it declared `agent: claude, name: settings` itself — Layout B in
+[`../design/pack-config-collaboration.md`](../design/pack-config-collaboration.md).
+That worked, by accident: two declarations of one surface identity resolved
+*last-writer-wins, whole* (`manifest.Merge`), so the survivor brought its own
+`mode`, `path`, `codec` and `defaults` with it. Adding `mode: "rmw"` would have
+silently flipped claude's settings surface from `stateful` to `rmw`, **disabling
+in-jail edit capture for `~/.claude/settings.json`** with nothing reported — which
+is why the old version of this README carried a "🔒 DO NOT ADD `mode`" warning.
+
+Per **ruling R1** that politeness was a workaround, not a fix: the hazard belonged
+to the mechanism. Both halves are now shipped — `config-overlay` applies at both
+render paths (Option 2), and a second `config` declaration of one identity is a
+**refused collision** naming both packs (Option 1). So the old shape is no longer
+merely discouraged; selecting this pack alongside `claude` with a `config`
+declaration would refuse the launch, with the conversion above in the error.
+
+One consequence you can see: `apply --host` prints **one** `claude/settings
+rendered` line, not two. Two lines for one file used to be the tell that two packs
+were fighting over it (ruling R4).
 
 ### `briefing` → telling the agent it exists
 
@@ -226,26 +232,35 @@ is the only shape that behaves predictably today.
 
 ## Verification performed
 
-All four checks from the plan's acceptance test, reproduced against this pack
-(fresh `./dist-go/linux-amd64/yolo`, not the baked launcher):
+Re-verified after the `config-overlay` conversion (2026-08-02), against a fresh
+`./dist-go/linux-amd64/yolo` — not the baked launcher:
 
 | # | Check | Result |
 |---|---|---|
-| 1 | `yolo pack lint --allow-exec` | clean; 3 claims, `config claude/settings stateful` |
-| 2 | `apply --host` observe, then `--assert`, on a throwaway `$HOME` | script at `0o555`; `fileSuggestion` alongside claude's `preferences`/`permissions`/`skipDangerousModePermissionPrompt`; the script **runs** from the real home |
+| 1 | `yolo pack lint --allow-exec` | clean; 3 claims, `config-overlay claude/settings contributes keys (owner still wins)` |
+| 2 | `apply --host` observe, then `--assert`, on a throwaway `$HOME` | script at `0o555`; `fileSuggestion` alongside claude's `preferences`/`permissions`/`skipDangerousModePermissionPrompt`; **exactly one** `claude/settings rendered` line, annotated `config-overlay keys from: claude-fzf` |
 | 3 | second `--assert` | **byte-identical** (sha256, all three files); briefing block count stays 1 |
-| 4 | nested jail (`yolo -- …`, `YOLO_REPO_ROOT=/workspace`) | script present, executable, and **runs**, returning ranked matches; settings key wired; prose delivered |
-| 5 | mode did not flip | `stateful` in lint; capture sidecars (`claude-settings.overlay.json`, `.last_render`, `.provenance`) present and populated in the jail, with `fileSuggestion → managed` and an unrelated `enabledPlugins → overlay` key captured — i.e. **capture still works** |
+| 4 | nested jail (`yolo -- …`, `YOLO_REPO_ROOT=/workspace`) | script present, executable, and **runs**; `fileSuggestion` wired; prose delivered; boot announces `claude/settings: config-overlay keys from claude-fzf` |
+| 5 | the owner's mode is intact | capture sidecars (`claude-settings.overlay.json`, `.last_render`, `.provenance`) present and populated in the jail — `rmw` writes none at all, so their presence is the proof — and the provenance names the contributor: `fileSuggestion → config-overlay:claude-fzf` |
+
+That last line is the whole difference the conversion makes. Under Layout B the same
+key showed as `fileSuggestion → managed` with no record of *which* pack asserted it;
+now the sidecar attributes it, which is what `yolo config diff claude` reads out.
 
 The guarded-posture check also passes: at the host notch,
 `skipDangerousModePermissionPrompt` is `false` and `permissions.defaultMode` is
 `default`, so claude's jail-bypass keys do **not** reach the real home.
 
-**Counterfactual for the `mode` claim** — the same pack with `mode: "rmw"` added:
+**Counterfactual, now enforced rather than merely documented** — the pre-conversion
+`config` form (or any second `config` declaration of `claude/settings`) refuses the
+launch:
 
 ```console
-$ yolo pack lint --allow-exec <variant> | grep config
-  config   claude/settings  rmw → ~/.claude/settings.json     # ← the silent flip
+$ yolo -- bash
+packs: config surface claude/settings claimed by claude, claude-fzf — a config surface
+has exactly ONE owner. … these already disagree: mode (claude: "stateful" vs
+claude-fzf: "rmw").
+    To contribute keys to a surface another pack owns, declare `config-overlay` …
 ```
 
 ---
@@ -282,6 +297,6 @@ Reported, not fixed (they live in files under concurrent development):
    rendering)") — the clear covers `_official` only.
 4. **`yolo config ls` cannot show a configured pack's surface mode.** It merges
    *embedded* packs only (documented in `internal/cli/surfaces.go`), so the
-   `stateful`-vs-`rmw` question this pack turns on is not answerable from
+   `stateful`-vs-`rmw` question this pack used to turn on is not answerable from
    `config ls` for a `file://` pack — `pack lint` is the working check. Worth
    knowing before pointing a user at `config ls` to verify R1.

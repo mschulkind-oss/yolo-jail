@@ -8,21 +8,16 @@
       "into": ".claude/bin"
     },
     {
-      "kind": "config",
-      "config": [
-        {
-          "agent": "claude",
-          "name": "settings",
-          "codec": "json",
-          "path": "~/.claude/settings.json",
-          "managed": {
-            "fileSuggestion": {
-              "type": "command",
-              "command": "~/.claude/bin/file-suggestion.sh"
-            }
+      "kind": "config-overlay",
+      "surface": "claude/settings",
+      "config": {
+        "managed": {
+          "fileSuggestion": {
+            "type": "command",
+            "command": "~/.claude/bin/file-suggestion.sh"
           }
         }
-      ]
+      }
     },
     {
       "kind": "briefing",

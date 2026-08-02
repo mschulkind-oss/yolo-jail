@@ -171,6 +171,24 @@ func applyHost(out, errw io.Writer, color bool, write bool) int {
 		active[p.Name] = true
 		loaded = append(loaded, p)
 	}
+	// REFUSE a doubly-declared config surface before writing anything into a real home
+	// (docs/design/pack-config-collaboration.md Option 1 / R1). This is also R4: the double
+	// `rendered` line was one line per DECLARING pack for one file — the collision made
+	// visible while nothing called it one. Refusing the apply is what removes the second
+	// line, rather than deduping the output and leaving the ambiguity in place.
+	//
+	// Before the render loop, not inside it: which pack's `mode`/`path` won is a property of
+	// the whole set, so a per-pack check would let the first pack write with a definition the
+	// second was about to replace.
+	if cols := packload.ConfigSurfaceCollisions(loaded); len(cols) > 0 {
+		for _, c := range cols {
+			pr.Printf("  [red]config     refused[/red] — surface %s claimed by %s: %s",
+				c.Target, strings.Join(c.Packs, ", "), c.Reason)
+		}
+		pr.Printf("[bold red]apply --host: refused — %d config surface(s) with more than one "+
+			"owner. Nothing was written.[/bold red]", len(cols))
+		return 1
+	}
 	// autonomy=false: host renders the GUARDED posture, so the owner set matches the
 	// surfaces the render will actually produce (§4.2).
 	overlays := packoverlay.Collect(loaded, false)

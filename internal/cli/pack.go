@@ -386,6 +386,50 @@ func printPackFootprint(pr richtext.Printer, p *packload.Pack) {
 		}
 		pr.Printf("  [cyan]%-14s[/cyan] %s%s%s", string(c.Kind), c.Target, detail, flag)
 	}
+	reportShippedSurfaceClash(pr, p)
+}
+
+// reportShippedSurfaceClash warns when the pack under inspection declares a `config`
+// surface one of the packs yolo SHIPS already owns.
+//
+// It exists because the single-pack views (`pack lint`, `pack footprint <dir>`) cannot see
+// a cross-pack collision by construction — they hold one pack — and this particular clash
+// is REFUSED at launch and at `apply --host`. Without this line an author's pack lints
+// clean and then fails to boot, which is the worst possible place to learn it: the check
+// that exists to be run before configuring a pack would be the one check that misses.
+//
+// Reads the not-selection-gated embedded set on purpose (the same argument
+// packoverlay.shippedOwnerOf makes): the point is to see a pack the author has not
+// selected, since that is exactly who they are about to collide with.
+//
+// A WARNING, not a lint failure, and the distinction is real: whether the two packs are
+// ever selected TOGETHER is a config question this command cannot answer. Refusal belongs
+// where the pack set is known.
+func reportShippedSurfaceClash(pr richtext.Printer, p *packload.Pack) {
+	mine, _ := p.Surfaces()
+	if len(mine) == 0 {
+		return
+	}
+	for _, shipped := range packload.Embedded() {
+		if shipped.Name == p.Name {
+			continue // linting a copy of a shipped pack is not a clash with itself
+		}
+		theirs, _ := shipped.Surfaces()
+		for _, s := range theirs {
+			for _, m := range mine {
+				if m.Key() != s.Key() {
+					continue
+				}
+				id := m.Key().String()
+				pr.Printf("[yellow]⚠ %s is already owned by the `%s` pack yolo ships[/yellow] "+
+					"[dim]— selecting both is REFUSED at launch and by `apply --host` "+
+					"(a surface has one owner). Use `config-overlay` to contribute keys "+
+					"instead:[/dim]", id, shipped.Name)
+				pr.Printf("[dim]    { \"kind\": \"config-overlay\", \"surface\": \"%s\", "+
+					"\"config\": { \"managed\": { …your keys… } } }[/dim]", id)
+			}
+		}
+	}
 }
 
 // skillDirsMissingManifest returns the skills/<dir> names that staged files but no
@@ -651,6 +695,13 @@ func reportFootprint(packs []*packload.Pack, pr richtext.Printer) int {
 			}
 			pr.Printf("  [cyan]%-14s[/cyan] %s%s%s", string(c.Kind), c.Target, detail, flag)
 		}
+	}
+	// A ONE-PACK report cannot see a cross-pack collision, and the most likely one — a
+	// surface a shipped pack already owns — is refused at launch. So the single-pack case
+	// checks against the packs yolo ships explicitly. The multi-pack case needs no such
+	// help: Collisions below sees the whole set.
+	if len(packs) == 1 {
+		reportShippedSurfaceClash(pr, packs[0])
 	}
 
 	// Cross-pack collisions across the reported set (the good-citizen check).

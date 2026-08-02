@@ -72,6 +72,18 @@ func (o *Options) sectionPacks(r *reporter) {
 		configured[e.Name] = e.Source
 	}
 
+	// The loaded SELECTED set, accumulated as the loop below resolves each entry. It feeds
+	// the config-surface exclusivity check after the loop, which is the one footprint rule
+	// the Embedded()-only check at the bottom of this function cannot answer: a user's own
+	// pack declaring a surface a shipped pack owns is invisible to a check that only ever
+	// looks at what yolo ships, and that is the single most likely instance of the clash
+	// (docs/design/pack-config-collaboration.md R1).
+	var loaded []*packload.Pack
+	byName := map[string]*packload.Pack{}
+	for _, p := range packload.Embedded() {
+		byName[p.Name] = p
+	}
+
 	for _, e := range entries {
 		// An EMBEDDED pack ships inside the binary, so there is nothing to fetch, resolve,
 		// or stage from a store — and its synthetic "embedded:<name>" source is not an
@@ -80,6 +92,9 @@ func (o *Options) sectionPacks(r *reporter) {
 		// took effect.
 		if e.Embedded() {
 			r.ok(e.Name + ": ships with yolo")
+			if p := byName[e.Name]; p != nil {
+				loaded = append(loaded, p)
+			}
 			continue
 		}
 		addr, err := packsrc.Parse(e.Source)
@@ -116,6 +131,23 @@ func (o *Options) sectionPacks(r *reporter) {
 			continue
 		}
 		r.ok(fmt.Sprintf("%s: %d file(s) stage", e.Name, len(staged.Staged)))
+		// Load the STAGED tree, so the declarations checked are the ones a jail would
+		// render. mayAccessHost matches the launch gate closely enough for a surface
+		// check: origin decides whether a host READ is honored, and a config surface's
+		// identity does not depend on that.
+		if p, probs := packload.LoadDir(dest, e.Name, e.MayGrantHostFiles()); len(probs) == 0 && p != nil {
+			loaded = append(loaded, p)
+		}
+	}
+
+	// Config-surface exclusivity over the SELECTED set — the check that would otherwise be
+	// learned at launch. FATAL here for the same reason the footprint collision below is: the
+	// launch refuses it, so reporting it as a warning would mean `yolo check` passing on a
+	// config that cannot start a jail. Over `loaded` rather than Embedded() because the
+	// interesting case is a user's pack against a shipped one.
+	for _, c := range packload.ConfigSurfaceCollisions(loaded) {
+		r.fail("config surface "+c.Target+" has more than one owner",
+			"packs "+strings.Join(c.Packs, ", ")+" — "+c.Reason)
 	}
 
 	// Drift last, so it reads as a summary rather than interleaving with per-pack

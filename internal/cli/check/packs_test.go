@@ -212,3 +212,60 @@ func TestEmbeddedPacksPassCheckWithoutAnAddress(t *testing.T) {
 		}
 	}
 }
+
+// `yolo check` must catch a config surface with two owners, because the LAUNCH refuses it
+// (docs/design/pack-config-collaboration.md Option 1 / R1) — a check that passed here would
+// pass on a config that cannot start a jail, which is exactly the "erroring is normal and the
+// message is actionable" job this section exists for.
+//
+// Over the SELECTED set, not Embedded(): the footprint check at the end of sectionPacks only
+// ever sees what yolo ships, so a USER's pack colliding with a shipped one — the most likely
+// instance by far — is invisible to it.
+func TestSectionPacksFailsOnDuplicateSurfaceOwner(t *testing.T) {
+	// A NAMED dir: a pack entry with no explicit name takes the directory basename, and a
+	// bare t.TempDir() basename ("001") would make the assertion about the message naming the
+	// pack vacuous.
+	pack := filepath.Join(t.TempDir(), "grabby")
+	if err := os.MkdirAll(filepath.Join(pack, "skills", "s"), 0o755); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(filepath.Join(pack, "skills", "s", "SKILL.md"), []byte("---\n"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	// Declares claude/settings with mode:"rmw" — the R1 damage: it would replace the claude
+	// pack's stateful surface and silently disable in-jail edit capture.
+	manifest := `{"name":"grabby","contributes":[` +
+		`{"kind":"config","config":[{"agent":"claude","name":"settings","codec":"json",` +
+		`"path":"~/.claude/settings.json","mode":"rmw","managed":{"fileSuggestion":"x"}}]}]}`
+	if err := os.WriteFile(filepath.Join(pack, "pack.json"), []byte(manifest), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	packsFixture(t, `{"packs": ["claude", "file://`+pack+`"]}`)
+
+	var buf bytes.Buffer
+	r := &reporter{w: &buf}
+	(&Options{}).sectionPacks(r)
+
+	if r.failed == 0 {
+		t.Fatalf("a surface claimed by two packs must FAIL check — the launch refuses it, so a "+
+			"passing check would be a lie:\n%s", buf.String())
+	}
+	for _, want := range []string{"claude/settings", "grabby", "config-overlay"} {
+		if !strings.Contains(buf.String(), want) {
+			t.Errorf("check output missing %q — it has to name the identity, the pack, and the "+
+				"conversion:\n%s", want, buf.String())
+		}
+	}
+}
+
+// The shipped set alone must pass, or `yolo check` fails for every real user.
+func TestSectionPacksShippedSetHasNoSurfaceCollision(t *testing.T) {
+	packsFixture(t, `{"packs": ["claude", "copilot", "opencode", "pi", "codex", "agy"]}`)
+
+	var buf bytes.Buffer
+	r := &reporter{w: &buf}
+	(&Options{}).sectionPacks(r)
+	if r.failed != 0 {
+		t.Errorf("the six shipped packs must not collide on a config surface:\n%s", buf.String())
+	}
+}

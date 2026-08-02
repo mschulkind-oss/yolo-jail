@@ -216,6 +216,25 @@ func (o *Options) stagePacks(cname string) (string, []*packload.Pack, []agents.P
 	if shadowed := packFilesShadowedSurfaces(loaded); len(shadowed) > 0 {
 		return "", nil, nil, fmt.Errorf("packs: %s", strings.Join(shadowed, "\npacks: "))
 	}
+	// The same pre-flight for a config surface IDENTITY claimed twice — the one collision in
+	// this cluster that no runtime error would ever announce. `files` at least ends in a
+	// podman refusal naming the wrong thing; two `config` declarations resolve in Go
+	// (manifest.Merge, last-writer-wins) and the jail comes up looking fine, having flipped
+	// one pack's surface `mode` and silently dropped its capture sidecars
+	// (docs/design/pack-config-collaboration.md R1). Refused here for the same reason the
+	// checks above are: this is where the pack set becomes complete, and it covers attach too.
+	//
+	// Only the CONFIG collision, not packload.Collisions wholesale: a `launch` clash between
+	// two packs is documented later-wins at every other call site, so widening this to the
+	// whole set would refuse launches that work today.
+	if cols := packload.ConfigSurfaceCollisions(loaded); len(cols) > 0 {
+		var msgs []string
+		for _, c := range cols {
+			msgs = append(msgs, fmt.Sprintf("config surface %s claimed by %s — %s",
+				c.Target, strings.Join(c.Packs, ", "), c.Reason))
+		}
+		return "", nil, nil, fmt.Errorf("packs: %s", strings.Join(msgs, "\npacks: "))
+	}
 
 	agents.SetPackSkillDirs(skillDirs)
 	return stagingRoot, loaded, briefings, nil

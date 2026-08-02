@@ -758,6 +758,25 @@ Resolved sharp edges (kept because the reasoning is the interesting part):
   author could see it. Now reported before the container exists, with the remedy (narrow the
   `into`).
 
+- ~~**`config` exclusivity was documented and unenforced.**~~ **ENFORCED 2026-08-02**
+  (`pack-config-collaboration.md` Option 1 / R1). The table above has always called `config`
+  Exclusive — *"a second writer must be `config-overlay`"* — while `manifest.Merge` resolved
+  two declarations of one identity last-writer-wins, WHOLE: the survivor brought its own
+  `mode`, `path`, `codec` and `defaults`, so a pack could flip another pack's surface from
+  `stateful` to `rmw` and silently disable in-jail edit capture for a file it did not own.
+
+  Now a **loud collision**: named in `yolo pack footprint` and `yolo check`, refused at launch
+  and by `apply --host`, naming both packs, the fields that already disagree, and the
+  `config-overlay` shape to convert to. It could only land after `config-overlay` was wired —
+  refusing the incorrect expression before the correct one existed would have been a pure
+  regression.
+
+  Two things it is deliberately NOT. An `autonomy` posture patching a surface the same pack
+  owns is not a second declaration (it merges into the base surface's managed layer), which is
+  what keeps all five agent packs launchable. And a `config-overlay` alongside a `config` on
+  one identity is the supported shape, not a clash. Also fixed with it: `yolo pack footprint`
+  now reports `config-overlay` claims, which it skipped entirely while the kind was inert.
+
 ---
 
 ## Where the rest lives
