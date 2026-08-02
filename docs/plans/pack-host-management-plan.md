@@ -1,17 +1,17 @@
 # Implementation plan — pack-managed host briefings, skills, and files
 
-**Status:** Phases 0–9 **SHIPPED** 2026-08-02 (Phase 10 in progress). Sequences
+**Status:** **ALL PHASES SHIPPED** 2026-08-02. Sequences
 [`handoff-pack-host-management-gaps.md`](handoff-pack-host-management-gaps.md) (the gap
 report — five gaps, each verified by running the binary) into buildable phases.
 
-> **Build status (2026-08-02).** Every phase below is implemented, tested, and committed
-> except Phase 10. **The acceptance test passes at both notches**: one pack delivers the fzf
+> **Build status (2026-08-02).** Every phase below is implemented, tested, and committed.
+> **The acceptance test passes at both notches**: one pack delivers the fzf
 > file finder — the `fileSuggestion` settings key, the executable script, namespaced skills,
 > briefing prose — into a real home (idempotent across three asserts, with the user's own
 > skill and hand-written prose untouched) and into a jail, where the script is present,
 > executable, and runs.
 >
-> **What running it found that no unit test could.** Five defects beyond the five gaps in the
+> **What running it found that no unit test could.** Seven defects beyond the five gaps in the
 > handoff, each caught only by executing the thing end to end:
 >
 > 1. **Five more silently-skipped kinds.** G1 named `skills` and `briefing`; the
@@ -28,10 +28,23 @@ report — five gaps, each verified by running the binary) into buildable phases
 >    workaround was unfollowable in the configuration it most matters for. Fixed rather than
 >    documented, closing OQ-C (Phase 7).
 >
+> 6. **A version-skew brick, introduced and then fixed here.** Adding the `tier` field made
+>    every jail refuse to start against an older baked image, because the in-jail entrypoint
+>    read manifests with `DisallowUnknownFields`. The host CLI and the baked entrypoint
+>    legitimately differ in age, so the jail now reads tolerantly while host-side authoring
+>    reads stay strict (`packdecl.DecodeTolerant`).
+> 7. **Two cosmetic refusals in the plugin adapter** (Phase 10): a plugin whose root is itself
+>    a skill had its whole tree — manifest, hooks, agents — copied into a destination that had
+>    refused those components by name one line earlier; and the plugin's own manifest was then
+>    overwritten by yolo's synthetic one, leaving its `hooks/` and `.mcp.json` on disk while
+>    the manifest pointing at them was gone. Both halves were individually correct; only the
+>    delivered file showed it.
+>
 > Empty pack dirs, a warning that would have fired on every stock apply, and a test whose
 > substring guard matched its own marker tag were also found this way. The lesson the plan
 > already stated — *idempotence is the test* — held; what it understated is that **only a
-> real container start catches a mount conflict.**
+> real container start catches a mount conflict, and only reading the delivered artifact
+> catches a render that undoes itself.**
 
 **Requester's goal:** *"fully manage my host briefings and skills and associated files"*
 from packs, including *"packify my fzf customized file finder"* for Claude. Explicitly:
@@ -692,7 +705,7 @@ archive with its path printed, and `yolo prune` can reclaim it.
 
 ---
 
-## Phase 10 — Adapt a Claude plugin as a pack  *(medium; the "trivially pull in plugins" ask)*
+## Phase 10 — Adapt a Claude plugin as a pack  *(medium; the "trivially pull in plugins" ask)*  *(SHIPPED)*
 
 **Depends on:** Phase 4 (the `@skills-dir` layout), Phase 9 (tiers). **Enabled by N6:** the
 same tree serves claude *and* copilot, so this is one adapter, not one per agent.
