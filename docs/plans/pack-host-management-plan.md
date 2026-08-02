@@ -1,8 +1,37 @@
 # Implementation plan — pack-managed host briefings, skills, and files
 
-**Status:** plan, 2026-08-01. Sequences
+**Status:** Phases 0–9 **SHIPPED** 2026-08-02 (Phase 10 in progress). Sequences
 [`handoff-pack-host-management-gaps.md`](handoff-pack-host-management-gaps.md) (the gap
 report — five gaps, each verified by running the binary) into buildable phases.
+
+> **Build status (2026-08-02).** Every phase below is implemented, tested, and committed
+> except Phase 10. **The acceptance test passes at both notches**: one pack delivers the fzf
+> file finder — the `fileSuggestion` settings key, the executable script, namespaced skills,
+> briefing prose — into a real home (idempotent across three asserts, with the user's own
+> skill and hand-written prose untouched) and into a jail, where the script is present,
+> executable, and runs.
+>
+> **What running it found that no unit test could.** Five defects beyond the five gaps in the
+> handoff, each caught only by executing the thing end to end:
+>
+> 1. **Five more silently-skipped kinds.** G1 named `skills` and `briefing`; the
+>    no-silent-skip test written for the general invariant found `config-overlay`, `launch`,
+>    `env`, `hook`, and `autonomy` too (Phase 2).
+> 2. **`files` was inert at EVERY target**, not just the host — it silently did nothing in a
+>    jail while `pack lint` and `pack footprint` both reported it working (N1, Phase 6).
+> 3. **A `files` tree mounted `:ro` over a directory an agent's config surface must write**
+>    killed the boot with "read-only file system", naming the surface rather than the claim
+>    that shadowed it — and cross-pack, so neither author could see it (Phase 7).
+> 4. **Two packs at one `briefing` path** failed with podman's duplicate-mount-destination,
+>    though `briefing` is `CombineConcat` and the prose was already merged (Phase 7).
+> 5. **Same bug for `skills`** — `pack-system.md` §14's "known sharp edge", whose documented
+>    workaround was unfollowable in the configuration it most matters for. Fixed rather than
+>    documented, closing OQ-C (Phase 7).
+>
+> Empty pack dirs, a warning that would have fired on every stock apply, and a test whose
+> substring guard matched its own marker tag were also found this way. The lesson the plan
+> already stated — *idempotence is the test* — held; what it understated is that **only a
+> real container start catches a mount conflict.**
 
 **Requester's goal:** *"fully manage my host briefings and skills and associated files"*
 from packs, including *"packify my fzf customized file finder"* for Claude. Explicitly:
@@ -283,7 +312,7 @@ Every phase is independently shippable and independently committable.
 
 ---
 
-## Phase 0 — Pin the kind list to the code  *(trivial; do it first)*
+## Phase 0 — Pin the kind list to the code  *(trivial; do it first)*  *(SHIPPED)*
 
 **Fixes:** G5, N4.
 
@@ -304,7 +333,7 @@ kind without docs fails `just test-fast`.
 
 ---
 
-## Phase 1 — Make the exec-bit refusal point at the right file  *(small)*
+## Phase 1 — Make the exec-bit refusal point at the right file  *(small)*  *(SHIPPED)*
 
 **Fixes:** G2, N2.
 
@@ -336,7 +365,7 @@ pack.
 
 ---
 
-## Phase 2 — Stop the silent skip  *(small; the honesty fix)*
+## Phase 2 — Stop the silent skip  *(small; the honesty fix)*  *(SHIPPED)*
 
 **Fixes:** G1a. **This is the handoff's "minimum honest fix" and it ships before the
 feature it stands in for.**
@@ -373,7 +402,7 @@ still right — a silent skip is the worst of the three states, and Phases 4/5 m
 
 ---
 
-## Phase 3 — Let a managed file be executable  *(small; unblocks fzf)*
+## Phase 3 — Let a managed file be executable  *(small; unblocks fzf)*  *(SHIPPED)*
 
 **Fixes:** G4, and settles the mode policy Phase 7 needs. **Depends on:** Phase 1 (the
 consumer-opt-in message is the contract this extends).
@@ -412,7 +441,7 @@ pack, so it does not satisfy "manage it from a pack" (Phase 7 does), but it make
 
 ---
 
-## Phase 4 — Host `skills` render  *(medium; the main event, half 1)*
+## Phase 4 — Host `skills` render  *(medium; the main event, half 1)*  *(SHIPPED)*
 
 **Fixes:** G1b. **Depends on:** Phase 2 (deletes its `skills` entry).
 **Design settled by N5 (below): one pack = one `@skills-dir` subtree, not a flat merge.**
@@ -475,7 +504,7 @@ bites. **Print the host-side name** in `apply --host` output so it is discoverab
 
 ---
 
-## Phase 5 — Host `briefing` render  *(medium; the main event, half 2)*
+## Phase 5 — Host `briefing` render  *(medium; the main event, half 2)*  *(SHIPPED)*
 
 **Fixes:** G1c. **Depends on:** Phase 2 (deletes its `briefing` entry).
 
@@ -518,7 +547,7 @@ user's own prose is never duplicated or lost.
 
 ---
 
-## Phase 6 — Implement `files` in the **jail**  *(medium; per N1, this is new work)*
+## Phase 6 — Implement `files` in the **jail**  *(medium; per N1, this is new work)*  *(SHIPPED)*
 
 **Fixes:** the jail half of G3/N1 — the silent drop.
 
@@ -551,7 +580,7 @@ collision is reported before podman sees it.
 
 ---
 
-## Phase 7 — Host `files` render  *(medium; the goal's "associated files")*
+## Phase 7 — Host `files` render  *(medium; the goal's "associated files")*  *(SHIPPED)*
 
 **Fixes:** the host half of G3. **Depends on:** Phase 3 (mode policy), Phase 4
 (never-clobber discipline), Phase 6 (`files` means something).
@@ -580,7 +609,7 @@ themes need. Take the handoff's option (1).
 
 ---
 
-## Phase 8 — Host deps for the fzf case  *(scoped; closes the acceptance test)*
+## Phase 8 — Host deps for the fzf case  *(scoped; closes the acceptance test)*  *(SHIPPED)*
 
 **Fixes:** the third leg of the fzf case. **Depends on:** nothing in this plan.
 
@@ -609,7 +638,7 @@ exact install line, without running anything.
 
 ---
 
-## Phase 9 — Capability tiers: be as nice as each agent allows  *(medium)*
+## Phase 9 — Capability tiers: be as nice as each agent allows  *(medium)*  *(SHIPPED)*
 
 **Motivated by:** N5 + N6. Skill delivery quality is **bounded by the agent**, so the plan
 must encode that rather than pick one global rule. **Depends on:** Phase 4 (tier A is what
