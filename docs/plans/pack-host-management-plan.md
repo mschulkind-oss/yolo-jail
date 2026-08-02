@@ -713,6 +713,46 @@ exact install line, without running anything.
 
 ---
 
+## Phase 11 — three `program`/staging defects found by building the real pack  *(OPEN)*
+
+Found by authoring the fzf pack (`docs/examples/claude-fzf-pack/`) rather than by any test.
+All three are why that pack ships **no `program` contribution** — declaring one made the jail
+worse. Ranked by blast radius.
+
+- **11.1 — A `program` contribution SHADOWS an image-provided binary and breaks it.** The
+  generated `~/.yolo-shims/<bin>` launcher precedes `/bin` on PATH, and when its lazy install
+  fails it exits 1 rather than falling through to the real binary. Verified independently for
+  `fd` and `fzf`, both of which the image already bakes. So a pack that honestly declares "I
+  need fzf" *removes* working fzf from the jail — the opposite of the contribution's meaning,
+  silently.
+
+  The fix is a judgment call, which is why it is recorded rather than patched: either the
+  launcher falls through to an existing binary on PATH when its install fails (safe, but
+  masks a genuinely broken install), or `program` is skipped at generation time when the bin
+  already resolves in the image (cheaper, but then the shim's laziness never applies to a
+  package the image later drops). Needs a decision.
+
+- **11.2 — Only the FIRST `program` per pack installs in a jail.** `InstallContribution()`
+  (`internal/packdecl/contributes.go:123`) `return`s inside its loop, so a pack declaring `fd`
+  **and** `fzf` gets a launcher for `fd` only — while `DepRequirements()` (the host path)
+  correctly returns both. An asymmetry between the two notches with no diagnostic either way.
+  The accessor's name is singular, so this may be an intended one-program-per-pack rule that
+  is simply unenforced and undocumented; if so the fix is a validation error, not a loop.
+
+- **11.3 — A dropped pack's staged tree is never cleared, so it keeps rendering.**
+  `stagePacks` clears `_official` only (`internal/cli/run/packs.go:97`); a CONFIGURED pack's
+  staging dir under `paths.AgentsDir()/<cname>/packs/<slug>` survives removal from config.
+  Observed live: a deleted test pack kept regenerating its broken `fzf` shim across launches
+  until the dir was removed by hand.
+
+  This **contradicts the invariant `AGENTS.md` states** — *"`stagePacks` copies only the
+  SELECTED packs into the mounted tree (and clears it, so a dropped pack stops rendering)"* —
+  so either the code or the doc is wrong, and the code is the one causing the surprise. Note
+  the fix must preserve rule 3 from `packstage` (clear CONTENTS, never the dir itself: a
+  running jail's bind mount captured the inode).
+
+---
+
 ## Phase 9 — Capability tiers: be as nice as each agent allows  *(medium)*  *(SHIPPED)*
 
 **Motivated by:** N5 + N6. Skill delivery quality is **bounded by the agent**, so the plan
