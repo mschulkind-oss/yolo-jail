@@ -170,6 +170,77 @@ the honest options are the ones the handoff offered (skip-on-collision, or disal
 `~/.copilot/skills` does not exist by default; the `builtin-skills/` dir inside the npm
 package is shipped content, not a user location.
 
+### N6 (NEW) — Copilot reads Claude's plugin manifests, and namespaces plugin skills
+
+The docs say Copilot has no skill namespacing (N5). **The shipped code says otherwise**, and
+this is a documentation gap, not a behavior gap. Verified by grepping the real bundle,
+`~/.npm-global/lib/node_modules/@github/copilot/app.js` (v1.0.48), then corroborated against
+GitHub's own issue tracker:
+
+> **github/copilot-cli#1766**, *"Support plugin/skill namespacing parity with Claude CLI"* —
+> **CLOSED** 2026-04-08. GitHub's closing comment: *"Since v0.0.389, plugin skills are
+> automatically namespaced using the `/plugin-name:skill-name` format … matching the
+> colon-based namespacing convention used by Claude CLI."*
+
+**Methodology warning, because it cost real time here.** A docs-only research pass reported
+(a) that Copilot does not read `.claude/skills`, (b) that namespacing does not exist, and
+(c) that #1766 was still open. **All three were wrong.** `docs.github.com`'s add-skills page
+is simply incomplete; Copilot's own in-app help text, in the bundle, says:
+
+> Skills are loaded from:
+> • Project: `.github/skills/`, `.agents/skills/`, or `.claude/skills/`
+> • Personal: `~/.copilot/skills/`, `~/.agents/skills/`, or `~/.claude/skills/`
+
+For questions like this, **grep the installed bundle and check the issue tracker; do not
+trust the vendor docs alone.**
+
+The bundle evidence:
+
+```js
+// plugin manifest discovery — note the last entry in each list
+P9  = "plugin.json"
+N9  = [".plugin", ".", ".github/plugin", ".claude-plugin"]
+yWr = ["marketplace.json", ".plugin/marketplace.json",
+       ".github/plugin/marketplace.json", ".claude-plugin/marketplace.json"]
+
+// skill invocation name
+function IJ(t){ return t.pluginName ? `${t.pluginName}:${t.name}` : t.name }
+```
+
+Three consequences, in descending order of usefulness:
+
+1. **`.claude-plugin/plugin.json` and `.claude-plugin/marketplace.json` are first-class
+   Copilot inputs.** Copilot also carries a `"claude-command"` skill source for
+   `.claude/commands/`. So a Claude-plugin-shaped tree is portable to Copilot *for free* —
+   one layout serves both agents, which is what makes the plugin-as-pack idea (Phase 10)
+   cheap rather than per-agent work.
+2. **Copilot namespaces plugin skills `pluginName:name`** — the same shape as Claude. So the
+   tier-A set is `{claude, copilot}`, not `{claude}`.
+3. **But its dedup key is the BARE name.** The loader does `s.has(m.value.name) || (…)`,
+   where `name` is the frontmatter `name` falling back to the directory name. So a plugin
+   skill whose *bare* name is already taken is **silently dropped**, even though its
+   qualified name would have been unambiguous. **Namespaced for invocation, flat for
+   collision.** That asymmetry is real and Claude does not have it — so tier A still needs
+   the collision *report* (Phase 9.3), just not the archive/manifest machinery.
+
+Installed Copilot plugins land in a state-dir cache (`installed-plugins/`, `plugin-data/`),
+copied rather than read in place — like Claude's marketplace installs, unlike Claude's
+`@skills-dir`.
+
+**Caveat on durability:** the plugin-manifest search paths are undocumented, so they are
+bundle-verified implementation details that could change without notice (the namespacing
+itself is safer — GitHub closed #1766 on it deliberately). Phase 9's tier table is therefore
+**declared data with a probe**, not a hardcoded assumption — see 9.1.
+
+**On the other agents.** The Agent Skills standard (agentskills.io) standardizes the
+`SKILL.md` format and directory layout **only** — it mandates no discovery paths and no
+namespacing, and its own implementation guidance recommends project-over-user precedence plus
+*"log a warning when a collision occurs so the user knows a skill was shadowed"* (which is
+Phase 9.3's rule, arrived at independently). `.agents/skills/` is the emerging cross-tool
+interop path, and opencode reads `.claude/skills` as well. None of that changes the tier
+model; it means **tier membership must be probed per agent** rather than assumed from the
+vendor's docs, and that a future agent may join tier A without yolo changing.
+
 ### N4 — G5 is real; the count is worse than stated
 
 `internal/cli/config_ref.txt:452` lists **12** kinds and `internal/cli/pack.go:68` lists
@@ -191,6 +262,8 @@ fixing the drift mechanism means a 14th kind repeats this. Phase 0 adds a test.
 | **G4** + N3 | No path delivers an executable: `host_files` caps at `0o444`/`0o644`; `packstage` forces `0o644` even with `allow_exec` | blocker for fzf | 3 |
 | **G3** + N1 | `files` is inert at **every** target while lint/footprint report it as working | **blocker**, and a silent drop | 6 (jail), 7 (host) |
 | — | Host `program` deps (`fd`/`fzf`) not run at host | known (env-manager Phase 4.3) | 8 (scoped) |
+| **N5/N6** | Delivery quality is bounded per agent; tier-B agents need provenance + safe removal | design gap | 9 |
+| — | Pull in a Claude plugin as a pack (works for claude **and** copilot per N6) | feature ask | 10 |
 
 ---
 
@@ -536,6 +609,110 @@ exact install line, without running anything.
 
 ---
 
+## Phase 9 — Capability tiers: be as nice as each agent allows  *(medium)*
+
+**Motivated by:** N5 + N6. Skill delivery quality is **bounded by the agent**, so the plan
+must encode that rather than pick one global rule. **Depends on:** Phase 4 (tier A is what
+Phase 4 builds). **Supersedes:** OQ-D.
+
+The insight to encode: *how nice yolo can be is a property of the target tool, and it is
+knowable.* Two tiers today.
+
+| Tier | Agents | Mechanism | Collision | Removal |
+|---|---|---|---|---|
+| **A — namespaced** | `claude`, `copilot` | pack owns `<skills-dir>/<pack>/` with `.claude-plugin/plugin.json`; skills invoke as `<pack>:<skill>` | structurally impossible (but see N6.3 for copilot's bare-name dedup) | safe — delete within the pack dir |
+| **B — flat** | `codex`, `pi`, `agy` | entries written directly into the agent's skills dir | possible; must be detected | needs a manifest |
+
+- **9.1 Declare the tier, and probe it.** Add the tier to the pack's `skills` contribution
+  (defaulting to B — the safe tier — when unstated), NOT inferred from the destination path.
+  Inference was the earlier recommendation and it is wrong: it hardcodes
+  `.claude/skills → tier A` into core, which is exactly the "core knows a tool's name"
+  coupling `AGENTS.md` forbids. A pack declares what its tool can do; core renders it.
+  **Probe before trusting it** — tier A requires that a `.claude-plugin/plugin.json` in the
+  destination is actually honored; N6 is bundle-verified, undocumented, and could regress. If
+  the probe is inconclusive, degrade to tier B and say so. Fail toward the safe tier.
+- **9.2 The manifest (tier B).** Record what yolo wrote, per (pack, destination, entry), under
+  `~/.local/state/yolo-jail/host-manifest.json`. This is the provenance data OQ-A wanted, now
+  needed **only** for tier B. It answers the one question the filesystem cannot: *did yolo put
+  this here, or did the user?* Write it only on `--assert`; never on `observe`.
+- **9.3 Warn before overwriting (both tiers).** A destination entry that exists and is **not**
+  in the manifest is the user's. Report it by name before touching it, reusing the
+  always-warn posture `managedOverwrites` (`hostrender.go:103`) established for config keys.
+  Tier A needs this too, for copilot's bare-name dedup (N6.3): a pack skill can be namespaced
+  and still shadowed, and the user deserves to hear that.
+- **9.4 Archive, don't delete.** When a skill leaves a pack (or a pack leaves the config),
+  move yolo's copy to `~/.local/state/yolo-jail/archive/<timestamp>/<pack>/<skill>/` rather
+  than `rm`. **The user's own content is never archived** — it is never touched at all; only
+  yolo-written entries (per the manifest) are ever moved. Print the archive path so the
+  action is reversible by hand.
+  - *Why archive rather than delete, when Phase 4 argued delete is safe for tier A:* both are
+    right at their tier. Inside a tier-A pack dir the subtree is unambiguously yolo's, so
+    delete is honest. In tier B, "yolo wrote this" rests on a manifest that can be stale (the
+    user edited the file; the state dir was pruned; two machines share a config), and a stale
+    manifest plus `rm` is data loss. Archiving makes the failure mode recoverable instead of
+    terminal. **Use archive for tier B; keep straight delete for tier A** — and archive there
+    too if the entry is unexpectedly not what the manifest describes.
+- **9.5 Prune the archive.** An unbounded archive is a disk leak (this repo already has a
+  `yolo prune` verb and a shared-block-device constraint). Wire archive cleanup into
+  `yolo prune`, oldest-first, and report reclaimed space. Do **not** auto-prune during
+  `apply` — a destructive cleanup should not be a side effect of a render.
+
+**Done when:** a tier-B agent's skills are delivered with the manifest tracking them, a
+user-authored skill is warned about and never touched, a removed pack skill lands in the
+archive with its path printed, and `yolo prune` can reclaim it.
+
+---
+
+## Phase 10 — Adapt a Claude plugin as a pack  *(medium; the "trivially pull in plugins" ask)*
+
+**Depends on:** Phase 4 (the `@skills-dir` layout), Phase 9 (tiers). **Enabled by N6:** the
+same tree serves claude *and* copilot, so this is one adapter, not one per agent.
+
+A Claude plugin already *is* nearly a pack: a directory with a manifest declaring skills,
+agents, hooks, MCP servers. The pack system's job is to carry someone else's content into a
+managed environment — the same job. So the adapter should be thin.
+
+- **10.1 Recognize a plugin tree.** A pack whose root (or a subdir) carries
+  `.claude-plugin/plugin.json` is a plugin-shaped pack. Read the manifest's `name`,
+  `description`, and `skills` paths. **Do not** re-implement the plugin schema — read the
+  fields yolo needs and pass the tree through intact, so a plugin feature yolo does not model
+  still works when the tree lands in place.
+- **10.2 Deliver by copying the tree, not by translating it.** For a tier-A destination, the
+  plugin tree goes to `<skills-dir>/<name>/` verbatim — manifest included. That is precisely
+  what both claude (`<name>@skills-dir`) and copilot (`.claude-plugin/plugin.json` in its
+  search path, N6) already load. **Translation is the trap to avoid**: lowering a plugin into
+  yolo's own `skills`/`hook`/`config` kinds would drop everything yolo does not model
+  (agents, output-styles, `.mcp.json`) and would need updating every time the plugin schema
+  grows.
+- **10.3 Tier-B degradation, stated honestly.** A tier-B agent cannot load a plugin manifest,
+  so only the plugin's `skills/` subtrees are deliverable, flat, under Phase 9's manifest and
+  collision rules. Everything else the plugin declares (hooks, MCP servers, agents) is
+  **refused by name** — never silently dropped. This is the same never-silent rule as the rest
+  of the plan.
+- **10.4 The trust question, and it is the important one.** A plugin is *someone else's
+  repo*, and a plugin manifest can declare **hooks and MCP servers — i.e. code that runs**.
+  yolo's existing gate is the right one and must not be bypassed: fetched packs get the
+  `pack install` y/N host-access approval, and `allow_exec` is a **consumer** opt-in (G2's
+  invariant). A plugin-shaped pack that declares hooks/MCP must surface those in
+  `pack footprint` and in the install approval as the specific claims they are. **Do not**
+  let plugin-as-pack become a path by which a fetched tree runs code without the approval an
+  ordinary pack needs. Claude itself gates project-scope `@skills-dir` plugins behind the
+  workspace trust dialog for exactly this reason (N5).
+- **10.5 `yolo pack init --from-plugin <dir>`** to scaffold the wrapper, mirroring
+  `claude plugin init`. Small, and it is what makes the ask "trivial" rather than "documented".
+
+**Done when:** `yolo pack init --from-plugin` wraps an existing Claude plugin, and applying
+it delivers working namespaced skills to both claude and copilot at both notches, with
+non-skill components refused by name on tier B and every code-running claim visible at
+install.
+
+**Deliberately out of scope:** consuming a plugin *marketplace* (resolving
+`marketplace.json`, version pinning, updates). yolo has its own fetch/lock/approve pipeline
+(`packsrc`), and marrying the two registries is a separate design with its own trust model.
+A plugin pulled in as a pack is pinned the way every other pack is pinned.
+
+---
+
 ## Acceptance: the fzf pack, end to end
 
 After Phases 0–8, this pack must work at both notches:
@@ -608,14 +785,9 @@ Checks:
   (never delete, never overwrite) remains the only safe rule, and it is what Phase 4's
   fallback path must do. A provenance manifest under `~/.local/state/yolo-jail/` is the
   eventual answer if that fallback proves too weak; not needed to ship this plan.
-- **OQ-D (NEW) — per-agent skills delivery strategy.** N5 shows the correct host layout is
-  **agent-specific**: Claude gets `@skills-dir` namespacing, Copilot has none. That argues the
-  `skills` contribution needs a per-destination strategy (declared by the pack, since the pack
-  is what knows which tool it configures) rather than one global rule. **Recommend**: ship
-  Phase 4 with the strategy inferred from the destination (a `.claude/skills` dest gets the
-  plugin layout; anything else gets skip-on-collision), and only add an explicit manifest
-  field if a third pattern shows up. Inferring keeps `pack.json` unchanged and the six shipped
-  packs working; a new field would need every pack updated for no behavior gain today.
+- **OQ-D — per-agent skills delivery strategy. SUPERSEDED by N6 + Phase 9/10.** The answer is
+  a declared **capability tier** per destination, not inference: tier A (plugin-namespaced)
+  for claude + copilot, tier B (flat, manifest-tracked) for the rest. See N6 and Phase 9.
 - **OQ-B — should `files` at the host be `0o444`?** Phase 7.1 mirrors the jail's `:ro`
   posture, but a `:ro` mount is *enforced* while `0o444` is merely *asymmetric*
   (`project_prism_ro_rw_audit` made this distinction). A user who wants to hand-edit a
