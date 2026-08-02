@@ -285,6 +285,35 @@ func (m *Manifest) MountContributions() []Mount {
 	return out
 }
 
+// ConfigOverlay is one config-overlay contribution: the identity of the surface it
+// targets and the raw body it contributes to it.
+//
+// It is deliberately NOT foldable into SurfaceContributions' one concatenated array.
+// A config contribution DECLARES a surface, so several of them are just a longer list;
+// an overlay NAMES someone else's surface, so its target travels with its body and the
+// two are only meaningful together.
+type ConfigOverlay struct {
+	// Surface is the target surface identity, "agent/name".
+	Surface string
+	// Config is the raw `config` body — the keys this pack asserts onto the target.
+	// Decoded by internal/agentcfg/manifest (DecodeOverlay), kept as RawMessage for the
+	// same reason Contribution.Raw is: packdecl stays free of the engine dependency.
+	Config json.RawMessage
+}
+
+// ConfigOverlayContributions returns every config-overlay the pack declares, in
+// declaration order — which is the FOLD order the engine applies (later wins), so the
+// order must not be normalized here.
+func (m *Manifest) ConfigOverlayContributions() []ConfigOverlay {
+	var out []ConfigOverlay
+	for _, c := range m.Contributions() {
+		if c.Kind == KindConfigOverlay {
+			out = append(out, ConfigOverlay{Surface: c.Surface, Config: c.Raw})
+		}
+	}
+	return out
+}
+
 // SurfaceContributions returns the raw JSON of every config contribution's
 // surface definition, concatenated into one array — the shape Manifest.Surfaces
 // held. Empty when the pack declares no config surface.

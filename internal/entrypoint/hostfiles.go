@@ -81,6 +81,11 @@ func stageHostFile(e *Env, entry config.HostFileEntry) error {
 // renderHostFileSurface composes a single FILE entry, dispatching on its mode.
 // The four modes differ only in what happens across boots and to in-jail edits;
 // they share the surface construction and the host-layer bytes.
+// No overlays cross into a host_files surface, and that is a boundary rather than an
+// omission: a `config-overlay` names a surface a PACK owns, while these are the USER's own
+// entries (Agent="user", Name=slug). A pack that could contribute keys to them would be
+// asserting into a file the user declared for themselves, which is the opposite of the
+// consent direction every other pack claim runs in.
 func renderHostFileSurface(e *Env, entry config.HostFileEntry) error {
 	surface := hostFileSurface(entry)
 	hostBytes := hostFileLayerBytes(entry)
@@ -91,7 +96,7 @@ func renderHostFileSurface(e *Env, entry config.HostFileEntry) error {
 		// THE overlay exception: render statefully so in-jail edits are captured
 		// into a sidecar that outranks the host layer. The sidecars key on
 		// (surface.Agent="user", surface.Name=slug), collision-free with builtins.
-		_, err := renderSurfaceStatefulSurface(e, surface, hostBytes, nil)
+		_, err := renderSurfaceStatefulSurface(e, surface, hostBytes, nil, nil)
 		return err
 
 	case config.HostFileModeOnce:
@@ -100,7 +105,7 @@ func renderHostFileSurface(e *Env, entry config.HostFileEntry) error {
 		if _, err := os.Stat(dest); err == nil {
 			return nil
 		}
-		_, err := renderSurfaceStatelessSurface(e, surface, hostBytes, nil)
+		_, err := renderSurfaceStatelessSurface(e, surface, hostBytes, nil, nil)
 		return err
 
 	case config.HostFileModeReadonly:
@@ -118,7 +123,7 @@ func renderHostFileSurface(e *Env, entry config.HostFileEntry) error {
 		if _, err := os.Stat(dest); err == nil {
 			_ = os.Chmod(dest, unlocked)
 		}
-		if _, err := renderSurfaceStatelessSurface(e, surface, hostBytes, nil); err != nil {
+		if _, err := renderSurfaceStatelessSurface(e, surface, hostBytes, nil, nil); err != nil {
 			return err
 		}
 		return os.Chmod(dest, locked)
@@ -126,7 +131,7 @@ func renderHostFileSurface(e *Env, entry config.HostFileEntry) error {
 	default: // config.HostFileModeCopy
 		// Overwrite every boot at 0o644 (0o755 when the source is executable); in-jail
 		// edits are deliberately not kept.
-		if _, err := renderSurfaceStatelessSurface(e, surface, hostBytes, nil); err != nil {
+		if _, err := renderSurfaceStatelessSurface(e, surface, hostBytes, nil, nil); err != nil {
 			return err
 		}
 		_, unlocked := hostFileModes(entry)

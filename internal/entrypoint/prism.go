@@ -160,7 +160,10 @@ func renderSurfaceStateful(e *Env, agent, name string, hostBytes []byte, compute
 	if !ok {
 		return nil, &missingSurfaceError{agent: agent, name: name}
 	}
-	return renderSurfaceStatefulSurface(e, surface, hostBytes, computed)
+	// No overlays: this entry renders CORE's own surfaces (mise/config), and a
+	// config-overlay names a surface a PACK owns. A pack pointing an overlay at a core
+	// surface is reported as ownerless rather than honored here — see packoverlay.Collect.
+	return renderSurfaceStatefulSurface(e, surface, hostBytes, computed, nil)
 }
 
 // renderSurfaceStatefulSurface is the surface-taking core of the stateful
@@ -170,7 +173,10 @@ func renderSurfaceStateful(e *Env, agent, name string, hostBytes []byte, compute
 // surface's sidecars are user-<slug>.{last_render,overlay.json} — collision-free
 // with any builtin (no builtin agent is "user", and the slug is injective on the
 // destination path).
-func renderSurfaceStatefulSurface(e *Env, surface manifest.Surface, hostBytes []byte, computed map[string]any) (*agentcfg.StatefulOutput, error) {
+// overlays are the config-overlay layers other packs contribute to this surface (nil for
+// none, the universal case today). They fold BELOW the capture overlay, so a user's
+// in-jail edit still wins over another pack's contribution.
+func renderSurfaceStatefulSurface(e *Env, surface manifest.Surface, hostBytes []byte, computed map[string]any, overlays []agentcfg.Overlay) (*agentcfg.StatefulOutput, error) {
 	// A11: resolve ${workspace} in the surface's layer DATA before composing. The
 	// workspace root is not always "/workspace" (YOLO_WORKSPACE; macos-user has no
 	// /workspace), so a literal in the manifest would assert keys under a path the
@@ -196,6 +202,7 @@ func renderSurfaceStatefulSurface(e *Env, surface manifest.Surface, hostBytes []
 		Base: agentcfg.Inputs{
 			Surface:   surface,
 			HostBytes: hostBytes,
+			Overlays:  overlays,
 			Computed:  computed,
 			Script:    script,
 			VM:        vm,
@@ -352,7 +359,7 @@ func generatedHeader(surface manifest.Surface) string {
 // content), and dropping that layer would compose only defaults<computed<managed
 // — silently losing the file's actual content. It writes ONLY the surface file
 // (no sidecars) and returns the Result so a caller can chmod or inspect it.
-func renderSurfaceStatelessSurface(e *Env, surface manifest.Surface, hostBytes []byte, computed map[string]any) (*agentcfg.Result, error) {
+func renderSurfaceStatelessSurface(e *Env, surface manifest.Surface, hostBytes []byte, computed map[string]any, overlays []agentcfg.Overlay) (*agentcfg.Result, error) {
 	surface = agentcfg.SubstituteWorkspace(surface, e.WorkspaceDir()) // A11, see the stateful core
 	script, serr := surfaceScript(e, surface)
 	if serr != nil {
@@ -366,6 +373,7 @@ func renderSurfaceStatelessSurface(e *Env, surface manifest.Surface, hostBytes [
 	res, err := agentcfg.Compose(agentcfg.Inputs{
 		Surface:   surface,
 		HostBytes: hostBytes,
+		Overlays:  overlays,
 		Computed:  computed,
 		Script:    script,
 		VM:        vm,
@@ -426,7 +434,15 @@ func targetExpandHome(t render.Target, p string) string {
 // silent. This replaced the sidecar-tracked `reconcile` mechanism (OQ12 (d)): a
 // one-of-a-kind stateful special case for Claude, against "config is the source
 // of truth". Pass nil computed for a plain RMW surface with no dynamic table.
-func renderSurfaceRMWSurface(e *Env, surface manifest.Surface, computed map[string]any) error {
+//
+// overlays are the config-overlay layers other packs contribute. On an RMW surface they
+// are ASSERTED (force-written), not merely defaulted, because an overlay's body says
+// `managed` — a contributor asserting a key means "keep this key at this value", so
+// fill-if-absent would make the fzf case work once and then never update. They are
+// applied FIRST so both the derived tables and the owner's own managed layer still win
+// their keys, which is the §5 precedence (config-overlay < computed < managed) expressed
+// in the one mode that has no layer fold to express it with.
+func renderSurfaceRMWSurface(e *Env, surface manifest.Surface, computed map[string]any, overlays []agentcfg.Overlay) error {
 	surface = agentcfg.SubstituteWorkspace(surface, e.WorkspaceDir())
 
 	path := expandHomePath(e, surface.Path)
@@ -435,6 +451,13 @@ func renderSurfaceRMWSurface(e *Env, surface manifest.Surface, computed map[stri
 	}
 	obj := loadObject(path)
 
+	// config-overlay contributions: below everything yolo and the owner assert, above
+	// the file's existing content (see the doc comment).
+	for _, ov := range overlays {
+		if layer, isMap := ov.Data.(map[string]any); isMap {
+			applyRMWLayer(obj, layer, true)
+		}
+	}
 	// Dynamic managed tables (MCP servers) FIRST, so a managed key nested under the
 	// same parent still wins the floor.
 	regenerateManagedTables(e, surface, obj, computed)

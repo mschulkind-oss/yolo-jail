@@ -31,9 +31,11 @@ import (
 	"path/filepath"
 	"strings"
 
+	"github.com/mschulkind-oss/yolo-jail/internal/agentcfg"
 	"github.com/mschulkind-oss/yolo-jail/internal/agentcfg/luahook"
 	"github.com/mschulkind-oss/yolo-jail/internal/agentcfg/manifest"
 	"github.com/mschulkind-oss/yolo-jail/internal/packload"
+	"github.com/mschulkind-oss/yolo-jail/internal/packoverlay"
 )
 
 // LoadJailPacks reads the pack trees mounted at YOLO_PACK_ROOT.
@@ -91,6 +93,12 @@ func LoadJailPacks(e *Env) ([]*packload.Pack, error) {
 // reports every broken surface rather than one per restart (A12).
 func ConfigurePackSurfaces(e *Env, packs []*packload.Pack) {
 	tables := liveTables(e)
+	// config-overlay contributions are collected BEFORE the per-pack loop and across the
+	// whole set, because an overlay in pack B targets a surface pack A owns — the only
+	// case the kind exists for. Collecting per-pack would find, for that case, exactly
+	// none (docs/design/pack-config-collaboration.md §6).
+	overlays := packoverlay.Collect(packs, true)
+	reportOverlayResolution(e, overlays)
 	for _, p := range packs {
 		surfaces, problems := p.Surfaces()
 		for _, prob := range problems {
@@ -105,9 +113,35 @@ func ConfigurePackSurfaces(e *Env, packs []*packload.Pack) {
 		for _, s := range surfaces {
 			surface := s
 			genStep(e, "configure_"+surface.Agent+"_"+surface.Name, func() error {
-				return renderDeclaredSurface(e, surface, tables, deriveScript)
+				return renderDeclaredSurface(e, surface, tables, deriveScript,
+					overlays.For(surface.Agent, surface.Name))
 			})
 		}
+	}
+}
+
+// reportOverlayResolution surfaces what the overlay collection found, per rulings R2
+// (an ownerless overlay is inert AND named) and R3 (an override must be legible).
+//
+// A MALFORMED overlay is fatal, an ORPHANED one is not, and the split is the ruling:
+// "a pack the user simply did not select is not an error", whereas an overlay body that
+// redeclares the surface it targets is the author asserting something the mechanism will
+// never honor — the same class as a malformed surface, which is already A12-fatal.
+//
+// The applied overlays get a notice too, and deliberately: an override folding in below
+// managed is invisible in the output file, so a boot that says nothing leaves "which pack
+// set this key" answerable only from a sidecar. The line names the command that shows it.
+func reportOverlayResolution(e *Env, overlays *packoverlay.OverlaySet) {
+	for _, prob := range overlays.Problems {
+		problem := prob
+		genStep(e, "pack_config_overlays", func() error { return fmt.Errorf("%s", problem) })
+	}
+	for _, orphan := range overlays.Orphans {
+		e.warn(fmt.Sprintf("config-overlay  %s (pack %s)", orphan.Reason(), orphan.Pack))
+	}
+	for _, applied := range overlays.Applied() {
+		e.warn(fmt.Sprintf("%s: config-overlay keys from %s (yolo config diff %s)",
+			applied.Target, strings.Join(applied.Packs, ", "), applied.Agent))
 	}
 }
 
@@ -159,7 +193,12 @@ func liveTables(e *Env) map[string]map[string]any {
 }
 
 // renderDeclaredSurface writes one declared surface by the mechanism its mode names.
-func renderDeclaredSurface(e *Env, surface manifest.Surface, tables map[string]map[string]any, deriveScript string) error {
+//
+// overlays are the config-overlay layers other packs contribute to THIS surface,
+// resolved cross-pack by the caller. Empty for every surface nobody overlays, which is
+// all of them today — Compose folds an empty slice as a no-op, so the boot output of a
+// pack set with no overlays is byte-identical (pinned by TestRenderFingerprintStable).
+func renderDeclaredSurface(e *Env, surface manifest.Surface, tables map[string]map[string]any, deriveScript string, overlays []agentcfg.Overlay) error {
 	if surface.ResolvedMode() == manifest.ModeUnrendered {
 		// Declared so `yolo config ls` can describe the file and so host_files cannot
 		// claim its path, but yolo does not write it. Skipping silently is correct here
@@ -184,13 +223,14 @@ func renderDeclaredSurface(e *Env, surface manifest.Surface, tables map[string]m
 
 	switch surface.ResolvedMode() {
 	case manifest.ModeComputed:
-		_, err := renderSurfaceStatelessSurface(e, surface, hostSurfaceBytes(e, surface), computed)
+		_, err := renderSurfaceStatelessSurface(e, surface, hostSurfaceBytes(e, surface),
+			computed, overlays)
 		return err
 	case manifest.ModeRMW:
-		return renderSurfaceRMWSurface(e, surface, computed)
+		return renderSurfaceRMWSurface(e, surface, computed, overlays)
 	default:
 		out, err := renderSurfaceStatefulSurface(e, surface,
-			hostSurfaceBytes(e, surface), computed)
+			hostSurfaceBytes(e, surface), computed, overlays)
 		if err != nil {
 			return err
 		}

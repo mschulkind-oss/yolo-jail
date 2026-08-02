@@ -37,7 +37,9 @@ Subcommands:
   render <agent> [flags]   Run the composition pipeline and print what it would
                            write, for every surface of <agent> (no writes).
   diff <agent> [flags]     Show the captured in-jail edits (the capture overlay)
-                           for <agent>, key by key, versus yolo's last render.
+                           for <agent>, key by key, versus yolo's last render —
+                           plus which packs contribute keys via config-overlay,
+                           and whether each contribution won or the owner did.
   reset <agent> [flags]    Discard those captured edits, so the surface returns
                            to what its layers produce on the next launch.
   capture <agent> [flags]  Record the CURRENT on-disk edits into the overlay now,

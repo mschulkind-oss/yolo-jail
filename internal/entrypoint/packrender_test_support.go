@@ -26,6 +26,7 @@ import (
 
 	"github.com/mschulkind-oss/yolo-jail/internal/agentcfg/manifest"
 	"github.com/mschulkind-oss/yolo-jail/internal/packload"
+	"github.com/mschulkind-oss/yolo-jail/internal/packoverlay"
 	officialpacks "github.com/mschulkind-oss/yolo-jail/packs"
 )
 
@@ -43,8 +44,14 @@ func ConfigurePackByName(e *Env, name string) error {
 		return fmt.Errorf("pack %s: %s", name, problems[0])
 	}
 	deriveScript := loadPackDeriveScript(p)
+	// Overlays over the ONE pack asked for, so a pack that overlays a surface it owns
+	// itself still renders. A cross-pack overlay cannot resolve from a single-pack view
+	// and is reported ownerless (R2) — correct here rather than a limitation, since this
+	// entry means "render this pack" and the boot loop is what sees the whole set.
+	overlays := packoverlay.Collect([]*packload.Pack{p}, true)
 	for _, s := range surfaces {
-		if err := renderDeclaredSurface(e, s, tables, deriveScript); err != nil {
+		if err := renderDeclaredSurface(e, s, tables, deriveScript,
+			overlays.For(s.Agent, s.Name)); err != nil {
 			return err
 		}
 	}

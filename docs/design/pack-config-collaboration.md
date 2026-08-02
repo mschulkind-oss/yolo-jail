@@ -3,8 +3,15 @@
 **Status:** analysis + **rulings**, 2026-08-02. Written to answer a specific question before
 changing anything: *"the claude pack needs to add support for the `fileSuggestion` key, then the
 fzf pack feeds into this new key?"* Reviewed the same day; §7 records four rulings that
-constrain the implementation, and the recommended order (§6) is confirmed. **Still no code
-changed.**
+constrain the implementation, and the recommended order (§6) is confirmed.
+
+**Option 2 is SHIPPED** (2026-08-02): `config-overlay` now applies at both render paths, with
+R2's ownerless-overlay reporting and R3's provenance visibility in `yolo config diff`. See §6
+for what that means in the code and §8 for what shipping it settled that this doc did not.
+**Option 1 (enforce `config` exclusivity) is still open**, so the §5 problem #1 hazard — a
+second `config` declaration silently replacing the first, `mode` and all — stands. Per R1 that
+is not optional cleanup: there is now a correct way to express the intent, so the incorrect way
+has lost its last excuse.
 
 **Short answer: no, and the reason is worth understanding.** The claude pack needs no change,
 and the fzf pack does not feed into anything the claude pack declares. But the mechanism that
@@ -12,9 +19,13 @@ makes that true today is **accidental**, and this doc is about the difference be
 and "correct".
 
 **Reads with:** [`pack-system.md`](pack-system.md) §5 (the layer model and the four modes),
-§14 (`config-overlay` is inert), and
+§3 `config-overlay` (the shipped kind), and
 [`../plans/pack-host-management-plan.md`](../plans/pack-host-management-plan.md) (the work
 that made host rendering real).
+
+**A note on tense.** §1–§5 are preserved as written, in the present tense of 2026-08-02,
+because the argument for *why* Option 2 was the right answer only holds if the state it argued
+from is legible. Where they say `config-overlay` "is inert", read "was inert before §8".
 
 ---
 
@@ -278,7 +289,7 @@ mechanism's, so only enforcement closes it.
 **Cost:** it breaks the working Layout B, so it must land *with* Option 2 or the fzf case
 regresses from "works by accident" to "refused". On its own it is a regression.
 
-### Option 2 — Wire `config-overlay` (medium, the designed answer)
+### Option 2 — Wire `config-overlay` (medium, the designed answer) — **SHIPPED**
 
 Collect `config-overlay` contributions in the boot path and the host render, feed them to
 `Inputs.Overlays` (which the engine already accepts), and record per-key provenance. Then:
@@ -402,3 +413,67 @@ gains the no-owner reporting rule from R2. Option 1 (enforce exclusivity) grows 
 double-render fix from R4 and is promoted by R1 from "tidy up an unenforced rule" to "close a
 general hazard in the pack mechanism". The **Option 2 → Option 1 order still holds** (confirmed
 in review), because a correct expression must exist before the incorrect one is refused.
+
+---
+
+## 8. What building Option 2 settled that this doc did not
+
+Five decisions the rulings did not reach. Each is a place the implementation had to choose,
+and the choice is recorded here rather than only in a code comment.
+
+**An overlay body may set ONLY `managed`.** The doc says an overlay "contributes only keys"
+without saying what happens if it says more. Every surface-defining field — `agent`, `name`,
+`path`, `codec`, `mode`, `transform`, `defaults`, `retireOnFirstRender` — is now refused BY
+NAME at decode, with the rule in the message rather than a generic "unknown field" (each of
+those keys is real; it is just not a contributor's to set). This is what makes §6's promise
+mechanical: *"the fzf pack contributes one key and cannot change the file's mode, path, or
+codec."* Without the refusal that is a convention, and R1's `mode` flip would come straight
+back through the correct syntax.
+
+`defaults` is refused for a subtler reason worth stating: an overlay folds at exactly ONE
+precedence slot, so a contributor has no second, lower position to occupy. A `defaults` key
+in an overlay body would either silently behave as `managed` or need a slot the layer model
+does not have.
+
+**A malformed overlay is FATAL; an ownerless one is not.** R2 covers the second case only.
+The split follows the same line every other manifest problem does: an unselected owner is not
+the author's mistake (nothing to fix), whereas a body that redeclares the surface is the
+author asserting something the mechanism will never honor — the same class as a malformed
+surface, which is already A12-fatal. Reporting a redefinition as merely "no effect" would be
+the silent-misconfiguration failure this kind exists to remove, wearing the R2 message.
+
+**`rmw` asserts an overlay's keys rather than defaulting them.** An `rmw` surface has no
+layer fold, so precedence becomes write order: overlays first, then the derived tables, then
+the owner's `managed`, then `defaults` fill only where absent. The keys are force-written, not
+seeded, because an overlay body says `managed` — "keep this key at this value" — so
+fill-if-absent would make the fzf case work on the first boot and then never pick up a changed
+value. That mode matters: `claude/settings` is `stateful` but `claude/config` is `rmw`, and §4
+predicted the fully-generated (`computed`) case is where routing becomes mandatory. All three
+modes now carry overlays.
+
+**A `config-overlay` onto a CORE surface (`mise/config`) is inert, with its own message.**
+The kind is defined as contributing to a surface *another pack* owns, and core's surfaces
+belong to no pack. It is reported as core-owned rather than as an unknown identity, so the
+message does not send a user hunting a typo that is not there.
+
+**`config diff` reads pack declarations, not just the sidecar.** R3 says provenance must be
+visible; the sidecar alone cannot deliver it. The sidecar records only the WINNER of each key,
+so a contribution the owner's `managed` layer beat leaves no entry at all — and *"my overlay
+did nothing"* is precisely the case a user needs answered. So the command lists contributions
+from the manifests and annotates each with the sidecar's winner where a boot recorded one:
+`set by <pack>` when it won, `contributed by <pack> but managed won` when it lost. An `rmw` or
+`computed` surface writes no provenance sidecar by design, and that reads as *"winner
+unknown — this surface's mode keeps no provenance sidecar"* rather than as a loss, because
+sending a user to investigate a by-design absence is its own kind of misreport.
+
+### Still open after Option 2
+
+- **Option 1** (§6): two `config` contributions on one identity remain last-writer-wins, so
+  problem #1 and rulings R1/R4 are untouched. This was scoped out deliberately — making the
+  correct path work and making the incorrect path stop working are separate changes, and the
+  order matters.
+- **`yolo pack footprint` does not show overlay claims.** `FootprintOf` derives `config`
+  claims from the decoded surfaces and skips `config-overlay` entirely, so a pack's
+  footprint does not list what it contributes to someone else's file. Now that the kind
+  applies, that is a real omission in the "good citizen" report rather than an accurate
+  reflection of an inert kind.

@@ -227,10 +227,24 @@ layers, later-wins, with per-key provenance recorded.
 - `surface` (required) — the target `"agent/name"`.
 - `config` (required) — the object to overlay.
 
-> **Boundary note.** The kind parses, validates, and has full compose-engine support
-> (`Inputs.Overlays`), but the boot render path does not yet collect `config-overlay`
-> contributions and feed them to the assembler — so today a `config-overlay` in a manifest
-> is inert. See §14.
+The body may carry **only `managed`** — the keys to contribute. Every field that would
+redefine the *surface* (`agent`, `name`, `path`, `codec`, `mode`, `transform`, `defaults`,
+`retireOnFirstRender`) is refused by name at decode: a contributor contributes keys, and the
+owner decides where the file lands, in what format, and how it is maintained across boots.
+That refusal is what stops an overlay reproducing the silent `mode`-flip hazard a second
+`config` declaration can cause (`pack-config-collaboration.md` R1).
+
+**If the target surface has no owner** among the selected packs, the overlay is **inert and
+reported by name** — it neither creates the file nor fails the launch:
+
+```
+config-overlay  no effect — claude/settings has no owner (the `claude` pack is not selected)
+```
+
+It also fails in the useful direction: add the owning pack later and the overlay starts
+working with no further edit. Applied overlays are announced too (which pack contributed to
+which surface), and `yolo config diff <agent>` reads out per-key provenance — which pack set
+which key, and where the owner's `managed` layer beat a contribution.
 
 ### `state`
 A writable home subtree that persists.
@@ -367,11 +381,19 @@ defaults  <  host  <  workspace  <  config-overlay  <  capture-overlay  <  compu
 - **`host`** is derived, not declared: a `reads-host` grant whose basename matches the
   surface path becomes this layer, read from its `/ctx` mount. This is how claude's own
   `~/.claude/settings.json` composes into the jail with no second declaration.
+- **`config-overlay`** carries the keys OTHER packs contribute to a surface this one owns
+  (§3), in `packs`-list order (later wins). Below `managed`, so the owner still wins a
+  genuine conflict.
 - **`capture-overlay`** carries a user's in-jail edits across regeneration (for `stateful`
   surfaces).
 - **`computed`** is the per-boot dynamic layer produced by `derive` (§7); a null value there
   is an RFC-7386 tombstone that deletes the key.
 - **`managed`** is the floor yolo always wins.
+
+An **`rmw` surface has no layer fold** — it merges keys into a file the agent owns — so it
+expresses the same precedence by write order instead: overlays are asserted first, then the
+derived tables, then `managed`, then `defaults` fill only where absent. Same outcome, one
+mechanism short.
 
 `${workspace}` in a map key is substituted with the container workspace path.
 
@@ -676,13 +698,6 @@ load-bearing. `yolo pack lint` now validates the manifest and `yolo pack footpri
 inspects a local pack, so most of what follows is catchable before boot.
 
 Not yet wired:
-
-- **`config-overlay` rendering.** The kind parses and validates, has a footprint and combine
-  rule, and the compose engine accepts overlay inputs with per-key provenance. But no
-  boot-path code collects `config-overlay` contributions and feeds them to the assembler, so
-  a `config-overlay` in a manifest has no effect today. This is the one contribution kind
-  that is inert — accurate again as of the `files` jail delivery below; `files` was inert
-  too, and worse, because `pack lint` and `pack footprint` both reported it as working.
 
 - **`files` at the HOST.** `files` now delivers in a jail (bind-mounted `:ro` at `into`),
   but `yolo apply --host` still refuses it by name: the refusal is true of a *bind mount*

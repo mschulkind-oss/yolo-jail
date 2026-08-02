@@ -30,6 +30,7 @@ import (
 	"github.com/mschulkind-oss/yolo-jail/internal/agentcfg/manifest"
 	"github.com/mschulkind-oss/yolo-jail/internal/jsonx"
 	"github.com/mschulkind-oss/yolo-jail/internal/packload"
+	"github.com/mschulkind-oss/yolo-jail/internal/packoverlay"
 )
 
 // HostRenderResult reports, per surface, what a host render did (or would do, in
@@ -43,7 +44,14 @@ type HostRenderResult struct {
 	// for the host notch (§4.2 / env-manager plan Phase 9). Empty when the render only
 	// adds keys or re-asserts identical values. Populated in both observe and assert, so
 	// the dry-run preview shows the collision BEFORE anything is written (finding D2).
+	// A key coming from a config-overlay is labelled with the contributing pack, since
+	// the remedy there is a different pack than the surface's owner.
 	Overwrites []string
+	// Overlays names the packs contributing config-overlay keys to this surface, in fold
+	// order (later wins). It is the host-side half of ruling R3: an override folds in
+	// below the owner's managed layer, so it is invisible in the resulting file, and
+	// provenance nobody can read does not make it legible. Empty for the common case.
+	Overlays []string
 }
 
 // RenderHostPack renders one pack's config surfaces into homeDir (the real $HOME), pure
@@ -53,7 +61,13 @@ type HostRenderResult struct {
 //
 // homeDir is the real home; the Env's Workspace is left empty so a ${workspace} surface
 // is refused rather than bound to some arbitrary dir.
-func RenderHostPack(p *packload.Pack, homeDir string, observe bool) ([]HostRenderResult, error) {
+//
+// overlays is the CROSS-PACK config-overlay resolution (packoverlay.Collect over every
+// pack this apply is asserting). It has to be a parameter rather than derived here:
+// this function sees ONE pack, and an overlay in pack B targets a surface pack A owns, so
+// a per-pack derivation would find none of the overlays the kind exists to carry. Pass nil
+// for a caller that has no other packs in view.
+func RenderHostPack(p *packload.Pack, homeDir string, observe bool, overlays *packoverlay.OverlaySet) ([]HostRenderResult, error) {
 	e := &Env{Home: homeDir, Vars: map[string]string{}}
 	// Host is the autonomy-OFF notch (§4.2): render the GUARDED posture, so a pack's
 	// jail-bypass permission keys do NOT reach the real home. This is the fix for the
@@ -76,21 +90,68 @@ func RenderHostPack(p *packload.Pack, homeDir string, observe bool) ([]HostRende
 				Action: "refused: uses ${workspace}, which has no referent on the host"})
 			continue
 		}
+		surfaceOverlays := overlays.For(s.Agent, s.Name)
 		// Compute which managed keys would OVERWRITE a differing existing value, from the
 		// file as it stands now — before any write, so observe reports the same collisions
 		// assert would cause.
 		overwrites := managedOverwrites(e, s, path)
+		// An overlay ASSERTS its keys on the host too, so a key it would clobber is the
+		// same always-warn case a managed key is (§4.2). Attributed to the contributing
+		// pack, because "which pack is about to overwrite my value" is the question R3
+		// exists to keep answerable.
+		overwrites = append(overwrites, overlayOverwrites(e, s, path, surfaceOverlays)...)
 		if observe {
-			out = append(out, HostRenderResult{Surface: id, Path: path, Action: "would render", Overwrites: overwrites})
+			out = append(out, HostRenderResult{Surface: id, Path: path, Action: "would render",
+				Overwrites: overwrites, Overlays: overlayPackNames(surfaceOverlays)})
 			continue
 		}
 		// Pure RMW into the real home, NO computed layer (host gets none — OQ-4).
-		if err := renderSurfaceRMWSurface(e, s, nil); err != nil {
+		if err := renderSurfaceRMWSurface(e, s, nil, surfaceOverlays); err != nil {
 			return out, fmt.Errorf("%s: %w", id, err)
 		}
-		out = append(out, HostRenderResult{Surface: id, Path: path, Action: "rendered", Overwrites: overwrites})
+		out = append(out, HostRenderResult{Surface: id, Path: path, Action: "rendered",
+			Overwrites: overwrites, Overlays: overlayPackNames(surfaceOverlays)})
 	}
 	return out, nil
+}
+
+// overlayPackNames lists the packs contributing overlays to a surface, in fold order —
+// the provenance the caller prints so an override is legible in `apply --host` output
+// (ruling R3) and not only in the jail's sidecar.
+func overlayPackNames(overlays []agentcfg.Overlay) []string {
+	if len(overlays) == 0 {
+		return nil
+	}
+	out := make([]string, 0, len(overlays))
+	for _, ov := range overlays {
+		out = append(out, ov.Pack)
+	}
+	return out
+}
+
+// overlayOverwrites returns the dotted keys an overlay would write over a DIFFERING
+// existing value, each labelled with the contributing pack. Same shape and same
+// best-effort JSON basis as managedOverwrites; the label is what makes the warning
+// actionable, since the remedy is dropping a different pack than the surface's owner.
+func overlayOverwrites(e *Env, s manifest.Surface, path string, overlays []agentcfg.Overlay) []string {
+	if len(overlays) == 0 {
+		return nil
+	}
+	existing := loadObject(path)
+	var out []string
+	for _, ov := range overlays {
+		layer, isMap := ov.Data.(map[string]any)
+		if !isMap || len(layer) == 0 {
+			continue
+		}
+		var keys []string
+		collectOverwrites(existing, layer, "", &keys)
+		sort.Strings(keys)
+		for _, k := range keys {
+			out = append(out, k+" (config-overlay from "+ov.Pack+")")
+		}
+	}
+	return out
 }
 
 // managedOverwrites returns the dotted managed keys whose value in the EXISTING file at

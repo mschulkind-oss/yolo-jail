@@ -215,6 +215,67 @@ func TestAutonomyDecodesAndSelects(t *testing.T) {
 	}
 }
 
+// ConfigOverlayContributions keeps each overlay's TARGET with its BODY, in declaration
+// order — which is the fold order, so it must not be normalized.
+//
+// It is deliberately not folded into SurfaceContributions' one concatenated array: a config
+// contribution declares a surface (so several are just a longer list), while an overlay
+// names someone else's, and the two halves are only meaningful together.
+func TestConfigOverlayContributions(t *testing.T) {
+	m, probs := Decode([]byte(`{"name":"house-rules","contributes":[
+	  {"kind":"config-overlay","surface":"claude/settings","config":{"managed":{"a":1}}},
+	  {"kind":"config-overlay","surface":"codex/config","config":{"managed":{"b":2}}},
+	  {"kind":"config","config":[{"agent":"house","name":"own","codec":"json","path":"~/x.json"}]}]}`))
+	if len(probs) != 0 {
+		t.Fatalf("config-overlay should decode cleanly, got: %v", probs)
+	}
+	got := m.ConfigOverlayContributions()
+	if len(got) != 2 {
+		t.Fatalf("want 2 overlays (the `config` contribution is not one), got %d: %+v", len(got), got)
+	}
+	if got[0].Surface != "claude/settings" || got[1].Surface != "codex/config" {
+		t.Errorf("declaration order lost (it IS the fold order): %+v", got)
+	}
+	if !contains(string(got[0].Config), `"a":1`) {
+		t.Errorf("the overlay body did not travel with its target: %s", got[0].Config)
+	}
+	// The pack's OWN config surface is unaffected by the overlay accessor.
+	if s := m.SurfaceContributions(); !contains(string(s), "house") {
+		t.Errorf("SurfaceContributions lost the pack's own surface: %s", s)
+	}
+	// A pack with no overlays gets none.
+	none := &Manifest{Contributes: []Contribution{{Kind: KindEnv, Vars: map[string]string{"X": "1"}}}}
+	if c := none.ConfigOverlayContributions(); len(c) != 0 {
+		t.Errorf("a pack declaring no overlay should have none, got %+v", c)
+	}
+}
+
+// config-overlay validation: both `surface` and a `config` body are required, because
+// either alone is a declaration that can never take effect.
+func TestConfigOverlayValidation(t *testing.T) {
+	for _, tc := range []struct {
+		name string
+		c    Contribution
+		want string
+	}{
+		{"no surface", Contribution{Kind: KindConfigOverlay, Raw: []byte(`{"managed":{"a":1}}`)},
+			"needs \"surface\""},
+		{"no body", Contribution{Kind: KindConfigOverlay, Surface: "claude/settings"},
+			"needs a \"config\" body"},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			m := &Manifest{Contributes: []Contribution{tc.c}}
+			joined := ""
+			for _, p := range m.validateContributions() {
+				joined += p + "\n"
+			}
+			if !contains(joined, tc.want) {
+				t.Errorf("expected a problem containing %q, got %q", tc.want, joined)
+			}
+		})
+	}
+}
+
 // autonomy validation: at least one posture, and a launch entry needs a bin.
 func TestAutonomyValidation(t *testing.T) {
 	_, probs := Decode([]byte(`{"name":"x","contributes":[{"kind":"autonomy"}]}`))

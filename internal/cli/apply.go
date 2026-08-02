@@ -28,6 +28,7 @@ import (
 	"github.com/mschulkind-oss/yolo-jail/internal/entrypoint"
 	"github.com/mschulkind-oss/yolo-jail/internal/packdecl"
 	"github.com/mschulkind-oss/yolo-jail/internal/packload"
+	"github.com/mschulkind-oss/yolo-jail/internal/packoverlay"
 	"github.com/mschulkind-oss/yolo-jail/internal/render"
 	"github.com/mschulkind-oss/yolo-jail/internal/richtext"
 )
@@ -157,6 +158,10 @@ func applyHost(out, errw io.Writer, color bool, write bool) int {
 	// set is known — a pack dropped from config never appears in `entries` at all.
 	active := map[string]bool{}
 	var loaded []*packload.Pack
+	// Resolve the packs FIRST, before rendering any of them, because config-overlay is
+	// cross-pack: an overlay in pack B targets a surface pack A owns, so the per-pack loop
+	// below cannot discover it. Two passes over `entries` is the price of the one thing the
+	// kind exists to do (docs/design/pack-config-collaboration.md §6).
 	for _, e := range entries {
 		p := packForCheckDeps(e) // same loader: embedded or local; git needs `pack install`
 		if p == nil {
@@ -165,6 +170,23 @@ func applyHost(out, errw io.Writer, color bool, write bool) int {
 		}
 		active[p.Name] = true
 		loaded = append(loaded, p)
+	}
+	// autonomy=false: host renders the GUARDED posture, so the owner set matches the
+	// surfaces the render will actually produce (§4.2).
+	overlays := packoverlay.Collect(loaded, false)
+	for _, prob := range overlays.Problems {
+		pr.Printf("  [red]config-overlay refused[/red] — %s", prob)
+		rc = 1
+	}
+	for _, orphan := range overlays.Orphans {
+		// R2: inert, and named. Not an error — a pack the user did not select is not a
+		// mistake — but never silent either, which is the whole no-silent-skip invariant
+		// this command's census test enforces.
+		pr.Printf("  [yellow]config-overlay  %s[/yellow] [dim](pack %s)[/dim]",
+			orphan.Reason(), orphan.Pack)
+	}
+
+	for _, p := range loaded {
 		// Account for EVERY kind the pack declares, before rendering. Three outcomes, and
 		// the invariant is that there is no fourth: refused by the census, honored-but-
 		// unbuilt (named as such), or rendered below. A kind that produced no line at all
@@ -218,14 +240,23 @@ func applyHost(out, errw io.Writer, color bool, write bool) int {
 		for _, r := range bres {
 			pr.Printf("  [cyan]%-20s[/cyan] %s  [dim]%s[/dim]", r.Surface, r.Action, r.Path)
 		}
-		results, rerr := entrypoint.RenderHostPack(p, home, !write)
+		results, rerr := entrypoint.RenderHostPack(p, home, !write, overlays)
 		if rerr != nil {
-			fmt.Fprintf(errw, "yolo apply --host: %s: %v\n", e.Name, rerr)
+			fmt.Fprintf(errw, "yolo apply --host: %s: %v\n", p.Name, rerr)
 			rc = 1
 			continue
 		}
 		for _, r := range results {
 			pr.Printf("  [cyan]%-20s[/cyan] %s  [dim]%s[/dim]", r.Surface, r.Action, r.Path)
+			// Which packs contributed config-overlay keys to this surface (ruling R3). An
+			// overlay folds BELOW the owner's managed layer, so it leaves no trace in the
+			// resulting file — without this line the only answer to "which pack set that
+			// key?" is a sidecar the host render does not even write.
+			if len(r.Overlays) > 0 {
+				pr.Printf("    [magenta]config-overlay keys from: %s[/magenta] [dim](below this "+
+					"surface's own managed layer, which still wins a conflict)[/dim]",
+					strings.Join(r.Overlays, ", "))
+			}
 			// Warn on every managed key that overwrites a DIFFERING existing value — the
 			// host-notch "always warn" (§4.2 / Phase 9). Shown in observe too, so the
 			// preview is not path-only (finding D2): you see the collision before writing.

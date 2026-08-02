@@ -7,6 +7,11 @@ package cli
 // captured edit outranks the host layer forever, so without these two commands the
 // only cure is knowing to delete a file in <workspace>/.yolo/prism/ by hand
 // (docs/design/composed-file-permissions.md §5).
+//
+// `diff` carries a SECOND kind of divergence for the same reason: a pack's
+// `config-overlay` contributions to a surface another pack owns (ruling R3,
+// docs/design/pack-config-collaboration.md §7). Same shape of question — a key in the
+// file that the file itself cannot account for — so it reads out of the same command.
 
 import (
 	"fmt"
@@ -19,7 +24,10 @@ import (
 	"github.com/mschulkind-oss/yolo-jail/internal/agentcfg"
 	"github.com/mschulkind-oss/yolo-jail/internal/agentcfg/codec"
 	"github.com/mschulkind-oss/yolo-jail/internal/agentcfg/manifest"
+	"github.com/mschulkind-oss/yolo-jail/internal/config"
 	"github.com/mschulkind-oss/yolo-jail/internal/jsonx"
+	"github.com/mschulkind-oss/yolo-jail/internal/packload"
+	"github.com/mschulkind-oss/yolo-jail/internal/packoverlay"
 	"github.com/mschulkind-oss/yolo-jail/internal/richtext"
 )
 
@@ -146,19 +154,37 @@ func userSidecarSurfaces(surface string) []manifest.Surface {
 // engine will apply. Each key is annotated with what the layers underneath say, so
 // a redundant capture (same value as the host layer — the common case) is
 // distinguishable from a real edit.
+//
+// It also reports config-overlay PROVENANCE — which pack contributed which key to a
+// surface another pack owns, and whether that key won (ruling R3,
+// docs/design/pack-config-collaboration.md §7). That belongs here rather than in a new
+// command because it answers the same question the capture diff does — "why does this
+// file say that, and who is responsible?" — and because an overlay folds in BELOW the
+// owner's managed layer, so it leaves no trace in the surface file at all. Provenance
+// nobody can read does not make an override legible, which was the entire justification
+// for the kind.
 func configDiff(args []string, out, errw io.Writer, color bool) int {
 	agent, surface, _, rc := surfaceArgs("diff", args, out, errw)
 	if rc >= 0 {
 		return rc
 	}
+	pr := richtext.Printer{W: out, Color: color}
+	overlaid, unresolved := overlayContributionRows(agent, surface)
+
 	surfaces := capturedSurfaces(agent, surface)
-	if len(surfaces) == 0 {
-		fmt.Fprintf(errw, "yolo config diff: no capture surfaces for agent %q%s\n",
-			agent, surfaceSuffix(surface))
+	if len(surfaces) == 0 && len(overlaid) == 0 && len(unresolved) == 0 {
+		fmt.Fprintf(errw, "yolo config diff: no capture surfaces or pack config-overlays "+
+			"for agent %q%s\n", agent, surfaceSuffix(surface))
 		return 1
 	}
+	// A pack this command could not read might be the one contributing the key the user
+	// is asking about, so an incomplete answer says so rather than reading as complete.
+	if len(unresolved) > 0 {
+		pr.Printf("[yellow]⚠ not inspected (fetched packs need `yolo pack install`): %s "+
+			"— any config-overlay they declare is not listed below.[/yellow]",
+			strings.Join(unresolved, ", "))
+	}
 
-	pr := richtext.Printer{W: out, Color: color}
 	found := false
 	for _, s := range surfaces {
 		overlay := readOverlayValue(s.Agent, s.Name)
@@ -173,6 +199,7 @@ func configDiff(args []string, out, errw io.Writer, color bool) int {
 		}
 		pr.Printf("")
 	}
+	writeOverlayContributions(pr, overlaid)
 	if !found {
 		pr.Printf("[dim]No captured in-jail edits for %s%s.[/dim]", agent, surfaceSuffix(surface))
 		return 0
@@ -180,6 +207,200 @@ func configDiff(args []string, out, errw io.Writer, color bool) int {
 	pr.Printf("[dim]These values were captured from in-jail edits and outrank the host layer.[/dim]")
 	pr.Printf("[dim]Discard them with: yolo config reset %s[/dim]", agent)
 	return 0
+}
+
+// overlayContribution is one surface's config-overlay picture for the diff: who
+// contributed, which keys, and — where a boot recorded it — which layer actually won each
+// key.
+type overlayContribution struct {
+	Surface string // "agent/name"
+	Path    string
+	// Packs are the contributing packs in fold order (later wins).
+	Packs []string
+	// Keys maps a contributed top-level key to the pack that contributed it LAST (the one
+	// whose value the fold would use).
+	Keys map[string]string
+	// Winners is the boot-recorded provenance, key → winning layer, from the surface's
+	// provenance sidecar. nil when no boot has written one — which is the honest state for
+	// an `rmw` surface (no sidecars at all, by design) and for a surface never rendered in
+	// this workspace.
+	Winners map[string]string
+	// NoSidecar records that this surface's MODE writes no provenance sidecar, so an
+	// absent winner is by design rather than "never rendered here". The two read very
+	// differently to a user: one is expected, the other is worth investigating.
+	NoSidecar bool
+}
+
+// overlayContributionRows resolves the config-overlay contributions landing on the given
+// agent's surfaces, honoring an optional surface filter, plus the names of any configured
+// pack it could not read (see configuredPacksForInspection).
+//
+// It reads the PACK DECLARATIONS rather than the sidecar for "who contributed what",
+// because the sidecar records only the WINNER of each key — a contribution the owner's
+// managed layer beat leaves no sidecar entry, and "your overlay lost" is exactly the case
+// a user needs told. The sidecar then supplies the winner where a boot has recorded one.
+//
+// The surfaces come from the LOADED PACKS rather than surfaceManifest(), which is embedded
+// packs only (see internal/cli/surfaces.go). That limitation is exactly wrong here: a
+// third-party pack is the likely OWNER in the Layout C story, so keying on the embedded set
+// would leave the overlay case this command exists for unreportable.
+func overlayContributionRows(agent, surface string) ([]overlayContribution, []string) {
+	packs, unresolved := configuredPacksForInspection()
+	if len(packs) == 0 {
+		return nil, unresolved
+	}
+	// autonomy=true: `config diff` is about the JAIL's surfaces, matching the boot render
+	// (Pack.Surfaces()). The posture only patches the owner's managed layer, so it changes
+	// which keys an overlay LOSES, not which surfaces exist.
+	set := packoverlay.Collect(packs, true)
+	var out []overlayContribution
+	for _, s := range packSurfacesForAgent(packs, agent, surface) {
+		overlays := set.For(s.Agent, s.Name)
+		if len(overlays) == 0 {
+			continue
+		}
+		row := overlayContribution{
+			Surface: s.Agent + "/" + s.Name,
+			Path:    s.Path,
+			Keys:    map[string]string{},
+			Winners: readProvenance(s.Agent, s.Name),
+			NoSidecar: s.ResolvedMode() == manifest.ModeRMW ||
+				s.ResolvedMode() == manifest.ModeComputed,
+		}
+		for _, ov := range overlays {
+			row.Packs = append(row.Packs, ov.Pack)
+			if layer, isMap := ov.Data.(map[string]any); isMap {
+				for k := range layer {
+					row.Keys[k] = ov.Pack // later pack wins the attribution, as it wins the fold
+				}
+			}
+		}
+		out = append(out, row)
+	}
+	sort.Slice(out, func(i, j int) bool { return out[i].Surface < out[j].Surface })
+	return out, unresolved
+}
+
+// packSurfacesForAgent returns the loaded packs' surfaces owned by one agent, honoring an
+// optional name filter. Deduped by identity, last declaration winning — matching
+// manifest.Merge's rule, so this reports the surface the boot render would actually use.
+func packSurfacesForAgent(packs []*packload.Pack, agent, name string) []manifest.Surface {
+	byKey := map[manifest.SurfaceKey]manifest.Surface{}
+	var order []manifest.SurfaceKey
+	for _, p := range packs {
+		surfaces, _ := p.Surfaces()
+		for _, s := range surfaces {
+			if s.Agent != agent || (name != "" && s.Name != name) {
+				continue
+			}
+			if _, seen := byKey[s.Key()]; !seen {
+				order = append(order, s.Key())
+			}
+			byKey[s.Key()] = s
+		}
+	}
+	out := make([]manifest.Surface, 0, len(order))
+	for _, k := range order {
+		out = append(out, byKey[k])
+	}
+	return out
+}
+
+// writeOverlayContributions prints the R3 provenance section: per surface, which packs
+// contribute and what became of each contributed key.
+func writeOverlayContributions(pr richtext.Printer, rows []overlayContribution) {
+	if len(rows) == 0 {
+		return
+	}
+	for _, row := range rows {
+		pr.Printf("[bold]# %s → %s[/bold]  [dim]config-overlay from %s[/dim]",
+			row.Surface, row.Path, strings.Join(row.Packs, ", "))
+		for _, k := range sortedStrings(row.Keys) {
+			pack := row.Keys[k]
+			winner, recorded := row.Winners[k]
+			switch {
+			case !recorded:
+				// No boot-recorded winner. Say WHICH state that is rather than guessing:
+				// a surface whose mode writes no provenance sidecar is expected, while a
+				// stateful one that has never rendered here is worth investigating.
+				why := "not rendered in this workspace yet"
+				if row.NoSidecar {
+					why = "this surface's mode keeps no provenance sidecar"
+				}
+				pr.Printf("  [magenta]%s[/magenta]  [dim]contributed by %s (winner unknown — %s)[/dim]",
+					k, pack, why)
+			case winner == "config-overlay:"+pack:
+				pr.Printf("  [magenta]%s[/magenta]  [green]set by %s[/green] [dim](won the key)[/dim]", k, pack)
+			default:
+				// The load-bearing line: the overlay folded in and LOST. Naming the layer
+				// that beat it is what turns "my key did nothing" into an actionable fact.
+				pr.Printf("  [magenta]%s[/magenta]  [yellow]contributed by %s but %s won[/yellow]",
+					k, pack, winner)
+			}
+		}
+		pr.Printf("")
+	}
+	pr.Printf("[dim]config-overlay keys fold in BELOW the owning pack's managed layer, so the " +
+		"owner still wins a genuine conflict. Drop the contributing pack from `packs` to " +
+		"remove them.[/dim]")
+}
+
+// readProvenance decodes a surface's provenance sidecar into key → winning layer. An
+// absent or malformed file yields nil, which callers read as "no render recorded here"
+// rather than "nothing won" — the two are different and conflating them would report an
+// unrendered surface as one where every overlay lost.
+func readProvenance(agent, name string) map[string]string {
+	data, err := os.ReadFile(prismProvenancePath(agent, name))
+	if err != nil {
+		return nil
+	}
+	out := map[string]string{}
+	for _, line := range strings.Split(string(data), "\n") {
+		key, layer, found := strings.Cut(line, "\t")
+		if !found || key == "" {
+			continue
+		}
+		out[key] = layer
+	}
+	if len(out) == 0 {
+		return nil
+	}
+	return out
+}
+
+// configuredPacksForInspection loads the packs this workspace's config selects, for the
+// read-only inspection commands, plus the names of any that could not be resolved offline.
+//
+// EMBEDDED AND LOCAL packs resolve; a git-sourced one needs `yolo pack install` and comes
+// back nil, so its name is returned for the caller to report. That limitation is the same
+// one surfaceManifest() carries and is stated for the same reason: a `config diff` that
+// failed on an unreachable remote would be worse than one that names what it could not
+// read.
+func configuredPacksForInspection() ([]*packload.Pack, []string) {
+	entries, err := config.LoadPacks(nil)
+	if err != nil {
+		return nil, nil
+	}
+	var packs []*packload.Pack
+	var unresolved []string
+	for _, e := range entries {
+		if p := packForCheckDeps(e); p != nil {
+			packs = append(packs, p)
+			continue
+		}
+		unresolved = append(unresolved, e.Name)
+	}
+	return packs, unresolved
+}
+
+// sortedStrings returns a string-keyed map's keys sorted, for deterministic output.
+func sortedStrings(m map[string]string) []string {
+	keys := make([]string, 0, len(m))
+	for k := range m {
+		keys = append(keys, k)
+	}
+	sort.Strings(keys)
+	return keys
 }
 
 // overlayDiffLines renders one line per captured key: the key, the captured value,

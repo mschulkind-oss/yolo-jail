@@ -55,12 +55,14 @@ var refusalReasons = map[packdecl.Kind]string{
 // `config-overlay` and (visibly) `autonomy` were skipped just as silently. That is the
 // argument for asserting the invariant over the whole kind set rather than patching the
 // two kinds someone happened to notice.
+//
+// `config-overlay` was here and is GONE, which is what an entry's removal looks like: it
+// is applied at both targets now (packoverlay.Collect feeds Inputs.Overlays), and like
+// `autonomy` it renders INVISIBLY — an overlay folds into a surface another pack owns, so
+// it shows up as that surface's own line. The caller prints the contributing packs there
+// (HostRenderResult.Overlays) and names an ownerless overlay in its own line, so the kind
+// still produces output on every path; it just is not this map's kind of output.
 var hostUnimplemented = map[packdecl.Kind]string{
-	// Inert at EVERY target, not just this one (pack-system.md §14): the kind parses,
-	// validates and has a combine rule, but no boot-path code collects overlays and feeds
-	// them to the assembler.
-	packdecl.KindConfigOverlay: "config-overlay is not applied at any target yet — it " +
-		"parses and validates, but nothing collects overlays during a render",
 	// Honored in the census because a host target CAN express the concept, but there is
 	// nothing to express it INTO: below jail, yolo launches no process, so there is no
 	// shim and no argv to inject flags after.

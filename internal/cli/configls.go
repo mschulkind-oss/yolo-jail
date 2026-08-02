@@ -276,6 +276,17 @@ func prismLastRenderPath(agent, name string) string {
 	return filepath.Join(prismSidecarDir(), agent+"-"+name+".last_render")
 }
 
+// prismProvenancePath is the CLI-side twin of entrypoint.prismProvenancePath: the
+// per-key "which layer set this key" record the boot render persists beside the surface.
+//
+// The boot render has written it since the provenance sidecar landed; nothing READ it,
+// which is the gap ruling R3 closes — a config-overlay folds in below the owner's managed
+// layer, so it leaves no trace in the surface file, and provenance nobody can read does
+// not make an override legible.
+func prismProvenancePath(agent, name string) string {
+	return filepath.Join(prismSidecarDir(), agent+"-"+name+".provenance")
+}
+
 // prismSidecarDir is the per-workspace sidecar directory. A var so tests can
 // point it at a temp workspace — without that seam an in-jail test run would read
 // (and `reset` would DELETE) the real /workspace sidecars.
