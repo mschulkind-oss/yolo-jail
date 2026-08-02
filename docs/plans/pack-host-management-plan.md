@@ -10,8 +10,8 @@ from packs, including *"packify my fzf customized file finder"* for Claude. Expl
 
 **Acceptance test for the whole plan:** a single pack delivers the fzf file finder — the
 `fileSuggestion` settings key, the executable `~/.claude/file-suggestion.sh`, and its host
-deps (`fd`, `fzf`) — to **both** a jail and the real host. When that works, this plan is
-done.
+deps (`fd`, `fzf`) — to **both** a jail and the real host, **while the user can still add
+their own skills to the same agent by hand.** When that works, this plan is done.
 
 **Reads with:** the handoff (the evidence);
 [`environment-manager-plan.md`](environment-manager-plan.md) (Phases 4/9 built the host
@@ -102,6 +102,74 @@ staging admission gate, not a permission grant. Any fix must change that contrac
 deliberately and update the pinning test with its reasoning — the plan does this in Phase 3,
 not as a drive-by.
 
+### N5 (NEW) — how the agents themselves namespace skills, and the mechanism to copy
+
+The open question behind Phase 4 was *"can a user still add a skill directly to an agent
+whose skills a pack manages?"* — i.e. is there any namespace, or must yolo either detect
+collisions or forbid them. Researched against
+[code.claude.com/docs/en/skills.md](https://code.claude.com/docs/en/skills.md),
+[plugins-reference.md](https://code.claude.com/docs/en/plugins-reference.md), and GitHub's
+Copilot CLI docs, plus the on-disk trees in this jail. **Claude has the mechanism; Copilot
+does not.**
+
+**Claude — plain skills are flat with SILENT override.** Precedence is
+enterprise > personal (`~/.claude/skills/`) > project > bundled; same name at two levels
+means the higher wins with **no warning** (skills.md, "Where skills live"). The invocation
+name comes from the **directory name** for personal/project skills — frontmatter `name:` is
+display-label only. So a flat merge into a real `~/.claude/skills/` is exactly as dangerous
+as the handoff assumed.
+
+**Claude — plugin skills cannot collide**, because they are namespaced `plugin:skill`
+(skills.md: *"Plugin skills use a `plugin-name:skill-name` namespace, so they cannot conflict
+with other levels."*). That this is load-bearing is visible in Anthropic's own marketplace:
+of 469 plugins, **three ship `name: configure` and three ship `name: access`**
+(discord/imessage/telegram, near-identical frontmatter), coexisting. Collisions one level up
+— between *plugins* — are resolved by registry fiat: the marketplace manifest carries a
+`renames` table (`adlc`→`agentforce-adlc`, `vals`→`valtown`). Neither half is available to
+yolo, which has no registry and whose packs are the user's own.
+
+**THE MECHANISM — "skills-directory plugins"** (documented and supported, not an
+implementation detail; plugins-reference.md §"Skills-directory plugins"): *"Any folder under
+a skills directory that contains a `.claude-plugin/plugin.json` manifest is loaded as a
+plugin named `<name>@skills-dir` on the next session, with no marketplace and no install
+step … discovered in place rather than copied into the plugin cache."* Layout verified by
+running the real scaffolder (`claude plugin init matt-core --with skills`) against a
+throwaway `$HOME`:
+
+```
+~/.claude/skills/matt-core/.claude-plugin/plugin.json   # {"name":"matt-core","skills":["./"]}
+~/.claude/skills/matt-core/SKILL.md                     # → /matt-core
+~/.claude/skills/matt-core/skills/example/SKILL.md      # → /matt-core:example
+```
+
+So **a pack can own one namespaced subtree inside the user's own `~/.claude/skills/` without
+touching a single sibling entry.** Personal scope has no trust gate (project scope needs the
+workspace trust dialog). Disable is `claude plugin disable <name>@skills-dir`; removal is
+deleting the folder. This is what Phase 4 adopts, and it is why OQ-A is resolved rather than
+deferred.
+
+Two adjacent knobs worth knowing: personal/project skills dirs **follow symlinks** (and a
+target reachable from two locations loads once), and `skillOverrides` in `settings.json`
+accepts `"off" | "name-only" | "disabled"` per skill name — a user-side escape hatch if a
+pack skill is unwanted.
+
+**Copilot — no namespacing at all, and the precedence runs the other way.** Skills load from
+`.github/skills`, `.agents/skills`, `.claude/skills` (project), `~/.copilot/skills`,
+`~/.agents/skills` (personal), then plugin `skills/` dirs, then `COPILOT_SKILLS_DIRS`. The
+CLI plugin reference states this is **first-found-wins**, deduplicated by the frontmatter
+`name` field, and that a shadowed plugin skill is *"silently ignored"* — a warning is
+documented only for duplicate MCP servers, not skills. There is **no** documented
+`plugin:skill` syntax. Note this inverts Claude's model: for Copilot, **project beats
+personal**, and a plugin can never override either.
+
+Consequences for the plan: the `@skills-dir` trick is **Claude-specific** and must be
+declared per pack, not assumed. Also note yolo's `copilot` pack declares
+`into: ".copilot/skills"`, which is a real Copilot personal-scope path — that is correct, but
+it is a **flat, first-found-wins** namespace with no namespacing available, so for Copilot
+the honest options are the ones the handoff offered (skip-on-collision, or disallow).
+`~/.copilot/skills` does not exist by default; the `builtin-skills/` dir inside the npm
+package is shipped content, not a user location.
+
 ### N4 — G5 is real; the count is worse than stated
 
 `internal/cli/config_ref.txt:452` lists **12** kinds and `internal/cli/pack.go:68` lists
@@ -118,7 +186,7 @@ fixing the drift mechanism means a 14th kind repeats this. Phase 0 adds a test.
 | **G5** + N4 | `config-ref` (12) and `pack --help` (11) both miss kinds; nothing pins them to `KnownKinds()` | docs + drift | 0 |
 | **G2** + N2 | Misleading exec-bit message; lint masks the manifest error behind the staging error | bug | 1 |
 | **G1a** | `apply --host` **silently** skips `skills` + `briefing` | **blocker**, and worst-of-three state | 2 |
-| **G1b** | Host `skills` render (never-clobber, per-entry) | blocker for the goal | 4 |
+| **G1b** + N5 | Host `skills` render — one `@skills-dir` subtree per pack, so a user skill cannot collide | blocker for the goal | 4 |
 | **G1c** | Host `briefing` render (delimited managed block, idempotent) | blocker for the goal | 5 |
 | **G4** + N3 | No path delivers an executable: `host_files` caps at `0o444`/`0o644`; `packstage` forces `0o644` even with `allow_exec` | blocker for fzf | 3 |
 | **G3** + N1 | `files` is inert at **every** target while lint/footprint report it as working | **blocker**, and a silent drop | 6 (jail), 7 (host) |
@@ -274,6 +342,7 @@ pack, so it does not satisfy "manage it from a pack" (Phase 7 does), but it make
 ## Phase 4 — Host `skills` render  *(medium; the main event, half 1)*
 
 **Fixes:** G1b. **Depends on:** Phase 2 (deletes its `skills` entry).
+**Design settled by N5 (below): one pack = one `@skills-dir` subtree, not a flat merge.**
 
 `PrepareSkills` (`internal/agents/skills.go:67`) already composes
 `built-in < pack < user's own` into a staging dir the jail bind-mounts `:ro`. The host needs
@@ -281,33 +350,55 @@ the same *composition* with an inverted *ownership model*, and the two must not 
 path naively — `PrepareSkills` calls `clearDirContents(skillsDir)` at line 79, which on a
 real `~/.claude/skills` **deletes every hand-written skill.**
 
-Two decisions, both settled here (handoff asked for them explicitly):
+**The question this phase used to hinge on** — *"can a user still add a skill directly to an
+agent whose skills yolo manages?"* — is answered **yes, structurally**, by adopting the
+skills-directory-plugin layout (N5). yolo writes ONE folder per pack; every sibling entry in
+`~/.claude/skills/` stays the user's. There is no name to collide on, so no provenance
+marker is needed and OQ-A dissolves.
 
-- **Ownership → never clear, per-entry, user wins.** Write each pack skill as an
-  individual entry; never clear the destination; **skip any name the user already has**.
-  That mirrors the jail's existing `pack < user` precedence rather than inventing a second
-  rule. Report per-skill `rendered` / `skipped (yours)`.
-- **Removal → no.** When a pack drops a skill, the host copy stays. Consistent with "no
-  `--revert`" (env-manager OQ-1, resolved), and the alternative is yolo deleting files in a
-  real home based on a pack having changed. **But print it**, so it is legible rather than
-  silent.
+- **4.1** Render each pack's skills as a **skills-directory plugin** at
+  `~/.claude/skills/<pack>/`:
 
-- **4.1** Add a host skills renderer. Compose built-in + pack skills, then for each entry
-  check the destination: absent → write; present-and-yolo-wrote-it → rewrite;
-  present-and-user's → skip with a report line. Distinguishing the middle case needs a
-  provenance marker (see OQ-A) — until then, **present → skip**, which is the safe
-  direction.
-- **4.2** Wire it into `applyHost`, honoring `observe`/`assert`: observe must print exactly
+  ```
+  ~/.claude/skills/<pack>/.claude-plugin/plugin.json   # {"name":"<pack>","skills":["./"]}
+  ~/.claude/skills/<pack>/skills/<skill>/SKILL.md      # → /<pack>:<skill>
+  ```
+
+  Verified layout (see N5). yolo owns that ONE directory outright and never writes a sibling.
+- **4.2** **Ownership → the pack dir is yolo's, everything beside it is the user's.** Inside
+  `~/.claude/skills/<pack>/` a full rewrite is legitimate (it is yolo's own subtree, the same
+  posture `config` surfaces have for their managed keys). **Never** touch a sibling entry.
+  Guard the one collision that remains: a user directory that already exists at
+  `~/.claude/skills/<pack>/` and is NOT a yolo-written plugin dir — refuse it by name rather
+  than absorbing it (fail-closed, matching `hostfiles.go:50`).
+- **4.3** **Removal → yes, within the pack dir only.** Because the subtree is unambiguously
+  yolo's, a dropped pack skill CAN be removed — which is better than the
+  "no-removal, print it" compromise a flat merge forced, and it matches how an unset MCP
+  server is dropped in a jail today. Removing the whole pack dir when a pack is dropped from
+  config is the same argument; print both.
+- **4.4** Built-in skills: keep staging them into the **jail** as today. Do **not** write
+  yolo's built-ins into a real `$HOME` — `jail-startup`/`diagnosing-the-jail` are about
+  being in a jail and are noise on the host. Report them as `skipped (jail-only)` so the
+  omission is legible rather than silent.
+- **4.5** Wire into `applyHost`, honoring `observe`/`assert`: observe must print exactly
   what assert would write, matching `RenderHostPack`'s existing contract (`Overwrites`
-  computed in both postures, `apply.go:170`).
-- **4.3** Reuse `HostRenderResult` so one output loop prints config, skills, and (Phase 5)
-  briefing. Extending it (a `Kind` field) beats a parallel result type with its own
-  formatting.
-- **4.4** Tests: a user-authored skill of the same name survives `--assert` **twice**; a
-  built-in lands; `observe` writes nothing; a dropped pack skill is reported, not deleted.
+  computed in both postures, `apply.go:170`). Reuse `HostRenderResult` (add a `Kind` field)
+  so one output loop prints config, skills, and (Phase 5) briefing.
+- **4.6** Tests: a sibling user skill of any name survives `--assert` **twice**; a
+  pre-existing non-yolo dir at the pack's name is refused, not overwritten; a dropped pack
+  skill is removed from within the pack dir; `observe` writes nothing; built-ins are not
+  written to the host.
 
-**Done when:** `apply --host --assert` materializes pack skills into `~/.claude/skills`, a
-same-named user skill is preserved, and re-running is a no-op.
+**Done when:** `apply --host --assert` materializes pack skills into
+`~/.claude/skills/<pack>/`, every sibling entry is untouched, and re-running is a no-op.
+
+**Deliberately NOT changing the jail path.** The jail keeps its flat
+`built-in < pack < user` merge, so a skill is `/foo` in a jail and `/<pack>:foo` on the host.
+That divergence is real and I am accepting it rather than hiding it: the jail's flat merge is
+safe precisely because the destination is a disposable `:ro` mount, and unifying the two
+would mean changing every shipped pack's skills destination plus the built-in staging path —
+a bigger change than this plan should carry. Revisit only if the two-names problem actually
+bites. **Print the host-side name** in `apply --host` output so it is discoverable.
 
 ---
 
@@ -472,13 +563,16 @@ Checks:
 1. `yolo pack lint --allow-exec ~/.dotfiles/claude-fzf` → clean (Phase 1).
 2. `yolo apply --host` → every kind named; no kind silently absent (Phase 2).
 3. `yolo apply --host --assert` → settings key written, `file-suggestion.sh` at `0o555`,
-   skills + briefing block written, deps reported (Phases 3/4/5/7/8).
+   skills at `~/.claude/skills/claude-fzf/` + briefing block written, deps reported
+   (Phases 3/4/5/7/8).
 4. Re-run `--assert` → **byte-identical**; no duplicated prose (Phase 5).
 5. `yolo -- claude` → the script is present and executable **in the jail** (Phases 3/6),
    fixing the live breakage the handoff found: the script is currently staged into no jail
    at all, so in-jail Claude's `fileSuggestion` points at a nonexistent file.
-6. A hand-written `~/.claude/skills/foo` and hand-written prose outside the markers both
-   survive every step (Phases 4/5).
+6. **The user's own skills are untouched and still addable**: every sibling entry in
+   `~/.claude/skills/` survives, a skill added by hand *after* an apply survives the next
+   one, and hand-written prose outside the briefing markers survives (Phases 4/5). This is
+   the check that the namespacing decision (N5) actually holds.
 
 ---
 
@@ -506,13 +600,22 @@ Checks:
 
 ## Open questions
 
-- **OQ-A — provenance for host-written pack content.** Phase 4 skips any existing skill
-  because it cannot tell "a skill yolo wrote last apply" from "a skill the user wrote."
-  Config surfaces have the `managed` layer for this; the filesystem has nothing. A manifest
-  under `~/.local/state/yolo-jail/` recording host-written paths would let `apply` update its
-  own output while still never touching the user's — and would make Phase 4's "removal → no"
-  revisitable. **Recommend deferring**: skip-if-present is safe and unblocks the goal;
-  revisit if the "my pack updated but my host skill didn't" complaint materializes.
+- **OQ-A — provenance for host-written pack content. RESOLVED (N5): not needed for Claude.**
+  The `@skills-dir` layout makes the pack's subtree unambiguously yolo's, so "did yolo write
+  this?" is answered by the path, not by a side manifest. Phase 4 therefore gets safe
+  *removal* as well as safe *update*, which the flat-merge design could not have. **Still
+  open for Copilot** and any other agent with no namespace mechanism: there, skip-on-collision
+  (never delete, never overwrite) remains the only safe rule, and it is what Phase 4's
+  fallback path must do. A provenance manifest under `~/.local/state/yolo-jail/` is the
+  eventual answer if that fallback proves too weak; not needed to ship this plan.
+- **OQ-D (NEW) — per-agent skills delivery strategy.** N5 shows the correct host layout is
+  **agent-specific**: Claude gets `@skills-dir` namespacing, Copilot has none. That argues the
+  `skills` contribution needs a per-destination strategy (declared by the pack, since the pack
+  is what knows which tool it configures) rather than one global rule. **Recommend**: ship
+  Phase 4 with the strategy inferred from the destination (a `.claude/skills` dest gets the
+  plugin layout; anything else gets skip-on-collision), and only add an explicit manifest
+  field if a third pattern shows up. Inferring keeps `pack.json` unchanged and the six shipped
+  packs working; a new field would need every pack updated for no behavior gain today.
 - **OQ-B — should `files` at the host be `0o444`?** Phase 7.1 mirrors the jail's `:ro`
   posture, but a `:ro` mount is *enforced* while `0o444` is merely *asymmetric*
   (`project_prism_ro_rw_audit` made this distinction). A user who wants to hand-edit a
