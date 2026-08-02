@@ -348,7 +348,24 @@ func (o *Options) assembleRunCmd(in *assembleInput) []string {
 	// pack skills < the user's own host skills) and that merge has to land somewhere.
 	// Core reads the destination off the pack's declaration and mounts it; it does not
 	// know the content is "an agent's skills".
+	//
+	// DEDUP BY DESTINATION, for the same reason briefings do below: `skills` is
+	// CombineMerge — several packs into one dir IS the feature — and PrepareSkills has
+	// already merged EVERY pack's skills into each staging dir (built-ins < all packs <
+	// the user's own). So a second mount at one destination carries the same merged
+	// content, and podman rejects it with "duplicate mount destination", failing the boot.
+	//
+	// This was pack-system.md §14's known sharp edge, worked around by telling authors not
+	// to declare a `skills` contribution whose `into` duplicates another pack's. That
+	// advice was unfollowable in the configuration it most matters for: an agent pack
+	// naming ~/.claude/skills plus a user pack sharing a skills corpus is the whole point
+	// of the kind. Fixed rather than documented (plan OQ-C).
+	seenSkillDest := map[string]bool{}
 	for _, target := range packSkillTargets(in.packs) {
+		if seenSkillDest[target.Dest] {
+			continue
+		}
+		seenSkillDest[target.Dest] = true
 		runCmd = append(runCmd, "-v",
 			filepath.Join(in.agentsPath, target.Staging)+":/home/agent/"+target.Dest+":ro")
 	}
@@ -415,11 +432,27 @@ func (o *Options) assembleRunCmd(in *assembleInput) []string {
 	// (briefingStagingName), or the mount points at a file that does not exist and the
 	// jail comes up with no briefing at all — silently, since a missing bind source for
 	// a FILE is not an error the way a missing dir is.
+	seenBriefingDest := map[string]bool{}
 	for _, p := range in.packs {
 		for _, c := range p.Decl.Contributions() {
 			if c.Kind != packdecl.KindBriefing {
 				continue
 			}
+			// DEDUP BY DESTINATION. `briefing` is CombineConcat — several packs contributing
+			// prose at one path is the designed behavior, and refreshJailBriefings has
+			// already merged every pack's prose into the composed content each staging file
+			// holds. So the SECOND mount at a destination is not a second briefing, it is
+			// the same content again — and podman rejects it with "duplicate mount
+			// destination", killing the boot.
+			//
+			// That made a legitimate configuration unlaunchable: an agent pack naming
+			// ~/.claude/CLAUDE.md plus a user pack contributing house rules to it is exactly
+			// what briefings are for. First writer wins the mount; the content is identical
+			// either way.
+			if seenBriefingDest[c.Into] {
+				continue
+			}
+			seenBriefingDest[c.Into] = true
 			staged := filepath.Join(in.agentsPath, briefingStagingName(p.Name))
 			if rt == "container" {
 				acMaterialize(staged, c.Into, in.wsState)

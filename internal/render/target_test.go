@@ -41,14 +41,25 @@ func TestFieldSetCensus(t *testing.T) {
 	for _, k := range []packdecl.Kind{
 		packdecl.KindConfig, packdecl.KindSkills, packdecl.KindBriefing, packdecl.KindEnv,
 		packdecl.KindAutonomy,
+		// files MOVED into the honored set (plan Phase 7). The old refusal — "files binds a
+		// pack tree into a jail, nothing to bind into off-container" — was true of the
+		// MECHANISM and false of the intent: a pack owning ~/.claude/bin/file-suggestion.sh
+		// means "this file is mine to maintain", and off-container the way to honor that is
+		// to write the tree. The bind mount was never the point; it is how a JAIL gets an
+		// immutable copy. What does not carry over is the ownership posture — see
+		// internal/entrypoint/hostfilestree.go, which refuses any path it cannot prove yolo
+		// wrote.
+		packdecl.KindFiles,
 	} {
 		if !host.Honors(k) {
 			t.Errorf("host must honor %q (target-independent)", k)
 		}
 	}
-	// The provisioning kinds are refused, and the refusal names why.
+	// The provisioning kinds are refused, and the refusal names why. These three are
+	// genuinely container-shaped: two are mounts of host content INTO a jail, and the third
+	// names a subtree that needs making writable only because a jail home is not.
 	for _, k := range []packdecl.Kind{
-		packdecl.KindMount, packdecl.KindReadsHost, packdecl.KindState, packdecl.KindFiles,
+		packdecl.KindMount, packdecl.KindReadsHost, packdecl.KindState,
 	} {
 		if host.Honors(k) {
 			t.Errorf("host must NOT honor provisioning kind %q", k)

@@ -208,6 +208,13 @@ func (o *Options) stagePacks(cname string) (string, []*packload.Pack, []agents.P
 	if conflicts := packDestConflicts(loaded, packdecl.KindFiles); len(conflicts) > 0 {
 		return "", nil, nil, fmt.Errorf("packs: %s", strings.Join(conflicts, "\npacks: "))
 	}
+	// The OTHER files conflict, which podman cannot see: a `files` tree mounted :ro over a
+	// directory an agent's config surface must be written into. Not a duplicate destination
+	// (the paths differ), so the check above misses it; it surfaces as an A12 boot refusal
+	// naming the surface rather than the claim that shadowed it.
+	if shadowed := packFilesShadowedSurfaces(loaded); len(shadowed) > 0 {
+		return "", nil, nil, fmt.Errorf("packs: %s", strings.Join(shadowed, "\npacks: "))
+	}
 
 	agents.SetPackSkillDirs(skillDirs)
 	return stagingRoot, loaded, briefings, nil

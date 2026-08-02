@@ -190,9 +190,11 @@ func applyHost(out, errw io.Writer, color bool, write bool) int {
 				// command answers (env-manager Phase 9).
 				pr.Printf("  [cyan]autonomy[/cyan]   guarded posture — permission prompts " +
 					"stay ON; folded into this pack's own config surfaces below")
-			case c.Kind == packdecl.KindSkills, c.Kind == packdecl.KindBriefing:
-				// Both render below with their own per-entry lines (applyHostSkills,
-				// RenderHostBriefing), so a summary line here would just be noise.
+			case c.Kind == packdecl.KindSkills, c.Kind == packdecl.KindBriefing,
+				c.Kind == packdecl.KindFiles:
+				// All three render below with their own per-entry lines (applyHostSkills,
+				// RenderHostBriefing, applyHostFiles), so a summary line here would just be
+				// noise.
 			default:
 				if why, unbuilt := render.HostUnimplemented(c.Kind); unbuilt {
 					pr.Printf("  [yellow]%-10s refused[/yellow] — %s", string(c.Kind), why)
@@ -201,6 +203,9 @@ func applyHost(out, errw io.Writer, color bool, write bool) int {
 		}
 		if src := applyHostSkills(pr, errw, p, home, stamp, write); src != 0 {
 			rc = src
+		}
+		if frc := applyHostFiles(pr, errw, p, home, stamp, write); frc != 0 {
+			rc = frc
 		}
 		// The briefing's managed block. Failures here are reported and do not abort the
 		// remaining packs: a refusal is usually one malformed file (an unterminated marker),

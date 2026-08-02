@@ -39,7 +39,6 @@ var refusalReasons = map[packdecl.Kind]string{
 	packdecl.KindMount:     "mount needs a mount namespace — unavailable without a container",
 	packdecl.KindReadsHost: "reads-host carries a host file INTO a jail — meaningless when there is no jail",
 	packdecl.KindState:     "state names a jail-writable home subtree — off-container the home simply is writable",
-	packdecl.KindFiles:     "files binds a pack tree into a jail — nothing to bind into off-container",
 }
 
 // hostUnimplemented names the kinds a host target's FieldSet HONORS but whose renderer is
@@ -119,6 +118,12 @@ func HostFields() FieldSet {
 		packdecl.KindHook:          true,
 		packdecl.KindProgram:       true, // honored but confirm-gated by the caller (OQ-6/7)
 		packdecl.KindAutonomy:      true, // honored: host renders the GUARDED posture (§4.2)
+		// files is honored by WRITING the tree, not binding it. The old refusal ("nothing
+		// to bind into off-container") was true of the mechanism and false of the intent: a
+		// pack that owns ~/.claude/file-suggestion.sh means "this file is mine to
+		// maintain", and off-container the way to honor that is a real copy. Ownership does
+		// NOT carry over though — see internal/entrypoint/hostfilestree.go.
+		packdecl.KindFiles: true,
 	}
 	return FieldSet{applies: honored}
 }

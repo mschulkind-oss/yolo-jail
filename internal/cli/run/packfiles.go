@@ -209,3 +209,67 @@ func packDestConflicts(packs []*packload.Pack, kind packdecl.Kind) []string {
 	}
 	return out
 }
+
+// packFilesShadowedSurfaces reports every config surface whose path falls INSIDE a `files`
+// destination — a conflict that podman cannot see and that kills the boot with an error
+// naming neither culprit.
+//
+// The mechanism: a `files` claim is a :ro bind mount over its whole destination directory, so
+// a surface the entrypoint must WRITE beneath that path hits a read-only filesystem. It is
+// not a duplicate-mount collision (the paths differ), so packDestConflicts misses it, and it
+// is not visible to the pack author either — `pack lint` sees two legal claims.
+//
+// Found by running the real thing: a pack declaring `files → .claude` alongside claude's own
+// `~/.claude/settings.json` surface produced
+//
+//	configure_claude_settings: open /home/agent/.claude/settings.json: read-only file system
+//
+// which is an A12 boot refusal pointing at the surface rather than at the `files` claim that
+// caused it. Cross-pack too — the shadowing pack and the surface's owner are usually
+// different packs, so neither author can see the problem alone.
+//
+// Reported rather than resolved: yolo could exclude the surface's path from the mount, but a
+// pack claiming a directory an agent actively writes is a design mistake in the pack, and
+// silently working around it would hide that. The remedy is a narrower `into`.
+func packFilesShadowedSurfaces(packs []*packload.Pack) []string {
+	// Collect the config surfaces every pack renders into the home, by home-relative path.
+	type owned struct{ pack, surface, path string }
+	var surfaces []owned
+	for _, p := range packs {
+		decl, problems := p.Surfaces()
+		if len(problems) > 0 {
+			continue // a malformed surface is reported by the render path, not here
+		}
+		for _, s := range decl {
+			rel := strings.TrimPrefix(s.Path, "~/")
+			if rel == s.Path {
+				continue // not home-relative; a files mount cannot shadow it
+			}
+			surfaces = append(surfaces, owned{p.Name, s.Agent + "/" + s.Name, rel})
+		}
+	}
+
+	var out []string
+	for _, p := range packs {
+		for _, c := range p.Decl.Contributions() {
+			if c.Kind != packdecl.KindFiles || c.Into == "" {
+				continue
+			}
+			dir := strings.TrimSuffix(c.Into, "/") + "/"
+			for _, s := range surfaces {
+				if !strings.HasPrefix(s.path, dir) {
+					continue
+				}
+				out = append(out, fmt.Sprintf(
+					"pack %s claims ~/%s as a `files` tree, which is mounted READ-ONLY — but "+
+						"pack %s renders the config surface %s at ~/%s, inside it. The jail "+
+						"would refuse to start (read-only file system) with an error naming the "+
+						"surface, not this claim. Narrow the `files` into a subdirectory the "+
+						"agent does not write.",
+					p.Name, strings.TrimSuffix(c.Into, "/"), s.pack, s.surface, s.path))
+			}
+		}
+	}
+	sort.Strings(out)
+	return out
+}
