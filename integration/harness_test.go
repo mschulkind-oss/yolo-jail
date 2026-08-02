@@ -145,37 +145,68 @@ func detectRuntime() string {
 	return ""
 }
 
-// imageExists probes for the jail image under both its bare and localhost/ tags.
-func imageExists(rt string) bool {
+// imageExists probes for the jail image under both its bare and localhost/ tags,
+// returning the tag that answered ("" when neither did) — callers need the name
+// to probe the image itself (see checkImageSkew), not just a yes/no.
+func imageExists(rt string) string {
 	for _, name := range []string{jailImage, "localhost/" + jailImage} {
 		if exec.Command(rt, "image", "inspect", name).Run() == nil {
-			return true
+			return name
 		}
 	}
-	return false
+	return ""
 }
 
-// ensureJailImage ports conftest ensure_jail_image: when the suite runs inside a
-// Linux container (the nested-jail case), the inner runtime has its own image
-// store that cannot see the host's, so build .#ociImage and load it. It is a
-// no-op on darwin, outside a container, or when the image is already present.
-// A build failure is fatal (tests cannot run); a load failure is a warning
-// (tests may skip).
+// ensureJailImage makes a jail image available AND verifies it matches the source
+// tree under test.
+//
+// Inside a Linux container (the nested-jail case) the inner runtime has its own
+// image store that cannot see the host's, so an absent image is built from
+// .#ociImage and loaded. A build failure is fatal (tests cannot run); a load
+// failure is degraded (tests may skip).
+//
+// The image-already-present short-circuit STAYS — a nix image build is minutes
+// and the suite has to stay usable — but it is no longer blind: whatever image we
+// end up with is handed to checkImageSkew, which compares it against the source
+// tree and by default aborts the suite rather than let a stale image masquerade as
+// a regression in new code (see imageskew_test.go for the mechanism). Set
+// YOLO_TEST_REBUILD_IMAGE=1 to force a rebuild+reload instead of short-circuiting.
+//
+// Every early return reports through degraded(): a harness that silently gives up
+// on loading or checking the image is exactly how stale-image debugging starts.
 func ensureJailImage() {
-	if goruntime.GOOS == "darwin" || !inContainer() {
-		return
-	}
 	rt := detectRuntime()
 	if rt == "" {
-		log.Println("[integration] no container runtime (podman/container) found; skipping image load")
+		degraded("no container runtime (podman/container) found — no image load, no " +
+			"staleness check, and every container test will fail or skip")
 		return
 	}
-	if imageExists(rt) {
+
+	// Outside a container (a real host, incl. darwin) the image is the host's own,
+	// managed by `just load` / a CI load step — the suite must not build over it.
+	// Checking it for skew is still both possible and worthwhile.
+	if !inContainer() {
+		if name := imageExists(rt); name != "" {
+			checkImageSkew(rt, name)
+		} else {
+			degraded("no %s image in %s and not inside a container (so the suite will "+
+				"not build one) — container tests will fail; run `just load`", jailImage, rt)
+		}
+		return
+	}
+
+	forceRebuild := os.Getenv(rebuildEnv) != ""
+	if name := imageExists(rt); name != "" && !forceRebuild {
+		checkImageSkew(rt, name)
 		return
 	}
 	if err := exec.Command(rt, "info", "--format", "{{.Store.GraphRoot}}").Run(); err != nil {
-		log.Println("[integration] container runtime storage unavailable (read-only filesystem?) — integration tests may be skipped")
+		degraded("%s storage unavailable (read-only filesystem?) — cannot load an "+
+			"image; integration tests may be skipped", rt)
 		return
+	}
+	if forceRebuild {
+		log.Printf("[integration] %s set — rebuilding and reloading %s", rebuildEnv, jailImage)
 	}
 
 	log.Printf("[integration] loading %s into inner %s (this may take a minute)...", jailImage, rt)
@@ -192,7 +223,7 @@ func ensureJailImage() {
 
 	resolved, err := filepath.EvalSymlinks(outLink)
 	if err != nil {
-		log.Printf("[integration] cannot resolve %s: %v — image not loaded", outLink, err)
+		degraded("cannot resolve %s: %v — image not loaded", outLink, err)
 		return
 	}
 
@@ -202,7 +233,7 @@ func ensureJailImage() {
 	load := exec.Command(rt, "load")
 	pipe, err := stream.StdoutPipe()
 	if err != nil {
-		log.Printf("[integration] wiring image stream pipe failed: %v", err)
+		degraded("wiring image stream pipe failed: %v", err)
 		return
 	}
 	load.Stdin = pipe
@@ -210,11 +241,11 @@ func ensureJailImage() {
 	load.Stdout = &loadOut
 	load.Stderr = &loadOut
 	if err := stream.Start(); err != nil {
-		log.Printf("[integration] starting image stream failed: %v", err)
+		degraded("starting image stream failed: %v", err)
 		return
 	}
 	if err := load.Start(); err != nil {
-		log.Printf("[integration] starting %s load failed: %v", rt, err)
+		degraded("starting %s load failed: %v", rt, err)
 		_ = stream.Process.Kill()
 		_ = stream.Wait()
 		return
@@ -222,11 +253,22 @@ func ensureJailImage() {
 	loadErr := load.Wait()
 	streamErr := stream.Wait()
 	if streamErr != nil || loadErr != nil {
-		log.Printf("[integration] %s load failed (integration tests may be skipped): stream=%v load=%v\n%s",
+		degraded("%s load failed (integration tests may be skipped): stream=%v load=%v\n%s",
 			rt, streamErr, loadErr, strings.TrimSpace(loadOut.String()))
 		return
 	}
 	log.Printf("[integration] %s", strings.TrimSpace(loadOut.String()))
+
+	// Verify what we just loaded. A build+load that succeeded can still leave a
+	// mismatched image — most commonly because nix only sees git-TRACKED files, so
+	// a brand-new untracked file is absent from the image the suite is about to
+	// test. Checking after the load is what makes that case loud instead of a
+	// puzzling test failure.
+	if name := imageExists(rt); name != "" {
+		checkImageSkew(rt, name)
+	} else {
+		degraded("%s reported a successful load but no %s image is present", rt, jailImage)
+	}
 }
 
 // defaultJailTimeoutSeconds is the per-invocation deadline for a single

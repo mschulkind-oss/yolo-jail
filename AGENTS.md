@@ -141,6 +141,23 @@ there is no sync step.
   `YOLO_TEST_JAIL_TIMEOUT` (integer seconds, default 300) as its per-command
   deadline; the suite runs under `-timeout 0` so only those deadlines and CI's
   `timeout-minutes` bound it.
+- **The suite refuses to run against a STALE jail image.** `TestMain` always
+  builds a fresh host `yolo`, but the image is loaded at most once and reused — so
+  the suite used to test new host code against an old baked `yolo-entrypoint`
+  (this is what made a new `pack.json` field look like a regression: ~10 tests
+  failed with `unknown field "tier"` from the PREVIOUS entrypoint). Now
+  `ensureJailImage` compares `nix eval .#installPrefix.outPath` (what this tree
+  would bake — an eval, ~0.3s, never a build) against `readlink
+  /bin/yolo-entrypoint` inside the loaded image, and **aborts with the fix
+  command** on a mismatch. `installPrefix` is the right oracle because it covers
+  exactly the `goSrc` fileset + `flake.nix` while being invariant across the
+  full/minimal variants and `packages:` lib-farm images. Knobs:
+  `YOLO_TEST_REBUILD_IMAGE=1` forces a rebuild+reload (~45s in-jail);
+  `YOLO_TEST_IMAGE_SKEW=warn|off` downgrades the check (`fail` is the default,
+  and darwin auto-downgrades to `warn` because a Linux-runner-built image can
+  never match a darwin eval). **`git add` before rebuilding** — nix sees tracked
+  files only, so an untracked new file moves neither side and the check reports a
+  false "matches" (same trap as nested-jail verification).
 - **No agent tests.** Automated tests must never start `claude`/`copilot`/
   `codex`/etc. interactively or make API calls. `--version` probes only.
 - **Nested-jail verification is mandatory** for `cmd/` and `internal/` changes:
