@@ -477,3 +477,28 @@ sending a user to investigate a by-design absence is its own kind of misreport.
   footprint does not list what it contributes to someone else's file. Now that the kind
   applies, that is a real omission in the "good citizen" report rather than an accurate
   reflection of an inert kind.
+
+- **At the HOST notch, `config diff` reports a plausible winner rather than a measured one.**
+  Found while verifying Option 2 end to end. The paragraph above covers the case where a
+  surface's *mode* keeps no sidecar; this is a different absence — the **host render writes no
+  provenance sidecar at all**, whatever the mode, because it is a pure RMW into a real home
+  with no `.yolo/prism` tree to write beside.
+
+  Measured: an overlay contributing `fileSuggestion` to `claude/settings` (a `stateful`
+  surface) at the host notch reports
+
+  ```
+    fileSuggestion  contributed by fzf-overlay but managed won
+  ```
+
+  while the value that actually landed in `~/.claude/settings.json` is **the overlay's** — and
+  the `claude` pack does not declare that key at all, so there was no `managed` value to win.
+  The data is right (the overlay is correctly listed as a contributor); the annotation is
+  guessed from declarations and states the opposite of what happened.
+
+  This is worse than the by-design absence above, because it does not read as "unknown" — it
+  reads as a confident wrong answer, and it will tell a user their overlay lost when it won.
+  Two candidate fixes: teach the host render to emit a provenance record (it has the Result;
+  it just has nowhere it currently writes one), or make the host path report
+  `contributed by <pack> (winner not recorded at the host notch)` and stop inferring. The
+  second is cheap and honest; the first is what R3 actually asked for.
