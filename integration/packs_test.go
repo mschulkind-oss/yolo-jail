@@ -209,3 +209,75 @@ func packHome(t *testing.T, userConfig string) {
 	}
 	t.Setenv("HOME", home)
 }
+
+// TestFzfAcceptanceCaseInJail is THE acceptance test for the pack/host-render work
+// (docs/plans/pack-host-management-plan.md): one pack delivering an executable script, the
+// settings key that points at it, and briefing prose — all three reaching a real container.
+//
+// It is an integration test because every interesting failure in this cluster was invisible
+// to unit tests. The exec bit was stripped at three separate layers, each with a passing unit
+// test asserting the old behavior; a `files` tree mounted :ro over a directory an agent writes
+// killed the boot with an error naming the wrong culprit; and two packs at one briefing
+// destination hit podman's duplicate-mount-destination. None of that shows up until a
+// container starts.
+//
+// The shape is the requester's real case: a `fileSuggestion` command pointing at a script the
+// pack owns. Before this work the script reached NO jail — in-jail Claude had a
+// fileSuggestion pointing at a nonexistent file — so this is a live-breakage regression test,
+// not a tidiness one.
+func TestFzfAcceptanceCaseInJail(t *testing.T) {
+	requireJail(t)
+
+	pack := t.TempDir()
+	if err := os.MkdirAll(filepath.Join(pack, "bin"), 0o755); err != nil {
+		t.Fatal(err)
+	}
+	// 0o755 in the pack. It must arrive 0o755 in the jail: the CONSUMER opted in with
+	// allow_exec below, and an admission gate that stripped the bit anyway would mean a pack
+	// can ship a script nothing can run.
+	script := filepath.Join(pack, "bin", "file-suggestion.sh")
+	if err := os.WriteFile(script, []byte("#!/bin/sh\necho FZF-RAN\n"), 0o755); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.Chmod(script, 0o755); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(filepath.Join(pack, "AGENTS.md"),
+		[]byte("Use the fzf finder.\n"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	// `into` is .claude/bin, NOT .claude: a files tree is a :ro mount, so claiming the whole
+	// dir would shadow claude's own settings.json surface and refuse the boot. That conflict
+	// is caught in pre-flight now, and this is the shape that avoids it.
+	if err := os.WriteFile(filepath.Join(pack, "pack.json"),
+		[]byte(`{"name":"fzfpack","contributes":[`+
+			`{"kind":"files","from":"bin","into":".claude/bin"},`+
+			`{"kind":"briefing","from":"AGENTS.md","into":".claude/CLAUDE.md"},`+
+			`{"kind":"config","config":[{"agent":"claude","name":"fzfsettings",`+
+			`"codec":"json","path":"~/.claude/fzf-settings.json","mode":"rmw",`+
+			`"managed":{"fileSuggestion":{"type":"command",`+
+			`"command":"~/.claude/bin/file-suggestion.sh"}}}]}]}`), 0o644); err != nil {
+		t.Fatal(err)
+	}
+
+	// WITH the claude pack: it declares .claude as writable state, and it also declares a
+	// briefing at the same destination this pack does — which is the duplicate-mount case,
+	// now deduped. Both facts are load-bearing, so the test carries them.
+	dir := writeProject(t, `{}`)
+	packHome(t, `{"packs": ["claude", {"source": "file://`+pack+`", "allow_exec": true}]}`)
+
+	r := runYolo(t, dir,
+		`test -x /home/agent/.claude/bin/file-suggestion.sh && echo IS-EXECUTABLE; `+
+			`/home/agent/.claude/bin/file-suggestion.sh; `+
+			`grep -q file-suggestion /home/agent/.claude/fzf-settings.json && echo KEY-WIRED; `+
+			`grep -q "fzf finder" /home/agent/.claude/CLAUDE.md && echo PROSE-PRESENT`)
+	if r.rc != 0 {
+		t.Fatalf("fzf acceptance case failed: rc %d\nstdout: %s\nstderr: %s", r.rc, r.stdout, r.stderr)
+	}
+	for _, want := range []string{"IS-EXECUTABLE", "FZF-RAN", "KEY-WIRED", "PROSE-PRESENT"} {
+		if !strings.Contains(r.stdout, want) {
+			t.Errorf("missing %q — the pack must deliver a RUNNABLE script, the settings key "+
+				"pointing at it, and its briefing prose:\n%s", want, r.stdout)
+		}
+	}
+}
