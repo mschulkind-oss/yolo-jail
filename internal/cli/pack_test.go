@@ -58,6 +58,11 @@ func TestPackInitDoesNotClobber(t *testing.T) {
 // lint runs the REAL staging rules, so an author hits the exec-bit refusal before a
 // consumer's jail does. A linter that disagreed with the stager would be worse than
 // none.
+//
+// The refusal is reported on STDOUT with the other lint problems, not stderr: a staging
+// failure is now collected as a problem rather than returned on, so that it prints
+// alongside the manifest validation (see TestPackLintReportsExecBitAndManifestTogether).
+// One problem list in one stream beats a refusal on stderr and the explanation on stdout.
 func TestPackLintReportsStagingRefusals(t *testing.T) {
 	dir := t.TempDir()
 	var out, errw bytes.Buffer
@@ -70,8 +75,80 @@ func TestPackLintReportsStagingRefusals(t *testing.T) {
 	if rc := packMain([]string{"lint", dir}, &out, &errw, false, nil); rc == 0 {
 		t.Fatal("expected lint to fail on an executable file")
 	}
-	if !strings.Contains(errw.String(), "allow_exec") {
-		t.Errorf("lint error should name the opt-in: %s", errw.String())
+	report := out.String() + errw.String()
+	if !strings.Contains(report, "allow_exec") {
+		t.Errorf("lint error should name the opt-in: %s", report)
+	}
+	// It must name the CONSUMER's config, not pack.json — pointing an author at the
+	// manifest sends them to the one file that cannot grant the exec bit.
+	if !strings.Contains(report, "config.jsonc") {
+		t.Errorf("lint error must name ~/.config/yolo-jail/config.jsonc as where "+
+			"allow_exec goes, not pack.json: %s", report)
+	}
+}
+
+// The exec-bit refusal and the manifest error must print TOGETHER.
+//
+// This is the regression test for the masking bug: `packLint` used to return as soon as
+// staging failed, so an author who followed the old message's advice — put
+// `"allow_exec": true` in pack.json — saw ONLY the unchanged refusal. The manifest
+// validation that would have said "unknown field allow_exec" never ran. Either line alone
+// is misleading; the pair is self-explanatory.
+func TestPackLintReportsExecBitAndManifestTogether(t *testing.T) {
+	dir := t.TempDir()
+	var out, errw bytes.Buffer
+	packMain([]string{"init", dir}, &out, &errw, false, nil)
+	if err := os.WriteFile(filepath.Join(dir, "hook.sh"), []byte("#!/bin/sh\n"), 0o755); err != nil {
+		t.Fatal(err)
+	}
+	// The mistake the old message invited: allow_exec in the MANIFEST, where it is an
+	// unknown field.
+	manifest := `{"name":"t","allow_exec":true,` +
+		`"contributes":[{"kind":"skills","from":"skills","into":".claude/skills"}]}`
+	if err := os.WriteFile(filepath.Join(dir, "pack.json"), []byte(manifest), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	out.Reset()
+	errw.Reset()
+	if rc := packMain([]string{"lint", dir}, &out, &errw, false, nil); rc == 0 {
+		t.Fatal("expected lint to fail")
+	}
+	report := out.String() + errw.String()
+	for _, want := range []string{"is executable", "unknown field \"allow_exec\""} {
+		if !strings.Contains(report, want) {
+			t.Errorf("lint must report %q alongside the other problem, not mask it:\n%s",
+				want, report)
+		}
+	}
+}
+
+// --allow-exec lints the way a consenting consumer would stage, which is the only way an
+// author can see past the refusal to the rest of the report: allow_exec lives in the
+// user's config, so there is nothing an author can put in their own tree to get there.
+func TestPackLintAllowExecFlag(t *testing.T) {
+	for _, args := range [][]string{
+		{"lint", "--allow-exec", "DIR"},
+		{"lint", "DIR", "--allow-exec"}, // flag order must not matter
+	} {
+		dir := t.TempDir()
+		var out, errw bytes.Buffer
+		packMain([]string{"init", dir}, &out, &errw, false, nil)
+		if err := os.WriteFile(filepath.Join(dir, "hook.sh"), []byte("#!/bin/sh\n"), 0o755); err != nil {
+			t.Fatal(err)
+		}
+		withDir := make([]string, len(args))
+		for i, a := range args {
+			if a == "DIR" {
+				a = dir
+			}
+			withDir[i] = a
+		}
+		out.Reset()
+		errw.Reset()
+		if rc := packMain(withDir, &out, &errw, false, nil); rc != 0 {
+			t.Errorf("lint %v should accept an exec-bit file: rc %d\n%s%s",
+				args, rc, out.String(), errw.String())
+		}
 	}
 }
 

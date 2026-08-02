@@ -92,6 +92,7 @@ every loaded pack's host access is listed in the startup banner each launch.
 
   yolo pack init [dir]        scaffold a pack skeleton (default: current dir)
   yolo pack lint [dir]        validate the tree AND the pack.json manifest; print its footprint
+                              --allow-exec  lint as a consumer who set "allow_exec"
   yolo pack ls                list configured packs and what each stages
   yolo pack explain <name>    show which files a pack stages, and what it dropped
   yolo pack footprint [ref]   what packs claim on the environment + collisions;
@@ -216,10 +217,20 @@ func packInit(args []string, out, errw io.Writer) int {
 
 // packLint validates a pack DIRECTORY by staging it into a throwaway dir with the
 // real executor, so the linter cannot disagree with the stager.
+//
+// --allow-exec lints the way a CONSENTING CONSUMER would stage. `allow_exec` lives in the
+// user's config, not the manifest, so an author linting their own pack otherwise has no way
+// to see past the exec-bit refusal to the rest of the report — the flag supplies the
+// consumer's half of the decision without pretending a pack can grant it.
 func packLint(args []string, out, errw io.Writer, color bool) int {
 	dir := "."
-	if len(args) > 0 {
-		dir = args[0]
+	allowExec := false
+	for _, a := range args {
+		if a == "--allow-exec" {
+			allowExec = true
+			continue
+		}
+		dir = a
 	}
 	pr := richtext.Printer{W: out, Color: color}
 
@@ -230,15 +241,33 @@ func packLint(args []string, out, errw io.Writer, color bool) int {
 	}
 	defer os.RemoveAll(tmp)
 
-	res, err := packstage.Stage(packstage.Spec{Root: dir, Dest: tmp})
+	var problems []string
+
+	// A staging failure is collected as a PROBLEM, not returned on. Returning here (as
+	// this used to) meant the exec-bit refusal MASKED the manifest validation below —
+	// so an author who followed the old message's advice and put `allow_exec` in
+	// pack.json saw only the refusal, never the "unknown field allow_exec" line that
+	// explains why their fix did nothing. The two messages together are
+	// self-explanatory; either alone is not.
+	res, err := packstage.Stage(packstage.Spec{Root: dir, Dest: tmp, AllowExec: allowExec})
 	if err != nil {
 		// The staging rules ARE the lint rules: exec bit, escaping symlink, missing
 		// root. Reporting the executor's own message keeps the two from drifting.
-		fmt.Fprintf(errw, "yolo pack lint: %v\n", err)
+		problems = append(problems, err.Error())
+		// Nothing staged means the content checks below would all fire spuriously, but
+		// the MANIFEST is still worth validating: pack.json is read from the source dir
+		// when staging produced nothing, so an author gets both halves of the story.
+		res = &packstage.Result{}
+		// Validate the manifest from the SOURCE dir, since nothing reached the staging
+		// dir. This is the line that turns "your fix did nothing" into "allow_exec is not
+		// a manifest key", printed right beside the refusal that prompted the attempt.
+		_, sourceManifestProblems := packload.LoadDir(dir, filepath.Base(dir), true)
+		problems = append(problems, sourceManifestProblems...)
+		for _, p := range problems {
+			pr.Printf("[red]✗[/red] %s", p)
+		}
 		return 1
 	}
-
-	var problems []string
 	if len(res.Staged) == 0 {
 		problems = append(problems, "pack contains no stageable files")
 	}

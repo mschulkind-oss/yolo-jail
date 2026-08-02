@@ -137,11 +137,20 @@ func Stage(spec Spec) (*Result, error) {
 			res.Excluded = append(res.Excluded, rel)
 			return nil
 		}
-		// Rule 1: exec bit.
+		// Rule 1: exec bit. The message names the CONSUMER's config, not the pack's
+		// manifest: `allow_exec` is a PackEntry field read from the user's config
+		// (internal/config.PackEntry.AllowExec), and `pack.json` rejects it as an unknown
+		// field. Pointing a reader at the manifest — as this message used to — sends them
+		// to the one file that cannot grant it, and the resulting "unknown field" error
+		// reads like a second, unrelated bug.
 		if fi.Mode().Perm()&0o111 != 0 && !spec.AllowExec {
-			return fmt.Errorf("pack file %s is executable (mode %o) but the pack does "+
-				"not set \"allow_exec\": true — a pack is content, so shipping an "+
-				"executable is an explicit opt-in", rel, fi.Mode().Perm())
+			return fmt.Errorf("pack file %s is executable (mode %o). A pack cannot "+
+				"self-grant the exec bit — the CONSUMER opts in, in "+
+				"~/.config/yolo-jail/config.jsonc:\n"+
+				"    \"packs\": [{\"source\": \"file:///…/pack\", \"allow_exec\": true}]\n"+
+				"(\"allow_exec\" is not a pack.json key: a pack comes from someone else's "+
+				"repo, so shipping an executable is the user's call, not the author's.)",
+				rel, fi.Mode().Perm())
 		}
 		if err := copyFile(path, filepath.Join(spec.Dest, filepath.FromSlash(rel))); err != nil {
 			return fmt.Errorf("staging %s: %w", rel, err)
