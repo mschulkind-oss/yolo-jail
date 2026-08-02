@@ -179,19 +179,51 @@ func TestPackFilesCollisionFailsPreflight(t *testing.T) {
 	}
 }
 
-// packHome points HOME at a temp dir carrying only the given user config, and
-// RE-LINKS the real GlobalStorage into it.
+// packHomeSharedStores are the HOME-relative store paths packHome re-links back to
+// the real home. Both entries are load-bearing; TestPackHomeSharesHostStores pins them.
 //
-// The re-link is not incidental. paths.GlobalStorage() is $HOME/.local/share/yolo-jail,
-// so a bare t.Setenv("HOME", tmp) redirects the whole store — including the podman
-// IMAGE CACHE and its last-load sentinel. A pack test doing that builds and loads
-// into a throwaway store, and the next test that needs a freshly-built image (the
-// lib-farm `packages:` tests) finds the shared cache in an unexpected state and reuses
-// a stale image. That is exactly the cross-test interference this avoids: packs need a
-// custom CONFIG, not a custom store.
+//   - yolo's own store, because paths.GlobalStorage() is $HOME/.local/share/yolo-jail:
+//     redirecting it moves the podman IMAGE CACHE and its last-load sentinel, so a pack
+//     test would build and load into a throwaway store and the next test needing a
+//     freshly-built image (the lib-farm `packages:` tests) would reuse a stale one.
+//
+//   - ROOTLESS PODMAN's own store, whose graphroot is
+//     $HOME/.local/share/containers/storage. Redirecting THAT makes the child re-load
+//     the entire jail image into the t.TempDir(); the image's overlay diffs carry
+//     read-only nix-store trees that t.TempDir()'s RemoveAll cannot unlink, so the test
+//     fails in cleanup ("permission denied") after its assertions already passed. Not
+//     observable in yolo's own jail, where podman is root with a graphroot at
+//     /var/lib/containers/storage that no HOME redirect can move — which is why this
+//     only ever broke CI.
+//
+//   - podman's CONFIG dir, which on macOS holds the MACHINE CONNECTIONS
+//     (podman-connections.json / machine state). Hide it and `podman info` fails, so
+//     the CLI's runtimeIsConnectable() probe concludes the VM is down and every
+//     packHome test dies with "Configured runtime 'podman' is installed but not
+//     started" — while the interleaved real-HOME tests pass against the very same
+//     running machine. That contradiction is the tell; the machine was never down.
+var packHomeSharedStores = []string{
+	".local/share/yolo-jail",
+	".local/share/containers",
+	".config/containers",
+}
+
+// packHome points HOME at a temp dir carrying only the given user config, and
+// RE-LINKS the real home's stores into it (see packHomeSharedStores for which, and
+// why each one matters). Packs need a custom CONFIG, not a custom store.
+//
+// Each link's TARGET IS CREATED FIRST, and that is not defensive tidying. A symlink
+// to a missing directory is DANGLING, and os.MkdirAll — which
+// storage.EnsureGlobalStorage runs on $HOME/.local/share/yolo-jail at the start of
+// every invocation — refuses a dangling link with "mkdir <path>: file exists" instead
+// of following it. A developer machine has always already created these stores, so the
+// link resolves and the bug is invisible; a fresh CI runner has not, so every packHome
+// test that ran before the first real-HOME test died in setup. MkdirAll on the real
+// path is the fix and is safe: it is the same call, on the same paths, that a normal
+// yolo run makes anyway.
 func packHome(t *testing.T, userConfig string) {
 	t.Helper()
-	realStorage := filepath.Join(os.Getenv("HOME"), ".local", "share", "yolo-jail")
+	realHome := os.Getenv("HOME")
 
 	home := t.TempDir()
 	cfgDir := filepath.Join(home, ".config", "yolo-jail")
@@ -201,11 +233,20 @@ func packHome(t *testing.T, userConfig string) {
 	if err := os.WriteFile(filepath.Join(cfgDir, "config.jsonc"), []byte(userConfig), 0o644); err != nil {
 		t.Fatal(err)
 	}
-	if err := os.MkdirAll(filepath.Join(home, ".local", "share"), 0o755); err != nil {
-		t.Fatal(err)
-	}
-	if err := os.Symlink(realStorage, filepath.Join(home, ".local", "share", "yolo-jail")); err != nil {
-		t.Fatal(err)
+	for _, store := range packHomeSharedStores {
+		rel := filepath.FromSlash(store)
+		target := filepath.Join(realHome, rel)
+		if err := os.MkdirAll(target, 0o755); err != nil {
+			t.Fatalf("creating host store %s (a symlink to a missing dir is dangling, "+
+				"and MkdirAll rejects that as \"file exists\"): %v", target, err)
+		}
+		link := filepath.Join(home, rel)
+		if err := os.MkdirAll(filepath.Dir(link), 0o755); err != nil {
+			t.Fatal(err)
+		}
+		if err := os.Symlink(target, link); err != nil {
+			t.Fatal(err)
+		}
 	}
 	t.Setenv("HOME", home)
 }
