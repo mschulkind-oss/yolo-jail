@@ -12,15 +12,28 @@ claim below was verified by running the binary — commands in
 
 ---
 
-## TL;DR — five gaps, ranked
-
-| # | Gap | Severity | Fix size |
-|---|---|---|---|
-| **G1** | `apply --host` **silently** skips `skills` + `briefing` — no output line at all | **blocker** for the stated goal | medium |
-| **G2** | `allow_exec` is honored **only in user config**, but the error message says to set it in `pack.json` — where it is ignored | **bug** (misleading error) | small |
-| **G3** | `files` kind is refused at host, so a pack cannot own a host script/tree | blocker for "associated files" | medium |
-| **G4** | `host_files` renders at `0o444` — **cannot carry an executable**, so the fzf hook can't ship that way either | blocker for the fzf case | small |
-| **G5** | `yolo config-ref` documents 12 kinds; `autonomy` (13th) is missing | docs | trivial |
+> ## ✅ ALL FIVE GAPS CLOSED — re-verified 2026-08-02 against `0.7.1+362.g95c9416`
+>
+> Everything this handoff asked for shipped. Re-tested end-to-end in throwaway `$HOME`s;
+> the body below is kept as the original problem statement and rationale.
+>
+> | # | Status | Evidence |
+> |---|---|---|
+> | **G1** | **fixed** | `skills testskill rendered invoke as /testskill`; `pack/briefing rendered`. Briefing uses the delimited `<!-- yolo:pack-briefing begin (name) -->` block exactly as specified; 2nd `--assert` byte-identical |
+> | **G2** | **fixed** | message now names `~/.config/yolo-jail/config.jsonc`, shows the entry shape, and states *"allow_exec is not a pack.json key"*; `pack lint --allow-exec` added |
+> | **G3** | **fixed** | `pack/files rendered /…/.claude/bin/file-suggestion.sh` at the host notch |
+> | **G4** | **fixed** | delivered `-r-xr-xr-x` (0555) — exec bit survives |
+> | **G5** | **fixed** | `config-ref` now lists 13 kinds incl. `autonomy` with both postures |
+>
+> **The acceptance test passes.** A pack delivered the fzf finder to the host: script at
+> `0555`, `fileSuggestion` key composed via `config-overlay`, briefing block written — and
+> the delivered script **runs** (`echo '{"query":"yolo"}' | …` → ranked matches, exit 0).
+>
+> The user-content safety I flagged as the hard part is handled better than I asked: my
+> hand-written prose outside the markers survived, my own same-dir skill was left alone,
+> and an overwritten pack skill was **archived** (`…/archive/skills/<timestamp>/…`) rather
+> than destroyed. Per-item reporting (`rendered` / `unchanged` / `skipped` / `archived to`)
+> throughout — no silent skips remain.
 
 **G1 is the one that matters.** The others are each a specific consequence of the same
 theme: the pack system is a *jail* content system with a host render bolted to the config

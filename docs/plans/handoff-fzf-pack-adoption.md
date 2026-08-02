@@ -45,6 +45,26 @@ returning an unranked dump of the tree — working badly rather than failing, wh
 would never have surfaced an error. That is a live (if quiet) breakage that predates all of
 this work.
 
+> **✅ CHECKED 2026-08-02 (from the host — no bug).** The real script reads the JSON from
+> **stdin**, not `$1`:
+> ```bash
+> QUERY=$(jq -r '.query // ""')
+> PROJECT_DIR="${CLAUDE_PROJECT_DIR:-.}"
+> …fd … | fzf --filter "$QUERY" | head -15
+> ```
+> It already matches the decompiled contract on every point: stdin JSON with a `query`
+> field, `head -15` matching the 15-line cap, and `| head` making a no-match `fzf --filter`
+> (exit 1) irrelevant since the pipeline's exit status is `head`'s 0. It also reads
+> `$CLAUDE_PROJECT_DIR` rather than assuming cwd, which the reference implementation does
+> not.
+>
+> So the §1 hazard **did not apply to this user** — but the finding stands for anyone whose
+> script uses `$1`, and the protocol table is the useful artifact either way.
+>
+> One real difference to preserve when swapping it in: the real script adds gitignored files
+> from `scratch/` only, and excludes `.git`/`node_modules`/`__pycache__`/`.venv`. Don't lose
+> that on the copy.
+
 `bin/file-suggestion.sh` in the pack is a **reference implementation**, deliberately marked as
 such. It implements the contract above correctly (verified: JSON query → ranked matches; empty
 stdin → exits 0 without hanging via a bounded `read -t 2`; no-match → swallows exit 1). Swapping
@@ -183,8 +203,9 @@ lists them as work items. Summarized so a successor does not rediscover them:
 
 ## 6. Checklist for a successor
 
-- [ ] Check the real `~/.dotfiles/claude/file-suggestion.sh` for `"$1"` (§1). **Do this first
-      — it may be a live bug independent of the pack.**
+- [x] ~~Check the real `~/.dotfiles/claude/file-suggestion.sh` for `"$1"`~~ — **done
+      2026-08-02: no bug.** It reads stdin via `jq -r '.query // ""'` and already satisfies
+      the whole contract (§1).
 - [ ] Copy the real script over `bin/file-suggestion.sh`, keep the filename and the exec bit,
       re-run `yolo pack lint --allow-exec <dir>`.
 - [ ] Copy the pack to `~/.dotfiles/claude-fzf/` (or wherever personal packs live) and add the
