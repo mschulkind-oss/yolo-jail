@@ -645,6 +645,19 @@ program — install below jail is confirm-gated; not run by apply --host yet (Ph
   Reuse `check-deps`' probe rather than writing a second one.
 - **8.2** Leave the *running* of installs to env-manager Phase 4.3, and say so in the
   output.
+- **8.3 — OPEN follow-up, found by shipping 8.1.** All six packs yolo ships declare `program`
+  with a `via` and **zero `install_hints`**, so the "print the remedy" branch is the *uncommon*
+  path in practice and every stock pack lands in the no-remedy case. The output is honest about
+  it (it distinguishes "hints exist but not for your manager" from "no hints at all", and adds
+  that the pack's jail install path is deliberately not run against a real toolchain), but a
+  user below the jail notch is told what is missing without being told what to run.
+
+  Deliberately **not** guessed here: the correct package name per manager is a fact about each
+  tool's distribution, and inventing `brew install codex` when the real name differs would be
+  worse than saying nothing — a wrong install line is a support burden, a missing one is a
+  known gap. Wants either the maintainer's knowledge or per-tool verification. Cheap, isolated,
+  and independently shippable: it is six edits to `packs/*/pack.json` plus whatever probing it
+  takes to be sure of each name.
 
 **Done when:** `apply --host` on a pack declaring `fd`/`fzf` names which are missing and the
 exact install line, without running anything.
