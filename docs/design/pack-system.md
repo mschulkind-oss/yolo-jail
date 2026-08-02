@@ -183,8 +183,29 @@ Prose concatenated into a briefing file, attributed to its pack.
 > `after` are honored.
 
 ### `files`
-An opaque tree the pack owns outright.
-- `from` (required), `into` (required).
+An opaque tree the pack owns outright, bind-mounted `:ro` at `into` in the jail.
+- `from` (required) — pack-relative source. Unlike `skills`/`briefing`, `from` is
+  **honored**: there is no conventional location for an opaque tree, so the declaration is
+  the only thing that can name it. A file works as well as a directory.
+- `into` (required) — home-relative destination.
+
+```json
+{ "kind": "files", "from": "files", "into": ".claude/fkdir" }
+```
+
+The source bound is the pack's **staged** tree, so `packstage`'s exec-bit and
+escaping-symlink refusals have already run on it — `files` is not a channel around them.
+Sole ownership is enforced before the container starts: two contributions claiming one
+`into` are refused at launch, naming both packs, rather than reaching podman as a
+"duplicate mount destination" error that names neither.
+
+> **Backend note.** Apple Container cannot bind-mount a single file, so a `files`
+> contribution naming one FILE is copied into the jail home there instead of mounted (the
+> same route `briefing` takes). A directory is mounted on both backends.
+
+Rendering `files` at the HOST is still refused by name (`yolo apply --host`): a bind mount
+means nothing off-container, and writing the tree into a real `$HOME` is a different
+posture with its own overwrite rules. See §14.
 
 ### `config`
 A composed config surface the pack owns. `config` is a JSON array of surface definitions
@@ -660,7 +681,15 @@ Not yet wired:
   rule, and the compose engine accepts overlay inputs with per-key provenance. But no
   boot-path code collects `config-overlay` contributions and feeds them to the assembler, so
   a `config-overlay` in a manifest has no effect today. This is the one contribution kind
-  that is inert.
+  that is inert — accurate again as of the `files` jail delivery below; `files` was inert
+  too, and worse, because `pack lint` and `pack footprint` both reported it as working.
+
+- **`files` at the HOST.** `files` now delivers in a jail (bind-mounted `:ro` at `into`),
+  but `yolo apply --host` still refuses it by name: the refusal is true of a *bind mount*
+  and false of the *intent*, and writing the tree into a real `$HOME` needs the
+  never-clobber and file-mode policy the host renders are building
+  (`docs/plans/pack-host-management-plan.md` Phase 7). Refused by name, never silently
+  skipped.
 
 - **`from` on `skills`/`briefing`.** The stager reads skills from a conventional `skills/`
   dir and briefing prose from a root `AGENTS.md`/`CLAUDE.md`, regardless of the `from` value.
@@ -684,6 +713,12 @@ Known sharp edge:
   a safe merge. Do not declare an explicit `skills` contribution whose `into` duplicates
   another loaded pack's; rely on the zero-ceremony merge instead. (`yolo pack footprint`
   across your pack set surfaces this before boot does.)
+
+  `files` no longer has this edge, but the fix does not transfer: a second `files` claimant
+  is a genuine sole-ownership violation, so it is a **pre-flight refusal naming both
+  packs**. For `skills` the same podman failure is the wrong diagnosis — the merge is
+  legal and what is missing is mount DEDUP, a different change. Kept separate on purpose
+  (`pack-host-management-plan.md` OQ-C).
 
 ---
 

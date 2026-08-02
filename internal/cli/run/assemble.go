@@ -429,6 +429,13 @@ func (o *Options) assembleRunCmd(in *assembleInput) []string {
 		}
 	}
 
+	// --- PACK-DECLARED `files` trees ---
+	// An opaque tree the pack owns, bound :ro at its home-relative `into`. Emitted
+	// beside skills and briefing because it is the third staged-tree kind — the one
+	// that shipped inert (plan N1). See packfiles.go for the AC single-file split and
+	// why the source is the STAGED tree.
+	runCmd = append(runCmd, o.packFilesMountArgs(in)...)
+
 	// --- TERM + profile ---
 	if term := o.Getenv("TERM"); term != "" {
 		runCmd = append(runCmd, "-e", "TERM="+term)

@@ -74,6 +74,111 @@ func TestPackWithNoMatchingFilesWarns(t *testing.T) {
 	}
 }
 
+// TestPackFilesTreeReachesTheJail is the `files` kind end to end in a real container.
+//
+// It needs to be an integration test, not a unit test: `files` shipped INERT for exactly
+// the reason a unit test could not have caught — `pack lint` passed, `pack footprint`
+// printed a "read-only tree" claim, and the mount assembler never switched on the kind, so
+// every host-side signal said it worked and nothing in a jail did
+// (docs/plans/pack-host-management-plan.md N1). Only a started container proves delivery.
+//
+// Two assertions, both load-bearing:
+//
+//   - the tree is present RECURSIVELY at the declared `into` (a bind, not a file copy), and
+//   - the destination is READ-ONLY, which is the `files` contract: the claim is
+//     CombineExclusive, so the pack owns the path and nothing in the jail rewrites it.
+func TestPackFilesTreeReachesTheJail(t *testing.T) {
+	requireJail(t)
+
+	pack := t.TempDir()
+	if err := os.MkdirAll(filepath.Join(pack, "files", "nested"), 0o755); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(filepath.Join(pack, "files", "marker.txt"),
+		[]byte("FILESKINDMARKER\n"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(filepath.Join(pack, "files", "nested", "deep.txt"),
+		[]byte("nested-ok\n"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	// `from` is HONORED for files (unlike skills/briefing, where the stager reads the
+	// conventional location) — so the manifest is what names the tree.
+	if err := os.WriteFile(filepath.Join(pack, "pack.json"),
+		[]byte(`{"name":"filespack","contributes":[`+
+			`{"kind":"files","from":"files","into":".filespack"}]}`), 0o644); err != nil {
+		t.Fatal(err)
+	}
+
+	// No agent pack: the destination therefore lands straight on the :ro GlobalHome base
+	// rather than nesting inside a pack's writable state dir, which is the harder of the
+	// two mountpoint cases (the OCI runtime will not always create a mountpoint inside a
+	// :ro bind — see preparePackFiles).
+	dir := writeProject(t, `{}`)
+	packHome(t, `{"packs": ["file://`+pack+`"]}`)
+
+	r := runYolo(t, dir,
+		`cat /home/agent/.filespack/marker.txt && `+
+			`cat /home/agent/.filespack/nested/deep.txt && `+
+			`(touch /home/agent/.filespack/should-fail 2>&1 || echo REFUSED-RW)`)
+	if r.rc != 0 {
+		t.Fatalf("`files` delivery failed: rc %d\nstdout: %s\nstderr: %s", r.rc, r.stdout, r.stderr)
+	}
+	for _, want := range []string{"FILESKINDMARKER", "nested-ok", "REFUSED-RW"} {
+		if !strings.Contains(r.stdout, want) {
+			t.Errorf("missing %q in jail output — `files` must deliver the whole tree, "+
+				"read-only:\n%s", want, r.stdout)
+		}
+	}
+}
+
+// TestPackFilesCollisionFailsPreflight: two packs claiming one `files` destination must
+// fail on the HOST, naming both packs, before podman is invoked.
+//
+// Without the pre-flight the assembler emits two binds at one path and podman kills the
+// boot with "duplicate mount destination" — a runtime error that names neither pack and
+// reads as a yolo bug. `files` is sole-owned, so a second claimant is a footprint
+// violation and the diagnosis belongs on the host side.
+func TestPackFilesCollisionFailsPreflight(t *testing.T) {
+	requireJail(t)
+
+	var dirs []string
+	for _, name := range []string{"alpha", "beta"} {
+		root := filepath.Join(t.TempDir(), name)
+		if err := os.MkdirAll(filepath.Join(root, "files"), 0o755); err != nil {
+			t.Fatal(err)
+		}
+		if err := os.WriteFile(filepath.Join(root, "files", name+".txt"),
+			[]byte(name+"\n"), 0o644); err != nil {
+			t.Fatal(err)
+		}
+		if err := os.WriteFile(filepath.Join(root, "pack.json"),
+			[]byte(`{"name":"`+name+`","contributes":[`+
+				`{"kind":"files","from":"files","into":".shared/tree"}]}`), 0o644); err != nil {
+			t.Fatal(err)
+		}
+		dirs = append(dirs, root)
+	}
+
+	dir := writeProject(t, `{}`)
+	packHome(t, `{"packs": ["file://`+dirs[0]+`", "file://`+dirs[1]+`"]}`)
+
+	r := runYolo(t, dir, `echo SHOULD-NOT-REACH-THE-JAIL`)
+	if r.rc == 0 {
+		t.Fatalf("a `files` collision must fail the launch, got rc 0:\n%s", r.combined())
+	}
+	if strings.Contains(r.stdout, "SHOULD-NOT-REACH-THE-JAIL") {
+		t.Errorf("the container started despite a sole-ownership violation:\n%s", r.stdout)
+	}
+	out := r.combined()
+	for _, want := range []string{"alpha", "beta", ".shared/tree"} {
+		if !strings.Contains(out, want) {
+			t.Errorf("pre-flight error missing %q — podman's own error names neither pack, "+
+				"which is why this check exists:\n%s", want, out)
+		}
+	}
+}
+
 // packHome points HOME at a temp dir carrying only the given user config, and
 // RE-LINKS the real GlobalStorage into it.
 //

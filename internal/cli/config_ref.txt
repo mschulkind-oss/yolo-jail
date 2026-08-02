@@ -453,8 +453,10 @@
       program       a tool on PATH: {bin, via:"npm"|"installer", package|url, flags}
       skills        {from (pack dir), into (~ dir)} — merged (built-in < pack < yours)
       briefing      {from, into, after:"host:<path>" to prepend your own file first}
-      files         {from, into} — an opaque tree the pack owns (parses and reports a
-                    footprint today, but NOT yet delivered at boot)
+      files         {from, into} — an opaque tree the pack owns, bind-mounted :ro at
+                    `into` in the jail.  Unlike skills/briefing, `from` IS honored (a
+                    file or a dir).  Sole-owned: two packs claiming one `into` is a
+                    launch error naming both.  Refused by name at the host notch.
       config        {config:[surface...]} — a composed config surface (see below)
       config-overlay {surface:"agent/name", config:{...}} — keys on a surface another
                     pack owns (parses today, but NOT yet applied at boot)

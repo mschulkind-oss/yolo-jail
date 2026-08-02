@@ -14,9 +14,11 @@ import (
 	"io/fs"
 	"os"
 	"path/filepath"
+	"strings"
 
 	"github.com/mschulkind-oss/yolo-jail/internal/agents"
 	"github.com/mschulkind-oss/yolo-jail/internal/config"
+	"github.com/mschulkind-oss/yolo-jail/internal/packdecl"
 	"github.com/mschulkind-oss/yolo-jail/internal/packload"
 	"github.com/mschulkind-oss/yolo-jail/internal/packsrc"
 	"github.com/mschulkind-oss/yolo-jail/internal/packstage"
@@ -193,6 +195,20 @@ func (o *Options) stagePacks(cname string) (string, []*packload.Pack, []agents.P
 			briefings = append(briefings, agents.PackBriefing{Name: entry.Name, Text: text})
 		}
 	}
+	// PRE-FLIGHT: two claims on one home destination. The mount assembler emits one bind
+	// per contribution with no dedup, so this would otherwise surface as podman's
+	// "duplicate mount destination" — a boot failure naming neither pack. Checked here
+	// because this is where the pack set becomes complete (embedded + configured), and it
+	// covers the attach path too, since a collision is a config error either way.
+	//
+	// FAIL-CLOSED, matching the rest of stagePacks: a `files` claim is sole-owned, so a
+	// second claimant is a footprint violation and one pack's content would shadow the
+	// other's. Silently mounting whichever podman happened to accept is not an option
+	// this file offers anywhere else.
+	if conflicts := packDestConflicts(loaded, packdecl.KindFiles); len(conflicts) > 0 {
+		return "", nil, nil, fmt.Errorf("packs: %s", strings.Join(conflicts, "\npacks: "))
+	}
+
 	agents.SetPackSkillDirs(skillDirs)
 	return stagingRoot, loaded, briefings, nil
 }

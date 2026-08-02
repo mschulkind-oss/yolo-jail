@@ -200,6 +200,11 @@ func (o *Options) prepareWsState(cfg *jsonx.OrderedMap, loadedPacks []*packload.
 		_ = os.MkdirAll(filepath.Join(wsState, config.WritableHomeBackingSubdir, rel), 0o755)
 		_ = os.MkdirAll(filepath.Join(paths.GlobalHome(), rel), 0o755)
 	}
+
+	// Mountpoints for the PACK-DECLARED `files` trees, same GlobalHome recipe and same
+	// reason as writable_home_dirs above (the source side needs nothing: the bind source
+	// IS the pack's staged tree, which staging already created).
+	preparePackFiles(loadedPacks)
 	for _, fname := range []string{
 		"bash_history", "yolo-bootstrap.sh", "yolo-venv-precreate.sh",
 		"yolo-perf.log", "yolo-socat.log", "yolo-entrypoint.lock",
