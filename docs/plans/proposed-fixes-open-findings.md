@@ -19,7 +19,7 @@ items 8.3/8.4, [`../design/pack-config-collaboration.md`](../design/pack-config-
 
 | # | Finding | Proposal | Confidence |
 |---|---|---|---|
-| 1 | `program` shadows a baked binary and breaks it (11.1 / Q1.1) | **PATH-stripping fallthrough + a loud warning** — prototyped and measured below | **high** |
+| 1 | `program` shadows a baked binary and breaks it (11.1 / Q1.1) | **Bake the fallback in at generation time** + a loud warning, so recursion is unrepresentable. *(Revised after review — the runtime PATH-stripping version is rejected and kept as a note)* | **high** |
 | 2 | Presence-vs-install conflated (Q1.3) | A `requires` kind. **But answer this BEFORE #1**, since it shrinks #1's blast radius | medium — worth your call |
 | 3 | Only the first `program` per pack installs (11.2 / Q2.1) | **Validation error**, not a loop — the accessor's name is the evidence | medium |
 | 4 | A dropped pack's staged tree keeps rendering (11.3 / Q3.1) | Prune unconfigured slugs, contents-only, **never** clear-and-restage | **high** |
@@ -34,47 +34,102 @@ items 8.3/8.4, [`../design/pack-config-collaboration.md`](../design/pack-config-
 
 ## 1. The `program` shim shadowing a baked binary (11.1)
 
-**The defect.** `~/.yolo-shims/<bin>` is first on PATH; the launcher execs only
-`$NPM_CONFIG_PREFIX/bin/<bin>` (`shims.go:265`) and **never consults PATH**, exiting 1 when
-that single path is missing (`:306-311`). So a pack that honestly declares `program fzf`
-makes the image's working `/bin/fzf` unreachable.
+> **Revised after review.** Two questions — *"why is a shim involved at all?"* and *"why would
+> we allow shim recursion regardless?"* — and the second one **invalidated my original
+> proposal.** What follows is the corrected analysis; the rejected design is kept at the end
+> because the reason it was wrong is the useful part.
 
-**Proposal: fall through to PATH, minus our own directory, and WARN.** The doc's third
-option, and the warning is not decoration — it is what keeps this from becoming a silent
-substitution, which is the failure mode this codebase spent all night removing.
+### Why a shim is involved at all — and it is a conflation, not a design
 
-**The trap, and why the fix is not one line.** A naive `command -v fzf` inside the launcher
-finds *the launcher itself* and execs forever. The shim must strip its own directory from
-PATH first — and it does not currently know its own directory (nothing in the template
-carries it).
+`~/.yolo-shims/` holds **two unrelated mechanisms under one name**, and that is the answer:
 
-**Prototyped and measured** (three cases, in a temp dir):
+```console
+$ ls ~/.yolo-shims/
+claude   find   grep   pnpm
+```
+
+| file | what it is | what it does |
+|---|---|---|
+| `find`, `grep` | a **blocker** (`GenerateShims`) | refuses, prints a suggestion, `exit 127` |
+| `claude`, `pnpm` | a **lazy installer** (`GenerateAgentLaunchers`) | installs on first use, then `exec`s the real binary |
+
+A blocker *must* precede the real tool on PATH — interception is its entire job. A lazy
+installer has no such requirement: it only needs to run **when the tool is absent**. They ended
+up in one directory because both are "a script named after a binary, early on PATH", and the
+generators even coordinate through it (`shims.go:182` skips writing a launcher when a
+blocked-tool shim already owns the name).
+
+So the honest framing of 11.1 is: **`program` reuses the blocker's mechanism for a job that is
+not blocking.** A blocker that shadows the real binary is correct. An installer that shadows it
+and then fails is the defect.
+
+### Why recursion should not be possible — and my first proposal was wrong
+
+My original fix had the launcher discover its own directory at runtime (`BASH_SOURCE`), strip it
+from PATH, and re-search. It worked (measured, three cases), but the review question is the
+right one: **that is defending against a recursion the design should not permit.**
+
+`GenerateAgentLaunchers` **already knows both paths at write time**:
+
+- `shimDir := e.ShimDir()` (`shims.go:162`), and it builds `shimPath` from it (`:180`);
+- `REAL_BIN` is a template constant, `$NPM_CONFIG_PREFIX/bin/<bin>` (`:265`).
+
+A generator that knows where it is writing can resolve the fallback **then**, and bake an
+absolute path into the script. Runtime PATH arithmetic inside the script is a workaround for
+information the generator had and discarded.
+
+### The corrected proposal
+
+**Resolve the fallback at generation time; bake it in; never search PATH at runtime.**
 
 ```bash
-SELF_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
-FALLBACK="$(PATH="$(printf '%s' "$PATH" | tr ':' '\n' | grep -vxF "$SELF_DIR" | paste -sd:)" \
-            command -v __YOLO_BIN__ || true)"
-if [ -n "$FALLBACK" ] && [ -x "$FALLBACK" ]; then
-  echo "  ⚠ __YOLO_BIN__: install failed; using $FALLBACK from the image" >&2
-  exec "$FALLBACK" "$@"
+# generated, with FALLBACK_BIN substituted as an absolute path (or empty)
+if [ -x "$REAL_BIN" ]; then exec "$REAL_BIN" "$@"; fi
+if [ -n "__YOLO_FALLBACK__" ] && [ -x "__YOLO_FALLBACK__" ]; then
+  echo "  ⚠ __YOLO_BIN__: install unavailable; using __YOLO_FALLBACK__ from the image" >&2
+  exec "__YOLO_FALLBACK__" "$@"
 fi
 echo "  ⚠ __YOLO_BIN__ not available" >&2; exit 1
 ```
 
-| case | result |
-|---|---|
-| shim + a real binary later on PATH | `⚠ fzf: install failed; using …/realbin/fzf from the image` then **`REAL-FZF-RAN`** |
-| shim + the image's own `/bin/fzf` | falls through to `/bin/fzf` |
-| shim + genuinely absent binary | `⚠ nosuchtool not available`, **exits, no recursion** |
+`__YOLO_FALLBACK__` is found by the generator with a PATH lookup **that excludes `shimDir`** —
+a directory it already has in hand, so no self-discovery and **no recursion is representable**,
+not merely avoided. The warning stays: falling through silently would substitute a different
+binary than the pack named, which is the failure mode this codebase spent the night removing.
 
-**Where it goes:** both `npmLauncherTemplate` and `nativeLauncherTemplate` (they share the
-tail), plus a `__YOLO_SELF_DIR__` substitution if `BASH_SOURCE` resolution is considered too
-clever — `GenerateAgentLaunchers` already knows `e.ShimDir()`.
+Two consequences worth stating:
 
-**Why not Q1.2 (skip generation when the bin already resolves).** It is cheaper, but it
-trades a loud break now for a silent one later: if a future image drops the package, the pack
-that declared it gets nothing and there is no shim to install it. The fallthrough degrades;
-skipping generation disappears.
+- **Generation-time resolution can go stale** — the image is fixed for a jail's lifetime, so in
+  practice it cannot, but a `program` whose fallback vanishes mid-session would exit 1 with the
+  same message as before. Acceptable, and strictly better than today.
+- **It composes with #2.** If `requires` lands, the fallback is not a rescue path but the
+  *primary* path for a baked tool, and `program` narrows to "yolo installs this", where a
+  fallback rarely exists at all.
+
+### The deeper fix, which the review implies
+
+If a lazy installer does not need to shadow the real binary, it arguably should not live in the
+blocker's directory. **Separating the two mechanisms** — installers in their own dir, ordered
+*after* `/bin` rather than before — would make 11.1 structurally impossible instead of handled:
+an installer would only ever be reached when nothing else provides the name.
+
+I am **not proposing that here**, for one reason worth naming: PATH order is documented and
+depended on (`AGENTS.md` pins the exact sequence), and reordering it affects every tool in the
+jail, not just `program`. It is the right shape and the wrong blast radius for a fix to a
+specific defect. **Recorded as the direction, gated on someone wanting to touch PATH order.**
+
+### The rejected design, and why
+
+Runtime self-discovery (`BASH_SOURCE` + PATH stripping). It works — verified against a real
+binary later on PATH, against the image's own `/bin/fzf`, and against a genuinely absent binary
+(exits 1, no loop). **Rejected because it treats recursion as a hazard to survive rather than
+one to make unrepresentable**, and because it re-derives at runtime what the generator already
+knew. Kept here so the next reader does not rediscover it as an improvement.
+
+**Why not Q1.2 (skip generation when the bin already resolves).** Still no: it trades a loud
+break now for a silent one later — if a future image drops the package, the pack that declared
+it gets nothing and there is no shim to install it. The baked fallback degrades; skipping
+generation disappears.
 
 ---
 
