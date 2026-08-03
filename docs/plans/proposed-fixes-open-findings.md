@@ -28,6 +28,7 @@ items 8.3/8.4, [`../design/pack-config-collaboration.md`](../design/pack-config-
 | 7 | `packages: ["claude-code"]` fails at build with a nix trace (nix OQ-6) | `meta.unfree` check beside `availableOn` | **high** |
 | 8 | `rmwProvenance` is a second implementation of "which layer won" | Leave it; strengthen the parity test to a shared-corpus table | medium |
 | 9 | Nightly macOS builder arch mismatch (BACKLOG E8) | **No proposal — genuinely yours** | — |
+| 10 | A pack cannot install Claude MCP servers on the host (new handoff) | Prune workspace-keyed subtrees instead of refusing the surface; **warn-and-confirm before the first destructive apply — RULED** | **high** — in progress |
 
 ---
 
@@ -246,8 +247,96 @@ and the failure is honest as it stands.
 
 ---
 
+## 10. A pack cannot install Claude MCP servers on the host — **in progress**
+
+Full analysis in [`handoff-host-mcp-servers.md`](handoff-host-mcp-servers.md); this entry is
+the proposal plus the one ruling that settled its hardest question.
+
+**The defect, reproduced.** Claude keeps user-scope MCP servers in `~/.claude.json` under
+`mcpServers` — the `claude/config` surface. `usesWorkspacePlaceholder`
+(`internal/entrypoint/hostrender.go:239`) is a **surface-level** predicate, and the builtin
+`claude` pack uses `${workspace}` in two *unrelated* keys
+(`projects.${workspace}.hasTrustDialogAccepted` and `.enableAllProjectMcpServers` — verified
+as the only `${workspace}` users on that surface). So the whole file is off-limits at the host
+notch:
+
+```console
+$ yolo apply --host --assert
+  claude/config   refused: uses ${workspace}, which has no referent on the host
+$ ls .claude.json   →  does not exist
+```
+
+Correct in intent, too coarse in granularity: a key with nothing to do with `${workspace}` is
+unreachable because a *different* key on the same surface is workspace-keyed.
+
+**Proposal: prune the workspace-keyed branches, render the rest, and NAME what was pruned.**
+Replace the boolean predicate with a prune returning the surface minus workspace-keyed
+branches plus the dotted paths removed. If nothing survives, *then* skip the surface — with a
+reason naming the pruned keys, never a bare "uses `${workspace}`". Same never-silent discipline
+the G1 fix established for skills/briefing.
+
+### Ruling — the first destructive apply WARNS AND WAITS FOR CONFIRM
+
+Two maintainer rulings govern this, and the second answers the question I had flagged as the
+one genuine one-way door.
+
+**Ruling A (2026-08-02):** *"if you manage mcpServers through yolo, you give up `claude mcp
+add`, that's fine."* This makes wholesale table regeneration **correct policy** rather than
+destructive — yolo is the sole author, so an undeclared server is stale by definition. No
+merge-on-host is needed. `noteDroppedManagedEntries` (`prism.go:635`) already exists to
+announce drops.
+
+**Ruling B (2026-08-02):** *"let's just warn during the first apply that things will be lost
+and wait for confirm."*
+
+So **warn-and-confirm, not warn-and-refuse.** Refusing would leave a user with no path forward
+short of hand-editing `~/.claude.json`; proceeding silently would destroy a hand-added server.
+The confirm is the only option that both protects the file and lets the user proceed.
+
+Four constraints on the implementation, three of which are about not devaluing the prompt:
+
+- **Reuse `promptYesNo`** (`internal/cli/pack.go:903`), the same shape the fetched-pack
+  host-access approval uses. Do not invent a second prompt idiom.
+- **FAIL-CLOSED on a nil stdin**, exactly as `packMain` documents (`pack.go:136-137`): a
+  non-interactive run means *"no approval given"*, never consent. A scripted or CI
+  `apply --host --assert` with no TTY must not destroy a server because nobody was there to
+  answer. This needs stdin threaded into `applyHost`, which does not currently take it.
+- **Only prompt when something would actually be lost.** A confirmation that fires on every
+  clean apply trains people to hit `y` without reading, which defeats its purpose.
+- **`observe` must never prompt** — it writes nothing, so there is nothing to confirm. It
+  should *report* what an `--assert` would drop, so the information arrives before the prompt
+  ever does.
+
+### Two more things this work carries
+
+- **`~/.claude.json` is live agent state**, not just config: ~40K, 32 top-level keys, 17
+  per-project entries, history and onboarding flags. RMW touches only declared keys, but the
+  blast radius dwarfs `settings.json`. A round-trip test proving an untouched multi-key file
+  comes back byte-identical apart from the asserted key is not optional here.
+- **`${VAR}` interpolation covers `env` values ONLY** — verified: `interpolateEnv` has exactly
+  one call site (`mcp.go:197`), on `cfg.Get("env")`. So `${TAVILY_API_KEY}` inside a server's
+  `url` is written literally and the server 401s silently. Extending interpolation to `url`
+  (warning on unresolved, as `interpolateEnv` already does at `mcp.go:63`) is the right call —
+  the `http` transport is otherwise unusable with any secret. The key must keep coming from
+  `env_sources`, never from pack content: a pack's `env` kind is static-strings-only by design
+  and must not become a secret carrier.
+
+  *Caveat on the handoff:* it states the maintainer's **host** `~/.claude.json` uses the
+  URL-embedded form. I could not verify that from inside the jail — the file visible here is
+  the JAIL's, which uses `command`+`env`. Treat that as plausible-but-unconfirmed; the `url`
+  interpolation is right regardless of that one file.
+
+**Why this matters beyond Claude:** `copilot/mcp`, `agy/mcp` and `opencode/config` carry MCP
+tables and **already render at the host**. Claude is the odd one out purely because of where
+Claude Code chose to store user MCP config. So this is not a new capability — it makes an
+existing one uniform, which is the actual goal.
+
+---
+
 ## Suggested order
 
+0. **#10** (host MCP servers) — **in progress**, both rulings settled, and it is the one item
+   with a user-visible capability behind it rather than a latent hazard.
 1. **#7** (unfree eval) and **#5** (brew cask) — mechanical, isolated, no decisions pending.
 2. **#4** (staging prune) — high confidence, closes a doc/code contradiction.
 3. **Decide #2** (`requires`). Everything in the `program` cluster is shaped by the answer.
@@ -255,3 +344,8 @@ and the failure is honest as it stands.
    scope.
 5. **#6** (unfree annotation) — rides #5's mechanism.
 6. **#8** (parity table) — whenever provenance is next touched.
+
+**One dependency worth noting:** #10 threads `stdin` into `applyHost` for its confirm prompt.
+Nothing else here needs it, but if #10 lands first that plumbing is already in place for any
+future host-notch confirmation — including env-manager Phase 4.3's confirm-gated install, which
+has been deferred partly for want of exactly that.
