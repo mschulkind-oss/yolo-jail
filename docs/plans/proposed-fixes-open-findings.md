@@ -1,12 +1,27 @@
 # Proposed fixes for the open findings
 
-**Status:** proposals, 2026-08-02. **No code changed.** Written in answer to *"do you have
-proposed fixes for what you're pointing out?"*
+**Status:** **ALL ITEMS DECIDED — ready to implement, awaiting a go.** 2026-08-02. **No code
+changed yet.** Written in answer to *"do you have proposed fixes for what you're pointing out?"*,
+then resolved by nine review rulings the same day.
 
-Everything below is an open item I flagged rather than fixed, each because it needed a
-decision I did not think was mine. This doc says what I would actually do, and — where a
-proposal is testable without building it — shows the measurement. Where I still think the
-decision is yours, I say so and say why rather than picking.
+Everything below started as an open item I flagged rather than fixed, each because it needed a
+decision I did not think was mine. **Those decisions are now made.** Three rulings changed the
+answer rather than confirming it, and each is marked at the item — a doc that quietly absorbed a
+reversal would hide the most useful part of the review.
+
+**What changed under review, in one place:**
+
+| # | I proposed | Ruled |
+|---|---|---|
+| 1 | defer the shim-dir split ("wrong blast radius") | **do it now** — and it becomes the primary fix |
+| 2 | decide `requires` *instead of* #1 | **both** — `requires` does not subsume a working fallback |
+| 3 | a validation error (one `program` per pack) | **reversed** — no case for constricting packs; return a slice |
+| 6 | annotate the nix remedy | **reframed** — prefer the pack's own installer; nix goes stale |
+| 9 | no proposal, "a product decision" | **corrected** — it is a CI capability constraint, so it *has* an answer |
+
+Two of those (#3, #9) were me reasoning from the wrong premise: a stale identifier name in one
+case, an unread comment in the other. Both are recorded at the item with the evidence that
+corrected them.
 
 **Reads with:** [`../design/program-kind-defects.md`](../design/program-kind-defects.md)
 (Q1.1–Q3.1), [`pack-host-management-plan.md`](pack-host-management-plan.md) Phase 11 and
@@ -19,16 +34,22 @@ items 8.3/8.4, [`../design/pack-config-collaboration.md`](../design/pack-config-
 
 | # | Finding | Proposal | Confidence |
 |---|---|---|---|
-| 1 | `program` shadows a baked binary and breaks it (11.1 / Q1.1) | **Bake the fallback in at generation time** + a loud warning, so recursion is unrepresentable. *(Revised after review — the runtime PATH-stripping version is rejected and kept as a note)* | **high** |
-| 2 | Presence-vs-install conflated (Q1.3) | A `requires` kind. **But answer this BEFORE #1**, since it shrinks #1's blast radius | medium — worth your call |
-| 3 | Only the first `program` per pack installs (11.2 / Q2.1) | **Validation error**, not a loop — the accessor's name is the evidence | medium |
-| 4 | A dropped pack's staged tree keeps rendering (11.3 / Q3.1) | Prune unconfigured slugs, contents-only, **never** clear-and-restage | **high** |
-| 5 | `depcheck.Manifest` cannot express a brew cask (8.4) | A `brew-cask` pseudo-manager key | **high** — mechanical |
-| 6 | Three nix hints are `unfree` (8.3) | Report the constraint in the remedy line; do not auto-enable | medium |
-| 7 | `packages: ["claude-code"]` fails at build with a nix trace (nix OQ-6) | `meta.unfree` check beside `availableOn` | **high** |
-| 8 | `rmwProvenance` is a second implementation of "which layer won" | Leave it; strengthen the parity test to a shared-corpus table | medium |
-| 9 | Nightly macOS builder arch mismatch (BACKLOG E8) | **No proposal — genuinely yours** | — |
-| 10 | A pack cannot install Claude MCP servers on the host (new handoff) | Prune workspace-keyed subtrees instead of refusing the surface; **warn-and-confirm before the first destructive apply — RULED** | **high** — in progress |
+**Every item is now decided.** Nine review rulings (2026-08-02) closed the last open questions;
+three of them reversed or reframed what I had proposed, and those are marked. Nothing below is
+waiting on a decision — this doc is ready to implement against.
+
+| # | Finding | Decided approach | Ruling |
+|---|---|---|---|
+| 1 | `program` shadows a baked binary and breaks it (11.1 / Q1.1) | **Split the shim dir** — installers move *after* `/bin`, so shadowing is impossible. Baked-in fallback stays as the safety net for a real install failure | **RULED — do it now**; my "wrong blast radius" hedge overruled |
+| 2 | Presence-vs-install conflated (Q1.3) | Add a `requires` kind (asserts presence, generates nothing) | **RULED — build it, AND keep #1**; they are not alternatives |
+| 3 | Only the first `program` per pack installs (11.2 / Q2.1) | **Return a slice, generate N launchers** | **REVERSED** — I proposed a validation error; no case for constricting packs |
+| 4 | A dropped pack's staged tree keeps rendering (11.3 / Q3.1) | Prune unconfigured slugs, contents-only, **never** clear-and-restage | context expanded on request |
+| 5 | `depcheck.Manifest` cannot express a brew cask (8.4) | `brew-cask` key → `cask "<pkg>"` in the Brewfile | **RULED — just make it work** |
+| 6 | `install_hints` routes agents through nix (8.3) | **Prefer the pack's OWN installer** at the host; nix as a labeled fallback; keep the unfree caveat | **REFRAMED** — the better question; `copilot` measured 16 releases behind |
+| 7 | `packages: ["claude-code"]` fails at build with a nix trace (nix OQ-6) | `meta.unfree` check beside `availableOn` | still stands — §6 removes the example, not the defect |
+| 8 | `rmwProvenance` is a second "which layer won" | Parity table now; **unify at the third** derivation | **RULED — wait for 3** |
+| 9 | Nightly macOS builder arch mismatch (BACKLOG E8) | Publish the builder multi-arch (or skip the two tests, recorded) | **CORRECTED** — a CI capability constraint, not platform support |
+| 10 | A pack cannot install Claude MCP servers on the host | Prune workspace-keyed subtrees instead of refusing the surface | **RULED — warn and wait for confirm**; in progress |
 
 ---
 
@@ -113,10 +134,50 @@ blocker's directory. **Separating the two mechanisms** — installers in their o
 *after* `/bin` rather than before — would make 11.1 structurally impossible instead of handled:
 an installer would only ever be reached when nothing else provides the name.
 
-I am **not proposing that here**, for one reason worth naming: PATH order is documented and
-depended on (`AGENTS.md` pins the exact sequence), and reordering it affects every tool in the
-jail, not just `program`. It is the right shape and the wrong blast radius for a fix to a
-specific defect. **Recorded as the direction, gated on someone wanting to touch PATH order.**
+**RULED: do this now.** *"I want to do this now."* So the separation is the fix, and the baked
+fallback below becomes a smaller safety net rather than the primary mechanism.
+
+What it means concretely. The documented order is (`AGENTS.md:204`):
+
+```
+$HOME/.yolo-shims : $HOME/.local/bin : $NPM_CONFIG_PREFIX/bin : <mise-shims> : $GOPATH/bin : /bin : /usr/bin
+```
+
+Split it into two directories with the installer side moved **after** `/bin`:
+
+```
+$HOME/.yolo-shims : $HOME/.local/bin : $NPM_CONFIG_PREFIX/bin : <mise-shims> : $GOPATH/bin : /bin : /usr/bin : $HOME/.yolo-launchers
+                    ^ blockers only (find, grep)                                                              ^ lazy installers (claude, pnpm)
+```
+
+Then an installer is reached **only when nothing else provides the name** — 11.1 becomes
+structurally impossible rather than handled, and no fallback logic is needed for the baked-tool
+case at all.
+
+Four things the implementation has to get right, and none is hard but all are easy to miss:
+
+1. **`AGENTS.md:203-204` pins the order as documentation.** It must be updated in the same
+   change or the doc becomes wrong — and this repo has already been bitten by a doc that
+   described behavior the code stopped having (11.3).
+2. **The generators currently coordinate through the shared directory.** `shims.go:182` skips
+   writing a launcher when a blocked-tool shim already owns the name. With two directories that
+   collision cannot happen — but the *semantics* change: a blocked tool that a pack also
+   declares as `program` would now have both a blocker (early) and a launcher (late), and the
+   blocker correctly wins. Worth an explicit test, since today the launcher is simply never
+   written.
+3. **`~/.yolo-shims` is a bind-mount ANCHOR** (`shims.go:20-22`: mounted from
+   `<ws>/.yolo/home/yolo-shims`, with `/home/agent` read-only). A second directory needs the
+   same treatment or it will not be writable — this is the mechanical part most likely to fail
+   first, and it fails at boot.
+4. **`YOLO_BYPASS_SHIMS=1` must keep working for blockers.** It is the documented escape hatch
+   for installers and scripts; whatever it does today to `~/.yolo-shims` must still apply.
+
+**One consequence worth stating plainly:** an installer after `/bin` means a tool the image
+bakes is used *in preference to* the pack's declared version. For `fzf` that is exactly right.
+For an **agent CLI** it may not be — if the image ever baked an older `claude`, the pack's
+lazy-updating launcher would stop being reached. No shipped pack has that collision today (the
+six agent CLIs are not in `corePackages`), but it is the case to check before shipping, and it
+argues for the baked fallback below staying in place as the belt to this braces.
 
 ### The rejected design, and why
 
@@ -154,44 +215,120 @@ install for a baked binary — which breaks it, per #1) or stay silent (ship no
 - **Footprint:** a claim, but not `CombineExclusive` — many packs may require one binary. That
   is the difference from `program`, which is exclusive because it owns a launcher path.
 
-**Why order matters.** If `requires` lands, the common case for #1 disappears — a pack
-declaring what it *needs* stops generating a shim at all, and `program` narrows to "yolo
-installs this tool", which is the only case the launcher was designed for. **Building the
-fallthrough first risks building it for a case that then stops existing.** #1 is still worth
-doing (a genuinely npm-installed agent whose install fails should still degrade), but it gets
-smaller.
+**RULED: build `requires`, AND keep #1.** *"I want to build this, but also still keep #1."*
+Right — I had framed them as alternatives on the theory that `requires` shrinks #1 to
+near-nothing. It does shrink it, but not to nothing: a genuinely npm-installed agent whose
+install fails should still degrade rather than exit 1, and that case survives `requires`
+entirely. Both land; `requires` is not a substitute for a working fallback.
 
-**Your call because it adds a kind.** The kind set is closed and core-owned on purpose; a
-14th entry is a product decision, not a refactor. It also now costs a doc update in two
-places plus the drift test I added in Phase 0.
+With the PATH split ruled in (§1), the three compose cleanly rather than overlapping:
+
+| mechanism | what it does | reached when |
+|---|---|---|
+| PATH split | installers ordered after `/bin` | always — makes shadowing impossible |
+| `requires` | asserts presence, generates nothing | a pack needs a tool it does not install |
+| baked fallback | execs a resolved absolute path | an install genuinely fails |
+
+**Sequencing note, now that all three are in:** the PATH split (§1) removes the *cause*, so it
+should land first — the fallback is then a safety net for a real install failure rather than a
+workaround for self-inflicted shadowing. `requires` is independent of both and can land in any
+order.
 
 ---
 
-## 3. One `program` per pack: validation error, not a loop (11.2)
+## 3. Only the first `program` per pack installs (11.2) — **fix the loop**
 
 `InstallContribution()` returns inside its loop (`contributes.go:123`), so a pack declaring
 `fd` and `fzf` gets a launcher for `fd` only — while `DepRequirements()` returns both.
 
-**Proposal: make a second `program` a validation error**, and document one-per-pack.
+> **Reversed after review.** *"why would we want to limit this? what is the case for
+> constricting packs?"* There isn't one, and I did not have one — my argument was that the
+> accessor's *name* is singular, which is evidence about history, not about what a pack should
+> be allowed to do. Reasoning from a stale identifier to a product constraint is backwards.
 
-The evidence is the accessor's own name: **singular**. It was written when a pack meant "an
-agent" — one pack, one CLI — and the pack model has not actually outgrown that for
-*installs*. A pack needing two tools wants #2's `requires` for the second, or is two packs.
+**Corrected proposal: return a slice and generate N launchers.** A pack needing two tools is an
+ordinary thing — a linting pack wanting `shellcheck` and `shfmt`, a data pack wanting `jq` and
+`yq`. `DepRequirements()` already returns all of them and the HOST path already reports all of
+them, so the jail is the side that is wrong, not the host.
 
-Also note which side is the bug: returning a slice would make the JAIL match the host, but it
-would also mean a pack can generate N launchers, each carrying #1's shadowing hazard. The
-validation error makes both notches agree in the *safer* direction.
+My stated reason for preferring the restriction was that N launchers means N shadowing hazards.
+**The PATH split (§1) removes that**, so the argument does not survive its own ruling: with
+installers ordered after `/bin`, a launcher cannot shadow anything, and generating ten is no
+riskier than generating one.
 
-**Do not do this before #2**, or a pack legitimately needing two tools has no expression at
-all.
+What the fix touches:
+
+- `InstallContribution() *Install` → `InstallContributions() []Install` (the singular name goes
+  with the singular behavior). Check every caller — `HonoredInstall` in `packload` applies the
+  origin gate per install and must keep doing so **per contribution**, since a pack could mix an
+  `npm` install with a curl-to-shell `installer` and only the second is origin-gated.
+- `GenerateAgentLaunchers` (`shims.go:161`) loops packs and takes one install each; it becomes a
+  nested loop. The existing `pathExists(shimPath)` guard already handles per-name collisions.
+- **Exclusivity stays per `bin`, not per pack.** The footprint model already says `program` is
+  `CombineExclusive` "by `bin` name" — two packs both installing `fzf` is still a collision, and
+  that check is unaffected. One pack installing two *different* bins never was one.
 
 ---
 
-## 4. A dropped pack's staged tree (11.3)
+## 4. A dropped pack's staged tree keeps rendering (11.3)
 
-`stagePacks` clears `_official` only (`packs.go:97`); a configured pack's staging dir survives
-removal from config, and the entrypoint renders every pack under `YOLO_PACK_ROOT`.
-Contradicts an invariant `AGENTS.md` states as fact.
+> Expanded after review (*"needs more context"*).
+
+### What staging is, and why a leftover tree is not inert
+
+A pack is not read from wherever it lives. On the host, `stagePacks`
+(`internal/cli/run/packs.go`) **copies** each selected pack into a staging tree under
+`paths.AgentsDir()/<cname>/packs/`, and that tree is bind-mounted into the jail at
+`/ctx/packs` (`YOLO_PACK_ROOT`). Two dirs inside it:
+
+```
+<agents>/<cname>/packs/
+├── _official/<name>/      # the packs yolo SHIPS, materialized out of the binary
+└── <slug>/                # each CONFIGURED pack, copied from its source
+```
+
+**The mount is the filter** — and `AGENTS.md` says so explicitly, because it is load-bearing:
+the in-jail entrypoint renders *every* pack it finds under `YOLO_PACK_ROOT`, with no idea which
+ones the user selected (it cannot read the config — that is the credential boundary). So
+"selected" is expressed entirely by "present in the staged tree".
+
+Which means a leftover directory is not dead weight. It is **a fully active pack**: its surfaces
+render, its hooks run, its shims generate.
+
+### The defect
+
+`stagePacks` clears `_official` and only `_official`:
+
+```go
+// internal/cli/run/packs.go:93-99
+officialRoot := filepath.Join(stagingRoot, "_official")
+// Clear it: a pack DROPPED from config must stop being mounted, and a leftover tree
+// would keep rendering as if it were still selected.
+if err := os.RemoveAll(officialRoot); err != nil { … }
+```
+
+The comment states the right rule. The code applies it to the shipped packs and **not** to
+configured ones — so removing a *user's* pack from `packs` leaves its staged copy behind, and it
+keeps rendering forever.
+
+**Observed live**, which is how it was found: a deleted test pack kept regenerating a broken
+`fzf` shim across launches until the staging dir was removed by hand. The user had already
+deleted the pack *and* its config entry.
+
+And it contradicts what `AGENTS.md` asserts as fact:
+
+> *"`stagePacks` copies only the SELECTED packs into the mounted tree (**and clears it, so a
+> dropped pack stops rendering**)."*
+
+The doc describes the behavior a reader would want; the code is the side producing the surprise.
+
+### Why the asymmetry exists (and why it is not deliberate)
+
+`_official` can be cleared wholesale because it is **derived** — materialized fresh from the
+binary's `embed.FS` on every launch, so deleting it costs nothing. A configured pack's staging
+dir is a **copy of an external source**, so wholesale clearing means re-copying every pack every
+launch. The cheap incremental choice was made for the expensive side and the correctness rule
+was only applied to the cheap one. Nothing in the comments suggests the gap was intended.
 
 **Proposal: prune slugs not in the current config — contents-only, never the dir itself.**
 
@@ -217,38 +354,133 @@ its tree go, not wonder whether it is still active.
 installs with `--formula`. Four of the six shipped hints are **casks**, so the generated
 Brewfile fails. (The printed one-liner is fine — bare `brew install <token>` resolves either.)
 
-**Proposal: a `brew-cask` pseudo-manager key** in `install_hints`, which `installCmd` maps to
-`brew install --cask <token>` and `Manifest` emits as `cask "<token>"`.
+> **RULED: just fix it.** *"don't follow totally, but fix it so it works."* Taking that as
+> license to pick the mechanism, so here is the concrete change rather than the trade-off.
 
-Cheaper and more honest than a per-hint struct: the hint map is `map[string]string` and its
-whole virtue is that a pack author writes one line per manager. A key that names the
-*installer flavor* fits that grain; a nested object per hint does not, and would need every
-existing hint rewritten.
+**The problem in one line.** A Brewfile has two different verbs for two different things:
 
-Detection stays as-is — `DetectManager` returns `brew`, and `installCmd` consults both keys.
+```ruby
+brew "postgresql@16"     # a FORMULA — command-line software
+cask "claude-code"       # a CASK — an app bundle / binary distribution
+```
+
+`depcheck.Manifest` writes `brew "<pkg>"` for every hint. Four of the six shipped hints
+(`claude-code`, `copilot-cli`, `codex`, `antigravity-cli`) are **casks**, so
+`brew bundle --file=<generated>` fails on them: it looks for a formula by that name and there
+isn't one.
+
+Only the *bundle file* is affected. The printed one-liner already works, because bare
+`brew install <token>` falls back to a cask when no formula matches — which is exactly why the
+bug was invisible until someone generated a Brewfile.
+
+**The change:** add a `brew-cask` key alongside `brew` in `install_hints`, then in
+`internal/depcheck/depcheck.go`:
+
+```go
+// installCmd (:84) — one new case
+case "brew-cask":
+    return "brew install --cask " + pkg
+```
+
+and in `Manifest`, emit `cask "<pkg>"` for a `brew-cask` hint instead of `brew "<pkg>"`.
+`DetectManager` still returns `brew`; the lookup consults `brew-cask` first, then `brew`.
+
+Then the four cask hints move key:
+
+```jsonc
+"install_hints": { "brew-cask": "claude-code", "nix": "claude-code" }
+```
+
+**Why a key rather than a struct.** `install_hints` is `map[string]string` and its whole virtue
+is one line per manager. A key naming the *installer flavor* keeps that grain; a nested object
+per hint would need every existing hint rewritten for one flag. `pacman`/`dnf` have no
+equivalent split, so nothing else grows a variant.
 
 ---
 
-## 6. The three unfree nix hints (8.3)
+## 6. The three unfree nix hints (8.3) — and the better question underneath
 
-`claude-code`, `github-copilot-cli` and `antigravity-cli` are `unfree`, so
-`nix profile install nixpkgs#<pkg>` refuses until the user allows unfree. **The package name
-is right; the remedy alone is insufficient.**
+> **Review question, and it reframes this item:** *"why are we pulling these through nix? don't
+> they have their own installers we can use? nix will get out of date for this stuff."*
 
-**Proposal: say so in the line.** Something like
+### The premise is right, and I measured it
+
+Every one of the six agents **already has a first-party installer**, which is what the pack
+declares for the jail:
+
+| pack | `via` | source |
+|---|---|---|
+| claude | `installer` | `https://claude.ai/install.sh` |
+| agy | `installer` | `https://antigravity.google/cli/install.sh` |
+| codex, copilot, opencode, pi | `npm` | their npm packages |
+
+So `install_hints` sends a host user to nixpkgs for tools that **ship their own updater** — and
+in the agents' case that updater is the mechanism they are designed around (Claude Code
+self-updates; the jail's own launcher checks npm hourly).
+
+**Measured staleness, 2026-08-02** — mixed, and the spread is the point:
+
+| tool | nixpkgs | upstream | lag |
+|---|---|---|---|
+| claude-code | 2.1.220 | 2.1.220 | **none** |
+| codex | 0.146.0 | 0.146.0 | **none** |
+| pi-coding-agent | 0.83.0 | 0.83.0 | **none** |
+| opencode | 1.18.9 | 1.18.11 | 2 releases |
+| **github-copilot-cli** | **1.0.61** | **1.0.77** | **16 releases** |
+
+So nixpkgs is *not* uniformly stale — but it is badly stale for at least one, and nothing about
+the packaging tells a user which. A remedy line that says `nix profile install
+nixpkgs#github-copilot-cli` hands them a version 16 releases old **without saying so**, which is
+the same class of quiet wrongness as the provenance misreport in §8 of the collaboration doc.
+
+### Revised proposal: prefer the pack's own installer at the host, keep nix as a fallback
+
+`install_hints` was built on the assumption that a host user installs through *their* package
+manager. For a general dependency (`fd`, `fzf`, `jq`) that is right. For **the agent the pack
+installs**, it is second-best: the pack already knows the canonical install command, and it is
+the one upstream supports.
+
+So for a `program` whose `via` is `installer` or `npm`, the remedy should lead with that:
 
 ```
-✗ claude   MISSING → nix profile install nixpkgs#claude-code
-                     (unfree: needs NIXPKGS_ALLOW_UNFREE=1 or nixpkgs.config.allowUnfree)
+✗ claude    MISSING → curl -fsSL https://claude.ai/install.sh | sh        (upstream installer)
+✗ copilot   MISSING → npm install -g @github/copilot                     (upstream, latest)
+                      or: nix profile install nixpkgs#github-copilot-cli (nixpkgs: 1.0.61,
+                          16 releases behind — see below)
+```
+
+Three things this needs, and one of them is a real decision:
+
+1. **The `via`/`package`/`url` fields already carry everything needed** — no new schema. The
+   remedy is derivable from the contribution the pack already declares.
+2. **`curl … | sh` is a different trust proposition from `brew install`.** yolo already treats
+   an installer URL as review-worthy (origin-gated, flagged `⚠ review` in the footprint) — so
+   printing it as a *suggestion the user runs themselves* is consistent, but it must not become
+   something yolo runs unprompted. That is env-manager Phase 4.3's confirm-gated territory, and
+   this item must not quietly pre-empt it.
+3. **Whether to keep the nix hints at all.** I would keep them, for the one case they win:
+   a user who *wants* the closure pinned rather than the latest. But they should be labeled with
+   the version, so choosing them is informed. That connects to
+   [`../design/host-nix-environment.md`](../design/host-nix-environment.md) — the honest place
+   for "give me yolo's exact closure" is that doc's `buildEnv`, not a hint that looks like a
+   plain install command.
+
+### The unfree annotation, which survives either way
+
+`claude-code`, `github-copilot-cli` and `antigravity-cli` are `unfree`, so
+`nix profile install nixpkgs#<pkg>` refuses until the user allows unfree. Whatever happens to
+the nix hints, a printed nix remedy must say so:
+
+```
+(unfree: needs NIXPKGS_ALLOW_UNFREE=1 or nixpkgs.config.allowUnfree)
 ```
 
 **Do NOT auto-add `NIXPKGS_ALLOW_UNFREE=1` to the printed command.** Unfree is a licence
-decision the user makes once, machine-wide; a tool that slips the override into a
-copy-pasteable line makes it for them silently. Naming the constraint respects the same
-consumer-grants-power invariant `allow_exec` follows.
+decision the user makes once, machine-wide; slipping the override into a copy-pasteable line
+makes it for them silently — the same consumer-grants-power invariant `allow_exec` follows.
 
-Needs a per-hint annotation, so it probably wants #5's key-flavor mechanism or a small
-`unfree` marker — worth doing them together.
+Note this shrinks if the upstream installer leads: all three unfree packages are agent CLIs with
+their own installer, so the unfree caveat stops being on the primary path.
 
 ---
 
@@ -266,6 +498,17 @@ not a platform fact, so no amount of platform probing will catch it.
 **High confidence and independent of every nix-env question** — a user who puts an agent CLI
 in `packages:` today gets a `check-meta` trace instead of the warn-and-skip the mechanism
 promises. Worth fixing whether or not any host-nix work happens.
+
+> **Review noted:** *"I think I covered this above"* — meaning the §6 answer (don't route agents
+> through nix; they have their own installers). Worth separating the two, because they only look
+> like the same item: §6 is about **which remedy `install_hints` prints**, and is fully resolved
+> by preferring the upstream installer. **This one is about `packages:`** — the config key where
+> a user names extra nix packages to bake — and it fires for **any** unfree package, not just an
+> agent CLI. `packages: ["vscode"]` or `["terraform"]` aborts the same way with the same raw
+> trace, and no change to `install_hints` touches that path.
+>
+> So §6's answer removes the *motivating example* but not the defect. Still worth the one-line
+> fix — and it is the cheapest item in this doc.
 
 ---
 
@@ -285,8 +528,15 @@ precedence *is* write order. Forcing one implementation means either giving RMW 
 layer stack it does not have, or making `Compose` simulate sequential writes. Both are more
 fiction than the duplication.
 
-**This is the item I am least sure about.** If a third notch ever derives provenance a third
-way, the duplication becomes the wrong call and a real abstraction is owed.
+**RULED: wait for a third.** *"yes, wait for 3 to unify."* So the parity table is the whole of
+the work here, and the unification is explicitly deferred until a third derivation exists —
+which is the rule-of-three applied rather than an abstraction guessed at from two cases.
+
+Concretely that means: build the shared-corpus parity table now (so a divergence in *outcome*
+fails, not just one in shape), and leave a note at both implementations saying the third
+occurrence is the trigger. The `guest` notch (env-manager Phase 7) is the likely third — it
+renders into a real home like the host but keeps a workspace like the jail, so it may well need
+its own derivation and would be the moment to unify all three.
 
 ---
 
@@ -297,8 +547,42 @@ way, the duplication becomes the wrong call and a real abstraction is owed.
 tests from the Intel nightly / move it to Apple Silicon — change what the product ships or
 what it claims to test.
 
-**I have no proposal here on purpose.** This is a product decision about supported platforms,
-and the failure is honest as it stands.
+> **Review corrected me, and the workflow confirms it:** *"I don't care about supporting macos
+> intel, but I think it was a CI runner compromise?"* — **yes, and I had the framing wrong.**
+> It is not a platform-support decision at all. `nightly-macos.yml:44-49` says so in a comment I
+> should have read before calling it one:
+>
+> > *"macOS Intel runners support nested virtualization via Podman Machine; GitHub's Apple
+> > Silicon runners do not, so stay on an `-intel` label. macos-13 was retired Dec 2025.
+> > macOS 26 (Tahoe) is the last Intel macOS, and GitHub plans to retire Intel runner images
+> > around late 2027 — after that this job needs a self-hosted runner or arm64 nested-virt
+> > support. Note: x86_64 not ARM — tests the macOS code paths, not native ARM performance."*
+>
+> So the Intel runner is there **because it is the only hosted runner that can nest a VM**, and
+> it exists to exercise the macOS *code paths*, not Intel as a target. Nobody is choosing to
+> support Intel Macs.
+
+**That changes the answer.** The two lib-farm tests need a Linux builder image, `publish.yml`
+pushes `aarch64-linux` only, and the runner is x86_64 — so it pulls an arm64 image and the farm
+never materializes. Given the constraint above, the options reduce to:
+
+1. **Publish the builder multi-arch** (add `x86_64-linux` to that matrix cell). The runner is
+   x86_64 *by necessity*, so an x86_64 builder is not Intel-Mac support — it is what makes the
+   only viable runner work. `publish.yml`'s own comment (*"an x86_64 mac … can build locally or
+   use QEMU"*) was written about **users**, and CI is not a user.
+2. **Skip the two lib-farm tests on this job**, with the reason recorded. Cheapest, and it loses
+   coverage of `/lib`-farm behavior on macOS entirely — but note that farm is a **Linux-container**
+   mechanism, so what is actually being tested there is the *builder path*, not anything
+   macOS-specific.
+
+**I lean (1)**, because it makes the nightly test what it claims to test, and the marginal cost
+is one more matrix cell on a release-gated workflow. (2) is defensible if the builder push is
+expensive or the coverage is judged redundant.
+
+**Not proposing further** — this is still a CI-cost judgment, and the 2027 runner retirement
+means both options have a shelf life. But the framing is now right: **a CI capability
+constraint, not a platform-support question**, and my earlier "no proposal, it's a product
+decision" was simply wrong.
 
 ---
 
@@ -390,17 +674,34 @@ existing one uniform, which is the actual goal.
 
 ## Suggested order
 
-0. **#10** (host MCP servers) — **in progress**, both rulings settled, and it is the one item
-   with a user-visible capability behind it rather than a latent hazard.
-1. **#7** (unfree eval) and **#5** (brew cask) — mechanical, isolated, no decisions pending.
-2. **#4** (staging prune) — high confidence, closes a doc/code contradiction.
-3. **Decide #2** (`requires`). Everything in the `program` cluster is shaped by the answer.
-4. **#1** (fallthrough) and **#3** (validation error) — after #2, because #2 changes their
-   scope.
-5. **#6** (unfree annotation) — rides #5's mechanism.
-6. **#8** (parity table) — whenever provenance is next touched.
+No item is gated on a decision any more. The order below is about **dependency and blast
+radius**, not about waiting for answers.
 
-**One dependency worth noting:** #10 threads `stdin` into `applyHost` for its confirm prompt.
-Nothing else here needs it, but if #10 lands first that plumbing is already in place for any
-future host-notch confirmation — including env-manager Phase 4.3's confirm-gated install, which
-has been deferred partly for want of exactly that.
+0. **#10** (host MCP servers) — **already in progress**; the only item with a user-visible
+   capability behind it rather than a latent hazard.
+1. **#7** (unfree eval), **#5** (brew cask) — one-line-ish, isolated, nothing else depends on
+   them.
+2. **#4** (staging prune) — closes a doc/code contradiction, no interactions.
+3. **#1 the PATH split** — do this **before** the other `program` work, because it removes the
+   *cause* that #1's fallback and #3's caution were both working around. Highest blast radius in
+   this doc: it touches PATH order, which every tool in the jail depends on, so it wants its own
+   change and its own nested-jail verification.
+4. **#1 the baked fallback** and **#3** (slice + N launchers) — both trivial once the split
+   lands, and #3's only objection (N launchers = N shadowing hazards) is gone by then.
+5. **#2** (`requires`) — independent of all of the above; sequence by appetite. Adds a 14th kind,
+   so it also costs `config_ref.txt`, `pack --help`, and the Phase 0 drift test.
+6. **#6** (upstream-installer remedies) — after #5, since it reuses the hint plumbing.
+7. **#9** (multi-arch builder) — independent; a CI change, verifiable only by running the
+   nightly.
+8. **#8** (parity table) — whenever provenance is next touched; unification waits for a third
+   derivation.
+
+**Two dependencies worth naming:**
+
+- **#10 threads `stdin` into `applyHost`** for its confirm prompt. Nothing else here needs it,
+  but once it lands that plumbing serves any future host-notch confirmation — including
+  env-manager **Phase 4.3's confirm-gated install**, which has been deferred partly for want of
+  exactly that. #6 pushes toward printing `curl … | sh` remedies, which makes 4.3 more likely to
+  be wanted soon.
+- **#1's split and #3's slice both touch `GenerateAgentLaunchers`.** Doing the split first means
+  #3 is a nested loop in already-correct code rather than a nested loop plus a re-layout.
