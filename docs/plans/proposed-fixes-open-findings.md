@@ -5,7 +5,8 @@
 GOARCH-derived builder system) and **#10** (host MCP servers) landed 2026-08-03 too.
 **One item is genuinely open: #1's baked fallback** — and it is the LEAST urgent thing in this
 doc, because the PATH split made the collision it guards against unrepresentable (see #1).
-**#11 is new** (2026-08-03): a dropped pack's host output is not retired. Written
+**#11** (new 2026-08-03): a dropped pack's host output was not retired — **SHIPPED the same day**
+(`77663ae`, `ecf3564`, `af70f4c`). Written
 2026-08-02 in answer to *"do you have proposed fixes for what you're pointing out?"*, then
 resolved by nine review rulings the same day; each section carries a shipped note where the
 implementation differed from the proposal.
@@ -63,7 +64,7 @@ waiting on a decision — this doc is ready to implement against.
 | 8 | `rmwProvenance` is a second "which layer won" | Parity table now; **unify at the third** derivation | **RULED — wait for 3** · **TABLE SHIPPED 2026-08-03** (`TestProvenanceParityAcrossBothDerivations`); unification still deferred, by ruling |
 | 9 | Nightly macOS builder arch mismatch (BACKLOG E8) | Publish the builder multi-arch (or skip the two tests, recorded) | **CORRECTED** — a CI capability constraint, not platform support · **SHIPPED 2026-08-03**, and it was BIGGER than this row: the advertised system was hardcoded in three places, not one (see BACKLOG E8) |
 | 10 | A pack cannot install Claude MCP servers on the host | Prune workspace-keyed subtrees instead of refusing the surface | **RULED — warn and wait for confirm** · **SHIPPED 2026-08-03** |
-| 11 | A DROPPED pack's host output is never retired (new) | Archive skills/files and drop overlay keys, behind a confirm; stop provenance laundering the keys into `host` | **RULED 2026-08-03 — confirm before removing host files** · spec at [`host-pack-drop-cleanup.md`](host-pack-drop-cleanup.md) |
+| 11 | A DROPPED pack's host output is never retired (new) | Archive skills/files and drop overlay keys, behind a confirm; stop provenance laundering the keys into `host` | **RULED 2026-08-03 — confirm before removing host files** · **SHIPPED 2026-08-03**, all four rulings · spec at [`host-pack-drop-cleanup.md`](host-pack-drop-cleanup.md) |
 
 ---
 

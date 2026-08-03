@@ -74,7 +74,8 @@ Two corrections to the original report, both of which change the fix:
 ## The real defect: provenance laundering
 
 **Status: FIXED** (`retired:<layer>`, see "How it was fixed" below). The record no longer
-launders; whether the orphaned KEY is also dropped from the file remains open under R3.
+launders, and the orphaned KEY is dropped from the file too (R3, `af70f4c`) — the two halves
+shipped separately and both are in.
 
 While the pack is active, `~/.local/share/yolo-jail/host-provenance/claude-settings.provenance`
 says:
@@ -202,6 +203,31 @@ is the shared prompt's job.
 unconditional. Do not put it behind the new prompt; removing a delimited managed block
 restores the file's own bytes and loses nothing. **SHIPPED** — and pinned: a test asserts the
 block is removed even on a DECLINED file retire, so the two halves cannot be quietly unified.
+
+## What only running it found
+
+Every item below was invisible to the spec, which was written from ONE reproduction. Recorded
+because the pattern — a design that reads correctly and is wrong in a case the author did not
+instantiate — is the reusable part.
+
+- **A namespaced subtree has no manifest entries** (task A). The spec asserted the manifest was
+  the whole source of truth. `deliverNamespaced` deliberately records nothing, so a manifest-only
+  scan misses an entire loadable skill namespace.
+- **Emptying `packs` retired nothing** (task A). `applyHost` early-returns on zero entries, so
+  the most complete drop possible was the one case that cleaned up nothing.
+- **`active` vs `configured`** (task A). Keying on the RESOLVED set archives a working setup's
+  skills the first time a fetched pack's remote is unreachable.
+- **The laundering is not overlay-specific** (task B). `managed` and `computed` are force-written
+  identically, so a key its OWNING pack stops declaring launders the same way.
+- **Two packs, one key** (task C). The provenance record holds ONE winner per key. Drop the
+  winner while another pack still contributes that key and the record alone calls a live key an
+  orphan. A live-layer cross-check is required, and the false orphan is visible only in observe —
+  an assert self-corrects through its own render, which is why a test asserting the ASSERT
+  posture passes while the bug is present.
+- **Both attribution spellings must be eligible** (task C). Whether the record says
+  `config-overlay:<pack>` or `retired:config-overlay:<pack>` depends purely on whether a render
+  has run since the drop, so accepting one spelling made the prune work in exactly one posture.
+  This coupling between B's and C's work was in neither brief.
 
 ## Why confirm rather than silent-archive
 
