@@ -273,7 +273,8 @@ to **observe** (a dry-run) — it prints what it *would* do and writes nothing:
 $ yolo apply --host
 apply --host  home /home/me  posture observe (dry-run)
   claude/settings          would render  /home/me/.claude/settings.json
-  claude/config            refused: uses ${workspace}, which has no referent on the host
+  claude/config            skipped: only ${workspace}-keyed keys, which have no host referent
+    skipped ${workspace}-keyed (no host referent): projects.${workspace}.enableAllProjectMcpServers, projects.${workspace}.hasTrustDialogAccepted
   reads-host refused — reads-host carries a host file INTO a jail — meaningless when there is no jail
   state      refused — state names a jail-writable home subtree — off-container the home simply is writable
 observe only — nothing written. Re-run with --assert to apply.
@@ -282,8 +283,14 @@ observe only — nothing written. Re-run with --assert to apply.
 Three things this tells you — but note the last is a real gap, not honesty:
 - **Only config surfaces port.** Kinds that need a container (`reads-host`, `state`,
   `files`, and `mount` if a pack declares one) are **refused by name** — a copy is never
-  a silent substitute for a mount. A `${workspace}`-derived surface is refused too (no
-  workspace on the host).
+  a silent substitute for a mount. A `${workspace}`-KEYED *key* has no host referent, so it
+  is **pruned by name** — but only that key: the rest of the surface still renders. Above,
+  the shipped `claude` pack's `config` surface carries nothing *but* those two per-jail
+  trust flags, so with no other pack contributing to it the whole surface is skipped. Add a
+  pack that contributes, say, `mcpServers` to `claude/config` and the same surface renders,
+  still naming the two pruned keys. (This used to be a surface-level *refusal*, which made
+  all of `~/.claude.json` — including user-scope MCP servers — unreachable at the host notch
+  because of two unrelated keys.)
 - **`skills` and `briefing` are honored by the census but silently NOT written by
   `apply --host`** — it renders config surfaces only. So the `AGENTS.md` and skills you
   authored in Part 1 do **not** reach your real home this way, and they don't appear in the
@@ -326,6 +333,44 @@ declaring the key and re-apply," which drops it (it does **not** bring back what
 before yolo — nothing snapshots that).
 
 Re-run `apply --host --assert` any time you change the pack — it re-asserts, idempotently.
+
+#### Dynamic tables (`mcpServers`) are REPLACED, not merged
+
+A **dynamic managed table** — the `mcpServers` block, whatever the agent calls it — is the
+one exception to "RMW merges." yolo owns the key outright and **regenerates it wholesale**,
+per the rule that config is the source of truth: an entry present in the file but absent
+from your config is either stale from a previous apply or one you added through the agent's
+UI, and either way the fix is to declare it. **If you manage `mcpServers` through yolo, you
+give up `claude mcp add`.**
+
+Replacement rather than a deep merge is deliberate, and the reason is a bug it prevents: a
+merge of your `{"type":"http","url":"…"}` entry with a pack's
+`{"command":"npx","args":[…]}` entry of the same name loses *nothing* and produces a record
+carrying **both transports**, which no client can use. Every incoming key is an add, so a
+key-level overwrite warning sees nothing to report — a "safe" merge that silently breaks the
+server.
+
+Two guardrails, since replacement is the sharper behavior:
+
+- **Every casualty is named**, per entry and by kind:
+  `mcpServers.handAdded (dropped — not in your config)` versus
+  `mcpServers.tavily (replaced — your version is not kept)`.
+- **The first apply into a home asks first.** If a `--assert` would drop or replace an entry
+  in a home yolo has never managed, it lists them and **waits for confirmation** — you have
+  not opted into the policy yet, so replacing a hand-added server before you have declared
+  it anywhere is data loss rather than policy. Later applies re-assert without prompting
+  (they still report). With **no TTY** the confirmation is a **no**, so a scripted or CI
+  `apply --host --assert` aborts rather than destroying a server unattended.
+
+To keep an entry, declare it under `mcp_servers` in your config — which reaches every agent,
+not just the one — and re-run.
+
+> **⚠ `${VAR}` does not expand at the host.** `apply --host` resolves no variables: there is
+> no jail startup env and no `env_sources` pass. So a `"url": "…?apiKey=${TAVILY_API_KEY}"`
+> in pack content is written **literally** into `~/.claude.json`. The apply warns per surface
+> (`⚠ ${TAVILY_API_KEY} written LITERALLY`) rather than resolving it, because putting the
+> plaintext secret in a file yolo does not own defeats the point of `env_sources`. In the
+> **jail**, the same entry expands correctly.
 
 ### Step 4: make sure the host has the tools your packs need
 

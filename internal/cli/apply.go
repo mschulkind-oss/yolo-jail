@@ -34,10 +34,15 @@ import (
 )
 
 func runApply(args []string) int {
-	return applyMain(args[1:], os.Stdout, os.Stderr, colorForWriter(os.Stdout))
+	return applyMain(args[1:], os.Stdout, os.Stderr, colorForWriter(os.Stdout), os.Stdin)
 }
 
-func applyMain(args []string, out, errw io.Writer, color bool) int {
+// applyMain parses the flags and routes to a notch. stdin is the reader the host notch's
+// destructive-change confirmation reads; a nil stdin (a test, or any non-interactive run)
+// means "not confirmed", matching packMain's fail-closed contract — a scripted
+// `apply --host --assert` must not destroy a user's MCP server because nobody was there to
+// answer.
+func applyMain(args []string, out, errw io.Writer, color bool, stdin io.Reader) int {
 	var at string
 	var dryRun, sealed, assert bool
 	for i := 0; i < len(args); i++ {
@@ -99,7 +104,7 @@ func applyMain(args []string, out, errw io.Writer, color bool) int {
 
 	switch notch {
 	case config.ConfinementHost:
-		return applyHost(out, errw, color, assert && !dryRun)
+		return applyHost(out, errw, color, assert && !dryRun, stdin)
 	case config.ConfinementGuest:
 		pr.Printf("[yellow]apply at the guest notch is not built yet (env-manager plan " +
 			"Phase 7 — the LSM-confined backend).[/yellow]")
@@ -123,7 +128,7 @@ func applyMain(args []string, out, errw io.Writer, color bool) int {
 // kinds are refused by name via the host FieldSet, and `program` resolves to the host's
 // real dep state (present/missing + the remedy for the detected manager) without running
 // an install — that stays confirm-gated behind env-manager plan Phase 4.3.
-func applyHost(out, errw io.Writer, color bool, write bool) int {
+func applyHost(out, errw io.Writer, color bool, write bool, stdin io.Reader) int {
 	pr := richtext.Printer{W: out, Color: color}
 	home, err := os.UserHomeDir()
 	if err != nil {
@@ -202,6 +207,18 @@ func applyHost(out, errw io.Writer, color bool, write bool) int {
 		// this command's census test enforces.
 		pr.Printf("  [yellow]config-overlay  %s[/yellow] [dim](pack %s)[/dim]",
 			orphan.Reason(), orphan.Pack)
+	}
+
+	// THE ONE-WAY DOOR. Before writing anything, ask an observe pass what an --assert would
+	// destroy, and if the answer is "a value yolo has never asserted in this home", require a
+	// confirmation. Maintainer ruling (2026-08-02): "let's just warn during the first apply
+	// that things will be lost and wait for confirm" — warn-and-confirm, not warn-and-refuse.
+	// See confirmHostLosses for the three properties that make it not-noise.
+	if write && !confirmHostLosses(pr, out, stdin, loaded, home, overlays) {
+		pr.Printf("[bold red]apply --host: not confirmed — nothing was written.[/bold red]")
+		pr.Printf("[dim]Re-run and answer `y`, or declare the entries above in your config " +
+			"(`mcp_servers`, reaching every agent) so nothing is lost.[/dim]")
+		return 1
 	}
 
 	for _, p := range loaded {
@@ -286,6 +303,35 @@ func applyHost(out, errw io.Writer, color bool, write bool) int {
 				pr.Printf("    [yellow]⚠ %s your existing value for: %s[/yellow]",
 					verb, strings.Join(r.Overwrites, ", "))
 			}
+			// Named-ENTRY casualties: a server whose record comes out merged or gone. Louder
+			// than an overwrite because nothing in the resulting file says what it used to be
+			// — and on a first apply this is the line the confirmation prompt is about.
+			if len(r.EntryLosses) > 0 {
+				verb := "would damage"
+				if write {
+					verb = "damaged"
+				}
+				pr.Printf("    [bold yellow]⚠ %s your existing entry: %s[/bold yellow] [dim]"+
+					"(yolo owns this table; declare the entry under `mcp_servers` to keep it)[/dim]",
+					verb, strings.Join(r.EntryLosses, ", "))
+			}
+			// The ${workspace}-keyed keys this render DROPPED, by name. A pruned key is a
+			// declaration the pack made that the host notch chose not to honor, so it gets a
+			// line for the same reason a refusal does — the surface rendering is not a licence
+			// for part of it to vanish quietly.
+			if len(r.Pruned) > 0 {
+				pr.Printf("    [dim]skipped ${workspace}-keyed (no host referent): %s[/dim]",
+					strings.Join(r.Pruned, ", "))
+			}
+			// ${VAR} references that reach the file LITERAL. A host apply resolves no
+			// variables, so this is not a "might" — it is what is in the file, and for an MCP
+			// url it means the server 401s with no other signal.
+			if len(r.UnresolvedVars) > 0 {
+				pr.Printf("    [yellow]⚠ ${%s} written LITERALLY — apply --host does not "+
+					"resolve variables; put the value in the file directly, or manage this "+
+					"server in the jail, where `env_sources` expands it[/yellow]",
+					strings.Join(r.UnresolvedVars, "}, ${"))
+			}
 		}
 	}
 
@@ -308,6 +354,77 @@ func applyHost(out, errw io.Writer, color bool, write bool) int {
 		pr.Printf("[dim]observe only — nothing written. Re-run with --assert to apply.[/dim]")
 	}
 	return rc
+}
+
+// confirmHostLosses gates a WRITING host apply on an explicit confirmation when it would
+// destroy a value the user has and yolo has never asserted in this home. Returns true to
+// proceed (nothing to lose, or the user said yes) and false to abort without writing.
+//
+// This is the one-way door. Wholesale table regeneration is correct POLICY — the maintainer
+// ruled that managing `mcpServers` through yolo means giving up `claude mcp add`, so an
+// undeclared server is stale by definition — but that only holds once the user has opted in.
+// On the FIRST apply into a home they have not opted in yet: their hand-added server predates
+// the pack, and replacing it before they have declared it anywhere is not policy, it is data
+// loss. Warn-and-confirm rather than warn-and-refuse (maintainer ruling 2026-08-02), because
+// a refusal leaves no path forward short of hand-editing the file yolo is about to manage.
+//
+// Three properties make it a real gate instead of noise:
+//
+//   - ONLY WHEN SOMETHING IS ACTUALLY LOST. Gated on FirstApply && Overwrites — a clean home,
+//     or any home yolo has asserted before, prompts not at all. A confirmation that fires on
+//     every run trains people to hit `y` without reading, which is worse than no gate.
+//   - OBSERVE NEVER REACHES HERE (the caller checks `write`). A dry-run writes nothing, so
+//     there is nothing to confirm; it just reports the same collisions as ⚠ lines, which is
+//     how the user gets the information BEFORE the prompt ever appears.
+//   - FAIL-CLOSED on stdin. promptYesNo reads a nil or EOF stdin as NO (pack.go's contract),
+//     so a CI or scripted `apply --host --assert` aborts rather than silently destroying a
+//     server because no human was present.
+//
+// It runs a full OBSERVE pass first, which is deliberately a second render: observe writes
+// nothing and consumes no first-apply signal, so asking it "what would be lost?" is free and
+// cannot itself be the thing that closes the door.
+func confirmHostLosses(pr richtext.Printer, out io.Writer, stdin io.Reader,
+	loaded []*packload.Pack, home string, overlays *packoverlay.OverlaySet) bool {
+	type loss struct {
+		surface, path string
+		keys          []string
+	}
+	var losses []loss
+	for _, p := range loaded {
+		results, err := entrypoint.RenderHostPack(p, home, true, overlays)
+		if err != nil {
+			// A preflight that cannot answer must not be read as "nothing to lose". The real
+			// render below will report the same error properly; here, fail closed by treating
+			// an unanswerable preflight as no confirmation needed only if it found nothing —
+			// which it did, since it errored. Reporting it and continuing keeps this function
+			// from becoming a second error path for the same failure.
+			continue
+		}
+		for _, r := range results {
+			// EntryLosses, not Overwrites: a scalar whose value changes is named, reversible,
+			// and already reported as an ordinary ⚠. Only a mangled or destroyed named ENTRY
+			// leaves the user with nothing in the file saying what it used to be.
+			if !r.FirstApply || len(r.EntryLosses) == 0 {
+				continue
+			}
+			losses = append(losses, loss{surface: r.Surface, path: r.Path, keys: r.EntryLosses})
+		}
+	}
+	if len(losses) == 0 {
+		return true // nothing would be lost — no prompt (see property 1)
+	}
+	pr.Printf("[bold yellow]⚠ First apply into this home — the following existing values " +
+		"will be REPLACED by what your packs declare:[/bold yellow]")
+	for _, l := range losses {
+		pr.Printf("  [cyan]%s[/cyan] [dim]%s[/dim]", l.surface, l.path)
+		for _, k := range l.keys {
+			pr.Printf("    [yellow]%s[/yellow]", k)
+		}
+	}
+	pr.Printf("[dim]yolo regenerates the keys it manages wholesale, so anything above that " +
+		"is not in your config is dropped. To KEEP an entry, declare it (an MCP server goes " +
+		"under `mcp_servers`, reaching every agent) and re-run.[/dim]")
+	return promptYesNo(out, stdin, "  Proceed and replace the values above? [y/N] ")
 }
 
 // embeddedPacksForPrune returns the packs yolo SHIPS, as prune candidates. A pack the user

@@ -151,9 +151,26 @@ Key facts:
   `requires_env` key is stripped before it reaches the agent. This lives in the
   single shared loader, so it applies **identically** to every MCP-enabled
   agent.
-- **`${VAR}`** in `env` values is interpolated against the jail's startup env
-  (which already has `env_sources` merged), so a secret can live in one unsynced
-  file and be scoped to one server.
+- **`${VAR}`** is interpolated against the jail's startup env (which already has
+  `env_sources` merged), so a secret can live in one unsynced file and be scoped
+  to one server. The interpolated fields are **`env` and `headers`** (dicts of
+  strings) and **`url`** (a scalar). `url` was added because the `http`/`sse`
+  transports are otherwise unusable with any secret: the canonical remote-MCP
+  form puts the credential in the query string
+  (`https://mcp.tavily.com/mcp/?tavilyApiKey=${TAVILY_API_KEY}`), and with
+  expansion limited to `env` that landed verbatim and the server 401'd silently.
+  `command`/`args` are deliberately **not** interpolated — every value yolo puts
+  there is a path yolo computed, and a `${VAR}` in an argv position is a
+  command-injection surface rather than a convenience. An unresolved variable is
+  left **literal** (never blanked, which would turn a missing credential into a
+  well-formed request that fails at the server) and produces one sorted warning
+  naming the variable and pointing at `env_sources`.
+- **The HOST notch resolves nothing.** `yolo apply --host` has no startup env and
+  no `env_sources` resolution, so a `${VAR}` in pack content reaches your real
+  `~/.claude.json` literally. That is reported per surface rather than resolved:
+  writing the plaintext secret into a file whose lifecycle yolo does not own
+  would defeat the point of keeping it in one untracked file. See
+  `hostUnresolvedVars`.
 
 ### Per-agent translation
 

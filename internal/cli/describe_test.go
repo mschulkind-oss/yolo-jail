@@ -49,7 +49,7 @@ func TestApplyVerbRouting(t *testing.T) {
 
 	var out, errw bytes.Buffer
 	// jail: reports + describes, rc 0.
-	if rc := applyMain(nil, &out, &errw, false); rc != 0 {
+	if rc := applyMain(nil, &out, &errw, false, nil); rc != 0 {
 		t.Fatalf("apply (jail) rc=%d: %s", rc, errw.String())
 	}
 	if !strings.Contains(out.String(), "jail") {
@@ -62,7 +62,7 @@ func TestApplyVerbRouting(t *testing.T) {
 	// A bogus notch is a usage error (rc 2), not a silent default.
 	out.Reset()
 	errw.Reset()
-	if rc := applyMain([]string{"--at", "bogus"}, &out, &errw, false); rc != 2 {
+	if rc := applyMain([]string{"--at", "bogus"}, &out, &errw, false, nil); rc != 2 {
 		t.Errorf("apply --at bogus should be a usage error (rc 2), got %d", rc)
 	}
 }
@@ -78,7 +78,7 @@ func TestApplySealedClosure(t *testing.T) {
 
 	// Clean: no local.jsonc, no capture sidecars → sealed (rc 0).
 	var out, errw bytes.Buffer
-	if rc := applyMain([]string{"--sealed"}, &out, &errw, false); rc != 0 {
+	if rc := applyMain([]string{"--sealed"}, &out, &errw, false, nil); rc != 0 {
 		t.Fatalf("clean workspace should seal (rc 0), got %d: %s%s", rc, out.String(), errw.String())
 	}
 	if !strings.Contains(out.String(), "sealed") {
@@ -89,7 +89,7 @@ func TestApplySealedClosure(t *testing.T) {
 	writeFile(t, filepath.Join(repo, "yolo-jail.local.jsonc"), `{"packages":["ripgrep"]}`)
 	out.Reset()
 	errw.Reset()
-	if rc := applyMain([]string{"--sealed"}, &out, &errw, false); rc != 1 {
+	if rc := applyMain([]string{"--sealed"}, &out, &errw, false, nil); rc != 1 {
 		t.Fatalf("local.jsonc present should refuse (rc 1), got %d", rc)
 	}
 	if !strings.Contains(out.String(), "yolo-jail.local.jsonc") || !strings.Contains(out.String(), "refused") {
@@ -116,7 +116,7 @@ func TestApplyHostRMW(t *testing.T) {
 
 	// Observe: writes nothing (the file keeps the user's telemetry:true).
 	var out, errw bytes.Buffer
-	if rc := applyMain([]string{"--host"}, &out, &errw, false); rc != 0 {
+	if rc := applyMain([]string{"--host"}, &out, &errw, false, nil); rc != 0 {
 		t.Fatalf("apply --host observe rc=%d: %s", rc, errw.String())
 	}
 	if !strings.Contains(out.String(), "refused") || !strings.Contains(out.String(), "mount") {
@@ -130,7 +130,7 @@ func TestApplyHostRMW(t *testing.T) {
 	// Assert: managed key regenerated, user key preserved.
 	out.Reset()
 	errw.Reset()
-	if rc := applyMain([]string{"--host", "--assert"}, &out, &errw, false); rc != 0 {
+	if rc := applyMain([]string{"--host", "--assert"}, &out, &errw, false, nil); rc != 0 {
 		t.Fatalf("apply --host --assert rc=%d: %s", rc, errw.String())
 	}
 	data, _ = os.ReadFile(filepath.Join(home, ".hp", "settings.json"))

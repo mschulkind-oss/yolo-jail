@@ -34,7 +34,7 @@ func TestApplyHostRefusesDuplicateSurfaceOwner(t *testing.T) {
 	})
 
 	var out, errw bytes.Buffer
-	if rc := applyHost(&out, &errw, false, true); rc == 0 {
+	if rc := applyHost(&out, &errw, false, true, nil); rc == 0 {
 		t.Fatalf("apply --host --assert must REFUSE a doubly-owned surface (R1); rc=0\n%s%s",
 			out.String(), errw.String())
 	}
@@ -65,7 +65,7 @@ func TestApplyHostPrintsOneRenderedLinePerSurface(t *testing.T) {
 	})
 
 	var out, errw bytes.Buffer
-	if rc := applyHost(&out, &errw, false, true); rc != 0 {
+	if rc := applyHost(&out, &errw, false, true, nil); rc != 0 {
 		t.Fatalf("apply --host --assert rc=%d\n%s%s", rc, out.String(), errw.String())
 	}
 	if n := countRenderedLines(out.String(), "acme/settings"); n != 1 {
@@ -100,7 +100,7 @@ func TestApplyHostRefusesSelfDuplicatedSurface(t *testing.T) {
 	writeOverlayFixture(t, map[string]string{"selfish": selfish})
 
 	var out, errw bytes.Buffer
-	if rc := applyHost(&out, &errw, false, true); rc == 0 {
+	if rc := applyHost(&out, &errw, false, true, nil); rc == 0 {
 		t.Fatalf("a pack declaring one surface identity twice must be refused; rc=0\n%s%s",
 			out.String(), errw.String())
 	}

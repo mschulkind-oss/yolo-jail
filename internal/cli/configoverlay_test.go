@@ -70,7 +70,7 @@ func TestApplyHostReportsOrphanOverlay(t *testing.T) {
 	home := writeOverlayFixture(t, map[string]string{"acme-fzf": acmeFzfPackJSON})
 
 	var out, errw bytes.Buffer
-	if rc := applyHost(&out, &errw, false, false); rc != 0 {
+	if rc := applyHost(&out, &errw, false, false, nil); rc != 0 {
 		t.Fatalf("an unselected owner must not fail the command (R2): rc=%d\n%s\n%s",
 			rc, out.String(), errw.String())
 	}
@@ -96,7 +96,7 @@ func TestApplyHostNamesTheContributingPack(t *testing.T) {
 	})
 
 	var out, errw bytes.Buffer
-	if rc := applyHost(&out, &errw, false, true); rc != 0 {
+	if rc := applyHost(&out, &errw, false, true, nil); rc != 0 {
 		t.Fatalf("apply --host --assert rc=%d\n%s\n%s", rc, out.String(), errw.String())
 	}
 	report := out.String() + errw.String()

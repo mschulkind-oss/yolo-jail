@@ -177,7 +177,7 @@ func runApplyHostForDeps(t *testing.T, contributions ...string) string {
 	t.Setenv("XDG_CONFIG_HOME", filepath.Join(home, ".config"))
 
 	var out, errw bytes.Buffer
-	if rc := applyHost(&out, &errw, false, false); rc != 0 {
+	if rc := applyHost(&out, &errw, false, false, nil); rc != 0 {
 		t.Fatalf("apply --host rc = %d\nstdout:\n%s\nstderr:\n%s", rc, out.String(), errw.String())
 	}
 	return out.String() + errw.String()

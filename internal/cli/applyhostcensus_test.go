@@ -48,7 +48,7 @@ func TestApplyHostAccountsForEveryDeclaredKind(t *testing.T) {
 
 	var out, errw bytes.Buffer
 	// Observe posture (write=false) — this test is about the census, not about writing.
-	if rc := applyHost(&out, &errw, false, false); rc != 0 {
+	if rc := applyHost(&out, &errw, false, false, nil); rc != 0 {
 		t.Fatalf("apply --host rc = %d\nstdout:\n%s\nstderr:\n%s", rc, out.String(), errw.String())
 	}
 	report := out.String() + errw.String()
