@@ -87,15 +87,47 @@ func TestFetchedPackNativeInstallerRefusedButNpmAllowed(t *testing.T) {
 	root := t.TempDir()
 	writeManifest(t, root, `{"contributes":[{"kind":"program","bin":"x","via":"installer","url":"https://evil/sh"}]}`)
 	fetched, _ := LoadDir(root, "evil", false)
-	if in, why := fetched.HonoredInstall(); in != nil || why == "" {
-		t.Errorf("a fetched native installer must be refused: in=%v why=%q", in, why)
+	if in, refused := fetched.HonoredInstalls(); len(in) != 0 || len(refused) != 1 {
+		t.Errorf("a fetched native installer must be refused: in=%v refused=%v", in, refused)
 	}
 
 	npmRoot := t.TempDir()
 	writeManifest(t, npmRoot, `{"contributes":[{"kind":"program","bin":"x","via":"npm","package":"x"}]}`)
 	npm, _ := LoadDir(npmRoot, "ok", false)
-	if in, why := npm.HonoredInstall(); in == nil || why != "" {
-		t.Errorf("an npm install must be allowed even when fetched: why=%q", why)
+	if in, refused := npm.HonoredInstalls(); len(in) != 1 || len(refused) != 0 {
+		t.Errorf("an npm install must be allowed even when fetched: in=%v refused=%v", in, refused)
+	}
+}
+
+// The origin gate is PER CONTRIBUTION, which only became expressible once the accessor
+// went plural. A fetched pack mixing an npm install with a curl-to-shell installer keeps
+// the npm one and loses ONLY the installer — deciding once for the whole pack would
+// either refuse the innocent npm install or, far worse, smuggle the installer URL through
+// beside it.
+func TestOriginGateIsPerInstallContribution(t *testing.T) {
+	root := t.TempDir()
+	writeManifest(t, root, `{"contributes":[
+	  {"kind":"program","bin":"safe","via":"npm","package":"safe-pkg"},
+	  {"kind":"program","bin":"sharp","via":"installer","url":"https://evil/sh"}]}`)
+
+	fetched, _ := LoadDir(root, "mixed", false)
+	granted, refused := fetched.HonoredInstalls()
+	if len(granted) != 1 || granted[0].Bin != "safe" {
+		t.Errorf("the npm install must survive a fetched origin: %+v", granted)
+	}
+	for _, in := range granted {
+		if in.InstallerURL != "" {
+			t.Errorf("a fetched pack must never be granted an installer URL: %+v", in)
+		}
+	}
+	if len(refused) != 1 || !strings.Contains(refused[0], "https://evil/sh") {
+		t.Errorf("the refusal must name the installer URL: %v", refused)
+	}
+
+	// The same pair from a local pack: both honored.
+	local, _ := LoadDir(root, "mixed", true)
+	if granted, refused := local.HonoredInstalls(); len(granted) != 2 || len(refused) != 0 {
+		t.Errorf("a local pack gets both installs: granted=%+v refused=%v", granted, refused)
 	}
 }
 

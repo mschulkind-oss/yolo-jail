@@ -1,6 +1,7 @@
 package packdecl
 
 import (
+	"strings"
 	"testing"
 )
 
@@ -18,8 +19,9 @@ func TestProjectionsFromContributes(t *testing.T) {
 		{Kind: KindHook, Hook: "shared_credentials", From: ".claude/.credentials.json", At: ".creds"},
 	}}
 
-	if in := m.InstallContribution(); in == nil || in.Kind != "native" || in.InstallerURL != "https://x/i.sh" {
-		t.Errorf("InstallContribution wrong: %+v", in)
+	if in := m.InstallContributions(); len(in) != 1 || in[0].Kind != "native" ||
+		in[0].InstallerURL != "https://x/i.sh" {
+		t.Errorf("InstallContributions wrong: %+v", in)
 	}
 	if hf := m.HostFileContributions(); len(hf) != 1 || hf[0].From != ".claude/settings.json" {
 		t.Errorf("HostFileContributions wrong: %+v", hf)
@@ -148,6 +150,127 @@ func TestHostAccessClaims(t *testing.T) {
 	}}
 	if c := none.HostAccessClaims(); len(c) != 0 {
 		t.Errorf("a pack reading nothing from the host should have no claims, got %v", c)
+	}
+}
+
+// A pack declaring TWO programs gets both, and in declaration order. The accessor used to
+// `return` inside its loop, so the second binary was silently dropped in the jail while
+// DepRequirements (the host path) reported it — one declaration, two answers. Asserted
+// against DepRequirements in the same test, because the asymmetry is the actual defect.
+func TestInstallContributionsReturnsEveryProgram(t *testing.T) {
+	m := &Manifest{Contributes: []Contribution{
+		{Kind: KindProgram, Bin: "shellcheck", Via: "npm", Package: "shellcheck-bin"},
+		{Kind: KindSkills, From: "skills", Into: ".x/skills"}, // interleaved, must not confuse the walk
+		{Kind: KindProgram, Bin: "shfmt", Via: "installer", URL: "https://x/shfmt.sh"},
+	}}
+	got := m.InstallContributions()
+	if len(got) != 2 {
+		t.Fatalf("InstallContributions = %d (%+v), want 2 — a pack needing two tools is "+
+			"ordinary (shellcheck+shfmt, jq+yq); `program` is exclusive by BIN, not per pack", len(got), got)
+	}
+	if got[0].Bin != "shellcheck" || got[0].Kind != "npm" || got[0].Package != "shellcheck-bin" {
+		t.Errorf("first install wrong: %+v", got[0])
+	}
+	if got[1].Bin != "shfmt" || got[1].Kind != "native" || got[1].InstallerURL != "https://x/shfmt.sh" {
+		t.Errorf("second install wrong: %+v", got[1])
+	}
+	// The jail projection and the host projection must agree on how many programs exist.
+	if n := len(m.DepRequirements()); n != len(got) {
+		t.Errorf("DepRequirements returned %d but InstallContributions %d — the host and "+
+			"jail paths must see the same set of programs", n, len(got))
+	}
+}
+
+// A `requires` contribution asserts presence: it feeds the host dep probe exactly as a
+// program does (DepRequirements folds both in) but generates no install of any kind, so it
+// carries no SelfInstall and is the only kind RequiredBins reports.
+func TestRequiresAssertsPresenceAndInstallsNothing(t *testing.T) {
+	m, probs := Decode([]byte(`{"name":"x","contributes":[
+	  {"kind":"requires","bin":"fzf","install_hints":{"brew":"fzf","apt":"fzf"}},
+	  {"kind":"program","bin":"claude","via":"installer","url":"https://claude.ai/install.sh"}]}`))
+	if len(probs) != 0 {
+		t.Fatalf("a requires contribution should decode cleanly, got: %v", probs)
+	}
+
+	// Both kinds reach the HOST probe: below jail there is no image, so "must exist" and
+	// "yolo would install this" are the same question about the host.
+	deps := m.DepRequirements()
+	if len(deps) != 2 {
+		t.Fatalf("DepRequirements = %d (%+v), want 2 (program + requires)", len(deps), deps)
+	}
+	byBin := map[string]DepRequirement{}
+	for _, d := range deps {
+		byBin[d.Bin] = d
+	}
+	if byBin["fzf"].Hints["brew"] != "fzf" {
+		t.Errorf("a requires' install_hints must reach the host probe: %+v", byBin["fzf"])
+	}
+	if byBin["fzf"].SelfInstall != "" {
+		t.Errorf("a requires installs NOTHING, so it has no self-install command: %q",
+			byBin["fzf"].SelfInstall)
+	}
+	// The program's own installer is derived from the fields it already declares — no new
+	// schema, which is the whole point of item #6.
+	if got := byBin["claude"].SelfInstall; got != "curl -fsSL https://claude.ai/install.sh | sh" {
+		t.Errorf("a program via installer should derive its own curl remedy, got %q", got)
+	}
+
+	// The JAIL asserts only `requires`: a `program` bin being absent is normal, since its
+	// launcher installs it on first use.
+	req := m.RequiredBins()
+	if len(req) != 1 || req[0].Bin != "fzf" {
+		t.Errorf("RequiredBins should be the requires set only, got %+v", req)
+	}
+
+	// And it generates no launcher, because there is no install to project.
+	if in := m.InstallContributions(); len(in) != 1 || in[0].Bin != "claude" {
+		t.Errorf("a requires must not appear as an install: %+v", in)
+	}
+}
+
+// An npm program derives `npm install -g <package>`; a via-less or package-less program
+// derives nothing rather than a half-command.
+func TestSelfInstallCommandDerivation(t *testing.T) {
+	cases := []struct {
+		name string
+		c    Contribution
+		want string
+	}{
+		{"npm", Contribution{Kind: KindProgram, Bin: "x", Via: "npm", Package: "@o/x"},
+			"npm install -g @o/x"},
+		{"installer", Contribution{Kind: KindProgram, Bin: "x", Via: "installer", URL: "https://h/i.sh"},
+			"curl -fsSL https://h/i.sh | sh"},
+		{"npm with no package", Contribution{Kind: KindProgram, Bin: "x", Via: "npm"}, ""},
+		{"installer with no url", Contribution{Kind: KindProgram, Bin: "x", Via: "installer"}, ""},
+		{"requires", Contribution{Kind: KindRequires, Bin: "x"}, ""},
+	}
+	for _, tc := range cases {
+		if got := selfInstallCommand(tc.c); got != tc.want {
+			t.Errorf("%s: selfInstallCommand = %q, want %q", tc.name, got, tc.want)
+		}
+	}
+}
+
+// A `requires` carrying a program's install fields is the author confusing the two kinds,
+// and it is silent otherwise — the fields are simply never read, so the tool never installs
+// and nothing says why. Loud instead.
+func TestRequiresRejectsProgramInstallFields(t *testing.T) {
+	_, probs := Decode([]byte(`{"name":"x","contributes":[
+	  {"kind":"requires","bin":"fzf","via":"npm","package":"fzf"}]}`))
+	joined := strings.Join(probs, "\n")
+	for _, want := range []string{`does not take "via"`, `does not take "package"`} {
+		if !strings.Contains(joined, want) {
+			t.Errorf("problems should name the misplaced field (%s):\n%s", want, joined)
+		}
+	}
+	if !strings.Contains(joined, `kind "program"`) {
+		t.Errorf("the diagnostic should point at the kind that DOES install:\n%s", joined)
+	}
+
+	// And `bin` is still required.
+	_, noBin := Decode([]byte(`{"name":"x","contributes":[{"kind":"requires"}]}`))
+	if !strings.Contains(strings.Join(noBin, "\n"), `needs "bin"`) {
+		t.Errorf("a requires with no bin must be a problem: %v", noBin)
 	}
 }
 

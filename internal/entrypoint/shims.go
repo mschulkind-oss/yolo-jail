@@ -167,6 +167,11 @@ func ShimContent(msg, sug, realBin string, blockFlags []string) string {
 // contribution into the LAUNCHER dir (~/.yolo-launchers), which is ordered LAST on PATH.
 // npm vs native launcher body is driven by the pack's install declaration.
 //
+// EVERY program contribution, not the first: a pack declaring `shellcheck` and `shfmt`
+// gets two launchers. The loop is nested (packs × their installs) because
+// InstallContributions is plural — it used to return on the first match, so the second
+// binary of any two-tool pack silently never installed while the host path reported both.
+//
 // It no longer skips a name a blocked-tool shim owns, and that is the point of the split
 // rather than an omission. The two dirs cannot collide, so a tool that is BOTH blocked and
 // declared as a pack `program` gets a blocker in ~/.yolo-shims (first on PATH) and a
@@ -189,31 +194,34 @@ func GenerateAgentLaunchers(e *Env) error {
 		return err
 	}
 	for _, p := range packs {
-		// HonoredInstall applies the ORIGIN gate: a fetched pack cannot introduce a
-		// curl-piped installer, because that would let a git ref run arbitrary code in the
-		// jail. The refusal was already reported at staging time on the host.
-		inst, _ := p.HonoredInstall()
-		if inst == nil {
-			continue
-		}
-		launcherPath := filepath.Join(launcherDir, inst.Bin)
-		if pathExists(launcherPath) {
-			// Two packs claiming one bin name. The footprint check refuses this on the
-			// host (`program` is CombineExclusive by bin); first-writer-wins keeps the
-			// jail deterministic if it ever gets here anyway.
-			continue
-		}
-		var launcher string
-		switch inst.Kind {
-		case "npm":
-			launcher = npmAgentLauncher(inst, stampDir)
-		case "native":
-			launcher = nativeAgentLauncher(inst, stampDir)
-		default:
-			continue
-		}
-		if err := writeExecutable(launcherPath, launcher); err != nil {
-			return err
+		// HonoredInstalls applies the ORIGIN gate PER CONTRIBUTION: a fetched pack cannot
+		// introduce a curl-piped installer, because that would let a git ref run arbitrary
+		// code in the jail — but an npm install beside it is not gated, so the decision
+		// cannot be made once for the whole pack. The refusals were already reported at
+		// staging time on the host.
+		installs, _ := p.HonoredInstalls()
+		for i := range installs {
+			inst := &installs[i]
+			launcherPath := filepath.Join(launcherDir, inst.Bin)
+			if pathExists(launcherPath) {
+				// Two packs claiming one bin name. The footprint check refuses this on the
+				// host (`program` is CombineExclusive by bin); first-writer-wins keeps the
+				// jail deterministic if it ever gets here anyway. It also covers a pack
+				// that repeats one bin across two of its OWN contributions.
+				continue
+			}
+			var launcher string
+			switch inst.Kind {
+			case "npm":
+				launcher = npmAgentLauncher(inst, stampDir)
+			case "native":
+				launcher = nativeAgentLauncher(inst, stampDir)
+			default:
+				continue
+			}
+			if err := writeExecutable(launcherPath, launcher); err != nil {
+				return err
+			}
 		}
 	}
 	return nil

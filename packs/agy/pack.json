@@ -3,8 +3,7 @@
     {
       "bin": "agy",
       "install_hints": {
-        "brew-cask": "antigravity-cli",
-        "nix": "antigravity-cli"
+        "brew-cask": "antigravity-cli"
       },
       "kind": "program",
       "url": "https://antigravity.google/cli/install.sh",

@@ -82,24 +82,39 @@ its path.
 rather than a guess presented as the maintainer's code. **This is intentional, not an
 oversight** — but it does mean the pack is not yet *the* pack, it is the pack's shape.
 
-### 2.2 No `program` contribution — and that is a workaround, not a design choice
+### 2.2 ~~No `program` contribution — a workaround, not a design choice~~ — ADOPTED `requires` 2026-08-03
 
-The pack needs `fd` and `fzf`. Declaring them the obvious way **breaks the jail**, because a
-`program` contribution generates a `~/.yolo-shims/<bin>` launcher that precedes `/bin` on PATH
-and execs only `$NPM_CONFIG_PREFIX/bin/<bin>` — never PATH — so a failed install makes the
-baked `/bin/fzf` unreachable and the shim exits 1.
+The pack declares **`requires` for `fd` and `fzf`**, with `install_hints` for
+brew/apt/dnf/pacman/nix. Q1.3 landed the presence-asserting kind and this pack adopted it
+immediately, as predicted — it was the case that motivated the question.
 
-Both tools **are already baked into the image** (`flake.nix:658` for `fd`, `:721` for `fzf`),
-so omitting `program` is correct today and the pack works. But it means:
+What the workaround was, and why it is gone. Declaring the tools the obvious way **broke the
+jail**: a `program` contribution generated a `~/.yolo-shims/<bin>` launcher that preceded
+`/bin` on PATH and execed only `$NPM_CONFIG_PREFIX/bin/<bin>` — never PATH — so a failed
+install made the baked `/bin/fzf` unreachable and the shim exited 1. Both tools **are** baked
+into the image (`flake.nix:658` for `fd`, `:721` for `fzf`), so omitting `program` was correct
+at the time and the pack worked. The cost was the two things this item flagged:
 
-- the pack carries **no `install_hints`**, so `apply --host` cannot tell a host user to install
-  `fd`/`fzf` — the exact capability Phase 8.3 just added;
-- the omission is **invisible** to a reader who does not know why.
+- the pack carried **no `install_hints`**, so `apply --host` could not tell a host user to
+  install `fd`/`fzf` — the exact capability Phase 8.3 had just added;
+- the omission was **invisible** to a reader who did not know why.
 
-**Blocked on:** the Q1.x decisions in
-[`../design/program-kind-defects.md`](../design/program-kind-defects.md). If Q1.3 lands a
-presence-asserting kind (`requires`?), this pack should adopt it immediately — it is the case
-that motivated the question.
+Three fixes had to land, and the order matters because each was hiding the next:
+
+1. **the PATH split** (2026-08-02) — launchers moved to `~/.yolo-launchers`, ordered after
+   `/bin`, so an installer can no longer shadow a baked binary;
+2. **the plural install accessor** (2026-08-03) — only the *first* `program` per pack
+   installed, so even post-split a two-binary pack could not be expressed;
+3. **the `requires` kind** (2026-08-03) — the actual fix here. Neither 1 nor 2 would have
+   been right on their own: `program` means *"yolo installs this"*, and the pack's claim is
+   *"this must exist"*. `requires` asserts presence, generates nothing (so nothing to
+   shadow), reports a missing bin by name at boot, and feeds `check-deps`/`apply --host`
+   through the same hint plumbing.
+
+The `nix` hints stay on **this** pack while the six shipped agent packs dropped theirs, and
+the asymmetry is the rule: `fd`/`fzf` are genuine third-party deps where the user's package
+manager is right and nixpkgs is current, whereas an agent CLI ships its own installer *and*
+updater (and nixpkgs was 16 releases behind on `github-copilot-cli`).
 
 ### 2.3 ~~The double `rendered` line is expected here~~ — FIXED 2026-08-02
 

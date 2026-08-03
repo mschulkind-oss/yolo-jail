@@ -5,6 +5,8 @@ import (
 	"path/filepath"
 	"strings"
 	"testing"
+
+	"github.com/mschulkind-oss/yolo-jail/internal/packload"
 )
 
 // launcherdir_test.go covers the BLOCKER/INSTALLER split: ~/.yolo-shims holds blockers and
@@ -209,6 +211,84 @@ func TestBlockedAndDeclaredToolGetsBothAndBlockerWins(t *testing.T) {
 	if shimIdx > launcherIdx {
 		t.Error("the blocker must precede the launcher on PATH, or a blocked tool that a " +
 			"pack also declares would resolve to the installer and run unblocked")
+	}
+}
+
+// TestPackWithTwoProgramsGetsTwoLaunchers is the jail half of finding 11.2.
+//
+// InstallContribution() used to `return` inside its loop, so a pack declaring `fd` AND
+// `fzf` got a launcher for `fd` only — while DepRequirements() (the host path) returned
+// both. One declaration, two answers, and the jail was the side dropping data silently.
+//
+// `program` is CombineExclusive by BIN NAME, not per pack, so two different bins from one
+// pack were never a collision; and with the launcher dir ordered after /bin, N launchers
+// carry no more shadowing risk than one. Both flavors are covered, because the nested loop
+// has to pick a template per contribution rather than once per pack.
+func TestPackWithTwoProgramsGetsTwoLaunchers(t *testing.T) {
+	home := t.TempDir()
+	packRoot := t.TempDir()
+	packDir := filepath.Join(packRoot, "twotools")
+	if err := os.MkdirAll(packDir, 0o755); err != nil {
+		t.Fatal(err)
+	}
+	manifest := `{"name":"twotools","contributes":[` +
+		`{"kind":"program","bin":"shellcheck","via":"npm","package":"shellcheck-bin"},` +
+		`{"kind":"program","bin":"shfmt","via":"installer","url":"https://example/shfmt.sh"}]}`
+	if err := os.WriteFile(filepath.Join(packDir, "pack.json"), []byte(manifest), 0o644); err != nil {
+		t.Fatal(err)
+	}
+
+	e := NewEnv(map[string]string{"JAIL_HOME": home, "YOLO_PACK_ROOT": packRoot})
+	if err := GenerateAgentLaunchers(e); err != nil {
+		t.Fatal(err)
+	}
+
+	first, err := os.ReadFile(filepath.Join(e.LauncherDir(), "shellcheck"))
+	if err != nil {
+		t.Fatalf("the first program's launcher is missing: %v", err)
+	}
+	if !strings.Contains(string(first), "shellcheck-bin") {
+		t.Errorf("shellcheck launcher should install its npm package:\n%s", first)
+	}
+	second, err := os.ReadFile(filepath.Join(e.LauncherDir(), "shfmt"))
+	if err != nil {
+		t.Fatalf("the SECOND program's launcher is missing — only the first `program` per "+
+			"pack installed, so a pack needing two tools silently got one: %v", err)
+	}
+	if !strings.Contains(string(second), "https://example/shfmt.sh") {
+		t.Errorf("shfmt launcher should carry its installer URL:\n%s", second)
+	}
+}
+
+// TestFetchedPackKeepsNpmInstallAndLosesOnlyTheInstaller: the origin gate is PER
+// contribution, asserted at the generator rather than only at packload, because this is the
+// path that actually writes an executable. A pack mixing an npm install with a
+// curl-to-shell installer must not have the URL smuggled through beside the npm one.
+func TestFetchedPackKeepsNpmInstallAndLosesOnlyTheInstaller(t *testing.T) {
+	packRoot := t.TempDir()
+	packDir := filepath.Join(packRoot, "mixed")
+	if err := os.MkdirAll(packDir, 0o755); err != nil {
+		t.Fatal(err)
+	}
+	manifest := `{"name":"mixed","contributes":[` +
+		`{"kind":"program","bin":"safe","via":"npm","package":"safe-pkg"},` +
+		`{"kind":"program","bin":"sharp","via":"installer","url":"https://evil/sh"}]}`
+	if err := os.WriteFile(filepath.Join(packDir, "pack.json"), []byte(manifest), 0o644); err != nil {
+		t.Fatal(err)
+	}
+
+	// The JAIL loader trusts the staged tree (the host already applied the gate), so drive
+	// the gate directly through a fetched-origin load to assert the per-contribution split.
+	p, probs := packload.LoadDir(packDir, "mixed", false)
+	if len(probs) != 0 {
+		t.Fatalf("manifest problems: %v", probs)
+	}
+	granted, refused := p.HonoredInstalls()
+	if len(granted) != 1 || granted[0].Bin != "safe" {
+		t.Errorf("the npm install must survive: %+v", granted)
+	}
+	if len(refused) != 1 || !strings.Contains(refused[0], "https://evil/sh") {
+		t.Errorf("exactly the installer must be refused, naming its URL: %v", refused)
 	}
 }
 

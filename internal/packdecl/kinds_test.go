@@ -11,7 +11,7 @@ import (
 func TestKnownKindsCoverEveryConstant(t *testing.T) {
 	// Every declared Kind constant must be registered.
 	for _, k := range []Kind{
-		KindProgram, KindSkills, KindBriefing, KindFiles, KindConfig,
+		KindProgram, KindRequires, KindSkills, KindBriefing, KindFiles, KindConfig,
 		KindConfigOverlay, KindState, KindReadsHost, KindMount, KindEnv,
 		KindLaunch, KindHook, KindAutonomy,
 	} {
@@ -27,8 +27,8 @@ func TestKnownKindsCoverEveryConstant(t *testing.T) {
 			t.Errorf("kind %q has an empty Claims description", k)
 		}
 	}
-	if got := len(KnownKinds()); got != 13 {
-		t.Errorf("KnownKinds() has %d entries, want 13 — a kind was added/removed without updating the test", got)
+	if got := len(KnownKinds()); got != 14 {
+		t.Errorf("KnownKinds() has %d entries, want 14 — a kind was added/removed without updating the test", got)
 	}
 }
 
@@ -78,9 +78,13 @@ func TestCombineRulesMatchDesign(t *testing.T) {
 		KindConfigOverlay: CombineOverlay,
 		KindReadsHost:     CombineShared,
 		KindMount:         CombineShared,
-		KindEnv:           CombineMerge,
-		KindState:         CombineScoped,
-		KindHook:          CombinePerHook,
+		// requires is SHARED, not exclusive: many packs may require one binary, and none
+		// owns a path for it. That is the difference from program, which is exclusive
+		// precisely because it owns a launcher filename.
+		KindRequires: CombineShared,
+		KindEnv:      CombineMerge,
+		KindState:    CombineScoped,
+		KindHook:     CombinePerHook,
 	}
 	for k, c := range want {
 		fp, _ := FootprintOf(k)

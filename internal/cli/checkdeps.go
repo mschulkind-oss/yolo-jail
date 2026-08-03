@@ -58,6 +58,13 @@ func checkDepsMain(args []string, out, errw io.Writer, color bool) int {
 			pr.Printf("[green]✓[/green] %-16s %s", r.Bin, r.Path)
 		case r.Remedy != "":
 			pr.Printf("[red]✗[/red] %-16s MISSING → %s", r.Bin, r.Remedy)
+			// The package-manager alternative for a dep whose primary remedy is the tool's
+			// own installer. Shown because a user who would rather go through their package
+			// manager should not have to read pack.json to find the token — but shown SECOND,
+			// since the first-party installer is the one that stays current.
+			if r.Fallback != "" {
+				pr.Printf("  [dim]or via %s: %s[/dim]", r.Manager, r.Fallback)
+			}
 		default:
 			pr.Printf("[yellow]?[/yellow] %-16s MISSING, no install hint for this host", r.Bin)
 		}

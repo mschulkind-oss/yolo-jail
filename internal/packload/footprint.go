@@ -74,6 +74,15 @@ func FootprintOf(p *Pack) Footprint {
 				detail = "npm: " + c.Package
 			}
 			add(packdecl.KindProgram, c.Bin, detail, review)
+		case packdecl.KindRequires:
+			// A claim, but never a collision (CombineShared): many packs may require one
+			// binary, and none owns a path for it. Not review-worthy either — asserting a
+			// tool must exist widens no trust surface, unlike an installer URL.
+			detail := "must already be on PATH (yolo installs nothing)"
+			if len(c.InstallHints) > 0 {
+				detail += "; hints: " + strings.Join(sortedMapKeys(c.InstallHints), "/")
+			}
+			add(packdecl.KindRequires, c.Bin, detail, false)
 		case packdecl.KindSkills:
 			add(packdecl.KindSkills, c.Into, "merged (built-in < pack < user)", false)
 		case packdecl.KindBriefing:
@@ -100,7 +109,7 @@ func FootprintOf(p *Pack) Footprint {
 				add(packdecl.KindMount, c.Host, "read-only → /ctx/"+c.Into, true)
 			}
 		case packdecl.KindEnv:
-			for _, k := range sortedEnvKeys(c.Vars) {
+			for _, k := range sortedMapKeys(c.Vars) {
 				add(packdecl.KindEnv, k, "="+c.Vars[k], false)
 			}
 		case packdecl.KindLaunch:
@@ -541,11 +550,12 @@ func ReviewWorthy(packs []*Pack) []Claim {
 	return out
 }
 
-// sortedEnvKeys returns the keys of an env `vars` map in sorted order, so the
-// footprint prints one claim per variable deterministically.
-func sortedEnvKeys(vars map[string]string) []string {
-	keys := make([]string, 0, len(vars))
-	for k := range vars {
+// sortedMapKeys returns a string-keyed map's keys in sorted order, so a footprint line
+// built from one (an env `vars` map, a `requires` install_hints map) is deterministic —
+// Go's map order is not, and these strings are compared in tests and read by humans.
+func sortedMapKeys(m map[string]string) []string {
+	keys := make([]string, 0, len(m))
+	for k := range m {
 		keys = append(keys, k)
 	}
 	sort.Strings(keys)

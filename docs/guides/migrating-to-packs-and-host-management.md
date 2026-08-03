@@ -112,11 +112,12 @@ The `skills/` + `AGENTS.md` layout is the **zero-ceremony** path — it works wi
 
 If your pack should also carry composed config, set env vars, or install a tool, add a
 `pack.json` with a `contributes` list — one typed entry per effect, each with a `kind`
-from a closed set of thirteen:
+from a closed set of fourteen:
 
 | Kind | What it contributes |
 |---|---|
-| `program` | a tool on PATH (`via: npm`/`installer`) |
+| `program` | a tool on PATH that **yolo installs** (`via: npm`/`installer`) |
+| `requires` | a tool that must **already** be on PATH — asserted, never installed |
 | `skills` / `briefing` | a skills tree / prose (usually the zero-ceremony dir + `AGENTS.md`) |
 | `config` | a composed config surface (e.g. `~/.claude/settings.json`) |
 | `config-overlay` | keys asserted onto *another* pack's surface |

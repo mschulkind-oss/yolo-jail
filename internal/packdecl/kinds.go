@@ -34,6 +34,25 @@ const (
 	// in ~/.yolo-launchers/, which is ordered LAST on PATH — after /bin — so the
 	// launcher only runs when nothing else provides the name). Sole-owned by bin name.
 	KindProgram Kind = "program"
+	// KindRequires: a binary the pack needs to EXIST, which it does not install.
+	//
+	// The distinction from KindProgram is presence-vs-install, and it is not cosmetic.
+	// `program` means "yolo installs this, and owns a launcher path for it"; `requires`
+	// means "this must be on PATH, from wherever your environment gets it". A pack wanting
+	// a tool the image already bakes (fd, fzf) or the user already has (jq, psql) had only
+	// `program`, so it either lied — declaring an npm install for a baked binary — or said
+	// nothing and lost the host-notch hints entirely.
+	//
+	// In a jail it asserts presence at boot and reports a missing bin BY NAME; it generates
+	// NO launcher, so nothing it declares can shadow anything. At the host it feeds
+	// check-deps / apply --host through exactly the same install_hints plumbing `program`
+	// does — which is its whole host-side purpose, and what lets a CONTENT-only pack carry
+	// remedies.
+	//
+	// NOT CombineExclusive, unlike program: many packs may require one binary (that is the
+	// normal case for a common tool), and no pack owns a path for it. program is exclusive
+	// precisely because it owns a launcher filename.
+	KindRequires Kind = "requires"
 	// KindSkills: a skills tree merged into an agent's skills dir. Multiple packs
 	// into one dir is the feature, not a conflict (ordered merge).
 	//
@@ -151,6 +170,14 @@ var footprints = map[Kind]Footprint{
 	KindProgram: {
 		Kind: KindProgram, Combine: CombineExclusive, MayBeReviewWorthy: true,
 		Claims: "a name on PATH and a launcher in ~/.yolo-launchers/",
+	},
+	KindRequires: {
+		// CombineShared, not Exclusive: a required binary is an independent ASSERTION by
+		// each pack, not a path any of them owns, so two packs requiring `jq` is the
+		// ordinary case rather than a collision. (program is exclusive because it owns a
+		// launcher filename; requires generates nothing.)
+		Kind: KindRequires, Combine: CombineShared,
+		Claims: "a binary that must already be on PATH (asserted, never installed)",
 	},
 	KindSkills: {
 		Kind: KindSkills, Combine: CombineMerge,

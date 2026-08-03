@@ -222,8 +222,10 @@ func (o *Options) stagePacks(cname string) (string, []*packload.Pack, []agents.P
 		if _, mountRefused := p.HonoredMounts(); len(mountRefused) > 0 {
 			refused = append(refused, mountRefused...)
 		}
-		if _, why := p.HonoredInstall(); why != "" {
-			refused = append(refused, why)
+		// Per contribution: a pack mixing an npm install with a curl-to-shell installer
+		// gets exactly one refusal, for the installer.
+		if _, installRefused := p.HonoredInstalls(); len(installRefused) > 0 {
+			refused = append(refused, installRefused...)
 		}
 		for _, msg := range refused {
 			o.pr(o.Stdout).print("[yellow]Warning: " + msg + "[/yellow]")

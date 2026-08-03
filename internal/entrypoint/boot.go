@@ -425,6 +425,12 @@ func Main(args []string) error {
 	p.mark("generate_agent_launchers")
 	genStep(e, "generate_package_manager_launchers", func() error { return GeneratePackageManagerLaunchers(e) })
 	p.mark("generate_package_manager_launchers")
+	// `requires` asserts presence and generates nothing, so it is not a genStep: an absent
+	// required binary is a WARNING naming the bin, not a boot failure (see
+	// AssertRequiredBins). Run after the launchers so a `program` the same set of packs
+	// installs is already represented on BootPath.
+	AssertRequiredBins(e)
+	p.mark("assert_required_bins")
 
 	// Build the combined CA bundle BEFORE bashrc and before any child spawn, so
 	// the env vars we export propagate to every child the entrypoint spawns.

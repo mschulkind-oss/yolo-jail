@@ -50,6 +50,10 @@ func RunDarwinBootstrap(e *Env, opts DarwinBootstrapOptions) error {
 	genStep(e, "generate_shims", func() error { return GenerateShims(e) })
 	genStep(e, "generate_agent_launchers", func() error { return GenerateAgentLaunchers(e) })
 	genStep(e, "generate_package_manager_launchers", func() error { return GeneratePackageManagerLaunchers(e) })
+	// Warn about any absent `requires` binary (generates nothing, so not a genStep). It
+	// matters MORE here than in a container: macos-user bakes no image at all, so a
+	// required tool comes from the user's own machine or not at all.
+	AssertRequiredBins(e)
 	genStep(e, "generate_bashrc", func() error { return GenerateBashrc(e) })
 	genStep(e, "generate_mise_config", func() error { return ConfigureMisePrism(e) })
 	genStep(e, "generate_mcp_wrappers", func() error { return GenerateMCPWrappers(e) })

@@ -119,7 +119,15 @@ func HostFields() FieldSet {
 		packdecl.KindLaunch:        true,
 		packdecl.KindHook:          true,
 		packdecl.KindProgram:       true, // honored but confirm-gated by the caller (OQ-6/7)
-		packdecl.KindAutonomy:      true, // honored: host renders the GUARDED posture (§4.2)
+		// requires is honored, and REPORTED with its hints — that is the kind's entire
+		// host-side purpose. It asserts a binary must exist, which is exactly the question a
+		// host target answers (below jail, yolo bakes no image, so every dep is the host's);
+		// and it generates nothing, so there is no install to gate. Refusing it would leave a
+		// content-only pack unable to carry a remedy for the tool it needs — the gap that
+		// motivated the kind, since `program` was the only way to get install_hints and it
+		// implies an install nobody wanted.
+		packdecl.KindRequires: true,
+		packdecl.KindAutonomy: true, // honored: host renders the GUARDED posture (§4.2)
 		// files is honored by WRITING the tree, not binding it. The old refusal ("nothing
 		// to bind into off-container") was true of the mechanism and false of the intent: a
 		// pack that owns ~/.claude/file-suggestion.sh means "this file is mine to

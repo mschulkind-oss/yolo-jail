@@ -236,36 +236,39 @@ func TestNativeInstallerURLsAreLive(t *testing.T) {
 	}
 	checked := 0
 	for _, p := range loadAll(t) {
-		inst := p.Decl.InstallContribution()
-		if inst == nil || inst.InstallerURL == "" {
-			continue
+		// EVERY program contribution: a pack declaring two installers must have both URLs
+		// checked, not just the first one the manifest happens to list.
+		for _, inst := range p.Decl.InstallContributions() {
+			if inst.InstallerURL == "" {
+				continue
+			}
+			url := inst.InstallerURL
+			t.Run(p.Name+"/"+inst.Bin, func(t *testing.T) {
+				client := &http.Client{Timeout: 30 * time.Second}
+				resp, err := client.Get(url)
+				if err != nil {
+					// A network hiccup must not fail the suite — the assertion is about the
+					// URL being WRONG, not about this machine's connectivity.
+					t.Skipf("cannot reach %s: %v", url, err)
+				}
+				defer func() { _ = resp.Body.Close() }()
+				if resp.StatusCode != http.StatusOK {
+					t.Errorf("%s installerUrl %s returned %d — the endpoint moved",
+						p.Name, url, resp.StatusCode)
+					return
+				}
+				head := make([]byte, 512)
+				n, _ := io.ReadAtLeast(resp.Body, head, 1)
+				body := strings.ToLower(strings.TrimSpace(string(head[:n])))
+				if strings.HasPrefix(body, "<!doctype") || strings.HasPrefix(body, "<html") {
+					t.Errorf("%s installerUrl %s serves a WEB PAGE, not a script — piping "+
+						"this into bash is the \"syntax error near unexpected token `<'\" "+
+						"failure. Find the tool's current install command and update the pack.",
+						p.Name, url)
+				}
+			})
+			checked++
 		}
-		url := inst.InstallerURL
-		t.Run(p.Name, func(t *testing.T) {
-			client := &http.Client{Timeout: 30 * time.Second}
-			resp, err := client.Get(url)
-			if err != nil {
-				// A network hiccup must not fail the suite — the assertion is about the URL
-				// being WRONG, not about this machine's connectivity.
-				t.Skipf("cannot reach %s: %v", url, err)
-			}
-			defer func() { _ = resp.Body.Close() }()
-			if resp.StatusCode != http.StatusOK {
-				t.Errorf("%s installerUrl %s returned %d — the endpoint moved",
-					p.Name, url, resp.StatusCode)
-				return
-			}
-			head := make([]byte, 512)
-			n, _ := io.ReadAtLeast(resp.Body, head, 1)
-			body := strings.ToLower(strings.TrimSpace(string(head[:n])))
-			if strings.HasPrefix(body, "<!doctype") || strings.HasPrefix(body, "<html") {
-				t.Errorf("%s installerUrl %s serves a WEB PAGE, not a script — piping this "+
-					"into bash is the \"syntax error near unexpected token `<'\" failure. "+
-					"Find the tool's current install command and update the pack.",
-					p.Name, url)
-			}
-		})
-		checked++
 	}
 	if checked == 0 {
 		t.Error("no native installer URLs found — this test has silently stopped covering anything")

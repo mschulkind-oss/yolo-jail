@@ -7,8 +7,7 @@
       ],
       "install_hints": {
         "brew": "pi-coding-agent",
-        "dnf": "pi-coding-agent",
-        "nix": "pi-coding-agent"
+        "dnf": "pi-coding-agent"
       },
       "kind": "program",
       "package": "@earendil-works/pi-coding-agent",

@@ -3,8 +3,7 @@
     {
       "bin": "claude",
       "install_hints": {
-        "brew-cask": "claude-code",
-        "nix": "claude-code"
+        "brew-cask": "claude-code"
       },
       "kind": "program",
       "url": "https://claude.ai/install.sh",

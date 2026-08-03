@@ -25,15 +25,18 @@ type Contribution struct {
 	// Kind selects from the closed set (KindProgram, KindSkills, …). Required.
 	Kind Kind `json:"kind"`
 
-	// --- program (install) ---
-	Bin     string   `json:"bin,omitempty"`     // program/launch: the binary name
+	// --- program (install) / requires (assertion) ---
+	Bin     string   `json:"bin,omitempty"`     // program/requires/launch: the binary name
 	Via     string   `json:"via,omitempty"`     // program: "npm" | "installer"
 	Package string   `json:"package,omitempty"` // program via npm: the npm package
 	URL     string   `json:"url,omitempty"`     // program via installer: the curl-to-shell URL
 	Flags   []string `json:"flags,omitempty"`   // program: extra install flags; launch: the injected flags
 	// InstallHints maps a host package manager ("brew"|"apt"|"dnf"|"pacman"|"nix") to
-	// the package name that provides Bin on that manager (env-manager plan Phase 6). A
-	// pack author knows this better than a built-in attr→pkg table that goes stale; it
+	// the package name that provides Bin on that manager (env-manager plan Phase 6). Read
+	// from a `program` AND from a `requires` contribution — a pack that only ASSERTS a
+	// binary is exactly the case with the most use for a remedy, since yolo will never
+	// install it. A pack author knows this better than a built-in attr→pkg table that
+	// goes stale; it
 	// is what `check`/`apply` below jail use to probe for the binary and, if missing,
 	// emit a runnable manifest (a Brewfile and kin). Optional: absent means yolo can
 	// name the binary as missing but not the remedy. Declared by the pack that
@@ -114,9 +117,9 @@ type Contribution struct {
 }
 
 // Contributions returns the pack's declared contributions. THE accessor every
-// read path uses — the legacy-shaped projections below (InstallContribution,
+// read path uses — the legacy-shaped projections below (InstallContributions,
 // HostFileContributions, …) are all derived from it, so a consumer that wants
-// "the install" or "the host files" reads them without touching the manifest
+// "the installs" or "the host files" reads them without touching the manifest
 // shape.
 func (m *Manifest) Contributions() []Contribution {
 	return m.Contributes
@@ -127,23 +130,35 @@ func (m *Manifest) Contributions() []Contribution {
 // install" or "the host files" reads them through one accessor rather than
 // filtering the contribution list itself.
 
-// InstallContribution returns the pack's program contribution as a legacy *Install,
-// or nil when it declares none.
-func (m *Manifest) InstallContribution() *Install {
+// InstallContributions returns EVERY program contribution as a legacy Install, in
+// declaration order. Empty when the pack declares none.
+//
+// Plural because a pack declaring two programs means two programs. This used to
+// `return` inside the loop and hand back only the FIRST, so a pack wanting
+// `shellcheck` + `shfmt` (or `jq` + `yq`) silently got a launcher for one of them —
+// while DepRequirements below looped to completion, so the HOST path already reported
+// both. The jail was the side dropping data, with no diagnostic.
+//
+// `program` is CombineExclusive by BIN NAME, not per pack (kinds.go): two packs both
+// installing `fzf` is still a collision, one pack installing two different bins never
+// was. And since the launchers moved to ~/.yolo-launchers — ordered after /bin — N
+// launchers carry no more shadowing risk than one.
+func (m *Manifest) InstallContributions() []Install {
+	var out []Install
 	for _, c := range m.Contributions() {
 		if c.Kind != KindProgram {
 			continue
 		}
-		in := &Install{Bin: c.Bin, Flags: c.Flags}
+		in := Install{Bin: c.Bin, Flags: c.Flags}
 		switch c.Via {
 		case "npm":
 			in.Kind, in.Package = "npm", c.Package
 		case "installer":
 			in.Kind, in.InstallerURL = "native", c.URL
 		}
-		return in
+		out = append(out, in)
 	}
-	return nil
+	return out
 }
 
 // DepRequirement is one binary a pack needs on the host, with the per-manager package
@@ -156,17 +171,81 @@ type DepRequirement struct {
 	// Hints maps a host package manager to the package providing Bin. May be empty:
 	// then yolo can report Bin missing but not a remedy.
 	Hints map[string]string
+	// SelfInstall is the command the PACK ITSELF declares for this binary, derived from a
+	// `program` contribution's via/url/package — `npm install -g <pkg>` or
+	// `curl -fsSL <url> | sh`. Empty for a `requires` contribution, which by definition
+	// installs nothing, and for a program with no recognized `via`.
+	//
+	// It exists because routing a tool with a FIRST-PARTY installer through a distro
+	// package manager is a staleness trap: measured 2026-08-02, nixpkgs was current for
+	// claude-code/codex/pi-coding-agent and 16 releases behind for github-copilot-cli
+	// (1.0.61 vs 1.0.77), with nothing in the packaging to say which. The pack already
+	// declares the tool's own updater — the mechanism these CLIs are designed around — so
+	// that is the remedy to lead with, and no new schema is needed to know it.
+	//
+	// It is a SUGGESTION the user runs, never something yolo runs. A curl-to-shell is a
+	// different trust proposition from `brew install` (yolo already flags an installer URL
+	// `⚠ review` in the footprint), and running one is env-manager Phase 4.3's
+	// confirm-gated territory.
+	SelfInstall string
 }
 
-// DepRequirements returns every program contribution that carries install_hints, as
-// the host-dep requirements the dep checker probes. A program with no hints still needs
-// its bin, but yolo has no remedy to offer, so it is reported as unprobeable-remedy
-// rather than omitted — the caller decides. Only program contributions with a Bin are
-// returned.
+// selfInstallCommand derives the pack's OWN install command for a program contribution, or
+// "" when the kind/via carries none. Kept beside the via/url/package field docs because
+// that is where a reader looks for what those fields mean.
+func selfInstallCommand(c Contribution) string {
+	if c.Kind != KindProgram {
+		return "" // `requires` installs nothing; that is the whole difference
+	}
+	switch c.Via {
+	case "npm":
+		if c.Package == "" {
+			return ""
+		}
+		return "npm install -g " + c.Package
+	case "installer":
+		if c.URL == "" {
+			return ""
+		}
+		return "curl -fsSL " + c.URL + " | sh"
+	}
+	return ""
+}
+
+// DepRequirements returns every program AND requires contribution as the host-dep
+// requirements the dep checker probes. A contribution with no hints still needs its bin,
+// but yolo has no remedy to offer, so it is reported as unprobeable-remedy rather than
+// omitted — the caller decides. Only contributions with a Bin are returned.
+//
+// `requires` is here for the reason the kind exists: below the jail notch yolo bakes no
+// image, so "this binary must exist" is the same host question as "yolo would install
+// this", and answering it through a second probe would let the two disagree. The kinds
+// differ in what they do to a JAIL (a program gets a launcher, a requires gets an
+// assertion), not in what they ask of a host.
 func (m *Manifest) DepRequirements() []DepRequirement {
 	var out []DepRequirement
 	for _, c := range m.Contributions() {
-		if c.Kind != KindProgram || c.Bin == "" {
+		if c.Kind != KindProgram && c.Kind != KindRequires {
+			continue
+		}
+		if c.Bin == "" {
+			continue
+		}
+		out = append(out, DepRequirement{
+			Bin: c.Bin, Hints: c.InstallHints, SelfInstall: selfInstallCommand(c),
+		})
+	}
+	return out
+}
+
+// RequiredBins returns the binaries this pack ASSERTS must exist — the `requires`
+// contributions — in declaration order. Distinct from DepRequirements (which folds these
+// in with `program` for the host probe) because the JAIL asserts only these: a `program`
+// bin that is absent is normal, since its launcher installs it on first use.
+func (m *Manifest) RequiredBins() []DepRequirement {
+	var out []DepRequirement
+	for _, c := range m.Contributions() {
+		if c.Kind != KindRequires || c.Bin == "" {
 			continue
 		}
 		out = append(out, DepRequirement{Bin: c.Bin, Hints: c.InstallHints})
@@ -503,6 +582,21 @@ func validateContribution(label string, c Contribution) []string {
 			problems = append(problems, label+": program needs \"via\" (npm or installer)")
 		default:
 			problems = append(problems, fmt.Sprintf("%s: unknown via %q (npm or installer)", label, c.Via))
+		}
+	case KindRequires:
+		req("bin", c.Bin)
+		// `via`/`package`/`url` belong to program, and a `requires` carrying one is the
+		// author confusing the two kinds — which is worth saying, because the mistake is
+		// silent otherwise (the fields are simply never read, and the tool never installs).
+		for _, f := range []struct{ name, val string }{
+			{"via", c.Via}, {"package", c.Package}, {"url", c.URL},
+		} {
+			if f.val != "" {
+				problems = append(problems, fmt.Sprintf(
+					"%s: requires does not take %q — it ASSERTS a binary is present and "+
+						"installs nothing; use kind \"program\" to have yolo install it",
+					label, f.name))
+			}
 		}
 	case KindSkills, KindBriefing, KindFiles:
 		req("from", c.From)

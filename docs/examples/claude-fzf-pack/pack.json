@@ -3,6 +3,16 @@
   "description": "An fd|fzf custom file finder for Claude Code's @-file completion.",
   "contributes": [
     {
+      "kind": "requires",
+      "bin": "fd",
+      "install_hints": { "brew": "fd", "apt": "fd-find", "dnf": "fd-find", "pacman": "fd", "nix": "fd" }
+    },
+    {
+      "kind": "requires",
+      "bin": "fzf",
+      "install_hints": { "brew": "fzf", "apt": "fzf", "dnf": "fzf", "pacman": "fzf", "nix": "fzf" }
+    },
+    {
       "kind": "files",
       "from": "bin",
       "into": ".claude/bin"

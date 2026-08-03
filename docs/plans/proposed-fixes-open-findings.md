@@ -1,8 +1,11 @@
 # Proposed fixes for the open findings
 
-**Status:** **ALL ITEMS DECIDED — ready to implement, awaiting a go.** 2026-08-02. **No code
-changed yet.** Written in answer to *"do you have proposed fixes for what you're pointing out?"*,
-then resolved by nine review rulings the same day.
+**Status:** **ALL ITEMS DECIDED. Shipping in progress** — #1's PATH split, #4, #5, #7 landed
+2026-08-02; **#2, #3, #6 landed 2026-08-03**. Still open: **#1's baked fallback**, **#8** (parity
+table), **#9** (multi-arch builder), and **#10** (host MCP servers, in progress). Written
+2026-08-02 in answer to *"do you have proposed fixes for what you're pointing out?"*, then
+resolved by nine review rulings the same day; each section carries a shipped note where the
+implementation differed from the proposal.
 
 Everything below started as an open item I flagged rather than fixed, each because it needed a
 decision I did not think was mine. **Those decisions are now made.** Three rulings changed the
@@ -48,11 +51,11 @@ waiting on a decision — this doc is ready to implement against.
 | # | Finding | Decided approach | Ruling |
 |---|---|---|---|
 | 1 | `program` shadows a baked binary and breaks it (11.1 / Q1.1) | **Split the shim dir** — installers move *after* `/bin`, so shadowing is impossible. Baked-in fallback stays as the safety net for a real install failure | **RULED — do it now**; my "wrong blast radius" hedge overruled. **SPLIT SHIPPED 2026-08-02** (`~/.yolo-launchers`); the fallback is still open |
-| 2 | Presence-vs-install conflated (Q1.3) | Add a `requires` kind (asserts presence, generates nothing) | **RULED — build it, AND keep #1**; they are not alternatives |
-| 3 | Only the first `program` per pack installs (11.2 / Q2.1) | **Return a slice, generate N launchers** | **REVERSED** — I proposed a validation error; no case for constricting packs |
+| 2 | Presence-vs-install conflated (Q1.3) | Add a `requires` kind (asserts presence, generates nothing) | **RULED — build it, AND keep #1**; they are not alternatives · **SHIPPED 2026-08-03** |
+| 3 | Only the first `program` per pack installs (11.2 / Q2.1) | **Return a slice, generate N launchers** | **REVERSED** — I proposed a validation error; no case for constricting packs · **SHIPPED 2026-08-03** |
 | 4 | A dropped pack's staged tree keeps rendering (11.3 / Q3.1) | Prune unconfigured slugs, contents-only, **never** clear-and-restage | context expanded on request |
 | 5 | `depcheck.Manifest` cannot express a brew cask (8.4) | `brew-cask` key → `cask "<pkg>"` in the Brewfile | **RULED — just make it work** · **SHIPPED 2026-08-02** |
-| 6 | `install_hints` routes agents through nix (8.3) | **Prefer the pack's OWN installer**; **DROP the nix hints for the six agent CLIs** (keep them for real deps like `fd`/`jq`) | **REFRAMED, then TRIMMED** — `copilot` is 16 releases behind, and the "pin the closure" case I invented is unreachable |
+| 6 | `install_hints` routes agents through nix (8.3) | **Prefer the pack's OWN installer**; **DROP the nix hints for the six agent CLIs** (keep them for real deps like `fd`/`jq`) | **REFRAMED, then TRIMMED** — `copilot` is 16 releases behind, and the "pin the closure" case I invented is unreachable · **SHIPPED 2026-08-03** |
 | 7 | `packages: ["claude-code"]` fails at build with a nix trace (nix OQ-6) | `meta.available` check beside `availableOn` | still stands — §6 removes the example, not the defect · **SHIPPED 2026-08-02** |
 | 8 | `rmwProvenance` is a second "which layer won" | Parity table now; **unify at the third** derivation | **RULED — wait for 3** |
 | 9 | Nightly macOS builder arch mismatch (BACKLOG E8) | Publish the builder multi-arch (or skip the two tests, recorded) | **CORRECTED** — a CI capability constraint, not platform support |
@@ -234,6 +237,33 @@ generation disappears.
 
 ## 2. A `requires` kind — and why it should be decided FIRST (Q1.3)
 
+> **SHIPPED 2026-08-03, as proposed.** `packdecl.KindRequires` is the 14th kind:
+> `{bin, install_hints}`, `CombineShared`, review-worthy never. `RequiredBins()` is the
+> jail-side projection and `AssertRequiredBins` (`internal/entrypoint/requires.go`) is the
+> boot step; `DepRequirements()` folds `requires` in beside `program` so the host probe is
+> literally the same one. Three things that were decided during implementation rather than
+> above:
+>
+> 1. **`HostFields()`: honored-and-REPORTED**, as the doc's own "decide and defend" leaned.
+>    Trivially-honored would have been wrong: the kind's entire host-side purpose IS the
+>    hints, so a target that "honors" it while printing nothing would recreate G1 — the
+>    failure mode where `skills`/`briefing` were in the honored set with no renderer and
+>    vanished with no output line. It shares `apply --host`'s dep-report path with `program`,
+>    and the line names WHICH kind asked, because a user reading `program fzf MISSING` would
+>    look for the install yolo was about to do and there isn't one.
+> 2. **A missing required bin is a WARNING, not an A12 boot failure.** A12 is fatal because a
+>    half-written config file hands the agent a broken home; nothing here is half-written — a
+>    pack asserted something and the image disagrees, while the pack's other contributions are
+>    fine. Fatal would mean one bad `requires` stops the jail you need in order to fix the
+>    pack.
+> 3. **The probe asks about `BootPath(e)`, not the process PATH.** At that point in the boot
+>    the entrypoint's own PATH is still the container default, so `exec.LookPath` would answer
+>    a question nobody asked — whether the tool is visible to the *entrypoint* rather than to
+>    the agent.
+>
+> `via`/`package`/`url` on a `requires` are refused BY NAME, because otherwise the mistake is
+> silent: the fields are simply never read, so the tool never installs and nothing says why.
+
 **The observation.** The fzf pack's actual need is *"fzf must exist"*, not *"install fzf from
 npm"*. `program` only expresses the second, so the pack had to either lie (declare an npm
 install for a baked binary — which breaks it, per #1) or stay silent (ship no
@@ -275,6 +305,28 @@ order.
 ---
 
 ## 3. Only the first `program` per pack installs (11.2) — **fix the loop**
+
+> **SHIPPED 2026-08-03, as ruled.** `InstallContributions() []Install`;
+> `GenerateAgentLaunchers` is a nested loop. Four callers, and the origin gate was the one
+> that mattered:
+>
+> | caller | change |
+> |---|---|
+> | `packload.HonoredInstall` → **`HonoredInstalls() ([]Install, []string)`** | the gate is applied **per contribution**, returning the granted set plus one refusal string per refused entry — matching `HonoredHostFiles`/`HonoredMounts`, which already had that shape |
+> | `entrypoint.GenerateAgentLaunchers` | nested loop; `pathExists` still guards per-name, which now also covers a pack repeating a bin across two of its own contributions |
+> | `entrypoint.packAliases` (`shell.go`) | was silently first-only too — a pack with two programs and launchFlags for both got one alias |
+> | `cli/run.stagePacks` | appends every refusal instead of one |
+> | `packload/packproperties_test.go` (installer-URL liveness) | now checks EVERY installer URL, subtest per bin — it was only reaching the first one |
+>
+> **Why the per-contribution gate is the load-bearing part:** a pack may mix an `npm` install
+> with a curl-to-shell `installer`, and only the second is origin-gated. A whole-pack decision
+> would either refuse the innocent npm install or — the real hazard — let a fetched pack
+> smuggle an installer URL through beside one. Pinned by
+> `TestOriginGateIsPerInstallContribution` (packload) and
+> `TestFetchedPackKeepsNpmInstallAndLosesOnlyTheInstaller` (entrypoint).
+>
+> Exclusivity was left exactly as it was: `program` is `CombineExclusive` **by bin**, so two
+> packs claiming `fzf` still collide and one pack claiming two different bins still does not.
 
 `InstallContribution()` returns inside its loop (`contributes.go:123`), so a pack declaring
 `fd` and `fzf` gets a launcher for `fd` only — while `DepRequirements()` returns both.
@@ -447,6 +499,41 @@ equivalent split, so nothing else grows a variant.
 ---
 
 ## 6. The three unfree nix hints (8.3) — and the better question underneath
+
+> **SHIPPED 2026-08-03, as ruled and trimmed.** No new schema, exactly as predicted:
+> `packdecl.selfInstallCommand` derives the remedy from the `via`/`url`/`package` a `program`
+> already declares (`npm install -g <pkg>` / `curl -fsSL <url> | sh`), carried to the checker
+> as `DepRequirement.SelfInstall`. `depcheck.Check` prefers it over a package-manager hint and
+> tags it `Flavor: "self"`. All six `packs/*/pack.json` lost their `nix` key;
+> `brew-cask`/`brew` untouched.
+>
+> Two decisions the proposal did not cover:
+>
+> 1. **The manager hint is KEPT as a secondary line, not dropped.** `Result.Fallback` (with a
+>    `FallbackFlavor`, since Manifest needs the brew formula-vs-cask verb) prints as
+>    `or via brew: brew install --cask claude-code` under the primary remedy. Dropping it
+>    entirely would mean a user who prefers their own package manager has to read `pack.json`
+>    to find the token — and the ruling was about which remedy LEADS, not about hiding one.
+> 2. **A self-install NEVER enters the generated bundle.** There is no way to spell
+>    `curl … | sh` in a Brewfile, and splicing the URL in as a token yields a file that fails
+>    on a line the user cannot fix. `Manifest` contributes such a dep's `Fallback` token if it
+>    has one and nothing otherwise; the printed remedy already names the command, so nothing
+>    is lost. That is what the `"self"` flavor is FOR — a manager name there would have made
+>    this undetectable.
+>
+> **A side effect worth naming, because it deleted a message.** `noRemedyReason`'s third case
+> — *"its JAIL install (via npm) is not run against a real host"* — is gone, and its test with
+> it. It existed because every shipped pack was missing-with-no-usable-hint, so the honest
+> thing was to say yolo knew an install it would not run. A well-formed `program` now derives
+> its remedy FROM that very `via`, so having a `via` means having a remedy and the branch is
+> unreachable. What is left there is a `requires` (installs nothing by definition, and its line
+> says so) or a malformed manifest (`pack lint`'s job). The two `apply --host` tests that
+> covered the no-remedy branch were rewritten onto `requires`, which is now the only kind that
+> can reach it — that rewrite is the measure of the change, not collateral damage.
+>
+> **Not pre-empted:** yolo still runs none of these. `curl … | sh` is printed as a suggestion
+> the user runs, and the report says `apply --host reports host deps; it installs nothing`.
+> Phase 4.3's confirm-gated install is untouched.
 
 > **Review question, and it reframes this item:** *"why are we pulling these through nix? don't
 > they have their own installers we can use? nix will get out of date for this stuff."*
@@ -780,11 +867,16 @@ radius**, not about waiting for answers.
 3. ~~**#1 the PATH split**~~ — **DONE 2026-08-02** (`~/.yolo-launchers`, ordered after `/bin`;
    nested-jail verified). It removed the *cause* that #1's fallback and #3's caution were both
    working around, so both are now smaller than described.
-4. **#1 the baked fallback** and **#3** (slice + N launchers) — both trivial once the split
-   lands, and #3's only objection (N launchers = N shadowing hazards) is gone by then.
-5. **#2** (`requires`) — independent of all of the above; sequence by appetite. Adds a 14th kind,
-   so it also costs `config_ref.txt`, `pack --help`, and the Phase 0 drift test.
-6. **#6** (upstream-installer remedies) — after #5, since it reuses the hint plumbing.
+4. **#1 the baked fallback** (still open) and ~~**#3** (slice + N launchers)~~ — **#3 DONE
+   2026-08-03.** Trivial once the split landed, as predicted, and its only objection
+   (N launchers = N shadowing hazards) was indeed gone by then. The fallback is the remaining
+   half of #1.
+5. ~~**#2** (`requires`)~~ — **DONE 2026-08-03.** Independent of everything else, as expected.
+   The 14th-kind cost was exactly the three places named (`config_ref.txt`, `pack --help`, the
+   Phase 0 drift test) plus one the list missed: `applyhostcensus_test.go`'s `writeCensusPack`,
+   which `t.Fatalf`s until the new kind has a census contribution — working as designed.
+6. ~~**#6** (upstream-installer remedies)~~ — **DONE 2026-08-03**, after #5 as sequenced, and it
+   did reuse the hint plumbing.
 7. **#9** (multi-arch builder) — independent; a CI change, verifiable only by running the
    nightly.
 8. **#8** (parity table) — whenever provenance is next touched; unification waits for a third

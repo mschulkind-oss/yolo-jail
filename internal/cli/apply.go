@@ -232,10 +232,12 @@ func applyHost(out, errw io.Writer, color bool, write bool, stdin io.Reader) int
 			switch {
 			case !hostFields.Honors(c.Kind):
 				pr.Printf("  [yellow]%-10s refused[/yellow] — %s", string(c.Kind), hostFields.Refuse(c.Kind))
-			case c.Kind == packdecl.KindProgram:
-				// Resolved dep state, not a static "confirm-gated" line: which bin, present
-				// or missing, and the install command for THIS host's package manager
+			case isDepKind(c.Kind):
+				// program AND requires: resolved dep state, not a static "confirm-gated"
+				// line — which bin, present or missing, and the install command
 				// (pack-host-management-plan.md Phase 8). Running it is still Phase 4.3's.
+				// `requires` shares this path because below the jail notch the two kinds ask
+				// the host the same question; the line names which kind asked.
 				for _, l := range deps.lines(c) {
 					pr.Printf("%s", l)
 				}

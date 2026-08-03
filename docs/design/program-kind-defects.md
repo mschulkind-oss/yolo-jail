@@ -32,6 +32,35 @@ by omission.
 > `~/.yolo-launchers/fzf` (running it directly still exits 1, which is what proves ORDERING is
 > the whole fix). See [`../plans/proposed-fixes-open-findings.md`](../plans/proposed-fixes-open-findings.md) §1.
 
+> **UPDATE 2026-08-03 — Q1.3 and Q2.1 are both ANSWERED, and 11.2 is FIXED.**
+>
+> **Q1.3 → yes, build it.** The `requires` kind shipped: it asserts a binary is present,
+> generates nothing (no launcher, nothing on PATH), reports a missing bin BY NAME at boot, and
+> feeds `check-deps`/`apply --host` through the same `install_hints` plumbing `program` uses.
+> It is the 14th kind. It is `CombineShared`, not `CombineExclusive` — many packs may require
+> one binary, because none of them owns a path for it. The maintainer ruling was *"build this,
+> but also still keep #1"*: `requires` shrinks the launcher-fallback case but does not remove
+> it, since a genuinely npm-installed agent whose install fails should still degrade.
+> `docs/examples/claude-fzf-pack/` adopted it the same day.
+>
+> **Q2.1 → it was a loop bug, and the ruling reversed my proposal.** I had leaned toward "an
+> intended one-program-per-pack rule → make a second a validation error", reasoning from the
+> accessor's singular NAME. That is evidence about history, not about what a pack should be
+> allowed to do: *"why would we want to limit this? what is the case for constricting packs?"*
+> There is none — `shellcheck` + `shfmt`, or `jq` + `yq`, is ordinary. So
+> `InstallContribution() *Install` became `InstallContributions() []Install`, and
+> `GenerateAgentLaunchers` is a nested loop. My own stated objection ("N launchers means N
+> shadowing hazards") did not survive the §1 ruling above: with installers ordered after
+> `/bin`, a launcher cannot shadow anything, so ten are no riskier than one.
+>
+> One thing the fix had to get right that the analysis below does not mention: `HonoredInstall`
+> in `internal/packload` applies the ORIGIN gate, and it had to keep applying it **per
+> contribution** — a pack may mix an npm install with a curl-to-shell installer, and only the
+> second is gated. Deciding once for the whole pack would either refuse the innocent npm
+> install or let a fetched pack smuggle an installer URL through beside one. It is
+> `HonoredInstalls() ([]Install, []string)` now, returning the granted set and one refusal
+> string per refused contribution.
+
 ---
 
 ## 0. What `program` is supposed to do

@@ -106,6 +106,7 @@ target combine:
 | Kind | Claims | Combine rule |
 |---|---|---|
 | `program` | a name on `PATH` + a lazy launcher in `~/.yolo-launchers/` | **Exclusive** — two packs, one `bin` → error |
+| `requires` | a binary that must *already* be on `PATH` (asserted, never installed) | **Shared** — many packs may require one binary |
 | `skills` | a merge-target skills dir | **Merge** — many packs into one dir is the feature |
 | `briefing` | a concat slot at a path | **Concat** — ordered |
 | `files` | exclusive ownership of a path | **Exclusive** |
@@ -144,10 +145,18 @@ version.
 - `package` (required for `npm`) — the npm package.
 - `url` (required for `installer`) — the install-script URL (origin-gated, §9).
 - `flags` — optional flags baked into the launcher.
-- `install_hints` — optional map of host package manager (`brew`/`apt`/`dnf`/`pacman`/`nix`)
-  → the package that provides `bin` there. Used below the `jail` notch (where yolo bakes no
-  image) by `yolo check-deps` / `apply` to probe for the binary and, if missing, emit a
-  runnable manifest. Declared by the pack that *introduces* the dependency.
+A pack may declare **several** `program` contributions and each gets its own launcher —
+exclusivity is per `bin`, not per pack, so `shellcheck` + `shfmt` in one pack is ordinary.
+(Until 2026-08-03 only the *first* installed in a jail, while the host path reported all of
+them; `InstallContributions()` returned inside its loop.)
+
+- `install_hints` — optional map of host package manager (`brew`/`brew-cask`/`apt`/`dnf`/
+  `pacman`/`nix`) → the package that provides `bin` there. Used below the `jail` notch
+  (where yolo bakes no image) by `yolo check-deps` / `apply` to probe for the binary and, if
+  missing, emit a runnable manifest. Declared by the pack that *introduces* the dependency.
+  **For a `program`, the pack's OWN installer is the preferred remedy** and a hint is only
+  the secondary line — see the note under `requires`. So hints matter most on `requires`,
+  where yolo installs nothing at all.
   One key names an installer *flavor* instead of a manager: **`brew-cask`**, for a Homebrew
   cask (`brew install --cask`, and `cask "<token>"` in the generated Brewfile) rather than a
   formula. Use it whenever `https://formulae.brew.sh/api/cask/<token>.json` exists and
@@ -162,8 +171,53 @@ version.
 { "kind": "program", "bin": "psql", "via": "npm", "package": "x",
   "install_hints": { "brew": "postgresql@16", "apt": "postgresql-16", "nix": "postgresql_16" } }
 { "kind": "program", "bin": "claude", "via": "installer", "url": "https://claude.ai/install.sh",
-  "install_hints": { "brew-cask": "claude-code", "nix": "claude-code" } }
+  "install_hints": { "brew-cask": "claude-code" } }
 ```
+
+### `requires`
+A binary that must **already exist**. Asserts presence and installs nothing.
+
+`program` and `requires` are *install* vs *presence*, and conflating them was a real defect:
+a pack needing a tool the image already bakes (`fd`, `fzf`) or the user already has (`jq`,
+`psql`) had only `program`, so it either lied — declaring an npm install for a baked binary,
+which then shadowed it — or declared nothing and lost `install_hints` entirely. Both
+happened; the second is what `docs/examples/claude-fzf-pack/` did until this kind landed.
+
+- `bin` (required) — the command that must be on `PATH`.
+- `install_hints` — as `program`'s, and this is where they matter most: yolo will never
+  install this binary, so the hints are the *only* remedy it can offer.
+- `via`/`package`/`url` are **refused by name** — those belong to `program`, and a
+  `requires` carrying one is the author reaching for the other kind. Silent otherwise: the
+  fields are simply never read, so the tool never installs and nothing says why.
+
+What it does at each notch:
+
+| notch | effect |
+|---|---|
+| jail / guest | asserts presence at boot; a missing bin is a **warning naming the bin** (never a boot failure — the pack's other contributions are fine, and a fatal here would stop the jail you need in order to fix the pack) |
+| host | feeds `yolo check-deps` / `apply --host` **exactly as `program`'s hints do**; that is the whole host-side point, and what lets a content-only pack carry a remedy |
+
+It generates **nothing** — no launcher, no file, nothing on `PATH` — so unlike `program` it
+cannot shadow the very binary it asserts. Not `Exclusive` either: it owns no path, so many
+packs requiring one binary is the normal case rather than a collision.
+
+```json
+{ "kind": "requires", "bin": "fzf",
+  "install_hints": { "brew": "fzf", "apt": "fzf", "nix": "fzf" } }
+```
+
+> **Where `nix` hints belong.** On genuine third-party dependencies like this one — where the
+> user's own package manager is the right answer and nixpkgs is not meaningfully stale. The
+> six shipped agent packs dropped their `nix` hints (2026-08-03): each agent CLI ships a
+> first-party installer *and* updater, so the pack's own `via` is the remedy, and routing a
+> user through nixpkgs handed them whatever that repo had — measured 2026-08-02,
+> `github-copilot-cli` was 16 releases behind (1.0.61 vs 1.0.77) with nothing in the output
+> to say so. `detectManager` also reaches `nix` only by *elimination* (after apt/dnf/pacman/
+> brew all fail), so a user cannot even select it deliberately.
+>
+> A printed `curl … | sh` is a **suggestion the user runs**, never something yolo runs. yolo
+> already flags an installer URL `⚠ review` in the footprint; actually running one is
+> env-manager plan Phase 4.3's confirm-gated territory.
 
 ### `skills`
 A skills tree merged into an agent's skills dir. Precedence is built-in < pack < the user's

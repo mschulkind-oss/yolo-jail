@@ -18,15 +18,18 @@ func packAliases(e *Env) string {
 	}
 	var lines []string
 	for _, p := range packs {
-		inst, _ := p.HonoredInstall()
-		if inst == nil {
-			continue
+		// Every honored install, not the first: a pack declaring two programs with
+		// launchFlags for both needs two aliases, for the same reason it needs two
+		// launchers (shims.go).
+		installs, _ := p.HonoredInstalls()
+		flagsByBin := p.Decl.LaunchFlagContributions()
+		for _, inst := range installs {
+			flags := flagsByBin[inst.Bin]
+			if len(flags) == 0 {
+				continue
+			}
+			lines = append(lines, "alias "+inst.Bin+"='"+inst.Bin+" "+strings.Join(flags, " ")+"'")
 		}
-		flags := p.Decl.LaunchFlagContributions()[inst.Bin]
-		if len(flags) == 0 {
-			continue
-		}
-		lines = append(lines, "alias "+inst.Bin+"='"+inst.Bin+" "+strings.Join(flags, " ")+"'")
 	}
 	return strings.Join(lines, "\n")
 }

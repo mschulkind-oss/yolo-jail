@@ -242,23 +242,29 @@ func EnvVars(packs []*Pack) map[string]string {
 	return out
 }
 
-// HonoredInstall returns the pack's install declaration if its origin permits it.
+// HonoredInstalls returns the install declarations this pack's origin permits, and a
+// notice per declaration that was refused.
 //
 // A native installer is a URL whose contents run as a shell script, so it is gated the
 // same way a host file is: a fetched pack introducing one would let a git ref execute
 // arbitrary code in the jail. An npm install names a registry package and is not
 // origin-gated — it is the same trust as any dependency the user already installs.
-func (p *Pack) HonoredInstall() (*packdecl.Install, string) {
-	in := p.Decl.InstallContribution()
-	if in == nil {
-		return nil, ""
+//
+// THE GATE IS PER CONTRIBUTION, and that is the load-bearing part of the plural form: a
+// pack may mix an npm install with a curl-to-shell installer, and only the second is
+// gated. Deciding once for the whole pack would either refuse the innocent npm install or
+// — far worse — let a fetched pack smuggle an installer URL through beside one.
+func (p *Pack) HonoredInstalls() (granted []packdecl.Install, refused []string) {
+	for _, in := range p.Decl.InstallContributions() {
+		if in.InstallerURL != "" && !p.MayAccessHost {
+			refused = append(refused, fmt.Sprintf(
+				"pack %s: refused installer %q — a FETCHED pack cannot run a curl-piped "+
+					"installer in the jail.", p.Name, in.InstallerURL))
+			continue
+		}
+		granted = append(granted, in)
 	}
-	if in.InstallerURL != "" && !p.MayAccessHost {
-		return nil, fmt.Sprintf(
-			"pack %s: refused installer %q — a FETCHED pack cannot run a curl-piped "+
-				"installer in the jail.", p.Name, in.InstallerURL)
-	}
-	return in, ""
+	return granted, refused
 }
 
 // LoadDir reads a pack from a directory. A missing pack.json is fine and yields an

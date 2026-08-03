@@ -45,13 +45,18 @@ func TestApplyHostReportsPresentDep(t *testing.T) {
 	}
 }
 
-// TestApplyHostReportsMissingDepWithRemedy: a missing bin reports the install_hints remedy
-// for the DETECTED host manager (here apt, the only manager on the fixture PATH), and says
-// that apply does not run it.
+// TestApplyHostReportsMissingDepWithRemedy: a missing `requires` bin reports the
+// install_hints remedy for the DETECTED host manager (here apt, the only manager on the
+// fixture PATH), and says that apply does not run it.
+//
+// A `requires` rather than a `program`, deliberately: since the pack's own installer became
+// the PREFERRED remedy (item #6), a program with a `via` never reaches its hints, so a
+// program here would be testing the self-install path under the wrong name. `requires`
+// installs nothing by definition, which makes it the kind whose hints are load-bearing.
 func TestApplyHostReportsMissingDepWithRemedy(t *testing.T) {
 	fakeBinDir(t, "apt") // the detected manager; the declared bin is deliberately absent
-	report := runApplyHostForDeps(t, `{"kind":"program","bin":"missingbin","via":"npm",`+
-		`"package":"p","install_hints":{"apt":"missing-apt-pkg","brew":"missing-brew-pkg"}}`)
+	report := runApplyHostForDeps(t, `{"kind":"requires","bin":"missingbin",`+
+		`"install_hints":{"apt":"missing-apt-pkg","brew":"missing-brew-pkg"}}`)
 
 	// The remedy must be the shared checker's own, not a second rendering of it — compare
 	// against depcheck for the same requirement, so a divergent formatter fails here.
@@ -74,16 +79,59 @@ func TestApplyHostReportsMissingDepWithRemedy(t *testing.T) {
 	}
 }
 
-// TestApplyHostReportsMissingDepWithoutRemedy: a program with NO install_hints still needs
-// its bin, so it is reported as missing-with-no-known-remedy rather than omitted. This is
-// the no-silent-caps half of the no-silent-skip rule, and it is the state EVERY shipped pack
-// is in (they declare `via` and no hints), so it is the common output rather than an edge.
+// TestApplyHostPrefersThePacksOwnInstaller is item #6: for a `program`, the remedy leads
+// with the tool's OWN installer, derived from the via/url/package the pack already declares
+// — no new schema. The package-manager hint is kept as a secondary line rather than
+// dropped, so a user who prefers their own manager still sees the token.
+//
+// Why the order and not the reverse: a tool that ships an installer ships an updater, while
+// a distro package pins whatever that repo has. Measured 2026-08-02, nixpkgs was current
+// for claude-code/codex/pi-coding-agent and github-copilot-cli was 16 releases behind
+// (1.0.61 vs 1.0.77), with nothing in the output to say which.
+func TestApplyHostPrefersThePacksOwnInstaller(t *testing.T) {
+	fakeBinDir(t, "apt") // a detected manager, so the hint IS selectable
+	report := runApplyHostForDeps(t,
+		`{"kind":"program","bin":"npmtool","via":"npm","package":"@org/npmtool",`+
+			`"install_hints":{"apt":"npmtool-apt"}}`,
+		`{"kind":"program","bin":"curltool","via":"installer","url":"https://example/i.sh"}`)
+
+	// The npm program: its own `npm install -g` leads; the apt hint trails as an alternative.
+	if !strings.Contains(report, "MISSING → npm install -g @org/npmtool") {
+		t.Errorf("an npm program's remedy should be its OWN npm install:\n%s", report)
+	}
+	if !strings.Contains(report, "or via apt: sudo apt install -y npmtool-apt") {
+		t.Errorf("the package-manager hint should remain as a secondary line:\n%s", report)
+	}
+	if strings.Index(report, "npm install -g @org/npmtool") >
+		strings.Index(report, "sudo apt install -y npmtool-apt") {
+		t.Errorf("the pack's own installer must come FIRST, the manager hint second:\n%s", report)
+	}
+
+	// The installer program: the curl-to-shell command, printed as a suggestion the USER
+	// runs. yolo must not run it — that is env-manager Phase 4.3's confirm-gated territory,
+	// and the report says as much.
+	if !strings.Contains(report, "MISSING → curl -fsSL https://example/i.sh | sh") {
+		t.Errorf("an installer program's remedy should be its own curl-to-shell line:\n%s", report)
+	}
+	if !strings.Contains(report, "installs nothing") {
+		t.Errorf("the report must still say yolo runs none of these:\n%s", report)
+	}
+}
+
+// TestApplyHostReportsMissingDepWithoutRemedy: a dep with NO remedy at all still needs its
+// bin, so it is reported as missing-with-no-known-remedy rather than omitted. This is the
+// no-silent-caps half of the no-silent-skip rule.
+//
+// A `requires` with no hints is now the only way to reach this state, and that is the
+// measure of what item #6 changed: a `program` used to land here whenever it had no hint for
+// the host's manager (every shipped pack), and now derives its remedy from its own
+// via/package instead. `requires` installs nothing, so hints are its only remedy source.
 func TestApplyHostReportsMissingDepWithoutRemedy(t *testing.T) {
 	fakeBinDir(t) // nothing on PATH: no manager, no bin
-	report := runApplyHostForDeps(t, `{"kind":"program","bin":"nohintbin","via":"npm","package":"p"}`)
+	report := runApplyHostForDeps(t, `{"kind":"requires","bin":"nohintbin"}`)
 
 	if !strings.Contains(report, "nohintbin") {
-		t.Fatalf("a hint-less program must still be reported by name:\n%s", report)
+		t.Fatalf("a hint-less dep must still be reported by name:\n%s", report)
 	}
 	if !strings.Contains(report, "MISSING") {
 		t.Errorf("a hint-less missing bin is still MISSING:\n%s", report)
@@ -91,20 +139,23 @@ func TestApplyHostReportsMissingDepWithoutRemedy(t *testing.T) {
 	if !strings.Contains(report, "no install_hints") {
 		t.Errorf("the output should say WHY there is no remedy:\n%s", report)
 	}
-	// A pack with a `via` DOES know how to install into a jail; saying so distinguishes
-	// "yolo has nothing" from "yolo has something it will not run against your real host".
-	if !strings.Contains(report, "via npm") {
-		t.Errorf("a hint-less program with a `via` should name the jail install path:\n%s", report)
+	// And say the thing that is specific to this kind: yolo will never install it, so the
+	// user is the only actor. A program's line says the opposite (here is the command).
+	if !strings.Contains(report, "never installed by yolo") {
+		t.Errorf("a `requires` with no remedy should say yolo installs it never:\n%s", report)
 	}
 }
 
 // TestApplyHostReportsHintsForAnotherManager: hints that cover other managers but not this
-// host's is a THIRD state, and the pack author is the one who can fix it — so the line names
-// the managers that are covered rather than reading as a yolo limitation.
+// host's is a distinct state, and the pack author is the one who can fix it — so the line
+// names the managers that are covered rather than reading as a yolo limitation.
+//
+// On a `requires` (not a program) for the reason above: a program with a `via` now always
+// has a remedy of its own, so it cannot reach the no-remedy branch this covers.
 func TestApplyHostReportsHintsForAnotherManager(t *testing.T) {
 	fakeBinDir(t, "apt")
-	report := runApplyHostForDeps(t, `{"kind":"program","bin":"wrongmgr","via":"installer",`+
-		`"url":"https://example/i.sh","install_hints":{"brew":"w-brew","dnf":"w-dnf"}}`)
+	report := runApplyHostForDeps(t, `{"kind":"requires","bin":"wrongmgr",`+
+		`"install_hints":{"brew":"w-brew","dnf":"w-dnf"}}`)
 
 	if !strings.Contains(report, "wrongmgr") || !strings.Contains(report, "MISSING") {
 		t.Fatalf("the bin must be named as missing:\n%s", report)
@@ -112,6 +163,26 @@ func TestApplyHostReportsHintsForAnotherManager(t *testing.T) {
 	// Deterministic, sorted, and naming the covered managers — not the absent one.
 	if !strings.Contains(report, "install_hints cover brew/dnf but not apt") {
 		t.Errorf("the line should name the covered managers and this host's:\n%s", report)
+	}
+}
+
+// TestApplyHostNamesTheRequiresKindNotProgram: `requires` and `program` share the dep probe
+// but are different claims, and the report has to say which one asked. Otherwise a user
+// reading "program fzf MISSING" would look for the install yolo was going to do, and there
+// isn't one.
+func TestApplyHostNamesTheRequiresKindNotProgram(t *testing.T) {
+	fakeBinDir(t, "apt")
+	report := runApplyHostForDeps(t,
+		`{"kind":"requires","bin":"reqbin","install_hints":{"apt":"reqbin-pkg"}}`)
+
+	if !strings.Contains(report, "requires") {
+		t.Errorf("the line must name the `requires` kind:\n%s", report)
+	}
+	if strings.Contains(report, "program") {
+		t.Errorf("a pack declaring no `program` must not have one reported:\n%s", report)
+	}
+	if !strings.Contains(report, "sudo apt install -y reqbin-pkg") {
+		t.Errorf("a requires' hints feed the remedy exactly as program's do:\n%s", report)
 	}
 }
 

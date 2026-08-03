@@ -451,6 +451,25 @@
     A pack.json declares effects as a "contributes" list, one entry per effect with a
     "kind" from the closed set:
       program       a tool on PATH: {bin, via:"npm"|"installer", package|url, flags}
+                    yolo INSTALLS it, via a lazy launcher in ~/.yolo-launchers (last on
+                    PATH, so it never shadows a baked binary).  Sole-owned by `bin`, so a
+                    pack may declare SEVERAL programs (different bins) and each gets its
+                    own launcher.
+      requires      {bin} — a binary that must ALREADY exist.  Asserts presence and
+                    installs nothing: no launcher, nothing on PATH, so it cannot shadow
+                    anything.  In a jail an absent bin is reported by name at boot (a
+                    warning, not a boot failure).  Many packs may require one binary —
+                    unlike program it owns no path, so it never collides.
+                    Both program and requires take optional
+                      install_hints {"brew"|"brew-cask"|"apt"|"dnf"|"pacman"|"nix": pkg}
+                    naming the package that provides `bin` on a host package manager,
+                    which `yolo check-deps` / `yolo apply --host` print as the remedy for
+                    a missing binary (and write into a Brewfile and kin).  `brew-cask`
+                    is a Homebrew CASK rather than a formula and wins over `brew`.  For
+                    a program, the pack's OWN installer (its via/url/package) is
+                    preferred over a hint — a tool shipping its own installer ships its
+                    own updater, while a distro package pins whatever that repo has.
+                    So hints matter most on `requires`, where yolo installs nothing.
       skills        {from (pack dir), into (~ dir)} — merged (built-in < pack < yours)
       briefing      {from, into, after:"host:<path>" to prepend your own file first}
       files         {from, into} — an opaque tree the pack owns, bind-mounted :ro at

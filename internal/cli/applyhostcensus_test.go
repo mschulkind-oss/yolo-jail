@@ -85,7 +85,9 @@ func writeCensusPack(t *testing.T, dir string) {
 	// One contribution per kind. The bodies are minimal-but-valid: what matters is that
 	// each kind is DECLARED, so apply --host has to account for it.
 	byKind := map[packdecl.Kind]string{
-		packdecl.KindProgram:  `{"kind":"program","bin":"censusbin","via":"npm","package":"census-pkg"}`,
+		packdecl.KindProgram: `{"kind":"program","bin":"censusbin","via":"npm","package":"census-pkg"}`,
+		packdecl.KindRequires: `{"kind":"requires","bin":"censusreq",` +
+			`"install_hints":{"brew":"census-req","apt":"census-req"}}`,
 		packdecl.KindSkills:   `{"kind":"skills","from":"skills","into":".census/skills"}`,
 		packdecl.KindBriefing: `{"kind":"briefing","from":"AGENTS.md","into":".census/AGENTS.md"}`,
 		packdecl.KindFiles:    `{"kind":"files","from":"files","into":".census/files"}`,

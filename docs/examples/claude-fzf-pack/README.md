@@ -20,7 +20,7 @@ adding a seventh would change the shipped product. Copy this directory to
 
 | File | Role |
 |---|---|
-| `pack.json` | the manifest: three contributions (`files`, `config-overlay`, `briefing`) |
+| `pack.json` | the manifest: five contributions (two `requires`, `files`, `config-overlay`, `briefing`) |
 | `bin/file-suggestion.sh` | the finder itself — **a reference implementation to replace** |
 | `AGENTS.md` | briefing prose telling the agent the finder exists and not to edit it in place |
 
@@ -102,7 +102,38 @@ $ yolo -- claude                                       # or just launch a jail
 
 ---
 
-## How the three contributions work
+## How the contributions work
+
+### `requires` → the two host tools (`fd`, `fzf`)
+
+```jsonc
+{ "kind": "requires", "bin": "fzf",
+  "install_hints": { "brew": "fzf", "apt": "fzf", "dnf": "fzf", "pacman": "fzf", "nix": "fzf" } }
+```
+
+The finder shells out to `fd | fzf --filter`, so the pack needs both to **exist**. It does
+not want yolo to install them — they are baked into the jail image, and on a host they are
+the user's own package manager's business. That is exactly what `requires` says, and it is
+the reason the kind exists (see the section further down for what this pack did before it).
+
+`requires` **generates nothing**: no launcher, nothing on PATH, so it cannot shadow the very
+binaries it asserts. What it buys is the two things silence cost:
+
+- **in a jail**, an absent tool is named at boot — `pack claude-fzf requires fzf, which is
+  not on PATH in this jail` — instead of the finder quietly returning no matches;
+- **at the host**, the hints reach `yolo check-deps` and `yolo apply --host`, which was the
+  capability the old no-declaration workaround gave up:
+
+```console
+$ yolo apply --host
+  requires   ✓ fd               present at /usr/bin/fd
+  requires   ✗ fzf              MISSING → brew install fzf
+```
+
+Note the `nix` hint is kept here and was **dropped** from the six shipped agent packs. That
+asymmetry is the rule, not an inconsistency: an agent CLI ships its own installer *and*
+updater, so the pack's own `via` is the better remedy; `fd`/`fzf` are ordinary third-party
+deps where the user's package manager is right and nixpkgs is current.
 
 ### `files` → the script
 
@@ -188,16 +219,16 @@ three lines, and pack prose is attributed to its source, so it stays traceable.
 
 ---
 
-## Host deps (`fd`, `fzf`): declaring them as `program` is safe again
+## Host deps (`fd`, `fzf`): now declared as `requires` — and why they were not
 
-> **FIXED 2026-08-02.** The lazy launchers moved out of `~/.yolo-shims` into
-> `~/.yolo-launchers`, which is ordered **last** on PATH (after `/bin`). An
-> installer is now reached only when nothing else provides the name, so declaring
-> a dep the image already satisfies no longer breaks it. Re-verified in a real
-> container: with a pack declaring `{"kind":"program","bin":"fzf",…}`,
-> `command -v fzf` → `/bin/fzf` and `fzf --version` → 0.
+> **RESOLVED 2026-08-03.** The pack declares `requires` for both tools, with
+> `install_hints`. Three separate defects had to be fixed first, and each one is
+> why the obvious declaration was wrong at the time:
 
-What used to happen, kept because it is why the split exists:
+**1. A `program` launcher shadowed the image's real binary** (fixed 2026-08-02 by
+splitting the shim dir). The launcher went into `~/.yolo-shims/`, first on PATH,
+and execs one hardcoded install path without ever consulting PATH — so declaring
+a dep the image already satisfied converted a working tool into a broken one:
 
 ```console
 $ command -v fd
@@ -207,31 +238,27 @@ $ fd --type f .
   ⚠ fd not available                  # the real /bin/fd is now unreachable
 ```
 
-A `program` contribution generated its **lazy-install launcher** into
-`~/.yolo-shims/`, which sits first on PATH and so **shadowed the image's real
-binary** — and the launcher execs one hardcoded install path, never consulting
-PATH, so it could not fall through. `fd` and `fzf` are both baked into the jail
-image, so declaring them converted a working tool into a broken one.
+Launchers now live in `~/.yolo-launchers`, ordered **after** `/bin`, so an
+installer is reached only when nothing else provides the name.
 
-This pack still declares no `program`, for the reason in the next section rather
-than this one (only the first `program` per pack installs, so a two-binary pack
-cannot be expressed yet).
+**2. Only the first `program` per pack installed** (fixed 2026-08-03).
+`InstallContributions()` returned inside its loop, so a pack declaring `fd` *and*
+`fzf` got a launcher for `fd` only — while the host path reported both. So even
+after fix 1, a two-binary pack could not be expressed. It returns a slice now and
+the generator writes N launchers.
 
-**For the host notch,** where nothing is baked, the tools genuinely may be
-missing. Options, in order of preference:
+**3. `program` was the only kind that carried `install_hints`** — and `program`
+means *"yolo installs this"*, which is not what this pack wants. Fixed 2026-08-03
+by the **`requires`** kind: presence-not-install, generates nothing, hints reach
+the host notch. That is the declaration this pack now makes, and the gap it closes
+is the one the old workaround left open — the pack carried no dependency
+declaration at all, so `apply --host` could not tell a host user to install
+`fd`/`fzf`, and the omission was invisible to anyone who did not know why.
 
-1. **Check them with `yolo check-deps`** against a pack that legitimately
-   introduces them, or just install them once (`brew install fd fzf`). The
-   finder degrades honestly: `fd` missing ⇒ the picker returns nothing, and the
-   script's `2>/dev/null` keeps it from spraying errors into the UI.
-2. If you do want them declared for host reporting, put the `program` entries in
-   a **separate pack you select only at the host notch** — that keeps the
-   `install_hints` value (`apply --host` prints `MISSING → brew install fd`)
-   without generating a jail shim that shadows the image.
-
-Note that even then, only the **first** `program` contribution per pack produces a
-jail install; the rest are dropped (another finding below). So one binary per pack
-is the only shape that behaves predictably today.
+For the **host notch**, where nothing is baked, the tools genuinely may be
+missing, and now yolo says so with the command for your manager. The finder also
+degrades honestly if you ignore it: `fd` missing ⇒ the picker returns nothing, and
+the script's `2>/dev/null` keeps it from spraying errors into the UI.
 
 ---
 
@@ -283,13 +310,18 @@ Reported, not fixed (they live in files under concurrent development):
    cause. The launcher's exit-1 tail is unchanged and still right for a genuinely
    absent tool. Original symptom, verified for both `fd` and `fzf`: a pack
    declaring a dep the image already satisfied made the jail *worse*, silently.
-2. **Only the FIRST `program` contribution per pack installs in a jail.**
-   `Manifest.InstallContribution()` returns on the first match, so a pack
-   declaring `fd` *and* `fzf` silently gets a launcher for `fd` only — while
-   `DepRequirements()` (the host path) correctly returns both. Two kinds are
-   asymmetric about the same declaration, and the jail side drops data with no
-   diagnostic. `program` is documented as sole-owned *per bin*, not per pack, so
-   this looks like an oversight rather than a design limit.
+2. ~~**Only the FIRST `program` contribution per pack installs in a jail.**~~ —
+   **FIXED 2026-08-03.** `Manifest.InstallContribution()` returned on the first
+   match, so a pack declaring `fd` *and* `fzf` silently got a launcher for `fd`
+   only — while `DepRequirements()` (the host path) correctly returned both. It is
+   now `InstallContributions()`, returning a slice, and the generator writes one
+   launcher per contribution. The reading that made it a bug rather than a design
+   limit held up: `program` is sole-owned *per bin*, not per pack. The origin gate
+   moved with it — `HonoredInstalls()` applies it **per contribution**, so a pack
+   mixing an npm install with a curl-to-shell installer loses only the second.
+   (A separate gap this exposed: `install_hints` lived only on `program`, which
+   *implies* an install. That is what the new `requires` kind fixes, and it is why
+   this pack can finally declare its deps at all.)
 3. **A dropped pack's staged tree is never cleared, so it keeps rendering.**
    `stagePacks` clears only the `_official` subtree
    (`internal/cli/run/packs.go`); a *configured* pack's staging dir at

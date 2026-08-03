@@ -70,13 +70,18 @@ root are staged as-is. A pack.json adds a "contributes" list, one typed entry pe
 effect, with a "kind" from a closed set:
 
   program        install a tool onto PATH        skills    merge a skills tree
-  briefing       prose appended to the briefing  files     own a file tree
-  config         a composed config surface       state     a persistent home dir
-  launch         inject launch flags             hook      a named capability
-  reads-host     read one host-home file :ro     mount     mount a host-home dir :ro
-  env            set static env vars in the jail
+  requires       a tool that must already exist  briefing  prose for the briefing
+  config         a composed config surface       files     own a file tree
+  launch         inject launch flags             state     a persistent home dir
+  reads-host     read one host-home file :ro     hook      a named capability
+  env            set static env vars in the jail mount     mount a host-home dir :ro
   autonomy       the agent's autonomous/guarded permission postures (notch-selected)
   config-overlay keys on a config surface another pack owns
+
+program vs requires is install-vs-presence: program means yolo installs the tool (a lazy
+launcher, last on PATH), requires means it must already be there and yolo installs
+nothing — which is what a pack needing a baked or user-provided tool wants, and the only
+way for a content-only pack to carry install_hints for the host notch.
 
 See ` + "`yolo config-ref`" + ` (the "packs" section) for the full per-kind field reference.
 

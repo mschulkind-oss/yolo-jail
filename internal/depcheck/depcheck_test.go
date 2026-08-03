@@ -82,6 +82,69 @@ func TestManifestBrewfile(t *testing.T) {
 	}
 }
 
+// The declaring pack's OWN installer beats a package-manager hint, and the hint survives as
+// the Fallback rather than being discarded.
+//
+// The reason for the order is staleness, measured rather than assumed: a tool that ships its
+// own installer ships its own updater, while a distro package pins whatever that repo has —
+// nixpkgs was current for claude-code/codex/pi-coding-agent and 16 releases behind for
+// github-copilot-cli (1.0.61 vs 1.0.77), with nothing in the packaging to say which.
+func TestSelfInstallBeatsAManagerHint(t *testing.T) {
+	orig, origM := LookPath, DetectManager
+	t.Cleanup(func() { LookPath, DetectManager = orig, origM })
+	DetectManager = func() string { return "brew" }
+	LookPath = func(string) (string, error) { return "", errors.New("not found") }
+
+	res := Check([]Requirement{
+		// Both a self-installer and a cask hint: the installer leads, the cask is Fallback.
+		{Bin: "claude", SelfInstall: "curl -fsSL https://claude.ai/install.sh | sh",
+			Hints: map[string]string{"brew-cask": "claude-code"}},
+		// A self-installer with NO hint: no fallback to report.
+		{Bin: "solo", SelfInstall: "npm install -g solo-pkg"},
+		// No self-installer (a `requires`): the hint is the remedy, as before.
+		{Bin: "fzf", Hints: map[string]string{"brew": "fzf"}},
+	})
+	byBin := map[string]Result{}
+	for _, r := range res {
+		byBin[r.Bin] = r
+	}
+
+	claude := byBin["claude"]
+	if claude.Remedy != "curl -fsSL https://claude.ai/install.sh | sh" {
+		t.Errorf("the pack's own installer must be the primary remedy, got %q", claude.Remedy)
+	}
+	if claude.Flavor != selfInstallFlavor {
+		t.Errorf("flavor = %q, want %q so Manifest knows to keep it out of the bundle",
+			claude.Flavor, selfInstallFlavor)
+	}
+	if claude.Fallback != "brew install --cask claude-code" || claude.FallbackFlavor != brewCaskHint {
+		t.Errorf("the manager hint must survive as the fallback (with its verb), got %q/%q",
+			claude.Fallback, claude.FallbackFlavor)
+	}
+	if solo := byBin["solo"]; solo.Remedy != "npm install -g solo-pkg" || solo.Fallback != "" {
+		t.Errorf("a self-installer with no hint has no fallback: %+v", solo)
+	}
+	if fzf := byBin["fzf"]; fzf.Remedy != "brew install fzf" || fzf.Flavor != "brew" {
+		t.Errorf("with no self-installer the hint is still the remedy: %+v", fzf)
+	}
+
+	// The BUNDLE carries the fallback token, never the curl line — there is no way to spell
+	// a curl-to-shell in a Brewfile, and splicing the URL in as a token would produce a file
+	// that fails on a line the user cannot fix.
+	name, body := Manifest(res)
+	if name != "Brewfile" {
+		t.Fatalf("manifest name = %q, want Brewfile", name)
+	}
+	if strings.Contains(body, "curl") || strings.Contains(body, "npm install") {
+		t.Errorf("a Brewfile must not contain an installer command:\n%s", body)
+	}
+	want := "brew \"fzf\"\ncask \"claude-code\"\n"
+	if body != want {
+		t.Errorf("Brewfile =\n%s\nwant\n%s (claude via its cask fallback; `solo` has no "+
+			"manager token at all so it contributes no line)", body, want)
+	}
+}
+
 // A brew-cask hint wins over a plain brew hint on a brew host, produces the --cask install
 // command, and lands as a `cask "<token>"` Brewfile line — `brew bundle` on a `brew` line
 // naming a cask token fails looking for a formula that does not exist.
