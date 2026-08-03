@@ -1,8 +1,11 @@
 # Proposed fixes for the open findings
 
-**Status:** **ALL ITEMS DECIDED. Shipping in progress** — #1's PATH split, #4, #5, #7 landed
-2026-08-02; **#2, #3, #6 landed 2026-08-03**. Still open: **#1's baked fallback**, **#8** (parity
-table), **#9** (multi-arch builder), and **#10** (host MCP servers, in progress). Written
+**Status:** **ALL TEN ITEMS DECIDED; NINE SHIPPED.** #1's PATH split, #4, #5, #7 landed
+2026-08-02; #2, #3, #6 landed 2026-08-03; **#8** (parity table), **#9** (multi-arch builder +
+GOARCH-derived builder system) and **#10** (host MCP servers) landed 2026-08-03 too.
+**One item is genuinely open: #1's baked fallback** — and it is the LEAST urgent thing in this
+doc, because the PATH split made the collision it guards against unrepresentable (see #1).
+**#11 is new** (2026-08-03): a dropped pack's host output is not retired. Written
 2026-08-02 in answer to *"do you have proposed fixes for what you're pointing out?"*, then
 resolved by nine review rulings the same day; each section carries a shipped note where the
 implementation differed from the proposal.
@@ -57,9 +60,10 @@ waiting on a decision — this doc is ready to implement against.
 | 5 | `depcheck.Manifest` cannot express a brew cask (8.4) | `brew-cask` key → `cask "<pkg>"` in the Brewfile | **RULED — just make it work** · **SHIPPED 2026-08-02** |
 | 6 | `install_hints` routes agents through nix (8.3) | **Prefer the pack's OWN installer**; **DROP the nix hints for the six agent CLIs** (keep them for real deps like `fd`/`jq`) | **REFRAMED, then TRIMMED** — `copilot` is 16 releases behind, and the "pin the closure" case I invented is unreachable · **SHIPPED 2026-08-03** |
 | 7 | `packages: ["claude-code"]` fails at build with a nix trace (nix OQ-6) | `meta.available` check beside `availableOn` | still stands — §6 removes the example, not the defect · **SHIPPED 2026-08-02** |
-| 8 | `rmwProvenance` is a second "which layer won" | Parity table now; **unify at the third** derivation | **RULED — wait for 3** |
-| 9 | Nightly macOS builder arch mismatch (BACKLOG E8) | Publish the builder multi-arch (or skip the two tests, recorded) | **CORRECTED** — a CI capability constraint, not platform support |
-| 10 | A pack cannot install Claude MCP servers on the host | Prune workspace-keyed subtrees instead of refusing the surface | **RULED — warn and wait for confirm**; in progress |
+| 8 | `rmwProvenance` is a second "which layer won" | Parity table now; **unify at the third** derivation | **RULED — wait for 3** · **TABLE SHIPPED 2026-08-03** (`TestProvenanceParityAcrossBothDerivations`); unification still deferred, by ruling |
+| 9 | Nightly macOS builder arch mismatch (BACKLOG E8) | Publish the builder multi-arch (or skip the two tests, recorded) | **CORRECTED** — a CI capability constraint, not platform support · **SHIPPED 2026-08-03**, and it was BIGGER than this row: the advertised system was hardcoded in three places, not one (see BACKLOG E8) |
+| 10 | A pack cannot install Claude MCP servers on the host | Prune workspace-keyed subtrees instead of refusing the surface | **RULED — warn and wait for confirm** · **SHIPPED 2026-08-03** |
+| 11 | A DROPPED pack's host output is never retired (new) | Archive skills/files and drop overlay keys, behind a confirm; stop provenance laundering the keys into `host` | **RULED 2026-08-03 — confirm before removing host files** · spec at [`host-pack-drop-cleanup.md`](host-pack-drop-cleanup.md) |
 
 ---
 
@@ -891,3 +895,41 @@ radius**, not about waiting for answers.
   be wanted soon.
 - **#1's split and #3's slice both touch `GenerateAgentLaunchers`.** Doing the split first means
   #3 is a nested loop in already-correct code rather than a nested loop plus a re-layout.
+
+---
+
+## 11. A dropped pack's host output is never retired (new, 2026-08-03)
+
+Full spec: [`host-pack-drop-cleanup.md`](host-pack-drop-cleanup.md). Summarized here because
+this doc is the index of open findings.
+
+Reported by a subagent as "host pack-drop cleanup is briefing-only". Reproduced in a throwaway
+`$HOME`, which both **confirmed and corrected** it:
+
+- **Confirmed and widened.** The report named `files` and `config-overlay`. **Skills leak too**
+  — `.claude/skills/demo` survived a drop, still invocable, with the ownership manifest still
+  naming the dropped pack. A live orphaned skill an agent will load is sharper than an orphaned
+  script.
+- **Corrected.** The report's sharpest claim — that `fileSuggestion` keeps pointing at a script
+  the drop removes, a broken hook — **is wrong**. `files` COPIES the tree into `$HOME`; deleting
+  the pack source entirely left the script present and working. It is an orphan that silently
+  keeps FUNCTIONING: stale config, not breakage. That is why the fix is confirm-gated rather
+  than urgent.
+- **The real defect neither of us named: provenance laundering.** While the pack is active the
+  record says `fileSuggestion  config-overlay:dropme`; the next apply after the drop rewrites it
+  to `fileSuggestion  host`. The record built so yolo could tell its own output from the user's
+  reclassifies yolo's key as the user's — and once a key reads `host`, every mechanism that asks
+  "did yolo write this?" answers no, forever.
+
+**Why it is not a duplicate of the manifest/archive work** (`pack-host-management-plan.md`
+Phase 6). That shipped per-pack *stale-entry* retirement: `EntriesFor(pack, dir)` = "what I
+wrote last time minus what this pack ships now". It is keyed on the pack being ITERATED, and the
+apply loop is `for _, p := range loaded`. It solves *the pack changed*; it cannot see *the pack
+left*. `PruneHostBriefings` is the only path that reasons over the inactive set — which is
+exactly why briefing is the one kind that works.
+
+**Ruled 2026-08-03:** *"I want to confirm before removing host files."* So retirement is
+confirm-gated (the `confirmHostLosses` contract: only when something is lost, never in observe,
+fail-closed on EOF stdin), archives rather than deletes, and provenance stops laundering
+regardless of whether the key is dropped. Briefing keeps its current unconditional behavior —
+removing a delimited managed block restores the file's own bytes and loses nothing.
