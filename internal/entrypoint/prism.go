@@ -588,6 +588,26 @@ func renderSurfaceRMWSurface(e *Env, surface manifest.Surface, computed map[stri
 // key claims the whole top-level key, so an overlay contributing a sibling under a parent
 // the owner also manages reads as `managed`, exactly as it would on a stateful surface.
 // One coarseness in both places beats two different ones, since one reader serves both.
+//
+// ── SECOND OF TWO "which layer won" derivations. UNIFY AT THE THIRD, not before. ──
+//
+// The other is agentcfg.Compose (internal/agentcfg/compose.go), which folds the layer stack.
+// The duplication is DELIBERATE and was ruled on (docs/plans/proposed-fixes-open-findings.md
+// §8): forcing one implementation means either handing RMW a synthetic layer stack it does not
+// have, or making Compose simulate sequential writes — both more fiction than the duplication.
+//
+// What keeps them honest meanwhile is the shared-corpus parity table
+// (provenanceparity_test.go): one set of layer/key fixtures asserted against BOTH, so a
+// divergence in OUTCOME fails, not merely one in shape. It also RECORDS the two places the two
+// renders genuinely differ (a scalar `computed` key, and an overlay null tombstone) — in both
+// the record is truthful about the file its own notch wrote, so closing the gap means changing
+// a render, not a derivation.
+//
+// THE TRIGGER: a THIRD derivation. The likely one is the `guest` notch (env-manager Phase 7,
+// unbuilt) — it renders into a real home like the host but keeps a workspace like the jail, so
+// it may need a derivation of its own. That is the moment to unify all three (rule of three
+// applied, rather than an abstraction guessed from two cases). If you are here adding it, this
+// note and its twin on Compose are the two sites to collapse.
 func rmwProvenance(surface manifest.Surface, present []string, computed map[string]any,
 	overlays []agentcfg.Overlay) map[string]string {
 	prov := map[string]string{}

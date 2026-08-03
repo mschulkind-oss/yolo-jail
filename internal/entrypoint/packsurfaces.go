@@ -227,7 +227,27 @@ func renderDeclaredSurface(e *Env, surface manifest.Surface, tables map[string]m
 			computed, overlays)
 		return err
 	case manifest.ModeRMW:
-		return renderSurfaceRMWSurface(e, surface, computed, overlays)
+		err := renderSurfaceRMWSurface(e, surface, computed, overlays)
+		// A REFUSAL IS A WARNING HERE, NOT AN A12 BOOT FAILURE, and the distinction is the
+		// difference between the two things that can go wrong with an rmw surface.
+		//
+		// A12 makes a generator failure fatal because boot must not hand the agent a
+		// half-configured home. A refusal is the opposite situation: yolo looked at an
+		// AGENT-OWNED file it could not parse and deliberately left it exactly as it was.
+		// Nothing is half-configured — one file is untouched, and the file is one the agent
+		// wrote. Escalating that to fatal would mean a corrupt ~/.claude.json (which the
+		// agent itself can produce by crashing mid-write) stops the jail from STARTING, so
+		// the user could not launch the jail to fix the file inside it. That is a worse
+		// failure than the one being prevented.
+		//
+		// It is still never silent: the warning names the surface and the reason. The old
+		// behavior — parse-fail, read as {}, rewrite from yolo's layers alone — was the
+		// silent one, and it destroyed the file.
+		if refusal, isRefusal := asRMWRefusal(err); isRefusal {
+			e.warn("warning: " + refusal.Error() + " (this file was NOT modified)")
+			return nil
+		}
+		return err
 	default:
 		out, err := renderSurfaceStatefulSurface(e, surface,
 			hostSurfaceBytes(e, surface), computed, overlays)

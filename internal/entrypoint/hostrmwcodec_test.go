@@ -11,6 +11,8 @@ package entrypoint
 // the surface's codec.
 
 import (
+	"bytes"
+	"encoding/json"
 	"os"
 	"path/filepath"
 	"strings"
@@ -462,6 +464,69 @@ func TestRMWKeylessSurfaceWritesNothing(t *testing.T) {
 	}
 	if _, statErr := os.Stat(filepath.Join(e.Home, ".acme")); statErr == nil {
 		t.Errorf("a refused surface created its parent directory")
+	}
+}
+
+// THE JAIL PATH: a refusal is a WARNING, not an A12-fatal boot failure. A corrupt
+// agent-owned ~/.claude.json is something the agent itself can produce by crashing
+// mid-write; if that stopped the jail from starting, the user could not launch the jail to
+// fix the file inside it. The file is untouched and the reason is on stderr.
+func TestJailRenderRMWRefusalWarnsRatherThanFailingBoot(t *testing.T) {
+	var errw bytes.Buffer
+	e := &Env{Home: t.TempDir(), Workspace: t.TempDir(), Vars: map[string]string{}, Stderr: &errw}
+	withCtxRoot(t, t.TempDir(), "none")
+
+	// claude/config is the jail's rmw surface, and ~/.claude.json is corrupt.
+	broken := `{"projects": {`
+	path := filepath.Join(e.Home, ".claude.json")
+	if err := os.WriteFile(path, []byte(broken), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	if err := ConfigurePackByName(e, "claude"); err != nil {
+		t.Fatalf("a refused rmw surface must not fail the render: %v", err)
+	}
+	after, err := os.ReadFile(path)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if string(after) != broken {
+		t.Errorf("the corrupt file was rewritten:\nbefore %s\nafter  %s", broken, after)
+	}
+	report := errw.String()
+	for _, want := range []string{"claude/config", "not valid JSON", "NOT modified"} {
+		if !strings.Contains(report, want) {
+			t.Errorf("the refusal warning must contain %q:\n%s", want, report)
+		}
+	}
+}
+
+// The jail's rmw surfaces still render normally — the refusal path must not have cost the
+// ordinary case. (The byte-level version of this is TestRenderFingerprintStable; this is the
+// behavioral one: a user key survives an rmw render, which is the mode's whole promise.)
+func TestJailRenderRMWPreservesUserKeys(t *testing.T) {
+	e := &Env{Home: t.TempDir(), Workspace: t.TempDir(), Vars: map[string]string{}}
+	withCtxRoot(t, t.TempDir(), "none")
+	path := filepath.Join(e.Home, ".claude.json")
+	if err := os.WriteFile(path, []byte(`{"userOwnedKey":"keep me","numTokens":7}`), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	if err := ConfigurePackByName(e, "claude"); err != nil {
+		t.Fatal(err)
+	}
+	raw, err := os.ReadFile(path)
+	if err != nil {
+		t.Fatal(err)
+	}
+	var got map[string]any
+	if err := json.Unmarshal(raw, &got); err != nil {
+		t.Fatalf("not valid JSON (%v):\n%s", err, raw)
+	}
+	if got["userOwnedKey"] != "keep me" {
+		t.Errorf("an rmw render dropped a user key:\n%s", raw)
+	}
+	// An integer must not be retyped on a JSON surface either.
+	if !strings.Contains(string(raw), `"numTokens": 7`) {
+		t.Errorf("integer 7 was retyped:\n%s", raw)
 	}
 }
 
