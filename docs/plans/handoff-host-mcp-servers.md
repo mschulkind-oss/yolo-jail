@@ -20,12 +20,10 @@
 >   and the remedy:
 >   `⚠ would damage your existing entry: mcpServers.my-hand-added (dropped — not in your
 >   config) (yolo owns this table; declare the entry under `mcp_servers` to keep it)`
-> - **The `${VAR}`-written-literally trap is now an explicit warning** rather than a silent
->   401: `⚠ ${TAVILY_API_KEY} written LITERALLY — apply --host does not resolve variables; put
->   the value in the file directly, or manage this server in the jail, where `env_sources`
->   expands it`. So §3's "decide" is decided: interpolation was **not** extended to `url`;
->   instead the limitation is surfaced at the point of use. Good call — it keeps secrets out
->   of the render path entirely.
+> - **The `${VAR}` warning is WRONG for the `env` block — see [§The `${VAR}` warning
+>   misdiagnoses the `env` case](#the-var-warning-misdiagnoses-the-env-case) below.** The
+>   *mechanism* (host render does not resolve variables) is right; the *message* calls the
+>   correct outcome a hazard and recommends inlining a live credential.
 > - Unrelated keys in the file are untouched (verified with a sentinel key).
 >
 > **One new asymmetry found while verifying — see [§Dangling state on pack
@@ -180,7 +178,8 @@ That is the same "never silent" discipline the G1 fix established for skills/bri
   acceptable policy (see §2), but the drop must be reported, and the first-ever apply must
   make it obvious before it happens.
 - A `${VAR}` in a server's `url` either expands or produces a warning — never a silent
-  literal (§3).
+  literal (§3). **But a `${VAR}` inside an `env` value must NOT warn** — the literal is
+  correct there, because Claude Code resolves it at launch (see the `${VAR}` section below).
 - Second `--assert` byte-identical; unrelated keys in a 32-key `~/.claude.json` untouched.
 
 ## Also worth deciding
@@ -210,6 +209,64 @@ $ HOME=/tmp/mcp XDG_CONFIG_HOME=/tmp/mcp/.config yolo apply --host --assert
 Relevant code: `internal/entrypoint/hostrender.go:239` (predicate), same file's
 `RenderHostPack` loop (refusal), `internal/entrypoint/prism.go:466`
 (`regenerateManagedTables`), `packs/claude/pack.json` (the `${workspace}` keys).
+
+---
+
+## The `${VAR}` warning misdiagnoses the `env` case
+
+**New finding, 2026-08-03.** `apply --host` prints, for an `mcpServers` entry whose `env`
+value contains `${VAR}`:
+
+```
+⚠ ${TAVILY_API_KEY} written LITERALLY — apply --host does not resolve variables; put the
+  value in the file directly, or manage this server in the jail, where `env_sources` expands it
+```
+
+**Claude Code expands `${VAR}` in `mcpServers.*.env` itself, at server-launch time.** So for
+the `env` block the literal is not a hazard — it is the **correct and desired** file content,
+and the warning's first remedy ("put the value in the file directly") recommends inlining a
+live credential into a file a pack may carry.
+
+Verified empirically (Claude Code 2.1.220): a `~/.claude.json` containing a literal
+`"env": {"RESOLVED": "${MY_PROBE_VAR}"}`, with the MCP command pointed at a script that dumps
+its environment:
+
+```console
+$ cat /tmp/envt2/captured.txt
+RESOLVED=[SECRET_VALUE_123]        # ← the agent resolved it; the file kept the literal
+```
+
+### Why the two notches genuinely differ
+
+The mechanism is right and should not change. What differs is who resolves, and the message
+conflates them:
+
+| notch | who resolves | correct file content |
+|---|---|---|
+| **jail** | **yolo** (`interpolateEnv`, `mcp.go:41`) — the jail never sourced the user's host env file, so a literal would reach the server unresolved | the resolved value |
+| **host** | **Claude Code**, from the user's already-exported shell env (their `bashrc` sources `~/.config/claude/env`) | **the literal `${VAR}`** |
+
+Same key, opposite correct behavior. The current message applies the jail's reasoning to the
+host.
+
+### Suggested fix
+
+Scope the warning by **position**, not by presence of `${…}`:
+
+- **inside an `env` value** → not a warning at all. At most an informational line:
+  `${TAVILY_API_KEY} left literal — Claude Code resolves it from your environment at launch`.
+  Better still: say nothing, since this is the intended shape.
+- **anywhere else** (`url`, `args`, `command`) → keep warning, because Claude Code's expansion
+  *is* `env`-specific and a `${VAR}` in a `url` really is inert. This is almost certainly the
+  case that motivated the warning; it was over-generalized to all positions.
+- **Drop "put the value in the file directly" as the lead remedy** regardless. For a secret it
+  is the harmful advice, and it is what a user will copy-paste. If a literal value genuinely
+  is wanted, the user does not need to be told how.
+
+Downstream effect of getting this right: a pack can carry `"env": {"TAVILY_API_KEY":
+"${TAVILY_API_KEY}"}` and be **fully shareable and trackable** — it holds a *reference*, never
+a credential — with the secret staying in an untracked host file. That is the whole point of
+the indirection, and today's warning steers users away from it.
 
 ---
 
