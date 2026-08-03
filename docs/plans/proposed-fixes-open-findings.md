@@ -17,11 +17,18 @@ reversal would hide the most useful part of the review.
 | 2 | decide `requires` *instead of* #1 | **both** — `requires` does not subsume a working fallback |
 | 3 | a validation error (one `program` per pack) | **reversed** — no case for constricting packs; return a slice |
 | 6 | annotate the nix remedy | **reframed** — prefer the pack's own installer; nix goes stale |
+| 6b | keep nix hints "for pinning the closure" | **trimmed** — no such user exists; `detectManager` reaches nix only by elimination, so drop them |
 | 9 | no proposal, "a product decision" | **corrected** — it is a CI capability constraint, so it *has* an answer |
 
-Two of those (#3, #9) were me reasoning from the wrong premise: a stale identifier name in one
-case, an unread comment in the other. Both are recorded at the item with the evidence that
-corrected them.
+Three of those were me reasoning from the wrong premise, each corrected by reading something I
+should have read first: a stale identifier name (#3), an unread workflow comment (#9), and an
+**invented user** (#6b — I justified keeping the nix hints for someone who "wants the closure
+pinned", then `detectManager` turned out to reach nix only by elimination, so that user cannot
+select it). All three are recorded at the item with the evidence.
+
+**The #6b pattern is the one to watch for in this doc:** a justification that sounds
+architectural but names no reachable user. It accretes exactly the junk the review was
+guarding against.
 
 **Reads with:** [`../design/program-kind-defects.md`](../design/program-kind-defects.md)
 (Q1.1–Q3.1), [`pack-host-management-plan.md`](pack-host-management-plan.md) Phase 11 and
@@ -45,7 +52,7 @@ waiting on a decision — this doc is ready to implement against.
 | 3 | Only the first `program` per pack installs (11.2 / Q2.1) | **Return a slice, generate N launchers** | **REVERSED** — I proposed a validation error; no case for constricting packs |
 | 4 | A dropped pack's staged tree keeps rendering (11.3 / Q3.1) | Prune unconfigured slugs, contents-only, **never** clear-and-restage | context expanded on request |
 | 5 | `depcheck.Manifest` cannot express a brew cask (8.4) | `brew-cask` key → `cask "<pkg>"` in the Brewfile | **RULED — just make it work** |
-| 6 | `install_hints` routes agents through nix (8.3) | **Prefer the pack's OWN installer** at the host; nix as a labeled fallback; keep the unfree caveat | **REFRAMED** — the better question; `copilot` measured 16 releases behind |
+| 6 | `install_hints` routes agents through nix (8.3) | **Prefer the pack's OWN installer**; **DROP the nix hints for the six agent CLIs** (keep them for real deps like `fd`/`jq`) | **REFRAMED, then TRIMMED** — `copilot` is 16 releases behind, and the "pin the closure" case I invented is unreachable |
 | 7 | `packages: ["claude-code"]` fails at build with a nix trace (nix OQ-6) | `meta.unfree` check beside `availableOn` | still stands — §6 removes the example, not the defect |
 | 8 | `rmwProvenance` is a second "which layer won" | Parity table now; **unify at the third** derivation | **RULED — wait for 3** |
 | 9 | Nightly macOS builder arch mismatch (BACKLOG E8) | Publish the builder multi-arch (or skip the two tests, recorded) | **CORRECTED** — a CI capability constraint, not platform support |
@@ -433,43 +440,76 @@ the packaging tells a user which. A remedy line that says `nix profile install
 nixpkgs#github-copilot-cli` hands them a version 16 releases old **without saying so**, which is
 the same class of quiet wrongness as the provenance misreport in §8 of the collaboration doc.
 
-### Revised proposal: prefer the pack's own installer at the host, keep nix as a fallback
+### There is no "pin-the-closure" case — I invented it. **Drop the nix hints for agent CLIs.**
 
-`install_hints` was built on the assumption that a host user installs through *their* package
-manager. For a general dependency (`fd`, `fzf`, `jq`) that is right. For **the agent the pack
-installs**, it is second-best: the pack already knows the canonical install command, and it is
-the one upstream supports.
+> **Reviewed:** *"what is the 'pin-the-closure' case? when would anybody use that? I don't want
+> to accrete junk."* Correct, and reading `detectManager` settles it against me.
 
-So for a `program` whose `via` is `installer` or `npm`, the remedy should lead with that:
+I had justified keeping the nix hints for "a user who wants the closure pinned rather than the
+latest". **That user cannot reach them.** `detectManager`
+(`internal/depcheck/depcheck.go`) is not a preference — it is a **first-match probe with nix as
+the terminal fallback**:
 
+```go
+func detectManager() string {
+	if runtime.GOOS == "darwin" { if brew present { return "brew" } }
+	for _, m := range []string{"apt", "dnf", "pacman", "brew"} {
+		if m present { return m }
+	}
+	return "nix"          // ← reached only when NOTHING else was found
+}
 ```
-✗ claude    MISSING → curl -fsSL https://claude.ai/install.sh | sh        (upstream installer)
-✗ copilot   MISSING → npm install -g @github/copilot                     (upstream, latest)
-                      or: nix profile install nixpkgs#github-copilot-cli (nixpkgs: 1.0.61,
-                          16 releases behind — see below)
-```
 
-Three things this needs, and one of them is a real decision:
+So a `nix` hint is printed **only on a host with no apt, dnf, pacman, or brew** — in practice a
+NixOS machine, where nix is not a *choice* the user makes but the only manager they have. And
+the remedy is selected *for* them; there is no flag to ask for the nix one. Verified on this
+host: all four absent, so `nix` by elimination.
 
-1. **The `via`/`package`/`url` fields already carry everything needed** — no new schema. The
-   remedy is derivable from the contribution the pack already declares.
-2. **`curl … | sh` is a different trust proposition from `brew install`.** yolo already treats
-   an installer URL as review-worthy (origin-gated, flagged `⚠ review` in the footprint) — so
-   printing it as a *suggestion the user runs themselves* is consistent, but it must not become
-   something yolo runs unprompted. That is env-manager Phase 4.3's confirm-gated territory, and
-   this item must not quietly pre-empt it.
-3. **Whether to keep the nix hints at all.** I would keep them, for the one case they win:
-   a user who *wants* the closure pinned rather than the latest. But they should be labeled with
-   the version, so choosing them is informed. That connects to
-   [`../design/host-nix-environment.md`](../design/host-nix-environment.md) — the honest place
-   for "give me yolo's exact closure" is that doc's `buildEnv`, not a hint that looks like a
-   plain install command.
+That kills the case I described. A NixOS user is not "pinning a closure" — they are just
+installing, with the only tool available. And on **every other** host the nix hint is dead
+weight: never selected, never printed, one more string to keep current.
 
-### The unfree annotation, which survives either way
+**So: drop `nix` from `install_hints` for the six agent CLIs**, and let the upstream installer be
+the remedy on every host including NixOS. Three reasons it is the right call rather than merely
+the smaller one:
 
-`claude-code`, `github-copilot-cli` and `antigravity-cli` are `unfree`, so
-`nix profile install nixpkgs#<pkg>` refuses until the user allows unfree. Whatever happens to
-the nix hints, a printed nix remedy must say so:
+- **The upstream installers work on NixOS.** `npm install -g` and Claude's `install.sh` both
+  install into the user's home, not the system — no FHS assumption to break. A NixOS user
+  installing an npm CLI with npm is doing the ordinary thing.
+- **It removes the staleness trap entirely.** `github-copilot-cli` at 16 releases behind stops
+  being reachable, so nobody is handed it silently — no version-labeling machinery needed.
+- **It removes the unfree caveat from the primary path.** All three unfree packages are agent
+  CLIs; drop their nix hints and the caveat has nowhere left to fire.
+
+**Keep `nix` hints for genuine third-party dependencies** — `fd`, `fzf`, `jq`, `postgresql`.
+Those are exactly the case `install_hints` was designed for: a tool the pack does *not* install,
+where the user's own package manager is right and nixpkgs is not meaningfully stale. That is the
+distinction I should have drawn instead of inventing a user.
+
+**Where a real "pin the closure" want belongs**, if it ever shows up: not a hint that looks like
+a plain install command, but
+[`../design/host-nix-environment.md`](../design/host-nix-environment.md)'s `buildEnv` — a whole
+declared closure, which is a different feature with a different UI. **Not building it on
+speculation.**
+
+Two things the change still needs:
+
+1. **The `via`/`package`/`url` fields already carry everything** — no new schema. The remedy is
+   derivable from the contribution the pack already declares.
+2. **`curl … | sh` is a different trust proposition from `brew install`.** yolo already treats an
+   installer URL as review-worthy (origin-gated, flagged `⚠ review` in the footprint), so
+   printing it as *a suggestion the user runs themselves* is consistent — but it must not become
+   something yolo runs unprompted. That is env-manager Phase 4.3's confirm-gated territory and
+   this item must not pre-empt it.
+
+### The unfree annotation — mostly deleted by the above, kept only for the general case
+
+All three unfree packages (`claude-code`, `github-copilot-cli`, `antigravity-cli`) are **agent
+CLIs**, so dropping their nix hints removes the caveat from every path a user actually hits. That
+is the tidiest outcome: no annotation mechanism, no per-hint marker, nothing to keep in sync.
+
+It survives only as a rule for a **future** unfree hint on a genuine dependency (nothing shipped
+today qualifies). If one is ever added, the remedy must say so:
 
 ```
 (unfree: needs NIXPKGS_ALLOW_UNFREE=1 or nixpkgs.config.allowUnfree)
@@ -479,8 +519,9 @@ the nix hints, a printed nix remedy must say so:
 decision the user makes once, machine-wide; slipping the override into a copy-pasteable line
 makes it for them silently — the same consumer-grants-power invariant `allow_exec` follows.
 
-Note this shrinks if the upstream installer leads: all three unfree packages are agent CLIs with
-their own installer, so the unfree caveat stops being on the primary path.
+**Net effect on the work:** with the agent-CLI nix hints dropped, this item stops needing any
+per-hint annotation mechanism at all. It becomes a one-line rule in the doc for whoever adds the
+next hint, not code. That is a real reduction in scope from what I first proposed.
 
 ---
 
