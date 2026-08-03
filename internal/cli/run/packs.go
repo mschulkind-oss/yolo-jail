@@ -32,6 +32,12 @@ import (
 // trees are read from their host path instead (no nested mount).
 const packCtxDir = "/ctx/packs"
 
+// officialStagingDir is the subdir of the staging root holding the EMBEDDED packs, the
+// one name under it that is never a configured pack's slug (a slug cannot start with '_':
+// Slug escapes every character outside [A-Za-z0-9.-] as "_xx", so "_official" is not
+// reachable from any pack name). The prune therefore keeps it unconditionally.
+const officialStagingDir = "_official"
+
 // stagePacks stages every pack for this run — the EMBEDDED official packs plus the
 // user's configured ones — and returns them loaded, so the mount assembler can act on
 // their declarations.
@@ -91,11 +97,46 @@ func (o *Options) stagePacks(cname string) (string, []*packload.Pack, []agents.P
 		byName[p.Name] = p
 	}
 
-	officialRoot := filepath.Join(stagingRoot, "_official")
+	officialRoot := filepath.Join(stagingRoot, officialStagingDir)
 	// Clear it: a pack DROPPED from config must stop being mounted, and a leftover tree
 	// would keep rendering as if it were still selected.
+	//
+	// Wholesale removal is safe HERE and only here, because _official is DERIVED — it is
+	// materialized fresh out of the binary's embed.FS every launch, so there is nothing in
+	// it that re-copying does not reproduce. A CONFIGURED pack's tree is a copy of an
+	// external source, so it gets the selective prune below instead. Neither one may touch
+	// stagingRoot itself (packstage rule 3): a running jail's /ctx/packs bind captured that
+	// dir's inode, and recreating it silently detaches the mount.
 	if err := os.RemoveAll(officialRoot); err != nil {
 		return "", nil, nil, err
+	}
+	// The SAME rule for configured packs, which is what the comment above always claimed
+	// and only _official ever got: remove the staged tree of every slug the config no
+	// longer names. Observed live before this existed — a deleted test pack kept
+	// regenerating a broken `fzf` shim across launches, because the mount is the filter and
+	// a leftover directory is therefore a fully ACTIVE pack (surfaces render, hooks run,
+	// shims generate) long after the user deleted both the pack and its config entry.
+	//
+	// The live set comes from `entries` BEFORE any resolution, so a fetched pack whose
+	// mirror could not be read this launch still counts as configured. That is the case
+	// that rules out the simpler clear-everything-and-restage: it would silently discard a
+	// pack the user still wants on every offline launch.
+	//
+	// This runs on the ATTACH path too (refreshJailBriefings is called on every
+	// invocation), so dropping a pack from config and re-attaching removes its tree from
+	// under a live jail's /ctx/packs — the same thing the _official clear above has always
+	// done, and the honest one: config says the pack is gone.
+	pruned, err := pruneDroppedPackStaging(stagingRoot, livePackSlugs(entries, byName))
+	if err != nil {
+		return "", nil, nil, err
+	}
+	// NO SILENT CAPS: a user who dropped a pack should see its tree go, rather than be left
+	// wondering whether the deactivation took (which is exactly the doubt the bug created).
+	for _, slug := range pruned {
+		o.pr(o.Stdout).print(fmt.Sprintf(
+			"[yellow]Warning: pack %s is no longer in `packs` — removed its staged tree "+
+				"(a leftover tree keeps rendering in the jail as if it were still "+
+				"selected)[/yellow]", slug))
 	}
 	var loaded []*packload.Pack
 	var configured []config.PackEntry
@@ -238,6 +279,71 @@ func (o *Options) stagePacks(cname string) (string, []*packload.Pack, []agents.P
 
 	agents.SetPackSkillDirs(skillDirs)
 	return stagingRoot, loaded, briefings, nil
+}
+
+// livePackSlugs is the set of staging-dir names the CURRENT config still claims.
+//
+// Computed from the config entries BEFORE any resolution, which is the whole point: a
+// fetched pack whose mirror cannot be read this launch (offline, moved remote, never
+// installed) is still CONFIGURED, and pruning it would silently discard content the user
+// asked for — on every offline launch, no less. Resolution failure is reported later by
+// packRoot as a fatal error naming `yolo pack install`; it is emphatically not a
+// deactivation signal.
+//
+// embedded names are excluded because an embedded pack does not live at <root>/<slug> at
+// all: it is staged under _official, which is cleared and rebuilt wholesale. Including it
+// here would be harmless (no such dir exists) but would misstate the rule.
+func livePackSlugs(entries []config.PackEntry, embedded map[string]*packload.Pack) map[string]bool {
+	live := map[string]bool{}
+	for _, entry := range entries {
+		if _, isEmbedded := embedded[entry.Name]; isEmbedded && entry.Embedded() {
+			continue
+		}
+		live[entry.Slug()] = true
+	}
+	return live
+}
+
+// pruneDroppedPackStaging removes the staged tree of every configured-pack slug under
+// stagingRoot that `live` does not name, and returns the removed slugs sorted.
+//
+// CONTENTS, NEVER THE DIR (packstage rule 3, and the reason this is not a one-line
+// os.RemoveAll(stagingRoot)): a running jail's /ctx/packs bind captured stagingRoot's
+// inode, so removing and recreating that directory detaches the mount — the jail keeps
+// reading a tree nothing writes to any more. Only per-slug children are removed here;
+// stagingRoot itself is never touched, and neither is _official (which the caller has
+// already rebuilt from the embed.FS).
+//
+// Only a REAL directory is pruned (DirEntry.IsDir is Lstat-shaped, so a symlink reports
+// false and is skipped). Nothing this code writes puts a file or a link at the top level,
+// so an unrecognized entry there is somebody else's — and deleting one to tidy up a mount
+// source is not a trade this function is entitled to make. It also cannot render as a pack
+// anyway: LoadJailPacks skips every non-directory entry.
+func pruneDroppedPackStaging(stagingRoot string, live map[string]bool) ([]string, error) {
+	entries, err := os.ReadDir(stagingRoot)
+	if err != nil {
+		if os.IsNotExist(err) {
+			return nil, nil // nothing staged yet; the caller creates it
+		}
+		return nil, err
+	}
+	var pruned []string
+	for _, e := range entries {
+		name := e.Name()
+		if name == officialStagingDir || !e.IsDir() || live[name] {
+			continue
+		}
+		if err := os.RemoveAll(filepath.Join(stagingRoot, name)); err != nil {
+			// FAIL-CLOSED, like the rest of stagePacks: a tree that could not be removed
+			// is a tree that WILL render in the jail, so launching anyway would deliver
+			// the pack the user just dropped while claiming it was gone.
+			return nil, fmt.Errorf("packs: removing the staged tree of dropped pack %s: %w",
+				name, err)
+		}
+		pruned = append(pruned, name)
+	}
+	sort.Strings(pruned)
+	return pruned, nil
 }
 
 // packMayAccessHost decides whether a configured pack gets host access at launch.
