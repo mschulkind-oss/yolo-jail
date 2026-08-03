@@ -301,17 +301,69 @@
               if !present then { success = true; value = false; }
               else builtins.tryEval
                 (pkgs.lib.meta.availableOn { inherit system; } drv);
+            # availableOn is a PLATFORM predicate, and the other reason nixpkgs
+            # refuses a package is NOT a platform fact: an unfree licence (also
+            # broken/insecure/blocklisted).  check-meta raises that one when the
+            # derivation is REALIZED, not when its meta is read, so okAttempt's
+            # tryEval reports an unfree package *available*, warn-and-skip never
+            # runs, and the abort resurfaces later inside buildEnv as a raw
+            # check-meta trace (`packages: ["claude-code"]`, and identically
+            # `["vscode"]` / `["terraform"]`).
+            #
+            # meta.available is nixpkgs' OWN verdict on exactly that question
+            # (`validity.valid != "no"`), and it reads without throwing.  It
+            # beats a bare meta.unfree test because it flips back to true under
+            # NIXPKGS_ALLOW_UNFREE=1 / allowUnfreePredicate — so a user who
+            # deliberately opted in still gets the package instead of a silent
+            # skip.  yolo does NOT set that variable for them: unfree is a
+            # licence decision the user makes once, machine-wide.
+            metaAttempt =
+              if !present then { success = true; value = true; }
+              else builtins.tryEval (drv.meta.available or true);
+            metaOK = metaAttempt.success && metaAttempt.value;
+            # Read purely to make the skip message name the real reason; an
+            # unfree licence is user-actionable where "broken" is not.
+            unfreeAttempt =
+              if !present then { success = true; value = false; }
+              else builtins.tryEval (drv.meta.unfree or false);
+            # Reason precedence matters, and the PLATFORM case must come first:
+            # meta.available folds `unsupported` in alongside the licence checks,
+            # so testing metaOK first mislabels a plain platform miss (iptables
+            # on darwin) as "broken or blocklisted".  availableOn is the narrow
+            # predicate, so it gets to name its own case.
+            skipReason =
+              if !present then "no such package in nixpkgs"
+              else if !(okAttempt.success && okAttempt.value) then
+                "no ${system} build"
+              else if unfreeAttempt.success && unfreeAttempt.value then
+                "nixpkgs refuses it: unfree licence (allowing unfree packages "
+                + "on this machine is your call to make)"
+              else
+                "nixpkgs refuses it: marked broken, insecure, or "
+                + "licence-blocklisted";
           in {
-            inherit name outputs drv;
-            available = present && okAttempt.success && okAttempt.value;
+            inherit name outputs drv skipReason;
+            available = present && metaOK
+              && okAttempt.success && okAttempt.value;
           }
         ) extraPackageSpecs;
 
         darwinKept = builtins.filter (r: r.available) darwinResolved;
-        darwinSkippedNames =
-          map (r: r.name) (builtins.filter (r: !r.available) darwinResolved);
+        darwinSkipped = builtins.filter (r: !r.available) darwinResolved;
+        darwinSkippedNames = map (r: r.name) darwinSkipped;
+        # The warning rides on darwinPackages — the BUILD path — rather than on
+        # the skip list alone: `nix build`'s stderr is streamed to the user
+        # (internal/darwinpkg streamStderrTail), while the skip list is read by a
+        # separate `nix eval` whose stderr is discarded.  So a user who never
+        # reads darwinUnavailablePackages still learns which package was dropped
+        # and why, in the same invocation that used to abort.
         darwinPackages =
-          builtins.concatMap (r: selectOutputs r.drv r.outputs) darwinKept;
+          builtins.foldl'
+            (acc: r: pkgs.lib.warn
+              "yolo: skipping \"${r.name}\" from `packages` — ${r.skipReason}"
+              acc)
+            (builtins.concatMap (r: selectOutputs r.drv r.outputs) darwinKept)
+            darwinSkipped;
 
         # Runtime-library derivations for the /lib farm.  getLib is applied
         # to the BASE derivation of each spec, never the selected outputs:

@@ -38,6 +38,15 @@ type Contribution struct {
 	// emit a runnable manifest (a Brewfile and kin). Optional: absent means yolo can
 	// name the binary as missing but not the remedy. Declared by the pack that
 	// INTRODUCES the dep, never re-declaring one another tool owns.
+	//
+	// One key names an installer FLAVOR rather than a manager: "brew-cask", for a
+	// Homebrew cask (`brew install --cask`, and `cask "<token>"` in a Brewfile) as
+	// opposed to a formula. Use it whenever the token is a cask —
+	// https://formulae.brew.sh/api/cask/<token>.json exists and .../formula/... 404s —
+	// because a Brewfile `brew` line naming a cask token fails, and bare
+	// `brew install <token>` silently prefers a same-named formula (brew's `copilot`
+	// formula is AWS's deprecated ECS CLI). "brew-cask" wins over "brew" when a pack
+	// declares both; internal/depcheck holds the lookup order.
 	InstallHints map[string]string `json:"install_hints,omitempty"`
 
 	// --- skills / briefing / files (staged trees) ---

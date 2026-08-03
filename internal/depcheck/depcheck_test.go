@@ -81,3 +81,65 @@ func TestManifestBrewfile(t *testing.T) {
 		t.Errorf("no missing deps should yield no manifest, got %q/%q", n, b)
 	}
 }
+
+// A brew-cask hint wins over a plain brew hint on a brew host, produces the --cask install
+// command, and lands as a `cask "<token>"` Brewfile line — `brew bundle` on a `brew` line
+// naming a cask token fails looking for a formula that does not exist.
+func TestBrewCaskHint(t *testing.T) {
+	orig, origM := LookPath, DetectManager
+	t.Cleanup(func() { LookPath, DetectManager = orig, origM })
+	DetectManager = func() string { return "brew" }
+	LookPath = func(string) (string, error) { return "", errors.New("not found") }
+
+	res := Check([]Requirement{
+		// A pure cask.
+		{Bin: "claude", Hints: map[string]string{"brew-cask": "claude-code", "nix": "claude-code"}},
+		// Both declared: the cask wins, because a same-named formula is the wrong-package
+		// trap (brew's `copilot` formula is AWS's ECS CLI).
+		{Bin: "copilot", Hints: map[string]string{"brew-cask": "copilot-cli", "brew": "copilot"}},
+		// A real formula stays a formula.
+		{Bin: "psql", Hints: map[string]string{"brew": "postgresql@16"}},
+	})
+	byBin := map[string]Result{}
+	for _, r := range res {
+		byBin[r.Bin] = r
+	}
+	if got := byBin["claude"].Remedy; got != "brew install --cask claude-code" {
+		t.Errorf("cask remedy = %q, want the --cask form", got)
+	}
+	if got := byBin["copilot"].Remedy; got != "brew install --cask copilot-cli" {
+		t.Errorf("brew-cask must win over brew, got %q", got)
+	}
+	if got := byBin["psql"].Remedy; got != "brew install postgresql@16" {
+		t.Errorf("formula remedy = %q, want the plain form", got)
+	}
+	// Manager stays plain "brew" — the flavor is a property of the package, not the host.
+	if byBin["claude"].Manager != "brew" || byBin["claude"].Flavor != "brew-cask" {
+		t.Errorf("claude manager/flavor = %q/%q, want brew/brew-cask",
+			byBin["claude"].Manager, byBin["claude"].Flavor)
+	}
+	if byBin["psql"].Flavor != "brew" {
+		t.Errorf("psql flavor = %q, want brew", byBin["psql"].Flavor)
+	}
+
+	// One Brewfile carries both verbs: formulae first, then casks.
+	name, body := Manifest(res)
+	if name != "Brewfile" {
+		t.Fatalf("manifest name = %q, want Brewfile", name)
+	}
+	want := "brew \"postgresql@16\"\ncask \"claude-code\"\ncask \"copilot-cli\"\n"
+	if body != want {
+		t.Errorf("Brewfile =\n%s\nwant\n%s", body, want)
+	}
+
+	// A non-brew host cannot select a brew-cask hint at all: nothing covers it, so the
+	// result is missing-with-no-remedy rather than a bogus `apt install claude-code`.
+	DetectManager = func() string { return "apt" }
+	apt := Check([]Requirement{{Bin: "claude", Hints: map[string]string{"brew-cask": "claude-code"}}})
+	if apt[0].Remedy != "" || apt[0].Flavor != "" {
+		t.Errorf("brew-cask must not be selected for apt, got %+v", apt[0])
+	}
+	if n, b := Manifest(apt); n != "" || b != "" {
+		t.Errorf("no remedy → no manifest, got %q/%q", n, b)
+	}
+}

@@ -699,14 +699,19 @@ program — install below jail is confirm-gated; not run by apply --host yet (Ph
     `unfree` — a bare `nix profile install` on them refuses until `allowUnfree`. The remedy line
     is the right package; it is just not sufficient on its own for those three.
 
-- **8.4 — NEW, found by shipping 8.3: `depcheck.Manifest` cannot express a brew cask.** It
-  writes every package as `brew "<pkg>"`, but brew bundle installs a `brew` entry with
-  `--formula`, so the four cask-only hints above produce a Brewfile that fails. `Requirement`
-  has no place to say "this brew package is a cask" — the hint is a bare `map[string]string`.
-  Options: a `brew-cask` pseudo-manager key that `installCmd` maps to `brew install --cask` and
-  `Manifest` emits as `cask "<token>"`; or a per-hint struct. The printed one-liner
-  (`brew install <token>`) is unaffected and correct today, so this is a manifest-only defect.
-  Lives in `internal/depcheck/depcheck.go` (`Manifest`, `installCmd`).
+- **8.4 — SHIPPED (2026-08-02). `depcheck.Manifest` could not express a brew cask.** It wrote
+  every package as `brew "<pkg>"`, but brew bundle installs a `brew` entry with `--formula`, so
+  the four cask-only hints above produced a Brewfile that fails. Fixed with the `brew-cask`
+  hint key (chosen over a per-hint struct: `install_hints`' virtue is one line per manager, and
+  a nested object would rewrite every existing hint for one flag). `installCmd` maps it to
+  `brew install --cask <pkg>`, `Manifest` emits `cask "<pkg>"` after the formulae, and the
+  lookup consults `brew-cask` before `brew` — `DetectManager` still returns plain `brew`, since
+  the flavor is a property of the package, not the host. All four tokens re-verified against
+  `formulae.brew.sh` as cask-200 / formula-404: `claude-code`, `copilot-cli`, `codex`,
+  `antigravity-cli`. `opencode` and `pi-coding-agent` are genuine formulae and stayed on `brew`.
+  Explicit `--cask` in the one-liner too, even though bare `brew install` would fall back to
+  one: the fallback prefers a same-named FORMULA, which is how brew's `copilot` (AWS's
+  deprecated ECS CLI) would get installed instead of the `copilot-cli` cask.
 
 **Done when:** `apply --host` on a pack declaring `fd`/`fzf` names which are missing and the
 exact install line, without running anything.

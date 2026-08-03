@@ -3,7 +3,7 @@
     {
       "bin": "claude",
       "install_hints": {
-        "brew": "claude-code",
+        "brew-cask": "claude-code",
         "nix": "claude-code"
       },
       "kind": "program",

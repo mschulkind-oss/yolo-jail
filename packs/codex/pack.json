@@ -3,7 +3,7 @@
     {
       "bin": "codex",
       "install_hints": {
-        "brew": "codex",
+        "brew-cask": "codex",
         "nix": "codex",
         "pacman": "openai-codex"
       },

@@ -3,7 +3,7 @@
     {
       "bin": "copilot",
       "install_hints": {
-        "brew": "copilot-cli",
+        "brew-cask": "copilot-cli",
         "nix": "github-copilot-cli"
       },
       "kind": "program",

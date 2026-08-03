@@ -3,7 +3,7 @@
     {
       "bin": "agy",
       "install_hints": {
-        "brew": "antigravity-cli",
+        "brew-cask": "antigravity-cli",
         "nix": "antigravity-cli"
       },
       "kind": "program",

@@ -139,12 +139,21 @@ Installs a tool and puts it on `PATH` via a launcher that installs on first invo
   → the package that provides `bin` there. Used below the `jail` notch (where yolo bakes no
   image) by `yolo check-deps` / `apply` to probe for the binary and, if missing, emit a
   runnable manifest. Declared by the pack that *introduces* the dependency.
+  One key names an installer *flavor* instead of a manager: **`brew-cask`**, for a Homebrew
+  cask (`brew install --cask`, and `cask "<token>"` in the generated Brewfile) rather than a
+  formula. Use it whenever `https://formulae.brew.sh/api/cask/<token>.json` exists and
+  `.../api/formula/<token>.json` 404s — a Brewfile `brew` line naming a cask token fails,
+  and bare `brew install <token>` silently prefers a same-named *formula* (brew's `copilot`
+  formula is AWS's deprecated ECS CLI, not the `copilot-cli` cask). `brew-cask` wins over
+  `brew` when a pack declares both; the detected manager stays plain `brew`.
 
 ```json
 { "kind": "program", "bin": "opencode", "via": "npm", "package": "opencode-ai" }
 { "kind": "program", "bin": "claude", "via": "installer", "url": "https://claude.ai/install.sh" }
 { "kind": "program", "bin": "psql", "via": "npm", "package": "x",
   "install_hints": { "brew": "postgresql@16", "apt": "postgresql-16", "nix": "postgresql_16" } }
+{ "kind": "program", "bin": "claude", "via": "installer", "url": "https://claude.ai/install.sh",
+  "install_hints": { "brew-cask": "claude-code", "nix": "claude-code" } }
 ```
 
 ### `skills`

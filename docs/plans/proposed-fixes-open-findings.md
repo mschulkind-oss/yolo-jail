@@ -51,9 +51,9 @@ waiting on a decision — this doc is ready to implement against.
 | 2 | Presence-vs-install conflated (Q1.3) | Add a `requires` kind (asserts presence, generates nothing) | **RULED — build it, AND keep #1**; they are not alternatives |
 | 3 | Only the first `program` per pack installs (11.2 / Q2.1) | **Return a slice, generate N launchers** | **REVERSED** — I proposed a validation error; no case for constricting packs |
 | 4 | A dropped pack's staged tree keeps rendering (11.3 / Q3.1) | Prune unconfigured slugs, contents-only, **never** clear-and-restage | context expanded on request |
-| 5 | `depcheck.Manifest` cannot express a brew cask (8.4) | `brew-cask` key → `cask "<pkg>"` in the Brewfile | **RULED — just make it work** |
+| 5 | `depcheck.Manifest` cannot express a brew cask (8.4) | `brew-cask` key → `cask "<pkg>"` in the Brewfile | **RULED — just make it work** · **SHIPPED 2026-08-02** |
 | 6 | `install_hints` routes agents through nix (8.3) | **Prefer the pack's OWN installer**; **DROP the nix hints for the six agent CLIs** (keep them for real deps like `fd`/`jq`) | **REFRAMED, then TRIMMED** — `copilot` is 16 releases behind, and the "pin the closure" case I invented is unreachable |
-| 7 | `packages: ["claude-code"]` fails at build with a nix trace (nix OQ-6) | `meta.unfree` check beside `availableOn` | still stands — §6 removes the example, not the defect |
+| 7 | `packages: ["claude-code"]` fails at build with a nix trace (nix OQ-6) | `meta.available` check beside `availableOn` | still stands — §6 removes the example, not the defect · **SHIPPED 2026-08-02** |
 | 8 | `rmwProvenance` is a second "which layer won" | Parity table now; **unify at the third** derivation | **RULED — wait for 3** |
 | 9 | Nightly macOS builder arch mismatch (BACKLOG E8) | Publish the builder multi-arch (or skip the two tests, recorded) | **CORRECTED** — a CI capability constraint, not platform support |
 | 10 | A pack cannot install Claude MCP servers on the host | Prune workspace-keyed subtrees instead of refusing the surface | **RULED — warn and wait for confirm**; in progress |
@@ -355,7 +355,17 @@ its tree go, not wonder whether it is still active.
 
 ---
 
-## 5. Brew casks in the dep manifest (8.4)
+## 5. Brew casks in the dep manifest (8.4) — **SHIPPED 2026-08-02**
+
+> **Implemented as proposed**, with two findings worth recording. (1) All four tokens
+> re-verified against `formulae.brew.sh` (cask 200 / formula 404), so none had to stay on
+> `brew`; `opencode` and `pi-coding-agent` are genuine formulae and were left alone. (2) The
+> one-liner grew an explicit `--cask` too, not just the Brewfile: bare `brew install <token>`
+> falls back to a cask only when NO formula matches, so leaving it bare keeps the
+> `copilot`-is-AWS's-ECS-CLI trap live on the printed path. `Result` gained a `Flavor` field
+> because one brew host can need both verbs in one Brewfile, so "which verb" cannot be a
+> property of the detected manager.
+
 
 `depcheck.Manifest` writes every package as `brew "<pkg>"`, but a Brewfile `brew` entry
 installs with `--formula`. Four of the six shipped hints are **casks**, so the generated
@@ -525,7 +535,20 @@ next hint, not code. That is a real reduction in scope from what I first propose
 
 ---
 
-## 7. `packages: ["claude-code"]` fails with a raw nix trace (nix OQ-6)
+## 7. `packages: ["claude-code"]` fails with a raw nix trace (nix OQ-6) — **SHIPPED 2026-08-02**
+
+> **Implemented, with one deliberate substitution and one bug the doc's framing would have
+> introduced.** (1) The check is `drv.meta.available`, not `meta.unfree`/`meta.license.free`:
+> it is nixpkgs' own verdict (`validity.valid != "no"`), reads without throwing, and — unlike a
+> bare unfree test — flips back to true under `NIXPKGS_ALLOW_UNFREE=1` / `allowUnfreePredicate`,
+> so a user who deliberately opted in still gets the package instead of a silent skip. yolo does
+> not set that variable for them. (2) **Reason precedence is load-bearing:** `meta.available`
+> folds `unsupported` in *with* the licence checks, so testing it before `availableOn` labels a
+> plain platform miss ("no aarch64-darwin build" — `iptables`) as "broken or blocklisted". Caught
+> by measurement on the darwin system, not by inspection. (3) The warning rides on
+> `darwinPackages` (the BUILD path, whose stderr is streamed to the user) rather than on the skip
+> list alone, which is read by a separate `nix eval` whose stderr is discarded — so the user
+> learns which package was dropped and why in the same invocation that used to abort.
 
 Re-measured: eval **succeeds**, build fails. The `tryEval` around `availableOn`
 (`flake.nix:301-303`) absorbs the unfree assertion during eval, so the package is reported
@@ -720,8 +743,8 @@ radius**, not about waiting for answers.
 
 0. **#10** (host MCP servers) — **already in progress**; the only item with a user-visible
    capability behind it rather than a latent hazard.
-1. **#7** (unfree eval), **#5** (brew cask) — one-line-ish, isolated, nothing else depends on
-   them.
+1. ~~**#7** (unfree eval), **#5** (brew cask)~~ — **DONE 2026-08-02.** Isolated as expected;
+   see each section's shipped note for what differed from the proposal.
 2. **#4** (staging prune) — closes a doc/code contradiction, no interactions.
 3. **#1 the PATH split** — do this **before** the other `program` work, because it removes the
    *cause* that #1's fallback and #3's caution were both working around. Highest blast radius in

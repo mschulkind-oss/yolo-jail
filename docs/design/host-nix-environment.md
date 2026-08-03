@@ -167,7 +167,7 @@ The coverage asymmetry is stark and is most of the motivation. From §8.3's veri
 | `apt` | **0** — no Debian/Ubuntu suite packages any of them, in any release |
 | `dnf` | **1** (`pi-coding-agent`, and only in Rawhide) |
 | `pacman` | **2** (`openai-codex`, `opencode`; the other four are AUR-only, which `pacman -S` cannot install) |
-| `brew` | 6 — but **4 are casks**, and `depcheck.Manifest` emits `brew "<x>"`, which brew bundle installs with `--formula` → **the generated Brewfile is broken for those four** (defect §8.4) |
+| `brew` | 6 — but **4 are casks** (`claude-code`, `copilot-cli`, `codex`, `antigravity-cli`), which `depcheck.Manifest` used to emit as `brew "<x>"` → a Brewfile that fails on those four (defect §8.4, **fixed 2026-08-02** by the `brew-cask` hint key) |
 | `nix` | **6** — but 3 (`claude-code`, `github-copilot-cli`, `antigravity-cli`) are `unfree`, so bare `nix profile install` refuses (defect §8.3) |
 
 **Read the bottom two rows together and the case makes itself.** On a Linux host that is not
@@ -212,10 +212,21 @@ defects are one-line-ish fixes that a nix route makes *more* important, not less
 
   The consequence for the user is what the earlier framing got right: putting an agent CLI in
   `packages:` yields a nix `check-meta` trace rather than the `darwinUnavailablePackages`
-  warn-and-skip that the mechanism promises. The fix is a separate `meta.unfree` (or
-  `meta.license.free`) check in the same guard — **not** a change to `availableOn`'s use.
-  **A live defect in the shipped mechanism, independent of anything in this doc** (OQ-6).
-- The brew-cask Brewfile bug (§8.4) is unaffected by any nix work and should be fixed on its own.
+  warn-and-skip that the mechanism promises.
+
+  **FIXED (2026-08-02).** `darwinResolved` now tests `drv.meta.available` — nixpkgs' own
+  verdict, which reads without throwing — alongside `availableOn`, and routes a failure into
+  the existing skip-and-warn path. `availableOn`'s use is unchanged. `meta.available` rather
+  than a bare `meta.unfree` test because it flips back to true under `NIXPKGS_ALLOW_UNFREE=1`
+  / `allowUnfreePredicate`, so a user who deliberately opted in still gets the package
+  instead of a silent skip; yolo does **not** set that variable for them. The skip warning
+  rides on `darwinPackages` (the build path, whose stderr is streamed) rather than on the skip
+  list alone (read by a separate eval whose stderr is discarded). Reason precedence puts the
+  platform case first, since `meta.available` folds `unsupported` in with the licence checks.
+  Verified: `YOLO_EXTRA_PACKAGES='["hello","claude-code","iptables","nosuchpkg-xyz"]'` builds,
+  keeps `hello`, and warns three distinct reasons (unfree / no darwin build / no such package).
+- The brew-cask Brewfile bug (§8.4) is unaffected by any nix work. **FIXED (2026-08-02)** on
+  its own: `install_hints` grew a `brew-cask` flavor key; see `internal/depcheck`.
 
 ---
 
@@ -692,15 +703,17 @@ Ordered by how much else they block. Each says what would resolve it.
   whether a host-notch profile should *warn* when a declared package shadows a system binary, or
   trust the declaration.
 
-- **OQ-6 (a live bug, independent of this doc). `packages:` containing an unfree attr aborts
-  the whole nix eval** instead of being skipped. Verified both directions:
-  `YOLO_EXTRA_PACKAGES='["claude-code"]'` fails `yoloDarwinPackages` with a
-  `check-meta.nix` assert trace, and `NIXPKGS_ALLOW_UNFREE=1` makes it succeed. The
-  `availableOn` guard reads `meta.platforms` and never sees `meta.unfree`. **Resolved by:**
-  deciding whether yolo sets `allowUnfree` for `packages:` (a policy call — it silently accepts
-  non-free licenses on the user's behalf), or catches the case and reports it as
-  `darwinUnavailablePackages` does for platform misses. **This should probably be fixed whatever
-  else happens.**
+- **OQ-6 — RESOLVED AND FIXED (2026-08-02). `packages:` containing an unfree attr aborted the
+  `yoloDarwinPackages` BUILD** (not the eval — see §2's re-measurement) instead of being
+  skipped, because `availableOn` reads `meta.platforms` and never sees the licence.
+  **Resolved:** yolo catches the case and reports it through the existing
+  `darwinUnavailablePackages` warn-and-skip, and does **not** set `allowUnfree` on the user's
+  behalf — unfree is a licence decision the user makes once, machine-wide, and slipping the
+  override in would make it for them silently (the same consumer-grants-power invariant
+  `allow_exec` follows). A user who *has* opted in (`NIXPKGS_ALLOW_UNFREE=1` or
+  `allowUnfreePredicate`) still gets the package, because the check reads `meta.available`,
+  which honors those. Fires for **any** unfree attr, not just an agent CLI (`["vscode"]`,
+  `["terraform"]` measured identically).
 
 - **OQ-7. Should the *jail* get its agent CLIs from nix too?** All six are in nixpkgs for all
   three live platforms (§5.1); the jail currently installs them lazily via `npm -g` and

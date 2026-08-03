@@ -23,8 +23,54 @@ import (
 // that install it. Mirrors packdecl.DepRequirement but kept local so this package has
 // no packdecl dependency (the caller adapts).
 type Requirement struct {
+	// Hints maps a hint key to the package name. Most keys are a manager name
+	// ("brew"|"apt"|"dnf"|"pacman"|"nix"); "brew-cask" is the one INSTALLER-FLAVOR key —
+	// see brewCaskHint.
 	Bin   string
-	Hints map[string]string // manager ("brew"|"apt"|"dnf"|"pacman"|"nix") -> package
+	Hints map[string]string
+}
+
+// brewCaskHint is the hint key for a Homebrew CASK (an app bundle / prebuilt binary
+// distribution) as opposed to a formula. Brew is the only manager with this split, and it
+// is not cosmetic: a Brewfile's two verbs are different commands —
+//
+//	brew "postgresql@16"   # a FORMULA
+//	cask "claude-code"     # a CASK
+//
+// `brew bundle` on a `brew "<cask-token>"` line fails looking for a formula that does not
+// exist. The printed one-liner hid this for a while because bare `brew install <token>`
+// falls back to a cask when no formula matches, so only the generated BUNDLE was broken.
+//
+// It is a hint KEY rather than a per-hint struct because install_hints' whole virtue is one
+// line per manager; a nested object would rewrite every existing hint for one flag. Nothing
+// else grows a variant — apt/dnf/pacman/nix have no equivalent split.
+//
+// DetectManager still returns plain "brew": the flavor is a property of the PACKAGE, not of
+// the host, so the manager stays "brew" and the lookup consults "brew-cask" first.
+const brewCaskHint = "brew-cask"
+
+// hintKeys returns the hint keys to try, in order, for a detected manager. Only brew has
+// more than one: its cask flavor is preferred because a pack that declares both means "this
+// is a cask, and here is the formula fallback" — a formula with the same token is the
+// wrong-package trap (brew's `copilot` formula is AWS's deprecated ECS CLI, nothing to do
+// with the `copilot-cli` cask).
+func hintKeys(mgr string) []string {
+	if mgr == "brew" {
+		return []string{brewCaskHint, "brew"}
+	}
+	return []string{mgr}
+}
+
+// hintFor picks the package name and the install FLAVOR for a detected manager, or ok=false
+// when no hint covers it. flavor is the key installCmd/Manifest switch on — "brew-cask"
+// where the pack declared a cask, otherwise the manager itself.
+func hintFor(hints map[string]string, mgr string) (pkg, flavor string, ok bool) {
+	for _, k := range hintKeys(mgr) {
+		if p, found := hints[k]; found {
+			return p, k, true
+		}
+	}
+	return "", "", false
 }
 
 // Result is the probe outcome for one Requirement.
@@ -36,6 +82,11 @@ type Result struct {
 	// no hint covers it (reported as unprobeable-remedy, never as satisfied).
 	Remedy  string
 	Manager string // the detected manager the remedy is for
+	// Flavor is the hint KEY the remedy came from — the same as Manager except for
+	// brewCaskHint. Carried per-result rather than per-manifest because one brew host can
+	// need both verbs: a Brewfile mixing `brew "postgresql@16"` and `cask "claude-code"`
+	// is the normal case, so "which verb" cannot be a property of the detected manager.
+	Flavor string
 }
 
 // LookPath is the probe seam — overridable in tests so a check does not depend on the
@@ -71,8 +122,8 @@ func Check(reqs []Requirement) []Result {
 		res := Result{Bin: r.Bin, Manager: mgr}
 		if p, err := LookPath(r.Bin); err == nil {
 			res.Present, res.Path = true, p
-		} else if pkg, ok := r.Hints[mgr]; ok {
-			res.Remedy = installCmd(mgr, pkg)
+		} else if pkg, flavor, ok := hintFor(r.Hints, mgr); ok {
+			res.Remedy, res.Flavor = installCmd(flavor, pkg), flavor
 		}
 		out = append(out, res)
 	}
@@ -80,11 +131,17 @@ func Check(reqs []Requirement) []Result {
 	return out
 }
 
-// installCmd builds the per-manager install command for a package.
-func installCmd(mgr, pkg string) string {
-	switch mgr {
+// installCmd builds the install command for a package, keyed by hint FLAVOR (a manager
+// name, or brewCaskHint).
+func installCmd(flavor, pkg string) string {
+	switch flavor {
 	case "brew":
 		return "brew install " + pkg
+	case brewCaskHint:
+		// Explicit --cask even though bare `brew install <token>` would fall back to one:
+		// the fallback silently prefers a same-named FORMULA when one exists, which is how
+		// `copilot` (AWS ECS CLI) gets installed instead of the copilot-cli cask.
+		return "brew install --cask " + pkg
 	case "apt":
 		return "sudo apt install -y " + pkg
 	case "dnf":
@@ -113,9 +170,13 @@ func Missing(results []Result) []Result {
 // Brewfile for brew, a plain `pkg pkg pkg` install line for the others — so the user
 // tunes the host up in one step rather than running N lines. Returns ("", "") when
 // nothing is missing or nothing has a remedy.
+//
+// A Brewfile distinguishes formulae from casks (`brew "x"` vs `cask "x"`); a package whose
+// hint came from brewCaskHint gets the `cask` verb, because `brew bundle` on a `brew` line
+// naming a cask token fails looking for a formula that does not exist.
 func Manifest(results []Result) (filename, body string) {
 	mgr := ""
-	var pkgs []string
+	var pkgs, casks []string
 	for _, r := range results {
 		if r.Present || r.Remedy == "" {
 			continue
@@ -124,20 +185,31 @@ func Manifest(results []Result) (filename, body string) {
 		// The package name is the last token of the remedy for brew/nix; for apt/dnf/
 		// pacman it is also the trailing token. Recover it rather than re-plumbing.
 		fields := strings.Fields(r.Remedy)
-		pkgs = append(pkgs, fields[len(fields)-1])
+		if r.Flavor == brewCaskHint {
+			casks = append(casks, fields[len(fields)-1])
+		} else {
+			pkgs = append(pkgs, fields[len(fields)-1])
+		}
 	}
-	if len(pkgs) == 0 {
+	if len(pkgs)+len(casks) == 0 {
 		return "", ""
 	}
 	sort.Strings(pkgs)
+	sort.Strings(casks)
 	switch mgr {
 	case "brew":
 		var b strings.Builder
 		for _, p := range pkgs {
 			b.WriteString("brew \"" + p + "\"\n")
 		}
+		// Casks trail the formulae, matching `brew bundle dump`'s grouping.
+		for _, c := range casks {
+			b.WriteString("cask \"" + c + "\"\n")
+		}
 		return "Brewfile", b.String()
 	default:
+		// Non-brew managers have no cask concept, so a brew-cask hint cannot be selected
+		// for them (hintKeys) — casks is empty here by construction.
 		return mgr + "-packages.txt", strings.Join(pkgs, "\n") + "\n"
 	}
 }
