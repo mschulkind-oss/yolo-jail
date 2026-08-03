@@ -141,8 +141,15 @@ func applyHost(out, errw io.Writer, color bool, write bool, stdin io.Reader) int
 		return 1
 	}
 	if len(entries) == 0 {
+		// "Nothing to apply" is not "nothing to clean up" — emptying `packs` is the MOST
+		// complete drop there is, and returning here left every pack's delivered output in the
+		// home with nothing that would ever ask about it again. So the retire pass still runs,
+		// against an empty configured set. Nothing else does: with no pack to render there is
+		// no surface, no briefing, and no candidate whose destination to visit, which is why
+		// this is a narrow second call rather than a fall-through into the loop below.
 		pr.Printf("[dim]No packs configured — nothing to apply to the host.[/dim]")
-		return 0
+		return pruneDroppedPackOutput(pr, out, stdin, packload.Embedded(), map[string]bool{},
+			home, time.Now().UTC().Format("20060102-150405"), write)
 	}
 
 	// One archive generation per apply, so everything this run retires groups under one
@@ -162,12 +169,18 @@ func applyHost(out, errw io.Writer, color bool, write bool, stdin io.Reader) int
 	// because "which briefing blocks are stale?" is only answerable once the whole active
 	// set is known — a pack dropped from config never appears in `entries` at all.
 	active := map[string]bool{}
+	// configured is every pack the config NAMES, resolvable or not. The retire pass below
+	// keys on this rather than on `active`, because a fetched pack with an unreachable remote
+	// resolves to nothing and would otherwise look dropped — see pruneDroppedPackOutput for
+	// why a briefing can afford that mistake and an archived skills tree cannot.
+	configured := map[string]bool{}
 	var loaded []*packload.Pack
 	// Resolve the packs FIRST, before rendering any of them, because config-overlay is
 	// cross-pack: an overlay in pack B targets a surface pack A owns, so the per-pack loop
 	// below cannot discover it. Two passes over `entries` is the price of the one thing the
 	// kind exists to do (docs/design/pack-config-collaboration.md §6).
 	for _, e := range entries {
+		configured[e.Name] = true
 		p := packForCheckDeps(e) // same loader: embedded or local; git needs `pack install`
 		if p == nil {
 			pr.Printf("[dim]%s: not resolvable offline (fetched packs need `yolo pack install`) — skipped[/dim]", e.Name)
@@ -350,14 +363,24 @@ func applyHost(out, errw io.Writer, color bool, write bool, stdin io.Reader) int
 	// `entries`, so asking only the active packs where to look would leave its block in the
 	// user's file forever, unattributed and unremovable. Guarded by a non-nil active set —
 	// PruneHostBriefings refuses a nil one rather than reading it as "drop everything".
-	if pres, perr := entrypoint.PruneHostBriefings(
-		append(loaded, embeddedPacksForPrune()...), active, home, !write); perr != nil {
+	candidates := append(loaded, embeddedPacksForPrune()...)
+	if pres, perr := entrypoint.PruneHostBriefings(candidates, active, home, !write); perr != nil {
 		pr.Printf("  [red]briefing prune refused[/red] — %v", perr)
 		rc = 1
 	} else {
 		for _, r := range pres {
 			pr.Printf("  [cyan]%-20s[/cyan] %s  [dim]%s[/dim]", r.Surface, r.Action, r.Path)
 		}
+	}
+
+	// Retire the SKILLS and FILES a dropped pack left in the home. After the briefing prune,
+	// not folded into it: a briefing block's removal restores the file's own bytes and is
+	// unconditional (ruling R4), while these are whole paths in the user's home and ride an
+	// explicit confirmation (R1). Keeping them separate is what preserves that asymmetry —
+	// one prompt, for the destructive half only, at the end of the report it is about.
+	if prc := pruneDroppedPackOutput(
+		pr, out, stdin, candidates, configured, home, stamp, write); prc != 0 {
+		rc = prc
 	}
 
 	if !write {

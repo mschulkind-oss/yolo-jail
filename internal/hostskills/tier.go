@@ -162,6 +162,33 @@ func IsYoloPluginDir(dir string) bool {
 	return m.ManagedBy == yoloManagedMarker
 }
 
+// YoloPluginOwner returns the PACK NAME recorded in dir's yolo-managed plugin manifest.
+//
+// This is the tier-A analogue of a Manifest entry, and for a pack's own namespaced delivery
+// it is the ONLY ownership evidence that exists: deliverNamespaced writes the subtree and its
+// marked manifest and records nothing in manifest.go, because inside its own subtree "is this
+// mine?" is answered by the path. That answer runs out the moment the question becomes "whose
+// was it?" — a dropped pack's subtree still says yolo wrote it and nothing else says who for,
+// which is what left a whole namespaced subtree unretirable.
+//
+// Not ok for a dir with no manifest, an unreadable or malformed one, one lacking yolo's
+// marker, or one with no name: each means yolo cannot prove who owns it, and the only safe
+// reading of that is "not yolo's to move".
+func YoloPluginOwner(dir string) (string, bool) {
+	data, err := os.ReadFile(filepath.Join(dir, pluginManifestDir, pluginManifestName))
+	if err != nil {
+		return "", false
+	}
+	var m pluginManifest
+	if err := json.Unmarshal(data, &m); err != nil {
+		return "", false
+	}
+	if m.ManagedBy != yoloManagedMarker || m.Name == "" {
+		return "", false
+	}
+	return m.Name, true
+}
+
 // writePluginManifest writes the tier-A manifest for a pack's subtree.
 func writePluginManifest(packDir, pack, description string) error {
 	dir := filepath.Join(packDir, pluginManifestDir)

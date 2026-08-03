@@ -1,6 +1,27 @@
 # Retiring a pack's host output
 
-**Status:** spec, ready to implement (maintainer ruled 2026-08-03).
+**Status:** R1/R2/R4 SHIPPED 2026-08-03 (`internal/cli/applyhostprune.go`). R3 — the overlay
+half, including the provenance laundering — is still open.
+
+Three things the spec did not know, all found by running the lifecycle rather than reading it:
+
+1. **A NAMESPACED (tier-A) subtree leaks the same way and the manifest cannot see it.** The
+   spec says "the manifest is the whole source of truth here". It is not: `deliverNamespaced`
+   records NOTHING in the manifest, because inside its own subtree "is this mine?" is answered
+   by the path. So a dropped `tier: "namespaced"` pack leaves a whole loadable namespace behind
+   with zero manifest entries, and a manifest-only scan misses it entirely. The subtree's own
+   `x-yolo-managed-by` marker is the only evidence, so the scan reads it (`YoloPluginOwner`)
+   for any dir the manifest does not already own — manifest first, because for a WRAPPED
+   plugin the marker names the PLUGIN, not the pack that delivered it.
+2. **Emptying `packs` retired nothing.** `applyHost` early-returns on `len(entries) == 0` with
+   "nothing to apply to the host", so the most complete drop there is was the one case that
+   cleaned up nothing.
+3. **`active` is the wrong set to key on; `configured` is.** `PruneHostBriefings` keys on the
+   RESOLVED set, so a fetched pack with an unreachable remote looks dropped. A briefing
+   survives that mistake (the block re-renders from prose inside the pack the moment the
+   remote is back); an archived skills tree does not come back without the user digging in the
+   state dir. Same evidence, different cost of being wrong, so the retire pass keys on the set
+   the config NAMES. The briefing prune's threshold was deliberately left alone.
 
 `yolo apply --host` renders four kinds into a real `$HOME`. When a pack is DROPPED from
 config, exactly one of them is cleaned up.
@@ -8,11 +29,11 @@ config, exactly one of them is cleaned up.
 | Kind | Pack changed (still configured) | Pack DROPPED from config |
 |---|---|---|
 | `briefing` | replaced in its managed block | **removed** ✅ |
-| `skills` | stale entries archived | **left behind, still loadable** ❌ |
-| `files` | stale entries archived | **left behind** ❌ |
-| `config-overlay` | keys re-asserted | **keys left, and provenance LAUNDERED** ❌ |
+| `skills` | stale entries archived | **archived, confirm-gated** ✅ (was: left behind, still loadable) |
+| `files` | stale entries archived | **archived, confirm-gated** ✅ (was: left behind) |
+| `config-overlay` | keys re-asserted | **keys left, and provenance LAUNDERED** ❌ (R3, open) |
 
-## Why only briefing works
+## Why only briefing worked
 
 The apply loop is `for _, p := range loaded`. A dropped pack is not in `loaded`, so nothing
 ever asks about its output. `PruneHostBriefings` is the ONLY path that reasons over the
@@ -77,10 +98,15 @@ one apply earlier.
 files."* Removing a dropped pack's `skills`/`files` output requires an explicit
 confirmation, in the shape of `confirmHostLosses`: only when something is actually removed,
 never in observe, fail-closed on EOF stdin. Declining leaves everything and reports it.
+**SHIPPED.** One deviation worth naming: declining does NOT fail the apply (rc stays 0).
+`confirmHostLosses` refuses the whole write because it gates a render the user asked for; here
+nothing the user asked for was skipped, and a permanent non-zero exit would make every scripted
+`apply --host --assert` look broken after any drop, with no non-interactive way to ever answer.
 
 **R2 — Archive, never delete.** Retirement moves content under the archive root with the
 apply's stamp (`hostskills.Archive`), reclaimed by `yolo prune`. Already promised by
-`docs/design/pack-system.md:797`.
+`docs/design/pack-system.md:797`. **SHIPPED** — verified reclaimable through
+`yolo prune`'s existing "Host-render archive" sweep, which needed no change.
 
 **R3 — Overlay keys are a pure assertion; drop them with the same confirm.** An overlay key
 is a value in a config file, not user content — but it is IN a file the user owns, so it
@@ -90,7 +116,8 @@ to a pack is recorded as retired, never as `host`.
 
 **R4 — Briefing keeps its current behavior.** It is already correct and already
 unconditional. Do not put it behind the new prompt; removing a delimited managed block
-restores the file's own bytes and loses nothing.
+restores the file's own bytes and loses nothing. **SHIPPED** — and pinned: a test asserts the
+block is removed even on a DECLINED file retire, so the two halves cannot be quietly unified.
 
 ## Why confirm rather than silent-archive
 
