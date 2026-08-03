@@ -1,7 +1,10 @@
 # Retiring a pack's host output
 
-**Status:** R1/R2/R4 SHIPPED 2026-08-03 (`internal/cli/applyhostprune.go`). R3 — the overlay
-half, including the provenance laundering — is still open.
+**Status:** ALL FOUR RULINGS SHIPPED 2026-08-03. R1/R2/R4 in
+`internal/cli/applyhostprune.go`; R3's second sentence (the laundering) in
+`internal/entrypoint/prism.go`; R3's first sentence (dropping the keys) in
+`internal/entrypoint/hostoverlayprune.go` + `internal/cli/applyhostoverlaykeys.go`, riding
+R1's single prompt.
 
 Three things the spec did not know, all found by running the lifecycle rather than reading it:
 
@@ -23,15 +26,15 @@ Three things the spec did not know, all found by running the lifecycle rather th
    state dir. Same evidence, different cost of being wrong, so the retire pass keys on the set
    the config NAMES. The briefing prune's threshold was deliberately left alone.
 
-`yolo apply --host` renders four kinds into a real `$HOME`. When a pack is DROPPED from
-config, exactly one of them is cleaned up.
+`yolo apply --host` renders four kinds into a real `$HOME`. When a pack was DROPPED from
+config, exactly one of them was cleaned up. All four are now.
 
 | Kind | Pack changed (still configured) | Pack DROPPED from config |
 |---|---|---|
 | `briefing` | replaced in its managed block | **removed** ✅ |
 | `skills` | stale entries archived | **archived, confirm-gated** ✅ (was: left behind, still loadable) |
 | `files` | stale entries archived | **archived, confirm-gated** ✅ (was: left behind) |
-| `config-overlay` | keys re-asserted | **keys left, and provenance LAUNDERED** ❌ (R3, open) |
+| `config-overlay` | keys re-asserted | **key removed, confirm-gated; provenance retired** ✅ (was: left, and LAUNDERED) |
 
 ## Why only briefing worked
 
@@ -164,7 +167,36 @@ rides the same gate rather than a separate silent path. Provenance must stop lau
 regardless of whether the key is dropped: an unclaimed key that yolo previously attributed
 to a pack is recorded as retired, never as `host`. **Second sentence SHIPPED** (the
 `retired:<layer>` token — see "How it was fixed"); the record no longer lies whether or not the
-key is dropped, which is what makes the drop half independently sequenceable.
+key is dropped, which is what makes the drop half independently sequenceable. **First sentence
+SHIPPED** — `entrypoint.PruneHostOverlayKeys` finds the keys, `cli.overlayKeyRetirement` plans
+and commits them, and they appear in R1's ONE prompt rather than a second.
+
+Four things the key half turned out to need, none of them in the spec:
+
+1. **The prune reads the record and CROSS-CHECKS the live layers.** The record holds one winner
+   per key, so two packs contributing the same key leave only the last named. Drop that one
+   while the other stays and the record alone calls a live key an orphan. An `--assert`
+   self-corrects (its render rewrites the record before the prune reads it) but OBSERVE does
+   not, so a record-only prune printed `would remove` for a key the very next assert keeps.
+   `liveClaims` is the fix; it deliberately excludes `defaults`, which is fill-if-absent.
+2. **Both spellings of the attribution are eligible**, `config-overlay:<pack>` and
+   `retired:config-overlay:<pack>`. Which one is on disk depends only on whether a render has
+   run since the drop, so accepting one made the prune work in exactly one posture.
+   `retired:managed` / `retired:computed` stay OUT: those are the owner pack's own keys, a
+   different axis.
+3. **A key-only drop must be able to raise the prompt by itself.** A pack contributing an
+   overlay and nothing else leaves no path to retire, so a gate keyed on "is there a path?"
+   would remove the key silently — exactly what R3 forbids.
+4. **A dynamic managed table needs no prune and must not get one.** An overlay contributing
+   `mcpServers` entries folds into the wholesale table layer, so its key is attributed
+   `computed`; dropping the contributor leaves that layer empty and `regenerateManagedTables`
+   clears the block on the next apply. A second remover would race a mechanism that is already
+   correct.
+
+Not archived, unlike a path (R2), and the asymmetry is real: a delivered path may carry the
+user's edits, while an overlay key is the pack's own assertion, reproduced exactly by putting
+the pack back in `packs`. There is nothing to keep — what the user is owed is being TOLD, which
+is the shared prompt's job.
 
 **R4 — Briefing keeps its current behavior.** It is already correct and already
 unconditional. Do not put it behind the new prompt; removing a delimited managed block

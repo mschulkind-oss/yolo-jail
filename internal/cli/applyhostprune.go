@@ -29,6 +29,7 @@ import (
 	"path/filepath"
 	"sort"
 
+	"github.com/mschulkind-oss/yolo-jail/internal/entrypoint"
 	"github.com/mschulkind-oss/yolo-jail/internal/hostskills"
 	"github.com/mschulkind-oss/yolo-jail/internal/packdecl"
 	"github.com/mschulkind-oss/yolo-jail/internal/packload"
@@ -59,8 +60,15 @@ type droppedOutput struct {
 // self-heals: the block is re-rendered from prose that lives IN the pack the moment the remote
 // is reachable again. An archived skills tree does not come back until the user goes digging
 // in the state dir. Same evidence, different cost of being wrong, so a different threshold.
+//
+// `keys` is the CONFIG-OVERLAY half (ruling R3's first sentence), planned by the caller and
+// carried through this function so it rides ONE prompt with the paths instead of adding a
+// second. Both halves are the consequence of the same user action — "I removed a pack from my
+// config" — so two [y/N]s for it would be the prompt-fatigue confirmDroppedPackRetire's own
+// docstring warns about. See applyhostoverlaykeys.go for why a key is not archived.
 func pruneDroppedPackOutput(pr richtext.Printer, out io.Writer, stdin io.Reader,
-	candidates []*packload.Pack, configured map[string]bool, home, stamp string, write bool) int {
+	candidates []*packload.Pack, configured map[string]bool, home, stamp string, write bool,
+	keys overlayKeyRetirement) int {
 	// Same guard as PruneHostBriefings, and here it protects the user's actual files: a bug
 	// that made the set empty would read as "every pack is gone" and archive every skill yolo
 	// ever delivered. Refusing an unknown set is the only reading that cannot do that.
@@ -69,30 +77,39 @@ func pruneDroppedPackOutput(pr richtext.Printer, out io.Writer, stdin io.Reader,
 			"unknown configured-pack set")
 		return 1
 	}
+	rc := 0
+	if keys.Failed {
+		rc = 1
+	}
 	manPath := hostSkillsManifestPath()
 	man, err := hostskills.LoadManifest(manPath)
+	var present, vanished []droppedOutput
 	if err != nil {
 		// A record yolo cannot read proves nothing, and the tier-A scan below leans on it too
 		// (an unrecorded plugin dir is attributed by its own manifest, which for a WRAPPED
 		// plugin names the plugin rather than the pack). So a corrupt record does not merely
-		// find fewer orphans — it would find wrong ones. Report and retire nothing.
+		// find fewer orphans — it would find wrong ones. Report and retire no PATH.
+		//
+		// The scan is skipped rather than the function returning, so an unreadable skills
+		// record does not also block the config-overlay half: that half reads the provenance
+		// record, a different file with different failure modes, and coupling the two would
+		// make one corrupt file freeze cleanup yolo can still do correctly.
 		pr.Printf("  [yellow]⚠ retire: %v — nothing from a dropped pack is retired this "+
 			"run[/yellow]", err)
-		return 0
+	} else {
+		present, vanished = droppedPackOrphans(man, candidates, configured, home)
 	}
-
-	present, vanished := droppedPackOrphans(man, candidates, configured, home)
 	for _, o := range vanished {
 		// The record outlived the file: the user removed it themselves, or another tool did.
 		// Not a loss and not a confirmation — just bookkeeping, so it is dim and unprompted.
 		pr.Printf("  [dim]%-20s stale record dropped (the path is already gone)  %s[/dim]",
 			o.Pack+"/retire", o.Dest)
 	}
-	if len(present) == 0 {
+	if len(present) == 0 && len(keys.Orphans) == 0 {
 		if write && len(vanished) > 0 {
 			saveHostSkillsManifest(pr, man, manPath, forgetAll(man, vanished))
 		}
-		return 0
+		return rc
 	}
 
 	if !write {
@@ -100,25 +117,30 @@ func pruneDroppedPackOutput(pr richtext.Printer, out io.Writer, stdin io.Reader,
 			pr.Printf("  [yellow]%-20s would archive (pack no longer configured)[/yellow]  "+
 				"[dim]%s%s[/dim]", o.Pack+"/retire", o.Dest, namespacedNote(o))
 		}
-		pr.Printf("[dim]--assert will ask before moving the path(s) above under %s.[/dim]",
+		keys.observeLines(pr)
+		pr.Printf("[dim]--assert will ask before retiring the entries above (paths move under "+
+			"%s; a config key is removed in place).[/dim]",
 			string(hostSkillsArchiveRoot()))
-		return 0
+		return rc
 	}
 
-	if !confirmDroppedPackRetire(pr, out, stdin, present) {
+	if !confirmDroppedPackRetire(pr, out, stdin, present, keys.Orphans) {
 		// Declining is a legitimate answer, not a failure: nothing the user asked for was
 		// skipped — the files simply stay, and this run reports it the same way the next one
 		// will. So the rc is unchanged, which also keeps the fail-closed nil-stdin path from
 		// making every scripted `apply --host --assert` fail permanently after any drop, with
 		// no non-interactive way to ever answer.
-		pr.Printf("[bold yellow]not retired — %d path(s) from dropped pack(s) are still in "+
-			"your home.[/bold yellow]", len(present))
-		pr.Printf("[dim]Re-run and answer `y`, put the pack back in `packs`, or remove the " +
-			"path(s) yourself. Nothing was moved.[/dim]")
-		return 0
+		//
+		// PARTIAL APPLICATION IS NOT AN OPTION either: a decline leaves the paths AND the
+		// keys, because the prompt asked about them as one action and answering it `n` about
+		// half of it was never on offer.
+		pr.Printf("[bold yellow]not retired — %d path(s) and %d config key(s) from dropped "+
+			"pack(s) are still in your home.[/bold yellow]", len(present), len(keys.Orphans))
+		pr.Printf("[dim]Re-run and answer `y`, put the pack back in `packs`, or remove them " +
+			"yourself. Nothing was moved or removed.[/dim]")
+		return rc
 	}
 
-	rc := 0
 	var forget []droppedOutput
 	for _, o := range present {
 		at, aerr := hostskills.Archive(hostSkillsArchiveRoot(), stamp, o.Pack, o.Dest)
@@ -130,6 +152,9 @@ func pruneDroppedPackOutput(pr richtext.Printer, out io.Writer, stdin io.Reader,
 		pr.Printf("  [yellow]%-20s archived (pack no longer configured)[/yellow]  [dim]%s%s "+
 			"→ %s[/dim]", o.Pack+"/retire", o.Dest, namespacedNote(o), at)
 		forget = append(forget, o)
+	}
+	if krc := keys.commit(pr); krc != 0 {
+		rc = krc
 	}
 	// Forget only what actually moved, and only AFTER it moved: a record dropped for a path
 	// still sitting in the home would make the next apply read that path as the user's own,
@@ -254,42 +279,58 @@ func hostSkillsDirs(packs []*packload.Pack, home string) []string {
 	return out
 }
 
-// confirmDroppedPackRetire is R1's gate: name every path, say where it would go, and require
-// an explicit yes. Returns true to retire.
+// confirmDroppedPackRetire is R1's gate, and by ruling R3 also the overlay-KEY gate: name
+// every path and every key, say what becomes of each, and require an explicit yes. Returns
+// true to retire.
+//
+// ONE PROMPT COVERING BOTH KINDS is the ruling, not a convenience. R3 says overlay keys ride
+// "the same confirm" rather than a separate silent path, and the user action behind both halves
+// is a single edit to `packs` — so splitting it into two [y/N]s would ask twice about one
+// decision, which is how a confirmation stops being read.
 //
 // It shares confirmHostLosses' three properties, for the same reasons:
 //
 //   - ONLY WHEN SOMETHING IS ACTUALLY REMOVED. The caller reaches here only with at least one
-//     path still on disk; a stale record alone never prompts. A confirmation that fires on
-//     every run trains people to answer it blind.
-//   - OBSERVE NEVER REACHES HERE. A dry run writes nothing, so it reports the same paths as
-//     `would archive` lines instead — which is how the user learns about them BEFORE any
-//     prompt exists.
+//     path still on disk or one key still in a file; a stale record alone never prompts. A
+//     confirmation that fires on every run trains people to answer it blind.
+//   - OBSERVE NEVER REACHES HERE. A dry run writes nothing, so it reports the same entries as
+//     `would archive` / `would remove key` lines instead — which is how the user learns about
+//     them BEFORE any prompt exists.
 //   - FAIL-CLOSED on stdin. promptYesNo reads a nil or EOF stdin as NO, so a CI or scripted
 //     apply leaves the files alone rather than moving a user's skills with nobody watching.
 func confirmDroppedPackRetire(pr richtext.Printer, out io.Writer, stdin io.Reader,
-	present []droppedOutput) bool {
-	pr.Printf("[bold yellow]⚠ These packs are no longer in your config, but their files are " +
+	present []droppedOutput, keys []entrypoint.HostOverlayOrphan) bool {
+	pr.Printf("[bold yellow]⚠ These packs are no longer in your config, but their output is " +
 		"still in your home:[/bold yellow]")
 	var packs []string
-	byPack := map[string][]droppedOutput{}
-	for _, o := range present {
-		if _, seen := byPack[o.Pack]; !seen {
-			packs = append(packs, o.Pack)
+	byPack := map[string][]string{}
+	add := func(pack, line string) {
+		if _, seen := byPack[pack]; !seen {
+			packs = append(packs, pack)
 		}
-		byPack[o.Pack] = append(byPack[o.Pack], o)
+		byPack[pack] = append(byPack[pack], line)
+	}
+	for _, o := range present {
+		add(o.Pack, o.Dest+namespacedNote(o))
+	}
+	for _, k := range keys {
+		// Grouped under the SAME pack heading as that pack's paths: the user is deciding about
+		// a pack, and a separate "keys" section would present one decision as two.
+		add(k.Pack, fmt.Sprintf("%s → key %q in %s", k.Surface, k.Key, k.Path))
 	}
 	sort.Strings(packs)
 	for _, pack := range packs {
 		pr.Printf("  [cyan]%s[/cyan]", pack)
-		for _, o := range byPack[pack] {
-			pr.Printf("    [yellow]%s[/yellow][dim]%s[/dim]", o.Dest, namespacedNote(o))
+		for _, line := range byPack[pack] {
+			pr.Printf("    [yellow]%s[/yellow]", line)
 		}
 	}
 	pr.Printf("[dim]A skill left here stays loadable by your agent, so \"the pack is gone\" "+
 		"never takes effect. Retiring MOVES each path under %s (reclaim it with `yolo prune`) "+
-		"— nothing is deleted. Declining leaves every path above exactly where it is.[/dim]",
-		string(hostSkillsArchiveRoot()))
-	return promptYesNo(out, stdin,
-		fmt.Sprintf("  Retire the %d path(s) above? [y/N] ", len(present)))
+		"— nothing is deleted. A config KEY is removed from the file in place, since it is the "+
+		"pack's own assertion and comes back if you put the pack back in `packs`; every other "+
+		"key in that file is left alone. Declining leaves everything above exactly as it "+
+		"is.[/dim]", string(hostSkillsArchiveRoot()))
+	return promptYesNo(out, stdin, fmt.Sprintf(
+		"  Retire the %d path(s) and %d config key(s) above? [y/N] ", len(present), len(keys)))
 }

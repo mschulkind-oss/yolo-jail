@@ -148,8 +148,14 @@ func applyHost(out, errw io.Writer, color bool, write bool, stdin io.Reader) int
 		// no surface, no briefing, and no candidate whose destination to visit, which is why
 		// this is a narrow second call rather than a fall-through into the loop below.
 		pr.Printf("[dim]No packs configured — nothing to apply to the host.[/dim]")
-		return pruneDroppedPackOutput(pr, out, stdin, packload.Embedded(), map[string]bool{},
-			home, time.Now().UTC().Format("20060102-150405"), write)
+		// The overlay-key half runs here too, and for the same reason: with `packs` empty every
+		// key any pack ever contributed is an orphan, so the most complete drop there is must
+		// not be the one case that cleans up nothing. No live overlays exist to cross-check
+		// against, which a nil OverlaySet expresses exactly (For returns nil).
+		empty := map[string]bool{}
+		return pruneDroppedPackOutput(pr, out, stdin, packload.Embedded(), empty,
+			home, time.Now().UTC().Format("20060102-150405"), write,
+			planOverlayKeyRetirement(pr, packload.Embedded(), empty, nil, home))
 	}
 
 	// One archive generation per apply, so everything this run retires groups under one
@@ -373,13 +379,19 @@ func applyHost(out, errw io.Writer, color bool, write bool, stdin io.Reader) int
 		}
 	}
 
-	// Retire the SKILLS and FILES a dropped pack left in the home. After the briefing prune,
-	// not folded into it: a briefing block's removal restores the file's own bytes and is
-	// unconditional (ruling R4), while these are whole paths in the user's home and ride an
-	// explicit confirmation (R1). Keeping them separate is what preserves that asymmetry —
-	// one prompt, for the destructive half only, at the end of the report it is about.
+	// Retire the SKILLS, FILES, and CONFIG-OVERLAY KEYS a dropped pack left in the home. After
+	// the briefing prune, not folded into it: a briefing block's removal restores the file's own
+	// bytes and is unconditional (ruling R4), while these are content and assertions IN files
+	// the user owns and ride an explicit confirmation (R1 and R3's first sentence). Keeping them
+	// separate is what preserves that asymmetry — one prompt, for the destructive half only, at
+	// the end of the report it is about.
+	//
+	// The key half is PLANNED first and committed inside the prune, so both halves appear in one
+	// prompt rather than each getting its own [y/N] for the same edit to `packs`. `configured`,
+	// not `active`, for the same offline-remote reason the path half uses it.
+	keys := planOverlayKeyRetirement(pr, candidates, configured, overlays, home)
 	if prc := pruneDroppedPackOutput(
-		pr, out, stdin, candidates, configured, home, stamp, write); prc != 0 {
+		pr, out, stdin, candidates, configured, home, stamp, write, keys); prc != 0 {
 		rc = prc
 	}
 

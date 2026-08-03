@@ -481,7 +481,7 @@ func TestApplyHostRetireRefusesNilConfiguredSet(t *testing.T) {
 	var out bytes.Buffer
 	pr := richtext.Printer{W: &out}
 	rc := pruneDroppedPackOutput(pr, &out, strings.NewReader("y\n"), nil, nil, home,
-		"20260803-000000", true)
+		"20260803-000000", true, overlayKeyRetirement{})
 	if rc == 0 {
 		t.Errorf("a nil configured set must be refused, not treated as 'no pack is active'")
 	}
