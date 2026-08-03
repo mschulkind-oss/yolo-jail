@@ -197,6 +197,28 @@ func layerAbsent(data any) bool {
 // layers via in, and Compose returns bytes. Errors are loud and fail-closed
 // (§3.4): a decode failure, a missing VM for a non-empty script, or a Lua error
 // aborts the render rather than shipping a partial file.
+//
+// ── ONE OF TWO "which layer won" derivations. UNIFY AT THE THIRD, not before. ──
+//
+// The Provenance map below (the fold, recording the last named layer to touch each top-level
+// key) is one of two. The other is entrypoint.rmwProvenance
+// (internal/entrypoint/prism.go), which derives the same answer by REPLAYING RMW WRITE ORDER
+// because an rmw render never folds and so never produces a Result to read provenance off.
+//
+// The duplication is DELIBERATE and was ruled on
+// (docs/plans/proposed-fixes-open-findings.md §8): the two answer the same question about
+// genuinely different mechanisms, and collapsing them means either giving rmw a synthetic
+// layer stack it does not have or making this function simulate sequential writes.
+//
+// What keeps them honest meanwhile is a shared-corpus parity table
+// (internal/entrypoint/provenanceparity_test.go): one set of layer/key fixtures asserted
+// against BOTH implementations, so a divergence in OUTCOME fails rather than only one in
+// shape. Change the fold order, the layer names, or the tombstone handling here and that
+// table is what tells you the host notch now disagrees.
+//
+// THE TRIGGER: a THIRD derivation — most likely the `guest` notch (env-manager Phase 7,
+// unbuilt), which renders into a real home like the host but keeps a workspace like the jail.
+// That is the moment to unify all three, rather than guessing an abstraction from two cases.
 func Compose(in Inputs) (*Result, error) {
 	c, err := codec.LookupCodec(in.Surface.Codec)
 	if !err {

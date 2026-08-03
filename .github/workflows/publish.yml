@@ -146,12 +146,46 @@ jobs:
 
   # Build the macOS container-Linux-builder image and push it to GHCR, so
   # macOS users (Apple Container / Podman) `pull` a ready nix+sshd builder
-  # instead of building an aarch64-linux image on a Mac (chicken-and-egg: a
-  # Mac needs a Linux builder to build the builder).  Built natively on the
-  # arm-Linux runner — Apple Silicon consumes the SAME aarch64-linux image.
+  # instead of building a Linux image on a Mac (chicken-and-egg: a Mac needs a
+  # Linux builder to build the builder).
   # See docs/research/macos-container-builder-exploration.md + the AC runbook.
+  #
+  # BOTH ARCHES, and x86_64 is NOT Intel-Mac support (BACKLOG E8).  This job
+  # used to push `aarch64-linux` only — "it's the arch Apple Silicon runs; an
+  # x86_64 mac (rare, and Podman-only) can build locally or use QEMU".  That
+  # reasoning was about USERS, and CI is not a user: `nightly-macos.yml` has to
+  # run on `macos-26-intel` because GitHub's Apple Silicon runners cannot nest
+  # a VM for Podman Machine, so the ONLY hosted runner that exercises the macOS
+  # code paths at all is x86_64.  With an arm64-only builder it pulled the wrong
+  # arch and TestExtraPackageLibFarm / TestDevPackageLinksRuntimeLib failed with
+  # "image platform (linux/arm64) does not match the expected platform
+  # (linux/amd64)" — the lib farm never materialized.  Publishing multi-arch
+  # makes the nightly test what it claims to test; it does not add Intel Macs to
+  # the support matrix.
+  #
+  # Each arch builds NATIVELY on its own runner — no QEMU, no binfmt.  The
+  # builder image's trivial derivations (writeText / writeShellScript /
+  # runCommand for /etc) have to RUN on the target arch, so a cross-arch
+  # `nix build .#packages.x86_64-linux.builderImage` on the arm runner cannot
+  # substitute its way out of a build.  Same shape as push-image-cache above.
   push-builder-image:
-    runs-on: ubuntu-24.04-arm  # native aarch64-linux for Apple Silicon Macs
+    strategy:
+      # Both cells run even when one fails, so a release reports BOTH arch
+      # results instead of hiding the second.  publish-builder-index `needs:`
+      # this job, so a failed cell means the multi-arch `:VERSION` / `:latest`
+      # tags simply do not advance — consumers keep resolving the previous
+      # release's index rather than a half-populated one.  Only the surviving
+      # cell's per-arch tag moves, and nothing pulls those by name.
+      fail-fast: false
+      matrix:
+        include:
+          - os: ubuntu-latest
+            system: x86_64-linux
+            arch: amd64
+          - os: ubuntu-24.04-arm
+            system: aarch64-linux
+            arch: arm64
+    runs-on: ${{ matrix.os }}
     steps:
       - uses: actions/checkout@v7
         with:
@@ -170,22 +204,35 @@ jobs:
 
       # The flake output is a *streamer* that writes a docker-archive tar to
       # stdout (KEYLESS — the ssh key is injected at container-run time).
-      # skopeo copies that tar straight to GHCR, tagged by release version +
-      # `latest`.  aarch64-linux only: it's the arch Apple Silicon runs; an
-      # x86_64 mac (rare, and Podman-only) can build locally or use QEMU.
+      # skopeo copies that tar straight to GHCR.
+      #
+      # PER-ARCH TAGS ONLY here (`:<version>-<arch>`, `:latest-<arch>`).  The
+      # arch-free `:VERSION` / `:latest` are a manifest LIST composed by
+      # publish-builder-index below — a naive second skopeo copy to the same tag
+      # would not "add" an arch, it would OVERWRITE the first cell's push, and
+      # which arch survived would be a matrix race.  A per-arch tag also keeps
+      # each arch manifest permanently TAGGED, so the index cannot be broken by
+      # an untagged-manifest cleanup policy later.
+      #
+      # `.#packages.${{ matrix.system }}` on its NATIVE runner: the image config's
+      # `architecture` comes from nixpkgs' defaultArchitecture (go.GOARCH of the
+      # dockerTools pkgs set), so the streamer stamps amd64/arm64 from the same
+      # `system` attribute path — which is what makes the index entries truthful
+      # rather than two copies of one arch under different tags.
       - name: Build + push builder image to GHCR
         run: |
           set -euo pipefail
           VERSION="${GITHUB_REF_NAME#v}"
           REPO="ghcr.io/${GITHUB_REPOSITORY_OWNER,,}/yolo-jail-builder"
+          ARCH="${{ matrix.arch }}"
           STREAMER=$(nix build --impure --no-link --print-out-paths \
-            .#packages.aarch64-linux.builderImage)
+            .#packages.${{ matrix.system }}.builderImage)
           "$STREAMER" > /tmp/builder.tar
           skopeo copy "docker-archive:/tmp/builder.tar" \
-            "docker://${REPO}:${VERSION}"
+            "docker://${REPO}:${VERSION}-${ARCH}"
           skopeo copy "docker-archive:/tmp/builder.tar" \
-            "docker://${REPO}:latest"
-          echo "Pushed ${REPO}:${VERSION} and :latest"
+            "docker://${REPO}:latest-${ARCH}"
+          echo "Pushed ${REPO}:${VERSION}-${ARCH} and :latest-${ARCH}"
           # Visibility is a persistent, per-PACKAGE property — set ONCE (already
           # done for yolo-jail-builder) and inherited by every future tag push.
           # No per-release flip needed.  If the package is ever renamed, the new
@@ -194,3 +241,51 @@ jobs:
           # (No auto-PATCH here: the default GITHUB_TOKEN can't admin a
           # just-created org package, so it always 404'd — the step was a no-op
           # after the one-time manual flip and dead weight on every release.)
+
+  # Compose the two per-arch builder manifests into ONE multi-arch index and put
+  # the arch-free tags on it: `:<version>` and `:latest`.
+  #
+  # `:latest` is the string frozen in containerbuilder.BuilderImage and in the
+  # mac-ac-container-builder runbook, so making it an INDEX (rather than teaching
+  # the CLI to append an arch suffix) is what lets every consumer keep pulling one
+  # name and get its own arch: an Apple Silicon Mac resolves arm64, the x86_64
+  # nightly runner resolves amd64, and no Go code learns about arches.
+  #
+  # `imagetools create` is a REGISTRY-side operation — it reads the source
+  # descriptors and writes a new index, pulling no layers and needing no daemon —
+  # so this job is seconds long and does not rebuild anything.  buildx ships
+  # preinstalled on the hosted ubuntu images; skopeo can copy a multi-arch image
+  # but cannot COMPOSE an index out of two single-arch ones, which is the one
+  # thing needed here.
+  #
+  # On the `docker` token: yolo-jail removed Docker as a RUNTIME (validate.go
+  # hard-errors on `runtime: docker`) and the flake aliases dockerTools as
+  # ociTools to keep the product free of it.  Neither applies to a hosted GitHub
+  # runner's preinstalled buildx, which is CI plumbing and never ships — the same
+  # standing as the `sudo docker image prune` disk-freeing step above and the
+  # `docker://` transport skopeo already uses.  Nothing here reaches a user's
+  # machine or a jail.
+  publish-builder-index:
+    needs: push-builder-image
+    runs-on: ubuntu-latest
+    steps:
+      - name: Log in to GHCR
+        run: |
+          echo "${{ secrets.GITHUB_TOKEN }}" | \
+            docker login ghcr.io -u "${{ github.actor }}" --password-stdin
+
+      - name: Compose the multi-arch index
+        run: |
+          set -euo pipefail
+          VERSION="${GITHUB_REF_NAME#v}"
+          REPO="ghcr.io/${GITHUB_REPOSITORY_OWNER,,}/yolo-jail-builder"
+          docker buildx imagetools create \
+            --tag "${REPO}:${VERSION}" \
+            --tag "${REPO}:latest" \
+            "${REPO}:${VERSION}-amd64" \
+            "${REPO}:${VERSION}-arm64"
+          # Print what a consumer will actually resolve — both platforms must be
+          # listed, or a puller silently falls back to the wrong-arch failure this
+          # whole job exists to remove ("image platform (linux/arm64) does not
+          # match the expected platform (linux/amd64)").
+          docker buildx imagetools inspect "${REPO}:latest"
