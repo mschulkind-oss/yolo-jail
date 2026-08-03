@@ -18,6 +18,7 @@ import (
 	"fmt"
 	"reflect"
 	"sort"
+	"strings"
 
 	"github.com/mschulkind-oss/yolo-jail/internal/agentcfg/codec"
 	"github.com/mschulkind-oss/yolo-jail/internal/agentcfg/luahook"
@@ -141,6 +142,13 @@ const (
 	// contribution; the full label is "config-overlay:<pack>" so a reader sees
 	// which pack's overlay won a key (OQ2).
 	layerConfigOverlay = "config-overlay"
+	// layerRetired is the provenance-label PREFIX for a key yolo WROTE for a layer
+	// that no longer claims it — "retired:<the layer that last claimed it>". Compose
+	// never emits it (a fold renders from the layers it has, so a layer that stopped
+	// claiming a key simply does not contribute it and the key is not in the file);
+	// it exists for the RMW notch, where the key stays in a file yolo re-reads. See
+	// RetiredLayer.
+	layerRetired = "retired"
 )
 
 // The provenance vocabulary, exported — because Compose is not the only writer that
@@ -166,6 +174,100 @@ const (
 // loss, which is precisely the class of confident-wrong-answer this record exists to
 // remove).
 func OverlayLayer(pack string) string { return layerConfigOverlay + ":" + pack }
+
+// RetiredLayer is the provenance label for a key yolo FORCE-WROTE for a layer that no
+// longer claims it: "retired:<the layer that last claimed it>", e.g.
+// "retired:config-overlay:dropme".
+//
+// WHY A LAYER TOKEN AT ALL — the defect it closes (host-pack-drop-cleanup.md, "The real
+// defect: provenance laundering"). The RMW notch derives `host` for every key the existing
+// file has, then upgrades the ones a live layer claims. Drop the pack that contributed a
+// key and nothing claims it any more, so the key yolo itself wrote reads as `host` — "the
+// user set this". That is self-reinforcing: once a key reads `host`, every mechanism that
+// asks "did yolo write this?" answers no, forever, and the correct attribution existed one
+// apply earlier. `retired:` is that earlier answer, KEPT.
+//
+// WHY A PREFIX ON THE PREVIOUS LABEL, rather than a bare "retired" or a second column:
+//
+//   - The record stays one `key\tlayer` line, so every existing reader parses it
+//     unchanged (internal/cli.readProvenance, and the host reader behind `config diff`).
+//   - Nothing is lost. The label carries WHICH layer last claimed the key verbatim, so
+//     RetiredOf recovers it — "yolo wrote this, for dropme's overlay" is actionable in a
+//     way that "yolo wrote this once" is not.
+//   - It is not equal to OverlayLayer(pack), so a reader asking "did MY pack win this
+//     key?" correctly answers no: a dropped pack is not setting the key any more. And it
+//     is not `host`, so nothing mistakes the key for the user's.
+//
+// Compose never emits it. A fold renders the file from the layers it HAS, so a layer that
+// stopped claiming a key simply does not contribute it and the key is not in the rendered
+// file — there is nothing to launder. Retirement is a property of the one mode that
+// re-reads a file it wrote before.
+func RetiredLayer(last string) string { return layerRetired + ":" + last }
+
+// RetiredOf reports the layer a retired label names, and whether the label is one. The
+// inverse of RetiredLayer, for a reader that wants to say WHO the orphaned key belonged to.
+//
+// A bare "retired:" with no layer behind it is NOT a retirement — a truncated or corrupt
+// record must not be able to claim a key (see LayerAsserted for the same rule on the
+// claiming side).
+func RetiredOf(layer string) (last string, retired bool) {
+	rest, ok := strings.CutPrefix(layer, layerRetired+":")
+	if !ok || rest == "" {
+		return "", false
+	}
+	return rest, true
+}
+
+// LayerAsserted reports whether a key attributed to this layer was FORCE-WRITTEN by yolo —
+// re-asserted on every render regardless of what the file said. It is the predicate that
+// decides which of a previous record's attributions may be RETIRED when no live layer
+// claims the key any more.
+//
+// The asserted layers are `managed`, `computed`, and every `config-overlay:<pack>`. What is
+// deliberately NOT here is the interesting part:
+//
+//	host      the user's own key. Retiring it is the very laundering this fixes, reversed:
+//	          it would hand a user's key to yolo, which is the direction that COSTS
+//	          something (a prune reading the record would delete it).
+//	defaults  fill-if-absent. yolo writes a default once and then never touches the key, so
+//	          the moment it is in the file its value is the user's to change — which is why
+//	          rmwProvenance's own `host` pass overwrites a defaults attribution for any key
+//	          the file already had. A dropped default is not yolo's output to retire.
+//
+// FAIL-SAFE BY CONSTRUCTION. This is the whole filter a previous record's contents pass
+// through, and it is a closed set of exact tokens: a corrupt, truncated, or hand-edited
+// record can only claim a key by spelling one of them, and anything else — including a
+// bare "config-overlay:" with no pack behind it — falls through to "prove nothing", which
+// the caller already treats as "the key is the user's".
+func LayerAsserted(layer string) bool {
+	switch layer {
+	case layerManaged, layerComputed:
+		return true
+	}
+	pack, ok := strings.CutPrefix(layer, layerConfigOverlay+":")
+	return ok && pack != ""
+}
+
+// ParseProvenanceRecord decodes a persisted "key\tlayer" record into key → winning layer.
+// The inverse of Result.ProvenanceLines, and the ONE definition of the record format, so a
+// writer and a reader cannot drift on it.
+//
+// Contract, which both callers depend on: a line with no tab or an empty key is SKIPPED
+// (so a partial write cannot invent a key), and the result for parsable input is non-nil
+// even when empty — "rendered and attributed nothing" is a measurement, distinct from the
+// nil an absent record yields. Callers own the file I/O, because "absent" means different
+// things to them (see internal/cli.readProvenance).
+func ParseProvenanceRecord(data []byte) map[string]string {
+	out := map[string]string{}
+	for _, line := range strings.Split(string(data), "\n") {
+		key, layer, found := strings.Cut(line, "\t")
+		if !found || key == "" {
+			continue
+		}
+		out[key] = layer
+	}
+	return out
+}
 
 // layerAbsent reports whether a layer says nothing and must be skipped — as
 // opposed to an explicitly empty value ("" / []any{} / {}) which is a real

@@ -32,6 +32,21 @@ package entrypoint
 // about the file its own notch produced. A case that declares `wantHost` MUST also declare
 // `why`, so a future divergence cannot be added silently — the test itself refuses an
 // undocumented one.
+//
+// WHAT THE CORPUS DELIBERATELY CANNOT COVER: retirement (agentcfg.RetiredLayer, the
+// anti-laundering pass in rmwProvenance). Every fixture here is a FIRST render into a fresh
+// home, so there is no previous record and rmwProvenance's `previous` is nil — which is
+// exactly the parameterization under which parity is claimable. Retirement is not a fixture
+// this table is missing; it is a property of the SECOND render, and it has no counterpart in
+// Compose to be at parity WITH: a fold renders the file from the layers it has, so a layer
+// that stops claiming a key simply does not contribute it and the key is not in the rendered
+// file at all. There is nothing to launder in a fold, and so nothing to retire.
+//
+// Which makes the boundary itself the thing worth pinning here, and it is asserted below
+// (parityRecords: no host record may carry a retired label): the retirement pass must be
+// unreachable on a first render, or the two derivations would diverge on the shared corpus
+// through a mechanism only one of them has. Do NOT add a retirement fixture to this corpus —
+// it belongs in provenanceretire_test.go, which renders twice.
 
 import (
 	"bytes"
@@ -330,6 +345,18 @@ func parityRecords(t *testing.T, tc parityCase) (jail, host map[string]string) {
 	if !found {
 		t.Fatal("the host render wrote NO provenance record — an EMPTY record must still be " +
 			"written, so a reader can tell it from never-rendered")
+	}
+	// THE PARITY PRECONDITION, asserted rather than assumed (see the file header). This home is
+	// fresh, so there is no previous record, so the retirement pass must be a no-op. A retired
+	// label appearing here would mean the pass fires on a FIRST render — which would make the
+	// host derivation diverge from the fold through a mechanism the fold does not have, and
+	// every comparison below would be measuring the wrong thing.
+	for k, layer := range rec {
+		if last, retired := agentcfg.RetiredOf(layer); retired {
+			t.Fatalf("the host record retired %q to %q on a FIRST render into a fresh home. "+
+				"Retirement is a second-render property with no counterpart in Compose; firing it "+
+				"here breaks the premise this whole table rests on", k, last)
+		}
 	}
 	return jail, rec
 }

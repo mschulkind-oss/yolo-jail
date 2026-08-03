@@ -70,6 +70,9 @@ Two corrections to the original report, both of which change the fix:
 
 ## The real defect: provenance laundering
 
+**Status: FIXED** (`retired:<layer>`, see "How it was fixed" below). The record no longer
+launders; whether the orphaned KEY is also dropped from the file remains open under R3.
+
 While the pack is active, `~/.local/share/yolo-jail/host-provenance/claude-settings.provenance`
 says:
 
@@ -92,6 +95,53 @@ output from the user's now converts yolo's own key into something the system wil
 defend as user content. It is also the cheapest half to fix: the correct attribution existed
 one apply earlier.
 
+### How it was fixed
+
+A new layer token, `retired:<the layer that last claimed the key>`. The label carries the
+previous layer verbatim (`retired:config-overlay:dropme`), because after the drop there is no
+other source for the fact — nothing declares the key any more.
+
+```
+apply 1 (pack configured) fileSuggestion	config-overlay:dropme
+apply 2 (pack dropped)    fileSuggestion	retired:config-overlay:dropme   ← was `host`
+apply 3, 4, …             fileSuggestion	retired:config-overlay:dropme   ← sticky
+```
+
+Mechanically: `rmwProvenance` takes the PREVIOUS record (`readProvenanceRecord`) and ends with
+`retireUnclaimed`, which rewrites an attribution only when all three hold — this render derived
+`host`, the previous record attributed the key to a FORCE-WRITTEN layer
+(`agentcfg.LayerAsserted`: `managed`, `computed`, `config-overlay:<pack>`), and the key is still
+in the file. Retirement is sticky because a `retired:` label is itself asserted-through;
+without that the fix would only DELAY the laundering by one apply.
+
+Three properties worth stating, each of which is a way this could have gone wrong:
+
+- **A prefix on the previous label, not a bare `retired` and not a second column.** The record
+  stays one `key\tlayer` line, so every existing reader parses it unchanged. And the label is
+  neither `host` (nothing mistakes the key for the user's) nor `OverlayLayer(pack)` (a reader
+  asking "did MY pack win?" correctly answers no — a dropped pack is not setting the key).
+- **`host` and `defaults` are NOT retirable.** Retiring the user's own key is the same
+  laundering reversed, and it is the direction that COSTS something: a prune reading the record
+  would delete a hand-written key. `defaults` is excluded for a different reason — it is
+  fill-if-absent, so yolo writes it once and the value is the user's from then on.
+- **Fail-safe is a closed set of exact tokens.** A missing, unreadable, or corrupt record
+  proves NOTHING, which the existing code already treats as "every key is the user's". Garbage
+  is rejected line by line rather than wholesale, so one bad byte cannot relaunder a surface.
+
+The reader half is `yolo config diff`, which now reaches a surface whose ONLY finding is a
+retired key — the case a reader keyed on live contributions structurally cannot see, since an
+orphan's defining property is that no pack declares it.
+
+**Parity was NOT touched.** `TestProvenanceParityAcrossBothDerivations` passes unchanged, and
+the reason is structural rather than lucky: every corpus fixture is a FIRST render into a fresh
+home, so `previous` is nil and the retirement pass is a no-op. Retirement has no counterpart in
+`Compose` to be at parity WITH — a fold renders from the layers it has, so a layer that stops
+claiming a key simply does not contribute it and the key is not in the rendered file. There is
+nothing to launder in a fold. That boundary is now ASSERTED in `parityRecords` (no host record
+may carry a retired label), so a retirement pass that ever fired on a first render would fail
+the table rather than silently invalidate its premise. Ruling #8 stands: the two derivations
+remain separate.
+
 ## Rulings
 
 **R1 — Confirm before removing host files.** *"I want to confirm before removing host
@@ -112,7 +162,9 @@ apply's stamp (`hostskills.Archive`), reclaimed by `yolo prune`. Already promise
 is a value in a config file, not user content — but it is IN a file the user owns, so it
 rides the same gate rather than a separate silent path. Provenance must stop laundering
 regardless of whether the key is dropped: an unclaimed key that yolo previously attributed
-to a pack is recorded as retired, never as `host`.
+to a pack is recorded as retired, never as `host`. **Second sentence SHIPPED** (the
+`retired:<layer>` token — see "How it was fixed"); the record no longer lies whether or not the
+key is dropped, which is what makes the drop half independently sequenceable.
 
 **R4 — Briefing keeps its current behavior.** It is already correct and already
 unconditional. Do not put it behind the new prompt; removing a delimited managed block

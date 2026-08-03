@@ -563,10 +563,42 @@ func renderSurfaceRMWSurface(e *Env, surface manifest.Surface, computed map[stri
 	// AFTER the surface write, so a provenance failure cannot cost the render; derived
 	// rather than read from a Result, because rmw has no layer fold to produce one.
 	if e.renderTarget().KindOf() == render.KindHost {
+		// The PREVIOUS record, read at the notch that keeps one. It is what makes a key
+		// whose owning layer has gone away distinguishable from a key the user wrote — the
+		// correct attribution exists only in the record one apply earlier, so a derivation
+		// that ignored it would launder yolo's own output into "the user set this" on the
+		// very next apply. See rmwProvenance's `previous` parameter.
 		writeProvenanceRecord(e, surface.Agent, surface.Name,
-			rmwProvenance(surface, present, computed, overlays))
+			rmwProvenance(surface, present, computed, overlays,
+				readProvenanceRecord(e, surface.Agent, surface.Name)))
 	}
 	return nil
+}
+
+// readProvenanceRecord loads the record a PREVIOUS render of this surface left, as
+// key → winning layer, or nil when there is nothing trustworthy to read.
+//
+// FAIL-SAFE IS THE CONTRACT, and it is why this returns nil rather than an error. Its one
+// caller uses the result to decide which keys yolo may still claim as its own output; so
+// every unreadable state — no record, no path, an I/O failure — must mean "prove nothing",
+// which leaves every key attributed exactly as a first-ever apply would attribute it (the
+// file's content is the user's). A record cannot claim a key by being broken.
+//
+// Corruption inside a readable file is handled one line at a time rather than by rejecting
+// the file: agentcfg.ParseProvenanceRecord skips any line without a tab, and the caller
+// only honors layers agentcfg.LayerAsserted recognizes — a closed set of exact tokens. So
+// garbage yields no claims while the intact lines around it still count, which is strictly
+// better than letting one bad byte relaunder every key in the surface.
+func readProvenanceRecord(e *Env, agent, name string) map[string]string {
+	path := prismProvenancePath(e, agent, name)
+	if path == "" {
+		return nil
+	}
+	data, err := os.ReadFile(path)
+	if err != nil {
+		return nil
+	}
+	return agentcfg.ParseProvenanceRecord(data)
 }
 
 // rmwProvenance derives the per-key winning layer for an RMW render, by REPLAYING the
@@ -583,6 +615,13 @@ func renderSurfaceRMWSurface(e *Env, surface manifest.Surface, computed map[stri
 // both the write order and Compose's own fold:
 //
 //	defaults < host (the file's existing content) < config-overlay < computed < managed
+//
+// RETIREMENT is the one thing here that is not a replay of this render, and it is not an
+// exception to the ordering so much as a correction applied after it. A key the file HAS and
+// no live layer claims gets `host` from the pass above — correct for a key the user wrote,
+// and a lie for one yolo wrote last apply for a pack that has since been dropped from
+// config. `previous` is what tells the two apart, and the retirement pass rewrites only the
+// keys it can prove yolo force-wrote (agentcfg.LayerAsserted). See RetiredLayer.
 //
 // Per TOP-LEVEL key, matching Compose's documented contract — a layer that sets a NESTED
 // key claims the whole top-level key, so an overlay contributing a sibling under a parent
@@ -608,8 +647,18 @@ func renderSurfaceRMWSurface(e *Env, surface manifest.Surface, computed map[stri
 // it may need a derivation of its own. That is the moment to unify all three (rule of three
 // applied, rather than an abstraction guessed from two cases). If you are here adding it, this
 // note and its twin on Compose are the two sites to collapse.
+//
+// ── PARAMETERS ─────────────────────────────────────────────────────────────────────────
+//
+// previous is the record a prior render of this surface left (nil for a first-ever apply, or
+// whenever the record cannot be trusted — see readProvenanceRecord). It is consulted ONLY by
+// the retirement pass at the end, and only to keep an attribution the record already made;
+// nothing about this render's own outcome is read from it. That containment is what keeps the
+// parity claim above intact: on the first render into a fresh home `previous` is nil, the
+// retirement pass is a no-op, and this function is the pure write-order replay the shared
+// corpus compares against Compose.
 func rmwProvenance(surface manifest.Surface, present []string, computed map[string]any,
-	overlays []agentcfg.Overlay) map[string]string {
+	overlays []agentcfg.Overlay, previous map[string]string) map[string]string {
 	prov := map[string]string{}
 	// defaults: the floor, and only where the key was absent — the `host` pass below
 	// corrects the ones the file already had, which is what fill-if-absent means.
@@ -647,6 +696,62 @@ func rmwProvenance(surface manifest.Surface, present []string, computed map[stri
 				continue // an RFC-7386 tombstone asserts no value to attribute
 			}
 			prov[k] = agentcfg.LayerManaged
+		}
+	}
+	return retireUnclaimed(prov, previous)
+}
+
+// retireUnclaimed rewrites the attributions this render derived so a key yolo FORCE-WROTE for
+// a layer that has since stopped claiming it reads as `retired:<that layer>` instead of
+// `host`.
+//
+// THE DEFECT (host-pack-drop-cleanup.md, "The real defect: provenance laundering"). rmw
+// derives `host` for every key the existing file has, then upgrades the ones a live layer
+// claims. That is right for a key the user wrote and wrong for one YOLO wrote: drop the pack
+// whose config-overlay contributed `fileSuggestion` and, on the next apply, the key is still
+// in the file and no layer claims it, so the record flips from `config-overlay:dropme` to
+// `host`. yolo's own output is relabelled as user content — and self-reinforcingly, since
+// every mechanism that then asks "did yolo write this?" answers no. The previous record is
+// the only place the true answer survives, so this pass carries it forward.
+//
+// The three conditions a key must meet, each one closing a way to get this wrong:
+//
+//	this render says `host`   Anything yolo still claims (managed/computed/a live overlay) is
+//	                          attributed by the passes above and must not be touched — a
+//	                          re-added pack's key goes straight back to its overlay label.
+//	                          Restricting to `host` also means the pass can only ever
+//	                          overwrite the ONE attribution that is a guess.
+//	previously ASSERTED       agentcfg.LayerAsserted: managed, computed, or a config-overlay.
+//	                          Never `host` (retiring the user's own key is the same laundering
+//	                          in reverse, and the direction that costs something) and never
+//	                          `defaults`, which is fill-if-absent — yolo writes it once and
+//	                          the value is the user's from then on.
+//	still in the file         A key the file no longer has is simply gone; there is nothing
+//	                          left to attribute, and inventing an entry for it would report a
+//	                          key the reader cannot find.
+//
+// Retirement is STICKY, deliberately: `retired:X` is itself an asserted-through label, so a
+// key stays retired across later applies rather than laundering one apply later than it used
+// to. Reached via RetiredOf so the label keeps naming the ORIGINAL layer instead of nesting
+// into retired:retired:X.
+//
+// A nil `previous` (first apply, or an unreadable record) proves nothing and changes nothing —
+// the fail-safe the caller's contract rests on.
+func retireUnclaimed(prov, previous map[string]string) map[string]string {
+	for k, layer := range prov {
+		if layer != agentcfg.LayerHost {
+			continue
+		}
+		was, seen := previous[k]
+		if !seen {
+			continue
+		}
+		if last, wasRetired := agentcfg.RetiredOf(was); wasRetired {
+			prov[k] = agentcfg.RetiredLayer(last) // already retired: keep naming the original
+			continue
+		}
+		if agentcfg.LayerAsserted(was) {
+			prov[k] = agentcfg.RetiredLayer(was)
 		}
 	}
 	return prov

@@ -234,6 +234,17 @@ type overlayContribution struct {
 	// surface is worth investigating, and a host notch nobody has asserted yet has an
 	// obvious remedy.
 	NoRecordReason string
+	// Retired maps a RETIRED key to the layer that last claimed it — the record's own answer
+	// for a key yolo wrote for a pack that is no longer active. Read out of Winners rather
+	// than from any declaration, because by definition nothing declares these keys any more:
+	// the contributing pack has left `packs`, so it appears in neither Packs nor Keys and
+	// there is no other source for the fact.
+	//
+	// It is the reader half of the anti-laundering record (agentcfg.RetiredLayer). Without it
+	// the fix would be invisible: the orphaned key sits in the user's file attributed to a
+	// pack they dropped, and the only place that says so is a state-dir file they have never
+	// heard of.
+	Retired map[string]string
 }
 
 // overlayContributionRows resolves the config-overlay contributions landing on the given
@@ -271,15 +282,21 @@ func overlayContributionRows(agent, surface string) ([]overlayContribution, []st
 	var out []overlayContribution
 	for _, s := range packSurfacesForAgent(packs, agent, surface) {
 		overlays := set.For(s.Agent, s.Name)
-		if len(overlays) == 0 {
-			continue
-		}
 		row := overlayContribution{
 			Surface: s.Agent + "/" + s.Name,
 			Path:    s.Path,
 			Keys:    map[string]string{},
 		}
 		row.Winners, row.Notch, row.NoRecordReason = surfaceProvenance(s, host)
+		row.Retired = retiredKeys(row.Winners)
+		// A surface with NEITHER a live overlay NOR a retired key has nothing to report here.
+		// The retired half is why this is not the old `len(overlays) == 0` skip: an orphaned
+		// key's whole defining property is that no pack declares it any more, so a surface
+		// filtered on live contributions is exactly the one where the report is needed and
+		// exactly the one it would never reach.
+		if len(overlays) == 0 && len(row.Retired) == 0 {
+			continue
+		}
 		for _, ov := range overlays {
 			row.Packs = append(row.Packs, ov.Pack)
 			if layer, isMap := ov.Data.(map[string]any); isMap {
@@ -348,15 +365,59 @@ func packSurfacesForAgent(packs []*packload.Pack, agent, name string) []manifest
 	return out
 }
 
+// retiredKeys extracts the RETIRED entries from a recorded winner map: key → the layer that
+// last claimed it. nil when the record has none (the overwhelmingly common case) or when
+// there is no record at all.
+//
+// The record is the only source for this. A retired key is by construction one no live layer
+// declares, so there is nothing to cross-check it against — which is also why the label had
+// to carry the previous layer's name rather than a bare "retired" (agentcfg.RetiredLayer).
+func retiredKeys(winners map[string]string) map[string]string {
+	var out map[string]string
+	for k, layer := range winners {
+		last, retired := agentcfg.RetiredOf(layer)
+		if !retired {
+			continue
+		}
+		if out == nil {
+			out = map[string]string{}
+		}
+		out[k] = last
+	}
+	return out
+}
+
 // writeOverlayContributions prints the R3 provenance section: per surface, which packs
-// contribute and what became of each contributed key.
+// contribute and what became of each contributed key, plus any key yolo wrote for a pack
+// that is no longer configured.
 func writeOverlayContributions(pr richtext.Printer, rows []overlayContribution) {
 	if len(rows) == 0 {
 		return
 	}
 	for _, row := range rows {
-		pr.Printf("[bold]# %s → %s[/bold]  [dim]config-overlay from %s[/dim]",
-			row.Surface, row.Path, strings.Join(row.Packs, ", "))
+		if len(row.Packs) > 0 {
+			pr.Printf("[bold]# %s → %s[/bold]  [dim]config-overlay from %s[/dim]",
+				row.Surface, row.Path, strings.Join(row.Packs, ", "))
+		} else {
+			// RETIRED-ONLY surface: no pack contributes to it any more, so naming contributors
+			// would print an empty list. The heading still has to appear, because the retired
+			// lines below it are the whole point of reaching this surface.
+			pr.Printf("[bold]# %s → %s[/bold]  [dim]no live config-overlay[/dim]",
+				row.Surface, row.Path)
+		}
+		for _, k := range sortedStrings(row.Retired) {
+			// A KEY YOLO WROTE FOR A LAYER THAT NO LONGER CLAIMS IT. Reported as yolo's own
+			// output with the layer named, which is precisely what the record refuses to launder
+			// into `host`. The wording covers both ways a layer stops claiming a key (its pack
+			// left `packs`, or its pack stopped declaring the key) because the record cannot
+			// distinguish them — and does not need to: the fact and the remedy are the same.
+			// The remedy is the user's to take, since yolo left the value working rather than
+			// reaching into a file it does not own.
+			pr.Printf("  [magenta]%s[/magenta]  [yellow]written by a past apply for %s, which no "+
+				"longer asserts it[/yellow] [dim](%s notch — the value is still in the file and "+
+				"still in effect; nothing re-asserts it, so delete the key to drop it)[/dim]",
+				k, row.Retired[k], row.Notch)
+		}
 		for _, k := range sortedStrings(row.Keys) {
 			pack := row.Keys[k]
 			winner, recorded := row.Winners[k]
@@ -390,9 +451,46 @@ func writeOverlayContributions(pr richtext.Printer, rows []overlayContribution) 
 		}
 		pr.Printf("")
 	}
-	pr.Printf("[dim]config-overlay keys fold in BELOW the owning pack's managed layer, so the " +
-		"owner still wins a genuine conflict. Drop the contributing pack from `packs` to " +
-		"remove them.[/dim]")
+	// The precedence footer only applies to LIVE contributions. Printing it for a
+	// retired-only surface would end on "drop the contributing pack to remove them" — advice
+	// the user has already taken, and the reason these keys exist.
+	if anyLiveOverlay(rows) {
+		pr.Printf("[dim]config-overlay keys fold in BELOW the owning pack's managed layer, so the " +
+			"owner still wins a genuine conflict. Drop the contributing pack from `packs` to " +
+			"remove them.[/dim]")
+	}
+	if anyRetired(rows) {
+		// Said separately, because the remedy is the OPPOSITE of the live-overlay footer's:
+		// dropping the pack is what PRODUCED these keys, so "drop the pack" is advice the user
+		// has already taken.
+		pr.Printf("[dim]`written by a past apply` marks a key yolo asserted for a layer that has " +
+			"since stopped claiming it (its pack left `packs`, or stopped declaring the key). " +
+			"yolo does not remove it — the file is yours — so it keeps working until you delete " +
+			"it. The record remembers whose it was rather than relabelling it as yours.[/dim]")
+	}
+}
+
+// anyRetired reports whether any row carries a retired key, so the retirement footer is
+// printed only when there is something to explain.
+func anyRetired(rows []overlayContribution) bool {
+	for _, row := range rows {
+		if len(row.Retired) > 0 {
+			return true
+		}
+	}
+	return false
+}
+
+// anyLiveOverlay reports whether any row has a pack still contributing to it. False for a
+// report that reached these surfaces ONLY through retired keys, where the precedence footer
+// would describe a mechanism nothing in the output uses.
+func anyLiveOverlay(rows []overlayContribution) bool {
+	for _, row := range rows {
+		if len(row.Packs) > 0 {
+			return true
+		}
+	}
+	return false
 }
 
 // readProvenance decodes a provenance record at path into key → winning layer. An absent
@@ -418,16 +516,9 @@ func readProvenance(path string) map[string]string {
 	// attributed no keys" is a measurement, while nil means "no render recorded here". A
 	// reader that collapsed them would answer a question it had actually measured with "we
 	// do not know", which is the mirror image of the confident-wrong-answer this record
-	// exists to remove.
-	out := map[string]string{}
-	for _, line := range strings.Split(string(data), "\n") {
-		key, layer, found := strings.Cut(line, "\t")
-		if !found || key == "" {
-			continue
-		}
-		out[key] = layer
-	}
-	return out
+	// exists to remove. agentcfg.ParseProvenanceRecord guarantees the non-nil, and is shared
+	// with the writer's own re-read so the format has exactly one definition.
+	return agentcfg.ParseProvenanceRecord(data)
 }
 
 // configuredPacksForInspection loads the packs this workspace's config selects, for the
