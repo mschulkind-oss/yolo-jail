@@ -1,5 +1,36 @@
 # Handoff — a pack cannot install Claude MCP servers on the host
 
+> ## ✅ FIXED — re-verified 2026-08-03 against `0.7.1+380.ga3d6d4e`
+>
+> Shipped in `4d1aa68` ("a pack can install MCP servers on the host"), implemented exactly as
+> §"What to build" recommended: **prune the workspace-keyed subtree, name what was pruned,
+> render the rest.** Verified end-to-end — a `config-overlay` on `claude/config` carrying
+> `mcpServers` now renders:
+>
+> ```console
+> $ HOME=/tmp/m2 … yolo apply --host --assert
+>   claude/config        rendered  /tmp/m2/.claude.json
+>     skipped ${workspace}-keyed (no host referent): projects.${workspace}.enableAllProjectMcpServers,
+>                                                    projects.${workspace}.hasTrustDialogAccepted
+> ```
+>
+> Both hazards from §"Care required" are handled, and better than asked:
+>
+> - **Wholesale table regeneration now warns, in `observe` AND `assert`**, naming the entry
+>   and the remedy:
+>   `⚠ would damage your existing entry: mcpServers.my-hand-added (dropped — not in your
+>   config) (yolo owns this table; declare the entry under `mcp_servers` to keep it)`
+> - **The `${VAR}`-written-literally trap is now an explicit warning** rather than a silent
+>   401: `⚠ ${TAVILY_API_KEY} written LITERALLY — apply --host does not resolve variables; put
+>   the value in the file directly, or manage this server in the jail, where `env_sources`
+>   expands it`. So §3's "decide" is decided: interpolation was **not** extended to `url`;
+>   instead the limitation is surfaced at the point of use. Good call — it keeps secrets out
+>   of the render path entirely.
+> - Unrelated keys in the file are untouched (verified with a sentinel key).
+>
+> **One new asymmetry found while verifying — see [§Dangling state on pack
+> drop](#dangling-state-on-pack-drop) at the bottom.**
+
 **Audience:** an agent working in the yolo-jail repo.
 **Found:** 2026-08-02, verified against `0.7.1+362.g95c9416`.
 **Requester's goal:** *"I want to make sure we can install claude mcp servers on the host
@@ -179,3 +210,50 @@ $ HOME=/tmp/mcp XDG_CONFIG_HOME=/tmp/mcp/.config yolo apply --host --assert
 Relevant code: `internal/entrypoint/hostrender.go:239` (predicate), same file's
 `RenderHostPack` loop (refusal), `internal/entrypoint/prism.go:466`
 (`regenerateManagedTables`), `packs/claude/pack.json` (the `${workspace}` keys).
+
+---
+
+## Dangling state on pack drop
+
+**New finding, 2026-08-03 (`0.7.1+380`).** Not part of the MCP work — found while verifying
+it. `dc16f35` ("prune a dropped pack's staged tree, so it stops rendering") fixed the *jail*
+side and the host **briefing**, but the host cleanup is **briefing-only**. Drop a pack from
+`packs` and re-apply:
+
+```console
+$ HOME=/tmp/rq2 … yolo apply --host --assert       # pack removed from config
+  pack/briefing        removed (pack no longer configured)  /tmp/rq2/.claude/CLAUDE.md   ✓
+
+$ ls /tmp/rq2/.claude/bin/
+file-suggestion.sh                                  ← files tree ORPHANED, never mentioned
+
+$ python3 -c "…settings.json…"
+fileSuggestion: {"command": "~/.claude/bin/file-suggestion.sh", "type": "command"}
+                                                    ← overlay key STILL ASSERTED
+```
+
+Re-running never mentions either. So briefing is cleaned and announced, while a `files` tree
+and a `config-overlay` key are left behind **silently**.
+
+The overlay key is the sharper half: `fileSuggestion` survives pointing at a script that a
+later `rm -rf` of the pack dir would remove, leaving Claude Code with a broken
+`type: command` hook. That is exactly the failure mode `~/.dotfiles`' orphaned
+`file-suggestion.sh` had before this work (noted in
+[`handoff-fzf-pack-adoption.md`](handoff-fzf-pack-adoption.md) §1).
+
+The existing cleanup lives at `internal/entrypoint/hostbriefing.go:173` (`res.Action += "
+(pack no longer configured)"`) — there is no equivalent for the `files` or overlay paths.
+
+**Decision needed, not obviously "delete both."** Symmetry with the guide's stated contract
+(*"undo yolo's management is: stop declaring the key and re-apply, which drops it"*) argues
+for removing them. But a host `files` tree may hold something the user has since come to
+depend on, and silently deleting from a real `$HOME` is the hazard this whole workstream has
+been careful about. Suggested split:
+
+- **overlay/managed keys** — drop them (they are pure assertion, and the guide already
+  promises this), and *report* the drop like briefing does;
+- **`files` trees** — do **not** delete; report them as orphaned, once, with the path, so the
+  user can remove them deliberately. `apply --host` already has the vocabulary for this
+  (`⚠ would damage your existing entry: …`).
+
+Either way the rule this workstream keeps arriving at applies: **never silent.**
