@@ -104,18 +104,40 @@ That is the same "never silent" discipline the G1 fix established for skills/bri
 2. **`mcpServers` is a dynamic managed *table*, and tables get regenerated wholesale.**
    `regenerateManagedTables` (`internal/entrypoint/prism.go:466`) clears and rewrites a
    managed table's block, on the documented rationale that a server present in the file but
-   absent from the derived layer "was either yolo's from a prior boot (stale) or a server
-   the user added through the agent's UI". **In a jail that is right; on the host it is
-   destructive** — `claude mcp add` writes exactly there, and the user's servers are not
-   disposable output. Decide explicitly: either merge-not-replace at the host notch, or
-   keep replace and announce every drop (`noteDroppedManagedEntries` exists). My
-   recommendation: **merge on host**, replace in jail, and say so in the reference.
-3. **`${TAVILY_API_KEY}`-style interpolation.** My real `mcpServers` value embeds a secret
-   via `${…}`. A pack's `env` kind is static-only by design, so the natural place for that
-   is the *user's* `mcp_servers` config key (which already interpolates from
-   `env_sources`), not a pack. Confirm expansion behavior at the host notch before
-   recommending a pack carry an interpolated URL — a literal `${TAVILY_API_KEY}` written
-   into `~/.claude.json` would silently 401.
+   absent from the derived layer is either stale or user-added-through-the-UI.
+
+   **Requester's ruling (2026-08-02): "if you manage mcpServers through yolo, you give up
+   `claude mcp add`, that's fine."** That makes wholesale regeneration *correct* rather than
+   destructive — yolo is the sole author, so an undeclared server is stale by definition. So
+   merge-on-host is a **preference, not a requirement**. Two things still needed:
+   - **Announce every drop** (`noteDroppedManagedEntries` already exists) — silent deletion
+     is the failure mode even when replacement is the right policy.
+   - **The FIRST apply must not eat an existing entry** before the user has declared it.
+     Either warn-and-refuse on an undeclared pre-existing server, or make it loud enough in
+     `observe` that the user declares it first. This is the one-way-door moment.
+
+3. **Interpolation covers `env` values ONLY — not `url`, not `args`.** Verified:
+   `interpolateEnv` (`internal/entrypoint/mcp.go:41`) is called only on `cfg.Get("env")`
+   (`mcp.go:181`), so `${VAR}` anywhere else is left literal with no warning.
+
+   This matters concretely. The requester's *jail* config uses the interpolating form and is
+   correct today:
+   ```jsonc
+   "tavily": {"command": "npx", "args": ["-y", "tavily-mcp@latest"],
+              "env": {"TAVILY_API_KEY": "${TAVILY_API_KEY}"}}     // ← expands ✓
+   ```
+   but their *host* `~/.claude.json` entry embeds the key in the URL:
+   ```jsonc
+   "tavily": {"type": "http",
+              "url": "https://mcp.tavily.com/mcp/?tavilyApiKey=${TAVILY_API_KEY}"}  // ← literal ✗
+   ```
+   A pack contributing the second form would write `${TAVILY_API_KEY}` verbatim and the
+   server would silently 401. **Decide:** either extend interpolation to `url` (and warn on
+   unresolved, as `interpolateEnv` does), or document that a host MCP entry must use the
+   `command`+`env` form. Extending `url` is preferable — the `http` transport is otherwise
+   unusable with any secret. Either way the key itself must keep coming from
+   `env_sources` (an untracked file), never from pack content: a pack's `env` kind is
+   static-strings-only by design and must not become a secret carrier.
 
 ## Acceptance
 
@@ -123,8 +145,11 @@ That is the same "never silent" discipline the G1 fix established for skills/bri
   host**, and `claude mcp list` shows the server.
 - The `projects.${workspace}.*` keys are pruned and **named in the output**, not silently
   dropped and not fatal.
-- A pre-existing hand-added MCP server (via `claude mcp add`) is **not destroyed** by an
-  apply — either preserved (preferred) or reported as dropped.
+- A pre-existing hand-added MCP server is **never silently** destroyed: dropping it is
+  acceptable policy (see §2), but the drop must be reported, and the first-ever apply must
+  make it obvious before it happens.
+- A `${VAR}` in a server's `url` either expands or produces a warning — never a silent
+  literal (§3).
 - Second `--assert` byte-identical; unrelated keys in a 32-key `~/.claude.json` untouched.
 
 ## Also worth deciding
