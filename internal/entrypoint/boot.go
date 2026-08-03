@@ -334,15 +334,31 @@ func installClaudePlugins(e *Env) {
 // ---------------------------------------------------------------------------
 // Finalize PATH and exec bash
 // ---------------------------------------------------------------------------
+// BootPath is THE PATH the entrypoint hands the agent, and the authority the .bashrc
+// export (shell.go) and AGENTS.md's "PATH order (exact)" line mirror.
+//
+// The two generated dirs sit at OPPOSITE ENDS on purpose:
+//
+//   - ShimDir FIRST — blockers (grep, find). Interception is their whole job, so they
+//     must precede the real binary.
+//   - LauncherDir LAST, after /bin and /usr/bin — lazy installers (claude, pnpm). They
+//     only need to run when nothing else provides the name, so ordering them here makes
+//     shadowing a baked binary UNREPRESENTABLE rather than something the launcher has to
+//     detect. See Env.LauncherDir for the defect this closed.
+//
+// Extracted from execBash so the order is assertable without exec'ing a shell.
+func BootPath(e *Env) string {
+	return strings.Join([]string{
+		e.ShimDir(), e.NpmBin(), e.MiseShims(), e.GoBin(), e.LocalBin(), "/bin", "/usr/bin",
+		e.LauncherDir(),
+	}, ":")
+}
+
 // execBash set the final PATH, echo the command for the
 // exec-into-existing path, source yolo-user-env.sh + activate mise, and exec
 // bash --rcfile ~/.bashrc -c <activated command>. Never returns on success.
 func execBash(e *Env, command string) error {
-	localBin := e.LocalBin()
-	path := strings.Join([]string{
-		e.ShimDir(), e.NpmBin(), e.MiseShims(), e.GoBin(), localBin, "/bin", "/usr/bin",
-	}, ":")
-	_ = os.Setenv("PATH", path)
+	_ = os.Setenv("PATH", BootPath(e))
 
 	isNewContainerCmd := strings.Contains(command, "yolo-bootstrap")
 	if command != "bash" && !isNewContainerCmd {
@@ -486,6 +502,7 @@ func Main(args []string) error {
 	// (matches the pre-exec PATH set in main(), used by the mise trust subprocess).
 	_ = os.Setenv("PATH", strings.Join([]string{
 		e.ShimDir(), e.NpmBin(), e.MiseShims(), e.GoBin(), "/bin", "/usr/bin",
+		e.LauncherDir(),
 	}, ":"))
 
 	trustWorkspaceConfigs()

@@ -93,8 +93,8 @@ func TestGeneratedShellSyntax(t *testing.T) {
 // The matrix must keep EXERCISING agent launchers, which stopped being automatic when
 // the default agent set was deleted.
 //
-// checkShellScripts globs .yolo-shims and skips files that do not exist, so a scenario
-// generating no launcher still passes — silently testing less. Three scenarios
+// checkShellScripts globs both generated dirs and skips files that do not exist, so a
+// scenario generating no launcher still passes — silently testing less. Three scenarios
 // (`default_claude`, `blocked_tools_matrix`, `mise_ca_seeded`) relied on an absent
 // YOLO_AGENTS meaning "claude"; with no default that became "no agents", and the
 // `bash -n` gate over generated agent launchers quietly lost them while staying green.
@@ -116,9 +116,12 @@ func TestMatrixCoversAgentLaunchersAndTheZeroAgentCase(t *testing.T) {
 			t.Fatalf("%s: GenerateAgentLaunchers: %v", name, err)
 		}
 		// Only agent launchers count: GeneratePackageManagerLaunchers is not run here,
-		// so anything in the shim dir came from the agent selection.
+		// so anything in the LAUNCHER dir came from the pack selection. (Reading the
+		// launcher dir, not the shim dir — the two mechanisms were split so that the
+		// blockers a scenario's blocked_tools generate can never be miscounted as
+		// launchers, which is what this assertion is trying to measure.)
 		got := 0
-		if entries, err := os.ReadDir(filepath.Join(dir, ".yolo-shims")); err == nil {
+		if entries, err := os.ReadDir(filepath.Join(dir, ".yolo-launchers")); err == nil {
 			got = len(entries)
 		}
 		if name == "no_agents" {
@@ -202,13 +205,19 @@ func checkShellScripts(t *testing.T, bash, home string) {
 		".local/bin/mcp-wrappers/node",
 		".local/bin/mcp-wrappers/npx",
 	}
-	shimDir := filepath.Join(home, ".yolo-shims")
-	if entries, err := os.ReadDir(shimDir); err == nil {
+	// Both generated script dirs: blockers in .yolo-shims, lazy installers in
+	// .yolo-launchers. Globbing only the first would have quietly stopped `bash -n`-ing
+	// every launcher the moment the two were split.
+	for _, gen := range []string{".yolo-shims", ".yolo-launchers"} {
+		entries, err := os.ReadDir(filepath.Join(home, gen))
+		if err != nil {
+			continue
+		}
 		for _, ent := range entries {
 			if ent.IsDir() {
 				continue
 			}
-			rels = append(rels, filepath.Join(".yolo-shims", ent.Name()))
+			rels = append(rels, filepath.Join(gen, ent.Name()))
 		}
 	}
 

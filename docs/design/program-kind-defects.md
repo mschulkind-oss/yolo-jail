@@ -15,20 +15,41 @@ before being written down; the file:line references are the evidence.
 contribution at all** — a pack that declared its real deps came out worse than one that lied
 by omission.
 
+> **UPDATE 2026-08-02 — 11.1 is FIXED, and by removing its cause rather than handling it.**
+> The lazy launchers moved out of `~/.yolo-shims` into their own dir, `~/.yolo-launchers`,
+> ordered **last** on PATH (after `/bin`). §0's premise 1 below — *"`~/.yolo-shims` is FIRST on
+> PATH, so a shim always wins over `/bin`"* — is still true of the **blockers**, and no longer
+> true of the launchers, which is exactly the distinction the section was missing.
+>
+> That makes Q1.1/Q1.2 moot for the baked-binary case: an installer is now unreachable while
+> any real binary of that name exists, so there is nothing to fall through to and nothing to
+> skip generating. The launcher's exit-1 tail is unchanged and still correct for the case it
+> was always about — a genuinely absent tool whose install genuinely failed. Q1.3
+> (`requires`) survives untouched.
+>
+> Verified in a real container: a pack declaring `{"kind":"program","bin":"fzf",…}` now leaves
+> `command -v fzf` → `/bin/fzf`, `fzf --version` → 0, while its launcher is still generated at
+> `~/.yolo-launchers/fzf` (running it directly still exits 1, which is what proves ORDERING is
+> the whole fix). See [`../plans/proposed-fixes-open-findings.md`](../plans/proposed-fixes-open-findings.md) §1.
+
 ---
 
 ## 0. What `program` is supposed to do
 
 A `program` contribution says *"this pack needs binary X on PATH"*. yolo honors it by
-generating a **lazy launcher** at `~/.yolo-shims/<bin>` rather than installing at boot: the
+generating a **lazy launcher** at `~/.yolo-launchers/<bin>` (was `~/.yolo-shims/<bin>` when
+this was written) rather than installing at boot: the
 launcher installs the tool on first use, then re-execs it. That laziness is the feature — a
 jail starts fast and only pays for the agents you actually run.
 
 Two facts make the defects below possible:
 
-1. **`~/.yolo-shims` is FIRST on PATH.** The documented order is
+1. **`~/.yolo-shims` is FIRST on PATH.** The documented order *at the time this was written*
+   was
    `$HOME/.yolo-shims:$HOME/.local/bin:$NPM_CONFIG_PREFIX/bin:<mise-shims>:$GOPATH/bin:/bin:/usr/bin`
-   (AGENTS.md). So a shim always wins over `/bin`.
+   (AGENTS.md). So a shim always won over `/bin`. **No longer true for launchers** — see the
+   update at the top: they live in `~/.yolo-launchers`, last on PATH. Still true for
+   blockers, where it is the point.
 2. **The image bakes a substantial toolchain.** `flake.nix` puts ~100 packages in
    `corePackages`, including `fd` (`flake.nix:658`) and `fzf` (`flake.nix:721`) — the two the
    fzf pack needs.

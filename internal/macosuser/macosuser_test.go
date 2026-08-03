@@ -76,7 +76,7 @@ func TestLaunchArgv(t *testing.T) {
 	if !inSlice(argv, "OK=1") {
 		t.Error("non-protected env passes through")
 	}
-	// PATH order: shims < darwin prefix < /usr/bin.
+	// PATH order: blocker shims < darwin prefix < /usr/bin < lazy-installer launchers.
 	var pathVal string
 	for _, a := range argv {
 		if len(a) > 5 && a[:5] == "PATH=" {
@@ -89,6 +89,15 @@ func TestLaunchArgv(t *testing.T) {
 	}
 	if idxStr(dirs, "/nix/store/a-jq/bin") >= idxStr(dirs, "/usr/bin") {
 		t.Error("darwin prefix must precede /usr/bin")
+	}
+	// The lazy-installer dir goes LAST, mirroring the container (see
+	// entrypoint.BootPath): a launcher must only be reached when nothing else provides
+	// the name, or a pack declaring a tool the system already has SHADOWS and breaks it.
+	if idxStr(dirs, "/Users/_yolojail/.yolo-launchers") <= idxStr(dirs, "/usr/bin") {
+		t.Error("the launcher dir must come AFTER /usr/bin")
+	}
+	if dirs[len(dirs)-1] != "/Users/_yolojail/.yolo-launchers" {
+		t.Errorf("the launcher dir must be last on PATH, got %q", dirs[len(dirs)-1])
 	}
 	// Inner shell is workspace-centric.
 	inner := argv[len(argv)-1]

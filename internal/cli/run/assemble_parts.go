@@ -71,6 +71,12 @@ func podmanBaseMounts(rt string, runFlags []string, workspace string, in *assemb
 		"-v", filepath.Join(ws, "local")+":/home/agent/.local",
 		"-v", filepath.Join(ws, "go")+":/home/agent/go",
 		"-v", filepath.Join(ws, "yolo-shims")+":/home/agent/.yolo-shims",
+		// The launcher dir is a SECOND generated-script anchor, mounted for exactly the
+		// same reason as yolo-shims: the entrypoint writes into it every boot and
+		// /home/agent is :ro, so without its own rw bind the boot fails EROFS. It exists
+		// separately because blockers must precede the real tool on PATH and lazy
+		// installers must NOT (see entrypoint.Env.LauncherDir).
+		"-v", filepath.Join(ws, "yolo-launchers")+":/home/agent/.yolo-launchers",
 		"-v", filepath.Join(ws, "config")+":/home/agent/.config",
 		"-v", paths.GlobalCache()+":/home/agent/.cache",
 	)

@@ -323,6 +323,14 @@ func applyHost(out, errw io.Writer, color bool, write bool, stdin io.Reader) int
 				pr.Printf("    [dim]skipped ${workspace}-keyed (no host referent): %s[/dim]",
 					strings.Join(r.Pruned, ", "))
 			}
+			// What the canonical re-emit costs beyond values — a TOML file's comments. Not an
+			// overwrite and not an entry loss: nothing the user CONFIGURED changes, so it does
+			// not belong in either ⚠ above. It is still a loss they should see before the
+			// write, which is why it has a line of its own (comment preservation is BACKLOG
+			// E4, tracked and deliberately unbuilt).
+			for _, f := range r.Formatting {
+				pr.Printf("    [yellow]⚠ %s[/yellow]", f)
+			}
 			// ${VAR} references that reach the file LITERAL. A host apply resolves no
 			// variables, so this is not a "might" — it is what is in the file, and for an MCP
 			// url it means the server 401s with no other signal.

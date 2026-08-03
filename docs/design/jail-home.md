@@ -49,7 +49,7 @@ directory is fully covered by mounts; its image content is irrelevant.
 │          .gitconfig   -> .config/git/config
 │
 ├─[2] rw overlays from <workspace>/.yolo/home          per-WORKSPACE
-│        .npm-global/ .local/ go/ .yolo-shims/ .config/ .ssh/
+│        .npm-global/ .local/ go/ .yolo-shims/ .yolo-launchers/ .config/ .ssh/
 │        + 8 single-file binds (.bash_history, .yolo-*)
 │        + .claude/ .copilot/ ... (selected agents only)
 │                                        (assemble_parts.go:43-57; assemble.go:153-155)
@@ -87,7 +87,8 @@ by `prepareWsState`, internal/cli/run/prepare.go:131-173); `GLOBAL_HOME` =
 | `ws/npm-global` | `/home/agent/.npm-global` | rw | npm globals (:43) |
 | `ws/local` | `/home/agent/.local` | rw | `~/.local` (bin, share) (:44) |
 | `ws/go` | `/home/agent/go` | rw | GOPATH (:45) |
-| `ws/yolo-shims` | `/home/agent/.yolo-shims` | rw | blocked-tool + launcher shims (:46) |
+| `ws/yolo-shims` | `/home/agent/.yolo-shims` | rw | blocked-tool shims — FIRST on PATH (:46) |
+| `ws/yolo-launchers` | `/home/agent/.yolo-launchers` | rw | lazy-install launchers — LAST on PATH (:52) |
 | `ws/config` | `/home/agent/.config` | rw | `~/.config` (:47) |
 | `GLOBAL_CACHE` | `/home/agent/.cache` | rw | **shared across workspaces** (:48) |
 | `ws/yolo-bootstrap.sh` | `/home/agent/.yolo-bootstrap.sh` | rw | single-file bind (:49) |
@@ -340,11 +341,18 @@ the `:ro` base is never written from inside.
 File classes:
 
 **Generated each boot (regenerate-in-place, convergent):**
-- `~/.yolo-shims/` — **RemoveAll + recreate every boot** (shims.go:24-25):
-  blocked-tool shims from `YOLO_BLOCK_CONFIG`, agent lazy-install launchers
-  (skipped when a blocked shim of the same name exists, shims.go:170-171),
-  pnpm launcher. Safe to rmtree because it is a *directory* mount — the dir
-  itself is the anchor, its contents are not.
+- **Two dirs, opposite ends of PATH** — both cleared CONTENTS-ONLY every boot
+  (`resetAnchorDir`, shims.go), never `RemoveAll`: each is a bind-mount anchor
+  whose parent is `:ro`, so unlinking the dir fails EROFS and leaves the stale
+  children in place.
+  - `~/.yolo-shims/` — **blockers** (`GenerateShims`): the blocked-tool shims from
+    `YOLO_BLOCK_CONFIG`. Ordered FIRST on PATH, because interception is the job.
+  - `~/.yolo-launchers/` — **lazy installers** (`GenerateAgentLaunchers` for each
+    pack `program`, then `GeneratePackageManagerLaunchers` for pnpm). Ordered LAST,
+    after `/bin`, so a launcher is reached only when nothing else provides the
+    name — which is what stops a pack declaring `program fzf` from shadowing (and
+    breaking) the image's `/bin/fzf`. A tool that is both blocked AND
+    pack-declared gets one of each and the blocker wins by position.
 - `~/.bashrc` (via the base's `.bashrc → .config/bashrc` symlink; truncate in
   place "for the bind mount", shell.go:46-48), `~/.yolo-bootstrap.sh`,
   `~/.yolo-venv-precreate.sh` (shell.go:141-145, 259-261),
@@ -394,7 +402,7 @@ anchor (fsx.go:49-63).
 | Scope | What lives there |
 |---|---|
 | **Per-host (all workspaces)** | `GLOBAL_HOME` `:ro` base + `.claude-shared-credentials` (rw); `GLOBAL_MISE` at `/mise`; `GLOBAL_CACHE` at `~/.cache`; image-load cache under `cache/images/` (internal/image/image.go:139-145); layout-version marker; `~/.config/yolo-jail/config.jsonc` |
-| **Per-workspace** | everything in `<workspace>/.yolo/home`: the rw overlays (`npm-global`, `local`, `go`, `yolo-shims`, `config`, `ssh`), the 8 single-file mountpoints (7 `yolo-*` files + `bash_history`), per-selected-agent config dirs |
+| **Per-workspace** | everything in `<workspace>/.yolo/home`: the rw overlays (`npm-global`, `local`, `go`, `yolo-shims`, `yolo-launchers`, `config`, `ssh`), the 8 single-file mountpoints (7 `yolo-*` files + `bash_history`), per-selected-agent config dirs |
 | **Per-jail (container name)** | `containers/` tracking files, `agents/<cname>/` briefing+skills staging (paths.go:76-79), `logs/<cname>-socat.log` + `logs/broker-relay-<sha1(cname)[:8]>.log` (network.go:36; loopholesruntime.go:370) — `logs/host-service-<name>.log` is per-service, shared (loopholesruntime.go:214) |
 | **Per-host-workspace inside a home** | Claude history keyed on `sha256(YOLO_HOST_DIR)[:12]` (§4.4) |
 | **Per-boot / ephemeral** | `/tmp`, `/run`, `/dev/shm`, anonymous volumes, `/tmp/yolo-jaild.pid` |
@@ -522,9 +530,9 @@ prior container's UID mapping and are deliberately left alone (ensure.go:82-91).
    mount (§4.2).
 2. **Never remove a mount-anchor directory** (`ClearContents`,
    fsx.go:14-17,49-63) — removing the dir detaches the mount (2026-07-04
-   regression). Empty contents in place instead. `~/.yolo-shims` is the noted
-   exception: it's a dir mount whose *contents* are wiped every boot, the dir
-   itself survives.
+   regression). Empty contents in place instead. `~/.yolo-shims` and
+   `~/.yolo-launchers` are the noted exceptions: dir mounts whose *contents* are
+   wiped every boot while the dirs themselves survive (`resetAnchorDir`).
 3. **Symlinks are relative and compared as raw link strings**, never resolved
    (fsx.go:19-21) — resolution must happen through the container's mount
    table, not the host's. (One exception: the claude `history.jsonl` link is

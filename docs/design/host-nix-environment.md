@@ -509,7 +509,7 @@ plus a launch env could supply it off-container:
 | `packages:` (user's extras) | `extraPackages` → image | **environment** | ✅ **already shipped** as `yoloDarwinPackages` |
 | `mise_tools` | mise, PATH-ordered shims | **environment** | ✅ already runs natively on macos-user (`ConfigureMisePrism`) |
 | Env hygiene (`PAGER`/`GIT_PAGER=cat`, `BAT_PAGER=""`, `EDITOR=cat`, `VISUAL=nvim`, `OVERMIND_SOCKET`) | `-e` flags + generated `.bashrc` | **environment** | ⚠️ **only for a process yolo launches.** In a shell yolo does not start, this is a shell-rc edit — refused by name today (`KindEnv`). And `EDITOR=cat` in a *human's* shell is hostile: it exists because an agent cannot drive an editor |
-| `PATH` order (`.yolo-shims:.local/bin:$NPM_CONFIG_PREFIX/bin:<mise>:$GOPATH/bin:/bin:/usr/bin`) | generated `.bashrc` / launch env | **environment** | ⚠️ same: yolo-launched yes, user's shell no. macos-user already needs a **login-rc re-prepend** (`.zprofile`/`.zshrc`/`.bash_profile`) to survive macOS `path_helper` — evidence of how far you must reach to own a PATH you did not start |
+| `PATH` order (`.yolo-shims:.local/bin:$NPM_CONFIG_PREFIX/bin:<mise>:$GOPATH/bin:/bin:/usr/bin:.yolo-launchers`) | generated `.bashrc` / launch env | **environment** | ⚠️ same: yolo-launched yes, user's shell no. macos-user already needs a **login-rc re-prepend** (`.zprofile`/`.zshrc`/`.bash_profile`) to survive macOS `path_helper` — evidence of how far you must reach to own a PATH you did not start |
 | Blocked-tool shims (`grep -r`, `find`) | generated scripts, first on PATH | **hybrid — see below** | ⚠️ mechanically yes; the design flags it `!` ("shims would land on your real PATH — opt in explicitly") |
 | `/lib` farm + `LD_LIBRARY_PATH` + nix-ld | image + baked `Env` | **environment, but Linux-container-only** | ❌ no darwin analogue (§5.3); on a Linux host it would be actively wrong to set `LD_LIBRARY_PATH=/lib:/usr/lib` |
 | Composed agent config (settings, MCP, LSP, skills, briefing) | the prism / `render` | **environment** | ✅ **already shipped** — `apply --host` |
@@ -536,7 +536,7 @@ for the launcher answer over the rc-editing answer.
 
 **The most valuable "mimic" target is not any of the above.** It is the fact that **all six agent
 CLIs are in nixpkgs for all three live platforms** (§5.1) while the jail installs them
-**lazily, at first use, via npm and curl-to-shell** (`~/.yolo-shims/` launchers; every shipped
+**lazily, at first use, via npm and curl-to-shell** (`~/.yolo-launchers/` launchers; every shipped
 pack's `program` is `via: npm` or `via: installer`). So the *jail* does not get its agent CLIs
 from nix either. A host nix env would be **more reproducible than the jail** on exactly the axis
 the maintainer's copilot question is about. That is a genuinely interesting inversion, and it

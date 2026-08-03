@@ -58,6 +58,7 @@ func EnsureGlobalStorage(migrate func()) error {
 		".local",
 		"go",
 		".yolo-shims",
+		".yolo-launchers",
 		".config",
 		".cache",
 		".ssh",

@@ -94,6 +94,16 @@ type HostRenderResult struct {
 	// EntryLoss in a home yolo has managed before is policy, and the same loss on the
 	// first-ever apply is data loss.
 	FirstApply bool
+	// Formatting names the NON-VALUE losses a codec-canonical re-emit costs the user, one
+	// line each ("comments are dropped", …). Distinct from every field above because nothing
+	// they CONFIGURED changes: the values all round-trip and the file stays valid. What is
+	// lost is the prose and layout around them.
+	//
+	// Reported rather than fixed because comment preservation is BACKLOG E4 — tracked,
+	// deliberately-unbuilt work — and a user whose config.toml is half explanatory comments
+	// deserves to know they will not survive, in observe, before the write. Empty for every
+	// JSON surface (JSON has no comments) and for an uncommented TOML one.
+	Formatting []string
 }
 
 // RenderHostPack renders one pack's config surfaces into homeDir (the real $HOME), pure
@@ -159,6 +169,18 @@ func RenderHostPack(p *packload.Pack, homeDir string, observe bool, overlays *pa
 		// from tableLayer — the merge is transient and the result identical. Leaving them
 		// means rmwProvenance still sees which pack contributed the key, which is R3's
 		// "an override must stay legible".
+		//
+		// REFUSAL PROBE, before anything else is computed and in BOTH postures. A host render
+		// is pure RMW, so a surface whose codec cannot round-trip through RMW — or whose
+		// existing file yolo cannot parse — must not be written; and observe's job is to say
+		// so BEFORE an --assert reaches the file. Probing here rather than only at the write
+		// is what makes `--dry-run` an honest preview of a refusal instead of promising a
+		// render that will not happen.
+		if refusal := hostRMWRefusal(s, path); refusal != nil {
+			out = append(out, HostRenderResult{Surface: id, Path: path, Pruned: pruned,
+				Action: "refused: " + refusal.Reason()})
+			continue
+		}
 		unresolved := hostUnresolvedVars(s, surfaceOverlays)
 		// FIRST-APPLY detection, read BEFORE the write: the provenance record is the only
 		// per-home mark yolo leaves at this notch, so its absence is what "yolo has never
@@ -177,27 +199,89 @@ func RenderHostPack(p *packload.Pack, homeDir string, observe bool, overlays *pa
 		// What the wholesale table write costs, per entry. Kept SEPARATE from Overwrites —
 		// see HostRenderResult.EntryLosses for why the distinction is what makes the
 		// confirmation gate usable rather than noise.
-		losses := tableLosses(tables, path, tableLayer)
+		losses := tableLosses(s, tables, path, tableLayer)
+		// Non-value losses from the canonical re-emit (a TOML file's comments). Computed in
+		// both postures for the same reason the overwrites are: the point is to see it before
+		// the write.
+		formatting := hostFormattingLosses(s, path)
 		if observe {
 			out = append(out, HostRenderResult{Surface: id, Path: path, Action: "would render",
 				Overwrites: overwrites, Overlays: overlayPackNames(surfaceOverlays),
 				Pruned: pruned, UnresolvedVars: unresolved, EntryLosses: losses,
-				FirstApply: firstApply})
+				FirstApply: firstApply, Formatting: formatting})
 			continue
 		}
 		// Pure RMW into the real home. The `computed` slot carries ONLY the wholesale table
 		// layer built from the pack's DECLARED content above — not a jail-derived one, whose
 		// values embed jail-absolute paths and have no host referent (OQ-4/§6.6). That
 		// distinction is the whole reason hostTableLayer exists.
+		//
+		// A REFUSAL here is a per-surface result, not a pack-level error. The probe above has
+		// already caught every refusal this render can predict; one arriving at the write is a
+		// condition that appeared in between (or an unencodable composed value), and the file
+		// is untouched either way — so the honest report is this surface's line, with the
+		// remaining surfaces still rendered. Returning an error would abort the pack over a
+		// file yolo deliberately left alone.
 		if err := renderSurfaceRMWSurface(e, s, tableLayer, surfaceOverlays); err != nil {
+			if refusal, isRefusal := asRMWRefusal(err); isRefusal {
+				out = append(out, HostRenderResult{Surface: id, Path: path, Pruned: pruned,
+					Action: "refused: " + refusal.Reason()})
+				continue
+			}
 			return out, fmt.Errorf("%s: %w", id, err)
 		}
 		out = append(out, HostRenderResult{Surface: id, Path: path, Action: "rendered",
 			Overwrites: overwrites, Overlays: overlayPackNames(surfaceOverlays),
 			Pruned: pruned, UnresolvedVars: unresolved, EntryLosses: losses,
-			FirstApply: firstApply})
+			FirstApply: firstApply, Formatting: formatting})
 	}
 	return out, nil
+}
+
+// hostRMWRefusal reports why this surface cannot be read-modify-written in this home, or nil
+// when it can. It is the OBSERVE-side half of the writer's own gate: the same two checks
+// renderSurfaceRMWSurface performs (a codec RMW cannot express, and an existing file yolo
+// cannot parse), run without writing.
+//
+// Duplicating the checks rather than "just try the write and catch the refusal" is what makes
+// the dry-run truthful. `apply --host` (no --assert) must print `refused: …` for a surface an
+// --assert would decline, and it cannot learn that from a write it is forbidden to attempt.
+// The writer keeps its own copy because it is also reached from the jail boot path, where
+// there is no observe pass at all — so neither one can be the single gate.
+func hostRMWRefusal(s manifest.Surface, path string) *rmwRefusedError {
+	if refusal := rmwCodecRefusal(s); refusal != nil {
+		return refusal
+	}
+	if _, err := decodeSurfaceObject(s, path); err != nil {
+		if refusal, isRefusal := asRMWRefusal(err); isRefusal {
+			return refusal
+		}
+	}
+	return nil
+}
+
+// hostFormattingLosses names what a codec-canonical re-emit costs beyond values — today,
+// exactly one thing: a TOML file's comments.
+//
+// yolo re-emits a TOML surface through the shared deterministic emitter
+// (internal/agentcfg/codec), which renders values and nothing else. Every value round-trips;
+// every comment is gone. Comment preservation is BACKLOG E4 (open, deliberately unbuilt), so
+// this is a REPORT rather than a fix — and it has to be a report rather than silence, because
+// a user whose config.toml documents each setting loses that prose while every diff-visible
+// value looks correct.
+//
+// JSON surfaces yield nothing (JSON has no comment syntax, so there is nothing to lose), and
+// so does an uncommented TOML file — the line only appears when there is a real loss.
+func hostFormattingLosses(s manifest.Surface, path string) []string {
+	if s.Codec != "toml" {
+		return nil
+	}
+	raw, err := os.ReadFile(path)
+	if err != nil || !tomlHasComments(raw) {
+		return nil
+	}
+	return []string{"comments in this file are NOT preserved — yolo re-emits it from the " +
+		"decoded values (every value survives; the comments do not)"}
 }
 
 // hostProvenanceExists reports whether yolo has EVER asserted this surface in this home.
@@ -362,11 +446,11 @@ func stripTableKeys(s manifest.Surface, tables []string) manifest.Surface {
 // {"command":"npx","args":[…],"env":{…}} has every incoming key an ADD, so collectOverwrites
 // reports nothing — yet the entry is replaced (or, before wholesale replacement, merged into a
 // two-transport record that no client can use).
-func tableLosses(tables []string, path string, layer map[string]any) []string {
+func tableLosses(s manifest.Surface, tables []string, path string, layer map[string]any) []string {
 	if len(tables) == 0 {
 		return nil
 	}
-	existing := loadObject(path)
+	existing := existingSurfaceObject(s, path)
 	var out []string
 	for _, key := range tables {
 		cur, present := existing.Get(key)
@@ -414,7 +498,7 @@ func overlayOverwrites(e *Env, s manifest.Surface, path string, overlays []agent
 	if len(overlays) == 0 {
 		return nil
 	}
-	existing := loadObject(path)
+	existing := existingSurfaceObject(s, path)
 	var out []string
 	for _, ov := range overlays {
 		layer, isMap := ov.Data.(map[string]any)
@@ -434,21 +518,44 @@ func overlayOverwrites(e *Env, s manifest.Surface, path string, overlays []agent
 // managedOverwrites returns the dotted managed keys whose value in the EXISTING file at
 // path differs from what this surface's managed layer will write — the host-notch
 // "warn before you clobber a user value" (§4.2 / env-manager plan Phase 9, the reviewer's
-// always-warn). It reads the file as it stands (loadObject, matching the RMW writer's own
-// JSON round-trip) and walks the managed map; a key absent from the file is an ADD, not an
-// overwrite, so it is not reported. Deterministic (sorted). Best-effort: it mirrors the
-// RMW writer, which is JSON-based, so a non-JSON surface simply yields no findings.
+// always-warn). It reads the file as it stands (with the SURFACE's codec, matching the RMW
+// writer's own round-trip) and walks the managed map; a key absent from the file is an ADD,
+// not an overwrite, so it is not reported. Deterministic (sorted).
+//
+// It used to read via loadObject, i.e. JSON unconditionally, with a docstring conceding
+// "a non-JSON surface simply yields no findings". That was true and it was the reporting
+// half of the same bug the writer had: codex/config is TOML, so the one surface whose
+// values `apply --host` was actually about to overwrite was the one surface that reported
+// no overwrites. Reading with the surface's codec makes the warning cover every surface the
+// writer touches, which is the only version of "always warn" that means anything.
 func managedOverwrites(e *Env, s manifest.Surface, path string) []string {
 	s = agentcfg.SubstituteWorkspace(s, e.WorkspaceDir())
 	managed, ok := s.Managed.(map[string]any)
 	if !ok || len(managed) == 0 {
 		return nil
 	}
-	existing := loadObject(path)
+	existing := existingSurfaceObject(s, path)
 	var out []string
 	collectOverwrites(existing, managed, "", &out)
 	sort.Strings(out)
 	return out
+}
+
+// existingSurfaceObject decodes the file at path with the SURFACE's codec, for the three
+// REPORTING helpers (managedOverwrites, overlayOverwrites, tableLosses). An absent,
+// unreadable, or unparseable file yields an empty object.
+//
+// Best-effort is right HERE and wrong in the writer, and the asymmetry is deliberate: these
+// three answer "what would this render cost you", so an unreadable file means they have
+// nothing to report — and the render itself is about to refuse that file anyway (see
+// decodeSurfaceObject), which is the line the user acts on. Refusing twice would turn one
+// problem into two messages; reporting nothing here loses nothing.
+func existingSurfaceObject(s manifest.Surface, path string) *jsonx.OrderedMap {
+	obj, err := decodeSurfaceObject(s, path)
+	if err != nil {
+		return jsonx.NewOrderedMap()
+	}
+	return obj
 }
 
 // collectOverwrites walks the managed layer against the existing OrderedMap, appending a

@@ -78,8 +78,8 @@ if [[ -n "$payload" ]]; then
 fi
 
 # yolo's default blocked tools are `grep` and `find` — NOT `fd`, which is the
-# suggested replacement and stays unshimmed (verified: ~/.yolo-shims/ holds
-# find/grep, no fd). So this script needs no bypass today. It is set anyway
+# suggested replacement and stays unblocked (verified: ~/.yolo-shims/, the blocker
+# dir, holds find/grep and no fd). So this script needs no bypass today. It is set anyway
 # because it costs nothing and a user who later adds `fd` to
 # `security.blocked_tools` would otherwise get an empty picker with no clue why:
 # this script is not an agent typing a recursive search, it is the file picker,

@@ -96,7 +96,7 @@ func TestPackInstallsVersionsAndConfigures(t *testing.T) {
 }
 
 // TestPackSelectionPrunesUnselected confirms a codex-only jail installs codex but NOT
-// copilot/claude: their lazy-launcher shims under $HOME/.yolo-shims are absent, and
+// copilot/claude: their lazy launchers under $HOME/.yolo-launchers are absent, and
 // copilot's config dir is never generated.
 //
 // This is now the END-TO-END check on pack OPT-IN, and it is the assertion that would have
@@ -104,13 +104,19 @@ func TestPackInstallsVersionsAndConfigures(t *testing.T) {
 // filtered afterwards, so every pack rendered in-jail regardless of selection — a real jail
 // halted its boot with eleven read-only-filesystem errors from packs nobody asked for. The
 // mount is the filter, and this proves it from outside.
+//
+// The launchers moved out of ~/.yolo-shims (blockers only, first on PATH) into
+// ~/.yolo-launchers (lazy installers, last on PATH). Asserting on the OLD path would have
+// stayed green for the wrong reason — nothing is ever written there now.
 func TestPackSelectionPrunesUnselected(t *testing.T) {
 	requireJail(t)
 	dir := writeProjectWithPacks(t, `{}`, "codex")
 	cmd := strings.Join([]string{
 		"codex --version",
-		"! test -e $HOME/.yolo-shims/copilot",
-		"! test -e $HOME/.yolo-shims/claude",
+		"test -e $HOME/.yolo-launchers/codex",
+		"! test -e $HOME/.yolo-launchers/copilot",
+		"! test -e $HOME/.yolo-launchers/claude",
+		"! test -e $HOME/.yolo-shims/codex",
 		"! test -e $HOME/.copilot/config.json",
 	}, " && ")
 	r := runYolo(t, dir, cmd)

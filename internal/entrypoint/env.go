@@ -201,8 +201,40 @@ func (e *Env) Lookup(key string) (string, bool) {
 }
 
 // --- Path constants (home-relative) ---
-// ShimDir is HOME/.yolo-shims.
+// ShimDir is HOME/.yolo-shims — the BLOCKER dir, ordered FIRST on PATH.
+//
+// It holds only what GenerateShims writes: the blocked-tool shims (`grep`, `find`, …)
+// generated from YOLO_BLOCK_CONFIG. Interception is their entire job, so preceding the
+// real binary is a requirement, not a convenience.
+//
+// Lazy INSTALLERS live in LauncherDir instead (see there for why the split exists).
 func (e *Env) ShimDir() string { return filepath.Join(e.Home, ".yolo-shims") }
+
+// LauncherDir is HOME/.yolo-launchers — the lazy-INSTALLER dir, ordered LAST on PATH
+// (after /bin and /usr/bin).
+//
+// Blockers and lazy installers used to share ~/.yolo-shims because both are "a script
+// named after a binary, early on PATH". They are not the same mechanism, and conflating
+// them was a live defect: a pack declaring `program fzf` wrote ~/.yolo-shims/fzf, which
+// PRECEDED the image's perfectly good /bin/fzf, and the launcher only ever execs
+// $NPM_CONFIG_PREFIX/bin/<bin> — it never consults PATH — so it exited 1. Declaring a
+// dependency honestly BROKE it.
+//
+// A blocker must shadow the real tool. An installer must not: it only needs to run when
+// nothing else provides the name. Ordering this dir after /bin makes that structural
+// rather than something the launcher has to defend against at runtime — a launcher is
+// simply unreachable while any real binary of that name exists.
+//
+// One consequence, stated because it is a real trade: a tool the IMAGE bakes now wins
+// over a pack's declared version. For `fzf` that is right. For an agent CLI it might not
+// be — if the image ever baked an older `claude`, that pack's lazy-updating launcher would
+// stop being reached. No shipped pack collides today (the six agent CLIs are not in
+// flake.nix's corePackages/fullPackages), but it is the case to re-check when adding a
+// baked package whose name a pack also claims.
+//
+// Like ShimDir this is a bind-mount ANCHOR (mounted from <ws>/.yolo/home/yolo-launchers
+// under a read-only /home/agent), so it is cleared CONTENTS-ONLY. See GenerateShims.
+func (e *Env) LauncherDir() string { return filepath.Join(e.Home, ".yolo-launchers") }
 
 // MiseShims is MISE_DATA/shims.
 func (e *Env) MiseShims() string { return filepath.Join(e.MiseData, "shims") }

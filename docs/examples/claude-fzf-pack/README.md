@@ -188,11 +188,16 @@ three lines, and pack prose is attributed to its source, so it stays traceable.
 
 ---
 
-## Host deps (`fd`, `fzf`): do NOT declare them as `program`
+## Host deps (`fd`, `fzf`): declaring them as `program` is safe again
 
-The obvious move — a `program` contribution per binary with `install_hints` for
-brew/apt/nix — **breaks the finder inside a jail**, and this was verified the hard
-way:
+> **FIXED 2026-08-02.** The lazy launchers moved out of `~/.yolo-shims` into
+> `~/.yolo-launchers`, which is ordered **last** on PATH (after `/bin`). An
+> installer is now reached only when nothing else provides the name, so declaring
+> a dep the image already satisfies no longer breaks it. Re-verified in a real
+> container: with a pack declaring `{"kind":"program","bin":"fzf",…}`,
+> `command -v fzf` → `/bin/fzf` and `fzf --version` → 0.
+
+What used to happen, kept because it is why the split exists:
 
 ```console
 $ command -v fd
@@ -202,15 +207,15 @@ $ fd --type f .
   ⚠ fd not available                  # the real /bin/fd is now unreachable
 ```
 
-A `program` contribution generates a **lazy-install launcher** in
-`~/.yolo-shims/`, which sits first on PATH and **shadows the image's real
-binary** — and it never falls through to it. `fd` and `fzf` are both baked into
-the jail image already, so declaring them converts a working tool into a broken
-one. (See "Product findings" below; the same happens for any image-provided
-binary.)
+A `program` contribution generated its **lazy-install launcher** into
+`~/.yolo-shims/`, which sits first on PATH and so **shadowed the image's real
+binary** — and the launcher execs one hardcoded install path, never consulting
+PATH, so it could not fall through. `fd` and `fzf` are both baked into the jail
+image, so declaring them converted a working tool into a broken one.
 
-So this pack declares no `program`, and the finder relies on `fd`/`fzf` being
-present — true in a jail by construction.
+This pack still declares no `program`, for the reason in the next section rather
+than this one (only the first `program` per pack installs, so a two-binary pack
+cannot be expressed yet).
 
 **For the host notch,** where nothing is baked, the tools genuinely may be
 missing. Options, in order of preference:
@@ -270,13 +275,14 @@ claude-fzf: "rmw").
 Reported, not fixed (they live in files under concurrent development):
 
 1. **A `program` contribution shadows an image-provided binary and breaks it.**
-   The generated `~/.yolo-shims/<bin>` launcher precedes `/bin` on PATH and, when
-   its installer fails, exits 1 rather than falling through to the real binary
-   that was there all along. Verified for both `fd` and `fzf` independently. A
-   pack declaring a dep the image already satisfies makes the jail *worse*, and
-   nothing warns. Candidate fixes: fall through to a real binary on PATH when the
-   install fails, or skip launcher generation when the bin already resolves
-   outside the shim dir.
+   ~~The generated `~/.yolo-shims/<bin>` launcher precedes `/bin` on PATH~~ —
+   **FIXED 2026-08-02 by splitting the dir**: launchers now live in
+   `~/.yolo-launchers`, ordered after `/bin`, so an installer is unreachable while
+   a real binary of that name exists. Neither candidate fix was needed (fall
+   through on failure / skip generation) — removing the shadowing removed the
+   cause. The launcher's exit-1 tail is unchanged and still right for a genuinely
+   absent tool. Original symptom, verified for both `fd` and `fzf`: a pack
+   declaring a dep the image already satisfied made the jail *worse*, silently.
 2. **Only the FIRST `program` contribution per pack installs in a jail.**
    `Manifest.InstallContribution()` returns on the first match, so a pack
    declaring `fd` *and* `fzf` silently gets a launcher for `fd` only — while
@@ -290,7 +296,7 @@ Reported, not fixed (they live in files under concurrent development):
    `…/agents/<cname>/packs/<slug>/` survives being removed from config, and the
    in-jail loader walks every dir it finds under the pack root. Symptom hit
    during this work: a test pack deleted from config kept generating its
-   `~/.yolo-shims/fzf` launcher (which then broke `fzf` per finding #1) across
+   `fzf` launcher (which then broke `fzf` per finding #1) across
    several launches, and the only fix was deleting the staging dir by hand. This
    contradicts the invariant stated in `AGENTS.md` ("`stagePacks` copies only the
    SELECTED packs into the mounted tree (and clears it, so a dropped pack stops

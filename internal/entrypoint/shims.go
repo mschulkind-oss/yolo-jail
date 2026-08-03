@@ -10,26 +10,34 @@ import (
 	"github.com/mschulkind-oss/yolo-jail/internal/shquote"
 )
 
+// resetAnchorDir prepares a generated-script directory for a fresh boot: create it if
+// absent, then clear its CONTENTS — never the dir itself.
+//
+// Both generated dirs (~/.yolo-shims and ~/.yolo-launchers) are bind-mount ANCHORS,
+// mounted from <ws>/.yolo/home/{yolo-shims,yolo-launchers} while their parent /home/agent
+// is mounted read-only. os.RemoveAll(dir) tries to unlink the anchor top-down, fails EROFS
+// on the read-only parent, and leaves every stale child in place — so unblocking a tool
+// (dropping curl from blocked_tools) or dropping a pack never took effect on the next
+// fresh launch. ClearContents recurses into the children so stale entries ARE removed,
+// matching the mount-anchor invariant codified in fsx.go. MkdirAll first so a first-ever
+// run (no dir yet, e.g. macos-user) still gets an empty dir.
+func resetAnchorDir(dir string) error {
+	if err := os.MkdirAll(dir, 0o755); err != nil {
+		return err
+	}
+	return ClearContents(dir)
+}
+
 // GenerateShims clears the contents of SHIM_DIR and writes one
 // blocking/filtering shim per entry in YOLO_BLOCK_CONFIG.
 // An absent/empty/unparseable config leaves an empty SHIM_DIR.
 // The shim body is the frozen argv-filter contract: message/suggestion text +
 // exit code 127. See ShimContent for the exact grammar.
+//
+// SHIM_DIR (~/.yolo-shims) is the BLOCKER dir and is ordered FIRST on PATH. The lazy
+// installers live in ~/.yolo-launchers, ordered LAST — see Env.LauncherDir.
 func GenerateShims(e *Env) error {
-	shimDir := e.ShimDir()
-	// Clear the dir's CONTENTS, never the dir itself: ~/.yolo-shims is a
-	// bind-mount ANCHOR (mounted from <ws>/.yolo/home/yolo-shims) whose parent
-	// /home/agent is mounted read-only. os.RemoveAll(shimDir) tries to unlink the
-	// anchor top-down, fails EROFS on the read-only parent, and leaves every
-	// stale child shim in place — so unblocking a tool (e.g. dropping curl from
-	// blocked_tools) never takes effect on the next fresh launch. ClearContents
-	// recurses into the children so the stale shims ARE removed, matching the
-	// mount-anchor invariant codified in fsx.go. MkdirAll first so a
-	// first-ever run (no dir yet) still gets an empty dir.
-	if err := os.MkdirAll(shimDir, 0o755); err != nil {
-		return err
-	}
-	if err := ClearContents(shimDir); err != nil {
+	if err := resetAnchorDir(e.ShimDir()); err != nil {
 		return err
 	}
 
@@ -80,7 +88,7 @@ func GenerateShims(e *Env) error {
 		blockFlags := stringList(cfg, "block_flags")
 
 		content := ShimContent(msg, sug, realBin, blockFlags)
-		shimPath := filepath.Join(shimDir, name)
+		shimPath := filepath.Join(e.ShimDir(), name)
 		if err := writeExecutable(shimPath, content); err != nil {
 			return err
 		}
@@ -155,12 +163,23 @@ func ShimContent(msg, sug, realBin string, blockFlags []string) string {
 	return strings.Join(lines, "\n")
 }
 
-// wrappers for the SELECTED agents (YOLO_AGENTS). Skips writing when a shim of
-// the same name already exists (a blocked-tool shim from GenerateShims, which
-// runs first). npm vs native launcher body is driven by the agent's InstallSpec.
+// GenerateAgentLaunchers writes one lazy-install launcher per pack `program`
+// contribution into the LAUNCHER dir (~/.yolo-launchers), which is ordered LAST on PATH.
+// npm vs native launcher body is driven by the pack's install declaration.
+//
+// It no longer skips a name a blocked-tool shim owns, and that is the point of the split
+// rather than an omission. The two dirs cannot collide, so a tool that is BOTH blocked and
+// declared as a pack `program` gets a blocker in ~/.yolo-shims (first on PATH) and a
+// launcher in ~/.yolo-launchers (last) — and the blocker wins by position, which is the
+// correct outcome. Previously the launcher was simply never written, so a config that later
+// unblocked the tool left it with no installer until the next boot.
+//
+// This is also the FIRST generator to write into the launcher dir, so it owns the
+// contents-only reset (the same contract GenerateShims has for the shim dir); the
+// package-manager launchers below are additive and must run after it.
 func GenerateAgentLaunchers(e *Env) error {
-	shimDir := e.ShimDir()
-	if err := os.MkdirAll(shimDir, 0o755); err != nil {
+	launcherDir := e.LauncherDir()
+	if err := resetAnchorDir(launcherDir); err != nil {
 		return err
 	}
 	stampDir := filepath.Join(e.Home, ".cache", "yolo-agent-stamps")
@@ -177,9 +196,12 @@ func GenerateAgentLaunchers(e *Env) error {
 		if inst == nil {
 			continue
 		}
-		shimPath := filepath.Join(shimDir, inst.Bin)
-		if pathExists(shimPath) {
-			continue // don't overwrite a blocked-tool shim
+		launcherPath := filepath.Join(launcherDir, inst.Bin)
+		if pathExists(launcherPath) {
+			// Two packs claiming one bin name. The footprint check refuses this on the
+			// host (`program` is CombineExclusive by bin); first-writer-wins keeps the
+			// jail deterministic if it ever gets here anyway.
+			continue
 		}
 		var launcher string
 		switch inst.Kind {
@@ -190,7 +212,7 @@ func GenerateAgentLaunchers(e *Env) error {
 		default:
 			continue
 		}
-		if err := writeExecutable(shimPath, launcher); err != nil {
+		if err := writeExecutable(launcherPath, launcher); err != nil {
 			return err
 		}
 	}
@@ -224,12 +246,15 @@ func nativeAgentLauncher(inst *packdecl.Install, stampDir string) string {
 	return r.Replace(nativeLauncherTemplate)
 }
 
-// lazy npm launchers for package managers not pre-installed via mise (pnpm).
-// The stamp dir path is shlex.quote'd so a $HOME with shell metacharacters
-// doesn't break the launcher.
+// GeneratePackageManagerLaunchers writes lazy npm launchers for package managers not
+// pre-installed via mise (pnpm) into the LAUNCHER dir. The stamp dir path is shlex.quote'd
+// so a $HOME with shell metacharacters doesn't break the launcher.
+//
+// MkdirAll-only (no clear): GenerateAgentLaunchers owns the dir reset and runs first, so
+// clearing here would delete the launchers it just wrote.
 func GeneratePackageManagerLaunchers(e *Env) error {
-	shimDir := e.ShimDir()
-	if err := os.MkdirAll(shimDir, 0o755); err != nil {
+	launcherDir := e.LauncherDir()
+	if err := os.MkdirAll(launcherDir, 0o755); err != nil {
 		return err
 	}
 	stampDir := filepath.Join(e.Home, ".cache", "yolo-package-manager-stamps")
@@ -237,16 +262,16 @@ func GeneratePackageManagerLaunchers(e *Env) error {
 
 	// The only lazily-installed package manager is pnpm.
 	for _, pm := range []struct{ bin, pkg string }{{"pnpm", "pnpm"}} {
-		shimPath := filepath.Join(shimDir, pm.bin)
-		if pathExists(shimPath) {
-			continue
+		launcherPath := filepath.Join(launcherDir, pm.bin)
+		if pathExists(launcherPath) {
+			continue // a pack already claimed this bin name
 		}
 		r := strings.NewReplacer(
 			"__YOLO_BIN__", pm.bin,
 			"__YOLO_PKG__", pm.pkg,
 			"__YOLO_STAMP_DIR_LIT__", stampDirLiteral,
 		)
-		if err := writeExecutable(shimPath, r.Replace(pkgManagerLauncherTemplate)); err != nil {
+		if err := writeExecutable(launcherPath, r.Replace(pkgManagerLauncherTemplate)); err != nil {
 			return err
 		}
 	}

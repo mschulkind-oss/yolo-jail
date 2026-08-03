@@ -31,7 +31,8 @@ type Kind string
 // knows the domain, not the tool).
 const (
 	// KindProgram: a program the jail should have on PATH (with a lazy launcher
-	// in ~/.yolo-shims/). Sole-owned by bin name.
+	// in ~/.yolo-launchers/, which is ordered LAST on PATH — after /bin — so the
+	// launcher only runs when nothing else provides the name). Sole-owned by bin name.
 	KindProgram Kind = "program"
 	// KindSkills: a skills tree merged into an agent's skills dir. Multiple packs
 	// into one dir is the feature, not a conflict (ordered merge).
@@ -149,7 +150,7 @@ type Footprint struct {
 var footprints = map[Kind]Footprint{
 	KindProgram: {
 		Kind: KindProgram, Combine: CombineExclusive, MayBeReviewWorthy: true,
-		Claims: "a name on PATH and a launcher in ~/.yolo-shims/",
+		Claims: "a name on PATH and a launcher in ~/.yolo-launchers/",
 	},
 	KindSkills: {
 		Kind: KindSkills, Combine: CombineMerge,

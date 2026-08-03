@@ -236,7 +236,13 @@ func WorkspaceACLStripScript(workspace string) string {
 // Launch — sudo -u + env -i + sandbox-exec, SandVault-style
 // ---------------------------------------------------------------------------
 // SandboxPath returns the PATH for the sandboxed agent — its own bin dirs
-// first, then the `prefix` (darwin store bin dirs), then system.
+// first, then the `prefix` (darwin store bin dirs), then system, then the lazy-installer
+// launcher dir LAST.
+//
+// The blocker/installer split mirrors the container's PATH order (see
+// entrypoint.Env.LauncherDir): ~/.yolo-shims holds blocked-tool shims and must precede the
+// real tool; ~/.yolo-launchers holds lazy installers, which must only be reached when
+// nothing else provides the name — so it goes after the system dirs, not before them.
 func SandboxPath(home string, prefix []string) string {
 	if home == "" {
 		home = SandboxHome()
@@ -250,6 +256,7 @@ func SandboxPath(home string, prefix []string) string {
 	}
 	parts = append(parts, prefix...)
 	parts = append(parts, "/usr/bin", "/bin", "/usr/sbin", "/sbin")
+	parts = append(parts, home+"/.yolo-launchers")
 	return strings.Join(parts, ":")
 }
 

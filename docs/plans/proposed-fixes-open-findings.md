@@ -47,7 +47,7 @@ waiting on a decision — this doc is ready to implement against.
 
 | # | Finding | Decided approach | Ruling |
 |---|---|---|---|
-| 1 | `program` shadows a baked binary and breaks it (11.1 / Q1.1) | **Split the shim dir** — installers move *after* `/bin`, so shadowing is impossible. Baked-in fallback stays as the safety net for a real install failure | **RULED — do it now**; my "wrong blast radius" hedge overruled |
+| 1 | `program` shadows a baked binary and breaks it (11.1 / Q1.1) | **Split the shim dir** — installers move *after* `/bin`, so shadowing is impossible. Baked-in fallback stays as the safety net for a real install failure | **RULED — do it now**; my "wrong blast radius" hedge overruled. **SPLIT SHIPPED 2026-08-02** (`~/.yolo-launchers`); the fallback is still open |
 | 2 | Presence-vs-install conflated (Q1.3) | Add a `requires` kind (asserts presence, generates nothing) | **RULED — build it, AND keep #1**; they are not alternatives |
 | 3 | Only the first `program` per pack installs (11.2 / Q2.1) | **Return a slice, generate N launchers** | **REVERSED** — I proposed a validation error; no case for constricting packs |
 | 4 | A dropped pack's staged tree keeps rendering (11.3 / Q3.1) | Prune unconfigured slugs, contents-only, **never** clear-and-restage | context expanded on request |
@@ -143,6 +143,37 @@ an installer would only ever be reached when nothing else provides the name.
 
 **RULED: do this now.** *"I want to do this now."* So the separation is the fix, and the baked
 fallback below becomes a smaller safety net rather than the primary mechanism.
+
+> **SHIPPED 2026-08-02 — the split is in.** Dir name: **`~/.yolo-launchers`** (the doc's own
+> suggestion). `entrypoint.Env.LauncherDir()` is the accessor; `entrypoint.BootPath(e)` is now
+> the single authority for the order (extracted from `execBash` so it is assertable), and the
+> `.bashrc` export mirrors it. The four traps all held as written:
+>
+> 1. `AGENTS.md` updated in the same change (PATH line + a new invariant bullet naming both
+>    mechanisms and the anchor rule).
+> 2. The launcher-skip is gone, and the new semantics are pinned by
+>    `TestBlockedAndDeclaredToolGetsBothAndBlockerWins`.
+> 3. The new anchor needed its own `-v` (`podmanBaseMounts`), backing dir (`prepareWsState`),
+>    `GlobalHome` mountpoint (`storage.EnsureGlobalStorage`), and reservation entry
+>    (`config.reservedHomeDirRoots`) — plus contents-only clearing via a new shared
+>    `resetAnchorDir`. **Trap 3 was the one that actually bit**: running the STALE baked
+>    launcher against the new entrypoint aborted the boot with
+>    `generate_agent_launchers: open /home/agent/.yolo-launchers/claude: read-only file system`,
+>    which is exactly the predicted failure and only visible in a container.
+> 4. `YOLO_BYPASS_SHIMS=1` untouched — it is a property of the blocker body, which did not move.
+>
+> **Verified in a nested jail** (fresh `dist-go` binary, `YOLO_REPO_ROOT=/workspace`): PATH ends
+> `…:/bin:/usr/bin:/home/agent/.yolo-launchers`; `grep -r`/`find` still exit 127 with their
+> suggestions while plain `grep` works; `YOLO_BYPASS_SHIMS=1 find --version` → GNU findutils
+> 4.10.0; both dirs writable; and with a pack declaring `program fzf`, `command -v fzf` →
+> `/bin/fzf`, `fzf --version` → 0.74.1. Running `~/.yolo-launchers/fzf` **directly** still
+> prints `⚠ fzf not available` and exits 1 — which is the proof that ORDERING is the entire
+> fix, and that the baked fallback below is still worth landing.
+>
+> **The baked-binary collision audit came back clean**: none of `claude`, `copilot`, `codex`,
+> `opencode`, `pi`, `agy`, `pnpm` exists in `/bin` inside the jail, so no shipped pack loses its
+> lazy-updating launcher to an image binary today. That is the caveat to re-check before baking
+> a package whose name a pack claims; it is now recorded in `AGENTS.md` rather than only here.
 
 What it means concretely. The documented order is (`AGENTS.md:204`):
 
@@ -746,10 +777,9 @@ radius**, not about waiting for answers.
 1. ~~**#7** (unfree eval), **#5** (brew cask)~~ — **DONE 2026-08-02.** Isolated as expected;
    see each section's shipped note for what differed from the proposal.
 2. **#4** (staging prune) — closes a doc/code contradiction, no interactions.
-3. **#1 the PATH split** — do this **before** the other `program` work, because it removes the
-   *cause* that #1's fallback and #3's caution were both working around. Highest blast radius in
-   this doc: it touches PATH order, which every tool in the jail depends on, so it wants its own
-   change and its own nested-jail verification.
+3. ~~**#1 the PATH split**~~ — **DONE 2026-08-02** (`~/.yolo-launchers`, ordered after `/bin`;
+   nested-jail verified). It removed the *cause* that #1's fallback and #3's caution were both
+   working around, so both are now smaller than described.
 4. **#1 the baked fallback** and **#3** (slice + N launchers) — both trivial once the split
    lands, and #3's only objection (N launchers = N shadowing hazards) is gone by then.
 5. **#2** (`requires`) — independent of all of the above; sequence by appetite. Adds a 14th kind,

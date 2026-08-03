@@ -20,8 +20,13 @@ things worth knowing before you debug:
 
 - **The MOUNT is the filter.** The entrypoint renders every pack under
   `YOLO_PACK_ROOT`, so `stagePacks` copies only the SELECTED packs into the
-  mounted tree (and clears it, so a dropped pack stops rendering). Staging all
-  six and filtering later renders packs nobody asked for.
+  mounted tree. Staging all six and filtering later renders packs nobody asked
+  for. A dropped pack therefore has to be UNSTAGED or it keeps rendering:
+  `_official/` is cleared wholesale (it is derived from the binary's embed.FS),
+  and each configured pack's dir is pruned when its slug leaves `packs` —
+  contents-only, never the staging root itself, whose inode a live jail's
+  `/ctx/packs` bind captured (`packstage` rule 3). A pack still configured but
+  unresolvable this launch (offline git remote) is KEPT, not pruned.
 - **`packload.Embedded*` is deliberately NOT selection-gated.** The reservation
   lists (`host_files` writable roots, `writable_home_dirs` segments, GlobalHome
   subdirs) cover every pack yolo SHIPS, or a `host_files` entry could claim a
@@ -199,9 +204,26 @@ there is no sync step.
   `@modelcontextprotocol/server-sequential-thinking`. LSP servers are
   config-gated, tracked by the `~/.yolo-installed-lsps` sentinel, and
   uninstalled when dropped from config. Agent CLIs install lazily on first use
-  via launchers in `~/.yolo-shims/`.
+  via launchers in `~/.yolo-launchers/`.
 - **PATH order** (exact):
-  `$HOME/.yolo-shims:$HOME/.local/bin:$NPM_CONFIG_PREFIX/bin:<mise-shims>:$GOPATH/bin:/bin:/usr/bin`.
+  `$HOME/.yolo-shims:$HOME/.local/bin:$NPM_CONFIG_PREFIX/bin:<mise-shims>:$GOPATH/bin:/bin:/usr/bin:$HOME/.yolo-launchers`.
+- **Two generated script dirs, at opposite ends of PATH** — they are different
+  mechanisms, not one dir with two kinds of file in it:
+  `~/.yolo-shims` holds **blockers** (`GenerateShims`: `grep`, `find` → refuse,
+  print a suggestion, `exit 127`) and must PRECEDE the real tool, because
+  interception is its whole job. `~/.yolo-launchers` holds **lazy installers**
+  (`GenerateAgentLaunchers` / `GeneratePackageManagerLaunchers`: `claude`,
+  `pnpm` → install on first use, then `exec` the real binary) and is ordered
+  LAST, after `/bin`, so a launcher is reached only when nothing else provides
+  the name. That is what makes a pack declaring `program fzf` unable to shadow
+  the image's `/bin/fzf` — the failure is unrepresentable rather than handled.
+  A tool that is both blocked and pack-declared gets one of each, and the
+  blocker wins by position. **Both dirs are bind-mount anchors** (from
+  `<ws>/.yolo/home/{yolo-shims,yolo-launchers}` under a `:ro` `/home/agent`), so
+  both are cleared CONTENTS-ONLY (`resetAnchorDir`) — never `RemoveAll`.
+  Consequence to know: a name the IMAGE bakes now beats a pack's declared
+  version. Right for `fzf`; re-check it before baking a package whose name a
+  pack also claims (no shipped pack collides today).
 - **Env hygiene** (agents can't handle interactive UI): `PAGER`/`GIT_PAGER`
   =`cat`, `BAT_PAGER=""`; `EDITOR=cat` (stops `git commit` hanging) but
   `VISUAL=nvim` (human ctrl-g editing); the host's `TERM` is forwarded so color

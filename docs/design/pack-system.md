@@ -105,7 +105,7 @@ target combine:
 
 | Kind | Claims | Combine rule |
 |---|---|---|
-| `program` | a name on `PATH` + a lazy launcher in `~/.yolo-shims/` | **Exclusive** — two packs, one `bin` → error |
+| `program` | a name on `PATH` + a lazy launcher in `~/.yolo-launchers/` | **Exclusive** — two packs, one `bin` → error |
 | `skills` | a merge-target skills dir | **Merge** — many packs into one dir is the feature |
 | `briefing` | a concat slot at a path | **Concat** — ordered |
 | `files` | exclusive ownership of a path | **Exclusive** |
@@ -130,6 +130,15 @@ The per-kind fields:
 
 ### `program`
 Installs a tool and puts it on `PATH` via a launcher that installs on first invocation.
+
+The launcher goes in `~/.yolo-launchers/`, which is **last** on PATH — after `/bin`. That
+is deliberate and it is the whole reason the dir exists separately from `~/.yolo-shims`
+(the blocked-tool shims, which are first): an installer only needs to run when nothing
+else provides the name. Ordering it before `/bin` made a pack declaring `program fzf`
+shadow the image's working `/bin/fzf` and then fail, because the launcher execs an
+absolute install path and never consults PATH — declaring the dependency honestly broke
+it. The consequence to know: a name the **image** bakes now wins over the pack's declared
+version.
 - `bin` (required) — the command name.
 - `via` (required) — `npm` or `installer`.
 - `package` (required for `npm`) — the npm package.

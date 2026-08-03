@@ -490,14 +490,31 @@ func targetExpandHome(t render.Target, p string) string {
 // applied FIRST so both the derived tables and the owner's own managed layer still win
 // their keys, which is the §5 precedence (config-overlay < computed < managed) expressed
 // in the one mode that has no layer fold to express it with.
+//
+// CODEC-AWARE at both ends, via surfacecodec.go. It used to be unconditionally JSON — read
+// with loadObject (which silently yields {} for anything it cannot parse) and written with
+// dumpJSONIndent2 — which was invisible while the only RMW surfaces the JAIL rendered were
+// JSON, and destructive the moment `apply --host` made every surface RMW: a codex user's
+// TOML config.toml was read as "no keys at all" and rewritten as JSON, so every key they
+// owned disappeared. Now the surface's declared codec decides the decode AND the encode, and
+// a file yolo cannot parse is REFUSED (returned as *rmwRefusedError, file untouched) rather
+// than replaced from an empty object.
 func renderSurfaceRMWSurface(e *Env, surface manifest.Surface, computed map[string]any, overlays []agentcfg.Overlay) error {
 	surface = agentcfg.SubstituteWorkspace(surface, e.WorkspaceDir())
 
+	// Codec gate FIRST, before any mkdir: a surface whose codec cannot round-trip through
+	// RMW must leave no trace at all, not an empty parent directory.
+	if refusal := rmwCodecRefusal(surface); refusal != nil {
+		return refusal
+	}
 	path := expandHomePath(e, surface.Path)
+	obj, err := decodeSurfaceObject(surface, path)
+	if err != nil {
+		return err
+	}
 	if err := os.MkdirAll(filepath.Dir(path), 0o755); err != nil {
 		return err
 	}
-	obj := loadObject(path)
 	// The file's own top-level keys BEFORE the render, snapshotted for provenance: on an
 	// rmw surface the existing content is the `host` layer, and it beats defaults
 	// (fill-if-absent) while losing to everything yolo force-writes. Taken here because
@@ -522,7 +539,11 @@ func renderSurfaceRMWSurface(e *Env, surface manifest.Surface, computed map[stri
 	if defaults, isMap := surface.Defaults.(map[string]any); isMap {
 		applyRMWLayer(obj, defaults, false)
 	}
-	if err := writeInPlaceString(path, dumpJSONIndent2(obj)); err != nil {
+	text, err := encodeSurfaceObject(surface, obj)
+	if err != nil {
+		return err
+	}
+	if err := writeInPlaceString(path, text); err != nil {
 		return err
 	}
 	// Record which layer won each key — AT THE HOST NOTCH ONLY, and the asymmetry is
