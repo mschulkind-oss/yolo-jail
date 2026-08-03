@@ -113,7 +113,8 @@ func TestStopArgv(t *testing.T) {
 func TestSessionBuildersLine(t *testing.T) {
 	s := &Session{Runtime: "podman"}
 	line := s.BuildersLine("127.0.0.1", BuilderHostPort, 4)
-	if !strings.HasPrefix(line, "ssh-ng://root@127.0.0.1:31022 aarch64-linux ") {
+	// System derived from the host arch, not frozen — see TestBuilderURIAndBuildersLine.
+	if !strings.HasPrefix(line, "ssh-ng://root@127.0.0.1:31022 "+BuilderSystem()+" ") {
 		t.Errorf("BuildersLine = %q", line)
 	}
 	if !strings.HasSuffix(line, " 4") {

@@ -40,18 +40,27 @@ func TestParseDryRunWillBuild(t *testing.T) {
 func TestDiagnoseNixBuildFailure(t *testing.T) {
 	remedy := "REMEDY"
 	// Explicit cross-build refusal.
-	title, rem := DiagnoseNixBuildFailure([]string{"error: a 'aarch64-linux' is required to build /nix/store/x.drv"}, false, remedy)
-	if title != "Image build needs a Linux builder" || rem != "Part of the image isn't in the binary cache and must be built.\nREMEDY" {
-		t.Errorf("explicit cross: %q / %q", title, rem)
+	// Both arches: nix names the system IT wants, so an x86_64 host sees x86_64-linux
+	// here. Keying the classifier on aarch64-linux dropped that host to the generic
+	// stderr-dump branch instead of the Linux-builder remedy (BACKLOG E8 class).
+	for _, sys := range []string{"aarch64-linux", "x86_64-linux", "riscv64-linux"} {
+		title, rem := DiagnoseNixBuildFailure(
+			[]string{"error: a '" + sys + "' is required to build /nix/store/x.drv"}, false, remedy)
+		if title != "Image build needs a Linux builder" || rem != "Part of the image isn't in the binary cache and must be built.\nREMEDY" {
+			t.Errorf("explicit cross (%s): %q / %q", sys, title, rem)
+		}
+	}
+	// "cannot build" is the other phrasing, and it must still need a system mention:
+	// a bare "cannot build" with no <arch>-linux in it is not a cross-build refusal.
+	if title, _ := DiagnoseNixBuildFailure([]string{"error: cannot build derivation"}, false, remedy); title != "nix build failed" {
+		t.Errorf("cannot-build without a system mention should fall through, got %q", title)
 	}
 	// Ambiguous mac (only when isMacOS).
-	title, _ = DiagnoseNixBuildFailure([]string{"error: 1 dependency failed"}, true, remedy)
-	if title != "Image build needs a Linux builder (or a cached package)" {
+	if title, _ := DiagnoseNixBuildFailure([]string{"error: 1 dependency failed"}, true, remedy); title != "Image build needs a Linux builder (or a cached package)" {
 		t.Errorf("ambiguous mac title = %q", title)
 	}
 	// Same input on Linux -> generic fallback.
-	title, rem = DiagnoseNixBuildFailure([]string{"error: 1 dependency failed"}, false, remedy)
-	if title != "nix build failed" || rem != "error: 1 dependency failed" {
+	if title, rem := DiagnoseNixBuildFailure([]string{"error: 1 dependency failed"}, false, remedy); title != "nix build failed" || rem != "error: 1 dependency failed" {
 		t.Errorf("linux fallback: %q / %q", title, rem)
 	}
 	// Empty tail.
@@ -61,27 +70,47 @@ func TestDiagnoseNixBuildFailure(t *testing.T) {
 }
 
 func TestHasLinuxBuilderFromConfig(t *testing.T) {
-	// Inline builder with aarch64-linux + non-zero jobs.
+	// Inline builder serving BOTH arches: usable from either host.
 	cfg := "builders = ssh-ng://b aarch64-linux,x86_64-linux /key 4\nother = 1\n"
-	if !HasLinuxBuilderFromConfig(cfg, nil) {
-		t.Error("inline aarch64-linux builder should be detected")
+	for _, want := range []string{"aarch64-linux", "x86_64-linux"} {
+		if !HasLinuxBuilderFromConfig(cfg, want, nil) {
+			t.Errorf("multi-arch builder should satisfy %s", want)
+		}
 	}
-	// max_jobs 0 -> not usable.
-	if HasLinuxBuilderFromConfig("builders = ssh-ng://b aarch64-linux /key 0\n", nil) {
+	// THE E8 CASE: a builder serving only arm64 must NOT satisfy an x86_64 host.
+	// Reporting "builder present" here is what let a run proceed to a build nix then
+	// refused to offload.
+	armOnly := "builders = ssh-ng://b aarch64-linux /key 4\n"
+	if HasLinuxBuilderFromConfig(armOnly, "x86_64-linux", nil) {
+		t.Error("an aarch64-only builder must not count as an x86_64-linux builder")
+	}
+	if !HasLinuxBuilderFromConfig(armOnly, "aarch64-linux", nil) {
+		t.Error("an aarch64-only builder should satisfy an aarch64 host")
+	}
+	// Empty wantSystem = "any linux builder".
+	if !HasLinuxBuilderFromConfig(armOnly, "", nil) {
+		t.Error("empty wantSystem should accept any -linux builder")
+	}
+	// …but not a non-linux one, or "any" would mean "anything".
+	if HasLinuxBuilderFromConfig("builders = ssh-ng://b aarch64-darwin /key 4\n", "", nil) {
+		t.Error("empty wantSystem must still require a -linux system")
+	}
+	// max_jobs 0 -> not usable, whatever the system.
+	if HasLinuxBuilderFromConfig("builders = ssh-ng://b aarch64-linux /key 0\n", "aarch64-linux", nil) {
 		t.Error("max_jobs=0 should not count")
 	}
 	// @machines file loaded via callback.
 	loader := func(p string) ([]string, bool) {
 		if p == "/etc/nix/machines" {
-			return []string{"ssh-ng://vm aarch64-linux /key 2"}, true
+			return []string{"ssh-ng://vm x86_64-linux /key 2"}, true
 		}
 		return nil, false
 	}
-	if !HasLinuxBuilderFromConfig("builders = @/etc/nix/machines\n", loader) {
-		t.Error("@machines aarch64-linux builder should be detected")
+	if !HasLinuxBuilderFromConfig("builders = @/etc/nix/machines\n", "x86_64-linux", loader) {
+		t.Error("@machines builder should be detected")
 	}
 	// No builder line at all.
-	if HasLinuxBuilderFromConfig("max-jobs = auto\n", nil) {
+	if HasLinuxBuilderFromConfig("max-jobs = auto\n", "aarch64-linux", nil) {
 		t.Error("no builders line => false")
 	}
 }

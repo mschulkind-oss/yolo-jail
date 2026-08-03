@@ -2,6 +2,7 @@ package containerbuilder
 
 import (
 	"reflect"
+	"strings"
 	"testing"
 )
 
@@ -41,9 +42,36 @@ func TestBuilderURIAndLine(t *testing.T) {
 	if uri != "ssh-ng://root@127.0.0.1:31022?ssh-key=/keys/id_ed25519" {
 		t.Errorf("uri = %q", uri)
 	}
+	// The SYSTEM field is derived from this host's arch, not frozen: a Linux container on
+	// an x86_64 Mac serves x86_64-linux, and advertising aarch64-linux there made nix
+	// decline to offload while the builder looked healthy (BACKLOG E8). The rest of the
+	// line stays a byte-exact contract, so it is asserted around the one variable field.
 	line := BuildersLine("192.168.64.2", 22, 4, "/keys/id_ed25519")
-	if line != "ssh-ng://root@192.168.64.2:22 aarch64-linux /keys/id_ed25519 4" {
-		t.Errorf("builders line = %q", line)
+	want := "ssh-ng://root@192.168.64.2:22 " + BuilderSystem() + " /keys/id_ed25519 4"
+	if line != want {
+		t.Errorf("builders line = %q, want %q", line, want)
+	}
+	// …and BuilderSystem must actually be a linux double, or the assertion above is
+	// self-fulfilling: it would pass for any string the function happened to return.
+	if !strings.HasSuffix(BuilderSystem(), "-linux") {
+		t.Errorf("BuilderSystem() = %q, want an <arch>-linux double — the builder runs a "+
+			"LINUX container regardless of the host OS", BuilderSystem())
+	}
+}
+
+// The GOARCH→nix-system mapping, tested without a cross-compile. amd64 and arm64 are the
+// two that ship; the fallthrough is asserted to name what it saw rather than silently
+// substituting a default, because a wrong-but-plausible system is exactly how E8 hid.
+func TestNixLinuxSystem(t *testing.T) {
+	for goarch, want := range map[string]string{
+		"amd64":     "x86_64-linux",
+		"arm64":     "aarch64-linux",
+		"riscv64":   "riscv64-linux",
+		"someth1ng": "someth1ng-linux",
+	} {
+		if got := nixLinuxSystem(goarch); got != want {
+			t.Errorf("nixLinuxSystem(%q) = %q, want %q", goarch, got, want)
+		}
 	}
 }
 

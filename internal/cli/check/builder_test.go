@@ -5,6 +5,8 @@ import (
 	"strings"
 	"testing"
 	"time"
+
+	"github.com/mschulkind-oss/yolo-jail/internal/containerbuilder"
 )
 
 // preflightExec builds an Exec seam returning canned results for the two
@@ -63,12 +65,16 @@ func TestPreflightBuilderNeeds_MacOSNoBuilder(t *testing.T) {
 }
 
 // TestPreflightBuilderNeeds_MacOSOwnBuilder covers the §8 escape hatch: a user
-// who configured their OWN aarch64-linux builder (nix-darwin linux-builder or
+// who configured their OWN Linux builder (nix-darwin linux-builder or
 // /etc/nix/machines) keeps working — the build is viable (return true) with a
 // PASS, no warning.
+//
+// The fixture's system is BuilderSystem(), not a literal: it must mean "a builder for
+// the arch this host wants". Hardcoding aarch64-linux made this pass on an arm64
+// runner and fail on an x86_64 one, which is the same arch assumption BACKLOG E8 was.
 func TestPreflightBuilderNeeds_MacOSOwnBuilder(t *testing.T) {
 	var out bytes.Buffer
-	cfg := "builders = ssh-ng://mybox aarch64-linux /key 4\n"
+	cfg := "builders = ssh-ng://mybox " + containerbuilder.BuilderSystem() + " /key 4\n"
 	o := &Options{IsMacOS: true, Exec: preflightExec(buildStderr, 0, cfg)}
 	r := newReporter(&out, false)
 
@@ -80,6 +86,34 @@ func TestPreflightBuilderNeeds_MacOSOwnBuilder(t *testing.T) {
 	}
 	if r.passed != 1 {
 		t.Errorf("expected one PASS, got %d:\n%s", r.passed, out.String())
+	}
+}
+
+// TestPreflightBuilderNeeds_MacOSWrongArchBuilder is the BACKLOG E8 regression at the
+// check layer: a builder that serves a DIFFERENT Linux arch than this host wants cannot
+// build this host's derivations, so it must not be reported as the escape hatch. Before
+// the fix the probe matched a hardcoded aarch64-linux, so an x86_64 host with an
+// arm64-only builder got a confident PASS and then a build nix refused to offload.
+func TestPreflightBuilderNeeds_MacOSWrongArchBuilder(t *testing.T) {
+	other := "aarch64-linux"
+	if containerbuilder.BuilderSystem() == other {
+		other = "x86_64-linux"
+	}
+	var out bytes.Buffer
+	cfg := "builders = ssh-ng://mybox " + other + " /key 4\n"
+	o := &Options{IsMacOS: true, Exec: preflightExec(buildStderr, 0, cfg)}
+	r := newReporter(&out, false)
+
+	if viable := o.preflightBuilderNeeds(r, t.TempDir(), []any{"foo"}); viable {
+		t.Errorf("a %s-only builder must not make an %s build viable",
+			other, containerbuilder.BuilderSystem())
+	}
+	if r.passed != 0 {
+		t.Errorf("wrong-arch builder must not PASS; got %d:\n%s", r.passed, out.String())
+	}
+	// It falls through to the container-builder WARN, which is the correct advice.
+	if r.warned != 1 || !strings.Contains(out.String(), "container builder") {
+		t.Errorf("expected the container-builder WARN; warns=%d:\n%s", r.warned, out.String())
 	}
 }
 

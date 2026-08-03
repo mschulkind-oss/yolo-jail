@@ -5,6 +5,7 @@ import (
 	"strings"
 	"time"
 
+	"github.com/mschulkind-oss/yolo-jail/internal/containerbuilder"
 	"github.com/mschulkind-oss/yolo-jail/internal/jsonx"
 	"github.com/mschulkind-oss/yolo-jail/internal/nixdiag"
 )
@@ -31,15 +32,17 @@ func (o *Options) nixDryRunWillBuild(repoRoot string, extraPackages []any) (nixd
 	return nixdiag.ParseDryRunWillBuild(res.RC, res.Stderr, true)
 }
 
-// hasLinuxBuilder reports whether a usable aarch64-linux builder
-// is reachable per `nix config show` + @/etc/nix/machines.
+// hasLinuxBuilder reports whether a usable builder for THIS host's Linux system is
+// reachable per `nix config show` + @/etc/nix/machines. The system comes from
+// containerbuilder.BuilderSystem() — the same source the builder advertises with — so
+// the probe and the thing it probes can't disagree about which arch is wanted.
 func (o *Options) hasLinuxBuilder() bool {
 	res := o.Exec([]string{"nix", "config", "show"}, "", nil, 10*time.Second)
 	cfg := ""
 	if res.Ran && !res.Timeout && res.RC == 0 {
 		cfg = res.Stdout
 	}
-	return nixdiag.HasLinuxBuilderFromConfig(cfg, func(path string) ([]string, bool) {
+	return nixdiag.HasLinuxBuilderFromConfig(cfg, containerbuilder.BuilderSystem(), func(path string) ([]string, bool) {
 		data, err := os.ReadFile(path)
 		if err != nil {
 			return nil, false

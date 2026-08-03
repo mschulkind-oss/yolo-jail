@@ -11,6 +11,7 @@ package containerbuilder
 
 import (
 	"fmt"
+	"runtime"
 	"strings"
 
 	"github.com/mschulkind-oss/yolo-jail/internal/paths"
@@ -88,9 +89,42 @@ func BuilderURI(host string, port int, keyPath string) string {
 	return fmt.Sprintf("ssh-ng://%s@%s:%d?ssh-key=%s", BuilderSSHUser, host, port, keyPath)
 }
 
+// BuilderSystem is the nix system the container builder advertises: the LINUX system
+// matching this host's architecture, because a Linux container on an arm64 Mac runs
+// aarch64-linux and on an x86_64 Mac runs x86_64-linux.
+//
+// This used to be hardcoded `aarch64-linux`, with the comment "the arch a Mac needs" —
+// true of an Apple Silicon Mac and wrong of every other host. The consequence was
+// specific and silent: nix would connect to a working builder, be told it serves
+// aarch64-linux, and then decline to offload an x86_64-linux build to it — so on an
+// x86_64 host the builder appeared healthy and did nothing. That is the second half of
+// BACKLOG E8; the first half (publishing the builder image for both arches) landed in
+// 7cc54a0, and a multi-arch image is useless while the advertised system is fixed.
+//
+// Derived from GOARCH rather than probed: the builder runs a Linux container on THIS
+// machine, so its system is a fact about the local architecture, known without asking
+// anything. An unrecognized GOARCH passes through as `<goarch>-linux`, which is wrong in
+// the same way a hardcoded constant is wrong but at least names what it saw — and nix
+// rejects an unknown system loudly rather than silently not offloading.
+func BuilderSystem() string { return nixLinuxSystem(runtime.GOARCH) }
+
+// nixLinuxSystem maps Go's GOARCH to nix's `<arch>-linux` double. Split out so the
+// mapping is testable without a cross-compile, mirroring machineForPlatform in
+// internal/cli/check.
+func nixLinuxSystem(goarch string) string {
+	switch goarch {
+	case "amd64":
+		return "x86_64-linux"
+	case "arm64":
+		return "aarch64-linux"
+	default:
+		return goarch + "-linux"
+	}
+}
+
 // BuildersLine is a nix --builders spec pointing at the container. Format:
-// "ssh-ng://user@host:port aarch64-linux key maxjobs". System is fixed to
-// aarch64-linux (the arch a Mac needs).
+// "ssh-ng://user@host:port <system> key maxjobs", where <system> is BuilderSystem() —
+// the Linux system for this host's arch, NOT a constant. keyPath falls back
 // to BuilderKey() when empty; port 0 / maxJobs 0 fall back to defaults.
 func BuildersLine(host string, port, maxJobs int, keyPath string) string {
 	if port == 0 {
@@ -102,7 +136,8 @@ func BuildersLine(host string, port, maxJobs int, keyPath string) string {
 	if keyPath == "" {
 		keyPath = BuilderKey()
 	}
-	return fmt.Sprintf("ssh-ng://%s@%s:%d aarch64-linux %s %d", BuilderSSHUser, host, port, keyPath, maxJobs)
+	return fmt.Sprintf("ssh-ng://%s@%s:%d %s %s %d",
+		BuilderSSHUser, host, port, BuilderSystem(), keyPath, maxJobs)
 }
 
 // NixSSHOpts is the NIX_SSHOPTS for talking to an ephemeral container (no

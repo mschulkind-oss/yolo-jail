@@ -84,8 +84,13 @@ func DiagnoseNixBuildFailure(stderrTail []string, isMacOS bool, remedy string) (
 	text := strings.Join(stderrTail, "\n")
 	low := strings.ToLower(text)
 
-	explicitCross := (strings.Contains(low, "required to build") && strings.Contains(low, "aarch64-linux")) ||
-		(strings.Contains(low, "cannot build") && strings.Contains(low, "aarch64-linux"))
+	// Matches ANY `<arch>-linux` nix names, not just aarch64-linux: this reads nix's own
+	// stderr, and on an x86_64 host nix says "a 'x86_64-linux' is required to build".
+	// Keying on the arm64 double sent that host down the generic-fallback branch — a raw
+	// stderr dump instead of the Linux-builder remedy that would have fixed it.
+	mentionsLinuxSystem := linuxSystemMention.MatchString(low)
+	explicitCross := mentionsLinuxSystem &&
+		(strings.Contains(low, "required to build") || strings.Contains(low, "cannot build"))
 	ambiguousMac := isMacOS && strings.Contains(low, "dependency failed") && !explicitCross
 
 	if explicitCross {
@@ -109,10 +114,21 @@ func DiagnoseNixBuildFailure(stderrTail []string, isMacOS bool, remedy string) (
 
 // HasLinuxBuilderFromConfig parses `nix config show` output plus any
 // @/etc/nix/machines files (supplied via readMachines) to decide whether a
-// usable aarch64-linux builder with a non-zero job slot is configured.
+// usable builder FOR wantSystem, with a non-zero job slot, is configured.
 // readMachines(path) returns the file's lines and
 // whether it was readable; pass a loader that reads real files (or a stub).
-func HasLinuxBuilderFromConfig(nixConfigShow string, readMachines func(path string) ([]string, bool)) bool {
+//
+// wantSystem is a PARAMETER, not the constant `aarch64-linux` it used to be. The
+// system matters here in a way it does not in a diagnosis: a builder advertising
+// only aarch64-linux cannot build an x86_64-linux derivation, so hardcoding the
+// arm64 double reported "no builder" on an x86_64 host that had a perfectly good
+// one — the mirror image of the BACKLOG E8 defect in containerbuilder, where the
+// advertised system was hardcoded instead of the wanted one. Callers pass
+// containerbuilder.BuilderSystem(). It stays a parameter rather than being read
+// from runtime.GOARCH in here because this package is a pure parser: everything
+// it needs is injected, which is what makes it testable for a host it isn't
+// running on. Empty means "any <arch>-linux builder counts".
+func HasLinuxBuilderFromConfig(nixConfigShow, wantSystem string, readMachines func(path string) ([]string, bool)) bool {
 	var builderLines []string
 	for _, line := range strings.Split(nixConfigShow, "\n") {
 		if strings.HasPrefix(line, "builders =") {
@@ -145,7 +161,19 @@ func HasLinuxBuilderFromConfig(nixConfigShow string, readMachines func(path stri
 		if len(fields) > 3 {
 			maxJobs = fields[3]
 		}
-		if contains(systems, "aarch64-linux") && maxJobs != "0" {
+		if maxJobs == "0" {
+			continue
+		}
+		if wantSystem == "" {
+			// "Any Linux builder": used where the caller has no specific target.
+			for _, s := range systems {
+				if strings.HasSuffix(strings.TrimSpace(s), "-linux") {
+					return true
+				}
+			}
+			continue
+		}
+		if contains(systems, wantSystem) {
 			return true
 		}
 	}
@@ -160,6 +188,11 @@ func contains(xs []string, target string) bool {
 	}
 	return false
 }
+
+// linuxSystemMention matches a nix linux system double as it appears in nix's stderr,
+// usually quoted: aarch64-linux, x86_64-linux, riscv64-linux, … Anchored on a word
+// boundary so it does not fire on a store path that merely contains the text.
+var linuxSystemMention = regexp.MustCompile(`\b[a-z0-9_]+-linux\b`)
 
 // FmtDuration formats a second count: negative → "?"; < 3600 → "<m>m"; else
 // "<h>h<m>m" (integer division; no zero-padding).
