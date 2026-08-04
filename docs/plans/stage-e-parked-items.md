@@ -219,48 +219,124 @@ asymmetry with a decision behind it, and one is a gap masquerading as a policy.
 | Kind | Jail mechanism | Non-container mechanism | Verdict |
 |---|---|---|---|
 | `briefing` | wholesale-generated to a staging file, `:ro` | delimited block inside the user's file | **RULED — unify on wholesale** (§6a) |
-| `files` | `:ro` bind mount, pack owns the path outright | write, but REFUSE a path the user owns | **divergence is correct** — see D1 |
-| `skills` | merge into staging dir, `:ro` | deliver into the real dir, tiered + ownership manifest | **divergence is correct** — same reason as D1 |
+| `skills` | **wipe + recompose**: built-ins < packs < user's tree, `:ro` | deliver per-entry, REFUSE what yolo cannot prove it wrote | **same misalignment as briefing** — see D1 |
+| `files` | `:ro` bind mount, pack owns the path outright | write, but REFUSE a path the user owns | **correct** — no layer model to recompose; see D1 |
 | `config` | four modes (`stateful`/`rmw`/`computed`/`unrendered`) | ONE mode (`rmw`) | **look at this** — see D2 |
 | `env` | `-e` on the container | unimplemented ("your shell profile") | **gap, not policy** — see D3 |
 | `launch` | argv injection at exec | unimplemented ("nowhere to inject") | **gap, not policy** — see D3 |
 | `state`, `mount`, `reads-host` | jail plumbing | refused by name | correct — the concept needs a container |
 | `program`, `requires`, `hook`, `autonomy`, `config-overlay` | — | — | aligned, or refused for a stated reason |
 
-### D1 — `files` and `skills`: the divergence is about OWNERSHIP, and it should stay
+### D1 — `skills`: the jail ALREADY owns the directory, so the divergence is real and the
+### earlier "it should stay" verdict was WRONG
 
-In a jail, `files` is `CombineExclusive` and the mount replaces whatever was there. In a real
-home the same claim cannot mean "overwrite what the user has" — `hostfilestree.go` says it
-exactly right: *"exclusivity is a rule about which PACK may claim a path, not a licence over the
-user's own files."*
+**Corrected 2026-08-04 after the maintainer asked "why don't we own the skills directory
+entirely?" The answer is that in the jail we already do**, and my previous entry here — which
+called the divergence correct and warned against unifying — had the jail's mechanism backwards.
 
-**This is NOT the briefing case, and the difference is worth stating** because it would be easy to
-over-apply the ruling. A briefing destination is a file whose *entire purpose* is the content
-yolo generates, so claiming it wholesale is coherent. `~/.claude/skills/` and `~/.claude/bin/`
-are **shared namespaces**: the user's own skills live beside the pack's, so "yolo owns this
-directory" would mean deleting skills the user wrote. Refuse-what-you-cannot-prove-you-wrote is
-the right rule there, and the ownership manifest is what makes it checkable.
+`PrepareSkills` (`internal/agents/skills.go:73-110`) builds each destination by:
 
-So the unifying principle is not "always wholesale" — it is **one owner per destination, declared
-and enforced**. `briefing` becomes wholesale because the ruling assigns yolo the owner.
-`skills`/`files` stay per-entry because the destination is shared by design.
+1. `clearDirContents(skillsDir)` — **wipes the staging dir**, then
+2. writes the built-in skill suite,
+3. copies each pack's skills in config order (a pack may override a built-in),
+4. copies the user's own tree **last**, so a same-named local skill wins,
 
-### D2 — `config`: four modes in a jail, one at every other notch
+and the result is bind-mounted `:ro`. So the jail's posture is **total ownership with the user's
+tree as one INPUT LAYER** — precisely the composition model `config` uses for keys. The user's
+skills are not "beside" yolo's; they are the highest-precedence layer of a directory yolo
+regenerates from scratch every launch.
 
-`prism.go:552-565` documents this deliberately: in a jail `rmw` is one mode among four and the
-surfaces that matter are `stateful`; at the host `rmw` is the ONLY mode (OQ-4), so "rmw records
-nothing" became "the host records nothing" — which is what made `config diff` infer a winner from
-declarations and report an overlay as having LOST a key it had WON. That specific bug is fixed
-(host provenance now written after the surface write).
+The host does something categorically different: it delivers per-entry into the live directory
+and REFUSES any path it cannot prove it wrote, tracking ownership in a manifest
+(`internal/hostskills/`). That is not the same idea expressed differently — it is a different
+idea. One composes; the other negotiates.
 
-**The question the ruling raises for it:** if the host has one mode, are the other three
-*jail-only features* or *unfinished elsewhere*? `stateful` (capture in-jail edits into a sidecar)
-is genuinely jail-shaped — it exists because a jail home is disposable and the edit must survive
-`--rm`. But a `guest` home is NOT disposable, so at Phase 7 "which modes apply" needs an answer,
-and today's answer is implicit in a `KindOf() == KindHost` branch rather than declared. Cheapest
-honest step: make the mode set a property of the TARGET (like `FieldSet` is for kinds) rather
-than a runtime `if`, so `guest` has to state its answer instead of inheriting whichever branch it
-falls into.
+**So `skills` is the same misalignment as `briefing`, and the briefing ruling applies to it by
+the same argument.** A `~/.claude/skills` yolo composes wholesale — built-ins < packs < the
+user's own tree, exactly as the jail does — is coherent, and it is strictly more useful than
+today's host behavior: a user's local skill would still win (layer 4), while a pack's update
+would actually land instead of hitting `skipped (yours)`. It also dissolves F2 from
+[`feedback-real-pack-adoption.md`](feedback-real-pack-adoption.md): a dangling symlink is not a
+path to negotiate over, it is absent input to a regenerated directory.
+
+**What the host would need that the jail gets for free**, and why this is a decision rather than
+a patch:
+
+- **A source for the user's own layer.** In the jail, layer 4 reads `homeDir/<into>` — the host
+  home — and writes to a staging dir. At the host, source and destination are the SAME
+  directory, which is the identical problem the briefing markers were invented for. The
+  resolution is the same as the briefing ruling: **archive the pre-existing directory once**, and
+  from then on the user's own skills live in a pack (or an explicitly declared personal tree),
+  not loose in a directory yolo owns.
+- **That is a bigger ask than it is for briefings**, and it should be stated plainly to the
+  maintainer rather than assumed: a briefing is one file most users have not hand-written, while
+  `~/.claude/skills` may hold a lot of a user's own work. "Make a pack" is the right answer and
+  it is also a migration.
+- **`files` is NOT in this argument.** It is `CombineExclusive` over arbitrary paths
+  (`~/.claude/bin/…`, pi's `models.json`), which are not a namespace yolo composes — there is no
+  layer model to regenerate from. `hostfilestree.go`'s refuse-what-you-cannot-prove rule stays
+  correct there.
+
+### D2 — `config` modes, and the rot the `KindHost` branch exposes
+
+**Two of my earlier claims here do not survive the maintainer's challenge** (*"jail home is bind
+mounted, no? so it's not disposable? does this argument really hold?"* and *"special casing on
+KindHost seems dangerous? does that expose something rotten?"*). Both were right.
+
+#### The disposability premise was wrong
+
+I justified `stateful` as "genuinely jail-shaped, because a jail home is disposable and the edit
+must survive `--rm`." **The jail home is not disposable.** It is bind-mounted from
+`paths.GlobalHome()` (`assemble_parts.go:69`, `:ro` at the root with rw binds nested), so it is
+host-backed and persists across containers. And the sidecars live under
+`<workspace>/.yolo/prism/` — the workspace being a LIVE host bind — so they persist too
+(verified: this workspace's `.yolo/prism/` holds `*.last_render` and `*.overlay.json` from
+previous boots).
+
+So the real reason `stateful` exists is not persistence. It is that **the destination file inside
+a jail is a rendered artifact yolo regenerates every boot**, so an in-jail edit would be lost at
+the next render unless it is captured into a sidecar first. That is a fact about *regeneration*,
+not about *disposability* — and it means the mode is not jail-specific at all: it applies to any
+notch where yolo regenerates a file the agent may edit in place, which includes `guest`.
+
+#### The `KindHost` branch is a symptom; the rot is that the notch is INFERRED
+
+`prism.go:565` is the only live `KindHost` special-case in the codebase (audited: two hits total,
+the other is a comment). But look at how the notch is decided (`render/target.go:99-110`):
+
+```go
+func (t Target) KindOf() Kind {
+    if t.Workspace == "" { return KindHost }
+    if t.Home == t.Workspace { return KindPreview }
+    return KindJail
+}
+```
+
+**The notch is inferred from struct shape, not declared.** "No workspace" *means* host; "home
+equals workspace" *means* preview. That is load-bearing on an absence, and it has two
+consequences:
+
+1. **There is no `KindGuest`, and a guest Target would silently resolve to `KindJail`.** A guest
+   home is a real home *with* a workspace, and `Home != Workspace`, so it takes the jail branch
+   by default — inheriting jail semantics for provenance, sidecars, and modes, with nothing
+   anywhere saying that was a choice. Note `internal/render/confinement.go` DOES have
+   `GuestProfileMacOS` / `GuestProfileLinux`, so guest is expressible as a *confinement profile*
+   and inexpressible as a *render target*. The two halves of the same notch disagree about
+   whether it exists.
+2. **A future target that happens to have no workspace becomes "host" by accident**, gaining the
+   provenance write and the every-surface-rmw posture without asking for either.
+
+So yes — the special-case exposes something rotten, and the rot is not the `if`. It is that
+`Kind` is derived rather than stated, so adding a notch is not a compile error anywhere. **Make
+`Kind` an explicit field set by the constructors**, keep `KindOf()` as an accessor, and add
+`KindGuest` with no behavior — the point is that every `switch` on Kind then fails to compile (or
+falls to a default that must be written) until Phase 7 states its answer. That is the change that
+turns "guest inherits whatever branch it falls into" into "guest cannot be added without
+deciding."
+
+**Then the mode set becomes a property of the target**, the way `FieldSet` already is for kinds,
+rather than a runtime `if` — which is the same fix D3 needs and the same shape the whole audit
+keeps arriving at.
 
 ### D3 — `env` and `launch`: refused with a *mechanism* reason, which hides a real gap
 
@@ -281,19 +357,35 @@ written about a *command*. A `guest` target inheriting that text would refuse tw
 actually honor. Fixing the wording is trivial; the useful part is that it identifies
 `--at <notch> -- <cmd>` as the thing that unblocks two kinds rather than as a convenience.
 
-### The through-line
+### The through-line, and the one root cause
 
-Three of the four are the same shape: **a mechanism chosen for the jail became the definition of
-the kind**, and the non-container notches got either a second mechanism (briefing), an implicit
-narrowing (config modes), or a refusal phrased in terms of the jail's plumbing (env/launch). The
-kind should be defined by what it CLAIMS; the notch should decide how that claim is honored.
-`FieldSet` already does this for applicability — D2 and D3 are the same idea applied to
-*mechanism* and *reason*.
+Four of the fourteen kinds diverge, and three of the four are the same shape: **a mechanism
+chosen for the jail became the definition of the kind.** The non-container notches then got a
+second mechanism (`briefing`, `skills`), an implicit narrowing (`config` modes), or a refusal
+phrased in terms of the jail's plumbing (`env`/`launch`).
 
-Suggested order, cheapest and least controversial first: **D3 wording** (docs/strings only) →
-**§6a briefing unification** (ruled, contained) → **D2 mode-set-as-target-property** (do it as
-part of Phase 7, where it is forced) → **D1: no change, but record the principle** so the
-briefing ruling is not over-applied to shared namespaces.
+**Underneath all of them is D2's finding: the notch is INFERRED, not declared.** `Kind` is
+derived from whether a Target happens to have a `Workspace`, so there is no place where adding a
+confinement level forces anyone to answer "what does this kind mean here?" — a guest Target
+resolves to `KindJail` and inherits jail semantics silently. Every other item in this audit is
+what that looks like one kind at a time.
+
+So the simplification the maintainer asked for has a concrete first move that is smaller than any
+of the individual fixes: **make `Kind` an explicit field with a `KindGuest` member**, so the
+compiler asks the question instead of a struct's shape answering it by accident.
+
+Suggested order:
+
+1. **`Kind` explicit + `KindGuest`** (D2's root cause). Mechanical, and it makes everything below
+   a compile-time question rather than a discovered bug.
+2. **D3 wording** — strings only; stop describing a missing verb as an inapplicable kind.
+3. **§6a briefing unification** (ruled). Contained, fingerprint must not move.
+4. **`skills` wholesale composition** (D1) — the same ruling extended, but flag the migration
+   cost first: a briefing is one file most users did not hand-write, while `~/.claude/skills` may
+   hold real work.
+5. **Mode set as a target property** (D2's second half), as part of Phase 7 where it is forced.
+6. **`files`: no change**, and record why, so the ruling is not over-applied to a kind with no
+   layer model.
 
 ## 7. Closed — do not re-open from a stale reference
 
