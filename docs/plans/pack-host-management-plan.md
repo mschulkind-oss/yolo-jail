@@ -943,11 +943,15 @@ Checks:
   pack-delivered file will `chmod` it and lose that edit on the next apply.
   `0o644` + the overwrite warning may be the friendlier default. **Recommend `0o444` for
   consistency**, but flag it for the maintainer — this one is taste, not correctness.
-- **OQ-C — does the same-`into` collision check belong to `files` only?** Phase 6.2 fixes it
-  for `files` (where it is a genuine `CombineExclusive` violation) but the identical podman
-  failure exists for two `skills` contributions sharing an `into`, where the footprint model
-  says it *should* be a safe merge. That is a mount-dedup fix, not a collision fix, and it is
-  a different change. Kept out of scope; tracked in `project_pack_tooling_gaps`.
+- ~~**OQ-C — does the same-`into` collision check belong to `files` only?**~~ **RESOLVED
+  2026-08-02.** Phase 6.2 fixed it for `files` (a genuine `CombineExclusive` violation); the
+  identical podman failure for two `skills` contributions sharing an `into` was fixed
+  separately as the mount-dedup it actually is — `seenSkillDest` in
+  `internal/cli/run/assemble.go` emits ONE bind per destination, which is correct because
+  `PrepareSkills` has already merged every pack's skills into each staging dir, so the second
+  mount would carry identical content. The old advice ("do not declare an `into` another pack
+  uses") was unfollowable in the case that matters most: an agent pack naming
+  `~/.claude/skills` plus a user pack sharing a corpus is the whole point of the kind.
 
 ---
 

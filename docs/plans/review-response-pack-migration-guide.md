@@ -17,14 +17,18 @@ what it would do and writes nothing; `--assert` is the flag that makes it actual
 the damage.) Everything else is either a facet of that, or an accuracy/expectations fix.
 So this response has two tiers:
 
-1. **The code fix** — autonomy becomes a confinement policy (env-manager Phase 9). Big,
-   boot-critical, and **deferred** by decision; the guide is made safe in the meantime.
+1. **The code fix** — autonomy becomes a confinement policy (env-manager Phase 9).
+   **SHIPPED 2026-08-01**, no longer deferred. Verified empirically 2026-08-03: a host
+   `apply --assert` into a throwaway home writes `permissions.defaultMode: "default"`,
+   `additionalDirectories: []`, and `skipDangerousModePermissionPrompt: false` — the guarded
+   posture, not the jail-bypass values R1 describes below. The bypass keys now live in the
+   `autonomy` kind's `autonomous` posture and render only at the contained notches.
 2. **The doc fixes** — corrections to the guide so it stops misleading a host agent
    *today*, given the code as it currently stands.
 
 ---
 
-## Tier 1 — the code change (deferred, designed)
+## Tier 1 — the code change (SHIPPED 2026-08-01; this section is the original analysis)
 
 ### R1. `apply --host` leaks jail-bypass config onto the real host — and clobbers the user's own permission keys
 
