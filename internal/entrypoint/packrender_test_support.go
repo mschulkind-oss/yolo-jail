@@ -39,7 +39,11 @@ func ConfigurePackByName(e *Env, name string) error {
 		return err
 	}
 	tables := liveTables(e)
-	surfaces, problems := p.Surfaces()
+	// The autonomy policy reads off the target's profile, exactly as the boot loop does
+	// (ConfigurePackSurfaces) — this entry has to agree with it or the parity proofs above
+	// would be measuring a posture the boot path never renders.
+	autonomy := e.renderTarget().Profile().AgentAutonomy
+	surfaces, problems := p.SurfacesFor(autonomy)
 	if len(problems) > 0 {
 		return fmt.Errorf("pack %s: %s", name, problems[0])
 	}
@@ -48,7 +52,7 @@ func ConfigurePackByName(e *Env, name string) error {
 	// itself still renders. A cross-pack overlay cannot resolve from a single-pack view
 	// and is reported ownerless (R2) — correct here rather than a limitation, since this
 	// entry means "render this pack" and the boot loop is what sees the whole set.
-	overlays := packoverlay.Collect([]*packload.Pack{p}, true)
+	overlays := packoverlay.Collect([]*packload.Pack{p}, autonomy)
 	for _, s := range surfaces {
 		if err := renderDeclaredSurface(e, s, tables, deriveScript,
 			overlays.For(s.Agent, s.Name)); err != nil {

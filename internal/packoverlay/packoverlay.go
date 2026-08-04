@@ -104,11 +104,13 @@ func (s *OverlaySet) For(agent, name string) []agentcfg.Overlay {
 // affects which surfaces exist to be found, never the overlay bodies — an overlay carries no
 // posture.
 //
-// Still a bool rather than a render.Profile, and the reason is scope rather than design: the
-// three callers (apply.go, packsurfaces.go, configdiff.go) each pass a literal, and taking a
-// Profile here is only an improvement if those callers derive theirs from a Target. Widening
-// the parameter without that leaves the same literals one frame further out. See plan §6c
-// step 1 for the remaining half.
+// Still a bool rather than a render.Profile, and by now that is a deliberate boundary rather
+// than a leftover: every caller derives the bit from a notch (packsurfaces.go from the boot
+// Target's Profile, configdiff.go from render.ProfileFor over the notch it is describing,
+// apply.go at the host notch), so the literals plan §6c step 1 set out to remove are gone.
+// Taking a Profile here would import the confinement model into a package whose whole job is
+// resolving overlays against owners — it needs ONE bit, and receiving one bit is what keeps
+// this package unable to disagree with the notch that computed it.
 func Collect(packs []*packload.Pack, autonomy bool) *OverlaySet {
 	set := &OverlaySet{byTarget: map[manifest.SurfaceKey][]agentcfg.Overlay{}}
 

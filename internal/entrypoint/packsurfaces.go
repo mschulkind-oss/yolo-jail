@@ -93,14 +93,21 @@ func LoadJailPacks(e *Env) ([]*packload.Pack, error) {
 // reports every broken surface rather than one per restart (A12).
 func ConfigurePackSurfaces(e *Env, packs []*packload.Pack) {
 	tables := liveTables(e)
+	// The §4.2 autonomy policy comes from THIS target's confinement profile — the same
+	// render.ProfileFor table the host render reads (plan §6c step 1) — rather than from
+	// the literal `true` that used to sit here and in p.Surfaces(). It resolves to ON for
+	// a jail target, so the render is byte-identical (TestRenderFingerprintStable); what
+	// changes is that the boot path and the host path now read ONE statement of the policy
+	// instead of each carrying its own constant.
+	autonomy := e.renderTarget().Profile().AgentAutonomy
 	// config-overlay contributions are collected BEFORE the per-pack loop and across the
 	// whole set, because an overlay in pack B targets a surface pack A owns — the only
 	// case the kind exists for. Collecting per-pack would find, for that case, exactly
 	// none (docs/design/pack-config-collaboration.md §6).
-	overlays := packoverlay.Collect(packs, true)
+	overlays := packoverlay.Collect(packs, autonomy)
 	reportOverlayResolution(e, overlays)
 	for _, p := range packs {
-		surfaces, problems := p.Surfaces()
+		surfaces, problems := p.SurfacesFor(autonomy)
 		for _, prob := range problems {
 			// A malformed surface is fatal: rendering the rest and skipping this one
 			// yields a jail whose config is quietly incomplete.
