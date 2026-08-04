@@ -229,11 +229,11 @@ gap in a principle we thought was closed, not six unrelated papercuts.
 
 | Order | Finding | Why here |
 |---|---|---|
-| 1 | **F2** dangling symlinks | The only finding that BROKE a working machine. No design question: `Lstat` says symlink + `Stat` fails ⇒ absent. Cheapest real fix in the list |
-| 2 | **F1** zero-ceremony host no-op | Silent, and the fix is already PROVEN by the jail — see below |
+| ✅ 1 | **F2 SHIPPED** `8bc562e` — dangling symlinks | The only finding that BROKE a working machine. No design question: `Lstat` says symlink + `Stat` fails ⇒ absent. Cheapest real fix in the list |
+| ✅ 2 | **F1 SHIPPED** `18695f5` — zero-ceremony host no-op | Silent, and the fix is already PROVEN by the jail — see below |
 | 3 | ~~**F5 + the lint rewrite**~~ | ✅ **DONE 2026-08-04.** One rule, two reports — done together, as advised |
-| 4 | **F4** outranked overlay key | One line of output; turns a misleading warning into stated policy |
-| 5 | **F6** tense + `--allow-exec` | ✅ `--allow-exec` **DONE 2026-08-04** (shipped with F5, same file). F6.1's past-tense observe output is still open |
+| ✅ 4 | **F4 SHIPPED** `bfd4a1f` — outranked overlay key | One line of output; turns a misleading warning into stated policy |
+| ✅ 5 | **F6 SHIPPED** `8bc562e`+`d7478a0` — tense + `--allow-exec` | ✅ `--allow-exec` **DONE 2026-08-04** (shipped with F5, same file). F6.1's past-tense observe output is still open |
 | — | **F3** briefing duplication | **DISSOLVED** by the Q4 briefing ruling: wholesale generation means no append, so nothing can double. The ownership decision it needed was made — yolo owns the file, and the user's prose MOVES to the local pack |
 
 ### F1 — take fix option 1, and here is why it is safe
