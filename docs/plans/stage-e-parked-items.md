@@ -13,7 +13,7 @@ re-opened from a stale reference nor assumed fixed on my word.
 [`ROADMAP.md`](ROADMAP.md) item 3 (the composed-file follow-ups),
 [`../design/composed-file-permissions.md`](../design/composed-file-permissions.md) (the audit
 that surfaced most of this),
-[`../design/host-nix-environment.md`](../design/host-nix-environment.md) (**potential future
+[`../design/noncontainer-nix-environment.md`](../design/noncontainer-nix-environment.md) (**potential future
 work** — a reproducible tool environment at the `host` notch; see §6), and
 [`handoff-guest-notch-macos.md`](handoff-guest-notch-macos.md) (the Mac-gated work, including
 the one nix item that is a *prerequisite* rather than an option).
@@ -114,7 +114,7 @@ main asset.
 
 ## 6. Potential future work — a host nix environment
 
-[`../design/host-nix-environment.md`](../design/host-nix-environment.md) is a full design study
+[`../design/noncontainer-nix-environment.md`](../design/noncontainer-nix-environment.md) is a full design study
 for giving the `host` notch a reproducible tool environment via nix, rather than
 `install_hints` printing a remedy the user runs by hand. It is **not** a Stage E item — it is
 larger, it is a product question rather than a deferred repair, and §8 offers four options with
@@ -152,34 +152,80 @@ not observed closed.
   specified "adopt-on-first-migration" fix is therefore unnecessary: the de-compose half alone
   removes the surface from the capture path.
 
-  **Confidence caveat, stated because it matters for whether to trust this row.** That is read
-  from the manifest and the render code, not observed: `copilot` is not in this workspace's
-  pack list, so `yolo config ls` cannot show the surface here and the defect's original probe
-  was not re-run. Before relying on it, select `copilot` and confirm `config ls` reports
-  `rmw` (not `capture`) for `copilot/config`. The `rmw` mode has been on that surface since the
-  pack was created (`6d4a050`), which raises a question this row cannot answer: whether the
-  original defect report predates the pack manifest and described the *pre-pack* writer. Worth
-  five minutes with a `copilot` pack selected before deleting the ROADMAP row.
+  **Confirmed by probe 2026-08-04**, so the earlier caveat on this row is withdrawn. With
+  `copilot` selected and `~/.copilot/config.json` seeded with
+  `{"github_token":"ghu_SENTINEL_TOKEN","other":"mine"}`, a host `apply --assert` produced
+  `{"github_token":"ghu_SENTINEL_TOKEN","other":"mine","yolo":true}` — token intact, the user's
+  own key intact, yolo adding only its one managed key. `config render copilot` does not even
+  list the surface: `rmw` and `unrendered` surfaces are skipped because there is no layer fold
+  to preview (`internal/cli/config.go:212`), which is the same reason there is no sidecar whose
+  absence could reduce the file. Note `rmw` has been on that surface since the pack was created
+  (`6d4a050`), so the original defect report most likely described the **pre-pack** writer.
+  The ROADMAP row can be deleted.
 - **BACKLOG E8, the nightly-macOS builder arch mismatch.** Closed 2026-08-03; it had **three**
   instances of one hardcoded-arch assumption rather than the one its entry named. One caveat
   remains and is not a defect: `publish.yml` is tag-triggered, so the multi-arch image does not
   reach GHCR until the next release and the nightly stays red until then.
 
-**New finding, 2026-08-03 — `yolo pack lint` rejects every pack yolo ships.** All six fail
-with *"pack has neither a skills/ dir nor an AGENTS.md — it would stage files nothing reads"*
-(`internal/cli/pack.go:372`). Verified against `HEAD~1`, so it is **pre-existing**, not a
-regression from the skills-`from` work that surfaced it.
+**New finding, 2026-08-03/04 — `pack lint`'s "nothing reads this pack" rule asks the wrong
+question.** Independently reported as F5 in
+[`feedback-real-pack-adoption.md`](feedback-real-pack-adoption.md) from a real migration, and
+confirmed here by probe. Pre-existing (verified against `HEAD~1`), not a regression from the
+skills-`from` work that surfaced it.
 
-The rule assumes a pack exists to ship CONTENT. yolo's own packs are config-only — `pack.json`
-plus `derive.lua`, and `pi` is `pack.json` alone — so the premise is false for the packs the
-tool is built around. Their `skills` contribution exists to *name the destination other packs
-merge into*, which is a legitimate shape the rule cannot express.
+The rule (`internal/cli/pack.go:372`) fires
+*"pack has neither a skills/ dir nor an AGENTS.md — it would stage files nothing reads"*. It
+rejects **all six packs yolo ships**, and a real user's pure-`files` pack.
 
-This matters more than a cosmetic lint complaint: it is the check an author runs to learn
-whether their pack is well-formed, and it currently says "no" to the six reference examples.
-Whoever fixes it should decide whether the rule wants a *third* answer (a pack that declares
-destinations but ships no files is fine) rather than loosening it into never firing — the rule
-does catch a real authoring mistake for content packs.
+**Why it is wrong, not just noisy.** It asks *"did this pack stage `skills/` or `AGENTS.md`?"*
+as a proxy for *"does anything read this pack?"*. That proxy was true when a pack could only
+ship content. A pack now contributes any of **14 kinds**, so config-only and `files`-only are
+legitimate, useful shapes and the proxy is simply false. Probed 2026-08-04:
+
+| Pack shape | Should warn? | Does today |
+|---|---|---|
+| config-only (renders a surface, ships no files) | **no** — it does real work | ✗ warns |
+| **no contributions at all** | **yes** — does nothing | ✗ warns, *same message* |
+| declares `skills` w/ default `from`, ships none (the shipped-pack shape) | no | ✗ warns |
+| `files` + `config-overlay`, no `AGENTS.md` (F5's real case) | no | ✗ warns |
+| typo'd `from: "my-skils"` | **yes** | ✓ warns, correctly |
+
+The second row is the tell: a pack that does **absolutely nothing** and a working config pack
+get the *identical* message. The rule cannot distinguish them, so it is useless in the one case
+it should catch.
+
+**Two questions, currently conflated into one bad check.** The maintainer's framing
+(2026-08-04): *"a pack that does absolutely nothing should be warned about, but not one that
+leaves out a part it could ship."* Those are separate:
+
+1. **Does this pack do anything?** Answerable from the manifest, and `pack footprint` ALREADY
+   answers it exactly — `(no declared claims)` vs. a listed claim. So the check is "zero
+   contributions", not "no `skills/` dir".
+2. **Does a declared source deliver nothing?** Already implemented and already correct — the
+   non-conventional-`from` check, the last row above.
+
+**The convention exemption is a patch on the wrong rule, and should go away with it.** When
+`from` became honored, keying the missing-source warning on `from != ""` warned on all six
+shipped packs (each declares `from: "skills"` and ships none, because its contribution exists
+to NAME the destination other packs merge into). Exempting the conventional dir silenced that
+correctly — but it is a workaround for a rule whose premise had already expired. Ask question 1
+directly and the exemption is unnecessary: a shipped pack's `skills` contribution *does* claim
+something reachable, so it passes without a special case.
+
+**Recommended fix** (lint-only — no boot path, no fingerprint risk; `SkillsSources()` has
+exactly one non-test consumer, this rule):
+
+- warn when a pack declares **zero contributions** — and say so in those words, not in terms of
+  `skills/`;
+- keep the declared-source-stages-nothing check as-is;
+- drop the "neither a skills dir nor an AGENTS.md" rule entirely, or narrow it to the case it
+  is actually about (a pack that stages FILES which no contribution claims — files that really
+  would be read by nothing).
+
+While in there, F1 from the field feedback is the same family and worth fixing together: a
+zero-ceremony pack (no `pack.json`) lints `✓ pack ok`, stages files, and renders **nothing** at
+the host — because the jail infers a destination (`SkillsSourceDirs`' `if !declared` fallback)
+and the host iterates declared contributions only. Confirmed by probe 2026-08-04.
 
 **Still open, and NOT a Stage E item** (it is a validation gap, tracked in
 [composed-file-permissions.md §4.5](../design/composed-file-permissions.md)): **reserved

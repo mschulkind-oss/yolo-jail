@@ -1,8 +1,20 @@
-# A reproducible tool environment at the `host` notch, via nix
+# A reproducible tool environment for the NON-CONTAINER notches, via nix
 
 **Status:** EXPLORATORY analysis, 2026-08-02. **No code changed, no plan proposed.** Written to
 test a thesis, not to sequence work. Where the answer is "already built" or "not worth doing,"
 it says so.
+
+> **Renamed 2026-08-04, from `host-nix-environment.md`.** The old name was wrong in the same
+> way `yoloDarwinPackages` is wrong — it named the mechanism after the first notch that needed
+> it. This is about **every notch without a container image**: `guest` needs the identical
+> mechanism for the identical reason (a real home, no image, so no baked tool closure), and
+> §7 below already concluded exactly that. Keeping "host" in the title invited building
+> Phase 7's package layer twice, which is the one mistake this doc exists to prevent.
+>
+> The rename is not cosmetic for the STRUCTURE: §5 is still organized as "macOS vs Linux" and
+> §3 still enumerates host consumers. Both axes are secondary to the notch axis. §3 now opens
+> with the notch framing; §5's platform split is legitimately about platform (nix-ld has no
+> darwin analogue) and is left alone.
 
 **The thesis, verbatim from the maintainer:**
 
@@ -230,10 +242,17 @@ defects are one-line-ish fixes that a nix route makes *more* important, not less
 
 ---
 
-## 3. Where a host nix env would *actually* be consumed
+## 3. Where a non-container nix env would *actually* be consumed
 
 Before comparing mechanisms, be concrete about the consumer, because the answer differs per row
 and this is where claim (b) breaks.
+
+**Note the notch axis, which the old title obscured.** The first row is `guest`, not `host` —
+and it is the row where the mechanism is *already proven*, because macos-user does exactly this
+today. So `guest` is not a future consumer of a host feature; it is the CLOSEST thing to a
+working example, and `host` is the harder case (row 3, where yolo never launches the process).
+Reading the table in that order is the point: build for the notch that already works, then see
+how far it reaches.
 
 | Consumer | Does yolo control the process? | Can a PATH-prepend reach it? |
 |---|---|---|

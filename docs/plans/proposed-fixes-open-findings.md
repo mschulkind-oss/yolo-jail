@@ -40,7 +40,7 @@ guarding against.
 **Reads with:** [`../design/program-kind-defects.md`](../design/program-kind-defects.md)
 (Q1.1–Q3.1), [`pack-host-management-plan.md`](pack-host-management-plan.md) Phase 11 and
 items 8.3/8.4, [`../design/pack-config-collaboration.md`](../design/pack-config-collaboration.md)
-§8, and [`../design/host-nix-environment.md`](../design/host-nix-environment.md) OQ-6.
+§8, and [`../design/noncontainer-nix-environment.md`](../design/noncontainer-nix-environment.md) OQ-6.
 
 ---
 
@@ -621,7 +621,7 @@ distinction I should have drawn instead of inventing a user.
 
 **Where a real "pin the closure" want belongs**, if it ever shows up: not a hint that looks like
 a plain install command, but
-[`../design/host-nix-environment.md`](../design/host-nix-environment.md)'s `buildEnv` — a whole
+[`../design/noncontainer-nix-environment.md`](../design/noncontainer-nix-environment.md)'s `buildEnv` — a whole
 declared closure, which is a different feature with a different UI. **Not building it on
 speculation.**
 

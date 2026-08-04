@@ -12,8 +12,8 @@ built**, and it is host/Mac-gated rather than blocked on any design decision.
 spec), [`../design/macos-user-nix-and-features.md`](../design/macos-user-nix-and-features.md)
 (the existing backend — see the correction in §2 before trusting it),
 [`../guides/macos.md`](../guides/macos.md) (usage),
-[`../design/host-nix-environment.md`](../design/host-nix-environment.md) §5 and §8 (Option 1
-is a **prerequisite** for 7.2 — see §5 below), and
+[`../design/noncontainer-nix-environment.md`](../design/noncontainer-nix-environment.md) §5
+and §8 (Option 1 is a **prerequisite** for 7.2 — see §5 below), and
 [`stage-e-parked-items.md`](stage-e-parked-items.md) for the adjacent parked work.
 
 ---
@@ -100,14 +100,15 @@ Collected here so one trip to a Mac can close all of it.
 | **E8's nightly** | The first nightly AFTER the next release. `publish.yml` is tag-triggered, so the multi-arch builder image does not reach GHCR until then — the nightly stays red regardless of the code being correct | [`BACKLOG.md`](BACKLOG.md) E8 |
 | **agent-auth macos-user parity** | 4 verified defects whose fixes need a Mac to verify | ROADMAP item 4 |
 | **`cache_relocations`** | One real cross-filesystem move as an acceptance step | [`cache-relocation.md`](cache-relocation.md) |
-| **`yoloDarwinPackages` rename** | Not Mac-gated to *write*, but Mac-gated to *prove*. See §5 | [`../design/host-nix-environment.md`](../design/host-nix-environment.md) §8 Option 1 |
+| **`yoloDarwinPackages` rename** | Not Mac-gated to *write*, but Mac-gated to *prove*. See §5 | [`../design/noncontainer-nix-environment.md`](../design/noncontainer-nix-environment.md) §8 Option 1 |
 
 ---
 
 ## 5. The nix prerequisite — do not skip this
 
-[`host-nix-environment.md`](../design/host-nix-environment.md) §8 **Option 1** is a
-prerequisite for Phase 7.2, independent of whatever is decided for the `host` notch:
+[`noncontainer-nix-environment.md`](../design/noncontainer-nix-environment.md) §8 **Option 1**
+is a prerequisite for Phase 7.2, and NOT because of anything about the `host` notch — `guest`
+is a real home with no image, so it needs a tool closure for exactly the reason `host` does:
 
 - rename `yoloDarwinPackages` → something system-neutral (`yoloHostPackages`),
 - stop hardcoding `aarch64-darwin` in `internal/darwinpkg`,
@@ -169,7 +170,7 @@ Two constraints that have burned agents in this repo repeatedly:
   middle of a single manifest.
 - **`yolo cache relocate`** (cache-relocation item 11) — *held*, not deferred. The maintainer
   is not convinced it should exist.
-- **`yolo --at host -- <cmd>`** (host-nix-environment §8 Option 2) — a real option, but a
+- **`yolo --at host -- <cmd>`** (noncontainer-nix-environment §8 Option 2) — a real option, but a
   bigger product claim ("yolo launches your host agent"). Not required for Phase 7.
 
 ---
