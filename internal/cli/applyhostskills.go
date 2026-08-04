@@ -44,6 +44,11 @@ func hostSkillsArchiveRoot() hostskills.ArchiveRoot {
 // prints the outcome. write=false is the observe posture: it computes and prints exactly
 // what assert would do, and writes nothing.
 //
+// `p` is the pack as packload.ResolveDestinations returned it, so a ZERO-CEREMONY pack arrives
+// here already declaring the destinations the selected agent packs name — this function sees no
+// difference between one and a pack whose author wrote them out. That is what closed finding
+// F1: it used to read Decl.Contributions() directly, find none, and return 0 without a line.
+//
 // stamp names the archive generation. Threaded in from the caller rather than computed here
 // so one apply groups all its archived entries together, and so this stays testable without
 // a clock.

@@ -195,6 +195,25 @@ func applyHost(out, errw io.Writer, color bool, write bool, stdin io.Reader) int
 		active[p.Name] = true
 		loaded = append(loaded, p)
 	}
+	// ZERO CEREMONY, AT BOTH NOTCHES (finding F1). A pack with no pack.json — the layout
+	// `yolo pack --help` and the migration guide promote as THE starting point — declares no
+	// destination, so a render that iterates declarations found nothing to do and said nothing
+	// about it: `✓ pack ok` at lint, zero files in a real home, no warning. The jail never had
+	// that gap, because it infers a destination from the pack SET (every agent pack's `skills`
+	// contribution names the dir its agent reads); this is that same inference, so the two
+	// notches now agree about where a silent pack's content goes.
+	//
+	// Applied HERE — after resolution, before anything reads a declaration — because the whole
+	// point is that nothing downstream needs a zero-ceremony branch: `loaded` from this line on
+	// holds packs that declare their destinations, whether their author wrote them or the set
+	// did. `active`/`configured` are keyed on NAME, which the resolution preserves, so the
+	// prune passes are unaffected.
+	loaded, destinations := packload.ResolveDestinations(loaded)
+	for _, d := range destinations {
+		if drc := reportInferredDestinations(pr, d); drc != 0 {
+			rc = drc
+		}
+	}
 	// REFUSE a doubly-declared config surface before writing anything into a real home
 	// (docs/design/pack-config-collaboration.md Option 1 / R1). This is also R4: the double
 	// `rendered` line was one line per DECLARING pack for one file — the collision made
@@ -312,6 +331,15 @@ func applyHost(out, errw io.Writer, color bool, write bool, stdin io.Reader) int
 				pr.Printf("    [magenta]config-overlay keys from: %s[/magenta] [dim](below this "+
 					"surface's own managed layer, which still wins a conflict)[/dim]",
 					strings.Join(r.Overlays, ", "))
+			}
+			// The overlay keys the owner OUTRANKED, by name and by cause (finding F4). The line
+			// above says a conflict would go the owner's way; this one says one DID, and which
+			// key. Without it the loss was worse than silent: the overlay was listed as
+			// contributing and the ⚠ below fired for the same key, so the report read as though
+			// the overlay had won. Its own line rather than folded into that ⚠ because nothing
+			// was overwritten BY THE OVERLAY here — the policy simply held.
+			for _, o := range r.Outranked {
+				pr.Printf("    [yellow]↳ %s[/yellow]", o)
 			}
 			// Warn on every managed key that overwrites a DIFFERING existing value — the
 			// host-notch "always warn" (§4.2 / Phase 9). Shown in observe too, so the
@@ -461,6 +489,67 @@ func confirmHostLosses(pr richtext.Printer, out io.Writer, stdin io.Reader,
 		"is not in your config is dropped. To KEEP an entry, declare it (an MCP server goes " +
 		"under `mcp_servers`, reaching every agent) and re-run.[/dim]")
 	return promptYesNo(out, stdin, "  Proceed and replace the values above? [y/N] ")
+}
+
+// reportInferredDestinations names what the zero-ceremony inference concluded for one pack, and
+// returns an rc contribution for the pack it could conclude nothing at all for.
+//
+// Both halves are reported, because both change what lands in a real home and neither is
+// something the user wrote down:
+//
+//   - INFERRED. yolo is about to write into a directory the pack never named. That is the
+//     documented promise being kept rather than a problem, so it is dim — one line per kind,
+//     naming the destinations, so "why is there a skill in ~/.pi/agent/skills?" has its answer
+//     in the report that put it there.
+//   - ORPHANED. The pack carries content for a kind that NO pack in `packs` names a destination
+//     for, so that content reaches nothing.
+//
+// The severity of an orphan turns on whether the pack reaches anything AT ALL, and the split is
+// ruling R2's, already applied to an orphaned config-overlay a few lines above: inert is named
+// but is not an error, because a pack the user did not select is not a mistake. A pack that
+// delivers its skills and happens to carry an AGENTS.md no selected pack has a destination for
+// is in exactly that position — the ordinary shape of a `skills` pack, and failing the apply
+// over it would make a warning out of correct usage.
+//
+// A pack that after resolution declares NOTHING is the other case, and it is finding F1 reached
+// by the other route: a zero-ceremony content pack selected with no agent pack renders nothing,
+// silently, which is the whole defect. `len(Contributions()) == 0` is the honest test for it
+// rather than a heuristic — after ResolveDestinations a pack's declaration is everything it will
+// ever be asked to do, so an empty one means it will do nothing.
+func reportInferredDestinations(pr richtext.Printer, d packload.Destinations) int {
+	byKind := map[packdecl.Kind][]string{}
+	var order []packdecl.Kind
+	for _, c := range d.Inferred {
+		if _, seen := byKind[c.Kind]; !seen {
+			order = append(order, c.Kind)
+		}
+		byKind[c.Kind] = append(byKind[c.Kind], c.Into)
+	}
+	for _, kind := range order {
+		pr.Printf("  [dim]%-10s %s declares no destination — merging into the ones your packs "+
+			"name: %s[/dim]", string(kind), d.Pack.Name, strings.Join(byKind[kind], ", "))
+	}
+	if len(d.Orphaned) == 0 {
+		return 0
+	}
+	inert := len(d.Pack.Decl.Contributions()) == 0
+	for _, kind := range d.Orphaned {
+		if !inert {
+			pr.Printf("  [yellow]%-10s no effect[/yellow] — %s carries %s content, and no pack "+
+				"in `packs` names a %s destination [dim](select the agent pack that owns one, "+
+				"or declare `into` in %s's pack.json)[/dim]",
+				string(kind), d.Pack.Name, string(kind), string(kind), d.Pack.Name)
+			continue
+		}
+		pr.Printf("  [yellow]%-10s refused[/yellow] — %s ships %s but no pack in `packs` names a "+
+			"destination for it, so this pack renders NOTHING. Select the agent pack that owns "+
+			"the destination, or declare `into` in %s's pack.json.",
+			string(kind), d.Pack.Name, string(kind), d.Pack.Name)
+	}
+	if inert {
+		return 1
+	}
+	return 0
 }
 
 // embeddedPacksForPrune returns the packs yolo SHIPS, as prune candidates. A pack the user
