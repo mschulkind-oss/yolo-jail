@@ -4,8 +4,12 @@ import (
 	"bytes"
 	"os"
 	"path/filepath"
+	"slices"
 	"strings"
 	"testing"
+
+	"github.com/mschulkind-oss/yolo-jail/internal/config"
+	"github.com/mschulkind-oss/yolo-jail/internal/render"
 )
 
 // describe prints the resolved confinement + packs + a description hash; --json is the
@@ -38,6 +42,146 @@ func TestDescribeVerb(t *testing.T) {
 	}
 	if !strings.Contains(out.String(), "sha256:") || !strings.Contains(out.String(), "UNSEALED") {
 		t.Errorf("describe --hash must print a sha256 marked unsealed:\n%s", out.String())
+	}
+}
+
+// describeLine returns THE one output line whose prefix matches, failing if there is not
+// exactly one. A report-wide strings.Contains is not good enough for the confinement vector:
+// describe's other lines (and, in the wider suite, apply --host's kind census) mention most
+// of these words somewhere, so a whole-output assertion passes even when the vector line is
+// gone — which is exactly how a broken renderer looks green.
+func describeLine(t *testing.T, out, prefix string) string {
+	t.Helper()
+	var hits []string
+	for _, l := range strings.Split(out, "\n") {
+		if strings.HasPrefix(l, prefix) {
+			hits = append(hits, l)
+		}
+	}
+	if len(hits) != 1 {
+		t.Fatalf("want exactly 1 line starting %q, got %d:\n%s", prefix, len(hits), out)
+	}
+	return hits[0]
+}
+
+// describeVector returns the whole `enforced by` BLOCK — the label line plus its
+// continuation lines, which is how a multi-primitive vector prints. Anchored on the single
+// label line (describeLine's exactly-one rule) and then bounded by the continuation indent,
+// so it can never silently widen to the rest of the report.
+func describeVector(t *testing.T, out string) string {
+	t.Helper()
+	lines := strings.Split(out, "\n")
+	start := slices.Index(lines, describeLine(t, out, "  enforced by"))
+	block := []string{lines[start]}
+	for _, l := range lines[start+1:] {
+		if !strings.HasPrefix(l, confinementLabelPad) {
+			break
+		}
+		block = append(block, l)
+	}
+	return strings.Join(block, "\n")
+}
+
+// describeAt runs `describe` with a user-scope config naming a notch (`confinement` and
+// `packs` are both user-scope keys) and returns its stdout.
+func describeAt(t *testing.T, cfg string) string {
+	t.Helper()
+	home, _ := withHomeAndCwd(t)
+	writeFile(t, filepath.Join(home, ".config", "yolo-jail", "config.jsonc"), cfg)
+	// Pin the mechanism so the printed vector is a property of the NOTCH here: unset, it
+	// falls to a platform probe, and a darwin runner would resolve `container` and print the
+	// VM where this asserts namespaces. The mechanism's own effect on the vector is the
+	// table test below.
+	t.Setenv("YOLO_RUNTIME", "podman")
+
+	var out, errw bytes.Buffer
+	if rc := describeMain(nil, &out, &errw, false); rc != 0 {
+		t.Fatalf("describe rc=%d: %s", rc, errw.String())
+	}
+	return out.String()
+}
+
+// describe prints the resolved notch's PRIMITIVE VECTOR and its one policy bit — what
+// actually enforces the confinement, and whether packs render their autonomous (prompts
+// off) or guarded posture (plan §6c step 2). The load-bearing case is `host`: a preset that
+// composes NOTHING must read as the weakest, not as just another name on the dial.
+func TestDescribePrintsConfinementVector(t *testing.T) {
+	// jail: the strongest preset — namespaces + a baked image, autonomy on.
+	out := describeAt(t, `{"confinement":"jail"}`)
+	enforced := describeVector(t, out)
+	for _, want := range []string{"namespaces", "baked image"} {
+		if !strings.Contains(enforced, want) {
+			t.Errorf("jail vector should compose %q:\n%s", want, enforced)
+		}
+	}
+	if strings.Contains(enforced, "nothing") {
+		t.Errorf("jail must not print the empty vector:\n%s", enforced)
+	}
+	if a := describeLine(t, out, "  autonomy"); !strings.Contains(a, "ON") {
+		t.Errorf("jail contains the agent, so autonomy is ON:\n%s", a)
+	}
+
+	// host: no primitive at all, and autonomy OFF — the §4.2 bit that keeps a pack's
+	// jail-bypass keys off a real machine.
+	out = describeAt(t, `{"confinement":"host"}`)
+	if e := describeVector(t, out); !strings.Contains(e, "nothing") {
+		t.Errorf("host composes no primitive and must say so:\n%s", e)
+	}
+	if a := describeLine(t, out, "  autonomy"); !strings.Contains(a, "OFF") {
+		t.Errorf("host renders the guarded posture, so autonomy is OFF:\n%s", a)
+	}
+}
+
+// The printed vector follows the MECHANISM, not just the notch name: `runtime` is what a
+// launch will use, and a primitive belongs to the backend. Apple Container's jail is a VM
+// where podman's is namespaces, and macos-user is the guest vector (separate user +
+// Seatbelt) whatever the notch is called — printing "namespaces, baked image" for a backend
+// that composes neither is the failure this output exists to remove.
+func TestDescribeVectorFollowsMechanism(t *testing.T) {
+	// A conf.notch/mechanism table rather than three CLI runs: confinementProfile is the
+	// whole decision, and asserting it directly covers the darwin rows a Linux CI cannot run.
+	cases := []struct {
+		notch     config.Confinement
+		mechanism string
+		isMacOS   bool
+		want      []render.Primitive
+	}{
+		{config.ConfinementJail, "podman", false, []render.Primitive{render.PrimNamespaces, render.PrimBakedImage}},
+		{config.ConfinementJail, "container", true, []render.Primitive{render.PrimVM, render.PrimBakedImage}},
+		{config.ConfinementJail, "macos-user", true, []render.Primitive{render.PrimSeparateUser, render.PrimSeatbelt}},
+		{config.ConfinementGuest, "podman", false, []render.Primitive{render.PrimNamespaces, render.PrimLandlock}},
+		{config.ConfinementGuest, "container", true, []render.Primitive{render.PrimSeparateUser, render.PrimSeatbelt}},
+		// host wins over any mechanism: the notch, not the backend, is what says "no boundary".
+		{config.ConfinementHost, "macos-user", true, nil},
+	}
+	for _, tc := range cases {
+		prof := confinementProfile(tc.notch, tc.mechanism, tc.isMacOS)
+		for _, prim := range tc.want {
+			if !prof.Has(prim) {
+				t.Errorf("%s/%s: vector should compose primitive %d", tc.notch, tc.mechanism, prim)
+			}
+		}
+		// And nothing beyond it — a vector that over-claims is worse than one that is absent.
+		for _, prim := range primitiveOrder {
+			if prof.Has(prim) && !slices.Contains(tc.want, prim) {
+				t.Errorf("%s/%s: vector must not compose primitive %d", tc.notch, tc.mechanism, prim)
+			}
+		}
+	}
+}
+
+// Every primitive the model defines has a human phrasing. Without this, adding a Primitive
+// to internal/render prints a blank line in the one output whose entire job is naming what
+// enforces the confinement.
+func TestDescribeNamesEveryPrimitive(t *testing.T) {
+	for _, prim := range primitiveOrder {
+		if primitiveDoes[prim] == "" {
+			t.Errorf("primitive %d has no human description", prim)
+		}
+	}
+	if len(primitiveOrder) != len(primitiveDoes) {
+		t.Errorf("primitiveOrder (%d) and primitiveDoes (%d) disagree — a primitive is unordered "+
+			"or undescribed", len(primitiveOrder), len(primitiveDoes))
 	}
 }
 

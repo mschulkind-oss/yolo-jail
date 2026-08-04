@@ -18,9 +18,15 @@ import (
 	"fmt"
 	"io"
 	"os"
+	"os/exec"
+	"slices"
 
 	"github.com/mschulkind-oss/yolo-jail/internal/config"
+	"github.com/mschulkind-oss/yolo-jail/internal/jsonx"
+	"github.com/mschulkind-oss/yolo-jail/internal/paths"
+	"github.com/mschulkind-oss/yolo-jail/internal/render"
 	"github.com/mschulkind-oss/yolo-jail/internal/richtext"
+	runtimepkg "github.com/mschulkind-oss/yolo-jail/internal/runtime"
 )
 
 func runDescribe(args []string) int {
@@ -73,6 +79,7 @@ func describeMain(args []string, out, errw io.Writer, color bool) int {
 	pr := richtext.Printer{W: out, Color: color}
 	conf := config.ResolveConfinement(cfg)
 	pr.Printf("[bold]environment[/bold]  confinement [cyan]%s[/cyan]", string(conf))
+	printConfinementVector(pr, confinementProfile(conf, resolvedMechanism(cfg), paths.IsMacOS))
 	if packs, perr := config.LoadPacks(nil); perr == nil && len(packs) > 0 {
 		names := make([]string, 0, len(packs))
 		for _, p := range packs {
@@ -86,6 +93,119 @@ func describeMain(args []string, out, errw io.Writer, color bool) int {
 	pr.Printf("[bold]description[/bold]  sha256:%s [dim](unsealed — `describe --hash` for the pin, `describe --json` for the full config)[/dim]",
 		hex.EncodeToString(sum[:])[:16])
 	return 0
+}
+
+// confinementLabelPad aligns the primitive/autonomy detail column under the value column
+// of describe's own `label  value` lines, so a multi-primitive vector reads as one block
+// rather than as three unrelated lines.
+const confinementLabelPad = "               "
+
+// primitiveOrder fixes the print order of the vector. A Profile stores its primitives in a
+// map, so without this the same notch would print them in a different order per run — and
+// the whole point of printing the vector is that two notches (or two machines) can be
+// compared. Declaration order in internal/render/confinement.go, strongest first.
+var primitiveOrder = []render.Primitive{
+	render.PrimNamespaces, render.PrimVM, render.PrimSeatbelt,
+	render.PrimLandlock, render.PrimSeparateUser, render.PrimBakedImage,
+}
+
+// primitiveDoes names each enforcement primitive by WHAT IT DOES, not by its mechanism
+// name alone: "Landlock" and "namespaces" mean nothing to most readers, and a vector
+// nobody can interpret is not an improvement over not printing it.
+var primitiveDoes = map[render.Primitive]string{
+	render.PrimNamespaces:   "namespaces — kernel-isolated filesystem, processes, PIDs and network",
+	render.PrimVM:           "a virtual machine — its own kernel; the strongest boundary available",
+	render.PrimSeatbelt:     "Seatbelt — a macOS kernel policy on which files and syscalls are allowed",
+	render.PrimLandlock:     "Landlock — a Linux kernel policy on which paths are reachable",
+	render.PrimSeparateUser: "a separate OS user — its own home and keychain reach (a credential boundary)",
+	render.PrimBakedImage:   "a baked image — a nix-built package set, not your machine's PATH",
+}
+
+// printConfinementVector prints the resolved notch's COMPOSED PRIMITIVES plus the one
+// policy bit, which is what internal/render/confinement.go's own comment says describe is
+// for ("an implementation fact that `describe` can print"; plan §6c step 2). Two lines'
+// worth of output answering two questions nothing else answers:
+//
+//   - "what does this notch actually give me?" — the primitive vector, in prose. A preset
+//     that composes NOTHING (host) prints as such, so it reads as the weakest rather than
+//     as just another name on the dial.
+//   - "will my packs render their jail-bypass keys here?" — AgentAutonomy. The most
+//     consequential thing a user can know about their notch, and invisible everywhere else:
+//     it decides posture inside a pack's config surfaces, never as a line of its own.
+//
+// Printing the vector is NOT a step toward letting a user assemble one — only the three
+// named presets are selectable (happy-path-principle.md), and this adds no config surface.
+func printConfinementVector(pr richtext.Printer, prof render.Profile) {
+	var composed []string
+	for _, prim := range primitiveOrder {
+		if prof.Has(prim) {
+			composed = append(composed, primitiveDoes[prim])
+		}
+	}
+	if len(composed) == 0 {
+		pr.Printf("  enforced by  [dim]nothing — no primitive at all; this is your real machine[/dim]")
+	} else {
+		pr.Printf("  enforced by  %s", composed[0])
+		for _, line := range composed[1:] {
+			pr.Printf("%s%s", confinementLabelPad, line)
+		}
+	}
+	if prof.AgentAutonomy {
+		pr.Printf("  autonomy     [cyan]ON[/cyan] — packs render their autonomous posture " +
+			"(permission prompts off)")
+	} else {
+		pr.Printf("  autonomy     [yellow]OFF[/yellow] — packs render their guarded posture " +
+			"(permission prompts stay on)")
+	}
+}
+
+// confinementProfile is the notch → primitive vector lookup for DISPLAY. It is not
+// render.ProfileFor: that table is deliberately platform-blind (a render Target carries no
+// platform) and returns the Linux spelling of each preset, which is fine for the policy bit
+// it feeds but would print a false vector here — "namespaces" on an Apple Container jail
+// that actually runs a VM. confinement.go's ProfileFor comment says exactly this: when
+// describe prints the vector it must source it from the backend that knows the platform.
+//
+// MECHANISM FIRST, platform only as the fallback, because `runtime` is what a launch will
+// actually use and a primitive is a property of the backend, not of the machine reading the
+// config. So `container` prints the VM, and a NATIVE runtime (macos-user) prints the macOS
+// guest vector — separate user + Seatbelt is what that backend composes by definition, and
+// it is the guest notch by another name (no container, no image) whatever the notch is
+// called. isMacOS decides only the guest variant no mechanism names: a `guest` notch has no
+// backend of its own yet (env-manager Phase 7), so the platform's spelling is the best
+// available answer.
+func confinementProfile(notch config.Confinement, mechanism string, isMacOS bool) render.Profile {
+	switch {
+	case notch == config.ConfinementHost:
+		return render.HostProfile()
+	case slices.Contains(paths.NativeRuntimes, mechanism):
+		return render.GuestProfileMacOS()
+	case notch == config.ConfinementGuest:
+		if isMacOS {
+			return render.GuestProfileMacOS()
+		}
+		return render.GuestProfileLinux()
+	default: // jail — Apple Container gives each container its own VM; podman gives namespaces.
+		return render.JailProfile(mechanism == "container")
+	}
+}
+
+// resolvedMechanism resolves the `runtime` a launch would pick, with run()'s own precedence
+// (YOLO_RUNTIME > config > platform probe). Loose by design: describe is a read-only
+// report, so an unreachable runtime is not its problem — `yolo check` is where that is an
+// error, and the tolerant resolver never exits.
+func resolvedMechanism(cfg *jsonx.OrderedMap) string {
+	cfgRT := ""
+	if v, ok := cfg.Get("runtime"); ok {
+		if s, ok := v.(string); ok {
+			cfgRT = s
+		}
+	}
+	return runtimepkg.ResolveRuntime(os.Getenv("YOLO_RUNTIME"), cfgRT, paths.IsMacOS,
+		func(bin string) bool {
+			_, err := exec.LookPath(bin)
+			return err == nil
+		})
 }
 
 func joinComma(ss []string) string {
@@ -104,7 +224,8 @@ const describeUsage = `yolo describe — print the resolved environment descript
 The description is the product: what tools, agents, config, and confinement level this
 environment resolves to. It is meant to be a thing you can hold and compare.
 
-  yolo describe          human-readable summary (confinement, packs, description hash)
+  yolo describe          human-readable summary (confinement — what enforces it and
+                         whether agent autonomy is on — packs, description hash)
   yolo describe --json   the full canonical computed config (supersedes 'config dump')
   yolo describe --hash   a sha256 pin over the canonical config, for CI / cache keys
 
