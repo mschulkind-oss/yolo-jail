@@ -39,7 +39,7 @@ compile-time question.**
 | ✅ Q1 | ~~`Kind` an explicit field + a `KindGuest` member~~ **DONE 2026-08-04** (`84ff918`). Also added `KindUnset` at iota 0, which was not in the spec and is the right call: with `KindJail` at 0 a bare `render.Target{}` claimed the STRONGEST notch — D2's bug with the safety inverted, and newly reachable once the field stopped being derived | §6b D2 | — |
 | ✅ Q2 | ~~Wire up `render.Profile`~~ **DONE 2026-08-04** (`f454595` + `a3fa08c`). `ProfileFor` is the notch→preset table; `Target.Profile()` reads it. THREE of the four literals are gone — `packoverlay.Collect`'s parameter was already parameterized and its three callers pass literals, so converting it would just move them one frame out; tracked as §6c's remaining half | §6c step 1 | — |
 | ✅ Q3 | ~~D3 wording~~ **DONE 2026-08-04** (`e923f49`) — both refusals now name the COMMAND's limitation, so a future guest target reading the same map is not told a kind is inapplicable when it can honor it | §6b D3 | — |
-| Q4 | **`briefing` wholesale-generated at every notch**, pre-existing prose MOVED to the local pack's `AGENTS.md` (archive only as fallback) | §6a + §6a-2 (ruled) | Q1, Q5 |
+| ✅ Q4 | ~~**`briefing` wholesale-generated at every notch**, pre-existing prose MOVED to the local pack's `AGENTS.md`~~ **DONE 2026-08-04**. The marker mechanism is gone; §6a-4's jail-side `from` fix landed with it (one resolver, `packload.BriefingProseFor`). Three defects found only by running the lifecycle — see §6a-6 | §6a + §6a-2 (ruled) | Q1, Q5 |
 | ✅ Q5 | ~~The conventional LOCAL PACK~~ **DONE** (`374f995`) — — `~/.config/yolo-jail/local/`, implicitly included, zero config | §6a-2 (ruled) | **F1** (a zero-ceremony pack renders nothing at the host today). Q9 shipped without F1 — the lint half was separable, the host-render half was not |
 | Q6 | **`skills` wholesale-composed at every notch**, user's tree MOVED into the local pack (union + suffix on differing content, warn), archive only as fallback | §6a-2 (ruled) | Q4 (prove the mechanism on the smaller kind), Q5 |
 | ✅ Q7 | ~~`describe` prints the primitive vector~~ **DONE** (`62d1052`). Sources the vector from the resolved MECHANISM, not the notch name alone — so `runtime: macos-user` prints separate-user+Seatbelt even at `jail`, because that backend has no container and no image | §6c step 2 | — |
@@ -404,9 +404,22 @@ pack, so no user loses anything — but a user who later hand-edits `~/.claude/s
 will see it disappear, and the warning at that moment must name the local pack as the place to
 put it.
 
-## 6a-4. Found while shipping: the JAIL ignores `from` on `briefing`
+## 6a-4. ✅ FIXED — the JAIL ignored `from` on `briefing`
 
-**Verified 2026-08-04** (`internal/cli/run/packs.go:429-436`):
+**Fixed 2026-08-04 with Q4.** Both readers now go through `packload.BriefingProseFor`, over
+`packdecl.Contribution.BriefingCandidates()` — one resolver, the `skills` precedent applied.
+`run.readPackBriefing` is gone (replaced by `Options.packBriefingProse`).
+
+One thing the fix had to decide that the finding did not raise: `briefing`'s precedence is a
+FALLBACK CHAIN, not a single choice. `BriefingCandidates()` returns `[from, AGENTS.md, CLAUDE.md]`
+and the host notch has always read the first one that exists — so a declared `from` that is absent
+resolves to the convention there. Making the jail refuse instead (which is what `skills` does)
+would have converged the two by CHANGING the host, breaking any pack that relied on it. So the
+chain stayed and the fallback stopped being silent: it warns, naming the file that was not read,
+with two messages — one for "your prose came from somewhere else" and one for "this pack briefs
+nothing." A declaration honored differently is still worth a line even when the outcome is fine.
+
+**The original finding, for the record** (verified 2026-08-04, `internal/cli/run/packs.go:429-436`):
 
     func readPackBriefing(dest string) (string, bool) {
         for _, name := range []string{"AGENTS.md", "CLAUDE.md"} { ... }
@@ -422,6 +435,41 @@ the kind's definition.
 from-first-then-convention precedence, so the fix is to route both readers through it. **Queued as
 part of Q4** (the briefing wholesale rewrite touches this reader anyway), rather than as its own
 item — doing it separately would mean editing the same function twice.
+
+## 6a-6. Found shipping Q4: three defects the design did not predict
+
+All three were found by RUNNING the lifecycle (a temp `$HOME`, a real binary, apply → re-apply →
+drop) rather than by reading it, and each is a case where the wholesale mechanism inherits a
+question the delimited block never had to answer.
+
+1. **A shared ownership record made every briefing look like a dropped pack's output.** The
+   briefing record's owner is a PSEUDO-owner (`entrypoint.hostBriefingOwner` = `yolo/briefing`),
+   because a composed destination belongs to the pack SET — recording whichever contributor came
+   first would make dropping that pack read as "the file is the user's" while the others still
+   compose into it. But `droppedPackOrphans` reads every owner in the skills/files record as a
+   PACK NAME and archives the paths of any owner absent from `packs`. So a pseudo-owner no config
+   can ever name meant every composed briefing was retired on the very next apply. **Fix:** the
+   briefing record is its own file (`host-briefing-manifest.json`). Two questions, two key spaces.
+2. **The migration's prose only reached the destinations one apply LATE.** The migration CREATES
+   the local pack, and the local pack is included by CONVENTION — on the strength of the directory
+   existing. So the pack set resolved before the migration cannot contain it, and the very apply
+   that promised "your instructions still reach your agents" removed them for one run. **Fix:**
+   re-resolve the pack set once, after a confirmed migration only.
+3. **An unresolvable pack's briefing was archived.** Under the delimited block this mistake
+   self-healed for free — the block re-rendered from prose inside the pack the moment the remote
+   was reachable — which is why the briefing prune could key on the RESOLVED set while the skills
+   prune keyed on the CONFIGURED one, and why a shipped test asserted that divergence. A wholesale
+   destination has no such affordance: archiving it costs the user a trip to the state dir. **Fix:**
+   `HostBriefingRequest.PackSetComplete`, fail-closed at its zero value, so the two thresholds are
+   now deliberately the same. The old test now pins the convergence rather than the split.
+
+**Also settled: `after: "host:<path>"` is JAIL-ONLY**, which §6a flagged for re-examination. It is
+not decorative — the jail case is still real (it prepends the user's host file to a `:ro` staging
+copy, so a personal `AGENTS.md` outranks a pack's IN A JAIL) — but at the host the path it names is
+now the generated destination, so there is nothing left to prepend. Documented at the field and in
+`pack-system.md` rather than removed: it means one thing at one notch and nothing at the other, and
+that is worth stating rather than deleting a working feature. It remains a HOST-ACCESS CLAIM at
+both notches, since declaring it means reading the host home whatever the notch.
 
 ## 6a-5. Found verifying Q5: the local pack LOSES at flat tier
 
@@ -463,7 +511,7 @@ asymmetry with a decision behind it, and one is a gap masquerading as a policy.
 
 | Kind | Jail mechanism | Non-container mechanism | Verdict |
 |---|---|---|---|
-| `briefing` | wholesale-generated to a staging file, `:ro` | delimited block inside the user's file | **RULED — unify on wholesale** (§6a) |
+| `briefing` | wholesale-generated to a staging file, `:ro` | ~~delimited block inside the user's file~~ **wholesale-generated** | ✅ **UNIFIED 2026-08-04** (§6a, Q4) |
 | `skills` | **wipe + recompose**: built-ins < packs < user's tree, `:ro` | deliver per-entry, REFUSE what yolo cannot prove it wrote | **same misalignment as briefing** — see D1 |
 | `files` | `:ro` bind mount, pack owns the path outright | write, but REFUSE a path the user owns | **correct** — no layer model to recompose; see D1 |
 | `config` | four modes (`stateful`/`rmw`/`computed`/`unrendered`) | ONE mode (`rmw`) | **look at this** — see D2 |
@@ -624,7 +672,10 @@ Suggested order:
 1. **`Kind` explicit + `KindGuest`** (D2's root cause). Mechanical, and it makes everything below
    a compile-time question rather than a discovered bug.
 2. **D3 wording** — strings only; stop describing a missing verb as an inapplicable kind.
-3. **§6a briefing unification** (ruled). Contained, fingerprint must not move.
+3. ✅ **§6a briefing unification** (ruled) — **DONE 2026-08-04**. It WAS contained and the
+   fingerprint did NOT move (host-side only, as predicted). What the estimate missed is that
+   three defects only appeared when the lifecycle was RUN, all of them about ownership records and
+   resolution ORDER rather than about composition — see §6a-6, and expect the same class in Q6.
 4. **`skills` wholesale composition** (D1) — the same ruling extended, but flag the migration
    cost first: a briefing is one file most users did not hand-write, while `~/.claude/skills` may
    hold real work.

@@ -124,7 +124,18 @@ reads like a safe no-op rather than "your pack will never work."
 
 ---
 
-## F3 — 🟠 Briefings duplicate on first apply against an existing file
+## F3 — ✅ DISSOLVED 2026-08-04 — Briefings duplicated on first apply against an existing file
+
+**Not fixed — dissolved**, by §6a's ruling that `briefing` is generated WHOLESALE. The duplication
+was an artifact of the append-based first write; with no append nothing can double, so the
+suggested fix below ("adopt the prose into the markers") is moot — the ruling claims that ownership
+explicitly and up front, which is the honest version of the same move. The prose is MOVED into the
+local pack rather than wrapped in markers, so it still reaches every agent.
+
+Asserted by `TestHostBriefingFirstApplyDoesNotDuplicateProse` (a first apply against a destination
+already holding the pack's prose verbatim) and by the CLI-level idempotency test.
+
+**The original report, for the record:**
 
 `briefing` appends a delimited managed block. If the user's briefing **already contains**
 the prose they just moved into a pack — the overwhelmingly likely case when migrating

@@ -252,27 +252,33 @@ own tree, so a local skill always wins.
 > See §14.
 
 ### `briefing`
-Prose concatenated into a briefing file, attributed to its pack.
+Prose concatenated into a briefing file, attributed to its pack. **The destination is
+GENERATED WHOLESALE at every notch** (ruling 2026-08-04 — see the ownership note below).
 - `from` (OPTIONAL since 2026-08-04) — pack-relative source. Absent, the candidates are
-  `AGENTS.md` then `CLAUDE.md` (`packdecl.Contribution.BriefingCandidates`).
-  **Honored at the HOST notch only.** The jail's reader (`cli/run/packs.go` `readPackBriefing`)
-  takes a directory and not the contribution, so it scans `AGENTS.md`/`CLAUDE.md` unconditionally
-  and a declared `from` is IGNORED there — the same accepted-and-ignored defect that `skills`
-  had before 2026-08-03. `BriefingCandidates()` exists so both readers can converge; see
-  `../plans/outstanding-work.md`.
+  `AGENTS.md` then `CLAUDE.md` (`packdecl.Contribution.BriefingCandidates`). **Honored at both
+  notches** since 2026-08-04: both readers go through `packload.BriefingProseFor`. The precedence
+  is a FALLBACK CHAIN rather than a single choice — a declared `from` that is not in the pack's
+  content falls back to the convention (as the host notch always did) and WARNS, naming the file
+  that was not read. `skills` refuses in the same situation; the difference is deliberate,
+  because narrowing the briefing chain would break packs that relied on the host behavior.
 - `into` (required — and deliberately NOT conventionalized: a source has one right answer per
   KIND, a destination one per AGENT, so inferring it would mean inferring the agent set).
 - `after` — `"host:<path>"` prepends the user's own briefing at that host path ahead of the
-  composed content, so a personal `AGENTS.md` still outranks the pack's. Origin-gated.
+  composed content, so a personal `AGENTS.md` still outranks the pack's. Origin-gated, and
+  **JAIL-ONLY**: at the host notch the path it names IS the generated destination, so there is no
+  user-maintained file left to prepend and the host render ignores it. It is still a host-access
+  claim at both notches, since declaring it means reading the host home.
 
 ```json
 { "kind": "briefing", "from": "AGENTS.md", "into": ".claude/CLAUDE.md", "after": "host:.claude/CLAUDE.md" }
 ```
 
-> **Shipped-behavior caveat.** At the HOST notch `from` is honored, falling back to the
-> conventional `AGENTS.md`/`CLAUDE.md` pair. In a JAIL the briefing source is still read from
-> that conventional pair regardless of `from` (`run.readPackBriefing`) — unlike `skills`,
-> whose jail path now follows the declaration. `into` and `after` are honored at both.
+> **Ownership.** yolo owns the destination file outright and regenerates it from the pack set
+> on every apply, so a hand edit does not survive. The first apply into a destination the user
+> wrote is CONFIRMED, and their prose is MOVED into
+> `~/.config/yolo-jail/local/AGENTS.md` (the conventional local pack), from which yolo composes
+> it back into every destination — so their instructions keep reaching their agents. To add
+> personal prose, edit the local pack, not the destination.
 
 ### `files`
 An opaque tree the pack owns outright, bind-mounted `:ro` at `into` in the jail.
@@ -798,11 +804,14 @@ Not yet wired:
   (`docs/plans/pack-host-management-plan.md` Phase 7). Refused by name, never silently
   skipped.
 
-- **`from` on `briefing`, in a JAIL.** ~~`skills`~~ now honors `from` at both notches (see
-  the kind's section above). The remaining half is briefing prose in a jail:
-  `run.readPackBriefing` still reads a root `AGENTS.md`/`CLAUDE.md` regardless of `from`, so a
-  pack whose prose lives elsewhere gets its briefing at the host notch
-  (`hostBriefingProse` honors it) and not in a jail. Validated, not honored, on that one path.
+- ~~**`from` on `briefing`, in a JAIL.**~~ **FIXED 2026-08-04** (outstanding-work.md §6a-4).
+  `run.readPackBriefing` took a DIRECTORY and read a root `AGENTS.md`/`CLAUDE.md` regardless of
+  `from`, so a pack whose prose lived elsewhere briefed at the host notch and not in a jail.
+  Both readers now go through `packload.BriefingProseFor`, over
+  `packdecl.Contribution.BriefingCandidates()` — the same one-resolver convergence `skills`
+  needed. One deliberate difference from `skills`: `briefing`'s precedence is a **fallback
+  chain**, so a declared `from` that is absent still resolves to the convention (as the host
+  notch always did) — but the fallback now WARNS, naming the file that was not read.
 
 - **Typed inter-pack exports.** The design allows a pack to `export` a canonical type (e.g.
   MCP servers) that other packs `import`, so a shared dependency lives in one pack. Only the
@@ -822,8 +831,21 @@ Not yet wired:
     a property of the TOOL. `tier: "namespaced"` writes one subtree per pack (invoked
     `<pack>:<skill>`), so a user's own skills cannot collide; the default `flat` writes
     beside them under a provenance manifest. Declared by the pack, then probed.
-  - **`briefing` is a delimited managed block**, not an append: at the host the source and
-    destination are the same file, so a naive concat duplicates the user's prose every apply.
+  - **`briefing` is GENERATED WHOLESALE**, at every notch (maintainer ruling 2026-08-04,
+    outstanding-work.md §6a). It was a delimited managed block inside the user's file; that
+    mechanism existed to keep an append from growing without bound when source and destination
+    are the same file, which accepted a premise the ruling rejects — that a briefing file is
+    jointly owned. Three consequences a reader should know:
+    - **Pre-existing prose MOVES into the local pack** (`~/.config/yolo-jail/local/AGENTS.md`),
+      where yolo composes it back into every destination. So the migration preserves behavior
+      rather than merely avoiding deletion. Archiving is the fallback for prose that cannot be
+      moved; nothing is ever deleted.
+    - **The first apply that adopts a destination is CONFIRMED**, once, and fails closed on a
+      non-interactive stdin. Taking wholesale ownership of a file the user wrote is a one-way
+      door.
+    - **Dropping the last contributing pack archives the destination** rather than leaving a
+      generated file with no owner. `after: "host:<path>"` is jail-only as a result: at the host
+      the path it names IS the generated destination, so there is nothing left to prepend.
 
 Resolved sharp edges (kept because the reasoning is the interesting part):
 
