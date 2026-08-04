@@ -59,9 +59,23 @@ type Contribution struct {
 	// rather than off the struct: an absent `from` means the convention, and a call
 	// site that resolves that by hand is a call site that can quietly stop honoring
 	// the declared value (which is exactly what all three skills readers did).
-	From  string `json:"from,omitempty"`  // pack-relative source path
-	Into  string `json:"into,omitempty"`  // home-relative jail destination
-	After string `json:"after,omitempty"` // briefing: "host:<path>" to prepend the user's own file
+	From string `json:"from,omitempty"` // pack-relative source path
+	Into string `json:"into,omitempty"` // home-relative jail destination
+	// After, as `"host:<path>"` on a `briefing`, prepends the user's own host file to the
+	// jail's composed briefing (run.briefingHostOverlay → agents.PrependHostBriefing) — so a
+	// personal AGENTS.md outranks anything a pack ships INSIDE A JAIL.
+	//
+	// JAIL-ONLY, and after §6a that is a narrower claim than it looks. At the host notch the
+	// path it names is now the DESTINATION yolo generates wholesale, so there is no
+	// user-maintained file left to prepend: the host render ignores After entirely, and the user's
+	// own prose reaches every destination through the local pack instead. It survives because the
+	// jail case is still real (a `:ro`-mounted staging copy composed from a host file yolo does
+	// not own), not because it means something at both notches.
+	//
+	// It is still a HOST-ACCESS CLAIM either way (HostAccessClaims, NeedsHostAccessContributions)
+	// — declaring it means reading the host home, which is exactly what a fetched pack needs
+	// approval for, whether or not this launch is in a jail.
+	After string `json:"after,omitempty"`
 
 	// Tier declares how much SKILL NAMESPACING the destination tool supports, which bounds
 	// how safely yolo can manage that tool's skills dir in a REAL home (a jail is
@@ -385,12 +399,17 @@ func DefaultBriefingFiles() []string { return []string{"AGENTS.md", "CLAUDE.md"}
 // exactly this list), so requiring it in the schema only made the author write a literal
 // the resolver would have supplied.
 //
-// It is the AUTHORITY for that precedence, not a third copy of it: both readers still
-// inline the pair — hostBriefingProse `from`-first-then-convention, run.readPackBriefing
-// convention-only, ignoring `from` — and that divergence is the shipped defect where a pack
-// whose prose lives elsewhere briefs at the host notch and not in a jail
-// (docs/design/pack-system.md, "Shipped-behavior caveat" under `briefing`). Both should read
-// through here; SkillsSource is the precedent for what converging them fixes.
+// It is the AUTHORITY for that precedence, and since 2026-08-04 the ONLY copy of it: both
+// readers go through packload.BriefingProseFor, which calls this. Before that they each inlined
+// the pair — hostBriefingProse `from`-first-then-convention, run.readPackBriefing
+// convention-only, ignoring `from` — and a pack whose prose lived elsewhere briefed at the host
+// notch and not in a jail (outstanding-work.md §6a-4). SkillsSource is the precedent this
+// followed.
+//
+// A FALLBACK CHAIN is the contract, not a single choice, and that is the one place `briefing`
+// differs from `skills`: a declared `from` that is absent resolves to the convention rather than
+// refusing, because the host notch always did that and narrowing it would break packs.
+// BriefingProseFor makes the fallback loud instead of silent.
 //
 // Kind is NOT checked, for the reason SkillsSource states: this is a method on a
 // contribution the caller has already filtered by kind.

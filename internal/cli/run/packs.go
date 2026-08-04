@@ -161,7 +161,7 @@ func (o *Options) stagePacks(cname string) (string, []*packload.Pack, []agents.P
 	var briefings []agents.PackBriefing
 	for _, p := range loaded {
 		skillDirs = append(skillDirs, o.packSkillSourceDirs(p)...)
-		if text, ok := readPackBriefing(p.Root); ok {
+		if text := o.packBriefingProse(p); text != "" {
 			briefings = append(briefings, agents.PackBriefing{Name: p.Name, Text: text})
 		}
 	}
@@ -231,7 +231,7 @@ func (o *Options) stagePacks(cname string) (string, []*packload.Pack, []agents.P
 		loaded = append(loaded, p)
 
 		skillDirs = append(skillDirs, o.packSkillSourceDirs(p)...)
-		if text, ok := readPackBriefing(dest); ok {
+		if text := o.packBriefingProse(p); text != "" {
 			briefings = append(briefings, agents.PackBriefing{Name: entry.Name, Text: text})
 		}
 	}
@@ -423,16 +423,20 @@ func packRoot(entry config.PackEntry) (string, error) {
 	return res.Root, nil
 }
 
-// readPackBriefing reads a pack's briefing prose, accepting either AGENTS.md or
-// CLAUDE.md at the pack root. Both names are in the wild, and a pack author should
-// not have to know which one yolo happens to read.
-func readPackBriefing(dest string) (string, bool) {
-	for _, name := range []string{"AGENTS.md", "CLAUDE.md"} {
-		if data, err := os.ReadFile(filepath.Join(dest, name)); err == nil {
-			return string(data), true
-		}
+// packBriefingProse is the pack's briefing prose for THIS launch, honoring each briefing
+// contribution's declared `from` and warning about one that cannot be honored.
+//
+// It replaces a reader that took a DIRECTORY and scanned `AGENTS.md`/`CLAUDE.md`
+// unconditionally, so a pack declaring `from: "house-rules.md"` had it honored at the host
+// notch and silently IGNORED here (outstanding-work.md §6a-4). Both readers now go through
+// packload, which is the same convergence `skills` needed for the same reason — three
+// hardcoded conventional-source joins are how the field came to be validated and ignored.
+func (o *Options) packBriefingProse(p *packload.Pack) string {
+	text, problems := p.BriefingProse()
+	for _, prob := range problems {
+		o.pr(o.Stdout).print("[yellow]Warning: " + prob + "[/yellow]")
 	}
-	return "", false
+	return text
 }
 
 // copyTree copies a staged pack tree to dest at mode 0o644, or 0o755 for a file whose
