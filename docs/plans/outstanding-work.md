@@ -404,6 +404,25 @@ pack, so no user loses anything — but a user who later hand-edits `~/.claude/s
 will see it disappear, and the warning at that moment must name the local pack as the place to
 put it.
 
+## 6a-4. Found while shipping: the JAIL ignores `from` on `briefing`
+
+**Verified 2026-08-04** (`internal/cli/run/packs.go:429-436`):
+
+    func readPackBriefing(dest string) (string, bool) {
+        for _, name := range []string{"AGENTS.md", "CLAUDE.md"} { ... }
+    }
+
+It takes a DIRECTORY, not the contribution — so a pack declaring `from: "house-rules.md"` has it
+honored at the host (`hostBriefingProse` builds `[c.From, "AGENTS.md", "CLAUDE.md"]`) and silently
+ignored in the jail. That is exactly the accepted-and-ignored defect `skills` had until 2026-08-03,
+in the sibling kind, and it is a fifth instance of §6b's through-line: the jail's mechanism became
+the kind's definition.
+
+`packdecl.Contribution.BriefingCandidates()` now exists as the single authority for the
+from-first-then-convention precedence, so the fix is to route both readers through it. **Queued as
+part of Q4** (the briefing wholesale rewrite touches this reader anyway), rather than as its own
+item — doing it separately would mean editing the same function twice.
+
 ## 6b. Divergence audit — where else a kind means two different things by notch
 
 **Requested 2026-08-04:** *"do a pass for other such misaligned mechanisms. I want to simplify

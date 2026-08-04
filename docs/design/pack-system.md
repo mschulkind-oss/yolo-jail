@@ -222,9 +222,12 @@ packs requiring one binary is the normal case rather than a collision.
 ### `skills`
 A skills tree merged into an agent's skills dir. Precedence is built-in < pack < the user's
 own tree, so a local skill always wins.
-- `from` (required) — pack-relative source dir. **Honored** at both notches (the jail's skills
-  staging and `apply --host`), and by wrapped-plugin discovery, which scans it rather than a
-  fixed `skills/`. A pack with no manifest at all still merges its `skills/` dir — the
+- `from` (OPTIONAL since 2026-08-04, defaults to `skills/`) — pack-relative source dir.
+  **Honored** at both notches (the jail's skills staging and `apply --host`), and by
+  wrapped-plugin discovery, which scans it rather than a fixed `skills/`. It became optional
+  because every shipped pack declared the same literal while the resolver already defaulted it —
+  the validator was the only half of the code that thought the field mattered (§6a-3 of
+  `../plans/outstanding-work.md`). A pack with no manifest at all still merges its `skills/` dir — the
   zero-ceremony case.
 - `into` (required) — home-relative destination.
 
@@ -250,8 +253,15 @@ own tree, so a local skill always wins.
 
 ### `briefing`
 Prose concatenated into a briefing file, attributed to its pack.
-- `from` (required) — pack-relative source (`AGENTS.md`/`CLAUDE.md`).
-- `into` (required) — home-relative destination.
+- `from` (OPTIONAL since 2026-08-04) — pack-relative source. Absent, the candidates are
+  `AGENTS.md` then `CLAUDE.md` (`packdecl.Contribution.BriefingCandidates`).
+  **Honored at the HOST notch only.** The jail's reader (`cli/run/packs.go` `readPackBriefing`)
+  takes a directory and not the contribution, so it scans `AGENTS.md`/`CLAUDE.md` unconditionally
+  and a declared `from` is IGNORED there — the same accepted-and-ignored defect that `skills`
+  had before 2026-08-03. `BriefingCandidates()` exists so both readers can converge; see
+  `../plans/outstanding-work.md`.
+- `into` (required — and deliberately NOT conventionalized: a source has one right answer per
+  KIND, a destination one per AGENT, so inferring it would mean inferring the agent set).
 - `after` — `"host:<path>"` prepends the user's own briefing at that host path ahead of the
   composed content, so a personal `AGENTS.md` still outranks the pack's. Origin-gated.
 
