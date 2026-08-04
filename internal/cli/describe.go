@@ -77,9 +77,18 @@ func describeMain(args []string, out, errw io.Writer, color bool) int {
 
 	// Human summary. Deliberately compact — the machine-readable answer is --json.
 	pr := richtext.Printer{W: out, Color: color}
-	conf := config.ResolveConfinement(cfg)
-	pr.Printf("[bold]environment[/bold]  confinement [cyan]%s[/cyan]", string(conf))
-	printConfinementVector(pr, confinementProfile(conf, resolvedMechanism(cfg), paths.IsMacOS))
+	// THE BOUNDARY CROSSING, and the only one this command makes: the config value is a
+	// NAME, everything below reasons about the Kind it resolves to. ResolveConfinement has
+	// already defaulted an absent or unknown value to jail, so the !ok branch is
+	// unreachable — and it is written out anyway rather than discarded, because a silent
+	// zero Kind here would print the unset notch's (empty) vector as if it were a level.
+	notch, ok := render.KindForNotch(string(config.ResolveConfinement(cfg)))
+	if !ok {
+		fmt.Fprintf(errw, "yolo describe: unknown confinement level\n")
+		return 1
+	}
+	pr.Printf("[bold]environment[/bold]  confinement [cyan]%s[/cyan]", notch)
+	printConfinementVector(pr, confinementProfile(notch, resolvedMechanism(cfg), paths.IsMacOS))
 	if packs, perr := config.LoadPacks(nil); perr == nil && len(packs) > 0 {
 		names := make([]string, 0, len(packs))
 		for _, p := range packs {
@@ -166,6 +175,10 @@ func printConfinementVector(pr richtext.Printer, prof render.Profile) {
 // that actually runs a VM. confinement.go's ProfileFor comment says exactly this: when
 // describe prints the vector it must source it from the backend that knows the platform.
 //
+// It takes a render.Kind rather than the config's own string type (plan §6c step 3): the name
+// was resolved once at the boundary in describeMain, so this switch is over the notch as core
+// models it. Same three branches, one less vocabulary in the middle of the pipeline.
+//
 // MECHANISM FIRST, platform only as the fallback, because `runtime` is what a launch will
 // actually use and a primitive is a property of the backend, not of the machine reading the
 // config. So `container` prints the VM, and a NATIVE runtime (macos-user) prints the macOS
@@ -174,13 +187,13 @@ func printConfinementVector(pr richtext.Printer, prof render.Profile) {
 // called. isMacOS decides only the guest variant no mechanism names: a `guest` notch has no
 // backend of its own yet (env-manager Phase 7), so the platform's spelling is the best
 // available answer.
-func confinementProfile(notch config.Confinement, mechanism string, isMacOS bool) render.Profile {
+func confinementProfile(notch render.Kind, mechanism string, isMacOS bool) render.Profile {
 	switch {
-	case notch == config.ConfinementHost:
+	case notch == render.KindHost:
 		return render.HostProfile()
 	case slices.Contains(paths.NativeRuntimes, mechanism):
 		return render.GuestProfileMacOS()
-	case notch == config.ConfinementGuest:
+	case notch == render.KindGuest:
 		if isMacOS {
 			return render.GuestProfileMacOS()
 		}

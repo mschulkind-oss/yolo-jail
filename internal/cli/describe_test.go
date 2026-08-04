@@ -8,7 +8,6 @@ import (
 	"strings"
 	"testing"
 
-	"github.com/mschulkind-oss/yolo-jail/internal/config"
 	"github.com/mschulkind-oss/yolo-jail/internal/render"
 )
 
@@ -140,19 +139,21 @@ func TestDescribePrintsConfinementVector(t *testing.T) {
 func TestDescribeVectorFollowsMechanism(t *testing.T) {
 	// A conf.notch/mechanism table rather than three CLI runs: confinementProfile is the
 	// whole decision, and asserting it directly covers the darwin rows a Linux CI cannot run.
+	// The notch is a render.Kind here, not the config string: describeMain resolves the name
+	// once at the boundary (render.KindForNotch) and everything below reasons about the Kind.
 	cases := []struct {
-		notch     config.Confinement
+		notch     render.Kind
 		mechanism string
 		isMacOS   bool
 		want      []render.Primitive
 	}{
-		{config.ConfinementJail, "podman", false, []render.Primitive{render.PrimNamespaces, render.PrimBakedImage}},
-		{config.ConfinementJail, "container", true, []render.Primitive{render.PrimVM, render.PrimBakedImage}},
-		{config.ConfinementJail, "macos-user", true, []render.Primitive{render.PrimSeparateUser, render.PrimSeatbelt}},
-		{config.ConfinementGuest, "podman", false, []render.Primitive{render.PrimNamespaces, render.PrimLandlock}},
-		{config.ConfinementGuest, "container", true, []render.Primitive{render.PrimSeparateUser, render.PrimSeatbelt}},
+		{render.KindJail, "podman", false, []render.Primitive{render.PrimNamespaces, render.PrimBakedImage}},
+		{render.KindJail, "container", true, []render.Primitive{render.PrimVM, render.PrimBakedImage}},
+		{render.KindJail, "macos-user", true, []render.Primitive{render.PrimSeparateUser, render.PrimSeatbelt}},
+		{render.KindGuest, "podman", false, []render.Primitive{render.PrimNamespaces, render.PrimLandlock}},
+		{render.KindGuest, "container", true, []render.Primitive{render.PrimSeparateUser, render.PrimSeatbelt}},
 		// host wins over any mechanism: the notch, not the backend, is what says "no boundary".
-		{config.ConfinementHost, "macos-user", true, nil},
+		{render.KindHost, "macos-user", true, nil},
 	}
 	for _, tc := range cases {
 		prof := confinementProfile(tc.notch, tc.mechanism, tc.isMacOS)

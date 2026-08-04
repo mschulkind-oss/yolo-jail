@@ -28,6 +28,7 @@ import (
 	"github.com/mschulkind-oss/yolo-jail/internal/jsonx"
 	"github.com/mschulkind-oss/yolo-jail/internal/packload"
 	"github.com/mschulkind-oss/yolo-jail/internal/packoverlay"
+	"github.com/mschulkind-oss/yolo-jail/internal/render"
 	"github.com/mschulkind-oss/yolo-jail/internal/richtext"
 )
 
@@ -223,10 +224,12 @@ type overlayContribution struct {
 	// Winners is the RECORDED provenance, key → winning layer, read from whichever notch's
 	// record describes these surfaces. nil when no render has written one.
 	Winners map[string]string
-	// Notch names where Winners was measured — "jail" or "host" — so a reported winner is
-	// attributed as well as measured. The two notches render into different homes from
-	// different postures (the host renders the guarded autonomy posture, pure RMW), so
-	// "managed won" without a notch is an incomplete fact.
+	// Notch is the LABEL of the level where Winners was measured (render.Kind.String()), so a
+	// reported winner is attributed as well as measured. The notches render into different
+	// homes from different postures (the host renders the guarded autonomy posture, pure RMW),
+	// so "managed won" without a notch is an incomplete fact. A display string rather than a
+	// render.Kind because nothing downstream DECIDES on it — the writer interpolates it into a
+	// sentence, and the decision it came from was made once in surfaceProvenance.
 	Notch string
 	// NoRecordReason explains an ABSENT record, in the words of the specific state it is.
 	// Empty when Winners is non-nil. Three states, and collapsing them is a misreport in
@@ -273,12 +276,20 @@ func overlayContributionRows(agent, surface string) ([]overlayContribution, []st
 	if len(packs) == 0 {
 		return nil, unresolved
 	}
+	// WHICH NOTCH this invocation describes, resolved ONCE into a render.Kind rather than
+	// carried as a bool and re-labelled twice (plan §6c step 3). It was `host :=
+	// !surfacesAreLocal()`, and every downstream fact — the posture, the record to read, the
+	// name printed beside a winner — was re-derived from that bool with its own literal.
+	notch := render.KindJail
+	if !surfacesAreLocal() {
+		notch = render.KindHost
+	}
 	// The posture matches the notch whose surfaces we are describing: the jail renders
 	// autonomy ON, the host renders the guarded posture (§4.2). It only patches the owner's
 	// managed layer, so it changes which keys an overlay LOSES, not which surfaces exist —
-	// but that is exactly the thing being reported, so it must match.
-	host := !surfacesAreLocal()
-	set := packoverlay.Collect(packs, !host)
+	// but that is exactly the thing being reported, so it must match. Read off the notch's
+	// PROFILE, so this report cannot disagree with the render it is describing.
+	set := packoverlay.Collect(packs, render.ProfileFor(notch).AgentAutonomy)
 	var out []overlayContribution
 	for _, s := range packSurfacesForAgent(packs, agent, surface) {
 		overlays := set.For(s.Agent, s.Name)
@@ -287,7 +298,7 @@ func overlayContributionRows(agent, surface string) ([]overlayContribution, []st
 			Path:    s.Path,
 			Keys:    map[string]string{},
 		}
-		row.Winners, row.Notch, row.NoRecordReason = surfaceProvenance(s, host)
+		row.Winners, row.Notch, row.NoRecordReason = surfaceProvenance(s, notch)
 		row.Retired = retiredKeys(row.Winners)
 		// A surface with NEITHER a live overlay NOR a retired key has nothing to report here.
 		// The retired half is why this is not the old `len(overlays) == 0` skip: an orphaned
@@ -312,7 +323,7 @@ func overlayContributionRows(agent, surface string) ([]overlayContribution, []st
 }
 
 // surfaceProvenance reads the recorded per-key winners for one surface at the notch this
-// invocation describes, returning (winners, notch, reason-it-is-absent). Exactly one of
+// invocation describes, returning (winners, notch-label, reason-it-is-absent). Exactly one of
 // winners / reason is meaningful: a non-nil map means measured, and a non-empty reason
 // names WHICH absence this is.
 //
@@ -321,23 +332,35 @@ func overlayContributionRows(agent, surface string) ([]overlayContribution, []st
 // exactly one question — has an apply asserted yet? The jail notch has the mode split,
 // because an `rmw`/`computed` surface in a jail keeps no record by design (§8) and that
 // must not read as a loss.
-func surfaceProvenance(s manifest.Surface, host bool) (winners map[string]string, notch, reason string) {
-	if host {
+//
+// It switches on the render.Kind and LABELS with notch.String(), rather than taking a bool and
+// spelling "host"/"jail" at five returns (plan §6c step 3). What the notch decides here is a
+// FILE LOCATION and a remedy — two things that genuinely differ per notch, which is why this
+// stays a switch; what it no longer decides is how the answer is spelled. A notch with no
+// stated record location gets the fail-closed answer rather than the jail's tree: `guest`
+// cannot reach here today (the caller resolves jail-or-host), and inheriting a location if it
+// ever does is the D2 bug in the reader.
+func surfaceProvenance(s manifest.Surface, notch render.Kind) (winners map[string]string, notchLabel, reason string) {
+	switch notch {
+	case render.KindHost:
 		if w := readProvenance(hostProvenancePath(s.Agent, s.Name)); w != nil {
-			return w, "host", ""
+			return w, notch.String(), ""
 		}
 		// No mode split here: the host render is pure RMW and records every surface it
 		// writes, so an absent record means no apply has asserted this surface — which has
 		// a remedy, unlike the by-design absences below.
-		return nil, "host", "no `yolo apply --host --assert` has rendered it yet"
+		return nil, notch.String(), "no `yolo apply --host --assert` has rendered it yet"
+	case render.KindJail:
+		if w := readProvenance(prismProvenancePath(s.Agent, s.Name)); w != nil {
+			return w, notch.String(), ""
+		}
+		if s.ResolvedMode() == manifest.ModeRMW || s.ResolvedMode() == manifest.ModeComputed {
+			return nil, notch.String(), "this surface's mode keeps no provenance sidecar"
+		}
+		return nil, notch.String(), "not rendered in this workspace yet"
+	default:
+		return nil, notch.String(), "no provenance record location is stated for this confinement level"
 	}
-	if w := readProvenance(prismProvenancePath(s.Agent, s.Name)); w != nil {
-		return w, "jail", ""
-	}
-	if s.ResolvedMode() == manifest.ModeRMW || s.ResolvedMode() == manifest.ModeComputed {
-		return nil, "jail", "this surface's mode keeps no provenance sidecar"
-	}
-	return nil, "jail", "not rendered in this workspace yet"
 }
 
 // packSurfacesForAgent returns the loaded packs' surfaces owned by one agent, honoring an
