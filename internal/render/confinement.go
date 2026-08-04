@@ -97,3 +97,38 @@ func GuestProfileLinux() Profile { return with(true, PrimNamespaces, PrimLandloc
 // Autonomy OFF: nothing contains the agent, so the guarded posture (permission prompts on)
 // is what renders — the §4.2 fix for the apply --host bypass leak.
 func HostProfile() Profile { return Profile{prims: map[Primitive]bool{}, AgentAutonomy: false} }
+
+// ProfileFor is the notch → preset table: the ONE place that answers "what does this
+// confinement level imply?", so a render path reads the policy instead of choosing a
+// true/false literal per file (plan §6c step 1). Before this, `Profile` had no production
+// caller at all while `AgentAutonomy` was decided by hardcoded booleans at four call sites —
+// the same rot as an inferred Kind, in a second place.
+//
+// Total on purpose, including the zero value: an unset Kind gets HostProfile — no primitives,
+// autonomy OFF. That is the fail-closed direction, and the asymmetry matters more than the
+// tidiness. Getting it wrong toward `jail` means a real host gains an agent's permission
+// bypass; getting it wrong toward `host` means a contained agent sees prompts it did not need.
+// Only one of those is a security regression.
+//
+// ONE LIMITATION, stated rather than hidden: the jail and guest presets each have a platform
+// variant (namespaces vs a VM; Seatbelt vs Landlock), and a render Target does not carry the
+// platform — so this returns the Linux spelling of each. The difference between the variants
+// is entirely in the primitive VECTOR and never in the policy bit (both jail variants contain
+// the agent; so do both guests), so no decision this table feeds today can turn on it. When
+// `describe` prints the vector (plan Q7) it must source it from the backend that knows the
+// platform, NOT from here.
+func ProfileFor(k Kind) Profile {
+	switch k {
+	case KindJail:
+		return JailProfile(false)
+	case KindGuest:
+		return GuestProfileLinux()
+	case KindPreview:
+		// A preview shows what the JAIL render produces (that is what `yolo config render`
+		// is for), so it must carry the jail's policy — previewing the guarded posture would
+		// print a file the jail never writes.
+		return JailProfile(false)
+	default: // KindHost, KindUnset
+		return HostProfile()
+	}
+}

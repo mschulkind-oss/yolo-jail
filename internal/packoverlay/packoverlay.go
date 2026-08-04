@@ -98,10 +98,17 @@ func (s *OverlaySet) For(agent, name string) []agentcfg.Overlay {
 // Collect resolves every loaded pack's config-overlay contributions against the surfaces
 // those same packs own.
 //
-// autonomy selects which posture the OWNER's surfaces render under, so the owner set
-// matches the render the overlays will fold into: the jail path passes true, the host
-// path false. It only affects which surfaces exist to be found, never the overlay
-// bodies — an overlay carries no posture.
+// autonomy is the §4.2 policy bit of the render target's confinement profile
+// (render.Target.Profile().AgentAutonomy): it selects which posture the OWNER's surfaces are
+// decoded under, so the owner set matches the render the overlays will fold into. It only
+// affects which surfaces exist to be found, never the overlay bodies — an overlay carries no
+// posture.
+//
+// Still a bool rather than a render.Profile, and the reason is scope rather than design: the
+// three callers (apply.go, packsurfaces.go, configdiff.go) each pass a literal, and taking a
+// Profile here is only an improvement if those callers derive theirs from a Target. Widening
+// the parameter without that leaves the same literals one frame further out. See plan §6c
+// step 1 for the remaining half.
 func Collect(packs []*packload.Pack, autonomy bool) *OverlaySet {
 	set := &OverlaySet{byTarget: map[manifest.SurfaceKey][]agentcfg.Overlay{}}
 
@@ -140,7 +147,7 @@ func Collect(packs []*packload.Pack, autonomy bool) *OverlaySet {
 				_, coreOwned := agentcfg.BuiltinManifest().Lookup(key.Agent, key.Name)
 				set.Orphans = append(set.Orphans, OrphanOverlay{
 					Pack: p.Name, Target: ov.Surface,
-					Owner: shippedOwnerOf(key), CoreOwned: coreOwned,
+					Owner: shippedOwnerOf(key, autonomy), CoreOwned: coreOwned,
 				})
 				continue
 			}
@@ -168,12 +175,15 @@ func Collect(packs []*packload.Pack, autonomy bool) *OverlaySet {
 //
 // Best-effort by design: an unresolvable embedded set degrades to the no-owner-anywhere
 // message, which is still correct, just less helpful.
-func shippedOwnerOf(key manifest.SurfaceKey) string {
+//
+// autonomy is the caller's, threaded rather than fixed, so no posture literal survives in this
+// package (plan §6c step 1). It cannot change the ANSWER: a posture only patches the managed
+// layer of surfaces the pack already declares (foldPostureManaged ignores a patch naming no
+// base surface), so both postures yield the same surface-identity set — which is all this
+// lookup reads.
+func shippedOwnerOf(key manifest.SurfaceKey, autonomy bool) string {
 	for _, p := range packload.Embedded() {
-		// autonomy=true: the posture only patches the managed layer of surfaces the pack
-		// already declares, so either notch yields the same identity set. true matches
-		// the boot default.
-		surfaces, _ := p.SurfacesFor(true)
+		surfaces, _ := p.SurfacesFor(autonomy)
 		for _, s := range surfaces {
 			if s.Key() == key {
 				return p.Name

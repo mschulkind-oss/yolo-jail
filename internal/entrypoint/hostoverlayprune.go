@@ -66,6 +66,7 @@ import (
 	"github.com/mschulkind-oss/yolo-jail/internal/agentcfg/manifest"
 	"github.com/mschulkind-oss/yolo-jail/internal/packload"
 	"github.com/mschulkind-oss/yolo-jail/internal/packoverlay"
+	"github.com/mschulkind-oss/yolo-jail/internal/render"
 )
 
 // HostOverlayOrphan is one config-overlay key in a rendered host surface whose contributing
@@ -115,7 +116,7 @@ func PruneHostOverlayKeys(candidates []*packload.Pack, active map[string]bool,
 	e := &Env{Home: homeDir, Vars: map[string]string{}, hostTarget: true}
 
 	var out []HostOverlayOrphan
-	for _, s := range hostOverlaySurfaces(candidates) {
+	for _, s := range hostOverlaySurfaces(candidates, e.renderTarget().Profile()) {
 		recPath := prismProvenancePath(e, s.Agent, s.Name)
 		if recPath == "" {
 			continue
@@ -270,8 +271,13 @@ func liveClaims(s manifest.Surface, overlays []agentcfg.Overlay) map[string]bool
 // declare — the files a prune pass must look at, and the only ones it can act on.
 //
 // Deduped by identity with the LAST declaration winning, matching manifest.Merge, so the
-// surface inspected is the one a render would have used. autonomy=false because the host notch
-// renders the guarded posture (§4.2), which is the posture whose record is on disk.
+// surface inspected is the one a render would have used.
+//
+// prof is the target's confinement profile, and its AgentAutonomy bit has to be the CALLER's
+// rather than a literal here — not merely for tidiness but because this pass reads a record
+// the render wrote: the surface it inspects must be the posture that is actually on disk. At
+// the host notch that is the guarded one (§4.2). A mismatch between the two would look for
+// keys in a surface no render ever produced.
 //
 // Two exclusions, both meaning "no key-level RMW is possible here", i.e. there is nothing this
 // pass could remove even in principle:
@@ -283,14 +289,14 @@ func liveClaims(s manifest.Surface, overlays []agentcfg.Overlay) map[string]bool
 // A ${workspace}-bearing PATH is excluded too. A host render has no workspace referent, so
 // such a surface never rendered here; joining the literal placeholder into a real path would
 // point this pass at a file nobody wrote.
-func hostOverlaySurfaces(candidates []*packload.Pack) []manifest.Surface {
+func hostOverlaySurfaces(candidates []*packload.Pack, prof render.Profile) []manifest.Surface {
 	byKey := map[manifest.SurfaceKey]manifest.Surface{}
 	var order []manifest.SurfaceKey
 	for _, p := range candidates {
 		if p == nil {
 			continue
 		}
-		surfaces, _ := p.SurfacesFor(false)
+		surfaces, _ := p.SurfacesFor(prof.AgentAutonomy)
 		for _, s := range surfaces {
 			if s.ResolvedMode() == manifest.ModeUnrendered {
 				continue
