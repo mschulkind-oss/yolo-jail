@@ -62,6 +62,19 @@ type HostRenderResult struct {
 	// below the owner's managed layer, so it is invisible in the resulting file, and
 	// provenance nobody can read does not make it legible. Empty for the common case.
 	Overlays []string
+	// Outranked names the overlay keys this render ACCEPTS and then BEATS: a key a
+	// config-overlay declares that the owner's own managed layer — or its guarded autonomy
+	// posture, which folds into that layer at this notch — asserts too, so the overlay's
+	// value never reaches the file. Each entry carries the contributing pack(s) and the
+	// layer that owns the key.
+	//
+	// It is Overlays' missing half, and the gap was worse than silence (finding F4): the
+	// overlay was accepted, LISTED as contributing, and then lost — while the ⚠ overwrite
+	// line fired for the same key, so the output read as though the overlay had WON. Naming
+	// the loss and its cause is what lets a reader tell "my declaration lost to a deliberate
+	// policy" from "my declaration was ignored by a bug". Empty whenever no overlay contests
+	// a managed key, which is the common case.
+	Outranked []string
 	// Pruned lists the dotted ${workspace}-keyed paths this host render DROPPED from the
 	// surface's layers, in sorted order. Non-empty means the surface carried per-jail
 	// content that has no host referent; the surface itself may still have rendered (see
@@ -157,6 +170,11 @@ func RenderHostPack(p *packload.Pack, homeDir string, observe bool, overlays *pa
 		// (hostTableKeys); the CONTENT comes from its declared layers, never from liveTables.
 		tables := hostTableKeys(p, s)
 		tableLayer := hostTableLayer(tables, s, surfaceOverlays)
+		// Which overlay keys this surface's own managed layer BEATS, computed BEFORE the strip
+		// because it reads that layer (finding F4). The mechanism is deliberate — §5 precedence
+		// plus whichever autonomy posture the surface was folded under — so this names the loss
+		// and its cause rather than changing what wins.
+		outranked, outrankedKeys := outrankedOverlayKeys(p, s, surfaceOverlays, tables)
 		s = stripTableKeys(s, tables)
 		// The OVERLAYS are deliberately NOT stripped. They are applied before the table
 		// write, so regenerateManagedTables clears whatever they merged and rewrites the block
@@ -187,8 +205,10 @@ func RenderHostPack(p *packload.Pack, homeDir string, observe bool, overlays *pa
 		// An overlay ASSERTS its keys on the host too, so a key it would clobber is the
 		// same always-warn case a managed key is (§4.2). Attributed to the contributing
 		// pack, because "which pack is about to overwrite my value" is the question R3
-		// exists to keep answerable.
-		overwrites = append(overwrites, overlayOverwrites(e, s, path, surfaceOverlays)...)
+		// exists to keep answerable — minus the keys the owner outranks, which the overlay
+		// never gets to write (see overlayOverwrites).
+		overwrites = append(overwrites,
+			overlayOverwrites(e, s, path, surfaceOverlays, outrankedKeys)...)
 		// What the wholesale table write costs, per entry. Kept SEPARATE from Overwrites —
 		// see HostRenderResult.EntryLosses for why the distinction is what makes the
 		// confirmation gate usable rather than noise.
@@ -200,7 +220,7 @@ func RenderHostPack(p *packload.Pack, homeDir string, observe bool, overlays *pa
 		if observe {
 			out = append(out, HostRenderResult{Surface: id, Path: path, Action: "would render",
 				Overwrites: overwrites, Overlays: overlayPackNames(surfaceOverlays),
-				Pruned: pruned, EntryLosses: losses,
+				Outranked: outranked, Pruned: pruned, EntryLosses: losses,
 				FirstApply: firstApply, Formatting: formatting})
 			continue
 		}
@@ -225,7 +245,7 @@ func RenderHostPack(p *packload.Pack, homeDir string, observe bool, overlays *pa
 		}
 		out = append(out, HostRenderResult{Surface: id, Path: path, Action: "rendered",
 			Overwrites: overwrites, Overlays: overlayPackNames(surfaceOverlays),
-			Pruned: pruned, EntryLosses: losses,
+			Outranked: outranked, Pruned: pruned, EntryLosses: losses,
 			FirstApply: firstApply, Formatting: formatting})
 	}
 	return out, nil
@@ -487,7 +507,15 @@ func overlayPackNames(overlays []agentcfg.Overlay) []string {
 // existing value, each labelled with the contributing pack. Same shape and same
 // best-effort JSON basis as managedOverwrites; the label is what makes the warning
 // actionable, since the remedy is dropping a different pack than the surface's owner.
-func overlayOverwrites(e *Env, s manifest.Surface, path string, overlays []agentcfg.Overlay) []string {
+//
+// outranked is the set of keys the owner's managed layer BEATS (outrankedOverlayKeys), and
+// they are excluded — the correction half of finding F4. The warning names a writer, so
+// attributing it to a pack whose value never reaches the file is a false statement about who
+// changed the value; worse, it fired on precisely the keys the overlay LOST, which is what
+// made an outranked overlay read as though it had won. The managed layer that actually
+// overwrote the value is still reported by managedOverwrites, unlabelled and truthfully.
+func overlayOverwrites(e *Env, s manifest.Surface, path string, overlays []agentcfg.Overlay,
+	outranked map[string]bool) []string {
 	if len(overlays) == 0 {
 		return nil
 	}
@@ -502,9 +530,213 @@ func overlayOverwrites(e *Env, s manifest.Surface, path string, overlays []agent
 		collectOverwrites(existing, layer, "", &keys)
 		sort.Strings(keys)
 		for _, k := range keys {
+			if outranked[k] {
+				continue
+			}
 			out = append(out, k+" (config-overlay from "+ov.Pack+")")
 		}
 	}
+	return out
+}
+
+// outrankedOverlayKeys reports the overlay keys this surface's own managed layer BEATS —
+// accepted, folded in, and then overwritten before the file is written — as report lines
+// plus the set of dotted keys they name.
+//
+// This is finding F4, and the framing matters: the PRECEDENCE is correct and deliberate
+// (config-overlay < managed, §5), and at the host notch the guarded autonomy posture folds
+// into that managed layer, so `permissions.defaultMode` landing on `default` instead of a
+// pack's `acceptEdits` is the jail-bypass-leak fix working. What was wrong was the output.
+// The overlay was accepted, LISTED as contributing (ruling R3's line), and then lost — while
+// the ⚠ overwrite warning fired for the same key, so the report read as though the overlay
+// had won. R3 made overlay contributions visible; this makes the OUTRANKED ones visible,
+// which is the difference between "my declaration lost to a stated policy" and "my
+// declaration was ignored by a bug".
+//
+// Three scoping decisions, each closing a way to cry wolf:
+//
+//   - ONLY A DIFFERING VALUE. An overlay declaring the same value the managed layer asserts
+//     is redundant, not ignored: the key lands on exactly what the pack asked for, so
+//     calling it IGNORED would send someone hunting a loss that did not happen.
+//   - THE CAUSE IS NAMED, not just the layer. A key the autonomy POSTURE asserts is owned by
+//     a notch policy, which is a different message (and a different remedy — none) than a key
+//     the pack happens to manage.
+//   - TABLES ARE COMPARED PER ENTRY. A dynamic managed table is merged by entry NAME
+//     (hostTableLayer), never deep-merged, so a contest inside one is `mcpServers.<name>`
+//     wholesale. Walking it leaf-wise would report `mcpServers.foo.type` as ignored when the
+//     entire record was replaced.
+func outrankedOverlayKeys(p *packload.Pack, s manifest.Surface, overlays []agentcfg.Overlay,
+	tables []string) ([]string, map[string]bool) {
+	managed := s.ManagedMap()
+	if len(overlays) == 0 || len(managed) == 0 {
+		return nil, nil
+	}
+	// Keyed by KEY rather than by pack, so two packs contesting one key produce ONE line
+	// naming both — which is the question a reader has ("who wanted this, and why didn't it
+	// stick?"), not "what did each pack lose".
+	byKey := map[string][]string{}
+	for _, ov := range overlays {
+		layer, isMap := ov.Data.(map[string]any)
+		if !isMap {
+			continue
+		}
+		var keys []string
+		collectOutranked(layer, managed, "", tables, &keys)
+		for _, k := range keys {
+			byKey[k] = append(byKey[k], ov.Pack)
+		}
+	}
+	if len(byKey) == 0 {
+		return nil, nil
+	}
+	set := make(map[string]bool, len(byKey))
+	out := make([]string, 0, len(byKey))
+	for _, k := range sortedStringKeys(byKey) {
+		set[k] = true
+		out = append(out, fmt.Sprintf("%s IGNORED (declared by %s, owned by %s)",
+			k, strings.Join(byKey[k], ", "), outrankingOwner(p, s, k)))
+	}
+	return out, set
+}
+
+// outrankingOwner names WHAT owns a key the managed layer beat: the pack's autonomy posture
+// when that posture is what asserts it, else the pack's own managed layer.
+//
+// The distinction is the actionable half of the report. A key the pack merely manages is a
+// pack-vs-pack precedence question the user can resolve (drop a pack, ask the owner to stop
+// managing it). A key an autonomy POSTURE owns is a notch policy — at the host notch, the
+// guarded posture holding the jail-bypass keys, which is the whole point of the autonomy-leak
+// fix — so the honest answer is that there is no remedy and none is wanted.
+//
+// Which posture is read from the pack's own DECLARATION rather than from the caller's policy
+// bit, and the reason is that this describes a render that already happened: SurfacesFor folded
+// exactly one posture into `managed`, and whichever one asserts the contested key is the one
+// that beat the overlay. So the attribution cannot drift out of step with the fold. A pack
+// declaring both postures with the key in only one gets named for that one; a pack whose
+// postures yolo cannot decode falls back to "managed layer", which is true either way (the
+// posture folds INTO it) and merely less specific.
+func outrankingOwner(p *packload.Pack, s manifest.Surface, key string) string {
+	for _, posture := range []struct {
+		name  string
+		patch map[string]any
+	}{
+		{"guarded", posturePatchManaged(p, s, false)},
+		{"autonomous", posturePatchManaged(p, s, true)},
+	} {
+		if layerAssertsPath(posture.patch, key) {
+			return p.Name + "'s " + posture.name + " autonomy posture"
+		}
+	}
+	return p.Name + "'s managed layer"
+}
+
+// collectOutranked walks an overlay layer against the owner's managed layer, appending the
+// dotted path of every key the managed layer asserts with a DIFFERENT value. A key managed
+// does not name is one the overlay wins, so it is not reported.
+//
+// Shape mismatches (managed wants an object where the overlay has a scalar, or the reverse)
+// are reported at the contested key rather than recursed into: applyRMWLayer replaces the
+// whole branch in both directions, so the overlay lost all of it, and naming the leaves
+// would overstate how much detail survived the decision.
+func collectOutranked(overlay, managed map[string]any, prefix string, tables []string, out *[]string) {
+	for _, k := range sortedKeys(overlay) {
+		mv, owned := managed[k]
+		if !owned {
+			continue // the managed layer never names this key — the overlay wins it
+		}
+		key := k
+		if prefix != "" {
+			key = prefix + "." + k
+		}
+		if prefix == "" && contains(tables, k) {
+			collectOutrankedEntries(key, overlay[k], mv, out)
+			continue
+		}
+		ovMap, ovIsMap := overlay[k].(map[string]any)
+		mvMap, mvIsMap := mv.(map[string]any)
+		if ovIsMap && mvIsMap {
+			collectOutranked(ovMap, mvMap, key, tables, out)
+			continue
+		}
+		if sameJSON(overlay[k], mv) {
+			continue // the same value: redundant, not ignored
+		}
+		*out = append(*out, key)
+	}
+}
+
+// collectOutrankedEntries compares one dynamic managed TABLE's entries by name, appending
+// "<table>.<entry>" for each entry the managed layer replaces with a different record. A
+// non-object on either side contributes no entries to hostTableLayer, so nothing is
+// outranked there.
+func collectOutrankedEntries(key string, overlay, managed any, out *[]string) {
+	ovEntries, ovIsMap := overlay.(map[string]any)
+	mEntries, mIsMap := managed.(map[string]any)
+	if !ovIsMap || !mIsMap {
+		return
+	}
+	for _, name := range sortedKeys(ovEntries) {
+		mv, owned := mEntries[name]
+		if !owned || sameJSON(ovEntries[name], mv) {
+			continue
+		}
+		*out = append(*out, key+"."+name)
+	}
+}
+
+// posturePatchManaged returns the managed keys the pack's selected autonomy posture folds
+// into this surface, or nil when it declares none.
+//
+// It re-decodes the posture rather than reading the folded result because the fold is
+// LOSSY for this question: SurfacesFor deep-merges the posture into the surface's own managed
+// layer, after which the two are indistinguishable — and telling them apart is the whole point
+// of the attribution. Decode problems are ignored: SurfacesFor already reports them against
+// the pack, and a posture yolo cannot read simply yields the less specific "managed layer"
+// wording rather than a second copy of the same complaint.
+func posturePatchManaged(p *packload.Pack, s manifest.Surface, autonomy bool) map[string]any {
+	posture := p.Decl.PostureFor(autonomy)
+	if posture == nil || len(posture.Config) == 0 {
+		return nil
+	}
+	patches, _ := manifest.DecodeSurfaces(posture.Config)
+	for _, patch := range patches {
+		if patch.Agent == s.Agent && patch.Name == s.Name {
+			return patch.ManagedMap()
+		}
+	}
+	return nil
+}
+
+// layerAssertsPath reports whether m asserts the dotted key path — including via an
+// ANCESTOR that is not an object, since a scalar there replaces the whole subtree below it.
+func layerAssertsPath(m map[string]any, dotted string) bool {
+	cur := m
+	parts := strings.Split(dotted, ".")
+	for i, part := range parts {
+		v, present := cur[part]
+		if !present {
+			return false
+		}
+		if i == len(parts)-1 {
+			return true
+		}
+		next, isMap := v.(map[string]any)
+		if !isMap {
+			return true // an ancestor asserts this whole branch
+		}
+		cur = next
+	}
+	return false
+}
+
+// sortedStringKeys returns a []string-valued map's keys in a deterministic order, so the
+// outranked report does not shuffle with Go's map iteration.
+func sortedStringKeys(m map[string][]string) []string {
+	out := make([]string, 0, len(m))
+	for k := range m {
+		out = append(out, k)
+	}
+	sort.Strings(out)
 	return out
 }
 
