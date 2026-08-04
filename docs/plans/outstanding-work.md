@@ -459,16 +459,16 @@ path to negotiate over, it is absent input to a regenerated directory.
 **What the host would need that the jail gets for free**, and why this is a decision rather than
 a patch:
 
-- **A source for the user's own layer.** In the jail, layer 4 reads `homeDir/<into>` — the host
-  home — and writes to a staging dir. At the host, source and destination are the SAME
-  directory, which is the identical problem the briefing markers were invented for. The
-  resolution is the same as the briefing ruling: **archive the pre-existing directory once**, and
-  from then on the user's own skills live in a pack (or an explicitly declared personal tree),
-  not loose in a directory yolo owns.
-- **That is a bigger ask than it is for briefings**, and it should be stated plainly to the
-  maintainer rather than assumed: a briefing is one file most users have not hand-written, while
-  `~/.claude/skills` may hold a lot of a user's own work. "Make a pack" is the right answer and
-  it is also a migration.
+- **A source for the user's own layer — RESOLVED by §6a-2's local-pack ruling.** In the jail,
+  layer 4 reads `homeDir/<into>` (the host home) and writes to a staging dir, so source and
+  destination are distinct. At the host they are the SAME directory — the identical problem the
+  briefing markers were invented for. The answer is the local pack: the user's own skills MOVE to
+  `~/.config/yolo-jail/local/skills/` once, and layer 4 reads from there forever after. Not an
+  archive, and not a new config key.
+- **It is still a bigger migration than the briefing one**, which is why §6a-2 requires a confirm
+  and a printed list of what moved: a briefing is one file most users never hand-wrote, while
+  `~/.claude/skills` may hold real work. The move makes it a no-op in effect, but it is moving
+  real files and must say so.
 - **`files` is NOT in this argument.** It is `CombineExclusive` over arbitrary paths
   (`~/.claude/bin/…`, pi's `models.json`), which are not a namespace yolo composes — there is no
   layer model to regenerate from. `hostfilestree.go`'s refuse-what-you-cannot-prove rule stays

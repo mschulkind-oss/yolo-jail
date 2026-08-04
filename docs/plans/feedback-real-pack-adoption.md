@@ -228,7 +228,7 @@ gap in a principle we thought was closed, not six unrelated papercuts.
 | 3 | **F5 + the lint rewrite** | One rule, two reports. Do them together |
 | 4 | **F4** outranked overlay key | One line of output; turns a misleading warning into stated policy |
 | 5 | **F6** tense + `--allow-exec` | Two cosmetics, genuinely cheap |
-| 6 | **F3** briefing duplication | Needs an ownership decision first — the proposed fix is half wrong |
+| — | **F3** briefing duplication | **DISSOLVED** by the Q4 briefing ruling: wholesale generation means no append, so nothing can double. The ownership decision it needed was made — yolo owns the file, and the user's prose MOVES to the local pack |
 
 ### F1 — take fix option 1, and here is why it is safe
 
@@ -298,7 +298,7 @@ its cause, as proposed.
 ### F5 — the same rule an independent audit hit, and the rule asks the wrong question
 
 Reported independently as the `pack lint` finding in
-[`stage-e-parked-items.md`](stage-e-parked-items.md) §7, where the full probe table and the
+[`outstanding-work.md`](outstanding-work.md) §7, where the full probe table and the
 recommended rewrite live. Short version: the rule asks *"did this pack stage `skills/` or
 `AGENTS.md`?"* as a proxy for *"does anything read this pack?"* — true when a pack could only
 ship content, false now that a pack contributes any of 14 kinds. A pack with **zero
