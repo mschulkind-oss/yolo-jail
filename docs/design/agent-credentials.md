@@ -154,12 +154,17 @@ Delivery differs by backend but the *resolver* is shared
   launch/bootstrap argv via `env -i K=V …`
   (`internal/macosuser/runplan.go:56-86`).
 
-**The `${VAR}` placeholder convention** ties `env_sources` to MCP: an MCP
-server's `env` value written as `"${TAVILY_API_KEY}"` is interpolated in-jail
-against the startup env (which already has `env_sources` merged), and a
-`requires_env` gate drops the server entirely if the var is empty
-([mcp-configuration.md §2](mcp-configuration.md), lines 136-155). So a secret can
-live in one unsynced dotenv file and be scoped to exactly one MCP server.
+**The `${VAR}` placeholder convention** ties `env_sources` to MCP — but as of
+2026-08-03 **yolo does not do the substituting**. An MCP server's `env` value
+written as `"${TAVILY_API_KEY}"` is passed through VERBATIM, and the agent that
+launches the server resolves it from its own environment, where `env_sources`
+values already are (`hydrateEnvFromUserEnvFile` exports them before any generator
+runs). A `requires_env` gate still drops the server entirely if the var is empty.
+See [mcp-configuration.md](mcp-configuration.md) for why yolo interpolating was
+removed: the expanded value had no provenance layer, and it sourced config content
+from process env at render time. A secret still lives in one unsynced dotenv file
+and is still scoped to exactly one MCP server — the resolution just happens one
+step later, at launch, by the consumer.
 
 ### 2.4 User-declared host files (`host_files`) — per-entry scope
 

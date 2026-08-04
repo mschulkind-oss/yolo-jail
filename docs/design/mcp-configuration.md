@@ -133,7 +133,7 @@ yolo-jail.jsonc (mcp_servers, mcp_presets)
   → validated host-side (config.py :: _validate_config)
   → shipped into the jail as env: YOLO_MCP_SERVERS / YOLO_MCP_PRESETS (json.dumps'd)
   → in-jail _load_mcp_servers(): expand presets → merge custom (override / add /
-      null-remove) → requires_env gate → ${VAR} interpolation
+      null-remove) → requires_env gate   [NO ${VAR} interpolation — see below]
   → per-agent configure_*(): translate the ONE shared server dict into each
       agent's native config format
 ```
@@ -151,26 +151,44 @@ Key facts:
   `requires_env` key is stripped before it reaches the agent. This lives in the
   single shared loader, so it applies **identically** to every MCP-enabled
   agent.
-- **`${VAR}`** is interpolated against the jail's startup env (which already has
-  `env_sources` merged), so a secret can live in one unsynced file and be scoped
-  to one server. The interpolated fields are **`env` and `headers`** (dicts of
-  strings) and **`url`** (a scalar). `url` was added because the `http`/`sse`
-  transports are otherwise unusable with any secret: the canonical remote-MCP
-  form puts the credential in the query string
-  (`https://mcp.tavily.com/mcp/?tavilyApiKey=${TAVILY_API_KEY}`), and with
-  expansion limited to `env` that landed verbatim and the server 401'd silently.
-  `command`/`args` are deliberately **not** interpolated — every value yolo puts
-  there is a path yolo computed, and a `${VAR}` in an argv position is a
-  command-injection surface rather than a convenience. An unresolved variable is
-  left **literal** (never blanked, which would turn a missing credential into a
-  well-formed request that fails at the server) and produces one sorted warning
-  naming the variable and pointing at `env_sources`.
-- **The HOST notch resolves nothing.** `yolo apply --host` has no startup env and
-  no `env_sources` resolution, so a `${VAR}` in pack content reaches your real
-  `~/.claude.json` literally. That is reported per surface rather than resolved:
-  writing the plaintext secret into a file whose lifecycle yolo does not own
-  would defeat the point of keeping it in one untracked file. See
-  `hostUnresolvedVars`.
+- **`${VAR}` IS NOT INTERPOLATED — by yolo, at any notch.** Removed 2026-08-03
+  (maintainer ruling). yolo writes the reference **verbatim** into every field,
+  and whoever launches the server resolves it from their own environment.
+
+  It used to expand `env`, `headers`, and `url` against the jail's startup env.
+  Two independent reasons that was wrong:
+
+  1. **The value had no LAYER.** Every other value in a rendered surface has a
+     provenance answer (`defaults` / `host` / `config-overlay:<pack>` / `managed` /
+     `computed` / `retired:<layer>`), and the host-render story depends on being
+     able to ask *who set this key*. An interpolated secret entered the file
+     without passing through any layer, so `config diff` could not attribute it
+     and the orphaned-key prune could not tell yolo's output from the user's.
+  2. **It sourced config CONTENT from process env at render time.** `env_sources`
+     is a jail-*provisioning* input — what the container's environment contains.
+     Using it as a rendering input made the bytes written to a config file depend
+     on the ambient environment of whoever ran the render, which is the one input
+     the confinement model deliberately does not treat as configuration.
+
+  It was also **unnecessary**, which is what made the tradeoff one-sided:
+  `hydrateEnvFromUserEnvFile` does `os.Setenv` for every `env_sources` var before
+  any generator runs, so those variables are already in the environment of every
+  process the entrypoint spawns. Verified: a non-interactive `sh -c` and a bare
+  `execve`'d python both see them, `env -i` clears them (so it is process-env
+  inheritance, not a sourced rc file), and boot-time daemons carry them in
+  `/proc/<pid>/environ`. The consuming agent can resolve `${VAR}` itself; yolo
+  resolving first bought nothing and wrote a plaintext secret to disk.
+
+  If a real need for declared secret references appears, the honest form is a
+  **layer** with provenance, resolved at launch — not a string substitution during
+  render.
+- **Both notches now agree, and nothing warns.** The jail and `apply --host` write
+  the same literal. The old host-side `${VAR}` warning is gone with the mechanism
+  it existed to paper over: its first remedy was *"put the value in the file
+  directly"* (advice to inline a live credential into a file a pack may carry), and
+  it was surface-wide, so it flagged the `env` case — where a literal `${VAR}` is
+  exactly the desired content, because the launching agent expands it — in the same
+  words as the `url` case.
 
 ### Per-agent translation
 
@@ -262,8 +280,11 @@ config and exposes the servers as pi tools. The important findings:
     }
   }
   ```
-  Notably, `${VAR}` interpolation and `env` maps are supported by pi the same way
-  we already produce them — the tavily config we ship is **verbatim compatible**.
+  Notably `env` maps are supported by pi the same way we already produce them — the
+  tavily config we ship is **verbatim compatible**. pi also expands `${VAR}` itself,
+  which since 2026-08-03 is the ONLY expansion in the picture: yolo passes the
+  reference through untouched and the consuming agent resolves it (see the `${VAR}`
+  bullet above).
 
 - **Auto-read:** once the adapter is enabled, it reads the standard config files
   automatically — no per-server wiring inside pi. An interactive `/mcp` panel

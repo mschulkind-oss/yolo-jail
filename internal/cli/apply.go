@@ -352,15 +352,6 @@ func applyHost(out, errw io.Writer, color bool, write bool, stdin io.Reader) int
 			for _, f := range r.Formatting {
 				pr.Printf("    [yellow]⚠ %s[/yellow]", f)
 			}
-			// ${VAR} references that reach the file LITERAL. A host apply resolves no
-			// variables, so this is not a "might" — it is what is in the file, and for an MCP
-			// url it means the server 401s with no other signal.
-			if len(r.UnresolvedVars) > 0 {
-				pr.Printf("    [yellow]⚠ ${%s} written LITERALLY — apply --host does not "+
-					"resolve variables; put the value in the file directly, or manage this "+
-					"server in the jail, where `env_sources` expands it[/yellow]",
-					strings.Join(r.UnresolvedVars, "}, ${"))
-			}
 		}
 	}
 

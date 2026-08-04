@@ -68,12 +68,6 @@ type HostRenderResult struct {
 	// pruneWorkspaceKeyed for why the two are now independent). Reported by name, never
 	// silently — a pruned key is a declaration the user made that yolo chose not to honor.
 	Pruned []string
-	// UnresolvedVars names the ${VAR} references left LITERAL in what this render writes,
-	// sorted and deduped. A host apply resolves no variables (see hostUnresolvedVars), so
-	// any reference in pack content lands verbatim in the user's file — which for an MCP
-	// server's `url` means a silent 401. Reporting them is the host-side counterpart of
-	// interpolateEnv's own unresolved-variable warning.
-	UnresolvedVars []string
 	// EntryLosses reports the NAMED-ENTRY casualties of this render: an entry in a table
 	// like `mcpServers` that the render mangles or destroys, rather than a key whose value
 	// merely changes. Split from Overwrites because the two need different treatment and the
@@ -181,7 +175,6 @@ func RenderHostPack(p *packload.Pack, homeDir string, observe bool, overlays *pa
 				Action: "refused: " + refusal.Reason()})
 			continue
 		}
-		unresolved := hostUnresolvedVars(s, surfaceOverlays)
 		// FIRST-APPLY detection, read BEFORE the write: the provenance record is the only
 		// per-home mark yolo leaves at this notch, so its absence is what "yolo has never
 		// asserted this surface here" means. Computed for both postures, because observe's
@@ -207,7 +200,7 @@ func RenderHostPack(p *packload.Pack, homeDir string, observe bool, overlays *pa
 		if observe {
 			out = append(out, HostRenderResult{Surface: id, Path: path, Action: "would render",
 				Overwrites: overwrites, Overlays: overlayPackNames(surfaceOverlays),
-				Pruned: pruned, UnresolvedVars: unresolved, EntryLosses: losses,
+				Pruned: pruned, EntryLosses: losses,
 				FirstApply: firstApply, Formatting: formatting})
 			continue
 		}
@@ -232,7 +225,7 @@ func RenderHostPack(p *packload.Pack, homeDir string, observe bool, overlays *pa
 		}
 		out = append(out, HostRenderResult{Surface: id, Path: path, Action: "rendered",
 			Overwrites: overwrites, Overlays: overlayPackNames(surfaceOverlays),
-			Pruned: pruned, UnresolvedVars: unresolved, EntryLosses: losses,
+			Pruned: pruned, EntryLosses: losses,
 			FirstApply: firstApply, Formatting: formatting})
 	}
 	return out, nil
@@ -703,49 +696,18 @@ func layerIsEmpty(v any) bool {
 	return false
 }
 
-// hostUnresolvedVars names every ${VAR} reference left LITERAL in what a host render is
-// about to write — the surface's own layers plus the overlays folded into it.
+// There is no ${VAR} reporting here any more, and its absence is deliberate (2026-08-03).
 //
-// It exists because interpolation is a JAIL facility. e.Vars is empty on a host Env and
-// nothing resolves env_sources for `apply --host`, while pack content is never interpolated
-// at all (packload/packoverlay/agentcfg do no substitution) — so a ${TAVILY_API_KEY} inside
-// an MCP server's url reaches the user's ~/.claude.json verbatim and the server 401s with
-// nothing said. Warning is the fix, and deliberately NOT resolution: resolving would write
-// the plaintext secret into a config file whose lifecycle yolo does not own, when the whole
-// point of env_sources is that the secret lives in one untracked file. So the host reports
-// the literal and lets the user decide.
+// A host render never resolved variables, so this file used to name every ${VAR} that reached
+// the user's config LITERAL, on the theory that an unresolved reference in an MCP `url` is a
+// silent 401. Two things were wrong with it. The message's first remedy was "put the value in
+// the file directly" — advice to inline a live credential into a file a pack may carry. And it
+// was surface-wide, blind to WHERE the reference sat, so it flagged the `env` case where a
+// literal ${VAR} is the correct and desired content (the launching agent expands it) with the
+// same words as the `url` case where it is not.
 //
-// Sorted and deduped, so the report is deterministic and a variable used twice is named once.
-func hostUnresolvedVars(s manifest.Surface, overlays []agentcfg.Overlay) []string {
-	var found []string
-	collectVarRefs(s.Defaults, &found)
-	collectVarRefs(s.Managed, &found)
-	for _, ov := range overlays {
-		collectVarRefs(ov.Data, &found)
-	}
-	if len(found) == 0 {
-		return nil
-	}
-	return sortedUnique(found)
-}
-
-// collectVarRefs walks any decoded layer value, appending every ${VAR} name found in a
-// string (keys included — a placeholder in a key would land just as literally as one in a
-// value).
-func collectVarRefs(v any, out *[]string) {
-	switch t := v.(type) {
-	case string:
-		for _, m := range envVarPattern.FindAllStringSubmatch(t, -1) {
-			*out = append(*out, m[1])
-		}
-	case map[string]any:
-		for _, k := range sortedKeys(t) {
-			collectVarRefs(k, out)
-			collectVarRefs(t[k], out)
-		}
-	case []any:
-		for _, item := range t {
-			collectVarRefs(item, out)
-		}
-	}
-}
+// The warning existed to paper over yolo's own jail-side interpolation, which has since been
+// removed for structural reasons (see the long note in mcp.go). With yolo out of the
+// resolution business at BOTH notches, the two notches agree: the literal is what gets
+// written, and whoever launches the server resolves it. There is nothing asymmetric left to
+// warn about.

@@ -17,6 +17,7 @@ package entrypoint
 
 import (
 	"encoding/json"
+	"fmt"
 	"os"
 	"path/filepath"
 	"strings"
@@ -327,37 +328,37 @@ func TestHostClaudeJSONSecondAssertIsByteIdentical(t *testing.T) {
 	}
 }
 
-// A ${VAR} in pack content reaching the host is reported, never silent. The host resolves no
-// variables — nothing feeds env_sources into `apply --host` — so a ${TAVILY_API_KEY} in a
-// server's url lands LITERAL and the server 401s with no other signal. Warning is the fix;
-// resolving would put the plaintext secret in a file whose lifecycle yolo does not own.
-func TestHostMCPUnresolvedVarIsReported(t *testing.T) {
+// A ${VAR} in pack content reaches the host LITERAL and yolo says nothing about it. Both
+// halves are the point, and both are a deliberate 2026-08-03 reversal:
+//
+//   - LITERAL, because a host render resolves no variables and (since the jail-side
+//     interpolation was removed) neither notch does. Whoever launches the server resolves it.
+//   - UNREPORTED, because the warning that used to fire here recommended "put the value in
+//     the file directly" — inlining a live credential into a file a pack may carry — and was
+//     surface-wide, so it flagged the `env` case (where a literal ${VAR} is exactly right)
+//     with the same words as the `url` case.
+func TestHostMCPUnresolvedVarIsWrittenLiterallyAndNotReported(t *testing.T) {
 	home := t.TempDir()
+	url := "https://mcp.tavily.com/mcp/?tavilyApiKey=${TAVILY_API_KEY}"
+	// observe=false: the file must actually be WRITTEN, since the second half of this test
+	// asserts what reached the user's config, not what a preview said.
 	results := hostRenderClaude(t, home, false, mcpOverlayPack(t, map[string]any{
-		"tavily": map[string]any{
-			"type": "http",
-			"url":  "https://mcp.tavily.com/mcp/?tavilyApiKey=${TAVILY_API_KEY}",
-		},
+		"tavily": map[string]any{"type": "http", "url": url},
 	}))
 	r := resultFor(t, results, "claude/config")
-	if len(r.UnresolvedVars) == 0 {
-		t.Fatalf("a ${VAR} written literally into the user's real home must be reported; "+
-			"got %+v", r)
+	// Nothing in the report may name the variable — that is the removed warning.
+	for _, field := range []string{r.Action, strings.Join(r.Pruned, " "), strings.Join(r.Overwrites, " ")} {
+		if strings.Contains(field, "TAVILY_API_KEY") || strings.Contains(field, "LITERALLY") {
+			t.Errorf("the ${VAR} warning is gone by ruling; report still mentions it: %q", field)
+		}
 	}
-	if r.UnresolvedVars[0] != "TAVILY_API_KEY" {
-		t.Errorf("the report must NAME the variable, got %v", r.UnresolvedVars)
+	// And the file carries the reference VERBATIM — not resolved, and not blanked.
+	data, err := os.ReadFile(filepath.Join(home, ".claude.json"))
+	if err != nil {
+		t.Fatalf("read rendered config: %v", err)
 	}
-}
-
-// Content with no ${VAR} reports none — the quiet-by-default half, so the warning keeps
-// meaning something.
-func TestHostMCPNoVarsIsQuiet(t *testing.T) {
-	home := t.TempDir()
-	results := hostRenderClaude(t, home, false, mcpOverlayPack(t, map[string]any{
-		"tavily": map[string]any{"type": "http", "url": "https://example/mcp"},
-	}))
-	if r := resultFor(t, results, "claude/config"); len(r.UnresolvedVars) != 0 {
-		t.Errorf("no ${VAR} in the content, so nothing to report; got %v", r.UnresolvedVars)
+	if !strings.Contains(string(data), "${TAVILY_API_KEY}") {
+		t.Errorf("the ${VAR} must reach the file LITERAL, got:\n%s", data)
 	}
 }
 
@@ -592,70 +593,70 @@ func mcpEnv(serversJSON string, vars map[string]string) (*Env, *strings.Builder)
 	return e, &errw
 }
 
-// A ${VAR} in `url` EXPANDS in the jail, where env_sources has already been merged into the
-// startup env. This is the case that was silently broken.
-func TestJailMCPInterpolatesURL(t *testing.T) {
+// ${VAR} INTERPOLATION IS GONE FROM THE JAIL TOO (2026-08-03 ruling). yolo writes the
+// reference verbatim into every field, and the agent that launches the server resolves it
+// from its own environment — where env_sources values already are, because
+// hydrateEnvFromUserEnvFile os.Setenv's them before any generator runs.
+//
+// This replaces three tests that pinned the opposite (url expanded, headers expanded, an
+// unresolved url warned). They are not weakened, they are REVERSED: the reason is structural
+// and recorded at length in mcp.go — an interpolated value has no provenance LAYER, and
+// sourcing config content from process env at render time makes the rendered bytes depend on
+// the ambient environment of whoever ran the render.
+//
+// One table covering every field the old code touched, plus the two it deliberately never
+// did, so "yolo does not interpolate ANY field" is asserted rather than implied by three
+// separate examples.
+func TestJailMCPNeverInterpolatesAnyField(t *testing.T) {
 	e, errw := mcpEnv(
-		`{"tavily":{"type":"http","url":"https://mcp.tavily.com/mcp/?tavilyApiKey=${TAVILY_API_KEY}"}}`,
-		map[string]string{"TAVILY_API_KEY": "tvly-secret"})
+		`{"tavily":{"type":"http","url":"https://x/?k=${SECRET}",`+
+			`"headers":{"Authorization":"Bearer ${SECRET}"},`+
+			`"env":{"KEY":"${SECRET}"},`+
+			`"command":"${SECRET}","args":["${SECRET}"]}}`,
+		map[string]string{"SECRET": "tvly-resolved-value"})
 	got := prismMap(e.LoadMCPServers())
 	entry, _ := got["tavily"].(map[string]any)
 	if entry == nil {
 		t.Fatalf("server missing: %#v", got)
 	}
-	if want := "https://mcp.tavily.com/mcp/?tavilyApiKey=tvly-secret"; entry["url"] != want {
-		t.Errorf("url did not expand:\n got %v\nwant %s", entry["url"], want)
+	if entry["url"] != "https://x/?k=${SECRET}" {
+		t.Errorf("url must stay literal, got %v", entry["url"])
 	}
+	if h, _ := entry["headers"].(map[string]any); h["Authorization"] != "Bearer ${SECRET}" {
+		t.Errorf("headers must stay literal, got %v", entry["headers"])
+	}
+	if ev, _ := entry["env"].(map[string]any); ev["KEY"] != "${SECRET}" {
+		t.Errorf("env must stay literal, got %v", entry["env"])
+	}
+	if entry["command"] != "${SECRET}" {
+		t.Errorf("command must stay literal, got %v", entry["command"])
+	}
+	if args, _ := entry["args"].([]any); len(args) != 1 || args[0] != "${SECRET}" {
+		t.Errorf("args must stay literal, got %v", entry["args"])
+	}
+	// THE SECRET MUST NOT APPEAR ANYWHERE. This is the assertion that would have caught the
+	// old behavior no matter which field carried the reference.
+	if blob := fmt.Sprintf("%v", got); strings.Contains(blob, "tvly-resolved-value") {
+		t.Errorf("a resolvable value leaked into the rendered config: %s", blob)
+	}
+	// And no warning: yolo has no opinion about a reference it does not resolve.
 	if errw.String() != "" {
-		t.Errorf("a resolvable variable must not warn: %q", errw.String())
+		t.Errorf("yolo must say nothing about ${VAR} now, got %q", errw.String())
 	}
 }
 
-// `headers` — the other place an http server's credential can go — expands too.
-func TestJailMCPInterpolatesHeaders(t *testing.T) {
-	e, _ := mcpEnv(
-		`{"remote":{"type":"http","url":"https://x/mcp","headers":{"Authorization":"Bearer ${TOK}"}}}`,
-		map[string]string{"TOK": "abc123"})
-	got := prismMap(e.LoadMCPServers())
-	entry, _ := got["remote"].(map[string]any)
-	headers, _ := entry["headers"].(map[string]any)
-	if headers["Authorization"] != "Bearer abc123" {
-		t.Errorf("headers did not expand: %#v", headers)
-	}
-}
-
-// An UNRESOLVED variable is left literal AND warned about — never blanked (which would turn
-// a missing credential into a well-formed request that fails at the server) and never silent
-// (which is the failure mode this whole item is about).
-func TestJailMCPUnresolvedURLVarWarns(t *testing.T) {
+// An UNDEFINED variable is treated identically to a defined one — literal, no warning. Pinned
+// separately because the old code's whole justification was that this case "silently 401s",
+// and the answer is now that resolution is not yolo's job in either direction.
+func TestJailMCPUndefinedVarIsAlsoJustLiteral(t *testing.T) {
 	e, errw := mcpEnv(`{"tavily":{"type":"http","url":"https://x/?k=${MISSING_KEY}"}}`, nil)
 	got := prismMap(e.LoadMCPServers())
 	entry, _ := got["tavily"].(map[string]any)
 	if entry["url"] != "https://x/?k=${MISSING_KEY}" {
-		t.Errorf("an unresolved var must stay LITERAL, got %v", entry["url"])
+		t.Errorf("must stay literal, got %v", entry["url"])
 	}
-	if !strings.Contains(errw.String(), "MISSING_KEY") {
-		t.Errorf("an unresolved var must be warned about by name, got %q", errw.String())
-	}
-	if !strings.Contains(errw.String(), "env_sources") {
-		t.Errorf("the warning must name the remedy, got %q", errw.String())
-	}
-}
-
-// `command` and `args` are deliberately NOT interpolated: every value yolo puts there is a
-// path yolo computed, and a ${VAR} in an argv position is a command-injection surface rather
-// than a convenience. Pinned so the line is a decision, not an accident someone "fixes".
-func TestJailMCPDoesNotInterpolateCommandOrArgs(t *testing.T) {
-	e, _ := mcpEnv(`{"s":{"command":"${EVIL}","args":["${EVIL}"]}}`,
-		map[string]string{"EVIL": "rm -rf /"})
-	got := prismMap(e.LoadMCPServers())
-	entry, _ := got["s"].(map[string]any)
-	if entry["command"] != "${EVIL}" {
-		t.Errorf("command must NOT be interpolated, got %v", entry["command"])
-	}
-	args, _ := entry["args"].([]any)
-	if len(args) != 1 || args[0] != "${EVIL}" {
-		t.Errorf("args must NOT be interpolated, got %v", args)
+	if errw.String() != "" {
+		t.Errorf("no warning for an undefined var either, got %q", errw.String())
 	}
 }
 

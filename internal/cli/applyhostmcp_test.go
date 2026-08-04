@@ -82,9 +82,12 @@ func TestApplyHostInstallsMCPServerAndNamesPrunedKeys(t *testing.T) {
 				want, report)
 		}
 	}
-	// The literal ${VAR} warning (§3): it is in the file, so it must be in the output.
-	if !strings.Contains(report, "TAVILY_API_KEY") {
-		t.Errorf("a ${VAR} written literally must be warned about:\n%s", report)
+	// The ${VAR} warning was REMOVED by ruling (2026-08-03): yolo resolves no variables at
+	// either notch, so a literal reference is the expected content rather than a hazard, and
+	// the old message's "put the value in the file directly" was advice to inline a live
+	// credential. Asserted as ABSENT so the removal cannot silently regress.
+	if strings.Contains(report, "written LITERALLY") {
+		t.Errorf("the ${VAR} warning is gone by ruling; still present:\n%s", report)
 	}
 
 	data, err := os.ReadFile(filepath.Join(home, ".claude.json"))

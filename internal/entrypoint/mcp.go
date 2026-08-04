@@ -2,8 +2,6 @@ package entrypoint
 
 import (
 	"path/filepath"
-	"regexp"
-	"sort"
 	"strings"
 
 	"github.com/mschulkind-oss/yolo-jail/internal/jsonx"
@@ -32,71 +30,36 @@ func LoadLSPServers(e *Env) *jsonx.OrderedMap {
 	return servers
 }
 
-var envVarPattern = regexp.MustCompile(`\$\{([A-Za-z_][A-Za-z0-9_]*)\}`)
-
-// interpolateEnv expand ${VAR} in the
-// values of an env dict against e.Vars. Undefined vars are left literal and a
-// single sorted warning is emitted. Non-string values pass through untouched.
-// Returns a new OrderedMap preserving key order.
+// ${VAR} INTERPOLATION WAS REMOVED (2026-08-03), deliberately and by ruling. Do not add it
+// back as a convenience; the reason is structural, not stylistic.
 //
-// Also serves `headers` (see interpolatedDictFields) — the walk is "expand every string
-// value of a dict", which is the same operation, so a second copy would only be a second
-// place for the warning to go missing.
-func (e *Env) interpolateEnv(env *jsonx.OrderedMap) *jsonx.OrderedMap {
-	resolved := jsonx.NewOrderedMap()
-	var unresolved []string
-	for _, k := range env.Keys() {
-		v, _ := env.Get(k)
-		s, isStr := v.(string)
-		if !isStr {
-			resolved.Set(k, v)
-			continue
-		}
-		resolved.Set(k, e.expandVars(s, &unresolved))
-	}
-	e.warnUnresolved(unresolved)
-	return resolved
-}
-
-// interpolateString expands ${VAR} in ONE string, warning on anything unresolved — the
-// single-value form of interpolateEnv, for the scalar fields (`url`).
+// yolo used to expand ${VAR} in an MCP server's `env`, `headers`, and `url` against e.Vars
+// (hydrated from env_sources at boot). Two independent reasons it was wrong:
 //
-// Same warn-don't-fail contract, and that matters most here: an unresolved ${VAR} in a url
-// is a working-looking config whose server 401s, so the literal must never pass silently.
-func (e *Env) interpolateString(s string) string {
-	var unresolved []string
-	out := e.expandVars(s, &unresolved)
-	e.warnUnresolved(unresolved)
-	return out
-}
-
-// expandVars replaces every ${VAR} in s with its value from e.Vars, appending the names it
-// could not resolve to unresolved and leaving those references LITERAL. The literal is
-// deliberate — substituting an empty string would turn a missing credential into a request
-// that looks well-formed and fails at the server.
-func (e *Env) expandVars(s string, unresolved *[]string) string {
-	return envVarPattern.ReplaceAllStringFunc(s, func(match string) string {
-		name := match[2 : len(match)-1]
-		if val, ok := e.Lookup(name); ok {
-			return val
-		}
-		*unresolved = append(*unresolved, name)
-		return match
-	})
-}
-
-// warnUnresolved emits ONE sorted warning naming every variable a server entry referenced
-// but yolo could not resolve, or nothing when they all resolved. The remedy is named because
-// "undefined variable" without it sends people to their shell rather than to env_sources,
-// which is the one place a secret is supposed to live.
-func (e *Env) warnUnresolved(unresolved []string) {
-	if len(unresolved) == 0 {
-		return
-	}
-	e.warn("warning: MCP config references undefined variable(s): " +
-		strings.Join(sortedUnique(unresolved), ", ") +
-		" — left literal; define them in an `env_sources` file")
-}
+//  1. THE VALUE HAD NO LAYER. Every other value in a rendered surface has a provenance
+//     answer — defaults / host / config-overlay:<pack> / managed / computed / retired:<layer>
+//     — and the whole host-render story depends on being able to ask "who set this key?".
+//     An interpolated secret entered the file without passing through any layer, so
+//     `config diff` could not attribute it and the orphan-key prune could not tell yolo's
+//     output from the user's. It was a value sneaking in the side door.
+//  2. IT SOURCED CONFIG CONTENT FROM PROCESS ENV AT RENDER TIME. env_sources is a
+//     jail-PROVISIONING input (what the container's environment contains). Using it as a
+//     rendering input made the bytes written to a config file depend on the ambient
+//     environment of whoever ran the render — the one input the confinement model
+//     deliberately does not treat as configuration.
+//
+// It was also unnecessary, which is what made the tradeoff one-sided. hydrateEnvFromUserEnvFile
+// does os.Setenv for every env_sources var before any generator runs (boot.go), so those
+// variables are already in the environment of every process the entrypoint spawns — verified:
+// a non-interactive `sh -c` and a bare execve'd python both see them, `env -i` clears them
+// (proving process-env inheritance rather than a sourced rc file), and boot-time daemons carry
+// them in /proc/<pid>/environ. So the consuming agent can resolve ${VAR} itself. yolo resolving
+// first bought nothing and wrote a plaintext secret into a config file it does not own.
+//
+// Consequence to expect: yolo writes the literal ${VAR} and the consumer resolves it or does
+// not. If it does not, that is the consumer's decision to own, not a gap for yolo to paper
+// over. If a real need for declared secret references appears, the honest form is a LAYER with
+// provenance resolved at launch — not a string substitution during render.
 
 func (e *Env) chromeDevtoolsArgs() []any {
 	npmBin := e.NpmBin()
@@ -211,68 +174,7 @@ func (e *Env) LoadMCPServers() *jsonx.OrderedMap {
 		}
 	}
 
-	// Expand ${VAR} in the interpolated fields, preserving each existing key's
-	// position.
-	for _, name := range servers.Keys() {
-		v, _ := servers.Get(name)
-		cfg, ok := v.(*jsonx.OrderedMap)
-		if !ok {
-			continue
-		}
-		servers.Set(name, e.interpolateServer(cfg))
-	}
 	return servers
-}
-
-// interpolatedStringFields are the server fields whose STRING value gets ${VAR} expansion,
-// beside the `env` dict that has always had it.
-//
-// `url` is here because the http/sse transports are otherwise unusable with any secret. The
-// canonical remote-MCP form embeds the credential in the query string —
-// "https://mcp.tavily.com/mcp/?tavilyApiKey=${TAVILY_API_KEY}" — and with expansion limited
-// to `env` that landed VERBATIM in the config and the server answered 401 with nothing said.
-// A stdio server can route a secret through `env`; an http one has nowhere else to put it.
-//
-// This also brings yolo in line with Claude Code's own documented expansion set for
-// .mcp.json (command, args, env, url, headers). `headers` is a dict, so it goes through the
-// same walk `env` does (see interpolateServer); `command` and `args` are deliberately NOT
-// interpolated here — see interpolateServer for why that is a separate decision.
-var interpolatedStringFields = []string{"url"}
-
-// interpolatedDictFields are the server fields that are dicts of strings, each value
-// interpolated. `env` is the original; `headers` is the http-transport equivalent, and the
-// one place other than `url` a remote server's credential can go.
-var interpolatedDictFields = []string{"env", "headers"}
-
-// interpolateServer expands ${VAR} in one server entry's interpolated fields, returning a new
-// OrderedMap with every key in its original position.
-//
-// WHAT IS NOT INTERPOLATED, and why it is a deliberate line rather than an oversight:
-// `command` and `args`. Every value yolo puts there today is a path yolo itself computed
-// (the mcp-wrappers node shim, an npm bin), and a ${VAR} in an argv position is the one
-// place an expansion becomes a command-injection surface rather than a convenience. Claude
-// Code expands them in .mcp.json; yolo declining to is the more conservative half of the
-// difference, and a stdio server's secret belongs in `env` regardless. If a concrete need
-// appears, adding "command" to interpolatedStringFields is the whole change.
-func (e *Env) interpolateServer(cfg *jsonx.OrderedMap) *jsonx.OrderedMap {
-	rebuilt := jsonx.NewOrderedMap()
-	for _, k := range cfg.Keys() {
-		v, _ := cfg.Get(k)
-		if contains(interpolatedDictFields, k) {
-			if dict, isMap := v.(*jsonx.OrderedMap); isMap {
-				rebuilt.Set(k, e.interpolateEnv(dict))
-				continue
-			}
-		}
-		if contains(interpolatedStringFields, k) {
-			if s, isStr := v.(string); isStr {
-				rebuilt.Set(k, e.interpolateString(s))
-				continue
-			}
-		}
-		rebuilt.Set(k, v)
-	}
-	return rebuilt
 }
 
 // contains reports whether list holds s.
@@ -283,19 +185,6 @@ func contains(list []string, s string) bool {
 		}
 	}
 	return false
-}
-
-func sortedUnique(in []string) []string {
-	seen := map[string]struct{}{}
-	var out []string
-	for _, s := range in {
-		if _, ok := seen[s]; !ok {
-			seen[s] = struct{}{}
-			out = append(out, s)
-		}
-	}
-	sort.Strings(out)
-	return out
 }
 
 // LoadMCPPresetNames returns the enabled MCP preset names from YOLO_MCP_PRESETS, in
