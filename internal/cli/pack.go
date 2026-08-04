@@ -110,6 +110,7 @@ every loaded pack's host access is listed in the startup banner each launch.
   yolo pack explain <name>    show which files a pack stages, and what it dropped
   yolo pack footprint [ref]   what packs claim on the environment + collisions;
                               [ref] = an embedded name OR a local path / file:// pack
+                              --allow-exec  same as lint's: inspect a pack shipping an executable
   yolo pack install           fetch configured packs, write the lockfile, approve host access
   yolo pack update            same as install (re-fetch; reports moved pins, re-approves new access)
   yolo pack status            show locked commits, and flag config/lock drift
@@ -343,34 +344,84 @@ func packLint(args []string, out, errw io.Writer, color bool) int {
 	//
 	// The conventional dir is deliberately exempt (the same line packload.SkillsSourceDir
 	// draws): a pack whose contribution exists only to NAME a destination other packs merge
-	// into carries no skills of its own, and that is what all six shipped packs do. The
-	// "nothing reads this pack" check below still covers a pack that stages no content at all.
+	// into carries no skills of its own, and that is what all six shipped packs do. That
+	// exemption is STILL load-bearing after the rewrite below — the two checks that replaced
+	// "nothing reads this pack" ask about the pack as a whole, and a shipped pack passes both
+	// (it has contributions, and it stages no unclaimed content), so neither one would silence
+	// a per-contribution complaint about `skills/` being absent. Resolved through
+	// SkillsSource() rather than `from` directly, so an OMITTED `from` (which resolves to the
+	// convention) is exempt for the same reason an explicit `"skills"` is.
+	missingSkillsSource := false
 	for _, c := range pack.Decl.Contributions() {
-		if c.Kind != packdecl.KindSkills || path.Clean(c.SkillsSource()) == packdecl.DefaultSkillsDir {
+		if c.Kind != packdecl.KindSkills {
 			continue
 		}
-		if !stagedUnder(res.Staged, c.From) {
+		src := c.SkillsSource()
+		if path.Clean(src) == packdecl.DefaultSkillsDir {
+			continue
+		}
+		if !stagedUnder(res.Staged, src) {
+			missingSkillsSource = true
 			problems = append(problems, fmt.Sprintf(
 				"skills `from` is %q, but nothing stages under %s/ — that contribution would "+
 					"deliver no skills (check the path, and any only/exclude filters)",
-				c.From, strings.TrimSuffix(c.From, "/")))
+				src, strings.TrimSuffix(src, "/")))
 		}
 	}
 
-	hasSkills, hasBriefing := false, false
-	for _, root := range skillRoots {
-		if stagedUnder(res.Staged, root) {
-			hasSkills = true
+	// The two checks below replaced ONE bad one: "pack has neither a skills/ dir nor an
+	// AGENTS.md — it would stage files nothing reads". That rule asked "did this pack stage
+	// skills/ or AGENTS.md?" as a proxy for "does anything read this pack?", which was true
+	// when a pack could only ship content and is false now that a pack contributes any of 14
+	// kinds. It rejected all six packs yolo ships, and a real user's `files`+`config-overlay`
+	// pack — and, decisively, it gave a pack that does ABSOLUTELY NOTHING the identical
+	// message, so it was useless in the one case it existed for.
+	//
+	// The two honest questions, separated (docs/plans/outstanding-work.md §7):
+	claimed, unclaimed := stagedContent(res.Staged, pack, skillRoots)
+
+	// The two are MUTUALLY EXCLUSIVE by construction, not by accident: a pack that declares
+	// nothing gets question 1's answer and a pack that declares something gets question 2's,
+	// so one mistake never draws two lines. The old rule's failure was the opposite — one line
+	// for two unrelated mistakes.
+	//
+	// And both yield to the per-contribution complaint above. A typo'd `from` leaves the pack's
+	// real skills tree unclaimed, so question 2 fires too — with advice ("move them under
+	// skills/") that the author has ALREADY followed. The specific diagnosis is the correct
+	// one, and printing a second, contradictory line beside it is how a fixed rule becomes new
+	// noise.
+	switch {
+	case missingSkillsSource:
+		// Already diagnosed, precisely.
+	// 1. DOES THIS PACK DO ANYTHING? Zero declared contributions AND nothing a reader picks
+	//    up by convention. Both halves are required: the pack `pack init` scaffolds has no
+	//    pack.json at all, and the jail's zero-ceremony merge still delivers its skills/ tree
+	//    and its AGENTS.md (packload.SkillsSourceDirs' undeclared fallback,
+	//    run.readPackBriefing) — so "declares nothing" alone would fail-lint the scaffold.
+	case len(pack.Decl.Contributions()) == 0 && len(claimed) == 0:
+		msg := "pack declares ZERO contributions and ships nothing read by convention — it " +
+			"would do nothing in a jail. Add a contributes[] entry to pack.json " +
+			"(`yolo pack --help` lists the kinds), or ship a skills/ tree or an AGENTS.md, " +
+			"which a jail reads with no manifest at all"
+		if len(unclaimed) > 0 {
+			// Name what it DID stage. "Does nothing" is hard to believe while looking at a
+			// directory full of files, and the files are the evidence for the claim.
+			msg += " (staged, and read by nothing: " + strings.Join(sampleOf(unclaimed, 3), ", ") + ")"
 		}
-	}
-	for _, s := range res.Staged {
-		if s == "AGENTS.md" || s == "CLAUDE.md" {
-			hasBriefing = true
-		}
-	}
-	if !hasSkills && !hasBriefing {
-		problems = append(problems, "pack has neither a "+strings.Join(skillRoots, "/ nor a ")+
-			"/ dir nor an AGENTS.md — it would stage files nothing reads")
+		problems = append(problems, msg)
+
+	// 2. DOES IT STAGE CONTENT NOTHING READS? The old rule NARROWED to the case it was
+	//    actually about: files that really would be read by nothing. It fires only when NOT
+	//    ONE staged content file is claimed — by a contribution's source or by a
+	//    conventionally-read location — because a pack whose content mostly lands correctly
+	//    does not need a linter nitpicking a stray file, and a per-file version would flag
+	//    every stray note in a working tree.
+	case len(claimed) == 0 && len(unclaimed) > 0:
+		problems = append(problems, fmt.Sprintf(
+			"pack stages %d file(s) nothing reads (%s) — no contribution names those paths, "+
+				"and none is in a conventionally-read location (skills/, AGENTS.md). Name them "+
+				"with a `skills`/`files`/`briefing` contribution, or move them under skills/",
+			len(unclaimed), strings.Join(sampleOf(unclaimed, 3), ", ")))
 	}
 	// A skill dir without SKILL.md is invisible to every agent, which is the single
 	// most likely authoring mistake and produces no error anywhere else.
@@ -474,6 +525,86 @@ func reportShippedSurfaceClash(pr richtext.Printer, p *packload.Pack) {
 			}
 		}
 	}
+}
+
+// packNonContentFiles are the staged ROOT-level names that are not pack CONTENT: yolo reads
+// the first two itself (pack.json is the manifest, derive.lua is the surface producer
+// entrypoint/packsurfaces.go runs), and a human reads the rest — they are the repo-hygiene
+// files `pack init` scaffolds and any real pack carries.
+//
+// They are excluded from "stages files nothing reads" because a config-only pack with a
+// README is a legitimate shape, and flagging its README would make the replacement check
+// noise for exactly the packs the rule it replaced wrongly rejected. Root-level only: a
+// README INSIDE a skills dir is content, and is claimed by that dir anyway.
+var packNonContentFiles = map[string]bool{
+	"pack.json": true, "derive.lua": true,
+	"README.md": true, "LICENSE": true, "LICENSE.md": true, "CHANGELOG.md": true,
+	".gitignore": true, ".gitattributes": true,
+}
+
+// stagedContent splits a pack's staged files into the ones some reader would pick up
+// (CLAIMED — named by a contribution's source, or sitting in a conventionally-read
+// location) and the ones nothing reads (UNCLAIMED). Non-content files (the manifest, the
+// derive script, repo hygiene) are in neither.
+//
+// It answers the question `pack lint`'s old "neither a skills/ dir nor an AGENTS.md" rule
+// was reaching for and got wrong. The difference is that this asks about the CLAIMS a pack
+// makes rather than about two hardcoded paths, so a `files` tree, a non-conventional
+// `skills` source and a declared `briefing` all count as read — which they are.
+//
+// skillRoots is the resolved skills sources (SkillsSources(), or the conventional dir when
+// the manifest declares none), passed in because the caller already computed it and the two
+// must agree: a pack whose skills the linter reads from one dir and counts as claimed in
+// another is the same silent-ignore bug in a new place.
+func stagedContent(staged []string, pack *packload.Pack, skillRoots []string) (claimed, unclaimed []string) {
+	// Every pack-relative path a reader looks at. Dirs and single files both, since
+	// `briefing.from` names a file and `skills.from` names a dir.
+	sources := append([]string{}, skillRoots...)
+	// AGENTS.md / CLAUDE.md at the root are read whether or not a `briefing` contribution
+	// names them: the jail reads them with no manifest at all (run.readPackBriefing) and the
+	// host falls back to them after the declared `from` (entrypoint's hostBriefingProse).
+	sources = append(sources, "AGENTS.md", "CLAUDE.md")
+	for _, c := range pack.Decl.Contributions() {
+		switch c.Kind {
+		case packdecl.KindFiles, packdecl.KindBriefing:
+			if c.From != "" {
+				sources = append(sources, c.From)
+			}
+		}
+	}
+
+	for _, s := range staged {
+		if !strings.Contains(s, "/") && packNonContentFiles[s] {
+			continue
+		}
+		if stagedPathClaimed(s, sources) {
+			claimed = append(claimed, s)
+			continue
+		}
+		unclaimed = append(unclaimed, s)
+	}
+	return claimed, unclaimed
+}
+
+// stagedPathClaimed reports whether one staged path is the source itself or lives under it.
+func stagedPathClaimed(staged string, sources []string) bool {
+	for _, src := range sources {
+		src = strings.TrimSuffix(filepath.ToSlash(path.Clean(src)), "/")
+		if staged == src || strings.HasPrefix(staged, src+"/") {
+			return true
+		}
+	}
+	return false
+}
+
+// sampleOf returns at most n items, with a "+N more" tail when it truncated — so a lint
+// message naming the offending files stays one line for a pack that staged fifty of them.
+func sampleOf(items []string, n int) []string {
+	if len(items) <= n {
+		return items
+	}
+	return append(append([]string{}, items[:n]...),
+		fmt.Sprintf("+%d more", len(items)-n))
 }
 
 // stagedUnder reports whether any staged path lives under the pack-relative dir `root`.
@@ -653,17 +784,33 @@ func packExplain(args []string, out, errw io.Writer, color bool) int {
 //
 // The footprint is computed from each pack's contributes[] via
 // packload.FootprintOf, dispatching on contribution kind.
+//
+// --allow-exec is accepted for the same reason `pack lint` takes it, and it had to be added
+// because the two disagreeing was worse than either answer: a pack shipping an executable
+// LINTED with the flag and then could not be FOOTPRINTED at all (exit 1 on packstage's
+// exec-bit refusal), while this command's own help advertises it as the way to inspect a pack
+// you are authoring. Only the local-path branch consumes it; an embedded pack is already
+// materialized and never re-staged.
 func packFootprint(args []string, out, errw io.Writer, color bool) int {
 	pr := richtext.Printer{W: out, Color: color}
 
-	if len(args) > 0 {
-		arg := args[0]
+	arg := ""
+	allowExec := false
+	for _, a := range args {
+		if a == "--allow-exec" {
+			allowExec = true
+			continue
+		}
+		arg = a
+	}
+
+	if arg != "" {
 		// A local path or file:// source → stage + load it, so footprint works on the
 		// pack you are AUTHORING, not only the six yolo ships. This is the one command
 		// that surfaces a same-into skills collision before boot does, so it must accept
 		// a pack that is not yet configured.
 		if isLocalPackArg(arg) {
-			return packFootprintLocal(arg, pr, errw)
+			return packFootprintLocal(arg, allowExec, pr, errw)
 		}
 		// Otherwise treat it as an embedded pack name.
 		var one []*packload.Pack
@@ -714,7 +861,11 @@ func isLocalPackArg(arg string) bool {
 // what a jail would render. mayAccessHost=true so host-gated claims show up in the
 // footprint (the origin gate is what decides whether they are HONORED, and footprint
 // exists precisely to show what a pack WANTS before you trust it).
-func packFootprintLocal(arg string, pr richtext.Printer, errw io.Writer) int {
+//
+// allowExec is the consumer's half of the exec-bit decision, exactly as in `pack lint`: it
+// lets an author inspect a pack whose executable a consenting consumer would stage, rather
+// than having the refusal mask the entire report.
+func packFootprintLocal(arg string, allowExec bool, pr richtext.Printer, errw io.Writer) int {
 	root := strings.TrimPrefix(arg, "file://")
 	tmp, err := os.MkdirTemp("", "yolo-pack-footprint-")
 	if err != nil {
@@ -723,7 +874,7 @@ func packFootprintLocal(arg string, pr richtext.Printer, errw io.Writer) int {
 	}
 	defer os.RemoveAll(tmp)
 
-	if _, err := packstage.Stage(packstage.Spec{Root: root, Dest: tmp}); err != nil {
+	if _, err := packstage.Stage(packstage.Spec{Root: root, Dest: tmp, AllowExec: allowExec}); err != nil {
 		fmt.Fprintf(errw, "yolo pack footprint: %v\n", err)
 		return 1
 	}

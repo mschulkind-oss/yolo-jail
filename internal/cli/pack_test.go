@@ -175,19 +175,165 @@ func TestPackLintCatchesSkillDirWithoutManifest(t *testing.T) {
 	}
 }
 
-// A lint-clean pack whose files nothing reads is still a problem: it stages content
-// no agent looks at, which the author almost certainly did not intend.
-func TestPackLintFlagsPackNothingReads(t *testing.T) {
+// A pack that stages content NO contribution claims and that sits in no
+// conventionally-read location really would be read by nothing — the one case the old
+// "neither a skills/ dir nor an AGENTS.md" rule was actually about, kept after that rule's
+// premise expired.
+//
+// The pack here DOES do real work (it renders a config surface), so the zero-contributions
+// check below is silent and this is the only line: the two checks partition the mistakes
+// rather than both firing.
+func TestPackLintFlagsStagedContentNothingReads(t *testing.T) {
 	dir := t.TempDir()
-	if err := os.WriteFile(filepath.Join(dir, "notes.txt"), []byte("x"), 0o644); err != nil {
-		t.Fatal(err)
-	}
+	writeFile(t, filepath.Join(dir, "pack.json"), `{"name":"cs","contributes":[{"kind":"config",`+
+		`"config":[{"agent":"acme","name":"settings","codec":"json","path":"~/.acme/s.json",`+
+		`"managed":{"a":1}}]}]}`)
+	writeFile(t, filepath.Join(dir, "stray.txt"), "x")
+
 	var out, errw bytes.Buffer
 	if rc := packMain([]string{"lint", dir}, &out, &errw, false, nil); rc == 0 {
-		t.Fatal("expected lint to flag a pack with no skills/ and no AGENTS.md")
+		t.Fatalf("expected lint to flag staged content nothing reads:\n%s", out.String())
 	}
-	if !strings.Contains(out.String(), "nothing reads") {
-		t.Errorf("lint message unclear:\n%s", out.String())
+	got := out.String()
+	if !strings.Contains(got, "nothing reads") || !strings.Contains(got, "stray.txt") {
+		t.Errorf("lint must say what is unread and NAME it:\n%s", got)
+	}
+	// It must not ALSO claim the pack does nothing — it renders a surface.
+	if strings.Contains(got, "ZERO contributions") {
+		t.Errorf("a config-rendering pack was told it declares zero contributions:\n%s", got)
+	}
+}
+
+// Repo-hygiene files at the pack root are not content, so a working pack with a README does
+// not get told its README is unread. Without this, the replacement rule would be noise for
+// exactly the packs the rule it replaced wrongly rejected.
+func TestPackLintIgnoresNonContentRootFiles(t *testing.T) {
+	dir := t.TempDir()
+	writeFile(t, filepath.Join(dir, "pack.json"), `{"name":"cr","contributes":[{"kind":"config",`+
+		`"config":[{"agent":"acme","name":"settings","codec":"json","path":"~/.acme/s.json",`+
+		`"managed":{"a":1}}]}]}`)
+	writeFile(t, filepath.Join(dir, "README.md"), "# cr\n")
+	writeFile(t, filepath.Join(dir, "LICENSE"), "MIT\n")
+
+	var out, errw bytes.Buffer
+	if rc := packMain([]string{"lint", dir}, &out, &errw, false, nil); rc != 0 {
+		t.Fatalf("lint rejected a config pack carrying a README/LICENSE (rc=%d):\n%s",
+			rc, out.String())
+	}
+}
+
+// THE DEFECT THIS FIX IS ABOUT (docs/plans/outstanding-work.md §7). A pack that does
+// absolutely nothing and a working config-only pack used to get the IDENTICAL message
+// ("pack has neither a skills/ dir nor an AGENTS.md"), which is what made the old rule
+// useless in the one case it existed for. They must now be told different things: one is a
+// failure, the other is fine.
+func TestPackLintDistinguishesDoingNothingFromDoingConfigOnly(t *testing.T) {
+	// A pack that contributes nothing and ships nothing any reader picks up.
+	zero := t.TempDir()
+	writeFile(t, filepath.Join(zero, "pack.json"), `{"name":"zero","contributes":[]}`)
+
+	var out, errw bytes.Buffer
+	if rc := packMain([]string{"lint", zero}, &out, &errw, false, nil); rc == 0 {
+		t.Fatalf("a pack that does nothing must be flagged:\n%s", out.String())
+	}
+	got := out.String()
+	// In THOSE WORDS: the maintainer's requirement is that the message name the actual
+	// problem, not a missing skills/ dir.
+	if !strings.Contains(got, "ZERO contributions") {
+		t.Errorf("the do-nothing message must say the pack declares zero contributions:\n%s", got)
+	}
+	if strings.Contains(got, "neither a") {
+		t.Errorf("the retired skills/-or-AGENTS.md wording is back:\n%s", got)
+	}
+
+	// A config-only pack renders a real surface. It does work, so it must lint CLEAN — this
+	// is the shape the old rule rejected, and F5's pure-`files` case is the same argument.
+	cfg := t.TempDir()
+	writeFile(t, filepath.Join(cfg, "pack.json"), `{"name":"cfg","contributes":[{"kind":"config",`+
+		`"config":[{"agent":"acme","name":"settings","codec":"json","path":"~/.acme/settings.json",`+
+		`"managed":{"theme":"dark"}}]}]}`)
+	out.Reset()
+	errw.Reset()
+	if rc := packMain([]string{"lint", cfg}, &out, &errw, false, nil); rc != 0 {
+		t.Fatalf("a config-only pack does real work and must lint clean (rc=%d):\n%s",
+			rc, out.String())
+	}
+}
+
+// F5, from a real migration: a pack whose whole purpose is a `files` tree plus a
+// `config-overlay` has no AGENTS.md and no skills/, and the old rule refused it with
+// "it would stage files nothing reads" — which is simply false, since the agent reads
+// exactly those files.
+func TestPackLintAcceptsPureFilesPack(t *testing.T) {
+	dir := t.TempDir()
+	writeFile(t, filepath.Join(dir, "pack.json"), `{"name":"local","contributes":[`+
+		`{"kind":"files","from":"tree","into":".acme/data"},`+
+		`{"kind":"config-overlay","surface":"claude/settings","config":{"managed":{"x":1}}}]}`)
+	writeFile(t, filepath.Join(dir, "tree", "models.json"), "{}\n")
+
+	var out, errw bytes.Buffer
+	if rc := packMain([]string{"lint", dir}, &out, &errw, false, nil); rc != 0 {
+		t.Fatalf("lint rejected a files+config-overlay pack (F5) with rc=%d:\n%s",
+			rc, out.String())
+	}
+}
+
+// EVERY pack yolo ships must lint clean. The old rule rejected all six — they are
+// pack.json + derive.lua with no skills/ and no AGENTS.md — which is the strongest possible
+// evidence that a lint rule is asking the wrong question: the reference implementations of
+// the thing it validates cannot pass it.
+func TestShippedPacksLintClean(t *testing.T) {
+	packs := packload.Embedded()
+	if len(packs) == 0 {
+		t.Fatal("no embedded packs to lint")
+	}
+	for _, p := range packs {
+		var out, errw bytes.Buffer
+		if rc := packMain([]string{"lint", p.Root}, &out, &errw, false, nil); rc != 0 {
+			t.Errorf("shipped pack %s does not lint clean (rc=%d):\n%s%s",
+				p.Name, rc, out.String(), errw.String())
+		}
+	}
+}
+
+// A pack delivering skills and prose by CONVENTION, with no manifest at all, does work and
+// must lint clean — the zero-ceremony shape the jail reads through
+// packload.SkillsSourceDirs' undeclared fallback and run.readPackBriefing. Guards the
+// obvious wrong implementation of the zero-contributions check: keying it on the manifest
+// alone would fail-lint the pack `pack init` scaffolds.
+func TestPackLintAcceptsZeroCeremonyPack(t *testing.T) {
+	dir := t.TempDir()
+	writeFile(t, filepath.Join(dir, "AGENTS.md"), "prose\n")
+	writeFile(t, filepath.Join(dir, "skills", "example", "SKILL.md"),
+		"---\nname: example\ndescription: d\n---\nbody\n")
+
+	var out, errw bytes.Buffer
+	if rc := packMain([]string{"lint", dir}, &out, &errw, false, nil); rc != 0 {
+		t.Fatalf("lint rejected a zero-ceremony pack (rc=%d):\n%s", rc, out.String())
+	}
+}
+
+// A typo'd `from` gets the SPECIFIC diagnosis and only that one. Its real skills tree is
+// unclaimed, so the unread-content rule would otherwise fire too — advising the author to
+// "move them under skills/", where they already are. A fixed rule that adds a contradictory
+// second line is new noise, not a fix.
+func TestPackLintTypoedFromDrawsOneDiagnosis(t *testing.T) {
+	dir := t.TempDir()
+	writeFile(t, filepath.Join(dir, "pack.json"),
+		`{"name":"t","contributes":[{"kind":"skills","from":"my-skils","into":".claude/skills"}]}`)
+	writeFile(t, filepath.Join(dir, "skills", "example", "SKILL.md"),
+		"---\nname: example\ndescription: d\n---\nbody\n")
+
+	var out, errw bytes.Buffer
+	if rc := packMain([]string{"lint", dir}, &out, &errw, false, nil); rc == 0 {
+		t.Fatalf("a typo'd `from` must still fail lint:\n%s", out.String())
+	}
+	got := out.String()
+	if !strings.Contains(got, "my-skils") {
+		t.Errorf("lint did not name the missing declared source:\n%s", got)
+	}
+	if strings.Contains(got, "nothing reads") {
+		t.Errorf("lint added a contradictory second complaint about unread content:\n%s", got)
 	}
 }
 
@@ -257,6 +403,57 @@ func TestPackFootprintAcceptsLocalPath(t *testing.T) {
 	// The mount claim (host read → /ctx) must appear and be flagged for review.
 	if !strings.Contains(out.String(), "mount") || !strings.Contains(out.String(), "review") {
 		t.Errorf("footprint did not show the review-worthy mount claim:\n%s", out.String())
+	}
+}
+
+// F6b: the two single-pack inspection commands must agree on the exec bit. `lint
+// --allow-exec` accepted a pack shipping an executable while `footprint` on that same pack
+// exited 1 on the refusal — so a pack you COULD lint you could NOT inspect, and footprint's
+// own help advertises it as the way to inspect a pack you are authoring.
+//
+// The refusal WITHOUT the flag is asserted in the same test on purpose: the fix is the two
+// commands agreeing, not footprint quietly dropping a trust gate lint still enforces.
+func TestPackFootprintAllowExecMatchesLint(t *testing.T) {
+	for _, args := range [][]string{
+		{"footprint", "--allow-exec", "DIR"},
+		{"footprint", "DIR", "--allow-exec"}, // flag order must not matter, as in lint
+	} {
+		dir := t.TempDir()
+		var out, errw bytes.Buffer
+		packMain([]string{"init", dir}, &out, &errw, false, nil)
+		if err := os.WriteFile(filepath.Join(dir, "hook.sh"), []byte("#!/bin/sh\n"), 0o755); err != nil {
+			t.Fatal(err)
+		}
+
+		// Same pack, same flag: lint accepts it, so footprint must too.
+		out.Reset()
+		errw.Reset()
+		if rc := packMain([]string{"lint", "--allow-exec", dir}, &out, &errw, false, nil); rc != 0 {
+			t.Fatalf("precondition: lint --allow-exec should accept this pack, rc=%d\n%s%s",
+				rc, out.String(), errw.String())
+		}
+		withDir := make([]string, len(args))
+		for i, a := range args {
+			if a == "DIR" {
+				a = dir
+			}
+			withDir[i] = a
+		}
+		out.Reset()
+		errw.Reset()
+		if rc := packMain(withDir, &out, &errw, false, nil); rc != 0 {
+			t.Errorf("footprint %v refused a pack `lint --allow-exec` accepts: rc %d\n%s%s",
+				args, rc, out.String(), errw.String())
+		}
+
+		// Without the flag the exec-bit refusal stands: the flag supplies the consumer's
+		// half of the decision, it does not remove the gate.
+		out.Reset()
+		errw.Reset()
+		if rc := packMain([]string{"footprint", dir}, &out, &errw, false, nil); rc == 0 {
+			t.Errorf("footprint without --allow-exec must still refuse the exec bit:\n%s",
+				out.String())
+		}
 	}
 }
 
@@ -608,11 +805,10 @@ func TestPackLintAcceptsConventionalFromWithNoSkills(t *testing.T) {
 // other packs merge into — so a rule keyed on `from != ""` rather than on the CONVENTION
 // would fail-lint all six.
 //
-// Scoped to THIS rule rather than asserting rc==0, because the shipped packs already fail
-// lint at HEAD on an unrelated pre-existing rule: they are pack.json + derive.lua with no
-// skills/ and no AGENTS.md, so "pack has neither … it would stage files nothing reads" fires
-// (verified against HEAD). That is a separate question from this fix, and folding it in here
-// would make this test fail for a reason it is not about.
+// Scoped to THIS rule rather than asserting rc==0, deliberately kept narrow now that the
+// broader assertion exists (TestShippedPacksLintClean): a failure here says the `from`
+// convention exemption broke specifically, which is a different diagnosis from "a shipped
+// pack fails some lint rule".
 func TestShippedPacksDrawNoMissingSkillsFromComplaint(t *testing.T) {
 	for _, p := range packload.Embedded() {
 		var out, errw bytes.Buffer

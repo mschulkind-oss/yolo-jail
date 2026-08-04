@@ -40,11 +40,11 @@ compile-time question.**
 | Q2 | **Wire up `render.Profile`** — it has zero production callers while `AgentAutonomy` is decided by four hardcoded literals; make the Profile the single source and delete them | §6c step 1 | nothing (pairs with Q1) |
 | Q3 | **D3 wording** — `env`/`launch` are refused with reasons true of `apply --host` and false of the notch; they describe a missing VERB, not an inapplicable kind | §6b D3 | nothing (strings only) |
 | Q4 | **`briefing` wholesale-generated at every notch**, pre-existing prose MOVED to the local pack's `AGENTS.md` (archive only as fallback) | §6a + §6a-2 (ruled) | Q1, Q5 |
-| Q5 | **The conventional LOCAL PACK** — `~/.config/yolo-jail/local/`, implicitly included, zero config | §6a-2 (ruled) | **Q9** (a zero-ceremony pack renders nothing at the host today — F1) |
+| Q5 | **The conventional LOCAL PACK** — `~/.config/yolo-jail/local/`, implicitly included, zero config | §6a-2 (ruled) | **F1** (a zero-ceremony pack renders nothing at the host today). Q9 shipped without F1 — the lint half was separable, the host-render half was not |
 | Q6 | **`skills` wholesale-composed at every notch**, user's tree MOVED into the local pack (union + suffix on differing content, warn), archive only as fallback | §6a-2 (ruled) | Q4 (prove the mechanism on the smaller kind), Q5 |
 | Q7 | **`describe` prints the primitive vector** | §6c step 2 | Q2 |
 | Q8 | **Mode set as a target property**, not a `KindOf()` branch | §6b D2 | Q1; forced by Phase 7 |
-| Q9 | **`pack lint`: split the two conflated checks** + F1/F5 | §7, F1/F5 | nothing |
+| Q9 | ~~**`pack lint`: split the two conflated checks** + F5, and `footprint --allow-exec` (F6b)~~ **DONE 2026-08-04** — see §7. **F1 is still open** and was never a lint problem: it is the host render skipping an undeclared skills destination | §7, F5, F6b | nothing |
 | Q10 | **Core stops knowing notch NAMES** — only `ResolveConfinement` and the briefing prose keep them | §6c step 3 | Q1, Q2, Q7 |
 
 Field findings F2/F3/F4/F6 are queued separately in
@@ -717,13 +717,14 @@ not observed closed.
   remains and is not a defect: `publish.yml` is tag-triggered, so the multi-arch image does not
   reach GHCR until the next release and the nightly stays red until then.
 
-**New finding, 2026-08-03/04 — `pack lint`'s "nothing reads this pack" rule asks the wrong
-question.** Independently reported as F5 in
+**FIXED 2026-08-04 (Q9 + F5 + F6b) — `pack lint`'s "nothing reads this pack" rule asked the
+wrong question.** The account below is kept as the diagnosis; what shipped is at the end of
+this section. Independently reported as F5 in
 [`feedback-real-pack-adoption.md`](feedback-real-pack-adoption.md) from a real migration, and
 confirmed here by probe. Pre-existing (verified against `HEAD~1`), not a regression from the
 skills-`from` work that surfaced it.
 
-The rule (`internal/cli/pack.go:372`) fires
+The rule (`internal/cli/pack.go:372`) fired
 *"pack has neither a skills/ dir nor an AGENTS.md — it would stage files nothing reads"*. It
 rejects **all six packs yolo ships**, and a real user's pure-`files` pack.
 
@@ -732,13 +733,13 @@ as a proxy for *"does anything read this pack?"*. That proxy was true when a pac
 ship content. A pack now contributes any of **14 kinds**, so config-only and `files`-only are
 legitimate, useful shapes and the proxy is simply false. Probed 2026-08-04:
 
-| Pack shape | Should warn? | Does today |
-|---|---|---|
-| config-only (renders a surface, ships no files) | **no** — it does real work | ✗ warns |
-| **no contributions at all** | **yes** — does nothing | ✗ warns, *same message* |
-| declares `skills` w/ default `from`, ships none (the shipped-pack shape) | no | ✗ warns |
-| `files` + `config-overlay`, no `AGENTS.md` (F5's real case) | no | ✗ warns |
-| typo'd `from: "my-skils"` | **yes** | ✓ warns, correctly |
+| Pack shape | Should warn? | Did (pre-fix) | Does now |
+|---|---|---|---|
+| config-only (renders a surface, ships no files) | **no** — it does real work | ✗ warns | ✓ clean |
+| **no contributions at all** | **yes** — does nothing | ✗ warns, *same message* | ✓ "declares ZERO contributions" |
+| declares `skills` w/ default `from`, ships none (the shipped-pack shape) | no | ✗ warns | ✓ clean |
+| `files` + `config-overlay`, no `AGENTS.md` (F5's real case) | no | ✗ warns | ✓ clean |
+| typo'd `from: "my-skils"` | **yes** | ✓ warns, correctly | ✓ warns, and only once |
 
 The second row is the tell: a pack that does **absolutely nothing** and a working config pack
 get the *identical* message. The rule cannot distinguish them, so it is useless in the one case
@@ -762,20 +763,41 @@ correctly — but it is a workaround for a rule whose premise had already expire
 directly and the exemption is unnecessary: a shipped pack's `skills` contribution *does* claim
 something reachable, so it passes without a special case.
 
-**Recommended fix** (lint-only — no boot path, no fingerprint risk; `SkillsSources()` has
-exactly one non-test consumer, this rule):
+**What shipped, 2026-08-04** (lint-only — no boot path; the entrypoint fingerprint test is
+unchanged). Two honest checks in place of one bad one, mutually exclusive by construction so
+one mistake never draws two lines:
 
-- warn when a pack declares **zero contributions** — and say so in those words, not in terms of
-  `skills/`;
-- keep the declared-source-stages-nothing check as-is;
-- drop the "neither a skills dir nor an AGENTS.md" rule entirely, or narrow it to the case it
-  is actually about (a pack that stages FILES which no contribution claims — files that really
-  would be read by nothing).
+- **"pack declares ZERO contributions and ships nothing read by convention"** — in those words.
+  Requires BOTH halves: a manifest-less `skills/`+`AGENTS.md` pack does real work through the
+  jail's zero-ceremony merge, so keying on the manifest alone would fail-lint the pack
+  `pack init` scaffolds.
+- **The declared-source-stages-nothing check, kept**, and now resolved through
+  `SkillsSource()` instead of `c.From` — so it is correct either way when `from` becomes
+  optional for skills/briefing.
+- **The "neither a skills dir nor an AGENTS.md" rule, NARROWED** to the case it was actually
+  about: staged content that NO contribution's source claims and that sits in no
+  conventionally-read location, reported with the offending filenames. It fires only when *not
+  one* staged content file is claimed — a pack whose content mostly lands correctly does not
+  need a linter nitpicking a stray file. Root-level `pack.json` / `derive.lua` / `README.md` /
+  `LICENSE` / `CHANGELOG.md` / `.gitignore` / `.gitattributes` are not content and are exempt,
+  which is what lets a config-only pack carry a README.
+- **F6b**: `pack footprint` takes `--allow-exec`, so a pack you can `lint` you can also
+  inspect. The refusal without the flag stands — the flag supplies the consumer's half of the
+  decision, it does not remove the gate.
 
-While in there, F1 from the field feedback is the same family and worth fixing together: a
-zero-ceremony pack (no `pack.json`) lints `✓ pack ok`, stages files, and renders **nothing** at
-the host — because the jail infers a destination (`SkillsSourceDirs`' `if !declared` fallback)
-and the host iterates declared contributions only. Confirmed by probe 2026-08-04.
+**The convention exemption STAYED, and the §7 prediction above was wrong about why.** Asking
+question 1 directly does not make it redundant: the missing-source complaint is
+*per-contribution* while both replacement checks are *about the pack as a whole*, so a shipped
+pack passing them (it has contributions, and stages no unclaimed content) cannot silence a
+complaint about its own `skills/` being absent. The exemption is what keeps a shipped pack's
+destination-naming contribution from drawing it. `TestShippedPacksLintClean` now asserts all
+six lint clean outright, which is the assertion that would have caught the original defect.
+
+**F1 is NOT fixed here** and remains open: a zero-ceremony pack (no `pack.json`) lints
+`✓ pack ok`, stages files, and renders **nothing** at the host — the jail infers a destination
+(`SkillsSourceDirs`' `if !declared` fallback) while the host iterates declared contributions
+only. Confirmed by probe 2026-08-04. It is a host-render gap, not a lint one; lint is now
+correct to accept that pack, since a jail really does read it.
 
 **Still open, and NOT a Stage E item** (it is a validation gap, tracked in
 [composed-file-permissions.md §4.5](../design/composed-file-permissions.md)): **reserved

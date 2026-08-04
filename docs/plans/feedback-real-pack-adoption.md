@@ -175,7 +175,11 @@ autonomy posture)`. Cheap, and it turns a silent loss into a documented policy.
 
 ---
 
-## F5 — 🟡 `pack lint` refuses a pure-`files` pack, with wrong reasoning
+## F5 — ✅ FIXED 2026-08-04 — `pack lint` refused a pure-`files` pack, with wrong reasoning
+
+A `files` + `config-overlay` pack now lints clean; see
+[`outstanding-work.md`](outstanding-work.md) §7 for what shipped. The report below is the
+original finding.
 
 ```
 ✗ pack has neither a skills/ dir nor an AGENTS.md — it would stage files nothing reads
@@ -203,10 +207,12 @@ those paths are read-only mounts. But that was luck, not design.)
    `skills  agent-standards  rendered  invoke as /agent-standards`. Verified it writes
    nothing — but it reads as though the dry-run mutated the home, which is precisely the
    fear a dry-run exists to allay.
-2. **`yolo pack footprint` has no `--allow-exec`.** `pack lint --allow-exec <dir>` accepts a
-   pack shipping an executable; `pack footprint <dir>` on the same pack exits 1 with the
-   exec-bit refusal. So a pack you *can* lint you *cannot* inspect — and `footprint`'s own
-   help advertises it as the way to inspect a pack you're authoring.
+2. ✅ **FIXED 2026-08-04.** ~~**`yolo pack footprint` has no `--allow-exec`.**~~ `pack lint
+   --allow-exec <dir>` accepted a pack shipping an executable while `pack footprint <dir>` on
+   the same pack exited 1 with the exec-bit refusal. So a pack you *could* lint you *could
+   not* inspect — and `footprint`'s own help advertises it as the way to inspect a pack you're
+   authoring. `footprint` now takes the same flag; without it the refusal still stands, since
+   the flag supplies the consumer's half of the decision rather than removing the gate.
 
 ---
 
@@ -225,9 +231,9 @@ gap in a principle we thought was closed, not six unrelated papercuts.
 |---|---|---|
 | 1 | **F2** dangling symlinks | The only finding that BROKE a working machine. No design question: `Lstat` says symlink + `Stat` fails ⇒ absent. Cheapest real fix in the list |
 | 2 | **F1** zero-ceremony host no-op | Silent, and the fix is already PROVEN by the jail — see below |
-| 3 | **F5 + the lint rewrite** | One rule, two reports. Do them together |
+| 3 | ~~**F5 + the lint rewrite**~~ | ✅ **DONE 2026-08-04.** One rule, two reports — done together, as advised |
 | 4 | **F4** outranked overlay key | One line of output; turns a misleading warning into stated policy |
-| 5 | **F6** tense + `--allow-exec` | Two cosmetics, genuinely cheap |
+| 5 | **F6** tense + `--allow-exec` | ✅ `--allow-exec` **DONE 2026-08-04** (shipped with F5, same file). F6.1's past-tense observe output is still open |
 | — | **F3** briefing duplication | **DISSOLVED** by the Q4 briefing ruling: wholesale generation means no append, so nothing can double. The ownership decision it needed was made — yolo owns the file, and the user's prose MOVES to the local pack |
 
 ### F1 — take fix option 1, and here is why it is safe
