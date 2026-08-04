@@ -133,10 +133,12 @@ func RenderHostPack(p *packload.Pack, homeDir string, observe bool, overlays *pa
 	// provenance into some jail's .yolo/prism tree and read a workspace config.lua that
 	// has nothing to do with this render. See Env.hostTarget.
 	e := &Env{Home: homeDir, Vars: map[string]string{}, hostTarget: true}
-	// Host is the autonomy-OFF notch (§4.2): render the GUARDED posture, so a pack's
-	// jail-bypass permission keys do NOT reach the real home. This is the fix for the
-	// apply --host bypass leak.
-	surfaces, problems := p.SurfacesFor(false)
+	// The §4.2 autonomy policy comes from the TARGET's confinement profile, not from a
+	// literal chosen here (plan §6c step 1). At the host notch that resolves to autonomy OFF
+	// — the guarded posture, so a pack's jail-bypass permission keys do NOT reach the real
+	// home, which is the fix for the apply --host bypass leak. Reading it from the profile is
+	// what makes that one statement rather than a boolean repeated in four files.
+	surfaces, problems := p.SurfacesFor(e.renderTarget().Profile().AgentAutonomy)
 	if len(problems) > 0 {
 		return nil, fmt.Errorf("pack %s: %s", p.Name, problems[0])
 	}
