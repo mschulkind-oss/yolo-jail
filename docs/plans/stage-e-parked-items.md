@@ -4,8 +4,9 @@
 reason each is parked and what it would take to unpark it. Written 2026-08-03, after the pack
 system reached functional completeness, so that "what is left?" has one honest answer.
 
-**Every item here is parked by a decision, not by an omission.** None is a defect in the pack
-system. Two genuine defects used to live in this stage; §7 records what became of them —
+**Most items here are parked by a decision, not by an omission** — none of E1–E5 is a defect in
+the pack system. **Two sections are NOT parked:** §6a is a ruling ready to implement, and §6b is
+an audit with a suggested order. Two genuine defects used to live in this stage; §7 records what became of them —
 one closed outright, one *believed* closed with the check that would confirm it — so neither is
 re-opened from a stale reference nor assumed fixed on my word.
 
@@ -29,7 +30,8 @@ the one nix item that is a *prerequisite* rather than an option).
 | E3 | Capture timing (`yolo config capture` + capture on terminate) | **not urgent** — nothing is lost today, only observability lags | small; the cheap half is one subcommand |
 | E4 | Comment preservation on `json`/`toml` surfaces | starts from decisions, not blank | cheapest useful step needs no comment parsing at all |
 | E5 | `managed`/`defaults` array-append pinning | no user surface has ever needed it | small, but do not build it speculatively |
-| §6a | **open question:** should the jail briefing use markers like the host's? | not a defect today — the two notches are each correct for their own destination | a decision, forced by Phase 7's real home |
+| §6a | **RULED 2026-08-04 — `briefing` becomes wholesale-generated at every notch**, pre-existing file ARCHIVED | not parked: ruled, ready to implement | contained; markers have 2 referents, fingerprint must not move |
+| §6b | **divergence audit** — 3 more kinds where the jail's mechanism became the kind's definition | D3 is wording; D2 is forced by Phase 7; D1 is a principle to record | see the suggested order at the end of §6b |
 | §7 | **`pack lint`'s content rule asks the wrong question** | pre-existing; needs the two conflated checks split | lint-only, no boot path |
 
 ---
@@ -139,55 +141,159 @@ What a reader should know before opening it:
 
 ---
 
-## 6a. Open question — should the JAIL briefing use markers too?
+## 6a. RULED — briefings are fully generated and controlled
 
-**Raised by the maintainer 2026-08-04:** *"briefings are currently rmw? that seems a bit wrong.
-why would we not replace them all wholesale?"*
+**Maintainer ruling, 2026-08-04:** *"I want to claim briefings as fully generated and
+controlled. If there's something on the host already at apply, we archive it. This is the
+convention, and I will adapt my packs. If you want host instructions, it's like skills, make a
+pack."*
 
-**At the HOST the answer is settled, and wholesale replacement would be data loss.** The
-destination IS the user's own file: `~/.claude/CLAUDE.md` is where a human keeps their global
-agent instructions (the maintainer's is 4.4 KB of hand-written commit rules, testing philosophy
-and conventions). A pack declares `after: "host:.claude/CLAUDE.md"` and
-`into: ".claude/CLAUDE.md"` — source and destination are the SAME file, so a plain append
-re-appends yolo's previous output every apply and grows without bound, and a wholesale write eats
-the user's prose.
+So the delimited managed block goes away, and `briefing` becomes **wholesale-generated at every
+notch**, matching what the jail already does. A pre-existing file at the destination is
+**archived**, not merged, not appended to, not preserved in place.
 
-So the delimited block is not "rmw by analogy" — it is the **Markdown equivalent of what `config`
-does at the key level**. `config` rmw: yolo owns these keys, your other keys are untouched.
-Briefing block: yolo owns the bytes between these markers, the rest of the file is yours. Same
-rule, different granularity, and it is what makes "hand-written prose survives" a property of the
-mechanism rather than a test result (`internal/entrypoint/hostbriefing.go:1-32`).
+### Why this is the simplification and not a loss
 
-**The jail is the case where the question has teeth, and nobody has asked it.** There,
-`ComposePackBriefings` writes to a DIFFERENT path — a staging file the jail bind-mounts `:ro` —
-so wholesale regeneration is safe and is what happens today. Two things follow that are worth
-deciding rather than inheriting:
+The marker mechanism existed to solve "source and destination are the same file, so an append
+grows without bound and a wholesale write eats the user's prose." That framing accepted a premise
+the ruling rejects: that a briefing file is **jointly owned**. Once yolo owns it outright, the
+problem it solved does not exist.
 
-1. **The two notches use different mechanisms for the same kind.** That is currently justified
-   (different destinations, different ownership), but it is exactly the sort of divergence that
-   became a defect for `skills` when `from` was honored at one notch and not the other. If the
-   jail ever renders a briefing to a user-visible path — a `guest` home, say, which is a REAL
-   home (env-manager Phase 7) — the two would silently disagree about who owns the file. **Phase
-   7 is where this must be answered**, and answering it early is cheaper than discovering it as a
-   `guest` data-loss bug.
-2. **The marker mechanism is strictly more general.** Markers work whether or not the
-   destination is user-owned; wholesale replacement only works when it is not. So "use markers
-   everywhere" is a coherent simplification (one mechanism, one code path, no notch-dependent
-   ownership question) at the cost of marker comments in a file the user never edits. Worth
-   weighing against the fingerprint gate: unifying would change every jail briefing's bytes.
+What the ruling buys, in order of value:
 
-**Not urgent, and not a defect today** — both notches are correct for their own destination. It
-is an open question because the *reason* they differ is a fact about the destination, and Phase 7
-introduces a destination that has both properties (a real home yolo provisions).
+1. **One mechanism at every notch.** Today the jail regenerates wholesale (to a separate
+   staging file, bind-mounted `:ro`) while the host maintains a block inside the user's file.
+   Two code paths for one kind, diverging on a property of the destination. That divergence was
+   about to become a defect at Phase 7, whose `guest` home is BOTH a real home and one yolo
+   provisions — the first destination with both properties.
+2. **It makes `briefing` behave like `skills`, which is the model that works.** "Want host
+   instructions? Make a pack" is the same answer skills already give, and skills is the kind
+   users reported as the headline win (five personal skills reaching four agents instead of
+   one). Prose gets the same story: declare it once, it renders everywhere.
+3. **The ownership question disappears rather than being answered per-notch.** No
+   "is this block mine?", no marker parser, no fail-closed-on-crossed-markers branch, no
+   first-apply duplication (F3 evaporates — see below).
 
-Related: F3 in [`feedback-real-pack-adoption.md`](feedback-real-pack-adoption.md) — a first apply
-against a briefing that already contains the pack's prose produces it twice. That is a
-consequence of the append-based first write, not a bug in the marker design, and its proposed
-"adopt the existing prose into the markers" fix is **rejected** in that doc's triage: adopting
-claims ownership of text yolo did not write, so the retirement path would later delete the user's
-own words.
+### What must be true for this to be safe
 
----
+- **ARCHIVE, never delete.** The pre-existing file moves under the archive root with the apply's
+  stamp, reclaimed by `yolo prune` — the mechanism `hostskills.Archive` already provides and
+  which `files`/`skills` retirement already uses. This is the whole safety story, so it is not
+  optional and it must be reported by path.
+- **Warn on the FIRST apply that adopts a destination**, in the shape `confirmHostLosses`
+  already established: a user whose hand-written `~/.claude/CLAUDE.md` is about to become
+  yolo-owned must be told, once, before it happens. Wholesale ownership of a file the user wrote
+  is exactly the one-way door that gate exists for.
+- **The retirement path must archive on drop too.** Dropping the last pack contributing a
+  briefing destination means yolo no longer owns that file; leaving a generated file behind with
+  no owner is the orphan case §11 of `proposed-fixes-open-findings.md` closed for the other
+  kinds.
+
+### Consequences to carry into the implementation
+
+- **F3 in [`feedback-real-pack-adoption.md`](feedback-real-pack-adoption.md) is DISSOLVED, not
+  fixed.** The duplication it reports is an artifact of the append-based first write. With
+  wholesale generation there is no append, so nothing can double. The "adopt the prose into the
+  markers" fix — which I rejected for claiming ownership of text yolo did not write — becomes
+  moot: the ruling claims that ownership *explicitly and up front*, which is the honest version
+  of the same move.
+- **`after: "host:<path>"` loses its remaining purpose at the host** and should be re-examined.
+  It exists to pull the user's file INTO a jail staging copy; if the host no longer preserves the
+  user's file, a declaration that names it is at best decorative and at worst misleading.
+- **Blast radius is small and contained**: the markers are referenced only by
+  `internal/entrypoint/hostbriefing.go` and its test. No pack declares a marker; no other kind
+  reads one.
+- **The render fingerprint gate will NOT move.** The jail already generates wholesale, so this
+  changes the host path only — which means the fingerprint staying identical is a real check that
+  the change is scoped correctly.
+
+## 6b. Divergence audit — where else a kind means two different things by notch
+
+**Requested 2026-08-04:** *"do a pass for other such misaligned mechanisms. I want to simplify
+everything here so it makes more sense with different containment levels."*
+
+Audited all 14 kinds against the code. The pattern the briefing ruling breaks shows up in
+**three more places**, and they are not equally wrong — one is the same defect, one is a real
+asymmetry with a decision behind it, and one is a gap masquerading as a policy.
+
+| Kind | Jail mechanism | Non-container mechanism | Verdict |
+|---|---|---|---|
+| `briefing` | wholesale-generated to a staging file, `:ro` | delimited block inside the user's file | **RULED — unify on wholesale** (§6a) |
+| `files` | `:ro` bind mount, pack owns the path outright | write, but REFUSE a path the user owns | **divergence is correct** — see D1 |
+| `skills` | merge into staging dir, `:ro` | deliver into the real dir, tiered + ownership manifest | **divergence is correct** — same reason as D1 |
+| `config` | four modes (`stateful`/`rmw`/`computed`/`unrendered`) | ONE mode (`rmw`) | **look at this** — see D2 |
+| `env` | `-e` on the container | unimplemented ("your shell profile") | **gap, not policy** — see D3 |
+| `launch` | argv injection at exec | unimplemented ("nowhere to inject") | **gap, not policy** — see D3 |
+| `state`, `mount`, `reads-host` | jail plumbing | refused by name | correct — the concept needs a container |
+| `program`, `requires`, `hook`, `autonomy`, `config-overlay` | — | — | aligned, or refused for a stated reason |
+
+### D1 — `files` and `skills`: the divergence is about OWNERSHIP, and it should stay
+
+In a jail, `files` is `CombineExclusive` and the mount replaces whatever was there. In a real
+home the same claim cannot mean "overwrite what the user has" — `hostfilestree.go` says it
+exactly right: *"exclusivity is a rule about which PACK may claim a path, not a licence over the
+user's own files."*
+
+**This is NOT the briefing case, and the difference is worth stating** because it would be easy to
+over-apply the ruling. A briefing destination is a file whose *entire purpose* is the content
+yolo generates, so claiming it wholesale is coherent. `~/.claude/skills/` and `~/.claude/bin/`
+are **shared namespaces**: the user's own skills live beside the pack's, so "yolo owns this
+directory" would mean deleting skills the user wrote. Refuse-what-you-cannot-prove-you-wrote is
+the right rule there, and the ownership manifest is what makes it checkable.
+
+So the unifying principle is not "always wholesale" — it is **one owner per destination, declared
+and enforced**. `briefing` becomes wholesale because the ruling assigns yolo the owner.
+`skills`/`files` stay per-entry because the destination is shared by design.
+
+### D2 — `config`: four modes in a jail, one at every other notch
+
+`prism.go:552-565` documents this deliberately: in a jail `rmw` is one mode among four and the
+surfaces that matter are `stateful`; at the host `rmw` is the ONLY mode (OQ-4), so "rmw records
+nothing" became "the host records nothing" — which is what made `config diff` infer a winner from
+declarations and report an overlay as having LOST a key it had WON. That specific bug is fixed
+(host provenance now written after the surface write).
+
+**The question the ruling raises for it:** if the host has one mode, are the other three
+*jail-only features* or *unfinished elsewhere*? `stateful` (capture in-jail edits into a sidecar)
+is genuinely jail-shaped — it exists because a jail home is disposable and the edit must survive
+`--rm`. But a `guest` home is NOT disposable, so at Phase 7 "which modes apply" needs an answer,
+and today's answer is implicit in a `KindOf() == KindHost` branch rather than declared. Cheapest
+honest step: make the mode set a property of the TARGET (like `FieldSet` is for kinds) rather
+than a runtime `if`, so `guest` has to state its answer instead of inheriting whichever branch it
+falls into.
+
+### D3 — `env` and `launch`: refused with a *mechanism* reason, which hides a real gap
+
+Both are in `hostUnimplemented` with honest-sounding text — *"the only place to set these
+off-container is your shell profile, which apply --host does not write"* and *"launch flags need a
+launcher — apply --host configures your tools but never runs them."*
+
+**Both reasons are true of `apply --host` and false of the notch.** They describe a missing
+*verb*, not an inapplicable *kind*: `yolo --at host -- <cmd>` (the design's own §4.1 escape valve,
+Option 2 of [`../design/noncontainer-nix-environment.md`](../design/noncontainer-nix-environment.md))
+would make both renderable immediately, because yolo would be the one launching the process. And
+at `guest` the verb ALREADY exists — macos-user execs the agent today — so `env` and `launch` are
+not "unavailable below jail" at all. They are unavailable in the one sub-case where yolo never
+launches anything.
+
+That is the misalignment: the census says these kinds apply at a *notch*, but the refusal is
+written about a *command*. A `guest` target inheriting that text would refuse two kinds it can
+actually honor. Fixing the wording is trivial; the useful part is that it identifies
+`--at <notch> -- <cmd>` as the thing that unblocks two kinds rather than as a convenience.
+
+### The through-line
+
+Three of the four are the same shape: **a mechanism chosen for the jail became the definition of
+the kind**, and the non-container notches got either a second mechanism (briefing), an implicit
+narrowing (config modes), or a refusal phrased in terms of the jail's plumbing (env/launch). The
+kind should be defined by what it CLAIMS; the notch should decide how that claim is honored.
+`FieldSet` already does this for applicability — D2 and D3 are the same idea applied to
+*mechanism* and *reason*.
+
+Suggested order, cheapest and least controversial first: **D3 wording** (docs/strings only) →
+**§6a briefing unification** (ruled, contained) → **D2 mode-set-as-target-property** (do it as
+part of Phase 7, where it is forced) → **D1: no change, but record the principle** so the
+briefing ruling is not over-applied to shared namespaces.
 
 ## 7. Closed — do not re-open from a stale reference
 
