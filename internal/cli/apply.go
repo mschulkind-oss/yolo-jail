@@ -153,9 +153,23 @@ func applyHost(out, errw io.Writer, color bool, write bool, stdin io.Reader) int
 		// not be the one case that cleans up nothing. No live overlays exist to cross-check
 		// against, which a nil OverlaySet expresses exactly (For returns nil).
 		empty := map[string]bool{}
-		return pruneDroppedPackOutput(pr, out, stdin, packload.Embedded(), empty,
-			home, time.Now().UTC().Format("20060102-150405"), write,
-			planOverlayKeyRetirement(pr, packload.Embedded(), empty, nil, home))
+		stamp := time.Now().UTC().Format("20060102-150405")
+		// The BRIEFING half too, now that a briefing destination is a whole yolo-owned file
+		// rather than a block inside the user's. With no pack contributing prose anywhere,
+		// every composed destination is an orphan — a generated file with nobody left to
+		// regenerate it — which is precisely what the retire pass archives. A nil active set
+		// would be refused, so the honest empty map is passed; the pack set is trivially
+		// COMPLETE, since an empty config names nothing that could have failed to resolve.
+		// nil reload: with no pack configured there is nothing for a migration to compose back,
+		// so re-resolving would find the same empty set.
+		rc := applyHostBriefings(pr, out, stdin, nil, packload.Embedded(), empty, true,
+			home, stamp, write, nil)
+		if prc := pruneDroppedPackOutput(pr, out, stdin, packload.Embedded(), empty,
+			home, stamp, write,
+			planOverlayKeyRetirement(pr, packload.Embedded(), empty, nil, home)); prc != 0 {
+			rc = prc
+		}
+		return rc
 	}
 
 	// One archive generation per apply, so everything this run retires groups under one
@@ -172,14 +186,19 @@ func applyHost(out, errw io.Writer, color bool, write bool, stdin io.Reader) int
 	rc := 0
 	// active names the packs this apply is asserting; every other pack yolo SHIPS is a
 	// prune candidate. Collected as we go and consumed after the loop (see the prune call),
-	// because "which briefing blocks are stale?" is only answerable once the whole active
-	// set is known — a pack dropped from config never appears in `entries` at all.
+	// because "which briefing destinations are orphaned?" is only answerable once the whole
+	// active set is known — a pack dropped from config never appears in `entries` at all.
 	active := map[string]bool{}
 	// configured is every pack the config NAMES, resolvable or not. The retire pass below
 	// keys on this rather than on `active`, because a fetched pack with an unreachable remote
-	// resolves to nothing and would otherwise look dropped — see pruneDroppedPackOutput for
-	// why a briefing can afford that mistake and an archived skills tree cannot.
+	// resolves to nothing and would otherwise look dropped.
 	configured := map[string]bool{}
+	// resolvedAll is whether `active` and `configured` agree — i.e. whether the pack set is
+	// COMPLETE this run. The briefing retire needs it for the same reason the skills one keys on
+	// `configured`: since §6a a briefing destination is a whole yolo-owned file, so archiving it
+	// on a bad guess costs the user a trip to the state dir rather than self-healing on the next
+	// reachable launch (which is what a delimited block did).
+	resolvedAll := true
 	var loaded []*packload.Pack
 	// Resolve the packs FIRST, before rendering any of them, because config-overlay is
 	// cross-pack: an overlay in pack B targets a surface pack A owns, so the per-pack loop
@@ -190,10 +209,32 @@ func applyHost(out, errw io.Writer, color bool, write bool, stdin io.Reader) int
 		p := packForCheckDeps(e) // same loader: embedded or local; git needs `pack install`
 		if p == nil {
 			pr.Printf("[dim]%s: not resolvable offline (fetched packs need `yolo pack install`) — skipped[/dim]", e.Name)
+			resolvedAll = false
 			continue
 		}
 		active[p.Name] = true
 		loaded = append(loaded, p)
+	}
+	// reloadPacks re-runs exactly the resolution above. The briefing migration CREATES the local
+	// pack (it moves the user's prose into ~/.config/yolo-jail/local/AGENTS.md), and the local
+	// pack is included by CONVENTION — implicitly, on the strength of that directory existing.
+	// So the set resolved before the migration does not contain it, and without a re-resolve the
+	// migrated prose would only reach the destinations on the NEXT apply: the same apply that
+	// promised "your instructions still reach your agents" would have removed them for one run.
+	// Found by asserting idempotency, not by reading the flow.
+	reloadPacks := func() []*packload.Pack {
+		fresh, ferr := config.LoadPacks(nil)
+		if ferr != nil {
+			return nil // keep the already-resolved set; the load error was reported above
+		}
+		var out []*packload.Pack
+		for _, e := range fresh {
+			if p := packForCheckDeps(e); p != nil {
+				out = append(out, p)
+			}
+		}
+		out, _ = packload.ResolveDestinations(out)
+		return out
 	}
 	// ZERO CEREMONY, AT BOTH NOTCHES (finding F1). A pack with no pack.json — the layout
 	// `yolo pack --help` and the migration guide promote as THE starting point — declares no
@@ -290,8 +331,10 @@ func applyHost(out, errw io.Writer, color bool, write bool, stdin io.Reader) int
 			case c.Kind == packdecl.KindSkills, c.Kind == packdecl.KindBriefing,
 				c.Kind == packdecl.KindFiles:
 				// All three render below with their own per-entry lines (applyHostSkills,
-				// RenderHostBriefing, applyHostFiles), so a summary line here would just be
-				// noise.
+				// applyHostBriefings, applyHostFiles), so a summary line here would just be
+				// noise. `briefing` renders once for the whole pack SET rather than per pack
+				// (its destination's content is the union of every contributor's prose), so its
+				// lines come after the loop.
 			default:
 				if why, unbuilt := render.HostUnimplemented(c.Kind); unbuilt {
 					pr.Printf("  [yellow]%-10s refused[/yellow] — %s", string(c.Kind), why)
@@ -303,17 +346,6 @@ func applyHost(out, errw io.Writer, color bool, write bool, stdin io.Reader) int
 		}
 		if frc := applyHostFiles(pr, errw, p, home, stamp, write); frc != 0 {
 			rc = frc
-		}
-		// The briefing's managed block. Failures here are reported and do not abort the
-		// remaining packs: a refusal is usually one malformed file (an unterminated marker),
-		// and stopping would leave the user with a partial apply and no report of the rest.
-		bres, berr := entrypoint.RenderHostBriefing(p, home, !write)
-		if berr != nil {
-			pr.Printf("  [red]briefing   refused[/red] — %v", berr)
-			rc = 1
-		}
-		for _, r := range bres {
-			pr.Printf("  [cyan]%-20s[/cyan] %s  [dim]%s[/dim]", r.Surface, r.Action, r.Path)
 		}
 		results, rerr := entrypoint.RenderHostPack(p, home, !write, overlays)
 		if rerr != nil {
@@ -383,19 +415,14 @@ func applyHost(out, errw io.Writer, color bool, write bool, stdin io.Reader) int
 		}
 	}
 
-	// Retire the briefing blocks of packs that are no longer active. Candidates are every
-	// pack yolo SHIPS plus the active ones: a pack dropped from config is absent from
-	// `entries`, so asking only the active packs where to look would leave its block in the
-	// user's file forever, unattributed and unremovable. Guarded by a non-nil active set —
-	// PruneHostBriefings refuses a nil one rather than reading it as "drop everything".
+	// Compose the briefing destinations, for the WHOLE pack set at once. After the per-pack
+	// loop because a destination's content is the union of every contributing pack's prose
+	// (§6a): rendering it inside the loop would either append (unbounded growth — the defect
+	// the delimited block existed to avoid) or let the last pack's write erase the others'.
 	candidates := append(loaded, embeddedPacksForPrune()...)
-	if pres, perr := entrypoint.PruneHostBriefings(candidates, active, home, !write); perr != nil {
-		pr.Printf("  [red]briefing prune refused[/red] — %v", perr)
-		rc = 1
-	} else {
-		for _, r := range pres {
-			pr.Printf("  [cyan]%-20s[/cyan] %s  [dim]%s[/dim]", r.Surface, r.Action, r.Path)
-		}
+	if brc := applyHostBriefings(pr, out, stdin, loaded, candidates, active, resolvedAll,
+		home, stamp, write, reloadPacks); brc != 0 {
+		rc = brc
 	}
 
 	// Retire the SKILLS, FILES, and CONFIG-OVERLAY KEYS a dropped pack left in the home. After

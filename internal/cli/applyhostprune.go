@@ -19,8 +19,12 @@ package cli
 //   - R2: retirement ARCHIVES (hostskills.Archive), never deletes. The authority to remove
 //     comes from a record that can go stale, so being wrong must cost the user one `mv` back.
 //
-// Briefings deliberately do NOT ride this gate (R4). Removing a delimited managed block
-// restores the file's own bytes, so there is nothing to confirm and nothing to archive.
+// Briefings deliberately do NOT ride this gate, and the REASON changed with §6a while the
+// answer did not. Under the old delimited-block mechanism, removing a block restored the
+// file's own bytes (ruling R4) — nothing to confirm, nothing to archive. Now a briefing
+// destination is a file yolo composed WHOLESALE, so its retirement does archive (see
+// entrypoint.PruneHostBriefings) but still needs no confirmation: every byte being moved is a
+// byte yolo wrote. What this gate protects is user content, and there is none there.
 
 import (
 	"fmt"

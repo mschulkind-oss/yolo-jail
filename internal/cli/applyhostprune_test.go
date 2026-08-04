@@ -82,9 +82,41 @@ func mustNotExist(t *testing.T, path, why string) {
 	}
 }
 
-// archivedUnder returns every file under the archive root, for asserting that retirement MOVED
-// rather than deleted (ruling R2).
+// archivedUnder returns every file the CONFIRMED retire archived, for asserting that retirement
+// MOVED rather than deleted (ruling R2).
+//
+// The briefing subtree is excluded, and that exclusion is the R4 asymmetry made visible in the
+// helper rather than left to each test: since §6a a briefing destination is a whole yolo-owned
+// file, so its retirement archives too — but UNCONFIRMED, because every byte being moved is a
+// byte yolo wrote. A helper that counted both would make "an unconfirmed retire archived nothing"
+// unassertable. archivedBriefings is the other half.
 func archivedUnder(t *testing.T, home string) []string {
+	t.Helper()
+	var out []string
+	for _, rel := range archivedAll(t, home) {
+		if strings.Contains(rel, string(filepath.Separator)+"briefing"+string(filepath.Separator)) {
+			continue
+		}
+		out = append(out, rel)
+	}
+	return out
+}
+
+// archivedBriefings returns every file the BRIEFING retire archived (the `<stamp>/briefing/…`
+// generation subtree).
+func archivedBriefings(t *testing.T, home string) []string {
+	t.Helper()
+	var out []string
+	for _, rel := range archivedAll(t, home) {
+		if strings.Contains(rel, string(filepath.Separator)+"briefing"+string(filepath.Separator)) {
+			out = append(out, rel)
+		}
+	}
+	return out
+}
+
+// archivedAll lists every file under the shared host-render archive root, generation-relative.
+func archivedAll(t *testing.T, home string) []string {
 	t.Helper()
 	root := filepath.Join(home, ".local", "share", "yolo-jail", "archive", "skills")
 	var out []string
@@ -330,9 +362,14 @@ func TestApplyHostRetireSparesUserAuthoredPluginDir(t *testing.T) {
 
 // AN UNRESOLVABLE pack is NOT a dropped pack. A fetched pack whose remote is unreachable
 // resolves to nothing this run, so it is absent from the ACTIVE set — and reading that as
-// "dropped" would archive a working setup's skills the first time the user is offline. A
-// briefing block survives that mistake (it re-renders from prose inside the pack); an archived
-// tree does not come back without the user digging in the state dir.
+// "dropped" would archive a working setup's output the first time the user is offline.
+//
+// The BRIEFING half used to diverge here deliberately: under the delimited block its removal
+// re-rendered from prose inside the pack the moment the remote was reachable, so it could afford
+// the mistake that an archived skills tree could not. §6a removed that affordance — a briefing
+// destination is now a whole yolo-owned file, and archiving it costs the same trip to the state
+// dir — so the two thresholds are now DELIBERATELY THE SAME, and this test pins the convergence
+// rather than the old split.
 func TestApplyHostRetireKeepsUnresolvablePackOutput(t *testing.T) {
 	home, _ := dropFixture(t, dropPackJSON)
 	if rc, report := applyWith(t, true, nil); rc != 0 {
@@ -355,12 +392,17 @@ func TestApplyHostRetireKeepsUnresolvablePackOutput(t *testing.T) {
 	if strings.Contains(report, "/retire") {
 		t.Errorf("an unresolvable pack must not be reported as dropped:\n%s", report)
 	}
-	// The BRIEFING prune does remove its block here, and that divergence is the point rather
-	// than an oversight: it keys on the resolved set, and a block re-renders from prose inside
-	// the pack the moment the remote is reachable. Asserting it keeps the two thresholds from
-	// being quietly unified later in whichever direction is wrong for one of them.
-	if !strings.Contains(report, "dropme/briefing") {
-		t.Errorf("the briefing prune's own (resolved-set) threshold changed:\n%s", report)
+	// The BRIEFING destination survives too, and its content is left exactly as the last
+	// resolvable apply composed it. A prune that read "no prose composes here this run" as
+	// "orphaned" would archive it — which is the §6a regression this asserts against.
+	brief := filepath.Join(home, ".claude", "CLAUDE.md")
+	data, rerr := os.ReadFile(brief)
+	if rerr != nil || !strings.Contains(string(data), "Dropme prose.") {
+		t.Errorf("the briefing of a pack that is merely unresolvable must survive intact: %v %q",
+			rerr, data)
+	}
+	if got := archivedBriefings(t, home); len(got) != 0 {
+		t.Errorf("an unresolvable pack's briefing must not be archived: %v", got)
 	}
 }
 
@@ -393,28 +435,35 @@ func TestApplyHostRetireDropsStaleRecordWithoutPrompting(t *testing.T) {
 	}
 }
 
-// R4: the BRIEFING half stays unconfirmed and unconditional. A declined retire — or one with
-// no stdin at all — still removes the dropped pack's managed block, because removing a
-// delimited block restores the file's own bytes and loses nothing.
+// R4 SURVIVES §6a, with a new reason: the BRIEFING half is still unconfirmed. Under the
+// delimited block that held because removing it restored the user's own bytes; now a briefing
+// destination is a file yolo composed WHOLESALE, so its retirement ARCHIVES — and still needs no
+// [y/N], because every byte being moved is a byte yolo wrote. The gate protects USER content,
+// and there is none in a generated file.
+//
+// So a declined skills/files retire still retires the briefing, and the two halves stay
+// genuinely separate.
 func TestApplyHostRetireDoesNotGateBriefingRemoval(t *testing.T) {
 	home, _ := dropFixture(t, dropPackJSON)
 	dest := filepath.Join(home, ".claude", "CLAUDE.md")
 	applyThenDrop(t, home)
 	data, err := os.ReadFile(dest)
 	if err != nil || !strings.Contains(string(data), "Dropme prose.") {
-		t.Fatalf("the briefing block should be there after the first apply: %v %q", err, data)
+		t.Fatalf("the composed briefing should be there after the first apply: %v %q", err, data)
 	}
 
 	if rc, report := applyWith(t, true, strings.NewReader("n\n")); rc != 0 {
 		t.Fatalf("declined retire rc=%d\n%s", rc, report)
 	}
-	after, err := os.ReadFile(dest)
-	if err != nil {
-		t.Fatal(err)
+	if _, err := os.Lstat(dest); err == nil {
+		after, _ := os.ReadFile(dest)
+		t.Errorf("the orphaned briefing destination must be retired even when the FILE retire "+
+			"is DECLINED — the confirmation gate is about user content, and a composed briefing "+
+			"has none:\n%q", after)
 	}
-	if strings.Contains(string(after), "Dropme prose.") {
-		t.Errorf("the briefing block must be removed even when the file retire is DECLINED "+
-			"(ruling R4 — a managed block's removal restores the file's own bytes):\n%q", after)
+	// ARCHIVED, not deleted: the composed bytes are recoverable, so being wrong costs one `mv`.
+	if got := archivedBriefings(t, home); len(got) == 0 {
+		t.Error("the retired briefing must be archived, not deleted")
 	}
 	// And the skill it was declined for is still there — the two halves really are separate.
 	skill, _ := deliveredPaths(home)
