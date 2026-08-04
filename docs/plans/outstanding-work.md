@@ -36,9 +36,9 @@ compile-time question.**
 
 | | Work | Ruled / found | Depends on |
 |---|---|---|---|
-| Q1 | **`Kind` an explicit field + a `KindGuest` member** (D2's root cause) — the notch is currently INFERRED from struct shape, so guest resolves to `KindJail` silently | §6b D2 | nothing |
-| Q2 | **Wire up `render.Profile`** — it has zero production callers while `AgentAutonomy` is decided by four hardcoded literals; make the Profile the single source and delete them | §6c step 1 | nothing (pairs with Q1) |
-| Q3 | **D3 wording** — `env`/`launch` are refused with reasons true of `apply --host` and false of the notch; they describe a missing VERB, not an inapplicable kind | §6b D3 | nothing (strings only) |
+| ✅ Q1 | ~~`Kind` an explicit field + a `KindGuest` member~~ **DONE 2026-08-04** (`84ff918`). Also added `KindUnset` at iota 0, which was not in the spec and is the right call: with `KindJail` at 0 a bare `render.Target{}` claimed the STRONGEST notch — D2's bug with the safety inverted, and newly reachable once the field stopped being derived | §6b D2 | — |
+| ✅ Q2 | ~~Wire up `render.Profile`~~ **DONE 2026-08-04** (`f454595` + `a3fa08c`). `ProfileFor` is the notch→preset table; `Target.Profile()` reads it. THREE of the four literals are gone — `packoverlay.Collect`'s parameter was already parameterized and its three callers pass literals, so converting it would just move them one frame out; tracked as §6c's remaining half | §6c step 1 | — |
+| ✅ Q3 | ~~D3 wording~~ **DONE 2026-08-04** (`e923f49`) — both refusals now name the COMMAND's limitation, so a future guest target reading the same map is not told a kind is inapplicable when it can honor it | §6b D3 | — |
 | Q4 | **`briefing` wholesale-generated at every notch**, pre-existing prose MOVED to the local pack's `AGENTS.md` (archive only as fallback) | §6a + §6a-2 (ruled) | Q1, Q5 |
 | Q5 | **The conventional LOCAL PACK** — `~/.config/yolo-jail/local/`, implicitly included, zero config | §6a-2 (ruled) | **F1** (a zero-ceremony pack renders nothing at the host today). Q9 shipped without F1 — the lint half was separable, the host-render half was not |
 | Q6 | **`skills` wholesale-composed at every notch**, user's tree MOVED into the local pack (union + suffix on differing content, warn), archive only as fallback | §6a-2 (ruled) | Q4 (prove the mechanism on the smaller kind), Q5 |
