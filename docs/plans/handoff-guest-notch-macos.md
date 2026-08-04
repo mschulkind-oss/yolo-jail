@@ -14,7 +14,7 @@ spec), [`../design/macos-user-nix-and-features.md`](../design/macos-user-nix-and
 [`../guides/macos.md`](../guides/macos.md) (usage),
 [`../design/noncontainer-nix-environment.md`](../design/noncontainer-nix-environment.md) §5
 and §8 (Option 1 is a **prerequisite** for 7.2 — see §5 below), and
-[`stage-e-parked-items.md`](stage-e-parked-items.md) for the adjacent parked work.
+[`outstanding-work.md`](outstanding-work.md) for the adjacent parked work.
 
 ---
 
