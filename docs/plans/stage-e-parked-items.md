@@ -165,6 +165,22 @@ not observed closed.
   remains and is not a defect: `publish.yml` is tag-triggered, so the multi-arch image does not
   reach GHCR until the next release and the nightly stays red until then.
 
+**New finding, 2026-08-03 — `yolo pack lint` rejects every pack yolo ships.** All six fail
+with *"pack has neither a skills/ dir nor an AGENTS.md — it would stage files nothing reads"*
+(`internal/cli/pack.go:372`). Verified against `HEAD~1`, so it is **pre-existing**, not a
+regression from the skills-`from` work that surfaced it.
+
+The rule assumes a pack exists to ship CONTENT. yolo's own packs are config-only — `pack.json`
+plus `derive.lua`, and `pi` is `pack.json` alone — so the premise is false for the packs the
+tool is built around. Their `skills` contribution exists to *name the destination other packs
+merge into*, which is a legitimate shape the rule cannot express.
+
+This matters more than a cosmetic lint complaint: it is the check an author runs to learn
+whether their pack is well-formed, and it currently says "no" to the six reference examples.
+Whoever fixes it should decide whether the rule wants a *third* answer (a pack that declares
+destinations but ships no files is fine) rather than loosening it into never firing — the rule
+does catch a real authoring mistake for content packs.
+
 **Still open, and NOT a Stage E item** (it is a validation gap, tracked in
 [composed-file-permissions.md §4.5](../design/composed-file-permissions.md)): **reserved
 destinations miss symlink targets.** `~/.config/git/config`, `~/.config/bashrc`, and
