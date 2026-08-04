@@ -25,6 +25,7 @@ package render
 import (
 	"io"
 	"path/filepath"
+	"strconv"
 
 	"github.com/mschulkind-oss/yolo-jail/internal/paths"
 )
@@ -102,6 +103,63 @@ const (
 	// not a point on the confinement dial at all — the three above are.
 	KindPreview
 )
+
+// kindNames is where core's side of the config boundary writes a notch's name down, and it
+// exists for the two jobs at the EDGES of the pipeline: turning a `confinement` value into a
+// Kind on the way IN (KindForNotch), and labelling a notch in output on the way OUT (String).
+// BETWEEN those edges nothing compares a name — a decision reads the Kind, and through it a
+// Profile, a ModeSet or a FieldSet (plan §6c step 3). That is what "core reasons about
+// primitives; only the boundary knows the names" means in code: this table is the boundary.
+//
+// It is deliberately NOT the config vocabulary — config.KnownConfinements is, and it stays
+// there because parsing is its job (plan §6c step 3 keeps ResolveConfinement). The two must
+// agree, which is asserted rather than assumed: notchnames_test.go pins every config value to
+// a distinct selectable Kind and back, so a notch added to one and not the other fails a test
+// instead of silently resolving to the strongest level.
+//
+// KindUnset and KindPreview carry names too, because both can reach OUTPUT (a message about a
+// target nobody constructed, a preview's provenance label) even though neither is selectable.
+var kindNames = map[Kind]string{
+	KindUnset:   "unset",
+	KindJail:    "jail",
+	KindGuest:   "guest",
+	KindHost:    "host",
+	KindPreview: "preview",
+}
+
+// String is the notch's name, for OUTPUT and for KindForNotch's reverse lookup — never for a
+// decision. A Kind with no entry prints its number rather than an empty string, so an
+// unlabelled notch shows up in the message instead of leaving a blank in it.
+func (k Kind) String() string {
+	if n, ok := kindNames[k]; ok {
+		return n
+	}
+	return "Kind(" + strconv.Itoa(int(k)) + ")"
+}
+
+// SelectableNotches is the dial: the Kinds a user can name in the `confinement` config key, in
+// strongest-first order. KindPreview is absent because `yolo config render` is not a
+// confinement level (see its doc), and KindUnset because it is the ABSENCE of a choice —
+// admitting either would let a config select a notch with no enforcement story behind it.
+func SelectableNotches() []Kind { return []Kind{KindJail, KindGuest, KindHost} }
+
+// KindForNotch resolves a confinement notch's NAME to its Kind — the inbound half of the
+// boundary, and the one call a caller holding a config value makes before it stops thinking
+// in names. ok is false for anything that is not a selectable notch, INCLUDING "preview" and
+// "unset": they have labels for output's sake, and letting a config name one would be the
+// asymmetry ProfileFor argues against, in the selection direction.
+//
+// A caller that has already defaulted an absent/unknown value (config.ResolveConfinement does)
+// will never see ok=false; one that has not must not treat the zero Kind as a notch — that is
+// what KindUnset exists to prevent.
+func KindForNotch(name string) (Kind, bool) {
+	for _, k := range SelectableNotches() {
+		if kindNames[k] == name {
+			return k, true
+		}
+	}
+	return KindUnset, false
+}
 
 // Jail builds the boot-render Target from resolved home + workspace paths and the boot
 // stderr. The caller (internal/entrypoint) passes its already-resolved Env.Home /
