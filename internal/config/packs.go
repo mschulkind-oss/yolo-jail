@@ -27,6 +27,8 @@ import (
 	"encoding/json"
 	"fmt"
 	"net/url"
+	"os"
+	"path/filepath"
 	"strings"
 
 	"github.com/mschulkind-oss/yolo-jail/internal/jsonx"
@@ -101,6 +103,16 @@ type PackEntry struct {
 	// is CONTENT, and an executable arriving through a content channel is a
 	// different trust question than a skill file, so it must be opted into.
 	AllowExec bool `json:"allowExec,omitempty"`
+
+	// Implicit marks an entry NO config line asked for — today only the conventional
+	// local pack (LocalPackName). json:"-" like IsEmbedded, and for a stronger reason: a
+	// config-settable "this entry is implicit" would be a lie a user could write.
+	//
+	// It exists because two surfaces ask "did the user configure any packs?" and mean
+	// "has this jail got an agent" (NoPacksMessage). A local pack is content, never an
+	// agent, so counting it there would silence a warning that is still true. See
+	// HasConfiguredPack.
+	Implicit bool `json:"-"`
 }
 
 // Slug returns a filesystem-safe identifier for this pack's staging dir. It reuses
@@ -182,15 +194,102 @@ func LoadPacks(warn Warn) ([]PackEntry, error) {
 	if err != nil {
 		return nil, err
 	}
-	v, present := userCfg.Get(packsKey)
-	if !present || v == nil {
-		return nil, nil
+	var entries []PackEntry
+	if v, present := userCfg.Get(packsKey); present && v != nil {
+		var problems []string
+		entries, problems = checkPacks(v)
+		for _, p := range problems {
+			warn(p + " — entry skipped")
+		}
 	}
-	entries, problems := checkPacks(v)
-	for _, p := range problems {
-		warn(p + " — entry skipped")
+	// THE CONVENTIONAL LOCAL PACK, appended LAST. See localPackEntry for why it is here at
+	// all and why it composes last; it is appended after the configured entries — including
+	// after an unparseable/absent `packs` key, which is exactly the config a user who only
+	// ever wanted three personal skills has.
+	//
+	// A CONFIGURED pack already using the name wins the slot, because two entries with one
+	// name share a staging dir and the second silently overwrites the first (the collision
+	// checkPacks refuses among configured entries, which this one bypasses by being appended
+	// rather than lowered). Yielding to the explicit entry is the honest direction: a config
+	// line the user wrote outranks a convention yolo applied for them.
+	if local, ok := localPackEntry(); ok && !hasPackNamed(entries, local.Name) {
+		entries = append(entries, local)
 	}
 	return entries, nil
+}
+
+// hasPackNamed reports whether any entry already carries this name.
+func hasPackNamed(entries []PackEntry, name string) bool {
+	for _, e := range entries {
+		if e.Name == name {
+			return true
+		}
+	}
+	return false
+}
+
+// LocalPackName is the pack name the conventional local pack carries. Exported because a
+// report that names packs (`pack ls`, the apply report, a prune notice) needs to distinguish
+// "the dir yolo included for you" from a pack the user wrote a config line for.
+//
+// A configured pack may take this name, and then it WINS: LoadPacks skips the implicit entry
+// rather than appending a second pack with one name (see hasPackNamed). An explicit config
+// line outranks a convention.
+const LocalPackName = "local"
+
+// localPackEntry is the implicitly-included entry for paths.LocalPackDir, or ok=false when
+// there is no such directory.
+//
+// ORDER IS LOAD-BEARING, AND IT IS LAST. The caller appends this after every configured
+// entry, which puts it last in the delivery order at both notches — the jail merges pack
+// skills dirs in this order (agents.PrepareSkills' packSkillDirs loop, later wins a
+// same-named skill) and the host renders `loaded` in this order. Last therefore means a
+// PERSONAL skill outranks a shared pack's, which preserves the precedence the jail already
+// had when the user's tree was a separate layer written after the packs: the user's own copy
+// wins. Moving it earlier would silently invert that.
+//
+// TRUST: the local pack MAY read the host, exactly like any other `file://` pack. It gets
+// there by being one — Source is a file:// address, so Origin() is OriginLocal and
+// MayGrantHostFiles() is true with no special case. The reasoning, since this is a
+// trust-boundary decision: the fetched-pack gate exists because installing someone else's
+// pack is not consent to hand THAT REPOSITORY your ~/.claude/settings.json (see
+// MayGrantHostFiles). Here there is no third party at all — it is a directory the user
+// created, inside the config dir yolo already reads their config from, holding files only
+// they can write. A pack cannot gain access its author already has, and the author is the
+// user. Gating it would also be theatre: anything it could declare, the user could declare
+// in config.jsonc one directory up.
+//
+// ABSENT IS SILENT AND FREE. Most users will not have this directory; its absence yields no
+// warning, no error, and one Stat. A NON-DIRECTORY at that path (a file, a dangling
+// symlink) is treated as absent for the same reason — pointing it at a pack loader would
+// produce a confusing failure about a path nothing asked for.
+func localPackEntry() (PackEntry, bool) {
+	dir := paths.LocalPackDir()
+	fi, err := os.Stat(dir) // Stat, not Lstat: a symlinked local pack dir is legitimate
+	if err != nil || !fi.IsDir() {
+		return PackEntry{}, false
+	}
+	return PackEntry{
+		Source:   "file://" + filepath.ToSlash(dir),
+		Name:     LocalPackName,
+		Implicit: true,
+	}, true
+}
+
+// HasConfiguredPack reports whether any entry came from the user's `packs` list — i.e.
+// whether the empty-packs notice (NoPacksMessage) still applies.
+//
+// It exists because "no packs" means "no agent", and the local pack is content: a jail whose
+// only pack is `~/.config/yolo-jail/local` has skills and prose and still nothing to run
+// them. Answering that question with len(entries) would silence the notice for a user whose
+// jail genuinely has no coding agent — the exact contradiction the opt-in ruling removed.
+func HasConfiguredPack(entries []PackEntry) bool {
+	for _, e := range entries {
+		if !e.Implicit {
+			return true
+		}
+	}
+	return false
 }
 
 // checkPacks validates a raw `packs` value, returning the entries it could lower

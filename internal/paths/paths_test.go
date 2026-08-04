@@ -3,6 +3,7 @@ package paths
 import (
 	"os"
 	"os/user"
+	"path/filepath"
 	"testing"
 )
 
@@ -49,5 +50,26 @@ func TestHomeResolution(t *testing.T) {
 		if got != u.HomeDir {
 			t.Errorf("home() unset = %q, want passwd home %q", got, u.HomeDir)
 		}
+	}
+}
+
+// The conventional local pack sits BESIDE config.jsonc, and is DERIVED from it. That is the
+// whole argument for the location — user-scope yolo config already lives there, so the
+// convention extends an existing one rather than inventing a second place to remember — and a
+// pair of independently-spelled suffixes could drift apart while both looked right.
+func TestLocalPackDirIsBesideTheUserConfig(t *testing.T) {
+	t.Setenv("HOME", "/home/someone")
+	if got, want := LocalPackDir(), "/home/someone/.config/yolo-jail/local"; got != want {
+		t.Errorf("LocalPackDir = %q, want %q", got, want)
+	}
+	if got, want := filepath.Dir(LocalPackDir()), filepath.Dir(UserConfigPath()); got != want {
+		t.Errorf("LocalPackDir's parent %q is not the user config's dir %q — the convention is "+
+			"\"beside config.jsonc\", so the two must share a parent by construction", got, want)
+	}
+	// Absolute even in a stripped environment, like every other path helper (see
+	// TestHomeResolution): a relative pack root would be resolved against the process's cwd.
+	t.Setenv("HOME", "")
+	if got := LocalPackDir(); got[0] != '/' {
+		t.Errorf("LocalPackDir with an empty HOME = %q, want an absolute path", got)
 	}
 }

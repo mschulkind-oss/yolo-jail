@@ -55,9 +55,14 @@ func (o *Options) sectionPacks(r *reporter) {
 		r.fail("Loading packs: "+err.Error(), "")
 		return
 	}
-	if len(entries) == 0 {
+	// HasConfiguredPack, not len(entries): the conventional local pack arrives with no config
+	// line and is content, not an agent, so a home that has only that one still warrants the
+	// no-agent notice. The local pack itself is still reported per-entry by the loop below.
+	if !config.HasConfiguredPack(entries) {
 		r.warn(config.NoPacksMessage, config.NoPacksGuidance)
-		return
+		if len(entries) == 0 {
+			return
+		}
 	}
 
 	lock, lockErr := packsrc.LoadLock(packsrc.LockPath(paths.UserConfigPath()))

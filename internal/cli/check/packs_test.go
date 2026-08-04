@@ -269,3 +269,30 @@ func TestSectionPacksShippedSetHasNoSurfaceCollision(t *testing.T) {
 		t.Errorf("the six shipped packs must not collide on a config surface:\n%s", buf.String())
 	}
 }
+
+// The CONVENTIONAL LOCAL PACK (~/.config/yolo-jail/local, outstanding-work.md §6a-2) is
+// content, never an agent — so `yolo check` must still warn that the jail has no coding agent,
+// while also reporting the local pack it did include. Both halves matter: the notice is still
+// true, and a pack yolo included without a config line must never be invisible.
+func TestSectionPacksWarnsWithOnlyTheLocalPack(t *testing.T) {
+	packsFixture(t, `{}`)
+	local := filepath.Join(os.Getenv("HOME"), ".config", "yolo-jail", "local", "skills", "mine")
+	if err := os.MkdirAll(local, 0o755); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(filepath.Join(local, "SKILL.md"),
+		[]byte("---\nname: mine\ndescription: d\n---\nbody\n"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	var buf bytes.Buffer
+	r := &reporter{w: &buf}
+	(&Options{}).sectionPacks(r)
+	if r.warned == 0 || !strings.Contains(buf.String(), config.NoPacksMessage) {
+		t.Errorf("a lone local pack silenced the no-agent notice — it delivers skills and prose, "+
+			"not something to run them:\n%s", buf.String())
+	}
+	if !strings.Contains(buf.String(), config.LocalPackName) {
+		t.Errorf("the local pack yolo included is not reported at all — a pack with no config "+
+			"line is the one that most needs naming:\n%s", buf.String())
+	}
+}

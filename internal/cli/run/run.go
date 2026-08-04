@@ -138,7 +138,11 @@ func Run(opts Options) int {
 func (o *Options) warnIfNoPacks() {
 	problems := 0
 	entries, err := config.LoadPacks(func(string) { problems++ })
-	if err != nil || problems > 0 || len(entries) > 0 {
+	// HasConfiguredPack, not len(entries): the conventional local pack is included with no
+	// config line (config.localPackEntry), and it is CONTENT — a jail whose only pack is
+	// ~/.config/yolo-jail/local has skills and prose and still nothing to run them. Counting
+	// it here would silence a notice that is still true.
+	if err != nil || problems > 0 || config.HasConfiguredPack(entries) {
 		return
 	}
 	// Stderr, like every other launch notice: a launch is usually `yolo -- cmd`, and

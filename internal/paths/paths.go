@@ -58,6 +58,12 @@ const CgdSocketName = BuiltinCgroupLoopholeName + ".sock"
 const (
 	globalStorageSuffix = ".local/share/yolo-jail"
 	userConfigSuffix    = ".config/yolo-jail/config.jsonc"
+	// localPackLeaf is the CONVENTIONAL LOCAL PACK's directory name. It is deliberately
+	// not a suffix of its own: the convention is "beside config.jsonc" (that is the whole
+	// argument for the location — user-scope yolo config already lives there), so
+	// LocalPackDir derives it from the user config's directory and the two cannot drift
+	// apart the way two independently-spelled suffixes could.
+	localPackLeaf = "local"
 )
 
 // GlobalStorage returns $HOME/.local/share/yolo-jail.
@@ -112,6 +118,22 @@ func FlakeBundleDir() string { return filepath.Join(GlobalStorage(), "flake-bund
 
 // UserConfigPath returns $HOME/.config/yolo-jail/config.jsonc.
 func UserConfigPath() string { return filepath.Join(home(), userConfigSuffix) }
+
+// LocalPackDir returns $HOME/.config/yolo-jail/local — the CONVENTIONAL LOCAL PACK: an
+// implicitly-included pack for the user's own skills and briefing prose, needing no `packs`
+// entry (outstanding-work.md §6a-2).
+//
+// Beside config.jsonc, and derived from it, because that is already where user-scope yolo
+// config lives: the convention EXTENDS an existing one rather than inventing a second
+// user-scope location to remember. A user with three personal skills should never have to
+// author a manifest, and `packload.LoadDir` on a dir with no pack.json is already
+// zero-ceremony — so the whole feature is a path plus a place in the pack order.
+//
+// ABSENT IS NORMAL. Most users will not have this directory, and its absence must cost
+// nothing: the one caller (config.LoadPacks) stats it once per load and appends no entry
+// when it is not a directory. That is why this returns a path and answers no question
+// about existence — a helper that reported "present" would invite a second stat.
+func LocalPackDir() string { return filepath.Join(filepath.Dir(UserConfigPath()), localPackLeaf) }
 
 // Home returns the resolved home directory (see home() for the Python-parity
 // resolution rules). Exported for callers that must expand a leading "~/" in a
